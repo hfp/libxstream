@@ -1,0 +1,14 @@
+My Amplifier*
+My Inspector*
+bin
+build
+PACKAGE
+*.user
+*.exe
+*.sdf
+*.pdb
+*.suo
+*.exp
+*.lib
+*.obj
+*.o
