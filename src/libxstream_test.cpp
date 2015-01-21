@@ -61,11 +61,12 @@ bool wait()
 }
 
 
-LIBXSTREAM_EXPORT void check(bool& result, const unsigned char* buffer, size_t size, char pattern)
+LIBXSTREAM_EXPORT void check(bool& result, const void* buffer, size_t size, char pattern)
 {
   result = true;
+  const char *const values = reinterpret_cast<const char*>(buffer);
   for (size_t i = 0; i < size && result; ++i) {
-    result = pattern == buffer[i];
+    result = pattern == values[i];
   }
 }
 
@@ -123,7 +124,7 @@ libxstream_test::libxstream_test()
     return;
   }
 
-  std::fill_n(m_host_mem, size, pattern_a);
+  std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_a);
   m_return_code = libxstream_memcpy_h2d(m_host_mem, m_dev_mem, size, m_stream);
   if (LIBXSTREAM_ERROR_NONE != m_return_code) {
     fprintf(stderr, "TST libxstream_memcpy_h2d: failed!\n");
@@ -199,7 +200,7 @@ libxstream_test::libxstream_test()
     return;
   }
 
-  std::fill_n(m_host_mem, size, pattern_b);
+  std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_b);
   m_return_code = libxstream_memcpy_d2h(m_dev_mem, m_host_mem, size, m_stream);
   if (LIBXSTREAM_ERROR_NONE != m_return_code) {
     fprintf(stderr, "TST libxstream_memcpy_d2h: failed!\n");
@@ -213,7 +214,7 @@ libxstream_test::libxstream_test()
     return;
   }
 
-  m_return_code = libxstream_memset_zero(m_dev_mem + size2, size - size2, m_stream);
+  m_return_code = libxstream_memset_zero(reinterpret_cast<char*>(m_dev_mem) + size2, size - size2, m_stream);
   if (LIBXSTREAM_ERROR_NONE != m_return_code) {
     fprintf(stderr, "TST libxstream_memset_zero: memset (offset=%lu) failed!\n",
       static_cast<unsigned long>(size2));
@@ -254,7 +255,7 @@ libxstream_test::libxstream_test()
     return;
   }
 
-  m_return_code = libxstream_memcpy_d2h(m_dev_mem + size2, m_host_mem + size2, size - size2, m_stream);
+  m_return_code = libxstream_memcpy_d2h(reinterpret_cast<const char*>(m_dev_mem) + size2, reinterpret_cast<char*>(m_host_mem) + size2, size - size2, m_stream);
   if (LIBXSTREAM_ERROR_NONE != m_return_code) {
     fprintf(stderr, "TST libxstream_memcpy_d2h: use of pointer offset=%lu failed!\n",
       static_cast<unsigned long>(size2));

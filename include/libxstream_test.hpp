@@ -51,8 +51,8 @@ private:
   int m_return_code, m_device;
   libxstream_stream* m_stream;
   libxstream_event* m_event;
-  unsigned char* m_host_mem;
-  unsigned char* m_dev_mem;
+  void* m_host_mem;
+  void* m_dev_mem;
 };
 
 #endif // defined(LIBXSTREAM_TEST)

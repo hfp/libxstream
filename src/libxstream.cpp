@@ -95,7 +95,7 @@ inline T auto_alignment(T size)
 }
 
 
-int allocate_real(unsigned char** memory, size_t size)
+int allocate_real(void** memory, size_t size)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
@@ -110,7 +110,7 @@ int allocate_real(unsigned char** memory, size_t size)
         result = LIBXSTREAM_ERROR_RUNTIME;
       }
 #elif defined(__MKL)
-      unsigned char *const buffer = static_cast<unsigned char*>(mkl_malloc(size, static_cast<int>(libxstream_internal::auto_alignment(size))));
+      void *const buffer = mkl_malloc(size, static_cast<int>(libxstream_internal::auto_alignment(size)));
 # if defined(LIBXSTREAM_CHECK)
       if (0 != buffer)
 # endif
@@ -136,7 +136,7 @@ int allocate_real(unsigned char** memory, size_t size)
       }
 # endif
 #elif defined(__GNUC__)
-      unsigned char *const buffer = static_cast<unsigned char*>(_mm_malloc(size, static_cast<int>(libxstream_internal::auto_alignment(size))));
+      void *const buffer = _mm_malloc(size, static_cast<int>(libxstream_internal::auto_alignment(size)));
 # if defined(LIBXSTREAM_CHECK)
       if (0 != buffer)
 # endif
@@ -171,19 +171,19 @@ int allocate_real(unsigned char** memory, size_t size)
 }
 
 
-int deallocate_real(const unsigned char* memory)
+int deallocate_real(const void* memory)
 {
   if (memory) {
 #if defined(LIBXSTREAM_DEBUG)
     delete[] memory;
 #elif defined(__MKL)
-    mkl_free(const_cast<unsigned char*>(memory));
+    mkl_free(const_cast<void*>(memory));
 #elif defined(_WIN32)
-    _aligned_free(const_cast<unsigned char*>(memory));
+    _aligned_free(const_cast<void*>(memory));
 #elif defined(__GNUC__)
-    _mm_free(const_cast<unsigned char*>(memory));
+    _mm_free(const_cast<void*>(memory));
 #else
-    free(memory);
+    free(const_cast<void*>(memory));
 #endif
   }
 
@@ -191,58 +191,58 @@ int deallocate_real(const unsigned char* memory)
 }
 
 
-unsigned char* vdata(unsigned char* memory)
+void* get_user_data(void* memory)
 {
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
   return memory;
 #elif defined(_WIN32)
   return memory;
 #else
-  return memory + sizeof(size_t);
+  return reinterpret_cast<char*>(memory) + sizeof(size_t);
 #endif
 }
 
 
-const unsigned char* vdata(const unsigned char* memory)
+const void* get_user_data(const void* memory)
 {
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
   return memory;
 #elif defined(_WIN32)
   return memory;
 #else
-  return memory + sizeof(size_t);
+  return reinterpret_cast<const char*>(memory) + sizeof(size_t);
 #endif
 }
 
 
-int allocate_virtual(unsigned char** memory, size_t size, const void* data, size_t data_size = 0)
+int allocate_virtual(void** memory, size_t size, const void* data, size_t data_size = 0)
 {
   LIBXSTREAM_CHECK_CONDITION(0 == data_size || (0 != data && data_size <= size));
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {
     if (0 < size) {
-      unsigned char* dst = 0;
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
       result = allocate_real(memory, size);
       LIBXSTREAM_CHECK_ERROR(result);
-      dst = vdata(*memory);
+      void *const user_data = get_user_data(*memory);
 #elif defined(_WIN32)
       void *const buffer = VirtualAlloc(0, size, MEM_RESERVE, PAGE_NOACCESS);
       LIBXSTREAM_CHECK_CONDITION(0 != buffer);
-      dst = vdata(static_cast<unsigned char*>(VirtualAlloc(buffer, data_size, MEM_COMMIT, PAGE_READWRITE)));
-      *memory = static_cast<unsigned char*>(buffer);
+      void *const user_data = get_user_data(VirtualAlloc(buffer, data_size, MEM_COMMIT, PAGE_READWRITE));
+      *memory = buffer;
 #else
-      unsigned char *const buffer = static_cast<unsigned char*>(mmap(0, size, PROT_READ | PROT_WRITE/*PROT_NONE*/, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+      void *const buffer = mmap(0, size, PROT_READ | PROT_WRITE/*PROT_NONE*/, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
       LIBXSTREAM_CHECK_CONDITION(MAP_FAILED != buffer);
-      dst = vdata(buffer);
-      LIBXSTREAM_ASSERT(sizeof(size) <= dst - buffer);
-      *reinterpret_cast<size_t*>(buffer) = size;
+      void *const user_data = get_user_data(buffer);
+      LIBXSTREAM_ASSERT(sizeof(size) <= static_cast<char*>(user_data) - static_cast<char*>(buffer));
+      *static_cast<size_t*>(buffer) = size;
       *memory = buffer;
 #endif
       if (0 < data_size && 0 != data) {
-        LIBXSTREAM_CHECK_CONDITION(0 != dst);
+        LIBXSTREAM_CHECK_CONDITION(0 != user_data);
         const unsigned char *const src = static_cast<const unsigned char*>(data);
+        unsigned char *const dst = static_cast<unsigned char*>(user_data);
         for (size_t i = 0; i < data_size; ++i) dst[i] = src[i];
       }
     }
@@ -260,7 +260,7 @@ int allocate_virtual(unsigned char** memory, size_t size, const void* data, size
 }
 
 
-int deallocate_virtual(const unsigned char* memory)
+int deallocate_virtual(const void* memory)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
@@ -268,10 +268,10 @@ int deallocate_virtual(const unsigned char* memory)
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
     result = deallocate_real(memory);
 #elif defined(_WIN32)
-    result = FALSE != VirtualFree(const_cast<unsigned char*>(memory), 0, MEM_RELEASE) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
+    result = FALSE != VirtualFree(const_cast<void*>(memory), 0, MEM_RELEASE) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 #else
-    const size_t size = *reinterpret_cast<const size_t*>(memory);
-    result = 0 == munmap(const_cast<unsigned char*>(memory), size) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
+    const size_t size = *static_cast<const size_t*>(memory);
+    result = 0 == munmap(const_cast<void*>(memory), size) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 #endif
   }
 
@@ -615,13 +615,13 @@ extern "C" int libxstream_mem_info(int device, size_t* allocatable, size_t* phys
 }
 
 
-extern "C" int libxstream_mem_allocate(int device, unsigned char** memory, size_t size, size_t /*TODO: alignment*/)
+extern "C" int libxstream_mem_allocate(int device, void** memory, size_t size, size_t /*TODO: alignment*/)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
   LIBXSTREAM_OFFLOAD_BEGIN(0, device, memory, size, &result)
   {
-    unsigned char*& memory = *ptr<unsigned char*,1>();
+    void*& memory = *ptr<void*,1>();
     const size_t size = val<const size_t,2>();
     int& result = *ptr<int,3>();
 
@@ -631,7 +631,7 @@ extern "C" int libxstream_mem_allocate(int device, unsigned char** memory, size_
       result = libxstream_internal::allocate_virtual(&memory, size, &device, sizeof(device));
 
       if (LIBXSTREAM_ERROR_NONE == result && 0 != memory) {
-        unsigned char *const buffer = memory;
+        char *const buffer = static_cast<char*>(memory);
 #       pragma offload_transfer target(mic:LIBXSTREAM_OFFLOAD_DEVICE) nocopy(buffer: length(size) alloc_if(true))
       }
     }
@@ -653,7 +653,7 @@ extern "C" int libxstream_mem_allocate(int device, unsigned char** memory, size_
 }
 
 
-extern "C" int libxstream_mem_deallocate(int device, const unsigned char* memory)
+extern "C" int libxstream_mem_deallocate(int device, const void* memory)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
@@ -671,7 +671,7 @@ extern "C" int libxstream_mem_deallocate(int device, const unsigned char* memory
 #if defined(LIBXSTREAM_OFFLOAD)
       if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
 # if defined(LIBXSTREAM_CHECK)
-        const int memory_device = *reinterpret_cast<const int*>(libxstream_internal::vdata(memory));
+        const int memory_device = *static_cast<const int*>(libxstream_internal::get_user_data(memory));
         if (memory_device != LIBXSTREAM_OFFLOAD_DEVICE) {
 #   if defined(LIBXSTREAM_DEBUG)
           fprintf(stderr, "\twarning: device %i does not match allocating device %i\n", LIBXSTREAM_OFFLOAD_DEVICE, memory_device);
@@ -695,7 +695,7 @@ extern "C" int libxstream_mem_deallocate(int device, const unsigned char* memory
 }
 
 
-extern "C" int libxstream_memset_zero(unsigned char* memory, size_t size, libxstream_stream* stream)
+extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
   fprintf(stderr, "DBG libxstream_memset_zero: buffer=0x%lx size=%lu stream=0x%lx\n",
@@ -740,7 +740,7 @@ extern "C" int libxstream_memset_zero(unsigned char* memory, size_t size, libxst
 }
 
 
-extern "C" int libxstream_memcpy_h2d(const unsigned char* host_mem, unsigned char* dev_mem, size_t size, libxstream_stream* stream)
+extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
   fprintf(stderr, "DBG libxstream_memcpy_h2d: 0x%lx->0x%lx size=%lu stream=0x%lx\n",
@@ -781,7 +781,7 @@ extern "C" int libxstream_memcpy_h2d(const unsigned char* host_mem, unsigned cha
 }
 
 
-extern "C" int libxstream_memcpy_d2h(const unsigned char* dev_mem, unsigned char* host_mem, size_t size, libxstream_stream* stream)
+extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
   fprintf(stderr, "DBG libxstream_memcpy_d2h: 0x%lx->0x%lx size=%lu stream=0x%lx\n",
@@ -822,7 +822,7 @@ extern "C" int libxstream_memcpy_d2h(const unsigned char* dev_mem, unsigned char
 }
 
 
-extern "C" int libxstream_memcpy_d2d(const unsigned char* src, unsigned char* dst, size_t size, libxstream_stream* stream)
+extern "C" int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
   fprintf(stderr, "DBG libxstream_memcpy_d2d: 0x%lx->0x%lx size=%lu stream=0x%lx\n",
