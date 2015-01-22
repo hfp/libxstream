@@ -361,16 +361,19 @@ extern "C" int libxstream_get_active_device(int* device)
   int result = LIBXSTREAM_ERROR_NONE, active_device = libxstream_internal::dev_info_type::device();
 
   if (-1 > active_device) {
+    active_device = libxstream_internal::dev_info_type::global_device();
+    if (-1 > active_device) {
+      size_t ndevices = 0;
+      result = libxstream_get_ndevices(&ndevices);
+      libxstream_internal::dev_info_type::global_device() = ndevices - 1;
+      active_device = 0;
+    }
+    libxstream_internal::dev_info_type::device() = active_device;
+
 #if defined(LIBXSTREAM_DEBUG) && defined(LIBXSTREAM_MIC_STDTHREAD)
     const std::thread::id id = std::this_thread::get_id();
-    fprintf(stderr, "DBG libxstream_get_active_device: device id not set for thread=0x%lx\n",
+    fprintf(stderr, "DBG libxstream_get_active_device: device=%i (fallback) thread=0x%lx\n", active_device,
       static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(&id)));
-#endif
-#if defined(LIBXSTREAM_CHECK)
-    result = LIBXSTREAM_ERROR_CONDITION;
-#else
-    active_device = libxstream_internal::dev_info_type::global_device();
-    libxstream_internal::dev_info_type::device() = active_device;
 #endif
   }
 
