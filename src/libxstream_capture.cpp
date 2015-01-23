@@ -33,6 +33,7 @@
 #include <atomic>
 
 #define LIBXSTREAM_OFFLOAD_PTHREAD
+#define LIBXSTREAM_OFFLOAD_QUEUE
 
 #if (defined(LIBXSTREAM_OFFLOAD_PTHREAD) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
 # include <pthread.h>
@@ -221,7 +222,11 @@ private:
 #endif
   lock_type m_lock;
   thread_type m_thread;
+#if defined(LIBXSTREAM_OFFLOAD_QUEUE)
 } queue;
+#else
+};
+#endif
 
 } // namespace libxstream_offload_internal
 
@@ -242,14 +247,20 @@ libxstream_offload_region::libxstream_offload_region(const arg_type args[], size
 
 void libxstream_offload(const libxstream_offload_region& offload_region, bool wait)
 {
+#if defined(LIBXSTREAM_OFFLOAD_QUEUE)
   libxstream_offload_internal::queue.start();
   libxstream_offload_internal::queue.push(offload_region, wait);
+#else
+  offload_region();
+#endif
 }
 
 
 void libxstream_offload_shutdown()
 {
+#if defined(LIBXSTREAM_OFFLOAD_QUEUE)
   libxstream_offload_internal::queue.terminate();
+#endif
 }
 
 
