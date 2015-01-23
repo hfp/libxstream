@@ -2,8 +2,8 @@
 
 CXX=$(which icpc 2> /dev/null)
 
-ICCOPT="-O2 -xHost -ansi-alias -DNDEBUG"
-GCCOPT="-O2 -march=native -DNDEBUG"
+ICCOPT="-O2 -xHost -ansi-alias -DNDEBUG -mkl"
+GCCOPT="-O2 -march=native -DNDEBUG -llapack -lblas"
 ROOT="../.."
 
 if [ "" = "$CXX" ] ; then
@@ -14,7 +14,7 @@ else
 fi
 
 if [ "-g" = "$1" ] ; then
-  OPT="-O0 -g"
+  OPT+=" -O0 -g"
   shift
 fi
 

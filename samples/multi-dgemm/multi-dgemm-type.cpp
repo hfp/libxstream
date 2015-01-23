@@ -147,16 +147,26 @@ int multi_dgemm_type::operator()(libxstream_stream& stream, int index, int size)
   LIBXSTREAM_ASSERT(0 != m_process_fn);
 
   if (0 < size) {
+    const size_t a0 = m_aindex_hst[index], a1 = m_aindex_hst[index+size];
+    const size_t b0 = m_bindex_hst[index], b1 = m_bindex_hst[index+size];
+    const size_t c0 = m_cindex_hst[index], c1 = m_cindex_hst[index+size];
+
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_aindex_hst + index, m_aindex_dev + index, sizeof(size_t) * size, &stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_bindex_hst + index, m_bindex_dev + index, sizeof(size_t) * size, &stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_cindex_hst + index, m_cindex_dev + index, sizeof(size_t) * size, &stream));
 
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_adata_hst + a0, m_adata_dev + a0, sizeof(double) * (a1 - a0), &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_bdata_hst + b0, m_bdata_dev + b0, sizeof(double) * (b1 - b0), &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_cdata_hst + c0, m_cdata_dev + c0, sizeof(double) * (c1 - c0), &stream));
+
     m_process_fn(size,
-      m_aindex_hst[index+size] - m_aindex_hst[index+size-1],
-      m_bindex_hst[index+size] - m_bindex_hst[index+size-1],
-      m_cindex_hst[index+size] - m_cindex_hst[index+size-1],
+      a1 - m_aindex_hst[index+size-1],
+      b1 - m_bindex_hst[index+size-1],
+      c1 - m_cindex_hst[index+size-1],
       m_aindex_dev, m_bindex_dev, m_cindex_dev,
       m_adata_dev, m_bdata_dev, m_cdata_dev);
+
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata_dev + c0, m_cdata_hst + c0, sizeof(double) * (c1 - c0), &stream));
   }
 
   return LIBXSTREAM_ERROR_NONE;

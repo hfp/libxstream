@@ -39,22 +39,37 @@
 # include <omp.h>
 #endif
 
+#define DGEMM dgemm_
+
+
+LIBXSTREAM_EXPORT void DGEMM(
+  const char*, const char*, const int*, const int*, const int*,
+  const double*, const double*, const int*, const double*, const int*,
+  const double*, double*, const int*);
+
 
 LIBXSTREAM_EXPORT void process(int size, int mk, int kn, int mn,
   const size_t* aindex, const size_t* bindex, const size_t* cindex,
   const double* adata, const double* bdata, double* cdata)
 {
+  static const double alpha = 1, beta = 1;
+  static const char trans = 'N';
+
   fprintf(stderr, "Running:");
   for (int i = 0; i < size; ++i) {
-    const size_t mki = (i + 1) < size ? (aindex[i+1] - aindex[i]) : mk;
-    const size_t kni = (i + 1) < size ? (bindex[i+1] - bindex[i]) : kn;
-    const size_t mni = (i + 1) < size ? (cindex[i+1] - cindex[i]) : mn;
+    const size_t ai = aindex[i], bi = bindex[i], ci = cindex[i];
+    const size_t mki = (i + 1) < size ? (aindex[i+1] - ai) : mk;
+    const size_t kni = (i + 1) < size ? (bindex[i+1] - bi) : kn;
+    const size_t mni = (i + 1) < size ? (cindex[i+1] - ci) : mn;
     const int m = static_cast<int>(std::sqrt(static_cast<double>(mki * mni) / kni + 0.5));
     const int n = static_cast<int>(static_cast<double>(mni) / m + 0.5);
     const int k = static_cast<int>(static_cast<double>(mki) / m + 0.5);
-    fprintf(stderr, " %ix%ix%i", m, n, k);
+#if 0
+    DGEMM(&trans, &trans, &m, &n, &k,
+      &alpha, adata + ai, &m, bdata + bi, &k,
+      &beta, cdata + ci, &m);
+#endif
   }
-  fprintf(stderr, "\n");
 }
 
 
