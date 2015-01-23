@@ -138,7 +138,7 @@
 # define LIBXSTREAM_CHECK_ERROR(RETURN_VALUE) if (LIBXSTREAM_ERROR_NONE != (RETURN_VALUE)) return RETURN_VALUE;
 # define LIBXSTREAM_CHECK_CONDITION(CONDITION) if (!(CONDITION)) return LIBXSTREAM_ERROR_CONDITION;
 # ifdef __cplusplus
-#   define LIBXSTREAM_CHECK_CALL_THROW(CONDITION) do { int result = (CONDITION); if (LIBXSTREAM_ERROR_NONE != result) throw std::runtime_error(LIBXSTREAM_TOSTRING(CONDITION)); } while(0)
+#   define LIBXSTREAM_CHECK_CALL_THROW(CONDITION) do { int result = (CONDITION); if (LIBXSTREAM_ERROR_NONE != result) throw std::runtime_error(LIBXSTREAM_TOSTRING(CONDITION) " at " __FILE__ ":" LIBXSTREAM_TOSTRING(__LINE__)); } while(0)
 # else
 #   define LIBXSTREAM_CHECK_CALL_THROW(CONDITION) do { int result = (CONDITION); if (LIBXSTREAM_ERROR_NONE != result) abort(result); } while(0)
 # endif
