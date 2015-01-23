@@ -175,7 +175,7 @@ int deallocate_real(const void* memory)
 {
   if (memory) {
 #if defined(LIBXSTREAM_DEBUG)
-    delete[] memory;
+    delete[] static_cast<const char*>(memory);
 #elif defined(__MKL)
     mkl_free(const_cast<void*>(memory));
 #elif defined(_WIN32)
