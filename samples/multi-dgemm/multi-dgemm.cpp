@@ -28,7 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#include "multi-dgemm-setup.hpp"
+#include "multi-dgemm-type.hpp"
 #include <libxstream.hpp>
 #include <algorithm>
 #include <cstdlib>
@@ -40,14 +40,21 @@
 #endif
 
 
-void process(libxstream_stream& stream, setup_type& setup, int i, int size)
+LIBXSTREAM_EXPORT void process(int size, int mk, int kn, int mn,
+  const size_t* aindex, const size_t* bindex, const size_t* cindex,
+  const double* adata, const double* bdata, double* cdata)
 {
-  if (1 < size) {
-    fprintf(stderr, "Running %i...%i\n", i, i + size - 1);
+  fprintf(stderr, "Running:");
+  for (int i = 0; i < size; ++i) {
+    const size_t mki = (i + 1) < size ? (aindex[i+1] - aindex[i]) : mk;
+    const size_t kni = (i + 1) < size ? (bindex[i+1] - bindex[i]) : kn;
+    const size_t mni = (i + 1) < size ? (cindex[i+1] - cindex[i]) : mn;
+    const int m = static_cast<int>(std::sqrt(static_cast<double>(mki * mni) / kni + 0.5));
+    const int n = static_cast<int>(static_cast<double>(mni) / m + 0.5);
+    const int k = static_cast<int>(static_cast<double>(mki) / m + 0.5);
+    fprintf(stderr, " %ix%ix%i", m, n, k);
   }
-  else {
-    fprintf(stderr, "Running %i\n", i);
-  }
+  fprintf(stderr, "\n");
 }
 
 
@@ -63,7 +70,7 @@ int main(int argc, char* argv[])
 
     if (LIBXSTREAM_ERROR_NONE == libxstream_get_ndevices(&ndevices) && 0 < ndevices) {
       fprintf(stderr, "Running %i items in batches of %i item(s)...\n", nitems, nbatch);
-      setup_type setup[LIBXSTREAM_MAX_DEVICES];
+      multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_DEVICES];
 
       libxstream_stream* streams[LIBXSTREAM_MAX_STREAMS];
       std::fill_n(streams, LIBXSTREAM_MAX_STREAMS, static_cast<libxstream_stream*>(0));
@@ -88,8 +95,10 @@ int main(int argc, char* argv[])
 #             pragma omp critical(id)
 #endif
               if (0 == streams[stream]) {
-                LIBXSTREAM_CHECK_CALL_THROW(setup[device](device, nitems, split));
-                LIBXSTREAM_ASSERT(setup[device].ready());
+                if (!multi_dgemm[device].ready()) {
+                  LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device].init(process, device, nitems, split));
+                }
+                LIBXSTREAM_ASSERT(multi_dgemm[device].ready());
 
                 char name[128];
                 LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %d", stream + 1);
@@ -98,7 +107,7 @@ int main(int argc, char* argv[])
             }
 
             LIBXSTREAM_ASSERT(0 != streams[stream]);
-            process(*streams[stream], setup[device], i, std::min(nbatch, nitems - i));
+            multi_dgemm[device](*streams[stream], i, std::min(nbatch, nitems - i));
           }
         }
       }

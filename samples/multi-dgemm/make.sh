@@ -21,6 +21,6 @@ fi
 $CXX -std=c++0x $OPT $* -lpthread \
   -D__ACC -D__ACC_MIC \
   -I$ROOT/include $ROOT/src/*.cpp \
-  multi-dgemm-setup.cpp \
+  multi-dgemm-type.cpp \
   multi-dgemm.cpp \
   -o multi-dgemm

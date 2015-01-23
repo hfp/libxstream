@@ -28,31 +28,34 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#ifndef MULTI_DGEMM_SETUP_HPP
-#define MULTI_DGEMM_SETUP_HPP
+#ifndef MULTI_DGEMM_TYPE_HPP
+#define MULTI_DGEMM_TYPE_HPP
 
-#include <cstddef>
+#include <libxstream.hpp>
 
 
-class setup_type {
+class multi_dgemm_type {
 public:
-  setup_type();
-  ~setup_type();
+  typedef LIBXSTREAM_EXPORT void (*process_fn_type)(int, int, int, int,
+    const size_t*, const size_t*, const size_t*,
+    const double*, const double*, double*);
+
+public:
+  multi_dgemm_type();
+  ~multi_dgemm_type();
 
 public:
   bool ready() const;
-  int operator()(int device, int size, const int split[]);
+  int init(process_fn_type process_fn, int device, int size, const int split[]);
+  int operator()(libxstream_stream& stream, int index, int size);
 
 private:
-  int init(int device, int size, const int split[]);
-
-  int device;
-  size_t *hdata_hst, *idata_hst, *jdata_hst;
-  size_t *hdata_dev, *idata_dev, *jdata_dev;
-  double *adata_hst, *bdata_hst, *cdata_hst;
-  double *adata_dev, *bdata_dev, *cdata_dev;
-  int *mdata_hst, *ndata_hst, *kdata_hst;
-  int *mdata_dev, *ndata_dev, *kdata_dev;
+  int m_device;
+  size_t *m_aindex_hst, *m_bindex_hst, *m_cindex_hst;
+  size_t *m_aindex_dev, *m_bindex_dev, *m_cindex_dev;
+  double *m_adata_hst, *m_bdata_hst, *m_cdata_hst;
+  double *m_adata_dev, *m_bdata_dev, *m_cdata_dev;
+  LIBXSTREAM_EXPORT process_fn_type m_process_fn;
 };
 
-#endif // MULTI_DGEMM_SETUP_HPP
+#endif // MULTI_DGEMM_TYPE_HPP
