@@ -55,7 +55,7 @@ private:
   size_t *m_aindex_dev, *m_bindex_dev, *m_cindex_dev;
   double *m_adata_hst, *m_bdata_hst, *m_cdata_hst;
   double *m_adata_dev, *m_bdata_dev, *m_cdata_dev;
-  LIBXSTREAM_EXPORT process_fn_type m_process_fn;
+  process_fn_type m_process_fn;
 };
 
 #endif // MULTI_DGEMM_TYPE_HPP

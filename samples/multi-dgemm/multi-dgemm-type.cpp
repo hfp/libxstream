@@ -147,24 +147,70 @@ int multi_dgemm_type::operator()(libxstream_stream& stream, int index, int size)
   LIBXSTREAM_ASSERT(0 != m_process_fn);
 
   if (0 < size) {
-    const size_t a0 = m_aindex_hst[index], a1 = m_aindex_hst[index+size];
-    const size_t b0 = m_bindex_hst[index], b1 = m_bindex_hst[index+size];
-    const size_t c0 = m_cindex_hst[index], c1 = m_cindex_hst[index+size];
-
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_aindex_hst + index, m_aindex_dev + index, sizeof(size_t) * size, &stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_bindex_hst + index, m_bindex_dev + index, sizeof(size_t) * size, &stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_cindex_hst + index, m_cindex_dev + index, sizeof(size_t) * size, &stream));
+
+    const size_t a0 = m_aindex_hst[index], a1 = m_aindex_hst[index+size];
+    const size_t b0 = m_bindex_hst[index], b1 = m_bindex_hst[index+size];
+    const size_t c0 = m_cindex_hst[index], c1 = m_cindex_hst[index+size];
 
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_adata_hst + a0, m_adata_dev + a0, sizeof(double) * (a1 - a0), &stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_bdata_hst + b0, m_bdata_dev + b0, sizeof(double) * (b1 - b0), &stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_cdata_hst + c0, m_cdata_dev + c0, sizeof(double) * (c1 - c0), &stream));
 
-    m_process_fn(size,
-      a1 - m_aindex_hst[index+size-1],
-      b1 - m_bindex_hst[index+size-1],
-      c1 - m_cindex_hst[index+size-1],
-      m_aindex_dev, m_bindex_dev, m_cindex_dev,
-      m_adata_dev, m_bdata_dev, m_cdata_dev);
+    LIBXSTREAM_OFFLOAD_BEGIN(stream, index, size,
+      a1 - m_aindex_hst[index+size-1], b1 - m_bindex_hst[index+size-1], c1 - m_cindex_hst[index+size-1],
+      m_aindex_dev, m_bindex_dev, m_cindex_dev, m_adata_dev, m_bdata_dev, m_cdata_dev, m_process_fn)
+    {
+      const int index = val<const int,0>();
+      const int size = val<const int,1>();
+      const int mk = val<const int,2>();
+      const int kn = val<const int,3>();
+      const int mn = val<const int,4>();
+      const size_t *const ai = ptr<const size_t,5>();
+      const size_t *const bi = ptr<const size_t,6>();
+      const size_t *const ci = ptr<const size_t,7>();
+      const double *const a = ptr<const double,8>();
+      const double *const b = ptr<const double,9>();
+      double* c = ptr<double,10>();
+
+      LIBXSTREAM_EXPORT process_fn_type process_fn = val<process_fn_type,11>();
+
+#if defined(LIBXSTREAM_OFFLOAD)
+      if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
+        if (LIBXSTREAM_OFFLOAD_READY) {
+#         pragma offload LIBXSTREAM_OFFLOAD_TARGET_SIGNAL in(size, mk, kn, mn) \
+            in(ai: length(0) alloc_if(false) free_if(false)) \
+            in(bi: length(0) alloc_if(false) free_if(false)) \
+            in(ci: length(0) alloc_if(false) free_if(false)) \
+            in(a: length(0) alloc_if(false) free_if(false)) \
+            in(b: length(0) alloc_if(false) free_if(false)) \
+            inout(c: length(0) alloc_if(false) free_if(false))
+          {
+            process_fn(size, mk, kn, mn, ai, bi, ci, a, b, c);
+          }
+        }
+        else {
+#         pragma offload LIBXSTREAM_OFFLOAD_TARGET_WAIT in(size, mk, kn, mn) \
+            in(ai: length(0) alloc_if(false) free_if(false)) \
+            in(bi: length(0) alloc_if(false) free_if(false)) \
+            in(ci: length(0) alloc_if(false) free_if(false)) \
+            in(a: length(0) alloc_if(false) free_if(false)) \
+            in(b: length(0) alloc_if(false) free_if(false)) \
+            inout(c: length(0) alloc_if(false) free_if(false))
+          {
+            process_fn(size, mk, kn, mn, ai, bi, ci, a, b, c);
+          }
+        }
+      }
+      else
+#endif
+      {
+        process_fn(size, mk, kn, mn, ai, bi, ci, a, b, c);
+      }
+    }
+    LIBXSTREAM_OFFLOAD_END(false)
 
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata_dev + c0, m_cdata_hst + c0, sizeof(double) * (c1 - c0), &stream));
   }

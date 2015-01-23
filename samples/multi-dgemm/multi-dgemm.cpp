@@ -33,7 +33,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
-#include <cassert>
+#include <cmath>
 
 #if defined(_OPENMP)
 # include <omp.h>
@@ -55,7 +55,6 @@ LIBXSTREAM_EXPORT void process(int size, int mk, int kn, int mn,
   static const double alpha = 1, beta = 1;
   static const char trans = 'N';
 
-  fprintf(stderr, "Running:");
   for (int i = 0; i < size; ++i) {
     const size_t ai = aindex[i], bi = bindex[i], ci = cindex[i];
     const size_t mki = (i + 1) < size ? (aindex[i+1] - ai) : mk;
@@ -68,8 +67,12 @@ LIBXSTREAM_EXPORT void process(int size, int mk, int kn, int mn,
     DGEMM(&trans, &trans, &m, &n, &k,
       &alpha, adata + ai, &m, bdata + bi, &k,
       &beta, cdata + ci, &m);
-#endif
   }
+#else
+    fprintf(stderr, " %ix%ix%i", m, n, k);
+  }
+  fprintf(stderr, "\n");
+#endif
 }
 
 
@@ -77,8 +80,8 @@ int main(int argc, char* argv[])
 {
   try {
     const int nstreams = std::min(std::max(1 < argc ? std::atoi(argv[1]) : 2, 0), LIBXSTREAM_MAX_STREAMS);
-    const int nitems = std::max(2 < argc ? std::atoi(argv[2]) : 250, 0);
-    const int nbatch = std::max(3 < argc ? std::atoi(argv[3]) : 1, 1);
+    const int nitems = std::max(2 < argc ? std::atoi(argv[2]) : 32, 0);
+    const int nbatch = std::max(3 < argc ? std::atoi(argv[3]) : 4, 1);
 
     const int split[] = { int(nitems * 18.0 / 250.0 + 0.5), int(nitems * 74.0 / 250.0 + 0.5) };
     size_t ndevices = 0;
@@ -127,6 +130,7 @@ int main(int argc, char* argv[])
         }
       }
 
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0)); // sync all streams to complete any pending work
       std::for_each(streams, streams + LIBXSTREAM_MAX_STREAMS, std::ptr_fun(libxstream_stream_destroy));
     }
     else {
