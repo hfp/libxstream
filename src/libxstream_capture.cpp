@@ -39,7 +39,7 @@
 # include <pthread.h>
 #endif
 
-#if defined(LIBXSTREAM_TEST) && (0 != (2*LIBXSTREAM_TEST+1)/2) && defined(_OPENMP)
+#if defined(LIBXSTREAM_TEST) && (0 != (2*LIBXSTREAM_TEST+1)/2) || defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_OFFLOAD_STATS
 #endif
 
