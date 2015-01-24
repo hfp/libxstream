@@ -34,28 +34,22 @@
 
 multi_dgemm_type::multi_dgemm_type()
   : m_device(-1)
-  , m_aindex_hst(0), m_bindex_hst(0), m_cindex_hst(0)
-  , m_aindex_dev(0), m_bindex_dev(0), m_cindex_dev(0)
+  , m_index_hst(0), m_index_dev(0)
   , m_adata_hst(0), m_bdata_hst(0), m_cdata_hst(0)
   , m_adata_dev(0), m_bdata_dev(0), m_cdata_dev(0)
   , m_process_fn(0)
+  , m_flops(0)
 {}
 
 
 multi_dgemm_type::~multi_dgemm_type()
 {
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(m_device, m_aindex_dev));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(m_device, m_bindex_dev));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(m_device, m_cindex_dev));
-
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(m_device, m_index_dev));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(m_device, m_adata_dev));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(m_device, m_bdata_dev));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(m_device, m_cdata_dev));
 
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1, m_aindex_hst));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1, m_bindex_hst));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1, m_cindex_hst));
-
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1, m_index_hst));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1, m_adata_hst));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1, m_bdata_hst));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1, m_cdata_hst));
@@ -64,10 +58,15 @@ multi_dgemm_type::~multi_dgemm_type()
 
 bool multi_dgemm_type::ready() const
 {
-  return m_aindex_hst && m_bindex_hst && m_cindex_hst
-      && m_aindex_dev && m_bindex_dev && m_cindex_dev
+  return m_index_hst && m_index_dev
       && m_adata_hst && m_bdata_hst && m_cdata_hst
       && m_adata_dev && m_bdata_dev && m_cdata_dev;
+}
+
+
+size_t multi_dgemm_type::flops() const
+{
+  return m_flops;
 }
 
 
@@ -77,66 +76,45 @@ int multi_dgemm_type::init(process_fn_type process_fn, int device, int size, con
   m_process_fn = process_fn;
   m_device = device;
 
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_aindex_hst), sizeof(size_t) * (size + 1), 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_bindex_hst), sizeof(size_t) * (size + 1), 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_cindex_hst), sizeof(size_t) * (size + 1), 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_index_hst), sizeof(size_t) * (size + 1), 0));
 
-  size_t asize = 0, bsize = 0, csize = 0;
   int isize = split[0];
+  size_t msize = 0, n = 100, nn = n * n;
   for (int i = 0; i < isize; ++i) {
-    const int m = 100, n = 100, k = 100;
-    m_aindex_hst[i] = asize;
-    m_bindex_hst[i] = bsize;
-    m_cindex_hst[i] = csize;
-    asize += m * k;
-    bsize += k * n;
-    csize += m * n;
+    m_flops += nn * (2 * n + 1);
+    m_index_hst[i] = msize;
+    msize += nn;
   }
   isize += split[1];
+  n = 600, nn = n * n;
   for (int i = split[0]; i < isize; ++i) {
-    const int m = 600, n = 600, k = 600;
-    m_aindex_hst[i] = asize;
-    m_bindex_hst[i] = bsize;
-    m_cindex_hst[i] = csize;
-    asize += m * k;
-    bsize += k * n;
-    csize += m * n;
+    m_flops += nn * (2 * n + 1);
+    m_index_hst[i] = msize;
+    msize += nn;
   }
+  n = 1000, nn = n * n;
   for (int i = isize; i < size; ++i) {
-    const int m = 1000, n = 1000, k = 1000;
-    m_aindex_hst[i] = asize;
-    m_bindex_hst[i] = bsize;
-    m_cindex_hst[i] = csize;
-    asize += m * k;
-    bsize += k * n;
-    csize += m * n;
+    m_flops += nn * (2 * n + 1);
+    m_index_hst[i] = msize;
+    msize += nn;
   }
-  m_aindex_hst[size] = asize;
-  m_bindex_hst[size] = bsize;
-  m_cindex_hst[size] = csize;
+  m_index_hst[size] = msize;
 
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_adata_hst), sizeof(double) * asize, 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_bdata_hst), sizeof(double) * bsize, 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_cdata_hst), sizeof(double) * csize, 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_adata_hst), sizeof(double) * msize, 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_bdata_hst), sizeof(double) * msize, 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(-1, reinterpret_cast<void**>(&m_cdata_hst), sizeof(double) * msize, 0));
 
   static const double scale = 1.0 / RAND_MAX;
-  for (int i = 0; i < asize; ++i) {
+  for (size_t i = 0; i < msize; ++i) {
     m_adata_hst[i] = scale * (2 * std::rand() - RAND_MAX);
-  }
-  for (int i = 0; i < bsize; ++i) {
     m_bdata_hst[i] = scale * (2 * std::rand() - RAND_MAX);
-  }
-  for (int i = 0; i < csize; ++i) {
     m_cdata_hst[i] = 0;
   }
 
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_aindex_dev), sizeof(size_t) * (size + 1), 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_bindex_dev), sizeof(size_t) * (size + 1), 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_cindex_dev), sizeof(size_t) * (size + 1), 0));
-
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_adata_dev), sizeof(double) * asize, 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_bdata_dev), sizeof(double) * bsize, 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_cdata_dev), sizeof(double) * csize, 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_index_dev), sizeof(size_t) * (size + 1), 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_adata_dev), sizeof(double) * msize, 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_bdata_dev), sizeof(double) * msize, 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_cdata_dev), sizeof(double) * msize, 0));
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -147,72 +125,56 @@ int multi_dgemm_type::operator()(libxstream_stream& stream, int index, int size)
   LIBXSTREAM_ASSERT(0 != m_process_fn);
 
   if (0 < size) {
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_aindex_hst + index, m_aindex_dev + index, sizeof(size_t) * size, &stream));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_bindex_hst + index, m_bindex_dev + index, sizeof(size_t) * size, &stream));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_cindex_hst + index, m_cindex_dev + index, sizeof(size_t) * size, &stream));
+    const size_t i0 = m_index_hst[index], i1 = m_index_hst[index+size];
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_index_hst + index, m_index_dev + index, sizeof(size_t) * size, &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_adata_hst + i0, m_adata_dev + i0, sizeof(double) * (i1 - i0), &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_bdata_hst + i0, m_bdata_dev + i0, sizeof(double) * (i1 - i0), &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_cdata_hst + i0, m_cdata_dev + i0, sizeof(double) * (i1 - i0), &stream));
 
-    const size_t a0 = m_aindex_hst[index], a1 = m_aindex_hst[index+size];
-    const size_t b0 = m_bindex_hst[index], b1 = m_bindex_hst[index+size];
-    const size_t c0 = m_cindex_hst[index], c1 = m_cindex_hst[index+size];
-
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_adata_hst + a0, m_adata_dev + a0, sizeof(double) * (a1 - a0), &stream));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_bdata_hst + b0, m_bdata_dev + b0, sizeof(double) * (b1 - b0), &stream));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_cdata_hst + c0, m_cdata_dev + c0, sizeof(double) * (c1 - c0), &stream));
-
-    LIBXSTREAM_OFFLOAD_BEGIN(stream, index, size,
-      a1 - m_aindex_hst[index+size-1], b1 - m_bindex_hst[index+size-1], c1 - m_cindex_hst[index+size-1],
-      m_aindex_dev, m_bindex_dev, m_cindex_dev, m_adata_dev, m_bdata_dev, m_cdata_dev, m_process_fn)
+    LIBXSTREAM_OFFLOAD_BEGIN(stream, size, i1 - m_index_hst[index+size-1],
+      m_index_dev + index, m_adata_dev, m_bdata_dev, m_cdata_dev, m_process_fn)
     {
-      const int index = val<const int,0>();
-      const int size = val<const int,1>();
-      const int mk = val<const int,2>();
-      const int kn = val<const int,3>();
-      const int mn = val<const int,4>();
-      const size_t *const ai = ptr<const size_t,5>();
-      const size_t *const bi = ptr<const size_t,6>();
-      const size_t *const ci = ptr<const size_t,7>();
-      const double *const a = ptr<const double,8>();
-      const double *const b = ptr<const double,9>();
-      double* c = ptr<double,10>();
+      const int size = val<const int,0>();
+      const int nn = val<const int,1>();
+      const size_t *const i = ptr<const size_t,2>();
+      const double *const a = ptr<const double,3>();
+      const double *const b = ptr<const double,4>();
+      double* c = ptr<double,5>();
 
-      LIBXSTREAM_EXPORT process_fn_type process_fn = val<process_fn_type,11>();
+      LIBXSTREAM_EXPORT process_fn_type process_fn = val<process_fn_type,6>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
       if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
         if (LIBXSTREAM_OFFLOAD_READY) {
-#         pragma offload LIBXSTREAM_OFFLOAD_TARGET_SIGNAL in(size, mk, kn, mn) \
-            in(ai: length(0) alloc_if(false) free_if(false)) \
-            in(bi: length(0) alloc_if(false) free_if(false)) \
-            in(ci: length(0) alloc_if(false) free_if(false)) \
+#         pragma offload LIBXSTREAM_OFFLOAD_TARGET_SIGNAL in(size, nn) \
+            in(i: length(0) alloc_if(false) free_if(false)) \
             in(a: length(0) alloc_if(false) free_if(false)) \
             in(b: length(0) alloc_if(false) free_if(false)) \
             inout(c: length(0) alloc_if(false) free_if(false))
           {
-            process_fn(size, mk, kn, mn, ai, bi, ci, a, b, c);
+            process_fn(size, nn, i, a, b, c);
           }
         }
         else {
-#         pragma offload LIBXSTREAM_OFFLOAD_TARGET_WAIT in(size, mk, kn, mn) \
-            in(ai: length(0) alloc_if(false) free_if(false)) \
-            in(bi: length(0) alloc_if(false) free_if(false)) \
-            in(ci: length(0) alloc_if(false) free_if(false)) \
+#         pragma offload LIBXSTREAM_OFFLOAD_TARGET_WAIT in(size, nn) \
+            in(i: length(0) alloc_if(false) free_if(false)) \
             in(a: length(0) alloc_if(false) free_if(false)) \
             in(b: length(0) alloc_if(false) free_if(false)) \
             inout(c: length(0) alloc_if(false) free_if(false))
           {
-            process_fn(size, mk, kn, mn, ai, bi, ci, a, b, c);
+            process_fn(size, nn, i, a, b, c);
           }
         }
       }
       else
 #endif
       {
-        process_fn(size, mk, kn, mn, ai, bi, ci, a, b, c);
+        process_fn(size, nn, i, a, b, c);
       }
     }
     LIBXSTREAM_OFFLOAD_END(false)
 
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata_dev + c0, m_cdata_hst + c0, sizeof(double) * (c1 - c0), &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata_dev + i0, m_cdata_hst + i0, sizeof(double) * (i1 - i0), &stream));
   }
 
   return LIBXSTREAM_ERROR_NONE;

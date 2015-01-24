@@ -41,37 +41,30 @@
 
 #define DGEMM dgemm_
 
-
-LIBXSTREAM_EXPORT void DGEMM(
+LIBXSTREAM_EXTERN_C LIBXSTREAM_EXPORT void DGEMM(
   const char*, const char*, const int*, const int*, const int*,
   const double*, const double*, const int*, const double*, const int*,
   const double*, double*, const int*);
 
 
-LIBXSTREAM_EXPORT void process(int size, int mk, int kn, int mn,
-  const size_t* aindex, const size_t* bindex, const size_t* cindex,
+LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* indexes,
   const double* adata, const double* bdata, double* cdata)
 {
   static const double alpha = 1, beta = 1;
   static const char trans = 'N';
 
   for (int i = 0; i < size; ++i) {
-    const size_t ai = aindex[i], bi = bindex[i], ci = cindex[i];
-    const size_t mki = (i + 1) < size ? (aindex[i+1] - ai) : mk;
-    const size_t kni = (i + 1) < size ? (bindex[i+1] - bi) : kn;
-    const size_t mni = (i + 1) < size ? (cindex[i+1] - ci) : mn;
-    const int m = static_cast<int>(std::sqrt(static_cast<double>(mki * mni) / kni + 0.5));
-    const int n = static_cast<int>(static_cast<double>(mni) / m + 0.5);
-    const int k = static_cast<int>(static_cast<double>(mki) / m + 0.5);
-#if 0
-    DGEMM(&trans, &trans, &m, &n, &k,
-      &alpha, adata + ai, &m, bdata + bi, &k,
-      &beta, cdata + ci, &m);
+    const size_t i0 = indexes[i], i1 = (i + 1) < size ? indexes[i+1] : (nn + i0), n2 = i1 - i0;
+    const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
+#if 1
+    DGEMM(&trans, &trans, &n, &n, &n,
+      &alpha, adata + i0, &n, bdata + i0, &n,
+      &beta, cdata + i0, &n);
   }
 #else
-    fprintf(stderr, " %ix%ix%i", m, n, k);
+    fprintf(stdout, " %i", n);
   }
-  fprintf(stderr, "\n");
+  fprintf(stdout, "\n");
 #endif
 }
 
@@ -87,13 +80,24 @@ int main(int argc, char* argv[])
     size_t ndevices = 0;
 
     if (LIBXSTREAM_ERROR_NONE == libxstream_get_ndevices(&ndevices) && 0 < ndevices) {
-      fprintf(stderr, "Running %i items in batches of %i item(s)...\n", nitems, nbatch);
+      fprintf(stdout, "Initializing...\n");
       multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_DEVICES];
+      for (int device = 0; device < static_cast<int>(ndevices); ++device) {
+        LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device].init(process, device, nitems, split));
+      }
 
       libxstream_stream* streams[LIBXSTREAM_MAX_STREAMS];
       std::fill_n(streams, LIBXSTREAM_MAX_STREAMS, static_cast<libxstream_stream*>(0));
+      for (int stream = 0; stream < nstreams; ++stream) {
+        const int device = stream % ndevices;
+        char name[128];
+        LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %d", stream + 1);
+        LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(streams + stream, device, 0, name));
+      }
 
+      fprintf(stdout, "Running %i items in batches of %i item(s)...\n", nitems, nbatch);
 #if defined(_OPENMP)
+      const double start = omp_get_wtime();
 #     pragma omp parallel
 #endif
       for (int i = 0; i < nitems; i += nbatch) {
@@ -106,31 +110,21 @@ int main(int argc, char* argv[])
 #endif
           {
             const int stream = i % nstreams, device = stream % ndevices;
-
-            if (0 == streams[stream]) {
-#if defined(_OPENMP)
-              const void *const id = static_cast<char*>(0) + ndevices + stream;
-#             pragma omp critical(id)
-#endif
-              if (0 == streams[stream]) {
-                if (!multi_dgemm[device].ready()) {
-                  LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device].init(process, device, nitems, split));
-                }
-                LIBXSTREAM_ASSERT(multi_dgemm[device].ready());
-
-                char name[128];
-                LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %d", stream + 1);
-                LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(streams + stream, device, 0, name));
-              }
-            }
-
-            LIBXSTREAM_ASSERT(0 != streams[stream]);
+            LIBXSTREAM_ASSERT(0 != streams[stream] && multi_dgemm[device].ready());
             multi_dgemm[device](*streams[stream], i, std::min(nbatch, nitems - i));
           }
         }
       }
 
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0)); // sync all streams to complete any pending work
+#if defined(_OPENMP)
+      const double duration = omp_get_wtime() - start;
+      size_t flops = multi_dgemm[0].flops();
+      for (int device = 1; device < static_cast<int>(ndevices); ++device) {
+        flops += multi_dgemm[device].flops();
+      }
+      fprintf(stdout, "Performance: %.1f GFLOPS/s\n", flops * 1E-9 / duration);
+#endif
       std::for_each(streams, streams + LIBXSTREAM_MAX_STREAMS, std::ptr_fun(libxstream_stream_destroy));
     }
     else {

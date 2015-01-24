@@ -36,9 +36,8 @@
 
 class multi_dgemm_type {
 public:
-  typedef LIBXSTREAM_EXPORT void (*process_fn_type)(int, int, int, int,
-    const size_t*, const size_t*, const size_t*,
-    const double*, const double*, double*);
+  typedef LIBXSTREAM_EXPORT void (*process_fn_type)(int, int,
+    const size_t*, const double*, const double*, double*);
 
 public:
   multi_dgemm_type();
@@ -46,16 +45,17 @@ public:
 
 public:
   bool ready() const;
+  size_t flops() const;
   int init(process_fn_type process_fn, int device, int size, const int split[]);
   int operator()(libxstream_stream& stream, int index, int size);
 
 private:
   int m_device;
-  size_t *m_aindex_hst, *m_bindex_hst, *m_cindex_hst;
-  size_t *m_aindex_dev, *m_bindex_dev, *m_cindex_dev;
+  size_t *m_index_hst, *m_index_dev;
   double *m_adata_hst, *m_bdata_hst, *m_cdata_hst;
   double *m_adata_dev, *m_bdata_dev, *m_cdata_dev;
   process_fn_type m_process_fn;
+  size_t m_flops;
 };
 
 #endif // MULTI_DGEMM_TYPE_HPP
