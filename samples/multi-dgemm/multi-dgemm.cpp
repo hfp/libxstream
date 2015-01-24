@@ -56,16 +56,8 @@ LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* indexes,
   for (int i = 0; i < size; ++i) {
     const size_t i0 = indexes[i], i1 = (i + 1) < size ? indexes[i+1] : (nn + i0), n2 = i1 - i0;
     const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
-#if 1
-    DGEMM(&trans, &trans, &n, &n, &n,
-      &alpha, adata + i0, &n, bdata + i0, &n,
-      &beta, cdata + i0, &n);
+    DGEMM(&trans, &trans, &n, &n, &n, &alpha, adata + i0, &n, bdata + i0, &n, &beta, cdata + i0, &n);
   }
-#else
-    fprintf(stdout, " %i", n);
-  }
-  fprintf(stdout, "\n");
-#endif
 }
 
 
@@ -116,7 +108,9 @@ int main(int argc, char* argv[])
         }
       }
 
-      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0)); // sync all streams to complete any pending work
+      // sync all streams to complete any pending work
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
+
 #if defined(_OPENMP)
       const double duration = omp_get_wtime() - start;
       size_t flops = multi_dgemm[0].flops();
@@ -125,6 +119,7 @@ int main(int argc, char* argv[])
       }
       fprintf(stdout, "Performance: %.1f GFLOPS/s\n", flops * 1E-9 / duration);
 #endif
+
       std::for_each(streams, streams + LIBXSTREAM_MAX_STREAMS, std::ptr_fun(libxstream_stream_destroy));
     }
     else {
