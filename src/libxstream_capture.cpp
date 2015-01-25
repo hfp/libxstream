@@ -231,7 +231,7 @@ private:
 } // namespace libxstream_offload_internal
 
 
-libxstream_offload_region::libxstream_offload_region(const arg_type argv[], size_t argc)
+libxstream_offload_region::libxstream_offload_region(size_t argc, const arg_type argv[])
 #if defined(LIBXSTREAM_DEBUG)
   : m_argc(argc)
 #endif

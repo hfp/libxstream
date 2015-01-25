@@ -194,16 +194,16 @@
 
 #define LIBXSTREAM_OFFLOAD_BEGIN(STREAM, ARG, ...) { \
   libxstream_stream *const stream_ = cast_to_stream(STREAM); \
-  const libxstream_offload_region::arg_type args_[] = { ARG, __VA_ARGS__ }; \
+  const libxstream_offload_region::arg_type argv_[] = { ARG, __VA_ARGS__ }; \
   struct offload_region: public libxstream_offload_region { libxstream_stream* stream_; \
-    offload_region(libxstream_stream* stream, const arg_type args[], size_t nargs) \
-      : libxstream_offload_region(args, nargs), stream_(stream) {} \
+    offload_region(libxstream_stream* stream, size_t argc, const arg_type argv[]) \
+      : libxstream_offload_region(argc, argv), stream_(stream) {} \
     offload_region* clone() const { return new offload_region(*this); } \
     void operator()() const { LIBXSTREAM_OFFLOAD_DECL; do
 #define LIBXSTREAM_OFFLOAD_END(WAIT) while(false); \
       if (stream_ && signal_ != signal_consumed_) stream_->pending(signal_consumed_); \
     } \
-  } offload_region_(stream_, args_, sizeof(args_) / sizeof(*args_)); \
+  } offload_region_(stream_, sizeof(argv_) / sizeof(*argv_), argv_); \
   libxstream_offload(offload_region_, true == (WAIT)); }
 
 #endif // LIBXSTREAM_MACROS_H

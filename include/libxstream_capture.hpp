@@ -64,7 +64,7 @@ public:
   };
 
 public:
-  explicit libxstream_offload_region(const arg_type argv[] = 0, size_t argc = 0);
+  explicit libxstream_offload_region(size_t argc = 0, const arg_type argv[] = 0);
   virtual ~libxstream_offload_region() {}
 
 public:
