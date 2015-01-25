@@ -173,7 +173,7 @@ int multi_dgemm_type::init(host_data_type& host_data, int device)
 
 int multi_dgemm_type::operator()(libxstream_stream& stream, process_fn_type process_fn, int index, int size)
 {
-  LIBXSTREAM_CHECK_CONDITION(process_fn && index + size < m_host_data->size());
+  LIBXSTREAM_CHECK_CONDITION(process_fn && (index + size) <= m_host_data->size());
 
   if (0 < size) {
     const size_t i0 = m_host_data->index()[index], i1 = m_host_data->index()[index+size];
