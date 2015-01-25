@@ -29,6 +29,7 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "multi-dgemm-type.hpp"
+#include <stdexcept>
 #include <cstdlib>
 
 

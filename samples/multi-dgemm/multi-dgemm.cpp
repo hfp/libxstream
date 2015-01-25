@@ -30,6 +30,7 @@
 ******************************************************************************/
 #include "multi-dgemm-type.hpp"
 #include <libxstream.hpp>
+#include <stdexcept>
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
