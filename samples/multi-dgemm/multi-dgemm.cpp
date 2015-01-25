@@ -68,30 +68,31 @@ int main(int argc, char* argv[])
     const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 4, 1);
     const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 0), LIBXSTREAM_MAX_STREAMS);
 
-    const int split[] = { int(nitems * 18.0 / 250.0 + 0.5), int(nitems * 74.0 / 250.0 + 0.5) };
     size_t ndevices = 0;
-
     if (LIBXSTREAM_ERROR_NONE == libxstream_get_ndevices(&ndevices) && 0 < ndevices) {
-      fprintf(stdout, "Initializing...");
-
+      fprintf(stdout, "Initializing host data...");
+      const int split[] = { int(nitems * 18.0 / 250.0 + 0.5), int(nitems * 74.0 / 250.0 + 0.5) };
       multi_dgemm_type::host_data_type host_data(nitems, split);
-      fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
+      fprintf(stdout, " %.1f MB.\n", host_data.bytes() * 1E-6);
 
+      fprintf(stdout, "Preparing %i stream%s per device...\n", nstreams, 1 < nstreams ? "s" : "");
+      const int idevices = static_cast<int>(ndevices);
       multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_DEVICES];
-      for (int device = 0; device < static_cast<int>(ndevices); ++device) {
+      libxstream_stream* streams[LIBXSTREAM_MAX_STREAMS*LIBXSTREAM_MAX_DEVICES];
+      std::fill_n(streams, LIBXSTREAM_MAX_STREAMS * LIBXSTREAM_MAX_DEVICES, static_cast<libxstream_stream*>(0));
+      fprintf(stdout, "Allocating memory for %i device%s...\n", idevices, 1 == idevices ? "" : "s");
+      for (int device = 0; device < idevices; ++device) {
         LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device].init(host_data, device));
+        for (int i = 0; i < nstreams; ++i) {
+          const int stream = device * idevices + i;
+          char name[128];
+          LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %d", stream + 1);
+          LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(streams + stream, device, 0, name));
+        }
       }
 
-      libxstream_stream* streams[LIBXSTREAM_MAX_STREAMS];
-      std::fill_n(streams, LIBXSTREAM_MAX_STREAMS, static_cast<libxstream_stream*>(0));
-      for (int stream = 0; stream < nstreams; ++stream) {
-        const int device = stream % ndevices;
-        char name[128];
-        LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %d", stream + 1);
-        LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(streams + stream, device, 0, name));
-      }
-
-      fprintf(stdout, "Running %i items in batches of %i item(s)...\n", nitems, nbatch);
+      const int nbatches = (nitems + nbatch - 1) / nbatch;
+      fprintf(stdout, "Running %i batch%s of %i item%s...\n", nbatches, 1 < nbatches ? "es" : "", std::min(nbatch, nitems), 1 < nbatch ? "s" : "");
 #if defined(_OPENMP)
       const double start = omp_get_wtime();
 #     pragma omp parallel
@@ -105,8 +106,7 @@ int main(int argc, char* argv[])
 #         pragma omp task
 #endif
           {
-            const int stream = i % nstreams, device = stream % ndevices;
-            LIBXSTREAM_ASSERT(0 != streams[stream] && multi_dgemm[device].ready());
+            const int stream = i % (idevices * nstreams), device = streams[stream]->device();
             multi_dgemm[device](*streams[stream], process, i, std::min(nbatch, nitems - i));
           }
         }
@@ -117,11 +117,13 @@ int main(int argc, char* argv[])
 
 #if defined(_OPENMP)
       const double duration = omp_get_wtime() - start;
-      fprintf(stdout, "Performance: %.1f GFLOPS/s\n", ndevices * host_data.flops() * 1E-9 / duration);
+      fprintf(stdout, "Performance: %.1f GFLOPS/s\n", host_data.flops() * 1E-9 / duration);
       fprintf(stdout, "Duration: %.1f s\n", duration);
 #endif
 
-      std::for_each(streams, streams + LIBXSTREAM_MAX_STREAMS, std::ptr_fun(libxstream_stream_destroy));
+      std::for_each(streams, streams + LIBXSTREAM_MAX_STREAMS * LIBXSTREAM_MAX_DEVICES,
+        std::ptr_fun(libxstream_stream_destroy));
+      fprintf(stdout, "Finished.\n");
     }
     else {
       fprintf(stderr, "Error: no device found!\n");
