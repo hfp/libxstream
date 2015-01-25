@@ -72,10 +72,14 @@ int main(int argc, char* argv[])
     size_t ndevices = 0;
 
     if (LIBXSTREAM_ERROR_NONE == libxstream_get_ndevices(&ndevices) && 0 < ndevices) {
-      fprintf(stdout, "Initializing...\n");
+      fprintf(stdout, "Initializing...");
+
+      multi_dgemm_type::host_data_type host_data(nitems, split);
+      fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
+
       multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_DEVICES];
       for (int device = 0; device < static_cast<int>(ndevices); ++device) {
-        LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device].init(process, device, nitems, split));
+        LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device].init(host_data, device));
       }
 
       libxstream_stream* streams[LIBXSTREAM_MAX_STREAMS];
@@ -103,7 +107,7 @@ int main(int argc, char* argv[])
           {
             const int stream = i % nstreams, device = stream % ndevices;
             LIBXSTREAM_ASSERT(0 != streams[stream] && multi_dgemm[device].ready());
-            multi_dgemm[device](*streams[stream], i, std::min(nbatch, nitems - i));
+            multi_dgemm[device](*streams[stream], process, i, std::min(nbatch, nitems - i));
           }
         }
       }
@@ -113,11 +117,8 @@ int main(int argc, char* argv[])
 
 #if defined(_OPENMP)
       const double duration = omp_get_wtime() - start;
-      size_t flops = multi_dgemm[0].flops();
-      for (int device = 1; device < static_cast<int>(ndevices); ++device) {
-        flops += multi_dgemm[device].flops();
-      }
-      fprintf(stdout, "Performance: %.1f GFLOPS/s\n", flops * 1E-9 / duration);
+      fprintf(stdout, "Performance: %.1f GFLOPS/s\n", ndevices * host_data.flops() * 1E-9 / duration);
+      fprintf(stdout, "Duration: %.1f s\n", duration);
 #endif
 
       std::for_each(streams, streams + LIBXSTREAM_MAX_STREAMS, std::ptr_fun(libxstream_stream_destroy));

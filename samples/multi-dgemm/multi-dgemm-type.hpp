@@ -39,23 +39,40 @@ public:
   typedef LIBXSTREAM_EXPORT void (*process_fn_type)(int, int,
     const size_t*, const double*, const double*, double*);
 
+  class host_data_type {
+  public:
+    host_data_type(int size, const int split[]);
+    ~host_data_type();
+  public:
+    bool ready() const;
+    int size() const;
+    const double* adata() const;
+    const double* bdata() const;
+    double* cdata();
+    const size_t* index() const;
+    size_t bytes() const;
+    size_t flops() const;
+  private:
+    int m_size;
+    double *m_adata, *m_bdata, *m_cdata;
+    size_t *m_index, m_flops;
+  };
+
 public:
   multi_dgemm_type();
   ~multi_dgemm_type();
 
 public:
   bool ready() const;
-  size_t flops() const;
-  int init(process_fn_type process_fn, int device, int size, const int split[]);
-  int operator()(libxstream_stream& stream, int index, int size);
+  int init(host_data_type& host_data, int device);
+  int operator()(libxstream_stream& stream, process_fn_type process_fn, int index, int size);
 
 private:
+  host_data_type* m_host_data;
   int m_device;
-  size_t *m_index_hst, *m_index_dev;
-  double *m_adata_hst, *m_bdata_hst, *m_cdata_hst;
-  double *m_adata_dev, *m_bdata_dev, *m_cdata_dev;
-  process_fn_type m_process_fn;
-  size_t m_flops;
+
+  double *m_adata, *m_bdata, *m_cdata;
+  size_t *m_index;
 };
 
 #endif // MULTI_DGEMM_TYPE_HPP
