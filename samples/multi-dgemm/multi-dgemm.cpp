@@ -40,7 +40,9 @@
 # include <omp.h>
 #endif
 
+//#define MULTI_DGEMM_USE_NESTED
 #define DGEMM dgemm_
+
 
 LIBXSTREAM_EXTERN_C LIBXSTREAM_EXPORT void DGEMM(
   const char*, const char*, const int*, const int*, const int*,
@@ -54,7 +56,16 @@ LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* indexes,
   static const double alpha = 1, beta = 1;
   static const char trans = 'N';
 
+#if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
+  const int nthreads = omp_get_max_threads() / size;
+  omp_set_dynamic(0);
+  omp_set_nested(1);
+# pragma omp parallel for schedule(dynamic,1) num_threads(size)
+#endif
   for (int i = 0; i < size; ++i) {
+#if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
+    omp_set_num_threads(nthreads);
+#endif
     const size_t i0 = indexes[i], i1 = (i + 1) < size ? indexes[i+1] : (nn + i0), n2 = i1 - i0;
     const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
     DGEMM(&trans, &trans, &n, &n, &n, &alpha, adata + i0, &n, bdata + i0, &n, &beta, cdata + i0, &n);
