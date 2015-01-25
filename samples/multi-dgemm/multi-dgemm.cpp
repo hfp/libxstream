@@ -108,7 +108,7 @@ int main(int argc, char* argv[])
 #endif
           {
             const int stream = i % (idevices * nstreams), device = streams[stream]->device();
-            multi_dgemm[device](*streams[stream], process, i, std::min(nbatch, nitems - i));
+            LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device](*streams[stream], process, i, std::min(nbatch, nitems - i)));
           }
         }
       }
