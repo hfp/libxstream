@@ -64,9 +64,9 @@ LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* indexes,
 int main(int argc, char* argv[])
 {
   try {
-    const int nstreams = std::min(std::max(1 < argc ? std::atoi(argv[1]) : 2, 0), LIBXSTREAM_MAX_STREAMS);
-    const int nitems = std::max(2 < argc ? std::atoi(argv[2]) : 32, 0);
-    const int nbatch = std::max(3 < argc ? std::atoi(argv[3]) : 4, 1);
+    const int nitems = std::max(1 < argc ? std::atoi(argv[1]) : 32, 0);
+    const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 4, 1);
+    const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 0), LIBXSTREAM_MAX_STREAMS);
 
     const int split[] = { int(nitems * 18.0 / 250.0 + 0.5), int(nitems * 74.0 / 250.0 + 0.5) };
     size_t ndevices = 0;
