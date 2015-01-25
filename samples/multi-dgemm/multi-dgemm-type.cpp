@@ -121,7 +121,7 @@ const size_t* multi_dgemm_type::host_data_type::index() const
 
 size_t multi_dgemm_type::host_data_type::bytes() const
 {
-  return sizeof(double) * m_index[m_size] * 3;
+  return sizeof(double) * m_index[m_size] * 3 + sizeof(size_t) * (m_size + 1);
 }
 
 
