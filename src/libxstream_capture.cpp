@@ -231,17 +231,15 @@ private:
 } // namespace libxstream_offload_internal
 
 
-libxstream_offload_region::libxstream_offload_region(const arg_type args[], size_t nargs)
-{
-  LIBXSTREAM_ASSERT(nargs <= LIBXSTREAM_MAX_NARGS);
-  for (size_t i = 0; i < nargs; ++i) m_args[i] = args[i];
-
+libxstream_offload_region::libxstream_offload_region(const arg_type argv[], size_t argc)
 #if defined(LIBXSTREAM_DEBUG)
-  for (size_t i = nargs; i < LIBXSTREAM_MAX_NARGS; ++i) {
-    m_args[i].value.p = 0;
-    m_args[i].value.d = 0;
-  }
+  : m_argc(argc)
 #endif
+{
+  LIBXSTREAM_ASSERT(argc <= LIBXSTREAM_MAX_NARGS);
+  for (size_t i = 0; i < argc; ++i) {
+    m_argv[i] = argv[i];
+  }
 }
 
 

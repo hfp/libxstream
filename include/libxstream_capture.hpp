@@ -39,8 +39,23 @@ struct libxstream_offload_region {
 public:
   struct arg_type {
     union { void* p; double d; } value;
-    arg_type() { value.p = 0; value.d = 0; }
-    template<typename T> arg_type(T arg) {
+#if defined(LIBXSTREAM_DEBUG)
+    size_t size;
+#endif
+
+    arg_type()
+#if defined(LIBXSTREAM_DEBUG)
+      : size(0)
+#endif
+    {
+      value.p = 0; value.d = 0;
+    }
+
+    template<typename T> arg_type(T arg)
+#if defined(LIBXSTREAM_DEBUG)
+      : size(sizeof(T))
+#endif
+    {
       const unsigned char *const src = reinterpret_cast<const unsigned char*>(&arg);
       unsigned char *const dst = reinterpret_cast<unsigned char*>(&value);
       for (size_t i = 0; i < sizeof(T); ++i) dst[i] = src[i];
@@ -49,23 +64,28 @@ public:
   };
 
 public:
-  explicit libxstream_offload_region(const arg_type args[] = 0, size_t nargs = 0);
+  explicit libxstream_offload_region(const arg_type argv[] = 0, size_t argc = 0);
   virtual ~libxstream_offload_region() {}
 
 public:
   template<typename T,size_t i> T* ptr() const {
-    return static_cast<T*>(m_args[i].value.p);
+    LIBXSTREAM_ASSERT(i < m_argc && sizeof(T) <= m_argv[i].size);
+    return static_cast<T*>(m_argv[i].value.p);
   }
 
   template<typename T,size_t i> T val() const {
-    return *reinterpret_cast<const T*>(m_args + i);
+    LIBXSTREAM_ASSERT(i < m_argc && sizeof(T) <= m_argv[i].size);
+    return *reinterpret_cast<const T*>(m_argv + i);
   }
 
   virtual libxstream_offload_region* clone() const = 0;
   virtual void operator()() const = 0;
 
 private:
-  arg_type m_args[LIBXSTREAM_MAX_NARGS];
+  arg_type m_argv[LIBXSTREAM_MAX_NARGS];
+#if defined(LIBXSTREAM_DEBUG)
+  size_t m_argc;
+#endif
 };
 
 
