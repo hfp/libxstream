@@ -69,7 +69,7 @@ public:
 
 public:
   template<typename T,size_t i> T* ptr() const {
-    LIBXSTREAM_ASSERT(i < m_argc && sizeof(T) <= m_argv[i].size);
+    LIBXSTREAM_ASSERT(i < m_argc && sizeof(T*) <= m_argv[i].size);
     return static_cast<T*>(m_argv[i].value.p);
   }
 
