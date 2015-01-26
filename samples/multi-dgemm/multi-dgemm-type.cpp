@@ -223,7 +223,7 @@ int multi_dgemm_type::operator()(libxstream_stream& stream, process_fn_type proc
         process_fn(size, nn, i, a, b, c);
       }
     }
-    LIBXSTREAM_OFFLOAD_END(false)
+    LIBXSTREAM_OFFLOAD_END(false);
 
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata + i0, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), &stream));
   }

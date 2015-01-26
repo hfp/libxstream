@@ -442,9 +442,8 @@ extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
   }
 #endif
 
-  const int result = stream ? stream->reset() : LIBXSTREAM_ERROR_NONE;
   delete stream;
-  return result;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
@@ -461,17 +460,7 @@ extern "C" int libxstream_stream_sync(libxstream_stream* stream)
   }
 #endif
 
-  int result = LIBXSTREAM_ERROR_NONE;
-
-  if (stream) {
-    result = stream->reset();
-    stream->wait(0);
-  }
-  else {
-    libxstream_stream::sync();
-  }
-
-  return result;
+  return stream ? stream->wait(0) : libxstream_stream::sync();
 }
 
 
@@ -483,23 +472,7 @@ extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstrea
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
 #endif
 
-  int result = LIBXSTREAM_ERROR_NONE;
-
-  if (event) {
-    if (stream) result = stream->reset();
-    event->wait(stream);
-  }
-  else {
-    if (stream) {
-      result = stream->reset();
-      stream->wait(0);
-    }
-    else {
-      libxstream_stream::sync();
-    }
-  }
-
-  return result;
+  return event ? event->wait(stream) : (stream ? stream->wait(0) : libxstream_stream::sync());
 }
 
 
@@ -549,10 +522,10 @@ extern "C" int libxstream_event_query(const libxstream_event* event, int* has_oc
   LIBXSTREAM_CHECK_CONDITION(event && has_occured);
 
   bool occurred = true;
-  event->query(occurred, 0);
+  const int result = event->query(occurred, 0);
   *has_occured = occurred ? 1 : 0;
 
-  return LIBXSTREAM_ERROR_NONE;
+  return result;
 }
 
 
@@ -562,14 +535,8 @@ extern "C" int libxstream_event_synchronize(libxstream_event* event)
   fprintf(stderr, "DBG libxstream_event_synchronize: event=0x%lx\n",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
 #endif
-  if (event) {
-    event->wait(0);
-  }
-  else {
-    libxstream_stream::sync();
-  }
 
-  return LIBXSTREAM_ERROR_NONE;
+  return event ? event->wait(0) : libxstream_stream::sync();
 }
 
 
@@ -597,7 +564,7 @@ extern "C" int libxstream_mem_info(int device, size_t* allocatable, size_t* phys
       libxstream_internal::mem_info(memory_physical, memory_allocatable);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(true)
+  LIBXSTREAM_OFFLOAD_END(true);
 
 #if defined(LIBXSTREAM_DEBUG)
   fprintf(stderr, "DBG libxstream_mem_info: allocatable=%lu physical=%lu\n",
@@ -644,7 +611,7 @@ extern "C" int libxstream_mem_allocate(int device, void** memory, size_t size, s
       result = libxstream_internal::allocate_real(&memory, size);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(true)
+  LIBXSTREAM_OFFLOAD_END(true);
 
 #if defined(LIBXSTREAM_DEBUG)
   fprintf(stderr, "DBG libxstream_mem_allocate: buffer=0x%lx size=%lu\n",
@@ -691,7 +658,7 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
         result = libxstream_internal::deallocate_real(memory);
       }
     }
-    LIBXSTREAM_OFFLOAD_END(true)
+    LIBXSTREAM_OFFLOAD_END(true);
   }
 
   return result;
@@ -707,7 +674,6 @@ extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stre
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
 #endif
   LIBXSTREAM_CHECK_CONDITION(memory && stream);
-  const int result = stream->reset();
 
   LIBXSTREAM_OFFLOAD_BEGIN(stream, memory, size)
   {
@@ -737,9 +703,9 @@ extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stre
       memset(dst, 0, size);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(false)
+  LIBXSTREAM_OFFLOAD_END(false);
 
-  return result;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
@@ -753,7 +719,6 @@ extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
 #endif
   LIBXSTREAM_CHECK_CONDITION(host_mem && dev_mem && stream);
-  const int result = stream->reset();
 
   LIBXSTREAM_OFFLOAD_BEGIN(stream, host_mem, dev_mem, size)
   {
@@ -778,9 +743,9 @@ extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t
       std::copy(src, src + size, dst);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(false)
+  LIBXSTREAM_OFFLOAD_END(false);
 
-  return result;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
@@ -794,7 +759,6 @@ extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
 #endif
   LIBXSTREAM_CHECK_CONDITION(dev_mem && host_mem && stream);
-  const int result = stream->reset();
 
   LIBXSTREAM_OFFLOAD_BEGIN(stream, dev_mem, host_mem, size)
   {
@@ -819,9 +783,9 @@ extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t
       std::copy(src, src + size, dst);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(false)
+  LIBXSTREAM_OFFLOAD_END(false);
 
-  return result;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
@@ -835,7 +799,6 @@ extern "C" int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, li
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
 #endif
   LIBXSTREAM_CHECK_CONDITION(src && dst && stream);
-  const int result = stream->reset();
 
   LIBXSTREAM_OFFLOAD_BEGIN(stream, src, dst, size)
   {
@@ -864,7 +827,7 @@ extern "C" int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, li
       memcpy(dst, src, size);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(false)
+  LIBXSTREAM_OFFLOAD_END(false);
 
-  return result;
+  return LIBXSTREAM_ERROR_NONE;
 }

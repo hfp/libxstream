@@ -41,8 +41,8 @@ struct libxstream_stream {
 public:
   static void enqueue(libxstream_event& event);
 
-  static void sync(int device);
-  static void sync();
+  static int sync(int device);
+  static int sync();
 
 public:
   libxstream_stream(int device, int priority, const char* name);
@@ -64,7 +64,7 @@ public:
   }
 
   libxstream_signal signal() const;
-  void wait(libxstream_signal signal) const;
+  int wait(libxstream_signal signal) const;
 
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;

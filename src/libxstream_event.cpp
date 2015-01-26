@@ -103,46 +103,60 @@ size_t libxstream_event::expected() const
 }
 
 
-void libxstream_event::query(bool& occurred, libxstream_stream* stream) const
-{
-  LIBXSTREAM_OFFLOAD_BEGIN(stream, &m_expected, m_slots, &occurred)
-  {
-    const size_t expected = *ptr<const size_t,0>();
-    slot_type *const slots = ptr<slot_type,1>();
-    bool result = true; // everythig occurred if nothing is expected
-
-    for (size_t i = 0; i < expected; ++i) {
-      slot_type& slot = slots[i];
-
-      if (slot.match(LIBXSTREAM_OFFLOAD_STREAM) && 0 != slot.pending()) {
-        libxstream_event::update(slot);
-        result = result && 0 == slot.pending();
-      }
-    }
-
-    *ptr<bool,2>() = result;
-  }
-  LIBXSTREAM_OFFLOAD_END(true)
-}
-
-
 void libxstream_event::enqueue(libxstream_stream& stream, bool reset)
 {
   LIBXSTREAM_OFFLOAD_BEGIN(stream, m_slots, &m_expected, reset)
   {
     libxstream_event::enqueue(*LIBXSTREAM_OFFLOAD_STREAM, ptr<slot_type,0>(), *ptr<size_t,1>(), val<bool,2>());
   }
-  LIBXSTREAM_OFFLOAD_END(false)
+  LIBXSTREAM_OFFLOAD_END(false);
 }
 
 
-void libxstream_event::wait(libxstream_stream* stream)
+int libxstream_event::query(bool& occurred, libxstream_stream* stream) const
 {
-  LIBXSTREAM_OFFLOAD_BEGIN(stream, &m_expected, m_slots)
+  int result = LIBXSTREAM_ERROR_NONE;
+
+  LIBXSTREAM_OFFLOAD_BEGIN(stream, &result, &m_expected, m_slots, &occurred)
   {
-    size_t& expected = *ptr<size_t,0>();
-    slot_type *const slots = ptr<slot_type,1>();
+    const size_t expected = *ptr<const size_t,1>();
+    slot_type *const slots = ptr<slot_type,2>();
+    bool occurred = true; // everythig "occurred" if nothing is expected
+
+    if (LIBXSTREAM_OFFLOAD_STREAM) {
+      *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset();
+    }
+
+    for (size_t i = 0; i < expected; ++i) {
+      slot_type& slot = slots[i];
+
+      if (slot.match(LIBXSTREAM_OFFLOAD_STREAM) && 0 != slot.pending()) {
+        libxstream_event::update(slot);
+        occurred = occurred && 0 == slot.pending();
+      }
+    }
+
+    *ptr<bool,3>() = occurred;
+  }
+  LIBXSTREAM_OFFLOAD_END(true);
+
+  return result;
+}
+
+
+int libxstream_event::wait(libxstream_stream* stream)
+{
+  int result = LIBXSTREAM_ERROR_NONE;
+
+  LIBXSTREAM_OFFLOAD_BEGIN(stream, &result, &m_expected, m_slots)
+  {
+    size_t& expected = *ptr<size_t,1>();
+    slot_type *const slots = ptr<slot_type,2>();
     size_t completed = 0;
+
+    if (LIBXSTREAM_OFFLOAD_STREAM) {
+      *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset();
+    }
 
     for (size_t i = 0; i < expected; ++i) {
       slot_type& slot = slots[i];
@@ -181,5 +195,7 @@ void libxstream_event::wait(libxstream_stream* stream)
     LIBXSTREAM_ASSERT(completed <= expected);
     expected -= completed;
   }
-  LIBXSTREAM_OFFLOAD_END(true)
+  LIBXSTREAM_OFFLOAD_END(true);
+
+  return result;
 }

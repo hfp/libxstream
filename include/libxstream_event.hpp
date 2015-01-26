@@ -59,9 +59,9 @@ public:
 
 public:
   size_t expected() const;
-  void query(bool& occurred, libxstream_stream* stream) const;
   void enqueue(libxstream_stream& stream, bool reset);
-  void wait(libxstream_stream* stream);
+  int query(bool& occurred, libxstream_stream* stream) const;
+  int wait(libxstream_stream* stream);
 
 private:
   size_t m_expected;

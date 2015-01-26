@@ -192,7 +192,7 @@
 #define LIBXSTREAM_OFFLOAD_DEVICE (device_)
 #define LIBXSTREAM_OFFLOAD_DEVICE_UPDATE(DEVICE) device_ = (DEVICE)
 
-#define LIBXSTREAM_OFFLOAD_BEGIN(STREAM, ARG, ...) { \
+#define LIBXSTREAM_OFFLOAD_BEGIN(STREAM, ARG, ...) do { \
   libxstream_stream *const stream_ = cast_to_stream(STREAM); \
   const libxstream_offload_region::arg_type argv_[] = { ARG, __VA_ARGS__ }; \
   struct offload_region: public libxstream_offload_region { libxstream_stream* stream_; \
@@ -204,6 +204,6 @@
       if (stream_ && signal_ != signal_consumed_) stream_->pending(signal_consumed_); \
     } \
   } offload_region_(stream_, sizeof(argv_) / sizeof(*argv_), argv_); \
-  libxstream_offload(offload_region_, true == (WAIT)); }
+  libxstream_offload(offload_region_, true == (WAIT)); } while(0)
 
 #endif // LIBXSTREAM_MACROS_H

@@ -116,7 +116,7 @@ public:
     }
   }
 
-  void sync(int device) {
+  int sync(int device) {
     const size_t n = max_nstreams();
 
     for (size_t i = 0; i < n; ++i) {
@@ -124,20 +124,26 @@ public:
         const int stream_device = stream->device();
 
         if (stream_device == device) {
-          stream->wait(0);
+          const int result = stream->wait(0);
+          LIBXSTREAM_CHECK_ERROR(result);
         }
       }
     }
+
+    return LIBXSTREAM_ERROR_NONE;
   }
 
-  void sync() {
+  int sync() {
     const size_t n = max_nstreams();
 
     for (size_t i = 0; i < n; ++i) {
       if (libxstream_stream *const stream = m_streams[i]) {
-        stream->wait(0);
+        const int result = stream->wait(0);
+        LIBXSTREAM_CHECK_ERROR(result);
       }
     }
+
+    return LIBXSTREAM_ERROR_NONE;
   }
 
 private:
@@ -156,15 +162,15 @@ private:
 }
 
 
-/*static*/void libxstream_stream::sync(int device)
+/*static*/int libxstream_stream::sync(int device)
 {
-  libxstream_stream_internal::registry.sync(device);
+  return libxstream_stream_internal::registry.sync(device);
 }
 
 
-/*static*/void libxstream_stream::sync()
+/*static*/int libxstream_stream::sync()
 {
-  libxstream_stream_internal::registry.sync();
+  return libxstream_stream_internal::registry.sync();
 }
 
 
@@ -219,12 +225,17 @@ libxstream_signal libxstream_stream::signal() const
 }
 
 
-void libxstream_stream::wait(libxstream_signal signal) const
+int libxstream_stream::wait(libxstream_signal signal) const
 {
-  LIBXSTREAM_OFFLOAD_BEGIN(const_cast<libxstream_stream*>(this), signal)
+  int result = LIBXSTREAM_ERROR_NONE;
+
+  LIBXSTREAM_OFFLOAD_BEGIN(const_cast<libxstream_stream*>(this), &result, signal)
   {
+    *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset(); // result code
+
     if (0 != LIBXSTREAM_OFFLOAD_PENDING) {
-      const libxstream_signal signal = val<const libxstream_signal,0>();
+      const libxstream_signal signal = val<const libxstream_signal,1>();
+
 # if defined(LIBXSTREAM_WAIT_PAST)
       const libxstream_signal pending = signal ? signal : LIBXSTREAM_OFFLOAD_PENDING;
 # else
@@ -242,7 +253,9 @@ void libxstream_stream::wait(libxstream_signal signal) const
       }
     }
   }
-  LIBXSTREAM_OFFLOAD_END(true)
+  LIBXSTREAM_OFFLOAD_END(true);
+
+  return result;
 }
 
 
