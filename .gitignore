@@ -2,7 +2,7 @@ My Amplifier*
 My Inspector*
 bin
 build
-PACKAGE
+*.opensdf
 *.user
 *.exe
 *.sdf
