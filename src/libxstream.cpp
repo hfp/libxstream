@@ -498,18 +498,15 @@ extern "C" int libxstream_event_record(libxstream_event* event, libxstream_strea
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
 #endif
-  LIBXSTREAM_CHECK_CONDITION(event);
-  int result = LIBXSTREAM_ERROR_NONE;
 
   if (stream) {
-    result = stream->reset();
     event->enqueue(*stream, true);
   }
   else {
     libxstream_stream::enqueue(*event);
   }
 
-  return result;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
