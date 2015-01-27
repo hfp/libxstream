@@ -6,7 +6,7 @@ Interface
 =========
 The library's [C API](include/libxstream.h) completely seals the implementation and only forward declares some types. Beside of some minor syntactical sugar, the C++ API allows to make use of the [stream](include/libxstream_stream.hpp) and [event](inlcude/libxstream_event.hpp) types directly. The C++ API is currently required for own code to be enqueued into a stream. However, a future release will allow to only rely on a function pointer and a plain C interface. A future implementation may also provide a native FORTRAN interface. The library's implementation allows enqueuing work from multiple host threads in a thread-safe manner and without oversubscribing the device.
 
-** Data Types **
+**Data Types**
 
 ```C
 /** Data type representing a signal. */
@@ -17,7 +17,7 @@ typedef struct libxstream_stream libxstream_stream;
 typedef struct libxstream_event libxstream_event;
 ```
 
-** Device Interface **
+**Device Interface**
 
 ```C
 /** Query the number of available devices. */
@@ -28,41 +28,41 @@ int libxstream_get_active_device(int* device);
 int libxstream_set_active_device(int device);
 ```
 
-** Memory Interface **
+**Memory Interface**
 
 ```C
 /** Query the memory metrics of the given device (it is valid to pass one NULL pointer). */
 int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
 /** Allocates memory with alignment (0: automatic) on the given device. */
 int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
-/** Deallocates the memory. The given device shall match the device where the memory was allocated. */
+/** Deallocates the memory; shall match the device where the memory was allocated. */
 int libxstream_mem_deallocate(int device, const void* memory);
 /** Fills the memory with zeros; allocated memory can carry an offset and a smaller size. */
 int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream);
 /** Copies memory from the host to the device; addresses can carry an offset. */
-int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream);
+int libxstream_memcpy_h2d(const void* mem, void* dev_mem, size_t size, libxstream_stream*);
 /** Copies memory from the device to the host; addresses can carry an offset. */
-int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream);
-/** Copies memory from the device to the device with cross-device copies being allowed as well. */
-int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream);
+int libxstream_memcpy_d2h(const void* dev_mem, void* mem, size_t size, libxstream_stream*);
+/** Copies memory from device to device; cross-device copies are allowed as well. */
+int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream*);
 ```
 
-** Stream Interface **
+**Stream Interface**
 
 ```C
 /** Query the range of valid priorities (inclusive). */
 int libxstream_stream_priority_range(int* least, int* greatest);
-/** Create a stream on a given device. The given priority shall be within the queried bounds. */
-int libxstream_stream_create(libxstream_stream** stream, int device, int priority, const char* name);
-/** Destroy a stream. Any pending work with results needed must be completed explicitly (prior). */
+/** Create a stream on a given device; priority shall be within the queried bounds. */
+int libxstream_stream_create(libxstream_stream**, int device, int priority, const char* name);
+/** Destroy a stream; pending work must be completed explicitly if results are needed. */
 int libxstream_stream_destroy(libxstream_stream* stream);
-/** Wait for a stream to complete pending work. A NULL-stream synchronizes all streams. */
+/** Wait for a stream to complete pending work; NULL to synchronize all streams. */
 int libxstream_stream_sync(libxstream_stream* stream);
 /** Wait for an event recorded earlier. Passing NULL increases the match accordingly. */
 int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
 ```
 
-** Event Interface **
+**Event Interface**
 
 ```C
 /** Create an event; can be re-used multiple times by re-recording the event. */
