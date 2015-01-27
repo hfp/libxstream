@@ -4,7 +4,7 @@ Library to work with streams, events, and code regions that are able to run asyn
 
 Interface
 =========
-The library's [C API](include/libxstream.h) completely seals the implementation and only forward declares some types. Beside of some minor syntactical sugar, the C++ API allows to make use of the [stream](include/libxstream_stream.hpp) and [event](inlcude/libxstream_event.hpp) types directly. The C++ API is currently required for own code to be enqueued into a stream. However, a future release will allow to only rely on a function pointer and a plain C interface. A future implementation may also provide a native FORTRAN interface. The library's implementation allows enqueuing work from multiple host threads in a thread-safe manner and without oversubscribing the device.
+The library's [C API](include/libxstream.h) completely seals the implementation and only forward declares some types. Beside of some minor syntactical sugar, the C++ API allows to make use of the [stream](include/libxstream_stream.hpp) and [event](inlcude/libxstream_event.hpp) types directly. The C++ API is currently required for own code to be enqueued into a stream. However, a future release will allow to only rely on a function pointer and a plain C interface. A future release may also provide a native FORTRAN interface.
 
 **Data Types**
 
@@ -79,4 +79,4 @@ int libxstream_event_synchronize(libxstream_event* event);
 
 Implementation
 ==============
-The actual implementation vehicle can be configured using a [configuration header](include/libxstream_config.h). Currently Intel's Language Extensions for Offload (LEO) are used to perform asynchronous execution and data transfers using signal/wait clauses. Other mechanism could used e.g., hStreams or COI (both are part of the Intel Manycore Platform Software Stack), or the OpenMP 4.0 offload directives.
+The library's implementation allows enqueuing work from multiple host threads in a thread-safe manner and without oversubscribing the device. The actual implementation vehicle can be configured using a [configuration header](include/libxstream_config.h). Currently Intel's Language Extensions for Offload (LEO) are used to perform asynchronous execution and data transfers using signal/wait clauses. Other mechanism could used e.g., hStreams or COI (both are part of the Intel Manycore Platform Software Stack), or the OpenMP 4.0 offload directives.

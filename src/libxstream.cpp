@@ -407,136 +407,6 @@ extern "C" int libxstream_set_active_device(int device)
 }
 
 
-extern "C" int libxstream_stream_priority_range(int* least, int* greatest)
-{
-  *least = -1;
-  *greatest = -1;
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, int priority, const char* name)
-{
-  LIBXSTREAM_CHECK_CONDITION(stream);
-  libxstream_stream *const s = new libxstream_stream(device, priority, name);
-  LIBXSTREAM_ASSERT(s);
-  *stream = s;
-
-#if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_stream_create: stream=0x%lx name=\"%s\"\n",
-    static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)),
-    name ? name : "");
-#endif
-
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
-{
-#if defined(LIBXSTREAM_DEBUG)
-  if (0 != stream) {
-    fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx name=\"%s\"\n",
-      static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)),
-      stream->name());
-  }
-#endif
-
-  delete stream;
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-extern "C" int libxstream_stream_sync(libxstream_stream* stream)
-{
-#if defined(LIBXSTREAM_DEBUG)
-  if (0 != stream) {
-    fprintf(stderr, "DBG libxstream_stream_sync: stream=0x%lx name=\"%s\"\n",
-      static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)),
-      stream->name());
-  }
-  else {
-    fprintf(stderr, "DBG libxstream_stream_sync: synchronize all streams\n");
-  }
-#endif
-
-  return stream ? stream->wait(0) : libxstream_stream::sync();
-}
-
-
-extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
-{
-#if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_stream_wait_event: event=0x%lx stream=0x%lx\n",
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
-#endif
-
-  return event ? event->wait(stream) : (stream ? stream->wait(0) : libxstream_stream::sync());
-}
-
-
-extern "C" int libxstream_event_create(libxstream_event** event)
-{
-  LIBXSTREAM_CHECK_CONDITION(event);
-  *event = new libxstream_event;
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-extern "C" int libxstream_event_destroy(libxstream_event* event)
-{
-  delete event;
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-extern "C" int libxstream_event_record(libxstream_event* event, libxstream_stream* stream)
-{
-#if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_event_record: event=0x%lx stream=0x%lx\n",
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
-#endif
-
-  if (stream) {
-    event->enqueue(*stream, true);
-  }
-  else {
-    libxstream_stream::enqueue(*event);
-  }
-
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-extern "C" int libxstream_event_query(const libxstream_event* event, int* has_occured)
-{
-#if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_event_query: event=0x%lx\n",
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
-#endif
-  LIBXSTREAM_CHECK_CONDITION(event && has_occured);
-
-  bool occurred = true;
-  const int result = event->query(occurred, 0);
-  *has_occured = occurred ? 1 : 0;
-
-  return result;
-}
-
-
-extern "C" int libxstream_event_synchronize(libxstream_event* event)
-{
-#if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_event_synchronize: event=0x%lx\n",
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
-#endif
-
-  return event ? event->wait(0) : libxstream_stream::sync();
-}
-
-
 extern "C" int libxstream_mem_info(int device, size_t* allocatable, size_t* physical)
 {
   LIBXSTREAM_CHECK_CONDITION(allocatable || physical);
@@ -827,4 +697,134 @@ extern "C" int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, li
   LIBXSTREAM_OFFLOAD_END(false);
 
   return LIBXSTREAM_ERROR_NONE;
+}
+
+
+extern "C" int libxstream_stream_priority_range(int* least, int* greatest)
+{
+  *least = -1;
+  *greatest = -1;
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, int priority, const char* name)
+{
+  LIBXSTREAM_CHECK_CONDITION(stream);
+  libxstream_stream *const s = new libxstream_stream(device, priority, name);
+  LIBXSTREAM_ASSERT(s);
+  *stream = s;
+
+#if defined(LIBXSTREAM_DEBUG)
+  fprintf(stderr, "DBG libxstream_stream_create: stream=0x%lx name=\"%s\"\n",
+    static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)),
+    name ? name : "");
+#endif
+
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
+{
+#if defined(LIBXSTREAM_DEBUG)
+  if (0 != stream) {
+    fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx name=\"%s\"\n",
+      static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)),
+      stream->name());
+  }
+#endif
+
+  delete stream;
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+extern "C" int libxstream_stream_sync(libxstream_stream* stream)
+{
+#if defined(LIBXSTREAM_DEBUG)
+  if (0 != stream) {
+    fprintf(stderr, "DBG libxstream_stream_sync: stream=0x%lx name=\"%s\"\n",
+      static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)),
+      stream->name());
+  }
+  else {
+    fprintf(stderr, "DBG libxstream_stream_sync: synchronize all streams\n");
+  }
+#endif
+
+  return stream ? stream->wait(0) : libxstream_stream::sync();
+}
+
+
+extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
+{
+#if defined(LIBXSTREAM_DEBUG)
+  fprintf(stderr, "DBG libxstream_stream_wait_event: event=0x%lx stream=0x%lx\n",
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
+#endif
+
+  return event ? event->wait(stream) : (stream ? stream->wait(0) : libxstream_stream::sync());
+}
+
+
+extern "C" int libxstream_event_create(libxstream_event** event)
+{
+  LIBXSTREAM_CHECK_CONDITION(event);
+  *event = new libxstream_event;
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+extern "C" int libxstream_event_destroy(libxstream_event* event)
+{
+  delete event;
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+extern "C" int libxstream_event_record(libxstream_event* event, libxstream_stream* stream)
+{
+#if defined(LIBXSTREAM_DEBUG)
+  fprintf(stderr, "DBG libxstream_event_record: event=0x%lx stream=0x%lx\n",
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
+#endif
+
+  if (stream) {
+    event->enqueue(*stream, true);
+  }
+  else {
+    libxstream_stream::enqueue(*event);
+  }
+
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+extern "C" int libxstream_event_query(const libxstream_event* event, int* has_occured)
+{
+#if defined(LIBXSTREAM_DEBUG)
+  fprintf(stderr, "DBG libxstream_event_query: event=0x%lx\n",
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
+#endif
+  LIBXSTREAM_CHECK_CONDITION(event && has_occured);
+
+  bool occurred = true;
+  const int result = event->query(occurred, 0);
+  *has_occured = occurred ? 1 : 0;
+
+  return result;
+}
+
+
+extern "C" int libxstream_event_synchronize(libxstream_event* event)
+{
+#if defined(LIBXSTREAM_DEBUG)
+  fprintf(stderr, "DBG libxstream_event_synchronize: event=0x%lx\n",
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
+#endif
+
+  return event ? event->wait(0) : libxstream_stream::sync();
 }

@@ -70,6 +70,21 @@ int libxstream_get_active_device(int* device);
 /** Sets the active device for this thread. */
 int libxstream_set_active_device(int device);
 
+/** Query the memory metrics of the given device (it is valid to pass one NULL pointer). */
+int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
+/** Allocates memory with automatic alignment (0) on the given device; mandatory for device-side memory. */
+int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
+/** Deallocates the memory. The given device shall match the device where the memory was allocated. */
+int libxstream_mem_deallocate(int device, const void* memory);
+/** Fills the memory with zeros; allocated memory can carry an offset and a smaller size. */
+int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream);
+/** Copies memory from the host to the device; allocated memory can carry an offset and a smaller size. */
+int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream);
+/** Copies memory from the device to the host; allocated memory can carry an offset and a smaller size. */
+int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream);
+/** Copies memory from the device to the device with cross-device copies being allowed as well. */
+int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream);
+
 /** Query the range of valid priorities (inclusive). */
 int libxstream_stream_priority_range(int* least, int* greatest);
 /** Create a stream on a given device. The given priority shall be within the queried bounds. */
@@ -91,21 +106,6 @@ int libxstream_event_record(libxstream_event* event, libxstream_stream* stream);
 int libxstream_event_query(const libxstream_event* event, int* has_occured);
 /** Wait for an event to complete i.e., any work enqueued prior to recording the event. */
 int libxstream_event_synchronize(libxstream_event* event);
-
-/** Query the memory metrics of the given device (it is valid to pass one NULL pointer). */
-int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
-/** Allocates memory with automatic alignment (0) on the given device; mandatory for device-side memory. */
-int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
-/** Deallocates the memory. The given device shall match the device where the memory was allocated. */
-int libxstream_mem_deallocate(int device, const void* memory);
-/** Fills the memory with zeros; allocated memory can carry an offset and a smaller size. */
-int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream);
-/** Copies memory from the host to the device; allocated memory can carry an offset and a smaller size. */
-int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream);
-/** Copies memory from the device to the host; allocated memory can carry an offset and a smaller size. */
-int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream);
-/** Copies memory from the device to the device with cross-device copies being allowed as well. */
-int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream);
 
 #ifdef __cplusplus
 }
