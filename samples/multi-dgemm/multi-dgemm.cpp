@@ -41,6 +41,7 @@
 #endif
 
 //#define MULTI_DGEMM_USE_NESTED
+#define MULTI_DGEMM_USE_ISYNC
 #define DGEMM dgemm_
 
 
@@ -68,6 +69,7 @@ LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* indexes,
 #if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
       omp_set_num_threads(nthreads);
 #endif
+      LIBXSTREAM_ASSERT(base <= indexes[i]);
       const size_t i0 = indexes[i], i1 = (i + 1) < size ? indexes[i+1] : (nn + i0), n2 = i1 - i0, offset = i0 - base;
       const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
       DGEMM(&trans, &trans, &n, &n, &n, &alpha, adata + offset, &n, bdata + offset, &n, &beta, cdata + offset, &n);
@@ -91,7 +93,7 @@ int main(int argc, char* argv[])
       fprintf(stdout, " %.1f MB.\n", host_data.bytes() * 1E-6);
 
       fprintf(stdout, "Preparing %i stream%s per device...\n", nstreams, 1 < nstreams ? "s" : "");
-      const int idevices = static_cast<int>(ndevices);
+      const int idevices = static_cast<int>(ndevices), istreams = idevices * nstreams;
       multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_DEVICES];
       libxstream_stream* streams[LIBXSTREAM_MAX_STREAMS*LIBXSTREAM_MAX_DEVICES];
       std::fill_n(streams, LIBXSTREAM_MAX_STREAMS * LIBXSTREAM_MAX_DEVICES, static_cast<libxstream_stream*>(0));
@@ -118,13 +120,20 @@ int main(int argc, char* argv[])
 #       pragma omp single nowait
 #endif
         {
+          const int stream = i % istreams, device = streams[stream]->device();
+
 #if defined(_OPENMP) && (200203 < _OPENMP)
 #         pragma omp task
 #endif
           {
-            const int stream = i % (idevices * nstreams), device = streams[stream]->device();
             LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device](*streams[stream], process, i, std::min(nbatch, nitems - i)));
           }
+
+#if defined(MULTI_DGEMM_USE_ISYNC)
+          if (0 < i && 0 == stream) {
+            LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
+          }
+#endif
         }
       }
 
