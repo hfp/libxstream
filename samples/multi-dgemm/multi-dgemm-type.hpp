@@ -64,7 +64,7 @@ public:
 
 public:
   bool ready() const;
-  int init(host_data_type& host_data, int device);
+  int init(host_data_type& host_data, int device, int max_batch);
   int operator()(libxstream_stream& stream, process_fn_type process_fn, int index, int size);
 
 private:

@@ -53,22 +53,25 @@ LIBXSTREAM_EXTERN_C LIBXSTREAM_EXPORT void DGEMM(
 LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* indexes,
   const double* adata, const double* bdata, double* cdata)
 {
-  static const double alpha = 1, beta = 1;
-  static const char trans = 'N';
+  if (0 < size) {
+    static const double alpha = 1, beta = 1;
+    static const char trans = 'N';
+    const size_t base = indexes[0];
 
 #if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
-  const int nthreads = omp_get_max_threads() / size;
-  omp_set_dynamic(0);
-  omp_set_nested(1);
-# pragma omp parallel for schedule(dynamic,1) num_threads(size)
+    const int nthreads = omp_get_max_threads() / size;
+    omp_set_dynamic(0);
+    omp_set_nested(1);
+#   pragma omp parallel for schedule(dynamic,1) num_threads(size)
 #endif
-  for (int i = 0; i < size; ++i) {
+    for (int i = 0; i < size; ++i) {
 #if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
-    omp_set_num_threads(nthreads);
+      omp_set_num_threads(nthreads);
 #endif
-    const size_t i0 = indexes[i], i1 = (i + 1) < size ? indexes[i+1] : (nn + i0), n2 = i1 - i0;
-    const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
-    DGEMM(&trans, &trans, &n, &n, &n, &alpha, adata + i0, &n, bdata + i0, &n, &beta, cdata + i0, &n);
+      const size_t i0 = indexes[i], i1 = (i + 1) < size ? indexes[i+1] : (nn + i0), n2 = i1 - i0, offset = i0 - base;
+      const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
+      DGEMM(&trans, &trans, &n, &n, &n, &alpha, adata + offset, &n, bdata + offset, &n, &beta, cdata + offset, &n);
+    }
   }
 }
 
@@ -92,9 +95,10 @@ int main(int argc, char* argv[])
       multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_DEVICES];
       libxstream_stream* streams[LIBXSTREAM_MAX_STREAMS*LIBXSTREAM_MAX_DEVICES];
       std::fill_n(streams, LIBXSTREAM_MAX_STREAMS * LIBXSTREAM_MAX_DEVICES, static_cast<libxstream_stream*>(0));
+
       fprintf(stdout, "Allocating memory for %i device%s...\n", idevices, 1 == idevices ? "" : "s");
       for (int device = 0; device < idevices; ++device) {
-        LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device].init(host_data, device));
+        LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device].init(host_data, device, nbatch));
         for (int i = 0; i < nstreams; ++i) {
           const int stream = device * idevices + i;
           char name[128];

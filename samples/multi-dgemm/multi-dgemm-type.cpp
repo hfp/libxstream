@@ -30,6 +30,7 @@
 ******************************************************************************/
 #include "multi-dgemm-type.hpp"
 #include <stdexcept>
+#include <algorithm>
 #include <cstdlib>
 
 
@@ -154,18 +155,27 @@ bool multi_dgemm_type::ready() const
 }
 
 
-int multi_dgemm_type::init(host_data_type& host_data, int device)
+int multi_dgemm_type::init(host_data_type& host_data, int device, int max_batch)
 {
   LIBXSTREAM_ASSERT(!ready());
   m_host_data = &host_data;
   m_device = device;
 
   const int size = host_data.size();
-  const size_t msize = host_data.index()[size];
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_adata), sizeof(double) * msize, 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_bdata), sizeof(double) * msize, 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_cdata), sizeof(double) * msize, 0));
-  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_index), sizeof(size_t) * (size + 1), 0));
+  LIBXSTREAM_ASSERT(0 == size || 0 == host_data.index()[0]);
+
+  size_t max_size = 0, i0 = 0, i1 = 0;
+  for (int i = 0; i < size; ++i) {
+    i1 = host_data.index()[i+1];
+    max_size = std::max(max_size, i1 - i0);
+    i0 = i1;
+  }
+
+  const int max_msize = max_batch * max_size;
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_adata), sizeof(double) * max_msize, 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_bdata), sizeof(double) * max_msize, 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_cdata), sizeof(double) * max_msize, 0));
+  LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_index), sizeof(size_t) * max_batch, 0));
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -177,14 +187,14 @@ int multi_dgemm_type::operator()(libxstream_stream& stream, process_fn_type proc
 
   if (0 < size) {
     const size_t i0 = m_host_data->index()[index], i1 = m_host_data->index()[index+size];
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->adata() + i0, m_adata + i0, sizeof(double) * (i1 - i0), &stream));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->bdata() + i0, m_bdata + i0, sizeof(double) * (i1 - i0), &stream));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->cdata() + i0, m_cdata + i0, sizeof(double) * (i1 - i0), &stream));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->index() + index, m_index + index, sizeof(size_t) * size, &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->adata() + i0, m_adata, sizeof(double) * (i1 - i0), &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->bdata() + i0, m_bdata, sizeof(double) * (i1 - i0), &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->cdata() + i0, m_cdata, sizeof(double) * (i1 - i0), &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->index() + index, m_index, sizeof(size_t) * size, &stream));
 
     LIBXSTREAM_OFFLOAD_BEGIN(stream, process_fn,
       size, i1 - m_host_data->index()[index+size-1],
-      m_adata, m_bdata, m_cdata, m_index + index)
+      m_adata, m_bdata, m_cdata, m_index)
     {
       LIBXSTREAM_EXPORT process_fn_type process_fn = val<process_fn_type,0>();
       const int size = val<const int,1>();
@@ -225,7 +235,7 @@ int multi_dgemm_type::operator()(libxstream_stream& stream, process_fn_type proc
     }
     LIBXSTREAM_OFFLOAD_END(false);
 
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata + i0, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), &stream));
+    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), &stream));
   }
 
   return LIBXSTREAM_ERROR_NONE;
