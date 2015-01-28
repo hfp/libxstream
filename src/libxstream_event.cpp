@@ -35,6 +35,11 @@
 # include <offload.h>
 #endif
 
+// allows to wait for an event issued prior to the pending signal
+//#define LIBXSTREAM_EVENT_WAIT_PAST
+// alternative wait routine; waits until the effect occurred
+//#define LIBXSTREAM_EVENT_WAIT_OCCURRED
+
 
 /*static*/void libxstream_event::enqueue(libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset)
 {
@@ -63,7 +68,7 @@
     const libxstream_signal pending_stream = slot.stream().pending();
 
     if (0 != pending_stream) {
-#if defined(LIBXSTREAM_WAIT_PAST)
+#if defined(LIBXSTREAM_EVENT_WAIT_PAST)
       const libxstream_signal signal = pending_slot;
 #else
       const libxstream_signal signal = pending_stream;
@@ -164,7 +169,7 @@ int libxstream_event::wait(libxstream_stream* stream)
       const libxstream_signal pending_slot = slot.pending();
 
       if (slot.match(LIBXSTREAM_OFFLOAD_STREAM) && 0 != pending_stream && 0 != pending_slot) {
-#if defined(LIBXSTREAM_WAIT_OCCURRED)
+#if defined(LIBXSTREAM_EVENT_WAIT_OCCURRED)
         do { // spin/yield
           libxstream_event::update(slot);
 # if defined(LIBXSTREAM_MIC_STDTHREAD)
@@ -173,7 +178,7 @@ int libxstream_event::wait(libxstream_stream* stream)
         }
         while(0 != slot.pending());
 #else
-# if defined(LIBXSTREAM_WAIT_PAST)
+# if defined(LIBXSTREAM_EVENT_WAIT_PAST)
         const libxstream_signal signal = pending_slot;
 # else
         const libxstream_signal signal = pending_stream;

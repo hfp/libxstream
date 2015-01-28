@@ -37,14 +37,14 @@
 
 
 /**
- * Debug-time error checks are usually disabled for production code.
- * The LIBXSTREAM_DEBUG symbol ultimately enables this (see libxstream_macros.h).
+ * Debug-time error checks are usually disabled for production code (NDEBUG).
+ * The LIBXSTREAM_DEBUG symbol ultimately controls this (see libxstream_macros.h).
  */
 #define LIBXSTREAM_ERROR_DEBUG
 
 /**
- * Runtime error checks are usually enabled.
- * The LIBXSTREAM_CHECK symbol ultimately enables this (see libxstream_macros.h).
+ * Runtime error checks and error handling code is usually enabled.
+ * The LIBXSTREAM_CHECK symbol ultimately controls this (see libxstream_macros.h).
  */
 #define LIBXSTREAM_ERROR_CHECK
 
@@ -70,12 +70,6 @@
  * - #define LIBXSTREAM_ASYNC 2: compiler streams
  */
 #define LIBXSTREAM_ASYNC
-
-/** Alternative wait routine; allows to wait for an older event (not currently pending). */
-//#define LIBXSTREAM_WAIT_PAST
-
-/** Alternative wait routine; waits until the effect occurred (libxstream_event_query). */
-//#define LIBXSTREAM_WAIT_OCCURRED
 
 /** SIMD width in Byte (actual alignment might be smaller). */
 #define LIBXSTREAM_MAX_SIMD 64

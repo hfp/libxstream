@@ -32,6 +32,9 @@
 #include <algorithm>
 #include <atomic>
 
+// allows to wait for an event issued prior to the pending signal
+//#define LIBXSTREAM_STREAM_WAIT_PAST
+
 
 namespace libxstream_stream_internal {
 
@@ -236,7 +239,7 @@ int libxstream_stream::wait(libxstream_signal signal) const
     if (0 != LIBXSTREAM_OFFLOAD_PENDING) {
       const libxstream_signal signal = val<const libxstream_signal,1>();
 
-# if defined(LIBXSTREAM_WAIT_PAST)
+# if defined(LIBXSTREAM_STREAM_WAIT_PAST)
       const libxstream_signal pending = signal ? signal : LIBXSTREAM_OFFLOAD_PENDING;
 # else
       const libxstream_signal pending = LIBXSTREAM_OFFLOAD_PENDING;
