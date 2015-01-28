@@ -175,10 +175,13 @@ private:
   void push(const value_type& offload_region, bool wait) {
     LIBXSTREAM_ASSERT(0 != offload_region);
     storage_type& entry = m_buffer[m_size++%LIBXSTREAM_MAX_QSIZE];
-    LIBXSTREAM_ASSERT(0 == static_cast<value_type>(entry));
+
+    // stall the push if LIBXSTREAM_MAX_QSIZE is exceeded
+    while (0 != static_cast<value_type>(entry)) {
+      yield();
+    }
 
     entry = terminator != offload_region ? offload_region->clone() : terminator;
-
     if (wait) {
       while (0 != static_cast<value_type>(entry)) {
         yield();
