@@ -434,7 +434,7 @@ extern "C" int libxstream_mem_info(int device, size_t* allocatable, size_t* phys
   LIBXSTREAM_OFFLOAD_END(true);
 
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_mem_info: allocatable=%lu physical=%lu\n",
+  fprintf(stderr, "DBG libxstream_mem_info: device=%i allocatable=%lu physical=%lu\n", device,
     static_cast<unsigned long>(memory_allocatable),
     static_cast<unsigned long>(memory_physical));
 #endif
@@ -481,7 +481,7 @@ extern "C" int libxstream_mem_allocate(int device, void** memory, size_t size, s
   LIBXSTREAM_OFFLOAD_END(true);
 
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_mem_allocate: buffer=0x%lx size=%lu\n",
+  fprintf(stderr, "DBG libxstream_mem_allocate: device=%i buffer=0x%lx size=%lu\n", device,
     memory ? static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(memory)) : 0UL,
     static_cast<unsigned long>(size));
 #endif
@@ -496,7 +496,7 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
 
   if (memory) {
 #if defined(LIBXSTREAM_DEBUG)
-    fprintf(stderr, "DBG libxstream_mem_deallocate: buffer=0x%lx\n",
+    fprintf(stderr, "DBG libxstream_mem_deallocate: device=%i buffer=0x%lx\n", device,
       static_cast<unsigned long>(reinterpret_cast<uintptr_t>(memory)));
 #endif
 
@@ -716,8 +716,8 @@ extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, 
   *stream = s;
 
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_stream_create: stream=0x%lx name=\"%s\"\n",
-    static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)),
+  fprintf(stderr, "DBG libxstream_stream_create: device=%i stream=0x%lx name=\"%s\"\n",
+    device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)),
     name ? name : "");
 #endif
 
