@@ -50,7 +50,8 @@ class queue_type {
 public:
   typedef const libxstream_offload_region* value_type;
   queue_type()
-    : m_index(0)
+    : m_terminated(false)
+    , m_index(0)
     , m_size(0)
 #if defined(LIBXSTREAM_OFFLOAD_STATS)
     , m_max_size(0)
@@ -82,43 +83,46 @@ public:
   }
 
 public:
-  void start() {
+  bool start() {
+    if (!m_terminated) {
 #if (defined(LIBXSTREAM_OFFLOAD_PTHREAD) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
-    if (0 == m_thread) {
-      pthread_mutex_lock(&m_lock);
       if (0 == m_thread) {
-        pthread_create(&m_thread, 0, run, this);
+        pthread_mutex_lock(&m_lock);
+        if (0 == m_thread) {
+          pthread_create(&m_thread, 0, run, this);
+        }
+        pthread_mutex_unlock(&m_lock);
       }
-      pthread_mutex_unlock(&m_lock);
-    }
 #else
-    if (!m_thread.joinable()) {
-      ++m_lock;
-      while (1 < m_lock) {
-        yield();
-      }
       if (!m_thread.joinable()) {
-        std::thread(run, this).swap(m_thread);
+        ++m_lock;
+        while (1 < m_lock) {
+          yield();
+        }
+        if (!m_thread.joinable()) {
+          std::thread(run, this).swap(m_thread);
+        }
+        --m_lock;
       }
-      --m_lock;
-    }
 #endif
+    }
+    
+    return !m_terminated;
   }
 
   void terminate() {
-    push(reinterpret_cast<value_type>(-1), false); // terminates the background thread
+    push(terminator, false); // terminates the background thread
 
 #if defined(LIBXSTREAM_DEBUG)
     for (size_t i = 0; i < LIBXSTREAM_MAX_QSIZE; ++i) {
       const value_type item = m_buffer[i];
-      if (0 != item && reinterpret_cast<value_type>(-1) != item) {
+      if (0 != item && terminator != item) {
         m_buffer[i] = 0;
         fprintf(stderr, "\tdangling work item in queue!\n");
         delete item;
       }
     }
 #endif
-
 #if (defined(LIBXSTREAM_OFFLOAD_PTHREAD) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
     if (0 != m_thread) {
       pthread_join(m_thread, 0);
@@ -129,6 +133,7 @@ public:
       m_thread.join();
     }
 #endif
+    m_terminated = true;
   }
 
   bool empty() const {
@@ -172,7 +177,7 @@ private:
     storage_type& entry = m_buffer[m_size++%LIBXSTREAM_MAX_QSIZE];
     LIBXSTREAM_ASSERT(0 == static_cast<value_type>(entry));
 
-    entry = reinterpret_cast<value_type>(-1) != offload_region ? offload_region->clone() : offload_region;
+    entry = terminator != offload_region ? offload_region->clone() : terminator;
 
     if (wait) {
       while (0 != static_cast<value_type>(entry)) {
@@ -190,7 +195,7 @@ private:
         q.yield();
       }
 
-      if (reinterpret_cast<value_type>(-1) != offload_region) {
+      if (terminator != offload_region) {
         (*offload_region)();
         delete offload_region;
         q.pop();
@@ -205,9 +210,12 @@ private:
   }
 
 private:
+  static const value_type terminator;
+
   //typedef std::atomic<value_type> storage_type;
   typedef value_type storage_type;
   storage_type m_buffer[LIBXSTREAM_MAX_QSIZE];
+  bool m_terminated;
   size_t m_index; // pop is not meant to be thread-safe!
   std::atomic<size_t> m_size;
 #if defined(LIBXSTREAM_OFFLOAD_STATS)
@@ -227,6 +235,7 @@ private:
 #else
 };
 #endif
+/*static*/ const queue_type::value_type queue_type::terminator = reinterpret_cast<queue_type::value_type>(-1);
 
 } // namespace libxstream_offload_internal
 
@@ -246,8 +255,9 @@ libxstream_offload_region::libxstream_offload_region(size_t argc, const arg_type
 void libxstream_offload(const libxstream_offload_region& offload_region, bool wait)
 {
 #if defined(LIBXSTREAM_OFFLOAD_QUEUE)
-  libxstream_offload_internal::queue.start();
-  libxstream_offload_internal::queue.push(offload_region, wait);
+  if (libxstream_offload_internal::queue.start()) {
+    libxstream_offload_internal::queue.push(offload_region, wait);
+  }
 #else
   offload_region();
 #endif
