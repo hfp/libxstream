@@ -49,13 +49,14 @@ public:
     const double* adata() const;
     const double* bdata() const;
     double* cdata();
-    const size_t* index() const;
+    const size_t* idata() const;
+    size_t max_matrix_size() const;
     size_t bytes() const;
     size_t flops() const;
   private:
     int m_size;
     double *m_adata, *m_bdata, *m_cdata;
-    size_t *m_index, m_flops;
+    size_t *m_idata, m_flops;
   };
 
 public:
@@ -72,7 +73,7 @@ private:
   int m_device;
 
   double *m_adata, *m_bdata, *m_cdata;
-  size_t *m_index;
+  size_t *m_idata;
 };
 
 #endif // MULTI_DGEMM_TYPE_HPP
