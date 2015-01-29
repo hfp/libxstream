@@ -195,7 +195,7 @@
 #define LIBXSTREAM_OFFLOAD_BEGIN(STREAM, ARG, ...) do { \
   libxstream_stream *const stream_ = cast_to_stream(STREAM); \
   const libxstream_offload_region::arg_type argv_[] = { ARG, __VA_ARGS__ }; \
-  struct offload_region: public libxstream_offload_region { libxstream_stream* stream_; \
+  const struct offload_region: public libxstream_offload_region { libxstream_stream* stream_; \
     offload_region(libxstream_stream* stream, size_t argc, const arg_type argv[]) \
       : libxstream_offload_region(argc, argv), stream_(stream) {} \
     offload_region* clone() const { return new offload_region(*this); } \

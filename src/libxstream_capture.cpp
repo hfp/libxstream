@@ -50,8 +50,7 @@ class queue_type {
 public:
   typedef const libxstream_offload_region* value_type;
   queue_type()
-    : m_terminated(false)
-    , m_index(0)
+    : m_index(0)
     , m_size(0)
 #if defined(LIBXSTREAM_OFFLOAD_STATS)
     , m_max_size(0)
@@ -62,6 +61,7 @@ public:
 #else
     , m_thread(run, this)
 #endif
+    , m_terminated(false)
   {
 #if (defined(LIBXSTREAM_OFFLOAD_PTHREAD) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
     pthread_mutex_init(&m_lock, 0);
@@ -140,11 +140,13 @@ public:
     return 0 == get();
   }
 
+#if defined(LIBXSTREAM_OFFLOAD_STATS)
   size_t size() const {
     const size_t offset = m_size, index = m_index;
     const storage_type& entry = m_buffer[offset%LIBXSTREAM_MAX_QSIZE];
     return 0 != static_cast<value_type>(entry) ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
   }
+#endif
 
   void push(const libxstream_offload_region& offload_region, bool wait = true) {
     push(&offload_region, wait);
@@ -176,6 +178,11 @@ private:
     LIBXSTREAM_ASSERT(0 != offload_region);
     storage_type& entry = m_buffer[m_size++%LIBXSTREAM_MAX_QSIZE];
 
+#if defined(LIBXSTREAM_DEBUG)
+    if (0 != static_cast<value_type>(entry)) {
+      fprintf(stderr, "\tqueuing work is stalled!\n");
+    }
+#endif
     // stall the push if LIBXSTREAM_MAX_QSIZE is exceeded
     while (0 != static_cast<value_type>(entry)) {
       yield();
@@ -214,12 +221,16 @@ private:
 
 private:
   static const value_type terminator;
-
-  //typedef std::atomic<value_type> storage_type;
+#if defined(LIBXSTREAM_DEBUG)
+  // avoid some false positives when detecting data races
+  typedef std::atomic<value_type> storage_type;
+  typedef std::atomic<size_t> counter_type;
+#else // certain items are not meant to be thread-safe
   typedef value_type storage_type;
+  typedef size_t counter_type;
+#endif
   storage_type m_buffer[LIBXSTREAM_MAX_QSIZE];
-  bool m_terminated;
-  size_t m_index; // pop is not meant to be thread-safe!
+  counter_type m_index;
   std::atomic<size_t> m_size;
 #if defined(LIBXSTREAM_OFFLOAD_STATS)
   std::atomic<size_t> m_max_size;
@@ -233,6 +244,7 @@ private:
 #endif
   lock_type m_lock;
   thread_type m_thread;
+  bool m_terminated;
 #if defined(LIBXSTREAM_OFFLOAD_QUEUE)
 } queue;
 #else
