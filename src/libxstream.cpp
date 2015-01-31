@@ -102,7 +102,7 @@ int allocate_real(void** memory, size_t size)
   if (memory) {
     if (0 < size) {
 #if defined(LIBXSTREAM_DEBUG)
-      if (unsigned char *const buffer = new unsigned char[size]) {
+      if (char *const buffer = new char[size]) {
         std::fill_n(buffer, size, 0);
         *memory = buffer;
       }
@@ -241,8 +241,8 @@ int allocate_virtual(void** memory, size_t size, const void* data, size_t data_s
 #endif
       if (0 < data_size && 0 != data) {
         LIBXSTREAM_CHECK_CONDITION(0 != user_data);
-        const unsigned char *const src = static_cast<const unsigned char*>(data);
-        unsigned char *const dst = static_cast<unsigned char*>(user_data);
+        const char *const src = static_cast<const char*>(data);
+        char *const dst = static_cast<char*>(user_data);
         for (size_t i = 0; i < data_size; ++i) dst[i] = src[i];
       }
     }
@@ -502,7 +502,7 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
 
     LIBXSTREAM_OFFLOAD_BEGIN(0, device, memory, &result)
     {
-      const unsigned char *const memory = ptr<const unsigned char,1>();
+      const char *const memory = ptr<const char,1>();
       int& result = *ptr<int,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
@@ -544,7 +544,7 @@ extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stre
 
   LIBXSTREAM_OFFLOAD_BEGIN(stream, memory, size)
   {
-    unsigned char* dst = ptr<unsigned char,0>();
+    char* dst = ptr<char,0>();
     const size_t size = val<const size_t,1>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
@@ -589,8 +589,8 @@ extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t
 
   LIBXSTREAM_OFFLOAD_BEGIN(stream, host_mem, dev_mem, size)
   {
-    const unsigned char *const src = ptr<const unsigned char,0>();
-    unsigned char *const dst = ptr<unsigned char,1>();
+    const char *const src = ptr<const char,0>();
+    char *const dst = ptr<char,1>();
     const size_t size = val<const size_t,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
@@ -629,8 +629,8 @@ extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t
 
   LIBXSTREAM_OFFLOAD_BEGIN(stream, dev_mem, host_mem, size)
   {
-    const unsigned char* src = ptr<const unsigned char,0>();
-    unsigned char *const dst = ptr<unsigned char,1>();
+    const char* src = ptr<const char,0>();
+    char *const dst = ptr<char,1>();
     const size_t size = val<const size_t,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)

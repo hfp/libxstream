@@ -204,6 +204,6 @@
       if (stream_ && signal_ != signal_consumed_) stream_->pending(signal_consumed_); \
     } \
   } offload_region_(stream_, sizeof(argv_) / sizeof(*argv_), argv_); \
-  libxstream_offload(offload_region_, true == (WAIT)); } while(0)
+  libxstream_offload(offload_region_, false != (WAIT)); } while(0)
 
 #endif // LIBXSTREAM_MACROS_H
