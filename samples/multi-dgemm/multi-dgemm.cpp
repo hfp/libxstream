@@ -78,12 +78,12 @@ LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* idata,
       const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
       DGEMM(&trans, &trans, &n, &n, &n, &alpha, adata + offset, &n, bdata + offset, &n, &beta, cdata + offset, &n);
     }
-  }
 
 #if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
     omp_set_dynamic(dynamic);
     omp_set_nested(nested);
 #endif
+  }
 }
 
 
