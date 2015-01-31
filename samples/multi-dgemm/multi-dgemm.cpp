@@ -58,10 +58,7 @@ LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* idata,
   const double* adata, const double* bdata, double* cdata)
 {
   if (0 < size) {
-#if defined(LIBXSTREAM_DEBUG)
-    fprintf(stdout, "processing offset %lu\n", static_cast<unsigned long>(idata[0]));
-#endif
-    static const double alpha = 1, beta = 1;
+    static const double alpha = 1, beta = 0;
     static const char trans = 'N';
     const size_t base = idata[0];
 
@@ -108,24 +105,14 @@ int main(int argc, char* argv[])
     fprintf(stdout, "Initializing host data...");
     const int split[] = { int(nitems * 18.0 / 250.0 + 0.5), int(nitems * 74.0 / 250.0 + 0.5) };
     multi_dgemm_type::host_data_type host_data(nitems, split);
-    fprintf(stdout, " %.1f MB.\n", host_data.bytes() * 1E-6);
+    fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
 
     fprintf(stdout, "Preparing %i stream%s per device...\n", nstreams, 1 < nstreams ? "s" : "");
-    const int idevices = static_cast<int>(ndevices), istreams = idevices * nstreams;
-    multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_DEVICES];
-    libxstream_stream* streams[LIBXSTREAM_MAX_STREAMS*LIBXSTREAM_MAX_DEVICES];
-    std::fill_n(streams, LIBXSTREAM_MAX_STREAMS * LIBXSTREAM_MAX_DEVICES, static_cast<libxstream_stream*>(0));
+    std::vector<multi_dgemm_type> multi_dgemm(ndevices * nstreams);
 
-    fprintf(stdout, "Allocating memory for %i device%s...\n", idevices, 1 == idevices ? "" : "s");
-    for (int device = 0; device < idevices; ++device) {
-      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[device].init(host_data, device, nbatch));
-      for (int i = 0; i < nstreams; ++i) {
-        const int stream = device * idevices + i;
-        LIBXSTREAM_ASSERT(stream <= istreams);
-        char name[128];
-        LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %d", stream + 1);
-        LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(streams + stream, device, 0, name));
-      }
+    fprintf(stdout, "Allocating memory for %i device%s...\n", static_cast<int>(ndevices), 1 == ndevices ? "" : "s");
+    for (size_t i = 0; i < multi_dgemm.size(); ++i) {
+      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(host_data, i % ndevices, nbatch));
     }
 
     const int nbatches = (nitems + nbatch - 1) / nbatch;
@@ -136,21 +123,19 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
 # if !defined(LIBXSTREAM_OFFLOAD)
     omp_set_dynamic(0);
-    omp_set_nested(1);
+    omp_set_nested(0);
 # endif
     const double start = omp_get_wtime();
 #   pragma omp parallel for schedule(dynamic)
 #endif
     for (int i = 0; i < nitems; i += nbatch) {
-      const int istream = i % istreams;
+      const int stream = i % multi_dgemm.size();
 #if defined(MULTI_DGEMM_USE_ISYNC)
-      if (0 < i && 0 == istream) {
+      if (0 < i && 0 == stream) {
         LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
       }
 #endif
-      libxstream_stream *const stream = streams[istream];
-      LIBXSTREAM_ASSERT(stream); // initialized above
-      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[stream->device()](*stream, &process, i, std::min(nbatch, nitems - i)));
+      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[stream](&process, i, std::min(nbatch, nitems - i)));
     }
 
     // sync all streams to complete any pending work
@@ -162,23 +147,21 @@ int main(int argc, char* argv[])
     fprintf(stdout, "Duration: %.1f s\n", duration);
 #endif
 
-    std::for_each(streams, streams + istreams, std::ptr_fun(libxstream_stream_destroy));
-
 #if defined(MULTI_DGEMM_USE_CHECK)
     std::vector<double> expected(host_data.max_matrix_size());
     double max_error = 0;
-    size_t i0 = 0, i1 = 0;
+    size_t i0 = 0;
     for (int i = 0; i < nitems; ++i) {
-      i1 = host_data.idata()[i+1];
+      const size_t i1 = host_data.idata()[i+1];
       const int nn = i1 - i0;
       std::fill_n(&expected[0], nn, 0.0);
       process(1, nn, host_data.idata() + i, host_data.adata() + i0, host_data.bdata() + i0, &expected[0]);
       for (int n = 0; n < nn; ++n) max_error = std::max(max_error, std::abs(expected[n] - host_data.cdata()[i0+n]));
       i0 = i1;
     }
-    fprintf(stdout, "Error: %f\n", max_error);
+    fprintf(stdout, "Error: %g\n", max_error);
 #endif
-    fprintf(stdout, "Finished.\n");
+    fprintf(stdout, "Finished\n");
   }
   catch(const std::exception& e) {
     fprintf(stderr, "Error: %s\n", e.what());
