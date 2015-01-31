@@ -102,15 +102,13 @@ int main(int argc, char* argv[])
     fprintf(stdout, "Warning: OpenMP support needed for timing results.\n");
 #endif
 
-    fprintf(stdout, "Initializing host data...");
+    fprintf(stdout, "Initializing %i device%s and host data...", static_cast<int>(ndevices), 1 == ndevices ? "" : "s");
     const int split[] = { int(nitems * 18.0 / 250.0 + 0.5), int(nitems * 74.0 / 250.0 + 0.5) };
     multi_dgemm_type::host_data_type host_data(nitems, split);
     fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
 
-    fprintf(stdout, "Preparing %i stream%s per device...\n", nstreams, 1 < nstreams ? "s" : "");
+    fprintf(stdout, "Initializing %i stream%s per device...\n", nstreams, 1 < nstreams ? "s" : "");
     std::vector<multi_dgemm_type> multi_dgemm(ndevices * nstreams);
-
-    fprintf(stdout, "Allocating memory for %i device%s...\n", static_cast<int>(ndevices), 1 == ndevices ? "" : "s");
     for (size_t i = 0; i < multi_dgemm.size(); ++i) {
       LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(host_data, i % ndevices, nbatch));
     }
