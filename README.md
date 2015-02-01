@@ -4,9 +4,9 @@ Library to work with streams, events, and code regions that are able to run asyn
 
 Interface
 =========
-The library's [C API](include/libxstream.h) completely seals the implementation and only forward declares some types. Beside of some minor syntactical sugar, the C++ API allows to make use of the [stream](include/libxstream_stream.hpp) and [event](include/libxstream_event.hpp) types directly. The C++ API is currently required for own code to be queued into a stream. However, a future release will allow to only rely on a function pointer and a plain C interface. A future release may also provide a native FORTRAN interface.
+The library's [C API](include/libxstream.h) completely seals the implementation and only forward-declares the types used in the interface. The C++ API allows to make use of the [stream](include/libxstream_stream.hpp) and [event](include/libxstream_event.hpp) types directly although it is seen to be an advantage to only rely on the C interface. The C++ API is currently required for own code to be queued into a stream. However, a future revision will allow to only rely on a function pointer and a plain C interface. A future release may also provide a native FORTRAN interface.
 
-**Data Types**
+**Data Types**: are forward-declarations of the types used in the interface. The C++ API allows to make use of the [stream](include/libxstream_stream.hpp) and [event](include/libxstream_event.hpp) types directly although it is seen to be an advantage to only rely on the C interface.
 
 ```C
 /** Data type representing a signal. */
@@ -17,7 +17,7 @@ typedef struct libxstream_stream libxstream_stream;
 typedef struct libxstream_event libxstream_event;
 ```
 
-**Device Interface**
+**Device Interface**: provides the notion of an "active device" (beside of allowing to query the number of available devices). Multiple active devices can be specified on a per host-thread basis. None of the (main) API functions (see below) implies an active device. It is up to the user to make use of this notion.
 
 ```C
 /** Query the number of available devices. */
@@ -28,7 +28,7 @@ int libxstream_get_active_device(int* device);
 int libxstream_set_active_device(int device);
 ```
 
-**Memory Interface**
+**Memory Interface**: is mainly for handling device-side buffers (allocation, copy). It is usually beneficial to allocate host memory with below functions as well. However, any memory allocation on the host is interoperable. It is also supported copying parts to/from a buffer using below API.
 
 ```C
 /** Query the memory metrics of the given device (it is valid to pass one NULL pointer). */
@@ -47,7 +47,7 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* mem, size_t size, libxstrea
 int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream*);
 ```
 
-**Stream Interface**
+**Stream Interface**: is used to expose the available parallelism. A single stream preserves the predecessor/successor relationship while modeling the pipeline pattern across multiple stream. Synchronization points can be introduced using this stream interface as well as the event interface.
 
 ```C
 /** Query the range of valid priorities (inclusive). */
@@ -62,7 +62,7 @@ int libxstream_stream_sync(libxstream_stream* stream);
 int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
 ```
 
-**Event Interface**
+**Event Interface**: provides a more sophisticated mechanism allowing to wait for a specific work item to complete without the need to also wait for the completion of work queued after the item in question.
 
 ```C
 /** Create an event; can be re-used multiple times by re-recording the event. */
@@ -85,6 +85,6 @@ Performance
 ===========
 The [multi-dgemm](samples/multi-dgemm) sample code is the implementation of a benchmark (beside of illustrating the use of LIBXSTREAM). The shown performance is not meant to be "the best case", but is rather reproduced by a program constructing a series of matrix-matrix multiplications of varying problem sizes with no attempt to avoid the implied performance penalties.
 
-**TODO: insert performance graph**
+![performance graph](samples/multi-dgemm/plot.png)
 
 Even the series of matrices with the largest problem size of the mix is not close to being able to reach the peak performance (parallel overhead). Also, there is no sufficient amount of FLOPS available which is able to hide the cost of transferring the data. The data needed for the computation includes a set of indices describing the offsets of each of the matrix operands in associated buffers. The latter may also imply unaligned memory accesses due to packing the matrix data without a favorable leading dimension. All data needed is transferred on a per-computation basis (there are multiple transfers rather than an aggregated copy-in and copy-out to cover everything). Further, there is no attempt to balance the mixture of different problem sizes when queuing the work into the streams.
