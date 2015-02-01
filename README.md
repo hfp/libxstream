@@ -85,7 +85,9 @@ Performance
 ===========
 The [multi-dgemm](samples/multi-dgemm) sample code is the implementation of a benchmark (beside of illustrating the use of LIBXSTREAM). The shown performance is not meant to be "the best case". Instead, the performance is reproduced by a program constructing a series of matrix-matrix multiplications of varying problem sizes with no attempt to avoid the implied performance penalties (see below the graph for more details).
 
-![performance graph](samples/multi-dgemm/plot.png)
-This performance graph has been created by running the [benchmark.sh](samples/multi-dgemm/benchmark.sh) on a single Intel Xeon Phi 7120 Coprocessor card. The script varies the number of matrix-matrix multiplications queued at once and reports the achieved performance. The program is rather a stress-test than a benchmark since there is no attempt to avoid the performance penalties as mentioned below.
+<dl>
+<dt>![performance graph](samples/multi-dgemm/plot.png)</dt>
+<dd>This performance graph has been created by running the [benchmark.sh](samples/multi-dgemm/benchmark.sh) on a single Intel Xeon Phi 7120 Coprocessor card. The script varies the number of matrix-matrix multiplications queued at once and reports the achieved performance. The program is rather a stress-test than a benchmark since there is no attempt to avoid the performance penalties as mentioned below.</dd>
+</dl>
 
 In fact, the series of matrices with the largest problem size of the mix is not close to being able to reach the peak performance, and there is an insufficient amount of FLOPS available to hide the cost of transferring the data. The data needed for the computation moreover includes a set of indices describing the offsets of each of the matrix operands in the associated buffers. The latter implies unaligned memory accesses due to packing the matrix data without a favorable leading dimension. Transfers are performed as needed on a per-computation basis rather than aggregating a single copy-in and a single copy-out prior and past of the benchmark cycle. Moreover, there is no attempt to balance the mixture of different problem sizes when queuing the work into the streams.
