@@ -31,18 +31,18 @@ int libxstream_set_active_device(int device);
 **Memory Interface**: is mainly for handling device-side buffers (allocation, copy). It is usually beneficial to allocate host memory with below functions as well. However, any memory allocation on the host is interoperable. It is also supported copying parts to/from a buffer using below API.
 
 ```C
-/** Query the memory metrics of the given device (it is valid to pass one NULL pointer). */
+/** Query the memory metrics of the given device (valid to pass one NULL pointer). */
 int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
 /** Allocates memory with alignment (0: automatic) on the given device. */
 int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
 /** Deallocates the memory; shall match the device where the memory was allocated. */
 int libxstream_mem_deallocate(int device, const void* memory);
-/** Fills the memory with zeros; allocated memory can carry an offset and a smaller size. */
+/** Fills the memory with zeros; allocated memory can carry an offset. */
 int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream);
 /** Copies memory from the host to the device; addresses can carry an offset. */
-int libxstream_memcpy_h2d(const void* mem, void* dev_mem, size_t size, libxstream_stream*);
+int libxstream_memcpy_h2d(const void* mem, void* dev_mem, size_t, libxstream_stream*);
 /** Copies memory from the device to the host; addresses can carry an offset. */
-int libxstream_memcpy_d2h(const void* dev_mem, void* mem, size_t size, libxstream_stream*);
+int libxstream_memcpy_d2h(const void* dev_mem, void* mem, size_t, libxstream_stream*);
 /** Copies memory from device to device; cross-device copies are allowed as well. */
 int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream*);
 ```
@@ -53,12 +53,12 @@ int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_st
 /** Query the range of valid priorities (inclusive). */
 int libxstream_stream_priority_range(int* least, int* greatest);
 /** Create a stream on a given device; priority shall be within the queried bounds. */
-int libxstream_stream_create(libxstream_stream**, int device, int priority, const char* id);
-/** Destroy a stream; pending work must be completed explicitly if results are needed. */
+int libxstream_stream_create(libxstream_stream**, int dev, int prio, const char* id);
+/** Destroy a stream; pending work must be completed if results are needed. */
 int libxstream_stream_destroy(libxstream_stream* stream);
 /** Wait for a stream to complete pending work; NULL to synchronize all streams. */
 int libxstream_stream_sync(libxstream_stream* stream);
-/** Wait for an event recorded earlier. Passing NULL increases the match accordingly. */
+/** Wait for an event recorded earlier. Passing NULL increases the match. */
 int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
 ```
 
@@ -73,7 +73,7 @@ int libxstream_event_destroy(libxstream_event* event);
 int libxstream_event_record(libxstream_event* event, libxstream_stream* stream);
 /** Check whether an event has occured or not (non-blocking). */
 int libxstream_event_query(const libxstream_event* event, int* has_occured);
-/** Wait for an event to complete i.e., any work enqueued prior to recording the event. */
+/** Wait for an event to complete i.e., work queued prior to recording the event. */
 int libxstream_event_synchronize(libxstream_event* event);
 ```
 
