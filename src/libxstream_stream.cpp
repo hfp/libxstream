@@ -30,6 +30,7 @@
 ******************************************************************************/
 #include <libxstream.hpp>
 #include <algorithm>
+#include <string>
 #include <atomic>
 
 // allows to wait for an event issued prior to the pending signal
