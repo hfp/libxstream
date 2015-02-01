@@ -58,7 +58,7 @@ LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* idata,
   const double* adata, const double* bdata, double* cdata)
 {
   if (0 < size) {
-    static const double alpha = 1, beta = 0;
+    static const double alpha = 1, beta = 1;
     static const char trans = 'N';
     const size_t base = idata[0];
 

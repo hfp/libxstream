@@ -3,7 +3,7 @@
 #TRY="echo"
 FILE="benchmark.txt"
 STREAMS=2
-SIZE=256
+SIZE=250
 STRIDE=1
 FRACT=8
 
