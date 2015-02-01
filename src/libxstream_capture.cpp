@@ -32,16 +32,13 @@
 #include <algorithm>
 #include <atomic>
 
-#define LIBXSTREAM_CAPTURE_USE_PTHREADS
-#define LIBXSTREAM_CAPTURE_USE_QUEUE
-
-#if (defined(LIBXSTREAM_CAPTURE_USE_PTHREADS) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
+#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
 # include <pthread.h>
+#else
+# include <thread>
 #endif
 
-#if defined(LIBXSTREAM_TEST) && (0 != (2*LIBXSTREAM_TEST+1)/2) || defined(LIBXSTREAM_DEBUG)
-# define LIBXSTREAM_OFFLOAD_STATS
-#endif
+#define LIBXSTREAM_CAPTURE_USE_QUEUE
 
 
 namespace libxstream_offload_internal {
@@ -52,34 +49,29 @@ public:
   queue_type()
     : m_index(0)
     , m_size(0)
-#if defined(LIBXSTREAM_OFFLOAD_STATS)
+#if defined(LIBXSTREAM_DEBUG)
     , m_max_size(0)
     , m_npush(0)
     , m_npop(0)
 #endif
     , m_terminated(false)
-#if (defined(LIBXSTREAM_CAPTURE_USE_PTHREADS) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
+#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
     , m_thread(0)
 #else
     , m_thread(run, this)
 #endif
-    , m_lock()
+    , m_lock(libxstream_lock_create())
   {
     std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<value_type>(0));
-#if (defined(LIBXSTREAM_CAPTURE_USE_PTHREADS) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
-    pthread_mutex_init(&m_lock, 0);
+#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
     start();
-#else
-    m_lock = 0;
 #endif
   }
 
   ~queue_type() {
     terminate();
-#if (defined(LIBXSTREAM_CAPTURE_USE_PTHREADS) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
-    pthread_mutex_destroy(&m_lock);
-#endif
-#if defined(LIBXSTREAM_OFFLOAD_STATS)
+    libxstream_lock_destroy(m_lock);
+#if defined(LIBXSTREAM_DEBUG)
     fprintf(stderr, "\tqueue: size=%lu pushes=%lu pops=%lu\n",
       static_cast<unsigned long>(m_max_size),
       static_cast<unsigned long>(m_npush),
@@ -90,25 +82,21 @@ public:
 public:
   bool start() {
     if (!m_terminated) {
-#if (defined(LIBXSTREAM_CAPTURE_USE_PTHREADS) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
+#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
       if (0 == m_thread) {
-        pthread_mutex_lock(&m_lock);
+        libxstream_lock_acquire(m_lock);
         if (0 == m_thread) {
           pthread_create(&m_thread, 0, run, this);
         }
-        pthread_mutex_unlock(&m_lock);
+        libxstream_lock_release(m_lock);
       }
 #else
       if (!m_thread.joinable()) {
-        if (1 < ++m_lock) {
-          while (1 < m_lock) {
-            std::this_thread::yield();
-          }
-        }
+        libxstream_lock_acquire(m_lock);
         if (!m_thread.joinable()) {
           std::thread(run, this).swap(m_thread);
         }
-        --m_lock;
+        libxstream_lock_release(m_lock);
       }
 #endif
     }
@@ -129,7 +117,7 @@ public:
       }
     }
 #endif
-#if (defined(LIBXSTREAM_CAPTURE_USE_PTHREADS) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
+#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
     if (0 != m_thread) {
       pthread_join(m_thread, 0);
       m_thread = 0;
@@ -146,7 +134,7 @@ public:
     return 0 == get();
   }
 
-#if defined(LIBXSTREAM_OFFLOAD_STATS)
+#if defined(LIBXSTREAM_DEBUG)
   size_t size() const {
     const size_t offset = m_size, index = m_index;
     const storage_type& entry = m_buffer[offset%LIBXSTREAM_MAX_QSIZE];
@@ -164,7 +152,7 @@ public:
 
   void pop() { // not thread-safe!
     LIBXSTREAM_ASSERT(!empty());
-#if defined(LIBXSTREAM_OFFLOAD_STATS)
+#if defined(LIBXSTREAM_DEBUG)
     ++m_npop;
 #endif
     m_buffer[m_index%LIBXSTREAM_MAX_QSIZE] = 0;
@@ -173,18 +161,18 @@ public:
 
 private:
   void yield() {
-#if (defined(LIBXSTREAM_CAPTURE_USE_PTHREADS) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
+#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
     pthread_yield();
 #else
     std::this_thread::yield();
 #endif
-#if defined(LIBXSTREAM_OFFLOAD_STATS)
+#if defined(LIBXSTREAM_DEBUG)
     m_max_size = std::max<size_t>(m_max_size, size());
 #endif
   }
 
   void push(const value_type& offload_region, bool wait) {
-#if defined(LIBXSTREAM_OFFLOAD_STATS)
+#if defined(LIBXSTREAM_DEBUG)
     ++m_npush;
 #endif
     LIBXSTREAM_ASSERT(0 != offload_region);
@@ -249,21 +237,19 @@ private:
   storage_type m_buffer[LIBXSTREAM_MAX_QSIZE];
   counter_type m_index;
   std::atomic<size_t> m_size;
-#if defined(LIBXSTREAM_OFFLOAD_STATS)
+#if defined(LIBXSTREAM_DEBUG)
   std::atomic<size_t> m_max_size;
   std::atomic<size_t> m_npush;
   std::atomic<size_t> m_npop;
 #endif
-#if (defined(LIBXSTREAM_CAPTURE_USE_PTHREADS) || !defined(LIBXSTREAM_MIC_STDTHREAD)) && !defined(_MSC_VER)
+#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
   typedef pthread_t thread_type;
-  typedef pthread_mutex_t lock_type;
 #else
   typedef std::thread thread_type;
-  typedef std::atomic<int> lock_type;
 #endif
   bool m_terminated;
   thread_type m_thread;
-  lock_type m_lock;
+  libxstream_lock* m_lock;
 #if defined(LIBXSTREAM_CAPTURE_USE_QUEUE)
 } queue;
 #else
@@ -274,9 +260,10 @@ private:
 } // namespace libxstream_offload_internal
 
 
-libxstream_offload_region::libxstream_offload_region(size_t argc, const arg_type argv[])
+libxstream_offload_region::libxstream_offload_region(libxstream_stream* stream, size_t argc, const arg_type argv[])
+  : m_stream(stream)
 #if defined(LIBXSTREAM_DEBUG)
-  : m_argc(argc)
+  , m_argc(argc)
 #endif
 {
   LIBXSTREAM_ASSERT(argc <= LIBXSTREAM_MAX_NARGS);
@@ -288,6 +275,14 @@ libxstream_offload_region::libxstream_offload_region(size_t argc, const arg_type
 
 void libxstream_offload(const libxstream_offload_region& offload_region, bool wait)
 {
+#if defined(LIBXSTREAM_DEBUG)
+  if (!wait) {
+    libxstream_stream *const stream = offload_region.stream();
+    if (stream && stream->thread() != this_thread())  {
+      fprintf(stderr, "\tstream is accessed by multiple threads!\n");
+    }
+  }
+#endif
 #if defined(LIBXSTREAM_CAPTURE_USE_QUEUE)
   if (libxstream_offload_internal::queue.start()) {
     libxstream_offload_internal::queue.push(offload_region, wait);
@@ -303,40 +298,4 @@ void libxstream_offload_shutdown()
 #if defined(LIBXSTREAM_CAPTURE_USE_QUEUE)
   libxstream_offload_internal::queue.terminate();
 #endif
-}
-
-
-const libxstream_stream* cast_to_stream(const void* stream)
-{
-  return static_cast<const libxstream_stream*>(stream);
-}
-
-
-libxstream_stream* cast_to_stream(void* stream)
-{
-  return static_cast<libxstream_stream*>(stream);
-}
-
-
-const libxstream_stream* cast_to_stream(const libxstream_stream* stream)
-{
-  return stream;
-}
-
-
-libxstream_stream* cast_to_stream(libxstream_stream* stream)
-{
-  return stream;
-}
-
-
-const libxstream_stream* cast_to_stream(const libxstream_stream& stream)
-{
-  return &stream;
-}
-
-
-libxstream_stream* cast_to_stream(libxstream_stream& stream)
-{
-  return &stream;
 }

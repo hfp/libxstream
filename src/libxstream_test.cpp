@@ -53,7 +53,7 @@ bool wait()
 {
   const bool result = 0 < --lock;
   while(0 < lock) { // spin/yield
-#if defined(LIBXSTREAM_YIELD) && defined(LIBXSTREAM_MIC_STDTHREAD)
+#if defined(LIBXSTREAM_YIELD) && defined(LIBXSTREAM_STDTHREAD)
     std::this_thread::yield();
 #endif
   }
@@ -77,12 +77,7 @@ libxstream_test::libxstream_test()
   : m_return_code(LIBXSTREAM_ERROR_NONE), m_device(-1), m_stream(0), m_event(0), m_host_mem(0), m_dev_mem(0)
 {
   ++libxstream_test_internal::lock;
-
-#if defined(LIBXSTREAM_MIC_STDTHREAD)
-  const std::thread::id id = std::this_thread::get_id();
-  fprintf(stderr, "TST entered by thread=0x%lx\n",
-    static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(&id)));
-#endif
+  fprintf(stderr, "TST entered by thread=0x%lx\n", static_cast<unsigned long>(this_thread()));
 
   m_return_code = libxstream_get_active_device(&m_device);
   if (LIBXSTREAM_ERROR_NONE != m_return_code) {

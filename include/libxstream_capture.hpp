@@ -64,10 +64,12 @@ public:
   };
 
 public:
-  explicit libxstream_offload_region(size_t argc = 0, const arg_type argv[] = 0);
+  libxstream_offload_region(libxstream_stream* stream, size_t argc, const arg_type argv[]);
   virtual ~libxstream_offload_region() {}
 
 public:
+  libxstream_stream* stream() const { return m_stream; }
+
   template<typename T,size_t i> T* ptr() const {
     LIBXSTREAM_ASSERT(i < m_argc && sizeof(T*) <= m_argv[i].size);
     return static_cast<T*>(m_argv[i].value.p);
@@ -83,6 +85,7 @@ public:
 
 private:
   arg_type m_argv[LIBXSTREAM_MAX_NARGS];
+  libxstream_stream* m_stream;
 #if defined(LIBXSTREAM_DEBUG)
   size_t m_argc;
 #endif
@@ -91,20 +94,5 @@ private:
 
 void libxstream_offload(const libxstream_offload_region& offload_region, bool wait = true);
 void libxstream_offload_shutdown();
-
-
-const libxstream_stream* cast_to_stream(const void* stream);
-libxstream_stream* cast_to_stream(void* stream);
-
-const libxstream_stream* cast_to_stream(const libxstream_stream* stream);
-libxstream_stream* cast_to_stream(libxstream_stream* stream);
-
-const libxstream_stream* cast_to_stream(const libxstream_stream& stream);
-libxstream_stream* cast_to_stream(libxstream_stream& stream);
-
-template<typename T> libxstream_stream* cast_to_stream(T stream) {
-  LIBXSTREAM_ASSERT(0 == stream);
-  return static_cast<libxstream_stream*>(0);
-}
 
 #endif // LIBXSTREAM_CAPTURE_HPP

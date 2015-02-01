@@ -34,8 +34,8 @@
 #include "libxstream_config.h"
 
 #if (1600 < _MSC_VER) || !defined(_WIN32)
-# if !defined(LIBXSTREAM_MIC_STDTHREAD)
-#   define LIBXSTREAM_MIC_STDTHREAD
+# if !defined(LIBXSTREAM_STDTHREAD)
+#   define LIBXSTREAM_STDTHREAD
 # endif
 # if !defined(_GLIBCXX_HAS_GTHREADS)
 #   define _GLIBCXX_HAS_GTHREADS
@@ -154,54 +154,56 @@
 # define LIBXSTREAM_CHECK_CALL(CONDITION) CONDITION
 #endif
 
+#define LIBXSTREAM_OFFLOAD_PENDING (pending_)
+#define LIBXSTREAM_OFFLOAD_READY (0 == (LIBXSTREAM_OFFLOAD_PENDING))
+#define LIBXSTREAM_OFFLOAD_STREAM (this->stream())
+#define LIBXSTREAM_OFFLOAD_DEVICE (device_)
+#define LIBXSTREAM_OFFLOAD_DEVICE_UPDATE(DEVICE) LIBXSTREAM_OFFLOAD_DEVICE = (DEVICE)
+
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
 # if (1 == (2*LIBXSTREAM_ASYNC+1)/2) // asynchronous offload
 #   define LIBXSTREAM_OFFLOAD_DECL \
-      int device_ = stream_ ? stream_->device() : val<int,0>(); \
-      libxstream_signal signal_ = stream_ ? stream_->signal() : 0; \
+      int LIBXSTREAM_OFFLOAD_DEVICE = LIBXSTREAM_OFFLOAD_STREAM ? LIBXSTREAM_OFFLOAD_STREAM->device() : val<int,0>(); \
+      libxstream_signal signal_ = LIBXSTREAM_OFFLOAD_STREAM ? LIBXSTREAM_OFFLOAD_STREAM->signal() : 0; \
       const libxstream_signal signal_consumed_ = signal_; \
-      const libxstream_signal pending_ = stream_ ? stream_->pending() : 0
-#   define LIBXSTREAM_OFFLOAD_TARGET target(mic:device_)
+      const libxstream_signal LIBXSTREAM_OFFLOAD_PENDING = LIBXSTREAM_OFFLOAD_STREAM ? LIBXSTREAM_OFFLOAD_STREAM->pending() : 0
+#   define LIBXSTREAM_OFFLOAD_TARGET target(mic:LIBXSTREAM_OFFLOAD_DEVICE)
 #   define LIBXSTREAM_OFFLOAD_TARGET_SIGNAL LIBXSTREAM_OFFLOAD_TARGET signal(signal_++)
-#   define LIBXSTREAM_OFFLOAD_TARGET_WAIT LIBXSTREAM_OFFLOAD_TARGET_SIGNAL wait(pending_)
+#   define LIBXSTREAM_OFFLOAD_TARGET_WAIT LIBXSTREAM_OFFLOAD_TARGET_SIGNAL wait(LIBXSTREAM_OFFLOAD_PENDING)
 # elif (2 == (2*LIBXSTREAM_ASYNC+1)/2) // compiler streams
 #   define LIBXSTREAM_OFFLOAD_DECL \
-      int device_ = stream_ ? stream_->device() : val<int,0>(); \
-      libxstream_signal signal_ = stream_ ? stream_->signal() : 0; \
+      int LIBXSTREAM_OFFLOAD_DEVICE = LIBXSTREAM_OFFLOAD_STREAM ? LIBXSTREAM_OFFLOAD_STREAM->device() : val<int,0>(); \
+      libxstream_signal signal_ = LIBXSTREAM_OFFLOAD_STREAM ? LIBXSTREAM_OFFLOAD_STREAM->signal() : 0; \
       const libxstream_signal signal_consumed_ = signal_; \
-      const libxstream_signal pending_ = stream_ ? stream_->pending() : 0; \
-      const _Offload_stream handle_ = stream_ ? stream_->handle() : 0
-#   define LIBXSTREAM_OFFLOAD_TARGET target(mic:device_) stream(handle_)
+      const libxstream_signal LIBXSTREAM_OFFLOAD_PENDING = LIBXSTREAM_OFFLOAD_STREAM ? LIBXSTREAM_OFFLOAD_STREAM->pending() : 0; \
+      const _Offload_stream handle_ = LIBXSTREAM_OFFLOAD_STREAM ? LIBXSTREAM_OFFLOAD_STREAM->handle() : 0
+#   define LIBXSTREAM_OFFLOAD_TARGET target(mic:LIBXSTREAM_OFFLOAD_DEVICE) stream(handle_)
 #   define LIBXSTREAM_OFFLOAD_TARGET_SIGNAL LIBXSTREAM_OFFLOAD_TARGET signal(signal_++)
 #   define LIBXSTREAM_OFFLOAD_TARGET_WAIT LIBXSTREAM_OFFLOAD_TARGET_SIGNAL
 # endif
 #else // synchronous offload
 # define LIBXSTREAM_OFFLOAD_DECL \
-    int device_ = stream_ ? stream_->device() : val<int,0>(); \
+    int LIBXSTREAM_OFFLOAD_DEVICE = LIBXSTREAM_OFFLOAD_STREAM ? LIBXSTREAM_OFFLOAD_STREAM->device() : val<int,0>(); \
     const libxstream_signal signal_ = 0; \
     const libxstream_signal signal_consumed_ = 0; \
-    const libxstream_signal pending_ = 0
-# define LIBXSTREAM_OFFLOAD_TARGET target(mic:device_)
+    const libxstream_signal LIBXSTREAM_OFFLOAD_PENDING = 0
+# define LIBXSTREAM_OFFLOAD_TARGET target(mic:LIBXSTREAM_OFFLOAD_DEVICE)
 # define LIBXSTREAM_OFFLOAD_TARGET_SIGNAL LIBXSTREAM_OFFLOAD_TARGET
 # define LIBXSTREAM_OFFLOAD_TARGET_WAIT LIBXSTREAM_OFFLOAD_TARGET_SIGNAL
 #endif
 
-#define LIBXSTREAM_OFFLOAD_READY (0 == (LIBXSTREAM_OFFLOAD_PENDING))
-#define LIBXSTREAM_OFFLOAD_PENDING (pending_)
-#define LIBXSTREAM_OFFLOAD_STREAM (stream_)
-#define LIBXSTREAM_OFFLOAD_DEVICE (device_)
-#define LIBXSTREAM_OFFLOAD_DEVICE_UPDATE(DEVICE) device_ = (DEVICE)
-
 #define LIBXSTREAM_OFFLOAD_BEGIN(STREAM, ARG, ...) do { \
   libxstream_stream *const stream_ = cast_to_stream(STREAM); \
   const libxstream_offload_region::arg_type argv_[] = { ARG, __VA_ARGS__ }; \
-  const struct offload_region: public libxstream_offload_region { libxstream_stream* stream_; \
+  const struct offload_region: public libxstream_offload_region { \
     offload_region(libxstream_stream* stream, size_t argc, const arg_type argv[]) \
-      : libxstream_offload_region(argc, argv), stream_(stream) {} \
+      : libxstream_offload_region(stream, argc, argv) {} \
     offload_region* clone() const { return new offload_region(*this); } \
     void operator()() const { LIBXSTREAM_OFFLOAD_DECL; do
 #define LIBXSTREAM_OFFLOAD_END(WAIT) while(false); \
-      if (stream_ && signal_ != signal_consumed_) stream_->pending(signal_consumed_); \
+      if (LIBXSTREAM_OFFLOAD_STREAM && signal_ != signal_consumed_) { \
+        LIBXSTREAM_OFFLOAD_STREAM->pending(signal_consumed_); \
+      } \
     } \
   } offload_region_(stream_, sizeof(argv_) / sizeof(*argv_), argv_); \
   libxstream_offload(offload_region_, false != (WAIT)); } while(0)

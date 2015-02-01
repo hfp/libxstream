@@ -31,7 +31,7 @@
 #ifndef LIBXSTREAM_STREAM_HPP
 #define LIBXSTREAM_STREAM_HPP
 
-#include "libxstream.h"
+#include "libxstream.hpp"
 
 
 struct libxstream_event;
@@ -72,6 +72,7 @@ public:
 
 #if defined(LIBXSTREAM_DEBUG)
   const char* name() const;
+  uintptr_t thread() const;
 #endif
 
 private:
@@ -89,7 +90,24 @@ private:
 
 #if defined(LIBXSTREAM_DEBUG)
   char m_name[128];
+  mutable libxstream_lock* m_lock;
+  mutable uintptr_t m_thread;
 #endif
 };
+
+
+const libxstream_stream* cast_to_stream(const void* stream);
+libxstream_stream* cast_to_stream(void* stream);
+
+const libxstream_stream* cast_to_stream(const libxstream_stream* stream);
+libxstream_stream* cast_to_stream(libxstream_stream* stream);
+
+const libxstream_stream* cast_to_stream(const libxstream_stream& stream);
+libxstream_stream* cast_to_stream(libxstream_stream& stream);
+
+template<typename T> libxstream_stream* cast_to_stream(T stream) {
+  LIBXSTREAM_ASSERT(0 == stream);
+  return static_cast<libxstream_stream*>(0);
+}
 
 #endif // LIBXSTREAM_STREAM_HPP

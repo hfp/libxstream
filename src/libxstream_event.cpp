@@ -172,7 +172,7 @@ int libxstream_event::wait(libxstream_stream* stream)
 #if defined(LIBXSTREAM_EVENT_WAIT_OCCURRED)
         do { // spin/yield
           libxstream_event::update(slot);
-# if defined(LIBXSTREAM_MIC_STDTHREAD)
+# if defined(LIBXSTREAM_STDTHREAD)
           std::this_thread::yield();
 # endif
         }

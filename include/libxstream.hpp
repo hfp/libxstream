@@ -32,12 +32,17 @@
 #define LIBXSTREAM_HPP
 
 #include "libxstream.h"
+
+typedef void libxstream_lock;
+libxstream_lock* libxstream_lock_create();
+void libxstream_lock_destroy(libxstream_lock* lock);
+void libxstream_lock_acquire(libxstream_lock* lock);
+void libxstream_lock_release(libxstream_lock* lock);
+
+uintptr_t this_thread();
+
 #include "libxstream_capture.hpp"
 #include "libxstream_stream.hpp"
 #include "libxstream_event.hpp"
-
-#if defined(LIBXSTREAM_MIC_STDTHREAD)
-# include <thread>
-#endif
 
 #endif // LIBXSTREAM_HPP

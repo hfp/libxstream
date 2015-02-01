@@ -71,6 +71,16 @@
  */
 #define LIBXSTREAM_ASYNC
 
+/**
+ * Selects the API used to create the heler thread as well as some lock support.
+ * Valid selections:
+ * - #define LIBXSTREAM_THREAD_API: default API (1)
+ * - #define LIBXSTREAM_THREAD_API 0: Unspecified
+ * - #define LIBXSTREAM_THREAD_API 1: Pthreads
+ * - #define LIBXSTREAM_THREAD_API 2: C++11
+ */
+#define LIBXSTREAM_THREAD_API
+
 /** SIMD width in Byte (actual alignment might be smaller). */
 #define LIBXSTREAM_MAX_SIMD 64
 

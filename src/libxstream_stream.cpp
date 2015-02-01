@@ -183,6 +183,10 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
   , m_handle(0) // lazy creation
   , m_npartitions(0)
 #endif
+#if defined(LIBXSTREAM_DEBUG)
+  , m_lock(libxstream_lock_create())
+  , m_thread(0)
+#endif
 {
   using namespace libxstream_stream_internal;
   libxstream_stream* *const slot = registry_type::allocate<LIBXSTREAM_MAX_DEVICES*LIBXSTREAM_MAX_STREAMS>(registry.streams(), registry.istreams());
@@ -218,6 +222,10 @@ libxstream_stream::~libxstream_stream()
   if (0 != m_handle) {
     _Offload_stream_destroy(m_device, m_handle);
   }
+#endif
+
+#if defined(LIBXSTREAM_DEBUG)
+  libxstream_lock_destroy(m_lock);
 #endif
 }
 
@@ -289,4 +297,54 @@ const char* libxstream_stream::name() const
 {
   return m_name;
 }
+
+
+uintptr_t libxstream_stream::thread() const
+{
+  if (0 == m_thread) {
+    libxstream_lock_acquire(m_lock);
+    if (0 == m_thread) {
+      m_thread = this_thread();
+    }
+    libxstream_lock_release(m_lock);
+  }
+  return m_thread;
+}
+
 #endif
+
+
+const libxstream_stream* cast_to_stream(const void* stream)
+{
+  return static_cast<const libxstream_stream*>(stream);
+}
+
+
+libxstream_stream* cast_to_stream(void* stream)
+{
+  return static_cast<libxstream_stream*>(stream);
+}
+
+
+const libxstream_stream* cast_to_stream(const libxstream_stream* stream)
+{
+  return stream;
+}
+
+
+libxstream_stream* cast_to_stream(libxstream_stream* stream)
+{
+  return stream;
+}
+
+
+const libxstream_stream* cast_to_stream(const libxstream_stream& stream)
+{
+  return &stream;
+}
+
+
+libxstream_stream* cast_to_stream(libxstream_stream& stream)
+{
+  return &stream;
+}
