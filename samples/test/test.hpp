@@ -28,32 +28,23 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#ifndef LIBXSTREAM_TEST_HPP
-#define LIBXSTREAM_TEST_HPP
-
-#if defined(LIBXSTREAM_TEST) && (0 != (2*LIBXSTREAM_TEST+1)/2)
+#ifndef TEST_HPP
+#define TEST_HPP
 
 #include <libxstream.hpp>
 
 
-/**
- * Test suite that is not only exercising the public interface
- * of the ACC layer, but that is also illustrating the usage of
- * each of the functions. One particular use case is launching
- * a user-defined function usng the stream framework.
- */
-class libxstream_test {
+class test_type {
 public:
-  libxstream_test();
-  ~libxstream_test();
+  test_type(int device);
+  ~test_type();
 
 private:
-  int m_return_code, m_device;
+  int m_device;
   libxstream_stream* m_stream;
   libxstream_event* m_event;
   void* m_host_mem;
   void* m_dev_mem;
 };
 
-#endif // defined(LIBXSTREAM_TEST)
-#endif // LIBXSTREAM_TEST_HPP
+#endif // TEST_HPP

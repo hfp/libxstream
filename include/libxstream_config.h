@@ -49,19 +49,6 @@
 #define LIBXSTREAM_ERROR_CHECK
 
 /**
- * Runs a test coverage for a device when enabled (acc_set_active_device).
- * Testing should be disabled when deploying the application but remains
- * a manual choice (does not depend on NDEBUG, etc.) to test release builds.
- * Valid selections:
- * - #define LIBXSTREAM_TEST: enables default (1) testing behaviour
- * - #define LIBXSTREAM_TEST 0: disables testing
- * - #define LIBXSTREAM_TEST 1: enables testing; terminates if a test fails
- * - #define LIBXSTREAM_TEST 2: enables testing; terminates after testing
- * - #define LIBXSTREAM_TEST 3: enables testing; continues in any case
- */
-//#define LIBXSTREAM_TEST 1
-
-/**
  * Enables asynchronous offloads.
  * Valid selections:
  * - #define LIBXSTREAM_ASYNC: enables default (1) behavior
@@ -75,9 +62,8 @@
  * Selects the API used to create the heler thread as well as some lock support.
  * Valid selections:
  * - #define LIBXSTREAM_THREAD_API: default API (1)
- * - #define LIBXSTREAM_THREAD_API 0: Unspecified
- * - #define LIBXSTREAM_THREAD_API 1: Pthreads
- * - #define LIBXSTREAM_THREAD_API 2: C++11
+ * - #define LIBXSTREAM_THREAD_API 0: Unspecified (Pthreads or C++11)
+ * - #define LIBXSTREAM_THREAD_API 1: OpenMP
  */
 #define LIBXSTREAM_THREAD_API
 

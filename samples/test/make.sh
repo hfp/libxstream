@@ -19,6 +19,6 @@ if [ "-g" = "$1" ] ; then
 fi
 
 $CXX -std=c++0x $OPT $* -lpthread \
-  -D__ACC -D__ACC_MIC -DLIBXSTREAM_TEST -DLIBXSTREAM_TEST_STANDALONE \
-  -I$ROOT/include $ROOT/src/*.cpp \
+  -D__ACC -D__ACC_MIC \
+  -I$ROOT/include -I. $ROOT/src/*.cpp test.cpp \
   -o test

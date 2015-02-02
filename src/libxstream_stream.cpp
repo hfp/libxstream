@@ -186,7 +186,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 #endif
 #if defined(LIBXSTREAM_DEBUG)
   , m_lock(libxstream_lock_create())
-  , m_thread(0)
+  , m_thread_id(0)
 #endif
 {
   using namespace libxstream_stream_internal;
@@ -300,16 +300,16 @@ const char* libxstream_stream::name() const
 }
 
 
-uintptr_t libxstream_stream::thread() const
+uintptr_t libxstream_stream::thread_id() const
 {
-  if (0 == m_thread) {
+  if (0 == m_thread_id) {
     libxstream_lock_acquire(m_lock);
-    if (0 == m_thread) {
-      m_thread = this_thread();
+    if (0 == m_thread_id) {
+      m_thread_id = this_thread_id();
     }
     libxstream_lock_release(m_lock);
   }
-  return m_thread;
+  return m_thread_id;
 }
 
 #endif

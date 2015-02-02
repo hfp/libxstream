@@ -161,11 +161,7 @@ public:
 
 private:
   void yield() {
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
-    pthread_yield();
-#else
-    std::this_thread::yield();
-#endif
+    this_thread_yield();
 #if defined(LIBXSTREAM_DEBUG)
     m_max_size = std::max<size_t>(m_max_size, size());
 #endif
@@ -278,7 +274,7 @@ void libxstream_offload(const libxstream_offload_region& offload_region, bool wa
 #if defined(LIBXSTREAM_DEBUG)
   if (!wait) {
     libxstream_stream *const stream = offload_region.stream();
-    if (stream && stream->thread() != this_thread())  {
+    if (stream && stream->thread_id() != this_thread_id())  {
       fprintf(stderr, "\tstream is accessed by multiple threads!\n");
     }
   }

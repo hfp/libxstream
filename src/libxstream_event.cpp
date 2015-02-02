@@ -172,9 +172,7 @@ int libxstream_event::wait(libxstream_stream* stream)
 #if defined(LIBXSTREAM_EVENT_WAIT_OCCURRED)
         do { // spin/yield
           libxstream_event::update(slot);
-# if defined(LIBXSTREAM_STDTHREAD)
-          std::this_thread::yield();
-# endif
+          this_thread_yield();
         }
         while(0 != slot.pending());
 #else
