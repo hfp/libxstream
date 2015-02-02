@@ -47,7 +47,7 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* mem, size_t, libxstream_str
 int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream*);
 ```
 
-**Stream Interface**: is used to expose the available parallelism. A single stream preserves the predecessor/successor relationship while modeling the pipeline pattern across multiple stream. Synchronization points can be introduced using this stream interface as well as the event interface.
+**Stream Interface**: is used to expose the available parallelism. A stream preserves the predecessor/successor relationship while participating in a pipeline (parallel pattern) in case of multiple streams. Synchronization points can be introduced using the stream interface as well as the event interface.
 
 ```C
 /** Query the range of valid priorities (inclusive). */
@@ -79,13 +79,13 @@ int libxstream_event_synchronize(libxstream_event* event);
 
 Implementation
 ==============
-The library's implementation allows queuing work from multiple host threads in a thread-safe manner and without oversubscribing the device. The actual implementation vehicle can be configured using a [configuration header](include/libxstream_config.h). Currently Intel's Language Extensions for Offload (LEO) are used to perform asynchronous execution and data transfers using signal/wait clauses. Other mechanism can be implemented e.g., hStreams or COI (both are part of the Intel Manycore Platform Software Stack), or offload directives as specified by OpenMP 4.0.
+The library's implementation allows queuing work from multiple host threads in a thread-safe manner and without oversubscribing the device. The actual implementation vehicle can be configured using a [configuration header](include/libxstream_config.h). Currently Intel's Language Extensions for Offload (LEO) are used to perform asynchronous execution and data transfers using signal/wait clauses. Other mechanisms can be implemented e.g., hStreams or COI (both are part of the Intel Manycore Platform Software Stack), or offload directives as specified by OpenMP 4.0.
 
 Performance
 ===========
-The [multi-dgemm](samples/multi-dgemm) sample code is the implementation of a benchmark (beside of illustrating the use of LIBXSTREAM). The shown performance is not meant to be "the best case". Instead, the performance is reproduced by a program constructing a series of matrix-matrix multiplications of varying problem sizes with no attempt to avoid the implied performance penalties (see below the graph for more details).
+The [multi-dgemm](samples/multi-dgemm) sample code is the implementation of a benchmark (beside of illustrating the use of LIBXSTREAM). The shown performance is not meant to be "the best case". Instead, the performance is reproduced by a program constructing a series of matrix-matrix multiplications of varying problem sizes with no attempt to avoid the implied performance penalties (see underneath the graph for more details).
 
 ![performance graph](samples/multi-dgemm/plot.png)
-> This performance graph has been created for a single Intel Xeon Phi 7120 Coprocessor card by running the [benchmark.sh](samples/multi-dgemm/benchmark.sh) on the host system. The script varies the number of matrix-matrix multiplications queued at once. The program is rather a stress-test than a benchmark since there is no attempt to avoid the performance penalties as mentioned below. The plot shows more than ~155 GFLOPS/s even with a finer work granularity (smaller batch size).
+> This performance graph has been created for a single Intel Xeon Phi 7120 Coprocessor card by running the [benchmark.sh](samples/multi-dgemm/benchmark.sh) on the host system. The script varies the number of matrix-matrix multiplications queued at once. The program is rather a stress-test than a benchmark since there is no attempt to avoid the performance penalties as mentioned below. The plot shows ~155 GFLOPS/s even with a finer work granularity (smaller batch size).
 
 Even the series of matrices with the largest problem size of the mix is not close to being able to reach the peak performance, and there is an insufficient amount of FLOPS available to hide the cost of transferring the data. The data needed for the computation moreover includes a set of indices describing the offsets of each of the matrix operands in the associated buffers. The latter implies unaligned memory accesses due to packing the matrix data without a favorable leading dimension. Transfers are performed as needed on a per-computation basis rather than aggregating a single copy-in and copy-out prior and past of the benchmark cycle. Moreover, there is no attempt to balance the mixture of different problem sizes when queuing the work into the streams.
