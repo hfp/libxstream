@@ -799,7 +799,7 @@ extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, 
 extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  const char *const name = stream->name();
+  const char *const name = stream ? stream->name() : 0;
   if (name && *name) {
     fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx name=\"%s\"\n",
       static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), name);
