@@ -31,10 +31,16 @@
 #include <libxstream.hpp>
 #include <algorithm>
 #include <limits>
-#include <atomic>
 
 #if defined(LIBXSTREAM_STDTHREAD)
 # include <thread>
+# include <atomic>
+#else
+# if defined(_OPENMP)
+#   include <omp.h>
+# else
+#   include <pthread.h>
+# endif
 #endif
 
 #if defined(LIBXSTREAM_OFFLOAD)
@@ -282,29 +288,39 @@ int deallocate_virtual(const void* memory)
 }
 
 
-class dev_info_type {
+class context_type {
 public:
-  static std::atomic<int>& counter() {
-    return m_counter;
+  context_type()
+    : m_lock(libxstream_lock_create())
+    , m_device(-2)
+  {}
+
+  ~context_type() {
+    libxstream_lock_destroy(m_lock);
   }
 
-  static int& global_device() {
-    return m_global_device;
+public:
+  libxstream_lock* lock() { return m_lock; }
+  int global_device() const { return m_device; }
+
+  void global_device(int device) {
+    libxstream_lock_acquire(m_lock);
+    if (-1 > m_device) {
+      m_device = device;
+    }
+    libxstream_lock_release(m_lock);
   }
 
   // store the active device per host-thread
-  static int& device() {
+  int& device() {
     static LIBXSTREAM_TLS int instance = -2;
     return instance;
   }
 
 private:
-  static std::atomic<int> m_counter;
-  static int m_global_device;
-} dev_info;
-
-/*static*/std::atomic<int> dev_info_type::m_counter(0);
-/*static*/int dev_info_type::m_global_device = -2;
+  libxstream_lock* m_lock;
+  int m_device;
+} context;
 
 
 LIBXSTREAM_EXPORT void mem_info(uint64_t& memory_physical, uint64_t& memory_not_allocated)
@@ -335,11 +351,16 @@ LIBXSTREAM_EXPORT void mem_info(uint64_t& memory_physical, uint64_t& memory_not_
 
 libxstream_lock* libxstream_lock_create()
 {
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
+#if defined(LIBXSTREAM_STDTHREAD)
+  std::atomic<int> *const typed_lock = new std::atomic<int>(0);
+#else
+# if defined(_OPENMP)
+  omp_lock_t *const typed_lock = new omp_lock_t;
+  omp_init_lock(typed_lock);
+# else
   pthread_mutex_t *const typed_lock = new pthread_mutex_t;
   pthread_mutex_init(typed_lock, 0);
-#else
-  std::atomic<int> *const typed_lock = new std::atomic<int>(0);
+# endif
 #endif
   return typed_lock;
 }
@@ -347,11 +368,16 @@ libxstream_lock* libxstream_lock_create()
 
 void libxstream_lock_destroy(libxstream_lock* lock)
 {
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
+#if defined(LIBXSTREAM_STDTHREAD)
+  std::atomic<int> *const typed_lock = static_cast<std::atomic<int>*>(lock);
+#else
+# if defined(_OPENMP)
+  omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
+  omp_destroy_lock(typed_lock);
+# else
   pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
   pthread_mutex_destroy(typed_lock);
-#else
-  std::atomic<int> *const typed_lock = static_cast<std::atomic<int>*>(lock);
+# endif
 #endif
   delete typed_lock;
 }
@@ -360,16 +386,21 @@ void libxstream_lock_destroy(libxstream_lock* lock)
 void libxstream_lock_acquire(libxstream_lock* lock)
 {
   LIBXSTREAM_ASSERT(lock);
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
-  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
-  pthread_mutex_lock(typed_lock);
-#else
+#if defined(LIBXSTREAM_STDTHREAD)
   std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
   if (1 < ++typed_lock) {
     while (1 < typed_lock) {
       std::this_thread::yield();
     }
   }
+#else
+# if defined(_OPENMP)
+  omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
+  omp_set_lock(typed_lock);
+# else
+  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
+  pthread_mutex_lock(typed_lock);
+# endif
 #endif
 }
 
@@ -377,12 +408,17 @@ void libxstream_lock_acquire(libxstream_lock* lock)
 void libxstream_lock_release(libxstream_lock* lock)
 {
   LIBXSTREAM_ASSERT(lock);
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
-  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
-  pthread_mutex_unlock(typed_lock);
-#else
+#if defined(LIBXSTREAM_STDTHREAD)
   std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
   --typed_lock;
+#else
+# if defined(_OPENMP)
+  omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
+  omp_unset_lock(typed_lock);
+# else
+  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
+  pthread_mutex_unlock(typed_lock);
+# endif
 #endif
 }
 
@@ -391,8 +427,22 @@ int this_thread_id()
 {
   static LIBXSTREAM_TLS int id = -1;
   if (0 > id) {
+#if defined(LIBXSTREAM_STDTHREAD)
     static std::atomic<int> num_threads(0);
     id = num_threads++;
+#else
+# if defined(_OPENMP)
+    static int num_threads = 0;
+#   pragma omp critical
+    id = num_threads++;
+# else
+    static int num_threads = 0;
+    libxstream_lock *const lock = libxstream_internal::context.lock();
+    libxstream_lock_acquire(m_lock);
+    id = num_threads++;
+    libxstream_lock_release(m_lock);
+# endif
+#endif
   }
   return id;
 }
@@ -400,10 +450,10 @@ int this_thread_id()
 
 void this_thread_yield()
 {
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
-  pthread_yield();
-#else
+#if defined(LIBXSTREAM_STDTHREAD)
   std::this_thread::yield();
+#else
+  pthread_yield();
 #endif
 }
 
@@ -434,17 +484,18 @@ extern "C" int libxstream_get_ndevices(size_t* ndevices)
 extern "C" int libxstream_get_active_device(int* device)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != device);
-  int result = LIBXSTREAM_ERROR_NONE, active_device = libxstream_internal::dev_info_type::device();
+  int result = LIBXSTREAM_ERROR_NONE, active_device = libxstream_internal::context.device();
 
   if (-1 > active_device) {
-    active_device = libxstream_internal::dev_info_type::global_device();
+    active_device = libxstream_internal::context.global_device();
+
     if (-1 > active_device) {
       size_t ndevices = 0;
       result = libxstream_get_ndevices(&ndevices);
-      libxstream_internal::dev_info_type::global_device() = ndevices - 1;
-      active_device = 0;
+      active_device = ndevices - 1;
+      libxstream_internal::context.global_device(active_device);
+      libxstream_internal::context.device() = active_device;
     }
-    libxstream_internal::dev_info_type::device() = active_device;
 
 #if defined(LIBXSTREAM_DEBUG)
     fprintf(stderr, "DBG libxstream_get_active_device: device=%i (fallback) thread=0x%lx\n",
@@ -462,11 +513,11 @@ extern "C" int libxstream_set_active_device(int device)
   size_t ndevices = LIBXSTREAM_MAX_NDEVICES;
   LIBXSTREAM_CHECK_CONDITION(-1 <= device && ndevices >= static_cast<size_t>(device + 1) && LIBXSTREAM_ERROR_NONE == libxstream_get_ndevices(&ndevices) && ndevices >= static_cast<size_t>(device + 1));
 
-  if (-1 > libxstream_internal::dev_info_type::global_device() && 1 == ++libxstream_internal::dev_info_type::counter()) {
-    libxstream_internal::dev_info_type::global_device() = device;
+  if (-1 > libxstream_internal::context.global_device()) {
+    libxstream_internal::context.global_device(device);
   }
 
-  libxstream_internal::dev_info_type::device() = device;
+  libxstream_internal::context.device() = device;
 
 #if defined(LIBXSTREAM_DEBUG)
   fprintf(stderr, "DBG libxstream_set_active_device: device=%i thread=0x%lx\n",
@@ -803,17 +854,18 @@ extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, 
 extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  const char *const name = stream ? stream->name() : 0;
-  if (name && *name) {
-    fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx name=\"%s\"\n",
-      static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), name);
-  }
-  else {
-    fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx\n",
-      static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)));
+  if (stream) {
+    const char *const name = stream->name();
+    if (name && *name) {
+      fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx name=\"%s\"\n",
+        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), name);
+    }
+    else {
+      fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx\n",
+        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)));
+    }
   }
 #endif
-
   delete stream;
   return LIBXSTREAM_ERROR_NONE;
 }

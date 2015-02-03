@@ -31,7 +31,10 @@
 #include <libxstream.hpp>
 #include <algorithm>
 #include <string>
-#include <atomic>
+
+#if defined(LIBXSTREAM_STDTHREAD)
+# include <atomic>
+#endif
 
 // allows to wait for an event issued prior to the pending signal
 //#define LIBXSTREAM_STREAM_WAIT_PAST
@@ -41,19 +44,14 @@ namespace libxstream_stream_internal {
 
 class registry_type {
 public:
-  //typedef std::atomic<libxstream_signal> counter_type;
   typedef libxstream_signal counter_type;
-
-  template<size_t max_size, typename value_type, typename counter_type>
-  static value_type* allocate(value_type container[], counter_type& counter) {
-    value_type* i = container + (counter++ % max_size);
-    while (0 != *i) i = container + (counter++ % max_size);
-    return i;
-  }
 
 public:
   registry_type()
     : m_istreams(0)
+#if !defined(LIBXSTREAM_STDTHREAD)
+    , m_lock(libxstream_lock_create())
+#endif
   {
     std::fill_n(m_signals, LIBXSTREAM_MAX_NDEVICES, 0);
     std::fill_n(m_streams, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS, static_cast<libxstream_stream*>(0));
@@ -69,11 +67,22 @@ public:
 #endif
       libxstream_stream_destroy(m_streams[i]);
     }
+#if !defined(LIBXSTREAM_STDTHREAD)
+    libxstream_lock_destroy(m_lock);
+#endif
   }
 
 public:
-  std::atomic<size_t>& istreams() {
-    return m_istreams;
+  libxstream_stream** allocate() {
+#if !defined(LIBXSTREAM_STDTHREAD)
+    libxstream_lock_acquire(m_lock);
+#endif
+    libxstream_stream** i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
+    while (0 != *i) i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
+#if !defined(LIBXSTREAM_STDTHREAD)
+    libxstream_lock_release(m_lock);
+#endif
+    return i;
   }
 
   size_t max_nstreams() const {
@@ -154,7 +163,12 @@ private:
   // not necessary to be device-specific due to single-threaded offload
   counter_type m_signals[LIBXSTREAM_MAX_NDEVICES + 1];
   libxstream_stream* m_streams[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
+#if defined(LIBXSTREAM_STDTHREAD)
   std::atomic<size_t> m_istreams;
+#else
+  size_t m_istreams;
+  libxstream_lock* m_lock;
+#endif
 } registry;
 
 } // namespace libxstream_stream_internal
@@ -190,7 +204,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 #endif
 {
   using namespace libxstream_stream_internal;
-  libxstream_stream* *const slot = registry_type::allocate<LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS>(registry.streams(), registry.istreams());
+  libxstream_stream* *const slot = libxstream_stream_internal::registry.allocate();
   *slot = this;
 
 #if defined(LIBXSTREAM_DEBUG)

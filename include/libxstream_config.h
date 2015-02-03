@@ -59,20 +59,10 @@
 #define LIBXSTREAM_ASYNC
 
 /**
- * Selects the API used to create the heler thread as well as some lock support.
- * Valid selections:
- * - #define LIBXSTREAM_THREAD_API: default API (1)
- * - #define LIBXSTREAM_THREAD_API 0: Unspecified (Pthreads or C++11)
- * - #define LIBXSTREAM_THREAD_API 1: OpenMP
- */
-#define LIBXSTREAM_THREAD_API
-
-/**
  * Enables "demuxing" threads and streams i.e., when multiple
  * host threads attempt to queue into the same stream.
  */
-#define LIBXSTREAM_DEMUX_HOSTTHREADS
-
+#define LIBXSTREAM_DEMUX
 
 /** SIMD width in Byte (actual alignment might be smaller). */
 #define LIBXSTREAM_MAX_SIMD 64

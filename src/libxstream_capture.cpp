@@ -30,12 +30,12 @@
 ******************************************************************************/
 #include <libxstream.hpp>
 #include <algorithm>
-#include <atomic>
 
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
-# include <pthread.h>
-#else
+#if defined(LIBXSTREAM_STDTHREAD)
 # include <thread>
+# include <atomic>
+#else
+# include <pthread.h>
 #endif
 
 #define LIBXSTREAM_CAPTURE_USE_QUEUE
@@ -47,23 +47,18 @@ class queue_type {
 public:
   typedef const libxstream_offload_region* value_type;
   queue_type()
-    : m_index(0)
-    , m_size(0)
-#if defined(LIBXSTREAM_DEBUG)
-    , m_max_size(0)
-    , m_npush(0)
-    , m_npop(0)
-#endif
+    : m_lock(libxstream_lock_create())
     , m_terminated(false)
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
-    , m_thread(0)
-#else
+    , m_index(0)
+#if defined(LIBXSTREAM_STDTHREAD)
     , m_thread(run, this)
+#else
+    , m_thread(0)
 #endif
-    , m_lock(libxstream_lock_create())
+    , m_size(0)
   {
     std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<value_type>(0));
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
+#if !defined(LIBXSTREAM_STDTHREAD)
     start();
 #endif
   }
@@ -71,26 +66,12 @@ public:
   ~queue_type() {
     terminate();
     libxstream_lock_destroy(m_lock);
-#if defined(LIBXSTREAM_DEBUG)
-    fprintf(stderr, "\tqueue: size=%lu pushes=%lu pops=%lu\n",
-      static_cast<unsigned long>(m_max_size),
-      static_cast<unsigned long>(m_npush),
-      static_cast<unsigned long>(m_npop));
-#endif
   }
 
 public:
   bool start() {
     if (!m_terminated) {
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
-      if (0 == m_thread) {
-        libxstream_lock_acquire(m_lock);
-        if (0 == m_thread) {
-          pthread_create(&m_thread, 0, run, this);
-        }
-        libxstream_lock_release(m_lock);
-      }
-#else
+#if defined(LIBXSTREAM_STDTHREAD)
       if (!m_thread.joinable()) {
         libxstream_lock_acquire(m_lock);
         if (!m_thread.joinable()) {
@@ -98,9 +79,17 @@ public:
         }
         libxstream_lock_release(m_lock);
       }
+#else
+      if (0 == m_thread) {
+        libxstream_lock_acquire(m_lock);
+        if (0 == m_thread) {
+          pthread_create(&m_thread, 0, run, this);
+        }
+        libxstream_lock_release(m_lock);
+      }
 #endif
     }
-    
+
     return !m_terminated;
   }
 
@@ -117,30 +106,24 @@ public:
       }
     }
 #endif
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
+
+#if defined(LIBXSTREAM_STDTHREAD)
+    if (m_thread.joinable()) {
+      m_thread.join();
+    }
+#else
     if (0 != m_thread) {
       pthread_join(m_thread, 0);
       m_thread = 0;
     }
-#else
-    if (m_thread.joinable()) {
-      m_thread.join();
-    }
 #endif
+
     m_terminated = true;
   }
 
   bool empty() const {
     return 0 == get();
   }
-
-#if defined(LIBXSTREAM_DEBUG)
-  size_t size() const {
-    const size_t offset = m_size, index = m_index;
-    const storage_type& entry = m_buffer[offset%LIBXSTREAM_MAX_QSIZE];
-    return 0 != static_cast<value_type>(entry) ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
-  }
-#endif
 
   void push(const libxstream_offload_region& offload_region, bool wait = true) {
     push(&offload_region, wait);
@@ -152,44 +135,44 @@ public:
 
   void pop() { // not thread-safe!
     LIBXSTREAM_ASSERT(!empty());
-#if defined(LIBXSTREAM_DEBUG)
-    ++m_npop;
-#endif
     m_buffer[m_index%LIBXSTREAM_MAX_QSIZE] = 0;
     ++m_index;
   }
 
 private:
-  void yield() {
-    this_thread_yield();
-#if defined(LIBXSTREAM_DEBUG)
-    m_max_size = std::max<size_t>(m_max_size, size());
-#endif
-  }
-
   void push(const value_type& offload_region, bool wait) {
-#if defined(LIBXSTREAM_DEBUG)
-    ++m_npush;
-#endif
     LIBXSTREAM_ASSERT(0 != offload_region);
-    storage_type& entry = m_buffer[m_size++%LIBXSTREAM_MAX_QSIZE];
+    value_type* entry = 0;
+#if defined(LIBXSTREAM_STDTHREAD)
+    entry = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
+#else
+# if defined(_OPENMP)
+#   pragma omp critical
+    entry = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
+# else
+    libxstream_lock_acquire(m_lock);
+    entry = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
+    libxstream_lock_release(m_lock);
+# endif
+#endif
+    LIBXSTREAM_ASSERT(0 != entry);
 
 #if defined(LIBXSTREAM_DEBUG)
-    if (0 != static_cast<value_type>(entry)) {
+    if (0 != *entry) {
       fprintf(stderr, "\tqueuing work is stalled!\n");
     }
 #endif
     // stall the push if LIBXSTREAM_MAX_QSIZE is exceeded
-    while (0 != static_cast<value_type>(entry)) {
-      yield();
+    while (0 != *entry) {
+      this_thread_yield();
     }
 
-    LIBXSTREAM_ASSERT(0 == static_cast<value_type>(entry));
-    entry = terminator != offload_region ? offload_region->clone() : terminator;
+    LIBXSTREAM_ASSERT(0 == *entry);
+    *entry = terminator != offload_region ? offload_region->clone() : terminator;
 
     if (wait) {
-      while (0 != static_cast<value_type>(entry)) {
-        yield();
+      while (0 != *entry) {
+        this_thread_yield();
       }
     }
   }
@@ -200,7 +183,7 @@ private:
 
     for (;;) {
       while (0 == (offload_region = q.get())) {
-        q.yield();
+        this_thread_yield();
       }
 
       if (terminator != offload_region) {
@@ -222,30 +205,17 @@ private:
 
 private:
   static const value_type terminator;
-#if defined(LIBXSTREAM_DEBUG)
-  // avoid some false positives when detecting data races
-  typedef std::atomic<value_type> storage_type;
-  typedef std::atomic<size_t> counter_type;
-#else // certain items are not meant to be thread-safe
-  typedef value_type storage_type;
-  typedef size_t counter_type;
-#endif
-  storage_type m_buffer[LIBXSTREAM_MAX_QSIZE];
-  counter_type m_index;
-  std::atomic<size_t> m_size;
-#if defined(LIBXSTREAM_DEBUG)
-  std::atomic<size_t> m_max_size;
-  std::atomic<size_t> m_npush;
-  std::atomic<size_t> m_npop;
-#endif
-#if (defined(LIBXSTREAM_THREAD_API) && (1 == (2*LIBXSTREAM_THREAD_API+1)/2) || !defined(LIBXSTREAM_STDTHREAD)) && !defined(_MSC_VER)
-  typedef pthread_t thread_type;
-#else
-  typedef std::thread thread_type;
-#endif
-  bool m_terminated;
-  thread_type m_thread;
+  value_type m_buffer[LIBXSTREAM_MAX_QSIZE];
   libxstream_lock* m_lock;
+  bool m_terminated;
+  size_t m_index;
+#if defined(LIBXSTREAM_STDTHREAD)
+  std::thread m_thread;
+  std::atomic<size_t> m_size;
+#else
+  pthread_t m_thread;
+  size_t m_size;
+#endif
 #if defined(LIBXSTREAM_CAPTURE_USE_QUEUE)
 } queue;
 #else
