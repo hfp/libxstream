@@ -65,7 +65,7 @@ public:
 
 private:
   size_t m_expected;
-  mutable slot_type m_slots[LIBXSTREAM_MAX_DEVICES*LIBXSTREAM_MAX_STREAMS];
+  mutable slot_type m_slots[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
 };
 
 #endif // LIBXSTREAM_EVENT_HPP

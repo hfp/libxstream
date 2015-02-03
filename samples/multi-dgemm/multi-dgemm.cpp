@@ -92,7 +92,7 @@ int main(int argc, char* argv[])
   try {
     const int nitems = std::max(1 < argc ? std::atoi(argv[1]) : 60, 0);
     const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 6, 1);
-    const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 0), LIBXSTREAM_MAX_STREAMS);
+    const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 0), LIBXSTREAM_MAX_NSTREAMS);
 
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {

@@ -44,12 +44,12 @@
 /*static*/void libxstream_event::enqueue(libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_DEVICES * LIBXSTREAM_MAX_STREAMS) > ((reset && 0 < expected) ? (expected - 1) : expected));
+  LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS) > ((reset && 0 < expected) ? (expected - 1) : expected));
 #endif
 
   if (reset) {
 #if defined(LIBXSTREAM_DEBUG)
-    std::fill_n(slots, LIBXSTREAM_MAX_DEVICES * LIBXSTREAM_MAX_STREAMS, slot_type());
+    std::fill_n(slots, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS, slot_type());
 #endif
     expected = 0;
   }
@@ -103,7 +103,7 @@ libxstream_event::libxstream_event()
 
 size_t libxstream_event::expected() const
 {
-  LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_DEVICES * LIBXSTREAM_MAX_STREAMS) >= m_expected);
+  LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS) >= m_expected);
   return m_expected;
 }
 

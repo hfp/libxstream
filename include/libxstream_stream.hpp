@@ -72,7 +72,7 @@ public:
 
 #if defined(LIBXSTREAM_DEBUG)
   const char* name() const;
-  uintptr_t thread_id() const;
+  int thread_id() const;
 #endif
 
 private:
@@ -91,7 +91,7 @@ private:
 #if defined(LIBXSTREAM_DEBUG)
   char m_name[128];
   mutable libxstream_lock* m_lock;
-  mutable uintptr_t m_thread_id;
+  mutable int m_thread_id;
 #endif
 };
 

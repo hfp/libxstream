@@ -67,6 +67,13 @@
  */
 #define LIBXSTREAM_THREAD_API
 
+/**
+ * Enables "demuxing" threads and streams i.e., when multiple
+ * host threads attempt to queue into the same stream.
+ */
+#define LIBXSTREAM_DEMUX_HOSTTHREADS
+
+
 /** SIMD width in Byte (actual alignment might be smaller). */
 #define LIBXSTREAM_MAX_SIMD 64
 
@@ -74,10 +81,10 @@
 #define LIBXSTREAM_MAX_ALIGN (2 * 1024 * 1024)
 
 /** Maximum number of devices. */
-#define LIBXSTREAM_MAX_DEVICES 8
+#define LIBXSTREAM_MAX_NDEVICES 8
 
 /** Maximum number of streams per device. */
-#define LIBXSTREAM_MAX_STREAMS 16
+#define LIBXSTREAM_MAX_NSTREAMS 16
 
 /** Maximum number of arguments in offload structure. */
 #define LIBXSTREAM_MAX_NARGS 16

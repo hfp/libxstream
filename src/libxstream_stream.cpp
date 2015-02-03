@@ -55,8 +55,8 @@ public:
   registry_type()
     : m_istreams(0)
   {
-    std::fill_n(m_signals, LIBXSTREAM_MAX_DEVICES, 0);
-    std::fill_n(m_streams, LIBXSTREAM_MAX_DEVICES * LIBXSTREAM_MAX_STREAMS, static_cast<libxstream_stream*>(0));
+    std::fill_n(m_signals, LIBXSTREAM_MAX_NDEVICES, 0);
+    std::fill_n(m_streams, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS, static_cast<libxstream_stream*>(0));
   }
 
   ~registry_type() {
@@ -77,7 +77,7 @@ public:
   }
 
   size_t max_nstreams() const {
-    return std::min<size_t>(m_istreams, LIBXSTREAM_MAX_DEVICES * LIBXSTREAM_MAX_STREAMS);
+    return std::min<size_t>(m_istreams, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS);
   }
 
   size_t nstreams(int device) const {
@@ -99,7 +99,7 @@ public:
   }
 
   registry_type::counter_type& signal(int device) {
-    LIBXSTREAM_ASSERT(-1 <= device && device <= LIBXSTREAM_MAX_DEVICES);
+    LIBXSTREAM_ASSERT(-1 <= device && device <= LIBXSTREAM_MAX_NDEVICES);
     return m_signals[device+1];
   }
 
@@ -152,8 +152,8 @@ public:
 
 private:
   // not necessary to be device-specific due to single-threaded offload
-  counter_type m_signals[LIBXSTREAM_MAX_DEVICES + 1];
-  libxstream_stream* m_streams[LIBXSTREAM_MAX_DEVICES*LIBXSTREAM_MAX_STREAMS];
+  counter_type m_signals[LIBXSTREAM_MAX_NDEVICES + 1];
+  libxstream_stream* m_streams[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
   std::atomic<size_t> m_istreams;
 } registry;
 
@@ -190,7 +190,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 #endif
 {
   using namespace libxstream_stream_internal;
-  libxstream_stream* *const slot = registry_type::allocate<LIBXSTREAM_MAX_DEVICES*LIBXSTREAM_MAX_STREAMS>(registry.streams(), registry.istreams());
+  libxstream_stream* *const slot = registry_type::allocate<LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS>(registry.streams(), registry.istreams());
   *slot = this;
 
 #if defined(LIBXSTREAM_DEBUG)
@@ -300,7 +300,7 @@ const char* libxstream_stream::name() const
 }
 
 
-uintptr_t libxstream_stream::thread_id() const
+int libxstream_stream::thread_id() const
 {
   if (0 == m_thread_id) {
     libxstream_lock_acquire(m_lock);

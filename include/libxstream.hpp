@@ -39,7 +39,7 @@ void libxstream_lock_destroy(libxstream_lock* lock);
 void libxstream_lock_acquire(libxstream_lock* lock);
 void libxstream_lock_release(libxstream_lock* lock);
 
-uintptr_t this_thread_id();
+int this_thread_id();
 void this_thread_yield();
 
 #include "libxstream_capture.hpp"

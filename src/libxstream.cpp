@@ -387,10 +387,14 @@ void libxstream_lock_release(libxstream_lock* lock)
 }
 
 
-uintptr_t this_thread_id()
+int this_thread_id()
 {
-  static LIBXSTREAM_TLS int id = 0;
-  return reinterpret_cast<uintptr_t>(&id);
+  static LIBXSTREAM_TLS int id = -1;
+  if (0 > id) {
+    static std::atomic<int> num_threads(0);
+    id = num_threads++;
+  }
+  return id;
 }
 
 
@@ -409,7 +413,7 @@ extern "C" int libxstream_get_ndevices(size_t* ndevices)
   LIBXSTREAM_CHECK_CONDITION(ndevices);
 
 #if defined(LIBXSTREAM_OFFLOAD) && !defined(__MIC__)
-  *ndevices = std::min(_Offload_number_of_devices(), LIBXSTREAM_MAX_DEVICES);
+  *ndevices = std::min(_Offload_number_of_devices(), LIBXSTREAM_MAX_NDEVICES);
 #else
   *ndevices = 1; // host
 #endif
@@ -455,7 +459,7 @@ extern "C" int libxstream_get_active_device(int* device)
 
 extern "C" int libxstream_set_active_device(int device)
 {
-  size_t ndevices = LIBXSTREAM_MAX_DEVICES;
+  size_t ndevices = LIBXSTREAM_MAX_NDEVICES;
   LIBXSTREAM_CHECK_CONDITION(-1 <= device && ndevices >= static_cast<size_t>(device + 1) && LIBXSTREAM_ERROR_NONE == libxstream_get_ndevices(&ndevices) && ndevices >= static_cast<size_t>(device + 1));
 
   if (-1 > libxstream_internal::dev_info_type::global_device() && 1 == ++libxstream_internal::dev_info_type::counter()) {
