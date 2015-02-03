@@ -191,16 +191,16 @@ private:
   return libxstream_stream_internal::registry.sync();
 }
 
-
 libxstream_stream::libxstream_stream(int device, int priority, const char* name)
-  : m_pending(0), m_device(device), m_priority(priority), m_status(LIBXSTREAM_ERROR_NONE)
+  : m_pending(0)
+#if defined(LIBXSTREAM_DEMUX)
+  , m_lock(libxstream_lock_create())
+  , m_thread(-1)
+#endif
+  , m_device(device), m_priority(priority), m_status(LIBXSTREAM_ERROR_NONE)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
   , m_npartitions(0)
-#endif
-#if defined(LIBXSTREAM_DEBUG)
-  , m_lock(libxstream_lock_create())
-  , m_thread_id(0)
 #endif
 {
   using namespace libxstream_stream_internal;
@@ -233,20 +233,29 @@ libxstream_stream::~libxstream_stream()
     libxstream_offload_shutdown();
   }
 
+#if defined(LIBXSTREAM_DEMUX)
+  libxstream_lock_destroy(m_lock);
+#endif
+
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   if (0 != m_handle) {
     _Offload_stream_destroy(m_device, m_handle);
   }
-#endif
-
-#if defined(LIBXSTREAM_DEBUG)
-  libxstream_lock_destroy(m_lock);
 #endif
 }
 
 
 libxstream_signal libxstream_stream::signal() const
 {
+#if defined(LIBXSTREAM_DEMUX)
+  if (0 > m_thread) {
+    libxstream_lock_acquire(m_lock);
+    if (0 > m_thread) {
+      m_thread = this_thread_id();
+    }
+    libxstream_lock_release(m_lock);
+  }
+#endif
   return ++libxstream_stream_internal::registry.signal(m_device);
 }
 
@@ -255,8 +264,14 @@ int libxstream_stream::wait(libxstream_signal signal) const
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
+#if defined(LIBXSTREAM_DEMUX)
+  LIBXSTREAM_OFFLOAD_BEGIN(const_cast<libxstream_stream*>(this), &result, signal, &m_thread)
+  {
+    *ptr<int,2>() = -1; // release thread ownership
+#else
   LIBXSTREAM_OFFLOAD_BEGIN(const_cast<libxstream_stream*>(this), &result, signal)
   {
+#endif
     *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset(); // result code
 
     if (0 != LIBXSTREAM_OFFLOAD_PENDING) {
@@ -312,20 +327,6 @@ const char* libxstream_stream::name() const
 {
   return m_name;
 }
-
-
-int libxstream_stream::thread_id() const
-{
-  if (0 == m_thread_id) {
-    libxstream_lock_acquire(m_lock);
-    if (0 == m_thread_id) {
-      m_thread_id = this_thread_id();
-    }
-    libxstream_lock_release(m_lock);
-  }
-  return m_thread_id;
-}
-
 #endif
 
 

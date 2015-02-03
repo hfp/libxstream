@@ -471,8 +471,8 @@ extern "C" int libxstream_get_ndevices(size_t* ndevices)
 #if defined(LIBXSTREAM_DEBUG)
   static LIBXSTREAM_TLS bool print = true;
   if (print) {
-    fprintf(stderr, "DBG libxstream_get_ndevices: ndevices=%lu thread=0x%lx\n",
-      static_cast<unsigned long>(*ndevices), static_cast<unsigned long>(this_thread_id()));
+    fprintf(stderr, "DBG libxstream_get_ndevices: ndevices=%lu thread=%i\n",
+      static_cast<unsigned long>(*ndevices), this_thread_id());
     print = false;
   }
 #endif
@@ -498,8 +498,8 @@ extern "C" int libxstream_get_active_device(int* device)
     }
 
 #if defined(LIBXSTREAM_DEBUG)
-    fprintf(stderr, "DBG libxstream_get_active_device: device=%i (fallback) thread=0x%lx\n",
-      active_device, static_cast<unsigned long>(this_thread_id()));
+    fprintf(stderr, "DBG libxstream_get_active_device: device=%i (fallback) thread=%i\n",
+      active_device, this_thread_id());
 #endif
   }
 
@@ -520,8 +520,8 @@ extern "C" int libxstream_set_active_device(int device)
   libxstream_internal::context.device() = device;
 
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_set_active_device: device=%i thread=0x%lx\n",
-    device, static_cast<unsigned long>(this_thread_id()));
+  fprintf(stderr, "DBG libxstream_set_active_device: device=%i thread=%i\n",
+    device, this_thread_id());
 #endif
 
   return LIBXSTREAM_ERROR_NONE;
@@ -656,10 +656,9 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
 extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_memset_zero: buffer=0x%lx size=%lu stream=0x%lx\n",
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(memory)),
-    static_cast<unsigned long>(size),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
+  fprintf(stderr, "DBG libxstream_memset_zero: buffer=0x%lx size=%lu stream=0x%lx thread=%i\n",
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(memory)), static_cast<unsigned long>(size),
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), this_thread_id());
 #endif
   LIBXSTREAM_CHECK_CONDITION(memory && stream);
 
@@ -700,11 +699,10 @@ extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stre
 extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_memcpy_h2d: 0x%lx->0x%lx size=%lu stream=0x%lx\n",
+  fprintf(stderr, "DBG libxstream_memcpy_h2d: 0x%lx->0x%lx size=%lu stream=0x%lx thread=%i\n",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(host_mem)),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(dev_mem)),
-    static_cast<unsigned long>(size),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(dev_mem)), static_cast<unsigned long>(size),
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), this_thread_id());
 #endif
   LIBXSTREAM_CHECK_CONDITION(host_mem && dev_mem && stream);
 
@@ -740,11 +738,10 @@ extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t
 extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_memcpy_d2h: 0x%lx->0x%lx size=%lu stream=0x%lx\n",
+  fprintf(stderr, "DBG libxstream_memcpy_d2h: 0x%lx->0x%lx size=%lu stream=0x%lx thread=%i\n",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(dev_mem)),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(host_mem)),
-    static_cast<unsigned long>(size),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(host_mem)), static_cast<unsigned long>(size),
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), this_thread_id());
 #endif
   LIBXSTREAM_CHECK_CONDITION(dev_mem && host_mem && stream);
 
@@ -780,11 +777,10 @@ extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t
 extern "C" int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_memcpy_d2d: 0x%lx->0x%lx size=%lu stream=0x%lx\n",
+  fprintf(stderr, "DBG libxstream_memcpy_d2d: 0x%lx->0x%lx size=%lu stream=0x%lx thread=%i\n",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(src)),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(dst)),
-    static_cast<unsigned long>(size),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(dst)), static_cast<unsigned long>(size),
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), this_thread_id());
 #endif
   LIBXSTREAM_CHECK_CONDITION(src && dst && stream);
 
@@ -838,12 +834,12 @@ extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, 
 
 #if defined(LIBXSTREAM_DEBUG)
   if (name && *name) {
-    fprintf(stderr, "DBG libxstream_stream_create: device=%i stream=0x%lx name=\"%s\"\n",
-      device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)), name);
+    fprintf(stderr, "DBG libxstream_stream_create: device=%i stream=0x%lx thread=%i name=\"%s\"\n",
+      device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)), this_thread_id(), name);
   }
   else {
-    fprintf(stderr, "DBG libxstream_stream_create: device=%i stream=0x%lx\n",
-      device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)));
+    fprintf(stderr, "DBG libxstream_stream_create: device=%i stream=0x%lx thread=%i\n",
+      device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)), this_thread_id());
   }
 #endif
 
@@ -857,12 +853,12 @@ extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
   if (stream) {
     const char *const name = stream->name();
     if (name && *name) {
-      fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx name=\"%s\"\n",
-        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), name);
+      fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx thread=%i name=\"%s\"\n",
+        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), this_thread_id(), name);
     }
     else {
-      fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx\n",
-        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)));
+      fprintf(stderr, "DBG libxstream_stream_destroy: stream=0x%lx thread=%i\n",
+        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), this_thread_id());
     }
   }
 #endif
@@ -877,16 +873,16 @@ extern "C" int libxstream_stream_sync(libxstream_stream* stream)
   if (0 != stream) {
     const char *const name = stream->name();
     if (name && *name) {
-      fprintf(stderr, "DBG libxstream_stream_sync: stream=0x%lx name=\"%s\"\n",
-        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), name);
+      fprintf(stderr, "DBG libxstream_stream_sync: stream=0x%lx thread=%i name=\"%s\"\n",
+        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), this_thread_id(), name);
     }
     else {
-      fprintf(stderr, "DBG libxstream_stream_sync: stream=0x%lx\n",
-        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)));
+      fprintf(stderr, "DBG libxstream_stream_sync: stream=0x%lx thread=%i\n",
+        static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), this_thread_id());
     }
   }
   else {
-    fprintf(stderr, "DBG libxstream_stream_sync: synchronize all streams\n");
+    fprintf(stderr, "DBG libxstream_stream_sync: synchronize all streams from thread=%i\n", this_thread_id());
   }
 #endif
 
@@ -897,9 +893,10 @@ extern "C" int libxstream_stream_sync(libxstream_stream* stream)
 extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_stream_wait_event: event=0x%lx stream=0x%lx\n",
+  fprintf(stderr, "DBG libxstream_stream_wait_event: event=0x%lx stream=0x%lx thread=%i\n",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)),
+    this_thread_id());
 #endif
 
   return event ? event->wait(stream) : (stream ? stream->wait(0) : libxstream_stream::sync());
@@ -924,9 +921,10 @@ extern "C" int libxstream_event_destroy(libxstream_event* event)
 extern "C" int libxstream_event_record(libxstream_event* event, libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_event_record: event=0x%lx stream=0x%lx\n",
+  fprintf(stderr, "DBG libxstream_event_record: event=0x%lx stream=0x%lx thread=%i\n",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)),
+    this_thread_id());
 #endif
 
   if (stream) {
@@ -943,8 +941,9 @@ extern "C" int libxstream_event_record(libxstream_event* event, libxstream_strea
 extern "C" int libxstream_event_query(const libxstream_event* event, int* has_occured)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_event_query: event=0x%lx\n",
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
+  fprintf(stderr, "DBG libxstream_event_query: event=0x%lx thread=%i\n",
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
+    this_thread_id());
 #endif
   LIBXSTREAM_CHECK_CONDITION(event && has_occured);
 
@@ -959,8 +958,9 @@ extern "C" int libxstream_event_query(const libxstream_event* event, int* has_oc
 extern "C" int libxstream_event_synchronize(libxstream_event* event)
 {
 #if defined(LIBXSTREAM_DEBUG)
-  fprintf(stderr, "DBG libxstream_event_synchronize: event=0x%lx\n",
-    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
+  fprintf(stderr, "DBG libxstream_event_synchronize: event=0x%lx thread=%i\n",
+    static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
+    this_thread_id());
 #endif
 
   return event ? event->wait(0) : libxstream_stream::sync();

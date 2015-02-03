@@ -241,10 +241,10 @@ libxstream_offload_region::libxstream_offload_region(libxstream_stream* stream, 
 
 void libxstream_offload(const libxstream_offload_region& offload_region, bool wait)
 {
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_DEMUX) && defined(LIBXSTREAM_DEBUG)
   if (!wait) {
     libxstream_stream *const stream = offload_region.stream();
-    if (stream && stream->thread_id() != this_thread_id())  {
+    if (stream && stream->thread() != this_thread_id())  {
       fprintf(stderr, "\tstream is accessed by multiple threads!\n");
     }
   }
