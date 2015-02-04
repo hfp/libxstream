@@ -232,9 +232,9 @@
       if (LIBXSTREAM_OFFLOAD_STREAM) { \
         offload_region_signal = LIBXSTREAM_OFFLOAD_STREAM->signal(); \
         if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM->demux()) { \
-          LIBXSTREAM_OFFLOAD_STREAM->thread(-1); \
           LIBXSTREAM_PRINT_INFO("demux: thread=%i released stream=0x%lx", LIBXSTREAM_OFFLOAD_STREAM->thread(), \
             static_cast<unsigned long>(reinterpret_cast<uintptr_t>(LIBXSTREAM_OFFLOAD_STREAM))); \
+          LIBXSTREAM_OFFLOAD_STREAM->thread(-1); \
         } \
       } \
       libxstream_signal offload_region_signal_consumed = offload_region_signal; do
