@@ -59,7 +59,7 @@ test_type::test_type(int device)
   : m_device(device), m_stream(0), m_event(0)
   , m_host_mem(0), m_dev_mem(0)
 {
-  fprintf(stdout, "TST entered by thread=0x%lx\n", static_cast<unsigned long>(this_thread_id()));
+  fprintf(stdout, "TST entered by thread=%i\n", this_thread_id());
 
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_get_active_device(&m_device));
 
