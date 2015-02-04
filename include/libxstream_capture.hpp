@@ -94,5 +94,6 @@ private:
 
 void libxstream_offload(const libxstream_offload_region& offload_region, bool wait = true);
 void libxstream_offload_shutdown();
+bool libxstream_offload_busy();
 
 #endif // LIBXSTREAM_CAPTURE_HPP

@@ -35,6 +35,7 @@
 #if defined(LIBXSTREAM_STDTHREAD)
 # include <thread>
 # include <atomic>
+# include <mutex>
 #else
 # if defined(_OPENMP)
 #   include <omp.h>
@@ -352,7 +353,7 @@ LIBXSTREAM_EXPORT void mem_info(uint64_t& memory_physical, uint64_t& memory_not_
 libxstream_lock* libxstream_lock_create()
 {
 #if defined(LIBXSTREAM_STDTHREAD)
-  std::atomic<int> *const typed_lock = new std::atomic<int>(0);
+  std::mutex *const typed_lock = new std::mutex;
 #else
 # if defined(_OPENMP)
   omp_lock_t *const typed_lock = new omp_lock_t;
@@ -369,7 +370,7 @@ libxstream_lock* libxstream_lock_create()
 void libxstream_lock_destroy(libxstream_lock* lock)
 {
 #if defined(LIBXSTREAM_STDTHREAD)
-  std::atomic<int> *const typed_lock = static_cast<std::atomic<int>*>(lock);
+  std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
 #else
 # if defined(_OPENMP)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
@@ -387,12 +388,8 @@ void libxstream_lock_acquire(libxstream_lock* lock)
 {
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDTHREAD)
-  std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
-  if (1 < ++typed_lock) {
-    while (1 < typed_lock) {
-      std::this_thread::yield();
-    }
-  }
+  std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
+  typed_lock->lock();
 #else
 # if defined(_OPENMP)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
@@ -409,8 +406,8 @@ void libxstream_lock_release(libxstream_lock* lock)
 {
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDTHREAD)
-  std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
-  --typed_lock;
+  std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
+  typed_lock->unlock();
 #else
 # if defined(_OPENMP)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
@@ -420,6 +417,25 @@ void libxstream_lock_release(libxstream_lock* lock)
   pthread_mutex_unlock(typed_lock);
 # endif
 #endif
+}
+
+
+bool libxstream_lock_try(libxstream_lock* lock)
+{
+  LIBXSTREAM_ASSERT(lock);
+#if defined(LIBXSTREAM_STDTHREAD)
+  std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
+  const bool result = typed_lock->try_lock();
+#else
+# if defined(_OPENMP)
+  omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
+  const bool result =  0 != omp_test_lock(typed_lock);
+# else
+  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
+  const bool result =  0 == pthread_mutex_trylock(typed_lock);
+# endif
+#endif
+  return result;
 }
 
 

@@ -125,6 +125,12 @@ public:
     return 0 == get();
   }
 
+  size_t size() const {
+    const size_t offset = m_size, index = m_index;
+    const value_type& entry = m_buffer[offset%LIBXSTREAM_MAX_QSIZE];
+    return 0 != entry ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
+  }
+
   void push(const libxstream_offload_region& offload_region, bool wait = true) {
     push(&offload_region, wait);
   }
@@ -241,14 +247,6 @@ libxstream_offload_region::libxstream_offload_region(libxstream_stream* stream, 
 
 void libxstream_offload(const libxstream_offload_region& offload_region, bool wait)
 {
-#if defined(LIBXSTREAM_DEMUX) && defined(LIBXSTREAM_DEBUG)
-  if (!wait) {
-    libxstream_stream *const stream = offload_region.stream();
-    if (stream && stream->thread() != this_thread_id())  {
-      fprintf(stderr, "\tstream is accessed by multiple threads!\n");
-    }
-  }
-#endif
 #if defined(LIBXSTREAM_CAPTURE_USE_QUEUE)
   if (libxstream_offload_internal::queue.start()) {
     libxstream_offload_internal::queue.push(offload_region, wait);
@@ -263,5 +261,16 @@ void libxstream_offload_shutdown()
 {
 #if defined(LIBXSTREAM_CAPTURE_USE_QUEUE)
   libxstream_offload_internal::queue.terminate();
+#endif
+}
+
+
+bool libxstream_offload_busy()
+{
+#if defined(LIBXSTREAM_CAPTURE_USE_QUEUE)
+  //return 0 < libxstream_offload_internal::queue.size();
+  return !libxstream_offload_internal::queue.empty();
+#else
+  return false;
 #endif
 }
