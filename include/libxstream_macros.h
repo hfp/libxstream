@@ -234,7 +234,7 @@
       libxstream_signal offload_region_signal_consumed = offload_region_signal; do
 #define LIBXSTREAM_OFFLOAD_END(WAIT) while(false); \
       if (LIBXSTREAM_OFFLOAD_STREAM && offload_region_signal != offload_region_signal_consumed) { \
-        LIBXSTREAM_OFFLOAD_STREAM->pending(offload_region_signal_consumed); \
+        LIBXSTREAM_OFFLOAD_STREAM->pending(offload_region_signal); \
       } \
     } \
   } offload_region(libxstream_offload_region_stream, \
