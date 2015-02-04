@@ -49,6 +49,16 @@
 #define LIBXSTREAM_ERROR_CHECK
 
 /**
+ * Enables printing trace information.
+ * Valid selections:
+ * - #define LIBXSTREAM_TRACE: enables default (1) behavior
+ * - #define LIBXSTREAM_TRACE 0: disables trace information
+ * - #define LIBXSTREAM_TRACE 1: enabled for debug builds
+ * - #define LIBXSTREAM_TRACE 2: enabled
+ */
+#define LIBXSTREAM_TRACE
+
+/**
  * Enables asynchronous offloads.
  * Valid selections:
  * - #define LIBXSTREAM_ASYNC: enables default (1) behavior

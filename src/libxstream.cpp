@@ -487,7 +487,7 @@ extern "C" int libxstream_get_ndevices(size_t* ndevices)
 #if defined(LIBXSTREAM_DEBUG)
   static LIBXSTREAM_TLS bool print = true;
   if (print) {
-    LIBXSTREAM_DEBUG_PRINT("ndevices=%lu thread=%i", static_cast<unsigned long>(*ndevices), this_thread_id());
+    LIBXSTREAM_PRINT_INFOCTX("ndevices=%lu thread=%i", static_cast<unsigned long>(*ndevices), this_thread_id());
     print = false;
   }
 #endif
@@ -512,7 +512,7 @@ extern "C" int libxstream_get_active_device(int* device)
       libxstream_internal::context.device() = active_device;
     }
 
-    LIBXSTREAM_DEBUG_PRINT("device=%i (fallback) thread=%i", active_device, this_thread_id());
+    LIBXSTREAM_PRINT_INFOCTX("device=%i (fallback) thread=%i", active_device, this_thread_id());
   }
 
   *device = active_device;
@@ -530,7 +530,7 @@ extern "C" int libxstream_set_active_device(int device)
   }
 
   libxstream_internal::context.device() = device;
-  LIBXSTREAM_DEBUG_PRINT("device=%i thread=%i", device, this_thread_id());
+  LIBXSTREAM_PRINT_INFOCTX("device=%i thread=%i", device, this_thread_id());
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -562,7 +562,7 @@ extern "C" int libxstream_mem_info(int device, size_t* allocatable, size_t* phys
   }
   LIBXSTREAM_OFFLOAD_END(true);
 
-  LIBXSTREAM_DEBUG_PRINT("device=%i allocatable=%lu physical=%lu", device,
+  LIBXSTREAM_PRINT_INFOCTX("device=%i allocatable=%lu physical=%lu", device,
     static_cast<unsigned long>(memory_allocatable),
     static_cast<unsigned long>(memory_physical));
   LIBXSTREAM_CHECK_CONDITION(0 < memory_physical && 0 < memory_allocatable);
@@ -607,7 +607,7 @@ extern "C" int libxstream_mem_allocate(int device, void** memory, size_t size, s
   }
   LIBXSTREAM_OFFLOAD_END(true);
 
-  LIBXSTREAM_DEBUG_PRINT("device=%i buffer=0x%lx size=%lu", device,
+  LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%lx size=%lu", device,
     memory ? static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(memory)) : 0UL,
     static_cast<unsigned long>(size));
 
@@ -620,7 +620,7 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {
-    LIBXSTREAM_DEBUG_PRINT("device=%i buffer=0x%lx", device, static_cast<unsigned long>(reinterpret_cast<uintptr_t>(memory)));
+    LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%lx", device, static_cast<unsigned long>(reinterpret_cast<uintptr_t>(memory)));
 
     LIBXSTREAM_OFFLOAD_BEGIN(0, device, memory, &result)
     {
@@ -632,7 +632,7 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
 # if defined(LIBXSTREAM_CHECK)
         const int memory_device = *static_cast<const int*>(libxstream_internal::get_user_data(memory));
         if (memory_device != LIBXSTREAM_OFFLOAD_DEVICE) {
-          LIBXSTREAM_DEBUG_WARN("device %i does not match allocating device %i", LIBXSTREAM_OFFLOAD_DEVICE, memory_device);
+          LIBXSTREAM_PRINT_WARNING("device %i does not match allocating device %i", LIBXSTREAM_OFFLOAD_DEVICE, memory_device);
           LIBXSTREAM_OFFLOAD_DEVICE_UPDATE(memory_device);
         }
 # endif
@@ -654,7 +654,7 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
 
 extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream)
 {
-  LIBXSTREAM_DEBUG_PRINT("buffer=0x%lx size=%lu stream=0x%lx thread=%i",
+  LIBXSTREAM_PRINT_INFOCTX("buffer=0x%lx size=%lu stream=0x%lx thread=%i",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(memory)), static_cast<unsigned long>(size),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), this_thread_id());
   LIBXSTREAM_CHECK_CONDITION(memory && stream);
@@ -695,7 +695,7 @@ extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stre
 
 extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream)
 {
-  LIBXSTREAM_DEBUG_PRINT("0x%lx->0x%lx size=%lu stream=0x%lx thread=%i",
+  LIBXSTREAM_PRINT_INFOCTX("0x%lx->0x%lx size=%lu stream=0x%lx thread=%i",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(host_mem)),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(dev_mem)), static_cast<unsigned long>(size),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), this_thread_id());
@@ -732,7 +732,7 @@ extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t
 
 extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream)
 {
-  LIBXSTREAM_DEBUG_PRINT("0x%lx->0x%lx size=%lu stream=0x%lx thread=%i",
+  LIBXSTREAM_PRINT_INFOCTX("0x%lx->0x%lx size=%lu stream=0x%lx thread=%i",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(dev_mem)),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(host_mem)), static_cast<unsigned long>(size),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), this_thread_id());
@@ -769,7 +769,7 @@ extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t
 
 extern "C" int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream)
 {
-  LIBXSTREAM_DEBUG_PRINT("0x%lx->0x%lx size=%lu stream=0x%lx thread=%i",
+  LIBXSTREAM_PRINT_INFOCTX("0x%lx->0x%lx size=%lu stream=0x%lx thread=%i",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(src)),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(dst)), static_cast<unsigned long>(size),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), this_thread_id());
@@ -825,11 +825,11 @@ extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, 
 
 #if defined(LIBXSTREAM_DEBUG)
   if (name && *name) {
-    LIBXSTREAM_DEBUG_PRINT("device=%i stream=0x%lx thread=%i name=\"%s\"",
+    LIBXSTREAM_PRINT_INFOCTX("device=%i stream=0x%lx thread=%i name=\"%s\"",
       device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)), this_thread_id(), name);
   }
   else {
-    LIBXSTREAM_DEBUG_PRINT("device=%i stream=0x%lx thread=%i",
+    LIBXSTREAM_PRINT_INFOCTX("device=%i stream=0x%lx thread=%i",
       device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)), this_thread_id());
   }
 #endif
@@ -844,11 +844,11 @@ extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
   if (stream) {
     const char *const name = stream->name();
     if (name && *name) {
-      LIBXSTREAM_DEBUG_PRINT("stream=0x%lx thread=%i name=\"%s\"",
+      LIBXSTREAM_PRINT_INFOCTX("stream=0x%lx thread=%i name=\"%s\"",
         static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), this_thread_id(), name);
     }
     else {
-      LIBXSTREAM_DEBUG_PRINT("stream=0x%lx thread=%i",
+      LIBXSTREAM_PRINT_INFOCTX("stream=0x%lx thread=%i",
         static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), this_thread_id());
     }
   }
@@ -864,16 +864,16 @@ extern "C" int libxstream_stream_sync(libxstream_stream* stream)
   if (0 != stream) {
     const char *const name = stream->name();
     if (name && *name) {
-      LIBXSTREAM_DEBUG_PRINT("stream=0x%lx thread=%i name=\"%s\"",
+      LIBXSTREAM_PRINT_INFOCTX("stream=0x%lx thread=%i name=\"%s\"",
         static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), this_thread_id(), name);
     }
     else {
-      LIBXSTREAM_DEBUG_PRINT("stream=0x%lx thread=%i",
+      LIBXSTREAM_PRINT_INFOCTX("stream=0x%lx thread=%i",
         static_cast<unsigned long>(reinterpret_cast<const uintptr_t>(stream)), this_thread_id());
     }
   }
   else {
-    LIBXSTREAM_DEBUG_PRINT("synchronize all streams from thread=%i", this_thread_id());
+    LIBXSTREAM_PRINT_INFOCTX("synchronize all streams from thread=%i", this_thread_id());
   }
 #endif
 
@@ -883,7 +883,7 @@ extern "C" int libxstream_stream_sync(libxstream_stream* stream)
 
 extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
 {
-  LIBXSTREAM_DEBUG_PRINT("event=0x%lx stream=0x%lx thread=%i",
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%lx stream=0x%lx thread=%i",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)),
     this_thread_id());
@@ -909,7 +909,7 @@ extern "C" int libxstream_event_destroy(libxstream_event* event)
 
 extern "C" int libxstream_event_record(libxstream_event* event, libxstream_stream* stream)
 {
-  LIBXSTREAM_DEBUG_PRINT("event=0x%lx stream=0x%lx thread=%i",
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%lx stream=0x%lx thread=%i",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)),
     this_thread_id());
@@ -927,7 +927,7 @@ extern "C" int libxstream_event_record(libxstream_event* event, libxstream_strea
 
 extern "C" int libxstream_event_query(const libxstream_event* event, int* has_occured)
 {
-  LIBXSTREAM_DEBUG_PRINT("event=0x%lx thread=%i",
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%lx thread=%i",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
     this_thread_id());
   LIBXSTREAM_CHECK_CONDITION(event && has_occured);
@@ -942,7 +942,7 @@ extern "C" int libxstream_event_query(const libxstream_event* event, int* has_oc
 
 extern "C" int libxstream_event_synchronize(libxstream_event* event)
 {
-  LIBXSTREAM_DEBUG_PRINT("event=0x%lx thread=%i",
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%lx thread=%i",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
     this_thread_id());
 

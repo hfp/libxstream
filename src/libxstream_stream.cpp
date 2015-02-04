@@ -59,7 +59,7 @@ public:
     for (size_t i = 0; i < n; ++i) {
 #if defined(LIBXSTREAM_DEBUG)
       if (0 != m_streams[i]) {
-        LIBXSTREAM_DEBUG_WARN("dangling stream \"%s\"!", m_streams[i]->name());
+        LIBXSTREAM_PRINT_WARNING("dangling stream \"%s\"!", m_streams[i]->name());
       }
 #endif
       libxstream_stream_destroy(m_streams[i]);

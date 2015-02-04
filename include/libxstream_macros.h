@@ -113,16 +113,18 @@
 # define LIBXSTREAM_CHECK
 #endif
 
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_ASYNC) && ((1 == ((2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_ASYNC+1)/2))
 # define LIBXSTREAM_ASSERT(A) assert(A)
-# define LIBXSTREAM_DEBUG_PRINT(MESSAGE, ...) fprintf(stderr, "DBG %s: " MESSAGE "\n", __FUNCTION__, __VA_ARGS__)
-# define LIBXSTREAM_DEBUG_WARN0(MESSAGE) fprintf(stderr, "WRN %s: " MESSAGE "\n", __FUNCTION__)
-# define LIBXSTREAM_DEBUG_WARN(MESSAGE, ...) fprintf(stderr, "WRN %s: " MESSAGE "\n", __FUNCTION__, __VA_ARGS__)
+# define LIBXSTREAM_PRINT_INFO(MESSAGE, ...) fprintf(stderr, "DBG " MESSAGE "\n", __VA_ARGS__)
+# define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...) fprintf(stderr, "DBG %s: " MESSAGE "\n", __FUNCTION__, __VA_ARGS__)
+# define LIBXSTREAM_PRINT_WARNING(MESSAGE, ...) fprintf(stderr, "WRN " MESSAGE "\n", __VA_ARGS__)
+# define LIBXSTREAM_PRINT_WARNING0(MESSAGE) fprintf(stderr, "WRN " MESSAGE "\n")
 #else
 # define LIBXSTREAM_ASSERT(A)
-# define LIBXSTREAM_DEBUG_PRINT(MESSAGE, ...)
-# define LIBXSTREAM_DEBUG_WARN0(MESSAGE)
-# define LIBXSTREAM_DEBUG_WARN(MESSAGE, ...)
+# define LIBXSTREAM_PRINT_INFO(MESSAGE, ...)
+# define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...)
+# define LIBXSTREAM_PRINT_WARNING(MESSAGE, ...)
+# define LIBXSTREAM_PRINT_WARNING0(MESSAGE)
 #endif
 
 #define LIBXSTREAM_ERROR_NONE       0
@@ -215,6 +217,8 @@
             if (this_thread != thread) { \
               if (0 <= thread) stream->wait(0); \
               stream->thread(this_thread); \
+              LIBXSTREAM_PRINT_INFO("demux: thread=%i acquired stream=0x%lx", this_thread, \
+                static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream))); \
             } \
             stream->unlock(); \
           } \
@@ -227,8 +231,10 @@
       libxstream_signal offload_region_signal = 0; \
       if (LIBXSTREAM_OFFLOAD_STREAM) { \
         offload_region_signal = LIBXSTREAM_OFFLOAD_STREAM->signal(); \
-        if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM->demux() && 0 <= LIBXSTREAM_OFFLOAD_STREAM->thread()) { \
+        if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM->demux()) { \
           LIBXSTREAM_OFFLOAD_STREAM->thread(-1); \
+          LIBXSTREAM_PRINT_INFO("demux: thread=%i released stream=0x%lx", LIBXSTREAM_OFFLOAD_STREAM->thread(), \
+            static_cast<unsigned long>(reinterpret_cast<uintptr_t>(LIBXSTREAM_OFFLOAD_STREAM))); \
         } \
       } \
       libxstream_signal offload_region_signal_consumed = offload_region_signal; do
