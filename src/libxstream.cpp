@@ -472,10 +472,10 @@ int this_thread_id()
 
 void this_thread_yield()
 {
-#if defined(LIBXSTREAM_STDFEATURES)
-  std::this_thread::yield();
-#elif defined(__GNUC__)
+#if defined(__GNUC__)
   pthread_yield();
+#elif defined(LIBXSTREAM_STDFEATURES)
+  std::this_thread::yield();
 #endif
 }
 
