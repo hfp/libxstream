@@ -33,18 +33,9 @@
 
 #include "libxstream_config.h"
 
-#if (1600 < _MSC_VER) || !defined(_WIN32)
-# if !defined(LIBXSTREAM_STDTHREAD)
-#   define LIBXSTREAM_STDTHREAD
-# endif
-# if !defined(_GLIBCXX_HAS_GTHREADS)
-#   define _GLIBCXX_HAS_GTHREADS
-# endif
-# if !defined(_GLIBCXX_USE_C99_STDINT_TR1)
-#   define _GLIBCXX_USE_C99_STDINT_TR1
-# endif
-# if !defined(_GLIBCXX_USE_SCHED_YIELD)
-#   define _GLIBCXX_USE_SCHED_YIELD
+#if (201103L <= __cplusplus) || (1600 < _MSC_VER)
+# if !defined(LIBXSTREAM_STDFEATURES)
+#   define LIBXSTREAM_STDFEATURES
 # endif
 #endif
 
@@ -116,13 +107,17 @@
 #if defined(LIBXSTREAM_ASYNC) && ((1 == ((2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_ASYNC+1)/2))
 # define LIBXSTREAM_ASSERT(A) assert(A)
 # define LIBXSTREAM_PRINT_INFO(MESSAGE, ...) fprintf(stderr, "DBG " MESSAGE "\n", __VA_ARGS__)
+# define LIBXSTREAM_PRINT_INFO0(MESSAGE) fprintf(stderr, "DBG " MESSAGE "\n")
 # define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...) fprintf(stderr, "DBG %s: " MESSAGE "\n", __FUNCTION__, __VA_ARGS__)
+# define LIBXSTREAM_PRINT_INFOCTX0(MESSAGE) fprintf(stderr, "DBG %s: " MESSAGE "\n", __FUNCTION__)
 # define LIBXSTREAM_PRINT_WARNING(MESSAGE, ...) fprintf(stderr, "WRN " MESSAGE "\n", __VA_ARGS__)
 # define LIBXSTREAM_PRINT_WARNING0(MESSAGE) fprintf(stderr, "WRN " MESSAGE "\n")
 #else
 # define LIBXSTREAM_ASSERT(A)
 # define LIBXSTREAM_PRINT_INFO(MESSAGE, ...)
+# define LIBXSTREAM_PRINT_INFO0(MESSAGE)
 # define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...)
+# define LIBXSTREAM_PRINT_INFOCTX0(MESSAGE)
 # define LIBXSTREAM_PRINT_WARNING(MESSAGE, ...)
 # define LIBXSTREAM_PRINT_WARNING0(MESSAGE)
 #endif
@@ -207,36 +202,30 @@
     { \
       if (!wait && stream && stream->demux()) { \
         const int this_thread = this_thread_id(); \
-        while (this_thread != stream->thread()) { \
-          if (libxstream_offload_busy()) { \
-            this_thread_yield(); \
-          } \
-          else { \
-            stream->lock(); \
-            const int thread = stream->thread(); \
-            if (this_thread != thread) { \
-              if (0 <= thread) stream->wait(0); \
-              stream->thread(this_thread); \
-              LIBXSTREAM_PRINT_INFO("demux: thread=%i acquired stream=0x%lx", this_thread, \
-                static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream))); \
-            } \
-            stream->unlock(); \
-          } \
+        if (stream->thread() != this_thread || !LIBXSTREAM_OFFLOAD_STREAM->locked()) { \
+          stream->lock(); \
+          stream->thread(this_thread); \
+          LIBXSTREAM_PRINT_INFO("demux: stream=0x%lx acquired by thread=%i", \
+            static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), \
+            this_thread); \
         } \
+        LIBXSTREAM_ASSERT(stream->locked()); \
+        LIBXSTREAM_ASSERT(stream->thread() == this_thread); \
       } \
       libxstream_offload(*this, wait); \
     } \
+    ~offload_region_type() { \
+      if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM && LIBXSTREAM_OFFLOAD_STREAM->demux() && LIBXSTREAM_OFFLOAD_STREAM->locked()) { \
+        LIBXSTREAM_PRINT_INFO("demux: stream=0x%lx released by thread=%i", \
+          static_cast<unsigned long>(reinterpret_cast<uintptr_t>(LIBXSTREAM_OFFLOAD_STREAM)), \
+          this_thread_id()); \
+        LIBXSTREAM_OFFLOAD_STREAM->thread(-1); \
+        LIBXSTREAM_OFFLOAD_STREAM->unlock(); \
+      } \
+    } \
     offload_region_type* clone() const { return new offload_region_type(*this); } \
     void operator()() const { LIBXSTREAM_OFFLOAD_DECL; \
-      libxstream_signal offload_region_signal = 0; \
-      if (LIBXSTREAM_OFFLOAD_STREAM) { \
-        offload_region_signal = LIBXSTREAM_OFFLOAD_STREAM->signal(); \
-        if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM->demux()) { \
-          LIBXSTREAM_PRINT_INFO("demux: thread=%i released stream=0x%lx", LIBXSTREAM_OFFLOAD_STREAM->thread(), \
-            static_cast<unsigned long>(reinterpret_cast<uintptr_t>(LIBXSTREAM_OFFLOAD_STREAM))); \
-          LIBXSTREAM_OFFLOAD_STREAM->thread(-1); \
-        } \
-      } \
+      const libxstream_signal offload_region_signal = LIBXSTREAM_OFFLOAD_STREAM ? LIBXSTREAM_OFFLOAD_STREAM->signal() : 0; \
       libxstream_signal offload_region_signal_consumed = offload_region_signal; do
 #define LIBXSTREAM_OFFLOAD_END(WAIT) while(false); \
       if (LIBXSTREAM_OFFLOAD_STREAM && offload_region_signal != offload_region_signal_consumed) { \

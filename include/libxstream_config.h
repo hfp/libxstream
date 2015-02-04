@@ -86,6 +86,8 @@
 /** Maximum number of executions in the queue. */
 #define LIBXSTREAM_MAX_QSIZE 1024
 
+/** Enables non-recursive locks. */
+#define LIBXSTREAM_NONRECURSIVE_LOCKS
 
 /**
  * Below preprocessor symbols fixup some platform specifics.

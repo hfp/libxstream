@@ -75,6 +75,7 @@ public:
   libxstream_signal signal() const;
   int wait(libxstream_signal signal) const;
 
+  bool locked() const { return m_locked; }
   void lock();
   void unlock();
 
@@ -93,7 +94,7 @@ private:
 private:
   mutable libxstream_signal m_pending;
   libxstream_lock* m_lock;
-  bool m_demux;
+  bool m_locked, m_demux;
   int m_thread;
   int m_device;
   int m_priority;

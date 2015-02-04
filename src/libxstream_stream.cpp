@@ -32,7 +32,7 @@
 #include <algorithm>
 #include <string>
 
-#if defined(LIBXSTREAM_STDTHREAD)
+#if defined(LIBXSTREAM_STDFEATURES)
 # include <atomic>
 #endif
 
@@ -46,7 +46,7 @@ class registry_type {
 public:
   registry_type()
     : m_istreams(0)
-#if !defined(LIBXSTREAM_STDTHREAD)
+#if !defined(LIBXSTREAM_STDFEATURES)
     , m_lock(libxstream_lock_create())
 #endif
   {
@@ -64,19 +64,19 @@ public:
 #endif
       libxstream_stream_destroy(m_streams[i]);
     }
-#if !defined(LIBXSTREAM_STDTHREAD)
+#if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock_destroy(m_lock);
 #endif
   }
 
 public:
   libxstream_stream** allocate() {
-#if !defined(LIBXSTREAM_STDTHREAD)
+#if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock_acquire(m_lock);
 #endif
     libxstream_stream** i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
     while (0 != *i) i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
-#if !defined(LIBXSTREAM_STDTHREAD)
+#if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock_release(m_lock);
 #endif
     return i;
@@ -117,7 +117,6 @@ public:
     LIBXSTREAM_ASSERT(0 == event.expected());
     const size_t n = max_nstreams();
     bool reset = true;
-
     for (size_t i = 0; i < n; ++i) {
       if (libxstream_stream *const stream = m_streams[i]) {
         event.enqueue(*stream, reset);
@@ -128,31 +127,26 @@ public:
 
   int sync(int device) {
     const size_t n = max_nstreams();
-
     for (size_t i = 0; i < n; ++i) {
       if (libxstream_stream *const stream = m_streams[i]) {
         const int stream_device = stream->device();
-
         if (stream_device == device) {
           const int result = stream->wait(0);
           LIBXSTREAM_CHECK_ERROR(result);
         }
       }
     }
-
     return LIBXSTREAM_ERROR_NONE;
   }
 
   int sync() {
     const size_t n = max_nstreams();
-
     for (size_t i = 0; i < n; ++i) {
       if (libxstream_stream *const stream = m_streams[i]) {
         const int result = stream->wait(0);
         LIBXSTREAM_CHECK_ERROR(result);
       }
     }
-
     return LIBXSTREAM_ERROR_NONE;
   }
 
@@ -160,7 +154,7 @@ private:
   // not necessary to be device-specific due to single-threaded offload
   libxstream_signal m_signals[LIBXSTREAM_MAX_NDEVICES + 1];
   libxstream_stream* m_streams[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
-#if defined(LIBXSTREAM_STDTHREAD)
+#if defined(LIBXSTREAM_STDFEATURES)
   std::atomic<size_t> m_istreams;
 #else
   size_t m_istreams;
@@ -190,7 +184,7 @@ private:
 
 
 libxstream_stream::libxstream_stream(int device, bool demux, int priority, const char* name)
-  : m_pending(0), m_lock(libxstream_lock_create()), m_demux(0 != demux), m_thread(-1)
+  : m_pending(0), m_lock(libxstream_lock_create()), m_locked(false), m_demux(0 != demux), m_thread(-1)
   , m_device(device), m_priority(priority), m_status(LIBXSTREAM_ERROR_NONE)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
@@ -280,12 +274,16 @@ int libxstream_stream::wait(libxstream_signal signal) const
 void libxstream_stream::lock()
 {
   libxstream_lock_acquire(m_lock);
+  m_locked = true;
 }
 
 
 void libxstream_stream::unlock()
 {
-  libxstream_lock_release(m_lock);
+  if (m_locked) {
+    m_locked = false;
+    libxstream_lock_release(m_lock);
+  }
 }
 
 

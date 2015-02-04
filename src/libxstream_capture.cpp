@@ -31,10 +31,11 @@
 #include <libxstream.hpp>
 #include <algorithm>
 
-#if defined(LIBXSTREAM_STDTHREAD)
+#if defined(LIBXSTREAM_STDFEATURES)
 # include <thread>
 # include <atomic>
 #else
+// TODO: support Windows threads
 # include <pthread.h>
 #endif
 
@@ -50,7 +51,7 @@ public:
     : m_lock(libxstream_lock_create())
     , m_terminated(false)
     , m_index(0)
-#if defined(LIBXSTREAM_STDTHREAD)
+#if defined(LIBXSTREAM_STDFEATURES)
     , m_thread(run, this)
 #else
     , m_thread(0)
@@ -58,7 +59,7 @@ public:
     , m_size(0)
   {
     std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<value_type>(0));
-#if !defined(LIBXSTREAM_STDTHREAD)
+#if !defined(LIBXSTREAM_STDFEATURES)
     start();
 #endif
   }
@@ -71,7 +72,7 @@ public:
 public:
   bool start() {
     if (!m_terminated) {
-#if defined(LIBXSTREAM_STDTHREAD)
+#if defined(LIBXSTREAM_STDFEATURES)
       if (!m_thread.joinable()) {
         libxstream_lock_acquire(m_lock);
         if (!m_thread.joinable()) {
@@ -111,7 +112,7 @@ public:
     }
 #endif
 
-#if defined(LIBXSTREAM_STDTHREAD)
+#if defined(LIBXSTREAM_STDFEATURES)
     if (m_thread.joinable()) {
       m_thread.join();
     }
@@ -153,7 +154,7 @@ private:
   void push(const value_type& offload_region, bool wait) {
     LIBXSTREAM_ASSERT(0 != offload_region);
     value_type* entry = 0;
-#if defined(LIBXSTREAM_STDTHREAD)
+#if defined(LIBXSTREAM_STDFEATURES)
     entry = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
 #else
 # if defined(_OPENMP)
@@ -219,7 +220,7 @@ private:
   libxstream_lock* m_lock;
   bool m_terminated;
   size_t m_index;
-#if defined(LIBXSTREAM_STDTHREAD)
+#if defined(LIBXSTREAM_STDFEATURES)
   std::thread m_thread;
   std::atomic<size_t> m_size;
 #else

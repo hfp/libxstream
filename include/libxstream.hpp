@@ -38,7 +38,6 @@ libxstream_lock* libxstream_lock_create();
 void libxstream_lock_destroy(libxstream_lock* lock);
 void libxstream_lock_acquire(libxstream_lock* lock);
 void libxstream_lock_release(libxstream_lock* lock);
-bool libxstream_lock_try(libxstream_lock* lock);
 
 int this_thread_id();
 void this_thread_yield();
