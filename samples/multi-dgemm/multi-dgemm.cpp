@@ -42,7 +42,6 @@
 #endif
 
 //#define MULTI_DGEMM_USE_NESTED
-//#define MULTI_DGEMM_USE_ISYNC
 #define MULTI_DGEMM_USE_CHECK
 
 #define DGEMM dgemm_
@@ -110,7 +109,9 @@ int main(int argc, char* argv[])
     fprintf(stdout, "Initializing %i stream%s per device...\n", nstreams, 1 < nstreams ? "s" : "");
     std::vector<multi_dgemm_type> multi_dgemm(ndevices * nstreams);
     for (size_t i = 0; i < multi_dgemm.size(); ++i) {
-      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(host_data, i % ndevices, nbatch));
+      char name[128];
+      LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
+      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, i % ndevices, nbatch));
     }
 
     const int nbatches = (nitems + nbatch - 1) / nbatch;
@@ -128,16 +129,8 @@ int main(int argc, char* argv[])
 #endif
     for (int i = 0; i < nitems; i += nbatch) {
       const int stream = i % multi_dgemm.size();
-#if defined(MULTI_DGEMM_USE_ISYNC)
-      if (0 < i && 0 == stream) {
-        LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
-      }
-#endif
       LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[stream](&process, i, std::min(nbatch, nitems - i)));
     }
-
-    // sync all streams to complete any pending work
-    LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
 
 #if defined(_OPENMP)
     const double duration = omp_get_wtime() - start;
