@@ -7,7 +7,7 @@ CXX=$(which icpc 2> /dev/null)
 ICCOPT="-O2 -xHost -ansi-alias -mkl"
 ICCLNK="-mkl"
 
-GCCOPT="-O2 -march=native -llapack -lblas"
+GCCOPT="-O2 -march=native"
 GCCLNK="-llapack -lblas"
 
 if [ "" = "$CXX" ] ; then
