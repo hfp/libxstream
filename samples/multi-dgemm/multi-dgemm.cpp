@@ -42,8 +42,8 @@
 #endif
 
 //#define MULTI_DGEMM_USE_NESTED
+//#define MULTI_DGEMM_USE_ISYNC
 #define MULTI_DGEMM_USE_CHECK
-#define MULTI_DGEMM_USE_ISYNC
 
 #define DGEMM dgemm_
 

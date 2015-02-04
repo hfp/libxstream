@@ -195,7 +195,7 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
 {
   LIBXSTREAM_CHECK_CONDITION(ready() && process_fn && (index + size) <= m_host_data->size());
 
-#if defined(_OPENMP)
+#if !defined(LIBXSTREAM_DEMUX) && defined(_OPENMP)
   // This critical section prevents multiple threads from queuing work into the *same* stream (at the same time).
 # pragma omp critical(m_stream)
 #endif

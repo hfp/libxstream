@@ -97,13 +97,17 @@ public:
     push(terminator, false); // terminates the background thread
 
 #if defined(LIBXSTREAM_DEBUG)
+    size_t dangling = 0;
     for (size_t i = 0; i < LIBXSTREAM_MAX_QSIZE; ++i) {
       const value_type item = m_buffer[i];
       if (0 != item && terminator != item) {
         m_buffer[i] = 0;
-        fprintf(stderr, "\tdangling work item in queue!\n");
+        ++dangling;
         delete item;
       }
+    }
+    if (0 < dangling) {
+      LIBXSTREAM_DEBUG_WARN("%lu work item%s dangling!", static_cast<unsigned long>(dangling), 1 < dangling ? "s are" : " is");
     }
 #endif
 
@@ -165,7 +169,7 @@ private:
 
 #if defined(LIBXSTREAM_DEBUG)
     if (0 != *entry) {
-      fprintf(stderr, "\tqueuing work is stalled!\n");
+      LIBXSTREAM_DEBUG_WARN0("queuing work is stalled!");
     }
 #endif
     // stall the push if LIBXSTREAM_MAX_QSIZE is exceeded

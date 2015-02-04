@@ -53,6 +53,8 @@ public:
   libxstream_signal pending() const       { return m_pending; }
 
 #if defined(LIBXSTREAM_DEMUX)
+  libxstream_lock* lock() { return m_lock; }
+  void thread(int value)  { m_thread = value; }
   int thread() const      { return m_thread; }
 #endif
 

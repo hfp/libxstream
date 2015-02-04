@@ -44,9 +44,6 @@ namespace libxstream_stream_internal {
 
 class registry_type {
 public:
-  typedef libxstream_signal counter_type;
-
-public:
   registry_type()
     : m_istreams(0)
 #if !defined(LIBXSTREAM_STDTHREAD)
@@ -62,7 +59,7 @@ public:
     for (size_t i = 0; i < n; ++i) {
 #if defined(LIBXSTREAM_DEBUG)
       if (0 != m_streams[i]) {
-        fprintf(stderr, "\tdangling stream \"%s\"!\n", m_streams[i]->name());
+        LIBXSTREAM_DEBUG_WARN("dangling stream \"%s\"!", m_streams[i]->name());
       }
 #endif
       libxstream_stream_destroy(m_streams[i]);
@@ -107,7 +104,7 @@ public:
     return result;
   }
 
-  registry_type::counter_type& signal(int device) {
+  libxstream_signal& signal(int device) {
     LIBXSTREAM_ASSERT(-1 <= device && device <= LIBXSTREAM_MAX_NDEVICES);
     return m_signals[device+1];
   }
@@ -161,7 +158,7 @@ public:
 
 private:
   // not necessary to be device-specific due to single-threaded offload
-  counter_type m_signals[LIBXSTREAM_MAX_NDEVICES + 1];
+  libxstream_signal m_signals[LIBXSTREAM_MAX_NDEVICES + 1];
   libxstream_stream* m_streams[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
 #if defined(LIBXSTREAM_STDTHREAD)
   std::atomic<size_t> m_istreams;
@@ -247,15 +244,6 @@ libxstream_stream::~libxstream_stream()
 
 libxstream_signal libxstream_stream::signal() const
 {
-#if defined(LIBXSTREAM_DEMUX)
-  if (0 > m_thread) {
-    libxstream_lock_acquire(m_lock);
-    if (0 > m_thread) {
-      m_thread = this_thread_id();
-    }
-    libxstream_lock_release(m_lock);
-  }
-#endif
   return ++libxstream_stream_internal::registry.signal(m_device);
 }
 
@@ -264,14 +252,8 @@ int libxstream_stream::wait(libxstream_signal signal) const
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-#if defined(LIBXSTREAM_DEMUX)
-  LIBXSTREAM_OFFLOAD_BEGIN(const_cast<libxstream_stream*>(this), &result, signal, &m_thread)
-  {
-    *ptr<int,2>() = -1; // release thread ownership
-#else
   LIBXSTREAM_OFFLOAD_BEGIN(const_cast<libxstream_stream*>(this), &result, signal)
   {
-#endif
     *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset(); // result code
 
     if (0 != LIBXSTREAM_OFFLOAD_PENDING) {
