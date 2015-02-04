@@ -188,12 +188,9 @@ private:
   return libxstream_stream_internal::registry.sync();
 }
 
-libxstream_stream::libxstream_stream(int device, int priority, const char* name)
-  : m_pending(0)
-#if defined(LIBXSTREAM_DEMUX)
-  , m_lock(libxstream_lock_create())
-  , m_thread(-1)
-#endif
+
+libxstream_stream::libxstream_stream(int device, bool demux, int priority, const char* name)
+  : m_pending(0), m_lock(libxstream_lock_create()), m_demux(0 != demux), m_thread(-1)
   , m_device(device), m_priority(priority), m_status(LIBXSTREAM_ERROR_NONE)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
@@ -230,9 +227,7 @@ libxstream_stream::~libxstream_stream()
     libxstream_offload_shutdown();
   }
 
-#if defined(LIBXSTREAM_DEMUX)
   libxstream_lock_destroy(m_lock);
-#endif
 
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   if (0 != m_handle) {
@@ -279,6 +274,18 @@ int libxstream_stream::wait(libxstream_signal signal) const
   LIBXSTREAM_OFFLOAD_END(true);
 
   return result;
+}
+
+
+void libxstream_stream::lock()
+{
+  libxstream_lock_acquire(m_lock);
+}
+
+
+void libxstream_stream::unlock()
+{
+  libxstream_lock_release(m_lock);
 }
 
 

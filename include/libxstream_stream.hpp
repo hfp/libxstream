@@ -45,19 +45,22 @@ public:
   static int sync();
 
 public:
-  libxstream_stream(int device, int priority, const char* name);
+  libxstream_stream(int device,
+    /**
+     * Enables "demuxing" threads and streams i.e., when multiple
+     * host threads attempt to queue into the same stream.
+     */
+    bool demux,
+    int priority, const char* name);
   ~libxstream_stream();
 
 public:
   void pending(libxstream_signal signal)  { m_pending = signal; }
   libxstream_signal pending() const       { return m_pending; }
 
-#if defined(LIBXSTREAM_DEMUX)
-  libxstream_lock* lock() { return m_lock; }
+  bool demux() const      { return m_demux; }
   void thread(int value)  { m_thread = value; }
   int thread() const      { return m_thread; }
-#endif
-
   int device() const      { return m_device; }
   int priority() const    { return m_priority; }
 
@@ -71,6 +74,9 @@ public:
 
   libxstream_signal signal() const;
   int wait(libxstream_signal signal) const;
+
+  void lock();
+  void unlock();
 
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;
@@ -86,10 +92,9 @@ private:
 
 private:
   mutable libxstream_signal m_pending;
-#if defined(LIBXSTREAM_DEMUX)
-  mutable libxstream_lock* m_lock;
-  mutable int m_thread;
-#endif
+  libxstream_lock* m_lock;
+  bool m_demux;
+  int m_thread;
   int m_device;
   int m_priority;
   int m_status;

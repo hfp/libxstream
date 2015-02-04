@@ -33,6 +33,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#define MULTI_DGEMM_TYPE_USE_DEMUX
+
 
 multi_dgemm_type::host_data_type::host_data_type(int size, const int split[])
   : m_size(size)
@@ -179,7 +181,11 @@ int multi_dgemm_type::init(host_data_type& host_data, int device, int max_batch)
 
   char name[128];
   LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream 0x%lx", this);
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, 0, name));
+#if defined(MULTI_DGEMM_TYPE_USE_DEMUX)
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, 1, 0, name));
+#else
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, 0, 0, name));
+#endif
 
   const int max_msize = max_batch * host_data.max_matrix_size();
   LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_adata), sizeof(double) * max_msize, 0));
@@ -195,11 +201,12 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
 {
   LIBXSTREAM_CHECK_CONDITION(ready() && process_fn && (index + size) <= m_host_data->size());
 
-#if !defined(LIBXSTREAM_DEMUX) && defined(_OPENMP)
-  // This critical section prevents multiple threads from queuing work into the *same* stream (at the same time).
-# pragma omp critical(m_stream)
-#endif
   if (0 < size) {
+#if !defined(MULTI_DGEMM_TYPE_USE_DEMUX)
+    // This manual synchronization prevents multiple threads from queuing work into the *same* stream (at the same time).
+    // This is only needed if the stream was created without demux support in order to implement manual synchronization.
+    if (!m_stream->demux()) m_stream->lock();
+#endif
     const size_t i0 = m_host_data->idata()[index], i1 = m_host_data->idata()[index+size];
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->adata() + i0, m_adata, sizeof(double) * (i1 - i0), m_stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->bdata() + i0, m_bdata, sizeof(double) * (i1 - i0), m_stream));
@@ -251,6 +258,9 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
     LIBXSTREAM_OFFLOAD_END(false);
 
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), m_stream));
+#if !defined(MULTI_DGEMM_TYPE_USE_DEMUX)
+    if (!m_stream->demux()) m_stream->unlock();
+#endif
   }
 
   return LIBXSTREAM_ERROR_NONE;

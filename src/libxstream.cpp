@@ -816,10 +816,10 @@ extern "C" int libxstream_stream_priority_range(int* least, int* greatest)
 }
 
 
-extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, int priority, const char* name)
+extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, int demux, int priority, const char* name)
 {
   LIBXSTREAM_CHECK_CONDITION(stream);
-  libxstream_stream *const s = new libxstream_stream(device, priority, name);
+  libxstream_stream *const s = new libxstream_stream(device, 0 != demux, priority, name);
   LIBXSTREAM_ASSERT(s);
   *stream = s;
 

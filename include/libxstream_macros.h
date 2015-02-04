@@ -203,20 +203,20 @@
       : libxstream_offload_region(stream, argc, argv) \
       , m_offload_region_wait(wait) \
     { \
-      if (stream && !wait) { \
+      if (!wait && stream && stream->demux()) { \
         const int this_thread = this_thread_id(); \
         while (this_thread != stream->thread()) { \
           if (libxstream_offload_busy()) { \
             this_thread_yield(); \
           } \
           else { \
-            libxstream_lock_acquire(stream->lock()); \
+            stream->lock(); \
             const int thread = stream->thread(); \
             if (this_thread != thread) { \
               if (0 <= thread) stream->wait(0); \
               stream->thread(this_thread); \
             } \
-            libxstream_lock_release(stream->lock()); \
+            stream->unlock(); \
           } \
         } \
       } \
@@ -227,7 +227,7 @@
       libxstream_signal offload_region_signal = 0; \
       if (LIBXSTREAM_OFFLOAD_STREAM) { \
         offload_region_signal = LIBXSTREAM_OFFLOAD_STREAM->signal(); \
-        if (m_offload_region_wait && 0 <= LIBXSTREAM_OFFLOAD_STREAM->thread()) { \
+        if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM->demux() && 0 <= LIBXSTREAM_OFFLOAD_STREAM->thread()) { \
           LIBXSTREAM_OFFLOAD_STREAM->thread(-1); \
         } \
       } \

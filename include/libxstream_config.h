@@ -58,12 +58,6 @@
  */
 #define LIBXSTREAM_ASYNC
 
-/**
- * Enables "demuxing" threads and streams i.e., when multiple
- * host threads attempt to queue into the same stream.
- */
-#define LIBXSTREAM_DEMUX
-
 /** SIMD width in Byte (actual alignment might be smaller). */
 #define LIBXSTREAM_MAX_SIMD 64
 
