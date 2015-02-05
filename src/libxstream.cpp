@@ -35,6 +35,10 @@
 #if defined(LIBXSTREAM_STDFEATURES)
 # include <thread>
 # include <atomic>
+# define LIBXSTREAM_STDMUTEX
+# if defined(LIBXSTREAM_STDMUTEX)
+#   include <mutex>
+# endif
 #endif
 
 #if defined(_OPENMP)
@@ -355,7 +359,17 @@ LIBXSTREAM_EXPORT void mem_info(uint64_t& memory_physical, uint64_t& memory_not_
 
 libxstream_lock* libxstream_lock_create()
 {
-#if defined(_OPENMP)
+#if defined(LIBXSTREAM_STDFEATURES)
+# if defined(LIBXSTREAM_STDMUTEX)
+#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+  std::mutex *const typed_lock = new std::mutex;
+#   else
+  std::recursive_mutex *const typed_lock = new std::recursive_mutex;
+#   endif
+# else
+  std::atomic<int> *const typed_lock = new std::atomic<int>(0);
+# endif
+#elif defined(_OPENMP)
 # if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
   omp_lock_t *const typed_lock = new omp_lock_t;
   omp_init_lock(typed_lock);
@@ -363,7 +377,7 @@ libxstream_lock* libxstream_lock_create()
   omp_nest_lock_t *const typed_lock = new omp_nest_lock_t;
   omp_init_nest_lock(typed_lock);
 # endif
-#elif defined(__GNUC__)
+#else //defined(__GNUC__)
   pthread_mutexattr_t attributes;
   pthread_mutexattr_init(&attributes);
 # if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
@@ -373,9 +387,6 @@ libxstream_lock* libxstream_lock_create()
 # endif
   pthread_mutex_t *const typed_lock = new pthread_mutex_t;
   pthread_mutex_init(typed_lock, &attributes);
-#elif defined(LIBXSTREAM_STDFEATURES)
-  // std::mutex cannot be used due to same thread needed for lock/unlock
-  std::atomic<int> *const typed_lock = new std::atomic<int>(0);
 #endif
   return typed_lock;
 }
@@ -383,7 +394,17 @@ libxstream_lock* libxstream_lock_create()
 
 void libxstream_lock_destroy(libxstream_lock* lock)
 {
-#if defined(_OPENMP)
+#if defined(LIBXSTREAM_STDFEATURES)
+# if defined(LIBXSTREAM_STDMUTEX)
+#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+  std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
+#   else
+  std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
+#   endif
+# else
+  std::atomic<int> *const typed_lock = static_cast<std::atomic<int>*>(lock);
+# endif
+#elif defined(_OPENMP)
 # if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
   omp_destroy_lock(typed_lock);
@@ -391,11 +412,9 @@ void libxstream_lock_destroy(libxstream_lock* lock)
   omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
   omp_destroy_nest_lock(typed_lock);
 # endif
-#elif defined(__GNUC__)
+#else //defined(__GNUC__)
   pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
   pthread_mutex_destroy(typed_lock);
-#elif defined(LIBXSTREAM_STDFEATURES)
-  std::atomic<int> *const typed_lock = static_cast<std::atomic<int>*>(lock);
 #endif
   delete typed_lock;
 }
@@ -404,7 +423,23 @@ void libxstream_lock_destroy(libxstream_lock* lock)
 void libxstream_lock_acquire(libxstream_lock* lock)
 {
   LIBXSTREAM_ASSERT(lock);
-#if defined(_OPENMP)
+#if defined(LIBXSTREAM_STDFEATURES)
+# if defined(LIBXSTREAM_STDMUTEX)
+#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+  std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
+#   else
+  std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
+#   endif
+  typed_lock->lock();
+# else
+  std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
+  if (1 < ++typed_lock) {
+    while (1 < typed_lock) {
+      std::this_thread::yield();
+    }
+  }
+# endif
+#elif defined(_OPENMP)
 # if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
   omp_set_lock(typed_lock);
@@ -412,16 +447,9 @@ void libxstream_lock_acquire(libxstream_lock* lock)
   omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
   omp_set_nest_lock(typed_lock);
 # endif
-#elif defined(__GNUC__)
+#else //defined(__GNUC__)
   pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
   pthread_mutex_lock(typed_lock);
-#elif defined(LIBXSTREAM_STDFEATURES)
-  std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
-  if (1 < ++typed_lock) {
-    while (1 < typed_lock) {
-      std::this_thread::yield();
-    }
-  }
 #endif
 }
 
@@ -429,7 +457,19 @@ void libxstream_lock_acquire(libxstream_lock* lock)
 void libxstream_lock_release(libxstream_lock* lock)
 {
   LIBXSTREAM_ASSERT(lock);
-#if defined(_OPENMP)
+#if defined(LIBXSTREAM_STDFEATURES)
+# if defined(LIBXSTREAM_STDMUTEX)
+#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+  std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
+#   else
+  std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
+#   endif
+  typed_lock->unlock();
+# else
+  std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
+  --typed_lock;
+# endif
+#elif defined(_OPENMP)
 # if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
   omp_unset_lock(typed_lock);
@@ -437,12 +477,9 @@ void libxstream_lock_release(libxstream_lock* lock)
   omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
   omp_unset_nest_lock(typed_lock);
 # endif
-#elif defined(__GNUC__)
+#else //defined(__GNUC__)
   pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
   pthread_mutex_unlock(typed_lock);
-#elif defined(LIBXSTREAM_STDFEATURES)
-  std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
-  --typed_lock;
 #endif
 }
 
@@ -458,7 +495,7 @@ int this_thread_id()
     static int num_threads = 0;
 #   pragma omp critical
     id = num_threads++;
-#else
+#else // generic
     static int num_threads = 0;
     libxstream_lock *const lock = libxstream_internal::context.lock();
     libxstream_lock_acquire(lock);
