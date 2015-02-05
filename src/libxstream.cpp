@@ -361,7 +361,7 @@ libxstream_lock* libxstream_lock_create()
 {
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = new std::mutex;
 #   else
   std::recursive_mutex *const typed_lock = new std::recursive_mutex;
@@ -370,7 +370,7 @@ libxstream_lock* libxstream_lock_create()
   std::atomic<int> *const typed_lock = new std::atomic<int>(0);
 # endif
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   omp_lock_t *const typed_lock = new omp_lock_t;
   omp_init_lock(typed_lock);
 # else
@@ -380,7 +380,7 @@ libxstream_lock* libxstream_lock_create()
 #else //defined(__GNUC__)
   pthread_mutexattr_t attributes;
   pthread_mutexattr_init(&attributes);
-# if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_NORMAL);
 # else
   pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_RECURSIVE);
@@ -396,7 +396,7 @@ void libxstream_lock_destroy(libxstream_lock* lock)
 {
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
 #   else
   std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
@@ -405,7 +405,7 @@ void libxstream_lock_destroy(libxstream_lock* lock)
   std::atomic<int> *const typed_lock = static_cast<std::atomic<int>*>(lock);
 # endif
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
   omp_destroy_lock(typed_lock);
 # else
@@ -425,7 +425,7 @@ void libxstream_lock_acquire(libxstream_lock* lock)
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
 #   else
   std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
@@ -440,7 +440,7 @@ void libxstream_lock_acquire(libxstream_lock* lock)
   }
 # endif
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
   omp_set_lock(typed_lock);
 # else
@@ -459,7 +459,7 @@ void libxstream_lock_release(libxstream_lock* lock)
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
 #   else
   std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
@@ -470,7 +470,7 @@ void libxstream_lock_release(libxstream_lock* lock)
   --typed_lock;
 # endif
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
   omp_unset_lock(typed_lock);
 # else
@@ -489,7 +489,7 @@ bool libxstream_lock_try(libxstream_lock* lock)
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
 #   else
   std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
@@ -500,9 +500,8 @@ bool libxstream_lock_try(libxstream_lock* lock)
   const bool result = false;
 # endif
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
-  omp_set_lock(typed_lock);
   const bool result = 0 != omp_test_lock(typed_lock);
 # else
   omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
@@ -510,7 +509,6 @@ bool libxstream_lock_try(libxstream_lock* lock)
 # endif
 #else //defined(__GNUC__)
   pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
-  pthread_mutex_lock(typed_lock);
   const bool result =  0 == pthread_mutex_trylock(typed_lock);
 #endif
   return result;
@@ -710,7 +708,7 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
 # if defined(LIBXSTREAM_CHECK)
         const int memory_device = *static_cast<const int*>(libxstream_internal::get_user_data(memory));
         if (memory_device != LIBXSTREAM_OFFLOAD_DEVICE) {
-          LIBXSTREAM_PRINT_WARNING("device %i does not match allocating device %i", LIBXSTREAM_OFFLOAD_DEVICE, memory_device);
+          LIBXSTREAM_PRINT_WARNING("device %i does not match allocating device %i!", LIBXSTREAM_OFFLOAD_DEVICE, memory_device);
           LIBXSTREAM_OFFLOAD_DEVICE_UPDATE(memory_device);
         }
 # endif

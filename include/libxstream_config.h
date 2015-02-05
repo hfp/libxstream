@@ -86,8 +86,14 @@
 /** Maximum number of executions in the queue. */
 #define LIBXSTREAM_MAX_QSIZE 1024
 
+/**
+ * Number of times a locked stream must be discovered to be
+ * "not alive" before issuing a wait on the stream in question.
+ */
+#define LIBXSTREAM_LOCK_RETRY 32768
+
 /** Enables non-recursive locks. */
-#define LIBXSTREAM_NONRECURSIVE_LOCKS
+#define LIBXSTREAM_LOCK_NONRECURSIVE
 
 /**
  * Below preprocessor symbols fixup some platform specifics.
