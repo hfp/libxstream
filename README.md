@@ -61,6 +61,10 @@ int libxstream_stream_destroy(libxstream_stream* stream);
 int libxstream_stream_sync(libxstream_stream* stream);
 /** Wait for an event recorded earlier. Passing NULL increases the match. */
 int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
+/** Locks a stream such that the caller thread can safely enqueue work. */
+int libxstream_stream_lock(libxstream_stream* stream);
+/** Unlocks a stream such that another thread can aquire the stream. */
+int libxstream_stream_unlock(libxstream_stream* stream);
 ```
 
 **Event Interface**: provides a more sophisticated mechanism allowing to wait for a specific work item to complete without the need to also wait for the completion of work queued after the item in question.
