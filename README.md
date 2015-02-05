@@ -52,7 +52,6 @@ int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_st
 ```C
 /** Query the range of valid priorities (inclusive). */
 int libxstream_stream_priority_range(int* least, int* greatest);
-
 /** Create a stream on a given device with an optional automatic synchronization (demux). */
 int libxstream_stream_create(libxstream_stream**, int dev, int demux, int prio, const char*);
 /** Destroy a stream; pending work must be completed if results are needed. */
@@ -96,3 +95,7 @@ The [multi-dgemm](samples/multi-dgemm) sample code is the implementation of a be
 > This performance graph has been created for a single Intel Xeon Phi 7120 Coprocessor card by running the [benchmark.sh](samples/multi-dgemm/benchmark.sh) on the host system. The script varies the number of matrix-matrix multiplications queued at once. The program is rather a stress-test than a benchmark since there is no attempt to avoid the performance penalties as mentioned below. The plot shows ~155 GFLOPS/s even with a finer work granularity (smaller batch size).
 
 Even the series of matrices with the largest problem size of the mix is not close to being able to reach the peak performance, and there is an insufficient amount of FLOPS available to hide the cost of transferring the data. The data needed for the computation moreover includes a set of indices describing the offsets of each of the matrix operands in the associated buffers. The latter implies unaligned memory accesses due to packing the matrix data without a favorable leading dimension. Transfers are performed as needed on a per-computation basis rather than aggregating a single copy-in and copy-out prior and past of the benchmark cycle. Moreover, there is no attempt to balance the mixture of different problem sizes when queuing the work into the streams.
+
+Tuning
+======
+The library supports a manual locking approach which can be requested at runtime on a per-stream basis instead of an automatic internal locking ("demux" mode). Manual locking also allows queuing work without the need for intermediate stream synchronization in case the effect of the work is not needed at this point in time. Synchronization and locking in general is required to prevent multiple host threads from queuing work into the same stream. The manual locking effectively describes a logical group of work. In contrast, the automatic locking attempts to derive the same information from calling the stream synchronization function. Please note that the manual locking approach does not contradict the thread-safety of the library; each queuing operation is still atomic. Again, the locking avoids intermixing work from different logical groups of work. The [multi-dgemm](samples/multi-dgemm) sample code illustrates the manual locking approach as well as the "demux" mode of operation.
