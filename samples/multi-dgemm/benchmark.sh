@@ -17,16 +17,11 @@ if [ "" != "$1" ] ; then
   shift
 fi
 
-if [ "" != "$1" ] ; then
-  STREAMS=$1
-  shift
-fi
-
 BSIZE=$((SIZE / FRACT))
 BATCH=${STRIDE}
 
 cat /dev/null > ${FILE}
 while [[ ${BATCH} -le ${BSIZE} ]] ; do
-  ${TRY} ./multi-dgemm.sh ${SIZE} ${BATCH} ${STREAMS} >> ${FILE}
+  ${TRY} ./multi-dgemm.sh ${SIZE} ${BATCH} $* >> ${FILE}
   BATCH=$((BATCH + STRIDE))
 done
