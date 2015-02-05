@@ -35,8 +35,11 @@
 # include <thread>
 # include <atomic>
 #else
-// TODO: support Windows threads
-# include <pthread.h>
+# if defined(__GNUC__)
+#   include <pthread.h>
+# else
+#   include <Windows.h>
+# endif
 #endif
 
 #define LIBXSTREAM_CAPTURE_USE_QUEUE
@@ -84,7 +87,11 @@ public:
       if (0 == m_thread) {
         libxstream_lock_acquire(m_lock);
         if (0 == m_thread) {
+# if defined(__GNUC__)
           pthread_create(&m_thread, 0, run, this);
+# else
+          m_thread = CreateThread(0, 0, run, this, 0, 0);
+# endif
         }
         libxstream_lock_release(m_lock);
       }
@@ -118,7 +125,11 @@ public:
     }
 #else
     if (0 != m_thread) {
+# if defined(__GNUC__)
       pthread_join(m_thread, 0);
+# else
+      WaitForSingleObject(m_thread, INFINITE);
+# endif
       m_thread = 0;
     }
 #endif
@@ -186,7 +197,12 @@ private:
     }
   }
 
-  static void* run(void* queue) {
+#if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
+  static void* run(void* queue)
+#else
+  static DWORD WINAPI run(_In_ LPVOID queue)
+#endif
+  {
     queue_type& q = *static_cast<queue_type*>(queue);
     value_type offload_region = 0;
 
@@ -209,7 +225,11 @@ private:
       }
     }
 
+#if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
     return queue;
+#else
+    return EXIT_SUCCESS;
+#endif
   }
 
 private:
@@ -221,8 +241,11 @@ private:
 #if defined(LIBXSTREAM_STDFEATURES)
   std::thread m_thread;
   std::atomic<size_t> m_size;
-#else
+#elif defined(__GNUC__)
   pthread_t m_thread;
+  size_t m_size;
+#else
+  HANDLE m_thread;
   size_t m_size;
 #endif
 #if defined(LIBXSTREAM_CAPTURE_USE_QUEUE)
