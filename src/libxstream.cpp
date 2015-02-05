@@ -913,13 +913,7 @@ extern "C" int libxstream_stream_unlock(libxstream_stream* stream)
 {
   LIBXSTREAM_CHECK_CONDITION(stream && !stream->demux());
   stream->unlock();
-#if defined(LIBXSTREAM_OFFLOAD)
   return LIBXSTREAM_ERROR_NONE;
-#else
-  // TODO: introduce "signal/wait" for asyc. host execution
-  // meanwhile the workaround is to sync the stream
-  return libxstream_stream_sync(stream);
-#endif
 }
 
 

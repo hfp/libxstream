@@ -33,8 +33,6 @@
 #include <algorithm>
 #include <cstdlib>
 
-//#define MULTI_DGEMM_TYPE_USE_MANUAL_DEMUX
-
 
 multi_dgemm_type::host_data_type::host_data_type(int size, const int split[])
   : m_size(size)
@@ -174,16 +172,19 @@ bool multi_dgemm_type::ready() const
 }
 
 
-int multi_dgemm_type::init(const char* name, host_data_type& host_data, int device, int max_batch)
+bool multi_dgemm_type::demux() const
+{
+  LIBXSTREAM_ASSERT(ready());
+  return m_stream->demux();
+}
+
+
+int multi_dgemm_type::init(const char* name, host_data_type& host_data, int device, int max_batch, bool demux)
 {
   LIBXSTREAM_ASSERT(!ready());
   m_host_data = &host_data;
 
-#if defined(MULTI_DGEMM_TYPE_USE_MANUAL_DEMUX)
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, 0, 0, name));
-#else
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, 1, 0, name));
-#endif
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, demux ? 1 : 0, 0, name));
 
   const int max_msize = max_batch * host_data.max_matrix_size();
   LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_adata), sizeof(double) * max_msize, 0));
@@ -200,11 +201,11 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
   LIBXSTREAM_CHECK_CONDITION(ready() && process_fn && (index + size) <= m_host_data->size());
 
   if (0 < size) {
-#if defined(MULTI_DGEMM_TYPE_USE_MANUAL_DEMUX)
-    // This manual synchronization prevents multiple threads from queuing work into the *same* stream (at the same time).
-    // This is only needed if the stream was created without demux support in order to implement manual synchronization.
-    LIBXSTREAM_CHECK_CALL(libxstream_stream_lock(m_stream));
-#endif
+    if (!m_stream->demux()) {
+      // This manual synchronization prevents multiple threads from queuing work into the *same* stream (at the same time).
+      // This is only needed if the stream was created without demux support in order to implement manual synchronization.
+      LIBXSTREAM_CHECK_CALL(libxstream_stream_lock(m_stream));
+    }
     const size_t i0 = m_host_data->idata()[index], i1 = m_host_data->idata()[index+size];
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->adata() + i0, m_adata, sizeof(double) * (i1 - i0), m_stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->bdata() + i0, m_bdata, sizeof(double) * (i1 - i0), m_stream));
@@ -257,11 +258,12 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
 
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), m_stream));
 
-#if defined(MULTI_DGEMM_TYPE_USE_MANUAL_DEMUX)
-    LIBXSTREAM_CHECK_CALL(libxstream_stream_unlock(m_stream));
-#else
-    LIBXSTREAM_CHECK_CALL(libxstream_stream_sync(m_stream));
-#endif
+    if (m_stream->demux()) {
+      LIBXSTREAM_CHECK_CALL(libxstream_stream_sync(m_stream));
+    }
+    else {
+      LIBXSTREAM_CHECK_CALL(libxstream_stream_unlock(m_stream));
+    }
   }
 
   return LIBXSTREAM_ERROR_NONE;

@@ -65,7 +65,8 @@ public:
 
 public:
   bool ready() const;
-  int init(const char* name, host_data_type& host_data, int device, int max_batch);
+  bool demux() const;
+  int init(const char* name, host_data_type& host_data, int device, int max_batch, bool demux = true);
   int operator()(process_fn_type process_fn, int index, int size);
 
 private:
