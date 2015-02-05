@@ -484,6 +484,39 @@ void libxstream_lock_release(libxstream_lock* lock)
 }
 
 
+bool libxstream_lock_try(libxstream_lock* lock)
+{
+  LIBXSTREAM_ASSERT(lock);
+#if defined(LIBXSTREAM_STDFEATURES)
+# if defined(LIBXSTREAM_STDMUTEX)
+#   if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+  std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
+#   else
+  std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
+#   endif
+  const bool result = typed_lock->try_lock();
+# else
+  LIBXSTREAM_ASSERT(false/*TODO: not implemented!*/);
+  const bool result = false;
+# endif
+#elif defined(_OPENMP)
+# if defined(LIBXSTREAM_NONRECURSIVE_LOCKS)
+  omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
+  omp_set_lock(typed_lock);
+  const bool result = 0 != omp_test_lock(typed_lock);
+# else
+  omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
+  const bool result = 0 != omp_test_nest_lock(typed_lock);
+# endif
+#else //defined(__GNUC__)
+  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
+  pthread_mutex_lock(typed_lock);
+  const bool result =  0 == pthread_mutex_trylock(typed_lock);
+#endif
+  return result;
+}
+
+
 int this_thread_id()
 {
   static LIBXSTREAM_TLS int id = -1;
