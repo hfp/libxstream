@@ -42,6 +42,14 @@
 
 namespace libxstream_stream_internal {
 
+#if defined(LIBXSTREAM_LOCK_RETRY)
+# if defined(LIBXSTREAM_STDFEATURES)
+std::atomic<size_t> lock_alive(0);
+# else
+size_t lock_alive = 0;
+# endif
+#endif
+
 class registry_type {
 public:
   registry_type()
@@ -149,6 +157,12 @@ public:
     }
     return LIBXSTREAM_ERROR_NONE;
   }
+
+#if defined(LIBXSTREAM_LOCK_RETRY) && !defined(LIBXSTREAM_STDFEATURES) && !defined(_OPENMP)
+  libxstream_lock* lock() {
+    return m_lock;
+  }
+#endif
 
 private:
   // not necessary to be device-specific due to single-threaded offload
@@ -275,12 +289,44 @@ void libxstream_stream::lock()
 {
   const int this_thread = this_thread_id();
   if (m_thread != this_thread) {
+#if defined(LIBXSTREAM_LOCK_RETRY) && (0 < LIBXSTREAM_LOCK_RETRY)
+    const size_t lock_alive = libxstream_stream_internal::lock_alive;
+    size_t retry = 0;
+    while (!libxstream_lock_try(m_lock)) {
+      this_thread_yield();
+
+      if ((LIBXSTREAM_LOCK_RETRY) > retry) {
+        retry += lock_alive == libxstream_stream_internal::lock_alive;
+      }
+      else {
+        LIBXSTREAM_PRINT_WARNING("libxstream_stream_lock: stream=0x%lx seems to be dead-locked!",
+          static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)));
+        wait(0);
+        retry = 0;
+      }
+    }
+#else
     libxstream_lock_acquire(m_lock);
+#endif
     m_thread = this_thread; // locked
     LIBXSTREAM_PRINT_INFO("libxstream_stream_lock: stream=0x%lx acquired by thread=%i",
       static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
       this_thread);
   }
+
+#if defined(LIBXSTREAM_LOCK_RETRY)
+# if defined(LIBXSTREAM_STDFEATURES)
+  ++libxstream_stream_internal::lock_alive;
+# elif defined(_OPENMP)
+# pragma omp atomic
+  ++libxstream_stream_internal::lock_alive;
+# else // generic
+  libxstream_lock_acquire(libxstream_stream_internal::registry.lock());
+  ++libxstream_stream_internal::lock_alive;
+  libxstream_lock_release(libxstream_stream_internal::registry.lock());
+# endif
+#endif
+
   LIBXSTREAM_ASSERT(m_thread == this_thread);
 }
 
