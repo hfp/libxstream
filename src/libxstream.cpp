@@ -493,7 +493,11 @@ int this_thread_id()
     id = num_threads++;
 #elif defined(_OPENMP)
     static int num_threads = 0;
+# if defined(__INTEL_COMPILER)
+#   pragma omp atomic capture
+# else
 #   pragma omp critical
+# endif
     id = num_threads++;
 #else // generic
     static int num_threads = 0;

@@ -156,15 +156,13 @@ private:
     value_type* entry = 0;
 #if defined(LIBXSTREAM_STDFEATURES)
     entry = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
-#else
-# if defined(_OPENMP)
+#elif defined(_OPENMP)
 #   pragma omp critical
     entry = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
-# else
+#else // generic
     libxstream_lock_acquire(m_lock);
     entry = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
     libxstream_lock_release(m_lock);
-# endif
 #endif
     LIBXSTREAM_ASSERT(0 != entry);
 
