@@ -104,7 +104,7 @@
 # define LIBXSTREAM_CHECK
 #endif
 
-#if defined(LIBXSTREAM_ASYNC) && ((1 == ((2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_ASYNC+1)/2))
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
 # define LIBXSTREAM_ASSERT(A) assert(A)
 # define LIBXSTREAM_PRINT_INFO(MESSAGE, ...) fprintf(stderr, "DBG " MESSAGE "\n", __VA_ARGS__)
 # define LIBXSTREAM_PRINT_INFO0(MESSAGE) fprintf(stderr, "DBG " MESSAGE "\n")
@@ -200,28 +200,11 @@
       : libxstream_offload_region(stream, argc, argv) \
       , m_offload_region_wait(wait) \
     { \
-      if (!wait && stream && stream->demux()) { \
-        const int this_thread = this_thread_id(); \
-        if (stream->thread() != this_thread || !LIBXSTREAM_OFFLOAD_STREAM->locked()) { \
-          stream->lock(); \
-          stream->thread(this_thread); \
-          LIBXSTREAM_PRINT_INFO("demux: stream=0x%lx acquired by thread=%i", \
-            static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)), \
-            this_thread); \
-        } \
-        LIBXSTREAM_ASSERT(stream->locked()); \
-        LIBXSTREAM_ASSERT(stream->thread() == this_thread); \
-      } \
+      if (!wait && stream) stream->lock(); \
       libxstream_offload(*this, wait); \
     } \
     ~offload_region_type() { \
-      if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM && LIBXSTREAM_OFFLOAD_STREAM->demux() && LIBXSTREAM_OFFLOAD_STREAM->locked()) { \
-        LIBXSTREAM_PRINT_INFO("demux: stream=0x%lx released by thread=%i", \
-          static_cast<unsigned long>(reinterpret_cast<uintptr_t>(LIBXSTREAM_OFFLOAD_STREAM)), \
-          this_thread_id()); \
-        LIBXSTREAM_OFFLOAD_STREAM->thread(-1); \
-        LIBXSTREAM_OFFLOAD_STREAM->unlock(); \
-      } \
+      if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM) LIBXSTREAM_OFFLOAD_STREAM->unlock(); \
     } \
     offload_region_type* clone() const { return new offload_region_type(*this); } \
     void operator()() const { LIBXSTREAM_OFFLOAD_DECL; \

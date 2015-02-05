@@ -184,7 +184,7 @@ private:
 
 
 libxstream_stream::libxstream_stream(int device, bool demux, int priority, const char* name)
-  : m_pending(0), m_lock(libxstream_lock_create()), m_locked(false), m_demux(0 != demux), m_thread(-1)
+  : m_pending(0), m_lock(libxstream_lock_create()), m_demux(0 != demux), m_thread(-1)
   , m_device(device), m_priority(priority), m_status(LIBXSTREAM_ERROR_NONE)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
@@ -273,16 +273,31 @@ int libxstream_stream::wait(libxstream_signal signal) const
 
 void libxstream_stream::lock()
 {
-  libxstream_lock_acquire(m_lock);
-  m_locked = true;
+  if (m_demux) {
+    const int this_thread = this_thread_id();
+    if (m_thread != this_thread) {
+      libxstream_lock_acquire(m_lock);
+      m_thread = this_thread; // locked
+      LIBXSTREAM_PRINT_INFO("demux: stream=0x%lx acquired by thread=%i",
+        static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
+        this_thread);
+    }
+    LIBXSTREAM_ASSERT(m_thread == this_thread);
+  }
 }
 
 
 void libxstream_stream::unlock()
 {
-  if (m_locked) {
-    m_locked = false;
-    libxstream_lock_release(m_lock);
+  if (m_demux) {
+    const int this_thread = this_thread_id();
+    if (m_thread == this_thread) { // locked
+      LIBXSTREAM_PRINT_INFO("demux: stream=0x%lx released by thread=%i",
+        static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
+        this_thread);
+      m_thread = -1; // unlock
+      libxstream_lock_release(m_lock);
+    }
   }
 }
 
