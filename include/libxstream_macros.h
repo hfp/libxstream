@@ -200,11 +200,15 @@
       : libxstream_offload_region(stream, argc, argv) \
       , m_offload_region_wait(wait) \
     { \
-      if (!wait && stream) stream->lock(); \
+      if (!wait && stream && stream->demux()) { \
+        stream->lock(); \
+      } \
       libxstream_offload(*this, wait); \
     } \
     ~offload_region_type() { \
-      if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM) LIBXSTREAM_OFFLOAD_STREAM->unlock(); \
+      if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM && LIBXSTREAM_OFFLOAD_STREAM->demux()) { \
+        LIBXSTREAM_OFFLOAD_STREAM->unlock(); \
+      } \
     } \
     offload_region_type* clone() const { return new offload_region_type(*this); } \
     void operator()() const { LIBXSTREAM_OFFLOAD_DECL; \

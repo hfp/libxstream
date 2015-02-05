@@ -33,7 +33,7 @@
 #include <algorithm>
 #include <cstdlib>
 
-#define MULTI_DGEMM_TYPE_USE_DEMUX
+//#define MULTI_DGEMM_TYPE_USE_MANUAL_DEMUX
 
 
 multi_dgemm_type::host_data_type::host_data_type(int size, const int split[])
@@ -179,10 +179,10 @@ int multi_dgemm_type::init(const char* name, host_data_type& host_data, int devi
   LIBXSTREAM_ASSERT(!ready());
   m_host_data = &host_data;
 
-#if defined(MULTI_DGEMM_TYPE_USE_DEMUX)
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, 1, 0, name));
-#else
+#if defined(MULTI_DGEMM_TYPE_USE_MANUAL_DEMUX)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, 0, 0, name));
+#else
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, 1, 0, name));
 #endif
 
   const int max_msize = max_batch * host_data.max_matrix_size();
@@ -200,10 +200,10 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
   LIBXSTREAM_CHECK_CONDITION(ready() && process_fn && (index + size) <= m_host_data->size());
 
   if (0 < size) {
-#if !defined(MULTI_DGEMM_TYPE_USE_DEMUX)
+#if defined(MULTI_DGEMM_TYPE_USE_MANUAL_DEMUX)
     // This manual synchronization prevents multiple threads from queuing work into the *same* stream (at the same time).
     // This is only needed if the stream was created without demux support in order to implement manual synchronization.
-    if (!m_stream->demux()) m_stream->lock();
+    LIBXSTREAM_CHECK_CALL(libxstream_stream_lock(m_stream));
 #endif
     const size_t i0 = m_host_data->idata()[index], i1 = m_host_data->idata()[index+size];
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->adata() + i0, m_adata, sizeof(double) * (i1 - i0), m_stream));
@@ -256,9 +256,11 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
     LIBXSTREAM_OFFLOAD_END(false);
 
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), m_stream));
+
+#if defined(MULTI_DGEMM_TYPE_USE_MANUAL_DEMUX)
+    LIBXSTREAM_CHECK_CALL(libxstream_stream_unlock(m_stream));
+#else
     LIBXSTREAM_CHECK_CALL(libxstream_stream_sync(m_stream));
-#if !defined(MULTI_DGEMM_TYPE_USE_DEMUX)
-    if (!m_stream->demux()) m_stream->unlock();
 #endif
   }
 

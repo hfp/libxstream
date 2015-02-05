@@ -273,31 +273,27 @@ int libxstream_stream::wait(libxstream_signal signal) const
 
 void libxstream_stream::lock()
 {
-  if (m_demux) {
-    const int this_thread = this_thread_id();
-    if (m_thread != this_thread) {
-      libxstream_lock_acquire(m_lock);
-      m_thread = this_thread; // locked
-      LIBXSTREAM_PRINT_INFO("demux: stream=0x%lx acquired by thread=%i",
-        static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
-        this_thread);
-    }
-    LIBXSTREAM_ASSERT(m_thread == this_thread);
+  const int this_thread = this_thread_id();
+  if (m_thread != this_thread) {
+    libxstream_lock_acquire(m_lock);
+    m_thread = this_thread; // locked
+    LIBXSTREAM_PRINT_INFO("libxstream_stream_lock: stream=0x%lx acquired by thread=%i",
+      static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
+      this_thread);
   }
+  LIBXSTREAM_ASSERT(m_thread == this_thread);
 }
 
 
 void libxstream_stream::unlock()
 {
-  if (m_demux) {
-    const int this_thread = this_thread_id();
-    if (m_thread == this_thread) { // locked
-      LIBXSTREAM_PRINT_INFO("demux: stream=0x%lx released by thread=%i",
-        static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
-        this_thread);
-      m_thread = -1; // unlock
-      libxstream_lock_release(m_lock);
-    }
+  const int this_thread = this_thread_id();
+  if (m_thread == this_thread) { // locked
+    LIBXSTREAM_PRINT_INFO("libxstream_stream_unlock: stream=0x%lx released by thread=%i",
+      static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
+      this_thread);
+    m_thread = -1; // unlock
+    libxstream_lock_release(m_lock);
   }
 }
 

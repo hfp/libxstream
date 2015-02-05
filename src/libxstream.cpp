@@ -871,8 +871,6 @@ extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
 
 extern "C" int libxstream_stream_sync(libxstream_stream* stream)
 {
-  const int result = stream ? stream->wait(0) : libxstream_stream::sync();
-
 #if defined(LIBXSTREAM_DEBUG)
   if (0 != stream) {
     const char *const name = stream->name();
@@ -890,19 +888,38 @@ extern "C" int libxstream_stream_sync(libxstream_stream* stream)
   }
 #endif
 
-  return result;
+  return stream ? stream->wait(0) : libxstream_stream::sync();
 }
 
 
 extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
 {
-  const int result = event ? event->wait(stream) : (stream ? stream->wait(0) : libxstream_stream::sync());
-
   LIBXSTREAM_PRINT_INFOCTX("event=0x%lx stream=0x%lx",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
+  return event ? event->wait(stream) : (stream ? stream->wait(0) : libxstream_stream::sync());
+}
 
-  return result;
+
+extern "C" int libxstream_stream_lock(libxstream_stream* stream)
+{
+  LIBXSTREAM_CHECK_CONDITION(stream && !stream->demux());
+  stream->lock();
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+extern "C" int libxstream_stream_unlock(libxstream_stream* stream)
+{
+  LIBXSTREAM_CHECK_CONDITION(stream && !stream->demux());
+  stream->unlock();
+#if defined(LIBXSTREAM_OFFLOAD)
+  return LIBXSTREAM_ERROR_NONE;
+#else
+  // TODO: introduce "signal/wait" for asyc. host execution
+  // meanwhile the workaround is to sync the stream
+  return libxstream_stream_sync(stream);
+#endif
 }
 
 

@@ -95,6 +95,10 @@ int libxstream_stream_destroy(libxstream_stream* stream);
 int libxstream_stream_sync(libxstream_stream* stream);
 /** Wait for an event recorded earlier. Passing NULL increases the match accordingly. */
 int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
+/** Locks a stream such that the caller thread can safely enqueue work. */
+int libxstream_stream_lock(libxstream_stream* stream);
+/** Unlocks a stream such that another thread can aquire the stream. */
+int libxstream_stream_unlock(libxstream_stream* stream);
 
 /** Create an event; can be re-used multiple times by re-recording the event. */
 int libxstream_event_create(libxstream_event** event);
