@@ -42,14 +42,6 @@
 
 namespace libxstream_stream_internal {
 
-#if defined(LIBXSTREAM_LOCK_RETRY)
-# if defined(LIBXSTREAM_STDFEATURES)
-std::atomic<size_t> lock_alive(0);
-# else
-size_t lock_alive = 0;
-# endif
-#endif
-
 class registry_type {
 public:
   registry_type()
@@ -198,7 +190,15 @@ private:
 
 
 libxstream_stream::libxstream_stream(int device, bool demux, int priority, const char* name)
-  : m_pending(0), m_lock(libxstream_lock_create()), m_demux(0 != demux), m_thread(-1)
+  : m_pending(0), m_lock(libxstream_lock_create())
+#if defined(LIBXSTREAM_LOCK_RETRY)
+# if defined(LIBXSTREAM_STDFEATURES)
+  , m_lock_alive(new std::atomic<size_t>(0))
+# else
+  , m_lock_alive(new size_t(0))
+# endif
+#endif
+  , m_demux(0 != demux), m_thread(-1)
   , m_device(device), m_priority(priority), m_status(LIBXSTREAM_ERROR_NONE)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
@@ -236,6 +236,14 @@ libxstream_stream::~libxstream_stream()
   }
 
   libxstream_lock_destroy(m_lock);
+#if defined(LIBXSTREAM_LOCK_RETRY)
+# if defined(LIBXSTREAM_STDFEATURES)
+  std::atomic<size_t> *const lock_alive = static_cast<std::atomic<size_t>*>(m_lock_alive);
+# else
+  size_t *const lock_alive = static_cast<size_t*>(m_lock_alive);
+# endif
+  delete lock_alive;
+#endif
 
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   if (0 != m_handle) {
@@ -287,16 +295,25 @@ int libxstream_stream::wait(libxstream_signal signal) const
 
 void libxstream_stream::lock()
 {
+#if defined(LIBXSTREAM_LOCK_RETRY)
+  LIBXSTREAM_ASSERT(m_lock_alive);
+# if defined(LIBXSTREAM_STDFEATURES)
+  std::atomic<size_t>& lock_alive = *static_cast<std::atomic<size_t>*>(m_lock_alive);
+# else
+  size_t& lock_alive = *static_cast<size_t*>(m_lock_alive);
+# endif
+#endif
   const int this_thread = this_thread_id();
+
   if (m_thread != this_thread) {
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < LIBXSTREAM_LOCK_RETRY)
-    const size_t lock_alive = libxstream_stream_internal::lock_alive;
+    const size_t lock_alive_snapshot = lock_alive;
     size_t retry = 0;
     while (!libxstream_lock_try(m_lock)) {
       this_thread_yield();
 
       if ((LIBXSTREAM_LOCK_RETRY) > retry) {
-        retry += lock_alive == libxstream_stream_internal::lock_alive;
+        retry += lock_alive_snapshot == lock_alive;
       }
       else {
         LIBXSTREAM_PRINT_WARNING("libxstream_stream_lock: stream=0x%lx seems to be dead-locked!",
@@ -316,13 +333,13 @@ void libxstream_stream::lock()
 
 #if defined(LIBXSTREAM_LOCK_RETRY)
 # if defined(LIBXSTREAM_STDFEATURES)
-  ++libxstream_stream_internal::lock_alive;
+  ++lock_alive;
 # elif defined(_OPENMP)
 # pragma omp atomic
-  ++libxstream_stream_internal::lock_alive;
+  ++lock_alive;
 # else // generic
   libxstream_lock_acquire(libxstream_stream_internal::registry.lock());
-  ++libxstream_stream_internal::lock_alive;
+  ++lock_alive;
   libxstream_lock_release(libxstream_stream_internal::registry.lock());
 # endif
 #endif

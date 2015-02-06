@@ -93,6 +93,9 @@ private:
 private:
   mutable libxstream_signal m_pending;
   libxstream_lock* m_lock;
+#if defined(LIBXSTREAM_LOCK_RETRY)
+  void* m_lock_alive;
+#endif
   bool m_demux;
   int m_thread;
   int m_device;
