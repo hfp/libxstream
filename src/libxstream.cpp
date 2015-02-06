@@ -432,6 +432,9 @@ void libxstream_lock_acquire(libxstream_lock* lock)
 #   endif
   typed_lock->lock();
 # else
+#   if !defined(LIBXSTREAM_LOCK_NONRECURSIVE)
+  LIBXSTREAM_ASSERT(false/*TODO: not implemented!*/);
+#   endif
   std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
   if (1 < ++typed_lock) {
     while (1 < typed_lock) {
@@ -466,6 +469,9 @@ void libxstream_lock_release(libxstream_lock* lock)
 #   endif
   typed_lock->unlock();
 # else
+#   if !defined(LIBXSTREAM_LOCK_NONRECURSIVE)
+  LIBXSTREAM_ASSERT(false/*TODO: not implemented!*/);
+#   endif
   std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
   --typed_lock;
 # endif
@@ -496,8 +502,12 @@ bool libxstream_lock_try(libxstream_lock* lock)
 #   endif
   const bool result = typed_lock->try_lock();
 # else
+#   if !defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   LIBXSTREAM_ASSERT(false/*TODO: not implemented!*/);
-  const bool result = false;
+#   endif
+  std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
+  const bool result = 1 == ++typed_lock;
+  if (!result) --typed_lock;
 # endif
 #elif defined(_OPENMP)
 # if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
