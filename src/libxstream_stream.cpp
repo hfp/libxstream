@@ -38,6 +38,8 @@
 
 // allows to wait for an event issued prior to the pending signal
 //#define LIBXSTREAM_STREAM_WAIT_PAST
+// unlocking the stream is only allowed for the thread that locked
+//#define LIBXSTREAM_STREAM_UNLOCK_OWNER
 
 
 namespace libxstream_stream_internal {
@@ -448,7 +450,7 @@ void libxstream_stream::unlock()
   volatile int *const stream_thread = static_cast<volatile int*>(m_thread);
 #endif
 
-#if 1
+#if defined(LIBXSTREAM_STREAM_UNLOCK_OWNER)
   int locked = this_thread;
   if (libxstream_stream_internal::atomic_compare_exchange(*stream_thread, locked, -1)) {
 #else

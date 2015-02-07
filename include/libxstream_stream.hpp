@@ -50,7 +50,7 @@ public:
      * Controls "demuxing" threads and streams i.e., when multiple threads are queuing into the same stream.
      * demux<0: disabled (application is supposed to call libxstream_stream_lock/libxstream_stream_unlock)
      * demux=0: disabled (application is supposed to use correct stream synchronization)
-     * demux=1: enabled  (LIBXSTREAM guesses locks automatically incl. deadlock resolution using LIBXSTREAM_LOCK_RETRY)
+     * demux>0: enabled  (LIBXSTREAM guesses locks automatically incl. deadlock resolution using LIBXSTREAM_LOCK_RETRY)
      */
     int demux,
     int priority, const char* name);
