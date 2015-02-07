@@ -107,12 +107,15 @@ int main(int argc, char* argv[])
     multi_dgemm_type::host_data_type host_data(nitems, split);
     fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
 
-    fprintf(stdout, "Initializing %i stream%s per device...\n", nstreams, 1 < nstreams ? "s" : "");
+    fprintf(stdout, "Initializing %i stream%s per device...", nstreams, 1 < nstreams ? "s" : "");
     std::vector<multi_dgemm_type> multi_dgemm(ndevices * nstreams);
     for (size_t i = 0; i < multi_dgemm.size(); ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
       LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, i % ndevices, nbatch, demux));
+    }
+    if (!multi_dgemm.empty()) {
+      fprintf(stdout, " %.1f MB\n", nstreams * multi_dgemm[0].bytes() * 1E-6);
     }
 
     const int nbatches = (nitems + nbatch - 1) / nbatch;

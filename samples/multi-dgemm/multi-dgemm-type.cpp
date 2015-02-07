@@ -149,7 +149,7 @@ size_t multi_dgemm_type::host_data_type::flops() const
 multi_dgemm_type::multi_dgemm_type()
   : m_stream(0), m_host_data(0)
   , m_adata(0), m_bdata(0), m_cdata(0)
-  , m_idata(0)
+  , m_idata(0), m_max_batch(0)
 {}
 
 
@@ -179,10 +179,18 @@ bool multi_dgemm_type::demux() const
 }
 
 
+size_t multi_dgemm_type::bytes() const
+{
+  LIBXSTREAM_ASSERT(ready());
+  return m_max_batch * m_host_data->max_matrix_size() * (3 * sizeof(double) + sizeof(size_t));
+}
+
+
 int multi_dgemm_type::init(const char* name, host_data_type& host_data, int device, int max_batch, bool demux)
 {
   LIBXSTREAM_ASSERT(!ready());
   m_host_data = &host_data;
+  m_max_batch = max_batch;
 
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, demux ? 1 : 0, 0, name));
 
