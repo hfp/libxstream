@@ -65,10 +65,10 @@ public:
 
 public:
   bool ready() const;
-  bool demux() const;
+  int demux() const;
   size_t bytes() const;
 
-  int init(const char* name, host_data_type& host_data, int device, int max_batch, bool demux = true);
+  int init(const char* name, host_data_type& host_data, int device, int max_batch, int demux);
   int operator()(process_fn_type process_fn, int index, int size);
 
 private:

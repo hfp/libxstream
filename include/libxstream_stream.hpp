@@ -47,15 +47,17 @@ public:
 public:
   libxstream_stream(int device,
     /**
-     * Enables "demuxing" threads and streams i.e., when multiple
-     * host threads attempt to queue into the same stream.
+     * Controls "demuxing" threads and streams i.e., when multiple threads are queuing into the same stream.
+     * demux<0: disabled (application is supposed to call libxstream_stream_lock/libxstream_stream_unlock)
+     * demux=0: disabled (application is supposed to use correct stream synchronization)
+     * demux=1: enabled  (LIBXSTREAM guesses locks automatically incl. deadlock resolution using LIBXSTREAM_LOCK_RETRY)
      */
-    bool demux,
+    int demux,
     int priority, const char* name);
   ~libxstream_stream();
 
 public:
-  bool demux() const      { return m_demux; }
+  int demux() const       { return m_demux; }
   int device() const      { return m_device; }
   int priority() const    { return m_priority; }
 
@@ -77,7 +79,7 @@ public:
   void begin();
   void end();
 
-  void lock();
+  void lock(bool retry);
   void unlock();
 
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
@@ -99,7 +101,7 @@ private:
 #endif
   size_t m_begin, m_end;
   void* m_thread;
-  bool m_demux;
+  int m_demux;
   int m_device;
   int m_priority;
   int m_status;

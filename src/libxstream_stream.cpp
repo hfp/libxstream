@@ -242,14 +242,14 @@ T atomic_store(A& atomic, T value)
 }
 
 
-libxstream_stream::libxstream_stream(int device, bool demux, int priority, const char* name)
+libxstream_stream::libxstream_stream(int device, int demux, int priority, const char* name)
   : m_begin(0), m_end(0)
 #if defined(LIBXSTREAM_STDFEATURES)
   , m_thread(new std::atomic<int>(-1))
 #else
   , m_thread(new int(-1))
 #endif
-  , m_demux(0 != demux)
+  , m_demux(demux)
   , m_device(device), m_priority(priority), m_status(LIBXSTREAM_ERROR_NONE)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
@@ -383,7 +383,7 @@ void libxstream_stream::end()
 }
 
 
-void libxstream_stream::lock()
+void libxstream_stream::lock(bool retry)
 {
   const int this_thread = this_thread_id();
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -394,31 +394,37 @@ void libxstream_stream::lock()
 
   if (this_thread != *stream_thread) {
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
-    const size_t sleep_ms = std::max((LIBXSTREAM_LOCK_WAIT_MS) / (LIBXSTREAM_LOCK_RETRY), 20);
     size_t thread_begin = m_begin, thread_end = m_end;
-    size_t retry = 0;
+    size_t nretry = 0;
 #endif
+
     int unlocked = -1;
     while (!libxstream_stream_internal::atomic_compare_exchange(*stream_thread, unlocked, this_thread)) {
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
-      if ((LIBXSTREAM_LOCK_RETRY) > retry) {
-        retry += (thread_begin == m_begin && thread_end == m_end) ? 1 : 0;
-        this_thread_sleep(sleep_ms);
-        thread_begin = m_begin;
-        thread_end = m_end;
+      if (retry) {
+        static const size_t sleep_ms = std::max((LIBXSTREAM_LOCK_WAIT_MS) / (LIBXSTREAM_LOCK_RETRY), 20);
+
+        if ((LIBXSTREAM_LOCK_RETRY) > nretry) {
+          nretry += (thread_begin == m_begin && thread_end == m_end) ? 1 : 0;
+          this_thread_sleep(sleep_ms);
+          thread_begin = m_begin;
+          thread_end = m_end;
+          unlocked = -1;
+        }
+        else if (m_begin == m_end) {
+          LIBXSTREAM_PRINT_WARNING("libxstream_stream_lock: stream=0x%lx unlocked!",
+            static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)));
+        }
+        else if (libxstream_offload_busy()) {
+          wait(0);
+        }
+      }
+      else
+#endif
+      {
+        this_thread_yield();
         unlocked = -1;
       }
-      else if (m_begin == m_end) {
-        LIBXSTREAM_PRINT_WARNING("libxstream_stream_lock: stream=0x%lx unlocked!",
-          static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)));
-      }
-      else if (libxstream_offload_busy()) {
-        wait(0);
-      }
-#else
-      this_thread_yield();
-      unlocked = -1;
-#endif
     }
 
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))

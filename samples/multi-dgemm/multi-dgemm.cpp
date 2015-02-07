@@ -92,7 +92,7 @@ int main(int argc, char* argv[])
     const int nitems = std::max(1 < argc ? std::atoi(argv[1]) : 60, 0);
     const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 5, 1);
     const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 0), LIBXSTREAM_MAX_NSTREAMS);
-    const bool demux = 4 < argc ? (0 != std::atoi(argv[4])) : true;
+    const int demux = 4 < argc ? std::atoi(argv[4]) : 0;
 
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
@@ -136,7 +136,7 @@ int main(int argc, char* argv[])
       LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[stream](&process, i, std::min(nbatch, nitems - i)));
     }
 
-    if (!demux) {
+    if (0 != demux) {
       // sync all streams to complete any pending work
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
     }

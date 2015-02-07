@@ -208,8 +208,8 @@
       , m_offload_region_wait(wait) \
     { \
       if (stream) { \
-        if (!wait && stream->demux()) { \
-          stream->lock(); \
+        if (!wait && 0 <= stream->demux()) { \
+          stream->lock(0 < stream->demux()); \
         } \
         stream->begin(); \
       } \
@@ -218,7 +218,7 @@
     ~offload_region_type() { \
       if (LIBXSTREAM_OFFLOAD_STREAM) { \
         LIBXSTREAM_OFFLOAD_STREAM->end(); \
-        if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM->demux()) { \
+        if (m_offload_region_wait && 0 <= LIBXSTREAM_OFFLOAD_STREAM->demux()) { \
           LIBXSTREAM_OFFLOAD_STREAM->unlock(); \
         } \
       } \
