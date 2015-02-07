@@ -99,7 +99,7 @@ int main(int argc, char* argv[])
       throw std::runtime_error("no device found!");
     }
 #if !defined(_OPENMP)
-    fprintf(stdout, "Warning: OpenMP support needed for timing results.\n");
+    fprintf(stderr, "Warning: OpenMP support needed for performance results.\n");
 #endif
 
     fprintf(stdout, "Initializing %i device%s and host data...", static_cast<int>(ndevices), 1 == ndevices ? "" : "s");

@@ -59,8 +59,6 @@ public:
   libxstream_signal pending() const       { return m_pending; }
 
   bool demux() const      { return m_demux; }
-  void thread(int value)  { m_thread = value; }
-  int thread() const      { return m_thread; }
   int device() const      { return m_device; }
   int priority() const    { return m_priority; }
 
@@ -75,6 +73,10 @@ public:
   libxstream_signal signal() const;
   int wait(libxstream_signal signal) const;
 
+  int thread() const;
+  void begin();
+  void end();
+
   void lock();
   void unlock();
 
@@ -82,7 +84,7 @@ public:
   _Offload_stream handle() const;
 #endif
 
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_PRINT)
   const char* name() const;
 #endif
 
@@ -92,12 +94,9 @@ private:
 
 private:
   mutable libxstream_signal m_pending;
-  libxstream_lock* m_lock;
-#if defined(LIBXSTREAM_LOCK_RETRY)
-  void* m_lock_alive;
-#endif
+  size_t m_begin, m_end;
+  void* m_thread;
   bool m_demux;
-  int m_thread;
   int m_device;
   int m_priority;
   int m_status;
@@ -107,7 +106,7 @@ private:
   mutable size_t m_npartitions;
 #endif
 
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_PRINT)
   char m_name[128];
 #endif
 };

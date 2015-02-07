@@ -104,8 +104,14 @@
 # define LIBXSTREAM_CHECK
 #endif
 
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_ASSERT(A) assert(A)
+#else
+# define LIBXSTREAM_ASSERT(A)
+#endif
+
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+# define LIBXSTREAM_PRINT
 # define LIBXSTREAM_PRINT_INFO(MESSAGE, ...) fprintf(stderr, "DBG " MESSAGE "\n", __VA_ARGS__)
 # define LIBXSTREAM_PRINT_INFO0(MESSAGE) fprintf(stderr, "DBG " MESSAGE "\n")
 # define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...) fprintf(stderr, "DBG %s: " MESSAGE "\n", __FUNCTION__, __VA_ARGS__)
@@ -113,7 +119,6 @@
 # define LIBXSTREAM_PRINT_WARNING(MESSAGE, ...) fprintf(stderr, "WRN " MESSAGE "\n", __VA_ARGS__)
 # define LIBXSTREAM_PRINT_WARNING0(MESSAGE) fprintf(stderr, "WRN " MESSAGE "\n")
 #else
-# define LIBXSTREAM_ASSERT(A)
 # define LIBXSTREAM_PRINT_INFO(MESSAGE, ...)
 # define LIBXSTREAM_PRINT_INFO0(MESSAGE)
 # define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...)
@@ -200,14 +205,20 @@
       : libxstream_offload_region(stream, argc, argv) \
       , m_offload_region_wait(wait) \
     { \
-      if (!wait && stream && stream->demux()) { \
-        stream->lock(); \
+      if (stream) { \
+        if (!wait && stream->demux()) { \
+          stream->lock(); \
+        } \
+        stream->begin(); \
       } \
       libxstream_offload(*this, wait); \
     } \
     ~offload_region_type() { \
-      if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM && LIBXSTREAM_OFFLOAD_STREAM->demux()) { \
-        LIBXSTREAM_OFFLOAD_STREAM->unlock(); \
+      if (LIBXSTREAM_OFFLOAD_STREAM) { \
+        LIBXSTREAM_OFFLOAD_STREAM->end(); \
+        if (m_offload_region_wait && LIBXSTREAM_OFFLOAD_STREAM->demux()) { \
+          LIBXSTREAM_OFFLOAD_STREAM->unlock(); \
+        } \
       } \
     } \
     offload_region_type* clone() const { return new offload_region_type(*this); } \

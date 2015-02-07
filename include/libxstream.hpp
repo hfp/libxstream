@@ -42,6 +42,7 @@ bool libxstream_lock_try(libxstream_lock* lock);
 
 int this_thread_id();
 void this_thread_yield();
+void this_thread_sleep(size_t ms);
 
 #include "libxstream_capture.hpp"
 #include "libxstream_stream.hpp"

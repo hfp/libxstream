@@ -562,6 +562,29 @@ void this_thread_yield()
 }
 
 
+void this_thread_sleep(size_t ms)
+{
+#if defined(LIBXSTREAM_STDFEATURES)
+  typedef std::chrono::milliseconds milliseconds;
+  LIBXSTREAM_ASSERT(ms <= static_cast<size_t>(std::numeric_limits<milliseconds::rep>::max() / 1000));
+  const milliseconds interval(static_cast<milliseconds::rep>(ms));
+  std::this_thread::sleep_for(interval);
+#elif defined(_WIN32)
+  LIBXSTREAM_ASSERT(ms <= std::numeric_limits<DWORD>::max());
+  Sleep(static_cast<DWORD>(ms));
+#else
+  const size_t s = ms / 1000;
+  ms -= 1000 * s;
+  LIBXSTREAM_ASSERT(ms <= static_cast<size_t>(std::numeric_limits<long>::max() / (1000 * 1000)));
+  const timespec pause = {
+    static_cast<time_t>(s),
+    static_cast<long>(ms * 1000 * 1000)
+  };
+  nanosleep(&pause, 0);
+#endif
+}
+
+
 extern "C" int libxstream_get_ndevices(size_t* ndevices)
 {
   LIBXSTREAM_CHECK_CONDITION(ndevices);
@@ -572,7 +595,7 @@ extern "C" int libxstream_get_ndevices(size_t* ndevices)
   *ndevices = 1; // host
 #endif
 
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_PRINT)
   static LIBXSTREAM_TLS bool print = true;
   if (print) {
     LIBXSTREAM_PRINT_INFOCTX("ndevices=%lu", static_cast<unsigned long>(*ndevices));
@@ -916,7 +939,7 @@ extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, 
   LIBXSTREAM_ASSERT(s);
   *stream = s;
 
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_PRINT)
   if (name && *name) {
     LIBXSTREAM_PRINT_INFOCTX("device=%i stream=0x%lx name=\"%s\"",
       device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)), name);
@@ -933,7 +956,7 @@ extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, 
 
 extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
 {
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_PRINT)
   if (stream) {
     const char *const name = stream->name();
     if (name && *name) {
@@ -953,7 +976,7 @@ extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
 
 extern "C" int libxstream_stream_sync(libxstream_stream* stream)
 {
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_PRINT)
   if (0 != stream) {
     const char *const name = stream->name();
     if (name && *name) {
