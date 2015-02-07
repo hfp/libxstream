@@ -86,6 +86,9 @@
 /** Maximum number of executions in the queue. */
 #define LIBXSTREAM_MAX_QSIZE 1024
 
+/** Maximum number of host threads. */
+#define LIBXSTREAM_MAX_NTHREADS 1024
+
 /** Number of milliseconds a lock can stall. */
 #define LIBXSTREAM_LOCK_WAIT_MS 1000
 
