@@ -65,7 +65,7 @@ test_type::test_type(int device)
 
   size_t mem_free = 0, mem_avail = 0;
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_info(m_device, &mem_free, &mem_avail));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_create(&m_stream, m_device, 1, 0, 0));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_create(&m_stream, m_device, 0, 0, 0));
 
   const size_t size = 4711u * 1024u;
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(-1, &m_host_mem, size, 0));
