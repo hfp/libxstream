@@ -39,7 +39,7 @@
 // allows to wait for an event issued prior to the pending signal
 //#define LIBXSTREAM_STREAM_WAIT_PAST
 // unlocking the stream is only allowed for the thread that locked
-//#define LIBXSTREAM_STREAM_UNLOCK_OWNER
+//#define LIBXSTREAM_STREAM_UNLOCK_ANY
 
 
 namespace libxstream_stream_internal {
@@ -245,11 +245,13 @@ T atomic_store(A& atomic, T value)
 
 
 libxstream_stream::libxstream_stream(int device, int demux, int priority, const char* name)
-  : m_begin(0), m_end(0)
 #if defined(LIBXSTREAM_STDFEATURES)
-  , m_thread(new std::atomic<int>(-1))
+  : m_thread(new std::atomic<int>(-1))
 #else
-  , m_thread(new int(-1))
+  : m_thread(new int(-1))
+#endif
+#if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
+  , m_begin(0), m_end(0)
 #endif
   , m_demux(demux)
   , m_device(device), m_priority(priority), m_status(LIBXSTREAM_ERROR_NONE)
@@ -371,17 +373,21 @@ int libxstream_stream::thread() const
 
 void libxstream_stream::begin()
 {
+#if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
   if (thread() == this_thread_id()) {
     ++m_begin;
   }
+#endif
 }
 
 
 void libxstream_stream::end()
 {
+#if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
   if (thread() == this_thread_id()) {
     ++m_end;
   }
+#endif
 }
 
 
@@ -450,11 +456,11 @@ void libxstream_stream::unlock()
   volatile int *const stream_thread = static_cast<volatile int*>(m_thread);
 #endif
 
-#if defined(LIBXSTREAM_STREAM_UNLOCK_OWNER)
+#if defined(LIBXSTREAM_STREAM_UNLOCK_ANY)
+  if (libxstream_stream_internal::atomic_store(*stream_thread, -1)) {
+#else
   int locked = this_thread;
   if (libxstream_stream_internal::atomic_compare_exchange(*stream_thread, locked, -1)) {
-#else
-  if (libxstream_stream_internal::atomic_store(*stream_thread, -1)) {
 #endif
     LIBXSTREAM_PRINT_INFO("libxstream_stream_unlock: stream=0x%lx released by thread=%i",
       static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),

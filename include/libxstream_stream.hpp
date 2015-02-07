@@ -99,8 +99,10 @@ private:
 #if defined(LIBXSTREAM_PRINT)
   char m_name[128];
 #endif
-  size_t m_begin, m_end;
   void* m_thread;
+#if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
+  size_t m_begin, m_end;
+#endif
   int m_demux;
   int m_device;
   int m_priority;

@@ -68,8 +68,6 @@ public:
   virtual ~libxstream_offload_region() {}
 
 public:
-  libxstream_stream* stream() const { return m_stream; }
-
   template<typename T,size_t i> T* ptr() const {
     LIBXSTREAM_ASSERT(i < m_argc && sizeof(T*) <= m_argv[i].size);
     return static_cast<T*>(m_argv[i].value.p);
@@ -85,10 +83,12 @@ public:
 
 private:
   arg_type m_argv[LIBXSTREAM_MAX_NARGS];
-  libxstream_stream* m_stream;
 #if defined(LIBXSTREAM_DEBUG)
   size_t m_argc;
 #endif
+
+protected:
+  libxstream_stream* m_stream;
 };
 
 
