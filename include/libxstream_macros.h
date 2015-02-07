@@ -51,6 +51,8 @@
 # define LIBXSTREAM_TLS LIBXSTREAM_ATTRIBUTE(thread)
 #elif defined(__GNUC__)
 # define LIBXSTREAM_TLS __thread
+#elif defined(LIBXSTREAM_STDFEATURES)
+# define LIBXSTREAM_TLS thread_local
 #endif
 #if !defined(LIBXSTREAM_TLS)
 # define LIBXSTREAM_TLS
