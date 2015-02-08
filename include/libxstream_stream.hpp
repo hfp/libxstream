@@ -72,8 +72,8 @@ public:
   libxstream_signal signal() const;
   int wait(libxstream_signal signal) const;
 
-  void pending(libxstream_signal signal);
-  libxstream_signal pending() const;
+  void pending(int thread, libxstream_signal signal);
+  libxstream_signal pending(int thread) const;
 
   int thread() const;
   void begin();

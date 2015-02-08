@@ -64,8 +64,8 @@ public:
   };
 
 public:
-  libxstream_offload_region(libxstream_stream* stream, size_t argc, const arg_type argv[]);
-  virtual ~libxstream_offload_region() {}
+  libxstream_offload_region(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait);
+  virtual ~libxstream_offload_region();
 
 public:
   template<typename T,size_t i> T* ptr() const {
@@ -78,6 +78,8 @@ public:
     return *reinterpret_cast<const T*>(m_argv + i);
   }
 
+  void destruct(bool value) { m_destruct = value; }
+
   virtual libxstream_offload_region* clone() const = 0;
   virtual void operator()() const = 0;
 
@@ -86,9 +88,15 @@ private:
 #if defined(LIBXSTREAM_DEBUG)
   size_t m_argc;
 #endif
+  bool m_destruct, m_wait;
+  int m_thread;
 
 protected:
   libxstream_stream* m_stream;
+  libxstream_signal m_pending;
+
+protected:
+  void pending(libxstream_signal signal) const;
 };
 
 

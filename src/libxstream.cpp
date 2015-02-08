@@ -552,23 +552,21 @@ int this_thread_id()
   if (0 > id) {
     libxstream_internal::context_type::counter_type& nthreads_active = libxstream_internal::context.nthreads_active();
 #if defined(LIBXSTREAM_STDFEATURES)
-    id = nthreads_active++;
-#else
+    id = static_cast<int>(nthreads_active++);
+#elif defined(_OPENMP)
     size_t nthreads = 0;
-# if defined(_OPENMP)
-#   if (201107 <= _OPENMP)
+# if (201107 <= _OPENMP)
 #   pragma omp atomic capture
-#   else
+# else
 #   pragma omp critical
-#   endif
+# endif
     nthreads = ++nthreads_active;
-# else // generic
+    id = static_cast<int>(nthreads - 1);
+#else // generic
     libxstream_lock *const lock = libxstream_internal::context.lock();
     libxstream_lock_acquire(lock);
-    nthreads = ++nthreads_active;
+    id = static_cast<int>(nthreads_active++);
     libxstream_lock_release(lock);
-# endif
-    id = static_cast<int>(nthreads - 1);
 #endif
   }
   return id;
@@ -856,7 +854,19 @@ extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t
     else
 #endif
     {
+#if defined(LIBXSTREAM_ASYNCHOST)
+      if (LIBXSTREAM_OFFLOAD_READY) {
+#       pragma omp task depend(out:offload_region_signal) depend(in:LIBXSTREAM_OFFLOAD_PENDING)
+        std::copy(src, src + size, dst);
+      }
+      else {
+#       pragma omp task depend(out:offload_region_signal)
+        std::copy(src, src + size, dst);
+        ++offload_region_signal_consumed;
+      }
+#else
       std::copy(src, src + size, dst);
+#endif
     }
   }
   LIBXSTREAM_OFFLOAD_END(false);
