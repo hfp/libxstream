@@ -941,12 +941,12 @@ extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, 
 
 #if defined(LIBXSTREAM_PRINT)
   if (name && *name) {
-    LIBXSTREAM_PRINT_INFOCTX("device=%i stream=0x%lx name=\"%s\"",
-      device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)), name);
+    LIBXSTREAM_PRINT_INFOCTX("stream=0x%lx device=%i demux=%i priority=%i (%s)",
+      static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)), device, demux, priority, name);
   }
   else {
-    LIBXSTREAM_PRINT_INFOCTX("device=%i stream=0x%lx",
-      device, static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)));
+    LIBXSTREAM_PRINT_INFOCTX("stream=0x%lx device=%i demux=%i priority=%i",
+      static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(stream)), device, demux, priority);
   }
 #endif
 
@@ -1008,7 +1008,7 @@ extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstrea
 
 extern "C" int libxstream_stream_lock(libxstream_stream* stream)
 {
-  LIBXSTREAM_CHECK_CONDITION(stream && !stream->demux());
+  LIBXSTREAM_CHECK_CONDITION(stream && 0 > stream->demux());
   // manual locking is supposed to be correct and hence there is no need to retry
   stream->lock(false);
   return LIBXSTREAM_ERROR_NONE;
@@ -1017,7 +1017,7 @@ extern "C" int libxstream_stream_lock(libxstream_stream* stream)
 
 extern "C" int libxstream_stream_unlock(libxstream_stream* stream)
 {
-  LIBXSTREAM_CHECK_CONDITION(stream && !stream->demux());
+  LIBXSTREAM_CHECK_CONDITION(stream && 0 > stream->demux());
   stream->unlock();
   return LIBXSTREAM_ERROR_NONE;
 }
