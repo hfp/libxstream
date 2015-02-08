@@ -1008,7 +1008,7 @@ extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstrea
 
 extern "C" int libxstream_stream_lock(libxstream_stream* stream)
 {
-  LIBXSTREAM_CHECK_CONDITION(stream && 0 > stream->demux());
+  LIBXSTREAM_CHECK_CONDITION(stream && 0 == stream->demux());
   // manual locking is supposed to be correct and hence there is no need to retry
   stream->lock(false);
   return LIBXSTREAM_ERROR_NONE;
@@ -1017,7 +1017,7 @@ extern "C" int libxstream_stream_lock(libxstream_stream* stream)
 
 extern "C" int libxstream_stream_unlock(libxstream_stream* stream)
 {
-  LIBXSTREAM_CHECK_CONDITION(stream && 0 > stream->demux());
+  LIBXSTREAM_CHECK_CONDITION(stream && 0 == stream->demux());
   stream->unlock();
   return LIBXSTREAM_ERROR_NONE;
 }

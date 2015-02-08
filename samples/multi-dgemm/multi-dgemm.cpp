@@ -136,7 +136,7 @@ int main(int argc, char* argv[])
       LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[stream](&process, i, std::min(nbatch, nitems - i)));
     }
 
-    if (0 != demux) {
+    if (1 > demux) {
       // sync all streams to complete any pending work
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
     }

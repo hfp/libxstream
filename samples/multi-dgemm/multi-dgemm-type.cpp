@@ -209,7 +209,7 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
   LIBXSTREAM_CHECK_CONDITION(ready() && process_fn && (index + size) <= m_host_data->size());
 
   if (0 < size) {
-    if (0 > m_stream->demux()) {
+    if (0 == m_stream->demux()) {
       // This manual synchronization prevents multiple threads from queuing work into the *same* stream (at the same time).
       // This is only needed if the stream was created without demux support in order to implement manual synchronization.
       LIBXSTREAM_CHECK_CALL(libxstream_stream_lock(m_stream));
@@ -266,10 +266,10 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
 
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), m_stream));
 
-    if (0 > m_stream->demux()) {
+    if (0 == m_stream->demux()) {
       LIBXSTREAM_CHECK_CALL(libxstream_stream_unlock(m_stream));
     }
-    else if (0 == m_stream->demux()) {
+    else if (0 < m_stream->demux()) {
       LIBXSTREAM_CHECK_CALL(libxstream_stream_sync(m_stream));
     }
   }
