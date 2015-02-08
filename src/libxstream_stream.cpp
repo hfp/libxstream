@@ -316,27 +316,52 @@ int libxstream_stream::wait(libxstream_signal signal) const
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_OFFLOAD_BEGIN(const_cast<libxstream_stream*>(this), &result, signal)
+  LIBXSTREAM_OFFLOAD_BEGIN(const_cast<libxstream_stream*>(this), &result, m_pending, signal)
   {
     *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset(); // result code
+    libxstream_signal *const pending_signals = ptr<libxstream_signal,1>();
+    const libxstream_signal signal = val<const libxstream_signal,2>();
 
-    if (0 != LIBXSTREAM_OFFLOAD_PENDING) {
-      const libxstream_signal signal = val<const libxstream_signal,1>();
-
-# if defined(LIBXSTREAM_STREAM_WAIT_PAST)
-      const libxstream_signal pending = signal ? signal : LIBXSTREAM_OFFLOAD_PENDING;
-# else
-      const libxstream_signal pending = LIBXSTREAM_OFFLOAD_PENDING;
-# endif
-
-#if defined(LIBXSTREAM_OFFLOAD)
-      if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
-#       pragma offload_wait LIBXSTREAM_OFFLOAD_TARGET wait(pending)
-      }
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+    const int nthreads = static_cast<int>(nthreads_active());
+    for (int i = 0; i < nthreads; ++i)
+#else
+    const int i = thread();
 #endif
+    {
+      const libxstream_signal pending_signal = pending_signals[i];
+      if (0 != pending_signal) {
+#if defined(LIBXSTREAM_STREAM_WAIT_PAST)
+        const libxstream_signal pending = 0 != signal ? signal : pending_signal;
+#else
+        const libxstream_signal pending = pending_signal;
+#endif
+#if defined(LIBXSTREAM_OFFLOAD)
+        if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
+#         pragma offload_wait LIBXSTREAM_OFFLOAD_TARGET wait(pending)
+        }
+#endif
+        if (0 == signal) {
+          pending_signals[i] = 0;
+        }
+#if defined(LIBXSTREAM_STREAM_WAIT_PAST)
+        else {
+          i = nthreads; // break
+        }
+#endif
+      }
+    }
 
-      if (0 == signal || signal == LIBXSTREAM_OFFLOAD_PENDING) {
-        (LIBXSTREAM_OFFLOAD_STREAM)->pending(0);
+    if (0 != signal) {
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+      for (int i = 0; i < nthreads; ++i)
+#else
+      const int i = thread();
+#endif
+      {
+        if (signal == pending_signals[i]) {
+          pending_signals[i] = 0;
+        }
       }
     }
   }
@@ -346,17 +371,18 @@ int libxstream_stream::wait(libxstream_signal signal) const
 }
 
 
-void libxstream_stream::pending(libxstream_signal signal)
+void libxstream_stream::pending(int thread, libxstream_signal signal)
 {
-  const int this_thread = this_thread_id();
-  m_pending[this_thread] = signal;
+  LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
+  m_pending[thread] = signal;
 }
 
 
-libxstream_signal libxstream_stream::pending() const
+libxstream_signal libxstream_stream::pending(int thread) const
 {
-  const int this_thread = this_thread_id();
-  return m_pending[this_thread];
+  LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
+  const libxstream_signal signal = m_pending[thread];
+  return signal;
 }
 
 
@@ -420,8 +446,9 @@ void libxstream_stream::lock(bool retry)
           unlocked = -1;
         }
         else if (m_begin == m_end) {
-          LIBXSTREAM_PRINT_WARNING("libxstream_stream_lock: stream=0x%lx unlocked!",
-            static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)));
+          LIBXSTREAM_PRINT_WARNING("libxstream_stream_unlock: stream=0x%lx released by thread=%i",
+            static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
+            this_thread);
         }
         else if (libxstream_offload_busy()) {
           wait(0);
@@ -435,6 +462,7 @@ void libxstream_stream::lock(bool retry)
       }
     }
 
+    LIBXSTREAM_ASSERT(this_thread == *stream_thread);
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
     m_begin = 0;
     m_end = 0;

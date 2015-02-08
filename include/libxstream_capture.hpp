@@ -78,10 +78,14 @@ public:
     return *reinterpret_cast<const T*>(m_argv + i);
   }
 
-  void destruct(bool value) { m_destruct = value; }
+  int thread() const { return m_thread; }
+  libxstream_stream* stream() { return m_stream; }
+  libxstream_offload_region* clone() const;
+  void operator()() const;
 
-  virtual libxstream_offload_region* clone() const = 0;
-  virtual void operator()() const = 0;
+private:
+  virtual libxstream_offload_region* virtual_clone() const = 0;
+  virtual void virtual_run() const = 0;
 
 private:
   arg_type m_argv[LIBXSTREAM_MAX_NARGS];
@@ -89,18 +93,14 @@ private:
   size_t m_argc;
 #endif
   bool m_destruct, m_wait;
-  int m_thread;
+  mutable int m_thread;
 
 protected:
   libxstream_stream* m_stream;
-  libxstream_signal m_pending;
-
-protected:
-  void pending(libxstream_signal signal) const;
 };
 
 
-void libxstream_offload(const libxstream_offload_region& offload_region, bool wait = true);
+void libxstream_offload(const libxstream_offload_region& offload_region, bool wait);
 void libxstream_offload_shutdown();
 bool libxstream_offload_busy();
 

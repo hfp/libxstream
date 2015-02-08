@@ -272,8 +272,13 @@ libxstream_offload_region::libxstream_offload_region(size_t argc, const arg_type
 #else
   : m_destruct(true)
 #endif
-  , m_wait(wait), m_thread(this_thread_id()), m_stream(stream)
-  , m_pending(stream ? stream->pending(m_thread) : 0)
+  , m_wait(wait)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+  , m_thread(this_thread_id())
+#else
+  , m_thread(-1)
+#endif
+  , m_stream(stream)
 {
   LIBXSTREAM_ASSERT(argc <= LIBXSTREAM_MAX_NARGS);
   for (size_t i = 0; i < argc; ++i) {
@@ -300,11 +305,20 @@ libxstream_offload_region::~libxstream_offload_region()
 }
 
 
-void libxstream_offload_region::pending(libxstream_signal signal) const
+libxstream_offload_region* libxstream_offload_region::clone() const
 {
-  if (m_stream) {
-    m_stream->pending(m_thread, signal);
-  }
+  libxstream_offload_region *const result = virtual_clone();
+  result->m_destruct = false;
+  return result;
+}
+
+
+void libxstream_offload_region::operator()() const
+{
+#if !defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+  m_thread = this_thread_id();
+#endif
+  virtual_run();
 }
 
 

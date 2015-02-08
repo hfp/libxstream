@@ -60,12 +60,12 @@
 }
 
 
-/*static*/void libxstream_event::update(libxstream_event::slot_type& slot)
+/*static*/void libxstream_event::update(int thread, libxstream_event::slot_type& slot)
 {
   const libxstream_signal pending_slot = slot.pending();
 
   if (0 != pending_slot) {
-    const libxstream_signal pending_stream = slot.stream().pending();
+    const libxstream_signal pending_stream = slot.stream().pending(thread);
 
     if (0 != pending_stream) {
 #if defined(LIBXSTREAM_EVENT_WAIT_PAST)
@@ -78,7 +78,7 @@
 #endif
       {
         if (signal == pending_stream) {
-          slot.stream().pending(0);
+          slot.stream().pending(thread, 0);
         }
         slot.pending(0);
       }
@@ -92,7 +92,7 @@
 
 libxstream_event::slot_type::slot_type(libxstream_stream& stream)
   : m_stream(&stream) // no need to lock the stream
-  , m_pending(stream.pending())
+  , m_pending(stream.pending(this_thread_id()))
 {}
 
 
@@ -136,7 +136,7 @@ int libxstream_event::query(bool& occurred, libxstream_stream* stream) const
       slot_type& slot = slots[i];
 
       if (slot.match(LIBXSTREAM_OFFLOAD_STREAM) && 0 != slot.pending()) {
-        libxstream_event::update(slot);
+        libxstream_event::update(thread(), slot);
         occurred = occurred && 0 == slot.pending();
       }
     }
@@ -165,7 +165,7 @@ int libxstream_event::wait(libxstream_stream* stream)
 
     for (size_t i = 0; i < expected; ++i) {
       slot_type& slot = slots[i];
-      const libxstream_signal pending_stream = slot.stream().pending();
+      const libxstream_signal pending_stream = slot.stream().pending(thread());
       const libxstream_signal pending_slot = slot.pending();
 
       if (slot.match(LIBXSTREAM_OFFLOAD_STREAM) && 0 != pending_stream && 0 != pending_slot) {
@@ -188,7 +188,7 @@ int libxstream_event::wait(libxstream_stream* stream)
         }
 # endif
         if (signal == pending_stream) {
-          slot.stream().pending(0);
+          slot.stream().pending(thread(), 0);
         }
 #endif
         ++completed;

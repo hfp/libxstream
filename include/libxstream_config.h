@@ -104,6 +104,9 @@
 /** Enables non-recursive locks. */
 #define LIBXSTREAM_LOCK_NONRECURSIVE
 
+/** Not implemented yet. Must be disabled. */
+//#define LIBXSTREAM_THREADLOCAL_SIGNALS
+
 /**
  * Below preprocessor symbols fixup some platform specifics.
  */

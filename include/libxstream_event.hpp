@@ -52,7 +52,7 @@ private:
   };
 
   static void enqueue(libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset);
-  static void update(libxstream_event::slot_type& slot);
+  static void update(int thread, libxstream_event::slot_type& slot);
 
 public:
   libxstream_event();
