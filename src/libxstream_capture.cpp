@@ -259,9 +259,11 @@ private:
 
 
 libxstream_offload_region::libxstream_offload_region(libxstream_stream* stream, size_t argc, const arg_type argv[])
-  : m_stream(stream)
 #if defined(LIBXSTREAM_DEBUG)
-  , m_argc(argc)
+  : m_argc(argc)
+  , m_stream(stream)
+#else
+  : m_stream(stream)
 #endif
 {
   LIBXSTREAM_ASSERT(argc <= LIBXSTREAM_MAX_NARGS);
