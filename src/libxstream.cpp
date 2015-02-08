@@ -564,7 +564,7 @@ void this_thread_yield()
 
 void this_thread_sleep(size_t ms)
 {
-#if defined(LIBXSTREAM_STDFEATURES)
+#if defined(LIBXSTREAM_STDFEATURES) && !defined(__MIC__)
   typedef std::chrono::milliseconds milliseconds;
   LIBXSTREAM_ASSERT(ms <= static_cast<size_t>(std::numeric_limits<milliseconds::rep>::max() / 1000));
   const milliseconds interval(static_cast<milliseconds::rep>(ms));
