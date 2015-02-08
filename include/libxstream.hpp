@@ -40,6 +40,7 @@ void libxstream_lock_acquire(libxstream_lock* lock);
 void libxstream_lock_release(libxstream_lock* lock);
 bool libxstream_lock_try(libxstream_lock* lock);
 
+size_t nthreads_active();
 int this_thread_id();
 void this_thread_yield();
 void this_thread_sleep(size_t ms);

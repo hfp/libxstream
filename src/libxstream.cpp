@@ -298,8 +298,16 @@ int deallocate_virtual(const void* memory)
 
 class context_type {
 public:
+#if defined(LIBXSTREAM_STDFEATURES)
+  typedef std::atomic<size_t> counter_type;
+#else
+  typedef size_t counter_type;
+#endif
+
+public:
   context_type()
     : m_lock(libxstream_lock_create())
+    , m_nthreads_active(0)
     , m_device(-2)
   {}
 
@@ -310,6 +318,10 @@ public:
 public:
   libxstream_lock* lock() { return m_lock; }
   int global_device() const { return m_device; }
+  
+  counter_type& nthreads_active() {
+    return m_nthreads_active;
+  }
 
   void global_device(int device) {
     libxstream_lock_acquire(m_lock);
@@ -327,6 +339,7 @@ public:
 
 private:
   libxstream_lock* m_lock;
+  counter_type m_nthreads_active;
   int m_device;
 } context;
 
@@ -525,27 +538,37 @@ bool libxstream_lock_try(libxstream_lock* lock)
 }
 
 
+size_t nthreads_active()
+{
+  const size_t result = libxstream_internal::context.nthreads_active();
+  LIBXSTREAM_ASSERT(result <= LIBXSTREAM_MAX_NTHREADS);
+  return result;
+}
+
+
 int this_thread_id()
 {
   static LIBXSTREAM_TLS int id = -1;
   if (0 > id) {
+    libxstream_internal::context_type::counter_type& nthreads_active = libxstream_internal::context.nthreads_active();
 #if defined(LIBXSTREAM_STDFEATURES)
-    static std::atomic<int> num_threads(0);
-    id = num_threads++;
-#elif defined(_OPENMP)
-    static int num_threads = 0;
-# if (201107 <= _OPENMP)
+    id = nthreads_active++;
+#else
+    size_t nthreads = 0;
+# if defined(_OPENMP)
+#   if (201107 <= _OPENMP)
 #   pragma omp atomic capture
-# else
+#   else
 #   pragma omp critical
-# endif
-    id = num_threads++;
-#else // generic
-    static int num_threads = 0;
+#   endif
+    nthreads = ++nthreads_active;
+# else // generic
     libxstream_lock *const lock = libxstream_internal::context.lock();
     libxstream_lock_acquire(lock);
-    id = num_threads++;
+    nthreads = ++nthreads_active;
     libxstream_lock_release(lock);
+# endif
+    id = static_cast<int>(nthreads - 1);
 #endif
   }
   return id;
