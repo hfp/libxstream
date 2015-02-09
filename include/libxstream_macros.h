@@ -33,9 +33,25 @@
 
 #include "libxstream_config.h"
 
-#if (201103L <= __cplusplus) || (1600 < _MSC_VER)
-# if !defined(LIBXSTREAM_STDFEATURES)
-#   define LIBXSTREAM_STDFEATURES
+#if !defined(LIBXSTREAM_PREFER_OPENMP)
+# if (201103L <= __cplusplus)
+#   if !defined(LIBXSTREAM_STDFEATURES)
+#     define LIBXSTREAM_STDFEATURES
+#   endif
+#   if !defined(LIBXSTREAM_STDFEATURES_THREADX) && !defined(__MIC__)
+#     define LIBXSTREAM_STDFEATURES_THREADX
+#   endif
+# elif (1600 < _MSC_VER)
+#   if !defined(LIBXSTREAM_STDFEATURES)
+#     define LIBXSTREAM_STDFEATURES
+#   endif
+#   if !defined(LIBXSTREAM_STDFEATURES_THREADX)
+#     define LIBXSTREAM_STDFEATURES_THREADX
+#   endif
+# elif defined(__GNUC__) && (1L == __cplusplus)
+#   if !defined(LIBXSTREAM_STDFEATURES)
+#     define LIBXSTREAM_STDFEATURES
+#   endif
 # endif
 #endif
 

@@ -104,6 +104,9 @@
 /** Enables non-recursive locks. */
 #define LIBXSTREAM_LOCK_NONRECURSIVE
 
+/** Prefers OpenMP based locking primitives. */
+//#define LIBXSTREAM_PREFER_OPENMP
+
 /** Not implemented yet. Must be disabled. */
 //#define LIBXSTREAM_THREADLOCAL_SIGNALS
 
