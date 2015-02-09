@@ -41,7 +41,7 @@
 //#define LIBXSTREAM_EVENT_WAIT_OCCURRED
 
 
-/*static*/void libxstream_event::enqueue(libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset)
+/*static*/void libxstream_event::enqueue(int thread, libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset)
 {
 #if defined(LIBXSTREAM_DEBUG)
   LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS) > ((reset && 0 < expected) ? (expected - 1) : expected));
@@ -55,7 +55,7 @@
   }
 
   slot_type& slot = slots[expected];
-  slot = slot_type(stream);
+  slot = slot_type(thread, stream);
   ++expected;
 }
 
@@ -90,9 +90,9 @@
 }
 
 
-libxstream_event::slot_type::slot_type(libxstream_stream& stream)
+libxstream_event::slot_type::slot_type(int thread, libxstream_stream& stream)
   : m_stream(&stream) // no need to lock the stream
-  , m_pending(stream.pending(this_thread_id()))
+  , m_pending(stream.pending(thread))
 {}
 
 
@@ -112,7 +112,7 @@ void libxstream_event::enqueue(libxstream_stream& stream, bool reset)
 {
   LIBXSTREAM_OFFLOAD_BEGIN(stream, m_slots, &m_expected, reset)
   {
-    libxstream_event::enqueue(*LIBXSTREAM_OFFLOAD_STREAM, ptr<slot_type,0>(), *ptr<size_t,1>(), val<bool,2>());
+    libxstream_event::enqueue(thread(), *LIBXSTREAM_OFFLOAD_STREAM, ptr<slot_type,0>(), *ptr<size_t,1>(), val<bool,2>());
   }
   LIBXSTREAM_OFFLOAD_END(false);
 }
