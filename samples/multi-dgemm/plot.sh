@@ -6,7 +6,7 @@ grep -A1 "Running " ${FILE} | tr "\n" " " | sed \
   -e "s/Running //g" \
   -e "s/ batche*s* of//g" \
   -e "s/items*... Performance: //g" \
-  -e "s/ GFLOPS\/s.*$//g" \
+  -e "s/ GFLOPS\/s//g" \
   -e "s/ -- /\n/g" \
 > plot.txt
 
