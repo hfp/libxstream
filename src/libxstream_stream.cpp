@@ -436,11 +436,16 @@ void libxstream_stream::lock(bool retry)
     while (!libxstream_stream_internal::atomic_compare_exchange(*stream_thread, unlocked, this_thread)) {
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
       if (retry) {
-        static const size_t sleep_ms = std::max((LIBXSTREAM_LOCK_WAIT_MS) / (LIBXSTREAM_LOCK_RETRY), 20);
+        static const size_t sleep_ms = (LIBXSTREAM_LOCK_WAIT_MS) / (LIBXSTREAM_LOCK_RETRY);
 
         if ((LIBXSTREAM_LOCK_RETRY) > nretry) {
           nretry += (thread_begin == m_begin && thread_end == m_end && m_begin == m_end) ? 1 : 0;
-          this_thread_sleep(sleep_ms);
+          if (0 < sleep_ms) {
+            this_thread_sleep(sleep_ms);
+          }
+          else {
+            this_thread_yield();
+          }
           thread_begin = m_begin;
           thread_end = m_end;
           unlocked = -1;
