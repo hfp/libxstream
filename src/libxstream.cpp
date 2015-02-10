@@ -639,7 +639,7 @@ extern "C" int libxstream_get_active_device(int* device)
     if (-1 > active_device) {
       size_t ndevices = 0;
       result = libxstream_get_ndevices(&ndevices);
-      active_device = ndevices - 1;
+      active_device = static_cast<int>(ndevices - 1);
       libxstream_internal::context.global_device(active_device);
       libxstream_internal::context.device() = active_device;
     }
@@ -700,11 +700,11 @@ extern "C" int libxstream_mem_info(int device, size_t* allocatable, size_t* phys
   LIBXSTREAM_CHECK_CONDITION(0 < memory_physical && 0 < memory_allocatable);
 
   if (allocatable) {
-    *allocatable = memory_allocatable;
+    *allocatable = static_cast<size_t>(memory_allocatable);
   }
 
   if (physical) {
-    *physical = memory_physical;
+    *physical = static_cast<size_t>(memory_physical);
   }
 
   return result;

@@ -186,7 +186,7 @@ size_t multi_dgemm_type::bytes() const
 }
 
 
-int multi_dgemm_type::init(const char* name, host_data_type& host_data, int device, int max_batch, int demux)
+int multi_dgemm_type::init(const char* name, host_data_type& host_data, int device, int demux, size_t max_batch)
 {
   LIBXSTREAM_ASSERT(!ready());
   m_host_data = &host_data;
@@ -194,7 +194,7 @@ int multi_dgemm_type::init(const char* name, host_data_type& host_data, int devi
 
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, demux, 0, name));
 
-  const int max_msize = max_batch * host_data.max_matrix_size();
+  const size_t max_msize = max_batch * host_data.max_matrix_size();
   LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_adata), sizeof(double) * max_msize, 0));
   LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_bdata), sizeof(double) * max_msize, 0));
   LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_cdata), sizeof(double) * max_msize, 0));

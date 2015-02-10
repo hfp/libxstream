@@ -112,7 +112,7 @@ int main(int argc, char* argv[])
     for (size_t i = 0; i < multi_dgemm.size(); ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
-      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, i % ndevices, nbatch, demux));
+      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, static_cast<int>(i % ndevices), demux, static_cast<size_t>(nbatch)));
     }
     if (!multi_dgemm.empty()) {
       fprintf(stdout, " %.1f MB\n", nstreams * multi_dgemm[0].bytes() * 1E-6);
@@ -154,7 +154,7 @@ int main(int argc, char* argv[])
     size_t i0 = 0;
     for (int i = 0; i < nitems; ++i) {
       const size_t i1 = host_data.idata()[i+1];
-      const int nn = i1 - i0;
+      const int nn = static_cast<int>(i1 - i0);
       std::fill_n(&expected[0], nn, 0.0);
       process(1, nn, host_data.idata() + i, host_data.adata() + i0, host_data.bdata() + i0, &expected[0]);
       for (int n = 0; n < nn; ++n) max_error = std::max(max_error, std::abs(expected[n] - host_data.cdata()[i0+n]));

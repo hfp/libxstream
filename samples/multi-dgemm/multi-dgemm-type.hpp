@@ -68,7 +68,7 @@ public:
   int demux() const;
   size_t bytes() const;
 
-  int init(const char* name, host_data_type& host_data, int device, int max_batch, int demux);
+  int init(const char* name, host_data_type& host_data, int device, int demux, size_t max_batch);
   int operator()(process_fn_type process_fn, int index, int size);
 
 private:
@@ -76,8 +76,7 @@ private:
   host_data_type* m_host_data;
 
   double *m_adata, *m_bdata, *m_cdata;
-  size_t *m_idata;
-  int m_max_batch;
+  size_t *m_idata, m_max_batch;
 };
 
 #endif // MULTI_DGEMM_TYPE_HPP
