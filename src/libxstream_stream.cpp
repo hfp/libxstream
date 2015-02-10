@@ -432,26 +432,23 @@ void libxstream_stream::lock(bool retry)
     size_t nretry = 0;
 #endif
 
-    int unlocked = -1;
+    int lock_thread = *stream_thread, unlocked = -1;
     while (!libxstream_stream_internal::atomic_compare_exchange(*stream_thread, unlocked, this_thread)) {
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
       if (retry) {
         static const size_t sleep_ms = std::max((LIBXSTREAM_LOCK_WAIT_MS) / (LIBXSTREAM_LOCK_RETRY), 20);
 
         if ((LIBXSTREAM_LOCK_RETRY) > nretry) {
-          nretry += (thread_begin == m_begin && thread_end == m_end) ? 1 : 0;
+          nretry += (thread_begin == m_begin && thread_end == m_end && m_begin == m_end) ? 1 : 0;
           this_thread_sleep(sleep_ms);
           thread_begin = m_begin;
           thread_end = m_end;
           unlocked = -1;
         }
-        else if (m_begin == m_end) {
-          LIBXSTREAM_PRINT_WARNING("libxstream_stream_unlock: stream=0x%lx released by thread=%i",
-            static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
-            this_thread);
-        }
-        else if (libxstream_offload_busy()) {
-          wait(0);
+        else {
+          unlocked = lock_thread != *stream_thread ? -1 : lock_thread;
+          lock_thread = *stream_thread;
+          nretry = 0;
         }
       }
       else
@@ -464,6 +461,11 @@ void libxstream_stream::lock(bool retry)
 
     LIBXSTREAM_ASSERT(this_thread == *stream_thread);
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
+    if (-1 != unlocked) {
+      LIBXSTREAM_PRINT_WARNING("libxstream_stream_unlock: stream=0x%lx released by thread=%i",
+        static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
+        this_thread);
+    }
     m_begin = 0;
     m_end = 0;
 #endif
