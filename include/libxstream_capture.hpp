@@ -64,7 +64,7 @@ public:
   };
 
 public:
-  libxstream_offload_region(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait);
+  libxstream_offload_region(size_t argc, const arg_type argv[], libxstream_stream* stream, bool sync);
   virtual ~libxstream_offload_region();
 
 public:
@@ -92,7 +92,7 @@ private:
 #if defined(LIBXSTREAM_DEBUG)
   size_t m_argc;
 #endif
-  bool m_destruct, m_wait;
+  bool m_destruct, m_sync;
   mutable int m_thread;
 
 protected:

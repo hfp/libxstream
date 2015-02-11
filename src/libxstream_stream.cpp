@@ -312,11 +312,11 @@ libxstream_signal libxstream_stream::signal() const
 }
 
 
-int libxstream_stream::wait(libxstream_signal signal) const
+int libxstream_stream::wait(libxstream_signal signal)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_OFFLOAD_BEGIN(const_cast<libxstream_stream*>(this), &result, m_pending, signal)
+  LIBXSTREAM_OFFLOAD_BEGIN(this, &result, m_pending, signal)
   {
     *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset(); // result code
     libxstream_signal *const pending_signals = ptr<libxstream_signal,1>();
@@ -365,7 +365,7 @@ int libxstream_stream::wait(libxstream_signal signal) const
       }
     }
   }
-  LIBXSTREAM_OFFLOAD_END(true);
+  LIBXSTREAM_OFFLOAD_END(true, true);
 
   return result;
 }
