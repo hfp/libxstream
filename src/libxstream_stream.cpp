@@ -428,8 +428,10 @@ void libxstream_stream::lock(bool retry)
 
   if (this_thread != *stream_thread) {
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
-    size_t thread_begin = m_begin, thread_end = m_end;
-    size_t nretry = 0;
+    size_t thread_begin = m_begin, thread_end = m_end, nretry = 0;
+# if defined(LIBXSTREAM_PRINT)
+    size_t delay = 0;
+# endif
 #endif
 
     int lock_thread = *stream_thread, unlocked = -1;
@@ -438,8 +440,8 @@ void libxstream_stream::lock(bool retry)
       if (retry) {
         static const size_t sleep_ms = (LIBXSTREAM_LOCK_WAIT_MS) / (LIBXSTREAM_LOCK_RETRY);
 
-        if ((LIBXSTREAM_LOCK_RETRY) > nretry) {
-          nretry += (thread_begin == m_begin && thread_end == m_end && m_begin == m_end) ? 1 : 0;
+        if ((LIBXSTREAM_LOCK_RETRY) > nretry || m_begin != m_end) {
+          nretry += (thread_begin == m_begin && thread_end == m_end) ? 1 : 0;
           if (0 < sleep_ms) {
             this_thread_sleep(sleep_ms);
           }
@@ -453,6 +455,9 @@ void libxstream_stream::lock(bool retry)
         else {
           unlocked = lock_thread != *stream_thread ? -1 : lock_thread;
           lock_thread = *stream_thread;
+# if defined(LIBXSTREAM_PRINT)
+          delay += nretry * sleep_ms;
+# endif
           nretry = 0;
         }
       }
@@ -467,9 +472,13 @@ void libxstream_stream::lock(bool retry)
     LIBXSTREAM_ASSERT(this_thread == *stream_thread);
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
     if (-1 != unlocked) {
+# if defined(LIBXSTREAM_PRINT)
+      LIBXSTREAM_PRINT_WARNING("libxstream_stream_unlock: stream=0x%lx released by thread=%i with delay=%lu ms",
+        static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)), this_thread, static_cast<unsigned long>(delay));
+# else
       LIBXSTREAM_PRINT_WARNING("libxstream_stream_unlock: stream=0x%lx released by thread=%i",
-        static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)),
-        this_thread);
+        static_cast<unsigned long>(reinterpret_cast<uintptr_t>(this)), this_thread);
+# endif
     }
     m_begin = 0;
     m_end = 0;
