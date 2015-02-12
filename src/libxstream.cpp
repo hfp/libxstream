@@ -234,11 +234,12 @@ const void* get_user_data(const void* memory)
 
 int allocate_virtual(void** memory, size_t size, const void* data, size_t data_size = 0)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 == data_size || (0 != data && data_size <= size));
+  LIBXSTREAM_CHECK_CONDITION(0 == data_size || 0 != data);
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {
     if (0 < size) {
+      size = std::max(size, data_size); // sanitize
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
       result = allocate_real(memory, size);
       LIBXSTREAM_CHECK_ERROR(result);
