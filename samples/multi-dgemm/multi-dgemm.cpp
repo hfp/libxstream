@@ -42,6 +42,7 @@
 #endif
 
 //#define MULTI_DGEMM_USE_NESTED
+#define MULTI_DGEMM_USE_EVENTS
 #define MULTI_DGEMM_USE_CHECK
 
 #define DGEMM dgemm_
@@ -108,13 +109,14 @@ int main(int argc, char* argv[])
     fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
 
     fprintf(stdout, "Initializing %i stream%s per device...", nstreams, 1 < nstreams ? "s" : "");
-    std::vector<multi_dgemm_type> multi_dgemm(ndevices * nstreams);
+    const size_t nstreams_total = ndevices * nstreams;
+    std::vector<multi_dgemm_type> multi_dgemm(nstreams_total);
     for (size_t i = 0; i < multi_dgemm.size(); ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
       LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, static_cast<int>(i % ndevices), demux, static_cast<size_t>(nbatch)));
     }
-    if (!multi_dgemm.empty()) {
+    if (0 < nstreams_total) {
       fprintf(stdout, " %.1f MB\n", nstreams * multi_dgemm[0].bytes() * 1E-6);
     }
 
@@ -132,14 +134,28 @@ int main(int argc, char* argv[])
 #   pragma omp parallel for schedule(dynamic)
 #endif
     for (int i = 0; i < nitems; i += nbatch) {
-      const int stream = i % multi_dgemm.size();
-      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[stream](&process, i, std::min(nbatch, nitems - i)));
+      const size_t j = i % nstreams_total;
+      multi_dgemm_type& call = multi_dgemm[j];
+      LIBXSTREAM_CHECK_CALL_THROW(call(&process, i, std::min(nbatch, nitems - i)));
+
+#if defined(MULTI_DGEMM_USE_EVENTS)
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(call.event(), call.stream()));
+#endif
+
+      // synchronize every Nth iteration with N being the total number of streams
+      if (j == (nstreams_total - 1)) {
+        for (size_t k = 0; k < nstreams_total; ++k) {
+#if defined(MULTI_DGEMM_USE_EVENTS)
+          LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_synchronize(multi_dgemm[k].event()));
+#else
+          LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(multi_dgemm[k].stream()));
+#endif
+        }
+      }
     }
 
-    if (1 > demux) {
-      // sync all streams to complete any pending work
-      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
-    }
+    // sync all streams to complete any pending work
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
 
 #if defined(_OPENMP)
     const double duration = omp_get_wtime() - start;

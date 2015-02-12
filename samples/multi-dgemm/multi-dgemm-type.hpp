@@ -63,17 +63,23 @@ public:
   multi_dgemm_type();
   ~multi_dgemm_type();
 
-public:
-  bool ready() const;
-  int demux() const;
-  size_t bytes() const;
+private:
+  int deinit();
 
+public:
   int init(const char* name, host_data_type& host_data, int device, int demux, size_t max_batch);
   int operator()(process_fn_type process_fn, int index, int size);
 
+  libxstream_stream* stream() { return m_stream; }
+  libxstream_event* event();
+  size_t bytes() const;
+  bool ready() const;
+  int demux() const;
+
 private:
-  libxstream_stream* m_stream;
   host_data_type* m_host_data;
+  libxstream_stream* m_stream;
+  libxstream_event* m_event;
 
   double *m_adata, *m_bdata, *m_cdata;
   size_t *m_idata, m_max_batch;
