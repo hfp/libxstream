@@ -75,6 +75,8 @@
 # include <xmmintrin.h>
 #endif
 
+//#define LIBXSTREAM_SYNC_NO_MEMSYNC
+
 
 namespace libxstream_internal {
 
@@ -740,6 +742,10 @@ extern "C" int libxstream_mem_allocate(int device, void** memory, size_t size, s
   }
   LIBXSTREAM_OFFLOAD_END(true);
 
+#if !defined(LIBXSTREAM_SYNC_NO_MEMSYNC)
+  libxstream_stream::sync(device);
+#endif
+
   LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%lx size=%lu", device,
     memory ? static_cast<unsigned long>(*reinterpret_cast<const uintptr_t*>(memory)) : 0UL,
     static_cast<unsigned long>(size));
@@ -753,6 +759,10 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {
+#if !defined(LIBXSTREAM_SYNC_NO_MEMSYNC)
+    libxstream_stream::sync(device);
+#endif
+
     LIBXSTREAM_OFFLOAD_BEGIN(0, device, memory, &result)
     {
       const char *const memory = ptr<const char,1>();
