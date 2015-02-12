@@ -228,7 +228,7 @@
   const libxstream_offload_region::arg_type libxstream_offload_region_argv[] = { ARG, __VA_ARGS__ }; \
   const struct offload_region_type: public libxstream_offload_region { \
     offload_region_type(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync = false) \
-      : libxstream_offload_region(argc, argv, stream, sync) \
+      : libxstream_offload_region(argc, argv, stream, wait, sync) \
     { \
       libxstream_offload(*this, wait); \
     } \

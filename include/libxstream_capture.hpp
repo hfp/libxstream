@@ -64,7 +64,7 @@ public:
   };
 
 public:
-  libxstream_offload_region(size_t argc, const arg_type argv[], libxstream_stream* stream, bool sync);
+  libxstream_offload_region(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync);
   virtual ~libxstream_offload_region();
 
 public:

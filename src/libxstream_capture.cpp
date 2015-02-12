@@ -265,7 +265,7 @@ private:
 } // namespace libxstream_offload_internal
 
 
-libxstream_offload_region::libxstream_offload_region(size_t argc, const arg_type argv[], libxstream_stream* stream, bool sync)
+libxstream_offload_region::libxstream_offload_region(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync)
 #if defined(LIBXSTREAM_DEBUG)
   : m_argc(argc)
   , m_destruct(true)
@@ -286,7 +286,7 @@ libxstream_offload_region::libxstream_offload_region(size_t argc, const arg_type
   }
 
   if (stream) {
-    if (/*!sync &&*/ 0 != stream->demux()) {
+    if (!wait && 0 != stream->demux()) {
       stream->lock(0 > stream->demux());
     }
     stream->begin();

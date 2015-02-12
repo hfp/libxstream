@@ -114,7 +114,7 @@ void libxstream_event::enqueue(libxstream_stream& stream, bool reset)
   {
     libxstream_event::enqueue(thread(), *LIBXSTREAM_OFFLOAD_STREAM, ptr<slot_type,0>(), *ptr<size_t,1>(), val<bool,2>());
   }
-  LIBXSTREAM_OFFLOAD_END(false);
+  LIBXSTREAM_OFFLOAD_END(false, true);
 }
 
 
@@ -198,7 +198,7 @@ int libxstream_event::wait(libxstream_stream* stream)
     LIBXSTREAM_ASSERT(completed <= expected);
     expected -= completed;
   }
-  LIBXSTREAM_OFFLOAD_END(true);
+  LIBXSTREAM_OFFLOAD_END(true, true);
 
   return result;
 }
