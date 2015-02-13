@@ -24,7 +24,7 @@ typedef struct libxstream_event libxstream_event;
 int libxstream_get_ndevices(size_t* ndevices);
 /** Query the device set active for this thread. */
 int libxstream_get_active_device(int* device);
-/** Sets the active device for this thread. */
+/** Set the active device for this thread. */
 int libxstream_set_active_device(int device);
 ```
 
@@ -33,49 +33,49 @@ int libxstream_set_active_device(int device);
 ```C
 /** Query the memory metrics of the given device (valid to pass one NULL pointer). */
 int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
-/** Allocates memory with alignment (0: automatic) on the given device. */
+/** Allocate aligned memory (0: automatic) on the given device. */
 int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
-/** Deallocates the memory; shall match the device where the memory was allocated. */
+/** Deallocate memory; shall match the device where the memory was allocated. */
 int libxstream_mem_deallocate(int device, const void* memory);
-/** Fills the memory with zeros; allocated memory can carry an offset. */
+/** Fill memory with zeros; allocated memory can carry an offset. */
 int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream);
-/** Copies memory from the host to the device; addresses can carry an offset. */
+/** Copy memory from the host to the device; addresses can carry an offset. */
 int libxstream_memcpy_h2d(const void* mem, void* dev_mem, size_t, libxstream_stream*);
-/** Copies memory from the device to the host; addresses can carry an offset. */
+/** Copy memory from the device to the host; addresses can carry an offset. */
 int libxstream_memcpy_d2h(const void* dev_mem, void* mem, size_t, libxstream_stream*);
-/** Copies memory from device to device; cross-device copies are allowed as well. */
+/** Copy memory from device to device; cross-device copies are allowed as well. */
 int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream*);
 ```
 
 **Stream Interface**: is used to expose the available parallelism. A stream preserves the predecessor/successor relationship while participating in a pipeline (parallel pattern) in case of multiple streams. Synchronization points can be introduced using the stream interface as well as the event interface.
 
 ```C
-/** Query the range of valid priorities (inclusive). */
+/** Query the range of valid priorities (inclusive bounds). */
 int libxstream_stream_priority_range(int* least, int* greatest);
-/** Create a stream on a given device with an optional automatic synchronization (demux). */
+/** Create a stream on a given device (demux<0: auto-locks, 0: manual locks, demux>0: sync.). */
 int libxstream_stream_create(libxstream_stream**, int dev, int demux, int prio, const char*);
 /** Destroy a stream; pending work must be completed if results are needed. */
 int libxstream_stream_destroy(libxstream_stream* stream);
 /** Wait for a stream to complete pending work; NULL to synchronize all streams. */
 int libxstream_stream_sync(libxstream_stream* stream);
-/** Wait for an event recorded earlier. Passing NULL increases the match. */
+/** Wait for an event recorded earlier; NULL increases the match accordingly. */
 int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
-/** Locks a stream such that the caller thread can safely enqueue work. */
+/** Lock a stream such that the caller thread can safely enqueue work. */
 int libxstream_stream_lock(libxstream_stream* stream);
-/** Unlocks a stream such that another thread can aquire the stream. */
+/** Unlock a stream such that another thread can acquire the stream. */
 int libxstream_stream_unlock(libxstream_stream* stream);
 ```
 
 **Event Interface**: provides a more sophisticated mechanism allowing to wait for a specific work item to complete without the need to also wait for the completion of work queued after the item in question.
 
 ```C
-/** Create an event; can be re-used multiple times by re-recording the event. */
+/** Create an event; can be used multiple times to record an event. */
 int libxstream_event_create(libxstream_event** event);
 /** Destroy an event; does not implicitly waits for the completion of the event. */
 int libxstream_event_destroy(libxstream_event* event);
 /** Record an event; an event can be re-recorded multiple times. */
 int libxstream_event_record(libxstream_event* event, libxstream_stream* stream);
-/** Check whether an event has occured or not (non-blocking). */
+/** Check whether an event has occurred or not (non-blocking). */
 int libxstream_event_query(const libxstream_event* event, int* has_occured);
 /** Wait for an event to complete i.e., work queued prior to recording the event. */
 int libxstream_event_synchronize(libxstream_event* event);
