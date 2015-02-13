@@ -78,10 +78,9 @@ public:
     return *reinterpret_cast<const T*>(m_argv + i);
   }
 
-  int thread() const { return m_thread; }
-  libxstream_stream* stream() { return m_stream; }
   libxstream_offload_region* clone() const;
   void operator()() const;
+  int thread() const;
 
 private:
   virtual libxstream_offload_region* virtual_clone() const = 0;
@@ -93,7 +92,9 @@ private:
   size_t m_argc;
 #endif
   bool m_destruct, m_sync;
-  mutable int m_thread;
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+  int m_thread;
+#endif
 
 protected:
   libxstream_stream* m_stream;

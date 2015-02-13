@@ -276,7 +276,6 @@ libxstream_offload_region::libxstream_offload_region(size_t argc, const arg_type
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   , m_thread(this_thread_id())
 #else
-  , m_thread(-1)
 #endif
   , m_stream(stream)
 {
@@ -315,10 +314,17 @@ libxstream_offload_region* libxstream_offload_region::clone() const
 
 void libxstream_offload_region::operator()() const
 {
-#if !defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
-  m_thread = this_thread_id();
-#endif
   virtual_run();
+}
+
+
+int libxstream_offload_region::thread() const
+{
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+  return m_thread;
+#else
+  return 0;
+#endif
 }
 
 

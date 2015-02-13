@@ -250,6 +250,9 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
 #else
   : m_thread(new int(-1))
 #endif
+#if !defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+  , m_signal(0), m_pending(&m_signal)
+#endif
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
   , m_begin(0), m_end(0)
 #endif
@@ -260,8 +263,9 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
   , m_npartitions(0)
 #endif
 {
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   std::fill_n(m_pending, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_signal>(0));
-
+#endif
 #if defined(LIBXSTREAM_PRINT)
   if (name && 0 != *name) {
     const size_t length = std::min(std::char_traits<char>::length(name), sizeof(m_name) - 1);
@@ -373,15 +377,25 @@ int libxstream_stream::wait(libxstream_signal signal)
 
 void libxstream_stream::pending(int thread, libxstream_signal signal)
 {
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
   m_pending[thread] = signal;
+#else
+  LIBXSTREAM_ASSERT(0 == thread);
+  m_signal = signal;
+#endif
 }
 
 
 libxstream_signal libxstream_stream::pending(int thread) const
 {
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
   const libxstream_signal signal = m_pending[thread];
+#else
+  LIBXSTREAM_ASSERT(0 == thread);
+  const libxstream_signal signal = m_signal;
+#endif
   return signal;
 }
 

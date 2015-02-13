@@ -95,11 +95,16 @@ private:
   libxstream_stream& operator=(const libxstream_stream& other);
 
 private:
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
+#endif
 #if defined(LIBXSTREAM_PRINT)
   char m_name[128];
 #endif
   void* m_thread;
+#if !defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+  libxstream_signal m_signal, *m_pending;
+#endif
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
   size_t m_begin, m_end;
 #endif
