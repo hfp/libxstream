@@ -1,6 +1,6 @@
 LIBXSTREAM
 ==========
-Library to work with streams, events, and code regions that are able to run asynchronous while preserving the usual stream conditions. The library is targeting Intel Architecture (x86) and helps to offload work to an Intel Xeon Phi coprocessor (an instance of the Intel Many Integrated Core "MIC" Architecture). For example, using two streams may be an alternative to the usual double-buffering approach which can be used to hide buffer transfer time behind compute. [[PDF]](https://github.com/hfp/libxstream/raw/master/documentation/libxstream.pdf) [[SRC]](archive/master.zip)
+Library to work with streams, events, and code regions that are able to run asynchronous while preserving the usual stream conditions. The library is targeting Intel Architecture (x86) and helps to offload work to an Intel Xeon Phi coprocessor (an instance of the Intel Many Integrated Core "MIC" Architecture). For example, using two streams may be an alternative to the usual double-buffering approach which can be used to hide buffer transfer time behind compute. [[pdf]](https://github.com/hfp/libxstream/raw/master/documentation/libxstream.pdf) [[src]](https://github.com/hfp/libxstream/archive/master.zip)
 
 Interface
 =========
