@@ -104,8 +104,11 @@
 /** Enables non-recursive locks. */
 #define LIBXSTREAM_LOCK_NONRECURSIVE
 
-/** Not implemented yet. Must be disabled. */
-//#define LIBXSTREAM_THREADLOCAL_SIGNALS
+/**
+ * Thread-local signals allow for some more concurrency
+ * when forming the signal/wait dependency chain.
+ */
+#define LIBXSTREAM_THREADLOCAL_SIGNALS
 
 /** Prefers OpenMP based locking primitives. */
 //#define LIBXSTREAM_PREFER_OPENMP
