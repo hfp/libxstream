@@ -1097,14 +1097,14 @@ LIBXSTREAM_EXPORT_C  int libxstream_event_record(libxstream_event* event, libxst
 }
 
 
-LIBXSTREAM_EXPORT_C  int libxstream_event_query(const libxstream_event* event, int* has_occured)
+LIBXSTREAM_EXPORT_C  int libxstream_event_query(const libxstream_event* event, libxstream_bool* has_occured)
 {
   LIBXSTREAM_PRINT_INFOCTX("event=0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
   LIBXSTREAM_CHECK_CONDITION(event && has_occured);
 
   bool occurred = true;
   const int result = event->query(occurred, 0);
-  *has_occured = occurred ? 1 : 0;
+  *has_occured = occurred ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 
   return result;
 }

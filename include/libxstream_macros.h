@@ -58,9 +58,11 @@
 #if defined(_WIN32) && !defined(__GNUC__)
 # define LIBXSTREAM_ATTRIBUTE(A) __declspec(A)
 # define LIBXSTREAM_ALIGNED(DECL, N) LIBXSTREAM_ATTRIBUTE(align(N)) DECL
+# define LIBXSTREAM_CDECL __cdecl
 #elif defined(__GNUC__)
 # define LIBXSTREAM_ATTRIBUTE(A) __attribute__((A))
 # define LIBXSTREAM_ALIGNED(DECL, N) DECL LIBXSTREAM_ATTRIBUTE(aligned(N))
+# define LIBXSTREAM_CDECL LIBHTA_ATTRIBUTE(cdecl)
 #endif
 
 #if defined(_WIN32) && !defined(__GNUC__)
@@ -116,9 +118,11 @@
 #if defined(__cplusplus)
 # define LIBXSTREAM_IMPORT_C extern "C"
 # define LIBXSTREAM_EXPORT_C extern "C" LIBXSTREAM_EXPORT
+# define LIBXSTREAM_VARIADIC ...
 #else
 # define LIBXSTREAM_IMPORT_C
 # define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXPORT
+# define LIBXSTREAM_VARIADIC
 #endif // __cplusplus
 
 #if defined(__GNUC__) && !defined(_WIN32) && !defined(__CYGWIN32__)
@@ -144,6 +148,13 @@
 # define LIBXSTREAM_ASSERT(A)
 #endif
 
+#define LIBXSTREAM_TRUE  1
+#define LIBXSTREAM_FALSE 0
+
+#define LIBXSTREAM_ERROR_NONE       0
+#define LIBXSTREAM_ERROR_RUNTIME   -1
+#define LIBXSTREAM_ERROR_CONDITION -2
+
 #if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
 # define LIBXSTREAM_PRINT
 # define LIBXSTREAM_PRINT_INFO(MESSAGE, ...) fprintf(stderr, "DBG " MESSAGE "\n", __VA_ARGS__)
@@ -160,10 +171,6 @@
 # define LIBXSTREAM_PRINT_WARNING(MESSAGE, ...)
 # define LIBXSTREAM_PRINT_WARNING0(MESSAGE)
 #endif
-
-#define LIBXSTREAM_ERROR_NONE       0
-#define LIBXSTREAM_ERROR_RUNTIME   -1
-#define LIBXSTREAM_ERROR_CONDITION -2
 
 #if defined(_MSC_VER)
 # define LIBXSTREAM_SNPRINTF(S, N, F, ...) _snprintf_s(S, N, _TRUNCATE, F, __VA_ARGS__)

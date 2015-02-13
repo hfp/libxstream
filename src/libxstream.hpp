@@ -33,6 +33,9 @@
 
 #include <libxstream.h>
 
+/** Data type representing a signal. */
+typedef uintptr_t libxstream_signal;
+
 typedef void libxstream_lock;
 libxstream_lock* libxstream_lock_create();
 void libxstream_lock_destroy(libxstream_lock* lock);
