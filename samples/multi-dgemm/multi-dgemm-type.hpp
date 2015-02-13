@@ -31,12 +31,12 @@
 #ifndef MULTI_DGEMM_TYPE_HPP
 #define MULTI_DGEMM_TYPE_HPP
 
-#include <libxstream.hpp>
+#include <libxstream.h>
 
 
 class multi_dgemm_type {
 public:
-  typedef LIBXSTREAM_EXPORT void (*process_fn_type)(int, int,
+  typedef LIBXSTREAM_TARGET(mic) void (*process_fn_type)(int, int,
     const size_t*, const double*, const double*, double*);
 
   class host_data_type {

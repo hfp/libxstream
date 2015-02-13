@@ -29,9 +29,12 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "multi-dgemm-type.hpp"
+#include <libxstream.hpp> // legacy
+#include <libxstream_begin.h>
 #include <stdexcept>
 #include <algorithm>
 #include <cstdlib>
+#include <libxstream_end.h>
 
 
 multi_dgemm_type::host_data_type::host_data_type(int size, const int split[])
@@ -219,11 +222,11 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->cdata() + i0, m_cdata, sizeof(double) * (i1 - i0), m_stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->idata() + index, m_idata, sizeof(size_t) * size, m_stream));
 
-    LIBXSTREAM_OFFLOAD_BEGIN(m_stream, process_fn,
+    LIBXSTREAM_ASYNC_BEGIN(m_stream, process_fn,
       size, i1 - m_host_data->idata()[index+size-1],
       m_adata, m_bdata, m_cdata, m_idata)
     {
-      LIBXSTREAM_EXPORT process_fn_type process_fn = val<process_fn_type,0>();
+      LIBXSTREAM_TARGET(mic) process_fn_type process_fn = val<process_fn_type,0>();
       const int size = val<const int,1>();
       const int nn = val<const int,2>();
       const double *const a = ptr<const double,3>();
@@ -232,9 +235,9 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
       const size_t *const i = ptr<const size_t,6>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-      if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
-        if (LIBXSTREAM_OFFLOAD_READY) {
-#         pragma offload LIBXSTREAM_OFFLOAD_TARGET_SIGNAL in(size, nn) \
+      if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+        if (LIBXSTREAM_ASYNC_READY) {
+#         pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(size, nn) \
             in(i: length(0) alloc_if(false) free_if(false)) \
             in(a: length(0) alloc_if(false) free_if(false)) \
             in(b: length(0) alloc_if(false) free_if(false)) \
@@ -244,7 +247,7 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
           }
         }
         else {
-#         pragma offload LIBXSTREAM_OFFLOAD_TARGET_WAIT in(size, nn) \
+#         pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(size, nn) \
             in(i: length(0) alloc_if(false) free_if(false)) \
             in(a: length(0) alloc_if(false) free_if(false)) \
             in(b: length(0) alloc_if(false) free_if(false)) \
@@ -260,7 +263,7 @@ int multi_dgemm_type::operator()(process_fn_type process_fn, int index, int size
         process_fn(size, nn, i, a, b, c);
       }
     }
-    LIBXSTREAM_OFFLOAD_END(false);
+    LIBXSTREAM_ASYNC_END(false);
 
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), m_stream));
 

@@ -28,7 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#include <libxstream.hpp>
+#include "libxstream.hpp"
 #include <algorithm>
 #include <string>
 
@@ -293,7 +293,7 @@ libxstream_stream::~libxstream_stream()
 
   const size_t nstreams = registry.nstreams();
   if (0 == nstreams) {
-    libxstream_offload_shutdown();
+    libxstream_capture_shutdown();
   }
 
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -320,9 +320,9 @@ int libxstream_stream::wait(libxstream_signal signal)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_OFFLOAD_BEGIN(this, &result, m_pending, signal)
+  LIBXSTREAM_ASYNC_BEGIN(this, &result, m_pending, signal)
   {
-    *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset(); // result code
+    *ptr<int,0>() = LIBXSTREAM_ASYNC_STREAM->reset(); // result code
     libxstream_signal *const pending_signals = ptr<libxstream_signal,1>();
     const libxstream_signal signal = val<const libxstream_signal,2>();
 
@@ -341,8 +341,8 @@ int libxstream_stream::wait(libxstream_signal signal)
         const libxstream_signal pending = pending_signal;
 #endif
 #if defined(LIBXSTREAM_OFFLOAD)
-        if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
-#         pragma offload_wait LIBXSTREAM_OFFLOAD_TARGET wait(pending)
+        if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+#         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(pending)
         }
 #endif
         if (0 == signal) {
@@ -369,7 +369,7 @@ int libxstream_stream::wait(libxstream_signal signal)
       }
     }
   }
-  LIBXSTREAM_OFFLOAD_END(true, true);
+  LIBXSTREAM_ASYNC_END(true, true);
 
   return result;
 }
@@ -556,37 +556,37 @@ const char* libxstream_stream::name() const
 #endif
 
 
-const libxstream_stream* cast_to_stream(const void* stream)
+LIBXSTREAM_EXPORT_INTERNAL const libxstream_stream* cast_to_stream(const void* stream)
 {
   return static_cast<const libxstream_stream*>(stream);
 }
 
 
-libxstream_stream* cast_to_stream(void* stream)
+LIBXSTREAM_EXPORT_INTERNAL libxstream_stream* cast_to_stream(void* stream)
 {
   return static_cast<libxstream_stream*>(stream);
 }
 
 
-const libxstream_stream* cast_to_stream(const libxstream_stream* stream)
+LIBXSTREAM_EXPORT_INTERNAL const libxstream_stream* cast_to_stream(const libxstream_stream* stream)
 {
   return stream;
 }
 
 
-libxstream_stream* cast_to_stream(libxstream_stream* stream)
+LIBXSTREAM_EXPORT_INTERNAL libxstream_stream* cast_to_stream(libxstream_stream* stream)
 {
   return stream;
 }
 
 
-const libxstream_stream* cast_to_stream(const libxstream_stream& stream)
+LIBXSTREAM_EXPORT_INTERNAL const libxstream_stream* cast_to_stream(const libxstream_stream& stream)
 {
   return &stream;
 }
 
 
-libxstream_stream* cast_to_stream(libxstream_stream& stream)
+LIBXSTREAM_EXPORT_INTERNAL libxstream_stream* cast_to_stream(libxstream_stream& stream)
 {
   return &stream;
 }

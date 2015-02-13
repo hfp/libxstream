@@ -29,21 +29,24 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "test.hpp"
+#include <libxstream.hpp> // legacy
+#include <libxstream_begin.h>
 #include <stdexcept>
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <cassert>
+#include <cstdio>
 #include <atomic>
-
 #if defined(_OPENMP)
 # include <omp.h>
 #endif
+#include <libxstream_end.h>
 
 
 namespace test_internal {
 
-LIBXSTREAM_EXPORT void check(bool& result, const void* buffer, size_t size, char pattern)
+LIBXSTREAM_TARGET(mic) void check(bool& result, const void* buffer, size_t size, char pattern)
 {
   result = true;
   const char *const values = reinterpret_cast<const char*>(buffer);
@@ -59,8 +62,6 @@ test_type::test_type(int device)
   : m_device(device), m_stream(0), m_event(0)
   , m_host_mem(0), m_dev_mem(0)
 {
-  fprintf(stdout, "TST entered by thread=%i\n", this_thread_id());
-
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_get_active_device(&m_device));
 
   size_t mem_free = 0, mem_avail = 0;
@@ -78,7 +79,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_h2d(m_host_mem, m_dev_mem, size, m_stream));
 
   bool ok = false;
-  LIBXSTREAM_OFFLOAD_BEGIN(m_stream, &ok, m_dev_mem, size, pattern_a)
+  LIBXSTREAM_ASYNC_BEGIN(m_stream, &ok, m_dev_mem, size, pattern_a)
   {
 #if defined(LIBXSTREAM_DEBUG)
     fprintf(stdout, "TST device-side validation started\n");
@@ -89,9 +90,9 @@ test_type::test_type(int device)
     bool& ok = *ptr<bool,0>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
-      if (LIBXSTREAM_OFFLOAD_READY) {
-#       pragma offload LIBXSTREAM_OFFLOAD_TARGET_SIGNAL \
+    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+      if (LIBXSTREAM_ASYNC_READY) {
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL \
           in(size, pattern) in(dev_mem: length(0) alloc_if(false) free_if(false)) //out(ok)
         {
           test_internal::check(ok, dev_mem, size, pattern);
@@ -101,7 +102,7 @@ test_type::test_type(int device)
         }
       }
       else {
-#       pragma offload LIBXSTREAM_OFFLOAD_TARGET_WAIT \
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT \
           in(size, pattern) in(dev_mem: length(0) alloc_if(false) free_if(false)) //out(ok)
         {
           test_internal::check(ok, dev_mem, size, pattern);
@@ -120,7 +121,7 @@ test_type::test_type(int device)
 #endif
     }
   }
-  LIBXSTREAM_OFFLOAD_END(false);
+  LIBXSTREAM_ASYNC_END(false);
 
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_create(&m_event));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_record(m_event, m_stream));

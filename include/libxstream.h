@@ -34,27 +34,10 @@
 #include "libxstream_macros.h"
 #include <stdint.h>
 
-#if defined(LIBXSTREAM_DEBUG)
-# include <assert.h>
-#endif
-#if defined(LIBXSTREAM_DEBUG) || defined(LIBXSTREAM_CHECK)
-# if defined(LIBXSTREAM_OFFLOAD)
-#   pragma offload_attribute(push,target(mic))
-# endif
-# include <stdio.h>
-# if defined(LIBXSTREAM_OFFLOAD)
-#   pragma offload_attribute(pop)
-# endif
-#endif
-
-#if defined(_OPENMP)
-# include <omp.h>
-#endif
-
 #ifdef __cplusplus
 # include <stddef.h>
-extern "C" {
 #endif
+
 
 /** Data type representing a signal. */
 typedef uintptr_t libxstream_signal;
@@ -64,55 +47,51 @@ typedef struct libxstream_stream libxstream_stream;
 typedef struct libxstream_event libxstream_event;
 
 /** Query the number of available devices. */
-int libxstream_get_ndevices(size_t* ndevices);
+LIBXSTREAM_EXPORT_C  int libxstream_get_ndevices(size_t* ndevices);
 /** Query the device set active for this thread. */
-int libxstream_get_active_device(int* device);
+LIBXSTREAM_EXPORT_C  int libxstream_get_active_device(int* device);
 /** Set the active device for this thread. */
-int libxstream_set_active_device(int device);
+LIBXSTREAM_EXPORT_C  int libxstream_set_active_device(int device);
 
 /** Query the memory metrics of the given device (valid to pass one NULL pointer). */
-int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
+LIBXSTREAM_EXPORT_C  int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
 /** Allocate aligned memory (0: automatic) on the given device. */
-int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
+LIBXSTREAM_EXPORT_C  int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
 /** Deallocate memory; shall match the device where the memory was allocated. */
-int libxstream_mem_deallocate(int device, const void* memory);
+LIBXSTREAM_EXPORT_C  int libxstream_mem_deallocate(int device, const void* memory);
 /** Fill memory with zeros; allocated memory can carry an offset. */
-int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream);
+LIBXSTREAM_EXPORT_C  int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream);
 /** Copy memory from the host to the device; addresses can carry an offset. */
-int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream);
+LIBXSTREAM_EXPORT_C  int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream);
 /** Copy memory from the device to the host; addresses can carry an offset. */
-int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream);
+LIBXSTREAM_EXPORT_C  int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream);
 /** Copy memory from device to device; cross-device copies are allowed as well. */
-int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream);
+LIBXSTREAM_EXPORT_C  int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream);
 
 /** Query the range of valid priorities (inclusive bounds). */
-int libxstream_stream_priority_range(int* least, int* greatest);
+LIBXSTREAM_EXPORT_C  int libxstream_stream_priority_range(int* least, int* greatest);
 /** Create a stream on a device (demux<0: auto-locks, 0: manual, demux>0: sync.). */
-int libxstream_stream_create(libxstream_stream** stream, int device, int demux, int priority, const char* name);
+LIBXSTREAM_EXPORT_C  int libxstream_stream_create(libxstream_stream** stream, int device, int demux, int priority, const char* name);
 /** Destroy a stream; pending work must be completed if results are needed. */
-int libxstream_stream_destroy(libxstream_stream* stream);
+LIBXSTREAM_EXPORT_C  int libxstream_stream_destroy(libxstream_stream* stream);
 /** Wait for a stream to complete pending work; NULL to synchronize all streams. */
-int libxstream_stream_sync(libxstream_stream* stream);
+LIBXSTREAM_EXPORT_C  int libxstream_stream_sync(libxstream_stream* stream);
 /** Wait for an event recorded earlier; NULL increases the match accordingly. */
-int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
+LIBXSTREAM_EXPORT_C  int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
 /** Lock a stream such that the caller thread can safely enqueue work. */
-int libxstream_stream_lock(libxstream_stream* stream);
+LIBXSTREAM_EXPORT_C  int libxstream_stream_lock(libxstream_stream* stream);
 /** Unlock a stream such that another thread can acquire the stream. */
-int libxstream_stream_unlock(libxstream_stream* stream);
+LIBXSTREAM_EXPORT_C  int libxstream_stream_unlock(libxstream_stream* stream);
 
 /** Create an event; can be used multiple times to record an event. */
-int libxstream_event_create(libxstream_event** event);
+LIBXSTREAM_EXPORT_C  int libxstream_event_create(libxstream_event** event);
 /** Destroy an event; does not implicitly waits for the completion of the event. */
-int libxstream_event_destroy(libxstream_event* event);
+LIBXSTREAM_EXPORT_C  int libxstream_event_destroy(libxstream_event* event);
 /** Record an event; an event can be re-recorded multiple times. */
-int libxstream_event_record(libxstream_event* event, libxstream_stream* stream);
+LIBXSTREAM_EXPORT_C  int libxstream_event_record(libxstream_event* event, libxstream_stream* stream);
 /** Check whether an event has occurred or not (non-blocking). */
-int libxstream_event_query(const libxstream_event* event, int* has_occured);
+LIBXSTREAM_EXPORT_C  int libxstream_event_query(const libxstream_event* event, int* has_occured);
 /** Wait for an event to complete i.e., work queued prior to recording the event. */
-int libxstream_event_synchronize(libxstream_event* event);
-
-#ifdef __cplusplus
-}
-#endif
+LIBXSTREAM_EXPORT_C  int libxstream_event_synchronize(libxstream_event* event);
 
 #endif // LIBXSTREAM_H

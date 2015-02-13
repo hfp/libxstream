@@ -29,17 +29,18 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "multi-dgemm-type.hpp"
-#include <libxstream.hpp>
+#include <libxstream_begin.h>
 #include <stdexcept>
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 #include <vector>
 #include <cmath>
-
 #if defined(_OPENMP)
 # include <omp.h>
 #endif
+#include <libxstream_end.h>
 
 //#define MULTI_DGEMM_USE_NESTED
 #define MULTI_DGEMM_USE_EVENTS
@@ -48,13 +49,13 @@
 #define DGEMM dgemm_
 
 
-LIBXSTREAM_EXTERN_C LIBXSTREAM_EXPORT void DGEMM(
+LIBXSTREAM_IMPORT_C LIBXSTREAM_TARGET(mic) void DGEMM(
   const char*, const char*, const int*, const int*, const int*,
   const double*, const double*, const int*, const double*, const int*,
   const double*, double*, const int*);
 
 
-LIBXSTREAM_EXPORT void process(int size, int nn, const size_t* idata,
+LIBXSTREAM_TARGET(mic) void process(int size, int nn, const size_t* idata,
   const double* adata, const double* bdata, double* cdata)
 {
   if (0 < size) {

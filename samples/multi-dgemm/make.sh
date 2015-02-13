@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ROOT="../.."
+LIBXSTREAM_ROOT="../.."
 
 CXX=$(which icpc 2> /dev/null)
 
@@ -27,6 +27,6 @@ else
 fi
 
 $CXX -std=c++0x $OPT $* -lpthread \
-  -D__ACC -D__ACC_MIC -I$ROOT/include \
-  $ROOT/src/*.cpp multi-dgemm-type.cpp multi-dgemm.cpp \
+  -I$LIBXSTREAM_ROOT/include -I$LIBXSTREAM_ROOT/src \
+  $LIBXSTREAM_ROOT/src/*.cpp multi-dgemm-type.cpp multi-dgemm.cpp \
   $LNK -o multi-dgemm

@@ -28,7 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#include <libxstream.hpp>
+#include "libxstream.hpp"
 #include <algorithm>
 #include <limits>
 
@@ -347,7 +347,7 @@ private:
 } context;
 
 
-LIBXSTREAM_EXPORT void mem_info(uint64_t& memory_physical, uint64_t& memory_not_allocated)
+LIBXSTREAM_TARGET(mic) void mem_info(uint64_t& memory_physical, uint64_t& memory_not_allocated)
 {
 #if defined(_WIN32)
   MEMORYSTATUSEX status;
@@ -609,7 +609,7 @@ void this_thread_sleep(size_t ms)
 }
 
 
-extern "C" int libxstream_get_ndevices(size_t* ndevices)
+LIBXSTREAM_EXPORT_C  int libxstream_get_ndevices(size_t* ndevices)
 {
   LIBXSTREAM_CHECK_CONDITION(ndevices);
 
@@ -631,7 +631,7 @@ extern "C" int libxstream_get_ndevices(size_t* ndevices)
 }
 
 
-extern "C" int libxstream_get_active_device(int* device)
+LIBXSTREAM_EXPORT_C  int libxstream_get_active_device(int* device)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != device);
   int result = LIBXSTREAM_ERROR_NONE, active_device = libxstream_internal::context.device();
@@ -655,7 +655,7 @@ extern "C" int libxstream_get_active_device(int* device)
 }
 
 
-extern "C" int libxstream_set_active_device(int device)
+LIBXSTREAM_EXPORT_C  int libxstream_set_active_device(int device)
 {
   size_t ndevices = LIBXSTREAM_MAX_NDEVICES;
   LIBXSTREAM_CHECK_CONDITION(-1 <= device && ndevices >= static_cast<size_t>(device + 1) && LIBXSTREAM_ERROR_NONE == libxstream_get_ndevices(&ndevices) && ndevices >= static_cast<size_t>(device + 1));
@@ -671,20 +671,20 @@ extern "C" int libxstream_set_active_device(int device)
 }
 
 
-extern "C" int libxstream_mem_info(int device, size_t* allocatable, size_t* physical)
+LIBXSTREAM_EXPORT_C  int libxstream_mem_info(int device, size_t* allocatable, size_t* physical)
 {
   LIBXSTREAM_CHECK_CONDITION(allocatable || physical);
   uint64_t memory_physical = 0, memory_allocatable = 0;
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_OFFLOAD_BEGIN(0, device, &memory_physical, &memory_allocatable)
+  LIBXSTREAM_ASYNC_BEGIN(0, device, &memory_physical, &memory_allocatable)
   {
     uint64_t& memory_physical = *ptr<uint64_t,1>();
     uint64_t& memory_allocatable = *ptr<uint64_t,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
-#     pragma offload target(mic:LIBXSTREAM_OFFLOAD_DEVICE) //out(memory_physical, memory_allocatable)
+    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+#     pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) //out(memory_physical, memory_allocatable)
       {
         libxstream_internal::mem_info(memory_physical, memory_allocatable);
       }
@@ -695,7 +695,7 @@ extern "C" int libxstream_mem_info(int device, size_t* allocatable, size_t* phys
       libxstream_internal::mem_info(memory_physical, memory_allocatable);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(true);
+  LIBXSTREAM_ASYNC_END(true);
 
   LIBXSTREAM_PRINT_INFOCTX("device=%i allocatable=%lu physical=%lu", device,
     static_cast<unsigned long>(memory_allocatable),
@@ -714,24 +714,24 @@ extern "C" int libxstream_mem_info(int device, size_t* allocatable, size_t* phys
 }
 
 
-extern "C" int libxstream_mem_allocate(int device, void** memory, size_t size, size_t /*TODO: alignment*/)
+LIBXSTREAM_EXPORT_C  int libxstream_mem_allocate(int device, void** memory, size_t size, size_t /*TODO: alignment*/)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_OFFLOAD_BEGIN(0, device, memory, size, &result)
+  LIBXSTREAM_ASYNC_BEGIN(0, device, memory, size, &result)
   {
     void*& memory = *ptr<void*,1>();
     const size_t size = val<const size_t,2>();
     int& result = *ptr<int,3>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
-      const int device = LIBXSTREAM_OFFLOAD_DEVICE;
+    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+      const int device = LIBXSTREAM_ASYNC_DEVICE;
       result = libxstream_internal::allocate_virtual(&memory, size, &device, sizeof(device));
 
       if (LIBXSTREAM_ERROR_NONE == result && 0 != memory) {
         char *const buffer = static_cast<char*>(memory);
-#       pragma offload_transfer target(mic:LIBXSTREAM_OFFLOAD_DEVICE) nocopy(buffer: length(size) alloc_if(true))
+#       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) alloc_if(true))
       }
     }
     else
@@ -740,7 +740,7 @@ extern "C" int libxstream_mem_allocate(int device, void** memory, size_t size, s
       result = libxstream_internal::allocate_real(&memory, size);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(true);
+  LIBXSTREAM_ASYNC_END(true);
 
 #if !defined(LIBXSTREAM_SYNC_NO_MEMSYNC)
   libxstream_stream::sync(device);
@@ -754,7 +754,7 @@ extern "C" int libxstream_mem_allocate(int device, void** memory, size_t size, s
 }
 
 
-extern "C" int libxstream_mem_deallocate(int device, const void* memory)
+LIBXSTREAM_EXPORT_C  int libxstream_mem_deallocate(int device, const void* memory)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
@@ -763,21 +763,21 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
     libxstream_stream::sync(device);
 #endif
 
-    LIBXSTREAM_OFFLOAD_BEGIN(0, device, memory, &result)
+    LIBXSTREAM_ASYNC_BEGIN(0, device, memory, &result)
     {
       const char *const memory = ptr<const char,1>();
       int& result = *ptr<int,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-      if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
+      if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 # if defined(LIBXSTREAM_CHECK)
         const int memory_device = *static_cast<const int*>(libxstream_internal::get_user_data(memory));
-        if (memory_device != LIBXSTREAM_OFFLOAD_DEVICE) {
-          LIBXSTREAM_PRINT_WARNING("device %i does not match allocating device %i!", LIBXSTREAM_OFFLOAD_DEVICE, memory_device);
-          LIBXSTREAM_OFFLOAD_DEVICE_UPDATE(memory_device);
+        if (memory_device != LIBXSTREAM_ASYNC_DEVICE) {
+          LIBXSTREAM_PRINT_WARNING("device %i does not match allocating device %i!", LIBXSTREAM_ASYNC_DEVICE, memory_device);
+          LIBXSTREAM_ASYNC_DEVICE_UPDATE(memory_device);
         }
 # endif
-#       pragma offload_transfer target(mic:LIBXSTREAM_OFFLOAD_DEVICE) nocopy(memory: length(0) free_if(true))
+#       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(memory: length(0) free_if(true))
         result = libxstream_internal::deallocate_virtual(memory);
       }
       else
@@ -786,7 +786,7 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
         result = libxstream_internal::deallocate_real(memory);
       }
     }
-    LIBXSTREAM_OFFLOAD_END(true);
+    LIBXSTREAM_ASYNC_END(true);
   }
 
   LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%lx", device,
@@ -796,29 +796,29 @@ extern "C" int libxstream_mem_deallocate(int device, const void* memory)
 }
 
 
-extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C  int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream)
 {
   LIBXSTREAM_PRINT_INFO("libxstream_memset_zero: buffer=0x%lx size=%lu stream=0x%lx",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(memory)), static_cast<unsigned long>(size),
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
   LIBXSTREAM_CHECK_CONDITION(memory && stream);
 
-  LIBXSTREAM_OFFLOAD_BEGIN(stream, memory, size)
+  LIBXSTREAM_ASYNC_BEGIN(stream, memory, size)
   {
     char* dst = ptr<char,0>();
     const size_t size = val<const size_t,1>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
-      if (LIBXSTREAM_OFFLOAD_READY) {
-#       pragma offload LIBXSTREAM_OFFLOAD_TARGET_SIGNAL \
+    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+      if (LIBXSTREAM_ASYNC_READY) {
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL \
           in(size) out(dst: length(0) alloc_if(false) free_if(false))
         {
           memset(dst, 0, size);
         }
       }
       else {
-#       pragma offload LIBXSTREAM_OFFLOAD_TARGET_WAIT \
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT \
           in(size) out(dst: length(0) alloc_if(false) free_if(false))
         {
           memset(dst, 0, size);
@@ -831,13 +831,13 @@ extern "C" int libxstream_memset_zero(void* memory, size_t size, libxstream_stre
       memset(dst, 0, size);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(false);
+  LIBXSTREAM_ASYNC_END(false);
 
   return LIBXSTREAM_ERROR_NONE;
 }
 
 
-extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C  int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream)
 {
   LIBXSTREAM_PRINT_INFO("libxstream_memcpy_h2d: 0x%lx->0x%lx size=%lu stream=0x%lx",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(host_mem)),
@@ -845,20 +845,20 @@ extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
   LIBXSTREAM_CHECK_CONDITION(host_mem && dev_mem && stream);
 
-  LIBXSTREAM_OFFLOAD_BEGIN(stream, host_mem, dev_mem, size)
+  LIBXSTREAM_ASYNC_BEGIN(stream, host_mem, dev_mem, size)
   {
     const char *const src = ptr<const char,0>();
     char *const dst = ptr<char,1>();
     const size_t size = val<const size_t,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
-      if (LIBXSTREAM_OFFLOAD_READY) {
-#       pragma offload_transfer LIBXSTREAM_OFFLOAD_TARGET_SIGNAL \
+    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+      if (LIBXSTREAM_ASYNC_READY) {
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL \
           in(src: length(size) into(dst) alloc_if(false) free_if(false))
       }
       else {
-#       pragma offload_transfer LIBXSTREAM_OFFLOAD_TARGET_WAIT \
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_WAIT \
           in(src: length(size) into(dst) alloc_if(false) free_if(false))
       }
     }
@@ -866,27 +866,27 @@ extern "C" int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t
 #endif
     {
 #if defined(LIBXSTREAM_ASYNCHOST)
-      if (LIBXSTREAM_OFFLOAD_READY) {
-#       pragma omp task depend(out:offload_region_signal) depend(in:LIBXSTREAM_OFFLOAD_PENDING)
+      if (LIBXSTREAM_ASYNC_READY) {
+#       pragma omp task depend(out:capture_region_signal) depend(in:LIBXSTREAM_ASYNC_PENDING)
         std::copy(src, src + size, dst);
       }
       else {
-#       pragma omp task depend(out:offload_region_signal)
+#       pragma omp task depend(out:capture_region_signal)
         std::copy(src, src + size, dst);
-        ++offload_region_signal_consumed;
+        ++capture_region_signal_consumed;
       }
 #else
       std::copy(src, src + size, dst);
 #endif
     }
   }
-  LIBXSTREAM_OFFLOAD_END(false);
+  LIBXSTREAM_ASYNC_END(false);
 
   return LIBXSTREAM_ERROR_NONE;
 }
 
 
-extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C  int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream)
 {
   LIBXSTREAM_PRINT_INFO("libxstream_memcpy_d2h: 0x%lx->0x%lx size=%lu stream=0x%lx",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(dev_mem)),
@@ -894,20 +894,20 @@ extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
   LIBXSTREAM_CHECK_CONDITION(dev_mem && host_mem && stream);
 
-  LIBXSTREAM_OFFLOAD_BEGIN(stream, dev_mem, host_mem, size)
+  LIBXSTREAM_ASYNC_BEGIN(stream, dev_mem, host_mem, size)
   {
     const char* src = ptr<const char,0>();
     char *const dst = ptr<char,1>();
     const size_t size = val<const size_t,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
-      if (LIBXSTREAM_OFFLOAD_READY) {
-#       pragma offload_transfer LIBXSTREAM_OFFLOAD_TARGET_SIGNAL \
+    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+      if (LIBXSTREAM_ASYNC_READY) {
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL \
           out(src: length(size) into(dst) alloc_if(false) free_if(false))
       }
       else {
-#       pragma offload_transfer LIBXSTREAM_OFFLOAD_TARGET_WAIT \
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_WAIT \
           out(src: length(size) into(dst) alloc_if(false) free_if(false))
       }
     }
@@ -917,13 +917,13 @@ extern "C" int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t
       std::copy(src, src + size, dst);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(false);
+  LIBXSTREAM_ASYNC_END(false);
 
   return LIBXSTREAM_ERROR_NONE;
 }
 
 
-extern "C" int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C  int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream)
 {
   LIBXSTREAM_PRINT_INFO("libxstream_memcpy_d2d: 0x%lx->0x%lx size=%lu stream=0x%lx",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(src)),
@@ -931,23 +931,23 @@ extern "C" int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, li
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(stream)));
   LIBXSTREAM_CHECK_CONDITION(src && dst && stream);
 
-  LIBXSTREAM_OFFLOAD_BEGIN(stream, src, dst, size)
+  LIBXSTREAM_ASYNC_BEGIN(stream, src, dst, size)
   {
     const uint64_t *const src = ptr<const uint64_t,0>();
     uint64_t* dst = ptr<uint64_t,1>();
     const size_t size = val<const size_t,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_OFFLOAD_DEVICE) {
+    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       // TODO: implement cross-device transfer
 
-      if (LIBXSTREAM_OFFLOAD_READY) {
-#       pragma offload LIBXSTREAM_OFFLOAD_TARGET_SIGNAL \
+      if (LIBXSTREAM_ASYNC_READY) {
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL \
           in(size) in(src: length(0) alloc_if(false) free_if(false)) out(dst: length(0) alloc_if(false) free_if(false))
         memcpy(dst, src, size);
       }
       else {
-#       pragma offload LIBXSTREAM_OFFLOAD_TARGET_WAIT \
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT \
           in(size) in(src: length(0) alloc_if(false) free_if(false)) out(dst: length(0) alloc_if(false) free_if(false))
         memcpy(dst, src, size);
       }
@@ -958,13 +958,13 @@ extern "C" int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, li
       memcpy(dst, src, size);
     }
   }
-  LIBXSTREAM_OFFLOAD_END(false);
+  LIBXSTREAM_ASYNC_END(false);
 
   return LIBXSTREAM_ERROR_NONE;
 }
 
 
-extern "C" int libxstream_stream_priority_range(int* least, int* greatest)
+LIBXSTREAM_EXPORT_C  int libxstream_stream_priority_range(int* least, int* greatest)
 {
   *least = -1;
   *greatest = -1;
@@ -972,7 +972,7 @@ extern "C" int libxstream_stream_priority_range(int* least, int* greatest)
 }
 
 
-extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, int demux, int priority, const char* name)
+LIBXSTREAM_EXPORT_C  int libxstream_stream_create(libxstream_stream** stream, int device, int demux, int priority, const char* name)
 {
   LIBXSTREAM_CHECK_CONDITION(stream);
   libxstream_stream *const s = new libxstream_stream(device, demux, priority, name);
@@ -994,7 +994,7 @@ extern "C" int libxstream_stream_create(libxstream_stream** stream, int device, 
 }
 
 
-extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C  int libxstream_stream_destroy(libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_PRINT)
   if (stream) {
@@ -1014,7 +1014,7 @@ extern "C" int libxstream_stream_destroy(libxstream_stream* stream)
 }
 
 
-extern "C" int libxstream_stream_sync(libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C  int libxstream_stream_sync(libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_PRINT)
   if (0 != stream) {
@@ -1037,7 +1037,7 @@ extern "C" int libxstream_stream_sync(libxstream_stream* stream)
 }
 
 
-extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
+LIBXSTREAM_EXPORT_C  int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
 {
   LIBXSTREAM_PRINT_INFOCTX("event=0x%lx stream=0x%lx",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
@@ -1046,7 +1046,7 @@ extern "C" int libxstream_stream_wait_event(libxstream_stream* stream, libxstrea
 }
 
 
-extern "C" int libxstream_stream_lock(libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C  int libxstream_stream_lock(libxstream_stream* stream)
 {
   LIBXSTREAM_CHECK_CONDITION(stream && 0 == stream->demux());
   // manual locking is supposed to be correct and hence there is no need to retry
@@ -1055,7 +1055,7 @@ extern "C" int libxstream_stream_lock(libxstream_stream* stream)
 }
 
 
-extern "C" int libxstream_stream_unlock(libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C  int libxstream_stream_unlock(libxstream_stream* stream)
 {
   LIBXSTREAM_CHECK_CONDITION(stream && 0 == stream->demux());
   stream->unlock();
@@ -1063,7 +1063,7 @@ extern "C" int libxstream_stream_unlock(libxstream_stream* stream)
 }
 
 
-extern "C" int libxstream_event_create(libxstream_event** event)
+LIBXSTREAM_EXPORT_C  int libxstream_event_create(libxstream_event** event)
 {
   LIBXSTREAM_CHECK_CONDITION(event);
   *event = new libxstream_event;
@@ -1072,7 +1072,7 @@ extern "C" int libxstream_event_create(libxstream_event** event)
 }
 
 
-extern "C" int libxstream_event_destroy(libxstream_event* event)
+LIBXSTREAM_EXPORT_C  int libxstream_event_destroy(libxstream_event* event)
 {
   LIBXSTREAM_PRINT_INFOCTX("event=0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
   delete event;
@@ -1080,7 +1080,7 @@ extern "C" int libxstream_event_destroy(libxstream_event* event)
 }
 
 
-extern "C" int libxstream_event_record(libxstream_event* event, libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C  int libxstream_event_record(libxstream_event* event, libxstream_stream* stream)
 {
   LIBXSTREAM_PRINT_INFOCTX("event=0x%lx stream=0x%lx",
     static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)),
@@ -1097,7 +1097,7 @@ extern "C" int libxstream_event_record(libxstream_event* event, libxstream_strea
 }
 
 
-extern "C" int libxstream_event_query(const libxstream_event* event, int* has_occured)
+LIBXSTREAM_EXPORT_C  int libxstream_event_query(const libxstream_event* event, int* has_occured)
 {
   LIBXSTREAM_PRINT_INFOCTX("event=0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
   LIBXSTREAM_CHECK_CONDITION(event && has_occured);
@@ -1110,7 +1110,7 @@ extern "C" int libxstream_event_query(const libxstream_event* event, int* has_oc
 }
 
 
-extern "C" int libxstream_event_synchronize(libxstream_event* event)
+LIBXSTREAM_EXPORT_C  int libxstream_event_synchronize(libxstream_event* event)
 {
   LIBXSTREAM_PRINT_INFOCTX("event=0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
   return event ? event->wait(0) : libxstream_stream::sync();

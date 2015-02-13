@@ -28,7 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#include <libxstream.hpp>
+#include "libxstream.hpp"
 #include <algorithm>
 
 #if defined(LIBXSTREAM_OFFLOAD)
@@ -110,11 +110,11 @@ size_t libxstream_event::expected() const
 
 void libxstream_event::enqueue(libxstream_stream& stream, bool reset)
 {
-  LIBXSTREAM_OFFLOAD_BEGIN(stream, m_slots, &m_expected, reset)
+  LIBXSTREAM_ASYNC_BEGIN(stream, m_slots, &m_expected, reset)
   {
-    libxstream_event::enqueue(thread(), *LIBXSTREAM_OFFLOAD_STREAM, ptr<slot_type,0>(), *ptr<size_t,1>(), val<bool,2>());
+    libxstream_event::enqueue(thread(), *LIBXSTREAM_ASYNC_STREAM, ptr<slot_type,0>(), *ptr<size_t,1>(), val<bool,2>());
   }
-  LIBXSTREAM_OFFLOAD_END(false, true);
+  LIBXSTREAM_ASYNC_END(false, true);
 }
 
 
@@ -122,20 +122,20 @@ int libxstream_event::query(bool& occurred, libxstream_stream* stream) const
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_OFFLOAD_BEGIN(stream, &result, &m_expected, m_slots, &occurred)
+  LIBXSTREAM_ASYNC_BEGIN(stream, &result, &m_expected, m_slots, &occurred)
   {
     const size_t expected = *ptr<const size_t,1>();
     slot_type *const slots = ptr<slot_type,2>();
     bool occurred = true; // everythig "occurred" if nothing is expected
 
-    if (LIBXSTREAM_OFFLOAD_STREAM) {
-      *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset();
+    if (LIBXSTREAM_ASYNC_STREAM) {
+      *ptr<int,0>() = LIBXSTREAM_ASYNC_STREAM->reset();
     }
 
     for (size_t i = 0; i < expected; ++i) {
       slot_type& slot = slots[i];
 
-      if (slot.match(LIBXSTREAM_OFFLOAD_STREAM) && 0 != slot.pending()) {
+      if (slot.match(LIBXSTREAM_ASYNC_STREAM) && 0 != slot.pending()) {
         libxstream_event::update(thread(), slot);
         occurred = occurred && 0 == slot.pending();
       }
@@ -143,7 +143,7 @@ int libxstream_event::query(bool& occurred, libxstream_stream* stream) const
 
     *ptr<bool,3>() = occurred;
   }
-  LIBXSTREAM_OFFLOAD_END(true);
+  LIBXSTREAM_ASYNC_END(true);
 
   return result;
 }
@@ -153,14 +153,14 @@ int libxstream_event::wait(libxstream_stream* stream)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_OFFLOAD_BEGIN(stream, &result, &m_expected, m_slots)
+  LIBXSTREAM_ASYNC_BEGIN(stream, &result, &m_expected, m_slots)
   {
     size_t& expected = *ptr<size_t,1>();
     slot_type *const slots = ptr<slot_type,2>();
     size_t completed = 0;
 
-    if (LIBXSTREAM_OFFLOAD_STREAM) {
-      *ptr<int,0>() = LIBXSTREAM_OFFLOAD_STREAM->reset();
+    if (LIBXSTREAM_ASYNC_STREAM) {
+      *ptr<int,0>() = LIBXSTREAM_ASYNC_STREAM->reset();
     }
 
     for (size_t i = 0; i < expected; ++i) {
@@ -168,7 +168,7 @@ int libxstream_event::wait(libxstream_stream* stream)
       const libxstream_signal pending_stream = slot.stream().pending(thread());
       const libxstream_signal pending_slot = slot.pending();
 
-      if (slot.match(LIBXSTREAM_OFFLOAD_STREAM) && 0 != pending_stream && 0 != pending_slot) {
+      if (slot.match(LIBXSTREAM_ASYNC_STREAM) && 0 != pending_stream && 0 != pending_slot) {
 #if defined(LIBXSTREAM_EVENT_WAIT_OCCURRED)
         do { // spin/yield
           libxstream_event::update(thread(), slot);
@@ -183,8 +183,8 @@ int libxstream_event::wait(libxstream_stream* stream)
 # endif
 # if defined(LIBXSTREAM_OFFLOAD)
         if (0 <= slot.stream().device()) {
-          LIBXSTREAM_OFFLOAD_DEVICE_UPDATE(slot.stream().device());
-#         pragma offload_wait LIBXSTREAM_OFFLOAD_TARGET wait(signal)
+          LIBXSTREAM_ASYNC_DEVICE_UPDATE(slot.stream().device());
+#         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(signal)
         }
 # endif
         if (signal == pending_stream) {
@@ -198,7 +198,7 @@ int libxstream_event::wait(libxstream_stream* stream)
     LIBXSTREAM_ASSERT(completed <= expected);
     expected -= completed;
   }
-  LIBXSTREAM_OFFLOAD_END(true, true);
+  LIBXSTREAM_ASYNC_END(true, true);
 
   return result;
 }

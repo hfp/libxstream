@@ -28,44 +28,25 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#ifndef LIBXSTREAM_EVENT_HPP
-#define LIBXSTREAM_EVENT_HPP
+#ifndef LIBXSTREAM_HPP
+#define LIBXSTREAM_HPP
 
+#include <libxstream.h>
 
-struct libxstream_stream;
+typedef void libxstream_lock;
+libxstream_lock* libxstream_lock_create();
+void libxstream_lock_destroy(libxstream_lock* lock);
+void libxstream_lock_acquire(libxstream_lock* lock);
+void libxstream_lock_release(libxstream_lock* lock);
+bool libxstream_lock_try(libxstream_lock* lock);
 
+size_t nthreads_active();
+int this_thread_id();
+void this_thread_yield();
+void this_thread_sleep(size_t ms);
 
-struct libxstream_event {
-private:
-  class slot_type {
-    libxstream_stream* m_stream;
-    mutable libxstream_signal m_pending;
-  public:
-    slot_type(): m_stream(0), m_pending(0) {}
-    slot_type(int thread, libxstream_stream& stream);
-    libxstream_stream& stream() { return *m_stream; }
-    libxstream_signal pending() const { return m_pending; }
-    void pending(libxstream_signal signal) { m_pending = signal; }
-    bool match(const libxstream_stream* stream) const {
-      return !stream || stream == m_stream;
-    }
-  };
+#include "libxstream_capture.hpp"
+#include "libxstream_stream.hpp"
+#include "libxstream_event.hpp"
 
-  static void enqueue(int thread, libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset);
-  static void update(int thread, libxstream_event::slot_type& slot);
-
-public:
-  libxstream_event();
-
-public:
-  size_t expected() const;
-  void enqueue(libxstream_stream& stream, bool reset);
-  int query(bool& occurred, libxstream_stream* stream) const;
-  int wait(libxstream_stream* stream);
-
-private:
-  size_t m_expected;
-  mutable slot_type m_slots[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
-};
-
-#endif // LIBXSTREAM_EVENT_HPP
+#endif // LIBXSTREAM_HPP
