@@ -83,6 +83,9 @@
 /** Maximum number of streams per device. */
 #define LIBXSTREAM_MAX_NSTREAMS 16
 
+/** Maximum dimensionality of arrays. */
+#define LIBXSTREAM_MAX_NDIMS 4
+
 /** Maximum number of arguments in offload structure. */
 #define LIBXSTREAM_MAX_NARGS 16
 
@@ -112,6 +115,9 @@
 
 /** Prefers OpenMP based locking primitives. */
 //#define LIBXSTREAM_PREFER_OPENMP
+
+/** Enable exporting internal C++ interfaces (legacy). */
+#define LIBXSTREAM_EXPORT_INTERNAL
 
 /**
  * Below preprocessor symbols fixup some platform specifics.

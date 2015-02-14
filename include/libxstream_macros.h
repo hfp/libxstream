@@ -112,8 +112,12 @@
 # define LIBXSTREAM_EXPORT
 #endif
 
-/** Enable exporting internal C++ interfaces (legacy). */
-#define LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_EXPORT
+#if defined(LIBXSTREAM_EXPORT_INTERNAL)
+# undef LIBXSTREAM_EXPORT_INTERNAL
+# define LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_EXPORT
+#else
+# define LIBXSTREAM_EXPORT_INTERNAL
+#endif
 
 #if defined(__cplusplus)
 # define LIBXSTREAM_IMPORT_C extern "C"
