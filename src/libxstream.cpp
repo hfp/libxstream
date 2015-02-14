@@ -1115,3 +1115,39 @@ LIBXSTREAM_EXPORT_C  int libxstream_event_synchronize(libxstream_event* event)
   LIBXSTREAM_PRINT_INFOCTX("event=0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(event)));
   return event ? event->wait(0) : libxstream_stream::sync();
 }
+
+
+LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(const libxstream_argument** signature, size_t max_arity)
+{
+  return LIBXSTREAM_ERROR_CONDITION;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature)
+{
+  return LIBXSTREAM_ERROR_CONDITION;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_fn_input(const libxstream_argument**, const void* in, libxstream_type type, size_t dims, const size_t shape[])
+{
+  return LIBXSTREAM_ERROR_CONDITION;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_fn_output(const libxstream_argument**, void* out, libxstream_type type, size_t dims, const size_t shape[])
+{
+  return LIBXSTREAM_ERROR_CONDITION;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_fn_inout(const libxstream_argument**, void* inout, libxstream_type type, size_t dims, const size_t shape[])
+{
+  return LIBXSTREAM_ERROR_CONDITION;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature)
+{
+  return LIBXSTREAM_ERROR_CONDITION;
+}
