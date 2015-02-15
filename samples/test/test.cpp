@@ -84,7 +84,7 @@ test_type::test_type(int device)
 #if defined(LIBXSTREAM_DEBUG)
     fprintf(stdout, "TST device-side validation started\n");
 #endif
-    const unsigned char* dev_mem = ptr<const unsigned char,1>();
+    const char* dev_mem = ptr<const char,1>();
     const size_t size = val<const size_t,2>();
     const char pattern = val<const char,3>();
     bool& ok = *ptr<bool,0>();

@@ -125,8 +125,8 @@ public:
       : size(sizeof(T))
 #endif
     {
-      const unsigned char *const src = reinterpret_cast<const unsigned char*>(&arg);
-      unsigned char *const dst = reinterpret_cast<unsigned char*>(&value);
+      const char *const src = reinterpret_cast<const char*>(&arg);
+      char *const dst = reinterpret_cast<char*>(&value);
       for (size_t i = 0; i < sizeof(T); ++i) dst[i] = src[i];
       for (size_t i = sizeof(T); i < sizeof(value); ++i) dst[i] = 0;
     }
