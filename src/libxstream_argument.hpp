@@ -28,29 +28,57 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#ifndef LIBXSTREAM_HPP
-#define LIBXSTREAM_HPP
+#ifndef LIBXSTREAM_ARGUMENT_HPP
+#define LIBXSTREAM_ARGUMENT_HPP
 
-#include <libxstream.h>
+#include "libxstream.hpp"
 
-/** Data type representing a signal. */
-typedef uintptr_t libxstream_signal;
 
-typedef void libxstream_lock;
-libxstream_lock* libxstream_lock_create();
-void libxstream_lock_destroy(libxstream_lock* lock);
-void libxstream_lock_acquire(libxstream_lock* lock);
-void libxstream_lock_release(libxstream_lock* lock);
-bool libxstream_lock_try(libxstream_lock* lock);
+extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
+  enum kind_type {
+    kind_invalid  = 0,
+    kind_input    = 1,
+    kind_output   = 2,
+    kind_inout    = kind_output | kind_input,
+  };
 
-size_t nthreads_active();
-int this_thread_id();
-void this_thread_yield();
-void this_thread_sleep(size_t ms);
+  // This data member *must* be the first!
+  union element_union {
+    char* pointer[sizeof(void*)];
+    signed char i8;
+    unsigned char u8;
+    short i16;
+    unsigned u16;
+    int i32;
+    unsigned int u32;
+    long long i64;
+    unsigned long long u64;
+    float f32;
+    double f64;
+    float c32[2];
+    double c64[2];
+    char c;
+  } data;
 
-#include "libxstream_capture.hpp"
-#include "libxstream_stream.hpp"
-#include "libxstream_event.hpp"
-#include "libxstream_argument.hpp"
+  size_t shape[LIBXSTREAM_MAX_NDIMS];
+  libxstream_type type;
+  size_t dims;
+  int kind;
+};
 
-#endif // LIBXSTREAM_HPP
+
+int libxstream_construct(libxstream_argument& arg, int kind, libxstream_type type, const void* value, size_t dims, const size_t shape[]);
+
+LIBXSTREAM_TARGET(mic) inline char* libxstream_arg_get_address(libxstream_argument& arg) {
+  return reinterpret_cast<char*>(&arg);
+}
+
+LIBXSTREAM_TARGET(mic) inline const char* libxstream_arg_get_address(const libxstream_argument& arg) {
+  return reinterpret_cast<const char*>(&arg);
+}
+
+int libxstream_set_data(libxstream_argument& arg, const void* data);
+char* libxstream_get_data(const libxstream_argument& arg);
+LIBXSTREAM_TARGET(mic) char* libxstream_get_value(const libxstream_argument& arg);
+
+#endif // LIBXSTREAM_ARGUMENT_HPP
