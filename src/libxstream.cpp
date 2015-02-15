@@ -1183,5 +1183,51 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_get_arity(libxstream_argument* signature, 
 
 LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* typesize)
 {
-  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+  LIBXSTREAM_CHECK_CONDITION(0 != typesize);
+  int result = LIBXSTREAM_ERROR_NONE;
+
+  switch(type) {
+    case LIBXSTREAM_TYPE_I8: *typesize = 1; break;
+    case LIBXSTREAM_TYPE_U8: *typesize = 1; break;
+    case LIBXSTREAM_TYPE_I16: *typesize = 2; break;
+    case LIBXSTREAM_TYPE_U16: *typesize = 2; break;
+    case LIBXSTREAM_TYPE_I32: *typesize = 4; break;
+    case LIBXSTREAM_TYPE_U32: *typesize = 4; break;
+    case LIBXSTREAM_TYPE_I64: *typesize = 8; break;
+    case LIBXSTREAM_TYPE_U64: *typesize = 8; break;
+    case LIBXSTREAM_TYPE_F32: *typesize = 4; break;
+    case LIBXSTREAM_TYPE_F64: *typesize = 8; break;
+    case LIBXSTREAM_TYPE_C32: *typesize = 8; break;
+    case LIBXSTREAM_TYPE_C64: *typesize = 16; break;
+    case LIBXSTREAM_TYPE_CHAR: *typesize = 1; break;
+    default: // LIBXSTREAM_TYPE_UNKNOWN, etc.
+      result = LIBXSTREAM_ERROR_CONDITION;
+  }
+  return result;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char** name)
+{
+  LIBXSTREAM_CHECK_CONDITION(0 != name);
+  int result = LIBXSTREAM_ERROR_NONE;
+
+  switch(type) {
+    case LIBXSTREAM_TYPE_I8: *name = "i8"; break;
+    case LIBXSTREAM_TYPE_U8: *name = "u8"; break;
+    case LIBXSTREAM_TYPE_I16: *name = "i16"; break;
+    case LIBXSTREAM_TYPE_U16: *name = "u16"; break;
+    case LIBXSTREAM_TYPE_I32: *name = "i32"; break;
+    case LIBXSTREAM_TYPE_U32: *name = "u32"; break;
+    case LIBXSTREAM_TYPE_I64: *name = "i64"; break;
+    case LIBXSTREAM_TYPE_U64: *name = "u64"; break;
+    case LIBXSTREAM_TYPE_F32: *name = "f32"; break;
+    case LIBXSTREAM_TYPE_F64: *name = "f64"; break;
+    case LIBXSTREAM_TYPE_C32: *name = "c32"; break;
+    case LIBXSTREAM_TYPE_C64: *name = "c64"; break;
+    case LIBXSTREAM_TYPE_CHAR: *name = "char"; break;
+    default: // LIBXSTREAM_TYPE_UNKNOWN, etc.
+      result = LIBXSTREAM_ERROR_CONDITION;
+  }
+  return result;
 }

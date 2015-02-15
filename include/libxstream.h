@@ -127,5 +127,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
 LIBXSTREAM_EXPORT_C int libxstream_get_arity(libxstream_argument* signature, size_t* max_arity);
 /** Query the size of the elemental type (Byte). */
 LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* typesize);
+/** Query the name of the elemental type (string does not need to be buffered). */
+LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char** name);
 
 #endif // LIBXSTREAM_H
