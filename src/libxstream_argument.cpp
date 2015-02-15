@@ -30,6 +30,7 @@
 ******************************************************************************/
 #include "libxstream_argument.hpp"
 #include <algorithm>
+#include <stdexcept>
 
 
 int libxstream_construct(libxstream_argument& arg, int kind, libxstream_type type, const void* value, size_t dims, const size_t shape[])

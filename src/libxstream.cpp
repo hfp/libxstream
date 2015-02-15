@@ -31,6 +31,7 @@
 #include "libxstream.hpp"
 #include <algorithm>
 #include <limits>
+#include <cstdio>
 
 #if defined(LIBXSTREAM_STDFEATURES)
 # include <thread>
@@ -976,7 +977,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
   }
   LIBXSTREAM_ASYNC_END(LIBXSTREAM_FALSE != wait);
 #endif
-  return LIBXSTREAM_ERROR_CONDITION // TODO: LIBXSTREAM_ERROR_NONE;
+  return LIBXSTREAM_ERROR_CONDITION; // TODO: LIBXSTREAM_ERROR_NONE
 }
 
 

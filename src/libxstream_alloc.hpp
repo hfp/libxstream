@@ -32,6 +32,7 @@
 #define LIBXSTREAM_ALLOC_HPP
 
 #include <libxstream_macros.h>
+#include <cstddef>
 
 
 LIBXSTREAM_TARGET(mic) size_t libxstream_gcd(size_t a, size_t b);
