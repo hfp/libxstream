@@ -130,16 +130,16 @@ LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char
 /** Query the arity of the function signature (number of arguments). */
 LIBXSTREAM_EXPORT_C int libxstream_get_arity(libxstream_argument* signature, size_t* arity);
 /** Query a textual value of the argument (valid until next call); thread safe. */
-LIBXSTREAM_EXPORT_C int libhta_get_value(const libxstream_argument* arg, const char** value);
+LIBXSTREAM_EXPORT_C int libxstream_get_value(const libxstream_argument* arg, const char** value);
 /** Query the elemental type of the argument. */
-LIBXSTREAM_EXPORT_C int libhta_get_type(const libxstream_argument* arg, libxstream_type* type);
+LIBXSTREAM_EXPORT_C int libxstream_get_type(const libxstream_argument* arg, libxstream_type* type);
 /** Query the dimensionality of the argument; an elemental argument is 0-dimensional. */
-LIBXSTREAM_EXPORT_C int libhta_get_dims(const libxstream_argument* arg, size_t* dims);
+LIBXSTREAM_EXPORT_C int libxstream_get_dims(const libxstream_argument* arg, size_t* dims);
 /** Query the extent of the argument; an elemental argument has an 0-extent. */
-LIBXSTREAM_EXPORT_C int libhta_get_shape(const libxstream_argument* arg, size_t shape[]);
+LIBXSTREAM_EXPORT_C int libxstream_get_shape(const libxstream_argument* arg, size_t shape[]);
 /** Query the number of elements of the argument. */
-LIBXSTREAM_EXPORT_C int libhta_get_size(const libxstream_argument* arg, size_t* size);
+LIBXSTREAM_EXPORT_C int libxstream_get_size(const libxstream_argument* arg, size_t* size);
 /** Query the data size of the argument (Byte). */
-LIBXSTREAM_EXPORT_C int libhta_get_datasize(const libxstream_argument* arg, size_t* size);
+LIBXSTREAM_EXPORT_C int libxstream_get_datasize(const libxstream_argument* arg, size_t* size);
 
 #endif // LIBXSTREAM_H
