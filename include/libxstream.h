@@ -120,8 +120,8 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* arg, const void
 LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* arg, void* out, libxstream_type type, size_t dims, const size_t shape[]);
 /** Construct an in-out argument; takes the device data, dimensionality, and shape. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* arg, void* inout, libxstream_type type, size_t dims, const size_t shape[]);
-/** Call a user function along with the signature. */
-LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream);
+/** Call a user function along with the signature; wait in case of a synchronous call. */
+LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, libxstream_bool wait);
 
 /** Query the size of the elemental type (Byte). */
 LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* size);

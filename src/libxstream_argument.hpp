@@ -31,7 +31,7 @@
 #ifndef LIBXSTREAM_ARGUMENT_HPP
 #define LIBXSTREAM_ARGUMENT_HPP
 
-#include "libxstream.hpp"
+#include <libxstream.h>
 
 
 extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {

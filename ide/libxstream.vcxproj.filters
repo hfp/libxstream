@@ -39,6 +39,9 @@
     <ClInclude Include="..\src\libxstream_argument.hpp">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\libxstream_alloc.hpp">
+      <Filter>src</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\libxstream.cpp">
@@ -54,6 +57,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\libxstream_argument.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libxstream_alloc.cpp">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>

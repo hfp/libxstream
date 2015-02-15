@@ -33,6 +33,7 @@
     <ClInclude Include="..\include\libxstream_end.h" />
     <ClInclude Include="..\include\libxstream_macros.h" />
     <ClInclude Include="..\src\libxstream.hpp" />
+    <ClInclude Include="..\src\libxstream_alloc.hpp" />
     <ClInclude Include="..\src\libxstream_argument.hpp" />
     <ClInclude Include="..\src\libxstream_capture.hpp" />
     <ClInclude Include="..\src\libxstream_event.hpp" />
@@ -40,6 +41,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\libxstream.cpp" />
+    <ClCompile Include="..\src\libxstream_alloc.cpp" />
     <ClCompile Include="..\src\libxstream_argument.cpp" />
     <ClCompile Include="..\src\libxstream_capture.cpp" />
     <ClCompile Include="..\src\libxstream_event.cpp" />
@@ -166,7 +168,6 @@
       <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <OpenMP>GenerateParallelCode</OpenMP>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
@@ -205,8 +206,6 @@
       <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <OpenMP>GenerateParallelCode</OpenMP>
-      <AdditionalOptions>/debug:inline-debug-info %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
@@ -248,7 +247,6 @@
       <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <OpenMP>GenerateParallelCode</OpenMP>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
@@ -288,8 +286,6 @@
       <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <OpenMP>GenerateParallelCode</OpenMP>
-      <AdditionalOptions>/debug:inline-debug-info %(AdditionalOptions)</AdditionalOptions>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
@@ -322,7 +318,6 @@
       <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <OpenMP>GenerateParallelCode</OpenMP>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
@@ -359,7 +354,6 @@
       <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <OpenMP>GenerateParallelCode</OpenMP>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
