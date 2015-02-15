@@ -1117,15 +1117,15 @@ LIBXSTREAM_EXPORT_C  int libxstream_event_synchronize(libxstream_event* event)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t max_arity)
+LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t arity)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != signature && (LIBXSTREAM_MAX_NARGS) >= max_arity);
-  if (0 < max_arity) {
-    libxstream_argument *const args = new libxstream_argument[max_arity+1];
-    for (size_t i = 0; i < max_arity; ++i) {
+  LIBXSTREAM_CHECK_CONDITION(0 != signature && (LIBXSTREAM_MAX_NARGS) >= arity);
+  if (0 < arity) {
+    libxstream_argument *const args = new libxstream_argument[arity+1];
+    for (size_t i = 0; i < arity; ++i) {
       LIBXSTREAM_CHECK_ERROR(libxstream_construct(args[i], libxstream_argument::kind_inout, LIBXSTREAM_TYPE_UNKNOWN, 0, 0, 0));
     }
-    LIBXSTREAM_CHECK_ERROR(libxstream_construct(args[max_arity], libxstream_argument::kind_invalid, LIBXSTREAM_TYPE_UNKNOWN, 0, 0, 0));
+    LIBXSTREAM_CHECK_ERROR(libxstream_construct(args[arity], libxstream_argument::kind_invalid, LIBXSTREAM_TYPE_UNKNOWN, 0, 0, 0));
     *signature = args;
   }
   else {
@@ -1169,37 +1169,25 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_fn_get_arity(libxstream_argument* signature, size_t* max_arity)
+LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* size)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != max_arity);
-  size_t result = 0;
-  if (signature) {
-    while (libxstream_argument::kind_invalid != signature[result].type) ++result;
-  }
-  *max_arity = result;
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* typesize)
-{
-  LIBXSTREAM_CHECK_CONDITION(0 != typesize);
+  LIBXSTREAM_CHECK_CONDITION(0 != size);
   int result = LIBXSTREAM_ERROR_NONE;
 
   switch(type) {
-    case LIBXSTREAM_TYPE_I8: *typesize = 1; break;
-    case LIBXSTREAM_TYPE_U8: *typesize = 1; break;
-    case LIBXSTREAM_TYPE_I16: *typesize = 2; break;
-    case LIBXSTREAM_TYPE_U16: *typesize = 2; break;
-    case LIBXSTREAM_TYPE_I32: *typesize = 4; break;
-    case LIBXSTREAM_TYPE_U32: *typesize = 4; break;
-    case LIBXSTREAM_TYPE_I64: *typesize = 8; break;
-    case LIBXSTREAM_TYPE_U64: *typesize = 8; break;
-    case LIBXSTREAM_TYPE_F32: *typesize = 4; break;
-    case LIBXSTREAM_TYPE_F64: *typesize = 8; break;
-    case LIBXSTREAM_TYPE_C32: *typesize = 8; break;
-    case LIBXSTREAM_TYPE_C64: *typesize = 16; break;
-    case LIBXSTREAM_TYPE_CHAR: *typesize = 1; break;
+    case LIBXSTREAM_TYPE_I8: *size = 1; break;
+    case LIBXSTREAM_TYPE_U8: *size = 1; break;
+    case LIBXSTREAM_TYPE_I16: *size = 2; break;
+    case LIBXSTREAM_TYPE_U16: *size = 2; break;
+    case LIBXSTREAM_TYPE_I32: *size = 4; break;
+    case LIBXSTREAM_TYPE_U32: *size = 4; break;
+    case LIBXSTREAM_TYPE_I64: *size = 8; break;
+    case LIBXSTREAM_TYPE_U64: *size = 8; break;
+    case LIBXSTREAM_TYPE_F32: *size = 4; break;
+    case LIBXSTREAM_TYPE_F64: *size = 8; break;
+    case LIBXSTREAM_TYPE_C32: *size = 8; break;
+    case LIBXSTREAM_TYPE_C64: *size = 16; break;
+    case LIBXSTREAM_TYPE_CHAR: *size = 1; break;
     default: // LIBXSTREAM_TYPE_UNKNOWN, etc.
       result = LIBXSTREAM_ERROR_CONDITION;
   }
@@ -1230,4 +1218,52 @@ LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char
       result = LIBXSTREAM_ERROR_CONDITION;
   }
   return result;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_get_arity(libxstream_argument* signature, size_t* arity)
+{
+  LIBXSTREAM_CHECK_CONDITION(0 != arity);
+  size_t n = 0;
+  if (signature) {
+    while (libxstream_argument::kind_invalid != signature[n].type) ++n;
+  }
+  *arity = n;
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+LIBXSTREAM_EXPORT_C int libhta_get_value(const libxstream_argument* arg, const char** value)
+{
+  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+}
+
+
+LIBXSTREAM_EXPORT_C int libhta_get_type(const libxstream_argument* arg, libxstream_type* type)
+{
+  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+}
+
+
+LIBXSTREAM_EXPORT_C int libhta_get_dims(const libxstream_argument* arg, size_t* dims)
+{
+  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+}
+
+
+LIBXSTREAM_EXPORT_C int libhta_get_shape(const libxstream_argument* arg, size_t shape[])
+{
+  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+}
+
+
+LIBXSTREAM_EXPORT_C int libhta_get_size(const libxstream_argument* arg, size_t* size)
+{
+  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+}
+
+
+LIBXSTREAM_EXPORT_C int libhta_get_datasize(const libxstream_argument* arg, size_t* size)
+{
+  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
 }

@@ -69,9 +69,9 @@ LIBXSTREAM_EXPORT_C int libxstream_get_active_device(int* device);
 /** Set the active device for this thread. */
 LIBXSTREAM_EXPORT_C int libxstream_set_active_device(int device);
 
-/** Query the memory metrics of the given device (valid to pass one NULL pointer). */
+/** Query the memory metrics of the device (valid to pass one NULL pointer). */
 LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
-/** Allocate aligned memory (0: automatic) on the given device. */
+/** Allocate aligned memory (0: automatic) on the device. */
 LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
 /** Deallocate memory; shall match the device where the memory was allocated. */
 LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory);
@@ -110,8 +110,8 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
 /** Wait for an event to complete i.e., work queued prior to recording the event. */
 LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event);
 
-/** Create a function signature with a certain maximum arity (number of arguments). */
-LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t max_arity);
+/** Create a function signature with a certain arity (number of arguments). */
+LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t arity);
 /** Destroy a function signature; does not release the bound data. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature);
 /** Construct an input argument; takes the device data, dimensionality, and shape. */
@@ -120,14 +120,26 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* arg, const void
 LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* arg, void* out, libxstream_type type, size_t dims, const size_t shape[]);
 /** Construct an in-out argument; takes the device data, dimensionality, and shape. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* arg, void* inout, libxstream_type type, size_t dims, const size_t shape[]);
-/** Call a user function along with the given signature. */
+/** Call a user function along with the signature. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature);
 
-/** Query the maximum arity of the function signature (number of arguments). */
-LIBXSTREAM_EXPORT_C int libxstream_get_arity(libxstream_argument* signature, size_t* max_arity);
 /** Query the size of the elemental type (Byte). */
-LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* typesize);
+LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* size);
 /** Query the name of the elemental type (string does not need to be buffered). */
 LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char** name);
+/** Query the arity of the function signature (number of arguments). */
+LIBXSTREAM_EXPORT_C int libxstream_get_arity(libxstream_argument* signature, size_t* arity);
+/** Query a textual representation of the value of the argument. */
+LIBXSTREAM_EXPORT_C int libhta_get_value(const libxstream_argument* arg, const char** value);
+/** Query the elemental type of the argument. */
+LIBXSTREAM_EXPORT_C int libhta_get_type(const libxstream_argument* arg, libxstream_type* type);
+/** Query the dimensionality of the argument. */
+LIBXSTREAM_EXPORT_C int libhta_get_dims(const libxstream_argument* arg, size_t* dims);
+/** Query the extent of the argument; an elemental argument has 0-extent. */
+LIBXSTREAM_EXPORT_C int libhta_get_shape(const libxstream_argument* arg, size_t shape[]);
+/** Query the number of elements of the argument. */
+LIBXSTREAM_EXPORT_C int libhta_get_size(const libxstream_argument* arg, size_t* size);
+/** Query the data size of the argument (Byte). */
+LIBXSTREAM_EXPORT_C int libhta_get_datasize(const libxstream_argument* arg, size_t* size);
 
 #endif // LIBXSTREAM_H
