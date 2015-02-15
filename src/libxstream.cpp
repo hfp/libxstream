@@ -105,6 +105,19 @@ inline T lcm(T a, T b)
 }
 
 
+template<typename S, typename T>
+LIBXSTREAM_TARGET(mic) S linear_size(size_t dims, const T shape[], S initial_size)
+{
+  LIBXSTREAM_ASSERT(shape);
+  S result = 0 < dims ? (std::max<S>(initial_size, 1) * static_cast<S>(shape[0])) : initial_size;
+#if defined(__INTEL_COMPILER)
+# pragma loop_count min(1), max(LIBXSTREAM_MAX_NDIMS), avg(2)
+#endif
+  for (size_t i = 1; i < dims; ++i) result *= static_cast<S>(shape[i]);
+  return result;
+}
+
+
 template<typename T>
 inline T auto_alignment(T size)
 {
@@ -1123,9 +1136,9 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** sig
   if (0 < arity) {
     libxstream_argument *const args = new libxstream_argument[arity+1];
     for (size_t i = 0; i < arity; ++i) {
-      LIBXSTREAM_CHECK_ERROR(libxstream_construct(args[i], libxstream_argument::kind_inout, LIBXSTREAM_TYPE_UNKNOWN, 0, 0, 0));
+      LIBXSTREAM_CHECK_ERROR(libxstream_construct(args[i], libxstream_argument::kind_inout, LIBXSTREAM_TYPE_VOID, 0, 0, 0));
     }
-    LIBXSTREAM_CHECK_ERROR(libxstream_construct(args[arity], libxstream_argument::kind_invalid, LIBXSTREAM_TYPE_UNKNOWN, 0, 0, 0));
+    LIBXSTREAM_CHECK_ERROR(libxstream_construct(args[arity], libxstream_argument::kind_invalid, LIBXSTREAM_TYPE_VOID, 0, 0, 0));
     *signature = args;
   }
   else {
@@ -1163,7 +1176,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* arg, void* inou
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature)
+LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream)
 {
   return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
 }
@@ -1175,20 +1188,20 @@ LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* si
   int result = LIBXSTREAM_ERROR_NONE;
 
   switch(type) {
-    case LIBXSTREAM_TYPE_I8: *size = 1; break;
-    case LIBXSTREAM_TYPE_U8: *size = 1; break;
-    case LIBXSTREAM_TYPE_I16: *size = 2; break;
-    case LIBXSTREAM_TYPE_U16: *size = 2; break;
-    case LIBXSTREAM_TYPE_I32: *size = 4; break;
-    case LIBXSTREAM_TYPE_U32: *size = 4; break;
-    case LIBXSTREAM_TYPE_I64: *size = 8; break;
-    case LIBXSTREAM_TYPE_U64: *size = 8; break;
-    case LIBXSTREAM_TYPE_F32: *size = 4; break;
-    case LIBXSTREAM_TYPE_F64: *size = 8; break;
-    case LIBXSTREAM_TYPE_C32: *size = 8; break;
-    case LIBXSTREAM_TYPE_C64: *size = 16; break;
-    case LIBXSTREAM_TYPE_CHAR: *size = 1; break;
-    default: // LIBXSTREAM_TYPE_UNKNOWN, etc.
+    case LIBXSTREAM_TYPE_CHAR:  *size = 1;  break;
+    case LIBXSTREAM_TYPE_I8:    *size = 1;  break;
+    case LIBXSTREAM_TYPE_U8:    *size = 1;  break;
+    case LIBXSTREAM_TYPE_I16:   *size = 2;  break;
+    case LIBXSTREAM_TYPE_U16:   *size = 2;  break;
+    case LIBXSTREAM_TYPE_I32:   *size = 4;  break;
+    case LIBXSTREAM_TYPE_U32:   *size = 4;  break;
+    case LIBXSTREAM_TYPE_I64:   *size = 8;  break;
+    case LIBXSTREAM_TYPE_U64:   *size = 8;  break;
+    case LIBXSTREAM_TYPE_F32:   *size = 4;  break;
+    case LIBXSTREAM_TYPE_F64:   *size = 8;  break;
+    case LIBXSTREAM_TYPE_C32:   *size = 8;  break;
+    case LIBXSTREAM_TYPE_C64:   *size = 16; break;
+    default: // LIBXSTREAM_TYPE_VOID, etc.
       result = LIBXSTREAM_ERROR_CONDITION;
   }
   return result;
@@ -1201,20 +1214,21 @@ LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char
   int result = LIBXSTREAM_ERROR_NONE;
 
   switch(type) {
-    case LIBXSTREAM_TYPE_I8: *name = "i8"; break;
-    case LIBXSTREAM_TYPE_U8: *name = "u8"; break;
-    case LIBXSTREAM_TYPE_I16: *name = "i16"; break;
-    case LIBXSTREAM_TYPE_U16: *name = "u16"; break;
-    case LIBXSTREAM_TYPE_I32: *name = "i32"; break;
-    case LIBXSTREAM_TYPE_U32: *name = "u32"; break;
-    case LIBXSTREAM_TYPE_I64: *name = "i64"; break;
-    case LIBXSTREAM_TYPE_U64: *name = "u64"; break;
-    case LIBXSTREAM_TYPE_F32: *name = "f32"; break;
-    case LIBXSTREAM_TYPE_F64: *name = "f64"; break;
-    case LIBXSTREAM_TYPE_C32: *name = "c32"; break;
-    case LIBXSTREAM_TYPE_C64: *name = "c64"; break;
-    case LIBXSTREAM_TYPE_CHAR: *name = "char"; break;
-    default: // LIBXSTREAM_TYPE_UNKNOWN, etc.
+    case LIBXSTREAM_TYPE_VOID:  *name = "void"; break;
+    case LIBXSTREAM_TYPE_CHAR:  *name = "char"; break;
+    case LIBXSTREAM_TYPE_I8:    *name = "i8";   break;
+    case LIBXSTREAM_TYPE_U8:    *name = "u8";   break;
+    case LIBXSTREAM_TYPE_I16:   *name = "i16";  break;
+    case LIBXSTREAM_TYPE_U16:   *name = "u16";  break;
+    case LIBXSTREAM_TYPE_I32:   *name = "i32";  break;
+    case LIBXSTREAM_TYPE_U32:   *name = "u32";  break;
+    case LIBXSTREAM_TYPE_I64:   *name = "i64";  break;
+    case LIBXSTREAM_TYPE_U64:   *name = "u64";  break;
+    case LIBXSTREAM_TYPE_F32:   *name = "f32";  break;
+    case LIBXSTREAM_TYPE_F64:   *name = "f64";  break;
+    case LIBXSTREAM_TYPE_C32:   *name = "c32";  break;
+    case LIBXSTREAM_TYPE_C64:   *name = "c64";  break;
+    default:
       result = LIBXSTREAM_ERROR_CONDITION;
   }
   return result;
@@ -1235,35 +1249,104 @@ LIBXSTREAM_EXPORT_C int libxstream_get_arity(libxstream_argument* signature, siz
 
 LIBXSTREAM_EXPORT_C int libhta_get_value(const libxstream_argument* arg, const char** value)
 {
-  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != value);
+  const void *const data = libxstream_get_value(*arg);
+  static LIBXSTREAM_TLS char buffer[128];
+  int result = LIBXSTREAM_ERROR_NONE;
+
+  if (0 < arg->dims || 0 == data) {
+    if (LIBXSTREAM_TYPE_C64 >= arg->type) {
+      // ignore need to use long long "ll"; use unsigned long
+      LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(data)));
+      *value = buffer;
+    }
+    else {
+      result = LIBXSTREAM_ERROR_CONDITION;
+    }
+  }
+  else {
+    switch(arg->type) {
+        // ignore need to use long long "ll"; use unsigned long
+      case LIBXSTREAM_TYPE_VOID:  LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "0x%lx", static_cast<unsigned long>(reinterpret_cast<uintptr_t>(data))); break;
+      case LIBXSTREAM_TYPE_CHAR:  LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%c", *static_cast<const char*>(data)); break;
+      case LIBXSTREAM_TYPE_I8:    LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%i", *static_cast<const signed char*>(data)); break;
+      case LIBXSTREAM_TYPE_U8:    LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%u", *static_cast<const unsigned char*>(data)); break;
+      case LIBXSTREAM_TYPE_I16:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%i", *static_cast<const signed short*>(data)); break;
+      case LIBXSTREAM_TYPE_U16:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%u", *static_cast<const unsigned short*>(data)); break;
+      case LIBXSTREAM_TYPE_I32:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%i", *static_cast<const signed int*>(data)); break;
+      case LIBXSTREAM_TYPE_U32:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%u", *static_cast<const unsigned int*>(data)); break;
+      // ignore need to use long long "ll"; use unsigned long
+      case LIBXSTREAM_TYPE_I64:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%li", *static_cast<const signed long*>(data)); break;
+      // ignore need to use long long "ll"; use unsigned long
+      case LIBXSTREAM_TYPE_U64:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%lu", *static_cast<const unsigned long*>(data)); break;
+      case LIBXSTREAM_TYPE_F32:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%f", *static_cast<const float*>(data)); break;
+      case LIBXSTREAM_TYPE_F64:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%f", *static_cast<const double*>(data)); break;
+      case LIBXSTREAM_TYPE_C32: {
+        const float *const c = static_cast<const float*>(data);
+        LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "(%f, %f)", c[0], c[1]);
+      } break;
+      case LIBXSTREAM_TYPE_C64: {
+        const double *const c = static_cast<const double*>(data);
+        LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "(%f, %f)", c[0], c[1]);
+      } break;
+      default: {
+        result = LIBXSTREAM_ERROR_CONDITION;
+      }
+    }
+    *value = buffer;
+  }
+  return result;
 }
 
 
 LIBXSTREAM_EXPORT_C int libhta_get_type(const libxstream_argument* arg, libxstream_type* type)
 {
-  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != type);
+  *type = arg->type;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
 LIBXSTREAM_EXPORT_C int libhta_get_dims(const libxstream_argument* arg, size_t* dims)
 {
-  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != dims);
+  *dims = arg->dims;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
 LIBXSTREAM_EXPORT_C int libhta_get_shape(const libxstream_argument* arg, size_t shape[])
 {
-  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != shape);
+  const size_t dims = arg->dims;
+
+  if (0 < dims) {
+    const size_t *const src = arg->shape;
+#if defined(__INTEL_COMPILER)
+#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NDIMS), avg(2)
+#endif
+    for (size_t i = 0; i < dims; ++i) shape[i] = src[i];
+  }
+  else {
+    *shape = 0;
+  }
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
 LIBXSTREAM_EXPORT_C int libhta_get_size(const libxstream_argument* arg, size_t* size)
 {
-  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != size);
+  *size = libxstream_internal::linear_size(arg->dims, arg->shape, 1);
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
 LIBXSTREAM_EXPORT_C int libhta_get_datasize(const libxstream_argument* arg, size_t* size)
 {
-  return LIBXSTREAM_ERROR_CONDITION; // TODO: implement
+  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != size);
+  size_t typesize = 0;
+  LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(arg->type, &typesize));
+  *size = libxstream_internal::linear_size(arg->dims, arg->shape, typesize);
+  return LIBXSTREAM_ERROR_NONE;
 }

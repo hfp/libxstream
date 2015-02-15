@@ -47,14 +47,14 @@ LIBXSTREAM_EXPORT_C typedef struct libxstream_stream libxstream_stream;
 LIBXSTREAM_EXPORT_C typedef struct libxstream_event libxstream_event;
 /** Enumeration of elemental "scalar" types. */
 LIBXSTREAM_EXPORT_C typedef enum libxstream_type {
-  LIBXSTREAM_TYPE_UNKNOWN,
+  LIBXSTREAM_TYPE_VOID,
+  LIBXSTREAM_TYPE_CHAR,
   LIBXSTREAM_TYPE_I8, LIBXSTREAM_TYPE_U8,
   LIBXSTREAM_TYPE_I16, LIBXSTREAM_TYPE_U16,
   LIBXSTREAM_TYPE_I32, LIBXSTREAM_TYPE_U32,
   LIBXSTREAM_TYPE_I64, LIBXSTREAM_TYPE_U64,
   LIBXSTREAM_TYPE_F32, LIBXSTREAM_TYPE_F64,
   LIBXSTREAM_TYPE_C32, LIBXSTREAM_TYPE_C64,
-  LIBXSTREAM_TYPE_CHAR,
   LIBXSTREAM_TYPE_BYTE = LIBXSTREAM_TYPE_U8
 } libxstream_type;
 /** Function argument type. */
@@ -121,7 +121,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* arg, void* out
 /** Construct an in-out argument; takes the device data, dimensionality, and shape. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* arg, void* inout, libxstream_type type, size_t dims, const size_t shape[]);
 /** Call a user function along with the signature. */
-LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature);
+LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream);
 
 /** Query the size of the elemental type (Byte). */
 LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* size);
@@ -129,7 +129,7 @@ LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* si
 LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char** name);
 /** Query the arity of the function signature (number of arguments). */
 LIBXSTREAM_EXPORT_C int libxstream_get_arity(libxstream_argument* signature, size_t* arity);
-/** Query a textual representation of the value of the argument. */
+/** Query a textual value of the argument (valid until next call); thread safe. */
 LIBXSTREAM_EXPORT_C int libhta_get_value(const libxstream_argument* arg, const char** value);
 /** Query the elemental type of the argument. */
 LIBXSTREAM_EXPORT_C int libhta_get_type(const libxstream_argument* arg, libxstream_type* type);
