@@ -33,7 +33,7 @@
 #include <stdexcept>
 
 
-int libxstream_construct(libxstream_argument& arg, int kind, libxstream_type type, const void* value, size_t dims, const size_t shape[])
+int libxstream_construct(libxstream_argument& arg, libxstream_argument::kind_type kind, libxstream_type type, const void* value, size_t dims, const size_t shape[])
 {
   LIBXSTREAM_CHECK_CONDITION((0 == dims || 0 != shape) && (LIBXSTREAM_MAX_NDIMS) >= dims);
 #if defined(LIBXSTREAM_DEBUG)
