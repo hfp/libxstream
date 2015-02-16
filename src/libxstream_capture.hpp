@@ -33,6 +33,8 @@
 
 #include <libxstream_macros.h>
 
+#if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+
 #define LIBXSTREAM_ASYNC_PENDING (capture_region_pending)
 #define LIBXSTREAM_ASYNC_READY (0 == (LIBXSTREAM_ASYNC_PENDING))
 #define LIBXSTREAM_ASYNC_STREAM (m_stream)
@@ -174,4 +176,5 @@ LIBXSTREAM_EXPORT_INTERNAL void libxstream_offload(const libxstream_capture_base
 
 void libxstream_capture_shutdown();
 
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_CAPTURE_HPP

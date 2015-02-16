@@ -31,6 +31,8 @@
 #ifndef LIBXSTREAM_EVENT_HPP
 #define LIBXSTREAM_EVENT_HPP
 
+#if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+
 
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_stream;
 
@@ -68,4 +70,5 @@ private:
   mutable slot_type m_slots[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
 };
 
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_EVENT_HPP

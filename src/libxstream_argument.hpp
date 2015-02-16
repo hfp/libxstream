@@ -33,6 +33,8 @@
 
 #include <libxstream.h>
 
+#if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+
 
 extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
   enum kind_type {
@@ -81,4 +83,5 @@ int libxstream_set_data(libxstream_argument& arg, const void* data);
 char* libxstream_get_data(const libxstream_argument& arg);
 LIBXSTREAM_TARGET(mic) char* libxstream_get_value(const libxstream_argument& arg);
 
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_ARGUMENT_HPP

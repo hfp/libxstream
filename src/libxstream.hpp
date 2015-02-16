@@ -33,6 +33,9 @@
 
 #include <libxstream.h>
 
+#if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+
+
 /** Data type representing a signal. */
 typedef uintptr_t libxstream_signal;
 
@@ -56,4 +59,5 @@ void this_thread_sleep(size_t ms);
 #include "libxstream_offload.hpp"
 #include "libxstream_stream.hpp"
 
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_HPP

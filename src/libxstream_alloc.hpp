@@ -34,6 +34,8 @@
 #include <libxstream_macros.h>
 #include <cstddef>
 
+#if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+
 
 LIBXSTREAM_TARGET(mic) size_t libxstream_gcd(size_t a, size_t b);
 LIBXSTREAM_TARGET(mic) size_t libxstream_lcm(size_t a, size_t b);
@@ -54,4 +56,5 @@ int libxstream_virt_deallocate(const void* memory);
 void* libxstream_virt_data(void* memory);
 const void* libxstream_virt_data(const void* memory);
 
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_ALLOC_HPP

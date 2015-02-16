@@ -33,6 +33,8 @@
 
 #include "libxstream.hpp"
 
+#if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+
 
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_event;
 
@@ -134,4 +136,5 @@ template<typename T> libxstream_stream* cast_to_stream(T stream) {
   return static_cast<libxstream_stream*>(0);
 }
 
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_STREAM_HPP

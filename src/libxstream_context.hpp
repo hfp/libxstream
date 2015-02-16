@@ -33,6 +33,8 @@
 
 #include <libxstream.h>
 
+#if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+
 
 struct LIBXSTREAM_TARGET(mic) libxstream_context {
   static libxstream_context& instance();
@@ -44,4 +46,5 @@ struct LIBXSTREAM_TARGET(mic) libxstream_context {
 
 LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_context_find_arg(const libxstream_context& context, const void* variable);
 
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_CONTEXT_HPP
