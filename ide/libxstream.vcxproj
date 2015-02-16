@@ -36,7 +36,9 @@
     <ClInclude Include="..\src\libxstream_alloc.hpp" />
     <ClInclude Include="..\src\libxstream_argument.hpp" />
     <ClInclude Include="..\src\libxstream_capture.hpp" />
+    <ClInclude Include="..\src\libxstream_context.hpp" />
     <ClInclude Include="..\src\libxstream_event.hpp" />
+    <ClInclude Include="..\src\libxstream_offload.hpp" />
     <ClInclude Include="..\src\libxstream_stream.hpp" />
   </ItemGroup>
   <ItemGroup>
@@ -44,7 +46,9 @@
     <ClCompile Include="..\src\libxstream_alloc.cpp" />
     <ClCompile Include="..\src\libxstream_argument.cpp" />
     <ClCompile Include="..\src\libxstream_capture.cpp" />
+    <ClCompile Include="..\src\libxstream_context.cpp" />
     <ClCompile Include="..\src\libxstream_event.cpp" />
+    <ClCompile Include="..\src\libxstream_offload.cpp" />
     <ClCompile Include="..\src\libxstream_stream.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -165,7 +169,6 @@
       <FlushDenormalResultsToZero>true</FlushDenormalResultsToZero>
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
-      <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
@@ -203,7 +206,6 @@
       <FlushDenormalResultsToZero>true</FlushDenormalResultsToZero>
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
-      <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
@@ -244,7 +246,6 @@
       <UnmaskFloatingPointExceptions>NoTraps</UnmaskFloatingPointExceptions>
       <FlushDenormalResultsToZero>true</FlushDenormalResultsToZero>
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
-      <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
@@ -283,7 +284,6 @@
       <UnmaskFloatingPointExceptions>NoTraps</UnmaskFloatingPointExceptions>
       <FlushDenormalResultsToZero>true</FlushDenormalResultsToZero>
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
-      <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
@@ -315,7 +315,6 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
@@ -351,7 +350,6 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <OffloadConstructs>None</OffloadConstructs>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>

@@ -28,32 +28,20 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#ifndef LIBXSTREAM_HPP
-#define LIBXSTREAM_HPP
+#ifndef LIBXSTREAM_CONTEXT_HPP
+#define LIBXSTREAM_CONTEXT_HPP
 
 #include <libxstream.h>
 
-/** Data type representing a signal. */
-typedef uintptr_t libxstream_signal;
 
-typedef void libxstream_lock;
-libxstream_lock* libxstream_lock_create();
-void libxstream_lock_destroy(libxstream_lock* lock);
-void libxstream_lock_acquire(libxstream_lock* lock);
-void libxstream_lock_release(libxstream_lock* lock);
-bool libxstream_lock_try(libxstream_lock* lock);
+struct LIBXSTREAM_TARGET(mic) libxstream_context {
+  static libxstream_context& instance();
 
-size_t nthreads_active();
-int this_thread_id();
-void this_thread_yield();
-void this_thread_sleep(size_t ms);
+  const libxstream_argument* signature;
+  const libxstream_stream* stream;
+};
 
-#include "libxstream_alloc.hpp"
-#include "libxstream_argument.hpp"
-#include "libxstream_capture.hpp"
-#include "libxstream_context.hpp"
-#include "libxstream_event.hpp"
-#include "libxstream_offload.hpp"
-#include "libxstream_stream.hpp"
 
-#endif // LIBXSTREAM_HPP
+LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_context_find_arg(const libxstream_context& context, const void* variable);
+
+#endif // LIBXSTREAM_CONTEXT_HPP

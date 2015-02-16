@@ -28,32 +28,27 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#ifndef LIBXSTREAM_HPP
-#define LIBXSTREAM_HPP
-
-#include <libxstream.h>
-
-/** Data type representing a signal. */
-typedef uintptr_t libxstream_signal;
-
-typedef void libxstream_lock;
-libxstream_lock* libxstream_lock_create();
-void libxstream_lock_destroy(libxstream_lock* lock);
-void libxstream_lock_acquire(libxstream_lock* lock);
-void libxstream_lock_release(libxstream_lock* lock);
-bool libxstream_lock_try(libxstream_lock* lock);
-
-size_t nthreads_active();
-int this_thread_id();
-void this_thread_yield();
-void this_thread_sleep(size_t ms);
-
-#include "libxstream_alloc.hpp"
-#include "libxstream_argument.hpp"
-#include "libxstream_capture.hpp"
 #include "libxstream_context.hpp"
-#include "libxstream_event.hpp"
-#include "libxstream_offload.hpp"
-#include "libxstream_stream.hpp"
+#include "libxstream_argument.hpp"
 
-#endif // LIBXSTREAM_HPP
+
+libxstream_context& libxstream_context::instance()
+{
+  static LIBXSTREAM_TLS libxstream_context context;
+  return context;
+}
+
+
+LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_context_find_arg(const libxstream_context& context, const void* variable)
+{
+  const libxstream_argument* argument = 0;  
+  if (context.signature) {
+    for (const libxstream_argument* argi = context.signature; libxstream_argument::kind_invalid != argi->kind; ++argi) {
+      if (variable == libxstream_get_value(*argi)) {
+        argument = argi;
+        break;
+      }
+    }
+  }
+  return argument;
+}
