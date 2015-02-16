@@ -33,10 +33,7 @@
 
 #include "libxstream_macros.h"
 #include <stdint.h>
-
-#ifdef __cplusplus
-# include <stddef.h>
-#endif
+#include <stddef.h>
 
 
 /** Boolean state. */
@@ -141,5 +138,33 @@ LIBXSTREAM_EXPORT_C int libxstream_get_shape(const libxstream_argument* arg, siz
 LIBXSTREAM_EXPORT_C int libxstream_get_size(const libxstream_argument* arg, size_t* size);
 /** Query the data size of the argument (Byte). */
 LIBXSTREAM_EXPORT_C int libxstream_get_datasize(const libxstream_argument* arg, size_t* size);
+
+#if defined(__cplusplus)
+template<typename TYPE> struct libxstream_type2value          { static const libxstream_type value = LIBXSTREAM_TYPE_VOID; };
+template<> struct libxstream_type2value<char>                 { static const libxstream_type value = LIBXSTREAM_TYPE_CHAR; };
+template<> struct libxstream_type2value<signed char>          { static const libxstream_type value = LIBXSTREAM_TYPE_I8; };
+template<> struct libxstream_type2value<unsigned char>        { static const libxstream_type value = LIBXSTREAM_TYPE_U8; };
+template<> struct libxstream_type2value<signed short>         { static const libxstream_type value = LIBXSTREAM_TYPE_I16; };
+template<> struct libxstream_type2value<unsigned short>       { static const libxstream_type value = LIBXSTREAM_TYPE_U16; };
+template<> struct libxstream_type2value<int>                  { static const libxstream_type value = LIBXSTREAM_TYPE_I32; };
+template<> struct libxstream_type2value<unsigned int>         { static const libxstream_type value = LIBXSTREAM_TYPE_U32; };
+template<> struct libxstream_type2value<long long>            { static const libxstream_type value = LIBXSTREAM_TYPE_I64; };
+template<> struct libxstream_type2value<unsigned long long>   { static const libxstream_type value = LIBXSTREAM_TYPE_U64; };
+template<> struct libxstream_type2value<float>                { static const libxstream_type value = LIBXSTREAM_TYPE_F32; };
+template<> struct libxstream_type2value<double>               { static const libxstream_type value = LIBXSTREAM_TYPE_F64; };
+
+template<libxstream_type VALUE> struct libxstream_value2type  { typedef void type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_CHAR> { typedef char type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_I8>   { typedef signed char type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_U8>   { typedef unsigned char type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_I16>  { typedef signed short type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_U16>  { typedef unsigned short type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_I32>  { typedef int type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_U32>  { typedef unsigned int type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_I64>  { typedef long long type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_U64>  { typedef unsigned long long type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_F32>  { typedef float type; };
+template<> struct libxstream_value2type<LIBXSTREAM_TYPE_F64>  { typedef double type; };
+#endif // __cplusplus
 
 #endif // LIBXSTREAM_H

@@ -904,12 +904,12 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** sig
 {
   LIBXSTREAM_CHECK_CONDITION(0 != signature && (LIBXSTREAM_MAX_NARGS) >= arity);
   if (0 < arity) {
-    libxstream_argument *const args = new libxstream_argument[arity+1];
+    libxstream_argument *const arguments = new libxstream_argument[arity+1];
     for (size_t i = 0; i < arity; ++i) {
-      LIBXSTREAM_CHECK_ERROR(libxstream_construct(args[i], libxstream_argument::kind_inout, LIBXSTREAM_TYPE_VOID, 0, 0, 0));
+      LIBXSTREAM_CHECK_ERROR(libxstream_construct(arguments[i], libxstream_argument::kind_inout, LIBXSTREAM_TYPE_VOID, 0, 0, 0));
     }
-    LIBXSTREAM_CHECK_ERROR(libxstream_construct(args[arity], libxstream_argument::kind_invalid, LIBXSTREAM_TYPE_VOID, 0, 0, 0));
-    *signature = args;
+    LIBXSTREAM_CHECK_ERROR(libxstream_construct(arguments[arity], libxstream_argument::kind_invalid, LIBXSTREAM_TYPE_VOID, 0, 0, 0));
+    *signature = arguments;
   }
   else {
     *signature = 0;
