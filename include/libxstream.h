@@ -128,7 +128,7 @@ LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* si
 /** Query the name of the elemental type (string does not need to be buffered). */
 LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char** name);
 /** Query the arity of the function signature (number of arguments). */
-LIBXSTREAM_EXPORT_C int libxstream_get_arity(libxstream_argument* signature, size_t* arity);
+LIBXSTREAM_EXPORT_C int libxstream_get_arity(const libxstream_argument* signature, size_t* arity);
 /** Query a textual value of the argument (valid until next call); thread safe. */
 LIBXSTREAM_EXPORT_C int libxstream_get_value(const libxstream_argument* arg, const char** value);
 /** Query the elemental type of the argument. */

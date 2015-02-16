@@ -62,7 +62,7 @@
 #elif defined(__GNUC__)
 # define LIBXSTREAM_ATTRIBUTE(A) __attribute__((A))
 # define LIBXSTREAM_ALIGNED(DECL, N) DECL LIBXSTREAM_ATTRIBUTE(aligned(N))
-# define LIBXSTREAM_CDECL LIBHTA_ATTRIBUTE(cdecl)
+# define LIBXSTREAM_CDECL LIBXSTREAM_ATTRIBUTE(cdecl)
 #endif
 
 #if defined(_WIN32) && !defined(__GNUC__)

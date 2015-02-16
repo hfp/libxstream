@@ -510,7 +510,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       const int device = LIBXSTREAM_ASYNC_DEVICE;
-      result = libxstream_internal::allocate_virtual(&memory, size, &device, sizeof(device));
+      result = libxstream_virt_allocate(&memory, size, alignment, &device, sizeof(device));
 
       if (LIBXSTREAM_ERROR_NONE == result && 0 != memory) {
         char *const buffer = static_cast<char*>(memory);
@@ -554,14 +554,14 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 #if defined(LIBXSTREAM_OFFLOAD)
       if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 # if defined(LIBXSTREAM_CHECK)
-        const int memory_device = *static_cast<const int*>(libxstream_internal::get_user_data(memory));
+        const int memory_device = *static_cast<const int*>(libxstream_virt_data(memory));
         if (memory_device != LIBXSTREAM_ASYNC_DEVICE) {
           LIBXSTREAM_PRINT_WARNING("device %i does not match allocating device %i!", LIBXSTREAM_ASYNC_DEVICE, memory_device);
           LIBXSTREAM_ASYNC_DEVICE_UPDATE(memory_device);
         }
 # endif
 #       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(memory: length(0) free_if(true))
-        result = libxstream_internal::deallocate_virtual(memory);
+        result = libxstream_virt_deallocate(memory);
       }
       else
 #endif
@@ -949,9 +949,10 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* arg, void* inou
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, libxstream_bool wait)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != function && 0 != stream);
-#if 0
   LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {
     LIBXSTREAM_TARGET(mic) libxstream_function function = val<libxstream_function,0>();
+    const libxstream_argument *const signature = ptr<const libxstream_argument,1>();
+#if 0
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       if (LIBXSTREAM_ASYNC_READY) {
@@ -974,9 +975,9 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
     {
       //function(size, nn, i, a, b, c);
     }
+#endif
   }
   LIBXSTREAM_ASYNC_END(LIBXSTREAM_FALSE != wait);
-#endif
   return LIBXSTREAM_ERROR_CONDITION; // TODO: LIBXSTREAM_ERROR_NONE
 }
 
@@ -1034,7 +1035,7 @@ LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_get_arity(libxstream_argument* signature, size_t* arity)
+LIBXSTREAM_EXPORT_C int libxstream_get_arity(const libxstream_argument* signature, size_t* arity)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != arity);
   size_t n = 0;
