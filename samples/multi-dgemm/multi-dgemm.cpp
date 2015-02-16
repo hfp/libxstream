@@ -55,7 +55,7 @@ LIBXSTREAM_IMPORT_C LIBXSTREAM_TARGET(mic) void DGEMM(
   const double*, double*, const int*);
 
 
-LIBXSTREAM_TARGET(mic) void process(int size, int nn, const size_t* idata,
+LIBXSTREAM_TARGET(mic) void process(size_t size, size_t nn, const size_t* idata,
   const double* adata, const double* bdata, double* cdata)
 {
   if (0 < size) {
@@ -106,7 +106,7 @@ int main(int argc, char* argv[])
 
     fprintf(stdout, "Initializing %i device%s and host data...", static_cast<int>(ndevices), 1 == ndevices ? "" : "s");
     const size_t split[] = { size_t(nitems * 18.0 / 250.0 + 0.5), size_t(nitems * 74.0 / 250.0 + 0.5) };
-    multi_dgemm_type::host_data_type host_data(&process, nitems, split);
+    multi_dgemm_type::host_data_type host_data(reinterpret_cast<libxstream_function>(&process), nitems, split);
     fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
 
     fprintf(stdout, "Initializing %i stream%s per device...", nstreams, 1 < nstreams ? "s" : "");

@@ -36,15 +36,12 @@
 
 class multi_dgemm_type {
 public:
-  typedef LIBXSTREAM_TARGET(mic) void (*process_type)(int, int,
-    const size_t*, const double*, const double*, double*);
-
   class host_data_type {
   public:
-    host_data_type(process_type process, size_t size, const size_t split[]);
+    host_data_type(libxstream_function process, size_t size, const size_t split[]);
     ~host_data_type();
   public:
-    process_type process()      { return m_process; }
+    libxstream_function process()      { return m_process; }
     const double* adata() const { return m_adata; }
     const double* bdata() const { return m_bdata; }
     double* cdata()             { return m_cdata; }
@@ -55,7 +52,7 @@ public:
     size_t bytes() const;
     bool ready() const;
   private:
-    process_type m_process;
+    libxstream_function m_process;
     double *m_adata, *m_bdata, *m_cdata;
     size_t *m_idata, m_size, m_flops;
   };
@@ -69,7 +66,7 @@ private:
 
 public:
   int init(const char* name, host_data_type& host_data, int device, int demux, size_t max_batch);
-  int operator()(int index, int size);
+  int operator()(size_t index, size_t size);
 
   libxstream_stream* stream() { return m_stream; }
   libxstream_event* event();

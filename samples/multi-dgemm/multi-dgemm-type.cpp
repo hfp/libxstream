@@ -37,7 +37,7 @@
 #include <libxstream_end.h>
 
 
-multi_dgemm_type::host_data_type::host_data_type(process_type process, size_t size, const size_t split[])
+multi_dgemm_type::host_data_type::host_data_type(libxstream_function process, size_t size, const size_t split[])
   : m_process(process)
   , m_adata(0), m_bdata(0), m_cdata(0), m_idata(0)
   , m_size(size), m_flops(0)
@@ -178,7 +178,7 @@ int multi_dgemm_type::init(const char* name, host_data_type& host_data, int devi
 }
 
 
-int multi_dgemm_type::operator()(int index, int size)
+int multi_dgemm_type::operator()(size_t index, size_t size)
 {
   LIBXSTREAM_CHECK_CONDITION(ready() && (index + size) <= m_host_data->size());
 
@@ -195,13 +195,13 @@ int multi_dgemm_type::operator()(int index, int size)
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->cdata() + i0, m_cdata, sizeof(double) * (i1 - i0), m_stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->idata() + index, m_idata, sizeof(size_t) * size, m_stream));
 
-    const int nn = i1 - m_host_data->idata()[index+size-1];
-    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature + 0, &size, libxstream_type2value<int>::value, 0, 0));
-    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature + 1, &nn, libxstream_type2value<int>::value, 0, 0));
+    const size_t nn = i1 - m_host_data->idata()[index+size-1];
+    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature + 0, &size, libxstream_type2value<size_t>::value, 0, 0));
+    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature + 1, &nn, libxstream_type2value<size_t>::value, 0, 0));
 
     LIBXSTREAM_ASYNC_BEGIN(m_stream, m_host_data->process(), size, nn, m_adata, m_bdata, m_cdata, m_idata)
     {
-      LIBXSTREAM_TARGET(mic) process_type process = val<process_type,0>();
+      LIBXSTREAM_TARGET(mic) libxstream_function process = val<libxstream_function,0>();
       const int size = val<const int,1>();
       const int nn = val<const int,2>();
       const double *const a = ptr<const double,3>();
