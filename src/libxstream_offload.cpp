@@ -76,7 +76,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
   switch (nargs) {
     case 0: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+//#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn();

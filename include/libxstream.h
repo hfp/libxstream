@@ -54,6 +54,12 @@ LIBXSTREAM_EXPORT_C typedef enum libxstream_type {
   LIBXSTREAM_TYPE_C32, LIBXSTREAM_TYPE_C64,
   LIBXSTREAM_TYPE_BYTE = LIBXSTREAM_TYPE_U8
 } libxstream_type;
+/** Flags to adjust function call behavior (valid for binary combination). */
+LIBXSTREAM_EXPORT_C typedef enum libxstream_call_flags {
+  LIBXSTREAM_CALL_DEFAULT = 0,
+  LIBXSTREAM_CALL_WAIT    = 1,
+  LIBXSTREAM_CALL_SYNCHRONOUS = LIBXSTREAM_CALL_WAIT
+} libxstream_call_flags;
 /** Function argument type. */
 LIBXSTREAM_EXPORT_C typedef struct LIBXSTREAM_TARGET(mic) libxstream_argument libxstream_argument;
 /** Function type of an offloadable function. */
@@ -103,7 +109,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_destroy(libxstream_event* event);
 /** Record an event; an event can be re-recorded multiple times. */
 LIBXSTREAM_EXPORT_C int libxstream_event_record(libxstream_event* event, libxstream_stream* stream);
 /** Check whether an event has occurred or not (non-blocking). */
-LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, libxstream_bool* has_occured);
+LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, libxstream_bool* occured);
 /** Wait for an event to complete i.e., work queued prior to recording the event. */
 LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event);
 
@@ -118,7 +124,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* arg, void* out
 /** Construct an in-out argument; takes the device data, dimensionality, and shape. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* arg, void* inout, libxstream_type type, size_t dims, const size_t shape[]);
 /** Call a user function along with the signature; wait in case of a synchronous call. */
-LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, libxstream_bool wait);
+LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags);
 
 /** Query the size of the elemental type (Byte). */
 LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* size);
