@@ -105,8 +105,8 @@ int main(int argc, char* argv[])
 #endif
 
     fprintf(stdout, "Initializing %i device%s and host data...", static_cast<int>(ndevices), 1 == ndevices ? "" : "s");
-    const int split[] = { int(nitems * 18.0 / 250.0 + 0.5), int(nitems * 74.0 / 250.0 + 0.5) };
-    multi_dgemm_type::host_data_type host_data(nitems, split);
+    const size_t split[] = { size_t(nitems * 18.0 / 250.0 + 0.5), size_t(nitems * 74.0 / 250.0 + 0.5) };
+    multi_dgemm_type::host_data_type host_data(&process, nitems, split);
     fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
 
     fprintf(stdout, "Initializing %i stream%s per device...", nstreams, 1 < nstreams ? "s" : "");
@@ -137,7 +137,7 @@ int main(int argc, char* argv[])
     for (int i = 0; i < nitems; i += nbatch) {
       const size_t j = i % nstreams_total;
       multi_dgemm_type& call = multi_dgemm[j];
-      LIBXSTREAM_CHECK_CALL_THROW(call(&process, i, std::min(nbatch, nitems - i)));
+      LIBXSTREAM_CHECK_CALL_THROW(call(i, std::min(nbatch, nitems - i)));
 
 #if defined(MULTI_DGEMM_USE_EVENTS)
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(call.event(), call.stream()));

@@ -55,7 +55,7 @@ int libxstream_construct(libxstream_argument& arg, int kind, libxstream_type typ
     std::fill_n(arg.shape, dims, 0);
   }
 
-  return libxstream_set_data(arg, value);
+  return libxstream_argument::kind_invalid != kind ? libxstream_set_data(arg, value) : LIBXSTREAM_ERROR_NONE;
 }
 
 
