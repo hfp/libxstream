@@ -61,6 +61,7 @@ LIBXSTREAM_TARGET(mic) void process(size_t size, size_t nn, const size_t* idata,
   if (0 < size) {
     static const double alpha = 1, beta = 1;
     static const char trans = 'N';
+    const int isize = static_cast<int>(size);
     const size_t base = idata[0];
 
 #if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
@@ -70,12 +71,12 @@ LIBXSTREAM_TARGET(mic) void process(size_t size, size_t nn, const size_t* idata,
     omp_set_nested(1);
 #   pragma omp parallel for schedule(dynamic,1) num_threads(size)
 #endif
-    for (int i = 0; i < size; ++i) {
+    for (int i = 0; i < isize; ++i) {
 #if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
       omp_set_num_threads(nthreads);
 #endif
       LIBXSTREAM_ASSERT(base <= idata[i]);
-      const size_t i0 = idata[i], i1 = (i + 1) < size ? idata[i+1] : (i0 + nn), n2 = i1 - i0, offset = i0 - base;
+      const size_t i0 = idata[i], i1 = (i + 1) < isize ? idata[i+1] : (i0 + nn), n2 = i1 - i0, offset = i0 - base;
       const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
       DGEMM(&trans, &trans, &n, &n, &n, &alpha, adata + offset, &n, bdata + offset, &n, &beta, cdata + offset, &n);
     }
