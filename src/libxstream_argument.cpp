@@ -61,7 +61,7 @@ int libxstream_construct(libxstream_argument& arg, int kind, libxstream_type typ
 
 int libxstream_set_data(libxstream_argument& arg, const void* data)
 {
-  char *const dst = libxstream_arg_get_address(arg);
+  char *const dst = libxstream_address(arg);
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
     const char *const src = reinterpret_cast<const char*>(&data);
     for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
@@ -86,7 +86,7 @@ char* libxstream_get_data(const libxstream_argument& arg)
 {
   char* data = 0;
 
-  const char *const src = libxstream_arg_get_address(arg);
+  const char *const src = libxstream_address(arg);
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
     char *const dst = reinterpret_cast<char*>(&data);
     for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
@@ -103,7 +103,7 @@ LIBXSTREAM_TARGET(mic) char* libxstream_get_value(const libxstream_argument& arg
 {
   char* data = 0;
 
-  const char *const src = libxstream_arg_get_address(arg);
+  const char *const src = libxstream_address(arg);
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
     char *const dst = reinterpret_cast<char*>(&data);
     for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
