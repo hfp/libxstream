@@ -51,4 +51,7 @@ int libxstream_real_deallocate(const void* memory);
 int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const void* data = 0, size_t data_size = 0);
 int libxstream_virt_deallocate(const void* memory);
 
+void* libxstream_virt_data(void* memory);
+const void* libxstream_virt_data(const void* memory);
+
 #endif // LIBXSTREAM_ALLOC_HPP

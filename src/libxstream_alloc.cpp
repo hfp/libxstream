@@ -63,30 +63,6 @@ LIBXSTREAM_TARGET(mic) S linear_size(size_t dims, const T shape[], S initial_siz
   return result;
 }
 
-
-void* get_user_data(void* memory)
-{
-#if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
-  return memory;
-#elif defined(_WIN32)
-  return memory;
-#else
-  return reinterpret_cast<char*>(memory) + sizeof(size_t);
-#endif
-}
-
-
-const void* get_user_data(const void* memory)
-{
-#if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
-  return memory;
-#elif defined(_WIN32)
-  return memory;
-#else
-  return reinterpret_cast<const char*>(memory) + sizeof(size_t);
-#endif
-}
-
 } // namespace libxstream_alloc_internal
 
 
@@ -282,16 +258,16 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
       result = libxstream_real_allocate(memory, size, alignment);
       LIBXSTREAM_CHECK_ERROR(result);
-      void *const user_data = libxstream_alloc_internal::get_user_data(*memory);
+      void *const user_data = libxstream_virt_data(*memory);
 #elif defined(_WIN32)
       void *const buffer = VirtualAlloc(0, size, MEM_RESERVE, PAGE_NOACCESS);
       LIBXSTREAM_CHECK_CONDITION(0 != buffer);
-      void *const user_data = libxstream_alloc_internal::get_user_data(VirtualAlloc(buffer, data_size, MEM_COMMIT, PAGE_READWRITE));
+      void *const user_data = libxstream_virt_data(VirtualAlloc(buffer, data_size, MEM_COMMIT, PAGE_READWRITE));
       *memory = buffer;
 #else
       void *const buffer = mmap(0, size, PROT_READ | PROT_WRITE/*PROT_NONE*/, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
       LIBXSTREAM_CHECK_CONDITION(MAP_FAILED != buffer);
-      void *const user_data = libxstream_alloc_internal::get_user_data(buffer);
+      void *const user_data = libxstream_virt_data(buffer);
       LIBXSTREAM_ASSERT(sizeof(size) <= static_cast<char*>(user_data) - static_cast<char*>(buffer));
       *static_cast<size_t*>(buffer) = size;
       *memory = buffer;
@@ -333,4 +309,28 @@ int libxstream_virt_deallocate(const void* memory)
   }
 
   return result;
+}
+
+
+void* libxstream_virt_data(void* memory)
+{
+#if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
+  return memory;
+#elif defined(_WIN32)
+  return memory;
+#else
+  return reinterpret_cast<char*>(memory) + sizeof(size_t);
+#endif
+}
+
+
+const void* libxstream_virt_data(const void* memory)
+{
+#if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
+  return memory;
+#elif defined(_WIN32)
+  return memory;
+#else
+  return reinterpret_cast<const char*>(memory) + sizeof(size_t);
+#endif
 }
