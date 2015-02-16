@@ -195,9 +195,15 @@ int multi_dgemm_type::operator()(size_t index, size_t size)
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->cdata() + i0, m_cdata, sizeof(double) * (i1 - i0), m_stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->idata() + index, m_idata, sizeof(size_t) * size, m_stream));
 
+#if defined(LIBXSTREAM_DEBUG)
+    size_t n = 0;
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_nargs(m_signature, &n) && 6 == n);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &n) && 0 == n);
+#endif
     const size_t nn = i1 - m_host_data->idata()[index+size-1];
     LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature + 0, &size, libxstream_type2value<size_t>::value, 0, 0));
     LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature + 1, &nn, libxstream_type2value<size_t>::value, 0, 0));
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &n) && 6 == n);
 
     LIBXSTREAM_ASYNC_BEGIN(m_stream, m_host_data->process(), size, nn, m_adata, m_bdata, m_cdata, m_idata)
     {

@@ -884,21 +884,21 @@ LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t arity)
+LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t nargs)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != signature && (LIBXSTREAM_MAX_NARGS) >= arity);
-  if (0 < arity) {
-    libxstream_argument *const arguments = new libxstream_argument[arity+1];
-    for (size_t i = 0; i < arity; ++i) {
+  LIBXSTREAM_CHECK_CONDITION(0 != signature && (LIBXSTREAM_MAX_NARGS) >= nargs);
+  if (0 < nargs) {
+    libxstream_argument *const arguments = new libxstream_argument[nargs+1];
+    for (size_t i = 0; i < nargs; ++i) {
       LIBXSTREAM_CHECK_ERROR(libxstream_construct(arguments[i], libxstream_argument::kind_inout, LIBXSTREAM_TYPE_VOID, 0, 0, 0));
     }
-    LIBXSTREAM_CHECK_ERROR(libxstream_construct(arguments[arity], libxstream_argument::kind_invalid, LIBXSTREAM_TYPE_VOID, 0, 0, 0));
+    LIBXSTREAM_CHECK_ERROR(libxstream_construct(arguments[nargs], libxstream_argument::kind_invalid, LIBXSTREAM_TYPE_VOID, 0, 0, 0));
     *signature = arguments;
   }
   else {
     *signature = 0;
   }
-  LIBXSTREAM_PRINT_INFOCTX("signature=0x%llux arity=%lu", reinterpret_cast<uintptr_t>(*signature), static_cast<unsigned long>(arity));
+  LIBXSTREAM_PRINT_INFOCTX("signature=0x%llux nargs=%lu", reinterpret_cast<uintptr_t>(*signature), static_cast<unsigned long>(nargs));
   return LIBXSTREAM_ERROR_NONE;
 }
 
@@ -1030,12 +1030,31 @@ LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char
 }
 
 
+LIBXSTREAM_EXPORT_C int libxstream_get_nargs(const libxstream_argument* signature, size_t* nargs)
+{
+  LIBXSTREAM_CHECK_CONDITION(0 != nargs);
+  size_t n = 0;
+  if (signature) {
+    while (libxstream_argument::kind_invalid != signature[n].kind) {
+      LIBXSTREAM_ASSERT(n < LIBXSTREAM_MAX_NARGS);
+      ++n;
+    }
+  }
+  *nargs = n;
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
 LIBXSTREAM_EXPORT_C int libxstream_get_arity(const libxstream_argument* signature, size_t* arity)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != arity);
   size_t n = 0;
   if (signature) {
-    while (libxstream_argument::kind_invalid != signature[n].kind) ++n;
+    while (LIBXSTREAM_TYPE_VOID != signature[n].type) {
+      LIBXSTREAM_ASSERT(n < LIBXSTREAM_MAX_NARGS);
+      LIBXSTREAM_ASSERT(libxstream_argument::kind_invalid != signature[n].kind);
+      ++n;
+    }
   }
   *arity = n;
   return LIBXSTREAM_ERROR_NONE;

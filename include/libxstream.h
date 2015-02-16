@@ -114,7 +114,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
 LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event);
 
 /** Create a function signature with a certain arity (number of arguments). */
-LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t arity);
+LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t nargs);
 /** Destroy a function signature; does not release the bound data. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature);
 /** Construct an input argument; takes the device data, dimensionality, and shape. */
@@ -130,7 +130,9 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
 LIBXSTREAM_EXPORT_C int libxstream_get_typesize(libxstream_type type, size_t* size);
 /** Query the name of the elemental type (string does not need to be buffered). */
 LIBXSTREAM_EXPORT_C int libxstream_get_typename(libxstream_type type, const char** name);
-/** Query the arity of the function signature (number of arguments). */
+/** Query the maximum number of arguments that can be covered by the function signature. */
+LIBXSTREAM_EXPORT_C int libxstream_get_nargs(const libxstream_argument* signature, size_t* nargs);
+/** Query the arity of the function signature (actual number of arguments). */
 LIBXSTREAM_EXPORT_C int libxstream_get_arity(const libxstream_argument* signature, size_t* arity);
 /** Query a textual value of the argument (valid until next call); thread safe. */
 LIBXSTREAM_EXPORT_C int libxstream_get_value(const libxstream_argument* arg, const char** value);

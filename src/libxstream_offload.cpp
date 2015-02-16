@@ -36,11 +36,11 @@
 namespace libxstream_offload_internal {
 
 // the following construct helps to inline libxstream_get_value within an offload region
-LIBXSTREAM_TARGET(mic) void get_arg_value(size_t nargs, const libxstream_argument* signature, char* arg[]) {
+LIBXSTREAM_TARGET(mic) void get_arg_value(size_t arity, const libxstream_argument* signature, char* arg[]) {
 #if defined(__INTEL_COMPILER)
 # pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
 #endif
-  for (size_t i = 0; i < nargs; ++i) {
+  for (size_t i = 0; i < arity; ++i) {
 #if defined(__INTEL_COMPILER)
 #   pragma forceinline recursive
 #endif
@@ -56,7 +56,7 @@ LIBXSTREAM_TARGET(mic) void get_arg_value(size_t nargs, const libxstream_argumen
   context.signature = signature; \
   context.stream = stream; \
   char* arg[LIBXSTREAM_MAX_NARGS]; \
-  libxstream_offload_internal::get_arg_value(nargs, signature, arg)
+  libxstream_offload_internal::get_arg_value(arity, signature, arg)
 
 #define LIBXSTREAM_OFFLOAD_CONTEXT_END \
   context.signature = 0; \
@@ -69,14 +69,13 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
   LIBXSTREAM_ASSERT(function);
   LIBXSTREAM_TARGET(mic) void (*fn)(LIBXSTREAM_VARIADIC) = function;
 
-  size_t nargs = 0;
-  libxstream_get_arity(signature, &nargs);
-  LIBXSTREAM_ASSERT(nargs <= LIBXSTREAM_MAX_NARGS);
+  size_t arity = 0;
+  libxstream_get_arity(signature, &arity);
 
-  switch (nargs) {
+  switch (arity) {
     case 0: {
 #if defined(LIBXSTREAM_OFFLOAD)
-//#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+//#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn();
@@ -85,7 +84,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
 #if 0
     case 1: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0]);
@@ -93,7 +92,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 2: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1]);
@@ -103,7 +102,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
 #if 0
     case 3: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2]);
@@ -111,7 +110,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 4: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3]);
@@ -119,7 +118,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 5: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4]);
@@ -127,7 +126,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 6: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5]);
@@ -135,7 +134,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 7: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6]);
@@ -143,7 +142,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 8: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7]);
@@ -151,7 +150,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 9: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8]);
@@ -159,7 +158,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 10: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9]);
@@ -167,7 +166,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 11: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10]);
@@ -175,7 +174,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 12: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11]);
@@ -183,7 +182,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 13: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11], arg[12]);
@@ -191,7 +190,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 14: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11], arg[12], arg[13]);
@@ -199,7 +198,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 15: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11], arg[12], arg[13], arg[14]);
@@ -207,7 +206,7 @@ void libxstream_offload(libxstream_function function, const libxstream_argument*
     } break;
     case 16: {
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(nargs))
+#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
 #endif
       LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
       fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11], arg[12], arg[13], arg[14], arg[15]);
