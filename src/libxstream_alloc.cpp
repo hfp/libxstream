@@ -41,6 +41,7 @@
 # include <windows.h>
 #else
 # include <xmmintrin.h>
+# include <sys/mman.h>
 #endif
 
 

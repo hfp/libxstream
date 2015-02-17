@@ -51,17 +51,9 @@
 # include <pthread.h>
 #endif
 
-#if defined(LIBXSTREAM_OFFLOAD)
-# pragma offload_attribute(push,target(mic))
-#endif
+#include "libxstream_begin.h"
 #include <cstring>
-#if !defined(_WIN32)
-# include <sys/mman.h>
-# include <unistd.h>
-#endif
-#if defined(LIBXSTREAM_OFFLOAD)
-# pragma offload_attribute(pop)
-#endif
+#include "libxstream_end.h"
 
 #if defined(__MKL)
 # include <mkl.h>
@@ -74,7 +66,7 @@
 #if defined(_WIN32)
 # include <windows.h>
 #else
-# include <xmmintrin.h>
+# include <unistd.h>
 #endif
 
 //#define LIBXSTREAM_SYNC_NO_MEMSYNC
