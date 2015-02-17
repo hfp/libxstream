@@ -37,7 +37,7 @@
 
 
 /** Boolean state. */
-LIBXSTREAM_EXPORT_C typedef int libxstream_bool;
+typedef int libxstream_bool;
 /** Stream type. */
 LIBXSTREAM_EXPORT_C typedef struct libxstream_stream libxstream_stream;
 /** Event type. */
@@ -65,7 +65,7 @@ LIBXSTREAM_EXPORT_C typedef enum libxstream_call_flags {
 /** Function argument type. */
 LIBXSTREAM_EXPORT_C typedef struct LIBXSTREAM_TARGET(mic) libxstream_argument libxstream_argument;
 /** Function type of an offloadable function. */
-LIBXSTREAM_EXPORT_C typedef LIBXSTREAM_TARGET(mic) void (/*LIBXSTREAM_CDECL*/*libxstream_function)(LIBXSTREAM_VARIADIC);
+typedef LIBXSTREAM_TARGET(mic) void (/*LIBXSTREAM_CDECL*/*libxstream_function)(LIBXSTREAM_VARIADIC);
 
 /** Query the number of available devices. */
 LIBXSTREAM_EXPORT_C int libxstream_get_ndevices(size_t* ndevices);

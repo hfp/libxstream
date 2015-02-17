@@ -102,7 +102,7 @@
 
 #define LIBXSTREAM_IMPORT_DLL __declspec(dllimport)
 
-#if defined(_WINDLL)
+#if defined(_WINDLL) && defined(_WIN32)
 # if defined(LIBXSTREAM_EXPORTED)
 #   define LIBXSTREAM_EXPORT __declspec(dllexport)
 # else
