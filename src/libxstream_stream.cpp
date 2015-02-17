@@ -30,6 +30,7 @@
 ******************************************************************************/
 #include "libxstream_stream.hpp"
 #include <algorithm>
+#include <string>
 #include <cstdio>
 
 #if defined(LIBXSTREAM_STDFEATURES)
