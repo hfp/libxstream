@@ -30,6 +30,7 @@
 ******************************************************************************/
 #include "libxstream.hpp"
 #include <algorithm>
+#include <stdexcept>
 #include <limits>
 #include <cstdio>
 

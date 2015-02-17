@@ -28,7 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#include "libxstream.hpp"
+#include "libxstream_event.hpp"
 #include <algorithm>
 
 #if defined(LIBXSTREAM_OFFLOAD)

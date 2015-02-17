@@ -31,10 +31,9 @@
 #ifndef LIBXSTREAM_EVENT_HPP
 #define LIBXSTREAM_EVENT_HPP
 
+#include "libxstream.hpp"
+
 #if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
-
-
-struct LIBXSTREAM_EXPORT_INTERNAL libxstream_stream;
 
 
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_event {
