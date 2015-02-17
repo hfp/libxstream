@@ -106,7 +106,7 @@
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_stream;
 
 
-struct LIBXSTREAM_EXPORT_INTERNAL /*LIBXSTREAM_TARGET(mic)*/ libxstream_capture_base {
+struct LIBXSTREAM_EXPORT_INTERNAL libxstream_capture_base {
 public:
   struct LIBXSTREAM_EXPORT_INTERNAL arg_type: public libxstream_argument {
 

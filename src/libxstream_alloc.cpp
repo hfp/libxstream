@@ -47,10 +47,9 @@
 
 namespace libxstream_alloc_internal {
 
-unsigned int       abs(unsigned int        a)  { return a; }
-unsigned long      abs(unsigned long       a)  { return a; }
-unsigned long long abs(unsigned long long  a)  { return a; }
-
+LIBXSTREAM_TARGET(mic) unsigned int       abs(unsigned int        a)  { return a; }
+LIBXSTREAM_TARGET(mic) unsigned long      abs(unsigned long       a)  { return a; }
+LIBXSTREAM_TARGET(mic) unsigned long long abs(unsigned long long  a)  { return a; }
 
 template<typename S, typename T>
 LIBXSTREAM_TARGET(mic) S linear_size(size_t dims, const T shape[], S initial_size)
