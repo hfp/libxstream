@@ -4,82 +4,21 @@ Library to work with streams, events, and code regions that are able to run asyn
 
 Interface
 =========
-The library's [C API](include/libxstream.h) completely seals the implementation and only forward-declares the types used in the interface. The C++ API allows to make use of the [stream](include/libxstream_stream.hpp) and [event](include/libxstream_event.hpp) types directly although it is seen to be an advantage to only rely on the C interface. The C++ API is currently required for own code to be queued into a stream. However, a future revision will allow to only rely on a function pointer and a plain C interface. A future release may also provide a native FORTRAN interface.
+The library's [C API](include/libxstream.h) completely seals the implementation and only forward-declares the types used in the interface. Beside of the API functions, an own function can be enqueued for execution within a stream (via function pointer). A future release of the library will provide a native FORTRAN interface.
 
-**Data Types**: are forward-declarations of the types used in the interface. The C++ API allows to make use of the [stream](include/libxstream_stream.hpp) and [event](include/libxstream_event.hpp) types directly although it is seen to be an advantage to only rely on the C interface.
+**Data Types**: are forward-declared types used in the interface.
 
-```C
-/** Data type representing a signal. */
-typedef uintptr_t libxstream_signal;
-/** Forward declaration of the stream type (C++ API includes the definition). */
-typedef struct libxstream_stream libxstream_stream;
-/** Forward declaration of the event type (C++ API includes the definition). */
-typedef struct libxstream_event libxstream_event;
-```
+**Device Interface**: provides the notion of an "active device" (beside of allowing to query the number of available devices). Multiple active devices can be specified on a per host-thread basis. None of the other function of the API implies an active device. It is up to the user to make use of this notion.
 
-**Device Interface**: provides the notion of an "active device" (beside of allowing to query the number of available devices). Multiple active devices can be specified on a per host-thread basis. None of the (main) API functions (see below) implies an active device. It is up to the user to make use of this notion.
-
-```C
-/** Query the number of available devices. */
-int libxstream_get_ndevices(size_t* ndevices);
-/** Query the device set active for this thread. */
-int libxstream_get_active_device(int* device);
-/** Set the active device for this thread. */
-int libxstream_set_active_device(int device);
-```
-
-**Memory Interface**: is mainly for handling device-side buffers (allocation, copy). It is usually beneficial to allocate host memory with below functions as well. However, any memory allocation on the host is interoperable. It is also supported copying parts to/from a buffer using below API.
-
-```C
-/** Query the memory metrics of the given device (valid to pass one NULL pointer). */
-int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
-/** Allocate aligned memory (0: automatic) on the given device. */
-int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
-/** Deallocate memory; shall match the device where the memory was allocated. */
-int libxstream_mem_deallocate(int device, const void* memory);
-/** Fill memory with zeros; allocated memory can carry an offset. */
-int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream);
-/** Copy memory from the host to the device; addresses can carry an offset. */
-int libxstream_memcpy_h2d(const void* mem, void* dev_mem, size_t, libxstream_stream*);
-/** Copy memory from the device to the host; addresses can carry an offset. */
-int libxstream_memcpy_d2h(const void* dev_mem, void* mem, size_t, libxstream_stream*);
-/** Copy memory from device to device; cross-device copies are allowed as well. */
-int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream*);
-```
+**Memory Interface**: is mainly for handling device-side buffers (allocation, copy). It is usually beneficial to allocate host memory using these functions as well. However, any memory allocation on the host is interoperable. It is also supported copying parts to/from a buffer using this API.
 
 **Stream Interface**: is used to expose the available parallelism. A stream preserves the predecessor/successor relationship while participating in a pipeline (parallel pattern) in case of multiple streams. Synchronization points can be introduced using the stream interface as well as the event interface.
 
-```C
-/** Query the range of valid priorities (inclusive bounds). */
-int libxstream_stream_priority_range(int* least, int* greatest);
-/** Create a stream on a device (demux<0: auto-locks, 0: manual, demux>0: sync.). */
-int libxstream_stream_create(libxstream_stream**, int device, int demux, int, char*);
-/** Destroy a stream; pending work must be completed if results are needed. */
-int libxstream_stream_destroy(libxstream_stream* stream);
-/** Wait for a stream to complete pending work; NULL to synchronize all streams. */
-int libxstream_stream_sync(libxstream_stream* stream);
-/** Wait for an event recorded earlier; NULL increases the match accordingly. */
-int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
-/** Lock a stream such that the caller thread can safely enqueue work. */
-int libxstream_stream_lock(libxstream_stream* stream);
-/** Unlock a stream such that another thread can acquire the stream. */
-int libxstream_stream_unlock(libxstream_stream* stream);
-```
-
 **Event Interface**: provides a more sophisticated mechanism allowing to wait for a specific work item to complete without the need to also wait for the completion of work queued after the item in question.
 
-```C
-/** Create an event; can be used multiple times to record an event. */
-int libxstream_event_create(libxstream_event** event);
-/** Destroy an event; does not implicitly waits for the completion of the event. */
-int libxstream_event_destroy(libxstream_event* event);
-/** Record an event; an event can be re-recorded multiple times. */
-int libxstream_event_record(libxstream_event* event, libxstream_stream* stream);
-/** Check whether an event has occurred or not (non-blocking). */
-int libxstream_event_query(const libxstream_event* event, int* has_occured);
-/** Wait for an event to complete i.e., work queued prior to recording the event. */
-int libxstream_event_synchronize(libxstream_event* event);
-```
+**Function Interface**: is used to describe and call an user function along with its list of arguments. The function's signature consists of inputs, outputs, or in-out arguments. An own function can be enqueued for execution within a stream by taking the address of the function.
+
+**Query Interface**: allows to query information about function arguments when inside of an user function.
 
 Implementation
 ==============
