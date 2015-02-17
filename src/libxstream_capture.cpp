@@ -269,7 +269,8 @@ private:
 
 
 libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync)
-  : m_signature(0), m_owned(true)
+  : m_signature(0)
+  , m_owned(false)
 #if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
   , m_unlock(false)
 #else
@@ -282,10 +283,23 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
 #endif
   , m_stream(stream)
 {
-  libxstream_fn_create_signature(&m_signature, argc);
-  for (size_t i = 0; i < argc; ++i) {
-    m_signature[i] = argv[i];
+  if (1 == argc && argv->signature()) {
+    m_signature = reinterpret_cast<const libxstream_argument*>(libxstream_get_data(*argv));
   }
+  else {
+    libxstream_argument* signature = 0;
+    libxstream_fn_create_signature(&signature, argc);
+    for (size_t i = 0; i < argc; ++i) {
+      LIBXSTREAM_ASSERT(!argv[i].signature());
+      signature[i] = argv[i];
+    }
+    m_signature = signature;
+    m_owned = true;
+  }
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && arity == argc);
+#endif
 
   if (stream) {
     if (!wait && 0 != stream->demux()) {

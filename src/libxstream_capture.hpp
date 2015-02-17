@@ -76,9 +76,9 @@
 # define LIBXSTREAM_ASYNC_TARGET_WAIT
 #endif
 
-#define LIBXSTREAM_ASYNC_BEGIN(STREAM, ARG, ...) do { \
+#define LIBXSTREAM_ASYNC_BEGIN(STREAM, ...) do { \
   libxstream_stream *const libxstream_capture_stream = cast_to_stream(STREAM); \
-  const libxstream_capture_base::arg_type libxstream_capture_argv[] = { ARG, __VA_ARGS__ }; \
+  const libxstream_capture_base::arg_type libxstream_capture_argv[] = { __VA_ARGS__ }; \
   const struct libxstream_capture: public libxstream_capture_base { \
     libxstream_capture(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync = false) \
       : libxstream_capture_base(argc, argv, stream, wait, sync) \
@@ -108,23 +108,34 @@ struct LIBXSTREAM_EXPORT_INTERNAL libxstream_stream;
 
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_capture_base {
 public:
-  struct LIBXSTREAM_EXPORT_INTERNAL arg_type: public libxstream_argument {
+  class LIBXSTREAM_EXPORT_INTERNAL arg_type: public libxstream_argument {
+  public:
+    arg_type(): m_signature(false) {
+      libxstream_construct(*this, kind_inout, 0, LIBXSTREAM_TYPE_VOID, 0, 0);
+    }
 
-    arg_type() { libxstream_fn_inout(this, 0, LIBXSTREAM_TYPE_VOID, 0, 0); }
+    arg_type(const libxstream_argument* signature): m_signature(true) {
+      const size_t size = sizeof(libxstream_argument*);
+      libxstream_construct(*this, kind_input, signature, LIBXSTREAM_TYPE_BYTE, 1, &size);
+    }
 
-    template<typename T> arg_type(T arg) {
+    template<typename T> arg_type(T arg): m_signature(false) {
       libxstream_construct(*this, kind_input, &arg, libxstream_type2value<T>::value, 0, 0);
     }
 
-    template<typename T> arg_type(T* arg) {
+    template<typename T> arg_type(T* arg): m_signature(false) {
       const size_t size = sizeof(T*);
       libxstream_construct(*this, kind_inout, reinterpret_cast<void*>(arg), LIBXSTREAM_TYPE_BYTE, 1, &size);
     }
 
-    template<typename T> arg_type(const T* arg) {
+    template<typename T> arg_type(const T* arg): m_signature(false) {
       const size_t size = sizeof(T*);
       libxstream_construct(*this, kind_input, reinterpret_cast<const void*>(arg), LIBXSTREAM_TYPE_BYTE, 1, &size);
     }
+  public:
+    bool signature() const { return m_signature; }
+  private:
+    bool m_signature;
   };
 
 public:
@@ -132,6 +143,15 @@ public:
   virtual ~libxstream_capture_base();
 
 public:
+  template<typename T,size_t i> T val() const {
+#if defined(LIBXSTREAM_DEBUG)
+    size_t size = 0;
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &size) && i < size);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_datasize(m_signature + i, &size) && sizeof(T) <= size);
+#endif
+    return *reinterpret_cast<const T*>(libxstream_address(m_signature[i]));
+  }
+
   template<typename T,size_t i> T* ptr() const {
 #if defined(LIBXSTREAM_DEBUG)
     size_t size = 0;
@@ -139,16 +159,6 @@ public:
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_datasize(m_signature + i, &size) && sizeof(T*) <= size);
 #endif
     return reinterpret_cast<T*>(libxstream_get_data(m_signature[i]));
-  }
-
-  template<typename T,size_t i> T val() const {
-#if defined(LIBXSTREAM_DEBUG)
-    size_t size = 0;
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &size) && i < size);
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_datasize(m_signature + i, &size) && sizeof(T) <= size);
-#endif
-    //return *reinterpret_cast<const T*>(libxstream_get_data(m_signature[i]));
-    return *reinterpret_cast<const T*>(libxstream_address(m_signature[i]));
   }
 
   libxstream_capture_base* clone() const;
@@ -160,7 +170,7 @@ private:
   virtual void virtual_run() const = 0;
 
 private:
-  libxstream_argument* m_signature;
+  const libxstream_argument* m_signature;
   bool m_owned, m_unlock, m_sync;
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   int m_thread;
