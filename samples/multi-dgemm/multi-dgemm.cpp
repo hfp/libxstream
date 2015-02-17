@@ -29,13 +29,14 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "multi-dgemm-type.hpp"
-#include <libxstream_begin.h>
 #include <stdexcept>
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <vector>
+
+#include <libxstream_begin.h>
 #include <cmath>
 #if defined(_OPENMP)
 # include <omp.h>
