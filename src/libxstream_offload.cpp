@@ -39,66 +39,67 @@
 
 int libxstream_offload(libxstream_function function, const libxstream_argument* signature, libxstream_stream& stream, bool wait)
 {
-  LIBXSTREAM_ASSERT(function);
   LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {
-    LIBXSTREAM_TARGET(mic) void (*function)(LIBXSTREAM_VARIADIC) = val<libxstream_function,0>();
-    const libxstream_argument *const signature = ptr<const libxstream_argument,1>();
+    LIBXSTREAM_TARGET(mic) const libxstream_function fun = function();
+    const libxstream_argument *const sig = signature();
+    LIBXSTREAM_ASSERT(fun && sig);
+
     size_t arity = 0;
-    libxstream_get_arity(signature, &arity);
+    libxstream_get_arity(sig, &arity);
 
     switch (arity) {
       case 0: {
 #if defined(LIBXSTREAM_OFFLOAD)
         if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_OFFLOAD_SIGNATURE(signature, arity)
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_OFFLOAD_SIGNATURE(sig, arity)
             {
-              libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
-              function();
+              libxstream_context::instance(sig, sig + arity, LIBXSTREAM_ASYNC_STREAM);
+              fun();
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_OFFLOAD_SIGNATURE(signature, arity)
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_OFFLOAD_SIGNATURE(sig, arity)
             {
-              libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
-              function();
+              libxstream_context::instance(sig, sig + arity, LIBXSTREAM_ASYNC_STREAM);
+              fun();
             }
           }
         }
         else
 #endif
         {
-          libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
-          function();
+          libxstream_context::instance(sig, sig + arity, LIBXSTREAM_ASYNC_STREAM);
+          fun();
         }
       } break;
       case 1: {
-        char *a0 = libxstream_get_data(signature[0]);
+        char *a0 = libxstream_get_data(sig[0]);
 #if defined(LIBXSTREAM_OFFLOAD)
         if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_OFFLOAD_SIGNATURE(signature, arity) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_OFFLOAD_SIGNATURE(sig, arity) \
               inout(a0: LIBXSTREAM_OFFLOAD_REFRESH)
             {
-              libxstream_context& context = libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
+              libxstream_context& context = libxstream_context::instance(sig, sig + arity, LIBXSTREAM_ASYNC_STREAM);
               libxstream_set_data(context.signature[0], a0);
-              function(a0);
+              fun(a0);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_OFFLOAD_SIGNATURE(signature, arity) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_OFFLOAD_SIGNATURE(sig, arity) \
               inout(a0: LIBXSTREAM_OFFLOAD_REFRESH)
             {
-              libxstream_context& context = libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
-              function(a0);
+              libxstream_context& context = libxstream_context::instance(sig, sig + arity, LIBXSTREAM_ASYNC_STREAM);
+              fun(a0);
             }
           }
         }
         else
 #endif
         {
-          libxstream_context& context = libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
-          function(a0);
+          libxstream_context& context = libxstream_context::instance(sig, sig + arity, LIBXSTREAM_ASYNC_STREAM);
+          fun(a0);
         }
       } break;
       default: {

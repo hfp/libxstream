@@ -161,6 +161,9 @@ public:
     return reinterpret_cast<T*>(libxstream_get_data(m_signature[i]));
   }
 
+  libxstream_function function() const { return m_function; }
+  const libxstream_argument* signature() const { return m_signature; }
+
   libxstream_capture_base* clone() const;
   void operator()() const;
   int thread() const;
@@ -170,6 +173,7 @@ private:
   virtual void virtual_run() const = 0;
 
 private:
+  libxstream_function m_function;
   const libxstream_argument* m_signature;
   bool m_owned, m_unlock, m_sync;
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
