@@ -46,7 +46,8 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
 
   // This data member *must* be the first!
   union element_union {
-    char* pointer[sizeof(void*)];
+    char data[sizeof(void*)];
+    void* pointer;
     signed char i8;
     unsigned char u8;
     short i16;
@@ -69,7 +70,7 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
 };
 
 
-int libxstream_construct(libxstream_argument& arg, libxstream_argument::kind_type kind, libxstream_type type, const void* value, size_t dims, const size_t shape[]);
+int libxstream_construct(libxstream_argument& arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[]);
 
 LIBXSTREAM_TARGET(mic) inline char* libxstream_address(libxstream_argument& arg) {
   return reinterpret_cast<char*>(&arg);
@@ -79,9 +80,8 @@ LIBXSTREAM_TARGET(mic) inline const char* libxstream_address(const libxstream_ar
   return reinterpret_cast<const char*>(&arg);
 }
 
-int libxstream_set_data(libxstream_argument& arg, const void* data);
-char* libxstream_get_data(const libxstream_argument& arg);
-LIBXSTREAM_TARGET(mic) char* libxstream_get_value(const libxstream_argument& arg);
+LIBXSTREAM_TARGET(mic) int libxstream_set_data(libxstream_argument& arg, const void* data);
+LIBXSTREAM_TARGET(mic) char* libxstream_get_data(const libxstream_argument& arg);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_ARGUMENT_HPP

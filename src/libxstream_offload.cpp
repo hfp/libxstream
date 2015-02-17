@@ -30,189 +30,83 @@
 ******************************************************************************/
 #include "libxstream_offload.hpp"
 #include "libxstream_argument.hpp"
+#include "libxstream_capture.hpp"
 #include "libxstream_context.hpp"
 
-
-namespace libxstream_offload_internal {
-
-// the following construct helps to inline libxstream_get_value within an offload region
-LIBXSTREAM_TARGET(mic) void get_arg_value(size_t arity, const libxstream_argument* signature, char* arg[]) {
-#if defined(__INTEL_COMPILER)
-# pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
-#endif
-  for (size_t i = 0; i < arity; ++i) {
-#if defined(__INTEL_COMPILER)
-#   pragma forceinline recursive
-#endif
-    arg[i] = libxstream_get_value(signature[i]);
-  }
-}
-
-} // namespace libxstream_offload_internal
+#define LIBXSTREAM_OFFLOAD_SIGNATURE(SIGNATURE, ARITY) in(ARITY) in(SIGNATURE: length(ARITY))
+#define LIBXSTREAM_OFFLOAD_REFRESH length(0) alloc_if(false) free_if(false)
 
 
-#define LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN { \
-  libxstream_context& context = libxstream_context::instance(); \
-  context.signature = signature; \
-  context.stream = stream; \
-  char* arg[LIBXSTREAM_MAX_NARGS]; \
-  libxstream_offload_internal::get_arg_value(arity, signature, arg)
-
-#define LIBXSTREAM_OFFLOAD_CONTEXT_END \
-  context.signature = 0; \
-  context.stream = 0; \
-}
-
-
-void libxstream_offload(libxstream_function function, const libxstream_argument* signature, const libxstream_stream* stream)
+int libxstream_offload(libxstream_function function, const libxstream_argument* signature, libxstream_stream& stream, bool wait)
 {
   LIBXSTREAM_ASSERT(function);
-  LIBXSTREAM_TARGET(mic) void (*fn)(LIBXSTREAM_VARIADIC) = function;
+  LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {
+    LIBXSTREAM_TARGET(mic) void (*function)(LIBXSTREAM_VARIADIC) = val<libxstream_function,0>();
+    const libxstream_argument *const signature = ptr<const libxstream_argument,1>();
+    size_t arity = 0;
+    libxstream_get_arity(signature, &arity);
 
-  size_t arity = 0;
-  libxstream_get_arity(signature, &arity);
-
-  switch (arity) {
-    case 0: {
+    switch (arity) {
+      case 0: {
 #if defined(LIBXSTREAM_OFFLOAD)
-//#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
+        if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_OFFLOAD_SIGNATURE(signature, arity)
+            {
+              libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
+              function();
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_OFFLOAD_SIGNATURE(signature, arity)
+            {
+              libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
+              function();
+            }
+          }
+        }
+        else
 #endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn();
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-#if 0
-    case 1: {
+        {
+          libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
+          function();
+        }
+      } break;
+      case 1: {
+        char *a0 = libxstream_get_data(signature[0]);
 #if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
+        if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_OFFLOAD_SIGNATURE(signature, arity) \
+              inout(a0: LIBXSTREAM_OFFLOAD_REFRESH)
+            {
+              libxstream_context& context = libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
+              libxstream_set_data(context.signature[0], a0);
+              function(a0);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_OFFLOAD_SIGNATURE(signature, arity) \
+              inout(a0: LIBXSTREAM_OFFLOAD_REFRESH)
+            {
+              libxstream_context& context = libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
+              function(a0);
+            }
+          }
+        }
+        else
 #endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 2: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-#endif
-#if 0
-    case 3: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 4: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 5: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 6: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 7: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 8: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 9: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 10: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 11: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 12: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 13: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11], arg[12]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 14: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11], arg[12], arg[13]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 15: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11], arg[12], arg[13], arg[14]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-    case 16: {
-#if defined(LIBXSTREAM_OFFLOAD)
-#     pragma offload target(mic:device) if(0 <= device) in(signature: length(arity))
-#endif
-      LIBXSTREAM_OFFLOAD_CONTEXT_BEGIN;
-      fn(arg[0], arg[1], arg[2], arg[3], arg[4], arg[5], arg[6], arg[7], arg[8], arg[9], arg[10], arg[11], arg[12], arg[13], arg[14], arg[15]);
-      LIBXSTREAM_OFFLOAD_CONTEXT_END;
-    } break;
-#endif
-    default: LIBXSTREAM_ASSERT(false);
+        {
+          libxstream_context& context = libxstream_context::instance(signature, signature + arity, LIBXSTREAM_ASYNC_STREAM);
+          function(a0);
+        }
+      } break;
+      default: {
+        LIBXSTREAM_ASSERT(false);
+      }
+    }
   }
+  LIBXSTREAM_ASYNC_END(wait);
+
+  return LIBXSTREAM_ERROR_NONE;
 }

@@ -30,6 +30,8 @@
 ******************************************************************************/
 #include "libxstream.hpp"
 #include <algorithm>
+#include <stdexcept>
+#include <cstdio>
 
 #if defined(LIBXSTREAM_STDFEATURES)
 # include <thread>
@@ -42,7 +44,8 @@
 # endif
 #endif
 
-//#define LIBXSTREAM_CAPTURE_USE_DEBUG
+//#define LIBXSTREAM_CAPTURE_DEBUG
+//#define LIBXSTREAM_CAPTURE_UNLOCK_LATE
 
 
 namespace libxstream_capture_internal {
@@ -255,7 +258,7 @@ private:
   HANDLE m_thread;
   size_t m_size;
 #endif
-#if defined(LIBXSTREAM_CAPTURE_USE_DEBUG)
+#if defined(LIBXSTREAM_CAPTURE_DEBUG)
 };
 #else
 } queue;
@@ -266,11 +269,11 @@ private:
 
 
 libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync)
-#if defined(LIBXSTREAM_DEBUG)
-  : m_argc(argc)
-  , m_destruct(true)
+  : m_signature(0), m_owned(true)
+#if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
+  , m_unlock(false)
 #else
-  : m_destruct(true)
+  , m_unlock(true)
 #endif
   , m_sync(sync)
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
@@ -279,9 +282,9 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
 #endif
   , m_stream(stream)
 {
-  LIBXSTREAM_ASSERT(argc <= LIBXSTREAM_MAX_NARGS);
+  libxstream_fn_create_signature(&m_signature, argc);
   for (size_t i = 0; i < argc; ++i) {
-    m_argv[i] = argv[i];
+    m_signature[i] = argv[i];
   }
 
   if (stream) {
@@ -295,10 +298,21 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
 
 libxstream_capture_base::~libxstream_capture_base()
 {
-  if (m_destruct && m_stream) {
+  if (m_unlock && m_stream) {
     m_stream->end();
     if (m_sync && 0 != m_stream->demux()) {
       m_stream->unlock();
+    }
+  }
+
+  if (m_owned) {
+#if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
+    if (m_unlock)
+#else
+    if (!m_unlock)
+#endif
+    {
+      libxstream_fn_destroy_signature(m_signature);
     }
   }
 }
@@ -306,9 +320,13 @@ libxstream_capture_base::~libxstream_capture_base()
 
 libxstream_capture_base* libxstream_capture_base::clone() const
 {
-  libxstream_capture_base *const result = virtual_clone();
-  result->m_destruct = false;
-  return result;
+  libxstream_capture_base *const instance = virtual_clone();
+#if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
+  instance->m_unlock = true;
+#else
+  instance->m_unlock = false;
+#endif
+  return instance;
 }
 
 
@@ -330,7 +348,7 @@ int libxstream_capture_base::thread() const
 
 LIBXSTREAM_EXPORT_INTERNAL void libxstream_offload(const libxstream_capture_base& capture_region, bool wait)
 {
-#if !defined(LIBXSTREAM_CAPTURE_USE_DEBUG)
+#if !defined(LIBXSTREAM_CAPTURE_DEBUG)
   if (libxstream_capture_internal::queue.start()) {
     libxstream_capture_internal::queue.push(capture_region, wait);
   }
@@ -342,7 +360,7 @@ LIBXSTREAM_EXPORT_INTERNAL void libxstream_offload(const libxstream_capture_base
 
 void libxstream_capture_shutdown()
 {
-#if !defined(LIBXSTREAM_CAPTURE_USE_DEBUG)
+#if !defined(LIBXSTREAM_CAPTURE_DEBUG)
   libxstream_capture_internal::queue.terminate();
 #endif
 }

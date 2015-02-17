@@ -31,7 +31,7 @@
 #ifndef LIBXSTREAM_CAPTURE_HPP
 #define LIBXSTREAM_CAPTURE_HPP
 
-#include <libxstream_macros.h>
+#include <libxstream_stream.hpp>
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 
@@ -106,31 +106,24 @@
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_stream;
 
 
-struct LIBXSTREAM_EXPORT_INTERNAL libxstream_capture_base {
+struct LIBXSTREAM_EXPORT_INTERNAL /*LIBXSTREAM_TARGET(mic)*/ libxstream_capture_base {
 public:
-  struct LIBXSTREAM_EXPORT_INTERNAL arg_type {
-    union { void* p; double d; } value;
-#if defined(LIBXSTREAM_DEBUG)
-    size_t size;
-#endif
+  struct LIBXSTREAM_EXPORT_INTERNAL arg_type: public libxstream_argument {
 
-    arg_type()
-#if defined(LIBXSTREAM_DEBUG)
-      : size(0)
-#endif
-    {
-      value.p = 0; value.d = 0;
+    arg_type() { libxstream_fn_inout(this, 0, LIBXSTREAM_TYPE_VOID, 0, 0); }
+
+    template<typename T> arg_type(T arg) {
+      libxstream_construct(*this, kind_input, &arg, libxstream_type2value<T>::value, 0, 0);
     }
 
-    template<typename T> arg_type(T arg)
-#if defined(LIBXSTREAM_DEBUG)
-      : size(sizeof(T))
-#endif
-    {
-      const char *const src = reinterpret_cast<const char*>(&arg);
-      char *const dst = reinterpret_cast<char*>(&value);
-      for (size_t i = 0; i < sizeof(T); ++i) dst[i] = src[i];
-      for (size_t i = sizeof(T); i < sizeof(value); ++i) dst[i] = 0;
+    template<typename T> arg_type(T* arg) {
+      const size_t size = sizeof(T*);
+      libxstream_construct(*this, kind_inout, reinterpret_cast<void*>(arg), LIBXSTREAM_TYPE_BYTE, 1, &size);
+    }
+
+    template<typename T> arg_type(const T* arg) {
+      const size_t size = sizeof(T*);
+      libxstream_construct(*this, kind_input, reinterpret_cast<const void*>(arg), LIBXSTREAM_TYPE_BYTE, 1, &size);
     }
   };
 
@@ -140,13 +133,22 @@ public:
 
 public:
   template<typename T,size_t i> T* ptr() const {
-    LIBXSTREAM_ASSERT(i < m_argc && sizeof(T*) <= m_argv[i].size);
-    return static_cast<T*>(m_argv[i].value.p);
+#if defined(LIBXSTREAM_DEBUG)
+    size_t size = 0;
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &size) && i < size);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_datasize(m_signature + i, &size) && sizeof(T*) <= size);
+#endif
+    return reinterpret_cast<T*>(libxstream_get_data(m_signature[i]));
   }
 
   template<typename T,size_t i> T val() const {
-    LIBXSTREAM_ASSERT(i < m_argc && sizeof(T) <= m_argv[i].size);
-    return *reinterpret_cast<const T*>(m_argv + i);
+#if defined(LIBXSTREAM_DEBUG)
+    size_t size = 0;
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &size) && i < size);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_datasize(m_signature + i, &size) && sizeof(T) <= size);
+#endif
+    //return *reinterpret_cast<const T*>(libxstream_get_data(m_signature[i]));
+    return *reinterpret_cast<const T*>(libxstream_address(m_signature[i]));
   }
 
   libxstream_capture_base* clone() const;
@@ -158,11 +160,8 @@ private:
   virtual void virtual_run() const = 0;
 
 private:
-  arg_type m_argv[LIBXSTREAM_MAX_NARGS];
-#if defined(LIBXSTREAM_DEBUG)
-  size_t m_argc;
-#endif
-  bool m_destruct, m_sync;
+  libxstream_argument* m_signature;
+  bool m_owned, m_unlock, m_sync;
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   int m_thread;
 #endif

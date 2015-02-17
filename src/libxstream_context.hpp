@@ -31,15 +31,14 @@
 #ifndef LIBXSTREAM_CONTEXT_HPP
 #define LIBXSTREAM_CONTEXT_HPP
 
-#include <libxstream.h>
+#include <libxstream_argument.hpp>
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 
 
 struct LIBXSTREAM_TARGET(mic) libxstream_context {
-  static libxstream_context& instance();
-
-  const libxstream_argument* signature;
+  static libxstream_context& instance(const libxstream_argument* begin, const libxstream_argument* end, const libxstream_stream* stream);
+  libxstream_argument signature[LIBXSTREAM_MAX_NARGS];
   const libxstream_stream* stream;
 };
 

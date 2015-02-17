@@ -29,12 +29,13 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "libxstream_context.hpp"
-#include "libxstream_argument.hpp"
 
 
-libxstream_context& libxstream_context::instance()
+libxstream_context& libxstream_context::instance(const libxstream_argument* begin, const libxstream_argument* end, const libxstream_stream* stream_)
 {
   static LIBXSTREAM_TLS libxstream_context context;
+  //context.signature = signature;
+  context.stream = stream_;
   return context;
 }
 
@@ -45,7 +46,7 @@ LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_context_find_arg(co
   if (context.signature) {
     for (const libxstream_argument* argi = context.signature; LIBXSTREAM_TYPE_VOID != argi->type; ++argi) {
       LIBXSTREAM_ASSERT(libxstream_argument::kind_invalid != argi->kind);
-      if (variable == libxstream_get_value(*argi)) {
+      if (variable == libxstream_get_data(*argi)) {
         argument = argi;
         break;
       }
