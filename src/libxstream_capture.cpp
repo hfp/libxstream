@@ -269,8 +269,7 @@ private:
 
 
 libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync)
-  : m_function(0), m_signature(0)
-  , m_owned(false)
+  : m_function(0)
 #if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
   , m_unlock(false)
 #else
@@ -284,29 +283,29 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
   , m_stream(stream)
 {
   if (2 == argc && (argv[0].signature() || argv[1].signature())) {
+    const libxstream_argument* signature = 0;
     if (argv[1].signature()) {
       m_function = *reinterpret_cast<const libxstream_function*>(libxstream_address(argv[0]));
-      m_signature = reinterpret_cast<const libxstream_argument*>(libxstream_get_data(argv[1]));
+      signature = reinterpret_cast<const libxstream_argument*>(libxstream_get_data(argv[1]));
     }
     else {
+      LIBXSTREAM_ASSERT(argv[0].signature());
       m_function = *reinterpret_cast<const libxstream_function*>(libxstream_address(argv[1]));
-      m_signature = reinterpret_cast<const libxstream_argument*>(libxstream_get_data(argv[0]));
+      signature = reinterpret_cast<const libxstream_argument*>(libxstream_get_data(argv[0]));
     }
+
+    size_t arity = 0;
+    libxstream_get_arity(signature, &arity);
+    for (size_t i = 0; i <= arity; ++i) m_signature[i] = signature[i];
   }
   else {
-    libxstream_argument* signature = 0;
-    libxstream_fn_create_signature(&signature, argc);
-    for (size_t i = 0; i < argc; ++i) {
-      LIBXSTREAM_ASSERT(!argv[i].signature());
-      signature[i] = argv[i];
-    }
-    m_signature = signature;
-    m_owned = true;
-  }
+    for (size_t i = 0; i < argc; ++i) m_signature[i] = argv[i];
+    libxstream_construct(m_signature[argc], libxstream_argument::kind_invalid, 0, LIBXSTREAM_TYPE_VOID, 0, 0);
 #if defined(LIBXSTREAM_DEBUG)
-  size_t arity = 0;
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && arity == argc);
+    size_t arity = 0;
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && arity == argc);
 #endif
+  }
 
   if (stream) {
     if (!wait && 0 != stream->demux()) {
@@ -323,17 +322,6 @@ libxstream_capture_base::~libxstream_capture_base()
     m_stream->end();
     if (m_sync && 0 != m_stream->demux()) {
       m_stream->unlock();
-    }
-  }
-
-  if (m_owned) {
-#if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
-    if (m_unlock)
-#else
-    if (!m_unlock)
-#endif
-    {
-      libxstream_fn_destroy_signature(m_signature);
     }
   }
 }

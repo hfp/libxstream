@@ -173,9 +173,9 @@ private:
   virtual void virtual_run() const = 0;
 
 private:
-  libxstream_function m_function;
-  const libxstream_argument* m_signature;
-  bool m_owned, m_unlock, m_sync;
+  mutable libxstream_function m_function;
+  libxstream_argument m_signature[(LIBXSTREAM_MAX_NARGS)+1];
+  bool m_unlock, m_sync;
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   int m_thread;
 #endif
