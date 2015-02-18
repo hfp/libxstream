@@ -104,25 +104,74 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
 # if defined(LIBXSTREAM_DEBUG)
       for (size_t i = np; i < (LIBXSTREAM_MAX_NARGS); ++i) p[i] = 0;
 # endif
-
       switch (np) {
         case 0: {
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity)
-            {
-              libxstream_offload_internal::call(fun, context, 0, arity);
-            }
+            libxstream_offload_internal::call(fun, context, 0, arity);
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity)
+            libxstream_offload_internal::call(fun, context, 0, arity);
+          }
+        } break;
+        case 1: {
+          char *a0 = p[0];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0)
             {
-              libxstream_offload_internal::call(fun, context, 0, arity);
+              char* refs[] = { a0 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0)
+            {
+              char* refs[] = { a0 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
             }
           }
         } break;
-#if 0
-        // TODO
-#endif
+        case 2: {
+          char *a0 = p[0], *a1 = p[1];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1)
+            {
+              char* refs[] = { a0, a1 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1)
+            {
+              char* refs[] = { a0, a1 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 3: {
+          char *a0 = p[0], *a1 = p[1], *a2 = p[2];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)
+            {
+              char* refs[] = { a0, a1, a2 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)
+            {
+              char* refs[] = { a0, a1, a2 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
         case 4: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3];
           if (LIBXSTREAM_ASYNC_READY) {
@@ -142,9 +191,287 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
             }
           }
         } break;
-#if 0
-        // TODO
-#endif
+        case 5: {
+          char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 6: {
+          char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 7: {
+          char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 8: {
+          char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 9: {
+          char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7], *a8 = p[8];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 10: {
+          char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7], *a8 = p[8], *a9 = p[9];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 11: {
+          char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7], *a8 = p[8], *a9 = p[9], *a10 = p[10];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 12: {
+          char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7];
+          char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 13: {
+          char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3],   *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7];
+          char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a12)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a12)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 14: {
+          char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3],   *a4 = p[4],   *a5 = p[5], *a6 = p[6], *a7 = p[7];
+          char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12], *a13 = p[13];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 15: {
+          char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3],   *a4 = p[4],   *a5 = p[5],   *a6 = p[6], *a7 = p[7];
+          char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12], *a13 = p[13], *a14 = p[14];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1)  LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5)  LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9)  LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1)  LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5)  LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9)  LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
+        case 16: {
+          char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3],   *a4 = p[4],   *a5 = p[5],   *a6 = p[6],   *a7 = p[7];
+          char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12], *a13 = p[13], *a14 = p[14], *a15 = p[15];
+          if (LIBXSTREAM_ASYNC_READY) {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1)  LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5)  LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9)  LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14) LIBXSTREAM_OFFLOAD_REFRESH(a15)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+          else {
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fun, context.signature, arity) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1)  LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5)  LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
+              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9)  LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
+              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14) LIBXSTREAM_OFFLOAD_REFRESH(a15)
+            {
+              char* refs[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 };
+              libxstream_offload_internal::call(fun, context, refs, arity);
+            }
+          }
+        } break;
         default: {
           LIBXSTREAM_ASSERT(false);
         }
