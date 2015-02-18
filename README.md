@@ -93,15 +93,15 @@ libxstream_event_destroy(event[1]);
 size_t nargs = 4, arity = 0;
 libxstream_argument* signature;
 libxstream_fn_create_signature(&signature, nargs/*maximum number of arguments*/);
-libxstream_fn_input (signature, 0/*1st*/, input, libxstream_type2value<double>::value, 1, &nbatch);
-libxstream_fn_output(signature, 1/*2nd*/, output, LIBXSTREAM_TYPE_F64/*no C++ svp.*/,  1, &nbatch);
-libxstream_fn_nargs(signature, &nargs); // 4
-libxstream_fn_arity(signature, &arity); // 2
+libxstream_fn_input (signature, 0, input, libxstream_type2value<double>::value, 1, &nbatch);
+libxstream_fn_output(signature, 1, output, LIBXSTREAM_TYPE_F64/*no C++ svp.*/,  1, &nbatch);
+libxstream_fn_nargs(signature, &nargs); // 4 (maximum number of arguments)
+libxstream_fn_arity(signature, &arity); // 2 (1st/0 and 2nd/1 argument)
 libxstream_fn_call((libxstream_function)function, signature, stream, LIBXSTREAM_CALL_DEFAULT);
 libxstream_fn_destroy_signature(signature);
 ```
 
-**Query Interface**: allows to query information about function arguments when inside of an user function that is called by the library. This can be used to introspect the function arguments in terms of type, dimensionality, shape, and other properties.
+**Query Interface**: allows to query information about function arguments when inside of a user function that is called by the library. This can be used to introspect the function arguments in terms of type, dimensionality, shape, and other properties.
 
 ```C
 LIBXSTREAM_TARGET(mic) void function(const double* input, double* output)
