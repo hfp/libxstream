@@ -37,13 +37,12 @@
 
 
 struct LIBXSTREAM_TARGET(mic) libxstream_context {
-  static libxstream_context& instance(const libxstream_argument* begin, const libxstream_argument* end, const libxstream_stream* stream);
-  libxstream_argument signature[LIBXSTREAM_MAX_NARGS];
-  const libxstream_stream* stream;
+  static libxstream_context& instance(const libxstream_argument arguments[], size_t arity);
+  libxstream_argument signature[(LIBXSTREAM_MAX_NARGS)+1];
 };
 
 
-LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_context_find_arg(const libxstream_context& context, const void* variable);
+LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_find(const libxstream_context& context, const void* variable);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_CONTEXT_HPP

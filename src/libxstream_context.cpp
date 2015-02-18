@@ -31,18 +31,19 @@
 #include "libxstream_context.hpp"
 
 
-libxstream_context& libxstream_context::instance(const libxstream_argument* begin, const libxstream_argument* end, const libxstream_stream* stream_)
+libxstream_context& libxstream_context::instance(const libxstream_argument arguments[], size_t arity)
 {
   static LIBXSTREAM_TLS libxstream_context context;
-  //context.signature = signature;
-  context.stream = stream_;
+  for (size_t i = 0; i <= arity; ++i) {
+    context.signature[i] = arguments[i];
+  }
   return context;
 }
 
 
-LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_context_find_arg(const libxstream_context& context, const void* variable)
+LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_find(const libxstream_context& context, const void* variable)
 {
-  const libxstream_argument* argument = 0;  
+  const libxstream_argument* argument = 0;
   if (context.signature) {
     for (const libxstream_argument* argi = context.signature; LIBXSTREAM_TYPE_VOID != argi->type; ++argi) {
       LIBXSTREAM_ASSERT(libxstream_argument::kind_invalid != argi->kind);
