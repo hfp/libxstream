@@ -27,6 +27,6 @@ else
 fi
 
 $CXX -std=c++0x $OPT $* -lpthread \
-  -I$LIBXSTREAM_ROOT/include -I$LIBXSTREAM_ROOT/src \
+  -I$LIBXSTREAM_ROOT/include -I$LIBXSTREAM_ROOT/src -DLIBXSTREAM_EXPORTED \
   $LIBXSTREAM_ROOT/src/*.cpp multi-dgemm-type.cpp multi-dgemm.cpp \
   $LNK -o multi-dgemm

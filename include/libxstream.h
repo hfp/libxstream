@@ -155,7 +155,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const lib
 
 #if defined(__cplusplus)
 template<typename TYPE> struct libxstream_type2value  { /*static const libxstream_type value = LIBXSTREAM_TYPE_VOID;*/ };
-template<> struct libxstream_type2value<bool>         { static const libxstream_type value = LIBXSTREAM_TYPE_BOOL; };
+template<> struct libxstream_type2value<bool>         { /*static const libxstream_type value = LIBXSTREAM_TYPE_BOOL;*/ };
 template<> struct libxstream_type2value<char>         { static const libxstream_type value = LIBXSTREAM_TYPE_CHAR; };
 template<> struct libxstream_type2value<int8_t>       { static const libxstream_type value = LIBXSTREAM_TYPE_I8; };
 template<> struct libxstream_type2value<uint8_t>      { static const libxstream_type value = LIBXSTREAM_TYPE_U8; };

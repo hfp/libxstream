@@ -923,8 +923,8 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size
 {
   LIBXSTREAM_CHECK_CONDITION(0 != signature);
 #if defined(LIBXSTREAM_DEBUG)
-  size_t arity = 0;
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(signature, &arity) && arg < arity);
+  size_t nargs = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_nargs(signature, &nargs) && arg < nargs);
 #endif
   return libxstream_construct(signature[arg], libxstream_argument::kind_input, in, type, dims, shape);
 }
@@ -934,8 +934,8 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* signature, siz
 {
   LIBXSTREAM_CHECK_CONDITION(0 != signature);
 #if defined(LIBXSTREAM_DEBUG)
-  size_t arity = 0;
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(signature, &arity) && arg < arity);
+  size_t nargs = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_nargs(signature, &nargs) && arg < nargs);
 #endif
   return libxstream_construct(signature[arg], libxstream_argument::kind_output, out, type, dims, shape);
 }
@@ -945,8 +945,8 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* signature, size
 {
   LIBXSTREAM_CHECK_CONDITION(0 != signature);
 #if defined(LIBXSTREAM_DEBUG)
-  size_t arity = 0;
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(signature, &arity) && arg < arity);
+  size_t nargs = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_nargs(signature, &nargs) && arg < nargs);
 #endif
   return libxstream_construct(signature[arg], libxstream_argument::kind_inout, inout, type, dims, shape);
 }

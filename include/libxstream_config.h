@@ -123,7 +123,7 @@
 //#define LIBXSTREAM_PREFER_OPENMP
 
 /** Enable exporting internal C++ interfaces (legacy). */
-#define LIBXSTREAM_INTERNAL
+//#define LIBXSTREAM_INTERNAL
 
 /**
  * Below preprocessor symbols fixup some platform specifics.

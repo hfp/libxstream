@@ -109,8 +109,8 @@ size_t libxstream_event::expected() const
 
 
 void libxstream_event::enqueue(libxstream_stream& stream, bool reset)
-{
-  LIBXSTREAM_ASYNC_BEGIN(stream, m_slots, &m_expected, reset)
+{ 
+  LIBXSTREAM_ASYNC_BEGIN(stream, m_slots, &m_expected, static_cast<libxstream_bool>(reset ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE))
   {
     libxstream_event::enqueue(thread(), *LIBXSTREAM_ASYNC_STREAM, ptr<slot_type,0>(), *ptr<size_t,1>(), val<bool,2>());
   }

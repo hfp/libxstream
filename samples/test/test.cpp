@@ -29,7 +29,6 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "test.hpp"
-#include <libxstream.hpp> // legacy
 #include <libxstream_begin.h>
 #include <stdexcept>
 #include <algorithm>
@@ -46,13 +45,15 @@
 
 namespace test_internal {
 
-LIBXSTREAM_TARGET(mic) void check(bool& result, const void* buffer, size_t size, char pattern)
+LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, size_t size, char pattern)
 {
-  result = true;
+  bool ok = true;
   const char *const values = reinterpret_cast<const char*>(buffer);
-  for (size_t i = 0; i < size && result; ++i) {
-    result = pattern == values[i];
+  for (size_t i = 0; i < size && ok; ++i) {
+    ok = pattern == values[i];
   }
+  LIBXSTREAM_ASSERT(result);
+  *result = ok;
 }
 
 } // namespace test_internal
@@ -78,50 +79,13 @@ test_type::test_type(int device)
   std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_a);
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_h2d(m_host_mem, m_dev_mem, size, m_stream));
 
-  bool ok = false;
-  LIBXSTREAM_ASYNC_BEGIN(m_stream, &ok, m_dev_mem, size, pattern_a)
-  {
-#if defined(LIBXSTREAM_DEBUG)
-    fprintf(stdout, "TST device-side validation started\n");
-#endif
-    const char* dev_mem = ptr<const char,1>();
-    const size_t size = val<const size_t,2>();
-    const char pattern = val<const char,3>();
-    bool& ok = *ptr<bool,0>();
-
-#if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-      if (LIBXSTREAM_ASYNC_READY) {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL \
-          in(size, pattern) in(dev_mem: length(0) alloc_if(false) free_if(false)) //out(ok)
-        {
-          test_internal::check(ok, dev_mem, size, pattern);
-#if defined(LIBXSTREAM_DEBUG)
-          fprintf(stdout, "TST device-side validation completed\n");
-#endif
-        }
-      }
-      else {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT \
-          in(size, pattern) in(dev_mem: length(0) alloc_if(false) free_if(false)) //out(ok)
-        {
-          test_internal::check(ok, dev_mem, size, pattern);
-#if defined(LIBXSTREAM_DEBUG)
-          fprintf(stdout, "TST device-side validation completed\n");
-#endif
-        }
-      }
-    }
-    else
-#endif
-    {
-      test_internal::check(ok, dev_mem, size, pattern);
-#if defined(LIBXSTREAM_DEBUG)
-      fprintf(stdout, "TST device-side validation completed\n");
-#endif
-    }
-  }
-  LIBXSTREAM_ASYNC_END(false);
+  libxstream_bool ok = false;
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_create_signature(&m_signature, 4));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_output(m_signature, 0, &ok, libxstream_type2value<libxstream_bool>::value, 0, 0));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_input (m_signature, 1, m_dev_mem, LIBXSTREAM_TYPE_BYTE, 1, &size));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_input (m_signature, 2, &size, libxstream_type2value<size_t>::value, 0, 0));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_input (m_signature, 3, &pattern_a, libxstream_type2value<char>::value, 0, 0));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_call(reinterpret_cast<libxstream_function>(test_internal::check), m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
 
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_create(&m_event));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_record(m_event, m_stream));
@@ -142,7 +106,7 @@ test_type::test_type(int device)
     LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_synchronize(m_event));
   }
 
-  test_internal::check(ok, m_host_mem, size, pattern_a);
+  test_internal::check(&ok, m_host_mem, size, pattern_a);
   LIBXSTREAM_CHECK_CONDITION_RETURN(ok);
 
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_d2h(m_dev_mem, m_host_mem, size2, m_stream));
@@ -153,7 +117,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_query(m_event, &has_occured));
   LIBXSTREAM_CHECK_CONDITION_RETURN(0 != has_occured);
 
-  test_internal::check(ok, m_host_mem, size, 0);
+  test_internal::check(&ok, m_host_mem, size, 0);
   LIBXSTREAM_CHECK_CONDITION_RETURN(ok);
 }
 
@@ -164,6 +128,7 @@ test_type::~test_type()
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(-1, m_host_mem));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(m_device, m_dev_mem));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_destroy(m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_destroy_signature(m_signature));
   fprintf(stdout, "TST successfully completed.\n");
 }
 
