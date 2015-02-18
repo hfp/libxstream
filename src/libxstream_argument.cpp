@@ -33,7 +33,7 @@
 #include <stdexcept>
 
 
-int libxstream_construct(libxstream_argument& arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[])
+LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument& arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[])
 {
   LIBXSTREAM_CHECK_CONDITION((0 == dims || 0 != shape) && (LIBXSTREAM_MAX_NDIMS) >= dims);
 #if defined(LIBXSTREAM_DEBUG)
@@ -74,6 +74,28 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
 }
 
 
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_data(const libxstream_argument& arg)
+{
+  char* data = 0;
+
+  const char *const src = libxstream_address(arg);
+  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
+    char *const dst = reinterpret_cast<char*>(&data);
+    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
+  }
+  else {
+#if defined(LIBXSTREAM_PASS_BY_VALUE)
+    char *const dst = reinterpret_cast<char*>(&data);
+    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
+#else
+    data = const_cast<char*>(src);
+#endif
+  }
+
+  return data;
+}
+
+
 LIBXSTREAM_TARGET(mic) int libxstream_set_data(libxstream_argument& arg, const void* data)
 {
   char *const dst = libxstream_address(arg);
@@ -94,26 +116,4 @@ LIBXSTREAM_TARGET(mic) int libxstream_set_data(libxstream_argument& arg, const v
     }
   }
   return LIBXSTREAM_ERROR_NONE;
-}
-
-
-LIBXSTREAM_TARGET(mic) char* libxstream_get_data(const libxstream_argument& arg)
-{
-  char* data = 0;
-
-  const char *const src = libxstream_address(arg);
-  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
-    char *const dst = reinterpret_cast<char*>(&data);
-    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
-  }
-  else {
-#if defined(LIBXSTREAM_PASS_BY_VALUE)
-    char *const dst = reinterpret_cast<char*>(&data);
-    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
-#else
-    data = const_cast<char*>(src);
-#endif
-  }
-
-  return data;
 }

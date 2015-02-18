@@ -103,6 +103,10 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, 
 LIBXSTREAM_EXPORT_C int libxstream_stream_lock(libxstream_stream* stream);
 /** Unlock a stream such that another thread can acquire the stream. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_unlock(libxstream_stream* stream);
+/** Query the device the given stream is constructed for. */
+LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream, int* device);
+/** Query the device the given stream is constructed for. */
+LIBXSTREAM_EXPORT_C int libxstream_stream_demux(const libxstream_stream* stream, int* demux);
 
 /** Create an event; can be used multiple times to record an event. */
 LIBXSTREAM_EXPORT_C int libxstream_event_create(libxstream_event** event);
@@ -120,11 +124,11 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** sig
 /** Destroy a function signature; does not release the bound data. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature);
 /** Construct an input argument; takes the device data, dimensionality, and shape. */
-LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* arg, const void* in, libxstream_type type, size_t dims, const size_t shape[]);
+LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size_t arg, const void* in, libxstream_type type, size_t dims, const size_t shape[]);
 /** Construct an output argument; takes the device data, dimensionality, and shape. */
-LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* arg, void* out, libxstream_type type, size_t dims, const size_t shape[]);
+LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* signature, size_t arg, void* out, libxstream_type type, size_t dims, const size_t shape[]);
 /** Construct an in-out argument; takes the device data, dimensionality, and shape. */
-LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* arg, void* inout, libxstream_type type, size_t dims, const size_t shape[]);
+LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* signature, size_t arg, void* inout, libxstream_type type, size_t dims, const size_t shape[]);
 /** Call a user function along with the signature; wait in case of a synchronous call. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags);
 

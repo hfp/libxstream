@@ -45,7 +45,7 @@
 #endif
 
 //#define LIBXSTREAM_CAPTURE_DEBUG
-//#define LIBXSTREAM_CAPTURE_UNLOCK_LATE
+//#define LIBXSTREAM_CAPTURE_UNLOCK_EARLY
 
 
 namespace libxstream_capture_internal {
@@ -270,10 +270,10 @@ private:
 
 libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync)
   : m_function(0)
-#if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
-  , m_unlock(false)
-#else
+#if defined(LIBXSTREAM_CAPTURE_UNLOCK_EARLY)
   , m_unlock(true)
+#else
+  , m_unlock(false)
 #endif
   , m_sync(sync)
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
@@ -330,10 +330,10 @@ libxstream_capture_base::~libxstream_capture_base()
 libxstream_capture_base* libxstream_capture_base::clone() const
 {
   libxstream_capture_base *const instance = virtual_clone();
-#if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
-  instance->m_unlock = true;
-#else
+#if defined(LIBXSTREAM_CAPTURE_UNLOCK_EARLY)
   instance->m_unlock = false;
+#else
+  instance->m_unlock = true;
 #endif
   return instance;
 }

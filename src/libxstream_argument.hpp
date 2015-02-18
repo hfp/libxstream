@@ -70,8 +70,11 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
 };
 
 
-int libxstream_construct(libxstream_argument& arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[]);
+LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument& arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[]);
 int libxstream_construct(libxstream_argument* signature, size_t nargs);
+
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_data(const libxstream_argument& arg);
+LIBXSTREAM_TARGET(mic) int libxstream_set_data(libxstream_argument& arg, const void* data);
 
 LIBXSTREAM_TARGET(mic) inline char* libxstream_address(libxstream_argument& arg) {
   return reinterpret_cast<char*>(&arg);
@@ -80,9 +83,6 @@ LIBXSTREAM_TARGET(mic) inline char* libxstream_address(libxstream_argument& arg)
 LIBXSTREAM_TARGET(mic) inline const char* libxstream_address(const libxstream_argument& arg) {
   return reinterpret_cast<const char*>(&arg);
 }
-
-LIBXSTREAM_TARGET(mic) int libxstream_set_data(libxstream_argument& arg, const void* data);
-LIBXSTREAM_TARGET(mic) char* libxstream_get_data(const libxstream_argument& arg);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_ARGUMENT_HPP

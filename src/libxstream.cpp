@@ -825,6 +825,24 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_unlock(libxstream_stream* stream)
 }
 
 
+LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream, int* device)
+{
+  LIBXSTREAM_CHECK_CONDITION(stream && device);
+  *device = stream->device();
+  LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i", reinterpret_cast<uintptr_t>(stream), *device);
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_stream_demux(const libxstream_stream* stream, int* demux)
+{
+  LIBXSTREAM_CHECK_CONDITION(stream && demux);
+  *demux = stream->demux();
+  LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx demux=%i", reinterpret_cast<uintptr_t>(stream), *demux);
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
 LIBXSTREAM_EXPORT_C int libxstream_event_create(libxstream_event** event)
 {
   LIBXSTREAM_CHECK_CONDITION(event);
@@ -901,24 +919,36 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argumen
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* arg, const void* in, libxstream_type type, size_t dims, const size_t shape[])
+LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size_t arg, const void* in, libxstream_type type, size_t dims, const size_t shape[])
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && libxstream_argument::kind_invalid != arg->kind);
-  return libxstream_construct(*arg, libxstream_argument::kind_input, in, type, dims, shape);
+  LIBXSTREAM_CHECK_CONDITION(0 != signature);
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(signature, &arity) && arg < arity);
+#endif
+  return libxstream_construct(signature[arg], libxstream_argument::kind_input, in, type, dims, shape);
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* arg, void* out, libxstream_type type, size_t dims, const size_t shape[])
+LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* signature, size_t arg, void* out, libxstream_type type, size_t dims, const size_t shape[])
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && libxstream_argument::kind_invalid != arg->kind);
-  return libxstream_construct(*arg, libxstream_argument::kind_output, out, type, dims, shape);
+  LIBXSTREAM_CHECK_CONDITION(0 != signature);
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(signature, &arity) && arg < arity);
+#endif
+  return libxstream_construct(signature[arg], libxstream_argument::kind_output, out, type, dims, shape);
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* arg, void* inout, libxstream_type type, size_t dims, const size_t shape[])
+LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* signature, size_t arg, void* inout, libxstream_type type, size_t dims, const size_t shape[])
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && libxstream_argument::kind_invalid != arg->kind);
-  return libxstream_construct(*arg, libxstream_argument::kind_inout, inout, type, dims, shape);
+  LIBXSTREAM_CHECK_CONDITION(0 != signature);
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(signature, &arity) && arg < arity);
+#endif
+  return libxstream_construct(signature[arg], libxstream_argument::kind_inout, inout, type, dims, shape);
 }
 
 

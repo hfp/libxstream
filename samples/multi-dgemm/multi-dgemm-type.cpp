@@ -29,7 +29,6 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "multi-dgemm-type.hpp"
-#include <libxstream.hpp> // legacy
 #include <libxstream_begin.h>
 #include <stdexcept>
 #include <algorithm>
@@ -130,7 +129,8 @@ multi_dgemm_type::~multi_dgemm_type()
 int multi_dgemm_type::deinit()
 {
   if (m_host_data) {
-    const int device = m_stream->device();
+    int device = -1;
+    LIBXSTREAM_CHECK_CALL(libxstream_stream_device(m_stream, &device));
     LIBXSTREAM_CHECK_CALL(libxstream_fn_destroy_signature(m_signature));
     LIBXSTREAM_CHECK_CALL(libxstream_stream_destroy(m_stream));
     LIBXSTREAM_CHECK_CALL(libxstream_event_destroy(m_event));
@@ -169,10 +169,10 @@ int multi_dgemm_type::init(const char* name, host_data_type& host_data, int devi
   LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_idata), sizeof(size_t) * max_batch, 0));
 
   LIBXSTREAM_CHECK_CALL(libxstream_fn_create_signature(&m_signature, 6));
-  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature + 2, m_idata, libxstream_type2value<size_t>::value, 1, &max_msize));
-  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature + 3, m_adata, libxstream_type2value<double>::value, 1, &max_msize));
-  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature + 4, m_bdata, libxstream_type2value<double>::value, 1, &max_msize));
-  LIBXSTREAM_CHECK_CALL(libxstream_fn_output(m_signature + 5, m_cdata, libxstream_type2value<double>::value, 1, &max_msize));
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature, 2, m_idata, libxstream_type2value<size_t>::value, 1, &max_msize));
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature, 3, m_adata, libxstream_type2value<double>::value, 1, &max_msize));
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature, 4, m_bdata, libxstream_type2value<double>::value, 1, &max_msize));
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_output(m_signature, 5, m_cdata, libxstream_type2value<double>::value, 1, &max_msize));
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -183,7 +183,7 @@ int multi_dgemm_type::operator()(size_t index, size_t size)
   LIBXSTREAM_CHECK_CONDITION(ready() && (index + size) <= m_host_data->size());
 
   if (0 < size) {
-    if (0 == m_stream->demux()) {
+    if (0 == demux()) {
       // This manual synchronization prevents multiple threads from queuing work into the *same* stream (at the same time).
       // This is only needed if the stream was created without demux support in order to rely on manual synchronization.
       LIBXSTREAM_CHECK_CALL(libxstream_stream_lock(m_stream));
@@ -194,62 +194,17 @@ int multi_dgemm_type::operator()(size_t index, size_t size)
     // transferring cdata is part of the benchmark; since it is all zeros we could do better with libxstream_memset_zero
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->cdata() + i0, m_cdata, sizeof(double) * (i1 - i0), m_stream));
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->idata() + index, m_idata, sizeof(size_t) * size, m_stream));
-
 #if defined(LIBXSTREAM_DEBUG)
     size_t n = 0;
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_nargs(m_signature, &n) && 6 == n);
 #endif
     const size_t nn = i1 - m_host_data->idata()[index+size-1];
-    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature + 0, &size, libxstream_type2value<size_t>::value, 0, 0));
-    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature + 1, &nn, libxstream_type2value<size_t>::value, 0, 0));
+    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature, 0, &size, libxstream_type2value<size_t>::value, 0, 0));
+    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature, 1, &nn, libxstream_type2value<size_t>::value, 0, 0));
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &n) && 6 == n);
-#if 1
     LIBXSTREAM_CHECK_CALL(libxstream_fn_call(m_host_data->process(), m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
-#else
-    LIBXSTREAM_ASYNC_BEGIN(m_stream, m_host_data->process(), size, nn, m_adata, m_bdata, m_cdata, m_idata)
-    {
-      LIBXSTREAM_TARGET(mic) libxstream_function process = val<libxstream_function,0>();
-      const int size = val<const int,1>();
-      const int nn = val<const int,2>();
-      const double *const a = ptr<const double,3>();
-      const double *const b = ptr<const double,4>();
-      double* c = ptr<double,5>();
-      const size_t *const i = ptr<const size_t,6>();
-
-#if defined(LIBXSTREAM_OFFLOAD)
-      if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-        if (LIBXSTREAM_ASYNC_READY) {
-#         pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(size, nn) \
-            in(i: length(0) alloc_if(false) free_if(false)) \
-            in(a: length(0) alloc_if(false) free_if(false)) \
-            in(b: length(0) alloc_if(false) free_if(false)) \
-            inout(c: length(0) alloc_if(false) free_if(false))
-          {
-            process(size, nn, i, a, b, c);
-          }
-        }
-        else {
-#         pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(size, nn) \
-            in(i: length(0) alloc_if(false) free_if(false)) \
-            in(a: length(0) alloc_if(false) free_if(false)) \
-            in(b: length(0) alloc_if(false) free_if(false)) \
-            inout(c: length(0) alloc_if(false) free_if(false))
-          {
-            process(size, nn, i, a, b, c);
-          }
-        }
-      }
-      else
-#endif
-      {
-        process(size, nn, i, a, b, c);
-      }
-    }
-    LIBXSTREAM_ASYNC_END(false);
-#endif
     LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), m_stream));
-
-    if (0 == m_stream->demux()) {
+    if (0 == demux()) {
       LIBXSTREAM_CHECK_CALL(libxstream_stream_unlock(m_stream));
     }
   }
@@ -278,7 +233,9 @@ bool multi_dgemm_type::ready() const
 int multi_dgemm_type::demux() const
 {
   LIBXSTREAM_ASSERT(ready());
-  return m_stream->demux();
+  int value = 0;
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_demux(m_stream, &value));
+  return value;
 }
 
 
