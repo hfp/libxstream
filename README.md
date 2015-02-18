@@ -32,11 +32,11 @@ libxstream_get_ndevices(&ndevices);
 
 ```C
 const int dev = 0;
-libxstream_mem_allocate(-1,  &input, sizeof(double) * nitems, 0/*automatic alignment*/);
-libxstream_mem_allocate(-1, &output, sizeof(double) * nitems, 0/*automatic alignment*/);
+libxstream_mem_allocate(-1,  &input, sizeof(double) * nitems, 0/*auto-alignment*/);
+libxstream_mem_allocate(-1, &output, sizeof(double) * nitems, 0/*auto-alignment*/);
 // TODO: initialize with some input data
-libxstream_mem_allocate(dev,  &idev, sizeof(double) * nbatch, 0/*automatic alignment*/);
-libxstream_mem_allocate(dev,  &odev, sizeof(double) * nbatch, 0/*automatic alignment*/);
+libxstream_mem_allocate(dev,  &idev, sizeof(double) * nbatch, 0/*auto-alignment*/);
+libxstream_mem_allocate(dev,  &odev, sizeof(double) * nbatch, 0/*auto-alignment*/);
 
 for (int i = 0; i < nitems; i += nbatch) {
   const int ibatch = sizeof(double) * min(nbatch, nitems - i), j = i / nbatch;
@@ -95,8 +95,8 @@ libxstream_argument* signature = 0;
 libxstream_fn_create_signature(&signature, nargs/*maximum number of arguments*/);
 libxstream_fn_input (signature, 0, input, libxstream_type2value<double>::value, 1, &nbatch);
 libxstream_fn_output(signature, 1, output, LIBXSTREAM_TYPE_F64/*no C++ svp.*/,  1, &nbatch);
-libxstream_fn_nargs(signature, &nargs); // 4 (maximum number of arguments)
-libxstream_fn_arity(signature, &arity); // 2 (1st/0 and 2nd/1 argument)
+libxstream_fn_nargs (signature, &nargs); // 4 (maximum number of arguments)
+libxstream_fn_arity (signature, &arity); // 2 (1st/0 and 2nd/1 argument)
 libxstream_fn_call((libxstream_function)function, signature, stream, LIBXSTREAM_CALL_DEFAULT);
 libxstream_fn_destroy_signature(signature);
 ```
@@ -117,7 +117,7 @@ LIBXSTREAM_TARGET(mic) void function(const double* input, double* output)
 
   const char* name = 0;
   libxstream_get_typename(type, &name);
-  printf("type=%s", name); // f32
+  printf("type=%s", name); // f64
 }
 ```
 
