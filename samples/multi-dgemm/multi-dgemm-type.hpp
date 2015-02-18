@@ -41,13 +41,13 @@ public:
     host_data_type(libxstream_function process, size_t size, const size_t split[]);
     ~host_data_type();
   public:
-    libxstream_function process()      { return m_process; }
-    const double* adata() const { return m_adata; }
-    const double* bdata() const { return m_bdata; }
-    double* cdata()             { return m_cdata; }
-    const size_t* idata() const { return m_idata; }
-    size_t size() const         { return m_size; }
-    size_t flops() const        { return m_flops; }
+    libxstream_function process()   { return m_process; }
+    const double* adata() const     { return m_adata; }
+    const double* bdata() const     { return m_bdata; }
+    double* cdata()                 { return m_cdata; }
+    const size_t* idata() const     { return m_idata; }
+    size_t size() const             { return m_size; }
+    size_t flops() const            { return m_flops; }
     size_t max_matrix_size() const;
     size_t bytes() const;
     bool ready() const;
