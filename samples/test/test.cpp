@@ -36,7 +36,6 @@
 #include <cstring>
 #include <cassert>
 #include <cstdio>
-#include <atomic>
 #if defined(_OPENMP)
 # include <omp.h>
 #endif
