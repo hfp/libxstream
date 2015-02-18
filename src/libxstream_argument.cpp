@@ -59,6 +59,21 @@ int libxstream_construct(libxstream_argument& arg, libxstream_argument::kind_typ
 }
 
 
+int libxstream_construct(libxstream_argument* signature, size_t nargs)
+{
+  LIBXSTREAM_CHECK_CONDITION((0 != signature || 0 == nargs) && (LIBXSTREAM_MAX_NARGS) >= nargs);
+
+  if (0 != signature) {
+    for (size_t i = 0; i < nargs; ++i) {
+      LIBXSTREAM_CHECK_ERROR(libxstream_construct(signature[i], libxstream_argument::kind_inout, 0, LIBXSTREAM_TYPE_VOID, 0, 0));
+    }
+    LIBXSTREAM_CHECK_ERROR(libxstream_construct(signature[nargs], libxstream_argument::kind_invalid, 0, LIBXSTREAM_TYPE_VOID, 0, 0));
+  }
+
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
 LIBXSTREAM_TARGET(mic) int libxstream_set_data(libxstream_argument& arg, const void* data)
 {
   char *const dst = libxstream_address(arg);
