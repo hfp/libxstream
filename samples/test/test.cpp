@@ -47,7 +47,12 @@ namespace test_internal {
 
 LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, size_t size, char pattern)
 {
-  bool ok = true;
+  const libxstream_argument* arg = 0;
+  libxstream_get_argument(buffer, &arg);
+  size_t shape = 0;
+  libxstream_get_shape(arg, &shape);
+  bool ok = shape == size;
+
   const char *const values = reinterpret_cast<const char*>(buffer);
   for (size_t i = 0; i < size && ok; ++i) {
     ok = pattern == values[i];

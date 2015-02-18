@@ -129,6 +129,10 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size
 LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* signature, size_t arg, void* out, libxstream_type type, size_t dims, const size_t shape[]);
 /** Construct an in-out argument; takes the device data, dimensionality, and shape. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* signature, size_t arg, void* inout, libxstream_type type, size_t dims, const size_t shape[]);
+/** Query the maximum number of arguments that can be covered by the function signature. */
+LIBXSTREAM_EXPORT_C int libxstream_fn_nargs(const libxstream_argument* signature, size_t* nargs);
+/** Query the arity of the function signature (actual number of arguments). */
+LIBXSTREAM_EXPORT_C int libxstream_fn_arity(const libxstream_argument* signature, size_t* arity);
 /** Call a user function along with the signature; wait in case of a synchronous call. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags);
 
@@ -136,10 +140,8 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstream_type type, size_t* size);
 /** Query the name of the elemental type (string does not need to be buffered). */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstream_type type, const char** name);
-/** Query the maximum number of arguments that can be covered by the function signature. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_nargs(const libxstream_argument* signature, size_t* nargs);
-/** Query the arity of the function signature (actual number of arguments). */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_arity(const libxstream_argument* signature, size_t* arity);
+/** Query the argument corresponding to the given pointer variable; this does not work with by-value variables. */
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_argument(const void* variable, const libxstream_argument** arg);
 /** Query a textual value of the argument (valid until next call); thread safe. */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_value(const libxstream_argument* arg, const char** value);
 /** Query the elemental type of the argument. */

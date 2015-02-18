@@ -31,9 +31,16 @@
 #include "libxstream_context.hpp"
 
 
-libxstream_context& libxstream_context::instance(const libxstream_argument arguments[], size_t arity)
+libxstream_context& libxstream_context::instance()
 {
   static LIBXSTREAM_TLS libxstream_context context;
+  return context;
+}
+
+
+libxstream_context& libxstream_context::instance(const libxstream_argument arguments[], size_t arity)
+{
+  libxstream_context& context = instance();
   for (size_t i = 0; i <= arity; ++i) {
     context.signature[i] = arguments[i];
   }

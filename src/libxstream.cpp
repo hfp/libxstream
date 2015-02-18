@@ -924,7 +924,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size
   LIBXSTREAM_CHECK_CONDITION(0 != signature);
 #if defined(LIBXSTREAM_DEBUG)
   size_t nargs = 0;
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_nargs(signature, &nargs) && arg < nargs);
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(signature, &nargs) && arg < nargs);
 #endif
   return libxstream_construct(signature[arg], libxstream_argument::kind_input, in, type, dims, shape);
 }
@@ -935,7 +935,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* signature, siz
   LIBXSTREAM_CHECK_CONDITION(0 != signature);
 #if defined(LIBXSTREAM_DEBUG)
   size_t nargs = 0;
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_nargs(signature, &nargs) && arg < nargs);
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(signature, &nargs) && arg < nargs);
 #endif
   return libxstream_construct(signature[arg], libxstream_argument::kind_output, out, type, dims, shape);
 }
@@ -946,9 +946,40 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* signature, size
   LIBXSTREAM_CHECK_CONDITION(0 != signature);
 #if defined(LIBXSTREAM_DEBUG)
   size_t nargs = 0;
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_nargs(signature, &nargs) && arg < nargs);
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(signature, &nargs) && arg < nargs);
 #endif
   return libxstream_construct(signature[arg], libxstream_argument::kind_inout, inout, type, dims, shape);
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_fn_nargs(const libxstream_argument* signature, size_t* nargs)
+{
+  LIBXSTREAM_CHECK_CONDITION(0 != nargs);
+  size_t n = 0;
+  if (signature) {
+    while (libxstream_argument::kind_invalid != signature[n].kind) {
+      LIBXSTREAM_ASSERT(n < (LIBXSTREAM_MAX_NARGS));
+      ++n;
+    }
+  }
+  *nargs = n;
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_fn_arity(const libxstream_argument* signature, size_t* arity)
+{
+  LIBXSTREAM_CHECK_CONDITION(0 != arity);
+  size_t n = 0;
+  if (signature) {
+    while (LIBXSTREAM_TYPE_VOID != signature[n].type) {
+      LIBXSTREAM_ASSERT(n < (LIBXSTREAM_MAX_NARGS));
+      LIBXSTREAM_ASSERT(libxstream_argument::kind_invalid != signature[n].kind);
+      ++n;
+    }
+  }
+  *arity = n;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
@@ -1015,34 +1046,17 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstrea
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_nargs(const libxstream_argument* signature, size_t* nargs)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_argument(const void* variable, const libxstream_argument** arg)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != nargs);
-  size_t n = 0;
-  if (signature) {
-    while (libxstream_argument::kind_invalid != signature[n].kind) {
-      LIBXSTREAM_ASSERT(n < (LIBXSTREAM_MAX_NARGS));
-      ++n;
-    }
+  LIBXSTREAM_CHECK_CONDITION(0 != arg);
+  int result = LIBXSTREAM_ERROR_NONE;
+  if (const libxstream_argument *const hit = libxstream_find(libxstream_context::instance(), variable)) {
+    *arg = hit;
   }
-  *nargs = n;
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_arity(const libxstream_argument* signature, size_t* arity)
-{
-  LIBXSTREAM_CHECK_CONDITION(0 != arity);
-  size_t n = 0;
-  if (signature) {
-    while (LIBXSTREAM_TYPE_VOID != signature[n].type) {
-      LIBXSTREAM_ASSERT(n < (LIBXSTREAM_MAX_NARGS));
-      LIBXSTREAM_ASSERT(libxstream_argument::kind_invalid != signature[n].kind);
-      ++n;
-    }
+  else {
+    result = LIBXSTREAM_ERROR_CONDITION;
   }
-  *arity = n;
-  return LIBXSTREAM_ERROR_NONE;
+  return result;
 }
 
 
