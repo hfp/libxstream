@@ -39,10 +39,10 @@ libxstream_mem_allocate(dev,  &idev, sizeof(double) * nbatch, 0/*automatic align
 libxstream_mem_allocate(dev,  &odev, sizeof(double) * nbatch, 0/*automatic alignment*/);
 
 for (int i = 0; i < nitems; i += nbatch) {
-  const int ibatch = sizeof(double) * min(nbatch, nitems - i)
-  libxstream_memcpy_h2d(input + i, idev, ibatch, stream[i%2]);
+  const int ibatch = sizeof(double) * min(nbatch, nitems - i), j = i / nbatch;
+  libxstream_memcpy_h2d(input + i, idev, ibatch, stream[j%2]);
   // TODO: invoke user function
-  libxstream_memcpy_d2h(odev, output + i, ibatch, stream[i%2]);
+  libxstream_memcpy_d2h(odev, output + i, ibatch, stream[j%2]);
 }
 
 libxstream_mem_deallocate(-1, input);
@@ -71,12 +71,12 @@ libxstream_event_create(event + 0);
 libxstream_event_create(event + 1);
 
 for (int i = 0; i < nitems; i += nbatch) {
-  const size_t j = i % N;
+  const size_t j = i / nbatch, n = j % N;
   // TODO: copy-in, user function, copy-out
-  libxstream_event_record(event + j, stream + j);
+  libxstream_event_record(event + n, stream + n);
 
   // synchronize every Nth iteration
-  if (j == (N - 1)) {
+  if (n == (N - 1)) {
     for (size_t k = 0; k < N; ++k) {
       libxstream_event_synchronize(event[k]);
     }

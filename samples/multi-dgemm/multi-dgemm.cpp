@@ -137,16 +137,14 @@ int main(int argc, char* argv[])
 #   pragma omp parallel for schedule(dynamic)
 #endif
     for (int i = 0; i < nitems; i += nbatch) {
-      const size_t j = i % nstreams_total;
-      multi_dgemm_type& call = multi_dgemm[j];
+      const size_t j = i / nbatch, n = j % nstreams_total;
+      multi_dgemm_type& call = multi_dgemm[n];
       LIBXSTREAM_CHECK_CALL_THROW(call(i, std::min(nbatch, nitems - i)));
-
 #if defined(MULTI_DGEMM_USE_EVENTS)
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(call.event(), call.stream()));
 #endif
-
       // synchronize every Nth iteration with N being the total number of streams
-      if (j == (nstreams_total - 1)) {
+      if (n == (nstreams_total - 1)) {
         for (size_t k = 0; k < nstreams_total; ++k) {
 #if defined(MULTI_DGEMM_USE_EVENTS)
           LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_synchronize(multi_dgemm[k].event()));
