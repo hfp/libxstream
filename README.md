@@ -87,11 +87,11 @@ libxstream_event_destroy(event[0]);
 libxstream_event_destroy(event[1]);
 ```
 
-**Function Interface**: is used to describe and call an user function along with its list of arguments. The function's signature consists of inputs, outputs, or in-out arguments. An own function can be enqueued for execution within a stream by taking the address of the function.
+**Function Interface**: is used to describe and call a user function along with its list of arguments. The function's signature consists of inputs, outputs, or in-out arguments. An own function can be enqueued for execution within a stream by taking the address of the function.
 
 ```C
 size_t nargs = 4, arity = 0;
-libxstream_argument* signature;
+libxstream_argument* signature = 0;
 libxstream_fn_create_signature(&signature, nargs/*maximum number of arguments*/);
 libxstream_fn_input (signature, 0, input, libxstream_type2value<double>::value, 1, &nbatch);
 libxstream_fn_output(signature, 1, output, LIBXSTREAM_TYPE_F64/*no C++ svp.*/,  1, &nbatch);
