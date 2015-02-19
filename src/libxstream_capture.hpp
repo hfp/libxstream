@@ -92,15 +92,15 @@
       const libxstream_signal LIBXSTREAM_ASYNC_PENDING = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->pending(thread()) : 0; \
       int LIBXSTREAM_ASYNC_DEVICE = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->device() : val<int,0>(); \
       const libxstream_signal capture_region_signal = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->signal() : 0; \
-      LIBXSTREAM_ASYNC_DECL; LIBXSTREAM_USE_SINK_ALWAYS(&LIBXSTREAM_ASYNC_DEVICE); LIBXSTREAM_USE_SINK_ALWAYS(&LIBXSTREAM_ASYNC_PENDING); do
-#define LIBXSTREAM_ASYNC_END(...) while(LIBXSTREAM_NOT_CONSTANT(LIBXSTREAM_FALSE)); \
+      LIBXSTREAM_ASYNC_DECL; libxstream_use_sink(&LIBXSTREAM_ASYNC_DEVICE); libxstream_use_sink(&LIBXSTREAM_ASYNC_PENDING); do
+#define LIBXSTREAM_ASYNC_END(...) while(libxstream_not_constant(LIBXSTREAM_FALSE)); \
       if (LIBXSTREAM_ASYNC_STREAM && capture_region_signal != capture_region_signal_consumed) { \
         LIBXSTREAM_ASYNC_STREAM->pending(thread(), capture_region_signal); \
       } \
     } \
   } capture_region(sizeof(libxstream_capture_argv) / sizeof(*libxstream_capture_argv), \
     libxstream_capture_argv, libxstream_capture_stream, __VA_ARGS__); \
-  } while(LIBXSTREAM_NOT_CONSTANT(LIBXSTREAM_FALSE))
+  } while(libxstream_not_constant(LIBXSTREAM_FALSE))
 
 
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_stream;

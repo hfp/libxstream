@@ -264,7 +264,7 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
   , m_npartitions(0)
 #endif
 {
-  LIBXSTREAM_USE_SINK_ALWAYS(name);
+  libxstream_use_sink(name);
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   std::fill_n(m_pending, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_signal>(0));
 #endif
