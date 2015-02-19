@@ -261,11 +261,13 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
       LIBXSTREAM_CHECK_ERROR(result);
       void *const user_data = libxstream_virt_data(*memory);
 #elif defined(_WIN32)
+      LIBXSTREAM_USE_SINK_ALWAYS(&alignment); // TODO
       void *const buffer = VirtualAlloc(0, size, MEM_RESERVE, PAGE_NOACCESS);
       LIBXSTREAM_CHECK_CONDITION(0 != buffer);
       void *const user_data = libxstream_virt_data(VirtualAlloc(buffer, data_size, MEM_COMMIT, PAGE_READWRITE));
       *memory = buffer;
 #else
+      LIBXSTREAM_USE_SINK_ALWAYS(&alignment); // TODO
       void *const buffer = mmap(0, size, PROT_READ | PROT_WRITE/*PROT_NONE*/, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
       LIBXSTREAM_CHECK_CONDITION(MAP_FAILED != buffer);
       void *const user_data = libxstream_virt_data(buffer);

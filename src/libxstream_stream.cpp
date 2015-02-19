@@ -264,6 +264,7 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
   , m_npartitions(0)
 #endif
 {
+  LIBXSTREAM_USE_SINK_ALWAYS(name);
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   std::fill_n(m_pending, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_signal>(0));
 #endif
@@ -277,7 +278,6 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
     m_name[0] = 0;
   }
 #endif
-
   using namespace libxstream_stream_internal;
   libxstream_stream* *const slot = libxstream_stream_internal::registry.allocate();
   *slot = this;
@@ -415,7 +415,10 @@ int libxstream_stream::thread() const
 void libxstream_stream::begin()
 {
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
-  if (thread() == this_thread_id()) {
+# if defined(LIBXSTREAM_STREAM_UNLOCK_OWNER)
+  if (thread() == this_thread_id())
+# endif
+  {
     ++m_begin;
   }
 #endif
@@ -425,7 +428,10 @@ void libxstream_stream::begin()
 void libxstream_stream::end()
 {
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
-  if (thread() == this_thread_id()) {
+# if defined(LIBXSTREAM_STREAM_UNLOCK_OWNER)
+  if (thread() == this_thread_id())
+# endif
+  {
     ++m_end;
   }
 #endif
