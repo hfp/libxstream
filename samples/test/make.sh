@@ -18,7 +18,7 @@ if [ "-g" = "$1" ] ; then
   shift
 fi
 
-$CXX -std=c++0x $OPT $* -lpthread \
+$CXX -Wall -std=c++0x $OPT $* -lpthread \
   -I$LIBXSTREAM_ROOT/include -I$LIBXSTREAM_ROOT/src -DLIBXSTREAM_EXPORTED \
   $LIBXSTREAM_ROOT/src/*.cpp test.cpp \
   -o test
