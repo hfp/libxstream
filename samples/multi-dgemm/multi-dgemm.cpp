@@ -50,7 +50,7 @@
 #define DGEMM dgemm_
 
 
-LIBXSTREAM_IMPORT_C LIBXSTREAM_TARGET(mic) void DGEMM(
+LIBXSTREAM_EXTERN_C LIBXSTREAM_TARGET(mic) void DGEMM(
   const char*, const char*, const int*, const int*, const int*,
   const double*, const double*, const int*, const double*, const int*,
   const double*, double*, const int*);

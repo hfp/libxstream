@@ -119,11 +119,11 @@
 #endif
 
 #if defined(__cplusplus)
-# define LIBXSTREAM_IMPORT_C extern "C"
-# define LIBXSTREAM_EXPORT_C extern "C" LIBXSTREAM_EXPORT
+# define LIBXSTREAM_EXTERN_C extern "C"
+# define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXTERN_C LIBXSTREAM_EXPORT
 # define LIBXSTREAM_VARIADIC ...
 #else
-# define LIBXSTREAM_IMPORT_C
+# define LIBXSTREAM_EXTERN_C
 # define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXPORT
 # define LIBXSTREAM_VARIADIC
 #endif /*__cplusplus*/
