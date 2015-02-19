@@ -145,13 +145,12 @@
 #endif
 
 void LIBXSTREAM_USE_SINK_ALWAYS(const void*);
-#if defined(LIBXSTREAM_DEBUG)
 int LIBXSTREAM_NOT_CONSTANT(int value);
+#if defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_USE_SINK(VAR) LIBXSTREAM_USE_SINK_ALWAYS(VAR);
 # define LIBXSTREAM_ASSERT(A) assert(A)
 # include <assert.h>
 #else
-# define LIBXSTREAM_NOT_CONSTANT(VALUE) (VALUE)
 # define LIBXSTREAM_USE_SINK(VAR)
 # define LIBXSTREAM_ASSERT(A)
 #endif
