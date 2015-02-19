@@ -116,7 +116,7 @@ int main(int argc, char* argv[])
     std::vector<multi_dgemm_type> multi_dgemm(nstreams_total);
     for (size_t i = 0; i < multi_dgemm.size(); ++i) {
       char name[128];
-      LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
+      LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", static_cast<int>(i + 1));
       LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, static_cast<int>(i % ndevices), demux, static_cast<size_t>(nbatch)));
     }
     if (0 < nstreams_total) {

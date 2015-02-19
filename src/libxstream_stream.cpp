@@ -506,7 +506,6 @@ void libxstream_stream::lock(bool retry)
 
 void libxstream_stream::unlock()
 {
-  const int this_thread = this_thread_id();
 #if defined(LIBXSTREAM_STDFEATURES)
   std::atomic<int> *const stream_thread = static_cast<std::atomic<int>*>(m_thread);
 #else
@@ -514,13 +513,13 @@ void libxstream_stream::unlock()
 #endif
 
 #if defined(LIBXSTREAM_STREAM_UNLOCK_OWNER)
-  int locked = this_thread;
+  int locked = this_thread_id();
   if (libxstream_stream_internal::atomic_compare_exchange(*stream_thread, locked, -1)) {
 #else
   if (libxstream_stream_internal::atomic_store(*stream_thread, -1)) {
 #endif
     LIBXSTREAM_PRINT_INFO("libxstream_stream_unlock: stream=0x%llx released by thread=%i",
-      reinterpret_cast<uintptr_t>(this), this_thread);
+      reinterpret_cast<uintptr_t>(this), this_thread_id());
   }
 }
 

@@ -216,8 +216,8 @@ int multi_dgemm_type::operator()(size_t index, size_t size)
 libxstream_event* multi_dgemm_type::event()
 {
   if (0 == m_event) {
-    const int result = libxstream_event_create(&m_event);
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result || 0 == m_event);
+    libxstream_event_create(&m_event);
+    LIBXSTREAM_ASSERT(0 != m_event);
   }
   return m_event;
 }

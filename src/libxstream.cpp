@@ -148,15 +148,14 @@ LIBXSTREAM_TARGET(mic) void mem_info(uint64_t& memory_physical, uint64_t& memory
 } // namespace libxstream_internal
 
 
+void LIBXSTREAM_USE_SINK_ALWAYS(const void*) {}
+
+
 #if defined(LIBXSTREAM_DEBUG)
 int LIBXSTREAM_NOT_CONSTANT(int value)
 {
   return value;
 }
-
-
-void LIBXSTREAM_USE_SINK(const void*)
-{}
 #endif
 
 
@@ -535,7 +534,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
 #endif
 
   LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx size=%lu", device,
-    memory ? reinterpret_cast<uintptr_t>(*memory) : 0UL, static_cast<unsigned long>(size));
+    memory ? reinterpret_cast<unsigned long long>(*memory) : 0UL, static_cast<unsigned long>(size));
 
   return result;
 }
@@ -576,7 +575,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
     LIBXSTREAM_ASYNC_END(true);
   }
 
-  LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx", device, reinterpret_cast<uintptr_t>(memory));
+  LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx", device, reinterpret_cast<unsigned long long>(memory));
 
   return result;
 }
@@ -585,8 +584,8 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 LIBXSTREAM_EXPORT_C int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream)
 {
   LIBXSTREAM_PRINT_INFO("libxstream_memset_zero: buffer=0x%llx size=%lu stream=0x%llx",
-    reinterpret_cast<uintptr_t>(memory), static_cast<unsigned long>(size),
-    reinterpret_cast<uintptr_t>(stream));
+    reinterpret_cast<unsigned long long>(memory), static_cast<unsigned long>(size),
+    reinterpret_cast<unsigned long long>(stream));
   LIBXSTREAM_CHECK_CONDITION(memory && stream);
 
   LIBXSTREAM_ASYNC_BEGIN(stream, memory, size)
@@ -625,8 +624,8 @@ LIBXSTREAM_EXPORT_C int libxstream_memset_zero(void* memory, size_t size, libxst
 
 LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t size, libxstream_stream* stream)
 {
-  LIBXSTREAM_PRINT_INFO("libxstream_memcpy_h2d: 0x%llx->0x%llx size=%lu stream=0x%llx", reinterpret_cast<uintptr_t>(host_mem),
-    reinterpret_cast<uintptr_t>(dev_mem), static_cast<unsigned long>(size), reinterpret_cast<uintptr_t>(stream));
+  LIBXSTREAM_PRINT_INFO("libxstream_memcpy_h2d: 0x%llx->0x%llx size=%lu stream=0x%llx", reinterpret_cast<unsigned long long>(host_mem),
+    reinterpret_cast<unsigned long long>(dev_mem), static_cast<unsigned long>(size), reinterpret_cast<unsigned long long>(stream));
   LIBXSTREAM_CHECK_CONDITION(host_mem && dev_mem && stream);
 
   LIBXSTREAM_ASYNC_BEGIN(stream, host_mem, dev_mem, size)
@@ -672,8 +671,8 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_me
 
 LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t size, libxstream_stream* stream)
 {
-  LIBXSTREAM_PRINT_INFO("libxstream_memcpy_d2h: 0x%llx->0x%llx size=%lu stream=0x%llx", reinterpret_cast<uintptr_t>(dev_mem),
-    reinterpret_cast<uintptr_t>(host_mem), static_cast<unsigned long>(size), reinterpret_cast<uintptr_t>(stream));
+  LIBXSTREAM_PRINT_INFO("libxstream_memcpy_d2h: 0x%llx->0x%llx size=%lu stream=0x%llx", reinterpret_cast<unsigned long long>(dev_mem),
+    reinterpret_cast<unsigned long long>(host_mem), static_cast<unsigned long>(size), reinterpret_cast<unsigned long long>(stream));
   LIBXSTREAM_CHECK_CONDITION(dev_mem && host_mem && stream);
 
   LIBXSTREAM_ASYNC_BEGIN(stream, dev_mem, host_mem, size)
@@ -707,8 +706,8 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2h(const void* dev_mem, void* host_me
 
 LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t size, libxstream_stream* stream)
 {
-  LIBXSTREAM_PRINT_INFO("libxstream_memcpy_d2d: 0x%llx->0x%llx size=%lu stream=0x%llx", reinterpret_cast<uintptr_t>(src),
-    reinterpret_cast<uintptr_t>(dst), static_cast<unsigned long>(size), reinterpret_cast<uintptr_t>(stream));
+  LIBXSTREAM_PRINT_INFO("libxstream_memcpy_d2d: 0x%llx->0x%llx size=%lu stream=0x%llx", reinterpret_cast<unsigned long long>(src),
+    reinterpret_cast<unsigned long long>(dst), static_cast<unsigned long>(size), reinterpret_cast<unsigned long long>(stream));
   LIBXSTREAM_CHECK_CONDITION(src && dst && stream);
 
   LIBXSTREAM_ASYNC_BEGIN(stream, src, dst, size)
@@ -762,11 +761,11 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int
 #if defined(LIBXSTREAM_PRINT)
   if (name && *name) {
     LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i demux=%i priority=%i (%s)",
-      reinterpret_cast<uintptr_t>(*stream), device, demux, priority, name);
+      reinterpret_cast<unsigned long long>(*stream), device, demux, priority, name);
   }
   else {
     LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i demux=%i priority=%i",
-      reinterpret_cast<uintptr_t>(*stream), device, demux, priority);
+      reinterpret_cast<unsigned long long>(*stream), device, demux, priority);
   }
 #endif
 
@@ -780,10 +779,10 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(libxstream_stream* stream)
   if (stream) {
     const char *const name = stream->name();
     if (name && *name) {
-      LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx name=\"%s\"", reinterpret_cast<uintptr_t>(stream), name);
+      LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx name=\"%s\"", reinterpret_cast<unsigned long long>(stream), name);
     }
     else {
-      LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx", reinterpret_cast<uintptr_t>(stream));
+      LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx", reinterpret_cast<unsigned long long>(stream));
     }
   }
 #endif
@@ -798,10 +797,10 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
   if (0 != stream) {
     const char *const name = stream->name();
     if (name && *name) {
-      LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx name=\"%s\"", reinterpret_cast<uintptr_t>(stream), name);
+      LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx name=\"%s\"", reinterpret_cast<unsigned long long>(stream), name);
     }
     else {
-      LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx", reinterpret_cast<uintptr_t>(stream));
+      LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx", reinterpret_cast<unsigned long long>(stream));
     }
   }
   else {
@@ -815,7 +814,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
 
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
 {
-  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx stream=0x%llx", reinterpret_cast<uintptr_t>(event), reinterpret_cast<uintptr_t>(stream));
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx stream=0x%llx", reinterpret_cast<unsigned long long>(event), reinterpret_cast<unsigned long long>(stream));
   return event ? event->wait(stream) : (stream ? stream->wait(0) : libxstream_stream::sync());
 }
 
@@ -841,7 +840,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream
 {
   LIBXSTREAM_CHECK_CONDITION(stream && device);
   *device = stream->device();
-  LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i", reinterpret_cast<uintptr_t>(stream), *device);
+  LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i", reinterpret_cast<unsigned long long>(stream), *device);
   return LIBXSTREAM_ERROR_NONE;
 }
 
@@ -850,7 +849,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_demux(const libxstream_stream* stream,
 {
   LIBXSTREAM_CHECK_CONDITION(stream && demux);
   *demux = stream->demux();
-  LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx demux=%i", reinterpret_cast<uintptr_t>(stream), *demux);
+  LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx demux=%i", reinterpret_cast<unsigned long long>(stream), *demux);
   return LIBXSTREAM_ERROR_NONE;
 }
 
@@ -859,14 +858,14 @@ LIBXSTREAM_EXPORT_C int libxstream_event_create(libxstream_event** event)
 {
   LIBXSTREAM_CHECK_CONDITION(event);
   *event = new libxstream_event;
-  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<uintptr_t>(*event));
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<unsigned long long>(*event));
   return LIBXSTREAM_ERROR_NONE;
 }
 
 
 LIBXSTREAM_EXPORT_C int libxstream_event_destroy(libxstream_event* event)
 {
-  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<uintptr_t>(event));
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<unsigned long long>(event));
   delete event;
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -874,7 +873,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_destroy(libxstream_event* event)
 
 LIBXSTREAM_EXPORT_C int libxstream_event_record(libxstream_event* event, libxstream_stream* stream)
 {
-  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx stream=0x%llx", reinterpret_cast<uintptr_t>(event), reinterpret_cast<uintptr_t>(stream));
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx stream=0x%llx", reinterpret_cast<unsigned long long>(event), reinterpret_cast<unsigned long long>(stream));
 
   if (stream) {
     event->enqueue(*stream, true);
@@ -889,7 +888,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_record(libxstream_event* event, libxstr
 
 LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, libxstream_bool* occured)
 {
-  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<uintptr_t>(event));
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<unsigned long long>(event));
   LIBXSTREAM_CHECK_CONDITION(event && occured);
 
   bool has_occurred = true;
@@ -902,7 +901,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
 
 LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event)
 {
-  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<uintptr_t>(event));
+  LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<unsigned long long>(event));
   return event ? event->wait(0) : libxstream_stream::sync();
 }
 
@@ -918,14 +917,14 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** sig
   else {
     *signature = 0;
   }
-  LIBXSTREAM_PRINT_INFOCTX("signature=0x%llx nargs=%lu", reinterpret_cast<uintptr_t>(*signature), static_cast<unsigned long>(nargs));
+  LIBXSTREAM_PRINT_INFOCTX("signature=0x%llx nargs=%lu", reinterpret_cast<unsigned long long>(*signature), static_cast<unsigned long>(nargs));
   return LIBXSTREAM_ERROR_NONE;
 }
 
 
 LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature)
 {
-  LIBXSTREAM_PRINT_INFOCTX("signature=0x%llx", reinterpret_cast<uintptr_t>(signature));
+  LIBXSTREAM_PRINT_INFOCTX("signature=0x%llx", reinterpret_cast<unsigned long long>(signature));
   delete signature;
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -998,8 +997,8 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_arity(const libxstream_argument* signature
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags)
 {
   LIBXSTREAM_PRINT_INFOCTX("function=0x%llx signature=0x%llx stream=0x%llx flags=%i",
-    reinterpret_cast<uintptr_t>(function), reinterpret_cast<uintptr_t>(signature),
-    reinterpret_cast<uintptr_t>(stream), flags);
+    reinterpret_cast<unsigned long long>(function), reinterpret_cast<unsigned long long>(signature),
+    reinterpret_cast<unsigned long long>(stream), flags);
   LIBXSTREAM_CHECK_CONDITION(0 != function && 0 != stream);
   return libxstream_offload(function, signature, stream, 0 != (flags & LIBXSTREAM_CALL_WAIT));
 }
@@ -1082,7 +1081,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_value(const libxst
   if (0 < arg->dims || 0 == data) {
     if (LIBXSTREAM_TYPE_C64 >= arg->type) {
       // ignore need to use long long "ll"; use unsigned long
-      LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "0x%llx", reinterpret_cast<uintptr_t>(data));
+      LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "0x%llx", reinterpret_cast<unsigned long long>(data));
       *value = buffer;
     }
     else {
@@ -1092,7 +1091,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_value(const libxst
   else {
     switch(arg->type) {
         // ignore need to use long long "ll"; use unsigned long
-      case LIBXSTREAM_TYPE_VOID:  LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "0x%llx", reinterpret_cast<uintptr_t>(data)); break;
+      case LIBXSTREAM_TYPE_VOID:  LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "0x%llx", reinterpret_cast<unsigned long long>(data)); break;
       case LIBXSTREAM_TYPE_CHAR:  LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%c", *static_cast<const char*>(data)); break;
       case LIBXSTREAM_TYPE_I8:    LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%i", *static_cast<const signed char*>(data)); break;
       case LIBXSTREAM_TYPE_U8:    LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%u", *static_cast<const unsigned char*>(data)); break;
