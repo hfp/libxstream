@@ -144,8 +144,8 @@
 # define LIBXSTREAM_CHECK
 #endif
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(A) void libxstream_use_sink(const void*);
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(A) int libxstream_not_constant(int value);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_use_sink(const void*);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value);
 
 #if defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_USE_SINK(VAR) libxstream_use_sink(VAR)
