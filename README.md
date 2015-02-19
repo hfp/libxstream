@@ -138,9 +138,9 @@ Even the series of matrices with the largest problem size of the mix is not clos
 ### Synchronization
 In cases where multiple host threads are enqueuing work into the same stream, a locking approach is needed in order to "demux" threads and streams. The locking approach effectively separates logical groups of work. The library supports three different approaches which can be requested at runtime on a per-stream basis:
 
- * Implicit locking derived from calling certain stream and event synchronization functions (demux=1).
+ * Implicit locking when calling certain stream and event synchronization functions (demux=1).
  * Explicit locking by calling libxstream_stream_lock and libxstream_stream_unlock (demux=0).
- * Heuristic locking which is automatically introduced (demux=-1).
+ * [Heuristic locking](https://github.com/hfp/libxstream/raw/master/samples/multi-dgemm/plot-heuristic.png); automatically introduced (demux=-1).
 
 ![performance graph](samples/multi-dgemm/plot-explicit.png)
 > The above plot illustrates the impact of manual locking. Results have been gathered by running "OFFLOAD_DEVICES=0 ./[benchmark.sh](samples/multi-dgemm/benchmark.sh) 250 1 2 0" with otherwise the same conditions as mentioned in the [Performance](#performance) section. The plot shows ~145 GFLOPS/s and therefore a minor impact of manual locking.
