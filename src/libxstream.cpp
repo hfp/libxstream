@@ -148,6 +148,18 @@ LIBXSTREAM_TARGET(mic) void mem_info(uint64_t& memory_physical, uint64_t& memory
 } // namespace libxstream_internal
 
 
+#if defined(LIBXSTREAM_DEBUG)
+int LIBXSTREAM_NOT_CONSTANT(int value)
+{
+  return value;
+}
+
+
+void LIBXSTREAM_USE_SINK(const void*)
+{}
+#endif
+
+
 libxstream_lock* libxstream_lock_create()
 {
 #if defined(LIBXSTREAM_STDFEATURES)

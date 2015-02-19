@@ -171,7 +171,8 @@
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
+      <DisableSpecificWarnings>
+      </DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -208,7 +209,8 @@
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
+      <DisableSpecificWarnings>
+      </DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -248,7 +250,8 @@
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
+      <DisableSpecificWarnings>
+      </DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -286,7 +289,8 @@
       <EnableAnsiAliasing>true</EnableAnsiAliasing>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
+      <DisableSpecificWarnings>
+      </DisableSpecificWarnings>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -317,7 +321,9 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
+      <DisableSpecificWarnings>
+      </DisableSpecificWarnings>
+      <OffloadConstructs>None</OffloadConstructs>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -352,7 +358,9 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <Cpp0xSupport>true</Cpp0xSupport>
-      <DisableSpecificWarnings>4127;4189</DisableSpecificWarnings>
+      <DisableSpecificWarnings>
+      </DisableSpecificWarnings>
+      <OffloadConstructs>None</OffloadConstructs>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>

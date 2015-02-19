@@ -153,6 +153,7 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int o
 
 int libxstream_real_allocate(void** memory, size_t size, size_t alignment)
 {
+  LIBXSTREAM_USE_SINK(&alignment);
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {

@@ -336,13 +336,13 @@ int libxstream_stream::wait(libxstream_signal signal)
     {
       const libxstream_signal pending_signal = pending_signals[i];
       if (0 != pending_signal) {
-#if defined(LIBXSTREAM_STREAM_WAIT_PAST)
-        const libxstream_signal pending = 0 != signal ? signal : pending_signal;
-#else
-        const libxstream_signal pending = pending_signal;
-#endif
 #if defined(LIBXSTREAM_OFFLOAD)
         if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+# if defined(LIBXSTREAM_STREAM_WAIT_PAST)
+        const libxstream_signal pending = 0 != signal ? signal : pending_signal;
+# else
+        const libxstream_signal pending = pending_signal;
+# endif
 #         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(pending)
         }
 #endif
@@ -451,7 +451,7 @@ void libxstream_stream::lock(bool retry)
 # endif
     if (retry) {
       while (!libxstream_stream_internal::atomic_compare_exchange(*stream_thread, unlocked, this_thread)) {
-        static const size_t sleep_ms = (LIBXSTREAM_LOCK_WAIT_MS) / (LIBXSTREAM_LOCK_RETRY);
+        static /*const*/ size_t sleep_ms = (LIBXSTREAM_LOCK_WAIT_MS) / (LIBXSTREAM_LOCK_RETRY);
 
         if ((LIBXSTREAM_LOCK_RETRY) > nretry || m_begin != m_end) {
           nretry += (thread_begin == m_begin && thread_end == m_end) ? 1 : 0;
