@@ -58,16 +58,13 @@ public:
     , m_terminated(false)
     , m_index(0)
 #if defined(LIBXSTREAM_STDFEATURES)
-    , m_thread(run, this)
+    , m_thread() // do not start here
 #else
     , m_thread(0)
 #endif
     , m_size(0)
   {
     std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<value_type>(0));
-#if !defined(LIBXSTREAM_STDFEATURES)
-    start();
-#endif
   }
 
   ~queue_type() {
@@ -197,10 +194,11 @@ private:
     }
 
     LIBXSTREAM_ASSERT(0 == *entry);
-    *entry = terminator != capture_region ? capture_region->clone() : terminator;
+    const value_type new_entry = terminator != capture_region ? capture_region->clone() : terminator;
+    *entry = new_entry;
 
     if (wait) {
-      while (0 != *entry) {
+      while (new_entry == *entry) {
         this_thread_yield();
       }
     }
