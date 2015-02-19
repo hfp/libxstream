@@ -126,7 +126,7 @@
 # define LIBXSTREAM_IMPORT_C
 # define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXPORT
 # define LIBXSTREAM_VARIADIC
-#endif // __cplusplus
+#endif /*__cplusplus*/
 
 #if defined(__GNUC__) && !defined(_WIN32) && !defined(__CYGWIN32__)
 # define LIBXSTREAM_RESTRICT __restrict__
@@ -213,4 +213,4 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 # define LIBXSTREAM_CHECK_CALL(EXPRESSION) EXPRESSION
 #endif
 
-#endif // LIBXSTREAM_MACROS_H
+#endif /*LIBXSTREAM_MACROS_H*/

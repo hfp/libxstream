@@ -69,7 +69,7 @@
 #define LIBXSTREAM_ASYNC
 
 /** Not implemented yet. Must be disabled. */
-//#define LIBXSTREAM_ASYNCHOST
+/*#define LIBXSTREAM_ASYNCHOST*/
 
 /** SIMD width in Byte (actual alignment might be smaller). */
 #define LIBXSTREAM_MAX_SIMD 64
@@ -117,13 +117,13 @@
  * Impacts the expected signature of the user's function. Passing arguments by value
  * requires to use the VALUE attribute available with Fortran's ISO_C_BINDING module.
  */
-//#define LIBXSTREAM_PASS_BY_VALUE
+/*#define LIBXSTREAM_PASS_BY_VALUE*/
 
 /** Prefers OpenMP based locking primitives. */
-//#define LIBXSTREAM_PREFER_OPENMP
+/*#define LIBXSTREAM_PREFER_OPENMP*/
 
 /** Enable exporting internal C++ interfaces (legacy). */
-//#define LIBXSTREAM_INTERNAL
+/*#define LIBXSTREAM_INTERNAL*/
 
 /**
  * Below preprocessor symbols fixup some platform specifics.
@@ -144,4 +144,4 @@
 # define NOMINMAX 1
 #endif
 
-#endif // LIBXSTREAM_CONFIG_H
+#endif /*LIBXSTREAM_CONFIG_H*/

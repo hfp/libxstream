@@ -182,6 +182,6 @@ template<> struct libxstream_value2type<LIBXSTREAM_TYPE_I64>  { typedef long lon
 template<> struct libxstream_value2type<LIBXSTREAM_TYPE_U64>  { typedef unsigned long long type; };
 template<> struct libxstream_value2type<LIBXSTREAM_TYPE_F32>  { typedef float type; };
 template<> struct libxstream_value2type<LIBXSTREAM_TYPE_F64>  { typedef double type; };
-#endif // __cplusplus
+#endif /*__cplusplus*/
 
-#endif // LIBXSTREAM_H
+#endif /*LIBXSTREAM_H*/
