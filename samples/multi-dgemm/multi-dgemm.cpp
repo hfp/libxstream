@@ -44,7 +44,7 @@
 #include <libxstream_end.h>
 
 //#define MULTI_DGEMM_USE_NESTED
-#define MULTI_DGEMM_USE_EVENTS
+#define MULTI_DGEMM_USE_SYNC 1
 #define MULTI_DGEMM_USE_CHECK
 
 #define DGEMM dgemm_
@@ -96,8 +96,11 @@ int main(int argc, char* argv[])
     const int nitems = std::max(1 < argc ? std::atoi(argv[1]) : 60, 0);
     const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 10, 1);
     const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
+#if defined(MULTI_DGEMM_USE_SYNC)
     const int demux = 4 < argc ? std::atoi(argv[4]) : 1;
-
+#else
+    const int demux = -1;
+#endif
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
       throw std::runtime_error("no device found!");
@@ -140,16 +143,23 @@ int main(int argc, char* argv[])
       const size_t j = i / nbatch, n = j % nstreams_total;
       multi_dgemm_type& call = multi_dgemm[n];
       LIBXSTREAM_CHECK_CALL_THROW(call(i, std::min(nbatch, nitems - i)));
-#if defined(MULTI_DGEMM_USE_EVENTS)
+#if defined(MULTI_DGEMM_USE_SYNC) && (1 <= MULTI_DGEMM_USE_SYNC)
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(call.event(), call.stream()));
 #endif
       // synchronize every Nth iteration with N being the total number of streams
       if (n == (nstreams_total - 1)) {
         for (size_t k = 0; k < nstreams_total; ++k) {
-#if defined(MULTI_DGEMM_USE_EVENTS)
+#if defined(MULTI_DGEMM_USE_SYNC)
+# if (2 <= (MULTI_DGEMM_USE_SYNC))
+          // wait for an event within a stream
+          LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait_event(multi_dgemm[0].stream(), multi_dgemm[k].event()));
+# elif (1 <= (MULTI_DGEMM_USE_SYNC))
+          // wait for an event on the host
           LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_synchronize(multi_dgemm[k].event()));
-#else
+# else
+          // wait for all work in a stream
           LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(multi_dgemm[k].stream()));
+# endif
 #endif
         }
       }
