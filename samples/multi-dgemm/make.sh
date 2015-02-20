@@ -2,21 +2,25 @@
 
 LIBXSTREAM_ROOT="../.."
 
-CXX=$(which icpc 2> /dev/null)
-
 ICCOPT="-O2 -xHost -ansi-alias -mkl"
 ICCLNK="-mkl"
 
 GCCOPT="-O2 -march=native"
 GCCLNK="-llapack -lblas"
 
-if [ "" = "$CXX" ] ; then
+if [[ "" = "$CXX" ]] ; then
+  CXX=$(which icpc 2> /dev/null)
+  if [[ "" != "$CXX" ]] ; then
+    OPT=$ICCOPT
+    LNK=$ICCLNK
+  else
+    CXX="g++"
+  fi
+fi
+
+if [[ "" = "$OPT" || "" = "$LNK" ]] ; then
   OPT=$GCCOPT
   LNK=$GCCLNK
-  CXX="g++"
-else
-  OPT=$ICCOPT
-  LNK=$ICCLNK
 fi
 
 if [ "-g" = "$1" ] ; then
