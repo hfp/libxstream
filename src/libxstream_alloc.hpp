@@ -34,7 +34,7 @@
 #include <libxstream_macros.h>
 #include <cstddef>
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) defined(LIBXSTREAM_INTERNAL)
 
 
 LIBXSTREAM_TARGET(mic) size_t libxstream_gcd(size_t a, size_t b);

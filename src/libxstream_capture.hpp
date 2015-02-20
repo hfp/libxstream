@@ -34,7 +34,7 @@
 #include "libxstream_argument.hpp"
 #include "libxstream_stream.hpp"
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) defined(LIBXSTREAM_INTERNAL)
 
 #define LIBXSTREAM_ASYNC_PENDING (capture_region_pending)
 #define LIBXSTREAM_ASYNC_READY (0 == (LIBXSTREAM_ASYNC_PENDING))
