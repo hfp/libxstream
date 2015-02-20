@@ -45,12 +45,8 @@ libxstream_context& libxstream_context::instance(libxstream_function function, c
   for (size_t i = 0; i <= arity; ++i) {
     context.signature[i] = arguments[i];
   }
-  if (0 == (flags_ & LIBXSTREAM_CALL_NATIVE)) {
-    context.fhybrid = function;
-  }
-  else {
-    context.fnative = reinterpret_cast<const void*>(function);
-  }
+  context.fhybrid = function;
+  context.fnative = reinterpret_cast<const void*>(function);
   context.flags = flags_;
 
   return context;

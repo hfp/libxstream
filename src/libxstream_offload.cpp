@@ -111,11 +111,11 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
         case 0: {
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(context.fhybrid, context.fnative, context.signature, arity, context.flags)
-            libxstream_offload_internal::call(fun, context, 0, arity);
+            libxstream_offload_internal::call(context, 0, arity);
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(context.fhybrid, context.fnative, context.signature, arity, context.flags)
-            libxstream_offload_internal::call(fun, context, 0, arity);
+            libxstream_offload_internal::call(context, 0, arity);
           }
         } break;
         case 1: {
