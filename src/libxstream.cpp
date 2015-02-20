@@ -57,9 +57,9 @@
 # include <pthread.h>
 #endif
 
-#include "libxstream_begin.h"
+#include <libxstream_begin.h>
 #include <cstring>
-#include "libxstream_end.h"
+#include <libxstream_end.h>
 
 #if defined(__MKL)
 # include <mkl.h>

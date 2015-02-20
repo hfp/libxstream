@@ -31,7 +31,7 @@
 #ifndef LIBXSTREAM_CONTEXT_HPP
 #define LIBXSTREAM_CONTEXT_HPP
 
-#include <libxstream_argument.hpp>
+#include "libxstream_argument.hpp"
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 

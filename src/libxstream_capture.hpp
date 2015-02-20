@@ -32,7 +32,7 @@
 #define LIBXSTREAM_CAPTURE_HPP
 
 #include "libxstream_argument.hpp"
-#include <libxstream_stream.hpp>
+#include "libxstream_stream.hpp"
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 
