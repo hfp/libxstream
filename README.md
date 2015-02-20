@@ -95,14 +95,14 @@ The function interface is used to describe and call a user function along with i
 
 ```C
 size_t nargs = 4, arity = 0;
-libxstream_argument* signature = 0;
-libxstream_fn_create_signature(&signature, nargs/*maximum number of arguments*/);
-libxstream_fn_input (signature, 0, input, libxstream_type2value<double>::value, 1, &nbatch);
-libxstream_fn_output(signature, 1, output, LIBXSTREAM_TYPE_F64/*no C++ svp.*/,  1, &nbatch);
-libxstream_fn_nargs (signature, &nargs); // 4 (maximum number of arguments)
-libxstream_fn_arity (signature, &arity); // 2 (1st/0 and 2nd/1 argument)
-libxstream_fn_call((libxstream_function)function, signature, stream, LIBXSTREAM_CALL_DEFAULT);
-libxstream_fn_destroy_signature(signature); // of course, can be used for many function calls
+libxstream_argument* args = 0;
+libxstream_fn_create_signature(&args, nargs/*maximum number of arguments*/);
+libxstream_fn_input (args, 0, input, libxstream_type2value<double>::value, 1, &nbatch);
+libxstream_fn_output(args, 1, output, LIBXSTREAM_TYPE_F64/*no C++ svp.*/,  1, &nbatch);
+libxstream_fn_nargs (args, &nargs); // 4 (maximum number of arguments)
+libxstream_fn_arity (args, &arity); // 2 (1st/0 and 2nd/1 argument)
+libxstream_fn_call((libxstream_function)function, args, stream, LIBXSTREAM_CALL_DEFAULT);
+libxstream_fn_destroy_signature(args); // of course, can be used for many function calls
 ```
 
 ### Query Interface
