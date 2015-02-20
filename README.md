@@ -102,11 +102,11 @@ libxstream_fn_output(signature, 1, output, LIBXSTREAM_TYPE_F64/*no C++ svp.*/,  
 libxstream_fn_nargs (signature, &nargs); // 4 (maximum number of arguments)
 libxstream_fn_arity (signature, &arity); // 2 (1st/0 and 2nd/1 argument)
 libxstream_fn_call((libxstream_function)function, signature, stream, LIBXSTREAM_CALL_DEFAULT);
-libxstream_fn_destroy_signature(signature);
+libxstream_fn_destroy_signature(signature); // of course, can be used for many function calls
 ```
 
 ### Query Interface
-The query interface allows to query information about function arguments when inside of a user function that is called by the library. This can be used to introspect the function arguments in terms of type, dimensionality, shape, and other properties.
+This "device-side" API allows to query information about function arguments when inside of a user function which is called by the library. This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, a handle for any pointer variable can be received (and reused for multiple queries). The query interface cannot be used for any argument given by value.
 
 ```C
 LIBXSTREAM_TARGET(mic) void function(const double* input, double* output)
