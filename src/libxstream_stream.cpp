@@ -484,10 +484,10 @@ void libxstream_stream::lock(bool retry)
       if (-1 != unlocked) {
 # if defined(LIBXSTREAM_PRINT)
         LIBXSTREAM_PRINT_WARNING("libxstream_stream_unlock: stream=0x%llx released by thread=%i with delay=%lu ms",
-          reinterpret_cast<uintptr_t>(this), this_thread, static_cast<unsigned long>(delay));
+          reinterpret_cast<unsigned long long>(this), this_thread, static_cast<unsigned long>(delay));
 # else
         LIBXSTREAM_PRINT_WARNING("libxstream_stream_unlock: stream=0x%llx released by thread=%i",
-          reinterpret_cast<uintptr_t>(this), this_thread);
+          reinterpret_cast<unsigned long long>(this), this_thread);
 # endif
       }
 
@@ -505,7 +505,7 @@ void libxstream_stream::lock(bool retry)
 
     LIBXSTREAM_ASSERT(this_thread == *stream_thread);
     LIBXSTREAM_PRINT_INFO("libxstream_stream_lock: stream=0x%llx acquired by thread=%i",
-      reinterpret_cast<uintptr_t>(this), this_thread);
+      reinterpret_cast<unsigned long long>(this), this_thread);
   }
 }
 
@@ -525,7 +525,7 @@ void libxstream_stream::unlock()
   if (libxstream_stream_internal::atomic_store(*stream_thread, -1)) {
 #endif
     LIBXSTREAM_PRINT_INFO("libxstream_stream_unlock: stream=0x%llx released by thread=%i",
-      reinterpret_cast<uintptr_t>(this), this_thread_id());
+      reinterpret_cast<unsigned long long>(this), this_thread_id());
   }
 }
 
