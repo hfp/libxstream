@@ -116,7 +116,7 @@ void libxstream_event::enqueue(libxstream_stream& stream, bool reset)
   {
     libxstream_event::enqueue(thread(), *LIBXSTREAM_ASYNC_STREAM, ptr<slot_type,0>(), *ptr<size_t,1>(), val<bool,2>());
   }
-  LIBXSTREAM_ASYNC_END(false, true);
+  LIBXSTREAM_ASYNC_END(2 * (LIBXSTREAM_CALL_INVALID - 1));
 }
 
 
@@ -145,7 +145,7 @@ int libxstream_event::query(bool& occurred, libxstream_stream* stream) const
 
     *ptr<bool,3>() = occurred;
   }
-  LIBXSTREAM_ASYNC_END(true);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT);
 
   return result;
 }
@@ -200,7 +200,7 @@ int libxstream_event::wait(libxstream_stream* stream)
     LIBXSTREAM_ASSERT(completed <= expected);
     expected -= completed;
   }
-  LIBXSTREAM_ASYNC_END(true, true);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT | (2 * (LIBXSTREAM_CALL_INVALID - 1)));
 
   return result;
 }

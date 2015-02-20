@@ -59,8 +59,9 @@ LIBXSTREAM_EXPORT_C typedef enum libxstream_type {
 /** Flags to adjust function call behavior (valid for binary combination). */
 LIBXSTREAM_EXPORT_C typedef enum libxstream_call_flags {
   LIBXSTREAM_CALL_DEFAULT = 0,
-  LIBXSTREAM_CALL_WAIT    = 1,
-  LIBXSTREAM_CALL_SYNCHRONOUS = LIBXSTREAM_CALL_WAIT
+  LIBXSTREAM_CALL_WAIT    = 1/*synchronous*/,
+  LIBXSTREAM_CALL_NATIVE  = 2/*MIC fn.ptr.*/,
+  LIBXSTREAM_CALL_INVALID/*terminates list*/
 } libxstream_call_flags;
 /** Function argument type. */
 LIBXSTREAM_EXPORT_C typedef struct LIBXSTREAM_TARGET(mic) libxstream_argument libxstream_argument;

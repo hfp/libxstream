@@ -480,7 +480,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, siz
       libxstream_internal::mem_info(memory_physical, memory_allocatable);
     }
   }
-  LIBXSTREAM_ASYNC_END(true);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT);
 
   LIBXSTREAM_PRINT_INFOCTX("device=%i allocatable=%lu physical=%lu", device,
     static_cast<unsigned long>(memory_allocatable),
@@ -526,7 +526,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
       result = libxstream_real_allocate(&memory, size, alignment);
     }
   }
-  LIBXSTREAM_ASYNC_END(true);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT);
 
 #if !defined(LIBXSTREAM_SYNC_NO_MEMSYNC)
   libxstream_stream::sync(device);
@@ -571,7 +571,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
         result = libxstream_real_deallocate(memory);
       }
     }
-    LIBXSTREAM_ASYNC_END(true);
+    LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT);
   }
 
   LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx", device, reinterpret_cast<unsigned long long>(memory));
@@ -615,7 +615,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memset_zero(void* memory, size_t size, libxst
       memset(dst, 0, size);
     }
   }
-  LIBXSTREAM_ASYNC_END(false);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT);
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -662,7 +662,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_me
 #endif
     }
   }
-  LIBXSTREAM_ASYNC_END(false);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT);
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -697,7 +697,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2h(const void* dev_mem, void* host_me
       std::copy(src, src + size, dst);
     }
   }
-  LIBXSTREAM_ASYNC_END(false);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT);
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -736,7 +736,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
       memcpy(dst, src, size);
     }
   }
-  LIBXSTREAM_ASYNC_END(false);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT);
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -999,7 +999,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
     reinterpret_cast<unsigned long long>(function), reinterpret_cast<unsigned long long>(signature),
     reinterpret_cast<unsigned long long>(stream), flags);
   LIBXSTREAM_CHECK_CONDITION(0 != function && 0 != stream);
-  return libxstream_offload(function, signature, stream, 0 != (flags & LIBXSTREAM_CALL_WAIT));
+  return libxstream_offload(function, signature, stream, flags);
 }
 
 

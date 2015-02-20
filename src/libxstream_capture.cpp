@@ -266,14 +266,14 @@ private:
 } // namespace libxstream_capture_internal
 
 
-libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync)
+libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags)
   : m_function(0)
 #if defined(LIBXSTREAM_CAPTURE_UNLOCK_EARLY)
   , m_unlock(true)
 #else
   , m_unlock(false)
 #endif
-  , m_sync(sync)
+  , m_flags(flags)
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   , m_thread(this_thread_id())
 #else
@@ -306,7 +306,7 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
   }
 
   if (stream) {
-    if (!wait && 0 != stream->demux()) {
+    if (0 == (flags & LIBXSTREAM_CALL_WAIT) && 0 != stream->demux()) {
       stream->lock(0 > stream->demux());
     }
     stream->begin();
@@ -318,7 +318,7 @@ libxstream_capture_base::~libxstream_capture_base()
 {
   if (m_unlock && m_stream) {
     m_stream->end();
-    if (m_sync && 0 != m_stream->demux()) {
+    if (0 != (m_flags & (2 * (LIBXSTREAM_CALL_INVALID - 1))) && 0 != m_stream->demux()) {
       m_stream->unlock();
     }
   }
@@ -353,7 +353,7 @@ int libxstream_capture_base::thread() const
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL void libxstream_offload(const libxstream_capture_base& capture_region, bool wait)
+LIBXSTREAM_EXPORT_INTERNAL void libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait)
 {
 #if !defined(LIBXSTREAM_CAPTURE_DEBUG)
   if (libxstream_capture_internal::queue.start()) {

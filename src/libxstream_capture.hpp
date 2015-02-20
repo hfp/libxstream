@@ -81,10 +81,10 @@
   libxstream_stream *const libxstream_capture_stream = cast_to_stream(STREAM); \
   const libxstream_capture_base::arg_type libxstream_capture_argv[] = { __VA_ARGS__ }; \
   const struct libxstream_capture: public libxstream_capture_base { \
-    libxstream_capture(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync = false) \
-      : libxstream_capture_base(argc, argv, stream, wait, sync) \
+    libxstream_capture(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags) \
+      : libxstream_capture_base(argc, argv, stream, flags) \
     { \
-      libxstream_offload(*this, wait); \
+      libxstream_enqueue(*this, 0 != (flags & LIBXSTREAM_CALL_WAIT)); \
     } \
     libxstream_capture* virtual_clone() const { \
       return new libxstream_capture(*this); \
@@ -94,13 +94,13 @@
       int LIBXSTREAM_ASYNC_DEVICE = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->device() : val<int,0>(); \
       const libxstream_signal capture_region_signal = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->signal() : 0; \
       LIBXSTREAM_ASYNC_DECL; libxstream_use_sink(&LIBXSTREAM_ASYNC_DEVICE); libxstream_use_sink(&LIBXSTREAM_ASYNC_PENDING); do
-#define LIBXSTREAM_ASYNC_END(...) while(libxstream_not_constant(LIBXSTREAM_FALSE)); \
+#define LIBXSTREAM_ASYNC_END(FLAGS) while(libxstream_not_constant(LIBXSTREAM_FALSE)); \
       if (LIBXSTREAM_ASYNC_STREAM && capture_region_signal != capture_region_signal_consumed) { \
         LIBXSTREAM_ASYNC_STREAM->pending(thread(), capture_region_signal); \
       } \
     } \
   } capture_region(sizeof(libxstream_capture_argv) / sizeof(*libxstream_capture_argv), \
-    libxstream_capture_argv, libxstream_capture_stream, __VA_ARGS__); \
+    libxstream_capture_argv, libxstream_capture_stream, FLAGS); \
   } while(libxstream_not_constant(LIBXSTREAM_FALSE))
 
 
@@ -137,7 +137,7 @@ public:
   };
 
 public:
-  libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, bool wait, bool sync);
+  libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags);
   virtual ~libxstream_capture_base();
 
 public:
@@ -159,8 +159,9 @@ public:
     return reinterpret_cast<T*>(libxstream_get_data(m_signature[i]));
   }
 
-  libxstream_function function() const { return m_function; }
   const libxstream_argument* signature() const { return m_signature; }
+  libxstream_function function() const { return m_function; }
+  int flags() const { return m_flags; }
 
   libxstream_capture_base* clone() const;
   void operator()() const;
@@ -173,7 +174,8 @@ private:
 private:
   mutable libxstream_function m_function;
   libxstream_argument m_signature[(LIBXSTREAM_MAX_NARGS)+1];
-  bool m_unlock, m_sync;
+  bool m_unlock;
+  int m_flags;
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   int m_thread;
 #endif
@@ -183,7 +185,7 @@ protected:
 };
 
 
-LIBXSTREAM_EXPORT_INTERNAL void libxstream_offload(const libxstream_capture_base& capture_region, bool wait);
+LIBXSTREAM_EXPORT_INTERNAL void libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait);
 
 void libxstream_capture_shutdown();
 
