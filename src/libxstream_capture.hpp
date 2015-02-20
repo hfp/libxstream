@@ -31,6 +31,7 @@
 #ifndef LIBXSTREAM_CAPTURE_HPP
 #define LIBXSTREAM_CAPTURE_HPP
 
+#include "libxstream_argument.hpp"
 #include <libxstream_stream.hpp>
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
@@ -101,9 +102,6 @@
   } capture_region(sizeof(libxstream_capture_argv) / sizeof(*libxstream_capture_argv), \
     libxstream_capture_argv, libxstream_capture_stream, __VA_ARGS__); \
   } while(libxstream_not_constant(LIBXSTREAM_FALSE))
-
-
-struct LIBXSTREAM_EXPORT_INTERNAL libxstream_stream;
 
 
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_capture_base {

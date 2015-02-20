@@ -29,6 +29,9 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "libxstream_stream.hpp"
+#include "libxstream_capture.hpp"
+#include "libxstream_event.hpp"
+
 #include <algorithm>
 #include <string>
 #include <cstdio>
