@@ -33,7 +33,7 @@
 
 #include "libxstream.hpp"
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
 
 
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_event {
