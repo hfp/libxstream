@@ -86,7 +86,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_contex
 int libxstream_offload(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, bool wait)
 {
   LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {
-    /*LIBXSTREAM_TARGET(mic)*/ libxstream_function /*const*/ fun = function();
+    LIBXSTREAM_TARGET(mic) /*const*/ libxstream_function fun = function();
     size_t arity = 0;
     libxstream_fn_arity(signature(), &arity);
     libxstream_context& context = libxstream_context::instance(signature(), arity);
