@@ -78,6 +78,9 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_contex
       LIBXSTREAM_ASSERT(false);
     }
   }
+
+  // mark context as invalid
+  context.flags = LIBXSTREAM_CALL_INVALID;
 }
 
 } // namespace libxstream_offload_internal

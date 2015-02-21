@@ -36,7 +36,7 @@
 #include <stddef.h>
 
 
-/** Boolean state. */
+/** Boolean state; must match LIBXSTREAM_TYPE_BOOL. */
 typedef int libxstream_bool;
 /** Stream type. */
 LIBXSTREAM_EXPORT_C typedef struct libxstream_stream libxstream_stream;
@@ -46,15 +46,13 @@ LIBXSTREAM_EXPORT_C typedef struct libxstream_event libxstream_event;
 LIBXSTREAM_EXPORT_C typedef enum libxstream_type {
   LIBXSTREAM_TYPE_VOID,
   LIBXSTREAM_TYPE_CHAR,
-  LIBXSTREAM_TYPE_I8, LIBXSTREAM_TYPE_U8,
+  LIBXSTREAM_TYPE_I8, LIBXSTREAM_TYPE_U8, LIBXSTREAM_TYPE_BYTE = LIBXSTREAM_TYPE_U8,
   LIBXSTREAM_TYPE_I16, LIBXSTREAM_TYPE_U16,
-  LIBXSTREAM_TYPE_I32, LIBXSTREAM_TYPE_U32,
+  LIBXSTREAM_TYPE_I32, LIBXSTREAM_TYPE_BOOL = LIBXSTREAM_TYPE_I32, LIBXSTREAM_TYPE_U32,
   LIBXSTREAM_TYPE_I64, LIBXSTREAM_TYPE_U64,
   LIBXSTREAM_TYPE_F32, LIBXSTREAM_TYPE_F64,
   LIBXSTREAM_TYPE_C32, LIBXSTREAM_TYPE_C64,
-  LIBXSTREAM_TYPE_BYTE = LIBXSTREAM_TYPE_U8,
-  /** Must match libxstream_bool. */
-  LIBXSTREAM_TYPE_BOOL = LIBXSTREAM_TYPE_I32
+  LIBXSTREAM_TYPE_INVALID/*terminates list*/
 } libxstream_type;
 /** Flags to adjust function call behavior (valid for binary combination). */
 LIBXSTREAM_EXPORT_C typedef enum libxstream_call_flags {
@@ -120,7 +118,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
 /** Wait for an event to complete i.e., work queued prior to recording the event. */
 LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event);
 
-/** Create a function signature with a certain arity (number of arguments). */
+/** Create a function signature with a certain maximum number of arguments. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t nargs);
 /** Destroy a function signature; does not release the bound data. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature);

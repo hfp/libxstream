@@ -65,9 +65,9 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
 
   if (0 != signature) {
     for (size_t i = 0; i < nargs; ++i) {
-      LIBXSTREAM_CHECK_ERROR(libxstream_construct(signature[i], libxstream_argument::kind_inout, 0, LIBXSTREAM_TYPE_VOID, 0, 0));
+      LIBXSTREAM_CHECK_ERROR(libxstream_construct(signature[i], libxstream_argument::kind_inout, 0, LIBXSTREAM_TYPE_INVALID, 0, 0));
     }
-    LIBXSTREAM_CHECK_ERROR(libxstream_construct(signature[nargs], libxstream_argument::kind_invalid, 0, LIBXSTREAM_TYPE_VOID, 0, 0));
+    LIBXSTREAM_CHECK_ERROR(libxstream_construct(signature[nargs], libxstream_argument::kind_invalid, 0, LIBXSTREAM_TYPE_INVALID, 0, 0));
   }
 
   return LIBXSTREAM_ERROR_NONE;

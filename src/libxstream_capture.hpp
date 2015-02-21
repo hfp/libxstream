@@ -109,7 +109,7 @@ public:
   class LIBXSTREAM_EXPORT_INTERNAL arg_type: public libxstream_argument {
   public:
     arg_type(): m_signature(false) {
-      libxstream_construct(*this, kind_inout, 0, LIBXSTREAM_TYPE_VOID, 0, 0);
+      libxstream_construct(*this, kind_inout, 0, LIBXSTREAM_TYPE_INVALID, 0, 0);
     }
 
     arg_type(const libxstream_argument* signature): m_signature(true) {
