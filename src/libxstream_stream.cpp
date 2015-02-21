@@ -65,7 +65,7 @@ public:
     for (size_t i = 0; i < n; ++i) {
 #if defined(LIBXSTREAM_DEBUG)
       if (0 != m_streams[i]) {
-        LIBXSTREAM_PRINT_WARNING("dangling stream \"%s\"!", m_streams[i]->name());
+        LIBXSTREAM_PRINT_WARN("dangling stream \"%s\"!", m_streams[i]->name());
       }
 #endif
       libxstream_stream_destroy(m_streams[i]);
@@ -486,10 +486,10 @@ void libxstream_stream::lock(bool retry)
 
       if (-1 != unlocked) {
 # if defined(LIBXSTREAM_PRINT)
-        LIBXSTREAM_PRINT_WARNING("libxstream_stream_unlock: stream=0x%llx released by thread=%i with delay=%lu ms",
+        LIBXSTREAM_PRINT_WARN("libxstream_stream_unlock: stream=0x%llx released by thread=%i with delay=%lu ms",
           reinterpret_cast<unsigned long long>(this), this_thread, static_cast<unsigned long>(delay));
 # else
-        LIBXSTREAM_PRINT_WARNING("libxstream_stream_unlock: stream=0x%llx released by thread=%i",
+        LIBXSTREAM_PRINT_WARN("libxstream_stream_unlock: stream=0x%llx released by thread=%i",
           reinterpret_cast<unsigned long long>(this), this_thread);
 # endif
       }

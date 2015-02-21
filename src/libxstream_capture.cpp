@@ -115,7 +115,7 @@ public:
       }
     }
     if (0 < dangling) {
-      LIBXSTREAM_PRINT_WARNING("%lu work item%s dangling!", static_cast<unsigned long>(dangling), 1 < dangling ? "s are" : " is");
+      LIBXSTREAM_PRINT_WARN("%lu work item%s dangling!", static_cast<unsigned long>(dangling), 1 < dangling ? "s are" : " is");
     }
 #endif
 
@@ -185,7 +185,7 @@ private:
 
 #if defined(LIBXSTREAM_DEBUG)
     if (0 != *entry) {
-      LIBXSTREAM_PRINT_WARNING0("queuing work is stalled!");
+      LIBXSTREAM_PRINT_WARN0("queuing work is stalled!");
     }
 #endif
     // stall the push if LIBXSTREAM_MAX_QSIZE is exceeded

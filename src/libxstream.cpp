@@ -558,7 +558,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 # if defined(LIBXSTREAM_CHECK)
         const int memory_device = *static_cast<const int*>(libxstream_virt_data(memory));
         if (memory_device != LIBXSTREAM_ASYNC_DEVICE) {
-          LIBXSTREAM_PRINT_WARNING("device %i does not match allocating device %i!", LIBXSTREAM_ASYNC_DEVICE, memory_device);
+          LIBXSTREAM_PRINT_WARN("device %i does not match allocating device %i!", LIBXSTREAM_ASYNC_DEVICE, memory_device);
           LIBXSTREAM_ASYNC_DEVICE_UPDATE(memory_device);
         }
 # endif
@@ -936,6 +936,11 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size
   size_t nargs = 0;
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(signature, &nargs) && arg < nargs);
 #endif
+#if defined(LIBXSTREAM_PRINT)
+  if (0 != dims && 0 == shape) {
+    LIBXSTREAM_PRINT_WARNCTX0("weak type information!");
+  }
+#endif
   return libxstream_construct(signature[arg], libxstream_argument::kind_input, in, type, dims, shape);
 }
 
@@ -947,6 +952,11 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* signature, siz
   size_t nargs = 0;
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(signature, &nargs) && arg < nargs);
 #endif
+#if defined(LIBXSTREAM_PRINT)
+  if (0 != dims && 0 == shape) {
+    LIBXSTREAM_PRINT_WARNCTX0("weak type information!");
+  }
+#endif
   return libxstream_construct(signature[arg], libxstream_argument::kind_output, out, type, dims, shape);
 }
 
@@ -957,6 +967,11 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* signature, size
 #if defined(LIBXSTREAM_DEBUG)
   size_t nargs = 0;
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(signature, &nargs) && arg < nargs);
+#endif
+#if defined(LIBXSTREAM_PRINT)
+  if (0 != dims && 0 == shape) {
+    LIBXSTREAM_PRINT_WARNCTX0("weak type information!");
+  }
 #endif
   return libxstream_construct(signature[arg], libxstream_argument::kind_inout, inout, type, dims, shape);
 }

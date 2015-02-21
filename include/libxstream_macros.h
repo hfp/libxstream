@@ -169,15 +169,19 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 # define LIBXSTREAM_PRINT_INFO0(MESSAGE) fprintf(stderr, "DBG " MESSAGE "\n")
 # define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...) fprintf(stderr, "DBG %s: " MESSAGE "\n", __FUNCTION__, __VA_ARGS__)
 # define LIBXSTREAM_PRINT_INFOCTX0(MESSAGE) fprintf(stderr, "DBG %s: " MESSAGE "\n", __FUNCTION__)
-# define LIBXSTREAM_PRINT_WARNING(MESSAGE, ...) fprintf(stderr, "WRN " MESSAGE "\n", __VA_ARGS__)
-# define LIBXSTREAM_PRINT_WARNING0(MESSAGE) fprintf(stderr, "WRN " MESSAGE "\n")
+# define LIBXSTREAM_PRINT_WARN(MESSAGE, ...) fprintf(stderr, "WRN " MESSAGE "\n", __VA_ARGS__)
+# define LIBXSTREAM_PRINT_WARN0(MESSAGE) fprintf(stderr, "WRN " MESSAGE "\n")
+# define LIBXSTREAM_PRINT_WARNCTX(MESSAGE, ...) fprintf(stderr, "WRN %s: " MESSAGE "\n", __FUNCTION__, __VA_ARGS__)
+# define LIBXSTREAM_PRINT_WARNCTX0(MESSAGE) fprintf(stderr, "WRN %s: " MESSAGE "\n", __FUNCTION__)
 #else
 # define LIBXSTREAM_PRINT_INFO(MESSAGE, ...)
 # define LIBXSTREAM_PRINT_INFO0(MESSAGE)
 # define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...)
 # define LIBXSTREAM_PRINT_INFOCTX0(MESSAGE)
-# define LIBXSTREAM_PRINT_WARNING(MESSAGE, ...)
-# define LIBXSTREAM_PRINT_WARNING0(MESSAGE)
+# define LIBXSTREAM_PRINT_WARN(MESSAGE, ...)
+# define LIBXSTREAM_PRINT_WARN0(MESSAGE)
+# define LIBXSTREAM_PRINT_WARNCTX(MESSAGE, ...)
+# define LIBXSTREAM_PRINT_WARNCTX0(MESSAGE)
 #endif
 
 #if defined(_MSC_VER)

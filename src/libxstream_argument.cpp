@@ -35,7 +35,7 @@
 
 LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument& arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[])
 {
-  LIBXSTREAM_CHECK_CONDITION((0 == dims || 0 != shape) && (LIBXSTREAM_MAX_NDIMS) >= dims);
+  LIBXSTREAM_CHECK_CONDITION((LIBXSTREAM_MAX_NDIMS) >= dims);
 #if defined(LIBXSTREAM_DEBUG)
   std::fill_n(reinterpret_cast<char*>(&arg), sizeof(libxstream_argument), 0); // avoid false pos. with mem. analysis
 #endif
