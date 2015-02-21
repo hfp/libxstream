@@ -3,6 +3,7 @@ My Inspector*
 bin
 build
 tmp
+README.tex
 *.stackdump
 *.opensdf
 *.user
