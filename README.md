@@ -103,8 +103,8 @@ libxstream_fn_call((libxstream_function)f, args, stream, LIBXSTREAM_CALL_DEFAULT
 libxstream_fn_destroy_signature(args); // (can be used for many function calls)
 ```
 
-#### Example: void f(double scale, const float* in, float* out, size_t n, size_t* nzeros)
-A first observation is that a function's return type cannot be specified. Any results need to go over the argument list (which also allows multiple results to be delivered). To pass arguments, two mechanisms are supported: by-value and by-pointer. The latter is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism (which is not allowed).
+**Example: void f(double scale, const float* in, float* out, size_t n, size_t* nzeros)**
+A first observation is that a function's return type cannot be specified. Any results need to go over the argument list (which also allows multiple results to be delivered). To pass arguments, two mechanisms are supported: by-value and by-pointer. The latter is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism (which cannot be used).
 
 ```C
 const libxstream_type sizetype = libxstream_type2value<size_t>::value;
@@ -115,8 +115,8 @@ libxstream_fn_input (args, 3, &n, sizetype, 0, 0);
 libxstream_fn_output(args, 4, &nzeros, sizetype, 0, 0);
 ```
 
-#### Example: weak type information
-To construct a signature with only weak type information, (1) no distinction between inout and output arguments need to be made, and (2) LIBXSTREAM_TYPE_BYTE as an elemental type. Of course, the latter implies that all extents are counted in Byte rather than the number of elements.
+**Example: weak type information**
+To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments, and (2) use LIBXSTREAM_TYPE_BYTE as the elemental type. The latter implies that all extents are counted in Byte rather than in number of elements.
 
 ```C
 const size_t typesize = sizeof(float);
@@ -127,7 +127,7 @@ libxstream_fn_inout(args, 1, data, LIBXSTREAM_TYPE_BYTE, 1, &numbytes);
 ```
 
 ### Query Interface
-This "device-side" API allows to query information about function arguments when inside of a user function which is called by the library. This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, a handle for any pointer variable can be received (and reused for multiple queries). The query interface cannot be used for an argument which is given by value.
+This "device-side API" allows to query information about function arguments when inside of a user function which is called by the library. This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, a handle for any pointer variable can be received (and reused for multiple queries). The query interface cannot be used for an argument which is given by value.
 
 ```C
 LIBXSTREAM_TARGET(mic) void f(double scale, const float* in, float* out, size_t* nzeros)
