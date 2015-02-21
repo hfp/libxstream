@@ -94,37 +94,60 @@ libxstream_event_destroy(event[1]);
 The function interface is used to describe and call a user function along with its list of arguments. The function's signature consists of inputs, outputs, or in-out arguments. An own function can be enqueued for execution within a stream by taking the address of the function.
 
 ```C
-size_t nargs = 4, arity = 0;
+size_t nargs = 5, arity = 0;
 libxstream_argument* args = 0;
 libxstream_fn_create_signature(&args, nargs/*maximum number of arguments*/);
-libxstream_fn_input (args, 0, input, libxstream_type2value<double>::value, 1, &nbatch);
-libxstream_fn_output(args, 1, output, LIBXSTREAM_TYPE_F64/*no C++ svp.*/,  1, &nbatch);
-libxstream_fn_nargs (args, &nargs); // 4 (maximum number of arguments)
-libxstream_fn_arity (args, &arity); // 2 (1st/0 and 2nd/1 argument)
-libxstream_fn_call((libxstream_function)function, args, stream, LIBXSTREAM_CALL_DEFAULT);
-libxstream_fn_destroy_signature(args); // of course, can be used for many function calls
+libxstream_fn_nargs (args, &nargs); // 5 (maximum number of arguments)
+libxstream_fn_arity (args, &arity); // 0 (no arguments constructed yet)
+libxstream_fn_call((libxstream_function)f, args, stream, LIBXSTREAM_CALL_DEFAULT);
+libxstream_fn_destroy_signature(args); // (can be used for many function calls)
+```
+
+#### Example: void f(double scale, const float* in, float* out, size_t n, size_t* nzeros)
+A first observation is that a function's return type cannot be specified. Any results need to go over the argument list (which also allows multiple results to be delivered). To pass arguments, two mechanisms are supported: by-value and by-pointer. The latter is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism (which is not allowed).
+
+```C
+const libxstream_type sizetype = libxstream_type2value<size_t>::value;
+libxstream_fn_input (args, 0, &scale, LIBXSTREAM_TYPE_F64, 0, 0);
+libxstream_fn_input (args, 1, in, LIBXSTREAM_TYPE_F32, 1, &n);
+libxstream_fn_output(args, 2, out, LIBXSTREAM_TYPE_F32, 1, &n);
+libxstream_fn_input (args, 3, &n, sizetype, 0, 0);
+libxstream_fn_output(args, 4, &nzeros, sizetype, 0, 0);
+```
+
+#### Example: weak type information
+To construct a signature with only weak type information, (1) no distinction between inout and output arguments need to be made, and (2) LIBXSTREAM_TYPE_BYTE as an elemental type. Of course, the latter implies that all extents are counted in Byte rather than the number of elements.
+
+```C
+const size_t typesize = sizeof(float);
+// argument type: const unsigned char*
+libxstream_fn_input(args, 0,  &f1, LIBXSTREAM_TYPE_BYTE, 1, &typesize);
+// argument type: unsigned char*
+libxstream_fn_inout(args, 1, data, LIBXSTREAM_TYPE_BYTE, 1, &numbytes);
 ```
 
 ### Query Interface
-This "device-side" API allows to query information about function arguments when inside of a user function which is called by the library. This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, a handle for any pointer variable can be received (and reused for multiple queries). The query interface cannot be used for any argument given by value.
+This "device-side" API allows to query information about function arguments when inside of a user function which is called by the library. This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, a handle for any pointer variable can be received (and reused for multiple queries). The query interface cannot be used for an argument which is given by value.
 
 ```C
-LIBXSTREAM_TARGET(mic) void function(const double* input, double* output)
+LIBXSTREAM_TARGET(mic) void f(double scale, const float* in, float* out, size_t* nzeros)
 {
-  const libxstream_argument* iarg = 0;
-  libxstream_get_argument(input, &iarg);
+  const libxstream_argument* ina = 0;
+  libxstream_get_argument(in, &ina);
 
-  size_t size = 0;
-  libxstream_get_shape(iarg, &size);
+  size_t n = 0;
+  libxstream_get_shape(ina, &n);
 
   libxstream_type type = LIBXSTREAM_TYPE_VOID;
-  libxstream_get_type(iarg, &type);
+  libxstream_get_type(ina, &type);
 
   const char* name = 0;
   libxstream_get_typename(type, &name);
-  printf("type=%s", name); // f64
+  printf("type=%s", name); // f32
 }
 ```
+
+As one can see in the above example, the signature of a function can often be trimmed to omit arguments which certainly describe the shape of an argument (above function signature omits the "n" argument shown in one of the previous examples).
 
 ## Performance
 The [multi-dgemm](samples/multi-dgemm) sample code is the implementation of a benchmark (beside of illustrating the use of the library). The shown performance is not meant to be "the best case". Instead, the performance is reproduced by a program constructing a series of matrix-matrix multiplications of varying problem sizes with no attempt to avoid the implied performance penalties (see underneath the graph for more details). A reasonable host system and benchmark implementation is likely able to outperform below results (no transfers, etc.).
