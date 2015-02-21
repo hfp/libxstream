@@ -103,7 +103,7 @@ libxstream_fn_call((libxstream_function)f, args, stream, LIBXSTREAM_CALL_DEFAULT
 libxstream_fn_destroy_signature(args); // (can be used for many function calls)
 ```
 
-**Example: void f(double scale, const float* in, float* out, size_t n, size_t* nzeros)**
+**Example: void f(double scale, const float* in, float* out, size_t n, size_t* nzeros)**  
 A first observation is that a function's return type cannot be specified. Any results need to go over the argument list (which also allows multiple results to be delivered). To pass arguments, two mechanisms are supported: by-value and by-pointer. The latter is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism (which cannot be used).
 
 ```C
@@ -115,7 +115,7 @@ libxstream_fn_input (args, 3, &n, sizetype, 0, 0);
 libxstream_fn_output(args, 4, &nzeros, sizetype, 0, 0);
 ```
 
-**Example: weak type information**
+**Example: weak type information**  
 To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments, and (2) use LIBXSTREAM_TYPE_BYTE as the elemental type. The latter implies that all extents are counted in Byte rather than in number of elements.
 
 ```C
@@ -174,6 +174,5 @@ Please note that the manual locking approach does not contradict the thread-safe
 Additional scalability can be unlocked when running an application which is parallelized using the Message Passing Interface (MPI). In this case, the device(s) can be partitioned according to the number of ranks per host processor. To read more about this, please visit the [MPIRUN WRAPPER](https://github.com/hfp/mpirun#mpirun-wrapper) project. To estimate the impact of this technique, one can scale the number of threads on the device until the performance saturates and then partition accordingly.
 
 ## Implementation
-The library's implementation allows enqueuing work from multiple host threads in a thread-safe manner and without oversubscribing the device. The actual implementation vehicle can be configured using a [configuration header](include/libxstream_config.h). Currently Intel's Language Extensions for Offload (LEO) are used to perform asynchronous execution and data transfers using signal/wait clauses. Other mechanisms can be implemented e.g., hStreams or COI (both are part of the Intel Manycore Platform Software Stack), or offload directives as specified by OpenMP.
-
+The library's implementation allows enqueuing work from multiple host threads in a thread-safe manner and without oversubscribing the device. The actual implementation vehicle can be configured using a [configuration header](include/libxstream_config.h). Currently Intel's Language Extensions for Offload (LEO) are used to perform asynchronous execution and data transfers using signal/wait clauses. Other mechanisms can be implemented e.g., hStreams or COI (both are part of the Intel Manycore Platform Software Stack), or offload directives as specified by OpenMP.  
 The current implementation is falling back to host execution in cases where no coprocessor is present, or when the executable was not built using the Intel Compiler. However, there is no attempt (yet) to exploit the parallelism available on the host system.
