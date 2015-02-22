@@ -173,6 +173,7 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
+      <OffloadConstructs>None</OffloadConstructs>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -211,6 +212,8 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
+      <OffloadConstructs>None</OffloadConstructs>
+      <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -252,6 +255,7 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
+      <OffloadConstructs>None</OffloadConstructs>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -291,6 +295,8 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
+      <OffloadConstructs>None</OffloadConstructs>
+      <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
