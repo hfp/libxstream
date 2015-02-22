@@ -36,7 +36,6 @@
 #include "libxstream_offload.hpp"
 
 #include <algorithm>
-#include <stdexcept>
 #include <limits>
 #include <cstdio>
 
@@ -923,7 +922,18 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** sig
 
 LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature)
 {
-  LIBXSTREAM_PRINT_INFOCTX("signature=0x%llx", reinterpret_cast<unsigned long long>(signature));
+#if defined(LIBXSTREAM_PRINT)
+  size_t nargs = 0, arity = 0;
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_nargs(signature, &nargs));
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_arity(signature, &arity));
+  LIBXSTREAM_PRINT_INFOCTX("signature=0x%llx nargs=%lu arity=%lu",
+    reinterpret_cast<unsigned long long>(signature),
+    static_cast<unsigned long>(nargs),
+    static_cast<unsigned long>(arity));
+  if (arity < nargs && (LIBXSTREAM_MAX_NARGS) != nargs) {
+    LIBXSTREAM_PRINT_WARNCTX0("unused argument slots!");
+  }
+#endif
   delete signature;
   return LIBXSTREAM_ERROR_NONE;
 }
