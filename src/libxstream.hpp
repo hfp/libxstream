@@ -51,5 +51,10 @@ int this_thread_id();
 void this_thread_yield();
 void this_thread_sleep(size_t ms);
 
+enum {
+  LIBXSTREAM_CALL_UNLOCK  = (2 * LIBXSTREAM_CALL_NATIVE),
+  LIBXSTREAM_CALL_INVALID = (4 * LIBXSTREAM_CALL_NATIVE)
+};
+
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_HPP

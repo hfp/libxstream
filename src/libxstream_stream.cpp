@@ -373,7 +373,7 @@ int libxstream_stream::wait(libxstream_signal signal)
       }
     }
   }
-  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT | (2 * (LIBXSTREAM_CALL_INVALID - 1)));
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT | LIBXSTREAM_CALL_UNLOCK);
 
   return result;
 }

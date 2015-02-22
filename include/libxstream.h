@@ -44,22 +44,34 @@ LIBXSTREAM_EXPORT_C typedef struct libxstream_stream libxstream_stream;
 LIBXSTREAM_EXPORT_C typedef struct libxstream_event libxstream_event;
 /** Enumeration of elemental "scalar" types. */
 LIBXSTREAM_EXPORT_C typedef enum libxstream_type {
-  LIBXSTREAM_TYPE_VOID,
+  /** signed integer types */
+  LIBXSTREAM_TYPE_I8,
+  LIBXSTREAM_TYPE_I16,
+  LIBXSTREAM_TYPE_I32, LIBXSTREAM_TYPE_BOOL = LIBXSTREAM_TYPE_I32,
+  LIBXSTREAM_TYPE_I64,
+  /** floating point types */
+  LIBXSTREAM_TYPE_F32,
+  LIBXSTREAM_TYPE_F64,
+  LIBXSTREAM_TYPE_C32,
+  LIBXSTREAM_TYPE_C64,
+  /** unsigned integer types */
+  LIBXSTREAM_TYPE_U8, LIBXSTREAM_TYPE_BYTE = LIBXSTREAM_TYPE_U8,
+  LIBXSTREAM_TYPE_U16,
+  LIBXSTREAM_TYPE_U32,
+  LIBXSTREAM_TYPE_U64,
+  /** special types */
   LIBXSTREAM_TYPE_CHAR,
-  LIBXSTREAM_TYPE_I8, LIBXSTREAM_TYPE_U8, LIBXSTREAM_TYPE_BYTE = LIBXSTREAM_TYPE_U8,
-  LIBXSTREAM_TYPE_I16, LIBXSTREAM_TYPE_U16,
-  LIBXSTREAM_TYPE_I32, LIBXSTREAM_TYPE_BOOL = LIBXSTREAM_TYPE_I32, LIBXSTREAM_TYPE_U32,
-  LIBXSTREAM_TYPE_I64, LIBXSTREAM_TYPE_U64,
-  LIBXSTREAM_TYPE_F32, LIBXSTREAM_TYPE_F64,
-  LIBXSTREAM_TYPE_C32, LIBXSTREAM_TYPE_C64,
-  LIBXSTREAM_TYPE_INVALID/*terminates list*/
+  LIBXSTREAM_TYPE_VOID,
+  /** terminates type list */
+  LIBXSTREAM_TYPE_INVALID
 } libxstream_type;
 /** Flags to adjust function call behavior (valid for binary combination). */
 LIBXSTREAM_EXPORT_C typedef enum libxstream_call_flags {
   LIBXSTREAM_CALL_DEFAULT = 0,
-  LIBXSTREAM_CALL_WAIT    = 1/*synchronous*/,
-  LIBXSTREAM_CALL_NATIVE  = 2/*MIC fn.ptr.*/,
-  LIBXSTREAM_CALL_INVALID/*terminates list*/
+  /* synchronous call */
+  LIBXSTREAM_CALL_WAIT    = 1,
+  /* assume MIC-only function */
+  LIBXSTREAM_CALL_NATIVE  = 2,
 } libxstream_call_flags;
 /** Function argument type. */
 LIBXSTREAM_EXPORT_C typedef struct LIBXSTREAM_TARGET(mic) libxstream_argument libxstream_argument;

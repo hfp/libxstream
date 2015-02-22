@@ -906,13 +906,13 @@ LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event)
 
 LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t nargs)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != signature && (LIBXSTREAM_MAX_NARGS) >= nargs);
   if (0 < nargs) {
     libxstream_argument *const arguments = new libxstream_argument[nargs+1];
-    libxstream_construct(arguments, nargs);
+    LIBXSTREAM_CHECK_CALL(libxstream_construct(arguments, nargs));
     *signature = arguments;
   }
   else {
+    LIBXSTREAM_CHECK_CONDITION(0 != signature && (LIBXSTREAM_MAX_NARGS) >= nargs);
     *signature = 0;
   }
   LIBXSTREAM_PRINT_INFOCTX("signature=0x%llx nargs=%lu", reinterpret_cast<unsigned long long>(*signature), static_cast<unsigned long>(nargs));
@@ -947,11 +947,12 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(signature, &nargs) && arg < nargs);
 #endif
 #if defined(LIBXSTREAM_PRINT)
-  if (0 != dims && 0 == shape) {
-    LIBXSTREAM_PRINT_WARNCTX0("weak type information!");
+  if (0 < dims && 0 == shape) {
+    LIBXSTREAM_PRINT_WARNCTX("signature=0x%llx arg=%lu is weakly typed (no shape information)!",
+      reinterpret_cast<unsigned long long>(signature), static_cast<unsigned long>(arg));
   }
 #endif
-  return libxstream_construct(signature[arg], libxstream_argument::kind_input, in, type, dims, shape);
+  return libxstream_construct(signature, arg, libxstream_argument::kind_input, in, type, dims, shape);
 }
 
 
@@ -963,11 +964,12 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* signature, siz
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(signature, &nargs) && arg < nargs);
 #endif
 #if defined(LIBXSTREAM_PRINT)
-  if (0 != dims && 0 == shape) {
-    LIBXSTREAM_PRINT_WARNCTX0("weak type information!");
+  if (0 < dims && 0 == shape) {
+    LIBXSTREAM_PRINT_WARNCTX("signature=0x%llx arg=%lu is weakly typed (no shape information)!",
+      reinterpret_cast<unsigned long long>(signature), static_cast<unsigned long>(arg));
   }
 #endif
-  return libxstream_construct(signature[arg], libxstream_argument::kind_output, out, type, dims, shape);
+  return libxstream_construct(signature, arg, libxstream_argument::kind_output, out, type, dims, shape);
 }
 
 
@@ -979,11 +981,12 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* signature, size
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(signature, &nargs) && arg < nargs);
 #endif
 #if defined(LIBXSTREAM_PRINT)
-  if (0 != dims && 0 == shape) {
-    LIBXSTREAM_PRINT_WARNCTX0("weak type information!");
+  if (0 < dims && 0 == shape) {
+    LIBXSTREAM_PRINT_WARNCTX("signature=0x%llx arg=%lu is weakly typed (no shape information)!",
+      reinterpret_cast<unsigned long long>(signature), static_cast<unsigned long>(arg));
   }
 #endif
-  return libxstream_construct(signature[arg], libxstream_argument::kind_inout, inout, type, dims, shape);
+  return libxstream_construct(signature, arg, libxstream_argument::kind_inout, inout, type, dims, shape);
 }
 
 
@@ -1034,19 +1037,19 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstrea
   int result = LIBXSTREAM_ERROR_NONE;
 
   switch(type) {
-    case LIBXSTREAM_TYPE_CHAR:  *size = 1;  break;
     case LIBXSTREAM_TYPE_I8:    *size = 1;  break;
-    case LIBXSTREAM_TYPE_U8:    *size = 1;  break;
     case LIBXSTREAM_TYPE_I16:   *size = 2;  break;
-    case LIBXSTREAM_TYPE_U16:   *size = 2;  break;
     case LIBXSTREAM_TYPE_I32:   *size = 4;  break;
-    case LIBXSTREAM_TYPE_U32:   *size = 4;  break;
     case LIBXSTREAM_TYPE_I64:   *size = 8;  break;
-    case LIBXSTREAM_TYPE_U64:   *size = 8;  break;
     case LIBXSTREAM_TYPE_F32:   *size = 4;  break;
     case LIBXSTREAM_TYPE_F64:   *size = 8;  break;
     case LIBXSTREAM_TYPE_C32:   *size = 8;  break;
     case LIBXSTREAM_TYPE_C64:   *size = 16; break;
+    case LIBXSTREAM_TYPE_U8:    *size = 1;  break;
+    case LIBXSTREAM_TYPE_U16:   *size = 2;  break;
+    case LIBXSTREAM_TYPE_U32:   *size = 4;  break;
+    case LIBXSTREAM_TYPE_U64:   *size = 8;  break;
+    case LIBXSTREAM_TYPE_CHAR:  *size = 1;  break;
     default: // LIBXSTREAM_TYPE_VOID, etc.
       result = LIBXSTREAM_ERROR_CONDITION;
   }

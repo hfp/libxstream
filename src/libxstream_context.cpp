@@ -29,6 +29,7 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "libxstream_context.hpp"
+#include "libxstream.hpp"
 
 
 libxstream_context& libxstream_context::instance()

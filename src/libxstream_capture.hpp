@@ -109,26 +109,26 @@ public:
   class LIBXSTREAM_EXPORT_INTERNAL arg_type: public libxstream_argument {
   public:
     arg_type(): m_signature(false) {
-      libxstream_construct(*this, kind_inout, 0, LIBXSTREAM_TYPE_INVALID, 0, 0);
+      libxstream_construct(this, 0, kind_inout, 0, LIBXSTREAM_TYPE_INVALID, 0, 0);
     }
 
     arg_type(const libxstream_argument* signature): m_signature(true) {
       const size_t size = sizeof(libxstream_argument*);
-      libxstream_construct(*this, kind_input, signature, LIBXSTREAM_TYPE_BYTE, 1, &size);
+      libxstream_construct(this, 0, kind_input, signature, LIBXSTREAM_TYPE_BYTE, 1, &size);
     }
 
     template<typename T> arg_type(T arg): m_signature(false) {
-      libxstream_construct(*this, kind_input, &arg, libxstream_type2value<T>::value, 0, 0);
+      libxstream_construct(this, 0, kind_input, &arg, libxstream_type2value<T>::value, 0, 0);
     }
 
     template<typename T> arg_type(T* arg): m_signature(false) {
       const size_t size = sizeof(T*);
-      libxstream_construct(*this, kind_inout, reinterpret_cast<void*>(arg), LIBXSTREAM_TYPE_BYTE, 1, &size);
+      libxstream_construct(this, 0, kind_inout, reinterpret_cast<void*>(arg), LIBXSTREAM_TYPE_BYTE, 1, &size);
     }
 
     template<typename T> arg_type(const T* arg): m_signature(false) {
       const size_t size = sizeof(T*);
-      libxstream_construct(*this, kind_input, reinterpret_cast<const void*>(arg), LIBXSTREAM_TYPE_BYTE, 1, &size);
+      libxstream_construct(this, 0, kind_input, reinterpret_cast<const void*>(arg), LIBXSTREAM_TYPE_BYTE, 1, &size);
     }
   public:
     bool signature() const { return m_signature; }
