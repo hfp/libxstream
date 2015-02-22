@@ -95,6 +95,9 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
   LIBXSTREAM_CHECK_CONDITION((0 != signature || 0 == nargs) && (LIBXSTREAM_MAX_NARGS) >= nargs);
 
   if (0 != signature) {
+#if defined(__INTEL_COMPILER)
+#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
+#endif
     for (size_t i = 0; i < nargs; ++i) {
       LIBXSTREAM_CHECK_CALL(libxstream_construct(signature, i, libxstream_argument::kind_inout, 0, LIBXSTREAM_TYPE_INVALID, 0, 0));
     }

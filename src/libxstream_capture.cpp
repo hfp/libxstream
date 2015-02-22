@@ -291,6 +291,9 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
 
     size_t arity = 0;
     libxstream_fn_arity(signature, &arity);
+#if defined(__INTEL_COMPILER)
+#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
+#endif
     for (size_t i = 0; i <= arity; ++i) m_signature[i] = signature[i];
   }
   else {

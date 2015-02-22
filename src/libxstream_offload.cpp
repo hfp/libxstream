@@ -49,8 +49,14 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
 
   if (references) {
     size_t np = 0;
+#if defined(__INTEL_COMPILER)
+#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
+#endif
     for (size_t i = 0; i < arity; ++i) {
       if (0 < signature[i].dims) {
+#if defined(__INTEL_COMPILER)
+#       pragma forceinline recursive
+#endif
         libxstream_set_data(signature[i], references[np]);
         ++np;
       }
@@ -98,7 +104,10 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
     libxstream_fn_arity(m_signature, &arity);
 
     LIBXSTREAM_TARGET(mic) libxstream_argument arguments[(LIBXSTREAM_MAX_NARGS)+1];
-    std::copy(m_signature, m_signature + arity + 1, arguments);
+#if defined(__INTEL_COMPILER)
+#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
+#endif
+    for (size_t i = 0; i <= arity; ++i) arguments[i] = m_signature[i];
 
     LIBXSTREAM_TARGET(mic) /*const*/ libxstream_function fhybrid = m_function;
     const void* fnative = 0;
@@ -108,6 +117,9 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       char* p[(LIBXSTREAM_MAX_NARGS)];
       size_t np = 0;
+#if defined(__INTEL_COMPILER)
+#     pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
+#endif
       for (size_t i = 0; i < arity; ++i) {
         if (0 < arguments[i].dims) {
           p[np] = libxstream_get_data(arguments[i]);
