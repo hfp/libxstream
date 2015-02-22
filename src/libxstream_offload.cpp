@@ -88,6 +88,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_contex
 
 int libxstream_offload(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags)
 {
+  LIBXSTREAM_ASSERT(0 == (LIBXSTREAM_CALL_INVALID & flags));
   LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {
     size_t arity = 0;
     libxstream_fn_arity(signature(), &arity);
@@ -515,6 +516,9 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           LIBXSTREAM_ASSERT(false);
         }
       }
+
+      // mark context as invalid
+      context.flags = LIBXSTREAM_CALL_INVALID;
     }
     else
 #endif
