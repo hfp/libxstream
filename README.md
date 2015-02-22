@@ -115,6 +115,8 @@ libxstream_fn_input (args, 3, &n, sizetype, 0, 0);
 libxstream_fn_output(args, 4, &nzeros, sizetype, 0, 0);
 ```
 
+In the above signature, the last argument is taken by-address (due to specifying an output) even though it is an elemental value. Therefore, the call-side needs to make sure that the destination is still valid when the function is executed. Remember that the default function call mechanism is asynchronous.
+
 **Example: weak type information**  
 To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments, and (2) use LIBXSTREAM_TYPE_BYTE as the elemental type. The latter implies that all extents are counted in Byte rather than in number of elements.
 
