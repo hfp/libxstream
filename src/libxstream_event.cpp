@@ -75,7 +75,7 @@
 #else
       const libxstream_signal signal = pending_stream;
 #endif
-#if defined(LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_OFFLOAD) && !defined(__MIC__)
       if (0 != _Offload_signaled(slot.stream().device(), reinterpret_cast<void*>(signal)))
 #endif
       {
