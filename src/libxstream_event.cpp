@@ -183,7 +183,7 @@ int libxstream_event::wait(libxstream_stream* stream)
 # else
         const libxstream_signal signal = pending_stream;
 # endif
-# if defined(LIBXSTREAM_OFFLOAD)
+# if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
         if (0 <= slot.stream().device()) {
           LIBXSTREAM_ASYNC_DEVICE_UPDATE(slot.stream().device());
 #         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(signal)
