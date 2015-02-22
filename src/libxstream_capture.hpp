@@ -159,29 +159,26 @@ public:
     return reinterpret_cast<T*>(libxstream_get_data(m_signature[i]));
   }
 
-  const libxstream_argument* signature() const { return m_signature; }
-  libxstream_function function() const { return m_function; }
-  int flags() const { return m_flags; }
+  int thread() const;
 
   libxstream_capture_base* clone() const;
   void operator()() const;
-  int thread() const;
 
 private:
   virtual libxstream_capture_base* virtual_clone() const = 0;
   virtual void virtual_run() const = 0;
 
-private:
-  mutable libxstream_function m_function;
+protected:
   libxstream_argument m_signature[(LIBXSTREAM_MAX_NARGS)+1];
-  bool m_unlock;
+  libxstream_function m_function;
+  libxstream_stream* m_stream;
   int m_flags;
+
+private:
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
   int m_thread;
 #endif
-
-protected:
-  libxstream_stream* m_stream;
+  bool m_unlock;
 };
 
 

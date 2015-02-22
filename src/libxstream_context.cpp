@@ -38,23 +38,19 @@ libxstream_context& libxstream_context::instance()
   if (0 == pcontext) {
     LIBXSTREAM_TARGET(mic) static LIBXSTREAM_TLS libxstream_context context;
     context.flags = LIBXSTREAM_CALL_INVALID;
+    context.signature = 0;
     pcontext = &context;
   }
   return *pcontext;
 }
 
 
-libxstream_context& libxstream_context::instance(const libxstream_argument arguments[], size_t arity, int flags_)
+libxstream_context& libxstream_context::instance(const libxstream_argument signature_[], int flags_)
 {
   libxstream_context& context = instance();
-
-  for (size_t i = 0; i <= arity; ++i) {
-    context.signature[i] = arguments[i];
-  }
-
+  context.signature = signature_;
   LIBXSTREAM_ASSERT(LIBXSTREAM_CALL_INVALID != flags_);
   context.flags = flags_;
-
   return context;
 }
 

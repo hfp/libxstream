@@ -38,8 +38,8 @@
 
 struct LIBXSTREAM_TARGET(mic) libxstream_context {
   static libxstream_context& instance();
-  static libxstream_context& instance(const libxstream_argument arguments[], size_t arity, int flags);
-  libxstream_argument signature[(LIBXSTREAM_MAX_NARGS)+1];
+  static libxstream_context& instance(const libxstream_argument signature[], int flags);
+  const libxstream_argument* signature;
   int flags;
 };
 

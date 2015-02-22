@@ -51,7 +51,6 @@ namespace libxstream_capture_internal {
 
 class queue_type {
 public:
-  typedef const libxstream_capture_base* value_type;
   queue_type()
     : m_lock(libxstream_lock_create())
     , m_terminated(false)
@@ -63,7 +62,7 @@ public:
 #endif
     , m_size(0)
   {
-    std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<value_type>(0));
+    std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<libxstream_capture_base*>(0));
   }
 
   ~queue_type() {
@@ -106,7 +105,7 @@ public:
 #if defined(LIBXSTREAM_DEBUG)
     size_t dangling = 0;
     for (size_t i = 0; i < LIBXSTREAM_MAX_QSIZE; ++i) {
-      const value_type item = m_buffer[i];
+      const libxstream_capture_base* item = m_buffer[i];
       if (0 != item && terminator != item) {
         m_buffer[i] = 0;
         ++dangling;
@@ -142,7 +141,7 @@ public:
 
   size_t size() const {
     const size_t offset = m_size, index = m_index;
-    const value_type& entry = m_buffer[offset%LIBXSTREAM_MAX_QSIZE];
+    const libxstream_capture_base *const entry = m_buffer[offset%LIBXSTREAM_MAX_QSIZE];
     return 0 != entry ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
   }
 
@@ -150,7 +149,7 @@ public:
     push(&capture_region, wait);
   }
 
-  value_type get() const { // not thread-safe!
+  const libxstream_capture_base* get() const { // not thread-safe!
     return m_buffer[m_index%LIBXSTREAM_MAX_QSIZE];
   }
 
@@ -161,9 +160,9 @@ public:
   }
 
 private:
-  void push(const value_type& capture_region, bool wait) {
+  void push(const libxstream_capture_base* capture_region, bool wait) {
     LIBXSTREAM_ASSERT(0 != capture_region);
-    value_type* entry = 0;
+    const libxstream_capture_base** entry = 0;
 #if defined(LIBXSTREAM_STDFEATURES)
     entry = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
 #elif defined(_OPENMP)
@@ -193,7 +192,7 @@ private:
     }
 
     LIBXSTREAM_ASSERT(0 == *entry);
-    const value_type new_entry = terminator != capture_region ? capture_region->clone() : terminator;
+    const libxstream_capture_base* new_entry = terminator != capture_region ? capture_region->clone() : terminator;
     *entry = new_entry;
 
     if (wait) {
@@ -210,7 +209,7 @@ private:
 #endif
   {
     queue_type& q = *static_cast<queue_type*>(queue);
-    value_type capture_region = 0;
+    const libxstream_capture_base* capture_region = 0;
 
 #if defined(LIBXSTREAM_ASYNCHOST) && defined(_OPENMP) && !defined(LIBXSTREAM_OFFLOAD)
 #   pragma omp parallel
@@ -240,8 +239,8 @@ private:
   }
 
 private:
-  static const value_type terminator;
-  value_type m_buffer[LIBXSTREAM_MAX_QSIZE];
+  static const libxstream_capture_base* terminator;
+  const libxstream_capture_base* m_buffer[LIBXSTREAM_MAX_QSIZE];
   libxstream_lock* m_lock;
   bool m_terminated;
   size_t m_index;
@@ -260,24 +259,23 @@ private:
 #else
 } queue;
 #endif
-/*static*/ const queue_type::value_type queue_type::terminator = reinterpret_cast<queue_type::value_type>(-1);
+/*static*/ const libxstream_capture_base* queue_type::terminator = reinterpret_cast<libxstream_capture_base*>(-1);
 
 } // namespace libxstream_capture_internal
 
 
 libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags)
   : m_function(0)
+  , m_stream(stream)
+  , m_flags(flags)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+  , m_thread(this_thread_id())
+#endif
 #if defined(LIBXSTREAM_CAPTURE_UNLOCK_EARLY)
   , m_unlock(true)
 #else
   , m_unlock(false)
 #endif
-  , m_flags(flags)
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
-  , m_thread(this_thread_id())
-#else
-#endif
-  , m_stream(stream)
 {
   if (2 == argc && (argv[0].signature() || argv[1].signature())) {
     const libxstream_argument* signature = 0;
@@ -324,6 +322,16 @@ libxstream_capture_base::~libxstream_capture_base()
 }
 
 
+int libxstream_capture_base::thread() const
+{
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+  return m_thread;
+#else
+  return 0;
+#endif
+}
+
+
 libxstream_capture_base* libxstream_capture_base::clone() const
 {
   libxstream_capture_base *const instance = virtual_clone();
@@ -339,16 +347,6 @@ libxstream_capture_base* libxstream_capture_base::clone() const
 void libxstream_capture_base::operator()() const
 {
   virtual_run();
-}
-
-
-int libxstream_capture_base::thread() const
-{
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
-  return m_thread;
-#else
-  return 0;
-#endif
 }
 
 
