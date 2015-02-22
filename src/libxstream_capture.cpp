@@ -30,7 +30,6 @@
 ******************************************************************************/
 #include "libxstream_capture.hpp"
 #include <algorithm>
-#include <stdexcept>
 #include <cstdio>
 
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -357,7 +356,12 @@ LIBXSTREAM_EXPORT_INTERNAL void libxstream_enqueue(const libxstream_capture_base
 {
 #if !defined(LIBXSTREAM_CAPTURE_DEBUG)
   if (libxstream_capture_internal::queue.start()) {
+# if defined(LIBXSTREAM_SYNCHRONOUS)
+    libxstream_use_sink(&wait);
+    libxstream_capture_internal::queue.push(capture_region, true);
+# else
     libxstream_capture_internal::queue.push(capture_region, wait);
+# endif
   }
 #else
   capture_region();

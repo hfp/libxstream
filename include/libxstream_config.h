@@ -113,6 +113,9 @@
  */
 #define LIBXSTREAM_THREADLOCAL_SIGNALS
 
+/** Instructs the library to wait for each enqueued work item. */
+/*#define LIBXSTREAM_SYNCHRONOUS*/
+
 /**
  * Impacts the expected signature of the user's function. Passing arguments by value
  * requires to use the VALUE attribute available with Fortran's ISO_C_BINDING module.
