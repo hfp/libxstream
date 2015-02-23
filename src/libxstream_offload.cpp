@@ -534,6 +534,8 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
       libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
         ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, 0, arity, m_flags);
     }
+
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_clear_signature(m_signature));
   }
   LIBXSTREAM_ASYNC_END(flags);
 
