@@ -74,8 +74,6 @@
 # include <unistd.h>
 #endif
 
-//#define LIBXSTREAM_SYNC_NO_MEMSYNC
-
 
 namespace libxstream_internal {
 
@@ -527,7 +525,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
   }
   LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT);
 
-#if !defined(LIBXSTREAM_SYNC_NO_MEMSYNC)
+#if defined(LIBXSTREAM_SYNCMEM)
   libxstream_stream::sync(device);
 #endif
 
@@ -543,7 +541,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {
-#if !defined(LIBXSTREAM_SYNC_NO_MEMSYNC)
+#if defined(LIBXSTREAM_SYNCMEM)
     libxstream_stream::sync(device);
 #endif
 
@@ -570,7 +568,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
         result = libxstream_real_deallocate(memory);
       }
     }
-    LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT);
+    LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT);
   }
 
   LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx", device, reinterpret_cast<unsigned long long>(memory));
