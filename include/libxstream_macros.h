@@ -48,7 +48,7 @@
 #   if !defined(LIBXSTREAM_STDFEATURES_THREADX)
 #     define LIBXSTREAM_STDFEATURES_THREADX
 #   endif
-# elif (4 <= __GNUC__ && 5 <= __GNUC_MINOR__) && (1L == __cplusplus)
+# elif defined(__GXX_EXPERIMENTAL_CXX0X__)
 #   if !defined(LIBXSTREAM_STDFEATURES)
 #     define LIBXSTREAM_STDFEATURES
 #   endif
