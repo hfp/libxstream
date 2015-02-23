@@ -67,8 +67,8 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, s
 
 
 test_type::test_type(int device)
-  : m_device(device), m_stream(0), m_event(0)
-  , m_host_mem(0), m_dev_mem(0)
+  : m_device(device), m_signature(0), m_stream(0), m_event(0)
+  , m_host_mem(0), m_dev_mem1(0), m_dev_mem2(0)
 {
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_get_active_device(&m_device));
 
@@ -78,13 +78,15 @@ test_type::test_type(int device)
 
   const size_t size = 4711u * 1024u;
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(-1, &m_host_mem, size, 0));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(m_device, &m_dev_mem, size, 0));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(m_device, &m_dev_mem1, size, 0));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(m_device, &m_dev_mem2, size, 0));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_info(m_device, &mem_free, &mem_avail));
 
   const char pattern_a = 'a', pattern_b = 'b';
   LIBXSTREAM_ASSERT(pattern_a != pattern_b);
   std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_a);
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_h2d(m_host_mem, m_dev_mem, size, m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_h2d(m_host_mem, m_dev_mem1, size, m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_d2d(m_dev_mem1, m_dev_mem2, size, m_stream));
 
   libxstream_bool ok = LIBXSTREAM_FALSE;
   size_t nargs = 0, arity = 0;
@@ -96,7 +98,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_RETURN(4 == nargs && 1 == arity);
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_input (m_signature, 1, m_dev_mem, LIBXSTREAM_TYPE_BYTE, 1, &size));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_input (m_signature, 1, m_dev_mem1, LIBXSTREAM_TYPE_BYTE, 1, &size));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_RETURN(4 == nargs && 2 == arity);
@@ -108,7 +110,8 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_RETURN(4 == nargs && 4 == arity);
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_call(reinterpret_cast<libxstream_function>(test_internal::check), m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
+  const libxstream_function function = reinterpret_cast<libxstream_function>(test_internal::check);
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_call(function, m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
 
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_create(&m_event));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_record(m_event, m_stream));
@@ -116,11 +119,11 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CONDITION_RETURN(LIBXSTREAM_FALSE != ok);
 
   std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_b);
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_d2h(m_dev_mem, m_host_mem, size, m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_d2h(m_dev_mem2, m_host_mem, size, m_stream));
 
   const size_t size2 = size / 2;
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memset_zero(m_dev_mem, size2, m_stream));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memset_zero(reinterpret_cast<char*>(m_dev_mem) + size2, size - size2, m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memset_zero(m_dev_mem1, size2, m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memset_zero(reinterpret_cast<char*>(m_dev_mem1) + size2, size - size2, m_stream));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_record(m_event, m_stream));
 
   int has_occured = 0;
@@ -132,8 +135,8 @@ test_type::test_type(int device)
   test_internal::check(&ok, m_host_mem, size, pattern_a);
   LIBXSTREAM_CHECK_CONDITION_RETURN(LIBXSTREAM_FALSE != ok);
 
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_d2h(m_dev_mem, m_host_mem, size2, m_stream));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_d2h(reinterpret_cast<const char*>(m_dev_mem) + size2, reinterpret_cast<char*>(m_host_mem) + size2, size - size2, m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_d2h(m_dev_mem1, m_host_mem, size2, m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_memcpy_d2h(reinterpret_cast<const char*>(m_dev_mem1) + size2, reinterpret_cast<char*>(m_host_mem) + size2, size - size2, m_stream));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_record(m_event, m_stream));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_sync(m_stream));
 
@@ -149,9 +152,10 @@ test_type::~test_type()
 {
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_destroy(m_event));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(-1, m_host_mem));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(m_device, m_dev_mem));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_destroy(m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(m_device, m_dev_mem1));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(m_device, m_dev_mem2));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_destroy_signature(m_signature));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_destroy(m_stream));
   fprintf(stdout, "TST successfully completed.\n");
 }
 
@@ -162,7 +166,7 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
     const int ntasks = std::max(1 < argc ? std::atoi(argv[1]) : omp_get_max_threads(), 1);
 #else
-    const int ntasks = 1;
+    const int ntasks = std::max(1 < argc ? std::atoi(argv[1]) : 1, 1);
 #endif
 
     size_t ndevices = 0;
