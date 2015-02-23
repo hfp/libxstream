@@ -58,6 +58,7 @@ public:
   {
     std::fill_n(m_signals, LIBXSTREAM_MAX_NDEVICES, 0);
     std::fill_n(m_streams, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS, static_cast<libxstream_stream*>(0));
+    std::atexit(handle_exit);
   }
 
   ~registry_type() {
@@ -164,6 +165,11 @@ public:
 #if !defined(LIBXSTREAM_STDFEATURES)
   libxstream_lock* lock() { return m_lock; }
 #endif
+
+private:
+  static void handle_exit() {
+    registry.terminate();
+  }
 
 private:
   // not necessary to be device-specific due to single-threaded offload

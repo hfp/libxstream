@@ -62,6 +62,7 @@ public:
     , m_size(0)
   {
     std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<libxstream_capture_base*>(0));
+    std::atexit(libxstream_capture_shutdown);
   }
 
   ~queue_type() {
