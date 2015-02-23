@@ -169,7 +169,7 @@ private:
   virtual void virtual_run() const = 0;
 
 protected:
-  libxstream_argument m_signature[(LIBXSTREAM_MAX_NARGS)+1];
+  mutable libxstream_argument m_signature[(LIBXSTREAM_MAX_NARGS)+1];
   libxstream_function m_function;
   libxstream_stream* m_stream;
   int m_flags;
