@@ -61,6 +61,12 @@ public:
   }
 
   ~registry_type() {
+    terminate();
+  }
+
+public:
+  void terminate() {
+    libxstream_capture_shutdown();
     const size_t n = max_nstreams();
     for (size_t i = 0; i < n; ++i) {
 #if defined(LIBXSTREAM_DEBUG)
@@ -75,7 +81,6 @@ public:
 #endif
   }
 
-public:
   libxstream_stream** allocate() {
 #if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock_acquire(m_lock);
@@ -294,23 +299,21 @@ libxstream_stream::~libxstream_stream()
   libxstream_stream* *const stream = std::find(registry.streams(), end, this);
   LIBXSTREAM_ASSERT(stream != end);
   *stream = 0; // unregister stream
-
-  const size_t nstreams = registry.nstreams();
-  if (0 == nstreams) {
-    libxstream_capture_shutdown();
-  }
-
+  wait(0); // wait for pending work
 #if defined(LIBXSTREAM_STDFEATURES)
   delete static_cast<std::atomic<int>*>(m_thread);
 #else
   delete static_cast<int*>(m_thread);
 #endif
-
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   if (0 != m_handle) {
     _Offload_stream_destroy(m_device, m_handle);
   }
 #endif
+  const size_t nstreams = registry.nstreams();
+  if (0 == nstreams) { // last stream
+    registry.terminate();
+  }
 }
 
 
