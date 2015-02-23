@@ -62,11 +62,13 @@ public:
 
   ~registry_type() {
     terminate();
+#if !defined(LIBXSTREAM_STDFEATURES)
+    libxstream_lock_destroy(m_lock);
+#endif
   }
 
 public:
   void terminate() {
-    libxstream_capture_shutdown();
     const size_t n = max_nstreams();
     for (size_t i = 0; i < n; ++i) {
 #if defined(LIBXSTREAM_DEBUG)
@@ -76,9 +78,7 @@ public:
 #endif
       libxstream_stream_destroy(m_streams[i]);
     }
-#if !defined(LIBXSTREAM_STDFEATURES)
-    libxstream_lock_destroy(m_lock);
-#endif
+    libxstream_capture_shutdown();
   }
 
   libxstream_stream** allocate() {
