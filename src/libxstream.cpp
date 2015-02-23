@@ -939,6 +939,18 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argumen
 }
 
 
+LIBXSTREAM_EXPORT_C int libxstream_fn_clear_signature(libxstream_argument* signature)
+{
+  size_t nargs = 0;
+  if (signature) {
+    LIBXSTREAM_CHECK_CALL(libxstream_fn_nargs(signature, &nargs));
+    LIBXSTREAM_CHECK_CALL(libxstream_construct(signature, nargs));
+  }
+  LIBXSTREAM_PRINT_INFOCTX("signature=0x%llx nargs=%lu", reinterpret_cast<unsigned long long>(signature), static_cast<unsigned long>(nargs));
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
 LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size_t arg, const void* in, libxstream_type type, size_t dims, const size_t shape[])
 {
   LIBXSTREAM_CHECK_CONDITION(0 != signature);

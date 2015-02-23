@@ -134,6 +134,8 @@ LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event);
 LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t nargs);
 /** Destroy a function signature; does not release the bound data. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature);
+/** Reset function signature allow reuse with a lesser amount of arguments (arity). */
+LIBXSTREAM_EXPORT_C int libxstream_fn_clear_signature(libxstream_argument* signature);
 /** Construct an input argument; takes the device data, dimensionality, and shape. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size_t arg, const void* in, libxstream_type type, size_t dims, const size_t shape[]);
 /** Construct an output argument; takes the device data, dimensionality, and shape. */
