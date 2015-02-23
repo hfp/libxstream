@@ -167,9 +167,7 @@ public:
 #endif
 
 private:
-  static void handle_exit() {
-    registry.terminate();
-  }
+  static void handle_exit();
 
 private:
   // not necessary to be device-specific due to single-threaded offload
@@ -182,6 +180,12 @@ private:
   libxstream_lock* m_lock;
 #endif
 } registry;
+
+
+/*static*/ void registry_type::handle_exit()
+{
+  registry.terminate();
+}
 
 
 template<typename A, typename E, typename D>
