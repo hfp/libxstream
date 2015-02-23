@@ -48,6 +48,7 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, s
 {
   const libxstream_argument* arg = 0;
   bool ok = true;
+  // check function is called with using LIBXSTREAM hence introspection may not be available
   if (LIBXSTREAM_ERROR_NONE == libxstream_get_argument(buffer, &arg)) {
     size_t shape = 0;
     libxstream_get_shape(arg, &shape);
