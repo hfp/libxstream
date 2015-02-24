@@ -75,7 +75,7 @@ public:
 
   ~queue_type() {
     // terminates the background thread
-    push(terminator, false);
+    push(terminator, true);
 #if defined(LIBXSTREAM_STDFEATURES)
     m_thread.detach();
 #else
