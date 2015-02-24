@@ -36,8 +36,9 @@
 LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[])
 {
   size_t size = 0;
+  const bool weak = LIBXSTREAM_TYPE_VOID == type || (LIBXSTREAM_ERROR_NONE == libxstream_get_typesize(type, &size) && 1 == size);
   LIBXSTREAM_CHECK_CONDITION((((libxstream_argument::kind_invalid == kind || libxstream_argument::kind_inout == kind) && LIBXSTREAM_TYPE_INVALID == type) || LIBXSTREAM_TYPE_INVALID > type)
-    && ((0 == dims && 0 == shape) || (0 == dims && 0 != shape && (LIBXSTREAM_TYPE_VOID == type || (LIBXSTREAM_ERROR_NONE == libxstream_get_typesize(type, &size) && 1 == size))) || (0 < dims))
+    && ((0 == dims && 0 == shape) || (0 == dims && 0 != shape && weak) || (0 < dims))
     && (LIBXSTREAM_MAX_NDIMS) >= dims);
 
   LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_NARGS) >= arg);
@@ -46,42 +47,53 @@ LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument argument
 #if defined(LIBXSTREAM_DEBUG)
   std::fill_n(reinterpret_cast<char*>(&argument), sizeof(libxstream_argument), 0); // avoid false pos. with mem. analysis
 #endif
+#if defined(LIBXSTREAM_PRINT)
+  static const char *const context[] = { "", "input", "output", "inout" };
+#endif
   argument.kind = kind;
   argument.dims = dims;
 
   if (shape) {
-    if (0 < dims || LIBXSTREAM_TYPE_VOID != type) {
+    if (0 < dims || !weak) {
+#if defined(LIBXSTREAM_PRINT)
+      if (0 == dims && !weak) {
+        LIBXSTREAM_PRINT_WARN("libxstream_fn_%s: signature=0x%llx arg=%lu is strong-typed (ignored shape)!",
+          context[kind], reinterpret_cast<unsigned long long>(arguments), static_cast<unsigned long>(arg));
+      }
+#endif
       argument.type = type;
     }
     else {
-      int i = -1;
+      int i = 0;
       do {
-        const libxstream_type autotype = static_cast<libxstream_type>(i);
-        LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(autotype, &size));
+        argument.type = static_cast<libxstream_type>(i);
+        LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(argument.type, &size));
         if (*shape != size) {
           ++i;
         }
         else {
 #if defined(LIBXSTREAM_PRINT)
-          const char* context[] = { "", "input", "output", "inout" };
-          LIBXSTREAM_PRINT_WARN("libxstream_fn_%s: signature=0x%llx arg=%lu is weakly typed (no elemental type)!",
+          LIBXSTREAM_PRINT_WARN("libxstream_fn_%s: signature=0x%llx arg=%lu is weak-typed (no elemental type)!",
             context[kind], reinterpret_cast<unsigned long long>(arguments), static_cast<unsigned long>(arg));
 #endif
-          argument.type = autotype;
-          i = LIBXSTREAM_TYPE_VOID; // break
+          i = LIBXSTREAM_TYPE_INVALID; // break
         }
       }
-      while (i < LIBXSTREAM_TYPE_VOID);
-      LIBXSTREAM_CHECK_CONDITION(i != LIBXSTREAM_TYPE_VOID);
+      while (i <= LIBXSTREAM_TYPE_VOID);
     }
 
-    size_t *const dst = argument.shape;
 #if defined(__INTEL_COMPILER)
 #   pragma loop_count min(0), max(LIBXSTREAM_MAX_NDIMS), avg(2)
 #endif
-    for (size_t i = 0; i < dims; ++i) dst[i] = shape[i];
+    for (size_t i = 0; i < dims; ++i) argument.shape[i] = shape[i];
   }
   else {
+#if defined(LIBXSTREAM_PRINT)
+    if (0 < dims && 0 == shape) {
+      LIBXSTREAM_PRINT_WARN("libxstream_fn_%s: signature=0x%llx arg=%lu is weak-typed (no shape information)!",
+        context[kind], reinterpret_cast<unsigned long long>(arguments), static_cast<unsigned long>(arg));
+    }
+#endif
     std::fill_n(argument.shape, dims, 0);
     argument.type = type;
   }
