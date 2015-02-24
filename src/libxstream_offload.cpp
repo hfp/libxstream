@@ -126,13 +126,13 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity)
             {
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), 0, 0, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, 0, arity, m_flags);
             }
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity)
             {
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), 0, 0, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, 0, arity, m_flags);
             }
           }
         } break;
