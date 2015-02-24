@@ -58,7 +58,7 @@ public:
   {
     std::fill_n(m_signals, LIBXSTREAM_MAX_NDEVICES, 0);
     std::fill_n(m_streams, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS, static_cast<libxstream_stream*>(0));
-    std::atexit(handle_exit);
+    //std::atexit(handle_exit);
   }
 
   ~registry_type() {
