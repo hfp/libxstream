@@ -1,6 +1,7 @@
 #!/bin/bash
 
 LIBXSTREAM_ROOT="../.."
+NAME=$(basename ${PWD})
 
 ICCOPT="-O2 -xHost -ansi-alias -mkl"
 ICCLNK="-mkl"
@@ -8,19 +9,21 @@ ICCLNK="-mkl"
 GCCOPT="-O2 -march=native"
 GCCLNK="-llapack -lblas"
 
-if [[ "" = "$CXX" ]] ; then
+OPT="-Wall -std=c++0x"
+
+if [[ "" = "${CXX}" ]] ; then
   CXX=$(which icpc 2> /dev/null)
-  if [[ "" != "$CXX" ]] ; then
-    OPT=$ICCOPT
-    LNK=$ICCLNK
+  if [[ "" != "${CXX}" ]] ; then
+    OPT+=" ${ICCOPT}"
+    LNK+=" ${ICCLNK}"
   else
     CXX="g++"
+    OPT+=" ${GCCOPT}"
+    LNK+=" ${GCCLNK}"
   fi
-fi
-
-if [[ "" = "$OPT" || "" = "$LNK" ]] ; then
-  OPT=$GCCOPT
-  LNK=$GCCLNK
+else
+  OPT+=" ${GCCOPT}"
+  LNK+=" ${GCCLNK}"
 fi
 
 if [ "-g" = "$1" ] ; then
@@ -30,7 +33,13 @@ else
   OPT+=" -DNDEBUG"
 fi
 
-$CXX -Wall -std=c++0x $OPT $* -lpthread \
-  -I$LIBXSTREAM_ROOT/include -I$LIBXSTREAM_ROOT/src -DLIBXSTREAM_EXPORTED \
-  $LIBXSTREAM_ROOT/src/*.cpp multi-dgemm-type.cpp multi-dgemm.cpp \
-  $LNK -o multi-dgemm
+if [[ "Windows_NT" = "${OS}" ]] ; then
+  LNK+=" -lpthread"
+else
+  OPT+=" -pthread"
+fi
+
+${CXX} ${OPT} $* \
+  -I${LIBXSTREAM_ROOT}/include -I${LIBXSTREAM_ROOT}/src -DLIBXSTREAM_EXPORTED \
+  ${LIBXSTREAM_ROOT}/src/*.cpp *.cpp \
+  ${LNK} -o ${NAME}
