@@ -33,7 +33,7 @@
 
 #include "libxstream_config.h"
 
-#if !defined(LIBXSTREAM_PREFER_OPENMP)
+#if !defined(LIBXSTREAM_PREFER_OPENMP) || !defined(_OPENMP)
 # if (201103L <= __cplusplus)
 #   if !defined(LIBXSTREAM_STDFEATURES)
 #     define LIBXSTREAM_STDFEATURES
