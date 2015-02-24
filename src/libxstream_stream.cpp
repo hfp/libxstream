@@ -294,7 +294,6 @@ libxstream_stream::~libxstream_stream()
   libxstream_stream* *const stream = std::find(registry.streams(), end, this);
   LIBXSTREAM_ASSERT(stream != end);
   *stream = 0; // unregister stream
-  wait(0); // wait for pending work
 #if defined(LIBXSTREAM_STDFEATURES)
   delete static_cast<std::atomic<int>*>(m_thread);
 #else
