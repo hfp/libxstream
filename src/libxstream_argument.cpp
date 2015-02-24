@@ -35,8 +35,9 @@
 
 LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[])
 {
+  size_t size = 0;
   LIBXSTREAM_CHECK_CONDITION((((libxstream_argument::kind_invalid == kind || libxstream_argument::kind_inout == kind) && LIBXSTREAM_TYPE_INVALID == type) || LIBXSTREAM_TYPE_INVALID > type)
-    && ((0 == dims && 0 == shape) || (0 == dims && 0 != shape && LIBXSTREAM_TYPE_VOID == type) || (0 < dims))
+    && ((0 == dims && 0 == shape) || (0 == dims && 0 != shape && (LIBXSTREAM_TYPE_VOID == type || (LIBXSTREAM_ERROR_NONE == libxstream_get_typesize(type, &size) && 1 == size))) || (0 < dims))
     && (LIBXSTREAM_MAX_NDIMS) >= dims);
 
   LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_NARGS) >= arg);
@@ -55,7 +56,6 @@ LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument argument
     else {
       int i = -1;
       do {
-        size_t size = 0;
         const libxstream_type autotype = static_cast<libxstream_type>(i);
         LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(autotype, &size));
         if (*shape != size) {
