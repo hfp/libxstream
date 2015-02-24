@@ -100,7 +100,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
 {
   LIBXSTREAM_ASSERT(0 == (LIBXSTREAM_CALL_INVALID & flags));
   LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {
-    LIBXSTREAM_TARGET(mic) /*const*/ libxstream_function fhybrid = m_function;
+    LIBXSTREAM_TARGET(mic) /*const*/ libxstream_function fhybrid = 0 == (m_flags & LIBXSTREAM_CALL_NATIVE) ? m_function : 0;
     const void *const fnative = reinterpret_cast<const void*>(m_function);
     size_t arity = 0;
     libxstream_fn_arity(m_signature, &arity);
@@ -125,13 +125,15 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
         case 0: {
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity)
-            libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-              ? fhybrid : reinterpret_cast<libxstream_function>(fnative), 0, 0, arity, m_flags);
+            {
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), 0, 0, arity, m_flags);
+            }
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity)
-            libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-              ? fhybrid : reinterpret_cast<libxstream_function>(fnative), 0, 0, arity, m_flags);
+            {
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), 0, 0, arity, m_flags);
+            }
           }
         } break;
         case 1: {
@@ -141,8 +143,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a0)
             {
               char* translation[] = { a0 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -150,8 +151,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a0)
             {
               char* translation[] = { a0 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -162,8 +162,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1)
             {
               char* translation[] = { a0, a1 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -171,8 +170,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1)
             {
               char* translation[] = { a0, a1 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -183,8 +181,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)
             {
               char* translation[] = { a0, a1, a2 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -192,8 +189,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)
             {
               char* translation[] = { a0, a1, a2 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -204,8 +200,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3)
             {
               char* translation[] = { a0, a1, a2, a3 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -213,8 +208,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3)
             {
               char* translation[] = { a0, a1, a2, a3 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -226,8 +220,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a4)
             {
               char* translation[] = { a0, a1, a2, a3, a4 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -236,8 +229,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a4)
             {
               char* translation[] = { a0, a1, a2, a3, a4 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -249,8 +241,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -259,8 +250,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -272,8 +262,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -282,8 +271,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -295,8 +283,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -305,8 +292,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -319,8 +305,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a8)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -330,8 +315,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a8)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -344,8 +328,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -355,8 +338,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -369,8 +351,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -380,8 +361,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -395,8 +375,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -406,8 +385,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -422,8 +400,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a12)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -434,8 +411,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a12)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -450,8 +426,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -462,8 +437,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -478,8 +452,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -490,8 +463,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -506,8 +478,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14) LIBXSTREAM_OFFLOAD_REFRESH(a15)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
           else {
@@ -518,8 +489,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
               LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14) LIBXSTREAM_OFFLOAD_REFRESH(a15)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 };
-              libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-                ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
             }
           }
         } break;
@@ -531,8 +501,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
     else
 #endif
     {
-      libxstream_offload_internal::call(0 == (m_flags & LIBXSTREAM_CALL_NATIVE)
-        ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, 0, arity, m_flags);
+      libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, 0, arity, m_flags);
     }
 
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_clear_signature(m_signature));
