@@ -256,14 +256,17 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
       signature = reinterpret_cast<const libxstream_argument*>(libxstream_get_data(argv[0]));
     }
 
-    size_t arity = 0;
-    libxstream_fn_arity(signature, &arity);
+    if (signature) {
+      size_t arity = 0;
+      libxstream_fn_arity(signature, &arity);
 #if defined(__INTEL_COMPILER)
-#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
+#     pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
 #endif
-    for (size_t i = 0; i <= arity; ++i) m_signature[i] = signature[i];
+      for (size_t i = 0; i <= arity; ++i) m_signature[i] = signature[i];
+    }
   }
   else {
+    LIBXSTREAM_ASSERT(argc <= (LIBXSTREAM_MAX_NARGS));
     for (size_t i = 0; i < argc; ++i) m_signature[i] = argv[i];
     libxstream_construct(m_signature, argc, libxstream_argument::kind_invalid, 0, LIBXSTREAM_TYPE_INVALID, 0, 0);
 #if defined(LIBXSTREAM_DEBUG)
