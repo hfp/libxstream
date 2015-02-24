@@ -184,7 +184,5 @@ private:
 
 LIBXSTREAM_EXPORT_INTERNAL void libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait);
 
-void libxstream_capture_shutdown();
-
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_CAPTURE_HPP

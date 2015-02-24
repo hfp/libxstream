@@ -58,18 +58,9 @@ public:
   {
     std::fill_n(m_signals, LIBXSTREAM_MAX_NDEVICES, 0);
     std::fill_n(m_streams, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS, static_cast<libxstream_stream*>(0));
-    //std::atexit(handle_exit);
   }
 
   ~registry_type() {
-    terminate();
-#if !defined(LIBXSTREAM_STDFEATURES)
-    libxstream_lock_destroy(m_lock);
-#endif
-  }
-
-public:
-  void terminate() {
     const size_t n = max_nstreams();
     for (size_t i = 0; i < n; ++i) {
 #if defined(LIBXSTREAM_DEBUG)
@@ -79,9 +70,12 @@ public:
 #endif
       libxstream_stream_destroy(m_streams[i]);
     }
-    libxstream_capture_shutdown();
+#if !defined(LIBXSTREAM_STDFEATURES)
+    libxstream_lock_destroy(m_lock);
+#endif
   }
 
+public:
   libxstream_stream** allocate() {
 #if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock_acquire(m_lock);
@@ -167,9 +161,6 @@ public:
 #endif
 
 private:
-  static void handle_exit();
-
-private:
   // not necessary to be device-specific due to single-threaded offload
   libxstream_signal m_signals[LIBXSTREAM_MAX_NDEVICES + 1];
   libxstream_stream* m_streams[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
@@ -180,12 +171,6 @@ private:
   libxstream_lock* m_lock;
 #endif
 } registry;
-
-
-/*static*/ void registry_type::handle_exit()
-{
-  registry.terminate();
-}
 
 
 template<typename A, typename E, typename D>
@@ -320,10 +305,6 @@ libxstream_stream::~libxstream_stream()
     _Offload_stream_destroy(m_device, m_handle);
   }
 #endif
-  const size_t nstreams = registry.nstreams();
-  if (0 == nstreams) { // last stream
-    registry.terminate();
-  }
 }
 
 
