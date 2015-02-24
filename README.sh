@@ -19,4 +19,7 @@ pandoc \
   -f markdown_github+implicit_figures \
   -V documentclass=scrartcl \
   -V classoption=DIV=19 \
+  -V linkcolor=black \
+  -V citecolor=black \
+  -V urlcolor=black \
   -o documentation/libxstream.pdf
