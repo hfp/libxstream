@@ -67,20 +67,18 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, s
 
 
 test_type::test_type(int device)
-  : m_device(device), m_signature(0), m_stream(0), m_event(0)
+  : m_signature(0), m_stream(0), m_event(0)
   , m_host_mem(0), m_dev_mem1(0), m_dev_mem2(0)
 {
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_get_active_device(&m_device));
-
   size_t mem_free = 0, mem_avail = 0;
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_info(m_device, &mem_free, &mem_avail));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_create(&m_stream, m_device, 0, 0, 0));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_info(device, &mem_free, &mem_avail));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_create(&m_stream, device, 0, 0, 0));
 
   const size_t size = 4711u * 1024u;
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(-1, &m_host_mem, size, 0));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(m_device, &m_dev_mem1, size, 0));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(m_device, &m_dev_mem2, size, 0));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_info(m_device, &mem_free, &mem_avail));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(device, &m_dev_mem1, size, 0));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_allocate(device, &m_dev_mem2, size, 0));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_info(device, &mem_free, &mem_avail));
 
   const char pattern_a = 'a', pattern_b = 'b';
   LIBXSTREAM_ASSERT(pattern_a != pattern_b);
@@ -150,12 +148,14 @@ test_type::test_type(int device)
 
 test_type::~test_type()
 {
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_destroy(m_event));
+  int device = -1;
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_device(m_stream, &device));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(-1, m_host_mem));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(m_device, m_dev_mem1));
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(m_device, m_dev_mem2));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(device, m_dev_mem1));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(device, m_dev_mem2));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_destroy_signature(m_signature));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_destroy(m_stream));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_destroy(m_event));
   fprintf(stdout, "TST successfully completed.\n");
 }
 
