@@ -564,9 +564,19 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
 #if defined(LIBXSTREAM_SYNCMEM)
   libxstream_stream::sync(device);
 #endif
-
-  LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx size=%lu", device,
-    memory ? reinterpret_cast<unsigned long long>(*memory) : 0UL, static_cast<unsigned long>(size));
+#if defined(LIBXSTREAM_DEBUG)
+  const void* real = 0;
+  if (0 <= device && LIBXSTREAM_ERROR_NONE == libxstream_mem_pointer(device, *memory, &real)) {
+    LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx real=0x%llx size=%lu", device,
+      memory ? reinterpret_cast<unsigned long long>(*memory) : 0, reinterpret_cast<unsigned long long>(real),
+      static_cast<unsigned long>(size));
+  }
+  else
+#endif
+  {
+    LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx size=%lu", device,
+      reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
+  }
 
   return result;
 }
@@ -607,7 +617,17 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
     LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT);
   }
 
-  LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx", device, reinterpret_cast<unsigned long long>(memory));
+#if defined(LIBXSTREAM_DEBUG)
+  const void* real = 0;
+  if (0 <= device && LIBXSTREAM_ERROR_NONE == libxstream_mem_pointer(device, memory, &real)) {
+    LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx real=0x%llx", device,
+      reinterpret_cast<unsigned long long>(memory), reinterpret_cast<unsigned long long>(real));
+  }
+  else
+#endif
+  {
+    LIBXSTREAM_PRINT_INFOCTX("device=%i buffer=0x%llx", device, reinterpret_cast<unsigned long long>(memory));
+  }
 
   return result;
 }
