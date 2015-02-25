@@ -5,7 +5,7 @@ Library to work with streams, events, and code regions that are able to run asyn
 The library's application programming interface (API) completely seals the implementation and only forward-declares types which are beyond the language's built-in types. The entire API consists of below subcategories each illustrated by a small code snippet. The [Function Interface](#function-interface) for instance enables an own function to be enqueued for execution within a stream (via function pointer). A future release of the library will provide a native FORTRAN interface. [[c](https://github.com/hfp/libxstream/blob/master/include/libxstream.h)]
 
 ### Data Types
-Data types are forward-declared types used in the interface.
+Data types are forward-declared types used in the interface. Moreover, there is a mapping from the language's built-in types to the types supported in the [Function Interface](#function-interface)).
 
 ```C
 /** Boolean state. */
@@ -14,6 +14,19 @@ typedef int libxstream_bool;
 typedef struct libxstream_stream libxstream_stream;
 /** Event type. */
 typedef struct libxstream_event libxstream_event;
+/** Enumeration of elemental "scalar" types. */
+typedef enum libxstream_type { /** see libxstream.h */
+  /** signed integer types: I8, I16, I32, I64, BOOL */
+  /** floating point types: F32, F64, C32, C64 */
+  /** unsigned integer types: U8, U16, U32, U64, BYTE */
+  /** special types: CHAR, VOID */
+} libxstream_type;
+/** Function call behavior (flags valid for binary combination). */
+typedef enum libxstream_call_flags {
+  LIBXSTREAM_CALL_DEFAULT = 0,
+  LIBXSTREAM_CALL_WAIT    = 1 /* synchronous function call */,
+  LIBXSTREAM_CALL_NATIVE  = 2 /* native host/MIC function */,
+} libxstream_call_flags;
 /** Function argument type. */
 typedef struct libxstream_argument libxstream_argument;
 /** Function type of an offloadable function. */
