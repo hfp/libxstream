@@ -64,7 +64,7 @@
 # include <mkl.h>
 #endif
 
-#if defined(LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD)
 # include <offload.h>
 #endif
 
@@ -395,7 +395,7 @@ LIBXSTREAM_EXPORT_C int libxstream_get_ndevices(size_t* ndevices)
 {
   LIBXSTREAM_CHECK_CONDITION(ndevices);
 
-#if defined(LIBXSTREAM_OFFLOAD) && !defined(__MIC__)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__)
   *ndevices = std::min(_Offload_number_of_devices(), LIBXSTREAM_MAX_NDEVICES);
 #else
   *ndevices = 1; // host

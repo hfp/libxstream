@@ -94,9 +94,10 @@
 #endif
 
 #if defined(__INTEL_OFFLOAD) && (!defined(_WIN32) || (1400 <= __INTEL_COMPILER))
-# define LIBXSTREAM_OFFLOAD
+# define LIBXSTREAM_OFFLOAD 1
 # define LIBXSTREAM_TARGET(A) LIBXSTREAM_ATTRIBUTE(target(A))
 #else
+/*# define LIBXSTREAM_OFFLOAD 0*/
 # define LIBXSTREAM_TARGET(A)
 #endif
 
