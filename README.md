@@ -2,7 +2,7 @@
 Library to work with streams, events, and code regions that are able to run asynchronous while preserving the usual stream conditions. The library is targeting Intel Architecture (x86) and helps to offload work to an Intel Xeon Phi coprocessor (an instance of the Intel Many Integrated Core "MIC" Architecture). For example, using two streams may be an alternative to the usual double-buffering approach which can be used to hide buffer transfer time behind compute. [[pdf](https://github.com/hfp/libxstream/raw/master/documentation/libxstream.pdf)] [[src](https://github.com/hfp/libxstream/archive/master.zip)]
 
 ## Interface
-The library's application programming interface (API) completely seals the implementation and only forward-declares types which are beyond the language's built-in types. The entire API consists of below subcategories each illustrated by a small code snippet. The function interface for instance enables an own function to be enqueued for execution within a stream (via function pointer). A future release of the library will provide a native FORTRAN interface. [[c](https://github.com/hfp/libxstream/blob/master/include/libxstream.h)]
+The library's application programming interface (API) completely seals the implementation and only forward-declares types which are beyond the language's built-in types. The entire API consists of below subcategories each illustrated by a small code snippet. The [Function Interface](#function-interface) for instance enables an own function to be enqueued for execution within a stream (via function pointer). A future release of the library will provide a native FORTRAN interface. [[c](https://github.com/hfp/libxstream/blob/master/include/libxstream.h)]
 
 ### Data Types
 Data types are forward-declared types used in the interface.
@@ -167,7 +167,7 @@ In cases where multiple host threads are enqueuing work into the same stream, a 
  * [Explicit locking](https://github.com/hfp/libxstream/raw/master/samples/multi-dgemm/plot-explicit.png) by calling libxstream_stream_lock and libxstream_stream_unlock (demux=0).
  * [Heuristic locking](https://github.com/hfp/libxstream/raw/master/samples/multi-dgemm/plot-heuristic.png); automatically introduced (demux=-1).
 
-The performance impact of the locking apporach is rather minor when running the [multi-dgemm](https://github.com/hfp/libxstream/tree/master/samples/multi-dgemm) sample code presented in the [Performance](#performance) section.
+The performance impact of the locking approach is rather minor when running the [multi-dgemm](https://github.com/hfp/libxstream/tree/master/samples/multi-dgemm) sample code presented in the [Performance](#performance) section.
 
 Please note that the manual locking approach does not contradict the thread-safety claimed by the library; each queuing operation is still atomic. Synchronization and locking in general avoids intermixing work from different logical groups of work and is therefore beyond thread-safe API functions. An example where this becomes a problem (data races) is when the work is buffered only for a subset (work group) of the total amount of work, and when multiple host threads are queuing work items into the same stream at the same time.
 
