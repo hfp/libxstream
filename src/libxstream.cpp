@@ -496,6 +496,42 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, siz
 }
 
 
+LIBXSTREAM_EXPORT_C int libxstream_mem_pointer(int device, const void* memory, const void** real)
+{
+  LIBXSTREAM_CHECK_CONDITION(0 != real);
+
+  if (memory) {
+#if defined(LIBXSTREAM_OFFLOAD)
+    if (0 <= device) {
+      LIBXSTREAM_ASYNC_BEGIN(0, device, memory, real)
+      {
+        const char* memory = ptr<const char,1>();
+        const void*& real = *ptr<const void*,2>();
+
+#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) \
+          in(memory: length(0) alloc_if(false) free_if(false)) out(real)
+        {
+          real = memory;
+        }
+      }
+      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT);
+    }
+    else {
+#else
+    {
+      libxstream_use_sink(&device);
+#endif
+      *real = memory;
+    }
+  }
+  else {
+    *real = 0;
+  }
+
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
 LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment)
 {
   int result = LIBXSTREAM_ERROR_NONE;
@@ -734,42 +770,6 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
     }
   }
   LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT);
-
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-LIBXSTREAM_EXPORT_C int libxstream_mem_pointer(int device, const void* memory, const void** real)
-{
-  LIBXSTREAM_CHECK_CONDITION(0 != real);
-
-  if (memory) {
-#if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= device) {
-      LIBXSTREAM_ASYNC_BEGIN(0, device, memory, real)
-      {
-        const char* memory = ptr<const char,1>();
-        const void*& real = *ptr<const void*,2>();
-
-#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) \
-          in(memory: length(0) alloc_if(false) free_if(false)) out(real)
-        {
-          real = memory;
-        }
-      }
-      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT);
-    }
-    else {
-#else
-    {
-      libxstream_use_sink(&device);
-#endif
-      *real = memory;
-    }
-  }
-  else {
-    *real = 0;
-  }
 
   return LIBXSTREAM_ERROR_NONE;
 }
