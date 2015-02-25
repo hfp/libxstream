@@ -145,7 +145,7 @@ public:
 #if defined(LIBXSTREAM_DEBUG)
     size_t size = 0;
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &size) && i < size);
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_datasize(m_signature + i, &size) && sizeof(T) <= size);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_datasize(m_signature, i, &size) && sizeof(T) <= size);
 #endif
     return *reinterpret_cast<const T*>(libxstream_address(m_signature[i]));
   }
@@ -154,7 +154,7 @@ public:
 #if defined(LIBXSTREAM_DEBUG)
     size_t size = 0;
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &size) && i < size);
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_datasize(m_signature + i, &size) && sizeof(T*) <= size);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_datasize(m_signature, i, &size) && sizeof(T*) <= size);
 #endif
     return reinterpret_cast<T*>(libxstream_get_data(m_signature[i]));
   }

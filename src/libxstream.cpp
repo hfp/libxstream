@@ -739,6 +739,42 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
 }
 
 
+LIBXSTREAM_EXPORT_C int libxstream_mem_pointer(int device, const void* memory, const void** real)
+{
+  LIBXSTREAM_CHECK_CONDITION(0 != real);
+
+  if (memory) {
+#if defined(LIBXSTREAM_OFFLOAD)
+    if (0 <= device) {
+      LIBXSTREAM_ASYNC_BEGIN(0, device, memory, real)
+      {
+        const char* memory = ptr<const char,1>();
+        const void*& real = *ptr<const void*,2>();
+
+#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) \
+          in(memory: length(0) alloc_if(false) free_if(false)) out(real)
+        {
+          real = memory;
+        }
+      }
+      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT);
+    }
+    else {
+#else
+    {
+      libxstream_use_sink(&device);
+#endif
+      *real = memory;
+    }
+  }
+  else {
+    *real = 0;
+  }
+
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
 LIBXSTREAM_EXPORT_C int libxstream_stream_priority_range(int* least, int* greatest)
 {
   *least = -1;
@@ -1076,30 +1112,44 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstrea
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_argument(const void* variable, const libxstream_argument** arg)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_argument(const void* variable, size_t* arg)
 {
   const libxstream_context& context = libxstream_context::instance();
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && LIBXSTREAM_CALL_INVALID != context.flags);
-  int result = LIBXSTREAM_ERROR_CONDITION;
+  LIBXSTREAM_CHECK_CONDITION(0 != arg && LIBXSTREAM_CALL_INVALID != context.flags && 0 != context.signature);
+  const libxstream_argument *const hit = libxstream_find(context, variable);
+  int result = LIBXSTREAM_ERROR_NONE;
 
-  if (const libxstream_argument *const hit = libxstream_find(context, variable)) {
-    result = LIBXSTREAM_ERROR_NONE;
-    *arg = hit;
+  if (0 != hit) {
+    LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_NARGS) > (hit - context.signature));
+    *arg = hit - context.signature;
+  }
+  else {
+    result = LIBXSTREAM_ERROR_CONDITION;
   }
 
   return result;
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_value(const libxstream_argument* arg, const char** value)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_value(const libxstream_argument* signature, size_t arg, const char** value)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != value);
-  const void *const data = libxstream_get_data(*arg);
+  LIBXSTREAM_CHECK_CONDITION(0 != value);
+  if (0 == signature) {
+    const libxstream_context& context = libxstream_context::instance();
+    LIBXSTREAM_CHECK_CONDITION(LIBXSTREAM_CALL_INVALID != context.flags && 0 != context.signature);
+    signature = context.signature;
+  }
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
+#endif
+  const libxstream_argument& argument = signature[arg];
+  const void *const data = libxstream_get_data(argument);
   static LIBXSTREAM_TLS char buffer[128];
   int result = LIBXSTREAM_ERROR_NONE;
 
-  if (0 < arg->dims || 0 == data) {
-    if (LIBXSTREAM_TYPE_C64 >= arg->type) {
+  if (0 < argument.dims || 0 == data) {
+    if (LIBXSTREAM_TYPE_C64 >= argument.type) {
       // ignore need to use long long "ll"; use unsigned long
       LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "0x%llx", reinterpret_cast<unsigned long long>(data));
       *value = buffer;
@@ -1109,7 +1159,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_value(const libxst
     }
   }
   else {
-    switch(arg->type) {
+    switch(argument.type) {
         // ignore need to use long long "ll"; use unsigned long
       case LIBXSTREAM_TYPE_VOID:  LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "0x%llx", reinterpret_cast<unsigned long long>(data)); break;
       case LIBXSTREAM_TYPE_CHAR:  LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%c", *static_cast<const char*>(data)); break;
@@ -1143,29 +1193,59 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_value(const libxst
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_type(const libxstream_argument* arg, libxstream_type* type)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_type(const libxstream_argument* signature, size_t arg, libxstream_type* type)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != type);
-  *type = arg->type;
+  LIBXSTREAM_CHECK_CONDITION(0 != type);
+  if (0 == signature) {
+    const libxstream_context& context = libxstream_context::instance();
+    LIBXSTREAM_CHECK_CONDITION(LIBXSTREAM_CALL_INVALID != context.flags && 0 != context.signature);
+    signature = context.signature;
+  }
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
+#endif
+  const libxstream_argument& argument = signature[arg];
+  *type = argument.type;
   return LIBXSTREAM_ERROR_NONE;
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_dims(const libxstream_argument* arg, size_t* dims)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_dims(const libxstream_argument* signature, size_t arg, size_t* dims)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != dims);
-  *dims = arg->dims;
+  LIBXSTREAM_CHECK_CONDITION(0 != dims);
+  if (0 == signature) {
+    const libxstream_context& context = libxstream_context::instance();
+    LIBXSTREAM_CHECK_CONDITION(LIBXSTREAM_CALL_INVALID != context.flags && 0 != context.signature);
+    signature = context.signature;
+  }
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
+#endif
+  const libxstream_argument& argument = signature[arg];
+  *dims = argument.dims;
   return LIBXSTREAM_ERROR_NONE;
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_shape(const libxstream_argument* arg, size_t shape[])
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_shape(const libxstream_argument* signature, size_t arg, size_t shape[])
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != shape);
-  const size_t dims = arg->dims;
+  LIBXSTREAM_CHECK_CONDITION(0 != shape);
+  if (0 == signature) {
+    const libxstream_context& context = libxstream_context::instance();
+    LIBXSTREAM_CHECK_CONDITION(LIBXSTREAM_CALL_INVALID != context.flags && 0 != context.signature);
+    signature = context.signature;
+  }
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
+#endif
+  const libxstream_argument& argument = signature[arg];
+  const size_t dims = argument.dims;
 
   if (0 < dims) {
-    const size_t *const src = arg->shape;
+    const size_t *const src = argument.shape;
 #if defined(__INTEL_COMPILER)
 #   pragma loop_count min(0), max(LIBXSTREAM_MAX_NDIMS), avg(2)
 #endif
@@ -1178,19 +1258,39 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_shape(const libxst
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_size(const libxstream_argument* arg, size_t* size)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_size(const libxstream_argument* signature, size_t arg, size_t* size)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != size);
-  *size = libxstream_linear_size(arg->dims, arg->shape, 1);
+  LIBXSTREAM_CHECK_CONDITION(0 != size);
+  if (0 == signature) {
+    const libxstream_context& context = libxstream_context::instance();
+    LIBXSTREAM_CHECK_CONDITION(LIBXSTREAM_CALL_INVALID != context.flags && 0 != context.signature);
+    signature = context.signature;
+  }
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
+#endif
+  const libxstream_argument& argument = signature[arg];
+  *size = libxstream_linear_size(argument.dims, argument.shape, 1);
   return LIBXSTREAM_ERROR_NONE;
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const libxstream_argument* arg, size_t* size)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const libxstream_argument* signature, size_t arg, size_t* size)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 != size);
+  LIBXSTREAM_CHECK_CONDITION(0 != size);
+  if (0 == signature) {
+    const libxstream_context& context = libxstream_context::instance();
+    LIBXSTREAM_CHECK_CONDITION(LIBXSTREAM_CALL_INVALID != context.flags && 0 != context.signature);
+    signature = context.signature;
+  }
+#if defined(LIBXSTREAM_DEBUG)
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
+#endif
+  const libxstream_argument& argument = signature[arg];
   size_t typesize = 0;
-  LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(arg->type, &typesize));
-  *size = libxstream_linear_size(arg->dims, arg->shape, typesize);
+  LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(argument.type, &typesize));
+  *size = libxstream_linear_size(argument.dims, argument.shape, typesize);
   return LIBXSTREAM_ERROR_NONE;
 }

@@ -131,7 +131,7 @@ libxstream_fn_output(args, 4, &nzeros, sizetype, 0, 0);
 In the above signature, the last argument is taken by-address (due to specifying an output) even though it is an elemental value. Therefore, the call-side needs to make sure that the destination is still valid when the function is executed. Remember that the default function call mechanism is asynchronous.
 
 **Example: weak type information**  
-To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments even non-elemental inputs can be treated as an inout argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a shape indicating the actual size of the element (must match the size of a supported type).
+To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments; even non-elemental inputs can be treated as an inout argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a shape indicating the actual size of the element (must match the size of a supported type).
 
 ```C
 const size_t typesize = sizeof(float);
@@ -142,19 +142,19 @@ libxstream_fn_inout(args, 1, data, LIBXSTREAM_TYPE_BYTE, 1, &numbytes);
 ```
 
 ### Query Interface
-This "device-side API" allows to query information about function arguments when inside of a user function which is called by the library. This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, a handle for any pointer variable can be received (and reused for multiple queries). The query interface cannot be used for an argument which is given by value.
+This "device-side API" allows to query information about function arguments when inside of a user function which is called by the library. This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, the position of the argument within the signature needs to be known. To refer a function's signature when inside of this function, a NULL-pointer is passed to designate the function signature of the current call context. In case of a pointer argument, the position within the signature can be also queried when inside of a library-initiated call context.
 
 ```C
 LIBXSTREAM_TARGET(mic) void f(double scale, const float* in, float* out, size_t* nzeros)
 {
-  const libxstream_argument* ina = 0;
-  libxstream_get_argument(in, &ina);
+  size_t in_position = 0;
+  libxstream_get_argument(in, &in_position);
 
   size_t n = 0;
-  libxstream_get_shape(ina, &n);
+  libxstream_get_shape(0/*this call context*/, in_position, &n);
 
   libxstream_type type = LIBXSTREAM_TYPE_VOID;
-  libxstream_get_type(ina, &type);
+  libxstream_get_type(0/*this call context*/, 2/*out*/, &type);
 
   const char* name = 0;
   libxstream_get_typename(type, &name);
