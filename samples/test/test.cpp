@@ -51,8 +51,7 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, s
   // check function is called with using LIBXSTREAM hence introspection may not be available
   if (LIBXSTREAM_ERROR_NONE == libxstream_get_argument(buffer, &arg)) {
     size_t shape = 0;
-    libxstream_get_shape(arg, &shape);
-    ok = shape == size;
+    ok = LIBXSTREAM_ERROR_NONE == libxstream_get_shape(arg, &shape) && shape == size;
   }
 
   const char *const values = reinterpret_cast<const char*>(buffer);
@@ -96,7 +95,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_RETURN(4 == nargs && 1 == arity);
-  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_input (m_signature, 1, m_dev_mem1, LIBXSTREAM_TYPE_BYTE, 1, &size));
+  LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_input (m_signature, 1, m_dev_mem1, LIBXSTREAM_TYPE_VOID, 1, &size));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_RETURN(4 == nargs && 2 == arity);
