@@ -32,28 +32,28 @@ libxstream_get_ndevices(&ndevices);
 The memory interface is mainly for handling device-side buffers (allocation, copy). It is usually beneficial to allocate host memory using these functions as well. However, any memory allocation on the host is interoperable. It is also supported copying parts to/from a buffer.
 
 ```C
-const int dev = 0;
-libxstream_mem_allocate(-1,  &input, sizeof(double) * nitems, 0/*auto-alignment*/);
-libxstream_mem_allocate(-1, &output, sizeof(double) * nitems, 0/*auto-alignment*/);
+const int hst = -1, dev = 0;
+libxstream_mem_allocate(hst, &ihst, sizeof(double) * nitems, 0/*auto-alignment*/);
+libxstream_mem_allocate(hst, &ohst, sizeof(double) * nitems, 0/*auto-alignment*/);
 // TODO: initialize with some input data
-libxstream_mem_allocate(dev,  &idev, sizeof(double) * nbatch, 0/*auto-alignment*/);
-libxstream_mem_allocate(dev,  &odev, sizeof(double) * nbatch, 0/*auto-alignment*/);
+libxstream_mem_allocate(dev, &idev, sizeof(double) * nbatch, 0/*auto-alignment*/);
+libxstream_mem_allocate(dev, &odev, sizeof(double) * nbatch, 0/*auto-alignment*/);
 
 for (int i = 0; i < nitems; i += nbatch) {
   const int ibatch = sizeof(double) * min(nbatch, nitems - i), j = i / nbatch;
-  libxstream_memcpy_h2d(input + i, idev, ibatch, stream[j%2]);
+  libxstream_memcpy_h2d(ihst + i, idev, ibatch, stream[j%2]);
   // TODO: invoke user function
-  libxstream_memcpy_d2h(odev, output + i, ibatch, stream[j%2]);
+  libxstream_memcpy_d2h(odev, ohst + i, ibatch, stream[j%2]);
 }
 
-libxstream_mem_deallocate(-1, input);
-libxstream_mem_deallocate(-1, output);
+libxstream_mem_deallocate(hst, ihst);
+libxstream_mem_deallocate(hst, ohst);
 libxstream_mem_deallocate(dev, idev);
 libxstream_mem_deallocate(dev, odev);
 ```
 
 ### Stream Interface
-The stream interface is used to expose the available parallelism. A stream preserves the predecessor/successor relationship while participating in a pipeline (parallel pattern) in case of multiple streams. Synchronization points can be introduced using the stream interface as well as the event interface.
+The stream interface is used to expose the available parallelism. A stream preserves the predecessor/successor relationship while participating in a pipeline (parallel pattern) in case of multiple streams. Synchronization points can be introduced using the stream interface as well as the [Event Interface](#event-interface).
 
 ```C
 libxstream_stream* stream[2];
@@ -91,7 +91,7 @@ libxstream_event_destroy(event[1]);
 ```
 
 ### Function Interface
-The function interface is used to describe and call a user function along with its list of arguments. The function's signature consists of inputs, outputs, or in-out arguments. An own function can be enqueued for execution within a stream by taking the address of the function.
+The function interface is used to call a user function and to describe its list of arguments (signature). The function's signature consists of inputs, outputs, or in-out arguments. An own function can be enqueued for execution within a stream by taking the address of the function.
 
 ```C
 size_t nargs = 5, arity = 0;
@@ -109,7 +109,7 @@ A first observation is that a function's return type cannot be specified. Any re
 ```C
 const libxstream_type sizetype = libxstream_type2value<size_t>::value;
 libxstream_fn_input (args, 0, &scale, LIBXSTREAM_TYPE_F64, 0, 0);
-libxstream_fn_input (args, 1, in, LIBXSTREAM_TYPE_F32, 1, &n);
+libxstream_fn_input (args, 1, in,  LIBXSTREAM_TYPE_F32, 1, &n);
 libxstream_fn_output(args, 2, out, LIBXSTREAM_TYPE_F32, 1, &n);
 libxstream_fn_input (args, 3, &n, sizetype, 0, 0);
 libxstream_fn_output(args, 4, &nzeros, sizetype, 0, 0);
@@ -118,13 +118,13 @@ libxstream_fn_output(args, 4, &nzeros, sizetype, 0, 0);
 In the above signature, the last argument is taken by-address (due to specifying an output) even though it is an elemental value. Therefore, the call-side needs to make sure that the destination is still valid when the function is executed. Remember that the default function call mechanism is asynchronous.
 
 **Example: weak type information**  
-To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments, and (2) use LIBXSTREAM_TYPE_VOID an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a shape indicating the actual size of the element (this size must match the size of any of the possible types).
+To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments even non-elemental inputs can be treated as an inout argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a shape indicating the actual size of the element (must match the size of a supported type).
 
 ```C
 const size_t typesize = sizeof(float);
-// argument type: const unsigned char*
+// argument type in function signature: float
 libxstream_fn_input(args, 0,  &f1, LIBXSTREAM_TYPE_VOID, 0, &typesize);
-// argument type: unsigned char*
+// argument type in function signature: unsigned char*
 libxstream_fn_inout(args, 1, data, LIBXSTREAM_TYPE_BYTE, 1, &numbytes);
 ```
 
