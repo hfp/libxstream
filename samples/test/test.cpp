@@ -106,7 +106,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 0 == arity);
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(m_signature, 0, &ok, libxstream_type2value<libxstream_bool>::value, 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(m_signature, 0, &ok, libxstream_type2value<libxstream_bool>::value(), 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 1 == arity);
@@ -122,7 +122,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CONDITION_THROW(1 == argsize);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 1, &argsize));
   LIBXSTREAM_CHECK_CONDITION_THROW(size == argsize);
-  // for testing purpose the following argument is weak-typed instead of (..., libxstream_type2value<size_t>::value, 0, 0)
+  // for testing purpose the following argument is weak-typed instead of (..., libxstream_type2value<size_t>::value(), 0, 0)
   argsize = sizeof(size_t);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (m_signature, 2, &size, LIBXSTREAM_TYPE_VOID, 0, &argsize));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
@@ -132,7 +132,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CONDITION_THROW(sizeof(size_t) == argsize);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 2, &argsize));
   LIBXSTREAM_CHECK_CONDITION_THROW(sizeof(size_t) == argsize);
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (m_signature, 3, &pattern_a, libxstream_type2value<char>::value, 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (m_signature, 3, &pattern_a, libxstream_type2value<char>::value(), 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 4 == arity);

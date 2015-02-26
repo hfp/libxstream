@@ -44,7 +44,7 @@ LIBXSTREAM_EXPORT_C typedef struct libxstream_stream libxstream_stream;
 LIBXSTREAM_EXPORT_C typedef struct libxstream_event libxstream_event;
 /** Enumeration of elemental "scalar" types. */
 LIBXSTREAM_EXPORT_C typedef enum libxstream_type {
-  /** signed integer types: I8, I16, I32, I64, BOOL */
+  /** signed integer types: I8, I16, I32, I64 */
   LIBXSTREAM_TYPE_I8,
   LIBXSTREAM_TYPE_I16,
   LIBXSTREAM_TYPE_I32, LIBXSTREAM_TYPE_BOOL = LIBXSTREAM_TYPE_I32,
@@ -54,12 +54,12 @@ LIBXSTREAM_EXPORT_C typedef enum libxstream_type {
   LIBXSTREAM_TYPE_F64,
   LIBXSTREAM_TYPE_C32,
   LIBXSTREAM_TYPE_C64,
-  /** unsigned integer types: U8, U16, U32, U64, BYTE */
+  /** unsigned integer types: U8, U16, U32, U64 */
   LIBXSTREAM_TYPE_U8, LIBXSTREAM_TYPE_BYTE = LIBXSTREAM_TYPE_U8,
   LIBXSTREAM_TYPE_U16,
   LIBXSTREAM_TYPE_U32,
   LIBXSTREAM_TYPE_U64,
-  /** special types: CHAR, VOID */
+  /** special types: BOOL, BYTE, CHAR, VOID */
   LIBXSTREAM_TYPE_CHAR,
   LIBXSTREAM_TYPE_VOID,
   /** terminates type list */
@@ -150,7 +150,9 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_arity(const libxstream_argument* signature
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags);
 
 /** Query the size of the elemental type (Byte). */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstream_type type, size_t* size);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstream_type type, size_t* typesize);
+/** Select a type according to the typesize; suiteable to transport the requested amount of Bytes. */
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t typesize, libxstream_type* autotype);
 /** Query the name of the elemental type (string does not need to be buffered). */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstream_type type, const char** name);
 /** Query the argument's 0-based position within the signature; needs a pointer variable (not from a by-value variable). */
@@ -171,19 +173,20 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_elemsize(const lib
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const libxstream_argument* signature, size_t arg, size_t* size);
 
 #if defined(__cplusplus)
-template<typename TYPE> struct libxstream_type2value  { /*static const libxstream_type value = LIBXSTREAM_TYPE_VOID;*/ };
-template<> struct libxstream_type2value<bool>         { /*static const libxstream_type value = LIBXSTREAM_TYPE_BOOL;*/ };
-template<> struct libxstream_type2value<char>         { static const libxstream_type value = LIBXSTREAM_TYPE_CHAR; };
-template<> struct libxstream_type2value<int8_t>       { static const libxstream_type value = LIBXSTREAM_TYPE_I8; };
-template<> struct libxstream_type2value<uint8_t>      { static const libxstream_type value = LIBXSTREAM_TYPE_U8; };
-template<> struct libxstream_type2value<int16_t>      { static const libxstream_type value = LIBXSTREAM_TYPE_I16; };
-template<> struct libxstream_type2value<uint16_t>     { static const libxstream_type value = LIBXSTREAM_TYPE_U16; };
-template<> struct libxstream_type2value<int32_t>      { static const libxstream_type value = LIBXSTREAM_TYPE_I32; };
-template<> struct libxstream_type2value<uint32_t>     { static const libxstream_type value = LIBXSTREAM_TYPE_U32; };
-template<> struct libxstream_type2value<int64_t>      { static const libxstream_type value = LIBXSTREAM_TYPE_I64; };
-template<> struct libxstream_type2value<uint64_t>     { static const libxstream_type value = LIBXSTREAM_TYPE_U64; };
-template<> struct libxstream_type2value<float>        { static const libxstream_type value = LIBXSTREAM_TYPE_F32; };
-template<> struct libxstream_type2value<double>       { static const libxstream_type value = LIBXSTREAM_TYPE_F64; };
+template<typename TYPE> struct libxstream_type2value          { static libxstream_type value() {/** select a type by type-size */
+/** bool goes here! */libxstream_type type = LIBXSTREAM_TYPE_VOID; libxstream_get_autotype(sizeof(TYPE), &type); return type; } };
+template<> struct libxstream_type2value<int8_t>               { static libxstream_type value() { return LIBXSTREAM_TYPE_I8;   } };
+template<> struct libxstream_type2value<uint8_t>              { static libxstream_type value() { return LIBXSTREAM_TYPE_U8;   } };
+template<> struct libxstream_type2value<int16_t>              { static libxstream_type value() { return LIBXSTREAM_TYPE_I16;  } };
+template<> struct libxstream_type2value<uint16_t>             { static libxstream_type value() { return LIBXSTREAM_TYPE_U16;  } };
+template<> struct libxstream_type2value<int32_t>              { static libxstream_type value() { return LIBXSTREAM_TYPE_I32;  } };
+template<> struct libxstream_type2value<uint32_t>             { static libxstream_type value() { return LIBXSTREAM_TYPE_U32;  } };
+template<> struct libxstream_type2value<int64_t>              { static libxstream_type value() { return LIBXSTREAM_TYPE_I64;  } };
+template<> struct libxstream_type2value<uint64_t>             { static libxstream_type value() { return LIBXSTREAM_TYPE_U64;  } };
+template<> struct libxstream_type2value<float>                { static libxstream_type value() { return LIBXSTREAM_TYPE_F32;  } };
+template<> struct libxstream_type2value<double>               { static libxstream_type value() { return LIBXSTREAM_TYPE_F64;  } };
+template<> struct libxstream_type2value<char>                 { static libxstream_type value() { return LIBXSTREAM_TYPE_CHAR; } };
+template<> struct libxstream_type2value<void>                 { static libxstream_type value() { return LIBXSTREAM_TYPE_VOID; } };
 
 template<libxstream_type VALUE> struct libxstream_value2type  { typedef void type; };
 template<> struct libxstream_value2type<LIBXSTREAM_TYPE_CHAR> { typedef char type; };

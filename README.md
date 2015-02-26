@@ -16,10 +16,10 @@ typedef struct libxstream_stream libxstream_stream;
 typedef struct libxstream_event libxstream_event;
 /** Enumeration of elemental "scalar" types. */
 typedef enum libxstream_type { /** see libxstream.h */
-  /** signed integer types: I8, I16, I32, I64, BOOL */
+  /** signed integer types: I8, I16, I32, I64 */
   /** floating point types: F32, F64, C32, C64 */
-  /** unsigned integer types: U8, U16, U32, U64, BYTE */
-  /** special types: CHAR, VOID */
+  /** unsigned integer types: U8, U16, U32, U64 */
+  /** special types: BOOL, BYTE, CHAR, VOID */
 } libxstream_type;
 /** Function call behavior (flags valid for binary combination). */
 typedef enum libxstream_call_flags {
@@ -131,7 +131,7 @@ libxstream_fn_output(args, 4, &nzeros, sizetype, 0, 0);
 In the above signature, the last argument is taken by-address (due to specifying an output) even though it is an elemental value. Therefore, the call-side needs to make sure that the destination is still valid when the function is executed. Remember that the default function call mechanism is asynchronous.
 
 **Example: weak type information**  
-To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments; even non-elemental inputs can be treated as an inout argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a shape indicating the actual size of the element (must match the size of a supported type).
+To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments; even non-elemental inputs can be treated as an inout argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a shape indicating the actual size of the element.
 
 ```C
 const size_t typesize = sizeof(float);

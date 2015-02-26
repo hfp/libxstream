@@ -763,8 +763,8 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
 
   LIBXSTREAM_ASYNC_BEGIN(stream, src, dst, size)
   {
-    const uint64_t *const src = ptr<const uint64_t,0>();
-    uint64_t* dst = ptr<uint64_t,1>();
+    const char *const src = ptr<const char,0>();
+    char* dst = ptr<char,1>();
     const size_t size = val<const size_t,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
@@ -1078,29 +1078,51 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstream_type type, size_t* size)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstream_type type, size_t* typesize)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != size);
+  LIBXSTREAM_CHECK_CONDITION(0 != typesize);
   int result = LIBXSTREAM_ERROR_NONE;
 
   switch(type) {
-    case LIBXSTREAM_TYPE_I8:    *size = 1;  break;
-    case LIBXSTREAM_TYPE_I16:   *size = 2;  break;
-    case LIBXSTREAM_TYPE_I32:   *size = 4;  break;
-    case LIBXSTREAM_TYPE_I64:   *size = 8;  break;
-    case LIBXSTREAM_TYPE_F32:   *size = 4;  break;
-    case LIBXSTREAM_TYPE_F64:   *size = 8;  break;
-    case LIBXSTREAM_TYPE_C32:   *size = 8;  break;
-    case LIBXSTREAM_TYPE_C64:   *size = 16; break;
-    case LIBXSTREAM_TYPE_U8:    *size = 1;  break;
-    case LIBXSTREAM_TYPE_U16:   *size = 2;  break;
-    case LIBXSTREAM_TYPE_U32:   *size = 4;  break;
-    case LIBXSTREAM_TYPE_U64:   *size = 8;  break;
-    case LIBXSTREAM_TYPE_CHAR:  *size = 1;  break;
+    case LIBXSTREAM_TYPE_I8:    *typesize = 1;  break;
+    case LIBXSTREAM_TYPE_I16:   *typesize = 2;  break;
+    case LIBXSTREAM_TYPE_I32:   *typesize = 4;  break;
+    case LIBXSTREAM_TYPE_I64:   *typesize = 8;  break;
+    case LIBXSTREAM_TYPE_F32:   *typesize = 4;  break;
+    case LIBXSTREAM_TYPE_F64:   *typesize = 8;  break;
+    case LIBXSTREAM_TYPE_C32:   *typesize = 8;  break;
+    case LIBXSTREAM_TYPE_C64:   *typesize = 16; break;
+    case LIBXSTREAM_TYPE_U8:    *typesize = 1;  break;
+    case LIBXSTREAM_TYPE_U16:   *typesize = 2;  break;
+    case LIBXSTREAM_TYPE_U32:   *typesize = 4;  break;
+    case LIBXSTREAM_TYPE_U64:   *typesize = 8;  break;
+    case LIBXSTREAM_TYPE_CHAR:  *typesize = 1;  break;
     default: // LIBXSTREAM_TYPE_VOID, etc.
       result = LIBXSTREAM_ERROR_CONDITION;
   }
   return result;
+}
+
+
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t typesize, libxstream_type* autotype)
+{
+  LIBXSTREAM_CHECK_CONDITION(0 != autotype);
+  size_t size = 0;
+  int i = 0;
+
+  do {
+    *autotype = static_cast<libxstream_type>(i);
+    LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(*autotype, &size));
+    if (typesize != size) {
+      ++i;
+    }
+    else {
+      i = LIBXSTREAM_TYPE_INVALID; // break
+    }
+  }
+  while (i <= LIBXSTREAM_TYPE_VOID);
+
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
