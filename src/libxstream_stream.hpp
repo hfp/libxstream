@@ -33,6 +33,10 @@
 
 #include "libxstream.hpp"
 
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD)
+# include <offload.h>
+#endif
+
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
 
 

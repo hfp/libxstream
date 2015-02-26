@@ -53,7 +53,7 @@
 #   define LIBXSTREAM_ASYNC_DECL \
       const _Offload_stream handle_ = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->handle() : 0; \
       libxstream_signal capture_region_signal_consumed = capture_region_signal
-#   define LIBXSTREAM_ASYNC_TARGET target(mic:LIBXSTREAM_ASYNC_DEVICE) stream(handle_)
+#   define LIBXSTREAM_ASYNC_TARGET target(mic) stream(handle_)
 #   define LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_ASYNC_TARGET signal(capture_region_signal_consumed++)
 #   define LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_ASYNC_TARGET_SIGNAL
 # endif
