@@ -51,7 +51,7 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, s
   // check function is called with using LIBXSTREAM hence introspection may not be available
   if (LIBXSTREAM_ERROR_NONE == libxstream_get_argument(buffer, &arg)) {
     size_t shape = 0;
-    ok = LIBXSTREAM_ERROR_NONE == libxstream_get_shape(0, arg, &shape) && shape == size;
+    ok = 1 == arg && LIBXSTREAM_ERROR_NONE == libxstream_get_shape(0, arg, &shape) && shape == size;
   }
 
   const char *const values = reinterpret_cast<const char*>(buffer);
@@ -98,7 +98,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_memcpy_d2d(m_dev_mem1, m_dev_mem2, size, m_stream));
 
   libxstream_bool ok = LIBXSTREAM_FALSE;
-  size_t nargs = 0, arity = 0;
+  size_t nargs = 0, arity = 0, argsize = 0;
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_create_signature(&m_signature, 4));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
@@ -107,18 +107,26 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 1 == arity);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 0, &argsize));
+  LIBXSTREAM_CHECK_CONDITION_THROW(sizeof(libxstream_bool) == argsize);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (m_signature, 1, m_dev_mem1, LIBXSTREAM_TYPE_VOID, 1, &size));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 2 == arity);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 1, &argsize));
+  LIBXSTREAM_CHECK_CONDITION_THROW(size == argsize);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (m_signature, 2, &size, libxstream_type2value<size_t>::value, 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 3 == arity);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 2, &argsize));
+  LIBXSTREAM_CHECK_CONDITION_THROW(sizeof(size_t) == argsize);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (m_signature, 3, &pattern_a, libxstream_type2value<char>::value, 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 4 == arity);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 3, &argsize));
+  LIBXSTREAM_CHECK_CONDITION_THROW(1 == argsize);
   const libxstream_function function = reinterpret_cast<libxstream_function>(test_internal::check);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(function, m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
 

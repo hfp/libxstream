@@ -1295,6 +1295,28 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_size(const libxstr
 }
 
 
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_elemsize(const libxstream_argument* signature, size_t arg, size_t* size)
+{
+  LIBXSTREAM_CHECK_CONDITION(0 != size);
+  if (0 == signature) {
+    const libxstream_context& context = libxstream_context::instance();
+    LIBXSTREAM_CHECK_CONDITION(LIBXSTREAM_CALL_INVALID != context.flags && 0 != context.signature);
+    signature = context.signature;
+  }
+#if defined(LIBXSTREAM_DEBUG) && (!defined(LIBXSTREAM_OFFLOAD) || (0 == LIBXSTREAM_OFFLOAD))
+  size_t arity = 0;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
+#endif
+  const libxstream_argument& argument = signature[arg];
+  size_t typesize = 1;
+  if (LIBXSTREAM_TYPE_VOID != argument.type) {
+    LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(argument.type, &typesize));
+  }
+  *size = typesize;
+  return LIBXSTREAM_ERROR_NONE;
+}
+
+
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const libxstream_argument* signature, size_t arg, size_t* size)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != size);
@@ -1308,8 +1330,10 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const lib
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
 #endif
   const libxstream_argument& argument = signature[arg];
-  size_t typesize = 0;
-  LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(argument.type, &typesize));
+  size_t typesize = 1;
+  if (LIBXSTREAM_TYPE_VOID != argument.type) {
+    LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(argument.type, &typesize));
+  }
   *size = libxstream_linear_size(argument.dims, argument.shape, typesize);
   return LIBXSTREAM_ERROR_NONE;
 }
