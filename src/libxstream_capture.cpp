@@ -60,6 +60,7 @@ public:
     , m_thread(0)
 #endif
     , m_size(0)
+    , m_status(LIBXSTREAM_ERROR_NONE)
   {
     std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<libxstream_capture_base*>(0));
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -103,21 +104,42 @@ public:
   }
 
 public:
+  int status(int code) {
+#if defined(LIBXSTREAM_STDFEATURES)
+    return std::atomic_exchange(&m_status, code);
+#elif defined(_OPENMP)
+    int result = 0;
+#   pragma omp critical
+    {
+      result = m_status;
+      m_status = code;
+    }
+    return result;
+#else // generic
+    int result = 0;
+    libxstream_lock_acquire(m_lock);
+    result = m_status;
+    m_status = code;
+    libxstream_lock_release(m_lock);
+    return result;
+#endif
+  }
+
   bool empty() const {
     return 0 == get();
   }
 
-  size_t size() const {
+  /*size_t size() const {
     const size_t offset = m_size, index = m_index;
     const libxstream_capture_base *const entry = m_buffer[offset%LIBXSTREAM_MAX_QSIZE];
     return 0 != entry ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
-  }
+  }*/
 
   void push(const libxstream_capture_base& capture_region, bool wait) {
     push(&capture_region, wait);
   }
 
-  const libxstream_capture_base* get() const { // not thread-safe!
+  libxstream_capture_base* get() const { // not thread-safe!
     return m_buffer[m_index%LIBXSTREAM_MAX_QSIZE];
   }
 
@@ -130,7 +152,7 @@ public:
 private:
   void push(const libxstream_capture_base* capture_region, bool wait) {
     LIBXSTREAM_ASSERT(0 != capture_region);
-    const libxstream_capture_base** entry = 0;
+    libxstream_capture_base** entry = 0;
 #if defined(LIBXSTREAM_STDFEATURES)
     entry = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
 #elif defined(_OPENMP)
@@ -160,7 +182,7 @@ private:
     }
 
     LIBXSTREAM_ASSERT(0 == *entry);
-    const libxstream_capture_base* new_entry = terminator != capture_region ? capture_region->clone() : terminator;
+    libxstream_capture_base* new_entry = terminator != capture_region ? capture_region->clone() : terminator;
     *entry = new_entry;
 
     if (wait) {
@@ -177,7 +199,7 @@ private:
 #endif
   {
     queue_type& q = *static_cast<queue_type*>(queue);
-    const libxstream_capture_base* capture_region = 0;
+    libxstream_capture_base* capture_region = 0;
 
 #if defined(LIBXSTREAM_ASYNCHOST) && defined(_OPENMP) && !defined(LIBXSTREAM_OFFLOAD)
 #   pragma omp parallel
@@ -207,26 +229,29 @@ private:
   }
 
 private:
-  static const libxstream_capture_base* terminator;
-  const libxstream_capture_base* m_buffer[LIBXSTREAM_MAX_QSIZE];
+  static libxstream_capture_base *const terminator;
+  libxstream_capture_base* m_buffer[LIBXSTREAM_MAX_QSIZE];
   libxstream_lock* m_lock;
   size_t m_index;
 #if defined(LIBXSTREAM_STDFEATURES)
   std::thread m_thread;
   std::atomic<size_t> m_size;
+  std::atomic<int> m_status;
 #elif defined(__GNUC__)
   pthread_t m_thread;
   size_t m_size;
+  int m_status;
 #else
   HANDLE m_thread;
   size_t m_size;
+  int m_status;
 #endif
 #if defined(LIBXSTREAM_CAPTURE_DEBUG)
 };
 #else
 } queue;
 #endif
-/*static*/ const libxstream_capture_base* queue_type::terminator = reinterpret_cast<libxstream_capture_base*>(-1);
+/*static*/ libxstream_capture_base *const queue_type::terminator = reinterpret_cast<libxstream_capture_base*>(-1);
 
 } // namespace libxstream_capture_internal
 
@@ -296,6 +321,16 @@ libxstream_capture_base::~libxstream_capture_base()
 }
 
 
+int libxstream_capture_base::status(int code)
+{
+#if !defined(LIBXSTREAM_CAPTURE_DEBUG)
+  return libxstream_capture_internal::queue.status(code);
+#else
+  return code;
+#endif
+}
+
+
 int libxstream_capture_base::thread() const
 {
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
@@ -318,13 +353,13 @@ libxstream_capture_base* libxstream_capture_base::clone() const
 }
 
 
-void libxstream_capture_base::operator()() const
+void libxstream_capture_base::operator()()
 {
   virtual_run();
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL void libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait)
+LIBXSTREAM_EXPORT_INTERNAL int libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait)
 {
 #if !defined(LIBXSTREAM_CAPTURE_DEBUG)
 # if defined(LIBXSTREAM_SYNCHRONOUS)
@@ -333,7 +368,9 @@ LIBXSTREAM_EXPORT_INTERNAL void libxstream_enqueue(const libxstream_capture_base
 # else
   libxstream_capture_internal::queue.push(capture_region, wait);
 # endif
+  return libxstream_capture_internal::queue.status(LIBXSTREAM_ERROR_NONE);
 #else
   capture_region();
+  return LIBXSTREAM_ERROR_NONE;
 #endif
 }

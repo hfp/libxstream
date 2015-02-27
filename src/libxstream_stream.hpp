@@ -67,14 +67,6 @@ public:
   int device() const      { return m_device; }
   int priority() const    { return m_priority; }
 
-  void status(int value)  { m_status = value; }
-  int status() const      { return m_status; }
-  int reset() {
-    const int result = m_status;
-    m_status = LIBXSTREAM_ERROR_NONE;
-    return result;
-  }
-
   libxstream_signal signal() const;
   int wait(libxstream_signal signal);
 
@@ -117,7 +109,6 @@ private:
   int m_demux;
   int m_device;
   int m_priority;
-  int m_status;
 
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   mutable _Offload_stream m_handle; // lazy creation

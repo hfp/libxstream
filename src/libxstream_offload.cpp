@@ -99,6 +99,8 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
 int libxstream_offload(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags)
 {
   LIBXSTREAM_ASSERT(0 == (LIBXSTREAM_CALL_INVALID & flags));
+  int result = LIBXSTREAM_ERROR_NONE;
+
   LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {
     LIBXSTREAM_TARGET(mic) /*const*/ libxstream_function fhybrid = 0 == (m_flags & LIBXSTREAM_CALL_NATIVE) ? m_function : 0;
     const void *const fnative = reinterpret_cast<const void*>(m_function);
@@ -494,7 +496,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
         } break;
         default: {
-          LIBXSTREAM_ASSERT(false);
+          LIBXSTREAM_CHECK_CALL_ASSERT(status(LIBXSTREAM_ERROR_CONDITION));
         }
       }
     }
@@ -504,7 +506,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
       libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, 0, arity, m_flags);
     }
   }
-  LIBXSTREAM_ASYNC_END(flags);
+  LIBXSTREAM_ASYNC_END(flags, result);
 
-  return LIBXSTREAM_ERROR_NONE;
+  return result;
 }

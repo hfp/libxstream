@@ -261,7 +261,7 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
   , m_begin(0), m_end(0)
 #endif
   , m_demux(demux)
-  , m_device(device), m_priority(priority), m_status(LIBXSTREAM_ERROR_NONE)
+  , m_device(device), m_priority(priority)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
   , m_npartitions(0)
@@ -317,11 +317,10 @@ int libxstream_stream::wait(libxstream_signal signal)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_ASYNC_BEGIN(this, &result, m_pending, signal)
+  LIBXSTREAM_ASYNC_BEGIN(this, m_pending, signal)
   {
-    *ptr<int,0>() = LIBXSTREAM_ASYNC_STREAM->reset(); // result code
-    libxstream_signal *const pending_signals = ptr<libxstream_signal,1>();
-    const libxstream_signal signal = val<const libxstream_signal,2>();
+    libxstream_signal *const pending_signals = ptr<libxstream_signal,0>();
+    const libxstream_signal signal = val<const libxstream_signal,1>();
 
 #if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
     const int nthreads = static_cast<int>(nthreads_active());
@@ -366,7 +365,7 @@ int libxstream_stream::wait(libxstream_signal signal)
       }
     }
   }
-  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT | LIBXSTREAM_CALL_UNLOCK);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT | LIBXSTREAM_CALL_UNLOCK, result);
 
   return result;
 }
