@@ -379,6 +379,7 @@ void libxstream_stream::pending(int thread, libxstream_signal signal)
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
   m_pending[thread] = signal;
 #else
+  libxstream_use_sink(&thread);
   LIBXSTREAM_ASSERT(0 == thread);
   m_signal = signal;
 #endif
@@ -391,6 +392,7 @@ libxstream_signal libxstream_stream::pending(int thread) const
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
   const libxstream_signal signal = m_pending[thread];
 #else
+  libxstream_use_sink(&thread);
   LIBXSTREAM_ASSERT(0 == thread);
   const libxstream_signal signal = m_signal;
 #endif
