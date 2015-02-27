@@ -3,7 +3,7 @@
 LIBXSTREAM_ROOT="../.."
 NAME=$(basename ${PWD})
 
-ICCOPT="-O2 -xHost -ansi-alias -mkl"
+ICCOPT="-O2 -xHost -ansi-alias -offload-option,mic,compiler,\"-L${MKLROOT}/lib/mic\""
 ICCLNK="-mkl"
 
 GCCOPT="-O2 -march=native"
