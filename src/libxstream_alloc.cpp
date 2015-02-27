@@ -305,12 +305,9 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
       *reinterpret_cast<void**>(aligned) = buffer;
       *reinterpret_cast<size_t*>(aligned + sizeof(void*)) = aligned_size;
 #endif
-      void *const user_data = libxstream_virt_data(aligned);
-      LIBXSTREAM_ASSERT(sanitize == static_cast<size_t>(static_cast<char*>(user_data) - aligned));
       if (0 < data_size && 0 != data) {
-        LIBXSTREAM_CHECK_CONDITION(0 != user_data);
         const char *const src = static_cast<const char*>(data);
-        char *const dst = static_cast<char*>(user_data);
+        char *const dst = static_cast<char*>(libxstream_virt_data(aligned));
         for (size_t i = 0; i < data_size; ++i) dst[i] = src[i];
       }
       *memory = aligned;
