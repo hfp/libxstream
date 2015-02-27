@@ -34,6 +34,7 @@ else
 fi
 
 if [[ "Windows_NT" = "${OS}" ]] ; then
+  OPT+=" -D_REENTRANT"
   LNK+=" -lpthread"
 else
   OPT+=" -pthread"
