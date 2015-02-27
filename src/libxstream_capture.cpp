@@ -370,7 +370,9 @@ LIBXSTREAM_EXPORT_INTERNAL int libxstream_enqueue(const libxstream_capture_base&
 # endif
   return libxstream_capture_internal::queue.status(LIBXSTREAM_ERROR_NONE);
 #else
-  capture_region();
+  libxstream_capture_base *const capture_region_clone = capture_region.clone();
+  (*capture_region_clone)();
+  delete capture_region_clone;
   return LIBXSTREAM_ERROR_NONE;
 #endif
 }
