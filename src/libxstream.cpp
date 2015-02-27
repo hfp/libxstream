@@ -534,23 +534,24 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_pointer(int device, const void* memory, c
 
 LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment)
 {
+  LIBXSTREAM_CHECK_CONDITION(0 != memory);
   int result = LIBXSTREAM_ERROR_NONE;
 
 #if defined(LIBXSTREAM_OFFLOAD)
   if (0 <= device) {
-    result = libxstream_virt_allocate(memory, size, alignment, &device, sizeof(device));
+    void* buffer = 0;
+    result = libxstream_virt_allocate(&buffer, size, alignment, &device, sizeof(device));
 
-    if (LIBXSTREAM_ERROR_NONE == result && 0 != memory) {
-      LIBXSTREAM_ASYNC_BEGIN(0, device, memory, size, alignment)
+    if (LIBXSTREAM_ERROR_NONE == result && 0 != buffer) {
+      LIBXSTREAM_ASYNC_BEGIN(0, device, buffer, size)
       {
-        void*& memory = *ptr<void*,1>();
+        const char* buffer = ptr<const char,1>();
         const size_t size = val<const size_t,2>();
-        const size_t alignment = val<const size_t,3>();
-
-        char *const buffer = static_cast<char*>(memory);
 #       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) alloc_if(true))
       }
       LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
+      LIBXSTREAM_CHECK_ERROR(result);
+      *memory = buffer;
     }
   }
   else {
