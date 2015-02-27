@@ -45,7 +45,7 @@ struct LIBXSTREAM_EXPORT_INTERNAL libxstream_event;
 
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_stream {
 public:
-  static void enqueue(libxstream_event& event);
+  static int enqueue(libxstream_event& event);
 
   static int sync(int device);
   static int sync();

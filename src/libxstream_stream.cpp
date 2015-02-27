@@ -119,16 +119,18 @@ public:
     return m_streams;
   }
 
-  void enqueue(libxstream_event& event) {
+  int enqueue(libxstream_event& event) {
     LIBXSTREAM_ASSERT(0 == event.expected());
     const size_t n = max_nstreams();
     bool reset = true;
     for (size_t i = 0; i < n; ++i) {
       if (libxstream_stream *const stream = m_streams[i]) {
-        event.enqueue(*stream, reset);
+        const int result = event.enqueue(*stream, reset);
+        LIBXSTREAM_CHECK_ERROR(result);
         reset = false;
       }
     }
+    return LIBXSTREAM_ERROR_NONE;
   }
 
   int sync(int device) {
@@ -230,9 +232,9 @@ T atomic_store(A& atomic, T value)
 } // namespace libxstream_stream_internal
 
 
-/*static*/void libxstream_stream::enqueue(libxstream_event& event)
+/*static*/int libxstream_stream::enqueue(libxstream_event& event)
 {
-  libxstream_stream_internal::registry.enqueue(event);
+  return libxstream_stream_internal::registry.enqueue(event);
 }
 
 
