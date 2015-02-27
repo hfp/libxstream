@@ -36,6 +36,11 @@
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
 
+#define LIBXSTREAM_OFFLOAD_ALLOC alloc_if(1) free_if(0)
+#define LIBXSTREAM_OFFLOAD_FREE  alloc_if(0) free_if(1)
+#define LIBXSTREAM_OFFLOAD_REUSE alloc_if(0) free_if(0)
+#define LIBXSTREAM_OFFLOAD_REFRESH LIBXSTREAM_OFFLOAD_REUSE length(0)
+
 #define LIBXSTREAM_ASYNC_PENDING (capture_region_pending)
 #define LIBXSTREAM_ASYNC_READY (0 == (LIBXSTREAM_ASYNC_PENDING))
 #define LIBXSTREAM_ASYNC_STREAM (m_stream)

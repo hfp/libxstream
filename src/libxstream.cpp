@@ -507,7 +507,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_pointer(int device, const void* memory, c
       {
         const char* memory = ptr<const char,1>();
         const void*& real = *ptr<const void*,2>();
-#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) in(memory: length(0) alloc_if(false) free_if(false)) //out(real)
+#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) in(memory: length(0) LIBXSTREAM_OFFLOAD_REUSE) //out(real)
         real = memory;
       }
       LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
@@ -543,7 +543,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
       {
         const char* buffer = ptr<const char,1>();
         const size_t size = val<const size_t,2>();
-#       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) alloc_if(true))
+#       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC)
       }
       LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
       LIBXSTREAM_CHECK_ERROR(result);
@@ -611,7 +611,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
       LIBXSTREAM_ASYNC_BEGIN(0, device, memory)
       {
         const char *const memory = ptr<const char,1>();
-#       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(memory: length(0) free_if(true))
+#       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(memory: length(0) LIBXSTREAM_OFFLOAD_FREE)
         LIBXSTREAM_CHECK_CALL_ASSERT(status(libxstream_virt_deallocate(memory)));
       }
       LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT, result);
@@ -645,18 +645,12 @@ LIBXSTREAM_EXPORT_C int libxstream_memset_zero(void* memory, size_t size, libxst
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       if (LIBXSTREAM_ASYNC_READY) {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL \
-          in(size) out(dst: length(0) alloc_if(false) free_if(false))
-        {
-          memset(dst, 0, size);
-        }
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(size) out(dst: length(0) LIBXSTREAM_OFFLOAD_REUSE)
+        memset(dst, 0, size);
       }
       else {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT \
-          in(size) out(dst: length(0) alloc_if(false) free_if(false))
-        {
-          memset(dst, 0, size);
-        }
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(size) out(dst: length(0) LIBXSTREAM_OFFLOAD_REUSE)
+        memset(dst, 0, size);
       }
     }
     else
@@ -687,12 +681,10 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_me
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       if (LIBXSTREAM_ASYNC_READY) {
-#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL \
-          in(src: length(size) into(dst) alloc_if(false) free_if(false))
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL in(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
       else {
-#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_WAIT \
-          in(src: length(size) into(dst) alloc_if(false) free_if(false))
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_WAIT in(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
     }
     else
@@ -735,12 +727,10 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2h(const void* dev_mem, void* host_me
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       if (LIBXSTREAM_ASYNC_READY) {
-#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL \
-          out(src: length(size) into(dst) alloc_if(false) free_if(false))
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL out(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
       else {
-#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_WAIT \
-          out(src: length(size) into(dst) alloc_if(false) free_if(false))
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_WAIT out(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
     }
     else
@@ -773,13 +763,11 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
       // TODO: implement cross-device transfer
 
       if (LIBXSTREAM_ASYNC_READY) {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL \
-          in(size) in(src: length(0) alloc_if(false) free_if(false)) out(dst: length(0) alloc_if(false) free_if(false))
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(size) in(src: length(0) LIBXSTREAM_OFFLOAD_REUSE) out(dst: length(0) LIBXSTREAM_OFFLOAD_REUSE)
         memcpy(dst, src, size);
       }
       else {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT \
-          in(size) in(src: length(0) alloc_if(false) free_if(false)) out(dst: length(0) alloc_if(false) free_if(false))
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(size) in(src: length(0) LIBXSTREAM_OFFLOAD_REUSE) out(dst: length(0) LIBXSTREAM_OFFLOAD_REUSE)
         memcpy(dst, src, size);
       }
     }

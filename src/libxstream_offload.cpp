@@ -34,8 +34,6 @@
 #include "libxstream_context.hpp"
 #include <algorithm>
 
-#define LIBXSTREAM_OFFLOAD_REFRESH(ARG) inout(ARG: length(0) alloc_if(false) free_if(false))
-
 
 namespace libxstream_offload_internal {
 
@@ -142,7 +140,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0)
+              inout(a0: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -150,7 +148,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0)
+              inout(a0: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -161,7 +159,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1)
+              inout(a0, a1: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -169,7 +167,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1)
+              inout(a0, a1: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -180,7 +178,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1], *a2 = p[2];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)
+              inout(a0, a1, a2: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -188,7 +186,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)
+              inout(a0, a1, a2: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -199,7 +197,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3)
+              inout(a0, a1, a2, a3: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -207,7 +205,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3)
+              inout(a0, a1, a2, a3: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -218,8 +216,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4)
+              inout(a0, a1, a2, a3, a4: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -227,8 +224,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4)
+              inout(a0, a1, a2, a3, a4: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -239,8 +235,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5)
+              inout(a0, a1, a2, a3, a4, a5: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -248,8 +243,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5)
+              inout(a0, a1, a2, a3, a4, a5: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -260,8 +254,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)
+              inout(a0, a1, a2, a3, a4, a5, a6: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -269,8 +262,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)
+              inout(a0, a1, a2, a3, a4, a5, a6: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -281,8 +273,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -290,8 +281,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -302,9 +292,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7], *a8 = p[8];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -312,9 +300,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -325,9 +311,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7], *a8 = p[8], *a9 = p[9];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -335,9 +319,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -348,9 +330,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7], *a8 = p[8], *a9 = p[9], *a10 = p[10];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -358,9 +338,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2) LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6) LIBXSTREAM_OFFLOAD_REFRESH(a7) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -372,9 +350,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -382,9 +358,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -396,10 +370,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a12)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -407,10 +378,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0) LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4) LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8) LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a12)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -422,10 +390,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12], *a13 = p[13];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -433,10 +398,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1) LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5) LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9) LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -448,10 +410,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12], *a13 = p[13], *a14 = p[14];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1)  LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5)  LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9)  LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -459,10 +418,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1)  LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5)  LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9)  LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -474,10 +430,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12], *a13 = p[13], *a14 = p[14], *a15 = p[15];
           if (LIBXSTREAM_ASYNC_READY) {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1)  LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5)  LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9)  LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14) LIBXSTREAM_OFFLOAD_REFRESH(a15)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
@@ -485,10 +438,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument* 
           }
           else {
 #           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a0)  LIBXSTREAM_OFFLOAD_REFRESH(a1)  LIBXSTREAM_OFFLOAD_REFRESH(a2)  LIBXSTREAM_OFFLOAD_REFRESH(a3)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a4)  LIBXSTREAM_OFFLOAD_REFRESH(a5)  LIBXSTREAM_OFFLOAD_REFRESH(a6)  LIBXSTREAM_OFFLOAD_REFRESH(a7)  \
-              LIBXSTREAM_OFFLOAD_REFRESH(a8)  LIBXSTREAM_OFFLOAD_REFRESH(a9)  LIBXSTREAM_OFFLOAD_REFRESH(a10) LIBXSTREAM_OFFLOAD_REFRESH(a11) \
-              LIBXSTREAM_OFFLOAD_REFRESH(a12) LIBXSTREAM_OFFLOAD_REFRESH(a13) LIBXSTREAM_OFFLOAD_REFRESH(a14) LIBXSTREAM_OFFLOAD_REFRESH(a15)
+              inout(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15: LIBXSTREAM_OFFLOAD_REFRESH)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 };
               libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), m_signature, translation, arity, m_flags);
