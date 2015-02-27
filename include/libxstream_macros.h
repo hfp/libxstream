@@ -64,6 +64,7 @@
 # define LIBXSTREAM_ALIGNED(DECL, N) DECL LIBXSTREAM_ATTRIBUTE(aligned(N))
 # define LIBXSTREAM_CDECL LIBXSTREAM_ATTRIBUTE(cdecl)
 #endif
+#define LIBXSTREAM_ALIGN(A, ALIGNMENT) ((uintptr_t)(-(-((intptr_t)A) & -((intptr_t)(ALIGNMENT)))))
 
 #if defined(_WIN32) && !defined(__GNUC__)
 # define LIBXSTREAM_TLS LIBXSTREAM_ATTRIBUTE(thread)

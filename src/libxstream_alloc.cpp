@@ -87,8 +87,13 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_lcm(size_t a, size_t b)
 
 LIBXSTREAM_TARGET(mic) size_t libxstream_alignment(size_t size, size_t alignment)
 {
-  const size_t min_a = std::min(LIBXSTREAM_MAX_SIMD, LIBXSTREAM_MAX_ALIGN);
-  const size_t max_a = libxstream_lcm(LIBXSTREAM_MAX_SIMD, LIBXSTREAM_MAX_ALIGN);
+#if defined(LIBXSTREAM_OFFLOAD)
+  const size_t max_align = LIBXSTREAM_MAX_ALIGN;
+#else
+  const size_t max_align = LIBXSTREAM_MAX_SIMD;
+#endif
+  const size_t min_a = std::min<size_t>(LIBXSTREAM_MAX_SIMD, max_align);
+  const size_t max_a = libxstream_lcm(LIBXSTREAM_MAX_SIMD, max_align);
   return 0 == alignment ? (max_a <= size ? max_a : (min_a < size ? min_a : sizeof(void*))) : std::max(alignment, static_cast<size_t>(sizeof(void*)));
 }
 
@@ -96,7 +101,27 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_alignment(size_t size, size_t alignment
 LIBXSTREAM_TARGET(mic) size_t libxstream_align(size_t size, size_t alignment)
 {
   const size_t auto_alignment = libxstream_alignment(size, alignment);
-  return ((size + auto_alignment - 1) / auto_alignment) * auto_alignment;
+  const size_t aligned = ((size + auto_alignment - 1) / auto_alignment) * auto_alignment;
+  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(size, auto_alignment/*pot*/));
+  return aligned;
+}
+
+
+LIBXSTREAM_TARGET(mic) void* libxstream_align(void* address, size_t alignment)
+{
+  LIBXSTREAM_ASSERT(0 != alignment);
+  const uintptr_t aligned = ((reinterpret_cast<uintptr_t>(address) + alignment - 1) / alignment) * alignment;
+  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(address, alignment/*pot*/));
+  return reinterpret_cast<void*>(aligned);
+}
+
+
+LIBXSTREAM_TARGET(mic) const void* libxstream_align(const void* address, size_t alignment)
+{
+  LIBXSTREAM_ASSERT(0 != alignment);
+  const uintptr_t aligned = ((reinterpret_cast<uintptr_t>(address) + alignment - 1) / alignment) * alignment;
+  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(address, alignment/*pot*/));
+  return reinterpret_cast<void*>(aligned);
 }
 
 
@@ -153,12 +178,12 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int o
 
 int libxstream_real_allocate(void** memory, size_t size, size_t alignment)
 {
-  LIBXSTREAM_USE_SINK(&alignment);
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {
     if (0 < size) {
 #if defined(LIBXSTREAM_DEBUG)
+      LIBXSTREAM_USE_SINK(&alignment);
       if (char *const buffer = new char[size]) {
         std::fill_n(buffer, size, 0);
         *memory = buffer;
@@ -255,32 +280,40 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
 
   if (memory) {
     if (0 < size) {
-      size = std::max(size, data_size); // sanitize
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
-      result = libxstream_real_allocate(memory, size, alignment);
+      const size_t sanitize = data_size;
+      char* aligned = 0;
+      result = libxstream_real_allocate(reinterpret_cast<void**>(&aligned), std::max(size, sanitize), alignment);
       LIBXSTREAM_CHECK_ERROR(result);
-      void *const user_data = libxstream_virt_data(*memory);
 #elif defined(_WIN32)
-      libxstream_use_sink(&alignment); // TODO
-      void *const buffer = VirtualAlloc(0, size, MEM_RESERVE, PAGE_NOACCESS);
+      const size_t sanitize = data_size + sizeof(void*);
+      const size_t auto_alignment = libxstream_alignment(std::max(size, sanitize), alignment);
+      const size_t aligned_size = libxstream_align(std::max(size, sanitize), auto_alignment);
+      void *const buffer = VirtualAlloc(0, aligned_size, MEM_RESERVE, PAGE_NOACCESS);
       LIBXSTREAM_CHECK_CONDITION(0 != buffer);
-      void *const user_data = libxstream_virt_data(VirtualAlloc(buffer, data_size, MEM_COMMIT, PAGE_READWRITE));
-      *memory = buffer;
+      char *const aligned = static_cast<char*>(VirtualAlloc(libxstream_align(buffer, auto_alignment), sanitize, MEM_COMMIT, PAGE_READWRITE));
+      LIBXSTREAM_CHECK_CONDITION(0 != aligned);
+      *reinterpret_cast<void**>(aligned) = buffer;
 #else
-      libxstream_use_sink(&alignment); // TODO
-      void *const buffer = mmap(0, size, PROT_READ | PROT_WRITE/*PROT_NONE*/, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      const size_t sanitize = data_size + sizeof(void*) + sizeof(size);
+      const size_t auto_alignment = libxstream_alignment(std::max(size, sanitize), alignment);
+      const size_t aligned_size = libxstream_align(std::max(size, sanitize), auto_alignment);
+      void *const buffer = mmap(0, aligned_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
       LIBXSTREAM_CHECK_CONDITION(MAP_FAILED != buffer);
-      void *const user_data = libxstream_virt_data(buffer);
-      LIBXSTREAM_ASSERT(sizeof(size) <= static_cast<char*>(user_data) - static_cast<char*>(buffer));
-      *static_cast<size_t*>(buffer) = size;
-      *memory = buffer;
+      char *const aligned = static_cast<char*>(mmap(libxstream_align(buffer, auto_alignment), sanitize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+      LIBXSTREAM_CHECK_CONDITION(MAP_FAILED != aligned);
+      *reinterpret_cast<void**>(aligned) = buffer;
+      *reinterpret_cast<size_t*>(aligned + sizeof(void*)) = aligned_size;
 #endif
+      void *const user_data = libxstream_virt_data(aligned);
+      LIBXSTREAM_ASSERT(sanitize == static_cast<size_t>(static_cast<char*>(user_data) - aligned));
       if (0 < data_size && 0 != data) {
         LIBXSTREAM_CHECK_CONDITION(0 != user_data);
         const char *const src = static_cast<const char*>(data);
         char *const dst = static_cast<char*>(user_data);
         for (size_t i = 0; i < data_size; ++i) dst[i] = src[i];
       }
+      *memory = aligned;
     }
     else {
       *memory = 0;
@@ -304,10 +337,12 @@ int libxstream_virt_deallocate(const void* memory)
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
     result = libxstream_real_deallocate(memory);
 #elif defined(_WIN32)
-    result = FALSE != VirtualFree(const_cast<void*>(memory), 0, MEM_RELEASE) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
+    void *const unaligned = const_cast<void*>(*reinterpret_cast<const void*const*>(memory));
+    result = FALSE != VirtualFree(unaligned, 0, MEM_RELEASE) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 #else
-    const size_t size = *static_cast<const size_t*>(memory);
-    result = 0 == munmap(const_cast<void*>(memory), size) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
+    void *const unaligned = const_cast<void*>(*reinterpret_cast<const void*const*>(memory));
+    const size_t size = *reinterpret_cast<const size_t*>(static_cast<const char*>(memory) + sizeof(void*));
+    result = 0 == munmap(unaligned, size) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 #endif
   }
 
@@ -320,9 +355,9 @@ void* libxstream_virt_data(void* memory)
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
   return memory;
 #elif defined(_WIN32)
-  return memory;
+  return static_cast<char*>(memory) + sizeof(void*);
 #else
-  return reinterpret_cast<char*>(memory) + sizeof(size_t);
+  return static_cast<char*>(memory) + sizeof(void*) + sizeof(size_t);
 #endif
 }
 
@@ -332,8 +367,8 @@ const void* libxstream_virt_data(const void* memory)
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
   return memory;
 #elif defined(_WIN32)
-  return memory;
+  return static_cast<const char*>(memory) + sizeof(void*);
 #else
-  return reinterpret_cast<const char*>(memory) + sizeof(size_t);
+  return static_cast<const char*>(memory) + sizeof(void*) + sizeof(size_t);
 #endif
 }
