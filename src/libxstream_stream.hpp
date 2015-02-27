@@ -101,7 +101,7 @@ private:
 #endif
   void* m_thread;
 #if !defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
-  libxstream_signal m_signal, *m_pending;
+  libxstream_signal m_signal, *const m_pending;
 #endif
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
   size_t m_begin, m_end;

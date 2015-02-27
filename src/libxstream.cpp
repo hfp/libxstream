@@ -507,12 +507,8 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_pointer(int device, const void* memory, c
       {
         const char* memory = ptr<const char,1>();
         const void*& real = *ptr<const void*,2>();
-
-#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) \
-          in(memory: length(0) alloc_if(false) free_if(false)) //out(real)
-        {
-          real = memory;
-        }
+#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) in(memory: length(0) alloc_if(false) free_if(false)) //out(real)
+        real = memory;
       }
       LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
     }

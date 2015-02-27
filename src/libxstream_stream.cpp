@@ -336,9 +336,9 @@ int libxstream_stream::wait(libxstream_signal signal)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
         if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 # if defined(LIBXSTREAM_STREAM_WAIT_PAST)
-        const libxstream_signal pending = 0 != signal ? signal : pending_signal;
+          const libxstream_signal pending = 0 != signal ? signal : pending_signal;
 # else
-        const libxstream_signal pending = pending_signal;
+          const libxstream_signal pending = pending_signal;
 # endif
 #         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(pending)
         }
