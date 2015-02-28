@@ -46,8 +46,7 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
 
   // This data member *must* be the first!
   union element_union {
-    char data[sizeof(void*)];
-    void* pointer;
+    char pointer[sizeof(void*)];
     signed char i8;
     unsigned char u8;
     short i16;
