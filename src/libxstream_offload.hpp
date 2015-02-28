@@ -36,7 +36,7 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
 
 
-int libxstream_offload(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags);
+int libxstream_offload(libxstream_function function, const libxstream_argument signature[], libxstream_stream* stream, int flags);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_OFFLOAD_HPP

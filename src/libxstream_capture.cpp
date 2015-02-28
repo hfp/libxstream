@@ -273,12 +273,12 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
   if (2 == argc && (argv[0].signature() || argv[1].signature())) {
     const libxstream_argument* signature = 0;
     if (argv[1].signature()) {
-      m_function = *reinterpret_cast<const libxstream_function*>(libxstream_address(argv[0]));
+      m_function = *reinterpret_cast<const libxstream_function*>(argv + 0);
       signature = reinterpret_cast<const libxstream_argument*>(libxstream_get_data(argv[1]));
     }
     else {
       LIBXSTREAM_ASSERT(argv[0].signature());
-      m_function = *reinterpret_cast<const libxstream_function*>(libxstream_address(argv[1]));
+      m_function = *reinterpret_cast<const libxstream_function*>(argv + 1);
       signature = reinterpret_cast<const libxstream_argument*>(libxstream_get_data(argv[0]));
     }
 
@@ -371,6 +371,7 @@ LIBXSTREAM_EXPORT_INTERNAL int libxstream_enqueue(const libxstream_capture_base&
 # endif
   return libxstream_capture_internal::queue.status(LIBXSTREAM_ERROR_NONE);
 #else
+  libxstream_use_sink(&wait);
   libxstream_capture_base *const capture_region_clone = capture_region.clone();
   (*capture_region_clone)();
   delete capture_region_clone;

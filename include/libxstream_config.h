@@ -119,12 +119,6 @@
 /** Synchronize on memory allocation/deallocation events. */
 /*#define LIBXSTREAM_SYNCMEM*/
 
-/**
- * Impacts the expected signature of the user's function. Passing arguments by value
- * requires to use the VALUE attribute available with Fortran's ISO_C_BINDING module.
- */
-/*#define LIBXSTREAM_PASS_BY_VALUE*/
-
 /** Prefers OpenMP based locking primitives. */
 /*#define LIBXSTREAM_PREFER_OPENMP*/
 

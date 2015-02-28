@@ -42,7 +42,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
   const struct LIBXSTREAM_TARGET(mic) argument_type {
     libxstream_argument* m_signature;
     explicit argument_type(libxstream_argument* signature): m_signature(signature) {}
-    void* operator[](int i) const { return m_signature[i].data.pointer; }
+    void* operator[](int i) const { return *reinterpret_cast<void**>(m_signature[i].data.pointer); }
   } a(signature);
 
   if (signature && translation) {
@@ -94,7 +94,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
 } // namespace libxstream_offload_internal
 
 
-int libxstream_offload(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags)
+int libxstream_offload(libxstream_function function, const libxstream_argument signature[], libxstream_stream* stream, int flags)
 {
   LIBXSTREAM_ASSERT(0 == (LIBXSTREAM_CALL_INVALID & flags));
   int result = LIBXSTREAM_ERROR_NONE;

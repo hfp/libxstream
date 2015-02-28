@@ -107,22 +107,32 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_data(const libxstream_argument& arg)
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const char* libxstream_get_data(const libxstream_argument& arg)
+{
+  const char* data = 0;
+
+  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
+    char *const dst = reinterpret_cast<char*>(&data);
+    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.pointer[i];
+  }
+  else {
+    data = reinterpret_cast<const char*>(&arg);
+  }
+
+  return data;
+}
+
+
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_data(libxstream_argument& arg)
 {
   char* data = 0;
 
-  const char *const src = libxstream_address(arg);
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
     char *const dst = reinterpret_cast<char*>(&data);
-    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
+    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.pointer[i];
   }
   else {
-#if defined(LIBXSTREAM_PASS_BY_VALUE)
-    char *const dst = reinterpret_cast<char*>(&data);
-    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
-#else
-    data = const_cast<char*>(src);
-#endif
+    data = reinterpret_cast<char*>(&arg);
   }
 
   return data;
@@ -131,12 +141,11 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_data(cons
 
 LIBXSTREAM_TARGET(mic) int libxstream_set_data(libxstream_argument& arg, const void* data)
 {
-  char *const dst = libxstream_address(arg);
-  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
-    const char *const src = reinterpret_cast<const char*>(&data);
-    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
+  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) { // take the pointer
+    *reinterpret_cast<const void**>(&arg.data) = data;
+    LIBXSTREAM_ASSERT(libxstream_get_data(arg) == data);
   }
-  else {
+  else { // copy from the given pointer
     size_t typesize = 0 != arg.dims ? 1 : *arg.shape;
     if (LIBXSTREAM_TYPE_VOID != arg.type) {
       LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(arg.type, &typesize));
@@ -144,11 +153,12 @@ LIBXSTREAM_TARGET(mic) int libxstream_set_data(libxstream_argument& arg, const v
 
     if (data) {
       const char *const src = static_cast<const char*>(data);
-      for (size_t i = 0; i < typesize; ++i) dst[i] = src[i];
+      for (size_t i = 0; i < typesize; ++i) arg.data.pointer[i] = src[i];
     }
     else {
-      for (size_t i = 0; i < typesize; ++i) dst[i] = 0;
+      for (size_t i = 0; i < typesize; ++i) arg.data.pointer[i] = 0;
     }
   }
+
   return LIBXSTREAM_ERROR_NONE;
 }
