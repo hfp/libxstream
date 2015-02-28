@@ -200,6 +200,7 @@ private:
   {
     queue_type& q = *static_cast<queue_type*>(queue);
     libxstream_capture_base* capture_region = 0;
+    bool never = false;
 
 #if defined(LIBXSTREAM_ASYNCHOST) && defined(_OPENMP) && !defined(LIBXSTREAM_OFFLOAD)
 #   pragma omp parallel
@@ -217,7 +218,7 @@ private:
       }
       else {
         q.pop();
-        //break;
+        if (never) break;
       }
     }
 
