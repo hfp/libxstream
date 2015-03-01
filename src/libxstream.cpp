@@ -985,6 +985,13 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_clear_signature(libxstream_argument* signa
 }
 
 
+LIBXSTREAM_EXPORT_C int libxstream_fn_signature(libxstream_argument** signature)
+{
+  static LIBXSTREAM_TLS libxstream_argument arguments[(LIBXSTREAM_MAX_NARGS)+1];
+  return libxstream_construct(arguments, LIBXSTREAM_MAX_NARGS);
+}
+
+
 LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size_t arg, const void* in, libxstream_type type, size_t dims, const size_t shape[])
 {
   LIBXSTREAM_CHECK_CONDITION(0 != signature);
