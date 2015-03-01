@@ -292,16 +292,16 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
       void *const buffer = VirtualAlloc(0, aligned_size, MEM_RESERVE, PAGE_NOACCESS);
       LIBXSTREAM_CHECK_CONDITION(0 != buffer);
       char *const aligned = static_cast<char*>(VirtualAlloc(libxstream_align(buffer, auto_alignment), sanitize, MEM_COMMIT, PAGE_READWRITE));
-      LIBXSTREAM_CHECK_CONDITION(0 != aligned);
+      LIBXSTREAM_CHECK_CONDITION(buffer <= aligned);
       *reinterpret_cast<void**>(aligned) = buffer;
 #else
       const size_t sanitize = data_size + sizeof(void*) + sizeof(size);
       const size_t auto_alignment = libxstream_alignment(std::max(size, sanitize), alignment);
       const size_t aligned_size = libxstream_align(std::max(size, sanitize), auto_alignment);
-      void *const buffer = mmap(0, aligned_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      void *const buffer = mmap(0, aligned_size, /*PROT_NONE*/PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
       LIBXSTREAM_CHECK_CONDITION(MAP_FAILED != buffer);
-      char *const aligned = static_cast<char*>(mmap(libxstream_align(buffer, auto_alignment), sanitize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
-      LIBXSTREAM_CHECK_CONDITION(MAP_FAILED != aligned);
+      char *const aligned = static_cast<char*>(libxstream_align(buffer, auto_alignment));
+      LIBXSTREAM_CHECK_CONDITION(buffer <= aligned);
       *reinterpret_cast<void**>(aligned) = buffer;
       *reinterpret_cast<size_t*>(aligned + sizeof(void*)) = aligned_size;
 #endif
