@@ -186,26 +186,26 @@ int multi_dgemm_type::operator()(size_t index, size_t size)
     if (0 == demux()) {
       // This manual synchronization prevents multiple threads from queuing work into the *same* stream (at the same time).
       // This is only needed if the stream was created without demux support in order to rely on manual synchronization.
-      LIBXSTREAM_CHECK_CALL(libxstream_stream_lock(m_stream));
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_lock(m_stream));
     }
     const size_t i0 = m_host_data->idata()[index], i1 = m_host_data->idata()[index+size];
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->adata() + i0, m_adata, sizeof(double) * (i1 - i0), m_stream));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->bdata() + i0, m_bdata, sizeof(double) * (i1 - i0), m_stream));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(m_host_data->adata() + i0, m_adata, sizeof(double) * (i1 - i0), m_stream));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(m_host_data->bdata() + i0, m_bdata, sizeof(double) * (i1 - i0), m_stream));
     // transferring cdata is part of the benchmark; since it is all zeros we could do better with libxstream_memset_zero
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->cdata() + i0, m_cdata, sizeof(double) * (i1 - i0), m_stream));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_h2d(m_host_data->idata() + index, m_idata, sizeof(size_t) * size, m_stream));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(m_host_data->cdata() + i0, m_cdata, sizeof(double) * (i1 - i0), m_stream));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(m_host_data->idata() + index, m_idata, sizeof(size_t) * size, m_stream));
 #if defined(LIBXSTREAM_DEBUG)
     size_t n = 0;
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(m_signature, &n) && 6 == n);
 #endif
     const size_t nn = i1 - m_host_data->idata()[index+size-1];
-    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature, 0, &size, libxstream_type2value<size_t>::value(), 0, 0));
-    LIBXSTREAM_CHECK_CALL(libxstream_fn_input(m_signature, 1, &nn, libxstream_type2value<size_t>::value(), 0, 0));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(m_signature, 0, &size, libxstream_type2value<size_t>::value(), 0, 0));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(m_signature, 1, &nn, libxstream_type2value<size_t>::value(), 0, 0));
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &n) && 6 == n);
-    LIBXSTREAM_CHECK_CALL(libxstream_fn_call(m_host_data->process(), m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
-    LIBXSTREAM_CHECK_CALL(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), m_stream));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_call(m_host_data->process(), m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), m_stream));
     if (0 == demux()) {
-      LIBXSTREAM_CHECK_CALL(libxstream_stream_unlock(m_stream));
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_unlock(m_stream));
     }
   }
 

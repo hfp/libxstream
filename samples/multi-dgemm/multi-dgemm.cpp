@@ -142,9 +142,9 @@ int main(int argc, char* argv[])
     for (int i = 0; i < nitems; i += nbatch) {
       const size_t j = i / nbatch, n = j % nstreams_total;
       multi_dgemm_type& call = multi_dgemm[n];
-      LIBXSTREAM_CHECK_CALL_THROW(call(i, std::min(nbatch, nitems - i)));
+      LIBXSTREAM_CHECK_CALL_ASSERT(call(i, std::min(nbatch, nitems - i)));
 #if defined(MULTI_DGEMM_USE_SYNC) && (1 <= MULTI_DGEMM_USE_SYNC)
-      LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(call.event(), call.stream()));
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(call.event(), call.stream()));
 #endif
       // synchronize every Nth iteration with N being the total number of streams
       if (n == (nstreams_total - 1)) {
@@ -152,13 +152,13 @@ int main(int argc, char* argv[])
 #if defined(MULTI_DGEMM_USE_SYNC)
 # if (2 <= (MULTI_DGEMM_USE_SYNC))
           // wait for an event within a stream
-          LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait_event(multi_dgemm[0].stream(), multi_dgemm[k].event()));
+          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(multi_dgemm[0].stream(), multi_dgemm[k].event()));
 # elif (1 <= (MULTI_DGEMM_USE_SYNC))
           // wait for an event on the host
-          LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_synchronize(multi_dgemm[k].event()));
+          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_synchronize(multi_dgemm[k].event()));
 # else
           // wait for all work in a stream
-          LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(multi_dgemm[k].stream()));
+          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(multi_dgemm[k].stream()));
 # endif
 #endif
         }
