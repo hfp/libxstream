@@ -65,11 +65,15 @@
  * - #define LIBXSTREAM_ASYNC 0: synchronous offloads
  * - #define LIBXSTREAM_ASYNC 1: compiler offload
  * - #define LIBXSTREAM_ASYNC 2: compiler streams
+ * - #define LIBXSTREAM_ASYNC 3: native (KNL) - not implemented yet / must be disabled
  */
 #define LIBXSTREAM_ASYNC
 
 /** Not implemented yet. Must be disabled. */
 /*#define LIBXSTREAM_ASYNCHOST*/
+
+/** Not implemented yet. Must be disabled. */
+/*#define LIBXSTREAM_ALLOC_PINNED*/
 
 /** SIMD width in Byte (actual alignment might be smaller). */
 #define LIBXSTREAM_MAX_SIMD 64
