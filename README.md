@@ -5,7 +5,7 @@ Library to work with streams, events, and code regions that are able to run asyn
 The library's application programming interface (API) completely seals the implementation and only forward-declares types which are beyond the language's built-in types. The entire API consists of below subcategories each illustrated by a small code snippet. The [Function Interface](#function-interface) for instance enables an own function to be enqueued for execution within a stream (via function pointer). A future release of the library will provide a native FORTRAN interface. [[c](https://github.com/hfp/libxstream/blob/master/include/libxstream.h)]
 
 ### Data Types
-Data types are forward-declared types used in the interface. Moreover, there is a mapping from the language's built-in types to the types supported in the [Function Interface](#function-interface)).
+Data types are forward-declared types used in the interface. Moreover, there is a mapping from the language's built-in types to the types supported in the [Function Interface](#function-interface).
 
 ```C
 /** Boolean state. */
