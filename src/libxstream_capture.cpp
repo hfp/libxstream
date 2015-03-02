@@ -29,9 +29,10 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "libxstream_capture.hpp"
+
+#include <libxstream_begin.h>
 #include <algorithm>
 #include <cstdio>
-
 #if defined(LIBXSTREAM_STDFEATURES)
 # include <thread>
 # include <atomic>
@@ -42,6 +43,7 @@
 #   include <Windows.h>
 # endif
 #endif
+#include <libxstream_end.h>
 
 //#define LIBXSTREAM_CAPTURE_DEBUG
 //#define LIBXSTREAM_CAPTURE_UNLOCK_LATE
