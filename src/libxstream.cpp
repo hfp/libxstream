@@ -988,7 +988,9 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_clear_signature(libxstream_argument* signa
 LIBXSTREAM_EXPORT_C int libxstream_fn_signature(libxstream_argument** signature)
 {
   static LIBXSTREAM_TLS libxstream_argument arguments[(LIBXSTREAM_MAX_NARGS)+1];
-  return libxstream_construct(arguments, LIBXSTREAM_MAX_NARGS);
+  LIBXSTREAM_CHECK_CALL(libxstream_construct(arguments, LIBXSTREAM_MAX_NARGS));
+  *signature = arguments;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
