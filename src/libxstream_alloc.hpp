@@ -32,7 +32,9 @@
 #define LIBXSTREAM_ALLOC_HPP
 
 #include <libxstream_macros.h>
+#include <libxstream_begin.h>
 #include <cstddef>
+#include <libxstream_end.h>
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
 

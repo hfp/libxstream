@@ -29,6 +29,7 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "libxstream_alloc.hpp"
+
 #include <libxstream_begin.h>
 #include <algorithm>
 #include <libxstream_end.h>

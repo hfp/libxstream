@@ -35,10 +35,11 @@
 #include "libxstream_event.hpp"
 #include "libxstream_offload.hpp"
 
+#include <libxstream_begin.h>
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <cstdio>
-
 #if defined(LIBXSTREAM_STDFEATURES)
 # include <thread>
 # include <atomic>
@@ -47,6 +48,7 @@
 #   include <mutex>
 # endif
 #endif
+#include <libxstream_end.h>
 
 #if defined(_OPENMP)
 # include <omp.h>
@@ -55,10 +57,6 @@
 #if defined(__GNUC__)
 # include <pthread.h>
 #endif
-
-#include <libxstream_begin.h>
-#include <cstring>
-#include <libxstream_end.h>
 
 #if defined(__MKL)
 # include <mkl.h>

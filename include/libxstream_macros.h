@@ -152,7 +152,9 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 #if defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_USE_SINK(VAR) libxstream_use_sink(VAR)
 # define LIBXSTREAM_ASSERT(A) assert(A)
+# include "libxstream_begin.h"
 # include <assert.h>
+# include "libxstream_end.h"
 #else
 # define LIBXSTREAM_USE_SINK(VAR)
 # define LIBXSTREAM_ASSERT(A)

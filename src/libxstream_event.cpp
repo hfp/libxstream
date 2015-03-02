@@ -31,7 +31,9 @@
 #include "libxstream_event.hpp"
 #include "libxstream_capture.hpp"
 
+#include <libxstream_begin.h>
 #include <algorithm>
+#include <libxstream_end.h>
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD)
 # include <offload.h>

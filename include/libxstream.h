@@ -32,8 +32,10 @@
 #define LIBXSTREAM_H
 
 #include "libxstream_macros.h"
+#include "libxstream_begin.h"
 #include <stdint.h>
 #include <stddef.h>
+#include "libxstream_end.h"
 
 
 /** Boolean state; must match LIBXSTREAM_TYPE_BOOL. */
