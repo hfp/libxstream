@@ -162,7 +162,7 @@ public:
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &size) && i < size);
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_elemsize(m_signature, i, &size) && sizeof(T) <= size);
 #endif
-    return reinterpret_cast<T*>(libxstream_get_data(m_signature[i]));
+    return reinterpret_cast<T*>(libxstream_get_value(m_signature[i]));
   }
 
   template<typename T,size_t i> T* ptr() {
@@ -171,7 +171,7 @@ public:
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &size) && i < size);
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_elemsize(m_signature, i, &size) && sizeof(T) <= size);
 #endif
-    return reinterpret_cast<T*>(libxstream_get_data(m_signature[i]));
+    return reinterpret_cast<T*>(libxstream_get_value(m_signature[i]));
   }
 
   int status(int code);

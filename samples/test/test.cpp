@@ -55,6 +55,12 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, s
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_dims(0, 0, &value) && 0 == value;
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_dims(0, 1, &value) && 1 == value;
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_dims(0, 2, &value) && 0 == value;
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_dims(0, 3, &value) && 0 == value;
+    const void* data = 0;
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 0, &data) && result == *static_cast<const libxstream_bool*const*>(data);
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 1, &data) && buffer == *static_cast<const void*const*>(data);
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 2, &data) && size == *static_cast<const size_t*>(data);
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 3, &data) && pattern == *static_cast<const char*>(data);
   }
 
   const char *const values = reinterpret_cast<const char*>(buffer);

@@ -337,10 +337,10 @@ int libxstream_virt_deallocate(const void* memory)
 #if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
     result = libxstream_real_deallocate(memory);
 #elif defined(_WIN32)
-    void *const unaligned = const_cast<void*>(*reinterpret_cast<const void*const*>(memory));
+    void *const unaligned = const_cast<void*>(*static_cast<const void*const*>(memory));
     result = FALSE != VirtualFree(unaligned, 0, MEM_RELEASE) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 #else
-    void *const unaligned = const_cast<void*>(*reinterpret_cast<const void*const*>(memory));
+    void *const unaligned = const_cast<void*>(*static_cast<const void*const*>(memory));
     const size_t size = *reinterpret_cast<const size_t*>(static_cast<const char*>(memory) + sizeof(void*));
     result = 0 == munmap(unaligned, size) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 #endif
