@@ -40,6 +40,7 @@
 #define LIBXSTREAM_OFFLOAD_FREE  alloc_if(0) free_if(1)
 #define LIBXSTREAM_OFFLOAD_REUSE alloc_if(0) free_if(0)
 #define LIBXSTREAM_OFFLOAD_REFRESH LIBXSTREAM_OFFLOAD_REUSE length(0)
+#define LIBXSTREAM_OFFLOAD_DATA(ARG, IS_SCALAR) inout(ARG: length(((IS_SCALAR)*sizeof(libxstream_argument::element_union))) alloc_if(IS_SCALAR) free_if(IS_SCALAR))
 
 #define LIBXSTREAM_ASYNC_PENDING (capture_region_pending)
 #define LIBXSTREAM_ASYNC_READY (0 == (LIBXSTREAM_ASYNC_PENDING))
