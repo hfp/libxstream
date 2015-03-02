@@ -174,6 +174,7 @@
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
       <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
+      <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -214,6 +215,7 @@
       </DisableSpecificWarnings>
       <OffloadConstructs>None</OffloadConstructs>
       <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
+      <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -256,6 +258,7 @@
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
       <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
+      <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -297,6 +300,7 @@
       </DisableSpecificWarnings>
       <OffloadConstructs>None</OffloadConstructs>
       <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
+      <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -330,6 +334,7 @@
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
       <OffloadConstructs>None</OffloadConstructs>
+      <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -367,6 +372,7 @@
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
       <OffloadConstructs>None</OffloadConstructs>
+      <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
