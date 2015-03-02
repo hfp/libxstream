@@ -88,13 +88,15 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_lcm(size_t a, size_t b)
 LIBXSTREAM_TARGET(mic) size_t libxstream_alignment(size_t size, size_t alignment)
 {
 #if defined(LIBXSTREAM_OFFLOAD)
-  const size_t max_align = LIBXSTREAM_MAX_ALIGN;
+  static const size_t max_algn = (LIBXSTREAM_MAX_ALIGN / LIBXSTREAM_MAX_SIMD) * LIBXSTREAM_MAX_SIMD;
+  static const size_t max_simd = std::min(LIBXSTREAM_MAX_SIMD, LIBXSTREAM_MAX_ALIGN);
 #else
-  const size_t max_align = LIBXSTREAM_MAX_SIMD;
+  static const size_t max_algn = LIBXSTREAM_MAX_SIMD, max_simd = LIBXSTREAM_MAX_SIMD;
 #endif
-  const size_t min_a = std::min<size_t>(LIBXSTREAM_MAX_SIMD, max_align);
-  const size_t max_a = libxstream_lcm(LIBXSTREAM_MAX_SIMD, max_align);
-  return 0 == alignment ? (max_a <= size ? max_a : (min_a < size ? min_a : sizeof(void*))) : std::max(alignment, static_cast<size_t>(sizeof(void*)));
+  const size_t a = 0 == alignment ? max_algn : ((LIBXSTREAM_MAX_ALIGN / alignment) * alignment);
+  const size_t b = 0 == alignment ? max_simd : std::min(alignment, static_cast<size_t>(LIBXSTREAM_MAX_ALIGN));
+  const size_t c = std::max(sizeof(void*), alignment);
+  return a <= size ? a : (b < size ? b : c);
 }
 
 
