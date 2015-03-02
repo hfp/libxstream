@@ -116,6 +116,8 @@ libxstream_fn_call((libxstream_function)f, args, stream, LIBXSTREAM_CALL_DEFAULT
 libxstream_fn_destroy_signature(args); // (can be used for many function calls)
 ```
 
+If the usage model requires to repeatedly create and destroy a signature, the above code can be improved by using libxstream_fn_signature. This function constructs a thread-local signature with the maximum number of arguments supported (and thereby avoiding to allocate and deallocate memory repeatedly).
+
 **Example: void f(double scale, const float* in, float* out, size_t n, size_t* nzeros)**  
 A first observation is that a function's return type cannot be specified. Any results need to go over the argument list (which also allows multiple results to be delivered). To pass arguments, two mechanisms are supported: by-value and by-pointer. The latter is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism (which cannot be used).
 

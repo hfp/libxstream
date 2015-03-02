@@ -18,7 +18,7 @@ pandoc \
   --template=README.tex --listings \
   -f markdown_github+implicit_figures \
   -V documentclass=scrartcl \
-  -V classoption=DIV=26 \
+  -V classoption=DIV=30 \
   -V linkcolor=black \
   -V citecolor=black \
   -V urlcolor=black \
