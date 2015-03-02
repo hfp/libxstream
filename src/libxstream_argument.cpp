@@ -29,8 +29,11 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "libxstream_argument.hpp"
+
+#include <libxstream_begin.h>
 #include <algorithm>
 #include <cstdio>
+#include <libxstream_end.h>
 
 
 LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[])
