@@ -667,7 +667,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_me
 {
   LIBXSTREAM_PRINT_INFO("libxstream_memcpy_h2d: 0x%llx->0x%llx size=%lu stream=0x%llx", reinterpret_cast<unsigned long long>(host_mem),
     reinterpret_cast<unsigned long long>(dev_mem), static_cast<unsigned long>(size), reinterpret_cast<unsigned long long>(stream));
-  LIBXSTREAM_CHECK_CONDITION(host_mem && dev_mem && stream);
+  LIBXSTREAM_CHECK_CONDITION(host_mem && dev_mem && host_mem != dev_mem && stream);
   int result = LIBXSTREAM_ERROR_NONE;
 
   LIBXSTREAM_ASYNC_BEGIN(stream, host_mem, dev_mem, size)
@@ -713,7 +713,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2h(const void* dev_mem, void* host_me
 {
   LIBXSTREAM_PRINT_INFO("libxstream_memcpy_d2h: 0x%llx->0x%llx size=%lu stream=0x%llx", reinterpret_cast<unsigned long long>(dev_mem),
     reinterpret_cast<unsigned long long>(host_mem), static_cast<unsigned long>(size), reinterpret_cast<unsigned long long>(stream));
-  LIBXSTREAM_CHECK_CONDITION(dev_mem && host_mem && stream);
+  LIBXSTREAM_CHECK_CONDITION(dev_mem && host_mem && dev_mem != host_mem && stream);
   int result = LIBXSTREAM_ERROR_NONE;
 
   LIBXSTREAM_ASYNC_BEGIN(stream, dev_mem, host_mem, size)
@@ -750,32 +750,34 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
   LIBXSTREAM_CHECK_CONDITION(src && dst && stream);
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_ASYNC_BEGIN(stream, src, dst, size)
-  {
-    const char *const src = ptr<const char,0>();
-    char* dst = ptr<char,1>();
-    const size_t size = val<const size_t,2>();
+  if (src != dst) {
+    LIBXSTREAM_ASYNC_BEGIN(stream, src, dst, size)
+    {
+      const char *const src = ptr<const char,0>();
+      char* dst = ptr<char,1>();
+      const size_t size = val<const size_t,2>();
 
 #if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-      // TODO: implement cross-device transfer
+      if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+        // TODO: implement cross-device transfer
 
-      if (LIBXSTREAM_ASYNC_READY) {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(size) in(src: length(0) LIBXSTREAM_OFFLOAD_REUSE) out(dst: length(0) LIBXSTREAM_OFFLOAD_REUSE)
-        memcpy(dst, src, size);
+        if (LIBXSTREAM_ASYNC_READY) {
+#         pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(size) in(src: length(0) LIBXSTREAM_OFFLOAD_REUSE) out(dst: length(0) LIBXSTREAM_OFFLOAD_REUSE)
+          memcpy(dst, src, size);
+        }
+        else {
+#         pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(size) in(src: length(0) LIBXSTREAM_OFFLOAD_REUSE) out(dst: length(0) LIBXSTREAM_OFFLOAD_REUSE)
+          memcpy(dst, src, size);
+        }
       }
-      else {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(size) in(src: length(0) LIBXSTREAM_OFFLOAD_REUSE) out(dst: length(0) LIBXSTREAM_OFFLOAD_REUSE)
-        memcpy(dst, src, size);
-      }
-    }
-    else
+      else
 #endif
-    {
-      memcpy(dst, src, size);
+      {
+        memcpy(dst, src, size);
+      }
     }
+    LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT, result);
   }
-  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT, result);
 
   return result;
 }
