@@ -461,8 +461,8 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, siz
   if (0 <= device) {
     LIBXSTREAM_ASYNC_BEGIN(0, device, &memory_physical, &memory_allocatable)
     {
-      uint64_t& memory_physical = val<uint64_t,1>();
-      uint64_t& memory_allocatable = val<uint64_t,2>();
+      uint64_t& memory_physical = *ptr<uint64_t,1>();
+      uint64_t& memory_allocatable = *ptr<uint64_t,2>();
 #     pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) //out(memory_physical, memory_allocatable)
       libxstream_internal::mem_info(memory_physical, memory_allocatable);
     }

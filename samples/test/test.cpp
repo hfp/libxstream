@@ -99,6 +99,11 @@ LIBXSTREAM_TARGET(mic) void complex_cpp(libxstream_bool* ok,
 
 } // namespace test_internal
 
+/* workaround for issue "cannot find address of function"; compile using "make.sh -g" */
+const libxstream_function check = reinterpret_cast<libxstream_function>(test_internal::check);
+const libxstream_function complex_c = reinterpret_cast<libxstream_function>(test_internal::complex_c);
+const libxstream_function complex_cpp = reinterpret_cast<libxstream_function>(test_internal::complex_cpp);
+
 
 test_type::test_type(int device)
   : m_signature(0), m_stream(0), m_event(0)
@@ -179,7 +184,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CONDITION_THROW(1 == typesize);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 3, &typesize));
   LIBXSTREAM_CHECK_CONDITION_THROW(1 == typesize);
-  const libxstream_function check = reinterpret_cast<libxstream_function>(test_internal::check);
+  //const libxstream_function check = reinterpret_cast<libxstream_function>(test_internal::check);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(check, m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_create(&m_event));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(m_event, m_stream));
@@ -197,10 +202,12 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 4, &c64, libxstream_map_to_type(c64), 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 5, reinterpret_cast<const double*>(&c64) + 0, libxstream_map_to_type(c64.real()), 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 6, reinterpret_cast<const double*>(&c64) + 1, libxstream_map_to_type(c64.imag()), 0, 0));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(reinterpret_cast<libxstream_function>(test_internal::complex_c  ), signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
+  //const libxstream_function complex_c = reinterpret_cast<libxstream_function>(test_internal::complex_c);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(complex_c, signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(m_stream));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(reinterpret_cast<libxstream_function>(test_internal::complex_cpp), signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
+  //const libxstream_function complex_cpp = reinterpret_cast<libxstream_function>(test_internal::complex_cpp);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(complex_cpp, signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(m_stream));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
