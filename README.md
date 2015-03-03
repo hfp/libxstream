@@ -73,7 +73,7 @@ libxstream_stream* stream[2];
 libxstream_stream_create(stream + 0, d, 1/*demux*/, 0/*priority*/, "s1");
 libxstream_stream_create(stream + 1, d, 1/*demux*/, 0/*priority*/, "s2");
 // TODO: do something with the streams
-libxstream_stream_sync(0); // wait for all streams
+libxstream_stream_sync(NULL); // wait for all streams
 libxstream_stream_destroy(stream[0]);
 libxstream_stream_destroy(stream[1]);
 ```
@@ -119,22 +119,21 @@ libxstream_fn_destroy_signature(args); // (can be used for many function calls)
 In order to avoid repeatedly allocating (and deallocating) a signature, a thread-local signature with the maximum number of arguments supported can be constructed (see libxstream_fn_signature).
 
 **void fc(const double* scale, const float* in, float* out, const size_t* n, size_t* nzeros)**  
-For the C language, a first observation is that all arguments of the function's signature are passed "by pointer" even a value that needs to be returned (which also allows multiple results to be delivered). The mechanism to pass an argument is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism (which is explained below).  
-Although all arguments are received by pointer, any elemental ("scalar") input is present by value which is important for the argument's life-time (given that the default function call mechanism is asynchronous). In contrast, an elemental output is only present by-address. Therefore, care must be taken on the call-side to make sure given destination is still valid when the function is executed.
+For the C language, a first observation is that all arguments of the function's signature are passed "by pointer" even a value that needs to be returned (which also allows multiple results to be delivered). Please note that non-elemental ("array") arguments are handled "by pointer" rather than by pointer-to-pointer. The mechanism to pass an argument is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism. Although all arguments are received by pointer, any elemental ("scalar") input is present by value (which is important for the argument's life-time). In contrast, an elemental output is only present by-address, and therefore care must be taken on the call-side to make sure the destination is still valid when the function is executed. The latter is because the execution is asynchronous by default.
 
 **void fpp(const double& scale, const float* in, float* out, const size_t& n, size_t& nzeros)**  
-For the C++ language, the reference meachnism can be used to conveniently receive an argument "by-value". The latter can be applied to any elemental "return value" using a "non-const reference".
+For the C++ language, the reference meachnism can be used to conveniently receive an argument "by-value". The latter can be applied to any elemental "return value" by using a "non-const reference".
 
 ```C++
 const libxstream_type sizetype = libxstream_map_to<size_t>::type();
-libxstream_fn_input (args, 0, &scale, libxstream_map_to_type(scale), 0, 0);
+libxstream_fn_input (args, 0, &scale, libxstream_map_to_type(scale), 0, NULL);
 libxstream_fn_input (args, 1, in,  LIBXSTREAM_TYPE_F32, 1, &n);
 libxstream_fn_output(args, 2, out, LIBXSTREAM_TYPE_F32, 1, &n);
-libxstream_fn_input (args, 3, &n, sizetype, 0, 0);
-libxstream_fn_output(args, 4, &nzeros, sizetype, 0, 0);
+libxstream_fn_input (args, 3, &n, sizetype, 0, NULL);
+libxstream_fn_output(args, 4, &nzeros, sizetype, 0, NULL);
 ```
 
-Beside of showing some syntactical sugar available for the C++ language, the signature resulting from the above code snippet is perfectly valid for both the "fc" and the "fpp" function.
+Beside of showing some C++ syntax in the above code snippet, the resulting signature is perfectly valid for both the "fc" and the "fpp" function.
 
 **Weak type information**  
 To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments; even non-elemental inputs can be treated as an inout argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a shape indicating the actual size of the element.
@@ -158,10 +157,10 @@ LIBXSTREAM_TARGET(mic) void f(double scale, const float* in, float* out, size_t*
   libxstream_get_argument(in, &in_position);
 
   size_t n = 0;
-  libxstream_get_shape(0/*this call context*/, in_position, &n);
+  libxstream_get_shape(NULL/*this call context*/, in_position, &n);
 
   libxstream_type type = LIBXSTREAM_TYPE_VOID;
-  libxstream_get_type(0/*this call context*/, 2/*out*/, &type);
+  libxstream_get_type(NULL/*this call context*/, 2/*out*/, &type);
 
   const char* name = 0;
   libxstream_get_typename(type, &name);
