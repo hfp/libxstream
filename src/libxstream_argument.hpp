@@ -74,7 +74,7 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs);
 
 LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const char* libxstream_get_value(const libxstream_argument& arg);
 LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_value(libxstream_argument& arg);
-LIBXSTREAM_TARGET(mic) int libxstream_set_raw(libxstream_argument& arg, const void* data);
+LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
 #endif // LIBXSTREAM_ARGUMENT_HPP

@@ -88,7 +88,7 @@ LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument argument
     argument.type = type;
   }
 
-  return libxstream_argument::kind_invalid != kind ? libxstream_set_raw(argument, value) : LIBXSTREAM_ERROR_NONE;
+  return libxstream_argument::kind_invalid != kind ? libxstream_set_value(argument, value) : LIBXSTREAM_ERROR_NONE;
 }
 
 
@@ -142,7 +142,7 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_value(lib
 }
 
 
-LIBXSTREAM_TARGET(mic) int libxstream_set_raw(libxstream_argument& arg, const void* data)
+LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data)
 {
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) { // take the pointer
     *reinterpret_cast<const void**>(&arg.data) = data;

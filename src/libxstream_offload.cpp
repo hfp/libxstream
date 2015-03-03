@@ -58,7 +58,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
 #if defined(__INTEL_COMPILER)
 #       pragma forceinline recursive
 #endif
-        libxstream_set_raw(arguments[i], translation[np++]);
+        libxstream_set_value(arguments[i], translation[np++]);
       }
     }
   }
