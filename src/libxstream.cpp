@@ -1175,7 +1175,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_data(const libxstr
   size_t arity = 0;
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
 #endif
-  *data = signature[arg].data.pointer;
+  *data = libxstream_get_value(signature[arg]);
   return LIBXSTREAM_ERROR_NONE;
 }
 

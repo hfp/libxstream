@@ -126,15 +126,15 @@ public:
       libxstream_construct(this, 0, kind_input, signature, LIBXSTREAM_TYPE_VOID, 1, &size);
     }
     template<typename T> arg_type(T arg): m_signature(false) {
-      libxstream_construct(this, 0, kind_input, &arg, libxstream_type2value<T>::value(), 0, 0);
+      libxstream_construct(this, 0, kind_input, &arg, libxstream_map_to<T>::type(), 0, 0);
     }
     template<typename T> arg_type(T* arg): m_signature(false) {
       const size_t unknown = 0;
-      libxstream_construct(this, 0, kind_inout, reinterpret_cast<void*>(arg), libxstream_type2value<T>::value(), 1, &unknown);
+      libxstream_construct(this, 0, kind_inout, reinterpret_cast<void*>(arg), libxstream_map_to<T>::type(), 1, &unknown);
     }
     template<typename T> arg_type(const T* arg): m_signature(false) {
       const size_t unknown = 0;
-      libxstream_construct(this, 0, kind_input, reinterpret_cast<const void*>(arg), libxstream_type2value<T>::value(), 1, &unknown);
+      libxstream_construct(this, 0, kind_input, reinterpret_cast<const void*>(arg), libxstream_map_to<T>::type(), 1, &unknown);
     }
   public:
     bool signature() const { return m_signature; }

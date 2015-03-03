@@ -169,10 +169,10 @@ int multi_dgemm_type::init(const char* name, host_data_type& host_data, int devi
   LIBXSTREAM_CHECK_CALL(libxstream_mem_allocate(device, reinterpret_cast<void**>(&m_idata), sizeof(size_t) * max_batch, 0));
 
   LIBXSTREAM_CHECK_CALL(libxstream_fn_create_signature(&m_signature, 6));
-  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature, 2, m_idata, libxstream_type2value<size_t>::value(), 1, &max_msize));
-  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature, 3, m_adata, libxstream_type2value<double>::value(), 1, &max_msize));
-  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature, 4, m_bdata, libxstream_type2value<double>::value(), 1, &max_msize));
-  LIBXSTREAM_CHECK_CALL(libxstream_fn_output(m_signature, 5, m_cdata, libxstream_type2value<double>::value(), 1, &max_msize));
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature, 2, m_idata, libxstream_map_to_type(m_idata), 1, &max_msize));
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature, 3, m_adata, libxstream_map_to_type(m_adata), 1, &max_msize));
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_input (m_signature, 4, m_bdata, libxstream_map_to_type(m_bdata), 1, &max_msize));
+  LIBXSTREAM_CHECK_CALL(libxstream_fn_output(m_signature, 5, m_cdata, libxstream_map_to_type(m_cdata), 1, &max_msize));
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -199,8 +199,8 @@ int multi_dgemm_type::operator()(size_t index, size_t size)
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_nargs(m_signature, &n) && 6 == n);
 #endif
     const size_t nn = i1 - m_host_data->idata()[index+size-1];
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(m_signature, 0, &size, libxstream_type2value<size_t>::value(), 0, 0));
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(m_signature, 1, &nn, libxstream_type2value<size_t>::value(), 0, 0));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(m_signature, 0, &size, libxstream_map_to_type(size), 0, 0));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(m_signature, 1,   &nn, libxstream_map_to_type(nn  ), 0, 0));
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &n) && 6 == n);
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_call(m_host_data->process(), m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(m_cdata, m_host_data->cdata() + i0, sizeof(double) * (i1 - i0), m_stream));

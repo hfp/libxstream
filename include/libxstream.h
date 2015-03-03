@@ -35,6 +35,10 @@
 #include "libxstream_begin.h"
 #include <stdint.h>
 #include <stddef.h>
+#if defined(__cplusplus)
+# include <ccomplex>
+# include <complex>
+#endif
 #include "libxstream_end.h"
 
 
@@ -179,33 +183,44 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_elemsize(const lib
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const libxstream_argument* signature, size_t arg, size_t* size);
 
 #if defined(__cplusplus)
-template<typename TYPE> struct libxstream_type2value          { static libxstream_type value() {/** select a type by type-size */
+template<typename TYPE> struct libxstream_map_to              { static libxstream_type type() {/** select a type by type-size */
 /** bool goes here! */libxstream_type type = LIBXSTREAM_TYPE_VOID; libxstream_get_autotype(sizeof(TYPE), &type); return type; } };
-template<> struct libxstream_type2value<int8_t>               { static libxstream_type value() { return LIBXSTREAM_TYPE_I8;   } };
-template<> struct libxstream_type2value<uint8_t>              { static libxstream_type value() { return LIBXSTREAM_TYPE_U8;   } };
-template<> struct libxstream_type2value<int16_t>              { static libxstream_type value() { return LIBXSTREAM_TYPE_I16;  } };
-template<> struct libxstream_type2value<uint16_t>             { static libxstream_type value() { return LIBXSTREAM_TYPE_U16;  } };
-template<> struct libxstream_type2value<int32_t>              { static libxstream_type value() { return LIBXSTREAM_TYPE_I32;  } };
-template<> struct libxstream_type2value<uint32_t>             { static libxstream_type value() { return LIBXSTREAM_TYPE_U32;  } };
-template<> struct libxstream_type2value<int64_t>              { static libxstream_type value() { return LIBXSTREAM_TYPE_I64;  } };
-template<> struct libxstream_type2value<uint64_t>             { static libxstream_type value() { return LIBXSTREAM_TYPE_U64;  } };
-template<> struct libxstream_type2value<float>                { static libxstream_type value() { return LIBXSTREAM_TYPE_F32;  } };
-template<> struct libxstream_type2value<double>               { static libxstream_type value() { return LIBXSTREAM_TYPE_F64;  } };
-template<> struct libxstream_type2value<char>                 { static libxstream_type value() { return LIBXSTREAM_TYPE_CHAR; } };
-template<> struct libxstream_type2value<void>                 { static libxstream_type value() { return LIBXSTREAM_TYPE_VOID; } };
+template<typename TYPE> struct libxstream_map_to<const TYPE*> { static libxstream_type type() { return libxstream_map_to<TYPE>::value(); } };
+template<> struct libxstream_map_to<int8_t>                   { static libxstream_type type() { return LIBXSTREAM_TYPE_I8;   } };
+template<> struct libxstream_map_to<uint8_t>                  { static libxstream_type type() { return LIBXSTREAM_TYPE_U8;   } };
+template<> struct libxstream_map_to<int16_t>                  { static libxstream_type type() { return LIBXSTREAM_TYPE_I16;  } };
+template<> struct libxstream_map_to<uint16_t>                 { static libxstream_type type() { return LIBXSTREAM_TYPE_U16;  } };
+template<> struct libxstream_map_to<int32_t>                  { static libxstream_type type() { return LIBXSTREAM_TYPE_I32;  } };
+template<> struct libxstream_map_to<uint32_t>                 { static libxstream_type type() { return LIBXSTREAM_TYPE_U32;  } };
+template<> struct libxstream_map_to<int64_t>                  { static libxstream_type type() { return LIBXSTREAM_TYPE_I64;  } };
+template<> struct libxstream_map_to<uint64_t>                 { static libxstream_type type() { return LIBXSTREAM_TYPE_U64;  } };
+template<> struct libxstream_map_to<float>                    { static libxstream_type type() { return LIBXSTREAM_TYPE_F32;  } };
+template<> struct libxstream_map_to<double>                   { static libxstream_type type() { return LIBXSTREAM_TYPE_F64;  } };
+template<> struct libxstream_map_to<float[2]>                 { static libxstream_type type() { return LIBXSTREAM_TYPE_C32;  } };
+template<> struct libxstream_map_to<double[2]>                { static libxstream_type type() { return LIBXSTREAM_TYPE_C64;  } };
+template<> struct libxstream_map_to<std::complex<float> >     { static libxstream_type type() { return LIBXSTREAM_TYPE_C32;  } };
+template<> struct libxstream_map_to<std::complex<double> >    { static libxstream_type type() { return LIBXSTREAM_TYPE_C64;  } };
+template<> struct libxstream_map_to<char>                     { static libxstream_type type() { return LIBXSTREAM_TYPE_CHAR; } };
+template<> struct libxstream_map_to<void>                     { static libxstream_type type() { return LIBXSTREAM_TYPE_VOID; } };
+template<typename TYPE> libxstream_type libxstream_map_to_type(const TYPE& /*dummy*/) {
+  return libxstream_map_to<TYPE>::type();
+}
 
-template<libxstream_type VALUE> struct libxstream_value2type  { typedef void type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_CHAR> { typedef char type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_I8>   { typedef signed char type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_U8>   { typedef unsigned char type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_I16>  { typedef signed short type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_U16>  { typedef unsigned short type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_I32>  { typedef int type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_U32>  { typedef unsigned int type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_I64>  { typedef long long type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_U64>  { typedef unsigned long long type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_F32>  { typedef float type; };
-template<> struct libxstream_value2type<LIBXSTREAM_TYPE_F64>  { typedef double type; };
+template<libxstream_type VALUE> struct libxstream_map_from    { /** compile-time error expected */ };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I8>     { typedef signed char type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U8>     { typedef unsigned char type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I16>    { typedef signed short type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U16>    { typedef unsigned short type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I32>    { typedef int type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U32>    { typedef unsigned int type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I64>    { typedef long long type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U64>    { typedef unsigned long long type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_F32>    { typedef float type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_F64>    { typedef double type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_C32>    { typedef std::complex<float>  type; typedef float  ctype[2]; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_C64>    { typedef std::complex<double> type; typedef double ctype[2]; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_CHAR>   { typedef char type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_VOID>   { typedef void type; };
 #endif /*__cplusplus*/
 
 #endif /*LIBXSTREAM_H*/

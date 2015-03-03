@@ -32,6 +32,7 @@
 #include <libxstream_begin.h>
 #include <stdexcept>
 #include <algorithm>
+#include <complex>
 #include <cstdlib>
 #include <cstring>
 #include <cassert>
@@ -44,7 +45,7 @@
 
 namespace test_internal {
 
-LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, size_t size, char pattern)
+LIBXSTREAM_TARGET(mic) void check(libxstream_bool& result, const void* buffer, const size_t& size, const char& pattern)
 {
   size_t arg = 0;
   bool ok = true;
@@ -57,8 +58,8 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, s
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_dims(0, 2, &value) && 0 == value;
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_dims(0, 3, &value) && 0 == value;
     const void* data = 0;
-    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 0, &data) && result == *static_cast<const libxstream_bool*const*>(data);
-    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 1, &data) && buffer == *static_cast<const void*const*>(data);
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 0, &data) && result == *static_cast<const libxstream_bool*>(data);
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 1, &data) && buffer == data;
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 2, &data) && size == *static_cast<const size_t*>(data);
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 3, &data) && pattern == *static_cast<const char*>(data);
   }
@@ -67,8 +68,33 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool* result, const void* buffer, s
   for (size_t i = 0; i < size && ok; ++i) {
     ok = pattern == values[i];
   }
-  LIBXSTREAM_ASSERT(result);
-  *result = ok ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
+
+  result = ok ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
+}
+
+LIBXSTREAM_TARGET(mic) void complex_c(libxstream_bool* ok,
+  const float* c32, const float* freal, const float* fimag,
+  const double* c64, const double* dreal, const double* dimag)
+{
+  LIBXSTREAM_ASSERT(ok && c32 && freal && fimag && c64 && dreal && dimag);
+  libxstream_bool result = LIBXSTREAM_TRUE;
+  result = LIBXSTREAM_FALSE != result && *freal == c32[0];
+  result = LIBXSTREAM_FALSE != result && *fimag == c32[1];
+  result = LIBXSTREAM_FALSE != result && *dreal == c64[0];
+  result = LIBXSTREAM_FALSE != result && *dimag == c64[1];
+  *ok = result;
+}
+
+LIBXSTREAM_TARGET(mic) void complex_cpp(libxstream_bool* ok,
+  const std::complex<float>& c32, const float& freal, const float& fimag,
+  const std::complex<double>& c64, const double& dreal, const double& dimag)
+{
+  bool result = true;
+  result = result && freal == c32.real();
+  result = result && fimag == c32.imag();
+  result = result && dreal == c64.real();
+  result = result && dimag == c64.imag();
+  *ok = result ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 }
 
 } // namespace test_internal
@@ -112,7 +138,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 0 == arity);
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(m_signature, 0, &ok, libxstream_type2value<libxstream_bool>::value(), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(m_signature, 0, &ok, libxstream_map_to<libxstream_bool>::type(), 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 1 == arity);
@@ -128,7 +154,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CONDITION_THROW(1 == argsize);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 1, &argsize));
   LIBXSTREAM_CHECK_CONDITION_THROW(size == argsize);
-  // for testing purpose the following argument is weak-typed instead of (..., libxstream_type2value<size_t>::value(), 0, 0)
+  // for testing purpose the following argument is weak-typed instead of (..., libxstream_map_to<size_t>::type(), 0, 0)
   argsize = sizeof(size_t);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (m_signature, 2, &size, LIBXSTREAM_TYPE_VOID, 0, &argsize));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
@@ -138,7 +164,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CONDITION_THROW(sizeof(size_t) == argsize);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 2, &argsize));
   LIBXSTREAM_CHECK_CONDITION_THROW(sizeof(size_t) == argsize);
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (m_signature, 3, &pattern_a, libxstream_type2value<char>::value(), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (m_signature, 3, &pattern_a, libxstream_map_to<char>::type(), 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_nargs(m_signature, &nargs));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_arity(m_signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(4 == nargs && 4 == arity);
@@ -146,12 +172,29 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CONDITION_THROW(1 == argsize);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_datasize(m_signature, 3, &argsize));
   LIBXSTREAM_CHECK_CONDITION_THROW(1 == argsize);
-  const libxstream_function function = reinterpret_cast<libxstream_function>(test_internal::check);
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(function, m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
-
+  const libxstream_function check = reinterpret_cast<libxstream_function>(test_internal::check);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(check, m_signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_create(&m_event));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(m_event, m_stream));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_synchronize(m_event));
+  LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
+
+  libxstream_argument* signature = 0;
+  const std::complex<float>  c32( 1.05f, 19.81f);
+  const std::complex<double> c64(25.07 , 19.75 );
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_signature(&signature));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(signature, 0,  &ok, libxstream_map_to_type(ok ), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 1, &c32, libxstream_map_to_type(c32), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 2,  reinterpret_cast<const float*>(&c32) + 0, libxstream_map_to_type(c32.real()), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 3,  reinterpret_cast<const float*>(&c32) + 1, libxstream_map_to_type(c32.imag()), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 4, &c64, libxstream_map_to_type(c64), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 5, reinterpret_cast<const double*>(&c64) + 0, libxstream_map_to_type(c64.real()), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 6, reinterpret_cast<const double*>(&c64) + 1, libxstream_map_to_type(c64.imag()), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(reinterpret_cast<libxstream_function>(test_internal::complex_c  ), signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(m_stream));
+  LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(reinterpret_cast<libxstream_function>(test_internal::complex_cpp), signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(m_stream));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_b);
@@ -168,7 +211,7 @@ test_type::test_type(int device)
     LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_synchronize(m_event));
   }
 
-  test_internal::check(&ok, m_host_mem, size, pattern_a);
+  test_internal::check(ok, m_host_mem, size, pattern_a);
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_memcpy_d2h(m_dev_mem1, m_host_mem, size2, m_stream));
@@ -179,7 +222,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_query(m_event, &has_occured));
   LIBXSTREAM_CHECK_CONDITION_THROW(0 != has_occured);
 
-  test_internal::check(&ok, m_host_mem, size, 0);
+  test_internal::check(ok, m_host_mem, size, 0);
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 }
 
