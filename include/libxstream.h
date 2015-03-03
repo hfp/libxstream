@@ -184,8 +184,8 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const lib
 
 #if defined(__cplusplus)
 template<typename TYPE> struct libxstream_map_to              { static libxstream_type type() {/** select a type by type-size */
-/** bool goes here! */libxstream_type type = LIBXSTREAM_TYPE_VOID; libxstream_get_autotype(sizeof(TYPE), &type); return type; } };
-template<typename TYPE> struct libxstream_map_to<const TYPE*> { static libxstream_type type() { return libxstream_map_to<TYPE>::value(); } };
+/** bool goes here! */libxstream_type t = LIBXSTREAM_TYPE_VOID; LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(TYPE), &t)); return t; } };
+template<typename TYPE> struct libxstream_map_to<const TYPE*> { static libxstream_type type() { return libxstream_map_to<TYPE>::type(); } };
 template<> struct libxstream_map_to<int8_t>                   { static libxstream_type type() { return LIBXSTREAM_TYPE_I8;   } };
 template<> struct libxstream_map_to<uint8_t>                  { static libxstream_type type() { return LIBXSTREAM_TYPE_U8;   } };
 template<> struct libxstream_map_to<int16_t>                  { static libxstream_type type() { return LIBXSTREAM_TYPE_I16;  } };
