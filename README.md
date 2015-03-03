@@ -48,14 +48,14 @@ The memory interface is mainly for handling device-side buffers (allocation, cop
 const int hst = -1, dev = 0;
 libxstream_mem_allocate(hst, &ihst, sizeof(double) * nitems, 0/*auto-alignment*/);
 libxstream_mem_allocate(hst, &ohst, sizeof(double) * nitems, 0/*auto-alignment*/);
-// TODO: initialize with some input data
+/* TODO: initialize with some input data */
 libxstream_mem_allocate(dev, &idev, sizeof(double) * nbatch, 0/*auto-alignment*/);
 libxstream_mem_allocate(dev, &odev, sizeof(double) * nbatch, 0/*auto-alignment*/);
 
 for (int i = 0; i < nitems; i += nbatch) {
   const int ibatch = sizeof(double) * min(nbatch, nitems - i), j = i / nbatch;
   libxstream_memcpy_h2d(ihst + i, idev, ibatch, stream[j%2]);
-  // TODO: invoke user function
+  /* TODO: invoke user function (see Function Interface) */
   libxstream_memcpy_d2h(odev, ohst + i, ibatch, stream[j%2]);
 }
 
@@ -72,8 +72,8 @@ The stream interface is used to expose the available parallelism. A stream prese
 libxstream_stream* stream[2];
 libxstream_stream_create(stream + 0, d, 1/*demux*/, 0/*priority*/, "s1");
 libxstream_stream_create(stream + 1, d, 1/*demux*/, 0/*priority*/, "s2");
-// TODO: do something with the streams
-libxstream_stream_sync(NULL); // wait for all streams
+/* TODO: do something with the streams */
+libxstream_stream_sync(NULL); /*wait for all streams*/
 libxstream_stream_destroy(stream[0]);
 libxstream_stream_destroy(stream[1]);
 ```
@@ -88,10 +88,10 @@ libxstream_event_create(event + 1);
 
 for (int i = 0; i < nitems; i += nbatch) {
   const size_t j = i / nbatch, n = j % N;
-  // TODO: copy-in, user function, copy-out
+  /* TODO: copy-in, user function, copy-out */
   libxstream_event_record(event + n, stream + n);
 
-  // synchronize every Nth iteration
+  /* synchronize every Nth iteration */
   if (n == (N - 1)) {
     for (size_t k = 0; k < N; ++k) {
       libxstream_event_synchronize(event[k]);
@@ -110,10 +110,10 @@ The function interface is used to call a user function and to describe its list 
 size_t nargs = 5, arity = 0;
 libxstream_argument* args = 0;
 libxstream_fn_create_signature(&args, nargs/*maximum number of arguments*/);
-libxstream_fn_nargs (args, &nargs); // 5 (maximum number of arguments)
-libxstream_fn_arity (args, &arity); // 0 (no arguments constructed yet)
+libxstream_fn_nargs (args, &nargs); /*nargs==5 (maximum number of arguments)*/
+libxstream_fn_arity (args, &arity); /*arity==0 (no arguments constructed yet)*/
 libxstream_fn_call((libxstream_function)f, args, stream, LIBXSTREAM_CALL_DEFAULT);
-libxstream_fn_destroy_signature(args); // (can be used for many function calls)
+libxstream_fn_destroy_signature(args); /*(can be used for many function calls)*/
 ```
 
 In order to avoid repeatedly allocating (and deallocating) a signature, a thread-local signature with the maximum number of arguments supported can be constructed (see libxstream_fn_signature).
@@ -140,9 +140,9 @@ To construct a signature with only weak type information, one may (1) not distin
 
 ```C
 const size_t typesize = sizeof(float);
-// argument type in function signature: float
+/* argument type in function signature: const float* or const float& */
 libxstream_fn_input(args, 0,  &f1, LIBXSTREAM_TYPE_VOID, 0, &typesize);
-// argument type in function signature: unsigned char*
+/* argument type in function signature: unsigned char* */
 libxstream_fn_inout(args, 1, data, LIBXSTREAM_TYPE_BYTE, 1, &numbytes);
 ```
 
@@ -150,11 +150,13 @@ libxstream_fn_inout(args, 1, data, LIBXSTREAM_TYPE_BYTE, 1, &numbytes);
 This "device-side API" allows to query information about function arguments when inside of a user function which is called by the library. This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, the position of the argument within the signature needs to be known. To refer a function's signature when inside of this function, a NULL-pointer is passed to designate the function signature of the current call context. In case of a pointer argument, the position within the signature can be also queried when inside of a library-initiated call context.
 
 **Revised function "fc" querying argument properties**  
+As one can see, the signature of a function can often be trimmed to omit arguments which certainly describe the shape of an argument (below function signature omits the "n" argument shown in one of the previous examples).
+
 ```C
-LIBXSTREAM_TARGET(mic) void f(double scale, const float* in, float* out, size_t* nzeros)
+LIBXSTREAM_TARGET(mic) void f(const double* scale, const float* in, float* out, size_t* nzeros)
 {
   size_t in_position = 0;
-  libxstream_get_argument(in, &in_position);
+  libxstream_get_argument(in, &in_position); /*in_position == 1*/
 
   size_t n = 0;
   libxstream_get_shape(NULL/*this call context*/, in_position, &n);
@@ -164,11 +166,9 @@ LIBXSTREAM_TARGET(mic) void f(double scale, const float* in, float* out, size_t*
 
   const char* name = 0;
   libxstream_get_typename(type, &name);
-  printf("type=%s", name); // f32
+  printf("type=%s", name); /*f32*/
 }
 ```
-
-As one can see in the above example, the signature of a function can often be trimmed to omit arguments which certainly describe the shape of an argument (above function signature omits the "n" argument shown in one of the previous examples).
 
 ## Performance
 The [multi-dgemm](https://github.com/hfp/libxstream/tree/master/samples/multi-dgemm) sample code is the implementation of a benchmark (beside of illustrating the use of the library). The shown performance is not meant to be "the best case". Instead, the performance is reproduced by a program constructing a series of matrix-matrix multiplications of varying problem sizes with no attempt to avoid the implied performance penalties (see underneath the graph for more details). A reasonable host system and benchmark implementation is likely able to outperform below results (no transfers, etc.).
