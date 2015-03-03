@@ -36,7 +36,6 @@
 #include <stdint.h>
 #include <stddef.h>
 #if defined(__cplusplus)
-# include <ccomplex>
 # include <complex>
 #endif
 #include "libxstream_end.h"
