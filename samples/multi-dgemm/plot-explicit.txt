@@ -1,217 +1,217 @@
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 64.0 MB
 Running 250 batches of 1 item...
-Performance: 39.5 GFLOPS/s (manual locking)
-Duration: 8.8 s
+Performance: 59.9 GFLOPS/s (manual locking)
+Duration: 5.8 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 128.0 MB
 Running 125 batches of 2 items...
-Performance: 101.6 GFLOPS/s (manual locking)
+Performance: 101.4 GFLOPS/s (manual locking)
 Duration: 3.4 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 192.0 MB
 Running 84 batches of 3 items...
-Performance: 150.9 GFLOPS/s (manual locking)
-Duration: 2.3 s
+Performance: 141.7 GFLOPS/s (manual locking)
+Duration: 2.5 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 256.0 MB
 Running 63 batches of 4 items...
-Performance: 147.1 GFLOPS/s (manual locking)
-Duration: 2.4 s
+Performance: 151.2 GFLOPS/s (manual locking)
+Duration: 2.3 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 320.0 MB
 Running 50 batches of 5 items...
-Performance: 135.5 GFLOPS/s (manual locking)
-Duration: 2.6 s
+Performance: 143.1 GFLOPS/s (manual locking)
+Duration: 2.4 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 384.0 MB
 Running 42 batches of 6 items...
-Performance: 155.0 GFLOPS/s (manual locking)
-Duration: 2.2 s
+Performance: 147.8 GFLOPS/s (manual locking)
+Duration: 2.4 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 448.0 MB
 Running 36 batches of 7 items...
-Performance: 142.1 GFLOPS/s (manual locking)
-Duration: 2.4 s
+Performance: 157.7 GFLOPS/s (manual locking)
+Duration: 2.2 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 512.0 MB
 Running 32 batches of 8 items...
-Performance: 151.4 GFLOPS/s (manual locking)
-Duration: 2.3 s
+Performance: 142.7 GFLOPS/s (manual locking)
+Duration: 2.4 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 576.0 MB
 Running 28 batches of 9 items...
-Performance: 143.0 GFLOPS/s (manual locking)
+Performance: 145.7 GFLOPS/s (manual locking)
 Duration: 2.4 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 640.0 MB
 Running 25 batches of 10 items...
-Performance: 150.9 GFLOPS/s (manual locking)
-Duration: 2.3 s
+Performance: 140.2 GFLOPS/s (manual locking)
+Duration: 2.5 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 704.0 MB
 Running 23 batches of 11 items...
-Performance: 146.5 GFLOPS/s (manual locking)
-Duration: 2.4 s
+Performance: 140.5 GFLOPS/s (manual locking)
+Duration: 2.5 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 768.0 MB
 Running 21 batches of 12 items...
-Performance: 140.9 GFLOPS/s (manual locking)
+Performance: 142.0 GFLOPS/s (manual locking)
 Duration: 2.5 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 832.0 MB
 Running 20 batches of 13 items...
-Performance: 144.1 GFLOPS/s (manual locking)
-Duration: 2.4 s
+Performance: 141.2 GFLOPS/s (manual locking)
+Duration: 2.5 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 896.0 MB
 Running 18 batches of 14 items...
-Performance: 140.0 GFLOPS/s (manual locking)
+Performance: 138.3 GFLOPS/s (manual locking)
 Duration: 2.5 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 960.0 MB
 Running 17 batches of 15 items...
-Performance: 137.1 GFLOPS/s (manual locking)
-Duration: 2.5 s
+Performance: 126.4 GFLOPS/s (manual locking)
+Duration: 2.8 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1024.0 MB
 Running 16 batches of 16 items...
-Performance: 139.1 GFLOPS/s (manual locking)
+Performance: 137.6 GFLOPS/s (manual locking)
 Duration: 2.5 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1088.0 MB
 Running 15 batches of 17 items...
-Performance: 138.9 GFLOPS/s (manual locking)
-Duration: 2.5 s
+Performance: 131.2 GFLOPS/s (manual locking)
+Duration: 2.7 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1152.0 MB
 Running 14 batches of 18 items...
-Performance: 128.3 GFLOPS/s (manual locking)
+Performance: 126.7 GFLOPS/s (manual locking)
 Duration: 2.7 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1216.0 MB
 Running 14 batches of 19 items...
-Performance: 132.6 GFLOPS/s (manual locking)
-Duration: 2.6 s
+Performance: 125.2 GFLOPS/s (manual locking)
+Duration: 2.8 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1280.0 MB
 Running 13 batches of 20 items...
-Performance: 124.7 GFLOPS/s (manual locking)
-Duration: 2.8 s
+Performance: 129.2 GFLOPS/s (manual locking)
+Duration: 2.7 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1344.0 MB
 Running 12 batches of 21 items...
-Performance: 122.8 GFLOPS/s (manual locking)
-Duration: 2.8 s
+Performance: 129.1 GFLOPS/s (manual locking)
+Duration: 2.7 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1408.0 MB
 Running 12 batches of 22 items...
-Performance: 109.7 GFLOPS/s (manual locking)
-Duration: 3.2 s
+Performance: 124.8 GFLOPS/s (manual locking)
+Duration: 2.8 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1472.0 MB
 Running 11 batches of 23 items...
-Performance: 123.0 GFLOPS/s (manual locking)
-Duration: 2.8 s
+Performance: 118.7 GFLOPS/s (manual locking)
+Duration: 2.9 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1536.0 MB
 Running 11 batches of 24 items...
-Performance: 121.4 GFLOPS/s (manual locking)
+Performance: 122.1 GFLOPS/s (manual locking)
 Duration: 2.9 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1600.0 MB
 Running 10 batches of 25 items...
-Performance: 119.8 GFLOPS/s (manual locking)
-Duration: 2.9 s
+Performance: 116.1 GFLOPS/s (manual locking)
+Duration: 3.0 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1664.0 MB
 Running 10 batches of 26 items...
-Performance: 115.7 GFLOPS/s (manual locking)
-Duration: 3.0 s
+Performance: 102.6 GFLOPS/s (manual locking)
+Duration: 3.4 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1728.0 MB
 Running 10 batches of 27 items...
-Performance: 118.6 GFLOPS/s (manual locking)
-Duration: 2.9 s
+Performance: 109.9 GFLOPS/s (manual locking)
+Duration: 3.2 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1792.0 MB
 Running 9 batches of 28 items...
-Performance: 115.1 GFLOPS/s (manual locking)
+Performance: 114.7 GFLOPS/s (manual locking)
 Duration: 3.0 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1856.0 MB
 Running 9 batches of 29 items...
-Performance: 110.8 GFLOPS/s (manual locking)
-Duration: 3.1 s
+Performance: 117.0 GFLOPS/s (manual locking)
+Duration: 3.0 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1920.0 MB
 Running 9 batches of 30 items...
-Performance: 109.4 GFLOPS/s (manual locking)
-Duration: 3.2 s
+Performance: 112.7 GFLOPS/s (manual locking)
+Duration: 3.1 s
 Error: 1.13687e-13
 Finished
 Initializing 1 device and host data... 4435.7 MB
 Initializing 2 streams per device... 1984.0 MB
 Running 9 batches of 31 items...
-Performance: 106.3 GFLOPS/s (manual locking)
-Duration: 3.3 s
+Performance: 109.3 GFLOPS/s (manual locking)
+Duration: 3.2 s
 Error: 1.13687e-13
 Finished
