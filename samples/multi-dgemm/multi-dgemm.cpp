@@ -29,14 +29,14 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #include "multi-dgemm-type.hpp"
+
+#include <libxstream_begin.h>
 #include <stdexcept>
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <vector>
-
-#include <libxstream_begin.h>
 #include <cmath>
 #if defined(_OPENMP)
 # include <omp.h>
@@ -116,8 +116,8 @@ int main(int argc, char* argv[])
 
     fprintf(stdout, "Initializing %i stream%s per device...", nstreams, 1 < nstreams ? "s" : "");
     const size_t nstreams_total = ndevices * nstreams;
-    std::vector<multi_dgemm_type> multi_dgemm(nstreams_total);
-    for (size_t i = 0; i < multi_dgemm.size(); ++i) {
+    multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_NSTREAMS];
+    for (size_t i = 0; i < nstreams_total; ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", static_cast<int>(i + 1));
       LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, static_cast<int>(i % ndevices), demux, static_cast<size_t>(nbatch)));

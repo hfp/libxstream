@@ -85,7 +85,7 @@
 #define LIBXSTREAM_MAX_NDEVICES 8
 
 /** Maximum number of streams per device. */
-#define LIBXSTREAM_MAX_NSTREAMS 16
+#define LIBXSTREAM_MAX_NSTREAMS 32
 
 /** Maximum dimensionality of arrays. */
 #define LIBXSTREAM_MAX_NDIMS 4
