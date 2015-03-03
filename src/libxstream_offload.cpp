@@ -58,7 +58,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
 #if defined(__INTEL_COMPILER)
 #       pragma forceinline recursive
 #endif
-        libxstream_set_value(arguments[i], translation[np++]);
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_set_value(arguments[i], translation[np++]));
       }
     }
   }
@@ -109,7 +109,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
     libxstream_argument *const signature = m_signature;
     const int flags = m_flags;
     size_t arity = 0;
-    libxstream_fn_arity(m_signature, &arity);
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_arity(m_signature, &arity));
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
