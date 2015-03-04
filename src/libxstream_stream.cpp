@@ -122,18 +122,24 @@ public:
 
   int enqueue(libxstream_event& event, const libxstream_stream* exclude) {
     LIBXSTREAM_ASSERT(0 == event.expected());
+    int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
     bool reset = true;
+
     for (size_t i = 0; i < n; ++i) {
-      if (libxstream_stream *const stream = m_streams[i]) {
-        if (stream != exclude) {
-          const int result = event.enqueue(*stream, reset);
-          LIBXSTREAM_CHECK_ERROR(result);
-          reset = false;
-        }
+      libxstream_stream *const stream = m_streams[i];
+
+      if (stream != exclude) {
+        result = event.enqueue(*stream, reset);
+        LIBXSTREAM_CHECK_ERROR(result);
+        reset = false;
       }
     }
-    return LIBXSTREAM_ERROR_NONE;
+    if (reset) {
+      result = event.reset();
+    }
+
+    return result;
   }
 
   int sync(int device) {

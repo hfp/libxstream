@@ -41,13 +41,19 @@ public:
   libxstream_event();
 
 public:
-  // Number of streams the event was recorded with; updated as events occur.
+  // Number of streams the event was recorded for.
   size_t expected() const;
+
+  // Reset the event.
+  int reset();
+
   // Enqueue this event into the given stream; reset to start over.
   int enqueue(libxstream_stream& stream, bool reset);
+
   // Query whether the event already happened or not.
   int query(bool& occurred, const libxstream_stream* exclude = 0) const;
-  // Wait for the event to occur.
+
+  // Wait for the event to happen.
   int wait(const libxstream_stream* exclude = 0);
 
 private:
@@ -61,13 +67,7 @@ private:
     libxstream_stream* stream() { return m_stream; }
     libxstream_signal pending() const { return m_pending; }
     void pending(libxstream_signal signal) { m_pending = signal; }
-  };
-
-  static void enqueue(int thread, libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset);
-  static void update(int thread, libxstream_event::slot_type& slot);
-
-private:
-  slot_type m_slots[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
+  } m_slots[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
   size_t m_expected;
 };
 
