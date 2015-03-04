@@ -265,7 +265,7 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
 #else
   : m_thread(new int(-1))
 #endif
-#if !defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if !(defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2))
   , m_signal(0), m_pending(&m_signal)
 #endif
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
@@ -279,7 +279,7 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
 #endif
 {
   libxstream_use_sink(name);
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   std::fill_n(m_pending, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_signal>(0));
 #endif
 #if defined(LIBXSTREAM_PRINT)
@@ -310,7 +310,7 @@ libxstream_stream::~libxstream_stream()
 #else
   delete static_cast<int*>(m_thread);
 #endif
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   if (0 != m_handle) {
     _Offload_stream_destroy(m_device, m_handle);
   }
@@ -333,7 +333,7 @@ int libxstream_stream::wait(libxstream_signal signal)
     libxstream_signal *const pending_signals = ptr<libxstream_signal,0>();
     const libxstream_signal signal = val<const libxstream_signal,1>();
 
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
     const int nthreads = static_cast<int>(nthreads_active());
     for (int i = 0; i < nthreads; ++i)
 #else
@@ -364,7 +364,7 @@ int libxstream_stream::wait(libxstream_signal signal)
     }
 
     if (0 != signal) {
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
       for (int i = 0; i < nthreads; ++i)
 #else
       const int i = thread();
@@ -384,7 +384,7 @@ int libxstream_stream::wait(libxstream_signal signal)
 
 void libxstream_stream::pending(int thread, libxstream_signal signal)
 {
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
   m_pending[thread] = signal;
 #else
@@ -397,7 +397,7 @@ void libxstream_stream::pending(int thread, libxstream_signal signal)
 
 libxstream_signal libxstream_stream::pending(int thread) const
 {
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
   const libxstream_signal signal = m_pending[thread];
 #else
@@ -538,7 +538,7 @@ void libxstream_stream::unlock()
 }
 
 
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
 _Offload_stream libxstream_stream::handle() const
 {
   const size_t nstreams = libxstream_stream_internal::registry.nstreams(m_device);

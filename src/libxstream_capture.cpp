@@ -263,7 +263,7 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
   : m_function(0)
   , m_stream(stream)
   , m_flags(flags)
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   , m_thread(this_thread_id())
 #endif
 #if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
@@ -336,7 +336,7 @@ int libxstream_capture_base::status(int code)
 
 int libxstream_capture_base::thread() const
 {
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   return m_thread;
 #else
   return 0;

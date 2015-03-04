@@ -80,7 +80,7 @@ public:
   void lock(bool retry);
   void unlock();
 
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;
 #endif
 
@@ -93,14 +93,14 @@ private:
   libxstream_stream& operator=(const libxstream_stream& other);
 
 private:
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
 #endif
 #if defined(LIBXSTREAM_PRINT)
   char m_name[128];
 #endif
   void* m_thread;
-#if !defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if !defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   libxstream_signal m_signal, *const m_pending;
 #endif
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
@@ -110,7 +110,7 @@ private:
   int m_device;
   int m_priority;
 
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   mutable _Offload_stream m_handle; // lazy creation
   mutable size_t m_npartitions;
 #endif

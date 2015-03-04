@@ -48,7 +48,7 @@
 #define LIBXSTREAM_ASYNC_DEVICE (capture_region_device)
 #define LIBXSTREAM_ASYNC_DEVICE_UPDATE(DEVICE) LIBXSTREAM_ASYNC_DEVICE = (DEVICE)
 
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
 # if (1 == (2*LIBXSTREAM_ASYNC+1)/2) // asynchronous offload
 #   define LIBXSTREAM_ASYNC_DECL \
       libxstream_signal capture_region_signal_consumed = capture_region_signal
@@ -63,7 +63,7 @@
 #   define LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_ASYNC_TARGET signal(capture_region_signal_consumed++)
 #   define LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_ASYNC_TARGET_SIGNAL
 # endif
-#elif defined(LIBXSTREAM_OFFLOAD) // synchronous offload
+#elif defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) // synchronous offload
 # if defined(LIBXSTREAM_DEBUG)
 #   define LIBXSTREAM_ASYNC_DECL const libxstream_signal capture_region_signal_consumed = capture_region_signal + 1
 # else
@@ -196,7 +196,7 @@ protected:
   int m_flags;
 
 private:
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS)
+#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   int m_thread;
 #endif
   bool m_unlock;
