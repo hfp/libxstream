@@ -183,14 +183,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const lib
 
 #if defined(__cplusplus)
 template<typename TYPE> struct libxstream_map_to { static libxstream_type type() {/** select a type by type-size; bool goes here! */
-                               libxstream_type t = LIBXSTREAM_TYPE_VOID; LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(TYPE), &t)); return t; } };
-template<typename TYPE> struct libxstream_map_to<TYPE*>                           { static libxstream_type type() { return libxstream_map_to<TYPE>::type(); } };
-template<typename TYPE> struct libxstream_map_to<const TYPE*>                     { static libxstream_type type() { return libxstream_map_to<TYPE>::type(); } };
-template<typename TYPE> struct libxstream_map_to<TYPE**>                          { static libxstream_type type() { return libxstream_map_to<uintptr_t>::type(); } };
-template<typename TYPE> struct libxstream_map_to<const TYPE**>                    { static libxstream_type type() { return libxstream_map_to<uintptr_t>::type(); } };
-template<typename TYPE> struct libxstream_map_to<TYPE*const*>                     { static libxstream_type type() { return libxstream_map_to<uintptr_t>::type(); } };
-template<typename TYPE> struct libxstream_map_to<const TYPE*const*>               { static libxstream_type type() { return libxstream_map_to<uintptr_t>::type(); } };
-
+                  libxstream_type t = LIBXSTREAM_TYPE_VOID;   LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(TYPE), &t)); return t; } };
 template<> struct libxstream_map_to<int8_t>                                       { static libxstream_type type() { return LIBXSTREAM_TYPE_I8;   } };
 template<> struct libxstream_map_to<uint8_t>                                      { static libxstream_type type() { return LIBXSTREAM_TYPE_U8;   } };
 template<> struct libxstream_map_to<int16_t>                                      { static libxstream_type type() { return LIBXSTREAM_TYPE_I16;  } };
@@ -207,6 +200,12 @@ template<> struct libxstream_map_to<std::complex<float> >                       
 template<> struct libxstream_map_to<std::complex<double> >                        { static libxstream_type type() { return LIBXSTREAM_TYPE_C64;  } };
 template<> struct libxstream_map_to<char>                                         { static libxstream_type type() { return LIBXSTREAM_TYPE_CHAR; } };
 template<> struct libxstream_map_to<void>                                         { static libxstream_type type() { return LIBXSTREAM_TYPE_VOID; } };
+template<typename TYPE> struct libxstream_map_to<TYPE*>                           { static libxstream_type type() { return libxstream_map_to<TYPE>::type(); } };
+template<typename TYPE> struct libxstream_map_to<const TYPE*>                     { static libxstream_type type() { return libxstream_map_to<TYPE>::type(); } };
+template<typename TYPE> struct libxstream_map_to<TYPE**>                          { static libxstream_type type() { return libxstream_map_to<uintptr_t>::type(); } };
+template<typename TYPE> struct libxstream_map_to<const TYPE**>                    { static libxstream_type type() { return libxstream_map_to<uintptr_t>::type(); } };
+template<typename TYPE> struct libxstream_map_to<TYPE*const*>                     { static libxstream_type type() { return libxstream_map_to<uintptr_t>::type(); } };
+template<typename TYPE> struct libxstream_map_to<const TYPE*const*>               { static libxstream_type type() { return libxstream_map_to<uintptr_t>::type(); } };
 
 template<typename TYPE> libxstream_type libxstream_map_to_type(const TYPE&)       { return libxstream_map_to<TYPE>::type(); }
 template<typename TYPE> libxstream_type libxstream_map_to_type(TYPE*)             { return libxstream_map_to<TYPE*>::type(); }
