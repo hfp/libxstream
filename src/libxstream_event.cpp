@@ -41,8 +41,6 @@
 
 // allows to wait for an event issued prior to the pending signal
 //#define LIBXSTREAM_EVENT_WAIT_PAST
-// alternative wait routine; waits until the effect occurred
-//#define LIBXSTREAM_EVENT_WAIT_OCCURRED
 
 
 libxstream_event::libxstream_event()
@@ -119,7 +117,6 @@ int libxstream_event::query(bool& occurred, const libxstream_stream* exclude) co
       slot_type& slot = slots[i];
       const libxstream_signal pending_slot = slot.pending();
       libxstream_stream *const stream = slot.stream();
-      LIBXSTREAM_ASSERT(0 != stream);
 
       if (exclude != stream && 0 != pending_slot) {
         const libxstream_signal pending_stream = stream->pending(thread());
@@ -170,34 +167,33 @@ int libxstream_event::wait(const libxstream_stream* exclude)
     for (size_t i = 0; i < expected; ++i) {
       slot_type& slot = slots[i];
       libxstream_stream *const stream = slot.stream();
-      LIBXSTREAM_ASSERT(0 != stream);
-      const libxstream_signal pending_stream = stream->pending(thread());
       const libxstream_signal pending_slot = slot.pending();
 
-      if (exclude != stream && 0 != pending_stream && 0 != pending_slot) {
-#if defined(LIBXSTREAM_EVENT_WAIT_OCCURRED)
-        do { // spin/yield
-          libxstream_event::update(thread(), slot);
-          this_thread_yield();
+      if (exclude != stream && 0 != pending_slot) {
+        const libxstream_signal pending_stream = stream->pending(thread());
+
+        if (0 != pending_stream) {
+  #if defined(LIBXSTREAM_EVENT_WAIT_PAST)
+          const libxstream_signal signal = pending_slot;
+  #else
+          const libxstream_signal signal = pending_stream;
+  #endif
+  #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+          if (0 <= stream->device()) {
+            LIBXSTREAM_ASYNC_DEVICE_UPDATE(stream->device());
+  #         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(signal)
+          }
+  #endif
+          if (signal == pending_stream) {
+            stream->pending(thread(), 0);
+          }
+          slot.pending(0);
         }
-        while(0 != slot.pending());
-#else
-# if defined(LIBXSTREAM_EVENT_WAIT_PAST)
-        const libxstream_signal signal = pending_slot;
-# else
-        const libxstream_signal signal = pending_stream;
-# endif
-# if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
-        if (0 <= stream->device()) {
-          LIBXSTREAM_ASYNC_DEVICE_UPDATE(stream->device());
-#         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(signal)
+        else {
+          slot.pending(0);
         }
-# endif
-        if (signal == pending_stream) {
-          stream->pending(thread(), 0);
-        }
-#endif
-        ++completed;
+
+        completed += 0 == slot.pending() ? 1 : 0;
       }
     }
 

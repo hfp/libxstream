@@ -113,8 +113,8 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int
 LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* stream);
 /** Wait for a stream to complete pending work; NULL to synchronize all streams. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream);
-/** Wait for an event recorded earlier; NULL increases the match accordingly. */
-LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, const libxstream_event* event);
+/** Wait for an event inside the specified stream; a NULL-stream matches all streams. */
+LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(const libxstream_stream* stream, const libxstream_event* event);
 /** Lock a stream such that the caller thread can safely enqueue work. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_lock(libxstream_stream* stream);
 /** Unlock a stream such that another thread can acquire the stream. */
