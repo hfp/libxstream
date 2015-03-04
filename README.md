@@ -1,6 +1,14 @@
 # LIBXSTREAM
 Library to work with streams, events, and code regions that are able to run asynchronous while preserving the usual stream conditions. The library is targeting Intel Architecture (x86) and helps to offload work to an Intel Xeon Phi coprocessor (an instance of the Intel Many Integrated Core "MIC" Architecture). For example, using two streams may be an alternative to the usual double-buffering approach which can be used to hide buffer transfer time behind compute. [[pdf](https://github.com/hfp/libxstream/raw/master/documentation/libxstream.pdf)] [[src](https://github.com/hfp/libxstream/archive/master.zip)]
 
+## Roadmap
+Although the library is under development, the interface is stable. There is a high confidence that all features planned are mainly work "under the hood" i.e., code written now can scale forward. The following issues are being addressed in upcoming revisions:
+
+* Transparent High Bandwidth Memory (HBM) support
+* Work scheduling and legacy cleanup ("demux")
+* Hybrid execution (host and coprocessors)
+* Native FORTRAN interface
+
 ## Interface
 The library's application programming interface (API) completely seals the implementation and only forward-declares types which are beyond the language's built-in types. The entire API consists of below subcategories each illustrated by a small code snippet. The [Function Interface](#function-interface) for instance enables an own function to be enqueued for execution within a stream (via function pointer). A future release of the library will provide a native FORTRAN interface. [[c](https://github.com/hfp/libxstream/blob/master/include/libxstream.h)]
 
@@ -182,9 +190,9 @@ Even the series of matrices with the largest problem size of the mix is not clos
 ### Synchronization
 In cases where multiple host threads are enqueuing work into the same stream, a locking approach is needed in order to "demux" threads and streams. The locking approach effectively separates logical groups of work. The library supports three different approaches which can be requested at runtime on a per-stream basis:
 
- * [Implicit locking](#performance) when calling certain stream and event synchronization functions (demux=1).
- * [Explicit locking](https://github.com/hfp/libxstream/raw/master/samples/multi-dgemm/plot-explicit.png) by calling libxstream_stream_lock and libxstream_stream_unlock (demux=0).
- * [Heuristic locking](https://github.com/hfp/libxstream/raw/master/samples/multi-dgemm/plot-heuristic.png); automatically introduced (demux=-1).
+* [Implicit locking](#performance) when calling certain stream and event synchronization functions (demux=1).
+* [Explicit locking](https://github.com/hfp/libxstream/raw/master/samples/multi-dgemm/plot-explicit.png) by calling libxstream_stream_lock and libxstream_stream_unlock (demux=0).
+* [Heuristic locking](https://github.com/hfp/libxstream/raw/master/samples/multi-dgemm/plot-heuristic.png); automatically introduced (demux=-1).
 
 The performance impact of the locking approach is rather minor when running the [multi-dgemm](https://github.com/hfp/libxstream/tree/master/samples/multi-dgemm) sample code presented in the [Performance](#performance) section.
 
