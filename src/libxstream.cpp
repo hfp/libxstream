@@ -813,7 +813,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(libxstream_stream* stream)
+LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_PRINT)
   if (stream) {
@@ -852,10 +852,11 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
+LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, const libxstream_event* event)
 {
   LIBXSTREAM_PRINT_INFOCTX("event=0x%llx stream=0x%llx", reinterpret_cast<unsigned long long>(event), reinterpret_cast<unsigned long long>(stream));
-  return event ? event->wait(stream) : (stream ? stream->wait(0) : libxstream_stream::sync());
+  LIBXSTREAM_CHECK_CONDITION(0 != event);
+  return libxstream_event(*event).wait(stream);
 }
 
 
@@ -903,7 +904,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_create(libxstream_event** event)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_event_destroy(libxstream_event* event)
+LIBXSTREAM_EXPORT_C int libxstream_event_destroy(const libxstream_event* event)
 {
   LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<unsigned long long>(event));
   delete event;
@@ -924,7 +925,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
   LIBXSTREAM_CHECK_CONDITION(event && occured);
 
   bool has_occurred = true;
-  const int result = event->query(has_occurred, 0);
+  const int result = event->query(has_occurred);
   *occured = has_occurred ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 
   return result;
@@ -934,7 +935,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
 LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event)
 {
   LIBXSTREAM_PRINT_INFOCTX("event=0x%llx", reinterpret_cast<unsigned long long>(event));
-  return event ? event->wait(0) : libxstream_stream::sync();
+  return event ? event->wait() : libxstream_stream::sync();
 }
 
 
@@ -1102,8 +1103,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t ty
 
   do {
     *autotype = static_cast<libxstream_type>(i);
-    LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(*autotype, &size));
-    if (typesize != size) {
+    if (LIBXSTREAM_ERROR_NONE == libxstream_get_typesize(*autotype, &size) && typesize != size) {
       ++i;
     }
     else {

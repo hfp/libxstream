@@ -37,6 +37,19 @@
 
 
 struct LIBXSTREAM_EXPORT_INTERNAL libxstream_event {
+public:
+  libxstream_event();
+
+public:
+  // Number of streams the event was recorded with; updated as events occur.
+  size_t expected() const;
+  // Enqueue this event into the given stream; reset to start over.
+  int enqueue(libxstream_stream& stream, bool reset);
+  // Query whether the event already happened or not.
+  int query(bool& occurred, const libxstream_stream* exclude = 0) const;
+  // Wait for the event to occur.
+  int wait(const libxstream_stream* exclude = 0);
+
 private:
   class LIBXSTREAM_EXPORT_INTERNAL slot_type {
     libxstream_stream* m_stream;
@@ -44,29 +57,18 @@ private:
   public:
     slot_type(): m_stream(0), m_pending(0) {}
     slot_type(int thread, libxstream_stream& stream);
-    libxstream_stream& stream() { return *m_stream; }
+    const libxstream_stream* stream() const { return m_stream; }
+    libxstream_stream* stream() { return m_stream; }
     libxstream_signal pending() const { return m_pending; }
     void pending(libxstream_signal signal) { m_pending = signal; }
-    bool match(const libxstream_stream* stream) const {
-      return !stream || stream == m_stream;
-    }
   };
 
   static void enqueue(int thread, libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset);
   static void update(int thread, libxstream_event::slot_type& slot);
 
-public:
-  libxstream_event();
-
-public:
-  size_t expected() const;
-  int enqueue(libxstream_stream& stream, bool reset);
-  int query(bool& occurred, libxstream_stream* stream) const;
-  int wait(libxstream_stream* stream);
-
 private:
+  slot_type m_slots[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
   size_t m_expected;
-  mutable slot_type m_slots[LIBXSTREAM_MAX_NDEVICES*LIBXSTREAM_MAX_NSTREAMS];
 };
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)

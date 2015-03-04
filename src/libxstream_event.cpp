@@ -45,61 +45,6 @@
 //#define LIBXSTREAM_EVENT_WAIT_OCCURRED
 
 
-/*static*/void libxstream_event::enqueue(int thread, libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset)
-{
-#if defined(LIBXSTREAM_DEBUG)
-  LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS) > ((reset && 0 < expected) ? (expected - 1) : expected));
-#endif
-
-  if (reset) {
-#if defined(LIBXSTREAM_DEBUG)
-    std::fill_n(slots, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS, slot_type());
-#endif
-    expected = 0;
-  }
-
-  slot_type& slot = slots[expected];
-  slot = slot_type(thread, stream);
-  ++expected;
-}
-
-
-/*static*/void libxstream_event::update(int thread, libxstream_event::slot_type& slot)
-{
-  const libxstream_signal pending_slot = slot.pending();
-
-  if (0 != pending_slot) {
-    const libxstream_signal pending_stream = slot.stream().pending(thread);
-
-    if (0 != pending_stream) {
-#if defined(LIBXSTREAM_EVENT_WAIT_PAST)
-      const libxstream_signal signal = pending_slot;
-#else
-      const libxstream_signal signal = pending_stream;
-#endif
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__)
-      if (0 != _Offload_signaled(slot.stream().device(), reinterpret_cast<void*>(signal)))
-#endif
-      {
-        if (signal == pending_stream) {
-          slot.stream().pending(thread, 0);
-        }
-        slot.pending(0);
-      }
-    }
-    else {
-      slot.pending(0);
-    }
-  }
-}
-
-
-libxstream_event::slot_type::slot_type(int thread, libxstream_stream& stream)
-  : m_stream(&stream) // no need to lock the stream
-  , m_pending(stream.pending(thread))
-{}
-
-
 libxstream_event::libxstream_event()
   : m_expected(0)
 {}
@@ -126,25 +71,26 @@ int libxstream_event::enqueue(libxstream_stream& stream, bool reset)
 }
 
 
-int libxstream_event::query(bool& occurred, libxstream_stream* stream) const
+int libxstream_event::query(bool& occurred, const libxstream_stream* exclude) const
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_ASYNC_BEGIN(stream, &m_expected, m_slots, &occurred)
+  LIBXSTREAM_ASYNC_BEGIN(0, -2/*invalid device*/, &occurred, exclude, &m_expected, m_slots)
   {
-    const size_t expected = *ptr<const size_t,0>();
-    slot_type *const slots = ptr<slot_type,1>();
+    const libxstream_stream *const exclude = ptr<const libxstream_stream,2>();
+    const size_t expected = *ptr<const size_t,3>();
+    slot_type *const slots = ptr<slot_type,4>();
     bool occurred = true; // everythig "occurred" if nothing is expected
 
     for (size_t i = 0; i < expected; ++i) {
       slot_type& slot = slots[i];
-      if (slot.match(LIBXSTREAM_ASYNC_STREAM) && 0 != slot.pending()) {
+      if (exclude != slot.stream() && 0 != slot.pending()) {
         libxstream_event::update(thread(), slot);
         occurred = occurred && 0 == slot.pending();
       }
     }
 
-    *ptr<bool,2>() = occurred;
+    *ptr<bool,1>() = occurred;
   }
   LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
 
@@ -152,22 +98,25 @@ int libxstream_event::query(bool& occurred, libxstream_stream* stream) const
 }
 
 
-int libxstream_event::wait(libxstream_stream* stream)
+int libxstream_event::wait(const libxstream_stream* exclude)
 {
   int result = LIBXSTREAM_ERROR_NONE;
 
-  LIBXSTREAM_ASYNC_BEGIN(stream, &m_expected, m_slots)
+  LIBXSTREAM_ASYNC_BEGIN(0, -2/*invalid device*/, exclude, &m_expected, m_slots)
   {
-    size_t& expected = *ptr<size_t,0>();
-    slot_type *const slots = ptr<slot_type,1>();
+    const libxstream_stream *const exclude = ptr<const libxstream_stream,1>();
+    const size_t expected = *ptr<const size_t,2>();
+    slot_type *const slots = ptr<slot_type,3>();
     size_t completed = 0;
 
     for (size_t i = 0; i < expected; ++i) {
       slot_type& slot = slots[i];
-      const libxstream_signal pending_stream = slot.stream().pending(thread());
+      libxstream_stream *const stream = slot.stream();
+      LIBXSTREAM_ASSERT(0 != stream);
+      const libxstream_signal pending_stream = stream->pending(thread());
       const libxstream_signal pending_slot = slot.pending();
 
-      if (slot.match(LIBXSTREAM_ASYNC_STREAM) && 0 != pending_stream && 0 != pending_slot) {
+      if (exclude != stream && 0 != pending_stream && 0 != pending_slot) {
 #if defined(LIBXSTREAM_EVENT_WAIT_OCCURRED)
         do { // spin/yield
           libxstream_event::update(thread(), slot);
@@ -187,7 +136,7 @@ int libxstream_event::wait(libxstream_stream* stream)
         }
 # endif
         if (signal == pending_stream) {
-          slot.stream().pending(thread(), 0);
+          stream->pending(thread(), 0);
         }
 #endif
         ++completed;
@@ -195,9 +144,69 @@ int libxstream_event::wait(libxstream_stream* stream)
     }
 
     LIBXSTREAM_ASSERT(completed <= expected);
-    expected -= completed;
+    // reset only if all slots fired (need to iterate all slots otherwise)
+    if (completed == *ptr<const size_t,2>()) {
+      *ptr<size_t,2>() = 0;
+    }
   }
   LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT | LIBXSTREAM_CALL_UNLOCK, result);
 
   return result;
+}
+
+
+libxstream_event::slot_type::slot_type(int thread, libxstream_stream& stream)
+  : m_stream(&stream) // no need to lock the stream
+  , m_pending(stream.pending(thread))
+{}
+
+
+/*static*/void libxstream_event::enqueue(int thread, libxstream_stream& stream, libxstream_event::slot_type slots[], size_t& expected, bool reset)
+{
+#if defined(LIBXSTREAM_DEBUG)
+  LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS) > ((reset && 0 < expected) ? (expected - 1) : expected));
+#endif
+
+  if (reset) {
+#if defined(LIBXSTREAM_DEBUG)
+    std::fill_n(slots, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS, slot_type());
+#endif
+    expected = 0;
+  }
+
+  slot_type& slot = slots[expected];
+  slot = slot_type(thread, stream);
+  ++expected;
+}
+
+
+/*static*/void libxstream_event::update(int thread, libxstream_event::slot_type& slot)
+{
+  const libxstream_signal pending_slot = slot.pending();
+
+  if (0 != pending_slot) {
+    libxstream_stream *const stream = slot.stream();
+    LIBXSTREAM_ASSERT(0 != stream);
+    const libxstream_signal pending_stream = stream->pending(thread);
+
+    if (0 != pending_stream) {
+#if defined(LIBXSTREAM_EVENT_WAIT_PAST)
+      const libxstream_signal signal = pending_slot;
+#else
+      const libxstream_signal signal = pending_stream;
+#endif
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__)
+      if (0 != _Offload_signaled(stream->device(), reinterpret_cast<void*>(signal)))
+#endif
+      {
+        if (signal == pending_stream) {
+          stream->pending(thread, 0);
+        }
+        slot.pending(0);
+      }
+    }
+    else {
+      slot.pending(0);
+    }
+  }
 }

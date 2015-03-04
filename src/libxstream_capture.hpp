@@ -115,26 +115,26 @@ public:
   class LIBXSTREAM_EXPORT_INTERNAL arg_type: public libxstream_argument {
   public:
     arg_type(): m_signature(false) {
-      libxstream_construct(this, 0, kind_inout, 0, LIBXSTREAM_TYPE_INVALID, 0, 0);
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(this, 0, kind_inout, 0, LIBXSTREAM_TYPE_INVALID, 0, 0));
     }
     arg_type(libxstream_function function): m_signature(false) {
       const size_t size = sizeof(void*);
-      libxstream_construct(this, 0, kind_input, &function, LIBXSTREAM_TYPE_VOID, 0, &size);
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(this, 0, kind_input, &function, LIBXSTREAM_TYPE_VOID, 0, &size));
     }
     arg_type(const libxstream_argument* signature): m_signature(true) {
       const size_t size = sizeof(libxstream_argument*);
-      libxstream_construct(this, 0, kind_input, signature, LIBXSTREAM_TYPE_VOID, 1, &size);
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(this, 0, kind_input, signature, LIBXSTREAM_TYPE_VOID, 1, &size));
     }
     template<typename T> arg_type(T arg): m_signature(false) {
-      libxstream_construct(this, 0, kind_input, &arg, libxstream_map_to<T>::type(), 0, 0);
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(this, 0, kind_input, &arg, libxstream_map_to<T>::type(), 0, 0));
     }
     template<typename T> arg_type(T* arg): m_signature(false) {
       const size_t unknown = 0;
-      libxstream_construct(this, 0, kind_inout, reinterpret_cast<void*>(arg), libxstream_map_to<T>::type(), 1, &unknown);
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(this, 0, kind_inout, reinterpret_cast<void*>(arg), libxstream_map_to<T>::type(), 1, &unknown));
     }
     template<typename T> arg_type(const T* arg): m_signature(false) {
       const size_t unknown = 0;
-      libxstream_construct(this, 0, kind_input, reinterpret_cast<const void*>(arg), libxstream_map_to<T>::type(), 1, &unknown);
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(this, 0, kind_input, reinterpret_cast<const void*>(arg), libxstream_map_to<T>::type(), 1, &unknown));
     }
   public:
     bool signature() const { return m_signature; }
