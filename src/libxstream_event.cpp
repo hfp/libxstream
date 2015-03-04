@@ -119,7 +119,7 @@ int libxstream_event::query(bool& occurred, const libxstream_stream* exclude) co
       libxstream_stream *const stream = slot.stream();
 
       if (exclude != stream && 0 != pending_slot) {
-        const libxstream_signal pending_stream = stream->pending(thread());
+        const libxstream_signal pending_stream = stream ? stream->pending(thread()) : 0;
 
         if (0 != pending_stream) {
 #if defined(LIBXSTREAM_EVENT_WAIT_PAST)
@@ -170,7 +170,7 @@ int libxstream_event::wait(const libxstream_stream* exclude)
       const libxstream_signal pending_slot = slot.pending();
 
       if (exclude != stream && 0 != pending_slot) {
-        const libxstream_signal pending_stream = stream->pending(thread());
+        const libxstream_signal pending_stream = stream ? stream->pending(thread()) : 0;
 
         if (0 != pending_stream) {
   #if defined(LIBXSTREAM_EVENT_WAIT_PAST)
