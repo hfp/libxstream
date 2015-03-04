@@ -1,14 +1,6 @@
 # LIBXSTREAM
 Library to work with streams, events, and code regions that are able to run asynchronous while preserving the usual stream conditions. The library is targeting Intel Architecture (x86) and helps to offload work to an Intel Xeon Phi coprocessor (an instance of the Intel Many Integrated Core "MIC" Architecture). For example, using two streams may be an alternative to the usual double-buffering approach which can be used to hide buffer transfer time behind compute. [[pdf](https://github.com/hfp/libxstream/raw/master/documentation/libxstream.pdf)] [[src](https://github.com/hfp/libxstream/archive/master.zip)]
 
-## Roadmap
-Although the library is under development, the interface is stable. There is a high confidence that all features planned are mainly work "under the hood" i.e., code written now can scale forward. The following issues are being addressed in upcoming revisions:
-
-* Transparent High Bandwidth Memory (HBM) support
-* Work scheduling and legacy cleanup ("demux")
-* Hybrid execution (host and coprocessors)
-* Native FORTRAN interface
-
 ## Interface
 The library's application programming interface (API) completely seals the implementation and only forward-declares types which are beyond the language's built-in types. The entire API consists of below subcategories each illustrated by a small code snippet. The [Function Interface](#function-interface) for instance enables an own function to be enqueued for execution within a stream (via function pointer). A future release of the library will provide a native FORTRAN interface. [[c](https://github.com/hfp/libxstream/blob/master/include/libxstream.h)]
 
@@ -202,8 +194,20 @@ Please note that the manual locking approach does not contradict the thread-safe
 Additional scalability can be unlocked when running an application which is parallelized using the Message Passing Interface (MPI). In this case, the device(s) can be partitioned according to the number of ranks per host processor. To read more about this, please visit the [MPIRUN WRAPPER](https://github.com/hfp/mpirun#mpirun-wrapper) project. To estimate the impact of this technique, one can scale the number of threads on the device until the performance saturates and then partition accordingly.
 
 ## Implementation
+### Background
 The library's implementation allows enqueuing work from multiple host threads in a thread-safe manner and without oversubscribing the device. The actual implementation vehicle can be configured using a [configuration header](https://github.com/hfp/libxstream/blob/master/include/libxstream_config.h). Currently Intel's Language Extensions for Offload (LEO) are used to perform asynchronous execution and data transfers using signal/wait clauses. Other mechanisms can be implemented e.g., hStreams or COI (both are part of the Intel Manycore Platform Software Stack), or offload directives as specified by OpenMP.  
 The current implementation is falling back to host execution in cases where no coprocessor is present, or when the executable was not built using the Intel Compiler. However, there is no attempt (yet) to exploit the parallelism available on the host system.
+
+### Limitations
+There is a known performance limitations addressed by the [Roadmap](#roadmap). Namely the asynchronous offload is currently disabled (see LIBXSTREAM_ASYNC in the [configuration header](https://github.com/hfp/libxstream/blob/master/include/libxstream_config.h)) due to an improper synchronization infrastructure. This issue will be addressed along with scheduling work items. The latter is also a prerequisite for an efficient hybrid execution. Hybrid execution and Transparent High Bandwidth Memory (HBM) support will both rely on an effective association between host and "device" buffers in order to omit unneccessary memory copies.
+
+### Roadmap
+Although the library is under development, the interface is stable. There is a high confidence that all features planned are mainly work "under the hood" i.e., code written now can scale forward. The following issues are being addressed in upcoming revisions:
+
+* Transparent High Bandwidth Memory (HBM) support
+* Work scheduling and legacy cleanup ("demux")
+* Hybrid execution (host and coprocessors)
+* Native FORTRAN interface
 
 ## References
 \[1] [Intel Xeon Phi Applications and Solutions Catalog](http://software.intel.com/xeonphicatalog)  
