@@ -301,7 +301,7 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
       const size_t sanitize = data_size + sizeof(void*) + sizeof(size);
       const size_t auto_alignment = libxstream_alignment(std::max(size, sanitize), alignment);
       const size_t aligned_size = libxstream_align(std::max(size, sanitize), auto_alignment);
-      void *const buffer = mmap(0, aligned_size, /*PROT_NONE*/PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+      void *const buffer = mmap(0, aligned_size, /*PROT_NONE*/PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS /*| MAP_LOCKED*/, -1, 0);
       LIBXSTREAM_CHECK_CONDITION(MAP_FAILED != buffer);
       char *const aligned = static_cast<char*>(libxstream_align(buffer, auto_alignment));
       LIBXSTREAM_CHECK_CONDITION(buffer <= aligned);
