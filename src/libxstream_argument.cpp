@@ -32,6 +32,7 @@
 
 #include <libxstream_begin.h>
 #include <algorithm>
+#include <cstring>
 #include <cstdio>
 #include <libxstream_end.h>
 
