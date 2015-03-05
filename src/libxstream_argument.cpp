@@ -48,7 +48,7 @@ LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument argument
   libxstream_argument& argument = arguments[arg];
 
 #if defined(LIBXSTREAM_DEBUG)
-  std::fill_n(reinterpret_cast<char*>(&argument), sizeof(libxstream_argument), 0); // avoid false pos. with mem. analysis
+  memset(argument.data.self, 0, sizeof(libxstream_argument)); // avoid false pos. with mem. analysis
 #endif
 #if defined(LIBXSTREAM_PRINT)
   static const char *const context[] = { "", "input", "output", "inout" };
@@ -116,10 +116,10 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const char* libxstream_get_val
 
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
     char *const dst = reinterpret_cast<char*>(&data);
-    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.pointer[i];
+    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.self[i];
   }
   else {
-    data = reinterpret_cast<const char*>(&arg);
+    data = arg.data.self;
   }
 
   return data;
@@ -132,10 +132,10 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_value(lib
 
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
     char *const dst = reinterpret_cast<char*>(&data);
-    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.pointer[i];
+    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.self[i];
   }
   else {
-    data = reinterpret_cast<char*>(&arg);
+    data = arg.data.self;
   }
 
   return data;
@@ -145,7 +145,7 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_value(lib
 LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data)
 {
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) { // take the pointer
-    *reinterpret_cast<const void**>(&arg.data) = data;
+    *reinterpret_cast<const void**>(arg.data.self) = data;
     LIBXSTREAM_ASSERT(libxstream_get_value(arg) == data);
   }
   else { // copy from the given pointer
@@ -156,10 +156,10 @@ LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const 
 
     if (data) {
       const char *const src = static_cast<const char*>(data);
-      for (size_t i = 0; i < typesize; ++i) arg.data.pointer[i] = src[i];
+      for (size_t i = 0; i < typesize; ++i) arg.data.self[i] = src[i];
     }
     else {
-      for (size_t i = 0; i < typesize; ++i) arg.data.pointer[i] = 0;
+      for (size_t i = 0; i < typesize; ++i) arg.data.self[i] = 0;
     }
   }
 
