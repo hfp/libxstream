@@ -270,7 +270,9 @@ int main(int argc, char* argv[])
     }
 
 #if defined(_OPENMP)
-#   pragma omp parallel for schedule(dynamic,1)
+    // chunksize: limit memory consumption on high core count systems
+    const int chunksize = std::max(ntasks / LIBXSTREAM_MAX_NDEVICES, 1);
+#   pragma omp parallel for schedule(dynamic,chunksize)
 #endif
     for (int i = 0; i < ntasks; ++i) {
       const test_type test(i % ndevices);
