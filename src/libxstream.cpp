@@ -394,7 +394,9 @@ LIBXSTREAM_EXPORT_C int libxstream_get_ndevices(size_t* ndevices)
   LIBXSTREAM_CHECK_CONDITION(ndevices);
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__)
-  *ndevices = std::min(_Offload_number_of_devices(), LIBXSTREAM_MAX_NDEVICES);
+  static const int idevices = std::min(_Offload_number_of_devices(), LIBXSTREAM_MAX_NDEVICES);
+  LIBXSTREAM_CHECK_CONDITION(0 <= idevices);
+  *ndevices = static_cast<size_t>(idevices);
 #else
   *ndevices = 1; // host
 #endif
