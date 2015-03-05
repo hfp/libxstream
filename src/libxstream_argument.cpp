@@ -145,7 +145,7 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_value(lib
 LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data)
 {
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) { // take the pointer
-    *reinterpret_cast<const void**>(arg.data.self) = data;
+    *reinterpret_cast<const void**>(&arg) = data;
     LIBXSTREAM_ASSERT(libxstream_get_value(arg) == data);
   }
   else { // copy from the given pointer
