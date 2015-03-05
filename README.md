@@ -122,7 +122,7 @@ In order to avoid repeatedly allocating (and deallocating) a signature, a thread
 For the C language, a first observation is that all arguments of the function's signature are passed "by pointer" even a value that needs to be returned (which also allows multiple results to be delivered). Please note that non-elemental ("array") arguments are handled "by pointer" rather than by pointer-to-pointer. The mechanism to pass an argument is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism. Although all arguments are received by pointer, any elemental ("scalar") input is present by value (which is important for the argument's life-time). In contrast, an elemental output is only present by-address, and therefore care must be taken on the call-side to make sure the destination is still valid when the function is executed. The latter is because the execution is asynchronous by default.
 
 **void fpp(const double& scale, const float* in, float* out, const size_t& n, size_t& nzeros)**  
-For the C++ language, the reference meachnism can be used to conveniently receive an argument "by-value". The latter can be applied to any elemental "return value" by using a "non-const reference".
+For the C++ language, the reference mechanism can be used to conveniently receive an elemental argument "by-value" including elemental output arguments as "non-const reference" ("return value").
 
 ```C++
 const libxstream_type sizetype = libxstream_map_to<size_t>::type();
