@@ -56,7 +56,7 @@ LIBXSTREAM_EXTERN_C LIBXSTREAM_TARGET(mic) void DGEMM(
   const double*, double*, const int*);
 
 
-LIBXSTREAM_TARGET(mic) void process(const size_t& size, const size_t& nn, const size_t* idata,
+LIBXSTREAM_TARGET(mic) void process(size_t size, size_t nn, const size_t* idata,
   const double* adata, const double* bdata, double* cdata)
 {
   if (0 < size) {

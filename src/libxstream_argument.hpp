@@ -46,21 +46,26 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
 
   // This data member *must* be the first!
   union element_union {
-    char self[sizeof(void*)];
-    signed char i8;
-    unsigned char u8;
-    short i16;
-    unsigned u16;
-    int i32;
-    unsigned int u32;
-    long long i64;
-    unsigned long long u64;
-    float f32;
-    double f64;
-    float c32[2];
-    double c64[2];
-    char c;
+    char self[sizeof(void*)], c;
+    int8_t    i8;
+    uint8_t   u8;
+    int16_t   i16;
+    uint16_t  u16;
+    int32_t   i32;
+    uint32_t  u32;
+    int64_t   i64;
+    uint64_t  u64;
+    float     f32, c32[2];
+    double    f64, c64[2];
   } data;
+
+  union call_union {
+    char data[8/*must be 64-bit even on 32-bit OS!*/];
+    void* pointer;
+    const void* const_pointer;
+    typedef double value_type;
+    value_type value;
+  };
 
   size_t shape[LIBXSTREAM_MAX_NDIMS];
   kind_type kind;
@@ -72,8 +77,7 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
 LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[]);
 int libxstream_construct(libxstream_argument* signature, size_t nargs);
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const void* libxstream_get_value(const libxstream_argument& arg, libxstream_call_flags call_convention = LIBXSTREAM_CALL_CONVENTION);
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) void* libxstream_get_value(libxstream_argument& arg, libxstream_call_flags call_convention = LIBXSTREAM_CALL_CONVENTION);
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) libxstream_argument::call_union libxstream_get_value(const libxstream_argument& arg, libxstream_call_flags call_convention = LIBXSTREAM_CALL_CONVENTION);
 LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)

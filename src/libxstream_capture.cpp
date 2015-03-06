@@ -276,12 +276,12 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
     const libxstream_argument* signature = 0;
     if (argv[1].signature()) {
       m_function = *reinterpret_cast<const libxstream_function*>(argv + 0);
-      signature = static_cast<const libxstream_argument*>(libxstream_get_value(argv[1]));
+      signature = static_cast<const libxstream_argument*>(libxstream_get_value(argv[1]).pointer);
     }
     else {
       LIBXSTREAM_ASSERT(argv[0].signature());
       m_function = *reinterpret_cast<const libxstream_function*>(argv + 1);
-      signature = static_cast<const libxstream_argument*>(libxstream_get_value(argv[0]));
+      signature = static_cast<const libxstream_argument*>(libxstream_get_value(argv[0]).pointer);
     }
 
     size_t arity = 0;

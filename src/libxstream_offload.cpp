@@ -45,7 +45,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
   const struct LIBXSTREAM_TARGET(mic) argument_type {
     libxstream_argument* m_signature;
     explicit argument_type(libxstream_argument* signature): m_signature(signature) {}
-    void* operator[](int i) const { return libxstream_get_value(m_signature[i]); }
+    libxstream_argument::call_union::value_type operator[](int i) const { return libxstream_get_value(m_signature[i]).value; }
   } a(arguments);
 
   if (arguments && translation) {
@@ -122,11 +122,11 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
 #endif
       for (size_t i = 0; i < arity; ++i) {
         if (0 != m_signature[i].dims) {
-          p[np] = static_cast<char*>(libxstream_get_value(m_signature[i]));
+          p[np] = static_cast<char*>(libxstream_get_value(m_signature[i]).pointer);
           ++np;
         }
         else if (0 != (libxstream_argument::kind_output & m_signature[i].kind)) {
-          p[np] = static_cast<char*>(libxstream_get_value(m_signature[i]));
+          p[np] = static_cast<char*>(libxstream_get_value(m_signature[i]).pointer);
           s |= ((2 << np) >> 1);
           ++np;
         }

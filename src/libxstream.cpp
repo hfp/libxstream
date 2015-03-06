@@ -1186,7 +1186,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_data(const libxstr
     }
   }
   LIBXSTREAM_ASSERT(0 != signature);
-  *data = libxstream_get_value(signature[arg], LIBXSTREAM_CALL_PPP);
+  *data = libxstream_get_value(signature[arg], LIBXSTREAM_CALL_PPP).pointer;
   return LIBXSTREAM_ERROR_NONE;
 }
 
@@ -1206,7 +1206,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_string(const libxs
   }
   LIBXSTREAM_ASSERT(0 != signature);
   const libxstream_argument& argument = signature[arg];
-  const void *const data = libxstream_get_value(argument, LIBXSTREAM_CALL_PPP);
+  const void *const data = libxstream_get_value(argument, LIBXSTREAM_CALL_PPP).pointer;
   static LIBXSTREAM_TLS char buffer[128];
   int result = LIBXSTREAM_ERROR_NONE;
 

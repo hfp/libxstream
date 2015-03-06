@@ -64,7 +64,7 @@
  * Calling convention; this is a rather deep switch impacting
  * all function definitions of functions able to get enqueued.
  */
-#define LIBXSTREAM_CALL_CONVENTION LIBXSTREAM_CALL_PPP
+#define LIBXSTREAM_CALL_CONVENTION LIBXSTREAM_CALL_PVP
 
 /**
  * Enables asynchronous offloads.
