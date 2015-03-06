@@ -16,16 +16,20 @@ typedef struct libxstream_stream libxstream_stream;
 typedef struct libxstream_event libxstream_event;
 /** Enumeration of elemental "scalar" types. */
 typedef enum libxstream_type { /** see libxstream.h */
-  /** signed integer types: I8, I16, I32, I64 */
-  /** floating point types: F32, F64, C32, C64 */
-  /** unsigned integer types: U8, U16, U32, U64 */
   /** special types: BOOL, BYTE, CHAR, VOID */
+  /** signed integer types: I8, I16, I32, I64 */
+  /** unsigned integer types: U8, U16, U32, U64 */
+  /** floating point types: F32, F64, C32, C64 */
 } libxstream_type;
 /** Function call behavior (flags valid for binary combination). */
 typedef enum libxstream_call_flags {
-  LIBXSTREAM_CALL_DEFAULT = 0,
   LIBXSTREAM_CALL_WAIT    = 1 /* synchronous function call */,
   LIBXSTREAM_CALL_NATIVE  = 2 /* native host/MIC function */,
+  /** [array, scalar, complex] by-pointer (P), or by-value (V). */
+  LIBXSTREAM_CALL_PPP     = 4 /* by-P, by-P, by-P */,
+  LIBXSTREAM_CALL_PVP     = 8 /* by-P, by-V, by-P */,
+  /** collection of any valid flags from above */
+  LIBXSTREAM_CALL_DEFAULT = LIBXSTREAM_CALL_CONVENTION
 } libxstream_call_flags;
 /** Function argument type. */
 typedef struct libxstream_argument libxstream_argument;
