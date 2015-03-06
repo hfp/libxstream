@@ -66,7 +66,7 @@ int libxstream_event::reset()
 #endif
     *ptr<size_t,2>() = 0;
   }
-  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_UNLOCK, result);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_UNLOCK, result);
 
   return result;
 }
@@ -96,7 +96,7 @@ int libxstream_event::enqueue(libxstream_stream& stream, bool reset)
     slot = slot_type(thread(), *LIBXSTREAM_ASYNC_STREAM);
     ++expected;
   }
-  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_UNLOCK, result);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_UNLOCK, result);
 
   return result;
 }
@@ -147,7 +147,7 @@ int libxstream_event::query(bool& occurred, const libxstream_stream* exclude) co
 
     *ptr<bool,1>() = occurred;
   }
-  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_WAIT, result);
 
   return result;
 }
@@ -203,7 +203,7 @@ int libxstream_event::wait(const libxstream_stream* exclude)
       *ptr<size_t,3>() = 0;
     }
   }
-  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT | LIBXSTREAM_CALL_UNLOCK, result);
+  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_WAIT | LIBXSTREAM_CALL_UNLOCK, result);
 
   return result;
 }

@@ -111,7 +111,7 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const char* libxstream_get_value(const libxstream_argument& arg)
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const void* libxstream_get_value(const libxstream_argument& arg)
 {
   const char* data = 0;
 
@@ -127,7 +127,7 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const char* libxstream_get_val
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) char* libxstream_get_value(libxstream_argument& arg)
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) void* libxstream_get_value(libxstream_argument& arg)
 {
   char* data = 0;
 
@@ -162,6 +162,9 @@ LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const 
     else {
       for (size_t i = 0; i < typesize; ++i) arg.data.self[i] = 0;
     }
+
+    // allows to promote smaller types to pointer-size
+    for (size_t i = typesize; i < sizeof(void*); ++i) arg.data.self[i] = 0;
   }
 
   return LIBXSTREAM_ERROR_NONE;

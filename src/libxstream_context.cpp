@@ -37,7 +37,7 @@ libxstream_context& libxstream_context::instance()
   LIBXSTREAM_TARGET(mic) static LIBXSTREAM_TLS libxstream_context* pcontext = 0;
   if (0 == pcontext) {
     LIBXSTREAM_TARGET(mic) static LIBXSTREAM_TLS libxstream_context context;
-    context.flags = LIBXSTREAM_CALL_INVALID;
+    context.flags = LIBXSTREAM_CALL_EXTERNAL;
     context.signature = 0;
     pcontext = &context;
   }
@@ -48,7 +48,7 @@ libxstream_context& libxstream_context::instance()
 libxstream_context& libxstream_context::instance(const libxstream_argument signature_[], int flags_)
 {
   libxstream_context& context = instance();
-  LIBXSTREAM_ASSERT(LIBXSTREAM_CALL_INVALID != flags_);
+  LIBXSTREAM_ASSERT(LIBXSTREAM_CALL_EXTERNAL != flags_);
   context.signature = signature_;
   context.flags = flags_;
   return context;
@@ -61,7 +61,7 @@ LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_find(const libxstre
   if (context.signature) {
     for (const libxstream_argument* argi = context.signature; LIBXSTREAM_TYPE_INVALID != argi->type; ++argi) {
       LIBXSTREAM_ASSERT(libxstream_argument::kind_invalid != argi->kind);
-      if (variable == libxstream_get_value(*argi)) {
+      if (variable == libxstream_get_value(*argi)) { // TODO: implement LIBXSTREAM_CALL_PVP
         argument = argi;
         break;
       }

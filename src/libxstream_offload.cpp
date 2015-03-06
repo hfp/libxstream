@@ -45,7 +45,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
   const struct LIBXSTREAM_TARGET(mic) argument_type {
     libxstream_argument* m_signature;
     explicit argument_type(libxstream_argument* signature): m_signature(signature) {}
-    char* operator[](int i) const { return libxstream_get_value(m_signature[i]); }
+    void* operator[](int i) const { return libxstream_get_value(m_signature[i]); } // TODO: implement LIBXSTREAM_CALL_PVP
   } a(arguments);
 
   if (arguments && translation) {
@@ -89,7 +89,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
   }
 
   // mark context as invalid
-  context.flags = LIBXSTREAM_CALL_INVALID;
+  context.flags = LIBXSTREAM_CALL_EXTERNAL;
 #if defined(LIBXSTREAM_DEBUG)
   context.signature = 0;
 #endif
@@ -122,11 +122,11 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
 #endif
       for (size_t i = 0; i < arity; ++i) {
         if (0 != m_signature[i].dims) {
-          p[np] = libxstream_get_value(m_signature[i]);
+          p[np] = static_cast<char*>(libxstream_get_value(m_signature[i]));
           ++np;
         }
         else if (0 != (libxstream_argument::kind_output & m_signature[i].kind)) {
-          p[np] = libxstream_get_value(m_signature[i]);
+          p[np] = static_cast<char*>(libxstream_get_value(m_signature[i]));
           s |= ((2 << np) >> 1);
           ++np;
         }

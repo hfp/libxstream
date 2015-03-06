@@ -72,9 +72,15 @@ LIBXSTREAM_EXPORT_C typedef enum libxstream_type {
 } libxstream_type;
 /** Function call behavior (flags valid for binary combination). */
 LIBXSTREAM_EXPORT_C typedef enum libxstream_call_flags {
-  LIBXSTREAM_CALL_DEFAULT = 0,
   LIBXSTREAM_CALL_WAIT    = 1 /* synchronous function call */,
   LIBXSTREAM_CALL_NATIVE  = 2 /* native host/MIC function */,
+  /** [array, scalar, complex] by-pointer (P), or by-value (V). */
+  LIBXSTREAM_CALL_PPP     = 4 /* by-P, by-P, by-P */,
+  LIBXSTREAM_CALL_PVP     = 8 /* by-P, by-V, by-P */,
+  /** terminates the list */
+  LIBXSTREAM_CALL_INVALID,
+  /** collection of any valid flags from above */
+  LIBXSTREAM_CALL_DEFAULT = LIBXSTREAM_CALL_PPP
 } libxstream_call_flags;
 /** Function argument type. */
 LIBXSTREAM_EXPORT_C typedef struct LIBXSTREAM_TARGET(mic) libxstream_argument libxstream_argument;
@@ -164,7 +170,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t ty
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstream_type type, const char** name);
 /** Query the argument's 0-based position within the signature; needs a pointer variable (not from a by-value variable). */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_argument(const void* variable, size_t* arg);
-/** Query the argument's data by pointer; can be used similar to va_arg. A NULL-signature designates the call context. */
+/** Query the argument's data according to LIBXSTREAM_CALL_PPP convention. A NULL-signature designates the call context. */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_data(const libxstream_argument* signature, size_t arg, const void** data);
 /** Query a textual representation; thread safe (valid until next call). A NULL-signature designates the call context. */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_string(const libxstream_argument* signature, size_t arg, const char** value);

@@ -468,7 +468,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, siz
 #     pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) //out(memory_physical, memory_allocatable)
       libxstream_internal::mem_info(memory_physical, memory_allocatable);
     }
-    LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
+    LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_WAIT, result);
   }
   else {
 #else
@@ -510,7 +510,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_pointer(int device, const void* memory, c
 #       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) in(memory: LIBXSTREAM_OFFLOAD_REFRESH) //out(real)
         real = memory;
       }
-      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
+      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_WAIT, result);
     }
     else {
 #else
@@ -545,7 +545,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
         const size_t size = val<const size_t,2>();
 #       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC)
       }
-      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
+      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_WAIT, result);
       LIBXSTREAM_CHECK_ERROR(result);
       *memory = buffer;
     }
@@ -1148,7 +1148,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstrea
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_argument(const void* variable, size_t* arg)
 {
   const libxstream_context& context = libxstream_context::instance();
-  LIBXSTREAM_CHECK_CONDITION(0 != arg && LIBXSTREAM_CALL_INVALID != context.flags);
+  LIBXSTREAM_CHECK_CONDITION(0 != arg && 0 == (LIBXSTREAM_CALL_INVALID & context.flags));
   const libxstream_argument *const hit = libxstream_find(context, variable);
   int result = LIBXSTREAM_ERROR_NONE;
 
@@ -1169,7 +1169,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_data(const libxstr
   LIBXSTREAM_CHECK_CONDITION(0 != data);
   if (0 == signature) {
     const libxstream_context& context = libxstream_context::instance();
-    if (LIBXSTREAM_CALL_INVALID != context.flags) {
+    if (0 == (LIBXSTREAM_CALL_INVALID & context.flags)) {
       signature = context.signature;
     }
   }
@@ -1177,7 +1177,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_data(const libxstr
   size_t arity = 0;
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
 #endif
-  *data = libxstream_get_value(signature[arg]);
+  *data = libxstream_get_value(signature[arg]); // TODO: implement LIBXSTREAM_CALL_PVP
   return LIBXSTREAM_ERROR_NONE;
 }
 
@@ -1187,7 +1187,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_string(const libxs
   LIBXSTREAM_CHECK_CONDITION(0 != value);
   if (0 == signature) {
     const libxstream_context& context = libxstream_context::instance();
-    if (LIBXSTREAM_CALL_INVALID != context.flags) {
+    if (0 == (LIBXSTREAM_CALL_INVALID & context.flags)) {
       signature = context.signature;
     }
   }
@@ -1196,7 +1196,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_string(const libxs
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(signature, &arity) && arg < arity);
 #endif
   const libxstream_argument& argument = signature[arg];
-  const void *const data = libxstream_get_value(argument);
+  const void *const data = libxstream_get_value(argument); // TODO: implement LIBXSTREAM_CALL_PVP
   static LIBXSTREAM_TLS char buffer[128];
   int result = LIBXSTREAM_ERROR_NONE;
 
@@ -1250,7 +1250,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_type(const libxstr
   LIBXSTREAM_CHECK_CONDITION(0 != type);
   if (0 == signature) {
     const libxstream_context& context = libxstream_context::instance();
-    if (LIBXSTREAM_CALL_INVALID != context.flags) {
+    if (0 == (LIBXSTREAM_CALL_INVALID & context.flags)) {
       signature = context.signature;
     }
   }
@@ -1268,7 +1268,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_dims(const libxstr
   LIBXSTREAM_CHECK_CONDITION(0 != dims);
   if (0 == signature) {
     const libxstream_context& context = libxstream_context::instance();
-    if (LIBXSTREAM_CALL_INVALID != context.flags) {
+    if (0 == (LIBXSTREAM_CALL_INVALID & context.flags)) {
       signature = context.signature;
     }
   }
@@ -1286,7 +1286,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_shape(const libxst
   LIBXSTREAM_CHECK_CONDITION(0 != shape);
   if (0 == signature) {
     const libxstream_context& context = libxstream_context::instance();
-    if (LIBXSTREAM_CALL_INVALID != context.flags) {
+    if (0 == (LIBXSTREAM_CALL_INVALID & context.flags)) {
       signature = context.signature;
     }
   }
@@ -1316,7 +1316,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_size(const libxstr
   LIBXSTREAM_CHECK_CONDITION(0 != size);
   if (0 == signature) {
     const libxstream_context& context = libxstream_context::instance();
-    if (LIBXSTREAM_CALL_INVALID != context.flags) {
+    if (0 == (LIBXSTREAM_CALL_INVALID & context.flags)) {
       signature = context.signature;
     }
   }
@@ -1335,7 +1335,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_elemsize(const lib
   LIBXSTREAM_CHECK_CONDITION(0 != size);
   if (0 == signature) {
     const libxstream_context& context = libxstream_context::instance();
-    if (LIBXSTREAM_CALL_INVALID != context.flags) {
+    if (0 == (LIBXSTREAM_CALL_INVALID & context.flags)) {
       signature = context.signature;
     }
   }
@@ -1358,7 +1358,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const lib
   LIBXSTREAM_CHECK_CONDITION(0 != size);
   if (0 == signature) {
     const libxstream_context& context = libxstream_context::instance();
-    if (LIBXSTREAM_CALL_INVALID != context.flags) {
+    if (0 == (LIBXSTREAM_CALL_INVALID & context.flags)) {
       signature = context.signature;
     }
   }
