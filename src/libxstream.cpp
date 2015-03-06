@@ -1233,8 +1233,8 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_string(const libxs
       case LIBXSTREAM_TYPE_U16:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%u", *static_cast<const uint16_t*>(data)); break;
       case LIBXSTREAM_TYPE_I32:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%i", *static_cast<const int32_t*>(data)); break;
       case LIBXSTREAM_TYPE_U32:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%u", *static_cast<const uint32_t*>(data)); break;
-      case LIBXSTREAM_TYPE_I64:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%i", *static_cast<const int64_t*>(data)); break;
-      case LIBXSTREAM_TYPE_U64:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%u", *static_cast<const uint64_t*>(data)); break;
+      case LIBXSTREAM_TYPE_I64:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%li", *static_cast<const int64_t*>(data)); break;
+      case LIBXSTREAM_TYPE_U64:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%lu", *static_cast<const uint64_t*>(data)); break;
       case LIBXSTREAM_TYPE_F32:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%f", *static_cast<const float*>(data)); break;
       case LIBXSTREAM_TYPE_F64:   LIBXSTREAM_SNPRINTF(buffer, sizeof(buffer), "%f", *static_cast<const double*>(data)); break;
       case LIBXSTREAM_TYPE_C32: {
