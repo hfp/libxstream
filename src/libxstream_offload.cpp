@@ -100,7 +100,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
 
 int libxstream_offload(libxstream_function function, const libxstream_argument signature[], libxstream_stream* stream, int flags)
 {
-  LIBXSTREAM_ASSERT(0 == (LIBXSTREAM_CALL_INVALID & flags));
+  LIBXSTREAM_ASSERT(0 == (LIBXSTREAM_CALL_EXTERNAL & flags));
   int result = LIBXSTREAM_ERROR_NONE;
 
   LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {

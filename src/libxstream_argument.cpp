@@ -116,7 +116,7 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const void* libxstream_get_val
   const char* data = 0;
 
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind) || (LIBXSTREAM_CALL_PVP == call_convention &&
-    (LIBXSTREAM_TYPE_C32 > arg.type || (LIBXSTREAM_TYPE_VOID != arg.type && sizeof(void*) >= *arg.shape))))
+    (LIBXSTREAM_TYPE_C32 > arg.type || (LIBXSTREAM_TYPE_VOID == arg.type && sizeof(void*) >= *arg.shape))))
   {
     char *const dst = reinterpret_cast<char*>(&data);
     for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.self[i];
@@ -134,7 +134,7 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) void* libxstream_get_value(lib
   char* data = 0;
 
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind) || (LIBXSTREAM_CALL_PVP == call_convention &&
-    (LIBXSTREAM_TYPE_C32 > arg.type || (LIBXSTREAM_TYPE_VOID != arg.type && sizeof(void*) >= *arg.shape))))
+    (LIBXSTREAM_TYPE_C32 > arg.type || (LIBXSTREAM_TYPE_VOID == arg.type && sizeof(void*) >= *arg.shape))))
   {
     char *const dst = reinterpret_cast<char*>(&data);
     for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.self[i];
