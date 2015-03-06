@@ -39,8 +39,8 @@
 
 LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[])
 {
-  size_t size = 0;
-  const bool weak_candidate = LIBXSTREAM_TYPE_VOID == type || (LIBXSTREAM_ERROR_NONE == libxstream_get_typesize(type, &size) && 1 == size);
+  size_t typesize = 0;
+  const bool weak_candidate = LIBXSTREAM_TYPE_VOID == type || (LIBXSTREAM_ERROR_NONE == libxstream_get_typesize(type, &typesize) && 1 == typesize);
   LIBXSTREAM_CHECK_CONDITION((((libxstream_argument::kind_invalid == kind || libxstream_argument::kind_inout == kind) && LIBXSTREAM_TYPE_INVALID == type) || LIBXSTREAM_TYPE_INVALID > type)
     && ((0 == dims && 0 == shape) || (0 == dims && 0 != shape && weak_candidate) || (0 < dims))
     && (LIBXSTREAM_MAX_NDIMS) >= dims);
@@ -111,7 +111,7 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const void* libxstream_get_value(const libxstream_argument& arg)
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const void* libxstream_get_value(const libxstream_argument& arg, libxstream_call_flags /*call_convention*/)
 {
   const char* data = 0;
 
@@ -127,7 +127,7 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) const void* libxstream_get_val
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) void* libxstream_get_value(libxstream_argument& arg)
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) void* libxstream_get_value(libxstream_argument& arg, libxstream_call_flags /*call_convention*/)
 {
   char* data = 0;
 

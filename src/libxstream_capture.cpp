@@ -286,7 +286,7 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
 
     size_t arity = 0;
     if (signature) {
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_arity(signature, &arity));
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_arity(signature, &arity));
 #if defined(__INTEL_COMPILER)
 #     pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
 #endif
@@ -300,7 +300,7 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(m_signature, argc, libxstream_argument::kind_invalid, 0, LIBXSTREAM_TYPE_INVALID, 0, 0));
 #if defined(LIBXSTREAM_DEBUG)
     size_t arity = 0;
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &arity) && arity == argc);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && arity == argc);
 #endif
   }
 

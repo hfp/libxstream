@@ -111,7 +111,7 @@ size_t nargs = 5, arity = 0;
 libxstream_argument* args = 0;
 libxstream_fn_create_signature(&args, nargs/*maximum number of arguments*/);
 libxstream_fn_nargs (args, &nargs); /*nargs==5 (maximum number of arguments)*/
-libxstream_fn_arity (args, &arity); /*arity==0 (no arguments constructed yet)*/
+libxstream_get_arity(args, &arity); /*arity==0 (no arguments constructed yet)*/
 libxstream_fn_call((libxstream_function)f, args, stream, LIBXSTREAM_CALL_DEFAULT);
 libxstream_fn_destroy_signature(args); /*(can be used for many function calls)*/
 ```
@@ -157,6 +157,9 @@ LIBXSTREAM_TARGET(mic) void f(const double* scale, const float* in, float* out, 
 {
   size_t in_position = 0;
   libxstream_get_argument(in, &in_position); /*in_position == 1*/
+
+  size_t arity = 0;
+  libxstream_get_arity(NULL/*this call context*/, &arity); /*arity == 4*/
 
   size_t n = 0;
   libxstream_get_shape(NULL/*this call context*/, in_position, &n);

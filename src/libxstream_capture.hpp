@@ -150,7 +150,7 @@ public:
   template<typename T,size_t i> T& val() {
 #if defined(LIBXSTREAM_DEBUG)
     size_t arity = 0;
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &arity) && i < arity);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && i < arity);
 #endif
     return *reinterpret_cast<T*>(&m_signature[i]);
   }
@@ -158,7 +158,7 @@ public:
   template<typename T,size_t i> T val() const {
 #if defined(LIBXSTREAM_DEBUG)
     size_t arity = 0;
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &arity) && i < arity);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && i < arity);
 #endif
     return *reinterpret_cast<const T*>(&m_signature[i]);
   }
@@ -166,7 +166,7 @@ public:
   template<typename T,size_t i> const T* ptr() const {
 #if defined(LIBXSTREAM_DEBUG)
     size_t arity = 0;
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &arity) && i < arity);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && i < arity);
 #endif
     return static_cast<const T*>(libxstream_get_value(m_signature[i]));
   }
@@ -174,7 +174,7 @@ public:
   template<typename T,size_t i> T* ptr() {
 #if defined(LIBXSTREAM_DEBUG)
     size_t arity = 0;
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_fn_arity(m_signature, &arity) && i < arity);
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && i < arity);
 #endif
     return static_cast<T*>(libxstream_get_value(m_signature[i]));
   }

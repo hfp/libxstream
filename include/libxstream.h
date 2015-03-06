@@ -157,8 +157,6 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* signature, siz
 LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* signature, size_t arg, void* inout, libxstream_type type, size_t dims, const size_t shape[]);
 /** Query the maximum number of arguments that can be covered by the function signature. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_nargs(const libxstream_argument* signature, size_t* nargs);
-/** Query the arity of the function signature (actual number of arguments). */
-LIBXSTREAM_EXPORT_C int libxstream_fn_arity(const libxstream_argument* signature, size_t* arity);
 /** Call a user function along with the signature; wait in case of a synchronous call. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags);
 
@@ -170,6 +168,8 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t ty
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstream_type type, const char** name);
 /** Query the argument's 0-based position within the signature; needs a pointer variable (not from a by-value variable). */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_argument(const void* variable, size_t* arg);
+/** Query the arity of the function signature (actual number of arguments). A NULL-signature designates the call context. */
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_arity(const libxstream_argument* signature, size_t* arity);
 /** Query the argument's data according to LIBXSTREAM_CALL_PPP convention. A NULL-signature designates the call context. */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_data(const libxstream_argument* signature, size_t arg, const void** data);
 /** Query a textual representation; thread safe (valid until next call). A NULL-signature designates the call context. */
@@ -222,14 +222,14 @@ template<typename TYPE> libxstream_type libxstream_map_to_type(TYPE*const*)     
 template<typename TYPE> libxstream_type libxstream_map_to_type(const TYPE*const*) { return libxstream_map_to<const TYPE*const*>::type(); }
 
 template<libxstream_type VALUE> struct libxstream_map_from                        { /** compile-time error expected */ };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I8>                         { typedef signed char type; };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U8>                         { typedef unsigned char type; };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I16>                        { typedef signed short type; };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U16>                        { typedef unsigned short type; };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I32>                        { typedef int type; };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U32>                        { typedef unsigned int type; };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I64>                        { typedef long long type; };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U64>                        { typedef unsigned long long type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I8>                         { typedef int8_t type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U8>                         { typedef uint8_t type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I16>                        { typedef int16_t type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U16>                        { typedef uint16_t type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I32>                        { typedef int32_t type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U32>                        { typedef uint32_t type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I64>                        { typedef int64_t type; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U64>                        { typedef uint64_t type; };
 template<> struct libxstream_map_from<LIBXSTREAM_TYPE_F32>                        { typedef float type; };
 template<> struct libxstream_map_from<LIBXSTREAM_TYPE_F64>                        { typedef double type; };
 template<> struct libxstream_map_from<LIBXSTREAM_TYPE_C32>                        { typedef std::complex<float>  type; typedef float  ctype[2]; };

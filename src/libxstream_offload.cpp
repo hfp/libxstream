@@ -45,7 +45,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
   const struct LIBXSTREAM_TARGET(mic) argument_type {
     libxstream_argument* m_signature;
     explicit argument_type(libxstream_argument* signature): m_signature(signature) {}
-    void* operator[](int i) const { return libxstream_get_value(m_signature[i]); } // TODO: implement LIBXSTREAM_CALL_PVP
+    void* operator[](int i) const { return libxstream_get_value(m_signature[i]); }
   } a(arguments);
 
   if (arguments && translation) {
@@ -109,7 +109,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
     libxstream_argument *const signature = m_signature;
     const int flags = m_flags;
     size_t arity = 0;
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_arity(m_signature, &arity));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_arity(m_signature, &arity));
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
