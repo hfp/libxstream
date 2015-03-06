@@ -80,7 +80,7 @@ LIBXSTREAM_EXPORT_C typedef enum libxstream_call_flags {
   /** terminates the list */
   LIBXSTREAM_CALL_INVALID,
   /** collection of any valid flags from above */
-  LIBXSTREAM_CALL_DEFAULT = LIBXSTREAM_CALL_PPP
+  LIBXSTREAM_CALL_DEFAULT = LIBXSTREAM_CALL_CONVENTION
 } libxstream_call_flags;
 /** Function argument type. */
 LIBXSTREAM_EXPORT_C typedef struct LIBXSTREAM_TARGET(mic) libxstream_argument libxstream_argument;

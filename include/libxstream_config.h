@@ -61,6 +61,12 @@
 #define LIBXSTREAM_TRACE
 
 /**
+ * Calling convention; this is a rather deep switch impacting
+ * all function definitions of functions able to get enqueued.
+ */
+#define LIBXSTREAM_CALL_CONVENTION LIBXSTREAM_CALL_PPP
+
+/**
  * Enables asynchronous offloads.
  * Valid selections:
  * - #define LIBXSTREAM_ASYNC: enables default (1) behavior
