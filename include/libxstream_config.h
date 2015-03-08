@@ -61,12 +61,6 @@
 #define LIBXSTREAM_TRACE
 
 /**
- * Calling convention; this is a rather deep switch impacting
- * all function definitions of functions able to get enqueued.
- */
-#define LIBXSTREAM_CALL_CONVENTION LIBXSTREAM_CALL_PVP
-
-/**
  * Enables asynchronous offloads.
  * Valid selections:
  * - #define LIBXSTREAM_ASYNC: enables default (1) behavior
@@ -136,6 +130,17 @@
 
 /** Enable exporting internal C++ interfaces (legacy). */
 /*#define LIBXSTREAM_INTERNAL*/
+
+/**
+ * Changing the calling convention; this is a rather deep switch impacting
+ * all function definitions of functions able to get enqueued. The default
+ * convention is "by-pointer" passing arrays, scalars, and complex values
+ * by pointer. Enabling the "by-value" convention attempts to pass arrays
+ * and complex values by pointer whereas scalars smaller are passed by
+ * value. The "by-value" convention is not completely functional and
+ * cannot be used.
+ */
+//#define LIBXSTREAM_CALL_BYVALUE
 
 /**
  * Below preprocessor symbols fixup some platform specifics.

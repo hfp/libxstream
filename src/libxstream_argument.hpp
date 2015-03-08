@@ -36,6 +36,11 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
 
 
+template<size_t N> struct libxstream_argument_value {};
+template<> struct libxstream_argument_value<4> { typedef float type; };
+template<> struct libxstream_argument_value<8> { typedef double type; };
+
+
 extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
   enum kind_type {
     kind_invalid  = 0,
@@ -45,8 +50,9 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
   };
 
   // This data member *must* be the first!
-  union element_union {
+  union data_union {
     char self[sizeof(void*)], c;
+    uintptr_t pointer;
     int8_t    i8;
     uint8_t   u8;
     int16_t   i16;
@@ -59,11 +65,10 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
     double    f64, c64[2];
   } data;
 
-  union call_union {
-    char data[8/*must be 64-bit even on 32-bit OS!*/];
+  union value_union {
     void* pointer;
     const void* const_pointer;
-    typedef double value_type;
+    typedef libxstream_argument_value<sizeof(void*)>::type value_type;
     value_type value;
   };
 
@@ -77,7 +82,12 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
 LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[]);
 int libxstream_construct(libxstream_argument* signature, size_t nargs);
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) libxstream_argument::call_union libxstream_get_value(const libxstream_argument& arg, libxstream_call_flags call_convention = LIBXSTREAM_CALL_CONVENTION);
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg,
+#if defined(LIBXSTREAM_CALL_BYVALUE)
+  bool byvalue = true);
+#else
+  bool byvalue = false);
+#endif
 LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)

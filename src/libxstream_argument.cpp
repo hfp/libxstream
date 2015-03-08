@@ -69,7 +69,7 @@ LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument argument
     }
     else { // 0 == dims && weak_candidate
       argument.type = LIBXSTREAM_TYPE_VOID;
-      LIBXSTREAM_CHECK_CONDITION(sizeof(libxstream_argument::element_union) >= *shape);
+      LIBXSTREAM_CHECK_CONDITION(sizeof(libxstream_argument::data_union) >= *shape);
       argument.shape[0] = shape[0];
     }
 
@@ -111,33 +111,33 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) libxstream_argument::call_union libxstream_get_value(const libxstream_argument& arg, libxstream_call_flags call_convention)
+LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg, bool byvalue)
 {
-  libxstream_argument::call_union value;
+  const void* data = 0;
 
-  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind) || (LIBXSTREAM_CALL_PVP == call_convention &&
-    (LIBXSTREAM_TYPE_C32 > arg.type || (LIBXSTREAM_TYPE_VOID == arg.type && sizeof(value) >= *arg.shape))))
+  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind) || (byvalue &&
+    (LIBXSTREAM_TYPE_C32 > arg.type || (LIBXSTREAM_TYPE_VOID == arg.type && sizeof(void*) >= *arg.shape))))
   {
-    for (size_t i = 0; i < sizeof(value); ++i) value.data[i] = arg.data.self[i];
+    char *const dst = reinterpret_cast<char*>(&data);
+    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.self[i];
   }
-  else {
-    value.const_pointer = arg.data.self;
-
-    // fix-up 32-bit address
-    for (size_t i = sizeof(void*); i < sizeof(value); ++i) value.data[i] = 0;
+  else { // by-value
+    data = arg.data.self; // pointer to data
   }
 
+  libxstream_argument::value_union value;
+  value.const_pointer = data;
   return value;
 }
 
 
 LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data)
 {
-  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) { // take the pointer
+  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) { // by-pointer
     *reinterpret_cast<const void**>(&arg) = data;
-    LIBXSTREAM_ASSERT(libxstream_get_value(arg).pointer == data);
+    LIBXSTREAM_ASSERT(libxstream_get_value(arg).const_pointer == data);
   }
-  else { // copy from the given pointer
+  else { // by-value: copy from the given pointer
     size_t typesize = 0 != arg.dims ? 1 : *arg.shape;
     if (LIBXSTREAM_TYPE_VOID != arg.type) {
       LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(arg.type, &typesize));
@@ -152,7 +152,7 @@ LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const 
     }
 
     // allows to promote smaller types to pointer-size
-    for (size_t i = typesize; i < sizeof(data); ++i) arg.data.self[i] = 0;
+    for (size_t i = typesize; i < sizeof(void*); ++i) arg.data.self[i] = 0;
   }
 
   return LIBXSTREAM_ERROR_NONE;

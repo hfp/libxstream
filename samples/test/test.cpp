@@ -45,14 +45,14 @@
 
 namespace test_internal {
 
-LIBXSTREAM_TARGET(mic) void check(libxstream_bool& result, const char pattern, const void* buffer, size_t size)
+LIBXSTREAM_TARGET(mic) void check(libxstream_bool& result, LIBXSTREAM_INVAL(char) pattern, const void* buffer, LIBXSTREAM_INVAL(size_t) size)
 {
   size_t value = 0;
   bool ok = true;
   // check function is called with using LIBXSTREAM hence introspection may not be available
   if (LIBXSTREAM_ERROR_NONE == libxstream_get_argument(buffer, &value)) {
     ok = ok && 2 == value;
-    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_shape(0, value, &value) && size == value;
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_shape(0, value, &value) && LIBXSTREAM_GETVAL(size) == value;
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_arity(0, &value) && 4 == value;
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_dims(0, 0, &value) && 0 == value;
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_dims(0, 1, &value) && 0 == value;
@@ -60,41 +60,41 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool& result, const char pattern, c
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_dims(0, 3, &value) && 0 == value;
     const void* data = 0;
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 0, &data) && result == *static_cast<const libxstream_bool*>(data);
-    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 1, &data) && pattern == *static_cast<const char*>(data);
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 1, &data) && LIBXSTREAM_GETVAL(pattern) == *static_cast<const char*>(data);
     ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 2, &data) && buffer == data;
-    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 3, &data) && size == *static_cast<const size_t*>(data);
+    ok = ok && LIBXSTREAM_ERROR_NONE == libxstream_get_data(0, 3, &data) && LIBXSTREAM_GETVAL(size) == *static_cast<const size_t*>(data);
   }
 
   const char *const values = reinterpret_cast<const char*>(buffer);
-  for (size_t i = 0; i < size && ok; ++i) {
-    ok = pattern == values[i];
+  for (size_t i = 0; i < LIBXSTREAM_GETVAL(size) && ok; ++i) {
+    ok = LIBXSTREAM_GETVAL(pattern) == values[i];
   }
 
   result = ok ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 }
 
 LIBXSTREAM_TARGET(mic) void complex_c(libxstream_bool* ok,
-  const float* c32, float freal, float fimag,
-  const double* c64, double dreal, double dimag)
+  const float* c32, LIBXSTREAM_INVAL(float) freal, LIBXSTREAM_INVAL(float) fimag,
+  const double* c64, LIBXSTREAM_INVAL(double) dreal, LIBXSTREAM_INVAL(double) dimag)
 {
   LIBXSTREAM_ASSERT(ok && c32 && c64);
   libxstream_bool result = LIBXSTREAM_TRUE;
-  result = LIBXSTREAM_FALSE != result && freal == c32[0];
-  result = LIBXSTREAM_FALSE != result && fimag == c32[1];
-  result = LIBXSTREAM_FALSE != result && dreal == c64[0];
-  result = LIBXSTREAM_FALSE != result && dimag == c64[1];
+  result = LIBXSTREAM_FALSE != result && LIBXSTREAM_GETVAL(freal) == c32[0];
+  result = LIBXSTREAM_FALSE != result && LIBXSTREAM_GETVAL(fimag) == c32[1];
+  result = LIBXSTREAM_FALSE != result && LIBXSTREAM_GETVAL(dreal) == c64[0];
+  result = LIBXSTREAM_FALSE != result && LIBXSTREAM_GETVAL(dimag) == c64[1];
   *ok = result;
 }
 
 LIBXSTREAM_TARGET(mic) void complex_cpp(libxstream_bool& ok,
-  const std::complex<float>& c32, float freal, float fimag,
-  const std::complex<double>& c64, double dreal, double dimag)
+  const std::complex<float>& c32, LIBXSTREAM_INVAL(float) freal, LIBXSTREAM_INVAL(float) fimag,
+  const std::complex<double>& c64, LIBXSTREAM_INVAL(double) dreal, LIBXSTREAM_INVAL(double) dimag)
 {
   bool result = true;
-  result = result && freal == c32.real();
-  result = result && fimag == c32.imag();
-  result = result && dreal == c64.real();
-  result = result && dimag == c64.imag();
+  result = result && LIBXSTREAM_GETVAL(freal) == c32.real();
+  result = result && LIBXSTREAM_GETVAL(fimag) == c32.imag();
+  result = result && LIBXSTREAM_GETVAL(dreal) == c64.real();
+  result = result && LIBXSTREAM_GETVAL(dimag) == c64.imag();
   ok = result ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 }
 
@@ -232,7 +232,7 @@ test_type::test_type(int device)
     LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_synchronize(m_event));
   }
 
-  test_internal::check(ok, pattern_a, m_host_mem, size);
+  test_internal::check(ok, LIBXSTREAM_SETVAL(pattern_a), m_host_mem, LIBXSTREAM_SETVAL(size));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_memcpy_d2h(m_dev_mem1, m_host_mem, size2, m_stream));
@@ -243,7 +243,8 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_query(m_event, &has_occured));
   LIBXSTREAM_CHECK_CONDITION_THROW(0 != has_occured);
 
-  test_internal::check(ok, 0, m_host_mem, size);
+  const char zero = 0;
+  test_internal::check(ok, LIBXSTREAM_SETVAL(zero), m_host_mem, LIBXSTREAM_SETVAL(size));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 }
 

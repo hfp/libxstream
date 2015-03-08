@@ -56,28 +56,28 @@ LIBXSTREAM_EXTERN_C LIBXSTREAM_TARGET(mic) void DGEMM(
   const double*, double*, const int*);
 
 
-LIBXSTREAM_TARGET(mic) void process(size_t size, size_t nn, const size_t* idata,
+LIBXSTREAM_TARGET(mic) void process(LIBXSTREAM_INVAL(size_t) size, LIBXSTREAM_INVAL(size_t) nn, const size_t* idata,
   const double* adata, const double* bdata, double* cdata)
 {
-  if (0 < size) {
+  if (0 < LIBXSTREAM_GETVAL(size)) {
     static const double alpha = 1, beta = 1;
     static const char trans = 'N';
     const int isize = static_cast<int>(size);
     const size_t base = idata[0];
 
 #if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
-    const int nthreads = omp_get_max_threads() / size;
+    const int nthreads = omp_get_max_threads() / LIBXSTREAM_GETVAL(size);
     const int dynamic = omp_get_dynamic(), nested = omp_get_nested();
     omp_set_dynamic(0);
     omp_set_nested(1);
-#   pragma omp parallel for schedule(dynamic,1) num_threads(size)
+#   pragma omp parallel for schedule(dynamic,1) num_threads(LIBXSTREAM_GETVAL(size))
 #endif
     for (int i = 0; i < isize; ++i) {
 #if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
       omp_set_num_threads(nthreads);
 #endif
       LIBXSTREAM_ASSERT(base <= idata[i]);
-      const size_t i0 = idata[i], i1 = (i + 1) < isize ? idata[i+1] : (i0 + nn), n2 = i1 - i0, offset = i0 - base;
+      const size_t i0 = idata[i], i1 = (i + 1) < isize ? idata[i+1] : (i0 + LIBXSTREAM_GETVAL(nn)), n2 = i1 - i0, offset = i0 - base;
       const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
       DGEMM(&trans, &trans, &n, &n, &n, &alpha, adata + offset, &n, bdata + offset, &n, &beta, cdata + offset, &n);
     }
@@ -177,13 +177,14 @@ int main(int argc, char* argv[])
 
 #if defined(MULTI_DGEMM_USE_CHECK)
     std::vector<double> expected(host_data.max_matrix_size());
+    const size_t testbatchsize = 1;
     double max_error = 0;
     size_t i0 = 0;
     for (int i = 0; i < nitems; ++i) {
       const size_t i1 = host_data.idata()[i+1];
       const int nn = static_cast<int>(i1 - i0);
       std::fill_n(&expected[0], nn, 0.0);
-      process(1, nn, host_data.idata() + i, host_data.adata() + i0, host_data.bdata() + i0, &expected[0]);
+      process(LIBXSTREAM_SETVAL(testbatchsize), LIBXSTREAM_SETVAL(nn), host_data.idata() + i, host_data.adata() + i0, host_data.bdata() + i0, &expected[0]);
       for (int n = 0; n < nn; ++n) max_error = std::max(max_error, std::abs(expected[n] - host_data.cdata()[i0+n]));
       i0 = i1;
     }

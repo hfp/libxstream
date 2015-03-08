@@ -40,7 +40,7 @@
 #define LIBXSTREAM_OFFLOAD_FREE  alloc_if(0) free_if(1)
 #define LIBXSTREAM_OFFLOAD_REUSE alloc_if(0) free_if(0)
 #define LIBXSTREAM_OFFLOAD_REFRESH length(0) LIBXSTREAM_OFFLOAD_REUSE
-#define LIBXSTREAM_OFFLOAD_DATA(ARG, IS_SCALAR) inout(ARG: length(((IS_SCALAR)*sizeof(libxstream_argument::element_union))) alloc_if(IS_SCALAR) free_if(IS_SCALAR))
+#define LIBXSTREAM_OFFLOAD_DATA(ARG, IS_SCALAR) inout(ARG: length(((IS_SCALAR)*sizeof(libxstream_argument::data_union))) alloc_if(IS_SCALAR) free_if(IS_SCALAR))
 
 #define LIBXSTREAM_ASYNC_PENDING (capture_region_pending)
 #define LIBXSTREAM_ASYNC_READY (0 == (LIBXSTREAM_ASYNC_PENDING))
@@ -163,20 +163,12 @@ public:
     return *reinterpret_cast<const T*>(&m_signature[i]);
   }
 
-  template<typename T,size_t i> const T* ptr() const {
-#if defined(LIBXSTREAM_DEBUG)
-    size_t arity = 0;
-    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && i < arity);
-#endif
-    return static_cast<const T*>(libxstream_get_value(m_signature[i]).pointer);
-  }
-
   template<typename T,size_t i> T* ptr() {
 #if defined(LIBXSTREAM_DEBUG)
     size_t arity = 0;
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && i < arity);
 #endif
-    return static_cast<T*>(libxstream_get_value(m_signature[i]).pointer);
+    return *reinterpret_cast<T**>(&m_signature[i]);
   }
 
   int status(int code);

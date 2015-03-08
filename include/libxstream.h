@@ -74,13 +74,10 @@ LIBXSTREAM_EXPORT_C typedef enum libxstream_type {
 LIBXSTREAM_EXPORT_C typedef enum libxstream_call_flags {
   LIBXSTREAM_CALL_WAIT    = 1 /* synchronous function call */,
   LIBXSTREAM_CALL_NATIVE  = 2 /* native host/MIC function */,
-  /** [array, scalar, complex] by-pointer (P), or by-value (V). */
-  LIBXSTREAM_CALL_PPP     = 4 /* by-P, by-P, by-P */,
-  LIBXSTREAM_CALL_PVP     = 8 /* by-P, by-V, by-P */,
   /** terminates the list */
   LIBXSTREAM_CALL_INVALID,
   /** collection of any valid flags from above */
-  LIBXSTREAM_CALL_DEFAULT = LIBXSTREAM_CALL_CONVENTION
+  LIBXSTREAM_CALL_DEFAULT = 0
 } libxstream_call_flags;
 /** Function argument type. */
 LIBXSTREAM_EXPORT_C typedef struct LIBXSTREAM_TARGET(mic) libxstream_argument libxstream_argument;
@@ -189,7 +186,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const lib
 
 #if defined(__cplusplus)
 template<typename TYPE> struct libxstream_map_to { static libxstream_type type() {/** select a type by type-size; bool goes here! */
-                  libxstream_type t = LIBXSTREAM_TYPE_VOID;   LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(TYPE), &t)); return t; } };
+                             libxstream_type autotype = LIBXSTREAM_TYPE_VOID; libxstream_get_autotype(sizeof(TYPE), &autotype); return autotype; } };
 template<> struct libxstream_map_to<int8_t>                                       { static libxstream_type type() { return LIBXSTREAM_TYPE_I8;   } };
 template<> struct libxstream_map_to<uint8_t>                                      { static libxstream_type type() { return LIBXSTREAM_TYPE_U8;   } };
 template<> struct libxstream_map_to<int16_t>                                      { static libxstream_type type() { return LIBXSTREAM_TYPE_I16;  } };
