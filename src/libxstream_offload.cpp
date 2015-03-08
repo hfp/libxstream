@@ -42,7 +42,7 @@ namespace libxstream_offload_internal {
 
 LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argument arguments[], char* translation[], size_t arity, int flags)
 {
-  const struct argument_type {
+  const struct LIBXSTREAM_TARGET(mic) argument_type {
     libxstream_argument* m_arguments;
     explicit argument_type(libxstream_argument arguments[]): m_arguments(arguments) {}
 #if defined(LIBXSTREAM_CALL_BYVALUE)
