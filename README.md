@@ -25,11 +25,8 @@ typedef enum libxstream_type { /** see libxstream.h */
 typedef enum libxstream_call_flags {
   LIBXSTREAM_CALL_WAIT    = 1 /* synchronous function call */,
   LIBXSTREAM_CALL_NATIVE  = 2 /* native host/MIC function */,
-  /** [array, scalar, complex] by-pointer (P), or by-value (V). */
-  LIBXSTREAM_CALL_PPP     = 4 /* by-P, by-P, by-P */,
-  LIBXSTREAM_CALL_PVP     = 8 /* by-P, by-V, by-P */,
   /** collection of any valid flags from above */
-  LIBXSTREAM_CALL_DEFAULT = LIBXSTREAM_CALL_CONVENTION
+  LIBXSTREAM_CALL_DEFAULT = 0
 } libxstream_call_flags;
 /** Function argument type. */
 typedef struct libxstream_argument libxstream_argument;
