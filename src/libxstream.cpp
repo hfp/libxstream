@@ -639,8 +639,8 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ALLOC_PINNED)
       LIBXSTREAM_ASYNC_BEGIN(0, device, memory)
       {
-        const char *const memory = ptr<const char,1>();
-#       pragma offload_transfer target(mic) host_unpin(buffer: length(0))
+        const char* memory = ptr<const char,1>();
+#       pragma offload_transfer target(mic) host_unpin(memory: length(0))
         LIBXSTREAM_CHECK_CALL_ASSERT(status(libxstream_real_deallocate(memory)));
       }
       LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT, result);
