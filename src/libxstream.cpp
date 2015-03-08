@@ -555,7 +555,22 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
   {
     libxstream_use_sink(&device);
 #endif
-    result = libxstream_real_allocate(memory, size, alignment);
+    void* buffer = 0;
+    result = libxstream_real_allocate(&buffer, size, alignment);
+
+    if (LIBXSTREAM_ERROR_NONE == result && 0 != buffer) {
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ALLOC_PINNED)
+      LIBXSTREAM_ASYNC_BEGIN(0, device, buffer, size)
+      {
+        const char* buffer = ptr<const char,1>();
+        const size_t size = val<const size_t,2>();
+#       pragma offload_transfer target(mic) host_pin(buffer: length(size))
+      }
+      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_WAIT, result);
+      LIBXSTREAM_CHECK_ERROR(result);
+#endif
+      *memory = buffer;
+    }
   }
 
 #if defined(LIBXSTREAM_SYNCMEM)
@@ -621,7 +636,17 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
     {
       libxstream_use_sink(&device);
 #endif
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ALLOC_PINNED)
+      LIBXSTREAM_ASYNC_BEGIN(0, device, memory)
+      {
+        const char *const memory = ptr<const char,1>();
+#       pragma offload_transfer target(mic) host_unpin(buffer: length(0))
+        LIBXSTREAM_CHECK_CALL_ASSERT(status(libxstream_real_deallocate(memory)));
+      }
+      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT, result);
+#else
       result = libxstream_real_deallocate(memory);
+#endif
     }
   }
 
