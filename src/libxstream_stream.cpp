@@ -538,7 +538,7 @@ void libxstream_stream::unlock()
 }
 
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
 _Offload_stream libxstream_stream::handle() const
 {
   const size_t nstreams = libxstream_stream_internal::registry.nstreams(m_device);
