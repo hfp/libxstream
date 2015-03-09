@@ -140,7 +140,7 @@
  * value. The "by-value" convention is not completely functional and
  * cannot be used.
  */
-//#define LIBXSTREAM_CALL_BYVALUE
+/*#define LIBXSTREAM_CALL_BYVALUE*/
 
 /**
  * Below preprocessor symbols fixup some platform specifics.
