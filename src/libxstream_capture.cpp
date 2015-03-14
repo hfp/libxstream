@@ -180,7 +180,7 @@ private:
 #endif
     // stall the push if LIBXSTREAM_MAX_QSIZE is exceeded
     while (0 != *entry) {
-      this_thread_yield();
+      this_thread_wait();
     }
 
     LIBXSTREAM_ASSERT(0 == *entry);
@@ -189,7 +189,7 @@ private:
 
     if (wait) {
       while (new_entry == *entry) {
-        this_thread_yield();
+        this_thread_wait();
       }
     }
   }
@@ -210,7 +210,7 @@ private:
 #endif
     for (;;) {
       while (0 == (capture_region = q.get())) {
-        this_thread_yield();
+        this_thread_wait();
       }
 
       if (terminator != capture_region) {

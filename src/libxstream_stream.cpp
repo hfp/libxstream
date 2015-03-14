@@ -473,7 +473,7 @@ void libxstream_stream::lock(bool retry)
             this_thread_sleep(sleep_ms);
           }
           else {
-            this_thread_yield();
+            this_thread_wait();
           }
           thread_begin = m_begin;
           thread_end = m_end;
@@ -506,7 +506,7 @@ void libxstream_stream::lock(bool retry)
 #endif
     {
       while (!libxstream_stream_internal::atomic_compare_exchange(*stream_thread, unlocked, this_thread)) {
-        this_thread_yield();
+        this_thread_wait();
         unlocked = -1;
       }
     }
