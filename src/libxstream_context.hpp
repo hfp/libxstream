@@ -33,7 +33,7 @@
 
 #include "libxstream_argument.hpp"
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
 struct LIBXSTREAM_TARGET(mic) libxstream_context {
@@ -46,5 +46,5 @@ struct LIBXSTREAM_TARGET(mic) libxstream_context {
 
 LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_find(const libxstream_context& context, const void* variable);
 
-#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+#endif // defined(LIBXSTREAM_EXPORTED)
 #endif // LIBXSTREAM_CONTEXT_HPP

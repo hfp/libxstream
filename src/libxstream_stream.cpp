@@ -568,37 +568,37 @@ const char* libxstream_stream::name() const
 #endif
 
 
-LIBXSTREAM_EXPORT_INTERNAL const libxstream_stream* cast_to_stream(const void* stream)
+const libxstream_stream* cast_to_stream(const void* stream)
 {
   return static_cast<const libxstream_stream*>(stream);
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL libxstream_stream* cast_to_stream(void* stream)
+libxstream_stream* cast_to_stream(void* stream)
 {
   return static_cast<libxstream_stream*>(stream);
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL const libxstream_stream* cast_to_stream(const libxstream_stream* stream)
+const libxstream_stream* cast_to_stream(const libxstream_stream* stream)
 {
   return stream;
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL libxstream_stream* cast_to_stream(libxstream_stream* stream)
+libxstream_stream* cast_to_stream(libxstream_stream* stream)
 {
   return stream;
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL const libxstream_stream* cast_to_stream(const libxstream_stream& stream)
+const libxstream_stream* cast_to_stream(const libxstream_stream& stream)
 {
   return &stream;
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL libxstream_stream* cast_to_stream(libxstream_stream& stream)
+libxstream_stream* cast_to_stream(libxstream_stream& stream)
 {
   return &stream;
 }

@@ -128,9 +128,6 @@
 /** Prefers OpenMP based locking primitives. */
 /*#define LIBXSTREAM_PREFER_OPENMP*/
 
-/** Enable exporting internal C++ interfaces (legacy). */
-/*#define LIBXSTREAM_INTERNAL*/
-
 /**
  * Changing the calling convention; this is a rather deep switch impacting
  * all function definitions of functions able to get enqueued. The default

@@ -33,10 +33,10 @@
 
 #include <libxstream.h>
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
 int libxstream_offload(libxstream_function function, const libxstream_argument signature[], libxstream_stream* stream, int flags);
 
-#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+#endif // defined(LIBXSTREAM_EXPORTED)
 #endif // LIBXSTREAM_OFFLOAD_HPP

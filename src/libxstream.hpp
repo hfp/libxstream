@@ -33,7 +33,7 @@
 
 #include <libxstream.h>
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
 /** Data type representing a signal. */
@@ -56,5 +56,5 @@ enum {
   LIBXSTREAM_CALL_EXTERNAL  = (4 * (LIBXSTREAM_CALL_INVALID - 1))
 };
 
-#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+#endif // defined(LIBXSTREAM_EXPORTED)
 #endif // LIBXSTREAM_HPP

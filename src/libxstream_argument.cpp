@@ -37,7 +37,7 @@
 #include <libxstream_end.h>
 
 
-LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[])
+int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[])
 {
   size_t typesize = 0;
   const bool weak_candidate = LIBXSTREAM_TYPE_VOID == type || (LIBXSTREAM_ERROR_NONE == libxstream_get_typesize(type, &typesize) && 1 == typesize);
@@ -111,7 +111,7 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg, bool byvalue)
+LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg, bool byvalue)
 {
   const void* data = 0;
 

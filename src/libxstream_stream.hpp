@@ -37,13 +37,13 @@
 # include <offload.h>
 #endif
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
-struct LIBXSTREAM_EXPORT_INTERNAL libxstream_event;
+struct libxstream_event;
 
 
-struct LIBXSTREAM_EXPORT_INTERNAL libxstream_stream {
+struct libxstream_stream {
 public:
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
 
@@ -117,14 +117,14 @@ private:
 };
 
 
-LIBXSTREAM_EXPORT_INTERNAL const libxstream_stream* cast_to_stream(const void* stream);
-LIBXSTREAM_EXPORT_INTERNAL libxstream_stream* cast_to_stream(void* stream);
+const libxstream_stream* cast_to_stream(const void* stream);
+libxstream_stream* cast_to_stream(void* stream);
 
-LIBXSTREAM_EXPORT_INTERNAL const libxstream_stream* cast_to_stream(const libxstream_stream* stream);
-LIBXSTREAM_EXPORT_INTERNAL libxstream_stream* cast_to_stream(libxstream_stream* stream);
+const libxstream_stream* cast_to_stream(const libxstream_stream* stream);
+libxstream_stream* cast_to_stream(libxstream_stream* stream);
 
-LIBXSTREAM_EXPORT_INTERNAL const libxstream_stream* cast_to_stream(const libxstream_stream& stream);
-LIBXSTREAM_EXPORT_INTERNAL libxstream_stream* cast_to_stream(libxstream_stream& stream);
+const libxstream_stream* cast_to_stream(const libxstream_stream& stream);
+libxstream_stream* cast_to_stream(libxstream_stream& stream);
 
 template<typename T> libxstream_stream* cast_to_stream(T stream) {
   libxstream_use_sink(&stream);
@@ -132,5 +132,5 @@ template<typename T> libxstream_stream* cast_to_stream(T stream) {
   return static_cast<libxstream_stream*>(0);
 }
 
-#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+#endif // defined(LIBXSTREAM_EXPORTED)
 #endif // LIBXSTREAM_STREAM_HPP

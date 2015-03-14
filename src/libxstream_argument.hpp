@@ -33,7 +33,7 @@
 
 #include <libxstream.h>
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
 template<size_t N> struct libxstream_argument_value {};
@@ -79,10 +79,10 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
 };
 
 
-LIBXSTREAM_EXPORT_INTERNAL int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[]);
+int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[]);
 int libxstream_construct(libxstream_argument* signature, size_t nargs);
 
-LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg,
+LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg,
 #if defined(LIBXSTREAM_CALL_BYVALUE)
   bool byvalue = true);
 #else
@@ -90,5 +90,5 @@ LIBXSTREAM_EXPORT_INTERNAL LIBXSTREAM_TARGET(mic) libxstream_argument::value_uni
 #endif
 LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data);
 
-#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+#endif // defined(LIBXSTREAM_EXPORTED)
 #endif // LIBXSTREAM_ARGUMENT_HPP

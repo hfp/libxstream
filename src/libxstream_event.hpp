@@ -33,10 +33,10 @@
 
 #include "libxstream.hpp"
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
-struct LIBXSTREAM_EXPORT_INTERNAL libxstream_event {
+struct libxstream_event {
 public:
   libxstream_event();
 
@@ -57,7 +57,7 @@ public:
   int wait(const libxstream_stream* exclude = 0);
 
 private:
-  class LIBXSTREAM_EXPORT_INTERNAL slot_type {
+  class slot_type {
     libxstream_stream* m_stream;
     mutable libxstream_signal m_pending;
   public:
@@ -71,5 +71,5 @@ private:
   size_t m_expected;
 };
 
-#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+#endif // defined(LIBXSTREAM_EXPORTED)
 #endif // LIBXSTREAM_EVENT_HPP

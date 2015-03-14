@@ -34,7 +34,7 @@
 #include "libxstream_argument.hpp"
 #include "libxstream_stream.hpp"
 
-#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM) || defined(LIBXSTREAM_INTERNAL)
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 #define LIBXSTREAM_OFFLOAD_ALLOC alloc_if(1) free_if(0)
 #define LIBXSTREAM_OFFLOAD_FREE  alloc_if(0) free_if(1)
@@ -110,9 +110,9 @@
   } while(libxstream_not_constant(LIBXSTREAM_FALSE))
 
 
-struct LIBXSTREAM_EXPORT_INTERNAL libxstream_capture_base {
+struct libxstream_capture_base {
 public:
-  class LIBXSTREAM_EXPORT_INTERNAL arg_type: public libxstream_argument {
+  class arg_type: public libxstream_argument {
   public:
     arg_type(): m_signature(false) {
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(this, 0, kind_inout, 0, LIBXSTREAM_TYPE_INVALID, 0, 0));
@@ -195,7 +195,7 @@ private:
 };
 
 
-LIBXSTREAM_EXPORT_INTERNAL int libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait);
+int libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait);
 
-#endif // defined(LIBXSTREAM_EXPORTED) || defined(LIBXSTREAM_INTERNAL)
+#endif // defined(LIBXSTREAM_EXPORTED)
 #endif // LIBXSTREAM_CAPTURE_HPP

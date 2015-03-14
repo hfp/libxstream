@@ -362,7 +362,7 @@ void libxstream_capture_base::operator()()
 }
 
 
-LIBXSTREAM_EXPORT_INTERNAL int libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait)
+int libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait)
 {
 #if !defined(LIBXSTREAM_CAPTURE_DEBUG)
 # if defined(LIBXSTREAM_SYNCHRONOUS)
