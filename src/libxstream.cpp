@@ -392,15 +392,15 @@ void this_thread_sleep(size_t ms)
 void this_thread_wait()
 {
   static LIBXSTREAM_TLS size_t cycle = 0;
-  if (1 == nthreads_active() || 0 == (++cycle % 10)) {
+  if (1 < nthreads_active() && 0 != (++cycle % 100000)) {
+    this_thread_yield();
+  }
+  else {
 #if defined(_WIN32)
     SwitchToThread();
 #else
     this_thread_sleep(1);
 #endif
-  }
-  else {
-    this_thread_yield();
   }
 }
 
