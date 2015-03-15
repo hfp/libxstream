@@ -114,7 +114,7 @@
 #define LIBXSTREAM_WAIT_LOCK_MS 200
 
 /** Number of cycles to actively wait. */
-#define LIBXSTREAM_WAIT_ACTIVE_CYCLES 1000
+#define LIBXSTREAM_WAIT_ACTIVE_CYCLES 10000
 
 /**
  * Thread-local signals allow for some more concurrency
