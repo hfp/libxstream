@@ -49,8 +49,7 @@ bool libxstream_lock_try(libxstream_lock* lock);
 size_t nthreads_active();
 int this_thread_id();
 void this_thread_yield();
-void this_thread_sleep(size_t ms);
-void this_thread_wait();
+void this_thread_sleep(size_t ms = 1);
 
 enum {
   LIBXSTREAM_CALL_UNLOCK    = (2 * (LIBXSTREAM_CALL_INVALID - 1)),

@@ -180,7 +180,7 @@ private:
 #endif
     // stall the push if LIBXSTREAM_MAX_QSIZE is exceeded
     while (0 != *entry) {
-      this_thread_wait();
+      this_thread_yield();
     }
 
     LIBXSTREAM_ASSERT(0 == *entry);
@@ -189,7 +189,7 @@ private:
 
     if (wait) {
       while (new_entry == *entry) {
-        this_thread_wait();
+        this_thread_yield();
       }
     }
   }
@@ -209,8 +209,15 @@ private:
 #   pragma omp master
 #endif
     for (;;) {
+      size_t cycle = 0;
       while (0 == (capture_region = q.get())) {
-        this_thread_wait();
+        if ((LIBXSTREAM_WAIT_ACTIVE_CYCLES) > cycle) {
+          this_thread_yield();
+          ++cycle;
+        }
+        else {
+          this_thread_sleep();
+        }
       }
 
       if (terminator != capture_region) {

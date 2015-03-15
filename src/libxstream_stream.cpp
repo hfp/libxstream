@@ -465,7 +465,7 @@ void libxstream_stream::lock(bool retry)
 # endif
     if (retry) {
       while (!libxstream_stream_internal::atomic_compare_exchange(*stream_thread, unlocked, this_thread)) {
-        static /*const*/ size_t sleep_ms = (LIBXSTREAM_LOCK_WAIT_MS) / (LIBXSTREAM_LOCK_RETRY);
+        static /*const*/ size_t sleep_ms = (LIBXSTREAM_WAIT_LOCK_MS) / (LIBXSTREAM_LOCK_RETRY);
 
         if ((LIBXSTREAM_LOCK_RETRY) > nretry || m_begin != m_end) {
           nretry += (thread_begin == m_begin && thread_end == m_end) ? 1 : 0;
@@ -473,7 +473,7 @@ void libxstream_stream::lock(bool retry)
             this_thread_sleep(sleep_ms);
           }
           else {
-            this_thread_wait();
+            this_thread_yield();
           }
           thread_begin = m_begin;
           thread_end = m_end;
@@ -506,7 +506,7 @@ void libxstream_stream::lock(bool retry)
 #endif
     {
       while (!libxstream_stream_internal::atomic_compare_exchange(*stream_thread, unlocked, this_thread)) {
-        this_thread_wait();
+        this_thread_yield();
         unlocked = -1;
       }
     }
