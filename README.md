@@ -1,5 +1,5 @@
 # LIBXSTREAM
-Library to work with streams, events, and code regions that are able to run asynchronous while preserving the usual stream conditions. The library is targeting Intel Architecture (x86) and helps to offload work to an Intel Xeon Phi coprocessor (an instance of the Intel Many Integrated Core "MIC" Architecture). For example, using two streams may be an alternative to the usual double-buffering approach which can be used to hide buffer transfer time behind compute. [[pdf](https://github.com/hfp/libxstream/raw/master/documentation/libxstream.pdf)] [[src](https://github.com/hfp/libxstream/archive/master.zip)]
+Library to work with streams, events, and code regions that are able to run asynchronous while preserving the usual stream conditions. The library is targeting Intel Architecture (x86) and helps to offload work to an Intel Xeon Phi coprocessor (an instance of the Intel Many Integrated Core "MIC" Architecture). For example, using two streams may be an alternative to the usual double-buffering approach which can be used to hide buffer transfer time behind compute. [[pdf](https://github.com/hfp/libxstream/raw/master/documentation/libxstream.pdf)] [[src](https://github.com/hfp/libxstream/archive/v0.8.0.zip)]
 
 ## Interface
 The library's application programming interface (API) completely seals the implementation and only forward-declares types which are beyond the language's built-in types. The entire API consists of below subcategories each illustrated by a small code snippet. The [Function Interface](#function-interface) for instance enables an own function to be enqueued for execution within a stream (via function pointer). A future release of the library will provide a native FORTRAN interface. [[c](https://github.com/hfp/libxstream/blob/master/include/libxstream.h)]
@@ -117,10 +117,15 @@ libxstream_fn_call((libxstream_function)f, args, stream, LIBXSTREAM_CALL_DEFAULT
 libxstream_fn_destroy_signature(args); /*(can be used for many function calls)*/
 ```
 
-In order to avoid repeatedly allocating (and deallocating) a signature, a thread-local signature with the maximum number of arguments supported can be constructed (see libxstream_fn_signature).
+In order to avoid repeatedly allocating (and deallocating) a signature, a thread-local signature with the maximum number of arguments supported can be constructed i.e., the thread-local signature is cleared to allow starting over with an arity of zero.
+
+```C
+libxstream_fn_signature(&args);    /*do not call libxstream_fn_destroy_signature!*/
+libxstream_fn_nargs(args, &nargs); /*nargs==LIBXSTREAM_MAX_NARGS*/
+```
 
 **void fc(const double* scale, const float* in, float* out, const size_t* n, size_t* nzeros)**  
-For the C language, a first observation is that all arguments of the function's signature are passed "by pointer" even a value that needs to be returned (which also allows multiple results to be delivered). Please note that non-elemental ("array") arguments are handled "by pointer" rather than by pointer-to-pointer. The mechanism to pass an argument is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism. Although all arguments are received by pointer, any elemental ("scalar") input is present by value (which is important for the argument's life-time). In contrast, an elemental output is only present by-address, and therefore care must be taken on the call-side to make sure the destination is still valid when the function is executed. The latter is because the execution is asynchronous by default.
+For the C language, a first observation is that all arguments of the function's signature are passed "by pointer"; even a value that needs to be returned (which also allows multiple results to be delivered). Please note that non-elemental ("array") arguments are handled "by pointer" rather than by pointer-to-pointer. The mechanism to pass an argument is called "by-pointer" (or by-address) to distinct from the C++ reference type mechanism. Although all arguments are received by pointer, any elemental ("scalar") input is present by value (which is important for the argument's life-time). In contrast, an elemental output is only present by-address, and therefore care must be taken on the call-side to ensure the destination is still valid when the function is executed. The latter is because the execution is asynchronous by default.
 
 **void fpp(const double& scale, const float* in, float* out, const size_t& n, size_t& nzeros)**  
 For the C++ language, the reference mechanism can be used to conveniently receive an elemental argument "by-value" including elemental output arguments as "non-const reference" ("return value").
@@ -137,7 +142,7 @@ libxstream_fn_output(args, 4, &nzeros, sizetype, 0, NULL);
 Beside of showing some C++ syntax in the above code snippet, the resulting signature is perfectly valid for both the "fc" and the "fpp" function.
 
 **Weak type information**  
-To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments; even non-elemental inputs can be treated as an inout argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a shape indicating the actual size of the element.
+To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments; even non-elemental inputs can be treated as an inout argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a "shape" indicating the actual size of the element in Byte.
 
 ```C
 const size_t typesize = sizeof(float);
@@ -148,7 +153,7 @@ libxstream_fn_inout(args, 1, data, LIBXSTREAM_TYPE_BYTE, 1, &numbytes);
 ```
 
 ### Query Interface
-This "device-side API" allows to query information about function arguments when inside of a user function which is called by the library. This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, the position of the argument within the signature needs to be known. To refer a function's signature when inside of this function, a NULL-pointer is passed to designate the function signature of the current call context. In case of a pointer argument, the position within the signature can be also queried when inside of a library-initiated call context.
+This "device-side API" allows to query information about function arguments when inside of a user function (which is called by the library). This can be used to introspect the function's arguments in terms of type, dimensionality, shape, and other properties. In order to query a property, the position of the argument within the signature needs to be known. However, the position within the signature can be also queried (when inside of a library-initiated call context) by using the actual function argument (given by address). To refer a function's signature when inside of a function, a NULL-pointer is passed to designate the function signature of the current call context.
 
 **Revised function "fc" querying argument properties**  
 As one can see, the signature of a function can often be trimmed to omit arguments which certainly describe the shape of an argument (below function signature omits the "n" argument shown in one of the previous examples).
