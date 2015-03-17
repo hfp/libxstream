@@ -38,5 +38,5 @@
 
 int libxstream_offload(libxstream_function function, const libxstream_argument signature[], libxstream_stream* stream, int flags);
 
-#endif // defined(LIBXSTREAM_EXPORTED)
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_OFFLOAD_HPP

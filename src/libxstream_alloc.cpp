@@ -28,6 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_alloc.hpp"
 
 #include <libxstream_begin.h>
@@ -372,3 +373,5 @@ const void* libxstream_virt_data(const void* memory)
   return static_cast<const char*>(memory) + sizeof(void*) + sizeof(size_t);
 #endif
 }
+
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

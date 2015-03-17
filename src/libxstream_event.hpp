@@ -71,5 +71,5 @@ private:
   size_t m_expected;
 };
 
-#endif // defined(LIBXSTREAM_EXPORTED)
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_EVENT_HPP

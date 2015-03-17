@@ -28,6 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_event.hpp"
 #include "libxstream_capture.hpp"
 
@@ -213,3 +214,5 @@ libxstream_event::slot_type::slot_type(int thread, libxstream_stream& stream)
   : m_stream(&stream) // no need to lock the stream
   , m_pending(stream.pending(thread))
 {}
+
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

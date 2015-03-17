@@ -28,6 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_capture.hpp"
 
 #include <libxstream_begin.h>
@@ -387,3 +388,5 @@ int libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait)
   return LIBXSTREAM_ERROR_NONE;
 #endif
 }
+
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

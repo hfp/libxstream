@@ -132,5 +132,5 @@ template<typename T> libxstream_stream* cast_to_stream(T stream) {
   return static_cast<libxstream_stream*>(0);
 }
 
-#endif // defined(LIBXSTREAM_EXPORTED)
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_STREAM_HPP

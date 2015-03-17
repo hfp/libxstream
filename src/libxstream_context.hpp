@@ -46,5 +46,5 @@ struct LIBXSTREAM_TARGET(mic) libxstream_context {
 
 LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_find(const libxstream_context& context, const void* variable);
 
-#endif // defined(LIBXSTREAM_EXPORTED)
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_CONTEXT_HPP

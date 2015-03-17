@@ -28,6 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_context.hpp"
 #include "libxstream.hpp"
 
@@ -69,3 +70,5 @@ LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_find(const libxstre
   }
   return argument;
 }
+
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

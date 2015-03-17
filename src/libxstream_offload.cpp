@@ -28,6 +28,7 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
+#if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_offload.hpp"
 #include "libxstream_argument.hpp"
 #include "libxstream_capture.hpp"
@@ -522,3 +523,5 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
 
   return result;
 }
+
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

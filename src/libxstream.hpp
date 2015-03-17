@@ -56,5 +56,5 @@ enum {
   LIBXSTREAM_CALL_EXTERNAL  = (4 * (LIBXSTREAM_CALL_INVALID - 1))
 };
 
-#endif // defined(LIBXSTREAM_EXPORTED)
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_HPP

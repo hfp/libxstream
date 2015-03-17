@@ -60,5 +60,5 @@ int libxstream_virt_deallocate(const void* memory);
 void* libxstream_virt_data(void* memory);
 const void* libxstream_virt_data(const void* memory);
 
-#endif // defined(LIBXSTREAM_EXPORTED)
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_ALLOC_HPP

@@ -90,5 +90,5 @@ LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(con
 #endif
 LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data);
 
-#endif // defined(LIBXSTREAM_EXPORTED)
+#endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_ARGUMENT_HPP
