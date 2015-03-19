@@ -46,14 +46,14 @@ libxstream_get_ndevices(&ndevices);
 The memory interface is mainly for handling device-side buffers (allocation, copy). It is usually beneficial to allocate host memory using these functions as well. However, any memory allocation on the host is interoperable. It is also supported copying parts to/from a buffer.
 
 ```C
-const int hst = -1, dev = 0;
+const int hst = -1, dev = 0, i = 0;
 libxstream_mem_allocate(hst, &ihst, sizeof(double) * nitems, 0/*auto-alignment*/);
 libxstream_mem_allocate(hst, &ohst, sizeof(double) * nitems, 0/*auto-alignment*/);
 /* TODO: initialize with some input data */
 libxstream_mem_allocate(dev, &idev, sizeof(double) * nbatch, 0/*auto-alignment*/);
 libxstream_mem_allocate(dev, &odev, sizeof(double) * nbatch, 0/*auto-alignment*/);
 
-for (int i = 0; i < nitems; i += nbatch) {
+for (i = 0; i < nitems; i += nbatch) {
   const int ibatch = sizeof(double) * min(nbatch, nitems - i), j = i / nbatch;
   libxstream_memcpy_h2d(ihst + i, idev, ibatch, stream[j%2]);
   /* TODO: invoke user function (see Function Interface) */
@@ -87,14 +87,14 @@ libxstream_event* event[2/*N*/];
 libxstream_event_create(event + 0);
 libxstream_event_create(event + 1);
 
-for (int i = 0; i < nitems; i += nbatch) {
+for (i = 0; i < nitems; i += nbatch) {
   const size_t j = i / nbatch, n = j % N;
   /* TODO: copy-in, user function, copy-out */
   libxstream_event_record(event + n, stream + n);
 
   /* synchronize every Nth iteration */
   if (n == (N - 1)) {
-    for (size_t k = 0; k < N; ++k) {
+    for (k = 0; k < N; ++k) {
       libxstream_event_synchronize(event[k]);
     }
   }
@@ -142,7 +142,7 @@ libxstream_fn_output(args, 4, &nzeros, sizetype, 0, NULL);
 Beside of showing some C++ syntax in the above code snippet, the resulting signature is perfectly valid for both the "fc" and the "fpp" function.
 
 **Weak type information**  
-To construct a signature with only weak type information, one may (1) not distinct between inout and output arguments; even non-elemental inputs can be treated as an inout argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). The latter implies that all extents are counted in Byte rather than in number of elements. Moreover, scalar arguments now need to supply a "shape" indicating the actual size of the element in Byte.
+To construct a signature with only weak type information, one may (1) not distinct between in-out and output arguments; even non-elemental inputs can be treated as an in-out argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). Weak-typed arguments imply that extents are counted in Byte rather than in number of elements. Moreover, weak-typed scalar arguments need to supply a "shape" indicating the actual size of the element in Byte.
 
 ```C
 const size_t typesize = sizeof(float);
@@ -161,21 +161,35 @@ As one can see, the signature of a function can often be trimmed to omit argumen
 ```C
 LIBXSTREAM_TARGET(mic) void f(const double* scale, const float* in, float* out, size_t* nzeros)
 {
-  size_t in_position = 0;
-  libxstream_get_argument(in, &in_position); /*in_position == 1*/
-
-  size_t arity = 0;
-  libxstream_get_arity(NULL/*this call context*/, &arity); /*arity == 4*/
-
-  size_t n = 0;
-  libxstream_get_shape(NULL/*this call context*/, in_position, &n);
-
   libxstream_type type = LIBXSTREAM_TYPE_VOID;
-  libxstream_get_type(NULL/*this call context*/, 2/*out*/, &type);
-
+  size_t in_position = 0, n = 0;
   const char* name = 0;
+
+  libxstream_get_argument(in, &in_position); /*in_position == 1*/
+  libxstream_get_shape(NULL/*this call context*/, in_position, &n);
+  libxstream_get_type (NULL/*this call context*/, 2/*out*/, &type);
   libxstream_get_typename(type, &name);
   printf("type=%s", name); /*f32*/
+}
+```
+
+**Variadic functions**  
+The Query interface allows enumerating and accessing function arguments including the raw data behind the argument. This applies regardless of whether the arguments are given explicitly or when supplied via a variadic part of the function's signature (ellipsis).
+
+```C
+LIBXSTREAM_TARGET(mic) void fill(float* out, ...)
+{
+  size_t n = 0, i = 0, arity = 0;
+  float fill_value = 0;
+  const void* data = 0;
+
+  libxstream_get_shape(NULL/*this call context*/, 0/*in*/, &n);
+  libxstream_get_arity(NULL/*this call context*/, &arity);
+  if (1 < arity) {
+    libxstream_get_data(NULL/*this call context*/, 1, &data);
+    fill_value = *(const float*)data; /*better check the type*/
+  }
+  for (i = 0; i < n; ++i) out[i] = fill_value;
 }
 ```
 
