@@ -106,7 +106,7 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_align(size_t size, size_t alignment)
 {
   const size_t auto_alignment = libxstream_alignment(size, alignment);
   const size_t aligned = ((size + auto_alignment - 1) / auto_alignment) * auto_alignment;
-  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(size, auto_alignment/*pot*/));
+  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(size_t, size, auto_alignment/*pot*/));
   return aligned;
 }
 
@@ -115,7 +115,7 @@ LIBXSTREAM_TARGET(mic) void* libxstream_align(void* address, size_t alignment)
 {
   LIBXSTREAM_ASSERT(0 != alignment);
   const uintptr_t aligned = ((reinterpret_cast<uintptr_t>(address) + alignment - 1) / alignment) * alignment;
-  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(address, alignment/*pot*/));
+  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(uintptr_t, address, alignment/*pot*/));
   return reinterpret_cast<void*>(aligned);
 }
 
@@ -124,7 +124,7 @@ LIBXSTREAM_TARGET(mic) const void* libxstream_align(const void* address, size_t 
 {
   LIBXSTREAM_ASSERT(0 != alignment);
   const uintptr_t aligned = ((reinterpret_cast<uintptr_t>(address) + alignment - 1) / alignment) * alignment;
-  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(address, alignment/*pot*/));
+  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(uintptr_t, address, alignment/*pot*/));
   return reinterpret_cast<void*>(aligned);
 }
 
