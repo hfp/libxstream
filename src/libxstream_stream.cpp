@@ -50,7 +50,7 @@
 
 namespace libxstream_stream_internal {
 
-class registry_type {
+static/*IPO*/ class registry_type {
 public:
   registry_type()
     : m_istreams(0)

@@ -46,13 +46,15 @@
 #endif
 #include <libxstream_end.h>
 
+#define LIBXSTREAM_CAPTURE_TERMINATOR reinterpret_cast<libxstream_capture_base*>(-1)
+
 //#define LIBXSTREAM_CAPTURE_DEBUG
 //#define LIBXSTREAM_CAPTURE_UNLOCK_LATE
 
 
 namespace libxstream_capture_internal {
 
-class queue_type {
+static/*IPO*/ class queue_type {
 public:
   queue_type()
     : m_lock(libxstream_lock_create())
@@ -79,7 +81,7 @@ public:
 
   ~queue_type() {
     // terminates the background thread
-    push(terminator, true);
+    push(LIBXSTREAM_CAPTURE_TERMINATOR, true);
 #if defined(LIBXSTREAM_STDFEATURES)
     m_thread.detach();
 #else
@@ -93,7 +95,7 @@ public:
     size_t dangling = 0;
     for (size_t i = 0; i < LIBXSTREAM_MAX_QSIZE; ++i) {
       const libxstream_capture_base* item = m_buffer[i];
-      if (0 != item && terminator != item) {
+      if (0 != item && (LIBXSTREAM_CAPTURE_TERMINATOR) != item) {
         m_buffer[i] = 0;
         ++dangling;
         delete item;
@@ -185,7 +187,9 @@ private:
     }
 
     LIBXSTREAM_ASSERT(0 == *entry);
-    libxstream_capture_base* new_entry = terminator != capture_region ? capture_region->clone() : terminator;
+    libxstream_capture_base *const new_entry = (LIBXSTREAM_CAPTURE_TERMINATOR) != capture_region
+      ? capture_region->clone()
+      : (LIBXSTREAM_CAPTURE_TERMINATOR);
     *entry = new_entry;
 
     if (wait) {
@@ -221,7 +225,7 @@ private:
         }
       }
 
-      if (terminator != capture_region) {
+      if ((LIBXSTREAM_CAPTURE_TERMINATOR) != capture_region) {
         (*capture_region)();
         delete capture_region;
         q.pop();
@@ -240,7 +244,6 @@ private:
   }
 
 private:
-  static libxstream_capture_base *const terminator;
   libxstream_capture_base* m_buffer[LIBXSTREAM_MAX_QSIZE];
   libxstream_lock* m_lock;
   size_t m_index;
@@ -262,7 +265,6 @@ private:
 #else
 } queue;
 #endif
-/*static*/ libxstream_capture_base *const queue_type::terminator = reinterpret_cast<libxstream_capture_base*>(-1);
 
 } // namespace libxstream_capture_internal
 
