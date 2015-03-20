@@ -55,6 +55,11 @@
 # endif
 #endif
 
+#define LIBXSTREAM_TOSTRING_AUX(SYMBOL) #SYMBOL
+#define LIBXSTREAM_TOSTRING(SYMBOL) LIBXSTREAM_TOSTRING_AUX(SYMBOL)
+#define LIBXSTREAM_MIN(A, B) ((A) < (B) ? (A) : (B))
+#define LIBXSTREAM_MAX(A, B) ((A) < (B) ? (B) : (A))
+
 #if defined(_WIN32) && !defined(__GNUC__)
 # define LIBXSTREAM_ATTRIBUTE(A) __declspec(A)
 # define LIBXSTREAM_ALIGNED(DECL, N) LIBXSTREAM_ATTRIBUTE(align(N)) DECL
@@ -64,7 +69,21 @@
 # define LIBXSTREAM_ALIGNED(DECL, N) DECL LIBXSTREAM_ATTRIBUTE(aligned(N))
 # define LIBXSTREAM_CDECL LIBXSTREAM_ATTRIBUTE(cdecl)
 #endif
-#define LIBXSTREAM_ALIGN_VALUE(DST_TYPE, SRC_TYPE, VALUE, ALIGNMENT) ((DST_TYPE)((-(-((intptr_t)(VALUE) * ((intptr_t)sizeof(SRC_TYPE))) & -((intptr_t)(ALIGNMENT)))) / sizeof(SRC_TYPE)))
+
+#if defined(__INTEL_COMPILER)
+# define LIBXSTREAM_ASSUME_ALIGNED(A, N) __assume_aligned(A, N)
+# define LIBXSTREAM_ASSUME(EXPRESSION) __assume(EXPRESSION)
+#else
+# define LIBXSTREAM_ASSUME_ALIGNED(A, N)
+# if defined(_MSC_VER)
+#   define LIBXSTREAM_ASSUME(EXPRESSION) __assume(EXPRESSION)
+# elif (40500 <= (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__))
+#   define LIBXSTREAM_ASSUME(EXPRESSION) do { if (!(EXPRESSION)) __builtin_unreachable(); } while(0)
+# endif
+#endif
+#define LIBXSTREAM_ALIGN_VALUE(DST_TYPE, SRC_TYPE, VALUE, ALIGNMENT) ((DST_TYPE)((-( \
+  -((intptr_t)(VALUE) * ((intptr_t)sizeof(SRC_TYPE))) & \
+  -((intptr_t)(LIBXSTREAM_MAX(ALIGNMENT, 1))))) / sizeof(SRC_TYPE)))
 #define LIBXSTREAM_ALIGN(TYPE, PTR, ALIGNMENT) LIBXSTREAM_ALIGN_VALUE(TYPE, char, PTR, ALIGNMENT)
 
 #if defined(_WIN32) && !defined(__GNUC__)
@@ -76,23 +95,6 @@
 #endif
 #if !defined(LIBXSTREAM_TLS)
 # define LIBXSTREAM_TLS
-#endif
-
-#define LIBXSTREAM_TOSTRING_AUX(SYMBOL) #SYMBOL
-#define LIBXSTREAM_TOSTRING(SYMBOL) LIBXSTREAM_TOSTRING_AUX(SYMBOL)
-
-#if defined(__INTEL_COMPILER)
-# define LIBXSTREAM_ASSUME_ALIGNED(A, N) __assume_aligned(A, N)
-# define LIBXSTREAM_PRAGMA(DIRECTIVE) __pragma(DIRECTIVE)
-#elif (199901L <= __STDC_VERSION__)
-# define LIBXSTREAM_ASSUME_ALIGNED(A, N)
-# define LIBXSTREAM_PRAGMA(DIRECTIVE) _Pragma(LIBXSTREAM_STRINGIFY(DIRECTIVE))
-#elif defined(_MSC_VER)
-# define LIBXSTREAM_ASSUME_ALIGNED(A, N)
-# define LIBXSTREAM_PRAGMA(DIRECTIVE) __pragma(DIRECTIVE)
-#else
-# define LIBXSTREAM_ASSUME_ALIGNED(A, N)
-# define LIBXSTREAM_PRAGMA(DIRECTIVE)
 #endif
 
 #if defined(__INTEL_OFFLOAD) && (!defined(_WIN32) || (1400 <= __INTEL_COMPILER))
@@ -118,20 +120,38 @@
 #if defined(__cplusplus)
 # define LIBXSTREAM_EXTERN_C extern "C"
 # define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXTERN_C LIBXSTREAM_EXPORT
+# define LIBXSTREAM_INLINE inline
 # define LIBXSTREAM_VARIADIC ...
 #else
 # define LIBXSTREAM_EXTERN_C
 # define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXPORT
 # define LIBXSTREAM_VARIADIC
+# if (199901L <= __STDC_VERSION__)
+#   define LIBXSTREAM_PRAGMA(DIRECTIVE) _Pragma(LIBXSTREAM_STRINGIFY(DIRECTIVE))
+#   define LIBXSTREAM_RESTRICT restrict
+#   define LIBXSTREAM_INLINE inline
+# else
+#   define LIBXSTREAM_INLINE static
+# endif /*C99*/
 #endif /*__cplusplus*/
 
-#if defined(__GNUC__) && !defined(_WIN32) && !defined(__CYGWIN32__)
-# define LIBXSTREAM_RESTRICT __restrict__
-#elif defined(_MSC_VER)
-# define LIBXSTREAM_RESTRICT __restrict
-#else
-# define LIBXSTREAM_RESTRICT
-#endif
+#if !defined(LIBXSTREAM_RESTRICT)
+# if ((defined(__GNUC__) && !defined(__CYGWIN32__)) || defined(__INTEL_COMPILER)) && !defined(_WIN32)
+#   define LIBXSTREAM_RESTRICT __restrict__
+# elif defined(_MSC_VER) || defined(__INTEL_COMPILER)
+#   define LIBXSTREAM_RESTRICT __restrict
+# else
+#   define LIBXSTREAM_RESTRICT
+# endif
+#endif /*LIBXSTREAM_RESTRICT*/
+
+#if !defined(LIBXSTREAM_PRAGMA)
+# if defined(__INTEL_COMPILER) || defined(_MSC_VER)
+#   define LIBXSTREAM_PRAGMA(DIRECTIVE) __pragma(DIRECTIVE)
+# else
+#   define LIBXSTREAM_PRAGMA(DIRECTIVE)
+# endif
+#endif /*LIBXSTREAM_PRAGMA*/
 
 #if (defined(LIBXSTREAM_ERROR_DEBUG) || defined(_DEBUG)) && !defined(NDEBUG) && !defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_DEBUG
@@ -188,9 +208,6 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 #else
 # define LIBXSTREAM_SNPRINTF(S, N, F, ...) snprintf(S, N, F, __VA_ARGS__)
 #endif
-
-#define LIBXSTREAM_MIN(A, B) ((A) < (B) ? (A) : (B))
-#define LIBXSTREAM_MAX(A, B) ((A) < (B) ? (B) : (A))
 
 #if defined(LIBXSTREAM_CHECK)
 # define LIBXSTREAM_CHECK_ERROR(RETURN_VALUE) if (LIBXSTREAM_ERROR_NONE != (RETURN_VALUE)) return RETURN_VALUE
