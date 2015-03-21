@@ -74,9 +74,7 @@ int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream
       argument.shape[0] = shape[0];
     }
 
-#if defined(__INTEL_COMPILER)
-#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NDIMS), avg(2)
-#endif
+    LIBXSTREAM_PRAGMA_LOOP_COUNT(0, LIBXSTREAM_MAX_NDIMS, 2)
     for (size_t i = 0; i < dims; ++i) argument.shape[i] = shape[i];
   }
   else {
@@ -99,9 +97,7 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
   LIBXSTREAM_CHECK_CONDITION((0 != signature || 0 == nargs) && (LIBXSTREAM_MAX_NARGS) >= nargs);
 
   if (0 != signature) {
-#if defined(__INTEL_COMPILER)
-#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
-#endif
+    LIBXSTREAM_PRAGMA_LOOP_COUNT(0, LIBXSTREAM_MAX_NARGS, LIBXSTREAM_MAX_NARGS/2)
     for (size_t i = 0; i < nargs; ++i) {
       LIBXSTREAM_CHECK_CALL(libxstream_construct(signature, i, libxstream_argument::kind_inout, 0, LIBXSTREAM_TYPE_INVALID, 0, 0));
     }

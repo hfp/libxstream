@@ -33,30 +33,60 @@
 
 #include "libxstream_config.h"
 
-#if !defined(LIBXSTREAM_PREFER_OPENMP) || !defined(_OPENMP)
-# if (201103L <= __cplusplus)
-#   if !defined(LIBXSTREAM_STDFEATURES)
-#     define LIBXSTREAM_STDFEATURES
-#   endif
-#   if !defined(LIBXSTREAM_STDFEATURES_THREADX) && !defined(__MIC__)
-#     define LIBXSTREAM_STDFEATURES_THREADX
-#   endif
-# elif (1600 < _MSC_VER)
-#   if !defined(LIBXSTREAM_STDFEATURES)
-#     define LIBXSTREAM_STDFEATURES
-#   endif
-#   if !defined(LIBXSTREAM_STDFEATURES_THREADX)
-#     define LIBXSTREAM_STDFEATURES_THREADX
-#   endif
-# elif ((4 <= __GNUC__ && 5 <= __GNUC_MINOR__) && (1L == __cplusplus)) || (defined(__INTEL_COMPILER) && defined(__GXX_EXPERIMENTAL_CXX0X__))
-#   if !defined(LIBXSTREAM_STDFEATURES)
-#     define LIBXSTREAM_STDFEATURES
-#   endif
+#define LIBXSTREAM_STRINGIFY(SYMBOL) #SYMBOL
+#define LIBXSTREAM_CONCATENATE(A, B) A##B
+#define LIBXSTREAM_TOSTRING(SYMBOL) LIBXSTREAM_STRINGIFY(SYMBOL)
+
+#if defined(__cplusplus)
+# define LIBXSTREAM_EXTERN_C extern "C"
+# define LIBXSTREAM_INLINE inline
+# define LIBXSTREAM_VARIADIC ...
+# define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXTERN_C LIBXSTREAM_EXPORT
+#else
+# define LIBXSTREAM_EXTERN_C
+# define LIBXSTREAM_VARIADIC
+# define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXPORT
+# if (199901L <= __STDC_VERSION__)
+#   define LIBXSTREAM_PRAGMA(DIRECTIVE) _Pragma(LIBXSTREAM_STRINGIFY(DIRECTIVE))
+#   define LIBXSTREAM_RESTRICT restrict
+#   define LIBXSTREAM_INLINE inline
+# else
+#   define LIBXSTREAM_INLINE static
+# endif /*C99*/
+#endif /*__cplusplus*/
+
+#if !defined(LIBXSTREAM_RESTRICT)
+# if ((defined(__GNUC__) && !defined(__CYGWIN32__)) || defined(__INTEL_COMPILER)) && !defined(_WIN32)
+#   define LIBXSTREAM_RESTRICT __restrict__
+# elif defined(_MSC_VER) || defined(__INTEL_COMPILER)
+#   define LIBXSTREAM_RESTRICT __restrict
+# else
+#   define LIBXSTREAM_RESTRICT
 # endif
+#endif /*LIBXSTREAM_RESTRICT*/
+
+#if !defined(LIBXSTREAM_PRAGMA)
+# if defined(__INTEL_COMPILER) || defined(_MSC_VER)
+#   define LIBXSTREAM_PRAGMA(DIRECTIVE) __pragma(DIRECTIVE)
+# else
+#   define LIBXSTREAM_PRAGMA(DIRECTIVE)
+# endif
+#endif /*LIBXSTREAM_PRAGMA*/
+
+#if defined(__INTEL_COMPILER)
+# define LIBXSTREAM_PRAGMA_LOOP_COUNT(MIN, MAX, AVG) LIBXSTREAM_PRAGMA(loop_count min(MIN) max(MAX) avg(AVG))
+# define LIBXSTREAM_PRAGMA_SIMD_REDUCTION(EXPRESSION) LIBXSTREAM_PRAGMA(simd reduction(EXPRESSION))
+# define LIBXSTREAM_PRAGMA_SIMD_COLLAPSE(N) LIBXSTREAM_PRAGMA(simd collapse(N))
+#elif (201307 <= _OPENMP) // V4.0
+# define LIBXSTREAM_PRAGMA_LOOP_COUNT(MIN, MAX, AVG)
+# define LIBXSTREAM_PRAGMA_SIMD_REDUCTION(EXPRESSION) LIBXSTREAM_PRAGMA(omp simd reduction(EXPRESSION))
+# define LIBXSTREAM_PRAGMA_SIMD_COLLAPSE(N) LIBXSTREAM_PRAGMA(omp simd collapse(N))
+#else
+# define LIBXSTREAM_PRAGMA_LOOP_COUNT(MIN, MAX, AVG)
+# define LIBXSTREAM_PRAGMA_SIMD_REDUCTION(EXPRESSION)
+# define LIBXSTREAM_PRAGMA_SIMD_COLLAPSE(N)
 #endif
 
-#define LIBXSTREAM_TOSTRING_AUX(SYMBOL) #SYMBOL
-#define LIBXSTREAM_TOSTRING(SYMBOL) LIBXSTREAM_TOSTRING_AUX(SYMBOL)
 #define LIBXSTREAM_MIN(A, B) ((A) < (B) ? (A) : (B))
 #define LIBXSTREAM_MAX(A, B) ((A) < (B) ? (B) : (A))
 
@@ -71,6 +101,7 @@
 #else
 # define LIBXSTREAM_ATTRIBUTE(A)
 # define LIBXSTREAM_ALIGNED(DECL, N)
+# define LIBXSTREAM_CDECL
 #endif
 
 #if defined(__INTEL_COMPILER)
@@ -109,7 +140,6 @@
 #endif
 
 #define LIBXSTREAM_IMPORT_DLL __declspec(dllimport)
-
 #if defined(_WINDLL) && defined(_WIN32)
 # if defined(LIBXSTREAM_EXPORTED)
 #   define LIBXSTREAM_EXPORT __declspec(dllexport)
@@ -119,42 +149,6 @@
 #else
 # define LIBXSTREAM_EXPORT
 #endif
-
-#if defined(__cplusplus)
-# define LIBXSTREAM_EXTERN_C extern "C"
-# define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXTERN_C LIBXSTREAM_EXPORT
-# define LIBXSTREAM_INLINE inline
-# define LIBXSTREAM_VARIADIC ...
-#else
-# define LIBXSTREAM_EXTERN_C
-# define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXPORT
-# define LIBXSTREAM_VARIADIC
-# if (199901L <= __STDC_VERSION__)
-#   define LIBXSTREAM_PRAGMA(DIRECTIVE) _Pragma(LIBXSTREAM_STRINGIFY(DIRECTIVE))
-#   define LIBXSTREAM_RESTRICT restrict
-#   define LIBXSTREAM_INLINE inline
-# else
-#   define LIBXSTREAM_INLINE static
-# endif /*C99*/
-#endif /*__cplusplus*/
-
-#if !defined(LIBXSTREAM_RESTRICT)
-# if ((defined(__GNUC__) && !defined(__CYGWIN32__)) || defined(__INTEL_COMPILER)) && !defined(_WIN32)
-#   define LIBXSTREAM_RESTRICT __restrict__
-# elif defined(_MSC_VER) || defined(__INTEL_COMPILER)
-#   define LIBXSTREAM_RESTRICT __restrict
-# else
-#   define LIBXSTREAM_RESTRICT
-# endif
-#endif /*LIBXSTREAM_RESTRICT*/
-
-#if !defined(LIBXSTREAM_PRAGMA)
-# if defined(__INTEL_COMPILER) || defined(_MSC_VER)
-#   define LIBXSTREAM_PRAGMA(DIRECTIVE) __pragma(DIRECTIVE)
-# else
-#   define LIBXSTREAM_PRAGMA(DIRECTIVE)
-# endif
-#endif /*LIBXSTREAM_PRAGMA*/
 
 #if (defined(LIBXSTREAM_ERROR_DEBUG) || defined(_DEBUG)) && !defined(NDEBUG) && !defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_DEBUG
@@ -176,6 +170,28 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 #else
 # define LIBXSTREAM_USE_SINK(VAR)
 # define LIBXSTREAM_ASSERT(A)
+#endif
+
+#if !defined(LIBXSTREAM_PREFER_OPENMP) || !defined(_OPENMP)
+# if (201103L <= __cplusplus)
+#   if !defined(LIBXSTREAM_STDFEATURES)
+#     define LIBXSTREAM_STDFEATURES
+#   endif
+#   if !defined(LIBXSTREAM_STDFEATURES_THREADX) && !defined(__MIC__)
+#     define LIBXSTREAM_STDFEATURES_THREADX
+#   endif
+# elif (1600 < _MSC_VER)
+#   if !defined(LIBXSTREAM_STDFEATURES)
+#     define LIBXSTREAM_STDFEATURES
+#   endif
+#   if !defined(LIBXSTREAM_STDFEATURES_THREADX)
+#     define LIBXSTREAM_STDFEATURES_THREADX
+#   endif
+# elif ((4 <= __GNUC__ && 5 <= __GNUC_MINOR__) && (1L == __cplusplus)) || (defined(__INTEL_COMPILER) && defined(__GXX_EXPERIMENTAL_CXX0X__))
+#   if !defined(LIBXSTREAM_STDFEATURES)
+#     define LIBXSTREAM_STDFEATURES
+#   endif
+# endif
 #endif
 
 #define LIBXSTREAM_TRUE  1

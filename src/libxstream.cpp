@@ -1345,9 +1345,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_shape(const libxst
 
   if (0 < dims) {
     const size_t *const src = argument.shape;
-#if defined(__INTEL_COMPILER)
-#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NDIMS), avg(2)
-#endif
+    LIBXSTREAM_PRAGMA_LOOP_COUNT(1, LIBXSTREAM_MAX_NDIMS, 2)
     for (size_t i = 0; i < dims; ++i) shape[i] = src[i];
   }
   else {

@@ -297,9 +297,7 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
     size_t arity = 0;
     if (signature) {
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_arity(signature, &arity));
-#if defined(__INTEL_COMPILER)
-#     pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
-#endif
+      LIBXSTREAM_PRAGMA_LOOP_COUNT(0, LIBXSTREAM_MAX_NARGS, LIBXSTREAM_MAX_NARGS/2)
       for (size_t i = 0; i < arity; ++i) m_signature[i] = signature[i];
     }
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(m_signature, arity, libxstream_argument::kind_invalid, 0, LIBXSTREAM_TYPE_INVALID, 0, 0));

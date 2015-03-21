@@ -58,9 +58,7 @@ LIBXSTREAM_TARGET(mic) S linear_size(size_t dims, const T shape[], S initial_siz
 {
   LIBXSTREAM_ASSERT(shape);
   S result = 0 < dims ? (std::max<S>(initial_size, 1) * static_cast<S>(shape[0])) : initial_size;
-#if defined(__INTEL_COMPILER)
-# pragma loop_count min(1), max(LIBXSTREAM_MAX_NDIMS), avg(2)
-#endif
+  LIBXSTREAM_PRAGMA_LOOP_COUNT(0, LIBXSTREAM_MAX_NDIMS, 2)
   for (size_t i = 1; i < dims; ++i) result *= static_cast<S>(shape[i]);
   return result;
 }
@@ -144,9 +142,7 @@ LIBXSTREAM_TARGET(mic) int libxstream_linear_offset(size_t dims, const int offse
     size_t size = shape[0];
     result = offset[0];
 
-#if defined(__INTEL_COMPILER)
-#   pragma loop_count min(1), max(LIBXSTREAM_MAX_NDIMS), avg(2)
-#endif
+    LIBXSTREAM_PRAGMA_LOOP_COUNT(1, LIBXSTREAM_MAX_NDIMS, 2)
     for (size_t i = 1; i < dims; ++i) {
       result += offset[i] * static_cast<int>(size);
       size *= shape[i];
@@ -167,9 +163,7 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int o
     int p = static_cast<int>(pitch[0]);
     result = offset[0] * libxstream_alloc_internal::linear_size<int>(d, shape + 1, 1);
 
-#if defined(__INTEL_COMPILER)
-#   pragma loop_count min(1), max(LIBXSTREAM_MAX_NDIMS), avg(2)
-#endif
+    LIBXSTREAM_PRAGMA_LOOP_COUNT(1, LIBXSTREAM_MAX_NDIMS, 2)
     for (size_t i = 1; i < dims; ++i) {
       result += libxstream_alloc_internal::linear_size(d - i, shape + i + 1, p * offset[i]);
       p *= static_cast<int>(pitch[i]);

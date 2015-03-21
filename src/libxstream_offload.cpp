@@ -55,9 +55,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
 
   if (arguments && translation) {
     size_t np = 0;
-#if defined(__INTEL_COMPILER)
-#   pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
-#endif
+    LIBXSTREAM_PRAGMA_LOOP_COUNT(0, LIBXSTREAM_MAX_NARGS, LIBXSTREAM_MAX_NARGS/2)
     for (size_t i = 0; i < arity; ++i) {
       if (0 != arguments[i].dims || 0 != (libxstream_argument::kind_output & arguments[i].kind)) {
 #if defined(__INTEL_COMPILER)
@@ -122,9 +120,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
       unsigned int s = 0;
       LIBXSTREAM_ASSERT(LIBXSTREAM_MAX_NARGS <= 8 * sizeof(s));
       size_t np = 0;
-#if defined(__INTEL_COMPILER)
-#     pragma loop_count min(0), max(LIBXSTREAM_MAX_NARGS), avg(LIBXSTREAM_MAX_NARGS/2)
-#endif
+      LIBXSTREAM_PRAGMA_LOOP_COUNT(0, LIBXSTREAM_MAX_NARGS, LIBXSTREAM_MAX_NARGS/2)
       for (size_t i = 0; i < arity; ++i) {
         if (0 != m_signature[i].dims) {
           p[np] = static_cast<char*>(libxstream_get_value(m_signature[i]).pointer);
