@@ -170,8 +170,10 @@ int main(int argc, char* argv[])
 
 #if defined(_OPENMP)
     const double duration = omp_get_wtime() - start;
-    fprintf(stdout, "Performance: %.1f GFLOPS/s (%s)\n", host_data.flops() * 1E-9 / duration,
-      0 == demux ? "manual locking" : (0 < demux ? "synchronization" : "automatic locking"));
+    if (0 < duration) {
+      fprintf(stdout, "Performance: %.1f GFLOPS/s (%s)\n", host_data.flops() * 1E-9 / duration,
+        0 == demux ? "manual locking" : (0 < demux ? "synchronization" : "automatic locking"));
+    }
     fprintf(stdout, "Duration: %.1f s\n", duration);
 #endif
 
