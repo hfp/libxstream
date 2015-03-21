@@ -223,6 +223,12 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 # define LIBXSTREAM_PRINT_WARNCTX0(MESSAGE)
 #endif
 
+#if defined(__MIC__)
+# define LIBXSTREAM_DEVICE_NAME "host"
+#else
+# define LIBXSTREAM_DEVICE_NAME "mic"
+#endif
+
 #if defined(_MSC_VER)
 # define LIBXSTREAM_SNPRINTF(S, N, F, ...) _snprintf_s(S, N, _TRUNCATE, F, __VA_ARGS__)
 #else
