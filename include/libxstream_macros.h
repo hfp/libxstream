@@ -224,9 +224,9 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 #endif
 
 #if defined(__MIC__)
-# define LIBXSTREAM_DEVICE_NAME "host"
-#else
 # define LIBXSTREAM_DEVICE_NAME "mic"
+#else
+# define LIBXSTREAM_DEVICE_NAME "host"
 #endif
 
 #if defined(_MSC_VER)
