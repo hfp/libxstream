@@ -224,7 +224,7 @@ Although the library is under development, the interface is stable. There is a h
 ## Applications and References
 **\[1] http://cp2k.org/**: Open Source Molecular Dynamics application. An experimental [branch](https://github.com/cp2k/cp2k/tree/intel) at GitHub uses the library to offload work to an Intel Xeon Phi coprocessor.
 
-**\[2] https://github.com/01org/pyMIC**: Module to offload computation in a Python program to the Intel Xeon Phi coprocessor. The next release uses the library to deliver a stream programming model.
+**\[2] https://github.com/01org/pyMIC**: Python module to offload computation to Intel Xeon Phi coprocessors.
 
 **\[3] http://software.intel.com/xeonphicatalog**: Intel Xeon Phi Applications and Solutions Catalog.
 
