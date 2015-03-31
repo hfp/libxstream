@@ -84,7 +84,7 @@
 #define LIBXSTREAM_MAX_ALIGN (2 * 1024 * 1024)
 
 /** Maximum number of devices. */
-#define LIBXSTREAM_MAX_NDEVICES 8
+#define LIBXSTREAM_MAX_NDEVICES 4
 
 /** Maximum number of streams per device. */
 #define LIBXSTREAM_MAX_NSTREAMS 32
@@ -99,7 +99,7 @@
 #define LIBXSTREAM_MAX_QSIZE 1024
 
 /** Maximum number of host threads. */
-#define LIBXSTREAM_MAX_NTHREADS 1024
+#define LIBXSTREAM_MAX_NTHREADS 512
 
 /**
  * Number of times a locked stream must be discovered to be
