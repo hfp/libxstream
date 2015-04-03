@@ -180,12 +180,12 @@ The Query interface allows enumerating and accessing function arguments includin
 LIBXSTREAM_TARGET(mic) void fill(float* out, ...)
 {
   size_t n = 0, i = 0, arity = 0;
-  float fill_value = 0;
+  float fill_value = 0; /*default*/
   const void* data = 0;
 
-  libxstream_get_shape(NULL/*this call context*/, 0/*in*/, &n);
+  libxstream_get_shape(NULL/*this call context*/, 0/*out*/, &n);
   libxstream_get_arity(NULL/*this call context*/, &arity);
-  if (1 < arity) {
+  if (1 < arity) { /*non-default fill value*/
     libxstream_get_data(NULL/*this call context*/, 1, &data);
     fill_value = *(const float*)data; /*better check the type*/
   }
