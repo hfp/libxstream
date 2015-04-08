@@ -32,13 +32,17 @@
 #define LIBXSTREAM_H
 
 #include "libxstream_macros.h"
-#include "libxstream_begin.h"
+#if defined(LIBXSTREAM_OFFLOAD)
+# pragma offload_attribute(push,target(mic))
+#endif
 #include <stdint.h>
 #include <stddef.h>
 #if defined(__cplusplus)
 # include <complex>
 #endif
-#include "libxstream_end.h"
+#if defined(LIBXSTREAM_OFFLOAD)
+# pragma offload_attribute(pop)
+#endif
 
 
 /** Boolean state; must match LIBXSTREAM_TYPE_BOOL. */
