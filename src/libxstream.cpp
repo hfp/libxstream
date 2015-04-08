@@ -635,7 +635,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 #       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(memory: length(0) LIBXSTREAM_OFFLOAD_FREE)
         LIBXSTREAM_CHECK_CALL_ASSERT(status(libxstream_virt_deallocate(memory)));
       }
-      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_WAIT, result);
+      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT, result);
     }
     else {
 #else
