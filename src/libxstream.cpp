@@ -721,7 +721,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_me
     else
 #endif
     {
-#if defined(LIBXSTREAM_ASYNCHOST)
+#if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP) // V4.0
       if (LIBXSTREAM_ASYNC_READY) {
 #       pragma omp task depend(out:capture_region_signal) depend(in:LIBXSTREAM_ASYNC_PENDING)
         std::copy(src, src + size, dst);
