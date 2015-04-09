@@ -132,17 +132,6 @@
 /*#define LIBXSTREAM_PREFER_OPENMP*/
 
 /**
- * Changing the calling convention; this is a rather deep switch impacting
- * all function definitions of functions able to get enqueued. The default
- * convention is "by-pointer" passing arrays, scalars, and complex values
- * by pointer. Enabling the "by-value" convention attempts to pass arrays
- * and complex values by pointer whereas scalars smaller are passed by
- * value. The "by-value" convention is not completely functional and
- * cannot be used.
- */
-/*#define LIBXSTREAM_CALL_BYVALUE*/
-
-/**
  * Below preprocessor symbols fixup some platform specifics.
  */
 #if !defined(_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES)

@@ -108,13 +108,11 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
 }
 
 
-LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg, bool byvalue)
+LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg)
 {
   const void* data = 0;
 
-  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind) || (byvalue &&
-    (LIBXSTREAM_TYPE_C32 > arg.type || (LIBXSTREAM_TYPE_VOID == arg.type && sizeof(void*) >= *arg.shape))))
-  {
+  if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
     char *const dst = reinterpret_cast<char*>(&data);
     for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.self[i];
   }

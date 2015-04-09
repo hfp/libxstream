@@ -46,11 +46,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
   const struct LIBXSTREAM_TARGET(mic) argument_type {
     libxstream_argument* m_arguments;
     explicit argument_type(libxstream_argument arguments[]): m_arguments(arguments) {}
-#if defined(LIBXSTREAM_CALL_BYVALUE)
-    libxstream_argument::value_union::value_type operator[](size_t i) const { return libxstream_get_value(m_arguments[i]).value; }
-#else
     const void* operator[](size_t i) const { return libxstream_get_value(m_arguments[i]).const_pointer; }
-#endif
   } a(arguments);
 
   if (arguments && translation) {

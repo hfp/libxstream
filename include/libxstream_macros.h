@@ -279,20 +279,14 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 # define LIBXSTREAM_CHECK_CALL_ASSERT(EXPRESSION) EXPRESSION
 #endif
 
-#if defined(LIBXSTREAM_CALL_BYVALUE)
-# define LIBXSTREAM_INVAL(TYPE) TYPE
+#if defined(__cplusplus)
+# define LIBXSTREAM_INVAL(TYPE) const TYPE&
 # define LIBXSTREAM_GETVAL(VALUE) VALUE
 # define LIBXSTREAM_SETVAL(VALUE) VALUE
-#else /*by-pointer*/
-# if defined(__cplusplus)
-#   define LIBXSTREAM_INVAL(TYPE) const TYPE&
-#   define LIBXSTREAM_GETVAL(VALUE) VALUE
-#   define LIBXSTREAM_SETVAL(VALUE) VALUE
-# else
-#   define LIBXSTREAM_INVAL(TYPE) const TYPE*
-#   define LIBXSTREAM_GETVAL(VALUE) *VALUE
-#   define LIBXSTREAM_SETVAL(VALUE) &VALUE
-# endif
+#else
+# define LIBXSTREAM_INVAL(TYPE) const TYPE*
+# define LIBXSTREAM_GETVAL(VALUE) *VALUE
+# define LIBXSTREAM_SETVAL(VALUE) &VALUE
 #endif
 
 #endif /*LIBXSTREAM_MACROS_H*/
