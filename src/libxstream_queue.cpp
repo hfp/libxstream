@@ -57,12 +57,7 @@ libxstream_queue::~libxstream_queue()
 #if defined(LIBXSTREAM_DEBUG)
   size_t dangling = 0;
   for (size_t i = 0; i < LIBXSTREAM_MAX_QSIZE; ++i) {
-    const void* item = m_buffer[i];
-    if (0 != item) {
-      m_buffer[i] = 0;
-      ++dangling;
-      delete item;
-    }
+    dangling += 0 != m_buffer[i] ? 1 : 0;
   }
   if (0 < dangling) {
     LIBXSTREAM_PRINT_WARN("%lu work item%s dangling!", static_cast<unsigned long>(dangling), 1 < dangling ? "s are" : " is");
@@ -104,9 +99,10 @@ void** libxstream_queue::allocate_push()
   size1 = ++m_size;
   result = m_buffer + ((size1 - 1) % LIBXSTREAM_MAX_QSIZE);
 #else // generic
-  libxstream_lock_acquire(m_lock);
+  libxstream_lock *const lock = libxstream_lock_get(this);
+  libxstream_lock_acquire(lock);
   result = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
-  libxstream_lock_release(m_lock);
+  libxstream_lock_release(lock);
 #endif
   LIBXSTREAM_ASSERT(0 != result);
 
