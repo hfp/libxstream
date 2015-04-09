@@ -48,6 +48,9 @@
     <ClInclude Include="..\src\libxstream_context.hpp">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="..\src\libxstream_queue.hpp">
+      <Filter>src</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\libxstream.cpp">
@@ -72,6 +75,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="..\src\libxstream_context.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\libxstream_queue.cpp">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>

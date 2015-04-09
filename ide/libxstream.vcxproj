@@ -39,6 +39,7 @@
     <ClInclude Include="..\src\libxstream_context.hpp" />
     <ClInclude Include="..\src\libxstream_event.hpp" />
     <ClInclude Include="..\src\libxstream_offload.hpp" />
+    <ClInclude Include="..\src\libxstream_queue.hpp" />
     <ClInclude Include="..\src\libxstream_stream.hpp" />
   </ItemGroup>
   <ItemGroup>
@@ -49,6 +50,7 @@
     <ClCompile Include="..\src\libxstream_context.cpp" />
     <ClCompile Include="..\src\libxstream_event.cpp" />
     <ClCompile Include="..\src\libxstream_offload.cpp" />
+    <ClCompile Include="..\src\libxstream_queue.cpp" />
     <ClCompile Include="..\src\libxstream_stream.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
