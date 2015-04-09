@@ -42,10 +42,10 @@
 #define LIBXSTREAM_OFFLOAD_REFRESH length(0) LIBXSTREAM_OFFLOAD_REUSE
 #define LIBXSTREAM_OFFLOAD_DATA(ARG, IS_SCALAR) inout(ARG: length(((IS_SCALAR)*sizeof(libxstream_argument::data_union))) alloc_if(IS_SCALAR) free_if(IS_SCALAR))
 
-#define LIBXSTREAM_ASYNC_PENDING (capture_region_pending)
+#define LIBXSTREAM_ASYNC_PENDING capture_region_pending
 #define LIBXSTREAM_ASYNC_READY (0 == (LIBXSTREAM_ASYNC_PENDING))
-#define LIBXSTREAM_ASYNC_STREAM (m_stream)
-#define LIBXSTREAM_ASYNC_DEVICE (capture_region_device)
+#define LIBXSTREAM_ASYNC_STREAM m_stream
+#define LIBXSTREAM_ASYNC_DEVICE capture_region_device
 #define LIBXSTREAM_ASYNC_DEVICE_UPDATE(DEVICE) LIBXSTREAM_ASYNC_DEVICE = (DEVICE)
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)

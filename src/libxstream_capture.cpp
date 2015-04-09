@@ -207,13 +207,13 @@ private:
   {
     queue_type& q = *static_cast<queue_type*>(queue);
     libxstream_capture_base* capture_region = 0;
-    bool never = false;
+    bool always = true;
 
-#if defined(LIBXSTREAM_ASYNCHOST) && defined(_OPENMP) && !defined(LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
 #   pragma omp parallel
 #   pragma omp master
 #endif
-    for (;;) {
+    for (; always;) {
       size_t cycle = 0;
       while (0 == (capture_region = q.get())) {
         if ((LIBXSTREAM_WAIT_ACTIVE_CYCLES) > cycle) {
@@ -227,12 +227,14 @@ private:
 
       if ((LIBXSTREAM_CAPTURE_TERMINATOR) != capture_region) {
         (*capture_region)();
+#if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
+#       pragma omp taskwait
+#endif
         delete capture_region;
         q.pop();
       }
       else {
         q.pop();
-        if (never) break;
       }
     }
 
