@@ -41,6 +41,7 @@ typedef uintptr_t libxstream_signal;
 
 typedef void libxstream_lock;
 libxstream_lock* libxstream_lock_create();
+libxstream_lock* libxstream_lock_get(const void* address);
 void libxstream_lock_destroy(libxstream_lock* lock);
 void libxstream_lock_acquire(libxstream_lock* lock);
 void libxstream_lock_release(libxstream_lock* lock);

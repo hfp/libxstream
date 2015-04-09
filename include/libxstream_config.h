@@ -101,6 +101,9 @@
 /** Maximum number of host threads. */
 #define LIBXSTREAM_MAX_NTHREADS 512
 
+/** Maximum number of locks (POT). */
+#define LIBXSTREAM_MAX_NLOCKS 16
+
 /**
  * Number of times a locked stream must be discovered to be
  * "not alive" before unlocking the stream in question.

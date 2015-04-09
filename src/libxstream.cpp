@@ -189,6 +189,29 @@ libxstream_lock* libxstream_lock_create()
 }
 
 
+libxstream_lock* libxstream_lock_get(const void* address)
+{
+  // guaranteed to be zero-initialized according to C++ lang. rules
+  static libxstream_lock* locks[(LIBXSTREAM_MAX_NLOCKS)];
+
+  libxstream_lock* *const result = locks + (reinterpret_cast<uintptr_t>(address) & ((LIBXSTREAM_MAX_NLOCKS) - 1));
+
+  if (0 == *result) {
+    libxstream_lock *const lock = libxstream_internal::context.lock();
+    libxstream_lock_acquire(lock);
+
+    if (0 == *result) {
+      *result = libxstream_lock_create();
+    }
+
+    libxstream_lock_release(lock);
+  }
+
+  LIBXSTREAM_ASSERT(0 != *result);
+  return *result;
+}
+
+
 void libxstream_lock_destroy(libxstream_lock* lock)
 {
 #if defined(LIBXSTREAM_STDFEATURES)

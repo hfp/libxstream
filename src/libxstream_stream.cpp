@@ -54,9 +54,6 @@ static/*IPO*/ class registry_type {
 public:
   registry_type()
     : m_istreams(0)
-#if !defined(LIBXSTREAM_STDFEATURES)
-    , m_lock(libxstream_lock_create())
-#endif
   {
     std::fill_n(m_signals, LIBXSTREAM_MAX_NDEVICES, 0);
     std::fill_n(m_streams, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS, static_cast<libxstream_stream*>(0));
@@ -72,20 +69,17 @@ public:
 #endif
       libxstream_stream_destroy(m_streams[i]);
     }
-#if !defined(LIBXSTREAM_STDFEATURES)
-    libxstream_lock_destroy(m_lock);
-#endif
   }
 
 public:
   libxstream_stream** allocate() {
 #if !defined(LIBXSTREAM_STDFEATURES)
-    libxstream_lock_acquire(m_lock);
+    libxstream_lock_acquire(libxstream_lock_get(this));
 #endif
     libxstream_stream** i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
     while (0 != *i) i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
 #if !defined(LIBXSTREAM_STDFEATURES)
-    libxstream_lock_release(m_lock);
+    libxstream_lock_release(libxstream_lock_get(this));
 #endif
     return i;
   }
@@ -168,10 +162,6 @@ public:
     return LIBXSTREAM_ERROR_NONE;
   }
 
-#if !defined(LIBXSTREAM_STDFEATURES)
-  libxstream_lock* lock() { return m_lock; }
-#endif
-
 private:
   // not necessary to be device-specific due to single-threaded offload
   libxstream_signal m_signals[LIBXSTREAM_MAX_NDEVICES + 1];
@@ -180,7 +170,6 @@ private:
   std::atomic<size_t> m_istreams;
 #else
   size_t m_istreams;
-  libxstream_lock* m_lock;
 #endif
 } registry;
 
@@ -204,7 +193,7 @@ bool atomic_compare_exchange(A& atomic, E& expected, D desired)
   }
 #else // generic
   bool result = false;
-  libxstream_lock_acquire(registry.lock());
+  libxstream_lock_acquire(libxstream_lock_get(&atomic));
   result = atomic == expected;
   if (result) {
     atomic = desired;
@@ -212,7 +201,7 @@ bool atomic_compare_exchange(A& atomic, E& expected, D desired)
   else {
     expected = atomic;
   }
-  libxstream_lock_release(registry.lock());
+  libxstream_lock_release(libxstream_lock_get(&atomic));
 #endif
   return result;
 }
