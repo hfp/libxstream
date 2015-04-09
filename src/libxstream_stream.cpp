@@ -75,12 +75,13 @@ public:
 public:
   libxstream_stream** allocate() {
 #if !defined(LIBXSTREAM_STDFEATURES)
-    libxstream_lock_acquire(libxstream_lock_get(this));
+    libxstream_lock *const lock = libxstream_lock_get(this);
+    libxstream_lock_acquire(lock);
 #endif
     libxstream_stream** i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
     while (0 != *i) i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
 #if !defined(LIBXSTREAM_STDFEATURES)
-    libxstream_lock_release(libxstream_lock_get(this));
+    libxstream_lock_release(lock);
 #endif
     return i;
   }
@@ -194,7 +195,8 @@ bool atomic_compare_exchange(A& atomic, E& expected, D desired)
   }
 #else // generic
   bool result = false;
-  libxstream_lock_acquire(libxstream_lock_get(&atomic));
+  libxstream_lock *const lock = libxstream_lock_get(&atomic);
+  libxstream_lock_acquire(lock);
   result = atomic == expected;
   if (result) {
     atomic = desired;
@@ -202,7 +204,7 @@ bool atomic_compare_exchange(A& atomic, E& expected, D desired)
   else {
     expected = atomic;
   }
-  libxstream_lock_release(libxstream_lock_get(&atomic));
+  libxstream_lock_release(lock);
 #endif
   return result;
 }
@@ -295,6 +297,9 @@ libxstream_stream::~libxstream_stream()
   libxstream_stream* *const stream = std::find(registry.streams(), end, this);
   LIBXSTREAM_ASSERT(stream != end);
   *stream = 0; // unregister stream
+  for (int i = 0; i < LIBXSTREAM_MAX_NTHREADS; ++i) {
+    delete m_queue[i];
+  }
 #if defined(LIBXSTREAM_STDFEATURES)
   delete static_cast<std::atomic<int>*>(m_thread);
 #else
@@ -364,6 +369,25 @@ int libxstream_stream::wait(libxstream_signal signal)
 
 int libxstream_stream::enqueue(const libxstream_capture_base& work_item)
 {
+  const int thread = this_thread_id();
+  LIBXSTREAM_ASSERT(thread < LIBXSTREAM_MAX_NTHREADS);
+  libxstream_queue* *const queue = m_queue + this_thread_id();
+
+  if (0 == *queue) {
+    libxstream_lock *const lock = libxstream_lock_get(queue);
+    libxstream_lock_acquire(lock);
+
+    if (0 == *queue) {
+      *queue = new libxstream_queue;
+    }
+
+    libxstream_lock_release(lock);
+  }
+#if 0
+  LIBXSTREAM_ASSERT(0 != *queue);
+  void* *const slot = (*queue)->allocate_push();
+  *slot = work_item.clone();
+#endif
   return libxstream_enqueue(work_item);
 }
 

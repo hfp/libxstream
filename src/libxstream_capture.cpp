@@ -106,10 +106,11 @@ public:
     return result;
 #else // generic
     int result = 0;
-    libxstream_lock_acquire(libxstream_lock_get(this));
+    libxstream_lock *const lock = libxstream_lock_get(this);
+    libxstream_lock_acquire(lock);
     result = m_status;
     m_status = code;
-    libxstream_lock_release(libxstream_lock_get(this));
+    libxstream_lock_release(lock);
     return result;
 #endif
   }
