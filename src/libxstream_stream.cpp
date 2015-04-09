@@ -371,7 +371,7 @@ int libxstream_stream::enqueue(const libxstream_capture_base& work_item)
 {
   const int thread = this_thread_id();
   LIBXSTREAM_ASSERT(thread < LIBXSTREAM_MAX_NTHREADS);
-  libxstream_queue* *const queue = m_queue + this_thread_id();
+  libxstream_queue* *const queue = m_queue + thread;
 
   if (0 == *queue) {
     libxstream_lock *const lock = libxstream_lock_get(queue);
