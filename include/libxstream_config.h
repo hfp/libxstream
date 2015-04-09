@@ -119,12 +119,6 @@
 /** Number of cycles to actively wait. */
 #define LIBXSTREAM_WAIT_ACTIVE_CYCLES 10000
 
-/**
- * Thread-local signals allow for some more concurrency
- * when forming the signal/wait dependency chain.
- */
-/*#define LIBXSTREAM_THREADLOCAL_SIGNALS*/
-
 /** Instructs the library to wait for each enqueued work item. */
 /*#define LIBXSTREAM_SYNCHRONOUS*/
 

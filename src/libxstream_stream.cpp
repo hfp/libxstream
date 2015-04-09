@@ -32,6 +32,7 @@
 #include "libxstream_stream.hpp"
 #include "libxstream_capture.hpp"
 #include "libxstream_event.hpp"
+#include "libxstream_queue.hpp"
 
 #include <libxstream_begin.h>
 #include <algorithm>
@@ -255,9 +256,6 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
 #else
   : m_thread(new int(-1))
 #endif
-#if !(defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2))
-  , m_signal(0), m_pending(&m_signal)
-#endif
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
   , m_begin(0), m_end(0)
 #endif
@@ -268,10 +266,9 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
   , m_npartitions(0)
 #endif
 {
-  libxstream_use_sink(name);
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   std::fill_n(m_pending, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_signal>(0));
-#endif
+  std::fill_n(m_queue, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_queue*>(0));
+
 #if defined(LIBXSTREAM_PRINT)
   if (name && 0 != *name) {
     const size_t length = std::min(std::char_traits<char>::length(name), sizeof(m_name) - 1);
@@ -281,7 +278,10 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
   else {
     m_name[0] = 0;
   }
+#else
+  libxstream_use_sink(name);
 #endif
+
   using namespace libxstream_stream_internal;
   libxstream_stream* *const slot = libxstream_stream_internal::registry.allocate();
   *slot = this;
@@ -323,13 +323,8 @@ int libxstream_stream::wait(libxstream_signal signal)
     libxstream_signal *const pending_signals = ptr<libxstream_signal,0>();
     const libxstream_signal signal = val<const libxstream_signal,1>();
 
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
     const int nthreads = static_cast<int>(nthreads_active());
-    for (int i = 0; i < nthreads; ++i)
-#else
-    const int i = thread();
-#endif
-    {
+    for (int i = 0; i < nthreads; ++i) {
       const libxstream_signal pending_signal = pending_signals[i];
       if (0 != pending_signal) {
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
@@ -354,12 +349,7 @@ int libxstream_stream::wait(libxstream_signal signal)
     }
 
     if (0 != signal) {
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
-      for (int i = 0; i < nthreads; ++i)
-#else
-      const int i = thread();
-#endif
-      {
+      for (int i = 0; i < nthreads; ++i) {
         if (signal == pending_signals[i]) {
           pending_signals[i] = 0;
         }
@@ -372,29 +362,23 @@ int libxstream_stream::wait(libxstream_signal signal)
 }
 
 
+int libxstream_stream::enqueue(const libxstream_capture_base& work_item)
+{
+  return libxstream_enqueue(work_item);
+}
+
+
 void libxstream_stream::pending(int thread, libxstream_signal signal)
 {
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
   m_pending[thread] = signal;
-#else
-  libxstream_use_sink(&thread);
-  LIBXSTREAM_ASSERT(0 == thread);
-  m_signal = signal;
-#endif
 }
 
 
 libxstream_signal libxstream_stream::pending(int thread) const
 {
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
   const libxstream_signal signal = m_pending[thread];
-#else
-  libxstream_use_sink(&thread);
-  LIBXSTREAM_ASSERT(0 == thread);
-  const libxstream_signal signal = m_signal;
-#endif
   return signal;
 }
 

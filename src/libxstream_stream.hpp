@@ -40,6 +40,8 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
+class libxstream_capture_base;
+class libxstream_queue;
 struct libxstream_event;
 
 
@@ -70,6 +72,7 @@ public:
   libxstream_signal signal() const;
   int wait(libxstream_signal signal);
 
+  int enqueue(const libxstream_capture_base& work_item);
   void pending(int thread, libxstream_signal signal);
   libxstream_signal pending(int thread) const;
 
@@ -93,16 +96,12 @@ private:
   libxstream_stream& operator=(const libxstream_stream& other);
 
 private:
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
-#endif
+  libxstream_queue* m_queue[LIBXSTREAM_MAX_NTHREADS];
 #if defined(LIBXSTREAM_PRINT)
   char m_name[128];
 #endif
   void* m_thread;
-#if !(defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2))
-  libxstream_signal m_signal, *const m_pending;
-#endif
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
   size_t m_begin, m_end;
 #endif

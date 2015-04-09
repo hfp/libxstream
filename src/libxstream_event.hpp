@@ -36,7 +36,7 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
-struct libxstream_event {
+struct/*!class*/ libxstream_event {
 public:
   libxstream_event();
 

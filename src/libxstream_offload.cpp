@@ -103,10 +103,10 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
   int result = LIBXSTREAM_ERROR_NONE;
 
   LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {
-    LIBXSTREAM_TARGET(mic) /*const*/ libxstream_function fhybrid = 0 == (m_flags & LIBXSTREAM_CALL_NATIVE) ? m_function : 0;
+    LIBXSTREAM_TARGET(mic) /*const*/ libxstream_function fhybrid = 0 == (flags() & LIBXSTREAM_CALL_NATIVE) ? m_function : 0;
     const void *const fnative = reinterpret_cast<const void*>(m_function);
     libxstream_argument *const signature = m_signature;
-    const int flags = m_flags;
+    const int cflags = flags();
     size_t arity = 0;
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_arity(m_signature, &arity));
 
@@ -135,240 +135,240 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
       switch (np) {
         case 0: {
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1))
-            libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, 0, arity, flags);
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1))
+            libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, 0, arity, cflags);
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1))
-            libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, 0, arity, flags);
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1))
+            libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, 0, arity, cflags);
           }
         } break;
         case 1: {
           char *a0 = p[0];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)
             {
               char* translation[] = { a0 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)
             {
               char* translation[] = { a0 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 2: {
           char *a0 = p[0], *a1 = p[1];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2)
             {
               char* translation[] = { a0, a1 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2)
             {
               char* translation[] = { a0, a1 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 3: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4)
             {
               char* translation[] = { a0, a1, a2 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4)
             {
               char* translation[] = { a0, a1, a2 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 4: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8)
             {
               char* translation[] = { a0, a1, a2, a3 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8)
             {
               char* translation[] = { a0, a1, a2, a3 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 5: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)
             {
               char* translation[] = { a0, a1, a2, a3, a4 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)
             {
               char* translation[] = { a0, a1, a2, a3, a4 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 6: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 7: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 8: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 9: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7], *a8 = p[8];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 10: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7], *a8 = p[8], *a9 = p[9];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
         case 11: {
           char *a0 = p[0], *a1 = p[1], *a2 = p[2], *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7], *a8 = p[8], *a9 = p[9], *a10 = p[10];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
@@ -376,23 +376,23 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
           char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3], *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7];
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
@@ -400,25 +400,25 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
           char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3],   *a4 = p[4], *a5 = p[5], *a6 = p[6], *a7 = p[7];
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
               LIBXSTREAM_OFFLOAD_DATA(a12, s&4096)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
               LIBXSTREAM_OFFLOAD_DATA(a12, s&4096)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
@@ -426,25 +426,25 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
           char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3],   *a4 = p[4],   *a5 = p[5], *a6 = p[6], *a7 = p[7];
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12], *a13 = p[13];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)    LIBXSTREAM_OFFLOAD_DATA( a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)   LIBXSTREAM_OFFLOAD_DATA( a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256)  LIBXSTREAM_OFFLOAD_DATA( a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
               LIBXSTREAM_OFFLOAD_DATA(a12, s&4096) LIBXSTREAM_OFFLOAD_DATA(a13, s&8192)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)    LIBXSTREAM_OFFLOAD_DATA( a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)   LIBXSTREAM_OFFLOAD_DATA( a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256)  LIBXSTREAM_OFFLOAD_DATA( a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
               LIBXSTREAM_OFFLOAD_DATA(a12, s&4096) LIBXSTREAM_OFFLOAD_DATA(a13, s&8192)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
@@ -452,25 +452,25 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
           char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3],   *a4 = p[4],   *a5 = p[5],   *a6 = p[6], *a7 = p[7];
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12], *a13 = p[13], *a14 = p[14];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)    LIBXSTREAM_OFFLOAD_DATA( a1, s&2)    LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)   LIBXSTREAM_OFFLOAD_DATA( a5, s&32)   LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256)  LIBXSTREAM_OFFLOAD_DATA( a9, s&512)  LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
               LIBXSTREAM_OFFLOAD_DATA(a12, s&4096) LIBXSTREAM_OFFLOAD_DATA(a13, s&8192) LIBXSTREAM_OFFLOAD_DATA(a14, s&16384)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)    LIBXSTREAM_OFFLOAD_DATA( a1, s&2)    LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)   LIBXSTREAM_OFFLOAD_DATA( a5, s&32)   LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256)  LIBXSTREAM_OFFLOAD_DATA( a9, s&512)  LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
               LIBXSTREAM_OFFLOAD_DATA(a12, s&4096) LIBXSTREAM_OFFLOAD_DATA(a13, s&8192) LIBXSTREAM_OFFLOAD_DATA(a14, s&16384)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
@@ -478,25 +478,25 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
           char *a0 = p[0], *a1 = p[1],  *a2 = p[2],   *a3 = p[3],   *a4 = p[4],   *a5 = p[5],   *a6 = p[6],   *a7 = p[7];
           char *a8 = p[8], *a9 = p[9], *a10 = p[10], *a11 = p[11], *a12 = p[12], *a13 = p[13], *a14 = p[14], *a15 = p[15];
           if (LIBXSTREAM_ASYNC_READY) {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)    LIBXSTREAM_OFFLOAD_DATA( a1, s&2)    LIBXSTREAM_OFFLOAD_DATA( a2, s&4)     LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)   LIBXSTREAM_OFFLOAD_DATA( a5, s&32)   LIBXSTREAM_OFFLOAD_DATA( a6, s&64)    LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256)  LIBXSTREAM_OFFLOAD_DATA( a9, s&512)  LIBXSTREAM_OFFLOAD_DATA(a10, s&1024)  LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
               LIBXSTREAM_OFFLOAD_DATA(a12, s&4096) LIBXSTREAM_OFFLOAD_DATA(a13, s&8192) LIBXSTREAM_OFFLOAD_DATA(a14, s&16384) LIBXSTREAM_OFFLOAD_DATA(a15, s&32768)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, flags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)    LIBXSTREAM_OFFLOAD_DATA( a1, s&2)    LIBXSTREAM_OFFLOAD_DATA( a2, s&4)     LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)   LIBXSTREAM_OFFLOAD_DATA( a5, s&32)   LIBXSTREAM_OFFLOAD_DATA( a6, s&64)    LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256)  LIBXSTREAM_OFFLOAD_DATA( a9, s&512)  LIBXSTREAM_OFFLOAD_DATA(a10, s&1024)  LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
               LIBXSTREAM_OFFLOAD_DATA(a12, s&4096) LIBXSTREAM_OFFLOAD_DATA(a13, s&8192) LIBXSTREAM_OFFLOAD_DATA(a14, s&16384) LIBXSTREAM_OFFLOAD_DATA(a15, s&32768)
             {
               char* translation[] = { a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15 };
-              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, flags);
+              libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, translation, arity, cflags);
             }
           }
         } break;
@@ -508,7 +508,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
     else
 #endif
     {
-      libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, 0, arity, flags);
+      libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, 0, arity, cflags);
     }
   }
   LIBXSTREAM_ASYNC_END(flags, result);

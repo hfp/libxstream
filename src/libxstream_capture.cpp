@@ -114,15 +114,15 @@ public:
 #endif
   }
 
-  void push(const libxstream_capture_base& capture_region, bool wait) {
-    push(&capture_region, wait);
+  void push(const libxstream_capture_base& work_item) {
+    push(&work_item, 0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT));
   }
 
 private:
-  void push(const libxstream_capture_base* capture_region, bool wait) {
-    LIBXSTREAM_ASSERT(capture_region);
-    libxstream_capture_base *const item = (LIBXSTREAM_CAPTURE_TERMINATOR) != capture_region
-      ? capture_region->clone()
+  void push(const libxstream_capture_base* work_item, bool wait) {
+    LIBXSTREAM_ASSERT(work_item);
+    libxstream_capture_base *const item = (LIBXSTREAM_CAPTURE_TERMINATOR) != work_item
+      ? work_item->clone()
       : (LIBXSTREAM_CAPTURE_TERMINATOR);
 
     libxstream_capture_base** entry = reinterpret_cast<libxstream_capture_base**>(m_queue.allocate_push());
@@ -162,12 +162,12 @@ private:
       }
 
       if ((LIBXSTREAM_CAPTURE_TERMINATOR) != item) {
-        libxstream_capture_base *const capture_region = static_cast<libxstream_capture_base*>(item);
-        (*capture_region)();
+        libxstream_capture_base *const work_item = static_cast<libxstream_capture_base*>(item);
+        (*work_item)();
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
 #       pragma omp taskwait
 #endif
-        delete capture_region;
+        delete work_item;
         q.pop();
       }
       else {
@@ -206,10 +206,12 @@ private:
 libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags)
   : m_function(0)
   , m_stream(stream)
+#if defined(LIBXSTREAM_SYNCHRONOUS)
+  , m_flags(flags | LIBXSTREAM_CALL_WAIT)
+#else
   , m_flags(flags)
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
-  , m_thread(this_thread_id())
 #endif
+  , m_thread(this_thread_id())
 #if defined(LIBXSTREAM_CAPTURE_UNLOCK_LATE)
   , m_unlock(false)
 #else
@@ -278,11 +280,7 @@ int libxstream_capture_base::status(int code)
 
 int libxstream_capture_base::thread() const
 {
-#if defined(LIBXSTREAM_THREADLOCAL_SIGNALS) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
   return m_thread;
-#else
-  return 0;
-#endif
 }
 
 
@@ -304,21 +302,15 @@ void libxstream_capture_base::operator()()
 }
 
 
-int libxstream_enqueue(const libxstream_capture_base& capture_region, bool wait)
+int libxstream_enqueue(const libxstream_capture_base& work_item)
 {
 #if !defined(LIBXSTREAM_CAPTURE_DEBUG)
-# if defined(LIBXSTREAM_SYNCHRONOUS)
-  libxstream_use_sink(&wait);
-  libxstream_capture_internal::scheduler.push(capture_region, true);
-# else
-  libxstream_capture_internal::scheduler.push(capture_region, wait);
-# endif
+  libxstream_capture_internal::scheduler.push(work_item);
   return libxstream_capture_internal::scheduler.status(LIBXSTREAM_ERROR_NONE);
 #else
-  libxstream_use_sink(&wait);
-  libxstream_capture_base *const capture_region_clone = capture_region.clone();
-  (*capture_region_clone)();
-  delete capture_region_clone;
+  libxstream_capture_base *const work_item_clone = work_item.clone();
+  (*work_item_clone)();
+  delete work_item_clone;
   return LIBXSTREAM_ERROR_NONE;
 #endif
 }
