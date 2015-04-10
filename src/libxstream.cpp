@@ -847,21 +847,21 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_priority_range(int* least, int* greate
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int device, int demux, int priority, const char* name)
+LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int device, int priority, const char* name)
 {
   LIBXSTREAM_CHECK_CONDITION(stream);
-  libxstream_stream *const s = new libxstream_stream(device, demux, priority, name);
+  libxstream_stream *const s = new libxstream_stream(device, priority, name);
   LIBXSTREAM_ASSERT(s);
   *stream = s;
 
 #if defined(LIBXSTREAM_PRINT)
   if (name && *name) {
-    LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i demux=%i priority=%i (%s)",
-      reinterpret_cast<unsigned long long>(*stream), device, demux, priority, name);
+    LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i priority=%i (%s)",
+      reinterpret_cast<unsigned long long>(*stream), device, priority, name);
   }
   else {
-    LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i demux=%i priority=%i",
-      reinterpret_cast<unsigned long long>(*stream), device, demux, priority);
+    LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i priority=%i",
+      reinterpret_cast<unsigned long long>(*stream), device, priority);
   }
 #endif
 
@@ -916,37 +916,11 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(const libxstream_stream* st
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_stream_lock(libxstream_stream* stream)
-{
-  LIBXSTREAM_CHECK_CONDITION(stream && 0 == stream->demux());
-  // manual locking is supposed to be correct and hence there is no need to retry
-  stream->lock(false);
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-LIBXSTREAM_EXPORT_C int libxstream_stream_unlock(libxstream_stream* stream)
-{
-  LIBXSTREAM_CHECK_CONDITION(stream && 0 == stream->demux());
-  stream->unlock();
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
 LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream, int* device)
 {
   LIBXSTREAM_CHECK_CONDITION(stream && device);
   *device = stream->device();
   LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx device=%i", reinterpret_cast<unsigned long long>(stream), *device);
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-LIBXSTREAM_EXPORT_C int libxstream_stream_demux(const libxstream_stream* stream, int* demux)
-{
-  LIBXSTREAM_CHECK_CONDITION(stream && demux);
-  *demux = stream->demux();
-  LIBXSTREAM_PRINT_INFOCTX("stream=0x%llx demux=%i", reinterpret_cast<unsigned long long>(stream), *demux);
   return LIBXSTREAM_ERROR_NONE;
 }
 

@@ -115,21 +115,15 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
 /** Query the range of valid priorities (inclusive bounds). */
 LIBXSTREAM_EXPORT_C int libxstream_stream_priority_range(int* least, int* greatest);
 /** Create a stream on a device (demux<0: auto-locks, 0: manual, demux>0: sync.). */
-LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int device, int demux/*DEPRECATED*/, int priority, const char* name);
+LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int device, int priority, const char* name);
 /** Destroy a stream; pending work must be completed if results are needed. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* stream);
 /** Wait for a stream to complete pending work; NULL to synchronize all streams. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream);
 /** Wait for an event inside of the specified stream; a NULL-stream designates all streams. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(const libxstream_stream* stream, const libxstream_event* event);
-/** Lock a stream such that the caller thread can safely enqueue work. */
-LIBXSTREAM_EXPORT_C int libxstream_stream_lock(libxstream_stream* stream);                        /*DEPRECATED*/
-/** Unlock a stream such that another thread can acquire the stream. */
-LIBXSTREAM_EXPORT_C int libxstream_stream_unlock(libxstream_stream* stream);                      /*DEPRECATED*/
 /** Query the device the given stream is constructed for. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream, int* device);
-/** Query the demux property the given stream is constructed for. */
-LIBXSTREAM_EXPORT_C int libxstream_stream_demux(const libxstream_stream* stream, int* demux);     /*DEPRECATED*/
 
 /** Create an event; event can be recorded multiple times. */
 LIBXSTREAM_EXPORT_C int libxstream_event_create(libxstream_event** event);

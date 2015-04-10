@@ -96,11 +96,7 @@ int main(int argc, char* argv[])
     const int nitems = std::max(1 < argc ? std::atoi(argv[1]) : 60, 0);
     const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 10, 1);
     const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
-#if defined(MULTI_DGEMM_USE_SYNC)
-    const int demux = 4 < argc ? std::atoi(argv[4]) : 1;
-#else
-    const int demux = -1;
-#endif
+
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
       throw std::runtime_error("no device found!");
@@ -120,7 +116,7 @@ int main(int argc, char* argv[])
     for (size_t i = 0; i < nstreams_total; ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", static_cast<int>(i + 1));
-      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, static_cast<int>(i % ndevices), demux, static_cast<size_t>(nbatch)));
+      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, static_cast<int>(i % ndevices), static_cast<size_t>(nbatch)));
     }
     if (0 < nstreams_total) {
       fprintf(stdout, " %.1f MB\n", nstreams * multi_dgemm[0].bytes() * 1E-6);
@@ -171,8 +167,7 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
     const double duration = omp_get_wtime() - start;
     if (0 < duration) {
-      fprintf(stdout, "Performance: %.1f GFLOPS/s (%s)\n", host_data.flops() * 1E-9 / duration,
-        0 == demux ? "manual locking" : (0 < demux ? "synchronization" : "automatic locking"));
+      fprintf(stdout, "Performance: %.1f GFLOPS/s\n", host_data.flops() * 1E-9 / duration);
     }
     fprintf(stdout, "Duration: %.1f s\n", duration);
 #endif

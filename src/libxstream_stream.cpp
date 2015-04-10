@@ -252,7 +252,7 @@ T atomic_store(A& atomic, T value)
 }
 
 
-libxstream_stream::libxstream_stream(int device, int demux, int priority, const char* name)
+libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 #if defined(LIBXSTREAM_STDFEATURES)
   : m_thread(new std::atomic<int>(-1))
 #else
@@ -261,7 +261,6 @@ libxstream_stream::libxstream_stream(int device, int demux, int priority, const 
 #if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
   , m_begin(0), m_end(0)
 #endif
-  , m_demux(demux)
   , m_device(device), m_priority(priority)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation

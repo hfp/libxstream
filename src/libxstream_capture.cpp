@@ -250,8 +250,8 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
   }
 
   if (stream) {
-    if (0 == (flags & LIBXSTREAM_CALL_WAIT) && 0 != stream->demux()) {
-      stream->lock(0 > stream->demux());
+    if (0 == (flags & LIBXSTREAM_CALL_WAIT)) {
+      stream->lock(false);
     }
     stream->begin();
   }
@@ -262,7 +262,7 @@ libxstream_capture_base::~libxstream_capture_base()
 {
   if (m_unlock && m_stream) {
     m_stream->end();
-    if (0 != (m_flags & LIBXSTREAM_CALL_UNLOCK) && 0 != m_stream->demux()) {
+    if (0 != (m_flags & LIBXSTREAM_CALL_UNLOCK)) {
       m_stream->unlock();
     }
   }
