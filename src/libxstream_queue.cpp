@@ -73,12 +73,12 @@ libxstream_queue::~libxstream_queue()
 
 size_t libxstream_queue::size() const
 {
+  const size_t index = m_index;
 #if defined(LIBXSTREAM_STDFEATURES)
   const size_t offset = *static_cast<const std::atomic<size_t>*>(m_size);
 #else
   const size_t offset = *static_cast<const size_t*>(m_size);
 #endif
-  const size_t index = m_index;
   const void *const entry = m_buffer[index%LIBXSTREAM_MAX_QSIZE];
   return 0 != entry ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
 }
