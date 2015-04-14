@@ -40,17 +40,17 @@
 typedef uintptr_t libxstream_signal;
 
 typedef void libxstream_lock;
-libxstream_lock* libxstream_lock_create();
-libxstream_lock* libxstream_lock_get(const volatile void* address);
-void libxstream_lock_destroy(libxstream_lock* lock);
-void libxstream_lock_acquire(libxstream_lock* lock);
-void libxstream_lock_release(libxstream_lock* lock);
-bool libxstream_lock_try(libxstream_lock* lock);
+LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create();
+LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_get(const volatile void* address);
+LIBXSTREAM_TARGET(mic) void libxstream_lock_destroy(libxstream_lock* lock);
+LIBXSTREAM_TARGET(mic) void libxstream_lock_acquire(libxstream_lock* lock);
+LIBXSTREAM_TARGET(mic) void libxstream_lock_release(libxstream_lock* lock);
+LIBXSTREAM_TARGET(mic) bool libxstream_lock_try(libxstream_lock* lock);
 
-size_t nthreads_active();
-int this_thread_id();
-void this_thread_yield();
-void this_thread_sleep(size_t ms = 1);
+LIBXSTREAM_TARGET(mic) size_t nthreads_active();
+LIBXSTREAM_TARGET(mic) int this_thread_id();
+LIBXSTREAM_TARGET(mic) void this_thread_yield();
+LIBXSTREAM_TARGET(mic) void this_thread_sleep(size_t ms = 1);
 
 enum {
   LIBXSTREAM_CALL_EXTERNAL = (2 * (LIBXSTREAM_CALL_INVALID - 1))

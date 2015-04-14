@@ -77,7 +77,7 @@
 
 namespace libxstream_internal {
 
-class context_type {
+LIBXSTREAM_TARGET(mic) static/*IPO*/ class LIBXSTREAM_TARGET(mic) context_type {
 public:
 #if defined(LIBXSTREAM_STDFEATURES)
   typedef std::atomic<size_t> size_type;
@@ -103,13 +103,6 @@ public:
 
   size_type& nthreads() {
     return m_nthreads;
-  }
-
-  int default_device(int& device) const {
-    size_t ndevices = 0;
-    const int result = libxstream_get_ndevices(&ndevices);
-    device = static_cast<int>(ndevices - 1);
-    return result;
   }
 
   int global_device() const {
@@ -198,7 +191,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_use_sink(const void*)
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value) { return value; }
 
 
-libxstream_lock* libxstream_lock_create()
+LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create()
 {
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
@@ -233,7 +226,7 @@ libxstream_lock* libxstream_lock_create()
 }
 
 
-libxstream_lock* libxstream_lock_get(const volatile void* address)
+LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_get(const volatile void* address)
 {
   // guaranteed to be zero-initialized according to C++ lang. rules
   static libxstream_lock* locks[(LIBXSTREAM_MAX_NLOCKS)];
@@ -256,7 +249,7 @@ libxstream_lock* libxstream_lock_get(const volatile void* address)
 }
 
 
-void libxstream_lock_destroy(libxstream_lock* lock)
+LIBXSTREAM_TARGET(mic) void libxstream_lock_destroy(libxstream_lock* lock)
 {
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
@@ -284,7 +277,7 @@ void libxstream_lock_destroy(libxstream_lock* lock)
 }
 
 
-void libxstream_lock_acquire(libxstream_lock* lock)
+LIBXSTREAM_TARGET(mic) void libxstream_lock_acquire(libxstream_lock* lock)
 {
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -321,7 +314,7 @@ void libxstream_lock_acquire(libxstream_lock* lock)
 }
 
 
-void libxstream_lock_release(libxstream_lock* lock)
+LIBXSTREAM_TARGET(mic) void libxstream_lock_release(libxstream_lock* lock)
 {
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -354,7 +347,7 @@ void libxstream_lock_release(libxstream_lock* lock)
 }
 
 
-bool libxstream_lock_try(libxstream_lock* lock)
+LIBXSTREAM_TARGET(mic) bool libxstream_lock_try(libxstream_lock* lock)
 {
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -389,7 +382,7 @@ bool libxstream_lock_try(libxstream_lock* lock)
 }
 
 
-size_t nthreads_active()
+LIBXSTREAM_TARGET(mic) size_t nthreads_active()
 {
   const size_t result = libxstream_internal::context.nthreads();
   LIBXSTREAM_ASSERT(result <= LIBXSTREAM_MAX_NTHREADS);
@@ -397,7 +390,7 @@ size_t nthreads_active()
 }
 
 
-int this_thread_id()
+LIBXSTREAM_TARGET(mic) int this_thread_id()
 {
   static LIBXSTREAM_TLS int id = -1;
   if (0 > id) {
@@ -424,7 +417,7 @@ int this_thread_id()
 }
 
 
-void this_thread_yield()
+LIBXSTREAM_TARGET(mic) void this_thread_yield()
 {
 #if defined(LIBXSTREAM_STDFEATURES) && defined(LIBXSTREAM_STDFEATURES_THREADX)
   std::this_thread::yield();
@@ -434,7 +427,7 @@ void this_thread_yield()
 }
 
 
-void this_thread_sleep(size_t ms)
+LIBXSTREAM_TARGET(mic) void this_thread_sleep(size_t ms)
 {
 #if defined(LIBXSTREAM_STDFEATURES) && defined(LIBXSTREAM_STDFEATURES_THREADX)
   typedef std::chrono::milliseconds milliseconds;
@@ -495,7 +488,9 @@ LIBXSTREAM_EXPORT_C int libxstream_get_active_device(int* device)
     active_device = libxstream_internal::context.global_device();
 
     if (-1 > active_device) {
-      result = libxstream_internal::context.default_device(active_device);
+      size_t ndevices = 0;
+      result = libxstream_get_ndevices(&ndevices);
+      active_device = static_cast<int>(ndevices - 1);
       libxstream_internal::context.global_device(active_device);
       libxstream_internal::context.device() = active_device;
     }
@@ -539,7 +534,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, siz
       static_cast<unsigned long>(memory_allocatable), static_cast<unsigned long>(memory_physical));
 
 #if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= device) {
+    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 #     pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) //out(memory_physical, memory_allocatable)
       libxstream_internal::mem_info(memory_physical, memory_allocatable);
     }
@@ -557,39 +552,6 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, siz
   }
   if (physical) {
     *physical = static_cast<size_t>(memory_physical);
-  }
-
-  return result;
-}
-
-// not exposed in the public interface
-LIBXSTREAM_EXPORT_C int libxstream_mem_pointer(int device, const void* memory, const void** real)
-{
-  LIBXSTREAM_CHECK_CONDITION(0 != real);
-  int result = LIBXSTREAM_ERROR_NONE;
-
-  if (memory) {
-#if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= device) {
-      LIBXSTREAM_ASYNC_BEGIN(0, device, memory, real)
-      {
-        const char* memory = ptr<const char,1>();
-        const void*& real = *ptr<const void*,2>();
-#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) in(memory: LIBXSTREAM_OFFLOAD_REFRESH) //out(real)
-        real = memory;
-      }
-      LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_WAIT, result);
-    }
-    else {
-#else
-    {
-      libxstream_use_sink(&device);
-#endif
-      *real = memory;
-    }
-  }
-  else {
-    *real = 0;
   }
 
   return result;
@@ -1409,7 +1371,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const lib
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_get_verbosity(int* level)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_verbosity(int* level)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != level);
   int result = LIBXSTREAM_ERROR_NONE, verbosity = libxstream_internal::context.verbosity();
@@ -1431,7 +1393,7 @@ LIBXSTREAM_EXPORT_C int libxstream_get_verbosity(int* level)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_set_verbosity(int level)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_set_verbosity(int level)
 {
   LIBXSTREAM_CHECK_CONDITION(-1 <= level);
 
