@@ -996,35 +996,11 @@ LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t nargs)
+LIBXSTREAM_EXPORT_C int libxstream_fn_signature(libxstream_argument** signature)
 {
-  if (0 < nargs) {
-    libxstream_argument *const arguments = new libxstream_argument[nargs+1];
-    LIBXSTREAM_CHECK_CALL(libxstream_construct(arguments, nargs));
-    *signature = arguments;
-  }
-  else {
-    LIBXSTREAM_CHECK_CONDITION(0 != signature && (LIBXSTREAM_MAX_NARGS) >= nargs);
-    *signature = 0;
-  }
-  LIBXSTREAM_PRINT(2, "fn_create_signature: signature=0x%llx nargs=%lu", reinterpret_cast<unsigned long long>(*signature), static_cast<unsigned long>(nargs));
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature)
-{
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
-  size_t nargs = 0, arity = 0;
-  LIBXSTREAM_CHECK_CALL(libxstream_fn_nargs(signature, &nargs));
-  LIBXSTREAM_CHECK_CALL(libxstream_get_arity(signature, &arity));
-  LIBXSTREAM_PRINT(2, "fn_destroy_signature: signature=0x%llx nargs=%lu arity=%lu", reinterpret_cast<unsigned long long>(signature),
-    static_cast<unsigned long>(nargs), static_cast<unsigned long>(arity));
-  if (arity < nargs && (LIBXSTREAM_MAX_NARGS) != nargs) {
-    LIBXSTREAM_PRINT0(1, "fn_destroy_signature: unused argument slots!");
-  }
-#endif
-  delete signature;
+  static LIBXSTREAM_TLS libxstream_argument arguments[(LIBXSTREAM_MAX_NARGS)+1];
+  LIBXSTREAM_CHECK_CALL(libxstream_construct(arguments, LIBXSTREAM_MAX_NARGS));
+  *signature = arguments;
   return LIBXSTREAM_ERROR_NONE;
 }
 
@@ -1037,15 +1013,6 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_clear_signature(libxstream_argument* signa
     LIBXSTREAM_CHECK_CALL(libxstream_construct(signature, nargs));
   }
   LIBXSTREAM_PRINT(2, "fn_clear_signature: signature=0x%llx nargs=%lu", reinterpret_cast<unsigned long long>(signature), static_cast<unsigned long>(nargs));
-  return LIBXSTREAM_ERROR_NONE;
-}
-
-
-LIBXSTREAM_EXPORT_C int libxstream_fn_signature(libxstream_argument** signature)
-{
-  static LIBXSTREAM_TLS libxstream_argument arguments[(LIBXSTREAM_MAX_NARGS)+1];
-  LIBXSTREAM_CHECK_CALL(libxstream_construct(arguments, LIBXSTREAM_MAX_NARGS));
-  *signature = arguments;
   return LIBXSTREAM_ERROR_NONE;
 }
 

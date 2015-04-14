@@ -44,7 +44,7 @@
 #include <libxstream_end.h>
 
 //#define MULTI_DGEMM_USE_NESTED
-#define MULTI_DGEMM_USE_SYNC 1
+//#define MULTI_DGEMM_USE_SYNC 1
 #define MULTI_DGEMM_USE_CHECK
 
 #define DGEMM dgemm_
@@ -138,10 +138,14 @@ int main(int argc, char* argv[])
     for (int i = 0; i < nitems; i += nbatch) {
       const size_t j = i / nbatch, n = j % nstreams_total;
       multi_dgemm_type& call = multi_dgemm[n];
+
+      // enqueue work package
       LIBXSTREAM_CHECK_CALL_ASSERT(call(i, std::min(nbatch, nitems - i)));
-#if defined(MULTI_DGEMM_USE_SYNC) && (1 <= MULTI_DGEMM_USE_SYNC)
+
+#if defined(MULTI_DGEMM_USE_SYNC) && (1 <= MULTI_DGEMM_USE_SYNC) // record event
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(call.event(), call.stream()));
 #endif
+
       // synchronize every Nth iteration with N being the total number of streams
       if (n == (nstreams_total - 1)) {
         for (size_t k = 0; k < nstreams_total; ++k) {

@@ -75,7 +75,6 @@ public:
 
 private:
   host_data_type* m_host_data;
-  libxstream_argument* m_signature;
   libxstream_stream* m_stream;
   libxstream_event* m_event;
 

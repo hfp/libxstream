@@ -134,21 +134,17 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
 /** Wait for an event to complete i.e., work queued prior to recording the event will be completed. */
 LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event);
 
-/** Create a function signature with a certain maximum number of arguments. */
-LIBXSTREAM_EXPORT_C int libxstream_fn_create_signature(libxstream_argument** signature, size_t nargs);
-/** Destroy a function signature; does not release the bound data. */
-LIBXSTREAM_EXPORT_C int libxstream_fn_destroy_signature(const libxstream_argument* signature);
-/** Reset function signature to start over with less arguments (arity). */
-LIBXSTREAM_EXPORT_C int libxstream_fn_clear_signature(libxstream_argument* signature);
 /** Receive thread-local signature with capacity of LIBXSTREAM_MAX_NARGS. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_signature(libxstream_argument** signature);
+/** Reset function signature to start over with less arguments (arity). */
+LIBXSTREAM_EXPORT_C int libxstream_fn_clear_signature(libxstream_argument* signature);
 /** Construct an input argument from device data, dimensionality, and shape. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_input(libxstream_argument* signature, size_t arg, const void* in, libxstream_type type, size_t dims, const size_t shape[]);
 /** Construct an output argument from device data, dimensionality, and shape. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_output(libxstream_argument* signature, size_t arg, void* out, libxstream_type type, size_t dims, const size_t shape[]);
 /** Construct an in-out argument from device data, dimensionality, and shape. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_inout(libxstream_argument* signature, size_t arg, void* inout, libxstream_type type, size_t dims, const size_t shape[]);
-/** Query the capacity of the function signature. */
+/** Query the capacity of the function signature (maximum possible arity). */
 LIBXSTREAM_EXPORT_C int libxstream_fn_nargs(const libxstream_argument* signature, size_t* nargs);
 /** Call a user function along with the signature. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags);
