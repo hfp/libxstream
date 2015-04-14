@@ -90,7 +90,13 @@
     libxstream_capture(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags, int& result) \
       : libxstream_capture_base(argc, argv, stream, flags) \
     { \
-      result = stream ? stream->enqueue(*this) : libxstream_enqueue(*this); \
+      result = status(LIBXSTREAM_ERROR_NONE); \
+      if (stream) { \
+        stream->enqueue(*this); \
+      } \
+      else { \
+        libxstream_enqueue(*this); \
+      } \
     } \
     libxstream_capture* virtual_clone() const { \
       return new libxstream_capture(*this); \
@@ -144,7 +150,7 @@ public:
 
 public:
   libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags);
-  virtual ~libxstream_capture_base();
+  virtual ~libxstream_capture_base() {}
 
 public:
   template<typename T,size_t i> T& val() {
@@ -172,11 +178,12 @@ public:
   }
 
   int flags() const { return m_flags; }
-  int status(int code);
-  int thread() const;
+  int thread() const { return m_thread; }
 
   libxstream_capture_base* clone() const;
   void operator()();
+
+  int status(int code);
 
 private:
   virtual libxstream_capture_base* virtual_clone() const = 0;
@@ -189,11 +196,11 @@ protected:
 
 private:
   int m_flags, m_thread;
-  bool m_unlock;
 };
 
 
-int libxstream_enqueue(const libxstream_capture_base& work_item);
+void libxstream_enqueue(libxstream_capture_base& work_item, bool clone);
+void libxstream_enqueue(const libxstream_capture_base& work_item);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_CAPTURE_HPP

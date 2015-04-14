@@ -48,6 +48,7 @@ struct libxstream_event;
 struct libxstream_stream {
 public:
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
+  static libxstream_stream* schedule(const libxstream_stream* exclude);
 
   static int sync(int device);
   static int sync();
@@ -57,28 +58,23 @@ public:
   ~libxstream_stream();
 
 public:
-  int device() const      { return m_device; }
-  int priority() const    { return m_priority; }
-
+  int device() const    { return m_device; }
+  int priority() const  { return m_priority; }
+  
   libxstream_signal signal() const;
   int wait(libxstream_signal signal);
 
-  int enqueue(const libxstream_capture_base& work_item);
   void pending(int thread, libxstream_signal signal);
   libxstream_signal pending(int thread) const;
 
-  int thread() const;
-  void begin();
-  void end();
-
-  void lock(bool retry);
-  void unlock();
+  void enqueue(const libxstream_capture_base& work_item);
+  libxstream_queue* queue(const libxstream_queue* exclude = 0);
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;
 #endif
 
-#if defined(LIBXSTREAM_PRINT)
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
   const char* name() const;
 #endif
 
@@ -88,16 +84,13 @@ private:
 
 private:
   libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
-  libxstream_queue* m_queue[LIBXSTREAM_MAX_NTHREADS];
-#if defined(LIBXSTREAM_PRINT)
+  libxstream_queue* m_queues[LIBXSTREAM_MAX_NTHREADS];
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
   char m_name[128];
-#endif
-  void* m_thread;
-#if defined(LIBXSTREAM_LOCK_RETRY) && (0 < (LIBXSTREAM_LOCK_RETRY))
-  size_t m_begin, m_end;
 #endif
   int m_device;
   int m_priority;
+  int m_thread;
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   mutable _Offload_stream m_handle; // lazy creation

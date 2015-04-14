@@ -41,7 +41,7 @@ typedef uintptr_t libxstream_signal;
 
 typedef void libxstream_lock;
 libxstream_lock* libxstream_lock_create();
-libxstream_lock* libxstream_lock_get(const void* address);
+libxstream_lock* libxstream_lock_get(const volatile void* address);
 void libxstream_lock_destroy(libxstream_lock* lock);
 void libxstream_lock_acquire(libxstream_lock* lock);
 void libxstream_lock_release(libxstream_lock* lock);
@@ -53,8 +53,7 @@ void this_thread_yield();
 void this_thread_sleep(size_t ms = 1);
 
 enum {
-  LIBXSTREAM_CALL_UNLOCK    = (2 * (LIBXSTREAM_CALL_INVALID - 1)),
-  LIBXSTREAM_CALL_EXTERNAL  = (4 * (LIBXSTREAM_CALL_INVALID - 1))
+  LIBXSTREAM_CALL_EXTERNAL = (2 * (LIBXSTREAM_CALL_INVALID - 1))
 };
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

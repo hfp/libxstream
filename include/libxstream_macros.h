@@ -57,7 +57,7 @@
 #endif /*__cplusplus*/
 
 #if !defined(LIBXSTREAM_RESTRICT)
-# if ((defined(__GNUC__) && !defined(__CYGWIN32__)) || defined(__INTEL_COMPILER)) && !defined(_WIN32)
+# if ((defined(__GNUC__) && !defined(__CYGWIN__)) || defined(__INTEL_COMPILER)) && !defined(_WIN32)
 #   define LIBXSTREAM_RESTRICT __restrict__
 # elif defined(_MSC_VER) || defined(__INTEL_COMPILER)
 #   define LIBXSTREAM_RESTRICT __restrict
@@ -171,6 +171,25 @@
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_use_sink(const void*);
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value);
 
+/**
+ * Below group of preprocessor symbols are used to fixup some platform specifics.
+ */
+#if !defined(_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES)
+# define _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES 1
+#endif
+#if !defined(_CRT_SECURE_NO_DEPRECATE)
+# define _CRT_SECURE_NO_DEPRECATE 1
+#endif
+#if !defined(_USE_MATH_DEFINES)
+# define _USE_MATH_DEFINES 1
+#endif
+#if !defined(WIN32_LEAN_AND_MEAN)
+# define WIN32_LEAN_AND_MEAN 1
+#endif
+#if !defined(NOMINMAX)
+# define NOMINMAX 1
+#endif
+
 #if defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_USE_SINK(VAR) libxstream_use_sink(VAR)
 # define LIBXSTREAM_ASSERT(A) assert(A)
@@ -204,6 +223,10 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 # endif
 #endif
 
+#if defined(LIBXSTREAM_STDFEATURES) && defined(__CYGWIN__) && defined(__STRICT_ANSI__)
+# undef __STRICT_ANSI__
+#endif
+
 #define LIBXSTREAM_TRUE  1
 #define LIBXSTREAM_FALSE 0
 
@@ -212,24 +235,11 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 #define LIBXSTREAM_ERROR_CONDITION -2
 
 #if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
-# define LIBXSTREAM_PRINT
-# define LIBXSTREAM_PRINT_INFO(MESSAGE, ...) fprintf(stderr, "DBG " MESSAGE "\n", __VA_ARGS__)
-# define LIBXSTREAM_PRINT_INFO0(MESSAGE) fprintf(stderr, "DBG " MESSAGE "\n")
-# define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...) fprintf(stderr, "DBG %s: " MESSAGE "\n", __FUNCTION__, __VA_ARGS__)
-# define LIBXSTREAM_PRINT_INFOCTX0(MESSAGE) fprintf(stderr, "DBG %s: " MESSAGE "\n", __FUNCTION__)
-# define LIBXSTREAM_PRINT_WARN(MESSAGE, ...) fprintf(stderr, "WRN " MESSAGE "\n", __VA_ARGS__)
-# define LIBXSTREAM_PRINT_WARN0(MESSAGE) fprintf(stderr, "WRN " MESSAGE "\n")
-# define LIBXSTREAM_PRINT_WARNCTX(MESSAGE, ...) fprintf(stderr, "WRN %s: " MESSAGE "\n", __FUNCTION__, __VA_ARGS__)
-# define LIBXSTREAM_PRINT_WARNCTX0(MESSAGE) fprintf(stderr, "WRN %s: " MESSAGE "\n", __FUNCTION__)
+# define LIBXSTREAM_PRINT(VERBOSITY, MESSAGE, ...) libxstream_print(VERBOSITY, "MSG " MESSAGE "\n", __VA_ARGS__)
+# define LIBXSTREAM_PRINT0(VERBOSITY, MESSAGE) libxstream_print(VERBOSITY, "MSG " MESSAGE "\n")
 #else
-# define LIBXSTREAM_PRINT_INFO(MESSAGE, ...)
-# define LIBXSTREAM_PRINT_INFO0(MESSAGE)
-# define LIBXSTREAM_PRINT_INFOCTX(MESSAGE, ...)
-# define LIBXSTREAM_PRINT_INFOCTX0(MESSAGE)
-# define LIBXSTREAM_PRINT_WARN(MESSAGE, ...)
-# define LIBXSTREAM_PRINT_WARN0(MESSAGE)
-# define LIBXSTREAM_PRINT_WARNCTX(MESSAGE, ...)
-# define LIBXSTREAM_PRINT_WARNCTX0(MESSAGE)
+# define LIBXSTREAM_PRINT(VERBOSITY, MESSAGE, ...)
+# define LIBXSTREAM_PRINT0(VERBOSITY, MESSAGE)
 #endif
 
 #if defined(__MIC__)
@@ -238,10 +248,14 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 # define LIBXSTREAM_DEVICE_NAME "host"
 #endif
 
-#if defined(_MSC_VER)
+#if defined(_WIN32)
 # define LIBXSTREAM_SNPRINTF(S, N, F, ...) _snprintf_s(S, N, _TRUNCATE, F, __VA_ARGS__)
+# define LIBXSTREAM_FLOCK(FILE) _lock_file(FILE)
+# define LIBXSTREAM_FUNLOCK(FILE) _unlock_file(FILE)
 #else
 # define LIBXSTREAM_SNPRINTF(S, N, F, ...) snprintf(S, N, F, __VA_ARGS__)
+# define LIBXSTREAM_FLOCK(FILE) flockfile(FILE)
+# define LIBXSTREAM_FUNLOCK(FILE) funlockfile(FILE)
 #endif
 
 #if defined(LIBXSTREAM_CHECK)

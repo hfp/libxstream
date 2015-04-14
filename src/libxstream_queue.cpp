@@ -60,7 +60,7 @@ libxstream_queue::~libxstream_queue()
     dangling += 0 != m_buffer[i] ? 1 : 0;
   }
   if (0 < dangling) {
-    LIBXSTREAM_PRINT_WARN("%lu work item%s dangling!", static_cast<unsigned long>(dangling), 1 < dangling ? "s are" : " is");
+    LIBXSTREAM_PRINT(1, "%lu work item%s dangling!", static_cast<unsigned long>(dangling), 1 < dangling ? "s are" : " is");
   }
 #endif
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -108,7 +108,7 @@ void** libxstream_queue::allocate_push()
 
 #if defined(LIBXSTREAM_DEBUG)
   if (0 != *result) {
-    LIBXSTREAM_PRINT_WARN0("queuing work is stalled!");
+    LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
   }
 #endif
   // stall if LIBXSTREAM_MAX_QSIZE is exceeded

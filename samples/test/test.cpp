@@ -120,18 +120,6 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &m_dev_mem2, size, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_info(device, &mem_free, &mem_avail));
 
-  const void* real = 0;
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_pointer(-1, m_host_mem, &real));
-  LIBXSTREAM_CHECK_CONDITION_THROW(m_host_mem == real);
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_pointer(device, m_dev_mem1, &real));
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD)
-  LIBXSTREAM_CHECK_CONDITION_THROW(m_dev_mem1 != real);
-#endif
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_pointer(device, m_dev_mem2, &real));
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD)
-  LIBXSTREAM_CHECK_CONDITION_THROW(m_dev_mem2 != real);
-#endif
-
   const char pattern_a = 'a', pattern_b = 'b';
   LIBXSTREAM_ASSERT(pattern_a != pattern_b);
   std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_a);

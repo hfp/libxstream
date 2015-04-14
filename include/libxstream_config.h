@@ -128,24 +128,5 @@
 /** Prefers OpenMP based locking primitives. */
 /*#define LIBXSTREAM_PREFER_OPENMP*/
 
-/**
- * Below preprocessor symbols fixup some platform specifics.
- */
-#if !defined(_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES)
-# define _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES 1
-#endif
-#if !defined(_CRT_SECURE_NO_DEPRECATE)
-# define _CRT_SECURE_NO_DEPRECATE 1
-#endif
-#if !defined(_USE_MATH_DEFINES)
-# define _USE_MATH_DEFINES 1
-#endif
-#if !defined(WIN32_LEAN_AND_MEAN)
-# define WIN32_LEAN_AND_MEAN 1
-#endif
-#if !defined(NOMINMAX)
-# define NOMINMAX 1
-#endif
-
 #endif /*LIBXSTREAM_CONFIG_EXTERNAL*/
 #endif /*LIBXSTREAM_CONFIG_H*/

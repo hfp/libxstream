@@ -97,8 +97,6 @@ LIBXSTREAM_EXPORT_C int libxstream_set_active_device(int device);
 
 /** Query the memory metrics of the device (valid to pass one NULL pointer). */
 LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
-/** Query the real pointer on the device side; both pointers are equal for the host device. */
-LIBXSTREAM_EXPORT_C int libxstream_mem_pointer(int device, const void* memory, const void** real);
 /** Allocate aligned memory (0: automatic alignment) on the device (-1: host, 0<: coprocessor). */
 LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
 /** Deallocate memory; shall match the device where the memory was allocated. */
@@ -181,6 +179,13 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_size(const libxstr
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_elemsize(const libxstream_argument* signature, size_t arg, size_t* size);
 /** Query the data size of the argument (Byte). A NULL-signature designates the call context. */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const libxstream_argument* signature, size_t arg, size_t* size);
+
+/** Query the internal verbosity level. */
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_verbosity(int* level);
+/** Set the internal verbosity level. */
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_set_verbosity(int level);
+/** Prints to the standard error stream. Locks the stream in order to avoid intermixed characters. */
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_print(int verbosity, const char* message, ...);
 
 #if defined(__cplusplus)
 template<typename TYPE> struct libxstream_map_to { static libxstream_type type() {/** select a type by type-size; bool goes here! */
