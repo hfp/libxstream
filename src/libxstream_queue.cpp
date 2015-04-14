@@ -91,17 +91,19 @@ void** libxstream_queue::allocate_push()
   result = m_buffer + ((*static_cast<std::atomic<size_t>*>(m_size))++ % LIBXSTREAM_MAX_QSIZE);
 #elif defined(_OPENMP)
   size_t size1 = 0;
+  size_t& size = *static_cast<size_t*>(m_size);
 # if (201107 <= _OPENMP)
 #   pragma omp atomic capture
 # else
 #   pragma omp critical
 # endif
-  size1 = ++m_size;
+  size1 = ++size;
   result = m_buffer + ((size1 - 1) % LIBXSTREAM_MAX_QSIZE);
 #else // generic
+  size_t& size = *static_cast<size_t*>(m_size);
   libxstream_lock *const lock = libxstream_lock_get(this);
   libxstream_lock_acquire(lock);
-  result = m_buffer + (m_size++ % LIBXSTREAM_MAX_QSIZE);
+  result = m_buffer + (size++ % LIBXSTREAM_MAX_QSIZE);
   libxstream_lock_release(lock);
 #endif
   LIBXSTREAM_ASSERT(0 != result);
