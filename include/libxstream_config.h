@@ -122,9 +122,6 @@
 /** Instructs the library to wait for each enqueued work item. */
 /*#define LIBXSTREAM_SYNCHRONOUS*/
 
-/** Synchronize on memory allocation/deallocation events. */
-/*#define LIBXSTREAM_SYNCMEM*/
-
 /** Prefers OpenMP based locking primitives. */
 /*#define LIBXSTREAM_PREFER_OPENMP*/
 

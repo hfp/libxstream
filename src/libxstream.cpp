@@ -603,9 +603,6 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
     }
   }
 
-#if defined(LIBXSTREAM_SYNCMEM)
-  libxstream_stream::sync(device);
-#endif
   LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", device,
     reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
 
@@ -618,9 +615,8 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {
-#if defined(LIBXSTREAM_SYNCMEM)
     libxstream_stream::sync(device);
-#endif
+
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= device) {
 # if defined(LIBXSTREAM_CHECK)
