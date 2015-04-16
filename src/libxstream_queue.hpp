@@ -38,14 +38,17 @@
 
 class libxstream_queue {
 public:
+  typedef void* value_type;
+
+public:
   libxstream_queue();
   ~libxstream_queue();
 
 public:
   size_t size() const;
-  void** allocate_push();
+  volatile value_type* allocate_push();
 
-  void* get() const { // not thread-safe!
+  volatile value_type get() const { // not thread-safe!
     return m_buffer[m_index%LIBXSTREAM_MAX_QSIZE];
   }
 
@@ -60,7 +63,7 @@ public:
   }
 
 private:
-  void* m_buffer[LIBXSTREAM_MAX_QSIZE];
+  volatile value_type m_buffer[LIBXSTREAM_MAX_QSIZE];
   size_t m_index;
   void* m_size;
 };

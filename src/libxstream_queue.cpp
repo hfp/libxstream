@@ -48,7 +48,7 @@ libxstream_queue::libxstream_queue()
   , m_size(new size_t(0))
 #endif
 {
-  std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<void*>(0));
+  std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<value_type>(0));
 }
 
 
@@ -79,14 +79,14 @@ size_t libxstream_queue::size() const
 #else
   const size_t offset = *static_cast<const size_t*>(m_size);
 #endif
-  const void *const entry = m_buffer[index%LIBXSTREAM_MAX_QSIZE];
-  return 0 != entry ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
+  const volatile value_type value = m_buffer[index%LIBXSTREAM_MAX_QSIZE];
+  return 0 != value ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
 }
 
 
-void** libxstream_queue::allocate_push()
+volatile libxstream_queue::value_type* libxstream_queue::allocate_push()
 {
-  void** result = 0;
+  volatile value_type* result = 0;
 #if defined(LIBXSTREAM_STDFEATURES)
   result = m_buffer + ((*static_cast<std::atomic<size_t>*>(m_size))++ % LIBXSTREAM_MAX_QSIZE);
 #elif defined(_OPENMP)
