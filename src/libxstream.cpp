@@ -124,11 +124,12 @@ public:
   }
 
   int default_verbosity(int& level) const {
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2)) && 0
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+    const char *const verbosity_env = getenv("LIBXSTREAM_VERBOSITY");
 # if defined(LIBXSTREAM_DEBUG)
-    level = -1;
+    level = (verbosity_env && *verbosity_env) ? atoi(verbosity_env) : -1;
 # else
-    level = 1;
+    level = (verbosity_env && *verbosity_env) ? atoi(verbosity_env) : 0;
 # endif
 #else
     level = 0;

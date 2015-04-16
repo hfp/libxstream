@@ -57,6 +57,8 @@
  * - #define LIBXSTREAM_TRACE 0: disables trace information
  * - #define LIBXSTREAM_TRACE 1: enabled for debug builds
  * - #define LIBXSTREAM_TRACE 2: enabled
+ * If the trace information is enabled, the environment variable
+ * LIBXSTREAM_VERBOSITY can be used to adjust the verbosity level.
  */
 #define LIBXSTREAM_TRACE
 
