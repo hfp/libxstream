@@ -201,7 +201,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 # define LIBXSTREAM_ASSERT(A)
 #endif
 
-#if !defined(LIBXSTREAM_PREFER_OPENMP) || !defined(_OPENMP)
+#if (!defined(LIBXSTREAM_PREFER_OPENMP) || !defined(_OPENMP))
 # if (201103L <= __cplusplus)
 #   if !defined(LIBXSTREAM_STDFEATURES)
 #     define LIBXSTREAM_STDFEATURES
