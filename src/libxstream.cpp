@@ -1427,7 +1427,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_print(int verbosity, c
   int level = 0, result = libxstream_get_verbosity(&level);
   LIBXSTREAM_CHECK_ERROR(result);
 
-  if (level >= verbosity) {
+  if (level >= verbosity || 0 > level) {
     va_list args;
     va_start(args, message);
     LIBXSTREAM_FLOCK(stderr);
