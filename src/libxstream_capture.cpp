@@ -48,7 +48,6 @@
 #include <libxstream_end.h>
 
 #define LIBXSTREAM_CAPTURE_TERMINATOR reinterpret_cast<const scheduler_type::value_type>(-1)
-//#define LIBXSTREAM_CAPTURE_DEBUG
 
 
 namespace libxstream_capture_internal {
@@ -217,12 +216,12 @@ private:
 #       pragma omp taskwait
 #endif
         delete work_item;
+        s.pop();
       }
       else {
+        while (0 != s.get()) s.pop(); // flush
         continue_run = false;
       }
-
-      s.pop();
     }
 
 #if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
@@ -245,7 +244,7 @@ private:
   int m_status;
   HANDLE m_thread;
 #endif
-#if defined(LIBXSTREAM_CAPTURE_DEBUG)
+#if defined(LIBXSTREAM_SYNCHRONOUS) && 2 == (LIBXSTREAM_SYNCHRONOUS)
 };
 #else
 };
@@ -258,7 +257,7 @@ static/*IPO*/ scheduler_type scheduler;
 libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags)
   : m_function(0)
   , m_stream(stream)
-#if defined(LIBXSTREAM_SYNCHRONOUS)
+#if defined(LIBXSTREAM_SYNCHRONOUS) && 1 == (LIBXSTREAM_SYNCHRONOUS)
   , m_flags(flags | LIBXSTREAM_CALL_WAIT)
 #else
   , m_flags(flags)
@@ -312,11 +311,11 @@ void libxstream_capture_base::operator()()
 
 int libxstream_capture_base::status(int code)
 {
-#if !defined(LIBXSTREAM_CAPTURE_DEBUG)
-  return libxstream_capture_internal::scheduler.status(code);
-#else
+#if defined(LIBXSTREAM_SYNCHRONOUS) && 2 == (LIBXSTREAM_SYNCHRONOUS)
   libxstream_use_sink(&code);
   return LIBXSTREAM_ERROR_NONE;
+#else
+  return libxstream_capture_internal::scheduler.status(code);
 #endif
 }
 
@@ -324,11 +323,11 @@ int libxstream_capture_base::status(int code)
 void libxstream_enqueue(libxstream_capture_base& work_item, bool clone)
 {
   libxstream_capture_base *const item = clone ? work_item.clone() : &work_item;
-#if !defined(LIBXSTREAM_CAPTURE_DEBUG)
-  libxstream_capture_internal::scheduler.push(*item);
-#else
+#if defined(LIBXSTREAM_SYNCHRONOUS) && 2 == (LIBXSTREAM_SYNCHRONOUS)
   (*item)();
   delete item;
+#else
+  libxstream_capture_internal::scheduler.push(*item);
 #endif
 }
 

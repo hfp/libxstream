@@ -121,8 +121,12 @@
 /** Number of cycles to actively wait. */
 #define LIBXSTREAM_WAIT_ACTIVE_CYCLES 10000
 
-/** Instructs the library to wait for each enqueued work item. */
-/*#define LIBXSTREAM_SYNCHRONOUS*/
+/**
+ * Instructs the library to wait for each enqueued work item.
+ * - #define LIBXSTREAM_SYNCHRONOUS 1: wait for each item
+ * - #define LIBXSTREAM_SYNCHRONOUS 2: no scheduling
+ */
+/*#define LIBXSTREAM_SYNCHRONOUS 2*/
 
 /** Prefers OpenMP based locking primitives. */
 /*#define LIBXSTREAM_PREFER_OPENMP*/
