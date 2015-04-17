@@ -47,13 +47,16 @@
 #endif
 #include <libxstream_end.h>
 
-#define LIBXSTREAM_CAPTURE_TERMINATOR reinterpret_cast<libxstream_capture_base*>(-1)
+#define LIBXSTREAM_CAPTURE_TERMINATOR reinterpret_cast<const scheduler_type::value_type>(-1)
 //#define LIBXSTREAM_CAPTURE_DEBUG
 
 
 namespace libxstream_capture_internal {
 
 class scheduler_type {
+public:
+  typedef libxstream_queue::value_type value_type;
+
 public:
   scheduler_type()
     : m_global_queue()
@@ -114,16 +117,16 @@ public:
 #endif
   }
 
-  void* get() {
-    void* item = m_global_queue.get();
+  volatile value_type get() {
+    volatile value_type item = m_global_queue.get();
     if (0 == item) {
       m_stream = libxstream_stream::schedule(m_stream);
       if (m_stream) {
         libxstream_queue* queue = m_stream->queue();
-        item = queue ? queue->get() : 0;
+        item = 0 != queue ? queue->get() : 0;
 
         if (item) {
-          const libxstream_capture_base& work_item = *static_cast<libxstream_capture_base*>(item);
+          const libxstream_capture_base& work_item = *static_cast<const libxstream_capture_base*>(item);
 
           if (0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT)) {
             libxstream_queue* q = m_stream->queue(queue); // next/other queue
@@ -167,14 +170,14 @@ public:
   }
 
 private:
-  void push(void* work_item, bool wait) {
+  void push(value_type work_item, bool wait) {
     LIBXSTREAM_ASSERT(work_item);
-    void** slot = m_global_queue.allocate_push();
-    LIBXSTREAM_ASSERT(0 == *slot);
-    *slot = work_item; // push
+    volatile libxstream_queue::value_type& slot = m_global_queue.allocate_push();
+    LIBXSTREAM_ASSERT(0 == slot);
+    slot = work_item; // push
 
     if (wait) {
-      while (work_item == *slot) {
+      while (work_item == slot) {
         this_thread_yield();
       }
     }
@@ -187,14 +190,14 @@ private:
 #endif
   {
     scheduler_type& s = *static_cast<scheduler_type*>(scheduler);
-    void* item = 0;
-    bool always = true;
+    volatile scheduler_type::value_type item = 0;
+    bool continue_run = true;
 
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
 #   pragma omp parallel
 #   pragma omp master
 #endif
-    for (; always;) {
+    for (; continue_run;) {
       size_t cycle = 0;
       while (0 == (item = s.get())) {
         if ((LIBXSTREAM_WAIT_ACTIVE_CYCLES) > cycle) {
@@ -214,6 +217,9 @@ private:
 #       pragma omp taskwait
 #endif
         delete work_item;
+      }
+      else {
+        continue_run = false;
       }
 
       s.pop();
