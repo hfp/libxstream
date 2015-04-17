@@ -168,11 +168,6 @@ public:
     }
   }
 
-  void clear() {
-    while (0 != get()) pop();
-    m_stream = 0;
-  }
-
   void push(libxstream_capture_base& work_item) {
     push(&work_item, 0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT));
   }
@@ -227,12 +222,13 @@ private:
 #       pragma omp taskwait
 #endif
         delete work_item;
-        s.pop();
       }
       else {
-        s.clear(); // flush
+        s.m_stream = 0; // stop stream-local queues
         continue_run = false;
       }
+
+      s.pop();
     }
 
 #if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
