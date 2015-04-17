@@ -131,7 +131,6 @@ public:
 #else
     level = 0;
 #endif
-    fprintf(stdout, "LIBXSTREAM_VERBOSE=%i\n", level);
     return LIBXSTREAM_ERROR_NONE;
   }
 
@@ -1428,7 +1427,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_print(int verbosity, c
   int level = 0, result = libxstream_get_verbosity(&level);
   LIBXSTREAM_CHECK_ERROR(result);
 
-  if ((0 != level && level <= verbosity) || 0 > verbosity) {
+  if ((0 != level && level >= verbosity) || 0 > verbosity) {
     va_list args;
     va_start(args, message);
     LIBXSTREAM_FLOCK(stderr);
