@@ -417,21 +417,22 @@ void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
 {
   const int thread = this_thread_id();
   LIBXSTREAM_ASSERT(thread < LIBXSTREAM_MAX_NTHREADS);
-  libxstream_queue *volatile *const q = m_queues + thread;
+  libxstream_queue *volatile q = m_queues[thread];
 
-  if (0 == *q) {
-    libxstream_lock* lock = libxstream_lock_get(q);
+  if (0 == q) {
+    libxstream_lock *const lock = libxstream_lock_get(m_queues + thread);
     libxstream_lock_acquire(lock);
 
-    if (0 == *q) {
-      *q = new libxstream_queue;
+    if (0 == q) {
+      q = new libxstream_queue;
+      m_queues[thread] = q;
     }
 
     libxstream_lock_release(lock);
   }
 
-  LIBXSTREAM_ASSERT(0 != *q);
-  volatile libxstream_queue::value_type& slot = (*q)->allocate_push();
+  LIBXSTREAM_ASSERT(0 != q);
+  volatile libxstream_queue::value_type& slot = q->allocate_push();
   libxstream_capture_base *const item = work_item.clone();
   slot = item;
 
