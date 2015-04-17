@@ -60,7 +60,7 @@
  * If the trace information is enabled, the environment variable
  * LIBXSTREAM_VERBOSITY can be used to adjust the verbosity level.
  */
-#define LIBXSTREAM_TRACE
+#define LIBXSTREAM_TRACE 2
 
 /**
  * Enables asynchronous offloads.
