@@ -415,8 +415,6 @@ libxstream_signal libxstream_stream::pending(int thread) const
 
 void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
 {
-  libxstream_capture_base *const item = work_item.clone();
-#if !defined(LIBXSTREAM_SYNCHRONOUS) || 2 != (LIBXSTREAM_SYNCHRONOUS)
   const int thread = this_thread_id();
   LIBXSTREAM_ASSERT(thread < LIBXSTREAM_MAX_NTHREADS);
   libxstream_queue *volatile *const q = m_queues + thread;
@@ -434,7 +432,7 @@ void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
 
   LIBXSTREAM_ASSERT(0 != *q);
   volatile libxstream_queue::value_type& slot = (*q)->allocate_push();
-  LIBXSTREAM_ASSERT(0 == slot);
+  libxstream_capture_base *const item = work_item.clone();
   slot = item;
 
   if (0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT)) {
@@ -442,10 +440,6 @@ void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
       this_thread_yield();
     }
   }
-#else
-  (*item)();
-  delete item;
-#endif
 }
 
 
