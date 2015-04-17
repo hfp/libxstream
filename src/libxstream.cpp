@@ -125,7 +125,8 @@ public:
 
   int default_verbosity(int& level) const {
 #if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
-    const char *const verbosity_env = getenv("LIBXSTREAM_VERBOSITY");
+    const char *const verbose_env = getenv("LIBXSTREAM_VERBOSE");
+    const char *const verbosity_env = (verbose_env && *verbose_env) ? verbose_env : getenv("LIBXSTREAM_VERBOSITY");
 # if defined(LIBXSTREAM_DEBUG)
     level = (verbosity_env && *verbosity_env) ? atoi(verbosity_env) : -1;
 # else
