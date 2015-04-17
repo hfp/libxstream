@@ -66,34 +66,55 @@ public:
 #else
     , m_thread(0)
 #endif
-  {
-#if defined(LIBXSTREAM_STDFEATURES)
-    std::thread(run, this).swap(m_thread);
-#else
-# if defined(__GNUC__)
-    pthread_create(&m_thread, 0, run, this);
-# else
-    m_thread = CreateThread(0, 0, run, this, 0, 0);
-# endif
-#endif
-  }
+  {}
 
   ~scheduler_type() {
-    // terminates the background thread
-    push(LIBXSTREAM_CAPTURE_TERMINATOR, true);
+    if (running()) { //m_stream = 0;
+      // terminates the background thread
+      push(LIBXSTREAM_CAPTURE_TERMINATOR, true);
 
 #if defined(LIBXSTREAM_STDFEATURES)
-    m_thread.detach();
+      m_thread.detach();
 #else
 # if defined(__GNUC__)
-    pthread_detach(m_thread);
+      pthread_detach(m_thread);
 # else
-    CloseHandle(m_thread);
+      CloseHandle(m_thread);
 # endif
 #endif
+    }
   }
 
 public:
+  bool running() const {
+#if defined(LIBXSTREAM_STDFEATURES)
+    return m_thread.joinable();
+#else
+    return 0 != m_thread;
+#endif
+  }
+
+  void start() {
+    if (!running()) {
+      libxstream_lock *const lock = libxstream_lock_get(this);
+      libxstream_lock_acquire(lock);
+
+      if (!running()) {
+#if defined(LIBXSTREAM_STDFEATURES)
+        std::thread(run, this).swap(m_thread);
+#else
+# if defined(__GNUC__)
+        pthread_create(&m_thread, 0, run, this);
+# else
+        m_thread = CreateThread(0, 0, run, this, 0, 0);
+# endif
+#endif
+      }
+
+      libxstream_lock_release(lock);
+    }
+  }
+
   int status(int code) {
 #if defined(LIBXSTREAM_STDFEATURES)
     return std::atomic_exchange(&m_status, code);
@@ -222,13 +243,12 @@ private:
 #       pragma omp taskwait
 #endif
         delete work_item;
+        s.pop();
       }
       else {
-        s.m_stream = 0; // stop stream-local queues
+        s.m_global_queue.pop();
         continue_run = false;
       }
-
-      s.pop();
     }
 
 #if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
@@ -292,6 +312,8 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && arity == argc);
 #endif
   }
+
+  libxstream_capture_internal::scheduler.start();
 }
 
 
