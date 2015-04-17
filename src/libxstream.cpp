@@ -212,7 +212,7 @@ LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create()
   omp_nest_lock_t *const typed_lock = new omp_nest_lock_t;
   omp_init_nest_lock(typed_lock);
 # endif
-#else //defined(__GNUC__)
+#elif defined(__GNUC__)
   pthread_mutexattr_t attributes;
   pthread_mutexattr_init(&attributes);
 # if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
@@ -222,6 +222,8 @@ LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create()
 # endif
   pthread_mutex_t *const typed_lock = new pthread_mutex_t;
   pthread_mutex_init(typed_lock, &attributes);
+#else // Windows
+  const HANDLE typed_lock = CreateMutex(0/*default*/, FALSE/*unlocked*/, 0/*unnamed*/);
 #endif
   return typed_lock;
 }
@@ -262,6 +264,7 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_destroy(libxstream_lock* lock)
 # else
   std::atomic<int> *const typed_lock = static_cast<std::atomic<int>*>(lock);
 # endif
+  delete typed_lock;
 #elif defined(_OPENMP)
 # if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
@@ -270,11 +273,15 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_destroy(libxstream_lock* lock)
   omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
   omp_destroy_nest_lock(typed_lock);
 # endif
-#else //defined(__GNUC__)
+  delete typed_lock;
+#elif defined(__GNUC__)
   pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
   pthread_mutex_destroy(typed_lock);
-#endif
   delete typed_lock;
+#else // Windows
+  const HANDLE typed_lock = static_cast<HANDLE>(lock);
+  CloseHandle(typed_lock);
+#endif
 }
 
 
@@ -308,9 +315,12 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_acquire(libxstream_lock* lock)
   omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
   omp_set_nest_lock(typed_lock);
 # endif
-#else //defined(__GNUC__)
+#elif defined(__GNUC__)
   pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
   pthread_mutex_lock(typed_lock);
+#else // Windows
+  const HANDLE typed_lock = static_cast<HANDLE>(lock);
+  WaitForSingleObject(typed_lock, INFINITE);
 #endif
 }
 
@@ -341,9 +351,12 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_release(libxstream_lock* lock)
   omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
   omp_unset_nest_lock(typed_lock);
 # endif
-#else //defined(__GNUC__)
+#elif defined(__GNUC__)
   pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
   pthread_mutex_unlock(typed_lock);
+#else // Windows
+  const HANDLE typed_lock = static_cast<HANDLE>(lock);
+  ReleaseMutex(typed_lock);
 #endif
 }
 
@@ -375,9 +388,12 @@ LIBXSTREAM_TARGET(mic) bool libxstream_lock_try(libxstream_lock* lock)
   omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
   const bool result = 0 != omp_test_nest_lock(typed_lock);
 # endif
-#else //defined(__GNUC__)
+#elif defined(__GNUC__)
   pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
   const bool result =  0 == pthread_mutex_trylock(typed_lock);
+#else // Windows
+  const HANDLE typed_lock = static_cast<HANDLE>(lock);
+  const bool result = WAIT_OBJECT_0 == WaitForSingleObject(typed_lock, INFINITE);
 #endif
   return result;
 }
@@ -906,7 +922,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream
 {
   LIBXSTREAM_CHECK_CONDITION(stream && device);
   *device = stream->device();
-  LIBXSTREAM_PRINT(2, "stream_device: stream=0x%llx device=%i", reinterpret_cast<unsigned long long>(stream), *device);
+  LIBXSTREAM_PRINT(3, "stream_device: stream=0x%llx device=%i", reinterpret_cast<unsigned long long>(stream), *device);
   return LIBXSTREAM_ERROR_NONE;
 }
 
@@ -922,7 +938,11 @@ LIBXSTREAM_EXPORT_C int libxstream_event_create(libxstream_event** event)
 
 LIBXSTREAM_EXPORT_C int libxstream_event_destroy(const libxstream_event* event)
 {
-  LIBXSTREAM_PRINT(2, "event_create: event=0x%llx", reinterpret_cast<unsigned long long>(event));
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+  if (0 != event) {
+    LIBXSTREAM_PRINT(2, "event_destroy: event=0x%llx", reinterpret_cast<unsigned long long>(event));
+  }
+#endif
   delete event;
   return LIBXSTREAM_ERROR_NONE;
 }
