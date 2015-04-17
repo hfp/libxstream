@@ -118,8 +118,10 @@ public:
 
   volatile value_type get() {
     volatile value_type item = m_global_queue.get();
+
     if (0 == item) {
       m_stream = libxstream_stream::schedule(m_stream);
+
       if (m_stream) {
         libxstream_queue* queue = m_stream->queue();
         item = 0 != queue ? queue->get() : 0;
@@ -132,7 +134,8 @@ public:
 
             while (q) {
               while (!q->empty()) {
-                push(q->get(), false);
+                volatile libxstream_queue::value_type& slot = m_global_queue.allocate_push();
+                slot = q->get(); // push(q->get(), false)
                 q->pop();
               }
               q = m_stream->queue(q);
@@ -150,6 +153,7 @@ public:
     else {
       m_stream = 0;
     }
+
     return item;
   }
 
@@ -164,6 +168,11 @@ public:
     }
   }
 
+  void clear() {
+    while (0 != get()) pop();
+    m_stream = 0;
+  }
+
   void push(libxstream_capture_base& work_item) {
     push(&work_item, 0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT));
   }
@@ -172,10 +181,12 @@ private:
   void push(value_type work_item, bool wait) {
     LIBXSTREAM_ASSERT(work_item);
     volatile libxstream_queue::value_type& slot = m_global_queue.allocate_push();
-    LIBXSTREAM_ASSERT(0 == slot);
     slot = work_item; // push
 
-    if (wait) {
+#if !defined(LIBXSTREAM_SYNCHRONOUS)
+    if (wait)
+#endif
+    {
       while (work_item == slot) {
         this_thread_yield();
       }
@@ -219,7 +230,7 @@ private:
         s.pop();
       }
       else {
-        while (0 != s.get()) s.pop(); // flush
+        s.clear(); // flush
         continue_run = false;
       }
     }
@@ -244,12 +255,8 @@ private:
   int m_status;
   HANDLE m_thread;
 #endif
-#if defined(LIBXSTREAM_SYNCHRONOUS) && 2 == (LIBXSTREAM_SYNCHRONOUS)
-};
-#else
 };
 static/*IPO*/ scheduler_type scheduler;
-#endif
 
 } // namespace libxstream_capture_internal
 
@@ -257,11 +264,7 @@ static/*IPO*/ scheduler_type scheduler;
 libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags)
   : m_function(0)
   , m_stream(stream)
-#if defined(LIBXSTREAM_SYNCHRONOUS) && 1 == (LIBXSTREAM_SYNCHRONOUS)
-  , m_flags(flags | LIBXSTREAM_CALL_WAIT)
-#else
   , m_flags(flags)
-#endif
   , m_thread(this_thread_id())
 {
   if (2 == argc && (argv[0].signature() || argv[1].signature())) {
@@ -311,24 +314,14 @@ void libxstream_capture_base::operator()()
 
 int libxstream_capture_base::status(int code)
 {
-#if defined(LIBXSTREAM_SYNCHRONOUS) && 2 == (LIBXSTREAM_SYNCHRONOUS)
-  libxstream_use_sink(&code);
-  return LIBXSTREAM_ERROR_NONE;
-#else
   return libxstream_capture_internal::scheduler.status(code);
-#endif
 }
 
 
 void libxstream_enqueue(libxstream_capture_base& work_item, bool clone)
 {
   libxstream_capture_base *const item = clone ? work_item.clone() : &work_item;
-#if defined(LIBXSTREAM_SYNCHRONOUS) && 2 == (LIBXSTREAM_SYNCHRONOUS)
-  (*item)();
-  delete item;
-#else
   libxstream_capture_internal::scheduler.push(*item);
-#endif
 }
 
 
