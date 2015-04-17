@@ -46,9 +46,13 @@ public:
 
 public:
   size_t size() const;
-  volatile value_type* allocate_push();
+  volatile value_type& allocate_push();
 
-  volatile value_type get() const { // not thread-safe!
+  volatile value_type& get() { // not thread-safe!
+    return m_buffer[m_index%LIBXSTREAM_MAX_QSIZE];
+  }
+
+  const volatile value_type& get() const { // not thread-safe!
     return m_buffer[m_index%LIBXSTREAM_MAX_QSIZE];
   }
 

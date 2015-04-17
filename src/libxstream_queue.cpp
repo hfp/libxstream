@@ -84,7 +84,7 @@ size_t libxstream_queue::size() const
 }
 
 
-volatile libxstream_queue::value_type* libxstream_queue::allocate_push()
+volatile libxstream_queue::value_type& libxstream_queue::allocate_push()
 {
   volatile value_type* result = 0;
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -119,7 +119,7 @@ volatile libxstream_queue::value_type* libxstream_queue::allocate_push()
   }
 
   LIBXSTREAM_ASSERT(0 == *result);
-  return result;
+  return *result;
 }
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
