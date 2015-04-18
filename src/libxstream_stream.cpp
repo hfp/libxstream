@@ -456,7 +456,7 @@ libxstream_queue* libxstream_stream::queue(const libxstream_queue* exclude)
     result = 0 <= m_thread ? m_queues[m_thread] : 0;
     size_t size = 0;
 
-    if (0 == result || 0 == m_pending[m_thread] || 0 == (size = result->size())) {
+    if (0 == result || 0 == (size = result->size())) {
       const int nthreads = static_cast<int>(nthreads_active());
       for (int i = 0; i < nthreads; ++i) {
         libxstream_queue *const qi = m_queues[i];
