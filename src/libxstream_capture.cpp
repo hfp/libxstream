@@ -47,14 +47,13 @@
 #endif
 #include <libxstream_end.h>
 
-#define LIBXSTREAM_CAPTURE_TERMINATOR reinterpret_cast<const scheduler_type::value_type>(-1)
-
 
 namespace libxstream_capture_internal {
 
 class scheduler_type {
 public:
-  typedef libxstream_queue::value_type value_type;
+  typedef libxstream_queue::entry_type entry_type;
+  typedef libxstream_queue::item_type item_type;
 
 public:
   scheduler_type()
@@ -69,9 +68,9 @@ public:
   {}
 
   ~scheduler_type() {
-    if (running()) { //m_stream = 0;
+    if (running()) {
       // terminates the background thread
-      push(LIBXSTREAM_CAPTURE_TERMINATOR, true);
+      push(entry_type(&m_global_queue).item(), true);
 
 #if defined(LIBXSTREAM_STDFEATURES)
       m_thread.detach();
@@ -137,56 +136,38 @@ public:
 #endif
   }
 
-  volatile value_type get() {
-    volatile value_type item = m_global_queue.get();
+  entry_type& get() {
+    entry_type* result = &m_global_queue.get();
 
-    if (0 == item) {
+    if (0 == result->item()) { // no item in global queue
       m_stream = libxstream_stream::schedule(m_stream);
+      libxstream_queue *const queue = m_stream ? m_stream->queue() : 0;
+      const libxstream_capture_base* item = 0;
 
-      if (m_stream) {
-        libxstream_queue* queue = m_stream->queue();
-        item = 0 != queue ? queue->get() : 0;
+      if (queue) {
+        result = &queue->get();
+        item = static_cast<const libxstream_capture_base*>(result->item());
+      }
 
-        if (item) {
-          const libxstream_capture_base& work_item = *static_cast<const libxstream_capture_base*>(item);
+      // item in stream-local queue is a wait-item
+      if (item && 0 != (item->flags() & LIBXSTREAM_CALL_WAIT)) {
+        libxstream_queue* q = m_stream->queue(queue); // next/other queue
 
-          if (0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT)) {
-            libxstream_queue* q = m_stream->queue(queue); // next/other queue
+        while (q != queue && 0 != q) {
+          entry_type& i = q->get();
 
-            while (q) {
-              while (!q->empty()) {
-                volatile libxstream_queue::value_type& slot = m_global_queue.allocate_push();
-                slot = q->get(); // push(q->get(), false)
-                q->pop();
-              }
-              q = m_stream->queue(q);
-              if (q == queue) q = 0; // break
-            }
-
-            if (!m_global_queue.empty()) { // work was pushed into global queue
-              // let worker thread pickup the global queue just next time
-              item = 0;
-            }
+          if (0 != i.item()) {
+            result = &i;
+            q = queue; // break
+          }
+          else {
+            q = m_stream->queue(q);
           }
         }
       }
     }
-    else {
-      m_stream = 0;
-    }
 
-    return item;
-  }
-
-  void pop() {
-    if (m_stream) {
-      libxstream_queue *const queue = m_stream->queue();
-      LIBXSTREAM_ASSERT(queue);
-      queue->pop();
-    }
-    else {
-      m_global_queue.pop();
-    }
+    return *result;
   }
 
   void push(libxstream_capture_base& work_item) {
@@ -194,17 +175,21 @@ public:
   }
 
 private:
-  void push(value_type work_item, bool wait) {
-    LIBXSTREAM_ASSERT(work_item);
-    volatile libxstream_queue::value_type& slot = m_global_queue.allocate_push();
-    slot = work_item; // push
+  void push(item_type work_item, bool wait) {
+    LIBXSTREAM_ASSERT(0 != work_item);
+    entry_type& entry = m_global_queue.allocate_entry();
+    entry.push(work_item);
 
-#if !defined(LIBXSTREAM_SYNCHRONOUS)
+#if !defined(LIBXSTREAM_WAIT)
     if (wait)
 #endif
     {
-      while (work_item == slot) {
+      while (work_item == entry.item()) {
+#if defined(LIBXSTREAM_WAIT_SPIN)
         this_thread_yield();
+#else
+        this_thread_sleep();
+#endif
       }
     }
   }
@@ -216,7 +201,6 @@ private:
 #endif
   {
     scheduler_type& s = *static_cast<scheduler_type*>(scheduler);
-    volatile scheduler_type::value_type item = 0;
     bool continue_run = true;
 
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
@@ -224,8 +208,12 @@ private:
 #   pragma omp master
 #endif
     for (; continue_run;) {
+      scheduler_type::entry_type* entry = &s.get();
+      scheduler_type::item_type item = entry->item();
+      bool valid = entry->valid();
       size_t cycle = 0;
-      while (0 == (item = s.get())) {
+
+      while (0 == item && valid) {
         if ((LIBXSTREAM_WAIT_ACTIVE_CYCLES) > cycle) {
           this_thread_yield();
           ++cycle;
@@ -233,9 +221,13 @@ private:
         else {
           this_thread_sleep();
         }
+
+        entry = &s.get();
+        item = entry->item();
+        valid = entry->valid();
       }
 
-      if ((LIBXSTREAM_CAPTURE_TERMINATOR) != item) {
+      if (valid) {
         libxstream_capture_base *const work_item = static_cast<libxstream_capture_base*>(item);
 
         (*work_item)();
@@ -243,12 +235,12 @@ private:
 #       pragma omp taskwait
 #endif
         delete work_item;
-        s.pop();
       }
       else {
-        s.m_global_queue.pop();
         continue_run = false;
       }
+
+      entry->pop();
     }
 
 #if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)

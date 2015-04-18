@@ -48,7 +48,7 @@ libxstream_queue::libxstream_queue()
   , m_size(new size_t(0))
 #endif
 {
-  std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, static_cast<value_type>(0));
+  std::fill_n(m_buffer, LIBXSTREAM_MAX_QSIZE, entry_type(0, *this));
 }
 
 
@@ -57,7 +57,7 @@ libxstream_queue::~libxstream_queue()
 #if defined(LIBXSTREAM_DEBUG)
   size_t dangling = 0;
   for (size_t i = 0; i < LIBXSTREAM_MAX_QSIZE; ++i) {
-    dangling += 0 != m_buffer[i] ? 1 : 0;
+    dangling += 0 != m_buffer[i].item() ? 1 : 0;
   }
   if (0 < dangling) {
     LIBXSTREAM_PRINT(1, "%lu work item%s dangling!", static_cast<unsigned long>(dangling), 1 < dangling ? "s are" : " is");
@@ -79,14 +79,14 @@ size_t libxstream_queue::size() const
 #else
   const size_t offset = *static_cast<const size_t*>(m_size);
 #endif
-  const volatile value_type value = m_buffer[index%LIBXSTREAM_MAX_QSIZE];
-  return 0 != value ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
+  const item_type item = m_buffer[index%LIBXSTREAM_MAX_QSIZE].item();
+  return 0 != item ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
 }
 
 
-volatile libxstream_queue::value_type& libxstream_queue::allocate_push()
+libxstream_queue::entry_type& libxstream_queue::allocate_entry()
 {
-  volatile value_type* result = 0;
+  entry_type* result = 0;
 #if defined(LIBXSTREAM_STDFEATURES)
   result = m_buffer + ((*static_cast<std::atomic<size_t>*>(m_size))++ % LIBXSTREAM_MAX_QSIZE);
 #elif defined(_OPENMP)
@@ -106,19 +106,22 @@ volatile libxstream_queue::value_type& libxstream_queue::allocate_push()
   result = m_buffer + (size++ % LIBXSTREAM_MAX_QSIZE);
   libxstream_lock_release(lock);
 #endif
-  LIBXSTREAM_ASSERT(0 != result);
+  LIBXSTREAM_ASSERT(0 != result && result->valid(this));
 
-#if defined(LIBXSTREAM_DEBUG)
-  if (0 != *result) {
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+  if (0 != result->item()) {
     LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
   }
 #endif
-  // stall if LIBXSTREAM_MAX_QSIZE is exceeded
-  while (0 != *result) {
+  while (0 != result->item()) { // stall if capacity is exceeded
+#if defined(LIBXSTREAM_WAIT_SPIN)
     this_thread_yield();
+#else
+    this_thread_sleep();
+#endif
   }
 
-  LIBXSTREAM_ASSERT(0 == *result);
+  LIBXSTREAM_ASSERT(0 == result->item());
   return *result;
 }
 

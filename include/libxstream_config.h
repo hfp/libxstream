@@ -106,23 +106,17 @@
 /** Maximum number of locks (POT). */
 #define LIBXSTREAM_MAX_NLOCKS 16
 
-/**
- * Number of times a locked stream must be discovered to be
- * "not alive" before unlocking the stream in question.
- */
-#define LIBXSTREAM_LOCK_RETRY 3
-
 /** Enables non-recursive locks. */
 #define LIBXSTREAM_LOCK_NONRECURSIVE
 
-/** Number of milliseconds a lock can stall. */
-#define LIBXSTREAM_WAIT_LOCK_MS 200
-
-/** Number of cycles to actively wait. */
+/** Number of cycles to actively wait (server). */
 #define LIBXSTREAM_WAIT_ACTIVE_CYCLES 10000
 
-/** Instructs the library to wait for each enqueued work item. */
-/*#define LIBXSTREAM_SYNCHRONOUS*/
+/** Wait using spin loop (client side). */
+/*#define LIBXSTREAM_WAIT_SPIN*/
+
+/** Wait for each work item when enqueued. */
+/*#define LIBXSTREAM_WAIT*/
 
 /** Prefers OpenMP based locking primitives. */
 /*#define LIBXSTREAM_PREFER_OPENMP*/

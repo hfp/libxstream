@@ -38,7 +38,30 @@
 
 class libxstream_queue {
 public:
-  typedef void* value_type;
+  typedef void* item_type;
+
+  class entry_type {
+  public:
+    entry_type(libxstream_queue* queue = 0): m_item(reinterpret_cast<item_type>(-1)), m_queue(queue) {}
+    entry_type(item_type item, libxstream_queue& queue): m_item(item), m_queue(&queue) {}
+
+  public:
+    bool valid(const libxstream_queue* queue = 0) const {
+      return reinterpret_cast<item_type>(-1) != m_item &&
+        (0 == queue || queue == m_queue);
+    }
+    const item_type item() const { return m_item; }
+    item_type item() { return m_item; }
+    void push(item_type item) { m_item = item; }
+    void pop() {
+      m_item = 0;
+      m_queue->pop();
+    }
+
+  private:
+    volatile item_type m_item;
+    libxstream_queue* m_queue;
+  };
 
 public:
   libxstream_queue();
@@ -46,28 +69,23 @@ public:
 
 public:
   size_t size() const;
-  volatile value_type& allocate_push();
 
-  volatile value_type& get() { // not thread-safe!
+  entry_type& allocate_entry();
+
+  entry_type& get() { // not thread-safe!
     return m_buffer[m_index%LIBXSTREAM_MAX_QSIZE];
   }
 
-  const volatile value_type& get() const { // not thread-safe!
+  entry_type get() const { // not thread-safe!
     return m_buffer[m_index%LIBXSTREAM_MAX_QSIZE];
   }
 
   void pop() { // not thread-safe!
-    LIBXSTREAM_ASSERT(!empty());
-    m_buffer[m_index%LIBXSTREAM_MAX_QSIZE] = 0;
     ++m_index;
   }
 
-  bool empty() const {
-    return 0 == get();
-  }
-
 private:
-  volatile value_type m_buffer[LIBXSTREAM_MAX_QSIZE];
+  entry_type m_buffer[LIBXSTREAM_MAX_QSIZE];
   size_t m_index;
   void* m_size;
 };

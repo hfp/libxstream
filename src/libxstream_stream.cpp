@@ -318,8 +318,8 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 #endif
 
   using namespace libxstream_stream_internal;
-  volatile registry_type::value_type& slot = libxstream_stream_internal::registry.allocate();
-  slot = this;
+  volatile registry_type::value_type& entry = libxstream_stream_internal::registry.allocate();
+  entry = this;
 }
 
 
@@ -432,13 +432,17 @@ void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
   }
 
   LIBXSTREAM_ASSERT(0 != q);
-  volatile libxstream_queue::value_type& slot = q->allocate_push();
+  libxstream_queue::entry_type& entry = q->allocate_entry();
   libxstream_capture_base *const item = work_item.clone();
-  slot = item;
+  entry.push(item);
 
   if (0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT)) {
-    while (item == slot) {
+    while (item == entry.item()) {
+#if defined(LIBXSTREAM_WAIT_SPIN)
       this_thread_yield();
+#else
+      this_thread_sleep();
+#endif
     }
   }
 }
@@ -450,8 +454,9 @@ libxstream_queue* libxstream_stream::queue(const libxstream_queue* exclude)
 
   if (0 == exclude) {
     result = 0 <= m_thread ? m_queues[m_thread] : 0;
-    if (0 == result || 0 == m_pending[m_thread] || result->empty()) {
-      size_t size = 0;
+    size_t size = 0;
+
+    if (0 == result || 0 == m_pending[m_thread] || 0 == (size = result->size())) {
       const int nthreads = static_cast<int>(nthreads_active());
       for (int i = 0; i < nthreads; ++i) {
         libxstream_queue *const qi = m_queues[i];
@@ -461,6 +466,12 @@ libxstream_queue* libxstream_stream::queue(const libxstream_queue* exclude)
           result = qi;
           size = si;
         }
+      }
+
+      if (0 == size && 0 != result && 0 != result->get().item() &&
+        0 == (LIBXSTREAM_CALL_WAIT & static_cast<const libxstream_capture_base*>(result->get().item())->flags()))
+      {
+        result = 0 <= m_thread ? m_queues[m_thread] : 0;
       }
     }
   }
