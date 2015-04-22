@@ -39,6 +39,7 @@
 class libxstream_queue {
 public:
   typedef void* item_type;
+  typedef const void* const_item_type;
 
   class entry_type {
   public:
@@ -50,7 +51,7 @@ public:
       return reinterpret_cast<item_type>(-1) != m_item &&
         (0 == queue || queue == m_queue);
     }
-    const item_type item() const { return m_item; }
+    const_item_type item() const { return m_item; }
     item_type item() { return m_item; }
     void push(item_type item) { m_item = item; }
     void pop() {

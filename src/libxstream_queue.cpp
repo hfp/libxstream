@@ -79,7 +79,7 @@ size_t libxstream_queue::size() const
 #else
   const size_t offset = *static_cast<const size_t*>(m_size);
 #endif
-  const item_type item = m_buffer[index%LIBXSTREAM_MAX_QSIZE].item();
+  const_item_type item = m_buffer[index%LIBXSTREAM_MAX_QSIZE].item();
   return 0 != item ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
 }
 
