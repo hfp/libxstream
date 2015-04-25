@@ -101,9 +101,6 @@ int main(int argc, char* argv[])
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
       throw std::runtime_error("no device found!");
     }
-#if !defined(_OPENMP)
-    LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results.");
-#endif
 
     fprintf(stdout, "Initializing %i device%s and host data...", static_cast<int>(ndevices), 1 == ndevices ? "" : "s");
     const size_t split[] = { size_t(nitems * 18.0 / 250.0 + 0.5), size_t(nitems * 74.0 / 250.0 + 0.5) };
@@ -134,6 +131,8 @@ int main(int argc, char* argv[])
 # endif
     const double start = omp_get_wtime();
 #   pragma omp parallel for schedule(dynamic)
+#else
+    LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
     for (int i = 0; i < nitems; i += nbatch) {
       const size_t j = i / nbatch, n = j % nstreams_total;
