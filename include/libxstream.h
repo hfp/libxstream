@@ -112,7 +112,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
 
 /** Query the range of valid priorities (inclusive bounds). */
 LIBXSTREAM_EXPORT_C int libxstream_stream_priority_range(int* least, int* greatest);
-/** Create a stream on a device (demux<0: auto-locks, 0: manual, demux>0: sync.). */
+/** Create a stream on a given device. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int device, int priority, const char* name);
 /** Destroy a stream; pending work must be completed if results are needed. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* stream);
