@@ -50,8 +50,15 @@ int main(int argc, char* argv[])
 #endif
     const int nthreads = std::min(std::max(1 < argc ? std::atoi(argv[1]) : 1, 1), max_nthreads);
     const int nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
-    const size_t nbytes = std::min(static_cast<unsigned long long>(std::max(3 < argc ? std::strtoul(argv[3], 0, 10) : (2ul << 30), 1ul)), 8ull << 30);
-    const int nrepeat = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 13, 3), 100);
+    const size_t maxsize = static_cast<size_t>(std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2048, 1), 8192)) * (1 << 20), minsize = 8;
+    int nrepeat = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 7, 3), 100);
+
+    const size_t stride = 2;
+    for (size_t size = minsize, n = 1; size <= maxsize; size <<= 1, ++n) {
+      if (0 == (n % stride)) {
+        nrepeat <<= 1;
+      }
+    }
 
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
@@ -59,8 +66,8 @@ int main(int argc, char* argv[])
     }
 
     void *mem_hst = 0, *mem_dev = 0;
-    LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1, &mem_hst, nbytes, 0));
-    LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate( 0, &mem_dev, nbytes, 0));
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1, &mem_hst, maxsize, 0));
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate( 0, &mem_dev, maxsize, 0));
 
     libxstream_stream* stream[LIBXSTREAM_MAX_NSTREAMS];
     for (int i = 0; i < nstreams; ++i) {
@@ -75,18 +82,19 @@ int main(int argc, char* argv[])
     LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
     libxstream_use_sink(&nthreads);
 #endif
-    for (size_t size = 8; size <= nbytes; size <<= 1) {
-      const int maxi = static_cast<int>(nbytes / size);
+    for (size_t size = minsize, n = 1; size <= maxsize; size <<= 1, ++n) {
+      if (0 == (n % stride)) {
+        nrepeat >>= 1;
+      }
+
 #if defined(_OPENMP)
+      fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
       const double start = omp_get_wtime();
 #     pragma omp for schedule(dynamic)
 #endif
-      for (int i = 0; i < maxi; ++i) {
+      for (int i = 0; i < nrepeat; ++i) {
         const int j = i % nstreams;
-
-        for (int n = 0; n < nrepeat; ++n) {
-          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(mem_hst, mem_dev, size, stream[j]));
-        }
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(mem_hst, mem_dev, size, stream[j]));
 
 #if defined(COPY_ISYNC)
         const int k = (j + 1) % nstreams;
@@ -100,7 +108,10 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
       const double duration = omp_get_wtime() - start;
       if (0 < duration) {
-        fprintf(stdout, "chunks of %lu Byte: %.1f MB/s\n", static_cast<unsigned long>(size), (1.0 * maxi * nrepeat) / ((1ul << 20) * duration));
+        fprintf(stdout, "%.1f MB/s\n", (1.0 * size * nrepeat) / ((1ul << 20) * duration));
+      }
+      else {
+        fprintf(stdout, "-\n");
       }
 #endif
     }
