@@ -18,6 +18,9 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "samples", "samples", "{A6F22FC8-CB62-4876-90A4-77E5EB9A7BFA}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "copy", "..\samples\copy\copy.vcxproj", "{0E8A18D9-E853-46DD-AB34-554C360D2FD2}"
+	ProjectSection(ProjectDependencies) = postProject
+		{3A6B8214-52C3-4600-9C82-5FBA21660100} = {3A6B8214-52C3-4600-9C82-5FBA21660100}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
