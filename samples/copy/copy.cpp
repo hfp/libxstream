@@ -100,7 +100,7 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
       const double duration = omp_get_wtime() - start;
       if (0 < duration) {
-        fprintf(stdout, "chunks of size %lu Byte: %.1f MB/s\n", static_cast<unsigned long>(size), (1ul * maxi * nrepeat) / ((1ul << 20) * duration));
+        fprintf(stdout, "chunks of %lu Byte: %.1f MB/s\n", static_cast<unsigned long>(size), (1.0 * maxi * nrepeat) / ((1ul << 20) * duration));
       }
 #endif
     }
