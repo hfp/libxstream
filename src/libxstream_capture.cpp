@@ -214,7 +214,7 @@ private:
       size_t cycle = 0;
 
       while (0 == item && valid) {
-        if ((LIBXSTREAM_WAIT_ACTIVE_CYCLES) > cycle) {
+        if ((LIBXSTREAM_WAIT_ACTIVE_CYCLES) > cycle/*TODO: measure clock cycles*/) {
           this_thread_yield();
           ++cycle;
         }
