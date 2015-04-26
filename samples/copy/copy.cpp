@@ -44,11 +44,12 @@ int main(int argc, char* argv[])
 {
   try {
 #if defined(_OPENMP)
-    const int max_nthreads = omp_get_max_threads();
+    const int nthreads = std::min(std::max(1 < argc ? std::atoi(argv[1]) : 1, 1), omp_get_max_threads());
 #else
-    const int max_nthreads = 1;
+    const int nthreads = std::min(std::max(1 < argc ? std::atoi(argv[1]) : 1, 1), 1);
+    LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
+    libxstream_use_sink(&nthreads);
 #endif
-    const int nthreads = std::min(std::max(1 < argc ? std::atoi(argv[1]) : 1, 1), max_nthreads);
     const int nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
     const size_t maxsize = static_cast<size_t>(std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2048, 1), 8192)) * (1 << 20), minsize = 8;
     int nrepeat = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 7, 3), 100);
@@ -76,21 +77,14 @@ int main(int argc, char* argv[])
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(stream + i, 0, 0, name));
     }
 
-#if defined(_OPENMP)
-#   pragma omp parallel num_threads(nthreads)
-#else
-    LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
-    libxstream_use_sink(&nthreads);
-#endif
     for (size_t size = minsize, n = 1; size <= maxsize; size <<= 1, ++n) {
       if (0 == (n % stride)) {
         nrepeat >>= 1;
       }
 
 #if defined(_OPENMP)
-      fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
       const double start = omp_get_wtime();
-#     pragma omp for schedule(dynamic)
+#     pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
       for (int i = 0; i < nrepeat; ++i) {
         const int j = i % nstreams;
@@ -107,12 +101,15 @@ int main(int argc, char* argv[])
 
 #if defined(_OPENMP)
       const double duration = omp_get_wtime() - start;
+      LIBXSTREAM_FLOCK(stdout);
+      fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
       if (0 < duration) {
         fprintf(stdout, "%.1f MB/s\n", (1.0 * size * nrepeat) / ((1ul << 20) * duration));
       }
       else {
         fprintf(stdout, "-\n");
       }
+      LIBXSTREAM_FUNLOCK(stdout);
 #endif
     }
 
