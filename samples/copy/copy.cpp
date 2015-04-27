@@ -43,16 +43,17 @@
 int main(int argc, char* argv[])
 {
   try {
+    const bool copyin = 1 < argc ? ('i' == *argv[1]) : true;
 #if defined(_OPENMP)
-    const int nthreads = std::min(std::max(1 < argc ? std::atoi(argv[1]) : 1, 1), omp_get_max_threads());
+    const int nthreads = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), omp_get_max_threads());
 #else
-    const int nthreads = std::min(std::max(1 < argc ? std::atoi(argv[1]) : 1, 1), 1);
+    const int nthreads = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), 1);
     LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
     libxstream_use_sink(&nthreads);
 #endif
-    const int nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
-    const size_t maxsize = static_cast<size_t>(std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2048, 1), 8192)) * (1 << 20), minsize = 8;
-    int nrepeat = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 7, 3), 100);
+    const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
+    const size_t maxsize = static_cast<size_t>(std::min(std::max(4 < argc ? std::atoi(argv[4]) : 2048, 1), 8192)) * (1 << 20), minsize = 8;
+    int nrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) : 7, 3), 100);
 
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
@@ -66,18 +67,32 @@ int main(int argc, char* argv[])
       }
     }
 
-    void *buffer = 0;
-    LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1, &buffer, maxsize, 0));
-
     struct {
       libxstream_stream* stream;
-      void* buffer;
+      void *mem_hst, *mem_dev;
     } copy[LIBXSTREAM_MAX_NSTREAMS];
     for (int i = 0; i < nstreams; ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&copy[i].stream, 0, 0, name));
-      LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(0/*device*/, &copy[i].buffer, maxsize, 0));
+      if (copyin) {
+        if (0 == i) {
+          LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[i].mem_hst, maxsize, 0));
+        }
+        else {
+          copy[i].mem_hst = copy[0].mem_hst;
+        }
+        LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(0/*device*/, &copy[i].mem_dev, maxsize, 0));
+      }
+      else { // copy-out
+        LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[i].mem_hst, maxsize, 0));
+        if (0 == i) {
+          LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(0/*device*/, &copy[i].mem_dev, maxsize, 0));
+        }
+        else {
+          copy[i].mem_dev = copy[0].mem_dev;
+        }
+      }
     }
 
     int n = 1;
@@ -93,7 +108,12 @@ int main(int argc, char* argv[])
 #endif
       for (int i = 0; i < nrepeat; ++i) {
         const int j = i % nstreams;
-        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(buffer, copy[j].buffer, size, copy[j].stream));
+        if (copyin) {
+          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(copy[j].mem_hst, copy[j].mem_dev, size, copy[j].stream));
+        }
+        else {
+          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(copy[j].mem_dev, copy[j].mem_hst, size, copy[j].stream));
+        }
 
 #if defined(COPY_ISYNC)
         const int k = (j + 1) % nstreams;
@@ -106,7 +126,6 @@ int main(int argc, char* argv[])
 
 #if defined(_OPENMP)
       const double duration = omp_get_wtime() - start;
-      LIBXSTREAM_FLOCK(stdout);
       fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
       if (0 < duration) {
         const double bandwidth = (1.0 * size * nrepeat) / ((1ul << 20) * duration), factor = 1 < n ? 0.5 : 1.0;
@@ -117,7 +136,7 @@ int main(int argc, char* argv[])
       else {
         fprintf(stdout, "-\n");
       }
-      LIBXSTREAM_FUNLOCK(stdout);
+      fflush(stdout);
 #endif
     }
 
