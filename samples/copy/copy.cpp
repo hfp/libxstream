@@ -43,7 +43,7 @@
 int main(int argc, char* argv[])
 {
   try {
-    const bool copyin = 1 < argc ? ('i' == *argv[1]) : true;
+    const bool copyin = 1 < argc ? ('o' != *argv[1]) : true;
 #if defined(_OPENMP)
     const int nthreads = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), omp_get_max_threads());
 #else

@@ -4,10 +4,10 @@ HERE=$(cd $(dirname $0); pwd -P)
 NAME=$(basename ${HERE})
 
 if [[ "-mic" != "$1" ]] ; then
-  if [[ "$1" == "i"* ]] ; then
-    FILE=copyin.dat
-  else
+  if [[ "$1" == "o"* ]] ; then
     FILE=copyout.dat
+  else
+    FILE=copyin.dat
   fi
   env \
     KMP_AFFINITY=scatter,granularity=fine \
@@ -18,10 +18,10 @@ if [[ "-mic" != "$1" ]] ; then
   tee ${FILE}
 else
   shift
-  if [[ "$1" == "i"* ]] ; then
-    FILE=copyin.dat
-  else
+  if [[ "$1" == "o"* ]] ; then
     FILE=copyout.dat
+  else
+    FILE=copyin.dat
   fi
   env \
     SINK_LD_LIBRARY_PATH=$MIC_LD_LIBRARY_PATH \
