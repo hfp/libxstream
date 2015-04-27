@@ -54,6 +54,11 @@ int main(int argc, char* argv[])
     const size_t maxsize = static_cast<size_t>(std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2048, 1), 8192)) * (1 << 20), minsize = 8;
     int nrepeat = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 7, 3), 100);
 
+    size_t ndevices = 0;
+    if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
+      throw std::runtime_error("no device found!");
+    }
+
     const size_t stride = 2;
     for (size_t size = minsize, n = 1; size <= maxsize; size <<= 1, ++n) {
       if (0 == (n % stride)) {
@@ -61,23 +66,23 @@ int main(int argc, char* argv[])
       }
     }
 
-    size_t ndevices = 0;
-    if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
-      throw std::runtime_error("no device found!");
-    }
+    void *buffer = 0;
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1, &buffer, maxsize, 0));
 
-    void *mem_hst = 0, *mem_dev = 0;
-    LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1, &mem_hst, maxsize, 0));
-    LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate( 0, &mem_dev, maxsize, 0));
-
-    libxstream_stream* stream[LIBXSTREAM_MAX_NSTREAMS];
+    struct {
+      libxstream_stream* stream;
+      void* buffer;
+    } copy[LIBXSTREAM_MAX_NSTREAMS];
     for (int i = 0; i < nstreams; ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
-      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(stream + i, 0, 0, name));
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&copy[i].stream, 0, 0, name));
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(0/*device*/, &copy[i].buffer, maxsize, 0));
     }
 
-    for (size_t size = minsize, n = 1; size <= maxsize; size <<= 1, ++n) {
+    int n = 1;
+    double logsum = 0;
+    for (size_t size = minsize; size <= maxsize; size <<= 1, ++n) {
       if (0 == (n % stride)) {
         nrepeat >>= 1;
       }
@@ -88,11 +93,11 @@ int main(int argc, char* argv[])
 #endif
       for (int i = 0; i < nrepeat; ++i) {
         const int j = i % nstreams;
-        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(mem_hst, mem_dev, size, stream[j]));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(buffer, copy[j].buffer, size, copy[j].stream));
 
 #if defined(COPY_ISYNC)
         const int k = (j + 1) % nstreams;
-        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(stream[k]));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(copy[k].stream));
 #endif
       }
 
@@ -104,7 +109,9 @@ int main(int argc, char* argv[])
       LIBXSTREAM_FLOCK(stdout);
       fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
       if (0 < duration) {
-        fprintf(stdout, "%.1f MB/s\n", (1.0 * size * nrepeat) / ((1ul << 20) * duration));
+        const double bandwidth = (1.0 * size * nrepeat) / ((1ul << 20) * duration);
+        fprintf(stdout, "%.1f MB/s\n", bandwidth);
+        logsum += std::log(bandwidth);
       }
       else {
         fprintf(stdout, "-\n");
@@ -113,6 +120,9 @@ int main(int argc, char* argv[])
 #endif
     }
 
+    if (1 < n) {
+      fprintf(stdout, "bandwidth: %.0f MB/s\n", std::exp(logsum / n));
+    }
     fprintf(stdout, "Finished\n");
   }
   catch(const std::exception& e) {
