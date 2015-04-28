@@ -184,12 +184,9 @@ private:
     if (wait)
 #endif
     {
+      size_t cycle = 0;
       while (work_item == entry.item()) {
-#if defined(LIBXSTREAM_WAIT_SPIN)
-        this_thread_yield();
-#else
-        this_thread_sleep();
-#endif
+        this_thread_wait(cycle);
       }
     }
   }
@@ -214,14 +211,7 @@ private:
       size_t cycle = 0;
 
       while (0 == item && valid) {
-        if ((LIBXSTREAM_WAIT_ACTIVE_CYCLES) > cycle/*TODO: measure clock cycles*/) {
-          this_thread_yield();
-          ++cycle;
-        }
-        else {
-          this_thread_sleep();
-        }
-
+        this_thread_wait(cycle);
         entry = &s.get();
         item = entry->item();
         valid = entry->valid();

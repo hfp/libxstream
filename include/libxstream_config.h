@@ -110,10 +110,7 @@
 #define LIBXSTREAM_LOCK_NONRECURSIVE
 
 /** Number of cycles to actively wait (server). */
-#define LIBXSTREAM_WAIT_ACTIVE_CYCLES 10000
-
-/** Wait using spin loop (client side). */
-#define LIBXSTREAM_WAIT_SPIN
+#define LIBXSTREAM_SPIN_CYCLES 10000
 
 /** Wait for each work item when enqueued. */
 /*#define LIBXSTREAM_WAIT*/

@@ -74,6 +74,10 @@
 # include <unistd.h>
 #endif
 
+#if !defined(YieldProcessor)
+# define YieldProcessor _mm_pause
+#endif
+
 
 namespace libxstream_internal {
 
@@ -433,6 +437,7 @@ LIBXSTREAM_TARGET(mic) int this_thread_id()
 
 LIBXSTREAM_TARGET(mic) void this_thread_yield()
 {
+  YieldProcessor();
 #if defined(LIBXSTREAM_STDFEATURES) && defined(LIBXSTREAM_STDFEATURES_THREADX)
   std::this_thread::yield();
 #elif defined(__GNUC__)
@@ -466,6 +471,18 @@ LIBXSTREAM_TARGET(mic) void this_thread_sleep(size_t ms)
   };
   nanosleep(&pause, 0);
 #endif
+}
+
+
+LIBXSTREAM_TARGET(mic) void this_thread_wait(size_t& cycle)
+{
+  if ((LIBXSTREAM_SPIN_CYCLES) > cycle) {
+    this_thread_yield();
+    ++cycle;
+  }
+  else {
+    this_thread_sleep();
+  }
 }
 
 
