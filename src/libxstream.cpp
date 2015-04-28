@@ -75,7 +75,11 @@
 #endif
 
 #if !defined(YieldProcessor)
-# define YieldProcessor _mm_pause
+# if defined(__MIC__)
+#   define YieldProcessor() _mm_delay_32(100)
+# else
+#   define YieldProcessor() _mm_pause()
+# endif
 #endif
 
 
