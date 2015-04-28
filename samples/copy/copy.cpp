@@ -37,7 +37,7 @@
 #endif
 #include <libxstream_end.h>
 
-#define COPY_ISYNC
+//#define COPY_ISYNC
 
 
 int main(int argc, char* argv[])
