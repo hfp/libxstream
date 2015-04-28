@@ -79,7 +79,7 @@ size_t libxstream_queue::size() const
 #else
   const size_t offset = *static_cast<const size_t*>(m_size);
 #endif
-  const_item_type item = m_buffer[index%LIBXSTREAM_MAX_QSIZE].item();
+  const_item_type item = m_buffer[LIBXSTREAM_MOD(index, LIBXSTREAM_MAX_QSIZE)].item();
   return 0 != item ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
 }
 
@@ -88,7 +88,7 @@ libxstream_queue::entry_type& libxstream_queue::allocate_entry()
 {
   entry_type* result = 0;
 #if defined(LIBXSTREAM_STDFEATURES)
-  result = m_buffer + ((*static_cast<std::atomic<size_t>*>(m_size))++ % LIBXSTREAM_MAX_QSIZE);
+  result = m_buffer + LIBXSTREAM_MOD((*static_cast<std::atomic<size_t>*>(m_size))++, LIBXSTREAM_MAX_QSIZE);
 #elif defined(_OPENMP)
   size_t size1 = 0;
   size_t& size = *static_cast<size_t*>(m_size);
@@ -98,27 +98,26 @@ libxstream_queue::entry_type& libxstream_queue::allocate_entry()
 #   pragma omp critical
 # endif
   size1 = ++size;
-  result = m_buffer + ((size1 - 1) % LIBXSTREAM_MAX_QSIZE);
+  result = m_buffer + LIBXSTREAM_MOD(size1 - 1, LIBXSTREAM_MAX_QSIZE);
 #else // generic
   size_t& size = *static_cast<size_t*>(m_size);
   libxstream_lock *const lock = libxstream_lock_get(this);
   libxstream_lock_acquire(lock);
-  result = m_buffer + (size++ % LIBXSTREAM_MAX_QSIZE);
+  result = m_buffer + LIBXSTREAM_MOD(size++, LIBXSTREAM_MAX_QSIZE);
   libxstream_lock_release(lock);
 #endif
   LIBXSTREAM_ASSERT(0 != result && result->valid(this));
 
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
   if (0 != result->item()) {
     LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
-  }
-#endif
-  while (0 != result->item()) { // stall if capacity is exceeded
+    do { // stall if capacity is exceeded
 #if defined(LIBXSTREAM_WAIT_SPIN)
-    this_thread_yield();
+      this_thread_yield();
 #else
-    this_thread_sleep();
+      this_thread_sleep();
 #endif
+    }
+    while (0 != result->item());
   }
 
   LIBXSTREAM_ASSERT(0 == result->item());

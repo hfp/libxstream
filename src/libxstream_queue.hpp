@@ -74,11 +74,11 @@ public:
   entry_type& allocate_entry();
 
   entry_type& get() { // not thread-safe!
-    return m_buffer[m_index%LIBXSTREAM_MAX_QSIZE];
+    return m_buffer[LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)];
   }
 
   entry_type get() const { // not thread-safe!
-    return m_buffer[m_index%LIBXSTREAM_MAX_QSIZE];
+    return m_buffer[LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)];
   }
 
   void pop() { // not thread-safe!

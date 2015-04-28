@@ -97,7 +97,7 @@
 /** Maximum number of arguments in offload structure. */
 #define LIBXSTREAM_MAX_NARGS 16
 
-/** Maximum number of executions in the queue. */
+/** Maximum number of executions in the queue (POT). */
 #define LIBXSTREAM_MAX_QSIZE 1024
 
 /** Maximum number of host threads. */
