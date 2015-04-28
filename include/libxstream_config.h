@@ -71,7 +71,7 @@
  * - #define LIBXSTREAM_ASYNC 2: compiler streams
  * - #define LIBXSTREAM_ASYNC 3: native (KNL) - not implemented yet / must be disabled
  */
-#define LIBXSTREAM_ASYNC 0
+#define LIBXSTREAM_ASYNC
 
 /** Not implemented yet. Must be disabled. */
 /*#define LIBXSTREAM_ASYNCHOST*/
