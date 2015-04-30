@@ -3,11 +3,11 @@
 LIBXSTREAM_ROOT="../.."
 NAME=$(basename ${PWD})
 
-ICCOPT="-O2 -xHost -ansi-alias"
-ICCLNK=""
+ICCOPT="-O2 -xHost -ansi-alias -openmp"
+ICCLNK="-openmp"
 
-GCCOPT="-O2 -march=native"
-GCCLNK=""
+GCCOPT="-O2 -march=native -fopenmp"
+GCCLNK="-fopenmp"
 
 OPT="-Wall -std=c++0x"
 

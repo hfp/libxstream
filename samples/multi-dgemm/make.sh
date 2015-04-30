@@ -3,11 +3,11 @@
 LIBXSTREAM_ROOT="../.."
 NAME=$(basename ${PWD})
 
-ICCOPT="-O2 -xHost -ansi-alias -offload-option,mic,compiler,\"-L${MKLROOT}/lib/mic\""
-ICCLNK="-mkl"
+ICCOPT="-O2 -xHost -ansi-alias -openmp -offload-option,mic,compiler,\"-L${MKLROOT}/lib/mic\""
+ICCLNK="-mkl -openmp"
 
-GCCOPT="-O2 -march=native"
-GCCLNK="-llapack -lblas"
+GCCOPT="-O2 -march=native -fopenmp"
+GCCLNK="-llapack -lblas -fopenmp"
 
 OPT="-Wall -std=c++0x"
 
