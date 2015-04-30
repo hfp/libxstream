@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
     }
 
     int n = 1;
-    double runavg = 0, runlns = 0;
+    double maxval = 0, sumval = 0, lnsval = 0, duration = 0;
     for (size_t size = minsize; size <= maxsize; size <<= 1, ++n) {
       if (0 == (n % stride)) {
         nrepeat >>= 1;
@@ -125,13 +125,15 @@ int main(int argc, char* argv[])
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
 
 #if defined(_OPENMP)
-      const double duration = omp_get_wtime() - start;
+      const double iduration = omp_get_wtime() - start;
       fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
-      if (0 < duration) {
-        const double bandwidth = (1.0 * size * nrepeat) / ((1ul << 20) * duration), factor = 1 < n ? 0.5 : 1.0;
+      if (0 < iduration) {
+        const double bandwidth = (1.0 * size * nrepeat) / ((1ul << 20) * iduration);
         fprintf(stdout, "%.1f MB/s\n", bandwidth);
-        runavg = (runavg + bandwidth) * factor;
-        runlns = (runlns + std::log(bandwidth)) * factor;
+        maxval = std::max(maxval, bandwidth);
+        sumval += bandwidth;
+        lnsval += std::log(bandwidth);
+        duration += iduration;
       }
       else {
         fprintf(stdout, "-\n");
@@ -140,10 +142,16 @@ int main(int argc, char* argv[])
 #endif
     }
 
+    fprintf(stdout, "\n");
     if (1 < n) {
-      fprintf(stdout, "runavg=%.0f rungeo=%.0f MB/s\n", runavg, std::exp(runlns));
+      fprintf(stdout, "Finished after %.0f s\n", duration);
+      fprintf(stdout, "max: %.0f MB/s\n", maxval);
+      fprintf(stdout, "avg: %.0f MB/s\n", sumval / (n - 1));
+      fprintf(stdout, "geo: %.0f MB/s\n", std::exp(lnsval / (n - 1)));
     }
-    fprintf(stdout, "Finished\n");
+    else {
+      fprintf(stdout, "Finished\n");
+    }
   }
   catch(const std::exception& e) {
     fprintf(stderr, "Error: %s\n", e.what());
