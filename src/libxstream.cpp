@@ -528,8 +528,8 @@ LIBXSTREAM_TARGET(mic) void this_thread_wait(size_t& cycle)
 #   pragma forceinline recursive
 #endif
     this_thread_sleep();
-    // get active after sleep
-    cycle = 0;
+    // force active state after sleep
+    //cycle = 0;
   }
 }
 
