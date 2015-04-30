@@ -58,6 +58,26 @@ public:
       m_item = 0;
       m_queue->pop();
     }
+    void wait() {
+#if defined(LIBXSTREAM_SLEEP_CLIENT)
+      size_t cycle = 0;
+      while (0 != m_item) this_thread_wait(cycle);
+#else
+      while (0 != m_item) this_thread_yield();
+#endif
+    }
+    void wait_pre() {
+#if defined(LIBXSTREAM_SLEEP_CLIENT)
+      size_t cycle = 0;
+      do {
+        this_thread_wait(cycle);
+#else
+      do {
+        this_thread_yield();
+#endif
+      }
+      while (0 != m_item);
+    }
 
   private:
     volatile item_type m_item;

@@ -82,6 +82,13 @@
 # endif
 #endif
 
+#define LIBXSTREAM_RDTSC __rdtsc
+
+/** Enables non-recursive locks. */
+#define LIBXSTREAM_LOCK_NONRECURSIVE
+/** Enables runtime-sleep. */
+#define LIBXSTREAM_RUNTIME_SLEEP
+
 
 namespace libxstream_internal {
 
@@ -441,51 +448,88 @@ LIBXSTREAM_TARGET(mic) int this_thread_id()
 
 LIBXSTREAM_TARGET(mic) void this_thread_yield()
 {
-  YieldProcessor();
-#if defined(LIBXSTREAM_STDFEATURES) && defined(LIBXSTREAM_STDFEATURES_THREADX)
+#if defined(LIBXSTREAM_RUNTIME_SLEEP)
+# if defined(LIBXSTREAM_STDFEATURES) && defined(LIBXSTREAM_STDFEATURES_THREADX)
   std::this_thread::yield();
-#elif defined(__GNUC__)
+# elif defined(__GNUC__)
   pthread_yield();
+# endif
+#else
+  YieldProcessor();
 #endif
 }
 
 
 LIBXSTREAM_TARGET(mic) void this_thread_sleep(size_t ms)
 {
-#if defined(LIBXSTREAM_STDFEATURES) && defined(LIBXSTREAM_STDFEATURES_THREADX)
-  typedef std::chrono::milliseconds milliseconds;
-  LIBXSTREAM_ASSERT(ms <= static_cast<size_t>(std::numeric_limits<milliseconds::rep>::max() / 1000));
-  const milliseconds interval(static_cast<milliseconds::rep>(ms));
-  std::this_thread::sleep_for(interval);
-#elif defined(_WIN32)
-  if (1 < ms) {
-    LIBXSTREAM_ASSERT(ms <= std::numeric_limits<DWORD>::max());
-    Sleep(static_cast<DWORD>(ms));
+#if defined(LIBXSTREAM_RUNTIME_SLEEP)
+  if (0 < ms) {
+# if defined(LIBXSTREAM_STDFEATURES) && defined(LIBXSTREAM_STDFEATURES_THREADX)
+    typedef std::chrono::milliseconds milliseconds;
+    LIBXSTREAM_ASSERT(ms <= static_cast<size_t>(std::numeric_limits<milliseconds::rep>::max() / 1000));
+    const milliseconds interval(static_cast<milliseconds::rep>(ms));
+    std::this_thread::sleep_for(interval);
+# elif defined(_WIN32)
+    if (1 < ms) {
+      LIBXSTREAM_ASSERT(ms <= std::numeric_limits<DWORD>::max());
+      Sleep(static_cast<DWORD>(ms));
+    }
+    else {
+      SwitchToThread();
+    }
+# else
+    const size_t s = ms / 1000;
+    ms -= 1000 * s;
+    LIBXSTREAM_ASSERT(ms <= static_cast<size_t>(std::numeric_limits<long>::max() / (1000 * 1000)));
+    const timespec pause = {
+      static_cast<time_t>(s),
+      static_cast<long>(ms * 1000 * 1000)
+    };
+    nanosleep(&pause, 0);
+# endif
   }
   else {
-    SwitchToThread();
+    this_thread_yield();
   }
 #else
-  const size_t s = ms / 1000;
-  ms -= 1000 * s;
-  LIBXSTREAM_ASSERT(ms <= static_cast<size_t>(std::numeric_limits<long>::max() / (1000 * 1000)));
-  const timespec pause = {
-    static_cast<time_t>(s),
-    static_cast<long>(ms * 1000 * 1000)
-  };
-  nanosleep(&pause, 0);
+  libxstream_use_sink(&ms);
+  YieldProcessor();
 #endif
 }
 
 
 LIBXSTREAM_TARGET(mic) void this_thread_wait(size_t& cycle)
 {
-  if ((LIBXSTREAM_SPIN_CYCLES) > cycle) {
+#if 0 != (LIBXSTREAM_SPIN_CYCLES)
+# if 0 < (LIBXSTREAM_SPIN_CYCLES)
+  if ((LIBXSTREAM_SPIN_CYCLES) >= cycle)
+# else // negative
+  LIBXSTREAM_ASSERT(false/*TODO: not implemented!*/);
+  const size_t tick = static_cast<size_t>(LIBXSTREAM_RDTSC());
+  if (cycle <= tick + (LIBXSTREAM_SPIN_CYCLES))
+# endif
+  {
+# if defined(__INTEL_COMPILER)
+#   pragma forceinline recursive
+# endif
     this_thread_yield();
+# if 0 < (LIBXSTREAM_SPIN_CYCLES)
     ++cycle;
+# else
+    cycle = 0 != cycle ? cycle : tick;
+# endif
   }
-  else {
+  else
+#else
+  libxstream_use_sink(&cycle);
+#endif
+  {
+#if defined(__INTEL_COMPILER)
+#   pragma forceinline recursive
+#endif
     this_thread_sleep();
+    // get active after sleep
+    cycle = 0;
   }
 }
 

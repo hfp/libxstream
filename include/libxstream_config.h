@@ -101,16 +101,29 @@
 #define LIBXSTREAM_MAX_QSIZE 1024
 
 /** Maximum number of host threads. */
-#define LIBXSTREAM_MAX_NTHREADS 512
+#define LIBXSTREAM_MAX_NTHREADS 256
 
 /** Maximum number of locks (POT). */
 #define LIBXSTREAM_MAX_NLOCKS 16
 
-/** Enables non-recursive locks. */
-#define LIBXSTREAM_LOCK_NONRECURSIVE
+/**
+ * Number of CPU cycles to actively wait. A positive value translates to cpu cycles
+ * whereas a negative value translates into milliseconds. A value of zero designates
+ * a passive wait rather than polling for a condition. For example:
+ * #define LIBXSTREAM_SPIN_CYCLES 10000000
+ */
+#define LIBXSTREAM_SPIN_CYCLES 10000000
 
-/** Number of cycles to actively wait (server). */
-#define LIBXSTREAM_SPIN_CYCLES 10000
+/**
+ * Duration a thread may sleep when waiting. A value of zero yields the thread.
+ * For a non-zero value, a non-zero LIBXSTREAM_SPIN_CYCLES is highly recommended.
+ * For example:
+ * #define LIBXSTREAM_SLEEP_MS 10.
+ */
+#define LIBXSTREAM_SLEEP_MS 10
+
+/** Allows client-side to sleep when waiting. */
+#define LIBXSTREAM_SLEEP_CLIENT
 
 /** Wait for each work item when enqueued. */
 /*#define LIBXSTREAM_WAIT*/

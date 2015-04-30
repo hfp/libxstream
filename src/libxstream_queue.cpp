@@ -110,12 +110,8 @@ libxstream_queue::entry_type& libxstream_queue::allocate_entry()
 
   if (0 != result->item()) {
     LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
-    size_t cycle = 0;
-
-    do { // stall if capacity is exceeded
-      this_thread_wait(cycle);
-    }
-    while (0 != result->item());
+    // stall if capacity is exceeded
+    result->wait_pre();
   }
 
   LIBXSTREAM_ASSERT(0 == result->item());

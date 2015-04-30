@@ -68,7 +68,8 @@ public:
   libxstream_signal pending(int thread) const;
 
   void enqueue(const libxstream_capture_base& work_item);
-  libxstream_queue* queue(const libxstream_queue* exclude = 0);
+  libxstream_queue* queue_begin();
+  libxstream_queue* queue_next();
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;

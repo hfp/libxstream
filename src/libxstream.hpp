@@ -50,7 +50,7 @@ LIBXSTREAM_TARGET(mic) bool libxstream_lock_try(libxstream_lock* lock);
 LIBXSTREAM_TARGET(mic) size_t nthreads_active();
 LIBXSTREAM_TARGET(mic) int this_thread_id();
 LIBXSTREAM_TARGET(mic) void this_thread_yield();
-LIBXSTREAM_TARGET(mic) void this_thread_sleep(size_t ms = 1);
+LIBXSTREAM_TARGET(mic) void this_thread_sleep(size_t ms = LIBXSTREAM_SLEEP_MS);
 LIBXSTREAM_TARGET(mic) void this_thread_wait(size_t& cycle);
 
 enum {

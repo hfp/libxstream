@@ -45,8 +45,6 @@
 
 // allows to wait for an event issued prior to the pending signal
 //#define LIBXSTREAM_STREAM_WAIT_PAST
-// unlocking the stream is only allowed for the thread that locked
-//#define LIBXSTREAM_STREAM_UNLOCK_OWNER
 
 
 namespace libxstream_stream_internal {
@@ -437,74 +435,53 @@ void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
   entry.push(item);
 
   if (0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT)) {
-    size_t cycle = 0;
-    while (item == entry.item()) {
-      this_thread_wait(cycle);
-    }
+    entry.wait();
   }
 }
 
 
-libxstream_queue* libxstream_stream::queue(const libxstream_queue* exclude)
+libxstream_queue* libxstream_stream::queue_begin()
+{
+  libxstream_queue* result = 0 <= m_thread ? m_queues[m_thread] : 0;
+
+  if (0 == result || 0 == result->get().item()) {
+    const int nthreads = static_cast<int>(nthreads_active());
+    size_t size = result ? result->size() : 0;
+
+    for (int i = 0; i < nthreads; ++i) {
+      libxstream_queue *const qi = m_queues[i];
+      const size_t si = (0 != qi && 0 != qi->get().item()) ? qi->size() : 0;
+      if (size < si) {
+        m_thread = i;
+        result = qi;
+        size = si;
+      }
+    }
+
+    if (0 == size && 0 != result && 0 != result->get().item() &&
+      0 == (LIBXSTREAM_CALL_WAIT & static_cast<const libxstream_capture_base*>(result->get().item())->flags()))
+    {
+      result = 0 <= m_thread ? m_queues[m_thread] : 0;
+    }
+  }
+
+  return result;
+}
+
+
+libxstream_queue* libxstream_stream::queue_next()
 {
   libxstream_queue* result = 0;
 
-  if (0 == exclude) {
-    result = 0 <= m_thread ? m_queues[m_thread] : 0;
-
-    if (0 == result || 0 == result->get().item()) {
-      const int nthreads = static_cast<int>(nthreads_active());
-      size_t size = result ? result->size() : 0;
-
-      for (int i = 0; i < nthreads; ++i) {
-        libxstream_queue *const qi = m_queues[i];
-        const size_t si = (0 != qi && 0 != qi->get().item()) ? qi->size() : 0;
-        if (size < si) {
-          m_thread = i;
-          result = qi;
-          size = si;
-        }
-      }
-
-      if (0 == size && 0 != result && 0 != result->get().item() &&
-        0 == (LIBXSTREAM_CALL_WAIT & static_cast<const libxstream_capture_base*>(result->get().item())->flags()))
-      {
-        result = 0 <= m_thread ? m_queues[m_thread] : 0;
-      }
-    }
-  }
-  else { // round-robin
-    const size_t nthreads = nthreads_active();
-    int thread = -1;
-    for (size_t/*-Wstrict-overflow*/ i = 0; i < nthreads; ++i) {
-      libxstream_queue *const qi = m_queues[i];
-      if (exclude != qi) {
+  if (0 <= m_thread) {
+    const size_t nthreads = nthreads_active(), end = m_thread + nthreads;
+    for (size_t i = static_cast<size_t>(m_thread + 1); i < end; ++i) {
+      const int thread = static_cast<int>(i % nthreads);
+      libxstream_queue *const qi = m_queues[thread];
+      if (0 != qi) {
         result = qi;
-        thread = static_cast<int>(i);
-        i = nthreads; // break
-      }
-      else {
-        thread = static_cast<int>(i + 1);
-        i = nthreads; // break
-      }
-    }
-    if (0 <= thread) {
-      if (0 != result) {
-        for (size_t i = static_cast<size_t>(thread); i < nthreads; ++i) {
-          libxstream_queue *const qi = m_queues[i];
-          if (exclude == qi) {
-            thread = static_cast<int>(i + 1);
-            i = nthreads; // break
-          }
-        }
-      }
-      for (size_t i = static_cast<size_t>(thread); i < nthreads; ++i) {
-        libxstream_queue *const qi = m_queues[i];
-        if (0 != qi) {
-          result = qi;
-          m_thread = static_cast<int>(i);
-          i = nthreads; // break
-        }
+        m_thread = thread;
+        i = end; // break
       }
     }
   }
