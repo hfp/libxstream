@@ -33,6 +33,7 @@
 
 #include <libxstream_begin.h>
 #include <algorithm>
+#include <cstring>
 #include <libxstream_end.h>
 
 #if defined(__MKL)
