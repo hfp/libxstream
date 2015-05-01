@@ -183,7 +183,7 @@ int libxstream_real_allocate(void** memory, size_t size, size_t alignment)
 #if defined(LIBXSTREAM_DEBUG)
       LIBXSTREAM_USE_SINK(&alignment);
       if (char *const buffer = new char[size]) {
-        std::fill_n(buffer, size, 0);
+        memset(buffer, 0, size);
         *memory = buffer;
       }
       else {
