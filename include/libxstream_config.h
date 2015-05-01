@@ -85,10 +85,10 @@
 /** Alignment in Byte (actual alignment might be smaller). */
 #define LIBXSTREAM_MAX_ALIGN (2 * 1024 * 1024)
 
-/** Maximum number of devices. */
+/** Maximum number of devices (POT). */
 #define LIBXSTREAM_MAX_NDEVICES 4
 
-/** Maximum number of streams per device. */
+/** Maximum number of streams per device (POT). */
 #define LIBXSTREAM_MAX_NSTREAMS 32
 
 /** Maximum dimensionality of arrays. */

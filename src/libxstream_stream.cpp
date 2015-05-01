@@ -79,8 +79,8 @@ public:
     libxstream_lock *const lock = libxstream_lock_get(this);
     libxstream_lock_acquire(lock);
 #endif
-    volatile value_type* i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
-    while (0 != *i) i = m_streams + (m_istreams++ % (LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS));
+    volatile value_type* i = m_streams + LIBXSTREAM_MOD(m_istreams++, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
+    while (0 != *i) i = m_streams + LIBXSTREAM_MOD(m_istreams++, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
 #if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock_release(lock);
 #endif
@@ -141,32 +141,24 @@ public:
   }
 
   value_type schedule(const libxstream_stream* exclude) {
-    value_type result = 0;
     const size_t n = max_nstreams();
-    size_t j = 0;
+    value_type result = 0;
 
+    size_t j = 0;
     for (size_t i = 0; i < n; ++i) {
       const value_type stream = m_streams[i];
-      if (0 != stream) {
-        result = stream;
-        j = i + 1;
-        i = n; // break
-      }
-    }
-
-    for (size_t i = j; i < n; ++i) {
-      const value_type stream = m_streams[i];
       if (stream == exclude) {
-        j = i + 1;
+        j = i;
         i = n; // break
       }
     }
 
-    for (size_t i = j; i < n; ++i) {
-      const value_type stream = m_streams[i];
+    const size_t end = j + n;
+    for (size_t i = j + 1; i < end; ++i) {
+      const value_type stream = m_streams[i%n];
       if (0 != stream) {
         result = stream;
-        i = n; // break
+        i = end; // break
       }
     }
 
@@ -474,9 +466,10 @@ libxstream_queue* libxstream_stream::queue_next()
   libxstream_queue* result = 0;
 
   if (0 <= m_thread) {
-    const size_t nthreads = nthreads_active(), end = m_thread + nthreads;
-    for (size_t i = static_cast<size_t>(m_thread + 1); i < end; ++i) {
-      const int thread = static_cast<int>(i % nthreads);
+    const int nthreads = static_cast<int>(nthreads_active());
+    const int end = m_thread + nthreads;
+    for (int i = m_thread + 1; i < end; ++i) {
+      const int thread = i % nthreads;
       libxstream_queue *const qi = m_queues[thread];
       if (0 != qi) {
         result = qi;
