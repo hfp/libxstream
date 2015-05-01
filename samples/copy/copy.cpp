@@ -53,8 +53,8 @@ int main(int argc, char* argv[])
 #endif
     const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
     const size_t maxsize = static_cast<size_t>(std::min(std::max(4 < argc ? std::atoi(argv[4]) : 2048, 1), 8192)) * (1 << 20), minsize = 8;
-    const int minrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) :    8, 2), 128);
-    const int maxrepeat = std::min(std::max(6 < argc ? std::atoi(argv[6]) : 8192, minrepeat), 32768);
+    const int minrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) :    8, 4), 2048);
+    const int maxrepeat = std::min(std::max(6 < argc ? std::atoi(argv[6]) : 4096, minrepeat), 32768);
 
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
