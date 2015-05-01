@@ -97,7 +97,7 @@ int main(int argc, char* argv[])
     int n = 0, nrepeat = maxrepeat;
     double maxval = 0, sumval = 0, lnsval = 0, duration = 0;
     for (size_t size = minsize; size <= maxsize; size <<= 1, ++n) {
-      if (0 == (n % stride)) {
+      if (0 < n && 0 == (n % stride)) {
         nrepeat >>= 1;
       }
 
