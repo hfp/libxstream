@@ -110,17 +110,17 @@
  * Number of CPU cycles to actively wait. A positive value translates to cpu cycles
  * whereas a negative value translates into milliseconds. A value of zero designates
  * a passive wait rather than polling for a condition. For example:
- * #define LIBXSTREAM_SPIN_CYCLES 10000000
+ * #define LIBXSTREAM_SPIN_CYCLES 200000000
  */
-#define LIBXSTREAM_SPIN_CYCLES 10000000
+#define LIBXSTREAM_SPIN_CYCLES 200000000
 
 /**
  * Duration a thread may sleep when waiting. A value of zero yields the thread.
  * For a non-zero value, a non-zero LIBXSTREAM_SPIN_CYCLES is highly recommended.
  * For example:
- * #define LIBXSTREAM_SLEEP_MS 10.
+ * #define LIBXSTREAM_SLEEP_MS 20.
  */
-#define LIBXSTREAM_SLEEP_MS 10
+#define LIBXSTREAM_SLEEP_MS 20
 
 /** Allows client-side to sleep when waiting. */
 #define LIBXSTREAM_SLEEP_CLIENT
