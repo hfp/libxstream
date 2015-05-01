@@ -43,23 +43,26 @@
 int main(int argc, char* argv[])
 {
   try {
-    const bool copyin = 1 < argc ? ('o' != *argv[1]) : true;
-#if defined(_OPENMP)
-    const int nthreads = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), omp_get_max_threads());
-#else
-    const int nthreads = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), 1);
-    LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
-    libxstream_use_sink(&nthreads);
-#endif
-    const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
-    const size_t maxsize = static_cast<size_t>(std::min(std::max(4 < argc ? std::atoi(argv[4]) : 2048, 1), 8192)) * (1 << 20), minsize = 8;
-    const int minrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) :    8, 4), 2048);
-    const int maxrepeat = std::min(std::max(6 < argc ? std::atoi(argv[6]) : 4096, minrepeat), 32768);
-
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
       throw std::runtime_error("no device found!");
     }
+    size_t allocatable = 0;
+    libxstream_mem_info(0, &allocatable, 0);
+    allocatable >>= 20; // MB
+
+    const bool copyin = 1 < argc ? ('o' != *argv[1]) : true;
+#if defined(_OPENMP)
+    const int nthreads = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), omp_get_max_threads());
+#else
+    //const int nthreads = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), 1);
+    LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
+#endif
+    const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
+    const int minsize = 8, reserved = 512;
+    const size_t maxsize = static_cast<size_t>(std::min(std::max(4 < argc ? std::atoi(argv[4]) : static_cast<int>((allocatable - reserved) / (nstreams + 1)), 1), 8192)) * (1 << 20);
+    const int minrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) :    8, 4), 2048);
+    const int maxrepeat = std::min(std::max(6 < argc ? std::atoi(argv[6]) : 4096, minrepeat), 32768);
 
     int steps_repeat = 0, steps_size = 0;
     for (int nrepeat = minrepeat; nrepeat <= maxrepeat; nrepeat <<= 1) ++steps_repeat;
