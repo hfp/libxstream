@@ -53,8 +53,8 @@ int main(int argc, char* argv[])
 #endif
     const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
     const size_t maxsize = static_cast<size_t>(std::min(std::max(4 < argc ? std::atoi(argv[4]) : 2048, 1), 8192)) * (1 << 20), minsize = 8;
-    int minrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) :    8, 2), 128);
-    int maxrepeat = std::min(std::max(6 < argc ? std::atoi(argv[6]) : 8192, minrepeat), 32768);
+    const int minrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) :    8, 2), 128);
+    const int maxrepeat = std::min(std::max(6 < argc ? std::atoi(argv[6]) : 8192, minrepeat), 32768);
 
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
@@ -94,18 +94,18 @@ int main(int argc, char* argv[])
       }
     }
 
-    int n = 1;
+    int n = 1, nrepeat = maxrepeat;
     double maxval = 0, sumval = 0, lnsval = 0, duration = 0;
     for (size_t size = minsize; size <= maxsize; size <<= 1, ++n) {
       if (0 == (n % stride)) {
-        maxrepeat >>= 1;
+        nrepeat >>= 1;
       }
 
 #if defined(_OPENMP)
       const double start = omp_get_wtime();
 #     pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
-      for (int i = 0; i < maxrepeat; ++i) {
+      for (int i = 0; i < nrepeat; ++i) {
         const int j = i % nstreams;
         if (copyin) {
           LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(copy[j].mem_hst, copy[j].mem_dev, size, copy[j].stream));
@@ -125,9 +125,9 @@ int main(int argc, char* argv[])
 
 #if defined(_OPENMP)
       const double iduration = omp_get_wtime() - start;
-      fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), maxrepeat);
+      fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
       if (0 < iduration) {
-        const double bandwidth = (1.0 * size * maxrepeat) / ((1ul << 20) * iduration);
+        const double bandwidth = (1.0 * size * nrepeat) / ((1ul << 20) * iduration);
         fprintf(stdout, "%.1f MB/s\n", bandwidth);
         maxval = std::max(maxval, bandwidth);
         sumval += bandwidth;
