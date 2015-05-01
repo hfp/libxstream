@@ -146,8 +146,9 @@ public:
 
     size_t j = 0;
     for (size_t i = 0; i < n; ++i) {
-      const value_type stream = m_streams[i];
-      if (stream == exclude) {
+      result = m_streams[i];
+      if (result == exclude) {
+        result = 0;
         j = i;
         i = n; // break
       }
