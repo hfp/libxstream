@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
       }
     }
 
-    int n = 1, nrepeat = maxrepeat;
+    int n = 0, nrepeat = maxrepeat;
     double maxval = 0, sumval = 0, lnsval = 0, duration = 0;
     for (size_t size = minsize; size <= maxsize; size <<= 1, ++n) {
       if (0 == (n % stride)) {
@@ -142,11 +142,11 @@ int main(int argc, char* argv[])
     }
 
     fprintf(stdout, "\n");
-    if (1 < n) {
+    if (0 < n) {
       fprintf(stdout, "Finished after %.0f s\n", duration);
       fprintf(stdout, "max: %.0f MB/s\n", maxval);
-      fprintf(stdout, "avg: %.0f MB/s\n", sumval / (n - 1));
-      fprintf(stdout, "geo: %.0f MB/s\n", std::exp(lnsval / (n - 1)));
+      fprintf(stdout, "avg: %.0f MB/s\n", sumval / n);
+      fprintf(stdout, "geo: %.0f MB/s\n", std::exp(lnsval / n));
     }
     else {
       fprintf(stdout, "Finished\n");
