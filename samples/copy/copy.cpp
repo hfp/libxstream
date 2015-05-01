@@ -111,6 +111,7 @@ int main(int argc, char* argv[])
 
 #if defined(_OPENMP)
       fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
+      fflush(stdout);
       const double start = omp_get_wtime();
 #     pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
@@ -145,7 +146,6 @@ int main(int argc, char* argv[])
       else {
         fprintf(stdout, "-\n");
       }
-      fflush(stdout);
 #endif
     }
 
