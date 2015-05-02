@@ -156,7 +156,7 @@ public:
 
     const size_t end = j + n;
     for (size_t i = j + 1; i < end; ++i) {
-      const value_type stream = m_streams[i%n];
+      const value_type stream = m_streams[/*i%n*/i<n?i:(i-n)];
       if (0 != stream) {
         result = stream;
         i = end; // break
@@ -470,7 +470,7 @@ libxstream_queue* libxstream_stream::queue_next()
     const int nthreads = static_cast<int>(nthreads_active());
     const int end = m_thread + nthreads;
     for (int i = m_thread + 1; i < end; ++i) {
-      const int thread = i % nthreads;
+      const int thread = /*i % nthreads*/i < nthreads ? i : (i - nthreads);
       libxstream_queue *const qi = m_queues[thread];
       if (0 != qi) {
         result = qi;
