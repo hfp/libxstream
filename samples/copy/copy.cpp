@@ -31,6 +31,7 @@
 #include <libxstream_begin.h>
 #include <stdexcept>
 #include <algorithm>
+#include <cstring>
 #include <cstdio>
 #if defined(_OPENMP)
 # include <omp.h>
@@ -78,6 +79,7 @@ int main(int argc, char* argv[])
       libxstream_stream* stream;
       void *mem_hst, *mem_dev;
     } copy[LIBXSTREAM_MAX_NSTREAMS];
+    memset(copy, 0, sizeof(copy)); // some initialization (avoid false positives with tools)
     for (int i = 0; i < nstreams; ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
@@ -85,6 +87,7 @@ int main(int argc, char* argv[])
       if (copyin) {
         if (0 == i) {
           LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[i].mem_hst, maxsize, 0));
+          memset(copy[i].mem_hst, -1, maxsize); // some initialization (avoid false positives with tools)
         }
         else {
           copy[i].mem_hst = copy[0].mem_hst;
@@ -93,6 +96,7 @@ int main(int argc, char* argv[])
       }
       else { // copy-out
         LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[i].mem_hst, maxsize, 0));
+        memset(copy[i].mem_hst, -1, maxsize); // some initialization (avoid false positives with tools)
         if (0 == i) {
           LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &copy[i].mem_dev, maxsize, 0));
         }
@@ -126,6 +130,7 @@ int main(int argc, char* argv[])
 
 #if !defined(COPY_NO_SYNC)
         const int k = (j + 1) % nstreams;
+        LIBXSTREAM_ASSERT(0 <= i && i < LIBXSTREAM_MAX_NSTREAMS);
         LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(copy[k].stream));
 #endif
       }
