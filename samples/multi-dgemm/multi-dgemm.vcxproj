@@ -167,6 +167,10 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <OpenMP>GenerateParallelCode</OpenMP>
       <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
+      <OmitFramePointers>true</OmitFramePointers>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -208,6 +212,9 @@
       <OpenMP>GenerateParallelCode</OpenMP>
       <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
       <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -251,6 +258,10 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <OpenMP>GenerateParallelCode</OpenMP>
       <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <OmitFramePointers>true</OmitFramePointers>
+      <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
@@ -293,6 +304,10 @@
       <OpenMP>GenerateParallelCode</OpenMP>
       <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
       <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <OmitFramePointers>false</OmitFramePointers>
+      <EnableFiberSafeOptimizations>true</EnableFiberSafeOptimizations>
     </ClCompile>
     <ResourceCompile>
       <Culture>0x0407</Culture>
