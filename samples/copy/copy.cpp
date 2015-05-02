@@ -130,7 +130,7 @@ int main(int argc, char* argv[])
 
 #if !defined(COPY_NO_SYNC)
         const int k = (j + 1) % nstreams;
-        LIBXSTREAM_ASSERT(0 <= i && i < LIBXSTREAM_MAX_NSTREAMS);
+        LIBXSTREAM_ASSERT(0 <= k && k < LIBXSTREAM_MAX_NSTREAMS);
         LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(copy[k].stream));
 #endif
       }
