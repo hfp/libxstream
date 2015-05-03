@@ -43,8 +43,8 @@
 #endif
 #include <libxstream_end.h>
 
+//#define MULTI_DGEMM_USE_CHECK
 #define MULTI_DGEMM_USE_SYNC 1
-#define MULTI_DGEMM_USE_CHECK
 
 #define DGEMM dgemm_
 
@@ -153,21 +153,25 @@ int main(int argc, char* argv[])
     fprintf(stdout, "Duration: %.1f s\n", duration);
 #endif
 
-#if defined(MULTI_DGEMM_USE_CHECK)
-    std::vector<double> expected(host_data.max_matrix_size());
-    const size_t testbatchsize = 1;
-    double max_error = 0;
-    size_t i0 = 0;
-    for (int i = 0; i < nitems; ++i) {
-      const size_t i1 = host_data.idata()[i+1];
-      const int nn = static_cast<int>(i1 - i0);
-      std::fill_n(&expected[0], nn, 0.0);
-      process(LIBXSTREAM_SETVAL(testbatchsize), LIBXSTREAM_SETVAL(nn), host_data.idata() + i, host_data.adata() + i0, host_data.bdata() + i0, &expected[0]);
-      for (int n = 0; n < nn; ++n) max_error = std::max(max_error, std::abs(expected[n] - host_data.cdata()[i0+n]));
-      i0 = i1;
-    }
-    fprintf(stdout, "Error: %g\n", max_error);
+#if !defined(MULTI_DGEMM_USE_CHECK)
+    const char *const check_env = getenv("USE_CHECK");
+    if (check_env && *check_env && 0 != atoi(check_env))
 #endif
+    {
+      std::vector<double> expected(host_data.max_matrix_size());
+      const size_t testbatchsize = 1;
+      double max_error = 0;
+      size_t i0 = 0;
+      for (int i = 0; i < nitems; ++i) {
+        const size_t i1 = host_data.idata()[i+1];
+        const int nn = static_cast<int>(i1 - i0);
+        std::fill_n(&expected[0], nn, 0.0);
+        process(LIBXSTREAM_SETVAL(testbatchsize), LIBXSTREAM_SETVAL(nn), host_data.idata() + i, host_data.adata() + i0, host_data.bdata() + i0, &expected[0]);
+        for (int n = 0; n < nn; ++n) max_error = std::max(max_error, std::abs(expected[n] - host_data.cdata()[i0+n]));
+        i0 = i1;
+      }
+      fprintf(stdout, "Error: %g\n", max_error);
+    }
     fprintf(stdout, "Finished\n");
   }
   catch(const std::exception& e) {
