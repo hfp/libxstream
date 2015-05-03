@@ -449,7 +449,7 @@ libxstream_queue* libxstream_stream::queue_begin()
 
     for (int i = 0; i < nthreads; ++i) {
       libxstream_queue *const qi = m_queues[i];
-      const size_t si = (0 != qi && 0 != const_cast<const libxstream_queue*>(qi)->get().item()) ? qi->size() : 0;
+      const size_t si = (0 != qi && 0 != qi->get().item()) ? qi->size() : 0;
       if (size < si) {
         m_thread = i;
         result = qi;

@@ -110,9 +110,9 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
     size_t arity = 0;
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_arity(m_signature, &arity));
 
-    LIBXSTREAM_PRINT(2, "fn_call: fn=0x%llx args=0x%llx stream=0x%llx flags=%i",
+    LIBXSTREAM_PRINT(2, "fn_call: stream=0x%llx fn=0x%llx args=0x%llx flags=%i", reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM),
       reinterpret_cast<unsigned long long>(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative)),
-      reinterpret_cast<unsigned long long>(signature), reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM), cflags);
+      reinterpret_cast<unsigned long long>(signature), cflags);
     LIBXSTREAM_PRINT0(3, "************************************************************************");
 
 #if defined(LIBXSTREAM_OFFLOAD)
