@@ -66,13 +66,13 @@ int main(int argc, char* argv[])
     allocatable >>= 20; // MB
 
     const bool copyin = 1 < argc ? ('o' != *argv[1]) : true;
+    const int nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(_OPENMP)
-    const int nthreads = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), omp_get_max_threads());
+    const int nthreads = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), omp_get_max_threads());
 #else
-    //const int nthreads = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), 1);
+    //const int nthreads = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), 1);
     LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
-    const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(LIBXSTREAM_OFFLOAD)
     const size_t nreserved = nstreams + 1;
 #else
@@ -142,7 +142,6 @@ int main(int argc, char* argv[])
 
 #if !defined(COPY_NO_SYNC)
         const int k = (j + 1) % nstreams;
-        LIBXSTREAM_ASSERT(0 <= k && k < LIBXSTREAM_MAX_NSTREAMS);
         LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(copy[k].stream));
 #endif
       }
