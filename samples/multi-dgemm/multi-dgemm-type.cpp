@@ -80,10 +80,10 @@ multi_dgemm_type::host_data_type::host_data_type(libxstream_function process, si
 
 multi_dgemm_type::host_data_type::~host_data_type()
 {
-  /*LIBXSTREAM_CHECK_CALL_THROW*/(libxstream_mem_deallocate(-1, m_adata));
-  /*LIBXSTREAM_CHECK_CALL_THROW*/(libxstream_mem_deallocate(-1, m_bdata));
-  /*LIBXSTREAM_CHECK_CALL_THROW*/(libxstream_mem_deallocate(-1, m_cdata));
-  /*LIBXSTREAM_CHECK_CALL_THROW*/(libxstream_mem_deallocate(-1, m_idata));
+  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_mem_deallocate(-1, m_adata));
+  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_mem_deallocate(-1, m_bdata));
+  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_mem_deallocate(-1, m_cdata));
+  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_mem_deallocate(-1, m_idata));
 }
 
 
@@ -122,7 +122,7 @@ multi_dgemm_type::multi_dgemm_type()
 
 multi_dgemm_type::~multi_dgemm_type()
 {
-  /*LIBXSTREAM_CHECK_CALL_THROW*/(deinit());
+  LIBXSTREAM_CHECK_CALL_ASSERT(deinit());
 }
 
 
