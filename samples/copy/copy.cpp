@@ -41,12 +41,24 @@
 //#define COPY_NO_SYNC
 
 
+/**
+ * This program is copying data to/from a copprocessor device (copy-in or copy-out).
+ * A series of different sizes (up to a given / automatically selected amount) is
+ * exercised in order to measure the bandwidth of the data transfers. The program
+ * is multi-threaded (using only one thread by default) mainly to exercise the
+ * thread-safety of LIBXSTREAM. There is no performance gain expected from using
+ * multiple threads, remember that the number of streams determines the available
+ * parallelism. The program is intentionally spartan (command line interface, etc.)
+ * in order to keep it within bounds for an introductory code sample. The mechanism
+ * selecting the stream to enqueue into as well as selecting the stream to be
+ * synchronized shows the essence of the stream programing model.
+ */
 int main(int argc, char* argv[])
 {
   try {
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
-      LIBXSTREAM_PRINT0(1, "No device found!");
+      LIBXSTREAM_PRINT0(1, "No device found or device not ready!");
     }
     const int device = static_cast<int>(ndevices) - 1;
     size_t allocatable = 0;
@@ -115,7 +127,7 @@ int main(int argc, char* argv[])
 
 #if defined(_OPENMP)
       fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
-      fflush(stdout);
+      fflush(stdout); // make sure to show progress
       const double start = omp_get_wtime();
 #     pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
@@ -124,7 +136,7 @@ int main(int argc, char* argv[])
         if (copyin) {
           LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(copy[j].mem_hst, copy[j].mem_dev, size, copy[j].stream));
         }
-        else {
+        else { // copy-out
           LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(copy[j].mem_dev, copy[j].mem_hst, size, copy[j].stream));
         }
 
