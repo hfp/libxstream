@@ -4,10 +4,10 @@ LIBXSTREAM_ROOT="../.."
 NAME=$(basename ${PWD})
 
 ICCOPT="-O2 -xHost -ansi-alias -openmp"
-ICCLNK="-shared -openmp"
+ICCLNK="-pie -openmp"
 
 GCCOPT="-O2 -march=native -fopenmp"
-GCCLNK="-shared -fopenmp"
+GCCLNK="-pie -fopenmp"
 
 OPT="-Wall -std=c++0x"
 
