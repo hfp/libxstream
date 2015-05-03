@@ -144,13 +144,13 @@ public:
       libxstream_queue* queue = m_stream ? m_stream->queue_begin() : 0;
       const libxstream_capture_base* item = 0;
 
-      if (queue) {
+      if (0 != queue) {
         result = &queue->get();
         item = static_cast<const libxstream_capture_base*>(result->item());
       }
 
       // item in stream-local queue is a wait-item
-      if (item && 0 != (item->flags() & LIBXSTREAM_CALL_WAIT)) {
+      if (0 != item && 0 != (item->flags() & LIBXSTREAM_CALL_WAIT)) {
         queue = m_stream->queue_next(); // next/other queue
 
         while (0 != queue) {

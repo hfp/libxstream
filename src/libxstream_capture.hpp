@@ -103,8 +103,8 @@
     } \
     void virtual_run() { \
       const libxstream_signal LIBXSTREAM_ASYNC_PENDING = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->pending(thread()) : 0; \
-      int LIBXSTREAM_ASYNC_DEVICE = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->device() : val<int,0>(); \
       const libxstream_signal capture_region_signal = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->signal() : 0; \
+      int LIBXSTREAM_ASYNC_DEVICE = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->device() : val<int,0>(); \
       LIBXSTREAM_ASYNC_DECL; libxstream_use_sink(&LIBXSTREAM_ASYNC_DEVICE); libxstream_use_sink(&LIBXSTREAM_ASYNC_PENDING); do
 #define LIBXSTREAM_ASYNC_END(FLAGS, RESULT) while(libxstream_not_constant(LIBXSTREAM_FALSE)); \
       if (LIBXSTREAM_ASYNC_STREAM && capture_region_signal != capture_region_signal_consumed) { \
