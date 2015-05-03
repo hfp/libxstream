@@ -43,8 +43,7 @@
 #endif
 #include <libxstream_end.h>
 
-//#define MULTI_DGEMM_USE_NESTED
-//#define MULTI_DGEMM_USE_SYNC 1
+#define MULTI_DGEMM_USE_SYNC 1
 #define MULTI_DGEMM_USE_CHECK
 
 #define DGEMM dgemm_
@@ -65,27 +64,12 @@ LIBXSTREAM_TARGET(mic) void process(LIBXSTREAM_INVAL(size_t) size, LIBXSTREAM_IN
     const int isize = static_cast<int>(size);
     const size_t base = idata[0];
 
-#if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
-    const int nthreads = omp_get_max_threads() / LIBXSTREAM_GETVAL(size);
-    const int dynamic = omp_get_dynamic(), nested = omp_get_nested();
-    omp_set_dynamic(0);
-    omp_set_nested(1);
-#   pragma omp parallel for schedule(dynamic,1) num_threads(LIBXSTREAM_GETVAL(size))
-#endif
     for (int i = 0; i < isize; ++i) {
-#if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
-      omp_set_num_threads(nthreads);
-#endif
       LIBXSTREAM_ASSERT(base <= idata[i]);
       const size_t i0 = idata[i], i1 = (i + 1) < isize ? idata[i+1] : (i0 + LIBXSTREAM_GETVAL(nn)), n2 = i1 - i0, offset = i0 - base;
       const int n = static_cast<int>(std::sqrt(static_cast<double>(n2)) + 0.5);
       DGEMM(&trans, &trans, &n, &n, &n, &alpha, adata + offset, &n, bdata + offset, &n, &beta, cdata + offset, &n);
     }
-
-#if defined(_OPENMP) && defined(MULTI_DGEMM_USE_NESTED)
-    omp_set_dynamic(dynamic);
-    omp_set_nested(nested);
-#endif
   }
 }
 
@@ -95,11 +79,17 @@ int main(int argc, char* argv[])
   try {
     const int nitems = std::max(1 < argc ? std::atoi(argv[1]) : 60, 0);
     const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 5, 1);
-    const int nstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
+    const int ndevstrm = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
+#if defined(_OPENMP)
+    const int nthreads = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 1, 1), omp_get_max_threads());
+#else
+    //const int nthreads = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 1, 1), 1);
+    LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
+#endif
 
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
-      throw std::runtime_error("no device found!");
+      LIBXSTREAM_PRINT0(1, "No device found or device not ready!");
     }
 
     fprintf(stdout, "Initializing %i device%s and host data...", static_cast<int>(ndevices), 1 == ndevices ? "" : "s");
@@ -107,16 +97,16 @@ int main(int argc, char* argv[])
     multi_dgemm_type::host_data_type host_data(reinterpret_cast<libxstream_function>(&process), nitems, split);
     fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
 
-    fprintf(stdout, "Initializing %i stream%s per device...", nstreams, 1 < nstreams ? "s" : "");
-    const size_t nstreams_total = ndevices * nstreams;
+    fprintf(stdout, "Initializing %i stream%s per device...", ndevstrm, 1 < ndevstrm ? "s" : "");
+    const size_t nstreams = 0 < ndevices ? (ndevices * ndevstrm) : 1;
     multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_NSTREAMS];
-    for (size_t i = 0; i < nstreams_total; ++i) {
+    for (size_t i = 0; i < nstreams; ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", static_cast<int>(i + 1));
-      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, static_cast<int>(i % ndevices), static_cast<size_t>(nbatch)));
+      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, 0 < ndevices ? static_cast<int>(i % ndevices) : -1, static_cast<size_t>(nbatch)));
     }
-    if (0 < nstreams_total) {
-      fprintf(stdout, " %.1f MB\n", nstreams * multi_dgemm[0].bytes() * 1E-6);
+    if (0 < nstreams) {
+      fprintf(stdout, " %.1f MB\n", ndevstrm * multi_dgemm[0].bytes() * 1E-6);
     }
 
     const int nbatches = (nitems + nbatch - 1) / nbatch;
@@ -125,43 +115,31 @@ int main(int argc, char* argv[])
       1 < nbatch ? "s" : "");
 
 #if defined(_OPENMP)
-# if !defined(LIBXSTREAM_OFFLOAD)
-    omp_set_dynamic(0);
-    omp_set_nested(0);
-# endif
     const double start = omp_get_wtime();
-#   pragma omp parallel for schedule(dynamic)
-#else
-    LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
+#   pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
     for (int i = 0; i < nitems; i += nbatch) {
-      const size_t j = i / nbatch, n = j % nstreams_total;
-      multi_dgemm_type& call = multi_dgemm[n];
+      const size_t ibatch = i / nbatch, j = ibatch % nstreams;
+      multi_dgemm_type& call = multi_dgemm[j];
 
-      // enqueue work package
-      LIBXSTREAM_CHECK_CALL_ASSERT(call(i, std::min(nbatch, nitems - i)));
+      LIBXSTREAM_CHECK_CALL_ASSERT(call(i, std::min(nbatch, nitems - i))); // enqueue batch
 
-#if defined(MULTI_DGEMM_USE_SYNC) && (1 <= MULTI_DGEMM_USE_SYNC) // record event
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(call.event(), call.stream()));
-#endif
-
-      // synchronize every Nth iteration with N being the total number of streams
-      if (n == (nstreams_total - 1)) {
-        for (size_t k = 0; k < nstreams_total; ++k) {
 #if defined(MULTI_DGEMM_USE_SYNC)
-# if (2 <= (MULTI_DGEMM_USE_SYNC))
-          // wait for an event within a stream
-          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(multi_dgemm[0].stream(), multi_dgemm[k].event()));
-# elif (1 <= (MULTI_DGEMM_USE_SYNC))
-          // wait for an event on the host
-          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_synchronize(multi_dgemm[k].event()));
+# if (2 <= MULTI_DGEMM_USE_SYNC) // record event
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(call.event(), call.stream()));
+# endif
+      const int k = (j + 1) % nstreams;
+# if (3 <= (MULTI_DGEMM_USE_SYNC))
+      // wait for an event within a stream
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(multi_dgemm[0].stream(), multi_dgemm[k].event()));
+# elif (2 <= (MULTI_DGEMM_USE_SYNC))
+      // wait for an event on the host
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_synchronize(multi_dgemm[k].event()));
 # else
-          // wait for all work in a stream
-          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(multi_dgemm[k].stream()));
+      // wait for all work in a stream
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(multi_dgemm[k].stream()));
 # endif
 #endif
-        }
-      }
     }
 
     // sync all streams to complete any pending work
