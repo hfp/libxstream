@@ -182,6 +182,8 @@ private:
 
 #if !defined(LIBXSTREAM_WAIT)
     if (wait)
+#else
+    libxstream_use_sink(&wait);
 #endif
     {
       entry.wait();
@@ -319,12 +321,6 @@ void libxstream_enqueue(libxstream_capture_base& work_item, bool clone)
 {
   libxstream_capture_base *const item = clone ? work_item.clone() : &work_item;
   libxstream_capture_internal::scheduler.push(*item);
-}
-
-
-void libxstream_enqueue(const libxstream_capture_base& work_item)
-{
-  libxstream_enqueue(*work_item.clone(), false);
 }
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

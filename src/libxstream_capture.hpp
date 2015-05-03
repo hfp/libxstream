@@ -92,10 +92,10 @@
     { \
       result = status(LIBXSTREAM_ERROR_NONE); \
       if (stream) { \
-        stream->enqueue(*this); \
+        stream->enqueue(*this, false); \
       } \
       else { \
-        libxstream_enqueue(*this); \
+        libxstream_enqueue(*this, false); \
       } \
     } \
     libxstream_capture* virtual_clone() const { \
@@ -111,8 +111,8 @@
         LIBXSTREAM_ASYNC_STREAM->pending(thread(), capture_region_signal); \
       } \
     } \
-  } capture_region(sizeof(libxstream_capture_argv) / sizeof(*libxstream_capture_argv), \
-    libxstream_capture_argv, libxstream_capture_stream, FLAGS, RESULT); \
+  } *const capture_region = new libxstream_capture(sizeof(libxstream_capture_argv) / sizeof(*libxstream_capture_argv), \
+    libxstream_capture_argv, libxstream_capture_stream, FLAGS, RESULT); libxstream_use_sink(capture_region); \
   } while(libxstream_not_constant(LIBXSTREAM_FALSE))
 
 
@@ -200,7 +200,11 @@ private:
 
 
 void libxstream_enqueue(libxstream_capture_base& work_item, bool clone);
-void libxstream_enqueue(const libxstream_capture_base& work_item);
+
+inline void libxstream_enqueue(const libxstream_capture_base& work_item)
+{
+  libxstream_enqueue(*work_item.clone(), false);
+}
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_CAPTURE_HPP
