@@ -128,7 +128,7 @@ int main(int argc, char* argv[])
 # if (2 <= MULTI_DGEMM_USE_SYNC) // record event
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(call.event(), call.stream()));
 # endif
-      const int k = (j + 1) % nstreams;
+      const size_t k = (j + 1) % nstreams;
 # if (3 <= (MULTI_DGEMM_USE_SYNC))
       // wait for an event within a stream
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(multi_dgemm[0].stream(), multi_dgemm[k].event()));
