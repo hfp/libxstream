@@ -404,7 +404,7 @@ libxstream_signal libxstream_stream::pending(int thread) const
 }
 
 
-void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
+void libxstream_stream::enqueue(libxstream_capture_base& work_item, bool clone)
 {
   const int thread = this_thread_id();
   LIBXSTREAM_ASSERT(thread < LIBXSTREAM_MAX_NTHREADS);
@@ -424,12 +424,18 @@ void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
 
   LIBXSTREAM_ASSERT(0 != q);
   libxstream_queue::entry_type& entry = q->allocate_entry();
-  libxstream_capture_base *const item = work_item.clone();
+  libxstream_capture_base *const item = clone ? work_item.clone() : &work_item;
   entry.push(item);
 
   if (0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT)) {
     entry.wait();
   }
+}
+
+
+void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
+{
+  enqueue(*work_item.clone(), false);
 }
 
 
@@ -443,7 +449,7 @@ libxstream_queue* libxstream_stream::queue_begin()
 
     for (int i = 0; i < nthreads; ++i) {
       libxstream_queue *const qi = m_queues[i];
-      const size_t si = (0 != qi && 0 != qi->get().item()) ? qi->size() : 0;
+      const size_t si = (0 != qi && 0 != const_cast<const libxstream_queue*>(qi)->get().item()) ? qi->size() : 0;
       if (size < si) {
         m_thread = i;
         result = qi;

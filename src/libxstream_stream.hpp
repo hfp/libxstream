@@ -67,7 +67,9 @@ public:
   void pending(int thread, libxstream_signal signal);
   libxstream_signal pending(int thread) const;
 
+  void enqueue(libxstream_capture_base& work_item, bool clone);
   void enqueue(const libxstream_capture_base& work_item);
+
   libxstream_queue* queue_begin();
   libxstream_queue* queue_next();
 
