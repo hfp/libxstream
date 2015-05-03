@@ -4,10 +4,10 @@ LIBXSTREAM_ROOT="../.."
 NAME=$(basename ${PWD})
 
 ICCOPT="-O2 -xHost -ansi-alias -openmp"
-ICCLNK="-openmp"
+ICCLNK="-shared -openmp"
 
 GCCOPT="-O2 -march=native -fopenmp"
-GCCLNK="-fopenmp"
+GCCLNK="-shared -fopenmp"
 
 OPT="-Wall -std=c++0x"
 
@@ -37,7 +37,7 @@ if [[ "Windows_NT" = "${OS}" ]] ; then
   OPT+=" -D_REENTRANT"
   LNK+=" -lpthread"
 else
-  OPT+=" -pthread"
+  OPT+=" -fPIC -pthread"
 fi
 
 ${CXX} ${OPT} $* \
