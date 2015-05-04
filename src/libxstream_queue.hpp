@@ -43,19 +43,23 @@ public:
 
   class entry_type {
   public:
-    entry_type(libxstream_queue* queue = 0): m_queue(queue), m_item(reinterpret_cast<item_type>(-1)) {}
-    entry_type(item_type item, libxstream_queue& queue): m_queue(&queue), m_item(item) {}
+    entry_type(libxstream_queue* queue = 0, item_type item = 0): m_queue(queue), m_dangling(0), m_item(item) {}
+    entry_type(libxstream_queue& queue): m_queue(&queue), m_dangling(0), m_item(reinterpret_cast<item_type>(-1)) {}
 
   public:
     bool valid() const { return reinterpret_cast<item_type>(-1) != m_item; }
-    //bool empty() const { return 0 == m_queue; }
-    bool empty() const { return 0 == m_item; }
     const libxstream_queue* queue() const { return m_queue; }
-    const_item_type item() const { return m_item; }
     item_type item() { return m_item; }
-    void push(item_type item) { m_item = item; }
+    const_item_type item() const { return m_item; }
+    const_item_type push(item_type item, bool dangling) {
+      const const_item_type result = m_dangling;
+      m_dangling = dangling ? item : 0;
+      m_item = item;
+      return result;
+    }
     void pop() {
       m_item = 0;
+      LIBXSTREAM_ASSERT(0 != m_queue);
       m_queue->pop();
     }
     void wait() {
@@ -69,6 +73,7 @@ public:
 
   private:
     libxstream_queue* m_queue;
+    const_item_type m_dangling;
     volatile item_type m_item;
   };
 

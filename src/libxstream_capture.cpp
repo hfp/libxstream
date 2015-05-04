@@ -139,7 +139,7 @@ public:
   entry_type& get() {
     entry_type* result = &m_global_queue.get();
 
-    if (result->empty()) { // no item in global queue
+    if (0 == result->item()) { // no item in global queue
       m_stream = libxstream_stream::schedule(m_stream);
       libxstream_queue* queue = m_stream ? m_stream->queue_begin() : 0;
 
@@ -147,13 +147,13 @@ public:
         result = &queue->get();
 
         // item in stream-local queue is a wait-item
-        if (!result->empty() && 0 != (static_cast<const libxstream_capture_base*>(result->item())->flags() & LIBXSTREAM_CALL_WAIT)) {
+        if (0 != result->item() && 0 != (static_cast<const libxstream_capture_base*>(result->item())->flags() & LIBXSTREAM_CALL_WAIT)) {
           queue = m_stream->queue_next(); // next/other queue
 
           while (0 != queue) {
             entry_type& i = queue->get();
 
-            if (i.empty()) {
+            if (0 == i.item()) {
               queue = m_stream->queue_next();
             }
             else {
@@ -176,11 +176,7 @@ private:
   void push(item_type work_item, bool wait) {
     LIBXSTREAM_ASSERT(0 != work_item);
     entry_type& entry = m_global_queue.allocate_entry();
-    libxstream_capture_base *const item = static_cast<libxstream_capture_base*>(entry.item());
-    if (0 != item) {
-      delete item;
-    }
-    entry.push(work_item);
+    delete static_cast<const libxstream_capture_base*>(entry.push(work_item, !wait));
 
 #if !defined(LIBXSTREAM_WAIT)
     if (wait)
@@ -210,7 +206,7 @@ private:
       bool valid = entry->valid();
       size_t cycle = 0;
 
-      while (entry->empty() && valid) {
+      while (0 == entry->item() && valid) {
         this_thread_wait(cycle);
         entry = &s.get();
         valid = entry->valid();
@@ -307,6 +303,7 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
 libxstream_capture_base* libxstream_capture_base::clone() const
 {
   libxstream_capture_base *const instance = virtual_clone();
+  LIBXSTREAM_ASSERT(0 != instance);
   return instance;
 }
 
@@ -323,10 +320,10 @@ int libxstream_capture_base::status(int code)
 }
 
 
-void libxstream_enqueue(libxstream_capture_base& work_item, bool clone)
+void libxstream_enqueue(libxstream_capture_base& work_item)
 {
-  libxstream_capture_base *const new_item = clone ? work_item.clone() : &work_item;
-  libxstream_capture_internal::scheduler.push(*new_item);
+  const bool wait = 0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT);
+  libxstream_capture_internal::scheduler.push(!wait ? *work_item.clone() : work_item);
 }
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

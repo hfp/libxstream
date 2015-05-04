@@ -87,17 +87,9 @@
   libxstream_stream *const libxstream_capture_stream = cast_to_stream(STREAM); \
   const libxstream_capture_base::arg_type libxstream_capture_argv[] = { __VA_ARGS__ }; \
   struct libxstream_capture: public libxstream_capture_base { \
-    libxstream_capture(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags, int& result, const char* name = __FUNCTION__) \
+    libxstream_capture(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags, const char* name) \
       : libxstream_capture_base(argc, argv, stream, flags, name) \
-    { \
-      result = status(LIBXSTREAM_ERROR_NONE); \
-      if (stream) { \
-        stream->enqueue(*this, false); \
-      } \
-      else { \
-        libxstream_enqueue(*this, false); \
-      } \
-    } \
+    {} \
     libxstream_capture* virtual_clone() const { \
       return new libxstream_capture(*this); \
     } \
@@ -111,9 +103,15 @@
         LIBXSTREAM_ASYNC_STREAM->pending(thread(), capture_region_signal); \
       } \
     } \
-  } *const capture_region = new libxstream_capture(sizeof(libxstream_capture_argv) / sizeof(*libxstream_capture_argv), \
-    libxstream_capture_argv, libxstream_capture_stream, FLAGS, RESULT); libxstream_use_sink(capture_region); \
-  } while(libxstream_not_constant(LIBXSTREAM_FALSE))
+  } capture_region(sizeof(libxstream_capture_argv) / sizeof(*libxstream_capture_argv), libxstream_capture_argv, libxstream_capture_stream, FLAGS, __FUNCTION__); \
+  (RESULT) = capture_region.status(LIBXSTREAM_ERROR_NONE); \
+  if (libxstream_capture_stream) { \
+    libxstream_capture_stream->enqueue(capture_region); \
+  } \
+  else { \
+    libxstream_enqueue(capture_region); \
+  } \
+} while(libxstream_not_constant(LIBXSTREAM_FALSE))
 
 
 class libxstream_capture_base {
@@ -202,12 +200,7 @@ private:
 };
 
 
-void libxstream_enqueue(libxstream_capture_base& work_item, bool clone);
-
-inline void libxstream_enqueue(const libxstream_capture_base& work_item)
-{
-  libxstream_enqueue(*work_item.clone(), false);
-}
+void libxstream_enqueue(libxstream_capture_base& work_item);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_CAPTURE_HPP

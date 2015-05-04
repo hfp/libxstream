@@ -70,8 +70,7 @@ public:
     return 0 <= m_thread ? pending(m_thread) : 0;
   }
 
-  void enqueue(libxstream_capture_base& work_item, bool clone);
-  void enqueue(const libxstream_capture_base& work_item);
+  void enqueue(libxstream_capture_base& work_item);
 
   libxstream_queue* queue_begin();
   libxstream_queue* queue_next();

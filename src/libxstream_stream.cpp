@@ -415,7 +415,7 @@ libxstream_signal libxstream_stream::pending(int thread) const
 }
 
 
-void libxstream_stream::enqueue(libxstream_capture_base& work_item, bool clone)
+void libxstream_stream::enqueue(libxstream_capture_base& work_item)
 {
   const int thread = this_thread_id();
   LIBXSTREAM_ASSERT(thread < LIBXSTREAM_MAX_NTHREADS);
@@ -435,23 +435,11 @@ void libxstream_stream::enqueue(libxstream_capture_base& work_item, bool clone)
 
   LIBXSTREAM_ASSERT(0 != q);
   libxstream_queue::entry_type& entry = q->allocate_entry();
-  libxstream_capture_base *const item = static_cast<libxstream_capture_base*>(entry.item());
-  if (0 != item) {
-    delete item;
-  }
-
-  libxstream_capture_base *const new_item = clone ? work_item.clone() : &work_item;
-  entry.push(new_item);
-
-  if (0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT)) {
+  const bool wait = 0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT);
+  delete static_cast<const libxstream_capture_base*>(entry.push(!wait ? work_item.clone() : &work_item, !wait));
+  if (wait) {
     entry.wait();
   }
-}
-
-
-void libxstream_stream::enqueue(const libxstream_capture_base& work_item)
-{
-  enqueue(*work_item.clone(), false);
 }
 
 
@@ -459,13 +447,13 @@ libxstream_queue* libxstream_stream::queue_begin()
 {
   libxstream_queue* result = 0 <= m_thread ? m_queues[m_thread] : 0;
 
-  if (0 == result || result->get().empty()) {
+  if (0 == result || 0 == result->get().item()) {
     const int nthreads = static_cast<int>(nthreads_active());
     size_t size = result ? result->size() : 0;
 
     for (int i = 0; i < nthreads; ++i) {
       libxstream_queue *const qi = m_queues[i];
-      const size_t si = (0 != qi && !qi->get().empty()) ? qi->size() : 0;
+      const size_t si = (0 != qi && 0 != qi->get().item()) ? qi->size() : 0;
       if (size < si) {
         m_thread = i;
         result = qi;
@@ -473,7 +461,7 @@ libxstream_queue* libxstream_stream::queue_begin()
       }
     }
 
-    if (0 == size && 0 != result && !result->get().empty() &&
+    if (0 == size && 0 != result && 0 != result->get().item() &&
       0 == (LIBXSTREAM_CALL_WAIT & static_cast<const libxstream_capture_base*>(result->get().item())->flags()))
     {
       result = 0 <= m_thread ? m_queues[m_thread] : 0;
