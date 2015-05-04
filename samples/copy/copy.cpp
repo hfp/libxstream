@@ -66,7 +66,7 @@ int main(int argc, char* argv[])
     allocatable >>= 20; // MB
 
     const bool copyin = 1 < argc ? ('o' != *argv[1]) : true;
-    const int nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
+    const int nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(_OPENMP)
     const int nthreads = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), omp_get_max_threads());
 #else
