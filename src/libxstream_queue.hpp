@@ -43,14 +43,12 @@ public:
 
   class entry_type {
   public:
-    entry_type(libxstream_queue* queue = 0): m_item(reinterpret_cast<item_type>(-1)), m_queue(queue) {}
-    entry_type(item_type item, libxstream_queue& queue): m_item(item), m_queue(&queue) {}
+    entry_type(libxstream_queue* queue = 0): m_queue(queue), m_item(reinterpret_cast<item_type>(-1)) {}
+    entry_type(item_type item, libxstream_queue& queue): m_queue(&queue), m_item(item) {}
 
   public:
-    bool valid(const libxstream_queue* queue = 0) const {
-      return reinterpret_cast<item_type>(-1) != m_item &&
-        (0 == queue || queue == m_queue);
-    }
+    bool valid() const { return 0 != m_queue && reinterpret_cast<item_type>(-1) != m_item; }
+    const libxstream_queue* queue() const { return m_queue; }
     const_item_type item() const { return m_item; }
     item_type item() { return m_item; }
     void push(item_type item) { m_item = item; }
@@ -68,8 +66,8 @@ public:
     }
 
   private:
-    volatile item_type m_item;
     libxstream_queue* m_queue;
+    volatile item_type m_item;
   };
 
 public:

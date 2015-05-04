@@ -106,7 +106,7 @@ libxstream_queue::entry_type& libxstream_queue::allocate_entry()
   result = m_buffer + LIBXSTREAM_MOD(size++, LIBXSTREAM_MAX_QSIZE);
   libxstream_lock_release(lock);
 #endif
-  LIBXSTREAM_ASSERT(0 != result && result->valid(this));
+  LIBXSTREAM_ASSERT(0 != result && result->queue() == this);
 
   if (0 != result->item()) {
     LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
