@@ -105,13 +105,24 @@ public:
     : m_lock(libxstream_lock_create())
     , m_device(-2), m_verbosity(-2)
     , m_nthreads(0)
-  {}
+  {
+    std::fill_n(m_locks, LIBXSTREAM_MAX_NLOCKS, static_cast<libxstream_lock*>(0));
+  }
 
   ~context_type() {
+    for (int i = 0; i < (LIBXSTREAM_MAX_NLOCKS); ++i) {
+      libxstream_lock_destroy(m_locks[i]);
+    }
     libxstream_lock_destroy(m_lock);
   }
 
 public:
+  libxstream_lock*volatile& locks(const volatile void* address) {
+    const uintptr_t id = reinterpret_cast<uintptr_t>(address) / (LIBXSTREAM_MAX_SIMD);
+    // non-pot: return m_locks[id%(LIBXSTREAM_MAX_NLOCKS)];
+    return m_locks[LIBXSTREAM_MOD(id, LIBXSTREAM_MAX_NLOCKS)];
+  }
+
   libxstream_lock* lock() {
     return m_lock;
   }
@@ -168,6 +179,7 @@ public:
   }
 
 private:
+  libxstream_lock*volatile m_locks[LIBXSTREAM_MAX_NLOCKS];
   libxstream_lock* m_lock;
   int m_device, m_verbosity;
   size_type m_nthreads;
@@ -243,24 +255,21 @@ LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create()
 
 LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_get(const volatile void* address)
 {
-  // guaranteed to be zero-initialized according to C++ lang. rules
-  static libxstream_lock* locks[(LIBXSTREAM_MAX_NLOCKS)];
+  libxstream_lock *volatile& result = libxstream_internal::context.locks(address);
 
-  libxstream_lock *volatile *const result = locks + (reinterpret_cast<uintptr_t>(address) & ((LIBXSTREAM_MAX_NLOCKS) - 1));
-
-  if (0 == *result) {
+  if (0 == result) {
     libxstream_lock *const lock = libxstream_internal::context.lock();
     libxstream_lock_acquire(lock);
 
-    if (0 == *result) {
-      *result = libxstream_lock_create();
+    if (0 == result) {
+      result = libxstream_lock_create();
     }
 
     libxstream_lock_release(lock);
   }
 
-  LIBXSTREAM_ASSERT(0 != *result);
-  return *result;
+  LIBXSTREAM_ASSERT(0 != result);
+  return result;
 }
 
 
