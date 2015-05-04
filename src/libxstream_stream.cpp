@@ -45,6 +45,8 @@
 
 // allows to wait for an event issued prior to the pending signal
 //#define LIBXSTREAM_STREAM_WAIT_PAST
+// check whether a signal is really pending; update internal state
+#define LIBXSTREAM_STREAM_CHECK_PENDING
 
 
 namespace libxstream_stream_internal {
@@ -399,7 +401,7 @@ void libxstream_stream::pending(int thread, libxstream_signal signal)
 libxstream_signal libxstream_stream::pending(int thread) const
 {
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
   const libxstream_signal lookup_signal = m_pending[thread];
   libxstream_signal signal = lookup_signal;
   if (0 != lookup_signal && 0 != _Offload_signaled(m_device, reinterpret_cast<void*>(lookup_signal))) {
