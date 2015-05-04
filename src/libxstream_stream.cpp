@@ -297,7 +297,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
   std::fill_n(m_pending, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_signal>(0));
   std::fill_n(m_queues, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_queue*>(0));
 
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   if (name && 0 != *name) {
     const size_t length = std::min(std::char_traits<char>::length(name), sizeof(m_name) - 1);
     std::copy(name, name + length, m_name);
@@ -435,8 +435,13 @@ void libxstream_stream::enqueue(libxstream_capture_base& work_item, bool clone)
 
   LIBXSTREAM_ASSERT(0 != q);
   libxstream_queue::entry_type& entry = q->allocate_entry();
-  libxstream_capture_base *const item = clone ? work_item.clone() : &work_item;
-  entry.push(item);
+  libxstream_capture_base *const item = static_cast<libxstream_capture_base*>(entry.item());
+  if (0 != item) {
+    delete item;
+  }
+
+  libxstream_capture_base *const new_item = clone ? work_item.clone() : &work_item;
+  entry.push(new_item);
 
   if (0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT)) {
     entry.wait();
@@ -519,14 +524,6 @@ _Offload_stream libxstream_stream::handle() const
     m_npartitions = nstreams;
   }
   return m_handle;
-}
-#endif
-
-
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
-const char* libxstream_stream::name() const
-{
-  return m_name;
 }
 #endif
 

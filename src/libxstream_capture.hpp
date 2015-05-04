@@ -87,8 +87,8 @@
   libxstream_stream *const libxstream_capture_stream = cast_to_stream(STREAM); \
   const libxstream_capture_base::arg_type libxstream_capture_argv[] = { __VA_ARGS__ }; \
   struct libxstream_capture: public libxstream_capture_base { \
-    libxstream_capture(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags, int& result) \
-      : libxstream_capture_base(argc, argv, stream, flags) \
+    libxstream_capture(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags, int& result, const char* name = __FUNCTION__) \
+      : libxstream_capture_base(argc, argv, stream, flags, name) \
     { \
       result = status(LIBXSTREAM_ERROR_NONE); \
       if (stream) { \
@@ -149,7 +149,7 @@ public:
   };
 
 public:
-  libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags);
+  libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags, const char* name);
   virtual ~libxstream_capture_base() {}
 
 public:
@@ -196,6 +196,9 @@ protected:
 
 private:
   int m_flags, m_thread;
+#if defined(LIBXSTREAM_DEBUG)
+  const char* m_name;
+#endif
 };
 
 

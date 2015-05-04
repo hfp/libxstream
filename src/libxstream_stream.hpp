@@ -80,8 +80,8 @@ public:
   _Offload_stream handle() const;
 #endif
 
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
-  const char* name() const;
+#if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
+  const char* name() const { return m_name; }
 #endif
 
 private:
@@ -91,7 +91,7 @@ private:
 private:
   mutable libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
   libxstream_queue* m_queues[LIBXSTREAM_MAX_NTHREADS];
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   char m_name[128];
 #endif
   int m_device;

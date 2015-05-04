@@ -947,11 +947,14 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* strea
 {
 #if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
   if (stream) {
+# if defined(LIBXSTREAM_DEBUG)
     const char *const name = stream->name();
     if (name && *name) {
       LIBXSTREAM_PRINT(2, "stream_destroy: stream=0x%llx (%s)", reinterpret_cast<unsigned long long>(stream), name);
     }
-    else {
+    else
+# endif
+    {
       LIBXSTREAM_PRINT(2, "stream_destroy: stream=0x%llx", reinterpret_cast<unsigned long long>(stream));
     }
   }
@@ -965,11 +968,14 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
   if (0 != stream) {
+# if defined(LIBXSTREAM_DEBUG)
     const char *const name = stream->name();
     if (name && *name) {
       LIBXSTREAM_PRINT(2, "stream_sync: stream=0x%llx (%s)", reinterpret_cast<unsigned long long>(stream), name);
     }
-    else {
+    else
+# endif
+    {
       LIBXSTREAM_PRINT(2, "stream_sync: stream=0x%llx", reinterpret_cast<unsigned long long>(stream));
     }
   }

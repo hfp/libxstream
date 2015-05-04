@@ -70,7 +70,7 @@ public:
   ~scheduler_type() {
     if (running()) {
       // terminates the background thread
-      push(entry_type(&m_global_queue).item(), true);
+      push(entry_type(m_global_queue).item(), true);
 
 #if defined(LIBXSTREAM_STDFEATURES)
       m_thread.detach();
@@ -176,6 +176,10 @@ private:
   void push(item_type work_item, bool wait) {
     LIBXSTREAM_ASSERT(0 != work_item);
     entry_type& entry = m_global_queue.allocate_entry();
+    libxstream_capture_base *const item = static_cast<libxstream_capture_base*>(entry.item());
+    if (0 != item) {
+      delete item;
+    }
     entry.push(work_item);
 
 #if !defined(LIBXSTREAM_WAIT)
@@ -220,7 +224,6 @@ private:
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
 #       pragma omp taskwait
 #endif
-        delete work_item;
       }
       else {
         continue_run = false;
@@ -255,12 +258,18 @@ static/*IPO*/ scheduler_type scheduler;
 } // namespace libxstream_capture_internal
 
 
-libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags)
+libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags, const char* name)
   : m_function(0)
   , m_stream(stream)
   , m_flags(flags)
   , m_thread(this_thread_id())
+#if defined(LIBXSTREAM_DEBUG)
+  , m_name(name)
+#endif
 {
+#if !defined(LIBXSTREAM_DEBUG)
+  libxstream_use_sink(name);
+#endif
   if (2 == argc && (argv[0].signature() || argv[1].signature())) {
     const libxstream_argument* signature = 0;
     if (argv[1].signature()) {
@@ -316,8 +325,8 @@ int libxstream_capture_base::status(int code)
 
 void libxstream_enqueue(libxstream_capture_base& work_item, bool clone)
 {
-  libxstream_capture_base *const item = clone ? work_item.clone() : &work_item;
-  libxstream_capture_internal::scheduler.push(*item);
+  libxstream_capture_base *const new_item = clone ? work_item.clone() : &work_item;
+  libxstream_capture_internal::scheduler.push(*new_item);
 }
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
