@@ -92,31 +92,34 @@ int main(int argc, char* argv[])
       void *mem_hst, *mem_dev;
     } copy[LIBXSTREAM_MAX_NSTREAMS];
     memset(copy, 0, sizeof(copy)); // some initialization (avoid false positives with tools)
+
     for (int i = 0; i < nstreams; ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&copy[i].stream, device, 0, name));
-      if (copyin) {
-        if (0 == i) {
-          LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[i].mem_hst, maxsize, 0));
-          memset(copy[i].mem_hst, -1, maxsize); // some initialization (avoid false positives with tools)
-        }
-        else {
-          copy[i].mem_hst = copy[0].mem_hst;
-        }
+    }
+    if (copyin) {
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[0].mem_hst, maxsize, 0));
+      memset(copy[0].mem_hst, -1, maxsize); // some initialization (avoid false positives with tools)
+      for (int i = 1; i < nstreams; ++i) {
+        copy[i].mem_hst = copy[0].mem_hst;
+      }
+      for (int i = 0; i < nstreams; ++i) {
         LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &copy[i].mem_dev, maxsize, 0));
       }
-      else { // copy-out
+    }
+    else { // copy-out
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &copy[0].mem_dev, maxsize, 0));
+      libxstream_memset_zero(copy[0].mem_dev, maxsize, copy[0].stream);
+      for (int i = 1; i < nstreams; ++i) {
+        copy[i].mem_dev = copy[0].mem_dev;
+      }
+      for (int i = 0; i < nstreams; ++i) {
         LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[i].mem_hst, maxsize, 0));
-        memset(copy[i].mem_hst, -1, maxsize); // some initialization (avoid false positives with tools)
-        if (0 == i) {
-          LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &copy[i].mem_dev, maxsize, 0));
-        }
-        else {
-          copy[i].mem_dev = copy[0].mem_dev;
-        }
       }
     }
+    // start benchmark with no other pending work
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
 
     int n = 0, nrepeat = maxrepeat;
     double maxval = 0, sumval = 0, runlns = 0, duration = 0;
@@ -163,6 +166,22 @@ int main(int argc, char* argv[])
         fprintf(stdout, "-\n");
       }
 #endif
+    }
+
+    if (copyin) {
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1/*host*/, copy[0].mem_hst));
+      for (int i = 0; i < nstreams; ++i) {
+        LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(device, copy[i].mem_dev));
+      }
+    }
+    else { // copy-out
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(device, copy[0].mem_dev));
+      for (int i = 0; i < nstreams; ++i) {
+        LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1/*host*/, copy[i].mem_hst));
+      }
+    }
+    for (int i = 0; i < nstreams; ++i) {
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_destroy(copy[i].stream));
     }
 
     fprintf(stdout, "\n");
