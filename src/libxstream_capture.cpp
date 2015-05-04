@@ -139,29 +139,27 @@ public:
   entry_type& get() {
     entry_type* result = &m_global_queue.get();
 
-    if (0 == result->item()) { // no item in global queue
+    if (result->empty()) { // no item in global queue
       m_stream = libxstream_stream::schedule(m_stream);
       libxstream_queue* queue = m_stream ? m_stream->queue_begin() : 0;
-      const libxstream_capture_base* item = 0;
 
       if (0 != queue) {
         result = &queue->get();
-        item = static_cast<const libxstream_capture_base*>(result->item());
-      }
 
-      // item in stream-local queue is a wait-item
-      if (0 != item && 0 != (item->flags() & LIBXSTREAM_CALL_WAIT)) {
-        queue = m_stream->queue_next(); // next/other queue
+        // item in stream-local queue is a wait-item
+        if (!result->empty() && 0 != (static_cast<const libxstream_capture_base*>(result->item())->flags() & LIBXSTREAM_CALL_WAIT)) {
+          queue = m_stream->queue_next(); // next/other queue
 
-        while (0 != queue) {
-          entry_type& i = queue->get();
+          while (0 != queue) {
+            entry_type& i = queue->get();
 
-          if (0 != i.item()) {
-            result = &i;
-            queue = 0; // break
-          }
-          else {
-            queue = m_stream->queue_next();
+            if (i.empty()) {
+              queue = m_stream->queue_next();
+            }
+            else {
+              result = &i;
+              queue = 0; // break
+            }
           }
         }
       }
@@ -205,19 +203,18 @@ private:
 #endif
     for (; continue_run;) {
       scheduler_type::entry_type* entry = &s.get();
-      scheduler_type::item_type item = entry->item();
       bool valid = entry->valid();
       size_t cycle = 0;
 
-      while (0 == item && valid) {
+      while (entry->empty() && valid) {
         this_thread_wait(cycle);
         entry = &s.get();
-        item = entry->item();
         valid = entry->valid();
       }
 
       if (valid) {
-        libxstream_capture_base *const work_item = static_cast<libxstream_capture_base*>(item);
+        libxstream_capture_base *const work_item = static_cast<libxstream_capture_base*>(entry->item());
+        LIBXSTREAM_ASSERT(0 != work_item);
 
         (*work_item)();
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)

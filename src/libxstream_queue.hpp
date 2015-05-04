@@ -47,7 +47,9 @@ public:
     entry_type(item_type item, libxstream_queue& queue): m_queue(&queue), m_item(item) {}
 
   public:
-    bool valid() const { return 0 != m_queue && reinterpret_cast<item_type>(-1) != m_item; }
+    bool valid() const { return reinterpret_cast<item_type>(-1) != m_item; }
+    //bool empty() const { return 0 == m_queue; }
+    bool empty() const { return 0 == m_item; }
     const libxstream_queue* queue() const { return m_queue; }
     const_item_type item() const { return m_item; }
     item_type item() { return m_item; }

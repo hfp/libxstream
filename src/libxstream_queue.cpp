@@ -57,7 +57,7 @@ libxstream_queue::~libxstream_queue()
 #if defined(LIBXSTREAM_DEBUG)
   size_t dangling = 0;
   for (size_t i = 0; i < LIBXSTREAM_MAX_QSIZE; ++i) {
-    dangling += 0 != m_buffer[i].item() ? 1 : 0;
+    dangling += !m_buffer[i].empty() ? 1 : 0;
   }
   if (0 < dangling) {
     LIBXSTREAM_PRINT(1, "%lu work item%s dangling!", static_cast<unsigned long>(dangling), 1 < dangling ? "s are" : " is");
@@ -79,8 +79,8 @@ size_t libxstream_queue::size() const
 #else
   const size_t offset = *static_cast<const size_t*>(m_size);
 #endif
-  const_item_type item = m_buffer[LIBXSTREAM_MOD(index, LIBXSTREAM_MAX_QSIZE)].item();
-  return 0 != item ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
+  const entry_type& entry = m_buffer[LIBXSTREAM_MOD(index, LIBXSTREAM_MAX_QSIZE)];
+  return !entry.empty() ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
 }
 
 
@@ -108,15 +108,15 @@ libxstream_queue::entry_type& libxstream_queue::allocate_entry()
 #endif
   LIBXSTREAM_ASSERT(0 != result && result->queue() == this);
 
-  if (0 != result->item()) {
+  if (!result->empty()) {
     LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
     do { // stall if capacity is exceeded
       this_thread_sleep();
     }
-    while (0 != result->item());
+    while (!result->empty());
   }
 
-  LIBXSTREAM_ASSERT(0 == result->item());
+  LIBXSTREAM_ASSERT(result->empty());
   return *result;
 }
 

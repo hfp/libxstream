@@ -454,13 +454,13 @@ libxstream_queue* libxstream_stream::queue_begin()
 {
   libxstream_queue* result = 0 <= m_thread ? m_queues[m_thread] : 0;
 
-  if (0 == result || 0 == result->get().item()) {
+  if (0 == result || result->get().empty()) {
     const int nthreads = static_cast<int>(nthreads_active());
     size_t size = result ? result->size() : 0;
 
     for (int i = 0; i < nthreads; ++i) {
       libxstream_queue *const qi = m_queues[i];
-      const size_t si = (0 != qi && 0 != qi->get().item()) ? qi->size() : 0;
+      const size_t si = (0 != qi && !qi->get().empty()) ? qi->size() : 0;
       if (size < si) {
         m_thread = i;
         result = qi;
@@ -468,7 +468,7 @@ libxstream_queue* libxstream_stream::queue_begin()
       }
     }
 
-    if (0 == size && 0 != result && 0 != result->get().item() &&
+    if (0 == size && 0 != result && !result->get().empty() &&
       0 == (LIBXSTREAM_CALL_WAIT & static_cast<const libxstream_capture_base*>(result->get().item())->flags()))
     {
       result = 0 <= m_thread ? m_queues[m_thread] : 0;
