@@ -1,0 +1,33 @@
+8 Byte x 4096: 0.7 MB/s
+16 Byte x 4096: 1.5 MB/s
+32 Byte x 4096: 3.0 MB/s
+64 Byte x 2048: 5.9 MB/s
+128 Byte x 2048: 11.8 MB/s
+256 Byte x 2048: 23.9 MB/s
+512 Byte x 1024: 46.1 MB/s
+1024 Byte x 1024: 94.4 MB/s
+2048 Byte x 1024: 189.0 MB/s
+4096 Byte x 512: 358.9 MB/s
+8192 Byte x 512: 698.9 MB/s
+16384 Byte x 512: 1155.9 MB/s
+32768 Byte x 256: 2248.5 MB/s
+65536 Byte x 256: 3609.4 MB/s
+131072 Byte x 256: 4863.8 MB/s
+262144 Byte x 128: 5528.8 MB/s
+524288 Byte x 128: 5943.6 MB/s
+1048576 Byte x 128: 6234.5 MB/s
+2097152 Byte x 64: 6244.5 MB/s
+4194304 Byte x 64: 6236.4 MB/s
+8388608 Byte x 64: 6422.7 MB/s
+16777216 Byte x 32: 6354.6 MB/s
+33554432 Byte x 32: 6397.3 MB/s
+67108864 Byte x 32: 6438.9 MB/s
+134217728 Byte x 16: 6449.0 MB/s
+268435456 Byte x 16: 6370.6 MB/s
+536870912 Byte x 16: 6356.3 MB/s
+1073741824 Byte x 8: 5649.6 MB/s
+
+Finished after 5 s
+max: 6449 MB/s
+rgm: 6002 MB/s
+avg: 3355 MB/s

@@ -3,6 +3,9 @@ My Inspector*
 bin
 build
 tmp
+samples/*/*.dat
+samples/*/*.pdf
+samples/*/*.png
 *.stackdump
 *.opensdf
 *.user
