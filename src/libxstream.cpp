@@ -149,21 +149,25 @@ public:
     return value;
   }
 
-  int default_verbosity(int& level) const {
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
-    const char *const verbose_env = getenv("LIBXSTREAM_VERBOSE");
-    const char *const verbosity_env = (verbose_env && *verbose_env) ? verbose_env : getenv("LIBXSTREAM_VERBOSITY");
-    level = (verbosity_env && *verbosity_env) ? atoi(verbosity_env) : 0/*default*/;
-#else
-    level = 0;
-#endif
-    return LIBXSTREAM_ERROR_NONE;
-  }
-
   int global_verbosity() const {
     return m_verbosity;
   }
   
+  int default_verbosity() {
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+# if defined(__MIC__) // TODO: propagate host's default verbosity
+    const int level = -1;
+# else
+    const char *const verbose_env = getenv("LIBXSTREAM_VERBOSE");
+    const char *const verbosity_env = (verbose_env && *verbose_env) ? verbose_env : getenv("LIBXSTREAM_VERBOSITY");
+    const int level = (verbosity_env && *verbosity_env) ? atoi(verbosity_env) : 0/*default*/;
+# endif
+#else
+    const int level = 0;
+#endif
+    return level;
+  }
+
   void global_verbosity(int level) {
     libxstream_lock_acquire(m_lock);
     if (-1 > m_verbosity) {
@@ -1463,9 +1467,10 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_verbosity(int* lev
 
   if (-1 > verbosity) {
     verbosity = libxstream_internal::context.global_verbosity();
+    libxstream_internal::context.verbosity() = verbosity;
 
     if (-1 > verbosity) {
-      result = libxstream_internal::context.default_verbosity(verbosity);
+      verbosity = libxstream_internal::context.default_verbosity();
       libxstream_internal::context.global_verbosity(verbosity);
       libxstream_internal::context.verbosity() = verbosity;
     }
