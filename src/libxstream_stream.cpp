@@ -46,7 +46,7 @@
 // allows to wait for an event issued prior to the pending signal
 //#define LIBXSTREAM_STREAM_WAIT_PAST
 // check whether a signal is really pending; update internal state
-#define LIBXSTREAM_STREAM_CHECK_PENDING
+//#define LIBXSTREAM_STREAM_CHECK_PENDING
 
 
 namespace libxstream_stream_internal {
