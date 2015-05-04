@@ -137,15 +137,12 @@
   -((intptr_t)(LIBXSTREAM_MAX(ALIGNMENT, 1))))) / sizeof(SRC_TYPE)))
 #define LIBXSTREAM_ALIGN(TYPE, PTR, ALIGNMENT) LIBXSTREAM_ALIGN_VALUE(TYPE, char, PTR, ALIGNMENT)
 
-#if defined(_WIN32) && !defined(__GNUC__)
+#if defined(LIBXSTREAM_STDFEATURES)
+# define LIBXSTREAM_TLS thread_local
+#elif defined(_WIN32) && !defined(__GNUC__)
 # define LIBXSTREAM_TLS LIBXSTREAM_ATTRIBUTE(thread)
 #elif defined(__GNUC__)
 # define LIBXSTREAM_TLS __thread
-#elif defined(LIBXSTREAM_STDFEATURES)
-# define LIBXSTREAM_TLS thread_local
-#endif
-#if !defined(LIBXSTREAM_TLS)
-# define LIBXSTREAM_TLS
 #endif
 
 #if defined(__INTEL_OFFLOAD) && (!defined(_WIN32) || (1400 <= __INTEL_COMPILER))
