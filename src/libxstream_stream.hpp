@@ -66,6 +66,9 @@ public:
 
   void pending(int thread, libxstream_signal signal);
   libxstream_signal pending(int thread) const;
+  libxstream_signal pending() const {
+    return 0 <= m_thread ? pending(m_thread) : 0;
+  }
 
   void enqueue(libxstream_capture_base& work_item, bool clone);
   void enqueue(const libxstream_capture_base& work_item);
@@ -86,7 +89,7 @@ private:
   libxstream_stream& operator=(const libxstream_stream& other);
 
 private:
-  libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
+  mutable libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
   libxstream_queue* m_queues[LIBXSTREAM_MAX_NTHREADS];
 #if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
   char m_name[128];

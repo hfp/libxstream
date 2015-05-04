@@ -399,7 +399,16 @@ void libxstream_stream::pending(int thread, libxstream_signal signal)
 libxstream_signal libxstream_stream::pending(int thread) const
 {
   LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+  const libxstream_signal lookup_signal = m_pending[thread];
+  libxstream_signal signal = lookup_signal;
+  if (0 != lookup_signal && 0 != _Offload_signaled(m_device, reinterpret_cast<void*>(lookup_signal))) {
+    m_pending[thread] = 0;
+    signal = 0;
+  }
+#else
   const libxstream_signal signal = m_pending[thread];
+#endif
   return signal;
 }
 
