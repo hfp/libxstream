@@ -76,9 +76,8 @@ public:
   }
 
 public:
-  int priority_range(int device, int& least, int& greatest) {
+  size_t priority_range(int device, int& least, int& greatest) {
     const size_t n = max_nstreams();
-    int result = 0;
     for (size_t i = 0; i < n; ++i) {
       if (const value_type stream = m_streams[i]) {
         const int stream_device = stream->device();
@@ -86,10 +85,20 @@ public:
           const int priority = stream->priority();
           least = std::min(least, priority);
           greatest = std::max(least, priority);
-          result += priority;
         }
       }
     }
+    size_t result = 0;
+    for (size_t i = 0; i < n; ++i) {
+      if (const value_type stream = m_streams[i]) {
+        const int stream_device = stream->device();
+        if (stream_device == device) {
+          const int priority = stream->priority();
+          result += priority - greatest;
+        }
+      }
+    }
+    return result;
   }
 
   volatile value_type& allocate() {
@@ -109,7 +118,7 @@ public:
     return std::min<size_t>(m_istreams, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS);
   }
 
-  size_t nstreams(int device, const value_type end = 0) const {
+  size_t nstreams(int device, const libxstream_stream* end = 0) const {
     const size_t n = max_nstreams();
     size_t result = 0;
     if (0 == end) {
@@ -567,21 +576,24 @@ _Offload_stream libxstream_stream::handle() const
       _Offload_stream_destroy(m_device, m_handle);
     }
 
-    const int nthreads_total = omp_get_max_threads_target(TARGET_MIC, m_device);
+    const int nthreads_total = omp_get_max_threads_target(TARGET_MIC, m_device) - 4/*reserved core: threads per core*/;
     const int priority_least = priority_range_least(), priority_greatest = priority_range_greatest();
     LIBXSTREAM_ASSERT(priority_greatest <= priority_least);
 
     int priority_least_device = priority_least, priority_greatest_device = priority_greatest;
-    const int priority_sum = libxstream_stream_internal::registry.priority_range(m_device, priority_least_device, priority_greatest_device);
-    const int priority_range_device = priority_least_device - priority_greatest_device;
-    LIBXSTREAM_ASSERT(0 <= priority_range_device);
+    const size_t priority_sum = libxstream_stream_internal::registry.priority_range(m_device, priority_least_device, priority_greatest_device);
+    LIBXSTREAM_ASSERT(priority_greatest_device <= priority_least_device && priority_greatest_device <= m_priority);
+    const size_t priority_range_device = priority_least_device - priority_greatest_device;
+    LIBXSTREAM_ASSERT(priority_sum <= priority_range_device);
 
     const size_t istream = libxstream_stream_internal::registry.nstreams(m_device, this); // index
-    const int denominator = 0 == priority_range_device ? nstreams : (priority_range_device - priority_sum);
-    const int nthreads = (0 == priority_range_device ? nthreads_total : (priority_range_device - m_priority)) / denominator;
-    const int remainder = nthreads_total - nthreads * denominator;
+    const size_t denominator = 0 == priority_range_device ? nstreams : (priority_range_device - priority_sum);
+    const size_t nthreads = (0 == priority_range_device ? nthreads_total : (priority_range_device - (m_priority - priority_greatest_device))) / denominator;
+    const size_t remainder = nthreads_total - nthreads * denominator;
+    const int ithreads = static_cast<int>(nthreads + (istream < remainder ? 1/*imbalance*/ : 0));
 
-    m_handle = _Offload_stream_create(m_device, nthreads + (istream < remainder ? 1 : 0));
+    LIBXSTREAM_PRINT(3, "stream=0x%llx is mapped to %i threads", reinterpret_cast<unsigned long long>(this), ithreads);
+    m_handle = _Offload_stream_create(m_device, ithreads);
     m_npartitions = nstreams;
   }
 
