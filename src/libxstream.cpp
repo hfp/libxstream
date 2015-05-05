@@ -915,8 +915,18 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
 
 LIBXSTREAM_EXPORT_C int libxstream_stream_priority_range(int* least, int* greatest)
 {
-  *least = -1;
-  *greatest = -1;
+  LIBXSTREAM_CHECK_CONDITION(0 != least || 0 != greatest);
+  const int priority_range_least = libxstream_stream::priority_range_least();
+  const int priority_range_greatest = libxstream_stream::priority_range_greatest();
+  LIBXSTREAM_PRINT(3, "libxstream_stream_priority_range: least=%i greatest=%i", priority_range_least, priority_range_greatest);
+
+  if (least) {
+    *least = priority_range_least;
+  }
+  if (greatest) {
+    *greatest = priority_range_greatest;
+  }
+
   return LIBXSTREAM_ERROR_NONE;
 }
 

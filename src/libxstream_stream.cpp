@@ -68,7 +68,7 @@ public:
     for (size_t i = 0; i < n; ++i) {
 #if defined(LIBXSTREAM_DEBUG)
       if (0 != m_streams[i]) {
-        LIBXSTREAM_PRINT(1, "dangling stream \"%s\"!", m_streams[i]->name());
+        LIBXSTREAM_PRINT(1, "stream=0x%llx (%s) is dangling!", reinterpret_cast<unsigned long long>(m_streams[i]), m_streams[i]->name());
       }
 #endif
       libxstream_stream_destroy(m_streams[i]);
@@ -76,6 +76,22 @@ public:
   }
 
 public:
+  int priority_range(int device, int& least, int& greatest) {
+    const size_t n = max_nstreams();
+    int result = 0;
+    for (size_t i = 0; i < n; ++i) {
+      if (const value_type stream = m_streams[i]) {
+        const int stream_device = stream->device();
+        if (stream_device == device) {
+          const int priority = stream->priority();
+          least = std::min(least, priority);
+          greatest = std::max(least, priority);
+          result += priority;
+        }
+      }
+    }
+  }
+
   volatile value_type& allocate() {
 #if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock *const lock = libxstream_lock_get(this);
@@ -93,11 +109,25 @@ public:
     return std::min<size_t>(m_istreams, LIBXSTREAM_MAX_NDEVICES * LIBXSTREAM_MAX_NSTREAMS);
   }
 
-  size_t nstreams(int device) const {
+  size_t nstreams(int device, const value_type end = 0) const {
     const size_t n = max_nstreams();
     size_t result = 0;
-    for (size_t i = 0; i < n; ++i) {
-      result += (0 != m_streams[i] && m_streams[i]->device() == device) ? 1 : 0;
+    if (0 == end) {
+      for (size_t i = 0; i < n; ++i) {
+        const value_type stream = m_streams[i];
+        result += (0 != stream && stream->device() == device) ? 1 : 0;
+      }
+    }
+    else {
+      for (size_t i = 0; i < n; ++i) {
+        const value_type stream = m_streams[i];
+        if (end != stream) {
+          result += (0 != stream && stream->device() == device) ? 1 : 0;
+        }
+        else {
+          i = n; // break
+        }
+      }
     }
     return result;
   }
@@ -106,7 +136,8 @@ public:
     const size_t n = max_nstreams();
     size_t result = 0;
     for (size_t i = 0; i < n; ++i) {
-      result += 0 != m_streams[i] ? 1 : 0;
+      const value_type stream = m_streams[i];
+      result += 0 != stream ? 1 : 0;
     }
     return result;
   }
@@ -263,6 +294,28 @@ T atomic_store(A& atomic, T value)
 } // namespace libxstream_stream_internal
 
 
+/*static*/int libxstream_stream::priority_range_least()
+{
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+  const int result = LIBXSTREAM_MAX_NTHREADS;
+#else // not supported (empty range)
+  const int result = 0;
+#endif
+  return result;
+}
+
+
+/*static*/int libxstream_stream::priority_range_greatest()
+{
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+  const int result = 0;
+#else // not supported (empty range)
+  const int result = 0;
+#endif
+  return result;
+}
+
+
 /*static*/int libxstream_stream::enqueue(libxstream_event& event, const libxstream_stream* exclude)
 {
   return libxstream_stream_internal::registry.enqueue(event, exclude);
@@ -296,6 +349,15 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 {
   std::fill_n(m_pending, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_signal>(0));
   std::fill_n(m_queues, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_queue*>(0));
+
+  // sanitize the stream priority
+  const int priority_least = priority_range_least(), priority_greatest = priority_range_greatest();
+  m_priority = std::max(priority_greatest, std::min(priority_least, priority));
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+  if (m_priority != priority) {
+    LIBXSTREAM_PRINT(2, "stream priority %i has been clamped to %i", priority, m_priority);
+  }
+#endif
 
 #if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   if (name && 0 != *name) {
@@ -505,12 +567,24 @@ _Offload_stream libxstream_stream::handle() const
       _Offload_stream_destroy(m_device, m_handle);
     }
 
-    // TODO: implement device discovery (number of threads)
-    const size_t nthreads = 224;
-    // TODO: implement stream priorities (weighting)
-    m_handle = _Offload_stream_create(m_device, static_cast<int>(nthreads / nstreams));
+    const int nthreads_total = omp_get_max_threads_target(TARGET_MIC, m_device);
+    const int priority_least = priority_range_least(), priority_greatest = priority_range_greatest();
+    LIBXSTREAM_ASSERT(priority_greatest <= priority_least);
+
+    int priority_least_device = priority_least, priority_greatest_device = priority_greatest;
+    const int priority_sum = libxstream_stream_internal::registry.priority_range(m_device, priority_least_device, priority_greatest_device);
+    const int priority_range_device = priority_least_device - priority_greatest_device;
+    LIBXSTREAM_ASSERT(0 <= priority_range_device);
+
+    const size_t istream = libxstream_stream_internal::registry.nstreams(m_device, this); // index
+    const int denominator = 0 == priority_range_device ? nstreams : (priority_range_device - priority_sum);
+    const int nthreads = (0 == priority_range_device ? nthreads_total : (priority_range_device - m_priority)) / denominator;
+    const int remainder = nthreads_total - nthreads * denominator;
+
+    m_handle = _Offload_stream_create(m_device, nthreads + (istream < remainder ? 1 : 0));
     m_npartitions = nstreams;
   }
+
   return m_handle;
 }
 #endif

@@ -47,6 +47,9 @@ struct libxstream_event;
 
 struct libxstream_stream {
 public:
+  static int priority_range_least();
+  static int priority_range_greatest();
+
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
 
