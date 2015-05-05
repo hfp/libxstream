@@ -98,10 +98,10 @@
 #define LIBXSTREAM_MAX_NARGS 16
 
 /** Maximum number of executions in the queue (POT). */
-#define LIBXSTREAM_MAX_QSIZE 1024
+#define LIBXSTREAM_MAX_QSIZE 256
 
 /** Maximum number of host threads. */
-#define LIBXSTREAM_MAX_NTHREADS 256
+#define LIBXSTREAM_MAX_NTHREADS 512
 
 /** Maximum number of locks (POT). */
 #define LIBXSTREAM_MAX_NLOCKS 16
