@@ -998,11 +998,11 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(const libxstream_stream* stream, const libxstream_event* event)
+LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, const libxstream_event* event)
 {
   LIBXSTREAM_PRINT(2, "stream_wait_event: stream=0x%llx event=0x%llx", reinterpret_cast<unsigned long long>(stream), reinterpret_cast<unsigned long long>(event));
-  LIBXSTREAM_CHECK_CONDITION(0 != event);
-  return libxstream_event(*event).wait(stream);
+  LIBXSTREAM_CHECK_CONDITION(0 != stream && 0 != event);
+  return stream->wait(*event);
 }
 
 

@@ -67,6 +67,11 @@ public:
   libxstream_signal signal() const;
   int wait(libxstream_signal signal);
 
+  int wait(const libxstream_event& event);
+  libxstream_queue* events() {
+    return m_events;
+  }
+
   void pending(int thread, libxstream_signal signal);
   libxstream_signal pending(int thread) const;
   libxstream_signal pending() const {
@@ -74,7 +79,6 @@ public:
   }
 
   void enqueue(libxstream_capture_base& work_item);
-
   libxstream_queue* queue_begin();
   libxstream_queue* queue_next();
 
@@ -92,7 +96,7 @@ private:
 
 private:
   mutable libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
-  libxstream_queue* m_queues[LIBXSTREAM_MAX_NTHREADS];
+  libxstream_queue* m_queues[LIBXSTREAM_MAX_NTHREADS], *m_events;
 #if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   char m_name[128];
 #endif

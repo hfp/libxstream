@@ -200,8 +200,41 @@ public:
     for (size_t i = j + 1; i < end; ++i) {
       const value_type stream = m_streams[/*i%n*/i<n?i:(i-n)];
       if (0 != stream) {
-        result = stream;
-        i = end; // break
+        libxstream_queue *const events = stream->events();
+        if (0 == events) {
+          result = stream;
+          i = end; // break
+        }
+        else {
+          libxstream_queue::entry_type* entry = &events->get();
+          libxstream_queue::item_type item = entry->item();
+
+          if (item) {
+            do {
+              const libxstream_event *const event = static_cast<const libxstream_event*>(item);
+              bool occurred = false;
+              event->query(occurred, stream);
+
+              if (occurred) {
+                entry->pop();
+                entry = &events->get();
+                item = entry->item();
+                if (0 == item) { // no other events
+                  result = stream;
+                  i = end; // break
+                }
+              }
+              else {
+                item = 0; // break
+              }
+            }
+            while(item);
+          }
+          else {
+            result = stream;
+            i = end; // break
+          }
+        }
       }
     }
 
@@ -350,7 +383,7 @@ T atomic_store(A& atomic, T value)
 
 
 libxstream_stream::libxstream_stream(int device, int priority, const char* name)
-  : m_device(device), m_priority(priority), m_thread(-1)
+  : m_events(0), m_device(device), m_priority(priority), m_thread(-1)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
   , m_npartitions(0)
@@ -395,6 +428,7 @@ libxstream_stream::~libxstream_stream()
   LIBXSTREAM_ASSERT(stream != end);
   *stream = 0; // unregister stream
 
+  delete m_events;
   const size_t nthreads = nthreads_active();
   for (size_t i = 0; i < nthreads; ++i) {
     delete m_queues[i];
@@ -459,6 +493,27 @@ int libxstream_stream::wait(libxstream_signal signal)
   LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_WAIT, result);
 
   return result;
+}
+
+
+int libxstream_stream::wait(const libxstream_event& event)
+{
+  if (0 == m_events) {
+    libxstream_lock *const lock = libxstream_lock_get(this);
+    libxstream_lock_acquire(lock);
+
+    if (0 == m_events) {
+      m_events = new libxstream_queue;
+    }
+
+    libxstream_lock_release(lock);
+  }
+
+  LIBXSTREAM_ASSERT(0 != m_events);
+  libxstream_queue::entry_type& entry = m_events->allocate_entry();
+  delete static_cast<const libxstream_event*>(entry.push(new libxstream_event(event), true));
+
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
