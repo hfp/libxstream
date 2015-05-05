@@ -78,7 +78,7 @@ int main(int argc, char* argv[])
 #else
     const size_t nreserved = nstreams + 2;
 #endif
-    const size_t minsize = 8, maxsize = static_cast<size_t>(std::min(std::max(4 < argc ? std::atoi(argv[4]) : static_cast<int>(allocatable / nreserved), 1), 8192)) * (1 << 20);
+    const size_t minsize = 8, maxsize = static_cast<size_t>(std::min(std::max(4 < argc ? std::atoi(argv[4]) : static_cast<int>(allocatable / nreserved), 1), 2048)) * (1 << 20);
     const int minrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) :    8, 4), 2048);
     const int maxrepeat = std::min(std::max(6 < argc ? std::atoi(argv[6]) : 4096, minrepeat), 32768);
 
