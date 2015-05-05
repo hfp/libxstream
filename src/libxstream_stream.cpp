@@ -498,20 +498,22 @@ int libxstream_stream::wait(libxstream_signal signal)
 
 int libxstream_stream::wait(const libxstream_event& event)
 {
-  if (0 == m_events) {
-    libxstream_lock *const lock = libxstream_lock_get(this);
-    libxstream_lock_acquire(lock);
-
+  if (0 < event.expected()) { // avoids waiting for en empty event
     if (0 == m_events) {
-      m_events = new libxstream_queue;
+      libxstream_lock *const lock = libxstream_lock_get(this);
+      libxstream_lock_acquire(lock);
+
+      if (0 == m_events) {
+        m_events = new libxstream_queue;
+      }
+
+      libxstream_lock_release(lock);
     }
 
-    libxstream_lock_release(lock);
+    LIBXSTREAM_ASSERT(0 != m_events);
+    libxstream_queue::entry_type& entry = m_events->allocate_entry();
+    delete static_cast<const libxstream_event*>(entry.push(new libxstream_event(event), true));
   }
-
-  LIBXSTREAM_ASSERT(0 != m_events);
-  libxstream_queue::entry_type& entry = m_events->allocate_entry();
-  delete static_cast<const libxstream_event*>(entry.push(new libxstream_event(event), true));
 
   return LIBXSTREAM_ERROR_NONE;
 }
