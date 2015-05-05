@@ -755,38 +755,11 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 
 LIBXSTREAM_EXPORT_C int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream)
 {
-  LIBXSTREAM_CHECK_CONDITION(memory && stream);
-  int result = LIBXSTREAM_ERROR_NONE;
-
-  LIBXSTREAM_ASYNC_BEGIN(stream, memory, size)
-  {
-    char* dst = ptr<char,0>();
-    const size_t size = val<const size_t,1>();
-
-    LIBXSTREAM_PRINT(2, "memset_zero: stream=0x%llx buffer=0x%llx size=%lu",
-      reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM),
-      reinterpret_cast<unsigned long long>(dst), static_cast<unsigned long>(size));
-
-#if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-      if (LIBXSTREAM_ASYNC_READY) {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(size) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
-        memset(dst, 0, size);
-      }
-      else {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(size) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
-        memset(dst, 0, size);
-      }
-    }
-    else
-#endif
-    {
-      memset(dst, 0, size);
-    }
-  }
-  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT, result);
-
-  return result;
+  LIBXSTREAM_PRINT(2, "memset_zero: stream=0x%llx buffer=0x%llx size=%lu",
+    reinterpret_cast<unsigned long long>(stream),
+    reinterpret_cast<unsigned long long>(memory),
+    static_cast<unsigned long>(size));
+  return libxstream_memset(memory, 0/*zero*/, size, stream);
 }
 
 
