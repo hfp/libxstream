@@ -120,21 +120,26 @@ int libxstream_event::query(bool& occurred, const libxstream_stream* exclude) co
 
 int libxstream_event::wait(const libxstream_stream* exclude)
 {
-  const int thread = this_thread_id();
-  const size_t n = m_expected[thread];
-  LIBXSTREAM_CHECK_CONDITION((LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS) >= n);
-
-  slot_type *const slots = m_slots[thread];
   int result = LIBXSTREAM_ERROR_NONE;
+  const int thread = this_thread_id();
+  size_t& n = m_expected[thread];
 
-  for (size_t i = 0; i < n; ++i) {
-    const slot_type slot = slots[i];
-    const libxstream_workitem *const item = slot ? slot->item() : 0;
-    if (0 != item && exclude != item->stream()) {
-      result = slot->wait();
-      LIBXSTREAM_CHECK_ERROR(result);
-      slots[i] = 0;
+  if (0 < n) {
+    LIBXSTREAM_CHECK_CONDITION((LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS) >= n);
+
+    slot_type *const slots = m_slots[thread];
+
+    for (size_t i = 0; i < n; ++i) {
+      const slot_type slot = slots[i];
+      const libxstream_workitem *const item = slot ? slot->item() : 0;
+      if (0 != item && exclude != item->stream()) {
+        result = slot->wait();
+        LIBXSTREAM_CHECK_ERROR(result);
+        slots[i] = 0;
+      }
     }
+
+    n = 0;
   }
 
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);

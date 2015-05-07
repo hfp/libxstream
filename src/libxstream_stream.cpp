@@ -424,6 +424,8 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 
 libxstream_stream::~libxstream_stream()
 {
+  LIBXSTREAM_CHECK_CALL_ASSERT(sync(true/*wait*/, 0/*all*/));
+
   using namespace libxstream_stream_internal;
   volatile registry_type::value_type *const end = registry.streams() + registry.max_nstreams();
   volatile registry_type::value_type *const stream = std::find(registry.streams(), end, this);
@@ -452,48 +454,57 @@ libxstream_signal libxstream_stream::signal() const
 
 int libxstream_stream::sync(bool wait, libxstream_signal signal)
 {
-  libxstream_use_sink(&wait); // TODO
-  LIBXSTREAM_ASYNC_BEGIN
-  {
-    libxstream_signal *const pending_signals = ptr<libxstream_signal,0>();
-    const libxstream_signal signal = val<const libxstream_signal,1>();
+  int result = LIBXSTREAM_ERROR_NONE;
 
-    const int nthreads = static_cast<int>(nthreads_active());
-    for (int i = 0; i < nthreads; ++i) {
-      const libxstream_signal pending_signal = pending_signals[i];
-      if (0 != pending_signal) {
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
-        if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-# if defined(LIBXSTREAM_STREAM_WAIT_PAST)
-          const libxstream_signal wait_pending = 0 != signal ? signal : pending_signal;
-# else
-          const libxstream_signal wait_pending = pending_signal;
-# endif
-#         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(wait_pending)
-        }
-#endif
-        if (0 == signal) {
-          pending_signals[i] = 0;
-        }
-#if defined(LIBXSTREAM_STREAM_WAIT_PAST)
-        else {
-          i = nthreads; // break
-        }
-#endif
-      }
-    }
+  if (wait) {
+    LIBXSTREAM_ASYNC_BEGIN
+    {
+      libxstream_signal *const pending_signals = ptr<libxstream_signal,0>();
+      const libxstream_signal signal = val<const libxstream_signal,1>();
 
-    if (0 != signal) {
+      const int nthreads = static_cast<int>(nthreads_active());
       for (int i = 0; i < nthreads; ++i) {
-        if (signal == pending_signals[i]) {
-          pending_signals[i] = 0;
+        const libxstream_signal pending_signal = pending_signals[i];
+        if (0 != pending_signal) {
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+          if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+# if defined(LIBXSTREAM_STREAM_WAIT_PAST)
+            const libxstream_signal wait_pending = 0 != signal ? signal : pending_signal;
+# else
+            const libxstream_signal wait_pending = pending_signal;
+# endif
+#           pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(wait_pending)
+          }
+#endif
+          if (0 == signal) {
+            pending_signals[i] = 0;
+          }
+#if defined(LIBXSTREAM_STREAM_WAIT_PAST)
+          else {
+            i = nthreads; // break
+          }
+#endif
+        }
+      }
+
+      if (0 != signal) {
+        for (int i = 0; i < nthreads; ++i) {
+          if (signal == pending_signals[i]) {
+            pending_signals[i] = 0;
+          }
         }
       }
     }
+    LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC, work, m_pending, signal);
+    result = work.wait();
   }
-  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC, work, m_pending, signal);
+  else {
+    static libxstream_event event;
+    event.enqueue(*this, true);
+    event.wait();
+  }
 
-  return work.wait();
+  return result;
 }
 
 
@@ -549,12 +560,13 @@ libxstream_signal libxstream_stream::pending(int thread) const
 libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem& workitem)
 {
   const int thread = this_thread_id();
-  libxstream_workqueue *volatile queue = m_queues[thread];
+  libxstream_workqueue* queue = m_queues[thread];
 
   if (0 == queue) {
     libxstream_lock *const lock = libxstream_lock_get(m_queues + thread);
     libxstream_lock_acquire(lock);
 
+    queue = m_queues[thread];
     if (0 == queue) {
       queue = new libxstream_workqueue;
       m_queues[thread] = queue;
