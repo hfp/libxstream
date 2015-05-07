@@ -125,9 +125,6 @@
 /** Allows client-side to sleep when waiting. */
 #define LIBXSTREAM_SLEEP_CLIENT
 
-/** Wait for each work item when enqueued. */
-/*#define LIBXSTREAM_WAIT*/
-
 /** Prefers OpenMP based locking primitives. */
 /*#define LIBXSTREAM_PREFER_OPENMP*/
 
