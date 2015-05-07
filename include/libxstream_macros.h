@@ -141,7 +141,7 @@
 
 #if defined(_WIN32) && !defined(__GNUC__)
 # define LIBXSTREAM_TLS LIBXSTREAM_ATTRIBUTE(thread)
-#elif defined(__GNUC__)
+#elif defined(__GNUC__) || defined(__clang__)
 # define LIBXSTREAM_TLS __thread
 #elif defined(__cplusplus)
 # define LIBXSTREAM_TLS thread_local

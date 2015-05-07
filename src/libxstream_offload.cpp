@@ -31,7 +31,7 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_offload.hpp"
 #include "libxstream_argument.hpp"
-#include "libxstream_capture.hpp"
+#include "libxstream_workitem.hpp"
 #include "libxstream_context.hpp"
 
 #include <libxstream_begin.h>
@@ -97,12 +97,10 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
 } // namespace libxstream_offload_internal
 
 
-int libxstream_offload(libxstream_function function, const libxstream_argument signature[], libxstream_stream* stream, int flags)
+libxstream_workqueue::entry_type& libxstream_offload(libxstream_function function, const libxstream_argument signature[], libxstream_stream* stream, int flags)
 {
   LIBXSTREAM_ASSERT(0 == (LIBXSTREAM_CALL_EXTERNAL & flags));
-  int result = LIBXSTREAM_ERROR_NONE;
-
-  LIBXSTREAM_ASYNC_BEGIN(stream, function, signature) {
+  LIBXSTREAM_ASYNC_BEGIN {
     LIBXSTREAM_TARGET(mic) /*const*/ libxstream_function fhybrid = 0 == (flags() & LIBXSTREAM_CALL_NATIVE) ? m_function : 0;
     const void *const fnative = reinterpret_cast<const void*>(m_function);
     libxstream_argument *const signature = m_signature;
@@ -506,7 +504,7 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
           }
         } break;
         default: {
-          LIBXSTREAM_CHECK_CALL_ASSERT(status(LIBXSTREAM_ERROR_CONDITION));
+          LIBXSTREAM_ASYNC_RETURN(LIBXSTREAM_ERROR_CONDITION);
         }
       }
     }
@@ -516,9 +514,9 @@ int libxstream_offload(libxstream_function function, const libxstream_argument s
       libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, 0, arity, cflags);
     }
   }
-  LIBXSTREAM_ASYNC_END(flags, result);
+  LIBXSTREAM_ASYNC_END(stream, flags, work, function, signature);
 
-  return result;
+  return LIBXSTREAM_ASYNC_INTERNAL(work);
 }
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

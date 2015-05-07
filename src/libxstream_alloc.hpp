@@ -31,10 +31,7 @@
 #ifndef LIBXSTREAM_ALLOC_HPP
 #define LIBXSTREAM_ALLOC_HPP
 
-#include <libxstream_macros.h>
-#include <libxstream_begin.h>
-#include <cstddef>
-#include <libxstream_end.h>
+#include <libxstream.h>
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
@@ -56,8 +53,6 @@ int libxstream_real_deallocate(const void* memory);
 
 int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const void* data = 0, size_t data_size = 0);
 int libxstream_virt_deallocate(const void* memory);
-
-int libxstream_memset(void* memory, int value, size_t size, libxstream_stream* stream);
 
 void* libxstream_virt_data(void* memory);
 const void* libxstream_virt_data(const void* memory);

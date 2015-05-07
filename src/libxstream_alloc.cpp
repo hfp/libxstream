@@ -30,7 +30,7 @@
 ******************************************************************************/
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_alloc.hpp"
-#include "libxstream_capture.hpp"
+#include "libxstream_workitem.hpp"
 
 #include <libxstream_begin.h>
 #include <algorithm>
@@ -342,40 +342,6 @@ int libxstream_virt_deallocate(const void* memory)
     result = 0 == munmap(unaligned, size) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 #endif
   }
-
-  return result;
-}
-
-
-int libxstream_memset(void* memory, int value, size_t size, libxstream_stream* stream)
-{
-  LIBXSTREAM_CHECK_CONDITION(memory && stream);
-  int result = LIBXSTREAM_ERROR_NONE;
-
-  LIBXSTREAM_ASYNC_BEGIN(stream, memory, value, size)
-  {
-    char* dst = ptr<char,0>();
-    const int value = val<const int,1>();
-    const size_t size = val<const size_t,2>();
-
-#if defined(LIBXSTREAM_OFFLOAD)
-    if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-      if (LIBXSTREAM_ASYNC_READY) {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(value, size) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
-        memset(dst, value, size);
-      }
-      else {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(value, size) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
-        memset(dst, value, size);
-      }
-    }
-    else
-#endif
-    {
-      memset(dst, value, size);
-    }
-  }
-  LIBXSTREAM_ASYNC_END(LIBXSTREAM_CALL_DEFAULT, result);
 
   return result;
 }

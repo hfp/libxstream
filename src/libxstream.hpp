@@ -53,8 +53,14 @@ LIBXSTREAM_TARGET(mic) void this_thread_yield();
 LIBXSTREAM_TARGET(mic) void this_thread_sleep(size_t ms = LIBXSTREAM_SLEEP_MS);
 LIBXSTREAM_TARGET(mic) void this_thread_wait(size_t& cycle);
 
+/**
+ * The following flags are complimentary to libxstream_call_flags,
+ * but considered internal and not to be exposed in the public API.
+ */
 enum {
-  LIBXSTREAM_CALL_EXTERNAL = (2 * (LIBXSTREAM_CALL_INVALID - 1))
+  LIBXSTREAM_CALL_SYNC      = (2 * (LIBXSTREAM_CALL_INVALID - 1)),
+  LIBXSTREAM_CALL_ERROR     = (4 * (LIBXSTREAM_CALL_INVALID - 1)),
+  LIBXSTREAM_CALL_EXTERNAL  = (8 * (LIBXSTREAM_CALL_INVALID - 1))
 };
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

@@ -28,75 +28,57 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#ifndef LIBXSTREAM_QUEUE_HPP
-#define LIBXSTREAM_QUEUE_HPP
+#ifndef LIBXSTREAM_WORKQUEUE_HPP
+#define LIBXSTREAM_WORKQUEUE_HPP
 
 #include "libxstream.hpp"
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
-class libxstream_queue {
-public:
-  typedef void* item_type;
-  typedef const void* const_item_type;
+class libxstream_workitem;
 
+
+class libxstream_workqueue {
+public:
   class entry_type {
   public:
-    entry_type(libxstream_queue* queue = 0, item_type item = 0): m_queue(queue), m_dangling(0), m_item(item) {}
-    entry_type(libxstream_queue& queue): m_queue(&queue), m_dangling(0), m_item(reinterpret_cast<item_type>(-1)) {}
-
+    entry_type(libxstream_workqueue* queue = 0, libxstream_workitem* item = reinterpret_cast<libxstream_workitem*>(-1))
+      : m_queue(queue), m_dangling(0), m_item(item), m_status(LIBXSTREAM_ERROR_CONDITION)
+    {}
   public:
-    bool valid() const { return reinterpret_cast<item_type>(-1) != m_item; }
-    const libxstream_queue* queue() const { return m_queue; }
-    item_type item() { return m_item; }
-    const_item_type item() const { return m_item; }
-    const_item_type push(item_type item, bool dangling) {
-      const const_item_type result = m_dangling;
-      m_dangling = dangling ? item : 0;
-      m_item = item;
-      return result;
-    }
-    void pop() {
-      m_item = 0;
-      LIBXSTREAM_ASSERT(0 != m_queue);
-      m_queue->pop();
-    }
-    void wait() {
-#if defined(LIBXSTREAM_SLEEP_CLIENT)
-      size_t cycle = 0;
-      while (0 != m_item) this_thread_wait(cycle);
-#else
-      while (0 != m_item) this_thread_yield();
-#endif
-    }
-
+    bool valid() const { return reinterpret_cast<libxstream_workitem*>(-1) != m_item; }
+    const libxstream_workqueue* queue() const { return m_queue; }
+    const libxstream_workitem* dangling() const { return m_dangling; }
+    const libxstream_workitem* item() const { return m_item; }
+    libxstream_workitem* item() { return m_item; }
+    int status() const { return m_status; }
+    int& status() { return m_status; }
+    void push(libxstream_workitem& workitem);
+    int wait() const;
+    void execute();
+    void pop();
   private:
-    libxstream_queue* m_queue;
-    const_item_type m_dangling;
-    volatile item_type m_item;
+    libxstream_workqueue* m_queue;
+    const libxstream_workitem* m_dangling;
+    libxstream_workitem* m_item;
+    mutable int m_status;
   };
 
 public:
-  libxstream_queue();
-  ~libxstream_queue();
+  libxstream_workqueue();
+  ~libxstream_workqueue();
 
 public:
   size_t size() const;
 
+  entry_type& allocate_entry_mt();
   entry_type& allocate_entry();
 
-  entry_type& get() { // not thread-safe!
-    return m_buffer[LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)];
-  }
+  entry_type& get() { return m_buffer[LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)]; }
+  entry_type get() const { return m_buffer[LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)]; }
 
-  entry_type get() const { // not thread-safe!
-    return m_buffer[LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)];
-  }
-
-  void pop() { // not thread-safe!
-    ++m_index;
-  }
+  void pop() { ++m_index; }
 
 private:
   entry_type m_buffer[LIBXSTREAM_MAX_QSIZE];
@@ -105,4 +87,4 @@ private:
 };
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
-#endif // LIBXSTREAM_QUEUE_HPP
+#endif // LIBXSTREAM_WORKQUEUE_HPP

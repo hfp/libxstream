@@ -202,6 +202,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 4, &c64, libxstream_map_to_type(c64), 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 5, reinterpret_cast<const double*>(&c64) + 0, libxstream_map_to_type(c64.real()), 0, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 6, reinterpret_cast<const double*>(&c64) + 1, libxstream_map_to_type(c64.imag()), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_arity(signature, &arity));
   LIBXSTREAM_CHECK_CONDITION_THROW(7 == arity);
 
   //const libxstream_function complex_c = reinterpret_cast<libxstream_function>(test_internal::complex_c);

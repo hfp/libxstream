@@ -31,7 +31,7 @@
 #ifndef LIBXSTREAM_STREAM_HPP
 #define LIBXSTREAM_STREAM_HPP
 
-#include "libxstream.hpp"
+#include "libxstream_workqueue.hpp"
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD)
 # include <offload.h>
@@ -40,8 +40,7 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
-class libxstream_capture_base;
-class libxstream_queue;
+class libxstream_workitem;
 struct libxstream_event;
 
 
@@ -68,7 +67,7 @@ public:
   int wait(libxstream_signal signal);
 
   int wait(const libxstream_event& event);
-  libxstream_queue* events() {
+  libxstream_workqueue* events() {
     return m_events;
   }
 
@@ -78,9 +77,9 @@ public:
     return 0 <= m_thread ? pending(m_thread) : 0;
   }
 
-  void enqueue(libxstream_capture_base& work_item);
-  libxstream_queue* queue_begin();
-  libxstream_queue* queue_next();
+  libxstream_workqueue::entry_type& enqueue(libxstream_workitem& workitem);
+  libxstream_workqueue* queue_begin();
+  libxstream_workqueue* queue_next();
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;
@@ -96,7 +95,7 @@ private:
 
 private:
   mutable libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
-  libxstream_queue* m_queues[LIBXSTREAM_MAX_NTHREADS], *m_events;
+  libxstream_workqueue* m_queues[LIBXSTREAM_MAX_NTHREADS], *m_events;
 #if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   char m_name[128];
 #endif

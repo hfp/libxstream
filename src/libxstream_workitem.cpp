@@ -29,8 +29,7 @@
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
-#include "libxstream_capture.hpp"
-#include "libxstream_queue.hpp"
+#include "libxstream_workitem.hpp"
 
 #include <libxstream_begin.h>
 #include <algorithm>
@@ -48,18 +47,16 @@
 #include <libxstream_end.h>
 
 
-namespace libxstream_capture_internal {
+namespace libxstream_workitem_internal {
 
 class scheduler_type {
 public:
-  typedef libxstream_queue::entry_type entry_type;
-  typedef libxstream_queue::item_type item_type;
+  typedef libxstream_workqueue::entry_type entry_type;
 
 public:
   scheduler_type()
     : m_global_queue()
     , m_stream(0)
-    , m_status(LIBXSTREAM_ERROR_NONE)
 #if defined(LIBXSTREAM_STDFEATURES)
     , m_thread() // do not start here
 #else
@@ -70,7 +67,10 @@ public:
   ~scheduler_type() {
     if (running()) {
       // terminates the background thread
-      push(entry_type(m_global_queue).item(), true);
+      entry_type& entry = m_global_queue.allocate_entry();
+      delete entry.dangling();
+      entry = entry_type();
+      entry.wait();
 
 #if defined(LIBXSTREAM_STDFEATURES)
       m_thread.detach();
@@ -114,40 +114,18 @@ public:
     }
   }
 
-  int status(int code) {
-#if defined(LIBXSTREAM_STDFEATURES)
-    return std::atomic_exchange(&m_status, code);
-#elif defined(_OPENMP)
-    int result = 0;
-#   pragma omp critical
-    {
-      result = m_status;
-      m_status = code;
-    }
-    return result;
-#else // generic
-    int result = 0;
-    libxstream_lock *const lock = libxstream_lock_get(this);
-    libxstream_lock_acquire(lock);
-    result = m_status;
-    m_status = code;
-    libxstream_lock_release(lock);
-    return result;
-#endif
-  }
-
   entry_type& get() {
     entry_type* result = &m_global_queue.get();
 
     if (0 == result->item()) { // no item in global queue
       m_stream = libxstream_stream::schedule(m_stream);
-      libxstream_queue* queue = m_stream ? m_stream->queue_begin() : 0;
+      libxstream_workqueue* queue = m_stream ? m_stream->queue_begin() : 0;
 
       if (0 != queue) {
         result = &queue->get();
 
         // item in stream-local queue is a wait-item
-        if (0 != result->item() && 0 != (static_cast<const libxstream_capture_base*>(result->item())->flags() & LIBXSTREAM_CALL_WAIT)) {
+        if (0 != result->item() && 0 != (LIBXSTREAM_CALL_SYNC & result->item()->flags())) {
           queue = m_stream->queue_next(); // next/other queue
 
           while (0 != queue) {
@@ -168,26 +146,13 @@ public:
     return *result;
   }
 
-  void push(libxstream_capture_base& work_item) {
-    push(&work_item, 0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT));
+  entry_type& push(libxstream_workitem& workitem) {
+    entry_type& entry = m_global_queue.allocate_entry_mt();
+    entry.push(workitem);
+    return entry;
   }
 
 private:
-  void push(item_type work_item, bool wait) {
-    LIBXSTREAM_ASSERT(0 != work_item);
-    entry_type& entry = m_global_queue.allocate_entry();
-    delete static_cast<const libxstream_capture_base*>(entry.push(work_item, !wait));
-
-#if !defined(LIBXSTREAM_WAIT)
-    if (wait)
-#else
-    libxstream_use_sink(&wait);
-#endif
-    {
-      entry.wait();
-    }
-  }
-
 #if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
   static void* run(void* scheduler)
 #else
@@ -213,10 +178,7 @@ private:
       }
 
       if (valid) {
-        libxstream_capture_base *const work_item = static_cast<libxstream_capture_base*>(entry->item());
-        LIBXSTREAM_ASSERT(0 != work_item);
-
-        (*work_item)();
+        entry->execute();
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
 #       pragma omp taskwait
 #endif
@@ -236,25 +198,22 @@ private:
   }
 
 private:
-  libxstream_queue m_global_queue;
+  libxstream_workqueue m_global_queue;
   libxstream_stream* m_stream;
 #if defined(LIBXSTREAM_STDFEATURES)
-  std::atomic<int> m_status;
   std::thread m_thread;
 #elif defined(__GNUC__)
-  int m_status;
   pthread_t m_thread;
 #else
-  int m_status;
   HANDLE m_thread;
 #endif
 };
 static/*IPO*/ scheduler_type scheduler;
 
-} // namespace libxstream_capture_internal
+} // namespace libxstream_workitem_internal
 
 
-libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type argv[], libxstream_stream* stream, int flags, const char* name)
+libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, size_t argc, const arg_type argv[], const char* name)
   : m_function(0)
   , m_stream(stream)
   , m_flags(flags)
@@ -296,34 +255,27 @@ libxstream_capture_base::libxstream_capture_base(size_t argc, const arg_type arg
 #endif
   }
 
-  libxstream_capture_internal::scheduler.start();
+  libxstream_workitem_internal::scheduler.start();
 }
 
 
-libxstream_capture_base* libxstream_capture_base::clone() const
+libxstream_workitem* libxstream_workitem::clone() const
 {
-  libxstream_capture_base *const instance = virtual_clone();
+  libxstream_workitem *const instance = virtual_clone();
   LIBXSTREAM_ASSERT(0 != instance);
   return instance;
 }
 
 
-void libxstream_capture_base::operator()()
+void libxstream_workitem::operator()(libxstream_workqueue::entry_type& entry)
 {
-  virtual_run();
+  virtual_run(entry);
 }
 
 
-int libxstream_capture_base::status(int code)
+libxstream_workqueue::entry_type& libxstream_enqueue(libxstream_workitem& workitem)
 {
-  return libxstream_capture_internal::scheduler.status(code);
-}
-
-
-void libxstream_enqueue(libxstream_capture_base& work_item)
-{
-  const bool wait = 0 != (work_item.flags() & LIBXSTREAM_CALL_WAIT);
-  libxstream_capture_internal::scheduler.push(!wait ? *work_item.clone() : work_item);
+  return libxstream_workitem_internal::scheduler.push(workitem);
 }
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
