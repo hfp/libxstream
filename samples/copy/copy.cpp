@@ -118,8 +118,8 @@ int main(int argc, char* argv[])
         LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[i].mem_hst, maxsize, 0));
       }
     }
-    // start benchmark with no other pending work
-    LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
+    // start benchmark with no pending work
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
     int n = 0, nrepeat = maxrepeat;
     double maxval = 0, sumval = 0, runlns = 0, duration = 0;
@@ -149,8 +149,8 @@ int main(int argc, char* argv[])
 #endif
       }
 
-      // sync all streams to complete any pending work
-      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
+      // wait for all streams to complete pending work
+      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
 #if defined(_OPENMP)
       const double iduration = omp_get_wtime() - start;

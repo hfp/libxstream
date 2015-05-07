@@ -44,7 +44,7 @@
 #include <libxstream_end.h>
 
 //#define MULTI_DGEMM_USE_CHECK
-#define MULTI_DGEMM_USE_SYNC 1
+#define MULTI_DGEMM_SYNC 1
 
 #define DGEMM dgemm_
 
@@ -124,17 +124,17 @@ int main(int argc, char* argv[])
 
       LIBXSTREAM_CHECK_CALL_ASSERT(call(i, std::min(nbatch, nitems - i))); // enqueue batch
 
-#if defined(MULTI_DGEMM_USE_SYNC)
-# if (2 <= MULTI_DGEMM_USE_SYNC) // record event
+#if defined(MULTI_DGEMM_SYNC)
+# if (2 <= MULTI_DGEMM_SYNC) // record event
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(call.event(), call.stream()));
 # endif
       const size_t k = (j + 1) % nstreams;
-# if (3 <= (MULTI_DGEMM_USE_SYNC))
+# if (3 <= (MULTI_DGEMM_SYNC))
       // wait for an event within a stream
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(multi_dgemm[0].stream(), multi_dgemm[k].event()));
-# elif (2 <= (MULTI_DGEMM_USE_SYNC))
+# elif (2 <= (MULTI_DGEMM_SYNC))
       // wait for an event on the host
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_synchronize(multi_dgemm[k].event()));
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(multi_dgemm[k].event()));
 # else
       // wait for all work in a stream
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(multi_dgemm[k].stream()));
@@ -142,8 +142,8 @@ int main(int argc, char* argv[])
 #endif
     }
 
-    // sync all streams to complete any pending work
-    LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(0));
+    // wait for all streams to complete pending work
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
 #if defined(_OPENMP)
     const double duration = omp_get_wtime() - start;

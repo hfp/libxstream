@@ -709,7 +709,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {
-    libxstream_stream::sync(device);
+    libxstream_stream::sync_all(false, device);
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= device) {
@@ -991,7 +991,32 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
   }
 #endif
 
-  return stream ? stream->wait(0) : libxstream_stream::sync();
+  return stream ? stream->sync(false, 0) : libxstream_stream::sync_all(false);
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
+{
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+  if (0 != stream) {
+# if defined(LIBXSTREAM_DEBUG)
+    const char *const name = stream->name();
+    if (name && *name) {
+      LIBXSTREAM_PRINT(2, "stream_wait: stream=0x%llx (%s)", reinterpret_cast<unsigned long long>(stream), name);
+    }
+    else
+# endif
+    {
+      LIBXSTREAM_PRINT(2, "stream_wait: stream=0x%llx", reinterpret_cast<unsigned long long>(stream));
+    }
+  }
+  else {
+    LIBXSTREAM_PRINT0(2, "stream_wait: synchronize all streams");
+  }
+#endif
+
+  // LIBXSTREAM_FALSE != wait ? true : false
+  return stream ? stream->sync(true, 0) : libxstream_stream::sync_all(true);
 }
 
 
@@ -1053,10 +1078,10 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event)
+LIBXSTREAM_EXPORT_C int libxstream_event_wait(libxstream_event* event)
 {
-  LIBXSTREAM_PRINT(2, "event_synchronize: event=0x%llx", reinterpret_cast<unsigned long long>(event));
-  return event ? event->wait() : libxstream_stream::sync();
+  LIBXSTREAM_PRINT(2, "event_wait: event=0x%llx", reinterpret_cast<unsigned long long>(event));
+  return event ? event->wait() : libxstream_stream::sync_all(true);
 }
 
 

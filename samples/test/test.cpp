@@ -187,7 +187,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(check, signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_create(&m_event));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(m_event, m_stream));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_synchronize(m_event));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_wait(m_event));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   const std::complex<float>  c32( 1.05f, 19.81f);
@@ -207,12 +207,12 @@ test_type::test_type(int device)
 
   //const libxstream_function complex_c = reinterpret_cast<libxstream_function>(test_internal::complex_c);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(complex_c, signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(m_stream));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(m_stream));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   //const libxstream_function complex_cpp = reinterpret_cast<libxstream_function>(test_internal::complex_cpp);
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(complex_cpp, signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(m_stream));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(m_stream));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_b);
@@ -226,7 +226,7 @@ test_type::test_type(int device)
   int has_occured = 0;
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_query(m_event, &has_occured));
   if (0 == has_occured) {
-    LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_synchronize(m_event));
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_wait(m_event));
   }
 
   test_internal::check(ok, LIBXSTREAM_SETVAL(pattern_a), m_host_mem, LIBXSTREAM_SETVAL(size));

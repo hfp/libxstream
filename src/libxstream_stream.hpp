@@ -52,8 +52,8 @@ public:
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
 
-  static int sync(int device);
-  static int sync();
+  static int sync_all(bool wait, int device);
+  static int sync_all(bool wait);
 
 public:
   libxstream_stream(int device, int priority, const char* name);
@@ -64,7 +64,7 @@ public:
   int priority() const  { return m_priority; }
   
   libxstream_signal signal() const;
-  int wait(libxstream_signal signal);
+  int sync(bool wait, libxstream_signal signal);
 
   int wait(const libxstream_event& event);
   libxstream_workqueue* events() {

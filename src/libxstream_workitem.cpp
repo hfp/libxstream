@@ -125,7 +125,8 @@ public:
         result = &queue->get();
 
         // item in stream-local queue is a wait-item
-        if (0 != result->item() && 0 != (LIBXSTREAM_CALL_SYNC & result->item()->flags())) {
+        const libxstream_workitem *const item = result->item();
+        if (0 != item && 0 != (LIBXSTREAM_CALL_SYNC & item->flags())) {
           queue = m_stream->queue_next(); // next/other queue
 
           while (0 != queue) {

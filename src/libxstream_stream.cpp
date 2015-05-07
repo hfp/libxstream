@@ -243,13 +243,13 @@ public:
     return result;
   }
 
-  int sync(int device) {
+  int sync(bool wait, int device) {
     const size_t n = max_nstreams();
     for (size_t i = 0; i < n; ++i) {
       if (const value_type stream = m_streams[i]) {
         const int stream_device = stream->device();
         if (stream_device == device) {
-          const int result = stream->wait(0);
+          const int result = stream->sync(wait, 0);
           LIBXSTREAM_CHECK_ERROR(result);
         }
       }
@@ -257,11 +257,11 @@ public:
     return LIBXSTREAM_ERROR_NONE;
   }
 
-  int sync() {
+  int sync(bool wait) {
     const size_t n = max_nstreams();
     for (size_t i = 0; i < n; ++i) {
       if (const value_type stream = m_streams[i]) {
-        const int result = stream->wait(0);
+        const int result = stream->sync(wait, 0);
         LIBXSTREAM_CHECK_ERROR(result);
       }
     }
@@ -372,15 +372,15 @@ T atomic_store(A& atomic, T value)
 }
 
 
-/*static*/int libxstream_stream::sync(int device)
+/*static*/int libxstream_stream::sync_all(bool wait, int device)
 {
-  return libxstream_stream_internal::registry.sync(device);
+  return libxstream_stream_internal::registry.sync(wait, device);
 }
 
 
-/*static*/int libxstream_stream::sync()
+/*static*/int libxstream_stream::sync_all(bool wait)
 {
-  return libxstream_stream_internal::registry.sync();
+  return libxstream_stream_internal::registry.sync(wait);
 }
 
 
@@ -450,8 +450,9 @@ libxstream_signal libxstream_stream::signal() const
 }
 
 
-int libxstream_stream::wait(libxstream_signal signal)
+int libxstream_stream::sync(bool wait, libxstream_signal signal)
 {
+  libxstream_use_sink(&wait); // TODO
   LIBXSTREAM_ASYNC_BEGIN
   {
     libxstream_signal *const pending_signals = ptr<libxstream_signal,0>();
@@ -548,22 +549,22 @@ libxstream_signal libxstream_stream::pending(int thread) const
 libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem& workitem)
 {
   const int thread = this_thread_id();
-  libxstream_workqueue *volatile q = m_queues[thread];
+  libxstream_workqueue *volatile queue = m_queues[thread];
 
-  if (0 == q) {
+  if (0 == queue) {
     libxstream_lock *const lock = libxstream_lock_get(m_queues + thread);
     libxstream_lock_acquire(lock);
 
-    if (0 == q) {
-      q = new libxstream_workqueue;
-      m_queues[thread] = q;
+    if (0 == queue) {
+      queue = new libxstream_workqueue;
+      m_queues[thread] = queue;
     }
 
     libxstream_lock_release(lock);
   }
 
-  LIBXSTREAM_ASSERT(0 != q);
-  libxstream_workqueue::entry_type& entry = q->allocate_entry();
+  LIBXSTREAM_ASSERT(0 != queue);
+  libxstream_workqueue::entry_type& entry = queue->allocate_entry_mt();
   entry.push(workitem);
   return entry;
 }
@@ -578,18 +579,17 @@ libxstream_workqueue* libxstream_stream::queue_begin()
     size_t size = result ? result->size() : 0;
 
     for (int i = 0; i < nthreads; ++i) {
-      libxstream_workqueue *const qi = m_queues[i];
-      const size_t si = (0 != qi && 0 != qi->get().item()) ? qi->size() : 0;
-      if (size < si) {
+      libxstream_workqueue *const queue = m_queues[i];
+      const size_t queue_size = (0 != queue && 0 != queue->get().item()) ? queue->size() : 0;
+      if (size < queue_size) {
+        size = queue_size;
+        result = queue;
         m_thread = i;
-        result = qi;
-        size = si;
       }
     }
 
-    if (0 == size && 0 != result && 0 != result->get().item() &&
-      0 == (LIBXSTREAM_CALL_SYNC & result->get().item()->flags()))
-    {
+    const libxstream_workitem *const item = (0 == size && 0 != result) ? result->get().item() : 0;
+    if (0 != item && 0 == (LIBXSTREAM_CALL_SYNC & item->flags())) {
       result = 0 <= m_thread ? m_queues[m_thread] : 0;
     }
   }
@@ -607,9 +607,9 @@ libxstream_workqueue* libxstream_stream::queue_next()
     const int end = m_thread + nthreads;
     for (int i = m_thread + 1; i < end; ++i) {
       const int thread = /*i % nthreads*/i < nthreads ? i : (i - nthreads);
-      libxstream_workqueue *const qi = m_queues[thread];
-      if (0 != qi) {
-        result = qi;
+      libxstream_workqueue *const queue = m_queues[thread];
+      if (0 != queue) {
+        result = queue;
         m_thread = thread;
         i = end; // break
       }

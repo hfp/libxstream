@@ -118,6 +118,8 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int
 LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* stream);
 /** Wait for a stream to complete pending work; NULL to synchronize all streams. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream);
+/** Wait for a stream to complete pending work (blocking); NULL to synchronize all streams. */
+LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream);
 /** Wait for an event inside of the specified stream; a NULL-stream designates all streams. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, const libxstream_event* event);
 /** Query the device the given stream is constructed for. */
@@ -132,7 +134,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_record(libxstream_event* event, libxstr
 /** Check whether an event has occurred or not (non-blocking). */
 LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, libxstream_bool* occurred);
 /** Wait for an event to complete i.e., work queued prior to recording the event will be completed. */
-LIBXSTREAM_EXPORT_C int libxstream_event_synchronize(libxstream_event* event);
+LIBXSTREAM_EXPORT_C int libxstream_event_wait(libxstream_event* event);
 
 /** Receive thread-local signature with capacity of LIBXSTREAM_MAX_NARGS. */
 LIBXSTREAM_EXPORT_C int libxstream_fn_signature(libxstream_argument** signature);
