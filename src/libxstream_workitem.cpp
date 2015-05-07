@@ -69,7 +69,7 @@ public:
       // terminates the background thread
       entry_type& entry = m_global_queue.allocate_entry();
       delete entry.dangling();
-      entry = entry_type();
+      entry = entry_type(&m_global_queue);
       entry.wait();
 
 #if defined(LIBXSTREAM_STDFEATURES)
