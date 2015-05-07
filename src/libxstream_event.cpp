@@ -46,6 +46,12 @@ libxstream_event::libxstream_event()
 }
 
 
+libxstream_event::~libxstream_event()
+{
+  LIBXSTREAM_CHECK_CALL_ASSERT(wait());
+}
+
+
 size_t libxstream_event::expected() const
 {
   const int thread = this_thread_id();

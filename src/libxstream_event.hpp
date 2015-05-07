@@ -39,6 +39,7 @@
 struct/*!class*/ libxstream_event {
 public:
   libxstream_event();
+  ~libxstream_event();
 
 public:
   // Number of streams the event was recorded for.
