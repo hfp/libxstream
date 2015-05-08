@@ -22,7 +22,7 @@ BATCH=${STRIDE}
 
 cat /dev/null > ${FILE}
 while [[ ${BATCH} -le ${BSIZE} ]] ; do
-  env USE_CHECK=1 ${TRY} \
+  env CHECK=1 ${TRY} \
   ./multi-dgemm.sh ${SIZE} ${BATCH} $* >> ${FILE}
   BATCH=$((BATCH + STRIDE))
 done

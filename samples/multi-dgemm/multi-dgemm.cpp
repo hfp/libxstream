@@ -43,7 +43,7 @@
 #endif
 #include <libxstream_end.h>
 
-//#define MULTI_DGEMM_USE_CHECK
+//#define MULTI_DGEMM_CHECK
 #define MULTI_DGEMM_SYNC 1
 
 #define DGEMM dgemm_
@@ -153,8 +153,8 @@ int main(int argc, char* argv[])
     fprintf(stdout, "Duration: %.1f s\n", duration);
 #endif
 
-#if !defined(MULTI_DGEMM_USE_CHECK)
-    const char *const check_env = getenv("USE_CHECK");
+#if !defined(MULTI_DGEMM_CHECK)
+    const char *const check_env = getenv("CHECK");
     if (check_env && *check_env && 0 != atoi(check_env))
 #endif
     {
