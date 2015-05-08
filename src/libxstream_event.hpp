@@ -42,8 +42,7 @@ public:
   ~libxstream_event();
 
 public:
-  // Number of streams the event was recorded for.
-  size_t expected() const;
+  void swap(libxstream_event& other) throw();
 
   // Enqueue this event into the given stream; reset to start over.
   int enqueue(libxstream_stream& stream, bool reset, bool sync = false);
@@ -53,9 +52,6 @@ public:
 
   // Wait for the event to happen.
   int wait(const libxstream_stream* exclude = 0);
-
-  // Reset the event.
-  int reset();
 
 private:
   typedef libxstream_workqueue::entry_type* slot_type;

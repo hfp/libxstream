@@ -121,7 +121,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream);
 /** Wait for a stream to complete pending work (blocking); NULL to synchronize all streams. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream);
 /** Wait for an event inside of the specified stream; a NULL-stream designates all streams. */
-LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, const libxstream_event* event);
+LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event);
 /** Query the device the given stream is constructed for. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream, int* device);
 

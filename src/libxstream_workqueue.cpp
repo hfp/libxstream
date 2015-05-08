@@ -63,6 +63,7 @@ int libxstream_workqueue::entry_type::wait() const
 #endif
   const int result = m_status;
   m_status = LIBXSTREAM_ERROR_NONE;
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 

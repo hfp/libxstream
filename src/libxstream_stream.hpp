@@ -66,10 +66,9 @@ public:
   libxstream_signal signal() const;
   int sync(bool wait, libxstream_signal signal);
 
-  int wait(const libxstream_event& event);
-  libxstream_workqueue* events() {
-    return m_events;
-  }
+  int wait(libxstream_event& event);
+  libxstream_event* events();
+  size_t nevents() const;
 
   void pending(int thread, libxstream_signal signal);
   libxstream_signal pending(int thread) const;
@@ -95,7 +94,12 @@ private:
 
 private:
   mutable libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
-  libxstream_workqueue* m_queues[LIBXSTREAM_MAX_NTHREADS], *m_events;
+  libxstream_workqueue* m_queues[LIBXSTREAM_MAX_NTHREADS];
+  struct slot_type {
+    slot_type(): events(0), size(0) {}
+    libxstream_event* events;
+    size_t size;
+  } m_slots[LIBXSTREAM_MAX_NTHREADS];
 #if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   char m_name[128];
 #endif

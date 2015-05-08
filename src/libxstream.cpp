@@ -592,6 +592,8 @@ LIBXSTREAM_EXPORT_C int libxstream_get_active_device(int* device)
   }
 
   *device = active_device;
+
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -647,6 +649,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, siz
     *physical = static_cast<size_t>(memory_physical);
   }
 
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -700,6 +703,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
   LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", device,
     reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
 
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -752,6 +756,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
     }
   }
 
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -907,6 +912,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
     result = work.status();
   }
 
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -1021,7 +1027,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, const libxstream_event* event)
+LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
 {
   LIBXSTREAM_PRINT(2, "stream_wait_event: stream=0x%llx event=0x%llx", reinterpret_cast<unsigned long long>(stream), reinterpret_cast<unsigned long long>(event));
   LIBXSTREAM_CHECK_CONDITION(0 != stream && 0 != event);
@@ -1075,6 +1081,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
   const int result = event->query(has_occurred);
   *occurred = has_occurred ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -1082,7 +1089,9 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
 LIBXSTREAM_EXPORT_C int libxstream_event_wait(libxstream_event* event)
 {
   LIBXSTREAM_PRINT(2, "event_wait: event=0x%llx", reinterpret_cast<unsigned long long>(event));
-  return event ? event->wait() : libxstream_stream::sync_all(true);
+  const int result = event ? event->wait() : libxstream_stream::sync_all(true);
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+  return result;
 }
 
 
@@ -1185,6 +1194,8 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstrea
     default: // LIBXSTREAM_TYPE_VOID, etc.
       result = LIBXSTREAM_ERROR_CONDITION;
   }
+
+  //LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -1233,6 +1244,8 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstrea
     default:
       result = LIBXSTREAM_ERROR_CONDITION;
   }
+
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -1252,6 +1265,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_argument(const voi
     result = LIBXSTREAM_ERROR_CONDITION;
   }
 
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -1361,6 +1375,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_string(const libxs
     *value = buffer;
   }
 
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -1519,6 +1534,8 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_verbosity(int* lev
   }
 
   *level = verbosity;
+
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
@@ -1541,9 +1558,8 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_set_verbosity(int leve
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_print(int verbosity, const char* message, ...)
 {
   int level = 0, result = libxstream_get_verbosity(&level);
-  LIBXSTREAM_CHECK_ERROR(result);
 
-  if (level >= verbosity || 0 > level) {
+  if (LIBXSTREAM_ERROR_NONE == result && (level >= verbosity || 0 > level)) {
     va_list args;
     va_start(args, message);
     LIBXSTREAM_FLOCK(stderr);
@@ -1552,6 +1568,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_print(int verbosity, c
     va_end(args);
   }
 
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 

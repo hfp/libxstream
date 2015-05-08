@@ -161,7 +161,6 @@ public:
   }
 
   int enqueue(libxstream_event& event, const libxstream_stream* exclude) {
-    LIBXSTREAM_ASSERT(0 == event.expected());
     int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
     bool reset = true;
@@ -175,10 +174,8 @@ public:
         reset = false;
       }
     }
-    if (reset) {
-      result = event.reset();
-    }
 
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
     return result;
   }
 
@@ -199,44 +196,26 @@ public:
     const size_t end = j + n;
     for (size_t i = j + 1; i < end; ++i) {
       const value_type stream = m_streams[/*i%n*/i<n?i:(i-n)];
+
       if (0 != stream) {
-        libxstream_workqueue *const events = stream->events();
-        if (0 == events) {
+        const libxstream_event *const events = stream->events();
+        bool occurred = true;
+
+        if (0 != events) {
+          const size_t nevents = stream->nevents();
+          for (size_t k = 0; k < nevents && occurred; ++k) {
+            const libxstream_event& event = events[k];
+            if (LIBXSTREAM_ERROR_NONE != event.query(occurred, stream)) {
+              occurred = false;
+              i = end; // break
+            }
+          }
+        }
+
+        if (occurred) {
           result = stream;
           i = end; // break
         }
-#if 0 // TODO
-        else {
-          libxstream_workqueue::entry_type* entry = &events->get();
-          libxstream_workqueue::item_type item = entry->item();
-
-          if (item) {
-            do {
-              const libxstream_event *const event = static_cast<const libxstream_event*>(item);
-              bool occurred = false;
-              event->query(occurred, stream);
-
-              if (occurred) {
-                entry->pop();
-                entry = &events->get();
-                item = entry->item();
-                if (0 == item) { // no other events
-                  result = stream;
-                  i = end; // break
-                }
-              }
-              else {
-                item = 0; // break
-              }
-            }
-            while(item);
-          }
-          else {
-            result = stream;
-            i = end; // break
-          }
-        }
-#endif
       }
     }
 
@@ -385,7 +364,7 @@ T atomic_store(A& atomic, T value)
 
 
 libxstream_stream::libxstream_stream(int device, int priority, const char* name)
-  : m_events(0), m_device(device), m_priority(priority), m_thread(-1)
+  : m_device(device), m_priority(priority), m_thread(-1)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
   , m_npartitions(0)
@@ -432,9 +411,9 @@ libxstream_stream::~libxstream_stream()
   LIBXSTREAM_ASSERT(stream != end);
   *stream = 0; // unregister stream
 
-  delete m_events;
   const size_t nthreads = nthreads_active();
   for (size_t i = 0; i < nthreads; ++i) {
+    delete[] m_slots[i].events;
     delete m_queues[i];
   }
 
@@ -475,6 +454,8 @@ int libxstream_stream::sync(bool wait, libxstream_signal signal)
 # endif
 #           pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(wait_pending)
         }
+#else
+        libxstream_use_sink(&wait);
 #endif
         if (0 == signal) {
           pending_signals[i] = 0;
@@ -501,28 +482,53 @@ int libxstream_stream::sync(bool wait, libxstream_signal signal)
 }
 
 
-int libxstream_stream::wait(const libxstream_event& event)
+int libxstream_stream::wait(libxstream_event& event)
 {
-  LIBXSTREAM_ASSERT(false/*TODO*/);
-#if 0
-  if (0 < event.expected()) { // avoids waiting for en empty event
-    if (0 == m_events) {
-      libxstream_lock *const lock = libxstream_lock_get(this);
-      libxstream_lock_acquire(lock);
+  bool occurred = true;
+  int result = event.query(occurred, this);
 
-      if (0 == m_events) {
-        m_events = new libxstream_workqueue;
+  if (LIBXSTREAM_ERROR_NONE == result && !occurred) { // avoids waiting for en empty event
+    const int thread = this_thread_id();
+    slot_type& slot = m_slots[thread];
+
+    if (0 == slot.events) {
+      slot.events = new libxstream_event[LIBXSTREAM_MAX_QSIZE];
+    }
+    LIBXSTREAM_ASSERT(0 != slot.events);
+
+    for (size_t i = slot.size; 0 < i; --i) {
+      const libxstream_event& eventi = slot.events[i-1];
+      result = eventi.query(occurred, this);
+      if (LIBXSTREAM_ERROR_NONE == result && occurred) {
+        --slot.size;
       }
-
-      libxstream_lock_release(lock);
+      else {
+        i = 0; // break
+      }
     }
 
-    LIBXSTREAM_ASSERT(0 != m_events);
-    libxstream_workqueue::entry_type& entry = m_events->allocate_entry_mt();
-    delete static_cast<const libxstream_event*>(entry.push(new libxstream_event(event), true));
+    slot.events[slot.size].swap(event);
+    LIBXSTREAM_ASSERT(slot.size < LIBXSTREAM_MAX_QSIZE);
+    ++slot.size;
   }
-#endif
-  return LIBXSTREAM_ERROR_NONE;
+
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+  return result;
+}
+
+
+libxstream_event* libxstream_stream::events()
+{
+  libxstream_event *const result = 0 <= m_thread ? m_slots[m_thread].events : 0;
+  return result;
+}
+
+
+size_t libxstream_stream::nevents() const
+{
+  const size_t result = 0 <= m_thread ? m_slots[m_thread].size : 0;
+  LIBXSTREAM_ASSERT(result <= LIBXSTREAM_MAX_QSIZE);
+  return result;
 }
 
 
@@ -556,20 +562,12 @@ libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem
   libxstream_workqueue* queue = m_queues[thread];
 
   if (0 == queue) {
-    libxstream_lock *const lock = libxstream_lock_get(m_queues + thread);
-    libxstream_lock_acquire(lock);
-
-    queue = m_queues[thread];
-    if (0 == queue) {
-      queue = new libxstream_workqueue;
-      m_queues[thread] = queue;
-    }
-
-    libxstream_lock_release(lock);
+    queue = new libxstream_workqueue;
+    m_queues[thread] = queue;
   }
 
   LIBXSTREAM_ASSERT(0 != queue);
-  libxstream_workqueue::entry_type& entry = queue->allocate_entry_mt();
+  libxstream_workqueue::entry_type& entry = queue->allocate_entry();
   entry.push(workitem);
   return entry;
 }
