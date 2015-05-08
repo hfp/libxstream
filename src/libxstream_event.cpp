@@ -48,7 +48,7 @@ libxstream_event::libxstream_event()
 
 libxstream_event::~libxstream_event()
 {
-  LIBXSTREAM_CHECK_CALL_ASSERT(wait());
+  //LIBXSTREAM_CHECK_CALL_ASSERT(wait());
 }
 
 
