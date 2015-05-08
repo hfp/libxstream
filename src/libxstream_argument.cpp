@@ -62,7 +62,7 @@ int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream
     if (0 < dims || !weak_candidate) {
 #if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
       if (0 == dims && !weak_candidate) {
-        LIBXSTREAM_PRINT(1, "fn_%s: signature=0x%llx arg=%lu is strong-typed (ignored shape)!",
+        LIBXSTREAM_PRINT(3, "fn_%s: signature=0x%llx arg=%lu is strong-typed; ignored shape",
           context[kind], reinterpret_cast<unsigned long long>(arguments), static_cast<unsigned long>(arg));
       }
 #endif
@@ -80,7 +80,7 @@ int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream
   else {
 #if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
     if (0 < dims && 0 == shape) {
-      LIBXSTREAM_PRINT(1, "fn_%s: signature=0x%llx arg=%lu is weak-typed (no shape information)!",
+      LIBXSTREAM_PRINT(3, "fn_%s: signature=0x%llx arg=%lu is weak-typed; no shape",
         context[kind], reinterpret_cast<unsigned long long>(arguments), static_cast<unsigned long>(arg));
     }
 #endif
