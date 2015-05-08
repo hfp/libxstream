@@ -62,6 +62,7 @@ public:
 #else
     , m_thread(0)
 #endif
+    , m_terminated(false)
   {}
 
   ~scheduler_type() {
@@ -72,6 +73,7 @@ public:
       entry = entry_type(&m_global_queue);
       entry.wait();
 
+      m_terminated = true;
 #if defined(LIBXSTREAM_STDFEATURES)
       m_thread.detach();
 #else
@@ -94,7 +96,7 @@ public:
   }
 
   void start() {
-    if (!running()) {
+    if (!m_terminated && !running()) {
       libxstream_lock *const lock = libxstream_lock_get(this);
       libxstream_lock_acquire(lock);
 
@@ -208,6 +210,7 @@ private:
 #else
   HANDLE m_thread;
 #endif
+  bool m_terminated;
 };
 static/*IPO*/ scheduler_type scheduler;
 
