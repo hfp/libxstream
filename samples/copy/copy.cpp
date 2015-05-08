@@ -188,7 +188,7 @@ int main(int argc, char* argv[])
     if (0 < n) {
       fprintf(stdout, "Finished after %.0f s\n", duration);
       fprintf(stdout, "max: %.0f MB/s\n", maxval);
-      fprintf(stdout, "rgm: %.0f MB/s\n", std::exp(runlns));
+      fprintf(stdout, "rgm: %.0f MB/s\n", std::exp(runlns) - 1.0);
       fprintf(stdout, "avg: %.0f MB/s\n", sumval / n);
     }
     else {
