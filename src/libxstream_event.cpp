@@ -61,7 +61,7 @@ size_t libxstream_event::expected() const
 }
 
 
-int libxstream_event::enqueue(libxstream_stream& stream, bool reset)
+int libxstream_event::enqueue(libxstream_stream& stream, bool reset, bool sync)
 { 
   int result = !reset ? LIBXSTREAM_ERROR_NONE : this->reset();
   LIBXSTREAM_CHECK_ERROR(result);
@@ -69,6 +69,7 @@ int libxstream_event::enqueue(libxstream_stream& stream, bool reset)
   const int thread = this_thread_id();
   size_t& n = m_expected[thread];
   LIBXSTREAM_CHECK_CONDITION(LIBXSTREAM_ERROR_NONE == result && (LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS) >= n);
+  const int flags = LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_ERROR;
 
   LIBXSTREAM_ASYNC_BEGIN
   {
@@ -77,28 +78,33 @@ int libxstream_event::enqueue(libxstream_stream& stream, bool reset)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       if (LIBXSTREAM_ASYNC_READY) {
 #       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL //out(status)
-        status = 0;
+        {
+          status = LIBXSTREAM_ERROR_NONE;
+        }
       }
       else {
 #       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT //out(status)
-        status = 0;
+        {
+          status = LIBXSTREAM_ERROR_NONE;
+        }
       }
     }
     else
 #endif
     {
-      status = 0;
+      status = LIBXSTREAM_ERROR_NONE;
     }
   }
-  LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_ERROR, work);
+  LIBXSTREAM_ASYNC_END(stream, !sync ? flags : (flags | LIBXSTREAM_CALL_SYNC), work);
 
   slot_type *const slots = m_slots[thread];
   LIBXSTREAM_ASSERT(0 != slots);
 
   slots[n] = &LIBXSTREAM_ASYNC_INTERNAL(work);
-  n += 0 != work.item() ? 1 : 0;
+  const libxstream_workitem *const item = work.item();
+  n += 0 != item ? 1 : 0;
 
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result && (0 != item || LIBXSTREAM_ERROR_NONE == work.status()));
   return result;
 }
 

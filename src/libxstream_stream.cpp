@@ -454,57 +454,50 @@ libxstream_signal libxstream_stream::signal() const
 
 int libxstream_stream::sync(bool wait, libxstream_signal signal)
 {
-  int result = LIBXSTREAM_ERROR_NONE;
+  const size_t nthreads = nthreads_active();
 
-  if (wait) {
-    LIBXSTREAM_ASYNC_BEGIN
-    {
-      libxstream_signal *const pending_signals = ptr<libxstream_signal,0>();
-      const libxstream_signal signal = val<const libxstream_signal,1>();
+  LIBXSTREAM_ASYNC_BEGIN
+  {
+    const bool wait = val<const bool,0>();
+    const libxstream_signal signal = val<const libxstream_signal,1>();
+    libxstream_signal *const pending_signals = ptr<libxstream_signal,2>();
+    const size_t nthreads = val<const size_t,3>();
 
-      const int nthreads = static_cast<int>(nthreads_active());
-      for (int i = 0; i < nthreads; ++i) {
-        const libxstream_signal pending_signal = pending_signals[i];
-        if (0 != pending_signal) {
+    for (size_t i = 0; i < nthreads; ++i) {
+      const libxstream_signal pending_signal = pending_signals[i];
+      if (0 != pending_signal) {
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
-          if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+        if (wait && 0 <= LIBXSTREAM_ASYNC_DEVICE) {
 # if defined(LIBXSTREAM_STREAM_WAIT_PAST)
-            const libxstream_signal wait_pending = 0 != signal ? signal : pending_signal;
+          const libxstream_signal wait_pending = 0 != signal ? signal : pending_signal;
 # else
-            const libxstream_signal wait_pending = pending_signal;
+          const libxstream_signal wait_pending = pending_signal;
 # endif
 #           pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(wait_pending)
-          }
-#endif
-          if (0 == signal) {
-            pending_signals[i] = 0;
-          }
-#if defined(LIBXSTREAM_STREAM_WAIT_PAST)
-          else {
-            i = nthreads; // break
-          }
-#endif
         }
+#endif
+        if (0 == signal) {
+          pending_signals[i] = 0;
+        }
+#if defined(LIBXSTREAM_STREAM_WAIT_PAST)
+        else {
+          i = nthreads; // break
+        }
+#endif
       }
+    }
 
-      if (0 != signal) {
-        for (int i = 0; i < nthreads; ++i) {
-          if (signal == pending_signals[i]) {
-            pending_signals[i] = 0;
-          }
+    if (0 != signal) {
+      for (size_t i = 0; i < nthreads; ++i) {
+        if (signal == pending_signals[i]) {
+          pending_signals[i] = 0;
         }
       }
     }
-    LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC, work, m_pending, signal);
-    result = work.wait();
   }
-  else {
-    static libxstream_event event;
-    event.enqueue(*this, true);
-    event.wait();
-  }
+  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC, work, wait, signal, m_pending, nthreads);
 
-  return result;
+  return work.wait();
 }
 
 
