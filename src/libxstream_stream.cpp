@@ -497,13 +497,14 @@ int libxstream_stream::wait(libxstream_event& event)
     LIBXSTREAM_ASSERT(0 != slot.events);
 
     for (size_t i = slot.size; 0 < i; --i) {
+      LIBXSTREAM_ASSERT(0 < i && i <= LIBXSTREAM_MAX_QSIZE);
       const libxstream_event& eventi = slot.events[i-1];
       result = eventi.query(occurred, this);
       if (LIBXSTREAM_ERROR_NONE == result && occurred) {
         --slot.size;
       }
       else {
-        i = 0; // break
+        i = 1; // break
       }
     }
 
