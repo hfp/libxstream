@@ -492,12 +492,12 @@ int libxstream_stream::wait(libxstream_event& event)
     slot_type& slot = m_slots[thread];
 
     if (0 == slot.events) {
-      slot.events = new libxstream_event[LIBXSTREAM_MAX_QSIZE];
+      slot.events = new libxstream_event[LIBXSTREAM_MAX_NEVENTS];
     }
     LIBXSTREAM_ASSERT(0 != slot.events);
 
     for (size_t i = slot.size; 0 < i; --i) {
-      LIBXSTREAM_ASSERT(0 < i && i <= LIBXSTREAM_MAX_QSIZE);
+      LIBXSTREAM_ASSERT(0 < i && i <= LIBXSTREAM_MAX_NEVENTS);
       const libxstream_event& eventi = slot.events[i-1];
       result = eventi.query(occurred, this);
       if (LIBXSTREAM_ERROR_NONE == result && occurred) {
@@ -509,7 +509,7 @@ int libxstream_stream::wait(libxstream_event& event)
     }
 
     slot.events[slot.size].swap(event);
-    LIBXSTREAM_ASSERT(slot.size < LIBXSTREAM_MAX_QSIZE);
+    LIBXSTREAM_ASSERT(slot.size < LIBXSTREAM_MAX_NEVENTS);
     ++slot.size;
   }
 
@@ -528,7 +528,7 @@ libxstream_event* libxstream_stream::events()
 size_t libxstream_stream::nevents() const
 {
   const size_t result = 0 <= m_thread ? m_slots[m_thread].size : 0;
-  LIBXSTREAM_ASSERT(result <= LIBXSTREAM_MAX_QSIZE);
+  LIBXSTREAM_ASSERT(result <= LIBXSTREAM_MAX_NEVENTS);
   return result;
 }
 

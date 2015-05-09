@@ -100,6 +100,9 @@
 /** Maximum number of executions in the queue (POT). */
 #define LIBXSTREAM_MAX_QSIZE 256
 
+/** Maximum number of events per stream. */
+#define LIBXSTREAM_MAX_NEVENTS 512
+
 /** Maximum number of host threads. */
 #define LIBXSTREAM_MAX_NTHREADS 512
 
