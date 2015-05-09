@@ -42,5 +42,5 @@ fi
 
 ${CXX} ${OPT} $* \
   -I${LIBXSTREAM_ROOT}/include -I${LIBXSTREAM_ROOT}/src -DLIBXSTREAM_EXPORTED \
-  ${LIBXSTREAM_ROOT}/src/*.cpp *.cpp \
+  ${LIBXSTREAM_ROOT}/src/*.cpp *.c* \
   ${LNK} -o ${NAME}
