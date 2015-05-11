@@ -149,7 +149,7 @@ int main(int argc, char* argv[])
     size_t i;
     for (i = 0; i < hsize; ++i) {
       const double h = (double)histogram[i];
-      entropy -= h * (log2(h) - log2_nitems);
+      entropy -= 0 < h ? (h * (log2(h) - log2_nitems)) : 0.0;
     }
     entropy /= nitems;
   }
