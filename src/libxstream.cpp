@@ -1022,7 +1022,6 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
   }
 #endif
 
-  // LIBXSTREAM_FALSE != wait ? true : false
   return stream ? stream->sync(true, 0) : libxstream_stream::sync_all(true);
 }
 

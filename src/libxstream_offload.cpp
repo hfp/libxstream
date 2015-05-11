@@ -108,9 +108,10 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
     size_t arity = 0;
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_arity(m_signature, &arity));
 
-    LIBXSTREAM_PRINT(2, "fn_call: stream=0x%llx fn=0x%llx args=0x%llx flags=%i", reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM),
+    LIBXSTREAM_PRINT(2, "fn_call: stream=0x%llx fn=0x%llx args=0x%llx (%lu) flags=%i",
+      reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM),
       reinterpret_cast<unsigned long long>(fhybrid ? fhybrid : ((libxstream_function)fnative)),
-      reinterpret_cast<unsigned long long>(signature), cflags);
+      reinterpret_cast<unsigned long long>(signature), static_cast<unsigned long>(arity), cflags);
     LIBXSTREAM_PRINT0(3, "************************************************************************");
 
 #if defined(LIBXSTREAM_OFFLOAD)
