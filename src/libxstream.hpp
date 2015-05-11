@@ -58,9 +58,10 @@ LIBXSTREAM_TARGET(mic) void this_thread_wait(size_t& cycle);
  * but considered internal and not to be exposed in the public API.
  */
 enum {
-  LIBXSTREAM_CALL_SYNC      = (2 * (LIBXSTREAM_CALL_INVALID - 1)),
-  LIBXSTREAM_CALL_ERROR     = (4 * (LIBXSTREAM_CALL_INVALID - 1)),
-  LIBXSTREAM_CALL_EXTERNAL  = (8 * (LIBXSTREAM_CALL_INVALID - 1))
+  LIBXSTREAM_CALL_DEVICE    = ( 2 * (LIBXSTREAM_CALL_INVALID - 1)),
+  LIBXSTREAM_CALL_SYNC      = ( 4 * (LIBXSTREAM_CALL_INVALID - 1)),
+  LIBXSTREAM_CALL_ERROR     = ( 8 * (LIBXSTREAM_CALL_INVALID - 1)),
+  LIBXSTREAM_CALL_EXTERNAL  = (16 * (LIBXSTREAM_CALL_INVALID - 1))
 };
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
