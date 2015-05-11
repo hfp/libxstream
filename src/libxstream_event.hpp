@@ -42,7 +42,7 @@ public:
   ~libxstream_event();
 
 public:
-  void swap(libxstream_event& other) throw();
+  void swap(libxstream_event& other);
 
   // Enqueue this event into the given stream; reset to start over.
   int enqueue(libxstream_stream& stream, bool reset, bool sync = false);

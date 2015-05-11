@@ -52,7 +52,7 @@ libxstream_event::~libxstream_event()
 }
 
 
-void libxstream_event::swap(libxstream_event& other) throw()
+void libxstream_event::swap(libxstream_event& other)
 {
   for (int i = 0; i < LIBXSTREAM_MAX_NTHREADS; ++i) {
     std::iter_swap(m_slots[i], other.m_slots[i]);
