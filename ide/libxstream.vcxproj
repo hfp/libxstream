@@ -219,7 +219,6 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
-      <OffloadConstructs>None</OffloadConstructs>
       <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
       <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -311,7 +310,6 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
-      <OffloadConstructs>None</OffloadConstructs>
       <InterproceduralOptimization>SingleFile</InterproceduralOptimization>
       <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -350,7 +348,6 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
-      <OffloadConstructs>None</OffloadConstructs>
       <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
     </ClCompile>
     <ResourceCompile>
@@ -388,7 +385,6 @@
       <Cpp0xSupport>true</Cpp0xSupport>
       <DisableSpecificWarnings>
       </DisableSpecificWarnings>
-      <OffloadConstructs>None</OffloadConstructs>
       <DisableSpecificDiagnostics>10373</DisableSpecificDiagnostics>
     </ClCompile>
     <ResourceCompile>
