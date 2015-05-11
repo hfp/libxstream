@@ -277,9 +277,11 @@ void libxstream_workitem::operator()(libxstream_workqueue::entry_type& entry)
 }
 
 
-libxstream_workqueue::entry_type& libxstream_enqueue(libxstream_workitem& workitem)
+libxstream_workqueue::entry_type& libxstream_enqueue(libxstream_workitem* workitem)
 {
-  return libxstream_workitem_internal::scheduler.push(workitem);
+  return workitem
+    ? libxstream_workitem_internal::scheduler.push(*workitem)
+    : libxstream_workitem_internal::scheduler.get();
 }
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

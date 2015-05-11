@@ -113,7 +113,7 @@
     LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,argv)) + 1, __FUNCTION__); \
   libxstream_workqueue::entry_type& LIBXSTREAM_ASYNC_INTERNAL(NAME) = LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item)).stream() \
     ? LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item)).stream()->enqueue(LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item))) \
-    : libxstream_enqueue(LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item))); \
+    : libxstream_enqueue(&LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item))); \
   const libxstream_workqueue::entry_type& NAME = LIBXSTREAM_ASYNC_INTERNAL(NAME); \
   libxstream_use_sink(&NAME)
 
@@ -205,7 +205,7 @@ private:
 };
 
 
-libxstream_workqueue::entry_type& libxstream_enqueue(libxstream_workitem& workitem);
+libxstream_workqueue::entry_type& libxstream_enqueue(libxstream_workitem* workitem);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_WORKITEM_HPP

@@ -223,28 +223,56 @@ public:
   }
 
   int sync(bool wait, int device) {
+    int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
-    for (size_t i = 0; i < n; ++i) {
-      if (const value_type stream = m_streams[i]) {
-        const int stream_device = stream->device();
-        if (stream_device == device) {
-          const int result = stream->sync(wait, 0);
-          LIBXSTREAM_CHECK_ERROR(result);
+
+    if (0 < n) {
+      size_t i = 0;
+      do {
+        if (const value_type stream = m_streams[i]) {
+          const int stream_device = stream->device();
+          if (stream_device == device) {
+            result = stream->sync(wait, 0);
+            LIBXSTREAM_CHECK_ERROR(result);
+          }
         }
+        ++i;
       }
+      while(i < n);
     }
-    return LIBXSTREAM_ERROR_NONE;
+    else {
+      result = sync(wait);
+    }
+
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+    return result;
   }
 
   int sync(bool wait) {
+    int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
-    for (size_t i = 0; i < n; ++i) {
-      if (const value_type stream = m_streams[i]) {
-        const int result = stream->sync(wait, 0);
+
+    if (0 < n) {
+      size_t i = 0;
+      do {
+        if (const value_type stream = m_streams[i]) {
+          result = stream->sync(wait, 0);
+          LIBXSTREAM_CHECK_ERROR(result);
+        }
+        ++i;
+      }
+      while(i < n);
+    }
+    else {
+      const libxstream_workqueue::entry_type* entry = &libxstream_enqueue(0);
+      while(0 != entry->item()) {
+        result = entry->wait();
         LIBXSTREAM_CHECK_ERROR(result);
+        entry = &libxstream_enqueue(0);
       }
     }
-    return LIBXSTREAM_ERROR_NONE;
+
+    return result;
   }
 
 private:
