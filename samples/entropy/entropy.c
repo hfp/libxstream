@@ -97,7 +97,7 @@ int main(int argc, char* argv[])
       const char *const name = 0;
 #else
       char name[128];
-      LIBXSTREAM_SNPRINTF(name, sizeof(name), "stream %i", i + 1);
+      LIBXSTREAM_SNPRINTF(name, sizeof(name), "stream %i", (int)(i + 1));
 #endif
       const int device = (0 < ndevices) ? ((int)(i % ndevices)) : -1;
       stream[i].handle = 0;
