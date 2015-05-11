@@ -557,7 +557,7 @@ LIBXSTREAM_EXPORT_C int libxstream_get_ndevices(size_t* ndevices)
   LIBXSTREAM_CHECK_CONDITION(0 <= idevices);
   *ndevices = static_cast<size_t>(idevices);
 #else
-  *ndevices = 1; // host
+  *ndevices = 0;
 #endif
 
 #if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
@@ -1045,7 +1045,13 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream
         libxstream_internal::context.device() = active_device;
       }
 
-      LIBXSTREAM_PRINT(2, "get_active_device: device=%i (fallback) thread=%i", active_device, this_thread_id());
+#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+      static LIBXSTREAM_TLS bool print = true;
+      if (print) { // once
+        LIBXSTREAM_PRINT(2, "get_active_device: device=%i (fallback) thread=%i", active_device, this_thread_id());
+        print = false;
+      }
+#endif
     }
 
     *device = active_device;
