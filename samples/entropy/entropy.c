@@ -65,13 +65,13 @@ int main(int argc, char* argv[])
   FILE *const file = 1 < argc ? fileopen(argv[1], "rb", &filesize) : 0;
   const size_t nitems = (1 < argc && 0 == filesize && 0 < atoi(argv[1])) ? (atoi(argv[1]) * (1ULL << 20)/*MB*/) : (0 < filesize ? filesize : (512 << 20));
   const size_t mbatch = LIBXSTREAM_MIN(2 < argc ? strtoul(argv[2], 0, 10) : 0/*auto*/, nitems);
-  const int nstreams = LIBXSTREAM_MIN(LIBXSTREAM_MAX(3 < argc ? atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS) * (int)ndevices;
+  const size_t mstreams = LIBXSTREAM_MIN(LIBXSTREAM_MAX(3 < argc ? atoi(argv[3]) : 2, 0), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(_OPENMP)
   const int nthreads = LIBXSTREAM_MIN(LIBXSTREAM_MAX(4 < argc ? atoi(argv[4]) : 2, 1), omp_get_max_threads());
 #else
   LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
-  const size_t nbatch = (0 == mbatch) ? (nitems / nstreams) : mbatch, hsize = 256;
+  const size_t nstreams = LIBXSTREAM_MAX(mstreams, 1) * ndevices, nbatch = (0 == mbatch) ? (nitems / nstreams) : mbatch, hsize = 256;
   size_t histogram[256/*hsize*/];
   memset(histogram, 0, sizeof(histogram));
 
@@ -91,7 +91,7 @@ int main(int argc, char* argv[])
   } stream[(LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS)];
 
   { /*allocate and initialize streams and device memory*/
-    int i;
+    size_t i;
     for (i = 0; i < nstreams; ++i) {
 #if defined(NDEBUG) /*no name*/
       const char *const name = 0;
@@ -100,7 +100,8 @@ int main(int argc, char* argv[])
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "stream %i", i + 1);
 #endif
       const int device = (0 < ndevices) ? ((int)(i % ndevices)) : -1;
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_create(&stream[i].handle, device, 0, name));
+      stream[i].handle = 0;
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_create(0 < mstreams ? &stream[i].handle : 0, device, 0, name));
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_mem_allocate(device, (void**)&stream[i].data, nbatch, 0));
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_mem_allocate(device, (void**)&stream[i].histogram, hsize * sizeof(size_t), 0));
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memset_zero(stream[i].histogram, hsize * sizeof(size_t), stream[i].handle));
@@ -122,7 +123,7 @@ int main(int argc, char* argv[])
 #endif
   for (batch = 0; batch < end; ++batch) {
     libxstream_argument* signature;
-    const int i = batch % nstreams; /*stream index*/
+    const size_t i = batch % nstreams; /*stream index*/
     const size_t j = batch * nbatch, size = LIBXSTREAM_MIN(nbatch, nitems - j);
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(data + j, stream[i].data, size, stream[i].handle));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_signature(&signature));
@@ -133,7 +134,7 @@ int main(int argc, char* argv[])
 
   { /*reduce stream-local histograms*/
     LIBXSTREAM_ALIGNED(size_t local[256/*hsize*/], LIBXSTREAM_MAX_SIMD);
-    int i, j;
+    size_t i, j;
     for (i = 0; i < nstreams; ++i) {
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(stream[i].histogram, local, sizeof(local), stream[i].handle));
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(stream[i].handle)); /*wait for pending work*/
@@ -145,7 +146,7 @@ int main(int argc, char* argv[])
   double entropy = 0;
   { /*calculate entropy*/
     const double log2_nitems = log2((double)nitems);
-    int i;
+    size_t i;
     for (i = 0; i < hsize; ++i) {
       const double h = (double)histogram[i];
       entropy -= h * (log2(h) - log2_nitems);
@@ -174,7 +175,7 @@ int main(int argc, char* argv[])
 #endif
 
   { /*release resources*/
-    int i;
+    size_t i;
     for (i = 0; i < nstreams; ++i) {
       int device = -1;
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_device(stream[i].handle, &device));
