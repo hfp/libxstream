@@ -162,9 +162,6 @@ int main(int argc, char* argv[])
         runlns = (runlns + std::log(bandwidth)) * (0 < n ? 0.5 : 1.0);
         duration += iduration;
       }
-      else {
-        fprintf(stdout, "-\n");
-      }
 #endif
     }
 
