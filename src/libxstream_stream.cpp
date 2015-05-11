@@ -277,6 +277,7 @@ public:
       result = work.wait();
     }
 
+    LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
     return result;
   }
 
