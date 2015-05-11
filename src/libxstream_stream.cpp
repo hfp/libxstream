@@ -196,8 +196,9 @@ public:
     const size_t end = j + n;
     for (size_t i = j + 1; i < end; ++i) {
       const value_type stream = m_streams[/*i%n*/i<n?i:(i-n)];
+      const libxstream_workqueue *const queue = 0 != stream ? stream->queue_begin() : 0;
 
-      if (0 != stream) {
+      if (0 != queue && 0 != queue->get().item()) {
         const libxstream_event *const events = stream->events();
         bool occurred = true;
 
