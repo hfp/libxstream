@@ -154,7 +154,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
 /** Query the size of the elemental type (Byte). */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstream_type type, size_t* typesize);
 /** Select a type according to the typesize; suiteable to transport the requested amount of Bytes. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t typesize, libxstream_type* autotype);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t typesize, libxstream_type start, libxstream_type* autotype);
 /** Query the name of the elemental type (string does not need to be buffered). */
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstream_type type, const char** name);
 /** Query the argument's 0-based position within the signature; needs a pointer variable (not from a by-value variable). */
@@ -187,7 +187,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_print(int verbosity, c
 
 #if defined(__cplusplus)
 template<typename TYPE> struct libxstream_map_to { static libxstream_type type() {/** select a type by type-size; bool goes here! */
-                             libxstream_type autotype = LIBXSTREAM_TYPE_VOID; libxstream_get_autotype(sizeof(TYPE), &autotype); return autotype; } };
+     libxstream_type autotype = LIBXSTREAM_TYPE_VOID; libxstream_get_autotype(sizeof(TYPE), LIBXSTREAM_TYPE_CHAR, &autotype); return autotype;   } };
 template<> struct libxstream_map_to<int8_t>                                       { static libxstream_type type() { return LIBXSTREAM_TYPE_I8;   } };
 template<> struct libxstream_map_to<uint8_t>                                      { static libxstream_type type() { return LIBXSTREAM_TYPE_U8;   } };
 template<> struct libxstream_map_to<int16_t>                                      { static libxstream_type type() { return LIBXSTREAM_TYPE_I16;  } };

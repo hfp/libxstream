@@ -1200,22 +1200,17 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstrea
 }
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t typesize, libxstream_type* autotype)
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t typesize, libxstream_type start, libxstream_type* autotype)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != autotype);
   size_t size = 0;
-  int i = 0;
 
-  do {
+  for (int i = static_cast<libxstream_type>(start); i <= LIBXSTREAM_TYPE_VOID; ++i) {
     *autotype = static_cast<libxstream_type>(i);
-    if (LIBXSTREAM_ERROR_NONE == libxstream_get_typesize(*autotype, &size) && typesize != size) {
-      ++i;
-    }
-    else {
+    if (LIBXSTREAM_ERROR_NONE != libxstream_get_typesize(*autotype, &size) || typesize == size) {
       i = LIBXSTREAM_TYPE_INVALID; // break
     }
   }
-  while (i <= LIBXSTREAM_TYPE_VOID);
 
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -1344,7 +1339,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_string(const libxs
   else { // 0 == argument.dims && 0 != data
     libxstream_type type = argument.type;
     if (LIBXSTREAM_TYPE_VOID == type) {
-      LIBXSTREAM_CHECK_CALL(libxstream_get_autotype(*argument.shape, &type));
+      LIBXSTREAM_CHECK_CALL(libxstream_get_autotype(*argument.shape, LIBXSTREAM_TYPE_CHAR, &type));
     }
 
     switch(type) {
