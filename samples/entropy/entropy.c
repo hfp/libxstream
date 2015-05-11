@@ -8,15 +8,14 @@
 #endif
 #include <libxstream_end.h>
 
+/*#define ENTROPY_CHECK*/
 
-LIBXSTREAM_TARGET(mic) void makehist(const char* data, size_t* histogram)
+
+LIBXSTREAM_TARGET(mic) void hista(const char* data, size_t size, size_t* histogram)
 {
   static const size_t maxint = (size_t)(((unsigned int)-1) >> 1);
-  int i, j, m;
-  size_t size;
-  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_shape(0/*current context*/, 0/*data*/, &size));
+  int i, j, m = (int)((size + maxint - 1) / maxint);
 
-  m = (int)((size + maxint - 1) / maxint);
   for (i = 0; i < m; ++i) { /*OpenMP 2: size is broken down to integer space*/
     const size_t base = i * maxint;
     const int n = (int)LIBXSTREAM_MIN(size - base, maxint);
@@ -31,6 +30,14 @@ LIBXSTREAM_TARGET(mic) void makehist(const char* data, size_t* histogram)
       ++histogram[k];
     }
   }
+}
+
+
+LIBXSTREAM_TARGET(mic) void makehist(const char* data, size_t* histogram)
+{
+  size_t size;
+  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_shape(0/*current context*/, 0/*data*/, &size));
+  hista(data, size, histogram);
 }
 
 
@@ -142,6 +149,9 @@ int main(int argc, char* argv[])
     }
   }
 
+#if defined(_OPENMP)
+  const double duration = omp_get_wtime() - start;
+#endif
   const double kilo = 1.0 / (1 << 10), mega = 1.0 / (1 << 20);
   double entropy = 0;
   { /*calculate entropy*/
@@ -153,6 +163,7 @@ int main(int argc, char* argv[])
     }
     entropy /= nitems;
   }
+
   if ((1 << 20) <= nitems) { /*mega*/
     fprintf(stdout, "Compression %gx (%0.f%%): %.1f -> %.1f MB", 8.0 / entropy, 100.0 - 12.5 * entropy, mega * nitems, mega * entropy * nitems / 8.0);
   }
@@ -165,14 +176,26 @@ int main(int argc, char* argv[])
   fprintf(stdout, " (entropy of %.0f bit)\n", entropy);
 
 #if defined(_OPENMP)
-  const double duration = omp_get_wtime() - start;
   if (0 < duration) {
-    fprintf(stdout, "Finished after %.1f s\n", duration);
+    fprintf(stdout, "Finished after %.1f s", duration);
   }
   else {
-    fprintf(stdout, "Finished\n");
+    fprintf(stdout, "Finished");
   }
 #endif
+
+#if !defined(ENTROPY_CHECK)
+  const char *const check_env = getenv("CHECK");
+  if (check_env && *check_env && 0 != atoi(check_env))
+#endif
+  { /*validate result*/
+    size_t expected[256/*hsize*/], errors = 0, i;
+    memset(expected, 0, sizeof(expected));
+    hista(data, nitems, expected);
+    for (i = 0; i < hsize; ++i) errors += expected[i] == histogram[i] ? 0 : 1;
+    fprintf(stdout, " with %llu error%s", (unsigned long long)errors, 1 != errors ? "s" : "");
+  }
+  fprintf(stdout, "\n");
 
   { /*release resources*/
     size_t i;
