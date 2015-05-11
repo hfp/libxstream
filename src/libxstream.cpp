@@ -465,7 +465,7 @@ LIBXSTREAM_TARGET(mic) void this_thread_yield()
 #if defined(LIBXSTREAM_RUNTIME_SLEEP)
 # if defined(LIBXSTREAM_STDFEATURES) && defined(LIBXSTREAM_STDFEATURES_THREADX)
   std::this_thread::yield();
-# elif defined(__GNUC__)
+# elif defined(__GNUC__) && !defined(__MIC__)
   pthread_yield();
 # endif
 #else
