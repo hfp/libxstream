@@ -103,6 +103,9 @@ int main(int argc, char* argv[])
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_mem_allocate(device, (void**)&stream[i].histogram, 256 * sizeof(size_t), 0));
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memset_zero(stream[i].histogram, 256 * sizeof(size_t), stream[i].handle));
     }
+
+    /*start benchmark with no pending work*/
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(0));
   }
 
   /*process data in chunks of size nbatch*/
@@ -112,6 +115,7 @@ int main(int argc, char* argv[])
   libxstream_type sizetype = LIBXSTREAM_TYPE_U32;
   LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(size_t), sizetype, &sizetype));
 #if defined(_OPENMP)
+  /*if (0 == ndevices) omp_set_nested(1);*/
   const double start = omp_get_wtime();
 # pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
@@ -149,14 +153,14 @@ int main(int argc, char* argv[])
     }
     entropy /= nitems;
   }
-  if ((1 << 20) <= nitems) { // mega
-    fprintf(stdout, "Compression %.2fx (%0.f%%): %.1f -> %.1f MB", 8.0 / entropy, 100.0 - 12.5 * entropy, mega * nitems, mega * entropy * nitems / 8.0);
+  if ((1 << 20) <= nitems) { /*mega*/
+    fprintf(stdout, "Compression %gx (%0.f%%): %.1f -> %.1f MB", 8.0 / entropy, 100.0 - 12.5 * entropy, mega * nitems, mega * entropy * nitems / 8.0);
   }
-  else if ((1 << 10) <= nitems) { // kilo
-    fprintf(stdout, "Compression %.2fx (%0.f%%): %.1f -> %.1f KB", 8.0 / entropy, 100.0 - 12.5 * entropy, kilo * nitems, kilo * entropy * nitems / 8.0);
+  else if ((1 << 10) <= nitems) { /*kilo*/
+    fprintf(stdout, "Compression %gx (%0.f%%): %.1f -> %.1f KB", 8.0 / entropy, 100.0 - 12.5 * entropy, kilo * nitems, kilo * entropy * nitems / 8.0);
   }
   else  {
-    fprintf(stdout, "Compression %.2fx (%0.f%%): %.0f -> %0.f B", 8.0 / entropy, 100.0 - 12.5 * entropy, 1.0 * nitems, entropy * nitems / 8.0);
+    fprintf(stdout, "Compression %gx (%0.f%%): %.0f -> %0.f B", 8.0 / entropy, 100.0 - 12.5 * entropy, 1.0 * nitems, entropy * nitems / 8.0);
   }
   fprintf(stdout, " (entropy of %.0f bit)\n", entropy);
 
