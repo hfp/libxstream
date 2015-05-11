@@ -150,13 +150,13 @@ int main(int argc, char* argv[])
     entropy /= nitems;
   }
   if ((1 << 20) <= nitems) { // mega
-    fprintf(stdout, "Compression %0.f%%: %.1f -> %.1f MB", 100.0 - 12.5 * entropy, mega * nitems, mega * entropy * nitems / 8.0);
+    fprintf(stdout, "Compression %.2fx (%0.f%%): %.1f -> %.1f MB", 8.0 / entropy, 100.0 - 12.5 * entropy, mega * nitems, mega * entropy * nitems / 8.0);
   }
   else if ((1 << 10) <= nitems) { // kilo
-    fprintf(stdout, "Compression %0.f%%: %.1f -> %.1f KB", 100.0 - 12.5 * entropy, kilo * nitems, kilo * entropy * nitems / 8.0);
+    fprintf(stdout, "Compression %.2fx (%0.f%%): %.1f -> %.1f KB", 8.0 / entropy, 100.0 - 12.5 * entropy, kilo * nitems, kilo * entropy * nitems / 8.0);
   }
   else  {
-    fprintf(stdout, "Compression %0.f%%: %.0f -> %0.f B", 100.0 - 12.5 * entropy, 1.0 * nitems, entropy * nitems / 8.0);
+    fprintf(stdout, "Compression %.2fx (%0.f%%): %.0f -> %0.f B", 8.0 / entropy, 100.0 - 12.5 * entropy, 1.0 * nitems, entropy * nitems / 8.0);
   }
   fprintf(stdout, " (entropy of %.0f bit)\n", entropy);
 
