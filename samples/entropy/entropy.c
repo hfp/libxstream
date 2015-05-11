@@ -63,7 +63,7 @@ int main(int argc, char* argv[])
 
   size_t filesize = 0;
   FILE *const file = 1 < argc ? fileopen(argv[1], "rb", &filesize) : 0;
-  const size_t nitems = (1 < argc && 0 == filesize && 0 < strtoul(argv[1], 0, 10)) ? strtoul(argv[1], 0, 10) : (0 < filesize ? filesize : (4ul << 20));
+  const size_t nitems = (1 < argc && 0 == filesize && 0 < atoi(argv[1])) ? (atoi(argv[1]) * (1 << 20)/*MB*/) : (0 < filesize ? filesize : (512 << 20));
   const size_t mbatch = LIBXSTREAM_MIN(2 < argc ? strtoul(argv[2], 0, 10) : 0/*auto*/, nitems);
   const int nstreams = LIBXSTREAM_MIN(LIBXSTREAM_MAX(3 < argc ? atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS) * (int)ndevices;
 #if defined(_OPENMP)
