@@ -663,7 +663,7 @@ _Offload_stream libxstream_stream::handle() const
 
   if (nstreams != m_npartitions) {
     if (0 != m_handle) {
-      const_cast<libxstream_stream*>(this)->wait(0); // complete pending operations on old stream
+      const_cast<libxstream_stream*>(this)->sync(true, 0); // complete pending operations on old stream
       _Offload_stream_destroy(m_device, m_handle);
     }
 
