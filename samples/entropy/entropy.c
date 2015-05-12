@@ -20,7 +20,7 @@ LIBXSTREAM_TARGET(mic) void hista(const char* data, size_t size, size_t* histogr
     const size_t base = i * maxint;
     const int n = (int)LIBXSTREAM_MIN(size - base, maxint);
 #if defined(_OPENMP)
-#   pragma omp parallel for
+#   pragma omp parallel for default(none) private(j) shared(data,histogram)
 #endif
     for (j = 0; j < n; ++j) {
       const int k = (unsigned char)data[base+j];
@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
   /*if (0 == ndevices) omp_set_nested(1);*/
   const double start = omp_get_wtime();
-# pragma omp parallel for num_threads(nthreads) schedule(dynamic)
+# pragma omp parallel for default(none) private(batch) shared(data,stream,sizetype) num_threads(nthreads) schedule(dynamic)
 #endif
   for (batch = 0; batch < end; ++batch) {
     libxstream_argument* signature;
