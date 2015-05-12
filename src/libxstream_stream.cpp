@@ -274,7 +274,7 @@ public:
         }
 #endif
       }
-      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC, work, wait);
+      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | LIBXSTREAM_CALL_WAIT, work, wait);
       result = work.wait();
     }
 
@@ -509,7 +509,7 @@ int libxstream_stream::sync(bool wait, libxstream_signal signal)
       }
     }
   }
-  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC, work, wait, signal, m_pending, nthreads);
+  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | LIBXSTREAM_CALL_WAIT, work, wait, signal, m_pending, nthreads);
 
   return work.wait();
 }
@@ -645,7 +645,7 @@ libxstream_workqueue* libxstream_stream::queue_next()
     for (int i = m_thread + 1; i < end; ++i) {
       const int thread = /*i % nthreads*/i < nthreads ? i : (i - nthreads);
       libxstream_workqueue *const queue = m_queues[thread];
-      if (0 != queue) {
+      if (0 != queue && 0 != queue->get().item()) {
         result = queue;
         m_thread = thread;
         i = end; // break
