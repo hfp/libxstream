@@ -79,11 +79,10 @@ int main(int argc, char* argv[])
   try {
     const int nitems = std::max(1 < argc ? std::atoi(argv[1]) : 60, 0);
     const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 5, 1);
-    const int ndevstrm = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
+    const int mstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(_OPENMP)
     const int nthreads = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 2, 1), omp_get_max_threads());
 #else
-    //const int nthreads = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 1, 1), 1);
     LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
 
@@ -97,8 +96,8 @@ int main(int argc, char* argv[])
     multi_dgemm_type::host_data_type host_data(reinterpret_cast<libxstream_function>(&process), nitems, split);
     fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
 
-    fprintf(stdout, "Initializing %i stream%s per device...", ndevstrm, 1 < ndevstrm ? "s" : "");
-    const size_t nstreams = 0 < ndevices ? (ndevices * ndevstrm) : 1;
+    fprintf(stdout, "Initializing %i stream%s per device...", mstreams, 1 < mstreams ? "s" : "");
+    const size_t nstreams = LIBXSTREAM_MAX(mstreams, 1) * LIBXSTREAM_MAX(ndevices, 1);
     multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_NSTREAMS];
     for (size_t i = 0; i < nstreams; ++i) {
       char name[128];
@@ -106,8 +105,11 @@ int main(int argc, char* argv[])
       LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, 0 < ndevices ? static_cast<int>(i % ndevices) : -1, static_cast<size_t>(nbatch)));
     }
     if (0 < nstreams) {
-      fprintf(stdout, " %.1f MB\n", ndevstrm * multi_dgemm[0].bytes() * 1E-6);
+      fprintf(stdout, " %.1f MB\n", mstreams * multi_dgemm[0].bytes() * 1E-6);
     }
+
+    // start benchmark with no pending work
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
     const int nbatches = (nitems + nbatch - 1) / nbatch;
     fprintf(stdout, "Running %i batch%s of %i item%s...\n", nbatches,
@@ -136,7 +138,6 @@ int main(int argc, char* argv[])
       // wait for an event on the host
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(multi_dgemm[k].event()));
 # else
-      // wait for all work in a stream
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(multi_dgemm[k].stream()));
 # endif
 #endif

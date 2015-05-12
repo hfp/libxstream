@@ -70,7 +70,6 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
     const int nthreads = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), omp_get_max_threads());
 #else
-    //const int nthreads = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), 1);
     LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
 #if defined(LIBXSTREAM_OFFLOAD)
