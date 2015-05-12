@@ -77,8 +77,7 @@ public:
   }
 
   libxstream_workqueue::entry_type& enqueue(libxstream_workitem& workitem);
-  libxstream_workqueue* queue_begin();
-  libxstream_workqueue* queue_next();
+  libxstream_workqueue* queue();
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;

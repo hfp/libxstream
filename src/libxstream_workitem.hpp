@@ -102,7 +102,7 @@
       if (-1 > (LIBXSTREAM_ASYNC_DEVICE)) LIBXSTREAM_ASYNC_RETURN(libxstream_get_active_device(&LIBXSTREAM_ASYNC_DEVICE)); \
       LIBXSTREAM_ASYNC_DECL; libxstream_use_sink(&LIBXSTREAM_ASYNC_QENTRY); libxstream_use_sink(&LIBXSTREAM_ASYNC_DEVICE); libxstream_use_sink(&LIBXSTREAM_ASYNC_PENDING); do
 #define LIBXSTREAM_ASYNC_END(STREAM, FLAGS, NAME, ...) while(libxstream_not_constant(LIBXSTREAM_FALSE)); \
-      if (LIBXSTREAM_ASYNC_STREAM && workitem_signal != workitem_signal_consumed) { \
+      if (LIBXSTREAM_ASYNC_STREAM && (workitem_signal != workitem_signal_consumed/* || 0 > LIBXSTREAM_ASYNC_DEVICE*/)) { \
         LIBXSTREAM_ASYNC_STREAM->pending(thread(), workitem_signal); \
       } \
     } \

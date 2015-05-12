@@ -120,29 +120,12 @@ public:
     entry_type* result = &m_global_queue.get();
 
     if (0 == result->item()) { // no item in global queue
-      m_stream = libxstream_stream::schedule(m_stream);
-      libxstream_workqueue* queue = m_stream ? m_stream->queue_begin() : 0;
+      libxstream_stream *const stream = libxstream_stream::schedule(m_stream);
+      libxstream_workqueue *const queue = stream ? stream->queue() : 0;
+      m_stream = stream;
 
       if (0 != queue) {
         result = &queue->get();
-
-        // item in stream-local queue is a wait-item
-        const libxstream_workitem *const item = result->item();
-        if (0 != item && 0 != (LIBXSTREAM_CALL_SYNC & item->flags())) {
-          queue = m_stream->queue_next(); // next/other queue
-
-          while (0 != queue) {
-            entry_type& i = queue->get();
-
-            if (0 == i.item()) {
-              queue = m_stream->queue_next();
-            }
-            else {
-              result = &i;
-              queue = 0; // break
-            }
-          }
-        }
       }
     }
 
