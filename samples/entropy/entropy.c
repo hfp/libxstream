@@ -8,8 +8,6 @@
 #endif
 #include <libxstream_end.h>
 
-/*#define ENTROPY_CHECK*/
-
 
 LIBXSTREAM_TARGET(mic) void hista(const char* data, size_t size, size_t* histogram)
 {
@@ -130,14 +128,17 @@ int main(int argc, char* argv[])
 #endif
   for (batch = 0; batch < end; ++batch) {
     libxstream_argument* signature;
-    const size_t i = batch % nstreams; /*stream index*/
-    const size_t j = batch * nbatch, size = LIBXSTREAM_MIN(nbatch, nitems - j);
+    const size_t i = batch % nstreams, j = batch * nbatch, k = (j + 1) % nstreams, size = LIBXSTREAM_MIN(nbatch, nitems - j);
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(data + j, stream[i].data, size, stream[i].handle));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_signature(&signature));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(signature, 0, stream[i].data, LIBXSTREAM_TYPE_CHAR, 1, &size));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_output(signature, 1, stream[i].histogram, sizetype, 1, &hsize));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_call((libxstream_function)makehist, signature, stream[i].handle, LIBXSTREAM_CALL_DEFAULT));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(stream[k].handle));
   }
+
+  /*synchronize remaining streams*/
+  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(0));
 
   { /*reduce stream-local histograms*/
     LIBXSTREAM_ALIGNED(size_t local[256/*hsize*/], LIBXSTREAM_MAX_SIMD);
@@ -184,18 +185,20 @@ int main(int argc, char* argv[])
   }
 #endif
 
-#if !defined(ENTROPY_CHECK)
-  const char *const check_env = getenv("CHECK");
-  if (check_env && *check_env && 0 != atoi(check_env))
-#endif
   { /*validate result*/
-    size_t expected[256/*hsize*/], errors = 0, i;
-    memset(expected, 0, sizeof(expected));
-    hista(data, nitems, expected);
-    for (i = 0; i < hsize; ++i) errors += expected[i] == histogram[i] ? 0 : 1;
-    fprintf(stdout, " with %llu error%s", (unsigned long long)errors, 1 != errors ? "s" : "");
+    size_t check = 0, i;
+    for (i = 0; i < hsize; ++i) check += histogram[i];
+    if (nitems != check) {
+      size_t expected[256/*hsize*/];
+      memset(expected, 0, sizeof(expected));
+      hista(data, nitems, expected); check = 0;
+      for (i = 0; i < hsize; ++i) check += expected[i] == histogram[i] ? 0 : 1;
+      fprintf(stdout, " with %llu error%s\n", (unsigned long long)check, 1 != check ? "s" : "");
+    }
+    else {
+      fprintf(stdout, "\n");
+    }
   }
-  fprintf(stdout, "\n");
 
   { /*release resources*/
     size_t i;
