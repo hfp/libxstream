@@ -70,6 +70,7 @@ int libxstream_workqueue::entry_type::wait() const
 
 void libxstream_workqueue::entry_type::execute()
 {
+  LIBXSTREAM_ASSERT(0 != m_item && (m_item == m_dangling || 0 == m_dangling));
   (*m_item)(*this);
 }
 
