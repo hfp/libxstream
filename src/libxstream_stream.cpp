@@ -555,8 +555,8 @@ libxstream_workqueue* libxstream_stream::queue()
 {
   const int nthreads = static_cast<int>(nthreads_active());
   libxstream_workqueue *max_queue = 0, *sync = 0;
+  size_t max_size = 0, max_n = 0;
   int max_thread = m_thread;
-  size_t max_size = 0;
 
   for (int i = 0; i < nthreads; ++i) {
     libxstream_workqueue *const q = m_queues[i];
@@ -576,6 +576,7 @@ libxstream_workqueue* libxstream_stream::queue()
       max_size = queue_size;
       max_thread = i;
       max_queue = q;
+      ++max_n;
     }
   }
 
@@ -591,10 +592,15 @@ libxstream_workqueue* libxstream_stream::queue()
   }
   else { // discovered sync item
     if (0 != max_queue) { // more than one remaining
-      m_thread = max_thread;
-      result = max_queue;
+      if (0 <= m_thread && 1 < max_n) {
+        result = m_queues[m_thread];
+      }
+      else {
+        m_thread = max_thread;
+        result = max_queue;
+      }
     }
-    else { // only sync item remaining
+    else { // only a sync item is remaining
       result = sync;
       m_thread = -1;
     }
