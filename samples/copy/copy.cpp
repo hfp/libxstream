@@ -144,7 +144,7 @@ int main(int argc, char* argv[])
 
 #if !defined(COPY_NO_SYNC)
         const int k = (j + 1) % nstreams;
-        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(copy[k].stream));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(copy[k].stream));
 #endif
       }
 
