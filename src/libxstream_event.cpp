@@ -69,7 +69,6 @@ int libxstream_event::enqueue(libxstream_stream& stream, bool reset, bool sync)
     n = 0;
   }
   LIBXSTREAM_CHECK_CONDITION((LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS) >= n);
-  const int flags = LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_ERROR;
 
   LIBXSTREAM_ASYNC_BEGIN
   {
@@ -95,7 +94,7 @@ int libxstream_event::enqueue(libxstream_stream& stream, bool reset, bool sync)
       status = LIBXSTREAM_ERROR_NONE;
     }
   }
-  LIBXSTREAM_ASYNC_END(stream, !sync ? flags : (flags | LIBXSTREAM_CALL_SYNC), work);
+  LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_ERROR | (sync ? LIBXSTREAM_CALL_SYNC : 0), work);
 
   slot_type *const slots = m_slots[thread];
   LIBXSTREAM_ASSERT(0 != slots);

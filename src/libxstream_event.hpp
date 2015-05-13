@@ -45,7 +45,7 @@ public:
   void swap(libxstream_event& other);
 
   // Enqueue this event into the given stream; reset to start over.
-  int enqueue(libxstream_stream& stream, bool reset, bool sync = false);
+  int enqueue(libxstream_stream& stream, bool reset, bool sync = true);
 
   // Query whether the event already happened or not.
   int query(bool& occurred, const libxstream_stream* exclude = 0) const;

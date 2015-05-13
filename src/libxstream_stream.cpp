@@ -160,7 +160,7 @@ public:
     return m_streams;
   }
 
-  int enqueue(libxstream_event& event, const libxstream_stream* exclude) {
+  int enqueue(libxstream_event& event, const libxstream_stream* exclude, bool sync) {
     int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
     bool reset = true;
@@ -169,7 +169,7 @@ public:
       const value_type stream = m_streams[i];
 
       if (stream != exclude) {
-        result = event.enqueue(*stream, reset);
+        result = event.enqueue(*stream, reset, sync);
         LIBXSTREAM_CHECK_ERROR(result);
         reset = false;
       }
@@ -318,9 +318,9 @@ private:
 }
 
 
-/*static*/int libxstream_stream::enqueue(libxstream_event& event, const libxstream_stream* exclude)
+/*static*/int libxstream_stream::enqueue(libxstream_event& event, const libxstream_stream* exclude, bool sync)
 {
-  return libxstream_stream_internal::registry.enqueue(event, exclude);
+  return libxstream_stream_internal::registry.enqueue(event, exclude, sync);
 }
 
 

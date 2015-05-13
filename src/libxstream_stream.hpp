@@ -49,7 +49,7 @@ public:
   static int priority_range_least();
   static int priority_range_greatest();
 
-  static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
+  static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0, bool sync = true);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
 
   static int sync_all(bool wait, int device);
