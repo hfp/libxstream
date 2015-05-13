@@ -8,10 +8,13 @@
 #endif
 #include <libxstream_end.h>
 
+/*implementation variant*/
+#define HISTOGRAM 1
 
-LIBXSTREAM_TARGET(mic) void hista(const char* data, size_t size, size_t* histogram)
+
+LIBXSTREAM_TARGET(mic) void histogram1(const char* data, size_t size, size_t* histogram)
 {
-  static const size_t maxint = (size_t)(((unsigned int)-1) >> 1);
+  static const size_t maxint = (size_t)(((unsigned int)-1) >> 1/*sign bit*/);
   int i, j, m = (int)((size + maxint - 1) / maxint);
 
   for (i = 0; i < m; ++i) { /*OpenMP 2: size is broken down to integer space*/
@@ -35,7 +38,7 @@ LIBXSTREAM_TARGET(mic) void makehist(const char* data, size_t* histogram)
 {
   size_t size;
   LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_shape(0/*current context*/, 0/*data*/, &size));
-  hista(data, size, histogram);
+  LIBXSTREAM_CONCATENATE(histogram,HISTOGRAM)(data, size, histogram);
 }
 
 
@@ -191,7 +194,7 @@ int main(int argc, char* argv[])
     if (nitems != check) {
       size_t expected[256/*hsize*/];
       memset(expected, 0, sizeof(expected));
-      hista(data, nitems, expected); check = 0;
+      LIBXSTREAM_CONCATENATE(histogram,HISTOGRAM)(data, nitems, expected); check = 0;
       for (i = 0; i < hsize; ++i) check += expected[i] == histogram[i] ? 0 : 1;
       fprintf(stdout, " with %llu error%s\n", (unsigned long long)check, 1 != check ? "s" : "");
     }
