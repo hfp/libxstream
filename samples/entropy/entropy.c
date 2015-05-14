@@ -72,7 +72,7 @@ int main(int argc, char* argv[])
   size_t filesize = 0;
   FILE *const file = 1 < argc ? fileopen(argv[1], "rb", &filesize) : 0;
   const size_t nitems = (1 < argc && 0 == filesize && 0 < atoi(argv[1])) ? (atoi(argv[1]) * (1ULL << 20)/*MB*/) : (0 < filesize ? filesize : (512 << 20));
-  const size_t mbatch = LIBXSTREAM_MIN(2 < argc ? strtoul(argv[2], 0, 10) : 0/*auto*/, nitems);
+  const size_t mbatch = LIBXSTREAM_MIN(2 < argc ? strtoul(argv[2], 0, 10) : 0/*auto*/, nitems >> 20) << 20;
   const size_t mstreams = LIBXSTREAM_MIN(LIBXSTREAM_MAX(3 < argc ? atoi(argv[3]) : 2, 0), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(_OPENMP)
   const int nthreads = LIBXSTREAM_MIN(LIBXSTREAM_MAX(4 < argc ? atoi(argv[4]) : 2, 1), omp_get_max_threads());
@@ -140,8 +140,8 @@ int main(int argc, char* argv[])
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(stream[k].handle));
   }
 
-  /*synchronize remaining streams*/
-  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(0));
+  /*wait for pending work*/
+  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(0));
 
   { /*reduce stream-local histograms*/
     LIBXSTREAM_ALIGNED(size_t local[256/*hsize*/], LIBXSTREAM_MAX_SIMD);
@@ -169,15 +169,15 @@ int main(int argc, char* argv[])
   }
 
   if ((1 << 20) <= nitems) { /*mega*/
-    fprintf(stdout, "Compression %gx (%0.f%%): %.1f -> %.1f MB", 8.0 / entropy, 100.0 - 12.5 * entropy, mega * nitems, mega * entropy * nitems / 8.0);
+    fprintf(stdout, "Compression %gx: %.1f -> %.1f MB", 8.0 / entropy, mega * nitems, mega * entropy * nitems / 8.0);
   }
   else if ((1 << 10) <= nitems) { /*kilo*/
-    fprintf(stdout, "Compression %gx (%0.f%%): %.1f -> %.1f KB", 8.0 / entropy, 100.0 - 12.5 * entropy, kilo * nitems, kilo * entropy * nitems / 8.0);
+    fprintf(stdout, "Compression %gx: %.1f -> %.1f KB", 8.0 / entropy, kilo * nitems, kilo * entropy * nitems / 8.0);
   }
   else  {
-    fprintf(stdout, "Compression %gx (%0.f%%): %.0f -> %0.f B", 8.0 / entropy, 100.0 - 12.5 * entropy, 1.0 * nitems, entropy * nitems / 8.0);
+    fprintf(stdout, "Compression %gx: %.0f -> %0.f B", 8.0 / entropy, 1.0 * nitems, entropy * nitems / 8.0);
   }
-  fprintf(stdout, " (entropy of %.0f bit)\n", entropy);
+  fprintf(stdout, " (redundancy: %0.f%% entropy: %.0f bit)\n", 100.0 - 12.5 * entropy, entropy);
 
 #if defined(_OPENMP)
   if (0 < duration) {
