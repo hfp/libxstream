@@ -81,7 +81,7 @@ int main(int argc, char* argv[])
     const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 5, 1);
     const int mstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(_OPENMP)
-    const int nthreads = std::min(std::max(4 < argc ? std::atoi(argv[4]) : 2, 1), omp_get_max_threads());
+    const int nthreads = std::max(4 < argc ? std::atoi(argv[4]) : 2, 1); // not limited to test oversubscription
 #else
     LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
