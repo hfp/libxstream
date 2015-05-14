@@ -582,7 +582,8 @@ libxstream_workqueue* libxstream_stream::queue(bool retry)
     const volatile libxstream_stream_internal::registry_type::value_type *const streams = libxstream_stream_internal::registry.streams();
     const size_t max_nstreams = libxstream_stream_internal::registry.max_nstreams();
     //const size_t min_retry = (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS);
-    const size_t min_retry = libxstream_stream_internal::registry.nstreams();
+    const int nthreads = static_cast<int>(nthreads_active());
+    const size_t min_retry = libxstream_stream_internal::registry.nstreams() * nthreads;
 
     if (min_retry < m_retry) {
       size_t nmax = 0;
@@ -594,14 +595,15 @@ libxstream_workqueue* libxstream_stream::queue(bool retry)
       }
       if (m_retry == nmax) {
         m_thread = -1;
+        m_retry = 0;
       }
     }
     else {
-      const int nthreads = static_cast<int>(nthreads_active());
-      size_t nqueues = 0;
+      size_t nstreams = 0;
       for (size_t i = 0; i < max_nstreams; ++i) {
         const libxstream_stream *const stream = streams[i];
         if (0 != stream) {
+          size_t nqueues = 0;
           for (int j = 0; j < nthreads; ++j) {
             libxstream_workqueue *const q = stream->m_queues[j];
             const libxstream_workitem *const qitem = (0 != q && result != q) ? q->get().item() : 0;
@@ -614,10 +616,11 @@ libxstream_workqueue* libxstream_stream::queue(bool retry)
               ++nqueues;
             }
           }
+          nstreams += 1 == nqueues ? 1 : 0;
         }
       }
 
-      if (1 == nqueues) {
+      if (1 >= nstreams) {
         ++m_retry;
       }
     }
