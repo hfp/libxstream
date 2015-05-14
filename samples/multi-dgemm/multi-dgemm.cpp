@@ -138,7 +138,7 @@ int main(int argc, char* argv[])
       // wait for an event on the host
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(multi_dgemm[k].event()));
 # else
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(multi_dgemm[k].stream()));
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(multi_dgemm[k].stream()));
 # endif
 #endif
     }
