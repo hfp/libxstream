@@ -180,8 +180,8 @@
  * Application specific (re-)configuration depending on whether __LIBXSTREAM is defined or not.
  */
 #if defined(__LIBXSTREAM) && defined(LIBXSTREAM_TRACE)
-# undef  LIBXSTREAM_TRACE
-# define LIBXSTREAM_TRACE 0
+# undef  LIBXSTREAM_ASYNC
+# define LIBXSTREAM_ASYNC 0
 #endif
 
 /**
