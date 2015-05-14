@@ -580,49 +580,35 @@ libxstream_workqueue* libxstream_stream::queue(bool retry)
   }
   else if (retry && 0 == item) {
     const volatile libxstream_stream_internal::registry_type::value_type *const streams = libxstream_stream_internal::registry.streams();
-    const size_t max_nstreams = libxstream_stream_internal::registry.max_nstreams();
-    //const size_t min_retry = (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS);
+    const size_t max_nstreams = libxstream_stream_internal::registry.max_nstreams(), min_retry = 1;
     const int nthreads = static_cast<int>(nthreads_active());
-    const size_t min_retry = libxstream_stream_internal::registry.nstreams() * nthreads;
 
-    if (min_retry < m_retry) {
-      size_t nmax = 0;
+    if (m_retry < min_retry) {
+      size_t nstreams = 0, nstreams0 = 0, nstreams1 = 0, nsync = 0;
       for (size_t i = 0; i < max_nstreams; ++i) {
         const libxstream_stream *const stream = streams[i];
-        if (0 != stream) {
-          nmax = std::max(nmax, stream->m_retry);
-        }
-      }
-      if (m_retry == nmax) {
-        m_thread = -1;
-        m_retry = 0;
-      }
-    }
-    else {
-      size_t nstreams = 0;
-      for (size_t i = 0; i < max_nstreams; ++i) {
-        const libxstream_stream *const stream = streams[i];
-        if (0 != stream) {
+        if (0 != stream && this != stream) {
           size_t nqueues = 0;
           for (int j = 0; j < nthreads; ++j) {
             libxstream_workqueue *const q = stream->m_queues[j];
-            const libxstream_workitem *const qitem = (0 != q && result != q) ? q->get().item() : 0;
+            const libxstream_workitem *const qitem = 0 != q ? q->get().item() : 0;
             if (0 != qitem) {
-              if (0 != (LIBXSTREAM_CALL_SYNC & qitem->flags())) {
-                i = max_nstreams; // break
-                j = nthreads; // break
-                ++m_retry;
-              }
+              nsync += 0 == (LIBXSTREAM_CALL_SYNC & qitem->flags()) ? 0 : 1;
               ++nqueues;
             }
           }
-          nstreams += 1 == nqueues ? 1 : 0;
+          nstreams0 += 0 == nqueues ? 1 : 0;
+          nstreams1 += 1 == nqueues ? 1 : 0;
+          ++nstreams;
         }
       }
 
-      if (1 >= nstreams) {
+      if (nstreams == nstreams0 || 1 >= nstreams1 || 0 < nsync) {
         ++m_retry;
       }
+    }
+    else {
+      m_thread = -1;
     }
   }
 
