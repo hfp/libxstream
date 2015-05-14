@@ -75,7 +75,7 @@ int main(int argc, char* argv[])
   const size_t mbatch = LIBXSTREAM_MIN(2 < argc ? strtoul(argv[2], 0, 10) : 0/*auto*/, nitems >> 20) << 20;
   const size_t mstreams = LIBXSTREAM_MIN(LIBXSTREAM_MAX(3 < argc ? atoi(argv[3]) : 2, 0), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(_OPENMP)
-  const int nthreads = LIBXSTREAM_MIN(LIBXSTREAM_MAX(4 < argc ? atoi(argv[4]) : 2, 1), omp_get_max_threads());
+  const int nthreads = LIBXSTREAM_MAX(4 < argc ? atoi(argv[4]) : 2, 1); /*not limited by omp_get_max_threads to allow oversubscription*/
 #else
   LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
@@ -137,10 +137,9 @@ int main(int argc, char* argv[])
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(signature, 0, stream[i].data, LIBXSTREAM_TYPE_CHAR, 1, &size));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_output(signature, 1, stream[i].histogram, sizetype, 1, &hsize));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_call((libxstream_function)makehist, signature, stream[i].handle, LIBXSTREAM_CALL_DEFAULT));
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(stream[k].handle));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(stream[k].handle));
   }
 
-  /*wait for pending work*/
   LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(0));
 
   { /*reduce stream-local histograms*/
@@ -177,7 +176,7 @@ int main(int argc, char* argv[])
   else  {
     fprintf(stdout, "Compression %gx: %.0f -> %0.f B", 8.0 / entropy, 1.0 * nitems, entropy * nitems / 8.0);
   }
-  fprintf(stdout, " (redundancy: %0.f%% entropy: %.0f bit)\n", 100.0 - 12.5 * entropy, entropy);
+  fprintf(stdout, " (redundancy %0.f%%, entropy %.0f bit)\n", 100.0 - 12.5 * entropy, entropy);
 
 #if defined(_OPENMP)
   if (0 < duration) {
