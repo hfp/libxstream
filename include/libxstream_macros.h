@@ -166,16 +166,23 @@
 # define LIBXSTREAM_EXPORT
 #endif
 
+/**
+ * Below group of preprocessor symbols are used to configure the DEBUG and TRACE properties.
+ */
 #if (defined(LIBXSTREAM_ERROR_DEBUG) || defined(_DEBUG)) && !defined(NDEBUG) && !defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_DEBUG
 #endif
-
 #if defined(LIBXSTREAM_ERROR_CHECK) && !defined(LIBXSTREAM_CHECK)
 # define LIBXSTREAM_CHECK
 #endif
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_use_sink(const void*);
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value);
+/**
+ * Application specific (re-)configuration depending on whether __LIBXSTREAM is defined or not.
+ */
+#if defined(__LIBXSTREAM) && defined(LIBXSTREAM_TRACE)
+# undef  LIBXSTREAM_TRACE
+# define LIBXSTREAM_TRACE 0
+#endif
 
 /**
  * Below group of preprocessor symbols are used to fixup some platform specifics.
@@ -195,6 +202,9 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 #if !defined(NOMINMAX)
 # define NOMINMAX 1
 #endif
+
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_use_sink(const void*);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value);
 
 #if defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_USE_SINK(VAR) libxstream_use_sink(VAR)

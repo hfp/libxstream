@@ -1032,7 +1032,11 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, 
   // TODO: print in order
   //LIBXSTREAM_PRINT(2, "stream_wait_event: stream=0x%llx event=0x%llx", reinterpret_cast<unsigned long long>(stream), reinterpret_cast<unsigned long long>(event));
   LIBXSTREAM_CHECK_CONDITION(0 != event);
+#if defined(__LIBXSTREAM) // TODO
+  const int result = event->wait();
+#else
   const int result = stream ? stream->wait(*event) : event->wait();
+#endif
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
