@@ -198,16 +198,15 @@ public:
 
     for (size_t i = start + offset; i < end; ++i) {
       const value_type stream = m_streams[/*i%n*/i<n?i:(i-n)];
-      const libxstream_workqueue *const q = 0 != stream ? stream->queue() : 0;
 
-      if (0 != q && 0 != q->get().item()) {
+      if (0 != stream && stream->queue()) {
         const libxstream_event *const events = stream->events();
         bool occurred = true;
 
         if (0 != events) {
           const size_t nevents = stream->nevents();
-          for (size_t k = 0; k < nevents && occurred; ++k) {
-            const libxstream_event& event = events[k];
+          for (size_t j = 0; j < nevents && occurred; ++j) {
+            const libxstream_event& event = events[j];
             if (LIBXSTREAM_ERROR_NONE != event.query(occurred, stream)) {
               occurred = false;
               i = end; // break
@@ -343,7 +342,7 @@ private:
 
 
 libxstream_stream::libxstream_stream(int device, int priority, const char* name)
-  : m_device(device), m_priority(priority), m_thread(-1)
+  : m_retry(0), m_device(device), m_priority(priority), m_thread(-1)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
   , m_npartitions(0)
@@ -551,58 +550,76 @@ libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem
 }
 
 
-libxstream_workqueue* libxstream_stream::queue()
+libxstream_workqueue* libxstream_stream::queue(bool retry)
 {
-  const int nthreads = static_cast<int>(nthreads_active());
-  libxstream_workqueue *max_queue = 0, *sync = 0;
-  size_t max_size = 0, max_n = 0;
-  int max_thread = m_thread;
+  libxstream_workqueue* result = 0 <= m_thread ? m_queues[m_thread] : 0;
+  libxstream_workqueue::entry_type *const entry = 0 != result ? &result->get() : 0;
+  libxstream_workitem *const item = 0 != entry ? entry->item() : 0;
+  const bool sync = 0 != item && 0 != (LIBXSTREAM_CALL_SYNC & item->flags());
+  size_t max_size = 0;
 
-  for (int i = 0; i < nthreads; ++i) {
-    libxstream_workqueue *const q = m_queues[i];
-    const libxstream_workitem *const item = 0 != q ? q->get().item() : 0;
-    size_t queue_size = 0;
+  if (sync || 0 > m_thread) {
+    const int nthreads = static_cast<int>(nthreads_active());
+    for (int i = 0; i < nthreads; ++i) {
+      libxstream_workqueue *const q = m_queues[i];
+      const libxstream_workitem *const qitem = (0 != q && result != q) ? q->get().item() : 0;
+      const size_t queue_size = 0 != qitem ? q->size() : 0;
 
-    if (0 != item) {
-      if (0 == (LIBXSTREAM_CALL_SYNC & item->flags())) {
-        queue_size = q->size();
+      if (max_size < queue_size) {
+        max_size = queue_size;
+        m_thread = i;
+        m_retry = 0;
+        result = q;
       }
-      else {
-        sync = q;
-      }
-    }
-
-    if (max_size < queue_size) {
-      max_size = queue_size;
-      max_thread = i;
-      max_queue = q;
-      ++max_n;
     }
   }
 
-  libxstream_workqueue* result = 0;
-  if (0 == sync) { // no sync
-    if (0 <= m_thread) {
-      result = m_queues[m_thread];
+  if (sync && 0 < max_size) {
+    entry->execute();
+    entry->pop();
+  }
+  else if (retry && 0 == item) {
+    const volatile libxstream_stream_internal::registry_type::value_type *const streams = libxstream_stream_internal::registry.streams();
+    const size_t max_nstreams = libxstream_stream_internal::registry.max_nstreams();
+    //const size_t min_retry = (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS);
+    const size_t min_retry = libxstream_stream_internal::registry.nstreams();
+
+    if (min_retry < m_retry) {
+      size_t nmax = 0;
+      for (size_t i = 0; i < max_nstreams; ++i) {
+        const libxstream_stream *const stream = streams[i];
+        if (0 != stream) {
+          nmax = std::max(nmax, stream->m_retry);
+        }
+      }
+      if (m_retry == nmax) {
+        m_thread = -1;
+      }
     }
     else {
-      m_thread = max_thread;
-      result = max_queue;
-    }
-  }
-  else { // discovered sync item
-    if (0 != max_queue) { // more than one remaining
-      if (0 <= m_thread && 1 < max_n) {
-        result = m_queues[m_thread];
+      const int nthreads = static_cast<int>(nthreads_active());
+      size_t nqueues = 0;
+      for (size_t i = 0; i < max_nstreams; ++i) {
+        const libxstream_stream *const stream = streams[i];
+        if (0 != stream) {
+          for (int j = 0; j < nthreads; ++j) {
+            libxstream_workqueue *const q = stream->m_queues[j];
+            const libxstream_workitem *const qitem = (0 != q && result != q) ? q->get().item() : 0;
+            if (0 != qitem) {
+              if (0 != (LIBXSTREAM_CALL_SYNC & qitem->flags())) {
+                i = max_nstreams; // break
+                j = nthreads; // break
+                ++m_retry;
+              }
+              ++nqueues;
+            }
+          }
+        }
       }
-      else {
-        m_thread = max_thread;
-        result = max_queue;
+
+      if (1 == nqueues) {
+        ++m_retry;
       }
-    }
-    else { // only a sync item is remaining
-      result = sync;
-      m_thread = -1;
     }
   }
 

@@ -121,7 +121,7 @@ public:
 
     if (0 == result->item()) { // no item in global queue
       libxstream_stream *const stream = libxstream_stream::schedule(m_stream);
-      libxstream_workqueue *const queue = stream ? stream->queue() : 0;
+      libxstream_workqueue *const queue = stream ? stream->queue(true) : 0;
       m_stream = stream;
 
       if (0 != queue) {

@@ -77,7 +77,7 @@ public:
   }
 
   libxstream_workqueue::entry_type& enqueue(libxstream_workitem& workitem);
-  libxstream_workqueue* queue();
+  libxstream_workqueue* queue(bool retry = false);
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;
@@ -102,6 +102,7 @@ private:
 #if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   char m_name[128];
 #endif
+  size_t m_retry;
   int m_device;
   int m_priority;
   int m_thread;
