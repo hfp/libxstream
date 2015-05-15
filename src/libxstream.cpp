@@ -212,7 +212,8 @@ LIBXSTREAM_TARGET(mic) void mem_info(uint64_t& memory_physical, uint64_t& memory
 }
 
 
-template<typename DST, typename SRC> DST bitwise_cast(const SRC& src)
+template<typename DST, typename SRC>
+LIBXSTREAM_TARGET(mic) DST bitwise_cast(const SRC& src)
 {
   const union {
     SRC src;
