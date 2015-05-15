@@ -220,7 +220,7 @@ LIBXSTREAM_TARGET(mic) DST bitwise_cast(const SRC& src)
     SRC src;
     DST dst;
   } result;
-  result.dst = 0;
+  memset(&result, 0, sizeof(result));
   result.src = src;
   return result.dst;
 }
