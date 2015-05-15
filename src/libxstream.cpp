@@ -84,8 +84,6 @@
 
 #define LIBXSTREAM_RDTSC __rdtsc
 
-/** Enables non-recursive locks. */
-#define LIBXSTREAM_LOCK_NONRECURSIVE
 /** Enables runtime-sleep. */
 #define LIBXSTREAM_RUNTIME_SLEEP
 
@@ -213,6 +211,16 @@ LIBXSTREAM_TARGET(mic) void mem_info(uint64_t& memory_physical, uint64_t& memory
 #endif
 }
 
+
+template<typename DST, typename SRC> DST bitwise_cast(const SRC& src)
+{
+  const union {
+    SRC src;
+    DST dst;
+  } result = { src };
+  return result.dst;
+}
+
 } // namespace libxstream_internal
 
 
@@ -224,36 +232,25 @@ LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create()
 {
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = new std::mutex;
-#   else
-  std::recursive_mutex *const typed_lock = new std::recursive_mutex;
-#   endif
 # else
   std::atomic<int> *const typed_lock = new std::atomic<int>(0);
 # endif
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
-  omp_lock_t *const typed_lock = new omp_lock_t;
-  omp_init_lock(typed_lock);
-# else
-  omp_nest_lock_t *const typed_lock = new omp_nest_lock_t;
-  omp_init_nest_lock(typed_lock);
-# endif
+  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
+  omp_lock_t typed_lock;
+  omp_init_lock(&typed_lock);
 #elif defined(__GNUC__)
   pthread_mutexattr_t attributes;
   pthread_mutexattr_init(&attributes);
-# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_NORMAL);
-# else
-  pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_RECURSIVE);
-# endif
-  pthread_mutex_t *const typed_lock = new pthread_mutex_t;
-  pthread_mutex_init(typed_lock, &attributes);
+  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
+  pthread_mutex_t typed_lock;
+  pthread_mutex_init(&typed_lock, &attributes);
 #else // Windows
   const HANDLE typed_lock = CreateMutex(0/*default*/, FALSE/*unlocked*/, 0/*unnamed*/);
 #endif
-  return typed_lock;
+  return libxstream_internal::bitwise_cast<libxstream_lock*>(typed_lock);
 }
 
 
@@ -281,28 +278,19 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_destroy(libxstream_lock* lock)
 {
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
-#   else
-  std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
-#   endif
 # else
   std::atomic<int> *const typed_lock = static_cast<std::atomic<int>*>(lock);
 # endif
   delete typed_lock;
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
-  omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
-  omp_destroy_lock(typed_lock);
-# else
-  omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
-  omp_destroy_nest_lock(typed_lock);
-# endif
-  delete typed_lock;
+  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
+  omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
+  omp_destroy_lock(&typed_lock);
 #elif defined(__GNUC__)
-  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
-  pthread_mutex_destroy(typed_lock);
-  delete typed_lock;
+  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
+  pthread_mutex_t typed_lock = reinterpret_cast<pthread_mutex_t>(lock);
+  pthread_mutex_destroy(&typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
   CloseHandle(typed_lock);
@@ -315,16 +303,9 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_acquire(libxstream_lock* lock)
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
-#   else
-  std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
-#   endif
   typed_lock->lock();
 # else
-#   if !defined(LIBXSTREAM_LOCK_NONRECURSIVE)
-  LIBXSTREAM_ASSERT(false/*TODO: not implemented!*/);
-#   endif
   std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
   if (1 < ++typed_lock) {
     while (1 < typed_lock) {
@@ -333,16 +314,13 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_acquire(libxstream_lock* lock)
   }
 # endif
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
-  omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
-  omp_set_lock(typed_lock);
-# else
-  omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
-  omp_set_nest_lock(typed_lock);
-# endif
+  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
+  omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
+  omp_set_lock(&typed_lock);
 #elif defined(__GNUC__)
-  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
-  pthread_mutex_lock(typed_lock);
+  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
+  pthread_mutex_t typed_lock = reinterpret_cast<pthread_mutex_t>(lock);
+  pthread_mutex_lock(&typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
   WaitForSingleObject(typed_lock, INFINITE);
@@ -355,30 +333,20 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_release(libxstream_lock* lock)
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
-#   else
-  std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
-#   endif
   typed_lock->unlock();
 # else
-#   if !defined(LIBXSTREAM_LOCK_NONRECURSIVE)
-  LIBXSTREAM_ASSERT(false/*TODO: not implemented!*/);
-#   endif
   std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
   --typed_lock;
 # endif
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
-  omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
-  omp_unset_lock(typed_lock);
-# else
-  omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
-  omp_unset_nest_lock(typed_lock);
-# endif
+  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
+  omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
+  omp_unset_lock(&typed_lock);
 #elif defined(__GNUC__)
-  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
-  pthread_mutex_unlock(typed_lock);
+  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
+  pthread_mutex_t typed_lock = reinterpret_cast<pthread_mutex_t>(lock);
+  pthread_mutex_unlock(&typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
   ReleaseMutex(typed_lock);
@@ -391,31 +359,21 @@ LIBXSTREAM_TARGET(mic) bool libxstream_lock_try(libxstream_lock* lock)
   LIBXSTREAM_ASSERT(lock);
 #if defined(LIBXSTREAM_STDFEATURES)
 # if defined(LIBXSTREAM_STDMUTEX)
-#   if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
   std::mutex *const typed_lock = static_cast<std::mutex*>(lock);
-#   else
-  std::recursive_mutex *const typed_lock = static_cast<std::recursive_mutex*>(lock);
-#   endif
   const bool result = typed_lock->try_lock();
 # else
-#   if !defined(LIBXSTREAM_LOCK_NONRECURSIVE)
-  LIBXSTREAM_ASSERT(false/*TODO: not implemented!*/);
-#   endif
   std::atomic<int>& typed_lock = *static_cast<std::atomic<int>*>(lock);
   const bool result = 1 == ++typed_lock;
   if (!result) --typed_lock;
 # endif
 #elif defined(_OPENMP)
-# if defined(LIBXSTREAM_LOCK_NONRECURSIVE)
-  omp_lock_t *const typed_lock = static_cast<omp_lock_t*>(lock);
-  const bool result = 0 != omp_test_lock(typed_lock);
-# else
-  omp_nest_lock_t *const typed_lock = static_cast<omp_nest_lock_t*>(lock);
-  const bool result = 0 != omp_test_nest_lock(typed_lock);
-# endif
+  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
+  omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
+  const bool result = 0 != omp_test_lock(&typed_lock);
 #elif defined(__GNUC__)
-  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
-  const bool result =  0 == pthread_mutex_trylock(typed_lock);
+  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
+  pthread_mutex_t typed_lock = reinterpret_cast<pthread_mutex_t>(lock);
+  const bool result =  0 == pthread_mutex_trylock(&typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
   const bool result = WAIT_OBJECT_0 == WaitForSingleObject(typed_lock, INFINITE);
