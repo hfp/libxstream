@@ -90,7 +90,7 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_lcm(size_t a, size_t b)
 LIBXSTREAM_TARGET(mic) size_t libxstream_alignment(size_t size, size_t alignment)
 {
 #if defined(LIBXSTREAM_OFFLOAD)
-  static const size_t max_algn = (LIBXSTREAM_MAX_ALIGN / LIBXSTREAM_MAX_SIMD) * LIBXSTREAM_MAX_SIMD;
+  static const size_t max_algn = ((LIBXSTREAM_MAX_ALIGN) / (LIBXSTREAM_MAX_SIMD)) * (LIBXSTREAM_MAX_SIMD);
   static const size_t max_simd = std::min(LIBXSTREAM_MAX_SIMD, LIBXSTREAM_MAX_ALIGN);
 #else
   static const size_t max_algn = LIBXSTREAM_MAX_SIMD, max_simd = LIBXSTREAM_MAX_SIMD;
