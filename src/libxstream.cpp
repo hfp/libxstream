@@ -215,10 +215,13 @@ LIBXSTREAM_TARGET(mic) void mem_info(uint64_t& memory_physical, uint64_t& memory
 template<typename DST, typename SRC>
 LIBXSTREAM_TARGET(mic) DST bitwise_cast(const SRC& src)
 {
-  const union {
+  LIBXSTREAM_ASSERT(sizeof(SRC) <= sizeof(DST));
+  union {
     SRC src;
     DST dst;
-  } result = { src };
+  } result;
+  result.dst = 0;
+  result.src = src;
   return result.dst;
 }
 
@@ -238,14 +241,12 @@ LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create()
   std::atomic<int> *const typed_lock = new std::atomic<int>(0);
 # endif
 #elif defined(_OPENMP)
-  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
   omp_lock_t typed_lock;
   omp_init_lock(&typed_lock);
 #elif defined(__GNUC__)
   pthread_mutexattr_t attributes;
   pthread_mutexattr_init(&attributes);
   pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_NORMAL);
-  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
   pthread_mutex_t typed_lock;
   pthread_mutex_init(&typed_lock, &attributes);
 #else // Windows
@@ -285,12 +286,10 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_destroy(libxstream_lock* lock)
 # endif
   delete typed_lock;
 #elif defined(_OPENMP)
-  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
   omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
   omp_destroy_lock(&typed_lock);
 #elif defined(__GNUC__)
-  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
-  pthread_mutex_t typed_lock = reinterpret_cast<pthread_mutex_t>(lock);
+  pthread_mutex_t typed_lock = libxstream_internal::bitwise_cast<pthread_mutex_t>(lock);
   pthread_mutex_destroy(&typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
@@ -315,12 +314,10 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_acquire(libxstream_lock* lock)
   }
 # endif
 #elif defined(_OPENMP)
-  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
   omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
   omp_set_lock(&typed_lock);
 #elif defined(__GNUC__)
-  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
-  pthread_mutex_t typed_lock = reinterpret_cast<pthread_mutex_t>(lock);
+  pthread_mutex_t typed_lock = libxstream_internal::bitwise_cast<pthread_mutex_t>(lock);
   pthread_mutex_lock(&typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
@@ -341,12 +338,10 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_release(libxstream_lock* lock)
   --typed_lock;
 # endif
 #elif defined(_OPENMP)
-  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
   omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
   omp_unset_lock(&typed_lock);
 #elif defined(__GNUC__)
-  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
-  pthread_mutex_t typed_lock = reinterpret_cast<pthread_mutex_t>(lock);
+  pthread_mutex_t typed_lock = libxstream_internal::bitwise_cast<pthread_mutex_t>(lock);
   pthread_mutex_unlock(&typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
@@ -368,12 +363,10 @@ LIBXSTREAM_TARGET(mic) bool libxstream_lock_try(libxstream_lock* lock)
   if (!result) --typed_lock;
 # endif
 #elif defined(_OPENMP)
-  LIBXSTREAM_ASSERT(sizeof(omp_lock_t) <= sizeof(libxstream_lock*));
   omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
   const bool result = 0 != omp_test_lock(&typed_lock);
 #elif defined(__GNUC__)
-  LIBXSTREAM_ASSERT(sizeof(pthread_mutex_t) <= sizeof(libxstream_lock*));
-  pthread_mutex_t typed_lock = reinterpret_cast<pthread_mutex_t>(lock);
+  pthread_mutex_t typed_lock = libxstream_internal::bitwise_cast<pthread_mutex_t>(lock);
   const bool result =  0 == pthread_mutex_trylock(&typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
