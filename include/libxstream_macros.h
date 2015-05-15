@@ -271,8 +271,13 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 # define LIBXSTREAM_FUNLOCK(FILE) _unlock_file(FILE)
 #else
 # define LIBXSTREAM_SNPRINTF(S, N, F, ...) snprintf(S, N, F, __VA_ARGS__)
-# define LIBXSTREAM_FLOCK(FILE) flockfile(FILE)
-# define LIBXSTREAM_FUNLOCK(FILE) funlockfile(FILE)
+# if !defined(__CYGWIN__) || defined(LIBXSTREAM_STDFEATURES)
+#   define LIBXSTREAM_FLOCK(FILE) flockfile(FILE)
+#   define LIBXSTREAM_FUNLOCK(FILE) funlockfile(FILE)
+# else
+#   define LIBXSTREAM_FLOCK(FILE)
+#   define LIBXSTREAM_FUNLOCK(FILE)
+# endif
 #endif
 
 #if defined(LIBXSTREAM_CHECK)
