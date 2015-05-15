@@ -76,9 +76,6 @@
 /** Not implemented yet. Must be disabled. */
 /*#define LIBXSTREAM_ASYNCHOST*/
 
-/** Not implemented yet. Must be disabled. */
-/*#define LIBXSTREAM_ALLOC_PINNED*/
-
 /** SIMD width in Byte (actual alignment might be smaller). */
 #define LIBXSTREAM_MAX_SIMD 64
 

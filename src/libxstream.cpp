@@ -84,6 +84,10 @@
 
 #define LIBXSTREAM_RDTSC __rdtsc
 
+/** Pin allocated memory. */
+#if defined(__INTEL_COMPILER) && (1600 <= __INTEL_COMPILER) && (20150501 <= __INTEL_COMPILER_BUILD_DATE)
+# define LIBXSTREAM_ALLOC_PINNED
+#endif
 /** Enables runtime-sleep. */
 #define LIBXSTREAM_RUNTIME_SLEEP
 
@@ -674,7 +678,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
         const char* memory = ptr<const char,1>();
         LIBXSTREAM_PRINT(2, "mem_deallocate: device=%i buffer=0x%llx", LIBXSTREAM_ASYNC_DEVICE, reinterpret_cast<unsigned long long>(memory));
 #       pragma offload_transfer target(mic) host_unpin(memory: length(0))
-        LIBXSTREAM_CHECK_CALL_ASSERT(status(libxstream_real_deallocate(memory)));
+        LIBXSTREAM_ASYNC_RETURN(libxstream_real_deallocate(memory));
       }
       LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE, work, device, memory);
       result = work.status();
