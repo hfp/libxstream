@@ -54,9 +54,14 @@ public:
   int wait(const libxstream_stream* exclude = 0);
 
 private:
+  libxstream_event(const libxstream_event&);
+
   typedef libxstream_workqueue::entry_type* slot_type;
-  slot_type m_slots[LIBXSTREAM_MAX_NTHREADS][(LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS)];
-  size_t m_expected[LIBXSTREAM_MAX_NTHREADS];
+  slot_type* slot(size_t i);
+
+private:
+  slot_type** m_slots;
+  size_t* m_expected;
 };
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
