@@ -381,7 +381,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 
 libxstream_stream::~libxstream_stream()
 {
-  LIBXSTREAM_CHECK_CALL_ASSERT(sync(true/*wait*/, 0/*all*/));
+  LIBXSTREAM_CHECK_CALL_ASSERT(sync(false/*no wait*/, 0/*all*/));
 
   using namespace libxstream_stream_internal;
   volatile registry_type::value_type *const end = registry.streams() + registry.max_nstreams();
