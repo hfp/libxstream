@@ -1,5 +1,5 @@
 # LIBXSTREAM
-Library to work with streams, events, and code regions that are able to run asynchronous while preserving the usual stream conditions. The library is targeting Intel Architecture (x86) and helps to offload work to an Intel Xeon Phi coprocessor (an instance of the Intel Many Integrated Core "MIC" Architecture). For example, using two streams may be an alternative to the usual double-buffering approach which can be used to hide buffer transfer time behind compute. [[pdf](https://github.com/hfp/libxstream/raw/master/documentation/libxstream.pdf)] [[src](https://github.com/hfp/libxstream/archive/0.8.2.zip)]
+Library to work with streams, events, and code regions that are able to run asynchronous while preserving the usual stream conditions. The library is targeting Intel Architecture (x86) and helps to offload work to an Intel Xeon Phi coprocessor (an instance of the Intel Many Integrated Core "MIC" Architecture). For example, using two streams may be an alternative to the usual double-buffering approach which can be used to hide buffer transfer time behind compute. [[pdf](https://github.com/hfp/libxstream/raw/master/documentation/libxstream.pdf)] [[src](https://github.com/hfp/libxstream/archive/0.9.0.zip)]
 
 ## Interface
 The library's application programming interface (API) completely seals the implementation and only forward-declares types which are beyond the language's built-in types. The entire API consists of below subcategories each illustrated by a small code snippet. The [Function Interface](#function-interface) for instance enables an own function to be enqueued for execution within a stream (via function pointer). A future release of the library will provide a native FORTRAN interface. [[c](https://github.com/hfp/libxstream/blob/master/include/libxstream.h)]
@@ -35,7 +35,7 @@ typedef void (*libxstream_function)(LIBXSTREAM_VARIADIC);
 ```
 
 ### Device Interface
-The device interface provides the notion of an "active device" (beside of allowing to query the number of available devices). Multiple active devices can be specified on a per host-thread basis. None of the other functions of the API implies an active device. It is up to the user to make use of this notion.
+The device interface provides the notion of an "active device" (beside of allowing to query the number of available devices). Multiple active devices can be specified on a per host-thread basis. It is up to the user to make use of this notion.
 
 ```C
 size_t ndevices = 0;
@@ -74,7 +74,7 @@ libxstream_stream* stream[2];
 libxstream_stream_create(stream + 0, d, 0/*priority*/, "s1");
 libxstream_stream_create(stream + 1, d, 0/*priority*/, "s2");
 /* TODO: do something with the streams */
-libxstream_stream_sync(NULL); /*wait for all streams*/
+libxstream_stream_wait(NULL); /*wait for all streams*/
 libxstream_stream_destroy(stream[0]);
 libxstream_stream_destroy(stream[1]);
 ```
@@ -88,16 +88,12 @@ libxstream_event_create(event + 0);
 libxstream_event_create(event + 1);
 
 for (i = 0; i < nitems; i += nbatch) {
-  const size_t j = i / nbatch, n = j % N;
+  const size_t n = i / nbatch, j = n % N, k = (j + 1) % N;
   /* TODO: copy-in, user function, copy-out */
-  libxstream_event_record(event + n, stream + n);
+  libxstream_event_record(event + j, stream + j);
 
-  /* synchronize every Nth iteration */
-  if (n == (N - 1)) {
-    for (k = 0; k < N; ++k) {
-      libxstream_event_synchronize(event[k]);
-    }
-  }
+  /* synchronize work N iterations in the past */
+  libxstream_event_wait(event[k]);
 }
 
 libxstream_event_destroy(event[0]);
@@ -105,23 +101,16 @@ libxstream_event_destroy(event[1]);
 ```
 
 ### Function Interface
-The function interface is used to call a user function and to describe its list of arguments (signature). The function's signature consists of inputs, outputs, or in-out arguments. An own function can be enqueued for execution within a stream by taking the address of the function.
+The function interface is used to call a user function and to describe its list of arguments (signature). The function's signature consists of inputs, outputs, or in-out arguments. An own function can be enqueued for execution within a stream by taking the address of the function. In order to avoid repeatedly allocating (and deallocating) a signature, a thread-local signature with the maximum number of arguments supported can be constructed i.e., the thread-local signature is cleared to allow starting over with an arity of zero.
 
 ```C
 size_t nargs = 5, arity = 0;
 libxstream_argument* args = 0;
-libxstream_fn_create_signature(&args, nargs/*maximum number of arguments*/);
-libxstream_fn_nargs (args, &nargs); /*nargs==5 (maximum number of arguments)*/
+libxstream_fn_signature(&args); /*receive thread-local function signature*/
+libxstream_fn_nargs (args, &nargs); /*nargs==LIBXSTREAM_MAX_NARGS*/
 libxstream_get_arity(args, &arity); /*arity==0 (no arguments constructed yet)*/
 libxstream_fn_call((libxstream_function)f, args, stream, LIBXSTREAM_CALL_DEFAULT);
 libxstream_fn_destroy_signature(args); /*(can be used for many function calls)*/
-```
-
-In order to avoid repeatedly allocating (and deallocating) a signature, a thread-local signature with the maximum number of arguments supported can be constructed i.e., the thread-local signature is cleared to allow starting over with an arity of zero.
-
-```C
-libxstream_fn_signature(&args);    /*do not call libxstream_fn_destroy_signature!*/
-libxstream_fn_nargs(args, &nargs); /*nargs==LIBXSTREAM_MAX_NARGS*/
 ```
 
 **void fc(const double* scale, const float* in, float* out, const size_t* n, size_t* nzeros)**  
@@ -139,7 +128,12 @@ libxstream_fn_input (args, 3, &n, sizetype, 0, NULL);
 libxstream_fn_output(args, 4, &nzeros, sizetype, 0, NULL);
 ```
 
-Beside of showing some C++ syntax in the above code snippet, the resulting signature is perfectly valid for both the "fc" and the "fpp" function.
+Beside of showing some C++ syntax in the above code snippet, the resulting signature is perfectly valid for both the "fc" and the "fpp" function. Mapping type definitions in C (and FORTRAN) similar to the above C++ code, one can rely on libxstream_get_autotype's "start" argument pointing into a "type category" (order in which types are enumerated). For example in the following code, the type "size_t" is considered to be at least an unsigned integer type but may be deduced to LIBXSTREAM_TYPE_U64 according to the result of sizeof(size_t).
+
+```C
+libxstream_type sizetype = LIBXSTREAM_TYPE_U32;
+libxstream_get_autotype(sizeof(size_t), sizetype, &sizetype);
+```
 
 **Weak type information**  
 To construct a signature with only weak type information, one may (1) not distinct between in-out and output arguments; even non-elemental inputs can be treated as an in-out argument, and (2) use LIBXSTREAM_TYPE_VOID as an elemental type or any other type with a type-size of one (BYTE, I8, U8, CHAR). Weak-typed arguments imply that extents are counted in Byte rather than in number of elements. Moreover, weak-typed scalar arguments need to supply a "shape" indicating the actual size of the element in Byte.
@@ -174,7 +168,7 @@ LIBXSTREAM_TARGET(mic) void f(const double* scale, const float* in, float* out, 
 ```
 
 **Variadic functions**  
-The Query interface allows enumerating and accessing function arguments including the raw data behind the argument. This applies regardless of whether the arguments are given explicitly or when supplied via a variadic part of the function's signature (ellipsis).
+The query interface allows enumerating and accessing function arguments including the raw data behind the argument. This applies regardless of whether the arguments are given explicitly or when supplied via a variadic part of the function's signature (ellipsis).
 
 ```C
 LIBXSTREAM_TARGET(mic) void fill(float* out, ...)
