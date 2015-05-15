@@ -9,7 +9,7 @@
 #include <libxstream_end.h>
 
 /*implementation variant*/
-#define HISTOGRAM 1
+#define HISTOGRAM 2
 
 
 LIBXSTREAM_TARGET(mic) void histogram1(const char* data, size_t size, size_t* histogram)
@@ -30,6 +30,34 @@ LIBXSTREAM_TARGET(mic) void histogram1(const char* data, size_t size, size_t* hi
 #endif
       ++histogram[k];
     }
+  }
+}
+
+
+LIBXSTREAM_TARGET(mic) void histogram2(const char* data, size_t size, size_t* histogram)
+{
+  static const size_t maxint = (size_t)(((unsigned int)-1) >> 1/*sign bit*/);
+  int i, j, m = (int)((size + maxint - 1) / maxint);
+
+#if defined(_OPENMP)
+# pragma omp parallel /*default(none)*/ private(i,j) shared(data,histogram)
+#endif
+  for (i = 0; i < m; ++i) { /*OpenMP 2: size is broken down to integer space*/
+    LIBXSTREAM_ALIGNED(size_t local[256], LIBXSTREAM_MAX_SIMD);
+    const size_t base = i * maxint;
+    const int n = (int)LIBXSTREAM_MIN(size - base, maxint);
+    for (j = 0; j < 256; ++j) local[j] = 0;
+#if defined(_OPENMP)
+#   pragma omp for nowait
+#endif
+    for (j = 0; j < n; ++j) {
+      const int k = (unsigned char)data[base+j];
+      ++local[k];
+    }
+#if defined(_OPENMP)
+#   pragma omp critical(histogram2)
+#endif
+    for (j = 0; j < 256; ++j) histogram[j] += local[j];
   }
 }
 
