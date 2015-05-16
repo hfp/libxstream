@@ -713,7 +713,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memset_zero(void* memory, size_t size, libxst
         memset(dst, 0, size);
       }
       else {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(size) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(size) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
         memset(dst, 0, size);
       }
     }
@@ -749,7 +749,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_me
 #       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL in(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
       else {
-#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_WAIT in(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
     }
     else
@@ -796,7 +796,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2h(const void* dev_mem, void* host_me
 #       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL out(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
       else {
-#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_WAIT out(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
+#       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT out(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
     }
     else
@@ -837,7 +837,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
           memcpy(dst, src, size);
         }
         else {
-#         pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(size) in(src: LIBXSTREAM_OFFLOAD_REFRESH) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
+#         pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(size) in(src: LIBXSTREAM_OFFLOAD_REFRESH) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
           memcpy(dst, src, size);
         }
       }
@@ -950,7 +950,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
   }
 #endif
 
-  const int result = stream ? stream->sync(false, 0) : libxstream_stream::sync_all(false);
+  const int result = stream ? stream->sync(false) : libxstream_stream::sync_all(false);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -977,7 +977,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
   }
 #endif
 
-  const int result = stream ? stream->sync(true, 0) : libxstream_stream::sync_all(true);
+  const int result = stream ? stream->sync(true) : libxstream_stream::sync_all(true);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }

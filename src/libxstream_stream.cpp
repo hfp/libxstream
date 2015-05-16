@@ -234,7 +234,7 @@ public:
         if (const value_type stream = m_streams[i]) {
           const int stream_device = stream->device();
           if (stream_device == device) {
-            result = stream->sync(wait, 0);
+            result = stream->sync(wait);
             LIBXSTREAM_CHECK_ERROR(result);
           }
         }
@@ -258,7 +258,7 @@ public:
       size_t i = 0;
       do {
         if (const value_type stream = m_streams[i]) {
-          result = stream->sync(wait, 0);
+          result = stream->sync(wait);
           LIBXSTREAM_CHECK_ERROR(result);
         }
         ++i;
@@ -381,7 +381,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 
 libxstream_stream::~libxstream_stream()
 {
-  LIBXSTREAM_CHECK_CALL_ASSERT(sync(false/*no wait*/, 0/*all*/));
+  LIBXSTREAM_CHECK_CALL_ASSERT(sync(true/*all*/));
 
   using namespace libxstream_stream_internal;
   volatile registry_type::value_type *const end = registry.streams() + registry.max_nstreams();
@@ -409,51 +409,29 @@ libxstream_signal libxstream_stream::signal() const
 }
 
 
-int libxstream_stream::sync(bool wait, libxstream_signal signal)
+int libxstream_stream::sync(bool wait)
 {
-  const size_t nthreads = nthreads_active();
-
   LIBXSTREAM_ASYNC_BEGIN
   {
-    const libxstream_signal signal = val<const libxstream_signal,0>();
-    libxstream_signal *const pending_signals = ptr<libxstream_signal,1>();
-    const size_t nthreads = val<const size_t,2>();
+    const bool wait = val<const bool,0>();
+    const int tid = thread(), nthreads = val<const int,1>();
+    LIBXSTREAM_ASSERT(0 <= tid && tid < nthreads);
+    const int end = wait ? nthreads : (tid + 1);
 
-    for (size_t i = 0; i < nthreads; ++i) {
-      const libxstream_signal pending_signal = pending_signals[i];
-      if (0 != pending_signal) {
+    for (int i = (wait ? 0 : tid); i < end; ++i) {
+      if (!(LIBXSTREAM_ASYNC_READY)) {
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
         if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-# if defined(LIBXSTREAM_STREAM_WAIT_PAST)
-          const libxstream_signal wait_pending = 0 != signal ? signal : pending_signal;
-# else
-          const libxstream_signal wait_pending = pending_signal;
-# endif
-#         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(wait_pending)
+#         pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
         }
 #endif
-        if (0 == signal) {
-          pending_signals[i] = 0;
-        }
-#if defined(LIBXSTREAM_STREAM_WAIT_PAST)
-        else {
-          i = nthreads; // break
-        }
-#endif
-      }
-    }
-
-    if (0 != signal) {
-      for (size_t i = 0; i < nthreads; ++i) {
-        if (signal == pending_signals[i]) {
-          pending_signals[i] = 0;
-        }
+        LIBXSTREAM_ASYNC_STREAM->pending(i, 0);
       }
     }
   }
-  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | (wait ? LIBXSTREAM_CALL_WAIT : 0), work, signal, m_pending, nthreads);
+  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | (wait ? LIBXSTREAM_CALL_WAIT : 0), work, wait, nthreads_active());
 
-  return wait ? work.wait() : work.status();
+  return work.wait(wait);
 }
 
 

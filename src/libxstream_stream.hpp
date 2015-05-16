@@ -62,9 +62,10 @@ public:
 public:
   int device() const    { return m_device; }
   int priority() const  { return m_priority; }
+  int thread() const    { return m_thread; }
   
   libxstream_signal signal() const;
-  int sync(bool wait, libxstream_signal signal);
+  int sync(bool wait);
 
   int wait(libxstream_event& event);
   libxstream_event* events();

@@ -143,7 +143,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, 0, arity, cflags);
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1))
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1))
             libxstream_offload_internal::call(fhybrid ? fhybrid : reinterpret_cast<libxstream_function>(fnative), signature, 0, arity, cflags);
           }
         } break;
@@ -158,7 +158,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)
             {
               char* translation[] = { a0 };
@@ -177,7 +177,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2)
             {
               char* translation[] = { a0, a1 };
@@ -196,7 +196,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4)
             {
               char* translation[] = { a0, a1, a2 };
@@ -215,7 +215,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8)
             {
               char* translation[] = { a0, a1, a2, a3 };
@@ -235,7 +235,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1) LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)
             {
@@ -256,7 +256,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2) LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32)
             {
@@ -277,7 +277,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4) LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64)
             {
@@ -298,7 +298,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8) \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128)
             {
@@ -320,7 +320,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)  LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16) LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256)
@@ -343,7 +343,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)  LIBXSTREAM_OFFLOAD_DATA(a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32) LIBXSTREAM_OFFLOAD_DATA(a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512)
@@ -366,7 +366,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)  LIBXSTREAM_OFFLOAD_DATA(a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64) LIBXSTREAM_OFFLOAD_DATA(a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024)
@@ -390,7 +390,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA(a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)   \
               LIBXSTREAM_OFFLOAD_DATA(a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128) \
               LIBXSTREAM_OFFLOAD_DATA(a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048)
@@ -415,7 +415,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)   LIBXSTREAM_OFFLOAD_DATA(a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)  LIBXSTREAM_OFFLOAD_DATA(a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256) LIBXSTREAM_OFFLOAD_DATA(a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
@@ -441,7 +441,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)    LIBXSTREAM_OFFLOAD_DATA( a1, s&2)   LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)   LIBXSTREAM_OFFLOAD_DATA( a5, s&32)  LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256)  LIBXSTREAM_OFFLOAD_DATA( a9, s&512) LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
@@ -467,7 +467,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)    LIBXSTREAM_OFFLOAD_DATA( a1, s&2)    LIBXSTREAM_OFFLOAD_DATA( a2, s&4)    LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)   LIBXSTREAM_OFFLOAD_DATA( a5, s&32)   LIBXSTREAM_OFFLOAD_DATA( a6, s&64)   LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256)  LIBXSTREAM_OFFLOAD_DATA( a9, s&512)  LIBXSTREAM_OFFLOAD_DATA(a10, s&1024) LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \
@@ -493,7 +493,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
             }
           }
           else {
-#           pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
+#           pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT in(fhybrid, fnative, arity, cflags) in(signature: length(arity + 1)) \
               LIBXSTREAM_OFFLOAD_DATA( a0, s&1)    LIBXSTREAM_OFFLOAD_DATA( a1, s&2)    LIBXSTREAM_OFFLOAD_DATA( a2, s&4)     LIBXSTREAM_OFFLOAD_DATA( a3, s&8)    \
               LIBXSTREAM_OFFLOAD_DATA( a4, s&16)   LIBXSTREAM_OFFLOAD_DATA( a5, s&32)   LIBXSTREAM_OFFLOAD_DATA( a6, s&64)    LIBXSTREAM_OFFLOAD_DATA( a7, s&128)  \
               LIBXSTREAM_OFFLOAD_DATA( a8, s&256)  LIBXSTREAM_OFFLOAD_DATA( a9, s&512)  LIBXSTREAM_OFFLOAD_DATA(a10, s&1024)  LIBXSTREAM_OFFLOAD_DATA(a11, s&2048) \

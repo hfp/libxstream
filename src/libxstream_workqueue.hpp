@@ -55,7 +55,7 @@ public:
     int status() const { return m_status; }
     int& status() { return m_status; }
     void push(libxstream_workitem& workitem);
-    int wait() const;
+    int wait(bool global = true) const;
     void execute();
     void pop();
   private:

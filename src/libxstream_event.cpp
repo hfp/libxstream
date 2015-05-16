@@ -85,7 +85,7 @@ int libxstream_event::enqueue(libxstream_stream& stream, bool reset, bool sync)
         }
       }
       else {
-#       pragma offload LIBXSTREAM_ASYNC_TARGET_WAIT //out(status)
+#       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT //out(status)
         {
           status = LIBXSTREAM_ERROR_NONE;
         }

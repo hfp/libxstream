@@ -53,14 +53,31 @@ void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
 }
 
 
-int libxstream_workqueue::entry_type::wait() const
+int libxstream_workqueue::entry_type::wait(bool global) const
 {
+  if (global) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
-  size_t cycle = 0;
-  while (0 != m_item) this_thread_wait(cycle);
+    size_t cycle = 0;
+    while (0 != m_item) this_thread_wait(cycle);
 #else
-  while (0 != m_item) this_thread_yield();
+    while (0 != m_item) this_thread_yield();
 #endif
+  }
+  else {
+#if defined(LIBXSTREAM_SLEEP_CLIENT)
+    size_t cycle = 0;
+#endif
+    const libxstream_workitem* workitem = m_item;
+    while (0 != workitem && workitem->detached()) {
+#if defined(LIBXSTREAM_SLEEP_CLIENT)
+      this_thread_wait(cycle);
+#else
+      this_thread_yield();
+#endif
+      workitem = m_item;
+    }
+  }
+
   const int result = m_status;
   m_status = LIBXSTREAM_ERROR_NONE;
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
