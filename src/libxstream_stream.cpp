@@ -413,19 +413,28 @@ int libxstream_stream::sync(bool wait)
 {
   LIBXSTREAM_ASYNC_BEGIN
   {
-    const bool wait = val<const bool,0>();
-    const int tid = thread(), nthreads = val<const int,1>();
-    LIBXSTREAM_ASSERT(0 <= tid && tid < nthreads);
-    const int end = wait ? nthreads : (tid + 1);
-
-    for (int i = (wait ? 0 : tid); i < end; ++i) {
+    if (val<const bool,0>()) {
+      const int nthreads = val<const int,1>();
+      for (int i = 0; i < nthreads; ++i) {
+        const libxstream_signal pending = LIBXSTREAM_ASYNC_STREAM->pending(i);
+        if (0 != pending) {
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+          if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+#           pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(pending)
+          }
+#endif
+          LIBXSTREAM_ASYNC_STREAM->pending(i, 0);
+        }
+      }
+    }
+    else {
       if (!(LIBXSTREAM_ASYNC_READY)) {
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
         if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 #         pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
         }
 #endif
-        LIBXSTREAM_ASYNC_STREAM->pending(i, 0);
+        LIBXSTREAM_ASYNC_STREAM->pending(thread(), 0);
       }
     }
   }
