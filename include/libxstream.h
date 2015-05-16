@@ -116,7 +116,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_priority_range(int* least, int* greate
 LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int device, int priority, const char* name);
 /** Destroy a stream; pending work must be completed if results are needed. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* stream);
-/** Wait for a stream to complete pending work; NULL to synchronize all streams. */
+/** Wait for the work which is local to the current thread; NULL to synchronize all streams. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream);
 /** Wait for a stream to complete pending work (blocking); NULL to synchronize all streams. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream);
