@@ -159,24 +159,22 @@ int main(int argc, char* argv[])
 #endif
   for (batch = 0; batch < end; ++batch) {
     libxstream_argument* signature;
-    const size_t i = batch % nstreams, j = batch * nbatch, k = (j + 1) % nstreams, size = LIBXSTREAM_MIN(nbatch, nitems - j);
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(data + j, stream[i].data, size, stream[i].handle));
+    const size_t i = batch * nbatch, j = batch % nstreams, k = (j + 1) % nstreams, size = LIBXSTREAM_MIN(nbatch, nitems - i);
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(data + i, stream[j].data, size, stream[j].handle));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_signature(&signature));
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(signature, 0, stream[i].data, LIBXSTREAM_TYPE_CHAR, 1, &size));
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_output(signature, 1, stream[i].histogram, sizetype, 1, &hsize));
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_call((libxstream_function)makehist, signature, stream[i].handle, LIBXSTREAM_CALL_DEFAULT));
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(stream[k].handle));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(signature, 0, stream[j].data, LIBXSTREAM_TYPE_CHAR, 1, &size));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_output(signature, 1, stream[j].histogram, sizetype, 1, &hsize));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_call((libxstream_function)makehist, signature, stream[j].handle, LIBXSTREAM_CALL_DEFAULT));
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(stream[k].handle));
   }
-
-  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(0));
 
   { /*reduce stream-local histograms*/
     LIBXSTREAM_ALIGNED(size_t local[256/*hsize*/], LIBXSTREAM_MAX_SIMD);
     size_t i, j;
-    for (i = 0; i < nstreams; ++i) {
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(stream[i].histogram, local, sizeof(local), stream[i].handle));
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(stream[i].handle)); /*wait for pending work*/
-      for (j = 0; j < hsize; ++j) histogram[j] += local[j];
+    for (j = 0; j < nstreams; ++j) {
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(stream[j].histogram, local, sizeof(local), stream[j].handle));
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(stream[j].handle)); /*wait for pending work*/
+      for (i = 0; i < hsize; ++i) histogram[i] += local[i];
     }
   }
 
