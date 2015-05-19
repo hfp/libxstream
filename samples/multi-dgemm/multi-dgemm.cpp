@@ -44,7 +44,7 @@
 #include <libxstream_end.h>
 
 //#define MULTI_DGEMM_CHECK
-#define MULTI_DGEMM_SYNC 1
+#define MULTI_DGEMM_SYNC 3
 
 #define DGEMM dgemm_
 
@@ -88,7 +88,7 @@ int main(int argc, char* argv[])
 
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
-      LIBXSTREAM_PRINT0(1, "No device found or device not ready!");
+      LIBXSTREAM_PRINT0(2, "No device found or device not ready!");
     }
 
     fprintf(stdout, "Initializing %i device%s and host data...", static_cast<int>(ndevices), 1 == ndevices ? "" : "s");
@@ -130,10 +130,10 @@ int main(int argc, char* argv[])
 # if (2 <= MULTI_DGEMM_SYNC) // record event
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(call.event(), call.stream()));
 # endif
-      const size_t k = (j + 1) % nstreams;
+      const size_t k = (j + nstreams - 1) % nstreams;
 # if (3 <= (MULTI_DGEMM_SYNC))
       // wait for an event within a stream
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(multi_dgemm[0].stream(), multi_dgemm[k].event()));
+      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(multi_dgemm[k].stream(), call.event()));
 # elif (2 <= (MULTI_DGEMM_SYNC))
       // wait for an event on the host
       LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(multi_dgemm[k].event()));

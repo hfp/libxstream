@@ -58,7 +58,7 @@ int main(int argc, char* argv[])
   try {
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
-      LIBXSTREAM_PRINT0(1, "No device found or device not ready!");
+      LIBXSTREAM_PRINT0(2, "No device found or device not ready!");
     }
     const int device = static_cast<int>(ndevices) - 1;
     size_t allocatable = 0;
@@ -143,7 +143,7 @@ int main(int argc, char* argv[])
         }
 
 #if !defined(COPY_NO_SYNC)
-        const int k = (j + 1) % nstreams;
+        const int k = (j + nstreams - 1) % nstreams;
         LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(copy[k].stream));
 #endif
       }

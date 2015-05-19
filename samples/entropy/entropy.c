@@ -94,7 +94,7 @@ int main(int argc, char* argv[])
 {
   size_t ndevices = 0;
   if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
-    LIBXSTREAM_PRINT0(1, "No device found or device not ready!");
+    LIBXSTREAM_PRINT0(2, "No device found or device not ready!");
   }
 
   size_t filesize = 0;
@@ -159,7 +159,7 @@ int main(int argc, char* argv[])
 #endif
   for (batch = 0; batch < end; ++batch) {
     libxstream_argument* signature;
-    const size_t i = batch * nbatch, j = batch % nstreams, k = (j + 1) % nstreams, size = LIBXSTREAM_MIN(nbatch, nitems - i);
+    const size_t i = batch * nbatch, j = batch % nstreams, k = (j + nstreams - 1) % nstreams, size = LIBXSTREAM_MIN(nbatch, nitems - i);
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(data + i, stream[j].data, size, stream[j].handle));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_signature(&signature));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(signature, 0, stream[j].data, LIBXSTREAM_TYPE_CHAR, 1, &size));
