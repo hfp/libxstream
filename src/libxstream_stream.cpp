@@ -47,6 +47,8 @@
 //#define LIBXSTREAM_STREAM_WAIT_PAST
 // check whether a signal is really pending; update internal state
 //#define LIBXSTREAM_STREAM_CHECK_PENDING
+// copy event rather than swapping it
+//#define LIBXSTREAM_STREAM_COPY_EVENT
 
 
 namespace libxstream_stream_internal {
@@ -160,7 +162,7 @@ public:
     return m_streams;
   }
 
-  int enqueue(libxstream_event& event, const libxstream_stream* exclude, bool sync) {
+  int enqueue(libxstream_event& event, const libxstream_stream* exclude) {
     int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
     bool reset = true;
@@ -169,7 +171,7 @@ public:
       const value_type stream = m_streams[i];
 
       if (stream != exclude) {
-        result = event.enqueue(*stream, reset, sync);
+        result = event.record(*stream, reset);
         LIBXSTREAM_CHECK_ERROR(result);
         reset = false;
       }
@@ -197,34 +199,19 @@ public:
     value_type result = 0;
 
     for (size_t i = start + offset; i < end; ++i) {
-      const value_type stream = m_streams[/*i%n*/i<n?i:(i-n)];
+      const value_type stream = m_streams[/*i%n*/i<n?i:(i-n)]; // round-robin
+      const bool ready = 0 != stream ? stream->ready() : false;
 
-      if (0 != stream /*&& stream->queue()*/) {
-        const libxstream_event *const events = stream->events();
-        bool occurred = true;
-
-        if (0 != events) {
-          const size_t nevents = stream->nevents();
-          for (size_t j = 0; j < nevents && occurred; ++j) {
-            const libxstream_event& event = events[j];
-            if (LIBXSTREAM_ERROR_NONE != event.query(occurred, stream)) {
-              occurred = false;
-              i = end; // break
-            }
-          }
-        }
-
-        if (occurred) {
-          result = stream;
-          i = end; // break
-        }
+      if (ready) {
+        result = stream;
+        i = end; // break
       }
     }
 
     return result;
   }
 
-  int sync(bool wait, int device) {
+  int wait_all(bool any, int device) {
     int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
 
@@ -234,7 +221,7 @@ public:
         if (const value_type stream = m_streams[i]) {
           const int stream_device = stream->device();
           if (stream_device == device) {
-            result = stream->sync(wait);
+            result = stream->wait(any);
             LIBXSTREAM_CHECK_ERROR(result);
           }
         }
@@ -243,14 +230,14 @@ public:
       while(i < n);
     }
     else {
-      result = sync(wait);
+      result = wait_all(any);
     }
 
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
     return result;
   }
 
-  int sync(bool wait) {
+  int wait_all(bool any) {
     int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
 
@@ -258,7 +245,7 @@ public:
       size_t i = 0;
       do {
         if (const value_type stream = m_streams[i]) {
-          result = stream->sync(wait);
+          result = stream->wait(any);
           LIBXSTREAM_CHECK_ERROR(result);
         }
         ++i;
@@ -274,8 +261,8 @@ public:
         }
 #endif
       }
-      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | (wait ? LIBXSTREAM_CALL_WAIT : 0), work);
-      result = wait ? work.wait() : work.status();
+      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | (any ? LIBXSTREAM_CALL_WAIT : 0), work);
+      result = any ? work.wait() : work.status();
     }
 
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
@@ -317,9 +304,9 @@ private:
 }
 
 
-/*static*/int libxstream_stream::enqueue(libxstream_event& event, const libxstream_stream* exclude, bool sync)
+/*static*/int libxstream_stream::enqueue(libxstream_event& event, const libxstream_stream* exclude)
 {
-  return libxstream_stream_internal::registry.enqueue(event, exclude, sync);
+  return libxstream_stream_internal::registry.enqueue(event, exclude);
 }
 
 
@@ -329,15 +316,15 @@ private:
 }
 
 
-/*static*/int libxstream_stream::sync_all(bool wait, int device)
+/*static*/int libxstream_stream::wait_all(bool any, int device)
 {
-  return libxstream_stream_internal::registry.sync(wait, device);
+  return libxstream_stream_internal::registry.wait_all(any, device);
 }
 
 
-/*static*/int libxstream_stream::sync_all(bool wait)
+/*static*/int libxstream_stream::wait_all(bool any)
 {
-  return libxstream_stream_internal::registry.sync(wait);
+  return libxstream_stream_internal::registry.wait_all(any);
 }
 
 
@@ -381,7 +368,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 
 libxstream_stream::~libxstream_stream()
 {
-  LIBXSTREAM_CHECK_CALL_ASSERT(sync(true/*all*/));
+  LIBXSTREAM_CHECK_CALL_ASSERT(wait(true/*all*/));
 
   using namespace libxstream_stream_internal;
   volatile registry_type::value_type *const end = registry.streams() + registry.max_nstreams();
@@ -403,122 +390,6 @@ libxstream_stream::~libxstream_stream()
 }
 
 
-libxstream_signal libxstream_stream::signal() const
-{
-  return libxstream_stream_internal::registry.signal(m_device);
-}
-
-
-int libxstream_stream::sync(bool wait)
-{
-  LIBXSTREAM_ASYNC_BEGIN
-  {
-    if (val<const bool,0>()) {
-      const int nthreads = val<const int,1>();
-      for (int i = 0; i < nthreads; ++i) {
-        const libxstream_signal pending = LIBXSTREAM_ASYNC_STREAM->pending(i);
-        if (0 != pending) {
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
-          if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-#           pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(pending)
-          }
-#endif
-          LIBXSTREAM_ASYNC_STREAM->pending(i, 0);
-        }
-      }
-    }
-    else {
-      if (!(LIBXSTREAM_ASYNC_READY)) {
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
-        if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-#         pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
-        }
-#endif
-        LIBXSTREAM_ASYNC_STREAM->pending(thread(), 0);
-      }
-    }
-  }
-  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | (wait ? LIBXSTREAM_CALL_WAIT : 0), work, wait, nthreads_active());
-
-  return work.wait(wait);
-}
-
-
-int libxstream_stream::wait(libxstream_event& event)
-{
-  bool occurred = true;
-  int result = event.query(occurred, this);
-
-  if (LIBXSTREAM_ERROR_NONE == result && !occurred) { // avoids waiting for en empty event
-    const int thread = this_thread_id();
-    slot_type& slot = m_slots[thread];
-
-    if (0 == slot.events) {
-      slot.events = new libxstream_event[LIBXSTREAM_MAX_NEVENTS];
-    }
-    LIBXSTREAM_ASSERT(0 != slot.events);
-
-    for (size_t i = slot.size; 0 < i; --i) {
-      LIBXSTREAM_ASSERT(0 < i && i <= LIBXSTREAM_MAX_NEVENTS);
-      const libxstream_event& eventi = slot.events[i-1];
-      result = eventi.query(occurred, this);
-      if (LIBXSTREAM_ERROR_NONE == result && occurred) {
-        --slot.size;
-      }
-      else {
-        i = 1; // break
-      }
-    }
-
-    slot.events[slot.size].swap(event);
-    LIBXSTREAM_ASSERT(slot.size < LIBXSTREAM_MAX_NEVENTS);
-    ++slot.size;
-  }
-
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
-  return result;
-}
-
-
-libxstream_event* libxstream_stream::events()
-{
-  libxstream_event *const result = 0 <= m_thread ? m_slots[m_thread].events : 0;
-  return result;
-}
-
-
-size_t libxstream_stream::nevents() const
-{
-  const size_t result = 0 <= m_thread ? m_slots[m_thread].size : 0;
-  LIBXSTREAM_ASSERT(result <= LIBXSTREAM_MAX_NEVENTS);
-  return result;
-}
-
-
-void libxstream_stream::pending(int thread, libxstream_signal signal)
-{
-  LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
-  m_pending[thread] = signal;
-}
-
-
-libxstream_signal libxstream_stream::pending(int thread) const
-{
-  LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
-  const libxstream_signal lookup_signal = m_pending[thread];
-  libxstream_signal signal = lookup_signal;
-  if (0 != lookup_signal && 0 != _Offload_signaled(m_device, reinterpret_cast<void*>(lookup_signal))) {
-    m_pending[thread] = 0;
-    signal = 0;
-  }
-#else
-  const libxstream_signal signal = m_pending[thread];
-#endif
-  return signal;
-}
-
-
 libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem& workitem)
 {
   LIBXSTREAM_ASSERT(this == workitem.stream());
@@ -537,7 +408,7 @@ libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem
 }
 
 
-libxstream_workqueue* libxstream_stream::queue(bool retry)
+libxstream_workqueue* libxstream_stream::queue(size_t retry)
 {
   libxstream_workqueue* result = 0 <= m_thread ? m_queues[m_thread] : 0;
   libxstream_workqueue::entry_type *const entry = 0 != result ? &result->get() : 0;
@@ -565,12 +436,12 @@ libxstream_workqueue* libxstream_stream::queue(bool retry)
     entry->execute();
     entry->pop();
   }
-  else if (retry && 0 == item) {
+  else if (0 < retry && 0 == item) {
     const volatile libxstream_stream_internal::registry_type::value_type *const streams = libxstream_stream_internal::registry.streams();
-    const size_t max_nstreams = libxstream_stream_internal::registry.max_nstreams(), min_retry = 1;
+    const size_t max_nstreams = libxstream_stream_internal::registry.max_nstreams();
     const int nthreads = static_cast<int>(nthreads_active());
 
-    if (m_retry < min_retry) {
+    if (m_retry < retry) {
       size_t nstreams = 0, nstreams0 = 0, nstreams1 = 0, nsync = 0;
       for (size_t i = 0; i < max_nstreams; ++i) {
         const libxstream_stream *const stream = streams[i];
@@ -600,6 +471,125 @@ libxstream_workqueue* libxstream_stream::queue(bool retry)
   }
 
   return result;
+}
+
+
+int libxstream_stream::wait(bool any)
+{
+  LIBXSTREAM_ASYNC_BEGIN
+  {
+    if (val<const bool,0>()) {
+      const int nthreads = val<const int,1>();
+      for (int i = 0; i < nthreads; ++i) {
+        const libxstream_signal pending = LIBXSTREAM_ASYNC_STREAM->pending(i);
+        if (0 != pending) {
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+          if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+#           pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(pending)
+          }
+#endif
+          LIBXSTREAM_ASYNC_STREAM->pending(i, 0);
+        }
+      }
+    }
+    else {
+      if (!(LIBXSTREAM_ASYNC_READY)) {
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+        if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
+#         pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
+        }
+#endif
+        LIBXSTREAM_ASYNC_STREAM->pending(thread(), 0);
+      }
+    }
+  }
+  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | (any ? LIBXSTREAM_CALL_WAIT : 0), work, any, nthreads_active());
+
+  return work.wait(any);
+}
+
+
+int libxstream_stream::wait(libxstream_event& event)
+{
+  bool occurred = true;
+  int result = event.query(occurred, this);
+
+  if (LIBXSTREAM_ERROR_NONE == result && !occurred) { // avoids waiting for en empty event
+    const int thread = this_thread_id();
+    slot_type& slot = m_slots[thread];
+
+    if (0 == slot.events) {
+      slot.events = new libxstream_event[LIBXSTREAM_MAX_NEVENTS];
+    }
+    LIBXSTREAM_ASSERT(0 != slot.events);
+
+    // compacting the array of events
+    result = slot.compact(this);
+    LIBXSTREAM_CHECK_ERROR(result);
+
+#if defined(LIBXSTREAM_STREAM_COPY_EVENT)
+    slot.events[slot.size] = event;
+#else
+    slot.events[slot.size].swap(event);
+#endif
+    LIBXSTREAM_ASSERT(slot.size < LIBXSTREAM_MAX_NEVENTS);
+    ++slot.size;
+  }
+
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+  return result;
+}
+
+
+bool libxstream_stream::ready() const
+{
+  libxstream_event *const events = 0 <= m_thread ? m_slots[m_thread].events : 0;
+  bool result = true;
+
+  if (0 != events) {
+    const size_t nevents = m_slots[m_thread].size;
+    LIBXSTREAM_ASSERT(nevents <= LIBXSTREAM_MAX_NEVENTS);
+
+    // TODO: compacting the mutable set of events for performance
+    for (size_t i = 0; i < nevents; ++i) {
+      const libxstream_event& event = events[i];
+      if (LIBXSTREAM_ERROR_NONE != event.query(result, this) || !result) {
+        i = nevents; // break
+      }
+    }
+  }
+
+  return result;
+}
+
+
+libxstream_signal libxstream_stream::signal() const
+{
+  return libxstream_stream_internal::registry.signal(m_device);
+}
+
+
+void libxstream_stream::pending(int thread, libxstream_signal signal)
+{
+  LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
+  m_pending[thread] = signal;
+}
+
+
+libxstream_signal libxstream_stream::pending(int thread) const
+{
+  LIBXSTREAM_ASSERT(0 <= thread && thread < LIBXSTREAM_MAX_NTHREADS);
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
+  const libxstream_signal lookup_signal = m_pending[thread];
+  libxstream_signal signal = lookup_signal;
+  if (0 != lookup_signal && 0 != _Offload_signaled(m_device, reinterpret_cast<void*>(lookup_signal))) {
+    m_pending[thread] = 0;
+    signal = 0;
+  }
+#else
+  const libxstream_signal signal = m_pending[thread];
+#endif
+  return signal;
 }
 
 
@@ -638,6 +628,28 @@ _Offload_stream libxstream_stream::handle() const
   return m_handle;
 }
 #endif
+
+
+int libxstream_stream::slot_type::compact(const libxstream_stream* exclude)
+{
+  int result = LIBXSTREAM_ERROR_NONE;
+
+  for (size_t i = size; 0 < i; --i) {
+    LIBXSTREAM_ASSERT(0 < i && i <= LIBXSTREAM_MAX_NEVENTS);
+    const libxstream_event& event = events[i-1];
+    bool occurred = true;
+
+    result = event.query(occurred, exclude);
+    if (LIBXSTREAM_ERROR_NONE == result && occurred) {
+      --size;
+    }
+    else {
+      i = 1; // break
+    }
+  }
+
+  return result;
+}
 
 
 const libxstream_stream* cast_to_stream(const void* stream)

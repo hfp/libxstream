@@ -38,17 +38,34 @@
 
 
 libxstream_event::libxstream_event()
+  : m_slots(new slot_type*[LIBXSTREAM_MAX_NTHREADS])
+  , m_expected(new size_t[LIBXSTREAM_MAX_NTHREADS])
 {
-  m_slots = new slot_type*[LIBXSTREAM_MAX_NTHREADS];
   std::fill_n(m_slots, LIBXSTREAM_MAX_NTHREADS, static_cast<slot_type*>(0));
-  m_expected = new size_t[LIBXSTREAM_MAX_NTHREADS];
   std::fill_n(m_expected, LIBXSTREAM_MAX_NTHREADS, 0);
+}
+
+
+libxstream_event::libxstream_event(const libxstream_event& other)
+  : m_slots(new slot_type*[LIBXSTREAM_MAX_NTHREADS])
+  , m_expected(new size_t[LIBXSTREAM_MAX_NTHREADS])
+{
+  for (int i = 0; i < LIBXSTREAM_MAX_NTHREADS; ++i) {
+    const slot_type* slots = other.m_slots[i];
+    if (0 == slots) {
+      m_slots[i] = 0;
+    }
+    else {
+      m_slots[i] = new slot_type[(LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS)];
+      std::copy(&other.m_slots[i][0], &other.m_slots[i][0] + (LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS), &m_slots[i][0]);
+    }
+  }
+  std::copy(other.m_expected, other.m_expected + LIBXSTREAM_MAX_NTHREADS, m_expected);
 }
 
 
 libxstream_event::~libxstream_event()
 {
-  //LIBXSTREAM_CHECK_CALL_ASSERT(wait());
   for (int i = 0; i < LIBXSTREAM_MAX_NTHREADS; ++i) {
     delete[] m_slots[i];
   }
@@ -64,7 +81,7 @@ void libxstream_event::swap(libxstream_event& other)
 }
 
 
-int libxstream_event::enqueue(libxstream_stream& stream, bool reset, bool sync)
+int libxstream_event::record(libxstream_stream& stream, bool reset)
 { 
   const int thread = this_thread_id();
   size_t& n = m_expected[thread];
@@ -97,18 +114,15 @@ int libxstream_event::enqueue(libxstream_stream& stream, bool reset, bool sync)
       status = LIBXSTREAM_ERROR_NONE;
     }
   }
-  LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_ERROR | (sync ? LIBXSTREAM_CALL_SYNC : 0), work);
+  LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_ERROR, work);
 
   slot_type *const slots = slot(thread);
   LIBXSTREAM_ASSERT(0 != slots);
 
   slots[n] = &LIBXSTREAM_ASYNC_INTERNAL(work);
-  const libxstream_workitem *const item = work.item();
-  n += 0 != item ? 1 : 0;
+  n += LIBXSTREAM_ERROR_NONE != work.status() ? 1 : 0;
 
-  const int result = 0 != item ? LIBXSTREAM_ERROR_NONE : work.status();
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
-  return result;
+  return LIBXSTREAM_ERROR_NONE;
 }
 
 
@@ -153,6 +167,7 @@ int libxstream_event::wait(const libxstream_stream* exclude)
       const slot_type slot = slots[i];
       const libxstream_workitem *const item = slot ? slot->item() : 0;
       if (0 != item && exclude != item->stream()) {
+        // TODO: really wait for asynchronous offloads to materialize
         result = slot->wait();
         LIBXSTREAM_CHECK_ERROR(result);
         slots[i] = 0;

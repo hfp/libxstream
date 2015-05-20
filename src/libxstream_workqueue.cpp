@@ -53,9 +53,9 @@ void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
 }
 
 
-int libxstream_workqueue::entry_type::wait(bool global) const
+int libxstream_workqueue::entry_type::wait(bool any) const
 {
-  if (global) {
+  if (any) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
     size_t cycle = 0;
     while (0 != m_item) this_thread_wait(cycle);

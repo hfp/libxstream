@@ -645,7 +645,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 
   if (memory) {
     // synchronize across all devices not just the given device
-    libxstream_stream::sync_all(true);
+    libxstream_stream::wait_all(true);
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= device) {
@@ -950,7 +950,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
   }
 #endif
 
-  const int result = stream ? stream->sync(false) : libxstream_stream::sync_all(false);
+  const int result = stream ? stream->wait(false) : libxstream_stream::wait_all(false);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -977,7 +977,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
   }
 #endif
 
-  const int result = stream ? stream->sync(true) : libxstream_stream::sync_all(true);
+  const int result = stream ? stream->wait(true) : libxstream_stream::wait_all(true);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1062,7 +1062,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_destroy(const libxstream_event* event)
 LIBXSTREAM_EXPORT_C int libxstream_event_record(libxstream_event* event, libxstream_stream* stream)
 {
   LIBXSTREAM_PRINT(2, "event_record: event=0x%llx stream=0x%llx", reinterpret_cast<unsigned long long>(event), reinterpret_cast<unsigned long long>(stream));
-  const int result = stream ? event->enqueue(*stream, true) : libxstream_stream::enqueue(*event);
+  const int result = stream ? event->record(*stream, true) : libxstream_stream::enqueue(*event);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1085,7 +1085,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
 LIBXSTREAM_EXPORT_C int libxstream_event_wait(libxstream_event* event)
 {
   LIBXSTREAM_PRINT(2, "event_wait: event=0x%llx", reinterpret_cast<unsigned long long>(event));
-  const int result = event ? event->wait() : libxstream_stream::sync_all(true);
+  const int result = event ? event->wait() : libxstream_stream::wait_all(true);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
