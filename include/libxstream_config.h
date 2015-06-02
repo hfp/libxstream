@@ -71,7 +71,7 @@
  * - #define LIBXSTREAM_ASYNC 2: compiler streams
  * - #define LIBXSTREAM_ASYNC 3: native (KNL) - not implemented yet / must be disabled
  */
-#define LIBXSTREAM_ASYNC
+#define LIBXSTREAM_ASYNC 0
 
 /** Not implemented yet. Must be disabled. */
 /*#define LIBXSTREAM_ASYNCHOST*/
@@ -96,9 +96,6 @@
 
 /** Maximum number of executions in the queue (POT). */
 #define LIBXSTREAM_MAX_QSIZE 256
-
-/** Maximum number of events per stream. */
-#define LIBXSTREAM_MAX_NEVENTS 512
 
 /** Maximum number of host threads. */
 #define LIBXSTREAM_MAX_NTHREADS 512
