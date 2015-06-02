@@ -1087,7 +1087,8 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
   LIBXSTREAM_CHECK_CONDITION(event && occurred);
 
   bool has_occurred = true;
-  const int result = event->query(has_occurred);
+  static const bool all = libxstream_internal::all();
+  const int result = event->query(has_occurred, 0, all);
   *occurred = has_occurred ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
