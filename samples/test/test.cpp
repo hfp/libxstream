@@ -235,10 +235,10 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_memcpy_d2h(m_dev_mem1, m_host_mem, size2, m_stream));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_memcpy_d2h(reinterpret_cast<const char*>(m_dev_mem1) + size2, reinterpret_cast<char*>(m_host_mem) + size2, size - size2, m_stream));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(m_event, m_stream));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_sync(m_stream));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(m_stream));
 
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_query(m_event, &has_occured));
-  LIBXSTREAM_CHECK_CONDITION_THROW(0 != has_occured);
+  LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != has_occured);
 
   const char zero = 0;
   test_internal::check(ok, LIBXSTREAM_SETVAL(zero), m_host_mem, LIBXSTREAM_SETVAL(size));
@@ -270,7 +270,7 @@ int main(int argc, char* argv[])
 
     size_t ndevices = 0;
     if (LIBXSTREAM_ERROR_NONE != libxstream_get_ndevices(&ndevices) || 0 == ndevices) {
-      throw std::runtime_error("no device found!");
+      LIBXSTREAM_PRINT0(2, "No device found or device not ready!");
     }
 
 #if defined(_OPENMP)
@@ -279,7 +279,7 @@ int main(int argc, char* argv[])
 #   pragma omp parallel for schedule(dynamic,chunksize)
 #endif
     for (int i = 0; i < ntasks; ++i) {
-      const test_type test(i % ndevices);
+      const test_type test(i % std::max<size_t>(ndevices, 1));
     }
   }
   catch(const std::exception& e) {
