@@ -153,7 +153,7 @@ public:
 
 public:
   libxstream_workitem(libxstream_stream* stream, int flags, size_t argc, const arg_type argv[], const char* name);
-  virtual ~libxstream_workitem() {}
+  virtual ~libxstream_workitem();
 
 public:
   template<typename T,size_t i> T& val() {
@@ -183,6 +183,9 @@ public:
   const libxstream_stream* stream() const { return m_stream; }
   libxstream_stream* stream() { return m_stream; }
 
+  const libxstream_event* event() const { return m_event; }
+  void event(const libxstream_event* value) { m_event = value; }
+
   void pending(libxstream_signal signal) { m_pending = signal; }
   libxstream_signal pending() const { return m_pending; }
 
@@ -205,6 +208,7 @@ protected:
   libxstream_stream* m_stream;
 
 private:
+  const libxstream_event* m_event;
   libxstream_signal m_pending;
   int m_flags, m_thread;
 #if defined(LIBXSTREAM_DEBUG)

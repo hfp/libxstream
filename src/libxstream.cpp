@@ -965,7 +965,8 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
     LIBXSTREAM_PRINT0(2, "stream_sync: synchronize all streams");
   }
 #endif
-  const int result = stream ? stream->wait(false, false) : libxstream_stream::wait_all(false, false);
+  static const bool all = libxstream_internal::all();
+  const int result = stream ? stream->wait(false, all) : libxstream_stream::wait_all(false, all);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -998,13 +999,13 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, libxstream_event* event)
+LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, const libxstream_event* event)
 {
   // TODO: print in order
   //LIBXSTREAM_PRINT(2, "stream_wait_event: stream=0x%llx event=0x%llx", reinterpret_cast<unsigned long long>(stream), reinterpret_cast<unsigned long long>(event));
   LIBXSTREAM_CHECK_CONDITION(0 != event);
   static const bool all = libxstream_internal::all();
-  const int result = event->wait_stream(stream, all);
+  const int result = libxstream_event(*event).wait_stream(stream, all);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1098,7 +1099,8 @@ LIBXSTREAM_EXPORT_C int libxstream_event_sync(libxstream_event* event)
 {
   LIBXSTREAM_PRINT(2, "event_sync: event=0x%llx", reinterpret_cast<unsigned long long>(event));
   LIBXSTREAM_CHECK_CONDITION(event);
-  const int result = event->wait(0, false, false);
+  static const bool all = libxstream_internal::all();
+  const int result = event->wait(0, false, all);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }

@@ -30,6 +30,7 @@
 ******************************************************************************/
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_workitem.hpp"
+#include "libxstream_event.hpp"
 
 #include <libxstream_begin.h>
 #include <algorithm>
@@ -201,6 +202,7 @@ static/*IPO*/ scheduler_type scheduler;
 libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, size_t argc, const arg_type argv[], const char* name)
   : m_function(0)
   , m_stream(stream)
+  , m_event(0)
   , m_pending(0)
   , m_flags(flags)
   , m_thread(this_thread_id())
@@ -242,6 +244,12 @@ libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, s
   }
 
   libxstream_workitem_internal::scheduler.start();
+}
+
+
+libxstream_workitem::~libxstream_workitem()
+{
+  delete m_event;
 }
 
 

@@ -181,6 +181,10 @@ int libxstream_event::wait_stream(libxstream_stream* stream, bool all)
     int result = LIBXSTREAM_ERROR_NONE;
     bool occurred = true;
 
+    if (0 == this->event()) {
+      this->event(&event);
+    }
+
     if (0 > nthreads) {
       result = event.entries_query(thread(), occurred, 0);
     }
@@ -199,7 +203,7 @@ int libxstream_event::wait_stream(libxstream_stream* stream, bool all)
 
     LIBXSTREAM_ASYNC_QENTRY.status() = result;
   }
-  LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | LIBXSTREAM_CALL_LOOP, work, this, all ? nthreads_active() : -1);
+  LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | LIBXSTREAM_CALL_LOOP, work, new libxstream_event(*this), all ? nthreads_active() : -1);
 
   const int result = work.status();
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);

@@ -43,12 +43,8 @@
 #endif
 #include <libxstream_end.h>
 
-// allows to wait for an event issued prior to the pending signal
-//#define LIBXSTREAM_STREAM_WAIT_PAST
 // check whether a signal is really pending; update internal state
 //#define LIBXSTREAM_STREAM_CHECK_PENDING
-// copy event rather than swapping it
-//#define LIBXSTREAM_STREAM_COPY_EVENT
 
 
 namespace libxstream_stream_internal {
@@ -413,16 +409,23 @@ libxstream_workqueue* libxstream_stream::queue(size_t retry)
   size_t max_size = 0;
 
   if (sync || 0 > m_thread) {
+#if 1
     const int nthreads = static_cast<int>(nthreads_active());
     for (int i = 0; i < nthreads; ++i) {
-      libxstream_workqueue *const q = m_queues[i];
+      const int j = i;
+#else
+    const int nthreads = static_cast<int>(nthreads_active()), end = std::max(m_thread, 0) + nthreads;
+    for (int i = m_thread + 1; i < end; ++i) {
+      const int j = i < nthreads ? i : (i - nthreads); // round-robin
+#endif
+      libxstream_workqueue *const q = m_queues[j];
       const libxstream_workqueue::entry_type *const qentry = (0 != q && result != q) ? q->front() : 0;
       const libxstream_workitem *const qitem = 0 != qentry ? qentry->item() : 0;
       const size_t queue_size = 0 != qitem ? q->size() : 0;
 
       if (max_size < queue_size) {
         max_size = queue_size;
-        m_thread = i;
+        m_thread = j;
         m_retry = 0;
         result = q;
       }
@@ -432,7 +435,9 @@ libxstream_workqueue* libxstream_stream::queue(size_t retry)
   if (sync && 0 < max_size) {
     entry->execute();
     entry->pop();
+    //m_retry = 0;
   }
+  //if ((!sync || 0 == max_size) && 0 < retry && 0 == item) {
   else if (0 < retry && 0 == item) {
     const volatile libxstream_stream_internal::registry_type::value_type *const streams = libxstream_stream_internal::registry.streams();
     const size_t max_nstreams = libxstream_stream_internal::registry.max_nstreams();
@@ -465,6 +470,7 @@ libxstream_workqueue* libxstream_stream::queue(size_t retry)
     }
     else {
       m_thread = -1;
+      m_retry = 0;
     }
   }
 
