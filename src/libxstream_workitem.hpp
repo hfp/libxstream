@@ -49,7 +49,6 @@
 #define LIBXSTREAM_ASYNC_DEVICE workitem_device
 #define LIBXSTREAM_ASYNC_DEVICE_UPDATE(DEVICE) LIBXSTREAM_ASYNC_DEVICE = (DEVICE)
 #define LIBXSTREAM_ASYNC_QENTRY workitem_qentry
-#define LIBXSTREAM_ASYNC_RETURN(CODE) LIBXSTREAM_ASYNC_QENTRY.status() = (CODE)
 #define LIBXSTREAM_ASYNC_INTERNAL(NAME) LIBXSTREAM_CONCATENATE(NAME,_internal)
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
@@ -103,12 +102,10 @@
       const libxstream_signal LIBXSTREAM_ASYNC_PENDING = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->pending(thread()) : 0; \
       const libxstream_signal workitem_signal = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->signal() : 0; \
       int LIBXSTREAM_ASYNC_DEVICE = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->device() : (0 != (LIBXSTREAM_CALL_DEVICE & flags()) ? val<int,0>() : -2); \
-      if (-1 > (LIBXSTREAM_ASYNC_DEVICE)) LIBXSTREAM_ASYNC_RETURN(libxstream_get_active_device(&LIBXSTREAM_ASYNC_DEVICE)); \
+      if (-1 > (LIBXSTREAM_ASYNC_DEVICE)) LIBXSTREAM_ASYNC_QENTRY.status() = libxstream_get_active_device(&LIBXSTREAM_ASYNC_DEVICE); \
       LIBXSTREAM_ASYNC_DECL; libxstream_use_sink(&LIBXSTREAM_ASYNC_QENTRY); libxstream_use_sink(&LIBXSTREAM_ASYNC_DEVICE); libxstream_use_sink(&LIBXSTREAM_ASYNC_PENDING); do
 #define LIBXSTREAM_ASYNC_END(STREAM, FLAGS, NAME, ...) while(libxstream_not_constant(LIBXSTREAM_FALSE)); \
-      if (LIBXSTREAM_ASYNC_STREAM && (workitem_signal != workitem_signal_consumed/* || 0 > LIBXSTREAM_ASYNC_DEVICE*/)) { \
-        LIBXSTREAM_ASYNC_STREAM->pending(thread(), workitem_signal); \
-      } \
+      if (workitem_signal != workitem_signal_consumed) pending(workitem_signal); \
     } \
   } LIBXSTREAM_UNIQUE(workitem_type); \
   const libxstream_workitem::arg_type LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,argv))[] = { libxstream_workitem::arg_type(), __VA_ARGS__ }; \
@@ -186,8 +183,13 @@ public:
   const libxstream_stream* stream() const { return m_stream; }
   libxstream_stream* stream() { return m_stream; }
 
-  bool detached() const { return m_thread != m_stream->thread(); }
+  void pending(libxstream_signal signal) { m_pending = signal; }
+  libxstream_signal pending() const { return m_pending; }
+
+  void flags(int value) { m_flags = value; }
   int flags() const { return m_flags; }
+
+  bool detached() const { return m_thread != m_stream->thread(); }
   int thread() const { return m_thread; }
 
   libxstream_workitem* clone() const;
@@ -203,6 +205,7 @@ protected:
   libxstream_stream* m_stream;
 
 private:
+  libxstream_signal m_pending;
   int m_flags, m_thread;
 #if defined(LIBXSTREAM_DEBUG)
   const char* m_name;

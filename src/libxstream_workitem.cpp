@@ -116,20 +116,20 @@ public:
     }
   }
 
-  entry_type& get() {
-    entry_type* result = &m_global_queue.get();
+  entry_type* front() {
+    entry_type* result = m_global_queue.front();
 
-    if (0 == result->item()) { // no item in global queue
+    if (0 == result || 0 == result->item()) { // no item in global queue
       libxstream_stream *const stream = libxstream_stream::schedule(m_stream);
       libxstream_workqueue *const queue = stream ? stream->queue(1/*retry*/) : 0;
       m_stream = stream;
 
       if (0 != queue) {
-        result = &queue->get();
+        result = queue->front();
       }
     }
 
-    return *result;
+    return result;
   }
 
   entry_type& push(libxstream_workitem& workitem) {
@@ -153,17 +153,15 @@ private:
 #   pragma omp master
 #endif
     for (; continue_run;) {
-      scheduler_type::entry_type* entry = &s.get();
-      bool valid = entry->valid();
+      scheduler_type::entry_type* entry = s.front();
       size_t cycle = 0;
 
-      while (0 == entry->item() && valid) {
+      while (0 == entry || 0 == entry->item()) {
         this_thread_wait(cycle);
-        entry = &s.get();
-        valid = entry->valid();
+        entry = s.front();
       }
 
-      if (valid) {
+      if (entry->valid()) {
         entry->execute();
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
 #       pragma omp taskwait
@@ -203,6 +201,7 @@ static/*IPO*/ scheduler_type scheduler;
 libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, size_t argc, const arg_type argv[], const char* name)
   : m_function(0)
   , m_stream(stream)
+  , m_pending(0)
   , m_flags(flags)
   , m_thread(this_thread_id())
 #if defined(LIBXSTREAM_DEBUG)
@@ -262,9 +261,11 @@ void libxstream_workitem::operator()(libxstream_workqueue::entry_type& entry)
 
 libxstream_workqueue::entry_type& libxstream_enqueue(libxstream_workitem* workitem)
 {
-  return workitem
-    ? libxstream_workitem_internal::scheduler.push(*workitem)
-    : libxstream_workitem_internal::scheduler.get();
+  libxstream_workqueue::entry_type *const result = workitem
+    ? &libxstream_workitem_internal::scheduler.push(*workitem)
+    : libxstream_workitem_internal::scheduler.front();
+  LIBXSTREAM_ASSERT(0 != result);
+  return *result;
 }
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)

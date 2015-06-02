@@ -52,8 +52,8 @@ public:
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
 
-  static int wait_all(bool any, int device);
-  static int wait_all(bool any);
+  static int wait_all(int device, bool any, bool all = false);
+  static int wait_all(bool any, bool all = false);
 
 public:
   libxstream_stream(int device, int priority, const char* name);
@@ -77,23 +77,13 @@ public:
   libxstream_workqueue* queue(size_t retry = 0);
 
   /**
-   * Wait for pending work to complete with the option to
-   * wait for any work i.e., across thread-local queues.
+   * Wait for any pending work to complete with the option to wait for all work i.e.,
+   * across thread-local queues. The any-flag allows to omit waiting if the thread
+   * owning this stream is still the same since enqueuing the item.
    */
-  int wait(bool any);
-
-  /**
-   * Use the given event as a barrier until the event occurred.
-   */
-  int wait(libxstream_event& event);
-
-  /**
-   * Determines whether the stream is waiting for its events to occur.
-   */
-  bool ready() const;
+  int wait(bool any, bool all = false);
 
   libxstream_signal signal() const;
-  void pending(int thread, libxstream_signal signal);
   libxstream_signal pending(int thread) const;
   libxstream_signal pending() const {
     return 0 <= m_thread ? pending(m_thread) : 0;
@@ -112,14 +102,7 @@ private:
   libxstream_stream& operator=(const libxstream_stream& other);
 
 private:
-  mutable libxstream_signal m_pending[LIBXSTREAM_MAX_NTHREADS];
   libxstream_workqueue* m_queues[LIBXSTREAM_MAX_NTHREADS];
-  struct slot_type {
-    slot_type(): events(0), size(0) {}
-    int compact(const libxstream_stream* exclude = 0);
-    libxstream_event* events;
-    size_t size;
-  } m_slots[LIBXSTREAM_MAX_NTHREADS];
 #if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   char m_name[128];
 #endif

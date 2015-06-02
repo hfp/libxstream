@@ -45,41 +45,71 @@ void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
 {
   delete m_dangling;
   const bool async = 0 == (LIBXSTREAM_CALL_WAIT & workitem.flags());
-  const bool enone = 0 == (LIBXSTREAM_CALL_ERROR & workitem.flags());
+  const bool event = 0 == (LIBXSTREAM_CALL_EVENT & workitem.flags());
   libxstream_workitem *const item = async ? workitem.clone() : &workitem;
-  m_status = enone ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_CONDITION;
+  m_status = event ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_CONDITION;
   m_dangling = async ? item : 0;
   m_item = item;
 }
 
 
-int libxstream_workqueue::entry_type::wait(bool any) const
+int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
 {
-  if (any) {
+  int result = LIBXSTREAM_ERROR_CONDITION;
+
+  if (any_status) {
+    if (any) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
-    size_t cycle = 0;
-    while (0 != m_item) this_thread_wait(cycle);
+      size_t cycle = 0;
+      while (0 != m_item) this_thread_wait(cycle);
 #else
-    while (0 != m_item) this_thread_yield();
+      while (0 != m_item) this_thread_yield();
 #endif
+    }
+    else {
+#if defined(LIBXSTREAM_SLEEP_CLIENT)
+      size_t cycle = 0;
+#endif
+      const libxstream_workitem* workitem = m_item;
+      while (0 != workitem && workitem->detached()) {
+#if defined(LIBXSTREAM_SLEEP_CLIENT)
+        this_thread_wait(cycle);
+#else
+        this_thread_yield();
+#endif
+        workitem = m_item;
+      }
+    }
+
+    result = m_status;
   }
   else {
+    if (any) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
-    size_t cycle = 0;
-#endif
-    const libxstream_workitem* workitem = m_item;
-    while (0 != workitem && workitem->detached()) {
-#if defined(LIBXSTREAM_SLEEP_CLIENT)
-      this_thread_wait(cycle);
+      size_t cycle = 0;
+      while (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status) this_thread_wait(cycle);
 #else
-      this_thread_yield();
+      while (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status) this_thread_yield();
 #endif
-      workitem = m_item;
     }
+    else {
+#if defined(LIBXSTREAM_SLEEP_CLIENT)
+      size_t cycle = 0;
+#endif
+      const libxstream_workitem* workitem = m_item;
+      while ((0 != workitem && workitem->detached()) || LIBXSTREAM_ERROR_NONE != m_status) {
+#if defined(LIBXSTREAM_SLEEP_CLIENT)
+        this_thread_wait(cycle);
+#else
+        this_thread_yield();
+#endif
+        workitem = m_item;
+      }
+    }
+
+    result = m_status;
   }
 
-  const int result = m_status;
-  m_status = LIBXSTREAM_ERROR_NONE;
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -94,9 +124,11 @@ void libxstream_workqueue::entry_type::execute()
 
 void libxstream_workqueue::entry_type::pop()
 {
-  m_item = 0;
-  LIBXSTREAM_ASSERT(0 != m_queue);
-  m_queue->pop();
+  if (!valid() || 0 == (LIBXSTREAM_CALL_LOOP & m_item->flags())) {
+    m_item = 0;
+    LIBXSTREAM_ASSERT(0 != m_queue);
+    m_queue->pop();
+  }
 }
 
 
@@ -134,14 +166,12 @@ libxstream_workqueue::~libxstream_workqueue()
 
 size_t libxstream_workqueue::size() const
 {
-  const size_t index = m_index;
 #if defined(LIBXSTREAM_STDFEATURES)
-  const size_t offset = *static_cast<const std::atomic<size_t>*>(m_size);
+  const size_t atomic_size = *static_cast<const std::atomic<size_t>*>(m_size);
 #else
-  const size_t offset = *static_cast<const size_t*>(m_size);
+  const size_t atomic_size = *static_cast<const size_t*>(m_size);
 #endif
-  const entry_type& entry = m_buffer[LIBXSTREAM_MOD(index, LIBXSTREAM_MAX_QSIZE)];
-  return 0 != entry.item() ? (offset - index) : (std::max<size_t>(offset - index, 1) - 1);
+  return atomic_size - m_index;
 }
 
 

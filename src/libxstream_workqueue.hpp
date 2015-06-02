@@ -59,7 +59,7 @@ public:
      * Wait until the workitem has been executed i.e., regardless of the thread owning the stream (any thread).
      * Otherwise the wait period is omitted if the current thread is still the same since enqueuing the item.
      */
-    int wait(bool any = true) const;
+    int wait(bool any = true, bool any_status = true) const;
     void execute();
     void pop();
   private:
@@ -79,8 +79,39 @@ public:
   entry_type& allocate_entry_mt();
   entry_type& allocate_entry();
 
-  entry_type& get() { return m_buffer[LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)]; }
-  entry_type get() const { return m_buffer[LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)]; }
+  const entry_type* front() const {
+#if defined(LIBXSTREAM_DEBUG)
+    return 0 < size() ? (m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)) : 0;
+#else
+    return m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE);
+#endif
+  }
+
+  entry_type* front() {
+#if defined(LIBXSTREAM_DEBUG)
+    return 0 < size() ? (m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)) : 0;
+#else
+    return m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE);
+#endif
+  }
+
+  const entry_type* back() const {
+    const size_t s = size();
+#if defined(LIBXSTREAM_DEBUG)
+    return 0 < s ? (m_buffer + LIBXSTREAM_MOD(s - 1, LIBXSTREAM_MAX_QSIZE)) : 0;
+#else
+    return m_buffer + LIBXSTREAM_MOD(s - 1, LIBXSTREAM_MAX_QSIZE);
+#endif
+  }
+
+  entry_type* back() {
+    const size_t s = size();
+#if defined(LIBXSTREAM_DEBUG)
+    return 0 < s ? (m_buffer + LIBXSTREAM_MOD(s - 1, LIBXSTREAM_MAX_QSIZE)) : 0;
+#else
+    return m_buffer + LIBXSTREAM_MOD(s - 1, LIBXSTREAM_MAX_QSIZE);
+#endif
+  }
 
   void pop() { ++m_index; }
 

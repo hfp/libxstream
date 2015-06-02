@@ -505,7 +505,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
           }
         } break;
         default: {
-          LIBXSTREAM_ASYNC_RETURN(LIBXSTREAM_ERROR_CONDITION);
+          LIBXSTREAM_ASYNC_QENTRY.status() = LIBXSTREAM_ERROR_CONDITION;
         }
       }
     }
