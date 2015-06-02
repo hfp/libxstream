@@ -44,7 +44,7 @@
 #include <libxstream_end.h>
 
 //#define MULTI_DGEMM_CHECK
-#define MULTI_DGEMM_SYNC 3
+#define MULTI_DGEMM_SYNC 1
 
 #define DGEMM dgemm_
 
