@@ -249,7 +249,7 @@ public:
     else {
       LIBXSTREAM_ASYNC_BEGIN
       {
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
         if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 #         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(LIBXSTREAM_ASYNC_PENDING)
         }
@@ -278,7 +278,7 @@ private:
 
 /*static*/int libxstream_stream::priority_range_least()
 {
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   const int result = LIBXSTREAM_MAX_NTHREADS;
 #else // not supported (empty range)
   const int result = 0;
@@ -289,7 +289,7 @@ private:
 
 /*static*/int libxstream_stream::priority_range_greatest()
 {
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   const int result = 0;
 #else // not supported (empty range)
   const int result = 0;
@@ -323,18 +323,23 @@ private:
 
 
 libxstream_stream::libxstream_stream(int device, int priority, const char* name)
-  : m_retry(0), m_device(device), m_priority(priority), m_thread(-1)
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+  : m_retry(0), m_device(device), m_priority(priority)
+#if defined(LIBXSTREAM_SYNCHRONIZATION)
+  , m_thread(-1)
+#else
+  , m_thread(0)
+#endif
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
   , m_npartitions(0)
 #endif
 {
-  std::fill_n(m_queues, LIBXSTREAM_MAX_NTHREADS, static_cast<libxstream_workqueue*>(0));
+  std::fill_n(m_queues, sizeof(m_queues) / sizeof(*m_queues), static_cast<libxstream_workqueue*>(0));
 
   // sanitize the stream priority
   const int priority_least = priority_range_least(), priority_greatest = priority_range_greatest();
   m_priority = std::max(priority_greatest, std::min(priority_least, priority));
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
   if (m_priority != priority) {
     LIBXSTREAM_PRINT(2, "stream priority %i has been clamped to %i", priority, m_priority);
   }
@@ -369,12 +374,16 @@ libxstream_stream::~libxstream_stream()
   LIBXSTREAM_ASSERT(stream != end);
   *stream = 0; // unregister stream
 
+#if defined(LIBXSTREAM_SYNCHRONIZATION)
   const size_t nthreads = nthreads_active();
+#else
+  const size_t nthreads = 1;
+#endif
   for (size_t i = 0; i < nthreads; ++i) {
     delete m_queues[i];
   }
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   if (0 != m_handle) {
     _Offload_stream_destroy(m_device, m_handle);
   }
@@ -385,7 +394,11 @@ libxstream_stream::~libxstream_stream()
 libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem& workitem)
 {
   LIBXSTREAM_ASSERT(this == workitem.stream());
+#if defined(LIBXSTREAM_SYNCHRONIZATION)
   const int thread = this_thread_id();
+#else
+  const int thread = 0;
+#endif
   libxstream_workqueue* q = m_queues[thread];
 
   if (0 == q) {
@@ -402,6 +415,7 @@ libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem
 
 libxstream_workqueue* libxstream_stream::queue(size_t retry)
 {
+#if defined(LIBXSTREAM_SYNCHRONIZATION)
   libxstream_workqueue* result = 0 <= m_thread ? m_queues[m_thread] : 0;
   libxstream_workqueue::entry_type *const entry = 0 != result ? result->front() : 0;
   libxstream_workitem *const item = 0 != entry ? entry->item() : 0;
@@ -409,23 +423,16 @@ libxstream_workqueue* libxstream_stream::queue(size_t retry)
   size_t max_size = 0;
 
   if (sync || 0 > m_thread) {
-#if 1
     const int nthreads = static_cast<int>(nthreads_active());
     for (int i = 0; i < nthreads; ++i) {
-      const int j = i;
-#else
-    const int nthreads = static_cast<int>(nthreads_active()), end = std::max(m_thread, 0) + nthreads;
-    for (int i = m_thread + 1; i < end; ++i) {
-      const int j = i < nthreads ? i : (i - nthreads); // round-robin
-#endif
-      libxstream_workqueue *const q = m_queues[j];
+      libxstream_workqueue *const q = m_queues[i];
       const libxstream_workqueue::entry_type *const qentry = (0 != q && result != q) ? q->front() : 0;
       const libxstream_workitem *const qitem = 0 != qentry ? qentry->item() : 0;
       const size_t queue_size = 0 != qitem ? q->size() : 0;
 
       if (max_size < queue_size) {
         max_size = queue_size;
-        m_thread = j;
+        m_thread = i;
         m_retry = 0;
         result = q;
       }
@@ -435,36 +442,27 @@ libxstream_workqueue* libxstream_stream::queue(size_t retry)
   if (sync && 0 < max_size) {
     entry->execute();
     entry->pop();
-    //m_retry = 0;
   }
-  //if ((!sync || 0 == max_size) && 0 < retry && 0 == item) {
   else if (0 < retry && 0 == item) {
     const volatile libxstream_stream_internal::registry_type::value_type *const streams = libxstream_stream_internal::registry.streams();
     const size_t max_nstreams = libxstream_stream_internal::registry.max_nstreams();
-    const int nthreads = static_cast<int>(nthreads_active());
 
     if (m_retry < retry) {
-      size_t nstreams = 0, nstreams0 = 0, nstreams1 = 0, nsync = 0;
+      size_t nwork = 0;
       for (size_t i = 0; i < max_nstreams; ++i) {
         const libxstream_stream *const stream = streams[i];
         if (0 != stream && this != stream) {
-          size_t nqueues = 0;
-          for (int j = 0; j < nthreads; ++j) {
+          const int j = stream->thread();
+          if (0 <= j) {
             libxstream_workqueue *const q = stream->m_queues[j];
             const libxstream_workqueue::entry_type *const qentry = 0 != q ? q->front() : 0;
             const libxstream_workitem *const qitem = 0 != qentry ? qentry->item() : 0;
-            if (0 != qitem) {
-              nsync += 0 == (LIBXSTREAM_CALL_SYNC & qitem->flags()) ? 0 : 1;
-              ++nqueues;
-            }
+            nwork += 0 != qitem ? 1 : 0;
           }
-          nstreams0 += 0 == nqueues ? 1 : 0;
-          nstreams1 += 1 == nqueues ? 1 : 0;
-          ++nstreams;
         }
       }
 
-      if (nstreams == nstreams0 || 1 >= nstreams1 || 0 < nsync) {
+      if (0 == nwork) {
         ++m_retry;
       }
     }
@@ -475,16 +473,26 @@ libxstream_workqueue* libxstream_stream::queue(size_t retry)
   }
 
   return result;
+#else
+  libxstream_use_sink(&retry);
+  return m_queues[0];
+#endif
 }
 
 
 int libxstream_stream::wait(bool any, bool all)
 {
+#if defined(LIBXSTREAM_SYNCHRONIZATION)
+    const size_t nthreads = nthreads_active();
+#else
+    const size_t nthreads = 1;
+#endif
+
   LIBXSTREAM_ASYNC_BEGIN
   {
     if (!val<const bool,0>()) {
       if (!(LIBXSTREAM_ASYNC_READY)) {
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
         if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 #         pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
         }
@@ -496,7 +504,7 @@ int libxstream_stream::wait(bool any, bool all)
       for (int i = 0; i < nthreads; ++i) {
         const libxstream_signal pending = LIBXSTREAM_ASYNC_STREAM->pending(i);
         if (0 != pending) {
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
           if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 #           pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(pending)
           }
@@ -505,7 +513,7 @@ int libxstream_stream::wait(bool any, bool all)
       }
     }
   }
-  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | (any ? LIBXSTREAM_CALL_WAIT : 0), work, all, nthreads_active());
+  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_SYNC | (any ? LIBXSTREAM_CALL_WAIT : 0), work, all, nthreads);
 
   return work.wait(any);
 }
@@ -527,7 +535,7 @@ libxstream_signal libxstream_stream::pending(int thread) const
     libxstream_workqueue::entry_type *const back = q->back();
     libxstream_workitem *const item = back ? back->item() : 0;
     result = item ? item->pending() : 0;
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (0 != (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
     if (0 != result && 0 != _Offload_signaled(m_device, reinterpret_cast<void*>(result))) {
       item->pending(0);
       result = 0;
@@ -539,7 +547,7 @@ libxstream_signal libxstream_stream::pending(int thread) const
 }
 
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
 _Offload_stream libxstream_stream::handle() const
 {
   const size_t nstreams = libxstream_stream_internal::registry.nstreams(m_device);

@@ -179,9 +179,14 @@
 /**
  * Application specific (re-)configuration depending on whether __LIBXSTREAM is defined or not.
  */
-#if defined(__LIBXSTREAM) && defined(LIBXSTREAM_TRACE)
-# undef  LIBXSTREAM_ASYNC
-# define LIBXSTREAM_ASYNC 0
+#if defined(__LIBXSTREAM)
+# if defined(LIBXSTREAM_ASYNC)
+#   undef  LIBXSTREAM_ASYNC
+#   define LIBXSTREAM_ASYNC
+# endif
+# if defined(LIBXSTREAM_SYNCHRONIZATION)
+#   undef LIBXSTREAM_SYNCHRONIZATION
+# endif
 #endif
 
 /**
@@ -207,13 +212,11 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_use_sink(const void*)
 LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value);
 
 #if defined(LIBXSTREAM_DEBUG)
-# define LIBXSTREAM_USE_SINK(VAR) libxstream_use_sink(VAR)
 # define LIBXSTREAM_ASSERT(A) assert(A)
 # include "libxstream_begin.h"
 # include <assert.h>
 # include "libxstream_end.h"
 #else
-# define LIBXSTREAM_USE_SINK(VAR)
 # define LIBXSTREAM_ASSERT(A)
 #endif
 
@@ -251,7 +254,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 #define LIBXSTREAM_ERROR_RUNTIME    -1
 #define LIBXSTREAM_ERROR_CONDITION  -2
 
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
 # define LIBXSTREAM_PRINT(VERBOSITY, MESSAGE, ...) libxstream_print(VERBOSITY, "LIBXSTREAM " MESSAGE "\n", __VA_ARGS__)
 # define LIBXSTREAM_PRINT0(VERBOSITY, MESSAGE) libxstream_print(VERBOSITY, "LIBXSTREAM " MESSAGE "\n")
 #else

@@ -51,27 +51,28 @@
 #define LIBXSTREAM_ERROR_CHECK
 
 /**
- * Enables printing trace information.
- * Valid selections:
+ * Enables printing trace information. Valid choices:
  * - #define LIBXSTREAM_TRACE: enables default (1) behavior
- * - #define LIBXSTREAM_TRACE 0: disables trace information
- * - #define LIBXSTREAM_TRACE 1: enabled for debug builds
- * - #define LIBXSTREAM_TRACE 2: enabled
+ * - #define LIBXSTREAM_TRACE 0: no trace information
+ * - #define LIBXSTREAM_TRACE 1: enabled
+ * - #define LIBXSTREAM_TRACE 2: enabled (debug build)
  * If the trace information is enabled, the environment variable
  * LIBXSTREAM_VERBOSITY can be used to adjust the verbosity level.
  */
-#define LIBXSTREAM_TRACE 2
+#define LIBXSTREAM_TRACE
 
 /**
- * Enables asynchronous offloads.
- * Valid selections:
+ * Enables the kind of offload mechanism. Valid choices:
  * - #define LIBXSTREAM_ASYNC: enables default (1) behavior
- * - #define LIBXSTREAM_ASYNC 0: synchronous offloads
- * - #define LIBXSTREAM_ASYNC 1: compiler offload
- * - #define LIBXSTREAM_ASYNC 2: compiler streams
- * - #define LIBXSTREAM_ASYNC 3: native (KNL) - not implemented yet / must be disabled
+ * - #define LIBXSTREAM_ASYNC 0: native (KNL) - not implemented yet / must be disabled
+ * - #define LIBXSTREAM_ASYNC 1: synchronous offloads
+ * - #define LIBXSTREAM_ASYNC 2: compiler offload
+ * - #define LIBXSTREAM_ASYNC 3: compiler streams
  */
-#define LIBXSTREAM_ASYNC 0
+#define LIBXSTREAM_ASYNC
+
+/** Enables internal synchronization. */
+#define LIBXSTREAM_SYNCHRONIZATION
 
 /** Not implemented yet. Must be disabled. */
 /*#define LIBXSTREAM_ASYNCHOST*/

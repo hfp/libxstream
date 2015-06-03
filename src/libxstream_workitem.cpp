@@ -205,7 +205,11 @@ libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, s
   , m_event(0)
   , m_pending(0)
   , m_flags(flags)
+#if defined(LIBXSTREAM_SYNCHRONIZATION)
   , m_thread(this_thread_id())
+#else
+  , m_thread(0)
+#endif
 #if defined(LIBXSTREAM_DEBUG)
   , m_name(name)
 #endif

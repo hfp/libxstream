@@ -172,7 +172,7 @@ public:
   }
   
   int default_verbosity() {
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
 # if defined(__MIC__) // TODO: propagate host's default verbosity
     const int level = -1;
 # else
@@ -532,7 +532,7 @@ LIBXSTREAM_EXPORT_C int libxstream_get_ndevices(size_t* ndevices)
   *ndevices = 0;
 #endif
 
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
   static LIBXSTREAM_TLS bool print = true;
   if (print) { // once
     LIBXSTREAM_PRINT(2, "get_ndevices: ndevices=%lu", static_cast<unsigned long>(*ndevices));
@@ -897,7 +897,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int
     LIBXSTREAM_ASSERT(s);
     *stream = s;
 
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
     if (name && *name) {
       LIBXSTREAM_PRINT(2, "stream_create: stream=0x%llx (%s) device=%i priority=%i",
         reinterpret_cast<unsigned long long>(*stream), name, device, priority);
@@ -926,7 +926,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int
 
 LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* stream)
 {
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
   if (stream) {
 # if defined(LIBXSTREAM_DEBUG)
     const char *const name = stream->name();
@@ -948,7 +948,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* strea
 LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
 {
   // TODO: print in order
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2)) && 0
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2)) && 0
   if (0 != stream) {
 # if defined(LIBXSTREAM_DEBUG)
     const char *const name = stream->name();
@@ -975,7 +975,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
 {
   // TODO: print in order
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2)) && 0
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2)) && 0
   if (0 != stream) {
 # if defined(LIBXSTREAM_DEBUG)
     const char *const name = stream->name();
@@ -1034,7 +1034,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream
         libxstream_internal::context.device() = active_device;
       }
 
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
       static LIBXSTREAM_TLS bool print = true;
       if (print) { // once
         LIBXSTREAM_PRINT(2, "get_active_device: device=%i (fallback) thread=%i", active_device, this_thread_id());
@@ -1062,7 +1062,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_create(libxstream_event** event)
 
 LIBXSTREAM_EXPORT_C int libxstream_event_destroy(const libxstream_event* event)
 {
-#if defined(LIBXSTREAM_TRACE) && ((1 == ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 < ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
   if (0 != event) {
     LIBXSTREAM_PRINT(2, "event_destroy: event=0x%llx", reinterpret_cast<unsigned long long>(event));
   }

@@ -89,7 +89,7 @@ public:
     return 0 <= m_thread ? pending(m_thread) : 0;
   }
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;
 #endif
 
@@ -102,7 +102,11 @@ private:
   libxstream_stream& operator=(const libxstream_stream& other);
 
 private:
+#if defined(LIBXSTREAM_SYNCHRONIZATION)
   libxstream_workqueue* m_queues[LIBXSTREAM_MAX_NTHREADS];
+#else
+  libxstream_workqueue* m_queues[1];
+#endif
 #if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   char m_name[128];
 #endif
@@ -111,7 +115,7 @@ private:
   int m_priority;
   int m_thread;
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (2 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   mutable _Offload_stream m_handle; // lazy creation
   mutable size_t m_npartitions;
 #endif
