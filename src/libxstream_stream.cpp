@@ -420,9 +420,10 @@ libxstream_workqueue* libxstream_stream::queue(size_t retry)
   libxstream_workqueue::entry_type *const entry = 0 != result ? result->front() : 0;
   libxstream_workitem *const item = 0 != entry ? entry->item() : 0;
   const bool sync = 0 != item && 0 != (LIBXSTREAM_CALL_SYNC & item->flags());
+  const bool loop = 0 != item && 0 != (LIBXSTREAM_CALL_LOOP & item->flags());
   size_t max_size = 0;
 
-  if (sync || 0 > m_thread) {
+  if ((sync && !loop) || 0 > m_thread) {
     const int nthreads = static_cast<int>(nthreads_active());
     for (int i = 0; i < nthreads; ++i) {
       libxstream_workqueue *const q = m_queues[i];
@@ -443,12 +444,12 @@ libxstream_workqueue* libxstream_stream::queue(size_t retry)
     entry->execute();
     entry->pop();
   }
-  else if (0 < retry && 0 == item) {
+  else if (0 < retry && (0 == item || loop)) {
     const volatile libxstream_stream_internal::registry_type::value_type *const streams = libxstream_stream_internal::registry.streams();
     const size_t max_nstreams = libxstream_stream_internal::registry.max_nstreams();
 
     if (m_retry < retry) {
-      size_t nwork = 0;
+      size_t nwork = 0, nsync = 0;
       for (size_t i = 0; i < max_nstreams; ++i) {
         const libxstream_stream *const stream = streams[i];
         if (0 != stream && this != stream) {
@@ -457,16 +458,27 @@ libxstream_workqueue* libxstream_stream::queue(size_t retry)
             libxstream_workqueue *const q = stream->m_queues[j];
             const libxstream_workqueue::entry_type *const qentry = 0 != q ? q->front() : 0;
             const libxstream_workitem *const qitem = 0 != qentry ? qentry->item() : 0;
-            nwork += 0 != qitem ? 1 : 0;
+            if (0 != qitem) {
+              if (0 == (LIBXSTREAM_CALL_SYNC & qitem->flags())) {
+                ++nwork;
+              }
+              else {
+                ++nwork;
+                ++nsync;
+              }
+            }
           }
         }
       }
 
-      if (0 == nwork) {
+      if (nsync == nwork) {
         ++m_retry;
       }
     }
     else {
+      if (loop && this == item->stream()) {
+        item->flags(item->flags() & ~LIBXSTREAM_CALL_LOOP); // clear
+      }
       m_thread = -1;
       m_retry = 0;
     }

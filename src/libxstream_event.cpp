@@ -218,11 +218,11 @@ int libxstream_event::wait_stream(libxstream_stream* stream, bool all)
     }
 
     if (0 > nthreads) {
-      result = event.entries_query(thread(), occurred, 0);
+      result = event.entries_query(thread(), occurred, LIBXSTREAM_ASYNC_STREAM);
     }
     else { // wait for all thread-local queues
       for (int i = 0; i < nthreads; ++i) {
-        result = event.entries_query(i, occurred, 0);
+        result = event.entries_query(i, occurred, LIBXSTREAM_ASYNC_STREAM);
         if (LIBXSTREAM_ERROR_NONE != result || !occurred) {
           i = nthreads; // break
         }
