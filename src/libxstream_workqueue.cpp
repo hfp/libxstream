@@ -58,7 +58,7 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
   int result = LIBXSTREAM_ERROR_CONDITION;
 
   if (any_status) {
-    if (any) {
+    if (any || !valid()) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
       size_t cycle = 0;
       while (0 != m_item) this_thread_wait(cycle);
@@ -84,7 +84,7 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
     result = m_status;
   }
   else {
-    if (any) {
+    if (any || !valid()) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
       size_t cycle = 0;
       while (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status) this_thread_wait(cycle);
@@ -110,7 +110,7 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
     result = m_status;
   }
 
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+  //LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 

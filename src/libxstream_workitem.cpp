@@ -68,13 +68,14 @@ public:
 
   ~scheduler_type() {
     if (running()) {
+      m_terminated = true;
+
       // terminates the background thread
       entry_type& entry = m_global_queue.allocate_entry();
       delete entry.dangling();
       entry = entry_type(&m_global_queue);
       entry.wait();
 
-      m_terminated = true;
 #if defined(LIBXSTREAM_STDFEATURES)
       m_thread.detach();
 #else
@@ -90,9 +91,9 @@ public:
 public:
   bool running() const {
 #if defined(LIBXSTREAM_STDFEATURES)
-    return m_thread.joinable();
+    return m_thread.joinable() && !m_terminated;
 #else
-    return 0 != m_thread;
+    return 0 != m_thread && !m_terminated;
 #endif
   }
 

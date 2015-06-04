@@ -44,7 +44,7 @@ public:
   class entry_type {
   public:
     entry_type(libxstream_workqueue* queue = 0, libxstream_workitem* item = reinterpret_cast<libxstream_workitem*>(-1))
-      : m_queue(queue), m_dangling(0), m_item(item), m_status((0 != queue && 0 != item) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_CONDITION)
+      : m_status((0 != queue && 0 != item) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_CONDITION), m_queue(queue), m_dangling(0), m_item(item)
     {}
   public:
     bool valid() const { return reinterpret_cast<libxstream_workitem*>(-1) != m_item; }
@@ -63,10 +63,10 @@ public:
     void execute();
     void pop();
   private:
+    mutable int m_status;
     libxstream_workqueue* m_queue;
     const libxstream_workitem* m_dangling;
-    libxstream_workitem* m_item;
-    mutable int m_status;
+    libxstream_workitem* m_item; // last
   };
 
 public:
