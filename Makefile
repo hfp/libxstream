@@ -15,7 +15,7 @@ OBJECTS = $(patsubst $(SRCDIR)/%,$(BLDDIR)/intel64/%,$(SOURCES:.cpp=-cpp.o))
 
 CXXFLAGS = $(NULL)
 CFLAGS = $(NULL)
-DFLAGS = $(NULL)
+DFLAGS = -DLIBXSTREAM_EXPORTED
 IFLAGS = -I$(ROOTDIR)/include
 
 STATIC ?= 1
