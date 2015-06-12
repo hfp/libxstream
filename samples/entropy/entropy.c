@@ -103,9 +103,7 @@ int main(int argc, char* argv[])
   const size_t nitems = (1 < argc && 0 == filesize && 0 < atoi(argv[1])) ? (atoi(argv[1]) * (1ULL << 20)/*MB*/) : (0 < filesize ? filesize : (512 << 20));
   const size_t mbatch = LIBXSTREAM_MIN(2 < argc ? strtoul(argv[2], 0, 10) : 0/*auto*/, nitems >> 20) << 20;
   const size_t mstreams = LIBXSTREAM_MIN(LIBXSTREAM_MAX(3 < argc ? atoi(argv[3]) : 2, 0), LIBXSTREAM_MAX_NSTREAMS);
-#if defined(_OPENMP)
-  const int nthreads = LIBXSTREAM_MAX(4 < argc ? atoi(argv[4]) : 2, 1); /*not limited by omp_get_max_threads to allow oversubscription*/
-#else
+#if !defined(_OPENMP)
   LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
   const size_t nstreams = LIBXSTREAM_MAX(mstreams, 1) * LIBXSTREAM_MAX(ndevices, 1), nbatch = (0 == mbatch) ? (nitems / nstreams) : mbatch, hsize = 256;
@@ -163,7 +161,6 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
   /*if (0 == ndevices) omp_set_nested(1);*/
   const double start = omp_get_wtime();
-# pragma omp parallel for /*default(none)*/ private(i) shared(data,stream,sizetype) num_threads(nthreads) schedule(dynamic)
 #endif
   for (i = 0; i < end; ++i) {
     const size_t ibase = i * nstep, n = LIBXSTREAM_MIN(nstreams, nitems - nstreams);
