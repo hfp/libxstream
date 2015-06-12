@@ -1,17 +1,19 @@
 # export all variables to sub-make processes
 .EXPORT_ALL_VARIABLES: #export
 
+ARCH = intel64
+
 ROOTDIR = $(abspath $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))))
 INCDIR = $(ROOTDIR)/include
 SRCDIR = $(ROOTDIR)/src
-BLDDIR = build
-LIBDIR = lib
+BLDDIR = build/$(ARCH)
+LIBDIR = lib/$(ARCH)
 
-LIBNAME = $(LIBDIR)/intel64/libxstream
+LIBNAME = libxstream
 SOURCES = $(shell ls -1 $(SRCDIR)/*.cpp | tr "\n" " ")
 HEADERS = $(shell ls -1 $(INCDIR)/*.h   | tr "\n" " ") \
           $(shell ls -1 $(SRCDIR)/*.hpp | tr "\n" " ")
-OBJECTS = $(patsubst %,$(BLDDIR)/intel64/%,$(notdir $(SOURCES:.cpp=-cpp.o)))
+OBJECTS = $(patsubst %,./$(BLDDIR)%,$(notdir $(SOURCES:.cpp=-cpp.o)))
 
 CXXFLAGS = $(NULL)
 CFLAGS = $(NULL)
@@ -20,6 +22,8 @@ IFLAGS = -I$(INCDIR) -I$(SRCDIR)
 
 STATIC ?= 1
 DBG ?= 0
+
+parent = $(subst ?, ,$(firstword $(subst /, ,$(subst $(NULL) ,?,$(patsubst ./%,%,$1)))))
 
 ICPC = $(notdir $(shell which icpc 2> /dev/null))
 ICC = $(notdir $(shell which icc 2> /dev/null))
@@ -152,31 +156,34 @@ else
 endif
 
 .PHONY: all
-all: $(LIBNAME).$(LIBEXT)
+all: ./$(LIBDIR)/$(LIBNAME).$(LIBEXT)
 
-$(LIBNAME).$(LIBEXT): $(OBJECTS)
-	@mkdir -p $(LIBDIR)/intel64
+./$(LIBDIR)/$(LIBNAME).$(LIBEXT): $(OBJECTS)
+	@mkdir -p ./$(LIBDIR)
 ifeq ($(STATIC),0)
 	$(LD) -shared -o $@ $(LDFLAGS) $^
 else
 	$(AR) -rs $@ $^
 endif
 
-$(BLDDIR)/intel64/%-c.o: $(SRCDIR)/%.c $(HEADERS) $(ROOTDIR)/Makefile
-	@mkdir -p $(BLDDIR)/intel64
+./$(BLDDIR)%-c.o: $(SRCDIR)/%.c $(HEADERS) $(ROOTDIR)/Makefile
+	@mkdir -p ./$(BLDDIR)
 	$(CC) $(CFLAGS) $(DFLAGS) $(IFLAGS) -c $< -o $@
 
-$(BLDDIR)/intel64/%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) $(ROOTDIR)/Makefile
-	@mkdir -p $(BLDDIR)/intel64
+./$(BLDDIR)%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) $(ROOTDIR)/Makefile
+	@mkdir -p ./$(BLDDIR)
 	$(CXX) $(CXXFLAGS) $(DFLAGS) $(IFLAGS) -c $< -o $@
+
+DUMMY := $(shell echo "DEBUG: |$(call parent,$(BLDDIR))|" >&2)
 
 .PHONY: clean
 clean:
-	@rm -rf $(BLDDIR)
+	@rm -rf ./$(call parent,$(BLDDIR))
 
 .PHONY: realclean
 realclean: clean
-	@rm -rf $(LIBDIR)
+	@rm -rf ./$(call parent,$(LIBDIR))
 
 install: all clean
 	@cp -r $(INCDIR) .
+
