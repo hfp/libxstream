@@ -66,7 +66,7 @@ int main(int argc, char* argv[])
     allocatable >>= 20; // MB
 
     const bool copyin = 1 < argc ? ('o' != *argv[1]) : true;
-    const int nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
+    const size_t nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(_OPENMP)
     const int nthreads = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), omp_get_max_threads());
 #else
@@ -92,28 +92,28 @@ int main(int argc, char* argv[])
     } copy[LIBXSTREAM_MAX_NSTREAMS];
     memset(copy, 0, sizeof(copy)); // some initialization (avoid false positives with tools)
 
-    for (int i = 0; i < nstreams; ++i) {
+    for (size_t i = 0; i < nstreams; ++i) {
       char name[128];
-      LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", i + 1);
+      LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", static_cast<int>(i + 1));
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&copy[i].stream, device, 0, name));
     }
     if (copyin) {
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[0].mem_hst, maxsize, 0));
       memset(copy[0].mem_hst, -1, maxsize); // some initialization (avoid false positives with tools)
-      for (int i = 1; i < nstreams; ++i) {
+      for (size_t i = 1; i < nstreams; ++i) {
         copy[i].mem_hst = copy[0].mem_hst;
       }
-      for (int i = 0; i < nstreams; ++i) {
+      for (size_t i = 0; i < nstreams; ++i) {
         LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &copy[i].mem_dev, maxsize, 0));
       }
     }
     else { // copy-out
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &copy[0].mem_dev, maxsize, 0));
       libxstream_memset_zero(copy[0].mem_dev, maxsize, copy[0].stream);
-      for (int i = 1; i < nstreams; ++i) {
+      for (size_t i = 1; i < nstreams; ++i) {
         copy[i].mem_dev = copy[0].mem_dev;
       }
-      for (int i = 0; i < nstreams; ++i) {
+      for (size_t i = 0; i < nstreams; ++i) {
         LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1/*host*/, &copy[i].mem_hst, maxsize, 0));
       }
     }
@@ -134,22 +134,24 @@ int main(int argc, char* argv[])
 #     pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
       for (int i = 0; i < nrepeat; ++i) {
-        const int j = i % nstreams;
-        if (copyin) {
-          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(copy[j].mem_hst, copy[j].mem_dev, size, copy[j].stream));
-        }
-        else { // copy-out
-          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(copy[j].mem_dev, copy[j].mem_hst, size, copy[j].stream));
+        const size_t n = std::min(nstreams, nrepeat - nstreams);
+
+        for (size_t j = 0; j < n; ++j) { // enqueue work into streams
+          if (copyin) {
+            LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(copy[j].mem_hst, copy[j].mem_dev, size, copy[j].stream));
+          }
+          else { // copy-out
+            LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(copy[j].mem_dev, copy[j].mem_hst, size, copy[j].stream));
+          }
         }
 
 #if !defined(COPY_NO_SYNC)
-        const int k = (j + nstreams - 1) % nstreams;
-        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(copy[k].stream));
+        for (size_t j = 0; j < n; ++j) { // synchronize streams
+          const size_t k = n - j - 1; // j-reverse
+          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(copy[k].stream));
+        }
 #endif
       }
-
-      // wait for all streams to complete pending work
-      LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
 #if defined(_OPENMP)
       const double iduration = omp_get_wtime() - start;
@@ -166,17 +168,17 @@ int main(int argc, char* argv[])
 
     if (copyin) {
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1/*host*/, copy[0].mem_hst));
-      for (int i = 0; i < nstreams; ++i) {
+      for (size_t i = 0; i < nstreams; ++i) {
         LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(device, copy[i].mem_dev));
       }
     }
     else { // copy-out
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(device, copy[0].mem_dev));
-      for (int i = 0; i < nstreams; ++i) {
+      for (size_t i = 0; i < nstreams; ++i) {
         LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1/*host*/, copy[i].mem_hst));
       }
     }
-    for (int i = 0; i < nstreams; ++i) {
+    for (size_t i = 0; i < nstreams; ++i) {
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_destroy(copy[i].stream));
     }
 

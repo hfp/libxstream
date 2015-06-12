@@ -43,8 +43,8 @@
 #endif
 #include <libxstream_end.h>
 
-//#define MULTI_DGEMM_CHECK
-#define MULTI_DGEMM_SYNC 1
+#define SYNCMETHOD 1
+//#define CHECK
 
 #define DGEMM dgemm_
 
@@ -77,12 +77,10 @@ LIBXSTREAM_TARGET(mic) void process(LIBXSTREAM_INVAL(size_t) size, LIBXSTREAM_IN
 int main(int argc, char* argv[])
 {
   try {
-    const int nitems = std::max(1 < argc ? std::atoi(argv[1]) : 60, 0);
-    const int nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 5, 1);
-    const int mstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
-#if defined(_OPENMP)
-    const int nthreads = std::max(4 < argc ? std::atoi(argv[4]) : 2, 1); // not limited to test oversubscription
-#else
+    const size_t nitems = std::max(1 < argc ? std::atoi(argv[1]) : 60, 0);
+    const size_t nbatch = std::max(2 < argc ? std::atoi(argv[2]) : 5, 1);
+    const size_t mstreams = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
+#if !defined(_OPENMP)
     LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
 
@@ -96,13 +94,13 @@ int main(int argc, char* argv[])
     multi_dgemm_type::host_data_type host_data(reinterpret_cast<libxstream_function>(&process), nitems, split);
     fprintf(stdout, " %.1f MB\n", host_data.bytes() * 1E-6);
 
-    fprintf(stdout, "Initializing %i stream%s per device...", mstreams, 1 < mstreams ? "s" : "");
+    fprintf(stdout, "Initializing %i stream%s per device...", static_cast<int>(mstreams), 1 < mstreams ? "s" : "");
     const size_t nstreams = LIBXSTREAM_MAX(mstreams, 1) * LIBXSTREAM_MAX(ndevices, 1);
     multi_dgemm_type multi_dgemm[LIBXSTREAM_MAX_NSTREAMS];
     for (size_t i = 0; i < nstreams; ++i) {
       char name[128];
       LIBXSTREAM_SNPRINTF(name, sizeof(name), "Stream %i", static_cast<int>(i + 1));
-      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, 0 < ndevices ? static_cast<int>(i % ndevices) : -1, static_cast<size_t>(nbatch)));
+      LIBXSTREAM_CHECK_CALL_THROW(multi_dgemm[i].init(name, host_data, 0 < ndevices ? static_cast<int>(i % ndevices) : -1, nbatch));
     }
     if (0 < nstreams) {
       fprintf(stdout, " %.1f MB\n", mstreams * multi_dgemm[0].bytes() * 1E-6);
@@ -111,35 +109,40 @@ int main(int argc, char* argv[])
     // start benchmark with no pending work
     LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
-    const int nbatches = (nitems + nbatch - 1) / nbatch;
-    fprintf(stdout, "Running %i batch%s of %i item%s...\n", nbatches,
-      1 < nbatches ? "es" : "", std::min(nbatch, nitems),
+    const size_t nbatches = (nitems + nbatch - 1) / nbatch;
+    fprintf(stdout, "Running %i batch%s of %i item%s...\n", static_cast<int>(nbatches),
+      1 < nbatches ? "es" : "", static_cast<int>(std::min(nbatch, nitems)),
       1 < nbatch ? "s" : "");
 
+    const int end = static_cast<int>(nitems), ninc = static_cast<int>(nbatch * nstreams);
 #if defined(_OPENMP)
     const double start = omp_get_wtime();
-#   pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
-    for (int i = 0; i < nitems; i += nbatch) {
-      const size_t ibatch = i / nbatch, j = ibatch % nstreams;
-      multi_dgemm_type& call = multi_dgemm[j];
+    for (int i = 0; i < end; i += ninc) {
+      const size_t n = std::min(nstreams, end - nstreams);
 
-      LIBXSTREAM_CHECK_CALL_ASSERT(call(i, std::min(nbatch, nitems - i))); // enqueue batch
+      for (size_t j = 0; j < n; ++j) { // enqueue work into streams
+        const size_t batch = j * nbatch, base = i + batch, size = base < nitems ? std::min(nbatch, nitems - base) : 0;
+        multi_dgemm_type& call = multi_dgemm[j];
+        LIBXSTREAM_CHECK_CALL_ASSERT(call(base, size));
+#if defined(SYNCMETHOD) && (2 <= SYNCMETHOD) // record event
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(call.event(), call.stream()));
+#endif
+      }
 
-#if defined(MULTI_DGEMM_SYNC)
-# if (2 <= MULTI_DGEMM_SYNC) // record event
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(call.event(), call.stream()));
-# endif
-      const size_t k = (j + nstreams - 1) % nstreams;
-# if (3 <= (MULTI_DGEMM_SYNC))
-      // wait for an event within a stream
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(multi_dgemm[k].stream(), call.event()));
-# elif (2 <= (MULTI_DGEMM_SYNC))
-      // wait for an event on the host
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(multi_dgemm[k].event()));
+#if defined(SYNCMETHOD)
+      for (size_t j = 0; j < n; ++j) { // synchronize streams
+        const size_t k = n - j - 1; // j-reverse
+# if (3 <= (SYNCMETHOD))
+        // wait for an event within a stream
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(multi_dgemm[k].stream(), multi_dgemm[(j+nstreams-1)%n].event()));
+# elif (2 <= (SYNCMETHOD))
+        // wait for an event on the host
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(multi_dgemm[k].event()));
 # else
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_sync(multi_dgemm[k].stream()));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(multi_dgemm[k].stream()));
 # endif
+      }
 #endif
     }
 
@@ -154,7 +157,7 @@ int main(int argc, char* argv[])
     fprintf(stdout, "Duration: %.1f s\n", duration);
 #endif
 
-#if !defined(MULTI_DGEMM_CHECK)
+#if !defined(CHECK)
     const char *const check_env = getenv("CHECK");
     if (check_env && *check_env && 0 != atoi(check_env))
 #endif
@@ -163,7 +166,7 @@ int main(int argc, char* argv[])
       const size_t testbatchsize = 1;
       double max_error = 0;
       size_t i0 = 0;
-      for (int i = 0; i < nitems; ++i) {
+      for (size_t i = 0; i < nitems; ++i) {
         const size_t i1 = host_data.idata()[i+1];
         const int nn = static_cast<int>(i1 - i0);
         std::fill_n(&expected[0], nn, 0.0);
