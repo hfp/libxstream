@@ -13,7 +13,7 @@ LIBNAME = libxstream
 SOURCES = $(shell ls -1 $(SRCDIR)/*.cpp | tr "\n" " ")
 HEADERS = $(shell ls -1 $(INCDIR)/*.h   | tr "\n" " ") \
           $(shell ls -1 $(SRCDIR)/*.hpp | tr "\n" " ")
-OBJECTS = $(patsubst %,./$(BLDDIR)%,$(notdir $(SOURCES:.cpp=-cpp.o)))
+OBJECTS = $(patsubst %,$(BLDDIR)/%,$(notdir $(SOURCES:.cpp=-cpp.o)))
 
 CXXFLAGS = $(NULL)
 CFLAGS = $(NULL)
@@ -156,34 +156,34 @@ else
 endif
 
 .PHONY: all
-all: ./$(LIBDIR)/$(LIBNAME).$(LIBEXT)
+all: $(LIBDIR)/$(LIBNAME).$(LIBEXT)
 
-./$(LIBDIR)/$(LIBNAME).$(LIBEXT): $(OBJECTS)
-	@mkdir -p ./$(LIBDIR)
+$(LIBDIR)/$(LIBNAME).$(LIBEXT): $(OBJECTS)
+	@mkdir -p $(LIBDIR)
 ifeq ($(STATIC),0)
 	$(LD) -shared -o $@ $(LDFLAGS) $^
 else
 	$(AR) -rs $@ $^
 endif
 
-./$(BLDDIR)%-c.o: $(SRCDIR)/%.c $(HEADERS) $(ROOTDIR)/Makefile
-	@mkdir -p ./$(BLDDIR)
+$(BLDDIR)/%-c.o: $(SRCDIR)/%.c $(HEADERS) $(ROOTDIR)/Makefile
+	@mkdir -p $(BLDDIR)
 	$(CC) $(CFLAGS) $(DFLAGS) $(IFLAGS) -c $< -o $@
 
-./$(BLDDIR)%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) $(ROOTDIR)/Makefile
-	@mkdir -p ./$(BLDDIR)
+$(BLDDIR)/%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) $(ROOTDIR)/Makefile
+	@mkdir -p $(BLDDIR)
 	$(CXX) $(CXXFLAGS) $(DFLAGS) $(IFLAGS) -c $< -o $@
-
-DUMMY := $(shell echo "DEBUG: |$(call parent,$(BLDDIR))|" >&2)
 
 .PHONY: clean
 clean:
-	@rm -rf ./$(call parent,$(BLDDIR))
+	@rm -f $(OBJECTS)
 
 .PHONY: realclean
-realclean: clean
-	@rm -rf ./$(call parent,$(LIBDIR))
+realclean:
+	@rm -rf $(call parent,$(BLDDIR))
+	@rm -rf $(call parent,$(LIBDIR))
 
-install: all clean
-	@cp -r $(INCDIR) .
+install: all
+	@cp -r $(INCDIR) . 2> /dev/null || true
+	@rm -rf $(call parent,$(BLDDIR))
 
