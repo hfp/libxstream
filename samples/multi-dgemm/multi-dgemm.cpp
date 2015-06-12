@@ -43,7 +43,7 @@
 #endif
 #include <libxstream_end.h>
 
-#define SYNCMETHOD 1
+#define SYNCMETHOD 2
 //#define CHECK
 
 #define DGEMM dgemm_
