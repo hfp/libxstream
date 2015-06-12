@@ -1,22 +1,22 @@
 # export all variables to sub-make processes
 .EXPORT_ALL_VARIABLES: #export
 
-ROOTDIR = .
-BLDDIR = $(ROOTDIR)/build
+ROOTDIR = $(abspath $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))))
 INCDIR = $(ROOTDIR)/include
 SRCDIR = $(ROOTDIR)/src
-LIBDIR = $(ROOTDIR)/lib
+BLDDIR = build
+LIBDIR = lib
 
 LIBNAME = $(LIBDIR)/intel64/libxstream
 SOURCES = $(shell ls -1 $(SRCDIR)/*.cpp | tr "\n" " ")
 HEADERS = $(shell ls -1 $(INCDIR)/*.h   | tr "\n" " ") \
           $(shell ls -1 $(SRCDIR)/*.hpp | tr "\n" " ")
-OBJECTS = $(patsubst $(SRCDIR)/%,$(BLDDIR)/intel64/%,$(SOURCES:.cpp=-cpp.o))
+OBJECTS = $(patsubst %,$(BLDDIR)/intel64/%,$(notdir $(SOURCES:.cpp=-cpp.o)))
 
 CXXFLAGS = $(NULL)
 CFLAGS = $(NULL)
 DFLAGS = -DLIBXSTREAM_EXPORTED
-IFLAGS = -I$(ROOTDIR)/include
+IFLAGS = -I$(INCDIR) -I$(SRCDIR)
 
 STATIC ?= 1
 DBG ?= 0
@@ -162,11 +162,11 @@ else
 	$(AR) -rs $@ $^
 endif
 
-$(BLDDIR)/intel64/%-c.o: $(SRCDIR)/%.c $(HEADERS) Makefile
+$(BLDDIR)/intel64/%-c.o: $(SRCDIR)/%.c $(HEADERS) $(ROOTDIR)/Makefile
 	@mkdir -p $(BLDDIR)/intel64
 	$(CC) $(CFLAGS) $(DFLAGS) $(IFLAGS) -c $< -o $@
 
-$(BLDDIR)/intel64/%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) Makefile
+$(BLDDIR)/intel64/%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) $(ROOTDIR)/Makefile
 	@mkdir -p $(BLDDIR)/intel64
 	$(CXX) $(CXXFLAGS) $(DFLAGS) $(IFLAGS) -c $< -o $@
 
@@ -179,3 +179,4 @@ realclean: clean
 	@rm -rf $(LIBDIR)
 
 install: all clean
+	@cp -r $(INCDIR) .
