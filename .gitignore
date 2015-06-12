@@ -1,6 +1,7 @@
 My Amplifier*
 My Inspector*
 bin
+lib
 build
 tmp
 samples/*/*.dat
