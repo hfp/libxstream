@@ -184,9 +184,6 @@
 #   undef  LIBXSTREAM_ASYNC
 #   define LIBXSTREAM_ASYNC
 # endif
-# if defined(LIBXSTREAM_SYNCHRONIZATION)
-#   undef LIBXSTREAM_SYNCHRONIZATION
-# endif
 #endif
 
 /**

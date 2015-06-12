@@ -71,9 +71,6 @@
  */
 #define LIBXSTREAM_ASYNC
 
-/** Enables internal synchronization. */
-#define LIBXSTREAM_SYNCHRONIZATION
-
 /** Not implemented yet. Must be disabled. */
 /*#define LIBXSTREAM_ASYNCHOST*/
 

@@ -116,8 +116,6 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_priority_range(int* least, int* greate
 LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int device, int priority, const char* name);
 /** Destroy a stream; pending work must be completed if results are needed. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* stream);
-/** Wait for stream-local work which; NULL to synchronize all streams. */
-LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream);
 /** Wait for pending work (blocking); NULL to synchronize all streams. */
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream);
 /** Wait for an event inside of the specified stream; a NULL-stream designates all streams. */
@@ -133,8 +131,6 @@ LIBXSTREAM_EXPORT_C int libxstream_event_destroy(const libxstream_event* event);
 LIBXSTREAM_EXPORT_C int libxstream_event_record(libxstream_event* event, libxstream_stream* stream);
 /** Check whether an event has occurred or not (non-blocking). */
 LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, libxstream_bool* occurred);
-/** Wait for stream-local event i.e., waiting for work queued prior to recording the event. */
-LIBXSTREAM_EXPORT_C int libxstream_event_sync(libxstream_event* event);
 /** Wait for the event i.e., waiting for work queued prior to recording the event. */
 LIBXSTREAM_EXPORT_C int libxstream_event_wait(libxstream_event* event);
 

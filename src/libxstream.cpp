@@ -102,14 +102,6 @@ bool any()
 }
 
 
-bool all()
-{
-  static const char *const env = getenv("LIBXSTREAM_ALL");
-  static const bool result = (env && *env) ? 0 != atoi(env) : false;
-  return result;
-}
-
-
 LIBXSTREAM_TARGET(mic) static/*IPO*/ class LIBXSTREAM_TARGET(mic) context_type {
 public:
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -945,33 +937,6 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* strea
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_stream_sync(libxstream_stream* stream)
-{
-  // TODO: print in order
-#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2)) && 0
-  if (0 != stream) {
-# if defined(LIBXSTREAM_DEBUG)
-    const char *const name = stream->name();
-    if (name && *name) {
-      LIBXSTREAM_PRINT(2, "stream_sync: stream=0x%llx (%s)", reinterpret_cast<unsigned long long>(stream), name);
-    }
-    else
-# endif
-    {
-      LIBXSTREAM_PRINT(2, "stream_sync: stream=0x%llx", reinterpret_cast<unsigned long long>(stream));
-    }
-  }
-  else {
-    LIBXSTREAM_PRINT0(2, "stream_sync: synchronize all streams");
-  }
-#endif
-  static const bool all = libxstream_internal::all();
-  const int result = stream ? stream->wait(false, all) : libxstream_stream::wait_all(false, all);
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
-  return result;
-}
-
-
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
 {
   // TODO: print in order
@@ -992,8 +957,8 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
     LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
   }
 #endif
-  static const bool any = libxstream_internal::any(), all = libxstream_internal::all();
-  const int result = stream ? stream->wait(any, all) : libxstream_stream::wait_all(any, all);
+  static const bool any = libxstream_internal::any();
+  const int result = stream ? stream->wait(any) : libxstream_stream::wait_all(any);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1004,8 +969,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait_event(libxstream_stream* stream, 
   // TODO: print in order
   //LIBXSTREAM_PRINT(2, "stream_wait_event: stream=0x%llx event=0x%llx", reinterpret_cast<unsigned long long>(stream), reinterpret_cast<unsigned long long>(event));
   LIBXSTREAM_CHECK_CONDITION(0 != event);
-  static const bool all = libxstream_internal::all();
-  const int result = libxstream_event(*event).wait_stream(stream, all);
+  const int result = libxstream_event(*event).wait_stream(stream);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1062,11 +1026,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_create(libxstream_event** event)
 
 LIBXSTREAM_EXPORT_C int libxstream_event_destroy(const libxstream_event* event)
 {
-#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
-  if (0 != event) {
-    LIBXSTREAM_PRINT(2, "event_destroy: event=0x%llx", reinterpret_cast<unsigned long long>(event));
-  }
-#endif
+  LIBXSTREAM_PRINT(0 != event ? 2 : 0, "event_destroy: event=0x%llx", reinterpret_cast<unsigned long long>(event));
   delete event;
   return LIBXSTREAM_ERROR_NONE;
 }
@@ -1087,21 +1047,9 @@ LIBXSTREAM_EXPORT_C int libxstream_event_query(const libxstream_event* event, li
   LIBXSTREAM_CHECK_CONDITION(event && occurred);
 
   bool has_occurred = true;
-  static const bool all = libxstream_internal::all();
-  const int result = event->query(has_occurred, 0, all);
+  const int result = event->query(has_occurred, 0);
   *occurred = has_occurred ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
-  return result;
-}
-
-
-LIBXSTREAM_EXPORT_C int libxstream_event_sync(libxstream_event* event)
-{
-  LIBXSTREAM_PRINT(2, "event_sync: event=0x%llx", reinterpret_cast<unsigned long long>(event));
-  LIBXSTREAM_CHECK_CONDITION(event);
-  static const bool all = libxstream_internal::all();
-  const int result = event->wait(0, false, all);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1111,8 +1059,8 @@ LIBXSTREAM_EXPORT_C int libxstream_event_wait(libxstream_event* event)
 {
   LIBXSTREAM_PRINT(2, "event_wait: event=0x%llx", reinterpret_cast<unsigned long long>(event));
   LIBXSTREAM_CHECK_CONDITION(event);
-  static const bool any = libxstream_internal::any(), all = libxstream_internal::all();
-  const int result = event->wait(0, any, all);
+  static const bool any = libxstream_internal::any();
+  const int result = event->wait(0, any);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1197,7 +1145,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const l
 {
   LIBXSTREAM_CHECK_CONDITION(0 != function);
   const libxstream_workqueue::entry_type& work = libxstream_offload(function, signature, stream, flags);
-  const int result = 0 != (LIBXSTREAM_CALL_WAIT & flags) ? work.wait() : work.status();
+  const int result = 0 == (LIBXSTREAM_CALL_WAIT & flags) ? work.status() : work.wait();
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1585,7 +1533,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_print(int verbosity, c
 {
   int level = 0, result = libxstream_get_verbosity(&level);
 
-  if (LIBXSTREAM_ERROR_NONE == result && (level >= verbosity || 0 > level)) {
+  if (LIBXSTREAM_ERROR_NONE == result && ((level >= verbosity && 0 != verbosity) || 0 > level)) {
     va_list args;
     va_start(args, message);
     LIBXSTREAM_FLOCK(stderr);

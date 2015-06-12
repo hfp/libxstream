@@ -52,42 +52,31 @@ public:
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
 
-  static int wait_all(int device, bool any, bool all = false);
-  static int wait_all(bool any, bool all = false);
+  static int wait_all(int device, bool any);
+  static int wait_all(bool any);
 
 public:
   libxstream_stream(int device, int priority, const char* name);
   ~libxstream_stream();
 
 public:
+  const libxstream_workqueue::entry_type* work() const { return m_queue.front(); }
+  libxstream_workqueue::entry_type* work() { return m_queue.front(); }
+
   int device() const    { return m_device; }
   int priority() const  { return m_priority; }
-  int thread() const    { return m_thread; }
 
   libxstream_workqueue::entry_type& enqueue(libxstream_workitem& workitem);
-
-  /**
-   * Schedules the next suitable thread-local queue to deliver work items.
-   * The retry argument is not a heuristic so far i.e., a value of one is
-   * sufficient; at this point it distincts the call side which masters
-   * the scheduling of work items from other callers. The retry argument
-   * by itself counts dead-lock conditions and thus enables the stream
-   * to be taken over by another thread.
-   */
-  libxstream_workqueue* queue(size_t retry = 0);
 
   /**
    * Wait for any pending work to complete with the option to wait for all work i.e.,
    * across thread-local queues. The any-flag allows to omit waiting if the thread
    * owning this stream is still the same since enqueuing the item.
    */
-  int wait(bool any, bool all = false);
+  int wait(bool any);
 
   libxstream_signal signal() const;
-  libxstream_signal pending(int thread) const;
-  libxstream_signal pending() const {
-    return 0 <= m_thread ? pending(m_thread) : 0;
-  }
+  libxstream_signal pending() const;
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;
@@ -102,18 +91,12 @@ private:
   libxstream_stream& operator=(const libxstream_stream& other);
 
 private:
-#if defined(LIBXSTREAM_SYNCHRONIZATION)
-  libxstream_workqueue* m_queues[LIBXSTREAM_MAX_NTHREADS];
-#else
-  libxstream_workqueue* m_queues[1];
-#endif
 #if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   char m_name[128];
 #endif
-  size_t m_retry;
+  mutable libxstream_workqueue m_queue;
   int m_device;
   int m_priority;
-  int m_thread;
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   mutable _Offload_stream m_handle; // lazy creation
