@@ -64,7 +64,6 @@ endif
 ifneq (,$(filter icpc icc,$(CXX) $(CC)))
 	CXXFLAGS += -fPIC -Wall -std=c++0x
 	CFLAGS += -fPIC -Wall -std=c99
-	DFLAGS += -DUSE_MKL
 	ifeq (0,$(DBG))
 		CXXFLAGS += -fno-alias -ansi-alias -O2
 		CFLAGS += -fno-alias -ansi-alias -O2
