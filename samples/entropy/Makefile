@@ -1,13 +1,11 @@
-# export all variables to sub-make processes
-.EXPORT_ALL_VARIABLES: #export
-
 ARCH = intel64
 
 ROOTDIR = $(abspath $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))))
-INCDIR = $(ROOTDIR)/include
-SRCDIR = $(ROOTDIR)/src
+INCDIR = $(ROOTDIR)
+SRCDIR = $(ROOTDIR)
 BLDDIR = build/$(ARCH)
-OUTDIR = lib/$(ARCH)
+OUTDIR = bin/$(ARCH)
+DEPDIR = $(ROOTDIR)/../..
 
 OUTNAME = $(shell basename $(ROOTDIR))
 HEADERS = $(shell ls -1 $(INCDIR)/*.h   2> /dev/null | tr "\n" " ") \
@@ -27,8 +25,8 @@ OBJECTS = $(CPPOBJS) $(CXXOBJS) $(CCXOBJS) $(COBJCTS)
 
 CXXFLAGS = $(NULL)
 CFLAGS = $(NULL)
-DFLAGS = -DLIBXSTREAM_EXPORTED
-IFLAGS = -I$(INCDIR)
+DFLAGS = $(NULL)
+IFLAGS = -I$(INCDIR) -I$(DEPDIR)/include
 
 STATIC ?= 1
 DBG ?= 0
@@ -45,7 +43,6 @@ ifneq (,$(ICPC))
 	ifeq (,$(ICC))
 		CC = $(CXX)
 	endif
-	AR = xiar
 else
 	CXX = $(GPP)
 endif
@@ -54,7 +51,6 @@ ifneq (,$(ICC))
 	ifeq (,$(ICPC))
 		CXX = $(CC)
 	endif
-	AR = xiar
 else
 	CC = $(GCC)
 endif
@@ -163,14 +159,14 @@ else
 endif
 
 .PHONY: all
-all: $(OUTDIR)/$(OUTNAME).$(LIBEXT)
+all: $(OUTDIR)/$(OUTNAME)
 
-$(OUTDIR)/$(OUTNAME).$(LIBEXT): $(OBJECTS)
+$(OUTDIR)/$(OUTNAME): $(OBJECTS) $(DEPDIR)/lib/$(ARCH)/libxstream.$(LIBEXT)
 	@mkdir -p $(OUTDIR)
 ifeq ($(STATIC),0)
 	$(LD) -shared -o $@ $(LDFLAGS) $^
 else
-	$(AR) -rs $@ $^
+	$(LD) -o $@ $(LDFLAGS) $^
 endif
 
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c $(HEADERS) $(ROOTDIR)/Makefile
@@ -191,6 +187,8 @@ realclean:
 	@rm -rf $(call parent,$(OUTDIR))
 
 install: all
-	@cp -r $(INCDIR) . 2> /dev/null || true
+ifeq ($(STATIC),0)
+	@cp $(DEPDIR)/lib/$(ARCH)/libxstream.$(LIBEXT) $(OUTDIR)
+endif
 	@rm -rf $(call parent,$(BLDDIR))
 
