@@ -112,8 +112,8 @@ else # GCC assumed
 	CXXFLAGS += -Wall
 	CFLAGS += -Wall
 	ifeq (0,$(DBG))
-		CXXFLAGS += -O3 -fopenmp
-		CFLAGS += -O3 -fopenmp
+		CXXFLAGS += -O2 -fopenmp
+		CFLAGS += -O2 -fopenmp
 		LDFLAGS += -fopenmp
 		DFLAGS += -DNDEBUG
 		ifeq ($(AVX),1)
