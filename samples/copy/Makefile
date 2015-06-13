@@ -7,6 +7,16 @@ BLDDIR = build/$(ARCH)
 OUTDIR = bin/$(ARCH)
 DEPDIR = $(ROOTDIR)/../..
 
+CXXFLAGS = $(NULL)
+CFLAGS = $(NULL)
+DFLAGS = $(NULL)
+IFLAGS = -I$(INCDIR) -I$(DEPDIR)/include
+
+STATIC ?= 1
+OMP ?= 1
+DBG ?= 0
+IPO ?= 0
+
 OUTNAME = $(shell basename $(ROOTDIR))
 HEADERS = $(shell ls -1 $(INCDIR)/*.h   2> /dev/null | tr "\n" " ") \
           $(shell ls -1 $(SRCDIR)/*.hpp 2> /dev/null | tr "\n" " ") \
@@ -22,16 +32,6 @@ CXXOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CXXSRCS:.cxx=-cxx.o)))
 CCXOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CCXSRCS:.cc=-cc.o)))
 COBJCTS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 OBJECTS = $(CPPOBJS) $(CXXOBJS) $(CCXOBJS) $(COBJCTS)
-
-CXXFLAGS = $(NULL)
-CFLAGS = $(NULL)
-DFLAGS = $(NULL)
-IFLAGS = -I$(INCDIR) -I$(DEPDIR)/include
-
-STATIC ?= 1
-DBG ?= 0
-
-parent = $(subst ?, ,$(firstword $(subst /, ,$(subst $(NULL) ,?,$(patsubst ./%,%,$1)))))
 
 ICPC = $(notdir $(shell which icpc 2> /dev/null))
 ICC = $(notdir $(shell which icc 2> /dev/null))
@@ -66,10 +66,18 @@ ifneq (,$(filter icpc icc,$(CXX) $(CC)))
 	CFLAGS += -fPIC -Wall -std=c99
 	DFLAGS += -DUSE_MKL
 	ifeq (0,$(DBG))
-		CXXFLAGS += -fno-alias -ansi-alias -O3 -ipo -openmp
-		CFLAGS += -fno-alias -ansi-alias -O3 -ipo -openmp
-		LDFLAGS += -openmp
+		CXXFLAGS += -fno-alias -ansi-alias -O2
+		CFLAGS += -fno-alias -ansi-alias -O2
 		DFLAGS += -DNDEBUG
+		ifneq ($(IPO),0)
+			CXXFLAGS += -ipo
+			CFLAGS += -ipo
+		endif
+		ifneq ($(OMP),0)
+			CXXFLAGS += -openmp
+			CFLAGS += -openmp
+			LDFLAGS += -openmp
+		endif
 		ifeq ($(AVX),1)
 			CXXFLAGS += -xAVX
 			CFLAGS += -xAVX
@@ -87,9 +95,8 @@ ifneq (,$(filter icpc icc,$(CXX) $(CC)))
 		CXXFLAGS += -O0 -g3 -gdwarf-2 -debug inline-debug-info
 		CFLAGS += -O0 -g3 -gdwarf-2 -debug inline-debug-info
 	else
-		CXXFLAGS += -O0 -g -openmp
-		CFLAGS += -O0 -g -openmp
-		LDFLAGS += -openmp
+		CXXFLAGS += -O0 -g
+		CFLAGS += -O0 -g
 	endif
 	ifeq (0,$(OFFLOAD))
 		CXXFLAGS += -no-offload
@@ -108,10 +115,14 @@ else # GCC assumed
 	CXXFLAGS += -Wall
 	CFLAGS += -Wall
 	ifeq (0,$(DBG))
-		CXXFLAGS += -O2 -fopenmp
-		CFLAGS += -O2 -fopenmp
-		LDFLAGS += -fopenmp
+		CXXFLAGS += -O2
+		CFLAGS += -O2
 		DFLAGS += -DNDEBUG
+		ifneq ($(OMP),0)
+			CXXFLAGS += -fopenmp
+			CFLAGS += -fopenmp
+			LDFLAGS += -fopenmp
+		endif
 		ifeq ($(AVX),1)
 			CXXFLAGS += -mavx
 			CFLAGS += -mavx
@@ -129,9 +140,8 @@ else # GCC assumed
 		CXXFLAGS += -O0 -g3 -gdwarf-2
 		CFLAGS += -O0 -g3 -gdwarf-2
 	else
-		CXXFLAGS += -O0 -g -fopenmp
-		CFLAGS += -O0 -g -fopenmp
-		LDFLAGS += -fopenmp
+		CXXFLAGS += -O0 -g
+		CFLAGS += -O0 -g
 	endif
 	ifneq ($(OS),Windows_NT)
 		CXXFLAGS += -fPIC
@@ -157,6 +167,8 @@ ifneq ($(STATIC),0)
 else
 	LIBEXT := so
 endif
+
+parent = $(subst ?, ,$(firstword $(subst /, ,$(subst $(NULL) ,?,$(patsubst ./%,%,$1)))))
 
 .PHONY: all
 all: $(OUTDIR)/$(OUTNAME)
