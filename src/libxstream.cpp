@@ -94,14 +94,6 @@
 
 namespace libxstream_internal {
 
-bool any()
-{
-  static const char *const env = getenv("LIBXSTREAM_ANY");
-  static const bool result = (env && *env) ? 0 != atoi(env) : true;
-  return result;
-}
-
-
 LIBXSTREAM_TARGET(mic) static/*IPO*/ class LIBXSTREAM_TARGET(mic) context_type {
 public:
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -957,8 +949,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
     LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
   }
 #endif
-  static const bool any = libxstream_internal::any();
-  const int result = stream ? stream->wait(any) : libxstream_stream::wait_all(any);
+  const int result = stream ? stream->wait(true) : libxstream_stream::wait_all(true);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1059,8 +1050,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_wait(libxstream_event* event)
 {
   LIBXSTREAM_PRINT(2, "event_wait: event=0x%llx", reinterpret_cast<unsigned long long>(event));
   LIBXSTREAM_CHECK_CONDITION(event);
-  static const bool any = libxstream_internal::any();
-  const int result = event->wait(0, any);
+  const int result = event->wait(0, true);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
