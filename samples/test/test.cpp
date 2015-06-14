@@ -211,8 +211,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   //const libxstream_function complex_cpp = reinterpret_cast<libxstream_function>(test_internal::complex_cpp);
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(complex_cpp, signature, m_stream, LIBXSTREAM_CALL_DEFAULT));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(m_stream));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(complex_cpp, signature, m_stream, LIBXSTREAM_CALL_WAIT));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_b);
