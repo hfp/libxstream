@@ -1134,7 +1134,7 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_nargs(const libxstream_argument* signature
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != function);
-  const libxstream_workqueue::entry_type& work = libxstream_offload(function, signature, stream, flags & ~LIBXSTREAM_CALL_WAIT);
+  const libxstream_workqueue::entry_type& work = libxstream_offload(function, signature, stream, flags);
   const int result = 0 == (LIBXSTREAM_CALL_WAIT & flags) ? work.status() : work.wait();
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;

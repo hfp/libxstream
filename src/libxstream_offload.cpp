@@ -515,7 +515,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
       libxstream_offload_internal::call(fhybrid ? fhybrid : ((libxstream_function)fnative), signature, 0, arity, cflags);
     }
   }
-  LIBXSTREAM_ASYNC_END(stream, flags, work, function, signature);
+  LIBXSTREAM_ASYNC_END(stream, flags & ~LIBXSTREAM_CALL_WAIT, work, function, signature);
 
   return LIBXSTREAM_ASYNC_INTERNAL(work);
 }
