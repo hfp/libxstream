@@ -67,7 +67,7 @@ public:
 private:
   typedef libxstream_workqueue::entry_type* slot_type;
   slot_type* m_slots;
-  size_t m_expected;
+  void* m_expected;
 };
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
