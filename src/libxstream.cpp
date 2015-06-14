@@ -591,20 +591,17 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
 
 #if defined(LIBXSTREAM_OFFLOAD)
   if (0 <= device) {
-    void* buffer = 0;
-    result = libxstream_virt_allocate(&buffer, size, alignment, &device, sizeof(device));
+    result = libxstream_virt_allocate(memory, size, alignment, &device, sizeof(device));
 
-    if (LIBXSTREAM_ERROR_NONE == result && 0 != buffer) {
+    if (LIBXSTREAM_ERROR_NONE == result) {
       LIBXSTREAM_ASYNC_BEGIN
       {
         const char* buffer = ptr<const char,1>();
         const size_t size = val<const size_t,2>();
 #       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC)
       }
-      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE | LIBXSTREAM_CALL_WAIT, work, device, buffer, size);
-      result = work.wait();
-      LIBXSTREAM_CHECK_ERROR(result);
-      *memory = buffer;
+      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT, work, device, *memory, size);
+      result = work.status();
     }
   }
   else {
@@ -612,10 +609,9 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
   {
     libxstream_use_sink(&device);
 #endif
-    void* buffer = 0;
-    result = libxstream_real_allocate(&buffer, size, alignment);
+    result = libxstream_real_allocate(memory, size, alignment);
 
-    if (LIBXSTREAM_ERROR_NONE == result && 0 != buffer) {
+    if (LIBXSTREAM_ERROR_NONE == result) {
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ALLOC_PINNED)
       LIBXSTREAM_ASYNC_BEGIN
       {
@@ -623,11 +619,9 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
         const size_t size = val<const size_t,2>();
 #       pragma offload_transfer target(mic) host_pin(buffer: length(size))
       }
-      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE | LIBXSTREAM_CALL_WAIT, work, device, buffer, size);
-      result = work.wait();
-      LIBXSTREAM_CHECK_ERROR(result);
+      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT, work, device, *memory, size);
+      result = work.status();
 #endif
-      *memory = buffer;
     }
   }
 
@@ -645,7 +639,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 
   if (memory) {
     // synchronize across all devices not just the given device
-    libxstream_stream::wait_all(true, true);
+    libxstream_stream::wait_all(true);
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= device) {
