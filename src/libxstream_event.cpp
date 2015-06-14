@@ -135,8 +135,15 @@ int libxstream_event::record(libxstream_stream& stream, bool reset)
   LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_EVENT, work);
 
   if (0 == m_slots) {
-    m_slots = new slot_type[(LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS)];
-    std::fill_n(m_slots, (LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS), slot_type(0));
+    libxstream_lock *const lock = libxstream_lock_get(this);
+    libxstream_lock_acquire(lock);
+
+    if (0 == m_slots) {
+      m_slots = new slot_type[(LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS)];
+      std::fill_n(m_slots, (LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS), slot_type(0));
+    }
+
+    libxstream_lock_release(lock);
   }
   LIBXSTREAM_ASSERT(0 != m_slots);
 
