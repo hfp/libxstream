@@ -182,9 +182,9 @@ libxstream_workqueue::entry_type& libxstream_workqueue::allocate_entry_mt()
   size_t size1 = 0;
   size_t& size = *static_cast<size_t*>(m_size);
 # if (201107 <= _OPENMP)
-#   pragma omp atomic capture
+# pragma omp atomic capture
 # else
-#   pragma omp critical
+# pragma omp critical
 # endif
   size1 = ++size;
   result = m_buffer + LIBXSTREAM_MOD(size1 - 1, LIBXSTREAM_MAX_QSIZE);
