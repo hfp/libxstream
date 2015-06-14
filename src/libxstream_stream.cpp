@@ -374,7 +374,7 @@ libxstream_stream::~libxstream_stream()
 libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem& workitem)
 {
   LIBXSTREAM_ASSERT(this == workitem.stream());
-  libxstream_workqueue::entry_type& entry = m_queue.allocate_entry();
+  libxstream_workqueue::entry_type& entry = m_queue.allocate_entry_mt();
   entry.push(workitem);
   return entry;
 }
