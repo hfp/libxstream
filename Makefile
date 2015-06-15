@@ -98,9 +98,8 @@ ifneq (,$(filter icpc icc,$(CXX) $(CC)))
 		CXXFLAGS += -O0 -g3 -gdwarf-2 -debug inline-debug-info
 		CFLAGS += -O0 -g3 -gdwarf-2 -debug inline-debug-info
 	else
-		CXXFLAGS += -O0 -g -openmp
-		CFLAGS += -O0 -g -openmp
-		LDFLAGS += -openmp
+		CXXFLAGS += -O0 -g
+		CFLAGS += -O0 -g
 	endif
 	ifeq (0,$(OFFLOAD))
 		CXXFLAGS += -no-offload
