@@ -384,13 +384,11 @@ int libxstream_stream::wait(bool any)
 {
   LIBXSTREAM_ASYNC_BEGIN
   {
-    if (!(LIBXSTREAM_ASYNC_READY)) {
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
-      if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-#       pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
-      }
-#endif
+    if (!(LIBXSTREAM_ASYNC_READY) && 0 <= LIBXSTREAM_ASYNC_DEVICE) {
+#     pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
     }
+#endif
   }
   LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | (any ? LIBXSTREAM_CALL_WAIT : 0), work);
 
