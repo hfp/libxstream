@@ -220,16 +220,18 @@ int main(int argc, char* argv[])
     entropy /= nitems;
   }
 
-  if ((1 << 20) <= nitems) { /*mega*/
-    fprintf(stdout, "Compression %gx: %.1f -> %.1f MB", 8.0 / entropy, mega * nitems, mega * entropy * nitems / 8.0);
+  if (0 < entropy) {
+    if ((1 << 20) <= nitems) { /*mega*/
+      fprintf(stdout, "Compression %gx: %.1f -> %.1f MB", 8.0 / entropy, mega * nitems, mega * entropy * nitems / 8.0);
+    }
+    else if ((1 << 10) <= nitems) { /*kilo*/
+      fprintf(stdout, "Compression %gx: %.1f -> %.1f KB", 8.0 / entropy, kilo * nitems, kilo * entropy * nitems / 8.0);
+    }
+    else  {
+      fprintf(stdout, "Compression %gx: %.0f -> %0.f B", 8.0 / entropy, 1.0 * nitems, entropy * nitems / 8.0);
+    }
+    fprintf(stdout, " (redundancy %0.f%%, entropy %.0f bit)\n", 100.0 - 12.5 * entropy, entropy);
   }
-  else if ((1 << 10) <= nitems) { /*kilo*/
-    fprintf(stdout, "Compression %gx: %.1f -> %.1f KB", 8.0 / entropy, kilo * nitems, kilo * entropy * nitems / 8.0);
-  }
-  else  {
-    fprintf(stdout, "Compression %gx: %.0f -> %0.f B", 8.0 / entropy, 1.0 * nitems, entropy * nitems / 8.0);
-  }
-  fprintf(stdout, " (redundancy %0.f%%, entropy %.0f bit)\n", 100.0 - 12.5 * entropy, entropy);
 
 #if defined(_OPENMP)
   if (0 < duration) {
