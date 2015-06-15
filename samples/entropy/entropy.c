@@ -214,8 +214,8 @@ int main(int argc, char* argv[])
     const double log2_nitems = log2((double)nitems);
     size_t i;
     for (i = 0; i < hsize; ++i) {
-      const double h = (double)histogram[i];
-      entropy -= 0 < h ? (h * (log2(h) - log2_nitems)) : 0.0;
+      const double h = (double)histogram[i], log2h = 0 < h ? log2(h) : log2_nitems;
+      entropy -= h * LIBXSTREAM_MIN(log2h - log2_nitems, 0);
     }
     entropy /= nitems;
   }
