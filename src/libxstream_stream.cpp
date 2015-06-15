@@ -383,8 +383,9 @@ libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem
 int libxstream_stream::wait(bool any)
 {
   int result = LIBXSTREAM_ERROR_NONE;
+  const libxstream_workqueue::entry_type *const entry = work();
 
-  if (work()) {
+  if (0 != entry && entry->item()) { // pending work
     LIBXSTREAM_ASYNC_BEGIN
     {
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
