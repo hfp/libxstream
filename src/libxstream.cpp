@@ -598,6 +598,10 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
       {
         const char* buffer = ptr<const char,1>();
         const size_t size = val<const size_t,2>();
+
+        LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", LIBXSTREAM_ASYNC_DEVICE,
+          reinterpret_cast<unsigned long long>(buffer), static_cast<unsigned long>(size));
+
 #       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC)
       }
       LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT, work, device, *memory, size);
@@ -609,6 +613,9 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
   {
     libxstream_use_sink(&device);
 #endif
+    LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", device,
+      reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
+
     result = libxstream_real_allocate(memory, size, alignment);
 
     if (LIBXSTREAM_ERROR_NONE == result) {
@@ -624,9 +631,6 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
 #endif
     }
   }
-
-  LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", device,
-    reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
 
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
