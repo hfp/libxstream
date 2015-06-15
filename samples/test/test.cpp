@@ -118,6 +118,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &m_dev_mem1, size, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &m_dev_mem2, size, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_info(device, &mem_free, &mem_avail));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0)); // not necessary; test
 
   const char pattern_a = 'a', pattern_b = 'b';
   LIBXSTREAM_ASSERT(pattern_a != pattern_b);
