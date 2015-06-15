@@ -382,17 +382,22 @@ libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem
 
 int libxstream_stream::wait(bool any)
 {
-  LIBXSTREAM_ASYNC_BEGIN
-  {
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
-    if (!(LIBXSTREAM_ASYNC_READY) && 0 <= LIBXSTREAM_ASYNC_DEVICE) {
-#     pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
-    }
-#endif
-  }
-  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | (any ? LIBXSTREAM_CALL_WAIT : 0), work);
+  int result = LIBXSTREAM_ERROR_NONE;
 
-  return work.wait(any);
+  if (work()) {
+    LIBXSTREAM_ASYNC_BEGIN
+    {
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
+      if (!(LIBXSTREAM_ASYNC_READY) && 0 <= LIBXSTREAM_ASYNC_DEVICE) {
+#       pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
+      }
+#endif
+    }
+    LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | (any ? LIBXSTREAM_CALL_WAIT : 0), work);
+    result = work.wait(any);
+  }
+
+  return result;
 }
 
 
