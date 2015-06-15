@@ -134,7 +134,7 @@ int main(int argc, char* argv[])
 #     pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
       for (int i = 0; i < nrepeat; ++i) {
-        const size_t n = std::min(nstreams, nrepeat - nstreams);
+        const size_t n = std::min<size_t>(nstreams, nrepeat - i);
 
         for (size_t j = 0; j < n; ++j) { // enqueue work into streams
           if (copyin) {

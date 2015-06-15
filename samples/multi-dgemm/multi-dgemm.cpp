@@ -119,7 +119,7 @@ int main(int argc, char* argv[])
     const double start = omp_get_wtime();
 #endif
     for (int i = 0; i < end; i += ninc) {
-      const size_t n = std::min(nstreams, end - nstreams);
+      const size_t n = std::min<size_t>(nstreams, end - i);
 
       for (size_t j = 0; j < n; ++j) { // enqueue work into streams
         const size_t batch = j * nbatch, base = i + batch, size = base < nitems ? std::min(nbatch, nitems - base) : 0;

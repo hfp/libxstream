@@ -163,7 +163,7 @@ int main(int argc, char* argv[])
   const double start = omp_get_wtime();
 #endif
   for (i = 0; i < end; ++i) {
-    const size_t ibase = i * nstep, n = LIBXSTREAM_MIN(nstreams, nitems - nstreams);
+    const size_t ibase = i * nstep, n = LIBXSTREAM_MIN(nstreams, nitems - ibase);
     libxstream_argument* signature;
     size_t j;
 
