@@ -121,7 +121,7 @@ public:
   entry_type* front() {
     entry_type* result = m_global_queue.front();
 
-    if (0 == result) { // no entry in global queue
+    if (0 == result || 0 == result->item()) { // no item in global queue
       libxstream_stream *const stream = libxstream_stream::schedule(m_stream);
       result = stream ? stream->work() : 0;
       m_stream = stream;
