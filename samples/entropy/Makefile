@@ -72,11 +72,6 @@ ifneq (,$(filter icpc icc,$(CXX) $(CC)))
 			CXXFLAGS += -ipo
 			CFLAGS += -ipo
 		endif
-		ifneq ($(OMP),0)
-			CXXFLAGS += -openmp
-			CFLAGS += -openmp
-			LDFLAGS += -openmp
-		endif
 		ifeq ($(AVX),1)
 			CXXFLAGS += -xAVX
 			CFLAGS += -xAVX
@@ -96,6 +91,11 @@ ifneq (,$(filter icpc icc,$(CXX) $(CC)))
 	else
 		CXXFLAGS += -O0 -g
 		CFLAGS += -O0 -g
+	endif
+	ifneq ($(OMP),0)
+		CXXFLAGS += -openmp
+		CFLAGS += -openmp
+		LDFLAGS += -openmp
 	endif
 	ifeq (0,$(OFFLOAD))
 		CXXFLAGS += -no-offload
@@ -117,11 +117,6 @@ else # GCC assumed
 		CXXFLAGS += -O2
 		CFLAGS += -O2
 		DFLAGS += -DNDEBUG
-		ifneq ($(OMP),0)
-			CXXFLAGS += -fopenmp
-			CFLAGS += -fopenmp
-			LDFLAGS += -fopenmp
-		endif
 		ifeq ($(AVX),1)
 			CXXFLAGS += -mavx
 			CFLAGS += -mavx
@@ -141,6 +136,11 @@ else # GCC assumed
 	else
 		CXXFLAGS += -O0 -g
 		CFLAGS += -O0 -g
+	endif
+	ifneq ($(OMP),0)
+		CXXFLAGS += -fopenmp
+		CFLAGS += -fopenmp
+		LDFLAGS += -fopenmp
 	endif
 	ifneq ($(OS),Windows_NT)
 		CXXFLAGS += -fPIC
