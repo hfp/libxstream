@@ -98,7 +98,11 @@ int libxstream_event::record(libxstream_stream& stream, bool reset)
 #if defined(LIBXSTREAM_STDFEATURES)
     expected = 0;
 #elif defined(_OPENMP)
-#   pragma omp atomic
+# if (201107 <= _OPENMP)
+#   pragma omp atomic write
+# else
+#   pragma omp critical
+#   endif
     expected = 0;
 #else // generic
     libxstream_lock *const lock = libxstream_lock_get(this);
@@ -151,7 +155,11 @@ int libxstream_event::record(libxstream_stream& stream, bool reset)
   const size_t slot = ++expected;
 #elif defined(_OPENMP)
   size_t slot = 0;
-# pragma omp atomic
+# if (201107 <= _OPENMP)
+# pragma omp atomic capture
+# else
+# pragma omp critical
+# endif
   slot = ++expected;
 #else // generic
   size_t slot = 0;
@@ -226,7 +234,11 @@ int libxstream_event::wait(const libxstream_stream* exclude, bool any)
 #if defined(LIBXSTREAM_STDFEATURES)
     expected_dst = 0;
 #elif defined(_OPENMP)
-#   pragma omp atomic
+# if (201107 <= _OPENMP)
+#   pragma omp atomic write
+# else
+#   pragma omp critical
+#   endif
     expected_dst = 0;
 #else // generic
     libxstream_lock *const lock = libxstream_lock_get(this);
