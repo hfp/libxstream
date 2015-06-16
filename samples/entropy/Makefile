@@ -207,6 +207,7 @@ endif
 else
 	@rm -f $(OUTDIR)/$(OUTNAME)
 endif
+	@rm -f $(OUTDIR)/libxstream.so
 
 install: all clean
 	@cp $(DEPDIR)/lib/$(ARCH)/libxstream.so $(OUTDIR) 2> /dev/null || true
