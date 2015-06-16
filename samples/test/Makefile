@@ -1,11 +1,11 @@
 ARCH = intel64
 
 ROOTDIR = $(abspath $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))))
+DEPDIR = $(ROOTDIR)/../..
 INCDIR = $(ROOTDIR)
 SRCDIR = $(ROOTDIR)
 BLDDIR = build/$(ARCH)
-OUTDIR = bin/$(ARCH)
-DEPDIR = $(ROOTDIR)/../..
+OUTDIR = .
 
 CXXFLAGS = $(NULL)
 CFLAGS = $(NULL)
@@ -186,16 +186,20 @@ $(BLDDIR)/%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) $(ROOTDIR)/Makefile
 
 .PHONY: clean
 clean:
-	@rm -f $(OBJECTS)
+ifneq ($(abspath $(BLDDIR)),$(ROOTDIR))
+ifneq ($(abspath $(BLDDIR)),$(abspath .))
+	@rm -rf $(call parent,$(BLDDIR))
+endif
+endif
 
 .PHONY: realclean
-realclean:
-	@rm -rf $(call parent,$(BLDDIR))
+realclean: clean
+ifneq ($(abspath $(OUTDIR)),$(ROOTDIR))
+ifneq ($(abspath $(OUTDIR)),$(abspath .))
 	@rm -rf $(call parent,$(OUTDIR))
-
-install: all
-ifeq ($(STATIC),0)
-	@cp $(DEPDIR)/lib/$(ARCH)/libxstream.$(LIBEXT) $(OUTDIR)
 endif
-	@rm -rf $(call parent,$(BLDDIR))
+endif
+
+install: all clean
+	@cp $(DEPDIR)/lib/$(ARCH)/libxstream.so $(OUTDIR) 2> /dev/null || true
 
