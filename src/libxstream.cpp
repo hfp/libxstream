@@ -251,8 +251,8 @@ LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create()
   pthread_mutexattr_t attributes;
   pthread_mutexattr_init(&attributes);
   pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_NORMAL);
-  pthread_mutex_t typed_lock;
-  pthread_mutex_init(&typed_lock, &attributes);
+  pthread_mutex_t *const typed_lock = new pthread_mutex_t;
+  pthread_mutex_init(typed_lock, &attributes);
 #else // Windows
   const HANDLE typed_lock = CreateMutex(0/*default*/, FALSE/*unlocked*/, 0/*unnamed*/);
 #endif
@@ -293,8 +293,9 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_destroy(libxstream_lock* lock)
   omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
   omp_destroy_lock(&typed_lock);
 #elif defined(__GNUC__)
-  pthread_mutex_t typed_lock = libxstream_internal::bitwise_cast<pthread_mutex_t>(lock);
-  pthread_mutex_destroy(&typed_lock);
+  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
+  pthread_mutex_destroy(typed_lock);
+  delete typed_lock;
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
   CloseHandle(typed_lock);
@@ -321,8 +322,8 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_acquire(libxstream_lock* lock)
   omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
   omp_set_lock(&typed_lock);
 #elif defined(__GNUC__)
-  pthread_mutex_t typed_lock = libxstream_internal::bitwise_cast<pthread_mutex_t>(lock);
-  pthread_mutex_lock(&typed_lock);
+  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
+  pthread_mutex_lock(typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
   WaitForSingleObject(typed_lock, INFINITE);
@@ -345,8 +346,8 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_release(libxstream_lock* lock)
   omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
   omp_unset_lock(&typed_lock);
 #elif defined(__GNUC__)
-  pthread_mutex_t typed_lock = libxstream_internal::bitwise_cast<pthread_mutex_t>(lock);
-  pthread_mutex_unlock(&typed_lock);
+  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
+  pthread_mutex_unlock(typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
   ReleaseMutex(typed_lock);
@@ -370,8 +371,8 @@ LIBXSTREAM_TARGET(mic) bool libxstream_lock_try(libxstream_lock* lock)
   omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
   const bool result = 0 != omp_test_lock(&typed_lock);
 #elif defined(__GNUC__)
-  pthread_mutex_t typed_lock = libxstream_internal::bitwise_cast<pthread_mutex_t>(lock);
-  const bool result =  0 == pthread_mutex_trylock(&typed_lock);
+  pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
+  const bool result =  0 == pthread_mutex_trylock(typed_lock);
 #else // Windows
   const HANDLE typed_lock = static_cast<HANDLE>(lock);
   const bool result = WAIT_OBJECT_0 == WaitForSingleObject(typed_lock, INFINITE);
