@@ -12,7 +12,7 @@ CFLAGS = $(NULL)
 DFLAGS = $(NULL)
 IFLAGS = -I$(INCDIR) -I$(DEPDIR)/include
 
-STATIC ?= 1
+STATIC ?= 0
 OMP ?= 1
 DBG ?= 0
 IPO ?= 0
@@ -161,10 +161,10 @@ ifeq (,$(CFLAGS))
 	CFLAGS = $(CXXFLAGS)
 endif
 
-ifneq ($(STATIC),0)
-	LIBEXT := a
+ifneq ("","$(wildcard $(DEPDIR)/lib/$(ARCH)/libxstream.a)")
+	LIBEXT = a
 else
-	LIBEXT := so
+	LIBEXT = so
 endif
 
 parent = $(subst ?, ,$(firstword $(subst /, ,$(subst $(NULL) ,?,$(patsubst ./%,%,$1)))))
