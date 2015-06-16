@@ -186,8 +186,8 @@ $(BLDDIR)/%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) $(ROOTDIR)/Makefile
 
 .PHONY: clean
 clean:
-ifneq ($(abspath $(BLDDIR)),$(ROOTDIR))
-ifneq ($(abspath $(BLDDIR)),$(abspath .))
+ifneq ($(abspath $(call parent,$(BLDDIR))),$(ROOTDIR))
+ifneq ($(abspath $(call parent,$(BLDDIR))),$(abspath .))
 	@rm -rf $(call parent,$(BLDDIR))
 else
 	@rm -f $(OBJECTS)
@@ -198,8 +198,8 @@ endif
 
 .PHONY: realclean
 realclean: clean
-ifneq ($(abspath $(OUTDIR)),$(ROOTDIR))
-ifneq ($(abspath $(OUTDIR)),$(abspath .))
+ifneq ($(abspath $(call parent,$(OUTDIR))),$(ROOTDIR))
+ifneq ($(abspath $(call parent,$(OUTDIR))),$(abspath .))
 	@rm -rf $(call parent,$(OUTDIR))
 else
 	@rm -f $(OUTDIR)/$(OUTNAME)

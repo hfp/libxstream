@@ -166,9 +166,9 @@ ifeq (,$(CFLAGS))
 endif
 
 ifneq ($(STATIC),0)
-	LIBEXT := a
+	LIBEXT = a
 else
-	LIBEXT := so
+	LIBEXT = so
 endif
 
 parent = $(subst ?, ,$(firstword $(subst /, ,$(subst $(NULL) ,?,$(patsubst ./%,%,$1)))))
@@ -194,14 +194,28 @@ $(BLDDIR)/%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) $(ROOTDIR)/Makefile
 
 .PHONY: clean
 clean:
+ifneq ($(abspath $(call parent,$(BLDDIR))),$(ROOTDIR))
+ifneq ($(abspath $(call parent,$(BLDDIR))),$(abspath .))
+	@rm -rf $(call parent,$(BLDDIR))
+else
 	@rm -f $(OBJECTS)
+endif
+else
+	@rm -f $(OBJECTS)
+endif
 
 .PHONY: realclean
-realclean:
-	@rm -rf $(call parent,$(BLDDIR))
+realclean: clean
+ifneq ($(abspath $(call parent,$(OUTDIR))),$(ROOTDIR))
+ifneq ($(abspath $(call parent,$(OUTDIR))),$(abspath .))
 	@rm -rf $(call parent,$(OUTDIR))
+else
+	@rm -f $(OUTDIR)/$(OUTNAME)
+endif
+else
+	@rm -f $(OUTDIR)/$(OUTNAME)
+endif
 
-install: all
+install: all clean
 	@cp -r $(INCDIR) . 2> /dev/null || true
-	@rm -rf $(call parent,$(BLDDIR))
 
