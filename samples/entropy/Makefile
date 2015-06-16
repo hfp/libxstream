@@ -189,7 +189,11 @@ clean:
 ifneq ($(abspath $(BLDDIR)),$(ROOTDIR))
 ifneq ($(abspath $(BLDDIR)),$(abspath .))
 	@rm -rf $(call parent,$(BLDDIR))
+else
+	@rm -f $(OBJECTS)
 endif
+else
+	@rm -f $(OBJECTS)
 endif
 
 .PHONY: realclean
@@ -197,7 +201,11 @@ realclean: clean
 ifneq ($(abspath $(OUTDIR)),$(ROOTDIR))
 ifneq ($(abspath $(OUTDIR)),$(abspath .))
 	@rm -rf $(call parent,$(OUTDIR))
+else
+	@rm -f $(OUTDIR)/$(OUTNAME)
 endif
+else
+	@rm -f $(OUTDIR)/$(OUTNAME)
 endif
 
 install: all clean
