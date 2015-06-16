@@ -290,10 +290,13 @@ LIBXSTREAM_TARGET(mic) void libxstream_lock_destroy(libxstream_lock* lock)
 # endif
   delete typed_lock;
 #elif defined(_OPENMP)
-  omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
-  omp_destroy_lock(&typed_lock);
+  if (0 != lock) {
+    omp_lock_t typed_lock = libxstream_internal::bitwise_cast<omp_lock_t>(lock);
+    omp_destroy_lock(&typed_lock);
+  }
 #elif defined(__GNUC__)
-  if (pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock)) {
+  if (0 != lock) {
+    pthread_mutex_t *const typed_lock = static_cast<pthread_mutex_t*>(lock);
     pthread_mutex_destroy(typed_lock);
     delete typed_lock;
   }
