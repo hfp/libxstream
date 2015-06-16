@@ -174,11 +174,7 @@ all: $(OUTDIR)/$(OUTNAME)
 
 $(OUTDIR)/$(OUTNAME): $(OBJECTS) $(DEPDIR)/lib/$(ARCH)/libxstream.$(LIBEXT)
 	@mkdir -p $(OUTDIR)
-ifeq ($(STATIC),0)
-	$(LD) -shared -o $@ $(LDFLAGS) $^
-else
 	$(LD) -o $@ $(LDFLAGS) $^
-endif
 
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c $(HEADERS) $(ROOTDIR)/Makefile
 	@mkdir -p $(BLDDIR)
