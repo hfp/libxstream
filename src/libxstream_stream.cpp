@@ -420,8 +420,8 @@ int libxstream_stream::wait(bool any)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
       if (!(LIBXSTREAM_ASYNC_READY) && 0 <= LIBXSTREAM_ASYNC_DEVICE) {
 #       pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
-        LIBXSTREAM_ASYNC_CONSUME_SIGNAL;
       }
+      LIBXSTREAM_ASYNC_CONSUME_SIGNAL;
 #endif
     }
     LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | (any ? LIBXSTREAM_CALL_WAIT : 0), work);
