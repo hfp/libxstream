@@ -65,9 +65,9 @@
  * Enables the kind of offload mechanism. Valid choices:
  * - #define LIBXSTREAM_ASYNC: enables default (1) behavior
  * - #define LIBXSTREAM_ASYNC 0: native (KNL) - not implemented yet / must be disabled
- * - #define LIBXSTREAM_ASYNC 1: synchronous offloads
- * - #define LIBXSTREAM_ASYNC 2: compiler offload
- * - #define LIBXSTREAM_ASYNC 3: compiler streams
+ * - #define LIBXSTREAM_ASYNC 1: LEO offload (synchronous)
+ * - #define LIBXSTREAM_ASYNC 2: LEO offload (asynchronous)
+ * - #define LIBXSTREAM_ASYNC 3: LEO streams
  */
 #define LIBXSTREAM_ASYNC
 
