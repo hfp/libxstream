@@ -151,7 +151,27 @@ public:
 
   libxstream_signal signal(int device) {
     LIBXSTREAM_ASSERT(-1 <= device && device <= LIBXSTREAM_MAX_NDEVICES);
+#if defined(LIBXSTREAM_STDFEATURES)
     return ++m_signals[device+1];
+#elif defined(_OPENMP)
+    libxstream_signal& device_signal = m_signals[device+1];
+    libxstream_signal result = 0;
+# if (201107 <= _OPENMP)
+#   pragma omp atomic capture
+# else
+#   pragma omp critical
+# endif
+    result = ++device_signal;
+    return result;
+#else // generic
+    libxstream_signal& device_signal = m_signals[device+1];
+    libxstream_signal result = 0;
+    libxstream_lock *const lock = libxstream_lock_get(this);
+    libxstream_lock_acquire(lock);
+    result = ++device_signal;
+    libxstream_lock_release(lock);
+    return result;
+#endif
   }
 
   volatile value_type* streams() {
@@ -246,18 +266,6 @@ public:
       }
       while(i < n);
     }
-    else {
-      LIBXSTREAM_ASYNC_BEGIN
-      {
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
-        if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-#         pragma offload_wait LIBXSTREAM_ASYNC_TARGET wait(LIBXSTREAM_ASYNC_PENDING)
-        }
-#endif
-      }
-      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | (any ? LIBXSTREAM_CALL_WAIT : 0), work);
-      result = any ? work.wait() : work.status();
-    }
 
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
     return result;
@@ -265,10 +273,11 @@ public:
 
 private:
   volatile value_type m_streams[(LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS)];
-  libxstream_signal m_signals[(LIBXSTREAM_MAX_NDEVICES)+1];
 #if defined(LIBXSTREAM_STDFEATURES)
+  std::atomic<libxstream_signal> m_signals[(LIBXSTREAM_MAX_NDEVICES)+1];
   std::atomic<size_t> m_istreams;
 #else
+  libxstream_signal m_signals[(LIBXSTREAM_MAX_NDEVICES)+1];
   size_t m_istreams;
 #endif
 } registry;
@@ -295,6 +304,26 @@ private:
   const int result = 0;
 #endif
   return result;
+}
+
+
+/*static*/libxstream_signal libxstream_stream::signal(const libxstream_stream* stream)
+{
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
+  int device = -1;
+
+  if (0 != stream) {
+    device = stream->device();
+  }
+  else {
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_active_device(&device));
+  }
+
+  return libxstream_stream_internal::registry.signal(device);
+#else
+  libxstream_use_sink(stream);
+  return 0;
+#endif
 }
 
 
@@ -399,12 +428,6 @@ int libxstream_stream::wait(bool any)
   }
 
   return result;
-}
-
-
-libxstream_signal libxstream_stream::signal() const
-{
-  return libxstream_stream_internal::registry.signal(m_device);
 }
 
 

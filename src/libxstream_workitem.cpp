@@ -200,7 +200,7 @@ libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, s
   : m_function(0)
   , m_stream(stream)
   , m_event(0)
-  , m_pending(0)
+  , m_pending((0 != stream || 0 == (LIBXSTREAM_CALL_DEVICE & flags)) ? libxstream_stream::signal(stream) : 0)
   , m_flags(flags)
   , m_thread(this_thread_id())
 #if defined(LIBXSTREAM_DEBUG)

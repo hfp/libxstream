@@ -49,6 +49,8 @@ public:
   static int priority_range_least();
   static int priority_range_greatest();
 
+  static libxstream_signal signal(const libxstream_stream* stream);
+
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
 
@@ -75,7 +77,6 @@ public:
    */
   int wait(bool any);
 
-  libxstream_signal signal() const;
   libxstream_signal pending() const;
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
