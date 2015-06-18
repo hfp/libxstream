@@ -43,7 +43,7 @@
 #define LIBXSTREAM_OFFLOAD_REFRESH length(0) LIBXSTREAM_OFFLOAD_REUSE
 #define LIBXSTREAM_OFFLOAD_DATA(ARG, IS_SCALAR) inout(ARG: length(((IS_SCALAR)*sizeof(libxstream_argument::data_union))) alloc_if(IS_SCALAR) free_if(IS_SCALAR))
 
-#define LIBXSTREAM_ASYNC_PENDING workitem_pending
+#define LIBXSTREAM_ASYNC_PENDING m_wait
 #define LIBXSTREAM_ASYNC_READY (0 == (LIBXSTREAM_ASYNC_PENDING))
 #define LIBXSTREAM_ASYNC_STREAM m_stream
 #define LIBXSTREAM_ASYNC_DEVICE workitem_device
@@ -53,9 +53,7 @@
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2) // asynchronous offload
 # if (2 == (2*LIBXSTREAM_ASYNC+1)/2) // asynchronous offload
-#   define LIBXSTREAM_ASYNC_DECL \
-      const libxstream_signal LIBXSTREAM_ASYNC_PENDING = pending(); \
-      libxstream_signal workitem_signal_consumed = LIBXSTREAM_ASYNC_PENDING
+#   define LIBXSTREAM_ASYNC_DECL libxstream_signal workitem_signal_consumed = pending()
 #   define LIBXSTREAM_ASYNC_TARGET target(mic:LIBXSTREAM_ASYNC_DEVICE)
 #   define LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_ASYNC_TARGET signal(workitem_signal_consumed++)
 #   define LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_ASYNC_TARGET wait(LIBXSTREAM_ASYNC_PENDING)
@@ -63,37 +61,20 @@
 # elif (3 == (2*LIBXSTREAM_ASYNC+1)/2) // compiler streams
 #   define LIBXSTREAM_ASYNC_DECL \
       const _Offload_stream handle_ = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->handle() : 0; \
-      const libxstream_signal LIBXSTREAM_ASYNC_PENDING = pending(); \
-      libxstream_signal workitem_signal_consumed = LIBXSTREAM_ASYNC_PENDING
+      libxstream_signal workitem_signal_consumed = pending()
 #   define LIBXSTREAM_ASYNC_TARGET target(mic) stream(handle_)
 #   define LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_ASYNC_TARGET signal(workitem_signal_consumed++)
 #   define LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_ASYNC_TARGET wait(LIBXSTREAM_ASYNC_PENDING)
 #   define LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT LIBXSTREAM_ASYNC_TARGET_SIGNAL
 # endif
 #elif defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 < (2*LIBXSTREAM_ASYNC+1)/2) // synchronous offload
-# if defined(LIBXSTREAM_DEBUG)
-#   define LIBXSTREAM_ASYNC_DECL \
-      const libxstream_signal LIBXSTREAM_ASYNC_PENDING = pending(); \
-      const libxstream_signal workitem_signal_consumed = LIBXSTREAM_ASYNC_PENDING
-# else
-#   define LIBXSTREAM_ASYNC_DECL \
-      const libxstream_signal LIBXSTREAM_ASYNC_PENDING = 0; \
-      const libxstream_signal workitem_signal_consumed = 0
-# endif
+# define LIBXSTREAM_ASYNC_DECL const libxstream_signal workitem_signal_consumed = 0
 # define LIBXSTREAM_ASYNC_TARGET target(mic:LIBXSTREAM_ASYNC_DEVICE)
 # define LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_ASYNC_TARGET
 # define LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_ASYNC_TARGET
 # define LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT LIBXSTREAM_ASYNC_TARGET_SIGNAL
 #else // no offload
-# if defined(LIBXSTREAM_DEBUG)
-#   define LIBXSTREAM_ASYNC_DECL \
-      const libxstream_signal LIBXSTREAM_ASYNC_PENDING = pending(); \
-      const libxstream_signal workitem_signal_consumed = LIBXSTREAM_ASYNC_PENDING
-# else
-#   define LIBXSTREAM_ASYNC_DECL \
-      const libxstream_signal LIBXSTREAM_ASYNC_PENDING = 0; \
-      const libxstream_signal workitem_signal_consumed = 0
-# endif
+# define LIBXSTREAM_ASYNC_DECL const libxstream_signal workitem_signal_consumed = 0
 # define LIBXSTREAM_ASYNC_TARGET
 # define LIBXSTREAM_ASYNC_TARGET_SIGNAL
 # define LIBXSTREAM_ASYNC_TARGET_WAIT
@@ -113,7 +94,7 @@
       if (-1 > (LIBXSTREAM_ASYNC_DEVICE)) LIBXSTREAM_ASYNC_QENTRY.status() = libxstream_get_active_device(&LIBXSTREAM_ASYNC_DEVICE); \
       LIBXSTREAM_ASYNC_DECL; libxstream_use_sink(&LIBXSTREAM_ASYNC_QENTRY); libxstream_use_sink(&LIBXSTREAM_ASYNC_DEVICE); do
 #define LIBXSTREAM_ASYNC_END(STREAM, FLAGS, NAME, ...) while(libxstream_not_constant(LIBXSTREAM_FALSE)); \
-      LIBXSTREAM_ASSERT(0 > LIBXSTREAM_ASYNC_DEVICE || 0 == LIBXSTREAM_ASYNC_PENDING || LIBXSTREAM_ASYNC_PENDING != workitem_signal_consumed); \
+      LIBXSTREAM_ASSERT(0 > LIBXSTREAM_ASYNC_DEVICE || pending() != workitem_signal_consumed); \
     } \
   } LIBXSTREAM_UNIQUE(workitem_type); \
   const libxstream_workitem::arg_type LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,argv))[] = { libxstream_workitem::arg_type(), __VA_ARGS__ }; \
@@ -194,8 +175,7 @@ public:
   const libxstream_event* event() const { return m_event; }
   void event(const libxstream_event* value) { m_event = value; }
 
-  void pending(libxstream_signal signal) { m_pending = signal; }
-  libxstream_signal pending() const { return m_pending; }
+  libxstream_signal pending() const { return m_signal; }
 
   void flags(int value) { m_flags = value; }
   int flags() const { return m_flags; }
@@ -213,10 +193,11 @@ protected:
   libxstream_argument m_signature[(LIBXSTREAM_MAX_NARGS)+1];
   libxstream_function m_function;
   libxstream_stream* m_stream;
+  libxstream_signal m_wait;
 
 private:
+  libxstream_signal m_signal;
   const libxstream_event* m_event;
-  libxstream_signal m_pending;
   int m_flags, m_thread;
 #if defined(LIBXSTREAM_DEBUG)
   const char* m_name;
