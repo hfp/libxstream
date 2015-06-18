@@ -43,7 +43,7 @@
 #define LIBXSTREAM_OFFLOAD_REFRESH length(0) LIBXSTREAM_OFFLOAD_REUSE
 #define LIBXSTREAM_OFFLOAD_DATA(ARG, IS_SCALAR) inout(ARG: length(((IS_SCALAR)*sizeof(libxstream_argument::data_union))) alloc_if(IS_SCALAR) free_if(IS_SCALAR))
 
-#define LIBXSTREAM_ASYNC_PENDING workitem_pending
+#define LIBXSTREAM_ASYNC_PENDING pending()
 #define LIBXSTREAM_ASYNC_READY (0 == (LIBXSTREAM_ASYNC_PENDING))
 #define LIBXSTREAM_ASYNC_STREAM m_stream
 #define LIBXSTREAM_ASYNC_DEVICE workitem_device
@@ -99,10 +99,9 @@
       return new LIBXSTREAM_UNIQUE(workitem_type)(*this); \
     } \
     void virtual_run(libxstream_workqueue::entry_type& LIBXSTREAM_ASYNC_QENTRY) { \
-      const libxstream_signal LIBXSTREAM_ASYNC_PENDING = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->pending() : 0; \
       int LIBXSTREAM_ASYNC_DEVICE = LIBXSTREAM_ASYNC_STREAM ? LIBXSTREAM_ASYNC_STREAM->device() : (0 != (LIBXSTREAM_CALL_DEVICE & flags()) ? val<int,0>() : -2); \
       if (-1 > (LIBXSTREAM_ASYNC_DEVICE)) LIBXSTREAM_ASYNC_QENTRY.status() = libxstream_get_active_device(&LIBXSTREAM_ASYNC_DEVICE); \
-      LIBXSTREAM_ASYNC_DECL; libxstream_use_sink(&LIBXSTREAM_ASYNC_QENTRY); libxstream_use_sink(&LIBXSTREAM_ASYNC_DEVICE); libxstream_use_sink(&LIBXSTREAM_ASYNC_PENDING); do
+      LIBXSTREAM_ASYNC_DECL; libxstream_use_sink(&LIBXSTREAM_ASYNC_QENTRY); libxstream_use_sink(&LIBXSTREAM_ASYNC_DEVICE); do
 #define LIBXSTREAM_ASYNC_END(STREAM, FLAGS, NAME, ...) while(libxstream_not_constant(LIBXSTREAM_FALSE)); \
       LIBXSTREAM_ASSERT(0 > LIBXSTREAM_ASYNC_DEVICE || 0 == pending() || pending() != workitem_signal_consumed); \
     } \
