@@ -95,7 +95,7 @@ private:
 #if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
   char m_name[128];
 #endif
-  mutable libxstream_workqueue m_queue;
+  libxstream_workqueue m_queue;
   int m_device;
   int m_priority;
 

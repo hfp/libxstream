@@ -43,9 +43,6 @@
 #endif
 #include <libxstream_end.h>
 
-// check whether a signal is really pending; update internal state
-//#define LIBXSTREAM_STREAM_CHECK_PENDING
-
 
 namespace libxstream_stream_internal {
 
@@ -434,16 +431,9 @@ int libxstream_stream::wait(bool any)
 
 libxstream_signal libxstream_stream::pending() const
 {
-  libxstream_workqueue::entry_type *const back = m_queue.back();
-  libxstream_workitem *const item = back ? back->item() : 0;
-  libxstream_signal result = item ? item->pending() : 0;
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
-  if (0 != result && 0 != _Offload_signaled(m_device, reinterpret_cast<void*>(result))) {
-    item->pending(0);
-    result = 0;
-  }
-#endif
-  return result;
+  const libxstream_workqueue::entry_type *const back = m_queue.back();
+  const libxstream_workitem *const item = back ? back->item() : 0;
+  return item ? item->pending() : 0;
 }
 
 
