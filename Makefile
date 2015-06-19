@@ -115,7 +115,7 @@ ifneq (,$(filter icpc icc,$(CXX) $(CC)))
 		endif
 	endif
 else # GCC assumed
-	CXXFLAGS += -Wall
+	CXXFLAGS += -Wall -std=c++0x
 	CFLAGS += -Wall
 	ifeq (0,$(DBG))
 		CXXFLAGS += -O2
