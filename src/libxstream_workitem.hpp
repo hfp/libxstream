@@ -184,10 +184,10 @@ public:
   void flags(int value) { m_flags = value; }
   int flags() const { return m_flags; }
 
+  libxstream_signal pending() const { return m_signal; }
   int thread() const { return m_thread; }
 
   int device() const;
-  libxstream_signal pending() const;
   libxstream_workitem* clone() const;
   void operator()(libxstream_workqueue::entry_type& entry);
 
