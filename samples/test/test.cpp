@@ -279,7 +279,7 @@ int main(int argc, char* argv[])
 #   pragma omp parallel for schedule(dynamic,chunksize)
 #endif
     for (int i = 0; i < ntasks; ++i) {
-      const test_type test(i % std::max<size_t>(ndevices, 1));
+      const test_type test(0 < ndevices ? (i % ndevices) : -1);
     }
   }
   catch(const std::exception& e) {
