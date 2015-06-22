@@ -79,7 +79,7 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
       }
       while (0 != m_item);
     }
-
+  
     result = m_status;
   }
   else {
@@ -104,11 +104,9 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
       }
       while (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status);
     }
-
-    result = m_status;
   }
 
-  //LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
 
