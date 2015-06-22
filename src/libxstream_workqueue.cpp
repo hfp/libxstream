@@ -47,7 +47,7 @@ void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
   const bool async = 0 == (LIBXSTREAM_CALL_WAIT & workitem.flags());
   const bool witem = 0 == (LIBXSTREAM_CALL_EVENT & workitem.flags());
   libxstream_workitem *const item = async ? workitem.clone() : &workitem;
-  m_status = witem ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_CONDITION;
+  m_status = witem ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_NOT_AWORKITEM;
   m_dangling = async ? item : 0;
   m_item = item;
 }
@@ -55,7 +55,7 @@ void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
 
 int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
 {
-  int result = LIBXSTREAM_ERROR_CONDITION;
+  int result = LIBXSTREAM_ERROR_NONE;
 
   if (any_status) {
     if (any || !valid()) {
@@ -79,8 +79,6 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
       }
       while (0 != m_item);
     }
-  
-    result = m_status;
   }
   else {
     if (any || !valid()) {
@@ -104,6 +102,10 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
       }
       while (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status);
     }
+  }
+
+  if (LIBXSTREAM_NOT_AWORKITEM != m_status) {
+    result = m_status;
   }
 
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
