@@ -268,6 +268,10 @@ int libxstream_event::wait_stream(libxstream_stream* stream)
     int result = LIBXSTREAM_ERROR_NONE;
     bool occurred = true;
 
+    LIBXSTREAM_PRINT(2, "stream_wait_event: stream=0x%llx event=0x%llx",
+      reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM),
+      reinterpret_cast<unsigned long long>(&event));
+
     if (0 == this->event()) {
       this->event(&event);
     }
