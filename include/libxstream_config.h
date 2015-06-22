@@ -69,7 +69,7 @@
  * - #define LIBXSTREAM_ASYNC 2: LEO offload (asynchronous)
  * - #define LIBXSTREAM_ASYNC 3: LEO streams
  */
-#define LIBXSTREAM_ASYNC
+#define LIBXSTREAM_ASYNC 2
 
 /** Not implemented yet. Must be disabled. */
 /*#define LIBXSTREAM_ASYNCHOST*/

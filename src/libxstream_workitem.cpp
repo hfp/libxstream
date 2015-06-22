@@ -47,9 +47,6 @@
 #endif
 #include <libxstream_end.h>
 
-// check whether a signal is really pending; update internal state
-//#define LIBXSTREAM_WORKITEM_WAIT_TERMINATE
-
 
 namespace libxstream_workitem_internal {
 
@@ -76,10 +73,9 @@ public:
       // terminates the background thread
       entry_type& entry = m_global_queue.allocate_entry();
       delete entry.dangling();
-#if defined(LIBXSTREAM_WORKITEM_WAIT_TERMINATE)
       entry = entry_type(&m_global_queue);
       entry.wait();
-#endif
+
 #if defined(LIBXSTREAM_STDFEATURES)
       m_thread.detach();
 #else

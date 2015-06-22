@@ -87,7 +87,7 @@
 # endif
 #elif defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (0 < (2*LIBXSTREAM_ASYNC+1)/2) // synchronous offload
 # define LIBXSTREAM_ASYNC_DECL \
-    const libxstream_signal LIBXSTREAM_ASYNC_PENDING = 0, workitem_signal_generated = 0, workitem_pending_consumed = 0, workitem_signal_consumed = 0; \
+    libxstream_signal LIBXSTREAM_ASYNC_PENDING = 0, workitem_signal_generated = 0, workitem_pending_consumed = 0, workitem_signal_consumed = 0; \
     int LIBXSTREAM_ASYNC_DEVICE = device(); \
     libxstream_use_sink(&LIBXSTREAM_ASYNC_PENDING); \
     libxstream_use_sink(&workitem_signal_generated); \
@@ -100,7 +100,7 @@
 # define LIBXSTREAM_ASYNC_TARGET_SIGNAL_WAIT LIBXSTREAM_ASYNC_TARGET_SIGNAL
 #else // no offload
 # define LIBXSTREAM_ASYNC_DECL \
-    const libxstream_signal LIBXSTREAM_ASYNC_PENDING = 0, workitem_signal_generated = 0, workitem_pending_consumed = 0, workitem_signal_consumed = 0; \
+    libxstream_signal LIBXSTREAM_ASYNC_PENDING = 0, workitem_signal_generated = 0, workitem_pending_consumed = 0, workitem_signal_consumed = 0; \
     int LIBXSTREAM_ASYNC_DEVICE = device(); \
     libxstream_use_sink(&LIBXSTREAM_ASYNC_PENDING); \
     libxstream_use_sink(&workitem_signal_generated); \
