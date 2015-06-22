@@ -178,16 +178,6 @@
 #endif
 
 /**
- * Application specific (re-)configuration depending on whether __LIBXSTREAM is defined or not.
- */
-#if defined(__LIBXSTREAM)
-# if defined(LIBXSTREAM_ASYNC)
-#   undef  LIBXSTREAM_ASYNC
-#   define LIBXSTREAM_ASYNC
-# endif
-#endif
-
-/**
  * Below group of preprocessor symbols are used to fixup some platform specifics.
  */
 #if !defined(_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES)
