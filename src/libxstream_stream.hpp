@@ -86,7 +86,7 @@ public:
 
   const char* name() const {
 #if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
-    return m_name;
+    return *m_name ? m_name : 0;
 #else
     return 0;
 #endif
