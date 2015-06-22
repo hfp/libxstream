@@ -331,23 +331,9 @@ private:
 }
 
 
-/*static*/libxstream_signal libxstream_stream::signal(const libxstream_stream* stream)
+/*static*/libxstream_signal libxstream_stream::signal(int device)
 {
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
-  int device = -1;
-
-  if (0 != stream) {
-    device = libxstream_stream::device(stream);
-  }
-  else {
-    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_active_device(&device));
-  }
-
   return libxstream_stream_internal::registry.signal(device);
-#else
-  libxstream_use_sink(stream);
-  return 0;
-#endif
 }
 
 

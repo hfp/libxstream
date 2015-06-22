@@ -51,7 +51,7 @@ public:
 
   static int device(const libxstream_stream* stream);
 
-  static libxstream_signal signal(const libxstream_stream* stream);
+  static libxstream_signal signal(int device);
   static libxstream_signal pending(const libxstream_stream* stream);
   static void pending(libxstream_stream* stream, libxstream_signal signal);
 
