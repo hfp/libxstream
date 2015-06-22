@@ -172,9 +172,9 @@ int multi_dgemm_type::init(const char* name, host_data_type& host_data, int devi
 
 int multi_dgemm_type::operator()(size_t index, size_t size)
 {
-  LIBXSTREAM_CHECK_CONDITION(ready() && (index + size) <= m_host_data->size());
-
   if (0 < size) {
+    LIBXSTREAM_CHECK_CONDITION(ready() && (index + size) <= m_host_data->size());
+
     const size_t i0 = m_host_data->idata()[index], i1 = m_host_data->idata()[index+size];
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(m_host_data->adata() + i0, m_adata, sizeof(double) * (i1 - i0), m_stream));
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(m_host_data->bdata() + i0, m_bdata, sizeof(double) * (i1 - i0), m_stream));
