@@ -114,6 +114,9 @@ int libxstream_event::record(libxstream_stream& stream, bool reset)
 
   LIBXSTREAM_ASYNC_BEGIN
   {
+    LIBXSTREAM_PRINT(2, "event_record: event=0x%llx stream=0x%llx", val<const unsigned long long,0>(),
+      reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM));
+    
     int& status = LIBXSTREAM_ASYNC_QENTRY.status();
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
@@ -136,7 +139,11 @@ int libxstream_event::record(libxstream_stream& stream, bool reset)
       status = LIBXSTREAM_ERROR_NONE;
     }
   }
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
+  LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_EVENT, work, this);
+#else
   LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_EVENT, work);
+#endif
 
   if (0 == m_slots) {
     libxstream_lock *const lock = libxstream_lock_get(this);
