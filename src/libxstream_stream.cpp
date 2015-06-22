@@ -353,7 +353,7 @@ private:
 
 /*static*/libxstream_signal libxstream_stream::pending(const libxstream_stream* stream)
 {
-  libxstream_signal result = 0 != stream ? stream->m_signal : 0; // TODO: handle global stream
+  libxstream_signal result = 0 != stream ? stream->m_pending : 0; // TODO: handle global stream
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
   if (0 != result && 0 != _Offload_signaled(libxstream_stream::device(stream), reinterpret_cast<void*>(result))) {
@@ -402,7 +402,7 @@ private:
 
 
 libxstream_stream::libxstream_stream(int device, int priority, const char* name)
-  : m_signal(0), m_pending(0), m_device(device), m_priority(priority)
+  : m_pending(0), m_device(device), m_priority(priority)
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
   , m_npartitions(0)

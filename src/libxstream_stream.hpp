@@ -101,7 +101,6 @@ private:
   char m_name[128];
 #endif
   libxstream_workqueue m_queue;
-  libxstream_signal m_signal;
   libxstream_signal m_pending;
   int m_device;
   int m_priority;
