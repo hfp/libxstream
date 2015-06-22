@@ -117,7 +117,7 @@ int libxstream_event::record(libxstream_stream& stream, bool reset)
     int& status = LIBXSTREAM_ASYNC_QENTRY.status();
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-      if (LIBXSTREAM_ASYNC_READY) {
+      if (0 == (LIBXSTREAM_ASYNC_PENDING)) {
 #       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL //out(status)
         {
           status = LIBXSTREAM_ERROR_NONE;

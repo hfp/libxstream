@@ -711,7 +711,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memset_zero(void* memory, size_t size, libxst
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-      if (LIBXSTREAM_ASYNC_READY) {
+      if (0 == (LIBXSTREAM_ASYNC_PENDING)) {
 #       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(size) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
         memset(dst, 0, size);
       }
@@ -748,7 +748,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_me
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-      if (LIBXSTREAM_ASYNC_READY) {
+      if (0 == (LIBXSTREAM_ASYNC_PENDING)) {
 #       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL in(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
       else {
@@ -759,7 +759,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_me
 #endif
     {
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP) // V4.0
-      if (LIBXSTREAM_ASYNC_READY) {
+      if (0 == (LIBXSTREAM_ASYNC_PENDING)) {
 #       pragma omp task depend(out:capture_region_signal) depend(in:LIBXSTREAM_ASYNC_PENDING)
         std::copy(src, src + size, dst);
       }
@@ -795,7 +795,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2h(const void* dev_mem, void* host_me
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
-      if (LIBXSTREAM_ASYNC_READY) {
+      if (0 == (LIBXSTREAM_ASYNC_PENDING)) {
 #       pragma offload_transfer LIBXSTREAM_ASYNC_TARGET_SIGNAL out(src: length(size) into(dst) LIBXSTREAM_OFFLOAD_REUSE)
       }
       else {
@@ -835,7 +835,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2d(const void* src, void* dst, size_t
       if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
         // TODO: implement cross-device transfer
 
-        if (LIBXSTREAM_ASYNC_READY) {
+        if (0 == (LIBXSTREAM_ASYNC_PENDING)) {
 #         pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL in(size) in(src: LIBXSTREAM_OFFLOAD_REFRESH) out(dst: LIBXSTREAM_OFFLOAD_REFRESH)
           memcpy(dst, src, size);
         }
