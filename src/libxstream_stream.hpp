@@ -53,6 +53,7 @@ public:
 
   static libxstream_signal signal(const libxstream_stream* stream);
   static libxstream_signal pending(const libxstream_stream* stream);
+  static void pending(libxstream_stream* stream, libxstream_signal signal);
 
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
@@ -100,6 +101,8 @@ private:
   char m_name[128];
 #endif
   libxstream_workqueue m_queue;
+  libxstream_signal m_signal;
+  libxstream_signal m_pending;
   int m_device;
   int m_priority;
 
