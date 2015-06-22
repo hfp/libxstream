@@ -83,16 +83,20 @@ public:
   _Offload_stream handle() const;
 #endif
 
-#if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
-  const char* name() const { return m_name; }
+  const char* name() const {
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
+    return m_name;
+#else
+    return 0;
 #endif
+  }
 
 private:
   libxstream_stream(const libxstream_stream& other);
   libxstream_stream& operator=(const libxstream_stream& other);
 
 private:
-#if defined(LIBXSTREAM_TRACE) && 0 != ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
   char m_name[128];
 #endif
   libxstream_workqueue m_queue;

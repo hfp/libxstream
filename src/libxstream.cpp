@@ -934,24 +934,6 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* strea
 
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
 {
-  // TODO: print in order
-#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2)) && 0
-  if (0 != stream) {
-# if defined(LIBXSTREAM_DEBUG)
-    const char *const name = stream->name();
-    if (name && *name) {
-      LIBXSTREAM_PRINT(2, "stream_wait: stream=0x%llx (%s)", reinterpret_cast<unsigned long long>(stream), name);
-    }
-    else
-# endif
-    {
-      LIBXSTREAM_PRINT(2, "stream_wait: stream=0x%llx", reinterpret_cast<unsigned long long>(stream));
-    }
-  }
-  else {
-    LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
-  }
-#endif
   const int result = stream ? stream->wait(true) : libxstream_stream::wait_all(true);
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
