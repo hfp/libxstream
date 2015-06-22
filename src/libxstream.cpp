@@ -975,7 +975,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_device(const libxstream_stream* stream
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (stream) {
-    *device = stream->device();
+    *device = libxstream_stream::device(stream);
     LIBXSTREAM_PRINT(3, "stream_device: stream=0x%llx device=%i", reinterpret_cast<unsigned long long>(stream), *device);
   }
   else {

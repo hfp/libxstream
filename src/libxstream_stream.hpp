@@ -49,7 +49,10 @@ public:
   static int priority_range_least();
   static int priority_range_greatest();
 
+  static int device(const libxstream_stream* stream);
+
   static libxstream_signal signal(const libxstream_stream* stream);
+  static libxstream_signal pending(const libxstream_stream* stream);
 
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
@@ -62,11 +65,10 @@ public:
   ~libxstream_stream();
 
 public:
+  int priority() const  { return m_priority; }
+
   const libxstream_workqueue::entry_type* work() const { return m_queue.front(); }
   libxstream_workqueue::entry_type* work() { return m_queue.front(); }
-
-  int device() const    { return m_device; }
-  int priority() const  { return m_priority; }
 
   libxstream_workqueue::entry_type& enqueue(libxstream_workitem& workitem);
 
@@ -76,8 +78,6 @@ public:
    * owning this stream is still the same since enqueuing the item.
    */
   int wait(bool any);
-
-  libxstream_signal pending() const;
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;

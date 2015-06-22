@@ -43,6 +43,9 @@
 #endif
 #include <libxstream_end.h>
 
+// check whether a signal is really pending; update internal state
+//#define LIBXSTREAM_STREAM_CHECK_PENDING
+
 
 namespace libxstream_stream_internal {
 
@@ -75,7 +78,7 @@ public:
     const size_t n = max_nstreams();
     for (size_t i = 0; i < n; ++i) {
       if (const value_type stream = m_streams[i]) {
-        const int stream_device = stream->device();
+        const int stream_device = libxstream_stream::device(stream);
         if (stream_device == device) {
           const int priority = stream->priority();
           least = std::min(least, priority);
@@ -86,7 +89,7 @@ public:
     size_t result = 0;
     for (size_t i = 0; i < n; ++i) {
       if (const value_type stream = m_streams[i]) {
-        const int stream_device = stream->device();
+        const int stream_device = libxstream_stream::device(stream);
         if (stream_device == device) {
           const int priority = stream->priority();
           result += priority - greatest;
@@ -119,14 +122,14 @@ public:
     if (0 == end) {
       for (size_t i = 0; i < n; ++i) {
         const value_type stream = m_streams[i];
-        result += (0 != stream && stream->device() == device) ? 1 : 0;
+        result += (0 != stream && libxstream_stream::device(stream) == device) ? 1 : 0;
       }
     }
     else {
       for (size_t i = 0; i < n; ++i) {
         const value_type stream = m_streams[i];
         if (end != stream) {
-          result += (0 != stream && stream->device() == device) ? 1 : 0;
+          result += (0 != stream && libxstream_stream::device(stream) == device) ? 1 : 0;
         }
         else {
           i = n; // break
@@ -230,7 +233,7 @@ public:
       size_t i = 0;
       do {
         if (const value_type stream = m_streams[i]) {
-          const int stream_device = stream->device();
+          const int stream_device = libxstream_stream::device(stream);
           if (stream_device == device) {
             result = stream->wait(any);
             LIBXSTREAM_CHECK_ERROR(result);
@@ -304,13 +307,26 @@ private:
 }
 
 
+/*static*/int libxstream_stream::device(const libxstream_stream* stream)
+{
+  int result = -1;
+  if (0 != stream) {
+    result = stream->m_device;
+  }
+  else {
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_active_device(&result));
+  }
+  return result;
+}
+
+
 /*static*/libxstream_signal libxstream_stream::signal(const libxstream_stream* stream)
 {
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
   int device = -1;
 
   if (0 != stream) {
-    device = stream->device();
+    device = libxstream_stream::device(stream);
   }
   else {
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_active_device(&device));
@@ -321,6 +337,22 @@ private:
   libxstream_use_sink(stream);
   return 0;
 #endif
+}
+
+
+/*static*/libxstream_signal libxstream_stream::pending(const libxstream_stream* stream)
+{
+  const libxstream_workqueue::entry_type *const back = stream ? stream->m_queue.back() : 0;
+  const libxstream_workitem *const item = back ? back->item() : 0;
+  libxstream_signal result = item ? item->pending() : 0;
+
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
+  if (0 != result && 0 != _Offload_signaled(libxstream_stream::device(stream), reinterpret_cast<void*>(result))) {
+    result = 0;
+  }
+#endif
+
+  return result;
 }
 
 
@@ -409,9 +441,9 @@ libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem
 int libxstream_stream::wait(bool any)
 {
   int result = LIBXSTREAM_ERROR_NONE;
-  const libxstream_workqueue::entry_type *const entry = work();
+  const libxstream_signal pending = libxstream_stream::pending(this);
 
-  if (0 != entry && entry->item()) { // pending work
+  if (0 != pending) { // check for pending work
     LIBXSTREAM_ASYNC_BEGIN
     {
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
@@ -426,14 +458,6 @@ int libxstream_stream::wait(bool any)
   }
 
   return result;
-}
-
-
-libxstream_signal libxstream_stream::pending() const
-{
-  const libxstream_workqueue::entry_type *const back = m_queue.back();
-  const libxstream_workitem *const item = back ? back->item() : 0;
-  return item ? item->pending() : 0;
 }
 
 

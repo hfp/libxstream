@@ -74,51 +74,23 @@ public:
   ~libxstream_workqueue();
 
 public:
-  size_t size() const;
-
   entry_type& allocate_entry_mt();
   entry_type& allocate_entry();
+  size_t position() const;
 
-  const entry_type* front() const {
-#if defined(LIBXSTREAM_DEBUG)
-    return 0 < size() ? (m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)) : 0;
-#else
-    return m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE);
-#endif
-  }
-
-  entry_type* front() {
-#if defined(LIBXSTREAM_DEBUG)
-    return 0 < size() ? (m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE)) : 0;
-#else
-    return m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE);
-#endif
-  }
-
-  const entry_type* back() const {
-    const size_t s = size();
-#if defined(LIBXSTREAM_DEBUG)
-    return 0 < s ? (m_buffer + LIBXSTREAM_MOD(s - 1, LIBXSTREAM_MAX_QSIZE)) : 0;
-#else
-    return m_buffer + LIBXSTREAM_MOD(s - 1, LIBXSTREAM_MAX_QSIZE);
-#endif
-  }
-
-  entry_type* back() {
-    const size_t s = size();
-#if defined(LIBXSTREAM_DEBUG)
-    return 0 < s ? (m_buffer + LIBXSTREAM_MOD(s - 1, LIBXSTREAM_MAX_QSIZE)) : 0;
-#else
-    return m_buffer + LIBXSTREAM_MOD(s - 1, LIBXSTREAM_MAX_QSIZE);
-#endif
-  }
-
+  size_t size() const { return position() - m_index; }
   void pop() { ++m_index; }
+
+  const entry_type* front() const { return m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE); }
+  entry_type* front() { return m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE); }
+
+  const entry_type* back() const { return m_buffer + LIBXSTREAM_MOD(LIBXSTREAM_MAX(position(), 1) - 1, LIBXSTREAM_MAX_QSIZE); }
+  entry_type* back() { return m_buffer + LIBXSTREAM_MOD(LIBXSTREAM_MAX(position(), 1) - 1, LIBXSTREAM_MAX_QSIZE); }
 
 private:
   entry_type m_buffer[LIBXSTREAM_MAX_QSIZE];
+  void* m_position;
   size_t m_index;
-  void* m_size;
 };
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
