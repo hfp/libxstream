@@ -144,7 +144,6 @@ libxstream_workqueue::libxstream_workqueue()
 
 libxstream_workqueue::~libxstream_workqueue()
 {
-#if defined(LIBXSTREAM_DEBUG)
   size_t pending = 0;
   for (size_t i = 0; i < LIBXSTREAM_MAX_QSIZE; ++i) {
     pending += (0 == m_buffer[i].item()) ? 0 : 1;
@@ -153,7 +152,7 @@ libxstream_workqueue::~libxstream_workqueue()
   if (0 < pending) {
     LIBXSTREAM_PRINT(1, "%lu work item%s pending!", static_cast<unsigned long>(pending), 1 < pending ? "s are" : " is");
   }
-#endif
+
 #if defined(LIBXSTREAM_STDFEATURES)
   delete static_cast<std::atomic<size_t>*>(m_position);
 #else
