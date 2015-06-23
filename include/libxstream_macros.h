@@ -52,7 +52,7 @@
 # if (199901L <= __STDC_VERSION__)
 #   define LIBXSTREAM_PRAGMA(DIRECTIVE) _Pragma(LIBXSTREAM_STRINGIFY(DIRECTIVE))
 #   define LIBXSTREAM_RESTRICT restrict
-#   define LIBXSTREAM_INLINE inline
+#   define LIBXSTREAM_INLINE static inline
 # else
 #   define LIBXSTREAM_INLINE static
 # endif /*C99*/
