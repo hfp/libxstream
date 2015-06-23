@@ -19,6 +19,10 @@ OMP ?= 0
 DBG ?= 0
 IPO ?= 0
 
+ifeq (0,$(MIC))
+	OFFLOAD = 0
+endif
+
 OUTNAME = $(shell basename $(ROOTDIR))
 HEADERS = $(shell ls -1 $(INCDIR)/*.h   2> /dev/null | tr "\n" " ") \
           $(shell ls -1 $(SRCDIR)/*.hpp 2> /dev/null | tr "\n" " ") \
