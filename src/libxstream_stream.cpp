@@ -68,7 +68,7 @@ public:
   ~registry_type() {
     const size_t n = max_nstreams();
     for (size_t i = 0; i < n; ++i) {
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
       if (0 != m_streams[i]) {
         LIBXSTREAM_PRINT(1, "stream=0x%llx (%s) is dangling!", reinterpret_cast<unsigned long long>(m_streams[i]), m_streams[i]->name());
       }
@@ -414,7 +414,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
   m_priority = std::max(priority_greatest, std::min(priority_least, priority));
   LIBXSTREAM_PRINT(m_priority != priority ? 2 : 0, "stream priority %i has been clamped to %i", priority, m_priority);
 
-#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_INTERNAL_TRACE)
   if (name && 0 != *name) {
     const size_t length = std::min(std::char_traits<char>::length(name), sizeof(m_name) - 1);
     std::copy(name, name + length, m_name);
@@ -464,7 +464,7 @@ int libxstream_stream::wait(bool any)
 {
   LIBXSTREAM_ASYNC_BEGIN
   {
-#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_INTERNAL_TRACE)
     if (LIBXSTREAM_ASYNC_STREAM->name()) {
       LIBXSTREAM_PRINT(2, "stream_wait: stream=0x%llx (%s)", reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM), LIBXSTREAM_ASYNC_STREAM->name());
     }

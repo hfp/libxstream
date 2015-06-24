@@ -89,7 +89,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
 
   // mark context as invalid
   context.flags = LIBXSTREAM_CALL_EXTERNAL;
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
   context.signature = 0;
 #endif
 }
@@ -132,7 +132,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
           ++np;
         }
       }
-# if defined(LIBXSTREAM_DEBUG)
+# if defined(LIBXSTREAM_INTERNAL_DEBUG)
       for (size_t i = np; i < (LIBXSTREAM_MAX_NARGS); ++i) p[i] = 0;
 # endif
 

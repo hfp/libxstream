@@ -138,7 +138,6 @@ int multi_dgemm_type::deinit()
     LIBXSTREAM_CHECK_CALL(libxstream_mem_deallocate(device, m_cdata));
     LIBXSTREAM_CHECK_CALL(libxstream_mem_deallocate(device, m_idata));
     m_host_data = 0;
-#if defined(LIBXSTREAM_DEBUG)
     m_max_batch = 0;
     m_stream = 0;
     m_event = 0;
@@ -146,7 +145,6 @@ int multi_dgemm_type::deinit()
     m_bdata = 0;
     m_cdata = 0;
     m_idata = 0;
-#endif
   }
 
   return LIBXSTREAM_ERROR_NONE;

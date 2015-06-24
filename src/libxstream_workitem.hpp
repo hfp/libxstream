@@ -182,7 +182,7 @@ public:
 
 public:
   template<typename T,size_t i> T& val() {
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
     size_t arity = 0;
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && i < arity);
 #endif
@@ -190,7 +190,7 @@ public:
   }
 
   template<typename T,size_t i> T val() const {
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
     size_t arity = 0;
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && i < arity);
 #endif
@@ -198,7 +198,7 @@ public:
   }
 
   template<typename T,size_t i> T* ptr() {
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
     size_t arity = 0;
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && i < arity);
 #endif
@@ -234,7 +234,7 @@ protected:
 private:
   int m_thread, m_flags;
   const libxstream_event* m_event;
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
   const char* m_name;
 #endif
 };

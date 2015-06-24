@@ -204,11 +204,11 @@ libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, s
   , m_thread(this_thread_id())
   , m_flags(flags)
   , m_event(0)
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
   , m_name(name)
 #endif
 {
-#if !defined(LIBXSTREAM_DEBUG)
+#if !defined(LIBXSTREAM_INTERNAL_DEBUG)
   libxstream_sink(name);
 #endif
   if (2 == argc && (argv[0].signature() || argv[1].signature())) {
@@ -235,7 +235,7 @@ libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, s
     LIBXSTREAM_ASSERT(argc <= (LIBXSTREAM_MAX_NARGS));
     for (size_t i = 0; i < argc; ++i) m_signature[i] = argv[i];
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_construct(m_signature, argc, libxstream_argument::kind_invalid, 0, LIBXSTREAM_TYPE_INVALID, 0, 0));
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
     size_t arity = 0;
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == libxstream_get_arity(m_signature, &arity) && arity == argc);
 #endif

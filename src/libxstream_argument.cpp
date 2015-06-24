@@ -49,10 +49,10 @@ int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream
   LIBXSTREAM_ASSERT((LIBXSTREAM_MAX_NARGS) >= arg);
   libxstream_argument& argument = arguments[arg];
 
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
   memset(argument.data.self, 0, sizeof(libxstream_argument)); // avoid false pos. with mem. analysis
 #endif
-#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
+#if defined(LIBXSTREAM_INTERNAL_TRACE)
   static const char *const context[] = { "", "input", "output", "inout" };
 #endif
   argument.kind = kind;

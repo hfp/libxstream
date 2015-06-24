@@ -37,27 +37,37 @@
 
 #if !defined(LIBXSTREAM_CONFIG_EXTERNAL)
 
-
 /**
  * Debug-time error checks are usually disabled for production code (NDEBUG).
- * The LIBXSTREAM_DEBUG symbol ultimately controls this (see libxstream_macros.h).
+ * LIBXSTREAM_INTERNAL_DEBUG ultimately controls this (see libxstream_macros.h).
+ * Valid choices:
+ * - #define LIBXSTREAM_DEBUG: enables default (1) behavior
+ * - #define LIBXSTREAM_DEBUG 0: disabled
+ * - #define LIBXSTREAM_DEBUG 1: enabled (if NDEBUG is not defined)
+ * - #define LIBXSTREAM_DEBUG 2: enabled
  */
-#define LIBXSTREAM_ERROR_DEBUG
+#define LIBXSTREAM_DEBUG
 
 /**
  * Runtime error checks and error handling code is usually enabled.
- * The LIBXSTREAM_CHECK symbol ultimately controls this (see libxstream_macros.h).
+ * LIBXSTREAM_INTERNAL_CHECK ultimately controls this (see libxstream_macros.h).
+ * Valid choices:
+ * - #define LIBXSTREAM_CHECK: enables default (1) behavior
+ * - #define LIBXSTREAM_CHECK 0: no checks
+ * - #define LIBXSTREAM_CHECK 1: enabled
+ * - #define LIBXSTREAM_CHECK 2: enabled (standard M_CHECK_ACTION)
  */
-#define LIBXSTREAM_ERROR_CHECK
+#define LIBXSTREAM_CHECK
 
 /**
- * Enables printing trace information. Valid choices:
+ * Include trace code (enabled via LIBXSTREAM_VERBOSITY environment variable).
+ * LIBXSTREAM_INTERNAL_TRACE ultimately controls this (see libxstream_macros.h).
+ * Valid choices:
  * - #define LIBXSTREAM_TRACE: enables default (1) behavior
  * - #define LIBXSTREAM_TRACE 0: no trace information
  * - #define LIBXSTREAM_TRACE 1: enabled
- * - #define LIBXSTREAM_TRACE 2: enabled (debug build)
- * If the trace information is enabled, the environment variable
- * LIBXSTREAM_VERBOSITY can be used to adjust the verbosity level.
+ * - #define LIBXSTREAM_TRACE 2: enabled (if NDEBUG is not defined)
+ * LIBXSTREAM_VERBOSITY is supplying the verbosity level at runtime.
  */
 #define LIBXSTREAM_TRACE
 
@@ -118,7 +128,7 @@
 #define LIBXSTREAM_SLEEP_MS 20
 
 /** Allows client-side to sleep when waiting. */
-/*#define LIBXSTREAM_SLEEP_CLIENT*/
+#define LIBXSTREAM_SLEEP_CLIENT
 
 /** Prefers OpenMP based locking primitives. */
 /*#define LIBXSTREAM_PREFER_OPENMP*/

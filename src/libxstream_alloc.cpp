@@ -73,7 +73,7 @@ LIBXSTREAM_TARGET(mic) S linear_size(size_t dims, const T shape[], S initial_siz
 
 static/*IPO*/ struct config_type {
   config_type() {
-#if defined(__GNUC__) && !defined(__CYGWIN__)
+#if defined(__GNUC__) && !defined(__CYGWIN__) && (!defined(LIBXSTREAM_INTERNAL_CHECK) || (2 <= ((2*LIBXSTREAM_CHECK+1)/2)))
     mallopt(M_CHECK_ACTION, 0); // disable MALLOC_CHECK_
 #endif
   }
@@ -209,7 +209,7 @@ int libxstream_real_allocate(void** memory, size_t size, size_t alignment)
 
   if (memory) {
     if (0 < size) {
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
       libxstream_sink(&alignment);
       if (char *const buffer = new char[size]) {
         memset(buffer, 0, size);
@@ -220,45 +220,45 @@ int libxstream_real_allocate(void** memory, size_t size, size_t alignment)
       }
 #elif defined(__MKL)
       void *const buffer = mkl_malloc(size, static_cast<int>(libxstream_alignment(size, alignment)));
-# if defined(LIBXSTREAM_CHECK)
+# if defined(LIBXSTREAM_INTERNAL_CHECK)
       if (0 != buffer)
 # endif
       {
         *memory = buffer;
       }
-# if defined(LIBXSTREAM_CHECK)
+# if defined(LIBXSTREAM_INTERNAL_CHECK)
       else {
         result = LIBXSTREAM_ERROR_RUNTIME;
       }
 # endif
 #elif defined(_WIN32)
       void *const buffer = _aligned_malloc(size, libxstream_alignment(size, alignment));
-# if defined(LIBXSTREAM_CHECK)
+# if defined(LIBXSTREAM_INTERNAL_CHECK)
       if (0 != buffer)
 # endif
       {
         *memory = buffer;
       }
-# if defined(LIBXSTREAM_CHECK)
+# if defined(LIBXSTREAM_INTERNAL_CHECK)
       else {
         result = LIBXSTREAM_ERROR_RUNTIME;
       }
 # endif
 #elif defined(__GNUC__)
       void *const buffer = _mm_malloc(size, static_cast<int>(libxstream_alignment(size, alignment)));
-# if defined(LIBXSTREAM_CHECK)
+# if defined(LIBXSTREAM_INTERNAL_CHECK)
       if (0 != buffer)
 # endif
       {
         *memory = buffer;
       }
-# if defined(LIBXSTREAM_CHECK)
+# if defined(LIBXSTREAM_INTERNAL_CHECK)
       else {
         result = LIBXSTREAM_ERROR_RUNTIME;
       }
 # endif
 #else
-# if defined(LIBXSTREAM_CHECK)
+# if defined(LIBXSTREAM_INTERNAL_CHECK)
       result = (0 == posix_memalign(memory, libxstream_alignment(size, alignment), size) && 0 != *memory)
 # else
       result = (0 == posix_memalign(memory, libxstream_alignment(size, alignment), size))
@@ -270,7 +270,7 @@ int libxstream_real_allocate(void** memory, size_t size, size_t alignment)
       *memory = 0;
     }
   }
-#if defined(LIBXSTREAM_CHECK)
+#if defined(LIBXSTREAM_INTERNAL_CHECK)
   else if (0 != size) {
     result = LIBXSTREAM_ERROR_CONDITION;
   }
@@ -284,7 +284,7 @@ int libxstream_real_allocate(void** memory, size_t size, size_t alignment)
 int libxstream_real_deallocate(const void* memory)
 {
   if (memory) {
-#if defined(LIBXSTREAM_DEBUG)
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
     delete[] static_cast<const char*>(memory);
 #elif defined(__MKL)
     mkl_free(const_cast<void*>(memory));
@@ -364,7 +364,7 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
       *memory = 0;
     }
   }
-#if defined(LIBXSTREAM_CHECK)
+#if defined(LIBXSTREAM_INTERNAL_CHECK)
   else if (0 != size) {
     result = LIBXSTREAM_ERROR_CONDITION;
   }
@@ -405,7 +405,7 @@ int libxstream_virt_deallocate(const void* memory)
 
 void* libxstream_virt_data(void* memory)
 {
-#if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
+#if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_INTERNAL_DEBUG)
   return memory;
 #elif defined(_WIN32)
   return static_cast<char*>(memory) + sizeof(void*);
@@ -417,7 +417,7 @@ void* libxstream_virt_data(void* memory)
 
 const void* libxstream_virt_data(const void* memory)
 {
-#if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_DEBUG)
+#if !defined(LIBXSTREAM_OFFLOAD) || defined(LIBXSTREAM_INTERNAL_DEBUG)
   return memory;
 #elif defined(_WIN32)
   return static_cast<const char*>(memory) + sizeof(void*);
