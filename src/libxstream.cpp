@@ -86,7 +86,7 @@
 
 /** Pin allocated memory. */
 #if defined(__INTEL_COMPILER) && (1600 <= __INTEL_COMPILER) && (20150501 <= __INTEL_COMPILER_BUILD_DATE)
-# define LIBXSTREAM_ALLOC_PINNED
+# define LIBXSTREAM_PINALLOC_LIMIT (size_t(1) << 30)
 #endif
 /** Enables runtime-sleep. */
 #define LIBXSTREAM_RUNTIME_SLEEP
@@ -625,8 +625,8 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
 
     result = libxstream_real_allocate(memory, size, alignment);
 
-    if (LIBXSTREAM_ERROR_NONE == result) {
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ALLOC_PINNED)
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_PINALLOC_LIMIT)
+    if (LIBXSTREAM_ERROR_NONE == result && ((LIBXSTREAM_PINALLOC_LIMIT) >= size || 0 > (LIBXSTREAM_PINALLOC_LIMIT))) {
       LIBXSTREAM_ASYNC_BEGIN
       {
         const char* buffer = ptr<const char,1>();
@@ -635,8 +635,8 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
       }
       LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE, work, device, *memory, size);
       result = work.status();
-#endif
     }
+#endif
   }
 
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
@@ -677,7 +677,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
     {
       libxstream_sink(&device);
 #endif
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ALLOC_PINNED)
+#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_PINALLOC_LIMIT)
       LIBXSTREAM_ASYNC_BEGIN
       {
         const char* memory = ptr<const char,1>();
