@@ -74,7 +74,7 @@ int main(int argc, char* argv[])
 #else
     LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
-    const size_t minsize = 8, maxsize = static_cast<size_t>(std::max(4 < argc ? std::atoi(argv[4]) : static_cast<int>(allocatable / nstreams), 1)) * (1 << 20);
+    const size_t minsize = 8, maxsize = static_cast<size_t>(std::max(4 < argc ? std::atoi(argv[4]) : std::min(static_cast<int>(allocatable / nstreams), 2048), 1)) * (1 << 20);
     const int minrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) :    8, 4), 2048);
     const int maxrepeat = std::min(std::max(6 < argc ? std::atoi(argv[6]) : 4096, minrepeat), 32768);
 
