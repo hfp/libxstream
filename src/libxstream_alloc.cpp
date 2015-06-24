@@ -88,9 +88,8 @@ struct info_type {
     const size_t auto_alignment = libxstream_alignment(buffer_size, alignment);
     const size_t aligned_size = libxstream_align(buffer_size, auto_alignment);
     LIBXSTREAM_ASSERT(buffer_size <= aligned_size);
-    const size_t asize = aligned_size - buffer_size, xsize = extra_size + sizeof(info_type);
-    unlock_size = std::max(asize, xsize) - asize;
-    alloc_size = buffer_size + unlock_size;
+    unlock_size = extra_size + sizeof(info_type);
+    alloc_size = std::max(aligned_size, buffer_size + unlock_size);
   }
 
   void* pointer;

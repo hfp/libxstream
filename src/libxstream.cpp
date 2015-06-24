@@ -656,7 +656,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
   void* memory_device = 0;
   bool real = true;
   int result = libxstream_alloc_info(memory, 0, &memory_device, 0, &real);
-  if (LIBXSTREAM_ERROR_NONE != result) {
+  if (LIBXSTREAM_ERROR_NONE == result) {
     result = (0 != memory_device && device == *static_cast<const int*>(memory_device) && (0 <= device ? !real : real))
       ? LIBXSTREAM_ERROR_NONE
       : LIBXSTREAM_ERROR_RUNTIME;
