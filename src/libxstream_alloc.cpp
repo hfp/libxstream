@@ -334,6 +334,7 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
       }
 #else
       char *const buffer = static_cast<char*>(mmap(0, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+      char *const aligned = static_cast<char*>(libxstream_align(buffer + extra_size + sizeof(info_type), auto_alignment));
 #endif
       if (MAP_FAILED != buffer) {
         if (0 < extra_size && 0 != extra) {
