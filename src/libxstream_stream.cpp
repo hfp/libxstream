@@ -232,21 +232,33 @@ public:
     const size_t n = max_nstreams();
 
     if (0 < n) {
-#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
-      LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
-#endif
-      size_t i = 0;
-      do {
-        if (const value_type stream = m_streams[i]) {
-          const int stream_device = libxstream_stream::device(stream);
-          if (stream_device == device) {
-            result = stream->wait(any);
-            LIBXSTREAM_CHECK_ERROR(result);
-          }
+#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
+      if (0 <= device) {
+        LIBXSTREAM_ASYNC_BEGIN
+        {
+          LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
+#         pragma offload_wait target(mic) stream(0)
         }
-        ++i;
+        LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE | (any ? LIBXSTREAM_CALL_WAIT : 0), work, device);
+        result = work.wait(any);
       }
-      while(i < n);
+      else
+#endif
+      {
+        size_t i = 0;
+        LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
+        do {
+          if (const value_type stream = m_streams[i]) {
+            const int stream_device = libxstream_stream::device(stream);
+            if (stream_device == device) {
+              result = stream->wait(any);
+              LIBXSTREAM_CHECK_ERROR(result);
+            }
+          }
+          ++i;
+        }
+        while(i < n);
+      }
     }
     else {
       result = wait_all(any);
@@ -261,10 +273,8 @@ public:
     const size_t n = max_nstreams();
 
     if (0 < n) {
-#if defined(LIBXSTREAM_TRACE) && ((1 < ((2*LIBXSTREAM_TRACE+1)/2) && defined(LIBXSTREAM_DEBUG)) || 1 == ((2*LIBXSTREAM_TRACE+1)/2))
-      LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
-#endif
       size_t i = 0;
+      LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
       do {
         if (const value_type stream = m_streams[i]) {
           result = stream->wait(any);
