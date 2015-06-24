@@ -122,7 +122,7 @@ const libxstream_stream* cast_to_stream(const libxstream_stream& stream);
 libxstream_stream* cast_to_stream(libxstream_stream& stream);
 
 template<typename T> libxstream_stream* cast_to_stream(T stream) {
-  libxstream_use_sink(&stream);
+  libxstream_sink(&stream);
   LIBXSTREAM_ASSERT(0 == stream);
   return static_cast<libxstream_stream*>(0);
 }

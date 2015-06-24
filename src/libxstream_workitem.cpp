@@ -31,6 +31,7 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_workitem.hpp"
 #include "libxstream_event.hpp"
+#include "libxstream_alloc.hpp"
 
 #include <libxstream_begin.h>
 #include <algorithm>
@@ -50,7 +51,7 @@
 
 namespace libxstream_workitem_internal {
 
-class scheduler_type {
+static/*IPO*/ class scheduler_type {
 public:
   typedef libxstream_workqueue::entry_type entry_type;
 
@@ -64,7 +65,9 @@ public:
     , m_thread(0)
 #endif
     , m_terminated(false)
-  {}
+  {
+    libxstream_alloc_init();
+  }
 
   ~scheduler_type() {
     if (running()) {
@@ -190,8 +193,7 @@ private:
   HANDLE m_thread;
 #endif
   bool m_terminated;
-};
-static/*IPO*/ scheduler_type scheduler;
+} scheduler;
 
 } // namespace libxstream_workitem_internal
 
@@ -207,7 +209,7 @@ libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, s
 #endif
 {
 #if !defined(LIBXSTREAM_DEBUG)
-  libxstream_use_sink(name);
+  libxstream_sink(name);
 #endif
   if (2 == argc && (argv[0].signature() || argv[1].signature())) {
     const libxstream_argument* signature = 0;

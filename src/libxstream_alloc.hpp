@@ -48,6 +48,8 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_linear_size(size_t dims, const size_t s
 LIBXSTREAM_TARGET(mic) int libxstream_linear_offset(size_t dims, const int offset[], const size_t shape[]);
 LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int offset[], const size_t shape[], const size_t pitch[]);
 
+void libxstream_alloc_init();
+
 int libxstream_real_allocate(void** memory, size_t size, size_t alignment);
 int libxstream_real_deallocate(const void* memory);
 

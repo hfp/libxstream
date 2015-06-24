@@ -34,6 +34,7 @@
 
 #include <libxstream_begin.h>
 #include <algorithm>
+#include <malloc.h>
 #include <cstring>
 #include <libxstream_end.h>
 
@@ -69,6 +70,18 @@ LIBXSTREAM_TARGET(mic) S linear_size(size_t dims, const T shape[], S initial_siz
   for (size_t i = 1; i < dims; ++i) result *= static_cast<S>(shape[i]);
   return result;
 }
+
+static/*IPO*/ struct config_type {
+  config_type() {
+#if defined(__GNUC__) && !defined(__CYGWIN__)
+    mallopt(M_CHECK_ACTION, 0); // disable MALLOC_CHECK_
+#endif
+  }
+  static config_type& instance() {
+    static config_type config;
+    return config;
+  }
+} &config = config_type::instance();
 
 } // namespace libxstream_alloc_internal
 
@@ -181,6 +194,13 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int o
 }
 
 
+void libxstream_alloc_init()
+{
+  libxstream_alloc_internal::config_type::instance();
+  libxstream_sink(&libxstream_alloc_internal::config);
+}
+
+
 int libxstream_real_allocate(void** memory, size_t size, size_t alignment)
 {
   int result = LIBXSTREAM_ERROR_NONE;
@@ -188,7 +208,7 @@ int libxstream_real_allocate(void** memory, size_t size, size_t alignment)
   if (memory) {
     if (0 < size) {
 #if defined(LIBXSTREAM_DEBUG)
-      libxstream_use_sink(&alignment);
+      libxstream_sink(&alignment);
       if (char *const buffer = new char[size]) {
         memset(buffer, 0, size);
         *memory = buffer;

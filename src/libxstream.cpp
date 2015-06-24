@@ -104,10 +104,12 @@ public:
 
 public:
   context_type()
-    : m_lock(libxstream_lock_create())
+    : m_lock(0)
     , m_device(-2), m_verbosity(-2)
     , m_nthreads(0)
   {
+    libxstream_alloc_init();
+    m_lock = libxstream_lock_create();
     std::fill_n(m_locks, LIBXSTREAM_MAX_NLOCKS, static_cast<libxstream_lock*>(0));
   }
 
@@ -232,8 +234,8 @@ LIBXSTREAM_TARGET(mic) DST bitwise_cast(const SRC& src)
 } // namespace libxstream_internal
 
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_use_sink(const void*) {}
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value) { return value; }
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_nonconst(int value) { return value; }
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_sink(const void*) {}
 
 
 LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create()
@@ -467,7 +469,7 @@ LIBXSTREAM_TARGET(mic) void this_thread_sleep(size_t ms)
     this_thread_yield();
   }
 #else
-  libxstream_use_sink(&ms);
+  libxstream_sink(&ms);
   YieldProcessor();
 #endif
 }
@@ -496,7 +498,7 @@ LIBXSTREAM_TARGET(mic) void this_thread_wait(size_t& cycle)
   }
   else
 #else
-  libxstream_use_sink(&cycle);
+  libxstream_sink(&cycle);
 #endif
   {
 #if defined(__INTEL_COMPILER)
@@ -616,7 +618,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
   else {
 #else
   {
-    libxstream_use_sink(&device);
+    libxstream_sink(&device);
 #endif
     LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", device,
       reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
@@ -673,7 +675,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
     else {
 #else
     {
-      libxstream_use_sink(&device);
+      libxstream_sink(&device);
 #endif
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ALLOC_PINNED)
       LIBXSTREAM_ASYNC_BEGIN

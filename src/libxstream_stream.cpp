@@ -33,6 +33,7 @@
 #include "libxstream_workqueue.hpp"
 #include "libxstream_workitem.hpp"
 #include "libxstream_event.hpp"
+#include "libxstream_alloc.hpp"
 
 #include <libxstream_begin.h>
 #include <algorithm>
@@ -59,6 +60,7 @@ public:
   registry_type()
     : m_istreams(0)
   {
+    libxstream_alloc_init();
     std::fill_n(m_signals, LIBXSTREAM_MAX_NDEVICES, 0);
     std::fill_n(m_streams, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS), static_cast<value_type>(0));
   }
@@ -422,7 +424,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
     m_name[0] = 0;
   }
 #else
-  libxstream_use_sink(name);
+  libxstream_sink(name);
 #endif
 
   using namespace libxstream_stream_internal;

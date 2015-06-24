@@ -196,8 +196,8 @@
 # define NOMINMAX 1
 #endif
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_use_sink(const void*);
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) void libxstream_sink(const void*);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_nonconst(int value);
 
 #if defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_ASSERT(A) assert(A)
@@ -286,7 +286,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 #   define LIBXSTREAM_CHECK_CALL_THROW(EXPRESSION) if (LIBXSTREAM_ERROR_NONE != (EXPRESSION)) throw std::runtime_error(LIBXSTREAM_TOSTRING(EXPRESSION) " at " __FILE__ ":" LIBXSTREAM_TOSTRING(__LINE__))
 #   define LIBXSTREAM_CHECK_CONDITION_THROW(CONDITION) if (!(CONDITION)) throw std::runtime_error(LIBXSTREAM_TOSTRING(CONDITION) " at " __FILE__ ":" LIBXSTREAM_TOSTRING(__LINE__))
 # else
-#   define LIBXSTREAM_CHECK_CALL_THROW(EXPRESSION) do { int result = (EXPRESSION); if (LIBXSTREAM_ERROR_NONE != result) abort(result); } while(libxstream_not_constant(LIBXSTREAM_FALSE))
+#   define LIBXSTREAM_CHECK_CALL_THROW(EXPRESSION) do { int result = (EXPRESSION); if (LIBXSTREAM_ERROR_NONE != result) abort(result); } while(libxstream_nonconst(LIBXSTREAM_FALSE))
 #   define LIBXSTREAM_CHECK_CONDITION_THROW(CONDITION) if (!(CONDITION)) abort(1)
 # endif
 # if defined(_OPENMP)
@@ -296,7 +296,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_not_constant(int value
 #     define LIBXSTREAM_CHECK_CALL(EXPRESSION) (EXPRESSION)
 #   endif
 # else
-#   define LIBXSTREAM_CHECK_CALL(EXPRESSION) do { int result = (EXPRESSION); if (LIBXSTREAM_ERROR_NONE != result) return result; } while(libxstream_not_constant(LIBXSTREAM_FALSE))
+#   define LIBXSTREAM_CHECK_CALL(EXPRESSION) do { int result = (EXPRESSION); if (LIBXSTREAM_ERROR_NONE != result) return result; } while(libxstream_nonconst(LIBXSTREAM_FALSE))
 # endif
 #elif defined(LIBXSTREAM_DEBUG)
 # define LIBXSTREAM_CHECK_ERROR(RETURN_VALUE) LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == (RETURN_VALUE))
