@@ -623,14 +623,14 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
   {
     libxstream_sink(&device);
 #endif
-    LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", device,
-      reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
-
 #if defined(LIBXSTREAM_INTERNAL_CHECK)
     result = libxstream_real_allocate(memory, size, alignment, &device, sizeof(device));
 #else
     result = libxstream_real_allocate(memory, size, alignment);
 #endif
+    LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", device,
+      reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
+
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_PINALLOC_LIMIT)
     if (LIBXSTREAM_ERROR_NONE == result && ((LIBXSTREAM_PINALLOC_LIMIT) >= size || 0 > (LIBXSTREAM_PINALLOC_LIMIT))) {
       LIBXSTREAM_ASYNC_BEGIN
