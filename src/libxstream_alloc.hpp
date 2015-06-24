@@ -36,6 +36,8 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
+LIBXSTREAM_TARGET(mic) void libxstream_alloc_init();
+
 LIBXSTREAM_TARGET(mic) size_t libxstream_gcd(size_t a, size_t b);
 LIBXSTREAM_TARGET(mic) size_t libxstream_lcm(size_t a, size_t b);
 
@@ -47,8 +49,6 @@ LIBXSTREAM_TARGET(mic) void* libxstream_align(void* address, size_t alignment);
 LIBXSTREAM_TARGET(mic) size_t libxstream_linear_size(size_t dims, const size_t shape[], size_t initial_size = 1);
 LIBXSTREAM_TARGET(mic) int libxstream_linear_offset(size_t dims, const int offset[], const size_t shape[]);
 LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int offset[], const size_t shape[], const size_t pitch[]);
-
-void libxstream_alloc_init();
 
 int libxstream_real_allocate(void** memory, size_t size, size_t alignment);
 int libxstream_real_deallocate(const void* memory);

@@ -86,6 +86,15 @@ static/*IPO*/ struct config_type {
 } // namespace libxstream_alloc_internal
 
 
+LIBXSTREAM_TARGET(mic) void libxstream_alloc_init()
+{
+#if !defined(__MIC__) // not needed
+  libxstream_alloc_internal::config_type::instance();
+  libxstream_sink(&libxstream_alloc_internal::config);
+#endif
+}
+
+
 LIBXSTREAM_TARGET(mic) size_t libxstream_gcd(size_t a, size_t b)
 {
   while (0 != b) {
@@ -191,13 +200,6 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int o
   }
 
   return result;
-}
-
-
-void libxstream_alloc_init()
-{
-  libxstream_alloc_internal::config_type::instance();
-  libxstream_sink(&libxstream_alloc_internal::config);
 }
 
 
