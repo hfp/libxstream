@@ -329,10 +329,14 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
 # if defined(LIBXSTREAM_ALLOC_MMAP)
       size_t alloc_size = 0, unlock_size = 0;
       libxstream_alloc_internal::info_type::alloc_size(size, alignment, extra_size, alloc_size, unlock_size);
+#if 0 // TODO
       void* buffer = mmap(0, alloc_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
       if (MAP_FAILED != buffer) {
         buffer = mmap(buffer, unlock_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
       }
+#else
+      void *const buffer = mmap(0, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+#endif
       if (MAP_FAILED != buffer) {
         char *const dst = static_cast<char*>(buffer);
         if (0 < extra_size && 0 != extra) {
