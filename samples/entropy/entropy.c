@@ -106,7 +106,7 @@ int main(int argc, char* argv[])
 #if !defined(_OPENMP)
   LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
-  const size_t nstreams = LIBXSTREAM_MAX(mstreams, 1) * LIBXSTREAM_MAX(ndevices, 1), nbatch = (0 == mbatch) ? (nitems / nstreams) : mbatch, hsize = 256;
+  const size_t nstreams = LIBXSTREAM_MAX(mstreams, 1) * LIBXSTREAM_MAX(ndevices, 1), nbatch = (0 == mbatch) ? LIBXSTREAM_MIN(nitems / nstreams, 128 << 20) : mbatch, hsize = 256;
   size_t histogram[256/*hsize*/];
   memset(histogram, 0, sizeof(histogram));
 
