@@ -84,14 +84,6 @@ static/*IPO*/ struct config_type {
 } &config = config_type::instance();
 
 struct info_type {
-  static void alloc_size(size_t buffer_size, size_t alignment, size_t extra_size, size_t& alloc_size, size_t& unlock_size) {
-    const size_t auto_alignment = libxstream_alignment(buffer_size, alignment);
-    const size_t aligned_size = libxstream_align(buffer_size, auto_alignment);
-    LIBXSTREAM_ASSERT(buffer_size <= aligned_size);
-    unlock_size = extra_size + sizeof(info_type);
-    alloc_size = std::max(aligned_size, buffer_size + unlock_size);
-  }
-
   void* pointer;
   size_t size;
   bool real;
@@ -219,36 +211,40 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int o
 
 int libxstream_real_allocate(void** memory, size_t size, size_t alignment, const void* extra, size_t extra_size)
 {
+  using libxstream_alloc_internal::info_type;
   int result = LIBXSTREAM_ERROR_NONE;
 
   if (memory) {
     if (0 < size) {
-      size_t alloc_size = 0, unlock_size = 0;
-      libxstream_alloc_internal::info_type::alloc_size(size, alignment, extra_size, alloc_size, unlock_size);
+      const size_t auto_alignment = libxstream_alignment(size, alignment);
+      const size_t alloc_size = size + extra_size + sizeof(info_type) + auto_alignment - 1;
 #if defined(LIBXSTREAM_INTERNAL_DEBUG)
-      void *const buffer = new char[alloc_size];
+      char *const buffer = new char[alloc_size];
       memset(buffer, 0, alloc_size);
 #elif defined(__MKL)
-      void *const buffer = mkl_malloc(alloc_size, LIBXSTREAM_MAX_SIMD);
+      char *const buffer = static_cast<char*>(mkl_malloc(alloc_size, LIBXSTREAM_MAX_SIMD));
 #elif defined(_WIN32)
-      void *const buffer = _aligned_malloc(alloc_size, LIBXSTREAM_MAX_SIMD);
+      char *const buffer = static_cast<char*>(_aligned_malloc(alloc_size, LIBXSTREAM_MAX_SIMD));
 #elif defined(__GNUC__)
-      void *const buffer = _mm_malloc(alloc_size, LIBXSTREAM_MAX_SIMD);
+      char *const buffer = static_cast<char*>(_mm_malloc(alloc_size, LIBXSTREAM_MAX_SIMD));
 #else
-      result = (0 == posix_memalign(&memory, LIBXSTREAM_MAX_SIMD, alloc_size)) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
+      void* vbuffer = 0;
+      result = (0 == posix_memalign(&vbuffer, LIBXSTREAM_MAX_SIMD, alloc_size)) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
       LIBXSTREAM_CHECK_ERROR(result);
+      char *const buffer = static_cast<char*>(vbuffer);
 #endif
+      char *const aligned = static_cast<char*>(libxstream_align(buffer + extra_size + sizeof(info_type), auto_alignment));
       if (0 != buffer) {
-        char *const dst = static_cast<char*>(buffer);
         if (0 < extra_size && 0 != extra) {
           const char *const src = static_cast<const char*>(extra);
-          for (size_t i = 0; i < extra_size; ++i) dst[i] = src[i];
+          for (size_t i = 0; i < extra_size; ++i) buffer[i] = src[i];
         }
-        libxstream_alloc_internal::info_type& info = *reinterpret_cast<libxstream_alloc_internal::info_type*>(dst + extra_size);
+        LIBXSTREAM_ASSERT((aligned + size) <= (buffer + alloc_size));
+        info_type& info = *reinterpret_cast<info_type*>(aligned - sizeof(info_type));
         info.pointer = buffer;
         info.size = size;
-        info.real = false;
-        *memory = dst + unlock_size;
+        info.real = true;
+        *memory = aligned;
       }
       else {
         result = LIBXSTREAM_ERROR_RUNTIME;
@@ -293,6 +289,7 @@ int libxstream_real_deallocate(const void* memory)
 
 int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const void* extra, size_t extra_size)
 {
+  using libxstream_alloc_internal::info_type;
   LIBXSTREAM_CHECK_CONDITION(0 == extra_size || 0 != extra);
   int result = LIBXSTREAM_ERROR_NONE;
 
@@ -300,23 +297,24 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
     if (0 < size) {
 #if defined(_WIN32)
 # if defined(LIBXSTREAM_ALLOC_VALLOC)
-      size_t alloc_size = 0, unlock_size = 0;
-      libxstream_alloc_internal::info_type::alloc_size(size, alignment, extra_size, alloc_size, unlock_size);
-      void* buffer = VirtualAlloc(0, alloc_size, MEM_RESERVE, PAGE_NOACCESS);
+      const size_t auto_alignment = libxstream_alignment(size, alignment);
+      const size_t alloc_size = size + extra_size + sizeof(info_type) + auto_alignment - 1;
+      char* buffer = static_cast<char*>(VirtualAlloc(0, alloc_size, MEM_RESERVE, PAGE_NOACCESS));
+      char *const aligned = static_cast<char*>(libxstream_align(buffer + extra_size + sizeof(info_type), auto_alignment));
       if (0 != buffer) {
-        buffer = VirtualAlloc(buffer, unlock_size, MEM_COMMIT, PAGE_READWRITE);
+        buffer = static_cast<char*>(VirtualAlloc(buffer, aligned - buffer, MEM_COMMIT, PAGE_READWRITE));
       }
       if (0 != buffer) {
-        char *const dst = static_cast<char*>(buffer);
         if (0 < extra_size && 0 != extra) {
           const char *const src = static_cast<const char*>(extra);
-          for (size_t i = 0; i < extra_size; ++i) dst[i] = src[i];
+          for (size_t i = 0; i < extra_size; ++i) buffer[i] = src[i];
         }
-        libxstream_alloc_internal::info_type& info = *reinterpret_cast<libxstream_alloc_internal::info_type*>(dst + extra_size);
+        LIBXSTREAM_ASSERT((aligned + size) <= (buffer + alloc_size));
+        info_type& info = *reinterpret_cast<info_type*>(aligned - sizeof(info_type));
         info.pointer = buffer;
         info.size = size;
         info.real = false;
-        *memory = dst + unlock_size;
+        *memory = aligned;
       }
       else {
         result = LIBXSTREAM_ERROR_RUNTIME;
@@ -326,27 +324,28 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
 # endif
 #else
 # if defined(LIBXSTREAM_ALLOC_MMAP)
-      size_t alloc_size = 0, unlock_size = 0;
-      libxstream_alloc_internal::info_type::alloc_size(size, alignment, extra_size, alloc_size, unlock_size);
+      const size_t auto_alignment = libxstream_alignment(size, alignment);
+      const size_t alloc_size = size + extra_size + sizeof(info_type) + auto_alignment - 1;
 #if 0 // TODO
-      void* buffer = mmap(0, alloc_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      char* buffer = static_cast<char*>(mmap(0, alloc_size, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+      char *const aligned = static_cast<char*>(libxstream_align(buffer + extra_size + sizeof(info_type), auto_alignment));
       if (MAP_FAILED != buffer) {
-        buffer = mmap(buffer, unlock_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        buffer = static_cast<char*>(mmap(buffer, aligned - buffer, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
       }
 #else
       void *const buffer = mmap(0, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 #endif
       if (MAP_FAILED != buffer) {
-        char *const dst = static_cast<char*>(buffer);
         if (0 < extra_size && 0 != extra) {
           const char *const src = static_cast<const char*>(extra);
-          for (size_t i = 0; i < extra_size; ++i) dst[i] = src[i];
+          for (size_t i = 0; i < extra_size; ++i) buffer[i] = src[i];
         }
-        libxstream_alloc_internal::info_type& info = *reinterpret_cast<libxstream_alloc_internal::info_type*>(dst + extra_size);
+        LIBXSTREAM_ASSERT((aligned + size) <= (buffer + alloc_size));
+        info_type& info = *reinterpret_cast<info_type*>(aligned - sizeof(info_type));
         info.pointer = buffer;
         info.size = size;
         info.real = false;
-        *memory = dst + unlock_size;
+        *memory = aligned;
       }
       else {
         result = LIBXSTREAM_ERROR_RUNTIME;
