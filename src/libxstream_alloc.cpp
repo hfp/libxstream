@@ -49,7 +49,7 @@
 #endif
 
 #define LIBXSTREAM_ALLOC_VALLOC
-//#define LIBXSTREAM_ALLOC_MMAP
+#define LIBXSTREAM_ALLOC_MMAP
 
 
 namespace libxstream_alloc_internal {
