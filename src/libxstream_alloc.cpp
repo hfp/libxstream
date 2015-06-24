@@ -333,7 +333,7 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
         buffer = static_cast<char*>(mmap(buffer, aligned - buffer, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
       }
 #else
-      void *const buffer = mmap(0, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      char *const buffer = static_cast<char*>(mmap(0, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
 #endif
       if (MAP_FAILED != buffer) {
         if (0 < extra_size && 0 != extra) {
