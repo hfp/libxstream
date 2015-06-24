@@ -118,7 +118,7 @@
 #define LIBXSTREAM_SLEEP_MS 20
 
 /** Allows client-side to sleep when waiting. */
-#define LIBXSTREAM_SLEEP_CLIENT
+/*#define LIBXSTREAM_SLEEP_CLIENT*/
 
 /** Prefers OpenMP based locking primitives. */
 /*#define LIBXSTREAM_PREFER_OPENMP*/

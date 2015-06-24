@@ -49,7 +49,9 @@
 #endif
 
 #define LIBXSTREAM_ALLOC_VALLOC
-#define LIBXSTREAM_ALLOC_MMAP
+#if !defined(LIBXSTREAM_OFFLOAD) || (defined(__INTEL_COMPILER) && (1600 <= __INTEL_COMPILER))
+# define LIBXSTREAM_ALLOC_MMAP
+#endif
 
 
 namespace libxstream_alloc_internal {
