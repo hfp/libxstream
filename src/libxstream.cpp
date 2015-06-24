@@ -85,7 +85,7 @@
 #define LIBXSTREAM_RDTSC __rdtsc
 
 /** Pin allocated memory. */
-#if defined(__INTEL_COMPILER) && (1600 <= __INTEL_COMPILER) && (20150501 <= __INTEL_COMPILER_BUILD_DATE)
+#if defined(__INTEL_COMPILER) && (1600 <= __INTEL_COMPILER) && (20150501 <= __INTEL_COMPILER_BUILD_DATE) && 0
 # define LIBXSTREAM_PINALLOC_LIMIT (size_t(1) << 30)
 #endif
 /** Enables runtime-sleep. */
