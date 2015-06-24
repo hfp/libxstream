@@ -412,7 +412,12 @@ int libxstream_alloc_info(const void* memory, size_t* size, void** extra, size_t
     if (size) *size = info.size;
     if (real) *real = info.real;
     if (extra) *extra = info.pointer;
-    if (extra_size) *extra_size = static_cast<const char*>(info.pointer) - reinterpret_cast<const char*>(&info);
+    if (extra_size) {
+      const char *const a = reinterpret_cast<const char*>(&info);
+      const char *const b = static_cast<const char*>(info.pointer);
+      LIBXSTREAM_ASSERT(a >= b);
+      *extra_size = a - b;
+    }
   }
   else {
     LIBXSTREAM_CHECK_CONDITION(0 == real);
