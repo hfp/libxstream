@@ -86,7 +86,7 @@
 
 /** Pin allocated memory. */
 #if defined(__INTEL_COMPILER) && (1600 <= __INTEL_COMPILER) && (20150501 <= __INTEL_COMPILER_BUILD_DATE)
-//# define LIBXSTREAM_ALLOC_PINNED
+# define LIBXSTREAM_ALLOC_PINNED
 #endif
 /** Enables runtime-sleep. */
 #define LIBXSTREAM_RUNTIME_SLEEP
