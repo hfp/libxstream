@@ -227,7 +227,7 @@ public:
     return result;
   }
 
-  int wait_all(int device, bool any) {
+  int wait_all(int device, bool any) { // TODO: implement waiting for global stream
     int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
 
@@ -260,29 +260,32 @@ public:
         while(i < n);
       }
     }
-    else {
-      result = wait_all(any);
-    }
 
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
     return result;
   }
 
-  int wait_all(bool any) {
+  int wait_all(bool any) { // TODO: implement waiting for global stream
     int result = LIBXSTREAM_ERROR_NONE;
     const size_t n = max_nstreams();
 
     if (0 < n) {
+      bool devices[(LIBXSTREAM_MAX_NDEVICES)+1];
       size_t i = 0;
       LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
+      std::fill_n(devices, (LIBXSTREAM_MAX_NDEVICES)+1, false);
       do {
         if (const value_type stream = m_streams[i]) {
-          result = stream->wait(any);
-          LIBXSTREAM_CHECK_ERROR(result);
+          const int device = libxstream_stream::device(stream);
+          devices[device+1] = true;
         }
         ++i;
       }
       while(i < n);
+
+      for (i = 0; i <= (LIBXSTREAM_MAX_NDEVICES) && LIBXSTREAM_ERROR_NONE == result; ++i) {
+        result = devices[i] ? wait_all(static_cast<int>(i) - 1, any) : LIBXSTREAM_ERROR_NONE;
+      }
     }
 
     LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
