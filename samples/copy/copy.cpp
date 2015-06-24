@@ -61,9 +61,11 @@ int main(int argc, char* argv[])
       LIBXSTREAM_PRINT0(2, "No device found or device not ready!");
     }
     const int device = static_cast<int>(ndevices) - 1;
+    const size_t reserved = 512;
     size_t allocatable = 0;
     libxstream_mem_info(device, &allocatable, 0);
     allocatable >>= 20; // MB
+    allocatable = std::max(allocatable, reserved) - reserved;
 
     const bool copyin = 1 < argc ? ('o' != *argv[1]) : true;
     const size_t nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
@@ -72,8 +74,7 @@ int main(int argc, char* argv[])
 #else
     LIBXSTREAM_PRINT0(1, "OpenMP support needed for performance results!");
 #endif
-    const size_t nreserved = nstreams + 1;
-    const size_t minsize = 8, maxsize = static_cast<size_t>(std::min(std::max(4 < argc ? std::atoi(argv[4]) : static_cast<int>(allocatable / nreserved), 1), 1024)) * (1 << 20);
+    const size_t minsize = 8, maxsize = static_cast<size_t>(std::max(4 < argc ? std::atoi(argv[4]) : static_cast<int>(allocatable / nstreams), 1)) * (1 << 20);
     const int minrepeat = std::min(std::max(5 < argc ? std::atoi(argv[5]) :    8, 4), 2048);
     const int maxrepeat = std::min(std::max(6 < argc ? std::atoi(argv[6]) : 4096, minrepeat), 32768);
 
