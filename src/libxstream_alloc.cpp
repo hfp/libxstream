@@ -84,13 +84,13 @@ static/*IPO*/ struct config_type {
 } &config = config_type::instance();
 
 struct info_type {
-  static void alloc_size(size_t size, size_t alignment, size_t extra_size, size_t& alloc_size, size_t& unlock_size) {
-    const size_t auto_alignment = libxstream_alignment(size, alignment);
-    const size_t aligned_size = libxstream_align(size, auto_alignment);
-    LIBXSTREAM_ASSERT(size <= aligned_size);
-    const size_t asize = aligned_size - size, xsize = extra_size + sizeof(info_type);
+  static void alloc_size(size_t buffer_size, size_t alignment, size_t extra_size, size_t& alloc_size, size_t& unlock_size) {
+    const size_t auto_alignment = libxstream_alignment(buffer_size, alignment);
+    const size_t aligned_size = libxstream_align(buffer_size, auto_alignment);
+    LIBXSTREAM_ASSERT(buffer_size <= aligned_size);
+    const size_t asize = aligned_size - buffer_size, xsize = extra_size + sizeof(info_type);
     unlock_size = std::max(asize, xsize) - asize;
-    alloc_size = size + unlock_size;
+    alloc_size = buffer_size + unlock_size;
   }
 
   void* pointer;

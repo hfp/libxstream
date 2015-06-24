@@ -598,8 +598,11 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
 
 #if defined(LIBXSTREAM_OFFLOAD)
   if (0 <= device) {
+# if defined(LIBXSTREAM_INTERNAL_CHECK)
     result = libxstream_virt_allocate(memory, size, alignment, &device, sizeof(device));
-
+# else
+    result = libxstream_virt_allocate(memory, size, alignment);
+# endif
     if (LIBXSTREAM_ERROR_NONE == result) {
       LIBXSTREAM_ASYNC_BEGIN
       {
@@ -623,8 +626,11 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
     LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", device,
       reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
 
+#if defined(LIBXSTREAM_INTERNAL_CHECK)
+    result = libxstream_real_allocate(memory, size, alignment, &device, sizeof(device));
+#else
     result = libxstream_real_allocate(memory, size, alignment);
-
+#endif
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_PINALLOC_LIMIT)
     if (LIBXSTREAM_ERROR_NONE == result && ((LIBXSTREAM_PINALLOC_LIMIT) >= size || 0 > (LIBXSTREAM_PINALLOC_LIMIT))) {
       LIBXSTREAM_ASYNC_BEGIN
@@ -646,7 +652,18 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
 
 LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory)
 {
+#if defined(LIBXSTREAM_INTERNAL_CHECK)
+  void* memory_device = 0;
+  bool real = true;
+  int result = libxstream_alloc_info(memory, 0, &memory_device, 0, &real);
+  if (LIBXSTREAM_ERROR_NONE != result) {
+    result = (0 != memory_device && device == *static_cast<const int*>(memory_device) && (0 <= device ? !real : real))
+      ? LIBXSTREAM_ERROR_NONE
+      : LIBXSTREAM_ERROR_RUNTIME;
+  }
+#else
   int result = LIBXSTREAM_ERROR_NONE;
+#endif
 
   if (memory) {
     // synchronize across all devices not just the given device
@@ -654,16 +671,6 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= device) {
-# if defined(LIBXSTREAM_INTERNAL_CHECK)
-      void* memory_device = 0;
-      bool real = true;
-      result = libxstream_alloc_info(memory, 0, &memory_device, 0, &real);
-      if (LIBXSTREAM_ERROR_NONE != result) {
-        result = (0 != memory_device && 0 != real && device == *static_cast<const int*>(memory_device) && !real)
-          ? LIBXSTREAM_ERROR_NONE
-          : LIBXSTREAM_ERROR_RUNTIME;
-      }
-# endif
       LIBXSTREAM_ASYNC_BEGIN
       {
         const char *const memory = ptr<const char,1>();
