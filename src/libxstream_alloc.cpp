@@ -73,7 +73,7 @@ LIBXSTREAM_TARGET(mic) S linear_size(size_t dims, const T shape[], S initial_siz
 
 static/*IPO*/ struct config_type {
   config_type() {
-#if defined(__GNUC__) && !defined(__CYGWIN__) && (!defined(LIBXSTREAM_INTERNAL_CHECK) || (2 <= ((2*LIBXSTREAM_CHECK+1)/2)))
+#if defined(__GNUC__) && !defined(__CYGWIN__) && (!defined(LIBXSTREAM_CHECK) || (2 > ((2*LIBXSTREAM_CHECK+1)/2)))
     mallopt(M_CHECK_ACTION, 0); // disable MALLOC_CHECK_
 #endif
   }
