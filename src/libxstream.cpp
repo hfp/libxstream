@@ -678,19 +678,26 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
       libxstream_sink(&device);
 #endif
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_PINALLOC_LIMIT)
-      LIBXSTREAM_ASYNC_BEGIN
+      size_t size = (LIBXSTREAM_PINALLOC_LIMIT) + 1;
+      if (0 > (LIBXSTREAM_PINALLOC_LIMIT) || (LIBXSTREAM_ERROR_NONE == (result = libxstream_alloc_info(memory, &size, 0, 0, 0)) &&
+        (LIBXSTREAM_PINALLOC_LIMIT) >= size))
       {
-        const char* memory = ptr<const char,1>();
-        LIBXSTREAM_PRINT(2, "mem_deallocate: device=%i buffer=0x%llx", LIBXSTREAM_ASYNC_DEVICE, reinterpret_cast<unsigned long long>(memory));
-#       pragma offload_transfer target(mic) host_unpin(memory: length(0))
-        LIBXSTREAM_ASYNC_QENTRY.status() = libxstream_real_deallocate(memory);
+        LIBXSTREAM_ASYNC_BEGIN
+        {
+          const char* memory = ptr<const char,1>();
+          LIBXSTREAM_PRINT(2, "mem_deallocate: device=%i buffer=0x%llx", LIBXSTREAM_ASYNC_DEVICE, reinterpret_cast<unsigned long long>(memory));
+#         pragma offload_transfer target(mic) host_unpin(memory: length(0))
+          LIBXSTREAM_ASYNC_QENTRY.status() = libxstream_real_deallocate(memory);
+        }
+        LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE, work, device, memory);
+        result = work.status();
       }
-      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE, work, device, memory);
-      result = work.status();
-#else
-      LIBXSTREAM_PRINT(2, "mem_deallocate: device=%i buffer=0x%llx", device, reinterpret_cast<unsigned long long>(memory));
-      result = libxstream_real_deallocate(memory);
+      else
 #endif
+      {
+        LIBXSTREAM_PRINT(2, "mem_deallocate: device=%i buffer=0x%llx", device, reinterpret_cast<unsigned long long>(memory));
+        result = libxstream_real_deallocate(memory);
+      }
     }
   }
 

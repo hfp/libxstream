@@ -50,14 +50,13 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_linear_size(size_t dims, const size_t s
 LIBXSTREAM_TARGET(mic) int libxstream_linear_offset(size_t dims, const int offset[], const size_t shape[]);
 LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int offset[], const size_t shape[], const size_t pitch[]);
 
-int libxstream_real_allocate(void** memory, size_t size, size_t alignment);
+int libxstream_real_allocate(void** memory, size_t size, size_t alignment, const void* extra = 0, size_t extra_size = 0);
 int libxstream_real_deallocate(const void* memory);
 
-int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const void* data = 0, size_t data_size = 0);
+int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const void* extra = 0, size_t extra_size = 0);
 int libxstream_virt_deallocate(const void* memory);
 
-void* libxstream_virt_data(void* memory);
-const void* libxstream_virt_data(const void* memory);
+int libxstream_alloc_info(const void* memory, size_t* size, void** extra, size_t* extra_size, bool* real);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_ALLOC_HPP
