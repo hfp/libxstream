@@ -655,11 +655,13 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= device) {
 # if defined(LIBXSTREAM_INTERNAL_CHECK)
-      const int memory_device = *static_cast<const int*>(libxstream_virt_data(memory));
-      if (device != memory_device) {
-        LIBXSTREAM_PRINT(1, "mem_deallocate: device %i does not match allocating device %i!", device, memory_device);
-        LIBXSTREAM_CHECK_CONDITION(0 <= memory_device);
-        device = memory_device;
+      void* memory_device = 0;
+      bool real = true;
+      result = libxstream_alloc_info(memory, 0, &memory_device, 0, &real);
+      if (LIBXSTREAM_ERROR_NONE != result) {
+        result = (0 != memory_device && 0 != real && device == *static_cast<const int*>(memory_device) && !real)
+          ? LIBXSTREAM_ERROR_NONE
+          : LIBXSTREAM_ERROR_RUNTIME;
       }
 # endif
       LIBXSTREAM_ASYNC_BEGIN
