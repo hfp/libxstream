@@ -122,8 +122,7 @@ public:
 
 public:
   libxstream_lock*volatile& locks(const volatile void* address) {
-    const uintptr_t id = LIBXSTREAM_DIV2(reinterpret_cast<uintptr_t>(address), LIBXSTREAM_MAX_SIMD);
-    return m_locks[LIBXSTREAM_MOD2(id, LIBXSTREAM_MAX_NLOCKS)];
+    return m_locks[LIBXSTREAM_HASH2(address,LIBXSTREAM_MAX_SIMD,LIBXSTREAM_MAX_NLOCKS)];
   }
 
   libxstream_lock* lock() {
