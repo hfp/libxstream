@@ -133,33 +133,6 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_alignment(size_t size, size_t alignment
 }
 
 
-LIBXSTREAM_TARGET(mic) size_t libxstream_align(size_t size, size_t alignment)
-{
-  const size_t auto_alignment = libxstream_alignment(size, alignment);
-  const size_t aligned = ((size + auto_alignment - 1) / auto_alignment) * auto_alignment;
-  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(size_t, size, auto_alignment/*pot*/));
-  return aligned;
-}
-
-
-LIBXSTREAM_TARGET(mic) void* libxstream_align(void* address, size_t alignment)
-{
-  LIBXSTREAM_ASSERT(0 != alignment);
-  const uintptr_t aligned = ((reinterpret_cast<uintptr_t>(address) + alignment - 1) / alignment) * alignment;
-  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(uintptr_t, address, alignment/*pot*/));
-  return reinterpret_cast<void*>(aligned);
-}
-
-
-LIBXSTREAM_TARGET(mic) const void* libxstream_align(const void* address, size_t alignment)
-{
-  LIBXSTREAM_ASSERT(0 != alignment);
-  const uintptr_t aligned = ((reinterpret_cast<uintptr_t>(address) + alignment - 1) / alignment) * alignment;
-  LIBXSTREAM_ASSERT(aligned == LIBXSTREAM_ALIGN(uintptr_t, address, alignment/*pot*/));
-  return reinterpret_cast<void*>(aligned);
-}
-
-
 LIBXSTREAM_TARGET(mic) size_t libxstream_linear_size(size_t dims, const size_t shape[], size_t initial_size)
 {
   return libxstream_alloc_internal::linear_size(dims, shape, initial_size);
@@ -231,7 +204,7 @@ int libxstream_real_allocate(void** memory, size_t size, size_t alignment, const
       LIBXSTREAM_CHECK_ERROR(result);
       char *const buffer = static_cast<char*>(vbuffer);
 #endif
-      char *const aligned = static_cast<char*>(libxstream_align(buffer + extra_size + sizeof(info_type), auto_alignment));
+      char *const aligned = LIBXSTREAM_ALIGN(buffer + extra_size + sizeof(info_type), auto_alignment);
       if (0 != buffer) {
         if (0 < extra_size && 0 != extra) {
           const char *const src = static_cast<const char*>(extra);
@@ -298,7 +271,7 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
       const size_t auto_alignment = libxstream_alignment(size, alignment);
       const size_t alloc_size = size + extra_size + sizeof(info_type) + auto_alignment - 1;
       char* buffer = static_cast<char*>(VirtualAlloc(0, alloc_size, MEM_RESERVE, PAGE_NOACCESS));
-      char *const aligned = static_cast<char*>(libxstream_align(buffer + extra_size + sizeof(info_type), auto_alignment));
+      char *const aligned = LIBXSTREAM_ALIGN(buffer + extra_size + sizeof(info_type), auto_alignment);
       if (0 != buffer) {
         buffer = static_cast<char*>(VirtualAlloc(buffer, aligned - buffer, MEM_COMMIT, PAGE_READWRITE));
       }

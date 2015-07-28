@@ -165,7 +165,7 @@ libxstream_workqueue::entry_type& libxstream_workqueue::allocate_entry_mt()
 {
   entry_type* result = 0;
 #if defined(LIBXSTREAM_STDFEATURES)
-  result = m_buffer + LIBXSTREAM_MOD((*static_cast<std::atomic<size_t>*>(m_position))++, LIBXSTREAM_MAX_QSIZE);
+  result = m_buffer + LIBXSTREAM_MOD2((*static_cast<std::atomic<size_t>*>(m_position))++, LIBXSTREAM_MAX_QSIZE);
 #elif defined(_OPENMP)
   size_t size1 = 0;
   size_t& size = *static_cast<size_t*>(m_position);
@@ -175,12 +175,12 @@ libxstream_workqueue::entry_type& libxstream_workqueue::allocate_entry_mt()
 # pragma omp critical
 # endif
   size1 = ++size;
-  result = m_buffer + LIBXSTREAM_MOD(size1 - 1, LIBXSTREAM_MAX_QSIZE);
+  result = m_buffer + LIBXSTREAM_MOD2(size1 - 1, LIBXSTREAM_MAX_QSIZE);
 #else // generic
   size_t& size = *static_cast<size_t*>(m_position);
   libxstream_lock *const lock = libxstream_lock_get(this);
   libxstream_lock_acquire(lock);
-  result = m_buffer + LIBXSTREAM_MOD(size++, LIBXSTREAM_MAX_QSIZE);
+  result = m_buffer + LIBXSTREAM_MOD2(size++, LIBXSTREAM_MAX_QSIZE);
   libxstream_lock_release(lock);
 #endif
   LIBXSTREAM_ASSERT(0 != result && result->queue() == this);
@@ -201,10 +201,10 @@ libxstream_workqueue::entry_type& libxstream_workqueue::allocate_entry()
 {
   entry_type* result = 0;
 #if defined(LIBXSTREAM_STDFEATURES)
-  result = m_buffer + LIBXSTREAM_MOD(static_cast<std::atomic<size_t>*>(m_position)->fetch_add(1, std::memory_order_relaxed), LIBXSTREAM_MAX_QSIZE);
+  result = m_buffer + LIBXSTREAM_MOD2(static_cast<std::atomic<size_t>*>(m_position)->fetch_add(1, std::memory_order_relaxed), LIBXSTREAM_MAX_QSIZE);
 #else
   size_t& size = *static_cast<size_t*>(m_position);
-  result = m_buffer + LIBXSTREAM_MOD(size++, LIBXSTREAM_MAX_QSIZE);
+  result = m_buffer + LIBXSTREAM_MOD2(size++, LIBXSTREAM_MAX_QSIZE);
 #endif
   LIBXSTREAM_ASSERT(0 != result && result->queue() == this);
 

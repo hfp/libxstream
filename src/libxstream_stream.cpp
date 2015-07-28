@@ -108,8 +108,8 @@ public:
     libxstream_lock *const lock = libxstream_lock_get(this);
     libxstream_lock_acquire(lock);
 #endif
-    volatile value_type* i = m_streams + LIBXSTREAM_MOD(m_istreams++, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
-    while (0 != *i) i = m_streams + LIBXSTREAM_MOD(m_istreams++, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
+    volatile value_type* i = m_streams + LIBXSTREAM_MOD2(m_istreams++, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
+    while (0 != *i) i = m_streams + LIBXSTREAM_MOD2(m_istreams++, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
 #if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock_release(lock);
 #endif

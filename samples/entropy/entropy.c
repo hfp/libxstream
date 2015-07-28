@@ -115,7 +115,7 @@ int main(int argc, char* argv[])
     size_t i;
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_mem_allocate(-1/*host*/, (void**)&data, nitems, 0));
     if (0 == filesize || nitems > fread(data, 1, filesize, file)) {
-      for (i = 0; i < nitems; ++i) data[i] = (char)LIBXSTREAM_MOD(rand(), hsize/*POT*/);
+      for (i = 0; i < nitems; ++i) data[i] = (char)LIBXSTREAM_MOD2(rand(), hsize/*POT*/);
     }
   }
 

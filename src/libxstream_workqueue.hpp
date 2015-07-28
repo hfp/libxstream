@@ -81,11 +81,11 @@ public:
   size_t size() const { return position() - m_index; }
   void pop() { ++m_index; }
 
-  const entry_type* front() const { return m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE); }
-  entry_type* front() { return m_buffer + LIBXSTREAM_MOD(m_index, LIBXSTREAM_MAX_QSIZE); }
+  const entry_type* front() const { return m_buffer + LIBXSTREAM_MOD2(m_index, LIBXSTREAM_MAX_QSIZE); }
+  entry_type* front() { return m_buffer + LIBXSTREAM_MOD2(m_index, LIBXSTREAM_MAX_QSIZE); }
 
-  const entry_type* back() const { return m_buffer + LIBXSTREAM_MOD(LIBXSTREAM_MAX(position(), 1) - 1, LIBXSTREAM_MAX_QSIZE); }
-  entry_type* back() { return m_buffer + LIBXSTREAM_MOD(LIBXSTREAM_MAX(position(), 1) - 1, LIBXSTREAM_MAX_QSIZE); }
+  const entry_type* back() const { return m_buffer + LIBXSTREAM_MOD2(LIBXSTREAM_MAX(position(), 1) - 1, LIBXSTREAM_MAX_QSIZE); }
+  entry_type* back() { return m_buffer + LIBXSTREAM_MOD2(LIBXSTREAM_MAX(position(), 1) - 1, LIBXSTREAM_MAX_QSIZE); }
 
 private:
   entry_type m_buffer[LIBXSTREAM_MAX_QSIZE];

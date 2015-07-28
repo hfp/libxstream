@@ -59,7 +59,7 @@
 #endif /*__cplusplus*/
 
 #if !defined(LIBXSTREAM_RESTRICT)
-# if ((defined(__GNUC__) && !defined(__CYGWIN__)) || defined(__INTEL_COMPILER)) && !defined(_WIN32)
+# if ((defined(__GNUC__) && !defined(__CYGWIN32__)) || defined(__INTEL_COMPILER)) && !defined(_WIN32)
 #   define LIBXSTREAM_RESTRICT __restrict__
 # elif defined(_MSC_VER) || defined(__INTEL_COMPILER)
 #   define LIBXSTREAM_RESTRICT __restrict
@@ -103,10 +103,22 @@
 # define LIBXSTREAM_PRAGMA_UNROLL
 #endif
 
+/*Based on Stackoverflow's NBITSx macro.*/
+#define LIBXSTREAM_NBITS02(N) (0 != ((N) & 2/*0b10*/) ? 1 : 0)
+#define LIBXSTREAM_NBITS04(N) (0 != ((N) & 0xC/*0b1100*/) ? (2 + LIBXSTREAM_NBITS02((N) >> 2)) : LIBXSTREAM_NBITS02(N))
+#define LIBXSTREAM_NBITS08(N) (0 != ((N) & 0xF0/*0b11110000*/) ? (4 + LIBXSTREAM_NBITS04((N) >> 4)) : LIBXSTREAM_NBITS04(N))
+#define LIBXSTREAM_NBITS16(N) (0 != ((N) & 0xFF00) ? (8 + LIBXSTREAM_NBITS08((N) >> 8)) : LIBXSTREAM_NBITS08(N))
+#define LIBXSTREAM_NBITS32(N) (0 != ((N) & 0xFFFF0000) ? (16 + LIBXSTREAM_NBITS16((N) >> 16)) : LIBXSTREAM_NBITS16(N))
+#define LIBXSTREAM_NBITS64(N) (0 != ((N) & 0xFFFFFFFF00000000) ? (32 + LIBXSTREAM_NBITS32((uint64_t)(N) >> 32)) : LIBXSTREAM_NBITS32(N))
+#define LIBXSTREAM_NBITS(N) (0 != (N) ? (LIBXSTREAM_NBITS64(N) + 1) : 1)
+
 #define LIBXSTREAM_MIN(A, B) ((A) < (B) ? (A) : (B))
 #define LIBXSTREAM_MAX(A, B) ((A) < (B) ? (B) : (A))
-#define LIBXSTREAM_MOD(A, B) ((A) & ((B) - 1)) /*B: pot!*/
-#define LIBXSTREAM_UP(A, B) ((((A) + (B) - 1) / (B)) * (B))
+#define LIBXSTREAM_MOD2(N, POT) ((N) & ((POT) - 1))
+#define LIBXSTREAM_MUL2(N, POT) ((N) << (LIBXSTREAM_NBITS(POT) - 1))
+#define LIBXSTREAM_DIV2(N, POT) ((N) >> (LIBXSTREAM_NBITS(POT) - 1))
+#define LIBXSTREAM_UP2(N, POT) LIBXSTREAM_MUL2(LIBXSTREAM_DIV2((N) + (POT) - 1, POT), POT)
+#define LIBXSTREAM_UP(N, UP) ((((N) + (UP) - 1) / (UP)) * (UP))
 
 #if defined(_WIN32) && !defined(__GNUC__)
 # define LIBXSTREAM_ATTRIBUTE(A) __declspec(A)
@@ -135,10 +147,8 @@
 #   define LIBXSTREAM_ASSUME(EXPRESSION)
 # endif
 #endif
-#define LIBXSTREAM_ALIGN_VALUE(DST_TYPE, SRC_TYPE, VALUE, ALIGNMENT) ((DST_TYPE)((-( \
-  -((intptr_t)(VALUE) * ((intptr_t)sizeof(SRC_TYPE))) & \
-  -((intptr_t)(LIBXSTREAM_MAX(ALIGNMENT, 1))))) / sizeof(SRC_TYPE)))
-#define LIBXSTREAM_ALIGN(TYPE, PTR, ALIGNMENT) LIBXSTREAM_ALIGN_VALUE(TYPE, char, PTR, ALIGNMENT)
+#define LIBXSTREAM_ALIGN_VALUE(N, TYPESIZE, ALIGNMENT) (LIBXSTREAM_UP2((N) * (TYPESIZE), ALIGNMENT) / (TYPESIZE))
+#define LIBXSTREAM_ALIGN(POINTER, ALIGNMENT) ((POINTER) + (LIBXSTREAM_ALIGN_VALUE((uintptr_t)(POINTER), 1, ALIGNMENT) - ((uintptr_t)(POINTER))) / sizeof(*(POINTER)))
 
 #if defined(_WIN32) && !defined(__GNUC__)
 # define LIBXSTREAM_TLS LIBXSTREAM_ATTRIBUTE(thread)
