@@ -25,9 +25,9 @@ else
 	LIBEXT = so
 endif
 
-BLAS ?= 1
+BLAS ?= 2
 ifneq ($(MKLROOT),)
-	MKL ?= 1
+	MKL ?= $(BLAS)
 	MKL_DIRECT ?= 0
 	ifneq ($(MKL_DIRECT),0)
 		MKL_STATIC ?= 1
