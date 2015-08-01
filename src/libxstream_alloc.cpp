@@ -82,9 +82,12 @@ static/*IPO*/ struct config_type {
 } &config = config_type::instance();
 
 struct info_type {
+  void init(void* pointer_, size_t size_) {
+    pointer = pointer_;
+    size = size_;
+  }
   void* pointer;
   size_t size;
-  bool real;
 };
 
 } // namespace libxstream_alloc_internal
@@ -212,9 +215,7 @@ int libxstream_real_allocate(void** memory, size_t size, size_t alignment, const
         }
         LIBXSTREAM_ASSERT((aligned + size) <= (buffer + alloc_size));
         info_type& info = *reinterpret_cast<info_type*>(aligned - sizeof(info_type));
-        info.pointer = buffer;
-        info.size = size;
-        info.real = true;
+        info.init(buffer, size);
         *memory = aligned;
       }
       else {
@@ -240,7 +241,7 @@ int libxstream_real_deallocate(const void* memory)
 {
   if (memory) {
     void* buffer = 0;
-    libxstream_alloc_info(memory, 0, &buffer, 0, 0);
+    libxstream_alloc_info(memory, 0, &buffer, 0);
 #if defined(LIBXSTREAM_INTERNAL_DEBUG)
     delete[] static_cast<char*>(buffer);
 #elif defined(__MKL)
@@ -282,9 +283,7 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
         }
         LIBXSTREAM_ASSERT((aligned + size) <= (buffer + alloc_size));
         info_type& info = *reinterpret_cast<info_type*>(aligned - sizeof(info_type));
-        info.pointer = buffer;
-        info.size = size;
-        info.real = false;
+        info.init(buffer, size);
         *memory = aligned;
       }
       else {
@@ -314,9 +313,7 @@ int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const
         }
         LIBXSTREAM_ASSERT((aligned + size) <= (buffer + alloc_size));
         info_type& info = *reinterpret_cast<info_type*>(aligned - sizeof(info_type));
-        info.pointer = buffer;
-        info.size = size;
-        info.real = false;
+        info.init(buffer, size);
         *memory = aligned;
       }
       else {
@@ -350,7 +347,7 @@ int libxstream_virt_deallocate(const void* memory)
 #if defined(_WIN32)
 # if defined(LIBXSTREAM_ALLOC_VALLOC)
     void* buffer = 0;
-    libxstream_alloc_info(memory, 0, &buffer, 0, 0);
+    libxstream_alloc_info(memory, 0, &buffer, 0);
     result = FALSE != VirtualFree(buffer, 0, MEM_RELEASE) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 # else
     result = libxstream_real_deallocate(memory);
@@ -372,15 +369,14 @@ int libxstream_virt_deallocate(const void* memory)
 }
 
 
-int libxstream_alloc_info(const void* memory, size_t* size, void** extra, size_t* extra_size, bool* real)
+int libxstream_alloc_info(const void* memory, size_t* size, void** extra, size_t* extra_size)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != size || 0 != extra || 0 != extra_size || 0 != real);
+  LIBXSTREAM_CHECK_CONDITION(0 != size || 0 != extra || 0 != extra_size);
 
   if (0 != memory) {
     using libxstream_alloc_internal::info_type;
     const info_type& info = *reinterpret_cast<const info_type*>(static_cast<const char*>(memory) - sizeof(info_type));
     if (size) *size = info.size;
-    if (real) *real = info.real;
     if (extra) *extra = info.pointer;
     if (extra_size) {
       const char *const a = reinterpret_cast<const char*>(&info);
@@ -390,7 +386,6 @@ int libxstream_alloc_info(const void* memory, size_t* size, void** extra, size_t
     }
   }
   else {
-    LIBXSTREAM_CHECK_CONDITION(0 == real);
     if (size) *size = 0;
     if (extra) *extra = 0;
     if (extra_size) *extra_size = 0;

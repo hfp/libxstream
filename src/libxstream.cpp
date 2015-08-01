@@ -652,10 +652,9 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 {
 #if defined(LIBXSTREAM_INTERNAL_CHECK)
   void* memory_device = 0;
-  bool real = true;
-  int result = libxstream_alloc_info(memory, 0, &memory_device, 0, &real);
+  int result = libxstream_alloc_info(memory, 0, &memory_device, 0);
   if (LIBXSTREAM_ERROR_NONE == result) {
-    result = (0 != memory_device && device == *static_cast<const int*>(memory_device) && (0 <= device ? !real : real))
+    result = (0 != memory_device && device == *static_cast<const int*>(memory_device))
       ? LIBXSTREAM_ERROR_NONE
       : LIBXSTREAM_ERROR_RUNTIME;
   }
@@ -686,7 +685,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 #endif
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_PINALLOC_LIMIT)
       size_t size = (LIBXSTREAM_PINALLOC_LIMIT) + 1;
-      if (0 > (LIBXSTREAM_PINALLOC_LIMIT) || (LIBXSTREAM_ERROR_NONE == (result = libxstream_alloc_info(memory, &size, 0, 0, 0)) &&
+      if (0 > (LIBXSTREAM_PINALLOC_LIMIT) || (LIBXSTREAM_ERROR_NONE == (result = libxstream_alloc_info(memory, &size, 0, 0)) &&
         (LIBXSTREAM_PINALLOC_LIMIT) >= size))
       {
         LIBXSTREAM_ASYNC_BEGIN
