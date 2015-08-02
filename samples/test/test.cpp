@@ -120,6 +120,16 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_meminfo(device, &mem_free, &mem_avail));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0)); // not necessary; test
 
+  size_t check_size = 0;
+  int check_device = 0;
+  void* mapped = 0;
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_info(m_host_mem, &mapped, &check_size, &check_device));
+  LIBXSTREAM_CHECK_CONDITION_THROW(mapped == m_host_mem && size == check_size && -1 == check_device);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_info(m_dev_mem1, &mapped, &check_size, &check_device));
+  LIBXSTREAM_CHECK_CONDITION_THROW(size == check_size && device == check_device);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_info(m_dev_mem2, &mapped, &check_size, &check_device));
+  LIBXSTREAM_CHECK_CONDITION_THROW(size == check_size && device == check_device);
+
   const char pattern_a = 'a', pattern_b = 'b';
   LIBXSTREAM_ASSERT(pattern_a != pattern_b);
   std::fill_n(reinterpret_cast<char*>(m_host_mem), size, pattern_a);
