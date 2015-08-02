@@ -192,7 +192,13 @@ private:
 } context;
 
 
-LIBXSTREAM_TARGET(mic) void mem_info(uint64_t& memory_physical, uint64_t& memory_not_allocated)
+struct mem_info_type {
+  void* pointer;
+  int device;
+};
+
+
+LIBXSTREAM_TARGET(mic) void get_meminfo(uint64_t& memory_physical, uint64_t& memory_not_allocated)
 {
 #if defined(_WIN32)
   MEMORYSTATUSEX status;
@@ -533,23 +539,7 @@ LIBXSTREAM_EXPORT_C int libxstream_get_ndevices(size_t* ndevices)
 }
 
 
-LIBXSTREAM_EXPORT_C int libxstream_get_active_device(int* device)
-{
-  const int result = libxstream_stream_device(0, device);
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
-  return result;
-}
-
-
-LIBXSTREAM_EXPORT_C int libxstream_set_active_device(int device)
-{
-  const int result = libxstream_stream_create(0, device, 0, 0);
-  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
-  return result;
-}
-
-
-LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, size_t* physical)
+LIBXSTREAM_EXPORT_C int libxstream_get_meminfo(int device, size_t* allocatable, size_t* physical)
 {
   LIBXSTREAM_CHECK_CONDITION(allocatable || physical);
   uint64_t memory_physical = 0, memory_allocatable = 0;
@@ -559,18 +549,18 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, siz
     uint64_t& memory_physical = *ptr<uint64_t,1>();
     uint64_t& memory_allocatable = *ptr<uint64_t,2>();
 
-    LIBXSTREAM_PRINT(2, "mem_info: device=%i allocatable=%lu physical=%lu", LIBXSTREAM_ASYNC_DEVICE,
+    LIBXSTREAM_PRINT(2, "get_meminfo: device=%i allocatable=%lu physical=%lu", LIBXSTREAM_ASYNC_DEVICE,
       static_cast<unsigned long>(memory_allocatable), static_cast<unsigned long>(memory_physical));
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 #     pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) //out(memory_physical, memory_allocatable)
-      libxstream_internal::mem_info(memory_physical, memory_allocatable);
+      libxstream_internal::get_meminfo(memory_physical, memory_allocatable);
     }
     else
 #endif
     {
-      libxstream_internal::mem_info(memory_physical, memory_allocatable);
+      libxstream_internal::get_meminfo(memory_physical, memory_allocatable);
     }
   }
   LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE | LIBXSTREAM_CALL_WAIT, work, device, &memory_physical, &memory_allocatable);
@@ -589,18 +579,33 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, siz
 }
 
 
+LIBXSTREAM_EXPORT_C int libxstream_get_active_device(int* device)
+{
+  const int result = libxstream_stream_device(0, device);
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+  return result;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_set_active_device(int device)
+{
+  const int result = libxstream_stream_create(0, device, 0, 0);
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+  return result;
+}
+
+
 LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment)
 {
   LIBXSTREAM_CHECK_CONDITION(0 != memory);
   int result = LIBXSTREAM_ERROR_NONE;
+  libxstream_internal::mem_info_type extra, *mem_info = 0;
+  void* mapped = 0;
 
 #if defined(LIBXSTREAM_OFFLOAD)
   if (0 <= device) {
-# if defined(LIBXSTREAM_INTERNAL_CHECK)
-    result = libxstream_virt_allocate(memory, size, alignment, &device, sizeof(device));
-# else
-    result = libxstream_virt_allocate(memory, size, alignment);
-# endif
+    result = libxstream_virt_allocate(memory, size, alignment, &extra, sizeof(extra));
+
     if (LIBXSTREAM_ERROR_NONE == result) {
       LIBXSTREAM_ASYNC_BEGIN
       {
@@ -610,22 +615,20 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
         LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", LIBXSTREAM_ASYNC_DEVICE,
           reinterpret_cast<unsigned long long>(buffer), static_cast<unsigned long>(size));
 
-#       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC)
+//#       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC)
+#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC) out(mapped)
+        {
+          mapped = buffer;
+        }
       }
       LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE, work, device, *memory, size);
       result = work.status();
     }
   }
-  else {
-#else
+  else
+#endif
   {
-    libxstream_sink(&device);
-#endif
-#if defined(LIBXSTREAM_INTERNAL_CHECK)
-    result = libxstream_real_allocate(memory, size, alignment, &device, sizeof(device));
-#else
-    result = libxstream_real_allocate(memory, size, alignment);
-#endif
+    result = libxstream_real_allocate(memory, size, alignment, &extra, sizeof(extra));
     LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", device,
       reinterpret_cast<unsigned long long>(*memory), static_cast<unsigned long>(size));
 
@@ -641,6 +644,19 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
       result = work.status();
     }
 #endif
+    mapped = *memory;
+  }
+
+  if (LIBXSTREAM_ERROR_NONE == result) {
+#if defined(LIBXSTREAM_INTERNAL_DEBUG)
+    size_t check_size = 0;
+    result = libxstream_alloc_info(*memory, &check_size, reinterpret_cast<void**>(&mem_info));
+    LIBXSTREAM_ASSERT(check_size == size);
+#else
+    result = libxstream_alloc_info(*memory, 0, reinterpret_cast<void**>(&mem_info));
+#endif
+    mem_info->device = device;
+    mem_info->pointer = mapped;
   }
 
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
@@ -650,19 +666,16 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
 
 LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory)
 {
-#if defined(LIBXSTREAM_INTERNAL_CHECK)
-  void* memory_device = 0;
-  int result = libxstream_alloc_info(memory, 0, &memory_device, 0);
-  if (LIBXSTREAM_ERROR_NONE == result) {
-    result = (0 != memory_device && device == *static_cast<const int*>(memory_device))
-      ? LIBXSTREAM_ERROR_NONE
-      : LIBXSTREAM_ERROR_RUNTIME;
-  }
-#else
   int result = LIBXSTREAM_ERROR_NONE;
-#endif
 
   if (memory) {
+#if defined(LIBXSTREAM_INTERNAL_CHECK)
+    libxstream_internal::mem_info_type* mem_info = 0;
+    result = (LIBXSTREAM_ERROR_NONE == libxstream_alloc_info(memory, 0, reinterpret_cast<void**>(&mem_info)) && 0 != mem_info && device == mem_info->device)
+      ? LIBXSTREAM_ERROR_NONE
+      : LIBXSTREAM_ERROR_RUNTIME;
+    LIBXSTREAM_CHECK_ERROR(result);
+#endif
     // synchronize across all devices not just the given device
     libxstream_stream::wait_all(true);
 
@@ -678,14 +691,12 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
       LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE, work, device, memory);
       result = work.status();
     }
-    else {
-#else
-    {
-      libxstream_sink(&device);
+    else
 #endif
+    {
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_PINALLOC_LIMIT)
       size_t size = (LIBXSTREAM_PINALLOC_LIMIT) + 1;
-      if (0 > (LIBXSTREAM_PINALLOC_LIMIT) || (LIBXSTREAM_ERROR_NONE == (result = libxstream_alloc_info(memory, &size, 0, 0)) &&
+      if (0 > (LIBXSTREAM_PINALLOC_LIMIT) || (LIBXSTREAM_ERROR_NONE == (result = libxstream_alloc_info(memory, &size, 0)) &&
         (LIBXSTREAM_PINALLOC_LIMIT) >= size))
       {
         LIBXSTREAM_ASYNC_BEGIN
@@ -705,6 +716,21 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
         result = libxstream_real_deallocate(memory);
       }
     }
+  }
+
+  LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
+  return result;
+}
+
+
+LIBXSTREAM_EXPORT_C int libxstream_mem_info(const void* memory, void** mapped, size_t* size, int* device)
+{
+  libxstream_internal::mem_info_type* mem_info = 0;
+  int result = libxstream_alloc_info(memory, size, reinterpret_cast<void**>(&mem_info));
+  if (LIBXSTREAM_ERROR_NONE == result) {
+    LIBXSTREAM_ASSERT(0 != mem_info);
+    if (0 != mapped) *mapped = mem_info->pointer;
+    if (0 != device) *device = mem_info->device;
   }
 
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);

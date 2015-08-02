@@ -90,17 +90,19 @@ typedef void (/*LIBXSTREAM_CDECL*/*libxstream_function)(LIBXSTREAM_VARIADIC);
 
 /** Query the number of available devices. */
 LIBXSTREAM_EXPORT_C int libxstream_get_ndevices(size_t* ndevices);
+/** Query the memory metrics of the device (valid to pass one NULL pointer). */
+LIBXSTREAM_EXPORT_C int libxstream_get_meminfo(int device, size_t* allocatable, size_t* physical);
 /** Query the device set active for this thread. */
 LIBXSTREAM_EXPORT_C int libxstream_get_active_device(int* device);
 /** Set the active device for this thread. */
 LIBXSTREAM_EXPORT_C int libxstream_set_active_device(int device);
 
-/** Query the memory metrics of the device (valid to pass one NULL pointer). */
-LIBXSTREAM_EXPORT_C int libxstream_mem_info(int device, size_t* allocatable, size_t* physical);
 /** Allocate aligned memory (0: automatic alignment) on the device (-1: host, 0<: coprocessor). */
 LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_t size, size_t alignment);
 /** Deallocate memory; shall match the device where the memory was allocated. */
 LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory);
+/** Query information about the memory allocated by libxstream_mem_allocate. */
+LIBXSTREAM_EXPORT_C int libxstream_mem_info(const void* memory, void** mapped, size_t* size, int* device);
 /** Fill memory with zeros; allocated memory can carry an offset. */
 LIBXSTREAM_EXPORT_C int libxstream_memset_zero(void* memory, size_t size, libxstream_stream* stream);
 /** Copy memory from the host to the device; addresses can carry an offset. */

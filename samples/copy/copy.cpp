@@ -63,7 +63,7 @@ int main(int argc, char* argv[])
     const int device = static_cast<int>(ndevices) - 1;
     const size_t reserved = 512;
     size_t allocatable = 0;
-    libxstream_mem_info(device, &allocatable, 0);
+    libxstream_get_meminfo(device, &allocatable, 0);
     allocatable >>= 20; // MB
     allocatable = std::max(allocatable, reserved) - reserved;
 

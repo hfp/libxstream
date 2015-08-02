@@ -52,7 +52,7 @@ int libxstream_real_deallocate(const void* memory);
 int libxstream_virt_allocate(void** memory, size_t size, size_t alignment, const void* extra = 0, size_t extra_size = 0);
 int libxstream_virt_deallocate(const void* memory);
 
-int libxstream_alloc_info(const void* memory, size_t* size, void** extra, size_t* extra_size);
+int libxstream_alloc_info(const void* memory, size_t* size, void** extra);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_ALLOC_HPP

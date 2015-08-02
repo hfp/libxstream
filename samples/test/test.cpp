@@ -110,14 +110,14 @@ test_type::test_type(int device)
   : m_stream(0), m_event(0), m_host_mem(0), m_dev_mem1(0), m_dev_mem2(0)
 {
   size_t mem_free = 0, mem_avail = 0;
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_info(device, &mem_free, &mem_avail));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_meminfo(device, &mem_free, &mem_avail));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_create(&m_stream, device, 0, 0));
 
   const size_t size = 4711u * 1024u;
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(-1, &m_host_mem, size, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &m_dev_mem1, size, 0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_allocate(device, &m_dev_mem2, size, 0));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_info(device, &mem_free, &mem_avail));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_get_meminfo(device, &mem_free, &mem_avail));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0)); // not necessary; test
 
   const char pattern_a = 'a', pattern_b = 'b';

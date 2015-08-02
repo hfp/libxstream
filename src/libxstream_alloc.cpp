@@ -241,7 +241,7 @@ int libxstream_real_deallocate(const void* memory)
 {
   if (memory) {
     void* buffer = 0;
-    libxstream_alloc_info(memory, 0, &buffer, 0);
+    libxstream_alloc_info(memory, 0, &buffer);
 #if defined(LIBXSTREAM_INTERNAL_DEBUG)
     delete[] static_cast<char*>(buffer);
 #elif defined(__MKL)
@@ -347,7 +347,7 @@ int libxstream_virt_deallocate(const void* memory)
 #if defined(_WIN32)
 # if defined(LIBXSTREAM_ALLOC_VALLOC)
     void* buffer = 0;
-    libxstream_alloc_info(memory, 0, &buffer, 0);
+    libxstream_alloc_info(memory, 0, &buffer);
     result = FALSE != VirtualFree(buffer, 0, MEM_RELEASE) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 # else
     result = libxstream_real_deallocate(memory);
@@ -356,8 +356,8 @@ int libxstream_virt_deallocate(const void* memory)
 # if defined(LIBXSTREAM_ALLOC_MMAP)
     void* buffer = 0;
     size_t size = 0;
-    libxstream_alloc_info(memory, &size, &buffer, 0, 0);
-    result = 0 == munmap(buffer, size) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
+    libxstream_alloc_info(memory, &size, &buffer);
+    result = 0 == munmap(buffer, size + (static_cast<const char*>(memory) - static_cast<char*>(buffer))) ? LIBXSTREAM_ERROR_NONE : LIBXSTREAM_ERROR_RUNTIME;
 # else
     result = libxstream_real_deallocate(memory);
 # endif
@@ -369,26 +369,19 @@ int libxstream_virt_deallocate(const void* memory)
 }
 
 
-int libxstream_alloc_info(const void* memory, size_t* size, void** extra, size_t* extra_size)
+int libxstream_alloc_info(const void* memory, size_t* size, void** extra)
 {
-  LIBXSTREAM_CHECK_CONDITION(0 != size || 0 != extra || 0 != extra_size);
+  LIBXSTREAM_CHECK_CONDITION(0 != size || 0 != extra);
 
   if (0 != memory) {
     using libxstream_alloc_internal::info_type;
     const info_type& info = *reinterpret_cast<const info_type*>(static_cast<const char*>(memory) - sizeof(info_type));
     if (size) *size = info.size;
     if (extra) *extra = info.pointer;
-    if (extra_size) {
-      const char *const a = reinterpret_cast<const char*>(&info);
-      const char *const b = static_cast<const char*>(info.pointer);
-      LIBXSTREAM_ASSERT(a >= b);
-      *extra_size = a - b;
-    }
   }
   else {
     if (size) *size = 0;
     if (extra) *extra = 0;
-    if (extra_size) *extra_size = 0;
   }
 
   return LIBXSTREAM_ERROR_NONE;
