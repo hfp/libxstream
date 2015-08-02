@@ -600,7 +600,6 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
   LIBXSTREAM_CHECK_CONDITION(0 != memory);
   int result = LIBXSTREAM_ERROR_NONE;
   libxstream_internal::mem_info_type extra, *mem_info = 0;
-  void* mapped = 0;
 
 #if defined(LIBXSTREAM_OFFLOAD)
   if (0 <= device) {
@@ -609,19 +608,20 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
     if (LIBXSTREAM_ERROR_NONE == result) {
       LIBXSTREAM_ASYNC_BEGIN
       {
-        const char* buffer = ptr<const char,1>();
+        char *const buffer = ptr<char,1>();
         const size_t size = val<const size_t,2>();
+        void*& mapped = *ptr<void*,3>();
 
         LIBXSTREAM_PRINT(2, "mem_allocate: device=%i buffer=0x%llx size=%lu", LIBXSTREAM_ASYNC_DEVICE,
           reinterpret_cast<unsigned long long>(buffer), static_cast<unsigned long>(size));
 
 //#       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC)
-#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC) out(mapped)
+#       pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(buffer: length(size) LIBXSTREAM_OFFLOAD_ALLOC) //out(mapped)
         {
           mapped = buffer;
         }
       }
-      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE, work, device, *memory, size);
+      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE, work, device, *memory, size, &extra.pointer);
       result = work.status();
     }
   }
@@ -644,7 +644,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
       result = work.status();
     }
 #endif
-    mapped = *memory;
+    extra.pointer = *memory;
   }
 
   if (LIBXSTREAM_ERROR_NONE == result) {
@@ -656,7 +656,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_allocate(int device, void** memory, size_
     result = libxstream_alloc_info(*memory, 0, reinterpret_cast<void**>(&mem_info));
 #endif
     mem_info->device = device;
-    mem_info->pointer = mapped;
+    mem_info->pointer = extra.pointer;
   }
 
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
