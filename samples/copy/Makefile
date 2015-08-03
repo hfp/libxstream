@@ -65,9 +65,9 @@ CPPOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CPPSRCS:.cpp=-cpp.o)))
 CXXOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CXXSRCS:.cxx=-cxx.o)))
 CCXOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CCXSRCS:.cc=-cc.o)))
 COBJCTS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
-FTNOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.f=-f.o)))
-F77OBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.F=-f77.o)))
-F90OBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.f90=-f90.o)))
+FTNOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(FTNSRCS:.f=-f.o)))
+F77OBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(F77SRCS:.F=-f77.o)))
+F90OBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(F90SRCS:.f90=-f90.o)))
 OBJECTS = $(CPPOBJS) $(CXXOBJS) $(CCXOBJS) $(COBJCTS) $(FTNOBJS) $(F77OBJS) $(F90OBJS)
 
 ICPC    = $(notdir $(shell which icpc     2> /dev/null))
@@ -389,7 +389,7 @@ endif
 
 install: all clean
 	@cp $(DEPDIR)/lib/intel64/libxstream.so $(OUTDIR) 2> /dev/null || true
-	@cp $(ROOTDIR)/copy.plt $(OUTDIR) 2> /dev/null || true
+	@cp $(ROOTDIR)/$(OUTNAME).sh $(OUTDIR) 2> /dev/null || true
+	@cp $(ROOTDIR)/$(OUTNAME).plt $(OUTDIR) 2> /dev/null || true
 	@cp $(ROOTDIR)/plot.sh $(OUTDIR) 2> /dev/null || true
-	@cp $(ROOTDIR)/copy.sh $(OUTDIR) 2> /dev/null || true
 

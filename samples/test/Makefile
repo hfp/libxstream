@@ -389,7 +389,4 @@ endif
 
 install: all clean
 	@cp $(DEPDIR)/lib/intel64/libxstream.so $(OUTDIR) 2> /dev/null || true
-	@cp $(ROOTDIR)/copy.plt $(OUTDIR) 2> /dev/null || true
-	@cp $(ROOTDIR)/plot.sh $(OUTDIR) 2> /dev/null || true
-	@cp $(ROOTDIR)/copy.sh $(OUTDIR) 2> /dev/null || true
 

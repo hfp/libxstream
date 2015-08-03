@@ -11,13 +11,13 @@ grep -A1 "Running " ${FILE} | tr "\n" " " | sed \
 > plot.txt
 
 if [ "${OS}" != "Windows_NT" ] ; then
-  gnuplot plot.plt
+  gnuplot multi-dgemm.plt
 else
   export GDFONTPATH=/cygdrive/c/Windows/Fonts
 
   if [[ -f /cygdrive/c/Program\ Files/gnuplot/bin/wgnuplot ]] ; then
-    /cygdrive/c/Program\ Files/gnuplot/bin/wgnuplot plot.plt
+    /cygdrive/c/Program\ Files/gnuplot/bin/wgnuplot multi-dgemm.plt
   else
-    /cygdrive/c/Program\ Files\ \(x86\)/gnuplot/bin/wgnuplot plot.plt
+    /cygdrive/c/Program\ Files\ \(x86\)/gnuplot/bin/wgnuplot multi-dgemm.plt
   fi
 fi
