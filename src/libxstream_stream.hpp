@@ -74,9 +74,8 @@ public:
   libxstream_workqueue::entry_type& enqueue(libxstream_workitem& workitem);
 
   /**
-   * Wait for any pending work to complete with the option to wait for all work i.e.,
-   * across thread-local queues. The any-flag allows to omit waiting if the thread
-   * owning this stream is still the same since enqueuing the item.
+   * Wait for any pending work to complete. The any-flag allows to omit waiting
+   * if the thread owning this stream is still the same since enqueuing the item.
    */
   int wait(bool any);
 
