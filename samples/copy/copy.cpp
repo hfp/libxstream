@@ -68,7 +68,7 @@ int main(int argc, char* argv[])
     allocatable = std::max(allocatable, reserved) - reserved;
 
     const bool copyin = 1 < argc ? ('o' != *argv[1]) : true;
-    const size_t nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 1, 1), LIBXSTREAM_MAX_NSTREAMS);
+    const size_t nstreams = std::min(std::max(2 < argc ? std::atoi(argv[2]) : 2, 1), LIBXSTREAM_MAX_NSTREAMS);
 #if defined(_OPENMP)
     const int nthreads = std::min(std::max(3 < argc ? std::atoi(argv[3]) : 1, 1), omp_get_max_threads());
 #else
@@ -117,7 +117,7 @@ int main(int argc, char* argv[])
     // start benchmark with no pending work
     LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
-    int count = 0, nrepeat = maxrepeat;
+    int n = 0, nrepeat = maxrepeat;
     const double mega = 1.0 / (1ul << 20);
     double totalsize = 0, maxval = 0, runlns = 0;
 #if defined(_OPENMP)
@@ -125,8 +125,8 @@ int main(int argc, char* argv[])
 #else
     const double duration = 0;
 #endif
-    for (size_t size = minsize; size <= maxsize; size <<= 1, ++count) {
-      if (0 < count && 0 == (count % stride)) {
+    for (size_t size = minsize; size <= maxsize; size <<= 1, ++n) {
+      if (0 < n && 0 == (n % stride)) {
         nrepeat >>= 1;
       }
 
@@ -134,27 +134,25 @@ int main(int argc, char* argv[])
       fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
       fflush(stdout); // make sure to show progress
       double iduration = -omp_get_wtime();
-#     pragma omp parallel for num_threads(nthreads)
+#     pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
-      for (int i = 0; i < nrepeat; ++i) {
-        const size_t n = std::min<size_t>(nstreams, nrepeat - i);
+      for (int j = 0; j < nrepeat; ++j) { // enqueue work into streams
+        const size_t k = j % nstreams;
 
-        for (size_t j = 0; j < n; ++j) { // enqueue work into streams
-          if (copyin) {
-            LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(copy[j].mem_hst, copy[j].mem_dev, size, copy[j].stream));
-          }
-          else { // copy-out
-            LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(copy[j].mem_dev, copy[j].mem_hst, size, copy[j].stream));
-          }
+        if (copyin) {
+          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(copy[k].mem_hst, copy[k].mem_dev, size, copy[k].stream));
         }
+        else { // copy-out
+          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_d2h(copy[k].mem_dev, copy[k].mem_hst, size, copy[k].stream));
+        }
+      }
 
 #if !defined(COPY_NO_SYNC)
-        for (size_t j = 0; j < n; ++j) { // synchronize streams
-          const size_t k = n - j - 1; // j-reverse
-          LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(copy[k].stream));
-        }
-#endif
+      for (size_t j = 0; j < nrepeat; ++j) { // synchronize streams
+        const size_t k = j % nstreams;
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(copy[k].stream));
       }
+#endif
 
 #if defined(_OPENMP)
       iduration += omp_get_wtime();
@@ -162,13 +160,15 @@ int main(int argc, char* argv[])
         const double isize = mega * size * nrepeat, bandwidth = isize / iduration;
         fprintf(stdout, "%.1f MB/s\n", bandwidth);
         maxval = std::max(maxval, bandwidth);
-        runlns = (runlns + std::log(bandwidth)) * (0 < count ? 0.5 : 1.0);
+        runlns = (runlns + std::log(bandwidth)) * (0 < n ? 0.5 : 1.0);
         totalsize += isize;
       }
 #endif
     }
 
+#if defined(COPY_NO_SYNC)
     LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0)); // wait for pending work
+#endif
 #if defined(_OPENMP)
     duration += omp_get_wtime();
 #endif
