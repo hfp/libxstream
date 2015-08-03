@@ -37,6 +37,7 @@
 
 #include <libxstream_begin.h>
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <cstdio>
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -434,7 +435,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 #if defined(LIBXSTREAM_INTERNAL_TRACE)
   if (name && 0 != *name) {
     const size_t length = std::min(std::char_traits<char>::length(name), sizeof(m_name) - 1);
-    std::copy(name, name + length, m_name);
+    memcpy(m_name, name, length);
     m_name[length] = 0;
   }
   else {

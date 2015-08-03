@@ -802,15 +802,15 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_h2d(const void* host_mem, void* dev_me
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP) // V4.0
       if (0 == (LIBXSTREAM_ASYNC_PENDING)) {
 #       pragma omp task depend(out:capture_region_signal) depend(in:LIBXSTREAM_ASYNC_PENDING)
-        std::copy(src, src + size, dst);
+        memcpy(dst, src, size);
       }
       else {
 #       pragma omp task depend(out:capture_region_signal)
-        std::copy(src, src + size, dst);
+        memcpy(dst, src, size);
         ++capture_region_signal_consumed;
       }
 #else
-      std::copy(src, src + size, dst);
+      memcpy(dst, src, size);
 #endif
     }
   }
@@ -846,7 +846,7 @@ LIBXSTREAM_EXPORT_C int libxstream_memcpy_d2h(const void* dev_mem, void* host_me
     else
 #endif
     {
-      std::copy(src, src + size, dst);
+      memcpy(dst, src, size);
     }
   }
   LIBXSTREAM_ASYNC_END(stream, LIBXSTREAM_CALL_DEFAULT, work, dev_mem, host_mem, size);

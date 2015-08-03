@@ -36,6 +36,7 @@
 #if defined(LIBXSTREAM_STDFEATURES)
 # include <atomic>
 #endif
+#include <cstring>
 #include <libxstream_end.h>
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD)
@@ -62,7 +63,7 @@ libxstream_event::libxstream_event(const libxstream_event& other)
 #endif
 {
   if (m_slots) {
-    std::copy(&other.m_slots[0], &other.m_slots[0] + (LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS), &m_slots[0]);
+    memcpy(&m_slots[0], &other.m_slots[0], (LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS));
   }
 }
 
