@@ -48,6 +48,8 @@
 //#define LIBXSTREAM_STREAM_SIGNAL_THREADSAFE
 // actually check whether a signal is pending or not
 //#define LIBXSTREAM_STREAM_CHECK_PENDING
+// prefer to schedule a waiting stream
+#define LIBXSTREAM_STREAM_SCHEDULE_WAITSTREAM
 
 
 namespace libxstream_stream_internal {
@@ -204,25 +206,40 @@ public:
   value_type schedule(const libxstream_stream* exclude) {
     const size_t n = max_nstreams();
     size_t start = 0, offset = 0;
+    value_type result = 0;
 
     if (0 != exclude) {
       for (size_t i = 0; i < n; ++i) {
-        if (m_streams[i] == exclude) {
+        const value_type stream = m_streams[i];
+
+        if (stream == exclude) {
           start = i;
           offset = 1;
           i = n; // break
         }
+#if defined(LIBXSTREAM_STREAM_SCHEDULE_WAITSTREAM)
+        else if (0 != stream) {
+          const libxstream_workqueue::entry_type *const work = stream->work();
+          const libxstream_workitem *const workitem = 0 != work ? work->item() : 0;
+          if (0 != workitem && 0 != (LIBXSTREAM_CALL_WAIT & workitem->flags())) {
+            result = stream;
+          }
+        }
+#endif
       }
     }
 
-    const size_t end = start + n;
-    value_type result = 0;
-
-    for (size_t i = start + offset; i < end; ++i) {
-      const value_type stream = m_streams[/*i%n*/i<n?i:(i-n)]; // round-robin
-      if (0 != stream) {
-        result = stream;
-        i = end; // break
+#if defined(LIBXSTREAM_STREAM_SCHEDULE_WAITSTREAM)
+    if (0 == result)
+#endif
+    {
+      const size_t end = start + n;
+      for (size_t i = start + offset; i < end; ++i) {
+        const value_type stream = m_streams[/*i%n*/i<n?i:(i-n)]; // round-robin
+        if (0 != stream) {
+          result = stream;
+          i = end; // break
+        }
       }
     }
 
