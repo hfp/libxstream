@@ -166,6 +166,8 @@ int main(int argc, char* argv[])
       }
 #endif
     }
+
+    LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0)); // wait for pending work
 #if defined(_OPENMP)
     duration += omp_get_wtime();
 #endif
