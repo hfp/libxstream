@@ -134,7 +134,7 @@ int main(int argc, char* argv[])
       fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
       fflush(stdout); // make sure to show progress
       double iduration = -omp_get_wtime();
-#     pragma omp parallel for num_threads(nthreads) schedule(dynamic)
+#     pragma omp parallel for num_threads(nthreads)
 #endif
       for (int i = 0; i < nrepeat; ++i) {
         const size_t n = std::min<size_t>(nstreams, nrepeat - i);
