@@ -118,7 +118,8 @@ int main(int argc, char* argv[])
     LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
     int n = 0, nrepeat = maxrepeat;
-    double maxval = 0, sumval = 0, runlns = 0;
+    const double mega = 1.0 / (1ul << 20);
+    double totalsize = 0, maxval = 0, runlns = 0;
 #if defined(_OPENMP)
     double duration = -omp_get_wtime();
 #else
@@ -158,11 +159,11 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
       iduration += omp_get_wtime();
       if (0 < iduration) {
-        const double bandwidth = (1.0 * size * nrepeat) / ((1ul << 20) * iduration);
+        const double isize = mega * size * nrepeat, bandwidth = isize / iduration;
         fprintf(stdout, "%.1f MB/s\n", bandwidth);
         maxval = std::max(maxval, bandwidth);
-        sumval += bandwidth;
         runlns = (runlns + std::log(bandwidth)) * (0 < n ? 0.5 : 1.0);
+        totalsize += isize;
       }
 #endif
     }
@@ -189,11 +190,11 @@ int main(int argc, char* argv[])
     }
 
     fprintf(stdout, "\n");
-    if (0 < n) {
+    if (0 < duration) {
       fprintf(stdout, "Finished after %.0f s\n", duration);
       fprintf(stdout, "max: %.0f MB/s\n", maxval);
       fprintf(stdout, "rgm: %.0f MB/s\n", std::exp(runlns) - 1.0);
-      fprintf(stdout, "avg: %.0f MB/s\n", sumval / n);
+      fprintf(stdout, "avg: %.0f MB/s\n", totalsize / duration);
     }
     else {
       fprintf(stdout, "Finished\n");
