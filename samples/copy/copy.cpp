@@ -117,7 +117,7 @@ int main(int argc, char* argv[])
     // start benchmark with no pending work
     LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
-    int n = 0, nrepeat = maxrepeat;
+    int count = 0, nrepeat = maxrepeat;
     const double mega = 1.0 / (1ul << 20);
     double totalsize = 0, maxval = 0, runlns = 0;
 #if defined(_OPENMP)
@@ -125,8 +125,8 @@ int main(int argc, char* argv[])
 #else
     const double duration = 0;
 #endif
-    for (size_t size = minsize; size <= maxsize; size <<= 1, ++n) {
-      if (0 < n && 0 == (n % stride)) {
+    for (size_t size = minsize; size <= maxsize; size <<= 1, ++count) {
+      if (0 < count && 0 == (count % stride)) {
         nrepeat >>= 1;
       }
 
@@ -162,7 +162,7 @@ int main(int argc, char* argv[])
         const double isize = mega * size * nrepeat, bandwidth = isize / iduration;
         fprintf(stdout, "%.1f MB/s\n", bandwidth);
         maxval = std::max(maxval, bandwidth);
-        runlns = (runlns + std::log(bandwidth)) * (0 < n ? 0.5 : 1.0);
+        runlns = (runlns + std::log(bandwidth)) * (0 < count ? 0.5 : 1.0);
         totalsize += isize;
       }
 #endif
