@@ -17,6 +17,7 @@ IFLAGS = -I$(INCDIR)
 OFFLOAD ?= 1
 STATIC ?= 1
 OMP ?= 0
+SYM ?= 0
 DBG ?= 0
 IPO ?= 0
 
@@ -24,22 +25,37 @@ OUTNAME = $(shell basename $(ROOTDIR))
 HEADERS = $(shell ls -1 $(INCDIR)/*.h   2> /dev/null | tr "\n" " ") \
           $(shell ls -1 $(SRCDIR)/*.hpp 2> /dev/null | tr "\n" " ") \
           $(shell ls -1 $(SRCDIR)/*.hxx 2> /dev/null | tr "\n" " ") \
-          $(shell ls -1 $(SRCDIR)/*.hh 2>  /dev/null | tr "\n" " ")
+          $(shell ls -1 $(SRCDIR)/*.hh  2> /dev/null | tr "\n" " ")
 CPPSRCS = $(shell ls -1 $(SRCDIR)/*.cpp 2> /dev/null | tr "\n" " ")
 CXXSRCS = $(shell ls -1 $(SRCDIR)/*.cxx 2> /dev/null | tr "\n" " ")
 CCXSRCS = $(shell ls -1 $(SRCDIR)/*.cc  2> /dev/null | tr "\n" " ")
 CSOURCS = $(shell ls -1 $(SRCDIR)/*.c   2> /dev/null | tr "\n" " ")
-SOURCES = $(CPPSRCS) $(CXXSRCS) $(CCXSRCS) $(CSOURCS)
+FTNSRCS = $(shell ls -1 $(SRCDIR)/*.f   2> /dev/null | tr "\n" " ")
+F77SRCS = $(shell ls -1 $(SRCDIR)/*.F   2> /dev/null | tr "\n" " ")
+F90SRCS = $(shell ls -1 $(SRCDIR)/*.f90 2> /dev/null | tr "\n" " ")
+FTNINCS = $(shell ls -1 $(DEPDIR)/include/*.f   2> /dev/null | tr "\n" " ")
+F77INCS = $(shell ls -1 $(DEPDIR)/include/*.F   2> /dev/null | tr "\n" " ")
+F90INCS = $(shell ls -1 $(DEPDIR)/include/*.f90 2> /dev/null | tr "\n" " ")
+FTNMODS = $(patsubst %,$(BLDDIR)/%,$(notdir $(FTNINCS:.f=-mod.o)))
+F77MODS = $(patsubst %,$(BLDDIR)/%,$(notdir $(F77INCS:.F=-mod77.o)))
+F90MODS = $(patsubst %,$(BLDDIR)/%,$(notdir $(F90INCS:.f90=-mod90.o)))
+MODULES = $(FTNMODS) $(F77MODS) $(F90MODS)
+SOURCES = $(CPPSRCS) $(CXXSRCS) $(CCXSRCS) $(CSOURCS) $(FTNSRCS) $(F77SRCS) $(F90SRCS)
 CPPOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CPPSRCS:.cpp=-cpp.o)))
 CXXOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CXXSRCS:.cxx=-cxx.o)))
 CCXOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CCXSRCS:.cc=-cc.o)))
 COBJCTS = $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
-OBJECTS = $(CPPOBJS) $(CXXOBJS) $(CCXOBJS) $(COBJCTS)
+FTNOBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(FTNSRCS:.f=-f.o)))
+F77OBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(F77SRCS:.F=-f77.o)))
+F90OBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(F90SRCS:.f90=-f90.o)))
+OBJECTS = $(CPPOBJS) $(CXXOBJS) $(CCXOBJS) $(COBJCTS) $(FTNOBJS) $(F77OBJS) $(F90OBJS)
 
-ICPC = $(notdir $(shell which icpc 2> /dev/null))
-ICC = $(notdir $(shell which icc 2> /dev/null))
-GPP = $(notdir $(shell which g++ 2> /dev/null))
-GCC = $(notdir $(shell which gcc 2> /dev/null))
+ICPC    = $(notdir $(shell which icpc     2> /dev/null))
+ICC     = $(notdir $(shell which icc      2> /dev/null))
+IFORT   = $(notdir $(shell which ifort    2> /dev/null))
+GPP     = $(notdir $(shell which g++      2> /dev/null))
+GCC     = $(notdir $(shell which gcc      2> /dev/null))
+GFC     = $(notdir $(shell which gfortran 2> /dev/null))
 
 ifneq (,$(ICPC))
 	CXX = $(ICPC)
@@ -59,104 +75,140 @@ ifneq (,$(ICC))
 else
 	CC = $(GCC)
 endif
+ifneq (,$(IFORT))
+	FC = $(IFORT)
+	AR = xiar
+else
+	FC = $(GFC)
+endif
 ifneq ($(CXX),)
 	LD = $(CXX)
 endif
 ifeq ($(LD),)
 	LD = $(CC)
 endif
+ifeq ($(LD),)
+	LD = $(FC)
+endif
 
-ifneq (,$(filter icpc icc,$(CXX) $(CC)))
+ifneq (,$(filter icpc icc ifort,$(CXX) $(CC) $(FC)))
 	CXXFLAGS += -fPIC -Wall -std=c++0x
 	CFLAGS += -fPIC -Wall -std=c99
+	FCFLAGS += -fPIC
+	LDFLAGS += -fPIC
 	ifeq (0,$(DBG))
 		CXXFLAGS += -fno-alias -ansi-alias -O2
 		CFLAGS += -fno-alias -ansi-alias -O2
+		FCMTFLAGS += -threads
+		FCFLAGS += -O2
 		DFLAGS += -DNDEBUG
 		ifneq ($(IPO),0)
 			CXXFLAGS += -ipo
 			CFLAGS += -ipo
+			FCFLAGS += -ipo
 		endif
 		ifeq ($(AVX),1)
-			CXXFLAGS += -xAVX
-			CFLAGS += -xAVX
+			TARGET = -xAVX
 		else ifeq ($(AVX),2)
-			CXXFLAGS += -xCORE-AVX2
-			CFLAGS += -xCORE-AVX2
+			TARGET = -xCORE-AVX2
 		else ifeq ($(AVX),3)
-			CXXFLAGS += -xCOMMON-AVX512
-			CFLAGS += -xCOMMON-AVX512
+			TARGET = -xCOMMON-AVX512
 		else
-			CXXFLAGS += -xHost
-			CFLAGS += -xHost
+			TARGET = -xHost
 		endif
-	else ifneq (1,$(DBG))
-		CXXFLAGS += -O0 -g3 -gdwarf-2 -debug inline-debug-info
-		CFLAGS += -O0 -g3 -gdwarf-2 -debug inline-debug-info
 	else
-		CXXFLAGS += -O0 -g
-		CFLAGS += -O0 -g
+		CXXFLAGS += -O0
+		CFLAGS += -O0
+		FCFLAGS += -O0
+		SYM = $(DBG)
+	endif
+	ifneq (0,$(SYM))
+		ifneq (1,$(SYM))
+			CXXFLAGS := -g3 -gdwarf-2 -debug inline-debug-info $(CXXFLAGS)
+			CFLAGS := -g3 -gdwarf-2 -debug inline-debug-info $(CFLAGS)
+			FCFLAGS := -g $(FCFLAGS)
+		else
+			CXXFLAGS := -g $(CXXFLAGS)
+			CFLAGS := -g $(CFLAGS)
+			FCFLAGS := -g $(FCFLAGS)
+		endif
 	endif
 	ifneq ($(OMP),0)
 		CXXFLAGS += -openmp
 		CFLAGS += -openmp
+		FCFLAGS += -openmp
 		LDFLAGS += -openmp
 	endif
 	ifeq (0,$(OFFLOAD))
 		CXXFLAGS += -no-offload
 		CFLAGS += -no-offload
-	else
-		#CXXFLAGS += -offload-option,mic,compiler,"-O2 -opt-assume-safe-padding"
-		#CFLAGS += -offload-option,mic,compiler,"-O2 -opt-assume-safe-padding"
+		FCFLAGS += -no-offload
 	endif
-	LDFLAGS += -fPIC
 	ifneq ($(STATIC),0)
-		ifneq ($(STATIC),)
-			LDFLAGS += -no-intel-extensions -static-intel
-		endif
+		SLDFLAGS += -no-intel-extensions -static-intel
 	endif
+	FCMODDIRFLAG = -module
 else # GCC assumed
+	VERSION = $(shell $(GCC) --version | grep "gcc (GCC)" | sed "s/gcc (GCC) \([0-9]\+\.[0-9]\+\.[0-9]\+\).*$$/\1/")
+	VERSION_MAJOR = $(shell echo "$(VERSION)" | cut -d"." -f1)
+	VERSION_MINOR = $(shell echo "$(VERSION)" | cut -d"." -f2)
+	VERSION_PATCH = $(shell echo "$(VERSION)" | cut -d"." -f3)
+	MIC = 0
 	CXXFLAGS += -Wall -std=c++0x
 	CFLAGS += -Wall
+	ifneq ($(OS),Windows_NT)
+		CXXFLAGS += -fPIC
+		CFLAGS += -fPIC
+		FCFLAGS += -fPIC
+		LDFLAGS += -fPIC
+	endif
 	ifeq (0,$(DBG))
-		CXXFLAGS += -O2
-		CFLAGS += -O2
+		CXXFLAGS += -O2 -ftree-vectorize -ffast-math -funroll-loops
+		CFLAGS += -O2 -ftree-vectorize -ffast-math -funroll-loops
+		FCFLAGS += -O2 -ftree-vectorize -ffast-math -funroll-loops
 		DFLAGS += -DNDEBUG
-		ifeq ($(AVX),1)
-			CXXFLAGS += -mavx
-			CFLAGS += -mavx
-		else ifeq ($(AVX),2)
-			CXXFLAGS += -mavx2
-			CFLAGS += -mavx2
-		else ifeq ($(AVX),3)
-			CXXFLAGS += -mavx512f
-			CFLAGS += -mavx512f
-		else
-			CXXFLAGS += -march=native
-			CFLAGS += -march=native
+		ifneq ($(IPO),0)
+			CXXFLAGS += -flto -ffat-lto-objects
+			CFLAGS += -flto -ffat-lto-objects
+			FCFLAGS += -flto -ffat-lto-objects
+			LDFLAGS += -flto
 		endif
-	else ifneq (1,$(DBG))
-		CXXFLAGS += -O0 -g3 -gdwarf-2
-		CFLAGS += -O0 -g3 -gdwarf-2
+		ifeq ($(AVX),1)
+			TARGET = -mavx
+		else ifeq ($(AVX),2)
+			TARGET = -mavx2
+		else ifeq ($(AVX),3)
+			TARGET = -mavx512f
+		else
+			TARGET = -march=native
+		endif
 	else
-		CXXFLAGS += -O0 -g
-		CFLAGS += -O0 -g
+		CXXFLAGS += -O0
+		CFLAGS += -O0
+		FCFLAGS += -O0
+		SYM = $(DBG)
+	endif
+	ifneq (0,$(SYM))
+		ifneq (1,$(SYM))
+			CXXFLAGS := -g3 -gdwarf-2 -debug inline-debug-info $(CXXFLAGS)
+			CFLAGS := -g3 -gdwarf-2 -debug inline-debug-info $(CFLAGS)
+			FCFLAGS := -g $(FCFLAGS)
+		else
+			CXXFLAGS := -g $(CXXFLAGS)
+			CFLAGS := -g $(CFLAGS)
+			FCFLAGS := -g $(FCFLAGS)
+		endif
 	endif
 	ifneq ($(OMP),0)
 		CXXFLAGS += -fopenmp
 		CFLAGS += -fopenmp
+		FCFLAGS += -fopenmp
 		LDFLAGS += -fopenmp
 	endif
-	ifneq ($(OS),Windows_NT)
-		CXXFLAGS += -fPIC
-		CFLAGS += -fPIC
-		LDFLAGS += -fPIC
-	endif
 	ifneq ($(STATIC),0)
-		ifneq ($(STATIC),)
-			LDFLAGS += -static
-		endif
+		SLDFLAGS += -static
 	endif
+	FCMODDIRFLAG = -J
 endif
 
 ifeq (,$(CXXFLAGS))
@@ -164,6 +216,12 @@ ifeq (,$(CXXFLAGS))
 endif
 ifeq (,$(CFLAGS))
 	CFLAGS = $(CXXFLAGS)
+endif
+ifeq (,$(FCFLAGS))
+	FCFLAGS = $(CFLAGS)
+endif
+ifeq (,$(LDFLAGS))
+	LDFLAGS = $(CFLAGS)
 endif
 
 ifneq ($(STATIC),0)
@@ -178,20 +236,44 @@ parent = $(subst ?, ,$(firstword $(subst /, ,$(subst $(NULL) ,?,$(patsubst ./%,%
 all: $(OUTDIR)/$(OUTNAME).$(LIBEXT)
 
 $(OUTDIR)/$(OUTNAME).$(LIBEXT): $(OBJECTS)
-	@mkdir -p $(OUTDIR)
+	@mkdir -p $(dir $@)
 ifeq ($(STATIC),0)
 	$(LD) -shared -o $@ $(LDFLAGS) $^
 else
 	$(AR) -rs $@ $^
 endif
 
-$(BLDDIR)/%-c.o: $(SRCDIR)/%.c $(HEADERS) $(ROOTDIR)/Makefile
-	@mkdir -p $(BLDDIR)
-	$(CC) $(CFLAGS) $(DFLAGS) $(IFLAGS) -c $< -o $@
+$(BLDDIR)/%-mod.o: $(DEPDIR)/include/%.f $(ROOTDIR)/Makefile
+	@mkdir -p $(dir $@)
+	$(FC) $(FCFLAGS) $(FCMTFLAGS) $(DFLAGS) $(IFLAGS) $(TARGET) -c $< -o $@ $(FCMODDIRFLAG) $(dir $@)
+
+$(BLDDIR)/%-mod90.o: $(DEPDIR)/include/%.f90 $(ROOTDIR)/Makefile
+	@mkdir -p $(dir $@)
+	$(FC) $(FCFLAGS) $(FCMTFLAGS) $(DFLAGS) $(IFLAGS) $(TARGET) -c $< -o $@ $(FCMODDIRFLAG) $(dir $@)
+
+$(BLDDIR)/%-mod77.o: $(DEPDIR)/include/%.F $(ROOTDIR)/Makefile
+	@mkdir -p $(dir $@)
+	$(FC) $(FCFLAGS) $(FCMTFLAGS) $(DFLAGS) $(IFLAGS) $(TARGET) -c $< -o $@ $(FCMODDIRFLAG) $(dir $@)
 
 $(BLDDIR)/%-cpp.o: $(SRCDIR)/%.cpp $(HEADERS) $(ROOTDIR)/Makefile
-	@mkdir -p $(BLDDIR)
-	$(CXX) $(CXXFLAGS) $(DFLAGS) $(IFLAGS) -c $< -o $@
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(DFLAGS) $(IFLAGS) $(TARGET) -c $< -o $@
+
+$(BLDDIR)/%-c.o: $(SRCDIR)/%.c $(HEADERS) $(ROOTDIR)/Makefile
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(DFLAGS) $(IFLAGS) $(TARGET) -c $< -o $@
+
+$(BLDDIR)/%-f.o: $(SRCDIR)/%.f $(MODULES) $(ROOTDIR)/Makefile
+	@mkdir -p $(dir $@)
+	$(FC) $(FCFLAGS) $(FCMTFLAGS) $(DFLAGS) $(IFLAGS) $(TARGET) -c $< -o $@
+
+$(BLDDIR)/%-f90.o: $(SRCDIR)/%.f90 $(MODULES) $(ROOTDIR)/Makefile
+	@mkdir -p $(dir $@)
+	$(FC) $(FCFLAGS) $(FCMTFLAGS) $(DFLAGS) $(IFLAGS) $(TARGET) -c $< -o $@
+
+$(BLDDIR)/%-f77.o: $(SRCDIR)/%.F $(MODULES) $(ROOTDIR)/Makefile
+	@mkdir -p $(dir $@)
+	$(FC) $(FCFLAGS) $(FCMTFLAGS) $(DFLAGS) $(IFLAGS) $(TARGET) -c $< -o $@
 
 .PHONY: clean
 clean:
@@ -199,10 +281,10 @@ ifneq ($(abspath $(call parent,$(BLDDIR))),$(ROOTDIR))
 ifneq ($(abspath $(call parent,$(BLDDIR))),$(abspath .))
 	@rm -rf $(call parent,$(BLDDIR))
 else
-	@rm -f $(OBJECTS)
+	@rm -f $(OBJECTS) $(BLDDIR)/*.mod
 endif
 else
-	@rm -f $(OBJECTS)
+	@rm -f $(OBJECTS) $(BLDDIR)/*.mod
 endif
 
 .PHONY: realclean
