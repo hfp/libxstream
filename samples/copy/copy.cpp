@@ -118,7 +118,12 @@ int main(int argc, char* argv[])
     LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
     int n = 0, nrepeat = maxrepeat;
-    double maxval = 0, sumval = 0, runlns = 0, duration = 0;
+    double maxval = 0, sumval = 0, runlns = 0;
+#if defined(_OPENMP)
+    double duration = -omp_get_wtime();
+#else
+    const double duration = 0;
+#endif
     for (size_t size = minsize; size <= maxsize; size <<= 1, ++n) {
       if (0 < n && 0 == (n % stride)) {
         nrepeat >>= 1;
@@ -127,7 +132,7 @@ int main(int argc, char* argv[])
 #if defined(_OPENMP)
       fprintf(stdout, "%lu Byte x %i: ", static_cast<unsigned long>(size), nrepeat);
       fflush(stdout); // make sure to show progress
-      const double start = omp_get_wtime();
+      double iduration = -omp_get_wtime();
 #     pragma omp parallel for num_threads(nthreads) schedule(dynamic)
 #endif
       for (int i = 0; i < nrepeat; ++i) {
@@ -151,17 +156,19 @@ int main(int argc, char* argv[])
       }
 
 #if defined(_OPENMP)
-      const double iduration = omp_get_wtime() - start;
+      iduration += omp_get_wtime();
       if (0 < iduration) {
         const double bandwidth = (1.0 * size * nrepeat) / ((1ul << 20) * iduration);
         fprintf(stdout, "%.1f MB/s\n", bandwidth);
         maxval = std::max(maxval, bandwidth);
         sumval += bandwidth;
         runlns = (runlns + std::log(bandwidth)) * (0 < n ? 0.5 : 1.0);
-        duration += iduration;
       }
 #endif
     }
+#if defined(_OPENMP)
+    duration += omp_get_wtime();
+#endif
 
     if (copyin) {
       LIBXSTREAM_CHECK_CALL_THROW(libxstream_mem_deallocate(-1/*host*/, copy[0].mem_hst));
