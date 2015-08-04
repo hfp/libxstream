@@ -726,10 +726,17 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 LIBXSTREAM_EXPORT_C int libxstream_mem_info(const void* memory, void** mapped, size_t* size, int* device)
 {
   libxstream_internal::mem_info_type* mem_info = 0;
-  int result = libxstream_alloc_info(memory, size, reinterpret_cast<void**>(&mem_info));
+  size_t mem_info_size = 0;
+  const int result = libxstream_alloc_info(memory, &mem_info_size, reinterpret_cast<void**>(&mem_info));
+
   if (LIBXSTREAM_ERROR_NONE == result) {
     LIBXSTREAM_ASSERT(0 != mem_info);
+    LIBXSTREAM_PRINT(2, "mem_info: buffer=0x%llx mapped=0x%llx size=%lu device=%i",
+      reinterpret_cast<unsigned long long>(memory),
+      reinterpret_cast<unsigned long long>(mem_info->pointer),
+      static_cast<unsigned long>(mem_info_size), mem_info->device);
     if (0 != mapped) *mapped = mem_info->pointer;
+    if (0 != size) *size = mem_info_size;
     if (0 != device) *device = mem_info->device;
   }
 
