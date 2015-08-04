@@ -148,7 +148,7 @@ int main(int argc, char* argv[])
       }
 
 #if !defined(COPY_NO_SYNC)
-      for (size_t j = 0; j < nrepeat; ++j) { // synchronize streams
+      for (int j = 0; j < nrepeat; ++j) { // synchronize streams
         const size_t k = j % nstreams;
         LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(copy[k].stream));
       }
