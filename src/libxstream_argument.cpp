@@ -50,7 +50,7 @@ int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream
   libxstream_argument& argument = arguments[arg];
 
 #if defined(LIBXSTREAM_INTERNAL_DEBUG)
-  memset(argument.data.self, 0, sizeof(libxstream_argument)); // avoid false pos. with mem. analysis
+  memset(&argument, 0, sizeof(libxstream_argument)); // avoid false pos. with mem. analysis
 #endif
 #if defined(LIBXSTREAM_INTERNAL_TRACE)
   static const char *const context[] = { "", "input", "output", "inout" };
@@ -105,11 +105,12 @@ LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(con
   const void* data = 0;
 
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) {
+    const char *const src = reinterpret_cast<const char*>(&arg.data);
     char *const dst = reinterpret_cast<char*>(&data);
-    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = arg.data.self[i];
+    for (size_t i = 0; i < sizeof(void*); ++i) dst[i] = src[i];
   }
   else { // by-value
-    data = arg.data.self; // pointer to data
+    data = &arg.data; // pointer to data
   }
 
   libxstream_argument::value_union value;
@@ -130,16 +131,17 @@ LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const 
       LIBXSTREAM_CHECK_CALL(libxstream_get_typesize(arg.type, &typesize));
     }
 
+    char *const dst = reinterpret_cast<char*>(&arg.data);
     if (data) {
       const char *const src = static_cast<const char*>(data);
-      for (size_t i = 0; i < typesize; ++i) arg.data.self[i] = src[i];
+      for (size_t i = 0; i < typesize; ++i) dst[i] = src[i];
     }
     else {
-      for (size_t i = 0; i < typesize; ++i) arg.data.self[i] = 0;
+      for (size_t i = 0; i < typesize; ++i) dst[i] = 0;
     }
 
     // allows to promote smaller types to pointer-size
-    for (size_t i = typesize; i < sizeof(void*); ++i) arg.data.self[i] = 0;
+    for (size_t i = typesize; i < sizeof(void*); ++i) dst[i] = 0;
   }
 
   return LIBXSTREAM_ERROR_NONE;
