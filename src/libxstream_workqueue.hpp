@@ -50,6 +50,7 @@ public:
     bool valid() const { return reinterpret_cast<libxstream_workitem*>(-1) != m_item; }
     const libxstream_workqueue* queue() const { return m_queue; }
     const libxstream_workitem* dangling() const { return m_dangling; }
+    const libxstream_workitem* item() const { return m_item; }
     int status() const { return m_status; }
     int& status() { return m_status; }
     void push(libxstream_workitem& workitem);

@@ -157,14 +157,16 @@ libxstream_workqueue::libxstream_workqueue()
 
 libxstream_workqueue::~libxstream_workqueue()
 {
+#if defined(LIBXSTREAM_INTERNAL_TRACE)
   size_t pending = 0;
+#endif
   for (size_t i = 0; i < LIBXSTREAM_MAX_QSIZE; ++i) {
-    pending += 0 == m_buffer[i].pending() ? 0 : 1;
+#if defined(LIBXSTREAM_INTERNAL_TRACE)
+    pending += 0 == m_buffer[i].item() ? 0 : 1;
+#endif
     delete m_buffer[i].dangling();
   }
-  if (0 < pending) {
-    LIBXSTREAM_PRINT(1, "%lu work item%s pending!", static_cast<unsigned long>(pending), 1 < pending ? "s are" : " is");
-  }
+  LIBXSTREAM_PRINT(0 < pending ? 1 : 0, "%lu work item%s pending!", static_cast<unsigned long>(pending), 1 < pending ? "s are" : " is");
 
 #if defined(LIBXSTREAM_STDFEATURES)
   delete static_cast<std::atomic<size_t>*>(m_position);
