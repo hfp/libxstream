@@ -265,7 +265,7 @@ test_type::~test_type()
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_mem_deallocate(device, m_dev_mem2));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_stream_destroy(m_stream));
   LIBXSTREAM_CHECK_CALL_RETURN(libxstream_event_destroy(m_event));
-  fprintf(stdout, "TST successfully completed.\n");
+  fprintf(stdout, "Test successfully completed.\n");
 }
 
 
