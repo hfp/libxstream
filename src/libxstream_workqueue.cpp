@@ -40,7 +40,7 @@
 #endif
 #include <libxstream_end.h>
 
-#define LIBXSTREAM_WORKQUEUE_ENTRY_CHECK_TEARDOWN
+//#define LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN
 
 
 void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
@@ -57,7 +57,7 @@ void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
 
 const libxstream_workitem* libxstream_workqueue::entry_type::pending() const
 {
-#if defined(LIBXSTREAM_WORKQUEUE_ENTRY_CHECK_TEARDOWN)
+#if defined(LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN)
   const libxstream_workitem *const item = valid() ? m_item : 0;
   const libxstream_stream* stream = 0;
   return (0 != item && (0 == (stream = item->stream()) || stream->valid())) ? item : 0;
@@ -119,7 +119,7 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
   }
 
   if (LIBXSTREAM_NOT_AWORKITEM != m_status) {
-#if defined(LIBXSTREAM_WORKQUEUE_ENTRY_CHECK_TEARDOWN)
+#if defined(LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN)
     const libxstream_stream *const stream = (LIBXSTREAM_ERROR_NONE != m_status && 0 != item) ? item->stream() : 0;
     if (0 == stream || stream->valid())
 #endif
