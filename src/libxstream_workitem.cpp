@@ -124,7 +124,7 @@ public:
   entry_type* front() {
     entry_type* result = m_global_queue.front();
 
-    if (0 == result || 0 == result->item()) { // no item in global queue
+    if (0 == result || 0 == result->pending()) { // no item in global queue
       libxstream_stream *const stream = libxstream_stream::schedule(m_stream);
       result = stream ? stream->work() : 0;
       m_stream = stream;
@@ -157,7 +157,7 @@ private:
       scheduler_type::entry_type* entry = s.front();
       size_t cycle = 0;
 
-      while (0 == entry || 0 == entry->item()) {
+      while (0 == entry || 0 == entry->pending()) {
         this_thread_wait(cycle);
         entry = s.front();
       }
@@ -262,7 +262,7 @@ libxstream_workitem* libxstream_workitem::clone() const
 
 void libxstream_workitem::operator()(libxstream_workqueue::entry_type& entry)
 {
-  LIBXSTREAM_ASSERT(this == entry.item());
+  LIBXSTREAM_ASSERT(this == entry.pending());
   virtual_run(entry);
 }
 

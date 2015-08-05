@@ -963,19 +963,16 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* strea
 {
 #if defined(LIBXSTREAM_INTERNAL_TRACE)
   if (stream) {
-# if defined(LIBXSTREAM_INTERNAL_DEBUG)
     const char *const name = stream->name();
     if (name && *name) {
       LIBXSTREAM_PRINT(2, "stream_destroy: stream=0x%llx (%s)", reinterpret_cast<unsigned long long>(stream), name);
     }
-    else
-# endif
-    {
+    else {
       LIBXSTREAM_PRINT(2, "stream_destroy: stream=0x%llx", reinterpret_cast<unsigned long long>(stream));
     }
-  }
 #endif
-  delete stream;
+    delete stream;
+  }
   return LIBXSTREAM_ERROR_NONE;
 }
 

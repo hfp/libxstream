@@ -66,7 +66,8 @@ public:
   ~libxstream_stream();
 
 public:
-  int priority() const  { return m_priority; }
+  bool valid() const { return 0 != *m_registered; }
+  int priority() const { return m_priority; }
 
   const libxstream_workqueue::entry_type* work() const { return m_queue.front(); }
   libxstream_workqueue::entry_type* work() { return m_queue.front(); }
@@ -85,7 +86,7 @@ public:
 
   const char* name() const {
 #if defined(LIBXSTREAM_INTERNAL_TRACE)
-    return *m_name ? m_name : 0;
+    return m_name;
 #else
     return 0;
 #endif
@@ -99,6 +100,7 @@ private:
 #if defined(LIBXSTREAM_INTERNAL_TRACE)
   char m_name[128];
 #endif
+  libxstream_stream* volatile* m_registered;
   libxstream_workqueue m_queue;
   libxstream_signal m_pending;
   int m_device;

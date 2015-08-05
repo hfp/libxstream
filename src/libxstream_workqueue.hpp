@@ -50,11 +50,10 @@ public:
     bool valid() const { return reinterpret_cast<libxstream_workitem*>(-1) != m_item; }
     const libxstream_workqueue* queue() const { return m_queue; }
     const libxstream_workitem* dangling() const { return m_dangling; }
-    const libxstream_workitem* item() const { return m_item; }
-    libxstream_workitem* item() { return m_item; }
     int status() const { return m_status; }
     int& status() { return m_status; }
     void push(libxstream_workitem& workitem);
+    const libxstream_workitem* pending() const;
     /**
      * Wait until the workitem has been executed i.e., regardless of the thread owning the stream (any thread).
      * Otherwise the wait period is omitted if the current thread is still the same since enqueuing the item.
