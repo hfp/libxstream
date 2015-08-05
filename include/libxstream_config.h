@@ -130,8 +130,8 @@
 /** Allows client-side to sleep when waiting. */
 #define LIBXSTREAM_SLEEP_CLIENT
 
-/** Prefers OpenMP based locking primitives. */
-/*#define LIBXSTREAM_PREFER_OPENMP*/
+/** Prefers C++11 primitives. */
+#define LIBXSTREAM_PREFER_CPP11
 
 #endif /*LIBXSTREAM_CONFIG_EXTERNAL*/
 #endif /*LIBXSTREAM_CONFIG_H*/
