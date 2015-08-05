@@ -40,7 +40,7 @@
 #endif
 #include <libxstream_end.h>
 
-//#define LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN
+#define LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN
 
 
 void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
