@@ -119,7 +119,7 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
   }
 
   if (LIBXSTREAM_NOT_AWORKITEM != m_status) {
-#if defined(LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN)
+#if defined(LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN) && 0
     const libxstream_stream *const stream = (LIBXSTREAM_ERROR_NONE != m_status && 0 != item) ? item->stream() : 0;
     if (0 == stream || stream->valid())
 #endif
