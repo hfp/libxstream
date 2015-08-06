@@ -302,7 +302,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_nonconst(int value);
 #   define LIBXSTREAM_CHECK_CALL_THROW(EXPRESSION) if (LIBXSTREAM_ERROR_NONE != (EXPRESSION)) throw std::runtime_error(LIBXSTREAM_TOSTRING(EXPRESSION) " at " __FILE__ ":" LIBXSTREAM_TOSTRING(__LINE__))
 #   define LIBXSTREAM_CHECK_CONDITION_THROW(CONDITION) if (!(CONDITION)) throw std::runtime_error(LIBXSTREAM_TOSTRING(CONDITION) " at " __FILE__ ":" LIBXSTREAM_TOSTRING(__LINE__))
 # else
-#   define LIBXSTREAM_CHECK_CALL_THROW(EXPRESSION) do { int result = (EXPRESSION); if (LIBXSTREAM_ERROR_NONE != result) abort(result); } while(libxstream_nonconst(LIBXSTREAM_FALSE))
+#   define LIBXSTREAM_CHECK_CALL_THROW(EXPRESSION) do { int libxstream_result_ = (EXPRESSION); if (LIBXSTREAM_ERROR_NONE != libxstream_result_) abort(libxstream_result_); } while(libxstream_nonconst(LIBXSTREAM_FALSE))
 #   define LIBXSTREAM_CHECK_CONDITION_THROW(CONDITION) if (!(CONDITION)) abort(1)
 # endif
 # if defined(_OPENMP)
@@ -312,7 +312,7 @@ LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_nonconst(int value);
 #     define LIBXSTREAM_CHECK_CALL(EXPRESSION) (EXPRESSION)
 #   endif
 # else
-#   define LIBXSTREAM_CHECK_CALL(EXPRESSION) do { int result = (EXPRESSION); if (LIBXSTREAM_ERROR_NONE != result) return result; } while(libxstream_nonconst(LIBXSTREAM_FALSE))
+#   define LIBXSTREAM_CHECK_CALL(EXPRESSION) do { int libxstream_result_ = (EXPRESSION); if (LIBXSTREAM_ERROR_NONE != libxstream_result_) return libxstream_result_; } while(libxstream_nonconst(LIBXSTREAM_FALSE))
 # endif
 #elif defined(LIBXSTREAM_INTERNAL_DEBUG)
 # define LIBXSTREAM_CHECK_ERROR(RETURN_VALUE) LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == (RETURN_VALUE))

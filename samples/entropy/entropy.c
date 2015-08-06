@@ -152,47 +152,49 @@ int main(int argc, char* argv[])
     LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(0));
   }
 
-  /*process data in chunks of size nbatch*/
-  const size_t nstep = nbatch * nstreams;
-  const int end = (int)((nitems + nstep - 1) / nstep);
-  int i;
-  libxstream_type sizetype = LIBXSTREAM_TYPE_U32;
-  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(size_t), sizetype, &sizetype));
 #if defined(_OPENMP)
   /*if (0 == ndevices) omp_set_nested(1);*/
-  const double start = omp_get_wtime();
+  double duration = -omp_get_wtime();
 #endif
-  for (i = 0; i < end; ++i) {
-    const size_t ibase = i * nstep, n = LIBXSTREAM_MIN(nstreams, nitems - ibase);
-    libxstream_argument* signature;
-    size_t j;
+  { /*process data in chunks of size nbatch*/
+    const size_t nstep = nbatch * nstreams;
+    const int end = (int)((nitems + nstep - 1) / nstep);
+    int i;
+    libxstream_type sizetype = LIBXSTREAM_TYPE_U32;
+    LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(size_t), sizetype, &sizetype));
 
-    for (j = 0; j < n; ++j) { /*enqueue work into streams*/
-      const size_t base = ibase + j * nbatch, size = base < nitems ? LIBXSTREAM_MIN(nbatch, nitems - base) : 0;
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(data + base, stream[j].data, size, stream[j].handle));
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_signature(&signature));
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(signature, 0, stream[j].data, LIBXSTREAM_TYPE_CHAR, 1, &size));
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_output(signature, 1, stream[j].histogram, sizetype, 1, &hsize));
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_call((libxstream_function)makehist, signature, stream[j].handle, LIBXSTREAM_CALL_DEFAULT));
+    for (i = 0; i < end; ++i) {
+      const size_t ibase = i * nstep, n = LIBXSTREAM_MIN(nstreams, nitems - ibase);
+      libxstream_argument* signature;
+      size_t j;
+
+      for (j = 0; j < n; ++j) { /*enqueue work into streams*/
+        const size_t base = ibase + j * nbatch, size = base < nitems ? LIBXSTREAM_MIN(nbatch, nitems - base) : 0;
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_memcpy_h2d(data + base, stream[j].data, size, stream[j].handle));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_signature(&signature));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_input(signature, 0, stream[j].data, LIBXSTREAM_TYPE_CHAR, 1, &size));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_output(signature, 1, stream[j].histogram, sizetype, 1, &hsize));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_fn_call((libxstream_function)makehist, signature, stream[j].handle, LIBXSTREAM_CALL_DEFAULT));
 #if defined(SYNCMETHOD) && (2 <= SYNCMETHOD) /*record event*/
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(stream[j].event, stream[j].handle));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_record(stream[j].event, stream[j].handle));
 #endif
-    }
+      }
 
 #if defined(SYNCMETHOD)
-    for (j = 0; j < n; ++j) { /*synchronize streams*/
-      const size_t k = n - j - 1; /*j-reverse*/
+      for (j = 0; j < n; ++j) { /*synchronize streams*/
+        const size_t k = n - j - 1; /*j-reverse*/
 # if (3 <= (SYNCMETHOD))
-      /*wait for an event within a stream*/
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(stream[k].handle, stream[(j+nstreams-1)%n].event));
+        /*wait for an event within a stream*/
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(stream[k].handle, stream[(j+nstreams-1)%n].event));
 # elif (2 <= (SYNCMETHOD))
-      /*wait for an event on the host*/
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(stream[k].event));
+        /*wait for an event on the host*/
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(stream[k].event));
 # else
-      LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(stream[k].handle));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(stream[k].handle));
 # endif
-    }
+      }
 #endif
+    }
   }
 
   { /*reduce stream-local histograms*/
@@ -206,8 +208,9 @@ int main(int argc, char* argv[])
   }
 
 #if defined(_OPENMP)
-  const double duration = omp_get_wtime() - start;
+  duration += omp_get_wtime();
 #endif
+
   const double kilo = 1.0 / (1 << 10), mega = 1.0 / (1 << 20);
   double entropy = 0;
   { /*calculate entropy*/

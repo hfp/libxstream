@@ -76,8 +76,8 @@ static/*IPO*/ struct config_type {
 #endif
   }
   static config_type& instance() {
-    static config_type config;
-    return config;
+    static config_type singleton;
+    return singleton;
   }
 } &config = config_type::instance();
 
