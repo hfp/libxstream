@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="debug|Win32">
       <Configuration>debug</Configuration>
@@ -35,7 +35,6 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectName>multi-dgemm</ProjectName>
-    <VCTargetsPath Condition="'$(VCTargetsPath11)' != '' and '$(VSVersion)' == '' and $(VisualStudioVersion) == ''">$(VCTargetsPath11)</VCTargetsPath>
     <ProjectGuid>{C9CE8936-0601-4200-895B-9DD3B3296DE1}</ProjectGuid>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -44,7 +43,7 @@
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
     <UseIntelMKL>Parallel</UseIntelMKL>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -53,7 +52,7 @@
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
     <UseIntelMKL>Parallel</UseIntelMKL>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='symbols|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -62,14 +61,14 @@
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
     <UseIntelMKL>Parallel</UseIntelMKL>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
     <UseIntelMKL>Parallel</UseIntelMKL>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='release|x64'" Label="Configuration">
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -78,7 +77,7 @@
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
     <UseIntelMKL>Parallel</UseIntelMKL>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='symbols|x64'" Label="Configuration">
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -88,7 +87,7 @@
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
     <InstrumentIntelTBB>true</InstrumentIntelTBB>
     <UseIntelMKL>Parallel</UseIntelMKL>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -180,7 +179,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <SubSystem>Console</SubSystem>
-      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\ia32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\ia32;$(MKLROOT)\lib\ia32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>libxstream.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ProjectReference />
@@ -223,7 +222,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <SubSystem>Console</SubSystem>
-      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\ia32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\ia32;$(MKLROOT)\lib\ia32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>libxstream-$(Configuration).lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
@@ -268,8 +267,8 @@
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <SubSystem>Console</SubSystem>
-      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\intel64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>libxstream.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\intel64;$(MKLROOT)\lib\intel64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libxstream.lib;mkl_rt.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <MICOptions>-mkl</MICOptions>
     </Link>
     <ProjectReference />
@@ -314,8 +313,8 @@
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <SubSystem>Console</SubSystem>
-      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\intel64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>libxstream-$(Configuration).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\intel64;$(MKLROOT)\lib\intel64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libxstream-$(Configuration).lib;mkl_rt.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <MICOptions>-mkl</MICOptions>
     </Link>
@@ -349,7 +348,7 @@
       <LargeAddressAware>true</LargeAddressAware>
       <DetectOneDefinitionRule>true</DetectOneDefinitionRule>
       <SubSystem>Console</SubSystem>
-      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\ia32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\ia32;$(MKLROOT)\lib\ia32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>libxstream-$(Configuration).lib;%(AdditionalDependencies)</AdditionalDependencies>
       <IgnoreSpecificDefaultLibraries>MSVCRT</IgnoreSpecificDefaultLibraries>
     </Link>
@@ -385,8 +384,8 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <DetectOneDefinitionRule>true</DetectOneDefinitionRule>
       <SubSystem>Console</SubSystem>
-      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\intel64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>libxstream-$(Configuration).lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(LIBXSTREAM_ROOT)\lib\intel64;$(MKLROOT)\lib\intel64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libxstream-$(Configuration).lib;mkl_rt.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <IgnoreSpecificDefaultLibraries>MSVCRT</IgnoreSpecificDefaultLibraries>
       <MICOptions>-mkl</MICOptions>
     </Link>

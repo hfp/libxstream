@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="debug|Win32">
       <Configuration>debug</Configuration>
@@ -55,7 +55,6 @@
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectName>libxstream</ProjectName>
-    <VCTargetsPath Condition="'$(VCTargetsPath11)' != '' and '$(VSVersion)' == '' and $(VisualStudioVersion) == ''">$(VCTargetsPath11)</VCTargetsPath>
     <ProjectGuid>{3A6B8214-52C3-4600-9C82-5FBA21660100}</ProjectGuid>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -63,7 +62,7 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
@@ -71,7 +70,7 @@
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='symbols|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
@@ -79,13 +78,13 @@
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='release|x64'" Label="Configuration">
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -93,7 +92,7 @@
     <InterproceduralOptimization>true</InterproceduralOptimization>
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='symbols|x64'" Label="Configuration">
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -102,7 +101,7 @@
     <ProfileGuidedOptimization>Disabled</ProfileGuidedOptimization>
     <CodeCoverageOperations>Disabled</CodeCoverageOperations>
     <InstrumentIntelTBB>true</InstrumentIntelTBB>
-    <PlatformToolset>v120</PlatformToolset>
+    <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
