@@ -199,8 +199,8 @@ private:
 
 
 libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, size_t argc, const arg_type argv[], const char* name)
-  : m_function(0)
-  , m_stream(0 != stream ? &stream->registered() : 0)
+  : m_stream(0 != stream ? &stream->registered() : 0)
+  , m_function(0)
   , m_event(0)
   , m_thread(this_thread_id())
   , m_flags(flags)

@@ -67,8 +67,8 @@ public:
   ~libxstream_stream();
 
 public:
-  const libxstream_stream*& registered() const;
-  libxstream_stream*& registered();
+  const libxstream_stream*volatile& registered() const;
+  libxstream_stream*volatile& registered();
 
   int priority() const { return m_priority; }
 
@@ -104,7 +104,7 @@ private:
   char m_name[128];
 #endif
 #if defined(LIBXSTREAM_STREAM_CACHED_REGCHECK)
-  libxstream_stream** m_registered;
+  libxstream_stream*volatile* m_registered;
 #endif
   libxstream_workqueue m_queue;
   libxstream_signal m_pending;

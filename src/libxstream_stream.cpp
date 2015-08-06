@@ -114,12 +114,12 @@ public:
     return result;
   }
 
-  libxstream_stream*& allocate() {
+  libxstream_stream*volatile& allocate() {
 #if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock *const lock = libxstream_lock_get(this);
     libxstream_lock_acquire(lock);
 #endif
-    libxstream_stream** i = m_streams + LIBXSTREAM_MOD2(m_nstreams++, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
+    libxstream_stream*volatile* i = m_streams + LIBXSTREAM_MOD2(m_nstreams++, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
     while (0 != *i) i = m_streams + LIBXSTREAM_MOD2(m_nstreams++, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
 #if !defined(LIBXSTREAM_STDFEATURES)
     libxstream_lock_release(lock);
@@ -127,9 +127,9 @@ public:
     return *i;
   }
 
-  libxstream_stream*& find(const libxstream_stream* stream) {
-    libxstream_stream* *const end = m_streams + std::min<size_t>(m_nstreams, (LIBXSTREAM_MAX_NDEVICES)* (LIBXSTREAM_MAX_NSTREAMS));
-    libxstream_stream* *const result = std::find(m_streams, end, stream);
+  libxstream_stream*volatile& find(const libxstream_stream* stream) {
+    libxstream_stream*volatile *const end = m_streams + std::min<size_t>(m_nstreams, (LIBXSTREAM_MAX_NDEVICES)* (LIBXSTREAM_MAX_NSTREAMS));
+    libxstream_stream*volatile *const result = std::find(m_streams, end, stream);
     LIBXSTREAM_ASSERT(result != end);
     return *result;
   }
@@ -324,7 +324,7 @@ public:
   }
 
 private:
-  libxstream_stream* m_streams[(LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS)];
+  libxstream_stream*volatile m_streams[(LIBXSTREAM_MAX_NDEVICES)*(LIBXSTREAM_MAX_NSTREAMS)];
 #if defined(LIBXSTREAM_STDFEATURES) && defined(LIBXSTREAM_STREAM_SIGNAL_THREADSAFE)
   std::atomic<libxstream_signal> m_signals[(LIBXSTREAM_MAX_NDEVICES)+1];
 #else
@@ -460,7 +460,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
   libxstream_sink(name);
 #endif
 
-  libxstream_stream*& entry = libxstream_stream_internal::registry.allocate();
+  libxstream_stream*volatile& entry = libxstream_stream_internal::registry.allocate();
 #if defined(LIBXSTREAM_STREAM_CACHED_REGCHECK)
   m_registered = &entry;
 #endif
@@ -483,21 +483,21 @@ libxstream_stream::~libxstream_stream()
 }
 
 
-const libxstream_stream*& libxstream_stream::registered() const
+const libxstream_stream*volatile& libxstream_stream::registered() const
 {
-  libxstream_stream** result = 0;
+  libxstream_stream*volatile* result = 0;
 #if defined(LIBXSTREAM_STREAM_CACHED_REGCHECK)
   result = m_registered;
 #else
   result = &libxstream_stream_internal::registry.find(this);
 #endif
-  return *const_cast<const libxstream_stream**>(result);
+  return *const_cast<const libxstream_stream*volatile*>(result);
 }
 
 
-libxstream_stream*& libxstream_stream::registered()
+libxstream_stream*volatile& libxstream_stream::registered()
 {
-  libxstream_stream** result = 0;
+  libxstream_stream*volatile* result = 0;
 #if defined(LIBXSTREAM_STREAM_CACHED_REGCHECK)
   result = m_registered;
 #else

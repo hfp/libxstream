@@ -205,9 +205,9 @@ public:
     return *reinterpret_cast<T**>(&m_signature[i]);
   }
 
-  libxstream_stream** stream() { return m_stream; }
-  const libxstream_stream** stream() const {
-    return const_cast<const libxstream_stream**>(m_stream);
+  libxstream_stream*volatile* stream() { return m_stream; }
+  const libxstream_stream*volatile* stream() const {
+    return const_cast<const libxstream_stream*volatile*>(m_stream);
   }
 
   int thread() const { return m_thread; }
@@ -229,9 +229,9 @@ private:
   virtual void virtual_run(libxstream_workqueue::entry_type& entry) = 0;
 
 protected:
+  libxstream_stream*volatile* m_stream;
   libxstream_argument m_signature[(LIBXSTREAM_MAX_NARGS)+1];
   libxstream_function m_function;
-  libxstream_stream** m_stream;
 
 private:
   const libxstream_event* m_event;

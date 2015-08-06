@@ -57,7 +57,7 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
 {
   int result = LIBXSTREAM_ERROR_NONE;
   const libxstream_workitem *const item = valid() ? m_item : 0;
-  const libxstream_stream* *const stream = 0 != item ? item->stream() : 0;
+  const libxstream_stream*volatile *const stream = 0 != item ? item->stream() : 0;
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
   size_t cycle = 0;
 #endif
