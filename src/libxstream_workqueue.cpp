@@ -40,8 +40,6 @@
 #endif
 #include <libxstream_end.h>
 
-#define LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN
-
 
 void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
 {
@@ -55,29 +53,18 @@ void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
 }
 
 
-const libxstream_workitem* libxstream_workqueue::entry_type::pending() const
-{
-#if defined(LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN)
-  const libxstream_workitem *const item = valid() ? m_item : 0;
-  const libxstream_stream* stream = 0;
-  return (0 != item && (0 == (stream = item->stream()) || stream->valid())) ? item : 0;
-#else
-  return m_item;
-#endif
-}
-
-
 int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
 {
   int result = LIBXSTREAM_ERROR_NONE;
   const libxstream_workitem *const item = valid() ? m_item : 0;
+  const libxstream_stream* *const stream = 0 != item ? item->stream() : 0;
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
   size_t cycle = 0;
 #endif
 
   if (any_status) {
     if (any || !valid()) {
-      while (0 != pending()) {
+      while ((0 == stream || 0 != *stream) && 0 != m_item) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
         this_thread_wait(cycle);
 #else
@@ -93,12 +80,12 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
         this_thread_yield();
 #endif
       }
-      while (0 != pending());
+      while ((0 == stream || 0 != *stream) && 0 != m_item);
     }
   }
   else {
     if (any || !valid()) {
-      while (0 != pending() || LIBXSTREAM_ERROR_NONE != m_status) {
+      while ((0 == stream || 0 != *stream) && (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status)) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
         this_thread_wait(cycle);
 #else
@@ -114,18 +101,12 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
         this_thread_yield();
 #endif
       }
-      while (0 != pending() || LIBXSTREAM_ERROR_NONE != m_status);
+      while ((0 == stream || 0 != *stream) && (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status));
     }
   }
 
-  if (LIBXSTREAM_NOT_AWORKITEM != m_status) {
-#if defined(LIBXSTREAM_WORKQUEUE_CHECK_TEARDOWN) && 0
-    const libxstream_stream *const stream = (LIBXSTREAM_ERROR_NONE != m_status && 0 != item) ? item->stream() : 0;
-    if (0 == stream || stream->valid())
-#endif
-    {
-      result = m_status;
-    }
+  if ((0 == stream || 0 != *stream) && LIBXSTREAM_NOT_AWORKITEM != m_status) {
+    result = m_status;
   }
 
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
@@ -207,12 +188,12 @@ libxstream_workqueue::entry_type& libxstream_workqueue::allocate_entry_mt()
 #endif
   LIBXSTREAM_ASSERT(0 != result && result->queue() == this);
 
-  if (0 != result->pending()) {
+  if (0 != result->item()) {
     LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
     do { // stall if capacity is exceeded
       this_thread_sleep();
     }
-    while (0 != result->pending());
+    while (0 != result->item());
   }
 
   return *result;
@@ -230,12 +211,12 @@ libxstream_workqueue::entry_type& libxstream_workqueue::allocate_entry()
 #endif
   LIBXSTREAM_ASSERT(0 != result && result->queue() == this);
 
-  if (0 != result->pending()) {
+  if (0 != result->item()) {
     LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
     do { // stall if capacity is exceeded
       this_thread_sleep();
     }
-    while (0 != result->pending());
+    while (0 != result->item());
   }
 
   return *result;

@@ -191,7 +191,7 @@ int libxstream_event::query(bool& occurred, const libxstream_stream* exclude) co
     for (size_t i = 0; i < expected; ++i) {
       const slot_type slot = m_slots[i];
       const libxstream_workitem* item = 0;
-      if (0 != slot && ((0 != (item = slot->pending()) && exclude != item->stream()) || LIBXSTREAM_ERROR_NONE != slot->status())) {
+      if (0 != slot && ((0 != (item = slot->item()) && exclude != (0 != item->stream() ? *item->stream() : 0)) || LIBXSTREAM_ERROR_NONE != slot->status())) {
         occurred = false;
         i = expected; // break
       }
@@ -217,8 +217,8 @@ int libxstream_event::wait(const libxstream_stream* exclude, bool any)
   if (0 != m_slots && 0 < expected) {
     for (size_t i = 0; i < expected; ++i) {
       const slot_type slot = m_slots[i];
-      const libxstream_workitem *const item = slot ? slot->pending() : 0;
-      if (0 != item && exclude != item->stream()) {
+      const libxstream_workitem *const item = slot ? slot->item() : 0;
+      if (0 != item && exclude != (0 != item->stream() ? *item->stream() : 0)) {
         result = slot->wait(any, false);
         LIBXSTREAM_CHECK_ERROR(result);
         m_slots[i] = 0;

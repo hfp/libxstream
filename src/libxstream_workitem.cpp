@@ -124,7 +124,7 @@ public:
   entry_type* front() {
     entry_type* result = m_global_queue.front();
 
-    if (0 == result || 0 == result->pending()) { // no item in global queue
+    if (0 == result || 0 == result->item()) { // no item in global queue
       libxstream_stream *const stream = libxstream_stream::schedule(m_stream);
       result = stream ? stream->work() : 0;
       m_stream = stream;
@@ -141,12 +141,12 @@ public:
 
 private:
 #if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
-  static void* run(void* scheduler)
+  static void* run(void* pscheduler)
 #else
-  static DWORD WINAPI run(_In_ LPVOID scheduler)
+  static DWORD WINAPI run(_In_ LPVOID pscheduler)
 #endif
   {
-    scheduler_type& s = *static_cast<scheduler_type*>(scheduler);
+    scheduler_type& s = *static_cast<scheduler_type*>(pscheduler);
     bool continue_run = true;
 
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
@@ -157,7 +157,7 @@ private:
       scheduler_type::entry_type* entry = s.front();
       size_t cycle = 0;
 
-      while (0 == entry || 0 == entry->pending()) {
+      while (0 == entry || 0 == entry->item()) {
         this_thread_wait(cycle);
         entry = s.front();
       }
@@ -176,7 +176,7 @@ private:
     }
 
 #if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
-    return scheduler;
+    return pscheduler;
 #else
     return EXIT_SUCCESS;
 #endif
@@ -200,10 +200,10 @@ private:
 
 libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, size_t argc, const arg_type argv[], const char* name)
   : m_function(0)
-  , m_stream(stream)
+  , m_stream(0 != stream ? &stream->registered() : 0)
+  , m_event(0)
   , m_thread(this_thread_id())
   , m_flags(flags)
-  , m_event(0)
 #if defined(LIBXSTREAM_INTERNAL_DEBUG)
   , m_name(name)
 #endif
@@ -262,7 +262,7 @@ libxstream_workitem* libxstream_workitem::clone() const
 
 void libxstream_workitem::operator()(libxstream_workqueue::entry_type& entry)
 {
-  LIBXSTREAM_ASSERT(this == entry.pending());
+  LIBXSTREAM_ASSERT(this == entry.item());
   virtual_run(entry);
 }
 

@@ -44,7 +44,7 @@
 #define LIBXSTREAM_OFFLOAD_DATA(ARG, IS_SCALAR) inout(ARG: length(((IS_SCALAR)*sizeof(libxstream_argument::data_union))) alloc_if(IS_SCALAR) free_if(IS_SCALAR))
 
 #define LIBXSTREAM_ASYNC_PENDING workitem_pending_generated
-#define LIBXSTREAM_ASYNC_STREAM m_stream
+#define LIBXSTREAM_ASYNC_STREAM (0 != m_stream ? *m_stream : 0)
 #define LIBXSTREAM_ASYNC_DEVICE workitem_device
 #define LIBXSTREAM_ASYNC_QENTRY workitem_qentry
 #define LIBXSTREAM_ASYNC_INTERNAL(NAME) LIBXSTREAM_CONCATENATE(NAME,_internal)
@@ -138,7 +138,7 @@
     sizeof(LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,argv))) / sizeof(*LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,argv))) - 1, \
     LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,argv)) + 1, __FUNCTION__); \
   libxstream_workqueue::entry_type& LIBXSTREAM_ASYNC_INTERNAL(NAME) = LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item)).stream() \
-    ? LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item)).stream()->enqueue(LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item))) \
+    ? (*LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item)).stream())->enqueue(LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item))) \
     : libxstream_enqueue(&LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item))); \
   const libxstream_workqueue::entry_type& NAME = LIBXSTREAM_ASYNC_INTERNAL(NAME); \
   libxstream_sink(&NAME)
@@ -205,12 +205,14 @@ public:
     return *reinterpret_cast<T**>(&m_signature[i]);
   }
 
-  const libxstream_stream* stream() const { return m_stream; }
-  libxstream_stream* stream() { return m_stream; }
+  libxstream_stream** stream() { return m_stream; }
+  const libxstream_stream** stream() const {
+    return const_cast<const libxstream_stream**>(m_stream);
+  }
 
   int thread() const { return m_thread; }
   int device() const {
-    return (m_stream && 0 == (LIBXSTREAM_CALL_DEVICE & m_flags)) ? libxstream_stream::device(m_stream) : val<int,0>();
+    return 0 == (LIBXSTREAM_CALL_DEVICE & m_flags) ? libxstream_stream::device(LIBXSTREAM_ASYNC_STREAM) : val<int,0>();
   }
 
   void flags(int value) { m_flags = value; }
@@ -229,11 +231,11 @@ private:
 protected:
   libxstream_argument m_signature[(LIBXSTREAM_MAX_NARGS)+1];
   libxstream_function m_function;
-  libxstream_stream* m_stream;
+  libxstream_stream** m_stream;
 
 private:
-  int m_thread, m_flags;
   const libxstream_event* m_event;
+  int m_thread, m_flags;
 #if defined(LIBXSTREAM_INTERNAL_DEBUG)
   const char* m_name;
 #endif
