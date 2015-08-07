@@ -677,7 +677,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
     LIBXSTREAM_CHECK_ERROR(result);
 #endif
     // synchronize across all devices not just the given device
-    libxstream_stream::wait_all(true);
+    libxstream_stream::wait_all(false);
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= device) {

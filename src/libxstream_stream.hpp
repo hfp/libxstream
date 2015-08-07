@@ -59,8 +59,8 @@ public:
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
 
-  static int wait_all(int device, bool any);
-  static int wait_all(bool any);
+  static int wait_all(int device, bool any, const libxstream_stream* exclude = 0);
+  static int wait_all(bool any, const libxstream_stream* exclude = 0);
 
 public:
   libxstream_stream(int device, int priority, const char* name);
