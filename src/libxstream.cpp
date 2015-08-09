@@ -552,19 +552,17 @@ LIBXSTREAM_EXPORT_C int libxstream_get_meminfo(int device, size_t* allocatable, 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
 #     pragma offload target(mic:LIBXSTREAM_ASYNC_DEVICE) //out(memory_physical, memory_allocatable)
-      {
-        libxstream_internal::get_meminfo(memory_physical, memory_allocatable);
-        LIBXSTREAM_PRINT(2, "get_meminfo: device=%i allocatable=%lu physical=%lu", LIBXSTREAM_ASYNC_DEVICE,
-          static_cast<unsigned long>(memory_allocatable), static_cast<unsigned long>(memory_physical));
-      }
+      libxstream_internal::get_meminfo(memory_physical, memory_allocatable);
     }
     else
 #endif
     {
       libxstream_internal::get_meminfo(memory_physical, memory_allocatable);
-      LIBXSTREAM_PRINT(2, "get_meminfo: device=%i allocatable=%lu physical=%lu", LIBXSTREAM_ASYNC_DEVICE,
-        static_cast<unsigned long>(memory_allocatable), static_cast<unsigned long>(memory_physical));
     }
+
+    LIBXSTREAM_PRINT(2, "get_meminfo: device=%i allocatable=%llu physical=%llu", LIBXSTREAM_ASYNC_DEVICE,
+      static_cast<long long unsigned int>(memory_allocatable),
+      static_cast<long long unsigned int>(memory_physical));
   }
   LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE | LIBXSTREAM_CALL_WAIT, work, device, &memory_physical, &memory_allocatable);
 
