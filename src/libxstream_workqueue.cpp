@@ -154,7 +154,7 @@ libxstream_workqueue::~libxstream_workqueue()
 #endif
     delete m_buffer[i].dangling();
   }
-  LIBXSTREAM_PRINT(0 < pending ? 1 : 0, "%lu work item%s pending!", static_cast<unsigned long>(pending), 1 < pending ? "s are" : " is");
+  LIBXSTREAM_PRINT(0 < pending ? 1 : 0, "there %s %lu work item%s pending!", 1 < pending ? "are" : "is", static_cast<unsigned long>(pending), 1 < pending ? "s" : "");
 
 #if defined(LIBXSTREAM_STDFEATURES)
   delete static_cast<std::atomic<size_t>*>(m_position);
