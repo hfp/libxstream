@@ -154,7 +154,7 @@ libxstream_workqueue::~libxstream_workqueue()
 #endif
     delete m_buffer[i].dangling();
   }
-  LIBXSTREAM_PRINT(0 < pending ? 1 : 0, "there %s %lu work item%s pending!", 1 < pending ? "are" : "is", static_cast<unsigned long>(pending), 1 < pending ? "s" : "");
+  LIBXSTREAM_PRINT(0 < pending ? 1 : 0, "workqueue: %lu work item%s pending!", static_cast<unsigned long>(pending), 1 < pending ? "s" : "");
 
 #if defined(LIBXSTREAM_STDFEATURES)
   delete static_cast<std::atomic<size_t>*>(m_position);
@@ -189,7 +189,7 @@ libxstream_workqueue::entry_type& libxstream_workqueue::allocate_entry_mt()
   LIBXSTREAM_ASSERT(0 != result && result->queue() == this);
 
   if (0 != result->item()) {
-    LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
+    LIBXSTREAM_PRINT0(1, "workqueue: queuing work is stalled!");
     do { // stall if capacity is exceeded
       this_thread_sleep();
     }
@@ -212,7 +212,7 @@ libxstream_workqueue::entry_type& libxstream_workqueue::allocate_entry()
   LIBXSTREAM_ASSERT(0 != result && result->queue() == this);
 
   if (0 != result->item()) {
-    LIBXSTREAM_PRINT0(1, "queuing work is stalled!");
+    LIBXSTREAM_PRINT0(1, "workqueue: queuing work is stalled!");
     do { // stall if capacity is exceeded
       this_thread_sleep();
     }

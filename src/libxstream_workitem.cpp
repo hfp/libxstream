@@ -71,6 +71,7 @@ public:
 
   ~scheduler_type() {
     if (running()) {
+      LIBXSTREAM_PRINT0(2, "scheduler: terminating...");
       m_terminated = true;
 
       // terminates the background thread
@@ -162,6 +163,7 @@ private:
         entry = s.front();
       }
 
+      //if (entry->valid() && (0 == entry->item()->stream() || 0 != *entry->item()->stream())) {
       if (entry->valid()) {
         entry->execute();
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
