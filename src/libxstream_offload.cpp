@@ -122,12 +122,15 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
       size_t np = 0;
       LIBXSTREAM_PRAGMA_LOOP_COUNT(0, LIBXSTREAM_MAX_NARGS, LIBXSTREAM_MAX_NARGS/2)
       for (size_t i = 0; i < arity; ++i) {
+        char *const pointer = static_cast<char*>(libxstream_get_value(m_signature[i]).pointer);
         if (0 != m_signature[i].dims) {
-          p[np] = static_cast<char*>(libxstream_get_value(m_signature[i]).pointer);
-          ++np;
+          if (0 != pointer) {
+            p[np] = pointer;
+            ++np;
+          }
         }
         else if (0 != (libxstream_argument::kind_output & m_signature[i].kind)) {
-          p[np] = static_cast<char*>(libxstream_get_value(m_signature[i]).pointer);
+          p[np] = pointer;
           s |= ((2 << np) >> 1);
           ++np;
         }
