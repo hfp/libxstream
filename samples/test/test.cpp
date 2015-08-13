@@ -73,9 +73,9 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool& result, LIBXSTREAM_INVAL(char
   result = ok ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 }
 
-LIBXSTREAM_TARGET(mic) void pass_null_ptr(libxstream_bool& result, float* fnull)
+LIBXSTREAM_TARGET(mic) void pass_null_ptr(libxstream_bool& result, const double* in, LIBXSTREAM_INVAL(int) scalar, const float* fnull, const int* i)
 {
-  result = 0 == fnull ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
+  result = (0 != in && 0 != scalar && 0 == fnull && 0 != i) ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 }
 
 LIBXSTREAM_TARGET(mic) void complex_c(libxstream_bool* ok,
@@ -208,9 +208,16 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   //const libxstream_function pass_null_ptr = reinterpret_cast<libxstream_function>(test_internal::pass_null_ptr);
+  const size_t one = 1;
+  const int myint = 42;
+  libxstream_type inttype = LIBXSTREAM_TYPE_I32;
+  LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(myint), inttype, &inttype));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_clear_signature(signature));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(signature, 0, &ok,  libxstream_map_to<libxstream_bool>::type(), 0, 0));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 1, NULL, LIBXSTREAM_TYPE_VOID, 1, 0)); // implcitly weak
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(signature, 0,        &ok, LIBXSTREAM_TYPE_BOOL, 0,     0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 1, m_host_mem, LIBXSTREAM_TYPE_F64,  1, &size));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 2,     &myint,             inttype,  0,     0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 3,       NULL, LIBXSTREAM_TYPE_F32,  1,     0)); // weak
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 4,     &myint,             inttype,  1,  &one));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(pass_null_ptr, signature, m_stream, LIBXSTREAM_CALL_WAIT));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
