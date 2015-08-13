@@ -73,6 +73,11 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool& result, LIBXSTREAM_INVAL(char
   result = ok ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 }
 
+LIBXSTREAM_TARGET(mic) void pass_null_ptr(libxstream_bool& result, float* fnull)
+{
+  result = 0 == fnull ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
+}
+
 LIBXSTREAM_TARGET(mic) void complex_c(libxstream_bool* ok,
   const float* c32, LIBXSTREAM_INVAL(float) freal, LIBXSTREAM_INVAL(float) fimag,
   const double* c64, LIBXSTREAM_INVAL(double) dreal, LIBXSTREAM_INVAL(double) dimag)
@@ -102,6 +107,7 @@ LIBXSTREAM_TARGET(mic) void complex_cpp(libxstream_bool& ok,
 
 /* workaround for issue "cannot find address of function"; compile using "make.sh -g" */
 const libxstream_function check = reinterpret_cast<libxstream_function>(test_internal::check);
+const libxstream_function pass_null_ptr = reinterpret_cast<libxstream_function>(test_internal::pass_null_ptr);
 const libxstream_function complex_c = reinterpret_cast<libxstream_function>(test_internal::complex_c);
 const libxstream_function complex_cpp = reinterpret_cast<libxstream_function>(test_internal::complex_cpp);
 
@@ -199,6 +205,13 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_create(&m_event));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_record(m_event, m_stream));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_event_wait(m_event));
+  LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
+
+  //const libxstream_function pass_null_ptr = reinterpret_cast<libxstream_function>(test_internal::pass_null_ptr);
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_clear_signature(signature));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(signature, 0, &ok,  libxstream_map_to<libxstream_bool>::type(), 0, 0));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 1, NULL, LIBXSTREAM_TYPE_VOID, 1, 0)); // implcitly weak
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(pass_null_ptr, signature, m_stream, LIBXSTREAM_CALL_WAIT));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
   const std::complex<float>  c32( 1.05f, 19.81f);
