@@ -42,8 +42,8 @@
 #define LIBXSTREAM_OFFLOAD_REUSE alloc_if(0) free_if(0)
 #define LIBXSTREAM_OFFLOAD_REFRESH length(0) LIBXSTREAM_OFFLOAD_REUSE
 #define LIBXSTREAM_OFFLOAD_DATA(ARG, IS_SCALAR) inout(ARG: \
-  length(0!=(IS_SCALAR)?sizeof(libxstream_argument::data_union):(0!=(ARG)?0:sizeof(void*))) \
-  alloc_if(0!=(IS_SCALAR)?1:(0!=(ARG)?0:1)) free_if(0!=(IS_SCALAR)?1:(0!=(ARG)?0:1)))
+  length(0!=(IS_SCALAR)?sizeof(libxstream_argument::data_union):0) \
+  alloc_if(0!=(IS_SCALAR)?1:0) free_if(0!=(IS_SCALAR)?1:0))
 
 #define LIBXSTREAM_ASYNC_PENDING workitem_pending_generated
 #define LIBXSTREAM_ASYNC_STREAM (0 != m_stream ? *m_stream : 0)

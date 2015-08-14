@@ -53,7 +53,7 @@ LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argume
     size_t np = 0;
     LIBXSTREAM_PRAGMA_LOOP_COUNT(0, LIBXSTREAM_MAX_NARGS, LIBXSTREAM_MAX_NARGS/2)
     for (size_t i = 0; i < arity; ++i) {
-      if (0 != arguments[i].dims || 0 != (libxstream_argument::kind_output & arguments[i].kind)) {
+      if (0 != arguments[i].data.pointer && (0 != arguments[i].dims || 0 != (libxstream_argument::kind_output & arguments[i].kind))) {
 #if defined(__INTEL_COMPILER)
 #       pragma forceinline recursive
 #endif
@@ -122,17 +122,16 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
       size_t np = 0;
       LIBXSTREAM_PRAGMA_LOOP_COUNT(0, LIBXSTREAM_MAX_NARGS, LIBXSTREAM_MAX_NARGS/2)
       for (size_t i = 0; i < arity; ++i) {
-        char *const pointer = static_cast<char*>(libxstream_get_value(m_signature[i]).pointer);
-        if (0 != m_signature[i].dims) {
-          if (0 != pointer) {
+        if (char *const pointer = reinterpret_cast<char*>(m_signature[i].data.pointer)) {
+          if (0 != m_signature[i].dims) {
             p[np] = pointer;
             ++np;
           }
-        }
-        else if (0 != (libxstream_argument::kind_output & m_signature[i].kind)) {
-          p[np] = pointer;
-          s |= ((2 << np) >> 1);
-          ++np;
+          else if (0 != (libxstream_argument::kind_output & m_signature[i].kind)) {
+            p[np] = pointer;
+            s |= ((2 << np) >> 1);
+            ++np;
+          }
         }
       }
 # if defined(LIBXSTREAM_INTERNAL_DEBUG)
