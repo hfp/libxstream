@@ -32,7 +32,6 @@
 #define LIBXSTREAM_WORKITEM_HPP
 
 #include "libxstream_argument.hpp"
-#include "libxstream_stream.hpp"
 #include "libxstream_workqueue.hpp"
 
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
@@ -213,9 +212,7 @@ public:
   }
 
   int thread() const { return m_thread; }
-  int device() const {
-    return 0 == (LIBXSTREAM_CALL_DEVICE & m_flags) ? libxstream_stream::device(LIBXSTREAM_ASYNC_STREAM) : val<int,0>();
-  }
+  int device() const;
 
   void flags(int value) { m_flags = value; }
   int flags() const { return m_flags; }

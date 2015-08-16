@@ -59,7 +59,7 @@ public:
   int query(bool& occurred, const libxstream_stream* exclude = 0) const;
 
   // Wait for the event to happen; optionally exclude events related to a given stream.
-  int wait(const libxstream_stream* exclude, bool any);
+  int wait(const libxstream_stream* exclude = 0);
 
   // Wait for the event to happen using a barrier i.e., waiting within the given stream.
   int wait_stream(libxstream_stream* stream);

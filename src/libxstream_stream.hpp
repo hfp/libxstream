@@ -59,8 +59,8 @@ public:
   static int enqueue(libxstream_event& event, const libxstream_stream* exclude = 0);
   static libxstream_stream* schedule(const libxstream_stream* exclude);
 
-  static int wait_all(int device, bool any, const libxstream_stream* exclude = 0);
-  static int wait_all(bool any, const libxstream_stream* exclude = 0);
+  static int wait_all(int device, const libxstream_stream* exclude = 0);
+  static int wait_all(const libxstream_stream* exclude = 0);
 
 public:
   libxstream_stream(int device, int priority, const char* name);
@@ -77,11 +77,7 @@ public:
 
   libxstream_workqueue::entry_type& enqueue(libxstream_workitem& workitem);
 
-  /**
-   * Wait for any pending work to complete. The any-flag allows to omit waiting
-   * if the thread owning this stream is still the same since enqueuing the item.
-   */
-  int wait(bool any);
+  int wait();
 
 #if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;

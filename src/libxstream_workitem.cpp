@@ -30,6 +30,7 @@
 ******************************************************************************/
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_workitem.hpp"
+#include "libxstream_stream.hpp"
 #include "libxstream_event.hpp"
 #include "libxstream_alloc.hpp"
 
@@ -250,6 +251,12 @@ libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, s
 libxstream_workitem::~libxstream_workitem()
 {
   delete m_event;
+}
+
+
+int libxstream_workitem::device() const
+{
+  return 0 == (LIBXSTREAM_CALL_DEVICE & m_flags) ? libxstream_stream::device(LIBXSTREAM_ASYNC_STREAM) : val<int, 0>();
 }
 
 

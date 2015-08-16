@@ -257,7 +257,7 @@ public:
     return result;
   }
 
-  int wait_all(int device, bool any, const libxstream_stream* exclude) { // TODO: implement waiting for global stream
+  int wait_all(int device, const libxstream_stream* exclude) { // TODO: implement waiting for global stream
     const size_t n = std::min<size_t>(m_nstreams, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
     int result = LIBXSTREAM_ERROR_NONE;
 
@@ -269,8 +269,8 @@ public:
           LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
 #         pragma offload_wait target(mic) stream(0)
         }
-        LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE | (any ? LIBXSTREAM_CALL_WAIT : 0), work, device);
-        result = work.wait(any);
+        LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE | (0 == exclude ? LIBXSTREAM_CALL_WAIT : 0), work, device);
+        result = work.wait(exclude);
       }
       else
 #endif
@@ -284,7 +284,7 @@ public:
             const int stream_device = libxstream_stream::device(stream);
             if (stream_device == device) {
               result = 0 != m_streams[i] // late check
-                ? stream->wait(any)
+                ? stream->wait()
                 : LIBXSTREAM_ERROR_NONE;
             }
           }
@@ -298,7 +298,7 @@ public:
     return result;
   }
 
-  int wait_all(bool any, const libxstream_stream* exclude) { // TODO: implement waiting for global stream
+  int wait_all(const libxstream_stream* exclude) { // TODO: implement waiting for global stream
     const size_t n = std::min<size_t>(m_nstreams, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
     int result = LIBXSTREAM_ERROR_NONE;
 
@@ -319,7 +319,7 @@ public:
       while(i < n);
 
       for (i = 0; i <= (LIBXSTREAM_MAX_NDEVICES) && LIBXSTREAM_ERROR_NONE == result; ++i) {
-        result = devices[i] ? wait_all(static_cast<int>(i) - 1, any, exclude) : LIBXSTREAM_ERROR_NONE;
+        result = devices[i] ? wait_all(static_cast<int>(i) - 1, exclude) : LIBXSTREAM_ERROR_NONE;
       }
     }
 
@@ -423,15 +423,15 @@ private:
 }
 
 
-/*static*/int libxstream_stream::wait_all(int device, bool any, const libxstream_stream* exclude)
+/*static*/int libxstream_stream::wait_all(int device, const libxstream_stream* exclude)
 {
-  return libxstream_stream_internal::registry.wait_all(device, any, exclude);
+  return libxstream_stream_internal::registry.wait_all(device, exclude);
 }
 
 
-/*static*/int libxstream_stream::wait_all(bool any, const libxstream_stream* exclude)
+/*static*/int libxstream_stream::wait_all(const libxstream_stream* exclude)
 {
-  return libxstream_stream_internal::registry.wait_all(any, exclude);
+  return libxstream_stream_internal::registry.wait_all(exclude);
 }
 
 
@@ -474,7 +474,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 
 libxstream_stream::~libxstream_stream()
 {
-  LIBXSTREAM_CHECK_CALL_ASSERT(wait(true));
+  LIBXSTREAM_CHECK_CALL_ASSERT(wait());
 
   // deregister stream
   registered() = 0;
@@ -520,7 +520,7 @@ libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem
 }
 
 
-int libxstream_stream::wait(bool any)
+int libxstream_stream::wait()
 {
   LIBXSTREAM_ASYNC_BEGIN
   {
@@ -539,9 +539,9 @@ int libxstream_stream::wait(bool any)
     }
 #endif
   }
-  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | (any ? LIBXSTREAM_CALL_WAIT : 0), work);
+  LIBXSTREAM_ASYNC_END(this, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_WAIT, work);
 
-  const int result = work.wait(any);
+  const int result = work.wait();
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
 
   return result;

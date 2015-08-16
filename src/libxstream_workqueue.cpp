@@ -53,7 +53,7 @@ void libxstream_workqueue::entry_type::push(libxstream_workitem& workitem)
 }
 
 
-int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
+int libxstream_workqueue::entry_type::wait(bool any_status) const
 {
   int result = LIBXSTREAM_ERROR_NONE;
   const libxstream_workitem *const item = valid() ? m_item : 0;
@@ -63,45 +63,21 @@ int libxstream_workqueue::entry_type::wait(bool any, bool any_status) const
 #endif
 
   if (any_status) {
-    if (any || !valid()) {
-      while ((0 == stream || 0 != *stream) && 0 != m_item) {
+    while ((0 == stream || 0 != *stream) && 0 != m_item) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
-        this_thread_wait(cycle);
+      this_thread_wait(cycle);
 #else
-        this_thread_yield();
+      this_thread_yield();
 #endif
-      }
-    }
-    else if (0 != item && item->thread() != this_thread_id()) {
-      do {
-#if defined(LIBXSTREAM_SLEEP_CLIENT)
-        this_thread_wait(cycle);
-#else
-        this_thread_yield();
-#endif
-      }
-      while ((0 == stream || 0 != *stream) && 0 != m_item);
     }
   }
   else {
-    if (any || !valid()) {
-      while ((0 == stream || 0 != *stream) && (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status)) {
+    while ((0 == stream || 0 != *stream) && (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status)) {
 #if defined(LIBXSTREAM_SLEEP_CLIENT)
-        this_thread_wait(cycle);
+      this_thread_wait(cycle);
 #else
-        this_thread_yield();
+      this_thread_yield();
 #endif
-      }
-    }
-    else if (0 != item && item->thread() != this_thread_id()) {
-      do {
-#if defined(LIBXSTREAM_SLEEP_CLIENT)
-        this_thread_wait(cycle);
-#else
-        this_thread_yield();
-#endif
-      }
-      while ((0 == stream || 0 != *stream) && (0 != m_item || LIBXSTREAM_ERROR_NONE != m_status));
     }
   }
 

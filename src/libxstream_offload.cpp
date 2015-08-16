@@ -33,6 +33,7 @@
 #include "libxstream_argument.hpp"
 #include "libxstream_workitem.hpp"
 #include "libxstream_context.hpp"
+#include "libxstream_stream.hpp"
 
 #include <libxstream_begin.h>
 #include <algorithm>

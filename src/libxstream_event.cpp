@@ -31,6 +31,7 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream_event.hpp"
 #include "libxstream_workitem.hpp"
+#include "libxstream_stream.hpp"
 
 #include <libxstream_begin.h>
 #if defined(LIBXSTREAM_STDFEATURES)
@@ -203,7 +204,7 @@ int libxstream_event::query(bool& occurred, const libxstream_stream* exclude) co
 }
 
 
-int libxstream_event::wait(const libxstream_stream* exclude, bool any)
+int libxstream_event::wait(const libxstream_stream* exclude)
 {
 #if defined(LIBXSTREAM_STDFEATURES)
   const size_t expected = *static_cast<std::atomic<size_t>*>(m_expected);
@@ -219,7 +220,7 @@ int libxstream_event::wait(const libxstream_stream* exclude, bool any)
       const slot_type slot = m_slots[i];
       const libxstream_workitem *const item = slot ? slot->item() : 0;
       if (0 != item && exclude != (0 != item->stream() ? *item->stream() : 0)) {
-        result = slot->wait(any, false);
+        result = slot->wait(false);
         LIBXSTREAM_CHECK_ERROR(result);
         m_slots[i] = 0;
       }

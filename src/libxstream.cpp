@@ -30,11 +30,12 @@
 ******************************************************************************/
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #include "libxstream.hpp"
-#include "libxstream_alloc.hpp"
 #include "libxstream_workitem.hpp"
 #include "libxstream_context.hpp"
-#include "libxstream_event.hpp"
 #include "libxstream_offload.hpp"
+#include "libxstream_stream.hpp"
+#include "libxstream_event.hpp"
+#include "libxstream_alloc.hpp"
 
 #include <libxstream_begin.h>
 #include <algorithm>
@@ -678,7 +679,7 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
     LIBXSTREAM_CHECK_ERROR(result);
 #endif
     // synchronize across all devices not just the given device
-    libxstream_stream::wait_all(false);
+    libxstream_stream::wait_all();
 
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= device) {
@@ -980,7 +981,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_destroy(const libxstream_stream* strea
 
 LIBXSTREAM_EXPORT_C int libxstream_stream_wait(libxstream_stream* stream)
 {
-  const int result = stream ? stream->wait(true) : libxstream_stream::wait_all(true);
+  const int result = stream ? stream->wait() : libxstream_stream::wait_all();
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }
@@ -1079,7 +1080,7 @@ LIBXSTREAM_EXPORT_C int libxstream_event_wait(libxstream_event* event)
 {
   LIBXSTREAM_PRINT(2, "event_wait: event=0x%llx", reinterpret_cast<unsigned long long>(event));
   LIBXSTREAM_CHECK_CONDITION(event);
-  const int result = event->wait(0, true);
+  const int result = event->wait();
   LIBXSTREAM_ASSERT(LIBXSTREAM_ERROR_NONE == result);
   return result;
 }

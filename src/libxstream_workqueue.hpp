@@ -54,11 +54,7 @@ public:
     int status() const { return m_status; }
     int& status() { return m_status; }
     void push(libxstream_workitem& workitem);
-    /**
-     * Wait until the workitem has been executed i.e., regardless of the thread owning the stream (any thread).
-     * Otherwise the wait period is omitted if the current thread is still the same since enqueuing the item.
-     */
-    int wait(bool any = true, bool any_status = true) const;
+    int wait(bool any_status = true) const;
     void execute();
     void pop();
   private:
