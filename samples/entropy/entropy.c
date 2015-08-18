@@ -182,15 +182,14 @@ int main(int argc, char* argv[])
 
 #if defined(SYNCMETHOD)
       for (j = 0; j < n; ++j) { /*synchronize streams*/
-        const size_t k = n - j - 1; /*j-reverse*/
 # if (3 <= (SYNCMETHOD))
         /*wait for an event within a stream*/
-        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(stream[k].handle, stream[(j+nstreams-1)%n].event));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait_event(stream[j].handle, stream[(j+nstreams-1)%n].event));
 # elif (2 <= (SYNCMETHOD))
         /*wait for an event on the host*/
-        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(stream[k].event));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_event_wait(stream[j].event));
 # else
-        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(stream[k].handle));
+        LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_stream_wait(stream[j].handle));
 # endif
       }
 #endif
