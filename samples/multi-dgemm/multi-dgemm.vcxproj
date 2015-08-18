@@ -36,6 +36,7 @@
   <PropertyGroup Label="Globals">
     <ProjectName>multi-dgemm</ProjectName>
     <ProjectGuid>{C9CE8936-0601-4200-895B-9DD3B3296DE1}</ProjectGuid>
+    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='debug|Win32'" Label="Configuration">
