@@ -91,6 +91,7 @@
 #endif
 /** Enables runtime-sleep. */
 #define LIBXSTREAM_RUNTIME_SLEEP
+#define LIBXSTREAM_IMPLICIT_WAIT
 
 
 namespace libxstream_internal {
@@ -678,11 +679,15 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
       : LIBXSTREAM_ERROR_RUNTIME;
     LIBXSTREAM_CHECK_ERROR(result);
 #endif
-    // synchronize across all devices not just the given device
-    libxstream_stream::wait_all();
-
 #if defined(LIBXSTREAM_OFFLOAD)
     if (0 <= device) {
+#if defined(LIBXSTREAM_IMPLICIT_WAIT)
+      const int flags = LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE | LIBXSTREAM_CALL_WAIT;
+#else
+      const int flags = LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE;
+      // synchronize across all devices not just the given device
+      libxstream_stream::wait_all();
+#endif
       LIBXSTREAM_ASYNC_BEGIN
       {
         const char *const memory = ptr<const char,1>();
@@ -690,12 +695,18 @@ LIBXSTREAM_EXPORT_C int libxstream_mem_deallocate(int device, const void* memory
 #       pragma offload_transfer target(mic:LIBXSTREAM_ASYNC_DEVICE) nocopy(memory: length(0) LIBXSTREAM_OFFLOAD_FREE)
         LIBXSTREAM_ASYNC_QENTRY.status() = libxstream_virt_deallocate(memory);
       }
-      LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE, work, device, memory);
+      LIBXSTREAM_ASYNC_END(0, flags, work, device, memory);
+#if defined(LIBXSTREAM_IMPLICIT_WAIT)
+      result = work.wait();
+#else
       result = work.status();
+#endif
     }
     else
 #endif
     {
+      // synchronize across all devices not just the given device
+      libxstream_stream::wait_all();
 #if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_PINALLOC_LIMIT)
       size_t size = (LIBXSTREAM_PINALLOC_LIMIT) + 1;
       if (0 > (LIBXSTREAM_PINALLOC_LIMIT) || (LIBXSTREAM_ERROR_NONE == (result = libxstream_alloc_info(memory, &size, 0)) &&
