@@ -128,7 +128,7 @@ public:
   }
 
   libxstream_stream*volatile& find(const libxstream_stream* stream) {
-    libxstream_stream*volatile *const end = m_streams + std::min<size_t>(m_nstreams, (LIBXSTREAM_MAX_NDEVICES)* (LIBXSTREAM_MAX_NSTREAMS));
+    libxstream_stream*volatile *const end = m_streams + std::min<size_t>(m_nstreams, (LIBXSTREAM_MAX_NDEVICES) * (LIBXSTREAM_MAX_NSTREAMS));
     libxstream_stream*volatile *const result = std::find(m_streams, end, stream);
     LIBXSTREAM_ASSERT(result != end);
     return *result;
@@ -452,7 +452,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
   LIBXSTREAM_PRINT(m_priority != priority ? 2 : 0, "stream priority %i has been clamped to %i", priority, m_priority);
 
 #if defined(LIBXSTREAM_INTERNAL_TRACE)
-  if (name && 0 != *name) {
+  if (0 != name && 0 != *name) {
     const size_t length = std::min(std::char_traits<char>::length(name), sizeof(m_name) - 1);
     memcpy(m_name, name, length);
     m_name[length] = 0;
