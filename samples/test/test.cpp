@@ -209,15 +209,16 @@ test_type::test_type(int device)
 
   //const libxstream_function pass_null_ptr = reinterpret_cast<libxstream_function>(test_internal::pass_null_ptr);
   const size_t one = 1;
-  const int myint = 42;
+  const int myint = 42, *const myintarray = static_cast<const int*>(m_dev_mem2);
+  LIBXSTREAM_ASSERT(2 * sizeof(myint) <= size); // includes offset (see input #4)
   libxstream_type inttype = LIBXSTREAM_TYPE_I32;
   LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(myint), inttype, &inttype));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_clear_signature(signature));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(signature, 0,        &ok, LIBXSTREAM_TYPE_BOOL, 0,     0));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 1, m_dev_mem2, LIBXSTREAM_TYPE_F64,  1, &size));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 1, m_dev_mem1, LIBXSTREAM_TYPE_F64,  1, &size));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 2,     &myint,             inttype,  0,     0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 3,       NULL, LIBXSTREAM_TYPE_F32,  1,     0)); // weak
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 4,     &myint,             inttype,  1,  &one));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 4, myintarray + 1        , inttype,  1,  &one));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_call(pass_null_ptr, signature, m_stream, LIBXSTREAM_CALL_WAIT));
   LIBXSTREAM_CHECK_CONDITION_THROW(LIBXSTREAM_FALSE != ok);
 
