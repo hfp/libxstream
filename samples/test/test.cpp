@@ -214,7 +214,7 @@ test_type::test_type(int device)
   LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_autotype(sizeof(myint), inttype, &inttype));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_clear_signature(signature));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_output(signature, 0,        &ok, LIBXSTREAM_TYPE_BOOL, 0,     0));
-  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 1, m_host_mem, LIBXSTREAM_TYPE_F64,  1, &size));
+  LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 1, m_dev_mem2, LIBXSTREAM_TYPE_F64,  1, &size));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 2,     &myint,             inttype,  0,     0));
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 3,       NULL, LIBXSTREAM_TYPE_F32,  1,     0)); // weak
   LIBXSTREAM_CHECK_CALL_THROW(libxstream_fn_input (signature, 4,     &myint,             inttype,  1,  &one));
