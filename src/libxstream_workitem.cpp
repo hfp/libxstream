@@ -49,6 +49,8 @@
 #endif
 #include <libxstream_end.h>
 
+#define LIBXSTREAM_WORKITEM_WAIT_TERMINATE
+
 
 namespace libxstream_workitem_internal {
 
@@ -65,17 +67,19 @@ public:
 #else
     , m_thread(0)
 #endif
-    , m_terminated(false)
+    , m_ready(true)
   {
     libxstream_alloc_init();
   }
 
   ~scheduler_type() {
-    if (!terminated() && !startable()) {
+    if (m_ready && !startable()) {
       LIBXSTREAM_PRINT0(2, "scheduler: terminating...");
-      m_terminated = true;
+      m_ready = false;
+#if defined(LIBXSTREAM_WORKITEM_WAIT_TERMINATE)
       // TODO: wait for the background thread to terminate
-
+      while (!m_ready) this_thread_sleep();
+#endif
 #if defined(LIBXSTREAM_STDFEATURES)
       m_thread.detach();
 #else
@@ -89,7 +93,9 @@ public:
   }
 
 public:
-  bool terminated() const { return m_terminated; }
+  void ready(bool value) { m_ready = value; }
+  bool ready() const { return m_ready; }
+
   bool startable() const {
 #if defined(LIBXSTREAM_STDFEATURES)
     return !m_thread.joinable();
@@ -99,11 +105,11 @@ public:
   }
 
   void start() {
-    if (!m_terminated && startable()) {
+    if (m_ready && startable()) {
       libxstream_lock *const lock = libxstream_lock_get(this);
       libxstream_lock_acquire(lock);
 
-      if (!m_terminated && startable()) {
+      if (m_ready && startable()) {
 #if defined(LIBXSTREAM_STDFEATURES)
         std::thread(run, this).swap(m_thread);
 #else
@@ -160,12 +166,12 @@ private:
       scheduler_type::entry_type* entry = s.schedule();
       size_t cycle = 0;
 
-      while ((0 == entry || 0 == entry->item()) && !s.terminated()) {
+      while ((0 == entry || 0 == entry->item()) && s.ready()) {
         this_thread_wait(cycle);
         entry = s.schedule();
       }
 
-      if (!s.terminated()) {
+      if (s.ready()) {
         entry->execute();
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
 #       pragma omp taskwait
@@ -176,6 +182,8 @@ private:
         continue_run = false;
       }
     }
+
+    s.ready(true);
 
 #if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
     return pscheduler;
@@ -194,7 +202,7 @@ private:
 #else
   HANDLE m_thread;
 #endif
-  bool m_terminated;
+  bool m_ready;
 } scheduler;
 
 } // namespace libxstream_workitem_internal
