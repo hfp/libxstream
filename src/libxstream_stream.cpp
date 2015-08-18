@@ -514,7 +514,7 @@ libxstream_stream*volatile& libxstream_stream::registered()
 libxstream_workqueue::entry_type& libxstream_stream::enqueue(libxstream_workitem& workitem)
 {
   LIBXSTREAM_ASSERT(0 != workitem.stream() && this == *workitem.stream());
-  libxstream_workqueue::entry_type& entry = m_queue.allocate_entry_mt();
+  libxstream_workqueue::entry_type& entry = m_queue.allocate_entry();
   entry.push(workitem);
   return entry;
 }

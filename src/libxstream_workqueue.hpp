@@ -43,11 +43,10 @@ class libxstream_workqueue {
 public:
   class entry_type {
   public:
-    entry_type(libxstream_workqueue* queue = 0, libxstream_workitem* item = reinterpret_cast<libxstream_workitem*>(-1))
+    explicit entry_type(libxstream_workqueue* queue = 0, libxstream_workitem* item = 0)
       : m_status(LIBXSTREAM_ERROR_NONE), m_queue(queue), m_dangling(0), m_item(item)
     {}
   public:
-    bool valid() const { return reinterpret_cast<libxstream_workitem*>(-1) != m_item; }
     const libxstream_workqueue* queue() const { return m_queue; }
     const libxstream_workitem* dangling() const { return m_dangling; }
     const libxstream_workitem* item() const { return m_item; }
@@ -69,7 +68,6 @@ public:
   ~libxstream_workqueue();
 
 public:
-  entry_type& allocate_entry_mt();
   entry_type& allocate_entry();
   size_t position() const;
 

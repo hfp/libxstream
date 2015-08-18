@@ -71,15 +71,10 @@ public:
   }
 
   ~scheduler_type() {
-    if (running()) {
+    if (!terminated() && !startable()) {
       LIBXSTREAM_PRINT0(2, "scheduler: terminating...");
       m_terminated = true;
-
-      // terminates the background thread
-      entry_type& entry = m_global_queue.allocate_entry();
-      delete entry.dangling();
-      entry = entry_type(&m_global_queue);
-      entry.wait();
+      // TODO: wait for the background thread to terminate
 
 #if defined(LIBXSTREAM_STDFEATURES)
       m_thread.detach();
@@ -94,20 +89,21 @@ public:
   }
 
 public:
-  bool running() const {
+  bool terminated() const { return m_terminated; }
+  bool startable() const {
 #if defined(LIBXSTREAM_STDFEATURES)
-    return m_thread.joinable() && !m_terminated;
+    return !m_thread.joinable();
 #else
-    return 0 != m_thread && !m_terminated;
+    return 0 != m_thread;
 #endif
   }
 
   void start() {
-    if (!m_terminated && !running()) {
+    if (!m_terminated && startable()) {
       libxstream_lock *const lock = libxstream_lock_get(this);
       libxstream_lock_acquire(lock);
 
-      if (!running()) {
+      if (!m_terminated && startable()) {
 #if defined(LIBXSTREAM_STDFEATURES)
         std::thread(run, this).swap(m_thread);
 #else
@@ -123,20 +119,25 @@ public:
     }
   }
 
-  entry_type* front() {
-    entry_type* result = m_global_queue.front();
+  entry_type* schedule() {
+    entry_type *const global = m_global_queue.front(), *result = 0;
+    const libxstream_workitem* item = 0 != global ? global->item() : 0;
 
-    if (0 == result || 0 == result->item()) { // no item in global queue
+    if (0 != item && 0 != (LIBXSTREAM_CALL_WAIT & item->flags())) {
+      item = 0;
+    }
+
+    if (0 == item) { // check for local items (streams)
       libxstream_stream *const stream = libxstream_stream::schedule(m_stream);
       result = stream ? stream->work() : 0;
       m_stream = stream;
     }
 
-    return result;
+    return (0 != result && result->item()) ? result : global;
   }
 
   entry_type& push(libxstream_workitem& workitem) {
-    entry_type& entry = m_global_queue.allocate_entry_mt();
+    entry_type& entry = m_global_queue.allocate_entry();
     entry.push(workitem);
     return entry;
   }
@@ -156,26 +157,24 @@ private:
 #   pragma omp master
 #endif
     for (; continue_run;) {
-      scheduler_type::entry_type* entry = s.front();
+      scheduler_type::entry_type* entry = s.schedule();
       size_t cycle = 0;
 
-      while (0 == entry || 0 == entry->item()) {
+      while ((0 == entry || 0 == entry->item()) && !s.terminated()) {
         this_thread_wait(cycle);
-        entry = s.front();
+        entry = s.schedule();
       }
 
-      //if (entry->valid() && (0 == entry->item()->stream() || 0 != *entry->item()->stream())) {
-      if (entry->valid()) {
+      if (!s.terminated()) {
         entry->execute();
 #if defined(LIBXSTREAM_ASYNCHOST) && (201307 <= _OPENMP)
 #       pragma omp taskwait
 #endif
+        entry->pop();
       }
       else {
         continue_run = false;
       }
-
-      entry->pop();
     }
 
 #if defined(LIBXSTREAM_STDFEATURES) || defined(__GNUC__)
@@ -280,7 +279,7 @@ libxstream_workqueue::entry_type& libxstream_enqueue(libxstream_workitem* workit
 {
   libxstream_workqueue::entry_type *const result = workitem
     ? &libxstream_workitem_internal::scheduler.push(*workitem)
-    : libxstream_workitem_internal::scheduler.front();
+    : libxstream_workitem_internal::scheduler.schedule();
   LIBXSTREAM_ASSERT(0 != result);
   return *result;
 }
