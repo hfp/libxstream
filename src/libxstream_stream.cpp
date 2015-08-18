@@ -525,6 +525,7 @@ int libxstream_stream::wait()
   LIBXSTREAM_ASYNC_BEGIN
   {
 #if defined(LIBXSTREAM_INTERNAL_TRACE)
+    LIBXSTREAM_ASSERT(0 != LIBXSTREAM_ASYNC_STREAM);
     const char *const name = LIBXSTREAM_ASYNC_STREAM->name();
     if (0 != name && 0 != *name) {
       LIBXSTREAM_PRINT(2, "stream_wait: stream=0x%llx (%s)", reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM), name);
