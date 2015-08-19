@@ -8,6 +8,7 @@ INCDIR = $(ROOTDIR)/include
 SRCDIR = $(ROOTDIR)/src
 BLDDIR = build/$(ARCH)
 OUTDIR = lib/$(ARCH)
+DOCDIR = documentation
 
 CXXFLAGS = $(NULL)
 CFLAGS = $(NULL)
@@ -281,6 +282,63 @@ $(BLDDIR)/%-f90.o: $(SRCDIR)/%.f90 $(MODULES) $(ROOTDIR)/Makefile
 $(BLDDIR)/%-f77.o: $(SRCDIR)/%.F $(MODULES) $(ROOTDIR)/Makefile
 	@mkdir -p $(dir $@)
 	$(FC) $(FCFLAGS) $(FCMTFLAGS) $(DFLAGS) $(IFLAGS) $(TARGET) -c $< -o $@
+
+$(DOCDIR)/libxstream.pdf: $(ROOTDIR)/README.md
+	@mkdir -p $(dir $@)
+	$(eval TEMPLATE := $(shell mktemp --tmpdir=. --suffix=.tex))
+	@pandoc -D latex > $(TEMPLATE)
+	@sed -i \
+		-e 's/\(\\documentclass\[.\+\]{.\+}\)/\1\n\\pagenumbering{gobble}\n\\RedeclareSectionCommands[beforeskip=-1pt,afterskip=1pt]{subsection,subsubsection}/' \
+		-e 's/\\usepackage{listings}/\\usepackage{listings}\\lstset{basicstyle=\\footnotesize\\ttfamily}/' \
+		$(TEMPLATE)
+	@sed \
+		-e 's/https:\/\/raw\.githubusercontent\.com\/hfp\/libxstream\/master\///' \
+		-e 's/\[\[.\+\](.\+)\]//' \
+		-e '/!\[.\+\](.\+)/{n;d}' \
+		$(ROOTDIR)/README.md | \
+	pandoc \
+		--latex-engine=xelatex \
+		--template=$(TEMPLATE) --listings \
+		-f markdown_github+implicit_figures \
+		-V documentclass=scrartcl \
+		-V title-meta="LIBXSTREAM Documentation" \
+		-V author-meta="Hans Pabst" \
+		-V classoption=DIV=45 \
+		-V linkcolor=black \
+		-V citecolor=black \
+		-V urlcolor=black \
+		-o $@
+	@rm $(TEMPLATE)
+
+$(DOCDIR)/cp2k.pdf: $(ROOTDIR)/documentation/cp2k.md
+	@mkdir -p $(dir $@)
+	$(eval TEMPLATE := $(shell mktemp --tmpdir=. --suffix=.tex))
+	@pandoc -D latex > $(TEMPLATE)
+	@sed -i \
+		-e 's/\(\\documentclass\[.\+\]{.\+}\)/\1\n\\pagenumbering{gobble}\n\\RedeclareSectionCommands[beforeskip=-1pt,afterskip=1pt]{subsection,subsubsection}/' \
+		-e 's/\\usepackage{listings}/\\usepackage{listings}\\lstset{basicstyle=\\footnotesize\\ttfamily}/' \
+		$(TEMPLATE)
+	@sed \
+		-e 's/https:\/\/raw\.githubusercontent\.com\/hfp\/libxstream\/master\///' \
+		-e 's/\[\[.\+\](.\+)\]//' \
+		-e '/!\[.\+\](.\+)/{n;d}' \
+		$(ROOTDIR)/documentation/cp2k.md | \
+	pandoc \
+		--latex-engine=xelatex \
+		--template=$(TEMPLATE) --listings \
+		-f markdown_github+implicit_figures \
+		-V documentclass=scrartcl \
+		-V title-meta="CP2K with LIBXSTREAM" \
+		-V author-meta="Hans Pabst" \
+		-V classoption=DIV=45 \
+		-V linkcolor=black \
+		-V citecolor=black \
+		-V urlcolor=black \
+		-o $@
+	@rm $(TEMPLATE)
+
+.PHONY: documentation
+documentation: $(DOCDIR)/libxstream.pdf $(DOCDIR)/cp2k.pdf
 
 .PHONY: clean
 clean:
