@@ -49,7 +49,8 @@
 #endif
 #include <libxstream_end.h>
 
-//#define LIBXSTREAM_WORKITEM_WAIT_TERMINATE
+#define LIBXSTREAM_WORKITEM_TERMINATE_WAIT
+#define LIBXSTREAM_WORKITEM_TERMINATE_EXIT
 
 
 namespace libxstream_workitem_internal {
@@ -76,18 +77,25 @@ public:
     if (m_ready && !startable()) {
       LIBXSTREAM_PRINT0(2, "scheduler: terminating...");
       m_ready = false;
-#if defined(LIBXSTREAM_WORKITEM_WAIT_TERMINATE)
-      // TODO: wait for the background thread to terminate
+
+#if defined(LIBXSTREAM_WORKITEM_TERMINATE_WAIT)
+      // wait for the background thread to terminate
       while (!m_ready) this_thread_sleep();
 #endif
 #if defined(LIBXSTREAM_STDFEATURES)
+      const int result = LIBXSTREAM_ERROR_NONE;
       m_thread.detach();
 #else
 # if defined(__GNUC__)
-      pthread_detach(m_thread);
+      const int result = pthread_detach(m_thread);
 # else
-      CloseHandle(m_thread);
+      const int result = TRUE == CloseHandle(m_thread)
+        ? LIBXSTREAM_ERROR_NONE
+        : LIBXSTREAM_ERROR_RUNTIME;
 # endif
+#endif
+#if defined(LIBXSTREAM_WORKITEM_TERMINATE_EXIT)
+      exit(result);
 #endif
     }
   }
