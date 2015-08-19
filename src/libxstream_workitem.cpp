@@ -49,7 +49,7 @@
 #endif
 #include <libxstream_end.h>
 
-#define LIBXSTREAM_WORKITEM_WAIT_TERMINATE
+//#define LIBXSTREAM_WORKITEM_WAIT_TERMINATE
 
 
 namespace libxstream_workitem_internal {
