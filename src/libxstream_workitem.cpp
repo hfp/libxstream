@@ -96,6 +96,8 @@ public:
 #endif
 #if defined(LIBXSTREAM_WORKITEM_TERMINATE_EXIT)
       exit(result);
+#else
+      libxstream_sink(&result);
 #endif
     }
   }
