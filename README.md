@@ -220,7 +220,7 @@ Although the library is under development, the interface is stable. There is a h
 * Native FORTRAN interface
 
 ## Applications and References
-**\[1] http://cp2k.org/**: Open Source Molecular Dynamics application. An experimental [branch](https://github.com/cp2k/cp2k/tree/intel) at GitHub uses the library to offload work to an Intel Xeon Phi coprocessor.
+**\[1] http://cp2k.org/**: Open Source Molecular Dynamics application. An experimental [branch](https://github.com/cp2k/cp2k/tree/intel) at GitHub uses the library to offload work to an Intel Xeon Phi coprocessor (see https://github.com/hfp/libxstream/raw/master/documentation/cp2k.pdf).
 
 **\[2] https://github.com/01org/pyMIC**: Python module to offload computation to Intel Xeon Phi coprocessors.
 
