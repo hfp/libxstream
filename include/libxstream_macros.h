@@ -97,10 +97,25 @@
 # define LIBXSTREAM_PRAGMA_LOOP_COUNT(MIN, MAX, AVG) LIBXSTREAM_PRAGMA(loop_count min(MIN) max(MAX) avg(AVG))
 # define LIBXSTREAM_PRAGMA_UNROLL_N(N) LIBXSTREAM_PRAGMA(unroll(N))
 # define LIBXSTREAM_PRAGMA_UNROLL LIBXSTREAM_PRAGMA(unroll)
+/*# define LIBXSTREAM_UNUSED(VARIABLE) LIBXSTREAM_PRAGMA(unused(VARIABLE))*/
 #else
 # define LIBXSTREAM_PRAGMA_LOOP_COUNT(MIN, MAX, AVG)
 # define LIBXSTREAM_PRAGMA_UNROLL_N(N)
 # define LIBXSTREAM_PRAGMA_UNROLL
+#endif
+
+#if !defined(LIBXSTREAM_UNUSED)
+# if (defined(__GNUC__) || defined(__clang__)) && !defined(__INTEL_COMPILER)
+#   define LIBXSTREAM_UNUSED(VARIABLE) LIBXSTREAM_PRAGMA(LIBXSTREAM_STRINGIFY(unused(VARIABLE)))
+# else
+#   define LIBXSTREAM_UNUSED(VARIABLE) (void)(VARIABLE)
+# endif
+#endif
+
+#if defined(__GNUC__) || (defined(__INTEL_COMPILER) && !defined(_WIN32))
+# define LIBXSTREAM_UNUSED_ARG LIBXSTREAM_ATTRIBUTE(unused)
+#else
+# define LIBXSTREAM_UNUSED_ARG
 #endif
 
 /*Based on Stackoverflow's NBITSx macro.*/
