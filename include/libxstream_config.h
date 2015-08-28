@@ -81,6 +81,12 @@
  */
 #define LIBXSTREAM_ASYNC 2
 
+/**
+ * Offload target the library is built for. Valid choice(s):
+ * - #define LIBXSTREAM_OFFLOAD_TARGET mic: Many Integrated Core Coprocessor
+ */
+#define LIBXSTREAM_OFFLOAD_TARGET mic
+
 /** Not implemented yet. Must be disabled. */
 /*#define LIBXSTREAM_ASYNCHOST*/
 

@@ -40,7 +40,7 @@
 #include <cstring>
 #include <libxstream_end.h>
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD)
 # include <offload.h>
 #endif
 
@@ -117,7 +117,7 @@ int libxstream_event::record(libxstream_stream& stream, bool reset)
   LIBXSTREAM_ASYNC_BEGIN
   {
     int& status = LIBXSTREAM_ASYNC_QENTRY.status();
-#if defined(LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       if (0 == (LIBXSTREAM_ASYNC_PENDING)) {
 #       pragma offload LIBXSTREAM_ASYNC_TARGET_SIGNAL //out(status)

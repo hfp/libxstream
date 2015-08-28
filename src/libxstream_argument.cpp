@@ -100,7 +100,7 @@ int libxstream_construct(libxstream_argument* signature, size_t nargs)
 }
 
 
-LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg)
+LIBXSTREAM_RETARGETABLE libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg)
 {
   const void* data = 0;
 
@@ -119,7 +119,7 @@ LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(con
 }
 
 
-LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data)
+LIBXSTREAM_RETARGETABLE int libxstream_set_value(libxstream_argument& arg, const void* data)
 {
   if (0 != arg.dims || 0 != (libxstream_argument::kind_output & arg.kind)) { // by-pointer
     *reinterpret_cast<const void**>(&arg) = data;

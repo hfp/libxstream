@@ -40,18 +40,18 @@
 typedef uintptr_t libxstream_signal;
 
 typedef void libxstream_lock;
-LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_create();
-LIBXSTREAM_TARGET(mic) libxstream_lock* libxstream_lock_get(const volatile void* address);
-LIBXSTREAM_TARGET(mic) void libxstream_lock_destroy(libxstream_lock* lock);
-LIBXSTREAM_TARGET(mic) void libxstream_lock_acquire(libxstream_lock* lock);
-LIBXSTREAM_TARGET(mic) void libxstream_lock_release(libxstream_lock* lock);
-LIBXSTREAM_TARGET(mic) bool libxstream_lock_try(libxstream_lock* lock);
+LIBXSTREAM_RETARGETABLE libxstream_lock* libxstream_lock_create();
+LIBXSTREAM_RETARGETABLE libxstream_lock* libxstream_lock_get(const volatile void* address);
+LIBXSTREAM_RETARGETABLE void libxstream_lock_destroy(libxstream_lock* lock);
+LIBXSTREAM_RETARGETABLE void libxstream_lock_acquire(libxstream_lock* lock);
+LIBXSTREAM_RETARGETABLE void libxstream_lock_release(libxstream_lock* lock);
+LIBXSTREAM_RETARGETABLE bool libxstream_lock_try(libxstream_lock* lock);
 
-LIBXSTREAM_TARGET(mic) size_t nthreads_active();
-LIBXSTREAM_TARGET(mic) int this_thread_id();
-LIBXSTREAM_TARGET(mic) void this_thread_yield();
-LIBXSTREAM_TARGET(mic) void this_thread_sleep(size_t ms = LIBXSTREAM_SLEEP_MS);
-LIBXSTREAM_TARGET(mic) void this_thread_wait(size_t& cycle);
+LIBXSTREAM_RETARGETABLE size_t nthreads_active();
+LIBXSTREAM_RETARGETABLE int this_thread_id();
+LIBXSTREAM_RETARGETABLE void this_thread_yield();
+LIBXSTREAM_RETARGETABLE void this_thread_sleep(size_t ms = LIBXSTREAM_SLEEP_MS);
+LIBXSTREAM_RETARGETABLE void this_thread_wait(size_t& cycle);
 
 /**
  * The following flags are complimentary to libxstream_call_flags,

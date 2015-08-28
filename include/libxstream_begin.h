@@ -32,6 +32,6 @@
 # include "libxstream.h"
 #endif
 
-#if defined(LIBXSTREAM_OFFLOAD)
-# pragma offload_attribute(push,target(mic))
+#if defined(LIBXSTREAM_OFFLOAD_BUILD)
+# pragma offload_attribute(push,target(LIBXSTREAM_OFFLOAD_TARGET))
 #endif

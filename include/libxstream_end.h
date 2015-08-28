@@ -28,6 +28,6 @@
 ******************************************************************************/
 /* Hans Pabst (Intel Corp.)
 ******************************************************************************/
-#if defined(LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD)
 # pragma offload_attribute(pop)
 #endif

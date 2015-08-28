@@ -32,15 +32,15 @@
 #define LIBXSTREAM_H
 
 #include "libxstream_macros.h"
-#if defined(LIBXSTREAM_OFFLOAD)
-# pragma offload_attribute(push,target(mic))
+#if defined(LIBXSTREAM_OFFLOAD_BUILD)
+# pragma offload_attribute(push,target(LIBXSTREAM_OFFLOAD_TARGET))
 #endif
 #include <stdint.h>
 #include <stddef.h>
 #if defined(__cplusplus)
 # include <complex>
 #endif
-#if defined(LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD)
 # pragma offload_attribute(pop)
 #endif
 
@@ -84,7 +84,7 @@ LIBXSTREAM_EXPORT_C typedef enum libxstream_call_flags {
   LIBXSTREAM_CALL_DEFAULT = 0
 } libxstream_call_flags;
 /** Function argument type. */
-LIBXSTREAM_EXPORT_C typedef struct LIBXSTREAM_TARGET(mic) libxstream_argument libxstream_argument;
+LIBXSTREAM_EXPORT_C typedef struct LIBXSTREAM_RETARGETABLE libxstream_argument libxstream_argument;
 /** Function type of an offloadable function. */
 typedef void (/*LIBXSTREAM_CDECL*/*libxstream_function)(LIBXSTREAM_VARIADIC);
 
@@ -152,38 +152,38 @@ LIBXSTREAM_EXPORT_C int libxstream_fn_nargs(const libxstream_argument* signature
 LIBXSTREAM_EXPORT_C int libxstream_fn_call(libxstream_function function, const libxstream_argument* signature, libxstream_stream* stream, int flags);
 
 /** Query the size of the elemental type (Byte). */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typesize(libxstream_type type, size_t* typesize);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_typesize(libxstream_type type, size_t* typesize);
 /** Select a type according to the typesize; suiteable to transport the requested amount of Bytes. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_autotype(size_t typesize, libxstream_type start, libxstream_type* autotype);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_autotype(size_t typesize, libxstream_type start, libxstream_type* autotype);
 /** Query the name of the elemental type (string does not need to be buffered). */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_typename(libxstream_type type, const char** name);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_typename(libxstream_type type, const char** name);
 /** Query the argument's 0-based position within the signature; needs a pointer variable (not from a by-value variable). */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_argument(const void* variable, size_t* arg);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_argument(const void* variable, size_t* arg);
 /** Query the arity of the function signature (actual number of arguments). A NULL-signature designates the call context. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_arity(const libxstream_argument* signature, size_t* arity);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_arity(const libxstream_argument* signature, size_t* arity);
 /** Query the argument's data. A NULL-signature designates the call context. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_data(const libxstream_argument* signature, size_t arg, const void** data);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_data(const libxstream_argument* signature, size_t arg, const void** data);
 /** Query a textual representation; thread safe (valid until next call). A NULL-signature designates the call context. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_string(const libxstream_argument* signature, size_t arg, const char** value);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_string(const libxstream_argument* signature, size_t arg, const char** value);
 /** Query the elemental type of the argument. A NULL-signature designates the call context. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_type(const libxstream_argument* signature, size_t arg, libxstream_type* type);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_type(const libxstream_argument* signature, size_t arg, libxstream_type* type);
 /** Query the dimensionality of the argument; an elemental arg. is 0-dimensional. A NULL-signature designates the call context. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_dims(const libxstream_argument* signature, size_t arg, size_t* dims);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_dims(const libxstream_argument* signature, size_t arg, size_t* dims);
 /** Query the extent of the argument; an elemental argument has an 0-extent. A NULL-signature designates the call context. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_shape(const libxstream_argument* signature, size_t arg, size_t shape[]);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_shape(const libxstream_argument* signature, size_t arg, size_t shape[]);
 /** Query the number of elements of the argument. A NULL-signature designates the call context. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_size(const libxstream_argument* signature, size_t arg, size_t* size);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_size(const libxstream_argument* signature, size_t arg, size_t* size);
 /** Query the size of the element type of the argument (Byte). A NULL-signature designates the call context. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_elemsize(const libxstream_argument* signature, size_t arg, size_t* size);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_elemsize(const libxstream_argument* signature, size_t arg, size_t* size);
 /** Query the data size of the argument (Byte). A NULL-signature designates the call context. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_datasize(const libxstream_argument* signature, size_t arg, size_t* size);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_datasize(const libxstream_argument* signature, size_t arg, size_t* size);
 
 /** Query the internal verbosity level. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_get_verbosity(int* level);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_get_verbosity(int* level);
 /** Set the internal verbosity level. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_set_verbosity(int level);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_set_verbosity(int level);
 /** Prints to the standard error stream. Locks the stream in order to avoid intermixed characters. */
-LIBXSTREAM_EXPORT_C LIBXSTREAM_TARGET(mic) int libxstream_print(int verbosity, const char* message, ...);
+LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_print(int verbosity, const char* message, ...);
 
 #if defined(__cplusplus)
 template<typename TYPE> struct libxstream_map_to { static libxstream_type type() {/** select a type by type-size; bool goes here! */

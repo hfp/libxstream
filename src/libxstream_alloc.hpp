@@ -36,15 +36,15 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
-LIBXSTREAM_TARGET(mic) void libxstream_alloc_init();
+LIBXSTREAM_RETARGETABLE void libxstream_alloc_init();
 
-LIBXSTREAM_TARGET(mic) size_t libxstream_gcd(size_t a, size_t b);
-LIBXSTREAM_TARGET(mic) size_t libxstream_lcm(size_t a, size_t b);
+LIBXSTREAM_RETARGETABLE size_t libxstream_gcd(size_t a, size_t b);
+LIBXSTREAM_RETARGETABLE size_t libxstream_lcm(size_t a, size_t b);
 
-LIBXSTREAM_TARGET(mic) size_t libxstream_alignment(size_t size, size_t alignment);
-LIBXSTREAM_TARGET(mic) size_t libxstream_linear_size(size_t dims, const size_t shape[], size_t initial_size = 1);
-LIBXSTREAM_TARGET(mic) int libxstream_linear_offset(size_t dims, const int offset[], const size_t shape[]);
-LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int offset[], const size_t shape[], const size_t pitch[]);
+LIBXSTREAM_RETARGETABLE size_t libxstream_alignment(size_t size, size_t alignment);
+LIBXSTREAM_RETARGETABLE size_t libxstream_linear_size(size_t dims, const size_t shape[], size_t initial_size = 1);
+LIBXSTREAM_RETARGETABLE int libxstream_linear_offset(size_t dims, const int offset[], const size_t shape[]);
+LIBXSTREAM_RETARGETABLE size_t libxstream_linear_address(size_t dims, const int offset[], const size_t shape[], const size_t pitch[]);
 
 int libxstream_real_allocate(void** memory, size_t size, size_t alignment, const void* extra = 0, size_t extra_size = 0);
 int libxstream_real_deallocate(const void* memory);

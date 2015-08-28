@@ -49,13 +49,13 @@
 #define DGEMM dgemm_
 
 
-LIBXSTREAM_EXTERN_C LIBXSTREAM_TARGET(mic) void DGEMM(
+LIBXSTREAM_EXTERN_C LIBXSTREAM_RETARGETABLE void DGEMM(
   const char*, const char*, const int*, const int*, const int*,
   const double*, const double*, const int*, const double*, const int*,
   const double*, double*, const int*);
 
 
-LIBXSTREAM_TARGET(mic) void process(LIBXSTREAM_INVAL(size_t) size, LIBXSTREAM_INVAL(size_t) nn, const size_t* idata,
+LIBXSTREAM_RETARGETABLE void process(LIBXSTREAM_INVAL(size_t) size, LIBXSTREAM_INVAL(size_t) nn, const size_t* idata,
   const double* adata, const double* bdata, double* cdata)
 {
   if (0 < LIBXSTREAM_GETVAL(size)) {

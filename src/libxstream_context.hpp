@@ -36,7 +36,7 @@
 #if defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 
 
-struct LIBXSTREAM_TARGET(mic) libxstream_context {
+struct LIBXSTREAM_RETARGETABLE libxstream_context {
   static libxstream_context& instance();
   static libxstream_context& instance(const libxstream_argument signature[], int flags);
   const libxstream_argument* signature;
@@ -44,7 +44,7 @@ struct LIBXSTREAM_TARGET(mic) libxstream_context {
 };
 
 
-LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_find(const libxstream_context& context, const void* variable);
+LIBXSTREAM_RETARGETABLE const libxstream_argument* libxstream_find(const libxstream_context& context, const void* variable);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_CONTEXT_HPP

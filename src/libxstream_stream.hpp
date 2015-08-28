@@ -33,7 +33,7 @@
 
 #include "libxstream_workqueue.hpp"
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD)
 # include <offload.h>
 #endif
 
@@ -79,7 +79,7 @@ public:
 
   int wait();
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   _Offload_stream handle() const;
 #endif
 
@@ -107,7 +107,7 @@ private:
   int m_device;
   int m_priority;
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   mutable _Offload_stream m_handle; // lazy creation
   mutable size_t m_npartitions;
 #endif

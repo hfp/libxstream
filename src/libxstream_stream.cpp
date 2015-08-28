@@ -262,12 +262,12 @@ public:
     int result = LIBXSTREAM_ERROR_NONE;
 
     if (0 < n) {
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
       if (0 <= device) {
         LIBXSTREAM_ASYNC_BEGIN
         {
           LIBXSTREAM_PRINT0(2, "stream_wait: wait for all streams");
-#         pragma offload_wait target(mic) stream(0)
+#         pragma offload_wait target(LIBXSTREAM_OFFLOAD_TARGET) stream(0)
         }
         LIBXSTREAM_ASYNC_END(0, LIBXSTREAM_CALL_DEFAULT | LIBXSTREAM_CALL_DEVICE | (0 == exclude ? LIBXSTREAM_CALL_WAIT : 0), work, device);
         result = work.wait(exclude);
@@ -346,7 +346,7 @@ private:
 
 /*static*/int libxstream_stream::priority_range_least()
 {
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   const int result = LIBXSTREAM_MAX_NTHREADS;
 #else // not supported (empty range)
   const int result = 0;
@@ -357,7 +357,7 @@ private:
 
 /*static*/int libxstream_stream::priority_range_greatest()
 {
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   const int result = 0;
 #else // not supported (empty range)
   const int result = 0;
@@ -389,7 +389,7 @@ private:
 {
   libxstream_signal result = 0 != stream ? stream->m_pending : 0; // TODO: handle global stream
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2) && defined(LIBXSTREAM_STREAM_CHECK_PENDING)
   if (0 != result && 0 != _Offload_signaled(libxstream_stream::device(stream), reinterpret_cast<void*>(result))) {
     result = 0;
   }
@@ -441,7 +441,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
 #else
   : m_pending(0), m_device(device), m_priority(priority)
 #endif
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   , m_handle(0) // lazy creation
   , m_npartitions(0)
 #endif
@@ -479,7 +479,7 @@ libxstream_stream::~libxstream_stream()
   // deregister stream
   registered() = 0;
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD) && !defined(__MIC__) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
   if (0 != m_handle) {
     _Offload_stream_destroy(m_device, m_handle);
   }
@@ -534,7 +534,7 @@ int libxstream_stream::wait()
       LIBXSTREAM_PRINT(2, "stream_wait: stream=0x%llx", reinterpret_cast<unsigned long long>(LIBXSTREAM_ASYNC_STREAM));
     }
 #endif
-#if defined(LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && defined(LIBXSTREAM_ASYNC) && (1 < (2*LIBXSTREAM_ASYNC+1)/2)
     if (0 != (LIBXSTREAM_ASYNC_PENDING) && 0 <= LIBXSTREAM_ASYNC_DEVICE) {
 #     pragma offload_wait LIBXSTREAM_ASYNC_TARGET_WAIT
     }
@@ -549,7 +549,7 @@ int libxstream_stream::wait()
 }
 
 
-#if defined(LIBXSTREAM_OFFLOAD) && (0 != LIBXSTREAM_OFFLOAD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD) && (0 != LIBXSTREAM_OFFLOAD_BUILD) && defined(LIBXSTREAM_ASYNC) && (3 == (2*LIBXSTREAM_ASYNC+1)/2)
 _Offload_stream libxstream_stream::handle() const
 {
   const size_t nstreams = libxstream_stream_internal::registry.nstreams(m_device);

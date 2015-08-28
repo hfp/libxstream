@@ -41,7 +41,7 @@ template<> struct libxstream_argument_value<4> { typedef float type; };
 template<> struct libxstream_argument_value<8> { typedef double type; };
 
 
-extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
+extern "C" struct LIBXSTREAM_RETARGETABLE libxstream_argument {
   enum kind_type {
     kind_invalid  = 0,
     kind_input    = 1,
@@ -82,8 +82,8 @@ extern "C" struct LIBXSTREAM_TARGET(mic) libxstream_argument {
 int libxstream_construct(libxstream_argument arguments[], size_t arg, libxstream_argument::kind_type kind, const void* value, libxstream_type type, size_t dims, const size_t shape[]);
 int libxstream_construct(libxstream_argument* signature, size_t nargs);
 
-LIBXSTREAM_TARGET(mic) libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg);
-LIBXSTREAM_TARGET(mic) int libxstream_set_value(libxstream_argument& arg, const void* data);
+LIBXSTREAM_RETARGETABLE libxstream_argument::value_union libxstream_get_value(const libxstream_argument& arg);
+LIBXSTREAM_RETARGETABLE int libxstream_set_value(libxstream_argument& arg, const void* data);
 
 #endif // defined(LIBXSTREAM_EXPORTED) || defined(__LIBXSTREAM)
 #endif // LIBXSTREAM_ARGUMENT_HPP

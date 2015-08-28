@@ -42,9 +42,9 @@
 
 namespace libxstream_offload_internal {
 
-LIBXSTREAM_TARGET(mic) void call(libxstream_function function, libxstream_argument arguments[], char* translation[], size_t arity, int flags)
+LIBXSTREAM_RETARGETABLE void call(libxstream_function function, libxstream_argument arguments[], char* translation[], size_t arity, int flags)
 {
-  const struct LIBXSTREAM_TARGET(mic) argument_type {
+  const struct LIBXSTREAM_RETARGETABLE argument_type {
     libxstream_argument* m_arguments;
     explicit argument_type(libxstream_argument arguments[]): m_arguments(arguments) {}
     const void* operator[](size_t i) const { return libxstream_get_value(m_arguments[i]).const_pointer; }
@@ -102,7 +102,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
 {
   LIBXSTREAM_ASSERT(0 == (LIBXSTREAM_CALL_EXTERNAL & flags));
   LIBXSTREAM_ASYNC_BEGIN {
-    LIBXSTREAM_TARGET(mic) /*const*/ libxstream_function fhybrid = 0 == (flags() & LIBXSTREAM_CALL_NATIVE) ? m_function : 0;
+    LIBXSTREAM_RETARGETABLE /*const*/ libxstream_function fhybrid = 0 == (flags() & LIBXSTREAM_CALL_NATIVE) ? m_function : 0;
     const void *const fnative = reinterpret_cast<const void*>(m_function);
     libxstream_argument *const signature = m_signature;
     const int cflags = flags();
@@ -115,7 +115,7 @@ libxstream_workqueue::entry_type& libxstream_offload(libxstream_function functio
       reinterpret_cast<unsigned long long>(signature), static_cast<unsigned long>(arity), cflags);
     LIBXSTREAM_PRINT0(3, "************************************************************************");
 
-#if defined(LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD)
     if (0 <= LIBXSTREAM_ASYNC_DEVICE) {
       char* p[(LIBXSTREAM_MAX_NARGS)];
       unsigned int s = 0;

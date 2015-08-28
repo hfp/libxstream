@@ -45,7 +45,7 @@
 
 namespace test_internal {
 
-LIBXSTREAM_TARGET(mic) void check(libxstream_bool& result, LIBXSTREAM_INVAL(char) pattern, const void* buffer, LIBXSTREAM_INVAL(size_t) size)
+LIBXSTREAM_RETARGETABLE void check(libxstream_bool& result, LIBXSTREAM_INVAL(char) pattern, const void* buffer, LIBXSTREAM_INVAL(size_t) size)
 {
   size_t value = 0;
   bool ok = true;
@@ -73,12 +73,12 @@ LIBXSTREAM_TARGET(mic) void check(libxstream_bool& result, LIBXSTREAM_INVAL(char
   result = ok ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 }
 
-LIBXSTREAM_TARGET(mic) void pass_null_ptr(libxstream_bool& result, const double* in, LIBXSTREAM_INVAL(int) scalar, const float* fnull, const int* i)
+LIBXSTREAM_RETARGETABLE void pass_null_ptr(libxstream_bool& result, const double* in, LIBXSTREAM_INVAL(int) scalar, const float* fnull, const int* i)
 {
   result = (0 != in && 0 != scalar && 0 == fnull && 0 != i) ? LIBXSTREAM_TRUE : LIBXSTREAM_FALSE;
 }
 
-LIBXSTREAM_TARGET(mic) void complex_c(libxstream_bool* ok,
+LIBXSTREAM_RETARGETABLE void complex_c(libxstream_bool* ok,
   const float* c32, LIBXSTREAM_INVAL(float) freal, LIBXSTREAM_INVAL(float) fimag,
   const double* c64, LIBXSTREAM_INVAL(double) dreal, LIBXSTREAM_INVAL(double) dimag)
 {
@@ -91,7 +91,7 @@ LIBXSTREAM_TARGET(mic) void complex_c(libxstream_bool* ok,
   *ok = result;
 }
 
-LIBXSTREAM_TARGET(mic) void complex_cpp(libxstream_bool& ok,
+LIBXSTREAM_RETARGETABLE void complex_cpp(libxstream_bool& ok,
   const std::complex<float>& c32, LIBXSTREAM_INVAL(float) freal, LIBXSTREAM_INVAL(float) fimag,
   const std::complex<double>& c64, LIBXSTREAM_INVAL(double) dreal, LIBXSTREAM_INVAL(double) dimag)
 {

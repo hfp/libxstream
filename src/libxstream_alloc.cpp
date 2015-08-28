@@ -55,12 +55,12 @@
 
 namespace libxstream_alloc_internal {
 
-LIBXSTREAM_TARGET(mic) unsigned int       abs(unsigned int        a)  { return a; }
-LIBXSTREAM_TARGET(mic) unsigned long      abs(unsigned long       a)  { return a; }
-LIBXSTREAM_TARGET(mic) unsigned long long abs(unsigned long long  a)  { return a; }
+LIBXSTREAM_RETARGETABLE unsigned int       abs(unsigned int        a)  { return a; }
+LIBXSTREAM_RETARGETABLE unsigned long      abs(unsigned long       a)  { return a; }
+LIBXSTREAM_RETARGETABLE unsigned long long abs(unsigned long long  a)  { return a; }
 
 template<typename S, typename T>
-LIBXSTREAM_TARGET(mic) S linear_size(size_t dims, const T shape[], S initial_size)
+LIBXSTREAM_RETARGETABLE S linear_size(size_t dims, const T shape[], S initial_size)
 {
   LIBXSTREAM_ASSERT(shape);
   S result = 0 < dims ? (std::max<S>(initial_size, 1) * static_cast<S>(shape[0])) : initial_size;
@@ -93,7 +93,7 @@ struct info_type {
 } // namespace libxstream_alloc_internal
 
 
-LIBXSTREAM_TARGET(mic) void libxstream_alloc_init()
+LIBXSTREAM_RETARGETABLE void libxstream_alloc_init()
 {
 #if !defined(__MIC__) // not needed
   libxstream_alloc_internal::config_type::instance();
@@ -102,7 +102,7 @@ LIBXSTREAM_TARGET(mic) void libxstream_alloc_init()
 }
 
 
-LIBXSTREAM_TARGET(mic) size_t libxstream_gcd(size_t a, size_t b)
+LIBXSTREAM_RETARGETABLE size_t libxstream_gcd(size_t a, size_t b)
 {
   while (0 != b) {
     const size_t r = a % b;
@@ -113,7 +113,7 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_gcd(size_t a, size_t b)
 }
 
 
-LIBXSTREAM_TARGET(mic) size_t libxstream_lcm(size_t a, size_t b)
+LIBXSTREAM_RETARGETABLE size_t libxstream_lcm(size_t a, size_t b)
 {
   using libxstream_alloc_internal::abs;
   using std::abs;
@@ -121,9 +121,9 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_lcm(size_t a, size_t b)
 }
 
 
-LIBXSTREAM_TARGET(mic) size_t libxstream_alignment(size_t size, size_t alignment)
+LIBXSTREAM_RETARGETABLE size_t libxstream_alignment(size_t size, size_t alignment)
 {
-#if defined(LIBXSTREAM_OFFLOAD)
+#if defined(LIBXSTREAM_OFFLOAD_BUILD)
   static const size_t max_algn = ((LIBXSTREAM_MAX_ALIGN) / (LIBXSTREAM_MAX_SIMD)) * (LIBXSTREAM_MAX_SIMD);
   static const size_t max_simd = LIBXSTREAM_MIN(LIBXSTREAM_MAX_SIMD, LIBXSTREAM_MAX_ALIGN);
 #else
@@ -136,13 +136,13 @@ LIBXSTREAM_TARGET(mic) size_t libxstream_alignment(size_t size, size_t alignment
 }
 
 
-LIBXSTREAM_TARGET(mic) size_t libxstream_linear_size(size_t dims, const size_t shape[], size_t initial_size)
+LIBXSTREAM_RETARGETABLE size_t libxstream_linear_size(size_t dims, const size_t shape[], size_t initial_size)
 {
   return libxstream_alloc_internal::linear_size(dims, shape, initial_size);
 }
 
 
-LIBXSTREAM_TARGET(mic) int libxstream_linear_offset(size_t dims, const int offset[], const size_t shape[])
+LIBXSTREAM_RETARGETABLE int libxstream_linear_offset(size_t dims, const int offset[], const size_t shape[])
 {
   LIBXSTREAM_ASSERT(offset && shape);
   int result = 0;
@@ -162,7 +162,7 @@ LIBXSTREAM_TARGET(mic) int libxstream_linear_offset(size_t dims, const int offse
 }
 
 
-LIBXSTREAM_TARGET(mic) size_t libxstream_linear_address(size_t dims, const int offset[], const size_t shape[], const size_t pitch[])
+LIBXSTREAM_RETARGETABLE size_t libxstream_linear_address(size_t dims, const int offset[], const size_t shape[], const size_t pitch[])
 {
   LIBXSTREAM_ASSERT(offset && shape && pitch);
   size_t result = 0;

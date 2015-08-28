@@ -13,7 +13,7 @@
 #define HISTOGRAM 2
 
 
-LIBXSTREAM_TARGET(mic) void histogram1(const char* data, size_t size, size_t* histogram)
+LIBXSTREAM_RETARGETABLE void histogram1(const char* data, size_t size, size_t* histogram)
 {
   static const size_t maxint = (size_t)(((unsigned int)-1) >> 1/*sign bit*/);
   int i, j, m = (int)((size + maxint - 1) / maxint);
@@ -35,7 +35,7 @@ LIBXSTREAM_TARGET(mic) void histogram1(const char* data, size_t size, size_t* hi
 }
 
 
-LIBXSTREAM_TARGET(mic) void histogram2(const char* data, size_t size, size_t* histogram)
+LIBXSTREAM_RETARGETABLE void histogram2(const char* data, size_t size, size_t* histogram)
 {
   static const size_t maxint = (size_t)(((unsigned int)-1) >> 1/*sign bit*/);
   int i, j, m = (int)((size + maxint - 1) / maxint);
@@ -63,7 +63,7 @@ LIBXSTREAM_TARGET(mic) void histogram2(const char* data, size_t size, size_t* hi
 }
 
 
-LIBXSTREAM_TARGET(mic) void makehist(const char* data, size_t* histogram)
+LIBXSTREAM_RETARGETABLE void makehist(const char* data, size_t* histogram)
 {
   size_t size;
   LIBXSTREAM_CHECK_CALL_ASSERT(libxstream_get_shape(0/*current context*/, 0/*data*/, &size));

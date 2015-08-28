@@ -35,9 +35,9 @@
 
 libxstream_context& libxstream_context::instance()
 {
-  LIBXSTREAM_TARGET(mic) static LIBXSTREAM_TLS libxstream_context* pcontext = 0;
+  LIBXSTREAM_RETARGETABLE static LIBXSTREAM_TLS libxstream_context* pcontext = 0;
   if (0 == pcontext) {
-    LIBXSTREAM_TARGET(mic) static LIBXSTREAM_TLS libxstream_context context;
+    LIBXSTREAM_RETARGETABLE static LIBXSTREAM_TLS libxstream_context context;
     context.flags = LIBXSTREAM_CALL_EXTERNAL;
     context.signature = 0;
     pcontext = &context;
@@ -56,7 +56,7 @@ libxstream_context& libxstream_context::instance(const libxstream_argument signa
 }
 
 
-LIBXSTREAM_TARGET(mic) const libxstream_argument* libxstream_find(const libxstream_context& context, const void* variable)
+LIBXSTREAM_RETARGETABLE const libxstream_argument* libxstream_find(const libxstream_context& context, const void* variable)
 {
   const libxstream_argument* argument = 0;
   if (context.signature) {
