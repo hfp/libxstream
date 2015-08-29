@@ -3,7 +3,11 @@ This document focuses on offloading CP2K's DBCSR small matrix multiplication to 
 > https://github.com/hfp/libxsmm/raw/master/documentation/cp2k.pdf.
 
 ## Getting and Building the Source Code
-Please read the above mentioned document entirely, and also rely on the recommended version of the Intel Compiler (see below command). For Intel MPI, usually any version is fine.
+Please read the above mentioned document entirely, and use one of the recommended compiler versions:
+* Intel Compiler 15.0.3.187 (Build 20150407)
+* Intel Compiler 16.0.0.109 (Build 20150815)
+
+For Intel MPI, usually any version is fine.
 
 ```
 git clone --branch intel https://github.com/cp2k/cp2k.git cp2k.git
