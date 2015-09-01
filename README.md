@@ -50,7 +50,7 @@ Beside of the minimalistic device-orientied functionality, this interface also a
 libxstream_set_active_device(omp_get_thread_num() % ndevices);
 ```
 
-Relying on an active device is explicit for entirely library, and it is up to the user to make use of this notion.
+Relying on an active device is explicit for the entire library, and it is up to the user to make use of this notion.
 
 ```C
 int device = -1;
