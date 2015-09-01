@@ -35,11 +35,27 @@ typedef void (*libxstream_function)(LIBXSTREAM_VARIADIC);
 ```
 
 ### Device Interface
-The device interface provides the notion of an "active device" (beside of allowing to query the number of available devices). Multiple active devices can be specified on a per host-thread basis. It is up to the user to make use of this notion.
+The device interface allows to query the number of available devices as well as querying some important metrics (physical and available memory).
 
 ```C
-size_t ndevices = 0;
+size_t ndevices = 0, allocatable = 0;
 libxstream_get_ndevices(&ndevices);
+libxstream_get_meminfo(-1/*host*/, &allocatable, NULL);
+```
+
+Beside of the minimalistic device-orientied functionality, this interface also allows to rely on the notion of an "active device". This way, multiple devices can be driven on a per host-thread basis.
+
+```C
+/* Initialize active device on a per host-thread basis */
+libxstream_set_active_device(omp_get_thread_num() % ndevices);
+```
+
+Relying on an active device is explicit for entirely library, and it is up to the user to make use of this notion.
+
+```C
+int device = -1;
+libxstream_get_active_device(&device);
+libxstream_get_meminfo(device, &allocatable, NULL);
 ```
 
 ### Memory Interface
@@ -59,7 +75,16 @@ for (i = 0; i < nitems; i += nbatch) {
   /* TODO: invoke user function (see Function Interface) */
   libxstream_memcpy_d2h(odev, ohst + i, ibatch, stream[j%2]);
 }
+```
 
+It is possible to query properties of the allocated buffers using the base address as returned by the above allocation function:
+
+```C
+size_t size = 0;  /*will be nitems x sizeof(double)*/
+int device = -1;  /*will be 'dev' because 'idev' is allocated there*/
+void* mapped = 0; /*will be an address only valid on device-side*/
+libxstream_mem_info(idev, &mapped, &size, &device);
+/* deallocating the above memory buffers... */
 libxstream_mem_deallocate(hst, ihst);
 libxstream_mem_deallocate(hst, ohst);
 libxstream_mem_deallocate(dev, idev);
@@ -220,10 +245,10 @@ Although the library is under development, the interface is stable. There is a h
 * Native FORTRAN interface
 
 ## Applications and References
-**\[1] http://cp2k.org/**: Open Source Molecular Dynamics application. An experimental [branch](https://github.com/cp2k/cp2k/tree/intel) at GitHub uses the library to offload work to an Intel Xeon Phi coprocessor (see https://github.com/hfp/libxstream/raw/master/documentation/cp2k.pdf).
+**\[1] [http://cp2k.org/](http://cp2k.org/)**: Open Source Molecular Dynamics application. An experimental [branch](https://github.com/cp2k/cp2k/tree/intel) at GitHub uses the library to offload work to an Intel Xeon Phi coprocessor (see https://github.com/hfp/libxstream/raw/master/documentation/cp2k.pdf).
 
-**\[2] https://github.com/01org/pyMIC**: Python module to offload computation to Intel Xeon Phi coprocessors.
+**\[2] [https://github.com/01org/pyMIC](https://github.com/01org/pyMIC)**: Python module to offload computation to Intel Xeon Phi coprocessors.
 
-**\[3] http://software.intel.com/xeonphicatalog**: Intel Xeon Phi Applications and Solutions Catalog.
+**\[3] [http://software.intel.com/xeonphicatalog](http://software.intel.com/xeonphicatalog)**: Intel Xeon Phi Applications and Solutions Catalog.
 
 **\[4] [http://goo.gl/qsnOOf](https://software.intel.com/en-us/articles/intel-and-third-party-tools-and-libraries-available-with-support-for-intelr-xeon-phitm)**: Intel 3rd Party Tools and Libraries.
