@@ -178,7 +178,7 @@ This "device-side API" allows to query information about function arguments when
 As one can see, the signature of a function can often be trimmed to omit arguments which certainly describe the shape of an argument (below function signature omits the "n" argument shown in one of the previous examples).
 
 ```C
-LIBXSTREAM_TARGET(mic) void f(const double* scale, const float* in, float* out, size_t* nzeros)
+LIBXSTREAM_RETARGETABLE void f(const double* scale, const float* in, float* out, size_t* nzeros)
 {
   libxstream_type type = LIBXSTREAM_TYPE_VOID;
   size_t in_position = 0, n = 0;
@@ -196,7 +196,7 @@ LIBXSTREAM_TARGET(mic) void f(const double* scale, const float* in, float* out, 
 The query interface allows enumerating and accessing function arguments including the raw data behind the argument. This applies regardless of whether the arguments are given explicitly or when supplied via a variadic part of the function's signature (ellipsis).
 
 ```C
-LIBXSTREAM_TARGET(mic) void fill(float* out, ...)
+LIBXSTREAM_RETARGETABLE void fill(float* out, ...)
 {
   size_t n = 0, i = 0, arity = 0;
   float fill_value = 0; /*default*/
