@@ -122,7 +122,10 @@ public:
       if (m_ready && startable()) {
 #if defined(LIBXSTREAM_STDFEATURES)
         std::thread(run, this).swap(m_thread);
-#else
+// The "!defined(__MIC__)" avoids target attrib. warning due to expecting an attributed
+// function pointer in case of an attributed/retargetable pthread_create, however the
+// entire code of start() is host-only (and does not need to be retargeted).
+#elif !defined(__MIC__)
 # if defined(__GNUC__)
         pthread_create(&m_thread, 0, run, this);
 # else
