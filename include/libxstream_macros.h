@@ -105,7 +105,7 @@
 #endif
 
 #if !defined(LIBXSTREAM_UNUSED)
-# if (defined(__GNUC__) || defined(__clang__)) && !defined(__INTEL_COMPILER)
+# if defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER)
 #   define LIBXSTREAM_UNUSED(VARIABLE) LIBXSTREAM_PRAGMA(LIBXSTREAM_STRINGIFY(unused(VARIABLE)))
 # else
 #   define LIBXSTREAM_UNUSED(VARIABLE) (void)(VARIABLE)
@@ -211,7 +211,11 @@
 # define LIBXSTREAM_FLOCK(FILE) _lock_file(FILE)
 # define LIBXSTREAM_FUNLOCK(FILE) _unlock_file(FILE)
 #else
-# define LIBXSTREAM_SNPRINTF(S, N, F, ...) snprintf(S, N, F, __VA_ARGS__)
+# if defined(__GNUC__)
+#   define LIBXSTREAM_SNPRINTF(S, N, F, ...) snprintf(S, N, F, ##__VA_ARGS__)
+# else
+#   define LIBXSTREAM_SNPRINTF(S, N, F, ...) snprintf(S, N, F, __VA_ARGS__)
+# endif
 # if !defined(__CYGWIN__)
 #   define LIBXSTREAM_FLOCK(FILE) flockfile(FILE)
 #   define LIBXSTREAM_FUNLOCK(FILE) funlockfile(FILE)
@@ -219,6 +223,27 @@
 #   define LIBXSTREAM_FLOCK(FILE)
 #   define LIBXSTREAM_FUNLOCK(FILE)
 # endif
+#endif
+
+#if defined(__GNUC__)
+# if defined(LIBXSTREAM_OFFLOAD_BUILD)
+#   pragma offload_attribute(push,target(LIBXSTREAM_OFFLOAD_TARGET))
+#   include <pthread.h>
+#   pragma offload_attribute(pop)
+# else
+#   include <pthread.h>
+# endif
+# define LIBXSTREAM_LOCK_TYPE pthread_mutex_t
+# define LIBXSTREAM_LOCK_CONSTRUCT PTHREAD_MUTEX_INITIALIZER
+# define LIBXSTREAM_LOCK_DESTROY(LOCK) pthread_mutex_destroy(&(LOCK))
+# define LIBXSTREAM_LOCK_ACQUIRE(LOCK) pthread_mutex_lock(&(LOCK))
+# define LIBXSTREAM_LOCK_RELEASE(LOCK) pthread_mutex_unlock(&(LOCK))
+#else /*TODO: Windows*/
+# define LIBXSTREAM_LOCK_TYPE HANDLE
+# define LIBXSTREAM_LOCK_CONSTRUCT 0
+# define LIBXSTREAM_LOCK_DESTROY(LOCK) CloseHandle(LOCK)
+# define LIBXSTREAM_LOCK_ACQUIRE(LOCK) WaitForSingleObject(LOCK, INFINITE)
+# define LIBXSTREAM_LOCK_RELEASE(LOCK) ReleaseMutex(LOCK)
 #endif
 
 /**
