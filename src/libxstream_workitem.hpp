@@ -58,11 +58,11 @@
       const libxstream_signal workitem_signal_generated = libxstream_stream::signal(LIBXSTREAM_ASYNC_DEVICE); \
       libxstream_signal workitem_pending_consumed = LIBXSTREAM_ASYNC_PENDING; \
       libxstream_signal workitem_signal_consumed = workitem_signal_generated; \
-      libxstream_sink(&LIBXSTREAM_ASYNC_DEVICE); \
-      libxstream_sink(&LIBXSTREAM_ASYNC_PENDING); \
-      libxstream_sink(&workitem_signal_generated); \
-      libxstream_sink(&workitem_pending_consumed); \
-      libxstream_sink(&workitem_signal_consumed)
+      LIBXSTREAM_UNUSED(LIBXSTREAM_ASYNC_DEVICE); \
+      LIBXSTREAM_UNUSED(LIBXSTREAM_ASYNC_PENDING); \
+      LIBXSTREAM_UNUSED(workitem_signal_generated); \
+      LIBXSTREAM_UNUSED(workitem_pending_consumed); \
+      LIBXSTREAM_UNUSED(workitem_signal_consumed)
 #   define LIBXSTREAM_ASYNC_TARGET target(LIBXSTREAM_OFFLOAD_TARGET:LIBXSTREAM_ASYNC_DEVICE)
 #   define LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_ASYNC_TARGET signal(workitem_signal_consumed++)
 #   define LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_ASYNC_TARGET wait(workitem_pending_consumed++)
@@ -75,11 +75,11 @@
       const libxstream_signal workitem_signal_generated = libxstream_stream::signal(LIBXSTREAM_ASYNC_DEVICE); \
       libxstream_signal workitem_pending_consumed = LIBXSTREAM_ASYNC_PENDING; \
       libxstream_signal workitem_signal_consumed = workitem_signal_generated; \
-      libxstream_sink(&LIBXSTREAM_ASYNC_DEVICE); \
-      libxstream_sink(&LIBXSTREAM_ASYNC_PENDING); \
-      libxstream_sink(&workitem_signal_generated); \
-      libxstream_sink(&workitem_pending_consumed); \
-      libxstream_sink(&workitem_signal_consumed)
+      LIBXSTREAM_UNUSED(LIBXSTREAM_ASYNC_DEVICE); \
+      LIBXSTREAM_UNUSED(LIBXSTREAM_ASYNC_PENDING); \
+      LIBXSTREAM_UNUSED(workitem_signal_generated); \
+      LIBXSTREAM_UNUSED(workitem_pending_consumed); \
+      LIBXSTREAM_UNUSED(workitem_signal_consumed)
 #   define LIBXSTREAM_ASYNC_TARGET target(LIBXSTREAM_OFFLOAD_TARGET) stream(handle_)
 #   define LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_ASYNC_TARGET signal(workitem_signal_consumed++)
 #   define LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_ASYNC_TARGET wait(workitem_pending_consumed++)
@@ -89,11 +89,11 @@
 # define LIBXSTREAM_ASYNC_DECL \
     int LIBXSTREAM_ASYNC_DEVICE = device(); \
     libxstream_signal LIBXSTREAM_ASYNC_PENDING = 0, workitem_signal_generated = 0, workitem_pending_consumed = 0, workitem_signal_consumed = 0; \
-    libxstream_sink(&LIBXSTREAM_ASYNC_DEVICE); \
-    libxstream_sink(&LIBXSTREAM_ASYNC_PENDING); \
-    libxstream_sink(&workitem_signal_generated); \
-    libxstream_sink(&workitem_pending_consumed); \
-    libxstream_sink(&workitem_signal_consumed)
+    LIBXSTREAM_UNUSED(LIBXSTREAM_ASYNC_DEVICE); \
+    LIBXSTREAM_UNUSED(LIBXSTREAM_ASYNC_PENDING); \
+    LIBXSTREAM_UNUSED(workitem_signal_generated); \
+    LIBXSTREAM_UNUSED(workitem_pending_consumed); \
+    LIBXSTREAM_UNUSED(workitem_signal_consumed)
 # define LIBXSTREAM_ASYNC_TARGET target(LIBXSTREAM_OFFLOAD_TARGET:LIBXSTREAM_ASYNC_DEVICE)
 # define LIBXSTREAM_ASYNC_TARGET_SIGNAL LIBXSTREAM_ASYNC_TARGET
 # define LIBXSTREAM_ASYNC_TARGET_WAIT LIBXSTREAM_ASYNC_TARGET
@@ -102,11 +102,11 @@
 # define LIBXSTREAM_ASYNC_DECL \
     int LIBXSTREAM_ASYNC_DEVICE = device(); \
     libxstream_signal LIBXSTREAM_ASYNC_PENDING = 0, workitem_signal_generated = 0, workitem_pending_consumed = 0, workitem_signal_consumed = 0; \
-    libxstream_sink(&LIBXSTREAM_ASYNC_DEVICE); \
-    libxstream_sink(&LIBXSTREAM_ASYNC_PENDING); \
-    libxstream_sink(&workitem_signal_generated); \
-    libxstream_sink(&workitem_pending_consumed); \
-    libxstream_sink(&workitem_signal_consumed)
+    LIBXSTREAM_UNUSED(LIBXSTREAM_ASYNC_DEVICE); \
+    LIBXSTREAM_UNUSED(LIBXSTREAM_ASYNC_PENDING); \
+    LIBXSTREAM_UNUSED(workitem_signal_generated); \
+    LIBXSTREAM_UNUSED(workitem_pending_consumed); \
+    LIBXSTREAM_UNUSED(workitem_signal_consumed)
 # define LIBXSTREAM_ASYNC_TARGET
 # define LIBXSTREAM_ASYNC_TARGET_SIGNAL
 # define LIBXSTREAM_ASYNC_TARGET_WAIT
@@ -122,7 +122,7 @@
       return new LIBXSTREAM_UNIQUE(workitem_type)(*this); \
     } \
     void virtual_run(libxstream_workqueue::entry_type& LIBXSTREAM_ASYNC_QENTRY) { \
-      LIBXSTREAM_ASYNC_DECL; libxstream_sink(&LIBXSTREAM_ASYNC_QENTRY); do
+      LIBXSTREAM_ASYNC_DECL; LIBXSTREAM_UNUSED(LIBXSTREAM_ASYNC_QENTRY); do
 #define LIBXSTREAM_ASYNC_END(STREAM, FLAGS, NAME, ...) while(libxstream_nonconst(LIBXSTREAM_FALSE)); \
       LIBXSTREAM_ASSERT(workitem_pending_generated == workitem_pending_consumed || (workitem_pending_generated + 1) == workitem_pending_consumed); \
       LIBXSTREAM_ASSERT(workitem_signal_generated == workitem_signal_consumed || (workitem_signal_generated + 1) == workitem_signal_consumed); \
@@ -142,7 +142,7 @@
     ? (*LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item)).stream())->enqueue(LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item))) \
     : libxstream_enqueue(&LIBXSTREAM_UNIQUE(LIBXSTREAM_CONCATENATE(NAME,item))); \
   const libxstream_workqueue::entry_type& NAME = LIBXSTREAM_ASYNC_INTERNAL(NAME); \
-  libxstream_sink(&NAME)
+  LIBXSTREAM_UNUSED(NAME)
 
 
 class libxstream_workitem {

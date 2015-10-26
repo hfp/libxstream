@@ -97,7 +97,7 @@ public:
 #if defined(LIBXSTREAM_WORKITEM_TERMINATE_EXIT)
       exit(result);
 #else
-      libxstream_sink(&result);
+      LIBXSTREAM_UNUSED(result);
 #endif
     }
   }
@@ -232,7 +232,7 @@ libxstream_workitem::libxstream_workitem(libxstream_stream* stream, int flags, s
 #endif
 {
 #if !defined(LIBXSTREAM_INTERNAL_DEBUG)
-  libxstream_sink(name);
+  LIBXSTREAM_UNUSED(name);
 #endif
   if (2 == argc && (argv[0].signature() || argv[1].signature())) {
     const libxstream_argument* signature = 0;

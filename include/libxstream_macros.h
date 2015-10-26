@@ -49,7 +49,7 @@
 # define LIBXSTREAM_EXTERN_C
 # define LIBXSTREAM_VARIADIC
 # define LIBXSTREAM_EXPORT_C LIBXSTREAM_EXPORT
-# if (199901L <= __STDC_VERSION__)
+# if defined(__STDC_VERSION__) && (199901L <= (__STDC_VERSION__))
 #   define LIBXSTREAM_PRAGMA(DIRECTIVE) _Pragma(LIBXSTREAM_STRINGIFY(DIRECTIVE))
 #   define LIBXSTREAM_RESTRICT restrict
 #   define LIBXSTREAM_INLINE static inline
@@ -81,7 +81,7 @@
 # define LIBXSTREAM_PRAGMA_SIMD_COLLAPSE(N) LIBXSTREAM_PRAGMA(simd collapse(N))
 # define LIBXSTREAM_PRAGMA_SIMD_PRIVATE(...) LIBXSTREAM_PRAGMA(simd private(__VA_ARGS__))
 # define LIBXSTREAM_PRAGMA_SIMD LIBXSTREAM_PRAGMA(simd)
-#elif (201307 <= _OPENMP) /*OpenMP 4.0*/
+#elif defined(_OPENMP) && (201307 <= _OPENMP) /*OpenMP 4.0*/
 # define LIBXSTREAM_PRAGMA_SIMD_REDUCTION(EXPRESSION) LIBXSTREAM_PRAGMA(omp simd reduction(EXPRESSION))
 # define LIBXSTREAM_PRAGMA_SIMD_COLLAPSE(N) LIBXSTREAM_PRAGMA(omp simd collapse(N))
 # define LIBXSTREAM_PRAGMA_SIMD_PRIVATE(...) LIBXSTREAM_PRAGMA(omp simd private(__VA_ARGS__))
@@ -94,18 +94,20 @@
 #endif
 
 #if defined(__INTEL_COMPILER)
+# define LIBXSTREAM_PRAGMA_FORCEINLINE LIBXSTREAM_PRAGMA(forceinline recursive)
 # define LIBXSTREAM_PRAGMA_LOOP_COUNT(MIN, MAX, AVG) LIBXSTREAM_PRAGMA(loop_count min(MIN) max(MAX) avg(AVG))
 # define LIBXSTREAM_PRAGMA_UNROLL_N(N) LIBXSTREAM_PRAGMA(unroll(N))
 # define LIBXSTREAM_PRAGMA_UNROLL LIBXSTREAM_PRAGMA(unroll)
 /*# define LIBXSTREAM_UNUSED(VARIABLE) LIBXSTREAM_PRAGMA(unused(VARIABLE))*/
 #else
+# define LIBXSTREAM_PRAGMA_FORCEINLINE
 # define LIBXSTREAM_PRAGMA_LOOP_COUNT(MIN, MAX, AVG)
 # define LIBXSTREAM_PRAGMA_UNROLL_N(N)
 # define LIBXSTREAM_PRAGMA_UNROLL
 #endif
 
 #if !defined(LIBXSTREAM_UNUSED)
-# if defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER)
+# if 0 /*defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER)*/
 #   define LIBXSTREAM_UNUSED(VARIABLE) LIBXSTREAM_PRAGMA(LIBXSTREAM_STRINGIFY(unused(VARIABLE)))
 # else
 #   define LIBXSTREAM_UNUSED(VARIABLE) (void)(VARIABLE)
@@ -207,14 +209,14 @@
 # define NOMINMAX 1
 #endif
 #if defined(_WIN32)
-# define LIBXSTREAM_SNPRINTF(S, N, F, ...) _snprintf_s(S, N, _TRUNCATE, F, __VA_ARGS__)
+# define LIBXSTREAM_SNPRINTF(S, N, ...) _snprintf_s(S, N, _TRUNCATE, __VA_ARGS__)
 # define LIBXSTREAM_FLOCK(FILE) _lock_file(FILE)
 # define LIBXSTREAM_FUNLOCK(FILE) _unlock_file(FILE)
 #else
-# if defined(__GNUC__)
-#   define LIBXSTREAM_SNPRINTF(S, N, F, ...) snprintf(S, N, F, ##__VA_ARGS__)
+# if defined(__STDC_VERSION__) && (199901L <= (__STDC_VERSION__))
+#   define LIBXSTREAM_SNPRINTF(S, N, ...) snprintf(S, N, __VA_ARGS__)
 # else
-#   define LIBXSTREAM_SNPRINTF(S, N, F, ...) snprintf(S, N, F, __VA_ARGS__)
+#   define LIBXSTREAM_SNPRINTF(S, N, ...) sprintf(S, __VA_ARGS__); LIBXSTREAM_UNUSED(N)
 # endif
 # if !defined(__CYGWIN__)
 #   define LIBXSTREAM_FLOCK(FILE) flockfile(FILE)
@@ -270,7 +272,6 @@
 # define LIBXSTREAM_EXPORT
 #endif
 
-LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE void libxstream_sink(const void*);
 LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_nonconst(int value);
 
 #if defined(LIBXSTREAM_INTERNAL_DEBUG)

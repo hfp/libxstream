@@ -97,7 +97,7 @@ LIBXSTREAM_RETARGETABLE void libxstream_alloc_init()
 {
 #if !defined(__MIC__) // not needed
   libxstream_alloc_internal::config_type::instance();
-  libxstream_sink(&libxstream_alloc_internal::config);
+  LIBXSTREAM_UNUSED(libxstream_alloc_internal::config);
 #endif
 }
 

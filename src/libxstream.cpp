@@ -241,7 +241,6 @@ LIBXSTREAM_RETARGETABLE DST bitwise_cast(const SRC& src)
 
 
 LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE int libxstream_nonconst(int value) { return value; }
-LIBXSTREAM_EXPORT_C LIBXSTREAM_RETARGETABLE void libxstream_sink(const void*) {}
 
 
 LIBXSTREAM_RETARGETABLE libxstream_lock* libxstream_lock_create()
@@ -475,7 +474,7 @@ LIBXSTREAM_RETARGETABLE void this_thread_sleep(size_t ms)
     this_thread_yield();
   }
 #else
-  libxstream_sink(&ms);
+  LIBXSTREAM_UNUSED(ms);
   YieldProcessor();
 #endif
 }
@@ -504,7 +503,7 @@ LIBXSTREAM_RETARGETABLE void this_thread_wait(size_t& cycle)
   }
   else
 #else
-  libxstream_sink(&cycle);
+  LIBXSTREAM_UNUSED(cycle);
 #endif
   {
 #if defined(__INTEL_COMPILER)
@@ -959,7 +958,7 @@ LIBXSTREAM_EXPORT_C int libxstream_stream_create(libxstream_stream** stream, int
   else {
     size_t ndevices = LIBXSTREAM_MAX_NDEVICES;
     LIBXSTREAM_CHECK_CONDITION(-1 <= device && ndevices >= static_cast<size_t>(device + 1) && LIBXSTREAM_ERROR_NONE == libxstream_get_ndevices(&ndevices) && ndevices >= static_cast<size_t>(device + 1));
-    libxstream_sink(&ndevices);
+    LIBXSTREAM_UNUSED(ndevices);
 
     if (-1 > libxstream_internal::context.global_device()) {
       libxstream_internal::context.global_device(device);

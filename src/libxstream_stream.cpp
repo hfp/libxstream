@@ -461,7 +461,7 @@ libxstream_stream::libxstream_stream(int device, int priority, const char* name)
     m_name[0] = 0;
   }
 #else
-  libxstream_sink(name);
+  LIBXSTREAM_UNUSED(name);
 #endif
 
   libxstream_stream*volatile& entry = libxstream_stream_internal::registry.allocate();
