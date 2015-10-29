@@ -3,6 +3,7 @@ language: cpp
 addons:
   apt:
     packages:
+    - gfortran
     - libblas-dev
     - liblapack-dev
 
