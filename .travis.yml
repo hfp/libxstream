@@ -12,5 +12,11 @@ compiler:
 script:
   - make -e realclean &&
     make -e -j
-
-  - make -e samples
+  - cd samples/copy &&
+    make -e
+  - cd samples/entropy &&
+    make -e
+  - cd samples/multi-dgemm &&
+    make -e
+  - cd samples/test &&
+    make -e
