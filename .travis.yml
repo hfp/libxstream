@@ -16,20 +16,22 @@ script:
 
   - cd samples/copy &&
     make -e realclean &&
-    make -e &&
+    make -e PEDANTIC=1 &&
+    ./copy.sh &&
     cd ../..
 
   - cd samples/entropy &&
     make -e realclean &&
-    make -e &&
+    make -e PEDANTIC=1 &&
+    ./entropy.sh -test &&
     cd ../..
 
   - cd samples/multi-dgemm &&
     make -e realclean &&
-    make -e &&
+    make -e PEDANTIC=1 &&
     cd ../..
 
   - cd samples/test &&
     make -e realclean &&
-    make -e &&
+    make -e PEDANTIC=1 &&
     cd ../..
