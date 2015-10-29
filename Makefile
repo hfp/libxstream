@@ -1,5 +1,19 @@
 # export all variables to sub-make processes
-.EXPORT_ALL_VARIABLES: #export
+#.EXPORT_ALL_VARIABLES: #export
+# Set MAKE_PARALLEL=0 for issues with parallel make (older GNU Make)
+ifeq (0,$(MAKE_PARALLEL))
+.NOTPARALLEL:
+else ifneq (3.82,$(firstword $(sort $(MAKE_VERSION) 3.82)))
+.NOTPARALLEL:
+endif
+
+# Linux cut has features we use that do not work elsewhere
+# Mac, etc. users should install GNU coreutils and use cut from there.
+#
+# For example, if you use Homebrew, run "brew install coreutils" once
+# and then invoke the LIBXSMM make command with
+# CUT=/usr/local/Cellar/coreutils/8.24/libexec/gnubin/cut
+CUT ?= cut
 
 ARCH = intel64
 
@@ -14,6 +28,9 @@ CXXFLAGS = $(NULL)
 CFLAGS = $(NULL)
 DFLAGS = -D__extern_always_inline=inline -DLIBXSTREAM_EXPORTED
 IFLAGS = -I$(INCDIR)
+
+# Request strongest code conformance
+PEDANTIC ?= 0
 
 OFFLOAD ?= 1
 STATIC ?= 1
@@ -76,15 +93,20 @@ ifneq (0,$(INTEL))
 	AR = xiar
 	CXXFLAGS += -fPIC -Wall -std=c++0x
 	CFLAGS += -fPIC -Wall -std=c99
+	FCMTFLAGS += -threads
 	FCFLAGS += -fPIC
 	LDFLAGS += -fPIC -lrt
+	ifeq (1,$(PEDANTIC))
+		CFLAGS += -std=c89 -Wcheck
+	else ifneq (0,$(PEDANTIC))
+		CFLAGS += -std=c89 -Wcheck -Wremarks
+	endif
 	ifeq (0,$(DBG))
 		CXXFLAGS += -fno-alias -ansi-alias -O2
 		CFLAGS += -fno-alias -ansi-alias -O2
-		FCMTFLAGS += -threads
 		FCFLAGS += -O2
 		DFLAGS += -DNDEBUG
-		ifneq ($(IPO),0)
+		ifneq (0,$(IPO))
 			CXXFLAGS += -ipo
 			CFLAGS += -ipo
 			FCFLAGS += -ipo
@@ -128,7 +150,7 @@ ifneq (0,$(INTEL))
 	ifeq (0,$(EXP))
 		CXXFLAGS += -fno-exceptions
 	endif
-	ifneq ($(OMP),0)
+	ifneq (0,$(OMP))
 		CXXFLAGS += -openmp
 		CFLAGS += -openmp
 		FCFLAGS += -openmp
@@ -139,7 +161,7 @@ ifneq (0,$(INTEL))
 		CFLAGS += -no-offload
 		FCFLAGS += -no-offload
 	endif
-	ifneq ($(STATIC),0)
+	ifneq (0,$(STATIC))
 		SLDFLAGS += -no-intel-extensions -static-intel
 	endif
 	FCMODDIRFLAG = -module
@@ -154,25 +176,28 @@ else # GCC assumed
 		FC = $(GFC)
 	endif
 	VERSION = $(shell $(CC) --version | grep "gcc (GCC)" | sed "s/gcc (GCC) \([0-9]\+\.[0-9]\+\.[0-9]\+\).*$$/\1/")
-	VERSION_MAJOR = $(shell echo "$(VERSION)" | cut -d"." -f1)
-	VERSION_MINOR = $(shell echo "$(VERSION)" | cut -d"." -f2)
-	VERSION_PATCH = $(shell echo "$(VERSION)" | cut -d"." -f3)
+	VERSION_MAJOR = $(shell echo "$(VERSION)" | $(CUT) -d"." -f1)
+	VERSION_MINOR = $(shell echo "$(VERSION)" | $(CUT) -d"." -f2)
+	VERSION_PATCH = $(shell echo "$(VERSION)" | $(CUT) -d"." -f3)
 	MIC = 0
-	CXXFLAGS += -Wall -std=c++0x
-	CFLAGS += -Wall
+	CXXFLAGS += -Wall -std=c++0x -Wno-unused-function
+	CFLAGS += -Wall -Wno-unused-function
 	LDFLAGS += -lrt
-	ifneq ($(OS),Windows_NT)
+	ifneq (Windows_NT,$(OS))
 		CXXFLAGS += -fPIC
 		CFLAGS += -fPIC
 		FCFLAGS += -fPIC
 		LDFLAGS += -fPIC
+	endif
+	ifneq (0,$(PEDANTIC))
+		CFLAGS += -std=c89 -pedantic -Wno-variadic-macros -Wno-long-long -Wno-overlength-strings
 	endif
 	ifeq (0,$(DBG))
 		CXXFLAGS += -O2 -ftree-vectorize -ffast-math -funroll-loops
 		CFLAGS += -O2 -ftree-vectorize -ffast-math -funroll-loops
 		FCFLAGS += -O2 -ftree-vectorize -ffast-math -funroll-loops
 		DFLAGS += -DNDEBUG
-		ifneq ($(IPO),0)
+		ifneq (0,$(IPO))
 			CXXFLAGS += -flto -ffat-lto-objects
 			CFLAGS += -flto -ffat-lto-objects
 			FCFLAGS += -flto -ffat-lto-objects
@@ -216,13 +241,13 @@ else # GCC assumed
 	ifeq (0,$(EXP))
 		CXXFLAGS += -fno-exceptions
 	endif
-	ifneq ($(OMP),0)
+	ifneq (0,$(OMP))
 		CXXFLAGS += -fopenmp
 		CFLAGS += -fopenmp
 		FCFLAGS += -fopenmp
 		LDFLAGS += -fopenmp
 	endif
-	ifneq ($(STATIC),0)
+	ifneq (0,$(STATIC))
 		SLDFLAGS += -static
 	endif
 	FCMODDIRFLAG = -J
@@ -251,11 +276,11 @@ ifeq (,$(LDFLAGS))
 	LDFLAGS = $(CFLAGS)
 endif
 
-ifneq ($(STATIC),0)
+ifneq (0,$(STATIC))
 	LIBEXT = a
-	else
+else
 	LIBEXT = so
-	endif
+endif
 
 parent = $(subst ?, ,$(firstword $(subst /, ,$(subst $(NULL) ,?,$(patsubst ./%,%,$1)))))
 

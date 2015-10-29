@@ -12,7 +12,7 @@ compiler:
 
 script:
   - make -e realclean &&
-    make -e -j
+    make -e PEDANTIC=1 -j
 
   - cd samples/copy &&
     make -e realclean &&
