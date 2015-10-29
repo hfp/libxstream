@@ -118,9 +118,9 @@ int main(int argc, char* argv[])
     LIBXSTREAM_CHECK_CALL_THROW(libxstream_stream_wait(0));
 
     int n = 0, nrepeat = maxrepeat;
-    const double mega = 1.0 / (1ul << 20);
     double totalsize = 0, maxval = 0, runlns = 0;
 #if defined(_OPENMP)
+    const double mega = 1.0 / (1ul << 20);
     double duration = -omp_get_wtime();
 #else
     const double duration = 0;
