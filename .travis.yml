@@ -1,0 +1,16 @@
+language: cpp
+
+addons:
+  apt:
+    packages:
+    - libblas-dev
+    - liblapack-dev
+
+compiler:
+  - gcc
+
+script:
+  - make -e realclean &&
+    make -e -j
+
+  - make -e samples
