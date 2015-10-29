@@ -15,24 +15,20 @@ script:
   - make -e realclean &&
     make -e PEDANTIC=1 -j
 
-  - cd samples/copy &&
+  - cd ${TRAVIS_BUILD_DIR}/samples/copy &&
     make -e realclean &&
     make -e PEDANTIC=1 &&
-    ./copy.sh i 2 2 512 &&
-    cd ../..
+    ./copy.sh i 2 2 512
 
-  - cd samples/entropy &&
+  - cd ${TRAVIS_BUILD_DIR}/samples/entropy &&
     make -e realclean &&
     make -e PEDANTIC=1 &&
-    ./entropy.sh -test &&
-    cd ../..
+    ./entropy.sh -test
 
-  - cd samples/multi-dgemm &&
+  - cd ${TRAVIS_BUILD_DIR}/samples/multi-dgemm &&
     make -e realclean &&
-    make -e PEDANTIC=1 &&
-    cd ../..
+    make -e PEDANTIC=1
 
-  - cd samples/test &&
+  - cd ${TRAVIS_BUILD_DIR}/samples/test &&
     make -e realclean &&
-    make -e PEDANTIC=1 &&
-    cd ../..
+    make -e PEDANTIC=1
