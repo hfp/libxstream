@@ -12,7 +12,7 @@ DOCDIR = documentation
 
 CXXFLAGS = $(NULL)
 CFLAGS = $(NULL)
-DFLAGS = -DLIBXSTREAM_EXPORTED
+DFLAGS = -D__extern_always_inline=inline -DLIBXSTREAM_EXPORTED
 IFLAGS = -I$(INCDIR)
 
 OFFLOAD ?= 1
@@ -22,6 +22,8 @@ SYM ?= 0
 DBG ?= 0
 IPO ?= 0
 EXP ?= 0
+SSE ?= 0
+AVX ?= 0
 
 OUTNAME = $(shell basename $(ROOTDIR))
 HEADERS = $(shell ls -1 $(INCDIR)/*.h   2> /dev/null | tr "\n" " ") \
@@ -59,45 +61,23 @@ GPP     = $(notdir $(shell which g++      2> /dev/null))
 GCC     = $(notdir $(shell which gcc      2> /dev/null))
 GFC     = $(notdir $(shell which gfortran 2> /dev/null))
 
-ifneq (,$(ICPC))
-	CXX = $(ICPC)
-	ifeq (,$(ICC))
-		CC = $(CXX)
-	endif
-	AR = xiar
-else
-	CXX = $(GPP)
-endif
-ifneq (,$(ICC))
-	CC = $(ICC)
-	ifeq (,$(ICPC))
-		CXX = $(CC)
-	endif
-	AR = xiar
-else
-	CC = $(GCC)
-endif
-ifneq (,$(IFORT))
-	FC = $(IFORT)
-	AR = xiar
-else
-	FC = $(GFC)
-endif
-ifneq ($(CXX),)
-	LD = $(CXX)
-endif
-ifeq ($(LD),)
-	LD = $(CC)
-endif
-ifeq ($(LD),)
-	LD = $(FC)
-endif
+CXX_CHECK = $(notdir $(shell which $(CXX) 2> /dev/null))
+CC_CHECK  = $(notdir $(shell which $(CC)  2> /dev/null))
+FC_CHECK  = $(notdir $(shell which $(FC)  2> /dev/null))
 
-ifneq (,$(filter icpc icc ifort,$(CXX) $(CC) $(FC)))
+# prefer Intel Compiler (if available)
+CXX = $(ICPC)
+FC = $(IFORT)
+CC = $(ICC)
+
+INTEL = $(shell echo $$((3==$(words $(filter icc icpc ifort,$(CC) $(CXX) $(FC))))))
+
+ifneq (0,$(INTEL))
+	AR = xiar
 	CXXFLAGS += -fPIC -Wall -std=c++0x
 	CFLAGS += -fPIC -Wall -std=c99
 	FCFLAGS += -fPIC
-	LDFLAGS += -fPIC
+	LDFLAGS += -fPIC -lrt
 	ifeq (0,$(DBG))
 		CXXFLAGS += -fno-alias -ansi-alias -O2
 		CFLAGS += -fno-alias -ansi-alias -O2
@@ -109,20 +89,30 @@ ifneq (,$(filter icpc icc ifort,$(CXX) $(CC) $(FC)))
 			CFLAGS += -ipo
 			FCFLAGS += -ipo
 		endif
-		ifeq ($(AVX),1)
-			TARGET = -xAVX
-		else ifeq ($(AVX),2)
-			TARGET = -xCORE-AVX2
-		else ifeq ($(AVX),3)
-			TARGET = -xCOMMON-AVX512
-		else
-			TARGET = -xHost
-		endif
 	else
 		CXXFLAGS += -O0
 		CFLAGS += -O0
 		FCFLAGS += -O0
 		SYM = $(DBG)
+	endif
+	ifeq (1,$(shell echo $$((2 > $(DBG)))))
+		ifeq (1,$(AVX))
+			TARGET = -xAVX
+		else ifeq (2,$(AVX))
+			TARGET = -xCORE-AVX2
+		else ifeq (3,$(AVX))
+			ifeq (0,$(MIC))
+				TARGET = -xCOMMON-AVX512
+			else
+				TARGET = -xMIC-AVX512
+			endif
+		else ifeq (1,$(shell echo $$((2 <= $(SSE)))))
+			TARGET = -xSSE$(SSE)
+		else ifeq (1,$(SSE))
+			TARGET = -xSSE3
+		else
+			TARGET = -xHost
+		endif
 	endif
 	ifneq (0,$(SYM))
 		ifneq (1,$(SYM))
@@ -154,13 +144,23 @@ ifneq (,$(filter icpc icc ifort,$(CXX) $(CC) $(FC)))
 	endif
 	FCMODDIRFLAG = -module
 else # GCC assumed
-	VERSION = $(shell $(GCC) --version | grep "gcc (GCC)" | sed "s/gcc (GCC) \([0-9]\+\.[0-9]\+\.[0-9]\+\).*$$/\1/")
+	ifeq (,$(CXX_CHECK))
+		CXX = $(GPP)
+	endif
+	ifeq (,$(CC_CHECK))
+		CC = $(GCC)
+	endif
+	ifeq (,$(FC_CHECK))
+		FC = $(GFC)
+	endif
+	VERSION = $(shell $(CC) --version | grep "gcc (GCC)" | sed "s/gcc (GCC) \([0-9]\+\.[0-9]\+\.[0-9]\+\).*$$/\1/")
 	VERSION_MAJOR = $(shell echo "$(VERSION)" | cut -d"." -f1)
 	VERSION_MINOR = $(shell echo "$(VERSION)" | cut -d"." -f2)
 	VERSION_PATCH = $(shell echo "$(VERSION)" | cut -d"." -f3)
 	MIC = 0
 	CXXFLAGS += -Wall -std=c++0x
 	CFLAGS += -Wall
+	LDFLAGS += -lrt
 	ifneq ($(OS),Windows_NT)
 		CXXFLAGS += -fPIC
 		CFLAGS += -fPIC
@@ -178,20 +178,29 @@ else # GCC assumed
 			FCFLAGS += -flto -ffat-lto-objects
 			LDFLAGS += -flto
 		endif
-		ifeq ($(AVX),1)
-			TARGET = -mavx
-		else ifeq ($(AVX),2)
-			TARGET = -mavx2
-		else ifeq ($(AVX),3)
-			TARGET = -mavx512f
-		else
-			TARGET = -march=native
-		endif
 	else
 		CXXFLAGS += -O0
 		CFLAGS += -O0
 		FCFLAGS += -O0
 		SYM = $(DBG)
+	endif
+	ifeq (1,$(shell echo $$((2 > $(DBG)))))
+		ifeq (1,$(AVX))
+			TARGET = -mavx
+		else ifeq (2,$(AVX))
+			TARGET = -mavx2
+		else ifeq (3,$(AVX))
+			TARGET = -mavx512f -mavx512cd
+			ifneq (0,$(MIC))
+				TARGET += -mavx512er -mavx512pf
+			endif
+		else ifeq (1,$(shell echo $$((2 <= $(SSE)))))
+			TARGET = -msse$(SSE)
+		else ifeq (1,$(SSE))
+			TARGET = -msse3
+		else
+			TARGET = -march=native
+		endif
 	endif
 	ifneq (0,$(SYM))
 		ifneq (1,$(SYM))
@@ -219,6 +228,16 @@ else # GCC assumed
 	FCMODDIRFLAG = -J
 endif
 
+ifneq (,$(CXX))
+	LD = $(CXX)
+endif
+ifeq (,$(LD))
+	LD = $(CC)
+endif
+ifeq (,$(LD))
+	LD = $(FC)
+endif
+
 ifeq (,$(CXXFLAGS))
 	CXXFLAGS = $(CFLAGS)
 endif
@@ -234,9 +253,9 @@ endif
 
 ifneq ($(STATIC),0)
 	LIBEXT = a
-else
+	else
 	LIBEXT = so
-endif
+	endif
 
 parent = $(subst ?, ,$(firstword $(subst /, ,$(subst $(NULL) ,?,$(patsubst ./%,%,$1)))))
 
@@ -287,19 +306,21 @@ $(DOCDIR)/libxstream.pdf: $(ROOTDIR)/README.md
 	@mkdir -p $(dir $@)
 	$(eval TEMPLATE := $(shell mktemp --tmpdir=. --suffix=.tex))
 	@pandoc -D latex > $(TEMPLATE)
-	@sed -i \
+	@TMPFILE=`mktemp`
+	@sed -i ${TMPFILE} \
 		-e 's/\(\\documentclass\[.\+\]{.\+}\)/\1\n\\pagenumbering{gobble}\n\\RedeclareSectionCommands[beforeskip=-1pt,afterskip=1pt]{subsection,subsubsection}/' \
 		-e 's/\\usepackage{listings}/\\usepackage{listings}\\lstset{basicstyle=\\footnotesize\\ttfamily}/' \
 		$(TEMPLATE)
+	@rm -f ${TMPFILE}
 	@sed \
 		-e 's/https:\/\/raw\.githubusercontent\.com\/hfp\/libxstream\/master\///' \
+		-e 's/\[!\[.\+\](https:\/\/travis-ci.org\/hfp\/libxstream.svg?branch=.\+)\](.\+)//' \
 		-e 's/\[\[.\+\](.\+)\]//' \
 		-e '/!\[.\+\](.\+)/{n;d}' \
 		$(ROOTDIR)/README.md | \
 	pandoc \
-		--latex-engine=xelatex \
-		--template=$(TEMPLATE) --listings \
-		-f markdown_github+implicit_figures \
+		--latex-engine=xelatex --template=$(TEMPLATE) --listings \
+		-f markdown_github+implicit_figures+all_symbols_escapable \
 		-V documentclass=scrartcl \
 		-V title-meta="LIBXSTREAM Documentation" \
 		-V author-meta="Hans Pabst" \
@@ -314,19 +335,21 @@ $(DOCDIR)/cp2k.pdf: $(ROOTDIR)/documentation/cp2k.md
 	@mkdir -p $(dir $@)
 	$(eval TEMPLATE := $(shell mktemp --tmpdir=. --suffix=.tex))
 	@pandoc -D latex > $(TEMPLATE)
-	@sed -i \
+	@TMPFILE=`mktemp`
+	@sed -i ${TMPFILE} \
 		-e 's/\(\\documentclass\[.\+\]{.\+}\)/\1\n\\pagenumbering{gobble}\n\\RedeclareSectionCommands[beforeskip=-1pt,afterskip=1pt]{subsection,subsubsection}/' \
 		-e 's/\\usepackage{listings}/\\usepackage{listings}\\lstset{basicstyle=\\footnotesize\\ttfamily}/' \
 		$(TEMPLATE)
+	@rm -f ${TMPFILE}
 	@sed \
 		-e 's/https:\/\/raw\.githubusercontent\.com\/hfp\/libxstream\/master\///' \
+		-e 's/\[!\[.\+\](https:\/\/travis-ci.org\/hfp\/libxstream.svg?branch=.\+)\](.\+)//' \
 		-e 's/\[\[.\+\](.\+)\]//' \
 		-e '/!\[.\+\](.\+)/{n;d}' \
 		$(ROOTDIR)/documentation/cp2k.md | \
 	pandoc \
-		--latex-engine=xelatex \
-		--template=$(TEMPLATE) --listings \
-		-f markdown_github+implicit_figures \
+		--latex-engine=xelatex --template=$(TEMPLATE) --listings \
+		-f markdown_github+implicit_figures+all_symbols_escapable \
 		-V documentclass=scrartcl \
 		-V title-meta="CP2K with LIBXSTREAM" \
 		-V author-meta="Hans Pabst" \
@@ -344,7 +367,7 @@ documentation: $(DOCDIR)/libxstream.pdf $(DOCDIR)/cp2k.pdf
 clean:
 ifneq ($(abspath $(call parent,$(BLDDIR))),$(ROOTDIR))
 ifneq ($(abspath $(call parent,$(BLDDIR))),$(abspath .))
-	@rm -rf $(call parent,$(BLDDIR))
+	@rm -rf $(call parent,$(BLDDIR)) *.mod
 else
 	@rm -f $(OBJECTS) $(BLDDIR)/*.mod
 endif
