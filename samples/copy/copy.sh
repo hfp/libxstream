@@ -9,13 +9,19 @@ if [[ "-mic" != "$1" ]] ; then
   else
     FILE=copyin.dat
   fi
-  env \
-    KMP_AFFINITY=scatter,granularity=fine \
-    OFFLOAD_INIT=on_start \
-    MIC_ENV_PREFIX=MIC \
-    MIC_KMP_AFFINITY=scatter,granularity=fine \
-  ${HERE}/${NAME} $* | \
-  tee ${FILE}
+  if [[ "" != "$(ldd ${HERE}/${NAME} | grep libiomp5\.so)" ]] ; then
+    env OFFLOAD_INIT=on_start \
+      KMP_AFFINITY=scatter,granularity=fine,1 \
+      MIC_KMP_AFFINITY=scatter,granularity=fine \
+      MIC_ENV_PREFIX=MIC \
+    ${HERE}/${NAME} $* | \
+    tee ${FILE}
+  else
+    env \
+      OMP_PROC_BIND=TRUE \
+    ${HERE}/${NAME} $* | \
+    tee ${FILE}
+  fi
 else
   shift
   if [[ "$1" == "o"* ]] ; then
