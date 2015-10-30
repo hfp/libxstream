@@ -37,6 +37,7 @@
 #if defined(LIBXSTREAM_STDFEATURES)
 # include <atomic>
 #endif
+#include <algorithm>
 #include <cstring>
 #include <libxstream_end.h>
 

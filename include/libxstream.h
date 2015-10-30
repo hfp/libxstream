@@ -37,7 +37,7 @@
 #endif
 #include <stdint.h>
 #include <stddef.h>
-#if defined(__cplusplus)
+#if defined(__cplusplus) && defined(LIBXSTREAM_STDCOMPLEX)
 # include <complex>
 #endif
 #if defined(LIBXSTREAM_OFFLOAD_BUILD)
@@ -200,10 +200,12 @@ template<> struct libxstream_map_to<float>                                      
 template<> struct libxstream_map_to<double>                                       { static libxstream_type type() { return LIBXSTREAM_TYPE_F64;  } };
 template<> struct libxstream_map_to<float[2]>                                     { static libxstream_type type() { return LIBXSTREAM_TYPE_C32;  } };
 template<> struct libxstream_map_to<double[2]>                                    { static libxstream_type type() { return LIBXSTREAM_TYPE_C64;  } };
-template<> struct libxstream_map_to<std::complex<float> >                         { static libxstream_type type() { return LIBXSTREAM_TYPE_C32;  } };
-template<> struct libxstream_map_to<std::complex<double> >                        { static libxstream_type type() { return LIBXSTREAM_TYPE_C64;  } };
 template<> struct libxstream_map_to<char>                                         { static libxstream_type type() { return LIBXSTREAM_TYPE_CHAR; } };
 template<> struct libxstream_map_to<void>                                         { static libxstream_type type() { return LIBXSTREAM_TYPE_VOID; } };
+#if defined(LIBXSTREAM_STDCOMPLEX)
+template<> struct libxstream_map_to<std::complex<float> >                         { static libxstream_type type() { return LIBXSTREAM_TYPE_C32;  } };
+template<> struct libxstream_map_to<std::complex<double> >                        { static libxstream_type type() { return LIBXSTREAM_TYPE_C64;  } };
+#endif
 template<typename TYPE> struct libxstream_map_to<TYPE*>                           { static libxstream_type type() { return libxstream_map_to<TYPE>::type(); } };
 template<typename TYPE> struct libxstream_map_to<const TYPE*>                     { static libxstream_type type() { return libxstream_map_to<TYPE>::type(); } };
 template<typename TYPE> struct libxstream_map_to<TYPE**>                          { static libxstream_type type() { return libxstream_map_to<uintptr_t>::type(); } };
@@ -230,10 +232,12 @@ template<> struct libxstream_map_from<LIBXSTREAM_TYPE_I64>                      
 template<> struct libxstream_map_from<LIBXSTREAM_TYPE_U64>                        { typedef uint64_t type; };
 template<> struct libxstream_map_from<LIBXSTREAM_TYPE_F32>                        { typedef float type; };
 template<> struct libxstream_map_from<LIBXSTREAM_TYPE_F64>                        { typedef double type; };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_C32>                        { typedef std::complex<float>  type; typedef float  ctype[2]; };
-template<> struct libxstream_map_from<LIBXSTREAM_TYPE_C64>                        { typedef std::complex<double> type; typedef double ctype[2]; };
 template<> struct libxstream_map_from<LIBXSTREAM_TYPE_CHAR>                       { typedef char type; };
 template<> struct libxstream_map_from<LIBXSTREAM_TYPE_VOID>                       { typedef void type; };
+#if defined(LIBXSTREAM_STDCOMPLEX)
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_C32>                        { typedef std::complex<float>  type; typedef float  ctype[2]; };
+template<> struct libxstream_map_from<LIBXSTREAM_TYPE_C64>                        { typedef std::complex<double> type; typedef double ctype[2]; };
+#endif
 #endif /*__cplusplus*/
 
 #endif /*LIBXSTREAM_H*/
