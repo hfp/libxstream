@@ -53,6 +53,8 @@
 #   define LIBXSTREAM_PRAGMA(DIRECTIVE) _Pragma(LIBXSTREAM_STRINGIFY(DIRECTIVE))
 #   define LIBXSTREAM_RESTRICT restrict
 #   define LIBXSTREAM_INLINE static inline
+# elif defined(_MSC_VER)
+#   define LIBXSTREAM_INLINE static __inline
 # else
 #   define LIBXSTREAM_INLINE static
 # endif /*C99*/
@@ -75,6 +77,14 @@
 #   define LIBXSTREAM_PRAGMA(DIRECTIVE)
 # endif
 #endif /*LIBXSTREAM_PRAGMA*/
+
+#if defined(_MSC_VER)
+# define LIBXSTREAM_MESSAGE(MSG) LIBXSTREAM_PRAGMA(message(MSG))
+#elif (40400 <= (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__))
+# define LIBXSTREAM_MESSAGE(MSG) LIBXSTREAM_PRAGMA(message MSG)
+#else
+# define LIBXSTREAM_MESSAGE(MSG)
+#endif
 
 #if defined(__INTEL_COMPILER)
 # define LIBXSTREAM_PRAGMA_SIMD_REDUCTION(EXPRESSION) LIBXSTREAM_PRAGMA(simd reduction(EXPRESSION))
@@ -139,14 +149,21 @@
 
 #if defined(_WIN32) && !defined(__GNUC__)
 # define LIBXSTREAM_ATTRIBUTE(A) __declspec(A)
+# if defined(__cplusplus)
+#   define LIBXSTREAM_INLINE_ALWAYS __forceinline
+# else
+#   define LIBXSTREAM_INLINE_ALWAYS static __forceinline
+# endif
 # define LIBXSTREAM_ALIGNED(DECL, N) LIBXSTREAM_ATTRIBUTE(align(N)) DECL
 # define LIBXSTREAM_CDECL __cdecl
 #elif defined(__GNUC__)
 # define LIBXSTREAM_ATTRIBUTE(A) __attribute__((A))
+# define LIBXSTREAM_INLINE_ALWAYS LIBXSTREAM_ATTRIBUTE(always_inline) LIBXSTREAM_INLINE
 # define LIBXSTREAM_ALIGNED(DECL, N) DECL LIBXSTREAM_ATTRIBUTE(aligned(N))
 # define LIBXSTREAM_CDECL LIBXSTREAM_ATTRIBUTE(cdecl)
 #else
 # define LIBXSTREAM_ATTRIBUTE(A)
+# define LIBXSTREAM_INLINE_ALWAYS LIBXSTREAM_INLINE
 # define LIBXSTREAM_ALIGNED(DECL, N)
 # define LIBXSTREAM_CDECL
 #endif
