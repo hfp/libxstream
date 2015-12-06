@@ -33,6 +33,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 #if defined(_OPENMP)
 # include <omp.h>
 #endif
