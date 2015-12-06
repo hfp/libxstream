@@ -1,10 +1,16 @@
-# export all variables to sub-make processes
+# Export all variables to sub-make processes.
 #.EXPORT_ALL_VARIABLES: #export
-# Set MAKE_PARALLEL=0 for issues with parallel make (older GNU Make)
+
+# Automatically disable parallel builds
+# depending on the version of GNU Make.
+# MAKE_PARALLEL=0: disable explcitly
+# MAKE_PARALLEL=1: enable explicitly
 ifeq (0,$(MAKE_PARALLEL))
 .NOTPARALLEL:
-else ifneq (3.82,$(firstword $(sort $(MAKE_VERSION) 3.82)))
+else ifeq (,$(MAKE_PARALLEL))
+ifneq (3.82,$(firstword $(sort $(MAKE_VERSION) 3.82)))
 .NOTPARALLEL:
+endif
 endif
 
 # Linux cut has features we use that do not work elsewhere
@@ -71,210 +77,8 @@ F77OBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(F77SRCS:.F=-f77.o)))
 F90OBJS = $(patsubst %,$(BLDDIR)/%,$(notdir $(F90SRCS:.f90=-f90.o)))
 OBJECTS = $(CPPOBJS) $(CXXOBJS) $(CCXOBJS) $(COBJCTS) $(FTNOBJS) $(F77OBJS) $(F90OBJS)
 
-ICPC    = $(notdir $(shell which icpc     2> /dev/null))
-ICC     = $(notdir $(shell which icc      2> /dev/null))
-IFORT   = $(notdir $(shell which ifort    2> /dev/null))
-GPP     = $(notdir $(shell which g++      2> /dev/null))
-GCC     = $(notdir $(shell which gcc      2> /dev/null))
-GFC     = $(notdir $(shell which gfortran 2> /dev/null))
-
-CXX_CHECK = $(notdir $(shell which $(CXX) 2> /dev/null))
-CC_CHECK  = $(notdir $(shell which $(CC)  2> /dev/null))
-FC_CHECK  = $(notdir $(shell which $(FC)  2> /dev/null))
-
-# prefer Intel Compiler (if available)
-CXX = $(ICPC)
-FC = $(IFORT)
-CC = $(ICC)
-
-INTEL = $(shell echo $$((3==$(words $(filter icc icpc ifort,$(CC) $(CXX) $(FC))))))
-
-ifneq (0,$(INTEL))
-	AR = xiar
-	CXXFLAGS += -fPIC -Wall -std=c++0x
-	CFLAGS += -fPIC -Wall -std=c99
-	FCMTFLAGS += -threads
-	FCFLAGS += -fPIC
-	LDFLAGS += -fPIC -lrt
-	ifeq (1,$(PEDANTIC))
-		CFLAGS += -std=c89 -Wcheck
-	else ifneq (0,$(PEDANTIC))
-		CFLAGS += -std=c89 -Wcheck -Wremarks
-	endif
-	ifeq (0,$(DBG))
-		CXXFLAGS += -fno-alias -ansi-alias -O2
-		CFLAGS += -fno-alias -ansi-alias -O2
-		FCFLAGS += -O2
-		DFLAGS += -DNDEBUG
-		ifneq (0,$(IPO))
-			CXXFLAGS += -ipo
-			CFLAGS += -ipo
-			FCFLAGS += -ipo
-		endif
-	else
-		CXXFLAGS += -O0
-		CFLAGS += -O0
-		FCFLAGS += -O0
-		SYM = $(DBG)
-	endif
-	ifeq (1,$(shell echo $$((2 > $(DBG)))))
-		ifeq (1,$(AVX))
-			TARGET = -xAVX
-		else ifeq (2,$(AVX))
-			TARGET = -xCORE-AVX2
-		else ifeq (3,$(AVX))
-			ifeq (0,$(MIC))
-				TARGET = -xCOMMON-AVX512
-			else
-				TARGET = -xMIC-AVX512
-			endif
-		else ifeq (1,$(shell echo $$((2 <= $(SSE)))))
-			TARGET = -xSSE$(SSE)
-		else ifeq (1,$(SSE))
-			TARGET = -xSSE3
-		else
-			TARGET = -xHost
-		endif
-	endif
-	ifneq (0,$(SYM))
-		ifneq (1,$(SYM))
-			CXXFLAGS := -g3 -gdwarf-2 -debug inline-debug-info $(CXXFLAGS)
-			CFLAGS := -g3 -gdwarf-2 -debug inline-debug-info $(CFLAGS)
-			FCFLAGS := -g $(FCFLAGS)
-		else
-			CXXFLAGS := -g $(CXXFLAGS)
-			CFLAGS := -g $(CFLAGS)
-			FCFLAGS := -g $(FCFLAGS)
-		endif
-	endif
-	ifeq (0,$(EXP))
-		CXXFLAGS += -fno-exceptions
-	endif
-	ifneq (0,$(OMP))
-		CXXFLAGS += -openmp
-		CFLAGS += -openmp
-		FCFLAGS += -openmp
-		LDFLAGS += -openmp
-	endif
-	ifeq (0,$(OFFLOAD))
-		CXXFLAGS += -no-offload
-		CFLAGS += -no-offload
-		FCFLAGS += -no-offload
-	endif
-	ifneq (0,$(STATIC))
-		SLDFLAGS += -no-intel-extensions -static-intel
-	endif
-	FCMODDIRFLAG = -module
-else # GCC assumed
-	ifeq (,$(CXX_CHECK))
-		CXX = $(GPP)
-	endif
-	ifeq (,$(CC_CHECK))
-		CC = $(GCC)
-	endif
-	ifeq (,$(FC_CHECK))
-		FC = $(GFC)
-	endif
-	VERSION = $(shell $(CC) --version | grep "gcc (GCC)" | sed "s/gcc (GCC) \([0-9]\+\.[0-9]\+\.[0-9]\+\).*$$/\1/")
-	VERSION_MAJOR = $(shell echo "$(VERSION)" | $(CUT) -d"." -f1)
-	VERSION_MINOR = $(shell echo "$(VERSION)" | $(CUT) -d"." -f2)
-	VERSION_PATCH = $(shell echo "$(VERSION)" | $(CUT) -d"." -f3)
-	MIC = 0
-	CXXFLAGS += -Wall -std=c++0x -Wno-unused-function
-	CFLAGS += -Wall -Wno-unused-function
-	LDFLAGS += -lrt
-	ifneq (Windows_NT,$(OS))
-		CXXFLAGS += -fPIC
-		CFLAGS += -fPIC
-		FCFLAGS += -fPIC
-		LDFLAGS += -fPIC
-	endif
-	ifneq (0,$(PEDANTIC))
-		CFLAGS += -std=c89 -pedantic -Wno-variadic-macros -Wno-long-long -Wno-overlength-strings
-	endif
-	ifeq (0,$(DBG))
-		CXXFLAGS += -O2 -ftree-vectorize -ffast-math -funroll-loops
-		CFLAGS += -O2 -ftree-vectorize -ffast-math -funroll-loops
-		FCFLAGS += -O2 -ftree-vectorize -ffast-math -funroll-loops
-		DFLAGS += -DNDEBUG
-		ifneq (0,$(IPO))
-			CXXFLAGS += -flto -ffat-lto-objects
-			CFLAGS += -flto -ffat-lto-objects
-			FCFLAGS += -flto -ffat-lto-objects
-			LDFLAGS += -flto
-		endif
-	else
-		CXXFLAGS += -O0
-		CFLAGS += -O0
-		FCFLAGS += -O0
-		SYM = $(DBG)
-	endif
-	ifeq (1,$(shell echo $$((2 > $(DBG)))))
-		ifeq (1,$(AVX))
-			TARGET = -mavx
-		else ifeq (2,$(AVX))
-			TARGET = -mavx2
-		else ifeq (3,$(AVX))
-			TARGET = -mavx512f -mavx512cd
-			ifneq (0,$(MIC))
-				TARGET += -mavx512er -mavx512pf
-			endif
-		else ifeq (1,$(shell echo $$((2 <= $(SSE)))))
-			TARGET = -msse$(SSE)
-		else ifeq (1,$(SSE))
-			TARGET = -msse3
-		else
-			TARGET = -march=native
-		endif
-	endif
-	ifneq (0,$(SYM))
-		ifneq (1,$(SYM))
-			CXXFLAGS := -g3 -gdwarf-2 -debug inline-debug-info $(CXXFLAGS)
-			CFLAGS := -g3 -gdwarf-2 -debug inline-debug-info $(CFLAGS)
-			FCFLAGS := -g $(FCFLAGS)
-		else
-			CXXFLAGS := -g $(CXXFLAGS)
-			CFLAGS := -g $(CFLAGS)
-			FCFLAGS := -g $(FCFLAGS)
-		endif
-	endif
-	ifeq (0,$(EXP))
-		CXXFLAGS += -fno-exceptions
-	endif
-	ifneq (0,$(OMP))
-		CXXFLAGS += -fopenmp
-		CFLAGS += -fopenmp
-		FCFLAGS += -fopenmp
-		LDFLAGS += -fopenmp
-	endif
-	ifneq (0,$(STATIC))
-		SLDFLAGS += -static
-	endif
-	FCMODDIRFLAG = -J
-endif
-
-ifneq (,$(CXX))
-	LD = $(CXX)
-endif
-ifeq (,$(LD))
-	LD = $(CC)
-endif
-ifeq (,$(LD))
-	LD = $(FC)
-endif
-
-ifeq (,$(CXXFLAGS))
-	CXXFLAGS = $(CFLAGS)
-endif
-ifeq (,$(CFLAGS))
-	CFLAGS = $(CXXFLAGS)
-endif
-ifeq (,$(FCFLAGS))
-	FCFLAGS = $(CFLAGS)
-endif
-ifeq (,$(LDFLAGS))
-	LDFLAGS = $(CFLAGS)
-endif
+# include common Makefile artifacts
+include $(ROOTDIR)/Makefile.inc
 
 ifneq (0,$(STATIC))
 	LIBEXT = a
