@@ -1,5 +1,5 @@
 /******************************************************************************
-** Copyright (c) 2014-2016, Intel Corporation                                **
+** Copyright (c) 2013-2016, Intel Corporation                                **
 ** All rights reserved.                                                      **
 **                                                                           **
 ** Redistribution and use in source and binary forms, with or without        **
@@ -121,7 +121,7 @@
 
 #if !defined(LIBXSTREAM_UNUSED)
 # if 0 /*defined(__GNUC__) && !defined(__clang__) && !defined(__INTEL_COMPILER)*/
-#   define LIBXSTREAM_UNUSED(VARIABLE) LIBXSTREAM_PRAGMA(LIBXSTREAM_STRINGIFY(unused(VARIABLE)))
+#   define LIBXSTREAM_UNUSED(VARIABLE) LIBXSTREAM_PRAGMA(unused(VARIABLE))
 # else
 #   define LIBXSTREAM_UNUSED(VARIABLE) (void)(VARIABLE)
 # endif
@@ -139,8 +139,8 @@
 #define LIBXSTREAM_NBITS08(N) (0 != ((N) & 0xF0/*0b11110000*/) ? (4 + LIBXSTREAM_NBITS04((N) >> 4)) : LIBXSTREAM_NBITS04(N))
 #define LIBXSTREAM_NBITS16(N) (0 != ((N) & 0xFF00) ? (8 + LIBXSTREAM_NBITS08((N) >> 8)) : LIBXSTREAM_NBITS08(N))
 #define LIBXSTREAM_NBITS32(N) (0 != ((N) & 0xFFFF0000) ? (16 + LIBXSTREAM_NBITS16((N) >> 16)) : LIBXSTREAM_NBITS16(N))
-#define LIBXSTREAM_NBITS64(N) (0 != ((N) & 0xFFFFFFFF00000000) ? (32 + LIBXSTREAM_NBITS32((uint64_t)(N) >> 32)) : LIBXSTREAM_NBITS32(N))
-#define LIBXSTREAM_NBITS(N) (0 != (N) ? (LIBXSTREAM_NBITS64(N) + 1) : 1)
+#define LIBXSTREAM_NBITS64(N) (0 != ((N) & 0xFFFFFFFF00000000) ? (32 + LIBXSTREAM_NBITS32((N) >> 32)) : LIBXSTREAM_NBITS32(N))
+#define LIBXSTREAM_NBITS(N) (0 != (N) ? (LIBXSTREAM_NBITS64((uint64_t)(N)) + 1) : 1)
 
 #define LIBXSTREAM_MIN(A, B) ((A) < (B) ? (A) : (B))
 #define LIBXSTREAM_MAX(A, B) ((A) < (B) ? (B) : (A))
@@ -151,7 +151,7 @@
 #define LIBXSTREAM_UP(N, UP) ((((N) + (UP) - 1) / (UP)) * (UP))
 
 #if defined(_WIN32) && !defined(__GNUC__)
-# define LIBXSTREAM_ATTRIBUTE(A) __declspec(A)
+# define LIBXSTREAM_ATTRIBUTE(...) __declspec(__VA_ARGS__)
 # if defined(__cplusplus)
 #   define LIBXSTREAM_INLINE_ALWAYS __forceinline
 # else
@@ -160,12 +160,12 @@
 # define LIBXSTREAM_ALIGNED(DECL, N) LIBXSTREAM_ATTRIBUTE(align(N)) DECL
 # define LIBXSTREAM_CDECL __cdecl
 #elif defined(__GNUC__)
-# define LIBXSTREAM_ATTRIBUTE(A) __attribute__((A))
+# define LIBXSTREAM_ATTRIBUTE(...) __attribute__((__VA_ARGS__))
 # define LIBXSTREAM_INLINE_ALWAYS LIBXSTREAM_ATTRIBUTE(always_inline) LIBXSTREAM_INLINE
 # define LIBXSTREAM_ALIGNED(DECL, N) DECL LIBXSTREAM_ATTRIBUTE(aligned(N))
 # define LIBXSTREAM_CDECL LIBXSTREAM_ATTRIBUTE(cdecl)
 #else
-# define LIBXSTREAM_ATTRIBUTE(A)
+# define LIBXSTREAM_ATTRIBUTE(...)
 # define LIBXSTREAM_INLINE_ALWAYS LIBXSTREAM_INLINE
 # define LIBXSTREAM_ALIGNED(DECL, N)
 # define LIBXSTREAM_CDECL
@@ -184,13 +184,13 @@
 #   define LIBXSTREAM_ASSUME(EXPRESSION)
 # endif
 #endif
-#define LIBXSTREAM_ALIGN_VALUE(N, TYPESIZE, ALIGNMENT) (LIBXSTREAM_UP2((N) * (TYPESIZE), ALIGNMENT) / (TYPESIZE))
-#define LIBXSTREAM_ALIGN_VALUE2(N, POTSIZE, ALIGNMENT) LIBXSTREAM_DIV2(LIBXSTREAM_UP2(LIBXSTREAM_MUL2(N, POTSIZE), ALIGNMENT), POTSIZE)
-#define LIBXSTREAM_ALIGN(POINTER, ALIGNMENT) ((POINTER) + (LIBXSTREAM_ALIGN_VALUE((uintptr_t)(POINTER), 1, ALIGNMENT) - ((uintptr_t)(POINTER))) / sizeof(*(POINTER)))
-#define LIBXSTREAM_ALIGN2(POINTPOT, POTMENT) ((POINTPOT) + LIBXSTREAM_DIV2(LIBXSTREAM_ALIGN_VALUE2((uintptr_t)(POINTPOT), 1, POTMENT) - ((uintptr_t)(POINTPOT)), sizeof(*(POINTPOT))))
+#define LIBXSTREAM_ALIGN_VALUE(N, TYPESIZE, ALIGNMENT/*POT*/) (LIBXSTREAM_UP2((N) * (TYPESIZE), ALIGNMENT) / (TYPESIZE))
+#define LIBXSTREAM_ALIGN_VALUE2(N, POTSIZE, ALIGNMENT/*POT*/) LIBXSTREAM_DIV2(LIBXSTREAM_UP2(LIBXSTREAM_MUL2(N, POTSIZE), ALIGNMENT), POTSIZE)
+#define LIBXSTREAM_ALIGN(POINTER, ALIGNMENT/*POT*/) ((POINTER) + (LIBXSTREAM_ALIGN_VALUE((uintptr_t)(POINTER), 1, ALIGNMENT) - ((uintptr_t)(POINTER))) / sizeof(*(POINTER)))
+#define LIBXSTREAM_ALIGN2(POINTPOT, ALIGNMENT/*POT*/) ((POINTPOT) + LIBXSTREAM_DIV2(LIBXSTREAM_ALIGN_VALUE2((uintptr_t)(POINTPOT), 1, ALIGNMENT) - ((uintptr_t)(POINTPOT)), sizeof(*(POINTPOT))))
 
-#define LIBXSTREAM_HASH2_VALUE(N, NPOT) LIBXSTREAM_MOD2(((N ^ (N >> 12)) ^ ((N ^ (N >> 12)) << 25)) ^ (((N ^ (N >> 12)) ^ ((N ^ (N >> 12)) << 25)) >> 27), NPOT)
-#define LIBXSTREAM_HASH2(POINTER, ALIGNMENT, NPOT) LIBXSTREAM_HASH2_VALUE(LIBXSTREAM_DIV2((uintptr_t)(POINTER), ALIGNMENT), NPOT)
+#define LIBXSTREAM_HASH_VALUE(N) ((((N) ^ ((N) >> 12)) ^ (((N) ^ ((N) >> 12)) << 25)) ^ ((((N) ^ ((N) >> 12)) ^ (((N) ^ ((N) >> 12)) << 25)) >> 27))
+#define LIBXSTREAM_HASH2(POINTER, ALIGNMENT/*POT*/, NPOT) LIBXSTREAM_MOD2(LIBXSTREAM_HASH_VALUE(LIBXSTREAM_DIV2((uintptr_t)(POINTER), ALIGNMENT)), NPOT)
 
 #if defined(_WIN32) && !defined(__GNUC__)
 # define LIBXSTREAM_TLS LIBXSTREAM_ATTRIBUTE(thread)
@@ -211,6 +211,34 @@
 # define LIBXSTREAM_OFFLOAD_TARGET mic
 #endif
 #define LIBXSTREAM_RETARGETABLE LIBXSTREAM_OFFLOAD(LIBXSTREAM_OFFLOAD_TARGET)
+
+/** Execute the CPUID, and receive results (EAX, EBX, ECX, EDX) for requested FUNCTION. */
+#if defined(__GNUC__)
+# define LIBXSTREAM_CPUID(FUNCTION, EAX, EBX, ECX, EDX) \
+    __asm__ __volatile__ ("cpuid" : "=a"(EAX), "=b"(EBX), "=c"(ECX), "=d"(EDX) : "a"(FUNCTION))
+#else
+# define LIBXSTREAM_CPUID(FUNCTION, EAX, EBX, ECX, EDX) { \
+    int libxsmm_cpuid_[4]; \
+    __cpuid(libxsmm_cpuid_, FUNCTION); \
+    EAX = libxsmm_cpuid_[0]; \
+    EBX = libxsmm_cpuid_[1]; \
+    ECX = libxsmm_cpuid_[2]; \
+    EDX = libxsmm_cpuid_[3]; \
+  }
+#endif
+
+/** Execute the XGETBV, and receive results (EAX, EDX) for req. eXtended Control Register (XCR). */
+#if defined(__GNUC__)
+# define LIBXSTREAM_XGETBV(XCR, EAX, EDX) __asm__ __volatile__( \
+    "xgetbv" : "=a"(EAX), "=d"(EDX) : "c"(XCR) \
+  )
+#else
+# define LIBXSTREAM_XGETBV(XCR, EAX, EDX) { \
+    unsigned long long libxsmm_xgetbv_ = _xgetbv(XCR); \
+    EAX = (int)libxsmm_xgetbv_; \
+    EDX = (int)(libxsmm_xgetbv_ >> 32); \
+  }
+#endif
 
 /**
  * Below group of preprocessor symbols are used to fixup some platform specifics.
@@ -287,9 +315,9 @@
 #if defined(_WINDLL) && defined(_WIN32)
 # if defined(LIBXSTREAM_EXPORTED)
 #   define LIBXSTREAM_EXPORT __declspec(dllexport)
-# else
+#else
 #   define LIBXSTREAM_EXPORT LIBXSTREAM_IMPORT_DLL
-# endif
+#endif
 #else
 # define LIBXSTREAM_EXPORT
 #endif
