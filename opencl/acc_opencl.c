@@ -229,7 +229,7 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.async = (NULL == env_async ? /*default*/ 3 : atoi(env_async));
     c_dbcsr_acc_opencl_config.flush = (NULL == env_flush ? /*default*/ 0 : atoi(env_flush));
     c_dbcsr_acc_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
-    if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(env_devmatch, &c_dbcsr_acc_opencl_config.devmatch)) {
+    if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, env_devmatch, &c_dbcsr_acc_opencl_config.devmatch)) {
       c_dbcsr_acc_opencl_config.devmatch = 1;
     }
     /* sanitize ACC_OPENCL_SHARE */
@@ -726,22 +726,33 @@ int c_dbcsr_acc_opencl_device_vendor(cl_device_id device, const char vendor[]) {
 }
 
 
-int c_dbcsr_acc_opencl_device_uid(const char devname[], unsigned int* uid) {
+int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], unsigned int* uid) {
   int result;
   if (NULL != uid) {
-    if (NULL != devname && '\0' != *devname) {
-      if (0 == isdigit(*devname)) {
-        char skip[ACC_OPENCL_BUFFERSIZE];
-        if (2 != sscanf(devname, "%[^[][0x%xu]", skip, uid)) {
-          *uid = libxsmm_hash(devname, (unsigned int)strlen(devname), 25071975 /*seed*/);
-        }
-      }
-      else *uid = (unsigned int)strtoul(devname, NULL, 0);
-      result = EXIT_SUCCESS;
+    if (NULL != device) {
+      struct {
+        cl_uint pci_domain, pci_bus, pci_device, pci_function;
+      } device_pci_bus_info;
+      result = clGetDeviceInfo(
+        device, 0x410F /*CL_DEVICE_PCI_BUS_INFO_KHR*/, sizeof(device_pci_bus_info), &device_pci_bus_info, NULL);
+      if (CL_SUCCESS == result) *uid = device_pci_bus_info.pci_device;
     }
-    else {
-      result = EXIT_FAILURE;
-      *uid = 0;
+    else result = EXIT_FAILURE;
+    if (EXIT_SUCCESS != result) {
+      if (NULL != devname && '\0' != *devname) {
+        *uid = (unsigned int)strtoul(devname, NULL, 0);
+        if (0 == *uid) {
+          char skip[ACC_OPENCL_BUFFERSIZE];
+          if (2 != sscanf(devname, "%[^[][0x%xu]", skip, uid)) {
+            *uid = libxsmm_hash(devname, (unsigned int)strlen(devname), 25071975 /*seed*/);
+          }
+        }
+        result = EXIT_SUCCESS;
+      }
+      else {
+        result = EXIT_FAILURE;
+        *uid = 0;
+      }
     }
   }
   else result = EXIT_FAILURE;
@@ -762,7 +773,7 @@ int c_dbcsr_acc_opencl_device_info(
     result = clGetDeviceInfo(device, CL_DEVICE_NAME, name_maxlen, name, NULL);
   }
   if (CL_SUCCESS == result) {
-    if (NULL != uid) result = c_dbcsr_acc_opencl_device_uid(name, uid);
+    if (NULL != uid) result = c_dbcsr_acc_opencl_device_uid(device, name, uid);
     if (EXIT_SUCCESS == result && NULL != platform && 0 < platform_maxlen) {
       cl_platform_id platform_id;
       result = clGetDeviceInfo(device, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform_id, NULL);
