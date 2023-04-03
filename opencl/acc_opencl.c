@@ -728,20 +728,8 @@ int c_dbcsr_acc_opencl_device_vendor(cl_device_id device, const char vendor[]) {
 int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], unsigned int* uid) {
   int result;
   if (NULL != uid) {
-    if (NULL != device) {
-      struct {
-        cl_uint pci_domain, pci_bus, pci_device, pci_function;
-      } device_pci_bus_info;
-      result = clGetDeviceInfo(
-        device, 0x410F /*CL_DEVICE_PCI_BUS_INFO_KHR*/, sizeof(device_pci_bus_info), &device_pci_bus_info, NULL);
-      if (CL_SUCCESS == result) {
-        if (0 != device_pci_bus_info.pci_device) *uid = device_pci_bus_info.pci_device;
-        else result = EXIT_FAILURE;
-      }
-      if (CL_SUCCESS != result) {
-        result = clGetDeviceInfo(device, 0x4251 /*CL_DEVICE_ID_INTEL*/, sizeof(cl_uint), &device_pci_bus_info.pci_device, NULL);
-        if (CL_SUCCESS == result) *uid = device_pci_bus_info.pci_device;
-      }
+    if (NULL != device && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(device, "intel")) {
+      result = clGetDeviceInfo(device, 0x4251 /*CL_DEVICE_ID_INTEL*/, sizeof(unsigned int), &uid, NULL);
     }
     else result = EXIT_FAILURE;
     if (EXIT_SUCCESS != result) {
