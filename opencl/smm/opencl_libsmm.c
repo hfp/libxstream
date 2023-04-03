@@ -1245,9 +1245,10 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                                           : MIN(wgmin, n_max * m_max));
               new_config.wg = LIBXSMM_CLMP(
                 (NULL == env_wg || '\0' == *env_wg) ? (NULL == config ? default_wg : config->wg) : atoi(env_wg), -2, 2);
-              new_config.lu = LIBXSMM_MAX(-2, (NULL == env_lu || '\0' == *env_lu)
-                                                ? (0 == kernel_idx ? (NULL == config ? /*default*/ -1 : config->lu) : /*default*/ -1)
-                                                : atoi(env_lu)); /* populate only lower bound */
+              new_config.lu = LIBXSMM_MAX(
+                -2, (NULL == env_lu || '\0' == *env_lu)
+                      ? (0 == kernel_idx ? (NULL == config ? /*default*/ -1 : config->lu) : /*default*/ -1)
+                      : atoi(env_lu)); /* populate only lower bound */
               new_config.nz = LIBXSMM_CLMP((NULL == env_nz || '\0' == *env_nz)
                                              ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->nz) : /*default*/ 0)
                                              : atoi(env_nz),
