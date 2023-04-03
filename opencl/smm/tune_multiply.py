@@ -626,9 +626,9 @@ if __name__ == "__main__":
         "-lu",
         "--initial-lu",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_LU", "0"),
+        default=env_value("OPENCL_LIBSMM_SMM_LU", "-1"),
         dest="lu",
-        help="Loop unroll (-2) full, (-1) no hints, (0) default, (1) limited, (2) literal",
+        help="Loop unroll (-2) full, (-1) no hints (default), (0) inner, (1) outer-dehint, (2) literal",
     )
     argparser.add_argument(
         "-nz",
