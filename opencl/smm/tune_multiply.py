@@ -674,7 +674,7 @@ if __name__ == "__main__":
         "-aa",
         "--initial-aa",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_AA", "1"),
+        default=env_value("OPENCL_LIBSMM_SMM_AA", "0"),
         dest="aa",
         help="Matrix A: global (0), shared (1), shared-bc (2), register (3)",
     )
@@ -682,7 +682,7 @@ if __name__ == "__main__":
         "-ab",
         "--initial-ab",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_AB", "3"),
+        default=env_value("OPENCL_LIBSMM_SMM_AB", "0"),
         dest="ab",
         help="Matrix B: global (0), shared (1), shared-bc (2), register (3)",
     )
