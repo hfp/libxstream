@@ -474,12 +474,11 @@ int c_dbcsr_acc_init(void) {
           assert(EXIT_SUCCESS == result || NULL == c_dbcsr_acc_opencl_config.device[/*main*/ 0].context);
           if (1 < c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
             char platform_name[ACC_OPENCL_BUFFERSIZE];
-            unsigned int devuid;
             for (i = 0; i < (cl_uint)c_dbcsr_acc_opencl_config.ndevices; ++i) {
-              if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_info(c_dbcsr_acc_opencl_config.devices[i], &devuid, buffer,
+              if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(c_dbcsr_acc_opencl_config.devices[i], buffer,
                                     ACC_OPENCL_BUFFERSIZE, platform_name, ACC_OPENCL_BUFFERSIZE))
               {
-                fprintf(stderr, "INFO ACC/OpenCL: 0x%08X - \"%s : %s\"\n", devuid, platform_name, buffer);
+                fprintf(stderr, "INFO ACC/OpenCL: device - \"%s : %s\"\n", platform_name, buffer);
               }
             }
           }
@@ -767,29 +766,20 @@ int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], uns
 }
 
 
-int c_dbcsr_acc_opencl_device_info(
-  cl_device_id device, unsigned int* uid, char name[], size_t name_maxlen, char platform[], size_t platform_maxlen) {
-  int result;
-  assert(NULL != uid || NULL != name || NULL != platform);
-  if (NULL == name || 0 == name_maxlen) {
-    char buffer[ACC_OPENCL_BUFFERSIZE];
-    result = clGetDeviceInfo(device, CL_DEVICE_NAME, ACC_OPENCL_BUFFERSIZE, buffer, NULL);
-    name = buffer;
+int c_dbcsr_acc_opencl_device_name(cl_device_id device, char name[], size_t name_maxlen, char platform[], size_t platform_maxlen) {
+  int result_name = 0, result_platform = 0;
+  assert(NULL != name || NULL != platform);
+  if (NULL != name && 0 != name_maxlen) {
+    result_name = clGetDeviceInfo(device, CL_DEVICE_NAME, name_maxlen, name, NULL);
   }
-  else {
-    result = clGetDeviceInfo(device, CL_DEVICE_NAME, name_maxlen, name, NULL);
-  }
-  if (CL_SUCCESS == result) {
-    if (NULL != uid) result = c_dbcsr_acc_opencl_device_uid(device, name, uid);
-    if (EXIT_SUCCESS == result && NULL != platform && 0 < platform_maxlen) {
-      cl_platform_id platform_id;
-      result = clGetDeviceInfo(device, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform_id, NULL);
-      if (CL_SUCCESS == result) {
-        result = clGetPlatformInfo(platform_id, CL_PLATFORM_NAME, platform_maxlen, platform, NULL);
-      }
+  if (NULL != platform && 0 != platform_maxlen) {
+    cl_platform_id platform_id;
+    result_platform = clGetDeviceInfo(device, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform_id, NULL);
+    if (CL_SUCCESS == result_platform) {
+      result_platform = clGetPlatformInfo(platform_id, CL_PLATFORM_NAME, platform_maxlen, platform, NULL);
     }
   }
-  return result;
+  return result_name | result_platform;
 }
 
 
@@ -910,14 +900,21 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id active_id) {
       }
       if (0 != c_dbcsr_acc_opencl_config.verbosity) {
         char buffer[ACC_OPENCL_BUFFERSIZE];
-        unsigned int uid;
-        int dev = 0;
-        if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_info(
-                              active_id, &uid, buffer, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/, 0 /*platform_maxlen*/) &&
-            EXIT_SUCCESS == c_dbcsr_acc_opencl_device_id(active_id, NULL /*devid*/, &dev))
+        int global_id = 0;
+        if (EXIT_SUCCESS ==
+              c_dbcsr_acc_opencl_device_name(active_id, buffer, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/, 0 /*platform_maxlen*/) &&
+            EXIT_SUCCESS == c_dbcsr_acc_opencl_device_id(active_id, NULL /*devid*/, &global_id))
         {
-          fprintf(stderr, "INFO ACC/OpenCL: ndevices=%i device%i=\"%s\" uid=0x%08X\n", c_dbcsr_acc_opencl_config.ndevices, dev,
-            buffer, uid);
+          unsigned int uid = 0;
+          if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, buffer, &uid) &&
+              EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, &uid))
+          {
+            const size_t size = strlen(buffer);
+            if (0 >= LIBXSMM_SNPRINTF(buffer + size, LIBXSMM_MAX(0, ACC_OPENCL_BUFFERSIZE - size), " [0x%08X]", uid)) {
+              buffer[size] = '\0';
+            }
+          }
+          fprintf(stderr, "INFO ACC/OpenCL: ndevices=%i device%i=\"%s\"\n", c_dbcsr_acc_opencl_config.ndevices, global_id, buffer);
         }
       }
     }
@@ -966,6 +963,7 @@ int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id) {
           }
         }
         if (EXIT_SUCCESS == result) { /* update/cache device-specific information */
+          char devname[ACC_OPENCL_BUFFERSIZE];
 #  if defined(CL_VERSION_2_0)
           const char* const env_svm = getenv("ACC_OPENCL_SVM");
           int level_major = 0;
@@ -978,8 +976,9 @@ int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id) {
           {
             c_dbcsr_acc_opencl_config.device[thread_id].unified = CL_FALSE;
           }
-          if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_info(active_id, &c_dbcsr_acc_opencl_config.device[thread_id].uid,
-                                NULL /*name*/, 0 /*name_maxlen*/, NULL /*platform*/, 0 /*platform_maxlen*/))
+          if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_name(
+                                active_id, devname, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/, 0 /*platform_maxlen*/) ||
+              EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(active_id, devname, &c_dbcsr_acc_opencl_config.device[thread_id].uid))
           {
             c_dbcsr_acc_opencl_config.device[thread_id].uid = (cl_uint)-1;
           }

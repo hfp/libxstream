@@ -100,7 +100,7 @@ class SmmTuner(MeasurementInterface):
                 int(typename.group(1)) if typename and typename.group(1) else 0
             )
             device = re.search(
-                'INFO ACC/OpenCL:\\s+ndevices=[0-9]+\\s+device[0-9]+="(.+)"\\s+uid=',
+                'INFO ACC/OpenCL:\\s+ndevices=[0-9]+\\s+device[0-9]+="(.+)"',
                 str(run_result["stderr"]),
             )
             self.device = device.group(1) if device and device.group(1) else ""
