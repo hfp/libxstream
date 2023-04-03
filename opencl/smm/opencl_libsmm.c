@@ -558,11 +558,9 @@ int libsmm_acc_init(void) {
             if (0 != c_dbcsr_acc_opencl_config.devmatch) {
               fprintf(stderr, "%i device%s\n", ndevices, 1 != ndevices ? "s" : "");
               if (1 < c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-                unsigned int devuid, i = 0;
+                unsigned int i = 0;
                 for (; i < (unsigned int)ndevices; ++i) {
-                  if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(NULL /*device*/, OPENCL_LIBSMM_DEVICES[i], &devuid)) {
-                    fprintf(stderr, "INFO ACC/OpenCL: 0x%08X - \"%s\"\n", devuid, OPENCL_LIBSMM_DEVICES[i]);
-                  }
+                  fprintf(stderr, "INFO ACC/OpenCL: PARAMS - \"%s\"\n", OPENCL_LIBSMM_DEVICES[i]);
                 }
               }
             }
