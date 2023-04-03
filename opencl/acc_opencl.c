@@ -83,7 +83,7 @@ cl_context c_dbcsr_acc_opencl_context(int* thread_id) {
 
 
 cl_context c_dbcsr_acc_opencl_device_context(cl_device_id device, const int* thread_id) {
-  const int i0 = (NULL != thread_id ? *thread_id : /*master*/ 0);
+  const int i0 = (NULL != thread_id ? *thread_id : /*main*/ 0);
   cl_context result = NULL;
   int i = 0;
   for (; i < c_dbcsr_acc_opencl_config.nthreads; ++i) {
@@ -187,7 +187,7 @@ LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
 int c_dbcsr_acc_init(void) {
 #  if defined(_OPENMP)
   /* initialization/finalization is not meant to be thread-safe */
-  int result = ((0 == omp_in_parallel() || /*master*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
+  int result = ((0 == omp_in_parallel() || /*main*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
 #  else
   int result = EXIT_SUCCESS;
 #  endif
@@ -470,8 +470,8 @@ int c_dbcsr_acc_init(void) {
         c_dbcsr_acc_opencl_config.device = (c_dbcsr_acc_opencl_device_t*)calloc(/* thread-specific */
           c_dbcsr_acc_opencl_config.nthreads, sizeof(c_dbcsr_acc_opencl_device_t));
         if (NULL != c_dbcsr_acc_opencl_config.device) {
-          result = c_dbcsr_acc_opencl_set_active_device(/*master*/ 0, device_id);
-          assert(EXIT_SUCCESS == result || NULL == c_dbcsr_acc_opencl_config.device[/*master*/ 0].context);
+          result = c_dbcsr_acc_opencl_set_active_device(/*main*/ 0, device_id);
+          assert(EXIT_SUCCESS == result || NULL == c_dbcsr_acc_opencl_config.device[/*main*/ 0].context);
           if (1 < c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
             char platform_name[ACC_OPENCL_BUFFERSIZE];
             unsigned int devuid;
@@ -542,7 +542,7 @@ int c_dbcsr_acc_init(void) {
 int c_dbcsr_acc_finalize(void) {
 #  if defined(_OPENMP)
   /* initialization/finalization is not meant to be thread-safe */
-  int result = ((0 == omp_in_parallel() || /*master*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
+  int result = ((0 == omp_in_parallel() || /*main*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
 #  else
   int result = EXIT_SUCCESS;
 #  endif
@@ -669,7 +669,7 @@ int c_dbcsr_acc_opencl_device(int thread_id, cl_device_id* device) {
     cl_context context = c_dbcsr_acc_opencl_config.device[thread_id].context;
 #  if defined(_OPENMP)
     if (NULL == context && 0 < thread_id) { /* fallback to master's context */
-      context = c_dbcsr_acc_opencl_config.device[/*master*/ 0].context;
+      context = c_dbcsr_acc_opencl_config.device[/*main*/ 0].context;
     }
 #  endif
     if (NULL != context) {
@@ -887,8 +887,8 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id active_id) {
       c_dbcsr_acc_opencl_config.device[thread_id].context = context;
       if (0 != thread_id) {
         /* apply context to master-thread if master's context is NULL */
-        LIBXSMM_ATOMIC_CMPSWP(&c_dbcsr_acc_opencl_config.device[/*master*/ 0].context, NULL, context, LIBXSMM_ATOMIC_RELAXED);
-        assert(NULL != c_dbcsr_acc_opencl_config.device[/*master*/ 0].context);
+        LIBXSMM_ATOMIC_CMPSWP(&c_dbcsr_acc_opencl_config.device[/*main*/ 0].context, NULL, context, LIBXSMM_ATOMIC_RELAXED);
+        assert(NULL != c_dbcsr_acc_opencl_config.device[/*main*/ 0].context);
       }
       if (0 != c_dbcsr_acc_opencl_config.verbosity) {
         char buffer[ACC_OPENCL_BUFFERSIZE];
@@ -1035,7 +1035,7 @@ int c_dbcsr_acc_device_synchronize(void) {
     }
   }
 #  else
-  result = c_dbcsr_acc_opencl_device_synchronize(/*master*/ 0);
+  result = c_dbcsr_acc_opencl_device_synchronize(/*main*/ 0);
 #  endif
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);

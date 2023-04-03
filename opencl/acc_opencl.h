@@ -121,7 +121,7 @@
 #  include <omp.h>
 #  define ACC_OPENCL_OMP_TID() omp_get_thread_num()
 #else
-#  define ACC_OPENCL_OMP_TID() (/*master*/ 0)
+#  define ACC_OPENCL_OMP_TID() (/*main*/ 0)
 #endif
 
 #if !defined(NDEBUG)
