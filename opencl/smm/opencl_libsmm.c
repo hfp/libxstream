@@ -1300,8 +1300,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, &extension, 1)) {
                     unsigned int q = limit, i = 0;
                     size_t sizes[16], nbytes = 0;
-                    ACC_OPENCL_EXPECT(EXIT_SUCCESS,
-                      clGetDeviceInfo(active_device, 0x4108 /*CL_DEVICE_SUB_GROUP_SIZES_INTEL*/, sizeof(sizes), sizes, &nbytes));
+                    ACC_OPENCL_EXPECT(EXIT_SUCCESS == clGetDeviceInfo(active_device, 0x4108 /*CL_DEVICE_SUB_GROUP_SIZES_INTEL*/,
+                                                        sizeof(sizes), sizes, &nbytes));
                     if (-1 == new_config.wg) { /* cover entire WG-size in sub-group size */
                       for (; (i * sizeof(size_t)) < nbytes; ++i) {
                         sgs = sizes[i];

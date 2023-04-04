@@ -124,8 +124,14 @@
 #  define ACC_OPENCL_OMP_TID() (/*main*/ 0)
 #endif
 
+#if defined(LIBXSMM_EXPECT)
+#  define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
+#else
+#  define ACC_OPENCL_EXPECT(EXPR) \
+    if (0 == (EXPR)) assert(0);
+#endif
+
 #if !defined(NDEBUG)
-#  define ACC_OPENCL_EXPECT(EXPECTED, EXPR) assert((EXPECTED) == (EXPR))
 #  define ACC_OPENCL_CHECK(EXPR, MSG, RESULT) \
     do { \
       if (EXIT_SUCCESS == (RESULT)) { \
@@ -168,7 +174,6 @@
       return acc_opencl_return_cause_result_; \
     } while (0)
 #else
-#  define ACC_OPENCL_EXPECT(EXPECTED, EXPR) (EXPR)
 #  define ACC_OPENCL_CHECK(EXPR, MSG, RESULT) \
     do { \
       if (EXIT_SUCCESS == (RESULT)) { \
