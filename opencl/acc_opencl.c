@@ -736,9 +736,14 @@ int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], uns
       if (NULL != devname && '\0' != *devname) {
         *uid = (unsigned int)strtoul(devname, NULL, 0);
         if (0 == *uid) {
-          char skip[ACC_OPENCL_BUFFERSIZE];
-          if (2 != sscanf(devname, "%[^[][0x%xu]", skip, uid)) {
-            *uid = libxsmm_hash(devname, (unsigned int)strlen(devname), 25071975 /*seed*/);
+          const char *const begin = strrchr(devname, '['), *const end = strrchr(devname, ']');
+          if (NULL != begin && begin < end) {
+            *uid = (unsigned int)strtoul(begin + 1, NULL, 0);
+          }
+          if (0 == *uid) {
+            const size_t size = strlen(devname);
+            const unsigned int hash = libxsmm_hash(devname, (unsigned int)size, 25071975 /*seed*/);
+            *uid = libxsmm_hash(&hash, 4 /*size*/, hash >> 16 /*seed*/) & 0xFFFF;
           }
           result = EXIT_SUCCESS;
         }
@@ -893,15 +898,12 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id active_id) {
               c_dbcsr_acc_opencl_device_name(active_id, buffer, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/, 0 /*platform_maxlen*/) &&
             EXIT_SUCCESS == c_dbcsr_acc_opencl_device_id(active_id, NULL /*devid*/, &global_id))
         {
-          unsigned int uid = 0, hash = 0;
-          if (((EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, &uid)) ||
-                EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, buffer, &hash)) &&
-              0 == hash)
+          const size_t size = strlen(buffer);
+          unsigned int uid = 0;
+          if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, &uid) ||
+              EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(NULL /*device*/, buffer, &uid))
           {
-            const size_t size = strlen(buffer);
-            if (0 >= LIBXSMM_SNPRINTF(buffer + size, LIBXSMM_MAX(0, ACC_OPENCL_BUFFERSIZE - size), " [0x%04x]", uid)) {
-              buffer[size] = '\0';
-            }
+            ACC_OPENCL_EXPECT(0 < LIBXSMM_SNPRINTF(buffer + size, LIBXSMM_MAX(0, ACC_OPENCL_BUFFERSIZE - size), " [0x%04x]", uid));
           }
           fprintf(stderr, "INFO ACC/OpenCL: ndevices=%i device%i=\"%s\"\n", c_dbcsr_acc_opencl_config.ndevices, global_id, buffer);
         }
