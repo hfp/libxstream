@@ -729,7 +729,7 @@ int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], uns
   int result;
   if (NULL != uid) {
     if (NULL != device && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(device, "intel")) {
-      result = clGetDeviceInfo(device, 0x4251 /*CL_DEVICE_ID_INTEL*/, sizeof(unsigned int), &uid, NULL);
+      result = clGetDeviceInfo(device, 0x4251 /*CL_DEVICE_ID_INTEL*/, sizeof(unsigned int), uid, NULL);
     }
     else result = EXIT_FAILURE;
     if (EXIT_SUCCESS != result) {
@@ -894,8 +894,9 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id active_id) {
             EXIT_SUCCESS == c_dbcsr_acc_opencl_device_id(active_id, NULL /*devid*/, &global_id))
         {
           unsigned int uid = 0, hash = 0;
-          if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, &uid) ||
-              EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, buffer, &hash) || uid != hash)
+          if (((EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, &uid)) ||
+                EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, buffer, &hash)) &&
+              0 == hash)
           {
             const size_t size = strlen(buffer);
             if (0 >= LIBXSMM_SNPRINTF(buffer + size, LIBXSMM_MAX(0, ACC_OPENCL_BUFFERSIZE - size), " [0x%04x]", uid)) {
