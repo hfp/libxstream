@@ -740,8 +740,8 @@ int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], uns
           if (2 != sscanf(devname, "%[^[][0x%xu]", skip, uid)) {
             *uid = libxsmm_hash(devname, (unsigned int)strlen(devname), 25071975 /*seed*/);
           }
+          result = EXIT_SUCCESS;
         }
-        result = EXIT_SUCCESS;
       }
       else {
         result = EXIT_FAILURE;
