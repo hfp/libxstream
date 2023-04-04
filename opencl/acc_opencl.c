@@ -901,7 +901,7 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id active_id) {
           const size_t size = strlen(buffer);
           unsigned int uid[] = {0, 0};
           if ((EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(NULL /*device*/, buffer, uid + 1)) &&
-              (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, uid + 0) || uid[0] != uid[1]))
+              (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, uid) || 0 != uid[1]) && uid[0] != uid[1])
           {
             ACC_OPENCL_EXPECT(0 < LIBXSMM_SNPRINTF(buffer + size, LIBXSMM_MAX(0, ACC_OPENCL_BUFFERSIZE - size), " [0x%04x]",
                                     0 != uid[0] ? uid[0] : uid[1]));
