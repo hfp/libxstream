@@ -745,8 +745,8 @@ int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], uns
             const unsigned int hash = libxsmm_hash(devname, (unsigned int)size, 25071975 /*seed*/);
             *uid = libxsmm_hash(&hash, 4 /*size*/, hash >> 16 /*seed*/) & 0xFFFF;
           }
-          result = EXIT_SUCCESS;
         }
+        result = EXIT_SUCCESS;
       }
       else {
         result = EXIT_FAILURE;
@@ -900,8 +900,8 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id active_id) {
         {
           const size_t size = strlen(buffer);
           unsigned int uid = 0;
-          if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, &uid) ||
-              EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(NULL /*device*/, buffer, &uid))
+          if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, buffer, &uid) &&
+              EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, &uid))
           {
             ACC_OPENCL_EXPECT(0 < LIBXSMM_SNPRINTF(buffer + size, LIBXSMM_MAX(0, ACC_OPENCL_BUFFERSIZE - size), " [0x%04x]", uid));
           }
