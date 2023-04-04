@@ -1226,6 +1226,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                                                            : LIBXSMM_MIN(OPENCL_LIBSMM_VMIN, m_max))
                                         : 1);
               const int default_wg = (((0x0bd0 > devuid || 0x0bdb < devuid)) ? (0 == kernel_idx ? 0 : -2) : -1);
+              const int default_lu = (0 != devinfo->intel ? -1 : 0);
               const int default_aa = 0, default_ab = 0, default_ac = 0;
               int nbm, nbn;
               /* two defaults for new_config parameters: 1st - regular, 2nd - BS=1 kernel */
@@ -1247,7 +1248,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 (NULL == env_wg || '\0' == *env_wg) ? (NULL == config ? default_wg : config->wg) : atoi(env_wg), -2, 2);
               new_config.lu = LIBXSMM_MAX(
                 -2, (NULL == env_lu || '\0' == *env_lu)
-                      ? (0 == kernel_idx ? (NULL == config ? /*default*/ -1 : config->lu) : /*default*/ -1)
+                      ? (0 == kernel_idx ? (NULL == config ? default_lu : config->lu) : default_lu)
                       : atoi(env_lu)); /* populate only lower bound */
               new_config.nz = LIBXSMM_CLMP((NULL == env_nz || '\0' == *env_nz)
                                              ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->nz) : /*default*/ 0)
