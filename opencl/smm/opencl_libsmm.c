@@ -1221,13 +1221,14 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
               const int blockn = ((NULL == env_bn || '\0' == *env_bn) ? 0 : atoi(env_bn));
               const int blockk = ((NULL == env_bk || '\0' == *env_bk) ? 0 : atoi(env_bk));
               const int wgmin = ((NULL == env_ws || '\0' == *env_ws) ? 0 : atoi(env_ws));
+              const int default_aa = (((0x0bd0 > devuid || 0x0bdb < devuid)) ? ((k_max % OPENCL_LIBSMM_VMIN) ? 1 : 2) : 0);
+              const int default_ab = (((0x0bd0 > devuid || 0x0bdb < devuid) && 0x020a != devuid) ? 3 : 0), default_ac = 0;
               const int default_bk = (((0x0bd0 > devuid || 0x0bdb < devuid) && 0x020a != devuid)
                                         ? (0 == kernel_idx ? LIBXSMM_MIN(OPENCL_LIBSMM_DEFAULT_BK, m_max)
                                                            : LIBXSMM_MIN(OPENCL_LIBSMM_VMIN, m_max))
                                         : 1);
               const int default_wg = (((0x0bd0 > devuid || 0x0bdb < devuid)) ? (0 == kernel_idx ? 0 : -2) : -1);
               const int default_lu = (0 != devinfo->intel ? -1 : 0);
-              const int default_aa = 0, default_ab = 0, default_ac = 0;
               int nbm, nbn;
               /* two defaults for new_config parameters: 1st - regular, 2nd - BS=1 kernel */
               new_config.bm = (0 >= blockm ? (0 == kernel_idx ? (NULL == config ? LIBXSMM_MIN(OPENCL_LIBSMM_DEFAULT_BM, m_max)
@@ -1246,10 +1247,9 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                                           : LIBXSMM_MIN(wgmin, n_max * m_max));
               new_config.wg = LIBXSMM_CLMP(
                 (NULL == env_wg || '\0' == *env_wg) ? (NULL == config ? default_wg : config->wg) : atoi(env_wg), -2, 2);
-              new_config.lu = LIBXSMM_MAX(
-                -2, (NULL == env_lu || '\0' == *env_lu)
-                      ? (0 == kernel_idx ? (NULL == config ? default_lu : config->lu) : default_lu)
-                      : atoi(env_lu)); /* populate only lower bound */
+              new_config.lu = LIBXSMM_MAX(-2, (NULL == env_lu || '\0' == *env_lu)
+                                                ? (0 == kernel_idx ? (NULL == config ? default_lu : config->lu) : default_lu)
+                                                : atoi(env_lu)); /* populate only lower bound */
               new_config.nz = LIBXSMM_CLMP((NULL == env_nz || '\0' == *env_nz)
                                              ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->nz) : /*default*/ 0)
                                              : atoi(env_nz),
