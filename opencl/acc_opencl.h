@@ -31,6 +31,10 @@
 #  endif
 #endif
 
+#if !defined(LIBXSMM_SYNC_NPAUSE)
+#  define LIBXSMM_SYNC_NPAUSE 0
+#endif
+
 #if defined(__LIBXSMM)
 #  include <libxsmm.h>
 #  include <libxsmm_sync.h>
@@ -124,7 +128,7 @@
 #  define ACC_OPENCL_OMP_TID() (/*main*/ 0)
 #endif
 
-#if defined(LIBXSMM_EXPECT)
+#if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
 #  define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
 #else
 #  define ACC_OPENCL_EXPECT(EXPR) \
@@ -162,8 +166,8 @@
           fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", (const char*)CAUSE); \
           assert(!"SUCCESS"); \
         } \
-        else if (NULL != (LIBXSMM_FUNCNAME) && '\0' != *(LIBXSMM_FUNCNAME)) { \
-          fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", LIBXSMM_FUNCNAME); \
+        else if (NULL != (LIBXSMM_FUNCNAME) && '\0' != *(const char*)(LIBXSMM_FUNCNAME)) { \
+          fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", (const char*)LIBXSMM_FUNCNAME); \
           assert(!"SUCCESS"); \
         } \
         else { \
