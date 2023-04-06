@@ -347,7 +347,7 @@ class SmmTuner(MeasurementInterface):
                     )
                     value = (
                         data["S"] if "S" in data else 0,  # pseudo key component
-                        data["GFLOPS"],
+                        data["GFLOPS"] if not self.args.nogflops else 0,
                         data["BS"],
                         data["BM"],
                         data["BN"],
