@@ -495,7 +495,7 @@ int libsmm_acc_init(void) {
 #  if defined(OPENCL_LIBSMM_PARAMS_SMM) && defined(OPENCL_LIBSMM_DEVICES)
         if (EXIT_SUCCESS == result && '1' != control) {
           const char *line = OPENCL_LIBSMM_PARAMS_SMM, *next;
-#    if LIBXSMM_VERSION4(1, 17, 0, 3602) <= LIBXSMM_VERSION_NUMBER
+#    if LIBXSMM_VERSION4(1, 17, 0, 3603) <= LIBXSMM_VERSION_NUMBER
           cl_device_id active_id = NULL;
           unsigned int active_uid;
           int active_match = -1;
@@ -542,7 +542,7 @@ int libsmm_acc_init(void) {
                 else if (config_init->gflops < config.gflops) { /* update */
                   memcpy(config_init, &config, sizeof(config));
                 }
-#    if LIBXSMM_VERSION4(1, 17, 0, 3602) <= LIBXSMM_VERSION_NUMBER
+#    if LIBXSMM_VERSION4(1, 17, 0, 3603) <= LIBXSMM_VERSION_NUMBER
                 if (active_match == i && active_uid != key.devuid) {
                   key.devuid = active_uid;
                   config_init = (opencl_libsmm_smm_t*)OPENCL_LIBSMM_DISPATCH(&key, sizeof(key));
