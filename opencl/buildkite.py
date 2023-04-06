@@ -96,14 +96,10 @@ while builds:
         nbuild = int(build["number"])
         if cached >= nbuild:
             break
-        build_steps = [
-            step for step in build["jobs"] if step["name"] in steps.keys()
-        ]
+        build_steps = [step for step in build["jobs"] if step["name"] in steps.keys()]
         nsteps = 0
         try:
-            for step in (
-                step for step in build_steps if 0 == step["exit_status"]
-            ):
+            for step in (step for step in build_steps if 0 == step["exit_status"]):
                 log = requests.get(step["log_url"], headers=auth_param)
                 txt = log.text.replace("\\n", "\n")
                 match = re.search(
@@ -119,9 +115,7 @@ while builds:
                     continue
                 device = ""
                 for devs in devnames:
-                    if any(
-                        re.search(dev, devlog, re.IGNORECASE) for dev in devs
-                    ):
+                    if any(re.search(dev, devlog, re.IGNORECASE) for dev in devs):
                         device = devs[0]
                 if "" == device:
                     continue
@@ -136,9 +130,7 @@ while builds:
                     ]
                     values = [
                         float(m.group(1))
-                        for m in re.finditer(
-                            "device: .+ ms\\s+(.+) GFLOPS/s", txt
-                        )
+                        for m in re.finditer("device: .+ ms\\s+(.+) GFLOPS/s", txt)
                         if m and m.group(1)
                     ]
                     size_mnklst, size_values = len(mnklst), len(values)
@@ -165,8 +157,7 @@ while builds:
                             )
                             if device in steps[step["name"]]:
                                 if not any(
-                                    nbuild == s[4]
-                                    for s in steps[step["name"]][device]
+                                    nbuild == s[4] for s in steps[step["name"]][device]
                                 ):
                                     steps[step["name"]][device].append(value)
                             else:
@@ -231,9 +222,7 @@ for devs in devnames:
         maxlen = max(len(step[devs[0]]) for step in steps.values())
         maxlen = min(maxlen, maxn if 0 < maxn else maxlen)
         d = maxlen - minlen
-        main, (allaxs, focaxs) = plot.subplots(
-            2, sharex=True, figsize=(9, 6), dpi=300
-        )
+        main, (allaxs, focaxs) = plot.subplots(2, sharex=True, figsize=(9, 6), dpi=300)
         allaxs.get_xaxis().set_visible(False)
         focaxs.get_xaxis().set_visible(False)
         allaxs.set_ylabel("GFLOPS/s")
@@ -249,21 +238,9 @@ for devs in devnames:
                     (
                         math.exp(
                             (
-                                (
-                                    (math.log(v[0][0]) * v[0][1])
-                                    if 0 < v[0][1]
-                                    else 0
-                                )
-                                + (
-                                    (math.log(v[1][0]) * v[1][1])
-                                    if 0 < v[1][1]
-                                    else 0
-                                )
-                                + (
-                                    (math.log(v[2][0]) * v[2][1])
-                                    if 0 < v[2][1]
-                                    else 0
-                                )
+                                ((math.log(v[0][0]) * v[0][1]) if 0 < v[0][1] else 0)
+                                + ((math.log(v[1][0]) * v[1][1]) if 0 < v[1][1] else 0)
+                                + ((math.log(v[2][0]) * v[2][1]) if 0 < v[2][1] else 0)
                             )
                             / sum(list(zip(*v[:3]))[1])
                         ),
@@ -285,38 +262,20 @@ for devs in devnames:
             props = " ".join(caption[2:])
             laball = "{}{}..{}..{}={} GFLOPS/s".format(
                 "last{}=".format(lastn) if 0 < lastn else "",
-                round(
-                    summary(val[0][:lastn], 0)
-                    if 0 < lastn
-                    else summary(val[0], 0)
-                ),
-                round(
-                    summary(val[1][:lastn], 0)
-                    if 0 < lastn
-                    else summary(val[1], 0)
-                ),
-                round(
-                    summary(val[2][:lastn], 0)
-                    if 0 < lastn
-                    else summary(val[2], 0)
-                ),
+                round(summary(val[0][:lastn], 0) if 0 < lastn else summary(val[0], 0)),
+                round(summary(val[1][:lastn], 0) if 0 < lastn else summary(val[1], 0)),
+                round(summary(val[2][:lastn], 0) if 0 < lastn else summary(val[2], 0)),
                 round(summary(all[:lastn]) if 0 < lastn else summary(all)),
             )
-            efflast = round(
-                100 * (summary(eff[:lastn]) if 0 < lastn else summary(eff))
-            )
+            efflast = round(100 * (summary(eff[:lastn]) if 0 < lastn else summary(eff)))
             labfoc = "{}{} GFLOPS/s ({}%)".format(
                 "last{}=".format(lastn) if 0 < lastn else "",
-                round(
-                    summary(val[3][:lastn]) if 0 < lastn else summary(val[3])
-                ),
+                round(summary(val[3][:lastn]) if 0 < lastn else summary(val[3])),
                 efflast,
             )
             fname = "buildkite-{}-{}.png".format(
                 devs[0].lower(),
-                re.sub(
-                    r"(?u)[^-\w.]", "", props.strip().replace(" ", "_")
-                ).lower(),
+                re.sub(r"(?u)[^-\w.]", "", props.strip().replace(" ", "_")).lower(),
             )
             count = (
                 max(list(zip(*val[0]))[1]),
@@ -334,15 +293,11 @@ for devs in devnames:
             )
             (allaxs, focaxs) = figure.axes
             allaxs.set_title("Summary of {} SMM-kernels".format(sum(count)))
-            allaxs.plot(
-                all + pad, ".:", label="{}: {}".format(runtime, laball)
-            )
+            allaxs.plot(all + pad, ".:", label="{}: {}".format(runtime, laball))
             focaxs.plot(
                 foc + pad,
                 ".:",
-                label="{}: build={}..{} {}".format(
-                    runtime, t[-1][4], t[0][4], labfoc
-                ),
+                label="{}: build={}..{} {}".format(runtime, t[-1][4], t[0][4], labfoc),
             )
             focaxs.set_title(
                 "Single Kernel: MNK={}, AI={} FLOPS/Byte, Roofline={} GFLOPS/s".format(
@@ -374,7 +329,5 @@ print(
 for device in metric:
     peak = fai * metric[device][1] / 100  # perecentage
     print(
-        "{}: {}..{} GFLOPS/s".format(
-            device, round(mineff * peak), round(maxeff * peak)
-        )
+        "{}: {}..{} GFLOPS/s".format(device, round(mineff * peak), round(maxeff * peak))
     )
