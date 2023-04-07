@@ -215,9 +215,9 @@ then
   fi
   N=0
   for MNK in ${MNKS}; do
-    if [ "0" != "$(((N-PARTOFFS+1)<=PARTSIZE))" ]; then
+    if [ "0" != "$(((N)<PARTSIZE))" ]; then
       echo
-      echo "[$((N-PARTOFFS+1))/${PARTSIZE}]: auto-tuning ${MNK}-kernel..."
+      echo "[$((N+1))/${PARTSIZE}]: auto-tuning ${MNK}-kernel..."
       # avoid mixing database of previous results into new session
       ${RM} -rf ./opentuner.db
       eval "${HERE}/tune_multiply.py ${MNK} -p ${JSONDIR} -s ${BATCHSIZE} -a ${TLEVEL} ${MAXTIME}"
