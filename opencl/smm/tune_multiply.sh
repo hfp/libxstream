@@ -167,7 +167,9 @@ then
       MNKS=$(echo "${MNKS}" | tr ' ' '\n' | tac | tr '\n' ' '; echo)
     fi
     if [ "${MNKS}" ] && [ "${MAXNUM}" ] && [ "0" != "$((0<MAXNUM))" ]; then
-      MNKS=$(echo "${MNKS}" | ${XARGS} -n1 | ${HEAD} -n"${MAXNUM}")
+      MNKS=$(echo "${MNKS}" | ${XARGS} -n1 | ${HEAD} -n"${MAXNUM}" | ${XARGS})
+    else
+      MNKS=$(echo "${MNKS}" | ${XARGS})
     fi
   fi
   NTRIPLETS=$(echo "${MNKS}" | ${WC} -w)
@@ -215,7 +217,8 @@ then
     sleep ${WAIT}
   fi
   N=0
-  for MNK in $(echo "${MNKS}" | ${CUT} -d' ' -f $((PARTOFFS+1))-$((PARTOFFS+PARTSIZE))); do
+  MNKPART=$(echo "${MNKS}" | ${CUT} -d' ' -f $((PARTOFFS+1))-$((PARTOFFS+PARTSIZE)))
+  for MNK in ${MNKPART}; do
     if [ "0" != "$(((N)<PARTSIZE))" ]; then
       echo
       echo "[$((N+1))/${PARTSIZE}]: auto-tuning ${MNK}-kernel..."
