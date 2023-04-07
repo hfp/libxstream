@@ -12,6 +12,7 @@ XARGS=$(command -v xargs)
 SORT=$(command -v sort)
 HEAD=$(command -v head)
 SED=$(command -v gsed)
+CUT=$(command -v cut)
 LS=$(command -v ls)
 RM=$(command -v rm)
 WC=$(command -v wc)
@@ -214,7 +215,7 @@ then
     sleep ${WAIT}
   fi
   N=0
-  for MNK in ${MNKS}; do
+  for MNK in $(echo "${MNKS}" | ${CUT} -d' ' -f $((PARTOFFS+1))-$((PARTOFFS+PARTSIZE))); do
     if [ "0" != "$(((N)<PARTSIZE))" ]; then
       echo
       echo "[$((N+1))/${PARTSIZE}]: auto-tuning ${MNK}-kernel..."
