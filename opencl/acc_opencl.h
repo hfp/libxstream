@@ -42,7 +42,7 @@
 /* OpenCL backend depends on LIBXSMM */
 #  include <libxsmm_source.h>
 #  if !defined(__LIBXSMM)
-#     define __LIBXSMM
+#    define __LIBXSMM
 #  endif
 #endif
 
