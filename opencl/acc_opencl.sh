@@ -61,7 +61,7 @@ then
     # allow for instance /dev/stdout
     if [ "${OFILE##*.}" = "h" ]; then
       if [ "${VERBOSE}" ] && [ "0" != "${VERBOSE}" ]; then
-        echo "RUN: $0 $*" # stdout
+        echo "$0 $*" # stdout
       fi
       truncate -s0 "${OFILE}"
       HFILE=${OFILE}
@@ -70,9 +70,9 @@ then
       exit 1
     elif [ "${VERBOSE}" ] && [ "0" != "${VERBOSE}" ]; then
       if [[ ${OFILE} != /dev/stderr ]]; then
-        >&2 echo "RUN: $0 $*"
+        >&2 echo "$0 $*"
       else # stdout
-        echo "RUN: $0 $*"
+        echo "$0 $*"
       fi
     fi
     NFILES_OCL=0
