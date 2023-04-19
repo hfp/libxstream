@@ -12,7 +12,7 @@
 #include <stdio.h>
 
 #if defined(__LIBXSMM)
-#  if defined(LIBXSMM_HEADERONLY)
+#  if defined(LIBXSMM_DEFAULT_CONFIG)
 #    include <libxsmm_source.h>
 #  else
 #    include <libxsmm.h>
