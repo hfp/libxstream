@@ -17,6 +17,7 @@
 #    include <libxsmm_source.h>
 #  else
 #    include <libxsmm.h>
+#    include <libxsmm_sync.h>
 #  endif
 #  if defined(LIBXSMM_VERSION_NUMBER) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
 #    define USE_LIBXSMM
@@ -30,10 +31,10 @@
 #    define ACC_BENCH_USEOMP(FUNC) (FUNC)
 #  endif
 #  define ACC_BENCH_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, \
-      STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
-      ACC_BENCH_USEOMP(libxsmm_gemm_batch) \
-      (IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, STRIDE_C, INDEX_STRIDE, \
-        INDEX_BASE, BATCHSIZE, 0 /*batchcheck*/)
+    STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
+    ACC_BENCH_USEOMP(libxsmm_gemm_batch) \
+    (IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, STRIDE_C, INDEX_STRIDE, \
+      INDEX_BASE, BATCHSIZE, 0 /*batchcheck*/)
 #  define PRINTF(...) \
     do { \
       const size_t print_buffer_size = sizeof(print_buffer) - print_offset; \

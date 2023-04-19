@@ -19,17 +19,12 @@
       OPENCL_LIBSMM_USEOMP(libxsmm_gemm_batch) \
       (IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, STRIDE_C, INDEX_STRIDE, \
         INDEX_BASE, BATCHSIZE, 0 /*batchcheck*/)
-#    define OPENCL_LIBSMM_REGISTER(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT) \
-      libxsmm_xregister(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT, NULL /*key_hash*/)
-#    define OPENCL_LIBSMM_DISPATCH(KEY, KEY_SIZE) libxsmm_xdispatch(KEY, KEY_SIZE, NULL /*key_hash*/)
 #  else
 #    define OPENCL_LIBSMM_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, \
       LDC, STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
       OPENCL_LIBSMM_USEOMP(libxsmm_gemm_batch) \
       ((libxsmm_gemm_precision)(IPREC), (libxsmm_gemm_precision)(OPREC), TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, B, LDB, BETA, C, \
         LDC, INDEX_BASE, INDEX_STRIDE, STRIDE_A, STRIDE_B, STRIDE_C, BATCHSIZE)
-#    define OPENCL_LIBSMM_REGISTER(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT) libxsmm_xregister(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT)
-#    define OPENCL_LIBSMM_DISPATCH(KEY, KEY_SIZE) libxsmm_xdispatch(KEY, KEY_SIZE)
 #  endif
 
 #  if defined(_OPENMP) && !defined(__DBCSR_ACC)
@@ -458,9 +453,9 @@ int libsmm_acc_init(void) {
                   opencl_libsmm_smm_t* config_init;
                   c_dbcsr_acc_opencl_config.devmatch = 0; /* disable device-match */
                   key.devuid = 0;
-                  config_init = (opencl_libsmm_smm_t*)OPENCL_LIBSMM_DISPATCH(&key, sizeof(key));
+                  config_init = (opencl_libsmm_smm_t*)libxsmm_xdispatch(&key, sizeof(key));
                   if (NULL == config_init) {
-                    if (NULL == OPENCL_LIBSMM_REGISTER(&key, sizeof(key), sizeof(config), &config)) {
+                    if (NULL == libxsmm_xregister(&key, sizeof(key), sizeof(config), &config)) {
                       result = EXIT_FAILURE;
                       break;
                     }
@@ -532,9 +527,9 @@ int libsmm_acc_init(void) {
                 {
                   key.devuid = 0;
                 }
-                config_init = (opencl_libsmm_smm_t*)OPENCL_LIBSMM_DISPATCH(&key, sizeof(key));
+                config_init = (opencl_libsmm_smm_t*)libxsmm_xdispatch(&key, sizeof(key));
                 if (NULL == config_init) {
-                  if (NULL == OPENCL_LIBSMM_REGISTER(&key, sizeof(key), sizeof(config), &config)) {
+                  if (NULL == libxsmm_xregister(&key, sizeof(key), sizeof(config), &config)) {
                     result = EXIT_FAILURE;
                     break;
                   }
@@ -546,8 +541,8 @@ int libsmm_acc_init(void) {
 #    if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
                 if (active_match == i && active_uid != key.devuid) {
                   key.devuid = active_uid;
-                  config_init = (opencl_libsmm_smm_t*)OPENCL_LIBSMM_DISPATCH(&key, sizeof(key));
-                  if (NULL == config_init && NULL != OPENCL_LIBSMM_REGISTER(&key, sizeof(key), sizeof(config), &config)) {
+                  config_init = (opencl_libsmm_smm_t*)libxsmm_xdispatch(&key, sizeof(key));
+                  if (NULL == config_init && NULL != libxsmm_xregister(&key, sizeof(key), sizeof(config), &config)) {
                     static int info = 0;
                     if (0 == info && 0 != c_dbcsr_acc_opencl_config.verbosity &&
                         EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(
@@ -576,7 +571,7 @@ int libsmm_acc_init(void) {
             memset(&config, 0, sizeof(config));
             if (EXIT_SUCCESS == opencl_libsmm_read_smm_params(env_params, &key, &config, NULL /*perfest*/, NULL /*device*/)) {
               key.devuid = 0;
-              if (NULL != OPENCL_LIBSMM_REGISTER(&key, sizeof(key), sizeof(config), &config)) {
+              if (NULL != libxsmm_xregister(&key, sizeof(key), sizeof(config), &config)) {
                 c_dbcsr_acc_opencl_config.devmatch = 0; /* disable device-match */
 #  if defined(OPENCL_LIBSMM_DEVICES)
                 ntuned = LIBXSMM_MAX(ntuned, 1); /* no destinction of overridden or new */
@@ -790,7 +785,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
     key.type = datatype;
     key.m = m;
     key.n = n; /* initialize key */
-    config = (opencl_libsmm_trans_t*)OPENCL_LIBSMM_DISPATCH(&key, sizeof(key));
+    config = (opencl_libsmm_trans_t*)libxsmm_xdispatch(&key, sizeof(key));
     if (NULL == config) {
       char buffer[ACC_OPENCL_BUFFERSIZE], build_params[ACC_OPENCL_BUFFERSIZE];
       char fname[ACC_OPENCL_MAXSTRLEN];
@@ -859,7 +854,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
                   else result = EXIT_FAILURE;
                 }
                 if (EXIT_SUCCESS == result) {
-                  config = (opencl_libsmm_trans_t*)OPENCL_LIBSMM_REGISTER(&key, sizeof(key), sizeof(new_config), &new_config);
+                  config = (opencl_libsmm_trans_t*)libxsmm_xregister(&key, sizeof(key), sizeof(new_config), &new_config);
 #    if !defined(OPENCL_LIBSMM_VALIDATE_TRANS)
                   if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
                     LIBXSMM_STDIO_ACQUIRE();
@@ -1153,7 +1148,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
       lock += LIBXSMM_MOD2(libxsmm_hash(&key, sizeof(key), 25071975 /*seed*/), OPENCL_LIBSMM_NLOCKS_SMM);
 #    endif
       LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
-      config = (opencl_libsmm_smm_t*)OPENCL_LIBSMM_DISPATCH(&key, sizeof(key));
+      config = (opencl_libsmm_smm_t*)libxsmm_xdispatch(&key, sizeof(key));
       if (0 >= bs) bs = ((NULL != config && 0 < config->bs) ? config->bs : OPENCL_LIBSMM_DEFAULT_BS);
       /* determine kernel-kind (mini-batch vs. mini-kernel) */
       if (1 == bs || 0 > s || (bs * s) > stack_size) kernel_idx = bs = 1;
@@ -1537,7 +1532,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   assert(wgsize_max_kernel <= wgsize_max);
                   if (new_config.wgsize[kernel_idx] <= wgsize_max_kernel) { /* check planned WG-size vs kernel-specific WG-size */
                     if (NULL == config || NULL == config->kernel[kernel_idx]) {
-                      config = (opencl_libsmm_smm_t*)OPENCL_LIBSMM_REGISTER(&key, sizeof(key), sizeof(new_config), &new_config);
+                      config = (opencl_libsmm_smm_t*)libxsmm_xregister(&key, sizeof(key), sizeof(new_config), &new_config);
                     }
                     if (NULL != config) {
 #    if !defined(OPENCL_LIBSMM_VALIDATE_SMM)
