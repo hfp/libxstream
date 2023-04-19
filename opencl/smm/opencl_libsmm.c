@@ -13,27 +13,23 @@
 #  include "../../acc_bench.h"
 #  include <ctype.h>
 
-#  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && LIBXSMM_VERSION4(1, 17, 0, 2042) > LIBXSMM_VERSION_NUMBER
-#    define OPENCL_LIBSMM_REGISTER(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT) \
-      libxsmm_xregister(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT, NULL /*key_hash*/)
-#    define OPENCL_LIBSMM_DISPATCH(KEY, KEY_SIZE) libxsmm_xdispatch(KEY, KEY_SIZE, NULL /*key_hash*/)
-#  else
-#    define OPENCL_LIBSMM_REGISTER(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT) libxsmm_xregister(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT)
-#    define OPENCL_LIBSMM_DISPATCH(KEY, KEY_SIZE) libxsmm_xdispatch(KEY, KEY_SIZE)
-#  endif
-
-#  if LIBXSMM_VERSION4(1, 17, 0, 2776) <= LIBXSMM_VERSION_NUMBER
+#  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
 #    define OPENCL_LIBSMM_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, \
       LDC, STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
       OPENCL_LIBSMM_USEOMP(libxsmm_gemm_batch) \
       (IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, STRIDE_C, INDEX_STRIDE, \
         INDEX_BASE, BATCHSIZE, 0 /*batchcheck*/)
+#    define OPENCL_LIBSMM_REGISTER(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT) \
+      libxsmm_xregister(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT, NULL /*key_hash*/)
+#    define OPENCL_LIBSMM_DISPATCH(KEY, KEY_SIZE) libxsmm_xdispatch(KEY, KEY_SIZE, NULL /*key_hash*/)
 #  else
 #    define OPENCL_LIBSMM_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, \
       LDC, STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
       OPENCL_LIBSMM_USEOMP(libxsmm_gemm_batch) \
       ((libxsmm_gemm_precision)(IPREC), (libxsmm_gemm_precision)(OPREC), TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, B, LDB, BETA, C, \
         LDC, INDEX_BASE, INDEX_STRIDE, STRIDE_A, STRIDE_B, STRIDE_C, BATCHSIZE)
+#    define OPENCL_LIBSMM_REGISTER(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT) libxsmm_xregister(KEY, KEY_SIZE, VALUE_SIZE, VALUE_INIT)
+#    define OPENCL_LIBSMM_DISPATCH(KEY, KEY_SIZE) libxsmm_xdispatch(KEY, KEY_SIZE)
 #  endif
 
 #  if defined(_OPENMP) && !defined(__DBCSR_ACC)
@@ -495,7 +491,7 @@ int libsmm_acc_init(void) {
 #  if defined(OPENCL_LIBSMM_PARAMS_SMM) && defined(OPENCL_LIBSMM_DEVICES)
         if (EXIT_SUCCESS == result && '1' != control) {
           const char *line = OPENCL_LIBSMM_PARAMS_SMM, *next;
-#    if LIBXSMM_VERSION4(1, 17, 0, 3603) <= LIBXSMM_VERSION_NUMBER
+#    if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
           cl_device_id active_id = NULL;
           unsigned int active_uid;
           int active_match = -1;
@@ -547,7 +543,7 @@ int libsmm_acc_init(void) {
                 else if (config_init->gflops < config.gflops) { /* update */
                   memcpy(config_init, &config, sizeof(config));
                 }
-#    if LIBXSMM_VERSION4(1, 17, 0, 3603) <= LIBXSMM_VERSION_NUMBER
+#    if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
                 if (active_match == i && active_uid != key.devuid) {
                   key.devuid = active_uid;
                   config_init = (opencl_libsmm_smm_t*)OPENCL_LIBSMM_DISPATCH(&key, sizeof(key));

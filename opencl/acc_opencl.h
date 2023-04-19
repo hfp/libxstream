@@ -35,7 +35,7 @@
 #  define LIBXSMM_SYNC_NPAUSE 0
 #endif
 
-#if defined(__LIBXSMM) && defined(LIBXSMM_LINKLIB)
+#if defined(__LIBXSMM) && !defined(LIBXSMM_HEADERONLY)
 #  include <libxsmm.h>
 #  include <libxsmm_sync.h>
 #else
@@ -51,7 +51,7 @@
     LIBXSMM_VERSION4(LIBXSMM_VERSION_MAJOR, LIBXSMM_VERSION_MINOR, LIBXSMM_VERSION_UPDATE, LIBXSMM_VERSION_PATCH)
 #endif
 
-#if LIBXSMM_VERSION4(1, 17, 0, 2030) <= LIBXSMM_VERSION_NUMBER
+#if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
 #  define LIBXSMM_STRISTR libxsmm_stristr
 #else
 #  define LIBXSMM_STRISTR strstr
