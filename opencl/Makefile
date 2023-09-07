@@ -196,6 +196,7 @@ else
     CUDATOOLKIT_HOME := $(if $(NVCC),$(abspath $(dir $(NVCC))/..))
   endif
   ifneq (,$(CUDATOOLKIT_HOME))
+    CUDA_LIBDIR := $(if $(wildcard $(CUDATOOLKIT_HOME)/lib64),lib64,lib)
     ifeq (,$(wildcard $(OPENCL_INC)))
       CLINC := $(strip $(lastword $(sort $(wildcard $(CUDATOOLKIT_HOME)/../cuda/*/targets/x86_64-linux/include/CL/cl.h))))
       ifneq (,$(CLINC))
@@ -205,8 +206,8 @@ else
       endif
     endif
     ifeq (,$(wildcard $(OPENCL_LIB)))
-      LDFLAGS += -L$(CUDATOOLKIT_HOME)/lib64
-      LDFLAGS += -Wl,-rpath=$(CUDATOOLKIT_HOME)/lib64
+      LDFLAGS += -L$(CUDATOOLKIT_HOME)/$(CUDA_LIBDIR)
+      LDFLAGS += -Wl,-rpath=$(CUDATOOLKIT_HOME)/$(CUDA_LIBDIR)
     endif
   endif
   # OPENCL_INC: directory containing CL/cl.h.
