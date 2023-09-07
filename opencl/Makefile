@@ -23,6 +23,7 @@ UNAME := $(shell uname)
 HEADERONLY ?= 0
 STATIC ?= 1
 INTEL ?= 0
+GNU ?= 0
 DEV ?= 0
 
 # select from set of predefined triplet specifications
@@ -80,6 +81,15 @@ else ifneq (0,$(INTEL))
   CXX := icpx
   CC := icx
   AR := xiar
+else ifneq (0,$(GNU))
+  override CXX := g++
+  override CC := gcc
+  ifneq (Darwin,$(UNAME))
+    override AR := gcc-ar
+  else
+    override AR := ar
+  endif
+  override LD_LIBRARY_DIRS := $(NULL)
 else
   CXX := g++
   CC := gcc
@@ -212,9 +222,9 @@ else
 endif
 
 # Collect all paths in LD_LIBRARY_PATH and LD_LIBRARY_PATH/stubs, and append to LDFLAGS
-LD_LIBRARY_PATH := $(wildcard $(subst :, ,$(LD_LIBRARY_PATH)))
-LD_LIBSTUB_PATH := $(wildcard $(patsubst %,%/stubs,$(LD_LIBRARY_PATH)))
-LIBPATHS := $(foreach DIR,$(LD_LIBRARY_PATH),$(if $(filter -L$(DIR),$(LDFLAGS)),$(NULL),-L$(DIR)))
+LD_LIBRARY_DIRS := $(wildcard $(subst :, ,$(LD_LIBRARY_PATH)))
+LD_LIBSTUB_PATH := $(wildcard $(patsubst %,%/stubs,$(LD_LIBRARY_DIRS)))
+LIBPATHS := $(foreach DIR,$(LD_LIBRARY_DIRS),$(if $(filter -L$(DIR),$(LDFLAGS)),$(NULL),-L$(DIR)))
 LIBSTUBS := $(foreach DIR,$(LD_LIBSTUB_PATH),$(if $(filter -L$(DIR),$(LDFLAGS)),$(NULL),-L$(DIR)))
 LDFLAGS += $(LIBPATHS) $(LIBSTUBS)
 
