@@ -40,6 +40,9 @@
 #  if !defined(ACC_OPENCL_NCCS) && 1
 #    define ACC_OPENCL_NCCS 4
 #  endif
+#  if !defined(ACC_OPENCL_IENV) && 1
+#    define ACC_OPENCL_IENV
+#  endif
 
 
 #  if defined(__cplusplus)
@@ -212,6 +215,10 @@ int c_dbcsr_acc_init(void) {
     const char *const env_zex = getenv("ZEX_NUMBER_OF_CCS"), *const env_nccs = getenv("ACC_OPENCL_NCCS");
     const int nccs = (NULL == env_nccs ? 0 : atoi(env_nccs));
 #  endif
+#  if defined(ACC_OPENCL_IENV)
+    const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_ienv = getenv("ACC_OPENCL_IENV");
+    const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), ienv = neo * (NULL == env_ienv ? 1 : atoi(env_ienv));
+#  endif
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
     cl_uint nplatforms = 0, ndevices = 0, i;
@@ -257,6 +264,14 @@ int c_dbcsr_acc_init(void) {
         }
       }
       if (0 < j) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(zex_number_of_ccs)); /* soft-error */
+    }
+#  endif
+#  if defined(ACC_OPENCL_IENV)
+    if (0 != ienv) {
+      if (NULL == getenv("NEOReadDebugKeys")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV("NEOReadDebugKeys=1"));
+      if (NULL == getenv("EnableRecoverablePageFaults")) {
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV("EnableRecoverablePageFaults=0"));
+      }
     }
 #  endif
 #  if defined(ACC_OPENCL_CACHEDIR)
