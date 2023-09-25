@@ -399,11 +399,8 @@ int c_dbcsr_acc_init(void) {
       /* ACC_OPENCL_DEVIDS is parsed as a list of devices (whitelist) */
       if (EXIT_SUCCESS == result && NULL != env_devids && '\0' != *env_devids) {
         cl_uint devids[ACC_OPENCL_DEVICES_MAXCOUNT], ndevids = 0;
-        const char* const end = env_devids + strlen(env_devids); /* before strtok */
-        char* did = strtok(env_devids, ACC_OPENCL_DELIMS);
-        for (; NULL != did && ndevids < ACC_OPENCL_DEVICES_MAXCOUNT;
-             did = ((did + 1) < end ? strtok((did + 1) + strlen(did), ACC_OPENCL_DELIMS) : NULL))
-        {
+        char* did = strtok(env_devids, ACC_OPENCL_DELIMS " ");
+        for (; NULL != did && ndevids < ACC_OPENCL_DEVICES_MAXCOUNT; did = strtok(NULL, ACC_OPENCL_DELIMS " ")) {
           const int id = atoi(did);
           if (0 <= id && id < c_dbcsr_acc_opencl_config.ndevices) devids[ndevids++] = id;
         }
