@@ -332,10 +332,11 @@ int c_dbcsr_acc_init(void) {
                 CL_DEVICE_PARTITION_BY_AFFINITY_DOMAIN, CL_DEVICE_AFFINITY_DOMAIN_NUMA, /*terminator*/ 0};
               cl_uint nunits = 0;
               if (1 < devsplit &&
-                  CL_SUCCESS == clGetDeviceInfo(devices[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL))
+                  CL_SUCCESS == clGetDeviceInfo(devices[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL) &&
+                  0 < nunits)
               {
                 properties[0] = CL_DEVICE_PARTITION_EQUALLY;
-                properties[1] = nunits / devsplit;
+                properties[1] = (nunits + devsplit - 1) / devsplit;
               }
               if ((NULL != env_devsplit && '0' == *env_devsplit) ||
                   (c_dbcsr_acc_opencl_config.ndevices + 1) == ACC_OPENCL_DEVICES_MAXCOUNT ||
