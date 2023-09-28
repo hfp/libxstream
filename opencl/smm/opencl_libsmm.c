@@ -1414,7 +1414,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 if (NULL == env_atomics || '0' != *env_atomics) {
                   /* atomics_force: attempt to force atomics without confirmation */
                   const int atomics_force = ((NULL == env_atomics || '\0' == *env_atomics) ? 0 : atoi(env_atomics));
-                  const int cl_nonv = (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "nvidia"));
+                  const int cl_nonv = (EXIT_SUCCESS !=
+                                       c_dbcsr_acc_opencl_device_vendor(active_device, "nvidia", 0 /*use_platform_name*/));
                   if (NULL == env_atomics || '\0' == *env_atomics || 0 != atomics_force) {
                     cl_bitfield fp_atomics;
                     assert(dbcsr_type_real_8 == datatype || dbcsr_type_real_4 == datatype);
@@ -1454,18 +1455,25 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                       }
                     }
                     else if (cl_nonv) {
-                      if (NULL != extensions[1] && 1 < bs && 1 == new_config.bn && new_config.bm >= m_max && 0 == new_config.al &&
-                          (0 == (m_max & 1) || (0 == devinfo->intel /*&& cl_nonv*/)) /* TODO */
-                          && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions + 1, 1))
-                      {
-                        assert(dbcsr_type_real_4 == datatype);
-                        atomic_expr2 = "-D\"ATOMIC_ADD2_GLOBAL(A,B)=atomic_add_global_cmpxchg2(A,B)\"";
+                      if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 1 /*use_platform_name*/)) {
+                        if (NULL != extensions[1] && 1 < bs && 1 == new_config.bn && new_config.bm >= m_max && 0 == new_config.al &&
+                            (0 == (m_max & 1) || (0 == devinfo->intel /*&& cl_nonv*/)) /* TODO */
+                            && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions + 1, 1))
+                        {
+                          assert(dbcsr_type_real_4 == datatype);
+                          atomic_expr2 = "-D\"ATOMIC_ADD2_GLOBAL(A,B)=atomic_add_global_cmpxchg2(A,B)\"";
+                        }
+                        else {
+                          extensions[1] = NULL;
+                        }
+                        atomic_exp = "atomic_add_global_cmpxchg(A,B)";
+                        atomic_ops = (dbcsr_type_real_4 == datatype ? "-DCMPXCHG=atomic_cmpxchg" : "-DCMPXCHG=atom_cmpxchg");
                       }
                       else {
-                        extensions[1] = NULL;
+                        atomic_exp = (dbcsr_type_real_8 == datatype
+                                        ? "__builtin_amdgcn_global_atomic_fadd_f64(A,B,__ATOMIC_RELAXED)"
+                                        : "__builtin_amdgcn_global_atomic_fadd_f32(A,B,__ATOMIC_RELAXED)");
                       }
-                      atomic_exp = "atomic_add_global_cmpxchg(A,B)";
-                      atomic_ops = (dbcsr_type_real_4 == datatype ? "-DCMPXCHG=atomic_cmpxchg" : "-DCMPXCHG=atom_cmpxchg");
                     }
                     else {
                       assert(NULL != atomic_ops && '\0' == *atomic_ops);

@@ -305,7 +305,7 @@ int c_dbcsr_acc_opencl_device(int thread_id, cl_device_id* device);
 /** Get device-ID for given device, and optionally global device-ID. */
 int c_dbcsr_acc_opencl_device_id(cl_device_id device, int* device_id, int* global_id);
 /** Confirm the vendor of the given device. */
-int c_dbcsr_acc_opencl_device_vendor(cl_device_id device, const char vendor[]);
+int c_dbcsr_acc_opencl_device_vendor(cl_device_id device, const char vendor[], int use_platform_name);
 /** Capture or calculate UID based on the device-name. */
 int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], unsigned int* uid);
 /** Based on the device-ID, return the device's UID (capture or calculate), device name, and platform name. */
