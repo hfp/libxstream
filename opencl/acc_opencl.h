@@ -140,7 +140,7 @@
 #    define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
 #  else
 #    define ACC_OPENCL_EXPECT(EXPR) \
-       if (0 == (EXPR)) assert(0);
+      if (0 == (EXPR)) assert(0);
 #  endif
 #else /* elide */
 #  define ACC_OPENCL_EXPECT(EXPR) (void)(EXPR)

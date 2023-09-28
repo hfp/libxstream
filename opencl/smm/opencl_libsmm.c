@@ -204,6 +204,7 @@ int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libs
         result += fprintf(stream, "%i%c%i%c%i%c%i%c %i%c%i%c %i%c%i%c%i%c %i%c%i%c %i%c%i%c%i%c%i", config->bs, d, config->bm, d,
           config->bn, d, config->bk, d, config->ws, d, config->wg, d, config->lu, d, config->nz, d, config->al, d, config->tb, d,
           config->tc, d, config->ap, d, config->aa, d, config->ab, d, config->ac);
+        if (0 != config->flags) result += fprintf(stream, "%c %i", d, config->flags);
       }
     }
     else {
@@ -228,9 +229,8 @@ int opencl_libsmm_read_smm_params(
   char* parambuf, opencl_libsmm_smmkey_t* key, opencl_libsmm_smm_t* value, opencl_libsmm_perfest_t* perfest, char* device) {
   const char* const end = parambuf + strlen(parambuf); /* before strtok */
   char* s = strtok(parambuf, ACC_OPENCL_DELIMS);
-  int result = EXIT_SUCCESS, i = 0, ivalue, consumed = 0, c = 0;
   const int opt_consumed = (NULL != perfest ? 2 : 0) + (NULL != device ? 1 : 0);
-  const int max_consumed = opt_consumed + 19;
+  int result = EXIT_SUCCESS, i = 0, ivalue, consumed = 0, c = 0, max_consumed = opt_consumed + 19;
   double gflops;
   assert(NULL != key && NULL != value);
   for (; NULL != s;
@@ -368,6 +368,13 @@ int opencl_libsmm_read_smm_params(
           ++consumed;
         }
         break;
+      case 22:
+        if (1 == sscanf(s, "%i", &ivalue)) {
+          value->flags = ivalue;
+          ++max_consumed;
+          ++consumed;
+        }
+        break;
       default: s = NULL; /* break */
     }
   }
@@ -469,7 +476,7 @@ int libsmm_acc_init(void) {
                 }
                 else {
                   if (0 != c_dbcsr_acc_opencl_config.verbosity) {
-                    fprintf(stderr, "WARN LIBSMM: failed to load tuned parameters!\n");
+                    fprintf(stderr, "WARN LIBSMM: failed to load tuned parameters from CSV-file!\n");
                   }
                   break; /* invalid entry */
                 }
@@ -557,7 +564,7 @@ int libsmm_acc_init(void) {
               }
               else {
                 if (0 != c_dbcsr_acc_opencl_config.verbosity) {
-                  fprintf(stderr, "WARN LIBSMM: failed to load tuned parameters!\n");
+                  fprintf(stderr, "WARN LIBSMM: failed to load embedded parameters!\n");
                 }
                 break;
               }
@@ -1316,6 +1323,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   ? (0 == kernel_idx ? (NULL == config ? /*default*/ default_ac : config->ac) : /*default*/ default_ac)
                   : atoi(env_ac),
                 0, 2);
+              new_config.flags = config->flags;
               if (0 >= new_config.s) new_config.s = stack_size;
               if (0 == kernel_idx || 1 >= new_config.bs) new_config.bs = bs;
               nbm = (m_max + new_config.bm - 1) / new_config.bm;
@@ -1562,6 +1570,19 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   }
                 }
               }
+#    if defined(NDEBUG)
+              else if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
+                LIBXSMM_STDIO_ACQUIRE();
+                fprintf(stderr, "WARNING: SMM-kernel ");
+                opencl_libsmm_write_smm_params(
+                  stderr, 0 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
+                fprintf(stderr, "=");
+                opencl_libsmm_write_smm_params(
+                  stderr, 0 /*only_key*/, &key, &new_config, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
+                fprintf(stderr, " failed to compile!\n");
+                LIBXSMM_STDIO_RELEASE();
+              }
+#    endif
             }
           }
           /* insufficient device capabilities */
