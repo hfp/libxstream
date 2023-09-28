@@ -545,14 +545,19 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    if defined(BARRIER) && (MAX(1, SGS) < SWG) && defined(SLM_A)
         BARRIER(CLK_LOCAL_MEM_FENCE);
 #    endif
-#    if (WRK == SM) && (SGS >= SM) && !defined(SLM_A) && !defined(REG_A)
+#    if (WRK == SM) && (SM <= SGS || SM <= SWG) && !defined(SLM_A) && !defined(REG_A)
         const T a = AMK(idx, k);
 #    endif
         UNROLL_FORCE(SM)
         for (short m = 0; m < SM; ++m) {
-#    if (WRK == SM) && (SGS >= SM) && !defined(SLM_A) && !defined(REG_A)
+#    if (200 /*CL_VERSION_2_0*/ <= __OPENCL_VERSION__) && !defined(SLM_A) && !defined(REG_A) && (WRK == SM) && \
+      (SM <= SGS || SM <= SWG) /* size of subgroup or size of workgroup is sufficient */
+#      if (SM <= SGS)
           CNM(idx, m) = MAD(sub_group_broadcast(a, m), b, CNM(idx, m));
-#    else
+#      else
+          CNM(idx, m) = MAD(work_group_broadcast(a, m), b, CNM(idx, m));
+#      endif
+#    else /* fallback */
           CNM(idx, m) = MAD(AMK(m, k), b, CNM(idx, m));
 #    endif
         }
