@@ -1455,9 +1455,16 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                       }
                     }
                     else if (cl_nonv) {
-                      if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 0 /*use_platform_name*/) &&
-                          EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 1 /*use_platform_name*/))
+                      int gfx90 = 0;
+                      if ((EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 0 /*use_platform_name*/) ||
+                            EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 1 /*use_platform_name*/)) &&
+                          EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(active_device, buffer, ACC_OPENCL_BUFFERSIZE,
+                                            NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 1))
                       {
+                        const char* const gfxname = LIBXSMM_STRISTR(buffer, "gfx");
+                        if (NULL != gfxname && 90 <= atoi(gfxname + 3)) gfx90 = 1;
+                      }
+                      if (0 == gfx90) {
                         if (NULL != extensions[1] && 1 < bs && 1 == new_config.bn && new_config.bm >= m_max && 0 == new_config.al &&
                             (0 == (m_max & 1) || (0 == devinfo->intel /*&& cl_nonv*/)) /* TODO */
                             && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions + 1, 1))
