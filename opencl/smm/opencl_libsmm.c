@@ -1455,7 +1455,9 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                       }
                     }
                     else if (cl_nonv) {
-                      if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 1 /*use_platform_name*/)) {
+                      if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 0 /*use_platform_name*/) &&
+                          EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 1 /*use_platform_name*/))
+                      {
                         if (NULL != extensions[1] && 1 < bs && 1 == new_config.bn && new_config.bm >= m_max && 0 == new_config.al &&
                             (0 == (m_max & 1) || (0 == devinfo->intel /*&& cl_nonv*/)) /* TODO */
                             && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions + 1, 1))
