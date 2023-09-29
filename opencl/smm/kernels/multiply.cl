@@ -380,7 +380,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
           for (short k = 0; k < SK; ++k) amk[k] = ADX(m, k);
           UNROLL(BN)
           for (short bn = 0; bn < BN; ++bn) {
+#    if (SN % BN) || (defined(SLM_C) && (1 < BS)) || !defined(REG_B)
             const int n = bn + n0;
+#    endif
 #    if (SN % BN)
             if (n < SN)
 #    endif
@@ -430,7 +432,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
         UNROLL(BN)
         for (short bn = 0; bn < BN; ++bn) {
+#    if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
           const int n = bn + n0;
+#    endif
 #    if (SN % BN)
           if (n < SN)
 #    endif
@@ -478,7 +482,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #  else
     UNROLL(BN)
     for (short bn = 0; bn < BN; ++bn) {
+#    if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
       const int n = bn + n0;
+#    endif
 #    if (SN % BN)
       if (n < SN)
 #    endif
