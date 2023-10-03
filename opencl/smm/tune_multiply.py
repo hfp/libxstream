@@ -12,7 +12,7 @@ from opentuner.search.manipulator import IntegerParameter
 from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
-from signal import signal, getsignal, SIGINT
+from signal import signal, SIGINT, SIG_DFL
 import json
 import glob
 import sys
@@ -195,7 +195,7 @@ class SmmTuner(MeasurementInterface):
         """Append integer-parameter to either params or paramt list"""
         value_fixed = env_isfixed("OPENCL_LIBSMM_SMM_{}".format(name))
         value_fix = getattr(self.args, name.lower(), None) if value_fixed else None
-        if value_fix:
+        if value_fix is not None:
             params.append(IntegerParameter(name, value_fix, value_fix))
         else:
             if 0 <= match_id:
@@ -508,14 +508,15 @@ class SmmTuner(MeasurementInterface):
                         filename,
                     )
                 )
-                if (  # avoid recursion
-                    0 == self.args.check and self.handle_sigint != getsignal(SIGINT)
-                ) and (self.run_result and 0 == self.run_result["returncode"]):
+                if (  # avoid recursion (self.handle_sigint != getsignal(SIGINT))
+                    self.run_result and 0 == self.run_result["returncode"]
+                ) and 0 == self.args.check:
+                    signal(SIGINT, SIG_DFL)
                     self.run_result = self.launch(
                         self.environment(config) + ["CHECK=1"]
                     )
-                    if 0 != self.run_result["returncode"]:
-                        print("WARNING: tuned result seems to be incorrect!")
+                if self.run_result and 0 != self.run_result["returncode"]:
+                    print("WARNING: tuned result seems to be incorrect!")
 
     def handle_sigint(self, signum, frame):
         """Handle SIGINT or CTRL-C"""
