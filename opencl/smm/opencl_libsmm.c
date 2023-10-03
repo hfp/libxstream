@@ -1248,6 +1248,12 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             result = c_dbcsr_acc_opencl_wgsize(active_device, NULL /*device-specific*/, &wgsize_max, &wgsize_prf);
             assert(EXIT_SUCCESS != result || 0 < wgsize_prf);
             if (EXIT_SUCCESS == result) {
+              const int cl_nonv = (0 != devinfo->intel || EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(
+                                                                            active_device, "nvidia", 0 /*use_platform_name*/));
+              const int cl_noamd =
+                0 != devinfo->intel || !cl_nonv ||
+                (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 0 /*use_platform_name*/) &&
+                  EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 1 /*use_platform_name*/));
               const char *const env_bm = getenv("OPENCL_LIBSMM_SMM_BM"), *const env_bn = getenv("OPENCL_LIBSMM_SMM_BN");
               const char *const env_bk = getenv("OPENCL_LIBSMM_SMM_BK"), *const env_ws = getenv("OPENCL_LIBSMM_SMM_WS");
               const char *const env_wg = getenv("OPENCL_LIBSMM_SMM_WG"), *const env_lu = getenv("OPENCL_LIBSMM_SMM_LU");
@@ -1292,9 +1298,10 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                                              ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->nz) : /*default*/ 0)
                                              : atoi(env_nz),
                 0, 1);
-              new_config.al = LIBXSMM_CLMP((NULL == env_al || '\0' == *env_al)
-                                             ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->al) : /*default*/ 0)
-                                             : atoi(env_al),
+              new_config.al = LIBXSMM_CLMP(
+                (NULL == env_al || '\0' == *env_al)
+                  ? (cl_noamd ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->al) : /*default*/ 0) : 1)
+                  : atoi(env_al),
                 0, 1);
               new_config.tb = LIBXSMM_CLMP((NULL == env_tb || '\0' == *env_tb)
                                              ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->tb) : /*default*/ 0)
@@ -1414,8 +1421,6 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 if (NULL == env_atomics || '0' != *env_atomics) {
                   /* atomics_force: attempt to force atomics without confirmation */
                   const int atomics_force = ((NULL == env_atomics || '\0' == *env_atomics) ? 0 : atoi(env_atomics));
-                  const int cl_nonv = (EXIT_SUCCESS !=
-                                       c_dbcsr_acc_opencl_device_vendor(active_device, "nvidia", 0 /*use_platform_name*/));
                   if (NULL == env_atomics || '\0' == *env_atomics || 0 != atomics_force) {
                     cl_bitfield fp_atomics;
                     assert(dbcsr_type_real_8 == datatype || dbcsr_type_real_4 == datatype);
@@ -1456,10 +1461,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                     }
                     else if (cl_nonv) {
                       int gfx90 = 0;
-                      if ((EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 0 /*use_platform_name*/) ||
-                            EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 1 /*use_platform_name*/)) &&
-                          EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(active_device, buffer, ACC_OPENCL_BUFFERSIZE,
-                                            NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 1))
+                      if (!cl_noamd && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(active_device, buffer, ACC_OPENCL_BUFFERSIZE,
+                                                         NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 1))
                       {
                         const char* const gfxname = LIBXSMM_STRISTR(buffer, "gfx");
                         if (NULL != gfxname && 90 <= atoi(gfxname + 3)) gfx90 = 1;
