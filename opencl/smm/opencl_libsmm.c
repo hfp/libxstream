@@ -810,7 +810,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
           const char *const env_cl = getenv("OPENCL_LIBSMM_TRANS_BUILDOPTS"), *const env_bm = getenv("OPENCL_LIBSMM_TRANS_BM");
           const char* const cmem = (EXIT_SUCCESS != opencl_libsmm_use_cmem(active_device) ? "global" : "constant");
           const char* const param_format = "-DGLOBAL=%s -DINPLACE=%i -DFN=%s -DSM=%i -DSN=%i -DSWG=%i -DT=%s";
-          const char* const env_inplace = getenv("OPENCL_LIBSMM_TRANS_INPLACE"), *tname = "";
+          const char *const env_inplace = getenv("OPENCL_LIBSMM_TRANS_INPLACE"), *tname = "";
 #    if defined(OPENCL_LIBSMM_TRANS_INPLACE)
           const int inplace = ((m == n) && (NULL == env_inplace ? 1 : ('0' != *env_inplace)));
 #    else
@@ -1255,7 +1255,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
               const char *const env_ap = getenv("OPENCL_LIBSMM_SMM_AP"), *const env_aa = getenv("OPENCL_LIBSMM_SMM_AA");
               const char *const env_ab = getenv("OPENCL_LIBSMM_SMM_AB"), *const env_ac = getenv("OPENCL_LIBSMM_SMM_AC");
               const char *const env_xf = getenv("OPENCL_LIBSMM_SMM_XF"), *const env_cl = getenv("OPENCL_LIBSMM_SMM_BUILDOPTS");
-              const char *const intel_xf = "-cl-intel-256-GRF-per-thread";
+              const char* const intel_xf = "-cl-intel-256-GRF-per-thread";
               const int cl_nonv = (0 != devinfo->intel || EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(
                                                                             active_device, "nvidia", 0 /*use_platform_name*/));
               const int cl_noamd =

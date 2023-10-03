@@ -12,7 +12,7 @@ from opentuner.search.manipulator import IntegerParameter
 from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
-from signal import signal, getsignal, SIGINT
+from signal import signal, SIGINT
 import json
 import glob
 import sys
@@ -143,7 +143,9 @@ class SmmTuner(MeasurementInterface):
             self.create_param("AA", params, paramt, seed, 13, 0, 3)
             self.create_param("AB", params, paramt, seed, 14, 0, 3)
             self.create_param("AC", params, paramt, seed, 15, 0, 2)
-            if 15 < nprm and seed.group(16) and 2 < len(seed.group(16)):  # extension/flags
+            if (
+                15 < nprm and seed.group(16) and 2 < len(seed.group(16))
+            ):  # extension/flags
                 self.create_param("XF", params, paramt, seed.group(16)[2:], -1, 0, 1)
             if not paramt:
                 sys.tracebacklimit = 0
@@ -251,23 +253,28 @@ class SmmTuner(MeasurementInterface):
             return opentuner.search.objective.MaximizeAccuracy()
 
     def environment(self, config):
-        return [
-            "OPENCL_LIBSMM_SMM_BS={}".format(config["BS"]),
-            "OPENCL_LIBSMM_SMM_BM={}".format(config["BM"]),
-            "OPENCL_LIBSMM_SMM_BN={}".format(config["BN"]),
-            "OPENCL_LIBSMM_SMM_BK={}".format(config["BK"]),
-            "OPENCL_LIBSMM_SMM_WS={}".format(config["WS"]),
-            "OPENCL_LIBSMM_SMM_WG={}".format(config["WG"]),
-            "OPENCL_LIBSMM_SMM_LU={}".format(config["LU"]),
-            "OPENCL_LIBSMM_SMM_NZ={}".format(config["NZ"]),
-            "OPENCL_LIBSMM_SMM_AL={}".format(config["AL"]),
-            "OPENCL_LIBSMM_SMM_TB={}".format(config["TB"]),
-            "OPENCL_LIBSMM_SMM_TC={}".format(config["TC"]),
-            "OPENCL_LIBSMM_SMM_AP={}".format(config["AP"]),
-            "OPENCL_LIBSMM_SMM_AA={}".format(config["AA"]),
-            "OPENCL_LIBSMM_SMM_AB={}".format(config["AB"]),
-            "OPENCL_LIBSMM_SMM_AC={}".format(config["AC"]),
-        ] + ["OPENCL_LIBSMM_SMM_XF={}".format(config["XF"])] if "XF" in config else []
+        return (
+            [
+                "OPENCL_LIBSMM_SMM_BS={}".format(config["BS"]),
+                "OPENCL_LIBSMM_SMM_BM={}".format(config["BM"]),
+                "OPENCL_LIBSMM_SMM_BN={}".format(config["BN"]),
+                "OPENCL_LIBSMM_SMM_BK={}".format(config["BK"]),
+                "OPENCL_LIBSMM_SMM_WS={}".format(config["WS"]),
+                "OPENCL_LIBSMM_SMM_WG={}".format(config["WG"]),
+                "OPENCL_LIBSMM_SMM_LU={}".format(config["LU"]),
+                "OPENCL_LIBSMM_SMM_NZ={}".format(config["NZ"]),
+                "OPENCL_LIBSMM_SMM_AL={}".format(config["AL"]),
+                "OPENCL_LIBSMM_SMM_TB={}".format(config["TB"]),
+                "OPENCL_LIBSMM_SMM_TC={}".format(config["TC"]),
+                "OPENCL_LIBSMM_SMM_AP={}".format(config["AP"]),
+                "OPENCL_LIBSMM_SMM_AA={}".format(config["AA"]),
+                "OPENCL_LIBSMM_SMM_AB={}".format(config["AB"]),
+                "OPENCL_LIBSMM_SMM_AC={}".format(config["AC"]),
+            ]
+            + ["OPENCL_LIBSMM_SMM_XF={}".format(config["XF"])]
+            if "XF" in config
+            else []
+        )
 
     def run(self, desired_result, input, limit):
         """Run a configuration and return performance"""
@@ -502,7 +509,9 @@ class SmmTuner(MeasurementInterface):
                 )
                 # consider self.handle_sigint != getsignal(SIGINT) to avoid recursion
                 if 0 == self.args.check and 0 == self.run_result["returncode"]:
-                    self.run_result = self.launch(self.environment(config) + ["CHECK=1"])
+                    self.run_result = self.launch(
+                        self.environment(config) + ["CHECK=1"]
+                    )
                     if 0 != self.run_result["returncode"]:
                         print("WARNING: tuned result seems to be incorrect!")
 
