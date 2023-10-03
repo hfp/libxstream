@@ -193,8 +193,9 @@ class SmmTuner(MeasurementInterface):
 
     def create_param(self, name, params, paramt, match, match_id, value0, value1):
         """Append integer-parameter to either params or paramt list"""
-        if env_isfixed("OPENCL_LIBSMM_SMM_{}".format(name)):
-            value_fix = getattr(self.args, name.lower())
+        value_fixed = env_isfixed("OPENCL_LIBSMM_SMM_{}".format(name))
+        value_fix = getattr(self.args, name.lower(), None) if value_fixed else None
+        if value_fix:
             params.append(IntegerParameter(name, value_fix, value_fix))
         else:
             if 0 <= match_id:
