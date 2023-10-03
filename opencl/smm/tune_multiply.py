@@ -13,6 +13,7 @@ from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
 from signal import signal, SIGINT, SIG_DFL
+import copy
 import json
 import glob
 import sys
@@ -273,7 +274,7 @@ class SmmTuner(MeasurementInterface):
                 "OPENCL_LIBSMM_SMM_AC={}".format(config["AC"]),
             ]
             + ["OPENCL_LIBSMM_SMM_XF={}".format(config["XF"])]
-            if "XF" in config
+            if "XF" in config and not os.getenv("OPENCL_LIBSMM_SMM_XF")
             else []
         )
 
@@ -475,9 +476,11 @@ class SmmTuner(MeasurementInterface):
                 os.path.join(self.args.jsondir, ".{}.json".format(self.args.label)),
                 "w",
             ) as file:
+                cfg = config
                 if "XF" in config and 0 == config["XF"]:
-                    del config["XF"]
-                json.dump(config, file, sort_keys=True)
+                    cfg = copy.deepcopy(config)
+                    del cfg["XF"]
+                json.dump(cfg, file, sort_keys=True)
                 file.write("\n")  # append newline at EOF
             if final:
                 if not filenames and glob.glob(self.args.csvfile):
@@ -778,8 +781,6 @@ if __name__ == "__main__":
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in {"tune", "enabled", "on"}:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
-    # if not os.getenv("OPENCL_LIBSMM_SMM_AL") in {"tune", "enabled", "on"}:
-    # os.environ["OPENCL_LIBSMM_SMM_AL"] = "{}".format(args.al)
     # fix tunables according to level of tuning
     if 1 <= args.tlevel or 0 > args.tlevel:
         os.environ["OPENCL_LIBSMM_SMM_BM"] = "{}".format(args.bm)
@@ -798,4 +799,7 @@ if __name__ == "__main__":
     if 0 == args.mb:
         args.mb = 64
     # additional/depending arguments
-    SmmTuner.main(args)
+    try:
+        SmmTuner.main(args)
+    except:  # noqa: E722
+        pass
