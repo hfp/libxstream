@@ -12,7 +12,7 @@ from opentuner.search.manipulator import IntegerParameter
 from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
-from signal import signal, SIGINT
+from signal import signal, getsignal, SIGINT
 import json
 import glob
 import sys
@@ -508,8 +508,9 @@ class SmmTuner(MeasurementInterface):
                         filename,
                     )
                 )
-                # consider self.handle_sigint != getsignal(SIGINT) to avoid recursion
-                if 0 == self.args.check and 0 == self.run_result["returncode"]:
+                if (  # avoid recursion
+                    0 == self.args.check and self.handle_sigint != getsignal(SIGINT)
+                ) and (self.run_result and 0 == self.run_result["returncode"]):
                     self.run_result = self.launch(
                         self.environment(config) + ["CHECK=1"]
                     )
