@@ -69,8 +69,9 @@ class SmmTuner(MeasurementInterface):
         self.args.bk = [max(self.args.bk, 1), self.mnk[2]][0 == self.args.bk]
         self.args.ws = min(self.args.ws, self.mnk[0] * self.mnk[1])
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
-        self.nz = self.al = self.tb = self.tc = self.xf = None
+        self.nz = self.al = self.tb = self.tc = None
         self.ap = self.aa = self.ab = self.ac = None
+        self.xf = os.getenv("OPENCL_LIBSMM_SMM_XF")
         self.typename = self.typeid = None
         self.device = self.size = None
         self.gfbase = self.gflops = 0
@@ -144,10 +145,9 @@ class SmmTuner(MeasurementInterface):
             self.create_param("AA", params, paramt, seed, 13, 0, 3)
             self.create_param("AB", params, paramt, seed, 14, 0, 3)
             self.create_param("AC", params, paramt, seed, 15, 0, 2)
-            if (
-                15 < nprm and seed.group(16) and 2 < len(seed.group(16))
-            ):  # extension/flags
-                self.create_param("XF", params, paramt, seed.group(16)[2:], -1, 0, 1)
+            if not self.xf and 15 < nprm and seed.group(16) and 2 < len(seed.group(16)):
+                self.xf = seed.group(16)[2:]
+            self.create_param("XF", params, paramt, self.xf, -1, 0, 1)
             if not paramt:
                 sys.tracebacklimit = 0
                 raise RuntimeError(
@@ -155,8 +155,7 @@ class SmmTuner(MeasurementInterface):
                 )
             for param in params + paramt:
                 manipulator.add_parameter(param)
-        # consider to update and/or merge JSONS (update first)
-        if (
+        if (  # consider to update and/or merge JSONS (update first)
             (self.args.merge is not None and (0 <= self.args.merge or self.typeid))
             or self.args.update is None
             or "" != self.args.update
@@ -206,7 +205,7 @@ class SmmTuner(MeasurementInterface):
                     else None
                 )
             else:
-                value = int(match)
+                value = int(match) if match is not None else 0
             setattr(self, name.lower(), value)
             paramt.append(IntegerParameter(name, value0, value1))
 
@@ -255,28 +254,24 @@ class SmmTuner(MeasurementInterface):
             return opentuner.search.objective.MaximizeAccuracy()
 
     def environment(self, config):
-        return (
-            [
-                "OPENCL_LIBSMM_SMM_BS={}".format(config["BS"]),
-                "OPENCL_LIBSMM_SMM_BM={}".format(config["BM"]),
-                "OPENCL_LIBSMM_SMM_BN={}".format(config["BN"]),
-                "OPENCL_LIBSMM_SMM_BK={}".format(config["BK"]),
-                "OPENCL_LIBSMM_SMM_WS={}".format(config["WS"]),
-                "OPENCL_LIBSMM_SMM_WG={}".format(config["WG"]),
-                "OPENCL_LIBSMM_SMM_LU={}".format(config["LU"]),
-                "OPENCL_LIBSMM_SMM_NZ={}".format(config["NZ"]),
-                "OPENCL_LIBSMM_SMM_AL={}".format(config["AL"]),
-                "OPENCL_LIBSMM_SMM_TB={}".format(config["TB"]),
-                "OPENCL_LIBSMM_SMM_TC={}".format(config["TC"]),
-                "OPENCL_LIBSMM_SMM_AP={}".format(config["AP"]),
-                "OPENCL_LIBSMM_SMM_AA={}".format(config["AA"]),
-                "OPENCL_LIBSMM_SMM_AB={}".format(config["AB"]),
-                "OPENCL_LIBSMM_SMM_AC={}".format(config["AC"]),
-            ]
-            + ["OPENCL_LIBSMM_SMM_XF={}".format(config["XF"])]
-            if "XF" in config and not os.getenv("OPENCL_LIBSMM_SMM_XF")
-            else []
-        )
+        return [
+            "OPENCL_LIBSMM_SMM_BS={}".format(config["BS"]),
+            "OPENCL_LIBSMM_SMM_BM={}".format(config["BM"]),
+            "OPENCL_LIBSMM_SMM_BN={}".format(config["BN"]),
+            "OPENCL_LIBSMM_SMM_BK={}".format(config["BK"]),
+            "OPENCL_LIBSMM_SMM_WS={}".format(config["WS"]),
+            "OPENCL_LIBSMM_SMM_WG={}".format(config["WG"]),
+            "OPENCL_LIBSMM_SMM_LU={}".format(config["LU"]),
+            "OPENCL_LIBSMM_SMM_NZ={}".format(config["NZ"]),
+            "OPENCL_LIBSMM_SMM_AL={}".format(config["AL"]),
+            "OPENCL_LIBSMM_SMM_TB={}".format(config["TB"]),
+            "OPENCL_LIBSMM_SMM_TC={}".format(config["TC"]),
+            "OPENCL_LIBSMM_SMM_AP={}".format(config["AP"]),
+            "OPENCL_LIBSMM_SMM_AA={}".format(config["AA"]),
+            "OPENCL_LIBSMM_SMM_AB={}".format(config["AB"]),
+            "OPENCL_LIBSMM_SMM_AC={}".format(config["AC"]),
+            "OPENCL_LIBSMM_SMM_XF={}".format(config["XF"]),
+        ]
 
     def run(self, desired_result, input, limit):
         """Run a configuration and return performance"""
