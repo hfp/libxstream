@@ -24,24 +24,12 @@ default_basename = "tune_multiply"
 default_mnk = "23x23x23"
 
 
-def env_isfixed(envname):
-    strvalue = os.getenv(envname)
-    if strvalue:
-        try:
-            ivalue = int(strvalue)
-            return ivalue == ivalue
-        except ValueError:
-            pass
-    return False
-
-
-def env_value(envname, default):
-    strvalue = os.getenv(envname, default)
+def env_intvalue(envname, default):
+    value = os.getenv(envname, default)
     try:
-        return int(strvalue)
+        return int(value)
     except ValueError:
-        pass
-    return int(default)
+        return int(default)
 
 
 def ilog2(n):
@@ -195,11 +183,13 @@ class SmmTuner(MeasurementInterface):
 
     def create_param(self, name, params, paramt, match, match_id, value0, value1):
         """Append integer-parameter to either params or paramt list"""
-        value_fixed = env_isfixed("OPENCL_LIBSMM_SMM_{}".format(name))
-        value_fix = getattr(self.args, name.lower(), None) if value_fixed else None
-        if value_fix is not None:
-            params.append(IntegerParameter(name, value_fix, value_fix))
-        else:
+        value_env = os.getenv("OPENCL_LIBSMM_SMM_{}".format(name))
+        value_fix = (
+            getattr(self.args, name.lower(), None)
+            if value_env is None
+            else int(value_env)
+        )
+        if value_fix is None:  # tunable parameter
             if 0 <= match_id:
                 value = (
                     int(match.group(match_id))
@@ -207,9 +197,11 @@ class SmmTuner(MeasurementInterface):
                     else None
                 )
             else:
-                value = int(match) if match is not None else 0
+                value = 0 if match is None else int(match)
             setattr(self, name.lower(), value)
             paramt.append(IntegerParameter(name, value0, value1))
+        else:  # fixed parameter
+            params.append(IntegerParameter(name, value_fix, value_fix))
 
     def launch(self, envs, nrep=None, verbose=None):
         """Launch executable supplying environment and arguments"""
@@ -634,7 +626,7 @@ if __name__ == "__main__":
         "-bm",
         "--initial-bm",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_BM", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_BM", "0"),
         nargs="?",
         dest="bm",
         help="Block/tile size (0:auto)",
@@ -643,7 +635,7 @@ if __name__ == "__main__":
         "-bn",
         "--initial-bn",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_BN", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_BN", "0"),
         nargs="?",
         dest="bn",
         help="Block/tile size (0:auto)",
@@ -652,7 +644,7 @@ if __name__ == "__main__":
         "-bk",
         "--initial-bk",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_BK", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_BK", "0"),
         nargs="?",
         dest="bk",
         help="Block size (0:auto)",
@@ -661,7 +653,7 @@ if __name__ == "__main__":
         "-ws",
         "--initial-ws",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_WS", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_WS", "0"),
         nargs="?",
         dest="ws",
         help="Minimum WG-size (0:auto)",
@@ -670,7 +662,7 @@ if __name__ == "__main__":
         "-wg",
         "--initial-wg",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_WG", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_WG", "0"),
         dest="wg",
         help="Size of WG: subgroups (-1), tight (0), round-up (1), PoT (2)",
     )
@@ -678,7 +670,7 @@ if __name__ == "__main__":
         "-lu",
         "--initial-lu",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_LU", "-1"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_LU", "-1"),
         dest="lu",
         help="Loop unroll (-2) full, (-1) no hints (default),"
         + " (0) inner, (1) outer-dehint, (2) literal",
@@ -687,7 +679,7 @@ if __name__ == "__main__":
         "-nz",
         "--initial-nz",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_NZ", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_NZ", "0"),
         dest="nz",
         help="Check (1) atomic increment to be non-zero (0:off)",
     )
@@ -695,7 +687,7 @@ if __name__ == "__main__":
         "-al",
         "--initial-al",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_AL", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_AL", "0"),
         dest="al",
         help="Access: transposed (0), linear (1)",
     )
@@ -703,7 +695,7 @@ if __name__ == "__main__":
         "-tb",
         "--initial-tb",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_TB", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_TB", "0"),
         dest="tb",
         help="Matrix B: untracked (0), tracked (1)",
     )
@@ -711,7 +703,7 @@ if __name__ == "__main__":
         "-tc",
         "--initial-tc",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_TC", "1"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_TC", "1"),
         dest="tc",
         help="Matrix C: untracked (0), tracked (1)",
     )
@@ -719,7 +711,7 @@ if __name__ == "__main__":
         "-ap",
         "--initial-ap",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_AP", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_AP", "0"),
         dest="ap",
         help="Params: global (0), shared (1)",
     )
@@ -727,7 +719,7 @@ if __name__ == "__main__":
         "-aa",
         "--initial-aa",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_AA", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_AA", "0"),
         dest="aa",
         help="Matrix A: global (0), shared (1), shared-bc (2), register (3)",
     )
@@ -735,7 +727,7 @@ if __name__ == "__main__":
         "-ab",
         "--initial-ab",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_AB", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_AB", "0"),
         dest="ab",
         help="Matrix B: global (0), shared (1), shared-bc (2), register (3)",
     )
@@ -743,7 +735,7 @@ if __name__ == "__main__":
         "-ac",
         "--initial-ac",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_AC", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_AC", "0"),
         dest="ac",
         help="Matrix C: register (0), shared (1), shared-bc (2)",
     )
@@ -751,7 +743,7 @@ if __name__ == "__main__":
         "-bs",
         "--initial-bs",
         type=int,
-        default=env_value("OPENCL_LIBSMM_SMM_BS", "0"),
+        default=env_intvalue("OPENCL_LIBSMM_SMM_BS", "0"),
         nargs="?",
         dest="bs",
         help="Minibatch size (0:auto)",
