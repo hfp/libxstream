@@ -189,7 +189,7 @@ class SmmTuner(MeasurementInterface):
             if value_env is None
             else int(value_env)
         )
-        if value_fix is None:  # tunable parameter
+        if value_env is None:  # tunable parameter
             if 0 <= match_id:
                 value = (
                     int(match.group(match_id))
@@ -201,6 +201,7 @@ class SmmTuner(MeasurementInterface):
             setattr(self, name.lower(), value)
             paramt.append(IntegerParameter(name, value0, value1))
         else:  # fixed parameter
+            value_fix = getattr(self.args, name.lower(), int(value_env))
             params.append(IntegerParameter(name, value_fix, value_fix))
 
     def launch(self, envs, nrep=None, verbose=None):
