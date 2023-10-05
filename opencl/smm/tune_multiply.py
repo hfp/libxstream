@@ -145,7 +145,9 @@ class SmmTuner(MeasurementInterface):
             self.create_param("AA", params, paramt, seed, 13, 0, 3)
             self.create_param("AB", params, paramt, seed, 14, 0, 3)
             self.create_param("AC", params, paramt, seed, 15, 0, 2)
-            if not self.xf and 15 < nprm and seed.group(16) and 2 < len(seed.group(16)):
+            if self.xf is not None and (
+                15 < nprm and seed.group(16) and 2 < len(seed.group(16))
+            ):
                 self.xf = seed.group(16)[2:]
             self.create_param("XF", params, paramt, self.xf, -1, 0, 1)
             if not paramt:
