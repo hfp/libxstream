@@ -138,6 +138,8 @@ class SmmTuner(MeasurementInterface):
             ):
                 self.xf = seed.group(16)[2:]
             self.create_param("XF", params, paramt, self.xf, -1, 0, 1)
+            if self.xf is not None:
+                self.xf = int(self.xf)
             if not paramt:
                 sys.tracebacklimit = 0
                 raise RuntimeError(
