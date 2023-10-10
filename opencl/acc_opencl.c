@@ -209,7 +209,6 @@ int c_dbcsr_acc_init(void) {
     const char *const env_devcopy = getenv("ACC_OPENCL_DEVCOPY"), *const env_verbose = getenv("ACC_OPENCL_VERBOSE");
     const char *const env_device = getenv("ACC_OPENCL_DEVICE"), *const env_dump_acc = getenv("ACC_OPENCL_DUMP");
     const char *const env_async = getenv("ACC_OPENCL_ASYNC"), *const env_timer = getenv("ACC_OPENCL_TIMER");
-    const char *const env_flush = getenv("ACC_OPENCL_FLUSH");
     const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
 #  if defined(ACC_OPENCL_NCCS) && (0 < ACC_OPENCL_NCCS)
     const char *const env_zex = getenv("ZEX_NUMBER_OF_CCS"), *const env_nccs = getenv("ACC_OPENCL_NCCS");
@@ -234,7 +233,6 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
     c_dbcsr_acc_opencl_config.xhints = (NULL == env_xhints ? /*default*/ 5 : atoi(env_xhints));
     c_dbcsr_acc_opencl_config.async = (NULL == env_async ? /*default*/ 3 : atoi(env_async));
-    c_dbcsr_acc_opencl_config.flush = (NULL == env_flush ? /*default*/ 0 : atoi(env_flush));
     c_dbcsr_acc_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
     if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, env_devmatch, &c_dbcsr_acc_opencl_config.devmatch)) {
       c_dbcsr_acc_opencl_config.devmatch = 1;
@@ -1040,20 +1038,18 @@ int c_dbcsr_acc_set_active_device(int device_id) {
 
 
 int c_dbcsr_acc_opencl_device_synchronize(int thread_id) {
+  void** const streams = c_dbcsr_acc_opencl_config.streams + ACC_OPENCL_STREAMS_MAXCOUNT * thread_id;
   int result = EXIT_SUCCESS;
-  if (0 == (4 & c_dbcsr_acc_opencl_config.flush)) {
-    void** const streams = c_dbcsr_acc_opencl_config.streams + ACC_OPENCL_STREAMS_MAXCOUNT * thread_id;
-    int i = 0;
-    assert(0 <= thread_id && thread_id < c_dbcsr_acc_opencl_config.nthreads);
-    assert(NULL != c_dbcsr_acc_opencl_config.streams);
-    for (; i < ACC_OPENCL_STREAMS_MAXCOUNT; ++i) {
-      void* const stream = streams[i];
-      if (NULL != stream) {
-        result = c_dbcsr_acc_stream_sync(stream);
-        if (EXIT_SUCCESS != result) break;
-      }
-      else break;
+  int i = 0;
+  assert(0 <= thread_id && thread_id < c_dbcsr_acc_opencl_config.nthreads);
+  assert(NULL != c_dbcsr_acc_opencl_config.streams);
+  for (; i < ACC_OPENCL_STREAMS_MAXCOUNT; ++i) {
+    void* const stream = streams[i];
+    if (NULL != stream) {
+      result = c_dbcsr_acc_stream_sync(stream);
+      if (EXIT_SUCCESS != result) break;
     }
+    else break;
   }
   return result;
 }

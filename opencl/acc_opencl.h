@@ -264,8 +264,6 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_int xhints;
   /** Asynchronous memory ops. */
   cl_int async;
-  /** Flush level. */
-  cl_int flush;
   /** Dump level. */
   cl_int dump;
 } c_dbcsr_acc_opencl_config_t;

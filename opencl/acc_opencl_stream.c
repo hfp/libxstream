@@ -295,7 +295,7 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
 int c_dbcsr_acc_stream_sync(void* stream) {
   int result = EXIT_SUCCESS;
 #  if defined(ACC_OPENCL_STREAM_PRIORITIES)
-  const int* const priority = (0 == (1 & c_dbcsr_acc_opencl_config.flush) ? NULL : c_dbcsr_acc_opencl_stream_priority(stream));
+  const int* const priority = NULL;
 #  endif
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
@@ -304,18 +304,7 @@ int c_dbcsr_acc_stream_sync(void* stream) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(NULL != stream);
-#  if defined(ACC_OPENCL_STREAM_PRIORITIES)
-  if (NULL != priority && CL_QUEUE_PRIORITY_HIGH_KHR <= *priority && CL_QUEUE_PRIORITY_MED_KHR > *priority) {
-    if (0 != (2 & c_dbcsr_acc_opencl_config.flush)) {
-      result = clFlush(*ACC_OPENCL_STREAM(stream));
-    }
-  }
-  else
-#  endif
-  {
-    const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
-    result = clFinish(queue);
-  }
+  result = clFinish(*ACC_OPENCL_STREAM(stream));
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
