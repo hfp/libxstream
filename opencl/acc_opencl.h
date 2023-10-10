@@ -262,8 +262,6 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_int devcopy;
   /** Execution-hints (command stream). */
   cl_int xhints;
-  /** Share streams across threads. */
-  cl_int share;
   /** Asynchronous memory ops. */
   cl_int async;
   /** Flush level. */
