@@ -112,6 +112,7 @@
 #    define ACC_OPENCL_STREAM_PRIORITIES
 #  endif
 #endif
+/** Use DBCSR's profile for detailed timings */
 #if !defined(ACC_OPENCL_PROFILE) && 0
 #  define ACC_OPENCL_PROFILE
 #endif
