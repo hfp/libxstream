@@ -82,7 +82,7 @@
 #  define ACC_OPENCL_MAXSTRLEN 48
 #endif
 #if !defined(ACC_OPENCL_DEVICES_MAXCOUNT)
-#  define ACC_OPENCL_DEVICES_MAXCOUNT 256
+#  define ACC_OPENCL_DEVICES_MAXCOUNT 64
 #endif
 /** Counted on a per-thread basis! */
 #if !defined(ACC_OPENCL_HANDLES_MAXCOUNT)
