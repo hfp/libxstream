@@ -19,12 +19,16 @@
       OPENCL_LIBSMM_USEOMP(libxsmm_gemm_batch) \
       (IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, STRIDE_C, INDEX_STRIDE, \
         INDEX_BASE, BATCHSIZE, 0 /*batchcheck*/)
+#    define OPENCL_LIBSMM_DESCINIT(BLOB, PREC, M, N, K, LDA, LDB, LDC, FLAGS, PREFETCH) \
+      libxsmm_gemm_descriptor_init(BLOB, PREC, PREC, PREC, PREC, M, N, K, LDA, LDB, LDC, FLAGS, PREFETCH)
 #  else
 #    define OPENCL_LIBSMM_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, \
       LDC, STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
       OPENCL_LIBSMM_USEOMP(libxsmm_gemm_batch) \
       ((libxsmm_gemm_precision)(IPREC), (libxsmm_gemm_precision)(OPREC), TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, B, LDB, BETA, C, \
         LDC, INDEX_BASE, INDEX_STRIDE, STRIDE_A, STRIDE_B, STRIDE_C, BATCHSIZE)
+#    define OPENCL_LIBSMM_DESCINIT(BLOB, PREC, M, N, K, LDA, LDB, LDC, FLAGS, PREFETCH) \
+      libxsmm_gemm_descriptor_dinit(BLOB, PREC, M, N, K, LDA, LDB, LDC, 1.0, 1.0, FLAGS, PREFETCH)
 #  endif
 
 #  if defined(_OPENMP) && !defined(__DBCSR_ACC)
@@ -1660,10 +1664,9 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             CL_SUCCESS == clGetMemObjectInfo(*ACC_OPENCL_MEM(dev_b_data), CL_MEM_SIZE, sizeof(size_t), &bsize, NULL) &&
             CL_SUCCESS == clGetMemObjectInfo(*ACC_OPENCL_MEM(dev_c_data), CL_MEM_SIZE, sizeof(size_t), &csize, NULL))
         {
-          const double alpha = 1, beta = 1;
           libxsmm_descriptor_blob blob;
-          libxsmm_gemm_descriptor* const desc = libxsmm_gemm_descriptor_dinit(
-            &blob, precision, m_max, n_max, k_max, m_max, k_max, m_max, alpha, beta, LIBXSMM_GEMM_FLAG_NONE, LIBXSMM_PREFETCH_NONE);
+          libxsmm_gemm_descriptor* const desc = OPENCL_LIBSMM_DESCINIT(
+            &blob, precision, m_max, n_max, k_max, m_max, k_max, m_max, LIBXSMM_GEMM_FLAG_NONE, LIBXSMM_PREFETCH_NONE);
           scratch = libxsmm_aligned_scratch(
             asize + bsize + csize + csize + k_max * n_max * typesize + 4 * (LIBXSMM_ALIGNMENT - 1) /*alignments*/,
             LIBXSMM_ALIGNMENT);
