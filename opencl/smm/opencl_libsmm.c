@@ -142,7 +142,7 @@ int opencl_libsmm_use_cmem(cl_device_id device) {
 }
 
 
-#  if defined(_DEBUG) && defined(OPENCL_LIBSMM_VALIDATE) && (0 != OPENCL_LIBSMM_VALIDATE)
+#  if defined(OPENCL_LIBSMM_VALIDATE) && (0 != OPENCL_LIBSMM_VALIDATE)
 void opencl_libsmm_print_matrix(FILE* ostream, const char* label, libsmm_acc_data_t type, const void* mat, int m, int n) {
   int i, j;
   const char* const s = (NULL != label ? label : "");
@@ -1016,12 +1016,13 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
                 n, max_kernel_dim, stream);
             }
             fprintf(stderr, " => ERROR\n");
-#      if defined(_DEBUG)
-            opencl_libsmm_print_matrix(stderr, "orig = ", datatype, orig, m, n);
-            opencl_libsmm_print_matrix(stderr, "gold = ", datatype, gold, n, m);
-            opencl_libsmm_print_matrix(stderr, "test = ", datatype, test, n, m);
-            fprintf(stderr, "\n");
-#      endif
+            if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
+              fprintf(stderr, "stackposition = %i (index=%llu)\n", i, index);
+              opencl_libsmm_print_matrix(stderr, "orig = ", datatype, orig, m, n);
+              opencl_libsmm_print_matrix(stderr, "gold = ", datatype, gold, n, m);
+              opencl_libsmm_print_matrix(stderr, "test = ", datatype, test, n, m);
+              fprintf(stderr, "\n");
+            }
 #      if defined(OPENCL_LIBSMM_VALIDATE_EXIT)
             exit(EXIT_FAILURE);
 #      else
@@ -1667,9 +1668,9 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
           libxsmm_descriptor_blob blob;
           libxsmm_gemm_descriptor* const desc = OPENCL_LIBSMM_DESCINIT(
             &blob, precision, m_max, n_max, k_max, m_max, k_max, m_max, LIBXSMM_GEMM_FLAG_NONE, LIBXSMM_PREFETCH_NONE);
-          scratch = libxsmm_aligned_scratch(
-            asize + bsize + csize + csize + k_max * n_max * typesize + 4 * (LIBXSMM_ALIGNMENT - 1) /*alignments*/,
-            LIBXSMM_ALIGNMENT);
+          const size_t scratch_size = asize + bsize + csize + csize + k_max * n_max * typesize +
+                                      4 * (LIBXSMM_ALIGNMENT - 1) /*alignments*/;
+          scratch = libxsmm_aligned_scratch(scratch_size, LIBXSMM_ALIGNMENT);
           if (NULL != desc && NULL != scratch) {
             ainp = (char*)scratch;
             binp = (char*)LIBXSMM_UP2((uintptr_t)ainp + asize, LIBXSMM_ALIGNMENT);
@@ -1791,11 +1792,12 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
 #      else
               fprintf(stderr, " => ERROR diff=%g\n", diff.linf_abs);
 #      endif
-#      if defined(_DEBUG)
-              opencl_libsmm_print_matrix(stderr, "gold = ", datatype, gold + ic, m_max, n_max);
-              opencl_libsmm_print_matrix(stderr, "test = ", datatype, test + ic, m_max, n_max);
-              fprintf(stderr, "\n");
-#      endif
+              if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
+                fprintf(stderr, "stackposition = %llu (index=%llu)\n", i, (unsigned long long)ic);
+                opencl_libsmm_print_matrix(stderr, "gold = ", datatype, gold + ic, m_max, n_max);
+                opencl_libsmm_print_matrix(stderr, "test = ", datatype, test + ic, m_max, n_max);
+                fprintf(stderr, "\n");
+              }
 #      if defined(OPENCL_LIBSMM_VALIDATE_EXIT)
               exit(EXIT_FAILURE);
 #      else
