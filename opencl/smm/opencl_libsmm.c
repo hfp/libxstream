@@ -920,8 +920,8 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
           omat = (char*)LIBXSMM_UP2((uintptr_t)imat + data_size, LIBXSMM_ALIGNMENT);
           gold = (char*)LIBXSMM_UP2((uintptr_t)omat + data_size, LIBXSMM_ALIGNMENT);
           ACC_OPENCL_CHECK(
-            c_dbcsr_acc_memcpy_d2h(dev_trs_stack, stack, sizeof(int) * offset_stack_size, stream), "transfer debug stack", result);
-          ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_data, imat, data_size, stream), "transfer debug input", result);
+            c_dbcsr_acc_memcpy_d2h(dev_trs_stack, stack, sizeof(int) * offset_stack_size, stream), "transfer validation stack", result);
+          ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_data, imat, data_size, stream), "transfer validation input", result);
         }
         else result = EXIT_FAILURE;
       }
@@ -984,7 +984,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         LIBXSMM_ATOMIC_RELEASE(lock, LIBXSMM_ATOMIC_RELAXED);
       }
 #    if defined(OPENCL_LIBSMM_VALIDATE_TRANS)
-      ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_data, omat, data_size, stream), "transfer debug test", result);
+      ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_data, omat, data_size, stream), "transfer validation test", result);
 #    endif
 #    if defined(OPENCL_LIBSMM_VALIDATE_TRANS)
       ACC_OPENCL_CHECK(c_dbcsr_acc_stream_sync(stream), "sync stream", result);
@@ -1677,9 +1677,9 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             test = (char*)LIBXSMM_UP2((uintptr_t)binp + bsize, LIBXSMM_ALIGNMENT);
             gold = (char*)LIBXSMM_UP2((uintptr_t)test + csize, LIBXSMM_ALIGNMENT);
             btrn = (char*)LIBXSMM_UP2((uintptr_t)gold + csize, LIBXSMM_ALIGNMENT);
-            ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_a_data, ainp, asize, stream), "transfer debug a-data", result);
-            ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_b_data, binp, bsize, stream), "transfer debug b-data", result);
-            ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_c_data, gold, csize, stream), "transfer debug c-data", result);
+            ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_a_data, ainp, asize, stream), "transfer validation a-data", result);
+            ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_b_data, binp, bsize, stream), "transfer validation b-data", result);
+            ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_c_data, gold, csize, stream), "transfer validation c-data", result);
             kernel_cpu = libxsmm_xmmdispatch(desc);
             assert(NULL != kernel_cpu.xmm);
           }
@@ -1754,7 +1754,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
         }
 #    endif
 #    if defined(OPENCL_LIBSMM_VALIDATE_SMM)
-        ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_c_data, test, csize, stream), "transfer debug test", result);
+        ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_c_data, test, csize, stream), "transfer validation test", result);
         ACC_OPENCL_CHECK(c_dbcsr_acc_stream_sync(stream), "sync stream", result);
         if (EXIT_SUCCESS == result) {
           const char* const env_tol = getenv("OPENCL_LIBSMM_SMM_TOLERANCE");
