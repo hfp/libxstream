@@ -1754,11 +1754,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
 #    endif
 #    if defined(OPENCL_LIBSMM_VALIDATE_SMM)
         ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_c_data, test, csize, stream), "transfer debug test", result);
-#    endif
-#    if defined(OPENCL_LIBSMM_VALIDATE_SMM)
         ACC_OPENCL_CHECK(c_dbcsr_acc_stream_sync(stream), "sync stream", result);
-#    endif
-#    if defined(OPENCL_LIBSMM_VALIDATE_SMM)
         if (EXIT_SUCCESS == result) {
           const char* const env_tol = getenv("OPENCL_LIBSMM_SMM_TOLERANCE");
           const double tolerance = ((NULL == env_tol || '\0' == *env_tol) ? 1E-3 : atof(env_tol));
