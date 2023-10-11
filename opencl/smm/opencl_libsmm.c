@@ -1672,7 +1672,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             &blob, precision, m_max, n_max, k_max, m_max, k_max, m_max, LIBXSMM_GEMM_FLAG_NONE, LIBXSMM_PREFETCH_NONE);
           const size_t scratch_size = psize + asize + bsize + csize + csize + k_max * n_max * typesize +
                                       5 * (LIBXSMM_ALIGNMENT - 1) /*alignments*/;
-          scratch = libxsmm_aligned_malloc(scratch_size, LIBXSMM_ALIGNMENT);
+          scratch = libxsmm_aligned_scratch(scratch_size, LIBXSMM_ALIGNMENT);
           if (NULL != desc && NULL != scratch) {
             pinp = (int*)scratch;
             ainp = (char*)LIBXSMM_UP2((uintptr_t)pinp + psize, LIBXSMM_ALIGNMENT);
