@@ -1543,12 +1543,11 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   0 == new_config.ac ? "" : (1 == new_config.ac ? "-DSLM_C=1" : "-DSLM_C=2"), atomic_type, atomic_ops, atomic_exp,
                   atomic_expr2, barrier_expr);
                 if (0 < nchar && (int)sizeof(build_params) > nchar) {
+                  const char* const cl_debug = (
 #    if !defined(NDBGDEV)
-                  const char* const cl_debug = ((0 != devinfo->intel && CL_DEVICE_TYPE_CPU != device_type) ? "-gline-tables-only"
-                                                                                                           : "");
-#    else
-                  const char* const cl_debug = "";
+                    (0 != devinfo->intel && CL_DEVICE_TYPE_CPU != device_type) ? "-gline-tables-only" :
 #    endif
+                                                                               "");
                   nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer), "-cl-fast-relaxed-math -cl-denorms-are-zero %s %s %s",
                     NULL == env_cl ? "" : env_cl, (0 == new_config.flags || 0 == devinfo->intel) ? "" : intel_xf, cl_debug);
                   if (0 >= nchar || (int)sizeof(buffer) <= nchar) result = EXIT_FAILURE;
