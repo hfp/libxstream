@@ -1718,7 +1718,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
           assert(bs <= config->bs);
           ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &stack_size),
             "set stacksize argument of SMM-kernel", result);
-          if (0 == bsc) { /* non-constant BS */
+          if (0 == bsc && 1 < bs) { /* non-constant BS */
             ACC_OPENCL_CHECK(
               clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &bs), "set minibatch argument of SMM-kernel", result);
           }
