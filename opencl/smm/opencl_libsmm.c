@@ -1528,8 +1528,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   atomic_exp = "*(A)+=(B)"; /* non-atomic update */
                 }
                 assert(NULL != atomic_exp);
+                bsc = (bs == new_config.bs); /* constant BS? */
                 /* compose build parameters and flags */
-                bsc = (bs == new_config.bs);
                 nchar = LIBXSMM_SNPRINTF(build_params, sizeof(build_params),
                   "-DMAD=fma -DINTEL=%u -DGLOBAL=%s -DSWG=%i -DSGS=%i -DFN=%s -DREPEAT=%i -DLU=%i "
                   "-DSM=%i -DSN=%i -DSK=%i -DBS=%i %s -DBM=%i -DBN=%i -DBK=%i -DT=%s -DTN=%i "
@@ -1718,7 +1718,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
           assert(bs <= config->bs);
           ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &stack_size),
             "set stacksize argument of SMM-kernel", result);
-          if (0 == bsc) {
+          if (0 == bsc) { /* non-constant BS */
             ACC_OPENCL_CHECK(
               clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &bs), "set minibatch argument of SMM-kernel", result);
           }
