@@ -1151,7 +1151,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
       static volatile int locks[OPENCL_LIBSMM_NLOCKS_SMM]; /* OpenCL is thread-safe except for clSetKernelArg */
       const char *const env_s = getenv("OPENCL_LIBSMM_SMM_S"), *const env_bs = getenv("OPENCL_LIBSMM_SMM_BS");
       const int s = ((NULL == env_s || '\0' == *env_s) ? OPENCL_LIBSMM_SMM_S : atoi(env_s));
-      int kernel_idx = 0, bs = ((NULL == env_bs || '\0' == *env_bs) ? 0 : atoi(env_bs)), bsc = 0;
+      int kernel_idx = 0, bs = ((NULL == env_bs || '\0' == *env_bs) ? 0 : atoi(env_bs));
       opencl_libsmm_smm_t* config;
       volatile int* lock = locks;
 #    if (1 < OPENCL_LIBSMM_NLOCKS_SMM)
@@ -1528,17 +1528,16 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   atomic_exp = "*(A)+=(B)"; /* non-atomic update */
                 }
                 assert(NULL != atomic_exp);
-                bsc = (bs == new_config.bs); /* constant BS? */
                 /* compose build parameters and flags */
                 nchar = LIBXSMM_SNPRINTF(build_params, sizeof(build_params),
                   "-DMAD=fma -DINTEL=%u -DGLOBAL=%s -DSWG=%i -DSGS=%i -DFN=%s -DREPEAT=%i -DLU=%i "
                   "-DSM=%i -DSN=%i -DSK=%i -DBS=%i %s -DBM=%i -DBN=%i -DBK=%i -DT=%s -DTN=%i "
                   "%s %s %s %s %s %s %s %s %s %s -D\"ATOMIC_ADD_GLOBAL(A,B)=%s\" %s %s",
                   0 != devinfo->intel ? devinfo->uid : 0, cmem, (int)new_config.wgsize[kernel_idx], (int)sgs, fname,
-                  NULL == env_nrepeat ? 1 : atoi(env_nrepeat), new_config.lu, m_max, n_max, k_max, bs, bsc ? "-DBSC" : "",
-                  new_config.bm, new_config.bn, new_config.bk, tname, datatype, 0 == new_config.nz ? "" : "-DATOMIC_INC_NZ",
-                  0 == new_config.al ? "" : "-DAL", 0 == new_config.tb ? "" : "-DTRACK_B", 0 != new_config.tc ? "-DTRACK_C" : "",
-                  0 == new_config.ap ? "" : "-DSLM_P",
+                  NULL == env_nrepeat ? 1 : atoi(env_nrepeat), new_config.lu, m_max, n_max, k_max, bs,
+                  bs == new_config.bs ? "-DBSC" : "", new_config.bm, new_config.bn, new_config.bk, tname, datatype,
+                  0 == new_config.nz ? "" : "-DATOMIC_INC_NZ", 0 == new_config.al ? "" : "-DAL",
+                  0 == new_config.tb ? "" : "-DTRACK_B", 0 != new_config.tc ? "-DTRACK_C" : "", 0 == new_config.ap ? "" : "-DSLM_P",
                   0 == new_config.aa ? "" : (1 == new_config.aa ? "-DSLM_A=1" : (2 == new_config.aa ? "-DSLM_A=2" : "-DREG_A")),
                   0 == new_config.ab ? "" : (1 == new_config.ab ? "-DSLM_B=1" : (2 == new_config.ab ? "-DSLM_B=2" : "-DREG_B")),
                   0 == new_config.ac ? "" : (1 == new_config.ac ? "-DSLM_C=1" : "-DSLM_C=2"), atomic_type, atomic_ops, atomic_exp,
@@ -1718,10 +1717,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
           assert(bs <= config->bs);
           ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &stack_size),
             "set stacksize argument of SMM-kernel", result);
-          if (0 == bsc && 1 < bs) { /* non-constant BS */
-            ACC_OPENCL_CHECK(
-              clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &bs), "set minibatch argument of SMM-kernel", result);
-          }
+          ACC_OPENCL_CHECK(
+            clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &bs), "set minibatch argument of SMM-kernel", result);
         }
         ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(queue, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/, &work_size,
                            config->wgsize + kernel_idx, 0, NULL, perf_event),

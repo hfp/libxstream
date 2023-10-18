@@ -211,13 +211,8 @@ __attribute__((intel_reqd_sub_group_size(SGS)))
 kernel void
 FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* restrict bdata,
 #if (1 < BS)
-#  if defined(BSC)
-  GLOBAL const int* restrict param_stack, int stack_size) {
-  const int gid = get_group_id(0), idx = get_local_id(0), bs = BS;
-#  else
   GLOBAL const int* restrict param_stack, int stack_size, int bs) {
   const int gid = get_group_id(0), idx = get_local_id(0);
-#  endif
 #else
   GLOBAL const int* restrict param_stack) {
   const int gid = get_group_id(0), idx = get_local_id(0), bs = 1;
@@ -269,7 +264,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 
 #if (1 < BS)
   /* intra-kernel mini-batch of SMMs */
-  const int batchsize = min(bs, stack_size - bs * gid);
+  const int batchsize = min(BS, stack_size - bs * gid);
   int c0;
 #  if defined(SLM_C)
   local T cnm[SN][SM + SLM_C - 1];
@@ -491,53 +486,53 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         }
       }
 #  else
-  UNROLL(BN)
-  for (short bn = 0; bn < BN; ++bn) {
+    UNROLL(BN)
+    for (short bn = 0; bn < BN; ++bn) {
 #    if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
-    const int n = bn + n0;
+      const int n = bn + n0;
 #    endif
 #    if (SN % BN)
-    if (n < SN)
+      if (n < SN)
 #    endif
-    {
+      {
 #    if (1 == BS)
-      T cnm[BM] = {ZERO};
+        T cnm[BM] = {ZERO};
 #    endif
 #    if defined(REG_B)
-      const int nb = bn;
+        const int nb = bn;
 #    else
-      const int nb = n;
+        const int nb = n;
 #    endif
-      UNROLL(BM)
-      for (short bm = 0; bm < BM; ++bm) {
-        const int m = bm + m0;
+        UNROLL(BM)
+        for (short bm = 0; bm < BM; ++bm) {
+          const int m = bm + m0;
 #    if (SM % BM)
-        if (m < SM)
+          if (m < SM)
 #    endif
-        {
+          {
 #    if defined(SLM_C) && (1 < BS)
-          const int mc = m, nc = n;
+            const int mc = m, nc = n;
 #    else
-          const int mc = bm, nc = bn;
+            const int mc = bm, nc = bn;
 #    endif
-          UNROLL_FORCE(SK)
-          for (short k = 0; k < SK; ++k) CNM(nc, mc) = MAD(AMK(m, k), BNK(nb, k), CNM(nc, mc));
+            UNROLL_FORCE(SK)
+            for (short k = 0; k < SK; ++k) CNM(nc, mc) = MAD(AMK(m, k), BNK(nb, k), CNM(nc, mc));
+          }
         }
-      }
 #    if (1 == BS)
-      UNROLL(BM)
-      for (short bm = 0; bm < BM; ++bm) {
+        UNROLL(BM)
+        for (short bm = 0; bm < BM; ++bm) {
 #      if defined(ATOMIC_INC_NZ)
-        if (ZERO != CNM(idx, bm))
+          if (ZERO != CNM(idx, bm))
 #      endif
-        {
-          ACCUMULATE(&CDX(bm + m0, n), CNM(idx, bm));
-          CNM(idx, bm) = ZERO; /* reset */
+          {
+            ACCUMULATE(&CDX(bm + m0, n), CNM(idx, bm));
+            CNM(idx, bm) = ZERO; /* reset */
+          }
         }
-      }
 #    endif
+      }
     }
-  }
 #  endif
     }
 #else
