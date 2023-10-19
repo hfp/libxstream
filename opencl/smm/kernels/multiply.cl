@@ -264,7 +264,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 
 #if (1 < BS)
   /* intra-kernel mini-batch of SMMs */
-  const int batchsize = min(BS, stack_size - bs * gid);
+  const int batchsize = min(bs, stack_size - bs * gid);
   int c0;
 #  if defined(SLM_C)
   local T cnm[SN][SM + SLM_C - 1];
