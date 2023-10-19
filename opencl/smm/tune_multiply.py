@@ -59,7 +59,7 @@ class SmmTuner(MeasurementInterface):
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
         self.nz = self.al = self.tb = self.tc = None
         self.ap = self.aa = self.ab = self.ac = None
-        self.xf = os.getenv("OPENCL_LIBSMM_SMM_XF")
+        self.xf = int(os.getenv("OPENCL_LIBSMM_SMM_XF"))
         self.gfbase = self.gfsave = self.gflops = 0
         self.typename = self.typeid = None
         self.device = self.size = None
@@ -763,6 +763,8 @@ if __name__ == "__main__":
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in {"tune", "enabled", "on"}:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
+    if os.getenv("OPENCL_LIBSMM_SMM_XF") not in {"tune", "enabled", "on"}:
+        os.environ["OPENCL_LIBSMM_SMM_XF"] = "0"
     # fix tunables according to level of tuning
     if 1 <= args.tlevel or 0 > args.tlevel:
         os.environ["OPENCL_LIBSMM_SMM_BM"] = "{}".format(args.bm)
