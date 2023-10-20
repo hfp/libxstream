@@ -283,7 +283,7 @@ class SmmTuner(MeasurementInterface):
                 self.gflops = gflops
                 if 0 == self.gfbase:  # seed configuration
                     self.gfbase = gflops
-                self.save_config(desired_result.configuration, final=False)
+                self.save_final_config(desired_result.configuration, final=False)
             kernelreq = round(
                 (100.0 * config["BM"] * config["BN"]) / (self.mnk[0] * self.mnk[1])
             )
@@ -430,7 +430,7 @@ class SmmTuner(MeasurementInterface):
                 print("Renamed {} to {}.".format(self.args.csvfile, backup))
                 os.rename(self.args.csvfile, backup)
 
-    def save_config(self, configuration, final=True):
+    def save_final_config(self, configuration, final=True):
         """Called at termination"""
         if self.handle_sigint != getsignal(SIGINT):
             signal(SIGINT, SIG_DFL)  # avoid recursion
@@ -510,7 +510,7 @@ class SmmTuner(MeasurementInterface):
                 self.mnk[0], self.mnk[1], self.mnk[2]
             )
         )
-        self.save_config(self.config)
+        self.save_final_config(self.config)
         exit(1)
 
 
