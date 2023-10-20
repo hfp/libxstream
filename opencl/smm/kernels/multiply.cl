@@ -562,7 +562,8 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
         UNROLL_FORCE(SM)
         for (short m = 0; m < SM; ++m) {
-#    if (200 /*CL_VERSION_2_0*/ <= __OPENCL_VERSION__) && !defined(SLM_A) && !defined(REG_A) && (WRK == SM) && (SM <= SGS || SM <= SWG)
+#    if (200 /*CL_VERSION_2_0*/ <= __OPENCL_VERSION__) && !defined(SLM_A) && !defined(REG_A) && (WRK == SM) && \
+      (SM <= SGS || SM <= SWG)
           /* size of subgroup or size of workgroup is sufficient */
 #      if (SM <= SGS)
           CNM(idx, m) = MAD(sub_group_broadcast(a, m), b, CNM(idx, m));
