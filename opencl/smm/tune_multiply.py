@@ -181,6 +181,7 @@ class SmmTuner(MeasurementInterface):
             raise RuntimeError("Setup failed for {}!".format(self.exepath))
         # register signal handler (CTRL-C)
         signal(SIGINT, self.handle_sigint)
+        self.handle_sigint_counter = 0
         return manipulator
 
     def create_param(self, name, params, paramt, match, match_id, value0, value1):
@@ -420,8 +421,6 @@ class SmmTuner(MeasurementInterface):
 
     def save_final_config(self, configuration, final=True):
         """Called at termination"""
-        if self.handle_sigint != getsignal(SIGINT):
-            signal(SIGINT, SIG_DFL)  # avoid recursion
         if 0 >= self.gflops or not configuration:
             return  # nothing to save
         config = configuration.data
@@ -493,12 +492,14 @@ class SmmTuner(MeasurementInterface):
 
     def handle_sigint(self, signum, frame):
         """Handle SIGINT or CTRL-C"""
-        print(
-            "\nWARNING: tuning {}x{}x{}-kernel was interrupted.".format(
-                self.mnk[0], self.mnk[1], self.mnk[2]
+        if 1 > self.handle_sigint_counter:  # avoid recursion
+            self.handle_sigint_counter = self.handle_sigint_counter + 1
+            print(
+                "\nWARNING: tuning {}x{}x{}-kernel was interrupted.".format(
+                    self.mnk[0], self.mnk[1], self.mnk[2]
+                )
             )
-        )
-        self.save_final_config(self.config)
+            self.save_final_config(self.config)
         exit(1)
 
 
