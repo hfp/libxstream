@@ -253,7 +253,7 @@ class SmmTuner(MeasurementInterface):
     def environment(self, config):
         return [
             "OPENCL_LIBSMM_SMM_{}={}".format(key, config[key])
-            for key in config.keys()
+            for key in sorted(config.keys())
             if 2 == len(key)
         ]
 
