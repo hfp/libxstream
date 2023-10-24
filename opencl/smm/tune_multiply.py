@@ -655,7 +655,7 @@ if __name__ == "__main__":
         default=env_intvalue("OPENCL_LIBSMM_SMM_LU", "-1"),
         dest="lu",
         help="Loop unroll (-2) full, (-1) no hints (default),"
-        + " (0) inner, (1) outer-dehint, (2) literal",
+        + " (0) inner, (1) outer-dehint, (2) block-m",
     )
     argparser.add_argument(
         "-nz",

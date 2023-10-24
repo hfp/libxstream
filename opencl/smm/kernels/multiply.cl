@@ -15,18 +15,16 @@
 #define MIN(A, B) ((A) < (B) ? (A) : (B))
 #define MAX(A, B) ((A) < (B) ? (B) : (A))
 
-#if defined(LU) && (0 <= LU || -1 != LU)
-#  if (0 == LU)
-#    define UNROLL_OUTER(N) UNROLL_FORCE(N)
-#  elif (1 <= LU)
-#    define UNROLL_OUTER(N) UNROLL_FORCE(MIN(LU, N))
+#if !defined(LU) || (-1 == LU) || (1 < LU)
+#  define UNROLL_OUTER(N)
+#  define UNROLL(N)
+#else
+#  if (1 == LU)
+#    define UNROLL_OUTER(N) UNROLL_FORCE(1)
 #  else
 #    define UNROLL_OUTER(N) UNROLL_FORCE(N)
 #  endif
 #  define UNROLL(N) UNROLL_FORCE(N)
-#else
-#  define UNROLL_OUTER(N)
-#  define UNROLL(N)
 #endif
 
 #if !defined(AL) || (SM != SN) || (SM != BM) || (SN != SK) || (1 == BS)
