@@ -114,6 +114,7 @@ class SmmTuner(MeasurementInterface):
             nprm = len(seed.groups()) if seed else 0
             if 15 > nprm:
                 print("WARNING: missed to parse initial parameters!")
+            maxlu = 2 if 2 <= self.args.tlevel or 0 > self.args.tlevel else 4
             # setup fixed and tunable parameters
             params, paramt = [], []
             self.create_param("BS", params, paramt, seed, 1, 1, self.args.mb)
@@ -124,7 +125,7 @@ class SmmTuner(MeasurementInterface):
                 "WS", params, paramt, seed, 5, 1, self.mnk[0] * self.mnk[1]
             )
             self.create_param("WG", params, paramt, seed, 6, -2, 1)  # avoid WG=2
-            self.create_param("LU", params, paramt, seed, 7, -2, 2)
+            self.create_param("LU", params, paramt, seed, 7, -2, maxlu)
             self.create_param("NZ", params, paramt, seed, 8, 0, 1)
             self.create_param("AL", params, paramt, seed, 9, 0, 1)
             self.create_param("TB", params, paramt, seed, 10, 0, 1)
