@@ -271,10 +271,16 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
     for (short m = 0; m < SM; ++m) cnm[n][m] = ZERO;
   }
 #  elif (BM < SM || 1 != BN)
-  UNROLL(BN)
-  for (short bn = 0; bn < BN; ++bn) {
-    UNROLL_FORCE(BM)
-    for (short bm = 0; bm < BM; ++bm) cnm[bn][bm] = ZERO;
+  {
+    short bn = 0;
+#    if (1 != BN)
+    UNROLL(BN)
+    for (; bn < BN; ++bn)
+#    endif
+    {
+      UNROLL_FORCE(BM)
+      for (short bm = 0; bm < BM; ++bm) cnm[bn][bm] = ZERO;
+    }
   }
 #  else
   UNROLL_FORCE(SM)
@@ -347,8 +353,12 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
       UNROLL(SK)
       for (short k = 0; k < SK; ++k) {
 #  if (BM < SM || 1 != BN)
+        short bn = 0;
+#    if (1 != BN)
         UNROLL_FORCE(BN)
-        for (short bn = 0; bn < BN; ++bn) {
+        for (; bn < BN; ++bn)
+#    endif
+        {
 #    if (SN % BN)
           const int n = min(bn + n0, SN - 1);
 #    else
@@ -381,10 +391,14 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         if (m < SM) /* m < SM */
 #    endif
         { /* general BK, A in registers */
+          short bn = 0;
           UNROLL_FORCE(SK)
           for (short k = 0; k < SK; ++k) amk[k] = ADX(m, k);
+#    if (1 != BN)
           UNROLL(BN)
-          for (short bn = 0; bn < BN; ++bn) {
+          for (; bn < BN; ++bn)
+#    endif
+          {
 #    if (SN % BN) || (defined(SLM_C) && (1 < BS)) || !defined(REG_B)
             const int n = bn + n0;
 #    endif
@@ -412,8 +426,12 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
             }
           }
 #    if (1 == BS)
+          bn = 0;
+#      if (1 != BN)
           UNROLL(BN)
-          for (short bn = 0; bn < BN; ++bn) {
+          for (; bn < BN; ++bn)
+#      endif
+          {
 #      if defined(ATOMIC_INC_NZ)
             if (ZERO != CNM(idx, bn))
 #      endif
@@ -431,23 +449,27 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
       UNROLL(SK)
       for (short k = 0; k < SK; ++k) {
+        short bn = 0;
 #    if defined(REG_A) && !defined(SLM_A)
         UNROLL_FORCE(BM)
         for (short bm = 0; bm < BM; ++bm) amk[bm] = ADX(bm + m0, k);
 #    endif
+#    if (1 != BN)
         UNROLL(BN)
-        for (short bn = 0; bn < BN; ++bn) {
+        for (; bn < BN; ++bn)
+#    endif
+        { /* BK=1 */
 #    if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
           const int n = bn + n0;
 #    endif
 #    if (SN % BN)
           if (n < SN) /* n < SN */
 #    endif
-          { /* BK=1 */
+          {
 #    if defined(REG_B)
-            const int nb = bn;
+            const T b = BNK(bn, k);
 #    else
-            const int nb = n;
+            const T b = BNK(n, k);
 #    endif
             UNROLL_FORCE(BM)
             for (short bm = 0; bm < BM; ++bm) {
@@ -466,7 +488,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    else
                 const int ma = m;
 #    endif
-                CNM(nc, mc) = MAD(AMK(ma, k), BNK(nb, k), CNM(nc, mc));
+                CNM(nc, mc) = MAD(AMK(ma, k), b, CNM(nc, mc));
               }
             }
 #    if (1 == BS)
@@ -485,8 +507,12 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         }
       }
 #  else /* general BK */
+      short bn = 0;
+#    if (1 != BN)
       UNROLL(BN)
-      for (short bn = 0; bn < BN; ++bn) {
+      for (; bn < BN; ++bn)
+#    endif
+      {
 #    if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
         const int n = bn + n0;
 #    endif
@@ -496,11 +522,6 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         { /* general BK */
 #    if (1 == BS)
           T cnm[BM] = {ZERO};
-#    endif
-#    if defined(REG_B)
-          const int nb = bn;
-#    else
-          const int nb = n;
 #    endif
           UNROLL(BM)
           for (short bm = 0; bm < BM; ++bm) {
@@ -513,6 +534,11 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
               const int mc = m, nc = n;
 #    else
               const int mc = bm, nc = bn;
+#    endif
+#    if defined(REG_B)
+              const int nb = bn;
+#    else
+              const int nb = n;
 #    endif
               UNROLL_FORCE(SK)
               for (short k = 0; k < SK; ++k) CNM(nc, mc) = MAD(AMK(m, k), BNK(nb, k), CNM(nc, mc));
@@ -679,8 +705,12 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #  endif
 #  if (BM < SM || 1 != BN)
     { /* atomically commit C-tile to global memory */
+      short bn = 0;
+#    if (1 != BN)
       UNROLL(BN)
-      for (short bn = 0; bn < BN; ++bn) {
+      for (; bn < BN; ++bn)
+#    endif
+      {
         const int n = bn + n0;
 #    if (SN % BN)
         if (n < SN) /* n < SN */
