@@ -314,14 +314,15 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #endif
 
 #if defined(SLM_A) && (1 != BK || BM < SM || 1 != BN)
-    /* copy or transpose A-matrix into SLM */
-    int m = idx;
+    { /* copy or transpose A-matrix into SLM */
+      int m = idx;
 #  if (WRK != SM)
-    for (; m < SM; m += WRK)
+      for (; m < SM; m += WRK)
 #  endif
-    {
-      UNROLL_FORCE(SK)
-      for (short k = 0; k < SK; ++k) amk[m][k] = ADX(m, k);
+      {
+        UNROLL_FORCE(SK)
+        for (short k = 0; k < SK; ++k) amk[m][k] = ADX(m, k);
+      }
     }
 #endif
 
