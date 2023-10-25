@@ -486,17 +486,33 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
               if (m < SM) /* m < SM */
 #    endif
               {
-#    if defined(SLM_C) && (1 < BS)
-                const int mc = m, nc = n;
-#    else
-                const int mc = bm, nc = bn;
-#    endif
 #    if defined(REG_A) && !defined(SLM_A)
-                const int ma = bm;
+                const T a = AMK(bm, k);
 #    else
-                const int ma = m;
+                const T a = AMK(m, k);
 #    endif
-                CNM(nc, mc) = MAD(AMK(ma, k), b, CNM(nc, mc));
+#    if defined(SLM_C) && (1 < BS)
+                const int mc = m;
+#      if (1 != BN)
+                const int nc = n;
+#      endif
+#    else
+                const int mc = bm;
+#      if (1 != BN)
+                const nc = bn;
+#      endif
+#    endif
+#    if (200 /*CL_VERSION_2_0*/ <= __OPENCL_VERSION__) && !defined(SLM_A) && !defined(REG_A) && (BM <= SGS || BM <= SWG)
+#      if (BM <= SGS)
+                /* size of subgroup is sufficient */
+                CNM(nc, mc) = MAD(a/*sub_group_broadcast(a, m)*/, b, CNM(nc, mc));
+#      else
+                /* size of workgroup is sufficient */
+                CNM(nc, mc) = MAD(a/*work_group_broadcast(a, m)*/, b, CNM(nc, mc));
+#      endif
+#    else
+                CNM(nc, mc) = MAD(a, b, CNM(nc, mc));
+#    endif
               }
             }
 #    if (1 == BS)
@@ -597,10 +613,11 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         for (short m = 0; m < SM; ++m) {
 #    if (200 /*CL_VERSION_2_0*/ <= __OPENCL_VERSION__) && !defined(SLM_A) && !defined(REG_A) && (WRK == SM) && \
       (SM <= SGS || SM <= SWG)
-          /* size of subgroup or size of workgroup is sufficient */
 #      if (SM <= SGS)
+          /* size of subgroup is sufficient */
           CNM(idx, m) = MAD(sub_group_broadcast(a, m), b, CNM(idx, m));
 #      else
+          /* size of workgroup is sufficient */
           CNM(idx, m) = MAD(work_group_broadcast(a, m), b, CNM(idx, m));
 #      endif
 #    else
