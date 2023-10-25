@@ -503,10 +503,10 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    if (200 /*CL_VERSION_2_0*/ <= __OPENCL_VERSION__) && !defined(SLM_A) && !defined(REG_A) && (BM <= SGS || BM <= SWG)
 #      if (BM <= SGS)
               /* size of subgroup is sufficient */
-              CNM(nc, mc) = MAD(a/*sub_group_broadcast(a, m)*/, b, CNM(nc, mc));
+              CNM(nc, mc) = MAD(a /*sub_group_broadcast(a, m)*/, b, CNM(nc, mc));
 #      else
               /* size of workgroup is sufficient */
-              CNM(nc, mc) = MAD(a/*work_group_broadcast(a, m)*/, b, CNM(nc, mc));
+              CNM(nc, mc) = MAD(a /*work_group_broadcast(a, m)*/, b, CNM(nc, mc));
 #      endif
 #    else
               CNM(nc, mc) = MAD(a, b, CNM(nc, mc));
