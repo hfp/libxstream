@@ -775,6 +775,6 @@ if __name__ == "__main__":
     try:
         SmmTuner.main(args)
     except Exception as e:
-        print("ERROR: {}".format(e))
+        print("ERROR {}: {}!".format(type(e).__name__, e))
         print("WARNING: ignored above error!")
         pass
