@@ -1271,7 +1271,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
               const int unroll = LIBXSMM_MAX(-2, (NULL == env_lu || '\0' == *env_lu)
                                                    ? (0 == kernel_idx ? (NULL == config ? default_lu : config->lu) : default_lu)
                                                    : atoi(env_lu)); /* populate only lower bound */
-              const int blockm = ((NULL == env_bm || '\0' == *env_bm)
+              const int blockm = ((NULL == env_bm || '\0' == *env_bm || 1 < unroll) /* 1<LU ignores BM */
                                     ? (1 >= unroll ? 0 : LIBXSMM_UP(m_max / unroll, OPENCL_LIBSMM_VMIN))
                                     : atoi(env_bm));
               const int blockn = ((NULL == env_bn || '\0' == *env_bn) ? 0 : atoi(env_bn));
