@@ -545,25 +545,24 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         T cnm[BM] = {ZERO}; /* column-block */
 #    endif
         UNROLL(BM)
-        for (short bm = 0; bm < BM; ++bm) {
-          const int m = bm + m0;
 #    if (SM % BM)
-          if (m < SM) /* m < SM */
-#    endif
-          {
-#    if defined(SLM_C) && (1 < BS)
-            const int mc = m, nc = n;
+        for (short bm = 0, m = bm + m0; bm < BM && m < SM; ++bm)
 #    else
-            const int mc = bm, nc = bn;
+        for (short bm = 0, m = bm + m0; bm < BM; ++bm)
+#    endif
+        {
+#    if defined(SLM_C) && (1 < BS)
+          const int mc = m, nc = n;
+#    else
+          const int mc = bm, nc = bn;
 #    endif
 #    if defined(REG_B)
-            const int nb = bn;
+          const int nb = bn;
 #    else
-            const int nb = n;
+          const int nb = n;
 #    endif
-            UNROLL_FORCE(SK)
-            for (short k = 0; k < SK; ++k) CNM(nc, mc) = MAD(AMK(m, k), BNK(nb, k), CNM(nc, mc));
-          }
+          UNROLL_FORCE(SK)
+          for (short k = 0; k < SK; ++k) CNM(nc, mc) = MAD(AMK(m, k), BNK(nb, k), CNM(nc, mc));
         }
 #    if (1 == BS)
         UNROLL(BM)
@@ -739,24 +738,23 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
         {
           UNROLL_FORCE(BM)
-          for (short bm = 0; bm < BM; ++bm) {
-            const int m = bm + m0;
 #    if (SM % BM)
-            if (m < SM) /* m < SM */
-#    endif
-            {
-#    if defined(SLM_C)
-              const int mc = m, nc = n;
+          for (short bm = 0, m = bm + m0; bm < BM && m < SM; ++bm)
 #    else
-              const int mc = bm, nc = bn;
+          for (short bm = 0, m = bm + m0; bm < BM; ++bm)
+#    endif
+          {
+#    if defined(SLM_C)
+            const int mc = m, nc = n;
+#    else
+            const int mc = bm, nc = bn;
 #    endif
 #    if defined(ATOMIC_INC_NZ)
-              if (ZERO != CNM(nc, mc))
+            if (ZERO != CNM(nc, mc))
 #    endif
-              {
-                ACCUMULATE(&CDX(m, n), CNM(nc, mc));
-                CNM(nc, mc) = ZERO; /* reset */
-              }
+            {
+              ACCUMULATE(&CDX(m, n), CNM(nc, mc));
+              CNM(nc, mc) = ZERO; /* reset */
             }
           }
         }
