@@ -546,9 +546,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
         UNROLL(BM)
 #    if (SM % BM)
-        for (short bm = 0, m = bm + m0; bm < BM && m < SM; ++bm)
+        for (short bm = 0, m = m0; bm < BM && m < SM; m = ++bm + m0)
 #    else
-        for (short bm = 0, m = bm + m0; bm < BM; ++bm)
+        for (short bm = 0, m = m0; bm < BM; m = ++bm + m0)
 #    endif
         {
 #    if defined(SLM_C) && (1 < BS)
@@ -739,9 +739,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         {
           UNROLL_FORCE(BM)
 #    if (SM % BM)
-          for (short bm = 0, m = bm + m0; bm < BM && m < SM; ++bm)
+          for (short bm = 0, m = m0; bm < BM && m < SM; m = ++bm + m0)
 #    else
-          for (short bm = 0, m = bm + m0; bm < BM; ++bm)
+          for (short bm = 0, m = m0; bm < BM; m = ++bm + m0)
 #    endif
           {
 #    if defined(SLM_C)
