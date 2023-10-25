@@ -274,7 +274,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
   int c0;
 #  if defined(SLM_C)
   local T cnm[SN][SM + SLM_C - 1]; /* tile in SLM */
-  for (int n = (int)idx; n < SN; n += SWG) {
+  for (int n = idx; n < SN; n += SWG) {
     UNROLL_FORCE(SM)
     for (int m = 0; m < SM; ++m) cnm[n][m] = ZERO;
   }
@@ -391,9 +391,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
       UNROLL(BM)
 #    if (SM % BM)
-      for (int bm = 0, m = bm + m0; bm < BM && m < SM; ++bm)
+      for (int bm = 0, m = m0; bm < BM && m < SM; m = ++bm + m0)
 #    else
-      for (int bm = 0, m = bm + m0; bm < BM; ++bm)
+      for (int bm = 0, m = m0; bm < BM; m = ++bm + m0)
 #    endif
       { /* general BK, A in registers */
         int bn = 0;
@@ -479,9 +479,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
             UNROLL_FORCE(BM)
 #    if (SM % BM)
-            for (int bm = 0, m = bm + m0; bm < BM && m < SM; ++bm)
+            for (int bm = 0, m = m0; bm < BM && m < SM; m = ++bm + m0)
 #    else
-            for (int bm = 0, m = bm + m0; bm < BM; ++bm)
+            for (int bm = 0, m = m0; bm < BM; m = ++bm + m0)
 #    endif
             {
 #    if defined(REG_A) && !defined(SLM_A)
@@ -591,7 +591,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         const T b = BNK(idx, k);
 #    if defined(SLM_A)
 #      if (WRK != SM)
-        for (int m = (int)idx; m < SM; m += WRK) amk[m] = ADX(m, k);
+        for (int m = idx; m < SM; m += WRK) amk[m] = ADX(m, k);
 #      else
         amk[idx] = ADX(idx, k);
 #      endif
