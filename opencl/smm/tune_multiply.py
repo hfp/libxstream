@@ -59,7 +59,7 @@ class SmmTuner(MeasurementInterface):
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
         self.nz = self.al = self.tb = self.tc = None
         self.ap = self.aa = self.ab = self.ac = None
-        self.xf = int(os.getenv("OPENCL_LIBSMM_SMM_XF"))
+        self.xf = env_intvalue("OPENCL_LIBSMM_SMM_XF", 0)
         self.gfbase = self.gfsave = self.gflops = 0
         self.typename = self.typeid = None
         self.device = self.size = None
@@ -187,11 +187,13 @@ class SmmTuner(MeasurementInterface):
 
     def create_param(self, name, params, paramt, match, match_id, value0, value1):
         """Append integer-parameter to either params or paramt list"""
-        value_env = os.getenv("OPENCL_LIBSMM_SMM_{}".format(name))
+        value_key = "OPENCL_LIBSMM_SMM_{}".format(name)
+        value_env = os.getenv(value_key)
+        value_raw = env_intvalue(value_key, 0)
         value_fix = (
             getattr(self.args, name.lower(), None)
             if value_env is None
-            else int(value_env)
+            else value_raw
         )
         if value_env is None:  # tunable parameter
             if 0 <= match_id:
@@ -205,7 +207,7 @@ class SmmTuner(MeasurementInterface):
             setattr(self, name.lower(), value)
             paramt.append(IntegerParameter(name, value0, value1))
         else:  # fixed parameter
-            value_fix = getattr(self.args, name.lower(), int(value_env))
+            value_fix = getattr(self.args, name.lower(), value_raw)
             params.append(IntegerParameter(name, value_fix, value_fix))
 
     def launch(self, envs, nrep=None, verbose=None):
