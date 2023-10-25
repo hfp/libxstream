@@ -393,63 +393,62 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
       T cnm[BN] = {ZERO}; /* row */
 #    endif
       UNROLL(BM)
-      for (short bm = 0; bm < BM; ++bm) {
-        const int m = bm + m0;
 #    if (SM % BM)
-        if (m < SM) /* m < SM */
+      for (short bm = 0, m = bm + m0; bm < BM && m < SM; ++bm)
+#    else
+      for (short bm = 0, m = bm + m0; bm < BM; ++bm)
 #    endif
-        { /* general BK, A in registers */
-          short bn = 0;
-          UNROLL_FORCE(SK)
-          for (short k = 0; k < SK; ++k) amk[k] = ADX(m, k);
+      { /* general BK, A in registers */
+        short bn = 0;
+        UNROLL_FORCE(SK)
+        for (short k = 0; k < SK; ++k) amk[k] = ADX(m, k);
 #    if (1 != BN)
-          UNROLL(BN)
-          for (; bn < BN; ++bn)
+        UNROLL(BN)
+        for (; bn < BN; ++bn)
 #    endif
-          {
+        {
 #    if (SN % BN) || (defined(SLM_C) && (1 < BS)) || !defined(REG_B)
-            const int n = bn + n0;
+          const int n = bn + n0;
 #    endif
 #    if (SN % BN)
-            if (n < SN) /* n < SN */
+          if (n < SN) /* n < SN */
 #    endif
-            {
+          {
 #    if defined(SLM_C) && (1 < BS)
-              const int mc = m, nc = n;
+            const int mc = m, nc = n;
 #    elif (1 < BS)
-              const int mc = bm, nc = bn;
+            const int mc = bm, nc = bn;
 #    else
-              const int mc = bn, nc = idx;
+            const int mc = bn, nc = idx;
 #    endif
-              UNROLL_FORCE(SK)
-              for (short k = 0; k < SK; ++k) {
-                CNM(nc, mc) = MAD(AMK(m, k),
+            UNROLL_FORCE(SK)
+            for (short k = 0; k < SK; ++k) {
+              CNM(nc, mc) = MAD(AMK(m, k),
 #    if defined(REG_B)
-                  BNK(bn, k),
+                BNK(bn, k),
 #    else
-                  BNK(n, k),
+                BNK(n, k),
 #    endif
-                  CNM(nc, mc));
-              }
+                CNM(nc, mc));
             }
           }
+        }
 #    if (1 == BS)
-          bn = 0;
+        bn = 0;
 #      if (1 != BN)
-          UNROLL(BN)
-          for (; bn < BN; ++bn)
+        UNROLL(BN)
+        for (; bn < BN; ++bn)
+#      endif
+        {
+#      if defined(ATOMIC_INC_NZ)
+          if (ZERO != CNM(idx, bn))
 #      endif
           {
-#      if defined(ATOMIC_INC_NZ)
-            if (ZERO != CNM(idx, bn))
-#      endif
-            {
-              ACCUMULATE(&CDX(m, bn + n0), CNM(idx, bn));
-              CNM(idx, bn) = ZERO; /* reset */
-            }
+            ACCUMULATE(&CDX(m, bn + n0), CNM(idx, bn));
+            CNM(idx, bn) = ZERO; /* reset */
           }
-#    endif
         }
+#    endif
       }
 #  elif (1 == BK)
 #    if (1 == BS)
@@ -457,7 +456,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
       UNROLL(SK)
       for (short k = 0; k < SK; ++k) {
+#    if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS) || (1 != BN)
         short bn = 0;
+#    endif
 #    if defined(REG_A) && !defined(SLM_A)
         UNROLL_FORCE(BM)
         for (short bm = 0; bm < BM; ++bm) amk[bm] = ADX(bm + m0, k);
@@ -480,40 +481,39 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
             const T b = BNK(n, k);
 #    endif
             UNROLL_FORCE(BM)
-            for (short bm = 0; bm < BM; ++bm) {
-              const int m = bm + m0;
 #    if (SM % BM)
-              if (m < SM) /* m < SM */
-#    endif
-              {
-#    if defined(REG_A) && !defined(SLM_A)
-                const T a = AMK(bm, k);
+            for (short bm = 0, m = bm + m0; bm < BM && m < SM; ++bm)
 #    else
-                const T a = AMK(m, k);
+            for (short bm = 0, m = bm + m0; bm < BM; ++bm)
+#    endif
+            {
+#    if defined(REG_A) && !defined(SLM_A)
+              const T a = AMK(bm, k);
+#    else
+              const T a = AMK(m, k);
 #    endif
 #    if defined(SLM_C) && (1 < BS)
-                const int mc = m;
+              const int mc = m;
 #      if defined(SLM_C) || (1 != BN)
-                const int nc = n;
+              const int nc = n;
 #      endif
 #    else
-                const int mc = bm;
+              const int mc = bm;
 #      if defined(SLM_C) || (1 != BN)
-                const nc = bn;
+              const nc = bn;
 #      endif
 #    endif
 #    if (200 /*CL_VERSION_2_0*/ <= __OPENCL_VERSION__) && !defined(SLM_A) && !defined(REG_A) && (BM <= SGS || BM <= SWG)
 #      if (BM <= SGS)
-                /* size of subgroup is sufficient */
-                CNM(nc, mc) = MAD(a/*sub_group_broadcast(a, m)*/, b, CNM(nc, mc));
+              /* size of subgroup is sufficient */
+              CNM(nc, mc) = MAD(a/*sub_group_broadcast(a, m)*/, b, CNM(nc, mc));
 #      else
-                /* size of workgroup is sufficient */
-                CNM(nc, mc) = MAD(a/*work_group_broadcast(a, m)*/, b, CNM(nc, mc));
+              /* size of workgroup is sufficient */
+              CNM(nc, mc) = MAD(a/*work_group_broadcast(a, m)*/, b, CNM(nc, mc));
 #      endif
 #    else
-                CNM(nc, mc) = MAD(a, b, CNM(nc, mc));
+              CNM(nc, mc) = MAD(a, b, CNM(nc, mc));
 #    endif
-              }
             }
 #    if (1 == BS)
             UNROLL(BM)
