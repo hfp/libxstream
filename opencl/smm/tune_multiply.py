@@ -193,7 +193,11 @@ class SmmTuner(MeasurementInterface):
         value_fix = (
             getattr(self.args, name.lower(), None) if value_env is None else value_raw
         )
-        if value_env is None:  # tunable parameter
+        if value_env is None or value_env in {
+            "tune",
+            "enabled",
+            "on",
+        }:  # tunable parameter
             if 0 <= match_id:
                 value = (
                     int(match.group(match_id))
