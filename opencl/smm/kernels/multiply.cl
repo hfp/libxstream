@@ -493,12 +493,12 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
 #    if defined(SLM_C) && (1 < BS)
                 const int mc = m;
-#      if (1 != BN)
+#      if defined(SLM_C) || (1 != BN)
                 const int nc = n;
 #      endif
 #    else
                 const int mc = bm;
-#      if (1 != BN)
+#      if defined(SLM_C) || (1 != BN)
                 const nc = bn;
 #      endif
 #    endif
