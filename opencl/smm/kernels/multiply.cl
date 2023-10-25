@@ -507,57 +507,57 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         }
       }
 #  else /* general BK */
-      short bn = 0;
+    short bn = 0;
 #    if (1 != BN)
-      UNROLL(BN)
-      for (; bn < BN; ++bn)
+    UNROLL(BN)
+    for (; bn < BN; ++bn)
 #    endif
-      {
+    {
 #    if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
-        const int n = bn + n0;
+      const int n = bn + n0;
 #    endif
 #    if (SN % BN)
-        if (n < SN) /* n < SN */
+      if (n < SN) /* n < SN */
 #    endif
-        { /* general BK */
+      { /* general BK */
 #    if (1 == BS)
-          T cnm[BM] = {ZERO};
+        T cnm[BM] = {ZERO};
 #    endif
-          UNROLL(BM)
-          for (short bm = 0; bm < BM; ++bm) {
-            const int m = bm + m0;
+        UNROLL(BM)
+        for (short bm = 0; bm < BM; ++bm) {
+          const int m = bm + m0;
 #    if (SM % BM)
-            if (m < SM) /* m < SM */
+          if (m < SM) /* m < SM */
 #    endif
-            {
+          {
 #    if defined(SLM_C) && (1 < BS)
-              const int mc = m, nc = n;
+            const int mc = m, nc = n;
 #    else
-              const int mc = bm, nc = bn;
+            const int mc = bm, nc = bn;
 #    endif
 #    if defined(REG_B)
-              const int nb = bn;
+            const int nb = bn;
 #    else
-              const int nb = n;
+            const int nb = n;
 #    endif
-              UNROLL_FORCE(SK)
-              for (short k = 0; k < SK; ++k) CNM(nc, mc) = MAD(AMK(m, k), BNK(nb, k), CNM(nc, mc));
-            }
+            UNROLL_FORCE(SK)
+            for (short k = 0; k < SK; ++k) CNM(nc, mc) = MAD(AMK(m, k), BNK(nb, k), CNM(nc, mc));
           }
-#    if (1 == BS)
-          UNROLL(BM)
-          for (short bm = 0; bm < BM; ++bm) {
-#      if defined(ATOMIC_INC_NZ)
-            if (ZERO != CNM(idx, bm))
-#      endif
-            {
-              ACCUMULATE(&CDX(bm + m0, n), CNM(idx, bm));
-              CNM(idx, bm) = ZERO; /* reset */
-            }
-          }
-#    endif
         }
+#    if (1 == BS)
+        UNROLL(BM)
+        for (short bm = 0; bm < BM; ++bm) {
+#      if defined(ATOMIC_INC_NZ)
+          if (ZERO != CNM(idx, bm))
+#      endif
+          {
+            ACCUMULATE(&CDX(bm + m0, n), CNM(idx, bm));
+            CNM(idx, bm) = ZERO; /* reset */
+          }
+        }
+#    endif
       }
+    }
 #  endif
     }
 #else
