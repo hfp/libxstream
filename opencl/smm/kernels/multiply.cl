@@ -55,7 +55,7 @@
 #if defined(SLM_B)
 #  define BNK(N, K) bnk[N][K]
 #elif defined(REG_B)
-#  if (BM < SM || 1 != BN)
+#  if (BM < SM && 1 != BN)
 #    define BNK(N, K) bnk[N][K]
 #  else
 #    define BNK(N, K) bnk[K]
@@ -63,7 +63,7 @@
 #else
 #  define BNK(N, K) BDX(K, N)
 #endif
-#if (1 < BS) && (defined(SLM_C) || (BM < SM || 1 != BN))
+#if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
 #  define CNM(N, M) cnm[N][M]
 #else
 #  define CNM(N, M) cnm[M]
@@ -232,17 +232,25 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
   T amk[SK];
 #endif
 #if defined(SLM_B)
-  local T bnk[SN][SK + SLM_B - 1];
+  local T bnk[SN][SK + SLM_B - 1]; /* tile */
 #endif
 #if (BM < SM || 1 != BN)
 #  if defined(REG_A) && !defined(SLM_A) && (1 == BK)
   T amk[BM];
 #  endif
 #  if defined(REG_B) && !defined(SLM_B)
-  T bnk[BN][SK];
+#    if (1 != BN)
+  T bnk[BN][SK]; /* rows */
+#    else
+  T bnk[SK]; /* row */
+#    endif
 #  endif
 #  if !defined(SLM_C) && (1 < BS)
-  T cnm[BN][BM];
+#    if (1 != BN)
+  T cnm[BN][BM]; /* general tile */
+#    else
+  T cnm[BM]; /* column-block */
+#    endif
 #  endif
   const int m0 = (idx / NBN) * BM, n0 = (idx % NBN) * BN;
 #else
@@ -250,10 +258,10 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
   T amk[SM];
 #  endif
 #  if defined(REG_B) && !defined(SLM_B)
-  T bnk[SK];
+  T bnk[SK]; /* row */
 #  endif
 #  if !defined(SLM_C) && (1 < BS)
-  T cnm[SM];
+  T cnm[SM]; /* column */
 #  endif
 #endif
 #if defined(TRACK_B) && (1 < BS) && defined(REG_B) && !defined(SLM_B)
@@ -265,7 +273,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
   const int batchsize = min(bs, stack_size - bs * gid);
   int c0;
 #  if defined(SLM_C)
-  local T cnm[SN][SM + SLM_C - 1];
+  local T cnm[SN][SM + SLM_C - 1]; /* tile in SLM */
   for (short n = (short)idx; n < SN; n += SWG) {
     UNROLL_FORCE(SM)
     for (short m = 0; m < SM; ++m) cnm[n][m] = ZERO;
@@ -279,7 +287,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
     {
       UNROLL_FORCE(BM)
-      for (short bm = 0; bm < BM; ++bm) cnm[bn][bm] = ZERO;
+      for (short bm = 0; bm < BM; ++bm) CNM(bn, bm) = ZERO;
     }
   }
 #  else
@@ -364,7 +372,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    else
           const int n = bn + n0;
 #    endif
-          bnk[bn][k] = BDX(k, n);
+          BNK(bn, k) = BDX(k, n);
         }
 #  else
         bnk[k] = BDX(k, idx);
@@ -382,7 +390,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
     { /* calculate result-tile using general tiles */
 #  if defined(REG_A) && !defined(SLM_A) && (1 != BK)
 #    if (1 == BS)
-      T cnm[BN] = {ZERO};
+      T cnm[BN] = {ZERO}; /* row */
 #    endif
       UNROLL(BM)
       for (short bm = 0; bm < BM; ++bm) {
@@ -445,7 +453,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
       }
 #  elif (1 == BK)
 #    if (1 == BS)
-      T cnm[BM] = {ZERO};
+      T cnm[BM] = {ZERO}; /* column-block */
 #    endif
       UNROLL(SK)
       for (short k = 0; k < SK; ++k) {
@@ -521,7 +529,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
       { /* general BK */
 #    if (1 == BS)
-        T cnm[BM] = {ZERO};
+        T cnm[BM] = {ZERO}; /* column-block */
 #    endif
         UNROLL(BM)
         for (short bm = 0; bm < BM; ++bm) {
@@ -563,7 +571,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #else
     { /* calculate result-tile using columns */
 #  if (1 == BS)
-      T cnm[UM] = {ZERO};
+      T cnm[UM] = {ZERO}; /* column-block */
 #  endif
 #  if (1 == BK)
       UNROLL_OUTER(SK)
