@@ -191,9 +191,7 @@ class SmmTuner(MeasurementInterface):
         value_env = os.getenv(value_key)
         value_raw = env_intvalue(value_key, 0)
         value_fix = (
-            getattr(self.args, name.lower(), None)
-            if value_env is None
-            else value_raw
+            getattr(self.args, name.lower(), None) if value_env is None else value_raw
         )
         if value_env is None:  # tunable parameter
             if 0 <= match_id:
@@ -756,7 +754,8 @@ if __name__ == "__main__":
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in {"tune", "enabled", "on"}:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
     if os.getenv("OPENCL_LIBSMM_SMM_XF") not in {"tune", "enabled", "on"}:
-        os.environ["OPENCL_LIBSMM_SMM_XF"] = "0"
+        xfvalue = env_intvalue("OPENCL_LIBSMM_SMM_XF", 0)
+        os.environ["OPENCL_LIBSMM_SMM_XF"] = "{}".format(xfvalue)
     # fix tunables according to level of tuning
     if 1 <= args.tlevel or 0 > args.tlevel:
         os.environ["OPENCL_LIBSMM_SMM_BM"] = "{}".format(args.bm)
