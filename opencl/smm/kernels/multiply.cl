@@ -279,16 +279,13 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
     for (short m = 0; m < SM; ++m) cnm[n][m] = ZERO;
   }
 #  elif (BM < SM || 1 != BN)
-  {
-    short bn = 0;
 #    if (1 != BN)
-    UNROLL(BN)
-    for (; bn < BN; ++bn)
+  UNROLL(BN)
+  for (short bn = 0; bn < BN; ++bn)
 #    endif
-    {
-      UNROLL_FORCE(BM)
-      for (short bm = 0; bm < BM; ++bm) CNM(bn, bm) = ZERO;
-    }
+  {
+    UNROLL_FORCE(BM)
+    for (short bm = 0; bm < BM; ++bm) CNM(bn, bm) = ZERO;
   }
 #  else
   UNROLL_FORCE(SM)
