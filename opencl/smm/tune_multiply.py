@@ -449,8 +449,7 @@ class SmmTuner(MeasurementInterface):
             else None
         )
         filedot = os.path.join(self.args.jsondir, ".{}.json".format(self.args.label))
-        # check return code (consider not saving parameters)
-        if 0 == result:
+        if self.gfsave < self.gflops:  # save intermediate result
             self.gfsave = self.gflops
             # self.manipulator().save_to_file(config, filename)
             with open(filedot, "w") as file:
@@ -460,7 +459,8 @@ class SmmTuner(MeasurementInterface):
                     del cfg["XF"]
                 json.dump(cfg, file, sort_keys=True)
                 file.write("\n")  # append newline at EOF
-        elif not final:  # incorrect result
+        # check return code (consider not saving parameters)
+        if 0 != result and not final:  # incorrect result
             failed = " ".join(map(str, cfgenv)).replace("OPENCL_LIBSMM_SMM_", "")
             print("FAILED: {}".format(failed))
             return
