@@ -490,26 +490,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
               const T a = AMK(m, k);
 #    endif
 #    if defined(SLM_C) && (1 < BS)
-              const int mc = m;
-#      if defined(SLM_C) || (1 != BN)
-              const int nc = n;
-#      endif
+              CNM(n, m) = MAD(a, b, CNM(n, m));
 #    else
-              const int mc = bm;
-#      if defined(SLM_C) || (1 != BN)
-              const nc = bn;
-#      endif
-#    endif
-#    if (200 /*CL_VERSION_2_0*/ <= __OPENCL_VERSION__) && !defined(SLM_A) && !defined(REG_A) && (BM <= SGS || BM <= SWG)
-#      if (BM <= SGS)
-              /* size of subgroup is sufficient */
-              CNM(nc, mc) = MAD(a /*sub_group_broadcast(a, m)*/, b, CNM(nc, mc));
-#      else
-              /* size of workgroup is sufficient */
-              CNM(nc, mc) = MAD(a /*work_group_broadcast(a, m)*/, b, CNM(nc, mc));
-#      endif
-#    else
-              CNM(nc, mc) = MAD(a, b, CNM(nc, mc));
+              CNM(bn, bm) = MAD(a, b, CNM(bn, bm));
 #    endif
             }
 #    if (1 == BS)
