@@ -461,9 +461,9 @@ class SmmTuner(MeasurementInterface):
         )
         filedot = os.path.join(self.args.jsondir, ".{}.json".format(self.args.label))
         if self.gfsave < self.gflops:  # save intermediate result
-            if 0 == self.gfsave:  # backup
+            if 0 == self.gfsave and os.path.exists(filedot):  # backup
                 data = None
-                try:  # os.path.exists(filedot), etc.
+                try:
                     with open(filedot, "r") as file:
                         data = json.load(file)
                 except:  # noqa: E722
