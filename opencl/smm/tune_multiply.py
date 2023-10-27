@@ -510,7 +510,7 @@ class SmmTuner(MeasurementInterface):
             speedup = round((self.gflops / self.gfbase) if 0 < self.gfbase else 0, 1)
             msg = " ({}x over seed)".format(speedup) if 1 < speedup else ""
             print("Result{} was written to {}".format(msg, filename))
-        else:
+        elif os.path.exists(filedot):
             print("WARNING: tuned result seems to be incorrect!")
             exit(0)
 
