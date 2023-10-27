@@ -46,6 +46,7 @@ def ilog2(n):
 class SmmTuner(MeasurementInterface):
     def manipulator(self):
         """Setup common state and define search space"""
+        dbdir = os.path.join(tempfile.gettempdir(), "opentuner.db")
         manipulator = ConfigurationManipulator()
         # parse and sanitize kernel shape argument
         if not self.args.mnk:
@@ -171,6 +172,13 @@ class SmmTuner(MeasurementInterface):
             and (self.size and 0 < self.size)
             and self.typeid
         ):  # construct label used for the database session
+            if args.database is None:
+                if os.path.isdir(dbdir):
+                    shutil.rmtree(dbdir)
+                os.mkdir(dbdir)
+                self.args.database = database = "sqlite:///" + os.path.join(
+                    dbdir, socket.gethostname() + ".db"
+                )
             if not self.args.label:  # consider to include self.device
                 self.args.label = "{}-{}-{}x{}x{}-s{}".format(
                     default_basename,
@@ -514,7 +522,6 @@ class SmmTuner(MeasurementInterface):
 if __name__ == "__main__":
     argparser = opentuner.default_argparser()
     # adjust default value of existing arguments
-    default_dbdir = os.path.join(tempfile.gettempdir(), "opentuner.db")
     argparser.set_defaults(no_dups=True)
     # add primary arguments (parsed first)
     argparser.add_argument(
@@ -758,13 +765,6 @@ if __name__ == "__main__":
         help="Size of batch (a.k.a. stacksize)",
     )
     args = argparser.parse_args()
-    if args.database is None:
-        if os.path.isdir(default_dbdir):
-            shutil.rmtree(default_dbdir)
-            os.mkdir(default_dbdir)
-        default_db = os.path.join(default_dbdir, socket.gethostname() + ".db")
-        argparser.set_defaults(database="sqlite:///" + default_db)
-        args = argparser.parse_args()  # reparse
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in {"tune", "enabled", "on"}:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
