@@ -461,14 +461,20 @@ class SmmTuner(MeasurementInterface):
         )
         filedot = os.path.join(self.args.jsondir, ".{}.json".format(self.args.label))
         if self.gfsave < self.gflops:  # save intermediate result
-            if 0 == self.gfsave and os.path.exists(filedot):  # backup
-                data = json.load(filedot)
-                gflops = data["GFLOPS"] if "GFLOPS" in data else 0
-                filename = filedot[1:]
-                if 0 < gflops:
-                    filename = "{}-{}gflops.json".format(
-                        os.path.splitext(filename)[0], round(gflops)
-                    )
+            if 0 == self.gfsave:  # backup
+                data = None
+                try:  # os.path.exists(filedot), etc.
+                    with open(filedot, "r") as file:
+                        data = json.load(filedot)
+                except:  # noqa: E722
+                    pass
+                gflops = data["GFLOPS"] if data and "GFLOPS" in data else 0
+                filename = os.path.join(
+                    self.args.jsondir,
+                    "{}-{}.json".format(self.args.label, round(gflops))
+                    if 0 < gflops
+                    else "{}.json".format(self.args.label),
+                )
                 os.rename(filedot, filename)
             # self.manipulator().save_to_file(config, filename)
             with open(filedot, "w") as file:
