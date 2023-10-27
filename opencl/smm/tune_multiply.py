@@ -466,8 +466,8 @@ class SmmTuner(MeasurementInterface):
                 gflops = data["GFLOPS"] if "GFLOPS" in data else 0
                 filename = filedot[1:]
                 if 0 < gflops:
-                    filename = os.path.splitext(filename)[0] + "-{}gflops.json".format(
-                        round(gflops)
+                    filename = "{}-{}gflops.json".format(
+                        os.path.splitext(filename)[0], round(gflops)
                     )
                 os.rename(filedot, filename)
             # self.manipulator().save_to_file(config, filename)
