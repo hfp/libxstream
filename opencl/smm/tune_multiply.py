@@ -13,6 +13,8 @@ from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
 from signal import signal, SIGINT
+import tempfile
+import socket
 import copy
 import json
 import glob
@@ -511,6 +513,7 @@ class SmmTuner(MeasurementInterface):
 if __name__ == "__main__":
     argparser = opentuner.default_argparser()
     # adjust default value of existing arguments
+    default_dbdir = os.path.join(tempfile.gettempdir(), "opentuner.db")
     argparser.set_defaults(no_dups=True)
     # add primary arguments (parsed first)
     argparser.add_argument(
@@ -754,6 +757,13 @@ if __name__ == "__main__":
         help="Size of batch (a.k.a. stacksize)",
     )
     args = argparser.parse_args()
+    if args.database is None:
+        if os.path.isdir(default_dbdir):
+            os.rmdir(default_dbdir)
+            os.mkdir(default_dbdir)
+        default_db = os.path.join(default_dbdir, socket.gethostname() + ".db")
+        argparser.set_defaults(database="sqlite:///" + default_db)
+        args = argparser.parse_args()  # reparse
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in {"tune", "enabled", "on"}:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
@@ -780,6 +790,6 @@ if __name__ == "__main__":
     try:
         SmmTuner.main(args)
     except Exception as e:
-        print("ERROR {}: {}!".format(type(e).__name__, e))
+        print("{}: {}".format(type(e).__name__, e))
         print("WARNING: ignored above error!")
         pass
