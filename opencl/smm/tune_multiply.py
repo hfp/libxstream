@@ -15,6 +15,7 @@ from opentuner import Result
 from signal import signal, SIGINT
 import tempfile
 import socket
+import shutil
 import copy
 import json
 import glob
@@ -759,7 +760,7 @@ if __name__ == "__main__":
     args = argparser.parse_args()
     if args.database is None:
         if os.path.isdir(default_dbdir):
-            os.rmdir(default_dbdir)
+            shutil.rmtree(default_dbdir)
             os.mkdir(default_dbdir)
         default_db = os.path.join(default_dbdir, socket.gethostname() + ".db")
         argparser.set_defaults(database="sqlite:///" + default_db)
