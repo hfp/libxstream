@@ -465,13 +465,13 @@ class SmmTuner(MeasurementInterface):
                 data = None
                 try:  # os.path.exists(filedot), etc.
                     with open(filedot, "r") as file:
-                        data = json.load(filedot)
+                        data = json.load(file)
                 except:  # noqa: E722
                     pass
                 gflops = data["GFLOPS"] if data and "GFLOPS" in data else 0
                 filename = os.path.join(
                     self.args.jsondir,
-                    "{}-{}.json".format(self.args.label, round(gflops))
+                    "{}-{}gflops.json".format(self.args.label, round(gflops))
                     if 0 < gflops
                     else "{}.json".format(self.args.label),
                 )
