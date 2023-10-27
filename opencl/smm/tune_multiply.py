@@ -413,7 +413,7 @@ class SmmTuner(MeasurementInterface):
                     mtime = os.path.getmtime(merged[key][-1])
                     for filename in value:
                         if mtime < os.path.getmtime(filename):
-                            retain.append(filename)
+                            retain.append(filename)  # TODO: duplicates
                         else:
                             delete.append(filename)
                 if not self.args.nogflops:
@@ -493,7 +493,7 @@ class SmmTuner(MeasurementInterface):
         if final and os.path.exists(filedot):
             if not filenames and glob.glob(self.args.csvfile):
                 print(
-                    "WARNING: no JSON file found but {} will be overwritten.".format(
+                    "WARNING: no JSON-file found but {} will be overwritten.".format(
                         self.args.csvfile
                     )
                 )
