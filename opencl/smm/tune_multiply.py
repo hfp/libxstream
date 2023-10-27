@@ -171,15 +171,15 @@ class SmmTuner(MeasurementInterface):
             and (self.device and "" != self.device)
             and (self.size and 0 < self.size)
             and self.typeid
-        ):  # construct label used for the database session
-            if args.database is None:
+        ):  # setup database (DB)
+            if args.database is None:  # adjust DB-location
                 if os.path.isdir(dbdir):
                     shutil.rmtree(dbdir)
                 os.mkdir(dbdir)
-                self.args.database = database = "sqlite:///" + os.path.join(
+                self.args.database = "sqlite:///" + os.path.join(
                     dbdir, socket.gethostname() + ".db"
                 )
-            if not self.args.label:  # consider to include self.device
+            if not self.args.label:  # label for DB-session
                 self.args.label = "{}-{}-{}x{}x{}-s{}".format(
                     default_basename,
                     self.typename,
@@ -461,7 +461,15 @@ class SmmTuner(MeasurementInterface):
         )
         filedot = os.path.join(self.args.jsondir, ".{}.json".format(self.args.label))
         if self.gfsave < self.gflops:  # save intermediate result
-            self.gfsave = self.gflops
+            if 0 == self.gfsave and os.path.exists(filedot):  # backup
+                data = json.load(filedot)
+                gflops = data["GFLOPS"] if "GFLOPS" in data else 0
+                filename = filedot[1:]
+                if 0 < gflops:
+                    filename = os.path.splitext(filename)[0] + "-{}gflops.json".format(
+                        round(gflops)
+                    )
+                os.rename(filedot, filename)
             # self.manipulator().save_to_file(config, filename)
             with open(filedot, "w") as file:
                 cfg = config
@@ -470,6 +478,7 @@ class SmmTuner(MeasurementInterface):
                     del cfg["XF"]
                 json.dump(cfg, file, sort_keys=True)
                 file.write("\n")  # append newline at EOF
+            self.gfsave = self.gflops
         # check return code (consider not saving parameters)
         if 0 != result and not final:  # incorrect result
             failed = " ".join(map(str, cfgenv)).replace("OPENCL_LIBSMM_SMM_", "")
@@ -485,7 +494,7 @@ class SmmTuner(MeasurementInterface):
             filename = os.path.normpath(
                 os.path.join(
                     self.args.jsondir,
-                    "{}-{}gflops.json".format(self.args.label, round(self.gfsave)),
+                    "{}-{}gflops.json".format(self.args.label, round(self.gflops)),
                 )
             )
             if os.path.exists(filedot):
@@ -494,7 +503,7 @@ class SmmTuner(MeasurementInterface):
                     filenames.append(filename)
                     self.merge_jsons(filenames)
                 speedup = round(
-                    (self.gfsave / self.gfbase) if 0 < self.gfbase else 0, 1
+                    (self.gflops / self.gfbase) if 0 < self.gfbase else 0, 1
                 )
                 print(
                     "Result{} was written to {}".format(
