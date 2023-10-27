@@ -490,10 +490,10 @@ class SmmTuner(MeasurementInterface):
             failed = " ".join(map(str, cfgenv)).replace("OPENCL_LIBSMM_SMM_", "")
             print("FAILED: {}".format(failed))
             return
-        if final:
+        if final and os.path.exists(filedot):
             if not filenames and glob.glob(self.args.csvfile):
                 print(
-                    "WARNING: no JSON file found but {} exists.".format(
+                    "WARNING: no JSON file found but {} will be overwritten.".format(
                         self.args.csvfile
                     )
                 )
@@ -503,23 +503,16 @@ class SmmTuner(MeasurementInterface):
                     "{}-{}gflops.json".format(self.args.label, round(self.gflops)),
                 )
             )
-            if os.path.exists(filedot):
-                os.rename(filedot, filename)
-                if filename not in filenames:
-                    filenames.append(filename)
-                    self.merge_jsons(filenames)
-                speedup = round(
-                    (self.gflops / self.gfbase) if 0 < self.gfbase else 0, 1
-                )
-                print(
-                    "Result{} was written to {}".format(
-                        " ({}x over seed)".format(speedup) if 1 < speedup else "",
-                        filename,
-                    )
-                )
-            else:
-                print("WARNING: tuned result seems to be incorrect!")
-                exit(0)
+            os.rename(filedot, filename)
+            if filename not in filenames:  # rebuild CSV-file
+                filenames.append(filename)
+                self.merge_jsons(filenames)
+            speedup = round((self.gflops / self.gfbase) if 0 < self.gfbase else 0, 1)
+            msg = " ({}x over seed)".format(speedup) if 1 < speedup else ""
+            print("Result{} was written to {}".format(msg, filename))
+        else:
+            print("WARNING: tuned result seems to be incorrect!")
+            exit(0)
 
     def handle_sigint(self, signum, frame):
         """Handle SIGINT or CTRL-C"""
