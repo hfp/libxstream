@@ -28,13 +28,13 @@
 #endif
 
 #if !defined(AL) || (SM != SN) || (SM != BM) || (SN != SK) || (1 == BS)
-#  define ADX(M, K) adata[SM * K + M + a0]
-#  define BDX(K, N) bdata[SN * K + N + b0]
-#  define CDX(M, N) cdata[SM * N + M + c0]
+#  define ADX(M, K) adata[SM * K + M + a0]  /* transposed */
+#  define BDX(K, N) bdata[SN * K + N + b0]  /* linear */
+#  define CDX(M, N) cdata[SM * N + M + c0]  /* transposed */
 #else
-#  define ADX(M, K) adata[SK * M + K + a0]
-#  define BDX(K, N) bdata[SK * N + K + b0]
-#  define CDX(M, N) cdata[SN * M + N + c0]
+#  define ADX(M, K) adata[SK * M + K + a0]  /* linear */
+#  define BDX(K, N) bdata[SK * N + K + b0]  /* transposed */
+#  define CDX(M, N) cdata[SN * M + N + c0]  /* linear */
 #endif
 
 #if defined(SLM_A)
