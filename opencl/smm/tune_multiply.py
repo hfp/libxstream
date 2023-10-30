@@ -136,9 +136,9 @@ class SmmTuner(MeasurementInterface):
             self.create_param("TB", params, paramt, seed, 10, 0, 1)
             self.create_param("TC", params, paramt, seed, 11, 0, 1)
             self.create_param("AP", params, paramt, seed, 12, 0, 1)
-            self.create_param("AA", params, paramt, seed, 13, 0, 3)
-            self.create_param("AB", params, paramt, seed, 14, 0, 3)
-            self.create_param("AC", params, paramt, seed, 15, 0, 2)
+            self.create_param("AA", params, paramt, seed, 13, 0, 2)
+            self.create_param("AB", params, paramt, seed, 14, 0, 2)
+            self.create_param("AC", params, paramt, seed, 15, 0, 1)
             if self.xf is None and (
                 15 < nprm and seed.group(16) and 2 < len(seed.group(16))
             ):
@@ -370,8 +370,8 @@ class SmmTuner(MeasurementInterface):
                     data["TB"] if "TB" in data else 0,
                     data["TC"] if "TC" in data else 1,
                     data["AP"] if "AP" in data else 0,
-                    data["AA"] if "AA" in data else 1,
-                    data["AB"] if "AB" in data else 3,
+                    data["AA"] if "AA" in data else 0,
+                    data["AB"] if "AB" in data else 0,
                     data["AC"] if "AC" in data else 0,
                     data["XF"] if "XF" in data else 0,
                     filename,  # last entry
@@ -728,7 +728,7 @@ if __name__ == "__main__":
         type=int,
         default=env_intvalue("OPENCL_LIBSMM_SMM_AA", "0"),
         dest="aa",
-        help="Matrix A: global (0), shared (1), shared-bc (2), register (3)",
+        help="Matrix A: global (0), shared (1), register (2)",
     )
     argparser.add_argument(
         "-ab",
@@ -736,7 +736,7 @@ if __name__ == "__main__":
         type=int,
         default=env_intvalue("OPENCL_LIBSMM_SMM_AB", "0"),
         dest="ab",
-        help="Matrix B: global (0), shared (1), shared-bc (2), register (3)",
+        help="Matrix B: global (0), shared (1), register (2)",
     )
     argparser.add_argument(
         "-ac",
@@ -744,7 +744,7 @@ if __name__ == "__main__":
         type=int,
         default=env_intvalue("OPENCL_LIBSMM_SMM_AC", "0"),
         dest="ac",
-        help="Matrix C: register (0), shared (1), shared-bc (2)",
+        help="Matrix C: register (0), shared (1)",
     )
     argparser.add_argument(
         "-bs",
