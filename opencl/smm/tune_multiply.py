@@ -232,11 +232,11 @@ class SmmTuner(MeasurementInterface):
         return self.call_program(
             "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0 {} {} {} {} {}".format(
                 envstrs,  # environment variables
-                "{}".format(self.exepath),
+                self.exepath,
                 # executable's arguments
                 self.args.r if nrep is None else nrep,
                 self.size if self.size else self.args.size,
-                "{} {} {}".format(self.mnk[0], self.mnk[1], self.mnk[2]),
+                " ".join(map(str, self.mnk)),
             )
         )
 
