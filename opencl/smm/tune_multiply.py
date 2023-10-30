@@ -9,6 +9,7 @@
 ####################################################################################################
 import opentuner
 from opentuner.search.manipulator import IntegerParameter
+from opentuner.tuningrunmain import TuningRunMain
 from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
@@ -437,22 +438,23 @@ class SmmTuner(MeasurementInterface):
 
     def save_final_config(self, configuration, final=True):
         """Called at termination"""
-        if 0 >= self.gflops or not configuration:
+        if not final and (0 >= self.gflops or not configuration):
             return  # nothing to save
-        config = configuration.data
-        cfgenv = self.environment(config)
-        result = self.run_result["returncode"] if self.run_result else 1
+        config = configuration.data if configuration else None
+        cfgenv = self.environment(config) if config else None
+        result = self.run_result["returncode"] if config and self.run_result else 1
         if 0 == result and 0 == self.args.check:  # enable CHECKing result
             self.run_result = self.launch(cfgenv + ["CHECK=1"])
             result = self.run_result["returncode"] if self.run_result else 1
         # extend result for easier reuse
-        config["DEVICE"] = self.device
-        config["GFLOPS"] = self.gflops if not self.args.nogflops else 0
-        config["TYPEID"] = self.typeid
-        config["M"] = self.mnk[0]
-        config["N"] = self.mnk[1]
-        config["K"] = self.mnk[2]
-        config["S"] = self.size
+        if config:
+            config["DEVICE"] = self.device
+            config["GFLOPS"] = self.gflops if not self.args.nogflops else 0
+            config["TYPEID"] = self.typeid
+            config["M"] = self.mnk[0]
+            config["N"] = self.mnk[1]
+            config["K"] = self.mnk[2]
+            config["S"] = self.size
         filepattern = "{}-*.json".format(default_basename)
         filenames = (
             glob.glob(os.path.normpath(os.path.join(self.args.jsondir, filepattern)))
@@ -460,7 +462,7 @@ class SmmTuner(MeasurementInterface):
             else None
         )
         filedot = os.path.join(self.args.jsondir, ".{}.json".format(self.args.label))
-        if self.gfsave < self.gflops:  # save intermediate result
+        if config and self.gfsave < self.gflops:  # save intermediate result
             if 0 == self.gfsave and os.path.exists(filedot):  # backup
                 data = None
                 try:
@@ -795,9 +797,11 @@ if __name__ == "__main__":
         os.environ["OPENCL_LIBSMM_SMM_LU"] = "{}".format(args.lu)
     if 0 == args.mb:
         args.mb = 64
+    instance = SmmTuner(args)
     try:
-        SmmTuner.main(args)
+        TuningRunMain(instance, args).main()
     except Exception as e:
         print("{}: {}".format(type(e).__name__, e))
         print("WARNING: ignored above error!")
+        instance.save_final_config(None, True)
         pass
