@@ -28,13 +28,13 @@
 #endif
 
 #if !defined(AL) || (SM != SN) || (SM != BM) || (SN != SK) || (1 == BS)
-#  define ADX(M, K) adata[SM * K + M + a0]  /* transposed */
-#  define BDX(K, N) bdata[SN * K + N + b0]  /* linear */
-#  define CDX(M, N) cdata[SM * N + M + c0]  /* transposed */
+#  define ADX(M, K) adata[SM * K + M + a0] /* transposed */
+#  define BDX(K, N) bdata[SN * K + N + b0] /* linear */
+#  define CDX(M, N) cdata[SM * N + M + c0] /* transposed */
 #else
-#  define ADX(M, K) adata[SK * M + K + a0]  /* linear */
-#  define BDX(K, N) bdata[SK * N + K + b0]  /* transposed */
-#  define CDX(M, N) cdata[SN * M + N + c0]  /* linear */
+#  define ADX(M, K) adata[SK * M + K + a0] /* linear */
+#  define BDX(K, N) bdata[SK * N + K + b0] /* transposed */
+#  define CDX(M, N) cdata[SN * M + N + c0] /* linear */
 #endif
 
 #if defined(SLM_A)
@@ -563,7 +563,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
     }
 #  endif
     }
-#else
+#else /* BM == SM && 1 == BN */
     { /* calculate result-tile using columns */
 #  if (1 == BS)
       T cnm[UM] = {ZERO}; /* column-block */
@@ -774,6 +774,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
       /* next iteration */
       c0 = c1;
     }
+#endif
+#if defined(BARRIER) && (MAX(1, SGS) < SWG) && defined(SLM_A) && (BM <= SM || 1 != BN || 1 != BK)
+    BARRIER(CLK_LOCAL_MEM_FENCE);
 #endif
   }
 }
