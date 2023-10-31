@@ -24,12 +24,13 @@ import sys
 import re
 import os
 
+default_enable_tune = {"tune", "enabled", "on"}
 default_basename = "tune_multiply"
 default_mnk = "23x23x23"
 
 
-def env_intvalue(envname, default):
-    value = os.getenv(envname, default)
+def env_intvalue(env, default, lookup=True):
+    value = os.getenv(env, default) if lookup else env if env is not None else default
     try:
         return int(value)
     except ValueError:
@@ -64,7 +65,6 @@ class SmmTuner(MeasurementInterface):
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
         self.nz = self.al = self.tb = self.tc = None
         self.ap = self.aa = self.ab = self.ac = None
-        self.xf = env_intvalue("OPENCL_LIBSMM_SMM_XF", 0)
         self.gfbase = self.gfsave = self.gflops = 0
         self.typename = self.typeid = None
         self.device = self.size = None
@@ -82,9 +82,9 @@ class SmmTuner(MeasurementInterface):
         if self.run_result:
             stdout = str(self.run_result["stdout"])
             if 0 >= self.args.size:
-                sizepat = "{}\\s+[0-9]+\\s+([0-9]+)".format(self.exepath)
+                sizepat = "(\\w+)\\s+[0-9]+\\s+([0-9]+)"
                 size = re.search(sizepat, stdout)
-                self.size = int(size.group(1)) if size and size.group(1) else 0
+                self.size = int(size.group(2)) if size and size.group(2) else 0
             else:
                 self.size = self.args.size
             typename = re.search("typename \\(id=([0-9]+)\\):\\s+(\\w+)", stdout)
@@ -137,13 +137,10 @@ class SmmTuner(MeasurementInterface):
             self.create_param("AA", params, paramt, seed, 13, 0, 2)
             self.create_param("AB", params, paramt, seed, 14, 0, 2)
             self.create_param("AC", params, paramt, seed, 15, 0, 1)
-            if self.xf is None and (
-                15 < nprm and seed.group(16) and 2 < len(seed.group(16))
-            ):
-                self.xf = seed.group(16)[2:]
-            self.create_param("XF", params, paramt, self.xf, -1, 0, 1)
-            if self.xf is not None:
-                self.xf = int(self.xf)
+            if 15 < nprm and seed.group(16) and 2 < len(seed.group(16)):
+                self.create_param("XF", params, paramt, seed.group(16)[2:], -1, 0, 1)
+            else:
+                self.create_param("XF", params, paramt, 0, -1, 0, 1)
             if not paramt:
                 sys.tracebacklimit = 0
                 raise RuntimeError(
@@ -199,28 +196,30 @@ class SmmTuner(MeasurementInterface):
         """Append integer-parameter to either params or paramt list"""
         value_key = "OPENCL_LIBSMM_SMM_{}".format(name)
         value_env = os.getenv(value_key)
-        value_raw = env_intvalue(value_key, 0)
-        value_fix = (
-            getattr(self.args, name.lower(), None) if value_env is None else value_raw
-        )
-        if value_env is None or value_env in {
-            "tune",
-            "enabled",
-            "on",
-        }:  # tunable parameter
-            if 0 <= match_id:
-                value = (
-                    int(match.group(match_id))
-                    if match and match.group(match_id)
-                    else None
-                )
+        attribute = getattr(self, name.lower(), None)
+        tunable = value_env in default_enable_tune
+        if 0 <= match_id:
+            if match and match.group(match_id):
+                value = int(match.group(match_id))
             else:
-                value = 0 if match is None else int(match)
-            setattr(self, name.lower(), value)
+                value = int(value_env)
+            if not tunable:
+                tunable = value_env is None
+        else:
+            if attribute is None:
+                value = getattr(self.args, name.lower(), None)
+                if value is None:
+                    value = int(value_env if match is None else match)
+            else:
+                value = int(attribute)
+            if not tunable:
+                tunable = value_env is None and 0 != value
+        if tunable:
             paramt.append(IntegerParameter(name, value0, value1))
         else:  # fixed parameter
-            value_fix = getattr(self.args, name.lower(), value_raw)
-            params.append(IntegerParameter(name, value_fix, value_fix))
+            params.append(IntegerParameter(name, value, value))
+        if attribute is None:
+            setattr(self, name.lower(), value)
 
     def launch(self, envs, nrep=None, verbose=None):
         """Launch executable supplying environment and arguments"""
@@ -773,11 +772,8 @@ if __name__ == "__main__":
     )
     args = argparser.parse_args()
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
-    if os.getenv("OPENCL_LIBSMM_SMM_WS") not in {"tune", "enabled", "on"}:
+    if os.getenv("OPENCL_LIBSMM_SMM_WS") not in default_enable_tune:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
-    if os.getenv("OPENCL_LIBSMM_SMM_XF") not in {"tune", "enabled", "on"}:
-        xfvalue = env_intvalue("OPENCL_LIBSMM_SMM_XF", 0)
-        os.environ["OPENCL_LIBSMM_SMM_XF"] = "{}".format(xfvalue)
     # fix tunables according to level of tuning
     if 1 <= args.tlevel or 0 > args.tlevel:
         os.environ["OPENCL_LIBSMM_SMM_BM"] = "{}".format(args.bm)
