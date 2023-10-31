@@ -48,7 +48,7 @@ def ilog2(n):
 class SmmTuner(MeasurementInterface):
     def manipulator(self):
         """Setup common state and define search space"""
-        dbdir = os.path.join(tempfile.gettempdir(), "opentuner.db")
+        dbdir = os.path.join(tempfile.gettempdir(), "opentuner")
         manipulator = ConfigurationManipulator()
         # parse and sanitize kernel shape argument
         if not self.args.mnk:
@@ -62,13 +62,11 @@ class SmmTuner(MeasurementInterface):
         self.args.bn = [max(self.args.bn, 1), 1][0 == self.args.bn]
         self.args.bk = [max(self.args.bk, 1), self.mnk[2]][0 == self.args.bk]
         self.args.ws = min(self.args.ws, self.mnk[0] * self.mnk[1])
+        self.ndevices = self.idevice = self.gfbase = self.gfsave = self.gflops = 0
+        self.config = self.typename = self.typeid = self.device = self.size = None
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
         self.nz = self.al = self.tb = self.tc = None
         self.ap = self.aa = self.ab = self.ac = None
-        self.gfbase = self.gfsave = self.gflops = 0
-        self.typename = self.typeid = None
-        self.device = self.size = None
-        self.config = None
         self.exename = "acc_bench_smm"
         self.exepath = os.path.join(
             os.path.dirname(sys.argv[0]), "..", "..", self.exename
@@ -92,9 +90,12 @@ class SmmTuner(MeasurementInterface):
             self.typeid = (
                 int(typename.group(1)) if typename and typename.group(1) else 0
             )
-            devicepat = 'INFO ACC/OpenCL:\\s+ndevices=[0-9]+\\s+device[0-9]+="([^"]+)"'
+            devicepat = (
+                'INFO ACC/OpenCL:\\s+ndevices=([0-9]+)\\s+device[0-9]+="([^"]+)"'
+            )
             device = re.search(devicepat, str(self.run_result["stderr"]))
-            self.device = device.group(1) if device and device.group(1) else ""
+            self.ndevices = int(device.group(1)) if device and device.group(1) else 0
+            self.device = device.group(2) if device and device.group(2) else ""
         elif self.args.update is not None and "" != self.args.update:
             self.device = self.args.update
         if self.run_result and 0 == self.run_result["returncode"]:
@@ -165,15 +166,21 @@ class SmmTuner(MeasurementInterface):
         elif (
             (self.typename and "" != self.typename)
             and (self.device and "" != self.device)
+            and (self.typeid and 0 < self.ndevices)
             and (self.size and 0 < self.size)
-            and self.typeid
         ):  # setup database (DB)
             if args.database is None:  # adjust DB-location
-                if os.path.isdir(dbdir):
-                    shutil.rmtree(dbdir)
-                os.mkdir(dbdir)
+                envrank = os.getenv("PMI_RANK", os.getenv("OMPI_COMM_WORLD_LOCAL_RANK"))
+                if envrank:
+                    self.idevice = int(envrank) % self.ndevices
+                    directory = "{}-{}.db".format(dbdir, self.idevice)
+                else:
+                    directory = "{}.db".format(dbdir)
+                if os.path.isdir(directory):
+                    shutil.rmtree(directory)
+                os.mkdir(directory)
                 self.args.database = "sqlite:///" + os.path.join(
-                    dbdir, socket.gethostname() + ".db"
+                    directory, "{}.db".format(socket.gethostname())
                 )
             if not self.args.label:  # label for DB-session
                 self.args.label = "{}-{}-{}x{}x{}-s{}".format(
@@ -226,16 +233,16 @@ class SmmTuner(MeasurementInterface):
         envstrs = " ".join(map(str, envs))
         if verbose is not None and 0 != int(verbose):
             print(envstrs.replace("OPENCL_LIBSMM_SMM_", "").replace(" CHECK=0", ""))
-        return self.call_program(
-            "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0 {} {} {} {} {}".format(
-                envstrs,  # environment variables
-                self.exepath,
-                # executable's arguments
-                self.args.r if nrep is None else nrep,
-                self.size if self.size else self.args.size,
-                " ".join(map(str, self.mnk)),
-            )
+        env_defaults = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0"
+        env_exe_args = "ACC_OPENCL_DEVICE={} {} {} {} {} {}".format(
+            self.idevice,  # device number
+            env_defaults + envstrs,  # environment
+            self.exepath,  # executable file
+            self.args.r if nrep is None else nrep,
+            self.size if self.size else self.args.size,
+            " ".join(map(str, self.mnk)),
         )
+        return self.call_program(env_exe_args)
 
     def seed_configurations(self):
         return [
