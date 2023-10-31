@@ -82,10 +82,8 @@ class SmmTuner(MeasurementInterface):
         if self.run_result:
             stdout = str(self.run_result["stdout"])
             if 0 >= self.args.size:
-                size = re.search(
-                    "{}\\s+[0-9]+\\s+([0-9]+)".format(self.exepath),
-                    stdout,
-                )
+                sizepat = "{}\\s+[0-9]+\\s+([0-9]+)".format(self.exepath)
+                size = re.search(sizepat, stdout)
                 self.size = int(size.group(1)) if size and size.group(1) else 0
             else:
                 self.size = self.args.size
