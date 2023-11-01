@@ -27,6 +27,7 @@ import os
 default_enable_tune = {"tune", "enabled", "on"}
 default_basename = "tune_multiply"
 default_mnk = "23x23x23"
+default_dbg = True
 
 
 def env_intvalue(env, default, lookup=True):
@@ -102,8 +103,8 @@ class SmmTuner(MeasurementInterface):
             seedpat = "INFO ACC/OpenCL:\\s+SMM-kernel\\s+{}={}\\s+gen=".format(
                 "{t,m,n,k, bs,bm,bn,bk, ws,wg, lu,nz,al, tb,tc, ap,aa,ab,ac}",
                 "{{{}, {}}}".format(  # key and value
-                    "{},{},{},{}".format(  # t,m,n,k (key)
-                        self.typeid, self.mnk[0], self.mnk[1], self.mnk[2]
+                    "{},{}".format(  # t,m,n,k (key)
+                        self.typeid, ",".join(map(str, self.mnk))
                     ),
                     "{}, {}, {}, {}, {}".format(  # value: if neg. "-*[0-9]+"
                         "(-*[0-9]+),(-*[0-9]+),(-*[0-9]+),(-*[0-9]+)",  # bs,bm,bn,bk
@@ -209,7 +210,7 @@ class SmmTuner(MeasurementInterface):
             if match and match.group(match_id):
                 value = int(match.group(match_id))
             else:
-                value = int(value_env)
+                value = 0 if value_env is None else int(value_env)
             if not tunable:
                 tunable = value_env is None
         else:
@@ -228,15 +229,15 @@ class SmmTuner(MeasurementInterface):
         if attribute is None:
             setattr(self, name.lower(), value)
 
-    def launch(self, envs, nrep=None, verbose=None):
+    def launch(self, envs, nrep=None, verbose=None, device=None):
         """Launch executable supplying environment and arguments"""
         envstrs = " ".join(map(str, envs))
         if verbose is not None and 0 != int(verbose):
             print(envstrs.replace("OPENCL_LIBSMM_SMM_", "").replace(" CHECK=0", ""))
         env_defaults = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0"
-        env_exe_args = "ACC_OPENCL_DEVICE={} {} {} {} {} {}".format(
-            self.idevice,  # device number
-            env_defaults + envstrs,  # environment
+        env_exe_args = "{} {} {} {} {} {}".format(  # consider device-id
+            "" if device is None else "ACC_OPENCL_DEVICE={}".format(device),
+            "{} {}".format(env_defaults, envstrs),  # environment
             self.exepath,  # executable file
             self.args.r if nrep is None else nrep,
             self.size if self.size else self.args.size,
@@ -286,6 +287,7 @@ class SmmTuner(MeasurementInterface):
         self.run_result = self.launch(
             cfgenv + ["CHECK={}".format(self.args.check)],
             verbose=self.args.verbose,
+            device=self.idevice,
         )
         if 0 == self.run_result["returncode"]:
             performance = re.search(
@@ -448,7 +450,7 @@ class SmmTuner(MeasurementInterface):
         cfgenv = self.environment(config) if config else None
         result = self.run_result["returncode"] if config and self.run_result else 1
         if 0 == result and 0 == self.args.check:  # enable CHECKing result
-            self.run_result = self.launch(cfgenv + ["CHECK=1"])
+            self.run_result = self.launch(cfgenv + ["CHECK=1"], device=self.idevice)
             result = self.run_result["returncode"] if self.run_result else 1
         # extend result for easier reuse
         if config:
@@ -523,11 +525,8 @@ class SmmTuner(MeasurementInterface):
         """Handle SIGINT or CTRL-C"""
         if 1 > self.handle_sigint_counter:  # avoid recursion
             self.handle_sigint_counter = self.handle_sigint_counter + 1
-            print(
-                "\nWARNING: tuning {}x{}x{}-kernel was interrupted.".format(
-                    self.mnk[0], self.mnk[1], self.mnk[2]
-                )
-            )
+            msg = "\nWARNING: tuning {}-kernel interrupted."
+            print(msg.format("x".join(map(str, self.mnk))))
             self.save_final_config(self.config)
         exit(1)
 
@@ -799,10 +798,13 @@ if __name__ == "__main__":
     if 0 == args.mb:
         args.mb = 64
     instance = SmmTuner(args)
-    try:
+    if not default_dbg:
+        try:
+            TuningRunMain(instance, args).main()
+        except Exception as e:
+            print("{}: {}".format(type(e).__name__, e))
+            print("WARNING: ignored above error!")
+            instance.save_final_config(None, True)
+            pass
+    else:
         TuningRunMain(instance, args).main()
-    except Exception as e:
-        print("{}: {}".format(type(e).__name__, e))
-        print("WARNING: ignored above error!")
-        instance.save_final_config(None, True)
-        pass
