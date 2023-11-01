@@ -20,6 +20,7 @@ import shutil
 import copy
 import json
 import glob
+import math
 import sys
 import re
 import os
@@ -415,23 +416,38 @@ class SmmTuner(MeasurementInterface):
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in value[:-1]])
                     file.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
+                retain_flops = delete_flops = 0
                 retain, delete = [], []
                 for key, value in worse.items():
+                    gflops = round(merged[key][1])
                     mtime = os.path.getmtime(merged[key][-1])
                     for filename in value:
+                        g = int(filename.split("-")[-1].split("g")[0])
                         if mtime < os.path.getmtime(filename):
+                            if gflops:
+                                retain_flops = retain_flops + math.log(
+                                    abs(gflops - g) / gflops
+                                )
                             retain.append(filename)  # TODO: duplicates
                         else:
+                            if gflops:
+                                delete_flops = delete_flops + math.log(
+                                    abs(gflops - g) / gflops
+                                )
                             delete.append(filename)
                 if not self.args.nogflops:
                     if retain:
-                        msg = "Worse and newer (retain {}): {}".format(
-                            len(retain), " ".join(retain)
+                        msg = "Worse and newer (retain {}@{}x): {}".format(
+                            len(retain),
+                            round(math.exp(retain_flops / len(retain)), 1),
+                            " ".join(retain),
                         )
                         print(msg)
                     if delete:
-                        msg = "Worse and older (delete {}): {}".format(
-                            len(delete), " ".join(delete)
+                        msg = "Worse and older (delete {}@{}x): {}".format(
+                            len(delete),
+                            round(math.exp(delete_flops / len(delete)), 1),
+                            " ".join(delete),
                         )
                         print(msg)
                 elif bool(worse):
@@ -518,7 +534,7 @@ class SmmTuner(MeasurementInterface):
             speedup = round((self.gflops / self.gfbase) if 0 < self.gfbase else 0, 1)
             msg = " ({}x over seed)".format(speedup) if 1 < speedup else ""
             print("Result{} was written to {}".format(msg, filename))
-        elif final:
+        elif final and self.args.merge is None:
             print("WARNING: no tuned results produced!")
 
     def handle_sigint(self, signum, frame):
