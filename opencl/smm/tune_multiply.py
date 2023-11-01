@@ -28,7 +28,7 @@ import os
 default_enable_tune = {"tune", "enabled", "on"}
 default_basename = "tune_multiply"
 default_mnk = "23x23x23"
-default_dbg = True
+default_dbg = False
 
 
 def env_intvalue(env, default, lookup=True):
