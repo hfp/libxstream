@@ -429,7 +429,7 @@ class SmmTuner(MeasurementInterface):
                         s = 0
                         if 0 < gflops:
                             g = int(filename.split("-")[-1].split("g")[0])
-                            s = math.log(abs(gflops - g) / gflops)
+                            s = math.log(abs(gflops - g) / g)
                         if mtime < os.path.getmtime(filename):
                             retain.append(filename)  # TODO: duplicates
                             retain_flops = retain_flops + s
