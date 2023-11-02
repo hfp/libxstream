@@ -185,12 +185,10 @@ class SmmTuner(MeasurementInterface):
                     directory, "{}.db".format(socket.gethostname())
                 )
             if not self.args.label:  # label for DB-session
-                self.args.label = "{}-{}-{}x{}x{}-s{}".format(
+                self.args.label = "{}-{}-{}-s{}".format(
                     default_basename,
                     self.typename,
-                    self.mnk[0],
-                    self.mnk[1],
-                    self.mnk[2],
+                    "x".join(map(str, self.mnk)),
                     ilog2(self.size),
                 )
         else:
@@ -437,19 +435,13 @@ class SmmTuner(MeasurementInterface):
                             delete.append(filename)
                 if not self.args.nogflops:
                     if retain:
-                        msg = "Worse and newer (retain {}@{}x): {}".format(
-                            len(retain),
-                            round(math.exp(retain_flops / len(retain)), 1),
-                            " ".join(retain),
-                        )
-                        print(msg)
+                        spd = round(math.exp(retain_flops / len(retain)), 1)
+                        msg = "Worse and newer (retain {}@{}x): {}"
+                        print(msg.format(len(retain), spd, " ".join(retain)))
                     if delete:
-                        msg = "Worse and older (delete {}@{}x): {}".format(
-                            len(delete),
-                            round(math.exp(delete_flops / len(delete)), 1),
-                            " ".join(delete),
-                        )
-                        print(msg)
+                        spd = round(math.exp(delete_flops / len(delete)), 1)
+                        msg = "Worse and older (delete {}@{}x): {}"
+                        print(msg.format(len(delete), spd, " ".join(delete)))
                 elif bool(worse):
                     print("WARNING: incorrectly merged duplicates")
                     print("         due to nogflops argument!")
