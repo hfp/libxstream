@@ -620,7 +620,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
       }
 #    endif
 #  else
-      int m = 0, u;
+      short m = 0, u;
 #    if (1 == UM)
       UNROLL_OUTER(SM)
 #    endif
@@ -744,7 +744,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
       }
 #  else
     { /* atomically commit C-column to global memory */
-      int m = 0;
+      short m = 0;
 #    if defined(ATOMIC_ADD2_GLOBAL)
       for (; m < (SM - 1); m += 2) {
 #      if defined(ATOMIC_INC_NZ)
