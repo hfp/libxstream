@@ -420,7 +420,7 @@ class SmmTuner(MeasurementInterface):
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in value[:-1]])
                     file.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
-                retain_slowd = retain_count = delete_slowd = delete_count = 0
+                retsld = retcnt = delsld = delcnt = 0
                 retain, delete = [], []
                 for key, value in worse.items():
                     gflops = round(merged[key][1])
@@ -431,24 +431,31 @@ class SmmTuner(MeasurementInterface):
                             g = int(filename.split("-")[-1].split("g")[0])
                             s = math.log(gflops / g)  # slowdown
                         if mtime < os.path.getmtime(filename):
-                            retain.append(filename)  # TODO: duplicates
-                            retain_slowd = retain_slowd + s
-                            retain_count = retain_count + 1
+                            retsld, retcnt = retsld + s, retcnt + 1
+                            retain.append(filename)
                         else:
+                            delsld, delcnt = delsld + s, delcnt + 1
                             delete.append(filename)
-                            delete_slowd = delete_slowd + s
-                            delete_count = delete_count + 1
                 if not self.args.nogflops:
-                    if retain:
-                        num, lst = len(retain), " ".join(retain)
-                        sld = math.exp(retain_slowd / retain_count)
-                        sls = "@{}x".format(round(sld, 1)) if 1 < sld else ""
-                        print("Worse and newer (retain {}{}): {}".format(num, sls, lst))
-                    if delete:
-                        num, lst = len(delete), " ".join(delete)
-                        sld = math.exp(delete_slowd / delete_count)
-                        sls = "@{}x".format(round(sld, 1)) if 1 < sld else ""
-                        print("Worse and older (delete {}{}): {}".format(num, sls, lst))
+                    slr = round(math.exp(retsld / retcnt), 1) if 0 < retcnt else 1
+                    sld = round(math.exp(delsld / delcnt), 1) if 0 < delcnt else 1
+                    if not self.args.delete:
+                        if retain:
+                            num, lst = len(retain), " ".join(retain)
+                            msg = "Worse and newer (retain {}@{}x): {}"
+                            print(msg.format(num, slr, lst))
+                        if delete:
+                            num, lst = len(delete), " ".join(delete)
+                            msg = "Worse and older (delete {}@{}x): {}"
+                            print(msg.format(num, sld, lst))
+                    elif self.idevice is None or 0 == self.idevice:
+                        for file in retain + delete:
+                            try:
+                                os.remove(file)
+                            except:  # noqa: E722
+                                pass
+                        msg = " ({}..{}x)".format(slr, sld) if 1 < max(slr, sld) else ""
+                        print("Removed outperformed parameters{}.".format(msg))
                 elif bool(worse):
                     print("WARNING: incorrectly merged duplicates")
                     print("         due to nogflops argument!")
@@ -636,15 +643,20 @@ if __name__ == "__main__":
         type=float,
         default=0,
         nargs="?",
-        dest="check",
         help="Validate kernel (epsilon, 0:off)",
+    )
+    argparser.add_argument(
+        "-d",
+        "--delete",
+        action="store_true",
+        default=False,
+        help="Delete outperformed JSONs",
     )
     argparser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
         default=False,
-        dest="verbose",
         help="Verbose output",
     )
     argparser.add_argument(
