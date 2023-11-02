@@ -48,8 +48,9 @@ def ilog2(n):
 
 
 class SmmTuner(MeasurementInterface):
-    def manipulator(self):
+    def __init__(self, args):
         """Setup common state and define search space"""
+        super(SmmTuner, self).__init__(args)
         dbdir = os.path.join(tempfile.gettempdir(), "opentuner")
         manipulator = ConfigurationManipulator()
         # parse and sanitize kernel shape argument
@@ -64,11 +65,12 @@ class SmmTuner(MeasurementInterface):
         self.args.bn = [max(self.args.bn, 1), 1][0 == self.args.bn]
         self.args.bk = [max(self.args.bk, 1), self.mnk[2]][0 == self.args.bk]
         self.args.ws = min(self.args.ws, self.mnk[0] * self.mnk[1])
-        self.ndevices = self.idevice = self.gfbase = self.gfsave = self.gflops = 0
+        self.ndevices = self.gfbase = self.gfsave = self.gflops = 0
         self.config = self.typename = self.typeid = self.device = self.size = None
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
         self.nz = self.al = self.tb = self.tc = None
         self.ap = self.aa = self.ab = self.ac = None
+        self.idevice = None
         self.exename = "acc_bench_smm"
         self.exepath = os.path.join(
             os.path.dirname(sys.argv[0]), "..", "..", self.exename
@@ -197,7 +199,10 @@ class SmmTuner(MeasurementInterface):
         # register signal handler (CTRL-C)
         signal(SIGINT, self.handle_sigint)
         self.handle_sigint_counter = 0
-        return manipulator
+        self.manip = manipulator
+
+    def manipulator(self):
+        return self.manip
 
     def create_param(self, name, params, paramt, match, match_id, value0, value1):
         """Append integer-parameter to either params or paramt list"""
@@ -228,14 +233,14 @@ class SmmTuner(MeasurementInterface):
         if attribute is None:
             setattr(self, name.lower(), value)
 
-    def launch(self, envs, nrep=None, verbose=None, device=None):
+    def launch(self, envs, nrep=None, verbose=None):
         """Launch executable supplying environment and arguments"""
         envstrs = " ".join(map(str, envs))
         if verbose is not None and 0 != int(verbose):
             print(envstrs.replace("OPENCL_LIBSMM_SMM_", "").replace(" CHECK=0", ""))
         env_defaults = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0"
         env_exe_args = "{} {} {} {} {} {}".format(  # consider device-id
-            "" if device is None else "ACC_OPENCL_DEVICE={}".format(device),
+            "" if self.idevice is None else "ACC_OPENCL_DEVICE={}".format(self.idevice),
             "{} {}".format(env_defaults, envstrs),  # environment
             self.exepath,  # executable file
             self.args.r if nrep is None else nrep,
@@ -284,9 +289,7 @@ class SmmTuner(MeasurementInterface):
         config = desired_result.configuration.data
         cfgenv = self.environment(config)
         self.run_result = self.launch(
-            cfgenv + ["CHECK={}".format(self.args.check)],
-            verbose=self.args.verbose,
-            device=self.idevice,
+            cfgenv + ["CHECK={}".format(self.args.check)], verbose=self.args.verbose
         )
         if 0 == self.run_result["returncode"]:
             performance = re.search(
@@ -306,7 +309,8 @@ class SmmTuner(MeasurementInterface):
                 self.gflops = gflops
                 if 0 == self.gfbase:  # seed configuration
                     self.gfbase = gflops
-                self.save_final_config(desired_result.configuration, final=False)
+                else:
+                    self.save_final_config(desired_result.configuration, final=False)
             kernelreq = round(
                 (100.0 * config["BM"] * config["BN"]) / (self.mnk[0] * self.mnk[1])
             )
@@ -395,6 +399,8 @@ class SmmTuner(MeasurementInterface):
                         worse[key] = [filename2]
             except (json.JSONDecodeError, KeyError, TypeError):
                 print("Failed to merge {} into CSV-file.".format(filename))
+            except:  # noqa: E722
+                pass
         if bool(merged):
             with open(self.args.csvfile, "w") as file:
                 file.write(  # CSV header line with termination/newline
@@ -434,15 +440,15 @@ class SmmTuner(MeasurementInterface):
                             delete_count = delete_count + 1
                 if not self.args.nogflops:
                     if retain:
-                        spd = round(math.exp(retain_flops / retain_count), 1)
-                        msg = "Worse and newer (retain {}{}): {}".format(len(retain))
-                        lst = " ".join(retain)
-                        print(msg.format("@{}x".format(spd) if 1 < spd else "", lst))
+                        num, lst = len(retain), " ".join(retain)
+                        spd = math.exp(retain_flops / retain_count)
+                        spx = "@{}x".format(round(spd, 1)) if 1 < spd else ""
+                        print("Worse and newer (retain {}{}): {}".format(num, spx, lst))
                     if delete:
-                        spd = round(math.exp(delete_flops / delete_count), 1)
-                        msg = "Worse and older (delete {}{}): {}".format(len(delete))
-                        lst = " ".join(delete)
-                        print(msg.format("@{}x".format(spd) if 1 < spd else "", lst))
+                        num, lst = len(delete), " ".join(delete)
+                        spd = math.exp(delete_flops / delete_count)
+                        spx = "@{}x".format(round(spd, 1)) if 1 < spd else ""
+                        print("Worse and older (delete {}{}): {}".format(num, spx, lst))
                 elif bool(worse):
                     print("WARNING: incorrectly merged duplicates")
                     print("         due to nogflops argument!")
@@ -459,7 +465,7 @@ class SmmTuner(MeasurementInterface):
         cfgenv = self.environment(config) if config else None
         result = self.run_result["returncode"] if config and self.run_result else 1
         if 0 == result and 0 == self.args.check:  # enable CHECKing result
-            self.run_result = self.launch(cfgenv + ["CHECK=1"], device=self.idevice)
+            self.run_result = self.launch(cfgenv + ["CHECK=1"])
             result = self.run_result["returncode"] if self.run_result else 1
         # extend result for easier reuse
         if config:
@@ -476,7 +482,10 @@ class SmmTuner(MeasurementInterface):
             if final
             else None
         )
-        filedot = os.path.join(self.args.jsondir, ".{}.json".format(self.args.label))
+        filedev = "" if self.idevice is None else "-{}".format(self.idevice)
+        filedot = os.path.join(
+            self.args.jsondir, ".{}{}.json".format(self.args.label, filedev)
+        )
         if config and self.gfsave < self.gflops:  # save intermediate result
             if 0 == self.gfsave and os.path.exists(filedot):  # backup
                 data = None
