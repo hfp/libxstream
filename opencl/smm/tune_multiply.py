@@ -492,7 +492,10 @@ class SmmTuner(MeasurementInterface):
                     if 0 < gflops
                     else "{}.json".format(self.args.label),
                 )
-                os.rename(filedot, filename)
+                try:
+                    os.rename(filedot, filename)
+                except:  # noqa: E722
+                    pass
             # self.manipulator().save_to_file(config, filename)
             with open(filedot, "w") as file:
                 cfg = config
@@ -520,7 +523,10 @@ class SmmTuner(MeasurementInterface):
                     "{}-{}gflops.json".format(self.args.label, round(self.gflops)),
                 )
             )
-            os.rename(filedot, filename)
+            try:
+                os.rename(filedot, filename)
+            except:  # noqa: E722
+                pass
             if filename not in filenames:  # rebuild CSV-file
                 filenames.append(filename)
                 self.merge_jsons(filenames)
