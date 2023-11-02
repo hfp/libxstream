@@ -420,7 +420,7 @@ class SmmTuner(MeasurementInterface):
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in value[:-1]])
                     file.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
-                retain_flops = retain_count = delete_flops = delete_count = 0
+                retain_slowd = retain_count = delete_slowd = delete_count = 0
                 retain, delete = [], []
                 for key, value in worse.items():
                     gflops = round(merged[key][1])
@@ -429,26 +429,26 @@ class SmmTuner(MeasurementInterface):
                         s = 0
                         if 0 < gflops:
                             g = int(filename.split("-")[-1].split("g")[0])
-                            s = math.log(abs(gflops - g) / g)
+                            s = math.log(gflops / g)  # slowdown
                         if mtime < os.path.getmtime(filename):
                             retain.append(filename)  # TODO: duplicates
-                            retain_flops = retain_flops + s
+                            retain_slowd = retain_slowd + s
                             retain_count = retain_count + 1
                         else:
                             delete.append(filename)
-                            delete_flops = delete_flops + s
+                            delete_slowd = delete_slowd + s
                             delete_count = delete_count + 1
                 if not self.args.nogflops:
                     if retain:
                         num, lst = len(retain), " ".join(retain)
-                        spd = math.exp(retain_flops / retain_count)
-                        spx = "@{}x".format(round(spd, 1)) if 1 < spd else ""
-                        print("Worse and newer (retain {}{}): {}".format(num, spx, lst))
+                        sld = math.exp(retain_slowd / retain_count)
+                        sls = "@{}x".format(round(sld, 1)) if 1 < sld else ""
+                        print("Worse and newer (retain {}{}): {}".format(num, sls, lst))
                     if delete:
                         num, lst = len(delete), " ".join(delete)
-                        spd = math.exp(delete_flops / delete_count)
-                        spx = "@{}x".format(round(spd, 1)) if 1 < spd else ""
-                        print("Worse and older (delete {}{}): {}".format(num, spx, lst))
+                        sld = math.exp(delete_slowd / delete_count)
+                        sls = "@{}x".format(round(sld, 1)) if 1 < sld else ""
+                        print("Worse and older (delete {}{}): {}".format(num, sls, lst))
                 elif bool(worse):
                     print("WARNING: incorrectly merged duplicates")
                     print("         due to nogflops argument!")
