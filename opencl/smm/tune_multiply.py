@@ -414,34 +414,35 @@ class SmmTuner(MeasurementInterface):
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in value[:-1]])
                     file.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
-                retain_flops = delete_flops = 0
+                retain_flops = retain_count = delete_flops = delete_count = 0
                 retain, delete = [], []
                 for key, value in worse.items():
                     gflops = round(merged[key][1])
                     mtime = os.path.getmtime(merged[key][-1])
                     for filename in value:
-                        g = int(filename.split("-")[-1].split("g")[0])
+                        s = 0
+                        if 0 < gflops:
+                            g = int(filename.split("-")[-1].split("g")[0])
+                            s = math.log(abs(gflops - g) / gflops)
                         if mtime < os.path.getmtime(filename):
-                            if gflops:
-                                retain_flops = retain_flops + math.log(
-                                    abs(gflops - g) / gflops
-                                )
                             retain.append(filename)  # TODO: duplicates
+                            retain_flops = retain_flops + s
+                            retain_count = retain_count + 1
                         else:
-                            if gflops:
-                                delete_flops = delete_flops + math.log(
-                                    abs(gflops - g) / gflops
-                                )
                             delete.append(filename)
+                            delete_flops = delete_flops + s
+                            delete_count = delete_count + 1
                 if not self.args.nogflops:
                     if retain:
-                        spd = round(math.exp(retain_flops / len(retain)), 1)
-                        msg = "Worse and newer (retain {}@{}x): {}"
-                        print(msg.format(len(retain), spd, " ".join(retain)))
+                        spd = round(math.exp(retain_flops / retain_count), 1)
+                        msg = "Worse and newer (retain {}{}): {}".format(len(retain))
+                        lst = " ".join(retain)
+                        print(msg.format("@{}x".format(spd) if 1 < spd else "", lst))
                     if delete:
-                        spd = round(math.exp(delete_flops / len(delete)), 1)
-                        msg = "Worse and older (delete {}@{}x): {}"
-                        print(msg.format(len(delete), spd, " ".join(delete)))
+                        spd = round(math.exp(delete_flops / delete_count), 1)
+                        msg = "Worse and older (delete {}{}): {}".format(len(delete))
+                        lst = " ".join(delete)
+                        print(msg.format("@{}x".format(spd) if 1 < spd else "", lst))
                 elif bool(worse):
                     print("WARNING: incorrectly merged duplicates")
                     print("         due to nogflops argument!")
