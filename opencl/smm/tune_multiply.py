@@ -130,9 +130,9 @@ class SmmTuner(MeasurementInterface):
             self.create_param("BN", params, paramt, seed, 3, 1, self.mnk[1])
             self.create_param("BK", params, paramt, seed, 4, 1, self.mnk[0])
             self.create_param(
-                "WS", params, paramt, seed, 5, 1, self.mnk[0] * self.mnk[1]
+                "WS", params, paramt, seed, 5, 1, self.mnk[0] * self.mnk[1], False
             )
-            self.create_param("WG", params, paramt, seed, 6, -2, 1)  # avoid WG=2
+            self.create_param("WG", params, paramt, seed, 6, -2, 1, False)  # avoid WG=2
             self.create_param("LU", params, paramt, seed, 7, -2, maxlu)
             self.create_param("NZ", params, paramt, seed, 8, 0, 1)
             self.create_param("AL", params, paramt, seed, 9, 0, 1)
@@ -204,7 +204,9 @@ class SmmTuner(MeasurementInterface):
     def manipulator(self):
         return self.manip
 
-    def create_param(self, name, params, paramt, match, match_id, value0, value1):
+    def create_param(
+        self, name, params, paramt, match, match_id, value0, value1, expand=True
+    ):
         """Append integer-parameter to either params or paramt list"""
         value_key = "OPENCL_LIBSMM_SMM_{}".format(name)
         value_env = os.getenv(value_key)
@@ -226,10 +228,10 @@ class SmmTuner(MeasurementInterface):
                 value = int(attribute)
             if not tunable:
                 tunable = value_env is None and 0 != value
-        if tunable:
-            paramt.append(  # expand value range according to seed
-                IntegerParameter(name, min(value0, value), max(value, value1))
-            )
+        if tunable:  # consider expanding value range according to seed
+            v0 = min(value0, value) if expand else value0
+            v1 = max(value1, value) if expand else value1
+            paramt.append(IntegerParameter(name, v0, v1))
         else:  # fixed parameter
             params.append(IntegerParameter(name, value, value))
         if attribute is None:
