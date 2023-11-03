@@ -346,7 +346,7 @@ class SmmTuner(MeasurementInterface):
 
     def merge_jsons(self, filenames):
         """Merge all JSONs into a single CSV-file"""
-        if not self.args.csvfile:
+        if not self.args.csvfile or (self.idevice is not None and 0 != self.idevice):
             return  # early exit
         merged, worse = dict(), dict()
         for filename in filenames:
@@ -448,7 +448,7 @@ class SmmTuner(MeasurementInterface):
                             num, lst = len(delete), " ".join(delete)
                             msg = "Worse and older (delete {}@{}x): {}"
                             print(msg.format(num, sld, lst))
-                    elif self.idevice is None or 0 == self.idevice:
+                    else:
                         for file in retain + delete:
                             try:
                                 os.remove(file)
@@ -483,12 +483,6 @@ class SmmTuner(MeasurementInterface):
             config["N"] = self.mnk[1]
             config["K"] = self.mnk[2]
             config["S"] = self.size
-        filepattern = "{}-*.json".format(default_basename)
-        filenames = (
-            glob.glob(os.path.normpath(os.path.join(self.args.jsondir, filepattern)))
-            if final
-            else None
-        )
         filedev = "" if self.idevice is None else "-{}".format(self.idevice)
         filedot = os.path.join(
             self.args.jsondir, ".{}{}.json".format(self.args.label, filedev)
@@ -527,18 +521,16 @@ class SmmTuner(MeasurementInterface):
             print("FAILED: {}".format(failed))
             return
         if final and os.path.exists(filedot):
-            if not filenames and glob.glob(self.args.csvfile):
-                print(
-                    "WARNING: no JSON-file found but {} will be overwritten.".format(
-                        self.args.csvfile
-                    )
-                )
-            filename = os.path.normpath(
-                os.path.join(
-                    self.args.jsondir,
-                    "{}-{}gflops.json".format(self.args.label, round(self.gflops)),
-                )
+            filepattern = "{}-*.json".format(default_basename)
+            fileglobs = glob.glob(
+                os.path.normpath(os.path.join(self.args.jsondir, filepattern))
             )
+            filenames = fileglobs if final else None
+            if not filenames and glob.glob(self.args.csvfile):
+                msg = "WARNING: no JSON-file found but {} will be overwritten."
+                print(msg.format(self.args.csvfile))
+            fileonly = "{}-{}gflops.json".format(self.args.label, round(self.gflops))
+            filename = os.path.normpath(os.path.join(self.args.jsondir, fileonly))
             try:
                 os.rename(filedot, filename)
             except:  # noqa: E722
