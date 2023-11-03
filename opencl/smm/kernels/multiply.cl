@@ -69,8 +69,8 @@
 #  define CNM(N, M) cnm[M]
 #endif
 
-#if !defined(SINT) /* matrix extent */
-#  define SINT signed short
+#if !defined(SINT) /* covers matrix shape */
+#  define SINT signed char
 #endif
 
 #if (1 == TN)
