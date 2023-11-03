@@ -71,7 +71,7 @@
 
 #if !defined(SINT) /* matrix extent */
 #  define SINT signed short
-endif
+#endif
 
 #if (1 == TN)
 #  define ZERO 0.f
