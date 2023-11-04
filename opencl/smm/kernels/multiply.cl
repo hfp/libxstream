@@ -299,7 +299,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
   UNROLL_FORCE(3 * BS)
   for (int i = idx; i < (3 * batchsize); i += SWG) params[i] = pbase[i] - 1;
 #  endif
-#  if defined(BARRIER) && (MAX(1, SGS) < SWG) && (defined(SLM_C) || defined(SLM_P))
+#  if defined(BARRIER) && (0 < SGS && SGS < SWG) && (defined(SLM_C) || defined(SLM_P))
   BARRIER(CLK_LOCAL_MEM_FENCE);
 #  endif
 #  if (WRK < SWG)
@@ -382,7 +382,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
     }
 #endif
 
-#if defined(BARRIER) && (MAX(1, SGS) < SWG) && (defined(SLM_B) || ((1 != BK || BM < SM || 1 != BN) && defined(SLM_A)))
+#if defined(BARRIER) && (0 < SGS && SGS < SWG) && (defined(SLM_B) || ((1 != BK || BM < SM || 1 != BN) && defined(SLM_A)))
     /* finish transpose/copy */
     BARRIER(CLK_LOCAL_MEM_FENCE);
 #endif
@@ -586,7 +586,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
         UNROLL_FORCE(SM)
         for (SINT m = 0; m < SM; ++m) amk[m] = ADX(m, k);
 #    endif
-#    if defined(BARRIER) && (MAX(1, SGS) < SWG) && defined(SLM_A)
+#    if defined(BARRIER) && (0 < SGS && SGS < SWG) && defined(SLM_A)
         BARRIER(CLK_LOCAL_MEM_FENCE);
 #    endif
 #    if (WRK == SM) && (SM <= SGS || SM <= SWG) && !defined(SLM_A) && !defined(REG_A)
@@ -607,7 +607,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
           CNM(idx, m) = MAD(AMK(m, k), b, CNM(idx, m)); /* fallback */
 #    endif
         }
-#    if defined(BARRIER) && (MAX(1, SGS) < SWG) && defined(SLM_A)
+#    if defined(BARRIER) && (0 < SGS && SGS < SWG) && defined(SLM_A)
         BARRIER(CLK_LOCAL_MEM_FENCE);
 #    endif
       }
@@ -779,7 +779,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
       c0 = c1;
     }
 #endif
-#if defined(BARRIER) && (MAX(1, SGS) < SWG) && defined(SLM_A) && (BM <= SM || 1 != BN || 1 != BK)
+#if defined(BARRIER) && (0 < SGS && SGS < SWG) && defined(SLM_A) && (BM <= SM || 1 != BN || 1 != BK)
     BARRIER(CLK_LOCAL_MEM_FENCE);
 #endif
   }
