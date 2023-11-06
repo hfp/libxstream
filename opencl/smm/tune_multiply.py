@@ -554,7 +554,10 @@ class SmmTuner(MeasurementInterface):
             self.handle_sigint_counter = self.handle_sigint_counter + 1
             msg = "\nWARNING: tuning {}-kernel interrupted."
             print(msg.format("x".join(map(str, self.mnk))))
-            self.save_final_config(self.config)
+            try:
+                self.save_final_config(self.config)
+            except:  # noqa: E722
+                pass
         exit(1)
 
 
@@ -831,12 +834,13 @@ if __name__ == "__main__":
         args.mb = 64
     instance = SmmTuner(args)
     if not default_dbg:
-        try:
-            TuningRunMain(instance, args).main()
-        except Exception as e:
-            print("{}: {}".format(type(e).__name__, e))
-            print("WARNING: ignored above error!")
-            instance.save_final_config(None, True)
-            pass
+        for retry in range(3):
+            try:
+                TuningRunMain(instance, args).main()
+                exit(0)
+            except Exception as e:
+                print("IGNORED {}: {}".format(type(e).__name__, e))
+                pass
+        instance.save_final_config(None, True)
     else:
         TuningRunMain(instance, args).main()
