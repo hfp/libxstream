@@ -857,7 +857,7 @@ if __name__ == "__main__":
             except Exception as e:
                 ign = (
                     "[{}/{}]".format(retry + 1, default_retry)
-                    if 0 < default_retry
+                    if 1 < default_retry
                     else ""
                 )
                 print("IGNORED{} {}: {}".format(ign, type(e).__name__, e))
