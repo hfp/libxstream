@@ -438,14 +438,14 @@ class SmmTuner(MeasurementInterface):
                         if mtime < os.path.getmtime(filename):
                             if 0 < s:
                                 retsld[1] = retsld[1] + math.log(s)
-                                retsld[0] = min(retsld[0], s)
+                                retsld[0] = min(retsld[0], s) if 0 < retsld[0] else s
                                 retsld[2] = max(retsld[2], s)
                                 retcnt = retcnt + 1
                             retain.append(filename)
                         else:
                             if 0 < s:
                                 delsld[1] = delsld[1] + math.log(s)
-                                delsld[0] = min(delsld[0], s)
+                                delsld[0] = min(delsld[0], s) if 0 < delsld[0] else s
                                 delsld[2] = max(delsld[2], s)
                                 delcnt = delcnt + 1
                             delete.append(filename)
