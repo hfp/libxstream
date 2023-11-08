@@ -29,7 +29,7 @@ default_enable_tune = {"tune", "enabled", "on"}
 default_basename = "tune_multiply"
 default_mnk = "23x23x23"
 default_dbg = False
-default_retry = 3
+default_retry = 1
 
 
 def env_intvalue(env, default, lookup=True):
@@ -59,13 +59,14 @@ class SmmTuner(MeasurementInterface):
             self.args.mnk = default_mnk
         mnk = tuple(max(int(i), 1) for i in self.args.mnk.split("x"))
         self.mnk = (mnk + (mnk[0], mnk[0]))[:3]
+        self.wsx = self.mnk[0] * self.mnk[1]
         # sanitize input arguments
         self.args.mb = max(self.args.mb, 1)
         self.args.bs = max(min(self.args.bs, self.args.mb), 1)
         self.args.bm = [max(self.args.bm, 1), self.mnk[0]][0 == self.args.bm]
         self.args.bn = [max(self.args.bn, 1), 1][0 == self.args.bn]
         self.args.bk = [max(self.args.bk, 1), self.mnk[2]][0 == self.args.bk]
-        self.args.ws = min(self.args.ws, self.mnk[0] * self.mnk[1])
+        self.args.ws = min(self.args.ws, self.wsx)
         self.ndevices = self.gfbase = self.gfsave = self.gflops = 0
         self.config = self.typename = self.typeid = self.device = self.size = None
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
@@ -130,9 +131,7 @@ class SmmTuner(MeasurementInterface):
             self.create_param("BM", params, paramt, seed, 2, 1, self.mnk[0])
             self.create_param("BN", params, paramt, seed, 3, 1, self.mnk[1])
             self.create_param("BK", params, paramt, seed, 4, 1, self.mnk[0])
-            self.create_param(
-                "WS", params, paramt, seed, 5, 1, self.mnk[0] * self.mnk[1], False
-            )
+            self.create_param("WS", params, paramt, seed, 5, 1, self.wsx)
             self.create_param("WG", params, paramt, seed, 6, -2, 1, False)  # avoid WG=2
             self.create_param("LU", params, paramt, seed, 7, -2, maxlu)
             self.create_param("NZ", params, paramt, seed, 8, 0, 1)
@@ -316,9 +315,7 @@ class SmmTuner(MeasurementInterface):
                     self.gfbase = gflops
                 else:
                     self.save_final_config(desired_result.configuration, final=False)
-            kernelreq = round(
-                (100.0 * config["BM"] * config["BN"]) / (self.mnk[0] * self.mnk[1])
-            )
+            kernelreq = round((100.0 * config["BM"] * config["BN"]) / self.wsx)
             # gflops are reported as "accuracy" (console output)
             return Result(time=mseconds, accuracy=gflops, size=kernelreq)
         else:  # return non-competitive/bad result in case of an error
@@ -858,10 +855,12 @@ if __name__ == "__main__":
                 TuningRunMain(instance, args).main()
                 exit(0)
             except Exception as e:
-                msg = "IGNORED {} of {} {}: {}".format(
-                    retry, default_retry, type(e).__name__, e
+                ign = (
+                    "[{}/{}]".format(retry + 1, default_retry)
+                    if 0 < default_retry
+                    else ""
                 )
-                print(msg)
+                print("IGNORED{} {}: {}".format(ign, type(e).__name__, e))
                 pass
         instance.save_final_config(None, True)
     else:
