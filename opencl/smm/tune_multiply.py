@@ -456,12 +456,12 @@ class SmmTuner(MeasurementInterface):
                         if retain:
                             num, lst = len(retain), " ".join(retain)
                             msg = "Worse and newer (retain {} @ {}x): {}"
-                            rnd = [round(i, 2) for i in retsld]
+                            rnd = [str(round(i, 2)) for i in retsld]
                             print(msg.format(num, "..".join(rnd), lst))
                         if delete:
                             num, lst = len(delete), " ".join(delete)
                             msg = "Worse and older (delete {} @ {}x): {}"
-                            rnd = [round(i, 2) for i in delsld]
+                            rnd = [str(round(i, 2)) for i in delsld]
                             print(msg.format(num, "..".join(rnd), lst))
                     else:
                         for file in retain + delete:
