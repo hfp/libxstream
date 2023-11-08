@@ -450,26 +450,28 @@ class SmmTuner(MeasurementInterface):
                                 delcnt = delcnt + 1
                             delete.append(filename)
                 if not self.args.nogflops:
-                    slr = round(math.exp(retsld[1] / retcnt), 1) if 0 < retcnt else 1
-                    sld = round(math.exp(delsld[1] / delcnt), 1) if 0 < delcnt else 1
+                    retsld[1] = math.exp(retsld[1] / retcnt) if 0 < retcnt else 1
+                    delsld[1] = math.exp(delsld[1] / delcnt) if 0 < delcnt else 1
                     if not self.args.delete:
                         if retain:
                             num, lst = len(retain), " ".join(retain)
                             msg = "Worse and newer (retain {} @ {}..{}..{}x): {}"
-                            print(msg.format(num, retsld[0], slr, retsld[2], lst))
+                            print(msg.format(num, "..".join(round(retsld, 2)), lst))
                         if delete:
                             num, lst = len(delete), " ".join(delete)
-                            msg = "Worse and older (delete {} @ {}..{}..{}x): {}"
-                            print(msg.format(num, delsld[0], sld, delsld[2], lst))
+                            msg = "Worse and older (delete {} @ {}x): {}"
+                            print(msg.format(num, "..".join(round(delsld, 2)), lst))
                     else:
                         for file in retain + delete:
                             try:
                                 os.remove(file)
                             except:  # noqa: E722
                                 pass
-                        msl, xsl = min(retsld[0], delsld[0]), max(retsld[2], delsld[2])
+                        msl = round(min(retsld[0], delsld[0]), 2)
+                        xsl = round(max(retsld[2], delsld[2]), 2)
+                        geo = round(math.sqrt(retsld[1] * delsld[1]), 2)
                         msg = "Removed outperformed parameter sets{}.".format(
-                            " ({} @ {}..{}..{}x)".format(msl, math.sqrt(slr * sld), xsl)
+                            " ({} @ {}..{}..{}x)".format(retcnt + delcnt, msl, geo, xsl)
                             if 0 < msl
                             else ""
                         )
