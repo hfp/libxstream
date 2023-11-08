@@ -424,8 +424,9 @@ class SmmTuner(MeasurementInterface):
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in value[:-1]])
                     file.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
-                retsld = retcnt = delsld = delcnt = 0
-                retain, delete = [], []
+                retsld, delsld = [0, 0, 0], [0, 0, 0]  # [min, geo, max]
+                retain, delete = [], []  # lists of filenames
+                retcnt = delcnt = 0  # geo-counter
                 for key, value in worse.items():
                     gflops = round(merged[key][1])
                     mtime = os.path.getmtime(merged[key][-1])
@@ -433,33 +434,46 @@ class SmmTuner(MeasurementInterface):
                         s = 0
                         if 0 < gflops:
                             g = int(filename.split("-")[-1].split("g")[0])
-                            s = math.log(gflops / g)  # slowdown
+                            s = gflops / g  # slowdown
                         if mtime < os.path.getmtime(filename):
-                            retsld, retcnt = retsld + s, retcnt + 1
+                            if 0 < s:
+                                retsld[1] = retsld[1] + math.log(s)
+                                retsld[0] = min(retsld[0], s)
+                                retsld[2] = max(retsld[2], s)
+                                retcnt = retcnt + 1
                             retain.append(filename)
                         else:
-                            delsld, delcnt = delsld + s, delcnt + 1
+                            if 0 < s:
+                                delsld[1] = delsld[1] + math.log(s)
+                                delsld[0] = min(delsld[0], s)
+                                delsld[2] = max(delsld[2], s)
+                                delcnt = delcnt + 1
                             delete.append(filename)
                 if not self.args.nogflops:
-                    slr = round(math.exp(retsld / retcnt), 1) if 0 < retcnt else 1
-                    sld = round(math.exp(delsld / delcnt), 1) if 0 < delcnt else 1
+                    slr = round(math.exp(retsld[1] / retcnt), 1) if 0 < retcnt else 1
+                    sld = round(math.exp(delsld[1] / delcnt), 1) if 0 < delcnt else 1
                     if not self.args.delete:
                         if retain:
                             num, lst = len(retain), " ".join(retain)
-                            msg = "Worse and newer (retain {}@{}x): {}"
-                            print(msg.format(num, slr, lst))
+                            msg = "Worse and newer (retain {} @ {}..{}..{}x): {}"
+                            print(msg.format(num, retsld[0], slr, retsld[2], lst))
                         if delete:
                             num, lst = len(delete), " ".join(delete)
-                            msg = "Worse and older (delete {}@{}x): {}"
-                            print(msg.format(num, sld, lst))
+                            msg = "Worse and older (delete {} @ {}..{}..{}x): {}"
+                            print(msg.format(num, delsld[0], sld, delsld[2], lst))
                     else:
                         for file in retain + delete:
                             try:
                                 os.remove(file)
                             except:  # noqa: E722
                                 pass
-                        msg = " ({}..{}x)".format(slr, sld) if 1 < max(slr, sld) else ""
-                        print("Removed outperformed parameters{}.".format(msg))
+                        msl, xsl = min(retsld[0], delsld[0]), max(retsld[2], delsld[2])
+                        msg = "Removed outperformed parameter sets{}.".format(
+                            " ({} @ {}..{}..{}x)".format(msl, math.sqrt(slr * sld), xsl)
+                            if 0 < msl
+                            else ""
+                        )
+                        print(msg)
                 elif bool(worse):
                     print("WARNING: incorrectly merged duplicates")
                     print("         due to nogflops argument!")
