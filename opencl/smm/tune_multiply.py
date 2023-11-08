@@ -455,7 +455,7 @@ class SmmTuner(MeasurementInterface):
                     if not self.args.delete:
                         if retain:
                             num, lst = len(retain), " ".join(retain)
-                            msg = "Worse and newer (retain {} @ {}..{}..{}x): {}"
+                            msg = "Worse and newer (retain {} @ {}x): {}"
                             rnd = [round(i, 2) for i in retsld]
                             print(msg.format(num, "..".join(rnd), lst))
                         if delete:
