@@ -29,6 +29,7 @@ default_enable_tune = {"tune", "enabled", "on"}
 default_basename = "tune_multiply"
 default_mnk = "23x23x23"
 default_dbg = False
+default_retry = 3
 
 
 def env_intvalue(env, default, lookup=True):
@@ -852,12 +853,15 @@ if __name__ == "__main__":
         args.mb = 64
     instance = SmmTuner(args)
     if not default_dbg:
-        for retry in range(3):
+        for retry in range(default_retry):
             try:
                 TuningRunMain(instance, args).main()
                 exit(0)
             except Exception as e:
-                print("IGNORED {}: {}".format(type(e).__name__, e))
+                msg = "IGNORED {} of {} {}: {}".format(
+                    retry, default_retry, type(e).__name__, e
+                )
+                print(msg)
                 pass
         instance.save_final_config(None, True)
     else:
