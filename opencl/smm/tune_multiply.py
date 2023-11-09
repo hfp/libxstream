@@ -425,6 +425,7 @@ class SmmTuner(MeasurementInterface):
                 retsld, delsld = [0, 0, 0], [0, 0, 0]  # [min, geo, max]
                 retain, delete = [], []  # lists of filenames
                 retcnt = delcnt = 0  # geo-counter
+                retbad = None
                 for key, value in worse.items():
                     gflops = round(merged[key][1])
                     mtime = os.path.getmtime(merged[key][-1])
@@ -437,7 +438,10 @@ class SmmTuner(MeasurementInterface):
                             if 0 < s:
                                 retsld[1] = retsld[1] + math.log(s)
                                 retsld[0] = min(retsld[0], s) if 0 < retsld[0] else s
-                                retsld[2] = max(retsld[2], s)
+                                if retsld[2] < s:  # maximum
+                                    retmnk = os.path.basename(filename).split("-")
+                                    retbad = retmnk[2] if 2 < len(retmnk) else None
+                                    retsld[2] = s
                                 retcnt = retcnt + 1
                             retain.append(filename)
                         else:
@@ -453,9 +457,10 @@ class SmmTuner(MeasurementInterface):
                     if not self.args.delete:
                         if retain:
                             num, lst = len(retain), " ".join(retain)
-                            msg = "Worse and newer (retain {} @ {}x): {}"
+                            msg = "Worse and newer (retain {} @ {}x{}): {}"
                             rnd = [str(round(i, 2)) for i in retsld]
-                            print(msg.format(num, "..".join(rnd), lst))
+                            bad = " " + retbad if retbad and self.args.verbose else ""
+                            print(msg.format(num, "..".join(rnd), bad, lst))
                         if delete:
                             num, lst = len(delete), " ".join(delete)
                             msg = "Worse and older (delete {} @ {}x): {}"
