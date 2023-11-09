@@ -576,7 +576,7 @@ class SmmTuner(MeasurementInterface):
             msg = "\nWARNING: tuning {}-kernel interrupted."
             print(msg.format("x".join(map(str, self.mnk))))
             try:
-                self.save_final_config(self.config)
+                self.save_final_config(self.config, True)
             except:  # noqa: E722
                 pass
         exit(1)
