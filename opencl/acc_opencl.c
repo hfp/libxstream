@@ -291,12 +291,14 @@ int c_dbcsr_acc_init(void) {
         env_cachedir = ACC_OPENCL_CACHEDIR;
       }
 #    if defined(ACC_OPENCL_TEMPDIR)
-      else if (NULL == env_cachedir) {
+      else if (NULL == env_cachedir) { /* code-path entered by default! */
         static char neo_cachedir[] = "NEO_CACHE_DIR=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
-        static char ocl_cachedir[] = "cl_cache_dir=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(neo_cachedir)); /* putenv before entering OpenCL */
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
-        env_cachedir = ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
+        if (0 != cache) { /* legacy-NEO is treated with explicit opt-in */
+          static char ocl_cachedir[] = "cl_cache_dir=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
+          ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
+          env_cachedir = ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
+        }
       }
 #    endif
       if (NULL != env_cachedir) {
