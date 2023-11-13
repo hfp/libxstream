@@ -28,6 +28,9 @@
 #    define S_ISDIR(A) ((S_IFMT & (A)) == S_IFDIR)
 #  endif
 
+#  if !defined(ACC_OPENCL_TEMPDIR) && 1
+#    define ACC_OPENCL_TEMPDIR "/tmp"
+#  endif
 #  if !defined(ACC_OPENCL_CACHEDIR) && 1
 #    define ACC_OPENCL_CACHEDIR ".cl_cache"
 #  endif
@@ -274,17 +277,29 @@ int c_dbcsr_acc_init(void) {
 #  if defined(ACC_OPENCL_CACHEDIR)
     {
       const char* const env_cache = getenv("ACC_OPENCL_CACHE");
-      const int cache = (NULL == env_cache ? CL_FALSE : (0 != atoi(env_cache) ? CL_TRUE : CL_FALSE));
+      int cache = (NULL == env_cache ? CL_FALSE : (0 != atoi(env_cache) ? CL_TRUE : CL_FALSE));
+      char* cl_cache_dir = getenv("cl_cache_dir");
       struct stat cachedir;
-      if (0 != cache || (stat(ACC_OPENCL_CACHEDIR, &cachedir) == 0 && S_ISDIR(cachedir.st_mode))) {
+      if (0 == cache) {
+        if (stat(ACC_OPENCL_CACHEDIR, &cachedir) == 0 && S_ISDIR(cachedir.st_mode)) cache = 1;
+        else if (stat(ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR, &cachedir) == 0 && S_ISDIR(cachedir.st_mode)) cache = 2;
+      }
+      if (1 == cache) {
+        static char dir[] = "cl_cache_dir=" ACC_OPENCL_CACHEDIR;
+        cl_cache_dir = dir;
+      }
+      else if (NULL == cl_cache_dir) {
+        static char dir[] = "cl_cache_dir=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
+        cl_cache_dir = dir;
+      }
+      if (NULL != cl_cache_dir) {
 #    if !defined(_WIN32)
-        static char cl_cache_dir[] = "cl_cache_dir=" ACC_OPENCL_CACHEDIR;
 #      if defined(S_IRWXU) && defined(S_IRGRP) && defined(S_IXGRP) && defined(S_IROTH) && defined(S_IXOTH)
         const int mode = S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
 #      else
         const int mode = 0xFFFFFFFF;
 #      endif
-        if (0 == mkdir(ACC_OPENCL_CACHEDIR, mode) || EEXIST == errno) { /* putenv before entering OpenCL */
+        if (0 == mkdir(cl_cache_dir, mode) || EEXIST == errno) { /* putenv before entering OpenCL */
           ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(cl_cache_dir)); /* soft-error */
         }
 #    endif
@@ -1254,7 +1269,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     /* consider preprocessing kernel for analysis (cpp); failure does not matter (result) */
 #  if defined(ACC_OPENCL_CPPBIN)
     if (0 != c_dbcsr_acc_opencl_config.dump && NULL == file_src) {
-      nchar = LIBXSMM_SNPRINTF(buffer_name, sizeof(buffer_name), "/tmp/.%s.XXXXXX", kernel_name);
+      nchar = LIBXSMM_SNPRINTF(buffer_name, sizeof(buffer_name), ACC_OPENCL_TEMPDIR "/.%s.XXXXXX", kernel_name);
       if (0 < nchar && (int)sizeof(buffer_name) > nchar) {
         FILE* const file_cpp = fopen(ACC_OPENCL_CPPBIN, "rb");
         const char* sed_pattern = "";
