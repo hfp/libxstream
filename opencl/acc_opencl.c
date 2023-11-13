@@ -286,22 +286,24 @@ int c_dbcsr_acc_init(void) {
       }
       if (1 == cache) {
         static char dir[] = "cl_cache_dir=" ACC_OPENCL_CACHEDIR;
-        cl_cache_dir = dir;
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(dir)); /* putenv before entering OpenCL */
+        cl_cache_dir = ACC_OPENCL_CACHEDIR;
       }
       else if (NULL == cl_cache_dir) {
         static char dir[] = "cl_cache_dir=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
-        cl_cache_dir = dir;
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(dir)); /* putenv before entering OpenCL */
+        cl_cache_dir = ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
       }
       if (NULL != cl_cache_dir) {
-#    if !defined(_WIN32)
+#    if defined(_WIN32)
+        LIBXSMM_UNUSED(cl_cache_dir);
+#    else
 #      if defined(S_IRWXU) && defined(S_IRGRP) && defined(S_IXGRP) && defined(S_IROTH) && defined(S_IXOTH)
         const int mode = S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
 #      else
         const int mode = 0xFFFFFFFF;
 #      endif
-        if (0 == mkdir(cl_cache_dir, mode) || EEXIST == errno) { /* putenv before entering OpenCL */
-          ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(cl_cache_dir)); /* soft-error */
-        }
+        ACC_OPENCL_EXPECT(0 == mkdir(cl_cache_dir, mode) || EEXIST == errno); /* soft-error */
 #    endif
       }
     }
