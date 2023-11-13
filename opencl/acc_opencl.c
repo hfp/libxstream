@@ -290,6 +290,7 @@ int c_dbcsr_acc_init(void) {
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
         env_cachedir = ACC_OPENCL_CACHEDIR;
       }
+#    if defined(ACC_OPENCL_TEMPDIR)
       else if (NULL == env_cachedir) {
         static char neo_cachedir[] = "NEO_CACHE_DIR=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
         static char ocl_cachedir[] = "cl_cache_dir=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
@@ -297,6 +298,7 @@ int c_dbcsr_acc_init(void) {
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
         env_cachedir = ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
       }
+#    endif
       if (NULL != env_cachedir) {
 #    if defined(_WIN32)
         LIBXSMM_UNUSED(env_cachedir);
