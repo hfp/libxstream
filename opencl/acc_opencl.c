@@ -276,7 +276,7 @@ int c_dbcsr_acc_init(void) {
 #  endif
 #  if defined(ACC_OPENCL_CACHEDIR)
     {
-      const char *const env_cache = getenv("ACC_OPENCL_CACHE"), *env_cachedir = getenv("env_cachedir");
+      const char *const env_cache = getenv("ACC_OPENCL_CACHE"), *env_cachedir = getenv("NEO_CACHE_DIR");
       int cache = (NULL == env_cache ? 0 : atoi(env_cache));
       struct stat cachedir;
       if (0 == cache) {
