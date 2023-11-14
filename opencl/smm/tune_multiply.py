@@ -30,6 +30,7 @@ default_basename = "tune_multiply"
 default_mnk = "23x23x23"
 default_dbg = False
 default_retry = 1
+default_vlen = 8
 
 
 def env_intvalue(env, default, lookup=True):
@@ -124,7 +125,7 @@ class SmmTuner(MeasurementInterface):
             nprm = len(seed.groups()) if seed else 0
             if 15 > nprm:
                 print("WARNING: missed to parse initial parameters!")
-            maxlu = 6 if 1 >= self.args.tlevel else 2
+            maxlu = (self.mnk[0] + default_vlen - 1) / default_vlen
             # setup fixed and tunable parameters
             params, paramt = [], []
             self.create_param("BS", params, paramt, seed, 1, 1, self.args.mb)
