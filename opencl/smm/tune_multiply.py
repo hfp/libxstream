@@ -496,7 +496,8 @@ class SmmTuner(MeasurementInterface):
         config = configuration.data if configuration else None
         cfgenv = self.environment(config) if config else None
         result = self.run_result["returncode"] if config and self.run_result else 1
-        if 0 == result and 0 == self.args.check:  # enable CHECKing result
+        envchk = os.getenv("CHECK")  # conside CHECKing result unless CHECK=0
+        if 0 == result and 0 == self.args.check and (envchk is None or "0" != envchk):
             self.run_result = self.launch(cfgenv + ["CHECK=1"])
             result = self.run_result["returncode"] if self.run_result else 1
         # extend result for easier reuse
