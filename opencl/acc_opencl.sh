@@ -137,9 +137,9 @@ then
     fi
     for CSVFILE in "${CSVFILES[@]}"; do
       if [ ! "${DELIM}" ]; then
-        SEPAR=$(${SED} -n "1s/[^${DELIMS}]//gp" "${CSVFILE}")
+        SEPAR=$(${SED} -n "1s/[^${DELIMS}]//gp" "${CSVFILE}" 2>/dev/null)
         DELIM=${SEPAR:0:1}
-        MATCH=$(${SED} -n "1s/[^${DELIM}]//gp" "${CSVFILE}")
+        MATCH=$(${SED} -n "1s/[^${DELIM}]//gp" "${CSVFILE}" 2>/dev/null)
       fi
       if [ "${DELIM}" ]; then
         CHECK=$(${SED} "/^[[:space:]]*$/d;s/[^${DELIM}]//g" "${CSVFILE}" | ${SORT} -u | ${SED} -n "0,/./p")
