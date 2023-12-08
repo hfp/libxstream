@@ -37,7 +37,7 @@ then
     -h|--help)
       shift $#;;
     -p|--params)
-      PARAMS=$2
+      PARAMS="$2\t"
       shift 2;;
     -c|-d|--debug|--comments)
       CPPFLAGS+=" -C"
@@ -48,11 +48,11 @@ then
     *) break;;
     esac
   done
+  HERE="$(cd "$(dirname "$0")" && pwd -P)"
+  PARAMDIR=${PARAMDIR:-${PARAMS}}
+  PARAMDIR=${PARAMDIR:-${HERE}/smm/params}
+  PARAMDIR=$(echo -e "${PARAMDIR}" | ${TR} -d '\t')
   if [ "$#" -gt 1 ]; then
-    HERE="$(cd "$(dirname "$0")" && pwd -P)"
-    PARAMDIR=${PARAMDIR:-${PARAMS}}
-    PARAMDIR=${PARAMDIR:-${HERE}/smm/params}}
-
     # allow for instance /dev/stdout
     if [ "${OFILE##*.}" = "h" ]; then
       if [ "${VERBOSE}" ] && [ "0" != "${VERBOSE}" ]; then
@@ -122,10 +122,10 @@ then
     NFILES_CSV=0
     for CSVFILE in "${CSVFILES[@]}"; do
       if [ "${CSVFILE##*.}" = "csv" ]; then
-        if [ -e "${CSVFILE}" ]; then
+        if [ -f "${CSVFILE}" ]; then
           NFILES_CSV=$((NFILES_CSV+1))
         fi
-      elif [ -f "${CSVFILE}" ]; then
+      else
         >&2 echo "ERROR: ${CSVFILE} is not a CSV file!"
         if [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
         exit 1
