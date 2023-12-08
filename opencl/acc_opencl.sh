@@ -37,7 +37,6 @@ then
     -h|--help)
       shift $#;;
     -p|--params)
-      PARAMPATH=yes
       PARAMS=$2
       shift 2;;
     -c|-d|--debug|--comments)
@@ -49,15 +48,11 @@ then
     *) break;;
     esac
   done
-  HERE="$(cd "$(dirname "$0")" && pwd -P)"
-  PARAMDIR=$(if [ ! "${PARAMDIR}" ]; then echo "${HERE}/smm/params"; fi)
-  if [ "${PARAMPATH}" ]; then
-    PARAMPATH=${PARAMS}
-  else
-    HERE="$(cd "$(dirname "$0")" && pwd -P)"
-    PARAMPATH=${PARAMDIR}
-  fi
   if [ "$#" -gt 1 ]; then
+    HERE="$(cd "$(dirname "$0")" && pwd -P)"
+    PARAMDIR=${PARAMDIR:-${PARAMS}}
+    PARAMDIR=${PARAMDIR:-${HERE}/smm/params}}
+
     # allow for instance /dev/stdout
     if [ "${OFILE##*.}" = "h" ]; then
       if [ "${VERBOSE}" ] && [ "0" != "${VERBOSE}" ]; then
@@ -136,8 +131,8 @@ then
         exit 1
       fi
     done
-    if [ "0" = "${NFILES_CSV}" ] && [ "${PARAMPATH}" ]; then
-      CSVFILES=("${PARAMPATH}"/*.csv)
+    if [ "0" = "${NFILES_CSV}" ] && [ "${PARAMDIR}" ] && [ -d "${PARAMDIR}" ]; then
+      CSVFILES=("${PARAMDIR}"/*.csv)
       NFILES_CSV=${#CSVFILES[@]}
     fi
     for CSVFILE in "${CSVFILES[@]}"; do
