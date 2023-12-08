@@ -559,7 +559,7 @@ int libsmm_acc_init(void) {
                         EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(active_id, bufname, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/,
                                           0 /*platform_maxlen*/, /*cleanup*/ 0))
                     {
-                      fprintf(stderr, "INFO ACC/OpenCL: PARAMS of \"%s\" used for \"%s\"\n", OPENCL_LIBSMM_DEVICES[i], bufname);
+                      fprintf(stderr, "INFO ACC/LIBSMM: PARAMS of \"%s\" used for \"%s\"\n", OPENCL_LIBSMM_DEVICES[i], bufname);
                       info = 1;
                     }
                   }
@@ -596,13 +596,13 @@ int libsmm_acc_init(void) {
           }
 #  if defined(OPENCL_LIBSMM_DEVICES)
           if (0 != c_dbcsr_acc_opencl_config.verbosity && 0 != ntuned) {
-            fprintf(stderr, "INFO ACC/OpenCL: PARAMS in %u set%s loaded targeting ", ntuned, 1 != ntuned ? "s" : "");
+            fprintf(stderr, "INFO ACC/LIBSMM: PARAMS in %u set%s loaded targeting ", ntuned, 1 != ntuned ? "s" : "");
             if (0 != c_dbcsr_acc_opencl_config.devmatch) {
               fprintf(stderr, "%i device%s\n", ndevices_params, 1 != ndevices_params ? "s" : "");
               if (1 < c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
                 unsigned int i = 0;
                 for (; i < (unsigned int)ndevices_params; ++i) {
-                  fprintf(stderr, "INFO ACC/OpenCL: PARAMS -> \"%s\"\n", OPENCL_LIBSMM_DEVICES[i]);
+                  fprintf(stderr, "INFO ACC/LIBSMM: PARAMS -> \"%s\"\n", OPENCL_LIBSMM_DEVICES[i]);
                 }
               }
             }
@@ -869,7 +869,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
                   if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
                     LIBXSMM_STDIO_ACQUIRE();
                     duration = libxsmm_timer_duration(start, libxsmm_timer_tick());
-                    fprintf(stderr, "INFO ACC/OpenCL: TRANS-kernel ");
+                    fprintf(stderr, "INFO ACC/LIBSMM: TRANS-kernel ");
                     opencl_libsmm_write_trans_params(
                       stderr, 0 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
                     fprintf(stderr, "=");
@@ -970,7 +970,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
             const double membw = (1ULL * stack_size * (typesize * m * n)) / (duration * (1ULL << 30));
             const int* const priority = c_dbcsr_acc_opencl_stream_priority(stream);
             LIBXSMM_STDIO_ACQUIRE();
-            fprintf(stderr, "INFO ACC/OpenCL: TRANS-kernel ");
+            fprintf(stderr, "INFO ACC/LIBSMM: TRANS-kernel ");
             opencl_libsmm_write_trans_params(
               stderr, 1 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
             fprintf(stderr, "=");
@@ -1094,7 +1094,7 @@ c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
     key.k = k_max; /* initialize key */
     memset(&dummy, 0, sizeof(dummy)); /* mute warnings about potentially uninitialized data */
     LIBXSMM_STDIO_ACQUIRE();
-    fprintf(stderr, "INFO ACC/OpenCL: SMM-kernel ");
+    fprintf(stderr, "INFO ACC/LIBSMM: SMM-kernel ");
     opencl_libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
     fprintf(stderr, "=");
     opencl_libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, &dummy, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
@@ -1587,7 +1587,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                       if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
                         LIBXSMM_STDIO_ACQUIRE();
                         duration = libxsmm_timer_duration(start, libxsmm_timer_tick());
-                        fprintf(stderr, "INFO ACC/OpenCL: SMM-kernel ");
+                        fprintf(stderr, "INFO ACC/LIBSMM: SMM-kernel ");
                         opencl_libsmm_write_smm_params(
                           stderr, 0 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
                         fprintf(stderr, "=");
@@ -1755,7 +1755,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                                   : (OPENCL_LIBSMM_AI(m_max, n_max, k_max, sizeof(float)) * opencl_libsmm_sacc));
             const int* const priority = c_dbcsr_acc_opencl_stream_priority(stream);
             LIBXSMM_STDIO_ACQUIRE();
-            fprintf(stderr, "INFO ACC/OpenCL: SMM-kernel ");
+            fprintf(stderr, "INFO ACC/LIBSMM: SMM-kernel ");
             opencl_libsmm_write_smm_params(
               stderr, 1 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
             fprintf(stderr, "=");
