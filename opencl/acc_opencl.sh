@@ -125,7 +125,7 @@ then
         if [ -e "${CSVFILE}" ]; then
           NFILES_CSV=$((NFILES_CSV+1))
         fi
-      else
+      elif [ -f "${CSVFILE}" ]; then
         >&2 echo "ERROR: ${CSVFILE} is not a CSV file!"
         if [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
         exit 1
@@ -151,7 +151,7 @@ then
       else
         ERRFILE=${CSVFILE}
       fi
-      if [ "${ERRFILE}" ]; then
+      if [ "${ERRFILE}" ] && [ -f "${ERRFILE}" ]; then
         >&2 echo "ERROR: ${ERRFILE} is malformed!"
         if [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
         exit 1
