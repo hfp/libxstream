@@ -50,6 +50,22 @@ const int* c_dbcsr_acc_opencl_stream_priority(const void* stream) {
 }
 
 
+void* c_dbcsr_acc_opencl_stream_default(void) {
+  const int tid = ACC_OPENCL_OMP_TID();
+  const int base = ACC_OPENCL_STREAMS_MAXCOUNT * tid;
+  void* result = NULL;
+  assert(NULL !=);
+  streams = c_dbcsr_acc_opencl_config.streams + base;
+  for (i = 0; i < ACC_OPENCL_STREAMS_MAXCOUNT; ++i) {
+    if (NULL != streams[i]) {
+      result = streams[i];
+      break;
+    }
+  }
+  return result;
+}
+
+
 int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[8] = {
     CL_QUEUE_PROPERTIES, 0 /*placeholder*/, 0 /* terminator */

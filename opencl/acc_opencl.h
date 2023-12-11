@@ -112,6 +112,10 @@
 #    define ACC_OPENCL_STREAM_PRIORITIES
 #  endif
 #endif
+/** Stream-argument (ACC-interface) can be NULL (synchronous) */
+#if !defined(ACC_OPENCL_STREAM_NULL) && 1
+#  define ACC_OPENCL_STREAM_NULL
+#endif
 /** Use DBCSR's profile for detailed timings */
 #if !defined(ACC_OPENCL_PROFILE) && 0
 #  define ACC_OPENCL_PROFILE
@@ -292,6 +296,8 @@ typedef struct c_dbcsr_acc_opencl_info_stream_t {
 } c_dbcsr_acc_opencl_info_stream_t;
 c_dbcsr_acc_opencl_info_stream_t* c_dbcsr_acc_opencl_info_stream(void* stream);
 const int* c_dbcsr_acc_opencl_stream_priority(const void* stream);
+
+void* c_dbcsr_acc_opencl_stream_default(void);
 
 /** Get host-pointer associated with device-memory (c_dbcsr_acc_dev_mem_allocate). */
 void* c_dbcsr_acc_opencl_get_hostptr(cl_mem memory);
