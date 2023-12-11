@@ -407,7 +407,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
 }
 
 
-int c_dbcsr_acc_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* stream) {
+int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream) {
   int result = EXIT_SUCCESS;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
@@ -420,7 +420,8 @@ int c_dbcsr_acc_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* s
     const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
     const cl_mem* const buffer = ACC_OPENCL_MEM(dev_mem);
     if (0 == (1 & c_dbcsr_acc_opencl_config.devcopy)) {
-      static const cl_uchar pattern = 0; /* fill with zeros */
+      static LIBXSMM_TLS cl_uchar pattern = 0;
+      pattern = (cl_uchar)value; /* fill with value */
       result = clEnqueueFillBuffer(queue, *buffer, &pattern, sizeof(pattern), offset, nbytes, 0, NULL, NULL);
     }
     else {
@@ -428,20 +429,19 @@ int c_dbcsr_acc_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* s
       static cl_kernel kernel = NULL;
       LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
       if (NULL == kernel) { /* generate kernel */
-        const char source[] = "kernel void memset_zero(global uchar *restrict buffer) {\n"
-                              "  const size_t i = get_global_id(0);\n"
-                              "  const uchar pattern = 0;\n"
-                              "  buffer[i] = pattern;\n"
+        const char source[] = "kernel void memset(global uchar *restrict buffer, uchar value) {\n"
+                              "  buffer[get_global_id(0)] = value;\n"
                               "}\n";
-        result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memset_zero" /*kernel_name*/, NULL /*build_params*/,
+        result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memset" /*kernel_name*/, NULL /*build_params*/,
           NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
       }
       if (EXIT_SUCCESS == result) {
         assert(NULL != kernel);
-        ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), buffer), "set buffer argument of memset_zero kernel", result);
+        ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), buffer), "set buffer argument of memset-kernel", result);
+        ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_uchar), &value), "set value argument of memset-kernel", result);
         ACC_OPENCL_CHECK(
           clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, &offset, &nbytes, NULL /*local_work_size*/, 0, NULL, NULL),
-          "launch memset_zero kernel", result);
+          "launch memset-kernel", result);
       }
       LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
     }
@@ -450,6 +450,11 @@ int c_dbcsr_acc_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* s
   c_dbcsr_timestop(&routine_handle);
 #  endif
   ACC_OPENCL_RETURN(result);
+}
+
+
+int c_dbcsr_acc_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* stream) {
+  return int c_dbcsr_acc_opencl_memset(dev_mem, 0 /*value*/, offset, nbytes, stream);
 }
 
 
