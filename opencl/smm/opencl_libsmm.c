@@ -939,14 +939,29 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
 #    else
         volatile int* const lock = locks;
 #    endif
+#    if defined(CL_VERSION_2_0)
+        const c_dbcsr_acc_opencl_info_stream_t* const qinfo = c_dbcsr_acc_opencl_info_stream(stream);
+        const c_dbcsr_acc_opencl_device_t* const devinfo = c_dbcsr_acc_opencl_config.device + qinfo->tid;
+#    endif
         /* calling clSetKernelArg must be consistent across host-threads */
         LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
-        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 0, sizeof(cl_mem), ACC_OPENCL_MEM(dev_trs_stack)),
-          "set batch-list argument of transpose kernel", result);
         ACC_OPENCL_CHECK(
-          clSetKernelArg(config->kernel, 1, sizeof(int), &offset), "set offset argument of transpose kernel", result);
-        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 2, sizeof(cl_mem), ACC_OPENCL_MEM(dev_data)),
-          "set matrix-data argument of transpose kernel", result);
+          clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel", result);
+#    if defined(CL_VERSION_2_0)
+        if (0 != devinfo->svm_interop) {
+          ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(config->kernel, 1, ACC_OPENCL_MEM(dev_trs_stack)),
+            "set SVM batch-list argument of transpose kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(config->kernel, 2, ACC_OPENCL_MEM(dev_data)),
+            "set SVM matrix-data argument of transpose kernel", result);
+        }
+        else
+#    endif
+        {
+          ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 1, sizeof(cl_mem), ACC_OPENCL_MEM(dev_trs_stack)),
+            "set batch-list argument of transpose kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 2, sizeof(cl_mem), ACC_OPENCL_MEM(dev_data)),
+            "set matrix-data argument of transpose kernel", result);
+        }
         ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(queue, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size, &config->wgsize,
                            0, NULL, perf_event),
           "launch transpose kernel", result);
@@ -1714,14 +1729,29 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
         /* adjust launchsize according to intra-kernel batchsize */
         work_size = ((stack_size + bs - 1) / bs) * config->wgsize[kernel_idx];
         /* calling clSetKernelArg must be consistent across host-threads */
-        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 0, sizeof(cl_mem), ACC_OPENCL_MEM(dev_c_data)),
-          "set C-matrix argument of SMM-kernel", result);
-        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 1, sizeof(cl_mem), ACC_OPENCL_MEM(dev_a_data)),
-          "set A-matrix argument of SMM-kernel", result);
-        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 2, sizeof(cl_mem), ACC_OPENCL_MEM(dev_b_data)),
-          "set B-matrix argument of SMM-kernel", result);
-        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 3, sizeof(cl_mem), ACC_OPENCL_MEM(dev_param_stack)),
-          "set batch-list argument of SMM-kernel", result);
+#    if defined(CL_VERSION_2_0)
+        if (0 != devinfo->svm_interop) {
+          ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(config->kernel[kernel_idx], 0, ACC_OPENCL_MEM(dev_c_data)),
+            "set SVM C-matrix argument of SMM-kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(config->kernel[kernel_idx], 1, ACC_OPENCL_MEM(dev_a_data)),
+            "set SVM A-matrix argument of SMM-kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(config->kernel[kernel_idx], 2, ACC_OPENCL_MEM(dev_b_data)),
+            "set SVM B-matrix argument of SMM-kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(config->kernel[kernel_idx], 3, ACC_OPENCL_MEM(dev_param_stack)),
+            "set SVM batch-list argument of SMM-kernel", result);
+        }
+        else
+#    endif
+        {
+          ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 0, sizeof(cl_mem), ACC_OPENCL_MEM(dev_c_data)),
+            "set C-matrix argument of SMM-kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 1, sizeof(cl_mem), ACC_OPENCL_MEM(dev_a_data)),
+            "set A-matrix argument of SMM-kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 2, sizeof(cl_mem), ACC_OPENCL_MEM(dev_b_data)),
+            "set B-matrix argument of SMM-kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 3, sizeof(cl_mem), ACC_OPENCL_MEM(dev_param_stack)),
+            "set batch-list argument of SMM-kernel", result);
+        }
         if (0 == kernel_idx) {
           assert(bs <= config->bs);
           ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &stack_size),

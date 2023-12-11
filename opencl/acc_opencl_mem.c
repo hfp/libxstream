@@ -423,9 +423,18 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
             NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
         }
         if (EXIT_SUCCESS == result) {
-          assert(NULL != kernel);
-          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), src), "set src argument of memcpy_d2d kernel", result);
-          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), dst), "set dst argument of memcpy_d2d kernel", result);
+#  if defined(CL_VERSION_2_0)
+          const c_dbcsr_acc_opencl_info_stream_t* const info = c_dbcsr_acc_opencl_info_stream(&queue);
+          if (0 != c_dbcsr_acc_opencl_config.device[info->tid].svm_interop) {
+            ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(kernel, 0, src), "set SVM-src argument of memcpy_d2d kernel", result);
+            ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(kernel, 1, dst), "set SVM-dst argument of memcpy_d2d kernel", result);
+          }
+          else
+#  endif
+          {
+            ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), src), "set src argument of memcpy_d2d kernel", result);
+            ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), dst), "set dst argument of memcpy_d2d kernel", result);
+          }
           ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(
                              queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &nbytes, NULL /*local_work_size*/, 0, NULL, NULL),
             "launch memcpy_d2d kernel", result);
@@ -477,8 +486,16 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
           NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
       }
       if (EXIT_SUCCESS == result) {
-        assert(NULL != kernel);
-        ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), buffer), "set buffer argument of memset-kernel", result);
+#  if defined(CL_VERSION_2_0)
+        const c_dbcsr_acc_opencl_info_stream_t* const info = c_dbcsr_acc_opencl_info_stream(&queue);
+        if (0 != c_dbcsr_acc_opencl_config.device[info->tid].svm_interop) {
+          ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(kernel, 0, buffer), "set SVM-buffer argument of memset-kernel", result);
+        }
+        else
+#  endif
+        {
+          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), buffer), "set buffer argument of memset-kernel", result);
+        }
         ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_uchar), &value), "set value argument of memset-kernel", result);
         ACC_OPENCL_CHECK(
           clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, &offset, &nbytes, NULL /*local_work_size*/, 0, NULL, NULL),
