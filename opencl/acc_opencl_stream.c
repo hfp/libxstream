@@ -26,11 +26,13 @@ extern "C" {
 int c_dbcsr_acc_opencl_stream_counter_base;
 int c_dbcsr_acc_opencl_stream_counter;
 
+
 c_dbcsr_acc_opencl_info_stream_t* c_dbcsr_acc_opencl_info_stream(void* stream) {
   assert(NULL == stream || sizeof(c_dbcsr_acc_opencl_info_stream_t) <= (uintptr_t)stream);
   return (
     NULL != stream ? ((c_dbcsr_acc_opencl_info_stream_t*)((uintptr_t)stream - sizeof(c_dbcsr_acc_opencl_info_stream_t))) : NULL);
 }
+
 
 const int* c_dbcsr_acc_opencl_stream_priority(const void* stream) {
   const int* result;
@@ -46,6 +48,7 @@ const int* c_dbcsr_acc_opencl_stream_priority(const void* stream) {
   result = NULL;
   return result;
 }
+
 
 int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[8] = {
@@ -207,6 +210,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   ACC_OPENCL_RETURN_CAUSE(result, name);
 }
 
+
 int c_dbcsr_acc_stream_destroy(void* stream) {
   int result = EXIT_SUCCESS;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
@@ -252,6 +256,7 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
   ACC_OPENCL_RETURN(result);
 }
 
+
 int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
   int result = ((NULL != least || NULL != greatest) ? EXIT_SUCCESS : EXIT_FAILURE);
   int priohi = -1, priolo = -1;
@@ -291,6 +296,7 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
 #  endif
   ACC_OPENCL_RETURN(result);
 }
+
 
 int c_dbcsr_acc_stream_sync(void* stream) {
   int result = EXIT_SUCCESS;
