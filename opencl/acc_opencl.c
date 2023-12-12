@@ -531,17 +531,17 @@ int c_dbcsr_acc_init(void) {
         else {
           result = EXIT_FAILURE;
         }
-        c_dbcsr_acc_opencl_config.handle = 0;
+        c_dbcsr_acc_opencl_config.nhandles = 0;
         c_dbcsr_acc_opencl_config.handles = NULL;
         c_dbcsr_acc_opencl_config.storage = NULL;
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
     (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
         if (EXIT_SUCCESS == result) {
-          c_dbcsr_acc_opencl_config.handle = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
-          c_dbcsr_acc_opencl_config.handles = (void**)malloc(sizeof(void*) * c_dbcsr_acc_opencl_config.handle);
-          c_dbcsr_acc_opencl_config.storage = malloc(sizeof(void*) * c_dbcsr_acc_opencl_config.handle);
+          c_dbcsr_acc_opencl_config.nhandles = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+          c_dbcsr_acc_opencl_config.handles = (void**)malloc(sizeof(void*) * c_dbcsr_acc_opencl_config.nhandles);
+          c_dbcsr_acc_opencl_config.storage = malloc(sizeof(void*) * c_dbcsr_acc_opencl_config.nhandles);
           if (NULL != c_dbcsr_acc_opencl_config.handles && NULL != c_dbcsr_acc_opencl_config.storage) {
-            libxsmm_pmalloc_init(sizeof(void*), &c_dbcsr_acc_opencl_config.handle, c_dbcsr_acc_opencl_config.handles,
+            libxsmm_pmalloc_init(sizeof(void*), &c_dbcsr_acc_opencl_config.nhandles, c_dbcsr_acc_opencl_config.handles,
               c_dbcsr_acc_opencl_config.storage);
           }
           else {
@@ -549,7 +549,7 @@ int c_dbcsr_acc_init(void) {
             free(c_dbcsr_acc_opencl_config.storage);
             c_dbcsr_acc_opencl_config.handles = NULL;
             c_dbcsr_acc_opencl_config.storage = NULL;
-            c_dbcsr_acc_opencl_config.handle = 0;
+            c_dbcsr_acc_opencl_config.nhandles = 0;
             result = EXIT_FAILURE;
           }
         }

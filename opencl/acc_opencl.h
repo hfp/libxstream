@@ -248,7 +248,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Table of devices (thread-specific). */
   c_dbcsr_acc_opencl_device_t* device;
   /** Handle-counter. */
-  size_t handle;
+  size_t nhandles;
   /** All handles and related storage. */
   void **handles, *storage;
   /** All created streams partitioned by thread-ID (thread-local slots). */
