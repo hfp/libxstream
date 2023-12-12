@@ -947,7 +947,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
         ACC_OPENCL_CHECK(
           clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel", result);
-#    if defined(CL_VERSION_2_0)
+#    if defined(CL_VERSION_2_0) && defined(ACC_OPENCL_SVM_ARG)
         if (0 != devinfo->svm_interop) {
           ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(config->kernel, 1, ACC_OPENCL_MEM(dev_trs_stack)),
             "set SVM batch-list argument of transpose kernel", result);
@@ -1729,7 +1729,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
         /* adjust launchsize according to intra-kernel batchsize */
         work_size = ((stack_size + bs - 1) / bs) * config->wgsize[kernel_idx];
         /* calling clSetKernelArg must be consistent across host-threads */
-#    if defined(CL_VERSION_2_0)
+#    if defined(CL_VERSION_2_0) && defined(ACC_OPENCL_SVM_ARG)
         if (0 != devinfo->svm_interop) {
           ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(config->kernel[kernel_idx], 0, ACC_OPENCL_MEM(dev_c_data)),
             "set SVM C-matrix argument of SMM-kernel", result);

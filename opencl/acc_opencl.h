@@ -116,6 +116,10 @@
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
+/** Use clSetKernelArgSVMPointer even if wrapped as cl_mem */
+#if !defined(ACC_OPENCL_SVM_ARG) && 0
+#  define ACC_OPENCL_SVM_ARG
+#endif
 /** Use DBCSR's profile for detailed timings */
 #if !defined(ACC_OPENCL_PROFILE) && 0
 #  define ACC_OPENCL_PROFILE
