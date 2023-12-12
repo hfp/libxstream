@@ -125,8 +125,11 @@
 #  define ACC_OPENCL_PROFILE
 #endif
 
-/* can depend on OpenCL implementation (unlikely) */
-#if !defined(ACC_OPENCL_MEM_NOALLOC) && 1
+/**
+ * Avoids allocating handle/pointer for cl_mem-object.
+ * Disables auto-detecting device-memory offset.
+ */
+#if !defined(ACC_OPENCL_MEM_NOALLOC) && 0
 #  define ACC_OPENCL_MEM_NOALLOC
 #  define ACC_OPENCL_MEM(A) ((cl_mem*)&(A))
 #else
@@ -248,7 +251,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Table of devices (thread-specific). */
   c_dbcsr_acc_opencl_device_t* device;
   /** Handle-counter. */
-  size_t nhandles;
+  size_t nhandle;
   /** All handles and related storage. */
   void **handles, *storage;
   /** All created streams partitioned by thread-ID (thread-local slots). */

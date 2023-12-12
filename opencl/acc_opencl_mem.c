@@ -224,7 +224,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
 #    if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
       (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
       NULL != c_dbcsr_acc_opencl_config.handles
-        ? libxsmm_pmalloc(c_dbcsr_acc_opencl_config.handles, &c_dbcsr_acc_opencl_config.nhandles)
+        ? libxsmm_pmalloc(c_dbcsr_acc_opencl_config.handles, &c_dbcsr_acc_opencl_config.nhandle)
         :
 #    endif
         malloc(sizeof(cl_mem)));
@@ -277,7 +277,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (NULL != c_dbcsr_acc_opencl_config.handles) {
       /**(cl_mem*)dev_mem = NULL; assert(NULL == *ACC_OPENCL_MEM(dev_mem));*/
-      libxsmm_pfree(dev_mem, c_dbcsr_acc_opencl_config.handles, &c_dbcsr_acc_opencl_config.nhandles);
+      libxsmm_pfree(dev_mem, c_dbcsr_acc_opencl_config.handles, &c_dbcsr_acc_opencl_config.nhandle);
     }
     else
 #    endif
@@ -468,19 +468,19 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
       NULL == stream ? c_dbcsr_acc_opencl_stream_default() :
 #  endif
                      stream);
-    const cl_mem* const buffer = ACC_OPENCL_MEM(dev_mem);
+    const cl_mem* buffer = ACC_OPENCL_MEM(dev_mem);
 #  if !defined(ACC_OPENCL_MEM_NOALLOC) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
-       defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
+    defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (0 == offset && NULL != c_dbcsr_acc_opencl_config.handles && NULL != buffer && NULL != *buffer) {
-      cl_mem base = NULL;
-      size_t i = 0;
-      for (; i < c_dbcsr_acc_opencl_config.nhandles; ++i) {
-        const cl_mem *const mem = c_dbcsr_acc_opencl_config.handles[i];
-        if (NULL != mem && NULL != *mem && *mem <= *buffer) base = *mem;
+      const char* base = NULL;
+      size_t i = c_dbcsr_acc_opencl_config.nhandle;
+      for (; i < (ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads); ++i) {
+        const char *const mem = *(const char**)c_dbcsr_acc_opencl_config.handles[i];
+        if (NULL != mem && mem <= (const char*)buffer) base = mem;
       }
       if (NULL != base) {
-        offset = (const char*)*buffer - (const char*)base;
-        printf("DEBUG: offset=%u\n", (unsigned int)offset);
+        offset = (const char*)buffer - base;
+        buffer = (const cl_mem*)base;
       }
     }
 #  endif
