@@ -470,9 +470,13 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
                      stream);
     const cl_mem* const buffer = ACC_OPENCL_MEM(dev_mem);
     if (0 == (1 & c_dbcsr_acc_opencl_config.devcopy)) {
-      static LIBXSMM_TLS cl_uchar pattern = 0;
-      pattern = (cl_uchar)value; /* fill with value */
-      result = clEnqueueFillBuffer(queue, *buffer, &pattern, sizeof(pattern), offset, nbytes, 0, NULL, NULL);
+      static LIBXSMM_TLS cl_long pattern = 0;
+      size_t size_of_pattern = 1;
+      pattern = value; /* fill with value */
+      if (0 == LIBXSMM_MOD2(nbytes, sizeof(cl_long))) size_of_pattern = sizeof(cl_long);
+      else if (0 == LIBXSMM_MOD2(nbytes, 4)) size_of_pattern = 4;
+      else if (0 == LIBXSMM_MOD2(nbytes, 2)) size_of_pattern = 2;
+      result = clEnqueueFillBuffer(queue, *buffer, &pattern, size_of_pattern, offset, nbytes, 0, NULL, NULL);
     }
     else {
       static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
