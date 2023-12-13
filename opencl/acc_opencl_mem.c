@@ -332,8 +332,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
 #  endif
     }
     else { /* synchronous */
-      const int result_sync = clEnqueueReadBuffer(
-        queue, (cl_mem)dev_mem, CL_TRUE, 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
+      const int result_sync = clEnqueueReadBuffer(queue, (cl_mem)dev_mem, CL_TRUE, 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
       c_dbcsr_acc_opencl_config.async |= 2; /* retract feature */
       if (0 != c_dbcsr_acc_opencl_config.verbosity) {
         fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous readback (code=%i).\n", result);

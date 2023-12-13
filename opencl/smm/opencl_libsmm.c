@@ -767,9 +767,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
   result = EXIT_FAILURE;
 #  else
   const int mn = m * n;
-  assert((NULL != dev_trs_stack && NULL != stream && NULL != dev_data && 0 <= offset &&
-           0 <= stack_size) ||
-         0 == stack_size);
+  assert((NULL != dev_trs_stack && NULL != stream && NULL != dev_data && 0 <= offset && 0 <= stack_size) || 0 == stack_size);
   if ((
 #    if defined(OPENCL_LIBSMM_F64)
         dbcsr_type_real_8 == datatype
@@ -943,10 +941,10 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
         ACC_OPENCL_CHECK(
           clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel", result);
-        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 1, sizeof(cl_mem), &dev_trs_stack),
-          "set batch-list argument of transpose kernel", result);
-        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 2, sizeof(cl_mem), &dev_data),
-          "set matrix-data argument of transpose kernel", result);
+        ACC_OPENCL_CHECK(
+          clSetKernelArg(config->kernel, 1, sizeof(cl_mem), &dev_trs_stack), "set batch-list argument of transpose kernel", result);
+        ACC_OPENCL_CHECK(
+          clSetKernelArg(config->kernel, 2, sizeof(cl_mem), &dev_data), "set matrix-data argument of transpose kernel", result);
         ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(queue, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size, &config->wgsize,
                            0, NULL, perf_event),
           "launch transpose kernel", result);
