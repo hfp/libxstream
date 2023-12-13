@@ -116,6 +116,12 @@
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
+
+/** Automatically determine cl_mem offset */
+#if !defined(ACC_OPENCL_MEM_OFFSET) && 1
+#  define ACC_OPENCL_MEM_OFFSET
+#endif
+
 /** Use DBCSR's profile for detailed timings */
 #if !defined(ACC_OPENCL_PROFILE) && 0
 #  define ACC_OPENCL_PROFILE
@@ -237,9 +243,9 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Table of devices (thread-specific). */
   c_dbcsr_acc_opencl_device_t* device;
   /** Handle-counter. */
-  size_t nhandle;
+  size_t nclmems, nevents;
   /** All handles and related storage. */
-  void **handles, *storage;
+  void **clmems, **events, *storage;
   /** All created streams partitioned by thread-ID (thread-local slots). */
   void** streams;
   /** Counts number of streams created (thread-local). */

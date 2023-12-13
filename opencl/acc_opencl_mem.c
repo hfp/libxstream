@@ -58,6 +58,41 @@ c_dbcsr_acc_opencl_info_hostptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory)
 }
 
 
+void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset) {
+  void* result = NULL;
+#  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
+    defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
+  if (NULL != c_dbcsr_acc_opencl_config.clmems && NULL != memory) {
+    const char* const buffer = (const char*)memory;
+    char* base = NULL;
+    const size_t size = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+    size_t i = c_dbcsr_acc_opencl_config.nclmems;
+    for (; i < size; ++i) {
+      char* const mem = *(char**)c_dbcsr_acc_opencl_config.clmems[i];
+      if (NULL != mem) {
+        if (mem == buffer) { /* fast-path */
+          result = c_dbcsr_acc_opencl_config.clmems[i];
+          if (NULL != offset) *offset = 0;
+          break;
+        }
+        else if (base < mem && mem < buffer) {
+          result = c_dbcsr_acc_opencl_config.clmems[i];
+          if (NULL != offset) *offset = buffer - base;
+          base = mem;
+        }
+      }
+      else { /* error */
+        if (NULL != offset) *offset = 0;
+        result = NULL;
+        break;
+      }
+    }
+  }
+#  endif
+  return result;
+}
+
+
 int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
   c_dbcsr_acc_opencl_info_stream_t* const info = c_dbcsr_acc_opencl_info_stream(stream);
   const size_t size_meminfo = sizeof(c_dbcsr_acc_opencl_info_hostptr_t);
@@ -217,6 +252,14 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     assert(NULL != buffer);
     assert(sizeof(void*) >= sizeof(cl_mem));
     *dev_mem = (void*)buffer;
+#  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
+    defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
+    if (NULL != c_dbcsr_acc_opencl_config.clmems) {
+      void** entry = libxsmm_pmalloc(c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
+      if (NULL != entry) *entry = buffer;
+      else result = EXIT_FAILURE;
+    }
+#  endif
   }
   else {
     *dev_mem = NULL; /* error: creating device buffer */
@@ -244,6 +287,16 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #  endif
     ACC_OPENCL_CHECK(clReleaseMemObject(buffer), "release device memory buffer", result);
     assert(sizeof(void*) >= sizeof(cl_mem));
+#  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
+    defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
+    if (NULL != c_dbcsr_acc_opencl_config.clmems) {
+      const void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
+      if (*(const void* const*)handle == dev_mem) {
+        libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
+      }
+      else result = EXIT_FAILURE;
+    }
+#  endif
 #  if defined(CL_VERSION_2_0)
     if (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop /*&& (NULL != ptr)*/) {
       assert(NULL != c_dbcsr_acc_opencl_config.device[tid].context);
@@ -324,15 +377,17 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
       NULL == stream ? c_dbcsr_acc_opencl_stream_default() :
 #  endif
                      stream);
+    cl_mem buffer = NULL;
+    LIBXSMM_ASSIGN127(&buffer, &dev_mem);
     result = clEnqueueReadBuffer(
-      queue, (cl_mem)dev_mem, 0 == (2 & c_dbcsr_acc_opencl_config.async), 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
+      queue, buffer, 0 == (2 & c_dbcsr_acc_opencl_config.async), 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
     if (CL_SUCCESS == result) {
 #  if defined(ACC_OPENCL_STREAM_NULL)
       result = c_dbcsr_acc_stream_sync(&queue);
 #  endif
     }
     else { /* synchronous */
-      const int result_sync = clEnqueueReadBuffer(queue, (cl_mem)dev_mem, CL_TRUE, 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
+      const int result_sync = clEnqueueReadBuffer(queue, buffer, CL_TRUE, 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
       c_dbcsr_acc_opencl_config.async |= 2; /* retract feature */
       if (0 != c_dbcsr_acc_opencl_config.verbosity) {
         fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous readback (code=%i).\n", result);
@@ -357,7 +412,8 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
 #  endif
   assert((NULL != devmem_src || 0 == nbytes) && (NULL != devmem_dst || 0 == nbytes));
   if (NULL != devmem_src && NULL != devmem_dst && 0 != nbytes) {
-    const cl_mem src = (cl_mem)devmem_src, dst = (cl_mem)devmem_dst;
+    /*const*/ cl_mem src = NULL, dst = (cl_mem)devmem_dst;
+    LIBXSMM_ASSIGN127(&src, &devmem_src);
     assert(NULL != src && NULL != dst);
     if (src != dst) {
       /*const*/ cl_command_queue queue = *ACC_OPENCL_STREAM(
