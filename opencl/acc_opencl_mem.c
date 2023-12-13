@@ -215,35 +215,8 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   }
   if (EXIT_SUCCESS == result) {
     assert(NULL != buffer);
-#  if defined(ACC_OPENCL_MEM_NOALLOC)
     assert(sizeof(void*) >= sizeof(cl_mem));
     *dev_mem = (void*)buffer;
-#  else
-    assert(NULL == c_dbcsr_acc_opencl_config.handles || sizeof(void*) >= sizeof(cl_mem));
-    *dev_mem = (
-#    if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
-      (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
-      NULL != c_dbcsr_acc_opencl_config.handles
-        ? libxsmm_pmalloc(c_dbcsr_acc_opencl_config.handles, &c_dbcsr_acc_opencl_config.nhandle)
-        :
-#    endif
-        malloc(sizeof(cl_mem)));
-    if (NULL != *dev_mem) {
-      *(cl_mem*)*dev_mem = buffer;
-    }
-    else {
-#    if defined(CL_VERSION_2_0)
-      void* const ptr = (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop ? c_dbcsr_acc_opencl_get_hostptr(buffer) : NULL);
-#    endif
-      clReleaseMemObject(buffer);
-#    if defined(CL_VERSION_2_0)
-      if (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop /*&& (NULL != ptr)*/) {
-        clSVMFree(context, ptr);
-      }
-#    endif
-      result = EXIT_FAILURE;
-    }
-#  endif
   }
   else {
     *dev_mem = NULL; /* error: creating device buffer */
@@ -264,27 +237,13 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   if (NULL != dev_mem) {
-    const cl_mem buffer = *ACC_OPENCL_MEM(dev_mem);
+    const cl_mem buffer = (cl_mem)dev_mem;
 #  if defined(CL_VERSION_2_0)
     const int tid = ACC_OPENCL_OMP_TID();
     void* const ptr = (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop ? c_dbcsr_acc_opencl_get_hostptr(buffer) : NULL);
 #  endif
     ACC_OPENCL_CHECK(clReleaseMemObject(buffer), "release device memory buffer", result);
-#  if defined(ACC_OPENCL_MEM_NOALLOC)
     assert(sizeof(void*) >= sizeof(cl_mem));
-#  else
-#    if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
-      (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
-    if (NULL != c_dbcsr_acc_opencl_config.handles) {
-      /**(cl_mem*)dev_mem = NULL; assert(NULL == *ACC_OPENCL_MEM(dev_mem));*/
-      libxsmm_pfree(dev_mem, c_dbcsr_acc_opencl_config.handles, &c_dbcsr_acc_opencl_config.nhandle);
-    }
-    else
-#    endif
-    {
-      free(dev_mem);
-    }
-#  endif
 #  if defined(CL_VERSION_2_0)
     if (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop /*&& (NULL != ptr)*/) {
       assert(NULL != c_dbcsr_acc_opencl_config.device[tid].context);
@@ -338,7 +297,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
 #  endif
                      stream);
     result = clEnqueueWriteBuffer(
-      queue, *ACC_OPENCL_MEM(dev_mem), 0 == (1 & c_dbcsr_acc_opencl_config.async), 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
+      queue, (cl_mem)dev_mem, 0 == (1 & c_dbcsr_acc_opencl_config.async), 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
 #  if defined(ACC_OPENCL_STREAM_NULL)
     if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_sync(&queue);
 #  endif
@@ -366,7 +325,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
 #  endif
                      stream);
     result = clEnqueueReadBuffer(
-      queue, *ACC_OPENCL_MEM(dev_mem), 0 == (2 & c_dbcsr_acc_opencl_config.async), 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
+      queue, (cl_mem)dev_mem, 0 == (2 & c_dbcsr_acc_opencl_config.async), 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
     if (CL_SUCCESS == result) {
 #  if defined(ACC_OPENCL_STREAM_NULL)
       result = c_dbcsr_acc_stream_sync(&queue);
@@ -374,7 +333,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
     }
     else { /* synchronous */
       const int result_sync = clEnqueueReadBuffer(
-        queue, *ACC_OPENCL_MEM(dev_mem), CL_TRUE, 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
+        queue, (cl_mem)dev_mem, CL_TRUE, 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
       c_dbcsr_acc_opencl_config.async |= 2; /* retract feature */
       if (0 != c_dbcsr_acc_opencl_config.verbosity) {
         fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous readback (code=%i).\n", result);
@@ -399,16 +358,16 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
 #  endif
   assert((NULL != devmem_src || 0 == nbytes) && (NULL != devmem_dst || 0 == nbytes));
   if (NULL != devmem_src && NULL != devmem_dst && 0 != nbytes) {
-    const cl_mem *const src = ACC_OPENCL_MEM(devmem_src), *const dst = ACC_OPENCL_MEM(devmem_dst);
-    assert(NULL != *src && NULL != *dst);
-    if (*src != *dst) {
+    const cl_mem src = (cl_mem)devmem_src, dst = (cl_mem)devmem_dst;
+    assert(NULL != src && NULL != dst);
+    if (src != dst) {
       /*const*/ cl_command_queue queue = *ACC_OPENCL_STREAM(
 #  if defined(ACC_OPENCL_STREAM_NULL)
         NULL == stream ? c_dbcsr_acc_opencl_stream_default() :
 #  endif
                        stream);
       if (0 == (2 & c_dbcsr_acc_opencl_config.devcopy)) {
-        result = clEnqueueCopyBuffer(queue, *src, *dst, 0 /*src_offset*/, 0 /*dst_offset*/, nbytes, 0, NULL, NULL);
+        result = clEnqueueCopyBuffer(queue, src, dst, 0 /*src_offset*/, 0 /*dst_offset*/, nbytes, 0, NULL, NULL);
       }
       else {
         static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
@@ -423,18 +382,8 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
             NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
         }
         if (EXIT_SUCCESS == result) {
-#  if defined(CL_VERSION_2_0) && defined(ACC_OPENCL_SVM_ARG)
-          const c_dbcsr_acc_opencl_info_stream_t* const info = c_dbcsr_acc_opencl_info_stream(&queue);
-          if (0 != c_dbcsr_acc_opencl_config.device[info->tid].svm_interop) {
-            ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(kernel, 0, src), "set SVM-src argument of memcpy_d2d kernel", result);
-            ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(kernel, 1, dst), "set SVM-dst argument of memcpy_d2d kernel", result);
-          }
-          else
-#  endif
-          {
-            ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), src), "set src argument of memcpy_d2d kernel", result);
-            ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), dst), "set dst argument of memcpy_d2d kernel", result);
-          }
+          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &src), "set src argument of memcpy_d2d kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &dst), "set dst argument of memcpy_d2d kernel", result);
           ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(
                              queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &nbytes, NULL /*local_work_size*/, 0, NULL, NULL),
             "launch memcpy_d2d kernel", result);
@@ -468,22 +417,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
       NULL == stream ? c_dbcsr_acc_opencl_stream_default() :
 #  endif
                      stream);
-    const cl_mem* buffer = ACC_OPENCL_MEM(dev_mem);
-#  if !defined(ACC_OPENCL_MEM_NOALLOC) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
-    defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
-    if (0 == offset && NULL != c_dbcsr_acc_opencl_config.handles && NULL != buffer && NULL != *buffer) {
-      const char* base = NULL;
-      size_t i = c_dbcsr_acc_opencl_config.nhandle;
-      for (; i < (ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads); ++i) {
-        const char *const mem = *(const char**)c_dbcsr_acc_opencl_config.handles[i];
-        if (NULL != mem && mem <= (const char*)buffer) base = mem;
-      }
-      if (NULL != base) {
-        offset = (const char*)buffer - base;
-        buffer = (const cl_mem*)base;
-      }
-    }
-#  endif
+    const cl_mem buffer = (cl_mem)dev_mem;
     if (0 == (1 & c_dbcsr_acc_opencl_config.devcopy)) {
       static LIBXSMM_TLS cl_long pattern = 0;
       size_t size_of_pattern = 1;
@@ -491,7 +425,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
       if (0 == LIBXSMM_MOD2(nbytes, sizeof(cl_long))) size_of_pattern = sizeof(cl_long);
       else if (0 == LIBXSMM_MOD2(nbytes, 4)) size_of_pattern = 4;
       else if (0 == LIBXSMM_MOD2(nbytes, 2)) size_of_pattern = 2;
-      result = clEnqueueFillBuffer(queue, *buffer, &pattern, size_of_pattern, offset, nbytes, 0, NULL, NULL);
+      result = clEnqueueFillBuffer(queue, buffer, &pattern, size_of_pattern, offset, nbytes, 0, NULL, NULL);
     }
     else {
       static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
@@ -505,16 +439,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
           NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
       }
       if (EXIT_SUCCESS == result) {
-#  if defined(CL_VERSION_2_0) && defined(ACC_OPENCL_SVM_ARG)
-        const c_dbcsr_acc_opencl_info_stream_t* const info = c_dbcsr_acc_opencl_info_stream(&queue);
-        if (0 != c_dbcsr_acc_opencl_config.device[info->tid].svm_interop) {
-          ACC_OPENCL_CHECK(clSetKernelArgSVMPointer(kernel, 0, buffer), "set SVM-buffer argument of memset-kernel", result);
-        }
-        else
-#  endif
-        {
-          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), buffer), "set buffer argument of memset-kernel", result);
-        }
+        ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &buffer), "set buffer argument of memset-kernel", result);
         ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_uchar), &value), "set value argument of memset-kernel", result);
         ACC_OPENCL_CHECK(
           clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, &offset, &nbytes, NULL /*local_work_size*/, 0, NULL, NULL),

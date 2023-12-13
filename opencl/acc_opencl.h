@@ -116,25 +116,11 @@
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
-/** Use clSetKernelArgSVMPointer even if wrapped as cl_mem */
-#if !defined(ACC_OPENCL_SVM_ARG) && 0
-#  define ACC_OPENCL_SVM_ARG
-#endif
 /** Use DBCSR's profile for detailed timings */
 #if !defined(ACC_OPENCL_PROFILE) && 0
 #  define ACC_OPENCL_PROFILE
 #endif
 
-/**
- * Avoids allocating handle/pointer for cl_mem-object.
- * Disables auto-detecting device-memory offset.
- */
-#if !defined(ACC_OPENCL_MEM_NOALLOC) && 0
-#  define ACC_OPENCL_MEM_NOALLOC
-#  define ACC_OPENCL_MEM(A) ((cl_mem*)&(A))
-#else
-#  define ACC_OPENCL_MEM(A) ((cl_mem*)(A))
-#endif
 /* attaching c_dbcsr_acc_opencl_info_stream_t is needed */
 #define ACC_OPENCL_STREAM(A) ((cl_command_queue*)(A))
 /* incompatible with c_dbcsr_acc_event_record */
