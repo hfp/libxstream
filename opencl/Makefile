@@ -61,7 +61,7 @@ endif
 endif
 
 CFLAGS := -fPIC \
-  -Wall -Wextra \
+  -Wall -Wextra -Wcast-qual \
   -Wno-overlength-strings \
   -Wno-variadic-macros \
   -Wno-unused-function \

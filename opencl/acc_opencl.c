@@ -1253,7 +1253,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
                   else break;
                 }
 #  if !defined(NDEBUG)
-                if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_id, (const char**)&ext, 1))
+                if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_id, (const char*const*)&ext, 1))
 #  endif
                 { /* NDEBUG: assume given extension is supported (confirmed upfront) */
                   if (NULL == line) { /* extension is not already part of source */
@@ -1318,7 +1318,11 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
                                                 : NULL);
                     if (NULL != src) {
                       if ((size_t)size == fread(src, 1 /*sizeof(char)*/, size /*count*/, file)) {
-                        if (source != ext_source) libxsmm_free((void*)ext_source);
+                        if (source != ext_source) {
+                          void* p = NULL;
+                          LIBXSMM_ASSIGN127(&p, &ext_source);
+                          libxsmm_free(p);
+                        }
                         src[size] = '\0';
                         ext_source = src;
                       }
@@ -1357,7 +1361,11 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
         }
         ok = EXIT_FAILURE;
       }
-      if (source != ext_source) libxsmm_free((void*)ext_source);
+      if (source != ext_source) {
+        void* p = NULL;
+        LIBXSMM_ASSIGN127(&p, &ext_source);
+        libxsmm_free(p);
+      }
       buffer[0] = '\0'; /* reset to empty */
       if (CL_SUCCESS == result) {
         *kernel = clCreateKernel(program, kernel_name, &result);
@@ -1414,7 +1422,9 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       }
     }
     else if (source != ext_source) { /* error: creating program */
-      libxsmm_free((void*)ext_source);
+      void* p = NULL;
+      LIBXSMM_ASSIGN127(&p, &ext_source);
+      libxsmm_free(p);
     }
   }
   else if (EXIT_SUCCESS == result) { /* binary representation */
@@ -1424,7 +1434,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 #  endif
     {
       program = clCreateProgramWithBinary(
-        context, 1, &active_id, &size_src, (const unsigned char**)(const void*)&source, NULL /*binary_status*/, &result);
+        context, 1, &active_id, &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
     }
     if (CL_SUCCESS == result) {
       assert(NULL != program);
@@ -1443,7 +1453,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 #  endif
           {
             program = clCreateProgramWithBinary(
-              context, 1, &active_id, &size_src, (const unsigned char**)(const void*)&source, NULL /*binary_status*/, &result);
+              context, 1, &active_id, &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
           }
           assert(CL_SUCCESS != result || NULL != program);
           if (CL_SUCCESS == result) {
@@ -1479,8 +1489,10 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     }
   }
   if (NULL != file_src) {
+    void* p = NULL;
+    LIBXSMM_ASSIGN127(&p, (const void*)&source);
     assert(0 != source_is_file);
-    libxsmm_free((void*)source);
+    libxsmm_free(p);
   }
 #  if !defined(NDEBUG)
   if (EXIT_SUCCESS != result && NULL != kernel) *kernel = NULL;
