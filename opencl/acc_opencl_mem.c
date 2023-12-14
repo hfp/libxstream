@@ -286,7 +286,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (NULL != c_dbcsr_acc_opencl_config.clmems) {
       void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
-      if (NULL != handle ) {
+      if (NULL != handle) {
         if (*(void* const*)handle == dev_mem) {
           libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
         }
@@ -346,16 +346,29 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
 #  endif
   assert((NULL != host_mem || 0 == nbytes) && (NULL != dev_mem || 0 == nbytes));
   if (NULL != host_mem && NULL != dev_mem && 0 != nbytes) {
-    /*const*/ cl_command_queue queue = *ACC_OPENCL_STREAM(
-#  if defined(ACC_OPENCL_STREAM_NULL)
-      NULL == stream ? c_dbcsr_acc_opencl_stream_default() :
+    cl_mem buffer = (cl_mem)dev_mem;
+    size_t offset = 0;
+#  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
+    defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
+    if (0 == offset && NULL != c_dbcsr_acc_opencl_config.clmems) {
+      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &offset);
+      if (NULL != handle) buffer = *(cl_mem*)handle;
+      else result = EXIT_FAILURE;
+    }
+    if (EXIT_SUCCESS == result)
 #  endif
-                     stream);
-    result = clEnqueueWriteBuffer(
-      queue, (cl_mem)dev_mem, 0 == (1 & c_dbcsr_acc_opencl_config.async), 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
+    {
+      /*const*/ cl_command_queue queue = *ACC_OPENCL_STREAM(
 #  if defined(ACC_OPENCL_STREAM_NULL)
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_sync(&queue);
+        NULL == stream ? c_dbcsr_acc_opencl_stream_default() :
 #  endif
+                       stream);
+      result = clEnqueueWriteBuffer(
+        queue, buffer, 0 == (1 & c_dbcsr_acc_opencl_config.async), offset, nbytes, host_mem, 0, NULL, NULL);
+#  if defined(ACC_OPENCL_STREAM_NULL)
+      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_sync(&queue);
+#  endif
+    }
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
@@ -374,27 +387,39 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
 #  endif
   assert((NULL != dev_mem || 0 == nbytes) && (NULL != host_mem || 0 == nbytes));
   if (NULL != host_mem && NULL != dev_mem && 0 != nbytes) {
-    /*const*/ cl_command_queue queue = *ACC_OPENCL_STREAM(
-#  if defined(ACC_OPENCL_STREAM_NULL)
-      NULL == stream ? c_dbcsr_acc_opencl_stream_default() :
-#  endif
-                     stream);
     cl_mem buffer = NULL;
+    size_t offset = 0;
     LIBXSMM_ASSIGN127(&buffer, &dev_mem);
-    result = clEnqueueReadBuffer(
-      queue, buffer, 0 == (2 & c_dbcsr_acc_opencl_config.async), 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
-    if (CL_SUCCESS == result) {
-#  if defined(ACC_OPENCL_STREAM_NULL)
-      result = c_dbcsr_acc_stream_sync(&queue);
-#  endif
+#  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
+    defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
+    if (0 == offset && NULL != c_dbcsr_acc_opencl_config.clmems) {
+      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &offset);
+      if (NULL != handle) buffer = *(cl_mem*)handle;
+      else result = EXIT_FAILURE;
     }
-    else { /* synchronous */
-      const int result_sync = clEnqueueReadBuffer(queue, buffer, CL_TRUE, 0 /*offset*/, nbytes, host_mem, 0, NULL, NULL);
-      c_dbcsr_acc_opencl_config.async |= 2; /* retract feature */
-      if (0 != c_dbcsr_acc_opencl_config.verbosity) {
-        fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous readback (code=%i).\n", result);
+    if (EXIT_SUCCESS == result)
+#  endif
+    {
+      /*const*/ cl_command_queue queue = *ACC_OPENCL_STREAM(
+#  if defined(ACC_OPENCL_STREAM_NULL)
+        NULL == stream ? c_dbcsr_acc_opencl_stream_default() :
+#  endif
+                       stream);
+      result = clEnqueueReadBuffer(
+        queue, buffer, 0 == (2 & c_dbcsr_acc_opencl_config.async), offset, nbytes, host_mem, 0, NULL, NULL);
+      if (CL_SUCCESS == result) {
+#  if defined(ACC_OPENCL_STREAM_NULL)
+        result = c_dbcsr_acc_stream_sync(&queue);
+#  endif
       }
-      result = result_sync;
+      else { /* synchronous */
+        const int result_sync = clEnqueueReadBuffer(queue, buffer, CL_TRUE, 0 offset, nbytes, host_mem, 0, NULL, NULL);
+        c_dbcsr_acc_opencl_config.async |= 2; /* retract feature */
+        if (0 != c_dbcsr_acc_opencl_config.verbosity) {
+          fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous readback (code=%i).\n", result);
+        }
+        result = result_sync;
+      }
     }
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
