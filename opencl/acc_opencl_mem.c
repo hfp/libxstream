@@ -304,14 +304,12 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #      pragma omp critical(c_dbcsr_acc_dev_mem_deallocate)
 #    endif
     {
-      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
+      void** const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
       if (NULL != handle) {
         const size_t size = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
-        assert(*(void* const*)handle == dev_mem);
+        assert(*handle == dev_mem);
         libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
-        if (c_dbcsr_acc_opencl_config.nclmems < size) {
-          c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems] = NULL;
-        }
+        if (c_dbcsr_acc_opencl_config.nclmems < size) *handle = NULL;
       }
       else result = EXIT_FAILURE;
     }
