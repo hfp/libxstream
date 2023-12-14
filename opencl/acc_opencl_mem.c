@@ -286,10 +286,12 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (NULL != c_dbcsr_acc_opencl_config.clmems) {
       void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
-      if (NULL != handle && *(void* const*)handle == dev_mem) {
-        libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
+      if (NULL != handle ) {
+        if (*(void* const*)handle == dev_mem) {
+          libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
+        }
+        else result = EXIT_FAILURE;
       }
-      else result = EXIT_FAILURE;
     }
 #  endif
     ACC_OPENCL_CHECK(clReleaseMemObject(buffer), "release device memory buffer", result);
