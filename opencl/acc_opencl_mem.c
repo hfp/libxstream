@@ -447,10 +447,8 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
     if (NULL != c_dbcsr_acc_opencl_config.clmems) {
       void* const handle_src = c_dbcsr_acc_opencl_info_devptr(devmem_src, &src_offset);
       void* const handle_dst = c_dbcsr_acc_opencl_info_devptr(devmem_dst, &dst_offset);
-      if (NULL != handle_src && NULL != handle_dst) {
-        src = *(cl_mem*)handle_src;
-        dst = *(cl_mem*)handle_dst;
-      }
+      if (NULL != handle_src) src = *(cl_mem*)handle_src;
+      if (NULL != handle_dst) dst = *(cl_mem*)handle_dst;
       else result = EXIT_FAILURE;
     }
 #  endif
