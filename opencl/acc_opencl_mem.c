@@ -84,9 +84,11 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset) {
           base = mem;
         }
       }
-      else { /* error */
-        if (NULL != offset) *offset = 0;
-        result = NULL;
+      else { /* terminate */
+        if ((i + 1) < size) { /* error */
+          if (NULL != offset) *offset = 0;
+          result = NULL;
+        }
         break;
       }
     }
@@ -256,7 +258,8 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     assert(NULL != buffer);
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
-    if (NULL != c_dbcsr_acc_opencl_config.clmems) {
+    assert(NULL != c_dbcsr_acc_opencl_config.clmems);
+    {
       void** handle = libxsmm_pmalloc(c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
       if (NULL != handle) *handle = buffer;
       else result = EXIT_FAILURE;
@@ -296,14 +299,21 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     assert(sizeof(void*) >= sizeof(cl_mem));
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
-    if (NULL != c_dbcsr_acc_opencl_config.clmems) {
+    assert(NULL != c_dbcsr_acc_opencl_config.clmems);
+#    if defined(_OPENMP)
+#      pragma omp critical(c_dbcsr_acc_dev_mem_deallocate)
+#    endif
+    {
       void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
       if (NULL != handle) {
-        if (*(void* const*)handle == dev_mem) {
-          libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
+        const size_t size = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+        assert(*(void* const*)handle == dev_mem);
+        libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
+        if (c_dbcsr_acc_opencl_config.nclmems < size) {
+          c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems] = NULL;
         }
-        else result = EXIT_FAILURE;
       }
+      else result = EXIT_FAILURE;
     }
 #  endif
 #  if defined(CL_VERSION_2_0)
@@ -367,7 +377,8 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
     size_t offset = 0;
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
-    if (NULL != c_dbcsr_acc_opencl_config.clmems) {
+    assert(NULL != c_dbcsr_acc_opencl_config.clmems);
+    {
       void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &offset);
       if (NULL != handle) buffer = *(cl_mem*)handle;
       else result = EXIT_FAILURE;
@@ -409,7 +420,8 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
     LIBXSMM_ASSIGN127(&buffer, &dev_mem);
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
-    if (NULL != c_dbcsr_acc_opencl_config.clmems) {
+    assert(NULL != c_dbcsr_acc_opencl_config.clmems);
+    {
       void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &offset);
       if (NULL != handle) buffer = *(cl_mem*)handle;
       else result = EXIT_FAILURE;
@@ -461,7 +473,8 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
     LIBXSMM_ASSIGN127(&src, &devmem_src);
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
-    if (NULL != c_dbcsr_acc_opencl_config.clmems) {
+    assert(NULL != c_dbcsr_acc_opencl_config.clmems);
+    {
       void* const handle_src = c_dbcsr_acc_opencl_info_devptr(devmem_src, &src_offset);
       void* const handle_dst = c_dbcsr_acc_opencl_info_devptr(devmem_dst, &dst_offset);
       if (NULL != handle_src) src = *(cl_mem*)handle_src;
