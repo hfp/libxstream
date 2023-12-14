@@ -19,8 +19,8 @@
 #    include <unistd.h>
 #  endif
 
-#  if !defined(ACC_OPENCL_MEM_OFFSET_DEBUG) && !defined(NDEBUG) && 1
-#    define ACC_OPENCL_MEM_OFFSET_DEBUG
+#  if !defined(ACC_OPENCL_MEM_DEBUG) && !defined(NDEBUG) && 1
+#    define ACC_OPENCL_MEM_DEBUG
 #  endif
 #  if !defined(ACC_OPENCL_MEM_ALIGNSCALE)
 #    define ACC_OPENCL_MEM_ALIGNSCALE 8
@@ -257,22 +257,21 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (NULL != c_dbcsr_acc_opencl_config.clmems) {
-#if defined(ACC_OPENCL_MEM_OFFSET_DEBUG)
-      void* const duplicate = c_dbcsr_acc_opencl_info_devptr(buffer, NULL /*offset*/);
-#endif
       void** handle = libxsmm_pmalloc(c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
-      if (
-#if defined(ACC_OPENCL_MEM_OFFSET_DEBUG)
-        NULL == duplicate &&
-#endif
-        NULL != handle)
-      {
-        *handle = buffer;
-      }
+      if (NULL != handle) *handle = buffer;
       else result = EXIT_FAILURE;
     }
+    if (EXIT_SUCCESS != result) {
+      *dev_mem = NULL; /* TODO: clReleaseMemObject */
+    }
+    else
 #  endif
-    *dev_mem = (void*)buffer; /* TODO: clReleaseMemObject */
+    {
+#  if defined(ACC_OPENCL_MEM_DEBUG)
+      printf("c_dbcsr_acc_dev_mem_allocate: %p\n", buffer);
+#  endif
+      *dev_mem = (void*)buffer;
+    }
   }
   else {
     *dev_mem = NULL; /* error: creating device buffer */
@@ -318,6 +317,11 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     }
 #  endif
     ACC_OPENCL_CHECK(clReleaseMemObject(buffer), "release device memory buffer", result);
+#  if defined(ACC_OPENCL_MEM_DEBUG)
+    if (EXIT_SUCCESS == result) {
+      printf("c_dbcsr_acc_dev_mem_deallocate: %p\n", buffer);
+    }
+#  endif
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
