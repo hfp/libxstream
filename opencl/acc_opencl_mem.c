@@ -19,6 +19,9 @@
 #    include <unistd.h>
 #  endif
 
+#  if !defined(ACC_OPENCL_MEM_OFFSET_DEBUG) && !defined(NDEBUG) && 1
+#    define ACC_OPENCL_MEM_OFFSET_DEBUG
+#  endif
 #  if !defined(ACC_OPENCL_MEM_ALIGNSCALE)
 #    define ACC_OPENCL_MEM_ALIGNSCALE 8
 #  endif
@@ -75,9 +78,9 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset) {
           if (NULL != offset) *offset = 0;
           break;
         }
-        else if (base < mem && mem < buffer) {
+        else if (base < mem && mem < buffer && NULL != offset) {
           result = c_dbcsr_acc_opencl_config.clmems[i];
-          if (NULL != offset) *offset = buffer - base;
+          *offset = buffer - base;
           base = mem;
         }
       }
@@ -251,15 +254,25 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   }
   if (EXIT_SUCCESS == result) {
     assert(NULL != buffer);
-    *dev_mem = (void*)buffer;
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (NULL != c_dbcsr_acc_opencl_config.clmems) {
-      void** entry = libxsmm_pmalloc(c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
-      if (NULL != entry) *entry = buffer;
+#if defined(ACC_OPENCL_MEM_OFFSET_DEBUG)
+      void* const duplicate = c_dbcsr_acc_opencl_info_devptr(buffer, NULL /*offset*/);
+#endif
+      void** handle = libxsmm_pmalloc(c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
+      if (
+#if defined(ACC_OPENCL_MEM_OFFSET_DEBUG)
+        NULL == duplicate &&
+#endif
+        NULL != handle)
+      {
+        *handle = buffer;
+      }
       else result = EXIT_FAILURE;
     }
 #  endif
+    *dev_mem = (void*)buffer; /* TODO: clReleaseMemObject */
   }
   else {
     *dev_mem = NULL; /* error: creating device buffer */
