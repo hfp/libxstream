@@ -544,7 +544,7 @@ int c_dbcsr_acc_init(void) {
           c_dbcsr_acc_opencl_config.storage = malloc(sizeof(void*) * (nhandles + nhandles));
           if (NULL != c_dbcsr_acc_opencl_config.clmems && NULL != c_dbcsr_acc_opencl_config.storage) {
             libxsmm_pmalloc_init(sizeof(void*), &c_dbcsr_acc_opencl_config.nclmems, c_dbcsr_acc_opencl_config.clmems,
-              c_dbcsr_acc_opencl_config.storage + nhandles);
+              (char*)c_dbcsr_acc_opencl_config.storage + sizeof(void*) * nhandles);
           }
           else {
             free(c_dbcsr_acc_opencl_config.clmems);
