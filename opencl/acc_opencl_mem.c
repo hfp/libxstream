@@ -285,8 +285,8 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (NULL != c_dbcsr_acc_opencl_config.clmems) {
-      const void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
-      if (NULL != handle && *(const void* const*)handle == dev_mem) {
+      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
+      if (NULL != handle && *(void* const*)handle == dev_mem) {
         libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
       }
       else result = EXIT_FAILURE;
