@@ -71,7 +71,8 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset) {
     const size_t size = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
     size_t i = c_dbcsr_acc_opencl_config.nclmems;
     for (; i < size; ++i) {
-      char* const mem = *(char**)c_dbcsr_acc_opencl_config.clmems[i];
+      void**const handle = c_dbcsr_acc_opencl_config.clmems[i];
+      char* const mem = (char*)(NULL != handle ? *handle : NULL);
       if (NULL != mem) {
         if (mem == buffer) { /* fast-path */
           result = c_dbcsr_acc_opencl_config.clmems[i];
@@ -84,6 +85,7 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset) {
           base = mem;
         }
       }
+#    if 0
       else { /* terminate */
         if ((i + 1) < size) { /* error */
           if (NULL != offset) *offset = 0;
@@ -91,6 +93,7 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset) {
         }
         break;
       }
+#    endif
     }
   }
 #  endif
@@ -261,7 +264,12 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     assert(NULL != c_dbcsr_acc_opencl_config.clmems);
     {
       void** handle = libxsmm_pmalloc(c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
-      if (NULL != handle) *handle = buffer;
+      if (NULL != handle) {
+        *handle = buffer;
+#  if defined(ACC_OPENCL_MEM_DEBUG)
+        printf("c_dbcsr_acc_dev_mem_allocate: %p @ %p\n", buffer, handle);
+#  endif
+      }
       else result = EXIT_FAILURE;
     }
     if (EXIT_SUCCESS != result) {
@@ -270,9 +278,6 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     else
 #  endif
     {
-#  if defined(ACC_OPENCL_MEM_DEBUG)
-      printf("c_dbcsr_acc_dev_mem_allocate: %p\n", buffer);
-#  endif
       *dev_mem = (void*)buffer;
     }
   }
@@ -306,10 +311,13 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     {
       void** const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
       if (NULL != handle) {
-        const size_t size = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
-        assert(*handle == dev_mem);
+#    if 0
+        *(void**)c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems] = *handle = NULL;
+#    endif
         libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
-        if (c_dbcsr_acc_opencl_config.nclmems < size) *handle = NULL;
+#    if defined(ACC_OPENCL_MEM_DEBUG)
+        printf("c_dbcsr_acc_dev_mem_deallocate: %p @ %p\n", buffer, handle);
+#    endif
       }
       else result = EXIT_FAILURE;
     }
@@ -325,11 +333,6 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     }
 #  endif
     ACC_OPENCL_CHECK(clReleaseMemObject(buffer), "release device memory buffer", result);
-#  if defined(ACC_OPENCL_MEM_DEBUG)
-    if (EXIT_SUCCESS == result) {
-      printf("c_dbcsr_acc_dev_mem_deallocate: %p\n", buffer);
-    }
-#  endif
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
