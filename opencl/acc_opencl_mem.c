@@ -294,7 +294,6 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       }
     }
 #  endif
-    ACC_OPENCL_CHECK(clReleaseMemObject(buffer), "release device memory buffer", result);
 #  if defined(CL_VERSION_2_0)
     {
       const int tid = ACC_OPENCL_OMP_TID();
@@ -305,6 +304,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       }
     }
 #  endif
+    ACC_OPENCL_CHECK(clReleaseMemObject(buffer), "release device memory buffer", result);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
