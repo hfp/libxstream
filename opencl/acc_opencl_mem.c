@@ -448,6 +448,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
       void* const handle_src = c_dbcsr_acc_opencl_info_devptr(devmem_src, &src_offset);
       void* const handle_dst = c_dbcsr_acc_opencl_info_devptr(devmem_dst, &dst_offset);
       if (NULL != handle_src) src = *(cl_mem*)handle_src;
+      else result = EXIT_FAILURE;
       if (NULL != handle_dst) dst = *(cl_mem*)handle_dst;
       else result = EXIT_FAILURE;
     }
@@ -466,16 +467,21 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
         static cl_kernel kernel = NULL;
         LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
         if (NULL == kernel) { /* generate kernel */
-          const char source[] = "kernel void memcpy_d2d(global uchar *restrict src, global uchar *restrict dst) {\n"
+          const char source[] = "kernel void memcpy_d2d(\n"
+                                "  global uchar *restrict dst, size_t dst_offset,\n"
+                                "  global uchar *restrict src, size_t src_offset)\n"
+                                "{\n"
                                 "  const size_t i = get_global_id(0);\n"
-                                "  dst[i] = src[i];\n"
+                                "  dst[i+dst_offset] = src[i+src_offset];\n"
                                 "}\n";
           result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memcpy_d2d" /*kernel_name*/, NULL /*build_params*/,
             NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
         }
         if (EXIT_SUCCESS == result) {
-          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &src), "set src argument of memcpy_d2d kernel", result);
-          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &dst), "set dst argument of memcpy_d2d kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &dst), "set src argument of memcpy_d2d kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_mem), &dst_offset), "set dst-offset of memcpy_d2d kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 2, sizeof(cl_mem), &src), "set dst argument of memcpy_d2d kernel", result);
+          ACC_OPENCL_CHECK(clSetKernelArg(kernel, 3, sizeof(cl_mem), &src_offset), "set src-offset of memcpy_d2d kernel", result);
           ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(
                              queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &nbytes, NULL /*local_work_size*/, 0, NULL, NULL),
             "launch memcpy_d2d kernel", result);
