@@ -19,7 +19,7 @@
 #    include <unistd.h>
 #  endif
 
-#  if !defined(ACC_OPENCL_MEM_DEBUG) && !defined(NDEBUG) && 1
+#  if !defined(ACC_OPENCL_MEM_DEBUG) && !defined(NDEBUG) && 0
 #    define ACC_OPENCL_MEM_DEBUG
 #  endif
 #  if !defined(ACC_OPENCL_MEM_ALIGNSCALE)
@@ -71,7 +71,7 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset) {
     const size_t size = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
     size_t i = c_dbcsr_acc_opencl_config.nclmems;
     for (; i < size; ++i) {
-      void**const handle = c_dbcsr_acc_opencl_config.clmems[i];
+      void** const handle = c_dbcsr_acc_opencl_config.clmems[i];
       char* const mem = (char*)(NULL != handle ? *handle : NULL);
       if (NULL != mem) {
         if (mem == buffer) { /* fast-path */
@@ -266,9 +266,9 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
       void** handle = libxsmm_pmalloc(c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
       if (NULL != handle) {
         *handle = buffer;
-#  if defined(ACC_OPENCL_MEM_DEBUG)
+#    if defined(ACC_OPENCL_MEM_DEBUG)
         printf("c_dbcsr_acc_dev_mem_allocate: %p @ %p\n", buffer, handle);
-#  endif
+#    endif
       }
       else result = EXIT_FAILURE;
     }
@@ -311,10 +311,9 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     {
       void** handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
       if (NULL != handle) {
-        void *const tmp = c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems];
-        c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems] = handle;
-        handle = tmp; /* swap completed */
-        libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
+        void** const pfree = c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems];
+        libxsmm_pfree(pfree, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
+        *handle = *pfree;
 #    if defined(ACC_OPENCL_MEM_DEBUG)
         printf("c_dbcsr_acc_dev_mem_deallocate: %p @ %p\n", buffer, handle);
 #    endif
