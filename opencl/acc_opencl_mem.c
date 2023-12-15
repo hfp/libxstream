@@ -309,11 +309,11 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #      pragma omp critical(c_dbcsr_acc_dev_mem_deallocate)
 #    endif
     {
-      void** const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
+      void** handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/);
       if (NULL != handle) {
-#    if 0
-        *(void**)c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems] = *handle = NULL;
-#    endif
+        void *const tmp = c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems];
+        c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems] = handle;
+        handle = tmp; /* swap completed */
         libxsmm_pfree(handle, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
 #    if defined(ACC_OPENCL_MEM_DEBUG)
         printf("c_dbcsr_acc_dev_mem_deallocate: %p @ %p\n", buffer, handle);
