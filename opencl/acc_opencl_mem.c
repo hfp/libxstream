@@ -85,17 +85,11 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset) {
           base = mem;
         }
       }
-#    if 0
-      else { /* terminate */
-        if ((i + 1) < size) { /* error */
-          if (NULL != offset) *offset = 0;
-          result = NULL;
-        }
-        break;
-      }
-#    endif
     }
   }
+#  else
+  LIBXSMM_UNUSED(memory);
+  LIBXSMM_UNUSED(offset);
 #  endif
   return result;
 }
