@@ -404,9 +404,17 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
         {
 #    if defined(SLM_C) && (1 < BS)
+#      if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
           const int mc = m, nc = n;
+#      else
+          const int mc = m;
+#      endif
 #    else
+#      if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
           const int mc = bm, nc = bn;
+#      else
+          const int mc = bm;
+#      endif
 #    endif
 #    if defined(REG_B)
           const int nb = bn;
@@ -597,9 +605,17 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
           {
 #    if defined(SLM_C)
+#      if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
             const int mc = m, nc = n;
+#      else
+            const int mc = m;
+#      endif
 #    else
+#      if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
             const int mc = bm, nc = bn;
+#      else
+            const int mc = bm;
+#      endif
 #    endif
 #    if defined(ATOMIC_INC_NZ)
             if (ZERO != CNM(nc, mc))
