@@ -10,6 +10,7 @@
 # shellcheck disable=SC2048,SC2129
 
 BASENAME=$(command -v basename)
+DIRNAME=$(command -v dirname)
 SORT=$(command -v sort)
 SED=$(command -v gsed)
 CPP=$(command -v cpp)
@@ -28,8 +29,30 @@ if [ ! "${SED}" ]; then
   SED=$(command -v sed)
 fi
 
-if [ "${BASENAME}" ] && [ "${SORT}" ] && [ "${SED}" ] && \
-   [ "${TR}" ] && [ "${RM}" ] && [ "${WC}" ];
+process_pre() {
+  if [ "${CPP}" ] && \
+     [ "$(eval "${CPP} ${CPPBASEFLAGS} $1" 2>/dev/null >/dev/null && echo "YES")" ];
+  then
+    if [ "${CPPFLAGS}" ] && \
+       [ "$(eval "${CPP} ${CPPFLAGS} ${CPPBASEFLAGS} $1" 2>/dev/null >/dev/null && echo "YES")" ];
+    then
+      eval "${CPP} ${CPPFLAGS} ${CPPBASEFLAGS} $1" 2>/dev/null
+    else
+      eval "${CPP} ${CPPBASEFLAGS} $1" 2>/dev/null
+    fi
+  else # fallback to sed
+    ${SED} -r ':a;s%(.*)/\*.*\*/%\1%;ta;/\/\*/!b;N;ba' "$1"
+  fi
+}
+
+process_post() {
+  ${SED} \
+    -e '/^[[:space:]]*$/d' -e 's/[[:space:]]*$//' \
+    -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/  "/' -e 's/$/\\n" \\/'
+}
+
+if [ "${BASENAME}" ] && [ "${DIRNAME}" ] && [ "${SORT}" ] && \
+   [ "${SED}" ] && [ "${TR}" ] && [ "${RM}" ] && [ "${WC}" ];
 then
   for OFILE in "$@"; do :; done
   while test $# -gt 0; do
@@ -48,7 +71,7 @@ then
     *) break;;
     esac
   done
-  HERE="$(cd "$(dirname "$0")" && pwd -P)"
+  HERE="$(cd "$(${DIRNAME} "$0")" && pwd -P)"
   PARAMDIR=${PARAMDIR:-${PARAMS}}
   PARAMDIR=${PARAMDIR:-${HERE}/smm/params}
   PARAMDIR=$(echo -e "${PARAMDIR}" | ${TR} -d '\t')
@@ -79,30 +102,32 @@ then
           SNAME=OPENCL_LIBSMM_STRING_${UNAME}
           VNAME=opencl_libsmm_source_${BNAME}
           MNAME=OPENCL_LIBSMM_SOURCE_${UNAME}
+          IFS=$'\n'
           if [ "0" != "$((0<(NFILES_OCL)))" ]; then
             echo >>"${OFILE}"
           fi
           echo "#define ${MNAME} ${VNAME}" >>"${OFILE}"
           echo "#define ${SNAME} \\" >>"${OFILE}"
-          if [ "${CPP}" ] && \
-             [ "$(eval "${CPP} ${CPPBASEFLAGS} ${CLFILE}" 2>/dev/null >/dev/null && echo "YES")" ];
-          then
-            if [ "" != "${CPPFLAGS}" ] && \
-               [ "$(eval "${CPP} ${CPPFLAGS} ${CPPBASEFLAGS} ${CLFILE}" 2>/dev/null >/dev/null && echo "YES")" ];
-            then
-              eval "${CPP} ${CPPFLAGS} ${CPPBASEFLAGS} ${CLFILE}" 2>/dev/null
+          process_pre "${CLFILE}" | \
+          while read -r LINE; do
+            INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*\"/\"/p" <<<"${LINE}")
+            if [ "${INCLUDE}" ]; then
+              CLINC=$(${SED} "s/\"//g" <<<"${INCLUDE}")
+              CLPATH=$(${DIRNAME} "${CLFILE}")
+              if [ -e "${CLPATH}/${CLINC}" ]; then
+                process_pre "${CLPATH}/${CLINC}" | process_post >>"${OFILE}"
+              else
+                >&2 echo "ERROR: header file ${CLPATH}/${CLINC} not found!"
+                if [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
+                exit 1
+              fi
             else
-              eval "${CPP} ${CPPBASEFLAGS} ${CLFILE}" 2>/dev/null
+              process_post <<<"${LINE}" >>"${OFILE}"
             fi
-          else # fallback to sed
-            ${SED} -r ':a;s%(.*)/\*.*\*/%\1%;ta;/\/\*/!b;N;ba' "${CLFILE}"
-          fi | \
-          ${SED} \
-            -e '/^[[:space:]]*$/d' -e 's/[[:space:]]*$//' \
-            -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/  "/' -e 's/$/\\n" \\/' \
-            >>"${OFILE}"
+          done
           echo "  \"\"" >>"${OFILE}"
           echo "static const char ${VNAME}[] = ${SNAME};" >>"${OFILE}"
+          unset IFS
           NFILES_OCL=$((NFILES_OCL+1))
         else
           >&2 echo "ERROR: ${CLFILE} does not exist!"
