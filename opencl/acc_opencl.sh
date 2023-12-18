@@ -29,6 +29,10 @@ if [ ! "${SED}" ]; then
   SED=$(command -v sed)
 fi
 
+trap_exit() {
+  if [ "0" != "$?" ] && [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
+}
+
 process_pre() {
   if [ "${CPP}" ] && \
      [ "$(eval "${CPP} ${CPPBASEFLAGS} $1" 2>/dev/null >/dev/null && echo "YES")" ];
@@ -49,6 +53,27 @@ process_post() {
   ${SED} \
     -e '/^[[:space:]]*$/d' -e 's/[[:space:]]*$//' \
     -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/  "/' -e 's/$/\\n" \\/'
+}
+
+process_main() {
+  IFS=$'\n'
+  while read -r LINE; do
+    INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*\"/\"/p" <<<"${LINE}")
+    if [ "${INCLUDE}" ] && [ "$1" ] && [ -e "$1" ]; then
+      CLINC=$(${SED} "s/\"//g" <<<"${INCLUDE}")
+      CLPATH=$(${DIRNAME} "$1")
+      FILE=${CLPATH}/${CLINC}
+      if [ "${FILE}" ] && [ -e "${FILE}" ]; then
+        process_pre "${FILE}" | process_main "${FILE}"
+      else
+        >&2 echo "ERROR: header file ${FILE} not found!"
+        exit 1
+      fi
+    else
+      process_post <<<"${LINE}"
+    fi
+  done
+  unset IFS
 }
 
 if [ "${BASENAME}" ] && [ "${DIRNAME}" ] && [ "${SORT}" ] && \
@@ -93,6 +118,7 @@ then
         echo "$0 $*"
       fi
     fi
+    trap 'trap_exit' EXIT
     NFILES_OCL=0
     for CLFILE in ${*:1:${#@}-1}; do
       if [ "${CLFILE##*.}" = "cl" ]; then
@@ -102,36 +128,17 @@ then
           SNAME=OPENCL_LIBSMM_STRING_${UNAME}
           VNAME=opencl_libsmm_source_${BNAME}
           MNAME=OPENCL_LIBSMM_SOURCE_${UNAME}
-          IFS=$'\n'
           if [ "0" != "$((0<(NFILES_OCL)))" ]; then
             echo >>"${OFILE}"
           fi
           echo "#define ${MNAME} ${VNAME}" >>"${OFILE}"
           echo "#define ${SNAME} \\" >>"${OFILE}"
-          process_pre "${CLFILE}" | \
-          while read -r LINE; do
-            INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*\"/\"/p" <<<"${LINE}")
-            if [ "${INCLUDE}" ]; then
-              CLINC=$(${SED} "s/\"//g" <<<"${INCLUDE}")
-              CLPATH=$(${DIRNAME} "${CLFILE}")
-              if [ -e "${CLPATH}/${CLINC}" ]; then
-                process_pre "${CLPATH}/${CLINC}" | process_post >>"${OFILE}"
-              else
-                >&2 echo "ERROR: header file ${CLPATH}/${CLINC} not found!"
-                if [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
-                exit 1
-              fi
-            else
-              process_post <<<"${LINE}" >>"${OFILE}"
-            fi
-          done
+          process_pre "${CLFILE}" | process_main "${CLFILE}" >>"${OFILE}"
           echo "  \"\"" >>"${OFILE}"
           echo "static const char ${VNAME}[] = ${SNAME};" >>"${OFILE}"
-          unset IFS
           NFILES_OCL=$((NFILES_OCL+1))
         else
           >&2 echo "ERROR: ${CLFILE} does not exist!"
-          if [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
           exit 1
         fi
       else
@@ -141,7 +148,6 @@ then
     done
     if [ "0" = "${NFILES_OCL}" ]; then
       >&2 echo "ERROR: no OpenCL file was given!"
-      if [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
       exit 1
     fi
     NFILES_CSV=0
@@ -152,7 +158,6 @@ then
         fi
       else
         >&2 echo "ERROR: ${CSVFILE} is not a CSV file!"
-        if [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
         exit 1
       fi
     done
@@ -178,7 +183,6 @@ then
       fi
       if [ "${ERRFILE}" ] && [ -f "${ERRFILE}" ]; then
         >&2 echo "ERROR: ${ERRFILE} is malformed!"
-        if [ "${HFILE}" ]; then ${RM} -f "${OFILE}"; fi
         exit 1
       fi
     done
