@@ -9,7 +9,7 @@
 #ifndef OPENCL_ATOMICS_H
 #define OPENCL_ATOMICS_H
 
-#include "opencl_atomics.h"
+#include "opencl_common.h"
 
 #define GLOBAL_VOLATILE(A) global volatile A
 
