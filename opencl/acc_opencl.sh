@@ -49,13 +49,7 @@ process_pre() {
   fi
 }
 
-process_post() {
-  ${SED} \
-    -e '/^[[:space:]]*$/d' -e 's/[[:space:]]*$//' \
-    -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/  "/' -e 's/$/\\n" \\/'
-}
-
-process_main() {
+process() {
   IFS=$'\n'
   while read -r LINE; do
     INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*\"/\"/p" <<<"${LINE}")
@@ -64,13 +58,15 @@ process_main() {
       CLPATH=$(${DIRNAME} "$1")
       FILE=${CLPATH}/${CLINC}
       if [ "${FILE}" ] && [ -e "${FILE}" ]; then
-        process_pre "${FILE}" | process_main "${FILE}"
+        process_pre "${FILE}" | process "${FILE}"
       else
         >&2 echo "ERROR: header file ${FILE} not found!"
         exit 1
       fi
     else
-      process_post <<<"${LINE}"
+      ${SED} <<<"${LINE}" \
+        -e '/^[[:space:]]*$/d' -e 's/[[:space:]]*$//' \
+        -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/  "/' -e 's/$/\\n" \\/'
     fi
   done
   unset IFS
@@ -133,7 +129,7 @@ then
           fi
           echo "#define ${MNAME} ${VNAME}" >>"${OFILE}"
           echo "#define ${SNAME} \\" >>"${OFILE}"
-          process_pre "${CLFILE}" | process_main "${CLFILE}" >>"${OFILE}"
+          process_pre "${CLFILE}" | process "${CLFILE}" >>"${OFILE}"
           echo "  \"\"" >>"${OFILE}"
           echo "static const char ${VNAME}[] = ${SNAME};" >>"${OFILE}"
           NFILES_OCL=$((NFILES_OCL+1))
