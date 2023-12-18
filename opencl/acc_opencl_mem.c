@@ -320,7 +320,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       const int tid = ACC_OPENCL_OMP_TID();
       if (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop) {
         void* const ptr = (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop ? c_dbcsr_acc_opencl_get_hostptr(buffer) : NULL);
-        const cl_context context = c_dbcsr_acc_opencl_context(NULL/*thread_id*/);
+        const cl_context context = c_dbcsr_acc_opencl_context(NULL /*thread_id*/);
         clSVMFree(context, ptr);
       }
     }
