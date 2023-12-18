@@ -90,7 +90,7 @@
 #endif
 /** Counted on a per-thread basis! */
 #if !defined(ACC_OPENCL_STREAMS_MAXCOUNT)
-#  define ACC_OPENCL_STREAMS_MAXCOUNT 128
+#  define ACC_OPENCL_STREAMS_MAXCOUNT 1024
 #endif
 #if !defined(ACC_OPENCL_OVERMALLOC)
 #  if defined(__DBCSR_ACC) || 1
