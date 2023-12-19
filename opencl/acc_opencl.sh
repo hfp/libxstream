@@ -11,6 +11,7 @@
 
 BASENAME=$(command -v basename)
 DIRNAME=$(command -v dirname)
+HEAD=$(command -v head)
 SORT=$(command -v sort)
 SED=$(command -v gsed)
 CPP=$(command -v cpp)
@@ -72,7 +73,7 @@ process() {
   unset IFS
 }
 
-if [ "${BASENAME}" ] && [ "${DIRNAME}" ] && [ "${SORT}" ] && \
+if [ "${BASENAME}" ] && [ "${DIRNAME}" ] && [ "${HEAD}" ] && [ "${SORT}" ] && \
    [ "${SED}" ] && [ "${TR}" ] && [ "${RM}" ] && [ "${WC}" ];
 then
   for OFILE in "$@"; do :; done
@@ -80,6 +81,9 @@ then
     case "$1" in
     -h|--help)
       shift $#;;
+    -b|--banner)
+      BANNER=$2
+      shift 2;;
     -p|--params)
       PARAMS="$2\t"
       shift 2;;
@@ -124,7 +128,11 @@ then
           SNAME=OPENCL_LIBSMM_STRING_${UNAME}
           VNAME=opencl_libsmm_source_${BNAME}
           MNAME=OPENCL_LIBSMM_SOURCE_${UNAME}
-          if [ "0" != "$((0<(NFILES_OCL)))" ]; then echo; fi
+          if [ "0" != "$((0<(NFILES_OCL)))" ]; then
+            echo
+          elif [ "${BANNER}" ] && [ "0" != "${BANNER}" ]; then
+            ${HEAD} -n"${BANNER}" "${CLFILE}"
+          fi
           echo "#define ${MNAME} ${VNAME}"
           echo "#define ${SNAME} \\"
           process_pre "${CLFILE}" | process "${CLFILE}"
@@ -217,6 +225,7 @@ then
   else
     echo "Usage: $0 infile.cl [infile2.cl .. infileN.cl] [infile.csv [.. infileN.csv]] outfile.h"
     echo "       At least one OpenCL file and one header file must be supplied."
+    echo "       -b|--banner N: number of lines used as banner (default: 0)"
     echo "       -p|--params P: directory-path to CSV-files (can be \"\")"
     echo "             default: ${PARAMDIR}"
     echo "       -c|-d|--debug|--comments: keep comments in source-code"
