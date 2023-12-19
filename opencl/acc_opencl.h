@@ -9,11 +9,14 @@
 #ifndef ACC_OPENCL_H
 #define ACC_OPENCL_H
 
-#if !defined(CL_TARGET_OPENCL_VERSION)
-#  define CL_TARGET_OPENCL_VERSION 220
+#if defined(__OFFLOAD_OPENCL) && !defined(__OPENCL)
+#  define __OPENCL
 #endif
 
 #if defined(__OPENCL)
+#  if !defined(CL_TARGET_OPENCL_VERSION)
+#    define CL_TARGET_OPENCL_VERSION 220
+#  endif
 #  if defined(__APPLE__)
 #    include <OpenCL/cl.h>
 #  else
