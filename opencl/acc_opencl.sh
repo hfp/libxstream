@@ -125,7 +125,7 @@ then
     for CLFILE in ${*:1:${#@}-1}; do
       if [ "${CLFILE##*.}" = "cl" ]; then
         if [ -e "${CLFILE}" ]; then
-          CNAME=$(${BASENAME} "${CLFILE}" .cl)
+          CNAME=$(${BASENAME} "${CLFILE}" .cl | ${SED} "s/${RNAME}_//")
           BNAME=$(${TR} '[:lower:]' '[:upper:]' <<<"${CNAME}")
           SNAME=OPENCL_${ANAME}_STRING_${BNAME}
           VNAME=opencl_${RNAME}_source_${CNAME}
