@@ -66,7 +66,7 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, const size_t* amount, s
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
   if (NULL != c_dbcsr_acc_opencl_config.clmems && NULL != memory) {
-    const char *const buffer = (const char*)memory;
+    const char* const buffer = (const char*)memory;
     const size_t n = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
     size_t i = c_dbcsr_acc_opencl_config.nclmems, hit = (size_t)-1;
     for (; i < n; ++i) {
@@ -81,7 +81,9 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, const size_t* amount, s
         const size_t d = buffer - mem;
         if (d < hit && NULL != offset) {
           size_t s = 0;
-          if (NULL == amount || (CL_SUCCESS == clGetMemObjectInfo(mem, CL_MEM_SIZE, sizeof(size_t), &s, NULL) && (*amount + d) <= s)) {
+          if (NULL == amount ||
+              (CL_SUCCESS == clGetMemObjectInfo(mem, CL_MEM_SIZE, sizeof(size_t), &s, NULL) && (*amount + d) <= s))
+          {
             *offset = hit = d;
             result = handle;
           }
