@@ -61,7 +61,7 @@ c_dbcsr_acc_opencl_info_hostptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory)
 }
 
 
-void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset, size_t* size) {
+void* c_dbcsr_acc_opencl_info_devptr(const void* memory, const size_t* amount, size_t* offset) {
   void* result = NULL;
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
@@ -81,7 +81,7 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset, size_t*
         const size_t d = buffer - mem;
         if (d < hit && NULL != offset) {
           size_t s = 0;
-          if (NULL == size || (CL_SUCCESS == clGetMemObjectInfo(mem, CL_MEM_SIZE, sizeof(size_t), &s, NULL) && (*size + d) < s)) {
+          if (NULL == amount || (CL_SUCCESS == clGetMemObjectInfo(mem, CL_MEM_SIZE, sizeof(size_t), &s, NULL) && (*amount + d) <= s)) {
             *offset = hit = d;
             result = handle;
           }
@@ -91,6 +91,7 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset, size_t*
   }
 #  else
   LIBXSMM_UNUSED(memory);
+  LIBXSMM_UNUSED(amount);
   LIBXSMM_UNUSED(offset);
 #  endif
   return result;
@@ -305,7 +306,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #      pragma omp critical(c_dbcsr_acc_dev_mem_deallocate)
 #    endif
     {
-      void** handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*offset*/, NULL /*size*/);
+      void** handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, NULL /*amount*/, NULL /*offset*/);
       if (NULL != handle) {
         void** const pfree = c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems];
         libxsmm_pfree(pfree, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
@@ -377,7 +378,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     assert(NULL != c_dbcsr_acc_opencl_config.clmems);
     {
-      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &offset, &nbytes);
+      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &nbytes, &offset);
       if (NULL != handle) buffer = *(cl_mem*)handle;
 #    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
       else result = EXIT_FAILURE;
@@ -424,7 +425,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     assert(NULL != c_dbcsr_acc_opencl_config.clmems);
     {
-      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &offset, &nbytes);
+      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &nbytes, &offset);
       if (NULL != handle) buffer = *(cl_mem*)handle;
 #    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
       else result = EXIT_FAILURE;
@@ -481,8 +482,8 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     assert(NULL != c_dbcsr_acc_opencl_config.clmems);
     {
-      void* const handle_src = c_dbcsr_acc_opencl_info_devptr(devmem_src, &src_offset, &nbytes);
-      void* const handle_dst = c_dbcsr_acc_opencl_info_devptr(devmem_dst, &dst_offset, &nbytes);
+      void* const handle_src = c_dbcsr_acc_opencl_info_devptr(devmem_src, &nbytes, &src_offset);
+      void* const handle_dst = c_dbcsr_acc_opencl_info_devptr(devmem_dst, &nbytes, &dst_offset);
       if (NULL != handle_src) src = *(cl_mem*)handle_src;
 #    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
       else result = EXIT_FAILURE;
@@ -557,7 +558,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
 #  if defined(ACC_OPENCL_MEM_OFFSET) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && \
     defined(ACC_OPENCL_HANDLES_MAXCOUNT) && (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (0 == offset && NULL != c_dbcsr_acc_opencl_config.clmems) {
-      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &offset, &nbytes);
+      void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, &nbytes, &offset);
       if (NULL != handle) buffer = *(cl_mem*)handle;
 #    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
       else result = EXIT_FAILURE;

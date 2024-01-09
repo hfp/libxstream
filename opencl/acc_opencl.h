@@ -291,7 +291,7 @@ typedef struct c_dbcsr_acc_opencl_info_hostptr_t {
 c_dbcsr_acc_opencl_info_hostptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
 
 /** Determines cl_mem object and offset of memory. */
-void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t* offset, size_t* size);
+void* c_dbcsr_acc_opencl_info_devptr(const void* memory, const size_t* amount, size_t* offset);
 
 /** Information about streams (c_dbcsr_acc_stream_create). */
 typedef struct c_dbcsr_acc_opencl_info_stream_t {
