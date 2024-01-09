@@ -71,7 +71,7 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, const size_t* amount, s
     size_t i = c_dbcsr_acc_opencl_config.nclmems, hit = (size_t)-1;
     for (; i < n; ++i) {
       void** const handle = c_dbcsr_acc_opencl_config.clmems[i];
-      const char* const mem = (const char*)(NULL != handle ? *handle : NULL);
+      char* const mem = (char*)(NULL != handle ? *handle : NULL);
       if (mem == buffer) { /* fast-path */
         if (NULL != offset) *offset = 0;
         result = handle;
