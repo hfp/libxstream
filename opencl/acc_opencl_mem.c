@@ -78,15 +78,13 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, const size_t* amount, s
         break;
       }
       else {
-        const size_t d = buffer - mem;
-        if (d < hit && NULL != offset) {
-          size_t s = 0;
-          if (NULL == amount ||
-              (CL_SUCCESS == clGetMemObjectInfo(mem, CL_MEM_SIZE, sizeof(size_t), &s, NULL) && (*amount + d) <= s))
-          {
-            *offset = hit = d;
-            result = handle;
-          }
+        size_t d = buffer - mem, s = 0;
+        if (d < hit && NULL != offset &&
+            (NULL == amount ||
+              (CL_SUCCESS == clGetMemObjectInfo((cl_mem)mem, CL_MEM_SIZE, sizeof(size_t), &s, NULL) && (*amount + d) <= s)))
+        {
+          *offset = hit = d;
+          result = handle;
         }
       }
     }
