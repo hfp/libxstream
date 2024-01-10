@@ -180,6 +180,9 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   else {
     result = EXIT_FAILURE;
   }
+#  if defined(_OPENMP) && 0
+#    pragma omp critical(c_dbcsr_acc_opencl_stream)
+#  endif
   if (EXIT_SUCCESS == result) {
     void** const streams = c_dbcsr_acc_opencl_config.streams + ACC_OPENCL_STREAMS_MAXCOUNT * tid;
     for (i = 0; i < ACC_OPENCL_STREAMS_MAXCOUNT; ++i) {
@@ -198,6 +201,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
         info->pointer = (void*)address;
         info->priority = priority;
         info->tid = tid;
+        *(cl_command_queue*)aligned = queue;
         streams[i] = *stream_p = (void*)aligned;
         assert(queue == *ACC_OPENCL_STREAM(streams[i]));
         assert(queue == *ACC_OPENCL_STREAM(*stream_p));
