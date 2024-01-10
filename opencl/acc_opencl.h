@@ -115,6 +115,10 @@
 #    define ACC_OPENCL_STREAM_PRIORITIES
 #  endif
 #endif
+/** Streams are registered in compact/consecutive fashion */
+#if !defined(ACC_OPENCL_STREAM_COMPACT) && 1
+#  define ACC_OPENCL_STREAM_COMPACT
+#endif
 /** Stream-argument (ACC-interface) can be NULL (synchronous) */
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
