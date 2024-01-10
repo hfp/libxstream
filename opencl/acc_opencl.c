@@ -576,10 +576,7 @@ int c_dbcsr_acc_init(void) {
         if (EXIT_SUCCESS == result) {
           const int nelements = ACC_OPENCL_STREAMS_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
           c_dbcsr_acc_opencl_config.streams = (void**)calloc(nelements, sizeof(void*)); /* allocate streams */
-          if (NULL != c_dbcsr_acc_opencl_config.streams) { /* allocate counters */
-            c_dbcsr_acc_opencl_config.stats = (cl_command_queue*)calloc(nelements, sizeof(cl_command_queue));
-          }
-          else result = EXIT_FAILURE;
+          if (NULL == c_dbcsr_acc_opencl_config.streams) result = EXIT_FAILURE;
         }
       }
     }
@@ -626,29 +623,6 @@ int c_dbcsr_acc_finalize(void) {
           EXIT_SUCCESS == c_dbcsr_acc_opencl_device_id(device, NULL /*devid*/, &d))
       {
         fprintf(stderr, " device=%i", d);
-      }
-      if (NULL != c_dbcsr_acc_opencl_config.stats) {
-        const int nelements = ACC_OPENCL_STREAMS_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
-        cl_command_queue s = NULL;
-        int nstreams, j;
-        fprintf(stderr, " streams={");
-        for (i = 0; i < nelements; i += ACC_OPENCL_STREAMS_MAXCOUNT) {
-          for (j = 0, nstreams = 0; j < ACC_OPENCL_STREAMS_MAXCOUNT; ++j) {
-            if (NULL != c_dbcsr_acc_opencl_config.stats[i + j]) ++nstreams;
-          }
-          if (0 != nstreams || 0 == i) fprintf(stderr, 0 < i ? " %i" : "%i", nstreams);
-        }
-        qsort(c_dbcsr_acc_opencl_config.stats, nelements, sizeof(cl_command_queue),
-          c_dbcsr_acc_opencl_order_streams); /* NULL -> upper end */
-        for (i = 0, nstreams = 0; i < nelements; ++i) {
-          const cl_command_queue q = c_dbcsr_acc_opencl_config.stats[i];
-          if (NULL != q && s != q) {
-            s = q;
-            ++nstreams;
-          }
-        }
-        free(c_dbcsr_acc_opencl_config.stats); /* release buffer */
-        fprintf(stderr, "} nstreams=%i", nstreams);
       }
       fprintf(stderr, "\n");
     }

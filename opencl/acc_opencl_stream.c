@@ -183,7 +183,6 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   }
   if (EXIT_SUCCESS == result) {
     const int base = ACC_OPENCL_STREAMS_MAXCOUNT * tid;
-    cl_command_queue* const stats = c_dbcsr_acc_opencl_config.stats + base;
     streams = c_dbcsr_acc_opencl_config.streams + base;
     for (i = 0; i < ACC_OPENCL_STREAMS_MAXCOUNT; ++i) {
       if (NULL == streams[i]) break;
@@ -201,7 +200,6 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
         info->pointer = (void*)address;
         info->priority = priority;
         info->tid = tid;
-        stats[i] = *(cl_command_queue*)aligned = queue;
         streams[i] = *stream_p = (void*)aligned;
         assert(queue == *ACC_OPENCL_STREAM(streams[i]));
         assert(queue == *ACC_OPENCL_STREAM(*stream_p));
