@@ -89,11 +89,11 @@
 #endif
 /** Counted on a per-thread basis! */
 #if !defined(ACC_OPENCL_HANDLES_MAXCOUNT)
-#  define ACC_OPENCL_HANDLES_MAXCOUNT 1024
+#  define ACC_OPENCL_HANDLES_MAXCOUNT 64
 #endif
 /** Counted on a per-thread basis! */
 #if !defined(ACC_OPENCL_STREAMS_MAXCOUNT)
-#  define ACC_OPENCL_STREAMS_MAXCOUNT 1024
+#  define ACC_OPENCL_STREAMS_MAXCOUNT 64
 #endif
 #if !defined(ACC_OPENCL_OVERMALLOC)
 #  if defined(__DBCSR_ACC) || 1
@@ -265,6 +265,8 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_int ndevices;
   /** Maximum number of threads (omp_get_max_threads). */
   cl_int nthreads;
+  /** Maximum number of streams per thread. */
+  cl_int nstreams;
   /** How to apply/use stream priorities. */
   cl_int priority;
   /** How to zero/copy device-side buffers. */

@@ -221,8 +221,11 @@ int c_dbcsr_acc_init(void) {
 #  if defined(_OPENMP)
     const int max_threads = omp_get_max_threads(), num_threads = omp_get_num_threads();
     c_dbcsr_acc_opencl_config.nthreads = (num_threads < max_threads ? max_threads : num_threads);
+    c_dbcsr_acc_opencl_config.nstreams = (num_threads < max_threads ? LIBXSMM_MAX(max_threads, ACC_OPENCL_STREAMS_MAXCOUNT)
+                                                                    : ACC_OPENCL_STREAMS_MAXCOUNT);
 #  else
     c_dbcsr_acc_opencl_config.nthreads = 1;
+    c_dbcsr_acc_opencl_config.nstreams = ACC_OPENCL_STREAMS_MAXCOUNT;
 #  endif
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
@@ -566,7 +569,7 @@ int c_dbcsr_acc_init(void) {
         }
 #  endif
         if (EXIT_SUCCESS == result) {
-          const int nelements = ACC_OPENCL_STREAMS_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+          const int nelements = c_dbcsr_acc_opencl_config.nthreads * c_dbcsr_acc_opencl_config.nstreams;
           c_dbcsr_acc_opencl_config.streams = (void**)calloc(nelements, sizeof(void*)); /* allocate streams */
           if (NULL == c_dbcsr_acc_opencl_config.streams) result = EXIT_FAILURE;
         }
@@ -1052,12 +1055,12 @@ int c_dbcsr_acc_set_active_device(int device_id) {
 
 
 int c_dbcsr_acc_opencl_device_synchronize(int thread_id) {
-  void** const streams = c_dbcsr_acc_opencl_config.streams + ACC_OPENCL_STREAMS_MAXCOUNT * thread_id;
+  void** const streams = c_dbcsr_acc_opencl_config.streams + thread_id * c_dbcsr_acc_opencl_config.nstreams;
   int result = EXIT_SUCCESS;
   int i = 0;
   assert(0 <= thread_id && thread_id < c_dbcsr_acc_opencl_config.nthreads);
   assert(NULL != c_dbcsr_acc_opencl_config.streams);
-  for (; i < ACC_OPENCL_STREAMS_MAXCOUNT; ++i) {
+  for (; i < c_dbcsr_acc_opencl_config.nstreams; ++i) {
     void* const stream = streams[i];
     if (NULL != stream) {
       result = c_dbcsr_acc_stream_sync(stream);
