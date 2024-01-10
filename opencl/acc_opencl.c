@@ -170,14 +170,6 @@ int c_dbcsr_acc_opencl_order_devices(const void* dev_a, const void* dev_b) {
 }
 
 
-int c_dbcsr_acc_opencl_order_streams(const void* /*a*/, const void* /*b*/);
-int c_dbcsr_acc_opencl_order_streams(const void* a, const void* b) { /* NULL-pointers are sorted to the upper end */
-  const cl_command_queue *const p = (const cl_command_queue*)a, *const q = (const cl_command_queue*)b;
-  assert(NULL != p && NULL != q);
-  return *p < *q ? -1 : (*p > *q ? 1 : 0);
-}
-
-
 LIBXSMM_ATTRIBUTE_CTOR void c_dbcsr_acc_opencl_init(void) {
   /* attempt to  automatically initialize backend */
   ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_init());
@@ -1071,9 +1063,9 @@ int c_dbcsr_acc_opencl_device_synchronize(int thread_id) {
       result = c_dbcsr_acc_stream_sync(stream);
       if (EXIT_SUCCESS != result) break;
     }
-#if defined(ACC_OPENCL_STREAM_COMPACT)
+#  if defined(ACC_OPENCL_STREAM_COMPACT)
     else break;
-#endif
+#  endif
   }
   return result;
 }

@@ -181,7 +181,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     result = EXIT_FAILURE;
   }
   if (EXIT_SUCCESS == result) {
-    void* *const streams = c_dbcsr_acc_opencl_config.streams + ACC_OPENCL_STREAMS_MAXCOUNT * tid;
+    void** const streams = c_dbcsr_acc_opencl_config.streams + ACC_OPENCL_STREAMS_MAXCOUNT * tid;
     for (i = 0; i < ACC_OPENCL_STREAMS_MAXCOUNT; ++i) {
       if (NULL == streams[i]) break;
     }
@@ -242,27 +242,27 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
       int tid = 0, i = ACC_OPENCL_STREAMS_MAXCOUNT;
       assert(NULL != c_dbcsr_acc_opencl_config.streams);
       for (; tid < c_dbcsr_acc_opencl_config.nthreads; ++tid) { /* unregister */
-        void* *const streams = c_dbcsr_acc_opencl_config.streams + ACC_OPENCL_STREAMS_MAXCOUNT * tid;
+        void** const streams = c_dbcsr_acc_opencl_config.streams + ACC_OPENCL_STREAMS_MAXCOUNT * tid;
         for (i = 0; i < ACC_OPENCL_STREAMS_MAXCOUNT; ++i) {
           if (stream == streams[i]) {
-#if defined(ACC_OPENCL_STREAM_COMPACT)
+#  if defined(ACC_OPENCL_STREAM_COMPACT)
             const int j = i + 1, k = ACC_OPENCL_STREAMS_MAXCOUNT - j;
             if (j < ACC_OPENCL_STREAMS_MAXCOUNT && NULL != streams[j]) { /* compacting streams is not thread-safe */
               memmove(streams + i, streams + j, sizeof(void*) * k);
             }
-#else
+#  else
             const int k = i;
-#endif
+#  endif
             streams[k] = NULL;
             tid = c_dbcsr_acc_opencl_config.nthreads; /* leave outer loop */
             result = result_release; /* promote */
             break;
           }
-#if defined(ACC_OPENCL_STREAM_COMPACT)
+#  if defined(ACC_OPENCL_STREAM_COMPACT)
           else if (NULL == streams[i]) { /* compact streams */
             break;
           }
-#endif
+#  endif
         }
       }
     }
