@@ -56,7 +56,6 @@ extern "C" {
 c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
 
-#  if !defined(NDEBUG)
 void c_dbcsr_acc_opencl_notify(const char /*errinfo*/[], const void* /*private_info*/, size_t /*cb*/, void* /*user_data*/);
 void c_dbcsr_acc_opencl_notify(const char errinfo[], const void* private_info, size_t cb, void* user_data) {
   LIBXSMM_UNUSED(private_info);
@@ -64,7 +63,6 @@ void c_dbcsr_acc_opencl_notify(const char errinfo[], const void* private_info, s
   LIBXSMM_UNUSED(user_data);
   fprintf(stderr, "ERROR ACC/OpenCL: %s\n", errinfo);
 }
-#  endif
 
 
 cl_context c_dbcsr_acc_opencl_context(int* thread_id) {
@@ -919,11 +917,8 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id active_id) {
   result = clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL);
   assert(CL_SUCCESS != result || NULL != platform);
   if (CL_SUCCESS == result) {
-#  if defined(NDEBUG)
-    void (*const notify)(const char*, const void*, size_t, void*) = NULL;
-#  else
-    void (*const notify)(const char*, const void*, size_t, void*) = c_dbcsr_acc_opencl_notify;
-#  endif
+    void (*const notify)(
+      const char*, const void*, size_t, void*) = (0 != c_dbcsr_acc_opencl_config.verbosity ? c_dbcsr_acc_opencl_notify : NULL);
     cl_context_properties properties[] = {
       CL_CONTEXT_PLATFORM, 0 /*placeholder*/, 0 /* end of properties */
     };
