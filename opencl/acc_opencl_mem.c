@@ -74,10 +74,11 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, const size_t* amount, s
       char* const mem = (char*)(NULL != handle ? *handle : NULL);
       if (mem == buffer) { /* fast-path */
         if (NULL != offset) *offset = 0;
+        assert(NULL != mem);
         result = handle;
         break;
       }
-      else {
+      else if (NULL != mem) {
         size_t d = buffer - mem, s = 0;
         if (d < hit && NULL != offset &&
             (NULL == amount ||
