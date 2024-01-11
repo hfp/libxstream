@@ -1002,27 +1002,30 @@ int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id) {
           }
         }
         if (EXIT_SUCCESS == result) { /* update/cache device-specific information */
-          char devname[ACC_OPENCL_BUFFERSIZE];
+          result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device[thread_id].level,
+            c_dbcsr_acc_opencl_config.device[thread_id].level + 1, NULL /*cl_std*/,
+            &c_dbcsr_acc_opencl_config.device[thread_id].type);
+          if (EXIT_SUCCESS == result) {
+            char devname[ACC_OPENCL_BUFFERSIZE];
 #  if defined(CL_VERSION_2_0)
-          const char* const env_svm = getenv("ACC_OPENCL_SVM");
-          int level_major = 0;
-          const int nok = (NULL == env_svm || EXIT_SUCCESS != c_dbcsr_acc_opencl_device_level(active_id, &level_major,
-                                                                NULL /*level_minor*/, NULL /*cl_std*/, NULL /*type*/));
-          c_dbcsr_acc_opencl_config.device[thread_id].svm_interop = ((0 != nok || 2 > level_major) ? 0 : atoi(env_svm));
+            const char* const env_svm = getenv("ACC_OPENCL_SVM");
+            c_dbcsr_acc_opencl_config.device[thread_id].svm_interop =
+              ((NULL == env_svm || 2 > *c_dbcsr_acc_opencl_config.device[thread_id].level) ? 0 : atoi(env_svm));
 #  endif
-          if (CL_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool),
-                              &c_dbcsr_acc_opencl_config.device[thread_id].unified, NULL))
-          {
-            c_dbcsr_acc_opencl_config.device[thread_id].unified = CL_FALSE;
+            if (CL_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool),
+                                &c_dbcsr_acc_opencl_config.device[thread_id].unified, NULL))
+            {
+              c_dbcsr_acc_opencl_config.device[thread_id].unified = CL_FALSE;
+            }
+            if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_name(active_id, devname, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/,
+                                  0 /*platform_maxlen*/, /*cleanup*/ 1) ||
+                EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(active_id, devname, &c_dbcsr_acc_opencl_config.device[thread_id].uid))
+            {
+              c_dbcsr_acc_opencl_config.device[thread_id].uid = (cl_uint)-1;
+            }
+            c_dbcsr_acc_opencl_config.device[thread_id].intel =
+              (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/) ? CL_TRUE : CL_FALSE);
           }
-          if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_name(active_id, devname, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/,
-                                0 /*platform_maxlen*/, /*cleanup*/ 1) ||
-              EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(active_id, devname, &c_dbcsr_acc_opencl_config.device[thread_id].uid))
-          {
-            c_dbcsr_acc_opencl_config.device[thread_id].uid = (cl_uint)-1;
-          }
-          c_dbcsr_acc_opencl_config.device[thread_id].intel =
-            (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/) ? CL_TRUE : CL_FALSE);
         }
       }
     }
@@ -1130,7 +1133,7 @@ int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max
 }
 
 
-int c_dbcsr_acc_opencl_build_flags(const char build_params[], const char build_options[], const char try_build_options[],
+int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
   const char cl_std[], char buffer[], size_t buffer_size) {
   int result;
   if (NULL != buffer) {
@@ -1329,13 +1332,12 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     program = clCreateProgramWithSource(context, 1 /*nlines*/, &ext_source, NULL, &result);
     if (CL_SUCCESS == result) {
       assert(NULL != program);
-      result = c_dbcsr_acc_opencl_build_flags(build_params, build_options, try_build_options, cl_std, buffer, sizeof(buffer));
+      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, cl_std, buffer, sizeof(buffer));
       if (EXIT_SUCCESS == result) {
         result = clBuildProgram(program, 1 /*num_devices*/, &active_id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (CL_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
-        result = c_dbcsr_acc_opencl_build_flags(
-          build_params, build_options, NULL /*try_build_options*/, cl_std, buffer, sizeof(buffer));
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, cl_std, buffer, sizeof(buffer));
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
           program = clCreateProgramWithSource(context, 1 /*nlines*/, &ext_source, NULL, &result);
@@ -1423,13 +1425,12 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     }
     if (CL_SUCCESS == result) {
       assert(NULL != program);
-      result = c_dbcsr_acc_opencl_build_flags(build_params, build_options, try_build_options, cl_std, buffer, sizeof(buffer));
+      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, cl_std, buffer, sizeof(buffer));
       if (EXIT_SUCCESS == result) {
         result = clBuildProgram(program, 1 /*num_devices*/, &active_id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (CL_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
-        result = c_dbcsr_acc_opencl_build_flags(
-          build_params, build_options, NULL /*try_build_options*/, cl_std, buffer, sizeof(buffer));
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, cl_std, buffer, sizeof(buffer));
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
 #  if defined(CL_VERSION_2_1)

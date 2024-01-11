@@ -1160,14 +1160,12 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
       /* determine kernel-kind (mini-batch vs. mini-kernel) */
       if (1 == bs || 0 > s || (bs * s) > stack_size) kernel_idx = bs = 1;
       if (NULL == config || NULL == config->kernel[kernel_idx]) {
-        char buffer[ACC_OPENCL_BUFFERSIZE], build_params[ACC_OPENCL_BUFFERSIZE];
-        char fname[ACC_OPENCL_MAXSTRLEN];
-        int cl_level_major, nchar = LIBXSMM_SNPRINTF(fname, sizeof(fname),
-                              /* kernel name are meant to be unambiguous (BLAS-typeprefix and kernelsize) */
-                              "x" OPENCL_LIBSMM_KERNELNAME_SMM "%ix%ix%i", m_max, n_max, k_max);
+        char buffer[ACC_OPENCL_BUFFERSIZE], build_params[ACC_OPENCL_BUFFERSIZE], fname[ACC_OPENCL_MAXSTRLEN];
+        int nchar = LIBXSMM_SNPRINTF(fname, sizeof(fname),
+          /* kernel name are meant to be unambiguous (BLAS-typeprefix and kernelsize) */
+          "x" OPENCL_LIBSMM_KERNELNAME_SMM "%ix%ix%i", m_max, n_max, k_max);
         const char* extensions[] = {NULL, NULL};
         cl_device_id active_device = NULL;
-        cl_device_type device_type = 0;
 #    if defined(__DBCSR_ACC)
         int routine_handle;
         c_dbcsr_timeset(LIBSMM_ACC_PROCESS_ROUTINE_NAME_STRPTR, LIBSMM_ACC_PROCESS_ROUTINE_NAME_LENPTR, &routine_handle);
@@ -1176,10 +1174,6 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                     ? clGetCommandQueueInfo(queue, CL_QUEUE_DEVICE, sizeof(cl_device_id), &active_device, NULL)
                     : EXIT_FAILURE);
         if (EXIT_SUCCESS == result) {
-          result = c_dbcsr_acc_opencl_device_level(
-            active_device, &cl_level_major, NULL /*level_minor*/, NULL /*cl_std*/, &device_type);
-        }
-        if (EXIT_SUCCESS == result) {
           const char *tname = NULL, *atomic_type = "";
           int std_c11 = 0;
           switch (datatype) {
@@ -1187,7 +1181,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
               extensions[0] = "cl_khr_fp64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
               tname = "double";
               fname[0] = 'd';
-              if (2 <= cl_level_major && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions, 1)) {
+              if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions, 1)) {
                 atomic_type = "-DTA=long -DTA2=atomic_long -DTF=atomic_double";
                 std_c11 = 1;
               }
@@ -1198,7 +1192,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 }
                 else { /* fallback */
                   extensions[0] = "cl_khr_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
-                  if (2 <= cl_level_major && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions, 1)) {
+                  if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions, 1)) {
                     atomic_type = "-DATOMIC32_ADD64 -DTA=int -DTA2=atomic_int -DTF=atomic_double";
                     std_c11 = 1;
                   }
@@ -1214,7 +1208,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             } break;
             case dbcsr_type_real_4: {
               extensions[0] = "cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
-              if (2 <= cl_level_major && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions, 1)) {
+              if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions, 1)) {
                 extensions[1] = "cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
                 atomic_type = "-DTA=int -DTA2=atomic_int -DTF=atomic_float";
                 std_c11 = 1;
@@ -1428,7 +1422,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 const char *barrier_expr = NULL, *atomic_ops = "";
                 const char *atomic_exp = NULL, *atomic_expr2 = "";
                 if (NULL == env_barrier || '0' != *env_barrier) {
-                  barrier_expr = ((0 != std_c11 && (0 == devinfo->intel || (CL_DEVICE_TYPE_CPU != device_type)))
+                  barrier_expr = ((0 != std_c11 && (0 == devinfo->intel || (CL_DEVICE_TYPE_CPU != devinfo->type)))
                                     ? "-D\"BARRIER(A)=work_group_barrier(A,memory_scope_work_group)\""
                                     : "-D\"BARRIER(A)=barrier(A)\"");
                 }
@@ -1550,9 +1544,9 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 if (0 < nchar && (int)sizeof(build_params) > nchar) {
                   const char* const cl_debug = (
 #    if !defined(NDBGDEV)
-                    (0 != devinfo->intel && CL_DEVICE_TYPE_CPU != device_type) ? "-gline-tables-only" :
+                    (0 != devinfo->intel && CL_DEVICE_TYPE_CPU != devinfo->type) ? "-gline-tables-only" :
 #    endif
-                                                                               "");
+                                                                                 "");
                   nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer), "-cl-fast-relaxed-math -cl-denorms-are-zero %s %s %s",
                     NULL == env_cl ? "" : env_cl, (0 == new_config.flags || 0 == devinfo->intel) ? "" : intel_xf, cl_debug);
                   if (0 >= nchar || (int)sizeof(buffer) <= nchar) result = EXIT_FAILURE;

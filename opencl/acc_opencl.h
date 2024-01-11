@@ -228,16 +228,20 @@ typedef enum c_dbcsr_acc_opencl_timer_t {
 typedef struct c_dbcsr_acc_opencl_device_t {
   /** Activated device context. */
   cl_context context;
+  /** OpenCL support-level of device. */
+  cl_int level[2];
+  /** Kind of device (GPU, CPU, or other). */
+  cl_device_type type;
 #if defined(CL_VERSION_2_0)
   /** Runtime SVM support. */
   cl_bool svm_interop;
 #endif
+  /** Whether host memory is unified. */
+  cl_bool unified;
   /** Device-ID. */
   cl_uint uid;
   /** Intel device? */
   cl_bool intel;
-  /** Whether host memory is unified or not. */
-  cl_bool unified;
 } c_dbcsr_acc_opencl_device_t;
 
 /**
@@ -324,7 +328,7 @@ int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], uns
 /** Based on the device-ID, return the device's UID (capture or calculate), device name, and platform name. */
 int c_dbcsr_acc_opencl_device_name(
   cl_device_id device, char name[], size_t name_maxlen, char platform[], size_t platform_maxlen, int cleanup);
-/** Return the OpenCL support level for the given device. */
+/** Return the OpenCL support-level for the given device. */
 int c_dbcsr_acc_opencl_device_level(cl_device_id device, int* level_major, int* level_minor, char cl_std[16], cl_device_type* type);
 /** Check if given device supports the extensions. */
 int c_dbcsr_acc_opencl_device_ext(cl_device_id device, const char* const extnames[], int num_exts);
@@ -334,9 +338,8 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id device_id);
 int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id);
 /** Get preferred multiple and max. size of workgroup (kernel- or device-specific). */
 int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max_value, size_t* preferred_multiple);
-/** Assemble various flags for calling clBuildProgram into the given buffer.*/
 /** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
-int c_dbcsr_acc_opencl_build_flags(const char build_params[], const char build_options[], const char try_build_options[],
+int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
   const char cl_std[], char buffer[], size_t buffer_size);
 /**
  * Build kernel from source with given kernel_name, build_params and build_options.
