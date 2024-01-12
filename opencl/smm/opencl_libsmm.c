@@ -1251,10 +1251,10 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
               const char *const env_ab = getenv("OPENCL_LIBSMM_SMM_AB"), *const env_ac = getenv("OPENCL_LIBSMM_SMM_AC");
               const char *const env_xf = getenv("OPENCL_LIBSMM_SMM_XF"), *const env_cl = getenv("OPENCL_LIBSMM_SMM_BUILDOPTS");
               const char* const intel_xf = "-cl-intel-256-GRF-per-thread";
-              const int cl_nonv = (0 != devinfo->intel || EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(
+              const int cl_nonv = (0 == devinfo->intel || EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(
                                                                             active_device, "nvidia", 0 /*use_platform_name*/));
               const int cl_noamd =
-                (0 != devinfo->intel || !cl_nonv ||
+                (0 == devinfo->intel || !cl_nonv ||
                   (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 0 /*use_platform_name*/) &&
                     EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 1 /*use_platform_name*/)));
               const int default_lu = (0 != devinfo->intel ? -1 : 0);
