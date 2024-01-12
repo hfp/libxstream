@@ -1132,6 +1132,171 @@ int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max
   return result;
 }
 
+#if 0
+int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
+  const c_dbcsr_acc_opencl_device_t* devinfo, int use_atomics, int use_barrier, char flags[], size_t flags_maxlen) {
+  const char* extensions[] = {NULL, NULL};
+  const char *tname = NULL, *atomic_type = "";
+  int result = EXIT_SUCCESS, std_c11 = 0;
+  if (NULL != devinfo) {
+    switch (kind) {
+      case c_dbcsr_acc_opencl_atomic_fp_64: {
+        extensions[0] = "cl_khr_fp64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
+        tname = "double";
+        if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+          atomic_type = "-DTA=long -DTA2=atomic_long -DTF=atomic_double";
+          std_c11 = 1;
+        }
+        else {
+          extensions[0] = "cl_khr_fp64 cl_khr_int64_base_atomics";
+          if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+            atomic_type = "-DTA=long";
+          }
+          else { /* fallback */
+            extensions[0] = "cl_khr_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
+            if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+              atomic_type = "-DATOMIC32_ADD64 -DTA=int -DTA2=atomic_int -DTF=atomic_double";
+              std_c11 = 1;
+            }
+            else {
+              extensions[0] = "cl_khr_fp64 cl_khr_global_int32_base_atomics";
+              if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+                atomic_type = "-DATOMIC32_ADD64 -DTA=int";
+              }
+              else tname = NULL;
+            }
+          }
+        }
+      } break;
+      case c_dbcsr_acc_opencl_atomic_fp_32: {
+        extensions[0] = "cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
+        if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+          extensions[1] = "cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
+          atomic_type = "-DTA=int -DTA2=atomic_int -DTF=atomic_float";
+          std_c11 = 1;
+          tname = "float";
+        }
+        else {
+          extensions[0] = "cl_khr_global_int32_base_atomics";
+          if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+            extensions[1] = "cl_khr_int64_base_atomics";
+            atomic_type = "-DTA=int";
+            tname = "float";
+          }
+        }
+      } break;
+      default: result = EXIT_FAILURE;
+    }
+    if (EXIT_SUCCESS == result) {
+      const char *barrier_expr = NULL, *atomic_ops = "";
+      const char *atomic_exp = NULL, *atomic_expr2 = "";
+      if (0 != use_barrier) {
+        barrier_expr = ((0 != std_c11 && (0 == devinfo->intel || (CL_DEVICE_TYPE_CPU != devinfo->type)))
+                          ? "-D\"BARRIER(A)=work_group_barrier(A,memory_scope_work_group)\""
+                          : "-D\"BARRIER(A)=barrier(A)\"");
+      }
+      else barrier_expr = ""; /* no barrier */
+      assert(NULL != barrier_expr);
+      if (0 != use_atomics) { /* can signal an attempt to force atomics without confirmation */
+        if (3 >= use_atomics) {
+          cl_bitfield fp_atomics;
+          if (CL_SUCCESS == clGetDeviceInfo(device_id,
+                              (cl_device_info)(c_dbcsr_acc_opencl_atomic_fp_64 == kind ? 0x4232 : 0x4231), sizeof(cl_bitfield),
+                              &fp_atomics, NULL) &&
+              0 != (/*add*/ (1 << 1) & fp_atomics))
+          {
+            extensions[1] = "cl_ext_float_atomics";
+            atomic_exp = (c_dbcsr_acc_opencl_atomic_fp_64 == kind
+                            ? "atomic_fetch_add_explicit((GLOBAL_VOLATILE(atomic_double)*)A,B,"
+                              "memory_order_relaxed,memory_scope_work_group)"
+                            : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(atomic_float)*)A,B,"
+                              "memory_order_relaxed,memory_scope_work_group)");
+          }
+          else if ((0 != devinfo->intel && 0x4905 != devinfo->uid && 0 == devinfo->unified) || 1 < use_atomics || 0 > use_atomics) {
+            if ((0 != devinfo->intel &&
+                  (c_dbcsr_acc_opencl_atomic_fp_32 == kind || (0x0bd0 <= devinfo->uid && 0x0bdb >= devinfo->uid))) ||
+                (1 < use_atomics || 0 > use_atomics))
+            {
+              if (1 == use_atomics && (0 == devinfo->intel || 0x0bd0 > devinfo->uid || 0x0bdb < devinfo->uid)) {
+                extensions[1] = "cl_intel_global_float_atomics";
+                atomic_ops = "-Dcl_intel_global_float_atomics";
+              }
+              else {
+                atomic_ops = ((0 == std_c11 && 2 > use_atomics)
+                                ? "-DATOMIC_PROTOTYPES=1"
+                                : (3 > use_atomics ? "-DATOMIC_PROTOTYPES=2" : "-DATOMIC_PROTOTYPES=3"));
+              }
+              atomic_exp = ((0 == std_c11 && 2 > use_atomics) ? "atomic_add(A,B)"
+                                                                : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(TF)*)A,B,"
+                                                                  "memory_order_relaxed,memory_scope_work_group)");
+            }
+            else {
+              atomic_exp = "atomic_add_global_cmpxchg(A,B)";
+              atomic_ops = "-DCMPXCHG=atom_cmpxchg";
+            }
+          }
+          else if (cl_nonv) {
+            int gfx90 = 0;
+            if (!cl_noamd && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(device_id, buffer, ACC_OPENCL_BUFFERSIZE,
+                                               NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 1))
+            {
+              const char* const gfxname = LIBXSMM_STRISTR(buffer, "gfx");
+              if (NULL != gfxname && 90 <= atoi(gfxname + 3)) gfx90 = 1;
+            }
+            if (0 == gfx90) {
+              if (NULL != extensions[1] && 1 < bs && 1 == new_config.bn && new_config.bm >= m_max && 0 == new_config.al &&
+                  (0 == (m_max & 1) || (0 == devinfo->intel /*&& cl_nonv*/)) /* TODO */
+                  && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions + 1, 1))
+              {
+                assert(c_dbcsr_acc_opencl_atomic_fp_32 == kind);
+                atomic_expr2 = "-D\"ATOMIC_ADD2_GLOBAL(A,B)=atomic_add_global_cmpxchg2(A,B)\"";
+              }
+              else {
+                extensions[1] = NULL;
+              }
+              atomic_exp = "atomic_add_global_cmpxchg(A,B)";
+              atomic_ops = (c_dbcsr_acc_opencl_atomic_fp_32 == kind ? "-DCMPXCHG=atomic_cmpxchg" : "-DCMPXCHG=atom_cmpxchg");
+            }
+            else {
+              atomic_exp = (c_dbcsr_acc_opencl_atomic_fp_64 == kind
+                              ? "__builtin_amdgcn_global_atomic_fadd_f64(A,B,__ATOMIC_RELAXED)"
+                              : "__builtin_amdgcn_global_atomic_fadd_f32(A,B,__ATOMIC_RELAXED)");
+            }
+          }
+          else {
+            assert(NULL != atomic_ops && '\0' == *atomic_ops);
+            atomic_exp = "atomic_add_global_xchg(A,B)";
+          }
+        }
+        else if (5 >= use_atomics) { /* cmpxchg */
+          if (NULL != extensions[1] && 1 < bs && 1 == new_config.bn && new_config.bm >= m_max && 0 == new_config.al &&
+              (0 == (m_max & 1) || (0 == devinfo->intel && cl_nonv)) && 5 == use_atomics &&
+              EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions + 1, 1))
+          {
+            assert(c_dbcsr_acc_opencl_atomic_fp_32 == kind);
+            atomic_expr2 = "-D\"ATOMIC_ADD2_GLOBAL(A,B)=atomic_add_global_cmpxchg2(A,B)\"";
+          }
+          else {
+            extensions[1] = NULL;
+          }
+          atomic_exp = "atomic_add_global_cmpxchg(A,B)";
+          atomic_ops = (c_dbcsr_acc_opencl_atomic_fp_32 == kind ? "-DCMPXCHG=atomic_cmpxchg" : "-DCMPXCHG=atom_cmpxchg");
+        }
+        else { /* xchg */
+          atomic_exp = "atomic_add_global_xchg(A,B)";
+          atomic_ops = (c_dbcsr_acc_opencl_atomic_fp_32 == kind ? "-DXCHG=atomic_xchg" : "-DXCHG=atom_xchg");
+        }
+      }
+      else { /* unsynchronized */
+        atomic_exp = "*(A)+=(B)"; /* non-atomic update */
+      }
+      assert(NULL != atomic_exp);
+    }
+  }
+  else result = EXIT_FAILURE;
+  return result;
+}
+#endif
 
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
   const char cl_std[], char buffer[], size_t buffer_size) {

@@ -218,12 +218,6 @@
 extern "C" {
 #endif
 
-/** Enumeration of timer kinds used for built-in execution-profile. */
-typedef enum c_dbcsr_acc_opencl_timer_t {
-  c_dbcsr_acc_opencl_timer_device,
-  c_dbcsr_acc_opencl_timer_host
-} c_dbcsr_acc_opencl_timer_t;
-
 /** Settings updated during c_dbcsr_acc_set_active_device. */
 typedef struct c_dbcsr_acc_opencl_device_t {
   /** Activated device context. */
@@ -243,6 +237,12 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   /** Intel device? */
   cl_bool intel;
 } c_dbcsr_acc_opencl_device_t;
+
+/** Enumeration of timer kinds used for built-in execution-profile. */
+typedef enum c_dbcsr_acc_opencl_timer_t {
+  c_dbcsr_acc_opencl_timer_device,
+  c_dbcsr_acc_opencl_timer_host
+} c_dbcsr_acc_opencl_timer_t;
 
 /**
  * Settings discovered/setup during c_dbcsr_acc_init (independent of the device)
@@ -338,9 +338,6 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id device_id);
 int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id);
 /** Get preferred multiple and max. size of workgroup (kernel- or device-specific). */
 int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max_value, size_t* preferred_multiple);
-/** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
-int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
-  const char cl_std[], char buffer[], size_t buffer_size);
 /**
  * Build kernel from source with given kernel_name, build_params and build_options.
  * The build_params are meant to instantiate the kernel (-D) whereas build_options
@@ -353,6 +350,20 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 int c_dbcsr_acc_opencl_device_synchronize(int thread_id);
 /** Create user-event if not created and sets initial state. */
 int c_dbcsr_acc_opencl_event_create(cl_event* event_p);
+
+/** Enumeration of FP-atomic kinds. */
+typedef enum c_dbcsr_acc_opencl_atomic_fp_t {
+  c_dbcsr_acc_opencl_atomic_fp_64,
+  c_dbcsr_acc_opencl_atomic_fp_32
+} c_dbcsr_acc_opencl_atomic_fp_t;
+
+/** Assemble flags to support atomic operations. */
+int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
+  const c_dbcsr_acc_opencl_device_t* devinfo, int use_atomics, int use_barrier, char flags[], size_t flags_maxlen);
+
+/** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
+int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
+  const char cl_std[], char buffer[], size_t buffer_size);
 
 #if defined(__cplusplus)
 }
