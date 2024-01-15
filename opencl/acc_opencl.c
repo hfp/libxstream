@@ -1231,7 +1231,7 @@ int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_
           }
           else if (0 != atomics_force || (0 != devinfo->intel && ((0x4905 != devinfo->uid && 0 == devinfo->unified)))) {
             if ((((0 != atomics_force || (0 != devinfo->intel && ((0x0bd0 <= devinfo->uid && 0x0bdb >= devinfo->uid) ||
-                                                                c_dbcsr_acc_opencl_atomic_fp_32 == kind))))))
+                                                                   c_dbcsr_acc_opencl_atomic_fp_32 == kind))))))
             {
               if (0 == atomics_force && (0 == devinfo->intel || 0x0bd0 > devinfo->uid || 0x0bdb < devinfo->uid)) {
                 exts[ext2] = "cl_intel_global_float_atomics";
