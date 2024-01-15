@@ -1205,7 +1205,6 @@ int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_
       const char *barrier_expr = NULL, *atomic_exp = NULL, *atomic_ops = "";
       const char* const env_barrier = getenv("ACC_OPENCL_BARRIER");
       const char* const env_atomics = getenv("ACC_OPENCL_ATOMICS");
-      int atomics_force = 0;
       if (NULL == env_barrier || '0' != *env_barrier) {
         barrier_expr = ((2 <= *devinfo->level && (0 == devinfo->intel || (CL_DEVICE_TYPE_CPU != devinfo->type)))
                           ? "-D\"BARRIER(A)=work_group_barrier(A,memory_scope_work_group)\""
@@ -1215,8 +1214,8 @@ int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_
       assert(NULL != barrier_expr);
       if (NULL == env_atomics || '0' != *env_atomics) {
         /* can signal/force atomics without confirmation */
-        const int atomics_force = ((NULL == env_atomics || '\0' == *env_atomics) ? 0 : atoi(env_atomics));
-        if (NULL == env_atomics || '\0' == *env_atomics || 0 != atomics_force) {
+        const int force_atomics = ((NULL == env_atomics || '\0' == *env_atomics) ? 0 : atoi(env_atomics));
+        if (NULL == env_atomics || '\0' == *env_atomics || 0 != force_atomics) {
           cl_bitfield fp_atomics;
           if (CL_SUCCESS == clGetDeviceInfo(device_id, (cl_device_info)(c_dbcsr_acc_opencl_atomic_fp_64 == kind ? 0x4232 : 0x4231),
                               sizeof(cl_bitfield), &fp_atomics, NULL) &&
@@ -1229,20 +1228,20 @@ int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_
                             : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(atomic_float)*)A,B,"
                               "memory_order_relaxed,memory_scope_work_group)");
           }
-          else if (0 != atomics_force || (0 != devinfo->intel && ((0x4905 != devinfo->uid && 0 == devinfo->unified)))) {
-            if ((((0 != atomics_force || (0 != devinfo->intel && ((0x0bd0 <= devinfo->uid && 0x0bdb >= devinfo->uid) ||
+          else if (0 != force_atomics || (0 != devinfo->intel && ((0x4905 != devinfo->uid && 0 == devinfo->unified)))) {
+            if ((((0 != force_atomics || (0 != devinfo->intel && ((0x0bd0 <= devinfo->uid && 0x0bdb >= devinfo->uid) ||
                                                                    c_dbcsr_acc_opencl_atomic_fp_32 == kind))))))
             {
-              if (0 == atomics_force && (0 == devinfo->intel || 0x0bd0 > devinfo->uid || 0x0bdb < devinfo->uid)) {
+              if (0 == force_atomics && (0 == devinfo->intel || 0x0bd0 > devinfo->uid || 0x0bdb < devinfo->uid)) {
                 exts[ext2] = "cl_intel_global_float_atomics";
                 atomic_ops = "-Dcl_intel_global_float_atomics";
               }
               else {
-                atomic_ops = ((2 > *devinfo->level && 2 > atomics_force)
+                atomic_ops = ((2 > *devinfo->level && 2 > force_atomics)
                                 ? "-DATOMIC_PROTOTYPES=1"
-                                : (3 > atomics_force ? "-DATOMIC_PROTOTYPES=2" : "-DATOMIC_PROTOTYPES=3"));
+                                : (3 > force_atomics ? "-DATOMIC_PROTOTYPES=2" : "-DATOMIC_PROTOTYPES=3"));
               }
-              atomic_exp = ((2 > *devinfo->level && 2 > atomics_force) ? "atomic_add(A,B)"
+              atomic_exp = ((2 > *devinfo->level && 2 > force_atomics) ? "atomic_add(A,B)"
                                                                        : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(TF)*)A,B,"
                                                                          "memory_order_relaxed,memory_scope_work_group)");
             }
