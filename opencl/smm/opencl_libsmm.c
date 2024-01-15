@@ -1251,12 +1251,6 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
               const char *const env_ab = getenv("OPENCL_LIBSMM_SMM_AB"), *const env_ac = getenv("OPENCL_LIBSMM_SMM_AC");
               const char *const env_xf = getenv("OPENCL_LIBSMM_SMM_XF"), *const env_cl = getenv("OPENCL_LIBSMM_SMM_BUILDOPTS");
               const char* const intel_xf = "-cl-intel-256-GRF-per-thread";
-              const int cl_nonv = (0 == devinfo->intel || EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(
-                                                                            active_device, "nvidia", 0 /*use_platform_name*/));
-              const int cl_noamd =
-                (0 == devinfo->intel || !cl_nonv ||
-                  (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 0 /*use_platform_name*/) &&
-                    EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_device, "amd", 1 /*use_platform_name*/)));
               const int default_lu = (0 != devinfo->intel ? -1 : 0);
               const int unroll = LIBXSMM_MAX(-2, (NULL == env_lu || '\0' == *env_lu)
                                                    ? (0 == kernel_idx ? (NULL == config ? default_lu : config->lu) : default_lu)
@@ -1299,7 +1293,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 0, 1);
               new_config.al = LIBXSMM_CLMP(
                 (NULL == env_al || '\0' == *env_al)
-                  ? (cl_noamd ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->al) : /*default*/ 0) : 1)
+                  ? (0 == devinfo->amd ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->al) : /*default*/ 0) : 1)
                   : atoi(env_al),
                 0, 1);
               new_config.tb = LIBXSMM_CLMP((NULL == env_tb || '\0' == *env_tb)
@@ -1469,18 +1463,19 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                         atomic_ops = "-DCMPXCHG=atom_cmpxchg";
                       }
                     }
-                    else if (cl_nonv) {
+                    else if (0 == devinfo->nv) {
                       int gfx90 = 0;
-                      if (!cl_noamd && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(active_device, buffer, ACC_OPENCL_BUFFERSIZE,
-                                                         NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 1))
+                      if (0 != devinfo->amd &&
+                          EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(active_device, buffer, ACC_OPENCL_BUFFERSIZE,
+                                            NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 1))
                       {
                         const char* const gfxname = LIBXSMM_STRISTR(buffer, "gfx");
                         if (NULL != gfxname && 90 <= atoi(gfxname + 3)) gfx90 = 1;
                       }
                       if (0 == gfx90) {
                         if (NULL != extensions[1] && 1 < bs && 1 == new_config.bn && new_config.bm >= m_max && 0 == new_config.al &&
-                            (0 == (m_max & 1) || (0 == devinfo->intel /*&& cl_nonv*/)) /* TODO */
-                            && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions + 1, 1))
+                            (0 == (m_max & 1) || 0 == devinfo->intel) &&
+                            EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions + 1, 1))
                         {
                           assert(dbcsr_type_real_4 == datatype);
                           atomic_expr2 = "-D\"ATOMIC_ADD2_GLOBAL(A,B)=atomic_add_global_cmpxchg2(A,B)\"";
@@ -1504,7 +1499,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   }
                   else if (NULL != LIBXSMM_STRISTR(env_atomics, "cmpxchg")) {
                     if (NULL != extensions[1] && 1 < bs && 1 == new_config.bn && new_config.bm >= m_max && 0 == new_config.al &&
-                        (0 == (m_max & 1) || (0 == devinfo->intel && cl_nonv)) /* TODO */
+                        (0 == (m_max & 1) || (0 == devinfo->intel && 0 == devinfo->nv)) /* TODO */
                         && '2' == env_atomics[strlen(env_atomics) - 1] &&
                         EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_device, extensions + 1, 1))
                     {

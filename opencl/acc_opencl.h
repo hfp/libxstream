@@ -234,8 +234,8 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   cl_bool unified;
   /** Device-ID. */
   cl_uint uid;
-  /** Intel device? */
-  cl_bool intel;
+  /** Main vendor? */
+  cl_bool intel, amd, nv;
 } c_dbcsr_acc_opencl_device_t;
 
 /** Enumeration of timer kinds used for built-in execution-profile. */
