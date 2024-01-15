@@ -1023,10 +1023,10 @@ int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id) {
             {
               c_dbcsr_acc_opencl_config.device[thread_id].uid = (cl_uint)-1;
             }
-            c_dbcsr_acc_opencl_config.device[thread_id].intel =
-              (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
-            c_dbcsr_acc_opencl_config.device[thread_id].nv =
-              (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
+            c_dbcsr_acc_opencl_config.device[thread_id].intel = (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(
+                                                                                   active_id, "intel", 0 /*use_platform_name*/));
+            c_dbcsr_acc_opencl_config.device[thread_id].nv = (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(
+                                                                                active_id, "nvidia", 0 /*use_platform_name*/));
             if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 0 /*use_platform_name*/) ||
                 EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 1 /*use_platform_name*/))
             {

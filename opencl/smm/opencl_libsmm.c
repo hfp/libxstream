@@ -1285,7 +1285,9 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   : atoi(env_ac),
                 0, 1);
               if (NULL == env_xf || '\0' == *env_xf) {
-                if (0 == devinfo->intel || CL_DEVICE_TYPE_GPU != devinfo->type || NULL == env_cl || NULL == strstr(env_cl, intel_xf)) {
+                if (0 == devinfo->intel || CL_DEVICE_TYPE_GPU != devinfo->type || NULL == env_cl ||
+                    NULL == strstr(env_cl, intel_xf))
+                {
                   new_config.flags = (NULL == config ? /*default*/ 0 : config->flags);
                 }
                 else new_config.flags = 1;
@@ -1411,8 +1413,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
 #    endif
                                                                                  "");
                   nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer), "%s %s -cl-fast-relaxed-math -cl-denorms-are-zero %s",
-                    (0 == new_config.flags || 0 == devinfo->intel || CL_DEVICE_TYPE_GPU != devinfo->type) ? "" : intel_xf,
-                    cl_debug, NULL == env_cl ? "" : env_cl);
+                    (0 == new_config.flags || 0 == devinfo->intel || CL_DEVICE_TYPE_GPU != devinfo->type) ? "" : intel_xf, cl_debug,
+                    NULL == env_cl ? "" : env_cl);
                   if (0 >= nchar || (int)sizeof(buffer) <= nchar) result = EXIT_FAILURE;
                 }
                 else result = EXIT_FAILURE;
