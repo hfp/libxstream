@@ -1378,32 +1378,20 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 nchar = LIBXSMM_SNPRINTF(build_params, sizeof(build_params),
                   "-DMAD=fma -DT=%s -DINTEL=%u -DGLOBAL=%s -DSWG=%i -DSGS=%i -DFN=%s -DREPEAT=%i -DLU=%i "
                   "-DSM=%i -DSN=%i -DSK=%i -DBS=%i -DVL=%i %s -DBM=%i -DBN=%i -DBK=%i "
-                  "%s %s %s %s %s %s %s ", /* space! */
+                  "%s %s %s %s %s %s %s %s ", /* space! */
                   tname, 0 != devinfo->intel ? devinfo->uid : 0, cmem, (int)new_config.wgsize[kernel_idx], (int)sgs, fname,
                   NULL == env_nrepeat ? 1 : atoi(env_nrepeat), new_config.lu, m_max, n_max, k_max, bs, OPENCL_LIBSMM_VMIN,
                   bs == new_config.bs ? "-DBSC" : "", new_config.bm, new_config.bn, new_config.bk,
-                  0 == new_config.tb ? "" : "-DTRACK_B", 0 != new_config.tc ? "-DTRACK_C" : "", 0 == new_config.al ? "" : "-DAL",
+                  0 == new_config.tb ? "" : "-DTRACK_B", 0 != new_config.tc ? "-DTRACK_C" : "",
+                  0 == new_config.nz ? "" : "-DATOMIC_INC_NZ", 0 == new_config.al ? "" : "-DAL",
                   0 == new_config.ap ? "" : "-DSLM_P",
                   0 == new_config.aa ? "" : (1 == slm_a ? "-DSLM_A=1" : (0 != slm_a ? "-DSLM_A=2" : "-DREG_A")),
                   0 == new_config.ab ? "" : (1 == slm_b ? "-DSLM_B=1" : (0 != slm_b ? "-DSLM_B=2" : "-DREG_B")),
                   0 == new_config.ac ? "" : (1 == slm_c ? "-DSLM_C=1" : "-DSLM_C=2"));
                 /* apply support for FP-atomics */
                 if (0 < nchar && (int)sizeof(build_params) > nchar) {
-                  const char* const env_barrier = getenv("OPENCL_LIBSMM_SMM_BARRIER");
-                  const char* const env_atomics = getenv("OPENCL_LIBSMM_SMM_ATOMICS");
-                  int use_atomics = 0;
-                  if (NULL == env_atomics || '0' != *env_atomics) {
-                    if (NULL == env_atomics || '\0' == *env_atomics) {
-                      if (NULL != LIBXSMM_STRISTR(env_atomics, "cmpxchg")) use_atomics = 4;
-                      else if (NULL != LIBXSMM_STRISTR(env_atomics, "xchg")) use_atomics = 5;
-                      else use_atomics = 1;
-                    }
-                    else use_atomics = atoi(env_atomics);
-                  }
-                  else use_atomics = 1;
-                  nchar = c_dbcsr_acc_opencl_flags_atomics(active_device, tkind, devinfo, new_config.nz, use_atomics,
-                    NULL == env_barrier || '0' != *env_barrier, extensions, sizeof(extensions) / sizeof(*extensions),
-                    build_params + nchar, sizeof(build_params) - nchar);
+                  nchar = c_dbcsr_acc_opencl_flags_atomics(active_device, tkind, devinfo, extensions,
+                    sizeof(extensions) / sizeof(*extensions), build_params + nchar, sizeof(build_params) - nchar);
                 }
                 else result = EXIT_FAILURE;
                 if (0 < nchar && (int)sizeof(build_params) > nchar) {

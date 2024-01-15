@@ -360,8 +360,7 @@ typedef enum c_dbcsr_acc_opencl_atomic_fp_t {
 
 /** Assemble flags to support atomic operations. */
 int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
-  const c_dbcsr_acc_opencl_device_t* devinfo, int test_zero, int use_atomics, int use_barrier, const char* exts[], int exts_maxlen,
-  char flags[], size_t flags_maxlen);
+  const c_dbcsr_acc_opencl_device_t* devinfo, const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen);
 
 /** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],

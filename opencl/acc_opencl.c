@@ -1150,8 +1150,7 @@ int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max
 
 
 int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
-  const c_dbcsr_acc_opencl_device_t* devinfo, int test_zero, int use_atomics, int use_barrier, const char* exts[], int exts_maxlen,
-  char flags[], size_t flags_maxlen) {
+  const c_dbcsr_acc_opencl_device_t* devinfo, const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen) {
   int result = 0, ext1, ext2;
   for (ext1 = 0; ext1 < exts_maxlen; ++ext1)
     if (NULL == exts[ext1] || '\0' == *exts[ext1]) break;
@@ -1204,13 +1203,25 @@ int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_
     }
     if (c_dbcsr_acc_opencl_atomic_fp_no != kind) {
       const char *barrier_expr = NULL, *atomic_exp = NULL, *atomic_ops = "";
-      if (0 != use_barrier) {
+      const char* const env_barrier = getenv("ACC_OPENCL_BARRIER");
+      const char* const env_atomics = getenv("ACC_OPENCL_ATOMICS");
+      int use_atomics = 0;
+      if (NULL == env_barrier || '0' != *env_barrier) {
         barrier_expr = ((2 <= *devinfo->level && (0 == devinfo->intel || (CL_DEVICE_TYPE_CPU != devinfo->type)))
                           ? "-D\"BARRIER(A)=work_group_barrier(A,memory_scope_work_group)\""
                           : "-D\"BARRIER(A)=barrier(A)\"");
       }
       else barrier_expr = ""; /* no barrier */
       assert(NULL != barrier_expr);
+      if (NULL == env_atomics || '0' != *env_atomics) {
+        if (NULL == env_atomics || '\0' == *env_atomics) {
+          if (NULL != LIBXSMM_STRISTR(env_atomics, "cmpxchg")) use_atomics = 4;
+          else if (NULL != LIBXSMM_STRISTR(env_atomics, "xchg")) use_atomics = 5;
+          else use_atomics = 1;
+        }
+        else use_atomics = atoi(env_atomics);
+      }
+      else use_atomics = 1;
       if (0 != use_atomics) { /* can signal an attempt to force atomics without confirmation */
         if (3 >= use_atomics) {
           cl_bitfield fp_atomics;
@@ -1280,8 +1291,8 @@ int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_
       }
       assert(NULL != atomic_exp);
       /* compose build parameters and flags */
-      result = LIBXSMM_SNPRINTF(flags, flags_maxlen, "-DTAN=%i %s %s %s -D\"ATOMIC_ADD_GLOBAL(A,B)=%s\" %s", kind,
-        0 == test_zero ? "" : "-DATOMIC_INC_NZ", atomic_type, atomic_ops, atomic_exp, barrier_expr);
+      result = LIBXSMM_SNPRINTF(flags, flags_maxlen, "-DTAN=%i %s %s -D\"ATOMIC_ADD_GLOBAL(A,B)=%s\" %s", kind, atomic_type,
+        atomic_ops, atomic_exp, barrier_expr);
     }
   }
   return result;
