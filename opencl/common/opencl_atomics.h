@@ -12,10 +12,16 @@
 #include "opencl_common.h"
 
 #if (2 == TAN /*c_dbcsr_acc_opencl_atomic_fp_64*/)
+#  if !defined(T)
+#    define T double
+#  endif
 #  define ZERO 0.0
 #elif (1 == TAN /*c_dbcsr_acc_opencl_atomic_fp_32*/)
+#  if !defined(T)
+#    define T float
+#  endif
 #  define ZERO 0.f
-#else /*c_dbcsr_acc_opencl_atomic_fp_no*/
+#elif defined(T) /*c_dbcsr_acc_opencl_atomic_fp_no*/
 #  define ZERO 0
 #endif
 
