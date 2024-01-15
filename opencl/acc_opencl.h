@@ -235,7 +235,7 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   /** Device-ID. */
   cl_uint uid;
   /** Main vendor? */
-  cl_bool intel, amd, nv;
+  cl_int intel, amd, nv;
 } c_dbcsr_acc_opencl_device_t;
 
 /** Enumeration of timer kinds used for built-in execution-profile. */
@@ -353,13 +353,15 @@ int c_dbcsr_acc_opencl_event_create(cl_event* event_p);
 
 /** Enumeration of FP-atomic kinds. */
 typedef enum c_dbcsr_acc_opencl_atomic_fp_t {
-  c_dbcsr_acc_opencl_atomic_fp_64,
-  c_dbcsr_acc_opencl_atomic_fp_32
+  c_dbcsr_acc_opencl_atomic_fp_no = 0,
+  c_dbcsr_acc_opencl_atomic_fp_32 = 1,
+  c_dbcsr_acc_opencl_atomic_fp_64 = 2
 } c_dbcsr_acc_opencl_atomic_fp_t;
 
 /** Assemble flags to support atomic operations. */
 int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
-  const c_dbcsr_acc_opencl_device_t* devinfo, int use_atomics, int use_barrier, char flags[], size_t flags_maxlen);
+  const c_dbcsr_acc_opencl_device_t* devinfo, int test_zero, int use_atomics, int use_barrier, const char* exts[], int exts_maxlen,
+  char flags[], size_t flags_maxlen);
 
 /** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],

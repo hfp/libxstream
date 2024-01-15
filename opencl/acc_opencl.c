@@ -1024,14 +1024,23 @@ int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id) {
               c_dbcsr_acc_opencl_config.device[thread_id].uid = (cl_uint)-1;
             }
             c_dbcsr_acc_opencl_config.device[thread_id].intel =
-              (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/) ? CL_TRUE : CL_FALSE);
-            c_dbcsr_acc_opencl_config.device[thread_id].amd =
-              (0 == c_dbcsr_acc_opencl_config.device[thread_id].intel &&
-                (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 0 /*use_platform_name*/) ||
-                  (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 1 /*use_platform_name*/))));
-            c_dbcsr_acc_opencl_config.device[thread_id].nv = (0 == c_dbcsr_acc_opencl_config.device[thread_id].intel &&
-                                                              EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(
-                                                                                active_id, "nvidia", 0 /*use_platform_name*/));
+              (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
+            c_dbcsr_acc_opencl_config.device[thread_id].nv =
+              (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
+            if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 0 /*use_platform_name*/) ||
+                EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 1 /*use_platform_name*/))
+            {
+              char buffer[ACC_OPENCL_BUFFERSIZE];
+              c_dbcsr_acc_opencl_config.device[thread_id].amd = 1;
+              if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(active_id, buffer, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/,
+                                    0 /*platform_maxlen*/, /*cleanup*/ 1))
+              {
+                const char* const gfxname = LIBXSMM_STRISTR(buffer, "gfx");
+                if (NULL != gfxname && 90 <= atoi(gfxname + 3)) {
+                  c_dbcsr_acc_opencl_config.device[thread_id].amd = 2;
+                }
+              }
+            }
           }
         }
       }
@@ -1139,65 +1148,64 @@ int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max
   return result;
 }
 
-#  if 0
+
 int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
-  const c_dbcsr_acc_opencl_device_t* devinfo, int use_atomics, int use_barrier, char flags[], size_t flags_maxlen) {
-  const char* extensions[] = {NULL, NULL};
-  const char *tname = NULL, *atomic_type = "";
-  int result = EXIT_SUCCESS, std_c11 = 0;
-  if (NULL != devinfo) {
+  const c_dbcsr_acc_opencl_device_t* devinfo, int test_zero, int use_atomics, int use_barrier, const char* exts[], int exts_maxlen,
+  char flags[], size_t flags_maxlen) {
+  int result = 0, ext1, ext2;
+  for (ext1 = 0; ext1 < exts_maxlen; ++ext1)
+    if (NULL == exts[ext1] || '\0' == *exts[ext1]) break;
+  for (ext2 = ext1 + 1; ext2 < exts_maxlen; ++ext2)
+    if (NULL == exts[ext2] || '\0' == *exts[ext2]) break;
+  if (NULL != devinfo && ext2 < exts_maxlen) {
+    const char* atomic_type = "";
     switch (kind) {
       case c_dbcsr_acc_opencl_atomic_fp_64: {
-        extensions[0] = "cl_khr_fp64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
-        tname = "double";
-        if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+        exts[ext1] = "cl_khr_fp64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
+        if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
           atomic_type = "-DTA=long -DTA2=atomic_long -DTF=atomic_double";
-          std_c11 = 1;
         }
         else {
-          extensions[0] = "cl_khr_fp64 cl_khr_int64_base_atomics";
-          if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+          exts[ext1] = "cl_khr_fp64 cl_khr_int64_base_atomics";
+          if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
             atomic_type = "-DTA=long";
           }
           else { /* fallback */
-            extensions[0] = "cl_khr_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
-            if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+            exts[ext1] = "cl_khr_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
+            if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
               atomic_type = "-DATOMIC32_ADD64 -DTA=int -DTA2=atomic_int -DTF=atomic_double";
-              std_c11 = 1;
             }
             else {
-              extensions[0] = "cl_khr_fp64 cl_khr_global_int32_base_atomics";
-              if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
+              exts[ext1] = "cl_khr_fp64 cl_khr_global_int32_base_atomics";
+              if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
                 atomic_type = "-DATOMIC32_ADD64 -DTA=int";
               }
-              else tname = NULL;
+              else kind = c_dbcsr_acc_opencl_atomic_fp_no;
             }
           }
         }
       } break;
       case c_dbcsr_acc_opencl_atomic_fp_32: {
-        extensions[0] = "cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
-        if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
-          extensions[1] = "cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
+        exts[ext1] = "cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
+        if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
+          exts[ext2] = "cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
           atomic_type = "-DTA=int -DTA2=atomic_int -DTF=atomic_float";
-          std_c11 = 1;
-          tname = "float";
         }
         else {
-          extensions[0] = "cl_khr_global_int32_base_atomics";
-          if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, extensions, 1)) {
-            extensions[1] = "cl_khr_int64_base_atomics";
+          exts[ext1] = "cl_khr_global_int32_base_atomics";
+          if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
+            exts[ext2] = "cl_khr_int64_base_atomics";
             atomic_type = "-DTA=int";
-            tname = "float";
           }
+          else kind = c_dbcsr_acc_opencl_atomic_fp_no;
         }
       } break;
-      default: result = EXIT_FAILURE;
+      default: assert(c_dbcsr_acc_opencl_atomic_fp_no == kind);
     }
-    if (EXIT_SUCCESS == result) {
+    if (c_dbcsr_acc_opencl_atomic_fp_no != kind) {
       const char *barrier_expr = NULL, *atomic_exp = NULL, *atomic_ops = "";
       if (0 != use_barrier) {
-        barrier_expr = ((0 != std_c11 && (0 == devinfo->intel || (CL_DEVICE_TYPE_CPU != devinfo->type)))
+        barrier_expr = ((2 <= *devinfo->level && (0 == devinfo->intel || (CL_DEVICE_TYPE_CPU != devinfo->type)))
                           ? "-D\"BARRIER(A)=work_group_barrier(A,memory_scope_work_group)\""
                           : "-D\"BARRIER(A)=barrier(A)\"");
       }
@@ -1210,7 +1218,7 @@ int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_
                               sizeof(cl_bitfield), &fp_atomics, NULL) &&
               0 != (/*add*/ (1 << 1) & fp_atomics))
           {
-            extensions[1] = "cl_ext_float_atomics";
+            exts[ext2] = "cl_ext_float_atomics";
             atomic_exp = (c_dbcsr_acc_opencl_atomic_fp_64 == kind
                             ? "atomic_fetch_add_explicit((GLOBAL_VOLATILE(atomic_double)*)A,B,"
                               "memory_order_relaxed,memory_scope_work_group)"
@@ -1223,52 +1231,44 @@ int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_
                 (1 < use_atomics || 0 > use_atomics))
             {
               if (1 == use_atomics && (0 == devinfo->intel || 0x0bd0 > devinfo->uid || 0x0bdb < devinfo->uid)) {
-                extensions[1] = "cl_intel_global_float_atomics";
+                exts[ext2] = "cl_intel_global_float_atomics";
                 atomic_ops = "-Dcl_intel_global_float_atomics";
               }
               else {
-                atomic_ops = ((0 == std_c11 && 2 > use_atomics)
+                atomic_ops = ((2 > *devinfo->level && 2 > use_atomics)
                                 ? "-DATOMIC_PROTOTYPES=1"
                                 : (3 > use_atomics ? "-DATOMIC_PROTOTYPES=2" : "-DATOMIC_PROTOTYPES=3"));
               }
-              atomic_exp = ((0 == std_c11 && 2 > use_atomics) ? "atomic_add(A,B)"
-                                                              : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(TF)*)A,B,"
-                                                                "memory_order_relaxed,memory_scope_work_group)");
+              atomic_exp = ((2 > *devinfo->level && 2 > use_atomics) ? "atomic_add(A,B)"
+                                                                     : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(TF)*)A,B,"
+                                                                       "memory_order_relaxed,memory_scope_work_group)");
             }
             else {
               atomic_exp = "atomic_add_global_cmpxchg(A,B)";
               atomic_ops = "-DCMPXCHG=atom_cmpxchg";
             }
           }
-          else if (0 == devinfo->amd) {
-            char buffer[ACC_OPENCL_BUFFERSIZE];
-            int gfx90 = 0;
-            if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(device_id, buffer, ACC_OPENCL_BUFFERSIZE,
-                                               NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 1))
-            {
-              const char* const gfxname = LIBXSMM_STRISTR(buffer, "gfx");
-              if (NULL != gfxname && 90 <= atoi(gfxname + 3)) gfx90 = 1;
-            }
-            if (0 == gfx90) {
+          else if (0 == devinfo->nv) {
+            if (1 >= devinfo->amd) {
               atomic_ops = (c_dbcsr_acc_opencl_atomic_fp_32 == kind ? "-DCMPXCHG=atomic_cmpxchg" : "-DCMPXCHG=atom_cmpxchg");
               atomic_exp = "atomic_add_global_cmpxchg(A,B)";
-              extensions[1] = NULL;
+              exts[ext2] = NULL;
             }
-            else {
+            else { /* GCN */
               atomic_exp = (c_dbcsr_acc_opencl_atomic_fp_64 == kind
                               ? "__builtin_amdgcn_global_atomic_fadd_f64(A,B,__ATOMIC_RELAXED)"
                               : "__builtin_amdgcn_global_atomic_fadd_f32(A,B,__ATOMIC_RELAXED)");
             }
           }
-          else {
+          else { /* xchg */
             assert(NULL != atomic_ops && '\0' == *atomic_ops);
             atomic_exp = "atomic_add_global_xchg(A,B)";
           }
         }
-        else if (5 >= use_atomics) { /* cmpxchg */
+        else if (4 == use_atomics) { /* cmpxchg */
           atomic_ops = (c_dbcsr_acc_opencl_atomic_fp_32 == kind ? "-DCMPXCHG=atomic_cmpxchg" : "-DCMPXCHG=atom_cmpxchg");
           atomic_exp = "atomic_add_global_cmpxchg(A,B)";
-          extensions[1] = NULL;
+          exts[ext2] = NULL;
         }
         else { /* xchg */
           atomic_exp = "atomic_add_global_xchg(A,B)";
@@ -1279,12 +1279,14 @@ int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_
         atomic_exp = "*(A)+=(B)"; /* non-atomic update */
       }
       assert(NULL != atomic_exp);
+      /* compose build parameters and flags */
+      result = LIBXSMM_SNPRINTF(flags, flags_maxlen, "-DTAN=%i %s %s %s -D\"ATOMIC_ADD_GLOBAL(A,B)=%s\" %s", kind,
+        0 == test_zero ? "" : "-DATOMIC_INC_NZ", atomic_type, atomic_ops, atomic_exp, barrier_expr);
     }
   }
-  else result = EXIT_FAILURE;
   return result;
 }
-#  endif
+
 
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
   const char cl_std[], char buffer[], size_t buffer_size) {
