@@ -78,7 +78,7 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, const size_t* amount, s
         result = handle;
         break;
       }
-      else if (NULL != mem) {
+      else if (NULL != mem && mem < buffer) {
         size_t d = buffer - mem, s = 0;
         if (d < hit && NULL != offset &&
             (NULL == amount ||
