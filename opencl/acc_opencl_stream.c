@@ -248,7 +248,7 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
         void** const streams = c_dbcsr_acc_opencl_config.streams + tid * c_dbcsr_acc_opencl_config.nstreams;
         for (i = 0; i < c_dbcsr_acc_opencl_config.nstreams; ++i) {
           if (stream == streams[i]) {
-            const int k = i;
+            int k = i;
 #  if defined(ACC_OPENCL_STREAM_COMPACT)
             const int j = i + 1;
             if (j < c_dbcsr_acc_opencl_config.nstreams && NULL != streams[j]) { /* compacting streams is not thread-safe */
