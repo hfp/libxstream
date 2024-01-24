@@ -18,7 +18,7 @@
 #  if !defined(ACC_OPENCL_EVENT_BARRIER) && 0
 #    define ACC_OPENCL_EVENT_BARRIER
 #  endif
-#  if !defined(ACC_OPENCL_EVENT_CREATE) && 0
+#  if !defined(ACC_OPENCL_EVENT_CREATE) && 1
 #    define ACC_OPENCL_EVENT_CREATE
 #  endif
 
