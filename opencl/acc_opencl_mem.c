@@ -19,11 +19,11 @@
 #    include <unistd.h>
 #  endif
 
-#  if !defined(ACC_OPENCL_MEM_DEBUG) && !defined(NDEBUG) && 0
-#    define ACC_OPENCL_MEM_DEBUG
-#  endif
 #  if !defined(ACC_OPENCL_MEM_ALIGNSCALE)
 #    define ACC_OPENCL_MEM_ALIGNSCALE 8
+#  endif
+#  if !defined(ACC_OPENCL_MEM_DEBUG) && 0
+#    define ACC_OPENCL_MEM_DEBUG
 #  endif
 
 
@@ -279,9 +279,20 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
 #  endif
     {
 #  if defined(ACC_OPENCL_MEM_DEBUG)
+      size_t offset = 0;
+      void* const handle = c_dbcsr_acc_opencl_info_devptr(buffer, 1 /*elsize*/, NULL /*&nbytes*/, &offset);
       printf("c_dbcsr_acc_dev_mem_allocate: %p size=%llu\n", buffer, (unsigned long long)nbytes);
+      if (NULL != handle && buffer == *(cl_mem*)handle && 0 == offset)
 #  endif
-      *dev_mem = (void*)buffer;
+      {
+        *dev_mem = (void*)buffer;
+      }
+#  if defined(ACC_OPENCL_MEM_DEBUG)
+      else {
+        result = EXIT_FAILURE;
+        *dev_mem = NULL;
+      }
+#  endif
     }
   }
   else {
