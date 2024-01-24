@@ -279,10 +279,10 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
 #  endif
     {
 #  if defined(ACC_OPENCL_MEM_DEBUG)
-      size_t offset = 0;
-      void* const handle = c_dbcsr_acc_opencl_info_devptr(buffer, 1 /*elsize*/, NULL /*&nbytes*/, &offset);
+      size_t offset = 0, amount = nbytes / 2;
+      void* const ptr = c_dbcsr_acc_opencl_info_devptr((const char*)buffer + amount, 1 /*elsize*/, NULL /*&amount*/, &offset);
       printf("c_dbcsr_acc_dev_mem_allocate: %p size=%llu\n", buffer, (unsigned long long)nbytes);
-      if (NULL != handle && buffer == *(cl_mem*)handle && 0 == offset)
+      if (NULL != ptr && buffer == *(cl_mem*)ptr && amount == offset)
 #  endif
       {
         *dev_mem = (void*)buffer;
