@@ -269,9 +269,6 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
       void** handle = libxsmm_pmalloc(c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
       if (NULL != handle) {
         *handle = buffer;
-#    if defined(ACC_OPENCL_MEM_DEBUG)
-        printf("c_dbcsr_acc_dev_mem_allocate: %p size=%llu\n", buffer, (unsigned long long)nbytes);
-#    endif
       }
       else result = EXIT_FAILURE;
     }
@@ -281,6 +278,9 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     else
 #  endif
     {
+#  if defined(ACC_OPENCL_MEM_DEBUG)
+      printf("c_dbcsr_acc_dev_mem_allocate: %p size=%llu\n", buffer, (unsigned long long)nbytes);
+#  endif
       *dev_mem = (void*)buffer;
     }
   }
@@ -317,11 +317,8 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
         void** const pfree = c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems];
         libxsmm_pfree(pfree, c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
         *handle = *pfree;
-#    if defined(ACC_OPENCL_MEM_DEBUG)
-        printf("c_dbcsr_acc_dev_mem_deallocate: %p\n", buffer);
-#    endif
       }
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
       else result = EXIT_FAILURE;
 #    endif
     }
@@ -337,6 +334,9 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     }
 #  endif
     ACC_OPENCL_CHECK(clReleaseMemObject(buffer), "release device memory buffer", result);
+#  if defined(ACC_OPENCL_MEM_DEBUG)
+    printf("c_dbcsr_acc_dev_mem_deallocate: %p\n", buffer);
+#  endif
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
@@ -386,11 +386,11 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
     {
       void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, 1 /*elsize*/, &nbytes, &offset);
       if (NULL != handle) buffer = *(cl_mem*)handle;
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
       else result = EXIT_FAILURE;
 #    endif
     }
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
     if (EXIT_SUCCESS == result)
 #    endif
 #  endif
@@ -435,11 +435,11 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
     {
       void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, 1 /*elsize*/, &nbytes, &offset);
       if (NULL != handle) buffer = *(cl_mem*)handle;
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
       else result = EXIT_FAILURE;
 #    endif
     }
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
     if (EXIT_SUCCESS == result)
 #    endif
 #  endif
@@ -493,15 +493,15 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
       void* const handle_src = c_dbcsr_acc_opencl_info_devptr(devmem_src, 1 /*elsize*/, &nbytes, &src_offset);
       void* const handle_dst = c_dbcsr_acc_opencl_info_devptr(devmem_dst, 1 /*elsize*/, &nbytes, &dst_offset);
       if (NULL != handle_src) src = *(cl_mem*)handle_src;
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
       else result = EXIT_FAILURE;
 #    endif
       if (NULL != handle_dst) dst = *(cl_mem*)handle_dst;
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
       else result = EXIT_FAILURE;
 #    endif
     }
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
     if (EXIT_SUCCESS == result)
 #    endif
 #  endif
@@ -570,11 +570,11 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
     if (0 == offset && NULL != c_dbcsr_acc_opencl_config.clmems) {
       void* const handle = c_dbcsr_acc_opencl_info_devptr(dev_mem, 1 /*elsize*/, &nbytes, &offset);
       if (NULL != handle) buffer = *(cl_mem*)handle;
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
       else result = EXIT_FAILURE;
 #    endif
     }
-#    if !defined(NDEBUG) || defined(ACC_OPENCL_MEM_DEBUG)
+#    if !defined(NDEBUG)
     if (EXIT_SUCCESS == result)
 #    endif
 #  endif
