@@ -541,6 +541,8 @@ int c_dbcsr_acc_init(void) {
           }
           else {
             free(c_dbcsr_acc_opencl_config.clmems);
+            free(c_dbcsr_acc_opencl_config.clmem_info);
+            c_dbcsr_acc_opencl_config.clmem_info = NULL;
             c_dbcsr_acc_opencl_config.clmems = NULL;
             c_dbcsr_acc_opencl_config.nclmems = 0;
             result = EXIT_FAILURE;
@@ -555,15 +557,11 @@ int c_dbcsr_acc_init(void) {
           }
           else {
             free(c_dbcsr_acc_opencl_config.events);
+            free(c_dbcsr_acc_opencl_config.event_info);
+            c_dbcsr_acc_opencl_config.event_info = NULL;
             c_dbcsr_acc_opencl_config.events = NULL;
             c_dbcsr_acc_opencl_config.nevents = 0;
             result = EXIT_FAILURE;
-          }
-          if (EXIT_SUCCESS != result) {
-            free(c_dbcsr_acc_opencl_config.clmem_info);
-            c_dbcsr_acc_opencl_config.clmem_info = NULL;
-            free(c_dbcsr_acc_opencl_config.event_info);
-            c_dbcsr_acc_opencl_config.event_info = NULL;
           }
         }
 #  endif
