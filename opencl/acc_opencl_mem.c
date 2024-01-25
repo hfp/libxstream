@@ -47,13 +47,6 @@ int c_dbcsr_acc_opencl_memalignment(size_t size) {
 }
 
 
-void* c_dbcsr_acc_opencl_get_hostptr(cl_mem memory) {
-  void* result = NULL;
-  ACC_OPENCL_EXPECT(CL_SUCCESS == clGetMemObjectInfo(memory, CL_MEM_HOST_PTR, sizeof(void*), &result, NULL));
-  return result;
-}
-
-
 c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory) {
   assert(NULL == memory || sizeof(c_dbcsr_acc_opencl_info_ptr_t) <= (uintptr_t)memory);
   return (NULL != memory ? (c_dbcsr_acc_opencl_info_ptr_t*)((uintptr_t)memory - sizeof(c_dbcsr_acc_opencl_info_ptr_t))
@@ -334,8 +327,10 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     {
       const int tid = ACC_OPENCL_OMP_TID();
       if (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop) {
-        void* const ptr = (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop ? c_dbcsr_acc_opencl_get_hostptr(buffer) : NULL);
         const cl_context context = c_dbcsr_acc_opencl_context(NULL /*thread_id*/);
+        void* ptr = NULL;
+        /* get host-pointer associated with device-memory (c_dbcsr_acc_dev_mem_allocate) */
+        ACC_OPENCL_EXPECT(CL_SUCCESS == clGetMemObjectInfo(buffer, CL_MEM_HOST_PTR, sizeof(void*), &ptr, NULL));
         clSVMFree(context, ptr);
       }
     }

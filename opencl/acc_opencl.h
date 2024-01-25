@@ -303,10 +303,9 @@ typedef struct c_dbcsr_acc_opencl_info_stream_t {
 c_dbcsr_acc_opencl_info_stream_t* c_dbcsr_acc_opencl_info_stream(void* stream);
 const int* c_dbcsr_acc_opencl_stream_priority(const void* stream);
 
+/** Used to determine default-stream in case of NULL-stream (see ACC_OPENCL_STREAM_NULL). */
 void* c_dbcsr_acc_opencl_stream_default(void);
-
-/** Get host-pointer associated with device-memory (c_dbcsr_acc_dev_mem_allocate). */
-void* c_dbcsr_acc_opencl_get_hostptr(cl_mem memory);
+/** Like c_dbcsr_acc_memset_zero, but supporting an arbitrary value used as initialization pattern. */
 int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream);
 /** Amount of device memory; local memory is only non-zero if separate from global. */
 int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
