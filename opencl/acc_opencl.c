@@ -526,7 +526,7 @@ int c_dbcsr_acc_init(void) {
         }
         c_dbcsr_acc_opencl_config.nclmems = c_dbcsr_acc_opencl_config.nevents = 0;
         c_dbcsr_acc_opencl_config.clmems = c_dbcsr_acc_opencl_config.events = NULL;
-        c_dbcsr_acc_opencl_config.storage = NULL;
+        c_dbcsr_acc_opencl_config.clmem_info = c_dbcsr_acc_opencl_config.event_info = NULL;
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
     (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
         if (EXIT_SUCCESS == result) {
@@ -534,10 +534,10 @@ int c_dbcsr_acc_init(void) {
 #    if defined(ACC_OPENCL_MEM_OFFSET)
           c_dbcsr_acc_opencl_config.nclmems = nhandles;
           c_dbcsr_acc_opencl_config.clmems = (void**)malloc(sizeof(void*) * nhandles);
-          c_dbcsr_acc_opencl_config.storage = malloc(sizeof(void*) * (nhandles + nhandles));
-          if (NULL != c_dbcsr_acc_opencl_config.clmems && NULL != c_dbcsr_acc_opencl_config.storage) {
+          c_dbcsr_acc_opencl_config.clmem_info = malloc(sizeof(void*) * nhandles);
+          if (NULL != c_dbcsr_acc_opencl_config.clmems && NULL != c_dbcsr_acc_opencl_config.clmem_info) {
             libxsmm_pmalloc_init(sizeof(void*), &c_dbcsr_acc_opencl_config.nclmems, c_dbcsr_acc_opencl_config.clmems,
-              (void**)c_dbcsr_acc_opencl_config.storage + nhandles);
+              c_dbcsr_acc_opencl_config.clmem_info);
           }
           else {
             free(c_dbcsr_acc_opencl_config.clmems);
@@ -545,14 +545,13 @@ int c_dbcsr_acc_init(void) {
             c_dbcsr_acc_opencl_config.nclmems = 0;
             result = EXIT_FAILURE;
           }
-#    else
-          c_dbcsr_acc_opencl_config.storage = malloc(sizeof(void*) * nhandles);
 #    endif
           c_dbcsr_acc_opencl_config.nevents = nhandles;
           c_dbcsr_acc_opencl_config.events = (void**)malloc(sizeof(void*) * nhandles);
-          if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.storage) {
+          c_dbcsr_acc_opencl_config.event_info = malloc(sizeof(void*) * nhandles);
+          if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_info) {
             libxsmm_pmalloc_init(sizeof(void*), &c_dbcsr_acc_opencl_config.nevents, c_dbcsr_acc_opencl_config.events,
-              c_dbcsr_acc_opencl_config.storage);
+              c_dbcsr_acc_opencl_config.event_info);
           }
           else {
             free(c_dbcsr_acc_opencl_config.events);
@@ -561,8 +560,10 @@ int c_dbcsr_acc_init(void) {
             result = EXIT_FAILURE;
           }
           if (EXIT_SUCCESS != result) {
-            free(c_dbcsr_acc_opencl_config.storage);
-            c_dbcsr_acc_opencl_config.storage = NULL;
+            free(c_dbcsr_acc_opencl_config.clmem_info);
+            c_dbcsr_acc_opencl_config.clmem_info = NULL;
+            free(c_dbcsr_acc_opencl_config.event_info);
+            c_dbcsr_acc_opencl_config.event_info = NULL;
           }
         }
 #  endif
@@ -649,8 +650,10 @@ int c_dbcsr_acc_finalize(void) {
       }
     }
     /* release/reset buffers */
+    free(c_dbcsr_acc_opencl_config.clmems);
+    free(c_dbcsr_acc_opencl_config.clmem_info);
     free(c_dbcsr_acc_opencl_config.events);
-    free(c_dbcsr_acc_opencl_config.storage);
+    free(c_dbcsr_acc_opencl_config.event_info);
     free(c_dbcsr_acc_opencl_config.streams);
     /* clear configuration */
     memset(&c_dbcsr_acc_opencl_config, 0, sizeof(c_dbcsr_acc_opencl_config));
