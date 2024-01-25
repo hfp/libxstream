@@ -54,10 +54,10 @@ void* c_dbcsr_acc_opencl_get_hostptr(cl_mem memory) {
 }
 
 
-c_dbcsr_acc_opencl_info_hostptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory) {
-  assert(NULL == memory || sizeof(c_dbcsr_acc_opencl_info_hostptr_t) <= (uintptr_t)memory);
-  return (NULL != memory ? (c_dbcsr_acc_opencl_info_hostptr_t*)((uintptr_t)memory - sizeof(c_dbcsr_acc_opencl_info_hostptr_t))
-                         : (c_dbcsr_acc_opencl_info_hostptr_t*)NULL);
+c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory) {
+  assert(NULL == memory || sizeof(c_dbcsr_acc_opencl_info_ptr_t) <= (uintptr_t)memory);
+  return (NULL != memory ? (c_dbcsr_acc_opencl_info_ptr_t*)((uintptr_t)memory - sizeof(c_dbcsr_acc_opencl_info_ptr_t))
+                         : (c_dbcsr_acc_opencl_info_ptr_t*)NULL);
 }
 
 
@@ -102,7 +102,7 @@ void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t elsize, const si
 
 int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
   c_dbcsr_acc_opencl_info_stream_t* const info = c_dbcsr_acc_opencl_info_stream(stream);
-  const size_t size_meminfo = sizeof(c_dbcsr_acc_opencl_info_hostptr_t);
+  const size_t size_meminfo = sizeof(c_dbcsr_acc_opencl_info_ptr_t);
   const int alignment = c_dbcsr_acc_opencl_memalignment(nbytes);
   void* host_ptr = NULL;
   cl_mem memory = NULL;
@@ -137,9 +137,9 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
     if (CL_SUCCESS == result) {
       const uintptr_t address = (uintptr_t)mapped;
       const uintptr_t aligned = LIBXSMM_UP2(address + size_meminfo, alignment);
-      c_dbcsr_acc_opencl_info_hostptr_t* meminfo;
+      c_dbcsr_acc_opencl_info_ptr_t* meminfo;
       assert(address + size_meminfo <= aligned);
-      meminfo = (c_dbcsr_acc_opencl_info_hostptr_t*)(aligned - size_meminfo);
+      meminfo = (c_dbcsr_acc_opencl_info_ptr_t*)(aligned - size_meminfo);
       if (NULL != meminfo) {
         meminfo->memory = memory;
         meminfo->mapped = mapped;
@@ -179,9 +179,9 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   if (NULL != host_mem) {
-    c_dbcsr_acc_opencl_info_hostptr_t* const meminfo = c_dbcsr_acc_opencl_info_hostptr(host_mem);
+    c_dbcsr_acc_opencl_info_ptr_t* const meminfo = c_dbcsr_acc_opencl_info_hostptr(host_mem);
     if (NULL != meminfo->memory) {
-      const c_dbcsr_acc_opencl_info_hostptr_t info = *meminfo; /* copy meminfo prior to unmap */
+      const c_dbcsr_acc_opencl_info_ptr_t info = *meminfo; /* copy meminfo prior to unmap */
 #  if defined(ACC_OPENCL_STREAM_NULL)
       cl_command_queue queue = *ACC_OPENCL_STREAM(NULL != stream ? stream : c_dbcsr_acc_opencl_stream_default());
 #  else

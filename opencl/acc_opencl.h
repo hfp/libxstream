@@ -285,11 +285,11 @@ cl_context c_dbcsr_acc_opencl_context(int* thread_id);
 cl_context c_dbcsr_acc_opencl_device_context(cl_device_id device, const int* thread_id);
 
 /** Information about host-memory pointer (c_dbcsr_acc_host_mem_allocate). */
-typedef struct c_dbcsr_acc_opencl_info_hostptr_t {
+typedef struct c_dbcsr_acc_opencl_info_ptr_t {
   cl_mem memory;
   void* mapped;
-} c_dbcsr_acc_opencl_info_hostptr_t;
-c_dbcsr_acc_opencl_info_hostptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
+} c_dbcsr_acc_opencl_info_ptr_t;
+c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
 
 /** Determines cl_mem object and offset of memory. */
 void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t elsize, const size_t* amount, size_t* offset);
