@@ -348,7 +348,9 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 
 
 int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t lb) {
-  int result;
+  void* const stream = c_dbcsr_acc_opencl_stream_default();
+  int result = EXIT_SUCCESS;
+  uintptr_t ptr;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -356,12 +358,32 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t lb) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(NULL != dev_mem);
-  if (NULL != other || 0 == lb) {
-    *dev_mem = (char*)other + lb;
-    result = EXIT_SUCCESS;
+  if (NULL != other && NULL != stream) {
+    const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
+    static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
+    static cl_kernel kernel = NULL;
+    const size_t size = 1;
+    LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+    if (NULL == kernel) { /* generate kernel */
+      const char source[] = "kernel void memptr(global uintptr_t *restrict ptr) {\n"
+                            "  const size_t i = get_global_id(0);\n"
+                            "  ptr[i] = (uintptr_t)&ptr[i];\n"
+                            "}\n";
+      result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memptr" /*kernel_name*/, NULL /*build_params*/,
+        NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
+    }
+    ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &other), "set ptr-argument of memptr kernel", result);
+    ACC_OPENCL_CHECK(
+      clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
+      "launch memptr kernel", result);
+    LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
+    ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(other, &ptr, sizeof(ptr), stream), "transfer memptr to host", result);
+    ACC_OPENCL_CHECK(c_dbcsr_acc_stream_sync(stream), "synchronize stream", result);
+    *dev_mem = (EXIT_SUCCESS == result ? ((char*)ptr + lb) : NULL);
   }
   else {
     result = EXIT_FAILURE;
+    *dev_mem = NULL;
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
