@@ -236,29 +236,25 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-  assert(NULL != dev_mem && 0 <= ACC_OPENCL_OVERMALLOC);
+  assert(NULL != dev_mem && NULL != context);
   assert(sizeof(void*) >= sizeof(cl_mem));
-  assert(NULL != context);
   buffer = (
 #  if defined(CL_VERSION_2_0)
     0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop
-      ? clCreateBuffer(context, CL_MEM_USE_HOST_PTR, nbytes + ACC_OPENCL_OVERMALLOC,
-          clSVMAlloc(
-            context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes + ACC_OPENCL_OVERMALLOC, 0 /*default alignment*/),
-          &result)
+      ? clCreateBuffer(context, CL_MEM_USE_HOST_PTR, nbytes,
+          clSVMAlloc(context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes, 0 /*default alignment*/), &result)
       :
 #  endif
-      clCreateBuffer(
-        context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes + ACC_OPENCL_OVERMALLOC, NULL /*host_ptr*/, &result));
+      clCreateBuffer(context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes, NULL /*host_ptr*/, &result));
   if (0 != try_flag && CL_SUCCESS != result) { /* retry without try_flag */
     buffer = (
 #  if defined(CL_VERSION_2_0)
       0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop
-        ? clCreateBuffer(context, CL_MEM_USE_HOST_PTR, nbytes + ACC_OPENCL_OVERMALLOC,
-            clSVMAlloc(context, CL_MEM_READ_WRITE, nbytes + ACC_OPENCL_OVERMALLOC, 0 /*default alignment*/), &result)
+        ? clCreateBuffer(
+            context, CL_MEM_USE_HOST_PTR, nbytes, clSVMAlloc(context, CL_MEM_READ_WRITE, nbytes, 0 /*default alignment*/), &result)
         :
 #  endif
-        clCreateBuffer(context, CL_MEM_READ_WRITE, nbytes + ACC_OPENCL_OVERMALLOC, NULL /*host_ptr*/, &result));
+        clCreateBuffer(context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result));
   }
   if (EXIT_SUCCESS == result) {
     assert(NULL != buffer);

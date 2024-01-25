@@ -95,13 +95,6 @@
 #if !defined(ACC_OPENCL_STREAMS_MAXCOUNT)
 #  define ACC_OPENCL_STREAMS_MAXCOUNT 64
 #endif
-#if !defined(ACC_OPENCL_OVERMALLOC)
-#  if defined(__DBCSR_ACC) || 1
-#    define ACC_OPENCL_OVERMALLOC 0
-#  else
-#    define ACC_OPENCL_OVERMALLOC 8192
-#  endif
-#endif
 /* First char is CSV-separator by default (w/o spaces) */
 #if !defined(ACC_OPENCL_DELIMS)
 #  define ACC_OPENCL_DELIMS ",;"
