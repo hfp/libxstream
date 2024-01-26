@@ -348,7 +348,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
   void* const stream = c_dbcsr_acc_opencl_stream_default();
   int result = EXIT_SUCCESS;
-  uintptr_t ptr;
+  uintptr_t ptr = 0;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -375,7 +375,9 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
       clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
     LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
-    ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(memory, &ptr, sizeof(ptr), stream), "transfer memptr to host", result);
+#if 0
+    ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(TODO, &ptr, sizeof(ptr), stream), "transfer memptr to host", result);
+#endif
     ACC_OPENCL_CHECK(c_dbcsr_acc_stream_sync(stream), "synchronize stream", result);
     *dev_mem = (EXIT_SUCCESS == result ? ((char*)ptr + offset) : NULL);
   }
