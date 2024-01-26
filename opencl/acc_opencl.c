@@ -524,20 +524,23 @@ int c_dbcsr_acc_init(void) {
         else {
           result = EXIT_FAILURE;
         }
+        c_dbcsr_acc_opencl_config.clmems = NULL;
+        c_dbcsr_acc_opencl_config.events = NULL;
+        c_dbcsr_acc_opencl_config.clmem_info = NULL;
+        c_dbcsr_acc_opencl_config.event_info = NULL;
         c_dbcsr_acc_opencl_config.nclmems = c_dbcsr_acc_opencl_config.nevents = 0;
-        c_dbcsr_acc_opencl_config.clmems = c_dbcsr_acc_opencl_config.events = NULL;
-        c_dbcsr_acc_opencl_config.clmem_info = c_dbcsr_acc_opencl_config.event_info = NULL;
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
     (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
         if (EXIT_SUCCESS == result) {
           const size_t nhandles = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
-#    if defined(ACC_OPENCL_MEM_OFFSET)
           c_dbcsr_acc_opencl_config.nclmems = nhandles;
-          c_dbcsr_acc_opencl_config.clmems = (void**)malloc(sizeof(void*) * nhandles);
-          c_dbcsr_acc_opencl_config.clmem_info = malloc(sizeof(void*) * nhandles);
+          c_dbcsr_acc_opencl_config.clmems = (c_dbcsr_acc_opencl_info_ptr_t**)malloc(
+            sizeof(c_dbcsr_acc_opencl_info_ptr_t*) * nhandles);
+          c_dbcsr_acc_opencl_config.clmem_info = (c_dbcsr_acc_opencl_info_ptr_t*)malloc(
+            sizeof(c_dbcsr_acc_opencl_info_ptr_t) * nhandles);
           if (NULL != c_dbcsr_acc_opencl_config.clmems && NULL != c_dbcsr_acc_opencl_config.clmem_info) {
-            libxsmm_pmalloc_init(sizeof(void*), &c_dbcsr_acc_opencl_config.nclmems, c_dbcsr_acc_opencl_config.clmems,
-              c_dbcsr_acc_opencl_config.clmem_info);
+            libxsmm_pmalloc_init(sizeof(c_dbcsr_acc_opencl_info_ptr_t), &c_dbcsr_acc_opencl_config.nclmems,
+              (void**)c_dbcsr_acc_opencl_config.clmems, c_dbcsr_acc_opencl_config.clmem_info);
           }
           else {
             free(c_dbcsr_acc_opencl_config.clmems);
@@ -547,7 +550,6 @@ int c_dbcsr_acc_init(void) {
             c_dbcsr_acc_opencl_config.nclmems = 0;
             result = EXIT_FAILURE;
           }
-#    endif
           c_dbcsr_acc_opencl_config.nevents = nhandles;
           c_dbcsr_acc_opencl_config.events = (void**)malloc(sizeof(void*) * nhandles);
           c_dbcsr_acc_opencl_config.event_info = malloc(sizeof(void*) * nhandles);

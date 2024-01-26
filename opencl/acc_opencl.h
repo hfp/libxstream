@@ -99,7 +99,6 @@
 #if !defined(ACC_OPENCL_DELIMS)
 #  define ACC_OPENCL_DELIMS ",;"
 #endif
-
 #if !defined(ACC_OPENCL_LAZYINIT) && (defined(__DBCSR_ACC) || 1)
 #  define ACC_OPENCL_LAZYINIT
 #endif
@@ -116,12 +115,6 @@
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
-
-/** Automatically determine cl_mem offset */
-#if !defined(ACC_OPENCL_MEM_OFFSET) && 1
-#  define ACC_OPENCL_MEM_OFFSET
-#endif
-
 /** Use DBCSR's profile for detailed timings */
 #if !defined(ACC_OPENCL_PROFILE) && 0
 #  define ACC_OPENCL_PROFILE
@@ -231,11 +224,31 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   cl_int intel, amd, nv;
 } c_dbcsr_acc_opencl_device_t;
 
+/** Information about host/device-memory pointer. */
+typedef struct c_dbcsr_acc_opencl_info_ptr_t {
+  cl_mem memory;
+  void* memptr;
+} c_dbcsr_acc_opencl_info_ptr_t;
+
+/** Information about streams (c_dbcsr_acc_stream_create). */
+typedef struct c_dbcsr_acc_opencl_info_stream_t {
+  void* pointer;
+  int priority;
+  int tid;
+} c_dbcsr_acc_opencl_info_stream_t;
+
 /** Enumeration of timer kinds used for built-in execution-profile. */
 typedef enum c_dbcsr_acc_opencl_timer_t {
   c_dbcsr_acc_opencl_timer_device,
   c_dbcsr_acc_opencl_timer_host
 } c_dbcsr_acc_opencl_timer_t;
+
+/** Enumeration of FP-atomic kinds. */
+typedef enum c_dbcsr_acc_opencl_atomic_fp_t {
+  c_dbcsr_acc_opencl_atomic_fp_no = 0,
+  c_dbcsr_acc_opencl_atomic_fp_32 = 1,
+  c_dbcsr_acc_opencl_atomic_fp_64 = 2
+} c_dbcsr_acc_opencl_atomic_fp_t;
 
 /**
  * Settings discovered/setup during c_dbcsr_acc_init (independent of the device)
@@ -251,7 +264,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** All events and related storage. */
   void **events, *event_info;
   /** All clmems and related storage. */
-  void **clmems, *clmem_info;
+  c_dbcsr_acc_opencl_info_ptr_t **clmems, *clmem_info;
   /** All created streams partitioned by thread-ID (thread-local slots). */
   void** streams;
   /** Kind of timer used for built-in execution-profile. */
@@ -285,26 +298,15 @@ extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 cl_context c_dbcsr_acc_opencl_context(int* thread_id);
 /** Share context for given device (start searching at optional thread_id), or return NULL). */
 cl_context c_dbcsr_acc_opencl_device_context(cl_device_id device, const int* thread_id);
-
-/** Information about host-memory pointer (c_dbcsr_acc_host_mem_allocate). */
-typedef struct c_dbcsr_acc_opencl_info_ptr_t {
-  cl_mem memory;
-  void* mapped;
-} c_dbcsr_acc_opencl_info_ptr_t;
+/** Determines cl_mem object and storage pointer. */
 c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
-
-/** Determines cl_mem object and offset of memory. */
-void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t elsize, const size_t* amount, size_t* offset);
-
-/** Information about streams (c_dbcsr_acc_stream_create). */
-typedef struct c_dbcsr_acc_opencl_info_stream_t {
-  void* pointer;
-  int priority;
-  int tid;
-} c_dbcsr_acc_opencl_info_stream_t;
+/** Determines cl_mem object and memory offset (device). */
+c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
+  const void* memory, size_t elsize, const size_t* amount, size_t* offset);
+/** Determines information about stream. */
 c_dbcsr_acc_opencl_info_stream_t* c_dbcsr_acc_opencl_info_stream(void* stream);
+/** Determines a stream's priority. */
 const int* c_dbcsr_acc_opencl_stream_priority(const void* stream);
-
 /** Used to determine default-stream in case of NULL-stream (see ACC_OPENCL_STREAM_NULL). */
 void* c_dbcsr_acc_opencl_stream_default(void);
 /** Like c_dbcsr_acc_memset_zero, but supporting an arbitrary value used as initialization pattern. */
@@ -344,18 +346,9 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 int c_dbcsr_acc_opencl_device_synchronize(int thread_id);
 /** Create user-event if not created and sets initial state. */
 int c_dbcsr_acc_opencl_event_create(cl_event* event_p);
-
-/** Enumeration of FP-atomic kinds. */
-typedef enum c_dbcsr_acc_opencl_atomic_fp_t {
-  c_dbcsr_acc_opencl_atomic_fp_no = 0,
-  c_dbcsr_acc_opencl_atomic_fp_32 = 1,
-  c_dbcsr_acc_opencl_atomic_fp_64 = 2
-} c_dbcsr_acc_opencl_atomic_fp_t;
-
 /** Assemble flags to support atomic operations. */
 int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
   const c_dbcsr_acc_opencl_device_t* devinfo, const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen);
-
 /** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
   const char cl_std[], char buffer[], size_t buffer_size);
