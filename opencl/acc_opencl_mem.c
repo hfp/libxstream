@@ -375,10 +375,9 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
       clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
     LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
-#if 0
-    ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(TODO, &ptr, sizeof(ptr), stream), "transfer memptr to host", result);
-#endif
-    ACC_OPENCL_CHECK(c_dbcsr_acc_stream_sync(stream), "synchronize stream", result);
+    ACC_OPENCL_CHECK(
+      clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(ptr), &ptr, 0, NULL, NULL),
+      "transfer memptr to host", result);
     *dev_mem = (EXIT_SUCCESS == result ? ((char*)ptr + offset) : NULL);
   }
   else {
