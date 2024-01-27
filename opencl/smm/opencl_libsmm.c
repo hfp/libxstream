@@ -762,8 +762,10 @@ c_dbcsr_acc_bool_t libsmm_acc_is_thread_safe(void) {
 
 int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, void* dev_data, libsmm_acc_data_t datatype, int m,
   int n, int max_kernel_dim, void* stream) {
-  const c_dbcsr_acc_opencl_info_ptr_t* const info_stack = c_dbcsr_acc_opencl_info_devptr(dev_trs_stack, sizeof(int), NULL /*amount*/, NULL /*offset*/);
-  const c_dbcsr_acc_opencl_info_ptr_t* const info_mdata = c_dbcsr_acc_opencl_info_devptr(dev_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
+  const c_dbcsr_acc_opencl_info_ptr_t* const info_stack = c_dbcsr_acc_opencl_info_devptr(
+    dev_trs_stack, sizeof(int), NULL /*amount*/, NULL /*offset*/);
+  const c_dbcsr_acc_opencl_info_ptr_t* const info_mdata = c_dbcsr_acc_opencl_info_devptr(
+    dev_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
   int result = EXIT_SUCCESS;
   const int mn = m * n;
 #  if !defined(OPENCL_KERNELS_SOURCE_TRANSPOSE)
@@ -943,10 +945,10 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
         ACC_OPENCL_CHECK(
           clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel", result);
-        ACC_OPENCL_CHECK(
-          clSetKernelArg(config->kernel, 1, sizeof(cl_mem), &info_stack->memory), "set batch-list argument of transpose kernel", result);
-        ACC_OPENCL_CHECK(
-          clSetKernelArg(config->kernel, 2, sizeof(cl_mem), &info_mdata->memory), "set matrix-data argument of transpose kernel", result);
+        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 1, sizeof(cl_mem), &info_stack->memory),
+          "set batch-list argument of transpose kernel", result);
+        ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 2, sizeof(cl_mem), &info_mdata->memory),
+          "set matrix-data argument of transpose kernel", result);
         ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(queue, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size, &config->wgsize,
                            0, NULL, perf_event),
           "launch transpose kernel", result);
@@ -1118,10 +1120,14 @@ c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
 int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
   c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream) {
-  const c_dbcsr_acc_opencl_info_ptr_t* const info_stack = c_dbcsr_acc_opencl_info_devptr(dev_param_stack, sizeof(int), NULL /*amount*/, NULL /*offset*/);
-  const c_dbcsr_acc_opencl_info_ptr_t* const info_adata = c_dbcsr_acc_opencl_info_devptr(dev_a_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
-  const c_dbcsr_acc_opencl_info_ptr_t* const info_bdata = c_dbcsr_acc_opencl_info_devptr(dev_b_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
-  const c_dbcsr_acc_opencl_info_ptr_t* const info_cdata = c_dbcsr_acc_opencl_info_devptr(dev_c_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
+  const c_dbcsr_acc_opencl_info_ptr_t* const info_stack = c_dbcsr_acc_opencl_info_devptr(
+    dev_param_stack, sizeof(int), NULL /*amount*/, NULL /*offset*/);
+  const c_dbcsr_acc_opencl_info_ptr_t* const info_adata = c_dbcsr_acc_opencl_info_devptr(
+    dev_a_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
+  const c_dbcsr_acc_opencl_info_ptr_t* const info_bdata = c_dbcsr_acc_opencl_info_devptr(
+    dev_b_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
+  const c_dbcsr_acc_opencl_info_ptr_t* const info_cdata = c_dbcsr_acc_opencl_info_devptr(
+    dev_c_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
   int result = EXIT_SUCCESS;
   const int nparams = 3;
 #  if !defined(OPENCL_KERNELS_SOURCE_MULTIPLY)

@@ -57,7 +57,7 @@ void* c_dbcsr_acc_opencl_stream_default(void) {
   assert(tid < c_dbcsr_acc_opencl_config.nthreads);
   assert(NULL != c_dbcsr_acc_opencl_config.streams);
   for (; i < (base + c_dbcsr_acc_opencl_config.nstreams); ++i) {
-    void *const stream = c_dbcsr_acc_opencl_config.streams[i];
+    void* const stream = c_dbcsr_acc_opencl_config.streams[i];
     if (NULL != stream) {
       result = stream;
       break;

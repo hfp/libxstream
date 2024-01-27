@@ -376,8 +376,7 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
       "launch memptr kernel", result);
     LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
     ACC_OPENCL_CHECK(
-      clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(ptr), &ptr, 0, NULL, NULL),
-      "transfer memptr to host", result);
+      clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(ptr), &ptr, 0, NULL, NULL), "transfer memptr to host", result);
     *dev_mem = (EXIT_SUCCESS == result ? ((char*)ptr + offset) : NULL);
   }
   else {
