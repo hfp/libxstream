@@ -307,7 +307,9 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
 c_dbcsr_acc_opencl_info_stream_t* c_dbcsr_acc_opencl_info_stream(void* stream);
 /** Determines a stream's priority. */
 const int* c_dbcsr_acc_opencl_stream_priority(const void* stream);
-/** Used to determine default-stream in case of NULL-stream (see ACC_OPENCL_STREAM_NULL). */
+/** Finds an existing stream for the given thread-ID (or NULL). */
+void* c_dbcsr_acc_opencl_stream(int thread_id);
+/** Determines default-stream (see ACC_OPENCL_STREAM_NULL). */
 void* c_dbcsr_acc_opencl_stream_default(void);
 /** Like c_dbcsr_acc_memset_zero, but supporting an arbitrary value used as initialization pattern. */
 int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream);

@@ -50,19 +50,34 @@ const int* c_dbcsr_acc_opencl_stream_priority(const void* stream) {
 }
 
 
-void* c_dbcsr_acc_opencl_stream_default(void) {
-  const int tid = ACC_OPENCL_OMP_TID(), base = tid * c_dbcsr_acc_opencl_config.nstreams;
+void* c_dbcsr_acc_opencl_stream(int thread_id) {
+  int base = thread_id * c_dbcsr_acc_opencl_config.nstreams, i;
   void* result = NULL;
-  int i = base;
-  assert(tid < c_dbcsr_acc_opencl_config.nthreads);
   assert(NULL != c_dbcsr_acc_opencl_config.streams);
-  for (; i < (base + c_dbcsr_acc_opencl_config.nstreams); ++i) {
+  assert(thread_id < c_dbcsr_acc_opencl_config.nthreads);
+  for (i = base; i < (base + c_dbcsr_acc_opencl_config.nstreams); ++i) {
     void* const stream = c_dbcsr_acc_opencl_config.streams[i];
     if (NULL != stream) {
       result = stream;
+#  if !defined(ACC_OPENCL_STREAM_COMPACT)
       break;
+#  endif
     }
+#  if defined(ACC_OPENCL_STREAM_COMPACT)
+    break;
+#  endif
   }
+  return result;
+}
+
+
+void* c_dbcsr_acc_opencl_stream_default(void) {
+  const int tid = ACC_OPENCL_OMP_TID();
+  void* result = c_dbcsr_acc_opencl_stream(tid);
+  if (0 != tid && NULL == result) {
+    result = c_dbcsr_acc_opencl_stream(0);
+  }
+  assert(NULL != result);
   return result;
 }
 
