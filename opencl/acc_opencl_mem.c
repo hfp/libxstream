@@ -314,7 +314,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     {
       c_dbcsr_acc_opencl_info_ptr_t* const info = c_dbcsr_acc_opencl_info_devptr(
         dev_mem, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
-      if (NULL != info && info->memptr == dev_mem) {
+      if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
         c_dbcsr_acc_opencl_info_ptr_t* const pfree = c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems];
 #  if defined(CL_VERSION_2_0)
         const int tid = ACC_OPENCL_OMP_TID();
@@ -408,6 +408,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
 #  else
       cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
 #  endif
+      assert(NULL != queue && NULL != info->memory);
       result = clEnqueueWriteBuffer(
         queue, info->memory, 0 == (1 & c_dbcsr_acc_opencl_config.async), offset, nbytes, host_mem, 0, NULL, NULL);
 #  if defined(ACC_OPENCL_STREAM_NULL)
@@ -443,6 +444,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
 #  else
       cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
 #  endif
+      assert(NULL != queue && NULL != info->memory);
       if (CL_SUCCESS != clEnqueueReadBuffer(
                           queue, info->memory, 0 == (2 & c_dbcsr_acc_opencl_config.async), offset, nbytes, host_mem, 0, NULL, NULL))
       { /* synchronous */
@@ -489,6 +491,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
 #  else
       cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
 #  endif
+      assert(NULL != queue && NULL != info_src->memory && NULL != info_dst->memory);
       if (0 == (2 & c_dbcsr_acc_opencl_config.devcopy)) {
         result = clEnqueueCopyBuffer(queue, info_src->memory, info_dst->memory, src_offset, dst_offset, nbytes, 0, NULL, NULL);
       }
@@ -553,6 +556,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
 #  else
       cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
 #  endif
+      assert(NULL != queue && NULL != info->memory);
       if (0 == (1 & c_dbcsr_acc_opencl_config.devcopy)) {
         static LIBXSMM_TLS cl_long pattern = 0;
         size_t size_of_pattern = 1;
