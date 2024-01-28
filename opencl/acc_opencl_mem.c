@@ -494,6 +494,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
       assert(NULL != queue && NULL != info_src->memory && NULL != info_dst->memory);
       if (0 == (2 & c_dbcsr_acc_opencl_config.devcopy)) {
         result = clEnqueueCopyBuffer(queue, info_src->memory, info_dst->memory, offset_src, offset_dst, nbytes, 0, NULL, NULL);
+        assert(CL_SUCCESS == result);
       }
       else {
         static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
