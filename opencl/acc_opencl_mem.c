@@ -560,7 +560,8 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
   assert(NULL != dev_mem || 0 == nbytes);
   if (0 != nbytes) {
     size_t offset_info = 0;
-    const c_dbcsr_acc_opencl_info_ptr_t* const info = c_dbcsr_acc_opencl_info_devptr(dev_mem + offset, 1 /*elsize*/, &nbytes, &offset_info);
+    const c_dbcsr_acc_opencl_info_ptr_t* const info = c_dbcsr_acc_opencl_info_devptr(
+      (char*)dev_mem + offset, 1 /*elsize*/, &nbytes, &offset_info);
     assert(NULL != info && offset <= offset_info);
     if (NULL != info && offset <= offset_info) {
 #  if defined(ACC_OPENCL_STREAM_NULL)
