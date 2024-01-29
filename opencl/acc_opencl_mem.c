@@ -31,7 +31,8 @@
 extern "C" {
 #  endif
 
-volatile int c_dbcsr_acc_opencl_mem_lock;
+typedef volatile int c_dbcsr_acc_opencl_mem_lock_type;
+c_dbcsr_acc_opencl_mem_lock_type c_dbcsr_acc_opencl_mem_lock;
 
 
 int c_dbcsr_acc_opencl_memalignment(size_t /*size*/);
@@ -57,8 +58,10 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory) {
 }
 
 
-c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
-  const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
+c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_mem_lock_type* /*lock*/,
+  const void* /*memory*/, size_t /*elsize*/, const size_t* /*amount*/, size_t* /*offset*/);
+c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
+  c_dbcsr_acc_opencl_mem_lock_type* lock, const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
   c_dbcsr_acc_opencl_info_ptr_t* result = NULL;
   assert(0 < elsize);
   if (NULL != memory) {
@@ -66,7 +69,9 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
     const size_t n = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
     size_t hit = (size_t)-1, i;
     assert(NULL != c_dbcsr_acc_opencl_config.clmems);
-    LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+    if (NULL != lock) {
+      LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+    }
     for (i = c_dbcsr_acc_opencl_config.nclmems; i < n; ++i) {
       c_dbcsr_acc_opencl_info_ptr_t* const info = c_dbcsr_acc_opencl_config.clmems[i];
       if (NULL != info) {
@@ -95,12 +100,20 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
       }
       else break;
     }
-    LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_ATOMIC_RELAXED);
+    if (NULL != lock) {
+      LIBXSMM_ATOMIC_RELEASE(lock, LIBXSMM_ATOMIC_RELAXED);
+    }
   }
-#  if !defined(ACC_OPENCL_MEM_DEBUG)
+#  if defined(NDEBUG)
   LIBXSMM_UNUSED(amount);
 #  endif
   return result;
+}
+
+
+c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
+  const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
+  return c_dbcsr_acc_opencl_info_devptr_lock(&c_dbcsr_acc_opencl_mem_lock, memory, elsize, amount, offset);
 }
 
 
@@ -279,7 +292,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
       else {
 #  if defined(ACC_OPENCL_MEM_DEBUG)
         size_t offset = 0, amount = nbytes / 2;
-        info = c_dbcsr_acc_opencl_info_devptr((const char*)memptr + amount, 1 /*elsize*/, NULL /*&amount*/, &offset);
+        info = c_dbcsr_acc_opencl_info_devptr_lock(NULL, (const char*)memptr + amount, 1 /*elsize*/, NULL /*&amount*/, &offset);
         printf("c_dbcsr_acc_dev_mem_allocate: memory=%p pointer=%p size=%llu\n", memory, memptr, (unsigned long long)nbytes);
         if (NULL != info && memory == info->memory && amount == offset)
 #  endif
