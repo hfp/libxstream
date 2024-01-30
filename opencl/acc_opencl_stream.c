@@ -27,41 +27,38 @@ int c_dbcsr_acc_opencl_stream_counter_base;
 int c_dbcsr_acc_opencl_stream_counter;
 
 
-c_dbcsr_acc_opencl_info_stream_t* c_dbcsr_acc_opencl_info_stream(void* stream) {
-  assert(NULL == stream || sizeof(c_dbcsr_acc_opencl_info_stream_t) <= (uintptr_t)stream);
-  return (
-    NULL != stream ? ((c_dbcsr_acc_opencl_info_stream_t*)((uintptr_t)stream - sizeof(c_dbcsr_acc_opencl_info_stream_t))) : NULL);
-}
-
-
-const int* c_dbcsr_acc_opencl_stream_priority(const void* stream) {
-  const int* result;
-#  if !defined(ACC_OPENCL_STREAM_PRIORITIES)
-  LIBXSMM_UNUSED(stream);
-#  else
-  const c_dbcsr_acc_opencl_info_stream_t* const info = c_dbcsr_acc_opencl_info_stream((void*)stream);
-  if (NULL != info) {
-    result = &info->priority;
+const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(ACC_OPENCL_LOCKTYPE* lock, int thread_id) {
+  const c_dbcsr_acc_opencl_stream_t *result = NULL, *result_main = NULL;
+  const size_t n = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+  size_t i;
+  assert(NULL != c_dbcsr_acc_opencl_config.streams);
+  assert(thread_id < c_dbcsr_acc_opencl_config.nthreads);
+  if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
+  for (i = c_dbcsr_acc_opencl_config.nstreams; i < n; ++i) {
+    const c_dbcsr_acc_opencl_stream_t* const str = c_dbcsr_acc_opencl_config.streams[i];
+    if (NULL != str && NULL != str->queue) {
+      if (str->tid == thread_id || 0 > thread_id) { /* hit */
+        result = str;
+        break;
+      }
+      else if (NULL == result_main && 0 == str->tid) {
+        result_main = str;
+      }
+    }
+    else break; /* error */
   }
-  else
-#  endif
-  result = NULL;
+  if (0 != thread_id && NULL == result) { /* fallback */
+    result = result_main;
+  }
+  if (NULL != lock) ACC_OPENCL_RELEASE(lock);
   return result;
 }
 
 
-void* c_dbcsr_acc_opencl_stream_default(void) {
-  const int tid = ACC_OPENCL_OMP_TID(), base = tid * c_dbcsr_acc_opencl_config.nstreams;
-  void* result = NULL;
-  int i = base;
-  assert(tid < c_dbcsr_acc_opencl_config.nthreads);
-  assert(NULL != c_dbcsr_acc_opencl_config.streams);
-  for (; i < (base + c_dbcsr_acc_opencl_config.nstreams); ++i) {
-    if (NULL != c_dbcsr_acc_opencl_config.streams[i]) {
-      result = c_dbcsr_acc_opencl_config.streams + i;
-      break;
-    }
-  }
+const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void) {
+  const c_dbcsr_acc_opencl_stream_t* result = NULL;
+  result = c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_config.lock_stream, ACC_OPENCL_OMP_TID());
+  assert(NULL != result);
   return result;
 }
 
@@ -72,7 +69,6 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   };
   int result, i, tid = 0, offset = 0;
   cl_command_queue queue = NULL;
-  cl_context context = NULL;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -106,42 +102,34 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     properties[4] = 0; /* terminator */
   }
 #  endif
+  ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_stream);
 #  if defined(_OPENMP)
   if (1 < omp_get_num_threads()) {
     assert(0 < c_dbcsr_acc_opencl_config.nthreads);
-#    if (201107 /*v3.1*/ <= _OPENMP)
-#      pragma omp atomic capture
-#    else
-#      pragma omp critical(c_dbcsr_acc_opencl_stream)
-#    endif
     i = c_dbcsr_acc_opencl_stream_counter++;
     tid = (i < c_dbcsr_acc_opencl_config.nthreads ? i : (i % c_dbcsr_acc_opencl_config.nthreads));
-    if (NULL != c_dbcsr_acc_opencl_config.device) { /* inherit master's context if current context is NULL */
-      LIBXSMM_ATOMIC_CMPSWP(&c_dbcsr_acc_opencl_config.device[tid].context, NULL,
-        c_dbcsr_acc_opencl_config.device[/*main*/ 0].context, LIBXSMM_ATOMIC_RELAXED);
-    }
   }
   else offset = c_dbcsr_acc_opencl_stream_counter_base++;
 #  endif
-  if (NULL != c_dbcsr_acc_opencl_config.device) context = c_dbcsr_acc_opencl_config.device[tid].context;
-  if (NULL != context) {
+  if (NULL != c_dbcsr_acc_opencl_config.device.context) {
     cl_device_id device = NULL;
-    result = clGetContextInfo(context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &device, NULL);
-    if (CL_SUCCESS == result) {
-      if (0 != c_dbcsr_acc_opencl_config.device[tid].intel) {
+    result = clGetContextInfo(c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &device, NULL);
+    if (EXIT_SUCCESS == result) {
+      if (0 != c_dbcsr_acc_opencl_config.device.intel) {
         const int xhints = ((1 == c_dbcsr_acc_opencl_config.xhints || 0 > c_dbcsr_acc_opencl_config.xhints)
-                              ? (0 != c_dbcsr_acc_opencl_config.device[tid].intel ? 1 : 0)
+                              ? (0 != c_dbcsr_acc_opencl_config.device.intel ? 1 : 0)
                               : (c_dbcsr_acc_opencl_config.xhints >> 1));
         if (0 != (1 & xhints)) { /* attempt to enable command aggregation */
           const ACC_OPENCL_STREAM_PROPERTIES_TYPE props[4] = {
             CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
           };
-          const cl_command_queue q = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, device, props, &result);
-          if (CL_SUCCESS == result) {
+          const cl_command_queue q = ACC_OPENCL_CREATE_COMMAND_QUEUE(
+            c_dbcsr_acc_opencl_config.device.context, device, props, &result);
+          if (EXIT_SUCCESS == result) {
             c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host; /* force host-timer */
             clReleaseCommandQueue(q);
           }
-          else result = CL_SUCCESS;
+          else result = EXIT_SUCCESS;
         }
         if (0 != (2 & xhints)) { /* attempt to enable queue families */
           struct {
@@ -151,8 +139,8 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
             char name[64 /*CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL*/];
           } intel_qfprops[16];
           size_t nbytes = 0, i;
-          if (CL_SUCCESS == clGetDeviceInfo(device, 0x418B /*CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL*/, sizeof(intel_qfprops),
-                              intel_qfprops, &nbytes))
+          if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x418B /*CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL*/, sizeof(intel_qfprops),
+                                intel_qfprops, &nbytes))
           {
             for (i = 0; (i * sizeof(*intel_qfprops)) < nbytes; ++i) {
               if (0 /*CL_QUEUE_DEFAULT_CAPABILITIES_INTEL*/ == intel_qfprops[i].capabilities && 1 < intel_qfprops[i].count) {
@@ -173,51 +161,30 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
       {
         properties[1] = CL_QUEUE_PROFILING_ENABLE;
       }
-      queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, device, properties, &result);
+      queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(c_dbcsr_acc_opencl_config.device.context, device, properties, &result);
     }
   }
   else {
     result = EXIT_FAILURE;
   }
-#  if defined(_OPENMP) && 0
-#    pragma omp critical(c_dbcsr_acc_opencl_stream)
+  if (EXIT_SUCCESS == result) { /* register stream */
+    assert(NULL != c_dbcsr_acc_opencl_config.streams && NULL != queue);
+    *stream_p = c_dbcsr_acc_opencl_pmalloc(
+      NULL /*lock*/, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
+    if (NULL != *stream_p) {
+      c_dbcsr_acc_opencl_stream_t* const str = (c_dbcsr_acc_opencl_stream_t*)*stream_p;
+#  if !defined(NDEBUG)
+      LIBXSMM_MEMZERO127(str);
 #  endif
-  if (EXIT_SUCCESS == result) {
-    void** const streams = c_dbcsr_acc_opencl_config.streams + tid * c_dbcsr_acc_opencl_config.nstreams;
-    for (i = 0; i < c_dbcsr_acc_opencl_config.nstreams; ++i) {
-      if (NULL == streams[i]) break;
+      str->queue = queue;
+      str->priority = priority;
+      str->tid = tid;
     }
-    if (i < c_dbcsr_acc_opencl_config.nstreams) { /* register stream */
-      const size_t size_info = sizeof(c_dbcsr_acc_opencl_info_stream_t);
-      const size_t size = sizeof(cl_command_queue) + sizeof(void*) + size_info - 1;
-      void* const handle = malloc(size);
-      assert(NULL != queue);
-      if (NULL != handle) {
-        const uintptr_t address = (uintptr_t)handle;
-        const uintptr_t aligned = LIBXSMM_UP2(address + size_info, sizeof(void*));
-        c_dbcsr_acc_opencl_info_stream_t* const info = (c_dbcsr_acc_opencl_info_stream_t*)(aligned - size_info);
-        assert(address + size_info <= aligned && NULL != info);
-        info->pointer = (void*)address;
-        info->priority = priority;
-        info->tid = tid;
-        *(cl_command_queue*)aligned = queue;
-        streams[i] = *stream_p = (void*)aligned;
-        assert(queue == *ACC_OPENCL_STREAM(streams[i]));
-        assert(queue == *ACC_OPENCL_STREAM(*stream_p));
-      }
-      else {
-        clReleaseCommandQueue(queue);
-        result = EXIT_FAILURE;
-        *stream_p = NULL;
-      }
-    }
-    else {
-      clReleaseCommandQueue(queue);
-      result = EXIT_FAILURE;
-      *stream_p = NULL;
-    }
+    else result = EXIT_FAILURE;
   }
-  else {
+  ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_stream);
+  if (EXIT_SUCCESS != result && NULL != queue) {
+    clReleaseCommandQueue(queue);
     *stream_p = NULL;
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
@@ -235,42 +202,19 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-#  if defined(_OPENMP)
-#    pragma omp critical(c_dbcsr_acc_opencl_stream)
-#  endif
   if (NULL != stream) {
-    const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
+    const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
+    const cl_command_queue queue = str->queue;
+    assert(NULL != c_dbcsr_acc_opencl_config.streams);
+    ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_stream);
+    c_dbcsr_acc_opencl_pfree(NULL /*lock*/, stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
     if (NULL != queue) {
-      const int result_release = clReleaseCommandQueue(queue); /* soft-error */
-      int tid = 0, i = c_dbcsr_acc_opencl_config.nstreams;
-      assert(NULL != c_dbcsr_acc_opencl_config.streams);
-      for (; tid < c_dbcsr_acc_opencl_config.nthreads; ++tid) { /* unregister */
-        void** const streams = c_dbcsr_acc_opencl_config.streams + tid * c_dbcsr_acc_opencl_config.nstreams;
-        for (i = 0; i < c_dbcsr_acc_opencl_config.nstreams; ++i) {
-          if (stream == streams[i]) {
-            int k = i;
-#  if defined(ACC_OPENCL_STREAM_COMPACT)
-            const int j = i + 1;
-            if (j < c_dbcsr_acc_opencl_config.nstreams && NULL != streams[j]) { /* compacting streams is not thread-safe */
-              k = c_dbcsr_acc_opencl_config.nstreams - j;
-              memmove(streams + i, streams + j, sizeof(void*) * k);
-            }
+      result = clReleaseCommandQueue(queue);
+#  if !defined(NDEBUG)
+      LIBXSMM_MEMZERO127((c_dbcsr_acc_opencl_stream_t*)stream);
 #  endif
-            streams[k] = NULL;
-            tid = c_dbcsr_acc_opencl_config.nthreads; /* leave outer loop */
-            result = result_release; /* promote */
-            break;
-          }
-#  if defined(ACC_OPENCL_STREAM_COMPACT)
-          else if (NULL == streams[i]) { /* compact streams */
-            break;
-          }
-#  endif
-        }
-      }
     }
-    c_dbcsr_acc_opencl_stream_counter_base = c_dbcsr_acc_opencl_stream_counter = 0; /* reset */
-    free(c_dbcsr_acc_opencl_info_stream(stream)->pointer);
+    ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_stream);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
@@ -295,7 +239,8 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
     cl_platform_id platform = NULL;
     cl_device_id active_id = NULL;
     if (EXIT_SUCCESS == result) {
-      result = c_dbcsr_acc_opencl_device(ACC_OPENCL_OMP_TID(), &active_id);
+      result = clGetContextInfo(
+        c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &active_id, NULL);
     }
     ACC_OPENCL_CHECK(clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL),
       "retrieve platform associated with active device", result);
@@ -321,11 +266,8 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
 
 
 int c_dbcsr_acc_stream_sync(void* stream) {
-  cl_command_queue queue = NULL;
+  const c_dbcsr_acc_opencl_stream_t* str = NULL;
   int result = EXIT_SUCCESS;
-#  if defined(ACC_OPENCL_STREAM_PRIORITIES)
-  const int* const priority = NULL;
-#  endif
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -333,11 +275,62 @@ int c_dbcsr_acc_stream_sync(void* stream) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
 #  if defined(ACC_OPENCL_STREAM_NULL)
-  queue = *ACC_OPENCL_STREAM(NULL != stream ? stream : c_dbcsr_acc_opencl_stream_default());
+  str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream_default());
 #  else
-  queue = *ACC_OPENCL_STREAM(stream);
+  str = ACC_OPENCL_STREAM(stream);
 #  endif
-  result = clFinish(queue);
+  assert(NULL != str && NULL != str->queue);
+  result = clFinish(str->queue);
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+  c_dbcsr_timestop(&routine_handle);
+#  endif
+  ACC_OPENCL_RETURN(result);
+}
+
+
+int c_dbcsr_acc_opencl_device_synchronize(ACC_OPENCL_LOCKTYPE* lock, int thread_id) {
+  int result = EXIT_SUCCESS;
+  const size_t n = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+  size_t i;
+  assert(thread_id < c_dbcsr_acc_opencl_config.nthreads);
+  assert(NULL != c_dbcsr_acc_opencl_config.streams);
+  if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
+  for (i = c_dbcsr_acc_opencl_config.nstreams; i < n; ++i) {
+    const c_dbcsr_acc_opencl_stream_t* const str = c_dbcsr_acc_opencl_config.streams[i];
+    if (NULL != str && NULL != str->queue) {
+      if (str->tid == thread_id || 0 > thread_id) { /* hit */
+        result = clFinish(str->queue);
+        if (EXIT_SUCCESS != result) break;
+      }
+    }
+    else { /* error */
+      result = EXIT_FAILURE;
+      break;
+    }
+  }
+  if (NULL != lock) ACC_OPENCL_RELEASE(lock);
+  return result;
+}
+
+
+int c_dbcsr_acc_device_synchronize(void) {
+  int result = EXIT_SUCCESS;
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+  int routine_handle;
+  static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
+  static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
+  c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
+#  endif
+#  if defined(_OPENMP)
+  if (1 == omp_get_num_threads()) {
+    result = c_dbcsr_acc_opencl_device_synchronize(c_dbcsr_acc_opencl_config.lock_stream, -1 /*all*/);
+  }
+  else {
+    result = c_dbcsr_acc_opencl_device_synchronize(NULL /*lock*/, omp_get_thread_num());
+  }
+#  else
+  result = c_dbcsr_acc_opencl_device_synchronize(NULL /*lock*/, /*main*/ 0);
+#  endif
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
