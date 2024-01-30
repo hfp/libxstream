@@ -59,12 +59,6 @@
     LIBXSMM_VERSION4(LIBXSMM_VERSION_MAJOR, LIBXSMM_VERSION_MINOR, LIBXSMM_VERSION_UPDATE, LIBXSMM_VERSION_PATCH)
 #endif
 
-#if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
-#  define LIBXSMM_STRISTR libxsmm_stristr
-#else
-#  define LIBXSMM_STRISTR strstr
-#endif
-
 #include "../acc.h"
 #if !defined(NDEBUG)
 #  include <assert.h>
@@ -74,6 +68,14 @@
 
 #if !defined(ACC_OPENCL_CACHELINE_NBYTES)
 #  define ACC_OPENCL_CACHELINE_NBYTES LIBXSMM_CACHELINE
+#endif
+#if !defined(ACC_OPENCL_ATOMIC_KIND)
+#  define ACC_OPENCL_ATOMIC_KIND LIBXSMM_ATOMIC_SEQ_CST
+#endif
+#if defined(LIBXSMM_ATOMIC_LOCKTYPE)
+#  define ACC_OPENCL_ATOMIC_LOCKTYPE volatile LIBXSMM_ATOMIC_LOCKTYPE
+#else
+#  define ACC_OPENCL_ATOMIC_LOCKTYPE volatile int
 #endif
 #if !defined(ACC_OPENCL_MAXALIGN_NBYTES)
 #  define ACC_OPENCL_MAXALIGN_NBYTES (2 << 20 /*2MB*/)
@@ -91,22 +93,10 @@
 #if !defined(ACC_OPENCL_HANDLES_MAXCOUNT)
 #  define ACC_OPENCL_HANDLES_MAXCOUNT 64
 #endif
-/** Counted on a per-thread basis! */
-#if !defined(ACC_OPENCL_STREAMS_MAXCOUNT)
-#  define ACC_OPENCL_STREAMS_MAXCOUNT 64
-#endif
-#if !defined(ACC_OPENCL_OVERMALLOC)
-#  if defined(__DBCSR_ACC) || 1
-#    define ACC_OPENCL_OVERMALLOC 0
-#  else
-#    define ACC_OPENCL_OVERMALLOC 8192
-#  endif
-#endif
 /* First char is CSV-separator by default (w/o spaces) */
 #if !defined(ACC_OPENCL_DELIMS)
 #  define ACC_OPENCL_DELIMS ",;"
 #endif
-
 #if !defined(ACC_OPENCL_LAZYINIT) && (defined(__DBCSR_ACC) || 1)
 #  define ACC_OPENCL_LAZYINIT
 #endif
@@ -115,46 +105,61 @@
 #    define ACC_OPENCL_STREAM_PRIORITIES
 #  endif
 #endif
-/** Streams are registered in compact/consecutive fashion */
-#if !defined(ACC_OPENCL_STREAM_COMPACT) && 1
-#  define ACC_OPENCL_STREAM_COMPACT
-#endif
 /** Stream-argument (ACC-interface) can be NULL (synchronous) */
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
-
-/** Automatically determine cl_mem offset */
-#if !defined(ACC_OPENCL_MEM_OFFSET) && 1
-#  define ACC_OPENCL_MEM_OFFSET
+#if !defined(ACC_OPENCL_OMPLOCKS) && 0
+#  define ACC_OPENCL_OMPLOCKS
 #endif
-
 /** Use DBCSR's profile for detailed timings */
 #if !defined(ACC_OPENCL_PROFILE) && 0
 #  define ACC_OPENCL_PROFILE
 #endif
 
-/* attaching c_dbcsr_acc_opencl_info_stream_t is needed */
-#define ACC_OPENCL_STREAM(A) ((cl_command_queue*)(A))
+/* attaching c_dbcsr_acc_opencl_stream_t is needed */
+#define ACC_OPENCL_STREAM(A) ((const c_dbcsr_acc_opencl_stream_t*)(A))
 /* incompatible with c_dbcsr_acc_event_record */
-#define ACC_OPENCL_EVENT(A) ((cl_event*)(A))
+#define ACC_OPENCL_EVENT(A) ((const cl_event*)(A))
 
 #if defined(_OPENMP)
 #  include <omp.h>
 #  define ACC_OPENCL_OMP_TID() omp_get_thread_num()
 #else
 #  define ACC_OPENCL_OMP_TID() (/*main*/ 0)
+#  undef ACC_OPENCL_OMPLOCKS
 #endif
 
-#if 1
-#  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
-#    define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
-#  else
-#    define ACC_OPENCL_EXPECT(EXPR) \
-      if (0 == (EXPR)) assert(0);
-#  endif
-#else /* elide */
-#  define ACC_OPENCL_EXPECT(EXPR) (void)(EXPR)
+#define ACC_OPENCL_ATOMIC_ACQUIRE(LOCK) \
+  do { \
+    LIBXSMM_ATOMIC_ACQUIRE(LOCK, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND); \
+  } while (0)
+#define ACC_OPENCL_ATOMIC_RELEASE(LOCK) \
+  do { \
+    LIBXSMM_ATOMIC_RELEASE(LOCK, ACC_OPENCL_ATOMIC_KIND); \
+  } while (0)
+
+#if defined(ACC_OPENCL_OMPLOCKS)
+#  define ACC_OPENCL_INIT(LOCK) omp_init_lock(LOCK)
+#  define ACC_OPENCL_DESTROY(LOCK) omp_destroy_lock(LOCK)
+#  define ACC_OPENCL_ACQUIRE(LOCK) omp_set_lock(LOCK)
+#  define ACC_OPENCL_RELEASE(LOCK) omp_unset_lock(LOCK)
+#  define ACC_OPENCL_LOCKTYPE omp_lock_t
+#else
+#  define ACC_OPENCL_INIT(LOCK) (*(LOCK) = 0)
+#  define ACC_OPENCL_DESTROY(LOCK)
+#  define ACC_OPENCL_ACQUIRE(LOCK) ACC_OPENCL_ATOMIC_ACQUIRE(LOCK)
+#  define ACC_OPENCL_RELEASE(LOCK) ACC_OPENCL_ATOMIC_RELEASE(LOCK)
+#  define ACC_OPENCL_LOCKTYPE ACC_OPENCL_ATOMIC_LOCKTYPE
+#endif
+
+#if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
+#  define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
+#  define LIBXSMM_STRISTR libxsmm_stristr
+#else
+#  define ACC_OPENCL_EXPECT(EXPR) \
+    if (0 == (EXPR)) assert(0);
+#  define LIBXSMM_STRISTR strstr
 #endif
 
 #if !defined(NDEBUG) && 1
@@ -163,15 +168,15 @@
       if (EXIT_SUCCESS == (RESULT)) { \
         (RESULT) = (EXPR); \
         assert((MSG) && *(MSG)); \
-        if (CL_SUCCESS != (RESULT)) { \
-          assert(CL_SUCCESS == EXIT_SUCCESS); \
+        if (EXIT_SUCCESS != (RESULT)) { \
+          assert(EXIT_SUCCESS == EXIT_SUCCESS); \
           if (-1001 != (RESULT)) { \
             fprintf(stderr, "ERROR ACC/OpenCL: " MSG); \
             if (EXIT_FAILURE != (RESULT)) { \
               fprintf(stderr, " (code=%i)", RESULT); \
             } \
             fprintf(stderr, ".\n"); \
-            assert(CL_SUCCESS != (RESULT)); \
+            assert(EXIT_SUCCESS != (RESULT)); \
           } \
           else { \
             fprintf(stderr, "ERROR ACC/OpenCL: incomplete installation (" MSG ").\n"); \
@@ -238,11 +243,30 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   cl_int intel, amd, nv;
 } c_dbcsr_acc_opencl_device_t;
 
+/** Information about host/device-memory pointer. */
+typedef struct c_dbcsr_acc_opencl_info_memptr_t {
+  cl_mem memory;
+  void* memptr;
+} c_dbcsr_acc_opencl_info_memptr_t;
+
+/** Information about streams (c_dbcsr_acc_stream_create). */
+typedef struct c_dbcsr_acc_opencl_stream_t {
+  cl_command_queue queue;
+  int tid, priority;
+} c_dbcsr_acc_opencl_stream_t;
+
 /** Enumeration of timer kinds used for built-in execution-profile. */
 typedef enum c_dbcsr_acc_opencl_timer_t {
   c_dbcsr_acc_opencl_timer_device,
   c_dbcsr_acc_opencl_timer_host
 } c_dbcsr_acc_opencl_timer_t;
+
+/** Enumeration of FP-atomic kinds. */
+typedef enum c_dbcsr_acc_opencl_atomic_fp_t {
+  c_dbcsr_acc_opencl_atomic_fp_no = 0,
+  c_dbcsr_acc_opencl_atomic_fp_32 = 1,
+  c_dbcsr_acc_opencl_atomic_fp_64 = 2
+} c_dbcsr_acc_opencl_atomic_fp_t;
 
 /**
  * Settings discovered/setup during c_dbcsr_acc_init (independent of the device)
@@ -252,13 +276,17 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Table of ordered viable/discovered devices (matching criterion). */
   cl_device_id devices[ACC_OPENCL_DEVICES_MAXCOUNT];
   /** Table of devices (thread-specific). */
-  c_dbcsr_acc_opencl_device_t* device;
+  c_dbcsr_acc_opencl_device_t device;
+  /** Locks used by domain. */
+  ACC_OPENCL_LOCKTYPE *lock_main, *lock_stream, *lock_memory, *lock_memset, *lock_memcpy;
   /** Handle-counter. */
-  size_t nclmems, nevents;
-  /** All handles and related storage. */
-  void **clmems, **events, *storage;
+  size_t nmemptrs, nstreams, nevents;
+  /** All memptrs and related storage. */
+  c_dbcsr_acc_opencl_info_memptr_t **memptrs, *memptr_data;
   /** All created streams partitioned by thread-ID (thread-local slots). */
-  void** streams;
+  c_dbcsr_acc_opencl_stream_t **streams, *stream_data;
+  /** All events and related storage. */
+  cl_event **events, *event_data;
   /** Kind of timer used for built-in execution-profile. */
   c_dbcsr_acc_opencl_timer_t timer; /* c_dbcsr_acc_opencl_device_t? */
   /** Kernel-parameters are matched against device's UID */
@@ -269,8 +297,6 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_int ndevices;
   /** Maximum number of threads (omp_get_max_threads). */
   cl_int nthreads;
-  /** Maximum number of streams per thread. */
-  cl_int nstreams;
   /** How to apply/use stream priorities. */
   cl_int priority;
   /** How to zero/copy device-side buffers. */
@@ -286,39 +312,25 @@ typedef struct c_dbcsr_acc_opencl_config_t {
 /** Global configuration setup in c_dbcsr_acc_init. */
 extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
-/** Contexts implement 1:1 relation with device. */
-cl_context c_dbcsr_acc_opencl_context(int* thread_id);
-/** Share context for given device (start searching at optional thread_id), or return NULL). */
-cl_context c_dbcsr_acc_opencl_device_context(cl_device_id device, const int* thread_id);
-
-/** Information about host-memory pointer (c_dbcsr_acc_host_mem_allocate). */
-typedef struct c_dbcsr_acc_opencl_info_hostptr_t {
-  cl_mem memory;
-  void* mapped;
-} c_dbcsr_acc_opencl_info_hostptr_t;
-c_dbcsr_acc_opencl_info_hostptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
-
-/** Determines cl_mem object and offset of memory. */
-void* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t elsize, const size_t* amount, size_t* offset);
-
-/** Information about streams (c_dbcsr_acc_stream_create). */
-typedef struct c_dbcsr_acc_opencl_info_stream_t {
-  void* pointer;
-  int priority;
-  int tid;
-} c_dbcsr_acc_opencl_info_stream_t;
-c_dbcsr_acc_opencl_info_stream_t* c_dbcsr_acc_opencl_info_stream(void* stream);
-const int* c_dbcsr_acc_opencl_stream_priority(const void* stream);
-
-void* c_dbcsr_acc_opencl_stream_default(void);
-
-/** Get host-pointer associated with device-memory (c_dbcsr_acc_dev_mem_allocate). */
-void* c_dbcsr_acc_opencl_get_hostptr(cl_mem memory);
+/** Determines device-side value of device-memory. */
+int c_dbcsr_acc_opencl_get_ptr(
+  ACC_OPENCL_LOCKTYPE* lock, const c_dbcsr_acc_opencl_stream_t* stream, void** dev_mem, cl_mem memory, size_t offset);
+/** Determines cl_mem object and storage pointer. */
+c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
+/** Determines cl_mem object and memory offset (device). */
+c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
+  ACC_OPENCL_LOCKTYPE* lock, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
+/** Determines cl_mem object and memory offset (device). */
+const c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr(
+  const void* memory, size_t elsize, const size_t* amount, size_t* offset);
+/** Finds an existing stream for the given thread-ID (or NULL). */
+const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(ACC_OPENCL_LOCKTYPE* lock, int thread_id);
+/** Determines default-stream (see ACC_OPENCL_STREAM_NULL). */
+const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void);
+/** Like c_dbcsr_acc_memset_zero, but supporting an arbitrary value used as initialization pattern. */
 int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream);
 /** Amount of device memory; local memory is only non-zero if separate from global. */
 int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
-/** Get device associated with thread-ID. */
-int c_dbcsr_acc_opencl_device(int thread_id, cl_device_id* device);
 /** Get device-ID for given device, and optionally global device-ID. */
 int c_dbcsr_acc_opencl_device_id(cl_device_id device, int* device_id, int* global_id);
 /** Confirm the vendor of the given device. */
@@ -332,10 +344,10 @@ int c_dbcsr_acc_opencl_device_name(
 int c_dbcsr_acc_opencl_device_level(cl_device_id device, int* level_major, int* level_minor, char cl_std[16], cl_device_type* type);
 /** Check if given device supports the extensions. */
 int c_dbcsr_acc_opencl_device_ext(cl_device_id device, const char* const extnames[], int num_exts);
-/** Create context for given thread-ID and device. */
-int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id device_id);
+/** Create context for given device. */
+int c_dbcsr_acc_opencl_create_context(cl_device_id device_id, cl_context* context);
 /** Internal variant of c_dbcsr_acc_set_active_device. */
-int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id);
+int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_id);
 /** Get preferred multiple and max. size of workgroup (kernel- or device-specific). */
 int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max_value, size_t* preferred_multiple);
 /**
@@ -347,24 +359,20 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
   const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], int num_exts,
   cl_kernel* kernel);
 /** Per-thread variant of c_dbcsr_acc_device_synchronize. */
-int c_dbcsr_acc_opencl_device_synchronize(int thread_id);
-/** Create user-event if not created and sets initial state. */
-int c_dbcsr_acc_opencl_event_create(cl_event* event_p);
-
-/** Enumeration of FP-atomic kinds. */
-typedef enum c_dbcsr_acc_opencl_atomic_fp_t {
-  c_dbcsr_acc_opencl_atomic_fp_no = 0,
-  c_dbcsr_acc_opencl_atomic_fp_32 = 1,
-  c_dbcsr_acc_opencl_atomic_fp_64 = 2
-} c_dbcsr_acc_opencl_atomic_fp_t;
-
+int c_dbcsr_acc_opencl_device_synchronize(ACC_OPENCL_LOCKTYPE* lock, int thread_id);
 /** Assemble flags to support atomic operations. */
-int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
-  const c_dbcsr_acc_opencl_device_t* devinfo, const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen);
-
+int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo, c_dbcsr_acc_opencl_atomic_fp_t kind,
+  const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen);
 /** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
   const char cl_std[], char buffer[], size_t buffer_size);
+
+/** Support older LIBXSMM (libxsmm_pmalloc_init). */
+void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], void* storage);
+/** Support older LIBXSMM (libxsmm_pmalloc). */
+void* c_dbcsr_acc_opencl_pmalloc(void* pool[], size_t* i);
+/** Support older LIBXSMM (libxsmm_pfree). */
+void c_dbcsr_acc_opencl_pfree(const void* pointer, void* pool[], size_t* i);
 
 #if defined(__cplusplus)
 }
