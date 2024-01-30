@@ -28,11 +28,13 @@
 #if !defined(LU) || (-1 == LU)
 #  define UNROLL_OUTER(N)
 #  define UNROLL(N)
-#else
+#else /* (-2) full, (-1) no hints, (0) inner, (1) outer-dehint, (2) block-m */
 #  if (1 <= LU)
 #    define UNROLL_OUTER(N) UNROLL_FORCE(1)
-#  else
+#  elif (-1 > LU)
 #    define UNROLL_OUTER(N) UNROLL_FORCE(N)
+#  else
+#    define UNROLL_OUTER(N)
 #  endif
 #  define UNROLL(N) UNROLL_FORCE(N)
 #endif
