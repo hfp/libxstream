@@ -70,7 +70,7 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
     size_t hit = (size_t)-1, i;
     assert(NULL != c_dbcsr_acc_opencl_config.clmems);
     if (NULL != lock) {
-      LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+      LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
     }
     for (i = c_dbcsr_acc_opencl_config.nclmems; i < n; ++i) {
       c_dbcsr_acc_opencl_info_ptr_t* const info = c_dbcsr_acc_opencl_config.clmems[i];
@@ -101,7 +101,7 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
       else break;
     }
     if (NULL != lock) {
-      LIBXSMM_ATOMIC_RELEASE(lock, LIBXSMM_ATOMIC_RELAXED);
+      LIBXSMM_ATOMIC_RELEASE(lock, ACC_OPENCL_ATOMIC_KIND);
     }
   }
 #  if defined(NDEBUG)
@@ -277,7 +277,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     result = c_dbcsr_acc_opencl_get_ptr(&memptr, memory, 0 /*offset*/);
     if (EXIT_SUCCESS == result) {
       c_dbcsr_acc_opencl_info_ptr_t* info = NULL;
-      LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+      LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
       info = (c_dbcsr_acc_opencl_info_ptr_t*)libxsmm_pmalloc(
         (void**)c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
       assert(NULL != memory && NULL != memptr);
@@ -306,7 +306,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
         }
 #  endif
       }
-      LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_ATOMIC_RELAXED);
+      LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_mem_lock, ACC_OPENCL_ATOMIC_KIND);
     }
     else {
       *dev_mem = NULL; /* error: querying device pointer */
@@ -333,7 +333,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
   if (NULL != dev_mem) {
     c_dbcsr_acc_opencl_info_ptr_t* const info = c_dbcsr_acc_opencl_info_devptr(
       dev_mem, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
-    LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+    LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
     if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
       c_dbcsr_acc_opencl_info_ptr_t* const pfree = c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems];
 #  if defined(CL_VERSION_2_0)
@@ -356,7 +356,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #  if !defined(NDEBUG)
     else result = EXIT_FAILURE;
 #  endif
-    LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_ATOMIC_RELAXED);
+    LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_mem_lock, ACC_OPENCL_ATOMIC_KIND);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
@@ -398,7 +398,7 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset) {
     static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
     static cl_kernel kernel = NULL;
     const size_t size = 1;
-    LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+    LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
     if (NULL == kernel) { /* generate kernel */
       const char source[] = "kernel void memptr(global unsigned long* ptr, unsigned long offset) {\n"
                             "  const size_t i = get_global_id(0);\n"
@@ -420,7 +420,7 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset) {
     do { /* TODO: investigate */
       result = clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL);
     } while (CL_SUCCESS == result && NULL == *dev_mem);
-    LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
+    LIBXSMM_ATOMIC_RELEASE(&lock, ACC_OPENCL_ATOMIC_KIND);
     assert(EXIT_SUCCESS != result || NULL != *dev_mem);
   }
   else result = EXIT_FAILURE;
@@ -540,7 +540,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
       else {
         static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
         static cl_kernel kernel = NULL;
-        LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+        LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
         if (NULL == kernel) { /* generate kernel */
           const char source[] = "kernel void memcpy_d2d(\n"
                                 "  global uchar *restrict dst, size_t offset_dst,\n"
@@ -563,7 +563,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
                              queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &nbytes, NULL /*local_work_size*/, 0, NULL, NULL),
             "launch memcpy_d2d kernel", result);
         }
-        LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
+        LIBXSMM_ATOMIC_RELEASE(&lock, ACC_OPENCL_ATOMIC_KIND);
       }
 #  if defined(ACC_OPENCL_STREAM_NULL)
       if (NULL == stream && EXIT_SUCCESS == result) {
@@ -613,7 +613,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
       else {
         static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
         static cl_kernel kernel = NULL;
-        LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+        LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
         if (NULL == kernel) { /* generate kernel */
           const char source[] = "kernel void memset(global uchar *restrict buffer, uchar value) {\n"
                                 "  buffer[get_global_id(0)] = value;\n"
@@ -629,7 +629,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
             clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, &offset_info, &nbytes, NULL /*local_work_size*/, 0, NULL, NULL),
             "launch memset-kernel", result);
         }
-        LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
+        LIBXSMM_ATOMIC_RELEASE(&lock, ACC_OPENCL_ATOMIC_KIND);
       }
 #  if defined(ACC_OPENCL_STREAM_NULL)
       if (NULL == stream && EXIT_SUCCESS == result) {

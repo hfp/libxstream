@@ -936,7 +936,7 @@ int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id active_id) {
       c_dbcsr_acc_opencl_config.device[thread_id].context = context;
       if (0 != thread_id) {
         /* apply context to master-thread if master's context is NULL */
-        LIBXSMM_ATOMIC_CMPSWP(&c_dbcsr_acc_opencl_config.device[/*main*/ 0].context, NULL, context, LIBXSMM_ATOMIC_RELAXED);
+        LIBXSMM_ATOMIC_CMPSWP(&c_dbcsr_acc_opencl_config.device[/*main*/ 0].context, NULL, context, ACC_OPENCL_ATOMIC_KIND);
         assert(NULL != c_dbcsr_acc_opencl_config.device[/*main*/ 0].context);
       }
       if (0 != c_dbcsr_acc_opencl_config.verbosity) {
@@ -977,7 +977,7 @@ int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id) {
   if (0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices) {
     static volatile int lock;
     assert(NULL != c_dbcsr_acc_opencl_config.device);
-    LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+    LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
     active_id = c_dbcsr_acc_opencl_config.devices[device_id];
     if (NULL != active_id) {
       int inherit_id = 0;
@@ -1046,7 +1046,7 @@ int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id) {
       }
     }
     else result = EXIT_FAILURE;
-    LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
+    LIBXSMM_ATOMIC_RELEASE(&lock, ACC_OPENCL_ATOMIC_KIND);
   }
   return result;
 }

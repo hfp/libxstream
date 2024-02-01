@@ -422,7 +422,7 @@ int libsmm_acc_init(void) {
   int result = EXIT_SUCCESS;
 #  endif
   /* multiple calls to libsmm_acc_init are not considered as an error */
-  if (1 == LIBXSMM_ATOMIC_ADD_FETCH(&opencl_libsmm_initialized, 1, LIBXSMM_ATOMIC_RELAXED)) {
+  if (1 == LIBXSMM_ATOMIC_ADD_FETCH(&opencl_libsmm_initialized, 1, ACC_OPENCL_ATOMIC_KIND)) {
 #  if !defined(__DBCSR_ACC)
     /* DBCSR shall call c_dbcsr_acc_init as well as libsmm_acc_init (since both interfaces are used).
      * Also, libsmm_acc_init may privately call c_dbcsr_acc_init (as it depends on the ACC interface).
@@ -708,7 +708,7 @@ int libsmm_acc_finalize(void) {
   int result = EXIT_SUCCESS;
 #  endif
   /* multiple calls to libsmm_acc_finalize are not considered as an error */
-  if (0 == LIBXSMM_ATOMIC_SUB_FETCH(&opencl_libsmm_initialized, 1, LIBXSMM_ATOMIC_RELAXED)) {
+  if (0 == LIBXSMM_ATOMIC_SUB_FETCH(&opencl_libsmm_initialized, 1, ACC_OPENCL_ATOMIC_KIND)) {
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
     char fname[ACC_OPENCL_MAXSTRLEN];
     const void* regentry = libxsmm_get_registry_begin(LIBXSMM_KERNEL_KIND_USER, NULL /*key*/);
@@ -942,7 +942,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         volatile int* const lock = locks;
 #    endif
         /* calling clSetKernelArg must be consistent across host-threads */
-        LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+        LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
         ACC_OPENCL_CHECK(
           clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel", result);
         ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 1, sizeof(cl_mem), &info_stack->memory),
@@ -983,7 +983,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
           }
         }
 #    endif
-        LIBXSMM_ATOMIC_RELEASE(lock, LIBXSMM_ATOMIC_RELAXED);
+        LIBXSMM_ATOMIC_RELEASE(lock, ACC_OPENCL_ATOMIC_KIND);
       }
 #    if defined(OPENCL_LIBSMM_VALIDATE_TRANS)
       ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_data, omat, data_size, stream), "transfer validation test", result);
@@ -1166,7 +1166,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
       assert(!(OPENCL_LIBSMM_NLOCKS_SMM & (OPENCL_LIBSMM_NLOCKS_SMM - 1))); /* POT */
       lock += LIBXSMM_MOD2(libxsmm_hash(&key, sizeof(key), 25071975 /*seed*/), OPENCL_LIBSMM_NLOCKS_SMM);
 #    endif
-      LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+      LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
       config = (opencl_libsmm_smm_t*)libxsmm_xdispatch(&key, sizeof(key));
       if (0 >= bs) bs = ((NULL != config && 0 < config->bs) ? config->bs : OPENCL_LIBSMM_DEFAULT_BS);
       /* determine kernel-kind (mini-batch vs. mini-kernel) */
@@ -1693,7 +1693,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
         LIBXSMM_UNUSED(nparams);
 #    endif
       }
-      LIBXSMM_ATOMIC_RELEASE(lock, LIBXSMM_ATOMIC_RELAXED);
+      LIBXSMM_ATOMIC_RELEASE(lock, ACC_OPENCL_ATOMIC_KIND);
     }
   }
   else if (0 < stack_size) { /* inhomogeneous, large kernel, or unsupported datatype */

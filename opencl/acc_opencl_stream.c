@@ -123,7 +123,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     properties[4] = 0; /* terminator */
   }
 #  endif
-  LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_stream_lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+  LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_stream_lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
 #  if defined(_OPENMP)
   if (1 < omp_get_num_threads()) {
     assert(0 < c_dbcsr_acc_opencl_config.nthreads);
@@ -131,7 +131,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     tid = (i < c_dbcsr_acc_opencl_config.nthreads ? i : (i % c_dbcsr_acc_opencl_config.nthreads));
     if (NULL != c_dbcsr_acc_opencl_config.device) { /* inherit master's context if current context is NULL */
       LIBXSMM_ATOMIC_CMPSWP(&c_dbcsr_acc_opencl_config.device[tid].context, NULL,
-        c_dbcsr_acc_opencl_config.device[/*main*/ 0].context, LIBXSMM_ATOMIC_RELAXED);
+        c_dbcsr_acc_opencl_config.device[/*main*/ 0].context, ACC_OPENCL_ATOMIC_KIND);
     }
   }
   else offset = c_dbcsr_acc_opencl_stream_counter_base++;
@@ -230,7 +230,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   else {
     *stream_p = NULL;
   }
-  LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_stream_lock, LIBXSMM_ATOMIC_RELAXED);
+  LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_stream_lock, ACC_OPENCL_ATOMIC_KIND);
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
@@ -248,7 +248,7 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
 #  endif
   if (NULL != stream) {
     const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
-    LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_stream_lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+    LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_stream_lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
     if (NULL != queue) {
       const int result_release = clReleaseCommandQueue(queue); /* soft-error */
       int tid = 0, i = c_dbcsr_acc_opencl_config.nstreams;
@@ -280,7 +280,7 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
     }
     c_dbcsr_acc_opencl_stream_counter_base = c_dbcsr_acc_opencl_stream_counter = 0; /* reset */
     free(c_dbcsr_acc_opencl_info_stream(stream)->pointer);
-    LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_stream_lock, LIBXSMM_ATOMIC_RELAXED);
+    LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_stream_lock, ACC_OPENCL_ATOMIC_KIND);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
