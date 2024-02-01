@@ -388,7 +388,7 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
 }
 
 
-int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, void* memory, size_t offset) {
+int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset) {
   void* const stream = c_dbcsr_acc_opencl_stream_default();
   int result = EXIT_SUCCESS;
   assert(NULL != dev_mem && sizeof(size_t) == sizeof(cl_ulong));
@@ -401,7 +401,12 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, void* memory, size_t offset) {
     if (NULL == kernel) { /* generate kernel */
       const char source[] = "kernel void memptr(global unsigned long* ptr, unsigned long offset) {\n"
                             "  const size_t i = get_global_id(0);\n"
-                            "  ptr[i] = (unsigned long)(ptr + i) + offset;\n"
+                            "  union {\n"
+                            "    global unsigned long* p;\n"
+                            "    unsigned long u;\n"
+                            "  } cast;\n"
+                            "  cast.p = ptr;\n"
+                            "  ptr[i] = cast.u + offset + i;\n"
                             "}\n";
       result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memptr" /*kernel_name*/, NULL /*build_params*/,
         NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
@@ -415,6 +420,7 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, void* memory, size_t offset) {
     ACC_OPENCL_CHECK(
       clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL), "transfer memptr to host", result);
     LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
+    assert(EXIT_SUCCESS != result || NULL != *dev_mem);
   }
   else {
     result = EXIT_FAILURE;
