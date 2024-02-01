@@ -391,7 +391,7 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
 int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, void* memory, size_t offset) {
   void* const stream = c_dbcsr_acc_opencl_stream_default();
   int result = EXIT_SUCCESS;
-  assert(NULL != dev_mem);
+  assert(NULL != dev_mem && sizeof(size_t) == sizeof(cl_ulong));
   if (NULL != memory && NULL != stream) {
     const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
     static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
@@ -399,16 +399,16 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, void* memory, size_t offset) {
     const size_t size = 1;
     LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
     if (NULL == kernel) { /* generate kernel */
-      const char source[] = "kernel void memptr(global uintptr_t* ptr, size_t offset) {\n"
+      const char source[] = "kernel void memptr(global unsigned long* ptr, unsigned long offset) {\n"
                             "  const size_t i = get_global_id(0);\n"
-                            "  ptr[i] = (uintptr_t)(ptr + i) + offset;\n"
+                            "  ptr[i] = (unsigned long)(ptr + i) + offset;\n"
                             "}\n";
       result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memptr" /*kernel_name*/, NULL /*build_params*/,
         NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
     }
     /* TODO: backup/restore memory */
     ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &memory), "set pointer-argument of memptr kernel", result);
-    ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(size_t), &offset), "set offset-argument of memptr kernel", result);
+    ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_ulong), &offset), "set offset-argument of memptr kernel", result);
     ACC_OPENCL_CHECK(
       clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
