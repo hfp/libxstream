@@ -392,6 +392,7 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset) {
   void* const stream = c_dbcsr_acc_opencl_stream_default();
   int result = EXIT_SUCCESS;
   assert(NULL != dev_mem && sizeof(size_t) == sizeof(cl_ulong));
+  *dev_mem = NULL;
   if (NULL != memory && NULL != stream) {
     const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
     static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
@@ -401,11 +402,10 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset) {
     if (NULL == kernel) { /* generate kernel */
       const char source[] = "kernel void memptr(global unsigned long* ptr, unsigned long offset) {\n"
                             "  const size_t i = get_global_id(0);\n"
-                            "  union {\n"
+                            "  const union {\n"
                             "    global unsigned long* p;\n"
                             "    unsigned long u;\n"
-                            "  } cast;\n"
-                            "  cast.p = ptr;\n"
+                            "  } cast = { ptr };\n"
                             "  ptr[i] = cast.u + offset + i;\n"
                             "}\n";
       result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memptr" /*kernel_name*/, NULL /*build_params*/,
@@ -417,15 +417,13 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset) {
     ACC_OPENCL_CHECK(
       clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
-    ACC_OPENCL_CHECK(
-      clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL), "transfer memptr to host", result);
+    do { /* TODO: investigate */
+      result = clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL);
+    } while (CL_SUCCESS == result && NULL == *dev_mem);
     LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
     assert(EXIT_SUCCESS != result || NULL != *dev_mem);
   }
-  else {
-    result = EXIT_FAILURE;
-    *dev_mem = NULL;
-  }
+  else result = EXIT_FAILURE;
   ACC_OPENCL_RETURN(result);
 }
 
