@@ -298,6 +298,8 @@ extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 cl_context c_dbcsr_acc_opencl_context(int* thread_id);
 /** Share context for given device (start searching at optional thread_id), or return NULL). */
 cl_context c_dbcsr_acc_opencl_device_context(cl_device_id device, const int* thread_id);
+/** Determines device-side value of device-memory. */
+int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, void* memory, size_t offset);
 /** Determines cl_mem object and storage pointer. */
 c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
 /** Determines cl_mem object and memory offset (device). */

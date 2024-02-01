@@ -274,7 +274,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   }
   if (EXIT_SUCCESS == result) {
     void* memptr = NULL;
-    result = c_dbcsr_acc_dev_mem_set_ptr(&memptr, memory, 0 /*offset*/);
+    result = c_dbcsr_acc_opencl_get_ptr(&memptr, memory, 0 /*offset*/);
     if (EXIT_SUCCESS == result) {
       c_dbcsr_acc_opencl_info_ptr_t* info = NULL;
       LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
@@ -366,9 +366,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 
 
 int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
-  void* const stream = c_dbcsr_acc_opencl_stream_default();
   int result = EXIT_SUCCESS;
-  uintptr_t ptr = 0;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -376,29 +374,8 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(NULL != dev_mem);
-  if (NULL != memory && NULL != stream) {
-    const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
-    static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
-    static cl_kernel kernel = NULL;
-    const size_t size = 1;
-    LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
-    if (NULL == kernel) { /* generate kernel */
-      const char source[] = "kernel void memptr(global uintptr_t* ptr) {\n"
-                            "  const size_t i = get_global_id(0);\n"
-                            "  ptr[i] = (uintptr_t)(ptr + i);\n"
-                            "}\n";
-      result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memptr" /*kernel_name*/, NULL /*build_params*/,
-        NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
-    }
-    /* TODO: backup/restore memory */
-    ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &memory), "set argument of memptr kernel", result);
-    ACC_OPENCL_CHECK(
-      clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
-      "launch memptr kernel", result);
-    LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
-    ACC_OPENCL_CHECK(
-      clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(ptr), &ptr, 0, NULL, NULL), "transfer memptr to host", result);
-    *dev_mem = (EXIT_SUCCESS == result ? ((char*)ptr + offset) : NULL);
+  if (NULL != memory) {
+    *dev_mem = (char*)*dev_mem + offset;
   }
   else {
     result = EXIT_FAILURE;
@@ -407,6 +384,42 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
+  ACC_OPENCL_RETURN(result);
+}
+
+
+int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, void* memory, size_t offset) {
+  void* const stream = c_dbcsr_acc_opencl_stream_default();
+  int result = EXIT_SUCCESS;
+  assert(NULL != dev_mem);
+  if (NULL != memory && NULL != stream) {
+    const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
+    static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
+    static cl_kernel kernel = NULL;
+    const size_t size = 1;
+    LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_RELAXED);
+    if (NULL == kernel) { /* generate kernel */
+      const char source[] = "kernel void memptr(global uintptr_t* ptr, size_t offset) {\n"
+                            "  const size_t i = get_global_id(0);\n"
+                            "  ptr[i] = (uintptr_t)(ptr + i) + offset;\n"
+                            "}\n";
+      result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memptr" /*kernel_name*/, NULL /*build_params*/,
+        NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
+    }
+    /* TODO: backup/restore memory */
+    ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &memory), "set pointer-argument of memptr kernel", result);
+    ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(size_t), &offset), "set offset-argument of memptr kernel", result);
+    ACC_OPENCL_CHECK(
+      clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
+      "launch memptr kernel", result);
+    ACC_OPENCL_CHECK(
+      clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(void*), &dev_mem, 0, NULL, NULL), "transfer memptr to host", result);
+    LIBXSMM_ATOMIC_RELEASE(&lock, LIBXSMM_ATOMIC_RELAXED);
+  }
+  else {
+    result = EXIT_FAILURE;
+    *dev_mem = NULL;
+  }
   ACC_OPENCL_RETURN(result);
 }
 
