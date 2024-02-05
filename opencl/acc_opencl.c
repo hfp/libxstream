@@ -1318,8 +1318,7 @@ int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options
 int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const char kernel_name[], const char build_params[],
   const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], int num_exts,
   cl_kernel* kernel) {
-  char buffer[ACC_OPENCL_BUFFERSIZE] = "", cl_std[16];
-  char buffer_name[ACC_OPENCL_MAXSTRLEN * 2];
+  char buffer[ACC_OPENCL_BUFFERSIZE] = "", buffer_name[ACC_OPENCL_MAXSTRLEN * 2], cl_std[16];
   int tid = 0, ok = EXIT_SUCCESS, source_is_cl = 1, nchar, level_major, level_minor;
   const cl_context context = c_dbcsr_acc_opencl_context(&tid);
   cl_device_id active_id = NULL;
@@ -1533,39 +1532,27 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
                 buffer[0] = '\0'; /* reset to empty */
                 if (NULL != file) {
                   if (size != fwrite(binary, 1, size, file)) {
-                    ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program));
                     ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseKernel(*kernel));
                     result = EXIT_FAILURE;
                   }
                   fclose(file);
                 }
                 else {
-                  ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program));
                   ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseKernel(*kernel));
                   result = EXIT_FAILURE;
                 }
               }
               else { /* error: querying program binary */
-                ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program));
                 ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseKernel(*kernel));
               }
               libxsmm_free(binary);
             }
             else {
-              ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program));
               ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseKernel(*kernel));
               result = EXIT_FAILURE;
             }
           }
         }
-        else { /* error: creating kernel */
-          ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program));
-        }
-      }
-      else {
-        ACC_OPENCL_EXPECT(
-          CL_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL));
-        ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program));
       }
     }
     else if (source != ext_source) { /* error: creating program */
@@ -1610,27 +1597,16 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       }
       if (CL_SUCCESS == result) {
         *kernel = clCreateKernel(program, kernel_name, &result);
-        assert(CL_SUCCESS != result || NULL != *kernel);
-        if (CL_SUCCESS != result) { /* error: creating kernel */
 #  if defined(CL_VERSION_1_2)
-          /* discover available kernels in program, and adopt the last kernel listed */
-          if (CL_SUCCESS == clGetProgramInfo(program, CL_PROGRAM_KERNEL_NAMES, sizeof(char*), buffer, NULL) && '\0' != *buffer) {
-            const char *const semicolon = strrchr(buffer, ';'), *const name = (NULL == semicolon ? buffer : (semicolon + 1));
-            *kernel = clCreateKernel(program, name, &result);
-            assert(CL_SUCCESS != result || NULL != *kernel);
-            if (CL_SUCCESS != result) ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program));
-          }
-          else
-#  endif
-          {
-            ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program));
-          }
+        /* error creating kernel: discover available kernels in program, and adopt the last kernel listed */
+        if (CL_SUCCESS != result && CL_SUCCESS == clGetProgramInfo(program, CL_PROGRAM_KERNEL_NAMES, sizeof(char*), buffer, NULL) &&
+            '\0' != *buffer)
+        {
+          const char *const semicolon = strrchr(buffer, ';'), *const name = (NULL == semicolon ? buffer : (semicolon + 1));
+          *kernel = clCreateKernel(program, name, &result);
         }
-      }
-      else {
-        ACC_OPENCL_EXPECT(
-          CL_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL));
-        ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program));
+#  endif
+        assert(CL_SUCCESS != result || NULL != *kernel);
       }
     }
   }
@@ -1640,9 +1616,19 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     assert(0 != source_is_file);
     libxsmm_free(p);
   }
+  if (NULL != program) {
 #  if !defined(NDEBUG)
-  if (EXIT_SUCCESS != result && NULL != kernel) *kernel = NULL;
+    if (EXIT_SUCCESS != result && NULL != kernel) *kernel = NULL;
+    if (1 < c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity)
 #  endif
+    {
+      if (CL_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL)) {
+        if ('\0' != *buffer) fprintf(stderr, "INFO ACC/OpenCL: %s\n", buffer);
+      }
+      else buffer[0] = '\0'; /* reset to empty */
+    }
+    ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program)); /* release in any case (EXIT_SUCCESS) */
+  }
   if (NULL != try_ok) *try_ok = result | ok;
   ACC_OPENCL_RETURN_CAUSE(result, buffer);
 }
