@@ -351,8 +351,6 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
   cl_kernel* kernel);
 /** Per-thread variant of c_dbcsr_acc_device_synchronize. */
 int c_dbcsr_acc_opencl_device_synchronize(int thread_id);
-/** Create user-event if not created and sets initial state. */
-int c_dbcsr_acc_opencl_event_create(cl_event* event_p);
 /** Assemble flags to support atomic operations. */
 int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
   const c_dbcsr_acc_opencl_device_t* devinfo, const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen);
