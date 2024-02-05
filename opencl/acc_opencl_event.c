@@ -9,7 +9,7 @@
 #if defined(__OPENCL)
 #  include "acc_opencl.h"
 
-#  if !defined(ACC_OPENCL_EVENT_BARRIER) && 0
+#  if !defined(ACC_OPENCL_EVENT_BARRIER) && 1
 #    define ACC_OPENCL_EVENT_BARRIER
 #  endif
 
