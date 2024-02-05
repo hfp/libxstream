@@ -1621,13 +1621,12 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     if (EXIT_SUCCESS != result && NULL != kernel) *kernel = NULL;
     if (1 < c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity)
 #  endif
-    {
-      if (CL_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL)) {
-        while ('\n' == *buffer) ++buffer; /* remove trailing newline */
-        if ('\0' != *buffer) fprintf(stderr, "INFO ACC/OpenCL: %s\n", buffer);
-      }
-      else buffer[0] = '\0'; /* reset to empty */
+    if (CL_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL)) {
+      const char* info = buffer;
+      while ('\n' == *info) ++info; /* remove trailing newline */
+      if ('\0' != *info) fprintf(stderr, "INFO ACC/OpenCL: %s\n", info);
     }
+    else buffer[0] = '\0'; /* reset to empty */
     ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseProgram(program)); /* release in any case (EXIT_SUCCESS) */
   }
   if (NULL != try_ok) *try_ok = result | ok;
