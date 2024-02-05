@@ -604,20 +604,17 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
 #  endif
       assert(NULL != queue && NULL != info->memory);
       if (0 == (1 & c_dbcsr_acc_opencl_config.devcopy)) {
-        static LIBXSMM_TLS cl_long pattern = 0;
-        size_t size_of_pattern = 1;
-        pattern = value; /* fill with value */
-        if (0 == LIBXSMM_MOD2(nbytes, sizeof(cl_long))) size_of_pattern = sizeof(cl_long);
-        else if (0 == LIBXSMM_MOD2(nbytes, 4)) size_of_pattern = 4;
-        else if (0 == LIBXSMM_MOD2(nbytes, 2)) size_of_pattern = 2;
-        result = clEnqueueFillBuffer(queue, info->memory, &pattern, size_of_pattern, offset_info, nbytes, 0, NULL, NULL);
+        size_t size_of_value = 1;
+        if (0 == LIBXSMM_MOD2(nbytes, 4)) size_of_value = 4;
+        else if (0 == LIBXSMM_MOD2(nbytes, 2)) size_of_value = 2;
+        result = clEnqueueFillBuffer(queue, info->memory, &value, size_of_value, offset_info, nbytes, 0, NULL, NULL);
       }
       else {
         static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */
         static cl_kernel kernel = NULL;
         LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
         if (NULL == kernel) { /* generate kernel */
-          const char source[] = "kernel void memset(global uchar *restrict buffer, uchar value) {\n"
+          const char source[] = "kernel void memset(global uchar* buffer, uchar value) {\n"
                                 "  buffer[get_global_id(0)] = value;\n"
                                 "}\n";
           result = c_dbcsr_acc_opencl_kernel(0 /*source_is_file*/, source, "memset" /*kernel_name*/, NULL /*build_params*/,
