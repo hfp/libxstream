@@ -1623,6 +1623,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 #  endif
     {
       if (CL_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL)) {
+        while ('\n' == *buffer) ++buffer; /* remove trailing newline */
         if ('\0' != *buffer) fprintf(stderr, "INFO ACC/OpenCL: %s\n", buffer);
       }
       else buffer[0] = '\0'; /* reset to empty */
