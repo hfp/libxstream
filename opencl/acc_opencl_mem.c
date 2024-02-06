@@ -111,7 +111,7 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
 }
 
 
-c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
+const c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
   const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
   return c_dbcsr_acc_opencl_info_devptr_lock(&c_dbcsr_acc_opencl_mem_lock, memory, elsize, amount, offset);
 }
@@ -330,10 +330,10 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
+  LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
   if (NULL != dev_mem) {
-    c_dbcsr_acc_opencl_info_ptr_t* const info = c_dbcsr_acc_opencl_info_devptr(
-      dev_mem, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
-    LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_mem_lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
+    c_dbcsr_acc_opencl_info_ptr_t* const info = c_dbcsr_acc_opencl_info_devptr_lock(
+      NULL, dev_mem, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
     if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
       c_dbcsr_acc_opencl_info_ptr_t* const pfree = c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems];
 #  if defined(CL_VERSION_2_0)
@@ -356,8 +356,8 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #  if !defined(NDEBUG)
     else result = EXIT_FAILURE;
 #  endif
-    LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_mem_lock, ACC_OPENCL_ATOMIC_KIND);
   }
+  LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_mem_lock, ACC_OPENCL_ATOMIC_KIND);
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif

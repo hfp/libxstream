@@ -306,7 +306,7 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset);
 /** Determines cl_mem object and storage pointer. */
 c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
 /** Determines cl_mem object and memory offset (device). */
-c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
+const c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
   const void* memory, size_t elsize, const size_t* amount, size_t* offset);
 /** Determines information about stream. */
 c_dbcsr_acc_opencl_info_stream_t* c_dbcsr_acc_opencl_info_stream(void* stream);
