@@ -114,8 +114,10 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
 }
 
 
-const c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
-  const c_dbcsr_acc_opencl_info_ptr_t* result = c_dbcsr_acc_opencl_info_devptr_lock(&c_dbcsr_acc_opencl_mem_lock, memory, elsize, amount, offset);
+const c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
+  const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
+  const c_dbcsr_acc_opencl_info_ptr_t* result = c_dbcsr_acc_opencl_info_devptr_lock(
+    &c_dbcsr_acc_opencl_mem_lock, memory, elsize, amount, offset);
 #  if defined(ACC_OPENCL_MEM_TLS)
   if (NULL != result) {
     static LIBXSMM_TLS c_dbcsr_acc_opencl_info_ptr_t info;
