@@ -1624,7 +1624,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     {
       if (CL_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL)) {
         const char* info = buffer;
-        while ('\n' == *info) ++info; /* remove trailing newline */
+        while (NULL != strchr("\n\r\t ", *info)) ++info; /* remove trailing newline etc. */
         if ('\0' != *info) fprintf(stderr, "INFO ACC/OpenCL: %s\n", info);
       }
       else buffer[0] = '\0'; /* reset to empty */
