@@ -510,7 +510,7 @@ int c_dbcsr_acc_init(void) {
         if (NULL != c_dbcsr_acc_opencl_config.device) {
           result = c_dbcsr_acc_opencl_set_active_device(/*main*/ 0, device_id);
           assert(EXIT_SUCCESS == result || NULL == c_dbcsr_acc_opencl_config.device[/*main*/ 0].context);
-          if (1 < c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
+          if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
             char platform_name[ACC_OPENCL_BUFFERSIZE];
             for (i = 0; i < (cl_uint)c_dbcsr_acc_opencl_config.ndevices; ++i) {
               if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(c_dbcsr_acc_opencl_config.devices[i], buffer,
@@ -1619,7 +1619,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
   if (NULL != program) {
 #  if !defined(NDEBUG)
     if (EXIT_SUCCESS != result && NULL != kernel) *kernel = NULL;
-    if (1 < c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity)
+#  else /* NDEBUG */
+    if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity)
 #  endif
     {
       if (CL_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL)) {
