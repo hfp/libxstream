@@ -92,11 +92,11 @@
 #endif
 /** Counted on a per-thread basis! */
 #if !defined(ACC_OPENCL_HANDLES_MAXCOUNT)
-#  define ACC_OPENCL_HANDLES_MAXCOUNT 128
+#  define ACC_OPENCL_HANDLES_MAXCOUNT 64
 #endif
 /** Counted on a per-thread basis! */
 #if !defined(ACC_OPENCL_STREAMS_MAXCOUNT)
-#  define ACC_OPENCL_STREAMS_MAXCOUNT 128
+#  define ACC_OPENCL_STREAMS_MAXCOUNT 32
 #endif
 /* First char is CSV-separator by default (w/o spaces) */
 #if !defined(ACC_OPENCL_DELIMS)

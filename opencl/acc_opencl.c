@@ -219,7 +219,7 @@ int c_dbcsr_acc_init(void) {
 #  if defined(_OPENMP)
     const int max_threads = omp_get_max_threads(), num_threads = omp_get_num_threads();
     c_dbcsr_acc_opencl_config.nthreads = (num_threads < max_threads ? max_threads : num_threads);
-    c_dbcsr_acc_opencl_config.nstreams = (num_threads < max_threads ? (ACC_OPENCL_STREAMS_MAXCOUNT + max_threads)
+    c_dbcsr_acc_opencl_config.nstreams = (num_threads < max_threads ? (ACC_OPENCL_STREAMS_MAXCOUNT * max_threads)
                                                                     : (ACC_OPENCL_STREAMS_MAXCOUNT));
 #  else
     c_dbcsr_acc_opencl_config.nthreads = 1;
