@@ -9,10 +9,6 @@
 #if defined(__OPENCL)
 #  include "acc_opencl.h"
 
-#  if !defined(ACC_OPENCL_EVENT_BARRIER) && 1
-#    define ACC_OPENCL_EVENT_BARRIER
-#  endif
-
 
 #  if defined(__cplusplus)
 extern "C" {
@@ -93,11 +89,7 @@ int c_dbcsr_acc_stream_wait_event(void* stream, void* event) { /* wait for an ev
   clevent = *ACC_OPENCL_EVENT(event);
   if (NULL != clevent) {
 #  if defined(CL_VERSION_1_2)
-#    if defined(ACC_OPENCL_EVENT_BARRIER)
     result = clEnqueueBarrierWithWaitList(queue, 1, &clevent, NULL);
-#    else
-    result = clEnqueueMarkerWithWaitList(queue, 1, &clevent, NULL);
-#    endif
 #  else
     result = clEnqueueWaitForEvents(queue, 1, &clevent);
 #  endif
@@ -134,11 +126,7 @@ int c_dbcsr_acc_event_record(void* event, void* stream) {
 #  endif
   }
 #  if defined(CL_VERSION_1_2)
-#    if defined(ACC_OPENCL_EVENT_BARRIER)
-  result = clEnqueueBarrierWithWaitList(queue, 0, NULL, &clevent);
-#    else
   result = clEnqueueMarkerWithWaitList(queue, 0, NULL, &clevent);
-#    endif
 #  else
   result = clEnqueueMarker(queue, &clevent);
 #  endif
