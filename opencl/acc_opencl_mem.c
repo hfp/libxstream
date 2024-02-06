@@ -25,6 +25,9 @@
 #  if !defined(ACC_OPENCL_MEM_DEBUG) && 0
 #    define ACC_OPENCL_MEM_DEBUG
 #  endif
+#  if !defined(ACC_OPENCL_MEM_TLS) && 0
+#    define ACC_OPENCL_MEM_TLS
+#  endif
 
 
 #  if defined(__cplusplus)
@@ -111,9 +114,16 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
 }
 
 
-const c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
-  const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
-  return c_dbcsr_acc_opencl_info_devptr_lock(&c_dbcsr_acc_opencl_mem_lock, memory, elsize, amount, offset);
+const c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
+  const c_dbcsr_acc_opencl_info_ptr_t* result = c_dbcsr_acc_opencl_info_devptr_lock(&c_dbcsr_acc_opencl_mem_lock, memory, elsize, amount, offset);
+#  if defined(ACC_OPENCL_MEM_TLS)
+  if (NULL != result) {
+    static LIBXSMM_TLS c_dbcsr_acc_opencl_info_ptr_t info;
+    LIBXSMM_ASSIGN127(&info, result);
+    result = &info;
+  }
+#  endif
+  return result;
 }
 
 
@@ -455,6 +465,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
         result = c_dbcsr_acc_stream_sync(&queue);
       }
 #  endif
+      assert(EXIT_SUCCESS == result);
     }
     else result = EXIT_FAILURE;
   }
