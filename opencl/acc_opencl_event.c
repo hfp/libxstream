@@ -31,7 +31,7 @@ int c_dbcsr_acc_event_create(void** event_p) {
                                              :
 #  endif
                                              malloc(sizeof(cl_event)));
-  if (NULL != *event_p) *(cl_event*)*event_p = NULL;
+  if (NULL != *event_p) *ACC_OPENCL_EVENT(*event_p) = NULL;
   else result = EXIT_FAILURE;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
@@ -50,11 +50,12 @@ int c_dbcsr_acc_event_destroy(void* event) {
 #  endif
   if (NULL != event) {
     const cl_event clevent = *ACC_OPENCL_EVENT(event);
-    if (NULL != clevent) result = clReleaseEvent(clevent);
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
     (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (NULL != c_dbcsr_acc_opencl_config.events) {
-      /**(cl_event*)event = NULL; assert(NULL == *ACC_OPENCL_EVENT(event));*/
+#    if !defined(NDEBUG)
+      *ACC_OPENCL_EVENT(event) = NULL;
+#    endif
       libxsmm_pfree(event, c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
     }
     else
@@ -62,6 +63,7 @@ int c_dbcsr_acc_event_destroy(void* event) {
     {
       free(event);
     }
+    if (NULL != clevent) result = clReleaseEvent(clevent);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
