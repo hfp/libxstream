@@ -418,9 +418,8 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset) {
     ACC_OPENCL_CHECK(
       clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
-    do { /* TODO: investigate */
-      result = clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL);
-    } while (CL_SUCCESS == result && NULL == *dev_mem);
+    ACC_OPENCL_CHECK(
+      clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL), "transfer memptr", result);
     LIBXSMM_ATOMIC_RELEASE(&lock, ACC_OPENCL_ATOMIC_KIND);
     assert(EXIT_SUCCESS != result || NULL != *dev_mem);
   }
