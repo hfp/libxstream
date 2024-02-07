@@ -501,7 +501,8 @@ int libsmm_acc_init(void) {
           cl_device_id active_id = NULL;
           unsigned int active_uid;
           int active_match = -1;
-          if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device(ACC_OPENCL_OMP_TID(), &active_id) &&
+          if (EXIT_SUCCESS == clGetContextInfo(c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id),
+                                &active_id, NULL) &&
               EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(active_id, bufname, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/,
                                 0 /*platform_maxlen*/, /*cleanup*/ 1) &&
               EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(active_id, bufname, &active_uid))
@@ -1144,13 +1145,11 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
     double duration;
     const libxsmm_timer_tickint start = libxsmm_timer_tick();
 #    endif
-    const c_dbcsr_acc_opencl_info_stream_t* const qinfo = c_dbcsr_acc_opencl_info_stream(stream);
-    const c_dbcsr_acc_opencl_device_t* const devinfo = c_dbcsr_acc_opencl_config.device + qinfo->tid;
     const cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
     LIBXSMM_MEMZERO127(&key); /* potentially heterogeneous key-data */
     key.devuid = ((1 != c_dbcsr_acc_opencl_config.devmatch && ((unsigned int)-1) != c_dbcsr_acc_opencl_config.devmatch)
                     ? c_dbcsr_acc_opencl_config.devmatch
-                    : devinfo->uid);
+                    : c_dbcsr_acc_opencl_config.device.uid);
     key.type = datatype;
     key.m = m_max;
     key.n = n_max;
@@ -1202,7 +1201,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
           }
           if (NULL != tname) {
             const char *extensions[] = {NULL, NULL}, *const env_devid = getenv("OPENCL_LIBSMM_SMM_DEVID");
-            const unsigned int devuid = (NULL == env_devid || '\0' == *env_devid) ? devinfo->uid
+            const unsigned int devuid = (NULL == env_devid || '\0' == *env_devid) ? c_dbcsr_acc_opencl_config.device.uid
                                                                                   : (unsigned int)strtoul(env_devid, NULL, 0);
             size_t wgsize_max, wgsize_prf, sgs = 0;
             opencl_libsmm_smm_t new_config;
@@ -1224,7 +1223,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
               const char *const env_ab = getenv("OPENCL_LIBSMM_SMM_AB"), *const env_ac = getenv("OPENCL_LIBSMM_SMM_AC");
               const char *const env_xf = getenv("OPENCL_LIBSMM_SMM_XF"), *const env_cl = getenv("OPENCL_LIBSMM_SMM_BUILDOPTS");
               const char* const intel_xf = "-cl-intel-256-GRF-per-thread";
-              const int default_lu = (0 != devinfo->intel ? -1 : 0);
+              const int default_lu = (0 != c_dbcsr_acc_opencl_config.device.intel ? -1 : 0);
               const int unroll = LIBXSMM_MAX(-2, (NULL == env_lu || '\0' == *env_lu)
                                                    ? (0 == kernel_idx ? (NULL == config ? default_lu : config->lu) : default_lu)
                                                    : atoi(env_lu)); /* populate only lower bound */
@@ -1266,7 +1265,9 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 0, 1);
               new_config.al = LIBXSMM_CLMP(
                 (NULL == env_al || '\0' == *env_al)
-                  ? (0 == devinfo->amd ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->al) : /*default*/ 0) : 1)
+                  ? (0 == c_dbcsr_acc_opencl_config.device.amd
+                        ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->al) : /*default*/ 0)
+                        : 1)
                   : atoi(env_al),
                 0, 1);
               new_config.tb = LIBXSMM_CLMP((NULL == env_tb || '\0' == *env_tb)
@@ -1297,8 +1298,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   : atoi(env_ac),
                 0, 1);
               if (NULL == env_xf || '\0' == *env_xf) {
-                if (0 == devinfo->intel || CL_DEVICE_TYPE_GPU != devinfo->type || NULL == env_cl ||
-                    NULL == strstr(env_cl, intel_xf))
+                if (0 == c_dbcsr_acc_opencl_config.device.intel || CL_DEVICE_TYPE_GPU != c_dbcsr_acc_opencl_config.device.type ||
+                    NULL == env_cl || NULL == strstr(env_cl, intel_xf))
                 {
                   new_config.flags = (NULL == config ? /*default*/ 0 : config->flags);
                 }
@@ -1391,10 +1392,10 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   "-DT=%s -DINTEL=%u -DGLOBAL=%s -DSWG=%i -DSGS=%i -DFN=%s -DREPEAT=%i -DLU=%i "
                   "-DSM=%i -DSN=%i -DSK=%i -DBS=%i -DVL=%i %s -DBM=%i -DBN=%i -DBK=%i "
                   "%s %s %s %s %s %s %s %s ", /* space! */
-                  tname, 0 != devinfo->intel ? devinfo->uid : 0, cmem, (int)new_config.wgsize[kernel_idx], (int)sgs, fname,
-                  NULL == env_nrepeat ? 1 : atoi(env_nrepeat), new_config.lu, m_max, n_max, k_max, bs, OPENCL_LIBSMM_VMIN,
-                  bs == new_config.bs ? "-DBSC" : "", new_config.bm, new_config.bn, new_config.bk,
-                  0 == new_config.tb ? "" : "-DTRACK_B", 0 != new_config.tc ? "-DTRACK_C" : "",
+                  tname, 0 != c_dbcsr_acc_opencl_config.device.intel ? c_dbcsr_acc_opencl_config.device.uid : 0, cmem,
+                  (int)new_config.wgsize[kernel_idx], (int)sgs, fname, NULL == env_nrepeat ? 1 : atoi(env_nrepeat), new_config.lu,
+                  m_max, n_max, k_max, bs, OPENCL_LIBSMM_VMIN, bs == new_config.bs ? "-DBSC" : "", new_config.bm, new_config.bn,
+                  new_config.bk, 0 == new_config.tb ? "" : "-DTRACK_B", 0 != new_config.tc ? "-DTRACK_C" : "",
                   0 == new_config.nz ? "" : "-DATOMIC_INC_NZ", 0 == new_config.al ? "" : "-DAL",
                   0 == new_config.ap ? "" : "-DSLM_P",
                   0 == new_config.aa ? "" : (1 == slm_a ? "-DSLM_A=1" : (0 != slm_a ? "-DSLM_A=2" : "-DREG_A")),
@@ -1402,19 +1403,24 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   0 == new_config.ac ? "" : (1 == slm_c ? "-DSLM_C=1" : "-DSLM_C=2"));
                 /* apply support for FP-atomics */
                 if (0 < nchar && (int)sizeof(build_params) > nchar) {
-                  nchar = c_dbcsr_acc_opencl_flags_atomics(active_device, tkind, devinfo, extensions,
+                  nchar = c_dbcsr_acc_opencl_flags_atomics(&c_dbcsr_acc_opencl_config.device, tkind, extensions,
                     sizeof(extensions) / sizeof(*extensions), build_params + nchar, sizeof(build_params) - nchar);
                 }
                 else result = EXIT_FAILURE;
                 if (0 < nchar && (int)sizeof(build_params) > nchar) {
                   const char* const cl_debug = (
 #    if !defined(NDBGDEV)
-                    (0 != devinfo->intel && CL_DEVICE_TYPE_CPU != devinfo->type) ? "-gline-tables-only" :
+                    (0 != c_dbcsr_acc_opencl_config.device.intel && CL_DEVICE_TYPE_CPU != c_dbcsr_acc_opencl_config.device.type)
+                      ? "-gline-tables-only"
+                      :
 #    endif
-                                                                                 "");
+                      "");
                   nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer), "%s %s -cl-fast-relaxed-math -cl-denorms-are-zero %s",
-                    (0 == new_config.flags || 0 == devinfo->intel || CL_DEVICE_TYPE_GPU != devinfo->type) ? "" : intel_xf, cl_debug,
-                    NULL == env_cl ? "" : env_cl);
+                    (0 == new_config.flags || 0 == c_dbcsr_acc_opencl_config.device.intel ||
+                      CL_DEVICE_TYPE_GPU != c_dbcsr_acc_opencl_config.device.type)
+                      ? ""
+                      : intel_xf,
+                    cl_debug, NULL == env_cl ? "" : env_cl);
                   if (0 >= nchar || (int)sizeof(buffer) <= nchar) result = EXIT_FAILURE;
                 }
                 else result = EXIT_FAILURE;

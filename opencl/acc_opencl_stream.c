@@ -89,7 +89,6 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   };
   int result, i, tid = 0, offset = 0;
   cl_command_queue queue = NULL;
-  cl_context context = NULL;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -129,27 +128,23 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     assert(0 < c_dbcsr_acc_opencl_config.nthreads);
     i = c_dbcsr_acc_opencl_stream_counter++;
     tid = (i < c_dbcsr_acc_opencl_config.nthreads ? i : (i % c_dbcsr_acc_opencl_config.nthreads));
-    if (NULL != c_dbcsr_acc_opencl_config.device) { /* inherit master's context if current context is NULL */
-      LIBXSMM_ATOMIC_CMPSWP(&c_dbcsr_acc_opencl_config.device[tid].context, NULL,
-        c_dbcsr_acc_opencl_config.device[/*main*/ 0].context, ACC_OPENCL_ATOMIC_KIND);
-    }
   }
   else offset = c_dbcsr_acc_opencl_stream_counter_base++;
 #  endif
-  if (NULL != c_dbcsr_acc_opencl_config.device) context = c_dbcsr_acc_opencl_config.device[tid].context;
-  if (NULL != context) {
+  if (NULL != c_dbcsr_acc_opencl_config.device.context) {
     cl_device_id device = NULL;
-    result = clGetContextInfo(context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &device, NULL);
+    result = clGetContextInfo(c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &device, NULL);
     if (CL_SUCCESS == result) {
-      if (0 != c_dbcsr_acc_opencl_config.device[tid].intel) {
+      if (0 != c_dbcsr_acc_opencl_config.device.intel) {
         const int xhints = ((1 == c_dbcsr_acc_opencl_config.xhints || 0 > c_dbcsr_acc_opencl_config.xhints)
-                              ? (0 != c_dbcsr_acc_opencl_config.device[tid].intel ? 1 : 0)
+                              ? (0 != c_dbcsr_acc_opencl_config.device.intel ? 1 : 0)
                               : (c_dbcsr_acc_opencl_config.xhints >> 1));
         if (0 != (1 & xhints)) { /* attempt to enable command aggregation */
           const ACC_OPENCL_STREAM_PROPERTIES_TYPE props[4] = {
             CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
           };
-          const cl_command_queue q = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, device, props, &result);
+          const cl_command_queue q = ACC_OPENCL_CREATE_COMMAND_QUEUE(
+            c_dbcsr_acc_opencl_config.device.context, device, props, &result);
           if (CL_SUCCESS == result) {
             c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host; /* force host-timer */
             clReleaseCommandQueue(q);
@@ -186,7 +181,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
       {
         properties[1] = CL_QUEUE_PROFILING_ENABLE;
       }
-      queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, device, properties, &result);
+      queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(c_dbcsr_acc_opencl_config.device.context, device, properties, &result);
     }
   }
   else {
@@ -305,7 +300,8 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
     cl_platform_id platform = NULL;
     cl_device_id active_id = NULL;
     if (EXIT_SUCCESS == result) {
-      result = c_dbcsr_acc_opencl_device(ACC_OPENCL_OMP_TID(), &active_id);
+      result = clGetContextInfo(
+        c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &active_id, NULL);
     }
     ACC_OPENCL_CHECK(clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL),
       "retrieve platform associated with active device", result);
@@ -333,9 +329,6 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
 int c_dbcsr_acc_stream_sync(void* stream) {
   cl_command_queue queue = NULL;
   int result = EXIT_SUCCESS;
-#  if defined(ACC_OPENCL_STREAM_PRIORITIES)
-  const int* const priority = NULL;
-#  endif
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;

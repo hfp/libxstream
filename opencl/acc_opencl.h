@@ -261,7 +261,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Table of ordered viable/discovered devices (matching criterion). */
   cl_device_id devices[ACC_OPENCL_DEVICES_MAXCOUNT];
   /** Table of devices (thread-specific). */
-  c_dbcsr_acc_opencl_device_t* device;
+  c_dbcsr_acc_opencl_device_t device;
   /** Handle-counter. */
   size_t nclmems, nevents;
   /** All events and related storage. */
@@ -297,10 +297,6 @@ typedef struct c_dbcsr_acc_opencl_config_t {
 /** Global configuration setup in c_dbcsr_acc_init. */
 extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
-/** Contexts implement 1:1 relation with device. */
-cl_context c_dbcsr_acc_opencl_context(int* thread_id);
-/** Share context for given device (start searching at optional thread_id), or return NULL). */
-cl_context c_dbcsr_acc_opencl_device_context(cl_device_id device, const int* thread_id);
 /** Determines device-side value of device-memory. */
 int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset);
 /** Determines cl_mem object and storage pointer. */
@@ -320,8 +316,6 @@ void* c_dbcsr_acc_opencl_stream_default(void);
 int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream);
 /** Amount of device memory; local memory is only non-zero if separate from global. */
 int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
-/** Get device associated with thread-ID. */
-int c_dbcsr_acc_opencl_device(int thread_id, cl_device_id* device);
 /** Get device-ID for given device, and optionally global device-ID. */
 int c_dbcsr_acc_opencl_device_id(cl_device_id device, int* device_id, int* global_id);
 /** Confirm the vendor of the given device. */
@@ -335,10 +329,10 @@ int c_dbcsr_acc_opencl_device_name(
 int c_dbcsr_acc_opencl_device_level(cl_device_id device, int* level_major, int* level_minor, char cl_std[16], cl_device_type* type);
 /** Check if given device supports the extensions. */
 int c_dbcsr_acc_opencl_device_ext(cl_device_id device, const char* const extnames[], int num_exts);
-/** Create context for given thread-ID and device. */
-int c_dbcsr_acc_opencl_create_context(int thread_id, cl_device_id device_id);
+/** Create context for given device. */
+int c_dbcsr_acc_opencl_create_context(cl_device_id device_id, cl_context* context);
 /** Internal variant of c_dbcsr_acc_set_active_device. */
-int c_dbcsr_acc_opencl_set_active_device(int thread_id, int device_id);
+int c_dbcsr_acc_opencl_set_active_device(int device_id);
 /** Get preferred multiple and max. size of workgroup (kernel- or device-specific). */
 int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max_value, size_t* preferred_multiple);
 /**
@@ -352,8 +346,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 /** Per-thread variant of c_dbcsr_acc_device_synchronize. */
 int c_dbcsr_acc_opencl_device_synchronize(int thread_id);
 /** Assemble flags to support atomic operations. */
-int c_dbcsr_acc_opencl_flags_atomics(cl_device_id device_id, c_dbcsr_acc_opencl_atomic_fp_t kind,
-  const c_dbcsr_acc_opencl_device_t* devinfo, const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen);
+int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo, c_dbcsr_acc_opencl_atomic_fp_t kind,
+  const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen);
 /** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
   const char cl_std[], char buffer[], size_t buffer_size);

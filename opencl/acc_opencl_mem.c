@@ -145,14 +145,13 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
   nbytes += alignment + size_meminfo - 1;
   assert(NULL != host_mem && NULL != info);
 #  if defined(CL_VERSION_2_0)
-  if (0 != c_dbcsr_acc_opencl_config.device[info->tid].svm_interop) {
-    host_ptr = clSVMAlloc(
-      c_dbcsr_acc_opencl_config.device[info->tid].context, CL_MEM_READ_WRITE, nbytes, sizeof(void*) /*minimal alignment*/);
-    if (NULL == host_ptr) c_dbcsr_acc_opencl_config.device[info->tid].svm_interop = 0; /* sanitize */
+  if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
+    host_ptr = clSVMAlloc(c_dbcsr_acc_opencl_config.device.context, CL_MEM_READ_WRITE, nbytes, sizeof(void*) /*minimal alignment*/);
+    if (NULL == host_ptr) c_dbcsr_acc_opencl_config.device.svm_interop = 0; /* sanitize */
   }
 #  endif
-  memory = clCreateBuffer(c_dbcsr_acc_opencl_config.device[info->tid].context,
-    NULL == host_ptr ? CL_MEM_ALLOC_HOST_PTR : CL_MEM_USE_HOST_PTR, nbytes, host_ptr, &result);
+  memory = clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, NULL == host_ptr ? CL_MEM_ALLOC_HOST_PTR : CL_MEM_USE_HOST_PTR,
+    nbytes, host_ptr, &result);
   assert(CL_SUCCESS == result || NULL == memory);
   if (CL_SUCCESS == result) {
 #  if defined(ACC_OPENCL_STREAM_NULL)
@@ -222,8 +221,8 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
       {
         const c_dbcsr_acc_opencl_info_stream_t* const qinfo = c_dbcsr_acc_opencl_info_stream(stream);
         assert(NULL != qinfo);
-        if (0 != c_dbcsr_acc_opencl_config.device[qinfo->tid].svm_interop) {
-          clSVMFree(c_dbcsr_acc_opencl_config.device[qinfo->tid].context, info.memptr);
+        if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
+          clSVMFree(c_dbcsr_acc_opencl_config.device.context, info.memptr);
         }
       }
 #  endif
@@ -251,10 +250,8 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
 
 int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   cl_int result;
-  int tid = 0;
-  const cl_context context = c_dbcsr_acc_opencl_context(&tid);
-  const int devuid = c_dbcsr_acc_opencl_config.device[tid].uid,
-            try_flag = ((0 != c_dbcsr_acc_opencl_config.device[tid].unified || 0 == c_dbcsr_acc_opencl_config.device[tid].intel ||
+  const int devuid = c_dbcsr_acc_opencl_config.device.uid,
+            try_flag = ((0 != c_dbcsr_acc_opencl_config.device.unified || 0 == c_dbcsr_acc_opencl_config.device.intel ||
                           (0x4905 != devuid && 0x020a != devuid && (0x0bd0 > devuid || 0x0bdb < devuid)))
                           ? 0
                           : (1u << 22));
@@ -265,24 +262,27 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-  assert(NULL != dev_mem && NULL != context);
+  assert(NULL != dev_mem && NULL != c_dbcsr_acc_opencl_config.device.context);
   memory = (
 #  if defined(CL_VERSION_2_0)
-    0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop
-      ? clCreateBuffer(context, CL_MEM_USE_HOST_PTR, nbytes,
-          clSVMAlloc(context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes, 0 /*default alignment*/), &result)
+    0 != c_dbcsr_acc_opencl_config.device.svm_interop
+      ? clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_USE_HOST_PTR, nbytes,
+          clSVMAlloc(c_dbcsr_acc_opencl_config.device.context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes,
+            0 /*default alignment*/),
+          &result)
       :
 #  endif
-      clCreateBuffer(context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes, NULL /*host_ptr*/, &result));
+      clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes,
+        NULL /*host_ptr*/, &result));
   if (0 != try_flag && CL_SUCCESS != result) { /* retry without try_flag */
     memory = (
 #  if defined(CL_VERSION_2_0)
-      0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop
-        ? clCreateBuffer(
-            context, CL_MEM_USE_HOST_PTR, nbytes, clSVMAlloc(context, CL_MEM_READ_WRITE, nbytes, 0 /*default alignment*/), &result)
+      0 != c_dbcsr_acc_opencl_config.device.svm_interop
+        ? clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_USE_HOST_PTR, nbytes,
+            clSVMAlloc(c_dbcsr_acc_opencl_config.device.context, CL_MEM_READ_WRITE, nbytes, 0 /*default alignment*/), &result)
         :
 #  endif
-        clCreateBuffer(context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result));
+        clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result));
   }
   if (EXIT_SUCCESS == result) {
     void* memptr = NULL;
@@ -349,13 +349,11 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
       c_dbcsr_acc_opencl_info_ptr_t* const pfree = c_dbcsr_acc_opencl_config.clmems[c_dbcsr_acc_opencl_config.nclmems];
 #  if defined(CL_VERSION_2_0)
-      const int tid = ACC_OPENCL_OMP_TID();
-      if (0 != c_dbcsr_acc_opencl_config.device[tid].svm_interop) {
-        const cl_context context = c_dbcsr_acc_opencl_context(NULL /*thread_id*/);
+      if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
         void* ptr = NULL;
         /* get host-pointer associated with device-memory (c_dbcsr_acc_dev_mem_allocate) */
         ACC_OPENCL_EXPECT(CL_SUCCESS == clGetMemObjectInfo(info->memory, CL_MEM_HOST_PTR, sizeof(void*), &ptr, NULL));
-        clSVMFree(context, ptr);
+        clSVMFree(c_dbcsr_acc_opencl_config.device.context, ptr);
       }
 #  endif
       libxsmm_pfree(pfree, (void**)c_dbcsr_acc_opencl_config.clmems, &c_dbcsr_acc_opencl_config.nclmems);
@@ -737,7 +735,9 @@ int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t
 
 int c_dbcsr_acc_dev_mem_info(size_t* mem_free, size_t* mem_total) {
   cl_device_id active_id = NULL;
-  int result = 0 < c_dbcsr_acc_opencl_config.ndevices ? c_dbcsr_acc_opencl_device(ACC_OPENCL_OMP_TID(), &active_id) : EXIT_FAILURE;
+  int result = 0 < c_dbcsr_acc_opencl_config.ndevices ? clGetContextInfo(c_dbcsr_acc_opencl_config.device.context,
+                                                          CL_CONTEXT_DEVICES, sizeof(cl_device_id), &active_id, NULL)
+                                                      : EXIT_FAILURE;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
