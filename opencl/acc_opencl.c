@@ -898,7 +898,7 @@ int c_dbcsr_acc_opencl_set_active_device(int device_id) {
   cl_device_id active_id = NULL;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_DEVICES_MAXCOUNT);
   if (0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices) {
-    static volatile int lock;
+    static c_dbcsr_acc_opencl_lock_t lock;
     LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
     active_id = c_dbcsr_acc_opencl_config.devices[device_id];
     if (NULL != active_id) {
@@ -928,7 +928,7 @@ int c_dbcsr_acc_opencl_set_active_device(int device_id) {
             ((NULL == env_svm || 2 > *c_dbcsr_acc_opencl_config.device.level) ? 0 : atoi(env_svm));
 #  endif
           if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool),
-                              &c_dbcsr_acc_opencl_config.device.unified, NULL))
+                                &c_dbcsr_acc_opencl_config.device.unified, NULL))
           {
             c_dbcsr_acc_opencl_config.device.unified = CL_FALSE;
           }
@@ -1139,8 +1139,9 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
         const int force_atomics = ((NULL == env_atomics || '\0' == *env_atomics) ? 0 : atoi(env_atomics));
         if (NULL == env_atomics || '\0' == *env_atomics || 0 != force_atomics) {
           cl_bitfield fp_atomics;
-          if (EXIT_SUCCESS == clGetDeviceInfo(device_id, (cl_device_info)(c_dbcsr_acc_opencl_atomic_fp_64 == kind ? 0x4232 : 0x4231),
-                              sizeof(cl_bitfield), &fp_atomics, NULL) &&
+          if (EXIT_SUCCESS == clGetDeviceInfo(device_id,
+                                (cl_device_info)(c_dbcsr_acc_opencl_atomic_fp_64 == kind ? 0x4232 : 0x4231), sizeof(cl_bitfield),
+                                &fp_atomics, NULL) &&
               0 != (/*add*/ (1 << 1) & fp_atomics))
           {
             exts[ext2] = "cl_ext_float_atomics";
@@ -1439,7 +1440,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
           if (NULL == file_src && (2 <= c_dbcsr_acc_opencl_config.dump || 0 > c_dbcsr_acc_opencl_config.dump)) {
             unsigned char* binary = NULL;
             size_t size;
-            binary = (unsigned char*)(EXIT_SUCCESS == clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &size, NULL)
+            binary = (unsigned char*)(EXIT_SUCCESS ==
+                                          clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &size, NULL)
                                         ? libxsmm_aligned_scratch(size, 0 /*auto-align*/)
                                         : NULL);
             if (NULL != binary) {
@@ -1520,8 +1522,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
         *kernel = clCreateKernel(program, kernel_name, &result);
 #  if defined(CL_VERSION_1_2)
         /* error creating kernel: discover available kernels in program, and adopt the last kernel listed */
-        if (EXIT_SUCCESS != result && EXIT_SUCCESS == clGetProgramInfo(program, CL_PROGRAM_KERNEL_NAMES, sizeof(char*), buffer, NULL) &&
-            '\0' != *buffer)
+        if (EXIT_SUCCESS != result &&
+            EXIT_SUCCESS == clGetProgramInfo(program, CL_PROGRAM_KERNEL_NAMES, sizeof(char*), buffer, NULL) && '\0' != *buffer)
         {
           const char *const semicolon = strrchr(buffer, ';'), *const name = (NULL == semicolon ? buffer : (semicolon + 1));
           *kernel = clCreateKernel(program, name, &result);

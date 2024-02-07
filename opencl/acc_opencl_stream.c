@@ -23,7 +23,7 @@
 extern "C" {
 #  endif
 
-volatile int c_dbcsr_acc_opencl_stream_lock;
+c_dbcsr_acc_opencl_lock_t c_dbcsr_acc_opencl_stream_lock;
 int c_dbcsr_acc_opencl_stream_counter_base;
 int c_dbcsr_acc_opencl_stream_counter;
 
@@ -160,7 +160,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
           } intel_qfprops[16];
           size_t nbytes = 0, i;
           if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x418B /*CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL*/, sizeof(intel_qfprops),
-                              intel_qfprops, &nbytes))
+                                intel_qfprops, &nbytes))
           {
             for (i = 0; (i * sizeof(*intel_qfprops)) < nbytes; ++i) {
               if (0 /*CL_QUEUE_DEFAULT_CAPABILITIES_INTEL*/ == intel_qfprops[i].capabilities && 1 < intel_qfprops[i].count) {

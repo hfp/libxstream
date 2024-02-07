@@ -207,6 +207,12 @@
 extern "C" {
 #endif
 
+#if defined(LIBXSMM_ATOMIC_LOCKTYPE)
+typedef volatile LIBXSMM_ATOMIC_LOCKTYPE c_dbcsr_acc_opencl_lock_t;
+#else
+typedef volatile int c_dbcsr_acc_opencl_lock_t;
+#endif
+
 /** Settings updated during c_dbcsr_acc_set_active_device. */
 typedef struct c_dbcsr_acc_opencl_device_t {
   /** Activated device context. */
@@ -298,9 +304,12 @@ typedef struct c_dbcsr_acc_opencl_config_t {
 extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
 /** Determines device-side value of device-memory. */
-int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset);
+int c_dbcsr_acc_opencl_get_ptr(c_dbcsr_acc_opencl_lock_t* lock, void** dev_mem, cl_mem memory, size_t offset);
 /** Determines cl_mem object and storage pointer. */
 c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
+/** Determines cl_mem object and memory offset (device). */
+c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
+  c_dbcsr_acc_opencl_lock_t* lock, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
 /** Determines cl_mem object and memory offset (device). */
 const c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
   const void* memory, size_t elsize, const size_t* amount, size_t* offset);
