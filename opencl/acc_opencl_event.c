@@ -122,7 +122,7 @@ int c_dbcsr_acc_event_record(void* event, void* stream) {
   assert(NULL != queue && NULL != event);
   clevent = *ACC_OPENCL_EVENT(event);
   if (NULL != clevent) {
-    ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseEvent(clevent));
+    ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent));
 #  if !defined(NDEBUG)
     clevent = NULL;
 #  endif
@@ -132,7 +132,7 @@ int c_dbcsr_acc_event_record(void* event, void* stream) {
 #  else
   result = clEnqueueMarker(queue, &clevent);
 #  endif
-  if (CL_SUCCESS == result) {
+  if (EXIT_SUCCESS == result) {
     assert(NULL != clevent);
     *(cl_event*)event = clevent;
   }
@@ -154,7 +154,7 @@ int c_dbcsr_acc_event_query(void* event, c_dbcsr_acc_bool_t* has_occurred) {
 #  endif
   assert(NULL != event && NULL != has_occurred);
   result = clGetEventInfo(*ACC_OPENCL_EVENT(event), CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int), &status, NULL);
-  if (CL_SUCCESS == result && 0 <= status) *has_occurred = (CL_COMPLETE == status ? 1 : 0);
+  if (EXIT_SUCCESS == result && 0 <= status) *has_occurred = (CL_COMPLETE == status ? 1 : 0);
   else { /* error state */
     result = EXIT_SUCCESS; /* soft-error */
     *has_occurred = 1;

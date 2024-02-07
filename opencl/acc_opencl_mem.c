@@ -90,7 +90,7 @@ c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
           assert(0 != d);
           if (d < hit &&
 #  if !defined(NDEBUG)
-              (CL_SUCCESS == clGetMemObjectInfo(info->memory, CL_MEM_SIZE, sizeof(size_t), &s, NULL)) &&
+              (EXIT_SUCCESS == clGetMemObjectInfo(info->memory, CL_MEM_SIZE, sizeof(size_t), &s, NULL)) &&
               (NULL == amount || (*amount * elsize + d) <= s) &&
 #  endif
               (1 == elsize || (0 == (d % elsize) && 0 == (s % elsize))) && d <= s)
@@ -152,8 +152,8 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
 #  endif
   memory = clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, NULL == host_ptr ? CL_MEM_ALLOC_HOST_PTR : CL_MEM_USE_HOST_PTR,
     nbytes, host_ptr, &result);
-  assert(CL_SUCCESS == result || NULL == memory);
-  if (CL_SUCCESS == result) {
+  assert(EXIT_SUCCESS == result || NULL == memory);
+  if (EXIT_SUCCESS == result) {
 #  if defined(ACC_OPENCL_STREAM_NULL)
     cl_command_queue queue = *ACC_OPENCL_STREAM(NULL != stream ? stream : c_dbcsr_acc_opencl_stream_default());
 #  else
@@ -161,8 +161,8 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
 #  endif
     void* const mapped = clEnqueueMapBuffer(
       queue, memory, CL_TRUE /*blocking*/, CL_MAP_READ | CL_MAP_WRITE, 0 /*offset*/, nbytes, 0, NULL, NULL, &result);
-    assert(CL_SUCCESS == result || NULL == mapped);
-    if (CL_SUCCESS == result) {
+    assert(EXIT_SUCCESS == result || NULL == mapped);
+    if (EXIT_SUCCESS == result) {
       const uintptr_t address = (uintptr_t)mapped;
       const uintptr_t aligned = LIBXSMM_UP2(address + size_meminfo, alignment);
       c_dbcsr_acc_opencl_info_ptr_t* meminfo;
@@ -184,7 +184,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
 #  endif
     }
     else { /* error: mapping host buffer */
-      ACC_OPENCL_EXPECT(CL_SUCCESS == clReleaseMemObject(memory));
+      ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
       *host_mem = NULL;
     }
   }
@@ -274,7 +274,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
 #  endif
       clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes,
         NULL /*host_ptr*/, &result));
-  if (0 != try_flag && CL_SUCCESS != result) { /* retry without try_flag */
+  if (0 != try_flag && EXIT_SUCCESS != result) { /* retry without try_flag */
     memory = (
 #  if defined(CL_VERSION_2_0)
       0 != c_dbcsr_acc_opencl_config.device.svm_interop
@@ -352,7 +352,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
         void* ptr = NULL;
         /* get host-pointer associated with device-memory (c_dbcsr_acc_dev_mem_allocate) */
-        ACC_OPENCL_EXPECT(CL_SUCCESS == clGetMemObjectInfo(info->memory, CL_MEM_HOST_PTR, sizeof(void*), &ptr, NULL));
+        ACC_OPENCL_EXPECT(EXIT_SUCCESS == clGetMemObjectInfo(info->memory, CL_MEM_HOST_PTR, sizeof(void*), &ptr, NULL));
         clSVMFree(c_dbcsr_acc_opencl_config.device.context, ptr);
       }
 #  endif
@@ -428,8 +428,9 @@ int c_dbcsr_acc_opencl_get_ptr(void** dev_mem, cl_mem memory, size_t offset) {
     ACC_OPENCL_CHECK(
       clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
-    ACC_OPENCL_CHECK(
-      clEnqueueReadBuffer(queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL), "transfer memptr", result);
+    while (EXIT_SUCCESS == result && NULL == *dev_mem) { /* TODO: investigate issue with blocking_read=CL_TRUE */
+      result = clEnqueueReadBuffer(queue, memory, CL_FALSE, 0, sizeof(void*), dev_mem, 0, NULL, NULL);
+    }
     LIBXSMM_ATOMIC_RELEASE(&lock, ACC_OPENCL_ATOMIC_KIND);
     assert(EXIT_SUCCESS != result || NULL != *dev_mem);
   }
@@ -496,7 +497,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
       cl_command_queue queue = *ACC_OPENCL_STREAM(stream);
 #  endif
       assert(NULL != queue && NULL != info->memory);
-      if (CL_SUCCESS != clEnqueueReadBuffer(
+      if (EXIT_SUCCESS != clEnqueueReadBuffer(
                           queue, info->memory, 0 == (2 & c_dbcsr_acc_opencl_config.async), offset, nbytes, host_mem, 0, NULL, NULL))
       { /* synchronous */
         const int result_sync = clEnqueueReadBuffer(queue, info->memory, CL_TRUE, offset, nbytes, host_mem, 0, NULL, NULL);
@@ -546,7 +547,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
       assert(NULL != queue && NULL != info_src->memory && NULL != info_dst->memory);
       if (0 == (2 & c_dbcsr_acc_opencl_config.devcopy)) {
         result = clEnqueueCopyBuffer(queue, info_src->memory, info_dst->memory, offset_src, offset_dst, nbytes, 0, NULL, NULL);
-        assert(CL_SUCCESS == result);
+        assert(EXIT_SUCCESS == result);
       }
       else {
         static volatile int lock; /* creating cl_kernel and clSetKernelArg must be synchronized */

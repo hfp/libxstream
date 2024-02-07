@@ -152,15 +152,15 @@
       if (EXIT_SUCCESS == (RESULT)) { \
         (RESULT) = (EXPR); \
         assert((MSG) && *(MSG)); \
-        if (CL_SUCCESS != (RESULT)) { \
-          assert(CL_SUCCESS == EXIT_SUCCESS); \
+        if (EXIT_SUCCESS != (RESULT)) { \
+          assert(EXIT_SUCCESS == EXIT_SUCCESS); \
           if (-1001 != (RESULT)) { \
             fprintf(stderr, "ERROR ACC/OpenCL: " MSG); \
             if (EXIT_FAILURE != (RESULT)) { \
               fprintf(stderr, " (code=%i)", RESULT); \
             } \
             fprintf(stderr, ".\n"); \
-            assert(CL_SUCCESS != (RESULT)); \
+            assert(EXIT_SUCCESS != (RESULT)); \
           } \
           else { \
             fprintf(stderr, "ERROR ACC/OpenCL: incomplete installation (" MSG ").\n"); \

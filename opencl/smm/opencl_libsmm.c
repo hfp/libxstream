@@ -719,18 +719,18 @@ int libsmm_acc_finalize(void) {
       if (NULL == kernel) kernel = ((const opencl_libsmm_smm_t*)regentry)->kernel[1];
       if (NULL != kernel) { /* only consider user-entry if clGetKernelInfo succeeded */
         cl_int result_entry = clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, sizeof(fname), fname, NULL);
-        if (CL_SUCCESS == result_entry) {
+        if (EXIT_SUCCESS == result_entry) {
           if (NULL != strstr(fname, OPENCL_LIBSMM_KERNELNAME_TRANS)) { /* trans-kernel */
             result_entry = clReleaseKernel(kernel);
           }
           else if (NULL != strstr(fname, OPENCL_LIBSMM_KERNELNAME_SMM)) { /* SMM-kernel */
             result_entry = clReleaseKernel(kernel);
-            if (CL_SUCCESS == result_entry && kernel != ((const opencl_libsmm_smm_t*)regentry)->kernel[1]) {
+            if (EXIT_SUCCESS == result_entry && kernel != ((const opencl_libsmm_smm_t*)regentry)->kernel[1]) {
               kernel = ((const opencl_libsmm_smm_t*)regentry)->kernel[1]; /* release 2nd kernel */
               if (NULL != kernel) result_entry = clReleaseKernel(kernel);
             }
           }
-          if (CL_SUCCESS != result_entry) result = result_entry;
+          if (EXIT_SUCCESS != result_entry) result = result_entry;
         }
       }
     }
@@ -813,7 +813,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       if (0 < nchar && (int)sizeof(fname) > nchar) {
         cl_device_id active_device;
         result = clGetCommandQueueInfo(queue, CL_QUEUE_DEVICE, sizeof(cl_device_id), &active_device, NULL);
-        if (CL_SUCCESS == result) {
+        if (EXIT_SUCCESS == result) {
           const char *const env_cl = getenv("OPENCL_LIBSMM_TRANS_BUILDOPTS"), *const env_bm = getenv("OPENCL_LIBSMM_TRANS_BM");
           const char* const cmem = (EXIT_SUCCESS != opencl_libsmm_use_cmem(active_device) ? "global" : "constant");
           const char* const param_format = "-DGLOBAL=%s -DINPLACE=%i -DFN=%s -DSM=%i -DSN=%i -DSWG=%i -DT=%s";
@@ -912,7 +912,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       void* scratch = NULL;
       int* stack = NULL;
       size_t data_size;
-      if (CL_SUCCESS == clGetMemObjectInfo(info_mdata->memory, CL_MEM_SIZE, sizeof(size_t), &data_size, NULL)) {
+      if (EXIT_SUCCESS == clGetMemObjectInfo(info_mdata->memory, CL_MEM_SIZE, sizeof(size_t), &data_size, NULL)) {
         const size_t scratch_size = (sizeof(int) * offset_stack_size) /*stack*/
                                     + data_size /*imat*/ + data_size /*omat*/ + (mn * typesize) /*gold*/
                                     + 3 * (LIBXSMM_ALIGNMENT - 1) /*alignments*/;
@@ -1154,7 +1154,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
     key.m = m_max;
     key.n = n_max;
     key.k = k_max;
-    if (CL_SUCCESS == result) {
+    if (EXIT_SUCCESS == result) {
       static volatile int locks[OPENCL_LIBSMM_NLOCKS_SMM]; /* OpenCL is thread-safe except for clSetKernelArg */
       const char *const env_s = getenv("OPENCL_LIBSMM_SMM_S"), *const env_bs = getenv("OPENCL_LIBSMM_SMM_BS");
       const int s = ((NULL == env_s || '\0' == *env_s) ? OPENCL_LIBSMM_SMM_S : atoi(env_s));
@@ -1533,10 +1533,10 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
         libxsmm_xmmfunction kernel_cpu = {NULL};
         size_t psize, asize, bsize, csize;
         void* scratch = NULL;
-        if (CL_SUCCESS == clGetMemObjectInfo(info_stack->memory, CL_MEM_SIZE, sizeof(size_t), &psize, NULL) &&
-            CL_SUCCESS == clGetMemObjectInfo(info_adata->memory, CL_MEM_SIZE, sizeof(size_t), &asize, NULL) &&
-            CL_SUCCESS == clGetMemObjectInfo(info_bdata->memory, CL_MEM_SIZE, sizeof(size_t), &bsize, NULL) &&
-            CL_SUCCESS == clGetMemObjectInfo(info_cdata->memory, CL_MEM_SIZE, sizeof(size_t), &csize, NULL))
+        if (EXIT_SUCCESS == clGetMemObjectInfo(info_stack->memory, CL_MEM_SIZE, sizeof(size_t), &psize, NULL) &&
+            EXIT_SUCCESS == clGetMemObjectInfo(info_adata->memory, CL_MEM_SIZE, sizeof(size_t), &asize, NULL) &&
+            EXIT_SUCCESS == clGetMemObjectInfo(info_bdata->memory, CL_MEM_SIZE, sizeof(size_t), &bsize, NULL) &&
+            EXIT_SUCCESS == clGetMemObjectInfo(info_cdata->memory, CL_MEM_SIZE, sizeof(size_t), &csize, NULL))
         {
           libxsmm_descriptor_blob blob;
           libxsmm_gemm_descriptor* const desc = OPENCL_LIBSMM_DESCINIT(

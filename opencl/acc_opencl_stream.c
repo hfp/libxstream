@@ -134,7 +134,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   if (NULL != c_dbcsr_acc_opencl_config.device.context) {
     cl_device_id device = NULL;
     result = clGetContextInfo(c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &device, NULL);
-    if (CL_SUCCESS == result) {
+    if (EXIT_SUCCESS == result) {
       if (0 != c_dbcsr_acc_opencl_config.device.intel) {
         const int xhints = ((1 == c_dbcsr_acc_opencl_config.xhints || 0 > c_dbcsr_acc_opencl_config.xhints)
                               ? (0 != c_dbcsr_acc_opencl_config.device.intel ? 1 : 0)
@@ -145,11 +145,11 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
           };
           const cl_command_queue q = ACC_OPENCL_CREATE_COMMAND_QUEUE(
             c_dbcsr_acc_opencl_config.device.context, device, props, &result);
-          if (CL_SUCCESS == result) {
+          if (EXIT_SUCCESS == result) {
             c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host; /* force host-timer */
             clReleaseCommandQueue(q);
           }
-          else result = CL_SUCCESS;
+          else result = EXIT_SUCCESS;
         }
         if (0 != (2 & xhints)) { /* attempt to enable queue families */
           struct {
@@ -159,7 +159,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
             char name[64 /*CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL*/];
           } intel_qfprops[16];
           size_t nbytes = 0, i;
-          if (CL_SUCCESS == clGetDeviceInfo(device, 0x418B /*CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL*/, sizeof(intel_qfprops),
+          if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x418B /*CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL*/, sizeof(intel_qfprops),
                               intel_qfprops, &nbytes))
           {
             for (i = 0; (i * sizeof(*intel_qfprops)) < nbytes; ++i) {
