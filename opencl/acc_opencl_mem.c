@@ -127,7 +127,6 @@ const c_dbcsr_acc_opencl_info_ptr_t* c_dbcsr_acc_opencl_info_devptr(
 
 
 int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
-  c_dbcsr_acc_opencl_info_stream_t* const info = c_dbcsr_acc_opencl_info_stream(stream);
   const size_t size_meminfo = sizeof(c_dbcsr_acc_opencl_info_ptr_t);
   const int alignment = c_dbcsr_acc_opencl_memalignment(nbytes);
   void* host_ptr = NULL;
@@ -140,7 +139,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   nbytes += alignment + size_meminfo - 1;
-  assert(NULL != host_mem && NULL != info);
+  assert(NULL != host_mem);
 #  if defined(CL_VERSION_2_0)
   if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
     host_ptr = clSVMAlloc(c_dbcsr_acc_opencl_config.device.context, CL_MEM_READ_WRITE, nbytes, sizeof(void*) /*minimal alignment*/);
@@ -215,12 +214,8 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
       int result_release;
       result = clEnqueueUnmapMemObject(queue, info.memory, info.memptr, 0, NULL, NULL);
 #  if defined(CL_VERSION_2_0)
-      {
-        const c_dbcsr_acc_opencl_info_stream_t* const qinfo = c_dbcsr_acc_opencl_info_stream(stream);
-        assert(NULL != qinfo);
-        if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
-          clSVMFree(c_dbcsr_acc_opencl_config.device.context, info.memptr);
-        }
+      if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
+        clSVMFree(c_dbcsr_acc_opencl_config.device.context, info.memptr);
       }
 #  endif
 #  if defined(ACC_OPENCL_STREAM_NULL)
