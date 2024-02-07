@@ -271,7 +271,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Handle-counter. */
   size_t nclmems, nevents;
   /** All events and related storage. */
-  void **events, *event_info;
+  cl_event **events, *event_info;
   /** All clmems and related storage. */
   c_dbcsr_acc_opencl_info_ptr_t **clmems, *clmem_info;
   /** All created streams partitioned by thread-ID (thread-local slots). */

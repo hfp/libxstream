@@ -503,11 +503,11 @@ int c_dbcsr_acc_init(void) {
             result = EXIT_FAILURE;
           }
           c_dbcsr_acc_opencl_config.nevents = nhandles;
-          c_dbcsr_acc_opencl_config.events = (void**)malloc(sizeof(void*) * nhandles);
+          c_dbcsr_acc_opencl_config.events = (cl_event**)malloc(sizeof(cl_event*) * nhandles);
           c_dbcsr_acc_opencl_config.event_info = malloc(sizeof(void*) * nhandles);
           if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_info) {
-            libxsmm_pmalloc_init(sizeof(void*), &c_dbcsr_acc_opencl_config.nevents, c_dbcsr_acc_opencl_config.events,
-              c_dbcsr_acc_opencl_config.event_info);
+            libxsmm_pmalloc_init(sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents,
+              (void**)c_dbcsr_acc_opencl_config.events, c_dbcsr_acc_opencl_config.event_info);
           }
           else {
             free(c_dbcsr_acc_opencl_config.events);
