@@ -258,6 +258,8 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_device_id devices[ACC_OPENCL_DEVICES_MAXCOUNT];
   /** Table of devices (thread-specific). */
   c_dbcsr_acc_opencl_device_t device;
+  /** Locks used by domain. */
+  c_dbcsr_acc_opencl_lock_t *lock_main, *lock_mem, *lock_memset, *lock_memcpy, *lock_stream;
   /** Handle-counter. */
   size_t nmemptrs, nstreams, nevents;
   /** All memptrs and related storage. */

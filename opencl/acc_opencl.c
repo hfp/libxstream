@@ -40,6 +40,9 @@
 #  if !defined(ACC_OPENCL_SEDBIN) && 1
 #    define ACC_OPENCL_SEDBIN "/usr/bin/sed"
 #  endif
+#  if !defined(ACC_OPENCL_NLOCKS)
+#    define ACC_OPENCL_NLOCKS 8
+#  endif
 #  if !defined(ACC_OPENCL_NCCS) && 1
 #    define ACC_OPENCL_NCCS 4
 #  endif
@@ -173,6 +176,7 @@ int c_dbcsr_acc_init(void) {
 #  endif
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
+    static char lock_data[ACC_OPENCL_CACHELINE_NBYTES * ACC_OPENCL_NLOCKS];
     cl_uint nplatforms = 0, ndevices = 0, i;
     cl_device_type type = CL_DEVICE_TYPE_ALL;
 #  if defined(_OPENMP)
@@ -183,6 +187,28 @@ int c_dbcsr_acc_init(void) {
 #  else
     c_dbcsr_acc_opencl_config.nthreads = 1;
     c_dbcsr_acc_opencl_config.nstreams = ACC_OPENCL_HANDLES_MAXCOUNT;
+#  endif
+    assert(sizeof(c_dbcsr_acc_opencl_lock_t) <= ACC_OPENCL_CACHELINE_NBYTES);
+    c_dbcsr_acc_opencl_config.lock_main = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 0);
+#  if (1 < ACC_OPENCL_NLOCKS)
+    c_dbcsr_acc_opencl_config.lock_stream = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 1);
+#  else
+    c_dbcsr_acc_opencl_config.lock_stream = c_dbcsr_acc_opencl_config.lock_main;
+#  endif
+#  if (2 < ACC_OPENCL_NLOCKS)
+    c_dbcsr_acc_opencl_config.lock_mem = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 2);
+#  else
+    c_dbcsr_acc_opencl_config.lock_mem = c_dbcsr_acc_opencl_config.lock_main;
+#  endif
+#  if (3 < ACC_OPENCL_NLOCKS)
+    c_dbcsr_acc_opencl_config.lock_memset = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 3);
+#  else
+    c_dbcsr_acc_opencl_config.lock_memset = c_dbcsr_acc_opencl_config.lock_mem;
+#  endif
+#  if (4 < ACC_OPENCL_NLOCKS)
+    c_dbcsr_acc_opencl_config.lock_memcpy = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 4);
+#  else
+    c_dbcsr_acc_opencl_config.lock_memcpy = c_dbcsr_acc_opencl_config.lock_memset;
 #  endif
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
@@ -915,8 +941,7 @@ int c_dbcsr_acc_opencl_set_active_device(int device_id) {
   cl_device_id active_id = NULL;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_DEVICES_MAXCOUNT);
   if (0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices) {
-    static c_dbcsr_acc_opencl_lock_t lock;
-    LIBXSMM_ATOMIC_ACQUIRE(&lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
+    LIBXSMM_ATOMIC_ACQUIRE(c_dbcsr_acc_opencl_config.lock_main, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
     active_id = c_dbcsr_acc_opencl_config.devices[device_id];
     if (NULL != active_id) {
       cl_context context = c_dbcsr_acc_opencl_config.device.context;
@@ -977,7 +1002,7 @@ int c_dbcsr_acc_opencl_set_active_device(int device_id) {
       }
     }
     else result = EXIT_FAILURE;
-    LIBXSMM_ATOMIC_RELEASE(&lock, ACC_OPENCL_ATOMIC_KIND);
+    LIBXSMM_ATOMIC_RELEASE(c_dbcsr_acc_opencl_config.lock_main, ACC_OPENCL_ATOMIC_KIND);
   }
   return result;
 }

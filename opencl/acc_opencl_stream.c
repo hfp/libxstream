@@ -23,7 +23,6 @@
 extern "C" {
 #  endif
 
-c_dbcsr_acc_opencl_lock_t c_dbcsr_acc_opencl_stream_lock;
 int c_dbcsr_acc_opencl_stream_counter_base;
 int c_dbcsr_acc_opencl_stream_counter;
 
@@ -57,12 +56,12 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void) {
   const c_dbcsr_acc_opencl_stream_t* result = NULL;
   const int tid = ACC_OPENCL_OMP_TID();
-  LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_stream_lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
+  LIBXSMM_ATOMIC_ACQUIRE(c_dbcsr_acc_opencl_config.lock_stream, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
   result = c_dbcsr_acc_opencl_stream(NULL /*lock*/, tid);
   if (0 != tid && NULL == result) {
     result = c_dbcsr_acc_opencl_stream(NULL /*lock*/, 0 /*main thread*/);
   }
-  LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_stream_lock, ACC_OPENCL_ATOMIC_KIND);
+  LIBXSMM_ATOMIC_RELEASE(c_dbcsr_acc_opencl_config.lock_stream, ACC_OPENCL_ATOMIC_KIND);
   assert(NULL != result);
   return result;
 }
@@ -107,7 +106,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     properties[4] = 0; /* terminator */
   }
 #  endif
-  LIBXSMM_ATOMIC_ACQUIRE(&c_dbcsr_acc_opencl_stream_lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
+  LIBXSMM_ATOMIC_ACQUIRE(c_dbcsr_acc_opencl_config.lock_stream, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
 #  if defined(_OPENMP)
   if (1 < omp_get_num_threads()) {
     assert(0 < c_dbcsr_acc_opencl_config.nthreads);
@@ -192,7 +191,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     }
     else result = EXIT_FAILURE;
   }
-  LIBXSMM_ATOMIC_RELEASE(&c_dbcsr_acc_opencl_stream_lock, ACC_OPENCL_ATOMIC_KIND);
+  LIBXSMM_ATOMIC_RELEASE(c_dbcsr_acc_opencl_config.lock_stream, ACC_OPENCL_ATOMIC_KIND);
   if (EXIT_SUCCESS != result && NULL != queue) {
     clReleaseCommandQueue(queue);
     *stream_p = NULL;
@@ -337,7 +336,7 @@ int c_dbcsr_acc_device_synchronize(void) {
 #  endif
 #  if defined(_OPENMP)
   if (1 == omp_get_num_threads()) {
-    result = c_dbcsr_acc_opencl_device_synchronize(&c_dbcsr_acc_opencl_stream_lock, -1 /*all*/);
+    result = c_dbcsr_acc_opencl_device_synchronize(c_dbcsr_acc_opencl_config.lock_stream, -1 /*all*/);
   }
   else {
     result = c_dbcsr_acc_opencl_device_synchronize(NULL /*lock*/, omp_get_thread_num());
