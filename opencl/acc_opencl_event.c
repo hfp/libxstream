@@ -31,7 +31,7 @@ int c_dbcsr_acc_event_create(void** event_p) {
       :
 #  endif
       malloc(sizeof(cl_event)));
-  if (NULL != *event_p) *ACC_OPENCL_EVENT(*event_p) = NULL;
+  if (NULL != *event_p) *(cl_event*)*event_p = NULL;
   else result = EXIT_FAILURE;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
@@ -53,9 +53,6 @@ int c_dbcsr_acc_event_destroy(void* event) {
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
     (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (NULL != c_dbcsr_acc_opencl_config.events) {
-#    if !defined(NDEBUG)
-      *ACC_OPENCL_EVENT(event) = NULL;
-#    endif
       libxsmm_pfree(event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
     }
     else

@@ -219,9 +219,6 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
     (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
     if (NULL != c_dbcsr_acc_opencl_config.streams) {
-#    if !defined(NDEBUG)
-      *ACC_OPENCL_EVENT(stream) = NULL;
-#    endif
       libxsmm_pfree(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
     }
     else

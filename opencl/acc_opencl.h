@@ -118,7 +118,7 @@
 /* attaching c_dbcsr_acc_opencl_stream_t is needed */
 #define ACC_OPENCL_STREAM(A) ((const c_dbcsr_acc_opencl_stream_t*)(A))
 /* incompatible with c_dbcsr_acc_event_record */
-#define ACC_OPENCL_EVENT(A) ((cl_event*)(A))
+#define ACC_OPENCL_EVENT(A) ((const cl_event*)(A))
 
 #if defined(_OPENMP)
 #  include <omp.h>
