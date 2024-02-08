@@ -178,11 +178,11 @@ int c_dbcsr_acc_init(void) {
 #  if defined(_OPENMP)
     const int max_threads = omp_get_max_threads(), num_threads = omp_get_num_threads();
     c_dbcsr_acc_opencl_config.nthreads = (num_threads < max_threads ? max_threads : num_threads);
-    c_dbcsr_acc_opencl_config.nstreams = (num_threads < max_threads ? (ACC_OPENCL_STREAMS_MAXCOUNT * max_threads)
-                                                                    : (ACC_OPENCL_STREAMS_MAXCOUNT));
+    c_dbcsr_acc_opencl_config.nstreams = (num_threads < max_threads ? (ACC_OPENCL_HANDLES_MAXCOUNT * max_threads)
+                                                                    : (ACC_OPENCL_HANDLES_MAXCOUNT));
 #  else
     c_dbcsr_acc_opencl_config.nthreads = 1;
-    c_dbcsr_acc_opencl_config.nstreams = ACC_OPENCL_STREAMS_MAXCOUNT;
+    c_dbcsr_acc_opencl_config.nstreams = ACC_OPENCL_HANDLES_MAXCOUNT;
 #  endif
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
@@ -476,54 +476,71 @@ int c_dbcsr_acc_init(void) {
             }
           }
         }
-        c_dbcsr_acc_opencl_config.clmems = NULL;
+        c_dbcsr_acc_opencl_config.memptrs = NULL;
+        c_dbcsr_acc_opencl_config.streams = NULL;
         c_dbcsr_acc_opencl_config.events = NULL;
-        c_dbcsr_acc_opencl_config.clmem_info = NULL;
-        c_dbcsr_acc_opencl_config.event_info = NULL;
-        c_dbcsr_acc_opencl_config.nclmems = c_dbcsr_acc_opencl_config.nevents = 0;
+        c_dbcsr_acc_opencl_config.memptr_data = NULL;
+        c_dbcsr_acc_opencl_config.stream_data = NULL;
+        c_dbcsr_acc_opencl_config.event_data = NULL;
+        c_dbcsr_acc_opencl_config.nmemptrs = c_dbcsr_acc_opencl_config.nstreams = c_dbcsr_acc_opencl_config.nevents = 0;
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
     (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
         if (EXIT_SUCCESS == result) {
           const size_t nhandles = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
-          c_dbcsr_acc_opencl_config.nclmems = nhandles;
-          c_dbcsr_acc_opencl_config.clmems = (c_dbcsr_acc_opencl_info_ptr_t**)malloc(
-            sizeof(c_dbcsr_acc_opencl_info_ptr_t*) * nhandles);
-          c_dbcsr_acc_opencl_config.clmem_info = (c_dbcsr_acc_opencl_info_ptr_t*)malloc(
-            sizeof(c_dbcsr_acc_opencl_info_ptr_t) * nhandles);
-          if (NULL != c_dbcsr_acc_opencl_config.clmems && NULL != c_dbcsr_acc_opencl_config.clmem_info) {
-            libxsmm_pmalloc_init(sizeof(c_dbcsr_acc_opencl_info_ptr_t), &c_dbcsr_acc_opencl_config.nclmems,
-              (void**)c_dbcsr_acc_opencl_config.clmems, c_dbcsr_acc_opencl_config.clmem_info);
+          /* allocate and initialize memptr registry */
+          c_dbcsr_acc_opencl_config.nmemptrs = nhandles;
+          c_dbcsr_acc_opencl_config.memptrs = (c_dbcsr_acc_opencl_info_memptr_t**)malloc(
+            sizeof(c_dbcsr_acc_opencl_info_memptr_t*) * nhandles);
+          c_dbcsr_acc_opencl_config.memptr_data = (c_dbcsr_acc_opencl_info_memptr_t*)malloc(
+            sizeof(c_dbcsr_acc_opencl_info_memptr_t) * nhandles);
+          if (NULL != c_dbcsr_acc_opencl_config.memptrs && NULL != c_dbcsr_acc_opencl_config.memptr_data) {
+            libxsmm_pmalloc_init(sizeof(c_dbcsr_acc_opencl_info_memptr_t), &c_dbcsr_acc_opencl_config.nmemptrs,
+              (void**)c_dbcsr_acc_opencl_config.memptrs, c_dbcsr_acc_opencl_config.memptr_data);
           }
           else {
-            free(c_dbcsr_acc_opencl_config.clmems);
-            free(c_dbcsr_acc_opencl_config.clmem_info);
-            c_dbcsr_acc_opencl_config.clmem_info = NULL;
-            c_dbcsr_acc_opencl_config.clmems = NULL;
-            c_dbcsr_acc_opencl_config.nclmems = 0;
+            free(c_dbcsr_acc_opencl_config.memptrs);
+            free(c_dbcsr_acc_opencl_config.memptr_data);
+            c_dbcsr_acc_opencl_config.memptr_data = NULL;
+            c_dbcsr_acc_opencl_config.memptrs = NULL;
+            c_dbcsr_acc_opencl_config.nmemptrs = 0;
             result = EXIT_FAILURE;
           }
+          /* allocate and initialize streams registry */
+          c_dbcsr_acc_opencl_config.nstreams = nhandles;
+          c_dbcsr_acc_opencl_config.streams = (c_dbcsr_acc_opencl_stream_t**)malloc(
+            sizeof(c_dbcsr_acc_opencl_stream_t*) * nhandles);
+          c_dbcsr_acc_opencl_config.stream_data = (c_dbcsr_acc_opencl_stream_t*)malloc(
+            sizeof(c_dbcsr_acc_opencl_stream_t) * nhandles);
+          if (NULL != c_dbcsr_acc_opencl_config.streams && NULL != c_dbcsr_acc_opencl_config.stream_data) {
+            libxsmm_pmalloc_init(sizeof(c_dbcsr_acc_opencl_stream_t), &c_dbcsr_acc_opencl_config.nstreams,
+              (void**)c_dbcsr_acc_opencl_config.streams, c_dbcsr_acc_opencl_config.stream_data);
+          }
+          else {
+            free(c_dbcsr_acc_opencl_config.streams);
+            free(c_dbcsr_acc_opencl_config.stream_data);
+            c_dbcsr_acc_opencl_config.stream_data = NULL;
+            c_dbcsr_acc_opencl_config.streams = NULL;
+            c_dbcsr_acc_opencl_config.nstreams = 0;
+            result = EXIT_FAILURE;
+          }
+          /* allocate and initialize events registry */
           c_dbcsr_acc_opencl_config.nevents = nhandles;
           c_dbcsr_acc_opencl_config.events = (cl_event**)malloc(sizeof(cl_event*) * nhandles);
-          c_dbcsr_acc_opencl_config.event_info = malloc(sizeof(void*) * nhandles);
-          if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_info) {
+          c_dbcsr_acc_opencl_config.event_data = malloc(sizeof(void*) * nhandles);
+          if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_data) {
             libxsmm_pmalloc_init(sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents, (void**)c_dbcsr_acc_opencl_config.events,
-              c_dbcsr_acc_opencl_config.event_info);
+              c_dbcsr_acc_opencl_config.event_data);
           }
           else {
             free(c_dbcsr_acc_opencl_config.events);
-            free(c_dbcsr_acc_opencl_config.event_info);
-            c_dbcsr_acc_opencl_config.event_info = NULL;
+            free(c_dbcsr_acc_opencl_config.event_data);
+            c_dbcsr_acc_opencl_config.event_data = NULL;
             c_dbcsr_acc_opencl_config.events = NULL;
             c_dbcsr_acc_opencl_config.nevents = 0;
             result = EXIT_FAILURE;
           }
         }
 #  endif
-        if (EXIT_SUCCESS == result) {
-          const int nelements = c_dbcsr_acc_opencl_config.nthreads * c_dbcsr_acc_opencl_config.nstreams;
-          c_dbcsr_acc_opencl_config.streams = (void**)calloc(nelements, sizeof(void*)); /* allocate streams */
-          if (NULL == c_dbcsr_acc_opencl_config.streams) result = EXIT_FAILURE;
-        }
       }
     }
     else { /* mark as initialized */
@@ -599,11 +616,12 @@ int c_dbcsr_acc_finalize(void) {
       }
     }
     /* release/reset buffers */
-    free(c_dbcsr_acc_opencl_config.clmems);
-    free(c_dbcsr_acc_opencl_config.clmem_info);
-    free(c_dbcsr_acc_opencl_config.events);
-    free(c_dbcsr_acc_opencl_config.event_info);
+    free(c_dbcsr_acc_opencl_config.memptrs);
+    free(c_dbcsr_acc_opencl_config.memptr_data);
     free(c_dbcsr_acc_opencl_config.streams);
+    free(c_dbcsr_acc_opencl_config.stream_data);
+    free(c_dbcsr_acc_opencl_config.events);
+    free(c_dbcsr_acc_opencl_config.event_data);
     /* clear configuration */
     memset(&c_dbcsr_acc_opencl_config, 0, sizeof(c_dbcsr_acc_opencl_config));
   }
@@ -976,57 +994,6 @@ int c_dbcsr_acc_set_active_device(int device_id) {
 #  endif
   assert(0 != c_dbcsr_acc_opencl_config.ndevices);
   result = c_dbcsr_acc_opencl_set_active_device(device_id);
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
-  c_dbcsr_timestop(&routine_handle);
-#  endif
-  ACC_OPENCL_RETURN(result);
-}
-
-
-int c_dbcsr_acc_opencl_device_synchronize(int thread_id) {
-  void** const streams = c_dbcsr_acc_opencl_config.streams + thread_id * c_dbcsr_acc_opencl_config.nstreams;
-  int result = EXIT_SUCCESS;
-  int i = 0;
-  assert(0 <= thread_id && thread_id < c_dbcsr_acc_opencl_config.nthreads);
-  assert(NULL != c_dbcsr_acc_opencl_config.streams);
-  for (; i < c_dbcsr_acc_opencl_config.nstreams; ++i) {
-    void* const stream = streams[i];
-    if (NULL != stream) {
-      if (NULL != *ACC_OPENCL_STREAM(stream)) { /* soft-error? */
-        result = c_dbcsr_acc_stream_sync(stream);
-        if (EXIT_SUCCESS != result) break;
-      }
-    }
-#  if defined(ACC_OPENCL_STREAM_COMPACT)
-    else break;
-#  endif
-  }
-  return result;
-}
-
-
-int c_dbcsr_acc_device_synchronize(void) {
-  int result = EXIT_SUCCESS;
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
-  int routine_handle;
-  static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
-  static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
-  c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-#  endif
-#  if defined(_OPENMP)
-  if (1 < omp_get_num_threads()) {
-    result = c_dbcsr_acc_opencl_device_synchronize(omp_get_thread_num());
-  }
-  else {
-    int i;
-#    pragma omp parallel for private(i)
-    for (i = 0; i < c_dbcsr_acc_opencl_config.nthreads; ++i) {
-      ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_opencl_device_synchronize(i));
-    }
-  }
-#  else
-  result = c_dbcsr_acc_opencl_device_synchronize(/*main*/ 0);
-#  endif
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif

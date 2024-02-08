@@ -74,7 +74,7 @@ int c_dbcsr_acc_event_destroy(void* event) {
 
 int c_dbcsr_acc_stream_wait_event(void* stream, void* event) { /* wait for an event (device-side) */
   int result = EXIT_SUCCESS;
-  cl_command_queue queue = NULL;
+  const c_dbcsr_acc_opencl_stream_t* str = NULL;
   cl_event clevent = NULL;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
@@ -83,17 +83,17 @@ int c_dbcsr_acc_stream_wait_event(void* stream, void* event) { /* wait for an ev
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
 #  if defined(ACC_OPENCL_STREAM_NULL)
-  queue = *ACC_OPENCL_STREAM(NULL != stream ? stream : c_dbcsr_acc_opencl_stream_default());
+  str = ACC_OPENCL_STREAM(NULL != stream ? stream : c_dbcsr_acc_opencl_stream_default());
 #  else
-  queue = *ACC_OPENCL_STREAM(stream);
+  str = ACC_OPENCL_STREAM(stream);
 #  endif
-  assert(NULL != queue && NULL != event);
+  assert(NULL != str && NULL != str->queue && NULL != event);
   clevent = *ACC_OPENCL_EVENT(event);
   if (NULL != clevent) {
 #  if defined(CL_VERSION_1_2)
-    result = clEnqueueBarrierWithWaitList(queue, 1, &clevent, NULL);
+    result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, NULL);
 #  else
-    result = clEnqueueWaitForEvents(queue, 1, &clevent);
+    result = clEnqueueWaitForEvents(str->queue, 1, &clevent);
 #  endif
   }
   /*else result = EXIT_FAILURE;*/
@@ -106,7 +106,7 @@ int c_dbcsr_acc_stream_wait_event(void* stream, void* event) { /* wait for an ev
 
 int c_dbcsr_acc_event_record(void* event, void* stream) {
   int result;
-  cl_command_queue queue = NULL;
+  const c_dbcsr_acc_opencl_stream_t* str = NULL;
   cl_event clevent = NULL;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
@@ -115,11 +115,11 @@ int c_dbcsr_acc_event_record(void* event, void* stream) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
 #  if defined(ACC_OPENCL_STREAM_NULL)
-  queue = *ACC_OPENCL_STREAM(NULL != stream ? stream : c_dbcsr_acc_opencl_stream_default());
+  str = ACC_OPENCL_STREAM(NULL != stream ? stream : c_dbcsr_acc_opencl_stream_default());
 #  else
-  queue = *ACC_OPENCL_STREAM(stream);
+  str = ACC_OPENCL_STREAM(stream);
 #  endif
-  assert(NULL != queue && NULL != event);
+  assert(NULL != str && NULL != str->queue && NULL != event);
   clevent = *ACC_OPENCL_EVENT(event);
   if (NULL != clevent) {
     ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent));
@@ -128,9 +128,9 @@ int c_dbcsr_acc_event_record(void* event, void* stream) {
 #  endif
   }
 #  if defined(CL_VERSION_1_2)
-  result = clEnqueueMarkerWithWaitList(queue, 0, NULL, &clevent);
+  result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &clevent);
 #  else
-  result = clEnqueueMarker(queue, &clevent);
+  result = clEnqueueMarker(str->queue, &clevent);
 #  endif
   if (EXIT_SUCCESS == result) {
     assert(NULL != clevent);
