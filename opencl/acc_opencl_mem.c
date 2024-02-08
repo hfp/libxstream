@@ -151,7 +151,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
   assert(EXIT_SUCCESS == result || NULL == memory);
   if (EXIT_SUCCESS == result) {
 #  if defined(ACC_OPENCL_STREAM_NULL)
-    const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(NULL != stream ? stream : c_dbcsr_acc_opencl_stream_default());
+    const c_dbcsr_acc_opencl_stream_t* const str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream_default());
 #  else
     const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
 #  endif
