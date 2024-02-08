@@ -151,7 +151,8 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
   assert(EXIT_SUCCESS == result || NULL == memory);
   if (EXIT_SUCCESS == result) {
 #  if defined(ACC_OPENCL_STREAM_NULL)
-    const c_dbcsr_acc_opencl_stream_t* const str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream_default());
+    const c_dbcsr_acc_opencl_stream_t* const str = (NULL != stream ? ACC_OPENCL_STREAM(stream)
+                                                                   : c_dbcsr_acc_opencl_stream_default());
 #  else
     const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
 #  endif
@@ -495,7 +496,8 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
 #  endif
       assert(NULL != str && NULL != str->queue && NULL != info->memory);
       if (EXIT_SUCCESS != clEnqueueReadBuffer(str->queue, info->memory, 0 == (2 & c_dbcsr_acc_opencl_config.async), offset, nbytes,
-                            host_mem, 0, NULL, NULL))
+                            host_mem, 0, NULL, NULL) &&
+          0 != (2 & c_dbcsr_acc_opencl_config.async))
       { /* synchronous */
         const int result_sync = clEnqueueReadBuffer(str->queue, info->memory, CL_TRUE, offset, nbytes, host_mem, 0, NULL, NULL);
         c_dbcsr_acc_opencl_config.async |= 2; /* retract feature */
