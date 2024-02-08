@@ -718,7 +718,7 @@ int libsmm_acc_finalize(void) {
       cl_kernel kernel = *(const cl_kernel*)regentry;
       if (NULL == kernel) kernel = ((const opencl_libsmm_smm_t*)regentry)->kernel[1];
       if (NULL != kernel) { /* only consider user-entry if clGetKernelInfo succeeded */
-        cl_int result_entry = clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, sizeof(fname), fname, NULL);
+        int result_entry = clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, sizeof(fname), fname, NULL);
         if (EXIT_SUCCESS == result_entry) {
           if (NULL != strstr(fname, OPENCL_LIBSMM_KERNELNAME_TRANS)) { /* trans-kernel */
             result_entry = clReleaseKernel(kernel);

@@ -131,7 +131,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
   const int alignment = c_dbcsr_acc_opencl_memalignment(nbytes);
   void* host_ptr = NULL;
   cl_mem memory = NULL;
-  cl_int result;
+  int result;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -241,7 +241,7 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
 
 
 int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
-  cl_int result;
+  int result;
   const int devuid = c_dbcsr_acc_opencl_config.device.uid,
             try_flag = ((0 != c_dbcsr_acc_opencl_config.device.unified || 0 == c_dbcsr_acc_opencl_config.device.intel ||
                           (0x4905 != devuid && 0x020a != devuid && (0x0bd0 > devuid || 0x0bdb < devuid)))
