@@ -127,15 +127,14 @@
 #  define ACC_OPENCL_OMP_TID() (/*main*/ 0)
 #endif
 
-#if 1
-#  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
-#    define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
-#  else
-#    define ACC_OPENCL_EXPECT(EXPR) \
-      if (0 == (EXPR)) assert(0);
+#if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
+#  define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
+#  if !defined(ACC_OPENCL_PMALLOC) && 1
+#    define ACC_OPENCL_PMALLOC
 #  endif
-#else /* elide */
-#  define ACC_OPENCL_EXPECT(EXPR) (void)(EXPR)
+#else
+#  define ACC_OPENCL_EXPECT(EXPR) \
+    if (0 == (EXPR)) assert(0);
 #endif
 
 #if !defined(NDEBUG) && 1

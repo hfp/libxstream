@@ -24,8 +24,7 @@ int c_dbcsr_acc_event_create(void** event_p) {
 #  endif
   assert(NULL != event_p);
   *event_p = (
-#  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
-    (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
+#  if defined(ACC_OPENCL_PMALLOC)
     NULL != c_dbcsr_acc_opencl_config.events
       ? libxsmm_pmalloc((void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents)
       :
@@ -50,8 +49,7 @@ int c_dbcsr_acc_event_destroy(void* event) {
 #  endif
   if (NULL != event) {
     const cl_event clevent = *ACC_OPENCL_EVENT(event);
-#  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER && defined(ACC_OPENCL_HANDLES_MAXCOUNT) && \
-    (0 < ACC_OPENCL_HANDLES_MAXCOUNT)
+#  if defined(ACC_OPENCL_PMALLOC)
     if (NULL != c_dbcsr_acc_opencl_config.events) {
       libxsmm_pfree(event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
     }
