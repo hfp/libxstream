@@ -41,7 +41,7 @@
 #    define ACC_OPENCL_SEDBIN "/usr/bin/sed"
 #  endif
 #  if !defined(ACC_OPENCL_NLOCKS)
-#    define ACC_OPENCL_NLOCKS 8
+#    define ACC_OPENCL_NLOCKS 1
 #  endif
 #  if !defined(ACC_OPENCL_NCCS) && 1
 #    define ACC_OPENCL_NCCS 4
@@ -516,7 +516,7 @@ int c_dbcsr_acc_init(void) {
           c_dbcsr_acc_opencl_config.memptr_data = (c_dbcsr_acc_opencl_info_memptr_t*)malloc(
             sizeof(c_dbcsr_acc_opencl_info_memptr_t) * nhandles);
           if (NULL != c_dbcsr_acc_opencl_config.memptrs && NULL != c_dbcsr_acc_opencl_config.memptr_data) {
-            libxsmm_pmalloc_init(sizeof(c_dbcsr_acc_opencl_info_memptr_t), &c_dbcsr_acc_opencl_config.nmemptrs,
+            c_dbcsr_acc_opencl_pmalloc_init(sizeof(c_dbcsr_acc_opencl_info_memptr_t), &c_dbcsr_acc_opencl_config.nmemptrs,
               (void**)c_dbcsr_acc_opencl_config.memptrs, c_dbcsr_acc_opencl_config.memptr_data);
           }
           else {
@@ -534,7 +534,7 @@ int c_dbcsr_acc_init(void) {
           c_dbcsr_acc_opencl_config.stream_data = (c_dbcsr_acc_opencl_stream_t*)malloc(
             sizeof(c_dbcsr_acc_opencl_stream_t) * nhandles);
           if (NULL != c_dbcsr_acc_opencl_config.streams && NULL != c_dbcsr_acc_opencl_config.stream_data) {
-            libxsmm_pmalloc_init(sizeof(c_dbcsr_acc_opencl_stream_t), &c_dbcsr_acc_opencl_config.nstreams,
+            c_dbcsr_acc_opencl_pmalloc_init(sizeof(c_dbcsr_acc_opencl_stream_t), &c_dbcsr_acc_opencl_config.nstreams,
               (void**)c_dbcsr_acc_opencl_config.streams, c_dbcsr_acc_opencl_config.stream_data);
           }
           else {
@@ -550,8 +550,8 @@ int c_dbcsr_acc_init(void) {
           c_dbcsr_acc_opencl_config.events = (cl_event**)malloc(sizeof(cl_event*) * nhandles);
           c_dbcsr_acc_opencl_config.event_data = malloc(sizeof(void*) * nhandles);
           if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_data) {
-            libxsmm_pmalloc_init(sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents, (void**)c_dbcsr_acc_opencl_config.events,
-              c_dbcsr_acc_opencl_config.event_data);
+            c_dbcsr_acc_opencl_pmalloc_init(sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents,
+              (void**)c_dbcsr_acc_opencl_config.events, c_dbcsr_acc_opencl_config.event_data);
           }
           else {
             free(c_dbcsr_acc_opencl_config.events);

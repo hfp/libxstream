@@ -72,7 +72,7 @@
 #  define ACC_OPENCL_CACHELINE_NBYTES LIBXSMM_CACHELINE
 #endif
 #if !defined(ACC_OPENCL_ATOMIC_KIND)
-#  define ACC_OPENCL_ATOMIC_KIND LIBXSMM_ATOMIC_RELAXED
+#  define ACC_OPENCL_ATOMIC_KIND LIBXSMM_ATOMIC_SEQ_CST
 #endif
 #if defined(LIBXSMM_ATOMIC_LOCKTYPE)
 #  define ACC_OPENCL_ATOMIC_LOCKTYPE volatile LIBXSMM_ATOMIC_LOCKTYPE
@@ -369,6 +369,13 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
 /** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
   const char cl_std[], char buffer[], size_t buffer_size);
+
+/** Support older LIBXSMM (libxsmm_pmalloc_init). */
+void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], void* storage);
+/** Support older LIBXSMM (libxsmm_pmalloc). */
+void* c_dbcsr_acc_opencl_pmalloc(void* pool[], size_t* i);
+/** Support older LIBXSMM (libxsmm_pfree). */
+void c_dbcsr_acc_opencl_pfree(const void* pointer, void* pool[], size_t* i);
 
 #if defined(__cplusplus)
 }

@@ -172,7 +172,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     *stream_p = (
 #  if defined(ACC_OPENCL_PMALLOC)
       NULL != c_dbcsr_acc_opencl_config.streams
-        ? libxsmm_pmalloc((void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams)
+        ? c_dbcsr_acc_opencl_pmalloc((void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams)
         :
 #  endif
         malloc(sizeof(c_dbcsr_acc_opencl_stream_t)));
@@ -212,7 +212,7 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
     const cl_command_queue queue = str->queue;
 #  if defined(ACC_OPENCL_PMALLOC)
     if (NULL != c_dbcsr_acc_opencl_config.streams) {
-      libxsmm_pfree(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
+      c_dbcsr_acc_opencl_pfree(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
     }
     else
 #  endif

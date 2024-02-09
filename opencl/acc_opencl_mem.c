@@ -25,6 +25,9 @@
 #  if !defined(ACC_OPENCL_MEM_DEBUG) && 0
 #    define ACC_OPENCL_MEM_DEBUG
 #  endif
+#  if !defined(ACC_OPENCL_PMALLOC_NLOCKS)
+#    define ACC_OPENCL_PMALLOC_NLOCKS 16
+#  endif
 #  if !defined(ACC_OPENCL_MEM_TLS) && 0
 #    define ACC_OPENCL_MEM_TLS
 #  endif
@@ -33,6 +36,9 @@
 #  if defined(__cplusplus)
 extern "C" {
 #  endif
+
+ACC_OPENCL_ATOMIC_LOCKTYPE c_dbcsr_acc_opencl_pmalloc_locks[ACC_OPENCL_PMALLOC_NLOCKS];
+
 
 int c_dbcsr_acc_opencl_memalignment(size_t /*size*/);
 int c_dbcsr_acc_opencl_memalignment(size_t size) {
@@ -47,6 +53,46 @@ int c_dbcsr_acc_opencl_memalignment(size_t size) {
     result = sizeof(void*);
   }
   return result;
+}
+
+
+void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], void* storage) {
+  const unsigned int hash = libxsmm_hash(pool, sizeof(void*), 0 /*seed*/);
+  char* p = (char*)storage;
+  ACC_OPENCL_ATOMIC_LOCKTYPE* lock;
+  size_t n, i = 0;
+  assert(0 < size && NULL != num && NULL != pool && NULL != storage);
+  lock = c_dbcsr_acc_opencl_pmalloc_locks + LIBXSMM_MOD2(hash, ACC_OPENCL_PMALLOC_NLOCKS);
+  ACC_OPENCL_ATOMIC_ACQUIRE(lock);
+  for (n = *num; i < n; ++i, p += size) pool[i] = p;
+  ACC_OPENCL_ATOMIC_RELEASE(lock);
+}
+
+
+void* c_dbcsr_acc_opencl_pmalloc(void* pool[], size_t* i) {
+  const unsigned int hash = libxsmm_hash(pool, sizeof(void*), 0 /*seed*/);
+  ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_pmalloc_locks + LIBXSMM_MOD2(hash, ACC_OPENCL_PMALLOC_NLOCKS);
+  void* pointer;
+  assert(NULL != pool && NULL != i);
+  ACC_OPENCL_ATOMIC_ACQUIRE(lock);
+  assert(0 < *i && ((size_t)-1) != *i);
+  pointer = pool[--(*i)];
+  ACC_OPENCL_ATOMIC_RELEASE(lock);
+  assert(NULL != pointer);
+  return pointer;
+}
+
+
+void c_dbcsr_acc_opencl_pfree(const void* pointer, void* pool[], size_t* i) {
+  assert(NULL != pool && NULL != i);
+  if (NULL != pointer) {
+    const unsigned int hash = libxsmm_hash(pool, sizeof(void*), 0 /*seed*/);
+    ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_pmalloc_locks + LIBXSMM_MOD2(hash, ACC_OPENCL_PMALLOC_NLOCKS);
+    ACC_OPENCL_ATOMIC_ACQUIRE(lock);
+    LIBXSMM_ASSIGN127(pool + *i, &pointer);
+    ++(*i);
+    ACC_OPENCL_ATOMIC_RELEASE(lock);
+  }
 }
 
 
@@ -278,7 +324,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_mem);
     result = c_dbcsr_acc_opencl_get_ptr(NULL /*lock*/, stream, &memptr, memory, 0 /*offset*/);
     if (EXIT_SUCCESS == result) {
-      c_dbcsr_acc_opencl_info_memptr_t* info = (c_dbcsr_acc_opencl_info_memptr_t*)libxsmm_pmalloc(
+      c_dbcsr_acc_opencl_info_memptr_t* info = (c_dbcsr_acc_opencl_info_memptr_t*)c_dbcsr_acc_opencl_pmalloc(
         (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
       assert(NULL != memory && NULL != memptr);
       if (NULL != info) {
@@ -345,7 +391,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
         clSVMFree(c_dbcsr_acc_opencl_config.device.context, ptr);
       }
 #  endif
-      libxsmm_pfree(pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
+      c_dbcsr_acc_opencl_pfree(pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
       ACC_OPENCL_CHECK(clReleaseMemObject(info->memory), "release device memory buffer", result);
 #  if defined(ACC_OPENCL_MEM_DEBUG)
       fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", info->memory, dev_mem);

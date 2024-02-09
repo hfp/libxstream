@@ -30,7 +30,7 @@ int c_dbcsr_acc_event_create(void** event_p) {
   *event_p = (
 #  if defined(ACC_OPENCL_PMALLOC)
     NULL != c_dbcsr_acc_opencl_config.events
-      ? libxsmm_pmalloc((void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents)
+      ? c_dbcsr_acc_opencl_pmalloc((void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents)
       :
 #  endif
       malloc(sizeof(cl_event)));
@@ -55,7 +55,7 @@ int c_dbcsr_acc_event_destroy(void* event) {
     const cl_event clevent = *ACC_OPENCL_EVENT(event);
 #  if defined(ACC_OPENCL_PMALLOC)
     if (NULL != c_dbcsr_acc_opencl_config.events) {
-      libxsmm_pfree(event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
+      c_dbcsr_acc_opencl_pfree(event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
     }
     else
 #  endif
