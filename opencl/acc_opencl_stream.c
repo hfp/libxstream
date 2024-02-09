@@ -49,7 +49,7 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_
     }
     else break; /* error */
   }
-  if (0 != tid && NULL == result) { /* fallback */
+  if (0 != thread_id && NULL == result) { /* fallback */
     result = result_main;
   }
   if (NULL != lock) {
