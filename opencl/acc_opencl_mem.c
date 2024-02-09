@@ -391,9 +391,8 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
 }
 
 
-int c_dbcsr_acc_opencl_get_ptr(c_dbcsr_acc_opencl_lock_t* lock, const c_dbcsr_acc_opencl_stream_t* stream,
-  void** dev_mem, cl_mem memory, size_t offset)
-{
+int c_dbcsr_acc_opencl_get_ptr(
+  c_dbcsr_acc_opencl_lock_t* lock, const c_dbcsr_acc_opencl_stream_t* stream, void** dev_mem, cl_mem memory, size_t offset) {
   int result = EXIT_SUCCESS;
   assert(NULL != dev_mem);
   *dev_mem = NULL;
@@ -419,8 +418,8 @@ int c_dbcsr_acc_opencl_get_ptr(c_dbcsr_acc_opencl_lock_t* lock, const c_dbcsr_ac
     /* TODO: backup/restore memory */
     ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &memory), "set pointer-argument of memptr kernel", result);
     ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_ulong), &offset), "set offset-argument of memptr kernel", result);
-    ACC_OPENCL_CHECK(
-      clEnqueueNDRangeKernel(stream->queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
+    ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(
+                       stream->queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
     ACC_OPENCL_CHECK(/* TODO: investigate issue with blocking_read=CL_TRUE */
       clEnqueueReadBuffer(stream->queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL), "transfer memptr", result);

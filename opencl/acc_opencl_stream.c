@@ -28,7 +28,7 @@ int c_dbcsr_acc_opencl_stream_counter;
 
 
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_lock_t* lock, int thread_id) {
-  const c_dbcsr_acc_opencl_stream_t* result = NULL, result_main = NULL;
+  const c_dbcsr_acc_opencl_stream_t *result = NULL, *result_main = NULL;
   const size_t n = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
   size_t i;
   assert(NULL != c_dbcsr_acc_opencl_config.streams);
