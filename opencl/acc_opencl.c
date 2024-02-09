@@ -506,7 +506,6 @@ int c_dbcsr_acc_init(void) {
         c_dbcsr_acc_opencl_config.stream_data = NULL;
         c_dbcsr_acc_opencl_config.event_data = NULL;
         c_dbcsr_acc_opencl_config.nmemptrs = c_dbcsr_acc_opencl_config.nstreams = c_dbcsr_acc_opencl_config.nevents = 0;
-#  if defined(ACC_OPENCL_PMALLOC)
         if (EXIT_SUCCESS == result) {
           const size_t nhandles = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
           /* allocate and initialize memptr registry */
@@ -562,7 +561,6 @@ int c_dbcsr_acc_init(void) {
             result = EXIT_FAILURE;
           }
         }
-#  endif
       }
     }
     else { /* mark as initialized */

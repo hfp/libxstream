@@ -26,14 +26,8 @@ int c_dbcsr_acc_event_create(void** event_p) {
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-  assert(NULL != event_p);
-  *event_p = (
-#  if defined(ACC_OPENCL_PMALLOC)
-    NULL != c_dbcsr_acc_opencl_config.events
-      ? c_dbcsr_acc_opencl_pmalloc((void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents)
-      :
-#  endif
-      malloc(sizeof(cl_event)));
+  assert(NULL != c_dbcsr_acc_opencl_config.events && NULL != event_p);
+  *event_p = c_dbcsr_acc_opencl_pmalloc((void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
   if (NULL != *event_p) *(cl_event*)*event_p = NULL;
   else result = EXIT_FAILURE;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
@@ -53,15 +47,8 @@ int c_dbcsr_acc_event_destroy(void* event) {
 #  endif
   if (NULL != event) {
     const cl_event clevent = *ACC_OPENCL_EVENT(event);
-#  if defined(ACC_OPENCL_PMALLOC)
-    if (NULL != c_dbcsr_acc_opencl_config.events) {
-      c_dbcsr_acc_opencl_pfree(event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
-    }
-    else
-#  endif
-    {
-      free(event);
-    }
+    assert(NULL != c_dbcsr_acc_opencl_config.events);
+    c_dbcsr_acc_opencl_pfree(event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
     if (NULL != clevent) result = clReleaseEvent(clevent);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)

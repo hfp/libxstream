@@ -168,14 +168,8 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     result = EXIT_FAILURE;
   }
   if (EXIT_SUCCESS == result) { /* register stream */
-    assert(NULL != queue);
-    *stream_p = (
-#  if defined(ACC_OPENCL_PMALLOC)
-      NULL != c_dbcsr_acc_opencl_config.streams
-        ? c_dbcsr_acc_opencl_pmalloc((void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams)
-        :
-#  endif
-        malloc(sizeof(c_dbcsr_acc_opencl_stream_t)));
+    assert(NULL != c_dbcsr_acc_opencl_config.streams && NULL != queue);
+    *stream_p = c_dbcsr_acc_opencl_pmalloc((void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
     if (NULL != *stream_p) {
       c_dbcsr_acc_opencl_stream_t* const str = (c_dbcsr_acc_opencl_stream_t*)*stream_p;
 #  if !defined(NDEBUG)
@@ -210,15 +204,8 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
   if (NULL != stream) {
     const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
     const cl_command_queue queue = str->queue;
-#  if defined(ACC_OPENCL_PMALLOC)
-    if (NULL != c_dbcsr_acc_opencl_config.streams) {
-      c_dbcsr_acc_opencl_pfree(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
-    }
-    else
-#  endif
-    {
-      free(stream);
-    }
+    assert(NULL != c_dbcsr_acc_opencl_config.streams);
+    c_dbcsr_acc_opencl_pfree(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
     if (NULL != queue) result = clReleaseCommandQueue(queue);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)

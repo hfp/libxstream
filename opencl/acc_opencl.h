@@ -55,12 +55,6 @@
     LIBXSMM_VERSION4(LIBXSMM_VERSION_MAJOR, LIBXSMM_VERSION_MINOR, LIBXSMM_VERSION_UPDATE, LIBXSMM_VERSION_PATCH)
 #endif
 
-#if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
-#  define LIBXSMM_STRISTR libxsmm_stristr
-#else
-#  define LIBXSMM_STRISTR strstr
-#endif
-
 #include "../acc.h"
 #if !defined(NDEBUG)
 #  include <assert.h>
@@ -157,12 +151,11 @@
 
 #if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
 #  define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
-#  if !defined(ACC_OPENCL_PMALLOC) && 1
-#    define ACC_OPENCL_PMALLOC
-#  endif
+#  define LIBXSMM_STRISTR libxsmm_stristr
 #else
 #  define ACC_OPENCL_EXPECT(EXPR) \
     if (0 == (EXPR)) assert(0);
+#  define LIBXSMM_STRISTR strstr
 #endif
 
 #if !defined(NDEBUG) && 1

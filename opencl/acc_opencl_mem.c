@@ -25,8 +25,8 @@
 #  if !defined(ACC_OPENCL_MEM_DEBUG) && 0
 #    define ACC_OPENCL_MEM_DEBUG
 #  endif
-#  if !defined(ACC_OPENCL_PMALLOC_NLOCKS)
-#    define ACC_OPENCL_PMALLOC_NLOCKS 16
+#  if !defined(ACC_OPENCL_MEM_NPLOCKS)
+#    define ACC_OPENCL_MEM_NPLOCKS 16
 #  endif
 #  if !defined(ACC_OPENCL_MEM_TLS) && 0
 #    define ACC_OPENCL_MEM_TLS
@@ -37,7 +37,7 @@
 extern "C" {
 #  endif
 
-ACC_OPENCL_ATOMIC_LOCKTYPE c_dbcsr_acc_opencl_pmalloc_locks[ACC_OPENCL_PMALLOC_NLOCKS];
+ACC_OPENCL_ATOMIC_LOCKTYPE c_dbcsr_acc_opencl_mem_plocks[ACC_OPENCL_MEM_NPLOCKS];
 
 
 int c_dbcsr_acc_opencl_memalignment(size_t /*size*/);
@@ -62,7 +62,7 @@ void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], voi
   ACC_OPENCL_ATOMIC_LOCKTYPE* lock;
   size_t n, i = 0;
   assert(0 < size && NULL != num && NULL != pool && NULL != storage);
-  lock = c_dbcsr_acc_opencl_pmalloc_locks + LIBXSMM_MOD2(hash, ACC_OPENCL_PMALLOC_NLOCKS);
+  lock = c_dbcsr_acc_opencl_mem_plocks + LIBXSMM_MOD2(hash, ACC_OPENCL_MEM_NPLOCKS);
   ACC_OPENCL_ATOMIC_ACQUIRE(lock);
   for (n = *num; i < n; ++i, p += size) pool[i] = p;
   ACC_OPENCL_ATOMIC_RELEASE(lock);
@@ -71,7 +71,7 @@ void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], voi
 
 void* c_dbcsr_acc_opencl_pmalloc(void* pool[], size_t* i) {
   const unsigned int hash = libxsmm_hash(pool, sizeof(void*), 0 /*seed*/);
-  ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_pmalloc_locks + LIBXSMM_MOD2(hash, ACC_OPENCL_PMALLOC_NLOCKS);
+  ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_mem_plocks + LIBXSMM_MOD2(hash, ACC_OPENCL_MEM_NPLOCKS);
   void* pointer;
   assert(NULL != pool && NULL != i);
   ACC_OPENCL_ATOMIC_ACQUIRE(lock);
@@ -87,7 +87,7 @@ void c_dbcsr_acc_opencl_pfree(const void* pointer, void* pool[], size_t* i) {
   assert(NULL != pool && NULL != i);
   if (NULL != pointer) {
     const unsigned int hash = libxsmm_hash(pool, sizeof(void*), 0 /*seed*/);
-    ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_pmalloc_locks + LIBXSMM_MOD2(hash, ACC_OPENCL_PMALLOC_NLOCKS);
+    ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_mem_plocks + LIBXSMM_MOD2(hash, ACC_OPENCL_MEM_NPLOCKS);
     ACC_OPENCL_ATOMIC_ACQUIRE(lock);
     LIBXSMM_ASSIGN127(pool + *i, &pointer);
     ++(*i);
