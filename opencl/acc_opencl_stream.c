@@ -28,7 +28,7 @@ int c_dbcsr_acc_opencl_stream_counter;
 
 
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_lock_t* lock, int thread_id) {
-  const c_dbcsr_acc_opencl_stream_t* result = NULL;
+  const c_dbcsr_acc_opencl_stream_t* result = NULL, result_main = NULL;
   const size_t n = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
   size_t i;
   assert(NULL != c_dbcsr_acc_opencl_config.streams);
@@ -43,8 +43,14 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_
         result = str;
         break;
       }
+      else if (NULL == result_main && 0 == thread_id) {
+        result_main = str;
+      }
     }
     else break; /* error */
+  }
+  if (0 != tid && NULL == result) { /* fallback */
+    result = result_main;
   }
   if (NULL != lock) {
     LIBXSMM_ATOMIC_RELEASE(lock, ACC_OPENCL_ATOMIC_KIND);
@@ -55,12 +61,8 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_
 
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void) {
   const c_dbcsr_acc_opencl_stream_t* result = NULL;
-  const int tid = ACC_OPENCL_OMP_TID();
   LIBXSMM_ATOMIC_ACQUIRE(c_dbcsr_acc_opencl_config.lock_stream, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
-  result = c_dbcsr_acc_opencl_stream(NULL /*lock*/, tid);
-  if (0 != tid && NULL == result) {
-    result = c_dbcsr_acc_opencl_stream(NULL /*lock*/, 0 /*main thread*/);
-  }
+  result = c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID());
   LIBXSMM_ATOMIC_RELEASE(c_dbcsr_acc_opencl_config.lock_stream, ACC_OPENCL_ATOMIC_KIND);
   assert(NULL != result);
   return result;
