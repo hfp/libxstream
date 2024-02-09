@@ -298,7 +298,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
         size_t offset = 0, amount = nbytes / 2;
         info = c_dbcsr_acc_opencl_info_devptr_lock(
           NULL /*lock*/, (const char*)memptr + amount, 1 /*elsize*/, NULL /*&amount*/, &offset);
-        printf("c_dbcsr_acc_dev_mem_allocate: memory=%p pointer=%p size=%llu\n", memory, memptr, (unsigned long long)nbytes);
+        fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p size=%llu allocated\n", memory, memptr, (unsigned long long)nbytes);
         if (NULL != info && memory == info->memory && amount == offset)
 #  endif
         {
@@ -352,7 +352,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       libxsmm_pfree(pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
       ACC_OPENCL_CHECK(clReleaseMemObject(info->memory), "release device memory buffer", result);
 #  if defined(ACC_OPENCL_MEM_DEBUG)
-      printf("c_dbcsr_acc_dev_mem_deallocate: memory=%p pointer=%p\n", info->memory, dev_mem);
+      fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", info->memory, dev_mem);
 #  endif
       *info = *pfree;
     }
