@@ -55,6 +55,7 @@
 extern "C" {
 #  endif
 
+char c_dbcsr_acc_opencl_locks[ACC_OPENCL_CACHELINE_NBYTES * ACC_OPENCL_NLOCKS];
 /* global configuration discovered during initialization */
 c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
@@ -178,7 +179,6 @@ int c_dbcsr_acc_init(void) {
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
     const int nlocks = (NULL == env_nlocks ? ACC_OPENCL_NLOCKS : atoi(env_nlocks));
-    static char lock_data[ACC_OPENCL_CACHELINE_NBYTES * ACC_OPENCL_NLOCKS];
     cl_uint nplatforms = 0, ndevices = 0, i;
     cl_device_type type = CL_DEVICE_TYPE_ALL;
 #  if defined(_OPENMP)
@@ -190,19 +190,23 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.nthreads = 1;
     c_dbcsr_acc_opencl_config.nstreams = ACC_OPENCL_HANDLES_MAXCOUNT;
 #  endif
-    assert(sizeof(c_dbcsr_acc_opencl_lock_t) <= ACC_OPENCL_CACHELINE_NBYTES);
-    c_dbcsr_acc_opencl_config.lock_main = (c_dbcsr_acc_opencl_lock_t*)lock_data;
-    c_dbcsr_acc_opencl_config.lock_stream = (1 < nlocks
-                                               ? ((c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 1))
-                                               : c_dbcsr_acc_opencl_config.lock_main);
-    c_dbcsr_acc_opencl_config.lock_mem = (2 < nlocks ? ((c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 2))
-                                                     : c_dbcsr_acc_opencl_config.lock_main);
-    c_dbcsr_acc_opencl_config.lock_memset = (3 < nlocks
-                                               ? ((c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 3))
-                                               : c_dbcsr_acc_opencl_config.lock_mem);
-    c_dbcsr_acc_opencl_config.lock_memcpy = (4 < nlocks
-                                               ? ((c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 4))
-                                               : c_dbcsr_acc_opencl_config.lock_memset);
+    assert(sizeof(ACC_OPENCL_LOCKTYPE) <= ACC_OPENCL_CACHELINE_NBYTES);
+    for (i = 0; i < ACC_OPENCL_NLOCKS; ++i) {
+      ACC_OPENCL_INIT((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * i));
+    }
+    c_dbcsr_acc_opencl_config.lock_main = (ACC_OPENCL_LOCKTYPE*)c_dbcsr_acc_opencl_locks;
+    c_dbcsr_acc_opencl_config.lock_stream =
+      (1 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 1))
+                  : c_dbcsr_acc_opencl_config.lock_main);
+    c_dbcsr_acc_opencl_config.lock_mem =
+      (2 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
+                  : c_dbcsr_acc_opencl_config.lock_main);
+    c_dbcsr_acc_opencl_config.lock_memset =
+      (3 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 3))
+                  : c_dbcsr_acc_opencl_config.lock_mem);
+    c_dbcsr_acc_opencl_config.lock_memcpy =
+      (4 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 4))
+                  : c_dbcsr_acc_opencl_config.lock_memset);
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
     c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
@@ -633,6 +637,10 @@ int c_dbcsr_acc_finalize(void) {
         c_dbcsr_acc_opencl_config.devices[i] = NULL;
       }
     }
+    /* destroy locks */
+    for (i = 0; i < ACC_OPENCL_NLOCKS; ++i) {
+      ACC_OPENCL_DESTROY((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * i));
+    }
     /* release/reset buffers */
     free(c_dbcsr_acc_opencl_config.memptrs);
     free(c_dbcsr_acc_opencl_config.memptr_data);
@@ -929,14 +937,12 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
 }
 
 
-int c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_lock_t* lock, int device_id) {
+int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_id) {
   int result = EXIT_SUCCESS;
   cl_device_id active_id = NULL;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_DEVICES_MAXCOUNT);
   if (0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices) {
-    if (NULL != lock) {
-      LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
-    }
+    if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
     active_id = c_dbcsr_acc_opencl_config.devices[device_id];
     if (NULL != active_id) {
       cl_context context = c_dbcsr_acc_opencl_config.device.context;
@@ -997,9 +1003,7 @@ int c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_lock_t* lock, int de
       }
     }
     else result = EXIT_FAILURE;
-    if (NULL != lock) {
-      LIBXSMM_ATOMIC_RELEASE(lock, ACC_OPENCL_ATOMIC_KIND);
-    }
+    if (NULL != lock) ACC_OPENCL_RELEASE(lock);
   }
   return result;
 }

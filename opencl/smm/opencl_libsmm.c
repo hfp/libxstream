@@ -934,16 +934,16 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
 #    endif
       assert(!(OPENCL_LIBSMM_NLOCKS_TRANS & (OPENCL_LIBSMM_NLOCKS_TRANS - 1))); /* POT */
       { /* OpenCL is thread-safe except for clSetKernelArg and launching such shared kernel */
-        static c_dbcsr_acc_opencl_lock_t locks[OPENCL_LIBSMM_NLOCKS_TRANS];
+        static ACC_OPENCL_ATOMIC_LOCKTYPE locks[OPENCL_LIBSMM_NLOCKS_TRANS];
 #    if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
         const unsigned int hash = libxsmm_hash(&config->kernel, sizeof(cl_kernel), 25071975 /*seed*/);
         const unsigned int lidx = LIBXSMM_MOD2(hash, OPENCL_LIBSMM_NLOCKS_TRANS);
-        c_dbcsr_acc_opencl_lock_t* const lock = locks + lidx;
+        ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = locks + lidx;
 #    else
-        c_dbcsr_acc_opencl_lock_t* const lock = locks;
+        ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = locks;
 #    endif
         /* calling clSetKernelArg must be consistent across host-threads */
-        LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
+        ACC_OPENCL_ATOMIC_ACQUIRE(lock);
         ACC_OPENCL_CHECK(
           clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel", result);
         ACC_OPENCL_CHECK(clSetKernelArg(config->kernel, 1, sizeof(cl_mem), &info_stack->memory),
@@ -982,7 +982,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
           }
         }
 #    endif
-        LIBXSMM_ATOMIC_RELEASE(lock, ACC_OPENCL_ATOMIC_KIND);
+        ACC_OPENCL_ATOMIC_RELEASE(lock);
       }
 #    if defined(OPENCL_LIBSMM_VALIDATE_TRANS)
       ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_data, omat, data_size, stream), "transfer validation test", result);
@@ -1153,17 +1153,17 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
     key.n = n_max;
     key.k = k_max;
     if (EXIT_SUCCESS == result) {
-      static c_dbcsr_acc_opencl_lock_t locks[OPENCL_LIBSMM_NLOCKS_SMM]; /* OpenCL is thread-safe except for clSetKernelArg */
+      static ACC_OPENCL_ATOMIC_LOCKTYPE locks[OPENCL_LIBSMM_NLOCKS_SMM]; /* OpenCL is thread-safe except for clSetKernelArg */
       const char *const env_s = getenv("OPENCL_LIBSMM_SMM_S"), *const env_bs = getenv("OPENCL_LIBSMM_SMM_BS");
       const int s = ((NULL == env_s || '\0' == *env_s) ? OPENCL_LIBSMM_SMM_S : atoi(env_s));
       int kernel_idx = 0, bs = ((NULL == env_bs || '\0' == *env_bs) ? 0 : atoi(env_bs));
       opencl_libsmm_smm_t* config;
-      c_dbcsr_acc_opencl_lock_t* lock = locks;
+      ACC_OPENCL_ATOMIC_LOCKTYPE* lock = locks;
 #    if (1 < OPENCL_LIBSMM_NLOCKS_SMM)
       assert(!(OPENCL_LIBSMM_NLOCKS_SMM & (OPENCL_LIBSMM_NLOCKS_SMM - 1))); /* POT */
       lock += LIBXSMM_MOD2(libxsmm_hash(&key, sizeof(key), 25071975 /*seed*/), OPENCL_LIBSMM_NLOCKS_SMM);
 #    endif
-      LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
+      ACC_OPENCL_ATOMIC_ACQUIRE(lock);
       config = (opencl_libsmm_smm_t*)libxsmm_xdispatch(&key, sizeof(key));
       if (0 >= bs) bs = ((NULL != config && 0 < config->bs) ? config->bs : OPENCL_LIBSMM_DEFAULT_BS);
       /* determine kernel-kind (mini-batch vs. mini-kernel) */
@@ -1696,7 +1696,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
         LIBXSMM_UNUSED(nparams);
 #    endif
       }
-      LIBXSMM_ATOMIC_RELEASE(lock, ACC_OPENCL_ATOMIC_KIND);
+      ACC_OPENCL_ATOMIC_RELEASE(lock);
     }
   }
   else if (0 < stack_size) { /* inhomogeneous, large kernel, or unsupported datatype */
