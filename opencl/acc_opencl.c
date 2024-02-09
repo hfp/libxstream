@@ -198,9 +198,9 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.lock_stream =
       (1 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 1))
                   : c_dbcsr_acc_opencl_config.lock_main);
-    c_dbcsr_acc_opencl_config.lock_mem =
-      (2 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
-                  : c_dbcsr_acc_opencl_config.lock_main);
+    c_dbcsr_acc_opencl_config.lock_mem = (2 < nlocks
+                                            ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
+                                            : c_dbcsr_acc_opencl_config.lock_main);
     c_dbcsr_acc_opencl_config.lock_memset =
       (3 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 3))
                   : c_dbcsr_acc_opencl_config.lock_mem);
