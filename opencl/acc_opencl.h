@@ -327,7 +327,7 @@ int c_dbcsr_acc_opencl_device_ext(cl_device_id device, const char* const extname
 /** Create context for given device. */
 int c_dbcsr_acc_opencl_create_context(cl_device_id device_id, cl_context* context);
 /** Internal variant of c_dbcsr_acc_set_active_device. */
-int c_dbcsr_acc_opencl_set_active_device(int device_id);
+int c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_lock_t* lock, int device_id);
 /** Get preferred multiple and max. size of workgroup (kernel- or device-specific). */
 int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max_value, size_t* preferred_multiple);
 /**

@@ -490,7 +490,7 @@ int c_dbcsr_acc_init(void) {
       if (EXIT_SUCCESS == result) {
         assert(0 < c_dbcsr_acc_opencl_config.ndevices);
         assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_DEVICES_MAXCOUNT);
-        result = c_dbcsr_acc_opencl_set_active_device(device_id);
+        result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, device_id);
         assert(EXIT_SUCCESS == result || NULL == c_dbcsr_acc_opencl_config.device.context);
         if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
           char platform_name[ACC_OPENCL_BUFFERSIZE];
@@ -936,12 +936,14 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
 }
 
 
-int c_dbcsr_acc_opencl_set_active_device(int device_id) {
+int c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_lock_t* lock, int device_id) {
   int result = EXIT_SUCCESS;
   cl_device_id active_id = NULL;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_DEVICES_MAXCOUNT);
   if (0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices) {
-    LIBXSMM_ATOMIC_ACQUIRE(c_dbcsr_acc_opencl_config.lock_main, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
+    if (NULL != lock) {
+      LIBXSMM_ATOMIC_ACQUIRE(lock, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
+    }
     active_id = c_dbcsr_acc_opencl_config.devices[device_id];
     if (NULL != active_id) {
       cl_context context = c_dbcsr_acc_opencl_config.device.context;
@@ -1002,7 +1004,9 @@ int c_dbcsr_acc_opencl_set_active_device(int device_id) {
       }
     }
     else result = EXIT_FAILURE;
-    LIBXSMM_ATOMIC_RELEASE(c_dbcsr_acc_opencl_config.lock_main, ACC_OPENCL_ATOMIC_KIND);
+    if (NULL != lock) {
+      LIBXSMM_ATOMIC_RELEASE(lock, ACC_OPENCL_ATOMIC_KIND);
+    }
   }
   return result;
 }
@@ -1017,7 +1021,7 @@ int c_dbcsr_acc_set_active_device(int device_id) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(0 != c_dbcsr_acc_opencl_config.ndevices);
-  result = c_dbcsr_acc_opencl_set_active_device(device_id);
+  result = c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_config.lock_main, device_id);
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
