@@ -278,8 +278,9 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   }
   if (EXIT_SUCCESS == result) {
     void* memptr = NULL;
+    const c_dbcsr_acc_opencl_stream_t* const stream = c_dbcsr_acc_opencl_stream_default();
     LIBXSMM_ATOMIC_ACQUIRE(c_dbcsr_acc_opencl_config.lock_mem, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
-    result = c_dbcsr_acc_opencl_get_ptr(NULL /*lock*/, &memptr, memory, 0 /*offset*/);
+    result = c_dbcsr_acc_opencl_get_ptr(NULL /*lock*/, stream, &memptr, memory, 0 /*offset*/);
     if (EXIT_SUCCESS == result) {
       c_dbcsr_acc_opencl_info_memptr_t* info = (c_dbcsr_acc_opencl_info_memptr_t*)libxsmm_pmalloc(
         (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
@@ -390,12 +391,13 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
 }
 
 
-int c_dbcsr_acc_opencl_get_ptr(c_dbcsr_acc_opencl_lock_t* lock, void** dev_mem, cl_mem memory, size_t offset) {
-  const c_dbcsr_acc_opencl_stream_t* const str = c_dbcsr_acc_opencl_stream_default();
+int c_dbcsr_acc_opencl_get_ptr(c_dbcsr_acc_opencl_lock_t* lock, const c_dbcsr_acc_opencl_stream_t* stream,
+  void** dev_mem, cl_mem memory, size_t offset)
+{
   int result = EXIT_SUCCESS;
   assert(NULL != dev_mem);
   *dev_mem = NULL;
-  if (NULL != memory && NULL != str && NULL != str->queue) {
+  if (NULL != memory && NULL != stream && NULL != stream->queue) {
     static cl_kernel kernel = NULL;
     const size_t size = 1;
     if (NULL != lock) {
@@ -418,10 +420,10 @@ int c_dbcsr_acc_opencl_get_ptr(c_dbcsr_acc_opencl_lock_t* lock, void** dev_mem, 
     ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &memory), "set pointer-argument of memptr kernel", result);
     ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_ulong), &offset), "set offset-argument of memptr kernel", result);
     ACC_OPENCL_CHECK(
-      clEnqueueNDRangeKernel(str->queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
+      clEnqueueNDRangeKernel(stream->queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
     ACC_OPENCL_CHECK(/* TODO: investigate issue with blocking_read=CL_TRUE */
-      clEnqueueReadBuffer(str->queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL), "transfer memptr", result);
+      clEnqueueReadBuffer(stream->queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL), "transfer memptr", result);
     if (NULL != lock) {
       LIBXSMM_ATOMIC_RELEASE(lock, ACC_OPENCL_ATOMIC_KIND);
     }

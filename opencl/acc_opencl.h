@@ -294,7 +294,8 @@ typedef struct c_dbcsr_acc_opencl_config_t {
 extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
 /** Determines device-side value of device-memory. */
-int c_dbcsr_acc_opencl_get_ptr(c_dbcsr_acc_opencl_lock_t* lock, void** dev_mem, cl_mem memory, size_t offset);
+int c_dbcsr_acc_opencl_get_ptr(c_dbcsr_acc_opencl_lock_t* lock, const c_dbcsr_acc_opencl_stream_t* stream,
+  void** dev_mem, cl_mem memory, size_t offset);
 /** Determines cl_mem object and storage pointer. */
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
 /** Determines cl_mem object and memory offset (device). */
