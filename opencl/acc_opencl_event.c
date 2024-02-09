@@ -9,6 +9,10 @@
 #if defined(__OPENCL)
 #  include "acc_opencl.h"
 
+#  if !defined(ACC_OPENCL_EVENT_FLUSH) && 0
+#    define ACC_OPENCL_EVENT_FLUSH
+#  endif
+
 
 #  if defined(__cplusplus)
 extern "C" {
@@ -129,8 +133,14 @@ int c_dbcsr_acc_event_record(void* event, void* stream) {
 #  endif
   if (EXIT_SUCCESS == result) {
     assert(NULL != clevent);
+#  if defined(ACC_OPENCL_EVENT_FLUSH)
+    result = clFlush(str->queue);
+    *(cl_event*)event = (EXIT_SUCCESS == result ? clevent : NULL);
+#  else
     *(cl_event*)event = clevent;
+#  endif
   }
+  else *(cl_event*)event = NULL;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
