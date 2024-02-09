@@ -174,8 +174,10 @@ int c_dbcsr_acc_init(void) {
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_ienv = getenv("ACC_OPENCL_IENV");
     const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), ienv = neo * (NULL == env_ienv ? 1 : atoi(env_ienv));
 #  endif
+    const char* const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
+    const int nlocks = (NULL == env_nlocks ? ACC_OPENCL_NLOCKS : atoi(env_nlocks));
     static char lock_data[ACC_OPENCL_CACHELINE_NBYTES * ACC_OPENCL_NLOCKS];
     cl_uint nplatforms = 0, ndevices = 0, i;
     cl_device_type type = CL_DEVICE_TYPE_ALL;
@@ -189,27 +191,18 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.nstreams = ACC_OPENCL_HANDLES_MAXCOUNT;
 #  endif
     assert(sizeof(c_dbcsr_acc_opencl_lock_t) <= ACC_OPENCL_CACHELINE_NBYTES);
-    c_dbcsr_acc_opencl_config.lock_main = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 0);
-#  if (1 < ACC_OPENCL_NLOCKS)
-    c_dbcsr_acc_opencl_config.lock_stream = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 1);
-#  else
-    c_dbcsr_acc_opencl_config.lock_stream = c_dbcsr_acc_opencl_config.lock_main;
-#  endif
-#  if (2 < ACC_OPENCL_NLOCKS)
-    c_dbcsr_acc_opencl_config.lock_mem = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 2);
-#  else
-    c_dbcsr_acc_opencl_config.lock_mem = c_dbcsr_acc_opencl_config.lock_main;
-#  endif
-#  if (3 < ACC_OPENCL_NLOCKS)
-    c_dbcsr_acc_opencl_config.lock_memset = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 3);
-#  else
-    c_dbcsr_acc_opencl_config.lock_memset = c_dbcsr_acc_opencl_config.lock_mem;
-#  endif
-#  if (4 < ACC_OPENCL_NLOCKS)
-    c_dbcsr_acc_opencl_config.lock_memcpy = (c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 4);
-#  else
-    c_dbcsr_acc_opencl_config.lock_memcpy = c_dbcsr_acc_opencl_config.lock_memset;
-#  endif
+    c_dbcsr_acc_opencl_config.lock_main = (c_dbcsr_acc_opencl_lock_t*)lock_data;
+    c_dbcsr_acc_opencl_config.lock_stream = (1 < nlocks
+                                               ? ((c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 1))
+                                               : c_dbcsr_acc_opencl_config.lock_main);
+    c_dbcsr_acc_opencl_config.lock_mem = (2 < nlocks ? ((c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 2))
+                                                     : c_dbcsr_acc_opencl_config.lock_main);
+    c_dbcsr_acc_opencl_config.lock_memset = (3 < nlocks
+                                               ? ((c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 3))
+                                               : c_dbcsr_acc_opencl_config.lock_mem);
+    c_dbcsr_acc_opencl_config.lock_memcpy = (4 < nlocks
+                                               ? ((c_dbcsr_acc_opencl_lock_t*)(lock_data + ACC_OPENCL_CACHELINE_NBYTES * 4))
+                                               : c_dbcsr_acc_opencl_config.lock_memset);
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
     c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
