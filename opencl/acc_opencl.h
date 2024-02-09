@@ -105,7 +105,7 @@
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
-#if !defined(ACC_OPENCL_OMPLOCKS) && 1
+#if !defined(ACC_OPENCL_OMPLOCKS) && 0
 #  define ACC_OPENCL_OMPLOCKS
 #endif
 /** Use DBCSR's profile for detailed timings */
