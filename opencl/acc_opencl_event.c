@@ -100,7 +100,7 @@ int c_dbcsr_acc_stream_wait_event(void* stream, void* event) { /* wait for an ev
 
 
 int c_dbcsr_acc_event_record(void* event, void* stream) {
-  int result;
+  int result = EXIT_SUCCESS;
   const c_dbcsr_acc_opencl_stream_t* str = NULL;
   cl_event clevent = NULL;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
