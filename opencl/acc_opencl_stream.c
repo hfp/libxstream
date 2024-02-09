@@ -43,7 +43,7 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_
         result = str;
         break;
       }
-      else if (NULL == result_main && 0 == thread_id) {
+      else if (NULL == result_main && 0 == str->tid) {
         result_main = str;
       }
     }
@@ -61,9 +61,7 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_
 
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void) {
   const c_dbcsr_acc_opencl_stream_t* result = NULL;
-  LIBXSMM_ATOMIC_ACQUIRE(c_dbcsr_acc_opencl_config.lock_stream, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND);
-  result = c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID());
-  LIBXSMM_ATOMIC_RELEASE(c_dbcsr_acc_opencl_config.lock_stream, ACC_OPENCL_ATOMIC_KIND);
+  result = c_dbcsr_acc_opencl_stream(c_dbcsr_acc_opencl_config.lock_stream, ACC_OPENCL_OMP_TID());
   assert(NULL != result);
   return result;
 }
