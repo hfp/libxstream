@@ -34,6 +34,10 @@
 #  endif
 #endif
 
+#if !defined(LIBXSMM_SYNC_NPAUSE)
+#  define LIBXSMM_SYNC_NPAUSE 0
+#endif
+
 #if defined(__LIBXSMM) && !defined(LIBXSMM_DEFAULT_CONFIG)
 #  include <libxsmm.h>
 #  if !defined(LIBXSMM_TIMER_H)
@@ -128,7 +132,7 @@
 
 #define ACC_OPENCL_ATOMIC_ACQUIRE(LOCK) \
   do { \
-    LIBXSMM_ATOMIC_ACQUIRE(LOCK, 0 /*LIBXSMM_SYNC_NPAUSE*/, ACC_OPENCL_ATOMIC_KIND); \
+    LIBXSMM_ATOMIC_ACQUIRE(LOCK, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND); \
   } while (0)
 #define ACC_OPENCL_ATOMIC_RELEASE(LOCK) \
   do { \
@@ -274,7 +278,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Table of devices (thread-specific). */
   c_dbcsr_acc_opencl_device_t device;
   /** Locks used by domain. */
-  ACC_OPENCL_LOCKTYPE *lock_main, *lock_mem, *lock_memset, *lock_memcpy, *lock_stream;
+  ACC_OPENCL_LOCKTYPE *lock_main, *lock_stream, *lock_memory, *lock_memset, *lock_memcpy;
   /** Handle-counter. */
   size_t nmemptrs, nstreams, nevents;
   /** All memptrs and related storage. */

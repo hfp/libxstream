@@ -153,7 +153,7 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
 const c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr(
   const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
   const c_dbcsr_acc_opencl_info_memptr_t* result = c_dbcsr_acc_opencl_info_devptr_lock(
-    c_dbcsr_acc_opencl_config.lock_mem, memory, elsize, amount, offset);
+    c_dbcsr_acc_opencl_config.lock_memory, memory, elsize, amount, offset);
 #  if defined(ACC_OPENCL_MEM_TLS)
   if (NULL != result) {
     static LIBXSMM_TLS c_dbcsr_acc_opencl_info_memptr_t info;
@@ -321,7 +321,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   if (EXIT_SUCCESS == result) {
     void* memptr = NULL;
     const c_dbcsr_acc_opencl_stream_t* const stream = c_dbcsr_acc_opencl_stream_default();
-    ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_mem);
+    ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
     result = c_dbcsr_acc_opencl_get_ptr(NULL /*lock*/, stream, &memptr, memory, 0 /*offset*/);
     if (EXIT_SUCCESS == result) {
       c_dbcsr_acc_opencl_info_memptr_t* info = (c_dbcsr_acc_opencl_info_memptr_t*)c_dbcsr_acc_opencl_pmalloc(
@@ -357,7 +357,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     else {
       *dev_mem = NULL; /* error: querying device pointer */
     }
-    ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_mem);
+    ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
   }
   else {
     *dev_mem = NULL; /* error: creating device buffer */
@@ -377,7 +377,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-  ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_mem);
+  ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
   if (NULL != dev_mem) {
     c_dbcsr_acc_opencl_info_memptr_t* const info = c_dbcsr_acc_opencl_info_devptr_lock(
       NULL, dev_mem, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
@@ -402,7 +402,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
     else result = EXIT_FAILURE;
 #  endif
   }
-  ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_mem);
+  ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif

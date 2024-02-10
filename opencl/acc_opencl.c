@@ -41,7 +41,7 @@
 #    define ACC_OPENCL_SEDBIN "/usr/bin/sed"
 #  endif
 #  if !defined(ACC_OPENCL_NLOCKS)
-#    define ACC_OPENCL_NLOCKS 1
+#    define ACC_OPENCL_NLOCKS 8
 #  endif
 #  if !defined(ACC_OPENCL_NCCS) && 1
 #    define ACC_OPENCL_NCCS 4
@@ -178,7 +178,7 @@ int c_dbcsr_acc_init(void) {
     const char* const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
-    const int nlocks = (NULL == env_nlocks ? ACC_OPENCL_NLOCKS : atoi(env_nlocks));
+    const int nlocks = (NULL == env_nlocks ? 1 /*default*/ : atoi(env_nlocks));
     cl_uint nplatforms = 0, ndevices = 0, i;
     cl_device_type type = CL_DEVICE_TYPE_ALL;
 #  if defined(_OPENMP)
@@ -196,17 +196,21 @@ int c_dbcsr_acc_init(void) {
     }
     c_dbcsr_acc_opencl_config.lock_main = (ACC_OPENCL_LOCKTYPE*)c_dbcsr_acc_opencl_locks;
     c_dbcsr_acc_opencl_config.lock_stream =
-      (1 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 1))
-                  : c_dbcsr_acc_opencl_config.lock_main);
-    c_dbcsr_acc_opencl_config.lock_mem = (2 < nlocks
-                                            ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
-                                            : c_dbcsr_acc_opencl_config.lock_main);
+      (1 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
+          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 1))
+          : c_dbcsr_acc_opencl_config.lock_main);
+    c_dbcsr_acc_opencl_config.lock_memory =
+      (2 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
+          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
+          : c_dbcsr_acc_opencl_config.lock_main);
     c_dbcsr_acc_opencl_config.lock_memset =
-      (3 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 3))
-                  : c_dbcsr_acc_opencl_config.lock_mem);
+      (3 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
+          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 3))
+          : c_dbcsr_acc_opencl_config.lock_memory);
     c_dbcsr_acc_opencl_config.lock_memcpy =
-      (4 < nlocks ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 4))
-                  : c_dbcsr_acc_opencl_config.lock_memset);
+      (4 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
+          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 4))
+          : c_dbcsr_acc_opencl_config.lock_memset);
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
     c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
