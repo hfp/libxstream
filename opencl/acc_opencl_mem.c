@@ -58,11 +58,12 @@ int c_dbcsr_acc_opencl_memalignment(size_t size) {
 
 void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], void* storage) {
   const unsigned int hash = libxsmm_hash(pool, sizeof(void*), 0 /*seed*/);
+  const unsigned int indx = LIBXSMM_MOD2(hash, ACC_OPENCL_MEM_NPLOCKS);
   char* p = (char*)storage;
   ACC_OPENCL_ATOMIC_LOCKTYPE* lock;
   size_t n, i = 0;
   assert(0 < size && NULL != num && NULL != pool && NULL != storage);
-  lock = c_dbcsr_acc_opencl_mem_plocks + LIBXSMM_MOD2(hash, ACC_OPENCL_MEM_NPLOCKS);
+  lock = c_dbcsr_acc_opencl_mem_plocks + indx;
   ACC_OPENCL_ATOMIC_ACQUIRE(lock);
   for (n = *num; i < n; ++i, p += size) pool[i] = p;
   ACC_OPENCL_ATOMIC_RELEASE(lock);
@@ -71,7 +72,8 @@ void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], voi
 
 void* c_dbcsr_acc_opencl_pmalloc(void* pool[], size_t* i) {
   const unsigned int hash = libxsmm_hash(pool, sizeof(void*), 0 /*seed*/);
-  ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_mem_plocks + LIBXSMM_MOD2(hash, ACC_OPENCL_MEM_NPLOCKS);
+  const unsigned int indx = LIBXSMM_MOD2(hash, ACC_OPENCL_MEM_NPLOCKS);
+  ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_mem_plocks + indx;
   void* pointer;
   assert(NULL != pool && NULL != i);
   ACC_OPENCL_ATOMIC_ACQUIRE(lock);
@@ -87,7 +89,8 @@ void c_dbcsr_acc_opencl_pfree(const void* pointer, void* pool[], size_t* i) {
   assert(NULL != pool && NULL != i);
   if (NULL != pointer) {
     const unsigned int hash = libxsmm_hash(pool, sizeof(void*), 0 /*seed*/);
-    ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_mem_plocks + LIBXSMM_MOD2(hash, ACC_OPENCL_MEM_NPLOCKS);
+    const unsigned int indx = LIBXSMM_MOD2(hash, ACC_OPENCL_MEM_NPLOCKS);
+    ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = c_dbcsr_acc_opencl_mem_plocks + indx;
     ACC_OPENCL_ATOMIC_ACQUIRE(lock);
     LIBXSMM_ASSIGN127(pool + *i, &pointer);
     ++(*i);
@@ -479,7 +482,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-  assert((NULL != host_mem || 0 == nbytes) && (NULL != dev_mem || 0 == nbytes));
+  assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
   if (NULL != host_mem && NULL != dev_mem && 0 != nbytes) {
     size_t offset = 0;
     const c_dbcsr_acc_opencl_info_memptr_t* const info = c_dbcsr_acc_opencl_info_devptr(dev_mem, 1 /*elsize*/, &nbytes, &offset);
@@ -518,7 +521,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-  assert((NULL != dev_mem || 0 == nbytes) && (NULL != host_mem || 0 == nbytes));
+  assert((NULL != dev_mem && NULL != host_mem) || 0 == nbytes);
   if (NULL != host_mem && NULL != dev_mem && 0 != nbytes) {
     size_t offset = 0;
     const c_dbcsr_acc_opencl_info_memptr_t* const info = c_dbcsr_acc_opencl_info_devptr(dev_mem, 1 /*elsize*/, &nbytes, &offset);
@@ -565,7 +568,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-  assert((NULL != devmem_src || 0 == nbytes) && (NULL != devmem_dst || 0 == nbytes));
+  assert((NULL != devmem_src && NULL != devmem_dst) || 0 == nbytes);
   if (NULL != devmem_src && NULL != devmem_dst && 0 != nbytes) {
     size_t offset_src = 0, offset_dst = 0;
     const c_dbcsr_acc_opencl_info_memptr_t* const info_src = c_dbcsr_acc_opencl_info_devptr(
