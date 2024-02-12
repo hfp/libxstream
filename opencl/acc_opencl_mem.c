@@ -412,7 +412,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 }
 
 
-int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
+int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t offset) {
   int result = EXIT_SUCCESS;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
@@ -421,8 +421,8 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* memory, size_t offset) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(NULL != dev_mem);
-  if (NULL != memory) {
-    *dev_mem = (char*)*dev_mem + offset;
+  if (NULL != other || 0 == offset) {
+    *dev_mem = (char*)other + offset;
   }
   else {
     result = EXIT_FAILURE;
