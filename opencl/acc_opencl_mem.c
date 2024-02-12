@@ -77,8 +77,7 @@ void* c_dbcsr_acc_opencl_pmalloc(void* pool[], size_t* i) {
   void* pointer;
   assert(NULL != pool && NULL != i);
   ACC_OPENCL_ATOMIC_ACQUIRE(lock);
-  assert(0 < *i && ((size_t)-1) != *i);
-  pointer = pool[--(*i)];
+  pointer = (0 < *i ? pool[--(*i)] : NULL);
   ACC_OPENCL_ATOMIC_RELEASE(lock);
   assert(NULL != pointer);
   return pointer;
