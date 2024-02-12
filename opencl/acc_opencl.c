@@ -1528,10 +1528,10 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseKernel(*kernel));
       *kernel = NULL;
     }
-    if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
+    if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
       if (EXIT_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL)) {
         const char* info = buffer;
-        while (NULL != strchr("\n\r\t ", *info)) ++info; /* remove trailing newline etc. */
+        while (NULL != strchr("\n\r\t ", *info)) ++info; /* remove preceding newline etc. */
         if ('\0' != *info) fprintf(stderr, "INFO ACC/OpenCL: %s\n", info);
       }
       else buffer[0] = '\0'; /* reset to empty */
