@@ -12,6 +12,12 @@
 #  if !defined(ACC_OPENCL_EVENT_FLUSH) && 0
 #    define ACC_OPENCL_EVENT_FLUSH
 #  endif
+#  if !defined(ACC_OPENCL_EVENT_USERX) && 0
+#    define ACC_OPENCL_EVENT_USERX
+#  endif
+#  if !defined(ACC_OPENCL_EVENT_USER) && 0
+#    define ACC_OPENCL_EVENT_USER
+#  endif
 
 
 #  if defined(__cplusplus)
@@ -172,6 +178,29 @@ int c_dbcsr_acc_event_synchronize(void* event) { /* waits on the host-side */
   if (NULL != clevent) {
     result = clWaitForEvents(1, &clevent);
   }
+#  if defined(ACC_OPENCL_EVENT_USER) || defined(ACC_OPENCL_EVENT_USERX)
+  else {
+    assert(NULL != c_dbcsr_acc_opencl_config.device.context);
+    clevent = clCreateUserEvent(c_dbcsr_acc_opencl_config.device.context, &result);
+    if (EXIT_SUCCESS == result) {
+      assert(NULL != clevent);
+#    if defined(ACC_OPENCL_EVENT_USERX)
+      /* an empty event (unrecorded) has no work to wait for; hence it is
+       * considered occurred and c_dbcsr_acc_event_synchronize must not block
+       */
+      result = clSetUserEventStatus(clevent, CL_COMPLETE);
+      if (EXIT_SUCCESS == result) {
+        *(cl_event*)event = clevent;
+      }
+      else { /* error: setting initial event state */
+        ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent));
+      }
+#    else
+      *(cl_event*)event = clevent;
+#    endif
+    }
+  }
+#  endif
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
