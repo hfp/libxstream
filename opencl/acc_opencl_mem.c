@@ -313,6 +313,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(NULL != dev_mem && NULL != c_dbcsr_acc_opencl_config.device.context);
+  *dev_mem = NULL;
   memory = (
 #  if defined(CL_VERSION_2_0)
     0 != c_dbcsr_acc_opencl_config.device.svm_interop
@@ -346,37 +347,26 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
       if (NULL != info) {
         info->memory = memory;
         info->memptr = memptr;
+        *dev_mem = (void*)memptr;
       }
       else result = EXIT_FAILURE;
-      if (EXIT_SUCCESS != result) {
-        *dev_mem = NULL; /* TODO: clReleaseMemObject */
-      }
-      else {
 #  if defined(ACC_OPENCL_MEM_DEBUG)
+      if (EXIT_SUCCESS == result) {
         size_t offset = 0, amount = nbytes / 2;
         const c_dbcsr_acc_opencl_info_memptr_t* const verify = c_dbcsr_acc_opencl_info_devptr_lock(
           NULL /*lock*/, (const char*)memptr + amount, 1 /*elsize*/, NULL /*&amount*/, &offset);
         fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p size=%llu allocated\n", memory, memptr, (unsigned long long)nbytes);
-        if (NULL != verify && memory == verify->memory && amount == offset)
-#  endif
-        {
-          *dev_mem = (void*)memptr;
-        }
-#  if defined(ACC_OPENCL_MEM_DEBUG)
-        else {
+        if (NULL == verify || memory != verify->memory || amount != offset) {
           result = EXIT_FAILURE;
           *dev_mem = NULL;
         }
-#  endif
       }
-    }
-    else {
-      *dev_mem = NULL; /* error: querying device pointer */
+#  endif
     }
     ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
   }
-  else {
-    *dev_mem = NULL; /* error: creating device buffer */
+  if (EXIT_SUCCESS != result && NULL != *dev_mem) {
+    ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseMemObject(info->memory));
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
