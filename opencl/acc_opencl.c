@@ -195,14 +195,15 @@ int c_dbcsr_acc_init(void) {
       ACC_OPENCL_INIT((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * i));
     }
     c_dbcsr_acc_opencl_config.lock_main = (ACC_OPENCL_LOCKTYPE*)c_dbcsr_acc_opencl_locks;
-    c_dbcsr_acc_opencl_config.lock_stream =
+    c_dbcsr_acc_opencl_config.lock_memory = /* 2nd lock-domain */
       (1 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
           ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 1))
           : c_dbcsr_acc_opencl_config.lock_main);
-    c_dbcsr_acc_opencl_config.lock_event = (2 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
-                                              ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
-                                              : c_dbcsr_acc_opencl_config.lock_main);
-    c_dbcsr_acc_opencl_config.lock_memory =
+    c_dbcsr_acc_opencl_config.lock_stream = /* 3rd lock-domain */
+      (2 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
+          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
+          : c_dbcsr_acc_opencl_config.lock_main);
+    c_dbcsr_acc_opencl_config.lock_event = /* 4th lock-domain */
       (3 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
           ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 3))
           : c_dbcsr_acc_opencl_config.lock_main);
