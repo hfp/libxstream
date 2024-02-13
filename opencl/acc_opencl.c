@@ -200,19 +200,19 @@ int c_dbcsr_acc_init(void) {
           ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 1))
           : c_dbcsr_acc_opencl_config.lock_main);
     c_dbcsr_acc_opencl_config.lock_event = (2 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
-                                              ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 1))
+                                              ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
                                               : c_dbcsr_acc_opencl_config.lock_main);
     c_dbcsr_acc_opencl_config.lock_memory =
       (3 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
-          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
+          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 3))
           : c_dbcsr_acc_opencl_config.lock_main);
     c_dbcsr_acc_opencl_config.lock_memset =
       (4 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
-          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 3))
+          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 4))
           : c_dbcsr_acc_opencl_config.lock_memory);
     c_dbcsr_acc_opencl_config.lock_memcpy =
       (5 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
-          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 4))
+          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 5))
           : c_dbcsr_acc_opencl_config.lock_memset);
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
