@@ -385,6 +385,9 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", info->memory, dev_mem);
 #  endif
       *info = *pfree;
+#  if !defined(NDEBUG)
+      LIBXSMM_MEMZERO127(pfree);
+#  endif
     }
 #  if !defined(NDEBUG)
     else result = EXIT_FAILURE;

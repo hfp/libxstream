@@ -49,9 +49,15 @@ int c_dbcsr_acc_event_destroy(void* event) {
   if (NULL != event) {
     const cl_event clevent = *ACC_OPENCL_EVENT(event);
     assert(NULL != c_dbcsr_acc_opencl_config.events);
-    c_dbcsr_acc_opencl_pfree(
-      c_dbcsr_acc_opencl_config.lock_event, event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
-    if (NULL != clevent) result = clReleaseEvent(clevent);
+    ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_event);
+    c_dbcsr_acc_opencl_pfree(NULL /*lock*/, event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
+    if (NULL != clevent) {
+      result = clReleaseEvent(clevent);
+#  if !defined(NDEBUG)
+      *(cl_event*)event = NULL;
+#  endif
+    }
+    ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_event);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
