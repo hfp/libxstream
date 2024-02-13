@@ -85,12 +85,26 @@ int c_dbcsr_acc_stream_wait_event(void* stream, void* event) { /* wait for an ev
   clevent = *ACC_OPENCL_EVENT(event);
   if (NULL != clevent) {
 #  if defined(CL_VERSION_1_2)
-    result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, NULL);
+    cl_event clevent_result = NULL;
+    result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, &clevent_result);
+    if (EXIT_SUCCESS == result) {
+      result = clReleaseEvent(clevent);
+      assert(NULL != clevent_result);
+      *(cl_event*)event = (EXIT_SUCCESS == result ? clevent_result : NULL);
+    }
+    else
 #  else
     result = clEnqueueWaitForEvents(str->queue, 1, &clevent);
+    if (EXIT_SUCCESS != result)
 #  endif
+    {
+      ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent));
+      *(cl_event*)event = NULL;
+    }
   }
-  /*else result = EXIT_FAILURE;*/
+  else if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
+    fprintf(stderr, "WARN ACC/OpenCL: c_dbcsr_acc_stream_wait_event discovered an empty event.\n");
+  }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
@@ -101,7 +115,7 @@ int c_dbcsr_acc_stream_wait_event(void* stream, void* event) { /* wait for an ev
 int c_dbcsr_acc_event_record(void* event, void* stream) {
   int result = EXIT_SUCCESS;
   const c_dbcsr_acc_opencl_stream_t* str = NULL;
-  cl_event clevent = NULL, clevent_dep = NULL;
+  cl_event clevent = NULL, clevent_result = NULL;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -114,28 +128,27 @@ int c_dbcsr_acc_event_record(void* event, void* stream) {
   str = ACC_OPENCL_STREAM(stream);
 #  endif
   assert(NULL != str && NULL != str->queue && NULL != event);
-  clevent_dep = *ACC_OPENCL_EVENT(event);
+  clevent = *ACC_OPENCL_EVENT(event);
 #  if defined(CL_VERSION_1_2)
-  result = (NULL == clevent_dep
-    ? clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &clevent)
-    : clEnqueueMarkerWithWaitList(str->queue, 1, &clevent_dep, &clevent));
+  result = (NULL == clevent ? clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &clevent_result)
+                            : clEnqueueMarkerWithWaitList(str->queue, 1, &clevent, &clevent_result));
 #  else
-  if (NULL != clevent_dep) result = clEnqueueWaitForEvents(str->queue, 1, &clevent_dep);
-  if (EXIT_SUCCESS == result) result = clEnqueueMarker(str->queue, &clevent);
+  if (NULL != clevent) result = clEnqueueWaitForEvents(str->queue, 1, &clevent);
+  if (EXIT_SUCCESS == result) result = clEnqueueMarker(str->queue, &clevent_result);
 #  endif
 #  if defined(ACC_OPENCL_EVENT_FLUSH)
   if (EXIT_SUCCESS == result) result = clFlush(str->queue);
 #  endif
-  if (NULL != clevent_dep) {
-    const int result_release = clReleaseEvent(clevent_dep);
+  if (NULL != clevent) {
+    const int result_release = clReleaseEvent(clevent);
     if (EXIT_SUCCESS == result) result = result_release;
   }
   if (EXIT_SUCCESS == result) {
-    assert(NULL != clevent);
-    *(cl_event*)event = clevent;
+    assert(NULL != clevent_result);
+    *(cl_event*)event = clevent_result;
   }
   else {
-    if (NULL != clevent) ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent));
+    if (NULL != clevent_result) ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent_result));
     *(cl_event*)event = NULL;
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
@@ -181,7 +194,7 @@ int c_dbcsr_acc_event_synchronize(void* event) { /* waits on the host-side */
   clevent = *ACC_OPENCL_EVENT(event);
   if (NULL != clevent) result = clWaitForEvents(1, &clevent);
   else if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-    fprintf(stderr, "WARN ACC/OpenCL: empty event discovered.\n");
+    fprintf(stderr, "WARN ACC/OpenCL: c_dbcsr_acc_event_synchronize discovered an empty event.\n");
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
