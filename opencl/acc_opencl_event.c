@@ -27,7 +27,8 @@ int c_dbcsr_acc_event_create(void** event_p) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(NULL != c_dbcsr_acc_opencl_config.events && NULL != event_p);
-  *event_p = c_dbcsr_acc_opencl_pmalloc((void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
+  *event_p = c_dbcsr_acc_opencl_pmalloc(
+    c_dbcsr_acc_opencl_config.lock_event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
   if (NULL != *event_p) *(cl_event*)*event_p = NULL;
   else result = EXIT_FAILURE;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
@@ -48,7 +49,8 @@ int c_dbcsr_acc_event_destroy(void* event) {
   if (NULL != event) {
     const cl_event clevent = *ACC_OPENCL_EVENT(event);
     assert(NULL != c_dbcsr_acc_opencl_config.events);
-    c_dbcsr_acc_opencl_pfree(event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
+    c_dbcsr_acc_opencl_pfree(
+      c_dbcsr_acc_opencl_config.lock_event, event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
     if (NULL != clevent) result = clReleaseEvent(clevent);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)

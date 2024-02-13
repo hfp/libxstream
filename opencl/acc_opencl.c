@@ -199,16 +199,19 @@ int c_dbcsr_acc_init(void) {
       (1 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
           ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 1))
           : c_dbcsr_acc_opencl_config.lock_main);
+    c_dbcsr_acc_opencl_config.lock_event = (2 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
+                                              ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 1))
+                                              : c_dbcsr_acc_opencl_config.lock_main);
     c_dbcsr_acc_opencl_config.lock_memory =
-      (2 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
+      (3 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
           ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 2))
           : c_dbcsr_acc_opencl_config.lock_main);
     c_dbcsr_acc_opencl_config.lock_memset =
-      (3 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
+      (4 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
           ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 3))
           : c_dbcsr_acc_opencl_config.lock_memory);
     c_dbcsr_acc_opencl_config.lock_memcpy =
-      (4 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
+      (5 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
           ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 4))
           : c_dbcsr_acc_opencl_config.lock_memset);
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
@@ -519,8 +522,9 @@ int c_dbcsr_acc_init(void) {
           c_dbcsr_acc_opencl_config.memptr_data = (c_dbcsr_acc_opencl_info_memptr_t*)malloc(
             sizeof(c_dbcsr_acc_opencl_info_memptr_t) * nhandles);
           if (NULL != c_dbcsr_acc_opencl_config.memptrs && NULL != c_dbcsr_acc_opencl_config.memptr_data) {
-            c_dbcsr_acc_opencl_pmalloc_init(sizeof(c_dbcsr_acc_opencl_info_memptr_t), &c_dbcsr_acc_opencl_config.nmemptrs,
-              (void**)c_dbcsr_acc_opencl_config.memptrs, c_dbcsr_acc_opencl_config.memptr_data);
+            c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(c_dbcsr_acc_opencl_info_memptr_t),
+              &c_dbcsr_acc_opencl_config.nmemptrs, (void**)c_dbcsr_acc_opencl_config.memptrs,
+              c_dbcsr_acc_opencl_config.memptr_data);
           }
           else {
             free(c_dbcsr_acc_opencl_config.memptrs);
@@ -537,7 +541,7 @@ int c_dbcsr_acc_init(void) {
           c_dbcsr_acc_opencl_config.stream_data = (c_dbcsr_acc_opencl_stream_t*)malloc(
             sizeof(c_dbcsr_acc_opencl_stream_t) * nhandles);
           if (NULL != c_dbcsr_acc_opencl_config.streams && NULL != c_dbcsr_acc_opencl_config.stream_data) {
-            c_dbcsr_acc_opencl_pmalloc_init(sizeof(c_dbcsr_acc_opencl_stream_t), &c_dbcsr_acc_opencl_config.nstreams,
+            c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(c_dbcsr_acc_opencl_stream_t), &c_dbcsr_acc_opencl_config.nstreams,
               (void**)c_dbcsr_acc_opencl_config.streams, c_dbcsr_acc_opencl_config.stream_data);
           }
           else {
@@ -553,7 +557,7 @@ int c_dbcsr_acc_init(void) {
           c_dbcsr_acc_opencl_config.events = (cl_event**)malloc(sizeof(cl_event*) * nhandles);
           c_dbcsr_acc_opencl_config.event_data = malloc(sizeof(void*) * nhandles);
           if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_data) {
-            c_dbcsr_acc_opencl_pmalloc_init(sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents,
+            c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents,
               (void**)c_dbcsr_acc_opencl_config.events, c_dbcsr_acc_opencl_config.event_data);
           }
           else {

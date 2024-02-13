@@ -158,7 +158,7 @@
 #  define LIBXSMM_STRISTR libxsmm_stristr
 #else
 #  define ACC_OPENCL_EXPECT(EXPR) \
-    if (0 == (EXPR)) assert(0);
+    if (0 == (EXPR)) assert(0)
 #  define LIBXSMM_STRISTR strstr
 #endif
 
@@ -278,7 +278,8 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Table of devices (thread-specific). */
   c_dbcsr_acc_opencl_device_t device;
   /** Locks used by domain. */
-  ACC_OPENCL_LOCKTYPE *lock_main, *lock_stream, *lock_memory, *lock_memset, *lock_memcpy;
+  ACC_OPENCL_LOCKTYPE *lock_main, *lock_stream, *lock_event;
+  ACC_OPENCL_LOCKTYPE *lock_memory, *lock_memset, *lock_memcpy;
   /** Handle-counter. */
   size_t nmemptrs, nstreams, nevents;
   /** All memptrs and related storage. */
@@ -371,11 +372,11 @@ int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options
   const char cl_std[], char buffer[], size_t buffer_size);
 
 /** Support older LIBXSMM (libxsmm_pmalloc_init). */
-void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], void* storage);
+void c_dbcsr_acc_opencl_pmalloc_init(ACC_OPENCL_LOCKTYPE* lock, size_t size, size_t* num, void* pool[], void* storage);
 /** Support older LIBXSMM (libxsmm_pmalloc). */
-void* c_dbcsr_acc_opencl_pmalloc(void* pool[], size_t* i);
+void* c_dbcsr_acc_opencl_pmalloc(ACC_OPENCL_LOCKTYPE* lock, void* pool[], size_t* i);
 /** Support older LIBXSMM (libxsmm_pfree). */
-void c_dbcsr_acc_opencl_pfree(const void* pointer, void* pool[], size_t* i);
+void c_dbcsr_acc_opencl_pfree(ACC_OPENCL_LOCKTYPE* lock, const void* pointer, void* pool[], size_t* i);
 
 #if defined(__cplusplus)
 }
