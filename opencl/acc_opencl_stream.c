@@ -211,7 +211,7 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
     if (NULL != queue) {
       result = clReleaseCommandQueue(queue);
 #  if !defined(NDEBUG)
-      LIBXSMM_MEMZERO127(str);
+      LIBXSMM_MEMZERO127((c_dbcsr_acc_opencl_stream_t*)stream);
 #  endif
     }
     ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_stream);
