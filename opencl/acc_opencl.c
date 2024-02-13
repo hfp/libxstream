@@ -58,6 +58,7 @@ extern "C" {
 char c_dbcsr_acc_opencl_locks[ACC_OPENCL_CACHELINE_NBYTES * ACC_OPENCL_NLOCKS];
 /* global configuration discovered during initialization */
 c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
+int c_dbcsr_acc_opencl_active_id; /* cached */
 
 
 void c_dbcsr_acc_opencl_notify(const char /*errinfo*/[], const void* /*private_info*/, size_t /*cb*/, void* /*user_data*/);
@@ -190,6 +191,7 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.nthreads = 1;
     c_dbcsr_acc_opencl_config.nstreams = ACC_OPENCL_HANDLES_MAXCOUNT;
 #  endif
+    assert(0 == c_dbcsr_acc_opencl_active_id);
     assert(sizeof(ACC_OPENCL_LOCKTYPE) <= ACC_OPENCL_CACHELINE_NBYTES);
     for (i = 0; i < ACC_OPENCL_NLOCKS; ++i) {
       ACC_OPENCL_INIT((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * i));
@@ -657,6 +659,7 @@ int c_dbcsr_acc_finalize(void) {
     free(c_dbcsr_acc_opencl_config.event_data);
     /* clear configuration */
     memset(&c_dbcsr_acc_opencl_config, 0, sizeof(c_dbcsr_acc_opencl_config));
+    c_dbcsr_acc_opencl_active_id = 0; /* reset cached active device-ID */
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
@@ -1019,7 +1022,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
 
 
 int c_dbcsr_acc_set_active_device(int device_id) {
-  int result;
+  int result = EXIT_SUCCESS;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -1027,7 +1030,10 @@ int c_dbcsr_acc_set_active_device(int device_id) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(0 != c_dbcsr_acc_opencl_config.ndevices);
-  result = c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_config.lock_main, device_id);
+  if (c_dbcsr_acc_opencl_active_id != (device_id + 1)) {
+    result = c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_config.lock_main, device_id);
+    if (EXIT_SUCCESS == result) c_dbcsr_acc_opencl_active_id = device_id + 1;
+  }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
