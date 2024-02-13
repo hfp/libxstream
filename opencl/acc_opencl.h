@@ -109,7 +109,7 @@
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
-#if !defined(ACC_OPENCL_OMPLOCKS) && 0
+#if !defined(ACC_OPENCL_OMPLOCKS) && 1
 #  define ACC_OPENCL_OMPLOCKS
 #endif
 /** Use DBCSR's profile for detailed timings */
@@ -315,12 +315,15 @@ extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 /** Determines device-side value of device-memory. */
 int c_dbcsr_acc_opencl_get_ptr(
   ACC_OPENCL_LOCKTYPE* lock, const c_dbcsr_acc_opencl_stream_t* stream, void** dev_mem, cl_mem memory, size_t offset);
-/** Determines cl_mem object and storage pointer. */
+/** Determines host-pointer registration for modification. */
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
-/** Determines cl_mem object and memory offset (device). */
-c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
+/** Determines device-pointer registration for modification (internal). */
+c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
   ACC_OPENCL_LOCKTYPE* lock, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
-/** Determines cl_mem object and memory offset (device). */
+/** Determines device-pointer registration for information (lock-control). */
+const c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
+  ACC_OPENCL_LOCKTYPE* lock, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
+/** Determines device-pointer registration for information. */
 const c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr(
   const void* memory, size_t elsize, const size_t* amount, size_t* offset);
 /** Finds an existing stream for the given thread-ID (or NULL). */

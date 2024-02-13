@@ -105,7 +105,7 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory) 
 }
 
 
-c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
+c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
   ACC_OPENCL_LOCKTYPE* lock, const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
   c_dbcsr_acc_opencl_info_memptr_t* result = NULL;
   assert(0 < elsize);
@@ -152,9 +152,23 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
 }
 
 
+const c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
+  ACC_OPENCL_LOCKTYPE* lock, const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
+  const c_dbcsr_acc_opencl_info_memptr_t* result = c_dbcsr_acc_opencl_info_devptr_modify(lock, memory, elsize, amount, offset);
+#  if defined(ACC_OPENCL_MEM_TLS)
+  if (NULL != result) {
+    static LIBXSMM_TLS c_dbcsr_acc_opencl_info_memptr_t info;
+    LIBXSMM_ASSIGN127(&info, result);
+    result = &info;
+  }
+#  endif
+  return result;
+}
+
+
 const c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr(
   const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
-  const c_dbcsr_acc_opencl_info_memptr_t* result = c_dbcsr_acc_opencl_info_devptr_lock(
+  const c_dbcsr_acc_opencl_info_memptr_t* result = c_dbcsr_acc_opencl_info_devptr_modify(
     c_dbcsr_acc_opencl_config.lock_memory, memory, elsize, amount, offset);
 #  if defined(ACC_OPENCL_MEM_TLS)
   if (NULL != result) {
@@ -322,11 +336,11 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   }
   if (EXIT_SUCCESS == result) {
     void* memptr = NULL;
-    const c_dbcsr_acc_opencl_stream_t* const stream = c_dbcsr_acc_opencl_stream_default();
     ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
-    result = c_dbcsr_acc_opencl_get_ptr(NULL /*lock*/, stream, &memptr, memory, 0 /*offset*/);
+    result = c_dbcsr_acc_opencl_get_ptr(
+      NULL /*lock*/, c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()), &memptr, memory, 0 /*offset*/);
     if (EXIT_SUCCESS == result) {
-      c_dbcsr_acc_opencl_info_memptr_t* info = (c_dbcsr_acc_opencl_info_memptr_t*)c_dbcsr_acc_opencl_pmalloc(
+      c_dbcsr_acc_opencl_info_memptr_t* const info = (c_dbcsr_acc_opencl_info_memptr_t*)c_dbcsr_acc_opencl_pmalloc(
         (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
       assert(NULL != memory && NULL != memptr);
       if (NULL != info) {
@@ -340,10 +354,10 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
       else {
 #  if defined(ACC_OPENCL_MEM_DEBUG)
         size_t offset = 0, amount = nbytes / 2;
-        info = c_dbcsr_acc_opencl_info_devptr_lock(
+        const c_dbcsr_acc_opencl_info_memptr_t* const verify = c_dbcsr_acc_opencl_info_devptr_lock(
           NULL /*lock*/, (const char*)memptr + amount, 1 /*elsize*/, NULL /*&amount*/, &offset);
         fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p size=%llu allocated\n", memory, memptr, (unsigned long long)nbytes);
-        if (NULL != info && memory == info->memory && amount == offset)
+        if (NULL != verify && memory == verify->memory && amount == offset)
 #  endif
         {
           *dev_mem = (void*)memptr;
@@ -381,7 +395,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #  endif
   ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
   if (NULL != dev_mem) {
-    c_dbcsr_acc_opencl_info_memptr_t* const info = c_dbcsr_acc_opencl_info_devptr_lock(
+    c_dbcsr_acc_opencl_info_memptr_t* const info = c_dbcsr_acc_opencl_info_devptr_modify(
       NULL, dev_mem, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
     if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
       c_dbcsr_acc_opencl_info_memptr_t* const pfree = c_dbcsr_acc_opencl_config.memptrs[c_dbcsr_acc_opencl_config.nmemptrs];
