@@ -44,7 +44,7 @@
 #    define ACC_OPENCL_NLOCKS 8
 #  endif
 #  if !defined(ACC_OPENCL_NCCS) && 1
-#    define ACC_OPENCL_NCCS 4
+#    define ACC_OPENCL_NCCS 2
 #  endif
 #  if !defined(ACC_OPENCL_IENV) && 1
 #    define ACC_OPENCL_IENV
@@ -254,9 +254,8 @@ int c_dbcsr_acc_init(void) {
 #  if defined(ACC_OPENCL_IENV)
     if (0 != ienv) {
       if (NULL == getenv("NEOReadDebugKeys")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV("NEOReadDebugKeys=1"));
-      if (NULL == getenv("EnableRecoverablePageFaults")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV("EnableRecoverablePageFaults=0"));
-      }
+      if (NULL == getenv("DirectSubmissionOverrideBlitterSupport")) LIBXSMM_PUTENV("DirectSubmissionOverrideBlitterSupport=0");
+      if (NULL == getenv("EnableRecoverablePageFaults")) LIBXSMM_PUTENV("EnableRecoverablePageFaults=0");
     }
 #  endif
 #  if defined(ACC_OPENCL_CACHEDIR)
