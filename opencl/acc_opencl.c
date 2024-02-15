@@ -31,11 +31,11 @@
 #  if !defined(ACC_OPENCL_TEMPDIR) && 1
 #    define ACC_OPENCL_TEMPDIR "/tmp"
 #  endif
-#  if !defined(ACC_OPENCL_CACHEDIR) && 0
-#    define ACC_OPENCL_CACHEDIR ".cl_cache"
+#  if !defined(ACC_OPENCL_CACHE_DID) && 1
+#    define ACC_OPENCL_CACHE_DID
 #  endif
-#  if !defined(ACC_OPENCL_CACHEID) && 0
-#    define ACC_OPENCL_CACHEID
+#  if !defined(ACC_OPENCL_CACHE_DIR) && 0
+#    define ACC_OPENCL_CACHE_DIR ".cl_cache"
 #  endif
 #  if !defined(ACC_OPENCL_CPPBIN) && 1
 #    define ACC_OPENCL_CPPBIN "/usr/bin/cpp"
@@ -62,7 +62,7 @@ char c_dbcsr_acc_opencl_locks[ACC_OPENCL_CACHELINE_NBYTES * ACC_OPENCL_NLOCKS];
 /* global configuration discovered during initialization */
 c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
-#  if defined(ACC_OPENCL_CACHEID)
+#  if defined(ACC_OPENCL_CACHE_DID)
 int c_dbcsr_acc_opencl_active_id;
 #  endif
 
@@ -196,7 +196,7 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.nthreads = 1;
     c_dbcsr_acc_opencl_config.nstreams = ACC_OPENCL_HANDLES_MAXCOUNT;
 #  endif
-#  if defined(ACC_OPENCL_CACHEID)
+#  if defined(ACC_OPENCL_CACHE_DID)
     assert(0 == c_dbcsr_acc_opencl_active_id);
 #  endif
     assert(sizeof(ACC_OPENCL_LOCKTYPE) <= ACC_OPENCL_CACHELINE_NBYTES);
@@ -265,31 +265,31 @@ int c_dbcsr_acc_init(void) {
       if (NULL == getenv("EnableRecoverablePageFaults")) LIBXSMM_PUTENV("EnableRecoverablePageFaults=0");
     }
 #  endif
-#  if defined(ACC_OPENCL_CACHEDIR)
+#  if defined(ACC_OPENCL_CACHE_DIR)
     {
       const char *const env_cache = getenv("ACC_OPENCL_CACHE"), *env_cachedir = getenv("NEO_CACHE_DIR");
       int cache = (NULL == env_cache ? 0 : atoi(env_cache));
       struct stat cachedir;
       if (0 == cache) {
-        if (stat(ACC_OPENCL_CACHEDIR, &cachedir) == 0 && S_ISDIR(cachedir.st_mode)) cache = 1;
-        else if (stat(ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR, &cachedir) == 0 && S_ISDIR(cachedir.st_mode)) cache = 2;
+        if (stat(ACC_OPENCL_CACHE_DIR, &cachedir) == 0 && S_ISDIR(cachedir.st_mode)) cache = 1;
+        else if (stat(ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHE_DIR, &cachedir) == 0 && S_ISDIR(cachedir.st_mode)) cache = 2;
       }
       if (1 == cache) {
-        static char neo_cachedir[] = "NEO_CACHE_DIR=" ACC_OPENCL_CACHEDIR;
-        static char ocl_cachedir[] = "cl_cache_dir=" ACC_OPENCL_CACHEDIR;
+        static char neo_cachedir[] = "NEO_CACHE_DIR=" ACC_OPENCL_CACHE_DIR;
+        static char ocl_cachedir[] = "cl_cache_dir=" ACC_OPENCL_CACHE_DIR;
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(neo_cachedir)); /* putenv before entering OpenCL */
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
-        env_cachedir = ACC_OPENCL_CACHEDIR;
+        env_cachedir = ACC_OPENCL_CACHE_DIR;
       }
 #    if defined(ACC_OPENCL_TEMPDIR)
       else if (NULL == env_cachedir) { /* code-path entered by default */
         if (NULL == env_cache || 0 != cache) { /* customize NEO_CACHE_DIR unless ACC_OPENCL_CACHE=0 */
-          static char neo_cachedir[] = "NEO_CACHE_DIR=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
+          static char neo_cachedir[] = "NEO_CACHE_DIR=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHE_DIR;
           ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(neo_cachedir)); /* putenv before entering OpenCL */
-          env_cachedir = ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
+          env_cachedir = ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHE_DIR;
         }
         if (0 != cache) { /* legacy-NEO is treated with explicit opt-in */
-          static char ocl_cachedir[] = "cl_cache_dir=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHEDIR;
+          static char ocl_cachedir[] = "cl_cache_dir=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHE_DIR;
           ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
         }
       }
@@ -524,7 +524,7 @@ int c_dbcsr_acc_init(void) {
         c_dbcsr_acc_opencl_config.nmemptrs = c_dbcsr_acc_opencl_config.nstreams = c_dbcsr_acc_opencl_config.nevents = 0;
         if (EXIT_SUCCESS == result) {
           const size_t nhandles = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
-#  if defined(ACC_OPENCL_CACHEID)
+#  if defined(ACC_OPENCL_CACHE_DID)
           c_dbcsr_acc_opencl_active_id = device_id + 1; /* update c_dbcsr_acc_opencl_active_id */
 #  endif
           /* allocate and initialize memptr registry */
@@ -668,7 +668,7 @@ int c_dbcsr_acc_finalize(void) {
     free(c_dbcsr_acc_opencl_config.event_data);
     /* clear configuration */
     memset(&c_dbcsr_acc_opencl_config, 0, sizeof(c_dbcsr_acc_opencl_config));
-#  if defined(ACC_OPENCL_CACHEID)
+#  if defined(ACC_OPENCL_CACHE_DID)
     c_dbcsr_acc_opencl_active_id = 0; /* reset cached active device-ID */
 #  endif
   }
@@ -1041,12 +1041,12 @@ int c_dbcsr_acc_set_active_device(int device_id) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(0 != c_dbcsr_acc_opencl_config.ndevices);
-#  if defined(ACC_OPENCL_CACHEID)
+#  if defined(ACC_OPENCL_CACHE_DID)
   if (c_dbcsr_acc_opencl_active_id != (device_id + 1))
 #  endif
   {
     result = c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_config.lock_main, device_id);
-#  if defined(ACC_OPENCL_CACHEID)
+#  if defined(ACC_OPENCL_CACHE_DID)
     if (EXIT_SUCCESS == result) c_dbcsr_acc_opencl_active_id = device_id + 1;
 #  endif
   }
