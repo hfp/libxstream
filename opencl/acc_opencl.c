@@ -517,6 +517,7 @@ int c_dbcsr_acc_init(void) {
         c_dbcsr_acc_opencl_config.nmemptrs = c_dbcsr_acc_opencl_config.nstreams = c_dbcsr_acc_opencl_config.nevents = 0;
         if (EXIT_SUCCESS == result) {
           const size_t nhandles = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+          c_dbcsr_acc_opencl_active_id = device_id + 1; /* update c_dbcsr_acc_opencl_active_id */
           /* allocate and initialize memptr registry */
           c_dbcsr_acc_opencl_config.nmemptrs = nhandles;
           c_dbcsr_acc_opencl_config.memptrs = (c_dbcsr_acc_opencl_info_memptr_t**)malloc(
