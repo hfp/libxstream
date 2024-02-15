@@ -452,8 +452,14 @@ int c_dbcsr_acc_opencl_get_ptr(
     ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(
                        stream->queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
-    ACC_OPENCL_CHECK(/* TODO: investigate issue with blocking_read=CL_TRUE */
-      clEnqueueReadBuffer(stream->queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL), "transfer memptr", result);
+    if (EXIT_SUCCESS == result && 0 == c_dbcsr_acc_opencl_config.device.nv) {
+      result = clEnqueueReadBuffer(stream->queue, memory, CL_TRUE, 0, sizeof(void*), dev_mem, 0, NULL, NULL);
+    }
+    else { /* TODO: investigate issue with blocking_read=CL_TRUE */
+      while (EXIT_SUCCESS == result && NULL == *dev_mem) {
+        result = clEnqueueReadBuffer(stream->queue, memory, CL_FALSE, 0, sizeof(void*), dev_mem, 0, NULL, NULL);
+      }
+    }
     if (NULL != lock) ACC_OPENCL_RELEASE(lock);
     assert(EXIT_SUCCESS != result || NULL != *dev_mem);
   }
