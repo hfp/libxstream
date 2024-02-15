@@ -1544,7 +1544,9 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       if (EXIT_SUCCESS == clGetProgramBuildInfo(program, active_id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, NULL)) {
         const char* info = buffer;
         while (NULL != strchr("\n\r\t ", *info)) ++info; /* remove preceding newline etc. */
-        if ('\0' != *info) fprintf(stderr, "INFO ACC/OpenCL: %s\n", info);
+        if (0 != c_dbcsr_acc_opencl_config.device.nv && 'l' == info[0] && '-' == info[1]) ++info;
+        assert(NULL != kernel_name && '\0' != *kernel_name);
+        if ('\0' != *info) fprintf(stderr, "INFO ACC/OpenCL: %s -> %s\n", kernel_name, info);
       }
       else buffer[0] = '\0'; /* reset to empty */
     }
