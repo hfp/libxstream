@@ -121,8 +121,8 @@ void opencl_libsmm_print_matrix(FILE* ostream, const char* label, libsmm_acc_dat
     }
     for (j = 0; j < n; ++j) {
       switch (type) {
-        case dbcsr_type_real_8: fprintf(ostream, "%.2f ", ((double*)mat)[i * n + j]); break;
-        case dbcsr_type_real_4: fprintf(ostream, "%.2f ", ((float*)mat)[i * n + j]); break;
+        case dbcsr_type_real_8: fprintf(ostream, "%.2f ", ((const double*)mat)[i * n + j]); break;
+        case dbcsr_type_real_4: fprintf(ostream, "%.2f ", ((const float*)mat)[i * n + j]); break;
         default: fprintf(ostream, "? ");
       }
     }
@@ -897,7 +897,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
             }
             fprintf(stderr, " => ERROR\n");
             if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-              fprintf(stderr, "stackposition = %i (index=%llu)\n", i, index);
+              fprintf(stderr, "stackposition = %i (index=%llu)\n", i, (unsigned long long)index);
               opencl_libsmm_print_matrix(stderr, "orig = ", datatype, orig, m, n);
               opencl_libsmm_print_matrix(stderr, "gold = ", datatype, gold, n, m);
               opencl_libsmm_print_matrix(stderr, "test = ", datatype, test, n, m);
@@ -1555,8 +1555,10 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
         }
         libxsmm_free(scratch);
 #    elif defined(NDEBUG)
-        LIBXSMM_UNUSED(host_param_stack);
         LIBXSMM_UNUSED(nparams);
+#    endif
+#    if defined(NDEBUG)
+        LIBXSMM_UNUSED(host_param_stack);
 #    endif
       }
       ACC_OPENCL_ATOMIC_RELEASE(lock);
