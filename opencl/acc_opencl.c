@@ -235,7 +235,7 @@ int c_dbcsr_acc_init(void) {
 #  if defined(ACC_OPENCL_NCCS) && (0 < ACC_OPENCL_NCCS)
     if ((NULL == env_zex && NULL == env_flt && 0 == (4 & c_dbcsr_acc_opencl_config.xhints)) ||
         (0 == LIBXSMM_PUTENV("ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE") && 0 != nccs))
-    {
+    { /* environment is populated before touching the compute runtime */
       static char zex_number_of_ccs[ACC_OPENCL_DEVICES_MAXCOUNT * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
       int j = strlen(zex_number_of_ccs);
       for (i = 0; i < ACC_OPENCL_DEVICES_MAXCOUNT; ++i) {
@@ -251,14 +251,14 @@ int c_dbcsr_acc_init(void) {
     }
 #  endif
 #  if defined(ACC_OPENCL_WA)
-    if (0 != ienv) {
+    if (0 != ienv) { /* environment is populated before touching the compute runtime */
       if (NULL == getenv("NEOReadDebugKeys")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV("NEOReadDebugKeys=1"));
       if (NULL == getenv("DirectSubmissionOverrideBlitterSupport")) LIBXSMM_PUTENV("DirectSubmissionOverrideBlitterSupport=0");
       if (NULL == getenv("EnableRecoverablePageFaults")) LIBXSMM_PUTENV("EnableRecoverablePageFaults=0");
     }
 #  endif
 #  if defined(ACC_OPENCL_CACHE_DIR)
-    {
+    { /* environment is populated before touching the compute runtime */
       const char *const env_cache = getenv("ACC_OPENCL_CACHE"), *env_cachedir = getenv("NEO_CACHE_DIR");
       int cache = (NULL == env_cache ? 0 : atoi(env_cache));
       struct stat cachedir;
