@@ -44,7 +44,7 @@
 #    define ACC_OPENCL_SEDBIN "/usr/bin/sed"
 #  endif
 #  if !defined(ACC_OPENCL_NLOCKS)
-#    define ACC_OPENCL_NLOCKS 8
+#    define ACC_OPENCL_NLOCKS 4
 #  endif
 #  if !defined(ACC_OPENCL_NCCS) && 1
 #    define ACC_OPENCL_NCCS 2
@@ -216,14 +216,6 @@ int c_dbcsr_acc_init(void) {
       (3 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
           ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 3))
           : c_dbcsr_acc_opencl_config.lock_main);
-    c_dbcsr_acc_opencl_config.lock_memset =
-      (4 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
-          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 4))
-          : c_dbcsr_acc_opencl_config.lock_memory);
-    c_dbcsr_acc_opencl_config.lock_memcpy =
-      (5 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS)
-          ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * 5))
-          : c_dbcsr_acc_opencl_config.lock_memset);
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
     c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
