@@ -14,27 +14,11 @@
 #  include <ctype.h>
 
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
-#    define OPENCL_LIBSMM_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, \
-      LDC, STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
-      OPENCL_LIBSMM_USEOMP(libxsmm_gemm_batch) \
-      (IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, STRIDE_C, INDEX_STRIDE, \
-        INDEX_BASE, BATCHSIZE, 0 /*batchcheck*/)
 #    define OPENCL_LIBSMM_DESCINIT(BLOB, PREC, M, N, K, LDA, LDB, LDC, FLAGS, PREFETCH) \
       libxsmm_gemm_descriptor_init(BLOB, PREC, PREC, PREC, PREC, M, N, K, LDA, LDB, LDC, FLAGS, PREFETCH)
 #  else
-#    define OPENCL_LIBSMM_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, \
-      LDC, STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
-      OPENCL_LIBSMM_USEOMP(libxsmm_gemm_batch) \
-      ((libxsmm_gemm_precision)(IPREC), (libxsmm_gemm_precision)(OPREC), TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, B, LDB, BETA, C, \
-        LDC, INDEX_BASE, INDEX_STRIDE, STRIDE_A, STRIDE_B, STRIDE_C, BATCHSIZE)
 #    define OPENCL_LIBSMM_DESCINIT(BLOB, PREC, M, N, K, LDA, LDB, LDC, FLAGS, PREFETCH) \
       libxsmm_gemm_descriptor_dinit(BLOB, PREC, M, N, K, LDA, LDB, LDC, 1.0, 1.0, FLAGS, PREFETCH)
-#  endif
-
-#  if defined(_OPENMP) && !defined(__DBCSR_ACC)
-#    define OPENCL_LIBSMM_USEOMP(FUNC) LIBXSMM_USEOMP(FUNC)
-#  else
-#    define OPENCL_LIBSMM_USEOMP(FUNC) (FUNC)
 #  endif
 
 #  if !defined(OPENCL_LIBSMM_VALIDATE_TRANS) && defined(OPENCL_LIBSMM_VALIDATE) && \
@@ -120,8 +104,6 @@
 extern "C" {
 #  endif
 
-/* maintain GFLOPS/AI ratios for performance estimates and suitability */
-double opencl_libsmm_shst, opencl_libsmm_dhst, opencl_libsmm_sacc, opencl_libsmm_dacc;
 /* track initialization status of LIBSMM */
 int opencl_libsmm_initialized;
 
@@ -435,12 +417,6 @@ int libsmm_acc_init(void) {
     if (EXIT_SUCCESS == result) {
       opencl_libsmm_perfest_t perfest;
       char* const env_params = getenv("OPENCL_LIBSMM_SMM_PARAMS");
-      const char* const env_suitable = getenv("OPENCL_LIBSMM_SUITABLE");
-#  if defined(OPENCL_LIBSMM_SUITABLE)
-      const int suitable = (NULL == env_suitable ? 1 : ('0' != *env_suitable));
-#  else
-      const int suitable = (NULL == env_suitable ? 0 : ('0' != *env_suitable));
-#  endif
       memset(&perfest, 0, sizeof(perfest));
       if (NULL == env_params || '0' != *env_params) {
         char buffer[ACC_OPENCL_BUFFERSIZE], bufname[ACC_OPENCL_BUFFERSIZE], control = '0';
@@ -612,85 +588,6 @@ int libsmm_acc_init(void) {
 #  endif
         }
       }
-      if (0 != suitable && EXIT_SUCCESS == result) {
-        const int stack_size = 30000, nrepeat = 100;
-        const int nc = LIBXSMM_MAX(stack_size / 16, 1), na = 10 * nc, nb = 10 * nc;
-        const int m = 8, n = 8, k = 8, mn = m * n, mk = m * k, kn = k * n;
-        const size_t scratch_size = /*stack*/ stack_size * 3 * sizeof(int) +
-                                    (/*a*/ na * mk + /*b*/ nb * kn + /*c*/ nc * mn) * /*max.typesize*/ sizeof(double) +
-                                    3 * (LIBXSMM_ALIGNMENT - 1) /*alignments*/;
-        void* const scratch = libxsmm_aligned_scratch(scratch_size, LIBXSMM_ALIGNMENT);
-        int *const s = (int*)scratch, i;
-        libxsmm_timer_tickint start;
-        const char notrans = 'N';
-        if (0 != perfest.scount && 0 < perfest.gf_ai_sratio_max) {
-          if (NULL != scratch) {
-            float* const a = (float*)LIBXSMM_UP2((uintptr_t)s + sizeof(int) * stack_size * 3, LIBXSMM_ALIGNMENT);
-            float* const b = (float*)LIBXSMM_UP2((uintptr_t)a + sizeof(float) * na * mk, LIBXSMM_ALIGNMENT);
-            float* const c = (float*)LIBXSMM_UP2((uintptr_t)b + sizeof(float) * nb * kn, LIBXSMM_ALIGNMENT);
-            const float alpha = 1, beta = 1;
-            init_stack(s, stack_size, 0 /*rnd_size*/, NULL /*rnd*/, mn, mk, kn, nc, na, nb);
-#  if defined(_OPENMP)
-#    pragma omp parallel
-#  endif
-            {
-#  if defined(_OPENMP)
-#    pragma omp for
-#  endif
-              for (i = 0; i < na; ++i) INIT_MAT(float, i + 42, &a[i * mk], m, k, 1.0 / (nc * na));
-#  if defined(_OPENMP)
-#    pragma omp for
-#  endif
-              for (i = 0; i < nb; ++i) INIT_MAT(float, i + 24, &b[i * kn], k, n, 1.0 / (nc * nb));
-            }
-            memset(c, 0, sizeof(float) * nc * mn);
-            start = libxsmm_timer_tick();
-            for (i = 0; i < nrepeat; ++i) {
-              OPENCL_LIBSMM_GEMM_BATCH(LIBXSMM_DATATYPE_F32, LIBXSMM_DATATYPE_F32, &notrans, &notrans, m, n, k, &alpha, a,
-                &m /*lda*/, s + 0 /*stride_a*/, b, &k /*ldb*/, s + 1 /*stride_b*/, &beta, c, &m /*ldc*/, s + 2 /*stride_c*/,
-                sizeof(int) * 3, 1 /*index_base*/, stack_size);
-            }
-            opencl_libsmm_shst = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat) /
-                                 (libxsmm_timer_duration(start, libxsmm_timer_tick()) * OPENCL_LIBSMM_AI(m, n, k, sizeof(float)));
-          }
-          opencl_libsmm_sacc = (/*sqrt(perfest.gf_ai_sratio_max **/
-            exp(perfest.gf_ai_sratio_sumlog / perfest.scount));
-        }
-        if (0 != perfest.dcount && 0 < perfest.gf_ai_dratio_max) {
-          if (NULL != scratch) {
-            double* const a = (double*)LIBXSMM_UP2((uintptr_t)s + sizeof(int) * stack_size * 3, LIBXSMM_ALIGNMENT);
-            double* const b = (double*)LIBXSMM_UP2((uintptr_t)a + sizeof(double) * na * mk, LIBXSMM_ALIGNMENT);
-            double* const c = (double*)LIBXSMM_UP2((uintptr_t)b + sizeof(double) * nb * kn, LIBXSMM_ALIGNMENT);
-            const double alpha = 1, beta = 1;
-            init_stack(s, stack_size, 0 /*rnd_size*/, NULL /*rnd*/, mn, mk, kn, nc, na, nb);
-#  if defined(_OPENMP)
-#    pragma omp parallel
-#  endif
-            {
-#  if defined(_OPENMP)
-#    pragma omp for
-#  endif
-              for (i = 0; i < na; ++i) INIT_MAT(double, i + 42, &a[i * mk], m, k, 1.0 / (nc * na));
-#  if defined(_OPENMP)
-#    pragma omp for
-#  endif
-              for (i = 0; i < nb; ++i) INIT_MAT(double, i + 24, &b[i * kn], k, n, 1.0 / (nc * nb));
-            }
-            memset(c, 0, sizeof(double) * nc * mn);
-            start = libxsmm_timer_tick();
-            for (i = 0; i < nrepeat; ++i) {
-              OPENCL_LIBSMM_GEMM_BATCH(LIBXSMM_DATATYPE_F64, LIBXSMM_DATATYPE_F64, &notrans, &notrans, m, n, k, &alpha, a,
-                &m /*lda*/, s + 0 /*stride_a*/, b, &k /*ldb*/, s + 1 /*stride_b*/, &beta, c, &m /*ldc*/, s + 2 /*stride_c*/,
-                sizeof(int) * 3, 1 /*index_base*/, stack_size);
-            }
-            opencl_libsmm_dhst = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat) /
-                                 (libxsmm_timer_duration(start, libxsmm_timer_tick()) * OPENCL_LIBSMM_AI(m, n, k, sizeof(double)));
-          }
-          opencl_libsmm_dacc = (/*sqrt(perfest.gf_ai_dratio_max **/
-            exp(perfest.gf_ai_dratio_sumlog / perfest.dcount));
-        }
-        libxsmm_free(scratch);
-      }
     }
   }
   ACC_OPENCL_RETURN(result);
@@ -735,7 +632,6 @@ int libsmm_acc_finalize(void) {
       }
     }
 #  endif
-    opencl_libsmm_shst = opencl_libsmm_dhst = opencl_libsmm_sacc = opencl_libsmm_dacc = 0;
 #  if !defined(__DBCSR_ACC)
     /* DBCSR shall call c_dbcsr_acc_init as well as libsmm_acc_init (since both interfaces are used).
      * Also, libsmm_acc_init may privately call c_dbcsr_acc_init (as it depends on the ACC interface).
@@ -1062,7 +958,6 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
 c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
   c_dbcsr_acc_bool_t def_mnk, libsmm_acc_data_t datatype, int stack_size, int m_max, int n_max, int k_max, int max_kernel_dim) {
   c_dbcsr_acc_bool_t result = 0; /* false */
-  double hst = 0, acc = 0;
   if (0 < m_max && 0 < n_max && 0 < k_max && 0 < stack_size &&
       0 != def_mnk /*homogeneous*/
       /* allow k_max to exceed max_kernel_dim, TODO: BLAS for large kernels (m,n) */
@@ -1071,16 +966,12 @@ c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
     switch (datatype) {
 #  if defined(OPENCL_LIBSMM_F64)
       case dbcsr_type_real_8: {
-        hst = opencl_libsmm_dhst;
-        acc = opencl_libsmm_dacc;
-        if (0 >= hst || 0 >= acc || hst < acc) result = 1; /* true */
+        result = 1; /* true */
       } break;
 #  endif
 #  if defined(OPENCL_LIBSMM_F32)
       case dbcsr_type_real_4: {
-        hst = opencl_libsmm_shst;
-        acc = opencl_libsmm_sacc;
-        if (0 >= hst || 0 >= acc || hst < acc) result = 1; /* true */
+        result = 1; /* true */
       } break;
 #  endif
       default: assert(/*false*/ 0 == result);
@@ -1101,13 +992,7 @@ c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
     opencl_libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, &dummy, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
     fprintf(stderr, " ss=%i", stack_size);
     if (m_max <= max_kernel_dim && n_max <= max_kernel_dim) {
-      if (0 < hst && 0 < acc) {
-        const double ai = OPENCL_LIBSMM_AI(m_max, n_max, k_max, OPENCL_LIBSMM_TYPESIZE(datatype));
-        fprintf(stderr, " hst=%.1f acc=%.1f GFLOPS/s is not suitable\n", ai * hst, ai * acc);
-      }
-      else {
-        fprintf(stderr, 0 != def_mnk ? " is ignored\n" : " is inhomogeneous\n");
-      }
+      fprintf(stderr, 0 != def_mnk ? " is ignored\n" : " is inhomogeneous\n");
     }
     else fprintf(stderr, " is too large\n");
     LIBXSMM_STDIO_RELEASE();
@@ -1610,18 +1495,13 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
           }
           if (EXIT_SUCCESS == result) {
             const double gflops = 1E-9 * (2ULL * m_max * n_max * k_max * stack_size) / duration;
-            const double est = (dbcsr_type_real_8 == datatype
-                                  ? (OPENCL_LIBSMM_AI(m_max, n_max, k_max, sizeof(double)) * opencl_libsmm_dacc)
-                                  : (OPENCL_LIBSMM_AI(m_max, n_max, k_max, sizeof(float)) * opencl_libsmm_sacc));
             LIBXSMM_STDIO_ACQUIRE();
             fprintf(stderr, "INFO ACC/LIBSMM: SMM-kernel ");
             opencl_libsmm_write_smm_params(
               stderr, 1 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
             fprintf(stderr, "=");
             opencl_libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, config, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
-            fprintf(stderr, " prio=%i ss=%i cur=%.1f", str->priority, stack_size, gflops);
-            if (0 < est) fprintf(stderr, " est=%.1f", est);
-            fprintf(stderr, " GFLOPS/s dur=%.2g ms\n", 1E3 * duration);
+            fprintf(stderr, " prio=%i ss=%i cur=%.1f GFLOPS/s dur=%.2g ms\n", str->priority, stack_size, gflops, 1E3 * duration);
             LIBXSMM_STDIO_RELEASE();
           }
         }
