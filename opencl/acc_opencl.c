@@ -49,8 +49,8 @@
 #  if !defined(ACC_OPENCL_NCCS) && 1
 #    define ACC_OPENCL_NCCS 2
 #  endif
-#  if !defined(ACC_OPENCL_IENV) && 1
-#    define ACC_OPENCL_IENV
+#  if !defined(ACC_OPENCL_WA) && 1
+#    define ACC_OPENCL_WA
 #  endif
 
 
@@ -177,9 +177,9 @@ int c_dbcsr_acc_init(void) {
     const char* const env_flt = getenv("ZE_FLAT_DEVICE_HIERARCHY");
     const int nccs = (NULL == env_nccs ? 0 : atoi(env_nccs));
 #  endif
-#  if defined(ACC_OPENCL_IENV)
-    const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_ienv = getenv("ACC_OPENCL_IENV");
-    const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), ienv = neo * (NULL == env_ienv ? 1 : atoi(env_ienv));
+#  if defined(ACC_OPENCL_WA)
+    const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_ienv = getenv("ACC_OPENCL_WA");
+    const int neo = (NULL == env_neo ? 0 : atoi(env_neo)), ienv = neo * (NULL == env_ienv ? 1 : atoi(env_ienv));
 #  endif
     const char* const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
@@ -250,7 +250,7 @@ int c_dbcsr_acc_init(void) {
       if (0 < j) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(zex_number_of_ccs)); /* soft-error */
     }
 #  endif
-#  if defined(ACC_OPENCL_IENV)
+#  if defined(ACC_OPENCL_WA)
     if (0 != ienv) {
       if (NULL == getenv("NEOReadDebugKeys")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV("NEOReadDebugKeys=1"));
       if (NULL == getenv("DirectSubmissionOverrideBlitterSupport")) LIBXSMM_PUTENV("DirectSubmissionOverrideBlitterSupport=0");
