@@ -22,6 +22,9 @@
 #  if !defined(ACC_OPENCL_MEM_ALIGNSCALE)
 #    define ACC_OPENCL_MEM_ALIGNSCALE 8
 #  endif
+#  if !defined(ACC_OPENCL_MEM_CPYSYNC) && 0
+#    define ACC_OPENCL_MEM_CPYSYNC
+#  endif
 #  if !defined(ACC_OPENCL_MEM_DEBUG) && 0
 #    define ACC_OPENCL_MEM_DEBUG
 #  endif
@@ -510,6 +513,7 @@ int c_dbcsr_acc_opencl_memcpy_d2h(
   if (EXIT_SUCCESS == result) {
     if (0 != finish) result = clFinish(queue);
   }
+#  if defined(ACC_OPENCL_MEM_CPYSYNC)
   else if (0 != (2 & c_dbcsr_acc_opencl_config.async) &&
            EXIT_SUCCESS == clEnqueueReadBuffer(queue, dev_mem, CL_TRUE, offset, nbytes, host_mem, 0, NULL, NULL))
   { /* retract async feature */
@@ -519,6 +523,7 @@ int c_dbcsr_acc_opencl_memcpy_d2h(
     }
     result = EXIT_SUCCESS;
   }
+#  endif
   return result;
 }
 
