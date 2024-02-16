@@ -179,7 +179,7 @@ int c_dbcsr_acc_init(void) {
 #  endif
 #  if defined(ACC_OPENCL_WA)
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_ienv = getenv("ACC_OPENCL_WA");
-    const int neo = (NULL == env_neo ? 0 : atoi(env_neo)), ienv = neo * (NULL == env_ienv ? 1 : atoi(env_ienv));
+    const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), ienv = neo * (NULL == env_ienv ? 0 : atoi(env_ienv));
 #  endif
     const char* const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
