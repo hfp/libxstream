@@ -78,26 +78,9 @@
 
 /* approximate arithmetic intensity for SMMs like C += Ai * Bi (beta=1) */
 #  define OPENCL_LIBSMM_AI(M, N, K, TYPESIZE) ((2.0 * (M) * (N) * (K)) / ((TYPESIZE) * (K) * ((M) + (N))))
-
+/* determine type-size of a given type-ID */
 #  define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
     (dbcsr_type_real_8 == (TYPEID) ? ((int)sizeof(double)) : (dbcsr_type_real_4 == (TYPEID) ? ((int)sizeof(float)) : 0 /*unknown*/))
-
-#  define OPENCL_LIBSMM_ISORT(IARR, SIZE) \
-    { \
-      int opencl_libsmm_isort_i_ = 0; \
-      for (; opencl_libsmm_isort_i_ < ((int)(SIZE)-1); ++opencl_libsmm_isort_i_) { \
-        int opencl_libsmm_isort_j_ = opencl_libsmm_isort_i_ + 2; \
-        int opencl_libsmm_isort_k_ = opencl_libsmm_isort_i_ + 1; \
-        for (; opencl_libsmm_isort_j_ < ((int)(SIZE)); ++opencl_libsmm_isort_j_) { \
-          if ((IARR)[opencl_libsmm_isort_j_] < (IARR)[opencl_libsmm_isort_k_]) { \
-            opencl_libsmm_isort_k_ = opencl_libsmm_isort_j_; \
-          } \
-        } \
-        if ((IARR)[opencl_libsmm_isort_k_] < (IARR)[opencl_libsmm_isort_i_]) { \
-          LIBXSMM_ISWAP((IARR)[opencl_libsmm_isort_i_], (IARR)[opencl_libsmm_isort_k_]); \
-        } \
-      } \
-    }
 
 
 #  if defined(__cplusplus)
