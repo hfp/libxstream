@@ -153,6 +153,15 @@
 #  define ACC_OPENCL_LOCKTYPE ACC_OPENCL_ATOMIC_LOCKTYPE
 #endif
 
+#if defined(CL_VERSION_2_0)
+#  define ACC_OPENCL_STREAM_PROPERTIES_TYPE cl_queue_properties
+#  define ACC_OPENCL_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) clCreateCommandQueueWithProperties(CTX, DEV, PROPS, RESULT)
+#else
+#  define ACC_OPENCL_STREAM_PROPERTIES_TYPE cl_int
+#  define ACC_OPENCL_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) \
+    clCreateCommandQueue(CTX, DEV, (cl_command_queue_properties)(NULL != (PROPS) ? ((PROPS)[1]) : 0), RESULT)
+#endif
+
 #if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
 #  define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
 #  define LIBXSMM_STRISTR libxsmm_stristr
@@ -227,6 +236,8 @@ extern "C" {
 typedef struct c_dbcsr_acc_opencl_device_t {
   /** Activated device context. */
   cl_context context;
+  /** Stream for internal purpose. */
+  cl_command_queue queue;
   /** OpenCL support-level of device. */
   cl_int level[2];
   /** Kind of device (GPU, CPU, or other). */
@@ -283,7 +294,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   size_t nmemptrs, nstreams, nevents;
   /** All memptrs and related storage. */
   c_dbcsr_acc_opencl_info_memptr_t **memptrs, *memptr_data;
-  /** All created streams partitioned by thread-ID (thread-local slots). */
+  /** All streams and related storage. */
   c_dbcsr_acc_opencl_stream_t **streams, *stream_data;
   /** All events and related storage. */
   cl_event **events, *event_data;
@@ -313,8 +324,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
 extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
 /** Determines device-side value of device-memory. */
-int c_dbcsr_acc_opencl_get_ptr(
-  ACC_OPENCL_LOCKTYPE* lock, const c_dbcsr_acc_opencl_stream_t* stream, void** dev_mem, cl_mem memory, size_t offset);
+int c_dbcsr_acc_opencl_get_ptr(ACC_OPENCL_LOCKTYPE* lock, cl_command_queue queue, void** dev_mem, cl_mem memory, size_t offset);
 /** Determines host-pointer registration for modification. */
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
 /** Determines device-pointer registration for modification (internal). */

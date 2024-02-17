@@ -10,14 +10,6 @@
 #  include "acc_opencl.h"
 #  include <string.h>
 
-#  if defined(CL_VERSION_2_0)
-#    define ACC_OPENCL_STREAM_PROPERTIES_TYPE cl_queue_properties
-#    define ACC_OPENCL_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) clCreateCommandQueueWithProperties(CTX, DEV, PROPS, RESULT)
-#  else
-#    define ACC_OPENCL_STREAM_PROPERTIES_TYPE cl_int
-#    define ACC_OPENCL_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) \
-      clCreateCommandQueue(CTX, DEV, (cl_command_queue_properties)(NULL != (PROPS) ? ((PROPS)[1]) : 0), RESULT)
-#  endif
 
 #  if defined(__cplusplus)
 extern "C" {

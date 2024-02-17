@@ -22,6 +22,9 @@
 #  if !defined(ACC_OPENCL_MEM_ALIGNSCALE)
 #    define ACC_OPENCL_MEM_ALIGNSCALE 8
 #  endif
+#  if !defined(ACC_OPENCL_MEM_GETPTR_PERTID) && 1
+#    define ACC_OPENCL_MEM_GETPTR_PERTID
+#  endif
 #  if !defined(ACC_OPENCL_MEM_CPYSYNC) && 0
 #    define ACC_OPENCL_MEM_CPYSYNC
 #  endif
@@ -322,10 +325,18 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
         clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result));
   }
   if (EXIT_SUCCESS == result) {
+    cl_command_queue queue = NULL;
     void* memptr = NULL;
     ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
-    result = c_dbcsr_acc_opencl_get_ptr(
-      NULL /*lock*/, c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()), &memptr, memory, 0 /*offset*/);
+#  if defined(ACC_OPENCL_MEM_GETPTR_PERTID)
+    { /* use existing stream with thread-affinity rather than private stream */
+      const c_dbcsr_acc_opencl_stream_t* const stream = c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID());
+      if (NULL != stream) queue = stream->queue;
+    }
+#  else
+    queue = c_dbcsr_acc_opencl_config.device.queue;
+#  endif
+    result = c_dbcsr_acc_opencl_get_ptr(NULL /*lock*/, queue, &memptr, memory, 0 /*offset*/);
     if (EXIT_SUCCESS == result) {
       c_dbcsr_acc_opencl_info_memptr_t* const info = (c_dbcsr_acc_opencl_info_memptr_t*)c_dbcsr_acc_opencl_pmalloc(
         NULL /*lock*/, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
@@ -427,12 +438,11 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t offset) {
 }
 
 
-int c_dbcsr_acc_opencl_get_ptr(
-  ACC_OPENCL_LOCKTYPE* lock, const c_dbcsr_acc_opencl_stream_t* stream, void** dev_mem, cl_mem memory, size_t offset) {
+int c_dbcsr_acc_opencl_get_ptr(ACC_OPENCL_LOCKTYPE* lock, cl_command_queue queue, void** dev_mem, cl_mem memory, size_t offset) {
   int result = EXIT_SUCCESS;
   assert(NULL != dev_mem);
   *dev_mem = NULL;
-  if (NULL != memory && NULL != stream && NULL != stream->queue) {
+  if (NULL != memory && NULL != queue) {
     static cl_kernel kernel = NULL;
     const size_t size = 1;
     if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
@@ -452,11 +462,11 @@ int c_dbcsr_acc_opencl_get_ptr(
     /* TODO: backup/restore memory */
     ACC_OPENCL_CHECK(clSetKernelArg(kernel, 0, sizeof(cl_mem), &memory), "set pointer-argument of memptr kernel", result);
     ACC_OPENCL_CHECK(clSetKernelArg(kernel, 1, sizeof(cl_ulong), &offset), "set offset-argument of memptr kernel", result);
-    ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(
-                       stream->queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
+    ACC_OPENCL_CHECK(
+      clEnqueueNDRangeKernel(queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL),
       "launch memptr kernel", result);
     ACC_OPENCL_CHECK(
-      c_dbcsr_acc_opencl_memcpy_d2h(memory, dev_mem, 0, sizeof(void*), stream->queue, 1 /*finish*/), "transfer memptr", result);
+      c_dbcsr_acc_opencl_memcpy_d2h(memory, dev_mem, 0, sizeof(void*), queue, 1 /*finish*/), "transfer memptr", result);
     if (NULL != lock) ACC_OPENCL_RELEASE(lock);
     assert(EXIT_SUCCESS != result || NULL != *dev_mem);
   }
