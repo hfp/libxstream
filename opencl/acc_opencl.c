@@ -28,6 +28,9 @@
 #    define S_ISDIR(A) ((S_IFMT & (A)) == S_IFDIR)
 #  endif
 
+#  if !defined(ACC_OPENCL_NLOCKS)
+#    define ACC_OPENCL_NLOCKS 4
+#  endif
 #  if !defined(ACC_OPENCL_TEMPDIR) && 1
 #    define ACC_OPENCL_TEMPDIR "/tmp"
 #  endif
@@ -43,8 +46,9 @@
 #  if !defined(ACC_OPENCL_SEDBIN) && 1
 #    define ACC_OPENCL_SEDBIN "/usr/bin/sed"
 #  endif
-#  if !defined(ACC_OPENCL_NLOCKS)
-#    define ACC_OPENCL_NLOCKS 4
+/* attempt to enable command aggregation */
+#  if !defined(ACC_OPENCL_CMDAGR) && 1
+#    define ACC_OPENCL_CMDAGR
 #  endif
 #  if !defined(ACC_OPENCL_NCCS) && 1
 #    define ACC_OPENCL_NCCS 2
@@ -219,7 +223,7 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
     c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
-    c_dbcsr_acc_opencl_config.xhints = (NULL == env_xhints ? /*default*/ 5 : atoi(env_xhints));
+    c_dbcsr_acc_opencl_config.xhints = (NULL == env_xhints ? /*default*/ 3 : atoi(env_xhints));
     c_dbcsr_acc_opencl_config.async = (NULL == env_async ? /*default*/ 3 : atoi(env_async));
     c_dbcsr_acc_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
     if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, env_devmatch, &c_dbcsr_acc_opencl_config.devmatch)) {
@@ -233,7 +237,7 @@ int c_dbcsr_acc_init(void) {
       c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host;
     }
 #  if defined(ACC_OPENCL_NCCS) && (0 < ACC_OPENCL_NCCS)
-    if ((NULL == env_zex && NULL == env_flt && 0 == (4 & c_dbcsr_acc_opencl_config.xhints)) ||
+    if ((NULL == env_zex && NULL == env_flt && 0 != (1 & c_dbcsr_acc_opencl_config.xhints)) ||
         (0 == LIBXSMM_PUTENV("ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE") && 0 != nccs))
     { /* environment is populated before touching the compute runtime */
       static char zex_number_of_ccs[ACC_OPENCL_DEVICES_MAXCOUNT * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
@@ -979,16 +983,9 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
       /* update/cache device-specific information */
       if (EXIT_SUCCESS == result && active_id != context_id) {
         const ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[] = {CL_QUEUE_PROPERTIES, 0 /* terminator */};
+        result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device.level,
+          c_dbcsr_acc_opencl_config.device.level + 1, NULL /*cl_std*/, &c_dbcsr_acc_opencl_config.device.type);
         assert(NULL != c_dbcsr_acc_opencl_config.device.context);
-        if (NULL != c_dbcsr_acc_opencl_config.device.queue) { /* release private stream */
-          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.queue));
-        }
-        c_dbcsr_acc_opencl_config.device.queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(
-          c_dbcsr_acc_opencl_config.device.context, active_id, properties, &result);
-        if (EXIT_SUCCESS == result) {
-          result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device.level,
-            c_dbcsr_acc_opencl_config.device.level + 1, NULL /*cl_std*/, &c_dbcsr_acc_opencl_config.device.type);
-        }
         if (EXIT_SUCCESS == result) {
           char devname[ACC_OPENCL_BUFFERSIZE];
 #  if defined(CL_VERSION_2_0)
@@ -1024,6 +1021,30 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
                 c_dbcsr_acc_opencl_config.device.amd = 2;
               }
             }
+          }
+#  if defined(ACC_OPENCL_CMDAGR)
+          if (0 != c_dbcsr_acc_opencl_config.device.intel) { /* device properties (above) can now be used */
+            const ACC_OPENCL_STREAM_PROPERTIES_TYPE props[4] = {
+              CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
+            };
+            const cl_command_queue q = ACC_OPENCL_CREATE_COMMAND_QUEUE(
+              c_dbcsr_acc_opencl_config.device.context, active_id, props, &result);
+            if (EXIT_SUCCESS == result) {
+#    if 0 /* force host-timer? */
+              c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host;
+#    endif
+              assert(NULL != q);
+              clReleaseCommandQueue(q);
+            }
+            else result = EXIT_SUCCESS;
+          }
+#  endif
+          if (NULL != c_dbcsr_acc_opencl_config.device.queue) { /* release private stream */
+            ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.queue));
+          }
+          if (EXIT_SUCCESS == result) {
+            c_dbcsr_acc_opencl_config.device.queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(
+              c_dbcsr_acc_opencl_config.device.context, active_id, properties, &result);
           }
         }
       }

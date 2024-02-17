@@ -107,43 +107,26 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     cl_device_id device = NULL;
     result = clGetContextInfo(c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &device, NULL);
     if (EXIT_SUCCESS == result) {
-      if (0 != c_dbcsr_acc_opencl_config.device.intel) {
-        const int xhints = ((1 == c_dbcsr_acc_opencl_config.xhints || 0 > c_dbcsr_acc_opencl_config.xhints)
-                              ? (0 != c_dbcsr_acc_opencl_config.device.intel ? 1 : 0)
-                              : (c_dbcsr_acc_opencl_config.xhints >> 1));
-        if (0 != (1 & xhints)) { /* attempt to enable command aggregation */
-          const ACC_OPENCL_STREAM_PROPERTIES_TYPE props[4] = {
-            CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
-          };
-          const cl_command_queue q = ACC_OPENCL_CREATE_COMMAND_QUEUE(
-            c_dbcsr_acc_opencl_config.device.context, device, props, &result);
-          if (EXIT_SUCCESS == result) {
-            c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host; /* force host-timer */
-            clReleaseCommandQueue(q);
-          }
-          else result = EXIT_SUCCESS;
-        }
-        if (0 != (2 & xhints)) { /* attempt to enable queue families */
-          struct {
-            cl_command_queue_properties properties;
-            cl_bitfield capabilities;
-            cl_uint count;
-            char name[64 /*CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL*/];
-          } intel_qfprops[16];
-          size_t nbytes = 0, i;
-          if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x418B /*CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL*/, sizeof(intel_qfprops),
-                                intel_qfprops, &nbytes))
-          {
-            for (i = 0; (i * sizeof(*intel_qfprops)) < nbytes; ++i) {
-              if (0 /*CL_QUEUE_DEFAULT_CAPABILITIES_INTEL*/ == intel_qfprops[i].capabilities && 1 < intel_qfprops[i].count) {
-                const int j = (0 /*terminator*/ == properties[2] ? 2 : 4);
-                properties[j + 0] = 0x418C; /* CL_QUEUE_FAMILY_INTEL */
-                properties[j + 1] = (int)i;
-                properties[j + 2] = 0x418D; /* CL_QUEUE_INDEX_INTEL */
-                properties[j + 3] = (i + offset) % intel_qfprops[i].count;
-                properties[j + 4] = 0; /* terminator */
-                break;
-              }
+      if (0 != (2 & c_dbcsr_acc_opencl_config.xhints) && 0 != c_dbcsr_acc_opencl_config.device.intel) { /* enable queue families */
+        struct {
+          cl_command_queue_properties properties;
+          cl_bitfield capabilities;
+          cl_uint count;
+          char name[64 /*CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL*/];
+        } intel_qfprops[16];
+        size_t nbytes = 0, i;
+        if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x418B /*CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL*/, sizeof(intel_qfprops),
+                              intel_qfprops, &nbytes))
+        {
+          for (i = 0; (i * sizeof(*intel_qfprops)) < nbytes; ++i) {
+            if (0 /*CL_QUEUE_DEFAULT_CAPABILITIES_INTEL*/ == intel_qfprops[i].capabilities && 1 < intel_qfprops[i].count) {
+              const int j = (0 /*terminator*/ == properties[2] ? 2 : 4);
+              properties[j + 0] = 0x418C; /* CL_QUEUE_FAMILY_INTEL */
+              properties[j + 1] = (int)i;
+              properties[j + 2] = 0x418D; /* CL_QUEUE_INDEX_INTEL */
+              properties[j + 3] = (i + offset) % intel_qfprops[i].count;
+              properties[j + 4] = 0; /* terminator */
+              break;
             }
           }
         }
