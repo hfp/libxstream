@@ -223,7 +223,7 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
     c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
-    c_dbcsr_acc_opencl_config.xhints = (NULL == env_xhints ? /*default*/ 3 : atoi(env_xhints));
+    c_dbcsr_acc_opencl_config.xhints = (NULL == env_xhints ? /*default*/ 1 : atoi(env_xhints));
     c_dbcsr_acc_opencl_config.async = (NULL == env_async ? /*default*/ 3 : atoi(env_async));
     c_dbcsr_acc_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
     if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, env_devmatch, &c_dbcsr_acc_opencl_config.devmatch)) {
@@ -982,7 +982,6 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
       }
       /* update/cache device-specific information */
       if (EXIT_SUCCESS == result && active_id != context_id) {
-        const ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[] = {CL_QUEUE_PROPERTIES, 0 /* terminator */};
         result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device.level,
           c_dbcsr_acc_opencl_config.device.level + 1, NULL /*cl_std*/, &c_dbcsr_acc_opencl_config.device.type);
         assert(NULL != c_dbcsr_acc_opencl_config.device.context);
@@ -1043,6 +1042,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
             ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.queue));
           }
           if (EXIT_SUCCESS == result) {
+            const ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[] = {CL_QUEUE_PROPERTIES, 0 /*default*/, 0 /* terminator */};
             c_dbcsr_acc_opencl_config.device.queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(
               c_dbcsr_acc_opencl_config.device.context, active_id, properties, &result);
           }
