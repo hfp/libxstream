@@ -25,7 +25,7 @@
 #  if !defined(ACC_OPENCL_MEM_GETPTR_PERTID) && 1
 #    define ACC_OPENCL_MEM_GETPTR_PERTID
 #  endif
-#  if !defined(ACC_OPENCL_MEM_CPYSYNC) && 0
+#  if !defined(ACC_OPENCL_MEM_CPYSYNC) && 1
 #    define ACC_OPENCL_MEM_CPYSYNC
 #  endif
 #  if !defined(ACC_OPENCL_MEM_DEBUG) && 0
@@ -518,16 +518,16 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
 
 int c_dbcsr_acc_opencl_memcpy_d2h(
   cl_mem dev_mem, void* host_mem, size_t offset, size_t nbytes, cl_command_queue queue, int finish) {
-  int result = clEnqueueReadBuffer(
-    queue, dev_mem, 0 == (2 & c_dbcsr_acc_opencl_config.async), offset, nbytes, host_mem, 0, NULL, NULL);
+  const cl_bool async_read = (0 == c_dbcsr_acc_opencl_config.device.nv && (2 & c_dbcsr_acc_opencl_config.async));
+  int result = clEnqueueReadBuffer(queue, dev_mem, !async_read, offset, nbytes, host_mem, 0, NULL, NULL);
   if (EXIT_SUCCESS == result) {
     if (0 != finish) result = clFinish(queue);
   }
 #  if defined(ACC_OPENCL_MEM_CPYSYNC)
-  else if (0 != (2 & c_dbcsr_acc_opencl_config.async) &&
+  else if ((2 & c_dbcsr_acc_opencl_config.async) &&
            EXIT_SUCCESS == clEnqueueReadBuffer(queue, dev_mem, CL_TRUE, offset, nbytes, host_mem, 0, NULL, NULL))
   { /* retract async feature */
-    c_dbcsr_acc_opencl_config.async |= 2;
+    c_dbcsr_acc_opencl_config.async &= ~2;
     if (0 != c_dbcsr_acc_opencl_config.verbosity) {
       fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous readback (code=%i).\n", result);
     }
