@@ -504,7 +504,6 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
         result = clFinish(str->queue);
       }
 #  endif
-      assert(EXIT_SUCCESS == result);
     }
     else result = EXIT_FAILURE;
     ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
