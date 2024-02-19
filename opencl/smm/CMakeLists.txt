@@ -22,7 +22,7 @@ elseif (EXISTS ${SMM_ACC_PARAMS_CUSTOM})
 endif ()
 
 add_custom_target(
-  parameters ALL
+  parameters #ALL
   COMMAND ${SMM_ACC_SCRIPT} ${SMM_ACC_SCRIPT_ARGS} ${SMM_ACC_KERNELS}
           ${SMM_ACC_PARAMS} ${LIBSMM_ACC_KERNELS_INC}
   DEPENDS ${SMM_ACC_SCRIPT} ${SMM_ACC_KERNELS} ${SMM_ACC_COMMON}
