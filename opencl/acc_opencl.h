@@ -100,6 +100,9 @@
 #if !defined(ACC_OPENCL_LAZYINIT) && (defined(__DBCSR_ACC) || 1)
 #  define ACC_OPENCL_LAZYINIT
 #endif
+#if !defined(ACC_OPENCL_ASYNC) && 1
+#  define ACC_OPENCL_ASYNC getenv("ACC_OPENCL_ASYNC")
+#endif
 #if !defined(ACC_OPENCL_STREAM_PRIORITIES) && 0
 #  if defined(CL_QUEUE_PRIORITY_KHR)
 #    define ACC_OPENCL_STREAM_PRIORITIES
@@ -315,7 +318,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Execution-hints (command stream). */
   cl_int xhints;
   /** Asynchronous memory ops. */
-  cl_int async, async_locked;
+  cl_int async;
   /** Dump level. */
   cl_int dump;
 } c_dbcsr_acc_opencl_config_t;

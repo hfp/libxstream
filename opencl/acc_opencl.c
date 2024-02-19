@@ -174,7 +174,7 @@ int c_dbcsr_acc_init(void) {
     const char *const env_priority = getenv("ACC_OPENCL_PRIORITY"), *const env_xhints = getenv("ACC_OPENCL_XHINTS");
     const char *const env_devcopy = getenv("ACC_OPENCL_DEVCOPY"), *const env_verbose = getenv("ACC_OPENCL_VERBOSE");
     const char *const env_device = getenv("ACC_OPENCL_DEVICE"), *const env_dump_acc = getenv("ACC_OPENCL_DUMP");
-    const char *const env_async = getenv("ACC_OPENCL_ASYNC"), *const env_timer = getenv("ACC_OPENCL_TIMER");
+    const char *const env_timer = getenv("ACC_OPENCL_TIMER"), *const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
 #  if defined(ACC_OPENCL_NCCS) && (0 < ACC_OPENCL_NCCS)
     const char *const env_zex = getenv("ZEX_NUMBER_OF_CCS"), *const env_nccs = getenv("ACC_OPENCL_NCCS");
@@ -185,7 +185,13 @@ int c_dbcsr_acc_init(void) {
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_ienv = getenv("ACC_OPENCL_WA");
     const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), ienv = neo * (NULL == env_ienv ? 0 : atoi(env_ienv));
 #  endif
-    const char* const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
+#  if defined(ACC_OPENCL_ASYNC)
+    const char* const env_async = (ACC_OPENCL_ASYNC);
+    const int async_default = 3;
+#  else
+    const char* const env_async = NULL;
+    const int async_default = 0;
+#  endif
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
     const int nlocks = (NULL == env_nlocks ? 1 /*default*/ : atoi(env_nlocks));
@@ -225,8 +231,7 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
     c_dbcsr_acc_opencl_config.xhints = (NULL == env_xhints ? /*default*/ 3 : atoi(env_xhints));
     c_dbcsr_acc_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
-    c_dbcsr_acc_opencl_config.async = (NULL == env_async ? /*default*/ 3 : atoi(env_async));
-    c_dbcsr_acc_opencl_config.async_locked = (NULL != env_async);
+    c_dbcsr_acc_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
     if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, env_devmatch, &c_dbcsr_acc_opencl_config.devmatch)) {
       c_dbcsr_acc_opencl_config.devmatch = 1;
     }
