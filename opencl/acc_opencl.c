@@ -517,19 +517,22 @@ int c_dbcsr_acc_init(void) {
             }
           }
         }
+#  if defined(ACC_OPENCL_MEM_DEVPTR)
         c_dbcsr_acc_opencl_config.memptrs = NULL;
+        c_dbcsr_acc_opencl_config.memptr_data = NULL;
+        c_dbcsr_acc_opencl_config.nmemptrs = 0;
+#  endif
         c_dbcsr_acc_opencl_config.streams = NULL;
         c_dbcsr_acc_opencl_config.events = NULL;
-        c_dbcsr_acc_opencl_config.memptr_data = NULL;
         c_dbcsr_acc_opencl_config.stream_data = NULL;
         c_dbcsr_acc_opencl_config.event_data = NULL;
-        c_dbcsr_acc_opencl_config.nmemptrs = c_dbcsr_acc_opencl_config.nstreams = c_dbcsr_acc_opencl_config.nevents = 0;
+        c_dbcsr_acc_opencl_config.nstreams = c_dbcsr_acc_opencl_config.nevents = 0;
         if (EXIT_SUCCESS == result) {
           const size_t nhandles = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
 #  if defined(ACC_OPENCL_CACHE_DID)
           c_dbcsr_acc_opencl_active_id = device_id + 1; /* update c_dbcsr_acc_opencl_active_id */
 #  endif
-          /* allocate and initialize memptr registry */
+#  if defined(ACC_OPENCL_MEM_DEVPTR) /* allocate and initialize memptr registry */
           c_dbcsr_acc_opencl_config.nmemptrs = nhandles;
           c_dbcsr_acc_opencl_config.memptrs = (c_dbcsr_acc_opencl_info_memptr_t**)malloc(
             sizeof(c_dbcsr_acc_opencl_info_memptr_t*) * nhandles);
@@ -548,6 +551,7 @@ int c_dbcsr_acc_init(void) {
             c_dbcsr_acc_opencl_config.nmemptrs = 0;
             result = EXIT_FAILURE;
           }
+#  endif
           /* allocate and initialize streams registry */
           c_dbcsr_acc_opencl_config.nstreams = nhandles;
           c_dbcsr_acc_opencl_config.streams = (c_dbcsr_acc_opencl_stream_t**)malloc(
@@ -664,8 +668,10 @@ int c_dbcsr_acc_finalize(void) {
       ACC_OPENCL_DESTROY((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE_NBYTES * i));
     }
     /* release/reset buffers */
+#  if defined(ACC_OPENCL_MEM_DEVPTR)
     free(c_dbcsr_acc_opencl_config.memptrs);
     free(c_dbcsr_acc_opencl_config.memptr_data);
+#  endif
     free(c_dbcsr_acc_opencl_config.streams);
     free(c_dbcsr_acc_opencl_config.stream_data);
     free(c_dbcsr_acc_opencl_config.events);

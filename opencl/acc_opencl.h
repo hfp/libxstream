@@ -112,6 +112,9 @@
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
+#if !defined(ACC_OPENCL_MEM_DEVPTR) && 1
+#  define ACC_OPENCL_MEM_DEVPTR
+#endif
 #if !defined(ACC_OPENCL_OMPLOCKS) && 1
 #  define ACC_OPENCL_OMPLOCKS
 #endif
@@ -293,10 +296,13 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   c_dbcsr_acc_opencl_device_t device;
   /** Locks used by domain. */
   ACC_OPENCL_LOCKTYPE *lock_main, *lock_stream, *lock_event, *lock_memory;
-  /** Handle-counter. */
-  size_t nmemptrs, nstreams, nevents;
-  /** All memptrs and related storage. */
+#if defined(ACC_OPENCL_MEM_DEVPTR)
+  /** All memptrs and related storage/counter. */
   c_dbcsr_acc_opencl_info_memptr_t **memptrs, *memptr_data;
+  size_t nmemptrs; /* counter */
+#endif
+  /** Handle-counter. */
+  size_t nstreams, nevents;
   /** All streams and related storage. */
   c_dbcsr_acc_opencl_stream_t **streams, *stream_data;
   /** All events and related storage. */
@@ -332,13 +338,13 @@ int c_dbcsr_acc_opencl_get_ptr(ACC_OPENCL_LOCKTYPE* lock, cl_command_queue queue
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
 /** Determines device-pointer registration for modification (internal). */
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
-  ACC_OPENCL_LOCKTYPE* lock, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
+  ACC_OPENCL_LOCKTYPE* lock, void* memory, size_t elsize, const size_t* amount, size_t* offset);
 /** Determines device-pointer registration for information (lock-control). */
-const c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_lock(
-  ACC_OPENCL_LOCKTYPE* lock, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
+int c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_info_memptr_t* info, ACC_OPENCL_LOCKTYPE* lock, const void* memory,
+  size_t elsize, const size_t* amount, size_t* offset);
 /** Determines device-pointer registration for information. */
-const c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr(
-  const void* memory, size_t elsize, const size_t* amount, size_t* offset);
+int c_dbcsr_acc_opencl_info_devptr(
+  c_dbcsr_acc_opencl_info_memptr_t* info, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
 /** Finds an existing stream for the given thread-ID (or NULL). */
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(ACC_OPENCL_LOCKTYPE* lock, int thread_id);
 /** Determines default-stream (see ACC_OPENCL_STREAM_NULL). */
