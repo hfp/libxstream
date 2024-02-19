@@ -10,7 +10,8 @@ set(SMM_ACC_PARAMS_WITHGPU
 set(SMM_ACC_PARAMS_CUSTOM ${CMAKE_CURRENT_SOURCE_DIR}/tune_multiply.csv)
 
 if (EXISTS ${SMM_ACC_PARAMS_WITHGPU})
-  set(SMM_ACC_SCRIPT_MSG "ACC/LIBSMM OpenCL: collecting all tuned parameters...")
+  set(SMM_ACC_SCRIPT_MSG
+      "ACC/LIBSMM OpenCL: collecting all tuned parameters...")
   message(STATUS "ACC/LIBSMM OpenCL: all tuned parameters used")
   set(SMM_ACC_PARAMS ${SMM_ACC_PARAMS_WITHGPU})
 elseif (WITH_GPU MATCHES "none")
@@ -22,7 +23,7 @@ elseif (EXISTS ${SMM_ACC_PARAMS_CUSTOM})
 endif ()
 
 add_custom_target(
-  parameters #ALL
+  parameters # ALL
   COMMAND ${SMM_ACC_SCRIPT} ${SMM_ACC_SCRIPT_ARGS} ${SMM_ACC_KERNELS}
           ${SMM_ACC_PARAMS} ${LIBSMM_ACC_KERNELS_INC}
   DEPENDS ${SMM_ACC_SCRIPT} ${SMM_ACC_KERNELS} ${SMM_ACC_COMMON}
