@@ -404,9 +404,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       LIBXSMM_MEMZERO127(pfree);
 #    endif
     }
-#    if !defined(NDEBUG)
     else result = EXIT_FAILURE;
-#    endif
     ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
 #  endif
   }
