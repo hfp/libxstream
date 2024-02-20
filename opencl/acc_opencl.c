@@ -1003,38 +1003,39 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
         result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device.level,
           c_dbcsr_acc_opencl_config.device.level + 1, NULL /*cl_std*/, &c_dbcsr_acc_opencl_config.device.type);
         if (EXIT_SUCCESS == result) {
-          char devname[ACC_OPENCL_BUFFERSIZE];
-#  if defined(CL_VERSION_2_0)
-          c_dbcsr_acc_opencl_config.device.usm = (2 > *c_dbcsr_acc_opencl_config.device.level); /* TODO */
-#  endif
-          if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool),
-                                &c_dbcsr_acc_opencl_config.device.unified, NULL))
-          {
-            c_dbcsr_acc_opencl_config.device.unified = CL_FALSE;
-          }
+          char devname[ACC_OPENCL_BUFFERSIZE] = "";
+          c_dbcsr_acc_opencl_config.device.intel = (EXIT_SUCCESS ==
+                                                    c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
+          c_dbcsr_acc_opencl_config.device.nv = (EXIT_SUCCESS ==
+                                                 c_dbcsr_acc_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
+
           if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_name(active_id, devname, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/,
                                 0 /*platform_maxlen*/, /*cleanup*/ 1) ||
               EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(active_id, devname, &c_dbcsr_acc_opencl_config.device.uid))
           {
             c_dbcsr_acc_opencl_config.device.uid = (cl_uint)-1;
           }
-          c_dbcsr_acc_opencl_config.device.intel = (EXIT_SUCCESS ==
-                                                    c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
-          c_dbcsr_acc_opencl_config.device.nv = (EXIT_SUCCESS ==
-                                                 c_dbcsr_acc_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
           if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 0 /*use_platform_name*/) ||
               EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 1 /*use_platform_name*/))
           {
-            char buffer[ACC_OPENCL_BUFFERSIZE];
             c_dbcsr_acc_opencl_config.device.amd = 1;
-            if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(active_id, buffer, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/,
-                                  0 /*platform_maxlen*/, /*cleanup*/ 1))
-            {
-              const char* const gfxname = LIBXSMM_STRISTR(buffer, "gfx");
+            if ('\0' != devname) {
+              const char* const gfxname = LIBXSMM_STRISTR(devname, "gfx");
               if (NULL != gfxname && 90 <= atoi(gfxname + 3)) {
                 c_dbcsr_acc_opencl_config.device.amd = 2;
               }
             }
+          }
+          if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool),
+                                &c_dbcsr_acc_opencl_config.device.unified, NULL))
+          {
+            c_dbcsr_acc_opencl_config.device.unified = CL_FALSE;
+          }
+          if (2 > *c_dbcsr_acc_opencl_config.device.level ||
+            EXIT_SUCCESS != clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/, sizeof(cl_bitfield),
+                                &c_dbcsr_acc_opencl_config.device.usm, NULL)) /* cl_intel_unified_shared_memory extension */
+          {
+            c_dbcsr_acc_opencl_config.device.usm = 0;
           }
 #  if defined(ACC_OPENCL_CMDAGR)
           if (0 != c_dbcsr_acc_opencl_config.device.intel) { /* device properties (above) can now be used */

@@ -250,10 +250,8 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   cl_device_type type;
   /** Whether host memory is unified. */
   cl_bool unified;
-#if defined(CL_VERSION_2_0)
-  /** Runtime SVM support. */
-  cl_bool usm;
-#endif
+  /** USM support. */
+  cl_bitfield usm;
   /** Device-ID. */
   cl_uint uid;
   /** Main vendor? */
