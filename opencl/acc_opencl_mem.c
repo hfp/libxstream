@@ -129,6 +129,8 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
       else break;
     }
     if (NULL != lock) ACC_OPENCL_RELEASE(lock);
+#  elif 1 /* assume only first item of c_dbcsr_acc_opencl_info_memptr_t is accessed */
+    result = (c_dbcsr_acc_opencl_info_memptr_t*)&memory;
 #  else
     static LIBXSMM_TLS c_dbcsr_acc_opencl_info_memptr_t info;
     LIBXSMM_UNUSED(lock);
@@ -154,7 +156,16 @@ int c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_info_memptr_t* info, 
   LIBXSMM_ASSIGN127(&non_const, &memory);
   assert(NULL != info);
   devptr = c_dbcsr_acc_opencl_info_devptr_modify(lock, non_const, elsize, amount, offset);
-  if (NULL != devptr) LIBXSMM_ASSIGN127(info, devptr);
+  if (NULL != devptr) {
+#  if defined(ACC_OPENCL_MEM_DEVPTR)
+    LIBXSMM_ASSIGN127(info, devptr);
+#  else
+#    if !defined(NDEBUG)
+    LIBXSMM_MEMZERO127(info);
+#    endif
+    info->memory = devptr->memory;
+#  endif
+  }
   else result = EXIT_FAILURE;
   return result;
 }

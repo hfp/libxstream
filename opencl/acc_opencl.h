@@ -112,6 +112,7 @@
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
+/** Support arithmetic for device-pointers (DBM) */
 #if !defined(ACC_OPENCL_MEM_DEVPTR) && 1
 #  define ACC_OPENCL_MEM_DEVPTR
 #endif
@@ -260,7 +261,7 @@ typedef struct c_dbcsr_acc_opencl_device_t {
 
 /** Information about host/device-memory pointer. */
 typedef struct c_dbcsr_acc_opencl_info_memptr_t {
-  cl_mem memory;
+  cl_mem memory; /* first item! */
   void* memptr;
 } c_dbcsr_acc_opencl_info_memptr_t;
 
