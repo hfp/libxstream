@@ -34,22 +34,6 @@
 extern "C" {
 #  endif
 
-int c_dbcsr_acc_opencl_memalignment(size_t /*size*/);
-int c_dbcsr_acc_opencl_memalignment(size_t size) {
-  int result;
-  if ((ACC_OPENCL_MEM_ALIGNSCALE * ACC_OPENCL_MAXALIGN_NBYTES) <= size) {
-    result = ACC_OPENCL_MAXALIGN_NBYTES;
-  }
-  else if ((ACC_OPENCL_MEM_ALIGNSCALE * ACC_OPENCL_CACHELINE_NBYTES) <= size) {
-    result = ACC_OPENCL_CACHELINE_NBYTES;
-  }
-  else {
-    result = sizeof(void*);
-  }
-  return result;
-}
-
-
 void c_dbcsr_acc_opencl_pmalloc_init(ACC_OPENCL_LOCKTYPE* lock, size_t size, size_t* num, void* pool[], void* storage) {
   char* p = (char*)storage;
   size_t n, i = 0;
@@ -179,15 +163,18 @@ int c_dbcsr_acc_opencl_info_devptr(
 
 int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
   const size_t size_meminfo = sizeof(c_dbcsr_acc_opencl_info_memptr_t);
-  const int alignment = c_dbcsr_acc_opencl_memalignment(nbytes);
+  int result = EXIT_SUCCESS, alignment = sizeof(void*);
   cl_mem memory = NULL;
-  int result = EXIT_SUCCESS;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
+  if ((ACC_OPENCL_MEM_ALIGNSCALE * ACC_OPENCL_CACHELINE_NBYTES) <= nbytes) {
+    alignment = ((ACC_OPENCL_MEM_ALIGNSCALE * ACC_OPENCL_MAXALIGN_NBYTES) <= nbytes ? ACC_OPENCL_MAXALIGN_NBYTES
+                                                                                    : ACC_OPENCL_CACHELINE_NBYTES);
+  }
   nbytes += alignment + size_meminfo - 1;
   assert(NULL != host_mem);
   memory = clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_ALLOC_HOST_PTR, nbytes, NULL /*host_ptr*/, &result);
