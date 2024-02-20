@@ -136,7 +136,7 @@ ifneq (0,$(DBG))
     CFLAGS += -O0
   endif
 else
-  CFLAGS += -O2 -DNDEBUG -DNDBGDEV
+  CFLAGS += -O2 -DNDEBUG
   SYM := 0
 endif
 ifneq (0,$(SYM))

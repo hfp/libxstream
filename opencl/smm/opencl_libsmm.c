@@ -1271,13 +1271,11 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                 }
                 else result = EXIT_FAILURE;
                 if (0 < nchar && (int)sizeof(build_params) > nchar) {
-                  const char* const cl_debug = (
-#  if !defined(NDBGDEV)
-                    (0 != c_dbcsr_acc_opencl_config.device.intel && CL_DEVICE_TYPE_CPU != c_dbcsr_acc_opencl_config.device.type)
-                      ? "-gline-tables-only"
-                      :
-#  endif
-                      "");
+                  const char* const cl_debug = ((0 != c_dbcsr_acc_opencl_config.debug &&
+                                                  0 != c_dbcsr_acc_opencl_config.device.intel &&
+                                                  CL_DEVICE_TYPE_CPU != c_dbcsr_acc_opencl_config.device.type)
+                                                  ? "-gline-tables-only"
+                                                  : "");
                   nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer), "%s %s -cl-fast-relaxed-math -cl-denorms-are-zero %s",
                     (0 == new_config.flags || 0 == c_dbcsr_acc_opencl_config.device.intel ||
                       CL_DEVICE_TYPE_GPU != c_dbcsr_acc_opencl_config.device.type)
