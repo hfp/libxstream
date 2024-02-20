@@ -53,9 +53,6 @@
 #  if !defined(ACC_OPENCL_NCCS) && 1
 #    define ACC_OPENCL_NCCS 2
 #  endif
-#  if !defined(ACC_OPENCL_WA) && 1
-#    define ACC_OPENCL_WA
-#  endif
 
 
 #  if defined(__cplusplus)
@@ -181,10 +178,8 @@ int c_dbcsr_acc_init(void) {
     const char* const env_flt = getenv("ZE_FLAT_DEVICE_HIERARCHY");
     const int nccs = (NULL == env_nccs ? 0 : atoi(env_nccs));
 #  endif
-#  if defined(ACC_OPENCL_WA)
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("ACC_OPENCL_WA");
     const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), wa = neo * (NULL == env_wa ? 0 : atoi(env_wa));
-#  endif
 #  if defined(ACC_OPENCL_ASYNC)
     const char* const env_async = (ACC_OPENCL_ASYNC);
     const int async_default = 3;
@@ -262,13 +257,11 @@ int c_dbcsr_acc_init(void) {
       if (0 < j) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(zex_number_of_ccs)); /* soft-error */
     }
 #  endif
-#  if defined(ACC_OPENCL_WA)
     if (0 != wa) { /* environment is populated before touching the compute runtime */
       if (NULL == getenv("NEOReadDebugKeys")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV("NEOReadDebugKeys=1"));
       if (NULL == getenv("DirectSubmissionOverrideBlitterSupport")) LIBXSMM_PUTENV("DirectSubmissionOverrideBlitterSupport=0");
       if (NULL == getenv("EnableRecoverablePageFaults")) LIBXSMM_PUTENV("EnableRecoverablePageFaults=0");
     }
-#  endif
 #  if defined(ACC_OPENCL_CACHE_DIR)
     { /* environment is populated before touching the compute runtime */
       const char *const env_cache = getenv("ACC_OPENCL_CACHE"), *env_cachedir = getenv("NEO_CACHE_DIR");
@@ -1032,7 +1025,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
             c_dbcsr_acc_opencl_config.device.unified = CL_FALSE;
           }
           if (2 > *c_dbcsr_acc_opencl_config.device.level ||
-            EXIT_SUCCESS != clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/, sizeof(cl_bitfield),
+              EXIT_SUCCESS != clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/, sizeof(cl_bitfield),
                                 &c_dbcsr_acc_opencl_config.device.usm, NULL)) /* cl_intel_unified_shared_memory extension */
           {
             c_dbcsr_acc_opencl_config.device.usm = 0;
