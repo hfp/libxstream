@@ -498,20 +498,9 @@ int c_dbcsr_acc_init(void) {
     }
     if (device_id < c_dbcsr_acc_opencl_config.ndevices) {
       if (EXIT_SUCCESS == result) {
+        const size_t nhandles = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
         assert(0 < c_dbcsr_acc_opencl_config.ndevices);
         assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_DEVICES_MAXCOUNT);
-        result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, device_id);
-        assert(EXIT_SUCCESS == result || NULL == c_dbcsr_acc_opencl_config.device.context);
-        if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-          char platform_name[ACC_OPENCL_BUFFERSIZE];
-          for (i = 0; i < (cl_uint)c_dbcsr_acc_opencl_config.ndevices; ++i) {
-            if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(c_dbcsr_acc_opencl_config.devices[i], buffer, ACC_OPENCL_BUFFERSIZE,
-                                  platform_name, ACC_OPENCL_BUFFERSIZE, /*cleanup*/ 0))
-            {
-              fprintf(stderr, "INFO ACC/OpenCL: DEVICE -> \"%s : %s\"\n", platform_name, buffer);
-            }
-          }
-        }
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
         c_dbcsr_acc_opencl_config.memptrs = NULL;
         c_dbcsr_acc_opencl_config.memptr_data = NULL;
@@ -522,64 +511,73 @@ int c_dbcsr_acc_init(void) {
         c_dbcsr_acc_opencl_config.stream_data = NULL;
         c_dbcsr_acc_opencl_config.event_data = NULL;
         c_dbcsr_acc_opencl_config.nstreams = c_dbcsr_acc_opencl_config.nevents = 0;
-        if (EXIT_SUCCESS == result) {
-          const size_t nhandles = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
 #  if defined(ACC_OPENCL_CACHE_DID)
-          c_dbcsr_acc_opencl_active_id = device_id + 1; /* update c_dbcsr_acc_opencl_active_id */
+        c_dbcsr_acc_opencl_active_id = device_id + 1; /* update c_dbcsr_acc_opencl_active_id */
 #  endif
 #  if defined(ACC_OPENCL_MEM_DEVPTR) /* allocate and initialize memptr registry */
-          c_dbcsr_acc_opencl_config.nmemptrs = nhandles;
-          c_dbcsr_acc_opencl_config.memptrs = (c_dbcsr_acc_opencl_info_memptr_t**)malloc(
-            sizeof(c_dbcsr_acc_opencl_info_memptr_t*) * nhandles);
-          c_dbcsr_acc_opencl_config.memptr_data = (c_dbcsr_acc_opencl_info_memptr_t*)malloc(
-            sizeof(c_dbcsr_acc_opencl_info_memptr_t) * nhandles);
-          if (NULL != c_dbcsr_acc_opencl_config.memptrs && NULL != c_dbcsr_acc_opencl_config.memptr_data) {
-            c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(c_dbcsr_acc_opencl_info_memptr_t),
-              &c_dbcsr_acc_opencl_config.nmemptrs, (void**)c_dbcsr_acc_opencl_config.memptrs,
-              c_dbcsr_acc_opencl_config.memptr_data);
-          }
-          else {
-            free(c_dbcsr_acc_opencl_config.memptrs);
-            free(c_dbcsr_acc_opencl_config.memptr_data);
-            c_dbcsr_acc_opencl_config.memptr_data = NULL;
-            c_dbcsr_acc_opencl_config.memptrs = NULL;
-            c_dbcsr_acc_opencl_config.nmemptrs = 0;
-            result = EXIT_FAILURE;
-          }
+        c_dbcsr_acc_opencl_config.nmemptrs = nhandles;
+        c_dbcsr_acc_opencl_config.memptrs = (c_dbcsr_acc_opencl_info_memptr_t**)malloc(
+          sizeof(c_dbcsr_acc_opencl_info_memptr_t*) * nhandles);
+        c_dbcsr_acc_opencl_config.memptr_data = (c_dbcsr_acc_opencl_info_memptr_t*)malloc(
+          sizeof(c_dbcsr_acc_opencl_info_memptr_t) * nhandles);
+        if (NULL != c_dbcsr_acc_opencl_config.memptrs && NULL != c_dbcsr_acc_opencl_config.memptr_data) {
+          c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(c_dbcsr_acc_opencl_info_memptr_t),
+            &c_dbcsr_acc_opencl_config.nmemptrs, (void**)c_dbcsr_acc_opencl_config.memptrs, c_dbcsr_acc_opencl_config.memptr_data);
+        }
+        else {
+          free(c_dbcsr_acc_opencl_config.memptrs);
+          free(c_dbcsr_acc_opencl_config.memptr_data);
+          c_dbcsr_acc_opencl_config.memptr_data = NULL;
+          c_dbcsr_acc_opencl_config.memptrs = NULL;
+          c_dbcsr_acc_opencl_config.nmemptrs = 0;
+          result = EXIT_FAILURE;
+        }
 #  endif
-          /* allocate and initialize streams registry */
-          c_dbcsr_acc_opencl_config.nstreams = nhandles;
-          c_dbcsr_acc_opencl_config.streams = (c_dbcsr_acc_opencl_stream_t**)malloc(
-            sizeof(c_dbcsr_acc_opencl_stream_t*) * nhandles);
-          c_dbcsr_acc_opencl_config.stream_data = (c_dbcsr_acc_opencl_stream_t*)malloc(
-            sizeof(c_dbcsr_acc_opencl_stream_t) * nhandles);
-          if (NULL != c_dbcsr_acc_opencl_config.streams && NULL != c_dbcsr_acc_opencl_config.stream_data) {
-            c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(c_dbcsr_acc_opencl_stream_t), &c_dbcsr_acc_opencl_config.nstreams,
-              (void**)c_dbcsr_acc_opencl_config.streams, c_dbcsr_acc_opencl_config.stream_data);
-          }
-          else {
-            free(c_dbcsr_acc_opencl_config.streams);
-            free(c_dbcsr_acc_opencl_config.stream_data);
-            c_dbcsr_acc_opencl_config.stream_data = NULL;
-            c_dbcsr_acc_opencl_config.streams = NULL;
-            c_dbcsr_acc_opencl_config.nstreams = 0;
-            result = EXIT_FAILURE;
-          }
-          /* allocate and initialize events registry */
-          c_dbcsr_acc_opencl_config.nevents = nhandles;
-          c_dbcsr_acc_opencl_config.events = (cl_event**)malloc(sizeof(cl_event*) * nhandles);
-          c_dbcsr_acc_opencl_config.event_data = malloc(sizeof(void*) * nhandles);
-          if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_data) {
-            c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents,
-              (void**)c_dbcsr_acc_opencl_config.events, c_dbcsr_acc_opencl_config.event_data);
-          }
-          else {
-            free(c_dbcsr_acc_opencl_config.events);
-            free(c_dbcsr_acc_opencl_config.event_data);
-            c_dbcsr_acc_opencl_config.event_data = NULL;
-            c_dbcsr_acc_opencl_config.events = NULL;
-            c_dbcsr_acc_opencl_config.nevents = 0;
-            result = EXIT_FAILURE;
+        /* allocate and initialize streams registry */
+        c_dbcsr_acc_opencl_config.nstreams = nhandles;
+        c_dbcsr_acc_opencl_config.streams = (c_dbcsr_acc_opencl_stream_t**)malloc(sizeof(c_dbcsr_acc_opencl_stream_t*) * nhandles);
+        c_dbcsr_acc_opencl_config.stream_data = (c_dbcsr_acc_opencl_stream_t*)malloc(
+          sizeof(c_dbcsr_acc_opencl_stream_t) * nhandles);
+        if (NULL != c_dbcsr_acc_opencl_config.streams && NULL != c_dbcsr_acc_opencl_config.stream_data) {
+          c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(c_dbcsr_acc_opencl_stream_t), &c_dbcsr_acc_opencl_config.nstreams,
+            (void**)c_dbcsr_acc_opencl_config.streams, c_dbcsr_acc_opencl_config.stream_data);
+        }
+        else {
+          free(c_dbcsr_acc_opencl_config.streams);
+          free(c_dbcsr_acc_opencl_config.stream_data);
+          c_dbcsr_acc_opencl_config.stream_data = NULL;
+          c_dbcsr_acc_opencl_config.streams = NULL;
+          c_dbcsr_acc_opencl_config.nstreams = 0;
+          result = EXIT_FAILURE;
+        }
+        /* allocate and initialize events registry */
+        c_dbcsr_acc_opencl_config.nevents = nhandles;
+        c_dbcsr_acc_opencl_config.events = (cl_event**)malloc(sizeof(cl_event*) * nhandles);
+        c_dbcsr_acc_opencl_config.event_data = malloc(sizeof(void*) * nhandles);
+        if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_data) {
+          c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents,
+            (void**)c_dbcsr_acc_opencl_config.events, c_dbcsr_acc_opencl_config.event_data);
+        }
+        else {
+          free(c_dbcsr_acc_opencl_config.events);
+          free(c_dbcsr_acc_opencl_config.event_data);
+          c_dbcsr_acc_opencl_config.event_data = NULL;
+          c_dbcsr_acc_opencl_config.events = NULL;
+          c_dbcsr_acc_opencl_config.nevents = 0;
+          result = EXIT_FAILURE;
+        }
+        if (EXIT_SUCCESS == result) { /* lastly, print active device and list of devices */
+          result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, device_id);
+          assert(EXIT_SUCCESS == result || NULL == c_dbcsr_acc_opencl_config.device.context);
+          if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
+            char platform_name[ACC_OPENCL_BUFFERSIZE];
+            for (i = 0; i < (cl_uint)c_dbcsr_acc_opencl_config.ndevices; ++i) {
+              if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(c_dbcsr_acc_opencl_config.devices[i], buffer,
+                                    ACC_OPENCL_BUFFERSIZE, platform_name, ACC_OPENCL_BUFFERSIZE, /*cleanup*/ 0))
+              {
+                fprintf(stderr, "INFO ACC/OpenCL: DEVICE -> \"%s : %s\"\n", platform_name, buffer);
+              }
+            }
           }
         }
       }
