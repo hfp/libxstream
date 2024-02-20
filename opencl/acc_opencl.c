@@ -1025,7 +1025,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           {
             c_dbcsr_acc_opencl_config.device.unified = CL_FALSE;
           }
-          if (2 > *c_dbcsr_acc_opencl_config.device.level ||
+          if (2 > *c_dbcsr_acc_opencl_config.device.level || 0 == c_dbcsr_acc_opencl_config.device.intel ||
               EXIT_SUCCESS != clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/, sizeof(cl_bitfield),
                                 &c_dbcsr_acc_opencl_config.device.usm, NULL)) /* cl_intel_unified_shared_memory extension */
           {
