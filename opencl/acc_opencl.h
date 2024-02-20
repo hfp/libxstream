@@ -255,9 +255,9 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   /** Kind of device (GPU, CPU, or other). */
   cl_device_type type;
   /** Whether host memory is unified. */
-  cl_bool unified;
+  cl_int unified;
   /** USM support. */
-  cl_bitfield usm;
+  cl_int usm;
   /** Device-ID. */
   cl_uint uid;
   /** Main vendor? */
