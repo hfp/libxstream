@@ -1276,12 +1276,13 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                                                   CL_DEVICE_TYPE_CPU != c_dbcsr_acc_opencl_config.device.type)
                                                   ? "-gline-tables-only"
                                                   : "");
-                  nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer), "%s %s -cl-fast-relaxed-math -cl-denorms-are-zero %s",
+                  nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer), "%s %s %s %s",
                     (0 == new_config.flags || 0 == c_dbcsr_acc_opencl_config.device.intel ||
                       CL_DEVICE_TYPE_GPU != c_dbcsr_acc_opencl_config.device.type)
                       ? ""
                       : intel_xf,
-                    cl_debug, NULL == env_cl ? "" : env_cl);
+                    cl_debug, 0 == c_dbcsr_acc_opencl_config.debug ? "-cl-fast-relaxed-math -cl-denorms-are-zero" : "",
+                    NULL == env_cl ? "" : env_cl);
                   if (0 >= nchar || (int)sizeof(buffer) <= nchar) result = EXIT_FAILURE;
                 }
                 else result = EXIT_FAILURE;
