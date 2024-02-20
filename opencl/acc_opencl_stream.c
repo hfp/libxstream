@@ -21,7 +21,7 @@ int c_dbcsr_acc_opencl_stream_counter;
 
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(ACC_OPENCL_LOCKTYPE* lock, int thread_id) {
   const c_dbcsr_acc_opencl_stream_t *result = NULL, *result_main = NULL;
-  const size_t n = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+  const size_t n = ACC_OPENCL_MAXNITEMS * c_dbcsr_acc_opencl_config.nthreads;
   size_t i;
   assert(NULL != c_dbcsr_acc_opencl_config.streams);
   assert(thread_id < c_dbcsr_acc_opencl_config.nthreads);
@@ -265,7 +265,7 @@ int c_dbcsr_acc_stream_sync(void* stream) {
 
 int c_dbcsr_acc_opencl_device_synchronize(ACC_OPENCL_LOCKTYPE* lock, int thread_id) {
   int result = EXIT_SUCCESS;
-  const size_t n = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+  const size_t n = ACC_OPENCL_MAXNITEMS * c_dbcsr_acc_opencl_config.nthreads;
   size_t i;
   assert(thread_id < c_dbcsr_acc_opencl_config.nthreads);
   assert(NULL != c_dbcsr_acc_opencl_config.streams);

@@ -394,7 +394,7 @@ int libsmm_acc_init(void) {
   int result = EXIT_SUCCESS;
 #  endif
   /* multiple calls to libsmm_acc_init are not considered as an error */
-  if (1 == LIBXSMM_ATOMIC_ADD_FETCH(&opencl_libsmm_initialized, 1, ACC_OPENCL_ATOMIC_KIND)) {
+  if (1 == LIBXSMM_ATOMIC_ADD_FETCH(&opencl_libsmm_initialized, 1, ACC_OPENCL_ATOMIC)) {
 #  if !defined(__DBCSR_ACC)
     /* DBCSR shall call c_dbcsr_acc_init as well as libsmm_acc_init (since both interfaces are used).
      * Also, libsmm_acc_init may privately call c_dbcsr_acc_init (as it depends on the ACC interface).
@@ -596,7 +596,7 @@ int libsmm_acc_finalize(void) {
   int result = EXIT_SUCCESS;
 #  endif
   /* multiple calls to libsmm_acc_finalize are not considered as an error */
-  if (0 == LIBXSMM_ATOMIC_SUB_FETCH(&opencl_libsmm_initialized, 1, ACC_OPENCL_ATOMIC_KIND)) {
+  if (0 == LIBXSMM_ATOMIC_SUB_FETCH(&opencl_libsmm_initialized, 1, ACC_OPENCL_ATOMIC)) {
 #  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
     char fname[ACC_OPENCL_MAXSTRLEN];
     const void* regentry = libxsmm_get_registry_begin(LIBXSMM_KERNEL_KIND_USER, NULL /*key*/);

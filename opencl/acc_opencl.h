@@ -66,19 +66,19 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#if !defined(ACC_OPENCL_CACHELINE_NBYTES)
-#  define ACC_OPENCL_CACHELINE_NBYTES LIBXSMM_CACHELINE
+#if !defined(ACC_OPENCL_CACHELINE)
+#  define ACC_OPENCL_CACHELINE LIBXSMM_CACHELINE
 #endif
-#if !defined(ACC_OPENCL_ATOMIC_KIND)
-#  define ACC_OPENCL_ATOMIC_KIND LIBXSMM_ATOMIC_SEQ_CST
+#if !defined(ACC_OPENCL_ATOMIC)
+#  define ACC_OPENCL_ATOMIC LIBXSMM_ATOMIC_SEQ_CST
 #endif
 #if defined(LIBXSMM_ATOMIC_LOCKTYPE)
 #  define ACC_OPENCL_ATOMIC_LOCKTYPE volatile LIBXSMM_ATOMIC_LOCKTYPE
 #else
 #  define ACC_OPENCL_ATOMIC_LOCKTYPE volatile int
 #endif
-#if !defined(ACC_OPENCL_MAXALIGN_NBYTES)
-#  define ACC_OPENCL_MAXALIGN_NBYTES (2 << 20 /*2MB*/)
+#if !defined(ACC_OPENCL_MAXALIGN)
+#  define ACC_OPENCL_MAXALIGN (2 << 20 /*2MB*/)
 #endif
 #if !defined(ACC_OPENCL_BUFFERSIZE)
 #  define ACC_OPENCL_BUFFERSIZE (8 << 10 /*8KB*/)
@@ -86,12 +86,12 @@
 #if !defined(ACC_OPENCL_MAXSTRLEN)
 #  define ACC_OPENCL_MAXSTRLEN 48
 #endif
-#if !defined(ACC_OPENCL_DEVICES_MAXCOUNT)
-#  define ACC_OPENCL_DEVICES_MAXCOUNT 64
+#if !defined(ACC_OPENCL_MAXNDEVS)
+#  define ACC_OPENCL_MAXNDEVS 64
 #endif
-/** Counted on a per-thread basis! */
-#if !defined(ACC_OPENCL_HANDLES_MAXCOUNT)
-#  define ACC_OPENCL_HANDLES_MAXCOUNT 1024
+/* Counted on a per-thread basis! */
+#if !defined(ACC_OPENCL_MAXNITEMS)
+#  define ACC_OPENCL_MAXNITEMS 1024
 #endif
 /* First char is CSV-separator by default (w/o spaces) */
 #if !defined(ACC_OPENCL_DELIMS)
@@ -108,18 +108,22 @@
 #    define ACC_OPENCL_STREAM_PRIORITIES
 #  endif
 #endif
-/** Stream-argument (ACC-interface) can be NULL (synchronous) */
+/* Stream-argument (ACC-interface) can be NULL (synchronous) */
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
-/** Support arithmetic for device-pointers (DBM) */
+/* Stream for internal purpose. */
+#if !defined(ACC_OPENCL_STREAM_PRV) && 0
+#  define ACC_OPENCL_STREAM_PRV
+#endif
+/* Support arithmetic for device-pointers (DBM) */
 #if !defined(ACC_OPENCL_MEM_DEVPTR) && 1
 #  define ACC_OPENCL_MEM_DEVPTR
 #endif
 #if !defined(ACC_OPENCL_OMPLOCKS) && 1
 #  define ACC_OPENCL_OMPLOCKS
 #endif
-/** Use DBCSR's profile for detailed timings */
+/* Use DBCSR's profile for detailed timings */
 #if !defined(ACC_OPENCL_PROFILE) && 0
 #  define ACC_OPENCL_PROFILE
 #endif
@@ -139,11 +143,11 @@
 
 #define ACC_OPENCL_ATOMIC_ACQUIRE(LOCK) \
   do { \
-    LIBXSMM_ATOMIC_ACQUIRE(LOCK, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC_KIND); \
+    LIBXSMM_ATOMIC_ACQUIRE(LOCK, LIBXSMM_SYNC_NPAUSE, ACC_OPENCL_ATOMIC); \
   } while (0)
 #define ACC_OPENCL_ATOMIC_RELEASE(LOCK) \
   do { \
-    LIBXSMM_ATOMIC_RELEASE(LOCK, ACC_OPENCL_ATOMIC_KIND); \
+    LIBXSMM_ATOMIC_RELEASE(LOCK, ACC_OPENCL_ATOMIC); \
   } while (0)
 
 #if defined(ACC_OPENCL_OMPLOCKS)
@@ -243,8 +247,9 @@ extern "C" {
 typedef struct c_dbcsr_acc_opencl_device_t {
   /** Activated device context. */
   cl_context context;
-  /** Stream for internal purpose. */
+#  if defined(ACC_OPENCL_STREAM_PRV)
   cl_command_queue queue;
+#  endif
   /** OpenCL support-level of device. */
   cl_int level[2];
   /** Kind of device (GPU, CPU, or other). */
@@ -290,7 +295,7 @@ typedef enum c_dbcsr_acc_opencl_atomic_fp_t {
  */
 typedef struct c_dbcsr_acc_opencl_config_t {
   /** Table of ordered viable/discovered devices (matching criterion). */
-  cl_device_id devices[ACC_OPENCL_DEVICES_MAXCOUNT];
+  cl_device_id devices[ACC_OPENCL_MAXNDEVS];
   /** Table of devices (thread-specific). */
   c_dbcsr_acc_opencl_device_t device;
   /** Locks used by domain. */

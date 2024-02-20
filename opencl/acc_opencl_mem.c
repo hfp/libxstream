@@ -22,9 +22,6 @@
 #  if !defined(ACC_OPENCL_MEM_ALIGNSCALE)
 #    define ACC_OPENCL_MEM_ALIGNSCALE 8
 #  endif
-#  if !defined(ACC_OPENCL_MEM_GETPTR_PERTID) && 1
-#    define ACC_OPENCL_MEM_GETPTR_PERTID
-#  endif
 #  if !defined(ACC_OPENCL_MEM_CPYSYNC) && 1
 #    define ACC_OPENCL_MEM_CPYSYNC
 #  endif
@@ -80,7 +77,7 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
   if (NULL != memory) {
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
     const char* const pointer = (const char*)memory;
-    const size_t n = ACC_OPENCL_HANDLES_MAXCOUNT * c_dbcsr_acc_opencl_config.nthreads;
+    const size_t n = ACC_OPENCL_MAXNITEMS * c_dbcsr_acc_opencl_config.nthreads;
     size_t hit = (size_t)-1, i;
     assert(NULL != c_dbcsr_acc_opencl_config.memptrs);
     if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
@@ -171,9 +168,9 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-  if ((ACC_OPENCL_MEM_ALIGNSCALE * ACC_OPENCL_CACHELINE_NBYTES) <= nbytes) {
-    alignment = ((ACC_OPENCL_MEM_ALIGNSCALE * ACC_OPENCL_MAXALIGN_NBYTES) <= nbytes ? ACC_OPENCL_MAXALIGN_NBYTES
-                                                                                    : ACC_OPENCL_CACHELINE_NBYTES);
+  if ((ACC_OPENCL_MEM_ALIGNSCALE * ACC_OPENCL_CACHELINE) <= nbytes) {
+    alignment = ((ACC_OPENCL_MEM_ALIGNSCALE * ACC_OPENCL_MAXALIGN) <= nbytes ? ACC_OPENCL_MAXALIGN
+                                                                                    : ACC_OPENCL_CACHELINE);
   }
   nbytes += alignment + size_meminfo - 1;
   assert(NULL != host_mem);
@@ -293,13 +290,13 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
     cl_command_queue queue = NULL;
     ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
-#    if defined(ACC_OPENCL_MEM_GETPTR_PERTID)
+#    if defined(ACC_OPENCL_STREAM_PRV)
+    queue = c_dbcsr_acc_opencl_config.device.queue;
+#    else
     { /* use existing stream with thread-affinity rather than private stream */
       const c_dbcsr_acc_opencl_stream_t* const stream = c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID());
       if (NULL != stream) queue = stream->queue;
     }
-#    else
-    queue = c_dbcsr_acc_opencl_config.device.queue;
 #    endif
     result = c_dbcsr_acc_opencl_get_ptr(NULL /*lock*/, queue, &memptr, memory, 0 /*offset*/);
     if (EXIT_SUCCESS == result) {
