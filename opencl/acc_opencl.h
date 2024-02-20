@@ -247,9 +247,9 @@ extern "C" {
 typedef struct c_dbcsr_acc_opencl_device_t {
   /** Activated device context. */
   cl_context context;
-#  if defined(ACC_OPENCL_STREAM_PRV)
+#if defined(ACC_OPENCL_STREAM_PRV)
   cl_command_queue queue;
-#  endif
+#endif
   /** OpenCL support-level of device. */
   cl_int level[2];
   /** Kind of device (GPU, CPU, or other). */
