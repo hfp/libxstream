@@ -192,6 +192,7 @@ int c_dbcsr_acc_init(void) {
     const char* const env_async = NULL;
     const int async_default = 0;
 #  endif
+    const char* const env_debug = getenv("ACC_OPENCL_DEBUG");
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
     const int nlocks = (NULL == env_nlocks ? 1 /*default*/ : atoi(env_nlocks));
@@ -230,6 +231,7 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
     c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
     c_dbcsr_acc_opencl_config.xhints = (NULL == env_xhints ? /*default*/ 3 : atoi(env_xhints));
+    c_dbcsr_acc_opencl_config.debug = (NULL == env_debug ? /*default*/ 0 : atoi(env_debug));
     c_dbcsr_acc_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
     c_dbcsr_acc_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
     if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(NULL /*device*/, env_devmatch, &c_dbcsr_acc_opencl_config.devmatch)) {

@@ -28,9 +28,6 @@
 #  if !defined(ACC_OPENCL_MEM_CPYSYNC) && 1
 #    define ACC_OPENCL_MEM_CPYSYNC
 #  endif
-#  if !defined(ACC_OPENCL_MEM_DEBUG) && 0
-#    define ACC_OPENCL_MEM_DEBUG
-#  endif
 
 
 #  if defined(__cplusplus)
@@ -352,11 +349,10 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     memptr = memory;
     *dev_mem = memptr;
 #  endif
-#  if defined(ACC_OPENCL_MEM_DEBUG)
-    if (EXIT_SUCCESS == result) {
-      fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p size=%llu allocated\n", memory, memptr, (unsigned long long)nbytes);
+    if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
+      fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p size=%llu allocated\n", (const void*)memory, memptr,
+        (unsigned long long)nbytes);
     }
-#  endif
   }
   if (EXIT_SUCCESS != result) {
     if (NULL != memory) ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
@@ -388,6 +384,9 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #  else
     const cl_mem memory = (cl_mem)dev_mem;
 #  endif
+      if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
+        fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", (const void*)memory, dev_mem);
+      }
 #  if defined(CL_VERSION_2_0)
       if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
         void* ptr = NULL;
@@ -400,9 +399,6 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
       c_dbcsr_acc_opencl_pfree(
         NULL /*lock*/, pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
-#    if defined(ACC_OPENCL_MEM_DEBUG)
-      fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", memory, dev_mem);
-#    endif
       *info = *pfree;
 #    if !defined(NDEBUG)
       LIBXSMM_MEMZERO127(pfree);

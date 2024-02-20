@@ -323,8 +323,10 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_int devcopy;
   /** Execution-hints (command stream). */
   cl_int xhints;
-  /** Asynchronous memory ops. */
+  /** Asynchronous memory operations. */
   cl_int async;
+  /** Debug (output/symbols, etc.). */
+  cl_int debug;
   /** Dump level. */
   cl_int dump;
 } c_dbcsr_acc_opencl_config_t;
