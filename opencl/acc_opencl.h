@@ -248,12 +248,12 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   cl_int level[2];
   /** Kind of device (GPU, CPU, or other). */
   cl_device_type type;
-#if defined(CL_VERSION_2_0)
-  /** Runtime SVM support. */
-  cl_bool svm_interop;
-#endif
   /** Whether host memory is unified. */
   cl_bool unified;
+#if defined(CL_VERSION_2_0)
+  /** Runtime SVM support. */
+  cl_bool usm;
+#endif
   /** Device-ID. */
   cl_uint uid;
   /** Main vendor? */
@@ -321,7 +321,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_int priority;
   /** How to zero/copy device-side buffers. */
   cl_int devcopy;
-  /** Execution-hints (command stream). */
+  /** Configuration and execution-hints. */
   cl_int xhints;
   /** Asynchronous memory operations. */
   cl_int async;

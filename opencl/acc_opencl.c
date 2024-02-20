@@ -978,33 +978,34 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
     /* accessing devices is thread-safe (array is fixed after initialization) */
     active_id = c_dbcsr_acc_opencl_config.devices[device_id];
     if (NULL != active_id) {
+      cl_context context = c_dbcsr_acc_opencl_config.device.context;
       if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
-      if (NULL != c_dbcsr_acc_opencl_config.device.context) {
-        result = clGetContextInfo(
-          c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &context_id, NULL);
+      if (NULL != context) {
+        result = clGetContextInfo(context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &context_id, NULL);
         if (EXIT_SUCCESS == result && active_id != context_id) {
           assert(NULL != context_id);
-          result = clReleaseContext(c_dbcsr_acc_opencl_config.device.context);
-          c_dbcsr_acc_opencl_config.device.context = NULL;
+          result = clReleaseContext(context);
+          context = NULL;
         }
       }
-      if (EXIT_SUCCESS == result && NULL == c_dbcsr_acc_opencl_config.device.context) {
-        cl_context context = NULL;
+      if (EXIT_SUCCESS == result && active_id != context_id) {
         result = c_dbcsr_acc_opencl_create_context(active_id, &context);
         assert(NULL != context || EXIT_SUCCESS != result);
-        if (EXIT_SUCCESS == result) c_dbcsr_acc_opencl_config.device.context = context;
       }
       /* update/cache device-specific information */
       if (EXIT_SUCCESS == result && active_id != context_id) {
+        if (NULL != c_dbcsr_acc_opencl_config.device.queue) { /* release private stream */
+          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.queue));
+        }
+        memset(&c_dbcsr_acc_opencl_config.device, 0, sizeof(c_dbcsr_acc_opencl_config.device));
+        c_dbcsr_acc_opencl_config.device.context = context;
+        assert(NULL != c_dbcsr_acc_opencl_config.device.context);
         result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device.level,
           c_dbcsr_acc_opencl_config.device.level + 1, NULL /*cl_std*/, &c_dbcsr_acc_opencl_config.device.type);
-        assert(NULL != c_dbcsr_acc_opencl_config.device.context);
         if (EXIT_SUCCESS == result) {
           char devname[ACC_OPENCL_BUFFERSIZE];
 #  if defined(CL_VERSION_2_0)
-          const char* const env_svm = getenv("ACC_OPENCL_SVM");
-          c_dbcsr_acc_opencl_config.device.svm_interop =
-            ((NULL == env_svm || 2 > *c_dbcsr_acc_opencl_config.device.level) ? 0 : atoi(env_svm));
+          c_dbcsr_acc_opencl_config.device.usm = (2 > *c_dbcsr_acc_opencl_config.device.level); /* TODO */
 #  endif
           if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool),
                                 &c_dbcsr_acc_opencl_config.device.unified, NULL))
@@ -1052,9 +1053,6 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
             else result = EXIT_SUCCESS;
           }
 #  endif
-          if (NULL != c_dbcsr_acc_opencl_config.device.queue) { /* release private stream */
-            ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.queue));
-          }
           if (EXIT_SUCCESS == result) {
             const ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[] = {CL_QUEUE_PROPERTIES, 0 /*default*/, 0 /* terminator */};
             c_dbcsr_acc_opencl_config.device.queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(

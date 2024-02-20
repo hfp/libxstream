@@ -169,7 +169,6 @@ int c_dbcsr_acc_opencl_info_devptr(
 int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
   const size_t size_meminfo = sizeof(c_dbcsr_acc_opencl_info_memptr_t);
   const int alignment = c_dbcsr_acc_opencl_memalignment(nbytes);
-  void* host_ptr = NULL;
   cl_mem memory = NULL;
   int result = EXIT_SUCCESS;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
@@ -180,14 +179,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
 #  endif
   nbytes += alignment + size_meminfo - 1;
   assert(NULL != host_mem);
-#  if defined(CL_VERSION_2_0)
-  if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
-    host_ptr = clSVMAlloc(c_dbcsr_acc_opencl_config.device.context, CL_MEM_READ_WRITE, nbytes, sizeof(void*) /*minimal alignment*/);
-    if (NULL == host_ptr) c_dbcsr_acc_opencl_config.device.svm_interop = 0; /* sanitize */
-  }
-#  endif
-  memory = clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, NULL == host_ptr ? CL_MEM_ALLOC_HOST_PTR : CL_MEM_USE_HOST_PTR,
-    nbytes, host_ptr, &result);
+  memory = clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_ALLOC_HOST_PTR, nbytes, NULL /*host_ptr*/, &result);
   assert(EXIT_SUCCESS == result || NULL == memory);
   if (EXIT_SUCCESS == result) {
 #  if defined(ACC_OPENCL_STREAM_NULL)
@@ -256,11 +248,6 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
       int result_release;
       assert(NULL != str && NULL != str->queue);
       result = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, NULL);
-#  if defined(CL_VERSION_2_0)
-      if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
-        clSVMFree(c_dbcsr_acc_opencl_config.device.context, info.memptr);
-      }
-#  endif
 #  if defined(ACC_OPENCL_STREAM_NULL)
       if (NULL == stream && EXIT_SUCCESS == result) {
         result = clFinish(str->queue);
@@ -298,26 +285,10 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(NULL != dev_mem && NULL != c_dbcsr_acc_opencl_config.device.context);
-  memory = (
-#  if defined(CL_VERSION_2_0)
-    0 != c_dbcsr_acc_opencl_config.device.svm_interop
-      ? clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_USE_HOST_PTR, nbytes,
-          clSVMAlloc(c_dbcsr_acc_opencl_config.device.context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes,
-            0 /*default alignment*/),
-          &result)
-      :
-#  endif
-      clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes,
-        NULL /*host_ptr*/, &result));
+  memory = clCreateBuffer(
+    c_dbcsr_acc_opencl_config.device.context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes, NULL /*host_ptr*/, &result);
   if (0 != try_flag && EXIT_SUCCESS != result) { /* retry without try_flag */
-    memory = (
-#  if defined(CL_VERSION_2_0)
-      0 != c_dbcsr_acc_opencl_config.device.svm_interop
-        ? clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_USE_HOST_PTR, nbytes,
-            clSVMAlloc(c_dbcsr_acc_opencl_config.device.context, CL_MEM_READ_WRITE, nbytes, 0 /*default alignment*/), &result)
-        :
-#  endif
-        clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result));
+    memory = clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result);
   }
   if (EXIT_SUCCESS == result) {
     void* memptr = NULL;
@@ -387,14 +358,6 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
         fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", (const void*)memory, dev_mem);
       }
-#  if defined(CL_VERSION_2_0)
-      if (0 != c_dbcsr_acc_opencl_config.device.svm_interop) {
-        void* ptr = NULL;
-        /* get host-pointer associated with device-memory (c_dbcsr_acc_dev_mem_allocate) */
-        ACC_OPENCL_EXPECT(EXIT_SUCCESS == clGetMemObjectInfo(memory, CL_MEM_HOST_PTR, sizeof(void*), &ptr, NULL));
-        clSVMFree(c_dbcsr_acc_opencl_config.device.context, ptr);
-      }
-#  endif
       result = clReleaseMemObject(memory);
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
       c_dbcsr_acc_opencl_pfree(
