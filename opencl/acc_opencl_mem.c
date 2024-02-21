@@ -273,13 +273,25 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(NULL != dev_mem && NULL != c_dbcsr_acc_opencl_config.device.context);
+  *dev_mem = NULL; /* ground state */
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
   if (0 != c_dbcsr_acc_opencl_config.device.usm) {
-    cl_device_id active_id = NULL;
-    result = clGetContextInfo(c_dbcsr_acc_opencl_config.device.context,
-                                                            CL_CONTEXT_DEVICES, sizeof(cl_device_id), &active_id, NULL);
-    *dev_mem = (EXIT_SUCCESS == result ? clDeviceMemAllocINTEL(
-      c_dbcsr_acc_opencl_config.device.context, active_id, NULL /*properties*/, nbytes, 0 /*alignment*/, &result) : NULL);
+    static void* (*clDeviceMemAllocINTEL)(
+      cl_context, cl_device_id, const cl_mem_properties_intel*, size_t, cl_uint, cl_int*) = NULL;
+    cl_device_id device = NULL;
+    result = clGetContextInfo(c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &device, NULL);
+    if (EXIT_SUCCESS == result) {
+      if (NULL == clDeviceMemAllocINTEL) {
+        cl_platform_id platform = NULL;
+        void* ptr = NULL;
+        result = clGetDeviceInfo(device, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL);
+        ptr = (EXIT_SUCCESS == result ? clGetExtensionFunctionAddressForPlatform(platform, "clDeviceMemAllocINTEL") : NULL);
+        LIBXSMM_ASSIGN127(&clDeviceMemAllocINTEL, &ptr);
+      }
+      *dev_mem = (NULL != clDeviceMemAllocINTEL ? clDeviceMemAllocINTEL(c_dbcsr_acc_opencl_config.device.context, device,
+                                                    NULL /*properties*/, nbytes, 0 /*alignment*/, &result)
+                                                : NULL);
+    }
     assert(EXIT_SUCCESS == result || NULL == *dev_mem);
   }
   else
@@ -330,9 +342,8 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
           (unsigned long long)nbytes);
       }
     }
-    if (EXIT_SUCCESS != result) {
-      if (NULL != memory) ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
-      *dev_mem = NULL;
+    if (EXIT_SUCCESS != result && NULL != memory) {
+      ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
     }
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
@@ -353,8 +364,20 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
   if (NULL != dev_mem) {
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
     if (0 != c_dbcsr_acc_opencl_config.device.usm) {
+      static cl_int (*clMemFreeINTEL)(cl_context, void*) = NULL;
+      cl_device_id device = NULL;
       assert(NULL != c_dbcsr_acc_opencl_config.device.context);
-      result = clMemFreeINTEL(c_dbcsr_acc_opencl_config.device.context, dev_mem);
+      result = clGetContextInfo(c_dbcsr_acc_opencl_config.device.context, CL_CONTEXT_DEVICES, sizeof(cl_device_id), &device, NULL);
+      if (EXIT_SUCCESS == result) {
+        if (NULL == clMemFreeINTEL) {
+          cl_platform_id platform = NULL;
+          void* ptr = NULL;
+          result = clGetDeviceInfo(device, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL);
+          ptr = (EXIT_SUCCESS == result ? clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL") : NULL);
+          LIBXSMM_ASSIGN127(&clMemFreeINTEL, &ptr);
+        }
+        result = (NULL != clMemFreeINTEL ? clMemFreeINTEL(c_dbcsr_acc_opencl_config.device.context, dev_mem) : EXIT_FAILURE);
+      }
     }
     else {
       c_dbcsr_acc_opencl_info_memptr_t* info = NULL;
@@ -364,7 +387,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
         c_dbcsr_acc_opencl_info_memptr_t* const pfree = c_dbcsr_acc_opencl_config.memptrs[c_dbcsr_acc_opencl_config.nmemptrs];
         const cl_mem memory = info->memory;
 #  else
-      const cl_mem memory = (cl_mem)dev_mem;
+    const cl_mem memory = (cl_mem)dev_mem;
 #  endif
         if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
           fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", (const void*)memory, dev_mem);
@@ -785,10 +808,10 @@ int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t
 
 
 int c_dbcsr_acc_dev_mem_info(size_t* mem_free, size_t* mem_total) {
-  cl_device_id active_id = NULL;
+  cl_device_id device = NULL;
   int result = (0 < c_dbcsr_acc_opencl_config.ndevices ? clGetContextInfo(c_dbcsr_acc_opencl_config.device.context,
-                                                          CL_CONTEXT_DEVICES, sizeof(cl_device_id), &active_id, NULL)
-                                                      : EXIT_FAILURE);
+                                                           CL_CONTEXT_DEVICES, sizeof(cl_device_id), &device, NULL)
+                                                       : EXIT_FAILURE);
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -796,7 +819,7 @@ int c_dbcsr_acc_dev_mem_info(size_t* mem_free, size_t* mem_total) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   if (EXIT_SUCCESS == result) {
-    result = c_dbcsr_acc_opencl_info_devmem(active_id, mem_free, mem_total, NULL /*mem_local*/, NULL /*mem_unified*/);
+    result = c_dbcsr_acc_opencl_info_devmem(device, mem_free, mem_total, NULL /*mem_local*/, NULL /*mem_unified*/);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
