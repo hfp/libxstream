@@ -1013,7 +1013,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
               EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 1 /*use_platform_name*/))
           {
             c_dbcsr_acc_opencl_config.device.amd = 1;
-            if ('\0' != devname) {
+            if ('\0' != *devname) {
               const char* const gfxname = LIBXSMM_STRISTR(devname, "gfx");
               if (NULL != gfxname && 90 <= atoi(gfxname + 3)) {
                 c_dbcsr_acc_opencl_config.device.amd = 2;

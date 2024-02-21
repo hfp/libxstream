@@ -125,7 +125,7 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
       LIBXSMM_UNUSED(amount);
 #  endif
 #  if 1 /* assume only first item of c_dbcsr_acc_opencl_info_memptr_t is accessed */
-      result = (c_dbcsr_acc_opencl_info_memptr_t*)&memory;
+      result = (c_dbcsr_acc_opencl_info_memptr_t*)memory;
 #  else
       static LIBXSMM_TLS c_dbcsr_acc_opencl_info_memptr_t info;
       if (NULL != offset) *offset = 0;
@@ -220,7 +220,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
 
 
 int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
-  int result;
+  int result = EXIT_SUCCESS;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
