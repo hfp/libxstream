@@ -169,7 +169,7 @@ int c_dbcsr_acc_init(void) {
     char buffer[ACC_OPENCL_BUFFERSIZE];
     const char *const env_devmatch = getenv("ACC_OPENCL_DEVMATCH"), *const env_devtype = getenv("ACC_OPENCL_DEVTYPE");
     const char *const env_priority = getenv("ACC_OPENCL_PRIORITY"), *const env_xhints = getenv("ACC_OPENCL_XHINTS");
-    const char *const env_devcopy = getenv("ACC_OPENCL_DEVCOPY"), *const env_verbose = getenv("ACC_OPENCL_VERBOSE");
+    const char *const env_verbose = getenv("ACC_OPENCL_VERBOSE"), *const env_debug = getenv("ACC_OPENCL_DEBUG");
     const char *const env_device = getenv("ACC_OPENCL_DEVICE"), *const env_dump_acc = getenv("ACC_OPENCL_DUMP");
     const char *const env_timer = getenv("ACC_OPENCL_TIMER"), *const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
@@ -187,7 +187,6 @@ int c_dbcsr_acc_init(void) {
     const char* const env_async = NULL;
     const int async_default = 0;
 #  endif
-    const char* const env_debug = getenv("ACC_OPENCL_DEBUG");
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
     const int nlocks = (NULL == env_nlocks ? 1 /*default*/ : atoi(env_nlocks));
@@ -221,7 +220,6 @@ int c_dbcsr_acc_init(void) {
                                                   : c_dbcsr_acc_opencl_config.lock_main);
     c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
     c_dbcsr_acc_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
-    c_dbcsr_acc_opencl_config.devcopy = (NULL == env_devcopy ? /*default*/ 0 : atoi(env_devcopy));
     c_dbcsr_acc_opencl_config.xhints = (NULL == env_xhints ? /*default*/ 3 : atoi(env_xhints));
     c_dbcsr_acc_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
     c_dbcsr_acc_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
@@ -998,6 +996,8 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[4] = {
             CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
           };
+          cl_platform_id platform = NULL;
+          cl_bitfield bitfield = 0;
           c_dbcsr_acc_opencl_config.device.intel = (EXIT_SUCCESS ==
                                                     c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
           c_dbcsr_acc_opencl_config.device.nv = (EXIT_SUCCESS ==
@@ -1027,11 +1027,22 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           }
           if (0 != (4 & c_dbcsr_acc_opencl_config.xhints) && 2 <= *c_dbcsr_acc_opencl_config.device.level &&
               0 != c_dbcsr_acc_opencl_config.device.intel &&
-              EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/,
-                                sizeof(cl_bitfield) /*cl_int*/, &c_dbcsr_acc_opencl_config.device.usm,
-                                NULL)) /* cl_intel_unified_shared_memory extension */
+              EXIT_SUCCESS == clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL) &&
+              EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/, sizeof(cl_bitfield),
+                                &bitfield, NULL) &&
+              0 != bitfield) /* cl_intel_unified_shared_memory extension */
           {
-            if (0 == c_dbcsr_acc_opencl_config.device.usm) c_dbcsr_acc_opencl_config.device.usm = 1;
+            void* ptr = NULL;
+            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clSetKernelArgMemPointerINTEL");
+            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL, &ptr);
+            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemFillINTEL");
+            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clEnqueueMemFillINTEL, &ptr);
+            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemcpyINTEL");
+            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL, &ptr);
+            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clDeviceMemAllocINTEL");
+            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clDeviceMemAllocINTEL, &ptr);
+            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL");
+            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clMemFreeINTEL, &ptr);
           }
 #  if defined(ACC_OPENCL_CMDAGR)
           if (0 != c_dbcsr_acc_opencl_config.device.intel) { /* device vendor (above) can now be used */
@@ -1604,9 +1615,10 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 }
 
 
-int c_dbcsr_acc_opencl_set_kernel_arg(cl_kernel kernel, cl_uint arg_index, size_t arg_size, const void* arg_value)
-{
-  return clSetKernelArg(kernel, arg_index, arg_size, arg_value);
+int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value) {
+  return (NULL != c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL
+            ? c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL(kernel, arg_index, arg_value)
+            : clSetKernelArg(kernel, arg_index, sizeof(cl_mem), arg_value));
 }
 
 #  if defined(__cplusplus)

@@ -826,11 +826,11 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = locks;
 #  endif
         ACC_OPENCL_ATOMIC_ACQUIRE(lock);
-        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_arg(config->kernel, 0, sizeof(int), &offset),
-          "set offset argument of transpose kernel", result);
-        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_arg(config->kernel, 1, sizeof(cl_mem), &info_stack.memory),
+        ACC_OPENCL_CHECK(
+          clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel", result);
+        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel, 1, &info_stack.memory),
           "set batch-list argument of transpose kernel", result);
-        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_arg(config->kernel, 2, sizeof(cl_mem), &info_mdata.memory),
+        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel, 2, &info_mdata.memory),
           "set matrix-data argument of transpose kernel", result);
         ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(str->queue, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size,
                            &config->wgsize, 0, NULL, perf_event),
@@ -1437,20 +1437,20 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
         /* adjust launchsize according to intra-kernel batchsize */
         work_size = ((stack_size + bs - 1) / bs) * config->wgsize[kernel_idx];
         /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
-        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_arg(config->kernel[kernel_idx], 0, sizeof(cl_mem), &info_cdata.memory),
+        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel[kernel_idx], 0, &info_cdata.memory),
           "set C-matrix argument of SMM-kernel", result);
-        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_arg(config->kernel[kernel_idx], 1, sizeof(cl_mem), &info_adata.memory),
+        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel[kernel_idx], 1, &info_adata.memory),
           "set A-matrix argument of SMM-kernel", result);
-        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_arg(config->kernel[kernel_idx], 2, sizeof(cl_mem), &info_bdata.memory),
+        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel[kernel_idx], 2, &info_bdata.memory),
           "set B-matrix argument of SMM-kernel", result);
-        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_arg(config->kernel[kernel_idx], 3, sizeof(cl_mem), &info_stack.memory),
+        ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel[kernel_idx], 3, &info_stack.memory),
           "set batch-list argument of SMM-kernel", result);
         if (0 == kernel_idx) {
           assert(bs <= config->bs);
-          ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_arg(config->kernel[kernel_idx], 4, sizeof(int), &stack_size),
+          ACC_OPENCL_CHECK(clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &stack_size),
             "set stacksize argument of SMM-kernel", result);
-          ACC_OPENCL_CHECK(c_dbcsr_acc_opencl_set_kernel_arg(config->kernel[kernel_idx], 5, sizeof(int), &bs),
-            "set minibatch argument of SMM-kernel", result);
+          ACC_OPENCL_CHECK(
+            clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &bs), "set minibatch argument of SMM-kernel", result);
         }
         ACC_OPENCL_CHECK(clEnqueueNDRangeKernel(str->queue, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/, &work_size,
                            config->wgsize + kernel_idx, 0, NULL, perf_event),

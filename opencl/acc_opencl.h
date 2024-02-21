@@ -256,12 +256,16 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   cl_device_type type;
   /** Whether host memory is unified. */
   cl_int unified;
-  /** USM support. */
-  cl_int usm;
   /** Device-ID. */
   cl_uint uid;
   /** Main vendor? */
   cl_int intel, amd, nv;
+  /* USM support functions */
+  cl_int (*clSetKernelArgMemPointerINTEL)(cl_kernel, cl_uint, const void*);
+  cl_int (*clEnqueueMemFillINTEL)(cl_command_queue, void*, const void*, size_t, size_t, cl_uint, const cl_event*, cl_event*);
+  cl_int (*clEnqueueMemcpyINTEL)(cl_command_queue, cl_bool, void*, const void*, size_t, cl_uint, const cl_event*, cl_event*);
+  void* (*clDeviceMemAllocINTEL)(cl_context, cl_device_id, const cl_mem_properties_intel*, size_t, cl_uint, cl_int*);
+  cl_int (*clMemFreeINTEL)(cl_context, void*);
 } c_dbcsr_acc_opencl_device_t;
 
 /** Information about host/device-memory pointer. */
@@ -323,8 +327,6 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_int nthreads;
   /** How to apply/use stream priorities. */
   cl_int priority;
-  /** How to zero/copy device-side buffers. */
-  cl_int devcopy;
   /** Configuration and execution-hints. */
   cl_int xhints;
   /** Asynchronous memory operations. */
@@ -338,8 +340,6 @@ typedef struct c_dbcsr_acc_opencl_config_t {
 /** Global configuration setup in c_dbcsr_acc_init. */
 extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
-/** Determines device-side value of device-memory. */
-int c_dbcsr_acc_opencl_get_ptr(ACC_OPENCL_LOCKTYPE* lock, cl_command_queue queue, void** dev_mem, cl_mem memory, size_t offset);
 /** Determines host-pointer registration for modification. */
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
 /** Determines device-pointer registration for modification (internal). */
@@ -357,8 +357,6 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(ACC_OPENCL_LOCKTYPE
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void);
 /** Like c_dbcsr_acc_memset_zero, but supporting an arbitrary value used as initialization pattern. */
 int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream);
-/** Like c_dbcsr_acc_memcpy_d2h, but accounting for some async support. */
-int c_dbcsr_acc_opencl_memcpy_d2h(cl_mem dev_mem, void* host_mem, size_t offset, size_t nbytes, cl_command_queue queue, int finish);
 /** Amount of device memory; local memory is only non-zero if separate from global. */
 int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
 /** Get device-ID for given device, and optionally global device-ID. */
@@ -396,8 +394,8 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
 /** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
   const char cl_std[], char buffer[], size_t buffer_size);
-/** To be used instead of clSetKernelArg in order to support USM. */
-int c_dbcsr_acc_opencl_set_kernel_arg(cl_kernel kernel, cl_uint arg_index, size_t arg_size, const void* arg_value);
+/** To support USM, call this function for pointer arguments instead of clSetKernelArg. */
+int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value);
 
 /** Support older LIBXSMM (libxsmm_pmalloc_init). */
 void c_dbcsr_acc_opencl_pmalloc_init(ACC_OPENCL_LOCKTYPE* lock, size_t size, size_t* num, void* pool[], void* storage);
