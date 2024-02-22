@@ -126,6 +126,7 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
 #  endif
       /* assume only first item of c_dbcsr_acc_opencl_info_memptr_t is accessed */
       result = (c_dbcsr_acc_opencl_info_memptr_t*)memory;
+      if (NULL != offset) *offset = 0;
     }
   }
   return result;
@@ -265,19 +266,35 @@ int c_dbcsr_acc_opencl_memcpy_d2h(
 #  else
   const cl_bool finish = (0 != blocking || 0 == (2 & c_dbcsr_acc_opencl_config.async));
 #  endif
-  int result = clEnqueueReadBuffer(queue, dev_mem, finish, offset, nbytes, host_mem, 0, NULL, NULL);
+  int result = EXIT_SUCCESS;
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
-  assert(NULL == c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL);
+  if (NULL != c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL) {
+    result = c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL(queue, finish, host_mem, dev_mem, nbytes, 0, NULL, NULL);
+  }
+  else
 #  endif
-#  if defined(ACC_OPENCL_MEM_CPYSYNC)
-  if (EXIT_SUCCESS != result && !finish &&
-      EXIT_SUCCESS == clEnqueueReadBuffer(queue, dev_mem, CL_TRUE, offset, nbytes, host_mem, 0, NULL, NULL))
   {
-    c_dbcsr_acc_opencl_config.async &= ~2; /* retract async feature */
-    if (0 != c_dbcsr_acc_opencl_config.verbosity) {
-      fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous readback (code=%i).\n", result);
+    result = clEnqueueReadBuffer(queue, dev_mem, finish, offset, nbytes, host_mem, 0, NULL, NULL);
+  }
+#  if defined(ACC_OPENCL_MEM_CPYSYNC)
+  if (EXIT_SUCCESS != result && !finish) {
+    int result_sync = EXIT_SUCCESS;
+#    if defined(ACC_OPENCL_MEM_DEVPTR)
+    if (NULL != c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL) {
+      result_sync = c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL(queue, CL_TRUE, host_mem, dev_mem, nbytes, 0, NULL, NULL);
     }
-    result = EXIT_SUCCESS;
+    else
+#    endif
+    {
+      result_sync = clEnqueueReadBuffer(queue, dev_mem, CL_TRUE, offset, nbytes, host_mem, 0, NULL, NULL);
+    }
+    if (EXIT_SUCCESS == result_sync) {
+      c_dbcsr_acc_opencl_config.async &= ~2; /* retract async feature */
+      if (0 != c_dbcsr_acc_opencl_config.verbosity) {
+        fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous readback (code=%i).\n", result);
+      }
+      result = EXIT_SUCCESS;
+    }
   }
 #  endif
   return result;
@@ -527,28 +544,20 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
     const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
     const cl_bool finish = CL_FALSE;
 #  endif
+    c_dbcsr_acc_opencl_info_memptr_t info;
+    size_t offset = 0;
     assert(NULL != str && NULL != str->queue);
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
-    if (NULL != c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL) {
-      result = c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL(str->queue, finish, host_mem, dev_mem, nbytes, 0, NULL, NULL);
+    ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
+#  endif
+    result = c_dbcsr_acc_opencl_info_devptr_lock(&info, NULL /*lock*/, dev_mem, 1 /*elsize*/, &nbytes, &offset);
+    if (EXIT_SUCCESS == result) {
+      assert(NULL != info.memory);
+      result = c_dbcsr_acc_opencl_memcpy_d2h(info.memory, host_mem, offset, nbytes, str->queue, finish);
     }
-    else
-#  endif
-    {
-      c_dbcsr_acc_opencl_info_memptr_t info;
-      size_t offset = 0;
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
-      ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
+    ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
 #  endif
-      result = c_dbcsr_acc_opencl_info_devptr_lock(&info, NULL /*lock*/, dev_mem, 1 /*elsize*/, &nbytes, &offset);
-      if (EXIT_SUCCESS == result) {
-        assert(NULL != info.memory);
-        result = c_dbcsr_acc_opencl_memcpy_d2h(info.memory, host_mem, offset, nbytes, str->queue, finish);
-      }
-#  if defined(ACC_OPENCL_MEM_DEVPTR)
-      ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
-#  endif
-    }
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
