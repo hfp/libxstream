@@ -1279,13 +1279,15 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
 }
 
 
-int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
-  const char std_flag[], char buffer[], size_t buffer_size) {
+int c_dbcsr_acc_opencl_flags(
+  const char build_params[], const char build_options[], const char try_build_options[], char buffer[], size_t buffer_size) {
   int result;
   if (NULL != buffer) {
-    const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "%s %s %s %s", NULL != std_flag ? std_flag : "",
-      NULL != build_options ? build_options : "", NULL != build_params ? build_params : "",
-      NULL != try_build_options ? try_build_options : "");
+    const int std_clevel = 100 * c_dbcsr_acc_opencl_config.device.std_clevel[0] +
+                           10 * c_dbcsr_acc_opencl_config.device.std_clevel[1];
+    const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "-D__OPENCL_C_VERSION__=%u %s %s %s %s", std_clevel,
+      c_dbcsr_acc_opencl_config.device.std_flag, NULL != build_options ? build_options : "",
+      NULL != build_params ? build_params : "", NULL != try_build_options ? try_build_options : "");
     if (0 < nchar && (int)buffer_size > nchar) {
       char* replace = strpbrk(buffer, "\""); /* more portable (system/cpp needs quotes to protect braces) */
       for (; NULL != replace; replace = strpbrk(replace + 1, "\"")) *replace = ' ';
@@ -1427,13 +1429,15 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
           const int file_tmp = mkstemp(buffer_name);
           fclose(file_cpp); /* existence-check */
           if (0 <= file_tmp) {
+            const int std_clevel = 100 * c_dbcsr_acc_opencl_config.device.std_clevel[0] +
+                                   10 * c_dbcsr_acc_opencl_config.device.std_clevel[1];
             const int std_level = 100 * c_dbcsr_acc_opencl_config.device.std_level[0] +
                                   10 * c_dbcsr_acc_opencl_config.device.std_level[1];
             const int std_flag_len = (int)strlen(c_dbcsr_acc_opencl_config.device.std_flag);
             nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer),
-              ACC_OPENCL_CPPBIN " -P -C -nostdinc -D__OPENCL_VERSION__=%u %s %s %s %s >%s.cl", std_level,
-              0 == c_dbcsr_acc_opencl_config.device.nv ? "" : "-D__NV_CL_C_VERSION", NULL != build_params ? build_params : "",
-              buffer_name, sed_pattern, kernel_name);
+              ACC_OPENCL_CPPBIN " -P -C -nostdinc -D__OPENCL_C_VERSION__=%u -D__OPENCL_VERSION__=%u %s %s %s %s >%s.cl", std_clevel,
+              std_level, 0 == c_dbcsr_acc_opencl_config.device.nv ? "" : "-D__NV_CL_C_VERSION",
+              NULL != build_params ? build_params : "", buffer_name, sed_pattern, kernel_name);
             if (0 < nchar && (int)sizeof(buffer) > nchar &&
                 (0 == std_flag_len || (3 == write(file_tmp, "/*\n", 3) &&
                                         std_flag_len == write(file_tmp, c_dbcsr_acc_opencl_config.device.std_flag, std_flag_len) &&
@@ -1477,14 +1481,12 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     program = clCreateProgramWithSource(c_dbcsr_acc_opencl_config.device.context, 1 /*nlines*/, &ext_source, NULL, &result);
     if (EXIT_SUCCESS == result) {
       assert(NULL != program);
-      result = c_dbcsr_acc_opencl_flags(
-        build_params, build_options, try_build_options, c_dbcsr_acc_opencl_config.device.std_flag, buffer, sizeof(buffer));
+      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer, sizeof(buffer));
       if (EXIT_SUCCESS == result) {
         result = clBuildProgram(program, 1 /*num_devices*/, &active_id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
-        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/,
-          c_dbcsr_acc_opencl_config.device.std_flag, buffer, sizeof(buffer));
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, sizeof(buffer));
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
           program = clCreateProgramWithSource(c_dbcsr_acc_opencl_config.device.context, 1 /*nlines*/, &ext_source, NULL, &result);
@@ -1550,14 +1552,12 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     }
     if (EXIT_SUCCESS == result) {
       assert(NULL != program);
-      result = c_dbcsr_acc_opencl_flags(
-        build_params, build_options, try_build_options, c_dbcsr_acc_opencl_config.device.std_flag, buffer, sizeof(buffer));
+      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer, sizeof(buffer));
       if (EXIT_SUCCESS == result) {
         result = clBuildProgram(program, 1 /*num_devices*/, &active_id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
-        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/,
-          c_dbcsr_acc_opencl_config.device.std_flag, buffer, sizeof(buffer));
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, sizeof(buffer));
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
 #  if defined(CL_VERSION_2_1)

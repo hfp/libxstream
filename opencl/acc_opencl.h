@@ -393,9 +393,9 @@ int c_dbcsr_acc_opencl_device_synchronize(ACC_OPENCL_LOCKTYPE* lock, int thread_
 /** Assemble flags to support atomic operations. */
 int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo, c_dbcsr_acc_opencl_atomic_fp_t kind,
   const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen);
-/** Combines build-params and build-options, optional flags (try_build_options), and applies language standard (std_flag). */
-int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
-  const char std_flag[], char buffer[], size_t buffer_size);
+/** Combines build-params and build-options, optional flags (try_build_options). */
+int c_dbcsr_acc_opencl_flags(
+  const char build_params[], const char build_options[], const char try_build_options[], char buffer[], size_t buffer_size);
 /** To support USM, call this function for pointer arguments instead of clSetKernelArg. */
 int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value);
 
