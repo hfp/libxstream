@@ -235,27 +235,33 @@ int c_dbcsr_acc_init(void) {
       c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host;
     }
 #  if defined(ACC_OPENCL_NCCS) && (0 < ACC_OPENCL_NCCS)
-    if ((NULL == env_zex && NULL == env_flt && 0 != (1 & c_dbcsr_acc_opencl_config.xhints)) ||
-        (0 == LIBXSMM_PUTENV("ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE") && 0 != nccs))
-    { /* environment is populated before touching the compute runtime */
-      static char zex_number_of_ccs[ACC_OPENCL_MAXNDEVS * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
-      int j = strlen(zex_number_of_ccs);
-      for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
-        const int n = LIBXSMM_SNPRINTF(
-          zex_number_of_ccs + j, sizeof(zex_number_of_ccs) - j, 0 < i ? ",%u:%i" : "%u:%i", i, 0 >= nccs ? ACC_OPENCL_NCCS : nccs);
-        if (0 < n) j += n;
-        else {
-          j = 0;
-          break;
+    {
+      static char ze_flat_device_hierachy[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE";
+      if ((NULL == env_zex && NULL == env_flt && 0 != (1 & c_dbcsr_acc_opencl_config.xhints)) ||
+          (0 == LIBXSMM_PUTENV(ze_flat_device_hierachy) && 0 != nccs))
+      { /* environment is populated before touching the compute runtime */
+        static char zex_number_of_ccs[ACC_OPENCL_MAXNDEVS * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
+        int j = strlen(zex_number_of_ccs);
+        for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
+          const int n = LIBXSMM_SNPRINTF(zex_number_of_ccs + j, sizeof(zex_number_of_ccs) - j, 0 < i ? ",%u:%i" : "%u:%i", i,
+            0 >= nccs ? ACC_OPENCL_NCCS : nccs);
+          if (0 < n) j += n;
+          else {
+            j = 0;
+            break;
+          }
         }
+        if (0 < j) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(zex_number_of_ccs)); /* soft-error */
       }
-      if (0 < j) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(zex_number_of_ccs)); /* soft-error */
     }
 #  endif
     if (0 != wa) { /* environment is populated before touching the compute runtime */
-      if (NULL == getenv("NEOReadDebugKeys")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV("NEOReadDebugKeys=1"));
-      if (NULL == getenv("DirectSubmissionOverrideBlitterSupport")) LIBXSMM_PUTENV("DirectSubmissionOverrideBlitterSupport=0");
-      if (NULL == getenv("EnableRecoverablePageFaults")) LIBXSMM_PUTENV("EnableRecoverablePageFaults=0");
+      static char neo_read_debug_keys[] = "NEOReadDebugKeys=1";
+      static char toggle_a[] = "DirectSubmissionOverrideBlitterSupport=0";
+      static char toggle_b[] = "EnableRecoverablePageFaults=0";
+      if (NULL == getenv("NEOReadDebugKeys")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(neo_read_debug_keys));
+      if (NULL == getenv("DirectSubmissionOverrideBlitterSupport")) LIBXSMM_PUTENV(toggle_a);
+      if (NULL == getenv("EnableRecoverablePageFaults")) LIBXSMM_PUTENV(toggle_b);
     }
 #  if defined(ACC_OPENCL_CACHE_DIR)
     { /* environment is populated before touching the compute runtime */
@@ -547,7 +553,7 @@ int c_dbcsr_acc_init(void) {
         /* allocate and initialize events registry */
         c_dbcsr_acc_opencl_config.nevents = nhandles;
         c_dbcsr_acc_opencl_config.events = (cl_event**)malloc(sizeof(cl_event*) * nhandles);
-        c_dbcsr_acc_opencl_config.event_data = malloc(sizeof(void*) * nhandles);
+        c_dbcsr_acc_opencl_config.event_data = (cl_event*)malloc(sizeof(cl_event) * nhandles);
         if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_data) {
           c_dbcsr_acc_opencl_pmalloc_init(NULL /*lock*/, sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents,
             (void**)c_dbcsr_acc_opencl_config.events, c_dbcsr_acc_opencl_config.event_data);
