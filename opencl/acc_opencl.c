@@ -820,11 +820,11 @@ int c_dbcsr_acc_opencl_device_name(
 int c_dbcsr_acc_opencl_device_level(
   cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[16], cl_device_type* type) {
   char buffer[ACC_OPENCL_BUFFERSIZE];
-  unsigned int std_clevel_uint[2] = {0};
+  unsigned int std_clevel_uint[2] = {0}, std_level_uint[2] = {0};
   int result = EXIT_SUCCESS;
   assert(NULL != device && (NULL != std_clevel || NULL != std_level || NULL != std_flag || NULL != type));
   result = clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, ACC_OPENCL_BUFFERSIZE / 2, buffer, NULL);
-  if (EXIT_SUCCESS == result) {
+  if (EXIT_SUCCESS == result && (NULL != std_clevel || NULL != std_flag)) {
     if (2 != sscanf(buffer, "OpenCL C %u.%u", std_clevel_uint, std_clevel_uint + 1)) {
       std_clevel[0] = (int)std_clevel_uint[0];
       std_clevel[1] = (int)std_clevel_uint[1];
@@ -835,33 +835,30 @@ int c_dbcsr_acc_opencl_device_level(
     result = clGetDeviceInfo(
       device, CL_DEVICE_VERSION, ACC_OPENCL_BUFFERSIZE - ACC_OPENCL_BUFFERSIZE / 2, buffer + ACC_OPENCL_BUFFERSIZE / 2, NULL);
     if (EXIT_SUCCESS == result) {
-      unsigned int std_level_uint[2] = {0};
       if (2 == sscanf(buffer + ACC_OPENCL_BUFFERSIZE / 2, "OpenCL %u.%u", std_level_uint, std_level_uint + 1)) {
-        if (NULL != std_level) {
-          std_level[0] = (int)std_level_uint[0];
-          std_level[1] = (int)std_level_uint[1];
-        }
-        if (NULL != std_flag) {
-          if (2 <= std_level_uint[0]) {
-            const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.0", std_level_uint[0]);
-            if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
-          }
-          else if (1 <= std_level_uint[0]) {
-            if (1 <= std_level_uint[1]) {
-              const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_level_uint[0], std_level_uint[1]);
-              if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
-            }
-            else if (1 <= std_clevel_uint[0]) { /* fallback */
-              const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_clevel_uint[0], std_clevel_uint[1]);
-              if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
-            }
-            else *std_flag = '\0'; /* not an error */
-          }
-          else *std_flag = '\0'; /* not an error */
-        }
+        std_level[0] = (int)std_level_uint[0];
+        std_level[1] = (int)std_level_uint[1];
       }
       else result = EXIT_FAILURE;
     }
+  }
+  if (EXIT_SUCCESS == result && NULL != std_flag) {
+    if (2 <= std_level_uint[0]) {
+      const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.0", std_level_uint[0]);
+      if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
+    }
+    else if (1 <= std_level_uint[0]) {
+      if (1 <= std_level_uint[1]) {
+        const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_level_uint[0], std_level_uint[1]);
+        if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
+      }
+      else if (1 <= std_clevel_uint[0]) { /* fallback */
+        const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_clevel_uint[0], std_clevel_uint[1]);
+        if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
+      }
+      else *std_flag = '\0'; /* not an error */
+    }
+    else *std_flag = '\0'; /* not an error */
   }
   if (EXIT_SUCCESS == result && NULL != type) {
     result = clGetDeviceInfo(device, CL_DEVICE_TYPE, sizeof(cl_device_type), type, NULL);
