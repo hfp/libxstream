@@ -467,7 +467,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #    endif
         UNROLL_FORCE(SM)
         for (SINT m = 0; m < SM; ++m) {
-#    if defined(__OPENCL_C_VERSION__) && (200 /*2.0*/ <= __OPENCL_C_VERSION__) && !defined(SLM_A) && !defined(REG_A) && \
+#    if defined(ACC_OPENCL_C_VERSION) && (200 /*2.0*/ <= ACC_OPENCL_C_VERSION) && !defined(SLM_A) && !defined(REG_A) && \
       (WRK == SM) && (SM <= SGS || SM <= SWG)
 #      if (SM <= SGS)
           /* size of subgroup is sufficient */

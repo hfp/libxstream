@@ -1285,7 +1285,7 @@ int c_dbcsr_acc_opencl_flags(
   if (NULL != buffer) {
     const int std_clevel = 100 * c_dbcsr_acc_opencl_config.device.std_clevel[0] +
                            10 * c_dbcsr_acc_opencl_config.device.std_clevel[1];
-    const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "-D__OPENCL_C_VERSION__=%u %s %s %s %s", std_clevel,
+    const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "-DACC_OPENCL_C_VERSION=%u %s %s %s %s", std_clevel,
       c_dbcsr_acc_opencl_config.device.std_flag, NULL != build_options ? build_options : "",
       NULL != build_params ? build_params : "", NULL != try_build_options ? try_build_options : "");
     if (0 < nchar && (int)buffer_size > nchar) {
@@ -1435,7 +1435,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
                                   10 * c_dbcsr_acc_opencl_config.device.std_level[1];
             const int std_flag_len = (int)strlen(c_dbcsr_acc_opencl_config.device.std_flag);
             nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer),
-              ACC_OPENCL_CPPBIN " -P -C -nostdinc -D__OPENCL_C_VERSION__=%u -D__OPENCL_VERSION__=%u %s %s %s %s >%s.cl", std_clevel,
+              ACC_OPENCL_CPPBIN " -P -C -nostdinc -DACC_OPENCL_C_VERSION=%u -DACC_OPENCL_VERSION=%u %s %s %s %s >%s.cl", std_clevel,
               std_level, 0 == c_dbcsr_acc_opencl_config.device.nv ? "" : "-D__NV_CL_C_VERSION",
               NULL != build_params ? build_params : "", buffer_name, sed_pattern, kernel_name);
             if (0 < nchar && (int)sizeof(buffer) > nchar &&

@@ -9,7 +9,14 @@
 #ifndef OPENCL_COMMON_H
 #define OPENCL_COMMON_H
 
-#if (200 /*CL_VERSION_2_0*/ <= __OPENCL_VERSION__) || defined(__NV_CL_C_VERSION)
+#if !defined(ACC_OPENCL_C_VERSION)
+#  define ACC_OPENCL_C_VERSION __OPENCL_C_VERSION__
+#endif
+#if !defined(ACC_OPENCL_VERSION)
+#  define ACC_OPENCL_VERSION __OPENCL_VERSION__
+#endif
+
+#if (200 /*CL_VERSION_2_0*/ <= ACC_OPENCL_C_VERSION) || defined(__NV_CL_C_VERSION)
 #  define UNROLL_FORCE(N) __attribute__((opencl_unroll_hint(N)))
 #  define UNROLL_AUTO __attribute__((opencl_unroll_hint))
 #else
