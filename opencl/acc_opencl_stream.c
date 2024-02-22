@@ -59,7 +59,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[8] = {
     CL_QUEUE_PROPERTIES, 0 /*placeholder*/, 0 /* terminator */
   };
-  int result, i, tid = 0, offset = 0;
+  int result, tid = 0, offset = 0;
   cl_command_queue queue = NULL;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
@@ -97,8 +97,8 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_stream);
 #  if defined(_OPENMP)
   if (1 < omp_get_num_threads()) {
+    const int i = c_dbcsr_acc_opencl_stream_counter++;
     assert(0 < c_dbcsr_acc_opencl_config.nthreads);
-    i = c_dbcsr_acc_opencl_stream_counter++;
     tid = (i < c_dbcsr_acc_opencl_config.nthreads ? i : (i % c_dbcsr_acc_opencl_config.nthreads));
   }
   else offset = c_dbcsr_acc_opencl_stream_counter_base++;
