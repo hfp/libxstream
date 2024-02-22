@@ -272,7 +272,9 @@ int c_dbcsr_acc_opencl_memcpy_d2h(
   assert(NULL == c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL);
 #  endif
 #  if defined(ACC_OPENCL_MEM_CPYSYNC)
-  if (!finish && EXIT_SUCCESS == clEnqueueReadBuffer(queue, dev_mem, CL_TRUE, offset, nbytes, host_mem, 0, NULL, NULL)) {
+  if (EXIT_SUCCESS != result && !finish &&
+      EXIT_SUCCESS == clEnqueueReadBuffer(queue, dev_mem, CL_TRUE, offset, nbytes, host_mem, 0, NULL, NULL))
+  {
     c_dbcsr_acc_opencl_config.async &= ~2; /* retract async feature */
     if (0 != c_dbcsr_acc_opencl_config.verbosity) {
       fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous readback (code=%i).\n", result);
