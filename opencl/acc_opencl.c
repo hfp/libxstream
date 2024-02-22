@@ -744,16 +744,14 @@ int c_dbcsr_acc_opencl_device_vendor(cl_device_id device, const char vendor[], i
   int result = EXIT_SUCCESS;
   assert(NULL != device && NULL != vendor);
   if (0 == use_platform_name) {
-    ACC_OPENCL_CHECK(
-      clGetDeviceInfo(device, CL_DEVICE_VENDOR, ACC_OPENCL_BUFFERSIZE, buffer, NULL), "retrieve device vendor", result);
+    result = clGetDeviceInfo(device, CL_DEVICE_VENDOR, ACC_OPENCL_BUFFERSIZE, buffer, NULL);
   }
   else {
-    cl_platform_id platform_id;
-    ACC_OPENCL_CHECK(
-      clGetDeviceInfo(device, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform_id, NULL), "retrieve platform id", result);
+    cl_platform_id platform;
+    result = clGetDeviceInfo(device, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL);
     if (EXIT_SUCCESS == result) {
-      ACC_OPENCL_CHECK(
-        clGetPlatformInfo(platform_id, CL_PLATFORM_NAME, ACC_OPENCL_BUFFERSIZE, buffer, NULL), "retrieve platform name", result);
+      result = clGetPlatformInfo(
+        platform, 1 == use_platform_name ? CL_PLATFORM_NAME : CL_PLATFORM_VENDOR, ACC_OPENCL_BUFFERSIZE, buffer, NULL);
     }
   }
   if (EXIT_SUCCESS == result) {
@@ -1028,6 +1026,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           if (0 != (4 & c_dbcsr_acc_opencl_config.xhints) && 2 <= *c_dbcsr_acc_opencl_config.device.level &&
               0 != c_dbcsr_acc_opencl_config.device.intel &&
               EXIT_SUCCESS == clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL) &&
+              EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 2 /*platform vendor*/) &&
               EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/, sizeof(cl_bitfield),
                                 &bitfield, NULL) &&
               0 != bitfield) /* cl_intel_unified_shared_memory extension */
@@ -1202,7 +1201,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
         /* can signal/force atomics without confirmation */
         const int force_atomics = ((NULL == env_atomics || '\0' == *env_atomics) ? 0 : atoi(env_atomics));
         if (NULL == env_atomics || '\0' == *env_atomics || 0 != force_atomics) {
-          cl_bitfield fp_atomics;
+          cl_bitfield fp_atomics = 0;
           if (EXIT_SUCCESS == clGetDeviceInfo(device_id,
                                 (cl_device_info)(c_dbcsr_acc_opencl_atomic_fp_64 == kind ? 0x4232 : 0x4231), sizeof(cl_bitfield),
                                 &fp_atomics, NULL) &&
@@ -1431,10 +1430,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
             const int cl_std_len = (int)strlen(cl_std);
             nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer),
               ACC_OPENCL_CPPBIN " -P -C -nostdinc -D__OPENCL_VERSION__=%u %s %s %s %s >%s.cl", 100 * level_major + 10 * level_minor,
-              EXIT_SUCCESS != c_dbcsr_acc_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/)
-                ? ""
-                : "-D__NV_CL_C_VERSION",
-              NULL != build_params ? build_params : "", buffer_name, sed_pattern, kernel_name);
+              0 == c_dbcsr_acc_opencl_config.device.nv ? "" : "-D__NV_CL_C_VERSION", NULL != build_params ? build_params : "",
+              buffer_name, sed_pattern, kernel_name);
             if (0 < nchar && (int)sizeof(buffer) > nchar &&
                 (0 == cl_std_len || (3 == write(file_tmp, "/*\n", 3) && cl_std_len == write(file_tmp, cl_std, cl_std_len) &&
                                       4 == write(file_tmp, "\n*/\n", 4))) &&
