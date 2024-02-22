@@ -818,60 +818,55 @@ int c_dbcsr_acc_opencl_device_name(
 
 
 int c_dbcsr_acc_opencl_device_level(
-  cl_device_id device, int* level_major, int* level_minor, char cl_std[16], cl_device_type* type) {
+  cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[16], cl_device_type* type) {
+  char buffer[ACC_OPENCL_BUFFERSIZE];
+  unsigned int std_clevel_uint[2] = {0};
   int result = EXIT_SUCCESS;
-  assert(NULL != device && (NULL != level_major || NULL != level_minor || NULL != cl_std || NULL != type));
-  if (NULL != level_major || NULL != level_minor || NULL != cl_std) {
-    char buffer[ACC_OPENCL_BUFFERSIZE];
-    result = clGetDeviceInfo(device, CL_DEVICE_VERSION, ACC_OPENCL_BUFFERSIZE, buffer, NULL);
+  assert(NULL != device && (NULL != std_clevel || NULL != std_level || NULL != std_flag || NULL != type));
+  result = clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, ACC_OPENCL_BUFFERSIZE / 2, buffer, NULL);
+  if (EXIT_SUCCESS == result) {
+    if (2 != sscanf(buffer, "OpenCL C %u.%u", std_clevel_uint, std_clevel_uint + 1)) result = EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result && (NULL != std_level || NULL != std_flag)) {
+    result = clGetDeviceInfo(
+      device, CL_DEVICE_VERSION, ACC_OPENCL_BUFFERSIZE - ACC_OPENCL_BUFFERSIZE / 2, buffer + ACC_OPENCL_BUFFERSIZE / 2, NULL);
     if (EXIT_SUCCESS == result) {
-      unsigned int cl_std_level[2];
-      if (2 == sscanf(buffer, "OpenCL %u.%u", cl_std_level, cl_std_level + 1)) {
-        if (NULL != level_major) *level_major = (int)cl_std_level[0];
-        if (NULL != level_minor) *level_minor = (int)cl_std_level[1];
-        if (NULL != cl_std) {
-          if (2 <= cl_std_level[0]) {
-            const int nchar = LIBXSMM_SNPRINTF(cl_std, 16, "-cl-std=CL%u.0", cl_std_level[0]);
+      unsigned int std_level_uint[2] = {0};
+      if (2 == sscanf(buffer + ACC_OPENCL_BUFFERSIZE / 2, "OpenCL %u.%u", std_level_uint, std_level_uint + 1)) {
+        if (NULL != std_level) {
+          std_level[0] = (int)std_level_uint[0];
+          std_level[1] = (int)std_level_uint[1];
+        }
+        if (NULL != std_flag) {
+          if (2 <= std_level_uint[0]) {
+            const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.0", std_level_uint[0]);
             if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
           }
-          else if (1 <= cl_std_level[0]) {
-            if (1 <= cl_std_level[1]) {
-              const int nchar = LIBXSMM_SNPRINTF(cl_std, 16, "-cl-std=CL%u.%u", cl_std_level[0], cl_std_level[1]);
+          else if (1 <= std_level_uint[0]) {
+            if (1 <= std_level_uint[1]) {
+              const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_level_uint[0], std_level_uint[1]);
               if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
             }
-            else {
-              result = clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, ACC_OPENCL_BUFFERSIZE, buffer, NULL);
-              if (EXIT_SUCCESS == result) {
-                if (2 == sscanf(buffer, "OpenCL C %u.%u", cl_std_level, cl_std_level + 1)) {
-                  const int nchar = LIBXSMM_SNPRINTF(cl_std, 16, "-cl-std=CL%u.%u", cl_std_level[0], cl_std_level[1]);
-                  if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
-                }
-                else {
-                  result = EXIT_FAILURE;
-                  *cl_std = '\0';
-                }
-              }
-              else *cl_std = '\0';
+            else if (1 <= std_clevel_uint[0]) { /* fallback */
+              const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_clevel_uint[0], std_clevel_uint[1]);
+              if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
             }
+            else *std_flag = '\0'; /* not an error */
           }
-          else *cl_std = '\0';
+          else *std_flag = '\0'; /* not an error */
         }
       }
-      else {
-        if (NULL != level_major) *level_major = 0;
-        if (NULL != level_minor) *level_minor = 0;
-        if (NULL != cl_std) *cl_std = '\0';
-        result = EXIT_FAILURE;
-      }
-    }
-    else {
-      if (NULL != level_major) *level_major = 0;
-      if (NULL != level_minor) *level_minor = 0;
-      if (NULL != cl_std) *cl_std = '\0';
+      else result = EXIT_FAILURE;
     }
   }
-  if (NULL != type && EXIT_SUCCESS == result) {
+  if (EXIT_SUCCESS == result && NULL != type) {
     result = clGetDeviceInfo(device, CL_DEVICE_TYPE, sizeof(cl_device_type), type, NULL);
+  }
+  if (EXIT_SUCCESS != result) {
+    if (NULL != std_clevel) std_clevel[0] = std_clevel[1] = 0;
+    if (NULL != std_level) std_level[0] = std_level[1] = 0;
+    if (NULL != std_flag) *std_flag = '\0';
+    if (NULL != type) *type = 0;
   }
   return result;
 }
@@ -987,8 +982,9 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
         memset(&c_dbcsr_acc_opencl_config.device, 0, sizeof(c_dbcsr_acc_opencl_config.device));
         c_dbcsr_acc_opencl_config.device.context = context;
         assert(NULL != c_dbcsr_acc_opencl_config.device.context);
-        result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device.level,
-          c_dbcsr_acc_opencl_config.device.level + 1, NULL /*cl_std*/, &c_dbcsr_acc_opencl_config.device.type);
+        result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device.std_clevel,
+          c_dbcsr_acc_opencl_config.device.std_level, c_dbcsr_acc_opencl_config.device.std_flag,
+          &c_dbcsr_acc_opencl_config.device.type);
         if (EXIT_SUCCESS == result) {
           char devname[ACC_OPENCL_BUFFERSIZE] = "";
           ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[4] = {
@@ -1023,7 +1019,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           {
             c_dbcsr_acc_opencl_config.device.unified = CL_FALSE;
           }
-          if (0 != (4 & c_dbcsr_acc_opencl_config.xhints) && 2 <= *c_dbcsr_acc_opencl_config.device.level &&
+          if (0 != (4 & c_dbcsr_acc_opencl_config.xhints) && 2 <= *c_dbcsr_acc_opencl_config.device.std_level &&
               0 != c_dbcsr_acc_opencl_config.device.intel &&
               EXIT_SUCCESS == clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL) &&
               EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 2 /*platform vendor*/) &&
@@ -1146,7 +1142,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
     switch (kind) {
       case c_dbcsr_acc_opencl_atomic_fp_64: {
         exts[ext1] = "cl_khr_fp64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
-        if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
+        if (2 <= *devinfo->std_level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
           atomic_type = "-DTA=long -DTA2=atomic_long -DTF=atomic_double";
         }
         else {
@@ -1156,7 +1152,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
           }
           else { /* fallback */
             exts[ext1] = "cl_khr_fp64 cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
-            if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
+            if (2 <= *devinfo->std_level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
               atomic_type = "-DATOMIC32_ADD64 -DTA=int -DTA2=atomic_int -DTF=atomic_double";
             }
             else {
@@ -1171,7 +1167,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
       } break;
       case c_dbcsr_acc_opencl_atomic_fp_32: {
         exts[ext1] = "cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics";
-        if (2 <= *devinfo->level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
+        if (2 <= *devinfo->std_level && EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(device_id, exts, ext2)) {
           exts[ext2] = "cl_khr_int64_base_atomics cl_khr_int64_extended_atomics";
           atomic_type = "-DTA=int -DTA2=atomic_int -DTF=atomic_float";
         }
@@ -1191,7 +1187,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
       const char* const env_barrier = getenv("ACC_OPENCL_BARRIER");
       const char* const env_atomics = getenv("ACC_OPENCL_ATOMICS");
       if (NULL == env_barrier || '0' != *env_barrier) {
-        barrier_expr = ((2 <= *devinfo->level && (0 == devinfo->intel || (CL_DEVICE_TYPE_CPU != devinfo->type)))
+        barrier_expr = ((2 <= *devinfo->std_level && (0 == devinfo->intel || (CL_DEVICE_TYPE_CPU != devinfo->type)))
                           ? "-D\"BARRIER(A)=work_group_barrier(A,memory_scope_work_group)\""
                           : "-D\"BARRIER(A)=barrier(A)\"");
       }
@@ -1223,13 +1219,13 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
                 atomic_ops = "-Dcl_intel_global_float_atomics";
               }
               else {
-                atomic_ops = ((2 > *devinfo->level && 2 > force_atomics)
+                atomic_ops = ((2 > *devinfo->std_level && 2 > force_atomics)
                                 ? "-DATOMIC_PROTOTYPES=1"
                                 : (3 > force_atomics ? "-DATOMIC_PROTOTYPES=2" : "-DATOMIC_PROTOTYPES=3"));
               }
-              atomic_exp = ((2 > *devinfo->level && 2 > force_atomics) ? "atomic_add(A,B)"
-                                                                       : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(TF)*)A,B,"
-                                                                         "memory_order_relaxed,memory_scope_work_group)");
+              atomic_exp = ((2 > *devinfo->std_level && 2 > force_atomics) ? "atomic_add(A,B)"
+                                                                           : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(TF)*)A,B,"
+                                                                             "memory_order_relaxed,memory_scope_work_group)");
             }
             else {
               atomic_exp = "atomic_add_global_cmpxchg(A,B)";
@@ -1277,10 +1273,10 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
 
 
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
-  const char cl_std[], char buffer[], size_t buffer_size) {
+  const char std_flag[], char buffer[], size_t buffer_size) {
   int result;
   if (NULL != buffer) {
-    const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "%s %s %s %s", NULL != cl_std ? cl_std : "",
+    const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "%s %s %s %s", NULL != std_flag ? std_flag : "",
       NULL != build_options ? build_options : "", NULL != build_params ? build_params : "",
       NULL != try_build_options ? try_build_options : "");
     if (0 < nchar && (int)buffer_size > nchar) {
@@ -1301,8 +1297,8 @@ int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options
 int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const char kernel_name[], const char build_params[],
   const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], int num_exts,
   cl_kernel* kernel) {
-  char buffer[ACC_OPENCL_BUFFERSIZE] = "", buffer_name[ACC_OPENCL_MAXSTRLEN * 2], cl_std[16];
-  int ok = EXIT_SUCCESS, source_is_cl = 1, nchar, level_major, level_minor;
+  char buffer[ACC_OPENCL_BUFFERSIZE] = "", buffer_name[ACC_OPENCL_MAXSTRLEN * 2];
+  int ok = EXIT_SUCCESS, source_is_cl = 1, nchar;
   cl_device_id active_id = NULL;
   int result = ((NULL != source && NULL != kernel_name && '\0' != *kernel_name)
                   ? clGetContextInfo(
@@ -1313,10 +1309,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
   size_t size_src = 0;
   assert(NULL != kernel);
   *kernel = NULL;
-  if (EXIT_SUCCESS == result) {
-    result = c_dbcsr_acc_opencl_device_level(active_id, &level_major, &level_minor, cl_std, NULL /*type*/);
-    if (0 != source_is_file) file_src = fopen(source, "rb");
-  }
+  if (EXIT_SUCCESS == result && 0 != source_is_file) file_src = fopen(source, "rb");
   if (NULL != file_src) {
     if (EXIT_SUCCESS == result) {
       const char* const file_ext = strrchr(source, '.');
@@ -1427,14 +1420,17 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
           const int file_tmp = mkstemp(buffer_name);
           fclose(file_cpp); /* existence-check */
           if (0 <= file_tmp) {
-            const int cl_std_len = (int)strlen(cl_std);
+            const int std_level = 100 * c_dbcsr_acc_opencl_config.device.std_level[0] +
+                                  10 * c_dbcsr_acc_opencl_config.device.std_level[1];
+            const int std_flag_len = (int)strlen(c_dbcsr_acc_opencl_config.device.std_flag);
             nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer),
-              ACC_OPENCL_CPPBIN " -P -C -nostdinc -D__OPENCL_VERSION__=%u %s %s %s %s >%s.cl", 100 * level_major + 10 * level_minor,
+              ACC_OPENCL_CPPBIN " -P -C -nostdinc -D__OPENCL_VERSION__=%u %s %s %s %s >%s.cl", std_level,
               0 == c_dbcsr_acc_opencl_config.device.nv ? "" : "-D__NV_CL_C_VERSION", NULL != build_params ? build_params : "",
               buffer_name, sed_pattern, kernel_name);
             if (0 < nchar && (int)sizeof(buffer) > nchar &&
-                (0 == cl_std_len || (3 == write(file_tmp, "/*\n", 3) && cl_std_len == write(file_tmp, cl_std, cl_std_len) &&
-                                      4 == write(file_tmp, "\n*/\n", 4))) &&
+                (0 == std_flag_len || (3 == write(file_tmp, "/*\n", 3) &&
+                                        std_flag_len == write(file_tmp, c_dbcsr_acc_opencl_config.device.std_flag, std_flag_len) &&
+                                        4 == write(file_tmp, "\n*/\n", 4))) &&
                 size_src == (size_t)write(file_tmp, ext_source, size_src))
             {
               if (EXIT_SUCCESS == system(buffer)) {
@@ -1474,12 +1470,14 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     program = clCreateProgramWithSource(c_dbcsr_acc_opencl_config.device.context, 1 /*nlines*/, &ext_source, NULL, &result);
     if (EXIT_SUCCESS == result) {
       assert(NULL != program);
-      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, cl_std, buffer, sizeof(buffer));
+      result = c_dbcsr_acc_opencl_flags(
+        build_params, build_options, try_build_options, c_dbcsr_acc_opencl_config.device.std_flag, buffer, sizeof(buffer));
       if (EXIT_SUCCESS == result) {
         result = clBuildProgram(program, 1 /*num_devices*/, &active_id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
-        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, cl_std, buffer, sizeof(buffer));
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/,
+          c_dbcsr_acc_opencl_config.device.std_flag, buffer, sizeof(buffer));
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
           program = clCreateProgramWithSource(c_dbcsr_acc_opencl_config.device.context, 1 /*nlines*/, &ext_source, NULL, &result);
@@ -1545,12 +1543,14 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     }
     if (EXIT_SUCCESS == result) {
       assert(NULL != program);
-      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, cl_std, buffer, sizeof(buffer));
+      result = c_dbcsr_acc_opencl_flags(
+        build_params, build_options, try_build_options, c_dbcsr_acc_opencl_config.device.std_flag, buffer, sizeof(buffer));
       if (EXIT_SUCCESS == result) {
         result = clBuildProgram(program, 1 /*num_devices*/, &active_id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
-        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, cl_std, buffer, sizeof(buffer));
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/,
+          c_dbcsr_acc_opencl_config.device.std_flag, buffer, sizeof(buffer));
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
 #  if defined(CL_VERSION_2_1)

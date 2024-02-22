@@ -250,8 +250,9 @@ typedef struct c_dbcsr_acc_opencl_device_t {
 #if defined(ACC_OPENCL_STREAM_PRV)
   cl_command_queue queue;
 #endif
+  char std_flag[16];
   /** OpenCL support-level of device. */
-  cl_int level[2];
+  cl_int std_level[2], std_clevel[2];
   /** Kind of device (GPU, CPU, or other). */
   cl_device_type type;
   /** Whether host memory is unified. */
@@ -369,7 +370,8 @@ int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], uns
 int c_dbcsr_acc_opencl_device_name(
   cl_device_id device, char name[], size_t name_maxlen, char platform[], size_t platform_maxlen, int cleanup);
 /** Return the OpenCL support-level for the given device. */
-int c_dbcsr_acc_opencl_device_level(cl_device_id device, int* level_major, int* level_minor, char cl_std[16], cl_device_type* type);
+int c_dbcsr_acc_opencl_device_level(
+  cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[16], cl_device_type* type);
 /** Check if given device supports the extensions. */
 int c_dbcsr_acc_opencl_device_ext(cl_device_id device, const char* const extnames[], int num_exts);
 /** Create context for given device. */
@@ -391,9 +393,9 @@ int c_dbcsr_acc_opencl_device_synchronize(ACC_OPENCL_LOCKTYPE* lock, int thread_
 /** Assemble flags to support atomic operations. */
 int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo, c_dbcsr_acc_opencl_atomic_fp_t kind,
   const char* exts[], int exts_maxlen, char flags[], size_t flags_maxlen);
-/** Combines build-params and build-options, some optional flags (try_build_options), and applies language std. (cl_std). */
+/** Combines build-params and build-options, optional flags (try_build_options), and applies language standard (std_flag). */
 int c_dbcsr_acc_opencl_flags(const char build_params[], const char build_options[], const char try_build_options[],
-  const char cl_std[], char buffer[], size_t buffer_size);
+  const char std_flag[], char buffer[], size_t buffer_size);
 /** To support USM, call this function for pointer arguments instead of clSetKernelArg. */
 int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value);
 
