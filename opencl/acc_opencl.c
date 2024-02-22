@@ -825,7 +825,11 @@ int c_dbcsr_acc_opencl_device_level(
   assert(NULL != device && (NULL != std_clevel || NULL != std_level || NULL != std_flag || NULL != type));
   result = clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, ACC_OPENCL_BUFFERSIZE / 2, buffer, NULL);
   if (EXIT_SUCCESS == result) {
-    if (2 != sscanf(buffer, "OpenCL C %u.%u", std_clevel_uint, std_clevel_uint + 1)) result = EXIT_FAILURE;
+    if (2 != sscanf(buffer, "OpenCL C %u.%u", std_clevel_uint, std_clevel_uint + 1)) {
+      std_clevel[0] = (int)std_clevel_uint[0];
+      std_clevel[1] = (int)std_clevel_uint[1];
+    }
+    else result = EXIT_FAILURE;
   }
   if (EXIT_SUCCESS == result && (NULL != std_level || NULL != std_flag)) {
     result = clGetDeviceInfo(
