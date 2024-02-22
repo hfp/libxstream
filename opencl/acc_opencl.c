@@ -1210,7 +1210,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
                                 &fp_atomics, NULL) &&
               0 != (/*add*/ (1 << 1) & fp_atomics))
           {
-            exts[ext2] = "cl_ext_float_atomics";
+            if ('\0' == *exts[ext2]) exts[ext2] = "cl_ext_float_atomics"; /* TODO: remove condition */
             atomic_exp = (c_dbcsr_acc_opencl_atomic_fp_64 == kind
                             ? "atomic_fetch_add_explicit((GLOBAL_VOLATILE(atomic_double)*)A,B,"
                               "memory_order_relaxed,memory_scope_work_group)"
@@ -1285,8 +1285,9 @@ int c_dbcsr_acc_opencl_flags(
   if (NULL != buffer) {
     const int std_clevel = 100 * c_dbcsr_acc_opencl_config.device.std_clevel[0] +
                            10 * c_dbcsr_acc_opencl_config.device.std_clevel[1];
-    const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "-DACC_OPENCL_C_VERSION=%u %s %s %s %s", std_clevel,
-      c_dbcsr_acc_opencl_config.device.std_flag, NULL != build_options ? build_options : "",
+    const int std_level = 100 * c_dbcsr_acc_opencl_config.device.std_level[0] + 10 * c_dbcsr_acc_opencl_config.device.std_level[1];
+    const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "%s -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u %s %s %s",
+      c_dbcsr_acc_opencl_config.device.std_flag, std_level, std_clevel, NULL != build_options ? build_options : "",
       NULL != build_params ? build_params : "", NULL != try_build_options ? try_build_options : "");
     if (0 < nchar && (int)buffer_size > nchar) {
       char* replace = strpbrk(buffer, "\""); /* more portable (system/cpp needs quotes to protect braces) */
@@ -1435,8 +1436,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
                                   10 * c_dbcsr_acc_opencl_config.device.std_level[1];
             const int std_flag_len = (int)strlen(c_dbcsr_acc_opencl_config.device.std_flag);
             nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer),
-              ACC_OPENCL_CPPBIN " -P -C -nostdinc -DACC_OPENCL_C_VERSION=%u -DACC_OPENCL_VERSION=%u %s %s %s %s >%s.cl", std_clevel,
-              std_level, 0 == c_dbcsr_acc_opencl_config.device.nv ? "" : "-D__NV_CL_C_VERSION",
+              ACC_OPENCL_CPPBIN " -P -C -nostdinc -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u %s %s %s %s >%s.cl", std_level,
+              std_clevel, 0 == c_dbcsr_acc_opencl_config.device.nv ? "" : "-D__NV_CL_C_VERSION",
               NULL != build_params ? build_params : "", buffer_name, sed_pattern, kernel_name);
             if (0 < nchar && (int)sizeof(buffer) > nchar &&
                 (0 == std_flag_len || (3 == write(file_tmp, "/*\n", 3) &&
@@ -1622,7 +1623,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value) {
   return (NULL != c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL
             ? c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL(kernel, arg_index, arg_value)
-            : clSetKernelArg(kernel, arg_index, sizeof(cl_mem), arg_value));
+            : clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &arg_value));
 }
 
 #  if defined(__cplusplus)

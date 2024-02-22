@@ -124,14 +124,8 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
       LIBXSMM_UNUSED(elsize);
       LIBXSMM_UNUSED(amount);
 #  endif
-#  if 1 /* assume only first item of c_dbcsr_acc_opencl_info_memptr_t is accessed */
+      /* assume only first item of c_dbcsr_acc_opencl_info_memptr_t is accessed */
       result = (c_dbcsr_acc_opencl_info_memptr_t*)memory;
-#  else
-      static LIBXSMM_TLS c_dbcsr_acc_opencl_info_memptr_t info;
-      if (NULL != offset) *offset = 0;
-      info.memory = (cl_mem)memory;
-      result = &info;
-#  endif
     }
   }
   return result;
@@ -140,7 +134,7 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
 
 int c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_info_memptr_t* info, ACC_OPENCL_LOCKTYPE* lock, const void* memory,
   size_t elsize, const size_t* amount, size_t* offset) {
-  const c_dbcsr_acc_opencl_info_memptr_t* devptr = NULL;
+  c_dbcsr_acc_opencl_info_memptr_t* devptr = NULL;
   int result = EXIT_SUCCESS;
   void* non_const;
   LIBXSMM_ASSIGN127(&non_const, &memory);
@@ -148,13 +142,17 @@ int c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_info_memptr_t* info, 
   devptr = c_dbcsr_acc_opencl_info_devptr_modify(lock, non_const, elsize, amount, offset);
   if (NULL != devptr) {
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
-    LIBXSMM_ASSIGN127(info, devptr);
-#  else
-#    if !defined(NDEBUG)
-    LIBXSMM_MEMZERO127(info);
-#    endif
-    info->memory = devptr->memory;
+    if (NULL == c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL) {
+      LIBXSMM_ASSIGN127(info, devptr);
+    }
+    else
 #  endif
+    {
+#  if !defined(NDEBUG)
+      LIBXSMM_MEMZERO127(info);
+#  endif
+      info->memory = (cl_mem)devptr;
+    }
   }
   else result = EXIT_FAILURE;
   return result;
