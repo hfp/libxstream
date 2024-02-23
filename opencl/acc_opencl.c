@@ -256,12 +256,14 @@ int c_dbcsr_acc_init(void) {
     }
 #  endif
     if (0 != wa) { /* environment is populated before touching the compute runtime */
-      static char neo_read_debug_keys[] = "NEOReadDebugKeys=1";
-      static char toggle_a[] = "DirectSubmissionOverrideBlitterSupport=0";
-      static char toggle_b[] = "EnableRecoverablePageFaults=0";
-      if (NULL == getenv("NEOReadDebugKeys")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(neo_read_debug_keys));
-      if (NULL == getenv("DirectSubmissionOverrideBlitterSupport")) LIBXSMM_PUTENV(toggle_a);
-      if (NULL == getenv("EnableRecoverablePageFaults")) LIBXSMM_PUTENV(toggle_b);
+      static char* toggle[] = {
+        "NEOReadDebugKeys=1",
+        "DirectSubmissionOverrideBlitterSupport=0",
+        "EnableRecoverablePageFaults=0"
+      };
+      if (NULL == getenv("NEOReadDebugKeys")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(toggle[0]));
+      if (NULL == getenv("DirectSubmissionOverrideBlitterSupport")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(toggle[1]));
+      if (NULL == getenv("EnableRecoverablePageFaults")) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(toggle[2]));
     }
 #  if defined(ACC_OPENCL_CACHE_DIR)
     { /* environment is populated before touching the compute runtime */
