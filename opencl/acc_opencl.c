@@ -1210,7 +1210,9 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
                                 &fp_atomics, NULL) &&
               0 != (/*add*/ (1 << 1) & fp_atomics))
           {
-            if (NULL == exts[ext2] || '\0' == *exts[ext2]) exts[ext2] = "cl_ext_float_atomics"; /* TODO: remove condition */
+#  if 0 /* enabling this permitted extension in source code causes compiler warning */
+            exts[ext2] = "cl_ext_float_atomics";
+#  endif
             atomic_exp = (c_dbcsr_acc_opencl_atomic_fp_64 == kind
                             ? "atomic_fetch_add_explicit((GLOBAL_VOLATILE(atomic_double)*)A,B,"
                               "memory_order_relaxed,memory_scope_work_group)"
