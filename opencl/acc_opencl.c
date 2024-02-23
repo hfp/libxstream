@@ -259,13 +259,12 @@ int c_dbcsr_acc_init(void) {
       static char* key_value[] = {
         "NEOReadDebugKeys=1", "DirectSubmissionOverrideBlitterSupport=0", "EnableRecoverablePageFaults=0"};
       for (i = 0; i < sizeof(key_value) / sizeof(*key_value); ++i) {
-        char* const sep = strchr(key_value[i], '=');
-        if (NULL != sep) {
-          *sep = '\0'; /* temporarily split into key and value */
-          if (NULL == getenv(key_value[i])) {
-            *sep = '='; /* restore key-value */
-            ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[i]));
-          }
+        const char* const sep = strchr(key_value[i], '=');
+        const size_t n = (NULL != sep ? (sep - key_value[i]) : 0);
+        if (0 < n && n < ACC_OPENCL_BUFFERSIZE) {
+          memcpy(buffer, key_value[i], n);
+          buffer[n] = '\0';
+          ACC_OPENCL_EXPECT(NULL != getenv(buffer) || 0 == LIBXSMM_PUTENV(key_value[i]));
         }
       }
     }
