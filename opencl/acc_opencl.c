@@ -1283,7 +1283,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
 
 int c_dbcsr_acc_opencl_flags(
   const char build_params[], const char build_options[], const char try_build_options[], char buffer[], size_t buffer_size) {
-  int result;
+  int result = EXIT_SUCCESS;
   if (NULL != buffer) {
     const int std_clevel = 100 * c_dbcsr_acc_opencl_config.device.std_clevel[0] +
                            10 * c_dbcsr_acc_opencl_config.device.std_clevel[1];
@@ -1294,7 +1294,6 @@ int c_dbcsr_acc_opencl_flags(
     if (0 < nchar && (int)buffer_size > nchar) {
       char* replace = strpbrk(buffer, "\""); /* more portable (system/cpp needs quotes to protect braces) */
       for (; NULL != replace; replace = strpbrk(replace + 1, "\"")) *replace = ' ';
-      result = EXIT_SUCCESS;
     }
     else {
       result = EXIT_FAILURE;
@@ -1506,7 +1505,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
         libxsmm_free(p);
       }
       buffer[0] = '\0'; /* reset to empty */
-      if (EXIT_SUCCESS == result) {
+      if (EXIT_SUCCESS == result) { /* extract kernel */
         *kernel = clCreateKernel(program, kernel_name, &result);
         if (EXIT_SUCCESS == result) {
           assert(NULL != *kernel);
