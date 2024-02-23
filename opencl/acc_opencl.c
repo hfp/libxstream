@@ -991,9 +991,11 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           &c_dbcsr_acc_opencl_config.device.type);
         if (EXIT_SUCCESS == result) {
           char devname[ACC_OPENCL_BUFFERSIZE] = "";
+#  if defined(ACC_OPENCL_CMDAGR) || defined(ACC_OPENCL_STREAM_PRV)
           ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[4] = {
             CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
           };
+#  endif
           cl_platform_id platform = NULL;
           cl_bitfield bitfield = 0;
           c_dbcsr_acc_opencl_config.device.intel = (EXIT_SUCCESS ==
