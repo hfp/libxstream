@@ -434,27 +434,26 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
         c_dbcsr_acc_opencl_info_memptr_t* const pfree = c_dbcsr_acc_opencl_config.memptrs[c_dbcsr_acc_opencl_config.nmemptrs];
         memory = info->memory;
 #  endif
-        result = clReleaseMemObject(memory);
+    result = clReleaseMemObject(memory);
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
-        c_dbcsr_acc_opencl_pfree(
-          NULL /*lock*/, pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
-        *info = *pfree;
+    c_dbcsr_acc_opencl_pfree(NULL /*lock*/, pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
+    *info = *pfree;
 #    if !defined(NDEBUG)
-        LIBXSMM_MEMZERO127(pfree);
+    LIBXSMM_MEMZERO127(pfree);
 #    endif
-      }
-      else result = EXIT_FAILURE;
-      ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
-    }
-#  endif
-    if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
-      fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", (const void*)memory, dev_mem);
-    }
   }
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
-  c_dbcsr_timestop(&routine_handle);
+  else result = EXIT_FAILURE;
+  ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
+}
 #  endif
-  ACC_OPENCL_RETURN(result);
+if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
+  fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", (const void*)memory, dev_mem);
+}
+}
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+c_dbcsr_timestop(&routine_handle);
+#  endif
+ACC_OPENCL_RETURN(result);
 }
 
 
@@ -496,8 +495,8 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
     const cl_bool finish = (NULL != stream ? (0 == (1 & c_dbcsr_acc_opencl_config.async)) : CL_TRUE);
 #  else
-    const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
-    const cl_bool finish = (0 == (1 & c_dbcsr_acc_opencl_config.async));
+        const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
+        const cl_bool finish = (0 == (1 & c_dbcsr_acc_opencl_config.async));
 #  endif
     assert(NULL != str && NULL != str->queue);
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
@@ -544,8 +543,8 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
     const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
 #  else
-    const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
-    const cl_bool finish = CL_FALSE;
+        const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
+        const cl_bool finish = CL_FALSE;
 #  endif
     c_dbcsr_acc_opencl_info_memptr_t info;
     size_t offset = 0;
@@ -583,7 +582,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
     const c_dbcsr_acc_opencl_stream_t* const str =
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
 #  else
-    const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
+        const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
 #  endif
     cl_event event = NULL;
     assert(NULL != str && NULL != str->queue);
@@ -635,7 +634,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
     const c_dbcsr_acc_opencl_stream_t* const str =
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
 #  else
-    const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
+        const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
 #  endif
     size_t size_of_value = 1;
     cl_event event;
@@ -698,35 +697,35 @@ int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t
   }
 #  else
 #    if defined(_SC_PAGE_SIZE)
-  const long page_size = sysconf(_SC_PAGE_SIZE);
+      const long page_size = sysconf(_SC_PAGE_SIZE);
 #    else
-  const long page_size = 4096;
+      const long page_size = 4096;
 #    endif
-  long pages_free = 0, pages_total = 0;
+      long pages_free = 0, pages_total = 0;
 #    if defined(__linux__)
 #      if defined(_SC_PHYS_PAGES)
-  pages_total = sysconf(_SC_PHYS_PAGES);
+      pages_total = sysconf(_SC_PHYS_PAGES);
 #      else
-  pages_total = 0;
+      pages_total = 0;
 #      endif
 #      if defined(_SC_AVPHYS_PAGES)
-  pages_free = sysconf(_SC_AVPHYS_PAGES);
+      pages_free = sysconf(_SC_AVPHYS_PAGES);
 #      else
-  pages_free = pages_total;
+      pages_free = pages_total;
 #      endif
 #    elif defined(__APPLE__) && defined(__MACH__)
-  /*const*/ size_t size_pages_free = sizeof(const long), size_pages_total = sizeof(const long);
-  ACC_OPENCL_EXPECT(0 == sysctlbyname("hw.memsize", &pages_total, &size_pages_total, NULL, 0));
-  if (0 < page_size) pages_total /= page_size;
-  if (0 != sysctlbyname("vm.page_free_count", &pages_free, &size_pages_free, NULL, 0)) {
-    pages_free = pages_total;
-  }
+      /*const*/ size_t size_pages_free = sizeof(const long), size_pages_total = sizeof(const long);
+      ACC_OPENCL_EXPECT(0 == sysctlbyname("hw.memsize", &pages_total, &size_pages_total, NULL, 0));
+      if (0 < page_size) pages_total /= page_size;
+      if (0 != sysctlbyname("vm.page_free_count", &pages_free, &size_pages_free, NULL, 0)) {
+        pages_free = pages_total;
+      }
 #    endif
-  if (0 < page_size && 0 <= pages_free && 0 <= pages_total) {
-    const size_t size_page = (size_t)page_size;
-    size_total = size_page * (size_t)pages_total;
-    size_free = size_page * (size_t)pages_free;
-  }
+      if (0 < page_size && 0 <= pages_free && 0 <= pages_total) {
+        const size_t size_page = (size_t)page_size;
+        size_total = size_page * (size_t)pages_total;
+        size_free = size_page * (size_t)pages_free;
+      }
 #  endif
   if (NULL != device) {
     cl_device_local_mem_type cl_local_type = CL_GLOBAL;
