@@ -233,28 +233,28 @@ int c_dbcsr_acc_init(void) {
     {
       c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host;
     }
-    if (0 != (1 & c_dbcsr_acc_opencl_config.xhints)) { /* environment is populated before touching the compute runtime */
-      if (NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY")) {
-        static char ze_flat[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE";
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ze_flat)); /* soft-error */
-      }
-#  if defined(ACC_OPENCL_NCCS)
-      if (NULL == getenv("ZEX_NUMBER_OF_CCS") && 0 != nccs) {
-        static char zex_nccs[ACC_OPENCL_MAXNDEVS * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
-        int j = strlen(zex_nccs);
-        for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
-          const char* const istr = (0 < i ? ",%u:%i" : "%u:%i");
-          const int n = LIBXSMM_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, istr, i, LIBXSMM_MAX(nccs, 1));
-          if (0 < n) j += n;
-          else {
-            j = 0;
-            break;
-          }
-        }
-        if (0 < j) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(zex_nccs)); /* soft-error */
-      }
-#  endif
+    if (NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY") && 0 != (1 & c_dbcsr_acc_opencl_config.xhints)) {
+      static char ze_flat[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE";
+      /* environment is populated before touching the compute runtime */
+      ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ze_flat)); /* soft-error */
     }
+#  if defined(ACC_OPENCL_NCCS)
+    if (NULL == getenv("ZEX_NUMBER_OF_CCS") && 0 != nccs) {
+      static char zex_nccs[ACC_OPENCL_MAXNDEVS * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
+      int j = strlen(zex_nccs);
+      for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
+        const char* const istr = (0 < i ? ",%u:%i" : "%u:%i");
+        const int n = LIBXSMM_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, istr, i, LIBXSMM_MAX(nccs, 1));
+        if (0 < n) j += n;
+        else {
+          j = 0;
+          break;
+        }
+      }
+      /* environment is populated before touching the compute runtime */
+      if (0 < j) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(zex_nccs)); /* soft-error */
+    }
+#  endif
     if (0 != wa) { /* environment is populated before touching the compute runtime */
       static char neo_read_debug_keys[] = "NEOReadDebugKeys=1";
       static char toggle_a[] = "DirectSubmissionOverrideBlitterSupport=0";
