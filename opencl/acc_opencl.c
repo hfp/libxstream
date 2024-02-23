@@ -51,7 +51,7 @@
 #    define ACC_OPENCL_CMDAGR
 #  endif
 #  if !defined(ACC_OPENCL_NCCS) && 1
-#    define ACC_OPENCL_NCCS 2
+#    define ACC_OPENCL_NCCS 0
 #  endif
 
 
@@ -174,9 +174,8 @@ int c_dbcsr_acc_init(void) {
     const char *const env_timer = getenv("ACC_OPENCL_TIMER"), *const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
 #  if defined(ACC_OPENCL_NCCS) && (0 < ACC_OPENCL_NCCS)
-    const char *const env_zex = getenv("ZEX_NUMBER_OF_CCS"), *const env_nccs = getenv("ACC_OPENCL_NCCS");
-    const char* const env_flt = getenv("ZE_FLAT_DEVICE_HIERARCHY");
-    const int nccs = (NULL == env_nccs ? 0 : atoi(env_nccs));
+    const char* const env_nccs = getenv("ACC_OPENCL_NCCS");
+    const int nccs = (NULL == env_nccs ? ACC_OPENCL_NCCS : atoi(env_nccs));
 #  endif
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("ACC_OPENCL_WA");
     const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), wa = neo * (NULL == env_wa ? 0 : atoi(env_wa));
@@ -234,17 +233,18 @@ int c_dbcsr_acc_init(void) {
     {
       c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host;
     }
+    if (0 != (1 & c_dbcsr_acc_opencl_config.xhints)) { /* environment is populated before touching the compute runtime */
+      if (NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY")) {
+        static char ze_flat_device_hierachy[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE";
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ze_flat_device_hierachy)); /* soft-error */
+      }
 #  if defined(ACC_OPENCL_NCCS) && (0 < ACC_OPENCL_NCCS)
-    {
-      static char ze_flat_device_hierachy[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE";
-      if ((NULL == env_zex && NULL == env_flt && 0 != (1 & c_dbcsr_acc_opencl_config.xhints)) ||
-          (0 == LIBXSMM_PUTENV(ze_flat_device_hierachy) && 0 != nccs))
-      { /* environment is populated before touching the compute runtime */
+      if (NULL == getenv("ZEX_NUMBER_OF_CCS") && 0 < nccs) {
         static char zex_number_of_ccs[ACC_OPENCL_MAXNDEVS * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
         int j = strlen(zex_number_of_ccs);
         for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
-          const int n = LIBXSMM_SNPRINTF(zex_number_of_ccs + j, sizeof(zex_number_of_ccs) - j, 0 < i ? ",%u:%i" : "%u:%i", i,
-            0 >= nccs ? ACC_OPENCL_NCCS : nccs);
+          const char* const istr = (0 < i ? ",%u:%i" : "%u:%i");
+          const int n = LIBXSMM_SNPRINTF(zex_number_of_ccs + j, sizeof(zex_number_of_ccs) - j, istr, i, nccs);
           if (0 < n) j += n;
           else {
             j = 0;
@@ -253,8 +253,8 @@ int c_dbcsr_acc_init(void) {
         }
         if (0 < j) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(zex_number_of_ccs)); /* soft-error */
       }
-    }
 #  endif
+    }
     if (0 != wa) { /* environment is populated before touching the compute runtime */
       static char neo_read_debug_keys[] = "NEOReadDebugKeys=1";
       static char toggle_a[] = "DirectSubmissionOverrideBlitterSupport=0";
