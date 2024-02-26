@@ -641,7 +641,7 @@ if __name__ == "__main__":
         "-x",
         "--csv-nogflops",
         action="store_true",
-        default=False,
+        default=True,
         dest="nogflops",
         help="Exclude real GFLOPS",
     )
