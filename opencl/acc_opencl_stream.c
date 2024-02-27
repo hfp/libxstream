@@ -152,8 +152,10 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
       LIBXSMM_MEMZERO127(str);
 #  endif
       str->queue = queue;
-      str->priority = priority;
       str->tid = tid;
+#  if defined(ACC_OPENCL_STREAM_PRIORITIES)
+      str->priority = priority;
+#  endif
     }
     else result = EXIT_FAILURE;
   }

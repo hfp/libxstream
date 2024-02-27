@@ -239,6 +239,15 @@
 extern "C" {
 #endif
 
+/** Information about streams (c_dbcsr_acc_stream_create). */
+typedef struct c_dbcsr_acc_opencl_stream_t {
+  cl_command_queue queue;
+  int tid;
+#if defined(ACC_OPENCL_STREAM_PRIORITIES)
+  int priority;
+#endif
+} c_dbcsr_acc_opencl_stream_t;
+
 /** Settings updated during c_dbcsr_acc_set_active_device. */
 typedef struct c_dbcsr_acc_opencl_device_t {
   /** Activated device context. */
@@ -270,12 +279,6 @@ typedef struct c_dbcsr_acc_opencl_info_memptr_t {
   cl_mem memory; /* first item! */
   void* memptr;
 } c_dbcsr_acc_opencl_info_memptr_t;
-
-/** Information about streams (c_dbcsr_acc_stream_create). */
-typedef struct c_dbcsr_acc_opencl_stream_t {
-  cl_command_queue queue;
-  int tid, priority;
-} c_dbcsr_acc_opencl_stream_t;
 
 /** Enumeration of timer kinds used for built-in execution-profile. */
 typedef enum c_dbcsr_acc_opencl_timer_t {

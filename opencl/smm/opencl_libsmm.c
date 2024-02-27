@@ -859,7 +859,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
               stderr, 1 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
             fprintf(stderr, "=");
             opencl_libsmm_write_trans_params(stderr, 1 /*only_key*/, &key, config, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
-            fprintf(stderr, " prio=%i ss=%i cur=%.1f GB/s dur=%.2g ms\n", str->priority, stack_size, membw, 1E3 * duration);
+            fprintf(stderr, " ss=%i cur=%.1f GB/s dur=%.2g ms\n", stack_size, membw, 1E3 * duration);
             LIBXSMM_STDIO_RELEASE();
           }
         }
@@ -1479,7 +1479,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
               stderr, 1 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
             fprintf(stderr, "=");
             opencl_libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, config, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
-            fprintf(stderr, " prio=%i ss=%i cur=%.1f GFLOPS/s dur=%.2g ms\n", str->priority, stack_size, gflops, 1E3 * duration);
+            fprintf(stderr, " ss=%i cur=%.1f GFLOPS/s dur=%.2g ms\n", stack_size, gflops, 1E3 * duration);
             LIBXSMM_STDIO_RELEASE();
           }
         }
