@@ -653,11 +653,9 @@ int c_dbcsr_acc_finalize(void) {
         c_dbcsr_acc_opencl_config.devices[i] = NULL;
       }
     }
-#  if defined(ACC_OPENCL_STREAM_PRV)
-    if (NULL != c_dbcsr_acc_opencl_config.device.queue) { /* release private stream */
-      clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.queue); /* ignore return code */
+    if (NULL != c_dbcsr_acc_opencl_config.device.stream.queue) { /* release private stream */
+      clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.stream.queue); /* ignore return code */
     }
-#  endif
     if (NULL != c_dbcsr_acc_opencl_config.device.context) {
       const cl_context context = c_dbcsr_acc_opencl_config.device.context;
       c_dbcsr_acc_opencl_config.device.context = NULL;
@@ -985,18 +983,16 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
         assert(NULL != context || EXIT_SUCCESS != result);
       }
       if (EXIT_SUCCESS == result && active_id != context_id) { /* update/cache device-specific information */
-#  if defined(ACC_OPENCL_STREAM_PRV)
-        if (NULL != c_dbcsr_acc_opencl_config.device.queue) { /* release private stream */
-          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.queue));
+        if (NULL != c_dbcsr_acc_opencl_config.device.stream.queue) { /* release private stream */
+          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.stream.queue));
         }
-#  endif
         memset(&c_dbcsr_acc_opencl_config.device, 0, sizeof(c_dbcsr_acc_opencl_config.device));
         result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device.std_clevel,
           c_dbcsr_acc_opencl_config.device.std_level, c_dbcsr_acc_opencl_config.device.std_flag,
           &c_dbcsr_acc_opencl_config.device.type);
         if (EXIT_SUCCESS == result) {
           char devname[ACC_OPENCL_BUFFERSIZE] = "";
-#  if defined(ACC_OPENCL_CMDAGR) || defined(ACC_OPENCL_STREAM_PRV)
+#  if defined(ACC_OPENCL_CMDAGR)
           ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[4] = {
             CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
           };
@@ -1063,10 +1059,8 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
             }
           }
 #  endif
-#  if defined(ACC_OPENCL_STREAM_PRV)
           properties[1] = 0;
-          c_dbcsr_acc_opencl_config.device.queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, active_id, properties, &result);
-#  endif
+          c_dbcsr_acc_opencl_config.device.stream.queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, active_id, properties, &result);
         }
         if (EXIT_SUCCESS == result) {
           if (active_id != context_id) c_dbcsr_acc_opencl_config.device.context = context;

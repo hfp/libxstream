@@ -39,8 +39,8 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(ACC_OPENCL_LOCKTYPE
     }
     else break; /* error */
   }
-  if (0 != thread_id && NULL == result) { /* fallback */
-    result = result_main;
+  if (NULL == result) { /* fallback */
+    result = (NULL != result_main ? result_main : &c_dbcsr_acc_opencl_config.device.stream);
   }
   if (NULL != lock) ACC_OPENCL_RELEASE(lock);
   return result;

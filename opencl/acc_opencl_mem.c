@@ -338,20 +338,13 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
     }
     if (EXIT_SUCCESS == result) {
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
+      const c_dbcsr_acc_opencl_stream_t* str = NULL;
       static cl_kernel kernel = NULL;
-      cl_command_queue queue = NULL;
       const size_t size = 1;
       ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
-#    if defined(ACC_OPENCL_STREAM_PRV)
-      queue = c_dbcsr_acc_opencl_config.device.queue;
-#    else
-      { /* use existing stream with thread-affinity rather than private stream */
-        const c_dbcsr_acc_opencl_stream_t* const stream = c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID());
-        if (NULL != stream) queue = stream->queue;
-      }
-#    endif
+      str = c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID());
       /* determine device-side value of device-memory object by running some kernel */
-      assert(NULL != memory && NULL != queue);
+      assert(NULL != memory && NULL != str && NULL != str->queue);
       if (NULL == kernel) { /* generate kernel */
         const char source[] = "kernel void memptr(global unsigned long* ptr) {\n"
                               "  const union { global unsigned long* p; unsigned long u; } cast = { ptr };\n"
@@ -366,10 +359,10 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
       if (EXIT_SUCCESS == result) result = clSetKernelArg(kernel, 0, sizeof(cl_mem), &memory);
       if (EXIT_SUCCESS == result) {
         result = clEnqueueNDRangeKernel(
-          queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL);
+          str->queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL);
       }
       if (EXIT_SUCCESS == result) {
-        result = c_dbcsr_acc_opencl_memcpy_d2h(memory, &memptr, 0, sizeof(void*), queue, 1 /*blocking*/);
+        result = c_dbcsr_acc_opencl_memcpy_d2h(memory, &memptr, 0, sizeof(void*), str->queue, 1 /*blocking*/);
       }
       assert(EXIT_SUCCESS != result || NULL != memptr);
       if (EXIT_SUCCESS == result) {

@@ -112,10 +112,6 @@
 #if !defined(ACC_OPENCL_STREAM_NULL) && 1
 #  define ACC_OPENCL_STREAM_NULL
 #endif
-/* Stream for internal purpose. */
-#if !defined(ACC_OPENCL_STREAM_PRV) && 0
-#  define ACC_OPENCL_STREAM_PRV
-#endif
 /* Support arithmetic for device-pointers (DBM) */
 #if !defined(ACC_OPENCL_MEM_DEVPTR) && 1
 #  define ACC_OPENCL_MEM_DEVPTR
@@ -247,9 +243,9 @@ extern "C" {
 typedef struct c_dbcsr_acc_opencl_device_t {
   /** Activated device context. */
   cl_context context;
-#if defined(ACC_OPENCL_STREAM_PRV)
-  cl_command_queue queue;
-#endif
+  /** Stream for internal purpose. */
+  c_dbcsr_acc_opencl_stream_t stream;
+  /** OpenCL compiler flag (language standard). */
   char std_flag[16];
   /** OpenCL support-level of device. */
   cl_int std_level[2], std_clevel[2];
