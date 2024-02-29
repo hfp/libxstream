@@ -1096,7 +1096,7 @@ int c_dbcsr_acc_set_active_device(int device_id) {
     }
   }
 #  if !defined(NDEBUG)
-  else if (0 > c_dbcsr_acc_opencl_config.ndevices) result = EXIT_FAILURE;
+  else result = EXIT_FAILURE;
 #  endif
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
