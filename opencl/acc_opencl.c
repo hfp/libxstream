@@ -1099,11 +1099,7 @@ int c_dbcsr_acc_set_active_device(int device_id) {
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
-#  if defined(_DEBUG)
   ACC_OPENCL_RETURN(result);
-#  else
-  return result;
-#  endif
 }
 
 
