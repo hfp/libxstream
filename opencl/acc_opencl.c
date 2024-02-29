@@ -963,9 +963,9 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
   int result = EXIT_SUCCESS;
   cl_device_id active_id = NULL, context_id = NULL;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
-  assert(0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices)
-    /* accessing devices is thread-safe (array is fixed after initialization) */
-    active_id = c_dbcsr_acc_opencl_config.devices[device_id];
+  assert(0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices);
+  /* accessing devices is thread-safe (array is fixed after initialization) */
+  active_id = c_dbcsr_acc_opencl_config.devices[device_id];
   if (NULL != active_id) {
     cl_context context = NULL;
     if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
