@@ -1125,12 +1125,9 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                                              ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->nz) : /*default*/ 0)
                                              : atoi(env_nz),
                 0, 1);
-              new_config.al = LIBXSMM_CLMP(
-                (NULL == env_al || '\0' == *env_al)
-                  ? (0 == c_dbcsr_acc_opencl_config.device.amd
-                        ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->al) : /*default*/ 0)
-                        : 1)
-                  : atoi(env_al),
+              new_config.al = LIBXSMM_CLMP(/* bug: AL=1 */
+                (NULL == env_al || '\0' == *env_al) ? 0 /*(0 == kernel_idx ? (NULL == config ? 0 : config->al) : 0)*/
+                                                    : atoi(env_al),
                 0, 1);
               new_config.tb = LIBXSMM_CLMP((NULL == env_tb || '\0' == *env_tb)
                                              ? (0 == kernel_idx ? (NULL == config ? /*default*/ 0 : config->tb) : /*default*/ 0)
