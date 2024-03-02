@@ -138,15 +138,52 @@ int c_dbcsr_acc_opencl_order_devices(const void* dev_a, const void* dev_b) {
 }
 
 
-LIBXSMM_ATTRIBUTE_CTOR void c_dbcsr_acc_opencl_init(void) {
-  /* attempt to  automatically initialize backend */
-  ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_init());
-}
+/* attempt to  automatically initialize backend */
+LIBXSMM_ATTRIBUTE_CTOR void c_dbcsr_acc_opencl_init(void) { ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_init()); }
 
 
+/* attempt to automatically finalize backend */
 LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
-  /* attempt to automatically finalize backend */
-  ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_finalize());
+  assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
+  if (0 != c_dbcsr_acc_opencl_config.ndevices) {
+    int i;
+    for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
+      const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[i];
+      if (NULL != device_id) {
+#  if defined(CL_VERSION_1_2) && defined(_DEBUG)
+        ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseDevice(device_id));
+#  endif
+        /* c_dbcsr_acc_opencl_create_context scans for non-NULL devices */
+        c_dbcsr_acc_opencl_config.devices[i] = NULL;
+      }
+    }
+    if (NULL != c_dbcsr_acc_opencl_config.device.stream.queue) { /* release private stream */
+      clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.stream.queue); /* ignore return code */
+    }
+    if (NULL != c_dbcsr_acc_opencl_config.device.context) {
+      const cl_context context = c_dbcsr_acc_opencl_config.device.context;
+      c_dbcsr_acc_opencl_config.device.context = NULL;
+      clReleaseContext(context); /* ignore return code */
+    }
+    for (i = 0; i < ACC_OPENCL_NLOCKS; ++i) { /* destroy locks */
+      ACC_OPENCL_DESTROY((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * i));
+    }
+    /* release/reset buffers */
+#  if defined(ACC_OPENCL_MEM_DEVPTR)
+    free(c_dbcsr_acc_opencl_config.memptrs);
+    free(c_dbcsr_acc_opencl_config.memptr_data);
+#  endif
+    free(c_dbcsr_acc_opencl_config.streams);
+    free(c_dbcsr_acc_opencl_config.stream_data);
+    free(c_dbcsr_acc_opencl_config.events);
+    free(c_dbcsr_acc_opencl_config.event_data);
+    /* clear entire configuration structure */
+    memset(&c_dbcsr_acc_opencl_config, 0, sizeof(c_dbcsr_acc_opencl_config));
+#  if defined(ACC_OPENCL_CACHE_DID)
+    c_dbcsr_acc_opencl_active_id = 0; /* reset cached active device-ID */
+#  endif
+    libxsmm_finalize();
+  }
 }
 
 
@@ -618,9 +655,8 @@ int c_dbcsr_acc_finalize(void) {
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
+  assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 != c_dbcsr_acc_opencl_config.ndevices) {
-    int i;
-    assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
     if (0 != c_dbcsr_acc_opencl_config.verbosity) {
       cl_device_id device = NULL;
       int d;
@@ -641,42 +677,6 @@ int c_dbcsr_acc_finalize(void) {
      * However, DBCSR only calls c_dbcsr_acc_init and expects an implicit libsmm_acc_init().
      */
     if (EXIT_SUCCESS == result) result = libsmm_acc_finalize();
-#  endif
-    libxsmm_finalize();
-    for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
-      const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[i];
-      if (NULL != device_id) {
-#  if defined(CL_VERSION_1_2) && defined(_DEBUG)
-        ACC_OPENCL_CHECK(clReleaseDevice(device_id), "release device", result);
-#  endif
-        /* c_dbcsr_acc_opencl_create_context scans for non-NULL devices */
-        c_dbcsr_acc_opencl_config.devices[i] = NULL;
-      }
-    }
-    if (NULL != c_dbcsr_acc_opencl_config.device.stream.queue) { /* release private stream */
-      clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.stream.queue); /* ignore return code */
-    }
-    if (NULL != c_dbcsr_acc_opencl_config.device.context) {
-      const cl_context context = c_dbcsr_acc_opencl_config.device.context;
-      c_dbcsr_acc_opencl_config.device.context = NULL;
-      clReleaseContext(context); /* ignore return code */
-    }
-    for (i = 0; i < ACC_OPENCL_NLOCKS; ++i) { /* destroy locks */
-      ACC_OPENCL_DESTROY((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * i));
-    }
-    /* release/reset buffers */
-#  if defined(ACC_OPENCL_MEM_DEVPTR)
-    free(c_dbcsr_acc_opencl_config.memptrs);
-    free(c_dbcsr_acc_opencl_config.memptr_data);
-#  endif
-    free(c_dbcsr_acc_opencl_config.streams);
-    free(c_dbcsr_acc_opencl_config.stream_data);
-    free(c_dbcsr_acc_opencl_config.events);
-    free(c_dbcsr_acc_opencl_config.event_data);
-    /* clear entire configuration structure */
-    memset(&c_dbcsr_acc_opencl_config, 0, sizeof(c_dbcsr_acc_opencl_config));
-#  if defined(ACC_OPENCL_CACHE_DID)
-    c_dbcsr_acc_opencl_active_id = 0; /* reset cached active device-ID */
 #  endif
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
