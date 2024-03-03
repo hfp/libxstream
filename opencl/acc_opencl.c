@@ -678,6 +678,7 @@ int c_dbcsr_acc_finalize(void) {
      */
     if (EXIT_SUCCESS == result) result = libsmm_acc_finalize();
 #  endif
+    if (EXIT_SUCCESS == result) result = atexit(c_dbcsr_acc_opencl_finalize);
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
