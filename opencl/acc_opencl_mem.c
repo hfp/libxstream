@@ -22,9 +22,6 @@
 #  if !defined(ACC_OPENCL_MEM_ALIGNSCALE)
 #    define ACC_OPENCL_MEM_ALIGNSCALE 8
 #  endif
-#  if !defined(ACC_OPENCL_MEM_CPYSYNC) && 1
-#    define ACC_OPENCL_MEM_CPYSYNC
-#  endif
 
 
 #  if defined(__cplusplus)
@@ -245,7 +242,7 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
 }
 
 
-/* like c_dbcsr_acc_memcpy_d2h, but accounting for some async support/workaround. */
+/* like c_dbcsr_acc_memcpy_d2h, but apply some async workaround. */
 int c_dbcsr_acc_opencl_memcpy_d2h(
   cl_mem /*dev_mem*/, void* /*host_mem*/, size_t /*offset*/, size_t /*nbytes*/, cl_command_queue /*queue*/, int /*blocking*/);
 int c_dbcsr_acc_opencl_memcpy_d2h(
@@ -266,15 +263,14 @@ int c_dbcsr_acc_opencl_memcpy_d2h(
   {
     result = clEnqueueReadBuffer(queue, dev_mem, finish, offset, nbytes, host_mem, 0, NULL, NULL);
   }
-#  if defined(ACC_OPENCL_MEM_CPYSYNC)
-  if (EXIT_SUCCESS != result && !finish) {
+  if (EXIT_SUCCESS != result && !finish) { /* retry synchronously */
     int result_sync = EXIT_SUCCESS;
-#    if defined(ACC_OPENCL_MEM_DEVPTR)
+#  if defined(ACC_OPENCL_MEM_DEVPTR)
     if (NULL != c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL) {
       result_sync = c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL(queue, CL_TRUE, host_mem, dev_mem, nbytes, 0, NULL, NULL);
     }
     else
-#    endif
+#  endif
     {
       result_sync = clEnqueueReadBuffer(queue, dev_mem, CL_TRUE, offset, nbytes, host_mem, 0, NULL, NULL);
     }
@@ -286,7 +282,6 @@ int c_dbcsr_acc_opencl_memcpy_d2h(
       result = EXIT_SUCCESS;
     }
   }
-#  endif
   return result;
 }
 
