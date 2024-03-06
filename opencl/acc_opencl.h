@@ -108,10 +108,6 @@
 #    define ACC_OPENCL_STREAM_PRIORITIES
 #  endif
 #endif
-/* Stream-argument (ACC-interface) can be NULL (synchronous) */
-#if !defined(ACC_OPENCL_STREAM_NULL) && 1
-#  define ACC_OPENCL_STREAM_NULL
-#endif
 /* Support arithmetic for device-pointers (DBM) */
 #if !defined(ACC_OPENCL_MEM_DEVPTR) && 1
 #  define ACC_OPENCL_MEM_DEVPTR
@@ -252,7 +248,10 @@ typedef struct c_dbcsr_acc_opencl_stream_t {
 typedef struct c_dbcsr_acc_opencl_device_t {
   /** Activated device context. */
   cl_context context;
-  /** Stream for internal purpose. */
+  /**
+   * Stream for internal purpose, e.g., stream-argument
+   * (ACC-interface) can be NULL (synchronous)
+   */
   c_dbcsr_acc_opencl_stream_t stream;
   /** OpenCL compiler flag (language standard). */
   char std_flag[16];
@@ -353,7 +352,7 @@ int c_dbcsr_acc_opencl_info_devptr(
   c_dbcsr_acc_opencl_info_memptr_t* info, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
 /** Finds an existing stream for the given thread-ID (or NULL). */
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(ACC_OPENCL_LOCKTYPE* lock, int thread_id);
-/** Determines default-stream (see ACC_OPENCL_STREAM_NULL). */
+/** Determines default-stream (see c_dbcsr_acc_opencl_device_t::stream). */
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void);
 /** Like c_dbcsr_acc_memset_zero, but supporting an arbitrary value used as initialization pattern. */
 int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream);

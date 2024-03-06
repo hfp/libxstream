@@ -183,12 +183,8 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
   assert(NULL != host_mem);
   memory = clCreateBuffer(c_dbcsr_acc_opencl_config.device.context, CL_MEM_ALLOC_HOST_PTR, nbytes, NULL /*host_ptr*/, &result);
   if (EXIT_SUCCESS == result) {
-#  if defined(ACC_OPENCL_STREAM_NULL)
     const c_dbcsr_acc_opencl_stream_t* const str = (NULL != stream ? ACC_OPENCL_STREAM(stream)
                                                                    : c_dbcsr_acc_opencl_stream_default());
-#  else
-    const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
-#  endif
     void* const mapped = clEnqueueMapBuffer(
       str->queue, memory, CL_TRUE /*always block*/, CL_MAP_READ | CL_MAP_WRITE, 0 /*offset*/, nbytes, 0, NULL, NULL, &result);
     assert(EXIT_SUCCESS == result || NULL == mapped);
@@ -230,19 +226,13 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
     c_dbcsr_acc_opencl_info_memptr_t* const meminfo = c_dbcsr_acc_opencl_info_hostptr(host_mem);
     if (NULL != meminfo->memory) {
       const c_dbcsr_acc_opencl_info_memptr_t info = *meminfo; /* copy meminfo prior to unmap */
-#  if defined(ACC_OPENCL_STREAM_NULL)
       const c_dbcsr_acc_opencl_stream_t* const str = (NULL != stream ? ACC_OPENCL_STREAM(stream)
                                                                      : c_dbcsr_acc_opencl_stream_default());
-#  else
-      const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
-#  endif
       int result_release;
       cl_event event;
       assert(NULL != str && NULL != str->queue);
       result = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, &event);
-#  if defined(ACC_OPENCL_STREAM_NULL)
       if (NULL == stream && EXIT_SUCCESS == result) result = clWaitForEvents(1, &event);
-#  endif
       result_release = clReleaseMemObject(info.memory);
       if (EXIT_SUCCESS == result) result = result_release;
     }
@@ -483,12 +473,8 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
 #  endif
   assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
   if (NULL != host_mem && NULL != dev_mem && 0 != nbytes) {
-#  if defined(ACC_OPENCL_STREAM_NULL)
     const c_dbcsr_acc_opencl_stream_t* const str =
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
-#  else
-        const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
-#  endif
 #  if defined(ACC_OPENCL_ASYNC)
     const cl_bool finish = (0 == (1 & c_dbcsr_acc_opencl_config.async) || NULL == stream ||
                             (0 != c_dbcsr_acc_opencl_config.device.nv && NULL == (ACC_OPENCL_ASYNC)));
@@ -535,14 +521,9 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
 #  endif
   assert((NULL != dev_mem && NULL != host_mem) || 0 == nbytes);
   if (NULL != host_mem && NULL != dev_mem && 0 != nbytes) {
-#  if defined(ACC_OPENCL_STREAM_NULL)
     const c_dbcsr_acc_opencl_stream_t* const str =
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
     const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
-#  else
-        const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
-        const cl_bool finish = CL_FALSE;
-#  endif
     c_dbcsr_acc_opencl_info_memptr_t info;
     size_t offset = 0;
     assert(NULL != str && NULL != str->queue);
@@ -575,12 +556,8 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
 #  endif
   assert((NULL != devmem_src && NULL != devmem_dst) || 0 == nbytes);
   if (NULL != devmem_src && NULL != devmem_dst && 0 != nbytes) {
-#  if defined(ACC_OPENCL_STREAM_NULL)
     const c_dbcsr_acc_opencl_stream_t* const str =
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
-#  else
-        const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
-#  endif
     cl_event event = NULL;
     assert(NULL != str && NULL != str->queue);
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
@@ -606,9 +583,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
       ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
 #  endif
     }
-#  if defined(ACC_OPENCL_STREAM_NULL)
     if (NULL == stream && EXIT_SUCCESS == result) result = clWaitForEvents(1, &event);
-#  endif
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
@@ -627,12 +602,8 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
 #  endif
   assert(NULL != dev_mem || 0 == nbytes);
   if (0 != nbytes) {
-#  if defined(ACC_OPENCL_STREAM_NULL)
     const c_dbcsr_acc_opencl_stream_t* const str =
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
-#  else
-        const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
-#  endif
     size_t size_of_value = 1;
     cl_event event;
     if (0 == LIBXSMM_MOD2(nbytes, 4)) size_of_value = 4;
@@ -666,9 +637,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
       ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
 #  endif
     }
-#  if defined(ACC_OPENCL_STREAM_NULL)
     if (NULL == stream && EXIT_SUCCESS == result) result = clWaitForEvents(1, &event);
-#  endif
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);

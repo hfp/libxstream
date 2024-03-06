@@ -76,11 +76,7 @@ int c_dbcsr_acc_stream_wait_event(void* stream, void* event) { /* wait for an ev
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-#  if defined(ACC_OPENCL_STREAM_NULL)
   str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream_default());
-#  else
-  str = ACC_OPENCL_STREAM(stream);
-#  endif
   assert(NULL != str && NULL != str->queue && NULL != event);
   clevent = *ACC_OPENCL_EVENT(event);
   if (NULL != clevent) {
@@ -122,11 +118,7 @@ int c_dbcsr_acc_event_record(void* event, void* stream) {
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-#  if defined(ACC_OPENCL_STREAM_NULL)
   str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream_default());
-#  else
-  str = ACC_OPENCL_STREAM(stream);
-#  endif
   assert(NULL != str && NULL != str->queue && NULL != event);
   clevent = *ACC_OPENCL_EVENT(event);
 #  if defined(CL_VERSION_1_2)

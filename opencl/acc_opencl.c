@@ -293,7 +293,8 @@ int c_dbcsr_acc_init(void) {
     }
 #  endif
     if (0 != wa) { /* environment is populated before touching the compute runtime */
-      static char* key_value[] = { "NEOReadDebugKeys=1", "EnableRecoverablePageFaults=0", "DirectSubmissionOverrideBlitterSupport=0" };
+      static char* key_value[] = {
+        "NEOReadDebugKeys=1", "EnableRecoverablePageFaults=0", "DirectSubmissionOverrideBlitterSupport=0"};
       if (NULL == env_neo) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[0]));
       if (NULL == getenv("EnableRecoverablePageFaults")) {
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[1]));
