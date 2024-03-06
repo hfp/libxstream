@@ -998,8 +998,10 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
         };
 #  endif
+#  if defined(ACC_OPENCL_MEM_DEVPTR)
         cl_platform_id platform = NULL;
         cl_bitfield bitfield = 0;
+#  endif
         c_dbcsr_acc_opencl_config.device.intel = (EXIT_SUCCESS ==
                                                   c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
         c_dbcsr_acc_opencl_config.device.nv = (EXIT_SUCCESS ==
@@ -1027,6 +1029,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
         {
           c_dbcsr_acc_opencl_config.device.unified = CL_FALSE;
         }
+#  if defined(ACC_OPENCL_MEM_DEVPTR)
         if (0 != (4 & c_dbcsr_acc_opencl_config.xhints) && 2 <= *c_dbcsr_acc_opencl_config.device.std_level &&
             0 != c_dbcsr_acc_opencl_config.device.intel && 0 == c_dbcsr_acc_opencl_config.device.unified &&
             EXIT_SUCCESS == clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL) &&
@@ -1047,6 +1050,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           ptr = clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL");
           LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clMemFreeINTEL, &ptr);
         }
+#  endif
 #  if defined(ACC_OPENCL_CMDAGR)
         if (0 != c_dbcsr_acc_opencl_config.device.intel) { /* device vendor (above) can now be used */
           int result_cmdagr = EXIT_SUCCESS;
