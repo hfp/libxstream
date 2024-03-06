@@ -647,6 +647,7 @@ int c_dbcsr_acc_finalize(void) {
 #  else
   int result = EXIT_SUCCESS;
 #  endif
+  static void (*cleanup)(void) = c_dbcsr_acc_opencl_finalize;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
@@ -654,7 +655,7 @@ int c_dbcsr_acc_finalize(void) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
-  if (0 != c_dbcsr_acc_opencl_config.ndevices) {
+  if (0 != c_dbcsr_acc_opencl_config.ndevices && NULL != cleanup) {
     if (0 != c_dbcsr_acc_opencl_config.verbosity) {
       cl_device_id device = NULL;
       int d;
@@ -676,7 +677,8 @@ int c_dbcsr_acc_finalize(void) {
      */
     if (EXIT_SUCCESS == result) result = libsmm_acc_finalize();
 #  endif
-    if (EXIT_SUCCESS == result) result = atexit(c_dbcsr_acc_opencl_finalize);
+    if (EXIT_SUCCESS == result) result = atexit(cleanup);
+    cleanup = NULL;
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
