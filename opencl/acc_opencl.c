@@ -215,7 +215,7 @@ int c_dbcsr_acc_init(void) {
     const int nccs = (NULL == env_nccs ? ACC_OPENCL_NCCS : atoi(env_nccs));
 #  endif
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("ACC_OPENCL_WA");
-    const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), wa = neo * (NULL == env_wa ? 2 : atoi(env_wa));
+    const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), wa = neo * (NULL == env_wa ? 3 : atoi(env_wa));
 #  if defined(ACC_OPENCL_ASYNC)
     const char* const env_async = (ACC_OPENCL_ASYNC);
     const int async_default = 3;
@@ -296,10 +296,10 @@ int c_dbcsr_acc_init(void) {
       static char* key_value[] = {
         "NEOReadDebugKeys=1", "EnableRecoverablePageFaults=0", "DirectSubmissionOverrideBlitterSupport=0"};
       if (NULL == env_neo) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[0]));
-      if (NULL == getenv("EnableRecoverablePageFaults")) {
+      if (0 != (1 & wa) && NULL == getenv("EnableRecoverablePageFaults")) {
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[1]));
       }
-      if (NULL == getenv("DirectSubmissionOverrideBlitterSupport") && 2 <= wa) {
+      if (0 != (2 & wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[2]));
       }
     }
