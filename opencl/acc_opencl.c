@@ -215,7 +215,7 @@ int c_dbcsr_acc_init(void) {
     const int nccs = (NULL == env_nccs ? ACC_OPENCL_NCCS : atoi(env_nccs));
 #  endif
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("ACC_OPENCL_WA");
-    const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), wa = neo * (NULL == env_wa ? 1 : atoi(env_wa));
+    const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), wa = neo * (NULL == env_wa ? 2 : atoi(env_wa));
 #  if defined(ACC_OPENCL_ASYNC)
     const char* const env_async = (ACC_OPENCL_ASYNC);
     const int async_default = 3;
@@ -293,16 +293,13 @@ int c_dbcsr_acc_init(void) {
     }
 #  endif
     if (0 != wa) { /* environment is populated before touching the compute runtime */
-      static char* key_value[] = {
-        "NEOReadDebugKeys=1", "DirectSubmissionOverrideBlitterSupport=0", "EnableRecoverablePageFaults=0"};
-      for (i = 0; i < sizeof(key_value) / sizeof(*key_value); ++i) {
-        const char* const sep = strchr(key_value[i], '=');
-        const size_t n = (NULL != sep ? (sep - key_value[i]) : 0);
-        if (0 < n && n < ACC_OPENCL_BUFFERSIZE) {
-          memcpy(buffer, key_value[i], n);
-          buffer[n] = '\0';
-          ACC_OPENCL_EXPECT(NULL != getenv(buffer) || 0 == LIBXSMM_PUTENV(key_value[i]));
-        }
+      static char* key_value[] = { "NEOReadDebugKeys=1", "EnableRecoverablePageFaults=0", "DirectSubmissionOverrideBlitterSupport=0" };
+      if (NULL == env_neo) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[0]));
+      if (NULL == getenv("EnableRecoverablePageFaults")) {
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[1]));
+      }
+      if (NULL == getenv("DirectSubmissionOverrideBlitterSupport") && 2 <= wa) {
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[2]));
       }
     }
 #  if defined(ACC_OPENCL_CACHE_DIR)
