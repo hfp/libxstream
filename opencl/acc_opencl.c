@@ -67,6 +67,14 @@ c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 int c_dbcsr_acc_opencl_active_id;
 #  endif
 
+
+void __wrap__gfortran_runtime_warning_at(const char* /*where*/, const char* /*message*/, ...);
+void __wrap__gfortran_runtime_warning_at(const char* where, const char* message, ...) {
+  LIBXSMM_UNUSED(message);
+  LIBXSMM_UNUSED(where);
+}
+
+
 void c_dbcsr_acc_opencl_notify(const char /*errinfo*/[], const void* /*private_info*/, size_t /*cb*/, void* /*user_data*/);
 void c_dbcsr_acc_opencl_notify(const char errinfo[], const void* private_info, size_t cb, void* user_data) {
   LIBXSMM_UNUSED(private_info);
