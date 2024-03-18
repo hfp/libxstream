@@ -436,7 +436,7 @@ class SmmTuner(MeasurementInterface):
                         s = 0
                         if 0 < gflops:
                             g = int(filename.split("-")[-1].split("g")[0])
-                            s = gflops / g  # slowdown
+                            s = gflops / g if 0 < g else 0  # slowdown
                         if mtime < os.path.getmtime(filename):
                             if 0 < s:
                                 retsld[1] = retsld[1] + math.log(s)
