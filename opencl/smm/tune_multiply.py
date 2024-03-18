@@ -15,7 +15,6 @@ from opentuner import MeasurementInterface
 from opentuner import Result
 from signal import signal, SIGINT
 import tempfile
-import socket
 import shutil
 import copy
 import json
@@ -176,16 +175,17 @@ class SmmTuner(MeasurementInterface):
         ):  # setup database (DB)
             if args.database is None:  # adjust DB-location
                 envrank = os.getenv("PMI_RANK", os.getenv("OMPI_COMM_WORLD_LOCAL_RANK"))
+                hostname = os.getenv("HOSTNAME")
                 if envrank:
                     self.idevice = int(envrank) % self.ndevices
-                    directory = "{}-{}.db".format(dbdir, self.idevice)
+                    directory = "{}-{}{}.db".format(dbdir, hostname, self.idevice)
                 else:
-                    directory = "{}.db".format(dbdir)
+                    directory = "{}{}.db".format(dbdir, hostname)
                 if os.path.isdir(directory):
                     shutil.rmtree(directory)
                 os.mkdir(directory)
                 self.args.database = "sqlite:///" + os.path.join(
-                    directory, "{}.db".format(socket.gethostname())
+                    directory, "{}.db".format(os.getpid())
                 )
             if not self.args.label:  # label for DB-session
                 self.args.label = "{}-{}-{}-s{}".format(
