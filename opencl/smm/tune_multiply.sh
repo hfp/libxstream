@@ -234,8 +234,9 @@ then
   MNKPART=$(${CUT} -d' ' -f $((PARTOFFS+1))-$((PARTOFFS+PARTSIZE)) <<<"${MNKS}")
   for MNK in ${MNKPART}; do
     if [ "0" != "$(((N)<PARTSIZE))" ]; then
+      if [ "1" != "${NPARTS}" ]; then STEP="@[${PART}/${NPARTS}]"; fi
       echo
-      echo "[$((N+1))/${PARTSIZE}]: auto-tuning ${MNK}-kernel..."
+      echo "[$((N+1))/${PARTSIZE}]${STEP}: auto-tuning ${MNK}-kernel..."
       # avoid mixing database of previous results into new session
       ${RM} -rf ./opentuner.db
       eval "${HERE}/tune_multiply.py ${MNK} ${DELETE} -p ${JSONDIR} -s ${BATCHSIZE} -a ${TLEVEL} ${MAXTIME}"
