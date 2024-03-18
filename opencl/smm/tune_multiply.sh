@@ -190,10 +190,12 @@ then
   PARTSIZE=$(((NTRIPLETS+NPARTS-1)/NPARTS))
   PARTOFFS=$(((PART-1)*PARTSIZE))
   PARTSIZE=$((PARTSIZE<=(NTRIPLETS-PARTOFFS)?PARTSIZE:(NTRIPLETS-PARTOFFS)))
-  if [ "0" != "$((NPARTS<=NTRIPLETS))" ]; then
-    echo "Session ${PART} of ${NPARTS} part(s)."
-  else
-    echo "Session ${PART} of ${NPARTS} part(s). The problem is over-decomposed!"
+  if [ ! "${WAIT}" ] || [ "0" != "${WAIT}" ]; then
+    if [ "0" != "$((NPARTS<=NTRIPLETS))" ]; then
+      echo "Session ${PART} of ${NPARTS} part(s)."
+    else
+      echo "Session ${PART} of ${NPARTS} part(s). The problem is over-decomposed!"
+    fi
   fi
   if [ ! "${MAXTIME}" ] && [[ (! "${CONTINUE}"  || \
       "${CONTINUE}" = "false"                   || \
@@ -203,10 +205,12 @@ then
     MAXTIME=160
   fi
   if [ "${MAXTIME}" ] && [ "0" != "$((0<MAXTIME))" ]; then
-    HRS=$((MAXTIME*PARTSIZE/3600))
-    MNS=$(((MAXTIME*PARTSIZE-HRS*3600+59)/60))
-    echo "Tuning ${PARTSIZE} kernels in this session will take about" \
-         "${MAXTIME}s per kernel and ${HRS}h${MNS}m in total."
+    if [ ! "${WAIT}" ] || [ "0" != "${WAIT}" ]; then
+      HRS=$((MAXTIME*PARTSIZE/3600))
+      MNS=$(((MAXTIME*PARTSIZE-HRS*3600+59)/60))
+      echo "Tuning ${PARTSIZE} kernels in this session will take about" \
+           "${MAXTIME}s per kernel and ${HRS}h${MNS}m in total."
+    fi
     MAXTIME="--stop-after=${MAXTIME}"
   else
     echo "Tuning ${PARTSIZE} kernels will take an unknown time (no limit given)."
