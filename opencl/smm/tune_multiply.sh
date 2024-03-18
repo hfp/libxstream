@@ -234,7 +234,7 @@ then
   MNKPART=$(${CUT} -d' ' -f $((PARTOFFS+1))-$((PARTOFFS+PARTSIZE)) <<<"${MNKS}")
   for MNK in ${MNKPART}; do
     if [ "0" != "$(((N)<PARTSIZE))" ]; then
-      if [ "1" != "${NPARTS}" ]; then STEP="@[${PART}/${NPARTS}]"; fi
+      if [ "1" != "${NPARTS}" ] && [ "${HOSTNAME}" ]; then STEP="@${HOSTNAME}"; fi
       echo
       echo "[$((N+1))/${PARTSIZE}]${STEP}: auto-tuning ${MNK}-kernel..."
       # avoid mixing database of previous results into new session
