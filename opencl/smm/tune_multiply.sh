@@ -114,8 +114,8 @@ then
   if [ ! "${BATCHSIZE}" ]; then BATCHSIZE=0; fi
   if [ ! "${JSONDIR}" ]; then JSONDIR=.; fi
   if [ ! "${TLEVEL}" ]; then TLEVEL=-1; fi
-  if [ ! "${NPARTS}" ]; then NPARTS=1; fi
-  if [ ! "${PART}" ]; then PART=1; fi
+  if [ ! "${NPARTS}" ]; then NPARTS=${PMI_SIZE:-1}; fi
+  if [ ! "${PART}" ]; then PART=${PMI_RANK:-0}; PART=$((PART+1)); fi
   # sanity checks
   if [ "0" != "$((NPARTS<PART))" ]; then
     >&2 echo "ERROR: part-number ${PART} is larger than the requested ${NPARTS} parts!"
