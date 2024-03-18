@@ -83,39 +83,19 @@ then
       break;;
     esac
   done
+  # how to print standard vs error messages
   if [ ! "${HELP}" ] || [ "0" = "${HELP}" ]; then
     ECHO=">&2 echo"
   else
     ECHO="echo"
   fi
-  eval "${ECHO} \"Usage: $0 [options] [<triplet-spec>]\""
-  eval "${ECHO} \"       Options must precede triplet specification\""
-  eval "${ECHO} \"       -w|--wait N: initial delay before auto-tuning (default: ${WAIT_DEFAULT} s)\""
-  eval "${ECHO} \"       -c|--continue: proceed with plan if tuning is interrupted\""
-  eval "${ECHO} \"       -u|--update: retune all JSONs found in directory (see -p)\""
-  eval "${ECHO} \"       -s|--batchsize N: Number of batched SMMs (a.k.a. stacksize)\""
-  eval "${ECHO} \"       -a|--tuning-level N=0..3: all, most, some, least tunables\""
-  eval "${ECHO} \"       -b|--backwards: tune in descending order of triplets\""
-  eval "${ECHO} \"       -t|--maxtime N: number of seconds spent per kernel\""
-  eval "${ECHO} \"       -p|--jsondir P: path to JSON-files (tuned params)\""
-  eval "${ECHO} \"       -i|--part N (1-based): Nth session out of nparts\""
-  eval "${ECHO} \"       -j|--nparts N: number of total sessions (see -i)\""
-  eval "${ECHO} \"       -r|--bound L U: limit L**3 < MNK <= U**3\""
-  eval "${ECHO} \"       -m|--limit N: limit any shape extent to N\""
-  eval "${ECHO} \"       -n|--triplets N: limit number of triplet\""
-  eval "${ECHO} \"       -k|--specid N: predefined triplets\""
-  eval "${ECHO} \"        0-10: older to newer (larger), e.g.,\""
-  eval "${ECHO} \"           0:  201 kernels\""
-  eval "${ECHO} \"          10: 1266 kernels\""
-  eval "${ECHO} \"       <triplet-spec>, e.g., 134 kernels\""
-  eval "${ECHO} \"         23, 5 32 13 24 26, 4 9\""
-  eval "${ECHO}"
-  # default settings
+  # default/basic settings
   if [ ! "${BATCHSIZE}" ]; then BATCHSIZE=0; fi
   if [ ! "${JSONDIR}" ]; then JSONDIR=.; fi
   if [ ! "${TLEVEL}" ]; then TLEVEL=-1; fi
   if [ ! "${NPARTS}" ]; then NPARTS=${PMI_SIZE:-1}; fi
   if [ ! "${PART}" ]; then PART=${PMI_RANK:-0}; PART=$((PART+1)); fi
+  if [ ! "${WAIT}" ] && [ "1" = "${NPARTS}" ]; then WAIT=0; fi
   # sanity checks
   if [ "0" != "$((NPARTS<PART))" ]; then
     >&2 echo "ERROR: part-number ${PART} is larger than the requested ${NPARTS} parts!"
@@ -131,7 +111,6 @@ then
     exit 1
   elif [ ! "${HELP}" ] || [ "0" = "${HELP}" ]; then
     if [ "${UPDATE}" ] && [ "0" != "${UPDATE}" ]; then
-      if [ ! "${TLEVEL}" ] || [ "0" != "$((0>TLEVEL))" ]; then TLEVEL=1; fi
       MNKS=$(${SED} -n "s/.*tune_multiply-..*-\(..*x..*x.[^-]*\)-..*gflops\.json/\1/p" <<<"${JSONS}" \
          | ${SORT} -u -n -tx -k1,1 -k2,2 -k3,3)
     elif [ "${SPECID}" ]; then
@@ -141,6 +120,30 @@ then
     fi
   else
     exit 0
+  fi
+  if [ ! "${WAIT}" ]; then
+    eval "${ECHO} \"Usage: $0 [options] [<triplet-spec>]\""
+    eval "${ECHO} \"       Options must precede triplet specification\""
+    eval "${ECHO} \"       -w|--wait N: initial delay before auto-tuning (default: ${WAIT_DEFAULT} s)\""
+    eval "${ECHO} \"       -c|--continue: proceed with plan if tuning is interrupted\""
+    eval "${ECHO} \"       -u|--update: retune all JSONs found in directory (see -p)\""
+    eval "${ECHO} \"       -s|--batchsize N: Number of batched SMMs (a.k.a. stacksize)\""
+    eval "${ECHO} \"       -a|--tuning-level N=0..3: all, most, some, least tunables\""
+    eval "${ECHO} \"       -b|--backwards: tune in descending order of triplets\""
+    eval "${ECHO} \"       -t|--maxtime N: number of seconds spent per kernel\""
+    eval "${ECHO} \"       -p|--jsondir P: path to JSON-files (tuned params)\""
+    eval "${ECHO} \"       -i|--part N (1-based): Nth session out of nparts\""
+    eval "${ECHO} \"       -j|--nparts N: number of total sessions (see -i)\""
+    eval "${ECHO} \"       -r|--bound L U: limit L**3 < MNK <= U**3\""
+    eval "${ECHO} \"       -m|--limit N: limit any shape extent to N\""
+    eval "${ECHO} \"       -n|--triplets N: limit number of triplet\""
+    eval "${ECHO} \"       -k|--specid N: predefined triplets\""
+    eval "${ECHO} \"        0-10: older to newer (larger), e.g.,\""
+    eval "${ECHO} \"           0:  201 kernels\""
+    eval "${ECHO} \"          10: 1266 kernels\""
+    eval "${ECHO} \"       <triplet-spec>, e.g., 134 kernels\""
+    eval "${ECHO} \"         23, 5 32 13 24 26, 4 9\""
+    eval "${ECHO}"
   fi
   if [ "${MNKS}" ]; then
     if [ "${BOUNDL}" ] || [ "${BOUNDU}" ]; then
