@@ -177,7 +177,7 @@ class SmmTuner(MeasurementInterface):
                 tmpdir = os.path.join(tempfile.gettempdir(), "opentuner")
                 if envrank:
                     self.idevice = int(envrank) % self.ndevices
-                    tmpdir += ".{}".format(self.idevice)
+                    tmpdir += str(self.idevice)
                 if os.path.isdir(tmpdir):
                     shutil.rmtree(tmpdir)
                 os.mkdir(tmpdir)
@@ -466,7 +466,7 @@ class SmmTuner(MeasurementInterface):
                             msg = "Worse and older (delete {} @ {}x): {}"
                             rnd = [str(round(i, 2)) for i in delsld]
                             print(msg.format(num, "..".join(rnd), lst))
-                    else:
+                    else:  # delete outperformed parameter sets
                         for file in retain + delete:
                             try:
                                 os.remove(file)
