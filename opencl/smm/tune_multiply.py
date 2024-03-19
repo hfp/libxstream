@@ -175,7 +175,8 @@ class SmmTuner(MeasurementInterface):
         ):  # setup database (DB)
             if args.database is None:  # adjust DB-location
                 envrank = os.getenv("PMI_RANK", os.getenv("OMPI_COMM_WORLD_LOCAL_RANK"))
-                directory = "{}-{}".format(dbdir, os.getenv("HOSTNAME"))
+                hostname = os.getenv("HOSTNAME")
+                directory = (dbdir + "-" + hostname) if hostname else dbdir
                 if envrank:
                     self.idevice = int(envrank) % self.ndevices
                     directory += ".{}".format(self.idevice)
