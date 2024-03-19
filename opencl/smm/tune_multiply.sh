@@ -185,9 +185,6 @@ then
     >&2 echo "ERROR: invalid or no <triplet-spec> given!"
     exit 1
   fi
-  PARTSIZE=$(((NTRIPLETS+NPARTS-1)/NPARTS))
-  PARTOFFS=$(((PART-1)*PARTSIZE))
-  PARTSIZE=$((PARTSIZE<=(NTRIPLETS-PARTOFFS)?PARTSIZE:(NTRIPLETS-PARTOFFS)))
   if [ ! "${WAIT}" ] || [ "0" != "${WAIT}" ]; then
     if [ "0" != "$((NPARTS<=NTRIPLETS))" ]; then
       echo "Session ${PART} of ${NPARTS} part(s)."
@@ -202,6 +199,9 @@ then
   then
     MAXTIME=160
   fi
+  PARTSIZE=$((NPARTS<NTRIPLETS?(NTRIPLETS/NPARTS):1))
+  PARTOFFS=$(((PART-1)*PARTSIZE))
+  PARTSIZE=$((PART<NPARTS?PARTSIZE:(NTRIPLETS-PARTOFFS)))
   if [ "${MAXTIME}" ] && [ "0" != "$((0<MAXTIME))" ]; then
     if [ ! "${WAIT}" ] || [ "0" != "${WAIT}" ]; then
       HRS=$((MAXTIME*PARTSIZE/3600))
