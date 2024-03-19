@@ -52,7 +52,6 @@ class SmmTuner(MeasurementInterface):
     def __init__(self, args):
         """Setup common state and define search space"""
         super(SmmTuner, self).__init__(args)
-        dbdir = os.path.join(tempfile.gettempdir(), "opentuner")
         manipulator = ConfigurationManipulator()
         # parse and sanitize kernel shape argument
         if not self.args.mnk:
@@ -175,16 +174,15 @@ class SmmTuner(MeasurementInterface):
         ):  # setup database (DB)
             if args.database is None:  # adjust DB-location
                 envrank = os.getenv("PMI_RANK", os.getenv("OMPI_COMM_WORLD_LOCAL_RANK"))
-                hostname = os.getenv("HOSTNAME")
-                directory = (dbdir + "-" + hostname) if hostname else dbdir
+                tmpdir = os.path.join(tempfile.gettempdir(), "opentuner")
                 if envrank:
                     self.idevice = int(envrank) % self.ndevices
-                    directory += ".{}".format(self.idevice)
-                if os.path.isdir(directory):
-                    shutil.rmtree(directory)
-                os.mkdir(directory)
+                    tmpdir += ".{}".format(self.idevice)
+                if os.path.isdir(tmpdir):
+                    shutil.rmtree(tmpdir)
+                os.mkdir(tmpdir)
                 self.args.database = "sqlite:///" + os.path.join(
-                    directory, "{}.db".format(os.getpid())
+                    tmpdir, "{}.db".format(os.getpid())
                 )
             if not self.args.label:  # label for DB-session
                 self.args.label = "{}-{}-{}-s{}".format(
