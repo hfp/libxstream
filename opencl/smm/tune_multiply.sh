@@ -83,19 +83,13 @@ then
       break;;
     esac
   done
-  # how to print standard vs error messages
-  if [ ! "${HELP}" ] || [ "0" = "${HELP}" ]; then
-    ECHO=">&2 echo"
-  else
-    ECHO="echo"
-  fi
   # default/basic settings
   if [ ! "${BATCHSIZE}" ]; then BATCHSIZE=0; fi
   if [ ! "${JSONDIR}" ]; then JSONDIR=.; fi
   if [ ! "${TLEVEL}" ]; then TLEVEL=-1; fi
   if [ ! "${NPARTS}" ]; then NPARTS=${PMI_SIZE:-1}; fi
   if [ ! "${PART}" ]; then PART=${PMI_RANK:-0}; PART=$((PART+1)); fi
-  if [ ! "${WAIT}" ] && [ "1" = "${NPARTS}" ]; then WAIT=0; fi
+  if [ ! "${WAIT}" ] && [ "1" != "${NPARTS}" ]; then WAIT=0; fi
   # sanity checks
   if [ "0" != "$((NPARTS<PART))" ]; then
     >&2 echo "ERROR: part-number ${PART} is larger than the requested ${NPARTS} parts!"
@@ -104,12 +98,15 @@ then
     >&2 echo "ERROR: part-number must be 1-based!"
     exit 1
   fi
-  HERE=$(cd "$(dirname "$0")" && pwd -P)
-  JSONS=$(${LS} -1 ${JSONDIR}/tune_multiply-*-*x*x*-*gflops.json 2>/dev/null)
   if [ "${SPECID}" ] && [ "$1" ]; then
     >&2 echo "ERROR: --specid and <triplet-spec> are mutual exclusive!"
     exit 1
-  elif [ ! "${HELP}" ] || [ "0" = "${HELP}" ]; then
+  fi
+  # how to print standard vs error messages
+  if [ ! "${HELP}" ] || [ "0" = "${HELP}" ]; then
+    JSONS=$(${LS} -1 ${JSONDIR}/tune_multiply-*-*x*x*-*gflops.json 2>/dev/null)
+    HERE=$(cd "$(dirname "$0")" && pwd -P)
+    ECHO=">&2 echo"
     if [ "${UPDATE}" ] && [ "0" != "${UPDATE}" ]; then
       MNKS=$(${SED} -n "s/.*tune_multiply-..*-\(..*x..*x.[^-]*\)-..*gflops\.json/\1/p" <<<"${JSONS}" \
          | ${SORT} -u -n -tx -k1,1 -k2,2 -k3,3)
@@ -119,9 +116,9 @@ then
       MNKS=$(eval "${HERE}/../../acc_triplets.sh $* 2>/dev/null")
     fi
   else
-    exit 0
+    ECHO="echo"
   fi
-  if [ ! "${WAIT}" ]; then
+  if [ ! "${WAIT}" ] || [[ ("${HELP}" && "0" != "${HELP}") ]]; then
     eval "${ECHO} \"Usage: $0 [options] [<triplet-spec>]\""
     eval "${ECHO} \"       Options must precede triplet specification\""
     eval "${ECHO} \"       -w|--wait N: initial delay before auto-tuning (default: ${WAIT_DEFAULT} s)\""
@@ -144,6 +141,7 @@ then
     eval "${ECHO} \"       <triplet-spec>, e.g., 134 kernels\""
     eval "${ECHO} \"         23, 5 32 13 24 26, 4 9\""
     eval "${ECHO}"
+    if [ "${HELP}" ] && [ "0" != "${HELP}" ]; then exit 0; fi
   fi
   if [ "${MNKS}" ]; then
     if [ "${BOUNDL}" ] || [ "${BOUNDU}" ]; then
