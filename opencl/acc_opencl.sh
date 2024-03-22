@@ -144,7 +144,7 @@ then
       fi
       if [ "${CLEXT}" ]; then
         if [ -e "${CLFILE}" ]; then
-          CNAME=$(${BASENAME} "${CLFILE}" "${CLEXT}" | ${SED} "s/${RNAME}_//")
+          CNAME=$(${BASENAME} "${CLFILE}" "${CLEXT}" | ${SED} "s/${RNAME}_//;s/_opencl//")
           BNAME=$(${TR} '[:lower:]' '[:upper:]' <<<"${CNAME}")
           SNAME=OPENCL_${ANAME}_STRING_${BNAME}
           VNAME=opencl_${RNAME}_source_${CNAME}
