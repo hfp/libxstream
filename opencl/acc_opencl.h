@@ -260,7 +260,7 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   c_dbcsr_acc_opencl_stream_t stream;
   /** OpenCL compiler flag (language standard). */
   char std_flag[16];
-  /** OpenCL support-level of device. */
+  /** OpenCL support-level (major and minor). */
   cl_int std_level[2], std_clevel[2];
   /** Kind of device (GPU, CPU, or other). */
   cl_device_type type;
