@@ -1290,7 +1290,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
               const char* const env_kernel = getenv("OPENCL_LIBSMM_SMM_KERNEL");
               result = c_dbcsr_acc_opencl_kernel(NULL == env_kernel ? 0 : 1,
                 NULL == env_kernel ? OPENCL_KERNELS_SOURCE_MULTIPLY : env_kernel, fname, build_params, buffer, NULL /*cl_try*/,
-                NULL /*cl_try_ok*/, extensions, *nextensions, new_config.kernel + kernel_idx);
+                NULL /*cl_try_ok*/, extensions, nextensions, new_config.kernel + kernel_idx);
               if (EXIT_SUCCESS == result) {
                 size_t wgsize_max_kernel = wgsize_max;
                 result = c_dbcsr_acc_opencl_wgsize(
