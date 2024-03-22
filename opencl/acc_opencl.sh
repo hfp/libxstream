@@ -131,7 +131,7 @@ then
       fi
     fi
     trap 'trap_exit' EXIT
-    RNAME=$(${BASENAME} "$(${DIRNAME} "$1")")
+    RNAME=$(${BASENAME} "$(cd "$(${DIRNAME} "$1")" && pwd -P)")
     ANAME=$(${TR} '[:lower:]' '[:upper:]' <<<"${RNAME}")
     NFILES_OCL=0
     for CLFILE in ${*:1:${#@}-1}; do
