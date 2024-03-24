@@ -1037,6 +1037,18 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
         {
           c_dbcsr_acc_opencl_config.device.unified = CL_FALSE;
         }
+        if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t),
+                              c_dbcsr_acc_opencl_config.device.wgsize, NULL))
+        {
+          c_dbcsr_acc_opencl_config.device.wgsize[0] = 1;
+        }
+#  if defined(CL_VERSION_3_0)
+        if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, sizeof(size_t),
+                              c_dbcsr_acc_opencl_config.device.wgsize + 1, NULL))
+#  endif
+        {
+          c_dbcsr_acc_opencl_config.device.wgsize[1] = 1;
+        }
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
         if (0 != (4 & c_dbcsr_acc_opencl_config.xhints) && 2 <= *c_dbcsr_acc_opencl_config.device.std_level &&
             0 != c_dbcsr_acc_opencl_config.device.intel && 0 == c_dbcsr_acc_opencl_config.device.unified &&
@@ -1114,38 +1126,6 @@ int c_dbcsr_acc_set_active_device(int device_id) {
   c_dbcsr_timestop(&routine_handle);
 #  endif
   ACC_OPENCL_RETURN(result);
-}
-
-
-int c_dbcsr_acc_opencl_wgsize(cl_device_id device, cl_kernel kernel, size_t* max_value, size_t* preferred_multiple) {
-  int result = (NULL != device && (NULL != preferred_multiple || NULL != max_value)) ? EXIT_SUCCESS : EXIT_FAILURE;
-  if (NULL != kernel) { /* kernel-specific */
-    if (NULL != max_value) {
-      ACC_OPENCL_CHECK(clGetKernelWorkGroupInfo(kernel, device, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), max_value, NULL),
-        "query maximum WG-size of kernel", result);
-    }
-    if (NULL != preferred_multiple) {
-      ACC_OPENCL_CHECK(clGetKernelWorkGroupInfo(
-                         kernel, device, CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, sizeof(size_t), preferred_multiple, NULL),
-        "query preferred multiple of WG-size of kernel", result);
-    }
-  }
-  else { /* device-specific */
-    if (NULL != max_value) {
-      ACC_OPENCL_CHECK(clGetDeviceInfo(device, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), max_value, NULL),
-        "query maximum WG-size of device", result);
-    }
-    if (NULL != preferred_multiple) {
-#  if defined(CL_VERSION_3_0)
-      ACC_OPENCL_CHECK(
-        clGetDeviceInfo(device, CL_DEVICE_PREFERRED_WORK_GROUP_SIZE_MULTIPLE, sizeof(size_t), preferred_multiple, NULL),
-        "query preferred multiple of WG-size of device", result);
-#  else
-      *preferred_multiple = 1;
-#  endif
-    }
-  }
-  return result;
 }
 
 
