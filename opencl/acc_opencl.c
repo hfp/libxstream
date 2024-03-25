@@ -158,7 +158,7 @@ LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
     for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
       const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[i];
       if (NULL != device_id) {
-#  if defined(CL_VERSION_1_2) && defined(_DEBUG)
+#  if defined(CL_VERSION_1_2)
         ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseDevice(device_id));
 #  endif
         /* c_dbcsr_acc_opencl_create_context scans for non-NULL devices */
@@ -980,7 +980,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
     if (NULL != context) {
       assert(NULL != context_id);
       if (active_id != context_id) {
-#  if defined(CL_VERSION_1_2) && defined(_DEBUG)
+#  if defined(CL_VERSION_1_2)
         ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseDevice(context_id));
 #  endif
         result = clReleaseContext(context);
