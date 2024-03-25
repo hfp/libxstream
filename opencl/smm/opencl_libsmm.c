@@ -1163,8 +1163,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
                   sgs = c_dbcsr_acc_opencl_config.device.wgsize[1];
                 }
               }
-              wgsize_prf = LIBXSMM_UPDIV(
-                new_config.wgsize[kernel_idx], LIBXSMM_MAX(c_dbcsr_acc_opencl_config.device.wgsize[1], sgs));
+              wgsize_prf = LIBXSMM_UP(new_config.wgsize[kernel_idx], 0 != sgs ? sgs : c_dbcsr_acc_opencl_config.device.wgsize[1]);
             }
             else { /* cover exactly */
               wgsize_prf = new_config.wgsize[kernel_idx];
