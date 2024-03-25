@@ -266,6 +266,8 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   size_t wgsize[2];
   /** Kind of device (GPU, CPU, or other). */
   cl_device_type type;
+  /** OpenCL device-ID. */
+  cl_device_id id;
   /** Whether host memory is unified. */
   cl_int unified;
   /** Device-ID. */
