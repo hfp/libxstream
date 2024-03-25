@@ -76,9 +76,6 @@
 #  if !defined(OPENCL_LIBSMM_SMM_S)
 #    define OPENCL_LIBSMM_SMM_S 64
 #  endif
-#  if !defined(OPENCL_LIBSMM_VLEN)
-#    define OPENCL_LIBSMM_VLEN 32
-#  endif
 #  if !defined(OPENCL_LIBSMM_VMIN)
 #    define OPENCL_LIBSMM_VMIN 8
 #  endif
@@ -1157,44 +1154,19 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             nbm = (m_max + new_config.bm - 1) / new_config.bm;
             nbn = (n_max + new_config.bn - 1) / new_config.bn;
             new_config.wgsize[kernel_idx] = LIBXSMM_MAX(nbm * nbn, new_config.ws);
-#  if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
             if (0 != new_config.wg) {
-              const unsigned int limit = (unsigned int)LIBXSMM_MAX(c_dbcsr_acc_opencl_config.device.wgsize[1], OPENCL_LIBSMM_VLEN);
-              unsigned int r = libxsmm_remainder(
-                (unsigned int)new_config.wgsize[kernel_idx], OPENCL_LIBSMM_VMIN, &limit, NULL /*remainder*/);
-              if (0 > new_config.wg) {
-                const char* const extension = "cl_intel_required_subgroup_size";
-                if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(c_dbcsr_acc_opencl_config.device.id, &extension, 1)) {
-                  unsigned int q = limit, i = 0;
-                  size_t sizes[16], nbytes = 0;
-                  ACC_OPENCL_EXPECT(EXIT_SUCCESS == clGetDeviceInfo(c_dbcsr_acc_opencl_config.device.id,
-                                                      0x4108 /*CL_DEVICE_SUB_GROUP_SIZES_INTEL*/, sizeof(sizes), sizes, &nbytes));
-                  if (-1 == new_config.wg) { /* cover entire WG-size in sub-group size */
-                    for (; (i * sizeof(size_t)) < nbytes; ++i) {
-                      sgs = sizes[i];
-                      if (new_config.wgsize[kernel_idx] <= sgs) break;
-                    }
-                    if (new_config.wgsize[kernel_idx] > sgs) sgs = 0;
-                  }
-                  else { /* explicit sub-group size with minimized WG-remainder */
-                    for (; (i * sizeof(size_t)) < nbytes; ++i) {
-                      r = libxsmm_remainder(
-                        (unsigned int)new_config.wgsize[kernel_idx], (unsigned int)sizes[i], &limit, NULL /*remainder*/);
-                      if (r <= q) {
-                        q = r;
-                        sgs = sizes[i];
-                      }
-                    }
-                  }
-                  wgsize_prf = new_config.wgsize[kernel_idx];
+              if (0 != c_dbcsr_acc_opencl_config.device.wgsize[2]) { /* subgroups supported */
+                if (new_config.wgsize[kernel_idx] <= c_dbcsr_acc_opencl_config.device.wgsize[2]) {
+                  sgs = c_dbcsr_acc_opencl_config.device.wgsize[2];
                 }
-                else wgsize_prf = r;
+                else if (new_config.wgsize[kernel_idx] <= c_dbcsr_acc_opencl_config.device.wgsize[1]) {
+                  sgs = c_dbcsr_acc_opencl_config.device.wgsize[1];
+                }
               }
-              else wgsize_prf = r;
+              wgsize_prf = LIBXSMM_UPDIV(
+                new_config.wgsize[kernel_idx], LIBXSMM_MAX(c_dbcsr_acc_opencl_config.device.wgsize[1], sgs));
             }
-            else
-#  endif
-            {
+            else { /* cover exactly */
               wgsize_prf = new_config.wgsize[kernel_idx];
             }
             if (2 <= new_config.wg) wgsize_prf = LIBXSMM_UP2POT(wgsize_prf);
