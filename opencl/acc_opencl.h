@@ -262,8 +262,12 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   char std_flag[16];
   /** OpenCL support-level (major and minor). */
   cl_int std_level[2], std_clevel[2];
-  /** Maximum WG-size and preferred multiple. */
-  size_t wgsize[2];
+  /**
+   * Maximum size of workgroup (WG), preferred multiple of WG-size (PM),
+   * and size of subgoup (SG) only if larger-equal than PM. SG is signaled
+   * smaller if an alternative SG-size exists (SG is zero if no support).
+   */
+  size_t wgsize[3];
   /** Kind of device (GPU, CPU, or other). */
   cl_device_type type;
   /** OpenCL device-ID. */
