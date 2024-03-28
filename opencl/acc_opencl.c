@@ -1430,15 +1430,17 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       }
       buffer[0] = '\0'; /* reset to empty */
     }
-    /* consider preprocessing kernel for analysis (cpp); failure does not matter (result) */
+    /* cpp: consider to preprocess kernel (failure does not impact result code) */
 #  if defined(ACC_OPENCL_CPPBIN)
     if (0 != c_dbcsr_acc_opencl_config.dump && NULL == file_src) {
       nchar = LIBXSMM_SNPRINTF(buffer_name, sizeof(buffer_name), ACC_OPENCL_TEMPDIR "/.%s.XXXXXX", kernel_name);
       if (0 < nchar && (int)sizeof(buffer_name) > nchar) {
-        FILE* const file_cpp = fopen(ACC_OPENCL_CPPBIN, "rb");
+        const char* const env_cpp = getenv("ACC_OPENCL_CPP");
+        const int cpp = (NULL == env_cpp ? 1 /*default*/ : atoi(env_cpp));
+        FILE* const file_cpp = (0 != cpp ? fopen(ACC_OPENCL_CPPBIN, "rb") : NULL);
         const char* sed_pattern = "";
 #    if defined(ACC_OPENCL_SEDBIN)
-        FILE* const file_sed = fopen(ACC_OPENCL_SEDBIN, "rb");
+        FILE* const file_sed = (0 != cpp ? fopen(ACC_OPENCL_SEDBIN, "rb") : NULL);
         if (NULL != file_sed) {
           sed_pattern = "| " ACC_OPENCL_SEDBIN " '/^[[:space:]]*\\(\\/\\/.*\\)*$/d'";
           fclose(file_sed); /* existence-check */
