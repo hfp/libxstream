@@ -1433,7 +1433,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     /* cpp: consider to preprocess kernel (failure does not impact result code) */
 #  if defined(ACC_OPENCL_CPPBIN)
     if (0 != c_dbcsr_acc_opencl_config.dump && NULL == file_src) {
-      nchar = LIBXSMM_SNPRINTF(buffer_name, sizeof(buffer_name), ACC_OPENCL_TEMPDIR "/.%s.XXXXXX", kernel_name);
+      char dump_filename[ACC_OPENCL_MAXSTRLEN];
+      nchar = LIBXSMM_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", kernel_name);
       if (0 < nchar && (int)sizeof(buffer_name) > nchar) {
         const char* const env_cpp = getenv("ACC_OPENCL_CPP");
         const int cpp = (NULL == env_cpp ? 1 /*default*/ : atoi(env_cpp));
@@ -1447,8 +1448,10 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
         }
 #    endif
         if (NULL != file_cpp) {
-          const int file_tmp = mkstemp(buffer_name);
+          int file_tmp = -1;
           fclose(file_cpp); /* existence-check */
+          nchar = LIBXSMM_SNPRINTF(buffer_name, sizeof(buffer_name), ACC_OPENCL_TEMPDIR "/.%s.XXXXXX", kernel_name);
+          if (0 < nchar && (int)sizeof(buffer_name) > nchar) file_tmp = mkstemp(buffer_name);
           if (0 <= file_tmp) {
             const int std_clevel = 100 * c_dbcsr_acc_opencl_config.device.std_clevel[0] +
                                    10 * c_dbcsr_acc_opencl_config.device.std_clevel[1];
@@ -1456,9 +1459,9 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
                                   10 * c_dbcsr_acc_opencl_config.device.std_level[1];
             const int std_flag_len = (int)strlen(c_dbcsr_acc_opencl_config.device.std_flag);
             nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer),
-              ACC_OPENCL_CPPBIN " -P -C -nostdinc -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u %s %s %s %s >%s.cl", std_level,
+              ACC_OPENCL_CPPBIN " -P -C -nostdinc -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u %s %s %s %s >%s", std_level,
               std_clevel, 0 == c_dbcsr_acc_opencl_config.device.nv ? "" : "-D__NV_CL_C_VERSION",
-              NULL != build_params ? build_params : "", buffer_name, sed_pattern, kernel_name);
+              NULL != build_params ? build_params : "", buffer_name, sed_pattern, dump_filename);
             if (0 < nchar && (int)sizeof(buffer) > nchar &&
                 (0 == std_flag_len || (3 == write(file_tmp, "/*\n", 3) &&
                                         std_flag_len == write(file_tmp, c_dbcsr_acc_opencl_config.device.std_flag, std_flag_len) &&
@@ -1466,35 +1469,36 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
                 size_src == (size_t)write(file_tmp, ext_source, size_src))
             {
               if (EXIT_SUCCESS == system(buffer)) {
-                nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer), "%s.cl", kernel_name);
-                if (0 < nchar && (int)sizeof(buffer) > nchar) {
-                  FILE* const file = fopen(buffer, "r");
-                  if (NULL != file) {
-                    const long int size = (EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_END) ? ftell(file) : 0);
-                    char* const src = (char*)(EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_SET)
-                                                ? libxsmm_aligned_scratch(size + 1 /*terminator*/, 0 /*auto-align*/)
-                                                : NULL);
-                    if (NULL != src) {
-                      if ((size_t)size == fread(src, 1 /*sizeof(char)*/, size /*count*/, file)) {
-                        if (source != ext_source) {
-                          void* p = NULL;
-                          LIBXSMM_ASSIGN127(&p, &ext_source);
-                          libxsmm_free(p);
-                        }
-                        src[size] = '\0';
-                        ext_source = src;
+                FILE* const file = fopen(dump_filename, "r");
+                if (NULL != file) {
+                  const long int size = (EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_END) ? ftell(file) : 0);
+                  char* const src = (char*)(EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_SET)
+                                              ? libxsmm_aligned_scratch(size + 1 /*terminator*/, 0 /*auto-align*/)
+                                              : NULL);
+                  if (NULL != src) {
+                    if ((size_t)size == fread(src, 1 /*sizeof(char)*/, size /*count*/, file)) {
+                      if (source != ext_source) {
+                        void* p = NULL;
+                        LIBXSMM_ASSIGN127(&p, &ext_source);
+                        libxsmm_free(p);
                       }
-                      else libxsmm_free(src);
+                      src[size] = '\0';
+                      ext_source = src;
                     }
-                    ACC_OPENCL_EXPECT(EXIT_SUCCESS == fclose(file));
+                    else libxsmm_free(src);
                   }
+                  ACC_OPENCL_EXPECT(EXIT_SUCCESS == fclose(file));
                 }
               }
             }
-            buffer[0] = '\0'; /* reset to empty */
             ACC_OPENCL_EXPECT(EXIT_SUCCESS == unlink(buffer_name));
             ACC_OPENCL_EXPECT(EXIT_SUCCESS == close(file_tmp));
+            buffer[0] = '\0'; /* reset to empty */
           }
+        }
+        else {
+          FILE* const file = fopen(dump_filename, "w");
+          fwrite(ext_source, 1, size_src, file);
         }
       }
     }
