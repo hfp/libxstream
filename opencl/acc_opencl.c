@@ -621,7 +621,14 @@ int c_dbcsr_acc_init(void) {
           result = EXIT_FAILURE;
         }
         if (EXIT_SUCCESS == result) { /* lastly, print active device and list of devices */
-          result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, device_id);
+#  if defined(ACC_OPENCL_ACTIVATE)
+          if (0 <= ACC_OPENCL_ACTIVATE && ACC_OPENCL_ACTIVATE < c_dbcsr_acc_opencl_config.ndevices) {
+            result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, ACC_OPENCL_ACTIVATE);
+          }
+          else {
+            result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, device_id);
+          }
+#  endif
           if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
             char platform_name[ACC_OPENCL_BUFFERSIZE];
             for (i = 0; i < (cl_uint)c_dbcsr_acc_opencl_config.ndevices; ++i) {
