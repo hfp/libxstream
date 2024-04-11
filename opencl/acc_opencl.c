@@ -980,10 +980,10 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
 
 int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_id) {
   /* accessing devices is thread-safe (array is fixed after initialization) */
-  const cl_device_id active_id = c_dbcsr_acc_opencl_config.devices[device_id];
+  const cl_device_id active_id =
+    ((0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices) ? c_dbcsr_acc_opencl_config.devices[device_id] : NULL);
   int result = EXIT_SUCCESS;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
-  assert(0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices);
   if (NULL != active_id) {
     cl_device_id context_id = NULL;
     cl_context context = NULL;
@@ -1318,6 +1318,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
 int c_dbcsr_acc_opencl_flags(
   const char build_params[], const char build_options[], const char try_build_options[], char buffer[], size_t buffer_size) {
   int result = EXIT_SUCCESS;
+  assert(NULL != c_dbcsr_acc_opencl_config.device.context);
   if (NULL != buffer) {
     const int std_clevel = 100 * c_dbcsr_acc_opencl_config.device.std_clevel[0] +
                            10 * c_dbcsr_acc_opencl_config.device.std_clevel[1];
@@ -1348,6 +1349,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
   cl_program program = NULL;
   FILE* file_src = NULL;
   size_t size_src = 0;
+  assert(NULL != c_dbcsr_acc_opencl_config.device.context);
   assert(NULL != kernel);
   *kernel = NULL;
   if (EXIT_SUCCESS == result && 0 != source_is_file) file_src = fopen(source, "rb");
@@ -1666,6 +1668,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 
 
 int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value) {
+  assert(NULL != c_dbcsr_acc_opencl_config.device.context);
   return (NULL != c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL
             ? c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL(kernel, arg_index, arg_value)
             : clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &arg_value));
