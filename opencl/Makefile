@@ -89,7 +89,7 @@ else ifneq (0,$(GNU))
   else
     override AR := ar
   endif
-  override LD_LIBRARY_DIRS := $(NULL)
+  #override LD_LIBRARY_DIRS := $(NULL)
 else
   CXX := g++
   CC := gcc
