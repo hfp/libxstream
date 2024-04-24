@@ -229,7 +229,7 @@ int c_dbcsr_acc_init(void) {
     const int nccs = (NULL == env_nccs ? ACC_OPENCL_NCCS : atoi(env_nccs));
 #  endif
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("ACC_OPENCL_WA");
-    const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), wa = neo * (NULL == env_wa ? 3 : atoi(env_wa));
+    const int neo = (NULL == env_neo ? 1 : atoi(env_neo)), wa = neo * (NULL == env_wa ? 7 : atoi(env_wa));
 #  if defined(ACC_OPENCL_ASYNC)
     const char* const env_async = (ACC_OPENCL_ASYNC);
     const int async_default = 3;
@@ -290,12 +290,12 @@ int c_dbcsr_acc_init(void) {
       ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ze_flat)); /* soft-error */
     }
 #  if defined(ACC_OPENCL_NCCS)
-    if (NULL == getenv("ZEX_NUMBER_OF_CCS") && 0 != nccs) {
+    if (NULL == getenv("ZEX_NUMBER_OF_CCS") && 0 != nccs && 0 == (1 & wa)) {
       static char zex_nccs[ACC_OPENCL_MAXNDEVS * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
       int j = strlen(zex_nccs);
       for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
         const char* const istr = (0 < i ? ",%u:%i" : "%u:%i");
-        const int n = LIBXSMM_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, istr, i, LIBXSMM_CLMP(nccs, 1, 0 != wa ? 2 : 4));
+        const int n = LIBXSMM_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, istr, i, LIBXSMM_CLMP(nccs, 1, 4));
         if (0 < n) j += n;
         else {
           j = 0;
@@ -306,14 +306,14 @@ int c_dbcsr_acc_init(void) {
       if (0 < j) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(zex_nccs)); /* soft-error */
     }
 #  endif
-    if (0 != wa) { /* environment is populated before touching the compute runtime */
+    if (~1 & wa) { /* environment is populated before touching the compute runtime */
       static char* key_value[] = {
         "NEOReadDebugKeys=1", "EnableRecoverablePageFaults=0", "DirectSubmissionOverrideBlitterSupport=0"};
       if (NULL == env_neo) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[0]));
-      if (0 != (1 & wa) && NULL == getenv("EnableRecoverablePageFaults")) {
+      if ((2 & wa) && NULL == getenv("EnableRecoverablePageFaults")) {
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[1]));
       }
-      if (0 != (2 & wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
+      if ((4 & wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
         ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[2]));
       }
     }
