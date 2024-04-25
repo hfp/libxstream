@@ -510,10 +510,10 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #      if defined(ATOMIC_INC_NZ)
           if (ZERO != CNM(idx, u))
 #      endif
-        {
-          ACCUMULATE(&CDX(u + m, idx), CNM(idx, u));
-          CNM(idx, u) = ZERO; /* reset */
-        }
+          {
+            ACCUMULATE(&CDX(u + m, idx), CNM(idx, u));
+            CNM(idx, u) = ZERO; /* reset */
+          }
 #    endif
       }
 #    if (0 < VM)
@@ -544,10 +544,10 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #        if defined(ATOMIC_INC_NZ)
         if (ZERO != CNM(idx, u))
 #        endif
-      {
-        ACCUMULATE(&CDX(u + m, idx), CNM(idx, u));
-        CNM(idx, u) = ZERO; /* reset */
-      }
+        {
+          ACCUMULATE(&CDX(u + m, idx), CNM(idx, u));
+          CNM(idx, u) = ZERO; /* reset */
+        }
 #      endif
 #    endif
 #  endif
