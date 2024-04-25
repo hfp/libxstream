@@ -628,6 +628,8 @@ int c_dbcsr_acc_init(void) {
           else {
             result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, device_id);
           }
+#  else
+          c_dbcsr_acc_opencl_config.device.uid = (cl_uint)device_id; /* hack */
 #  endif
           if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
             char platform_name[ACC_OPENCL_BUFFERSIZE];
