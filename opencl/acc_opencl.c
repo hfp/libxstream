@@ -164,7 +164,7 @@ LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
     for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
       const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[i];
       if (NULL != device_id) {
-#  if defined(CL_VERSION_1_2)
+#  if defined(CL_VERSION_1_2) && 0 /* avoid potential segfault */
         ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseDevice(device_id));
 #  endif
         /* c_dbcsr_acc_opencl_create_context scans for non-NULL devices */
