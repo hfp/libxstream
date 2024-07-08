@@ -1279,8 +1279,8 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
             }
             else { /* GCN */
               atomic_exp = (c_dbcsr_acc_opencl_atomic_fp_64 == kind
-                              ? "__builtin_amdgcn_global_atomic_fadd_f64(A,B,__ATOMIC_RELAXED)"
-                              : "__builtin_amdgcn_global_atomic_fadd_f32(A,B,__ATOMIC_RELAXED)");
+                              ? "__builtin_amdgcn_global_atomic_fadd_f64(A,B,__ATOMIC_RELAXED,__OPENCL_MEMORY_SCOPE_WORK_GROUP)"
+                              : "__builtin_amdgcn_global_atomic_fadd_f32(A,B,__ATOMIC_RELAXED,__OPENCL_MEMORY_SCOPE_WORK_GROUP)");
             }
           }
           else { /* xchg */
