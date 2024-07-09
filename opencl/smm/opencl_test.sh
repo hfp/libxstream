@@ -10,7 +10,7 @@
 
 HERE="$(cd "$(dirname "$0")" && pwd -P)"
 TEST=acc_bench_smm
-EXE=${HERE}/../${TEST}
+EXE=${HERE}/../../${TEST}
 
 if [ ! -e "$1" ]; then
   >&2 echo "USAGE: $0 logfile"
