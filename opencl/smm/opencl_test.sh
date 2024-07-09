@@ -21,12 +21,14 @@ if [ ! -e "${EXE}" ]; then
   exit 1
 fi
 
-sed -n "s/FAILED: \(..*\)/\1/p" "$1" | while read -r LINE; do
+sed -n "s/FAILED\[..*\] \(..*\): \(..*\)/\1 \2/p" "$1" | while read -r LINE; do
+  read -r MNK KEYVALS <<<"${LINE}"
   EXPORT=""
-  for KEYVAL in ${LINE}; do
+  for KEYVAL in ${KEYVALS}; do
     EXPORT="${EXPORT} OPENCL_LIBSMM_SMM_${KEYVAL}"
   done
   if [ "${EXPORT}" ]; then
-    eval "${EXPORT} ${EXE}"
+    OUTPUT=$(eval "${EXPORT} ${EXE} ${MNK} 2>&1" | sed "s/^/  /")
+    echo -e "${MNK}: ${KEYVALS}\n${OUTPUT}"
   fi
 done

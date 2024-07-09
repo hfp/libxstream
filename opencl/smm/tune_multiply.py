@@ -325,7 +325,7 @@ class SmmTuner(MeasurementInterface):
                 else runcmd
             )
             mnk = "x".join(map(str, self.mnk))
-            print("FAILED-{} ({}): {}".format(returncode, mnk, failed), flush=True)
+            print("FAILED[{}] {}: {}".format(returncode, mnk, failed), flush=True)
             return Result(time=float("inf"), accuracy=0.0, size=100.0)
 
     def update_jsons(self, filenames):
