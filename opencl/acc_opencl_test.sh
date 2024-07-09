@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 ####################################################################################################
 # Copyright (C) by the DBCSR developers group - All rights reserved                                #
 # This file is part of the DBCSR library.                                                          #
@@ -6,7 +7,6 @@
 # For further information please visit https://dbcsr.cp2k.org                                      #
 # SPDX-License-Identifier: BSD-3-Clause                                                            #
 ####################################################################################################
-<<<<<<<< HEAD:src/acc/opencl/acc_opencl_test.sh
 
 HERE="$(cd "$(dirname "$0")" && pwd -P)"
 TEST=acc_bench_smm
@@ -30,5 +30,3 @@ sed -n "s/FAILED: \(..*\)/\1/p" "$1" | while read -r LINE; do
     eval "${EXPORT} ${EXE}"
   fi
 done
-========
->>>>>>>> ocl:.pre-commit/headers/python.2

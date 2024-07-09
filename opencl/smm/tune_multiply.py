@@ -6,7 +6,6 @@
 # For information on the license, see the LICENSE file.                                            #
 # For further information please visit https://dbcsr.cp2k.org                                      #
 # SPDX-License-Identifier: BSD-3-Clause                                                            #
-# SPDX-License-Identifier: BSD-3-Clause                                                            #
 ####################################################################################################
 import opentuner
 from opentuner.search.manipulator import IntegerParameter
