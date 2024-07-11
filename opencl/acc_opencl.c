@@ -15,7 +15,7 @@
 #    include <windows.h>
 #    include <process.h>
 #  else
-#    if !defined(ACC_OPENCL_DL) && 1
+#    if !defined(ACC_OPENCL_DL) && !defined(NDEBUG)
 #      define ACC_OPENCL_DL
 #    endif
 #    include <unistd.h>
