@@ -378,10 +378,10 @@ int c_dbcsr_acc_init(void) {
       if (NULL == handle_libze) handle_libze = dlopen("libze_intel_gpu.so.1", RTLD_LAZY);
       ze_init.dlsym = (NULL != handle_libze ? dlsym(handle_libze, "zeInit") : NULL);
       if (NULL != ze_init.dlsym) {
+        const int ze_init_result = ze_init.ptr(0);
         if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-          fprintf(stderr, "INFO ACC/OpenCL: Level-0 initialized\n");
+          fprintf(stderr, "INFO ACC/OpenCL: Level-0 initialized (%i)\n", ze_init_result);
         }
-        ze_init.ptr(0);
       }
     }
 #  endif
