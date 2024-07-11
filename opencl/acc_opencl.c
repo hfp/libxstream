@@ -380,7 +380,7 @@ int c_dbcsr_acc_init(void) {
       if (NULL != ze_init.dlsym) {
         const int ze_init_result = ze_init.ptr(0);
         if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-          fprintf(stderr, "INFO ACC/OpenCL: Level-0 initialized (%i)\n", ze_init_result);
+          fprintf(stderr, "INFO ACC/OpenCL: Level-0 initialized (0x%08x)\n", ze_init_result);
         }
       }
     }
