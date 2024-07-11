@@ -15,12 +15,18 @@
 #    include <windows.h>
 #    include <process.h>
 #  else
+#    if !defined(ACC_OPENCL_DL) && 1
+#      define ACC_OPENCL_DL
+#    endif
 #    include <unistd.h>
 #    include <errno.h>
 #    include <glob.h>
 #  endif
 #  if defined(__DBCSR_ACC)
 #    include "../acc_libsmm.h"
+#  endif
+#  if defined(ACC_OPENCL_DL)
+#    include <dlfcn.h>
 #  endif
 #  include <fcntl.h>
 #  include <sys/stat.h>
@@ -352,6 +358,17 @@ int c_dbcsr_acc_init(void) {
         ACC_OPENCL_EXPECT(0 == mkdir(env_cachedir, mode) || EEXIST == errno); /* soft-error */
 #    endif
       }
+    }
+#  endif
+#  if defined(ACC_OPENCL_DL)
+    { /* initialize L0 to allow, e.g., I_MPI_OFFLOAD */
+      union { const void* dlsym; int (*ptr)(int flags); } ze_init;
+      void* handle_libze = NULL;
+      dlerror(); /* clear an eventual error status */
+      handle_libze = dlopen("libze_intel_gpu.so", RTLD_LAZY);
+      if (NULL == handle_libze) handle_libze = dlopen("libze_intel_gpu.so.1", RTLD_LAZY);
+      ze_init.dlsym = (NULL != handle_libze ? dlsym(handle_libze, "zeInit") : NULL);
+      if (NULL != ze_init.dlsym) ze_init.ptr(0);
     }
 #  endif
     if (EXIT_SUCCESS == clGetPlatformIDs(0, NULL, &nplatforms) && 0 < nplatforms) {
