@@ -373,8 +373,8 @@ class SmmTuner(MeasurementInterface):
             return  # early exit
         merged, worse = dict(), dict()
         for filename in filenames:
+            data = dict()
             try:
-                data = dict()
                 with open(filename, "r") as file:
                     data = json.load(file)
                 if self.args.merge is not None and (
@@ -410,22 +410,25 @@ class SmmTuner(MeasurementInterface):
                     data["XF"] if "XF" in data else 0,
                     filename,  # last entry
                 )
-                if key not in merged:
-                    merged[key] = value
-                else:
-                    filename2 = merged[key][-1]
-                    if merged[key][1] <= value[1]:  # GFLOPS
-                        merged[key] = value
-                    else:
-                        filename2 = filename
-                    if key in worse:
-                        worse[key].append(filename2)
-                    else:
-                        worse[key] = [filename2]
             except (json.JSONDecodeError, KeyError, TypeError):
                 print("Failed to merge {} into CSV-file.".format(filename))
+                data = dict()
             except:  # noqa: E722
+                data = dict()
                 pass
+            if bool(data) and key in merged:
+                filename2 = merged[key][-1]
+                if value[1] < merged[key][1]:  # GFLOPS
+                    filename2, data = filename, dict()
+                if key in worse:
+                    worse[key].append(filename2)
+                else:
+                    worse[key] = [filename2]
+            if bool(data) and (
+                (self.args.check is not None and 0 == self.args.check)
+                or 0 == self.run(data)
+            ):
+                merged[key] = value
         if bool(merged):
             with open(self.args.csvfile, "w") as csvfile:
                 csvfile.write(  # CSV header line with termination/newline
@@ -442,14 +445,9 @@ class SmmTuner(MeasurementInterface):
                     )
                 )
                 for key, value in sorted(merged.items()):  # CSV data lines
-                    if (
-                        self.args.check is not None and 0 == self.args.check
-                    ) or 0 == self.run(data):
-                        strkey = self.args.csvsep.join([str(k) for k in key])
-                        strval = self.args.csvsep.join([str(v) for v in value[:-1]])
-                        csvfile.write(
-                            "{}{}{}\n".format(strkey, self.args.csvsep, strval)
-                        )
+                    strkey = self.args.csvsep.join([str(k) for k in key])
+                    strval = self.args.csvsep.join([str(v) for v in value[:-1]])
+                    csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
                 retsld, delsld = [0, 0, 0], [0, 0, 0]  # [min, geo, max]
                 retain, delete = [], []  # lists of filenames
                 retcnt = delcnt = 0  # geo-counter
