@@ -238,14 +238,15 @@ class SmmTuner(MeasurementInterface):
     def launch(self, envs, nrep=None, verbose=None):
         """Launch executable supplying environment and arguments"""
         if isinstance(envs, list):
-            mnk = " ".join(map(str, self.mnk))
+            mnk = self.mnk
             envlist = envs
         else:
-            mnk = "{} {} {}".format(envs["M"], envs["N"], envs["K"])
+            mnk = (envs["M"], envs["N"], envs["K"])
             envlist = self.environment(envs)
         envstrs = " ".join(map(str, envlist))
         if verbose is not None and 0 != int(verbose):
-            print(envstrs.replace("OPENCL_LIBSMM_SMM_", "").replace(" CHECK=0", ""))
+            msg = envstrs.replace("OPENCL_LIBSMM_SMM_", "").replace(" CHECK=0", "")
+            print("{}: {}".format("x".join(map(str, mnk)), msg))
         env_std = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0 NEO_CACHE_PERSISTENT=0"
         env_exe = "{} {} {}".format(  # consider device-id
             "" if self.idevice is None else "ACC_OPENCL_DEVICE={}".format(self.idevice),
@@ -255,7 +256,7 @@ class SmmTuner(MeasurementInterface):
         arg_exe = "{} {} {}".format(
             self.args.r if nrep is None else nrep,
             self.size if self.size else self.args.size,
-            mnk,
+            " ".join(map(str, mnk)),
         ).strip()
         return "{} {}".format(env_exe, arg_exe)
 
@@ -410,17 +411,11 @@ class SmmTuner(MeasurementInterface):
                     filename,  # last entry
                 )
                 if key not in merged:
-                    if (
-                        self.args.check is not None and 0 == self.args.check
-                    ) or 0 == self.run(data):
-                        merged[key] = value
+                    merged[key] = value
                 else:
                     filename2 = merged[key][-1]
                     if merged[key][1] <= value[1]:  # GFLOPS
-                        if (
-                            self.args.check is not None and 0 == self.args.check
-                        ) or 0 == self.run(data):
-                            merged[key] = value
+                        merged[key] = value
                     else:
                         filename2 = filename
                     if key in worse:
@@ -447,9 +442,14 @@ class SmmTuner(MeasurementInterface):
                     )
                 )
                 for key, value in sorted(merged.items()):  # CSV data lines
-                    strkey = self.args.csvsep.join([str(k) for k in key])
-                    strval = self.args.csvsep.join([str(v) for v in value[:-1]])
-                    csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
+                    if (
+                        self.args.check is not None and 0 == self.args.check
+                    ) or 0 == self.run(data):
+                        strkey = self.args.csvsep.join([str(k) for k in key])
+                        strval = self.args.csvsep.join([str(v) for v in value[:-1]])
+                        csvfile.write(
+                            "{}{}{}\n".format(strkey, self.args.csvsep, strval)
+                        )
                 retsld, delsld = [0, 0, 0], [0, 0, 0]  # [min, geo, max]
                 retain, delete = [], []  # lists of filenames
                 retcnt = delcnt = 0  # geo-counter
