@@ -76,8 +76,9 @@ class SmmTuner(MeasurementInterface):
         self.exepath = os.path.join(
             os.path.dirname(sys.argv[0]), "..", "..", self.exename
         )
+        runcmd = self.launch(["ACC_OPENCL_VERBOSE=2"], 0, nrep=1)
         self.run_result = (  # verbosity to capture device name and tuned parameters
-            self.call_program(self.launch(["ACC_OPENCL_VERBOSE=2"], 0, nrep=1))
+            self.call_program(" ".join(runcmd))
             if (self.args.merge is None or 0 > self.args.merge)
             and (self.args.update is None or "" == self.args.update)
             else None
@@ -258,7 +259,7 @@ class SmmTuner(MeasurementInterface):
             self.size if self.size else self.args.size,
             " ".join(map(str, mnk)),
         ).strip()
-        return "{} {} {}".format(env_exe, self.exepath, arg_exe)
+        return [env_exe, self.exepath, arg_exe]
 
     def seed_configurations(self):
         return [
@@ -299,10 +300,12 @@ class SmmTuner(MeasurementInterface):
         """Run a configuration and return performance"""
         try:
             config = desired_result.configuration.data
+            nrep = 0  # default
         except AttributeError:
             config = desired_result
-        runcmd = self.launch(config, self.args.check, verbose=self.args.verbose)
-        self.run_result = self.call_program(runcmd)
+            nrep = 1  # limit
+        runcmd = self.launch(config, self.args.check, nrep, self.args.verbose)
+        self.run_result = self.call_program(" ".join(runcmd))
         result = self.run_result["returncode"] if self.run_result else 1
         if 0 == result:
             performance = re.search(
@@ -331,11 +334,7 @@ class SmmTuner(MeasurementInterface):
         else:  # return non-competitive/bad result in case of an error
             if config is not desired_result:
                 result = Result(time=float("inf"), accuracy=0.0, size=100.0)
-            failed = (
-                " ".join(map(str, config)).replace("OPENCL_LIBSMM_SMM_", "")
-                if not self.args.verbose
-                else runcmd
-            )
+            failed = runcmd[0].replace("OPENCL_LIBSMM_SMM_", "")
             mnk = "x".join(map(str, self.mnk))
             print("FAILED[{}] {}: {}".format(result, mnk, failed), flush=True)
         return result
@@ -522,7 +521,7 @@ class SmmTuner(MeasurementInterface):
         envchk = os.getenv("CHECK")  # force CHECKing result unless CHECK=0
         result = self.run_result["returncode"] if config and self.run_result else 1
         if 0 == result and 0 == self.args.check and (envchk is None or "0" != envchk):
-            self.run_result = self.call_program(self.launch(cfgenv, 1))
+            self.run_result = self.call_program(" ".join(self.launch(cfgenv, 1)))
             result = self.run_result["returncode"] if self.run_result else 1
         # extend result for easier reuse
         if config:
