@@ -77,7 +77,7 @@ class SmmTuner(MeasurementInterface):
             os.path.dirname(sys.argv[0]), "..", "..", self.exename
         )
         self.run_result = (  # verbosity to capture device name and tuned parameters
-            self.call_program(self.launch(["ACC_OPENCL_VERBOSE=2", "CHECK=0"], nrep=1))
+            self.call_program(self.launch(["ACC_OPENCL_VERBOSE=2"], 0, nrep=1))
             if (self.args.merge is None or 0 > self.args.merge)
             and (self.args.update is None or "" == self.args.update)
             else None
@@ -235,7 +235,7 @@ class SmmTuner(MeasurementInterface):
         if attribute is None:
             setattr(self, name.lower(), value)
 
-    def launch(self, envs, nrep=None, verbose=None):
+    def launch(self, envs, check, nrep=None, verbose=None):
         """Launch executable supplying environment and arguments"""
         if isinstance(envs, list):
             mnk = self.mnk
@@ -245,12 +245,13 @@ class SmmTuner(MeasurementInterface):
             envlist = self.environment(envs)
         envstrs = " ".join(map(str, envlist))
         if verbose is not None and 0 != int(verbose):
-            msg = envstrs.replace("OPENCL_LIBSMM_SMM_", "").replace(" CHECK=0", "")
+            msg = envstrs.replace("OPENCL_LIBSMM_SMM_", "")
             print("{}: {}".format("x".join(map(str, mnk)), msg))
         env_std = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0 NEO_CACHE_PERSISTENT=0"
+        env_chk = "CHECK={}".format(check if check is not None else 1)
         env_exe = "{} {}".format(  # consider device-id
             "" if self.idevice is None else "ACC_OPENCL_DEVICE={}".format(self.idevice),
-            "{} {}".format(env_std, envstrs),  # environment
+            "{} {} {}".format(env_std, env_chk, envstrs),  # environment
         ).strip()
         arg_exe = "{} {} {}".format(
             self.args.r if nrep is None else nrep,
@@ -296,13 +297,11 @@ class SmmTuner(MeasurementInterface):
 
     def run(self, desired_result, input=None, limit=None):
         """Run a configuration and return performance"""
-        cfgenv = {"CHECK": self.args.check if self.args.check is not None else 1}
         try:
             config = desired_result.configuration.data
         except AttributeError:
             config = desired_result
-        cfgenv.update(config)
-        runcmd = self.launch(cfgenv, verbose=self.args.verbose)
+        runcmd = self.launch(config, self.args.check, verbose=self.args.verbose)
         self.run_result = self.call_program(runcmd)
         result = self.run_result["returncode"] if self.run_result else 1
         if 0 == result:
@@ -333,7 +332,7 @@ class SmmTuner(MeasurementInterface):
             if config is not desired_result:
                 result = Result(time=float("inf"), accuracy=0.0, size=100.0)
             failed = (
-                " ".join(map(str, cfgenv)).replace("OPENCL_LIBSMM_SMM_", "")
+                " ".join(map(str, config)).replace("OPENCL_LIBSMM_SMM_", "")
                 if not self.args.verbose
                 else runcmd
             )
@@ -520,10 +519,10 @@ class SmmTuner(MeasurementInterface):
             return  # nothing to save
         config = configuration.data if configuration else None
         cfgenv = self.environment(config) if config else None
-        envchk = os.getenv("CHECK")  # conside CHECKing result unless CHECK=0
+        envchk = os.getenv("CHECK")  # force CHECKing result unless CHECK=0
         result = self.run_result["returncode"] if config and self.run_result else 1
         if 0 == result and 0 == self.args.check and (envchk is None or "0" != envchk):
-            self.run_result = self.call_program(self.launch(cfgenv + ["CHECK=1"]))
+            self.run_result = self.call_program(self.launch(cfgenv, 1))
             result = self.run_result["returncode"] if self.run_result else 1
         # extend result for easier reuse
         if config:
