@@ -244,22 +244,22 @@ class SmmTuner(MeasurementInterface):
         else:
             mnk = (envs["M"], envs["N"], envs["K"])
             envlist = self.environment(envs)
-        envstrs = " ".join(map(str, envlist))
+        env_exe = " ".join(map(str, envlist))
         if verbose is not None and 0 != int(verbose):
-            msg = envstrs.replace("OPENCL_LIBSMM_SMM_", "")
+            msg = env_exe.replace("OPENCL_LIBSMM_SMM_", "")
             print("{}: {}".format("x".join(map(str, mnk)), msg))
         env_std = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0 NEO_CACHE_PERSISTENT=0"
-        env_chk = "CHECK={}".format(check if check is not None else 1)
-        env_exe = "{} {}".format(  # consider device-id
+        env_check = "CHECK={}".format(check if check is not None else 1)
+        env_intrn = "{} {}".format(  # consider device-id
             "" if self.idevice is None else "ACC_OPENCL_DEVICE={}".format(self.idevice),
-            "{} {} {}".format(env_std, env_chk, envstrs),  # environment
+            "{} {}".format(env_std, env_check),  # environment
         ).strip()
         arg_exe = "{} {} {}".format(
             self.args.r if nrep is None else nrep,
             self.size if self.size else self.args.size,
             " ".join(map(str, mnk)),
         ).strip()
-        return [env_exe, self.exepath, arg_exe]
+        return [env_exe, env_intrn, self.exepath, arg_exe]
 
     def seed_configurations(self):
         return [
