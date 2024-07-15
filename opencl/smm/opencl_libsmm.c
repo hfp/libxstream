@@ -567,6 +567,9 @@ int libsmm_acc_init(void) {
         }
 #  endif
       }
+#  if defined(OPENCL_LIBSMM_VALIDATE)
+      c_dbcsr_acc_opencl_config.xhints &= ~1; /* disable USM */
+#  endif
     }
   }
   ACC_OPENCL_RETURN(result);
