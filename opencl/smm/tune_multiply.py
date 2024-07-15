@@ -248,17 +248,16 @@ class SmmTuner(MeasurementInterface):
             msg = envstrs.replace("OPENCL_LIBSMM_SMM_", "").replace(" CHECK=0", "")
             print("{}: {}".format("x".join(map(str, mnk)), msg))
         env_std = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0 NEO_CACHE_PERSISTENT=0"
-        env_exe = "{} {} {}".format(  # consider device-id
+        env_exe = "{} {}".format(  # consider device-id
             "" if self.idevice is None else "ACC_OPENCL_DEVICE={}".format(self.idevice),
             "{} {}".format(env_std, envstrs),  # environment
-            self.exepath,  # executable file
         ).strip()
         arg_exe = "{} {} {}".format(
             self.args.r if nrep is None else nrep,
             self.size if self.size else self.args.size,
             " ".join(map(str, mnk)),
         ).strip()
-        return "{} {}".format(env_exe, arg_exe)
+        return [env_exe, self.exepath, arg_exe]
 
     def seed_configurations(self):
         return [
