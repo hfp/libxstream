@@ -244,12 +244,8 @@ class SmmTuner(MeasurementInterface):
 
     def launch(self, envs, check, nrep=None, verbose=None):
         """Launch executable supplying environment and arguments"""
-        if isinstance(envs, list):
-            mnk = self.mnk
-            envlist = envs
-        else:
-            mnk = (envs["M"], envs["N"], envs["K"])
-            envlist = self.environment(envs)
+        envlist = envs if isinstance(envs, list) else self.environment(envs)
+        mnk = (envs["M"], envs["N"], envs["K"]) if "M" in envs else self.mnk
         env_exe = " ".join(map(str, envlist))
         if verbose is not None and 0 != int(verbose):
             msg = env_exe.replace("OPENCL_LIBSMM_SMM_", "")
@@ -522,6 +518,8 @@ class SmmTuner(MeasurementInterface):
             msg = "Merged {} of {} JSONs into {}".format(
                 len(merged), len(filenames), self.args.csvfile
             )
+            if self.args.check is None or 0 != self.args.check:
+                print("")
             print(msg)
 
     def save_final_config(self, configuration, final=True):
