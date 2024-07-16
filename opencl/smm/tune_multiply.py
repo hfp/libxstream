@@ -335,12 +335,12 @@ class SmmTuner(MeasurementInterface):
                         self.save_final_config(
                             desired_result.configuration, final=False
                         )
-            else:
+            elif not self.args.verbose:
                 print(".", end="", flush=True)
         else:  # return non-competitive/bad result in case of an error
             if config is not desired_result:
                 result = Result(time=float("inf"), accuracy=0.0, size=100.0)
-            else:
+            elif not self.args.verbose:
                 print("")
             failed = runcmd[0].replace("OPENCL_LIBSMM_SMM_", "")
             msg = "FAILED[{}] {}: {}".format(result, "x".join(map(str, mnk)), failed)
@@ -518,7 +518,9 @@ class SmmTuner(MeasurementInterface):
             msg = "Merged {} of {} JSONs into {}".format(
                 len(merged), len(filenames), self.args.csvfile
             )
-            if self.args.check is None or 0 != self.args.check:
+            if (
+                self.args.check is None or 0 != self.args.check
+            ) and not self.args.verbose:
                 print("")
             print(msg)
 
