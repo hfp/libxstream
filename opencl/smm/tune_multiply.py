@@ -79,7 +79,10 @@ class SmmTuner(MeasurementInterface):
         runcmd = self.launch(["ACC_OPENCL_VERBOSE=2"], 0, nrep=1)
         self.run_result = (  # verbosity to capture device name and tuned parameters
             self.call_program(" ".join(runcmd))
-            if (self.args.merge is None or 0 > self.args.merge)
+            if (  # consider validating parameters during merge
+                (self.args.merge is None or 0 > self.args.merge)
+                or (self.args.check is None or 0 != self.args.check)
+            )
             and (self.args.update is None or "" == self.args.update)
             else None
         )
@@ -154,10 +157,13 @@ class SmmTuner(MeasurementInterface):
             for param in params + paramt:
                 manipulator.add_parameter(param)
         if (  # consider to update and/or merge JSONS (update first)
-            (self.args.merge is not None and (0 <= self.args.merge or self.typeid))
-            or self.args.update is None
-            or "" != self.args.update
-        ):
+            self.args.merge is not None
+            and (0 <= self.args.merge or self.typeid)
+            and (
+                (self.args.check is not None and 0 == self.args.check)
+                or (self.run_result and 0 == self.run_result["returncode"])
+            )
+        ) or (self.args.update is None or "" != self.args.update):
             filepattern = "{}-*.json".format(default_basename)
             filenames = glob.glob(
                 os.path.normpath(os.path.join(self.args.jsondir, filepattern))
@@ -300,9 +306,11 @@ class SmmTuner(MeasurementInterface):
         """Run a configuration and return performance"""
         try:
             config = desired_result.configuration.data
+            mnk = self.mnk
             nrep = 0  # default
         except AttributeError:
             config = desired_result
+            mnk = (config["M"], config["N"], config["K"])
             nrep = 1  # limit
         runcmd = self.launch(config, self.args.check, nrep, self.args.verbose)
         self.run_result = self.call_program(" ".join(runcmd))
@@ -331,12 +339,14 @@ class SmmTuner(MeasurementInterface):
                         self.save_final_config(
                             desired_result.configuration, final=False
                         )
+            else:
+                print(".", end="", flush=True)
         else:  # return non-competitive/bad result in case of an error
             if config is not desired_result:
                 result = Result(time=float("inf"), accuracy=0.0, size=100.0)
             failed = runcmd[0].replace("OPENCL_LIBSMM_SMM_", "")
-            mnk = "x".join(map(str, self.mnk))
-            print("FAILED[{}] {}: {}".format(result, mnk, failed), flush=True)
+            msg = "FAILED[{}] {}: {}".format(result, "x".join(map(str, mnk)), failed)
+            print(msg, flush=True)
         return result
 
     def update_jsons(self, filenames):
