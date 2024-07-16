@@ -344,6 +344,8 @@ class SmmTuner(MeasurementInterface):
         else:  # return non-competitive/bad result in case of an error
             if config is not desired_result:
                 result = Result(time=float("inf"), accuracy=0.0, size=100.0)
+            else:
+                print("")
             failed = runcmd[0].replace("OPENCL_LIBSMM_SMM_", "")
             msg = "FAILED[{}] {}: {}".format(result, "x".join(map(str, mnk)), failed)
             print(msg, flush=True)
