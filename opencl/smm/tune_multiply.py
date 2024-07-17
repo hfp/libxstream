@@ -319,22 +319,22 @@ class SmmTuner(MeasurementInterface):
         if performance and performance.group(1) and performance.group(2):
             mseconds = float(performance.group(1))
             gflops = float(performance.group(2))
+            if self.gflops < gflops:
+                self.gflops = gflops
+                if 0 == self.gfbase:  # seed configuration
+                    self.gfbase = gflops
             if config is not desired_result:
                 kernelreq = round((100.0 * config["BM"] * config["BN"]) / self.wsx)
                 # gflops are reported as "accuracy" (console output)
                 result = Result(time=mseconds, accuracy=gflops, size=kernelreq)
-                if self.gflops < gflops:
-                    # keep best configuration in case of an early exit
+                if self.gflops < gflops:  # keep best config in case of early exit
                     self.config = desired_result.configuration
-                    self.gflops = gflops
-                    if 0 == self.gfbase:  # seed configuration
-                        self.gfbase = gflops
-                    else:
-                        self.save_final_config(
-                            desired_result.configuration, final=False
-                        )
-            elif not self.args.verbose:
-                print(".", end="", flush=True)
+                    if 0 != self.gfbase:
+                        self.save_final_config(self.config, final=False)
+            else:  # collect summary stats during validation
+                #
+                if not self.args.verbose:
+                    print(".", end="", flush=True)
         else:  # return non-competitive/bad result in case of an error
             failed = runcmd[0].replace("OPENCL_LIBSMM_SMM_", "")
             msg = "FAILED[{}] {}: {}".format(result, "x".join(map(str, mnk)), failed)
