@@ -49,12 +49,14 @@ def ilog2(n):
 
 
 class SmmTuner(MeasurementInterface):
-    def __init__(self, args):
+    def __init__(self, args, argd):
         """Setup common state and define search space"""
         super(SmmTuner, self).__init__(args)
         manipulator = ConfigurationManipulator()
-        # parse and sanitize kernel shape argument
-        if not self.args.mnk:
+        if self.args.jsondir == argd.jsondir and os.path.isdir(self.args.mnk):
+            self.args.jsondir = self.args.mnk
+            self.args.mnk = default_mnk
+        elif not self.args.mnk:  # parse and sanitize kernel shape
             self.args.mnk = default_mnk
         mnk = tuple(max(int(i), 1) for i in self.args.mnk.split("x"))
         self.mnk = (mnk + (mnk[0], mnk[0]))[:3]
@@ -319,22 +321,19 @@ class SmmTuner(MeasurementInterface):
         if performance and performance.group(1) and performance.group(2):
             mseconds = float(performance.group(1))
             gflops = float(performance.group(2))
-            if self.gflops < gflops:
-                self.gflops = gflops
-                if 0 == self.gfbase:  # seed configuration
-                    self.gfbase = gflops
             if config is not desired_result:
                 kernelreq = round((100.0 * config["BM"] * config["BN"]) / self.wsx)
                 # gflops are reported as "accuracy" (console output)
                 result = Result(time=mseconds, accuracy=gflops, size=kernelreq)
                 if self.gflops < gflops:  # keep best config in case of early exit
                     self.config = desired_result.configuration
+                    self.gflops = gflops
                     if 0 != self.gfbase:
                         self.save_final_config(self.config, final=False)
-            else:  # collect summary stats during validation
-                #
-                if not self.args.verbose:
-                    print(".", end="", flush=True)
+                    else:  # seed configuration
+                        self.gfbase = gflops
+            elif not self.args.verbose:
+                print(".", end="", flush=True)
         else:  # return non-competitive/bad result in case of an error
             failed = runcmd[0].replace("OPENCL_LIBSMM_SMM_", "")
             msg = "FAILED[{}] {}: {}".format(result, "x".join(map(str, mnk)), failed)
@@ -447,7 +446,12 @@ class SmmTuner(MeasurementInterface):
                         self.args.csvsep.join(["TB", "TC", "AP", "AA", "AB", "AC"]),
                     )
                 )
+                geosum = geocnt = 0
                 for key, value in sorted(merged.items()):  # CSV data lines
+                    gflops = value[1]
+                    if 0 < gflops:
+                        geosum = geosum + math.log(gflops)
+                        geocnt = geocnt + 1
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in value[:-1]])
                     csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
@@ -516,9 +520,13 @@ class SmmTuner(MeasurementInterface):
             msg = "Merged {} of {} JSONs into {}".format(
                 len(merged), len(filenames), self.args.csvfile
             )
-            if (
+            if 0 < geocnt:
+                msg = "{} (geometric mean of {} GFLOPS/s)".format(
+                    msg, round(math.exp(geosum / geocnt))
+                )
+            if not self.args.verbose and (
                 self.args.check is None or 0 != self.args.check
-            ) and not self.args.verbose:
+            ):
                 print("")
             print(msg)
 
@@ -869,7 +877,7 @@ if __name__ == "__main__":
         dest="size",
         help="Size of batch (a.k.a. stacksize)",
     )
-    args = argparser.parse_args()
+    args, argd = argparser.parse_args(), argparser.parse_args([])
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in default_enable_tune:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
@@ -892,11 +900,11 @@ if __name__ == "__main__":
         os.environ["OPENCL_LIBSMM_SMM_LU"] = "{}".format(args.lu)
     if 0 == args.mb:
         args.mb = 64
-    instance = SmmTuner(args)
+    instance = SmmTuner(args, argd)
     if not default_dbg:
         for retry in range(default_retry):
             try:
-                TuningRunMain(instance, args).main()
+                TuningRunMain(instance, args, argd).main()
                 exit(0)
             except Exception as e:
                 ign = (
@@ -908,4 +916,4 @@ if __name__ == "__main__":
                 pass
         instance.save_final_config(None, True)
     else:
-        TuningRunMain(instance, args).main()
+        TuningRunMain(instance, args, argd).main()
