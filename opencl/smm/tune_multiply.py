@@ -303,12 +303,10 @@ class SmmTuner(MeasurementInterface):
         try:
             config = desired_result.configuration.data
             mnk = self.mnk
-            nrep = 0  # default
         except AttributeError:
             config = desired_result
             mnk = (config["M"], config["N"], config["K"])
-            nrep = 1  # limit
-        runcmd = self.launch(config, self.args.check, nrep, self.args.verbose)
+        runcmd = self.launch(config, self.args.check, verbose=self.args.verbose)
         self.run_result = self.call_program(" ".join(runcmd))
         result = self.run_result["returncode"] if self.run_result else 1
         if 0 == result:
