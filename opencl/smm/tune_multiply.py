@@ -936,6 +936,7 @@ if __name__ == "__main__":
                     args.mnk = line.strip()
                     if args.mnk:
                         start(args)
+                        print("")
         elif os.path.isdir(args.mnk):
             args.jsondir = args.mnk
             args.mnk = default_mnk
