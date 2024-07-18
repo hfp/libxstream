@@ -441,12 +441,15 @@ class SmmTuner(MeasurementInterface):
                         self.args.csvsep.join(["TB", "TC", "AP", "AA", "AB", "AC"]),
                     )
                 )
-                geosum = geocnt = 0
+                typeid = geosum = geocnt = 0
                 for key, value in sorted(merged.items()):  # CSV data lines
-                    gflops = value[1]
+                    typeid = key[1] if 0 == typeid or typeid == key[1] else None
+                    # FLOPS are normalized for double-precision
+                    gflops = value[1] if 1 != key[1] else value[1] * 0.5
                     if 0 < gflops:
                         geosum = geosum + math.log(gflops)
                         geocnt = geocnt + 1
+
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in value[:-1]])
                     csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
@@ -455,8 +458,8 @@ class SmmTuner(MeasurementInterface):
                 retcnt = delcnt = 0  # geo-counter
                 retbad = None
                 for key, value in worse.items():
-                    gflops = round(merged[key][1])
-                    mtime = os.path.getmtime(merged[key][-1])
+                    gflops_raw = merged[key][1] if 1 != key[1] else merged[key][1] * 0.5
+                    gflops, mtime = round(gflops_raw), os.path.getmtime(merged[key][-1])
                     for filename in value:
                         s = 0
                         if 0 < gflops:
@@ -516,8 +519,14 @@ class SmmTuner(MeasurementInterface):
                 len(merged), len(filenames), self.args.csvfile
             )
             if 0 < geocnt:
-                msg = "{} (geometric mean of {} GFLOPS/s)".format(
-                    msg, round(math.exp(geosum / geocnt))
+                precfac, precstr = 1, ""
+                if 1 == typeid:
+                    precstr = "SP-"
+                    precfac = 2
+                elif typeid is not None:
+                    precstr = "DP-"
+                msg = "{} (geometric mean of {} {}GFLOPS/s)".format(
+                    msg, round(math.exp(geosum / geocnt) * precfac), precstr
                 )
             if not self.args.verbose and (
                 self.args.check is None or 0 != self.args.check
@@ -899,6 +908,8 @@ if __name__ == "__main__":
     if args.jsondir == argd.jsondir and os.path.isdir(args.mnk):
         args.jsondir = args.mnk
         args.mnk = default_mnk
+        if args.merge is None:
+            args.merge = -1
     elif not args.mnk:  # parse and sanitize kernel shape
         args.mnk = default_mnk
     # construct tuner instance
