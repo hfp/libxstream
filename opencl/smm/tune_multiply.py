@@ -73,10 +73,10 @@ class SmmTuner(MeasurementInterface):
     def __init__(self, args):
         """Setup common state and define search space"""
         super(SmmTuner, self).__init__(args)
-        manipulator = ConfigurationManipulator()
         mnk = tuple(max(int(i), 1) for i in self.args.mnk.split("x"))
         self.mnk = (mnk + (mnk[0], mnk[0]))[:3]
         self.wsx = self.mnk[0] * self.mnk[1]
+        self.manip = ConfigurationManipulator()
         # sanitize input arguments
         self.args.mb = max(self.args.mb, 1)
         self.args.bs = max(min(self.args.bs, self.args.mb), 1)
@@ -173,7 +173,7 @@ class SmmTuner(MeasurementInterface):
                     "All parameters are fixed with environment variables!"
                 )
             for param in params + paramt:
-                manipulator.add_parameter(param)
+                self.manip.add_parameter(param)
         if (  # consider to update and/or merge JSONS (update first)
             self.args.merge is not None
             and (0 <= self.args.merge or self.typeid)
@@ -222,7 +222,6 @@ class SmmTuner(MeasurementInterface):
         # register signal handler (CTRL-C)
         signal(SIGINT, self.handle_sigint)
         self.handle_sigint_counter = 0
-        self.manip = manipulator
 
     def manipulator(self):
         return self.manip
