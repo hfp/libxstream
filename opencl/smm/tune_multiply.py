@@ -39,7 +39,7 @@ def start(args):
         for retry in range(default_retry):
             try:
                 TuningRunMain(instance, args).main()
-                exit(0)
+                return
             except Exception as e:
                 ign = (
                     "[{}/{}]".format(retry + 1, default_retry)
@@ -190,7 +190,7 @@ class SmmTuner(MeasurementInterface):
                 self.update_jsons(filenames)
             if self.args.merge is not None:
                 self.merge_jsons(filenames)
-            exit(0)
+            return
         elif (
             (self.typename and "" != self.typename)
             and (self.device and "" != self.device)
@@ -936,7 +936,6 @@ if __name__ == "__main__":
                     args.mnk = line.strip()
                     if args.mnk:
                         start(args)
-            exit(0)
         elif os.path.isdir(args.mnk):
             args.jsondir = args.mnk
             args.mnk = default_mnk
