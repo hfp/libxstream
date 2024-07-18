@@ -190,7 +190,7 @@ class SmmTuner(MeasurementInterface):
                 self.update_jsons(filenames)
             if self.args.merge is not None:
                 self.merge_jsons(filenames)
-            return
+            exit(0)
         elif (
             (self.typename and "" != self.typename)
             and (self.device and "" != self.device)
