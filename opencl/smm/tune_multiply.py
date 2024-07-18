@@ -32,6 +32,27 @@ default_retry = 1
 default_vlen = 8
 
 
+def start(args):
+    """Construct and start tuner instance"""
+    instance = SmmTuner(args)
+    if not default_dbg:
+        for retry in range(default_retry):
+            try:
+                TuningRunMain(instance, args).main()
+                exit(0)
+            except Exception as e:
+                ign = (
+                    "[{}/{}]".format(retry + 1, default_retry)
+                    if 1 < default_retry
+                    else ""
+                )
+                print("IGNORED{} {}: {}".format(ign, type(e).__name__, e))
+                pass
+        instance.save_final_config(None, True)
+    else:
+        TuningRunMain(instance, args).main()
+
+
 def env_intvalue(env, default, lookup=True):
     value = os.getenv(env, default) if lookup else env if env is not None else default
     try:
@@ -904,29 +925,25 @@ if __name__ == "__main__":
         os.environ["OPENCL_LIBSMM_SMM_LU"] = "{}".format(args.lu)
     if 0 == args.mb:
         args.mb = 64
-    # more flexible handling of positional/first argument
-    if args.jsondir == argd.jsondir and os.path.isdir(args.mnk):
-        args.jsondir = args.mnk
-        args.mnk = default_mnk
-        if args.merge is None:
-            args.merge = -1
-    elif not args.mnk:  # parse and sanitize kernel shape
-        args.mnk = default_mnk
-    # construct tuner instance
-    instance = SmmTuner(args)
-    if not default_dbg:
-        for retry in range(default_retry):
-            try:
-                TuningRunMain(instance, args).main()
-                exit(0)
-            except Exception as e:
-                ign = (
-                    "[{}/{}]".format(retry + 1, default_retry)
-                    if 1 < default_retry
-                    else ""
-                )
-                print("IGNORED{} {}: {}".format(ign, type(e).__name__, e))
-                pass
-        instance.save_final_config(None, True)
+    # construct and start tuner instance
+    if args.jsondir == argd.jsondir:  # flexible first argument
+        if os.path.isfile(args.mnk):
+            with open(args.mnk, "r") as file:
+                while True:
+                    line = file.readline()
+                    if not line:
+                        break
+                    args.mnk = line.strip()
+                    if args.mnk:
+                        start(args)
+            exit(0)
+        elif os.path.isdir(args.mnk):
+            args.jsondir = args.mnk
+            args.mnk = default_mnk
+            if args.merge is None:
+                args.merge = -1
+            start(args)
     else:
-        TuningRunMain(instance, args).main()
+        if not args.mnk:  # parse and sanitize kernel shape
+            args.mnk = default_mnk
+        start(args)
