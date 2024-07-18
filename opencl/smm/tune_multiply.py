@@ -936,11 +936,12 @@ if __name__ == "__main__":
                     if args.mnk:
                         start(args)
                         print("")
-        elif os.path.isdir(args.mnk):
-            args.jsondir = args.mnk
-            args.mnk = default_mnk
-            if args.merge is None:
-                args.merge = -1
+        else:
+            if os.path.isdir(args.mnk):
+                args.jsondir = args.mnk
+                args.mnk = default_mnk
+                if args.merge is None:
+                    args.merge = -1
             start(args)
     else:
         if not args.mnk:  # parse and sanitize kernel shape
