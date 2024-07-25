@@ -412,7 +412,7 @@ int c_dbcsr_acc_init(void) {
 #  if defined(CL_VERSION_1_2)
             /* TODO: introduce more advanced syntax (partitioning a device) */
             const char* const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT");
-            const cl_uint devsplit = (NULL == env_devsplit ? 0 : atoi(env_devsplit));
+            const cl_int devsplit = (NULL == env_devsplit ? 0 : atoi(env_devsplit));
             cl_uint n = 0;
 #  endif
             for (; j < ndevices; ++j) {
@@ -424,10 +424,9 @@ int c_dbcsr_acc_init(void) {
                   EXIT_SUCCESS == clGetDeviceInfo(devices[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL) &&
                   1 < nunits)
               {
-                if (1 < devsplit) {
-                  properties[0] = CL_DEVICE_PARTITION_EQUALLY;
-                  properties[1] = (nunits + devsplit - 1) / devsplit;
-                }
+                const cl_uint split = LIBXSMM_MIN(1 < devsplit ? (cl_uint)devsplit : nunits, ACC_OPENCL_MAXNDEVS);
+                properties[0] = CL_DEVICE_PARTITION_EQUALLY;
+                properties[1] = (nunits + split - 1) / split;
               }
               if ((NULL != env_devsplit && '0' == *env_devsplit) ||
                   (c_dbcsr_acc_opencl_config.ndevices + 1) == ACC_OPENCL_MAXNDEVS ||
@@ -438,12 +437,7 @@ int c_dbcsr_acc_init(void) {
                 ++c_dbcsr_acc_opencl_config.ndevices;
               }
 #  if defined(CL_VERSION_1_2)
-              else if (1 < n || 1 < nunits) { /* create subdevices */
-                if (1 < nunits) {
-                  properties[0] = CL_DEVICE_PARTITION_EQUALLY;
-                  properties[1] = 1;
-                  n = nunits;
-                }
+              else if (1 < n) { /* create subdevices */
                 if (ACC_OPENCL_MAXNDEVS < (c_dbcsr_acc_opencl_config.ndevices + n)) {
                   n = (cl_uint)ACC_OPENCL_MAXNDEVS - c_dbcsr_acc_opencl_config.ndevices;
                 }
@@ -661,7 +655,7 @@ int c_dbcsr_acc_init(void) {
               if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(c_dbcsr_acc_opencl_config.devices[i], buffer,
                                     ACC_OPENCL_BUFFERSIZE, platform_name, ACC_OPENCL_BUFFERSIZE, /*cleanup*/ 0))
               {
-                fprintf(stderr, "INFO ACC/OpenCL: DEVICE -> \"%s : %s\"\n", platform_name, buffer);
+                fprintf(stderr, "INFO ACC/OpenCL: DEVICE -> \"%s : %s\" (%u)\n", platform_name, buffer, i);
               }
             }
           }
