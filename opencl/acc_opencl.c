@@ -421,8 +421,7 @@ int c_dbcsr_acc_init(void) {
                   EXIT_SUCCESS == clGetDeviceInfo(devices[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL) &&
                   1 < nunits)
               {
-                const cl_uint split = (1 < nranks ? nranks : ACC_OPENCL_MAXNDEVS);
-                n = LIBXSMM_MIN(1 < devsplit ? (cl_uint)devsplit : nunits, split);
+                n = LIBXSMM_MIN(1 < devsplit ? (cl_uint)devsplit : nunits, ACC_OPENCL_MAXNDEVS);
                 properties[0] = CL_DEVICE_PARTITION_EQUALLY;
                 properties[1] = (nunits + n - 1) / n;
               }
