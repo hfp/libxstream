@@ -429,9 +429,8 @@ int c_dbcsr_acc_init(void) {
                 properties[0] = CL_DEVICE_PARTITION_EQUALLY;
                 properties[1] = (nunits + n - 1) / n;
               }
-              if ((0 == devsplit || 1 == devsplit) ||
-                  (c_dbcsr_acc_opencl_config.ndevices + 1) == ACC_OPENCL_MAXNDEVS ||
-                  (EXIT_SUCCESS != clCreateSubDevices(devices[j], properties, 0, NULL, &n)))
+              if (0 == devsplit || 1 == devsplit || (c_dbcsr_acc_opencl_config.ndevices + 1) == ACC_OPENCL_MAXNDEVS ||
+                  EXIT_SUCCESS != clCreateSubDevices(devices[j], properties, 0, NULL, &n))
 #  endif
               {
                 c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.ndevices] = devices[j];
