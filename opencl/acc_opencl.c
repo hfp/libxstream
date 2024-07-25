@@ -236,9 +236,10 @@ int c_dbcsr_acc_init(void) {
     const char* const env_async = NULL;
     const int async_default = 0;
 #  endif
-    const char *const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT"), *const env_nranks = getenv("MPI_LOCALNRANKS");
-    const cl_uint nranks = LIBXSMM_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
-    const cl_int devsplit = (NULL == env_devsplit ? (1 < nranks ? -1 /*Intel MPI*/ : 0) : atoi(env_devsplit));
+    const char* const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT")
+    /*const char* const env_nranks = getenv("MPI_LOCALNRANKS");
+    const cl_uint nranks = LIBXSMM_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);*/
+    const cl_int devsplit = (NULL == env_devsplit ? /*(1 < nranks ? -1 : 0)*/0 : atoi(env_devsplit));
     char* const env_devids = getenv("ACC_OPENCL_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
     const int nlocks = (NULL == env_nlocks ? 1 /*default*/ : atoi(env_nlocks));
