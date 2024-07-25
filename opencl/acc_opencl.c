@@ -410,9 +410,8 @@ int c_dbcsr_acc_init(void) {
           if (EXIT_SUCCESS == result) {
             cl_uint j = 0;
 #  if defined(CL_VERSION_1_2)
-            /* TODO: introduce more advanced syntax (partitioning a device) */
-            const char* const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT");
-            const cl_int devsplit = (NULL == env_devsplit ? 0 : atoi(env_devsplit));
+            const char *const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT"), *const env_nranks = getenv("MPI_LOCALNRANKS");
+            const cl_int devsplit = (NULL == env_devsplit ? (NULL != env_nranks ? atoi(env_nranks) : 0) : atoi(env_devsplit));
             cl_uint n = 0;
 #  endif
             for (; j < ndevices; ++j) {
