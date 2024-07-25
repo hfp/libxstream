@@ -410,8 +410,8 @@ int c_dbcsr_acc_init(void) {
           if (EXIT_SUCCESS == result) {
             cl_uint j = 0;
 #  if defined(CL_VERSION_1_2)
-            const char *const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT"), *const env_nranks = getenv("MPI_LOCALNRANKS");
-            const cl_int devsplit = (NULL == env_devsplit ? (NULL != env_nranks ? atoi(env_nranks) : 0) : atoi(env_devsplit));
+            const char* const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT");
+            const cl_int devsplit = (NULL == env_devsplit ? -1 : atoi(env_devsplit));
             cl_uint n = 0;
 #  endif
             for (; j < ndevices; ++j) {
@@ -419,13 +419,16 @@ int c_dbcsr_acc_init(void) {
               cl_device_partition_property properties[] = {
                 CL_DEVICE_PARTITION_BY_AFFINITY_DOMAIN, CL_DEVICE_AFFINITY_DOMAIN_NUMA, /*terminator*/ 0};
               cl_uint nunits = 0;
-              if (0 != devsplit &&
+              if (0 != devsplit && /* Intel CPU device (e.g., out of two sockets) yields thread-count of both sockets */
                   EXIT_SUCCESS == clGetDeviceInfo(devices[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL) &&
                   1 < nunits)
               {
+                const char* const env_nranks = getenv("MPI_LOCALNRANKS"); /* Intel MPI */
+                const cl_uint nranks = LIBXSMM_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
                 const cl_uint split = LIBXSMM_MIN(1 < devsplit ? (cl_uint)devsplit : nunits, ACC_OPENCL_MAXNDEVS);
+                n = (split + nranks - 1) / nranks;
                 properties[0] = CL_DEVICE_PARTITION_EQUALLY;
-                properties[1] = (nunits + split - 1) / split;
+                properties[1] = (nunits + n - 1) / n;
               }
               if ((NULL != env_devsplit && '0' == *env_devsplit) ||
                   (c_dbcsr_acc_opencl_config.ndevices + 1) == ACC_OPENCL_MAXNDEVS ||
