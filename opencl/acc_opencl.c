@@ -412,20 +412,17 @@ int c_dbcsr_acc_init(void) {
           ACC_OPENCL_CHECK(clGetDeviceIDs(platforms[i], type, ndevices, devices, NULL), "retrieve device ids", result);
           if (EXIT_SUCCESS == result) {
             cl_uint j = 0;
-#  if defined(CL_VERSION_1_2)
-            cl_uint n = 0;
-#  endif
             for (; j < ndevices; ++j) {
 #  if defined(CL_VERSION_1_2)
               cl_device_partition_property properties[] = {
                 CL_DEVICE_PARTITION_BY_AFFINITY_DOMAIN, CL_DEVICE_AFFINITY_DOMAIN_NUMA, /*terminator*/ 0};
-              cl_uint nunits = 0;
+              cl_uint nunits = 0, n = 0;
               if ((1 < devsplit || 0 > devsplit) && /* Intel CPU (e.g., out of two sockets) yields thread-count of both sockets */
                   EXIT_SUCCESS == clGetDeviceInfo(devices[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL) &&
                   1 < nunits)
               {
-                const cl_uint split = LIBXSMM_MIN(1 < devsplit ? (cl_uint)devsplit : nunits, ACC_OPENCL_MAXNDEVS);
-                n = (split + nranks - 1) / nranks;
+                const cl_uint split = (1 < nranks ? nranks : ACC_OPENCL_MAXNDEVS);
+                n = LIBXSMM_MIN(1 < devsplit ? (cl_uint)devsplit : nunits, split);
                 properties[0] = CL_DEVICE_PARTITION_EQUALLY;
                 properties[1] = (nunits + n - 1) / n;
               }
