@@ -410,8 +410,9 @@ int c_dbcsr_acc_init(void) {
           if (EXIT_SUCCESS == result) {
             cl_uint j = 0;
 #  if defined(CL_VERSION_1_2)
-            const char* const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT");
-            const cl_int devsplit = (NULL == env_devsplit ? -1 : atoi(env_devsplit));
+            const char *const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT"), *const env_nranks = getenv("MPI_LOCALNRANKS");
+            const cl_uint nranks = LIBXSMM_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
+            const cl_int devsplit = (NULL == env_devsplit ? (1 < nranks ? -1 /*Intel MPI*/ : 0) : atoi(env_devsplit));
             cl_uint n = 0;
 #  endif
             for (; j < ndevices; ++j) {
@@ -423,8 +424,6 @@ int c_dbcsr_acc_init(void) {
                   EXIT_SUCCESS == clGetDeviceInfo(devices[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL) &&
                   1 < nunits)
               {
-                const char* const env_nranks = getenv("MPI_LOCALNRANKS"); /* Intel MPI */
-                const cl_uint nranks = LIBXSMM_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
                 const cl_uint split = LIBXSMM_MIN(1 < devsplit ? (cl_uint)devsplit : nunits, ACC_OPENCL_MAXNDEVS);
                 n = (split + nranks - 1) / nranks;
                 properties[0] = CL_DEVICE_PARTITION_EQUALLY;
