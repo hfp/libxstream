@@ -508,6 +508,7 @@ int main(int argc, char* argv[]) {
                 }
                 if (0 < check && check < epsilon) result = EXIT_FAILURE;
               }
+              else fprintf(stderr, "ERROR: failed to validate!\n");
             }
 #    endif
           }
