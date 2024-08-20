@@ -1417,7 +1417,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             LIBXSMM_STDIO_RELEASE();
           }
         }
-#  else
+#  endif
+#  if defined(OPENCL_LIBSMM_VALIDATE_SMM)
         ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_c_data, test, csize, stream), "transfer validation test", result);
         ACC_OPENCL_CHECK(c_dbcsr_acc_stream_sync(stream), "sync stream", result);
         if (EXIT_SUCCESS == result) {
