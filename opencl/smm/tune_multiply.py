@@ -934,6 +934,7 @@ if __name__ == "__main__":
                         break
                     args.mnk = line.strip()
                     if args.mnk:
+                        args.label = ""
                         start(args)
                         print("")
         else:
