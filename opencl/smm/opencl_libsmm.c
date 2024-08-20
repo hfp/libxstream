@@ -855,11 +855,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       }
 #  if defined(OPENCL_LIBSMM_VALIDATE_TRANS)
       ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_data, omat, data_size, stream), "transfer validation test", result);
-#  endif
-#  if defined(OPENCL_LIBSMM_VALIDATE_TRANS)
       ACC_OPENCL_CHECK(c_dbcsr_acc_stream_sync(stream), "sync stream", result);
-#  endif
-#  if defined(OPENCL_LIBSMM_VALIDATE_TRANS)
       if (EXIT_SUCCESS == result) {
         int i, j;
         LIBXSMM_STDIO_ACQUIRE();
@@ -1421,8 +1417,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             LIBXSMM_STDIO_RELEASE();
           }
         }
-#  endif
-#  if defined(OPENCL_LIBSMM_VALIDATE_SMM)
+#  else
         ACC_OPENCL_CHECK(c_dbcsr_acc_memcpy_d2h(dev_c_data, test, csize, stream), "transfer validation test", result);
         ACC_OPENCL_CHECK(c_dbcsr_acc_stream_sync(stream), "sync stream", result);
         if (EXIT_SUCCESS == result) {
