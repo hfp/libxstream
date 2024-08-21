@@ -587,18 +587,15 @@ class SmmTuner(MeasurementInterface):
                 except:  # noqa: E722
                     pass
                 gflops = data["GFLOPS"] if data and "GFLOPS" in data else 0
-                filename = os.path.join(
-                    self.args.jsondir,
-                    (
-                        "{}-{}gflops.json".format(self.args.label, round(gflops))
-                        if 0 < gflops
-                        else "{}.json".format(self.args.label)
-                    ),
-                )
-                try:
-                    os.rename(filedot, filename)
-                except:  # noqa: E722
-                    pass
+                if 0 < gflops:
+                    filename = os.path.join(
+                        self.args.jsondir,
+                        "{}-{}gflops.json".format(self.args.label, round(gflops)),
+                    )
+                    try:
+                        os.rename(filedot, filename)
+                    except:  # noqa: E722
+                        pass
             # self.manipulator().save_to_file(config, filename)
             with open(filedot, "w") as file:
                 cfg = config
@@ -614,7 +611,7 @@ class SmmTuner(MeasurementInterface):
             mnk = "x".join(map(str, self.mnk))
             print("FAILED[{}] {}: {}".format(result, mnk, failed), flush=True)
             return
-        if final and os.path.exists(filedot):
+        if final and 0 < self.gflops and os.path.exists(filedot):
             filepattern = "{}-*.json".format(default_basename)
             fileglobs = glob.glob(
                 os.path.normpath(os.path.join(self.args.jsondir, filepattern))
@@ -932,9 +929,8 @@ if __name__ == "__main__":
                     line = file.readline()
                     if not line:
                         break
-                    args.mnk = line.strip()
+                    args.mnk, args.label = line.strip(), ""
                     if args.mnk:
-                        args.label = ""
                         start(args)
                         print("")
         else:
