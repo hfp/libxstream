@@ -123,6 +123,10 @@ class SmmTuner(MeasurementInterface):
             device = re.search(devicepat, str(self.run_result["stderr"]))
             self.ndevices = int(device.group(1)) if device and device.group(1) else 0
             self.device = device.group(2) if device and device.group(2) else ""
+            # idevice: make certain resources/names unique on a per-rank basis
+            envrank = os.getenv("PMI_RANK", os.getenv("OMPI_COMM_WORLD_LOCAL_RANK"))
+            if envrank:
+                self.idevice = int(envrank) % self.ndevices
         elif self.args.update is not None and "" != self.args.update:
             self.device = self.args.update
         if self.run_result and 0 == self.run_result["returncode"]:
@@ -198,10 +202,8 @@ class SmmTuner(MeasurementInterface):
             and (self.size and 0 < self.size)
         ):  # setup database (DB)
             if self.args.database is None:  # adjust DB-location
-                envrank = os.getenv("PMI_RANK", os.getenv("OMPI_COMM_WORLD_LOCAL_RANK"))
                 tmpdir = os.path.join(tempfile.gettempdir(), "opentuner")
-                if envrank:
-                    self.idevice = int(envrank) % self.ndevices
+                if self.idevice is not None:
                     tmpdir += str(self.idevice)
                 if os.path.isdir(tmpdir):
                     shutil.rmtree(tmpdir)
