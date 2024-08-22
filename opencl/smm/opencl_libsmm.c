@@ -28,15 +28,20 @@
       libxsmm_gemm_descriptor_dinit(BLOB, PREC, M, N, K, LDA, LDB, LDC, 1.0, 1.0, FLAGS, PREFETCH)
 #  endif
 
-#  if !defined(OPENCL_LIBSMM_VALIDATE_TRANS) && defined(OPENCL_LIBSMM_VALIDATE) && \
-    (1 < OPENCL_LIBSMM_VALIDATE || 0 > OPENCL_LIBSMM_VALIDATE)
-#    define OPENCL_LIBSMM_VALIDATE_TRANS
-#  endif
-#  if !defined(OPENCL_LIBSMM_VALIDATE_SMM) && defined(OPENCL_LIBSMM_VALIDATE)
-#    define OPENCL_LIBSMM_VALIDATE_SMM
-#  endif
-#  if !defined(OPENCL_LIBSMM_VALIDATE_EXIT) && defined(OPENCL_LIBSMM_VALIDATE) && 1
-#    define OPENCL_LIBSMM_VALIDATE_EXIT
+#  if defined(OPENCL_LIBSMM_VALIDATE)
+#    if !defined(OPENCL_LIBSMM_VALIDATE_TRANS) && (1 < OPENCL_LIBSMM_VALIDATE || 0 > OPENCL_LIBSMM_VALIDATE)
+#      define OPENCL_LIBSMM_VALIDATE_TRANS
+#    endif
+#    if !defined(OPENCL_LIBSMM_VALIDATE_SMM)
+#      define OPENCL_LIBSMM_VALIDATE_SMM
+#    endif
+#    if !defined(OPENCL_LIBSMM_VALIDATE_EXIT) && 1
+#      define OPENCL_LIBSMM_VALIDATE_EXIT
+#    endif
+#    if !defined(OPENCL_LIBSMM_VALIDATE_SCRATCH)
+/*#      define OPENCL_LIBSMM_VALIDATE_SCRATCH libxsmm_aligned_scratch*/
+#      define OPENCL_LIBSMM_VALIDATE_SCRATCH libxsmm_aligned_malloc
+#    endif
 #  endif
 #  if !defined(OPENCL_LIBSMM_KERNELNAME_TRANS)
 #    define OPENCL_LIBSMM_KERNELNAME_TRANS "trans"
@@ -761,7 +766,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         const size_t scratch_size = (sizeof(int) * offset_stack_size) /*stack*/
                                     + data_size /*imat*/ + data_size /*omat*/ + (mn * typesize) /*gold*/
                                     + 3 * (LIBXSMM_ALIGNMENT - 1) /*alignments*/;
-        scratch = libxsmm_aligned_scratch(scratch_size, LIBXSMM_ALIGNMENT);
+        scratch = OPENCL_LIBSMM_VALIDATE_SCRATCH(scratch_size, LIBXSMM_ALIGNMENT);
         if (NULL != scratch) {
           stack = (int*)scratch;
           imat = (char*)LIBXSMM_UP2((uintptr_t)stack + sizeof(int) * offset_stack_size, LIBXSMM_ALIGNMENT);
@@ -1306,7 +1311,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             &blob, precision, m_max, n_max, k_max, m_max, k_max, m_max, LIBXSMM_GEMM_FLAG_NONE, LIBXSMM_PREFETCH_NONE);
           const size_t scratch_size = psize + asize + bsize + csize + csize + k_max * n_max * typesize +
                                       5 * (LIBXSMM_ALIGNMENT - 1) /*alignments*/;
-          scratch = libxsmm_aligned_scratch(scratch_size, LIBXSMM_ALIGNMENT);
+          scratch = OPENCL_LIBSMM_VALIDATE_SCRATCH(scratch_size, LIBXSMM_ALIGNMENT);
           if (NULL != desc && NULL != scratch) {
             pinp = (int*)scratch;
             ainp = (char*)LIBXSMM_UP2((uintptr_t)pinp + psize, LIBXSMM_ALIGNMENT);
