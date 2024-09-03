@@ -205,9 +205,12 @@ class SmmTuner(MeasurementInterface):
                 tmpdir = os.path.join(tempfile.gettempdir(), "opentuner")
                 if self.idevice is not None:
                     tmpdir += str(self.idevice)
-                if os.path.isdir(tmpdir):
-                    shutil.rmtree(tmpdir)
-                os.mkdir(tmpdir)
+                #if os.path.isdir(tmpdir):
+                    #shutil.rmtree(tmpdir)
+                try:
+                    os.mkdir(tmpdir)
+                except:  # noqa: E722
+                    pass
                 self.args.database = "sqlite:///" + os.path.join(
                     tmpdir, "{}.db".format(os.getpid())
                 )
