@@ -527,6 +527,8 @@ int c_dbcsr_acc_init(void) {
       /* preselect any default device or prune to homogeneous set of devices */
       if (NULL == env_device || '\0' == *env_device) {
         char tmp[ACC_OPENCL_BUFFERSIZE] = "";
+        const char* const env_rank = (NULL != getenv("PMI_RANK") ? getenv("PMI_RANK") : getenv("OMPI_COMM_WORLD_LOCAL_RANK"));
+        const int rank = (NULL != env_rank ? atoi(env_rank) : 0);
         ndevices = (cl_uint)c_dbcsr_acc_opencl_config.ndevices;
         for (i = 0; i < ndevices; ++i) {
           cl_device_type itype;
@@ -537,7 +539,7 @@ int c_dbcsr_acc_init(void) {
                 c_dbcsr_acc_opencl_config.devices[0] = c_dbcsr_acc_opencl_config.devices[i];
               }
               c_dbcsr_acc_opencl_config.ndevices = 1;
-              device_id = (int)i;
+              device_id = 0;
               break;
             }
             else if (CL_DEVICE_TYPE_ALL == type && NULL == env_devtype /*&& CL_DEVICE_TYPE_GPU == itype*/ && device_id <= (int)i) {
@@ -552,6 +554,9 @@ int c_dbcsr_acc_init(void) {
             }
           }
           else break; /* error: retrieving device type */
+        }
+        if (0 < rank && 1 < c_dbcsr_acc_opencl_config.ndevices) {
+          device_id = (device_id + rank) % c_dbcsr_acc_opencl_config.ndevices;
         }
       }
       else { /* prune number of devices to only expose requested ID */
