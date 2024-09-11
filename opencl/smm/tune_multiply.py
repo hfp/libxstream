@@ -14,8 +14,7 @@ from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
 from signal import signal, SIGINT
-import tempfile
-import shutil
+import tempfile  # , shutil
 import copy
 import json
 import glob
@@ -205,8 +204,8 @@ class SmmTuner(MeasurementInterface):
                 tmpdir = os.path.join(tempfile.gettempdir(), "opentuner")
                 if self.idevice is not None:
                     tmpdir += str(self.idevice)
-                #if os.path.isdir(tmpdir):
-                    #shutil.rmtree(tmpdir)
+                # if os.path.isdir(tmpdir):
+                # shutil.rmtree(tmpdir)
                 try:
                     os.mkdir(tmpdir)
                 except:  # noqa: E722
@@ -272,7 +271,7 @@ class SmmTuner(MeasurementInterface):
         if verbose is not None and 0 != int(verbose):
             msg = env_exe.replace("OPENCL_LIBSMM_SMM_", "")
             print("{}: {}".format("x".join(map(str, mnk)), msg))
-        env_std = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0 NEO_CACHE_PERSISTENT=0"
+        env_std = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0 NEO_CACHE_PERSISTENT=0 CUDA_CACHE_DISABLE=1"
         env_check = "CHECK={}".format(check if check is not None else 1)
         env_intrn = "{} {}".format(  # consider device-id
             "" if self.idevice is None else "ACC_OPENCL_DEVICE={}".format(self.idevice),
