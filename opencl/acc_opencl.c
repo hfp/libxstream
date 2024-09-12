@@ -1168,13 +1168,8 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
 
 
 int c_dbcsr_acc_set_active_device(int device_id) {
+  /* avoid ACC_OPENCL_PROFILE in this routine */
   int result = EXIT_SUCCESS;
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE) && 0
-  int routine_handle;
-  static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
-  static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
-  c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-#  endif
   if (0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices) {
 #  if defined(ACC_OPENCL_CACHE_DID)
     if (c_dbcsr_acc_opencl_active_id != (device_id + 1))
@@ -1186,12 +1181,7 @@ int c_dbcsr_acc_set_active_device(int device_id) {
 #  endif
     }
   }
-#  if !defined(NDEBUG)
   else result = EXIT_FAILURE;
-#  endif
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE) && 0
-  c_dbcsr_timestop(&routine_handle);
-#  endif
   ACC_OPENCL_RETURN(result);
 }
 
