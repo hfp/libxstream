@@ -106,11 +106,9 @@ int main(int argc, char* argv[]) {
 #else
   const int warmup = 0;
 #endif
-  const char* const env_device = getenv("DEVICE");
-  const int device = ((NULL == env_device || '\0' == *env_device) ? 0 : atoi(env_device));
   int *stack_hst = NULL, *stack_dev = NULL;
   ELEM_TYPE *mat_hst = NULL, *mat_dev = NULL;
-  int result = EXIT_SUCCESS, ndevices = 0, r, i, mm = m, nn = n;
+  int result = EXIT_SUCCESS, mm = m, nn = n, r, i;
   void* stream = NULL;
 #if defined(USE_LIBXSMM)
   libxsmm_timer_tickint start;
@@ -121,31 +119,29 @@ int main(int argc, char* argv[]) {
   /* note: libsmm_acc_init() may imply acc_init() */
   CHECK(libsmm_acc_init(), &result);
   if (EXIT_SUCCESS == result) {
+    int ndevices = 0;
     result = c_dbcsr_acc_get_ndevices(&ndevices);
-    if (0 < ndevices && (0 == device || EXIT_SUCCESS == c_dbcsr_acc_set_active_device(device))) {
-      printf("Activated device%i (ndevices=%i)\n", device, ndevices);
-    }
-    else {
-      if (0 >= ndevices) {
-        fprintf(stderr, "No ACC-device found!\n");
+    if (EXIT_SUCCESS == result && 0 < ndevices) {
+      const char* const env_device = getenv("DEVICE");
+      const char* const env_rank = (NULL != getenv("PMI_RANK") ? getenv("PMI_RANK") : getenv("OMPI_COMM_WORLD_LOCAL_RANK"));
+      const int rank = (NULL != env_rank ? atoi(env_rank) : 0);
+      int device = ((NULL == env_device || '\0' == *env_device) ? 0 : atoi(env_device));
+      device = ((0 <= device && device < ndevices) ? (0 <= rank ? (rank % ndevices) : device) : -1);
+      result = c_dbcsr_acc_set_active_device(device);
+      if (EXIT_SUCCESS == result) {
+        printf("Activated device%i (ndevices=%i)\n", device, ndevices);
       }
       else {
-        fprintf(stderr, "Failed to activate device %i of %i!\n", device, ndevices);
+        fprintf(stderr, "ERROR: Failed to activate device!\n");
       }
-#if !defined(__CUDA)
-      CHECK(libsmm_acc_finalize(), NULL);
-#endif
-      CHECK(c_dbcsr_acc_finalize(), NULL);
-      return result;
+    }
+    else {
+      fprintf(stderr, "ERROR: No ACC-device found!\n");
+      if (EXIT_SUCCESS == result) result = EXIT_FAILURE;
     }
   }
   else {
     fprintf(stderr, "ACC initialization failed!\n");
-#if !defined(__CUDA)
-    CHECK(libsmm_acc_finalize(), NULL);
-#endif
-    CHECK(c_dbcsr_acc_finalize(), NULL);
-    return result;
   }
   printf("%s%s%i %i %i %i\n", 0 < argc ? argv[0] : "", 0 < argc ? " " : "", nrepeat, stack_size, m, n);
   printf("typename (id=%i): %s\n", DBCSR_TYPE(ELEM_TYPE), DBCSR_STRINGIFY(ELEM_TYPE));
