@@ -115,6 +115,10 @@ int main(int argc, char* argv[]) {
   double duration;
 #endif
   assert(m <= (mn / n) && 0 == (mn % n));
+  if (MAX_KERNEL_DIM < m || MAX_KERNEL_DIM < n) {
+    fprintf(stderr, "Matrix shape exceeds MAX_KERNEL_DIM!\n");
+    result = EXIT_FAILURE;
+  }
   CHECK(c_dbcsr_acc_init(), &result);
   /* note: libsmm_acc_init() may imply acc_init() */
   CHECK(libsmm_acc_init(), &result);
@@ -130,6 +134,8 @@ int main(int argc, char* argv[]) {
       result = c_dbcsr_acc_set_active_device(device);
       if (EXIT_SUCCESS == result) {
         printf("Activated device%i (ndevices=%i)\n", device, ndevices);
+        printf("%s%s%i %i %i %i\n", 0 < argc ? argv[0] : "", 0 < argc ? " " : "", nrepeat, stack_size, m, n);
+        printf("typename (id=%i): %s\n", DBCSR_TYPE(ELEM_TYPE), DBCSR_STRINGIFY(ELEM_TYPE));
       }
       else {
         fprintf(stderr, "ERROR: Failed to activate device!\n");
@@ -142,12 +148,6 @@ int main(int argc, char* argv[]) {
   }
   else {
     fprintf(stderr, "ACC initialization failed!\n");
-  }
-  printf("%s%s%i %i %i %i\n", 0 < argc ? argv[0] : "", 0 < argc ? " " : "", nrepeat, stack_size, m, n);
-  printf("typename (id=%i): %s\n", DBCSR_TYPE(ELEM_TYPE), DBCSR_STRINGIFY(ELEM_TYPE));
-  if (MAX_KERNEL_DIM < m || MAX_KERNEL_DIM < n) {
-    fprintf(stderr, "Matrix shape exceeds MAX_KERNEL_DIM!\n");
-    result = EXIT_FAILURE;
   }
 #if defined(PRIORITY)
   CHECK(c_dbcsr_acc_stream_priority_range(&priomin, &priomax), &result);
@@ -255,7 +255,7 @@ int main(int argc, char* argv[]) {
   CHECK(c_dbcsr_acc_finalize(), NULL);
   if (EXIT_SUCCESS != result) {
     if (-1 != result) {
-      fprintf(stderr, "FAILED\n");
+      fprintf(stderr, "\nFAILED\n\n");
     }
     else {
       fprintf(stderr, "Kernel not suitable!\n");
