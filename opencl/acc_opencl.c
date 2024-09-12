@@ -641,6 +641,11 @@ int c_dbcsr_acc_init(void) {
             result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, ACC_OPENCL_ACTIVATE);
           }
           else {
+            const char* const env_rank = (NULL != getenv("PMI_RANK") ? getenv("PMI_RANK") : getenv("OMPI_COMM_WORLD_LOCAL_RANK"));
+            const int rank = (NULL != env_rank ? atoi(env_rank) : 0);
+            if (0 < rank && 1 < c_dbcsr_acc_opencl_config.ndevices) {
+              device_id = rank % c_dbcsr_acc_opencl_config.ndevices;
+            }
             result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, device_id);
           }
 #  else
@@ -1002,17 +1007,8 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
   int result = EXIT_SUCCESS;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices) {
-    cl_device_id active_id = NULL;
-    static int rank = -1;
-    if (0 > rank) {
-      const char* const env_rank = (NULL != getenv("PMI_RANK") ? getenv("PMI_RANK") : getenv("OMPI_COMM_WORLD_LOCAL_RANK"));
-      rank = (NULL != env_rank ? atoi(env_rank) : 0);
-    }
-    if (0 < rank && 1 < c_dbcsr_acc_opencl_config.ndevices) {
-      device_id = (device_id + rank) % c_dbcsr_acc_opencl_config.ndevices;
-    }
     /* accessing devices is thread-safe (array is fixed after initialization) */
-    active_id = c_dbcsr_acc_opencl_config.devices[device_id];
+    const cl_device_id active_id = c_dbcsr_acc_opencl_config.devices[device_id];
     if (NULL != active_id) {
       cl_device_id context_id = NULL;
       cl_context context = NULL;
