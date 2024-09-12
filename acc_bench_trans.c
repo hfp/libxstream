@@ -128,7 +128,7 @@ int main(int argc, char* argv[]) {
     if (EXIT_SUCCESS == result && 0 < ndevices) {
       const char* const env_device = getenv("DEVICE");
       const char* const env_rank = (NULL != getenv("PMI_RANK") ? getenv("PMI_RANK") : getenv("OMPI_COMM_WORLD_LOCAL_RANK"));
-      const int rank = (NULL != env_rank ? atoi(env_rank) : 0);
+      const int rank = (NULL != env_rank ? atoi(env_rank) : -1);
       int device = ((NULL == env_device || '\0' == *env_device) ? 0 : atoi(env_device));
       device = ((0 <= device && device < ndevices) ? (0 <= rank ? (rank % ndevices) : device) : -1);
       result = c_dbcsr_acc_set_active_device(device);
