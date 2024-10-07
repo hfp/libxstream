@@ -945,6 +945,4 @@ if __name__ == "__main__":
                     args.merge = -1
             start(args)
     else:
-        if not args.mnk:  # parse and sanitize kernel shape
-            args.mnk = default_mnk
         start(args)
