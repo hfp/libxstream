@@ -502,7 +502,12 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
 #  endif
   assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
   assert(NULL != c_dbcsr_acc_opencl_config.device.context);
-  if (NULL != host_mem && NULL != dev_mem && 0 != nbytes) {
+  if (
+#if defined(__OFFLOAD_UNIFIED_MEMORY) && 0 /* TODO */
+    host_mem != dev_mem &&
+#endif
+    NULL != host_mem && NULL != dev_mem && 0 != nbytes)
+  {
     const c_dbcsr_acc_opencl_stream_t* const str =
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
 #  if defined(ACC_OPENCL_ASYNC)
@@ -549,7 +554,12 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
   assert((NULL != dev_mem && NULL != host_mem) || 0 == nbytes);
-  if (NULL != host_mem && NULL != dev_mem && 0 != nbytes) {
+  if (
+#if defined(__OFFLOAD_UNIFIED_MEMORY) && 0 /* TODO */
+    dev_mem != host_mem &&
+#endif
+    NULL != host_mem && NULL != dev_mem && 0 != nbytes)
+  {
     const c_dbcsr_acc_opencl_stream_t* const str =
       (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL /*lock*/, ACC_OPENCL_OMP_TID()));
     const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
