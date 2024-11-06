@@ -116,12 +116,6 @@
 #if !defined(ACC_OPENCL_MEM_DEVPTR) && 1
 #  define ACC_OPENCL_MEM_DEVPTR
 #endif
-#if !defined(ACC_OPENCL_MEM_UNIFIED) && \
-    (defined(__OFFLOAD_UNIFIED_MEMORY) || 0)
-#  if defined(ACC_OPENCL_MEM_DEVPTR)
-#    define ACC_OPENCL_MEM_UNIFIED
-#  endif
-#endif
 #if !defined(ACC_OPENCL_OMPLOCKS) && 1
 #  define ACC_OPENCL_OMPLOCKS
 #endif
