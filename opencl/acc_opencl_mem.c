@@ -450,26 +450,26 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
         c_dbcsr_acc_opencl_info_memptr_t* const pfree = c_dbcsr_acc_opencl_config.memptrs[c_dbcsr_acc_opencl_config.nmemptrs];
         memory = info->memory;
 #  endif
-        result = clReleaseMemObject(memory);
+    result = clReleaseMemObject(memory);
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
-        c_dbcsr_acc_opencl_pfree(NULL /*lock*/, pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
-        *info = *pfree;
+    c_dbcsr_acc_opencl_pfree(NULL /*lock*/, pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
+    *info = *pfree;
 #    if !defined(NDEBUG)
-        LIBXSMM_MEMZERO127(pfree);
+    LIBXSMM_MEMZERO127(pfree);
 #    endif
-      }
-      else result = EXIT_FAILURE;
-      ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
-    }
-#  endif
-    if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
-      fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", (const void*)memory, dev_mem);
-    }
   }
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
-  c_dbcsr_timestop(&routine_handle);
+  else result = EXIT_FAILURE;
+  ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
+}
 #  endif
-  ACC_OPENCL_RETURN(result);
+if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
+  fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", (const void*)memory, dev_mem);
+}
+}
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+c_dbcsr_timestop(&routine_handle);
+#  endif
+ACC_OPENCL_RETURN(result);
 }
 
 
@@ -512,7 +512,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
 #  if defined(ACC_OPENCL_ASYNC)
     const cl_bool finish = (0 == (1 & c_dbcsr_acc_opencl_config.async) || NULL == stream);
 #  else
-    const cl_bool finish = CL_TRUE;
+        const cl_bool finish = CL_TRUE;
 #  endif
     assert(NULL != str && NULL != str->queue);
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
