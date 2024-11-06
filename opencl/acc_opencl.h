@@ -116,6 +116,12 @@
 #if !defined(ACC_OPENCL_MEM_DEVPTR) && 1
 #  define ACC_OPENCL_MEM_DEVPTR
 #endif
+#if !defined(ACC_OPENCL_MEM_UNIFIED) && \
+    (defined(__OFFLOAD_UNIFIED_MEMORY) || 0)
+#  if defined(ACC_OPENCL_MEM_DEVPTR)
+#    define ACC_OPENCL_MEM_UNIFIED
+#  endif
+#endif
 #if !defined(ACC_OPENCL_OMPLOCKS) && 1
 #  define ACC_OPENCL_OMPLOCKS
 #endif
@@ -363,7 +369,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
 extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
 /** Determines host-pointer registration for modification. */
-c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(void* memory);
+c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(const void* memory);
 /** Determines device-pointer registration for modification (internal). */
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
   ACC_OPENCL_LOCKTYPE* lock, void* memory, size_t elsize, const size_t* amount, size_t* offset);
