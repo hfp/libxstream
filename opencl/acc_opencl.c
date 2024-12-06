@@ -355,7 +355,7 @@ int c_dbcsr_acc_init(void) {
         }
       }
       if (0 < j && 0 == LIBXSMM_PUTENV(zex_nccs) && /* populate before touching the compute runtime */
-         (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity)
+         (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity))
       {
         fprintf(stderr, "INFO ACC/OpenCL: support multiple separate compute command streamers (%i-CCS mode)\n");
       }
