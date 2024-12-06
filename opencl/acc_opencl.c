@@ -344,10 +344,11 @@ int c_dbcsr_acc_init(void) {
 #  if defined(ACC_OPENCL_NCCS)
     if ((1 & c_dbcsr_acc_opencl_config.wa) && 0 != nccs && NULL == getenv("ZEX_NUMBER_OF_CCS")) {
       static char zex_nccs[ACC_OPENCL_MAXNDEVS * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
+      const int mode = ((1 == nccs || 2 == nccs) ? nccs : 4);
       int j = strlen(zex_nccs);
       for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
         const char* const istr = (0 < i ? ",%u:%i" : "%u:%i");
-        const int n = LIBXSMM_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, istr, i, LIBXSMM_CLMP(nccs, 1, 4));
+        const int n = LIBXSMM_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, istr, i, mode);
         if (0 < n) j += n;
         else {
           j = 0;
@@ -355,9 +356,9 @@ int c_dbcsr_acc_init(void) {
         }
       }
       if (0 < j && 0 == LIBXSMM_PUTENV(zex_nccs) && /* populate before touching the compute runtime */
-         (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity))
+          (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity))
       {
-        fprintf(stderr, "INFO ACC/OpenCL: support multiple separate compute command streamers (%i-CCS mode)\n");
+        fprintf(stderr, "INFO ACC/OpenCL: support multiple separate compute command streamers (%i-CCS mode)\n", mode);
       }
     }
     assert(EXIT_SUCCESS == result);
