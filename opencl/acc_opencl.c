@@ -293,25 +293,22 @@ void c_dbcsr_acc_opencl_configure(void) {
 #  endif
     if ((2 + 4 + 8) & c_dbcsr_acc_opencl_config.wa) { /* environment is populated before touching the compute runtime */
       static char a[] = "NEOReadDebugKeys=1", b[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE", c[] = "EnableRecoverablePageFaults=0";
-      static char d[] = "DirectSubmissionOverrideBlitterSupport=0", *const key_value[] = {a, b, c, d};
-      if (NULL == env_neo) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[0]));
+      static char d[] = "DirectSubmissionOverrideBlitterSupport=0", *const apply[] = {a, b, c, d};
+      if (NULL == env_neo) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[0]));
       if ((2 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[1]));
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[1]));
       }
       if ((4 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("EnableRecoverablePageFaults")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[2]));
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[2]));
       }
       if ((8 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(key_value[3]));
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[3]));
       }
     }
     if (2 & c_dbcsr_acc_opencl_config.xhints) {
-      static char a[] = "I_MPI_OFFLOAD=1", b[] = "I_MPI_OFFLOAD_RDMA=1", *const impi[] = {a, b};
-      if (NULL == getenv("I_MPI_OFFLOAD") && 0 == LIBXSMM_PUTENV(impi[0])) {
-        c_dbcsr_acc_opencl_config.wa |= 1;
-      }
+      static char a[] = "I_MPI_OFFLOAD_RDMA=1", *const apply[] = {a};
       if (NULL == getenv("I_MPI_OFFLOAD_RDMA")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(impi[1]));
+        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[0]));
       }
     }
 #  if defined(ACC_OPENCL_DL)
