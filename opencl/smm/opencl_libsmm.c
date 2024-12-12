@@ -532,7 +532,7 @@ int libsmm_acc_init(void) {
         }
 #  endif
 #  if defined(OPENCL_KERNELS_DEVICES)
-        if (EXIT_SUCCESS == result && 0 != ntuned &&
+        if (EXIT_SUCCESS == result && 0 != ntuned && 0 == c_dbcsr_acc_opencl_config.nrank &&
             (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity))
         {
           fprintf(stderr, "INFO ACC/LIBSMM: PARAMS in %i set%s loaded targeting ", ntuned, 1 != ntuned ? "s" : "");

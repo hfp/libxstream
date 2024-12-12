@@ -412,9 +412,15 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
       *dev_mem = NULL;
     }
   }
-  if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
-    fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p size=%llu allocated\n", (const void*)memory, memptr,
-      (unsigned long long)nbytes);
+  if (0 != c_dbcsr_acc_opencl_config.verbosity) {
+    if (EXIT_SUCCESS == result && 0 != c_dbcsr_acc_opencl_config.debug) {
+      fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p size=%llu successfully allocated\n", (const void*)memory, memptr,
+        (unsigned long long)nbytes);
+    }
+    else if (EXIT_SUCCESS != result) {
+      fprintf(stderr, "ERROR ACC/OpenCL: memory=%p pointer=%p size=%llu failed to allocate\n", (const void*)memory, memptr,
+        (unsigned long long)nbytes);
+    }
   }
   assert(EXIT_SUCCESS == result || NULL == *dev_mem);
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
