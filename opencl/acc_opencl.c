@@ -195,7 +195,7 @@ void c_dbcsr_acc_opencl_configure(void) {
     c_dbcsr_acc_opencl_config.nstreams = ACC_OPENCL_MAXNITEMS;
 #  endif
     c_dbcsr_acc_opencl_config.nranks = LIBXSMM_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
-    c_dbcsr_acc_opencl_config.nrank = (NULL != env_rank ? atoi(env_rank) : 0);
+    c_dbcsr_acc_opencl_config.nrank = (NULL != env_rank ? atoi(env_rank) : 0) % c_dbcsr_acc_opencl_config.nranks;
     assert(sizeof(ACC_OPENCL_LOCKTYPE) <= ACC_OPENCL_CACHELINE);
     for (i = 0; i < ACC_OPENCL_NLOCKS; ++i) {
       ACC_OPENCL_INIT((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * i));
