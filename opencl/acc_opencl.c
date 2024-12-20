@@ -292,7 +292,7 @@ void c_dbcsr_acc_opencl_configure(void) {
       }
     }
 #  endif
-    if (0 != neo && (NULL == env_neo || 0 == LIBXSMM_PUTENV(neo_enable_debug_keys))) {
+    if (0 != neo && (NULL != env_neo || 0 == LIBXSMM_PUTENV(neo_enable_debug_keys))) {
       if ((2 + 4 + 8) & c_dbcsr_acc_opencl_config.wa) {
         static char a[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE", b[] = "EnableRecoverablePageFaults=0";
         static char c[] = "DirectSubmissionOverrideBlitterSupport=0", *const apply[] = {a, b, c};
