@@ -164,6 +164,7 @@ void c_dbcsr_acc_opencl_configure(void) {
     const char *const env_timer = getenv("ACC_OPENCL_TIMER"), *const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("ACC_OPENCL_WA");
+    static char neo_enable_debug_keys[] = "NEOReadDebugKeys=1";
 #  if defined(ACC_OPENCL_NCCS)
     const char* const env_nccs = getenv("ACC_OPENCL_NCCS");
     const int nccs = (NULL == env_nccs ? ACC_OPENCL_NCCS : atoi(env_nccs));
@@ -291,18 +292,25 @@ void c_dbcsr_acc_opencl_configure(void) {
       }
     }
 #  endif
-    if ((2 + 4 + 8) & c_dbcsr_acc_opencl_config.wa) { /* environment is populated before touching the compute runtime */
-      static char a[] = "NEOReadDebugKeys=1", b[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE", c[] = "EnableRecoverablePageFaults=0";
-      static char d[] = "DirectSubmissionOverrideBlitterSupport=0", *const apply[] = {a, b, c, d};
-      if (NULL == env_neo) ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[0]));
-      if ((2 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[1]));
+    if (0 != neo && (NULL == env_neo || 0 == LIBXSMM_PUTENV(neo_enable_debug_keys))) {
+      if ((2 + 4 + 8) & c_dbcsr_acc_opencl_config.wa) {
+        static char a[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE", b[] = "EnableRecoverablePageFaults=0";
+        static char c[] = "DirectSubmissionOverrideBlitterSupport=0", *const apply[] = {a, b, c};
+        if ((2 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY")) {
+          ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[0]));
+        }
+        if ((4 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("EnableRecoverablePageFaults")) {
+          ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[1]));
+        }
+        if ((8 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
+          ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[2]));
+        }
       }
-      if ((4 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("EnableRecoverablePageFaults")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[2]));
-      }
-      if ((8 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[3]));
+      if (0 != c_dbcsr_acc_opencl_config.debug) {
+        static char a[] = "DisableScratchPages=1", *const apply[] = {a};
+        if (NULL == getenv("DisableScratchPages")) {
+          ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[0]));
+        }
       }
     }
     if (2 & c_dbcsr_acc_opencl_config.xhints) {
