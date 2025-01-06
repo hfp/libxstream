@@ -510,7 +510,7 @@ int libsmm_acc_init(void) {
                     config_init = (opencl_libsmm_smm_t*)libxsmm_xdispatch(&key, sizeof(key));
                     if (NULL != config_init || NULL != libxsmm_xregister(&key, sizeof(key), sizeof(config), &config)) {
                       static int info = 0;
-                      if (0 == info && 0 != c_dbcsr_acc_opencl_config.verbosity &&
+                      if (0 == info && 0 == c_dbcsr_acc_opencl_config.nrank && 0 != c_dbcsr_acc_opencl_config.verbosity &&
                           EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(c_dbcsr_acc_opencl_config.device.id, bufname,
                                             ACC_OPENCL_BUFFERSIZE, NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 0))
                       {
