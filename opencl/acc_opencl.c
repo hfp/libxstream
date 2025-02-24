@@ -1594,7 +1594,26 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     program = clCreateProgramWithSource(c_dbcsr_acc_opencl_config.device.context, 1 /*nlines*/, &ext_source, NULL, &result);
     if (EXIT_SUCCESS == result) {
       assert(NULL != program);
-      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer, ACC_OPENCL_BUFFERSIZE);
+      if (0 != devinfo->intel && 0x0bd0 <= devinfo->uid && 0x0bdb >= devinfo->uid) {
+        nchar = LIBXSMM_SNPRINTF(buffer, ACC_OPENCL_BUFFERSIZE, "-igc_opts 'VISAOptions=-PVCSendWARWA'");
+      }
+      else nchar = 0; /* no need to apply/check internal flags */
+      if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) { /* check if internal flags apply */
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
+        if (EXIT_SUCCESS == result) {
+          result = clBuildProgram(
+            program, 1 /*num_devices*/, &c_dbcsr_acc_opencl_config.device.id, buffer + nchar, NULL /*callback*/, NULL /*user_data*/);
+          if (EXIT_SUCCESS != result) { /* failed to apply */
+            ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
+            program = clCreateProgramWithSource(c_dbcsr_acc_opencl_config.device.context, 1 /*nlines*/, &ext_source, NULL, &result);
+            assert(EXIT_SUCCESS != result || NULL != program);
+            nchar = 0;
+          }
+        }
+      }
+      if (EXIT_SUCCESS == result) {
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
+      }
       if (EXIT_SUCCESS == result) {
         result = clBuildProgram(
           program, 1 /*num_devices*/, &c_dbcsr_acc_opencl_config.device.id, buffer, NULL /*callback*/, NULL /*user_data*/);
@@ -1602,7 +1621,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
         result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, ACC_OPENCL_BUFFERSIZE);
         if (EXIT_SUCCESS == result) {
-          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
+          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
           program = clCreateProgramWithSource(c_dbcsr_acc_opencl_config.device.context, 1 /*nlines*/, &ext_source, NULL, &result);
           assert(EXIT_SUCCESS != result || NULL != program);
           if (EXIT_SUCCESS == result) {
@@ -1633,7 +1652,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
               if (EXIT_SUCCESS == result) { /* successfully queried program binary */
                 FILE* file;
                 nchar = LIBXSMM_SNPRINTF(buffer, ACC_OPENCL_BUFFERSIZE, "%s.dump", kernel_name);
-                file = (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) ? fopen(buffer, "wb") : NULL;
+                file = ((0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) ? fopen(buffer, "wb") : NULL);
                 buffer[0] = '\0'; /* reset to empty */
                 if (NULL != file) {
                   if (size != fwrite(binary, 1, size, file)) result = EXIT_FAILURE;
@@ -1674,7 +1693,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
         result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, ACC_OPENCL_BUFFERSIZE);
         if (EXIT_SUCCESS == result) {
-          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
+          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
 #  if defined(CL_VERSION_2_1)
           if (0 != c_dbcsr_acc_opencl_config.dump)
             program = clCreateProgramWithIL(c_dbcsr_acc_opencl_config.device.context, source, size_src, &result);
