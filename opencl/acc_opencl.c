@@ -1559,11 +1559,11 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
             fclose(file_sed); /* existence-check */
           }
 #    endif
-          nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer),
+          nchar = LIBXSMM_SNPRINTF(buffer, ACC_OPENCL_BUFFERSIZE,
             ACC_OPENCL_CPPBIN " -P -C -nostdinc -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u %s %s %s %s >%s", std_level,
             std_clevel, 0 == c_dbcsr_acc_opencl_config.device.nv ? "" : "-D__NV_CL_C_VERSION",
             NULL != build_params ? build_params : "", buffer_name, sed_pattern, dump_filename);
-          if (0 < nchar && (int)sizeof(buffer) > nchar && EXIT_SUCCESS == system(buffer)) {
+          if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar && EXIT_SUCCESS == system(buffer)) {
             FILE* const file = fopen(dump_filename, "r");
             if (NULL != file) {
               const long int size_file = (EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_END) ? ftell(file) : 0);
@@ -1594,13 +1594,13 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     program = clCreateProgramWithSource(c_dbcsr_acc_opencl_config.device.context, 1 /*nlines*/, &ext_source, NULL, &result);
     if (EXIT_SUCCESS == result) {
       assert(NULL != program);
-      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer, sizeof(buffer));
+      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer, ACC_OPENCL_BUFFERSIZE);
       if (EXIT_SUCCESS == result) {
         result = clBuildProgram(
           program, 1 /*num_devices*/, &c_dbcsr_acc_opencl_config.device.id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
-        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, sizeof(buffer));
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, ACC_OPENCL_BUFFERSIZE);
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
           program = clCreateProgramWithSource(c_dbcsr_acc_opencl_config.device.context, 1 /*nlines*/, &ext_source, NULL, &result);
@@ -1632,8 +1632,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
               result = clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(unsigned char*), &binary, NULL);
               if (EXIT_SUCCESS == result) { /* successfully queried program binary */
                 FILE* file;
-                nchar = LIBXSMM_SNPRINTF(buffer, sizeof(buffer), "%s.dump", kernel_name);
-                file = (0 < nchar && (int)sizeof(buffer) > nchar) ? fopen(buffer, "wb") : NULL;
+                nchar = LIBXSMM_SNPRINTF(buffer, ACC_OPENCL_BUFFERSIZE, "%s.dump", kernel_name);
+                file = (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) ? fopen(buffer, "wb") : NULL;
                 buffer[0] = '\0'; /* reset to empty */
                 if (NULL != file) {
                   if (size != fwrite(binary, 1, size, file)) result = EXIT_FAILURE;
@@ -1666,13 +1666,13 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     }
     if (EXIT_SUCCESS == result) {
       assert(NULL != program);
-      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer, sizeof(buffer));
+      result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer, ACC_OPENCL_BUFFERSIZE);
       if (EXIT_SUCCESS == result) {
         result = clBuildProgram(
           program, 1 /*num_devices*/, &c_dbcsr_acc_opencl_config.device.id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
-        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, sizeof(buffer));
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, ACC_OPENCL_BUFFERSIZE);
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* recreate below (to avoid unclean state) */
 #  if defined(CL_VERSION_2_1)
