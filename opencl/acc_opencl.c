@@ -1592,12 +1592,12 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
         result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
         if (EXIT_SUCCESS == result) {
           result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer + nchar, NULL /*callback*/, NULL /*user_data*/);
-          if (EXIT_SUCCESS != result) { /* failed to apply */
+          if (EXIT_SUCCESS == result) {
             ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
             program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
             assert(EXIT_SUCCESS != result || NULL != program);
-            nchar = 0;
           }
+          else nchar = 0; /* failed to apply internal flags */
         }
       }
       if (EXIT_SUCCESS == result) {
@@ -1605,16 +1605,16 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
           build_params, build_options, try_build_options, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
       }
       if (EXIT_SUCCESS == result) {
-        result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
+        result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer + nchar, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
-        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, ACC_OPENCL_BUFFERSIZE);
+        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer + nchar, ACC_OPENCL_BUFFERSIZE);
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
           program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
           assert(EXIT_SUCCESS != result || NULL != program);
           if (EXIT_SUCCESS == result) {
-            result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
+            result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer + nchar, NULL /*callback*/, NULL /*user_data*/);
           }
         }
         ok = EXIT_FAILURE;
