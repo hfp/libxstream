@@ -196,23 +196,18 @@
         fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", (const char*)CAUSE); \
       } \
       else if (0 != c_dbcsr_acc_opencl_config.device.error.code) { \
-        if (NULL != c_dbcsr_acc_opencl_config.device.error.cause && \
-           '\0' != *c_dbcsr_acc_opencl_config.device.error.cause) \
-        { \
-          fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", \
-            c_dbcsr_acc_opencl_config.device.error.cause, \
+        if (NULL != c_dbcsr_acc_opencl_config.device.error.cause && '\0' != *c_dbcsr_acc_opencl_config.device.error.cause) { \
+          fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", c_dbcsr_acc_opencl_config.device.error.cause, \
             c_dbcsr_acc_opencl_config.device.error.code); \
         } \
         else if (-1001 == c_dbcsr_acc_opencl_config.device.error.code) { \
           fprintf(stderr, "ERROR ACC/OpenCL: incomplete OpenCL installation?\n"); \
         } \
         else { \
-          fprintf(stderr, "ERROR ACC/OpenCL: unknown error (code=%i)\n", \
-            c_dbcsr_acc_opencl_config.device.error.code); \
+          fprintf(stderr, "ERROR ACC/OpenCL: unknown error (code=%i)\n", c_dbcsr_acc_opencl_config.device.error.code); \
         } \
       } \
-      memset(&c_dbcsr_acc_opencl_config.device.error, 0, \
-        sizeof(c_dbcsr_acc_opencl_config.device.error)); \
+      memset(&c_dbcsr_acc_opencl_config.device.error, 0, sizeof(c_dbcsr_acc_opencl_config.device.error)); \
     } \
     assert(!"SUCCESS"); \
   } while (0)
@@ -232,8 +227,7 @@
   do { \
     if (EXIT_SUCCESS == (RESULT)) { \
       assert(EXIT_SUCCESS == c_dbcsr_acc_opencl_config.device.error.code); \
-      memset(&c_dbcsr_acc_opencl_config.device.error, 0, \
-        sizeof(c_dbcsr_acc_opencl_config.device.error)); \
+      memset(&c_dbcsr_acc_opencl_config.device.error, 0, sizeof(c_dbcsr_acc_opencl_config.device.error)); \
     } \
     else ACC_OPENCL_ERROR(CAUSE); \
     return (RESULT); \

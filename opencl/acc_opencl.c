@@ -1045,6 +1045,7 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
 
 
 int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_id) {
+  c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
   int result = EXIT_SUCCESS;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 <= device_id && device_id < c_dbcsr_acc_opencl_config.ndevices) {
@@ -1054,8 +1055,8 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
       cl_device_id context_id = NULL;
       cl_context context = NULL;
       if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
-      context = c_dbcsr_acc_opencl_config.device.context;
-      context_id = c_dbcsr_acc_opencl_config.device.id;
+      context = devinfo->context;
+      context_id = devinfo->id;
       if (NULL != context) {
         assert(NULL != context_id);
         if (active_id != context_id) {
@@ -1073,13 +1074,12 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
         assert(NULL != context || EXIT_SUCCESS != result);
       }
       if (EXIT_SUCCESS == result && active_id != context_id) { /* update/cache device-specific information */
-        if (NULL != c_dbcsr_acc_opencl_config.device.stream.queue) { /* release private stream */
-          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(c_dbcsr_acc_opencl_config.device.stream.queue));
+        if (NULL != devinfo->stream.queue) { /* release private stream */
+          ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(devinfo->stream.queue));
         }
         memset(&c_dbcsr_acc_opencl_config.device, 0, sizeof(c_dbcsr_acc_opencl_config.device));
-        result = c_dbcsr_acc_opencl_device_level(active_id, c_dbcsr_acc_opencl_config.device.std_clevel,
-          c_dbcsr_acc_opencl_config.device.std_level, c_dbcsr_acc_opencl_config.device.std_flag,
-          &c_dbcsr_acc_opencl_config.device.type);
+        result = c_dbcsr_acc_opencl_device_level(
+          active_id, devinfo->std_clevel, devinfo->std_level, devinfo->std_flag, &devinfo->type);
         if (EXIT_SUCCESS == result) {
           char devname[ACC_OPENCL_BUFFERSIZE] = "";
           const char* const sgexts[] = {"cl_intel_required_subgroup_size", "cl_intel_subgroups", "cl_khr_subgroups"};
@@ -1093,44 +1093,39 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           cl_platform_id platform = NULL;
           cl_bitfield bitfield = 0;
 #  endif
-          c_dbcsr_acc_opencl_config.device.intel = (EXIT_SUCCESS ==
-                                                    c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
-          c_dbcsr_acc_opencl_config.device.nv = (EXIT_SUCCESS ==
-                                                 c_dbcsr_acc_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
-
+          devinfo->intel = (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
+          devinfo->nv = (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
           if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_name(active_id, devname, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/,
                                 0 /*platform_maxlen*/, /*cleanup*/ 1) ||
-              EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(active_id, devname, &c_dbcsr_acc_opencl_config.device.uid))
+              EXIT_SUCCESS != c_dbcsr_acc_opencl_device_uid(active_id, devname, &devinfo->uid))
           {
-            c_dbcsr_acc_opencl_config.device.uid = (cl_uint)-1;
+            devinfo->uid = (cl_uint)-1;
           }
           if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 0 /*use_platform_name*/) ||
               EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "amd", 1 /*use_platform_name*/))
           {
-            c_dbcsr_acc_opencl_config.device.amd = 1;
+            devinfo->amd = 1;
             if ('\0' != *devname) {
               const char* const gfxname = LIBXSMM_STRISTR(devname, "gfx");
               if (NULL != gfxname && 90 <= atoi(gfxname + 3)) {
-                c_dbcsr_acc_opencl_config.device.amd = 2;
+                devinfo->amd = 2;
               }
             }
           }
-          if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool) /*cl_int*/,
-                                &c_dbcsr_acc_opencl_config.device.unified, NULL))
+          if (EXIT_SUCCESS !=
+              clGetDeviceInfo(active_id, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool) /*cl_int*/, &devinfo->unified, NULL))
           {
-            c_dbcsr_acc_opencl_config.device.unified = CL_FALSE;
+            devinfo->unified = CL_FALSE;
           }
-          if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t),
-                                c_dbcsr_acc_opencl_config.device.wgsize, NULL))
-          {
-            c_dbcsr_acc_opencl_config.device.wgsize[0] = 1;
+          if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), devinfo->wgsize, NULL)) {
+            devinfo->wgsize[0] = 1;
           }
           if (EXIT_SUCCESS != clGetDeviceInfo(active_id, 4199 /*CL_DEVICE_PREFERRED_WORK_GROUP_SIZE_MULTIPLE*/, sizeof(size_t),
-                                c_dbcsr_acc_opencl_config.device.wgsize + 1, NULL)) /* CL_VERSION_3_0 */
+                                devinfo->wgsize + 1, NULL)) /* CL_VERSION_3_0 */
           {
-            c_dbcsr_acc_opencl_config.device.wgsize[1] = 1;
+            devinfo->wgsize[1] = 1;
           }
-          assert(0 == c_dbcsr_acc_opencl_config.device.wgsize[2]);
+          assert(0 == devinfo->wgsize[2]);
           if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(active_id, sgexts, 2) &&
               EXIT_SUCCESS ==
                 clGetDeviceInfo(active_id, 0x4108 /*CL_DEVICE_SUB_GROUP_SIZES_INTEL*/, sizeof(sgsizes), sgsizes, &nbytes))
@@ -1138,21 +1133,17 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
             for (i = 0; (i * sizeof(size_t)) < nbytes; ++i) {
               const size_t sgsize = sgsizes[i];
               if (sgsize < sgmin) sgmin = sgsize;
-              if (0 != c_dbcsr_acc_opencl_config.device.wgsize[1] && 0 == (sgsize % c_dbcsr_acc_opencl_config.device.wgsize[1]) &&
-                  c_dbcsr_acc_opencl_config.device.wgsize[2] < sgsize)
-              {
-                if (c_dbcsr_acc_opencl_config.device.wgsize[1] < sgsize) c_dbcsr_acc_opencl_config.device.wgsize[1] = sgsize;
-                c_dbcsr_acc_opencl_config.device.wgsize[2] = sgsize;
+              if (0 != devinfo->wgsize[1] && 0 == (sgsize % devinfo->wgsize[1]) && devinfo->wgsize[2] < sgsize) {
+                if (devinfo->wgsize[1] < sgsize) devinfo->wgsize[1] = sgsize;
+                devinfo->wgsize[2] = sgsize;
               }
             }
-            if (0 != c_dbcsr_acc_opencl_config.device.wgsize[2]) c_dbcsr_acc_opencl_config.device.wgsize[2] = sgmin;
+            if (0 != devinfo->wgsize[2]) devinfo->wgsize[2] = sgmin;
           }
-          else {
-            c_dbcsr_acc_opencl_config.device.wgsize[2] = 0;
-          }
+          else devinfo->wgsize[2] = 0;
 #  if defined(ACC_OPENCL_XHINTS) && defined(ACC_OPENCL_MEM_DEVPTR)
-          if (0 != (1 & c_dbcsr_acc_opencl_config.xhints) && 2 <= *c_dbcsr_acc_opencl_config.device.std_level &&
-              0 != c_dbcsr_acc_opencl_config.device.intel && 0 == c_dbcsr_acc_opencl_config.device.unified &&
+          if (0 != (1 & c_dbcsr_acc_opencl_config.xhints) && 2 <= *devinfo->std_level && 0 != devinfo->intel &&
+              0 == devinfo->unified &&
               EXIT_SUCCESS == clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL) &&
               EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 2 /*platform vendor*/) &&
               EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/, sizeof(cl_bitfield),
@@ -1161,19 +1152,19 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           {
             void* ptr = NULL;
             ptr = clGetExtensionFunctionAddressForPlatform(platform, "clSetKernelArgMemPointerINTEL");
-            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL, &ptr);
+            LIBXSMM_ASSIGN127(&devinfo->clSetKernelArgMemPointerINTEL, &ptr);
             ptr = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemFillINTEL");
-            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clEnqueueMemFillINTEL, &ptr);
+            LIBXSMM_ASSIGN127(&devinfo->clEnqueueMemFillINTEL, &ptr);
             ptr = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemcpyINTEL");
-            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clEnqueueMemcpyINTEL, &ptr);
+            LIBXSMM_ASSIGN127(&devinfo->clEnqueueMemcpyINTEL, &ptr);
             ptr = clGetExtensionFunctionAddressForPlatform(platform, "clDeviceMemAllocINTEL");
-            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clDeviceMemAllocINTEL, &ptr);
+            LIBXSMM_ASSIGN127(&devinfo->clDeviceMemAllocINTEL, &ptr);
             ptr = clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL");
-            LIBXSMM_ASSIGN127(&c_dbcsr_acc_opencl_config.device.clMemFreeINTEL, &ptr);
+            LIBXSMM_ASSIGN127(&devinfo->clMemFreeINTEL, &ptr);
           }
 #  endif
 #  if defined(ACC_OPENCL_CMDAGR)
-          if (0 != c_dbcsr_acc_opencl_config.device.intel) { /* device vendor (above) can now be used */
+          if (0 != devinfo->intel) { /* device vendor (above) can now be used */
             int result_cmdagr = EXIT_SUCCESS;
             const cl_command_queue q = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, active_id, properties, &result_cmdagr);
             if (EXIT_SUCCESS == result_cmdagr) {
@@ -1186,15 +1177,15 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           }
 #  endif
           properties[1] = 0;
-          c_dbcsr_acc_opencl_config.device.stream.queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, active_id, properties, &result);
+          devinfo->stream.queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, active_id, properties, &result);
         }
         if (EXIT_SUCCESS == result) {
           if (active_id != context_id) {
-            assert(active_id != c_dbcsr_acc_opencl_config.device.id);
-            c_dbcsr_acc_opencl_config.device.context = context;
-            c_dbcsr_acc_opencl_config.device.id = active_id;
+            assert(active_id != devinfo->id);
+            devinfo->context = context;
+            devinfo->id = active_id;
           }
-          assert(active_id == c_dbcsr_acc_opencl_config.device.id);
+          assert(active_id == devinfo->id);
         }
         else memset(&c_dbcsr_acc_opencl_config.device, 0, sizeof(c_dbcsr_acc_opencl_config.device));
       }
@@ -1203,7 +1194,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
     else result = EXIT_FAILURE;
   }
   else result = EXIT_FAILURE;
-  assert(EXIT_SUCCESS == result || NULL == c_dbcsr_acc_opencl_config.device.context);
+  assert(EXIT_SUCCESS == result || NULL == devinfo->context);
   return result;
 }
 
@@ -1387,14 +1378,14 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
 
 int c_dbcsr_acc_opencl_flags(
   const char build_params[], const char build_options[], const char try_build_options[], char buffer[], size_t buffer_size) {
+  const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
   int result = EXIT_SUCCESS;
-  assert(NULL != c_dbcsr_acc_opencl_config.device.context);
+  assert(NULL != devinfo->context);
   if (NULL != buffer) {
-    const int std_clevel = 100 * c_dbcsr_acc_opencl_config.device.std_clevel[0] +
-                           10 * c_dbcsr_acc_opencl_config.device.std_clevel[1];
-    const int std_level = 100 * c_dbcsr_acc_opencl_config.device.std_level[0] + 10 * c_dbcsr_acc_opencl_config.device.std_level[1];
+    const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
+    const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
     const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "%s -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u %s %s %s",
-      c_dbcsr_acc_opencl_config.device.std_flag, std_level, std_clevel, NULL != build_options ? build_options : "",
+      devinfo->std_flag, std_level, std_clevel, NULL != build_options ? build_options : "",
       NULL != build_params ? build_params : "", NULL != try_build_options ? try_build_options : "");
     if (0 < nchar && (int)buffer_size > nchar) {
       char* replace = strpbrk(buffer, "\""); /* more portable (system/cpp needs quotes to protect braces) */
