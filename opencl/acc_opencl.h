@@ -190,8 +190,10 @@
 #endif
 
 #define ACC_OPENCL_ERROR() c_dbcsr_acc_opencl_config.device.error.code
-#define ACC_OPENCL_ERROR_NAME(CODE) ((EXIT_SUCCESS != c_dbcsr_acc_opencl_config.device.error.code && (CODE) == c_dbcsr_acc_opencl_config.device.error.code) \
-  ? c_dbcsr_acc_opencl_config.device.error.name : "")
+#define ACC_OPENCL_ERROR_NAME(CODE) \
+  ((EXIT_SUCCESS != c_dbcsr_acc_opencl_config.device.error.code && (CODE) == c_dbcsr_acc_opencl_config.device.error.code) \
+      ? c_dbcsr_acc_opencl_config.device.error.name \
+      : "")
 
 #define ACC_OPENCL_ERROR_REPORT(NAME) \
   do { \
