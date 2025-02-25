@@ -1735,7 +1735,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
     ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* release in any case (EXIT_SUCCESS) */
   }
   if (NULL != try_ok) *try_ok = result | ok;
-  ACC_OPENCL_RETURN_CAUSE(result, buffer);
+  ACC_OPENCL_RETURN(result, buffer);
 }
 
 

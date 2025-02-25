@@ -176,7 +176,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
   c_dbcsr_timestop(&routine_handle);
 #  endif
-  ACC_OPENCL_RETURN_CAUSE(result, name);
+  ACC_OPENCL_RETURN(result, name);
 }
 
 

@@ -197,9 +197,10 @@
 
 #define ACC_OPENCL_ERROR_REPORT(NAME) \
   do { \
+    const char* const acc_opencl_error_report_name_ = (const char*)('\0' != *#NAME ? (uintptr_t)(NAME + 0) : 0); \
     if (0 != c_dbcsr_acc_opencl_config.verbosity) { \
-      if (NULL != (NAME) && '\0' != *(const char*)(NAME)) { \
-        fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", (const char*)NAME); \
+      if (NULL != acc_opencl_error_report_name_ && '\0' != *acc_opencl_error_report_name_) { \
+        fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", acc_opencl_error_report_name_); \
       } \
       else if (0 != c_dbcsr_acc_opencl_config.device.error.code) { \
         if (NULL != c_dbcsr_acc_opencl_config.device.error.name && '\0' != *c_dbcsr_acc_opencl_config.device.error.name) { \
@@ -226,20 +227,18 @@
       c_dbcsr_acc_opencl_config.device.error.code = (RESULT); \
       assert(EXIT_SUCCESS == (RESULT)); \
     } \
-    else ACC_OPENCL_ERROR_REPORT(NULL); \
+    else ACC_OPENCL_ERROR_REPORT(); \
   } while (0)
 
-#define ACC_OPENCL_RETURN_CAUSE(RESULT, CAUSE) \
+#define ACC_OPENCL_RETURN(RESULT, ...) \
   do { \
     if (EXIT_SUCCESS == (RESULT)) { \
       assert(EXIT_SUCCESS == c_dbcsr_acc_opencl_config.device.error.code); \
       memset(&c_dbcsr_acc_opencl_config.device.error, 0, sizeof(c_dbcsr_acc_opencl_config.device.error)); \
     } \
-    else ACC_OPENCL_ERROR_REPORT(CAUSE); \
+    else ACC_OPENCL_ERROR_REPORT(__VA_ARGS__); \
     return (RESULT); \
   } while (0)
-
-#define ACC_OPENCL_RETURN(RESULT) ACC_OPENCL_RETURN_CAUSE(RESULT, "")
 
 
 #if defined(__cplusplus)
