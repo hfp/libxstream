@@ -805,14 +805,15 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = locks;
 #  endif
         ACC_OPENCL_ATOMIC_ACQUIRE(lock);
-        ACC_OPENCL_CHECK(result,
-          clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel");
+        ACC_OPENCL_CHECK(
+          result, clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel");
         ACC_OPENCL_CHECK(result, c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel, 1, info_stack.memory),
           "set batch-list argument of transpose kernel");
         ACC_OPENCL_CHECK(result, c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel, 2, info_mdata.memory),
           "set matrix-data argument of transpose kernel");
-        ACC_OPENCL_CHECK(result, clEnqueueNDRangeKernel(str->queue, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size,
-                           &config->wgsize, 0, NULL, perf_event),
+        ACC_OPENCL_CHECK(result,
+          clEnqueueNDRangeKernel(
+            str->queue, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size, &config->wgsize, 0, NULL, perf_event),
           "launch transpose kernel");
         /* eventually update performance counters inside of locked region */
 #  if !defined(OPENCL_LIBSMM_VALIDATE_TRANS)
@@ -820,7 +821,8 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
           if (NULL != perf_event) {
             cl_ulong begin = 0, end = 0;
             clWaitForEvents(1, perf_event);
-            ACC_OPENCL_CHECK(result, clGetEventProfilingInfo(*perf_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &begin, NULL),
+            ACC_OPENCL_CHECK(result,
+              clGetEventProfilingInfo(*perf_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &begin, NULL),
               "query kernel start time");
             ACC_OPENCL_CHECK(result, clGetEventProfilingInfo(*perf_event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL),
               "query kernel end time");
@@ -1331,8 +1333,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
             test = (char*)LIBXSMM_UP2((uintptr_t)binp + bsize, LIBXSMM_ALIGNMENT);
             gold = (char*)LIBXSMM_UP2((uintptr_t)test + csize, LIBXSMM_ALIGNMENT);
             btrn = (char*)LIBXSMM_UP2((uintptr_t)gold + csize, LIBXSMM_ALIGNMENT);
-            ACC_OPENCL_CHECK(result,
-              c_dbcsr_acc_memcpy_d2h(dev_param_stack, pinp, psize, stream), "transfer validation param-data");
+            ACC_OPENCL_CHECK(
+              result, c_dbcsr_acc_memcpy_d2h(dev_param_stack, pinp, psize, stream), "transfer validation param-data");
             ACC_OPENCL_CHECK(result, c_dbcsr_acc_memcpy_d2h(dev_a_data, ainp, asize, stream), "transfer validation a-data");
             ACC_OPENCL_CHECK(result, c_dbcsr_acc_memcpy_d2h(dev_b_data, binp, bsize, stream), "transfer validation b-data");
             ACC_OPENCL_CHECK(result, c_dbcsr_acc_memcpy_d2h(dev_c_data, gold, csize, stream), "transfer validation c-data");
@@ -1368,11 +1370,12 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
           assert(bs <= config->bs);
           ACC_OPENCL_CHECK(result, clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &stack_size),
             "set stacksize argument of SMM-kernel");
-          ACC_OPENCL_CHECK(result,
-            clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &bs), "set minibatch argument of SMM-kernel");
+          ACC_OPENCL_CHECK(
+            result, clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &bs), "set minibatch argument of SMM-kernel");
         }
-        ACC_OPENCL_CHECK(result, clEnqueueNDRangeKernel(str->queue, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/, &work_size,
-                           config->wgsize + kernel_idx, 0, NULL, perf_event),
+        ACC_OPENCL_CHECK(result,
+          clEnqueueNDRangeKernel(str->queue, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/, &work_size,
+            config->wgsize + kernel_idx, 0, NULL, perf_event),
           "launch SMM-kernel");
         /* eventually update performance counters inside of locked region */
 #  if !defined(OPENCL_LIBSMM_VALIDATE_SMM)
@@ -1380,7 +1383,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
           if (NULL != perf_event) {
             cl_ulong begin = 0, end = 0;
             clWaitForEvents(1, perf_event);
-            ACC_OPENCL_CHECK(result, clGetEventProfilingInfo(*perf_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &begin, NULL),
+            ACC_OPENCL_CHECK(result,
+              clGetEventProfilingInfo(*perf_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &begin, NULL),
               "query kernel start time");
             ACC_OPENCL_CHECK(result, clGetEventProfilingInfo(*perf_event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL),
               "query kernel end time");

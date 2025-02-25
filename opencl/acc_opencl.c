@@ -970,8 +970,8 @@ int c_dbcsr_acc_opencl_device_ext(cl_device_id device, const char* const extname
   int result = ((NULL != extnames && 0 < num_exts) ? EXIT_SUCCESS : EXIT_FAILURE);
   char extensions[ACC_OPENCL_BUFFERSIZE], buffer[ACC_OPENCL_BUFFERSIZE];
   assert(NULL != device);
-  ACC_OPENCL_CHECK(result,
-    clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, ACC_OPENCL_BUFFERSIZE, extensions, NULL), "retrieve device extensions");
+  ACC_OPENCL_CHECK(
+    result, clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, ACC_OPENCL_BUFFERSIZE, extensions, NULL), "retrieve device extensions");
   if (EXIT_SUCCESS == result) {
     do {
       if (NULL != extnames[--num_exts]) {
@@ -1416,7 +1416,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
   char buffer[ACC_OPENCL_BUFFERSIZE] = "", buffer_name[ACC_OPENCL_MAXSTRLEN * 2];
   int ok = EXIT_SUCCESS, source_is_cl = 1, nchar;
   int result = ((NULL != source && NULL != kernel_name && '\0' != *kernel_name) ? EXIT_SUCCESS : EXIT_FAILURE);
-  const c_dbcsr_acc_opencl_device_t *const devinfo = &c_dbcsr_acc_opencl_config.device;
+  const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
   size_t size_src = 0, size = 0;
   cl_program program = NULL;
   FILE* file_src = NULL;
@@ -1537,9 +1537,9 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
         }
         else file_dmp = open(dump_filename, O_CREAT | O_TRUNC | O_RDWR, S_IREAD | S_IWRITE);
         if (0 <= file_dmp) {
-          if ((0 != std_flag_len && (3 != write(file_dmp, "/*\n", 3) ||
-                                      std_flag_len != write(file_dmp, devinfo->std_flag, std_flag_len) ||
-                                      4 != write(file_dmp, "\n*/\n", 4))) ||
+          if ((0 != std_flag_len &&
+                (3 != write(file_dmp, "/*\n", 3) || std_flag_len != write(file_dmp, devinfo->std_flag, std_flag_len) ||
+                  4 != write(file_dmp, "\n*/\n", 4))) ||
               size_src != (size_t)write(file_dmp, ext_source, size_src))
           {
             file_dmp = -1;
@@ -1548,10 +1548,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
         }
 #  if defined(ACC_OPENCL_CPPBIN)
         if (NULL != file_cpp && 0 <= file_dmp) { /* preprocess source-code */
-          const int std_clevel = 100 * devinfo->std_clevel[0] +
-                                 10 * devinfo->std_clevel[1];
-          const int std_level = 100 * devinfo->std_level[0] +
-                                10 * devinfo->std_level[1];
+          const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
+          const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
           const char* sed_pattern = "";
 #    if defined(ACC_OPENCL_SEDBIN)
           FILE* const file_sed = fopen(ACC_OPENCL_SEDBIN, "rb");
@@ -1562,8 +1560,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
 #    endif
           nchar = LIBXSMM_SNPRINTF(buffer, ACC_OPENCL_BUFFERSIZE,
             ACC_OPENCL_CPPBIN " -P -C -nostdinc -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u %s %s %s %s >%s", std_level,
-            std_clevel, 0 == devinfo->nv ? "" : "-D__NV_CL_C_VERSION",
-            NULL != build_params ? build_params : "", buffer_name, sed_pattern, dump_filename);
+            std_clevel, 0 == devinfo->nv ? "" : "-D__NV_CL_C_VERSION", NULL != build_params ? build_params : "", buffer_name,
+            sed_pattern, dump_filename);
           if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar && EXIT_SUCCESS == system(buffer)) {
             FILE* const file = fopen(dump_filename, "r");
             if (NULL != file) {
@@ -1602,8 +1600,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) { /* check if internal flags apply */
         result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
         if (EXIT_SUCCESS == result) {
-          result = clBuildProgram(
-            program, 1 /*num_devices*/, &devinfo->id, buffer + nchar, NULL /*callback*/, NULL /*user_data*/);
+          result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer + nchar, NULL /*callback*/, NULL /*user_data*/);
           if (EXIT_SUCCESS != result) { /* failed to apply */
             ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
             program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
@@ -1613,11 +1610,11 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
         }
       }
       if (EXIT_SUCCESS == result) {
-        result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
+        result = c_dbcsr_acc_opencl_flags(
+          build_params, build_options, try_build_options, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
       }
       if (EXIT_SUCCESS == result) {
-        result = clBuildProgram(
-          program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
+        result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
         result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, ACC_OPENCL_BUFFERSIZE);
@@ -1626,8 +1623,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
           program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
           assert(EXIT_SUCCESS != result || NULL != program);
           if (EXIT_SUCCESS == result) {
-            result = clBuildProgram(
-              program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
+            result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
           }
         }
         ok = EXIT_FAILURE;
@@ -1676,38 +1672,34 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
   }
   else if (EXIT_SUCCESS == result) { /* binary representation */
 #  if defined(CL_VERSION_2_1)
-    if (0 != c_dbcsr_acc_opencl_config.dump)
-      program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
+    if (0 != c_dbcsr_acc_opencl_config.dump) program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
     else
 #  endif
     {
-      program = clCreateProgramWithBinary(devinfo->context, 1, &devinfo->id,
-        &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
+      program = clCreateProgramWithBinary(
+        devinfo->context, 1, &devinfo->id, &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
     }
     if (EXIT_SUCCESS == result) {
       assert(NULL != program);
       result = c_dbcsr_acc_opencl_flags(build_params, build_options, try_build_options, buffer, ACC_OPENCL_BUFFERSIZE);
       if (EXIT_SUCCESS == result) {
-        result = clBuildProgram(
-          program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
+        result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
         result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL /*try_build_options*/, buffer, ACC_OPENCL_BUFFERSIZE);
         if (EXIT_SUCCESS == result) {
           ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
 #  if defined(CL_VERSION_2_1)
-          if (0 != c_dbcsr_acc_opencl_config.dump)
-            program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
+          if (0 != c_dbcsr_acc_opencl_config.dump) program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
           else
 #  endif
           {
-            program = clCreateProgramWithBinary(devinfo->context, 1, &devinfo->id,
-              &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
+            program = clCreateProgramWithBinary(
+              devinfo->context, 1, &devinfo->id, &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
           }
           assert(EXIT_SUCCESS != result || NULL != program);
           if (EXIT_SUCCESS == result) {
-            result = clBuildProgram(
-              program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
+            result = clBuildProgram(program, 1 /*num_devices*/, &devinfo->id, buffer, NULL /*callback*/, NULL /*user_data*/);
           }
         }
         ok = EXIT_FAILURE;
@@ -1739,9 +1731,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       *kernel = NULL;
     }
     if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-      if (EXIT_SUCCESS == clGetProgramBuildInfo(program, devinfo->id, CL_PROGRAM_BUILD_LOG,
-                            ACC_OPENCL_BUFFERSIZE, buffer, &size))
-      {
+      if (EXIT_SUCCESS == clGetProgramBuildInfo(program, devinfo->id, CL_PROGRAM_BUILD_LOG, ACC_OPENCL_BUFFERSIZE, buffer, &size)) {
         const char* info = buffer;
         while ('\0' != *info && NULL != strchr("\n\r\t ", *info)) ++info; /* remove preceding newline etc. */
         assert(NULL != kernel_name && '\0' != *kernel_name);

@@ -740,7 +740,8 @@ int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t
 #  endif
   ACC_OPENCL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_total, NULL),
     "retrieve amount of global memory");
-  ACC_OPENCL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_TYPE, sizeof(cl_device_local_mem_type), &cl_local_type, NULL),
+  ACC_OPENCL_CHECK(result,
+    clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_TYPE, sizeof(cl_device_local_mem_type), &cl_local_type, NULL),
     "retrieve kind of local memory");
   if (CL_LOCAL == cl_local_type) {
     ACC_OPENCL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_local, NULL),

@@ -192,8 +192,9 @@
 #define ACC_OPENCL_CHECK(RESULT, EXPR, MSG) \
   do { \
     static ACC_OPENCL_TLS struct { \
-      const char* msg; int err; \
-    } acc_opencl_check_ = { NULL, EXIT_SUCCESS }; \
+      const char* msg; \
+      int err; \
+    } acc_opencl_check_ = {NULL, EXIT_SUCCESS}; \
     if (EXIT_SUCCESS == (RESULT)) { \
       (RESULT) = (EXPR); \
       acc_opencl_check_.msg = (MSG); \
@@ -201,15 +202,13 @@
       assert(EXIT_SUCCESS == (RESULT)); \
     } \
     else if (NULL != acc_opencl_check_.msg && 0 != *acc_opencl_check_.msg) { \
-      fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", \
-        acc_opencl_check_.msg, acc_opencl_check_.err); \
+      fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", acc_opencl_check_.msg, acc_opencl_check_.err); \
     } \
     else if (-1001 == acc_opencl_check_.err) { \
       fprintf(stderr, "ERROR ACC/OpenCL: incomplete OpenCL installation?\n"); \
     } \
     else { \
-      fprintf(stderr, "ERROR ACC/OpenCL: unknown error (code=%i)\n", \
-        acc_opencl_check_.err); \
+      fprintf(stderr, "ERROR ACC/OpenCL: unknown error (code=%i)\n", acc_opencl_check_.err); \
     } \
   } while (0)
 
