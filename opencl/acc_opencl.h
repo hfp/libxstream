@@ -78,6 +78,9 @@
 #else
 #  define ACC_OPENCL_ATOMIC_LOCKTYPE volatile int
 #endif
+#if !defined(ACC_OPENCL_TLS)
+#  define ACC_OPENCL_TLS LIBXSMM_TLS
+#endif
 #if !defined(ACC_OPENCL_MAXALIGN)
 #  define ACC_OPENCL_MAXALIGN (2 << 20 /*2MB*/)
 #endif
@@ -186,59 +189,51 @@
 #  define LIBXSMM_STRISTR strstr
 #endif
 
-#if !defined(NDEBUG) && 1
-#  define ACC_OPENCL_CHECK(EXPR, MSG, RESULT) \
-    do { \
-      if (EXIT_SUCCESS == (RESULT)) { \
-        (RESULT) = (EXPR); \
-        assert((MSG) && *(MSG)); \
-        if (EXIT_SUCCESS != (RESULT)) { \
-          assert(EXIT_SUCCESS == EXIT_SUCCESS); \
-          if (-1001 != (RESULT)) { \
-            fprintf(stderr, "ERROR ACC/OpenCL: " MSG); \
-            if (EXIT_FAILURE != (RESULT)) { \
-              fprintf(stderr, " (code=%i)", RESULT); \
-            } \
-            fprintf(stderr, ".\n"); \
-            assert(EXIT_SUCCESS != (RESULT)); \
-          } \
-          else { \
-            fprintf(stderr, "ERROR ACC/OpenCL: incomplete installation (" MSG ").\n"); \
-          } \
-          assert(!MSG); \
-        } \
-      } \
-    } while (0)
+#define ACC_OPENCL_CHECK(RESULT, EXPR, MSG) \
+  do { \
+    static ACC_OPENCL_TLS struct { \
+      const char* msg; int err; \
+    } acc_opencl_check_ = { NULL, EXIT_SUCCESS }; \
+    if (EXIT_SUCCESS == (RESULT)) { \
+      (RESULT) = (EXPR); \
+      acc_opencl_check_.msg = (MSG); \
+      acc_opencl_check_.err = (RESULT); \
+      assert(EXIT_SUCCESS == (RESULT)); \
+    } \
+    else if (NULL != acc_opencl_check_.msg && 0 != *acc_opencl_check_.msg) { \
+      fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", \
+        acc_opencl_check_.msg, acc_opencl_check_.err); \
+    } \
+    else if (-1001 == acc_opencl_check_.err) { \
+      fprintf(stderr, "ERROR ACC/OpenCL: incomplete OpenCL installation?\n"); \
+    } \
+    else { \
+      fprintf(stderr, "ERROR ACC/OpenCL: unknown error (code=%i)\n", \
+        acc_opencl_check_.err); \
+    } \
+  } while (0)
+
+#if !defined(NDEBUG)
 #  define ACC_OPENCL_RETURN_CAUSE(RESULT, CAUSE) \
     do { \
-      const int acc_opencl_return_cause_result_ = (RESULT); \
-      if (EXIT_SUCCESS != acc_opencl_return_cause_result_) { \
+      if (EXIT_SUCCESS != (RESULT)) { \
         if (NULL != (CAUSE) && '\0' != *(const char*)(CAUSE)) { \
           fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", (const char*)CAUSE); \
-          assert(!"SUCCESS"); \
         } \
         else if (NULL != (LIBXSMM_FUNCNAME) && '\0' != *(const char*)(LIBXSMM_FUNCNAME)) { \
           fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", (const char*)LIBXSMM_FUNCNAME); \
-          assert(!"SUCCESS"); \
         } \
         else { \
           fprintf(stderr, "ERROR ACC/OpenCL: failure!\n"); \
-          assert(!"SUCCESS"); \
         } \
+        assert(!"SUCCESS"); \
       } \
-      return acc_opencl_return_cause_result_; \
+      return (RESULT); \
     } while (0)
 #else
-#  define ACC_OPENCL_CHECK(EXPR, MSG, RESULT) \
-    do { \
-      if (EXIT_SUCCESS == (RESULT)) { \
-        (RESULT) = (EXPR); \
-        assert((MSG) && *(MSG)); \
-      } \
-    } while (0)
 #  define ACC_OPENCL_RETURN_CAUSE(RESULT, CAUSE) \
     LIBXSMM_UNUSED(CAUSE); \
-    return RESULT
+    return (RESULT)
 #endif
 #define ACC_OPENCL_RETURN(RESULT) ACC_OPENCL_RETURN_CAUSE(RESULT, "")
 
