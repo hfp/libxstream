@@ -127,8 +127,10 @@
 #  define ACC_OPENCL_ACTIVATE 0
 #endif
 /* Use DBCSR's profile for detailed timings */
-#if !defined(ACC_OPENCL_PROFILE) && (defined(__OFFLOAD_PROFILING) || 0)
-#  define ACC_OPENCL_PROFILE
+#if !defined(ACC_OPENCL_PROFILE_DBCSR) && (defined(__OFFLOAD_PROFILING) || 0)
+#  define ACC_OPENCL_PROFILE_DBCSR
+#elif !defined(ACC_OPENCL_PROFILE_TRANSFER) && 0
+#  define ACC_OPENCL_PROFILE_TRANSFER
 #endif
 
 #if defined(__OFFLOAD_OPENCL) && !defined(ACC_OPENCL_MEM_DEVPTR)

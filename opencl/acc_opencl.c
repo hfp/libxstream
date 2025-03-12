@@ -349,7 +349,7 @@ int c_dbcsr_acc_init(void) {
 #  else
   int result = EXIT_SUCCESS;
 #  endif
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
@@ -665,7 +665,7 @@ int c_dbcsr_acc_init(void) {
     if (EXIT_SUCCESS == result) result = libsmm_acc_init();
 #  endif
   }
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
 #  endif
   ACC_OPENCL_RETURN(result);
@@ -732,7 +732,7 @@ int c_dbcsr_acc_finalize(void) {
   int result = EXIT_SUCCESS;
 #  endif
   static void (*cleanup)(void) = c_dbcsr_acc_opencl_finalize;
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
@@ -761,7 +761,7 @@ int c_dbcsr_acc_finalize(void) {
     if (EXIT_SUCCESS == result) result = atexit(cleanup);
     cleanup = NULL;
   }
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
 #  endif
   ACC_OPENCL_RETURN(result);
@@ -773,7 +773,7 @@ void c_dbcsr_acc_clear_errors(void) {}
 
 int c_dbcsr_acc_get_ndevices(int* ndevices) {
   int result;
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
@@ -791,7 +791,7 @@ int c_dbcsr_acc_get_ndevices(int* ndevices) {
     }
     else result = EXIT_FAILURE;
   }
-#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE)
+#  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
 #  endif
   ACC_OPENCL_RETURN(result);
@@ -1200,7 +1200,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
 
 
 int c_dbcsr_acc_set_active_device(int device_id) {
-  /* avoid ACC_OPENCL_PROFILE in this routine */
+  /* avoid ACC_OPENCL_PROFILE_DBCSR in this routine */
   int result = EXIT_SUCCESS;
   if (0 <= device_id) {
 #  if defined(__DBCSR_ACC) && defined(__OFFLOAD_OPENCL)
