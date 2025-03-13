@@ -1077,7 +1077,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
         if (NULL != devinfo->stream.queue) { /* release private stream */
           ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseCommandQueue(devinfo->stream.queue));
         }
-        memset(&c_dbcsr_acc_opencl_config.device, 0, sizeof(c_dbcsr_acc_opencl_config.device));
+        memset(devinfo, 0, sizeof(*devinfo));
         result = c_dbcsr_acc_opencl_device_level(
           active_id, devinfo->std_clevel, devinfo->std_level, devinfo->std_flag, &devinfo->type);
         if (EXIT_SUCCESS == result) {
@@ -1187,7 +1187,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           }
           assert(active_id == devinfo->id);
         }
-        else memset(&c_dbcsr_acc_opencl_config.device, 0, sizeof(c_dbcsr_acc_opencl_config.device));
+        else memset(devinfo, 0, sizeof(*devinfo));
       }
       if (NULL != lock) ACC_OPENCL_RELEASE(lock);
     }
