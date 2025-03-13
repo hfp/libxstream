@@ -187,7 +187,8 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
     nbytes += alignment + size_meminfo - 1;
 #  if !defined(ACC_OPENCL_ACTIVATE)
     if (NULL == devinfo->context) {
-      ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, (int)devinfo->uid));
+      ACC_OPENCL_EXPECT(
+        EXIT_SUCCESS == c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_config.lock_main, (int)devinfo->uid));
     }
 #  endif
 #  if defined(ACC_OPENCL_XHINTS)
@@ -343,7 +344,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
 #  endif
 #  if !defined(ACC_OPENCL_ACTIVATE)
   if (NULL == context) {
-    ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, (int)devinfo->uid));
+    ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_config.lock_main, (int)devinfo->uid));
     context = devinfo->context;
   }
 #  endif
