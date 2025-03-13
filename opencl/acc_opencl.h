@@ -285,8 +285,6 @@ typedef struct c_dbcsr_acc_opencl_device_t {
   size_t wgsize[3];
   /** Kind of device (GPU, CPU, or other). */
   cl_device_type type;
-  /** OpenCL device-ID. */
-  cl_device_id id;
   /** Whether host memory is unified. */
   cl_int unified;
   /** Device-UID. */
@@ -344,6 +342,8 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_event **events, *event_data;
   /** Kind of timer used for built-in execution-profile. */
   c_dbcsr_acc_opencl_timer_t timer; /* c_dbcsr_acc_opencl_device_t? */
+  /** Device-ID to lookup devices-array. */
+  cl_int device_id;
   /** Kernel-parameters are matched against device's UID */
   cl_uint devmatch;
   /** Split devices into sub-devices (if possible) */

@@ -30,10 +30,10 @@ extern "C" {
 
 void c_dbcsr_acc_opencl_pmalloc_init(ACC_OPENCL_LOCKTYPE* lock, size_t size, size_t* num, void* pool[], void* storage) {
   char* p = (char*)storage;
-  size_t n, i = 0;
+  size_t i = 0;
   assert(0 < size && NULL != num && NULL != pool && NULL != storage);
   if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
-  for (n = *num; i < n; ++i, p += size) pool[i] = p;
+  for (; i < *num; ++i, p += size) pool[i] = p;
   if (NULL != lock) ACC_OPENCL_RELEASE(lock);
 }
 
@@ -187,8 +187,8 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
     nbytes += alignment + size_meminfo - 1;
 #  if !defined(ACC_OPENCL_ACTIVATE)
     if (NULL == devinfo->context) {
-      ACC_OPENCL_EXPECT(
-        EXIT_SUCCESS == c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_config.lock_main, (int)devinfo->uid));
+      ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_opencl_set_active_device(
+                                          c_dbcsr_acc_opencl_config.lock_main, c_dbcsr_acc_opencl_config.device_id));
     }
 #  endif
 #  if defined(ACC_OPENCL_XHINTS)
@@ -329,7 +329,6 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   int result = EXIT_SUCCESS;
   const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
   /* assume no lock is needed to protect against context/device changes */
-  cl_context context = devinfo->context;
   cl_mem memory = NULL;
   void* memptr = NULL;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
@@ -339,18 +338,19 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
 #  if !defined(ACC_OPENCL_ACTIVATE)
-  if (NULL == context) {
-    ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_opencl_set_active_device(c_dbcsr_acc_opencl_config.lock_main, (int)devinfo->uid));
-    context = devinfo->context;
+  if (NULL == devinfo->context) {
+    ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_opencl_set_active_device(
+                                        c_dbcsr_acc_opencl_config.lock_main, c_dbcsr_acc_opencl_config.device_id));
   }
 #  endif
-  assert(NULL != dev_mem && NULL != context);
+  assert(NULL != dev_mem && NULL != devinfo->context);
   if (0 != nbytes) {
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
     if (NULL != devinfo->clDeviceMemAllocINTEL) {
+      const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
       assert(0 == devinfo->unified);
       *dev_mem = memptr = devinfo->clDeviceMemAllocINTEL(
-        context, devinfo->id, NULL /*properties*/, nbytes, 0 /*alignment*/, &result);
+        devinfo->context, device_id, NULL /*properties*/, nbytes, 0 /*alignment*/, &result);
       if (EXIT_SUCCESS != result) *dev_mem = NULL;
     }
     else
@@ -361,9 +361,9 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
                               (0x4905 != devuid && 0x020a != devuid && (0x0bd0 > devuid || 0x0bdb < devuid)))
                               ? 0
                               : (1u << 22));
-      memory = clCreateBuffer(context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes, NULL /*host_ptr*/, &result);
+      memory = clCreateBuffer(devinfo->context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes, NULL /*host_ptr*/, &result);
       if (0 != try_flag && EXIT_SUCCESS != result) { /* retry without try_flag */
-        memory = clCreateBuffer(context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result);
+        memory = clCreateBuffer(devinfo->context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result);
       }
       if (EXIT_SUCCESS == result) {
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
@@ -804,6 +804,7 @@ int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t
 
 
 int c_dbcsr_acc_dev_mem_info(size_t* mem_free, size_t* mem_total) {
+  const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
   int result;
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
@@ -811,9 +812,7 @@ int c_dbcsr_acc_dev_mem_info(size_t* mem_free, size_t* mem_total) {
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
 #  endif
-  assert(0 < c_dbcsr_acc_opencl_config.ndevices || NULL == c_dbcsr_acc_opencl_config.device.id);
-  result = c_dbcsr_acc_opencl_info_devmem(
-    c_dbcsr_acc_opencl_config.device.id, mem_free, mem_total, NULL /*mem_local*/, NULL /*mem_unified*/);
+  result = c_dbcsr_acc_opencl_info_devmem(device_id, mem_free, mem_total, NULL /*mem_local*/, NULL /*mem_unified*/);
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
 #  endif
