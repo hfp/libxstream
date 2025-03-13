@@ -214,15 +214,12 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
       if (EXIT_SUCCESS == result) {
         const uintptr_t address = (uintptr_t)mapped;
         const uintptr_t aligned = LIBXSMM_UP2(address + size_meminfo, alignment);
-        c_dbcsr_acc_opencl_info_memptr_t* meminfo;
-        assert(address + size_meminfo <= aligned);
-        meminfo = (c_dbcsr_acc_opencl_info_memptr_t*)(aligned - size_meminfo);
-        if (NULL != meminfo) {
-          meminfo->memory = memory;
-          meminfo->memptr = mapped;
-          *host_mem = (void*)aligned;
-        }
-        else result = EXIT_FAILURE;
+        c_dbcsr_acc_opencl_info_memptr_t* const meminfo = (c_dbcsr_acc_opencl_info_memptr_t*)(aligned - size_meminfo);
+        assert(address + size_meminfo <= aligned && NULL != meminfo);
+        meminfo->memory = memory;
+        meminfo->memptr = mapped;
+        *host_mem = (void*)aligned;
+        assert(meminfo == c_dbcsr_acc_opencl_info_hostptr(*host_mem));
       }
     }
     if (EXIT_SUCCESS != result) {
@@ -273,8 +270,7 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
       }
       result_release = clReleaseMemObject(info.memory);
       if (EXIT_SUCCESS == result) result = result_release;
-    }
-    else result = EXIT_FAILURE;
+    } /* not an error */
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
