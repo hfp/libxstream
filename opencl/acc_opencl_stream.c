@@ -57,6 +57,7 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void) {
 
 
 int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
+  const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
   ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[8] = {
     CL_QUEUE_PROPERTIES, 0 /*placeholder*/, 0 /* terminator */
   };
@@ -104,7 +105,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   }
   else offset = c_dbcsr_acc_opencl_stream_counter_base++;
 #  endif
-  if (NULL == c_dbcsr_acc_opencl_config.device.context)
+  if (NULL == devinfo->context)
 #  if defined(ACC_OPENCL_ACTIVATE)
   {
     result = EXIT_FAILURE;
@@ -112,13 +113,13 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   else
 #  else
   {
-    result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, (int)c_dbcsr_acc_opencl_config.device.uid);
+    result = c_dbcsr_acc_opencl_set_active_device(NULL /*lock*/, (int)devinfo->uid);
   }
-  if (NULL != c_dbcsr_acc_opencl_config.device.context)
+  if (NULL != devinfo->context)
 #  endif
   {
 #  if defined(ACC_OPENCL_XHINTS)
-    if ((4 & c_dbcsr_acc_opencl_config.xhints) && 0 != c_dbcsr_acc_opencl_config.device.intel) { /* enable queue families */
+    if ((4 & c_dbcsr_acc_opencl_config.xhints) && 0 != devinfo->intel) { /* enable queue families */
       struct {
         cl_command_queue_properties properties;
         cl_bitfield capabilities;
@@ -126,8 +127,8 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
         char name[64 /*CL_QUEUE_FAMILY_MAX_NAME_SIZE_INTEL*/];
       } intel_qfprops[16];
       size_t nbytes = 0, i;
-      if (EXIT_SUCCESS == clGetDeviceInfo(c_dbcsr_acc_opencl_config.device.id, 0x418B /*CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL*/,
-                            sizeof(intel_qfprops), intel_qfprops, &nbytes))
+      if (EXIT_SUCCESS == clGetDeviceInfo(devinfo->id, 0x418B /*CL_DEVICE_QUEUE_FAMILY_PROPERTIES_INTEL*/, sizeof(intel_qfprops),
+                            intel_qfprops, &nbytes))
       {
         for (i = 0; (i * sizeof(*intel_qfprops)) < nbytes; ++i) {
           if (0 /*CL_QUEUE_DEFAULT_CAPABILITIES_INTEL*/ == intel_qfprops[i].capabilities && 1 < intel_qfprops[i].count) {
@@ -148,8 +149,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     {
       properties[1] = CL_QUEUE_PROFILING_ENABLE;
     }
-    queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(
-      c_dbcsr_acc_opencl_config.device.context, c_dbcsr_acc_opencl_config.device.id, properties, &result);
+    queue = ACC_OPENCL_CREATE_COMMAND_QUEUE(devinfo->context, devinfo->id, properties, &result);
   }
   if (EXIT_SUCCESS == result) { /* register stream */
     assert(NULL != c_dbcsr_acc_opencl_config.streams && NULL != queue);
@@ -221,17 +221,17 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
   assert(least != greatest); /* no alias */
 #  if defined(ACC_OPENCL_STREAM_PRIORITIES)
   if (0 < c_dbcsr_acc_opencl_config.ndevices) {
+    const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
     char buffer[ACC_OPENCL_BUFFERSIZE];
     cl_platform_id platform = NULL;
-    assert(NULL != c_dbcsr_acc_opencl_config.device.context);
-    ACC_OPENCL_CHECK(result,
-      clGetDeviceInfo(c_dbcsr_acc_opencl_config.device.id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL),
+    assert(NULL != devinfo->context);
+    ACC_OPENCL_CHECK(result, clGetDeviceInfo(devinfo->id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL),
       "retrieve platform associated with active device");
     ACC_OPENCL_CHECK(result, clGetPlatformInfo(platform, CL_PLATFORM_EXTENSIONS, ACC_OPENCL_BUFFERSIZE, buffer, NULL),
       "retrieve platform extensions");
     if (EXIT_SUCCESS == result) {
       if (NULL != strstr(buffer, "cl_khr_priority_hints") ||
-          EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(c_dbcsr_acc_opencl_config.device.id, "nvidia", 0 /*use_platform_name*/))
+          EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(devinfo->id, "nvidia", 0 /*use_platform_name*/))
       {
         priohi = CL_QUEUE_PRIORITY_HIGH_KHR;
         priolo = CL_QUEUE_PRIORITY_LOW_KHR;
