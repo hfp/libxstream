@@ -520,7 +520,7 @@ class SmmTuner(MeasurementInterface):
                             msg = "Worse and older (delete {} @ {}x): {}"
                             rnd = [str(round(i, 2)) for i in delsld]
                             print(msg.format(num, "..".join(rnd), lst))
-                    else:  # delete outperformed parameter sets
+                    elif retain or delete:  # delete outperformed parameter sets
                         for file in retain + delete:
                             try:
                                 os.remove(file)
