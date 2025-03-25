@@ -765,10 +765,11 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
     }
     assert((NULL != config && NULL != config->kernel && 0 < config->wgsize) || EXIT_SUCCESS != result);
     if (EXIT_SUCCESS == result) {
-      cl_event event = NULL, *const perf_event = ((c_dbcsr_acc_opencl_timer_host == c_dbcsr_acc_opencl_config.timer ||
-                                             (0 <= c_dbcsr_acc_opencl_config.verbosity && 2 >= c_dbcsr_acc_opencl_config.verbosity))
-                                             ? NULL
-                                             : &event);
+      cl_event event = NULL, *const perf_event =
+                               ((c_dbcsr_acc_opencl_timer_host == c_dbcsr_acc_opencl_config.timer ||
+                                  (0 <= c_dbcsr_acc_opencl_config.verbosity && 2 >= c_dbcsr_acc_opencl_config.verbosity))
+                                   ? NULL
+                                   : &event);
       const size_t work_size = config->wgsize * stack_size;
       const int typesize = OPENCL_LIBSMM_TYPESIZE(datatype);
 #  if defined(OPENCL_LIBSMM_VALIDATE_TRANS)
@@ -1295,10 +1296,10 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       assert(EXIT_SUCCESS != result || (1 <= config->s && 1 <= config->bs));
       if (EXIT_SUCCESS == result) {
         cl_event event = NULL, *const perf_event_smm =
-                          ((c_dbcsr_acc_opencl_timer_host == c_dbcsr_acc_opencl_config.timer ||
-                             (0 <= c_dbcsr_acc_opencl_config.verbosity && 2 >= c_dbcsr_acc_opencl_config.verbosity))
-                              ? perf_event
-                              : (NULL == perf_event ? &event : perf_event));
+                                 ((c_dbcsr_acc_opencl_timer_host == c_dbcsr_acc_opencl_config.timer ||
+                                    (0 <= c_dbcsr_acc_opencl_config.verbosity && 2 >= c_dbcsr_acc_opencl_config.verbosity))
+                                     ? perf_event
+                                     : (NULL == perf_event ? &event : perf_event));
         size_t work_size;
 #  if defined(OPENCL_LIBSMM_VALIDATE_SMM)
         /* validate result (implies readback from device and performance penalty) */
@@ -1384,7 +1385,8 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
             ACC_OPENCL_CHECK(result,
               clGetEventProfilingInfo(*perf_event_smm, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &begin, NULL),
               "query kernel start time");
-            ACC_OPENCL_CHECK(result, clGetEventProfilingInfo(*perf_event_smm, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL),
+            ACC_OPENCL_CHECK(result,
+              clGetEventProfilingInfo(*perf_event_smm, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL),
               "query kernel end time");
             duration = 1E-9 * LIBXSMM_DELTA(begin, end); /* Nanoseconds->seconds */
           }
