@@ -965,8 +965,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
   int result = EXIT_SUCCESS;
   const int nparams = 3;
   LIBXSMM_UNUSED(c_stream); /* TODO */
-  assert(0 == stack_size || (NULL != dev_a_data && NULL != dev_b_data && NULL != dev_c_data));
-  assert(0 == stack_size || (NULL != host_param_stack && NULL != dev_param_stack));
+  assert(0 == stack_size || (NULL != dev_a_data && NULL != dev_b_data && NULL != dev_c_data && NULL != dev_param_stack));
   assert(0 < nparams && 0 < max_kernel_dim && NULL != stream);
   assert(0 <= stack_size && 0 <= m_max && 0 <= n_max && 0 <= k_max);
   if (0 != libsmm_acc_process_suitable(def_mnk, datatype, stack_size, m_max, n_max, k_max, max_kernel_dim)) {
