@@ -765,7 +765,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
     }
     assert((NULL != config && NULL != config->kernel && 0 < config->wgsize) || EXIT_SUCCESS != result);
     if (EXIT_SUCCESS == result) {
-      cl_event event, *const perf_event = ((c_dbcsr_acc_opencl_timer_host == c_dbcsr_acc_opencl_config.timer ||
+      cl_event event = NULL, *const perf_event = ((c_dbcsr_acc_opencl_timer_host == c_dbcsr_acc_opencl_config.timer ||
                                              (0 <= c_dbcsr_acc_opencl_config.verbosity && 2 >= c_dbcsr_acc_opencl_config.verbosity))
                                              ? NULL
                                              : &event);
@@ -821,7 +821,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         /* eventually update performance counters inside of locked region */
 #  if !defined(OPENCL_LIBSMM_VALIDATE_TRANS)
         if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-          if (NULL != perf_event) {
+          if (NULL != perf_event && NULL != *perf_event) {
             cl_ulong begin = 0, end = 0;
             clWaitForEvents(1, perf_event);
             ACC_OPENCL_CHECK(result,
@@ -961,7 +961,7 @@ c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
 
 int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
-  c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream, int param_format) {
+  c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream, int param_format, cl_event* perf_event) {
   int result = EXIT_SUCCESS;
   const int nparams = 3;
   LIBXSMM_UNUSED(c_stream); /* TODO */
@@ -1294,11 +1294,11 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       assert(EXIT_SUCCESS != result || (1 <= config->wgsize[kernel_idx]));
       assert(EXIT_SUCCESS != result || (1 <= config->s && 1 <= config->bs));
       if (EXIT_SUCCESS == result) {
-        cl_event event, *const perf_event =
+        cl_event event = NULL, *const perf_event_smm =
                           ((c_dbcsr_acc_opencl_timer_host == c_dbcsr_acc_opencl_config.timer ||
                              (0 <= c_dbcsr_acc_opencl_config.verbosity && 2 >= c_dbcsr_acc_opencl_config.verbosity))
-                              ? NULL
-                              : &event);
+                              ? perf_event
+                              : (NULL == perf_event ? &event : perf_event));
         size_t work_size;
 #  if defined(OPENCL_LIBSMM_VALIDATE_SMM)
         /* validate result (implies readback from device and performance penalty) */
@@ -1373,18 +1373,18 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
         }
         ACC_OPENCL_CHECK(result,
           clEnqueueNDRangeKernel(str->queue, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/, &work_size,
-            config->wgsize + kernel_idx, 0, NULL, perf_event),
+            config->wgsize + kernel_idx, 0, NULL, perf_event_smm),
           "launch SMM-kernel");
         /* eventually update performance counters inside of locked region */
 #  if !defined(OPENCL_LIBSMM_VALIDATE_SMM)
         if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-          if (NULL != perf_event) {
+          if (perf_event_smm == &event && NULL != event) {
             cl_ulong begin = 0, end = 0;
-            clWaitForEvents(1, perf_event);
+            clWaitForEvents(1, perf_event_smm);
             ACC_OPENCL_CHECK(result,
-              clGetEventProfilingInfo(*perf_event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &begin, NULL),
+              clGetEventProfilingInfo(*perf_event_smm, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &begin, NULL),
               "query kernel start time");
-            ACC_OPENCL_CHECK(result, clGetEventProfilingInfo(*perf_event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL),
+            ACC_OPENCL_CHECK(result, clGetEventProfilingInfo(*perf_event_smm, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL),
               "query kernel end time");
             duration = 1E-9 * LIBXSMM_DELTA(begin, end); /* Nanoseconds->seconds */
           }
@@ -1497,7 +1497,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
   c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream) {
   const int pzero = 1, pbase = 0, pnext = 3, param_format = pzero | (pbase << 8) | (pnext << 16);
   return opencl_libsmm_acc_process(host_param_stack, dev_param_stack, stack_size, datatype, dev_a_data, dev_b_data, dev_c_data,
-    m_max, n_max, k_max, max_kernel_dim, def_mnk, stream, c_stream, param_format);
+    m_max, n_max, k_max, max_kernel_dim, def_mnk, stream, c_stream, param_format, NULL /*perf_event*/);
 }
 
 
