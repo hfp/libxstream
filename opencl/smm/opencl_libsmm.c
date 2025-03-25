@@ -1497,8 +1497,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
   c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream) {
   const int pzero = 1, pbase = 0, pnext = 3, param_format = pzero | (pbase << 8) | (pnext << 16);
-  return opencl_libsmm_acc_process(host_param_stack, dev_param_stack, stack_size, datatype, dev_a_data, dev_b_data,
-    dev_c_data, m_max, n_max, k_max, max_kernel_dim, def_mnk, stream, c_stream, param_format);
+  return opencl_libsmm_acc_process(host_param_stack, dev_param_stack, stack_size, datatype, dev_a_data, dev_b_data, dev_c_data,
+    m_max, n_max, k_max, max_kernel_dim, def_mnk, stream, c_stream, param_format);
 }
 
 
