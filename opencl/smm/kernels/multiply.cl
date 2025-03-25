@@ -57,16 +57,6 @@
 #  define REPEAT 1
 #endif
 
-#if 1
-#  define PBASE 0
-#  define PNEXT 3
-#  define PZERO 1
-#else
-#  define PBASE 3
-#  define PNEXT 6
-#  define PZERO 0
-#endif
-
 #define NBM DIVUP(SM, BM)
 #define NBN DIVUP(SN, BN)
 #define WRK (NBM * NBN)
@@ -81,19 +71,23 @@ __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
 FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* restrict bdata,
+  GLOBAL const int* restrict param_stack,
 #if (1 < BS)
-  GLOBAL const int* restrict param_stack, int stack_size, int bs) {
+  int param_format, int stack_size, int bs) {
   const int gid = get_group_id(0), idx = get_local_id(0);
 #else
-  GLOBAL const int* restrict param_stack) {
+  int param_format) {
   const int gid = get_group_id(0), idx = get_local_id(0), bs = 1;
 #endif
-  /* indexes given by param_stack are one-based (Fortran) */
-  GLOBAL const int* restrict pbase = param_stack + gid * (PNEXT * bs);
+  const int pzero = (param_format) & 255;
+  const int pbase = (param_format >> 8) & 255;
+  const int pnext = (param_format >> 16) & 255;
+  /* param_stack/indexes can be one-based (Fortran) depending on param_format */
+  GLOBAL const int* restrict param_base = param_stack + gid * (pnext * bs);
 #if defined(SLM_P) && (1 < BS)
   local int params[3 * BS]; /* bs <= BS */
 #else
-  GLOBAL const int* restrict params = pbase;
+  GLOBAL const int* restrict params = param_base;
 #endif
 #if defined(SLM_A)
 #  if (1 != BK || BM < SM || 1 != BN)
@@ -163,7 +157,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
 #  if defined(SLM_P)
   UNROLL_AUTO for (int i = idx; i < batchsize; i += WG) {
     UNROLL_FORCE(3) for (int j = 0; j < 3; ++j) {
-      params[3 * i + j] = pbase[PNEXT * i + PBASE + j] - PZERO;
+      params[3 * i + j] = param_base[pnext * i + pbase + j] - pzero;
     }
   }
 #  endif
@@ -174,9 +168,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
   if (WRK <= idx) return; /* WRK <= idx */
 #  endif
 #  if defined(SLM_P)
-  c0 = params[PBASE + 2];
+  c0 = params[pbase + 2];
 #  else
-  c0 = params[PBASE + 2] - PZERO;
+  c0 = params[pbase + 2] - pzero;
 #  endif
 #  if defined(BSC) && (1 != BK) && (1 != UM)
   UNROLL_OUTER(REPEAT * BS)
@@ -191,19 +185,19 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
     const int i = item;
 #  endif
 #  if defined(SLM_P)
-    const int next = 3, pzero = 0;
+    const int idxstride = 3, idxbase = 0;
 #  else
-    const int next = PNEXT, pzero = PZERO;
+    const int idxstride = pnext, idxbase = pzero;
 #  endif
-    const int a0 = params[next * i + PBASE] - pzero, b0 = params[next * i + PBASE + 1] - pzero;
-    const int c1 = ((i + 1) < batchsize ? (params[next * i + PBASE + next + 2] - pzero) : -1);
+    const int a0 = params[idxstride * i + pbase] - idxbase, b0 = params[idxstride * i + pbase + 1] - idxbase;
+    const int c1 = ((i + 1) < batchsize ? (params[idxstride * i + pbase + idxstride + 2] - idxbase) : -1);
 #else
 #  if (WRK < WG)
   if (WRK > idx) /* WRK > idx */
 #  endif
   {
-    const int a0 = params[PBASE + 0] - PZERO, b0 = params[PBASE + 1] - PZERO;
-    const int c0 = params[PBASE + 2] - PZERO;
+    const int a0 = params[pbase + 0] - pzero, b0 = params[pbase + 1] - pzero;
+    const int c0 = params[pbase + 2] - pzero;
 #endif
 
 #if defined(SLM_A) && (1 != BK || BM < SM || 1 != BN)

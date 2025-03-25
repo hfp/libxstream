@@ -959,9 +959,9 @@ c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
 }
 
 
-int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
+int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
-  c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream) {
+  c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream, int param_format) {
   int result = EXIT_SUCCESS;
   const int nparams = 3;
   LIBXSMM_UNUSED(c_stream); /* TODO */
@@ -1363,12 +1363,14 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
           "set B-matrix argument of SMM-kernel");
         ACC_OPENCL_CHECK(result, c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel[kernel_idx], 3, info_stack.memory),
           "set batch-list argument of SMM-kernel");
+        ACC_OPENCL_CHECK(result, clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &param_format),
+          "set batch-format argument of SMM-kernel");
         if (0 == kernel_idx) {
           assert(bs <= config->bs);
-          ACC_OPENCL_CHECK(result, clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &stack_size),
+          ACC_OPENCL_CHECK(result, clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &stack_size),
             "set stacksize argument of SMM-kernel");
           ACC_OPENCL_CHECK(
-            result, clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &bs), "set minibatch argument of SMM-kernel");
+            result, clSetKernelArg(config->kernel[kernel_idx], 6, sizeof(int), &bs), "set minibatch argument of SMM-kernel");
         }
         ACC_OPENCL_CHECK(result,
           clEnqueueNDRangeKernel(str->queue, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/, &work_size,
@@ -1488,6 +1490,15 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
     return -1; /* TODO: document result code to trigger host-fallback */
   }
   ACC_OPENCL_RETURN(result);
+}
+
+
+int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
+  const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
+  c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream) {
+  const int pzero = 1, pbase = 0, pnext = 3, param_format = pzero | (pbase << 8) | (pnext << 16);
+  return opencl_libsmm_acc_process(host_param_stack, dev_param_stack, stack_size, datatype, dev_a_data, dev_b_data,
+    dev_c_data, m_max, n_max, k_max, max_kernel_dim, def_mnk, stream, c_stream, param_format);
 }
 
 

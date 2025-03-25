@@ -102,12 +102,12 @@ int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libs
 int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, opencl_libsmm_smm_t* value,
   opencl_libsmm_perfest_t* perfest, char* device, int* key_ok);
 
-#if defined(OPENCL_LIBSMM_VALIDATE) && defined(_DEBUG)
-void opencl_libsmm_print_matrix(FILE* ostream, const char* label, libsmm_acc_data_t type, const void* mat, int m, int n);
-#endif
-
 c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
   c_dbcsr_acc_bool_t def_mnk, libsmm_acc_data_t datatype, int stack_size, int m_max, int n_max, int k_max, int max_kernel_dim);
+
+int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
+  const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
+  c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream, int param_format);
 
 #if defined(__cplusplus)
 }
