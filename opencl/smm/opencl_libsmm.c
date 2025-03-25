@@ -1379,6 +1379,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
         /* eventually update performance counters inside of locked region */
 #  if !defined(OPENCL_LIBSMM_VALIDATE_SMM)
         if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
+          duration = 0;
           if (perf_event_smm == &event && NULL != event) {
             cl_ulong begin = 0, end = 0;
             clWaitForEvents(1, perf_event_smm);
@@ -1390,11 +1391,11 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
               "query kernel end time");
             duration = 1E-9 * LIBXSMM_DELTA(begin, end); /* Nanoseconds->seconds */
           }
-          else {
+          else if (NULL == perf_event_smm) {
             clFinish(str->queue);
             duration = libxsmm_timer_duration(start, libxsmm_timer_tick()); /* seconds */
           }
-          if (EXIT_SUCCESS == result) {
+          if (0 < duration && EXIT_SUCCESS == result) {
             const double gflops = 1E-9 * (2ULL * m_max * n_max * k_max * stack_size) / duration;
             LIBXSMM_STDIO_ACQUIRE();
             fprintf(stderr, "INFO ACC/LIBSMM: SMM-kernel ");
