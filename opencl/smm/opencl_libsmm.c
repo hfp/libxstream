@@ -970,6 +970,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
   c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream, int param_format, cl_event* perf_event) {
   int result = EXIT_SUCCESS;
   const int nparams = 3;
+  LIBXSMM_UNUSED(host_param_stack); /* TODO */
   LIBXSMM_UNUSED(c_stream); /* TODO */
   assert(0 == stack_size || (NULL != dev_a_data && NULL != dev_b_data && NULL != dev_c_data && NULL != dev_param_stack));
   assert(0 < nparams && 0 < max_kernel_dim && NULL != stream);
