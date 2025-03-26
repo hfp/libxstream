@@ -288,7 +288,7 @@ int main(int argc, char* argv[]) {
 #else
       const int mn = m * n, mk = m * k, kn = k * n;
 #endif
-      const int max_kernel_dim = sqrt(m * n) + 0.5;
+      const int max_kernel_dim = ceil(sqrt(m * n));
       int *stack_hst = NULL, *stack_dev = NULL, *trans_hst = NULL, *trans_dev = NULL;
       ELEM_TYPE *amat_hst = NULL, *bmat_hst = NULL, *cmat_hst = NULL;
       ELEM_TYPE *amat_dev = NULL, *bmat_dev = NULL, *cmat_dev = NULL;
