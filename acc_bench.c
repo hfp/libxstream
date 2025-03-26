@@ -54,9 +54,6 @@
 #if !defined(ELEM_TYPE)
 #  define ELEM_TYPE double
 #endif
-#if !defined(MAX_KERNEL_DIM)
-#  define MAX_KERNEL_DIM 64
-#endif
 #if !defined(ALIGNMENT)
 #  define ALIGNMENT 64
 #endif

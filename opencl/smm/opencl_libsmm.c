@@ -917,10 +917,11 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
 c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
   c_dbcsr_acc_bool_t def_mnk, libsmm_acc_data_t datatype, int stack_size, int m_max, int n_max, int k_max, int max_kernel_dim) {
   c_dbcsr_acc_bool_t result = 0; /* false */
-  if (0 < m_max && 0 < n_max && 0 < k_max && 0 < stack_size &&
+  const int mn = m_max * n_max;
+  if (0 < mn && 0 < k_max && 0 < stack_size &&
       0 != def_mnk /*homogeneous*/
       /* allow k_max to exceed max_kernel_dim, TODO: BLAS for large kernels (m,n) */
-      && m_max <= max_kernel_dim && n_max <= max_kernel_dim)
+      && mn <= (max_kernel_dim * max_kernel_dim))
   {
     switch (datatype) {
 #  if defined(OPENCL_LIBSMM_F64)
@@ -950,7 +951,7 @@ c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
     fprintf(stderr, "=");
     opencl_libsmm_write_smm_params(stderr, 1 /*only_key*/, &key, &dummy, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
     fprintf(stderr, " ss=%i", stack_size);
-    if (m_max <= max_kernel_dim && n_max <= max_kernel_dim) {
+    if (mn <= (max_kernel_dim * max_kernel_dim)) {
       fprintf(stderr, 0 != def_mnk ? " is ignored\n" : " is inhomogeneous\n");
     }
     else fprintf(stderr, " is too large\n");
