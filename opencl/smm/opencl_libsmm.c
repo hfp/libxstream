@@ -1511,15 +1511,14 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
 int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
   c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream) {
-  const int phomo = 1, pzero = 1, pnext = 3, param_format = phomo | (pzero << 8) | (pnext << 16);
   int result = EXIT_SUCCESS;
-  if (dbcsr_type_real_8 == datatype && NULL != opencl_libsmm_acc_dbm_launch_fn) {
-    result = opencl_libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, stack_size, param_format, host_param_stack, dev_param_stack,
-      (const double*)dev_a_data, (const double*)dev_b_data, (double*)dev_c_data);
+  if (dbcsr_type_real_8 == datatype && 0 != def_mnk && NULL != opencl_libsmm_acc_dbm_launch_fn) {
+    result = opencl_libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, stack_size, m_max | (n_max << 8) | (k_max << 16),
+      host_param_stack, dev_param_stack, (const double*)dev_a_data, (const double*)dev_b_data, (double*)dev_c_data);
   }
   else {
     result = opencl_libsmm_acc_process(host_param_stack, dev_param_stack, stack_size, datatype, dev_a_data, dev_b_data, dev_c_data,
-      m_max, n_max, k_max, max_kernel_dim, def_mnk, stream, c_stream, param_format, NULL /*perf_event*/);
+      m_max, n_max, k_max, max_kernel_dim, def_mnk, stream, c_stream, 0 /*param_format*/, NULL /*perf_event*/);
   }
   ACC_OPENCL_RETURN(result);
 }
