@@ -962,6 +962,12 @@ c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
 
 
 #  if !defined(OPENCL_LIBSMM_PFORMAT)
+void opencl_libsmm_acc_set_dbm_launch_fn(dbm_multiply_opencl_launch_fn_t launch_fn) {
+  LIBXSMM_UNUSED(launch_fn); /* TODO */
+  assert(0);
+}
+
+
 int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
   c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream, int param_format, cl_event* perf_event);
