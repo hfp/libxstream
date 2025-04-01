@@ -1514,7 +1514,7 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
   const int phomo = 1, pzero = 1, pnext = 3, param_format = phomo | (pzero << 8) | (pnext << 16);
   int result = EXIT_SUCCESS;
   if (dbcsr_type_real_8 == datatype && NULL != opencl_libsmm_acc_dbm_launch_fn) {
-    result = opencl_libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, int ntasks, param_format, host_param_stack, dev_param_stack,
+    result = opencl_libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, stack_size, param_format, host_param_stack, dev_param_stack,
       (const double*)dev_a_data, (const double*)dev_b_data, (double*)dev_c_data);
   }
   else {
