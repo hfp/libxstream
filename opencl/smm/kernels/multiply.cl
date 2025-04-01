@@ -78,8 +78,9 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
   int param_format) {
   const int gid = get_group_id(0), idx = get_local_id(0), bs = 1;
 #endif
-  const SINT pzero = 0xFFFF & (param_format);
-  const SINT pnext = 0xFFFF & (param_format >> 16);
+  /*const SINT phomo = 0xFF & (param_format);*/
+  const SINT pzero = 0xFF & (param_format >> 8);
+  const SINT pnext = 0xFF & (param_format >> 16);
   /* param_stack/indexes can be one-based (Fortran) depending on param_format */
   GLOBAL const int* restrict param_base = param_stack + gid * (pnext * bs);
 #if defined(SLM_P) && (1 < BS)
