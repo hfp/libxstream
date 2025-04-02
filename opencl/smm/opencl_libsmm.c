@@ -963,7 +963,7 @@ c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
 }
 
 
-#  if defined(OPENCL_LIBSMM_PFORMAT)
+#  if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
 void opencl_libsmm_acc_set_dbm_launch_fn(opencl_libsmm_acc_dbm_launch_fn_t launch_fn) {
   opencl_libsmm_acc_dbm_launch_fn = launch_fn;
 }
@@ -1512,11 +1512,16 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
   c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream) {
   int result = EXIT_SUCCESS;
+#  if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
+  assert(LIBXSMM_MAX(LIBXSMM_MAX(m_max, n_max), k_max) < (1 << (OPENCL_LIBSMM_PFORMAT - 1)));
   if (dbcsr_type_real_8 == datatype && 0 != def_mnk && NULL != opencl_libsmm_acc_dbm_launch_fn) {
-    result = opencl_libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, stack_size, m_max | (n_max << 8) | (k_max << 16),
+    result = opencl_libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, stack_size,
+      m_max | (n_max << OPENCL_LIBSMM_PFORMAT) | (k_max << (OPENCL_LIBSMM_PFORMAT * 2)),
       host_param_stack, dev_param_stack, (const double*)dev_a_data, (const double*)dev_b_data, (double*)dev_c_data);
   }
-  else {
+  else
+#  endif
+  {
     result = opencl_libsmm_acc_process(host_param_stack, dev_param_stack, stack_size, datatype, dev_a_data, dev_b_data, dev_c_data,
       m_max, n_max, k_max, max_kernel_dim, def_mnk, stream, c_stream, 0 /*param_format*/, NULL /*perf_event*/);
   }
