@@ -192,7 +192,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
     }
 #  endif
 #  if defined(ACC_OPENCL_XHINTS)
-    if (0 != (16 & c_dbcsr_acc_opencl_config.xhints) && (0 != devinfo->nv || NULL != (ACC_OPENCL_XHINTS))) {
+    if (0 != (8 & c_dbcsr_acc_opencl_config.xhints) && (0 != devinfo->nv || NULL != (ACC_OPENCL_XHINTS))) {
       host_ptr = malloc(nbytes);
       if (NULL != host_ptr) flags = CL_MEM_USE_HOST_PTR;
     }
@@ -205,7 +205,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
                                                                        : c_dbcsr_acc_opencl_stream_default());
         mapped = clEnqueueMapBuffer(str->queue, memory, CL_TRUE /*always block*/,
 #  if defined(ACC_OPENCL_XHINTS) && (defined(CL_VERSION_1_2) || defined(CL_MAP_WRITE_INVALIDATE_REGION))
-          (8 & c_dbcsr_acc_opencl_config.xhints) ? CL_MAP_WRITE_INVALIDATE_REGION :
+          (4 & c_dbcsr_acc_opencl_config.xhints) ? CL_MAP_WRITE_INVALIDATE_REGION :
 #  endif
                                                  (CL_MAP_READ | CL_MAP_WRITE),
           0 /*offset*/, nbytes, 0, NULL, NULL, &result);
@@ -252,7 +252,7 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
       void* host_ptr = NULL;
       int result_release;
 #  if defined(ACC_OPENCL_XHINTS)
-      if (0 != (16 & c_dbcsr_acc_opencl_config.xhints) &&
+      if (0 != (8 & c_dbcsr_acc_opencl_config.xhints) &&
           (0 != c_dbcsr_acc_opencl_config.device.nv || NULL != (ACC_OPENCL_XHINTS)) &&
           EXIT_SUCCESS == clGetMemObjectInfo(info.memory, CL_MEM_HOST_PTR, sizeof(void*), &host_ptr, NULL) && NULL != host_ptr)
       {
