@@ -161,7 +161,13 @@ int c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_info_memptr_t* info, 
 
 int c_dbcsr_acc_opencl_info_devptr(
   c_dbcsr_acc_opencl_info_memptr_t* info, const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
-  return c_dbcsr_acc_opencl_info_devptr_lock(info, c_dbcsr_acc_opencl_config.lock_memory, memory, elsize, amount, offset);
+#  if defined(ACC_OPENCL_MEM_DEVPTR)
+  ACC_OPENCL_LOCKTYPE *const lock_memory = (NULL != c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL
+    ? NULL : c_dbcsr_acc_opencl_config.lock_memory);
+#  else
+  ACC_OPENCL_LOCKTYPE *const lock_memory = NULL;
+#  endif
+  return c_dbcsr_acc_opencl_info_devptr_lock(info, lock_memory, memory, elsize, amount, offset);
 }
 
 
@@ -586,17 +592,11 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
     c_dbcsr_acc_opencl_info_memptr_t info;
     size_t offset = 0;
     assert(NULL != str && NULL != str->queue);
-#  if defined(ACC_OPENCL_MEM_DEVPTR)
-    ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
-#  endif
-    result = c_dbcsr_acc_opencl_info_devptr_lock(&info, NULL /*lock*/, dev_mem, 1 /*elsize*/, &nbytes, &offset);
+    result = c_dbcsr_acc_opencl_info_devptr(&info, dev_mem, 1 /*elsize*/, &nbytes, &offset);
     if (EXIT_SUCCESS == result) {
       assert(NULL != info.memory);
       result = c_dbcsr_acc_opencl_memcpy_d2h(info.memory, host_mem, offset, nbytes, str->queue, finish);
     }
-#  if defined(ACC_OPENCL_MEM_DEVPTR)
-    ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
-#  endif
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
