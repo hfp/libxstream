@@ -162,10 +162,10 @@ int c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_info_memptr_t* info, 
 int c_dbcsr_acc_opencl_info_devptr(
   c_dbcsr_acc_opencl_info_memptr_t* info, const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
-  ACC_OPENCL_LOCKTYPE *const lock_memory = (NULL != c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL
-    ? NULL : c_dbcsr_acc_opencl_config.lock_memory);
+  ACC_OPENCL_LOCKTYPE* const lock_memory =
+    (NULL != c_dbcsr_acc_opencl_config.device.clSetKernelArgMemPointerINTEL ? NULL : c_dbcsr_acc_opencl_config.lock_memory);
 #  else
-  ACC_OPENCL_LOCKTYPE *const lock_memory = NULL;
+  ACC_OPENCL_LOCKTYPE* const lock_memory = NULL;
 #  endif
   return c_dbcsr_acc_opencl_info_devptr_lock(info, lock_memory, memory, elsize, amount, offset);
 }

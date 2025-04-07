@@ -1516,8 +1516,8 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
   assert(LIBXSMM_MAX(LIBXSMM_MAX(m_max, n_max), k_max) < (1 << (OPENCL_LIBSMM_PFORMAT - 1)));
   if (dbcsr_type_real_8 == datatype && 0 != def_mnk && NULL != opencl_libsmm_acc_dbm_launch_fn) {
     result = opencl_libsmm_acc_dbm_launch_fn(stream, 1.0 /*alpha*/, stack_size,
-      m_max | (n_max << OPENCL_LIBSMM_PFORMAT) | (k_max << (OPENCL_LIBSMM_PFORMAT * 2)),
-      host_param_stack, dev_param_stack, (const double*)dev_a_data, (const double*)dev_b_data, (double*)dev_c_data);
+      m_max | (n_max << OPENCL_LIBSMM_PFORMAT) | (k_max << (OPENCL_LIBSMM_PFORMAT * 2)), host_param_stack, dev_param_stack,
+      (const double*)dev_a_data, (const double*)dev_b_data, (double*)dev_c_data);
   }
   else
 #  endif
