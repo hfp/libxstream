@@ -185,6 +185,12 @@ class SmmTuner(MeasurementInterface):
             )
         ) or (self.args.update is None or "" != self.args.update):
             filepattern = "{}-*.json".format(default_basename)
+            filedot = "." + filepattern
+            dotfiles = glob.glob(
+                os.path.normpath(os.path.join(self.args.jsondir, filedot))
+            )
+            for dotfile in dotfiles:
+                self.rename_dotfile(dotfile)
             filenames = glob.glob(
                 os.path.normpath(os.path.join(self.args.jsondir, filepattern))
             )
@@ -563,6 +569,25 @@ class SmmTuner(MeasurementInterface):
                 print("")
             print(msg)
 
+    def rename_dotfile(self, dotfile):
+        data = None
+        try:
+            with open(dotfile, "r") as file:
+                data = json.load(file)
+        except:  # noqa: E722
+            pass
+        gflops = data["GFLOPS"] if data and "GFLOPS" in data else 0
+        if 0 < gflops:
+            filemain = "-".join(os.path.basename(dotfile).split("-")[1:4])
+            filename = os.path.join(
+                self.args.jsondir,
+                "{}-{}-{}gflops.json".format(default_basename, filemain, round(gflops)),
+            )
+            try:
+                os.rename(dotfile, filename)
+            except:  # noqa: E722
+                pass
+
     def save_final_config(self, configuration, final=True):
         """Called at termination"""
         if not final and (0 >= self.gflops or not configuration):
@@ -589,22 +614,7 @@ class SmmTuner(MeasurementInterface):
         )
         if config and self.gfsave < self.gflops:  # save intermediate result
             if 0 == self.gfsave and os.path.exists(filedot):  # backup
-                data = None
-                try:
-                    with open(filedot, "r") as file:
-                        data = json.load(file)
-                except:  # noqa: E722
-                    pass
-                gflops = data["GFLOPS"] if data and "GFLOPS" in data else 0
-                if 0 < gflops:
-                    filename = os.path.join(
-                        self.args.jsondir,
-                        "{}-{}gflops.json".format(self.args.label, round(gflops)),
-                    )
-                    try:
-                        os.rename(filedot, filename)
-                    except:  # noqa: E722
-                        pass
+                rename_dotfile(self, filedot)
             # self.manipulator().save_to_file(config, filename)
             with open(filedot, "w") as file:
                 cfg = config
@@ -622,10 +632,9 @@ class SmmTuner(MeasurementInterface):
             return
         if final and 0 < self.gflops and os.path.exists(filedot):
             filepattern = "{}-*.json".format(default_basename)
-            fileglobs = glob.glob(
+            filenames = glob.glob(
                 os.path.normpath(os.path.join(self.args.jsondir, filepattern))
             )
-            filenames = fileglobs if final else None
             if not filenames and glob.glob(self.args.csvfile):
                 msg = "WARNING: no JSON-file found but {} will be overwritten."
                 print(msg.format(self.args.csvfile))
@@ -704,7 +713,7 @@ if __name__ == "__main__":
         const=-1,
         nargs="?",
         dest="merge",
-        help="Merge JSONs into CSV (-1: auto, 0: all, 1: SP, 2: DP)",
+        help="Merge JSONs into CSV (-1: auto, 0: all, 1: SP, 2: DP, 3: hidden)",
     )
     argparser.add_argument(
         "-x",
