@@ -1068,7 +1068,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
             const int wgmin = ((NULL == env_ws || '\0' == *env_ws) ? 0 : atoi(env_ws));
             const int default_aa = (((0x0bd0 > devuid || 0x0bdb < devuid)) ? ((k_max % OPENCL_LIBSMM_VMIN) ? 1 : 2) : 0);
             const int default_ab = (((0x0bd0 > devuid || 0x0bdb < devuid) && 0x020a != devuid) ? 3 : 0), default_ac = 0;
-            const int default_bk = (((0x0bd0 > devuid || 0x0bdb < devuid) && 0x020a != devuid)
+            const int default_bk = (((0x0bd0 > devuid || 0x0bdb < devuid || n_max < k_max) && 0x020a != devuid)
                                       ? (0 == kernel_idx ? LIBXSMM_MIN(OPENCL_LIBSMM_DEFAULT_BK, m_max)
                                                          : LIBXSMM_MIN(OPENCL_LIBSMM_VMIN, m_max))
                                       : 1);
