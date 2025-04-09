@@ -352,7 +352,7 @@ int main(int argc, char* argv[]) {
         "%s%s%i %i %i %i %i %i %i %i\n", 0 < argc ? argv[0] : "", 0 < argc ? " " : "", nrepeat, stack_size, m, n, k, nc, na, nb);
       PRINTF("typename (id=%i): %s\n", DBCSR_TYPE(ELEM_TYPE), DBCSR_STRINGIFY(ELEM_TYPE));
       if (MAX_KERNEL_DIM < max_kernel_dim) {
-        fprintf(stderr, "ERROR: Matrix shape exceeds MAX_KERNEL_DIM!\n");
+        fprintf(stderr, "ERROR: Matrix shape (%i) exceeds MAX_KERNEL_DIM=%i\n", max_kernel_dim, MAX_KERNEL_DIM);
         result = EXIT_FAILURE;
       }
       CHECK(c_dbcsr_acc_stream_create(&stream, "stream", -1 /*default priority*/), &result, check);
@@ -362,14 +362,14 @@ int main(int argc, char* argv[]) {
       CHECK(c_dbcsr_acc_host_mem_allocate((void**)(void*)&stack_hst, sizeof(int) * 3 * stack_size, stream), &result, check);
       CHECK(c_dbcsr_acc_host_mem_allocate((void**)(void*)&trans_hst, sizeof(int) * nb, stream), &result, check);
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check); /* ensure host-data is allocated */
-      if (NULL != amat_hst && NULL != bmat_hst && NULL != trans_hst && NULL != stack_hst && EXIT_SUCCESS == result) {
+      if (NULL != amat_hst && NULL != bmat_hst && NULL != trans_hst && NULL != stack_hst) {
         init_stack(stack_hst, stack_size, NRAND, rnd, mn, mk, kn, nc, na, nb);
 #if defined(_OPENMP)
 #  pragma omp parallel
 #endif
         {
 #if defined(_OPENMP)
-#  pragma omp for
+#  pragma omp for nowait
 #endif
           for (i = 0; i < na; ++i) INIT_MAT(ELEM_TYPE, i /*seed*/ + 42, &amat_hst[i * mk], m, k, 1.0 / (nr * na));
 #if defined(_OPENMP)
