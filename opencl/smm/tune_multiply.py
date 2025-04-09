@@ -176,14 +176,18 @@ class SmmTuner(MeasurementInterface):
                 )
             for param in params + paramt:
                 self.manip.add_parameter(param)
-        if (  # consider to update and/or merge JSONS (update first)
-            self.args.merge is not None
-            and (0 <= self.args.merge or self.typeid)
-            and (
-                (self.args.check is not None and 0 == self.args.check)
-                or (self.run_result and 0 == self.run_result["returncode"])
+        if (
+            (  # consider to update and/or merge JSONS (update first)
+                self.args.merge is not None
+                and (0 <= self.args.merge or self.typeid)
+                and (
+                    (self.args.check is not None and 0 == self.args.check)
+                    or (self.run_result and 0 == self.run_result["returncode"])
+                )
             )
-        ) or (self.args.update is None or "" != self.args.update):
+            or (self.args.check is None or 0 != self.args.check)
+            or (self.args.update is None or "" != self.args.update)
+        ):
             filepattern = "{}-*.json".format(default_basename)
             filedot = "." + filepattern
             dotfiles = glob.glob(
@@ -195,6 +199,8 @@ class SmmTuner(MeasurementInterface):
                 os.path.normpath(os.path.join(self.args.jsondir, filepattern))
             )
             if self.args.update is None or "" != self.args.update:
+                self.update_jsons(filenames)
+            elif self.args.check is None or 0 != self.args.check:
                 self.update_jsons(filenames)
             if self.args.merge is not None:
                 self.merge_jsons(filenames)
@@ -324,7 +330,7 @@ class SmmTuner(MeasurementInterface):
             if 2 == len(key)
         ]
 
-    def run(self, desired_result, input=None, limit=None):
+    def run(self, desired_result, input=None, limit=None, message=None):
         """Run a configuration and return performance"""
         try:
             config = desired_result.configuration.data
@@ -361,13 +367,21 @@ class SmmTuner(MeasurementInterface):
                     else:  # seed configuration
                         self.gfbase = gflops
             elif not self.args.verbose:
-                print(".", end="", flush=True)
+                if message:
+                    print("{}: OK".format(message))
+                else:
+                    print(".", end="", flush=True)
         elif not skip:  # return non-competitive/bad result in case of an error
             failed = runcmd[0].replace("OPENCL_LIBSMM_SMM_", "")
-            msg = "FAILED[{}] {}: {}".format(result, "x".join(map(str, mnk)), failed)
+            if message:
+                msg = "{}: FAILED".format(message)
+            else:
+                msg = "FAILED[{}] {}: {}".format(
+                    result, "x".join(map(str, mnk)), failed
+                )
             if config is not desired_result:
                 result = Result(time=float("inf"), accuracy=0.0, size=100.0)
-            elif not self.args.verbose:
+            elif not self.args.verbose and not message:
                 print("")
             print(msg, flush=True)
         else:
@@ -375,27 +389,23 @@ class SmmTuner(MeasurementInterface):
         return result
 
     def update_jsons(self, filenames):
-        """Update device name of all JSONs"""
+        """Update device name or check all JSONs"""
         if self.device:
-            updated = False
             for filename in filenames:
                 try:
                     with open(filename, "r") as file:
                         data = json.load(file)
-                        device = data["DEVICE"] if "DEVICE" in data else ""
-                        if device != self.device:
+                        if self.args.check is None or 0 != self.args.check:
+                            self.run(data, message=filename)
+                        elif "DEVICE" in data and data["DEVICE"] != self.device:
                             print("Updated {} to {}.".format(filename, self.device))
                             data.update({"DEVICE": self.device})
                             file.close()
-                            updated = True
-                        # rewrite JSON (in any case) with keys in order
-                        with open(filename, "w") as file:
-                            json.dump(data, file, sort_keys=True)
-                            file.write("\n")
+                            with open(filename, "w") as file:
+                                json.dump(data, file, sort_keys=True)
+                                file.write("\n")
                 except (json.JSONDecodeError, KeyError):
                     print("Failed to update {}.".format(filename))
-            if not updated:
-                print("All JSONs already target {}.".format(self.device))
         else:
             print("Cannot determine device name.")
 
