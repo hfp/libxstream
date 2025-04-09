@@ -657,7 +657,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         0
 #  endif
         ) &&
-      0 < stack_size && 1 < mn && m <= max_kernel_dim && n <= max_kernel_dim)
+      0 < stack_size && 1 < mn && mn <= (max_kernel_dim * max_kernel_dim))
   {
     const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
     opencl_libsmm_trans_t* config;
@@ -912,6 +912,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
 #  endif
     }
   }
+  else if (EXIT_SUCCESS == result) result = EXIT_FAILURE;
   ACC_OPENCL_RETURN(result);
 }
 

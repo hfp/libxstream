@@ -412,9 +412,9 @@ int main(int argc, char* argv[]) {
 #if defined(TRANSPOSE) && defined(VALIDATE)
       /* warmup execution and prebuild transpose-kernel */
       for (r = 0; r < warmup / 2; ++r) {
-        CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), k, n, max_kernel_dim, stream),
+        CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), k, n, MAX_KERNEL_DIM, stream),
           &result, check);
-        CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), n, k, max_kernel_dim, stream),
+        CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), n, k, MAX_KERNEL_DIM, stream),
           &result, check);
       }
 #  if defined(USE_LIBXSMM)
@@ -422,7 +422,7 @@ int main(int argc, char* argv[]) {
       start = libxsmm_timer_tick();
 #  endif
       /* to perform NN-SMMs on the device, all B-matrices are transposed upfront (SMM-kernel is limited to NT) */
-      CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), k, n, max_kernel_dim, stream),
+      CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), k, n, MAX_KERNEL_DIM, stream),
         &result, check);
 #  if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
@@ -432,7 +432,7 @@ int main(int argc, char* argv[]) {
       /* warmup execution and prebuild SMM-kernel */
       for (r = 0; r < warmup; ++r) {
         CHECK(libsmm_acc_process(stack_hst, stack_dev, stack_size, DBCSR_TYPE(ELEM_TYPE), amat_dev, bmat_dev, cmat_dev, m, n, k,
-                max_kernel_dim, 1 /*homogeneous*/, stream, stream),
+                MAX_KERNEL_DIM, 1 /*homogeneous*/, stream, stream),
           &result, check);
       }
       CHECK(c_dbcsr_acc_memset_zero(cmat_dev, 0 /*offset*/, sizeof(ELEM_TYPE) * mn * nc, stream), &result, check);
@@ -443,7 +443,7 @@ int main(int argc, char* argv[]) {
       for (r = 0; r < nrepeat; ++r) {
         /* GPU-kernel is limited to C += Ai * Bi^T, i.e., NT (for NN, all Bi must be transposed upfront) */
         CHECK(libsmm_acc_process(stack_hst, stack_dev, stack_size, DBCSR_TYPE(ELEM_TYPE), amat_dev, bmat_dev, cmat_dev, m, n, k,
-                max_kernel_dim, 1 /*homogeneous*/, stream, stream),
+                MAX_KERNEL_DIM, 1 /*homogeneous*/, stream, stream),
           &result, check);
       }
 #if defined(USE_LIBXSMM)
