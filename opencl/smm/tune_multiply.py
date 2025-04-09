@@ -368,7 +368,7 @@ class SmmTuner(MeasurementInterface):
                         self.gfbase = gflops
             elif not self.args.verbose:
                 if message:
-                    print("{}: OK".format(message))
+                    print("{}: OK".format(message), flush=True)
                 else:
                     print(".", end="", flush=True)
         elif not skip:  # return non-competitive/bad result in case of an error
