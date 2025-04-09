@@ -620,7 +620,7 @@ class SmmTuner(MeasurementInterface):
         )
         if config and self.gfsave < self.gflops:  # save intermediate result
             if 0 == self.gfsave and os.path.exists(filedot):  # backup
-                rename_dotfile(self, filedot)
+                self.rename_dotfile(filedot)
             # self.manipulator().save_to_file(config, filename)
             with open(filedot, "w") as file:
                 cfg = config
