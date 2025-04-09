@@ -268,7 +268,7 @@ class SmmTuner(MeasurementInterface):
         if attribute is None:
             setattr(self, name.lower(), value)
 
-    def launch(self, envs, check, nrep=None, verbose=None):
+    def launch(self, envs, check=None, nrep=None, verbose=None):
         """Launch executable supplying environment and arguments"""
         envlist = envs if isinstance(envs, list) else self.environment(envs)
         mnk = (envs["M"], envs["N"], envs["K"]) if "M" in envs else self.mnk
@@ -570,23 +570,19 @@ class SmmTuner(MeasurementInterface):
             print(msg)
 
     def rename_dotfile(self, dotfile):
-        data = None
         try:
+            data = None
             with open(dotfile, "r") as file:
                 data = json.load(file)
+            gflops = data["GFLOPS"] if data and "GFLOPS" in data else 0
+            if 0 < gflops:
+                filemain = "-".join(os.path.basename(dotfile).split("-")[1:4])
+                filename = "{}-{}-{}gflops.json".format(
+                    default_basename, filemain, round(gflops)
+                )
+                os.rename(dotfile, os.path.join(self.args.jsondir, filename))
         except:  # noqa: E722
             pass
-        gflops = data["GFLOPS"] if data and "GFLOPS" in data else 0
-        if 0 < gflops:
-            filemain = "-".join(os.path.basename(dotfile).split("-")[1:4])
-            filename = os.path.join(
-                self.args.jsondir,
-                "{}-{}-{}gflops.json".format(default_basename, filemain, round(gflops)),
-            )
-            try:
-                os.rename(dotfile, filename)
-            except:  # noqa: E722
-                pass
 
     def save_final_config(self, configuration, final=True):
         """Called at termination"""
