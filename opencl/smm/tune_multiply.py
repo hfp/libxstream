@@ -330,7 +330,7 @@ class SmmTuner(MeasurementInterface):
             if 2 == len(key)
         ]
 
-    def run(self, desired_result, input=None, limit=None, message=None):
+    def run(self, desired_result, input=None, limit=None, message=None, nrep=None):
         """Run a configuration and return performance"""
         try:
             config = desired_result.configuration.data
@@ -344,7 +344,7 @@ class SmmTuner(MeasurementInterface):
                 skip = True
         performance = None
         if not skip:
-            runcmd = self.launch(config, self.args.check, verbose=self.args.verbose)
+            runcmd = self.launch(config, self.args.check, nrep, self.args.verbose)
             self.run_result = self.call_program(" ".join(runcmd))
             result = self.run_result["returncode"] if self.run_result else 1
             if 0 == result:
@@ -396,7 +396,7 @@ class SmmTuner(MeasurementInterface):
                     with open(filename, "r") as file:
                         data = json.load(file)
                         if self.args.check is None or 0 != self.args.check:
-                            self.run(data, message=filename)
+                            self.run(data, message=filename, nrep=1)
                         elif "DEVICE" in data and data["DEVICE"] != self.device:
                             print("Updated {} to {}.".format(filename, self.device))
                             data.update({"DEVICE": self.device})
@@ -468,7 +468,7 @@ class SmmTuner(MeasurementInterface):
                     worse[key] = [filename2]
             if bool(data) and (
                 (self.args.check is not None and 0 == self.args.check)
-                or 0 == self.run(data)
+                or 0 == self.run(data, nrep=1)
             ):
                 merged[key] = value
         if bool(merged):
