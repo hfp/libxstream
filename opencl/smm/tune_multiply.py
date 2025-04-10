@@ -190,11 +190,11 @@ class SmmTuner(MeasurementInterface):
         ):
             filepattern = "{}-*.json".format(default_basename)
             filedot = "." + filepattern
-            dotfiles = glob.glob(
+            filenames = glob.glob(
                 os.path.normpath(os.path.join(self.args.jsondir, filedot))
             )
-            for dotfile in dotfiles:
-                self.rename_dotfile(dotfile)
+            for filename in filenames:
+                self.rename_dotfile(filename)
             filenames = glob.glob(
                 os.path.normpath(os.path.join(self.args.jsondir, filepattern))
             )
@@ -368,13 +368,13 @@ class SmmTuner(MeasurementInterface):
                         self.gfbase = gflops
             elif not self.args.verbose:
                 if message:
-                    print("{}: OK".format(message), flush=True)
+                    print("{} - OK".format(message), flush=True)
                 else:
                     print(".", end="", flush=True)
         elif not skip:  # return non-competitive/bad result in case of an error
             failed = runcmd[0].replace("OPENCL_LIBSMM_SMM_", "")
             if message:
-                msg = "{}: FAILED".format(message)
+                msg = "{} - FAILED".format(message)
             else:
                 msg = "FAILED[{}] {}: {}".format(
                     result, "x".join(map(str, mnk)), failed
@@ -389,14 +389,16 @@ class SmmTuner(MeasurementInterface):
         return result
 
     def update_jsons(self, filenames):
-        """Update device name or check all JSONs"""
+        """Update device name or verify all JSONs"""
         if self.device:
-            for filename in filenames:
+            n = len(filenames)
+            for i, filename in enumerate(filenames):
                 try:
                     with open(filename, "r") as file:
                         data = json.load(file)
                         if self.args.check is None or 0 != self.args.check:
-                            self.run(data, message=filename, nrep=1)
+                            progress = "[{}/{}]: {}".format(i + 1, n, filename)
+                            self.run(data, message=progress, nrep=1)
                         elif "DEVICE" in data and data["DEVICE"] != self.device:
                             print("Updated {} to {}.".format(filename, self.device))
                             data.update({"DEVICE": self.device})
