@@ -489,8 +489,10 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
       SINT m = 0, u;
 #    if (1 == UM)
       UNROLL_OUTER(SM)
+#    else
+      UNROLL_AUTO
 #    endif
-      UNROLL_AUTO for (; m < (SM - UM + 1); m += UM) {
+      for (; m < (SM - UM + 1); m += UM) {
         u = 0;
 #    if (1 < UM)
         UNROLL(UM)
@@ -627,7 +629,7 @@ FN(global T* restrict cdata, GLOBAL const T* restrict adata, GLOBAL const T* res
       UNROLL(SM)
 #    endif
 #    if !defined(ATOMIC_ADD2_GLOBAL) || (SM & 1)
-      UNROLL_AUTO for (; m < SM; ++m) {
+      for (; m < SM; ++m) {
 #      if defined(ATOMIC_INC_NZ)
         if (ZERO != CNM(idx, m))
 #      endif
