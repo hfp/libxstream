@@ -497,16 +497,7 @@ class SmmTuner(MeasurementInterface):
                                     retbad = retmnk[2] if 2 < len(retmnk) else None
                                     retsld[2] = s
                                 retcnt = retcnt + 1
-                            if not self.args.delete or 1 >= self.args.delete:
-                                retain.append(filename)
-                            else:  # delete newer!
-                                try:
-                                    with open(filename, "r") as file:
-                                        data = json.load(file)
-                                        value = self.make_csv_value(data, filename)
-                                        merged[key] = value  # update
-                                except:  # noqa: E722
-                                    pass
+                            retain.append(filename)
                         else:
                             if 0 < s:
                                 delsld[1] = delsld[1] + math.log(s)
@@ -514,7 +505,30 @@ class SmmTuner(MeasurementInterface):
                                 delsld[2] = max(delsld[2], s)
                                 delcnt = delcnt + 1
                             delete.append(filename)
-                if not self.args.nogflops:
+                csvfile.write(  # CSV header line with termination/newline
+                    "{}{}{}{}{}{}{}{}{}\n".format(  # key-part
+                        self.args.csvsep.join(["DEVICE", "TYPEID", "M", "N", "K"]),
+                        self.args.csvsep,  # separator for value-part
+                        "S",  # pseudo-key component
+                        self.args.csvsep,
+                        self.args.csvsep.join(["GFLOPS", "BS", "BM", "BN", "BK"]),
+                        self.args.csvsep,
+                        self.args.csvsep.join(["WS", "WG", "LU", "NZ", "AL"]),
+                        self.args.csvsep,
+                        self.args.csvsep.join(["TB", "TC", "AP", "AA", "AB", "AC"]),
+                    )
+                )
+                for key, value in sorted(merged.items()):  # CSV data lines (records)
+                    typeid = key[1] if 0 == typeid or typeid == key[1] else None
+                    # FLOPS are normalized for double-precision
+                    gflops = value[1] if 1 != key[1] else value[1] * 0.5
+                    if 0 < gflops:
+                        geosum = geosum + math.log(gflops)
+                        geocnt = geocnt + 1
+                    strkey = self.args.csvsep.join([str(k) for k in key])
+                    strval = self.args.csvsep.join([str(v) for v in value[:-1]])
+                    csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
+                if not self.args.nogflops:  # create merge statistics and messages
                     retsld[1] = math.exp(retsld[1] / retcnt) if 0 < retcnt else 1
                     delsld[1] = math.exp(delsld[1] / delcnt) if 0 < delcnt else 1
                     if not self.args.delete:
@@ -547,30 +561,6 @@ class SmmTuner(MeasurementInterface):
                 elif bool(worse):
                     print("WARNING: incorrectly merged duplicates")
                     print("         due to nogflops argument!")
-                csvfile.write(  # CSV header line with termination/newline
-                    "{}{}{}{}{}{}{}{}{}\n".format(  # key-part
-                        self.args.csvsep.join(["DEVICE", "TYPEID", "M", "N", "K"]),
-                        self.args.csvsep,  # separator for value-part
-                        "S",  # pseudo-key component
-                        self.args.csvsep,
-                        self.args.csvsep.join(["GFLOPS", "BS", "BM", "BN", "BK"]),
-                        self.args.csvsep,
-                        self.args.csvsep.join(["WS", "WG", "LU", "NZ", "AL"]),
-                        self.args.csvsep,
-                        self.args.csvsep.join(["TB", "TC", "AP", "AA", "AB", "AC"]),
-                    )
-                )
-                for key, value in sorted(merged.items()):  # CSV data lines
-                    typeid = key[1] if 0 == typeid or typeid == key[1] else None
-                    # FLOPS are normalized for double-precision
-                    gflops = value[1] if 1 != key[1] else value[1] * 0.5
-                    if 0 < gflops:
-                        geosum = geosum + math.log(gflops)
-                        geocnt = geocnt + 1
-                    strkey = self.args.csvsep.join([str(k) for k in key])
-                    strval = self.args.csvsep.join([str(v) for v in value[:-1]])
-                    csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
-
             msg = "Merged {} of {} JSONs into {}".format(
                 len(merged), len(filenames), self.args.csvfile
             )
