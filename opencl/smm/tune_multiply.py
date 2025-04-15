@@ -14,6 +14,7 @@ from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
 from signal import signal, SIGINT
+from colorama import init, Fore, Style
 import tempfile  # , shutil
 import copy
 import json
@@ -533,15 +534,17 @@ class SmmTuner(MeasurementInterface):
                 if not self.args.delete:
                     if retain:
                         num, lst = len(retain), " ".join(retain)
-                        msg = "Worse and newer (retain {} @ {}x{}): {}"
-                        rnd = [str(round(i, 2)) for i in retsld]
+                        msg = "{}Worse and newer (retain {} @ {}x{}){}: {}"
+                        rnd = "..".join([str(round(i, 2)) for i in retsld])
                         bad = " " + retbad if retbad and self.args.verbose else ""
-                        print(msg.format(num, "..".join(rnd), bad, lst))
+                        print(
+                            msg.format(Fore.YELLOW, num, rnd, bad, Style.RESET_ALL, lst)
+                        )
                     if delete:
                         num, lst = len(delete), " ".join(delete)
-                        msg = "Worse and older (delete {} @ {}x): {}"
-                        rnd = [str(round(i, 2)) for i in delsld]
-                        print(msg.format(num, "..".join(rnd), lst))
+                        msg = "{}Worse and older (delete {} @ {}x){}: {}"
+                        rnd = "..".join([str(round(i, 2)) for i in delsld])
+                        print(msg.format(Fore.RED, num, rnd, Style.RESET_ALL, lst))
                 elif retain or delete:  # delete outperformed parameter sets
                     for file in retain + delete:
                         try:
