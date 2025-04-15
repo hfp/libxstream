@@ -449,7 +449,7 @@ class SmmTuner(MeasurementInterface):
                     (0 > self.args.merge and self.typeid != data["TYPEID"])
                     or (1 == self.args.merge and 1 != data["TYPEID"])
                     or (2 == self.args.merge and 3 != data["TYPEID"])
-                ):
+                ):  # skip parameter set (JSON-file)
                     continue
                 device = data["DEVICE"] if "DEVICE" in data else self.device
                 key = (device, data["TYPEID"], data["M"], data["N"], data["K"])
@@ -468,7 +468,7 @@ class SmmTuner(MeasurementInterface):
                     worse[key].append(filename2)
                 else:
                     worse[key] = [filename2]
-            if bool(data) and (
+            if bool(data) and (  # consider to finally validate result
                 (self.args.check is not None and 0 == self.args.check)
                 or 0 == self.run(data, nrep=1)
             ):
@@ -527,7 +527,7 @@ class SmmTuner(MeasurementInterface):
                             delsld[2] = max(delsld[2], s)
                             delcnt = delcnt + 1
                         delete.append(filename)
-            if not self.args.nogflops:  # create merge statistics and messages
+            if not self.args.nogflops:  # delete outperformed results, print stats
                 retsld[1] = math.exp(retsld[1] / retcnt) if 0 < retcnt else 1
                 delsld[1] = math.exp(delsld[1] / delcnt) if 0 < delcnt else 1
                 if not self.args.delete:
