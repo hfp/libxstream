@@ -474,37 +474,11 @@ class SmmTuner(MeasurementInterface):
             ):
                 merged[key] = value
         if bool(merged):
-            typeid = geosum = geocnt = 0
+            typeid = geosum = geocnt = retcnt = delcnt = 0  # geo-counter, etc
+            retsld, delsld = [0, 0, 0], [0, 0, 0]  # [min, geo, max]
+            retain, delete = [], []  # lists of filenames
+            retbad = None
             with open(self.args.csvfile, "w") as csvfile:
-                retsld, delsld = [0, 0, 0], [0, 0, 0]  # [min, geo, max]
-                retain, delete = [], []  # lists of filenames
-                retcnt = delcnt = 0  # geo-counter
-                retbad = None
-                for key, value in worse.items():
-                    gflops_raw = merged[key][1] if 1 != key[1] else merged[key][1] * 0.5
-                    gflops, mtime = round(gflops_raw), os.path.getmtime(merged[key][-1])
-                    for filename in value:
-                        s = 0
-                        if 0 < gflops:
-                            g = int(filename.split("-")[-1].split("g")[0])
-                            s = gflops / g if 0 < g else 0  # slowdown
-                        if mtime < os.path.getmtime(filename):
-                            if 0 < s:
-                                retsld[1] = retsld[1] + math.log(s)
-                                retsld[0] = min(retsld[0], s) if 0 < retsld[0] else s
-                                if retsld[2] < s:  # maximum
-                                    retmnk = os.path.basename(filename).split("-")
-                                    retbad = retmnk[2] if 2 < len(retmnk) else None
-                                    retsld[2] = s
-                                retcnt = retcnt + 1
-                            retain.append(filename)
-                        else:
-                            if 0 < s:
-                                delsld[1] = delsld[1] + math.log(s)
-                                delsld[0] = min(delsld[0], s) if 0 < delsld[0] else s
-                                delsld[2] = max(delsld[2], s)
-                                delcnt = delcnt + 1
-                            delete.append(filename)
                 csvfile.write(  # CSV header line with termination/newline
                     "{}{}{}{}{}{}{}{}{}\n".format(  # key-part
                         self.args.csvsep.join(["DEVICE", "TYPEID", "M", "N", "K"]),
@@ -528,39 +502,64 @@ class SmmTuner(MeasurementInterface):
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in value[:-1]])
                     csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
-                if not self.args.nogflops:  # create merge statistics and messages
-                    retsld[1] = math.exp(retsld[1] / retcnt) if 0 < retcnt else 1
-                    delsld[1] = math.exp(delsld[1] / delcnt) if 0 < delcnt else 1
-                    if not self.args.delete:
-                        if retain:
-                            num, lst = len(retain), " ".join(retain)
-                            msg = "Worse and newer (retain {} @ {}x{}): {}"
-                            rnd = [str(round(i, 2)) for i in retsld]
-                            bad = " " + retbad if retbad and self.args.verbose else ""
-                            print(msg.format(num, "..".join(rnd), bad, lst))
-                        if delete:
-                            num, lst = len(delete), " ".join(delete)
-                            msg = "Worse and older (delete {} @ {}x): {}"
-                            rnd = [str(round(i, 2)) for i in delsld]
-                            print(msg.format(num, "..".join(rnd), lst))
-                    elif retain or delete:  # delete outperformed parameter sets
-                        for file in retain + delete:
-                            try:
-                                os.remove(file)
-                            except:  # noqa: E722
-                                pass
-                        msl = round(min(retsld[0], delsld[0]), 2)
-                        xsl = round(max(retsld[2], delsld[2]), 2)
-                        geo = round(math.sqrt(retsld[1] * delsld[1]), 2)
-                        msg = "Removed outperformed parameter sets{}.".format(
-                            " ({} @ {}..{}..{}x)".format(retcnt + delcnt, msl, geo, xsl)
-                            if 0 < msl
-                            else ""
-                        )
-                        print(msg)
-                elif bool(worse):
-                    print("WARNING: incorrectly merged duplicates")
-                    print("         due to nogflops argument!")
+            for key, value in worse.items():
+                gflops_raw = merged[key][1] if 1 != key[1] else merged[key][1] * 0.5
+                gflops, mtime = round(gflops_raw), os.path.getmtime(merged[key][-1])
+                for filename in value:
+                    s = 0
+                    if 0 < gflops:
+                        g = int(filename.split("-")[-1].split("g")[0])
+                        s = gflops / g if 0 < g else 0  # slowdown
+                    if mtime < os.path.getmtime(filename):
+                        if 0 < s:
+                            retsld[1] = retsld[1] + math.log(s)
+                            retsld[0] = min(retsld[0], s) if 0 < retsld[0] else s
+                            if retsld[2] < s:  # maximum
+                                retmnk = os.path.basename(filename).split("-")
+                                retbad = retmnk[2] if 2 < len(retmnk) else None
+                                retsld[2] = s
+                            retcnt = retcnt + 1
+                        retain.append(filename)
+                    else:
+                        if 0 < s:
+                            delsld[1] = delsld[1] + math.log(s)
+                            delsld[0] = min(delsld[0], s) if 0 < delsld[0] else s
+                            delsld[2] = max(delsld[2], s)
+                            delcnt = delcnt + 1
+                        delete.append(filename)
+            if not self.args.nogflops:  # create merge statistics and messages
+                retsld[1] = math.exp(retsld[1] / retcnt) if 0 < retcnt else 1
+                delsld[1] = math.exp(delsld[1] / delcnt) if 0 < delcnt else 1
+                if not self.args.delete:
+                    if retain:
+                        num, lst = len(retain), " ".join(retain)
+                        msg = "Worse and newer (retain {} @ {}x{}): {}"
+                        rnd = [str(round(i, 2)) for i in retsld]
+                        bad = " " + retbad if retbad and self.args.verbose else ""
+                        print(msg.format(num, "..".join(rnd), bad, lst))
+                    if delete:
+                        num, lst = len(delete), " ".join(delete)
+                        msg = "Worse and older (delete {} @ {}x): {}"
+                        rnd = [str(round(i, 2)) for i in delsld]
+                        print(msg.format(num, "..".join(rnd), lst))
+                elif retain or delete:  # delete outperformed parameter sets
+                    for file in retain + delete:
+                        try:
+                            os.remove(file)
+                        except:  # noqa: E722
+                            pass
+                    msl = round(min(retsld[0], delsld[0]), 2)
+                    xsl = round(max(retsld[2], delsld[2]), 2)
+                    geo = round(math.sqrt(retsld[1] * delsld[1]), 2)
+                    msg = "Removed outperformed parameter sets{}.".format(
+                        " ({} @ {}..{}..{}x)".format(retcnt + delcnt, msl, geo, xsl)
+                        if 0 < msl
+                        else ""
+                    )
+                    print(msg)
+            elif bool(worse):
+                print("WARNING: incorrectly merged duplicates")
+                print("         due to nogflops argument!")
             msg = "Merged {} of {} JSONs into {}".format(
                 len(merged), len(filenames), self.args.csvfile
             )
