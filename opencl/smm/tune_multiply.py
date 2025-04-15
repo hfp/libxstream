@@ -761,7 +761,7 @@ if __name__ == "__main__":
         "--delete",
         type=int,
         default=None,
-        const=0,
+        const=1,
         nargs="?",
         help="Delete outperformed JSONs",
     )
