@@ -14,8 +14,9 @@ from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
 from signal import signal, SIGINT
-from colorama import init, Fore, Style
-import tempfile  # , shutil
+from colorama import init as colorama_init
+from colorama import Fore, Style
+import tempfile
 import copy
 import json
 import glob
@@ -216,8 +217,6 @@ class SmmTuner(MeasurementInterface):
                 tmpdir = os.path.join(tempfile.gettempdir(), "opentuner")
                 if self.idevice is not None:
                     tmpdir += str(self.idevice)
-                # if os.path.isdir(tmpdir):
-                # shutil.rmtree(tmpdir)
                 try:
                     os.mkdir(tmpdir)
                 except:  # noqa: E722
@@ -676,6 +675,7 @@ class SmmTuner(MeasurementInterface):
 
 
 if __name__ == "__main__":
+    colorama_init()
     argparser = opentuner.default_argparser()
     # adjust default value of existing arguments
     argparser.set_defaults(no_dups=True)
