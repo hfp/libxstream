@@ -411,9 +411,10 @@ class SmmTuner(MeasurementInterface):
         else:
             print("Cannot determine device name.")
 
-    def make_csv_value(self, data, filename):
-        """Make tuple-value from JSON-data"""
-        return (
+    def make_csv_record(self, data, filename):
+        """Make key-value tuples from JSON-data"""
+        device = data["DEVICE"] if "DEVICE" in data else self.device
+        value = (
             data["S"] if "S" in data else 0,  # pseudo key component
             data["GFLOPS"] if "GFLOPS" in data else 0,
             data["BS"],
@@ -434,6 +435,7 @@ class SmmTuner(MeasurementInterface):
             data["XF"] if "XF" in data else 0,
             filename,  # last entry
         )
+        return (device, data["TYPEID"], data["M"], data["N"], data["K"]), value
 
     def merge_jsons(self, filenames):
         """Merge all JSONs into a single CSV-file"""
@@ -454,9 +456,7 @@ class SmmTuner(MeasurementInterface):
                     or (2 == self.args.merge and 3 != data["TYPEID"])
                 ):  # skip parameter set (JSON-file)
                     continue
-                device = data["DEVICE"] if "DEVICE" in data else self.device
-                key = (device, data["TYPEID"], data["M"], data["N"], data["K"])
-                value = self.make_csv_value(data, filename)
+                key, value = self.make_csv_record(data, filename)
             except (json.JSONDecodeError, KeyError, TypeError):
                 print("Failed to merge {} into CSV-file.".format(filename))
                 data = dict()
@@ -478,14 +478,14 @@ class SmmTuner(MeasurementInterface):
                                 retbad = retmnk[2] if 2 < len(retmnk) else None
                                 retsld[2] = s
                             retcnt = retcnt + 1
-                        retain.append(filename)
+                        retain.append((filename, value[1]))
                     else:  # older
                         if 0 < s:
                             delsld[1] = delsld[1] + math.log(s)
                             delsld[0] = min(delsld[0], s) if 0 < delsld[0] else s
                             delsld[2] = max(delsld[2], s)
                             delcnt = delcnt + 1
-                        delete.append(filename)
+                        delete.append((filename, value[1]))
                     data = dict()  # ensure worse result is not merged
             if bool(data) and (  # consider to finally validate result
                 (self.args.check is not None and 0 == self.args.check)
@@ -525,31 +525,25 @@ class SmmTuner(MeasurementInterface):
         delsld[1] = math.exp(delsld[1] / delcnt) if 0 < delcnt else 1
         if not self.args.delete:
             if retain:
-                num, lst = len(retain), " ".join(retain)
+                num, lst = len(retain), " ".join([i(0) for i in retain])
                 msg = "{}Worse and newer (retain {} @ {}x{}){}: {}"
                 rnd = "..".join([str(round(i, 2)) for i in retsld])
                 bad = " " + retbad if retbad and self.args.verbose else ""
                 print(msg.format(Fore.YELLOW, num, rnd, bad, Style.RESET_ALL, lst))
             if delete:
-                num, lst = len(delete), " ".join(delete)
+                num, lst = len(delete), " ".join([i(0) for i in delete])
                 msg = "{}Worse and older (delete {} @ {}x){}: {}"
                 rnd = "..".join([str(round(i, 2)) for i in delsld])
                 print(msg.format(Fore.RED, num, rnd, Style.RESET_ALL, lst))
         elif retain or delete:  # delete outperformed parameter sets
-            for file in retain + delete:
+            if 2 <= self.args.delete:
+                delete = delete + retain
+            for filename, gflops in delete.items():
                 try:
-                    os.remove(file)
+                    os.remove(filename)
                 except:  # noqa: E722
                     pass
-            msl = round(min(retsld[0], delsld[0]), 2)
-            xsl = round(max(retsld[2], delsld[2]), 2)
-            geo = round(math.sqrt(retsld[1] * delsld[1]), 2)
-            msg = "Removed outperformed parameter sets{}.".format(
-                " ({} @ {}..{}..{}x)".format(retcnt + delcnt, msl, geo, xsl)
-                if 0 < msl
-                else ""
-            )
-            print(msg)
+            print("Removed outperformed parameter sets.")
         # print summary information
         msg = "Merged {} of {} JSONs into {}".format(
             len(merged), len(filenames), self.args.csvfile
