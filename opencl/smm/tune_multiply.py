@@ -439,7 +439,10 @@ class SmmTuner(MeasurementInterface):
         """Merge all JSONs into a single CSV-file"""
         if not self.args.csvfile or (self.idevice is not None and 0 != self.idevice):
             return  # early exit
-        merged, worse = dict(), dict()
+        merged, retain, delete = dict(), [], []  # dict and lists of filenames
+        geosum = geocnt = retcnt = delcnt = tid = 0  # geo-counter, etc
+        retsld, delsld = [0, 0, 0], [0, 0, 0]  # [min, geo, max]
+        retbad = None
         for filename in filenames:
             data = dict()
             try:
@@ -461,23 +464,36 @@ class SmmTuner(MeasurementInterface):
                 data = dict()
                 pass
             if bool(data) and key in merged:
-                mergefile = merged[key][-1]
-                if value[1] < merged[key][1]:  # GFLOPS
-                    mergefile, data = filename, dict()
-                if key not in worse:
-                    worse[key] = []
-                worse[key].append((mergefile, value[1]))
+                # FLOPS are normalized for double-precision
+                gflops_base = merged[key][1] if 1 != key[1] else merged[key][1] * 0.5
+                if value[1] < gflops_base:  # worse
+                    s = gflops_base / value[1] if 0 < value[1] else 0  # slowdown
+                    mtime = os.path.getmtime(merged[key][-1])
+                    if mtime < os.path.getmtime(filename):  # newer
+                        if 0 < s:
+                            retsld[1] = retsld[1] + math.log(s)
+                            retsld[0] = min(retsld[0], s) if 0 < retsld[0] else s
+                            if retsld[2] < s:  # maximum
+                                retmnk = os.path.basename(filename).split("-")
+                                retbad = retmnk[2] if 2 < len(retmnk) else None
+                                retsld[2] = s
+                            retcnt = retcnt + 1
+                        retain.append(filename)
+                    else:  # older
+                        if 0 < s:
+                            delsld[1] = delsld[1] + math.log(s)
+                            delsld[0] = min(delsld[0], s) if 0 < delsld[0] else s
+                            delsld[2] = max(delsld[2], s)
+                            delcnt = delcnt + 1
+                        delete.append(filename)
+                    data = dict()  # ensure worse result is not merged
             if bool(data) and (  # consider to finally validate result
                 (self.args.check is not None and 0 == self.args.check)
                 or 0 == self.run(data, nrep=1)
             ):
                 merged[key] = value
-        # collect overall-statistics
-        geosum = geocnt = retcnt = delcnt = tid = 0  # geo-counter, etc
-        retsld, delsld = [0, 0, 0], [0, 0, 0]  # [min, geo, max]
-        retain, delete = [], []  # lists of filenames
-        retbad = None
-        if bool(merged):  # write CSV-file
+        # write CSV-file and collect overall-statistics
+        if bool(merged):
             with open(self.args.csvfile, "w") as csvfile:
                 csvfile.write(  # CSV header line with termination/newline
                     "{}{}{}{}{}{}{}{}{}\n".format(  # key-part
@@ -504,28 +520,6 @@ class SmmTuner(MeasurementInterface):
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in val])
                     csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
-        for key, value in worse.items():  # build retain and delete lists
-            gflops_base = merged[key][1] if 1 != key[1] else merged[key][1] * 0.5
-            mtime = os.path.getmtime(merged[key][-1])
-            for filename, gflops in value.items():
-                s = gflops_base / gflops if 0 < gflops else 0  # slowdown
-                if mtime < os.path.getmtime(filename):
-                    if 0 < s:
-                        retsld[1] = retsld[1] + math.log(s)
-                        retsld[0] = min(retsld[0], s) if 0 < retsld[0] else s
-                        if retsld[2] < s:  # maximum
-                            retmnk = os.path.basename(filename).split("-")
-                            retbad = retmnk[2] if 2 < len(retmnk) else None
-                            retsld[2] = s
-                        retcnt = retcnt + 1
-                    retain.append(filename)
-                else:
-                    if 0 < s:
-                        delsld[1] = delsld[1] + math.log(s)
-                        delsld[0] = min(delsld[0], s) if 0 < delsld[0] else s
-                        delsld[2] = max(delsld[2], s)
-                        delcnt = delcnt + 1
-                    delete.append(filename)
         # print stats and delete outperformed results
         retsld[1] = math.exp(retsld[1] / retcnt) if 0 < retcnt else 1
         delsld[1] = math.exp(delsld[1] / delcnt) if 0 < delcnt else 1
