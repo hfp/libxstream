@@ -442,9 +442,7 @@ class SmmTuner(MeasurementInterface):
         if not self.args.csvfile or (self.idevice is not None and 0 != self.idevice):
             return  # early exit
         merged, retain, delete = dict(), [], []  # dict and lists of filenames
-        geosum = geocnt = retcnt = delcnt = tid = 0  # geo-counter, etc
-        retsld, delsld = [0, 0, 0], [0, 0, 0]  # [min, geo, max]
-        retbad = None
+        geosum = geocnt = tid = 0  # geo-counter, etc
         for filename in filenames:
             data = dict()
             try:
@@ -467,24 +465,10 @@ class SmmTuner(MeasurementInterface):
                 # FLOPS are normalized for double-precision
                 gflops_base = merged[key][1] if 1 != key[1] else merged[key][1] * 0.5
                 if value[1] < gflops_base:  # worse
-                    s = gflops_base / value[1] if 0 < value[1] else 0  # slowdown
                     mtime = os.path.getmtime(merged[key][-1])
                     if mtime < os.path.getmtime(filename):  # newer
-                        if 0 < s:
-                            retsld[1] = retsld[1] + math.log(s)
-                            retsld[0] = min(retsld[0], s) if 0 < retsld[0] else s
-                            if retsld[2] < s:  # maximum
-                                retmnk = os.path.basename(filename).split("-")
-                                retbad = retmnk[2] if 2 < len(retmnk) else None
-                                retsld[2] = s
-                            retcnt = retcnt + 1
                         retain.append((filename, value[1]))
                     else:  # older
-                        if 0 < s:
-                            delsld[1] = delsld[1] + math.log(s)
-                            delsld[0] = min(delsld[0], s) if 0 < delsld[0] else s
-                            delsld[2] = max(delsld[2], s)
-                            delcnt = delcnt + 1
                         delete.append((filename, value[1]))
                     data = dict()  # ensure worse result is not merged
             if bool(data) and (  # consider to finally validate result
@@ -492,6 +476,25 @@ class SmmTuner(MeasurementInterface):
                 or 0 == self.run(data, nrep=1)
             ):
                 merged[key] = value
+        # print stats and delete outperformed results
+        if not self.args.delete:
+            if retain:
+                num, lst = len(retain), " ".join([i(0) for i in retain])
+                msg = "{}Worse and newer (retain {}){}: {}"
+                print(msg.format(Fore.YELLOW, num, Style.RESET_ALL, lst))
+            if delete:
+                num, lst = len(delete), " ".join([i(0) for i in delete])
+                msg = "{}Worse and older (delete {}){}: {}"
+                print(msg.format(Fore.RED, num, Style.RESET_ALL, lst))
+        elif retain or delete:  # delete outperformed parameter sets
+            if 2 <= self.args.delete:
+                delete = delete + retain
+            for filename, gflops in delete.items():
+                try:
+                    os.remove(filename)
+                except:  # noqa: E722
+                    pass
+            print("Removed outperformed parameter sets.")
         # write CSV-file and collect overall-statistics
         if bool(merged):
             with open(self.args.csvfile, "w") as csvfile:
@@ -520,30 +523,6 @@ class SmmTuner(MeasurementInterface):
                     strkey = self.args.csvsep.join([str(k) for k in key])
                     strval = self.args.csvsep.join([str(v) for v in val])
                     csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
-        # print stats and delete outperformed results
-        retsld[1] = math.exp(retsld[1] / retcnt) if 0 < retcnt else 1
-        delsld[1] = math.exp(delsld[1] / delcnt) if 0 < delcnt else 1
-        if not self.args.delete:
-            if retain:
-                num, lst = len(retain), " ".join([i(0) for i in retain])
-                msg = "{}Worse and newer (retain {} @ {}x{}){}: {}"
-                rnd = "..".join([str(round(i, 2)) for i in retsld])
-                bad = " " + retbad if retbad and self.args.verbose else ""
-                print(msg.format(Fore.YELLOW, num, rnd, bad, Style.RESET_ALL, lst))
-            if delete:
-                num, lst = len(delete), " ".join([i(0) for i in delete])
-                msg = "{}Worse and older (delete {} @ {}x){}: {}"
-                rnd = "..".join([str(round(i, 2)) for i in delsld])
-                print(msg.format(Fore.RED, num, rnd, Style.RESET_ALL, lst))
-        elif retain or delete:  # delete outperformed parameter sets
-            if 2 <= self.args.delete:
-                delete = delete + retain
-            for filename, gflops in delete.items():
-                try:
-                    os.remove(filename)
-                except:  # noqa: E722
-                    pass
-            print("Removed outperformed parameter sets.")
         # print summary information
         msg = "Merged {} of {} JSONs into {}".format(
             len(merged), len(filenames), self.args.csvfile
