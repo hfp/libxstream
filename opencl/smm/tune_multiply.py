@@ -36,6 +36,7 @@ default_vlen = 8
 def start(args):
     """Construct and start tuner instance"""
     instance = SmmTuner(args)
+    colorama_init()
     if not default_dbg:
         for retry in range(default_retry):
             try:
@@ -441,8 +442,8 @@ class SmmTuner(MeasurementInterface):
         """Merge all JSONs into a single CSV-file"""
         if not self.args.csvfile or (self.idevice is not None and 0 != self.idevice):
             return  # early exit
-        merged, retain, delete = dict(), [], []  # dict and lists of filenames
-        geosum = geocnt = tid = 0  # geo-counter, etc
+        merged, retain, delete = dict(), dict(), []
+        geosum = geocnt = skipcnt = tid = 0  # geo-counter, etc.
         for filename in filenames:
             data = dict()
             try:
@@ -453,6 +454,7 @@ class SmmTuner(MeasurementInterface):
                     or (1 == self.args.merge and 1 != data["TYPEID"])
                     or (2 == self.args.merge and 3 != data["TYPEID"])
                 ):  # skip parameter set (JSON-file)
+                    skipcnt = skipcnt + 1
                     continue
                 key, value = self.make_csv_record(data, filename)
             except (json.JSONDecodeError, KeyError, TypeError):
@@ -462,39 +464,47 @@ class SmmTuner(MeasurementInterface):
                 data = dict()
                 pass
             if bool(data) and key in merged:
-                # FLOPS are normalized for double-precision
-                gflops_base = merged[key][1] if 1 != key[1] else merged[key][1] * 0.5
-                if value[1] < gflops_base:  # worse
-                    mtime = os.path.getmtime(merged[key][-1])
-                    if mtime < os.path.getmtime(filename):  # newer
-                        retain.append((filename, value[1]))
+                gflops_merged, fname_merged = merged[key][1], merged[key][-1]
+                gflops, mtime = value[1], os.path.getmtime(fname_merged)
+                if gflops_merged < gflops:  # worse
+                    if os.path.getmtime(filename) < mtime:
+                        if key in retain:
+                            retained = retain[key]
+                            if retained[1] < gflops:
+                                delete.append(retained[-1])
+                        retain[key] = merged[key]
                     else:  # older
-                        delete.append((filename, value[1]))
-                    data = dict()  # ensure worse result is not merged
+                        delete.append(fname_merged)
+                else:
+                    delete.append(filename)
+                data = dict()  # ensure worse result is not merged
             if bool(data) and (  # consider to finally validate result
                 (self.args.check is not None and 0 == self.args.check)
                 or 0 == self.run(data, nrep=1)
             ):
                 merged[key] = value
-        # print stats and delete outperformed results
-        if not self.args.delete:
-            if retain:
-                num, lst = len(retain), " ".join([i(0) for i in retain])
-                msg = "{}Worse and newer (retain {}){}: {}"
-                print(msg.format(Fore.YELLOW, num, Style.RESET_ALL, lst))
-            if delete:
-                num, lst = len(delete), " ".join([i(0) for i in delete])
-                msg = "{}Worse and older (delete {}){}: {}"
-                print(msg.format(Fore.RED, num, Style.RESET_ALL, lst))
-        elif retain or delete:  # delete outperformed parameter sets
-            if 2 <= self.args.delete:
-                delete = delete + retain
-            for filename, gflops in delete.items():
-                try:
-                    os.remove(filename)
-                except:  # noqa: E722
-                    pass
-            print("Removed outperformed parameter sets.")
+        # replace older/best with latest/best (forced refresh)
+        if self.args.delete and 3 <= self.args.delete:
+            for key, value in retain.items():
+                if key in merged:
+                    retain[key] = merged[key]
+                    merged[key] = value
+        # print/delete outperformed results
+        if self.args.delete and 2 <= self.args.delete:
+            rfiles = [v[-1] for v in retain.values()]
+            delete = delete + rfiles
+        if bool(delete):
+            num, lst, msg, col = len(delete), " ".join(delete), "Remove", Fore.YELLOW
+            if self.args.delete and 3 != self.args.delete:
+                for filename in delete:
+                    try:
+                        os.remove(filename)
+                    except:  # noqa: E722
+                        pass
+                msg, col = "Removed", Fore.RED
+                skipcnt = skipcnt + num
+            print("{}{} {}{}: {}".format(col, msg, num, Style.RESET_ALL, lst))
+            print("")
         # write CSV-file and collect overall-statistics
         if bool(merged):
             with open(self.args.csvfile, "w") as csvfile:
@@ -525,18 +535,17 @@ class SmmTuner(MeasurementInterface):
                     csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
         # print summary information
         msg = "Merged {} of {} JSONs into {}".format(
-            len(merged), len(filenames), self.args.csvfile
+            len(merged), len(filenames) - skipcnt, self.args.csvfile
         )
         if 0 < geocnt:
-            precfac, precstr = 1, ""
-            if 1 == tid:
-                precstr = "SP-"
-                precfac = 2
-            elif tid is not None:
-                precstr = "DP-"
-            msg = "{} (geometric mean of {} {}GFLOPS/s)".format(
-                msg, round(math.exp(geosum / geocnt) * precfac), precstr
-            )
+            precstr, precfac = "", 1
+            if tid is not None:
+                if 1 == tid:
+                    precstr, precfac = "SP-", 2
+                else:
+                    precstr = "DP-"
+            gmn = round(math.exp(geosum / geocnt) * precfac)
+            msg = "{} (geometric mean of {} {}GFLOPS/s)".format(msg, gmn, precstr)
         if not self.args.verbose and (self.args.check is None or 0 != self.args.check):
             print("")
         print(msg)
@@ -635,7 +644,6 @@ class SmmTuner(MeasurementInterface):
 
 
 if __name__ == "__main__":
-    colorama_init()
     argparser = opentuner.default_argparser()
     # adjust default value of existing arguments
     argparser.set_defaults(no_dups=True)
