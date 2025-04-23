@@ -119,7 +119,11 @@ then
     elif [ "${SPECID}" ]; then
       MNKS=$(eval "${HERE}/../../acc_triplets.sh -k ${SPECID} 2>/dev/null")
     else
-      MNKS=$(eval "${HERE}/../../acc_triplets.sh $* 2>/dev/null")
+      if [[ "$*" != *"x"* ]]; then
+        MNKS=$(eval "${HERE}/../../acc_triplets.sh $* 2>/dev/null")
+      else
+        MNKS="$*"
+      fi
     fi
   else
     ECHO="echo"
@@ -144,8 +148,10 @@ then
     eval "${ECHO} \"        0-10: older to newer (larger), e.g.,\""
     eval "${ECHO} \"           0:  201 kernels\""
     eval "${ECHO} \"          10: 1266 kernels\""
-    eval "${ECHO} \"       <triplet-spec>, e.g., 134 kernels\""
-    eval "${ECHO} \"         23, 5 32 13 24 26, 4 9\""
+    eval "${ECHO} \"       <triplet-spec>, e.g., 134 kernels \\\"23, 5 32 13 24 26, 4 9\\\"\""
+    eval "${ECHO} \"         MxNxK's can be also given directly, e.g.,\""
+    eval "${ECHO} \"         1x1x1 2x2x2 2x2x3 2x3x2 2x3x3 3x2x2 3x2x3 3x3x2 3x3x3\""
+    eval "${ECHO} \"         (which is equivalent to \\\"1, 2 3\\\")\""
     eval "${ECHO}"
     if [ "${HELP}" ] && [ "0" != "${HELP}" ]; then exit 0; fi
   fi
