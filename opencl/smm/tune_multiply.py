@@ -86,12 +86,12 @@ class SmmTuner(MeasurementInterface):
         self.args.bn = [max(self.args.bn, 1), 1][0 == self.args.bn]
         self.args.bk = [max(self.args.bk, 1), self.mnk[2]][0 == self.args.bk]
         self.args.ws = min(self.args.ws, self.wsx)
-        self.ndevices = self.gfbase = self.gfsave = self.gflops = 0
+        self.gfbase = self.gfsave = self.gflops = self.gflogs = self.gfscnt = 0
         self.config = self.typename = self.typeid = self.device = self.size = None
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
         self.nz = self.al = self.tb = self.tc = None
         self.ap = self.aa = self.ab = self.ac = None
-        self.idevice = None
+        self.idevice, self.ndevices, self.mergeid = None, 0, 0
         self.exepath = os.path.join(
             os.path.dirname(sys.argv[0]), "..", "..", "acc_bench"
         )
@@ -205,7 +205,9 @@ class SmmTuner(MeasurementInterface):
                 self.update_jsons(filenames)
             elif self.args.check is None or 0 != self.args.check:
                 self.update_jsons(filenames)
-            if self.args.merge is not None:
+                if 0 < self.gfscnt and self.args.check and 0 > self.args.check:
+                    print("Geometric mean of {}".format(self.print_gflops()))
+            elif self.args.merge is not None:
                 self.merge_jsons(filenames)
             exit(0)
         elif (
@@ -283,11 +285,12 @@ class SmmTuner(MeasurementInterface):
         if verbose is not None and 0 != int(verbose):
             msg = env_exe.replace("OPENCL_LIBSMM_SMM_", "")
             print("{}: {}".format("x".join(map(str, mnk)), msg))
-        env_std = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0 NEO_CACHE_PERSISTENT=0 CUDA_CACHE_DISABLE=1"
+        env_std = "OMP_PROC_BIND=TRUE OPENCL_LIBSMM_SMM_S=0"
+        env_jit = "NEO_CACHE_PERSISTENT=0 CUDA_CACHE_DISABLE=1"
         env_check = "CHECK={}".format(check if check is not None else 1)
         env_intrn = "{} {}".format(  # consider device-id
             "" if self.idevice is None else "ACC_OPENCL_DEVICE={}".format(self.idevice),
-            "{} {}".format(env_std, env_check),  # environment
+            "{} {} {}".format(env_std, env_jit, env_check),  # environment
         ).strip()
         arg_exe = "{} {} {}".format(
             self.args.r if nrep is None else nrep,
@@ -354,8 +357,13 @@ class SmmTuner(MeasurementInterface):
                     str(self.run_result["stdout"]),
                 )
         if performance and performance.group(1) and performance.group(2):
-            mseconds = float(performance.group(1))
-            gflops = float(performance.group(2))
+            mseconds, gflops = float(performance.group(1)), float(performance.group(2))
+            if 0 < gflops:
+                typeid = config["TYPEID"] if "TYPEID" in config else self.typeid
+                mergeid = self.mergeid
+                self.mergeid = typeid if 0 == mergeid or mergeid == typeid else None
+                self.gflogs = self.gflogs + math.log(gflops)
+                self.gfscnt = self.gfscnt + 1
             if config is not desired_result:
                 kernelreq = round((100.0 * config["BM"] * config["BN"]) / self.wsx)
                 # gflops are reported as "accuracy" (console output)
@@ -398,8 +406,10 @@ class SmmTuner(MeasurementInterface):
                     with open(filename, "r") as file:
                         data = json.load(file)
                         if self.args.check is None or 0 != self.args.check:
-                            progress = "[{}/{}]: {}".format(i + 1, n, filename)
-                            self.run(data, message=progress, nrep=1)
+                            progress, r = "[{}/{}]: {}".format(i + 1, n, filename), 1
+                            if self.args.check is not None:
+                                r = max(self.args.check, 0)
+                            self.run(data, message=progress, nrep=r)
                         elif "DEVICE" in data and data["DEVICE"] != self.device:
                             print("Updated {} to {}.".format(filename, self.device))
                             data.update({"DEVICE": self.device})
@@ -438,12 +448,23 @@ class SmmTuner(MeasurementInterface):
         )
         return (device, data["TYPEID"], data["M"], data["N"], data["K"]), value
 
+    def print_gflops(self):
+        if 0 < self.gfscnt:
+            precstr, precfac = "", 1
+            if self.mergeid is not None:
+                if 1 == self.mergeid:
+                    precstr, precfac = "SP-", 2
+                else:
+                    precstr = "DP-"
+            gmn = round(math.exp(self.gflogs / self.gfscnt) * precfac)
+            return "{} {}GFLOPS/s".format(gmn, precstr)
+
     def merge_jsons(self, filenames):
         """Merge all JSONs into a single CSV-file"""
         if not self.args.csvfile or (self.idevice is not None and 0 != self.idevice):
             return  # early exit
         merged, retain, delete = dict(), dict(), []
-        geosum = geocnt = skipcnt = tid = 0  # geo-counter, etc.
+        self.gflogs = self.gfscnt = self.mergeid = skipcnt = 0
         for filename in filenames:
             data = dict()
             try:
@@ -522,30 +543,26 @@ class SmmTuner(MeasurementInterface):
                     )
                 )
                 for key, value in sorted(merged.items()):  # CSV data lines (records)
-                    tid, val = key[1] if 0 == tid or tid == key[1] else None, value[:-1]
+                    self.mergeid = (
+                        key[1] if 0 == self.mergeid or self.mergeid == key[1] else None
+                    )
                     # FLOPS are normalized for double-precision
-                    gflops = val[1] if 1 != key[1] else val[1] * 0.5
+                    gflops = value[1] if 1 != key[1] else value[1] * 0.5
+                    values = list(value[:-1])
                     if self.args.nogflops:
-                        val[1] = 0  # zero instead of gflops written into CSV-file
+                        values[1] = 0  # zero instead of gflops written into CSV-file
                     if 0 < gflops:
-                        geosum = geosum + math.log(gflops)
-                        geocnt = geocnt + 1
+                        self.gflogs = self.gflogs + math.log(gflops)
+                        self.gfscnt = self.gfscnt + 1
                     strkey = self.args.csvsep.join([str(k) for k in key])
-                    strval = self.args.csvsep.join([str(v) for v in val])
+                    strval = self.args.csvsep.join([str(v) for v in values])
                     csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
         # print summary information
         msg = "Merged {} of {} JSONs into {}".format(
             len(merged), len(filenames) - skipcnt, self.args.csvfile
         )
-        if 0 < geocnt:
-            precstr, precfac = "", 1
-            if tid is not None:
-                if 1 == tid:
-                    precstr, precfac = "SP-", 2
-                else:
-                    precstr = "DP-"
-            gmn = round(math.exp(geosum / geocnt) * precfac)
-            msg = "{} (geometric mean of {} {}GFLOPS/s)".format(msg, gmn, precstr)
+        if 0 < self.gfscnt:
+            msg = "{} (geometric mean of {})".format(msg, self.print_gflops())
         if not self.args.verbose and (self.args.check is None or 0 != self.args.check):
             print("")
         print(msg)
@@ -724,7 +741,7 @@ if __name__ == "__main__":
         type=float,
         default=0,
         nargs="?",
-        help="Validate kernel (epsilon, 0:off)",
+        help="Validate kernel (none:verify, epsilon - 0:off, -1:verify perf.)",
     )
     argparser.add_argument(
         "-d",
@@ -733,7 +750,7 @@ if __name__ == "__main__":
         default=None,
         const=1,
         nargs="?",
-        help="Delete outperformed JSONs",
+        help="Remove JSONs (1:worse/old, 2:worse/new, 3:dry, 4:prefer/new)",
     )
     argparser.add_argument(
         "-v",
