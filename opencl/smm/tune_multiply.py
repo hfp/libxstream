@@ -407,7 +407,8 @@ class SmmTuner(MeasurementInterface):
                             progress, r = "[{}/{}]: {}".format(i + 1, n, filename), 1
                             if self.args.check is not None:
                                 r = max(self.args.check, 0)
-                            self.run(data, message=progress, nrep=r)
+                            if "TYPEID" in data and self.typeid == data["TYPEID"]:
+                                self.run(data, message=progress, nrep=r)
                         elif "DEVICE" in data and data["DEVICE"] != self.device:
                             print("Updated {} to {}.".format(filename, self.device))
                             data.update({"DEVICE": self.device})
