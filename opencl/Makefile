@@ -197,10 +197,11 @@ else
       OPENCL_INC := $(OPENCL_ROOT)/include
     else ifneq (,$(ICX))
       OPENCL_ROOT := $(abspath $(dir $(ICX))/..)
-      ifneq (,$(wildcard $(OPENCL_ROOT)/include/sycl/CL/cl.h))
+      CLINC := $(wildcard $(OPENCL_ROOT)/include/sycl/CL/cl.h $(OPENCL_ROOT)/include/CL/cl.h)
+      ifneq (,$(CLINC))
         LDFLAGS += -L$(OPENCL_ROOT)/$(if $(wildcard $(OPENCL_ROOT)/lib64),lib64,lib)
         LDFLAGS += -L$(OPENCL_ROOT)/compiler/lib/intel64 -lintlc
-        OPENCL_INC := $(OPENCL_ROOT)/include/sycl
+        OPENCL_INC := $(abspath $(dir $(firstword $(CLINC)))/..)
       endif
     endif
   endif
