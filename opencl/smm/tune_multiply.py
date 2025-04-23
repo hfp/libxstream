@@ -91,7 +91,7 @@ class SmmTuner(MeasurementInterface):
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
         self.nz = self.al = self.tb = self.tc = None
         self.ap = self.aa = self.ab = self.ac = None
-        self.idevice, self.ndevices, self.mergeid = None, 0, 0
+        self.idevice, self.ndevices = None, 0
         self.exepath = os.path.join(
             os.path.dirname(sys.argv[0]), "..", "..", "acc_bench"
         )
@@ -206,7 +206,8 @@ class SmmTuner(MeasurementInterface):
             elif self.args.check is None or 0 != self.args.check:
                 self.update_jsons(filenames)
                 if 0 < self.gfscnt and self.args.check and 0 > self.args.check:
-                    print("Geometric mean of {}".format(self.print_gflops()))
+                    gmn = math.exp(self.gflogs / self.gfscnt)
+                    print("Geometric mean of {} GFLOPS/s".format(round(gmn)))
             elif self.args.merge is not None:
                 self.merge_jsons(filenames)
             exit(0)
@@ -359,9 +360,6 @@ class SmmTuner(MeasurementInterface):
         if performance and performance.group(1) and performance.group(2):
             mseconds, gflops = float(performance.group(1)), float(performance.group(2))
             if 0 < gflops:
-                typeid = config["TYPEID"] if "TYPEID" in config else self.typeid
-                mergeid = self.mergeid
-                self.mergeid = typeid if 0 == mergeid or mergeid == typeid else None
                 self.gflogs = self.gflogs + math.log(gflops)
                 self.gfscnt = self.gfscnt + 1
             if config is not desired_result:
@@ -448,23 +446,12 @@ class SmmTuner(MeasurementInterface):
         )
         return (device, data["TYPEID"], data["M"], data["N"], data["K"]), value
 
-    def print_gflops(self):
-        if 0 < self.gfscnt:
-            precstr, precfac = "", 1
-            if self.mergeid is not None:
-                if 1 == self.mergeid:
-                    precstr, precfac = "SP-", 2
-                else:
-                    precstr = "DP-"
-            gmn = round(math.exp(self.gflogs / self.gfscnt) * precfac)
-            return "{} {}GFLOPS/s".format(gmn, precstr)
-
     def merge_jsons(self, filenames):
         """Merge all JSONs into a single CSV-file"""
         if not self.args.csvfile or (self.idevice is not None and 0 != self.idevice):
             return  # early exit
         merged, retain, delete = dict(), dict(), []
-        self.gflogs = self.gfscnt = self.mergeid = skipcnt = 0
+        self.gflogs = self.gfscnt = skipcnt = 0
         for filename in filenames:
             data = dict()
             try:
@@ -543,9 +530,6 @@ class SmmTuner(MeasurementInterface):
                     )
                 )
                 for key, value in sorted(merged.items()):  # CSV data lines (records)
-                    self.mergeid = (
-                        key[1] if 0 == self.mergeid or self.mergeid == key[1] else None
-                    )
                     # FLOPS are normalized for double-precision
                     gflops = value[1] if 1 != key[1] else value[1] * 0.5
                     values = list(value[:-1])
@@ -562,7 +546,8 @@ class SmmTuner(MeasurementInterface):
             len(merged), len(filenames) - skipcnt, self.args.csvfile
         )
         if 0 < self.gfscnt:
-            msg = "{} (geometric mean of {})".format(msg, self.print_gflops())
+            gmn = math.exp(self.gflogs / self.gfscnt)
+            msg = "{} (geometric mean of {} GFLOPS/s)".format(msg, round(gmn))
         if not self.args.verbose and (self.args.check is None or 0 != self.args.check):
             print("")
         print(msg)
