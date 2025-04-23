@@ -184,7 +184,7 @@ else
   ifneq (,$(CUDATOOLKIT_HOME))
     CUDA_LIBDIR := $(if $(wildcard $(CUDATOOLKIT_HOME)/lib64),lib64,lib)
     ifeq (,$(wildcard $(OPENCL_INC)))
-      CLINC := $(strip $(lastword $(sort $(wildcard $(CUDATOOLKIT_HOME)/../cuda/*/targets/x86_64-linux/include/CL/cl.h))))
+      CLINC := $(lastword $(sort $(wildcard $(CUDATOOLKIT_HOME)/../cuda/*/targets/x86_64-linux/include/CL/cl.h)))
       OPENCL_INC := $(if $(CLINC),$(abspath $(dir $(CLINC))/..),$(CUDATOOLKIT_HOME)/include)
     endif
     ifeq (,$(wildcard $(OPENCL_LIB)))
