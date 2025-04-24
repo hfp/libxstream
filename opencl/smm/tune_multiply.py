@@ -375,7 +375,8 @@ class SmmTuner(MeasurementInterface):
                         self.gfbase = gflops
             elif not self.args.verbose:
                 if message:
-                    print("{} - OK".format(message), flush=True)
+                    ok = "OK" if 1 == int(nrep) else "{} GFLOPS/s".format(round(gflops))
+                    print("{} - {}".format(message, ok), flush=True)
                 else:
                     print(".", end="", flush=True)
         elif not skip:  # return non-competitive/bad result in case of an error
