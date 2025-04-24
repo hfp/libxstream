@@ -14,8 +14,6 @@ from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
 from signal import signal, SIGINT
-from colorama import init as colorama_init
-from colorama import Fore, Style
 import tempfile
 import copy
 import json
@@ -36,7 +34,6 @@ default_vlen = 8
 def start(args):
     """Construct and start tuner instance"""
     instance = SmmTuner(args)
-    colorama_init()
     if not default_dbg:
         for retry in range(default_retry):
             try:
@@ -504,16 +501,16 @@ class SmmTuner(MeasurementInterface):
             rfiles = [v[-1] for v in retain.values()]
             delete = delete + rfiles
         if bool(delete):
-            num, lst, msg, col = len(delete), " ".join(delete), "Remove", Fore.YELLOW
+            num, lst, msg = len(delete), " ".join(delete), "Remove"
             if self.args.delete and 3 != self.args.delete:
                 for filename in delete:
                     try:
                         os.remove(filename)
                     except:  # noqa: E722
                         pass
-                msg, col = "Removed", Fore.RED
+                msg = "Removed"
                 skipcnt = skipcnt + num
-            print("{}{} {}{}: {}".format(col, msg, num, Style.RESET_ALL, lst))
+            print("{} {}: {}".format(msg, num, lst))
             print("")
         # write CSV-file and collect overall-statistics
         if bool(merged):
