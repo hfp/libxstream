@@ -452,38 +452,49 @@ class SmmTuner(MeasurementInterface):
         merged, retain, delete = dict(), dict(), []
         self.gflogs = self.gfscnt = skipcnt = 0
         for filename in filenames:
-            data = dict()
             try:
                 with open(filename, "r") as file:
                     data = json.load(file)
-                if self.args.merge is not None and (
-                    (0 > self.args.merge and self.typeid != data["TYPEID"])
-                    or (1 == self.args.merge and 1 != data["TYPEID"])
-                    or (2 == self.args.merge and 3 != data["TYPEID"])
+                if not data or (
+                    self.args.merge is not None
+                    and (
+                        (0 > self.args.merge and self.typeid != data["TYPEID"])
+                        or (1 == self.args.merge and 1 != data["TYPEID"])
+                        or (2 == self.args.merge and 3 != data["TYPEID"])
+                    )
                 ):  # skip parameter set (JSON-file)
                     skipcnt = skipcnt + 1
                     continue
                 key, value = self.make_csv_record(data, filename)
             except (json.JSONDecodeError, KeyError, TypeError):
                 print("Failed to merge {} into CSV-file.".format(filename))
-                data = dict()
+                continue
             except:  # noqa: E722
-                data = dict()
+                continue
                 pass
             if bool(data) and key in merged:
-                gflops_merged, fname_merged = merged[key][1], merged[key][-1]
-                gflops, mtime = value[1], os.path.getmtime(fname_merged)
-                if gflops_merged < gflops:  # worse
-                    if os.path.getmtime(filename) < mtime:
+                gflops_base, mname = merged[key][1], merged[key][-1]
+                gflops, mtime = value[1], os.path.getmtime(mname)
+                if gflops_base < gflops:  # merged data is worse
+                    if mtime < os.path.getmtime(filename):  # older
+                        delete.append(mname)
+                    else:
                         if key in retain:
-                            retained = retain[key]
-                            if retained[1] < gflops:
-                                delete.append(retained[-1])
+                            if retain[key][1] < gflops:
+                                delete.append(retain[key][-1])
                         retain[key] = merged[key]
-                    else:  # older
-                        delete.append(fname_merged)
-                else:
-                    delete.append(filename)
+                else:  # merged data is leading
+                    if mtime < os.path.getmtime(filename):  # older
+                        if key in retain:
+                            if retain[key][1] < gflops:
+                                delete.append(retain[key][-1])
+                                retain[key] = value
+                            else:
+                                delete.append(filename)
+                        else:
+                            retain[key] = value
+                    else:  # newer
+                        delete.append(filename)
                     data = dict()  # ensure data is not merged
             if bool(data) and (  # consider to finally validate result
                 (self.args.check is not None and 0 == self.args.check)
@@ -494,8 +505,10 @@ class SmmTuner(MeasurementInterface):
         if self.args.delete and 3 <= self.args.delete:
             for key, value in retain.items():
                 if key in merged:
-                    retain[key] = merged[key]
-                    merged[key] = value
+                    rname, mname = value[-1], merged[key][-1]
+                    if os.path.getmtime(mname) < os.path.getmtime(rname):
+                        retain[key] = merged[key]
+                        merged[key] = value
         # print/delete outperformed results
         if self.args.delete and 2 <= self.args.delete:
             rfiles = [v[-1] for v in retain.values()]
