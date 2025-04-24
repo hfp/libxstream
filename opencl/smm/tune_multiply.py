@@ -487,7 +487,7 @@ class SmmTuner(MeasurementInterface):
                         delete.append(fname_merged)
                 else:
                     delete.append(filename)
-                data = dict()  # ensure worse result is not merged
+                    data = dict()  # ensure data is not merged
             if bool(data) and (  # consider to finally validate result
                 (self.args.check is not None and 0 == self.args.check)
                 or 0 == self.run(data, nrep=1)
