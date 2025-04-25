@@ -256,7 +256,7 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
     if (NULL != meminfo->memory) {
       const c_dbcsr_acc_opencl_info_memptr_t info = *meminfo; /* copy meminfo prior to unmap */
       void* host_ptr = NULL;
-      int result_release;
+      int result2;
 #  if defined(ACC_OPENCL_XHINTS)
       if (0 != (8 & c_dbcsr_acc_opencl_config.xhints) &&
           (0 != c_dbcsr_acc_opencl_config.device.nv || NULL != (ACC_OPENCL_XHINTS)) &&
@@ -270,12 +270,33 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
         const c_dbcsr_acc_opencl_stream_t* const str = (NULL != stream ? ACC_OPENCL_STREAM(stream)
                                                                        : c_dbcsr_acc_opencl_stream_default());
         cl_event event;
+#  if !defined(NDEBUG)
+        cl_context ctxstr, ctxmem;
         assert(NULL != str && NULL != str->queue);
-        result = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, &event);
-        if (NULL == stream && EXIT_SUCCESS == result) result = clWaitForEvents(1, &event);
+        result2 = clGetCommandQueueInfo(str->queue, CL_QUEUE_CONTEXT, sizeof(cl_context), &ctxstr, NULL);
+        if (EXIT_SUCCESS == result2) {
+          result2 = clGetMemObjectInfo(info.memory, CL_MEM_CONTEXT, sizeof(cl_context), &ctxmem, NULL);
+        }
+        if (EXIT_SUCCESS == result2 && ctxstr == ctxmem)
+#  endif
+        {
+          result = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, &event);
+          if (NULL == stream && EXIT_SUCCESS == result) result = clWaitForEvents(1, &event);
+        }
+#  if !defined(NDEBUG)
+        else { /* ignore error and warn instead */
+          static int warned = 0;
+          result2 = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, &event);
+          if (NULL == stream && EXIT_SUCCESS == result2) result2 = clWaitForEvents(1, &event);
+          if (0 != c_dbcsr_acc_opencl_config.verbosity && 0 == warned && EXIT_SUCCESS != result2) {
+            fprintf(stderr, "WARN ACC/OpenCL: contexts do not match (code=%i with %p != %p).\n", result2, ctxstr, ctxmem);
+            warned = 1;
+          }
+        }
+#  endif
       }
-      result_release = clReleaseMemObject(info.memory);
-      if (EXIT_SUCCESS == result) result = result_release;
+      result2 = clReleaseMemObject(info.memory);
+      if (EXIT_SUCCESS == result) result = result2;
     } /* not an error */
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)

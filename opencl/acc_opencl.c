@@ -716,7 +716,7 @@ int c_dbcsr_acc_finalize(void) {
     if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
       const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
       int d;
-      fprintf(stderr, "INFO ACC/OpenCL: pid=%u nthreads=%i", libxsmm_get_pid(), c_dbcsr_acc_opencl_config.nthreads);
+      fprintf(stderr, "INFO ACC/OpenCL: pid=%u", libxsmm_get_pid());
       if (NULL != c_dbcsr_acc_opencl_config.device.context &&
           EXIT_SUCCESS == c_dbcsr_acc_opencl_device_id(device_id, NULL /*devid*/, &d))
       {
@@ -1000,7 +1000,8 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
             ACC_OPENCL_EXPECT(0 < LIBXSMM_SNPRINTF(buffer + size, LIBXSMM_MAX(0, ACC_OPENCL_BUFFERSIZE - size), " [0x%04x]",
                                     0 != uid[0] ? uid[0] : uid[1]));
           }
-          fprintf(stderr, "INFO ACC/OpenCL: ndevices=%i device%i=\"%s\"\n", c_dbcsr_acc_opencl_config.ndevices, global_id, buffer);
+          fprintf(stderr, "INFO ACC/OpenCL: ndevices=%i device%i=\"%s\" context=%p pid=%u nthreads=%i\n",
+            c_dbcsr_acc_opencl_config.ndevices, global_id, buffer, ctx, libxsmm_get_pid(), c_dbcsr_acc_opencl_config.nthreads);
         }
       }
     }
