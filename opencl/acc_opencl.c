@@ -213,8 +213,8 @@ void c_dbcsr_acc_opencl_configure(void) {
     c_dbcsr_acc_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
     c_dbcsr_acc_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
     c_dbcsr_acc_opencl_config.debug = (NULL == env_debug ? c_dbcsr_acc_opencl_config.dump : atoi(env_debug));
-    c_dbcsr_acc_opencl_config.wa = neo *
-                                   (NULL == env_wa ? ((1 != c_dbcsr_acc_opencl_config.devsplit ? 0 : 1) + (2 + 4)) : atoi(env_wa));
+    c_dbcsr_acc_opencl_config.wa = neo * (NULL == env_wa ? ((1 != c_dbcsr_acc_opencl_config.devsplit ? 0 : 1) + (2 + 4 + 8))
+                                                         : atoi(env_wa));
     libxsmm_init();
     if (NULL != env_timer && (c_dbcsr_acc_opencl_timer_host == atoi(env_timer) ||
                                (env_timer == LIBXSMM_STRISTR(env_timer, "host") && 4 == strlen(env_timer)) ||
