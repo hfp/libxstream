@@ -375,8 +375,13 @@ class SmmTuner(MeasurementInterface):
                         self.gfbase = gflops
             elif not self.args.verbose:
                 if message:
-                    ok = "OK" if 1 == int(nrep) else "{} GFLOPS/s".format(round(gflops))
-                    print("{} - {}".format(message, ok), flush=True)
+                    status = "OK"
+                    if 1 != int(nrep):
+                        gfbase = config["GFLOPS"] if "GFLOPS" in config else 0
+                        if 0 < gfbase:
+                            status = "{}x - ".format(round(gflops / gfbase, 2))
+                        status = status + "{} GFLOPS/s".format(round(gflops))
+                    print("{} - {}".format(message, status), flush=True)
                 else:
                     print(".", end="", flush=True)
         elif not skip:  # return non-competitive/bad result in case of an error
@@ -476,9 +481,9 @@ class SmmTuner(MeasurementInterface):
                 continue
                 pass
             if bool(data) and key in merged:
-                gflops_base, mname = merged[key][1], merged[key][-1]
+                gfbase, mname = merged[key][1], merged[key][-1]
                 gflops, mtime = value[1], os.path.getmtime(mname)
-                if gflops_base < gflops:  # merged data is worse
+                if gfbase < gflops:  # merged data is worse
                     if mtime < os.path.getmtime(filename):  # older
                         delete.append(mname)
                     else:
