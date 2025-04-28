@@ -30,6 +30,9 @@ default_dbg = False
 default_retry = 1
 default_vlen = 8
 
+type_dp = 3
+type_sp = 1
+
 
 def start(args):
     """Construct and start tuner instance"""
@@ -459,8 +462,8 @@ class SmmTuner(MeasurementInterface):
                     self.args.merge is not None
                     and (
                         (0 > self.args.merge and self.typeid != data["TYPEID"])
-                        or (1 == self.args.merge and 1 != data["TYPEID"])
-                        or (2 == self.args.merge and 3 != data["TYPEID"])
+                        or (1 == self.args.merge and type_sp != data["TYPEID"])
+                        or (2 == self.args.merge and type_dp != data["TYPEID"])
                     )
                 ):  # skip parameter set (JSON-file)
                     skipcnt = skipcnt + 1
@@ -541,9 +544,11 @@ class SmmTuner(MeasurementInterface):
                         self.args.csvsep.join(["TB", "TC", "AP", "AA", "AB", "AC"]),
                     )
                 )
+                types = [key[1] for key in merged.keys()]
+                pure = min(types) == max(types)
                 for key, value in sorted(merged.items()):  # CSV data lines (records)
-                    # FLOPS are normalized for double-precision
-                    gflops = value[1] if 1 != key[1] else value[1] * 0.5
+                    # FLOPS are normalized for double-precision (ratio of 1:2 assumed)
+                    gflops = value[1] if pure or type_sp != key[1] else value[1] * 0.5
                     values = list(value[:-1])
                     if self.args.nogflops:
                         values[1] = 0  # zero instead of gflops written into CSV-file
