@@ -125,7 +125,8 @@ class SmmTuner(MeasurementInterface):
             self.ndevices = int(device.group(1)) if device and device.group(1) else 0
             self.device = device.group(2) if device and device.group(2) else ""
             # idevice: make certain resources/names unique on a per-rank basis
-            envrank = os.getenv("PMI_RANK", os.getenv("OMPI_COMM_WORLD_LOCAL_RANK"))
+            envrank_fallback = os.getenv("OMPI_COMM_WORLD_LOCAL_RANK", os.getenv("PMI_RANK"))
+            envrank = os.getenv("MPI_LOCALRANKID", envrank_fallback)
             if envrank:
                 self.idevice = int(envrank) % self.ndevices
         elif self.args.update is not None and "" != self.args.update:
