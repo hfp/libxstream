@@ -93,8 +93,11 @@ then
   if [ ! "${BATCHSIZE}" ]; then BATCHSIZE=0; fi
   if [ ! "${JSONDIR}" ]; then JSONDIR=.; fi
   if [ ! "${TLEVEL}" ]; then TLEVEL=-1; fi
-  if [ ! "${NPARTS}" ]; then NPARTS=${PMI_SIZE:-1}; fi
-  if [ ! "${PART}" ]; then PART=${PMI_RANK:-0}; PART=$((PART+1)); fi
+  if [ ! "${NPARTS}" ]; then NPARTS=${PMI_SIZE:-${OMPI_COMM_WORLD_SIZE:-1}}; fi
+  if [ ! "${PART}" ]; then
+    PART0=${PMI_RANK:-${OMPI_COMM_WORLD_RANK:-0}}
+    PART=$(((PART0+1)%NPARTS+1))
+  fi
   if [ ! "${WAIT}" ] && [ "1" != "${NPARTS}" ]; then WAIT=0; fi
   # sanity checks
   if [ "0" != "$((NPARTS<PART))" ]; then
@@ -198,11 +201,10 @@ then
     exit 1
   fi
   if [ ! "${WAIT}" ] || [ "0" != "${WAIT}" ]; then
-    if [ "0" != "$((NPARTS<=NTRIPLETS))" ]; then
-      echo "Session ${PART} of ${NPARTS} part(s)."
-    else
-      echo "Session ${PART} of ${NPARTS} part(s). The problem is over-decomposed!"
+    if [ "0" = "$((NPARTS<=NTRIPLETS))" ]; then
+      >&2 echo "WARNING: problem is over-decomposed!"
     fi
+    echo "Session ${PART} of ${NPARTS} part(s)."
   fi
   if [ ! "${MAXTIME}" ] && [[ (! "${CONTINUE}"  || \
       "${CONTINUE}" = "false"                   || \
@@ -211,15 +213,17 @@ then
   then
     MAXTIME=160
   fi
-  PARTSIZE=$((NPARTS<NTRIPLETS?(NTRIPLETS/NPARTS):1))
-  PARTOFFS=$(((PART-1)*PARTSIZE))
-  PARTSIZE=$((PART<NPARTS?PARTSIZE:(NTRIPLETS-PARTOFFS)))
+  PARTLOSZ=$((NPARTS<NTRIPLETS?(NTRIPLETS/NPARTS):1))
+  PARTUPSZ=$(((NTRIPLETS+NPARTS-1)/NPARTS))
+  PARTUPNM=$((PARTUPSZ!=PARTLOSZ?(NTRIPLETS-PARTLOSZ*NPARTS):(NTRIPLETS/PARTUPSZ)))
+  PARTLONM=$((NPARTS-PARTUPNM)); PARTZERO=PART-1
+  PARTOFFS=$((PARTZERO<=PARTUPNM?(PARTZERO*PARTUPSZ):(PARTUPNM*PARTUPSZ+(PARTZERO-PARTUPNM)*PARTLOSZ)))
+  PARTSIZE=$((PART<=PARTUPNM?PARTUPSZ:PARTLOSZ))
   if [ "${MAXTIME}" ] && [ "0" != "$((0<MAXTIME))" ]; then
-    if [ ! "${WAIT}" ] || [ "0" != "${WAIT}" ]; then
+    if [[ ! "${WAIT}" || "0" != "${WAIT}" ]] && [ "1" = "${PART}" ]; then
       HRS=$((MAXTIME*PARTSIZE/3600))
       MNS=$(((MAXTIME*PARTSIZE-HRS*3600+59)/60))
-      echo "Tuning ${PARTSIZE} kernels in this session will take about" \
-           "${MAXTIME}s per kernel and ${HRS}h${MNS}m in total."
+      echo "Tuning ${NTRIPLETS} kernels will take about ${HRS}h${MNS}m."
     fi
     MAXTIME="--stop-after=${MAXTIME}"
   else
@@ -229,10 +233,10 @@ then
   NJSONS=$(${WC} -l <<<"${JSONS}")
   if [ "0" != "${NJSONS}" ]; then
     if [ ! "${UPDATE}" ] || [ "0" = "${UPDATE}" ]; then
-      echo "Already found ${NJSONS} (unrelated?) JSON-files."
+      >&2 echo "Already found ${NJSONS} (unrelated?) JSON-files."
     fi
   elif [ -e tune_multiply.csv ]; then
-    echo "No JSON file found but (unrelated?) tune_multiply.csv exists."
+    >&2 echo "No JSON file found but (unrelated?) tune_multiply.csv exists."
   fi
   if [ ! "${WAIT}" ]; then WAIT=${WAIT_DEFAULT}; fi
   if [ "0" != "$((0<WAIT))" ] && [ "$(command -v sleep)" ]; then
