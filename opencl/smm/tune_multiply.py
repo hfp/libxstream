@@ -125,8 +125,9 @@ class SmmTuner(MeasurementInterface):
             self.ndevices = int(device.group(1)) if device and device.group(1) else 0
             self.device = device.group(2) if device and device.group(2) else ""
             # idevice: make certain resources/names unique on a per-rank basis
-            envrank_fallback = os.getenv("OMPI_COMM_WORLD_LOCAL_RANK", os.getenv("PMI_RANK"))
-            envrank = os.getenv("MPI_LOCALRANKID", envrank_fallback)
+            envrank_mpich = os.getenv("PMI_RANK")  # global
+            envrank_ompi = os.getenv("OMPI_COMM_WORLD_LOCAL_RANK", envrank_mpich)
+            envrank = os.getenv("MPI_LOCALRANKID", envrank_ompi)
             if envrank:
                 self.idevice = int(envrank) % self.ndevices
         elif self.args.update is not None and "" != self.args.update:
@@ -968,4 +969,15 @@ if __name__ == "__main__":
                     args.merge = -1
             start(args)
     else:
+        try:
+            mnk = tuple(max(int(i), 1) for i in args.mnk.split("x"))
+        except:  # noqa: E722
+            mnk = None
+            pass
+        if not mnk:
+            sys.tracebacklimit = 0
+            raise RuntimeError(
+                "Only the first argument can be positional!\n"
+                "Cannot parse MxNxK triplet or filename."
+            )
         start(args)

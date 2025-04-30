@@ -567,7 +567,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
     assert(NULL != str && NULL != str->queue);
 #  if defined(ACC_OPENCL_MEM_DEVPTR)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
-      assert(0 == devinfo->->unified);
+      assert(0 == devinfo->unified);
       result = devinfo->clEnqueueMemcpyINTEL(str->queue, finish, dev_mem, host_mem, nbytes, 0, NULL, NULL);
     }
     else
