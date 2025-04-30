@@ -950,34 +950,29 @@ if __name__ == "__main__":
     if 0 == args.mb:
         args.mb = 64
     # construct and start tuner instance
-    if args.jsondir == argd.jsondir:  # flexible first argument
-        if os.path.isfile(args.mnk):
-            with open(args.mnk, "r") as file:
-                while True:
-                    line = file.readline()
-                    if not line:
-                        break
-                    args.mnk, args.label = line.strip(), ""
-                    if args.mnk:
-                        start(args)
-                        print("")
-        else:
-            if os.path.isdir(args.mnk):
-                args.jsondir = args.mnk
-                args.mnk = default_mnk
-                if args.merge is None:
-                    args.merge = -1
-            start(args)
+    if os.path.isfile(args.mnk):
+        with open(args.mnk, "r") as file:
+            while True:
+                line = file.readline()
+                if not line:
+                    break
+                args.mnk, args.label = line.strip(), ""
+                if args.mnk:
+                    start(args)
+                    print("")
     else:
-        try:
-            mnk = tuple(max(int(i), 1) for i in args.mnk.split("x"))
-        except:  # noqa: E722
-            mnk = None
-            pass
-        if not mnk:
-            sys.tracebacklimit = 0
-            raise RuntimeError(
-                "Only the first argument can be positional!\n"
-                "Cannot parse MxNxK triplet or filename."
-            )
+        if os.path.isdir(args.mnk):
+            args.jsondir = args.mnk
+            args.mnk = default_mnk
+            if args.merge is None:
+                args.merge = -1
+        else:
+            try:
+                mnk = tuple(max(int(i), 1) for i in args.mnk.split("x"))
+            except:  # noqa: E722
+                mnk = None
+                pass
+            if not mnk:
+                sys.tracebacklimit = 0
+                raise RuntimeError("Cannot parse MxNxK triplet or filename.")
         start(args)
