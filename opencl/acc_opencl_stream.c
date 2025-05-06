@@ -10,6 +10,10 @@
 #  include "acc_opencl.h"
 #  include <string.h>
 
+#  if !defined(ACC_OPENCL_STREAM_FINISH) && 1
+#    define ACC_OPENCL_STREAM_FINISH
+#  endif
+
 
 #  if defined(__cplusplus)
 extern "C" {
@@ -261,7 +265,23 @@ int c_dbcsr_acc_stream_sync(void* stream) {
 #  endif
   str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream_default());
   assert(NULL != str && NULL != str->queue);
+#  if defined(ACC_OPENCL_STREAM_FINISH)
   result = clFinish(str->queue);
+#  else
+  {
+    cl_event event = NULL;
+#    if defined(CL_VERSION_1_2)
+    result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &event);
+#    else
+    result = clEnqueueMarker(str->queue, &event);
+#    endif
+    if (EXIT_SUCCESS == result) {
+      assert(NULL != event);
+      result = clWaitForEvents(1, &event);
+    }
+    if (NULL != event) ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+  }
+#  endif
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
 #  endif
