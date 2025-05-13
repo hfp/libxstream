@@ -1348,28 +1348,46 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
 }
 
 
+int c_dbcsr_acc_opencl_defines(const char defines[], char buffer[], size_t buffer_size, int cleanup) {
+  const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
+  int result = 0;
+  if (NULL != buffer && NULL != devinfo->context) {
+    const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
+    const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
+    result = LIBXSMM_SNPRINTF(buffer, buffer_size, "-DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u%s", std_level, std_clevel,
+      0 != c_dbcsr_acc_opencl_config.debug ? " -DNDEBUG" : "");
+    if (0 < result && (int)buffer_size > result) {
+      const int n = LIBXSMM_SNPRINTF(
+        buffer + result, buffer_size - result, ' ' != buffer[result - 1] ? " %s" : "%s", NULL != defines ? defines : "");
+      if (0 <= n) {
+        if (0 != cleanup && (int)buffer_size > (result += n)) {
+          char* replace = strpbrk(buffer + result - n, "\""); /* more portable (system/cpp needs quotes to protect braces) */
+          for (; NULL != replace; replace = strpbrk(replace + 1, "\"")) *replace = ' ';
+        }
+      }
+      else result = -1;
+    }
+  }
+  else result = -1;
+  return result;
+}
+
+
 int c_dbcsr_acc_opencl_flags(
   const char build_params[], const char build_options[], const char try_build_options[], char buffer[], size_t buffer_size) {
   const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
-  int result = EXIT_SUCCESS;
-  assert(NULL != devinfo->context);
-  if (NULL != buffer) {
-    const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
-    const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
-    const int nchar = LIBXSMM_SNPRINTF(buffer, buffer_size, "%s -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u %s %s %s %s",
-      devinfo->std_flag, std_level, std_clevel, 0 != c_dbcsr_acc_opencl_config.debug ? "-DNDEBUG" : "",
-      NULL != build_options ? build_options : "", NULL != build_params ? build_params : "",
-      NULL != try_build_options ? try_build_options : "");
-    if (0 < nchar && (int)buffer_size > nchar) {
-      char* replace = strpbrk(buffer, "\""); /* more portable (system/cpp needs quotes to protect braces) */
-      for (; NULL != replace; replace = strpbrk(replace + 1, "\"")) *replace = ' ';
-    }
-    else {
-      result = EXIT_FAILURE;
-      *buffer = '\0';
+  int result = 0;
+  if (NULL != buffer && NULL != devinfo->context) {
+    result = c_dbcsr_acc_opencl_defines(build_params, buffer, buffer_size, 1 /*cleanup*/);
+    if (0 <= result) {
+      if ((int)buffer_size > result) {
+        const int n = LIBXSMM_SNPRINTF(buffer + result, buffer_size - result, ' ' != buffer[result - 1] ? " %s %s %s" : "%s %s %s",
+          devinfo->std_flag, NULL != build_options ? build_options : "", NULL != try_build_options ? try_build_options : "");
+        result = (0 <= n ? result : 0) + n;
+      }
     }
   }
-  else result = EXIT_FAILURE;
+  else result = -1;
   return result;
 }
 
@@ -1516,8 +1534,6 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
         }
 #  if defined(ACC_OPENCL_CPPBIN)
         if (NULL != file_cpp && 0 <= file_dmp) { /* preprocess source-code */
-          const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
-          const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
           const char* sed_pattern = "";
 #    if defined(ACC_OPENCL_SEDBIN)
           FILE* const file_sed = fopen(ACC_OPENCL_SEDBIN, "rb");
@@ -1526,10 +1542,16 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
             fclose(file_sed); /* existence-check */
           }
 #    endif
-          nchar = LIBXSMM_SNPRINTF(buffer, ACC_OPENCL_BUFFERSIZE,
-            ACC_OPENCL_CPPBIN " -P -C -nostdinc -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u %s %s %s %s >%s", std_level,
-            std_clevel, 0 == devinfo->nv ? "" : "-D__NV_CL_C_VERSION", NULL != build_params ? build_params : "", buffer_name,
-            sed_pattern, dump_filename);
+          nchar = LIBXSMM_SNPRINTF(
+            buffer, ACC_OPENCL_BUFFERSIZE, ACC_OPENCL_CPPBIN " -P -C -nostdinc %s", 0 == devinfo->nv ? "" : "-D__NV_CL_C_VERSION");
+          if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) {
+            int n = c_dbcsr_acc_opencl_defines(build_params, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar, 0 /*cleanup*/);
+            if (0 <= n && ACC_OPENCL_BUFFERSIZE > (nchar += n)) {
+              n = LIBXSMM_SNPRINTF(buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar,
+                ' ' != buffer[nchar - 1] ? " %s %s >%s" : "%s %s >%s", buffer_name, sed_pattern, dump_filename);
+            }
+            nchar = (0 <= n ? nchar : 0) + n;
+          }
           if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar && EXIT_SUCCESS == system(buffer)) {
             FILE* const file = fopen(dump_filename, "r");
             if (NULL != file) {
@@ -1566,8 +1588,8 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       }
       else nchar = 0; /* no need to apply/check internal flags */
       if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) { /* check if internal flags apply */
-        result = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
-        if (EXIT_SUCCESS == result) {
+        const int n = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
+        if (0 <= n && ACC_OPENCL_BUFFERSIZE > (nchar += n)) {
           result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer + nchar, NULL /*callback*/, NULL /*user_data*/);
           if (EXIT_SUCCESS == result) {
             ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
@@ -1576,13 +1598,16 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
           }
           else nchar = 0; /* failed to apply internal flags */
         }
+        else result = EXIT_FAILURE;
       }
-      if (EXIT_SUCCESS == result) {
-        result = c_dbcsr_acc_opencl_flags(
+      if (EXIT_SUCCESS == result) { /* apply try_build_options */
+        const int n = c_dbcsr_acc_opencl_flags(
           build_params, build_options, try_build_options, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
+        if (0 <= n && ACC_OPENCL_BUFFERSIZE > n) nchar += n;
+        else result = EXIT_FAILURE;
       }
-      if (EXIT_SUCCESS == result) {
-        result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer + nchar, NULL /*callback*/, NULL /*user_data*/);
+      if (EXIT_SUCCESS == result) { /* optionally check if try_build_options apply */
+        result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
       }
       if (EXIT_SUCCESS != result && NULL != try_build_options && '\0' != *try_build_options) {
         result = c_dbcsr_acc_opencl_flags(
