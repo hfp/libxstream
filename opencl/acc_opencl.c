@@ -1354,13 +1354,13 @@ int c_dbcsr_acc_opencl_defines(const char defines[], char buffer[], size_t buffe
   if (NULL != buffer && NULL != devinfo->context) {
     const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
     const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
-    result = LIBXSMM_SNPRINTF(buffer, buffer_size, "-DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u%s", std_level, std_clevel,
-      0 != c_dbcsr_acc_opencl_config.debug ? " -DNDEBUG" : "");
+    result = LIBXSMM_SNPRINTF(buffer, buffer_size, " -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u%s", std_level, std_clevel,
+      0 == c_dbcsr_acc_opencl_config.debug ? " -DNDEBUG" : "");
     if (0 < result && (int)buffer_size > result) {
       const int n = LIBXSMM_SNPRINTF(
         buffer + result, buffer_size - result, ' ' != buffer[result - 1] ? " %s" : "%s", NULL != defines ? defines : "");
       if (0 <= n) {
-        if (0 != cleanup && (int)buffer_size > (result += n)) {
+        if ((int)buffer_size > (result += n) && 0 != cleanup) {
           char* replace = strpbrk(buffer + result - n, "\""); /* more portable (system/cpp needs quotes to protect braces) */
           for (; NULL != replace; replace = strpbrk(replace + 1, "\"")) *replace = ' ';
         }
@@ -1381,8 +1381,12 @@ int c_dbcsr_acc_opencl_flags(
     result = c_dbcsr_acc_opencl_defines(build_params, buffer, buffer_size, 1 /*cleanup*/);
     if (0 <= result) {
       if ((int)buffer_size > result) {
-        const int n = LIBXSMM_SNPRINTF(buffer + result, buffer_size - result, ' ' != buffer[result - 1] ? " %s %s %s" : "%s %s %s",
-          devinfo->std_flag, NULL != build_options ? build_options : "", NULL != try_build_options ? try_build_options : "");
+        const char* const dbg_flags = ((0 != c_dbcsr_acc_opencl_config.debug && 0 != devinfo->intel &&
+                                         CL_DEVICE_TYPE_CPU != devinfo->type)
+                                         ? "-gline-tables-only "
+                                         : "");
+        const int n = LIBXSMM_SNPRINTF(buffer + result, buffer_size - result, " %s%s %s %s", dbg_flags, devinfo->std_flag,
+          NULL != build_options ? build_options : "", NULL != try_build_options ? try_build_options : "");
         result = (0 <= n ? result : 0) + n;
       }
     }
@@ -1543,7 +1547,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
           }
 #    endif
           nchar = LIBXSMM_SNPRINTF(
-            buffer, ACC_OPENCL_BUFFERSIZE, ACC_OPENCL_CPPBIN " -P -C -nostdinc %s", 0 == devinfo->nv ? "" : "-D__NV_CL_C_VERSION");
+            buffer, ACC_OPENCL_BUFFERSIZE, ACC_OPENCL_CPPBIN " -P -C -nostdinc %s", 0 == devinfo->nv ? "" : "-D__NV_CL_C_VERSION ");
           if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) {
             int n = c_dbcsr_acc_opencl_defines(build_params, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar, 0 /*cleanup*/);
             if (0 <= n && ACC_OPENCL_BUFFERSIZE > (nchar += n)) {
@@ -1590,7 +1594,7 @@ int c_dbcsr_acc_opencl_kernel(int source_is_file, const char source[], const cha
       if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) { /* check if internal flags apply */
         const int n = c_dbcsr_acc_opencl_flags(build_params, build_options, NULL, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar);
         if (0 <= n && ACC_OPENCL_BUFFERSIZE > (nchar += n)) {
-          result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer + nchar, NULL /*callback*/, NULL /*user_data*/);
+          result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
           if (EXIT_SUCCESS == result) {
             ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
             program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
