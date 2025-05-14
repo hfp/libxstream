@@ -10,8 +10,6 @@
 #  include "acc_opencl.h"
 #  include <string.h>
 #  include <limits.h>
-#  include <signal.h>
-#  include <setjmp.h>
 #  include <ctype.h>
 #  if defined(_WIN32)
 #    include <windows.h>
@@ -78,15 +76,6 @@ c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 #  if defined(ACC_OPENCL_CACHE_DID)
 int c_dbcsr_acc_opencl_active_id;
 #  endif
-
-
-jmp_buf c_dbcsr_acc_opencl_sigsegv_jmp_buf;
-void c_dbcsr_acc_opencl_sigsegv(int /*signum*/);
-void c_dbcsr_acc_opencl_sigsegv(int signum) {
-  void (*const handler)(int) = signal(signum, c_dbcsr_acc_opencl_sigsegv);
-  assert(SIGSEGV == signum);
-  if (SIG_ERR != handler) longjmp(c_dbcsr_acc_opencl_sigsegv_jmp_buf, 1);
-}
 
 
 void c_dbcsr_acc_opencl_notify(const char /*errinfo*/[], const void* /*private_info*/, size_t /*cb*/, void* /*user_data*/);
@@ -1408,20 +1397,12 @@ int c_dbcsr_acc_opencl_kernel_flags(const char build_params[], const char build_
     else nchar = n;
   }
   if (0 <= nchar && (int)buffer_size > nchar) { /* check if internal flags apply */
-    void (*const handler)(int) = signal(SIGSEGV, c_dbcsr_acc_opencl_sigsegv);
-    if (SIG_ERR != handler) {
-      if (0 == setjmp(c_dbcsr_acc_opencl_sigsegv_jmp_buf) && EXIT_SUCCESS == result) {
-        const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
-        result = EXIT_FAILURE;
-        result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
-      }
-      signal(SIGSEGV, handler); /* restore original state */
-      if (EXIT_SUCCESS != result) { /* failed to apply internal flags */
-        ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
-        buffer[nchar] = '\0'; /* remove internal flags */
-      }
+    const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
+    result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
+    if (EXIT_SUCCESS != result) { /* failed to apply internal flags */
+      ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* avoid unclean state */
+      buffer[nchar] = '\0'; /* remove internal flags */
     }
-    else result = EXIT_FAILURE;
   }
   else result = EXIT_FAILURE;
   return result;
