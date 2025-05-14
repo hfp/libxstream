@@ -1376,21 +1376,17 @@ int c_dbcsr_acc_opencl_defines(const char defines[], char buffer[], size_t buffe
 int c_dbcsr_acc_opencl_kernel_flags(const char build_params[], const char build_options[], const char try_options[],
   cl_program program, char buffer[], size_t buffer_size) {
   const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
-  const char *const internal_options = ((0 == devinfo->intel || 0x0bd0 > devinfo->uid || 0x0bdb < devinfo->uid)
-    ? "" : "-igc_opts 'VISAOptions=-PVCSendWARWA'");
-  const char *const extra_options = ((NULL == try_options || '\0' == *try_options) ? internal_options : try_options);
   int result = EXIT_SUCCESS, nchar = 0;
   assert(NULL != program && (NULL != buffer || 0 == buffer_size));
   nchar = c_dbcsr_acc_opencl_defines(build_params, buffer, buffer_size, 1 /*cleanup*/);
   if (0 <= nchar && (int)buffer_size > nchar) {
     const int debug = (0 != c_dbcsr_acc_opencl_config.debug && 0 != devinfo->intel && CL_DEVICE_TYPE_CPU != devinfo->type);
-    int n = LIBXSMM_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s%s %s",
-      0 == debug ? "" : "-gline-tables-only ", devinfo->std_flag,
-      NULL != build_options ? build_options : "");
+    int n = LIBXSMM_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s%s %s", 0 == debug ? "" : "-gline-tables-only ",
+      devinfo->std_flag, NULL != build_options ? build_options : "");
     if (0 <= n) {
       nchar += n;
-      if (NULL != extra_options && '\0' != *extra_options) { /* length is not reported in result */
-        n = LIBXSMM_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s", extra_options);
+      if (NULL != try_options && '\0' != *try_options) { /* length is not reported in result */
+        n = LIBXSMM_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s", try_options);
         if (0 > n || (int)buffer_size <= (nchar + n)) buffer[nchar] = '\0';
       }
     }
