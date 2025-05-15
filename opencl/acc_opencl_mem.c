@@ -547,8 +547,6 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-#  elif defined(ACC_OPENCL_PROFILE_TRANSFER)
-      const libxsmm_timer_tickint start = libxsmm_timer_tick();
 #  endif
   assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
   assert(NULL != c_dbcsr_acc_opencl_config.device.context);
@@ -590,16 +588,6 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
-#  elif defined(ACC_OPENCL_PROFILE_TRANSFER)
-      if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-        result = c_dbcsr_acc_stream_sync(stream);
-        if (EXIT_SUCCESS == result) {
-          const double duration = libxsmm_timer_duration(start, libxsmm_timer_tick());
-          const double perf = nbytes / (duration * (1ULL << 30));
-          const int mb = (int)((nbytes + (1 << 19)) >> 20);
-          fprintf(stderr, "PERF ACC/OpenCL (H2D): %i MB %.2g ms %.1f GB/s\n", mb, 1000.0 * duration, perf);
-        }
-      }
 #  endif
   ACC_OPENCL_RETURN(result);
 }
@@ -612,8 +600,6 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-#  elif defined(ACC_OPENCL_PROFILE_TRANSFER)
-      const libxsmm_timer_tickint start = libxsmm_timer_tick();
 #  endif
   assert((NULL != dev_mem && NULL != host_mem) || 0 == nbytes);
   if (NULL != host_mem && NULL != dev_mem && 0 != nbytes) {
@@ -631,16 +617,6 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
-#  elif defined(ACC_OPENCL_PROFILE_TRANSFER)
-      if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-        result = c_dbcsr_acc_stream_sync(stream);
-        if (EXIT_SUCCESS == result) {
-          const double duration = libxsmm_timer_duration(start, libxsmm_timer_tick());
-          const double perf = nbytes / (duration * (1ULL << 30));
-          const int mb = (int)((nbytes + (1 << 19)) >> 20);
-          fprintf(stderr, "PERF ACC/OpenCL (D2H): %i MB %.2g ms %.1f GB/s\n", mb, 1000.0 * duration, perf);
-        }
-      }
 #  endif
   ACC_OPENCL_RETURN(result);
 }
@@ -653,8 +629,6 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
   static const char* const routine_name_ptr = LIBXSMM_FUNCNAME;
   static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - 1;
   c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-#  elif defined(ACC_OPENCL_PROFILE_TRANSFER)
-      const libxsmm_timer_tickint start = libxsmm_timer_tick();
 #  endif
   assert((NULL != devmem_src && NULL != devmem_dst) || 0 == nbytes);
   if (NULL != devmem_src && NULL != devmem_dst && 0 != nbytes) {
@@ -691,16 +665,6 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
   }
 #  if defined(__DBCSR_ACC) && defined(ACC_OPENCL_PROFILE_DBCSR)
   c_dbcsr_timestop(&routine_handle);
-#  elif defined(ACC_OPENCL_PROFILE_TRANSFER)
-      if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-        result = c_dbcsr_acc_stream_sync(stream);
-        if (EXIT_SUCCESS == result) {
-          const double duration = libxsmm_timer_duration(start, libxsmm_timer_tick());
-          const double perf = nbytes / (duration * (1ULL << 30));
-          const int mb = (int)((nbytes + (1 << 19)) >> 20);
-          fprintf(stderr, "PERF ACC/OpenCL (D2D): %i MB %.2g ms %.1f GB/s\n", mb, 1000.0 * duration, perf);
-        }
-      }
 #  endif
   ACC_OPENCL_RETURN(result);
 }
