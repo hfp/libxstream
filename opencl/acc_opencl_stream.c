@@ -300,7 +300,7 @@ int c_dbcsr_acc_opencl_device_synchronize(ACC_OPENCL_LOCKTYPE* lock, int thread_
   for (i = c_dbcsr_acc_opencl_config.nstreams; i < n; ++i) {
     const c_dbcsr_acc_opencl_stream_t* const str = c_dbcsr_acc_opencl_config.streams[i];
     if (NULL != str && NULL != str->queue) {
-      if (str->tid == thread_id || 0 > thread_id) { /* hit */
+      if (0 > thread_id || str->tid == thread_id) { /* hit */
         result = clFinish(str->queue);
         if (EXIT_SUCCESS != result) break;
       }
@@ -320,9 +320,24 @@ int c_dbcsr_acc_device_synchronize(void) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
-    c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
+    const char** routine_name_ptr;
+    const int* routine_name_len;
+#    if defined(_OPENMP)
+    if (1 == omp_get_num_threads()) {
+      static const char* const routine_name_ptr_all = "c_dbcsr_acc_device_synchronize_all" + ACC_OPENCL_PROFILE_DBCSR;
+      static const int routine_name_len_all = (int)sizeof("c_dbcsr_acc_device_synchronize_all") - (ACC_OPENCL_PROFILE_DBCSR + 1);
+      routine_name_ptr = (const char**)&routine_name_ptr_all;
+      routine_name_len = &routine_name_len_all;
+    }
+    else
+#    endif
+    {
+      static const char* const routine_name_ptr_any = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+      static const int routine_name_len_any = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
+      routine_name_ptr = (const char**)&routine_name_ptr_any;
+      routine_name_len = &routine_name_len_any;
+    }
+    c_dbcsr_timeset(routine_name_ptr, routine_name_len, &routine_handle);
   }
 #  endif
 #  if defined(_OPENMP)
