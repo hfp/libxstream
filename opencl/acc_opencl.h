@@ -126,10 +126,10 @@
 #if !defined(ACC_OPENCL_ACTIVATE) && 0
 #  define ACC_OPENCL_ACTIVATE 0
 #endif
-/* Use DBCSR's profile for detailed timings */
+/* Use DBCSR's profile for detailed timings (function name prefix-offset) */
 #if !defined(ACC_OPENCL_PROFILE_DBCSR) && (defined(__OFFLOAD_PROFILING) || 1)
 #  if defined(__DBCSR_ACC)
-#    define ACC_OPENCL_PROFILE_DBCSR
+#    define ACC_OPENCL_PROFILE_DBCSR 8
 #  endif
 #endif
 
