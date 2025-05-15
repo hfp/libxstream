@@ -127,8 +127,10 @@
 #  define ACC_OPENCL_ACTIVATE 0
 #endif
 /* Use DBCSR's profile for detailed timings */
-#if !defined(ACC_OPENCL_PROFILE_DBCSR) && (defined(__OFFLOAD_PROFILING) || 0)
-#  define ACC_OPENCL_PROFILE_DBCSR
+#if !defined(ACC_OPENCL_PROFILE_DBCSR) && (defined(__OFFLOAD_PROFILING) || 1)
+#  if defined(__DBCSR_ACC)
+#    define ACC_OPENCL_PROFILE_DBCSR
+#  endif
 #endif
 
 #if defined(__OFFLOAD_OPENCL) && !defined(ACC_OPENCL_MEM_DEVPTR)
@@ -354,8 +356,14 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   cl_int ndevices;
   /** Maximum number of threads (omp_get_max_threads). */
   cl_int nthreads;
-  /** How to apply/use stream priorities. */
+#if defined(ACC_OPENCL_STREAM_PRIORITIES)
+  /** Runtime-adjust ACC_OPENCL_STREAM_PRIORITIES. */
   cl_int priority;
+#endif
+#if defined(ACC_OPENCL_PROFILE_DBCSR)
+  /** Runtime-enable ACC_OPENCL_PROFILE_DBCSR. */
+  cl_int profile;
+#endif
   /** Configuration and execution-hints. */
   cl_int xhints;
   /** Asynchronous memory operations. */
