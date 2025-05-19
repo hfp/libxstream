@@ -15,9 +15,6 @@
 extern "C" {
 #  endif
 
-int c_dbcsr_acc_opencl_stream_counter_base;
-int c_dbcsr_acc_opencl_stream_counter;
-
 
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(ACC_OPENCL_LOCKTYPE* lock, int thread_id) {
   const c_dbcsr_acc_opencl_stream_t *result = NULL, *result_main = NULL;
@@ -100,12 +97,16 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
 #  endif
   ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_stream);
 #  if defined(_OPENMP)
-  if (1 < omp_get_num_threads()) {
-    const int i = c_dbcsr_acc_opencl_stream_counter++;
-    assert(0 < c_dbcsr_acc_opencl_config.nthreads);
-    tid = (i < c_dbcsr_acc_opencl_config.nthreads ? i : (i % c_dbcsr_acc_opencl_config.nthreads));
+  {
+    static int c_dbcsr_acc_opencl_stream_counter_base = 0;
+    static int c_dbcsr_acc_opencl_stream_counter = 0;
+    if (1 < omp_get_num_threads()) {
+      const int i = c_dbcsr_acc_opencl_stream_counter++;
+      assert(0 < c_dbcsr_acc_opencl_config.nthreads);
+      tid = (i < c_dbcsr_acc_opencl_config.nthreads ? i : (i % c_dbcsr_acc_opencl_config.nthreads));
+    }
+    else offset = c_dbcsr_acc_opencl_stream_counter_base++;
   }
-  else offset = c_dbcsr_acc_opencl_stream_counter_base++;
 #  endif
   if (NULL == devinfo->context)
 #  if defined(ACC_OPENCL_ACTIVATE)
