@@ -101,9 +101,6 @@
 #if !defined(ACC_OPENCL_DELIMS)
 #  define ACC_OPENCL_DELIMS ",;"
 #endif
-#if !defined(ACC_OPENCL_LAZYINIT) && (defined(__DBCSR_ACC) || 1)
-#  define ACC_OPENCL_LAZYINIT
-#endif
 #if !defined(ACC_OPENCL_ASYNC) && 1
 #  define ACC_OPENCL_ASYNC getenv("ACC_OPENCL_ASYNC")
 #endif

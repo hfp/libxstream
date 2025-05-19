@@ -772,7 +772,7 @@ int c_dbcsr_acc_get_ndevices(int* ndevices) {
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
 #  endif
-#  if defined(ACC_OPENCL_LAZYINIT)
+#  if defined(__DBCSR_ACC) /* lazy initialization */
   /* DBCSR calls c_dbcsr_acc_get_ndevices before calling c_dbcsr_acc_init. */
   result = c_dbcsr_acc_init();
   if (EXIT_SUCCESS == result)
