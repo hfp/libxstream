@@ -1816,18 +1816,18 @@ void c_dbcsr_acc_opencl_hist_add(ACC_OPENCL_LOCKTYPE* lock, void* hist, const do
     c_dbcsr_acc_opencl_hist_t* const h = (c_dbcsr_acc_opencl_hist_t*)hist;
     int i, j, k;
     if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
-    if (h->nqueue <= h->n++) {
+    if (h->nqueue <= h->n) {
       const double *values, w = h->max - h->min;
       const int* buckets;
-      if (h->n == h->nqueue) {
+      if (h->nqueue == h->n) {
         c_dbcsr_acc_opencl_hist_get(NULL /*lock*/, hist, &buckets, NULL /*nbuckets*/, NULL /*range*/, &values, NULL /*nvals*/);
       }
       for (i = 1; i <= h->nbuckets; ++i) {
         const double q = h->min + i * w / h->nbuckets;
         if (vals[0] <= q || h->nbuckets == i) {
           for (k = 0, j = (i - 1) * h->nvals; k < h->nvals; ++k) {
-            if (0 != h->buckets[i - 1]) h->vals[j + k] += vals[k];
-            else h->vals[j + k] = vals[k];
+            if (0 != h->buckets[i - 1]) h->vals[j + k] = 0.5 * (h->vals[j + k] + vals[k]);
+            else h->vals[j + k] = vals[k]; /* initialize */
           }
           ++h->buckets[i - 1];
           break;
@@ -1837,10 +1837,11 @@ void c_dbcsr_acc_opencl_hist_add(ACC_OPENCL_LOCKTYPE* lock, void* hist, const do
     else { /* fill-phase */
       if (h->min > vals[0]) h->min = vals[0];
       if (h->max < vals[0]) h->max = vals[0];
-      for (k = 0, j = (h->n - 1) * h->nvals; k < h->nvals; ++k) {
+      for (k = 0, j = h->nvals * h->n; k < h->nvals; ++k) {
         h->vals[j + k] = vals[k];
       }
     }
+    ++h->n; /* count number of accumulated values */
     if (NULL != lock) ACC_OPENCL_RELEASE(lock);
   }
 }
