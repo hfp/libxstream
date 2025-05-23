@@ -616,7 +616,7 @@ int c_dbcsr_acc_init(void) {
 #  endif
           0 > c_dbcsr_acc_opencl_config.profile)
         {
-          const int profile = LIBXSMM_MAX(c_dbcsr_acc_opencl_config.profile, 2);
+          const int profile = LIBXSMM_MAX(LIBXSMM_ABS(c_dbcsr_acc_opencl_config.profile), 2);
           c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_h2d, profile + 1, profile * 4, 2);
           c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_d2h, profile + 1, profile * 4, 2);
           c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_d2d, profile + 1, profile * 4, 2);
