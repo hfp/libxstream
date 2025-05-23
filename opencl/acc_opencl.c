@@ -687,7 +687,10 @@ LIBXSMM_ATTRIBUTE_CTOR void c_dbcsr_acc_opencl_init(void) {
 LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 != c_dbcsr_acc_opencl_config.ndevices) {
-    int i;
+    int precision[] = {0, 1}, i;
+    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision);
+    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision);
+    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision);
     for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
       const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[i];
       if (NULL != device_id) {
@@ -747,21 +750,6 @@ int c_dbcsr_acc_finalize(void) {
 #  endif
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 != c_dbcsr_acc_opencl_config.ndevices && NULL != cleanup) {
-    const int precision[] = {0, 1};
-    if (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-      const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
-      int d;
-      fprintf(stderr, "INFO ACC/OpenCL: pid=%u", libxsmm_get_pid());
-      if (NULL != c_dbcsr_acc_opencl_config.device.context &&
-          EXIT_SUCCESS == c_dbcsr_acc_opencl_device_id(device_id, NULL /*devid*/, &d))
-      {
-        fprintf(stderr, " device=%i", d);
-      }
-      fprintf(stderr, "\n");
-    }
-    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision);
-    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision);
-    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision);
 #  if defined(__DBCSR_ACC)
     /* DBCSR may call c_dbcsr_acc_init as well as libsmm_acc_init() since both interface are used.
      * libsmm_acc_init may privately call c_dbcsr_acc_init (as it depends on the ACC interface).
