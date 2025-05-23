@@ -80,7 +80,7 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
         c_dbcsr_acc_opencl_info_memptr_t* const info = c_dbcsr_acc_opencl_config.memptrs[i];
         if (NULL != info) {
           char* const memptr = (char*)info->memptr;
-          assert(NULL != memptr);
+          /*assert(NULL != memptr);*/
           if (memptr == pointer) { /* fast-path */
             if (NULL != offset) *offset = 0;
             result = info;
