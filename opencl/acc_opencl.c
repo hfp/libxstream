@@ -1911,7 +1911,7 @@ void c_dbcsr_acc_opencl_hist_print(FILE* stream, void* hist, const char title[],
   c_dbcsr_acc_opencl_hist_get(NULL /*lock*/, hist, &buckets, &nbuckets, range, &vals, &nvals);
   if (NULL != stream && NULL != buckets && 0 < nbuckets && NULL != vals && 0 < nvals) {
     const double w = range[1] - range[0];
-    if (NULL != title) fprintf(stream, "%s\n", title);
+    if (NULL != title) fprintf(stream, "%s pid=%u\n", title, libxsmm_get_pid());
     for (; i <= nbuckets; j = nvals * i++) {
       const double q = range[0] + i * w / nbuckets, r = (i != nbuckets ? q : LIBXSMM_MAX(q, vals[j]));
       const int c = buckets[i - 1];
