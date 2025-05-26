@@ -131,6 +131,7 @@ int c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_info_memptr_t* info, 
       LIBXSMM_ASSIGN127(&info->memory, &devptr);
 #  if !defined(NDEBUG)
       info->memptr = NULL;
+      info->data = NULL;
 #  endif
     }
     else {
@@ -622,8 +623,14 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
     ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
     info = c_dbcsr_acc_opencl_info_devptr_modify(NULL /*lock*/, nconst.ptr, 1 /*elsize*/, &nbytes, &offset);
     if (NULL != info) {
-      result = c_dbcsr_acc_opencl_memcpy_d2h(
-        info->memory, host_mem, offset, nbytes, str->queue, finish, NULL == c_dbcsr_acc_opencl_config.hist_d2h ? NULL : &event);
+      const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
+      if (NULL != devinfo->clEnqueueMemcpyINTEL) {
+        result = c_dbcsr_acc_opencl_memcpy_d2h((cl_mem)info, host_mem, offset, nbytes, str->queue, finish, NULL);
+      }
+      else {
+        result = c_dbcsr_acc_opencl_memcpy_d2h(
+          info->memory, host_mem, offset, nbytes, str->queue, finish, NULL == c_dbcsr_acc_opencl_config.hist_d2h ? NULL : &event);
+      }
       if (NULL != event && EXIT_SUCCESS == result) info->data = (void*)libxsmm_timer_tick();
     }
     else result = EXIT_FAILURE;
