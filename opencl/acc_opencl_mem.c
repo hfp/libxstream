@@ -321,17 +321,17 @@ void CL_CALLBACK c_dbcsr_acc_memcpy_notify(cl_event event, cl_int event_status, 
       switch (command_type) {
         case CL_COMMAND_WRITE_BUFFER: {
           assert(NULL != c_dbcsr_acc_opencl_config.hist_h2d);
-          c_dbcsr_acc_opencl_hist_add(c_dbcsr_acc_opencl_config.lock_memory, c_dbcsr_acc_opencl_config.hist_h2d, vals);
+          c_dbcsr_acc_opencl_hist_set(c_dbcsr_acc_opencl_config.lock_memory, c_dbcsr_acc_opencl_config.hist_h2d, vals);
           if (0 > c_dbcsr_acc_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: H2D mb=%i ms=%.1f\n", mb, ms);
         } break;
         case CL_COMMAND_READ_BUFFER: {
           assert(NULL != c_dbcsr_acc_opencl_config.hist_d2h);
-          c_dbcsr_acc_opencl_hist_add(c_dbcsr_acc_opencl_config.lock_memory, c_dbcsr_acc_opencl_config.hist_d2h, vals);
+          c_dbcsr_acc_opencl_hist_set(c_dbcsr_acc_opencl_config.lock_memory, c_dbcsr_acc_opencl_config.hist_d2h, vals);
           if (0 > c_dbcsr_acc_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2H mb=%i ms=%.1f\n", mb, ms);
         } break;
         case CL_COMMAND_COPY_BUFFER: {
           assert(NULL != c_dbcsr_acc_opencl_config.hist_d2d);
-          c_dbcsr_acc_opencl_hist_add(c_dbcsr_acc_opencl_config.lock_memory, c_dbcsr_acc_opencl_config.hist_d2d, vals);
+          c_dbcsr_acc_opencl_hist_set(c_dbcsr_acc_opencl_config.lock_memory, c_dbcsr_acc_opencl_config.hist_d2d, vals);
           if (0 > c_dbcsr_acc_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2D mb=%i ms=%.1f\n", mb, ms);
         } break;
       }

@@ -617,9 +617,10 @@ int c_dbcsr_acc_init(void) {
           0 > c_dbcsr_acc_opencl_config.profile)
         {
           const int profile = LIBXSMM_MAX(LIBXSMM_ABS(c_dbcsr_acc_opencl_config.profile), 2);
-          c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_h2d, profile + 1, profile * 4, 2);
-          c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_d2h, profile + 1, profile * 4, 2);
-          c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_d2d, profile + 1, profile * 4, 2);
+          const c_dbcsr_acc_opencl_hist_update_fn update[] = {c_dbcsr_acc_opencl_hist_avg, c_dbcsr_acc_opencl_hist_add};
+          c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_h2d, profile + 1, profile * 4, 2, update);
+          c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_d2h, profile + 1, profile * 4, 2, update);
+          c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_d2d, profile + 1, profile * 4, 2, update);
         }
         else {
           assert(NULL == c_dbcsr_acc_opencl_config.hist_h2d);
@@ -688,9 +689,9 @@ LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 != c_dbcsr_acc_opencl_config.ndevices) {
     int precision[] = {0, 1}, i;
-    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision);
-    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision);
-    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision);
+    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision, NULL /*adjust*/);
+    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision, NULL /*adjust*/);
+    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision, NULL /*adjust*/);
     for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
       const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[i];
       if (NULL != device_id) {
@@ -1772,18 +1773,20 @@ double c_dbcsr_acc_opencl_duration(cl_event event, int* result_code) {
 
 
 typedef struct c_dbcsr_acc_opencl_hist_t {
+  c_dbcsr_acc_opencl_hist_update_fn* update;
   double *vals, min, max;
   int *buckets, nbuckets, nqueue, nvals, n;
 } c_dbcsr_acc_opencl_hist_t;
 
 
-void c_dbcsr_acc_opencl_hist_create(void** hist, int nbuckets, int nqueue, int nvals) {
+void c_dbcsr_acc_opencl_hist_create(void** hist, int nbuckets, int nqueue, int nvals, const c_dbcsr_acc_opencl_hist_update_fn update[]) {
   c_dbcsr_acc_opencl_hist_t* h = malloc(sizeof(c_dbcsr_acc_opencl_hist_t));
-  assert(NULL != hist && 0 < nbuckets && 0 < nqueue && 0 < nvals);
+  assert(NULL != hist && 0 < nbuckets && 0 < nqueue && 0 < nvals && NULL != update);
   if (NULL != h) {
     h->vals = malloc(sizeof(double) * LIBXSMM_MAX(nbuckets, nqueue) * nvals);
+    h->update = malloc(sizeof(c_dbcsr_acc_opencl_hist_update_fn) * nvals);
     h->buckets = calloc(nbuckets, sizeof(int));
-    if (NULL != h->vals && NULL != h->buckets) {
+    if (NULL != h->vals && NULL != h->buckets && NULL != h->update) {
       union {
         int raw;
         float value;
@@ -1798,6 +1801,8 @@ void c_dbcsr_acc_opencl_hist_create(void** hist, int nbuckets, int nqueue, int n
       h->nbuckets = nbuckets;
       h->nqueue = nqueue;
       h->nvals = nvals;
+      /* if update[] is NULL, c_dbcsr_acc_opencl_hist_avg is assumed */
+      for (h->n = 0; h->n < nvals; ++h->n) h->update[h->n] = update[h->n];
       h->n = 0;
     }
     else {
@@ -1811,7 +1816,19 @@ void c_dbcsr_acc_opencl_hist_create(void** hist, int nbuckets, int nqueue, int n
 }
 
 
-void c_dbcsr_acc_opencl_hist_add(ACC_OPENCL_LOCKTYPE* lock, void* hist, const double vals[]) {
+void c_dbcsr_acc_opencl_hist_avg(double* dst, const double* src) {
+  assert(NULL != dst && NULL != src);
+  *dst = 0.5 * (*dst + *src);
+}
+
+
+void c_dbcsr_acc_opencl_hist_add(double* dst, const double* src) {
+  assert(NULL != dst && NULL != src);
+  *dst += *src;
+}
+
+
+void c_dbcsr_acc_opencl_hist_set(ACC_OPENCL_LOCKTYPE* lock, void* hist, const double vals[]) {
   if (NULL != hist) {
     c_dbcsr_acc_opencl_hist_t* const h = (c_dbcsr_acc_opencl_hist_t*)hist;
     int i, j, k;
@@ -1826,7 +1843,9 @@ void c_dbcsr_acc_opencl_hist_add(ACC_OPENCL_LOCKTYPE* lock, void* hist, const do
         const double q = h->min + i * w / h->nbuckets;
         if (vals[0] <= q || h->nbuckets == i) {
           for (k = 0, j = (i - 1) * h->nvals; k < h->nvals; ++k) {
-            if (0 != h->buckets[i - 1]) h->vals[j + k] = 0.5 * (h->vals[j + k] + vals[k]);
+            if (0 != h->buckets[i - 1]) {
+              (NULL != h->update[k] ? h->update[k] : c_dbcsr_acc_opencl_hist_avg)(h->vals + (j + k), vals + k);
+            }
             else h->vals[j + k] = vals[k]; /* initialize */
           }
           ++h->buckets[i - 1];
@@ -1865,7 +1884,7 @@ void c_dbcsr_acc_opencl_hist_get(
             if (j != m) {
               if (0 != h->buckets[i - 1]) { /* accumulate */
                 for (k = 0; k < h->nvals; ++k) {
-                  h->vals[j + k] = 0.5 * (h->vals[j + k] + h->vals[m + k]);
+                  (NULL != h->update[k] ? h->update[k] : c_dbcsr_acc_opencl_hist_avg)(h->vals + (j + k), h->vals + (m + k));
                 }
               }
               else { /* initialize/swap */
@@ -1903,7 +1922,7 @@ void c_dbcsr_acc_opencl_hist_get(
 }
 
 
-void c_dbcsr_acc_opencl_hist_print(FILE* stream, void* hist, const char title[], const int prec[]) {
+void c_dbcsr_acc_opencl_hist_print(FILE* stream, void* hist, const char title[], const int prec[], const c_dbcsr_acc_opencl_hist_adjust_fn adjust[]) {
   int nbuckets = 0, nvals = 0, i = 1, j = 0, k;
   const int* buckets = NULL;
   const double* vals = NULL;
@@ -1920,8 +1939,11 @@ void c_dbcsr_acc_opencl_hist_print(FILE* stream, void* hist, const char title[],
       if (0 != c) {
         fprintf(stream, " ->");
         for (k = 0; k < nvals; ++k) {
-          if (NULL != prec) fprintf(stream, " %.*f", prec[k], vals[j + k]);
-          else fprintf(stream, " %f", vals[j + k]);
+          double value;
+          if (NULL == adjust || NULL == adjust[k]) value = vals[j + k];
+          else value = adjust[k](vals[j + k], c);
+          if (NULL != prec) fprintf(stream, " %.*f", prec[k], value);
+          else fprintf(stream, " %f", value);
         }
       }
       fprintf(stream, "\n");
@@ -1934,6 +1956,7 @@ void c_dbcsr_acc_opencl_hist_free(void* hist) {
   if (NULL != hist) {
     c_dbcsr_acc_opencl_hist_t* const h = (c_dbcsr_acc_opencl_hist_t*)hist;
     free(h->buckets);
+    free(h->update);
     free(h->vals);
     free(h);
   }
