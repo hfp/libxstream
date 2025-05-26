@@ -1025,7 +1025,8 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
                                     0 != uid[0] ? uid[0] : uid[1]));
           }
           fprintf(stderr, "INFO ACC/OpenCL: ndevices=%i device%i=\"%s\" context=%p pid=%u nthreads=%i\n",
-            c_dbcsr_acc_opencl_config.ndevices, global_id, buffer, (void*)ctx, libxsmm_get_pid(), c_dbcsr_acc_opencl_config.nthreads);
+            c_dbcsr_acc_opencl_config.ndevices, global_id, buffer, (void*)ctx, libxsmm_get_pid(),
+            c_dbcsr_acc_opencl_config.nthreads);
         }
       }
     }
@@ -1772,7 +1773,8 @@ typedef struct c_dbcsr_acc_opencl_hist_t {
 } c_dbcsr_acc_opencl_hist_t;
 
 
-void c_dbcsr_acc_opencl_hist_create(void** hist, int nbuckets, int nqueue, int nvals, const c_dbcsr_acc_opencl_hist_update_fn update[]) {
+void c_dbcsr_acc_opencl_hist_create(
+  void** hist, int nbuckets, int nqueue, int nvals, const c_dbcsr_acc_opencl_hist_update_fn update[]) {
   c_dbcsr_acc_opencl_hist_t* h = (c_dbcsr_acc_opencl_hist_t*)malloc(sizeof(c_dbcsr_acc_opencl_hist_t));
   assert(NULL != hist && 0 < nbuckets && 0 < nqueue && 0 < nvals && NULL != update);
   if (NULL != h) {
@@ -1915,7 +1917,8 @@ void c_dbcsr_acc_opencl_hist_get(
 }
 
 
-void c_dbcsr_acc_opencl_hist_print(FILE* stream, void* hist, const char title[], const int prec[], const c_dbcsr_acc_opencl_hist_adjust_fn adjust[]) {
+void c_dbcsr_acc_opencl_hist_print(
+  FILE* stream, void* hist, const char title[], const int prec[], const c_dbcsr_acc_opencl_hist_adjust_fn adjust[]) {
   int nbuckets = 0, nvals = 0, i = 1, j = 0, k;
   const int* buckets = NULL;
   const double* vals = NULL;

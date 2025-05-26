@@ -426,13 +426,15 @@ double c_dbcsr_acc_opencl_duration(cl_event event, int* result_code);
 
 typedef void (*c_dbcsr_acc_opencl_hist_update_fn)(double* /*dst*/, const double* /*src*/);
 typedef double (*c_dbcsr_acc_opencl_hist_adjust_fn)(double /*value*/, int count);
-void c_dbcsr_acc_opencl_hist_create(void** hist, int nbuckets, int nqueue, int nvals, const c_dbcsr_acc_opencl_hist_update_fn update[]);
+void c_dbcsr_acc_opencl_hist_create(
+  void** hist, int nbuckets, int nqueue, int nvals, const c_dbcsr_acc_opencl_hist_update_fn update[]);
 void c_dbcsr_acc_opencl_hist_avg(double* dst, const double* src);
 void c_dbcsr_acc_opencl_hist_add(double* dst, const double* src);
 void c_dbcsr_acc_opencl_hist_set(ACC_OPENCL_LOCKTYPE* lock, void* hist, const double vals[]);
 void c_dbcsr_acc_opencl_hist_get(
   ACC_OPENCL_LOCKTYPE* lock, void* hist, const int** buckets, int* nbuckets, double range[2], const double** vals, int* nvals);
-void c_dbcsr_acc_opencl_hist_print(FILE* stream, void* hist, const char title[], const int prec[], const c_dbcsr_acc_opencl_hist_adjust_fn adjust[]);
+void c_dbcsr_acc_opencl_hist_print(
+  FILE* stream, void* hist, const char title[], const int prec[], const c_dbcsr_acc_opencl_hist_adjust_fn adjust[]);
 void c_dbcsr_acc_opencl_hist_free(void* hist);
 
 #if defined(__cplusplus)

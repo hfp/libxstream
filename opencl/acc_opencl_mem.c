@@ -89,10 +89,10 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
             size_t d = pointer - memptr, s = d;
             assert(0 != d);
             if (d < hit &&
-#    if !defined(NDEBUG)
+#  if !defined(NDEBUG)
                 (EXIT_SUCCESS == clGetMemObjectInfo(info->memory, CL_MEM_SIZE, sizeof(size_t), &s, NULL)) &&
                 (NULL == amount || (*amount * elsize + d) <= s) &&
-#    endif
+#  endif
                 (1 == elsize || (0 == (d % elsize) && 0 == (s % elsize))) && d <= s)
             {
               *offset = (1 == elsize ? d : (d / elsize));
@@ -106,9 +106,9 @@ c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
       if (NULL != lock) ACC_OPENCL_RELEASE(lock);
     }
     else {
-#    if defined(NDEBUG)
+#  if defined(NDEBUG)
       LIBXSMM_UNUSED(amount);
-#    endif
+#  endif
       /* assume only first item of c_dbcsr_acc_opencl_info_memptr_t is accessed */
       result = (c_dbcsr_acc_opencl_info_memptr_t*)memory;
       if (NULL != offset) *offset = 0;
@@ -273,7 +273,8 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
           result2 = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, &event);
           if (NULL == stream && EXIT_SUCCESS == result2) result2 = clWaitForEvents(1, &event);
           if (0 != c_dbcsr_acc_opencl_config.verbosity && 0 == warned && EXIT_SUCCESS != result2) {
-            fprintf(stderr, "WARN ACC/OpenCL: contexts do not match (code=%i with %p != %p).\n", result2, (void*)ctxstr, (void*)ctxmem);
+            fprintf(
+              stderr, "WARN ACC/OpenCL: contexts do not match (code=%i with %p != %p).\n", result2, (void*)ctxstr, (void*)ctxmem);
             warned = 1;
           }
         }
@@ -301,8 +302,8 @@ void CL_CALLBACK c_dbcsr_acc_memcpy_notify(cl_event event, cl_int event_status, 
     cl_command_type command_type;
     size_t size = 0, offset = 0;
     if (EXIT_SUCCESS == clGetEventInfo(event, CL_EVENT_COMMAND_TYPE, sizeof(command_type), &command_type, NULL) &&
-      EXIT_SUCCESS == c_dbcsr_acc_opencl_info_devptr_lock(&info, NULL /*lock*/, data, 1 /*elsize*/, NULL /*amount*/, &offset) &&
-      EXIT_SUCCESS == clGetMemObjectInfo(info.memory, CL_MEM_SIZE, sizeof(size_t), &size, NULL))
+        EXIT_SUCCESS == c_dbcsr_acc_opencl_info_devptr_lock(&info, NULL /*lock*/, data, 1 /*elsize*/, NULL /*amount*/, &offset) &&
+        EXIT_SUCCESS == clGetMemObjectInfo(info.memory, CL_MEM_SIZE, sizeof(size_t), &size, NULL))
     {
       const size_t amount = size - offset;
       const double ms = duration * 1E3, vals[] = {(double)amount, ms};
@@ -501,9 +502,9 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
         result = clReleaseMemObject(memory);
         c_dbcsr_acc_opencl_pfree(pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
         *info = *pfree;
-#    if !defined(NDEBUG)
+#  if !defined(NDEBUG)
         LIBXSMM_MEMZERO127(pfree);
-#    endif
+#  endif
       }
       else result = EXIT_FAILURE;
       ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
@@ -564,7 +565,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
     const cl_bool finish = (0 == (1 & c_dbcsr_acc_opencl_config.async) || NULL == stream ||
                             (0 != (8 & c_dbcsr_acc_opencl_config.wa) && 0 != devinfo->intel && 0 != devinfo->unified));
 #  else
-        const cl_bool finish = CL_TRUE;
+    const cl_bool finish = CL_TRUE;
 #  endif
     cl_event event = NULL, *const pevent = (NULL == c_dbcsr_acc_opencl_config.hist_h2d ? NULL : &event);
     assert(NULL != str && NULL != str->queue);
@@ -618,7 +619,10 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
       result = c_dbcsr_acc_opencl_memcpy_d2h(
         info.memory, host_mem, offset, nbytes, str->queue, finish, NULL == c_dbcsr_acc_opencl_config.hist_d2h ? NULL : &event);
       if (NULL != event && EXIT_SUCCESS == result) {
-        union { const void* input; void* ptr; } data = {dev_mem};
+        union {
+          const void* input;
+          void* ptr;
+        } data = {dev_mem};
         ACC_OPENCL_EXPECT(EXIT_SUCCESS == clSetEventCallback(event, CL_COMPLETE, c_dbcsr_acc_memcpy_notify, data.ptr));
       }
     }
@@ -666,7 +670,10 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
     if (NULL != event && EXIT_SUCCESS == result) {
       if (NULL == stream) result = clWaitForEvents(1, &event);
       if (EXIT_SUCCESS == result) {
-        union { const void* input; void* ptr; } data = {devmem_src};
+        union {
+          const void* input;
+          void* ptr;
+        } data = {devmem_src};
         ACC_OPENCL_EXPECT(EXIT_SUCCESS == clSetEventCallback(event, CL_COMPLETE, c_dbcsr_acc_memcpy_notify, data.ptr));
       }
     }
