@@ -332,7 +332,7 @@ int c_dbcsr_acc_init(void) {
   int routine_handle;
   c_dbcsr_acc_opencl_configure();
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -739,7 +739,7 @@ int c_dbcsr_acc_finalize(void) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -772,7 +772,7 @@ int c_dbcsr_acc_get_ndevices(int* ndevices) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -1025,7 +1025,7 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
                                     0 != uid[0] ? uid[0] : uid[1]));
           }
           fprintf(stderr, "INFO ACC/OpenCL: ndevices=%i device%i=\"%s\" context=%p pid=%u nthreads=%i\n",
-            c_dbcsr_acc_opencl_config.ndevices, global_id, buffer, ctx, libxsmm_get_pid(), c_dbcsr_acc_opencl_config.nthreads);
+            c_dbcsr_acc_opencl_config.ndevices, global_id, buffer, (void*)ctx, libxsmm_get_pid(), c_dbcsr_acc_opencl_config.nthreads);
         }
       }
     }
@@ -1773,12 +1773,12 @@ typedef struct c_dbcsr_acc_opencl_hist_t {
 
 
 void c_dbcsr_acc_opencl_hist_create(void** hist, int nbuckets, int nqueue, int nvals, const c_dbcsr_acc_opencl_hist_update_fn update[]) {
-  c_dbcsr_acc_opencl_hist_t* h = malloc(sizeof(c_dbcsr_acc_opencl_hist_t));
+  c_dbcsr_acc_opencl_hist_t* h = (c_dbcsr_acc_opencl_hist_t*)malloc(sizeof(c_dbcsr_acc_opencl_hist_t));
   assert(NULL != hist && 0 < nbuckets && 0 < nqueue && 0 < nvals && NULL != update);
   if (NULL != h) {
-    h->vals = malloc(sizeof(double) * LIBXSMM_MAX(nbuckets, nqueue) * nvals);
-    h->update = malloc(sizeof(c_dbcsr_acc_opencl_hist_update_fn) * nvals);
-    h->buckets = calloc(nbuckets, sizeof(int));
+    h->vals = (double*)malloc(sizeof(double) * LIBXSMM_MAX(nbuckets, nqueue) * nvals);
+    h->update = (c_dbcsr_acc_opencl_hist_update_fn*)malloc(sizeof(c_dbcsr_acc_opencl_hist_update_fn) * nvals);
+    h->buckets = (int*)calloc(nbuckets, sizeof(int));
     if (NULL != h->vals && NULL != h->buckets && NULL != h->update) {
       union {
         int raw;

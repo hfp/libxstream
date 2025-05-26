@@ -156,7 +156,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -230,7 +230,7 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -273,7 +273,7 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
           result2 = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, &event);
           if (NULL == stream && EXIT_SUCCESS == result2) result2 = clWaitForEvents(1, &event);
           if (0 != c_dbcsr_acc_opencl_config.verbosity && 0 == warned && EXIT_SUCCESS != result2) {
-            fprintf(stderr, "WARN ACC/OpenCL: contexts do not match (code=%i with %p != %p).\n", result2, ctxstr, ctxmem);
+            fprintf(stderr, "WARN ACC/OpenCL: contexts do not match (code=%i with %p != %p).\n", result2, (void*)ctxstr, (void*)ctxmem);
             warned = 1;
           }
         }
@@ -377,7 +377,7 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -480,7 +480,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -498,24 +498,24 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
         c_dbcsr_acc_opencl_info_memptr_t* const pfree = c_dbcsr_acc_opencl_config.memptrs[c_dbcsr_acc_opencl_config.nmemptrs];
         memory = info->memory;
-    result = clReleaseMemObject(memory);
-    c_dbcsr_acc_opencl_pfree(pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
-    *info = *pfree;
+        result = clReleaseMemObject(memory);
+        c_dbcsr_acc_opencl_pfree(pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
+        *info = *pfree;
 #    if !defined(NDEBUG)
-    LIBXSMM_MEMZERO127(pfree);
+        LIBXSMM_MEMZERO127(pfree);
+#    endif
+      }
+      else result = EXIT_FAILURE;
+      ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
+    }
+    if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
+      fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", (const void*)memory, dev_mem);
+    }
   }
-  else result = EXIT_FAILURE;
-  ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
-}
-#  endif
-if (0 != c_dbcsr_acc_opencl_config.debug && 0 != c_dbcsr_acc_opencl_config.verbosity && EXIT_SUCCESS == result) {
-  fprintf(stderr, "INFO ACC/OpenCL: memory=%p pointer=%p deallocated\n", (const void*)memory, dev_mem);
-}
-}
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
-if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
+  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
 #  endif
-ACC_OPENCL_RETURN(result);
+  ACC_OPENCL_RETURN(result);
 }
 
 
@@ -524,7 +524,7 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t offset) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -549,7 +549,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -598,7 +598,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -635,7 +635,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -683,7 +683,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
@@ -734,44 +734,44 @@ int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t
   cl_device_local_mem_type cl_local_type = CL_GLOBAL;
   cl_ulong cl_size_total = 0, cl_size_local = 0;
   cl_bool cl_unified = CL_FALSE;
-#  if defined(_WIN32)
+#  if !defined(_WIN32)
+#    if defined(_SC_PAGE_SIZE)
+  const long page_size = sysconf(_SC_PAGE_SIZE);
+#    else
+  const long page_size = 4096;
+#    endif
+  long pages_free = 0, pages_total = 0;
+#    if defined(__linux__)
+#      if defined(_SC_PHYS_PAGES)
+  pages_total = sysconf(_SC_PHYS_PAGES);
+#      else
+  pages_total = 0;
+#      endif
+#      if defined(_SC_AVPHYS_PAGES)
+  pages_free = sysconf(_SC_AVPHYS_PAGES);
+#      else
+  pages_free = pages_total;
+#      endif
+#    elif defined(__APPLE__) && defined(__MACH__)
+  /*const*/ size_t size_pages_free = sizeof(const long), size_pages_total = sizeof(const long);
+  ACC_OPENCL_EXPECT(0 == sysctlbyname("hw.memsize", &pages_total, &size_pages_total, NULL, 0));
+  if (0 < page_size) pages_total /= page_size;
+  if (0 != sysctlbyname("vm.page_free_count", &pages_free, &size_pages_free, NULL, 0)) {
+    pages_free = pages_total;
+  }
+#    endif
+  if (0 < page_size && 0 <= pages_free && 0 <= pages_total) {
+    const size_t size_page = (size_t)page_size;
+    size_total = size_page * (size_t)pages_total;
+    size_free = size_page * (size_t)pages_free;
+  }
+#  else
   MEMORYSTATUSEX mem_status;
   mem_status.dwLength = sizeof(mem_status);
   if (GlobalMemoryStatusEx(&mem_status)) {
     size_total = (size_t)mem_status.ullTotalPhys;
     size_free = (size_t)mem_status.ullAvailPhys;
   }
-#  else
-#    if defined(_SC_PAGE_SIZE)
-      const long page_size = sysconf(_SC_PAGE_SIZE);
-#    else
-      const long page_size = 4096;
-#    endif
-      long pages_free = 0, pages_total = 0;
-#    if defined(__linux__)
-#      if defined(_SC_PHYS_PAGES)
-      pages_total = sysconf(_SC_PHYS_PAGES);
-#      else
-      pages_total = 0;
-#      endif
-#      if defined(_SC_AVPHYS_PAGES)
-      pages_free = sysconf(_SC_AVPHYS_PAGES);
-#      else
-      pages_free = pages_total;
-#      endif
-#    elif defined(__APPLE__) && defined(__MACH__)
-      /*const*/ size_t size_pages_free = sizeof(const long), size_pages_total = sizeof(const long);
-      ACC_OPENCL_EXPECT(0 == sysctlbyname("hw.memsize", &pages_total, &size_pages_total, NULL, 0));
-      if (0 < page_size) pages_total /= page_size;
-      if (0 != sysctlbyname("vm.page_free_count", &pages_free, &size_pages_free, NULL, 0)) {
-        pages_free = pages_total;
-      }
-#    endif
-      if (0 < page_size && 0 <= pages_free && 0 <= pages_total) {
-        const size_t size_page = (size_t)page_size;
-        size_total = size_page * (size_t)pages_total;
-        size_free = size_page * (size_t)pages_free;
-      }
 #  endif
   ACC_OPENCL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_total, NULL),
     "retrieve amount of global memory");
@@ -806,7 +806,7 @@ int c_dbcsr_acc_dev_mem_info(size_t* mem_free, size_t* mem_total) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* const routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
     static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
