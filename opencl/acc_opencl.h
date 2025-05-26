@@ -104,10 +104,6 @@
 #    define ACC_OPENCL_STREAM_PRIORITIES
 #  endif
 #endif
-/* Support arithmetic for device-pointers */
-#if !defined(ACC_OPENCL_MEM_DEVPTR) && 1
-#  define ACC_OPENCL_MEM_DEVPTR
-#endif
 /* Activate device by default */
 #if !defined(ACC_OPENCL_ACTIVATE) && 0
 #  define ACC_OPENCL_ACTIVATE 0
@@ -117,10 +113,6 @@
 #  if defined(__DBCSR_ACC)
 #    define ACC_OPENCL_PROFILE_DBCSR 8
 #  endif
-#endif
-
-#if defined(__OFFLOAD_OPENCL) && !defined(ACC_OPENCL_MEM_DEVPTR)
-#  error Support for ACC_OPENCL_MEM_DEVPTR is required!
 #endif
 
 /* attaching c_dbcsr_acc_opencl_stream_t is needed */
@@ -316,11 +308,9 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   c_dbcsr_acc_opencl_device_t device;
   /** Locks used by domain. */
   ACC_OPENCL_LOCKTYPE *lock_main, *lock_stream, *lock_event, *lock_memory;
-#if defined(ACC_OPENCL_MEM_DEVPTR)
   /** All memptrs and related storage/counter. */
   c_dbcsr_acc_opencl_info_memptr_t **memptrs, *memptr_data;
   size_t nmemptrs; /* counter */
-#endif
   /** Handle-counter. */
   size_t nstreams, nevents;
   /** All streams and related storage. */
@@ -368,13 +358,13 @@ extern c_dbcsr_acc_opencl_config_t c_dbcsr_acc_opencl_config;
 
 /** Determines host-pointer registration for modification. */
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(const void* memory);
-/** Determines device-pointer registration for modification (internal); offset is in measured in elsize. */
+/** Determines device-pointer registration for modification (internal); offset is measured in elsize. */
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_devptr_modify(
   ACC_OPENCL_LOCKTYPE* lock, void* memory, size_t elsize, const size_t* amount, size_t* offset);
-/** Determines device-pointer registration for info/ro (lock-control); offset is in measured in elsize. */
+/** Determines device-pointer registration for info/ro (lock-control); offset is measured in elsize. */
 int c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_info_memptr_t* info, ACC_OPENCL_LOCKTYPE* lock, const void* memory,
   size_t elsize, const size_t* amount, size_t* offset);
-/** Determines device-pointer registration for info/ro; offset is in measured in elsize. */
+/** Determines device-pointer registration for info/ro; offset is measured in elsize. */
 int c_dbcsr_acc_opencl_info_devptr(
   c_dbcsr_acc_opencl_info_memptr_t* info, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
 /** Finds an existing stream for the given thread-ID (or NULL). */

@@ -542,11 +542,9 @@ int c_dbcsr_acc_init(void) {
         const size_t nhandles = ACC_OPENCL_MAXNITEMS * c_dbcsr_acc_opencl_config.nthreads;
         assert(0 < c_dbcsr_acc_opencl_config.ndevices);
         assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
-#  if defined(ACC_OPENCL_MEM_DEVPTR)
         assert(NULL == c_dbcsr_acc_opencl_config.memptrs);
         assert(NULL == c_dbcsr_acc_opencl_config.memptr_data);
         assert(0 == c_dbcsr_acc_opencl_config.nmemptrs);
-#  endif
         assert(NULL == c_dbcsr_acc_opencl_config.streams);
         assert(NULL == c_dbcsr_acc_opencl_config.events);
         assert(NULL == c_dbcsr_acc_opencl_config.stream_data);
@@ -556,7 +554,7 @@ int c_dbcsr_acc_init(void) {
 #  if defined(ACC_OPENCL_CACHE_DID)
         c_dbcsr_acc_opencl_active_id = device_id + 1; /* update c_dbcsr_acc_opencl_active_id */
 #  endif
-#  if defined(ACC_OPENCL_MEM_DEVPTR) /* allocate and initialize memptr registry */
+        /* allocate and initialize memptr registry */
         c_dbcsr_acc_opencl_config.nmemptrs = nhandles;
         c_dbcsr_acc_opencl_config.memptrs = (c_dbcsr_acc_opencl_info_memptr_t**)malloc(
           sizeof(c_dbcsr_acc_opencl_info_memptr_t*) * nhandles);
@@ -574,7 +572,6 @@ int c_dbcsr_acc_init(void) {
           c_dbcsr_acc_opencl_config.nmemptrs = 0;
           result = EXIT_FAILURE;
         }
-#  endif
         /* allocate and initialize streams registry */
         c_dbcsr_acc_opencl_config.nstreams = nhandles;
         c_dbcsr_acc_opencl_config.streams = (c_dbcsr_acc_opencl_stream_t**)malloc(sizeof(c_dbcsr_acc_opencl_stream_t*) * nhandles);
@@ -715,10 +712,8 @@ LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
     c_dbcsr_acc_opencl_hist_free(c_dbcsr_acc_opencl_config.hist_h2d);
     c_dbcsr_acc_opencl_hist_free(c_dbcsr_acc_opencl_config.hist_d2h);
     c_dbcsr_acc_opencl_hist_free(c_dbcsr_acc_opencl_config.hist_d2d);
-#  if defined(ACC_OPENCL_MEM_DEVPTR)
     free(c_dbcsr_acc_opencl_config.memptrs);
     free(c_dbcsr_acc_opencl_config.memptr_data);
-#  endif
     free(c_dbcsr_acc_opencl_config.streams);
     free(c_dbcsr_acc_opencl_config.stream_data);
     free(c_dbcsr_acc_opencl_config.events);
@@ -1091,10 +1086,8 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
             CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
           };
 #  endif
-#  if defined(ACC_OPENCL_MEM_DEVPTR)
           cl_platform_id platform = NULL;
           cl_bitfield bitfield = 0;
-#  endif
           devinfo->intel = (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
           devinfo->nv = (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
           if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_name(active_id, devname, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/,
@@ -1143,7 +1136,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
             if (0 != devinfo->wgsize[2]) devinfo->wgsize[2] = sgmin;
           }
           else devinfo->wgsize[2] = 0;
-#  if defined(ACC_OPENCL_XHINTS) && defined(ACC_OPENCL_MEM_DEVPTR)
+#  if defined(ACC_OPENCL_XHINTS)
           if (0 != (1 & c_dbcsr_acc_opencl_config.xhints) && 2 <= *devinfo->std_level && 0 != devinfo->intel &&
               0 == devinfo->unified && 0 == c_dbcsr_acc_opencl_config.profile &&
               EXIT_SUCCESS == clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL) &&
