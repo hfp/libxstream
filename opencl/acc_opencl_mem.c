@@ -618,7 +618,8 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
       result = c_dbcsr_acc_opencl_memcpy_d2h(
         info.memory, host_mem, offset, nbytes, str->queue, finish, NULL == c_dbcsr_acc_opencl_config.hist_d2h ? NULL : &event);
       if (NULL != event && EXIT_SUCCESS == result) {
-        ACC_OPENCL_EXPECT(EXIT_SUCCESS == clSetEventCallback(event, CL_COMPLETE, c_dbcsr_acc_memcpy_notify, dev_mem));
+        union { const void* input; void* ptr; } data = {dev_mem};
+        ACC_OPENCL_EXPECT(EXIT_SUCCESS == clSetEventCallback(event, CL_COMPLETE, c_dbcsr_acc_memcpy_notify, data.ptr));
       }
     }
   }
@@ -665,7 +666,8 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
     if (NULL != event && EXIT_SUCCESS == result) {
       if (NULL == stream) result = clWaitForEvents(1, &event);
       if (EXIT_SUCCESS == result) {
-        ACC_OPENCL_EXPECT(EXIT_SUCCESS == clSetEventCallback(event, CL_COMPLETE, c_dbcsr_acc_memcpy_notify, devmem_src));
+        union { const void* input; void* ptr; } data = {devmem_src};
+        ACC_OPENCL_EXPECT(EXIT_SUCCESS == clSetEventCallback(event, CL_COMPLETE, c_dbcsr_acc_memcpy_notify, data.ptr));
       }
     }
   }
