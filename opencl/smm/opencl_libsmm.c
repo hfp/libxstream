@@ -1229,7 +1229,9 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
             config->wgsize + kernel_idx, 0, NULL, event),
           "launch SMM-kernel");
         /* eventually update performance counters inside of locked region */
-        if ((3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) && EXIT_SUCCESS == result) {
+        if ((3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) && 0 == param_format &&
+            EXIT_SUCCESS == result)
+        {
           LIBXSMM_STDIO_ACQUIRE();
           fprintf(stderr, "INFO ACC/LIBSMM: SMM-kernel ");
           opencl_libsmm_write_smm_params(
