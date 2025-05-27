@@ -153,14 +153,13 @@ int c_dbcsr_acc_opencl_order_devices(const void* dev_a, const void* dev_b) {
 void c_dbcsr_acc_opencl_configure(void) {
   if (NULL == c_dbcsr_acc_opencl_config.lock_main) { /* avoid to initialize multiple times */
     const char* const env_rank = (NULL != getenv("PMI_RANK") ? getenv("PMI_RANK") : getenv("OMPI_COMM_WORLD_LOCAL_RANK"));
-    const char *const env_nranks = getenv("MPI_LOCALNRANKS"); /* TODO */
+    const char* const env_nranks = getenv("MPI_LOCALNRANKS"); /* TODO */
     const char *const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT"), *const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     const char *const env_verbose = getenv("ACC_OPENCL_VERBOSE"), *const env_dump_acc = getenv("ACC_OPENCL_DUMP");
     const char *const env_debug = getenv("ACC_OPENCL_DEBUG"), *const env_profile = getenv("ACC_OPENCL_PROFILE");
     const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("ACC_OPENCL_WA");
     static char neo_enable_debug_keys[] = "NEOReadDebugKeys=1";
-    const char *const env_timer = getenv("ACC_OPENCL_TIMER");
 #  if defined(ACC_OPENCL_STREAM_PRIORITIES)
     const char* const env_priority = getenv("ACC_OPENCL_PRIORITY");
 #  endif
@@ -223,12 +222,6 @@ void c_dbcsr_acc_opencl_configure(void) {
     c_dbcsr_acc_opencl_config.debug = (NULL == env_debug ? c_dbcsr_acc_opencl_config.dump : atoi(env_debug));
     c_dbcsr_acc_opencl_config.wa = neo * (NULL == env_wa ? ((1 != c_dbcsr_acc_opencl_config.devsplit ? 0 : 1) + (2 + 4 + 8))
                                                          : atoi(env_wa));
-    if (NULL != env_timer && (c_dbcsr_acc_opencl_timer_host == atoi(env_timer) ||
-                               (env_timer == LIBXSMM_STRISTR(env_timer, "host") && 4 == strlen(env_timer)) ||
-                               (env_timer == LIBXSMM_STRISTR(env_timer, "cpu") && 3 == strlen(env_timer))))
-    {
-      c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host;
-    }
 #  if defined(ACC_OPENCL_CACHE_DIR)
     { /* environment is populated before touching the compute runtime */
       const char *const env_cache = getenv("ACC_OPENCL_CACHE"), *env_cachedir = getenv("NEO_CACHE_DIR");
@@ -1167,9 +1160,6 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
             int result_cmdagr = EXIT_SUCCESS;
             const cl_command_queue q = ACC_OPENCL_CREATE_COMMAND_QUEUE(context, active_id, properties, &result_cmdagr);
             if (EXIT_SUCCESS == result_cmdagr) {
-#    if 0 /* force host-timer? */
-              c_dbcsr_acc_opencl_config.timer = c_dbcsr_acc_opencl_timer_host;
-#    endif
               assert(NULL != q);
               clReleaseCommandQueue(q);
             }

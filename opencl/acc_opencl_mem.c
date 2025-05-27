@@ -302,8 +302,7 @@ void CL_CALLBACK c_dbcsr_acc_memcpy_notify(cl_event event, cl_int event_status, 
   assert(CL_COMPLETE == event_status && NULL != data);
   if (EXIT_SUCCESS == clGetEventInfo(event, CL_EVENT_COMMAND_TYPE, sizeof(command_type), &command_type, NULL) &&
       EXIT_SUCCESS == c_dbcsr_acc_opencl_info_devptr_lock(&info, NULL /*lock*/, data, 1 /*elsize*/, NULL /*amount*/, &offset) &&
-      EXIT_SUCCESS == clGetMemObjectInfo(info.memory, CL_MEM_SIZE, sizeof(size_t), &size, NULL) &&
-      EXIT_SUCCESS == durdev_result)
+      EXIT_SUCCESS == clGetMemObjectInfo(info.memory, CL_MEM_SIZE, sizeof(size_t), &size, NULL) && EXIT_SUCCESS == durdev_result)
   {
     const double durhst = libxsmm_timer_duration((libxsmm_timer_tickint)info.data, libxsmm_timer_tick());
     const double durtot = durdev - LIBXSMM_MIN(durdev, durhst);
@@ -678,7 +677,8 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
       info_src = c_dbcsr_acc_opencl_info_devptr_modify(NULL /*lock*/, nconst.ptr, 1 /*elsize*/, &nbytes, &offset_src);
       info_dst = c_dbcsr_acc_opencl_info_devptr_modify(NULL /*lock*/, devmem_dst, 1 /*elsize*/, &nbytes, &offset_dst);
       if (NULL != info_src && NULL != info_dst) {
-        result = clEnqueueCopyBuffer(str->queue, info_src->memory, info_dst->memory, offset_src, offset_dst, nbytes, 0, NULL, &event);
+        result = clEnqueueCopyBuffer(
+          str->queue, info_src->memory, info_dst->memory, offset_src, offset_dst, nbytes, 0, NULL, &event);
         if (NULL != event && EXIT_SUCCESS == result && NULL != c_dbcsr_acc_opencl_config.hist_d2d) {
           info_src->data = (void*)libxsmm_timer_tick();
         }

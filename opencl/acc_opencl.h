@@ -281,14 +281,8 @@ typedef struct c_dbcsr_acc_opencl_device_t {
 /** Information about host/device-memory pointer. */
 typedef struct c_dbcsr_acc_opencl_info_memptr_t {
   cl_mem memory; /* first item! */
-  void* memptr, *data;
+  void *memptr, *data;
 } c_dbcsr_acc_opencl_info_memptr_t;
-
-/** Enumeration of timer kinds used for built-in execution-profile. */
-typedef enum c_dbcsr_acc_opencl_timer_t {
-  c_dbcsr_acc_opencl_timer_device,
-  c_dbcsr_acc_opencl_timer_host
-} c_dbcsr_acc_opencl_timer_t;
 
 /** Enumeration of FP-atomic kinds. */
 typedef enum c_dbcsr_acc_opencl_atomic_fp_t {
@@ -317,8 +311,6 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   c_dbcsr_acc_opencl_stream_t **streams, *stream_data;
   /** All events and related storage. */
   cl_event **events, *event_data;
-  /** Kind of timer used for built-in execution-profile. */
-  c_dbcsr_acc_opencl_timer_t timer; /* c_dbcsr_acc_opencl_device_t? */
   /** Device-ID to lookup devices-array. */
   cl_int device_id;
   /** Kernel-parameters are matched against device's UID */

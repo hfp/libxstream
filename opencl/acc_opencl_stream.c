@@ -148,9 +148,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
       }
     }
 #  endif
-    if ((c_dbcsr_acc_opencl_timer_device == c_dbcsr_acc_opencl_config.timer &&
-          (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity)) ||
-        NULL != c_dbcsr_acc_opencl_config.hist_h2d || NULL != c_dbcsr_acc_opencl_config.hist_d2h ||
+    if (NULL != c_dbcsr_acc_opencl_config.hist_h2d || NULL != c_dbcsr_acc_opencl_config.hist_d2h ||
         NULL != c_dbcsr_acc_opencl_config.hist_d2d)
     {
       properties[1] = CL_QUEUE_PROFILING_ENABLE;
