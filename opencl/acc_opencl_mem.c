@@ -308,7 +308,7 @@ void CL_CALLBACK c_dbcsr_acc_memcpy_notify(cl_event event, cl_int event_status, 
     const double durhst = libxsmm_timer_duration((libxsmm_timer_tickint)info.data, libxsmm_timer_tick());
     const double durtot = durdev - LIBXSMM_MIN(durdev, durhst);
     const size_t amount = size - offset;
-    const double vals[] = {(double)amount, durtot * 1E3 /*ms*/};
+    const double vals[] = {(double)amount, durtot};
     const int mb = (int)((amount + (1 << 19)) >> 20);
     switch (command_type) {
       case CL_COMMAND_WRITE_BUFFER: {

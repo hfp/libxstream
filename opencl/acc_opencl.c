@@ -153,13 +153,14 @@ int c_dbcsr_acc_opencl_order_devices(const void* dev_a, const void* dev_b) {
 void c_dbcsr_acc_opencl_configure(void) {
   if (NULL == c_dbcsr_acc_opencl_config.lock_main) { /* avoid to initialize multiple times */
     const char* const env_rank = (NULL != getenv("PMI_RANK") ? getenv("PMI_RANK") : getenv("OMPI_COMM_WORLD_LOCAL_RANK"));
-    const char *const env_nranks = getenv("MPI_LOCALNRANKS"), *const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT");
+    const char *const env_nranks = getenv("MPI_LOCALNRANKS"); /* TODO */
+    const char *const env_devsplit = getenv("ACC_OPENCL_DEVSPLIT"), *const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
     const char *const env_verbose = getenv("ACC_OPENCL_VERBOSE"), *const env_dump_acc = getenv("ACC_OPENCL_DUMP");
-    const char *const env_profile = getenv("ACC_OPENCL_PROFILE"), *const env_nlocks = getenv("ACC_OPENCL_NLOCKS");
-    const char *const env_debug = getenv("ACC_OPENCL_DEBUG"), *const env_timer = getenv("ACC_OPENCL_TIMER");
+    const char *const env_debug = getenv("ACC_OPENCL_DEBUG"), *const env_profile = getenv("ACC_OPENCL_PROFILE");
     const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
     const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("ACC_OPENCL_WA");
     static char neo_enable_debug_keys[] = "NEOReadDebugKeys=1";
+    const char *const env_timer = getenv("ACC_OPENCL_TIMER");
 #  if defined(ACC_OPENCL_STREAM_PRIORITIES)
     const char* const env_priority = getenv("ACC_OPENCL_PRIORITY");
 #  endif
@@ -192,6 +193,7 @@ void c_dbcsr_acc_opencl_configure(void) {
     memset(&c_dbcsr_acc_opencl_config, 0, sizeof(c_dbcsr_acc_opencl_config));
     c_dbcsr_acc_opencl_config.nthreads = 1;
 #  endif
+    libxsmm_init(); /* before using LIBXSMM's functionality */
     c_dbcsr_acc_opencl_config.nranks = LIBXSMM_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
     c_dbcsr_acc_opencl_config.nrank = (NULL != env_rank ? atoi(env_rank) : 0) % c_dbcsr_acc_opencl_config.nranks;
     assert(sizeof(ACC_OPENCL_LOCKTYPE) <= ACC_OPENCL_CACHELINE);
@@ -221,7 +223,6 @@ void c_dbcsr_acc_opencl_configure(void) {
     c_dbcsr_acc_opencl_config.debug = (NULL == env_debug ? c_dbcsr_acc_opencl_config.dump : atoi(env_debug));
     c_dbcsr_acc_opencl_config.wa = neo * (NULL == env_wa ? ((1 != c_dbcsr_acc_opencl_config.devsplit ? 0 : 1) + (2 + 4 + 8))
                                                          : atoi(env_wa));
-    libxsmm_init();
     if (NULL != env_timer && (c_dbcsr_acc_opencl_timer_host == atoi(env_timer) ||
                                (env_timer == LIBXSMM_STRISTR(env_timer, "host") && 4 == strlen(env_timer)) ||
                                (env_timer == LIBXSMM_STRISTR(env_timer, "cpu") && 3 == strlen(env_timer))))
@@ -686,9 +687,11 @@ LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 != c_dbcsr_acc_opencl_config.ndevices) {
     int precision[] = {0, 1}, i;
+    LIBXSMM_STDIO_ACQUIRE();
     c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision, NULL /*adjust*/);
     c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision, NULL /*adjust*/);
     c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision, NULL /*adjust*/);
+    LIBXSMM_STDIO_RELEASE();
     for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
       const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[i];
       if (NULL != device_id) {
@@ -1926,7 +1929,6 @@ void c_dbcsr_acc_opencl_hist_print(
   c_dbcsr_acc_opencl_hist_get(NULL /*lock*/, hist, &buckets, &nbuckets, range, &vals, &nvals);
   if (NULL != stream && NULL != buckets && 0 < nbuckets && NULL != vals && 0 < nvals) {
     const double w = range[1] - range[0];
-    LIBXSMM_FLOCK(stream);
     if (NULL != title) fprintf(stream, "%s pid=%u\n", title, libxsmm_get_pid());
     for (; i <= nbuckets; j = nvals * i++) {
       const double q = range[0] + i * w / nbuckets, r = (i != nbuckets ? q : LIBXSMM_MAX(q, vals[j]));
@@ -1945,7 +1947,6 @@ void c_dbcsr_acc_opencl_hist_print(
       }
       fprintf(stream, "\n");
     }
-    LIBXSMM_FUNLOCK(stream);
   }
 }
 
