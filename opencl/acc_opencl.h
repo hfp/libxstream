@@ -281,7 +281,8 @@ typedef struct c_dbcsr_acc_opencl_device_t {
 /** Information about host/device-memory pointer. */
 typedef struct c_dbcsr_acc_opencl_info_memptr_t {
   cl_mem memory; /* first item! */
-  void *memptr, *data;
+  void* memptr;
+  /*void *data;*/
 } c_dbcsr_acc_opencl_info_memptr_t;
 
 /** Enumeration of FP-atomic kinds. */

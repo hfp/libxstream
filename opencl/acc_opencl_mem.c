@@ -131,7 +131,7 @@ int c_dbcsr_acc_opencl_info_devptr_lock(c_dbcsr_acc_opencl_info_memptr_t* info, 
       LIBXSMM_ASSIGN127(&info->memory, &devptr);
 #  if !defined(NDEBUG)
       info->memptr = NULL;
-      info->data = NULL;
+      /*info->data = NULL;*/
 #  endif
     }
     else {
@@ -304,10 +304,10 @@ void CL_CALLBACK c_dbcsr_acc_memcpy_notify(cl_event event, cl_int event_status, 
       EXIT_SUCCESS == c_dbcsr_acc_opencl_info_devptr_lock(&info, NULL /*lock*/, data, 1 /*elsize*/, NULL /*amount*/, &offset) &&
       EXIT_SUCCESS == clGetMemObjectInfo(info.memory, CL_MEM_SIZE, sizeof(size_t), &size, NULL) && EXIT_SUCCESS == durdev_result)
   {
-    const double durhst = libxsmm_timer_duration((libxsmm_timer_tickint)info.data, libxsmm_timer_tick());
-    const double durtot = durdev - LIBXSMM_MIN(durdev, durhst);
+    /*const double durhst = libxsmm_timer_duration((libxsmm_timer_tickint)info.data, libxsmm_timer_tick());
+    const double durtot = durdev - LIBXSMM_MIN(durdev, durhst);*/
     const size_t amount = size - offset;
-    const double vals[] = {(double)amount, durtot};
+    const double vals[] = {(double)amount, durdev};
     const int mb = (int)((amount + (1 << 19)) >> 20);
     switch (command_type) {
       case CL_COMMAND_WRITE_BUFFER: {
@@ -580,7 +580,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
       if (NULL != info) {
         result = clEnqueueWriteBuffer(str->queue, info->memory, finish, offset, nbytes, host_mem, 0, NULL,
           NULL == c_dbcsr_acc_opencl_config.hist_h2d ? NULL : &event);
-        if (NULL != event && EXIT_SUCCESS == result) info->data = (void*)libxsmm_timer_tick();
+        /*if (NULL != event && EXIT_SUCCESS == result) info->data = (void*)libxsmm_timer_tick();*/
       }
       else result = EXIT_FAILURE;
       ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
@@ -630,7 +630,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
         result = c_dbcsr_acc_opencl_memcpy_d2h(
           info->memory, host_mem, offset, nbytes, str->queue, finish, NULL == c_dbcsr_acc_opencl_config.hist_d2h ? NULL : &event);
       }
-      if (NULL != event && EXIT_SUCCESS == result) info->data = (void*)libxsmm_timer_tick();
+      /*if (NULL != event && EXIT_SUCCESS == result) info->data = (void*)libxsmm_timer_tick();*/
     }
     else result = EXIT_FAILURE;
     ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
@@ -679,9 +679,9 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
       if (NULL != info_src && NULL != info_dst) {
         result = clEnqueueCopyBuffer(
           str->queue, info_src->memory, info_dst->memory, offset_src, offset_dst, nbytes, 0, NULL, &event);
-        if (NULL != event && EXIT_SUCCESS == result && NULL != c_dbcsr_acc_opencl_config.hist_d2d) {
+        /*if (NULL != event && EXIT_SUCCESS == result && NULL != c_dbcsr_acc_opencl_config.hist_d2d) {
           info_src->data = (void*)libxsmm_timer_tick();
-        }
+        }*/
       }
       else result = EXIT_FAILURE;
       ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
