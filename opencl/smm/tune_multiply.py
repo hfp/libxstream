@@ -347,7 +347,7 @@ class SmmTuner(MeasurementInterface):
             mnk = (config["M"], config["N"], config["K"])
         skip = False
         if self.args.quick:
-            if 1 == config["AA"] or 1 == config["AB"]:
+            if 1 == config["AA"] or 1 == config["AB"] or 0 != config["AL"]:
                 skip = True
         performance = None
         if not skip:
