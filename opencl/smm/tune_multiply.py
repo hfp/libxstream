@@ -347,7 +347,7 @@ class SmmTuner(MeasurementInterface):
             mnk = (config["M"], config["N"], config["K"])
         skip = False
         if self.args.quick:
-            if 1 == config["AA"] or 1 == config["AB"] or 0 != config["AL"]:
+            if 1 == config["AA"] or 1 == config["AB"]:
                 skip = True
         performance = None
         if not skip:
@@ -936,6 +936,7 @@ if __name__ == "__main__":
     if 1 <= args.tlevel or 0 > args.tlevel:
         os.environ["OPENCL_LIBSMM_SMM_BM"] = "{}".format(args.bm)
         os.environ["OPENCL_LIBSMM_SMM_BN"] = "{}".format(args.bn)
+        os.environ["OPENCL_LIBSMM_SMM_AL"] = "{}".format(args.al)
     if 2 <= args.tlevel or 0 > args.tlevel:
         os.environ["OPENCL_LIBSMM_SMM_TB"] = "{}".format(args.tb)
         os.environ["OPENCL_LIBSMM_SMM_TC"] = "{}".format(args.tc)
