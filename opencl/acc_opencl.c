@@ -1154,7 +1154,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
             ptr[2] = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemcpyINTEL");
             ptr[3] = clGetExtensionFunctionAddressForPlatform(platform, "clDeviceMemAllocINTEL");
             ptr[4] = clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL");
-            for (i < (int)(sizeof(ptr) / sizeof(*ptr)); ++i) {
+            for (; i < (int)(sizeof(ptr) / sizeof(*ptr)); ++i) {
               if (NULL != ptr[i]) ++n;
             }
             if (5 == n) {
