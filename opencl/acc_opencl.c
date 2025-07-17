@@ -1147,17 +1147,26 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
                                 &bitfield, NULL) &&
               0 != bitfield) /* cl_intel_unified_shared_memory extension */
           {
-            void* ptr = NULL;
-            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clSetKernelArgMemPointerINTEL");
-            LIBXSMM_ASSIGN127(&devinfo->clSetKernelArgMemPointerINTEL, &ptr);
-            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemFillINTEL");
-            LIBXSMM_ASSIGN127(&devinfo->clEnqueueMemFillINTEL, &ptr);
-            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemcpyINTEL");
-            LIBXSMM_ASSIGN127(&devinfo->clEnqueueMemcpyINTEL, &ptr);
-            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clDeviceMemAllocINTEL");
-            LIBXSMM_ASSIGN127(&devinfo->clDeviceMemAllocINTEL, &ptr);
-            ptr = clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL");
-            LIBXSMM_ASSIGN127(&devinfo->clMemFreeINTEL, &ptr);
+            void* ptr[8] = {NULL};
+            int i = 0, n = 0;
+            ptr[0] = clGetExtensionFunctionAddressForPlatform(platform, "clSetKernelArgMemPointerINTEL");
+            ptr[1] = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemFillINTEL");
+            ptr[2] = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemcpyINTEL");
+            ptr[3] = clGetExtensionFunctionAddressForPlatform(platform, "clDeviceMemAllocINTEL");
+            ptr[4] = clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL");
+            for (i < (int)(sizeof(ptr) / sizeof(*ptr)); ++i) {
+              if (NULL != ptr[i]) ++n;
+            }
+            if (5 == n) {
+              LIBXSMM_ASSIGN127(&devinfo->clSetKernelArgMemPointerINTEL, ptr + 0);
+              LIBXSMM_ASSIGN127(&devinfo->clEnqueueMemFillINTEL, ptr + 1);
+              LIBXSMM_ASSIGN127(&devinfo->clEnqueueMemcpyINTEL, ptr + 2);
+              LIBXSMM_ASSIGN127(&devinfo->clDeviceMemAllocINTEL, ptr + 3);
+              LIBXSMM_ASSIGN127(&devinfo->clMemFreeINTEL, ptr + 4);
+            }
+            else if (0 != n) {
+              fprintf(stderr, "WARN ACC/OpenCL: inconsistent state discovered!\n");
+            }
           }
 #  endif
 #  if defined(ACC_OPENCL_CMDAGR)
