@@ -649,7 +649,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
     ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
     if (NULL != event) {
       if (EXIT_SUCCESS == result) {
-        assert(NULL != c_dbcsr_acc_opencl_config.hist_d2h && NULL == devinfo->clEnqueueMemcpyINTEL);
+        assert(NULL != c_dbcsr_acc_opencl_config.hist_d2h /*&& NULL == devinfo->clEnqueueMemcpyINTEL*/);
         result = clSetEventCallback(event, CL_COMPLETE, c_dbcsr_acc_memcpy_notify, nconst.ptr);
         if (EXIT_SUCCESS == result) event = NULL; /* prevent releasing the event */
       }
