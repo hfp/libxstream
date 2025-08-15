@@ -35,5 +35,9 @@ add_custom_command(
   OUTPUT ${DBCSR_OPENCL_KERNELS_INC}
   COMMENT ${DBCSR_OPENCL_SCRIPT_MSG})
 
+foreach(SRC ${DBCSR_OPENCL_SRCS})
+  set_source_files_properties(${SRC} OBJECT_DEPENDS ${DBCSR_OPENCL_KERNELS_INC})
+endforeach()
+
 target_include_directories(dbcsr PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
                                          ${CMAKE_CURRENT_SOURCE_DIR})
