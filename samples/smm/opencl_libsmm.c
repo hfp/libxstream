@@ -37,9 +37,6 @@
 #  if !defined(OPENCL_LIBSMM_NLOCKS_SMM)
 #    define OPENCL_LIBSMM_NLOCKS_SMM 16
 #  endif
-#  if !defined(OPENCL_LIBSMM_CMEM) && 1
-#    define OPENCL_LIBSMM_CMEM
-#  endif
 #  if !defined(OPENCL_LIBSMM_TODO) && 0
 #    define OPENCL_LIBSMM_TODO
 #  endif
@@ -88,22 +85,6 @@ extern "C" {
 opencl_libsmm_acc_dbm_launch_fn_t opencl_libsmm_acc_dbm_launch_fn;
 /* track initialization status of LIBSMM */
 int opencl_libsmm_initialized;
-
-
-int opencl_libsmm_use_cmem(cl_device_id device) {
-#  if defined(OPENCL_LIBSMM_CMEM)
-  int result = EXIT_SUCCESS;
-  cl_ulong size_maxalloc = 1, size_maxcmem = 0;
-  ACC_OPENCL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_MAX_MEM_ALLOC_SIZE, sizeof(cl_ulong), &size_maxalloc, NULL),
-    "retrieve maximum size of memory allocation");
-  ACC_OPENCL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE, sizeof(cl_ulong), &size_maxcmem, NULL),
-    "retrieve maximum size of constant buffer");
-  return (EXIT_SUCCESS == result ? (size_maxalloc <= size_maxcmem ? EXIT_SUCCESS : EXIT_FAILURE) : result);
-#  else
-  LIBXSMM_UNUSED(device);
-  return EXIT_FAILURE;
-#  endif
-}
 
 
 int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_libsmm_transkey_t* key,
@@ -443,29 +424,31 @@ int libsmm_acc_init(void) {
         }
 #  if defined(OPENCL_KERNELS_PARAMS_SMM) && defined(OPENCL_KERNELS_DEVICES)
         if (EXIT_SUCCESS == result && (0 == ntuned || 0 != key_direct_skip)) {
-          const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
-          const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
-          unsigned int default_uid = devinfo->uid;
           const char *line = OPENCL_KERNELS_PARAMS_SMM, *next;
 #    if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
+          const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
+          unsigned int default_uid = c_dbcsr_acc_opencl_config.device.uid;
           int active_match = -1;
           if (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_name(
                                 device_id, bufname, ACC_OPENCL_BUFFERSIZE, NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 1))
           { /* determine best-matching parameters based on name of device */
-            int i = 0, best = 0;
+            int i = 0, count = 0;
+            double best = 0;
             if (1 >= c_dbcsr_acc_opencl_config.devmatch) {
               c_dbcsr_acc_opencl_device_uid(device_id, bufname, &default_uid);
             }
             for (; i < ndevices_params; ++i) {
-              const int score = libxsmm_strimatch(bufname, OPENCL_KERNELS_DEVICES[i], NULL);
-              unsigned int uid;
-              if (best < score ||
-                  ((best == score) &&
-                    EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(NULL /*device*/, OPENCL_KERNELS_DEVICES[i], &uid) &&
-                    uid == default_uid))
-              {
-                active_match = i;
-                best = score;
+              const int n = c_dbcsr_acc_opencl_strimatch(bufname, OPENCL_KERNELS_DEVICES[i], NULL, &count);
+              if (0 != n && 0 != count) {
+                const double score = (double)n / count;
+                unsigned int uid;
+                if (best < score ||
+                    (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(NULL /*device*/, OPENCL_KERNELS_DEVICES[i], &uid) &&
+                      uid == default_uid))
+                {
+                  active_match = i;
+                  best = score;
+                }
               }
             }
           }
@@ -697,8 +680,8 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
         const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
         const char *const env_cl = OPENCL_LIBSMM_TRANSENV("BUILDOPTS"), *const env_bm = OPENCL_LIBSMM_TRANSENV("BM");
-        const char* const cmem = (EXIT_SUCCESS != opencl_libsmm_use_cmem(device_id) ? "global" : "constant");
-        const char* const build_format = "-DGLOBAL=%s -DINPLACE=%i -DFN=%s -DSM=%i -DSN=%i -DWG=%i -DT=%s";
+        const char* const cmem = (EXIT_SUCCESS != c_dbcsr_acc_opencl_use_cmem(devinfo) ? "global" : "constant");
+        const char* const build_format = "-DCONSTANT=%s -DINPLACE=%i -DFN=%s -DSM=%i -DSN=%i -DWG=%i -DT=%s";
         const char *const env_inplace = OPENCL_LIBSMM_TRANSENV("INPLACE"), *tname = "";
 #  if defined(OPENCL_LIBSMM_TRANS_INPLACE)
         const int inplace = ((m == n) && (NULL == env_inplace ? 1 : ('0' != *env_inplace)));
@@ -1077,7 +1060,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
               new_config.wgsize[kernel_idx] = (2 > new_config.wg ? (nbm * nbn) : ((int)LIBXSMM_UP2POT(nbm * nbn)));
             }
             if (new_config.wgsize[kernel_idx] <= devinfo->wgsize[0]) { /* SMM can be handled by device */
-              const char* const cmem = (EXIT_SUCCESS != opencl_libsmm_use_cmem(device_id) ? "global" : "constant");
+              const char* const cmem = (EXIT_SUCCESS != c_dbcsr_acc_opencl_use_cmem(devinfo) ? "global" : "constant");
               const char* const env_nrepeat = getenv("NREPEAT_SMM");
               const int typesize = OPENCL_LIBSMM_TYPESIZE(datatype);
               const int slm_a = (1 != new_config.aa ? 0 : (LIBXSMM_ISPOT(k_max * typesize) + 1));
@@ -1085,7 +1068,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
               const int slm_c = (1 != new_config.ac ? 0 : (LIBXSMM_ISPOT(m_max * typesize) + 1));
               /* compose build parameters and flags */
               nchar = LIBXSMM_SNPRINTF(build_params, sizeof(build_params),
-                "-DT=%s -DGPU=%u -DGLOBAL=%s -DWG=%i -DSG=%i -DFN=%s -DREPEAT=%i -DLU=%i "
+                "-DT=%s -DGPU=%u -DCONSTANT=%s -DWG=%i -DSG=%i -DFN=%s -DREPEAT=%i -DLU=%i "
                 "-DSM=%i -DSN=%i -DSK=%i -DBS=%i -DVL=%i %s -DBM=%i -DBN=%i -DBK=%i "
                 "%s %s %s %s %s %s %s %s ", /* space! */
                 tname, CL_DEVICE_TYPE_GPU == devinfo->type, cmem, (int)new_config.wgsize[kernel_idx], (int)sgs, fname,
