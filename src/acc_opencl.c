@@ -1902,7 +1902,11 @@ void c_dbcsr_acc_opencl_hist_set(ACC_OPENCL_LOCKTYPE* lock, void* hist, const do
         if (vals[0] <= q || h->nbuckets == i) {
           for (k = 0, j = (i - 1) * h->nvals; k < h->nvals; ++k) {
             if (0 != h->buckets[i - 1]) {
-              (NULL != h->update[k] ? h->update[k] : c_dbcsr_acc_opencl_hist_avg)(h->vals + (j + k), vals + k);
+              if (NULL != h->update[k]) {
+                const c_dbcsr_acc_opencl_hist_update_fn update = h->update[k];
+                update(h->vals + (j + k), vals + k);
+              }
+              else c_dbcsr_acc_opencl_hist_avg(h->vals + (j + k), vals + k);
             }
             else h->vals[j + k] = vals[k]; /* initialize */
           }
