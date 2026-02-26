@@ -1,24 +1,9 @@
-My Amplifier*
-My Inspector*
+include/libxstream_version.h
+lib/libxstream*
+.abi.log
+.state
+.make
+*.mod
+*.x
 bin
-lib
-build
-tmp
-samples/*/*.dat
-samples/*/*.pdf
-samples/*/*.png
-*.stackdump
-*.opensdf
-*.user
-*.docx
-*.log
-*.exe
-*.dll
-*.ilk
-*.sdf
-*.pdb
-*.suo
-*.exp
-*.lib
-*.obj
-*.o
+obj
