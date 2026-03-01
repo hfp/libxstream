@@ -7,7 +7,7 @@
 /* SPDX-License-Identifier: BSD-3-Clause                                                          */
 /*------------------------------------------------------------------------------------------------*/
 #if defined(__OPENCL)
-#  include "acc_opencl.h"
+#  include <opencl/acc_opencl.h>
 #  include <string.h>
 #  include <limits.h>
 #  include <ctype.h>
@@ -81,9 +81,9 @@ int c_dbcsr_acc_opencl_active_id;
 
 void c_dbcsr_acc_opencl_notify(const char /*errinfo*/[], const void* /*private_info*/, size_t /*cb*/, void* /*user_data*/);
 void c_dbcsr_acc_opencl_notify(const char errinfo[], const void* private_info, size_t cb, void* user_data) {
-  LIBXSMM_UNUSED(private_info);
-  LIBXSMM_UNUSED(cb);
-  LIBXSMM_UNUSED(user_data);
+  LIBXS_UNUSED(private_info);
+  LIBXS_UNUSED(cb);
+  LIBXS_UNUSED(user_data);
   fprintf(stderr, "ERROR ACC/OpenCL: %s\n", errinfo);
 }
 
@@ -194,8 +194,8 @@ void c_dbcsr_acc_opencl_configure(void) {
   c_dbcsr_acc_opencl_config.nthreads = 1;
 #  endif
   assert(NULL == c_dbcsr_acc_opencl_config.lock_main); /* test condition to avoid initializing multiple times */
-  libxsmm_init(); /* before using LIBXSMM's functionality */
-  c_dbcsr_acc_opencl_config.nranks = LIBXSMM_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
+  libxs_init(); /* before using LIBXSMM's functionality */
+  c_dbcsr_acc_opencl_config.nranks = LIBXS_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
   c_dbcsr_acc_opencl_config.nrank = (NULL != env_rank ? atoi(env_rank) : 0) % c_dbcsr_acc_opencl_config.nranks;
   assert(sizeof(ACC_OPENCL_LOCKTYPE) <= ACC_OPENCL_CACHELINE);
   for (i = 0; i < ACC_OPENCL_NLOCKS; ++i) {
@@ -203,13 +203,13 @@ void c_dbcsr_acc_opencl_configure(void) {
   }
   c_dbcsr_acc_opencl_config.lock_main = (ACC_OPENCL_LOCKTYPE*)c_dbcsr_acc_opencl_locks;
   c_dbcsr_acc_opencl_config.lock_memory = /* 2nd lock-domain */
-    (1 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 1))
+    (1 < LIBXS_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 1))
                                                 : c_dbcsr_acc_opencl_config.lock_main);
   c_dbcsr_acc_opencl_config.lock_stream = /* 3rd lock-domain */
-    (2 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 2))
+    (2 < LIBXS_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 2))
                                                 : c_dbcsr_acc_opencl_config.lock_main);
   c_dbcsr_acc_opencl_config.lock_event = /* 4th lock-domain */
-    (3 < LIBXSMM_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 3))
+    (3 < LIBXS_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 3))
                                                 : c_dbcsr_acc_opencl_config.lock_main);
   c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
   c_dbcsr_acc_opencl_config.devsplit = (NULL == env_devsplit ? (/*1 < c_dbcsr_acc_opencl_config.nranks ? -1 :*/ 0)
@@ -236,26 +236,26 @@ void c_dbcsr_acc_opencl_configure(void) {
     if (1 == cache) {
       static char neo_cachedir[] = "NEO_CACHE_DIR=" ACC_OPENCL_CACHE_DIR;
       static char ocl_cachedir[] = "cl_cache_dir=" ACC_OPENCL_CACHE_DIR;
-      ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(neo_cachedir)); /* putenv before entering OpenCL */
-      ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
+      ACC_OPENCL_EXPECT(0 == LIBXS_PUTENV(neo_cachedir)); /* putenv before entering OpenCL */
+      ACC_OPENCL_EXPECT(0 == LIBXS_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
       env_cachedir = ACC_OPENCL_CACHE_DIR;
     }
 #    if defined(ACC_OPENCL_TEMPDIR)
     else if (NULL == env_cachedir) { /* code-path entered by default */
       if (NULL == env_cache || 0 != cache) { /* customize NEO_CACHE_DIR unless ACC_OPENCL_CACHE=0 */
         static char neo_cachedir[] = "NEO_CACHE_DIR=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHE_DIR;
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(neo_cachedir)); /* putenv before entering OpenCL */
+        ACC_OPENCL_EXPECT(0 == LIBXS_PUTENV(neo_cachedir)); /* putenv before entering OpenCL */
         env_cachedir = ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHE_DIR;
       }
       if (0 != cache) { /* legacy-NEO is treated with explicit opt-in */
         static char ocl_cachedir[] = "cl_cache_dir=" ACC_OPENCL_TEMPDIR "/" ACC_OPENCL_CACHE_DIR;
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
+        ACC_OPENCL_EXPECT(0 == LIBXS_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
       }
     }
 #    endif
     if (NULL != env_cachedir) {
 #    if defined(_WIN32)
-      LIBXSMM_UNUSED(env_cachedir);
+      LIBXS_UNUSED(env_cachedir);
 #    else
 #      if defined(S_IRWXU) && defined(S_IRGRP) && defined(S_IXGRP) && defined(S_IROTH) && defined(S_IXOTH)
       const int mode = S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
@@ -274,39 +274,39 @@ void c_dbcsr_acc_opencl_configure(void) {
     int j = strlen(zex_nccs);
     for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
       const char* const istr = (0 < i ? ",%u:%i" : "%u:%i");
-      const int n = LIBXSMM_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, istr, i, mode);
+      const int n = LIBXS_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, istr, i, mode);
       if (0 < n) j += n;
       else {
         j = 0;
         break;
       }
     }
-    if (0 < j && 0 == LIBXSMM_PUTENV(zex_nccs) && /* populate before touching the compute runtime */
+    if (0 < j && 0 == LIBXS_PUTENV(zex_nccs) && /* populate before touching the compute runtime */
         (2 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity))
     {
       fprintf(stderr, "INFO ACC/OpenCL: support multiple separate compute command streamers (%i-CCS mode)\n", mode);
     }
   }
 #  endif
-  if (0 != neo && (NULL != env_neo || 0 == LIBXSMM_PUTENV(neo_enable_debug_keys))) {
+  if (0 != neo && (NULL != env_neo || 0 == LIBXS_PUTENV(neo_enable_debug_keys))) {
     if ((1 + 2 + 4) & c_dbcsr_acc_opencl_config.wa) {
       static char a[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE", b[] = "EnableRecoverablePageFaults=0";
       static char c[] = "DirectSubmissionOverrideBlitterSupport=0", *const apply[] = {a, b, c};
       if ((1 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[0]));
+        ACC_OPENCL_EXPECT(0 == LIBXS_PUTENV(apply[0]));
       }
 #  if (1 >= ACC_OPENCL_USM)
       if ((2 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("EnableRecoverablePageFaults")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[1]));
+        ACC_OPENCL_EXPECT(0 == LIBXS_PUTENV(apply[1]));
       }
 #  endif
       if ((4 & c_dbcsr_acc_opencl_config.wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
-        ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[2]));
+        ACC_OPENCL_EXPECT(0 == LIBXS_PUTENV(apply[2]));
       }
     }
     if (0 != c_dbcsr_acc_opencl_config.debug && NULL == getenv("DisableScratchPages")) {
       static char a[] = "DisableScratchPages=1", *const apply[] = {a};
-      ACC_OPENCL_EXPECT(0 == LIBXSMM_PUTENV(apply[0]));
+      ACC_OPENCL_EXPECT(0 == LIBXS_PUTENV(apply[0]));
     }
   }
 }
@@ -325,8 +325,8 @@ int c_dbcsr_acc_init(void) {
     c_dbcsr_acc_opencl_configure();
   }
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
+    static const char* routine_name_ptr = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
 #  else
@@ -358,13 +358,13 @@ int c_dbcsr_acc_init(void) {
     }
     if (EXIT_SUCCESS == result) {
       if (NULL != env_devtype && '\0' != *env_devtype) {
-        if (NULL != LIBXSMM_STRISTR(env_devtype, "gpu")) {
+        if (NULL != LIBXS_STRISTR(env_devtype, "gpu")) {
           type = CL_DEVICE_TYPE_GPU;
         }
-        else if (NULL != LIBXSMM_STRISTR(env_devtype, "cpu")) {
+        else if (NULL != LIBXS_STRISTR(env_devtype, "cpu")) {
           type = CL_DEVICE_TYPE_CPU;
         }
-        else if (NULL != LIBXSMM_STRISTR(env_devtype, "acc") || NULL != LIBXSMM_STRISTR(env_devtype, "other")) {
+        else if (NULL != LIBXS_STRISTR(env_devtype, "acc") || NULL != LIBXS_STRISTR(env_devtype, "other")) {
           type = CL_DEVICE_TYPE_ACCELERATOR;
         }
         else {
@@ -387,7 +387,7 @@ int c_dbcsr_acc_init(void) {
                   EXIT_SUCCESS == clGetDeviceInfo(devices[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL) &&
                   1 < nunits)
               {
-                n = LIBXSMM_MIN(1 < c_dbcsr_acc_opencl_config.devsplit ? (cl_uint)c_dbcsr_acc_opencl_config.devsplit : nunits,
+                n = LIBXS_MIN(1 < c_dbcsr_acc_opencl_config.devsplit ? (cl_uint)c_dbcsr_acc_opencl_config.devsplit : nunits,
                   ACC_OPENCL_MAXNDEVS);
                 properties[0] = CL_DEVICE_PARTITION_EQUALLY;
                 properties[1] = (nunits + n - 1) / n;
@@ -431,7 +431,7 @@ int c_dbcsr_acc_init(void) {
           if (EXIT_SUCCESS ==
               clGetDeviceInfo(c_dbcsr_acc_opencl_config.devices[i], CL_DEVICE_VENDOR, ACC_OPENCL_BUFFERSIZE, buffer, NULL))
           {
-            if (NULL == LIBXSMM_STRISTR(buffer, env_vendor)) {
+            if (NULL == LIBXS_STRISTR(buffer, env_vendor)) {
 #  if defined(CL_VERSION_1_2)
               ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseDevice(c_dbcsr_acc_opencl_config.devices[i]));
 #  endif
@@ -607,8 +607,8 @@ int c_dbcsr_acc_init(void) {
         {
           const char* const env_qsize = getenv("ACC_OPENCL_PROFILE_QSIZE");
           const int psize = (NULL == env_qsize ? 0 : atoi(env_qsize));
-          const int qsize = (0 >= psize ? 1024 : LIBXSMM_MIN(psize, 65536));
-          const int profile = LIBXSMM_MAX(LIBXSMM_ABS(c_dbcsr_acc_opencl_config.profile), 2);
+          const int qsize = (0 >= psize ? 1024 : LIBXS_MIN(psize, 65536));
+          const int profile = LIBXS_MAX(LIBXS_ABS(c_dbcsr_acc_opencl_config.profile), 2);
           const c_dbcsr_acc_opencl_hist_update_fn update[] = {c_dbcsr_acc_opencl_hist_avg, c_dbcsr_acc_opencl_hist_add};
           c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_h2d, profile + 1, qsize, 2, update);
           c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_d2h, profile + 1, qsize, 2, update);
@@ -668,7 +668,7 @@ int c_dbcsr_acc_init(void) {
 
 
 /* attempt to automatically initialize backend */
-LIBXSMM_ATTRIBUTE_CTOR void c_dbcsr_acc_opencl_init(void) {
+LIBXS_ATTRIBUTE_CTOR void c_dbcsr_acc_opencl_init(void) {
   if (NULL == c_dbcsr_acc_opencl_config.lock_main) { /* avoid to configure multiple times */
     c_dbcsr_acc_opencl_configure();
   }
@@ -679,16 +679,16 @@ LIBXSMM_ATTRIBUTE_CTOR void c_dbcsr_acc_opencl_init(void) {
 
 
 /* attempt to automatically finalize backend */
-LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
+LIBXS_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 != c_dbcsr_acc_opencl_config.ndevices) {
     const int precision[] = {0, 1};
     int i;
-    LIBXSMM_STDIO_ACQUIRE();
+    LIBXS_STDIO_ACQUIRE();
     c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision, NULL /*adjust*/);
     c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision, NULL /*adjust*/);
     c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision, NULL /*adjust*/);
-    LIBXSMM_STDIO_RELEASE();
+    LIBXS_STDIO_RELEASE();
     for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
       const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[i];
       if (NULL != device_id) {
@@ -723,7 +723,7 @@ LIBXSMM_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
 #  if defined(ACC_OPENCL_CACHE_DID)
     c_dbcsr_acc_opencl_active_id = 0; /* reset cached active device-ID */
 #  endif
-    libxsmm_finalize();
+    libxs_finalize();
   }
 }
 
@@ -739,8 +739,8 @@ int c_dbcsr_acc_finalize(void) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
+    static const char* routine_name_ptr = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
 #  endif
@@ -781,8 +781,8 @@ int c_dbcsr_acc_get_ndevices(int* ndevices) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
   if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXSMM_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXSMM_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
+    static const char* routine_name_ptr = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
+    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
     c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
   }
 #  endif
@@ -852,7 +852,7 @@ int c_dbcsr_acc_opencl_device_vendor(cl_device_id device, const char vendor[], i
     }
   }
   if (EXIT_SUCCESS == result) {
-    result = (NULL != LIBXSMM_STRISTR(buffer, vendor) ? EXIT_SUCCESS : EXIT_FAILURE);
+    result = (NULL != LIBXS_STRISTR(buffer, vendor) ? EXIT_SUCCESS : EXIT_FAILURE);
   }
   return result;
 }
@@ -875,8 +875,8 @@ int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], uns
           }
           if (0 == *uid) {
             const size_t size = strlen(devname);
-            const unsigned int hash = libxsmm_hash(devname, (unsigned int)size, 25071975 /*seed*/);
-            *uid = libxsmm_hash(&hash, 4 /*size*/, hash >> 16 /*seed*/) & 0xFFFF;
+            const unsigned int hash = libxs_hash(devname, (unsigned int)size, 25071975 /*seed*/);
+            *uid = libxs_hash(&hash, 4 /*size*/, hash >> 16 /*seed*/) & 0xFFFF;
           }
         }
         result = EXIT_SUCCESS;
@@ -944,16 +944,16 @@ int c_dbcsr_acc_opencl_device_level(
   }
   if (EXIT_SUCCESS == result && NULL != std_flag) {
     if (2 <= std_level_uint[0]) {
-      const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.0", std_level_uint[0]);
+      const int nchar = LIBXS_SNPRINTF(std_flag, 16, "-cl-std=CL%u.0", std_level_uint[0]);
       if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
     }
     else if (1 <= std_level_uint[0]) {
       if (1 <= std_level_uint[1]) {
-        const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_level_uint[0], std_level_uint[1]);
+        const int nchar = LIBXS_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_level_uint[0], std_level_uint[1]);
         if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
       }
       else if (1 <= std_clevel_uint[0]) { /* fallback */
-        const int nchar = LIBXSMM_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_clevel_uint[0], std_clevel_uint[1]);
+        const int nchar = LIBXS_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_clevel_uint[0], std_clevel_uint[1]);
         if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
       }
       else *std_flag = '\0'; /* not an error */
@@ -1030,11 +1030,11 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
           if ((EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(NULL /*device*/, buffer, uid + 1)) &&
               (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_uid(active_id, NULL /*devname*/, uid) || 0 != uid[1]) && uid[0] != uid[1])
           {
-            ACC_OPENCL_EXPECT(0 < LIBXSMM_SNPRINTF(buffer + size, LIBXSMM_MAX(0, ACC_OPENCL_BUFFERSIZE - size), " [0x%04x]",
+            ACC_OPENCL_EXPECT(0 < LIBXS_SNPRINTF(buffer + size, LIBXS_MAX(0, ACC_OPENCL_BUFFERSIZE - size), " [0x%04x]",
                                     0 != uid[0] ? uid[0] : uid[1]));
           }
           fprintf(stderr, "INFO ACC/OpenCL: ndevices=%i device%i=\"%s\" context=%p pid=%u nthreads=%i\n",
-            c_dbcsr_acc_opencl_config.ndevices, global_id, buffer, (void*)ctx, libxsmm_get_pid(),
+            c_dbcsr_acc_opencl_config.ndevices, global_id, buffer, (void*)ctx, libxs_pid(),
             c_dbcsr_acc_opencl_config.nthreads);
         }
       }
@@ -1107,7 +1107,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
           {
             devinfo->amd = 1;
             if ('\0' != *devname) {
-              const char* const gfxname = LIBXSMM_STRISTR(devname, "gfx");
+              const char* const gfxname = LIBXS_STRISTR(devname, "gfx");
               if (NULL != gfxname && 90 <= atoi(gfxname + 3)) {
                 devinfo->amd = 2;
               }
@@ -1175,13 +1175,13 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
                 if (NULL != ptr[i]) ++n;
               }
               if (7 == n) {
-                LIBXSMM_ASSIGN127(&devinfo->clSetKernelArgMemPointerINTEL, ptr + 0);
-                LIBXSMM_ASSIGN127(&devinfo->clEnqueueMemFillINTEL, ptr + 1);
-                LIBXSMM_ASSIGN127(&devinfo->clEnqueueMemcpyINTEL, ptr + 2);
-                LIBXSMM_ASSIGN127(&devinfo->clDeviceMemAllocINTEL, ptr + 3);
-                LIBXSMM_ASSIGN127(&devinfo->clSharedMemAllocINTEL, ptr + 4);
-                LIBXSMM_ASSIGN127(&devinfo->clHostMemAllocINTEL, ptr + 5);
-                LIBXSMM_ASSIGN127(&devinfo->clMemFreeINTEL, ptr + 6);
+                LIBXS_ASSIGN(&devinfo->clSetKernelArgMemPointerINTEL, ptr + 0);
+                LIBXS_ASSIGN(&devinfo->clEnqueueMemFillINTEL, ptr + 1);
+                LIBXS_ASSIGN(&devinfo->clEnqueueMemcpyINTEL, ptr + 2);
+                LIBXS_ASSIGN(&devinfo->clDeviceMemAllocINTEL, ptr + 3);
+                LIBXS_ASSIGN(&devinfo->clSharedMemAllocINTEL, ptr + 4);
+                LIBXS_ASSIGN(&devinfo->clHostMemAllocINTEL, ptr + 5);
+                LIBXS_ASSIGN(&devinfo->clMemFreeINTEL, ptr + 6);
               }
               else if (0 != n) {
                 fprintf(stderr, "WARN ACC/OpenCL: inconsistent state discovered!\n");
@@ -1391,7 +1391,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
             atomic_exp = "atomic_add_global_xchg(A,B)";
           }
         }
-        else if (NULL != LIBXSMM_STRISTR(env_atomics, "cmpxchg")) {
+        else if (NULL != LIBXS_STRISTR(env_atomics, "cmpxchg")) {
           atomic_ops = (c_dbcsr_acc_opencl_atomic_fp_32 == kind ? "-DCMPXCHG=atomic_cmpxchg" : "-DCMPXCHG=atom_cmpxchg");
           atomic_exp = "atomic_add_global_cmpxchg(A,B)";
           exts[ext2] = NULL;
@@ -1406,7 +1406,7 @@ int c_dbcsr_acc_opencl_flags_atomics(const c_dbcsr_acc_opencl_device_t* devinfo,
       }
       assert(NULL != atomic_exp);
       /* compose build parameters and flags */
-      result = LIBXSMM_SNPRINTF(flags, flags_maxlen, " -DTAN=%i %s %s -D\"ATOMIC_ADD_GLOBAL(A,B)=%s\" %s", kind, atomic_type,
+      result = LIBXS_SNPRINTF(flags, flags_maxlen, " -DTAN=%i %s %s -D\"ATOMIC_ADD_GLOBAL(A,B)=%s\" %s", kind, atomic_type,
         atomic_ops, atomic_exp, barrier_expr);
     }
   }
@@ -1420,10 +1420,10 @@ int c_dbcsr_acc_opencl_defines(const char defines[], char buffer[], size_t buffe
   if (NULL != buffer && NULL != devinfo->context) {
     const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
     const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
-    result = LIBXSMM_SNPRINTF(buffer, buffer_size, " -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u%s", std_level, std_clevel,
+    result = LIBXS_SNPRINTF(buffer, buffer_size, " -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u%s", std_level, std_clevel,
       0 == c_dbcsr_acc_opencl_config.debug ? " -DNDEBUG" : "");
     if (0 < result && (int)buffer_size > result) {
-      const int n = LIBXSMM_SNPRINTF(
+      const int n = LIBXS_SNPRINTF(
         buffer + result, buffer_size - result, ' ' != buffer[result - 1] ? " %s" : "%s", NULL != defines ? defines : "");
       if (0 <= n) {
         if ((int)buffer_size > (result += n) && 0 != cleanup) {
@@ -1447,12 +1447,12 @@ int c_dbcsr_acc_opencl_kernel_flags(const char build_params[], const char build_
   nchar = c_dbcsr_acc_opencl_defines(build_params, buffer, buffer_size, 1 /*cleanup*/);
   if (0 <= nchar && (int)buffer_size > nchar) {
     const int debug = (0 != c_dbcsr_acc_opencl_config.debug && 0 != devinfo->intel && CL_DEVICE_TYPE_CPU != devinfo->type);
-    int n = LIBXSMM_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s%s %s", 0 == debug ? "" : "-gline-tables-only ",
+    int n = LIBXS_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s%s %s", 0 == debug ? "" : "-gline-tables-only ",
       devinfo->std_flag, NULL != build_options ? build_options : "");
     if (0 <= n) {
       nchar += n;
       if (NULL != try_options && '\0' != *try_options) { /* length is not reported in result */
-        n = LIBXSMM_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s", try_options);
+        n = LIBXS_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s", try_options);
         if (0 > n || (int)buffer_size <= (nchar + n)) buffer[nchar] = '\0';
       }
     }
@@ -1490,10 +1490,10 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
     if (EXIT_SUCCESS == result) {
       const char* const file_ext = strrchr(source, '.');
       char* src = NULL;
-      source_is_cl = ((NULL != file_ext && NULL != LIBXSMM_STRISTR(file_ext + 1, "cl")) ? 1 : 0);
+      source_is_cl = ((NULL != file_ext && NULL != LIBXS_STRISTR(file_ext + 1, "cl")) ? 1 : 0);
       size_src = (EXIT_SUCCESS == fseek(file_src, 0 /*offset*/, SEEK_END) ? ftell(file_src) : 0);
       src = (char*)((0 != size_src && EXIT_SUCCESS == fseek(file_src, 0 /*offset*/, SEEK_SET))
-                      ? libxsmm_aligned_scratch(size_src + source_is_cl /*terminator?*/, 0 /*auto-align*/)
+                      ? libxs_malloc(size_src + source_is_cl /*terminator?*/, 0 /*auto-align*/)
                       : NULL);
       if (NULL != src) {
         if (size_src == fread(src, 1 /*sizeof(char)*/, size_src /*count*/, file_src)) {
@@ -1502,7 +1502,7 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
         }
         else {
           result = EXIT_FAILURE;
-          libxsmm_free(src);
+          libxs_free(src);
         }
       }
       else result = EXIT_FAILURE;
@@ -1528,7 +1528,7 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
       if (0 < size_ext && 0 < nflat) {
         const char* const enable_ext = "#pragma OPENCL EXTENSION %s : enable\n";
         const size_t size_src_ext = size_src + size_ext + nflat * (strlen(enable_ext) - 2 /*%s*/);
-        char* const ext_source_buffer = (char*)libxsmm_aligned_scratch(size_src_ext + 1 /*terminator*/, 0 /*auto-align*/);
+        char* const ext_source_buffer = (char*)libxs_malloc(size_src_ext + 1 /*terminator*/, 0 /*auto-align*/);
         if (NULL != ext_source_buffer) {
           for (n = 0; 0 < num_exts; --num_exts) {
             if (NULL != extnames[num_exts - 1]) {
@@ -1559,7 +1559,7 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
 #  endif
                 { /* NDEBUG: assume given extension is supported (confirmed upfront) */
                   if (NULL == line) { /* extension is not already part of source */
-                    n += LIBXSMM_SNPRINTF(ext_source_buffer + n, size_src_ext + 1 /*terminator*/ - n, enable_ext, ext);
+                    n += LIBXS_SNPRINTF(ext_source_buffer + n, size_src_ext + 1 /*terminator*/ - n, enable_ext, ext);
                   }
                 }
 #  if !defined(NDEBUG)
@@ -1582,7 +1582,7 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
     /* cpp: consider to preprocess kernel (failure does not impact result code) */
     if (0 != c_dbcsr_acc_opencl_config.dump && NULL == file_src) {
       char dump_filename[ACC_OPENCL_MAXSTRLEN];
-      nchar = LIBXSMM_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", kernel_name);
+      nchar = LIBXS_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", kernel_name);
       if (0 < nchar && (int)sizeof(dump_filename) > nchar) {
         const int std_flag_len = (int)strlen(devinfo->std_flag);
         const char* const env_cpp = getenv("ACC_OPENCL_CPP");
@@ -1594,7 +1594,7 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
 #  endif
         int file_dmp = -1;
         if (NULL != file_cpp) {
-          nchar = LIBXSMM_SNPRINTF(buffer_name, sizeof(buffer_name), ACC_OPENCL_TEMPDIR "/.%s.XXXXXX", kernel_name);
+          nchar = LIBXS_SNPRINTF(buffer_name, sizeof(buffer_name), ACC_OPENCL_TEMPDIR "/.%s.XXXXXX", kernel_name);
           if (0 < nchar && (int)sizeof(buffer_name) > nchar) file_dmp = mkstemp(buffer_name);
           fclose(file_cpp); /* existence-check */
         }
@@ -1619,12 +1619,12 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
             fclose(file_sed); /* existence-check */
           }
 #    endif
-          nchar = LIBXSMM_SNPRINTF(
+          nchar = LIBXS_SNPRINTF(
             buffer, ACC_OPENCL_BUFFERSIZE, ACC_OPENCL_CPPBIN " -P -C -nostdinc %s", 0 == devinfo->nv ? "" : "-D__NV_CL_C_VERSION ");
           if (0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) {
             int n = c_dbcsr_acc_opencl_defines(build_params, buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar, 0 /*cleanup*/);
             if (0 <= n && ACC_OPENCL_BUFFERSIZE > (nchar += n)) {
-              n = LIBXSMM_SNPRINTF(buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar,
+              n = LIBXS_SNPRINTF(buffer + nchar, ACC_OPENCL_BUFFERSIZE - nchar,
                 ' ' != buffer[nchar - 1] ? " %s %s >%s" : "%s %s >%s", buffer_name, sed_pattern, dump_filename);
             }
             nchar = (0 <= n ? nchar : 0) + n;
@@ -1634,19 +1634,19 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
             if (NULL != file) {
               const long int size_file = (EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_END) ? ftell(file) : 0);
               char* const src = (char*)(EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_SET)
-                                          ? libxsmm_aligned_scratch(size_file + 1 /*terminator*/, 0 /*auto-align*/)
+                                          ? libxs_malloc(size_file + 1 /*terminator*/, 0 /*auto-align*/)
                                           : NULL);
               if (NULL != src) {
                 if ((size_t)size_file == fread(src, 1 /*sizeof(char)*/, size_file /*count*/, file)) {
                   if (source != ext_source) {
                     void* p = NULL;
-                    LIBXSMM_ASSIGN127(&p, &ext_source);
-                    libxsmm_free(p);
+                    LIBXS_ASSIGN(&p, &ext_source);
+                    libxs_free(p);
                   }
                   src[size_file] = '\0';
                   ext_source = src;
                 }
-                else libxsmm_free(src);
+                else libxs_free(src);
               }
               ACC_OPENCL_EXPECT(EXIT_SUCCESS == fclose(file));
             }
@@ -1674,8 +1674,8 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
     if (EXIT_SUCCESS == result) {
       if (source != ext_source) {
         void* p = NULL;
-        LIBXSMM_ASSIGN127(&p, &ext_source);
-        libxsmm_free(p);
+        LIBXS_ASSIGN(&p, &ext_source);
+        libxs_free(p);
       }
       buffer[0] = '\0'; /* reset to empty */
       if (EXIT_SUCCESS == result) { /* extract kernel */
@@ -1686,13 +1686,13 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
             unsigned char* binary = NULL;
             binary = (unsigned char*)(EXIT_SUCCESS ==
                                           clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &size, NULL)
-                                        ? libxsmm_aligned_scratch(size, 0 /*auto-align*/)
+                                        ? libxs_malloc(size, 0 /*auto-align*/)
                                         : NULL);
             if (NULL != binary) {
               result = clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(unsigned char*), &binary, NULL);
               if (EXIT_SUCCESS == result) { /* successfully queried program binary */
                 FILE* file;
-                nchar = LIBXSMM_SNPRINTF(buffer, ACC_OPENCL_BUFFERSIZE, "%s.dump", kernel_name);
+                nchar = LIBXS_SNPRINTF(buffer, ACC_OPENCL_BUFFERSIZE, "%s.dump", kernel_name);
                 file = ((0 < nchar && ACC_OPENCL_BUFFERSIZE > nchar) ? fopen(buffer, "wb") : NULL);
                 buffer[0] = '\0'; /* reset to empty */
                 if (NULL != file) {
@@ -1701,7 +1701,7 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
                 }
                 else result = EXIT_FAILURE;
               }
-              libxsmm_free(binary);
+              libxs_free(binary);
             }
             else result = EXIT_FAILURE;
           }
@@ -1710,8 +1710,8 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
     }
     else if (source != ext_source) { /* error: creating program */
       void* p = NULL;
-      LIBXSMM_ASSIGN127(&p, &ext_source);
-      libxsmm_free(p);
+      LIBXS_ASSIGN(&p, &ext_source);
+      libxs_free(p);
     }
   }
   else if (EXIT_SUCCESS == result) { /* binary representation */
@@ -1760,9 +1760,9 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
   }
   if (NULL != file_src) {
     void* p = NULL;
-    LIBXSMM_ASSIGN127(&p, (const void**)&source);
+    LIBXS_ASSIGN(&p, (const void**)&source);
     assert(1 == source_kind);
-    libxsmm_free(p);
+    libxs_free(p);
   }
   if (NULL != program) {
     if (EXIT_SUCCESS != result && NULL != *kernel) {
@@ -1802,7 +1802,7 @@ int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const
   }
   else
 #  elif defined(NDEBUG)
-  LIBXSMM_UNUSED(devinfo);
+  LIBXS_UNUSED(devinfo);
 #  endif
   {
     result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &arg_value);
@@ -1820,7 +1820,7 @@ double c_dbcsr_acc_opencl_duration(cl_event event, int* result_code) {
     if (EXIT_SUCCESS == r) {
       r = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);
       if (EXIT_SUCCESS == r) {
-        result = 1E-9 * LIBXSMM_DELTA(begin, end); /* Nanoseconds->seconds */
+        result = 1E-9 * LIBXS_DELTA(begin, end); /* Nanoseconds->seconds */
       }
     }
   }
@@ -1841,7 +1841,7 @@ void c_dbcsr_acc_opencl_hist_create(
   c_dbcsr_acc_opencl_hist_t* h = (c_dbcsr_acc_opencl_hist_t*)malloc(sizeof(c_dbcsr_acc_opencl_hist_t));
   assert(NULL != hist && 0 < nbuckets && 0 < nqueue && 0 < nvals && NULL != update);
   if (NULL != h) {
-    h->vals = (double*)malloc(sizeof(double) * LIBXSMM_MAX(nbuckets, nqueue) * nvals);
+    h->vals = (double*)malloc(sizeof(double) * LIBXS_MAX(nbuckets, nqueue) * nvals);
     h->update = (c_dbcsr_acc_opencl_hist_update_fn*)malloc(sizeof(c_dbcsr_acc_opencl_hist_update_fn) * nvals);
     h->buckets = (int*)calloc(nbuckets, sizeof(int));
     if (NULL != h->vals && NULL != h->buckets && NULL != h->update) {
@@ -1993,9 +1993,9 @@ void c_dbcsr_acc_opencl_hist_print(
   c_dbcsr_acc_opencl_hist_get(NULL /*lock*/, hist, &buckets, &nbuckets, range, &vals, &nvals);
   if (NULL != stream && NULL != buckets && 0 < nbuckets && NULL != vals && 0 < nvals) {
     const double w = range[1] - range[0];
-    if (NULL != title) fprintf(stream, "%s pid=%u\n", title, libxsmm_get_pid());
+    if (NULL != title) fprintf(stream, "%s pid=%u\n", title, libxs_pid());
     for (; i <= nbuckets; j = nvals * i++) {
-      const double q = range[0] + i * w / nbuckets, r = (i != nbuckets ? q : LIBXSMM_MAX(q, vals[j]));
+      const double q = range[0] + i * w / nbuckets, r = (i != nbuckets ? q : LIBXS_MAX(q, vals[j]));
       const int c = buckets[i - 1];
       if (NULL != prec) fprintf(stream, "\t#%i <= %.*f: %i", i, prec[0], r, c);
       else fprintf(stream, "\t#%i <= %f: %i", i, r, c);
@@ -2066,12 +2066,12 @@ int c_dbcsr_acc_opencl_strimatch(const char a[], const char b[], const char deli
       tmp = b;
       while ('\0' != *tmp && (*s = *tmp, NULL == strpbrk(s, sep))) ++tmp;
       m = tmp - b;
-      c = c_dbcsr_acc_opencl_stristrn(a, b, LIBXSMM_MIN(1, m));
+      c = c_dbcsr_acc_opencl_stristrn(a, b, LIBXS_MIN(1, m));
       if (NULL != c) {
         const char* d = c;
         while ('\0' != *d && (*s = *d, NULL == strpbrk(s, sep))) ++d;
         n = d - c;
-        if (1 >= n || NULL != c_dbcsr_acc_opencl_stristrn(c, b, LIBXSMM_MIN(m, n))) ++result;
+        if (1 >= n || NULL != c_dbcsr_acc_opencl_stristrn(c, b, LIBXS_MIN(m, n))) ++result;
       }
       b = tmp;
     }
@@ -2084,7 +2084,7 @@ int c_dbcsr_acc_opencl_strimatch(const char a[], const char b[], const char deli
     if (na < result) result = na;
   }
   else result = -1;
-  if (NULL != count) *count = LIBXSMM_MAX(na, nb);
+  if (NULL != count) *count = LIBXS_MAX(na, nb);
   return result;
 }
 

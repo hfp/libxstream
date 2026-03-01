@@ -164,7 +164,7 @@ ifneq (,$(LIBXSMMROOT))
       endif
       LDFLAGS += $(LIBXSMMROOT)/lib/libxsmm.a
     else
-      CFLAGS_XSMM += -DLIBXSMM_DEFAULT_CONFIG
+      CFLAGS_XSMM += -DLIBXS_DEFAULT_CONFIG
     endif
     LDFLAGS += $(LIBXSMMROOT)/lib/libxsmmnoblas.a
   else
@@ -254,7 +254,7 @@ test-interface: $(ACCDIR)/dbcsr_acc_test
 
 $(MAKDIR)/test-smm.log: bench
 	$(eval SHAPES = $(shell $(ACCDIR)/acc_triplets.sh -k $(SPECID) -m $(MAXEXT) -n $(NSMMS)))
-	$(eval DEVICE = "$(shell LIBXSMM_VERBOSE=0 ACC_OPENCL_VERBOSE=1 CHECK=0 $(ACCDIR)/acc_bench 1 1 1 2>&1 >/dev/null)")
+	$(eval DEVICE = "$(shell LIBXS_VERBOSE=0 ACC_OPENCL_VERBOSE=1 CHECK=0 $(ACCDIR)/acc_bench 1 1 1 2>&1 >/dev/null)")
 	$(eval WITH_GPU = $(firstword $(foreach GPU,$(WITH_GPUS),$(findstring $(GPU),$(DEVICE)))))
 	$(eval PARAMS = $(firstword $(wildcard $(PARAMDIR)/tune_multiply_$(WITH_GPU).csv)))
 	$(eval GPUENV = $(if $(OPENCL_LIBSMM_SMM_PARAMS),$(NULL),$(if $(PARAMS),OPENCL_LIBSMM_SMM_PARAMS=$(PARAMS))))

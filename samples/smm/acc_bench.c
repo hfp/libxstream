@@ -13,37 +13,37 @@
 #include <math.h>
 
 #if defined(__LIBXSMM)
-#  if defined(LIBXSMM_DEFAULT_CONFIG)
-#    include <libxsmm_source.h>
+#  if defined(LIBXS_DEFAULT_CONFIG)
+#    include <libxs_source.h>
 #  else
 #    include <libxsmm.h>
-#    if !defined(LIBXSMM_TIMER_H)
-#      include <utils/libxsmm_timer.h>
+#    if !defined(LIBXS_TIMER_H)
+#      include <utils/libxs_timer.h>
 #    endif
-#    if !defined(LIBXSMM_SYNC_H)
-#      include <libxsmm_sync.h>
+#    if !defined(LIBXS_SYNC_H)
+#      include <libxs_sync.h>
 #    endif
 #  endif
-#  if defined(LIBXSMM_VERSION_NUMBER) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
+#  if defined(LIBXS_VERSION_NUMBER) && LIBXS_VERSION4(1, 17, 0, 0) < LIBXS_VERSION_NUMBER
 #    define USE_LIBXSMM
 #  endif
 #endif
 
 #if defined(USE_LIBXSMM)
 #  if defined(_OPENMP)
-#    define ACC_BENCH_USEOMP(FUNC) LIBXSMM_USEOMP(FUNC)
+#    define ACC_BENCH_USEOMP(FUNC) LIBXS_USEOMP(FUNC)
 #  else
 #    define ACC_BENCH_USEOMP(FUNC) (FUNC)
 #  endif
 #  define ACC_BENCH_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, \
     STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
-    ACC_BENCH_USEOMP(libxsmm_gemm_batch) \
+    ACC_BENCH_USEOMP(libxs_gemm_batch) \
     (IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, STRIDE_C, INDEX_STRIDE, \
       INDEX_BASE, BATCHSIZE)
 #  define PRINTF(...) \
     do { \
       const size_t print_buffer_size = sizeof(print_buffer) - print_offset; \
-      const int print_buffer_result = LIBXSMM_SNPRINTF(print_buffer + print_offset, print_buffer_size, __VA_ARGS__); \
+      const int print_buffer_result = LIBXS_SNPRINTF(print_buffer + print_offset, print_buffer_size, __VA_ARGS__); \
       assert(0 <= print_buffer_result && print_buffer_result < (int)print_buffer_size); \
       print_offset += print_buffer_result; \
     } while (0)
@@ -301,7 +301,7 @@ int main(int argc, char* argv[]) {
       ELEM_TYPE *amat_dev = NULL, *bmat_dev = NULL, *cmat_dev = NULL;
       void* stream = NULL;
 #if defined(USE_LIBXSMM)
-      libxsmm_timer_tickint start;
+      libxs_timer_tickint start;
       int print_offset = 0;
       char print_buffer[1024] = "";
 #  if defined(TRANSPOSE) && defined(VALIDATE)
@@ -398,7 +398,7 @@ int main(int argc, char* argv[]) {
       CHECK(c_dbcsr_acc_memcpy_h2d(trans_hst, trans_dev, sizeof(int) * nb, stream), &result, check);
 #  if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
-      start = libxsmm_timer_tick();
+      start = libxs_timer_tick();
 #  endif
       CHECK(c_dbcsr_acc_memcpy_h2d(amat_hst, amat_dev, sizeof(ELEM_TYPE) * mk * na, stream), &result, check);
       CHECK(c_dbcsr_acc_memcpy_h2d(bmat_hst, bmat_dev, sizeof(ELEM_TYPE) * kn * nb, stream), &result, check);
@@ -406,7 +406,7 @@ int main(int argc, char* argv[]) {
       if (1 < nrepeat_h2d) {
 #  if defined(USE_LIBXSMM)
         CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
-        start = libxsmm_timer_tick();
+        start = libxs_timer_tick();
 #  endif
         for (r = 0; r < nrepeat_h2d; ++r) {
           CHECK(c_dbcsr_acc_memcpy_h2d(amat_hst, amat_dev, sizeof(ELEM_TYPE) * mk * na, stream), &result, check);
@@ -418,7 +418,7 @@ int main(int argc, char* argv[]) {
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
       if (NULL != amat_hst && NULL != bmat_hst && NULL != stack_hst && EXIT_SUCCESS == result) {
         const size_t size = (sizeof(ELEM_TYPE) * (mk * na + kn * nb) + sizeof(int) * 3 * stack_size);
-        duration = libxsmm_timer_duration(start, libxsmm_timer_tick()) / nrepeat_h2d;
+        duration = libxs_timer_duration(start, libxs_timer_tick()) / nrepeat_h2d;
         perf_h2d = size / (duration * (1ULL << 30));
         PRINTF("copy-in (%i MB): %.2g ms %.1f GB/s\n", (int)((size + (1 << 19)) >> 20), 1000.0 * duration, perf_h2d);
       }
@@ -441,14 +441,14 @@ int main(int argc, char* argv[]) {
       }
 #  if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
-      start = libxsmm_timer_tick();
+      start = libxs_timer_tick();
 #  endif
       /* to perform NN-SMMs on the device, all B-matrices are transposed upfront (SMM-kernel is limited to NT) */
       CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), k, n, MAX_KERNEL_DIM, stream),
         &result, check);
 #  if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
-      transpose = libxsmm_timer_duration(start, libxsmm_timer_tick());
+      transpose = libxs_timer_duration(start, libxs_timer_tick());
 #  endif
 #endif
       /* warmup execution and prebuild SMM-kernel */
@@ -460,7 +460,7 @@ int main(int argc, char* argv[]) {
       CHECK(c_dbcsr_acc_memset_zero(cmat_dev, 0 /*offset*/, sizeof(ELEM_TYPE) * mn * nc, stream), &result, check);
 #if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
-      start = libxsmm_timer_tick();
+      start = libxs_timer_tick();
 #endif
       for (r = 0; r < nrepeat; ++r) {
         /* GPU-kernel is limited to C += Ai * Bi^T, i.e., NT (for NN, all Bi must be transposed upfront) */
@@ -470,7 +470,7 @@ int main(int argc, char* argv[]) {
       }
 #if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
-      duration = libxsmm_timer_duration(start, libxsmm_timer_tick());
+      duration = libxs_timer_duration(start, libxs_timer_tick());
       if (EXIT_SUCCESS == result) {
         if (0 < duration) {
 #  if defined(TRANSPOSE) && defined(VALIDATE)
@@ -489,7 +489,7 @@ int main(int argc, char* argv[]) {
       }
 #  if defined(VALIDATE)
       if (EXIT_SUCCESS == result) {
-        ELEM_TYPE* const gold_hst = (ELEM_TYPE*)(0 != check ? libxsmm_malloc(sizeof(ELEM_TYPE) * mn * nc) : NULL);
+        ELEM_TYPE* const gold_hst = (ELEM_TYPE*)(0 != check ? libxs_malloc(sizeof(ELEM_TYPE) * mn * nc) : NULL);
         /* determine host's performance independent of current result code/status */
         if (NULL != gold_hst && NULL != amat_hst && NULL != bmat_hst && NULL != stack_hst) {
           const ELEM_TYPE alpha = 1, beta = 1;
@@ -501,19 +501,19 @@ int main(int argc, char* argv[]) {
 #    endif
           memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
           for (r = 0; r < warmup; ++r) {
-            ACC_BENCH_GEMM_BATCH(LIBXSMM_DATATYPE(ELEM_TYPE), LIBXSMM_DATATYPE(ELEM_TYPE), &transa, &transb, m, n, k, &alpha,
+            ACC_BENCH_GEMM_BATCH(LIBXS_DATATYPE(ELEM_TYPE), LIBXS_DATATYPE(ELEM_TYPE), &transa, &transb, m, n, k, &alpha,
               amat_hst, &m /*lda*/, stack_hst + 0 /*stride_a*/, bmat_hst, &k /*ldb*/, stack_hst + 1 /*stride_b*/, &beta, gold_hst,
               &m /*ldc*/, stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size);
           }
           memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
-          start = libxsmm_timer_tick();
+          start = libxs_timer_tick();
           /* CPU-kernel operates on data that is not initialized in NUMA-aware fashion */
           for (r = 0; r < (nrepeat * nrepeat_smm); ++r) {
-            ACC_BENCH_GEMM_BATCH(LIBXSMM_DATATYPE(ELEM_TYPE), LIBXSMM_DATATYPE(ELEM_TYPE), &transa, &transb, m, n, k, &alpha,
+            ACC_BENCH_GEMM_BATCH(LIBXS_DATATYPE(ELEM_TYPE), LIBXS_DATATYPE(ELEM_TYPE), &transa, &transb, m, n, k, &alpha,
               amat_hst, &m /*lda*/, stack_hst + 0 /*stride_a*/, bmat_hst, &k /*ldb*/, stack_hst + 1 /*stride_b*/, &beta, gold_hst,
               &m /*ldc*/, stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size);
           }
-          duration = libxsmm_timer_duration(start, libxsmm_timer_tick());
+          duration = libxs_timer_duration(start, libxs_timer_tick());
           perf_hst = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / duration;
           PRINTF("host: %.2g ms %.1f GFLOPS/s\n", 1000.0 * duration / (nrepeat * nrepeat_smm), perf_hst);
           /* validate correctness in case of successful result code/status */
@@ -525,19 +525,19 @@ int main(int argc, char* argv[]) {
 #    endif
 #    if defined(USE_LIBXSMM)
             if (EXIT_SUCCESS == result) {
-              libxsmm_matdiff_info diff;
+              libxs_matdiff_info diff;
               /* validate result buffers at once (including excess/padded space) */
-              result = libxsmm_matdiff(&diff, LIBXSMM_DATATYPE(ELEM_TYPE), mn, nc, gold_hst, cmat_hst, &mn, &mn);
+              result = libxs_matdiff(&diff, LIBXS_DATATYPE(ELEM_TYPE), mn, nc, gold_hst, cmat_hst, &mn, &mn);
               if (EXIT_SUCCESS == result) {
-#      if defined(USE_LIBXSMM) && LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
-                const double epsilon = libxsmm_matdiff_epsilon(&diff); /* 1.0 - diff.rsq */
+#      if defined(USE_LIBXSMM) && LIBXS_VERSION4(1, 17, 0, 0) < LIBXS_VERSION_NUMBER
+                const double epsilon = libxs_matdiff_epsilon(&diff); /* 1.0 - diff.rsq */
 #      else
                 const double epsilon = diff.normf_rel;
 #      endif
                 PRINTF("diff.cur: %g", epsilon);
                 if (maxdiff < epsilon && NULL != file) maxdiff = epsilon;
                 if (0 < epsilon) {
-                  if (LIBXSMM_NOTNAN(diff.v_tst)) {
+                  if (LIBXS_NOTNAN(diff.v_tst)) {
                     PRINTF(" (|%g-%g|=%g)\n", diff.v_ref, diff.v_tst, diff.linf_abs);
                   }
                   else {
@@ -554,7 +554,7 @@ int main(int argc, char* argv[]) {
 #    endif
           }
         }
-        libxsmm_free(gold_hst);
+        libxs_free(gold_hst);
       }
 #  endif
 #endif
@@ -578,9 +578,9 @@ int main(int argc, char* argv[]) {
       }
 #if defined(USE_LIBXSMM)
       if (0 == result) {
-        LIBXSMM_STDIO_ACQUIRE();
+        LIBXS_STDIO_ACQUIRE();
         fputs(print_buffer, stdout);
-        LIBXSMM_STDIO_RELEASE();
+        LIBXS_STDIO_RELEASE();
       }
       else
 #endif
