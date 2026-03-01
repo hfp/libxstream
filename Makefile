@@ -49,12 +49,14 @@ THREADS ?= 1
 ASNEEDED ?= 0
 
 # project needs OpenCL by default
-CUDA ?= 0
 OCL ?= 2
 
 # OpenMP is disabled by default and the library
 # is agnostic wrt the threading runtime
 OMP ?= 0
+
+# There is no reliance on Fortran
+FORTRAN ?= 0
 
 # Kind of documentation (internal key)
 DOCEXT := pdf
@@ -94,7 +96,11 @@ endif
 # target library for a broad range of systems
 SSE ?= 1
 
+# root directory of LIBXS
+LIBXSROOT := $(ROOTDIR)/../libxs
+
 # necessary include directories
+IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
 IFLAGS += -I$(call quote,$(INCDIR))
 IFLAGS += -I$(call quote,$(ROOTSRC))
 

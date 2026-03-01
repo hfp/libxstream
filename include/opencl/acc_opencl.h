@@ -35,29 +35,24 @@
 #  endif
 #endif
 
-#if !defined(LIBXSMM_SYNC_NPAUSE)
-#  define LIBXSMM_SYNC_NPAUSE 0
+#if !defined(LIBXS_SYNC_NPAUSE)
+#  define LIBXS_SYNC_NPAUSE 0
 #endif
 
-#if defined(__LIBXSMM) && !defined(LIBXSMM_DEFAULT_CONFIG)
+#if defined(__LIBXSMM) && !defined(LIBXS_DEFAULT_CONFIG)
 #  include <libxsmm.h>
-#  if !defined(LIBXSMM_TIMER_H)
-#    include <utils/libxsmm_timer.h>
+#  if !defined(LIBXS_TIMER_H)
+#    include <utils/libxs_timer.h>
 #  endif
-#  if !defined(LIBXSMM_SYNC_H)
-#    include <libxsmm_sync.h>
+#  if !defined(LIBXS_SYNC_H)
+#    include <libxs_sync.h>
 #  endif
 #else
 /* OpenCL backend depends on LIBXSMM */
-#  include <libxsmm_source.h>
+#  include <libxs_source.h>
 #  if !defined(__LIBXSMM)
 #    define __LIBXSMM
 #  endif
-#endif
-
-#if !defined(LIBXSMM_VERSION_NUMBER)
-#  define LIBXSMM_VERSION_NUMBER \
-    LIBXSMM_VERSION4(LIBXSMM_VERSION_MAJOR, LIBXSMM_VERSION_MINOR, LIBXSMM_VERSION_UPDATE, LIBXSMM_VERSION_PATCH)
 #endif
 
 #include "../acc.h"
@@ -68,10 +63,10 @@
 #include <stdio.h>
 
 #if !defined(ACC_OPENCL_CACHELINE)
-#  define ACC_OPENCL_CACHELINE LIBXSMM_CACHELINE
+#  define ACC_OPENCL_CACHELINE LIBXS_CACHELINE
 #endif
 #if !defined(ACC_OPENCL_TLS)
-#  define ACC_OPENCL_TLS LIBXSMM_TLS
+#  define ACC_OPENCL_TLS LIBXS_TLS
 #endif
 #if !defined(ACC_OPENCL_MAXALIGN)
 #  define ACC_OPENCL_MAXALIGN (2 << 20 /*2MB*/)
@@ -136,15 +131,15 @@
 
 #define ACC_OPENCL_ATOMIC_ACQUIRE(LOCK) \
   do { \
-    LIBXSMM_ATOMIC_ACQUIRE(LOCK, LIBXSMM_SYNC_NPAUSE, LIBXSMM_ATOMIC_SEQ_CST); \
+    LIBXS_ATOMIC_ACQUIRE(LOCK, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_SEQ_CST); \
   } while (0)
 #define ACC_OPENCL_ATOMIC_RELEASE(LOCK) \
   do { \
-    LIBXSMM_ATOMIC_RELEASE(LOCK, LIBXSMM_ATOMIC_SEQ_CST); \
+    LIBXS_ATOMIC_RELEASE(LOCK, LIBXS_ATOMIC_SEQ_CST); \
   } while (0)
 
-#if defined(LIBXSMM_ATOMIC_LOCKTYPE)
-#  define ACC_OPENCL_ATOMIC_LOCKTYPE volatile LIBXSMM_ATOMIC_LOCKTYPE
+#if defined(LIBXS_ATOMIC_LOCKTYPE)
+#  define ACC_OPENCL_ATOMIC_LOCKTYPE volatile LIBXS_ATOMIC_LOCKTYPE
 #else
 #  define ACC_OPENCL_ATOMIC_LOCKTYPE volatile int
 #endif
@@ -175,14 +170,8 @@
     clCreateCommandQueue(CTX, DEV, (cl_command_queue_properties)(NULL != (PROPS) ? ((PROPS)[1]) : 0), RESULT)
 #endif
 
-#if LIBXSMM_VERSION4(1, 17, 0, 0) < LIBXSMM_VERSION_NUMBER
-#  define ACC_OPENCL_EXPECT(EXPR) LIBXSMM_EXPECT(EXPR)
-#  define LIBXSMM_STRISTR libxsmm_stristr
-#else
-#  define ACC_OPENCL_EXPECT(EXPR) \
-    if (0 == (EXPR)) assert(0)
-#  define LIBXSMM_STRISTR strstr
-#endif
+#define ACC_OPENCL_EXPECT(EXPR) LIBXS_EXPECT(EXPR)
+#define LIBXS_STRISTR libxs_stristr
 
 #define ACC_OPENCL_ERROR() c_dbcsr_acc_opencl_config.device.error.code
 #define ACC_OPENCL_ERROR_NAME(CODE) \
@@ -439,11 +428,11 @@ int c_dbcsr_acc_opencl_device_synchronize(ACC_OPENCL_LOCKTYPE* lock, int thread_
 /** To support USM, call this function for pointer arguments instead of clSetKernelArg. */
 int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value);
 
-/** Support older LIBXSMM (libxsmm_pmalloc_init). */
+/** Support older LIBXSMM (libxs_pmalloc_init). */
 void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], void* storage);
-/** Support older LIBXSMM (libxsmm_pmalloc). */
+/** Support older LIBXSMM (libxs_pmalloc). */
 void* c_dbcsr_acc_opencl_pmalloc(ACC_OPENCL_LOCKTYPE* lock, void* pool[], size_t* i);
-/** Support older LIBXSMM (libxsmm_pfree). */
+/** Support older LIBXSMM (libxs_pfree). */
 void c_dbcsr_acc_opencl_pfree(const void* pointer, void* pool[], size_t* i);
 
 /** Measure time in seconds for the given event. */
