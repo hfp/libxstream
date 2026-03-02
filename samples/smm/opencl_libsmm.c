@@ -769,15 +769,15 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       const size_t work_size = config->wgsize * stack_size;
       assert(!(OPENCL_LIBSMM_NLOCKS_TRANS & (OPENCL_LIBSMM_NLOCKS_TRANS - 1))); /* POT */
       { /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
-        static ACC_OPENCL_ATOMIC_LOCKTYPE locks[OPENCL_LIBSMM_NLOCKS_TRANS];
+        static libxs_lock_t locks[OPENCL_LIBSMM_NLOCKS_TRANS];
 #  if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
         const unsigned int hash = libxs_hash(&config->kernel, sizeof(cl_kernel), 25071975 /*seed*/);
         const unsigned int lidx = LIBXS_MOD2(hash, OPENCL_LIBSMM_NLOCKS_TRANS);
-        ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = locks + lidx;
+        libxs_lock_t* const lock = locks + lidx;
 #  else
-        ACC_OPENCL_ATOMIC_LOCKTYPE* const lock = locks;
+        libxs_lock_t* const lock = locks;
 #  endif
-        ACC_OPENCL_ATOMIC_ACQUIRE(lock);
+        LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
         ACC_OPENCL_CHECK(
           result, clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel");
         ACC_OPENCL_CHECK(result, c_dbcsr_acc_opencl_set_kernel_ptr(config->kernel, 1, info_stack.memory),
@@ -799,7 +799,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
           fprintf(stderr, " ss=%i\n", stack_size);
           LIBXS_STDIO_RELEASE();
         }
-        ACC_OPENCL_ATOMIC_RELEASE(lock);
+        LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
       }
     }
   }
@@ -891,17 +891,17 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
     result |= c_dbcsr_acc_opencl_info_devptr(&info_bdata, dev_b_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
     result |= c_dbcsr_acc_opencl_info_devptr(&info_cdata, dev_c_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
     if (EXIT_SUCCESS == result) {
-      static ACC_OPENCL_ATOMIC_LOCKTYPE locks[OPENCL_LIBSMM_NLOCKS_SMM];
+      static libxs_lock_t locks[OPENCL_LIBSMM_NLOCKS_SMM];
       const char *const env_s = OPENCL_LIBSMM_SMMENV("S"), *const env_bs = OPENCL_LIBSMM_SMMENV("BS");
       const int s = ((NULL == env_s || '\0' == *env_s) ? OPENCL_LIBSMM_SMM_S : atoi(env_s));
       int kernel_idx = 0, bs = ((NULL == env_bs || '\0' == *env_bs) ? 0 : atoi(env_bs));
       opencl_libsmm_smm_t* config;
-      ACC_OPENCL_ATOMIC_LOCKTYPE* lock = locks;
+      libxs_lock_t* lock = locks;
 #  if (1 < OPENCL_LIBSMM_NLOCKS_SMM)
       assert(!(OPENCL_LIBSMM_NLOCKS_SMM & (OPENCL_LIBSMM_NLOCKS_SMM - 1))); /* POT */
       lock += LIBXS_MOD2(libxs_hash(&key, sizeof(key), 25071975 /*seed*/), OPENCL_LIBSMM_NLOCKS_SMM);
 #  endif
-      ACC_OPENCL_ATOMIC_ACQUIRE(lock); /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
+      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock); /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
       config = (opencl_libsmm_smm_t*)libxs_registry_get(opencl_libsmm_registry, &key, sizeof(key));
       if (0 >= bs) bs = ((NULL != config && 0 < config->bs) ? config->bs : OPENCL_LIBSMM_DEFAULT_BS);
       /* determine kernel-kind (mini-batch vs. mini-kernel) */
@@ -1239,7 +1239,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
           LIBXS_STDIO_RELEASE();
         }
       }
-      ACC_OPENCL_ATOMIC_RELEASE(lock);
+      LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
     }
   }
   else if (0 < stack_size) { /* inhomogeneous, large kernel, or unsupported datatype */

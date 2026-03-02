@@ -197,19 +197,22 @@ void c_dbcsr_acc_opencl_configure(void) {
   libxs_init(); /* before using LIBXSMM's functionality */
   c_dbcsr_acc_opencl_config.nranks = LIBXS_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
   c_dbcsr_acc_opencl_config.nrank = (NULL != env_rank ? atoi(env_rank) : 0) % c_dbcsr_acc_opencl_config.nranks;
-  assert(sizeof(ACC_OPENCL_LOCKTYPE) <= ACC_OPENCL_CACHELINE);
+  assert(sizeof(libxs_lock_t) <= ACC_OPENCL_CACHELINE);
   for (i = 0; i < ACC_OPENCL_NLOCKS; ++i) {
-    ACC_OPENCL_INIT((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * i));
+    LIBXS_LOCK_ATTR_TYPE(LIBXS_LOCK) acc_opencl_attr_;
+    LIBXS_LOCK_ATTR_INIT(LIBXS_LOCK, &acc_opencl_attr_);
+    LIBXS_LOCK_INIT(LIBXS_LOCK, (libxs_lock_t*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * i), &acc_opencl_attr_);
+    LIBXS_LOCK_ATTR_DESTROY(LIBXS_LOCK, &acc_opencl_attr_);
   }
-  c_dbcsr_acc_opencl_config.lock_main = (ACC_OPENCL_LOCKTYPE*)c_dbcsr_acc_opencl_locks;
+  c_dbcsr_acc_opencl_config.lock_main = (libxs_lock_t*)c_dbcsr_acc_opencl_locks;
   c_dbcsr_acc_opencl_config.lock_memory = /* 2nd lock-domain */
-    (1 < LIBXS_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 1))
+    (1 < LIBXS_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((libxs_lock_t*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 1))
                                                 : c_dbcsr_acc_opencl_config.lock_main);
   c_dbcsr_acc_opencl_config.lock_stream = /* 3rd lock-domain */
-    (2 < LIBXS_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 2))
+    (2 < LIBXS_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((libxs_lock_t*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 2))
                                                 : c_dbcsr_acc_opencl_config.lock_main);
   c_dbcsr_acc_opencl_config.lock_event = /* 4th lock-domain */
-    (3 < LIBXS_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 3))
+    (3 < LIBXS_MIN(nlocks, ACC_OPENCL_NLOCKS) ? ((libxs_lock_t*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * 3))
                                                 : c_dbcsr_acc_opencl_config.lock_main);
   c_dbcsr_acc_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
   c_dbcsr_acc_opencl_config.devsplit = (NULL == env_devsplit ? (/*1 < c_dbcsr_acc_opencl_config.nranks ? -1 :*/ 0)
@@ -707,7 +710,7 @@ LIBXS_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
       clReleaseContext(context); /* ignore return code */
     }
     for (i = 0; i < ACC_OPENCL_NLOCKS; ++i) { /* destroy locks */
-      ACC_OPENCL_DESTROY((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * i));
+      LIBXS_LOCK_DESTROY(LIBXS_LOCK, (libxs_lock_t*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * i));
     }
     /* release/reset buffers */
     libxs_hist_destroy(c_dbcsr_acc_opencl_config.hist_h2d);
@@ -1054,7 +1057,7 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
 }
 
 
-int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_id) {
+int c_dbcsr_acc_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
   c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
   int result = EXIT_SUCCESS;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
@@ -1063,7 +1066,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
     const cl_device_id active_id = c_dbcsr_acc_opencl_config.devices[device_id];
     if (NULL != active_id) {
       cl_context context = NULL;
-      if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
+      if (NULL != lock) LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
       context = devinfo->context;
       if (NULL != context) {
         if (device_id != c_dbcsr_acc_opencl_config.device_id) {
@@ -1227,7 +1230,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
         }
         else memset(devinfo, 0, sizeof(*devinfo));
       }
-      if (NULL != lock) ACC_OPENCL_RELEASE(lock);
+      if (NULL != lock) LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
     }
     else result = EXIT_FAILURE;
   }
