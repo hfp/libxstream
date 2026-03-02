@@ -1,3 +1,4 @@
+documentation/.libxstream_*.tex
 include/libxstream_version.h
 lib/libxstream*
 .abi.log
