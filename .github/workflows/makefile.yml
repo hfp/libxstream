@@ -1,0 +1,26 @@
+name: GCC
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flags: [DBG=0, DBG=1 PEDANTIC=2]
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Requirements
+      run: sudo apt install -y opencl-c-headers ocl-icd-dev
+
+    - name: Build
+      run: make -j $(nproc) ${{ matrix.flags }}
+
+    - name: Test
+      run: make -j $(nproc) ${{ matrix.flags }} test
