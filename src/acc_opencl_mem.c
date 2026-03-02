@@ -51,32 +51,7 @@
 extern "C" {
 #  endif
 
-void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], void* storage) {
-  char* p = (char*)storage;
-  size_t i = 0;
-  assert(0 < size && NULL != num && NULL != pool && NULL != storage);
-  for (; i < *num; ++i, p += size) pool[i] = p;
-}
 
-
-void* c_dbcsr_acc_opencl_pmalloc(ACC_OPENCL_LOCKTYPE* lock, void* pool[], size_t* i) {
-  void* pointer;
-  assert(NULL != pool && NULL != i);
-  if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
-  pointer = (0 < *i ? pool[--(*i)] : NULL);
-  if (NULL != lock) ACC_OPENCL_RELEASE(lock);
-  assert(NULL != pointer);
-  return pointer;
-}
-
-
-void c_dbcsr_acc_opencl_pfree(const void* pointer, void* pool[], size_t* i) {
-  assert(NULL != pool && NULL != i);
-  if (NULL != pointer) {
-    LIBXS_ASSIGN(pool + *i, &pointer);
-    ++(*i);
-  }
-}
 
 
 c_dbcsr_acc_opencl_info_memptr_t* c_dbcsr_acc_opencl_info_hostptr(const void* memory) {
@@ -401,9 +376,11 @@ void CL_CALLBACK c_dbcsr_acc_memcpy_notify(cl_event event, cl_int event_status, 
   assert(CL_COMPLETE == event_status && NULL != data && 8 == sizeof(data));
   if (EXIT_SUCCESS == result && EXIT_SUCCESS == clGetEventInfo(event, CL_EVENT_COMMAND_TYPE, sizeof(type), &type, NULL)) {
     const size_t size = 0x3FFFFFFFFFFFFFFF & (size_t)data;
-    const int kind = (int)(((size_t)data) >> 62);
-    const double vals[] = {(double)size, durdev};
-    const int mb = (int)((size + (1 << 19)) >> 20);
+    const int kind = LIBXS_CAST_INT(((size_t)data) >> 62);
+    double vals[2];
+    const int mb = LIBXS_CAST_INT((size + (1 << 19)) >> 20);
+    vals[0] = (double)size;
+    vals[1] = durdev;
     if (CL_COMMAND_WRITE_BUFFER != type && CL_COMMAND_READ_BUFFER != type && CL_COMMAND_COPY_BUFFER != type) {
       switch (kind) {
         case c_dbcsr_acc_event_kind_h2d: type = CL_COMMAND_WRITE_BUFFER; break;
@@ -415,17 +392,23 @@ void CL_CALLBACK c_dbcsr_acc_memcpy_notify(cl_event event, cl_int event_status, 
     switch (type) {
       case CL_COMMAND_WRITE_BUFFER: {
         assert(NULL != c_dbcsr_acc_opencl_config.hist_h2d && c_dbcsr_acc_event_kind_h2d == kind);
-        c_dbcsr_acc_opencl_hist_set(c_dbcsr_acc_opencl_config.lock_memory, c_dbcsr_acc_opencl_config.hist_h2d, vals);
+        ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
+        libxs_hist_set(NULL /*lock*/, c_dbcsr_acc_opencl_config.hist_h2d, vals);
+        ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
         if (0 > c_dbcsr_acc_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: H2D mb=%i us=%.0f\n", mb, durdev * 1E6);
       } break;
       case CL_COMMAND_READ_BUFFER: {
         assert(NULL != c_dbcsr_acc_opencl_config.hist_d2h && c_dbcsr_acc_event_kind_d2h == kind);
-        c_dbcsr_acc_opencl_hist_set(c_dbcsr_acc_opencl_config.lock_memory, c_dbcsr_acc_opencl_config.hist_d2h, vals);
+        ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
+        libxs_hist_set(NULL /*lock*/, c_dbcsr_acc_opencl_config.hist_d2h, vals);
+        ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
         if (0 > c_dbcsr_acc_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2H mb=%i us=%.0f\n", mb, durdev * 1E6);
       } break;
       case CL_COMMAND_COPY_BUFFER: {
         assert(NULL != c_dbcsr_acc_opencl_config.hist_d2d && c_dbcsr_acc_event_kind_d2d == kind);
-        c_dbcsr_acc_opencl_hist_set(c_dbcsr_acc_opencl_config.lock_memory, c_dbcsr_acc_opencl_config.hist_d2d, vals);
+        ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
+        libxs_hist_set(NULL /*lock*/, c_dbcsr_acc_opencl_config.hist_d2d, vals);
+        ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
         if (0 > c_dbcsr_acc_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2D mb=%i us=%.0f\n", mb, durdev * 1E6);
       } break;
     }
@@ -532,8 +515,11 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
         }
         assert(EXIT_SUCCESS != result || NULL != memptr);
         if (EXIT_SUCCESS == result) {
-          c_dbcsr_acc_opencl_info_memptr_t* const info = (c_dbcsr_acc_opencl_info_memptr_t*)c_dbcsr_acc_opencl_pmalloc(
-            c_dbcsr_acc_opencl_config.lock_memory, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
+          c_dbcsr_acc_opencl_info_memptr_t* info;
+          ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
+          info = (c_dbcsr_acc_opencl_info_memptr_t*)libxs_pmalloc(
+            (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
+          ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_memory);
           if (NULL != info) {
             info->memory = memory;
             info->memptr = memptr;
@@ -597,7 +583,7 @@ int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
       if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
         c_dbcsr_acc_opencl_info_memptr_t* const pfree = c_dbcsr_acc_opencl_config.memptrs[c_dbcsr_acc_opencl_config.nmemptrs];
         result = clReleaseMemObject(info->memory);
-        c_dbcsr_acc_opencl_pfree(pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
+        libxs_pfree(pfree, (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
         *info = *pfree;
         LIBXS_MEMZERO(pfree);
       }
@@ -808,8 +794,9 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
     union {
       const void* input;
       void* ptr;
-    } nconst = {dev_mem};
+    } nconst;
     const c_dbcsr_acc_opencl_stream_t* str;
+    nconst.input = dev_mem;
     ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
     str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL, ACC_OPENCL_OMP_TID()));
     assert(NULL != str);
@@ -863,8 +850,9 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
     union {
       const void* input;
       void* ptr;
-    } nconst = {devmem_src};
+    } nconst;
     const c_dbcsr_acc_opencl_stream_t* str;
+    nconst.input = devmem_src;
     ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_memory);
     str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream(NULL, ACC_OPENCL_OMP_TID()));
     assert(NULL != str && NULL != devinfo->context);
