@@ -19,6 +19,11 @@ jobs:
     - name: Install Requirements
       run: sudo apt install -y opencl-c-headers ocl-icd-dev
 
+    - name: Setup Dependencies
+      run: |
+        git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
+        echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> $GITHUB_ENV
+
     - name: Build
       run: make -j $(nproc) ${{ matrix.flags }}
 
