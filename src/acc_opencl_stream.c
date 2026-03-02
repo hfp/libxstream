@@ -201,15 +201,13 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
     const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
     const cl_command_queue queue = str->queue;
     assert(NULL != c_dbcsr_acc_opencl_config.streams);
-    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, c_dbcsr_acc_opencl_config.lock_stream);
-    libxs_pfree(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
+    libxs_pfree_lock(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams, c_dbcsr_acc_opencl_config.lock_stream);
     if (NULL != queue) {
       result = clReleaseCommandQueue(queue);
 #  if !defined(NDEBUG)
       LIBXS_MEMZERO((c_dbcsr_acc_opencl_stream_t*)stream);
 #  endif
     }
-    LIBXS_LOCK_RELEASE(LIBXS_LOCK, c_dbcsr_acc_opencl_config.lock_stream);
   }
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);

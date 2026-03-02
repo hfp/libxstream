@@ -510,10 +510,8 @@ int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
         assert(EXIT_SUCCESS != result || NULL != memptr);
         if (EXIT_SUCCESS == result) {
           c_dbcsr_acc_opencl_info_memptr_t* info;
-          LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, c_dbcsr_acc_opencl_config.lock_memory);
-          info = (c_dbcsr_acc_opencl_info_memptr_t*)libxs_pmalloc(
-            (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs);
-          LIBXS_LOCK_RELEASE(LIBXS_LOCK, c_dbcsr_acc_opencl_config.lock_memory);
+          info = (c_dbcsr_acc_opencl_info_memptr_t*)libxs_pmalloc_lock(
+            (void**)c_dbcsr_acc_opencl_config.memptrs, &c_dbcsr_acc_opencl_config.nmemptrs, c_dbcsr_acc_opencl_config.lock_memory);
           if (NULL != info) {
             info->memory = memory;
             info->memptr = memptr;
