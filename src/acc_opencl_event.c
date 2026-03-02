@@ -25,10 +25,10 @@ int c_dbcsr_acc_event_create(void** event_p) {
   }
 #  endif
   assert(NULL != c_dbcsr_acc_opencl_config.events && NULL != event_p);
-  ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_event);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, c_dbcsr_acc_opencl_config.lock_event);
   *event_p = libxs_pmalloc(
     (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
-  ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_event);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, c_dbcsr_acc_opencl_config.lock_event);
   if (NULL != *event_p) *(cl_event*)*event_p = NULL;
   else result = EXIT_FAILURE;
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
@@ -51,7 +51,7 @@ int c_dbcsr_acc_event_destroy(void* event) {
   if (NULL != event) {
     const cl_event clevent = *ACC_OPENCL_EVENT(event);
     assert(NULL != c_dbcsr_acc_opencl_config.events);
-    ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_event);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, c_dbcsr_acc_opencl_config.lock_event);
     libxs_pfree(event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents);
     if (NULL != clevent) {
       result = clReleaseEvent(clevent);
@@ -59,7 +59,7 @@ int c_dbcsr_acc_event_destroy(void* event) {
       *(cl_event*)event = NULL;
 #  endif
     }
-    ACC_OPENCL_RELEASE(c_dbcsr_acc_opencl_config.lock_event);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, c_dbcsr_acc_opencl_config.lock_event);
   }
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
