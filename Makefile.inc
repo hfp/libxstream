@@ -838,13 +838,6 @@ ifeq (0,$(SSE)) # discover AVX
     else
       AVX ?= 3
     endif
-    # discover VNNI/BF16 from CPUFLAGS
-    ifneq (,$(filter avx512_vnni,$(CPUFLAGS_X86)))
-      VNNI ?= 1
-    endif
-    ifneq (,$(filter avx512bf16 avx512_bf16,$(CPUFLAGS_X86)))
-      BF16 ?= 1
-    endif
   else ifeq (1,$(words $(filter avx avx1.0,$(CPUFLAGS_X86))))
     ifeq (1,$(words $(filter fma,$(CPUFLAGS_X86))))
       AVX ?= 2
@@ -865,6 +858,18 @@ else ifeq (1,$(SSE)) # discover SSE
 endif
 AVX ?= 0
 MIC ?= 0
+
+# Discover VNNI/BF16 from CPUFLAGS when AVX-512 is active.
+# Gated on AVX=3 so that a default SSE-only build (AVX=0) does not
+# accidentally enable AVX-512 sub-features via the VNNI/BF16 gates.
+ifneq (,$(filter 3,$(AVX)))
+  ifneq (,$(filter avx512_vnni,$(CPUFLAGS_X86)))
+    VNNI ?= 1
+  endif
+  ifneq (,$(filter avx512bf16 avx512_bf16,$(CPUFLAGS_X86)))
+    BF16 ?= 1
+  endif
+endif
 
 # Select aarch64 code path
 CPUFLAGS_AARCH64 := $(strip $(shell if [ -e /proc/cpuinfo ]; then \
