@@ -11,6 +11,7 @@
 
 #include "../../acc_libsmm.h"
 #include "../acc_opencl.h"
+#include <libxs_reg.h>
 
 /* Inplace-transpose by default (corresponding environment variable exists also) */
 #if !defined(OPENCL_LIBSMM_TRANS_INPLACE) && 0

@@ -146,7 +146,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
         for (i = 0; (i * sizeof(*intel_qfprops)) < nbytes; ++i) {
           if (0 /*CL_QUEUE_DEFAULT_CAPABILITIES_INTEL*/ == intel_qfprops[i].capabilities && 1 < intel_qfprops[i].count) {
             properties[j + 0] = 0x418C; /* CL_QUEUE_FAMILY_INTEL */
-            properties[j + 1] = (int)i;
+            properties[j + 1] = LIBXS_CAST_INT(i);
             properties[j + 2] = 0x418D; /* CL_QUEUE_INDEX_INTEL */
             properties[j + 3] = (i + offset) % intel_qfprops[i].count;
             properties[j + 4] = 0; /* terminator */
@@ -160,8 +160,8 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   }
   if (EXIT_SUCCESS == result) { /* register stream */
     assert(NULL != c_dbcsr_acc_opencl_config.streams && NULL != queue);
-    *stream_p = c_dbcsr_acc_opencl_pmalloc(
-      NULL /*lock*/, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
+    *stream_p = libxs_pmalloc(
+      (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
     if (NULL != *stream_p) {
       c_dbcsr_acc_opencl_stream_t* const str = (c_dbcsr_acc_opencl_stream_t*)*stream_p;
 #  if !defined(NDEBUG)
@@ -183,7 +183,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
 #  endif
-  ACC_OPENCL_RETURN(result, name);
+  ACC_OPENCL_RETURN_CAUSE(result, name);
 }
 
 
@@ -202,7 +202,7 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
     const cl_command_queue queue = str->queue;
     assert(NULL != c_dbcsr_acc_opencl_config.streams);
     ACC_OPENCL_ACQUIRE(c_dbcsr_acc_opencl_config.lock_stream);
-    c_dbcsr_acc_opencl_pfree(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
+    libxs_pfree(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams);
     if (NULL != queue) {
       result = clReleaseCommandQueue(queue);
 #  if !defined(NDEBUG)

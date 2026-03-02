@@ -273,8 +273,9 @@ void c_dbcsr_acc_opencl_configure(void) {
     const int mode = ((1 == nccs || 2 == nccs) ? nccs : 4);
     int j = strlen(zex_nccs);
     for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
-      const char* const istr = (0 < i ? ",%u:%i" : "%u:%i");
-      const int n = LIBXS_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, istr, i, mode);
+      const int n = (0 < i
+        ? LIBXS_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, ",%u:%i", i, mode)
+        : LIBXS_SNPRINTF(zex_nccs + j, sizeof(zex_nccs) - j, "%u:%i", i, mode));
       if (0 < n) j += n;
       else {
         j = 0;
@@ -427,7 +428,7 @@ int c_dbcsr_acc_init(void) {
       const char* const env_vendor = getenv("ACC_OPENCL_VENDOR");
       /* filter device by vendor (if requested) */
       if (NULL != env_vendor && '\0' != *env_vendor) {
-        for (i = 0; (int)i < c_dbcsr_acc_opencl_config.ndevices;) {
+        for (i = 0; LIBXS_CAST_INT(i) < c_dbcsr_acc_opencl_config.ndevices;) {
           if (EXIT_SUCCESS ==
               clGetDeviceInfo(c_dbcsr_acc_opencl_config.devices[i], CL_DEVICE_VENDOR, ACC_OPENCL_BUFFERSIZE, buffer, NULL))
           {
@@ -436,7 +437,7 @@ int c_dbcsr_acc_init(void) {
               ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseDevice(c_dbcsr_acc_opencl_config.devices[i]));
 #  endif
               --c_dbcsr_acc_opencl_config.ndevices;
-              if ((int)i < c_dbcsr_acc_opencl_config.ndevices) { /* keep original order (stable) */
+              if (LIBXS_CAST_INT(i) < c_dbcsr_acc_opencl_config.ndevices) { /* keep original order (stable) */
                 memmove(&c_dbcsr_acc_opencl_config.devices[i], &c_dbcsr_acc_opencl_config.devices[i + 1],
                   sizeof(cl_device_id) * (c_dbcsr_acc_opencl_config.ndevices - i));
               }
@@ -507,7 +508,7 @@ int c_dbcsr_acc_init(void) {
               device_id = 0;
               break;
             }
-            else if (CL_DEVICE_TYPE_ALL == type && NULL == env_devtype /*&& CL_DEVICE_TYPE_GPU == itype*/ && device_id <= (int)i) {
+            else if (CL_DEVICE_TYPE_ALL == type && NULL == env_devtype /*&& CL_DEVICE_TYPE_GPU == itype*/ && device_id <= LIBXS_CAST_INT(i)) {
               result = clGetDeviceInfo(c_dbcsr_acc_opencl_config.devices[i], CL_DEVICE_NAME, ACC_OPENCL_BUFFERSIZE, buffer, NULL);
               if (EXIT_SUCCESS == result /* prune for homogeneous set of devices */
                   && ('\0' == *tmp || 0 == strncmp(buffer, tmp, ACC_OPENCL_BUFFERSIZE)))
@@ -553,7 +554,7 @@ int c_dbcsr_acc_init(void) {
         c_dbcsr_acc_opencl_config.memptr_data = (c_dbcsr_acc_opencl_info_memptr_t*)malloc(
           sizeof(c_dbcsr_acc_opencl_info_memptr_t) * nhandles);
         if (NULL != c_dbcsr_acc_opencl_config.memptrs && NULL != c_dbcsr_acc_opencl_config.memptr_data) {
-          c_dbcsr_acc_opencl_pmalloc_init(sizeof(c_dbcsr_acc_opencl_info_memptr_t), &c_dbcsr_acc_opencl_config.nmemptrs,
+          libxs_pmalloc_init(sizeof(c_dbcsr_acc_opencl_info_memptr_t), &c_dbcsr_acc_opencl_config.nmemptrs,
             (void**)c_dbcsr_acc_opencl_config.memptrs, c_dbcsr_acc_opencl_config.memptr_data);
         }
         else {
@@ -570,7 +571,7 @@ int c_dbcsr_acc_init(void) {
         c_dbcsr_acc_opencl_config.stream_data = (c_dbcsr_acc_opencl_stream_t*)malloc(
           sizeof(c_dbcsr_acc_opencl_stream_t) * nhandles);
         if (NULL != c_dbcsr_acc_opencl_config.streams && NULL != c_dbcsr_acc_opencl_config.stream_data) {
-          c_dbcsr_acc_opencl_pmalloc_init(sizeof(c_dbcsr_acc_opencl_stream_t), &c_dbcsr_acc_opencl_config.nstreams,
+          libxs_pmalloc_init(sizeof(c_dbcsr_acc_opencl_stream_t), &c_dbcsr_acc_opencl_config.nstreams,
             (void**)c_dbcsr_acc_opencl_config.streams, c_dbcsr_acc_opencl_config.stream_data);
         }
         else {
@@ -586,7 +587,7 @@ int c_dbcsr_acc_init(void) {
         c_dbcsr_acc_opencl_config.events = (cl_event**)malloc(sizeof(cl_event*) * nhandles);
         c_dbcsr_acc_opencl_config.event_data = (cl_event*)malloc(sizeof(cl_event) * nhandles);
         if (NULL != c_dbcsr_acc_opencl_config.events && NULL != c_dbcsr_acc_opencl_config.event_data) {
-          c_dbcsr_acc_opencl_pmalloc_init(sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents,
+          libxs_pmalloc_init(sizeof(cl_event*), &c_dbcsr_acc_opencl_config.nevents,
             (void**)c_dbcsr_acc_opencl_config.events, c_dbcsr_acc_opencl_config.event_data);
         }
         else {
@@ -609,10 +610,10 @@ int c_dbcsr_acc_init(void) {
           const int psize = (NULL == env_qsize ? 0 : atoi(env_qsize));
           const int qsize = (0 >= psize ? 1024 : LIBXS_MIN(psize, 65536));
           const int profile = LIBXS_MAX(LIBXS_ABS(c_dbcsr_acc_opencl_config.profile), 2);
-          const c_dbcsr_acc_opencl_hist_update_fn update[] = {c_dbcsr_acc_opencl_hist_avg, c_dbcsr_acc_opencl_hist_add};
-          c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_h2d, profile + 1, qsize, 2, update);
-          c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_d2h, profile + 1, qsize, 2, update);
-          c_dbcsr_acc_opencl_hist_create(&c_dbcsr_acc_opencl_config.hist_d2d, profile + 1, qsize, 2, update);
+          const libxs_hist_update_t update[] = {libxs_hist_avg, libxs_hist_add};
+          libxs_hist_create(&c_dbcsr_acc_opencl_config.hist_h2d, profile + 1, qsize, 2, update);
+          libxs_hist_create(&c_dbcsr_acc_opencl_config.hist_d2h, profile + 1, qsize, 2, update);
+          libxs_hist_create(&c_dbcsr_acc_opencl_config.hist_d2d, profile + 1, qsize, 2, update);
         }
         else {
           assert(NULL == c_dbcsr_acc_opencl_config.hist_h2d);
@@ -685,9 +686,9 @@ LIBXS_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
     const int precision[] = {0, 1};
     int i;
     LIBXS_STDIO_ACQUIRE();
-    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision, NULL /*adjust*/);
-    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision, NULL /*adjust*/);
-    c_dbcsr_acc_opencl_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision, NULL /*adjust*/);
+    libxs_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision, NULL /*adjust*/);
+    libxs_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision, NULL /*adjust*/);
+    libxs_hist_print(stderr, c_dbcsr_acc_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision, NULL /*adjust*/);
     LIBXS_STDIO_RELEASE();
     for (i = 0; i < ACC_OPENCL_MAXNDEVS; ++i) {
       const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[i];
@@ -709,9 +710,9 @@ LIBXS_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
       ACC_OPENCL_DESTROY((ACC_OPENCL_LOCKTYPE*)(c_dbcsr_acc_opencl_locks + ACC_OPENCL_CACHELINE * i));
     }
     /* release/reset buffers */
-    c_dbcsr_acc_opencl_hist_free(c_dbcsr_acc_opencl_config.hist_h2d);
-    c_dbcsr_acc_opencl_hist_free(c_dbcsr_acc_opencl_config.hist_d2h);
-    c_dbcsr_acc_opencl_hist_free(c_dbcsr_acc_opencl_config.hist_d2d);
+    libxs_hist_destroy(c_dbcsr_acc_opencl_config.hist_h2d);
+    libxs_hist_destroy(c_dbcsr_acc_opencl_config.hist_d2h);
+    libxs_hist_destroy(c_dbcsr_acc_opencl_config.hist_d2d);
     free(c_dbcsr_acc_opencl_config.memptrs);
     free(c_dbcsr_acc_opencl_config.memptr_data);
     free(c_dbcsr_acc_opencl_config.streams);
@@ -867,15 +868,15 @@ int c_dbcsr_acc_opencl_device_uid(cl_device_id device, const char devname[], uns
     else result = EXIT_FAILURE;
     if (EXIT_SUCCESS != result) {
       if (NULL != devname && '\0' != *devname) {
-        *uid = (unsigned int)strtoul(devname, NULL, 0);
+        *uid = LIBXS_CAST_UINT(strtoul(devname, NULL, 0));
         if (0 == *uid) {
           const char *const begin = strrchr(devname, '['), *const end = strrchr(devname, ']');
           if (NULL != begin && begin < end) {
-            *uid = (unsigned int)strtoul(begin + 1, NULL, 0);
+            *uid = LIBXS_CAST_UINT(strtoul(begin + 1, NULL, 0));
           }
           if (0 == *uid) {
             const size_t size = strlen(devname);
-            const unsigned int hash = libxs_hash(devname, (unsigned int)size, 25071975 /*seed*/);
+            const unsigned int hash = libxs_hash(devname, LIBXS_CAST_UINT(size), 25071975 /*seed*/);
             *uid = libxs_hash(&hash, 4 /*size*/, hash >> 16 /*seed*/) & 0xFFFF;
           }
         }
@@ -926,8 +927,8 @@ int c_dbcsr_acc_opencl_device_level(
   result = clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, ACC_OPENCL_BUFFERSIZE / 2, buffer, NULL);
   if (EXIT_SUCCESS == result && (NULL != std_clevel || NULL != std_flag)) {
     if (2 == sscanf(buffer, "OpenCL C %u.%u", std_clevel_uint, std_clevel_uint + 1)) {
-      std_clevel[0] = (int)std_clevel_uint[0];
-      std_clevel[1] = (int)std_clevel_uint[1];
+      std_clevel[0] = LIBXS_CAST_INT(std_clevel_uint[0]);
+      std_clevel[1] = LIBXS_CAST_INT(std_clevel_uint[1]);
     }
     else result = EXIT_FAILURE;
   }
@@ -936,8 +937,8 @@ int c_dbcsr_acc_opencl_device_level(
       device, CL_DEVICE_VERSION, ACC_OPENCL_BUFFERSIZE - ACC_OPENCL_BUFFERSIZE / 2, buffer + ACC_OPENCL_BUFFERSIZE / 2, NULL);
     if (EXIT_SUCCESS == result) {
       if (2 == sscanf(buffer + ACC_OPENCL_BUFFERSIZE / 2, "OpenCL %u.%u", std_level_uint, std_level_uint + 1)) {
-        std_level[0] = (int)std_level_uint[0];
-        std_level[1] = (int)std_level_uint[1];
+        std_level[0] = LIBXS_CAST_INT(std_level_uint[0]);
+        std_level[1] = LIBXS_CAST_INT(std_level_uint[1]);
       }
       else result = EXIT_FAILURE;
     }
@@ -1163,7 +1164,7 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
                 0 != bitfield)
             {
               void* ptr[8] = {NULL};
-              int i = 0, n = 0;
+              int ii = 0, n = 0;
               ptr[0] = clGetExtensionFunctionAddressForPlatform(platform, "clSetKernelArgMemPointerINTEL");
               ptr[1] = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemFillINTEL");
               ptr[2] = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemcpyINTEL");
@@ -1171,8 +1172,8 @@ int c_dbcsr_acc_opencl_set_active_device(ACC_OPENCL_LOCKTYPE* lock, int device_i
               ptr[4] = clGetExtensionFunctionAddressForPlatform(platform, "clSharedMemAllocINTEL");
               ptr[5] = clGetExtensionFunctionAddressForPlatform(platform, "clHostMemAllocINTEL");
               ptr[6] = clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL");
-              for (; i < (int)(sizeof(ptr) / sizeof(*ptr)); ++i) {
-                if (NULL != ptr[i]) ++n;
+              for (; ii < (int)(sizeof(ptr) / sizeof(*ptr)); ++ii) {
+                if (NULL != ptr[ii]) ++n;
               }
               if (7 == n) {
                 LIBXS_ASSIGN(&devinfo->clSetKernelArgMemPointerINTEL, ptr + 0);
@@ -1422,11 +1423,11 @@ int c_dbcsr_acc_opencl_defines(const char defines[], char buffer[], size_t buffe
     const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
     result = LIBXS_SNPRINTF(buffer, buffer_size, " -DACC_OPENCL_VERSION=%u -DACC_OPENCL_C_VERSION=%u%s", std_level, std_clevel,
       0 == c_dbcsr_acc_opencl_config.debug ? " -DNDEBUG" : "");
-    if (0 < result && (int)buffer_size > result) {
+    if (0 < result && LIBXS_CAST_INT(buffer_size) > result) {
       const int n = LIBXS_SNPRINTF(
         buffer + result, buffer_size - result, ' ' != buffer[result - 1] ? " %s" : "%s", NULL != defines ? defines : "");
       if (0 <= n) {
-        if ((int)buffer_size > (result += n) && 0 != cleanup) {
+        if (LIBXS_CAST_INT(buffer_size) > (result += n) && 0 != cleanup) {
           char* replace = strpbrk(buffer + result - n, "\""); /* more portable (system/cpp needs quotes to protect braces) */
           for (; NULL != replace; replace = strpbrk(replace + 1, "\"")) *replace = ' ';
         }
@@ -1445,7 +1446,7 @@ int c_dbcsr_acc_opencl_kernel_flags(const char build_params[], const char build_
   int result = EXIT_SUCCESS, nchar = 0;
   assert(NULL != program && (NULL != buffer || 0 == buffer_size));
   nchar = c_dbcsr_acc_opencl_defines(build_params, buffer, buffer_size, 1 /*cleanup*/);
-  if (0 <= nchar && (int)buffer_size > nchar) {
+  if (0 <= nchar && LIBXS_CAST_INT(buffer_size) > nchar) {
     const int debug = (0 != c_dbcsr_acc_opencl_config.debug && 0 != devinfo->intel && CL_DEVICE_TYPE_CPU != devinfo->type);
     int n = LIBXS_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s%s %s", 0 == debug ? "" : "-gline-tables-only ",
       devinfo->std_flag, NULL != build_options ? build_options : "");
@@ -1453,12 +1454,12 @@ int c_dbcsr_acc_opencl_kernel_flags(const char build_params[], const char build_
       nchar += n;
       if (NULL != try_options && '\0' != *try_options) { /* length is not reported in result */
         n = LIBXS_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s", try_options);
-        if (0 > n || (int)buffer_size <= (nchar + n)) buffer[nchar] = '\0';
+        if (0 > n || LIBXS_CAST_INT(buffer_size) <= (nchar + n)) buffer[nchar] = '\0';
       }
     }
     else nchar = n;
   }
-  if (0 <= nchar && (int)buffer_size > nchar) { /* check if internal flags apply */
+  if (0 <= nchar && LIBXS_CAST_INT(buffer_size) > nchar) { /* check if internal flags apply */
     const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
     result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
     if (EXIT_SUCCESS != result) { /* failed to apply internal flags */
@@ -1559,7 +1560,8 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
 #  endif
                 { /* NDEBUG: assume given extension is supported (confirmed upfront) */
                   if (NULL == line) { /* extension is not already part of source */
-                    n += LIBXS_SNPRINTF(ext_source_buffer + n, size_src_ext + 1 /*terminator*/ - n, enable_ext, ext);
+                    n += LIBXS_SNPRINTF(
+                      ext_source_buffer + n, size_src_ext + 1 /*terminator*/ - n, "#pragma OPENCL EXTENSION %s : enable\n", ext);
                   }
                 }
 #  if !defined(NDEBUG)
@@ -1584,7 +1586,7 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
       char dump_filename[ACC_OPENCL_MAXSTRLEN];
       nchar = LIBXS_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", kernel_name);
       if (0 < nchar && (int)sizeof(dump_filename) > nchar) {
-        const int std_flag_len = (int)strlen(devinfo->std_flag);
+        const int std_flag_len = LIBXS_CAST_INT(strlen(devinfo->std_flag));
         const char* const env_cpp = getenv("ACC_OPENCL_CPP");
         const int cpp = (NULL == env_cpp ? 1 /*default*/ : atoi(env_cpp));
 #  if defined(ACC_OPENCL_CPPBIN)
@@ -1781,7 +1783,7 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
     ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* release in any case (EXIT_SUCCESS) */
   }
   if (NULL != try_ok) *try_ok = result | ok;
-  ACC_OPENCL_RETURN(result, buffer);
+  ACC_OPENCL_RETURN_CAUSE(result, buffer);
 }
 
 
@@ -1829,264 +1831,8 @@ double c_dbcsr_acc_opencl_duration(cl_event event, int* result_code) {
 }
 
 
-typedef struct c_dbcsr_acc_opencl_hist_t {
-  c_dbcsr_acc_opencl_hist_update_fn* update;
-  double *vals, min, max;
-  int *buckets, nbuckets, nqueue, nvals, n;
-} c_dbcsr_acc_opencl_hist_t;
 
 
-void c_dbcsr_acc_opencl_hist_create(
-  void** hist, int nbuckets, int nqueue, int nvals, const c_dbcsr_acc_opencl_hist_update_fn update[]) {
-  c_dbcsr_acc_opencl_hist_t* h = (c_dbcsr_acc_opencl_hist_t*)malloc(sizeof(c_dbcsr_acc_opencl_hist_t));
-  assert(NULL != hist && 0 < nbuckets && 0 < nqueue && 0 < nvals && NULL != update);
-  if (NULL != h) {
-    h->vals = (double*)malloc(sizeof(double) * LIBXS_MAX(nbuckets, nqueue) * nvals);
-    h->update = (c_dbcsr_acc_opencl_hist_update_fn*)malloc(sizeof(c_dbcsr_acc_opencl_hist_update_fn) * nvals);
-    h->buckets = (int*)calloc(nbuckets, sizeof(int));
-    if (NULL != h->vals && NULL != h->buckets && NULL != h->update) {
-      union {
-        int raw;
-        float value;
-      } inf = {0};
-#  if defined(INFINITY) && /*overflow warning*/ !defined(_CRAYC)
-      inf.value = (float)(INFINITY);
-#  else
-      inf.raw = 0x7F800000;
-#  endif
-      h->min = +inf.value;
-      h->max = -inf.value;
-      h->nbuckets = nbuckets;
-      h->nqueue = nqueue;
-      h->nvals = nvals;
-      /* if update[] is NULL, c_dbcsr_acc_opencl_hist_avg is assumed */
-      for (h->n = 0; h->n < nvals; ++h->n) h->update[h->n] = update[h->n];
-      h->n = 0;
-    }
-    else {
-      free(h->buckets);
-      free(h->vals);
-      free(h);
-      h = NULL;
-    }
-  }
-  *hist = h;
-}
-
-
-void c_dbcsr_acc_opencl_hist_avg(double* dst, const double* src) {
-  assert(NULL != dst && NULL != src);
-  *dst = 0.5 * (*dst + *src);
-}
-
-
-void c_dbcsr_acc_opencl_hist_add(double* dst, const double* src) {
-  assert(NULL != dst && NULL != src);
-  *dst += *src;
-}
-
-
-void c_dbcsr_acc_opencl_hist_set(ACC_OPENCL_LOCKTYPE* lock, void* hist, const double vals[]) {
-  if (NULL != hist) {
-    c_dbcsr_acc_opencl_hist_t* const h = (c_dbcsr_acc_opencl_hist_t*)hist;
-    int i, j, k;
-    if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
-    if (h->nqueue <= h->n) {
-      const double *values, w = h->max - h->min;
-      const int* buckets;
-      if (h->nqueue == h->n) {
-        c_dbcsr_acc_opencl_hist_get(NULL /*lock*/, hist, &buckets, NULL /*nbuckets*/, NULL /*range*/, &values, NULL /*nvals*/);
-      }
-      for (i = 1; i <= h->nbuckets; ++i) {
-        const double q = h->min + i * w / h->nbuckets;
-        if (vals[0] <= q || h->nbuckets == i) {
-          for (k = 0, j = (i - 1) * h->nvals; k < h->nvals; ++k) {
-            if (0 != h->buckets[i - 1]) {
-              if (NULL != h->update[k]) {
-                const c_dbcsr_acc_opencl_hist_update_fn update = h->update[k];
-                update(h->vals + (j + k), vals + k);
-              }
-              else c_dbcsr_acc_opencl_hist_avg(h->vals + (j + k), vals + k);
-            }
-            else h->vals[j + k] = vals[k]; /* initialize */
-          }
-          ++h->buckets[i - 1];
-          break;
-        }
-      }
-    }
-    else { /* fill-phase */
-      if (h->min > vals[0]) h->min = vals[0];
-      if (h->max < vals[0]) h->max = vals[0];
-      for (k = 0, j = h->nvals * h->n; k < h->nvals; ++k) {
-        h->vals[j + k] = vals[k];
-      }
-    }
-    ++h->n; /* count number of accumulated values */
-    if (NULL != lock) ACC_OPENCL_RELEASE(lock);
-  }
-}
-
-
-void c_dbcsr_acc_opencl_hist_get(
-  ACC_OPENCL_LOCKTYPE* lock, void* hist, const int** buckets, int* nbuckets, double range[2], const double** vals, int* nvals) {
-  int *b = NULL, m = 0, n = 0, i, j, k;
-  double *v = NULL, r[] = {0, 0};
-  assert(NULL != buckets || NULL != range || NULL != vals);
-  if (NULL != hist) {
-    c_dbcsr_acc_opencl_hist_t* const h = (c_dbcsr_acc_opencl_hist_t*)hist;
-    if (NULL != lock) ACC_OPENCL_ACQUIRE(lock);
-    if (h->n <= h->nqueue) {
-      const double w = h->max - h->min;
-      if (h->n < h->nbuckets) h->nbuckets = h->n;
-      for (i = 1, j = 0; i <= h->nbuckets; j = h->nvals * i++) {
-        const double p = h->min + (i - 1) * w / h->nbuckets, q = h->min + i * w / h->nbuckets;
-        for (n = 0, m = 0; n < h->n; m = ++n * h->nvals) {
-          if (0 == h->buckets[n] && (p < h->vals[m] || 1 == i) && (h->vals[m] <= q || h->nbuckets == i)) {
-            if (j != m) {
-              if (0 != h->buckets[i - 1]) { /* accumulate */
-                for (k = 0; k < h->nvals; ++k) {
-                  (NULL != h->update[k] ? h->update[k] : c_dbcsr_acc_opencl_hist_avg)(h->vals + (j + k), h->vals + (m + k));
-                }
-              }
-              else { /* initialize/swap */
-                for (k = 0; k < h->nvals; ++k) {
-                  const double value = h->vals[m + k];
-                  h->vals[m + k] = h->vals[j + k];
-                  h->vals[j + k] = value;
-                }
-              }
-            }
-            ++h->buckets[i - 1];
-          }
-        }
-      }
-      h->nqueue = 0;
-    }
-    if (0 < h->n) {
-      r[0] = h->min;
-      r[1] = h->max;
-      b = h->buckets;
-      n = h->nbuckets;
-      v = h->vals;
-      m = h->nvals;
-    }
-    if (NULL != lock) ACC_OPENCL_RELEASE(lock);
-  }
-  if (NULL != nbuckets) *nbuckets = n;
-  if (NULL != buckets) *buckets = b;
-  if (NULL != nvals) *nvals = m;
-  if (NULL != vals) *vals = v;
-  if (NULL != range) {
-    range[0] = r[0];
-    range[1] = r[1];
-  }
-}
-
-
-void c_dbcsr_acc_opencl_hist_print(
-  FILE* stream, void* hist, const char title[], const int prec[], const c_dbcsr_acc_opencl_hist_adjust_fn adjust[]) {
-  int nbuckets = 0, nvals = 0, i = 1, j = 0, k;
-  const int* buckets = NULL;
-  const double* vals = NULL;
-  double range[2];
-  c_dbcsr_acc_opencl_hist_get(NULL /*lock*/, hist, &buckets, &nbuckets, range, &vals, &nvals);
-  if (NULL != stream && NULL != buckets && 0 < nbuckets && NULL != vals && 0 < nvals) {
-    const double w = range[1] - range[0];
-    if (NULL != title) fprintf(stream, "%s pid=%u\n", title, libxs_pid());
-    for (; i <= nbuckets; j = nvals * i++) {
-      const double q = range[0] + i * w / nbuckets, r = (i != nbuckets ? q : LIBXS_MAX(q, vals[j]));
-      const int c = buckets[i - 1];
-      if (NULL != prec) fprintf(stream, "\t#%i <= %.*f: %i", i, prec[0], r, c);
-      else fprintf(stream, "\t#%i <= %f: %i", i, r, c);
-      if (0 != c) {
-        fprintf(stream, " ->");
-        for (k = 0; k < nvals; ++k) {
-          double value;
-          if (NULL == adjust || NULL == adjust[k]) value = vals[j + k];
-          else value = adjust[k](vals[j + k], c);
-          if (NULL != prec) fprintf(stream, " %.*f", prec[k], value);
-          else fprintf(stream, " %f", value);
-        }
-      }
-      fprintf(stream, "\n");
-    }
-  }
-}
-
-
-void c_dbcsr_acc_opencl_hist_free(void* hist) {
-  if (NULL != hist) {
-    c_dbcsr_acc_opencl_hist_t* const h = (c_dbcsr_acc_opencl_hist_t*)hist;
-    free(h->buckets);
-    free(h->update);
-    free(h->vals);
-    free(h);
-  }
-}
-
-
-const char* c_dbcsr_acc_opencl_stristrn(const char a[], const char b[], size_t maxlen) {
-  const char* result = NULL;
-  if (NULL != a && NULL != b && '\0' != *a && '\0' != *b && 0 != maxlen) {
-    do {
-      if (tolower(*a) != tolower(*b)) ++a;
-      else {
-        const char* c = b;
-        size_t i = 0;
-        result = a;
-        while ('\0' != c[++i] && i != maxlen && '\0' != *++a) {
-          if (tolower(*a) != tolower(c[i])) {
-            result = NULL;
-            break;
-          }
-        }
-        if ('\0' != c[i] && '\0' != c[i + 1] && c[i] != c[i + 1] && i != maxlen) {
-          result = NULL;
-        }
-        else break;
-      }
-    } while ('\0' != *a);
-  }
-  return result;
-}
-
-
-int c_dbcsr_acc_opencl_strimatch(const char a[], const char b[], const char delims[], int* count) {
-  int result = 0, na = 0, nb = 0;
-  if (NULL != a && NULL != b && '\0' != *a && '\0' != *b) {
-    const char* const sep = ((NULL == delims || '\0' == *delims) ? " \t;,:-" : delims);
-    const char *c, *tmp;
-    char s[2] = {'\0'};
-    size_t m, n;
-    for (;;) {
-      while (*s = *b, NULL != strpbrk(s, sep)) ++b; /* left-trim */
-      if ('\0' != *b && '[' != *b) ++nb; /* count words */
-      else break;
-      tmp = b;
-      while ('\0' != *tmp && (*s = *tmp, NULL == strpbrk(s, sep))) ++tmp;
-      m = tmp - b;
-      c = c_dbcsr_acc_opencl_stristrn(a, b, LIBXS_MIN(1, m));
-      if (NULL != c) {
-        const char* d = c;
-        while ('\0' != *d && (*s = *d, NULL == strpbrk(s, sep))) ++d;
-        n = d - c;
-        if (1 >= n || NULL != c_dbcsr_acc_opencl_stristrn(c, b, LIBXS_MIN(m, n))) ++result;
-      }
-      b = tmp;
-    }
-    for (;;) { /* count number of words */
-      while (*s = *a, NULL != strpbrk(s, sep)) ++a; /* left-trim */
-      if ('\0' != *a && '[' != *a) ++na; /* count words */
-      else break;
-      while ('\0' != *a && (*s = *a, NULL == strpbrk(s, sep))) ++a;
-    }
-    if (na < result) result = na;
-  }
-  else result = -1;
-  if (NULL != count) *count = LIBXS_MAX(na, nb);
-  return result;
-}
 
 #  if defined(__cplusplus)
 }

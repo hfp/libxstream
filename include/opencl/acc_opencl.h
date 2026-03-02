@@ -49,11 +49,19 @@
 #  endif
 #else
 /* OpenCL backend depends on LIBXSMM */
+#  if defined(__GNUC__)
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wpedantic"
+#  endif
 #  include <libxs_source.h>
+#  if defined(__GNUC__)
+#    pragma GCC diagnostic pop
+#  endif
 #  if !defined(__LIBXSMM)
 #    define __LIBXSMM
 #  endif
 #endif
+#include <libxs_hist.h>
 
 #include "../acc.h"
 #if !defined(NDEBUG)
@@ -214,13 +222,23 @@
     else ACC_OPENCL_ERROR_REPORT(); \
   } while (0)
 
-#define ACC_OPENCL_RETURN(RESULT, ...) \
+#define ACC_OPENCL_RETURN_CAUSE(RESULT, NAME) \
   do { \
     if (EXIT_SUCCESS == (RESULT)) { \
       assert(EXIT_SUCCESS == c_dbcsr_acc_opencl_config.device.error.code); \
       memset(&c_dbcsr_acc_opencl_config.device.error, 0, sizeof(c_dbcsr_acc_opencl_config.device.error)); \
     } \
-    else ACC_OPENCL_ERROR_REPORT(__VA_ARGS__); \
+    else ACC_OPENCL_ERROR_REPORT(NAME); \
+    return (RESULT); \
+  } while (0)
+
+#define ACC_OPENCL_RETURN(RESULT) \
+  do { \
+    if (EXIT_SUCCESS == (RESULT)) { \
+      assert(EXIT_SUCCESS == c_dbcsr_acc_opencl_config.device.error.code); \
+      memset(&c_dbcsr_acc_opencl_config.device.error, 0, sizeof(c_dbcsr_acc_opencl_config.device.error)); \
+    } \
+    else ACC_OPENCL_ERROR_REPORT(); \
     return (RESULT); \
   } while (0)
 
@@ -346,7 +364,7 @@ typedef struct c_dbcsr_acc_opencl_config_t {
   /** Runtime-enable ACC_OPENCL_PROFILE_DBCSR. */
   cl_int profile;
   /** Detailed/optional insight. */
-  void *hist_h2d, *hist_d2h, *hist_d2d;
+  libxs_hist_t *hist_h2d, *hist_d2h, *hist_d2d;
   /** Configuration and execution-hints. */
   cl_int xhints;
   /** Asynchronous memory operations. */
@@ -428,40 +446,8 @@ int c_dbcsr_acc_opencl_device_synchronize(ACC_OPENCL_LOCKTYPE* lock, int thread_
 /** To support USM, call this function for pointer arguments instead of clSetKernelArg. */
 int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value);
 
-/** Support older LIBXSMM (libxs_pmalloc_init). */
-void c_dbcsr_acc_opencl_pmalloc_init(size_t size, size_t* num, void* pool[], void* storage);
-/** Support older LIBXSMM (libxs_pmalloc). */
-void* c_dbcsr_acc_opencl_pmalloc(ACC_OPENCL_LOCKTYPE* lock, void* pool[], size_t* i);
-/** Support older LIBXSMM (libxs_pfree). */
-void c_dbcsr_acc_opencl_pfree(const void* pointer, void* pool[], size_t* i);
-
 /** Measure time in seconds for the given event. */
 double c_dbcsr_acc_opencl_duration(cl_event event, int* result_code);
-
-typedef void (*c_dbcsr_acc_opencl_hist_update_fn)(double* /*dst*/, const double* /*src*/);
-typedef double (*c_dbcsr_acc_opencl_hist_adjust_fn)(double /*value*/, int count);
-void c_dbcsr_acc_opencl_hist_create(
-  void** hist, int nbuckets, int nqueue, int nvals, const c_dbcsr_acc_opencl_hist_update_fn update[]);
-void c_dbcsr_acc_opencl_hist_avg(double* dst, const double* src);
-void c_dbcsr_acc_opencl_hist_add(double* dst, const double* src);
-void c_dbcsr_acc_opencl_hist_set(ACC_OPENCL_LOCKTYPE* lock, void* hist, const double vals[]);
-void c_dbcsr_acc_opencl_hist_get(
-  ACC_OPENCL_LOCKTYPE* lock, void* hist, const int** buckets, int* nbuckets, double range[2], const double** vals, int* nvals);
-void c_dbcsr_acc_opencl_hist_print(
-  FILE* stream, void* hist, const char title[], const int prec[], const c_dbcsr_acc_opencl_hist_adjust_fn adjust[]);
-void c_dbcsr_acc_opencl_hist_free(void* hist);
-
-/** Return the pointer to the 1st match of "b" in "a", or NULL (no match). */
-const char* c_dbcsr_acc_opencl_stristrn(const char a[], const char b[], size_t maxlen);
-
-/**
- * Count the number of words in A (or B) with match in B (or A) respectively (case-insensitive).
- * Can be used to score the equality of A and B on a word-basis. The result is independent of
- * A-B or B-A order (symmetry). The score cannot exceed the number of words in A or B.
- * Optional delimiters determine characters splitting words (can be NULL).
- * Optional count yields total number of words.
- */
-int c_dbcsr_acc_opencl_strimatch(const char a[], const char b[], const char delims[], int* count);
 
 #if defined(__cplusplus)
 }
