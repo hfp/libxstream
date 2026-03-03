@@ -9,7 +9,7 @@
 #ifndef OPENCL_ATOMICS_H
 #define OPENCL_ATOMICS_H
 
-#include "libxsmm_common.h"
+#include "libxstream_common.h"
 
 #if (2 == TAN /*c_dbcsr_acc_opencl_atomic_fp_64*/)
 #  if !defined(T)

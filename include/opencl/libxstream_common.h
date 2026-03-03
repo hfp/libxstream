@@ -63,4 +63,19 @@
 #define IDX(I, J, M, N) ((int)(I) * (N) + (J))
 #define IDT(I, J, M, N) IDX(J, I, N, M)
 
+/* Floating-point type and IEEE bit-manipulation utilities.
+ * Controlled by USE_DOUBLE (define to 1 for fp64, 0 or undef for fp32). */
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+# pragma OPENCL EXTENSION cl_khr_fp64 : enable
+  typedef double real_t;
+  typedef ulong  uint_repr_t;
+# define EXP_MASK 2047U
+# define AS_UINT(x) as_ulong(x)
+#else
+  typedef float  real_t;
+  typedef uint   uint_repr_t;
+# define EXP_MASK 255U
+# define AS_UINT(x) as_uint(x)
+#endif
+
 #endif /*OPENCL_COMMON_H*/

@@ -6,7 +6,7 @@
 /* For further information please visit https://dbcsr.cp2k.org                                    */
 /* SPDX-License-Identifier: BSD-3-Clause                                                          */
 /*------------------------------------------------------------------------------------------------*/
-#include "../../../include/opencl/libxsmm_atomics.h"
+#include "../../../include/opencl/libxstream_atomics.h"
 
 #if !defined(AL) || (SM != SN) || (SM != BM) || (SN != SK) || (1 == BS)
 #  define ADX(M, K) adata[IDT(M, K, SM, SK) + a0] /* transposed */
