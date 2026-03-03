@@ -32,6 +32,13 @@
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI)"
 #endif
 
+/* Portable snprintf (C89 lacks snprintf; matches LIBXS_SNPRINTF) */
+#if (defined(__STDC_VERSION__) && 199901L <= __STDC_VERSION__) || defined(__cplusplus)
+# define SNPRINTF(S, N, ...) snprintf(S, N, __VA_ARGS__)
+#else
+# define SNPRINTF(S, N, ...) sprintf((S) + /*unused*/(N) * 0, __VA_ARGS__)
+#endif
+
 
 /* ---- helpers ---- */
 
@@ -177,17 +184,17 @@ static int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
     constant_qual = (NULL != env && 0 != atoi(env)) ? "constant" : "global";
 
     /* Fast-math flags (safe: ozaki kernels use integer slicing) */
-    offset = (size_t)snprintf(build_opts, sizeof(build_opts),
+    offset = (size_t)SNPRINTF(build_opts, sizeof(build_opts),
       "-cl-fast-relaxed-math -cl-denorms-are-zero");
 
     /* GPU flag for sub-group broadcasts */
     if (ctx->gpu) {
-      offset += (size_t)snprintf(build_opts + offset, sizeof(build_opts) - offset,
+      offset += (size_t)SNPRINTF(build_opts + offset, sizeof(build_opts) - offset,
         " -DGPU");
     }
 
     /* Core parameters */
-    offset += (size_t)snprintf(build_opts + offset, sizeof(build_opts) - offset,
+    offset += (size_t)SNPRINTF(build_opts + offset, sizeof(build_opts) - offset,
       " -DCONSTANT=%s -DBM=%d -DBN=%d -DBK=%d -DNSLICES=%d"
       " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
       " -DTRIANGULAR=%d -DSYMMETRIZE=%d -DTRIM=%d"
@@ -200,11 +207,11 @@ static int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
 
     /* Work-group / sub-group hints (like dbm_multiply_opencl.c -DWG= -DSG=) */
     if (0 < wg) {
-      offset += (size_t)snprintf(build_opts + offset, sizeof(build_opts) - offset,
+      offset += (size_t)SNPRINTF(build_opts + offset, sizeof(build_opts) - offset,
         " -DWG=%d", wg);
     }
     if (0 < sg) {
-      offset += (size_t)snprintf(build_opts + offset, sizeof(build_opts) - offset,
+      offset += (size_t)SNPRINTF(build_opts + offset, sizeof(build_opts) - offset,
         " -DSG=%d", sg);
     }
   }
@@ -241,8 +248,8 @@ static int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
     size_t wgs[3] = {0};
     if (CL_SUCCESS == clGetKernelWorkGroupInfo(ctx->kern_dotprod, ctx->device,
           CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL)) {
-      fprintf(stderr, "INFO OZAKI: dotprod compiled WG=%zux%zux%zu\n",
-              wgs[0], wgs[1], wgs[2]);
+      fprintf(stderr, "INFO OZAKI: dotprod compiled WG=%lux%lux%lu\n",
+              (unsigned long)wgs[0], (unsigned long)wgs[1], (unsigned long)wgs[2]);
     }
     fprintf(stderr, "INFO OZAKI: gpu=%d", ctx->gpu);
     ozaki_print_opt(stderr, "fp", use_double ? 64 : 32);
@@ -325,8 +332,9 @@ static int ozaki_gemm(ozaki_context_t* ctx,
       }
 
       /* Launch preprocess_a: one work-group per (row-block, k-sub) */
-      { size_t global_a[2] = { (size_t)nblk_m * BM, (size_t)nkb * BK };
-        size_t local_a[2]  = { BM, BK };
+      { size_t global_a[2], local_a[2];
+        global_a[0] = (size_t)nblk_m * BM; global_a[1] = (size_t)nkb * BK;
+        local_a[0] = BM; local_a[1] = BK;
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 0, sizeof(cl_mem), &d_a));
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 1, sizeof(int), &M));
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 2, sizeof(int), &K));
@@ -341,8 +349,9 @@ static int ozaki_gemm(ozaki_context_t* ctx,
       }
 
       /* Launch preprocess_b: one work-group per (col-block, k-sub) */
-      { size_t global_b[2] = { (size_t)nblk_n * BN, (size_t)nkb * BK };
-        size_t local_b[2]  = { BN, BK };
+      { size_t global_b[2], local_b[2];
+        global_b[0] = (size_t)nblk_n * BN; global_b[1] = (size_t)nkb * BK;
+        local_b[0] = BN; local_b[1] = BK;
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 0, sizeof(cl_mem), &d_b));
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 1, sizeof(int), &N));
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 2, sizeof(int), &K));
@@ -357,10 +366,11 @@ static int ozaki_gemm(ozaki_context_t* ctx,
       }
 
       /* Launch dotprod: one work-group per C tile */
-      { size_t global_c[2] = { (size_t)nblk_m * BM, (size_t)nblk_n * BN };
-        size_t local_c[2]  = { BM, BN };
-        int first_batch = (0 == kb_batch) ? 1 : 0;
+      { int first_batch = (0 == kb_batch) ? 1 : 0;
         cl_int i = 0;
+        size_t global_c[2], local_c[2];
+        global_c[0] = (size_t)nblk_m * BM; global_c[1] = (size_t)nblk_n * BN;
+        local_c[0] = BM; local_c[1] = BN;
         CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(cl_mem), &d_ak));
         CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(cl_mem), &d_expa));
         CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(cl_mem), &d_bk));
