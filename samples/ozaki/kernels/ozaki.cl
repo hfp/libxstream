@@ -133,11 +133,12 @@ kernel void preprocess_a(
   short elem_exp = 0;
   uint_repr_t elem_mant = 0;
   int elem_sign = 0;
+  SINT s;
 
   if (row < M && col < K) {
-    int idx = transa ? (row * lda + col) : (col * lda + row);
-    real_t val = a[idx];
-    uint_repr_t bits = AS_UINT(val);
+    const int idx = transa ? (row * lda + col) : (col * lda + row);
+    const real_t val = a[idx];
+    const uint_repr_t bits = AS_UINT(val);
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
     elem_sign = (int)(bits >> 63);
     elem_exp  = (short)((bits >> 52) & EXP_MASK);
@@ -169,18 +170,17 @@ kernel void preprocess_a(
 
   /* Compute slices: align mantissa relative to row max, then extract 7-bit digits */
   if (row < M && col < K && elem_mant != 0) {
-    short max_exp = (short)row_max_exp[mi];
-    int shift = (int)(max_exp - elem_exp); /* always >= 0 */
-    uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
+    const short max_exp = (short)row_max_exp[mi];
+    const int shift = (int)(max_exp - elem_exp); /* always >= 0 */
+    const uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
 
-    UNROLL_FORCE(NSLICES) for (SINT s = 0; s < NSLICES; ++s) {
-      int high = MANT_BITS - (7 * s);
-      int low  = (high >= 0) ? (high - 6) : 0;
-      if (low < 0) low = 0;
-      int width = high - low + 1;
+    UNROLL_FORCE(NSLICES) for (s = 0; s < NSLICES; ++s) {
+      const int high = MANT_BITS - (7 * s);
+      const int low = MAX(0, high - 6);
+      const int width = high - low + 1;
       char digit;
       if (width > 0 && high >= 0) {
-        uint mask = (1U << width) - 1U;
+        const uint mask = (1U << width) - 1U;
         digit = (char)((aligned >> low) & mask);
       }
       else {
@@ -193,7 +193,7 @@ kernel void preprocess_a(
   }
   else if (row < M && col < K) {
     /* Zero element: write zero slices */
-    UNROLL_FORCE(NSLICES) for (SINT s = 0; s < NSLICES; ++s) {
+    UNROLL_FORCE(NSLICES) for (s = 0; s < NSLICES; ++s) {
       ak[(((long)panel * BM + mi) * NSLICES + s) * BK + kk] = 0;
     }
   }
@@ -235,11 +235,12 @@ kernel void preprocess_b(
   short elem_exp = 0;
   uint_repr_t elem_mant = 0;
   int elem_sign = 0;
+  SINT s;
 
   if (row < K && col < N) {
-    int idx = transb ? (row * ldb + col) : (col * ldb + row);
-    real_t val = b[idx];
-    uint_repr_t bits = AS_UINT(val);
+    const int idx = transb ? (row * ldb + col) : (col * ldb + row);
+    const real_t val = b[idx];
+    const uint_repr_t bits = AS_UINT(val);
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
     elem_sign = (int)(bits >> 63);
     elem_exp  = (short)((bits >> 52) & EXP_MASK);
@@ -267,18 +268,17 @@ kernel void preprocess_b(
   }
 
   if (row < K && col < N && elem_mant != 0) {
-    short max_exp = (short)col_max_exp[nj];
-    int shift = (int)(max_exp - elem_exp);
-    uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
+    const short max_exp = (short)col_max_exp[nj];
+    const int shift = (int)(max_exp - elem_exp);
+    const uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
 
-    UNROLL_FORCE(NSLICES) for (SINT s = 0; s < NSLICES; ++s) {
-      int high = MANT_BITS - (7 * s);
-      int low  = (high >= 0) ? (high - 6) : 0;
-      if (low < 0) low = 0;
-      int width = high - low + 1;
+    UNROLL_FORCE(NSLICES) for (s = 0; s < NSLICES; ++s) {
+      const int high = MANT_BITS - (7 * s);
+      const int low = MAX(0, high - 6);
+      const int width = high - low + 1;
       char digit;
       if (width > 0 && high >= 0) {
-        uint mask = (1U << width) - 1U;
+        const uint mask = (1U << width) - 1U;
         digit = (char)((aligned >> low) & mask);
       }
       else {
@@ -289,7 +289,7 @@ kernel void preprocess_b(
     }
   }
   else if (row < K && col < N) {
-    UNROLL_FORCE(NSLICES) for (SINT s = 0; s < NSLICES; ++s) {
+    UNROLL_FORCE(NSLICES) for (s = 0; s < NSLICES; ++s) {
       bk[(((long)panel * BN + nj) * NSLICES + s) * BK + kk] = 0;
     }
   }
@@ -338,59 +338,56 @@ kernel void dotprod(
 
   const int row = ib_idx * BM + mi;
   const int col = jb_idx * BN + nj;
+  const int cutoff = MAX(0, 2 * (NSLICES - 1) - TRIM);
+  int slice_low_bit[NSLICES];
+  real_t cval;
+  int ki;
+  SINT s, sa, sb, kk;
 
   if (row >= M || col >= N) return;
 
   /* Beta scaling at first batch */
-  real_t cval = c[col * ldc + row];
+  cval = c[col * ldc + row];
   if (first_batch) {
     cval *= beta;
   }
 
   /* Precompute slice low-bit positions */
-  int slice_low_bit[NSLICES];
-  UNROLL_FORCE(NSLICES) for (SINT s = 0; s < NSLICES; ++s) {
-    int high = MANT_BITS - (7 * s);
-    int low  = (high >= 0) ? (high - 6) : 0;
-    slice_low_bit[s] = (low > 0) ? low : 0;
+  UNROLL_FORCE(NSLICES) for (s = 0; s < NSLICES; ++s) {
+    const int high = MANT_BITS - (7 * s);
+    slice_low_bit[s] = MAX(0, high - 6);
   }
 
-  /* Cutoff for diagonal trim */
-  int cutoff = MAX(0, 2 * (NSLICES - 1) - TRIM);
-
   /* Loop over k-sub-panels */
-  UNROLL_OUTER(1) for (int ki = 0; ki < nkb; ++ki) {
-    int a_panel = ki * nblk_m + ib_idx;
-    int b_panel = ki * nblk_n + jb_idx;
-
-    short ea = expa[a_panel * BM + mi];
-    short eb = expb[b_panel * BN + nj];
-    int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
+  UNROLL_OUTER(1) for (ki = 0; ki < nkb; ++ki) {
+    const int a_panel = ki * nblk_m + ib_idx;
+    const int b_panel = ki * nblk_n + jb_idx;
+    const short ea = expa[a_panel * BM + mi];
+    const short eb = expb[b_panel * BN + nj];
+    const int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
+    const long a_base = ((long)a_panel * BM + mi) * NSLICES;
+    const long b_base = ((long)b_panel * BN + nj) * NSLICES;
 
     /* Slice-pair loop with optional triangular + symmetrize */
-    UNROLL_AUTO for (SINT sa = 0; sa < NSLICES && sa <= cutoff; ++sa) {
+    UNROLL_AUTO for (sa = 0; sa < NSLICES && sa <= cutoff; ++sa) {
 #if (1 == TRIANGULAR)
-      SINT sb_start = sa;
+      const SINT sb_start = sa;
 #else
-      SINT sb_start = 0;
+      const SINT sb_start = 0;
 #endif
-      SINT sb_end = MIN(NSLICES, cutoff + 1 - sa);
+      const SINT sb_end = MIN(NSLICES, cutoff + 1 - sa);
 
-      UNROLL_AUTO for (SINT sb = sb_start; sb < sb_end; ++sb) {
-        /* int8 dot product over K dimension */
+      UNROLL_AUTO for (sb = sb_start; sb < sb_end; ++sb) {
         int dot = 0;
-        long a_base = ((long)a_panel * BM + mi) * NSLICES;
-        long b_base = ((long)b_panel * BN + nj) * NSLICES;
 
-        UNROLL(BK) for (SINT kk = 0; kk < BK; ++kk) {
+        UNROLL(BK) for (kk = 0; kk < BK; ++kk) {
           dot += (int)ak[(a_base + sa) * BK + kk]
                * (int)bk[(b_base + sb) * BK + kk];
         }
 
 #if (1 == SYMMETRIZE)
         if (sa != sb) {
-          /* Mirror pair: D(sb, sa) */
-          UNROLL(BK) for (SINT kk = 0; kk < BK; ++kk) {
+          UNROLL(BK) for (kk = 0; kk < BK; ++kk) {
             dot += (int)ak[(a_base + sb) * BK + kk]
                  * (int)bk[(b_base + sa) * BK + kk];
           }
@@ -398,9 +395,8 @@ kernel void dotprod(
 #endif
 
         if (0 != dot) {
-          int shift = base_sh + slice_low_bit[sa] + slice_low_bit[sb];
-          /* ldexp via native: alpha * dot * 2^shift */
-          real_t scale = alpha * pown((real_t)2.0, shift);
+          const int shift = base_sh + slice_low_bit[sa] + slice_low_bit[sb];
+          const real_t scale = alpha * pown((real_t)2.0, shift);
           cval += (real_t)dot * scale;
         }
       }
