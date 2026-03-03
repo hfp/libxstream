@@ -48,4 +48,16 @@ typedef struct ozaki_context_t {
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
 } ozaki_context_t;
 
+
+/* Function prototypes (public API) */
+int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
+               int ozflags, int oztrim);
+void ozaki_destroy(ozaki_context_t* ctx);
+int ozaki_gemm(ozaki_context_t* ctx, void* stream,
+               char transa, char transb,
+               int M, int N, int K,
+               double alpha, const void* a, int lda,
+                             const void* b, int ldb,
+               double beta,        void* c, int ldc);
+
 #endif /* OZAKI_OPENCL_H */

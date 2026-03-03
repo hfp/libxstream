@@ -22,6 +22,7 @@ LIBXSROOT := $(DEPDIR)/../libxs
 
 # necessary include directories
 IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
+IFLAGS += -I$(call quote,$(LIBXSROOT)/samples/ozaki)
 IFLAGS += -I$(call quote,$(DEPDIR)/include)
 IFLAGS += -I$(call quote,$(INCDIR))
 
