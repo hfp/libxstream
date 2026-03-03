@@ -6,7 +6,7 @@
 /* For further information please visit https://dbcsr.cp2k.org                                    */
 /* SPDX-License-Identifier: BSD-3-Clause                                                          */
 /*------------------------------------------------------------------------------------------------*/
-#include "../../common/opencl_common.h"
+#include "../../../include/common/opencl_common.h"
 
 /* Ozaki Scheme 1: mantissa-slicing low-precision GEMM via OpenCL.
  *
