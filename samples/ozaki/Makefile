@@ -17,9 +17,16 @@ OCL = 2
 # include common Makefile artifacts
 include $(DEPDIR)/Makefile.inc
 
+# root directory of LIBXS
+LIBXSROOT := $(DEPDIR)/../libxs
+
 # necessary include directories
-IFLAGS += -I$(call quote,$(INCDIR))
+IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
 IFLAGS += -I$(call quote,$(DEPDIR)/include)
+IFLAGS += -I$(call quote,$(INCDIR))
+
+# ACC/OpenCL backend library (libxstream)
+XSTLIB := $(DEPDIR)/lib/libxstream.$(SLIBEXT)
 
 SCRDIR := $(DEPDIR)/scripts
 KERNEL := $(SRCDIR)/kernels/ozaki.cl
@@ -45,8 +52,8 @@ compile: $(OBJECTS)
 $(GENHDR): $(KERNEL) $(wildcard $(DEPDIR)/include/common/*.h) $(SCRDIR)/acc_opencl.sh Makefile $(DEPDIR)/Makefile.inc
 	$(SCRDIR)/acc_opencl.sh -p "" $(KERNEL) $@
 
-$(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS)
-	$(LD) -o $@ $(OBJECTS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
+$(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XSTLIB)
+	$(LD) -o $@ $(OBJECTS) $(XSTLIB) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
 
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(DEPDIR)/Makefile.inc
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@
