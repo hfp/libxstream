@@ -24,18 +24,24 @@
 #include <string.h>
 #include <libxs_rng.h>
 
+/* BLAS GEMM symbols and prototypes (Fortran calling convention) */
+#define DGEMM LIBXS_FSYMBOL(dgemm)
+#define SGEMM LIBXS_FSYMBOL(sgemm)
+
+
+void DGEMM(const char* transa, const char* transb,
+           const int* m, const int* n, const int* k,
+           const double* alpha, const double* a, const int* lda,
+                                const double* b, const int* ldb,
+           const double* beta,        double* c, const int* ldc);
+void SGEMM(const char* transa, const char* transb,
+           const int* m, const int* n, const int* k,
+           const float* alpha, const float* a, const int* lda,
+                               const float* b, const int* ldb,
+           const float* beta,        float* c, const int* ldc);
 
 /* Function prototypes */
-static void ref_dgemm(char transa, char transb,
-                      int M, int N, int K,
-                      double alpha, const double* a, int lda,
-                                    const double* b, int ldb,
-                      double beta,        double* c, int ldc);
-static void ref_sgemm(char transa, char transb,
-                      int M, int N, int K,
-                      float alpha, const float* a, int lda,
-                                   const float* b, int ldb,
-                      float beta,        float* c, int ldc);
+static void print_diff(FILE* ostream, const libxs_matdiff_info_t* diff);
 
 
 int main(int argc, char* argv[])
@@ -152,26 +158,24 @@ int main(int argc, char* argv[])
   }
   printf("Ozaki GEMM: %.3f ms\n", 1000.0 * libxs_timer_duration(t0, t1));
 
-  /* Reference GEMM */
+  /* Reference BLAS GEMM */
   t0 = libxs_timer_tick();
   if (ctx.use_double) {
-    ref_dgemm(transa, transb, M, N, K, alpha, (const double*)a, lda, (const double*)b, ldb, beta, (double*)c_ref, ldc);
+    DGEMM(&transa, &transb, &M, &N, &K, &alpha, (const double*)a, &lda, (const double*)b, &ldb, &beta, (double*)c_ref, &ldc);
   }
   else {
-    ref_sgemm(transa, transb, M, N, K, (float)alpha, (const float*)a, lda, (const float*)b, ldb, (float)beta, (float*)c_ref, ldc);
+    float falpha = (float)alpha, fbeta = (float)beta;
+    SGEMM(&transa, &transb, &M, &N, &K, &falpha, (const float*)a, &lda, (const float*)b, &ldb, &fbeta, (float*)c_ref, &ldc);
   }
   t1 = libxs_timer_tick();
-  printf("Ref   GEMM: %.3f ms\n", 1000.0 * libxs_timer_duration(t0, t1));
+  printf("BLAS  GEMM: %.3f ms\n", 1000.0 * libxs_timer_duration(t0, t1));
 
   /* Compare */
   { libxs_datatype dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
     result = libxs_matdiff(&diff, dtype, M, N, c_ref, c_oz, &ldc, &ldc);
   }
   if (EXIT_SUCCESS == result) {
-    printf("Max absolute diff: %.6e\n", diff.linf_abs);
-    if (0.0 < diff.normi_abs) {
-      printf("Max relative diff: %.6e\n", diff.linf_rel);
-    }
+    print_diff(stdout, &diff);
   }
 
   c_dbcsr_acc_host_mem_deallocate(a, stream);
@@ -185,47 +189,16 @@ int main(int argc, char* argv[])
 }
 
 
-static void ref_dgemm(char transa, char transb,
-                      int M, int N, int K,
-                      double alpha, const double* a, int lda,
-                                    const double* b, int ldb,
-                      double beta,        double* c, int ldc)
+static void print_diff(FILE* ostream, const libxs_matdiff_info_t* diff)
 {
-  int i, j, p;
-  int ta = (transa != 'N' && transa != 'n');
-  int tb = (transb != 'N' && transb != 'n');
-  for (j = 0; j < N; ++j) {
-    for (i = 0; i < M; ++i) {
-      double sum = 0.0;
-      for (p = 0; p < K; ++p) {
-        double aval = ta ? a[i * lda + p] : a[p * lda + i];
-        double bval = tb ? b[p * ldb + j] : b[j * ldb + p];
-        sum += aval * bval;
-      }
-      c[j * ldc + i] = alpha * sum + beta * c[j * ldc + i];
-    }
+  const double epsilon = libxs_matdiff_epsilon(diff);
+  if (1E-6 <= epsilon) {
+    fprintf(ostream, "GEMM: ncalls=%i linf=%f linf_rel=%f l2_rel=%f eps=%f rsq=%f -> %g != %g\n",
+      diff->r, diff->linf_abs, diff->linf_rel, diff->l2_rel, epsilon, diff->rsq,
+      diff->v_ref, diff->v_tst);
   }
-}
-
-
-static void ref_sgemm(char transa, char transb,
-                      int M, int N, int K,
-                      float alpha, const float* a, int lda,
-                                   const float* b, int ldb,
-                      float beta,        float* c, int ldc)
-{
-  int i, j, p;
-  int ta = (transa != 'N' && transa != 'n');
-  int tb = (transb != 'N' && transb != 'n');
-  for (j = 0; j < N; ++j) {
-    for (i = 0; i < M; ++i) {
-      float sum = 0.0f;
-      for (p = 0; p < K; ++p) {
-        float aval = ta ? a[i * lda + p] : a[p * lda + i];
-        float bval = tb ? b[p * ldb + j] : b[j * ldb + p];
-        sum += aval * bval;
-      }
-      c[j * ldc + i] = alpha * sum + beta * c[j * ldc + i];
-    }
+  else {
+    fprintf(ostream, "GEMM: ncalls=%i linf=%f linf_rel=%f l2_rel=%f eps=%f rsq=%f\n",
+      diff->r, diff->linf_abs, diff->linf_rel, diff->l2_rel, epsilon, diff->rsq);
   }
 }
