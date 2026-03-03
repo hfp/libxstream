@@ -15,7 +15,6 @@
 extern "C" {
 #  endif
 
-
 const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream(libxs_lock_t* lock, int thread_id) {
   const c_dbcsr_acc_opencl_stream_t *result = NULL, *result_main = NULL;
   const size_t n = ACC_OPENCL_MAXNITEMS * c_dbcsr_acc_opencl_config.nthreads;

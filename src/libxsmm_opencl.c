@@ -1833,10 +1833,6 @@ double c_dbcsr_acc_opencl_duration(cl_event event, int* result_code) {
   return result;
 }
 
-
-
-
-
 #  if defined(__cplusplus)
 }
 #  endif
