@@ -195,22 +195,10 @@ $(1): $(2) $(3) $(dir $(1))/.make
 	-$(CC) $(if $(filter 0,$(WERROR)),$(4),$(filter-out $(WERROR_CFLAG),$(4)) $(WERROR_CFLAG)) -c $(2) -o $(1)
 endef
 
-# build rules that include target flags
-ifeq (0,$(CRAY))
 $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
   $(OBJ),$(patsubst %.o,$(ROOTSRC)/%.c,$(notdir $(OBJ))), \
   $(HEADERS_MAIN) $(INCDIR)/$(PROJECT)_version.h, \
-  $(DFLAGS) $(IFLAGS) $(call applyif,1,libxstream_main,$(OBJ),-I$(BLDDIR)) $(CTARGET) $(CFLAGS))))
-else
-$(foreach OBJ,$(filter-out $(BLDDIR)/intel64/libxstream_mhd.o,$(OBJFILES)),$(eval $(call DEFINE_COMPILE_RULE, \
-  $(OBJ),$(patsubst %.o,$(ROOTSRC)/%.c,$(notdir $(OBJ))), \
-  $(HEADERS_MAIN) $(INCDIR)/$(PROJECT)_version.h, \
-  $(DFLAGS) $(IFLAGS) $(call applyif,1,libxstream_main,$(OBJ),-I$(BLDDIR)) $(CTARGET) $(CFLAGS))))
-$(foreach OBJ,$(BLDDIR)/intel64/libxstream_mhd.o,$(eval $(call DEFINE_COMPILE_RULE, \
-  $(OBJ),$(patsubst %.o,$(ROOTSRC)/%.c,$(notdir $(OBJ))), \
-  $(HEADERS_MAIN) $(INCDIR)/$(PROJECT)_version.h, \
-  $(DFLAGS) $(IFLAGS) $(CTARGET) $(patsubst $(OPTFLAGS),$(OPTFLAG1),$(CFLAGS)))))
-endif
+  $(DFLAGS) $(IFLAGS) -I$(BLDDIR)) $(CTARGET) $(CFLAGS)))
 
 .PHONY: libs
 libs: $(OUTDIR)/$(PROJECT)-static.pc $(OUTDIR)/$(PROJECT)-shared.pc

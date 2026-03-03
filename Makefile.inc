@@ -444,27 +444,33 @@ ifneq (,$(filter-out 0,$(OCL) $(CUDA) $(HIP)))
       DFLAGS += -D__OFFLOAD_OPENCL
     endif
     ifeq (Darwin,$(UNAME))
-      LIBS += -framework OpenCL
+      FLDFLAGS += -framework OpenCL
+      LDFLAGS += -framework OpenCL
     else
       ifneq (,$(CUDA_PATH))
         IFLAGS += -I$(CUDA_PATH)/include
-        #LIBS += -L$(CUDA_PATH)/$(CUDA_LDIR)
+        #FLDFLAGS += -L$(CUDA_PATH)/$(CUDA_LDIR)
+        #LDFLAGS += -L$(CUDA_PATH)/$(CUDA_LDIR)
       else ifneq (,$(wildcard $(OPENCL_ROOT)/include/CL/cl.h))
         OPENCL_LDIR := $(if $(wildcard $(OPENCL_ROOT)/lib64),lib64,lib)
-        LIBS += -L$(OPENCL_ROOT)/$(OPENCL_LDIR)
+        FLDFLAGS += -L$(OPENCL_ROOT)/$(OPENCL_LDIR)
+        LDFLAGS += -L$(OPENCL_ROOT)/$(OPENCL_LDIR)
         IFLAGS += -I$(OPENCL_ROOT)/include
       else ifneq (,$(ICXBIN))
         CLINC := $(wildcard $(ICXROOT)/include/CL/cl.h $(ICXROOT)/include/sycl/CL/cl.h $(ICXROOT)/include/sycl/detail/cl.h)
         ifneq (,$(CLINC))
-          LIBS += -L$(ICXROOT)/$(ICXLDIR) -L$(ICXROOT)/compiler/lib/intel64
+          FLDFLAGS += -L$(ICXROOT)/$(ICXLDIR) -L$(ICXROOT)/compiler/lib/intel64
+          LDFLAGS += -L$(ICXROOT)/$(ICXLDIR) -L$(ICXROOT)/compiler/lib/intel64
           IFLAGS += -I$(abspath $(dir $(firstword $(CLINC)))/..)
         endif
       endif
       OCL_ICD_LOADER := $(firstword $(wildcard $(foreach DIR,$(LIBRARY_PATHS) /usr/*/lib,$(DIR)/libOpenCL.so.*)))
       ifneq (,$(OCL_ICD_LOADER))
-        LIBS += $(OCL_ICD_LOADER) $(if $(shell ldd $(OCL_ICD_LOADER) | grep "libintlc"),-lintlc)
-      else
-        LIBS += -l:libOpenCL.so.1
+        FLDFLAGS += $(OCL_ICD_LOADER) $(if $(shell ldd $(OCL_ICD_LOADER) | grep "libintlc"),-lintlc)
+        LDFLAGS += $(OCL_ICD_LOADER) $(if $(shell ldd $(OCL_ICD_LOADER) | grep "libintlc"),-lintlc)
+      else # fallback
+        FLDFLAGS += -l:libOpenCL.so.1
+        LDFLAGS += -l:libOpenCL.so.1
       endif
     endif
     ACCFLAGS += $(CFLAGS)
@@ -477,7 +483,8 @@ ifneq (,$(filter-out 0,$(OCL) $(CUDA) $(HIP)))
       endif
       IFLAGS += -I$(CUDA_PATH)/include
       DFLAGS += -D__CUDA -D__OFFLOAD_CUDA
-      LIBS += -L$(CUDA_PATH)/$(CUDA_LDIR) -lcudart -lcublas -lcufft -lnvrtc -lcuda
+      FLDFLAGS += -L$(CUDA_PATH)/$(CUDA_LDIR) -lcudart -lcublas -lcufft -lnvrtc -lcuda
+      LDFLAGS += -L$(CUDA_PATH)/$(CUDA_LDIR) -lcudart -lcublas -lcufft -lnvrtc -lcuda
       # consider omitting opt-level entirely due to extreme compilation time even when flag targets only the host compiler
       ACCFLAGS := -O$(OPT) $(addprefix -Xcompiler $(NULL),$(filter-out $(DBG_FLAG) -O$(OPT) -Wl%,$(OPTFLAGS))) $(DFLAGS)
       NVCFLAGS := $(ACCFLAGS)
