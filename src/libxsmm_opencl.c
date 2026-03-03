@@ -1666,13 +1666,11 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
     assert(EXIT_SUCCESS != result || NULL != program);
     if (EXIT_SUCCESS == result) {
       ok = c_dbcsr_acc_opencl_kernel_flags(build_params, build_options, try_options, program, buffer, ACC_OPENCL_BUFFERSIZE);
-      if (EXIT_SUCCESS == ok) result = ok;
-      else {
+      if (EXIT_SUCCESS != ok) {
         program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
         assert(EXIT_SUCCESS != result || NULL != program);
         if (EXIT_SUCCESS == result) {
           result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
-          ok = EXIT_FAILURE;
         }
       }
     }
