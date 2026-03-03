@@ -1,28 +1,77 @@
 ﻿---
-AlignAfterOpenBracket: DontAlign
-AlignEscapedNewlines: DontAlign
-AlignTrailingComments: false
-AllowShortCaseLabelsOnASingleLine: true
-#AllowShortIfStatementsOnASingleLine: AllIfsAndElse
-AllowShortLoopsOnASingleLine: true
-BraceWrapping:
-  AfterControlStatement: MultiLine
-  BeforeCatch: true
-  BeforeElse: true
-BreakBeforeBraces: Custom
-ColumnLimit: 132
-ConstructorInitializerIndentWidth: 0
+Language: Cpp
+BasedOnStyle: LLVM
+# ==== Indentation ====
+IndentWidth: 2
 ContinuationIndentWidth: 2
+ConstructorInitializerIndentWidth: 0
 IndentCaseLabels: true
 IndentPPDirectives: AfterHash
-IndentWidth: 2
+IndentWrappedFunctionNames: false
+UseTab: Never
+
+# ==== Column & wrapping ====
+ColumnLimit: 132
+AlignAfterOpenBracket: DontAlign
+AlignEscapedNewlines: DontAlign
+BinPackArguments: true
+BinPackParameters: true
+PenaltyBreakAssignment: 50
+PenaltyBreakBeforeFirstCallParameter: 200
+PenaltyBreakComment: 100
+PenaltyBreakFirstLessLess: 150
+PenaltyBreakString: 200
+PenaltyExcessCharacter: 30
+PenaltyReturnTypeOnItsOwnLine: 300
+
+# ==== Braces (Allman for functions, K&R for control flow) ====
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterControlStatement: MultiLine
+  AfterEnum: false
+  AfterFunction: true
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: true
+  BeforeElse: true
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+
+# ==== Short forms (match existing style) ====
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+
+# ==== Spacing ====
+PointerAlignment: Left
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceInEmptyParentheses: false
+SpacesInCStyleCastParentheses: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# ==== Alignment ====
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignOperands: true
+AlignTrailingComments: false
+
+# ==== Comments ====
+ReflowComments: false
+
+# ==== Includes & sorting ====
+SortIncludes: false
+
+# ==== Misc ====
 KeepEmptyLinesAtTheStartOfBlocks: false
 MaxEmptyLinesToKeep: 2
-PenaltyBreakAssignment: 50
-PointerAlignment: Left
-ReflowComments: false
-SortIncludes: false
-SpaceAfterTemplateKeyword: false
-UseTab: Never
 
 ...
