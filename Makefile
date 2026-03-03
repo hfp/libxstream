@@ -127,7 +127,7 @@ AVX_STATIC ?= $(AVX)
 HEADERS_MAIN := $(ROOTINC)/acc.h
 HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
-SRCFILES := $(patsubst %,$(ROOTSRC)/%,acc_opencl.c acc_opencl_event.c acc_opencl_mem.c acc_opencl_stream.c)
+SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxsmm_opencl.c libxsmm_opencl_event.c libxsmm_opencl_mem.c libxsmm_opencl_stream.c)
 OBJFILES := $(patsubst %,$(BLDDIR)/intel64/%.o,$(basename $(notdir $(SRCFILES))))
 
 # no warning conversion for released versions
