@@ -90,8 +90,9 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   if (0 >= batch_k) batch_k = 4;
   if (0 == ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
-  /* Validate XMX constraints against final block sizes */
-  if (use_xmx && (32 != bk || 0 != (bm % 8) || 0 != (bn % 8))) {
+  /* Validate XMX constraints against final block sizes.
+   * DPAS SG=16: XMX_N=16, so BN must be divisible by 16. */
+  if (use_xmx && (32 != bk || 0 != (bm % 8) || 0 != (bn % 16))) {
     if (0 < verbosity) {
       fprintf(stderr, "INFO OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
               bk, bm, bn);
@@ -115,6 +116,14 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   wg = (NULL != env ? atoi(env) : 0);
   env = getenv("OZAKI_SG");
   sg = (NULL != env ? atoi(env) : (int)devinfo->wgsize[2]);
+
+  /* 2D block I/O and SG=16 DPAS both require sub-group size 16 */
+  if (use_xmx && 16 != sg) {
+    if (0 < verbosity) {
+      fprintf(stderr, "INFO OZAKI: SG forced to 16 for XMX\n");
+    }
+    sg = 16;
+  }
 
   /* Assemble JIT build flags: compiler options and -D defines separately */
   LIBXS_SNPRINTF(build_options, sizeof(build_options),
@@ -228,6 +237,8 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
 {
   const c_dbcsr_acc_opencl_stream_t* str = ACC_OPENCL_STREAM(stream);
   const int BM = ctx->bm, BN = ctx->bn, BK = ctx->bk;
+  /* Pad B column stride to >= 64 for 2D block I/O surface constraints */
+  const int BN_PAD = ctx->use_xmx ? ((BN < 64) ? 64 : BN) : BN;
   const int BATCH_K = ctx->batch_k;
   const int nslices = ctx->nslices;
   const int nblk_m = (M + BM - 1) / BM;
@@ -283,7 +294,7 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
   /* Pre-allocate double-buffered preprocessing buffers (max batch size) */
   { size_t ak_size   = (size_t)max_nkb * nblk_m * BM * nslices * BK;
     size_t expa_size = (size_t)max_nkb * nblk_m * BM * sizeof(cl_short);
-    size_t bk_size   = (size_t)max_nkb * nblk_n * BN * nslices * BK;
+    size_t bk_size   = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK;
     size_t expb_size = (size_t)max_nkb * nblk_n * BN * sizeof(cl_short);
     int s;
     for (s = 0; s < 2 && s < n_batches; ++s) {
@@ -364,8 +375,8 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     { cl_int i = 0;
       size_t global_c[2], local_c[2];
       if (ctx->use_xmx) {
-        const int ntm = BM / 8, ntn = BN / 8;
-        local_c[0] = (size_t)ctx->sg;
+        const int ntm = BM / 8, ntn = BN / 16;  /* XMX_M=8, XMX_N=16 */
+        local_c[0] = (size_t)ctx->sg;  /* SG=16 */
         local_c[1] = (size_t)(ntm * ntn);
         global_c[0] = (size_t)nblk_m * local_c[0];
         global_c[1] = (size_t)nblk_n * local_c[1];

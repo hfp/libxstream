@@ -71,23 +71,30 @@
  * real_t, uint_repr_t, EXP_MASK, and AS_UINT are defined in libxstream_common.h. */
 
 #if defined(USE_XMX) && (0 < USE_XMX)
-# pragma OPENCL EXTENSION cl_intel_subgroup_matrix_multiply_accumulate : enable
-# pragma OPENCL EXTENSION cl_intel_subgroup_2d_block_io : enable
-/* Sub-tile dimensions for the XMX dot-product path */
+/* Extensions are checked at init time; pragma enable is not required
+ * and triggers warnings on some drivers. */
+/*# pragma OPENCL EXTENSION cl_intel_subgroup_matrix_multiply_accumulate : enable*/
+/*# pragma OPENCL EXTENSION cl_intel_subgroup_2d_block_io : enable*/
+/* Sub-tile dimensions for the XMX dot-product path.
+ * DPAS with SG=16: result is XMX_M(8) x XMX_N(16) = 8 x SG.
+ * 2D block I/O requires SG=16, surface width/pitch >= 64 bytes. */
 # define XMX_M 8
-# define XMX_N 8
+# define XMX_N 16
 # define NTM (BM / XMX_M)
 # define NTN (BN / XMX_N)
+/* Pad B column stride to satisfy 2D block I/O 64-byte minimum */
+# define BN_PAD ((BN) < 64 ? 64 : (BN))
 # if (32 != BK)
 #   error "USE_XMX requires BK == 32"
 # endif
 # if (0 != (BM % XMX_M) || 0 != (BN % XMX_N))
-#   error "USE_XMX requires BM/BN divisible by XMX_M/XMX_N (8)"
+#   error "USE_XMX requires BM divisible by XMX_M (8) and BN by XMX_N (16)"
 # endif
 /* B layout for XMX: bk[panel][s][kk][nj]  (K-major for VNNI load).
+ * Rows are padded to BN_PAD >= 64 for 2D block I/O surface constraints.
  * Default layout: bk[panel][nj][s][kk] (N-major for scalar access). */
 # define BK_IDX(panel, nj, s, kk) \
-    ((((long)(panel) * NSLICES + (s)) * BK + (kk)) * BN + (nj))
+    ((((long)(panel) * NSLICES + (s)) * BK + (kk)) * BN_PAD + (nj))
 #else
 # define BK_IDX(panel, nj, s, kk) \
     ((((long)(panel) * BN + (nj)) * NSLICES + (s)) * BK + (kk))
@@ -315,15 +322,30 @@ kernel void preprocess_b(
 /**
  * dotprod (XMX path): hardware matrix multiply-accumulate for int8 slices.
  *
- * Work-group: (SG, NTM * NTN, 1).
- * Each sub-group computes one XMX_M x XMX_N (8x8) sub-tile of the
- * BM x BN output block.  BK must equal 32 for the k32 built-in.
+ * Uses cl_intel_subgroup_matrix_multiply_accumulate (DPAS) with
+ * cl_intel_subgroup_2d_block_io for data movement.  Required SG = 16.
  *
- * A layout: ak[panel][mi][s][kk]  (row of BK contiguous — same as scalar).
- * B layout: bk[panel][s][kk][nj]  (K-major, loaded with VNNI transform).
+ * Each DPAS computes an XMX_M(8) x XMX_N(16) sub-tile of C.
+ * Work-group: (SG, NTM * NTN, 1).
+ * Each sub-group handles one sub-tile; WI sg_lid owns column sg_lid.
+ *
+ * DPAS for SG=16, i8xi8->i32:
+ *   int8 intel_sub_group_i8_i8_matrix_mad_k32(short8 a, int8 b, int8 acc)
+ *   a: short8  (2 bytes/WI * 16 WIs * 8 rows = 8x32 tile)
+ *   b: int8    (4 bytes/WI * 8 components = 32 values per column, 16 cols)
+ *   result: int8 (8 row-values for this WI's column)
+ *
+ * 2D block I/O (cl_intel_subgroup_2d_block_io, SG=16):
+ *   A: intel_sub_group_2d_block_read_8b_8r32x1c      -> ushort[8]
+ *   B: intel_sub_group_2d_block_read_transform_8b_32r16x1c -> uint[8]
+ *   Both use void return + private T* destination.
+ *   Surface width & pitch must be >= 64 bytes (BN_PAD handles B).
+ *
+ * A layout: ak[panel][mi][s][kk]  (row of BK contiguous).
+ * B layout: bk[panel][s][kk][nj]  (K-major, padded to BN_PAD >= 64).
  *
  * Driver must dispatch with:
- *   local  = { SG, NTM * NTN, 1 }
+ *   local  = { SG(=16), NTM * NTN, 1 }
  *   global = { nblk_m * SG, nblk_n * NTM * NTN, 1 }
  */
 __attribute__((reqd_work_group_size(SG, NTM * NTN, 1)))
@@ -347,13 +369,13 @@ kernel void dotprod(
   const int tile_n  = sg_id % NTN;
   const int mi_base = tile_m * XMX_M;
   const int nj_base = tile_n * XMX_N;
-  const int row     = ib_idx * BM + mi_base + sg_lid;
+  /* Each WI owns one column (sg_lid); DPAS result has XMX_M row values */
+  const int col     = jb_idx * BN + nj_base + sg_lid;
   const int cutoff  = MAX(0, 2 * (NSLICES - 1) - TRIM);
-  const int a_stride = NSLICES * BK;           /* row stride in ak panel */
+  const int a_stride = NSLICES * BK;
   int slice_low_bit[NSLICES];
-  real_t cval[XMX_N];
-  union { int8 v; int a[XMX_N]; } dot_u;       /* MAD result accessor */
-  int ki, j;
+  real_t cval[XMX_M];
+  int ki, m;
   SINT s, sa, sb;
 
   /* Precompute slice low-bit positions */
@@ -362,18 +384,16 @@ kernel void dotprod(
     slice_low_bit[s] = MAX(0, high - 6);
   }
 
-  /* Guard: skip out-of-bounds rows (all lanes in sub-group are uniform) */
-  if (row >= M) return;
-
-  /* Beta scaling at first batch */
-  UNROLL_FORCE(XMX_N) for (j = 0; j < XMX_N; ++j) {
-    const int col_j = jb_idx * BN + nj_base + j;
-    if (col_j < N) {
-      cval[j] = c[col_j * ldc + row];
-      if (first_batch) cval[j] *= beta;
+  /* Load C: XMX_M row values for this WI's column.
+   * All WIs must participate in DPAS; bounds checked per-element. */
+  UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+    const int row_m = ib_idx * BM + mi_base + m;
+    if (row_m < M && col < N) {
+      cval[m] = c[col * ldc + row_m];
+      if (first_batch) cval[m] *= beta;
     }
     else {
-      cval[j] = (real_t)0;
+      cval[m] = (real_t)0;
     }
   }
 
@@ -381,11 +401,12 @@ kernel void dotprod(
   for (ki = 0; ki < nkb; ++ki) {
     const int a_panel = ki * nblk_m + ib_idx;
     const int b_panel = ki * nblk_n + jb_idx;
-    const short ea = expa[a_panel * BM + mi_base + sg_lid];
-    /* Per-column B exponents for the XMX_N output columns */
-    short eb[XMX_N];
-    UNROLL_FORCE(XMX_N) for (j = 0; j < XMX_N; ++j) {
-      eb[j] = expb[b_panel * BN + nj_base + j];
+    /* Per-row A exponents for the XMX_M rows of this sub-tile */
+    short ea[XMX_M];
+    /* Per-column B exponent for this WI's column */
+    const short eb_val = expb[b_panel * BN + nj_base + sg_lid];
+    UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+      ea[m] = expa[a_panel * BM + mi_base + m];
     }
 
     /* Slice-pair loop */
@@ -398,65 +419,68 @@ kernel void dotprod(
       const SINT sb_end = MIN(NSLICES, cutoff + 1 - sa);
 
       for (sb = sb_start; sb < sb_end; ++sb) {
-        int8 a_tile, b_tile;
+        ushort8 a_raw; uint8 b_raw;
+        int8 dot;
+        union { int8 v; int a[8]; } dot_u;
 
-        /* Load A tile [XMX_M x BK]: WI sg_lid loads its row from ak.
-         * Source: ak[a_panel][mi_base+sg_lid][sa][0..BK-1]
-         * 2D surface: width = a_stride, height = BM, pitch = a_stride.
-         * Coord: (sa * BK, mi_base). Reads XMX_M rows x BK(=32) cols. */
-        a_tile = as_int8(intel_sub_group_2d_block_read_8b_8r32c(
-            (long)(ak + (long)a_panel * BM * a_stride),
+        /* Load A tile [8 x 32]: 8 rows x BK cols of int8 slices.
+         * 2D surface over ak[a_panel]: width=a_stride, height=BM.
+         * Returns ushort8 (SG=16: 2 bytes/WI x 8 rows). */
+        intel_sub_group_2d_block_read_8b_8r32x1c(
+            (global void*)(ak + (long)a_panel * BM * a_stride),
             a_stride - 1, BM - 1, a_stride - 1,
-            (int2)(sa * BK, mi_base)));
+            (int2)(sa * BK, mi_base), (private ushort*)&a_raw);
 
-        /* Load B tile [BK x XMX_N] with VNNI transform from bk.
-         * B layout: bk[b_panel][sb][kk][nj] — a BK x BN plane.
-         * 2D surface: width = BN, height = BK, pitch = BN.
-         * Coord: (nj_base, 0). Reads BK(=32) rows x XMX_N(=8) cols. */
-        b_tile = as_int8(intel_sub_group_2d_block_read_transform_8b_32r8c(
-            (long)(bk + ((long)b_panel * NSLICES + sb) * BK * BN),
-            BN - 1, BK - 1, BN - 1,
-            (int2)(nj_base, 0)));
+        /* Load B tile [32 x 16] with VNNI transform.
+         * 2D surface over bk[b_panel][sb]: width=BN_PAD, height=BK.
+         * Returns uint8 (VNNI-packed for DPAS consumption). */
+        intel_sub_group_2d_block_read_transform_8b_32r16x1c(
+            (global void*)(bk + ((long)b_panel * NSLICES + sb) * BK * BN_PAD),
+            BN_PAD - 1, BK - 1, BN_PAD - 1,
+            (int2)(nj_base, 0), (private uint*)&b_raw);
 
-        /* D[8x8] = A[8x32] * B[32x8] */
-        dot_u.v = intel_sub_group_i8_i8_matrix_mad_k32(
-                      a_tile, b_tile, (int8)(0));
+        /* DPAS: C[8x16] += A[8x32] * B[32x16] */
+        dot = intel_sub_group_i8_i8_matrix_mad_k32(
+                  as_short8(a_raw), as_int8(b_raw), (int8)(0));
 
 #if (1 == SYMMETRIZE)
         if (sa != sb) {
-          int8 a_mir, b_mir;
+          ushort8 a_mir; uint8 b_mir;
           /* Mirror: swap slice indices (sb for A, sa for B) */
-          a_mir = as_int8(intel_sub_group_2d_block_read_8b_8r32c(
-              (long)(ak + (long)a_panel * BM * a_stride),
+          intel_sub_group_2d_block_read_8b_8r32x1c(
+              (global void*)(ak + (long)a_panel * BM * a_stride),
               a_stride - 1, BM - 1, a_stride - 1,
-              (int2)(sb * BK, mi_base)));
-          b_mir = as_int8(intel_sub_group_2d_block_read_transform_8b_32r8c(
-              (long)(bk + ((long)b_panel * NSLICES + sa) * BK * BN),
-              BN - 1, BK - 1, BN - 1,
-              (int2)(nj_base, 0)));
-          dot_u.v = intel_sub_group_i8_i8_matrix_mad_k32(
-                        a_mir, b_mir, dot_u.v);
+              (int2)(sb * BK, mi_base), (private ushort*)&a_mir);
+          intel_sub_group_2d_block_read_transform_8b_32r16x1c(
+              (global void*)(bk + ((long)b_panel * NSLICES + sa) * BK * BN_PAD),
+              BN_PAD - 1, BK - 1, BN_PAD - 1,
+              (int2)(nj_base, 0), (private uint*)&b_mir);
+          dot = intel_sub_group_i8_i8_matrix_mad_k32(
+                    as_short8(a_mir), as_int8(b_mir), dot);
         }
 #endif
 
-        /* Scale int32 dot products and accumulate into cval */
-        UNROLL_FORCE(XMX_N) for (j = 0; j < XMX_N; ++j) {
-          if (0 != dot_u.a[j]) {
-            const int base_sh = (int)ea + (int)eb[j] - (2 * BIAS_PLUS_MANT);
+        /* Scale int32 dot products and accumulate into cval.
+         * ea[] is per-row, eb_val is per-column (this WI). */
+        dot_u.v = dot;
+        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+          if (0 != dot_u.a[m]) {
+            const int base_sh = (int)ea[m] + (int)eb_val
+                                - (2 * BIAS_PLUS_MANT);
             const int shift = base_sh + slice_low_bit[sa] + slice_low_bit[sb];
             const real_t scale = alpha * pown((real_t)2.0, shift);
-            cval[j] += (real_t)dot_u.a[j] * scale;
+            cval[m] += (real_t)dot_u.a[m] * scale;
           }
         }
       }
     }
   }
 
-  /* Write results to C */
-  UNROLL_FORCE(XMX_N) for (j = 0; j < XMX_N; ++j) {
-    const int col_j = jb_idx * BN + nj_base + j;
-    if (col_j < N) {
-      c[col_j * ldc + row] = cval[j];
+  /* Write results: XMX_M rows of this WI's column */
+  UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+    const int row_m = ib_idx * BM + mi_base + m;
+    if (row_m < M && col < N) {
+      c[col * ldc + row_m] = cval[m];
     }
   }
 }
