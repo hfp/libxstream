@@ -233,13 +233,36 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
   const int nblk_m = (M + BM - 1) / BM;
   const int nblk_n = (N + BN - 1) / BN;
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
+  const int nkb_total = (K + BK - 1) / BK;
+  const int max_nkb = (BATCH_K < nkb_total) ? BATCH_K : nkb_total;
+  const int n_batches = (0 < K) ? ((nkb_total + BATCH_K - 1) / BATCH_K) : 0;
+  /* Device buffers for input matrices */
   void *d_a = NULL, *d_b = NULL, *d_c = NULL;
+  /* Double-buffered preprocessing buffers (2 slots) */
+  void *d_ak[2] = {NULL, NULL}, *d_expa[2] = {NULL, NULL};
+  void *d_bk[2] = {NULL, NULL}, *d_expb[2] = {NULL, NULL};
+  /* Helper streams: preprocess_a on stream_a, preprocess_b on stream_b */
+  void *stream_a = NULL, *stream_b = NULL;
+  /* Synchronization events */
+  void *evt_prep_a = NULL, *evt_prep_b = NULL;
+  void *evt_dotprod[2] = {NULL, NULL};
   size_t c_nbytes;
   int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
   int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
+  int batch;
 
-  /* Allocate device memory and transfer A, B, C */
+  /* Create helper streams for overlapped preprocessing */
+  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_create(&stream_a, "ozaki_a", -1);
+  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_create(&stream_b, "ozaki_b", -1);
+  /* Create synchronization events */
+  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_create(&evt_prep_a);
+  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_create(&evt_prep_b);
+  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_create(&evt_dotprod[0]);
+  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_create(&evt_dotprod[1]);
+  if (EXIT_SUCCESS != result) goto cleanup;
+
+  /* Allocate device memory for A, B, C */
   { size_t a_cols = ta ? (size_t)M : (size_t)K;
     size_t b_cols = tb ? (size_t)K : (size_t)N;
     size_t a_nbytes = (size_t)lda * a_cols * elem_size;
@@ -249,124 +272,166 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_a, a_nbytes);
     if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_b, b_nbytes);
     if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_c, c_nbytes);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_memcpy_h2d(a, d_a, a_nbytes, stream);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_memcpy_h2d(b, d_b, b_nbytes, stream);
+    if (EXIT_SUCCESS != result) goto cleanup;
+    /* Overlapped H2D: A via stream_a, B via stream_b, C via main */
+    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_memcpy_h2d(a, d_a, a_nbytes, stream_a);
+    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_memcpy_h2d(b, d_b, b_nbytes, stream_b);
     if (EXIT_SUCCESS == result) result = c_dbcsr_acc_memcpy_h2d(c, d_c, c_nbytes, stream);
-    if (EXIT_SUCCESS != result) return EXIT_FAILURE;
+    if (EXIT_SUCCESS != result) goto cleanup;
   }
 
-  /* Process K in batches of BATCH_K * BK */
-  { int kb_batch;
-    for (kb_batch = 0; kb_batch < K; kb_batch += BATCH_K * BK) {
-      int batch_end = (kb_batch + BATCH_K * BK < K) ? (kb_batch + BATCH_K * BK) : K;
-      int nkb = (batch_end - kb_batch + BK - 1) / BK;
-      void *d_ak = NULL, *d_expa = NULL, *d_bk = NULL, *d_expb = NULL;
-
-      /* Allocate preprocessing buffers for this batch */
-      { size_t ak_size = (size_t)nkb * nblk_m * BM * nslices * BK;
-        size_t expa_size = (size_t)nkb * nblk_m * BM * sizeof(cl_short);
-        size_t bk_size = (size_t)nkb * nblk_n * BN * nslices * BK;
-        size_t expb_size = (size_t)nkb * nblk_n * BN * sizeof(cl_short);
-
-        if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_ak, ak_size);
-        if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expa, expa_size);
-        if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_bk, bk_size);
-        if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expb, expb_size);
-        if (EXIT_SUCCESS != result) return EXIT_FAILURE;
-      }
-
-      /* Launch preprocess_a: one work-group per (row-block, k-sub) */
-      { size_t global_a[2], local_a[2];
-        global_a[0] = (size_t)nblk_m * BM; global_a[1] = (size_t)nkb * BK;
-        local_a[0] = BM; local_a[1] = BK;
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 0, d_a));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 1, sizeof(int), &M));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 2, sizeof(int), &K));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 3, sizeof(int), &lda));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 4, sizeof(int), &ta));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 5, sizeof(int), &kb_batch));
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 6, d_ak));
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 7, d_expa));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 8, sizeof(int), &nblk_m));
-        CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_preprocess_a, 2,
-                   NULL, global_a, local_a, 0, NULL, NULL));
-      }
-
-      /* Launch preprocess_b: one work-group per (col-block, k-sub) */
-      { size_t global_b[2], local_b[2];
-        global_b[0] = (size_t)nblk_n * BN; global_b[1] = (size_t)nkb * BK;
-        local_b[0] = BN; local_b[1] = BK;
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 0, d_b));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 1, sizeof(int), &N));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 2, sizeof(int), &K));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 3, sizeof(int), &ldb));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 4, sizeof(int), &tb));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 5, sizeof(int), &kb_batch));
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 6, d_bk));
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 7, d_expb));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 8, sizeof(int), &nblk_n));
-        CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_preprocess_b, 2,
-                   NULL, global_b, local_b, 0, NULL, NULL));
-      }
-
-      /* Launch dotprod: one work-group per C tile */
-      { int first_batch = (0 == kb_batch) ? 1 : 0;
-        cl_int i = 0;
-        size_t global_c[2], local_c[2];
-        if (ctx->use_xmx) {
-          const int ntm = BM / 8, ntn = BN / 8;
-          local_c[0] = (size_t)ctx->sg;
-          local_c[1] = (size_t)(ntm * ntn);
-          global_c[0] = (size_t)nblk_m * local_c[0];
-          global_c[1] = (size_t)nblk_n * local_c[1];
-        }
-        else {
-          local_c[0] = BM; local_c[1] = BN;
-          global_c[0] = (size_t)nblk_m * BM;
-          global_c[1] = (size_t)nblk_n * BN;
-        }
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak));
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa));
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk));
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb));
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
-        if (ctx->use_double) {
-          double dalpha = alpha, dbeta = beta;
-          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
-          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
-        }
-        else {
-          float falpha = (float)alpha, fbeta = (float)beta;
-          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
-          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
-        }
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
-        CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
-                   NULL, global_c, local_c, 0, NULL, NULL));
-      }
-
-      /* Sync and deallocate batch buffers */
-      c_dbcsr_acc_stream_sync(stream);
-      c_dbcsr_acc_dev_mem_deallocate(d_ak);
-      c_dbcsr_acc_dev_mem_deallocate(d_expa);
-      c_dbcsr_acc_dev_mem_deallocate(d_bk);
-      c_dbcsr_acc_dev_mem_deallocate(d_expb);
+  /* Pre-allocate double-buffered preprocessing buffers (max batch size) */
+  { size_t ak_size   = (size_t)max_nkb * nblk_m * BM * nslices * BK;
+    size_t expa_size = (size_t)max_nkb * nblk_m * BM * sizeof(cl_short);
+    size_t bk_size   = (size_t)max_nkb * nblk_n * BN * nslices * BK;
+    size_t expb_size = (size_t)max_nkb * nblk_n * BN * sizeof(cl_short);
+    int s;
+    for (s = 0; s < 2 && s < n_batches; ++s) {
+      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_ak[s], ak_size);
+      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expa[s], expa_size);
+      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_bk[s], bk_size);
+      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expb[s], expb_size);
     }
+    if (EXIT_SUCCESS != result) goto cleanup;
+  }
+
+  /* Double-buffered K-batch pipeline:
+   *   stream_a  : preprocess_a  (parallel with preprocess_b)
+   *   stream_b  : preprocess_b  (parallel with preprocess_a)
+   *   stream    : dotprod + C transfers
+   * Batch N dotprod overlaps with batch N+1 preprocessing. */
+  for (batch = 0; batch < n_batches; ++batch) {
+    const int cur = batch & 1;
+    const int kb_batch = batch * BATCH_K * BK;
+    const int batch_end = (kb_batch + BATCH_K * BK < K) ? (kb_batch + BATCH_K * BK) : K;
+    const int nkb = (batch_end - kb_batch + BK - 1) / BK;
+    const int first_batch = (0 == batch) ? 1 : 0;
+
+    /* Ensure the dotprod that last used this buffer slot is done */
+    if (2 <= batch) {
+      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_wait_event(stream_a, evt_dotprod[cur]);
+      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_wait_event(stream_b, evt_dotprod[cur]);
+      if (EXIT_SUCCESS != result) goto cleanup;
+    }
+
+    /* Launch preprocess_a on stream_a */
+    { const c_dbcsr_acc_opencl_stream_t* str_a = ACC_OPENCL_STREAM(stream_a);
+      size_t global_a[2], local_a[2];
+      global_a[0] = (size_t)nblk_m * BM; global_a[1] = (size_t)nkb * BK;
+      local_a[0] = BM; local_a[1] = BK;
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 0, d_a));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 1, sizeof(int), &M));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 2, sizeof(int), &K));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 3, sizeof(int), &lda));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 4, sizeof(int), &ta));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 5, sizeof(int), &kb_batch));
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 6, d_ak[cur]));
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 7, d_expa[cur]));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 8, sizeof(int), &nblk_m));
+      CL_CHECK(clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
+                 NULL, global_a, local_a, 0, NULL, NULL));
+    }
+
+    /* Launch preprocess_b on stream_b (parallel with preprocess_a) */
+    { const c_dbcsr_acc_opencl_stream_t* str_b = ACC_OPENCL_STREAM(stream_b);
+      size_t global_b[2], local_b[2];
+      global_b[0] = (size_t)nblk_n * BN; global_b[1] = (size_t)nkb * BK;
+      local_b[0] = BN; local_b[1] = BK;
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 0, d_b));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 1, sizeof(int), &N));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 2, sizeof(int), &K));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 3, sizeof(int), &ldb));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 4, sizeof(int), &tb));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 5, sizeof(int), &kb_batch));
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 6, d_bk[cur]));
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 7, d_expb[cur]));
+      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 8, sizeof(int), &nblk_n));
+      CL_CHECK(clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
+                 NULL, global_b, local_b, 0, NULL, NULL));
+    }
+
+    /* Record preprocess completion events */
+    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_record(evt_prep_a, stream_a);
+    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_record(evt_prep_b, stream_b);
+    if (EXIT_SUCCESS != result) goto cleanup;
+
+    /* Main stream waits for both preprocess results */
+    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_wait_event(stream, evt_prep_a);
+    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_wait_event(stream, evt_prep_b);
+    if (EXIT_SUCCESS != result) goto cleanup;
+
+    /* Launch dotprod on main stream */
+    { cl_int i = 0;
+      size_t global_c[2], local_c[2];
+      if (ctx->use_xmx) {
+        const int ntm = BM / 8, ntn = BN / 8;
+        local_c[0] = (size_t)ctx->sg;
+        local_c[1] = (size_t)(ntm * ntn);
+        global_c[0] = (size_t)nblk_m * local_c[0];
+        global_c[1] = (size_t)nblk_n * local_c[1];
+      }
+      else {
+        local_c[0] = BM; local_c[1] = BN;
+        global_c[0] = (size_t)nblk_m * BM;
+        global_c[1] = (size_t)nblk_n * BN;
+      }
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
+      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
+      if (ctx->use_double) {
+        double dalpha = alpha, dbeta = beta;
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
+      }
+      else {
+        float falpha = (float)alpha, fbeta = (float)beta;
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
+      }
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
+      CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
+                 NULL, global_c, local_c, 0, NULL, NULL));
+    }
+
+    /* Record dotprod completion for this buffer slot */
+    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_record(evt_dotprod[cur], stream);
+    if (EXIT_SUCCESS != result) goto cleanup;
   }
 
   /* Read back result C */
   result = c_dbcsr_acc_memcpy_d2h(d_c, c, c_nbytes, stream);
   if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_sync(stream);
 
-  c_dbcsr_acc_dev_mem_deallocate(d_a);
-  c_dbcsr_acc_dev_mem_deallocate(d_b);
-  c_dbcsr_acc_dev_mem_deallocate(d_c);
+cleanup:
+  /* Destroy double-buffered preprocessing buffers */
+  { int s;
+    for (s = 0; s < 2; ++s) {
+      if (NULL != d_ak[s]) c_dbcsr_acc_dev_mem_deallocate(d_ak[s]);
+      if (NULL != d_expa[s]) c_dbcsr_acc_dev_mem_deallocate(d_expa[s]);
+      if (NULL != d_bk[s]) c_dbcsr_acc_dev_mem_deallocate(d_bk[s]);
+      if (NULL != d_expb[s]) c_dbcsr_acc_dev_mem_deallocate(d_expb[s]);
+    }
+  }
+  /* Destroy synchronization events */
+  if (NULL != evt_prep_a) c_dbcsr_acc_event_destroy(evt_prep_a);
+  if (NULL != evt_prep_b) c_dbcsr_acc_event_destroy(evt_prep_b);
+  if (NULL != evt_dotprod[0]) c_dbcsr_acc_event_destroy(evt_dotprod[0]);
+  if (NULL != evt_dotprod[1]) c_dbcsr_acc_event_destroy(evt_dotprod[1]);
+  /* Destroy helper streams */
+  if (NULL != stream_a) c_dbcsr_acc_stream_destroy(stream_a);
+  if (NULL != stream_b) c_dbcsr_acc_stream_destroy(stream_b);
+  /* Deallocate input/output matrices */
+  if (NULL != d_a) c_dbcsr_acc_dev_mem_deallocate(d_a);
+  if (NULL != d_b) c_dbcsr_acc_dev_mem_deallocate(d_b);
+  if (NULL != d_c) c_dbcsr_acc_dev_mem_deallocate(d_c);
 
   return result;
 }
