@@ -26,14 +26,6 @@
 /* Embedded kernel source (generated at build time via acc_opencl.sh) */
 #include "ozaki_kernels.h"
 
-#if !defined(OPENCL_KERNELS_SOURCE_OZAKI)
-# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI)"
-#endif
-
-
-/* Forward declaration (needed by CL_CHECK macro) */
-static const char* cl_strerror(cl_int err);
-
 #define CL_CHECK(CALL) do { \
   cl_int _err = (CALL); \
   if (CL_SUCCESS != _err) { \
@@ -42,8 +34,13 @@ static const char* cl_strerror(cl_int err);
   } \
 } while (0)
 
+#if !defined(OPENCL_KERNELS_SOURCE_OZAKI)
+# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI)"
+#endif
+
 
 /* Function prototypes */
+static const char* cl_strerror(cl_int err);
 static void ozaki_print_opt(FILE* stream, const char* name, int val);
 static int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
                       int ozflags, int oztrim);
