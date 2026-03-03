@@ -43,7 +43,7 @@ int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
   char build_params[1024];
   size_t offset;
   const char* env;
-  int verbosity, wg, sg, gpu, result;
+  int verbosity, wg, sg, gpu, use_xmx, result;
 
   /* Verbosity from environment */
   env = getenv("OZAKI_VERBOSE");
@@ -71,7 +71,29 @@ int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
   ctx->oztrim  = oztrim;
   ctx->verbosity = verbosity;
 
-
+  /* Detect hardware matrix multiply support */
+  { const char* const xmx_exts[] = {
+      "cl_intel_subgroup_matrix_multiply_accumulate",
+      "cl_intel_subgroup_2d_block_io"
+    };
+    env = getenv("OZAKI_XMX");
+    if (NULL != env) {
+      use_xmx = atoi(env);
+    }
+    else {
+      use_xmx = (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(
+                   device, xmx_exts, 2)) ? 1 : 0;
+    }
+    /* XMX requires BK==32 and BM/BN divisible by 8 */
+    if (use_xmx && (32 != OZAKI_BK || 0 != (OZAKI_BM % 8) || 0 != (OZAKI_BN % 8))) {
+      if (0 < verbosity) {
+        fprintf(stderr, "INFO OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
+                OZAKI_BK, OZAKI_BM, OZAKI_BN);
+      }
+      use_xmx = 0;
+    }
+  }
+  ctx->use_xmx = use_xmx;
 
   /* Environment-driven tuning */
   env = getenv("OZAKI_WG");
@@ -115,7 +137,12 @@ int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
       offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
         " -DSG=%d", sg);
     }
+    if (use_xmx) {
+      offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
+        " -DUSE_XMX=1");
+    }
   }
+  ctx->sg = sg;
 
   if (0 < verbosity) {
     fprintf(stderr, "INFO OZAKI: build params: %s\n", build_params);
@@ -157,6 +184,7 @@ int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
     }
     fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
     ozaki_print_opt(stderr, "fp", use_double ? 64 : 32);
+    ozaki_print_opt(stderr, "xmx", use_xmx);
     ozaki_print_opt(stderr, "wg", wg);
     ozaki_print_opt(stderr, "sg", sg);
     ozaki_print_opt(stderr, "nslices", nslices);
@@ -270,8 +298,18 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
       { int first_batch = (0 == kb_batch) ? 1 : 0;
         cl_int i = 0;
         size_t global_c[2], local_c[2];
-        global_c[0] = (size_t)nblk_m * BM; global_c[1] = (size_t)nblk_n * BN;
-        local_c[0] = BM; local_c[1] = BN;
+        if (ctx->use_xmx) {
+          const int ntm = BM / 8, ntn = BN / 8;
+          local_c[0] = (size_t)ctx->sg;
+          local_c[1] = (size_t)(ntm * ntn);
+          global_c[0] = (size_t)nblk_m * local_c[0];
+          global_c[1] = (size_t)nblk_n * local_c[1];
+        }
+        else {
+          local_c[0] = BM; local_c[1] = BN;
+          global_c[0] = (size_t)nblk_m * BM;
+          global_c[1] = (size_t)nblk_n * BN;
+        }
         CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak));
         CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa));
         CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk));

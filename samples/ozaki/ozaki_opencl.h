@@ -42,6 +42,8 @@ typedef struct ozaki_context_t {
   cl_kernel kern_preprocess_b;
   cl_kernel kern_dotprod;
   int use_double;  /* 1: fp64, 0: fp32 */
+  int use_xmx;     /* 1: hardware matrix multiply (DPAS/XMX) */
+  int sg;          /* sub-group size used for compilation */
   int nslices;
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim;
