@@ -34,7 +34,8 @@ static const char* cl_strerror(cl_int err);
 static void ozaki_print_opt(FILE* stream, const char* name, int val);
 
 
-int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
+int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
+               int use_double, int nslices, int batch_k,
                int ozflags, int oztrim)
 {
   const c_dbcsr_acc_opencl_device_t* devinfo = &c_dbcsr_acc_opencl_config.device;
@@ -65,13 +66,7 @@ int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
     }
   }
 
-  ctx->use_double = use_double;
-  ctx->nslices = nslices;
-  ctx->ozflags = ozflags;
-  ctx->oztrim  = oztrim;
-  ctx->verbosity = verbosity;
-
-  /* Detect hardware matrix multiply support */
+  /* Detect hardware matrix multiply support (before choosing defaults) */
   { const char* const xmx_exts[] = {
       "cl_intel_subgroup_matrix_multiply_accumulate",
       "cl_intel_subgroup_2d_block_io"
@@ -84,16 +79,36 @@ int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
       use_xmx = (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(
                    device, xmx_exts, 2)) ? 1 : 0;
     }
-    /* XMX requires BK==32 and BM/BN divisible by 8 */
-    if (use_xmx && (32 != OZAKI_BK || 0 != (OZAKI_BM % 8) || 0 != (OZAKI_BN % 8))) {
-      if (0 < verbosity) {
-        fprintf(stderr, "INFO OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
-                OZAKI_BK, OZAKI_BM, OZAKI_BN);
-      }
-      use_xmx = 0;
-    }
   }
+
+  /* Choose smart defaults: XMX-friendly when hardware is available.
+   * XMX requires BK==32 and BM/BN divisible by 8. */
+  if (0 >= bm) bm = 16;
+  if (0 >= bn) bn = 16;
+  if (0 >= bk) bk = use_xmx ? 32 : 16;
+  if (0 >= nslices) nslices = 8;
+  if (0 >= batch_k) batch_k = 4;
+  if (0 == ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
+
+  /* Validate XMX constraints against final block sizes */
+  if (use_xmx && (32 != bk || 0 != (bm % 8) || 0 != (bn % 8))) {
+    if (0 < verbosity) {
+      fprintf(stderr, "INFO OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
+              bk, bm, bn);
+    }
+    use_xmx = 0;
+  }
+
+  ctx->bm = bm;
+  ctx->bn = bn;
+  ctx->bk = bk;
+  ctx->batch_k = batch_k;
+  ctx->use_double = use_double;
   ctx->use_xmx = use_xmx;
+  ctx->nslices = nslices;
+  ctx->ozflags = ozflags;
+  ctx->oztrim  = oztrim;
+  ctx->verbosity = verbosity;
 
   /* Environment-driven tuning */
   env = getenv("OZAKI_WG");
@@ -123,7 +138,7 @@ int ozaki_init(ozaki_context_t* ctx, int use_double, int nslices,
       " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
       " -DTRIANGULAR=%d -DSYMMETRIZE=%d -DTRIM=%d"
       " -DUSE_DOUBLE=%d",
-      constant_qual, OZAKI_BM, OZAKI_BN, OZAKI_BK, nslices,
+      constant_qual, bm, bn, bk, nslices,
       mant_bits, bias_plus_mant,
       (ozflags & OZAKI_TRIANGULAR) ? 1 : 0,
       (ozflags & OZAKI_SYMMETRIZE) ? 1 : 0,
@@ -212,8 +227,8 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
                double beta,        void* c, int ldc)
 {
   const c_dbcsr_acc_opencl_stream_t* str = ACC_OPENCL_STREAM(stream);
-  const int BM = OZAKI_BM, BN = OZAKI_BN, BK = OZAKI_BK;
-  const int BATCH_K = OZAKI_BATCH_K;
+  const int BM = ctx->bm, BN = ctx->bn, BK = ctx->bk;
+  const int BATCH_K = ctx->batch_k;
   const int nslices = ctx->nslices;
   const int nblk_m = (M + BM - 1) / BM;
   const int nblk_n = (N + BN - 1) / BN;

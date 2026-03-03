@@ -94,8 +94,8 @@ int main(int argc, char* argv[])
 
   /* Initialize Ozaki context (kernels) */
   LIBXS_MEMZERO(&ctx);
-  result = ozaki_init(&ctx, 1 /*use_double*/, OZAKI_NSLICES,
-    OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE, 0 /*oztrim*/);
+  result = ozaki_init(&ctx, 0, 0, 0, 1 /*use_double*/, 0, 0,
+    0 /*ozflags=auto*/, 0 /*oztrim*/);
   if (EXIT_SUCCESS != result) {
     fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
     c_dbcsr_acc_finalize();
