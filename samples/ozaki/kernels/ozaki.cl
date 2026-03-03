@@ -127,7 +127,7 @@ kernel void preprocess_a(
   const int panel = ki * nblk_m + ib_idx;
 
   /* Local memory for per-row max exponent reduction */
-  local short row_max_exp[BM];
+  local int row_max_exp[BM];
 
   /* Extract element */
   short elem_exp = 0;
@@ -164,12 +164,12 @@ kernel void preprocess_a(
 
   /* Write per-row max exponent (one thread per row) */
   if (0 == kk && mi < MIN(BM, M - ib)) {
-    expa[panel * BM + mi] = row_max_exp[mi];
+    expa[panel * BM + mi] = (short)row_max_exp[mi];
   }
 
   /* Compute slices: align mantissa relative to row max, then extract 7-bit digits */
   if (row < M && col < K && elem_mant != 0) {
-    short max_exp = row_max_exp[mi];
+    short max_exp = (short)row_max_exp[mi];
     int shift = (int)(max_exp - elem_exp); /* always >= 0 */
     uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
 
@@ -177,10 +177,11 @@ kernel void preprocess_a(
       int high = MANT_BITS - (7 * s);
       int low  = (high >= 0) ? (high - 6) : 0;
       if (low < 0) low = 0;
-      int bits_above_low = high - low + 1;
+      int width = high - low + 1;
       char digit;
-      if (bits_above_low > 0 && high >= 0) {
-        digit = (char)((aligned >> low) & 0x7F);
+      if (width > 0 && high >= 0) {
+        uint mask = (1U << width) - 1U;
+        digit = (char)((aligned >> low) & mask);
       }
       else {
         digit = 0;
@@ -229,7 +230,7 @@ kernel void preprocess_b(
 
   const int panel = ki * nblk_n + jb_idx;
 
-  local short col_max_exp[BN];
+  local int col_max_exp[BN];
 
   short elem_exp = 0;
   uint_repr_t elem_mant = 0;
@@ -262,11 +263,11 @@ kernel void preprocess_b(
   barrier(CLK_LOCAL_MEM_FENCE);
 
   if (0 == kk && nj < MIN(BN, N - jb)) {
-    expb[panel * BN + nj] = col_max_exp[nj];
+    expb[panel * BN + nj] = (short)col_max_exp[nj];
   }
 
   if (row < K && col < N && elem_mant != 0) {
-    short max_exp = col_max_exp[nj];
+    short max_exp = (short)col_max_exp[nj];
     int shift = (int)(max_exp - elem_exp);
     uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
 
@@ -274,10 +275,11 @@ kernel void preprocess_b(
       int high = MANT_BITS - (7 * s);
       int low  = (high >= 0) ? (high - 6) : 0;
       if (low < 0) low = 0;
-      int bits_above_low = high - low + 1;
+      int width = high - low + 1;
       char digit;
-      if (bits_above_low > 0 && high >= 0) {
-        digit = (char)((aligned >> low) & 0x7F);
+      if (width > 0 && high >= 0) {
+        uint mask = (1U << width) - 1U;
+        digit = (char)((aligned >> low) & mask);
       }
       else {
         digit = 0;

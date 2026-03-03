@@ -13,9 +13,6 @@
  * Demonstrates high-precision GEMM emulation via mantissa slicing on GPU
  * matrix engines. The preprocessing (decompose FP64/FP32 into int8 slices)
  * and the dot-product accumulation are performed entirely on the device.
- *
- * Build:  make [USE_DOUBLE=1] [DBG=1]
- * Usage:  ./ozaki_bench M N K [nslices]
  */
 #include "ozaki_opencl.h"
 
