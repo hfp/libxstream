@@ -63,7 +63,7 @@
 #endif
 #include <libxs_hist.h>
 
-#include "../acc.h"
+#include "acc.h"
 #if !defined(NDEBUG)
 #  include <assert.h>
 #endif

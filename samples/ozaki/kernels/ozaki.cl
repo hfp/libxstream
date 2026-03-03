@@ -6,7 +6,7 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#include "../../../include/common/opencl_common.h"
+#include "../../../include/opencl/libxsmm_common.h"
 
 /* Ozaki Scheme 1: mantissa-slicing low-precision GEMM via OpenCL.
  *

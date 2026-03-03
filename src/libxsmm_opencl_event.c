@@ -7,7 +7,7 @@
 /* SPDX-License-Identifier: BSD-3-Clause                                                          */
 /*------------------------------------------------------------------------------------------------*/
 #if defined(__OPENCL)
-#  include <opencl/acc_opencl.h>
+#  include <libxstream_opencl.h>
 
 
 #  if defined(__cplusplus)

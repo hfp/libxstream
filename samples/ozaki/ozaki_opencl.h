@@ -9,7 +9,7 @@
 #ifndef OZAKI_OPENCL_H
 #define OZAKI_OPENCL_H
 
-#include "opencl/acc_opencl.h"
+#include "libxstream_opencl.h"
 
 /* Block dimensions matching the OpenCL kernel defaults */
 #if !defined(OZAKI_BM)
