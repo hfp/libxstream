@@ -201,8 +201,8 @@ kernel void preprocess_a(
       ak[(((long)panel * BM + mi) * NSLICES + s) * BK + kk] = digit;
     }
   }
-  else if (row < M && col < K) {
-    /* Zero element: write zero slices */
+  else {
+    /* Zero or out-of-bounds: write zero slices */
     UNROLL_FORCE(NSLICES) for (s = 0; s < NSLICES; ++s) {
       ak[(((long)panel * BM + mi) * NSLICES + s) * BK + kk] = 0;
     }
@@ -302,7 +302,8 @@ kernel void preprocess_b(
       bk[BK_IDX(panel, nj, s, kk)] = digit;
     }
   }
-  else if (row < K && col < N) {
+  else {
+    /* Zero or out-of-bounds: write zero slices */
     UNROLL_FORCE(NSLICES) for (s = 0; s < NSLICES; ++s) {
       bk[BK_IDX(panel, nj, s, kk)] = 0;
     }
