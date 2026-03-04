@@ -15,8 +15,8 @@
 /* Embedded kernel source (generated at build time via acc_opencl.sh) */
 #include "ozaki_kernels.h"
 
-#if !defined(OPENCL_KERNELS_SOURCE_OZAKI)
-# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI)"
+#if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_INT8)
+# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1_INT8)"
 #endif
 
 
@@ -174,7 +174,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
 
   /* JIT compile kernels via ACC */
-  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_OZAKI,
+  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
     "preprocess_a", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_preprocess_a);
   if (EXIT_SUCCESS != result) {
@@ -182,7 +182,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     return EXIT_FAILURE;
   }
 
-  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_OZAKI,
+  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
     "preprocess_b", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_preprocess_b);
   if (EXIT_SUCCESS != result) {
@@ -190,7 +190,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     return EXIT_FAILURE;
   }
 
-  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_OZAKI,
+  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
     "dotprod", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_dotprod);
   if (EXIT_SUCCESS != result) {
