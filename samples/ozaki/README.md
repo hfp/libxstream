@@ -62,11 +62,14 @@ All arguments are positional and optional (defaults shown):
 
 | Variable         | Default | Description                                    |
 |------------------|---------|------------------------------------------------|
-| `OZAKI_VERBOSE`  | 0       | Verbosity level (1 = info, 2+ = debug)         |
-| `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on) |
-| `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint)             |
-| `OZAKI_SG`       | auto    | Sub-group size (forced to 16 when XMX active)  |
-| `OZAKI_CONSTANT` | 0       | 1 = use `constant` address space for read-only buffers |
+| `GEMM_OZFLAGS`   | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S² square. |
+| `GEMM_OZTRIM`    | 0       | Diagonal trim: drop T least significant diagonals (~7 bits each). |
+| `GEMM_OZN`       | 8       | Number of int8 slices per mantissa.            |
+| `OZAKI_VERBOSE`  | 0       | Verbosity level (1 = info, 2+ = debug).        |
+| `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on).|
+| `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint).            |
+| `OZAKI_SG`       | auto    | Sub-group size (forced to 16 when XMX active). |
+| `OZAKI_CONSTANT` | 0       | 1 = use `constant` address space for read-only buffers. |
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
 detected: `BK=32`, `BM=16`, `BN=16`, `SG=16`, `nslices=8`, `batch_k=4`.
