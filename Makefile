@@ -105,13 +105,13 @@ IFLAGS += -I$(call quote,$(INCDIR))
 IFLAGS += -I$(call quote,$(ROOTSRC))
 
 # Version numbers according to interface (version.txt)
-VERSION_MAJOR ?= $(shell $(ROOTSCR)/tool_version.sh 1)
-VERSION_MINOR ?= $(shell $(ROOTSCR)/tool_version.sh 2)
-VERSION_UPDATE ?= $(shell $(ROOTSCR)/tool_version.sh 3)
+VERSION_MAJOR ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 1)
+VERSION_MINOR ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 2)
+VERSION_UPDATE ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 3)
 VERSION_STRING ?= $(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_UPDATE)
-VERSION_ALL ?= $(shell $(ROOTSCR)/tool_version.sh 0)
+VERSION_ALL ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 0)
 VERSION_API ?= $(VERSION_MAJOR)
-VERSION_RELEASED ?= $(if $(shell $(ROOTSCR)/tool_version.sh 4),0,1)
+VERSION_RELEASED ?= $(if $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 4),0,1)
 VERSION_RELEASE ?= HEAD
 VERSION_PACKAGE ?= 1
 
@@ -124,10 +124,10 @@ ifeq (file,$(origin AVX))
 endif
 AVX_STATIC ?= $(AVX)
 
-HEADERS_MAIN := $(ROOTINC)/acc.h
+HEADERS_MAIN := $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream.h
 HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
-SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_opencl.c libxstream_opencl_event.c libxstream_opencl_mem.c libxstream_opencl_stream.c)
+SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_stream.c)
 OBJFILES := $(patsubst %,$(BLDDIR)/intel64/%.o,$(basename $(notdir $(SRCFILES))))
 
 # no warning conversion for released versions
@@ -187,7 +187,7 @@ $(INCDIR)/$(PROJECT)_version.h: $(INCDIR)/.make $(DIRSTATE)/.state $(ROOTSCR)/to
 	@$(CP) $(ROOTDIR)/.state.sh . 2>/dev/null || true
 	@$(CP) $(HEADERS_MAIN) $(INCDIR) 2>/dev/null || true
 	@$(CP) $(SRCFILES) $(HEADERS_SRC) $(SRCDIR) 2>/dev/null || true
-	@$(ROOTSCR)/tool_version.sh -1 >$@
+	@$(ROOTSCR)/tool_version.sh $(PROJECT) -1 >$@
 
 define DEFINE_COMPILE_RULE
 $(1): $(2) $(3) $(dir $(1))/.make
@@ -572,8 +572,8 @@ $(OUTDIR)/$(PROJECT).env: $(OUTDIR)/.make $(INCDIR)/$(PROJECT).h
 .PHONY: deb
 deb:
 	@if [ "$$(command -v git)" ]; then \
-		VERSION_ARCHIVE_SONAME=$$($(ROOTSCR)/tool_version.sh 1); \
-		VERSION_ARCHIVE=$$($(ROOTSCR)/tool_version.sh 5); \
+		VERSION_ARCHIVE_SONAME=$$($(ROOTSCR)/tool_version.sh $(PROJECT) 1); \
+		VERSION_ARCHIVE=$$($(ROOTSCR)/tool_version.sh $(PROJECT) 5); \
 	fi; \
 	if [ "$${VERSION_ARCHIVE}" ] && [ "$${VERSION_ARCHIVE_SONAME}" ]; then \
 		ARCHIVE_AUTHOR_NAME="$$(git config user.name)"; \

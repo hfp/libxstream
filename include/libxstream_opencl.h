@@ -1,11 +1,11 @@
-/*------------------------------------------------------------------------------------------------*/
-/* Copyright (C) by the DBCSR developers group - All rights reserved                              */
-/* This file is part of the DBCSR library.                                                        */
-/*                                                                                                */
-/* For information on the license, see the LICENSE file.                                          */
-/* For further information please visit https://dbcsr.cp2k.org                                    */
-/* SPDX-License-Identifier: BSD-3-Clause                                                          */
-/*------------------------------------------------------------------------------------------------*/
+/******************************************************************************
+* Copyright (c) Intel Corporation - All rights reserved.                      *
+* This file is part of the LIBXSTREAM library.                                *
+*                                                                             *
+* For information on the license, see the LICENSE file.                       *
+* Further information: https://github.com/hfp/libxstream/                     *
+* SPDX-License-Identifier: BSD-3-Clause                                       *
+******************************************************************************/
 #ifndef ACC_OPENCL_H
 #define ACC_OPENCL_H
 
@@ -63,7 +63,7 @@
 #endif
 #include <libxs_hist.h>
 
-#include "acc.h"
+#include "libxstream_dbcsr.h"
 #if !defined(NDEBUG)
 #  include <assert.h>
 #endif

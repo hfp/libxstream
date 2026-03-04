@@ -1,11 +1,11 @@
-/*------------------------------------------------------------------------------------------------*/
-/* Copyright (C) by the DBCSR developers group - All rights reserved                              */
-/* This file is part of the DBCSR library.                                                        */
-/*                                                                                                */
-/* For information on the license, see the LICENSE file.                                          */
-/* For further information please visit https://dbcsr.cp2k.org                                    */
-/* SPDX-License-Identifier: BSD-3-Clause                                                          */
-/*------------------------------------------------------------------------------------------------*/
+/******************************************************************************
+* Copyright (c) Intel Corporation - All rights reserved.                      *
+* This file is part of the LIBXSTREAM library.                                *
+*                                                                             *
+* For information on the license, see the LICENSE file.                       *
+* Further information: https://github.com/hfp/libxstream/                     *
+* SPDX-License-Identifier: BSD-3-Clause                                       *
+******************************************************************************/
 #if defined(__OPENCL)
 #  include <libxstream_opencl.h>
 #  include <string.h>
@@ -316,7 +316,7 @@ void c_dbcsr_acc_opencl_configure(void) {
 }
 
 
-int c_dbcsr_acc_init(void) {
+int libxstream_acc_init(void) {
 #  if defined(_OPENMP)
   /* initialization/finalization is not meant to be thread-safe */
   int result = ((0 == omp_in_parallel() || /*main*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
@@ -657,10 +657,10 @@ int c_dbcsr_acc_init(void) {
       c_dbcsr_acc_opencl_config.ndevices = -1;
     }
 #  if defined(__DBCSR_ACC)
-    /* DBCSR shall call c_dbcsr_acc_init as well as libsmm_acc_init (since both interfaces are used).
-     * Also, libsmm_acc_init may privately call c_dbcsr_acc_init (as it depends on the ACC interface).
-     * The implementation of c_dbcsr_acc_init should hence be safe against "over initialization".
-     * However, DBCSR only calls c_dbcsr_acc_init (and expects an implicit libsmm_acc_init).
+    /* DBCSR shall call libxstream_acc_init as well as libsmm_acc_init (since both interfaces are used).
+     * Also, libsmm_acc_init may privately call libxstream_acc_init (as it depends on the ACC interface).
+     * The implementation of libxstream_acc_init should hence be safe against "over initialization".
+     * However, DBCSR only calls libxstream_acc_init (and expects an implicit libsmm_acc_init).
      */
     if (EXIT_SUCCESS == result) result = libsmm_acc_init();
 #  endif
@@ -676,7 +676,7 @@ LIBXS_ATTRIBUTE_CTOR void c_dbcsr_acc_opencl_init(void) {
     c_dbcsr_acc_opencl_configure();
   }
 #  if defined(ACC_OPENCL_PREINIT)
-  ACC_OPENCL_EXPECT(EXIT_SUCCESS == c_dbcsr_acc_init());
+  ACC_OPENCL_EXPECT(EXIT_SUCCESS == libxstream_acc_init());
 #  endif
 }
 
@@ -733,7 +733,7 @@ LIBXS_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
 }
 
 
-int c_dbcsr_acc_finalize(void) {
+int libxstream_acc_finalize(void) {
 #  if defined(_OPENMP)
   /* initialization/finalization is not meant to be thread-safe */
   int result = ((0 == omp_in_parallel() || /*main*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
@@ -745,10 +745,10 @@ int c_dbcsr_acc_finalize(void) {
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 != c_dbcsr_acc_opencl_config.ndevices && NULL != cleanup) {
 #  if defined(__DBCSR_ACC)
-    /* DBCSR may call c_dbcsr_acc_init as well as libsmm_acc_init() since both interface are used.
-     * libsmm_acc_init may privately call c_dbcsr_acc_init (as it depends on the ACC interface).
-     * The implementation of c_dbcsr_acc_init should be safe against "over initialization".
-     * However, DBCSR only calls c_dbcsr_acc_init and expects an implicit libsmm_acc_init().
+    /* DBCSR may call libxstream_acc_init as well as libsmm_acc_init() since both interface are used.
+     * libsmm_acc_init may privately call libxstream_acc_init (as it depends on the ACC interface).
+     * The implementation of libxstream_acc_init should be safe against "over initialization".
+     * However, DBCSR only calls libxstream_acc_init and expects an implicit libsmm_acc_init().
      */
     if (EXIT_SUCCESS == result) result = libsmm_acc_finalize();
 #  endif
@@ -769,15 +769,15 @@ int c_dbcsr_acc_opencl_use_cmem(const c_dbcsr_acc_opencl_device_t* devinfo) {
 }
 
 
-void c_dbcsr_acc_clear_errors(void) {}
+void libxstream_acc_clear_errors(void) {}
 
 
-int c_dbcsr_acc_get_ndevices(int* ndevices) {
+int libxstream_acc_get_ndevices(int* ndevices) {
   int result;
   ACC_OPENCL_PROFILE_BEGIN;
 #  if defined(__DBCSR_ACC) /* lazy initialization */
-  /* DBCSR calls c_dbcsr_acc_get_ndevices before calling c_dbcsr_acc_init. */
-  result = c_dbcsr_acc_init();
+  /* DBCSR calls libxstream_acc_get_ndevices before calling libxstream_acc_init. */
+  result = libxstream_acc_init();
   if (EXIT_SUCCESS == result)
 #  endif
   {
@@ -1230,13 +1230,13 @@ int c_dbcsr_acc_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
 }
 
 
-int c_dbcsr_acc_set_active_device(int device_id) {
+int libxstream_acc_set_active_device(int device_id) {
   /* avoid ACC_OPENCL_PROFILE_DBCSR in this routine */
   int result = EXIT_SUCCESS;
   if (0 <= device_id) {
 #  if defined(__DBCSR_ACC) && defined(__OFFLOAD_OPENCL)
     if (0 == c_dbcsr_acc_opencl_config.ndevices) { /* not initialized */
-      result = c_dbcsr_acc_init();
+      result = libxstream_acc_init();
     }
 #  endif
   }

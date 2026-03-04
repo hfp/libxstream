@@ -9,9 +9,15 @@ SORT=$(command -v sort)
 HEAD=$(command -v head)
 CUT=$(command -v cut)
 GIT=$(command -v git)
+TR=$(command -v tr)
 
-CMPNT=${1:-0}
-SHIFT=${2:-0}
+PRFIX=$1
+CMPNT=${2:-0}
+SHIFT=${3:-0}
+
+if [ "${PRFIX}" ]; then
+  PREFIX="$(echo "${PRFIX}_" | ${TR} a-z A-Z)"
+fi
 
 if [ "${SORT}" ] && [ "${HEAD}" ]; then
   TAG=$(${GIT} tag | ${SORT} -nr -t. -k1,1 -k2,2 -k3,3 | ${HEAD} -n1)
@@ -44,20 +50,20 @@ elif [ "0" != "$((0>CMPNT))" ]; then
   else
     VERSION="${PATCH}"
   fi
-  echo "#ifndef LIBXS_VERSION_H"
-  echo "#define LIBXS_VERSION_H"
+  echo "#ifndef ${PREFIX}VERSION_H"
+  echo "#define ${PREFIX}VERSION_H"
   echo
-  echo "#define LIBXS_BRANCH \"${BRANCH}\""
-  echo "#define LIBXS_VERSION \"${VERSION}\""
-  echo "#define LIBXS_VERSION_MAJOR  ${MAJOR:-0}"
-  echo "#define LIBXS_VERSION_MINOR  ${MINOR:-0}"
-  echo "#define LIBXS_VERSION_UPDATE ${UPDTE:-0}"
-  echo "#define LIBXS_VERSION_PATCH  ${PATCH:-0}"
-  echo "#define LIBXS_BUILD_DATE $(date +%Y%m%d)"
+  echo "#define ${PREFIX}BRANCH \"${BRANCH}\""
+  echo "#define ${PREFIX}VERSION \"${VERSION}\""
+  echo "#define ${PREFIX}VERSION_MAJOR  ${MAJOR:-0}"
+  echo "#define ${PREFIX}VERSION_MINOR  ${MINOR:-0}"
+  echo "#define ${PREFIX}VERSION_UPDATE ${UPDTE:-0}"
+  echo "#define ${PREFIX}VERSION_PATCH  ${PATCH:-0}"
+  echo "#define ${PREFIX}BUILD_DATE $(date +%Y%m%d)"
   echo
   echo "#endif"
 elif [ "0" != "$((3>=CMPNT))" ]; then
-  VALUE=$(echo "${TAG}" | ${CUT} -d. -f${CMPNT})
+  VALUE=$(echo "${TAG}" | ${CUT} -d. -f"${CMPNT}")
   echo "${VALUE:-0}"
 else
   echo "${PATCH}"
