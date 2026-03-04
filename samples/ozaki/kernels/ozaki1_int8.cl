@@ -339,7 +339,8 @@ kernel void preprocess_b(
  *   A: intel_sub_group_2d_block_read_8b_8r32x1c      -> ushort[8]
  *   B: intel_sub_group_2d_block_read_transform_8b_32r16x1c -> uint[8]
  *   Both use void return + private T* destination.
- *   Surface width & pitch must be >= 64 bytes (BN_PAD handles B).
+ *   Surface params are LITERAL values (bytes for width/pitch, rows for
+ *   height); width & pitch must be >= 64 bytes, pitch multiple of 16.
  *
  * A layout: ak[panel][mi][s][kk]  (row of BK contiguous).
  * B layout: bk[panel][s][kk][nj]  (K-major, padded to BN_PAD >= 64).
@@ -428,7 +429,7 @@ kernel void dotprod(
          * Returns ushort8 (SG=16: 2 bytes/WI x 8 rows). */
         intel_sub_group_2d_block_read_8b_8r32x1c(
             (global void*)(ak + (long)a_panel * BM * a_stride),
-            a_stride - 1, BM - 1, a_stride - 1,
+            a_stride, BM, a_stride,
             (int2)(sa * BK, mi_base), (private ushort*)&a_raw);
 
         /* Load B tile [32 x 16] with VNNI transform.
@@ -436,7 +437,7 @@ kernel void dotprod(
          * Returns uint8 (VNNI-packed for DPAS consumption). */
         intel_sub_group_2d_block_read_transform_8b_32r16x1c(
             (global void*)(bk + ((long)b_panel * NSLICES + sb) * BK * BN_PAD),
-            BN_PAD - 1, BK - 1, BN_PAD - 1,
+            BN_PAD, BK, BN_PAD,
             (int2)(nj_base, 0), (private uint*)&b_raw);
 
         /* DPAS: C[8x16] += A[8x32] * B[32x16] */
@@ -449,11 +450,11 @@ kernel void dotprod(
           /* Mirror: swap slice indices (sb for A, sa for B) */
           intel_sub_group_2d_block_read_8b_8r32x1c(
               (global void*)(ak + (long)a_panel * BM * a_stride),
-              a_stride - 1, BM - 1, a_stride - 1,
+              a_stride, BM, a_stride,
               (int2)(sb * BK, mi_base), (private ushort*)&a_mir);
           intel_sub_group_2d_block_read_transform_8b_32r16x1c(
               (global void*)(bk + ((long)b_panel * NSLICES + sa) * BK * BN_PAD),
-              BN_PAD - 1, BK - 1, BN_PAD - 1,
+              BN_PAD, BK, BN_PAD,
               (int2)(nj_base, 0), (private uint*)&b_mir);
           dot = intel_sub_group_i8_i8_matrix_mad_k32(
                     as_short8(a_mir), as_int8(b_mir), dot);
