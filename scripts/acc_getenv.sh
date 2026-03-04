@@ -27,17 +27,17 @@ if [ "${FIND}" ] && [ "${SORT}" ] && [ "${SED}" ] && [ -d "${SRC}" ]; then
     "${SED}" "s/getenv[[:space:]]*([[:space:]]*\".[^\"]*/\n&/g" {} \; | \
     "${SED}" -n "s/.*getenv[[:space:]]*([[:space:]]*\"\(.[^\"]*\)..*/\1/p" | \
      ${SORT} -u)"
-  OTHERS=$(echo "${ENVARS}" | ${SED} "/ACC_OPENCL_/d;/OPENCL_LIBSMM_/d")
+  OTHERS=$(echo "${ENVARS}" | ${SED} "/LIBXSTREAM_/d;/OPENCL_LIBSMM_/d")
   if [ "${OTHERS}" ]; then
     echo "===================================="
     echo "Other environment variables"
     echo "===================================="
-    echo "${ENVARS}" | ${SED} "/ACC_OPENCL_/d;/OPENCL_LIBSMM_/d"
+    echo "${ENVARS}" | ${SED} "/LIBXSTREAM_/d;/OPENCL_LIBSMM_/d"
   fi
   echo "===================================="
   echo "OpenCL Backend environment variables"
   echo "===================================="
-  echo "${ENVARS}" | ${SED} -n "/ACC_OPENCL_/p"
+  echo "${ENVARS}" | ${SED} -n "/LIBXSTREAM_/p"
   echo "===================================="
   echo "OpenCL LIBSMM environment variables"
   echo "===================================="

@@ -102,7 +102,6 @@ LIBXSROOT := $(ROOTDIR)/../libxs
 # necessary include directories
 IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
 IFLAGS += -I$(call quote,$(INCDIR))
-IFLAGS += -I$(call quote,$(ROOTSRC))
 
 # Version numbers according to interface (version.txt)
 VERSION_MAJOR ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 1)

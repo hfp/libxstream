@@ -103,8 +103,8 @@ int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libs
 int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, opencl_libsmm_smm_t* value,
   opencl_libsmm_perfest_t* perfest, char* device, int* key_ok);
 
-c_dbcsr_acc_bool_t libsmm_acc_process_suitable(
-  c_dbcsr_acc_bool_t def_mnk, libsmm_acc_data_t datatype, int stack_size, int m_max, int n_max, int k_max, int max_kernel_dim);
+libxstream_bool_t libsmm_acc_process_suitable(
+  libxstream_bool_t def_mnk, libsmm_acc_data_t datatype, int stack_size, int m_max, int n_max, int k_max, int max_kernel_dim);
 
 #if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
 typedef int (*opencl_libsmm_acc_dbm_launch_fn_t)(void* stream, double alpha, int ntasks, int param_format, const int* params_host,
@@ -115,7 +115,7 @@ void opencl_libsmm_acc_set_dbm_launch_fn(opencl_libsmm_acc_dbm_launch_fn_t launc
 /** Backend-specific variant of libsmm_acc_process, which allows to easier reuse LIBSMM kernels. */
 int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
-  c_dbcsr_acc_bool_t def_mnk, void* stream, void* c_stream, int param_format, cl_event* event);
+  libxstream_bool_t def_mnk, void* stream, void* c_stream, int param_format, cl_event* event);
 #endif
 
 #if defined(__cplusplus)
