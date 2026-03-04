@@ -8,6 +8,7 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 #  include <libxstream_opencl.h>
+#  include "libxstream_dbcsr.h"
 
 
 #  if defined(__cplusplus)
@@ -16,44 +17,44 @@ extern "C" {
 
 int libxstream_event_create(void** event_p) {
   int result = EXIT_SUCCESS;
-  ACC_OPENCL_PROFILE_BEGIN;
-  assert(NULL != c_dbcsr_acc_opencl_config.events && NULL != event_p);
+  LIBXSTREAM_PROFILE_BEGIN;
+  assert(NULL != libxstream_opencl_config.events && NULL != event_p);
   *event_p = libxs_pmalloc_lock(
-    (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents, c_dbcsr_acc_opencl_config.lock_event);
+    (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
   if (NULL != *event_p) *(cl_event*)*event_p = NULL;
   else result = EXIT_FAILURE;
-  ACC_OPENCL_PROFILE_END;
-  ACC_OPENCL_RETURN(result);
+  LIBXSTREAM_PROFILE_END;
+  LIBXSTREAM_RETURN(result);
 }
 
 
 int libxstream_event_destroy(void* event) {
   int result = EXIT_SUCCESS;
-  ACC_OPENCL_PROFILE_BEGIN;
+  LIBXSTREAM_PROFILE_BEGIN;
   if (NULL != event) {
-    const cl_event clevent = *ACC_OPENCL_EVENT(event);
-    assert(NULL != c_dbcsr_acc_opencl_config.events);
+    const cl_event clevent = *LIBXSTREAM_EVENT(event);
+    assert(NULL != libxstream_opencl_config.events);
 #  if !defined(NDEBUG)
     *(cl_event*)event = NULL;
 #  endif
-    libxs_pfree_lock(event, (void**)c_dbcsr_acc_opencl_config.events, &c_dbcsr_acc_opencl_config.nevents, c_dbcsr_acc_opencl_config.lock_event);
+    libxs_pfree_lock(event, (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
     if (NULL != clevent) {
       result = clReleaseEvent(clevent);
     }
   }
-  ACC_OPENCL_PROFILE_END;
-  ACC_OPENCL_RETURN(result);
+  LIBXSTREAM_PROFILE_END;
+  LIBXSTREAM_RETURN(result);
 }
 
 
 int libxstream_stream_wait_event(void* stream, void* event) { /* wait for an event (device-side) */
   int result = EXIT_SUCCESS;
-  const c_dbcsr_acc_opencl_stream_t* str = NULL;
+  const libxstream_opencl_stream_t* str = NULL;
   cl_event clevent = NULL;
-  ACC_OPENCL_PROFILE_BEGIN;
-  str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream_default());
+  LIBXSTREAM_PROFILE_BEGIN;
+  str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue && NULL != event);
-  clevent = *ACC_OPENCL_EVENT(event);
+  clevent = *LIBXSTREAM_EVENT(event);
   if (NULL != clevent) {
 #  if defined(CL_VERSION_1_2)
     result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, NULL);
@@ -61,26 +62,26 @@ int libxstream_stream_wait_event(void* stream, void* event) { /* wait for an eve
     result = clEnqueueWaitForEvents(str->queue, 1, &clevent);
 #  endif
     if (EXIT_SUCCESS != result) {
-      ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent));
+      LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent));
       *(cl_event*)event = NULL;
     }
   }
-  else if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-    fprintf(stderr, "WARN ACC/OpenCL: c_dbcsr_acc_stream_wait_event discovered an empty event.\n");
+  else if (3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
+    fprintf(stderr, "WARN ACC/OpenCL: libxstream_stream_wait_event discovered an empty event.\n");
   }
-  ACC_OPENCL_PROFILE_END;
-  ACC_OPENCL_RETURN(result);
+  LIBXSTREAM_PROFILE_END;
+  LIBXSTREAM_RETURN(result);
 }
 
 
 int libxstream_event_record(void* event, void* stream) {
   int result = EXIT_SUCCESS;
-  const c_dbcsr_acc_opencl_stream_t* str = NULL;
+  const libxstream_opencl_stream_t* str = NULL;
   cl_event clevent = NULL, clevent_result = NULL;
-  ACC_OPENCL_PROFILE_BEGIN;
-  str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream_default());
+  LIBXSTREAM_PROFILE_BEGIN;
+  str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue && NULL != event);
-  clevent = *ACC_OPENCL_EVENT(event);
+  clevent = *LIBXSTREAM_EVENT(event);
 #  if defined(CL_VERSION_1_2)
   result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &clevent_result);
 #  else
@@ -95,40 +96,40 @@ int libxstream_event_record(void* event, void* stream) {
     *(cl_event*)event = clevent_result;
   }
   else {
-    if (NULL != clevent_result) ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent_result));
+    if (NULL != clevent_result) LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent_result));
     *(cl_event*)event = NULL;
   }
-  ACC_OPENCL_PROFILE_END;
-  ACC_OPENCL_RETURN(result);
+  LIBXSTREAM_PROFILE_END;
+  LIBXSTREAM_RETURN(result);
 }
 
 
 int libxstream_event_query(void* event, int* has_occurred) {
   cl_int status = CL_COMPLETE;
   int result;
-  ACC_OPENCL_PROFILE_BEGIN;
+  LIBXSTREAM_PROFILE_BEGIN;
   assert(NULL != event && NULL != has_occurred);
-  result = clGetEventInfo(*ACC_OPENCL_EVENT(event), CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int), &status, NULL);
+  result = clGetEventInfo(*LIBXSTREAM_EVENT(event), CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int), &status, NULL);
   if (EXIT_SUCCESS == result && 0 <= status) *has_occurred = (CL_COMPLETE == status ? 1 : 0);
   else { /* error state */
     result = EXIT_SUCCESS; /* soft-error */
     *has_occurred = 1;
   }
-  ACC_OPENCL_PROFILE_END;
-  ACC_OPENCL_RETURN(result);
+  LIBXSTREAM_PROFILE_END;
+  LIBXSTREAM_RETURN(result);
 }
 
 
 int libxstream_event_synchronize(void* event) { /* waits on the host-side */
   int result = EXIT_SUCCESS;
   cl_event clevent;
-  ACC_OPENCL_PROFILE_BEGIN;
+  LIBXSTREAM_PROFILE_BEGIN;
   assert(NULL != event);
-  clevent = *ACC_OPENCL_EVENT(event);
+  clevent = *LIBXSTREAM_EVENT(event);
   if (NULL != clevent) {
-    if (0 == (32 & c_dbcsr_acc_opencl_config.wa)) {
+    if (0 == (32 & libxstream_opencl_config.wa)) {
       cl_int status = CL_COMPLETE + 1;
-      if (64 & c_dbcsr_acc_opencl_config.xhints) {
+      if (64 & libxstream_opencl_config.xhints) {
         result = clGetEventInfo(clevent, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int), &status, NULL);
         assert(EXIT_SUCCESS == result || CL_COMPLETE != status);
       }
@@ -140,11 +141,11 @@ int libxstream_event_synchronize(void* event) { /* waits on the host-side */
       if (EXIT_SUCCESS == result) result = clFinish(queue);
     }
   }
-  else if (3 <= c_dbcsr_acc_opencl_config.verbosity || 0 > c_dbcsr_acc_opencl_config.verbosity) {
-    fprintf(stderr, "WARN ACC/OpenCL: c_dbcsr_acc_event_synchronize discovered an empty event.\n");
+  else if (3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
+    fprintf(stderr, "WARN ACC/OpenCL: libxstream_event_synchronize discovered an empty event.\n");
   }
-  ACC_OPENCL_PROFILE_END;
-  ACC_OPENCL_RETURN(result);
+  LIBXSTREAM_PROFILE_END;
+  LIBXSTREAM_RETURN(result);
 }
 
 #  if defined(__cplusplus)

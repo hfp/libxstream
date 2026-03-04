@@ -71,12 +71,12 @@ int main(int argc, char* argv[])
   }
 
   /* Initialize ACC (encompasses libxs initialization) */
-  result = c_dbcsr_acc_init();
+  result = libxstream_init();
   if (EXIT_SUCCESS == result) {
     int ndevices = 0;
-    result = c_dbcsr_acc_get_ndevices(&ndevices);
+    result = libxstream_get_ndevices(&ndevices);
     if (EXIT_SUCCESS == result && 0 < ndevices) {
-      result = c_dbcsr_acc_set_active_device(0);
+      result = libxstream_set_active_device(0);
     }
     else {
       fprintf(stderr, "ERROR: no ACC device found\n");
@@ -107,16 +107,16 @@ int main(int argc, char* argv[])
   }
   if (EXIT_SUCCESS != result) {
     fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
-    c_dbcsr_acc_finalize();
+    libxstream_finalize();
     return EXIT_FAILURE;
   }
 
   /* Create own ACC stream (enables double-buffered transfers) */
-  result = c_dbcsr_acc_stream_create(&stream, "ozaki_main", -1 /*default priority*/);
+  result = libxstream_stream_create(&stream, "ozaki_main", -1 /*default priority*/);
   if (EXIT_SUCCESS != result) {
     fprintf(stderr, "ERROR: failed to create ACC stream\n");
     ozaki_destroy(&ctx);
-    c_dbcsr_acc_finalize();
+    libxstream_finalize();
     return EXIT_FAILURE;
   }
 
@@ -126,15 +126,15 @@ int main(int argc, char* argv[])
   /* Allocate and fill matrices (column-major) */
   { const int a_rows = (0 == ta ? M : K), a_cols = (0 == ta ? K : M);
     const int b_rows = (0 == tb ? K : N), b_cols = (0 == tb ? N : K);
-    result = c_dbcsr_acc_host_mem_allocate(&a, (size_t)lda * a_cols * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_host_mem_allocate(&b, (size_t)ldb * b_cols * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_host_mem_allocate(&c_oz, (size_t)ldc * N * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_host_mem_allocate(&c_ref, (size_t)ldc * N * elem_size, stream);
+    result = libxstream_host_mem_allocate(&a, (size_t)lda * a_cols * elem_size, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_host_mem_allocate(&b, (size_t)ldb * b_cols * elem_size, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_host_mem_allocate(&c_oz, (size_t)ldc * N * elem_size, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_host_mem_allocate(&c_ref, (size_t)ldc * N * elem_size, stream);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "ERROR: out of memory\n");
-      c_dbcsr_acc_stream_destroy(stream);
+      libxstream_stream_destroy(stream);
       ozaki_destroy(&ctx);
-      c_dbcsr_acc_finalize();
+      libxstream_finalize();
       return EXIT_FAILURE;
     }
     if (ctx.use_double) {
@@ -153,13 +153,13 @@ int main(int argc, char* argv[])
   /* Run Ozaki OpenCL GEMM */
   t0 = libxs_timer_tick();
   result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc);
-  c_dbcsr_acc_stream_sync(stream);
+  libxstream_stream_sync(stream);
   t1 = libxs_timer_tick();
   if (EXIT_SUCCESS != result) {
     fprintf(stderr, "Ozaki GEMM failed\n");
-    c_dbcsr_acc_stream_destroy(stream);
+    libxstream_stream_destroy(stream);
     ozaki_destroy(&ctx);
-    c_dbcsr_acc_finalize();
+    libxstream_finalize();
     return EXIT_FAILURE;
   }
   printf("Ozaki GEMM: %.3f ms\n", 1000.0 * libxs_timer_duration(t0, t1));
@@ -184,13 +184,13 @@ int main(int argc, char* argv[])
     print_diff(stdout, &diff);
   }
 
-  c_dbcsr_acc_host_mem_deallocate(a, stream);
-  c_dbcsr_acc_host_mem_deallocate(b, stream);
-  c_dbcsr_acc_host_mem_deallocate(c_oz, stream);
-  c_dbcsr_acc_host_mem_deallocate(c_ref, stream);
-  c_dbcsr_acc_stream_destroy(stream);
+  libxstream_host_mem_deallocate(a, stream);
+  libxstream_host_mem_deallocate(b, stream);
+  libxstream_host_mem_deallocate(c_oz, stream);
+  libxstream_host_mem_deallocate(c_ref, stream);
+  libxstream_stream_destroy(stream);
   ozaki_destroy(&ctx);
-  c_dbcsr_acc_finalize();
+  libxstream_finalize();
   return EXIT_SUCCESS;
 }
 

@@ -40,8 +40,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
                int use_double, int use_bf16, int nslices, int batch_k,
                int ozflags, int oztrim)
 {
-  const c_dbcsr_acc_opencl_device_t* devinfo = &c_dbcsr_acc_opencl_config.device;
-  cl_device_id device = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
+  const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
+  cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   char build_options[256];
   char build_params[1024];
   size_t offset;
@@ -56,14 +56,14 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   gpu = (CL_DEVICE_TYPE_GPU == devinfo->type) ? 1 : 0;
 
   { char name[256] = "";
-    c_dbcsr_acc_opencl_device_name(device, name, sizeof(name), NULL, 0, 1 /*cleanup*/);
+    libxstream_opencl_device_name(device, name, sizeof(name), NULL, 0, 1 /*cleanup*/);
     printf("Device: %s%s\n", name, gpu ? " (GPU)" : "");
   }
 
   /* If double requested, verify fp64 support */
   if (use_double) {
     const char* const fp64_ext[] = {"cl_khr_fp64"};
-    if (EXIT_SUCCESS != c_dbcsr_acc_opencl_device_ext(device, fp64_ext, 1)) {
+    if (EXIT_SUCCESS != libxstream_opencl_device_ext(device, fp64_ext, 1)) {
       fprintf(stderr, "WARN: device does not support cl_khr_fp64, falling back to float\n");
       use_double = 0;
     }
@@ -79,7 +79,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       use_xmx = atoi(env);
     }
     else {
-      use_xmx = (EXIT_SUCCESS == c_dbcsr_acc_opencl_device_ext(
+      use_xmx = (EXIT_SUCCESS == libxstream_opencl_device_ext(
                    device, xmx_exts, 2)) ? 1 : 0;
     }
   }
@@ -189,7 +189,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     ? OPENCL_KERNELS_SOURCE_OZAKI1_BF16
     : OPENCL_KERNELS_SOURCE_OZAKI1_INT8;
 
-  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, kernel_source,
+  result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
     "preprocess_a", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_preprocess_a);
   if (EXIT_SUCCESS != result) {
@@ -197,7 +197,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     return EXIT_FAILURE;
   }
 
-  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, kernel_source,
+  result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
     "preprocess_b", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_preprocess_b);
   if (EXIT_SUCCESS != result) {
@@ -205,7 +205,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     return EXIT_FAILURE;
   }
 
-  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, kernel_source,
+  result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
     "dotprod", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_dotprod);
   if (EXIT_SUCCESS != result) {
@@ -251,7 +251,7 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
                              const void* b, int ldb,
                double beta,        void* c, int ldc)
 {
-  const c_dbcsr_acc_opencl_stream_t* str = ACC_OPENCL_STREAM(stream);
+  const libxstream_opencl_stream_t* str = LIBXSTREAM_STREAM(stream);
   const int BM = ctx->bm, BN = ctx->bn, BK = ctx->bk;
   /* Pad B column stride so surface width >= 64 bytes (2D block I/O).
    * bf16: 2 bytes/elem, min 32 elements.  int8: 1 byte/elem, min 64. */
@@ -282,13 +282,13 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
   int batch;
 
   /* Create helper streams for overlapped preprocessing */
-  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_create(&stream_a, "ozaki_a", -1);
-  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_create(&stream_b, "ozaki_b", -1);
+  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&stream_a, "ozaki_a", -1);
+  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&stream_b, "ozaki_b", -1);
   /* Create synchronization events */
-  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_create(&evt_prep_a);
-  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_create(&evt_prep_b);
-  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_create(&evt_dotprod[0]);
-  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_create(&evt_dotprod[1]);
+  if (EXIT_SUCCESS == result) result = libxstream_event_create(&evt_prep_a);
+  if (EXIT_SUCCESS == result) result = libxstream_event_create(&evt_prep_b);
+  if (EXIT_SUCCESS == result) result = libxstream_event_create(&evt_dotprod[0]);
+  if (EXIT_SUCCESS == result) result = libxstream_event_create(&evt_dotprod[1]);
   if (EXIT_SUCCESS != result) goto cleanup;
 
   /* Allocate device memory for A, B, C */
@@ -298,14 +298,14 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     size_t b_nbytes = (size_t)ldb * b_cols * elem_size;
     c_nbytes = (size_t)ldc * (size_t)N * elem_size;
 
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_a, a_nbytes);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_b, b_nbytes);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_c, c_nbytes);
+    if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_a, a_nbytes);
+    if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_b, b_nbytes);
+    if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_c, c_nbytes);
     if (EXIT_SUCCESS != result) goto cleanup;
     /* Overlapped H2D: A via stream_a, B via stream_b, C via main */
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_memcpy_h2d(a, d_a, a_nbytes, stream_a);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_memcpy_h2d(b, d_b, b_nbytes, stream_b);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_memcpy_h2d(c, d_c, c_nbytes, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(a, d_a, a_nbytes, stream_a);
+    if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(b, d_b, b_nbytes, stream_b);
+    if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(c, d_c, c_nbytes, stream);
     if (EXIT_SUCCESS != result) goto cleanup;
   }
 
@@ -315,13 +315,13 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     const size_t bk_size = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
     int s;
     for (s = 0; s < 2 && s < n_batches; ++s) {
-      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_ak[s], ak_size);
-      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_bk[s], bk_size);
+      if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_ak[s], ak_size);
+      if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_bk[s], bk_size);
       if (!ctx->use_bf16) {
         const size_t expa_size = (size_t)max_nkb * nblk_m * BM * sizeof(cl_short);
         const size_t expb_size = (size_t)max_nkb * nblk_n * BN * sizeof(cl_short);
-        if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expa[s], expa_size);
-        if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expb[s], expb_size);
+        if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_expa[s], expa_size);
+        if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_expb[s], expb_size);
       }
     }
     if (EXIT_SUCCESS != result) goto cleanup;
@@ -341,28 +341,28 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
 
     /* Ensure the dotprod that last used this buffer slot is done */
     if (2 <= batch) {
-      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_wait_event(stream_a, evt_dotprod[cur]);
-      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_wait_event(stream_b, evt_dotprod[cur]);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_a, evt_dotprod[cur]);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_dotprod[cur]);
       if (EXIT_SUCCESS != result) goto cleanup;
     }
 
     /* Launch preprocess_a on stream_a */
-    { const c_dbcsr_acc_opencl_stream_t* str_a = ACC_OPENCL_STREAM(stream_a);
+    { const libxstream_opencl_stream_t* str_a = LIBXSTREAM_STREAM(stream_a);
       size_t global_a[2], local_a[2];
       global_a[0] = (size_t)nblk_m * BM; global_a[1] = (size_t)nkb * BK;
       local_a[0] = BM; local_a[1] = BK;
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 0, d_a));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 0, d_a));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 1, sizeof(int), &M));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 2, sizeof(int), &K));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 3, sizeof(int), &lda));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 4, sizeof(int), &ta));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 5, sizeof(int), &kb_batch));
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 6, d_ak[cur]));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 6, d_ak[cur]));
       if (ctx->use_bf16) {
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 7, sizeof(int), &nblk_m));
       }
       else {
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 7, d_expa[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 7, d_expa[cur]));
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 8, sizeof(int), &nblk_m));
       }
       CL_CHECK(clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
@@ -370,22 +370,22 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     }
 
     /* Launch preprocess_b on stream_b (parallel with preprocess_a) */
-    { const c_dbcsr_acc_opencl_stream_t* str_b = ACC_OPENCL_STREAM(stream_b);
+    { const libxstream_opencl_stream_t* str_b = LIBXSTREAM_STREAM(stream_b);
       size_t global_b[2], local_b[2];
       global_b[0] = (size_t)nblk_n * BN; global_b[1] = (size_t)nkb * BK;
       local_b[0] = BN; local_b[1] = BK;
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 0, d_b));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 0, d_b));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 1, sizeof(int), &N));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 2, sizeof(int), &K));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 3, sizeof(int), &ldb));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 4, sizeof(int), &tb));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 5, sizeof(int), &kb_batch));
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 6, d_bk[cur]));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 6, d_bk[cur]));
       if (ctx->use_bf16) {
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 7, sizeof(int), &nblk_n));
       }
       else {
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 7, d_expb[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 7, d_expb[cur]));
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 8, sizeof(int), &nblk_n));
       }
       CL_CHECK(clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
@@ -393,13 +393,13 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     }
 
     /* Record preprocess completion events */
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_record(evt_prep_a, stream_a);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_record(evt_prep_b, stream_b);
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
     if (EXIT_SUCCESS != result) goto cleanup;
 
     /* Main stream waits for both preprocess results */
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_wait_event(stream, evt_prep_a);
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_wait_event(stream, evt_prep_b);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
     if (EXIT_SUCCESS != result) goto cleanup;
 
     /* Launch dotprod on main stream */
@@ -417,15 +417,15 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
         global_c[0] = (size_t)nblk_m * BM;
         global_c[1] = (size_t)nblk_n * BN;
       }
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
       if (!ctx->use_bf16) {
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
       }
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
       if (!ctx->use_bf16) {
-        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
       }
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
@@ -448,36 +448,36 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     }
 
     /* Record dotprod completion for this buffer slot */
-    if (EXIT_SUCCESS == result) result = c_dbcsr_acc_event_record(evt_dotprod[cur], stream);
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_dotprod[cur], stream);
     if (EXIT_SUCCESS != result) goto cleanup;
   }
 
   /* Read back result C */
-  result = c_dbcsr_acc_memcpy_d2h(d_c, c, c_nbytes, stream);
-  if (EXIT_SUCCESS == result) result = c_dbcsr_acc_stream_sync(stream);
+  result = libxstream_memcpy_d2h(d_c, c, c_nbytes, stream);
+  if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
 
 cleanup:
   /* Destroy double-buffered preprocessing buffers */
   { int s;
     for (s = 0; s < 2; ++s) {
-      if (NULL != d_ak[s]) c_dbcsr_acc_dev_mem_deallocate(d_ak[s]);
-      if (NULL != d_expa[s]) c_dbcsr_acc_dev_mem_deallocate(d_expa[s]);
-      if (NULL != d_bk[s]) c_dbcsr_acc_dev_mem_deallocate(d_bk[s]);
-      if (NULL != d_expb[s]) c_dbcsr_acc_dev_mem_deallocate(d_expb[s]);
+      if (NULL != d_ak[s]) libxstream_dev_mem_deallocate(d_ak[s]);
+      if (NULL != d_expa[s]) libxstream_dev_mem_deallocate(d_expa[s]);
+      if (NULL != d_bk[s]) libxstream_dev_mem_deallocate(d_bk[s]);
+      if (NULL != d_expb[s]) libxstream_dev_mem_deallocate(d_expb[s]);
     }
   }
   /* Destroy synchronization events */
-  if (NULL != evt_prep_a) c_dbcsr_acc_event_destroy(evt_prep_a);
-  if (NULL != evt_prep_b) c_dbcsr_acc_event_destroy(evt_prep_b);
-  if (NULL != evt_dotprod[0]) c_dbcsr_acc_event_destroy(evt_dotprod[0]);
-  if (NULL != evt_dotprod[1]) c_dbcsr_acc_event_destroy(evt_dotprod[1]);
+  if (NULL != evt_prep_a) libxstream_event_destroy(evt_prep_a);
+  if (NULL != evt_prep_b) libxstream_event_destroy(evt_prep_b);
+  if (NULL != evt_dotprod[0]) libxstream_event_destroy(evt_dotprod[0]);
+  if (NULL != evt_dotprod[1]) libxstream_event_destroy(evt_dotprod[1]);
   /* Destroy helper streams */
-  if (NULL != stream_a) c_dbcsr_acc_stream_destroy(stream_a);
-  if (NULL != stream_b) c_dbcsr_acc_stream_destroy(stream_b);
+  if (NULL != stream_a) libxstream_stream_destroy(stream_a);
+  if (NULL != stream_b) libxstream_stream_destroy(stream_b);
   /* Deallocate input/output matrices */
-  if (NULL != d_a) c_dbcsr_acc_dev_mem_deallocate(d_a);
-  if (NULL != d_b) c_dbcsr_acc_dev_mem_deallocate(d_b);
-  if (NULL != d_c) c_dbcsr_acc_dev_mem_deallocate(d_c);
+  if (NULL != d_a) libxstream_dev_mem_deallocate(d_a);
+  if (NULL != d_b) libxstream_dev_mem_deallocate(d_b);
+  if (NULL != d_c) libxstream_dev_mem_deallocate(d_c);
 
   return result;
 }

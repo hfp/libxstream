@@ -56,7 +56,9 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, vo
 int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, void* stream);
 int libxstream_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* stream);
 int libxstream_dev_mem_info(size_t* mem_free, size_t* mem_total);
-
+/** profiling */
+void libxstream_timeset(const char** routineN, const int* routineN_len, int* handle);
+void libxstream_timestop(const int* handle);
 #if defined(__cplusplus)
 }
 #endif

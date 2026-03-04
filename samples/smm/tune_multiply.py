@@ -95,7 +95,7 @@ class SmmTuner(MeasurementInterface):
         self.exepath = os.path.join(
             os.path.dirname(sys.argv[0]), "..", "..", "acc_bench"
         )
-        runcmd = self.launch(["ACC_OPENCL_VERBOSE=2"], 0, nrep=1)
+        runcmd = self.launch(["LIBXSTREAM_VERBOSE=2"], 0, nrep=1)
         self.run_result = (  # verbosity to capture device name and tuned parameters
             self.call_program(" ".join(runcmd))
             if (  # consider validating parameters during merge
@@ -292,7 +292,7 @@ class SmmTuner(MeasurementInterface):
         env_jit = "NEO_CACHE_PERSISTENT=0 CUDA_CACHE_DISABLE=1"
         env_check = "CHECK={}".format(check if check is not None else 1)
         env_intrn = "{} {}".format(  # consider device-id
-            "" if self.idevice is None else "ACC_OPENCL_DEVICE={}".format(self.idevice),
+            "" if self.idevice is None else "LIBXSTREAM_DEVICE={}".format(self.idevice),
             "{} {} {}".format(env_std, env_jit, env_check),  # environment
         ).strip()
         arg_exe = "{} {} {}".format(
