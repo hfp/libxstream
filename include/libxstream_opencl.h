@@ -160,7 +160,7 @@
 #define ACC_OPENCL_ERROR_NAME(CODE) \
   ((EXIT_SUCCESS != c_dbcsr_acc_opencl_config.device.error.code && (CODE) == c_dbcsr_acc_opencl_config.device.error.code) \
       ? c_dbcsr_acc_opencl_config.device.error.name \
-      : "")
+      : cl_strerror(CODE))
 
 #define ACC_OPENCL_ERROR_REPORT(NAME) \
   do { \
@@ -171,14 +171,15 @@
       } \
       else if (0 != c_dbcsr_acc_opencl_config.device.error.code) { \
         if (NULL != c_dbcsr_acc_opencl_config.device.error.name && '\0' != *c_dbcsr_acc_opencl_config.device.error.name) { \
-          fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", c_dbcsr_acc_opencl_config.device.error.name, \
-            c_dbcsr_acc_opencl_config.device.error.code); \
+          fprintf(stderr, "ERROR ACC/OpenCL: %s: %s (code=%i)\n", c_dbcsr_acc_opencl_config.device.error.name, \
+            cl_strerror(c_dbcsr_acc_opencl_config.device.error.code), c_dbcsr_acc_opencl_config.device.error.code); \
         } \
         else if (-1001 == c_dbcsr_acc_opencl_config.device.error.code) { \
           fprintf(stderr, "ERROR ACC/OpenCL: incomplete OpenCL installation?\n"); \
         } \
         else { \
-          fprintf(stderr, "ERROR ACC/OpenCL: unknown error (code=%i)\n", c_dbcsr_acc_opencl_config.device.error.code); \
+          fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", \
+            cl_strerror(c_dbcsr_acc_opencl_config.device.error.code), c_dbcsr_acc_opencl_config.device.error.code); \
         } \
       } \
       memset(&c_dbcsr_acc_opencl_config.device.error, 0, sizeof(c_dbcsr_acc_opencl_config.device.error)); \
@@ -423,6 +424,9 @@ int c_dbcsr_acc_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const
 
 /** Measure time in seconds for the given event. */
 double c_dbcsr_acc_opencl_duration(cl_event event, int* result_code);
+
+/** Map a raw cl_int error code to a human-readable string. */
+const char* cl_strerror(cl_int err);
 
 #if defined(__cplusplus)
 }
