@@ -518,6 +518,7 @@ int c_dbcsr_acc_init(void) {
               {
                 c_dbcsr_acc_opencl_config.ndevices = i + 1;
                 strncpy(tmp, buffer, ACC_OPENCL_BUFFERSIZE);
+                tmp[ACC_OPENCL_BUFFERSIZE - 1] = '\0';
               }
               else break; /* error: retrieving device name */
             }
@@ -664,9 +665,7 @@ int c_dbcsr_acc_init(void) {
     if (EXIT_SUCCESS == result) result = libsmm_acc_init();
 #  endif
   }
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
-#  endif
+  ACC_OPENCL_PROFILE_END;
   ACC_OPENCL_RETURN(result);
 }
 
@@ -716,6 +715,8 @@ LIBXS_ATTRIBUTE_DTOR void c_dbcsr_acc_opencl_finalize(void) {
     libxs_hist_destroy(c_dbcsr_acc_opencl_config.hist_h2d);
     libxs_hist_destroy(c_dbcsr_acc_opencl_config.hist_d2h);
     libxs_hist_destroy(c_dbcsr_acc_opencl_config.hist_d2d);
+    /* NOTE: registered streams/events are not individually released here;
+     * the OpenCL runtime reclaims resources at process exit (atexit context). */
     free(c_dbcsr_acc_opencl_config.memptrs);
     free(c_dbcsr_acc_opencl_config.memptr_data);
     free(c_dbcsr_acc_opencl_config.streams);
@@ -740,14 +741,7 @@ int c_dbcsr_acc_finalize(void) {
   int result = EXIT_SUCCESS;
 #  endif
   static void (*cleanup)(void) = c_dbcsr_acc_opencl_finalize;
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  int routine_handle;
-  if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
-    c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-  }
-#  endif
+  ACC_OPENCL_PROFILE_BEGIN;
   assert(c_dbcsr_acc_opencl_config.ndevices < ACC_OPENCL_MAXNDEVS);
   if (0 != c_dbcsr_acc_opencl_config.ndevices && NULL != cleanup) {
 #  if defined(__DBCSR_ACC)
@@ -761,9 +755,7 @@ int c_dbcsr_acc_finalize(void) {
     if (EXIT_SUCCESS == result) result = atexit(cleanup);
     cleanup = NULL;
   }
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
-#  endif
+  ACC_OPENCL_PROFILE_END;
   ACC_OPENCL_RETURN(result);
 }
 
@@ -782,14 +774,7 @@ void c_dbcsr_acc_clear_errors(void) {}
 
 int c_dbcsr_acc_get_ndevices(int* ndevices) {
   int result;
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  int routine_handle;
-  if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
-    c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-  }
-#  endif
+  ACC_OPENCL_PROFILE_BEGIN;
 #  if defined(__DBCSR_ACC) /* lazy initialization */
   /* DBCSR calls c_dbcsr_acc_get_ndevices before calling c_dbcsr_acc_init. */
   result = c_dbcsr_acc_init();
@@ -802,9 +787,7 @@ int c_dbcsr_acc_get_ndevices(int* ndevices) {
     }
     else result = EXIT_FAILURE;
   }
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
-#  endif
+  ACC_OPENCL_PROFILE_END;
   ACC_OPENCL_RETURN(result);
 }
 
@@ -930,8 +913,10 @@ int c_dbcsr_acc_opencl_device_level(
   result = clGetDeviceInfo(device, CL_DEVICE_OPENCL_C_VERSION, ACC_OPENCL_BUFFERSIZE / 2, buffer, NULL);
   if (EXIT_SUCCESS == result && (NULL != std_clevel || NULL != std_flag)) {
     if (2 == sscanf(buffer, "OpenCL C %u.%u", std_clevel_uint, std_clevel_uint + 1)) {
-      std_clevel[0] = LIBXS_CAST_INT(std_clevel_uint[0]);
-      std_clevel[1] = LIBXS_CAST_INT(std_clevel_uint[1]);
+      if (NULL != std_clevel) {
+        std_clevel[0] = LIBXS_CAST_INT(std_clevel_uint[0]);
+        std_clevel[1] = LIBXS_CAST_INT(std_clevel_uint[1]);
+      }
     }
     else result = EXIT_FAILURE;
   }
@@ -940,8 +925,10 @@ int c_dbcsr_acc_opencl_device_level(
       device, CL_DEVICE_VERSION, ACC_OPENCL_BUFFERSIZE - ACC_OPENCL_BUFFERSIZE / 2, buffer + ACC_OPENCL_BUFFERSIZE / 2, NULL);
     if (EXIT_SUCCESS == result) {
       if (2 == sscanf(buffer + ACC_OPENCL_BUFFERSIZE / 2, "OpenCL %u.%u", std_level_uint, std_level_uint + 1)) {
-        std_level[0] = LIBXS_CAST_INT(std_level_uint[0]);
-        std_level[1] = LIBXS_CAST_INT(std_level_uint[1]);
+        if (NULL != std_level) {
+          std_level[0] = LIBXS_CAST_INT(std_level_uint[0]);
+          std_level[1] = LIBXS_CAST_INT(std_level_uint[1]);
+        }
       }
       else result = EXIT_FAILURE;
     }
@@ -987,7 +974,10 @@ int c_dbcsr_acc_opencl_device_ext(cl_device_id device, const char* const extname
     do {
       if (NULL != extnames[--num_exts]) {
         const char* const end = buffer + strlen(extnames[num_exts]); /* before strtok */
-        char* ext = strtok(strncpy(buffer, extnames[num_exts], ACC_OPENCL_BUFFERSIZE - 1), ACC_OPENCL_DELIMS " \t");
+        char* ext;
+        strncpy(buffer, extnames[num_exts], ACC_OPENCL_BUFFERSIZE - 1);
+        buffer[ACC_OPENCL_BUFFERSIZE - 1] = '\0';
+        ext = strtok(buffer, ACC_OPENCL_DELIMS " \t");
         for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), ACC_OPENCL_DELIMS " \t") : NULL)) {
           if (NULL == strstr(extensions, ext)) {
             return EXIT_FAILURE;
@@ -1014,7 +1004,7 @@ int c_dbcsr_acc_opencl_create_context(cl_device_id active_id, cl_context* contex
       CL_CONTEXT_PLATFORM, 0 /*placeholder*/, 0 /* end of properties */
     };
     cl_context ctx = NULL;
-    properties[1] = (long)platform;
+    properties[1] = (cl_context_properties)platform;
     ctx = clCreateContext(properties, 1 /*num_devices*/, &active_id, notify, NULL /* user_data*/, &result);
     if (EXIT_SUCCESS != result && CL_INVALID_DEVICE != result) { /* retry */
       ctx = clCreateContext(NULL /*properties*/, 1 /*num_devices*/, &active_id, notify, NULL /* user_data*/, &result);
@@ -1537,8 +1527,10 @@ int c_dbcsr_acc_opencl_kernel(size_t source_kind, const char source[], const cha
           for (n = 0; 0 < num_exts; --num_exts) {
             if (NULL != extnames[num_exts - 1]) {
               const char* const end = buffer_name + strlen(extnames[num_exts - 1]); /* before strtok */
-              char* ext = strtok(
-                strncpy(buffer_name, extnames[num_exts - 1], ACC_OPENCL_MAXSTRLEN * 2 - 1), ACC_OPENCL_DELIMS " \t");
+              char* ext;
+              strncpy(buffer_name, extnames[num_exts - 1], ACC_OPENCL_MAXSTRLEN * 2 - 1);
+              buffer_name[ACC_OPENCL_MAXSTRLEN * 2 - 1] = '\0';
+              ext = strtok(buffer_name, ACC_OPENCL_DELIMS " \t");
               for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), ACC_OPENCL_DELIMS " \t") : NULL)) {
                 const char* line = source;
                 for (;;) {

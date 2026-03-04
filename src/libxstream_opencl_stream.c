@@ -54,19 +54,12 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void) {
 
 int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
-  ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[8] = {
+  ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[9] = {
     CL_QUEUE_PROPERTIES, 0 /*placeholder*/, 0 /* terminator */
   };
   int result, tid = 0, offset = 0;
   cl_command_queue queue = NULL;
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  int routine_handle;
-  if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
-    c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-  }
-#  endif
+  ACC_OPENCL_PROFILE_BEGIN;
   assert(NULL != stream_p);
 #  if !defined(ACC_OPENCL_STREAM_PRIORITIES)
   LIBXS_UNUSED(priority);
@@ -179,38 +172,27 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
     clReleaseCommandQueue(queue);
     *stream_p = NULL;
   }
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
-#  endif
+  ACC_OPENCL_PROFILE_END;
   ACC_OPENCL_RETURN_CAUSE(result, name);
 }
 
 
 int c_dbcsr_acc_stream_destroy(void* stream) {
   int result = EXIT_SUCCESS;
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  int routine_handle;
-  if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
-    c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-  }
-#  endif
+  ACC_OPENCL_PROFILE_BEGIN;
   if (NULL != stream) {
     const c_dbcsr_acc_opencl_stream_t* const str = ACC_OPENCL_STREAM(stream);
     const cl_command_queue queue = str->queue;
     assert(NULL != c_dbcsr_acc_opencl_config.streams);
+#  if !defined(NDEBUG)
+    LIBXS_MEMZERO((c_dbcsr_acc_opencl_stream_t*)stream);
+#  endif
     libxs_pfree_lock(stream, (void**)c_dbcsr_acc_opencl_config.streams, &c_dbcsr_acc_opencl_config.nstreams, c_dbcsr_acc_opencl_config.lock_stream);
     if (NULL != queue) {
       result = clReleaseCommandQueue(queue);
-#  if !defined(NDEBUG)
-      LIBXS_MEMZERO((c_dbcsr_acc_opencl_stream_t*)stream);
-#  endif
     }
   }
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
-#  endif
+  ACC_OPENCL_PROFILE_END;
   ACC_OPENCL_RETURN(result);
 }
 
@@ -218,15 +200,8 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
 int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
   int result = ((NULL != least || NULL != greatest) ? EXIT_SUCCESS : EXIT_FAILURE);
   int priohi = -1, priolo = -1;
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  int routine_handle;
-  if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
-    c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-  }
-#  endif
-  assert(least != greatest); /* no alias */
+  ACC_OPENCL_PROFILE_BEGIN;
+  assert(NULL == least || NULL == greatest || least != greatest); /* no alias */
 #  if defined(ACC_OPENCL_STREAM_PRIORITIES)
   if (0 < c_dbcsr_acc_opencl_config.ndevices) {
     const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
@@ -250,9 +225,7 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
 #  endif
   if (NULL != greatest) *greatest = priohi;
   if (NULL != least) *least = priolo;
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
-#  endif
+  ACC_OPENCL_PROFILE_END;
   ACC_OPENCL_RETURN(result);
 }
 
@@ -260,14 +233,7 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
 int c_dbcsr_acc_stream_sync(void* stream) {
   const c_dbcsr_acc_opencl_stream_t* str = NULL;
   int result = EXIT_SUCCESS;
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  int routine_handle;
-  if (0 != c_dbcsr_acc_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1);
-    c_dbcsr_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-  }
-#  endif
+  ACC_OPENCL_PROFILE_BEGIN;
   str = (NULL != stream ? ACC_OPENCL_STREAM(stream) : c_dbcsr_acc_opencl_stream_default());
   assert(NULL != str && NULL != str->queue);
   if (0 == (16 & c_dbcsr_acc_opencl_config.wa)) result = clFinish(str->queue);
@@ -284,9 +250,7 @@ int c_dbcsr_acc_stream_sync(void* stream) {
     }
     if (NULL != event) ACC_OPENCL_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
   }
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
-#  endif
+  ACC_OPENCL_PROFILE_END;
   ACC_OPENCL_RETURN(result);
 }
 
@@ -306,8 +270,7 @@ int c_dbcsr_acc_opencl_device_synchronize(libxs_lock_t* lock, int thread_id) {
         if (EXIT_SUCCESS != result) break;
       }
     }
-    else { /* error */
-      result = EXIT_FAILURE;
+    else { /* end of registered streams */
       break;
     }
   }
@@ -351,9 +314,7 @@ int c_dbcsr_acc_device_synchronize(void) {
 #  else
   result = c_dbcsr_acc_opencl_device_synchronize(NULL /*lock*/, /*main*/ 0);
 #  endif
-#  if defined(ACC_OPENCL_PROFILE_DBCSR)
-  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle);
-#  endif
+  ACC_OPENCL_PROFILE_END;
   ACC_OPENCL_RETURN(result);
 }
 
