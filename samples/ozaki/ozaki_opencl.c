@@ -298,9 +298,9 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     size_t b_nbytes = (size_t)ldb * b_cols * elem_size;
     c_nbytes = (size_t)ldc * (size_t)N * elem_size;
 
-    if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_a, a_nbytes);
-    if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_b, b_nbytes);
-    if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_c, c_nbytes);
+    if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_a, a_nbytes);
+    if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_b, b_nbytes);
+    if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_c, c_nbytes);
     if (EXIT_SUCCESS != result) goto cleanup;
     /* Overlapped H2D: A via stream_a, B via stream_b, C via main */
     if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(a, d_a, a_nbytes, stream_a);
@@ -315,13 +315,13 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     const size_t bk_size = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
     int s;
     for (s = 0; s < 2 && s < n_batches; ++s) {
-      if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_ak[s], ak_size);
-      if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_bk[s], bk_size);
+      if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_ak[s], ak_size);
+      if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_bk[s], bk_size);
       if (!ctx->use_bf16) {
         const size_t expa_size = (size_t)max_nkb * nblk_m * BM * sizeof(cl_short);
         const size_t expb_size = (size_t)max_nkb * nblk_n * BN * sizeof(cl_short);
-        if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_expa[s], expa_size);
-        if (EXIT_SUCCESS == result) result = libxstream_dev_mem_allocate(&d_expb[s], expb_size);
+        if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_expa[s], expa_size);
+        if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_expb[s], expb_size);
       }
     }
     if (EXIT_SUCCESS != result) goto cleanup;
@@ -460,10 +460,10 @@ cleanup:
   /* Destroy double-buffered preprocessing buffers */
   { int s;
     for (s = 0; s < 2; ++s) {
-      if (NULL != d_ak[s]) libxstream_dev_mem_deallocate(d_ak[s]);
-      if (NULL != d_expa[s]) libxstream_dev_mem_deallocate(d_expa[s]);
-      if (NULL != d_bk[s]) libxstream_dev_mem_deallocate(d_bk[s]);
-      if (NULL != d_expb[s]) libxstream_dev_mem_deallocate(d_expb[s]);
+      if (NULL != d_ak[s]) libxstream_memdev_deallocate(d_ak[s]);
+      if (NULL != d_expa[s]) libxstream_memdev_deallocate(d_expa[s]);
+      if (NULL != d_bk[s]) libxstream_memdev_deallocate(d_bk[s]);
+      if (NULL != d_expb[s]) libxstream_memdev_deallocate(d_expb[s]);
     }
   }
   /* Destroy synchronization events */
@@ -475,9 +475,9 @@ cleanup:
   if (NULL != stream_a) libxstream_stream_destroy(stream_a);
   if (NULL != stream_b) libxstream_stream_destroy(stream_b);
   /* Deallocate input/output matrices */
-  if (NULL != d_a) libxstream_dev_mem_deallocate(d_a);
-  if (NULL != d_b) libxstream_dev_mem_deallocate(d_b);
-  if (NULL != d_c) libxstream_dev_mem_deallocate(d_c);
+  if (NULL != d_a) libxstream_memdev_deallocate(d_a);
+  if (NULL != d_b) libxstream_memdev_deallocate(d_b);
+  if (NULL != d_c) libxstream_memdev_deallocate(d_c);
 
   return result;
 }

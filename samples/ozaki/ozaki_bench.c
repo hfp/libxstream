@@ -126,10 +126,10 @@ int main(int argc, char* argv[])
   /* Allocate and fill matrices (column-major) */
   { const int a_rows = (0 == ta ? M : K), a_cols = (0 == ta ? K : M);
     const int b_rows = (0 == tb ? K : N), b_cols = (0 == tb ? N : K);
-    result = libxstream_host_mem_allocate(&a, (size_t)lda * a_cols * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = libxstream_host_mem_allocate(&b, (size_t)ldb * b_cols * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = libxstream_host_mem_allocate(&c_oz, (size_t)ldc * N * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = libxstream_host_mem_allocate(&c_ref, (size_t)ldc * N * elem_size, stream);
+    result = libxstream_memhst_allocate(&a, (size_t)lda * a_cols * elem_size, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_memhst_allocate(&b, (size_t)ldb * b_cols * elem_size, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_memhst_allocate(&c_oz, (size_t)ldc * N * elem_size, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_memhst_allocate(&c_ref, (size_t)ldc * N * elem_size, stream);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "ERROR: out of memory\n");
       libxstream_stream_destroy(stream);
@@ -184,10 +184,10 @@ int main(int argc, char* argv[])
     print_diff(stdout, &diff);
   }
 
-  libxstream_host_mem_deallocate(a, stream);
-  libxstream_host_mem_deallocate(b, stream);
-  libxstream_host_mem_deallocate(c_oz, stream);
-  libxstream_host_mem_deallocate(c_ref, stream);
+  libxstream_memhst_deallocate(a, stream);
+  libxstream_memhst_deallocate(b, stream);
+  libxstream_memhst_deallocate(c_oz, stream);
+  libxstream_memhst_deallocate(c_ref, stream);
   libxstream_stream_destroy(stream);
   ozaki_destroy(&ctx);
   libxstream_finalize();

@@ -8,7 +8,6 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 #  include <libxstream_opencl.h>
-#  include "libxstream_dbcsr.h"
 #  include <string.h>
 #  include <limits.h>
 #  include <ctype.h>
@@ -324,21 +323,9 @@ int libxstream_init(void) {
 #  else
   int result = EXIT_SUCCESS;
 #  endif
-#  if defined(LIBXSTREAM_PROFILE_DBCSR)
-  int routine_handle;
   if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
     libxstream_opencl_configure();
   }
-  if (0 != libxstream_opencl_config.profile) {
-    static const char* routine_name_ptr = LIBXS_FUNCNAME + LIBXSTREAM_PROFILE_DBCSR;
-    static const int routine_name_len = (int)sizeof(LIBXS_FUNCNAME) - (LIBXSTREAM_PROFILE_DBCSR + 1);
-    libxstream_timeset((const char**)&routine_name_ptr, &routine_name_len, &routine_handle);
-  }
-#  else
-  if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
-    libxstream_opencl_configure();
-  }
-#  endif
   /* eventually touch OpenCL/compute runtime after configure */
   if (0 == libxstream_opencl_config.ndevices && EXIT_SUCCESS == result) { /* avoid to initialize multiple times */
     char buffer[LIBXSTREAM_BUFFERSIZE];
@@ -604,11 +591,7 @@ int libxstream_init(void) {
           result = EXIT_FAILURE;
         }
         if (
-#  if defined(LIBXSTREAM_PROFILE_DBCSR)
-          2 <= libxstream_opencl_config.profile ||
-#  else
           1 <= libxstream_opencl_config.profile ||
-#  endif
           0 > libxstream_opencl_config.profile)
         {
           const char* const env_qsize = getenv("LIBXSTREAM_PROFILE_QSIZE");
@@ -666,7 +649,6 @@ int libxstream_init(void) {
     if (EXIT_SUCCESS == result) result = libsmm_acc_init();
 #  endif
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -742,7 +724,6 @@ int libxstream_finalize(void) {
   int result = EXIT_SUCCESS;
 #  endif
   static void (*cleanup)(void) = libxstream_opencl_finalize;
-  LIBXSTREAM_PROFILE_BEGIN;
   assert(libxstream_opencl_config.ndevices < LIBXSTREAM_MAXNDEVS);
   if (0 != libxstream_opencl_config.ndevices && NULL != cleanup) {
 #  if defined(__DBCSR_ACC)
@@ -756,7 +737,6 @@ int libxstream_finalize(void) {
     if (EXIT_SUCCESS == result) result = atexit(cleanup);
     cleanup = NULL;
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -770,12 +750,8 @@ int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo) {
 }
 
 
-void libxstream_clear_errors(void) {}
-
-
 int libxstream_get_ndevices(int* ndevices) {
   int result;
-  LIBXSTREAM_PROFILE_BEGIN;
 #  if defined(__DBCSR_ACC) /* lazy initialization */
   /* DBCSR calls libxstream_get_ndevices before calling libxstream_init. */
   result = libxstream_init();
@@ -788,7 +764,6 @@ int libxstream_get_ndevices(int* ndevices) {
     }
     else result = EXIT_FAILURE;
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -1232,7 +1207,6 @@ int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
 
 
 int libxstream_set_active_device(int device_id) {
-  /* avoid LIBXSTREAM_PROFILE_DBCSR in this routine */
   int result = EXIT_SUCCESS;
   if (0 <= device_id) {
 #  if defined(__DBCSR_ACC) && defined(__OFFLOAD_OPENCL)

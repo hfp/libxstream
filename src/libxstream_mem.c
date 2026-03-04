@@ -8,7 +8,6 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 #  include <libxstream_opencl.h>
-#  include "libxstream_dbcsr.h"
 #  include <string.h>
 #  if defined(_WIN32)
 #    include <Windows.h>
@@ -170,8 +169,8 @@ int libxstream_opencl_info_devptr(
 }
 
 
-int libxstream_host_mem_deallocate_internal(void* /*host_ptr*/, cl_command_queue /*queue*/);
-int libxstream_host_mem_deallocate_internal(void* host_ptr, cl_command_queue queue) {
+int libxstream_memhst_deallocate_internal(void* /*host_ptr*/, cl_command_queue /*queue*/);
+int libxstream_memhst_deallocate_internal(void* host_ptr, cl_command_queue queue) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_FAILURE;
 #  if (1 >= LIBXSTREAM_USM)
@@ -205,9 +204,8 @@ int libxstream_host_mem_deallocate_internal(void* host_ptr, cl_command_queue que
 }
 
 
-int libxstream_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
+int libxstream_memhst_allocate(void** host_mem, size_t nbytes, void* stream) {
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   assert(NULL != host_mem);
   if (0 != nbytes) {
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
@@ -306,21 +304,19 @@ int libxstream_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
     if (EXIT_SUCCESS != result) {
       if (NULL != memory) LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
       if (NULL != host_ptr) {
-        LIBXSTREAM_EXPECT(EXIT_SUCCESS == libxstream_host_mem_deallocate_internal(host_ptr, str->queue));
+        LIBXSTREAM_EXPECT(EXIT_SUCCESS == libxstream_memhst_deallocate_internal(host_ptr, str->queue));
       }
       *host_mem = NULL;
     }
   }
   else *host_mem = NULL; /* consider warning */
   assert(EXIT_SUCCESS == result || NULL == *host_mem);
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
 
-int libxstream_host_mem_deallocate(void* host_mem, void* stream) {
+int libxstream_memhst_deallocate(void* host_mem, void* stream) {
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   if (NULL != host_mem) {
     const libxstream_opencl_stream_t* const str = (NULL != stream ? LIBXSTREAM_STREAM(stream)
                                                                    : libxstream_opencl_stream_default());
@@ -328,7 +324,7 @@ int libxstream_host_mem_deallocate(void* host_mem, void* stream) {
     assert(NULL != str);
     if (NULL == meminfo || NULL == meminfo->memory) { /* USM-pointer */
       assert(0 != libxstream_opencl_config.device.usm || NULL != libxstream_opencl_config.device.clMemFreeINTEL);
-      result = libxstream_host_mem_deallocate_internal(host_mem, str->queue);
+      result = libxstream_memhst_deallocate_internal(host_mem, str->queue);
     }
     else { /* info-augmented pointer */
       const libxstream_opencl_info_memptr_t info = *meminfo; /* copy meminfo prior to unmap */
@@ -336,7 +332,7 @@ int libxstream_host_mem_deallocate(void* host_mem, void* stream) {
       void* host_ptr = NULL;
       assert(0 == libxstream_opencl_config.device.usm && NULL == libxstream_opencl_config.device.clMemFreeINTEL);
       if (EXIT_SUCCESS == clGetMemObjectInfo(info.memory, CL_MEM_HOST_PTR, sizeof(void*), &host_ptr, NULL) && NULL != host_ptr) {
-        result = libxstream_host_mem_deallocate_internal(host_ptr, str->queue);
+        result = libxstream_memhst_deallocate_internal(host_ptr, str->queue);
       }
       else { /* clReleaseMemObject later on synchronizes */
         result = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, NULL);
@@ -345,7 +341,6 @@ int libxstream_host_mem_deallocate(void* host_mem, void* stream) {
       if (EXIT_SUCCESS == result) result = result_release;
     }
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -394,12 +389,11 @@ void CL_CALLBACK libxstream_memcpy_notify(cl_event event, cl_int event_status, v
 }
 
 
-int libxstream_dev_mem_allocate(void** dev_mem, size_t nbytes) {
+int libxstream_memdev_allocate(void** dev_mem, size_t nbytes) {
   /* assume no lock is needed to protect against context/device changes */
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   void* memptr = NULL;
-  LIBXSTREAM_PROFILE_BEGIN;
 #  if !defined(LIBXSTREAM_ACTIVATE)
   if (NULL == devinfo->context) {
     LIBXSTREAM_EXPECT(EXIT_SUCCESS == libxstream_opencl_set_active_device(
@@ -508,14 +502,12 @@ int libxstream_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   }
   else *dev_mem = NULL;
   assert(EXIT_SUCCESS == result || NULL == *dev_mem);
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
 
-int libxstream_dev_mem_deallocate(void* dev_mem) {
+int libxstream_memdev_deallocate(void* dev_mem) {
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   if (NULL != dev_mem) {
     assert(NULL != libxstream_opencl_config.device.context);
 #  if (1 >= LIBXSTREAM_USM)
@@ -552,14 +544,12 @@ int libxstream_dev_mem_deallocate(void* dev_mem) {
       LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     }
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
 
-int libxstream_dev_mem_set_ptr(void** dev_mem, void* other, size_t offset) {
+int libxstream_memdev_set_ptr(void** dev_mem, void* other, size_t offset) {
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   assert(NULL != dev_mem);
   if (NULL != other || 0 == offset) {
     *dev_mem = (char*)other + offset;
@@ -568,7 +558,6 @@ int libxstream_dev_mem_set_ptr(void** dev_mem, void* other, size_t offset) {
     result = EXIT_FAILURE;
     *dev_mem = NULL;
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -576,7 +565,6 @@ int libxstream_dev_mem_set_ptr(void** dev_mem, void* other, size_t offset) {
 int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, void* stream) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
   assert(NULL != devinfo->context);
   if (
@@ -638,7 +626,6 @@ int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, vo
       else LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -713,7 +700,6 @@ int libxstream_opencl_memcpy_d2h(
 
 int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, void* stream) {
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   assert((NULL != dev_mem && NULL != host_mem) || 0 == nbytes);
   if (
 #  if (0 != LIBXSTREAM_USM)
@@ -756,14 +742,12 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, vo
       else LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
 
 int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, void* stream) {
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   assert((NULL != devmem_src && NULL != devmem_dst) || 0 == nbytes);
   if (NULL != devmem_src && NULL != devmem_dst && devmem_src != devmem_dst && 0 != nbytes) {
 #  if defined(LIBXSTREAM_ASYNC)
@@ -834,14 +818,12 @@ int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyte
       else LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
 
 int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream) {
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   assert(NULL != dev_mem || 0 == nbytes);
   if (0 != nbytes) {
 #  if defined(LIBXSTREAM_ASYNC)
@@ -891,7 +873,6 @@ int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nby
       if (EXIT_SUCCESS == result) result = result_release;
     }
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -973,12 +954,10 @@ int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t*
 }
 
 
-int libxstream_dev_mem_info(size_t* mem_free, size_t* mem_total) {
+int libxstream_memdev_info(size_t* mem_free, size_t* mem_total) {
   const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   int result;
-  LIBXSTREAM_PROFILE_BEGIN;
   result = libxstream_opencl_info_devmem(device_id, mem_free, mem_total, NULL /*mem_local*/, NULL /*mem_unified*/);
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 

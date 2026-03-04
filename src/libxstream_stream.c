@@ -8,7 +8,6 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 #  include <libxstream_opencl.h>
-#  include "libxstream_dbcsr.h"
 #  include <string.h>
 
 
@@ -60,7 +59,6 @@ int libxstream_stream_create(void** stream_p, const char* name, int priority) {
   };
   int result, tid = 0, offset = 0;
   cl_command_queue queue = NULL;
-  LIBXSTREAM_PROFILE_BEGIN;
   assert(NULL != stream_p);
 #  if !defined(LIBXSTREAM_STREAM_PRIORITIES)
   LIBXS_UNUSED(priority);
@@ -173,14 +171,12 @@ int libxstream_stream_create(void** stream_p, const char* name, int priority) {
     clReleaseCommandQueue(queue);
     *stream_p = NULL;
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN_CAUSE(result, name);
 }
 
 
 int libxstream_stream_destroy(void* stream) {
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   if (NULL != stream) {
     const libxstream_opencl_stream_t* const str = LIBXSTREAM_STREAM(stream);
     const cl_command_queue queue = str->queue;
@@ -193,7 +189,6 @@ int libxstream_stream_destroy(void* stream) {
       result = clReleaseCommandQueue(queue);
     }
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -201,7 +196,6 @@ int libxstream_stream_destroy(void* stream) {
 int libxstream_stream_priority_range(int* least, int* greatest) {
   int result = ((NULL != least || NULL != greatest) ? EXIT_SUCCESS : EXIT_FAILURE);
   int priohi = -1, priolo = -1;
-  LIBXSTREAM_PROFILE_BEGIN;
   assert(NULL == least || NULL == greatest || least != greatest); /* no alias */
 #  if defined(LIBXSTREAM_STREAM_PRIORITIES)
   if (0 < libxstream_opencl_config.ndevices) {
@@ -226,7 +220,6 @@ int libxstream_stream_priority_range(int* least, int* greatest) {
 #  endif
   if (NULL != greatest) *greatest = priohi;
   if (NULL != least) *least = priolo;
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -234,7 +227,6 @@ int libxstream_stream_priority_range(int* least, int* greatest) {
 int libxstream_stream_sync(void* stream) {
   const libxstream_opencl_stream_t* str = NULL;
   int result = EXIT_SUCCESS;
-  LIBXSTREAM_PROFILE_BEGIN;
   str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue);
   if (0 == (16 & libxstream_opencl_config.wa)) result = clFinish(str->queue);
@@ -251,7 +243,6 @@ int libxstream_stream_sync(void* stream) {
     }
     if (NULL != event) LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
   }
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 
@@ -282,29 +273,6 @@ int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id) {
 
 int libxstream_device_synchronize(void) {
   int result = EXIT_SUCCESS;
-#  if defined(LIBXSTREAM_PROFILE_DBCSR)
-  int routine_handle;
-  if (0 != libxstream_opencl_config.profile) {
-    const char** routine_name_ptr;
-    const int* routine_name_len;
-#    if defined(_OPENMP)
-    if (1 == omp_get_num_threads()) {
-      static const char* routine_name_ptr_all = "libxstream_device_synchronize_all" + LIBXSTREAM_PROFILE_DBCSR;
-      static const int routine_name_len_all = (int)sizeof("libxstream_device_synchronize_all") - (LIBXSTREAM_PROFILE_DBCSR + 1);
-      routine_name_ptr = (const char**)&routine_name_ptr_all;
-      routine_name_len = &routine_name_len_all;
-    }
-    else
-#    endif
-    {
-      static const char* routine_name_ptr_any = LIBXS_FUNCNAME + LIBXSTREAM_PROFILE_DBCSR;
-      static const int routine_name_len_any = (int)sizeof(LIBXS_FUNCNAME) - (LIBXSTREAM_PROFILE_DBCSR + 1);
-      routine_name_ptr = (const char**)&routine_name_ptr_any;
-      routine_name_len = &routine_name_len_any;
-    }
-    libxstream_timeset(routine_name_ptr, routine_name_len, &routine_handle);
-  }
-#  endif
 #  if defined(_OPENMP)
   if (1 == omp_get_num_threads()) {
     result = libxstream_opencl_device_synchronize(libxstream_opencl_config.lock_stream, -1 /*all*/);
@@ -315,7 +283,6 @@ int libxstream_device_synchronize(void) {
 #  else
   result = libxstream_opencl_device_synchronize(NULL /*lock*/, /*main*/ 0);
 #  endif
-  LIBXSTREAM_PROFILE_END;
   LIBXSTREAM_RETURN(result);
 }
 

@@ -22,7 +22,6 @@ typedef int libxstream_bool_t;
 /** initialization and finalization */
 int libxstream_init(void);
 int libxstream_finalize(void);
-void libxstream_clear_errors(void);
 
 /** devices */
 int libxstream_get_ndevices(int* ndevices);
@@ -46,19 +45,17 @@ int libxstream_event_query(void* event, libxstream_bool_t* has_occurred);
 int libxstream_event_synchronize(void* event);
 
 /** memory */
-int libxstream_dev_mem_allocate(void** dev_mem, size_t nbytes);
-int libxstream_dev_mem_deallocate(void* dev_mem);
-int libxstream_dev_mem_set_ptr(void** dev_mem, void* other, size_t lb);
-int libxstream_host_mem_allocate(void** host_mem, size_t nbytes, void* stream);
-int libxstream_host_mem_deallocate(void* host_mem, void* stream);
+int libxstream_memdev_allocate(void** dev_mem, size_t nbytes);
+int libxstream_memdev_deallocate(void* dev_mem);
+int libxstream_memdev_set_ptr(void** dev_mem, void* other, size_t lb);
+int libxstream_memdev_info(size_t* mem_free, size_t* mem_total);
+int libxstream_memhst_allocate(void** host_mem, size_t nbytes, void* stream);
+int libxstream_memhst_deallocate(void* host_mem, void* stream);
 int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, void* stream);
 int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, void* stream);
 int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, void* stream);
 int libxstream_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* stream);
-int libxstream_dev_mem_info(size_t* mem_free, size_t* mem_total);
-/** profiling */
-void libxstream_timeset(const char** routineN, const int* routineN_len, int* handle);
-void libxstream_timestop(const int* handle);
+
 #if defined(__cplusplus)
 }
 #endif
