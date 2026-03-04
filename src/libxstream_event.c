@@ -14,7 +14,7 @@
 extern "C" {
 #  endif
 
-int libxstream_acc_event_create(void** event_p) {
+int libxstream_event_create(void** event_p) {
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
   assert(NULL != c_dbcsr_acc_opencl_config.events && NULL != event_p);
@@ -27,7 +27,7 @@ int libxstream_acc_event_create(void** event_p) {
 }
 
 
-int libxstream_acc_event_destroy(void* event) {
+int libxstream_event_destroy(void* event) {
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
   if (NULL != event) {
@@ -46,7 +46,7 @@ int libxstream_acc_event_destroy(void* event) {
 }
 
 
-int libxstream_acc_stream_wait_event(void* stream, void* event) { /* wait for an event (device-side) */
+int libxstream_stream_wait_event(void* stream, void* event) { /* wait for an event (device-side) */
   int result = EXIT_SUCCESS;
   const c_dbcsr_acc_opencl_stream_t* str = NULL;
   cl_event clevent = NULL;
@@ -73,7 +73,7 @@ int libxstream_acc_stream_wait_event(void* stream, void* event) { /* wait for an
 }
 
 
-int libxstream_acc_event_record(void* event, void* stream) {
+int libxstream_event_record(void* event, void* stream) {
   int result = EXIT_SUCCESS;
   const c_dbcsr_acc_opencl_stream_t* str = NULL;
   cl_event clevent = NULL, clevent_result = NULL;
@@ -103,7 +103,7 @@ int libxstream_acc_event_record(void* event, void* stream) {
 }
 
 
-int libxstream_acc_event_query(void* event, int* has_occurred) {
+int libxstream_event_query(void* event, int* has_occurred) {
   cl_int status = CL_COMPLETE;
   int result;
   ACC_OPENCL_PROFILE_BEGIN;
@@ -119,7 +119,7 @@ int libxstream_acc_event_query(void* event, int* has_occurred) {
 }
 
 
-int libxstream_acc_event_synchronize(void* event) { /* waits on the host-side */
+int libxstream_event_synchronize(void* event) { /* waits on the host-side */
   int result = EXIT_SUCCESS;
   cl_event clevent;
   ACC_OPENCL_PROFILE_BEGIN;

@@ -204,7 +204,7 @@ int c_dbcsr_acc_host_mem_deallocate_internal(void* host_ptr, cl_command_queue qu
 }
 
 
-int libxstream_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
+int libxstream_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
   assert(NULL != host_mem);
@@ -317,7 +317,7 @@ int libxstream_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* strea
 }
 
 
-int libxstream_acc_host_mem_deallocate(void* host_mem, void* stream) {
+int libxstream_host_mem_deallocate(void* host_mem, void* stream) {
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
   if (NULL != host_mem) {
@@ -393,7 +393,7 @@ void CL_CALLBACK c_dbcsr_acc_memcpy_notify(cl_event event, cl_int event_status, 
 }
 
 
-int libxstream_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
+int libxstream_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   /* assume no lock is needed to protect against context/device changes */
   const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
   int result = EXIT_SUCCESS;
@@ -512,7 +512,7 @@ int libxstream_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
 }
 
 
-int libxstream_acc_dev_mem_deallocate(void* dev_mem) {
+int libxstream_dev_mem_deallocate(void* dev_mem) {
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
   if (NULL != dev_mem) {
@@ -556,7 +556,7 @@ int libxstream_acc_dev_mem_deallocate(void* dev_mem) {
 }
 
 
-int libxstream_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t offset) {
+int libxstream_dev_mem_set_ptr(void** dev_mem, void* other, size_t offset) {
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
   assert(NULL != dev_mem);
@@ -572,7 +572,7 @@ int libxstream_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t offset) {
 }
 
 
-int libxstream_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, void* stream) {
+int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, void* stream) {
   const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
@@ -642,7 +642,7 @@ int libxstream_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes
 }
 
 
-/* like libxstream_acc_memcpy_d2h, but apply some async workaround. */
+/* like libxstream_memcpy_d2h, but apply some async workaround. */
 int c_dbcsr_acc_opencl_memcpy_d2h(const void* /*dev_mem*/, void* /*host_mem*/, size_t /*offset*/, size_t /*nbytes*/,
   cl_command_queue /*queue*/, int /*blocking*/, cl_event* /*event*/);
 int c_dbcsr_acc_opencl_memcpy_d2h(
@@ -710,7 +710,7 @@ int c_dbcsr_acc_opencl_memcpy_d2h(
 }
 
 
-int libxstream_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, void* stream) {
+int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, void* stream) {
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
   assert((NULL != dev_mem && NULL != host_mem) || 0 == nbytes);
@@ -760,7 +760,7 @@ int libxstream_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes
 }
 
 
-int libxstream_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, void* stream) {
+int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, void* stream) {
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
   assert((NULL != devmem_src && NULL != devmem_dst) || 0 == nbytes);
@@ -895,7 +895,7 @@ int c_dbcsr_acc_opencl_memset(void* dev_mem, int value, size_t offset, size_t nb
 }
 
 
-int libxstream_acc_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* stream) {
+int libxstream_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* stream) {
   return c_dbcsr_acc_opencl_memset(dev_mem, 0 /*value*/, offset, nbytes, stream);
 }
 
@@ -972,7 +972,7 @@ int c_dbcsr_acc_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t
 }
 
 
-int libxstream_acc_dev_mem_info(size_t* mem_free, size_t* mem_total) {
+int libxstream_dev_mem_info(size_t* mem_free, size_t* mem_total) {
   const cl_device_id device_id = c_dbcsr_acc_opencl_config.devices[c_dbcsr_acc_opencl_config.device_id];
   int result;
   ACC_OPENCL_PROFILE_BEGIN;

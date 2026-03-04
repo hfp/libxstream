@@ -52,7 +52,7 @@ const c_dbcsr_acc_opencl_stream_t* c_dbcsr_acc_opencl_stream_default(void) {
 }
 
 
-int libxstream_acc_stream_create(void** stream_p, const char* name, int priority) {
+int libxstream_stream_create(void** stream_p, const char* name, int priority) {
   const c_dbcsr_acc_opencl_device_t* const devinfo = &c_dbcsr_acc_opencl_config.device;
   ACC_OPENCL_STREAM_PROPERTIES_TYPE properties[9] = {
     CL_QUEUE_PROPERTIES, 0 /*placeholder*/, 0 /* terminator */
@@ -69,7 +69,7 @@ int libxstream_acc_stream_create(void** stream_p, const char* name, int priority
   }
   else {
     int least = -1, greatest = -1;
-    if (0 != (1 & c_dbcsr_acc_opencl_config.priority) && EXIT_SUCCESS == libxstream_acc_stream_priority_range(&least, &greatest) &&
+    if (0 != (1 & c_dbcsr_acc_opencl_config.priority) && EXIT_SUCCESS == libxstream_stream_priority_range(&least, &greatest) &&
         least != greatest)
     {
       properties[3] = (0 != (2 & c_dbcsr_acc_opencl_config.priority) &&
@@ -177,7 +177,7 @@ int libxstream_acc_stream_create(void** stream_p, const char* name, int priority
 }
 
 
-int libxstream_acc_stream_destroy(void* stream) {
+int libxstream_stream_destroy(void* stream) {
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
   if (NULL != stream) {
@@ -197,7 +197,7 @@ int libxstream_acc_stream_destroy(void* stream) {
 }
 
 
-int libxstream_acc_stream_priority_range(int* least, int* greatest) {
+int libxstream_stream_priority_range(int* least, int* greatest) {
   int result = ((NULL != least || NULL != greatest) ? EXIT_SUCCESS : EXIT_FAILURE);
   int priohi = -1, priolo = -1;
   ACC_OPENCL_PROFILE_BEGIN;
@@ -230,7 +230,7 @@ int libxstream_acc_stream_priority_range(int* least, int* greatest) {
 }
 
 
-int libxstream_acc_stream_sync(void* stream) {
+int libxstream_stream_sync(void* stream) {
   const c_dbcsr_acc_opencl_stream_t* str = NULL;
   int result = EXIT_SUCCESS;
   ACC_OPENCL_PROFILE_BEGIN;
@@ -279,7 +279,7 @@ int c_dbcsr_acc_opencl_device_synchronize(libxs_lock_t* lock, int thread_id) {
 }
 
 
-int libxstream_acc_device_synchronize(void) {
+int libxstream_device_synchronize(void) {
   int result = EXIT_SUCCESS;
 #  if defined(ACC_OPENCL_PROFILE_DBCSR)
   int routine_handle;
