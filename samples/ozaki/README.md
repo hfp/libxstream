@@ -9,8 +9,7 @@ of the CPU-based Ozaki sample in [LIBXS](https://github.com/hfp/libxs).
 Each IEEE-754 mantissa is decomposed into 7-bit int8 slices. The GEMM
 `C = alpha * A * B + beta * C` is then computed as a sum of `S*(S+1)/2`
 (with triangular + symmetrize) pairwise int8 dot products over `BM×BN×BK`
-tiles (default 16×16×16), matching the granularity of GPU matrix engines
-(Tensor Cores, XMX, AMD Matrix Cores).
+tiles, matching the granularity of GPU matrix engines.
 
 Three OpenCL kernels implement the pipeline:
 1. **preprocess_a** — extract sign/exponent/mantissa from A, find per-row
@@ -19,44 +18,73 @@ Three OpenCL kernels implement the pipeline:
 3. **dotprod** — iterate slice pairs, accumulate scaled int8 dot products
    into double/float C tiles
 
+When Intel XMX hardware is detected (`cl_intel_subgroup_matrix_multiply_accumulate`
+and `cl_intel_subgroup_2d_block_io`), the dotprod kernel uses **DPAS** (Data
+Processing Accelerator Systolic) instructions with 2D block I/O for data
+movement (SG=16, 8×32 A reads, 32×16 VNNI-transformed B reads). Otherwise a
+scalar fallback is used.
+
+A double-buffered K-batch pipeline overlaps preprocessing of batch N+1 with the
+dot-product computation of batch N across three concurrent streams.
+
 ## Build
 
 ```bash
 cd samples/ozaki
-make [DBG=1]
+make [GNU=1] [DBG=1] [PEDANTIC=2]
 ```
 
 Requires an OpenCL runtime and headers (e.g., `opencl-c-headers`, `ocl-icd-dev`,
-or Intel oneAPI).
+or Intel oneAPI). BLAS is linked via `BLAS=2` (2=parallelized) for the reference GEMM.
 
 ## Run
 
 ```bash
-./ozaki_bench M N K [nslices]
+./ozaki.x [M [N [K [transa [transb [alpha [beta [lda [ldb [ldc]]]]]]]]]]
 ```
 
-Environment variables:
-- `OZAKI_FLAGS` — bitmask: 1=triangular, 2=symmetrize (default 3)
-- `OZAKI_TRIM` — number of least-significant diagonals to skip (default 0)
+All arguments are positional and optional (defaults shown):
+
+| Position | Argument  | Default   | Description                             |
+|----------|-----------|-----------|-----------------------------------------|
+| 1        | `M`       | 257       | Number of rows of C and op(A)           |
+| 2        | `N`       | M         | Number of columns of C and op(B)        |
+| 3        | `K`       | M         | Inner dimension                         |
+| 4        | `transa`  | 0         | 0 = 'N', 1 = 'T' for A                 |
+| 5        | `transb`  | 0         | 0 = 'N', 1 = 'T' for B                 |
+| 6        | `alpha`   | 1         | Scalar multiplier for A*B               |
+| 7        | `beta`    | 1         | Scalar multiplier for C                 |
+| 8        | `lda`     | auto      | Leading dimension of A                  |
+| 9        | `ldb`     | auto      | Leading dimension of B                  |
+| 10       | `ldc`     | M         | Leading dimension of C                  |
+
+## Environment Variables
+
+| Variable         | Default | Description                                    |
+|------------------|---------|------------------------------------------------|
+| `OZAKI_VERBOSE`  | 0       | Verbosity level (1 = info, 2+ = debug)         |
+| `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on) |
+| `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint)             |
+| `OZAKI_SG`       | auto    | Sub-group size (forced to 16 when XMX active)  |
+| `OZAKI_CONSTANT` | 0       | 1 = use `constant` address space for read-only buffers |
+
+The Ozaki context auto-selects XMX-friendly defaults when hardware support is
+detected: `BK=32`, `BM=16`, `BN=16`, `SG=16`, `nslices=8`, `batch_k=4`.
 
 ## Example
 
 ```
-$ ./ozaki_bench 256 256 256
+$ ./ozaki.x 256
 Ozaki Scheme 1 OpenCL benchmark
-M=256 N=256 K=256 nslices=8 flags=3 trim=0
-Device: Intel(R) Data Center GPU Max 1550
+NN M=256 N=256 K=256 lda=256 ldb=256 ldc=256 alpha=1 beta=1
+Device: Intel(R) Data Center GPU Max 1550 (GPU)
 Ozaki GEMM: 12.345 ms
-Ref   GEMM: 45.678 ms
-Max absolute diff: 1.234567e-12
-Max relative diff: 5.678901e-14
+BLAS  GEMM: 1.234 ms
+GEMM: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
 ```
 
 ## Limitations
 
-- This is an initial proof-of-concept; the dot-product kernel uses scalar int8
-  multiply-accumulate. A production version would target hardware matrix
-  instructions via `cl_intel_subgroup_matrix_multiply_accumulate` or equivalent.
 - Only Scheme 1 (mantissa slicing) is implemented; Scheme 2 (CRT) is not
   included.
 - Complex GEMM (3M method) is not yet supported.

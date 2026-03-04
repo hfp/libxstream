@@ -30,7 +30,7 @@ IFLAGS += -I$(call quote,$(INCDIR))
 XSTLIB := $(DEPDIR)/lib/libxstream.$(SLIBEXT)
 
 SCRDIR := $(DEPDIR)/scripts
-KERNEL := $(SRCDIR)/kernels/ozaki.cl
+KERNEL := $(SRCDIR)/kernels/ozaki1_int8.cl
 GENHDR := $(SRCDIR)/ozaki_kernels.h
 
 OUTNAME := $(shell basename "$(ROOTDIR)")
