@@ -67,40 +67,7 @@
 #endif
 
 
-/* ------------------------------------------------------------------ */
-/*  BF16 conversion helpers                                           */
-/* ------------------------------------------------------------------ */
-
-#if defined(USE_BF16_EXT) && (0 < USE_BF16_EXT)
-/* Hardware round-to-nearest-even via cl_intel_bfloat16_conversions.
- * Extension pragmas trigger warnings on some drivers; availability
- * is checked at init time. */
-/*# pragma OPENCL EXTENSION cl_intel_bfloat16_conversions : enable*/
-# define ROUND_TO_BF16(x) intel_convert_bfloat16_as_ushort(x)
-# define BF16_TO_F32(x)   intel_convert_as_bfloat16_float(x)
-#else
-/** Round a float to BF16 (round-to-nearest-even).
- *  Portable uint32 bit-manipulation (no __bf16 intrinsic required). */
-inline ushort round_to_bf16(float f)
-{
-  uint bits = as_uint(f);
-  bits = (bits + 0x7FFFU + ((bits >> 16) & 1U)) & 0xFFFF0000U;
-  return (ushort)(bits >> 16);
-}
-
-/** Expand a BF16 encoding to float32 (exact). */
-inline float bf16_to_f32(ushort v)
-{
-  return as_float((uint)v << 16);
-}
-# define ROUND_TO_BF16(x) round_to_bf16(x)
-# define BF16_TO_F32(x)   bf16_to_f32(x)
-#endif
-
-
-/* ------------------------------------------------------------------ */
-/*  XMX (hardware matrix multiply-accumulate) definitions             */
-/* ------------------------------------------------------------------ */
+/* XMX (hardware matrix multiply-accumulate) definitions */
 
 #if defined(USE_XMX) && (0 < USE_XMX)
 /* Extensions checked at init time; pragma enable is not required
