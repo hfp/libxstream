@@ -18,6 +18,9 @@
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_INT8)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1_INT8)"
 #endif
+#if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_BF16)
+# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1_BF16)"
+#endif
 
 
 #define CL_CHECK(CALL) do { \
@@ -35,7 +38,7 @@ static void ozaki_print_opt(FILE* stream, const char* name, int val);
 
 
 int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
-               int use_double, int nslices, int batch_k,
+               int use_double, int use_bf16, int nslices, int batch_k,
                int ozflags, int oztrim)
 {
   const c_dbcsr_acc_opencl_device_t* devinfo = &c_dbcsr_acc_opencl_config.device;
@@ -43,6 +46,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   char build_options[256];
   char build_params[1024];
   size_t offset;
+  const char* kernel_source;
   const char* env;
   int verbosity, wg, sg, gpu, use_xmx, result;
 
@@ -81,18 +85,22 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     }
   }
 
+  /* bf16 mode can be overridden via environment */
+  env = getenv("OZAKI_BF16");
+  if (NULL != env) use_bf16 = atoi(env);
+
   /* Choose smart defaults: XMX-friendly when hardware is available.
-   * XMX requires BK==32 and BM/BN divisible by 8. */
+   * XMX requires BK==32 (int8) or BK==16 (bf16), BM/BN divisible by 8. */
   if (0 >= bm) bm = 16;
   if (0 >= bn) bn = 16;
-  if (0 >= bk) bk = use_xmx ? 32 : 16;
+  if (0 >= bk) bk = use_xmx ? (use_bf16 ? 16 : 32) : 16;
   if (0 >= nslices) nslices = 8;
   if (0 >= batch_k) batch_k = 4;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   /* Validate XMX constraints against final block sizes.
    * DPAS SG=16: XMX_N=16, so BN must be divisible by 16. */
-  if (use_xmx && (32 != bk || 0 != (bm % 8) || 0 != (bn % 16))) {
+  if (use_xmx && ((use_bf16 ? 16 : 32) != bk || 0 != (bm % 8) || 0 != (bn % 16))) {
     if (0 < verbosity) {
       fprintf(stderr, "INFO OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
               bk, bm, bn);
@@ -105,6 +113,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   ctx->bk = bk;
   ctx->batch_k = batch_k;
   ctx->use_double = use_double;
+  ctx->use_bf16 = use_bf16;
   ctx->use_xmx = use_xmx;
   ctx->nslices = nslices;
   ctx->ozflags = ozflags;
@@ -129,9 +138,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   LIBXS_SNPRINTF(build_options, sizeof(build_options),
     "-cl-fast-relaxed-math -cl-denorms-are-zero");
 
-  { int mant_bits      = use_double ? 52 : 23;
-    int bias_plus_mant = use_double ? 1075 : 150;
-    const char* constant_qual;
+  { const char* constant_qual;
 
     env = getenv("OZAKI_CONSTANT");
     constant_qual = (NULL != env && 0 != atoi(env)) ? "constant" : "global";
@@ -144,14 +151,19 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 
     offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
       "-DCONSTANT=%s -DBM=%d -DBN=%d -DBK=%d -DNSLICES=%d"
-      " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
       " -DTRIANGULAR=%d -DSYMMETRIZE=%d -DTRIM=%d"
       " -DUSE_DOUBLE=%d",
       constant_qual, bm, bn, bk, nslices,
-      mant_bits, bias_plus_mant,
       (ozflags & OZAKI_TRIANGULAR) ? 1 : 0,
       (ozflags & OZAKI_SYMMETRIZE) ? 1 : 0,
       oztrim, use_double);
+
+    if (!use_bf16) {
+      const int mant_bits      = use_double ? 52 : 23;
+      const int bias_plus_mant = use_double ? 1075 : 150;
+      offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
+        " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d", mant_bits, bias_plus_mant);
+    }
 
     if (0 < wg) {
       offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
@@ -174,7 +186,11 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
 
   /* JIT compile kernels via ACC */
-  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
+  kernel_source = use_bf16
+    ? OPENCL_KERNELS_SOURCE_OZAKI1_BF16
+    : OPENCL_KERNELS_SOURCE_OZAKI1_INT8;
+
+  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, kernel_source,
     "preprocess_a", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_preprocess_a);
   if (EXIT_SUCCESS != result) {
@@ -182,7 +198,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     return EXIT_FAILURE;
   }
 
-  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
+  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, kernel_source,
     "preprocess_b", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_preprocess_b);
   if (EXIT_SUCCESS != result) {
@@ -190,7 +206,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     return EXIT_FAILURE;
   }
 
-  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
+  result = c_dbcsr_acc_opencl_kernel(0 /*source*/, kernel_source,
     "dotprod", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_dotprod);
   if (EXIT_SUCCESS != result) {
@@ -207,6 +223,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
               (unsigned long)wgs[0], (unsigned long)wgs[1], (unsigned long)wgs[2]);
     }
     fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
+    ozaki_print_opt(stderr, "bf16", use_bf16);
     ozaki_print_opt(stderr, "fp", use_double ? 64 : 32);
     ozaki_print_opt(stderr, "xmx", use_xmx);
     ozaki_print_opt(stderr, "wg", wg);
@@ -237,8 +254,10 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
 {
   const c_dbcsr_acc_opencl_stream_t* str = ACC_OPENCL_STREAM(stream);
   const int BM = ctx->bm, BN = ctx->bn, BK = ctx->bk;
-  /* Pad B column stride to >= 64 for 2D block I/O surface constraints */
-  const int BN_PAD = ctx->use_xmx ? ((BN < 64) ? 64 : BN) : BN;
+  /* Pad B column stride so surface width >= 64 bytes (2D block I/O).
+   * bf16: 2 bytes/elem, min 32 elements.  int8: 1 byte/elem, min 64. */
+  const int bn_min = ctx->use_bf16 ? 32 : 64;
+  const int BN_PAD = ctx->use_xmx ? ((BN < bn_min) ? bn_min : BN) : BN;
   const int BATCH_K = ctx->batch_k;
   const int nslices = ctx->nslices;
   const int nblk_m = (M + BM - 1) / BM;
@@ -292,16 +311,19 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
   }
 
   /* Pre-allocate double-buffered preprocessing buffers (max batch size) */
-  { size_t ak_size   = (size_t)max_nkb * nblk_m * BM * nslices * BK;
-    size_t expa_size = (size_t)max_nkb * nblk_m * BM * sizeof(cl_short);
-    size_t bk_size   = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK;
-    size_t expb_size = (size_t)max_nkb * nblk_n * BN * sizeof(cl_short);
+  { const size_t slice_elem = ctx->use_bf16 ? 2 : 1; /* ushort vs char */
+    const size_t ak_size = (size_t)max_nkb * nblk_m * BM * nslices * BK * slice_elem;
+    const size_t bk_size = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
     int s;
     for (s = 0; s < 2 && s < n_batches; ++s) {
       if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_ak[s], ak_size);
-      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expa[s], expa_size);
       if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_bk[s], bk_size);
-      if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expb[s], expb_size);
+      if (!ctx->use_bf16) {
+        const size_t expa_size = (size_t)max_nkb * nblk_m * BM * sizeof(cl_short);
+        const size_t expb_size = (size_t)max_nkb * nblk_n * BN * sizeof(cl_short);
+        if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expa[s], expa_size);
+        if (EXIT_SUCCESS == result) result = c_dbcsr_acc_dev_mem_allocate(&d_expb[s], expb_size);
+      }
     }
     if (EXIT_SUCCESS != result) goto cleanup;
   }
@@ -337,8 +359,13 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 4, sizeof(int), &ta));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 5, sizeof(int), &kb_batch));
       CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 6, d_ak[cur]));
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 7, d_expa[cur]));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 8, sizeof(int), &nblk_m));
+      if (ctx->use_bf16) {
+        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 7, sizeof(int), &nblk_m));
+      }
+      else {
+        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 7, d_expa[cur]));
+        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 8, sizeof(int), &nblk_m));
+      }
       CL_CHECK(clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
                  NULL, global_a, local_a, 0, NULL, NULL));
     }
@@ -355,8 +382,13 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 4, sizeof(int), &tb));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 5, sizeof(int), &kb_batch));
       CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 6, d_bk[cur]));
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 7, d_expb[cur]));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 8, sizeof(int), &nblk_n));
+      if (ctx->use_bf16) {
+        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 7, sizeof(int), &nblk_n));
+      }
+      else {
+        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 7, d_expb[cur]));
+        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 8, sizeof(int), &nblk_n));
+      }
       CL_CHECK(clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
                  NULL, global_b, local_b, 0, NULL, NULL));
     }
@@ -387,9 +419,13 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
         global_c[1] = (size_t)nblk_n * BN;
       }
       CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
+      if (!ctx->use_bf16) {
+        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
+      }
       CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
-      CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
+      if (!ctx->use_bf16) {
+        CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
+      }
       CL_CHECK(c_dbcsr_acc_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));

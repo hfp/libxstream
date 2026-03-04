@@ -102,8 +102,8 @@ int main(int argc, char* argv[])
     env = getenv("GEMM_OZN");
     if (NULL != env) nslices = atoi(env);
     LIBXS_MEMZERO(&ctx);
-    result = ozaki_init(&ctx, 0, 0, 0, 1 /*use_double*/, nslices, 0,
-      ozflags, oztrim);
+    result = ozaki_init(&ctx, 0, 0, 0, 1 /*use_double*/, 0 /*use_bf16*/,
+      nslices, 0, ozflags, oztrim);
   }
   if (EXIT_SUCCESS != result) {
     fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
