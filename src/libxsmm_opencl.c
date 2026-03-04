@@ -1831,6 +1831,32 @@ double c_dbcsr_acc_opencl_duration(cl_event event, int* result_code) {
   return result;
 }
 
+
+const char* cl_strerror(cl_int err) {
+  switch (err) {
+    case  0: return "CL_SUCCESS";
+    case -1: return "CL_DEVICE_NOT_FOUND";
+    case -2: return "CL_DEVICE_NOT_AVAILABLE";
+    case -3: return "CL_COMPILER_NOT_AVAILABLE";
+    case -5: return "CL_OUT_OF_RESOURCES";
+    case -6: return "CL_OUT_OF_HOST_MEMORY";
+    case -11: return "CL_BUILD_PROGRAM_FAILURE";
+    case -12: return "CL_MAP_FAILURE";
+    case -30: return "CL_INVALID_VALUE";
+    case -33: return "CL_INVALID_DEVICE";
+    case -34: return "CL_INVALID_CONTEXT";
+    case -36: return "CL_INVALID_COMMAND_QUEUE";
+    case -38: return "CL_INVALID_MEM_OBJECT";
+    case -45: return "CL_INVALID_PROGRAM_EXECUTABLE";
+    case -46: return "CL_INVALID_KERNEL_NAME";
+    case -48: return "CL_INVALID_KERNEL";
+    case -51: return "CL_INVALID_ARG_SIZE";
+    case -52: return "CL_INVALID_KERNEL_ARGS";
+    case -54: return "CL_INVALID_WORK_GROUP_SIZE";
+    default: return "CL_UNKNOWN_ERROR";
+  }
+}
+
 #  if defined(__cplusplus)
 }
 #  endif
