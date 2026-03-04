@@ -88,7 +88,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   if (0 >= bk) bk = use_xmx ? 32 : 16;
   if (0 >= nslices) nslices = 8;
   if (0 >= batch_k) batch_k = 4;
-  if (0 == ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
+  if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   /* Validate XMX constraints against final block sizes.
    * DPAS SG=16: XMX_N=16, so BN must be divisible by 16. */

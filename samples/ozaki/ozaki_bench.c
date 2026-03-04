@@ -93,9 +93,18 @@ int main(int argc, char* argv[])
     transa, transb, M, N, K, lda, ldb, ldc, alpha, beta);
 
   /* Initialize Ozaki context (kernels) */
-  LIBXS_MEMZERO(&ctx);
-  result = ozaki_init(&ctx, 0, 0, 0, 1 /*use_double*/, 0, 0,
-    0 /*ozflags=auto*/, 0 /*oztrim*/);
+  { const char* env;
+    int ozflags = -1 /*auto*/, oztrim = 0, nslices = 0 /*auto*/;
+    env = getenv("GEMM_OZFLAGS");
+    if (NULL != env) ozflags = atoi(env);
+    env = getenv("GEMM_OZTRIM");
+    if (NULL != env) oztrim = atoi(env);
+    env = getenv("GEMM_OZN");
+    if (NULL != env) nslices = atoi(env);
+    LIBXS_MEMZERO(&ctx);
+    result = ozaki_init(&ctx, 0, 0, 0, 1 /*use_double*/, nslices, 0,
+      ozflags, oztrim);
+  }
   if (EXIT_SUCCESS != result) {
     fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
     c_dbcsr_acc_finalize();

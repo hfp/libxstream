@@ -35,8 +35,10 @@ typedef struct ozaki_context_t {
 
 
 /* Function prototypes (public API).
- * Pass 0 for bm/bn/bk/nslices/batch_k/ozflags to use auto defaults.
- * Auto defaults choose XMX-friendly sizes when hardware support is detected. */
+ * Pass 0 for bm/bn/bk/nslices/batch_k to use auto defaults.
+ * Pass -1 for ozflags to use the default (TRIANGULAR | SYMMETRIZE);
+ * 0 disables both flags.  Auto defaults choose XMX-friendly sizes
+ * when hardware support is detected. */
 int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
                int use_double, int nslices, int batch_k,
                int ozflags, int oztrim);
