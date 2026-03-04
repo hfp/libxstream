@@ -132,6 +132,21 @@
 #  endif
 #endif
 
+#if defined(ACC_OPENCL_PROFILE_DBCSR)
+# define ACC_OPENCL_PROFILE_BEGIN \
+  int routine_handle_; \
+  if (0 != c_dbcsr_acc_opencl_config.profile) { \
+    static const char* routine_name_ptr_ = LIBXS_FUNCNAME + ACC_OPENCL_PROFILE_DBCSR; \
+    static const int routine_name_len_ = (int)sizeof(LIBXS_FUNCNAME) - (ACC_OPENCL_PROFILE_DBCSR + 1); \
+    c_dbcsr_timeset((const char**)&routine_name_ptr_, &routine_name_len_, &routine_handle_); \
+  }
+# define ACC_OPENCL_PROFILE_END \
+  if (0 != c_dbcsr_acc_opencl_config.profile) c_dbcsr_timestop(&routine_handle_)
+#else
+# define ACC_OPENCL_PROFILE_BEGIN
+# define ACC_OPENCL_PROFILE_END
+#endif
+
 /* attaching c_dbcsr_acc_opencl_stream_t is needed */
 #define ACC_OPENCL_STREAM(A) ((const c_dbcsr_acc_opencl_stream_t*)(A))
 /* incompatible with c_dbcsr_acc_event_record */
