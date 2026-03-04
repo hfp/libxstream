@@ -680,7 +680,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         "x" OPENCL_LIBSMM_KERNELNAME_TRANS "%ix%i", m, n);
 #  if defined(__DBCSR_ACC)
       int routine_handle;
-      libxstream_timeset(LIBSMM_ACC_TRANSPOSE_ROUTINE_NAME_STRPTR, LIBSMM_ACC_TRANSPOSE_ROUTINE_NAME_LENPTR, &routine_handle);
+      c_dbcsr_timeset(LIBSMM_ACC_TRANSPOSE_ROUTINE_NAME_STRPTR, LIBSMM_ACC_TRANSPOSE_ROUTINE_NAME_LENPTR, &routine_handle);
 #  endif
       if (0 < nchar && (int)sizeof(fname) > nchar) {
         const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
@@ -761,7 +761,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         result = EXIT_FAILURE;
       }
 #  if defined(__DBCSR_ACC)
-      libxstream_timestop(&routine_handle);
+      c_dbcsr_timestop(&routine_handle);
 #  endif
     }
     assert((NULL != config && NULL != config->kernel && 0 < config->wgsize) || EXIT_SUCCESS != result);
@@ -913,7 +913,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
           "x" OPENCL_LIBSMM_KERNELNAME_SMM "%ix%ix%i", m_max, n_max, k_max);
 #  if defined(__DBCSR_ACC)
         int routine_handle;
-        libxstream_timeset(LIBSMM_ACC_PROCESS_ROUTINE_NAME_STRPTR, LIBSMM_ACC_PROCESS_ROUTINE_NAME_LENPTR, &routine_handle);
+        c_dbcsr_timeset(LIBSMM_ACC_PROCESS_ROUTINE_NAME_STRPTR, LIBSMM_ACC_PROCESS_ROUTINE_NAME_LENPTR, &routine_handle);
 #  endif
         result = ((0 < nchar && (int)sizeof(fname) > nchar) ? EXIT_SUCCESS : EXIT_FAILURE);
         if (EXIT_SUCCESS == result) {
@@ -1169,7 +1169,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
           libxs_registry_remove(opencl_libsmm_registry, &key, sizeof(key));
         }
 #  if defined(__DBCSR_ACC)
-        libxstream_timestop(&routine_handle);
+        c_dbcsr_timestop(&routine_handle);
 #  endif
       }
       assert(EXIT_SUCCESS != result || (NULL != config && NULL != config->kernel[kernel_idx]));

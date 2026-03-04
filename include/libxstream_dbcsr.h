@@ -29,7 +29,6 @@ typedef int c_dbcsr_acc_bool_t;
 /** initialization and finalization */
 int c_dbcsr_acc_init(void);
 int c_dbcsr_acc_finalize(void);
-void c_dbcsr_acc_clear_errors(void);
 
 /** devices */
 int c_dbcsr_acc_get_ndevices(int* ndevices);
