@@ -9,7 +9,7 @@
 #ifndef DBCSR_ACC_LIBSMM_H
 #define DBCSR_ACC_LIBSMM_H
 
-#include "acc.h"
+#include "libxstream_dbcsr.h"
 
 #define DBCSR_TYPE(T) DBCSR_CONCATENATE(DBCSR_TYPE_, T)
 #define DBCSR_TYPE_double dbcsr_type_real_8
