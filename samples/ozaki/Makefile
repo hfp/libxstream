@@ -30,7 +30,7 @@ IFLAGS += -I$(call quote,$(INCDIR))
 XSTLIB := $(DEPDIR)/lib/libxstream.$(SLIBEXT)
 
 SCRDIR := $(DEPDIR)/scripts
-KERNEL := $(SRCDIR)/kernels/ozaki1_int8.cl
+KRNELS := $(SRCDIR)/kernels/ozaki1_int8.cl $(SRCDIR)/kernels/ozaki1_bf16.cl
 GENHDR := $(SRCDIR)/ozaki_kernels.h
 
 OUTNAME := $(shell basename "$(ROOTDIR)")
@@ -49,9 +49,9 @@ all: $(XFILES)
 .PHONY: compile
 compile: $(OBJECTS)
 
-# Generate embedded kernel header from .cl source (resolves #include directives)
-$(GENHDR): $(KERNEL) $(wildcard $(DEPDIR)/include/common/*.h) $(SCRDIR)/acc_opencl.sh Makefile $(DEPDIR)/Makefile.inc
-	$(SCRDIR)/acc_opencl.sh -p "" $(KERNEL) $@
+# Generate embedded kernel header from .cl sources (resolves #include directives)
+$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/include/common/*.h) $(SCRDIR)/acc_opencl.sh Makefile $(DEPDIR)/Makefile.inc
+	$(SCRDIR)/acc_opencl.sh -p "" $(KRNELS) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XSTLIB)
 	$(LD) -o $@ $(OBJECTS) $(XSTLIB) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)

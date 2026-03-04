@@ -6,17 +6,26 @@ of the CPU-based Ozaki sample in [LIBXS](https://github.com/hfp/libxs).
 
 ## Algorithm
 
-Each IEEE-754 mantissa is decomposed into 7-bit int8 slices. The GEMM
-`C = alpha * A * B + beta * C` is then computed as a sum of `S*(S+1)/2`
-(with triangular + symmetrize) pairwise int8 dot products over `BM×BN×BK`
-tiles, matching the granularity of GPU matrix engines.
+Two kernel variants implement the mantissa decomposition:
+
+- **int8** (`ozaki1_int8.cl`, default) — Each IEEE-754 mantissa is decomposed
+  into 7-bit signed int8 slices with a shared per-row/per-column exponent.
+  The DPAS path uses `i8_i8_matrix_mad_k32` (BK=32).
+
+- **bf16** (`ozaki1_bf16.cl`, `OZAKI_BF16=1`) — Dekker splitting: each element
+  is successively rounded to bf16 and the residual re-split.  Each bf16 slice
+  carries its own sign and exponent, eliminating the exponent panels and
+  exponent-reconstruction step during accumulation.  The DPAS path uses
+  `bf16_bf16_matrix_mad_k16` (BK=16).
+
+The GEMM `C = alpha * A * B + beta * C` is then computed as a sum of
+`S*(S+1)/2` (with triangular + symmetrize) pairwise dot products over
+`BM×BN×BK` tiles, matching the granularity of GPU matrix engines.
 
 Three OpenCL kernels implement the pipeline:
-1. **preprocess_a** — extract sign/exponent/mantissa from A, find per-row
-   max exponent, align and slice into int8 panels
-2. **preprocess_b** — same for B (per-column)
-3. **dotprod** — iterate slice pairs, accumulate scaled int8 dot products
-   into double/float C tiles
+1. **preprocess_a** — decompose rows of A into int8 or bf16 slices
+2. **preprocess_b** — decompose columns of B into int8 or bf16 slices
+3. **dotprod** — iterate slice pairs, accumulate dot products into C
 
 When Intel XMX hardware is detected (`cl_intel_subgroup_matrix_multiply_accumulate`
 and `cl_intel_subgroup_2d_block_io`), the dotprod kernel uses **DPAS** (Data
@@ -63,16 +72,19 @@ All arguments are positional and optional (defaults shown):
 | Variable         | Default | Description                                    |
 |------------------|---------|------------------------------------------------|
 | `GEMM_OZFLAGS`   | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S² square. |
-| `GEMM_OZTRIM`    | 0       | Diagonal trim: drop T least significant diagonals (~7 bits each). |
-| `GEMM_OZN`       | 8       | Number of int8 slices per mantissa.            |
+| `GEMM_OZTRIM`    | 0       | Diagonal trim: drop T least significant diagonals (~7/8 bits each). |
+| `GEMM_OZN`       | 8       | Number of slices per element (int8 or bf16).   |
 | `OZAKI_VERBOSE`  | 0       | Verbosity level (1 = info, 2+ = debug).        |
+| `OZAKI_BF16`     | 0       | 1 = bf16 Dekker-split slices, 0 = int8 mantissa slices. |
 | `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on).|
 | `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint).            |
 | `OZAKI_SG`       | auto    | Sub-group size (forced to 16 when XMX active). |
 | `OZAKI_CONSTANT` | 0       | 1 = use `constant` address space for read-only buffers. |
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
-detected: `BK=32`, `BM=16`, `BN=16`, `SG=16`, `nslices=8`, `batch_k=4`.
+detected.  For int8 (default): `BK=32`, `BM=16`, `BN=16`.  For bf16
+(`OZAKI_BF16=1`): `BK=16`, `BM=16`, `BN=16`.  Common defaults: `SG=16`,
+`nslices=8`, `batch_k=4`.
 
 ## Example
 
