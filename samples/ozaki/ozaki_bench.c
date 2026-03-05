@@ -96,11 +96,11 @@ int main(int argc, char* argv[])
   { const char* env;
     int ozflags = -1 /*auto*/, oztrim = 0, nslices = 0 /*auto*/;
     int kind = 1 /*int8*/, verbosity = 0;
-    env = getenv("GEMM_OZFLAGS");
+    env = getenv("OZAKI_FLAGS");
     if (NULL != env) ozflags = atoi(env);
-    env = getenv("GEMM_OZTRIM");
+    env = getenv("OZAKI_TRIM");
     if (NULL != env) oztrim = atoi(env);
-    env = getenv("GEMM_OZN");
+    env = getenv("OZAKI_N");
     if (NULL != env) nslices = atoi(env);
     env = getenv("OZAKI");
     if (NULL != env) kind = atoi(env);
