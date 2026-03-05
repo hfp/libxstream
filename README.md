@@ -48,8 +48,8 @@ int libxstream_event_synchronize(libxstream_event_t* event);
 Device and host memory allocation, transfers (H2D, D2H, D2D), and initialization. Memory pointers remain untyped (`void*`); stream parameters use the opaque stream type.
 
 ```C
-int libxstream_memdev_allocate(void** dev_mem, size_t nbytes);
-int libxstream_memdev_deallocate(void* dev_mem);
+void* libxstream_memdev_allocate(size_t nbytes);
+void libxstream_memdev_deallocate(void* dev_mem);
 int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream_t* stream);
 int libxstream_memhst_deallocate(void* host_mem, libxstream_stream_t* stream);
 int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream);

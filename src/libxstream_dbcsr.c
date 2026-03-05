@@ -160,17 +160,17 @@ int c_dbcsr_acc_event_synchronize(void* event) {
 int c_dbcsr_acc_dev_mem_allocate(void** dev_mem, size_t nbytes) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_memdev_allocate(dev_mem, nbytes);
+  *dev_mem = libxstream_memdev_allocate(nbytes);
+  result = (NULL != *dev_mem || 0 == nbytes) ? EXIT_SUCCESS : EXIT_FAILURE;
   LIBXSTREAM_PROFILE_END;
   return result;
 }
 
 int c_dbcsr_acc_dev_mem_deallocate(void* dev_mem) {
-  int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_memdev_deallocate(dev_mem);
+  libxstream_memdev_deallocate(dev_mem);
   LIBXSTREAM_PROFILE_END;
-  return result;
+  return EXIT_SUCCESS;
 }
 
 int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t lb) {

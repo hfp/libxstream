@@ -47,8 +47,8 @@ int libxstream_event_query(libxstream_event_t* event, libxstream_bool_t* has_occ
 int libxstream_event_synchronize(libxstream_event_t* event);
 
 /** memory */
-int libxstream_memdev_allocate(void** dev_mem, size_t nbytes);
-int libxstream_memdev_deallocate(void* dev_mem);
+void* libxstream_memdev_allocate(size_t nbytes);
+void libxstream_memdev_deallocate(void* dev_mem);
 int libxstream_memdev_set_ptr(void** dev_mem, void* other, size_t lb);
 int libxstream_memdev_info(size_t* mem_free, size_t* mem_total);
 int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream_t* stream);

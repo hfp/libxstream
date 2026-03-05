@@ -37,14 +37,15 @@
 # define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
   (NULL != pool) \
     ? ((*(PTR) = libxs_malloc(pool, SIZE, 0)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
-    : libxstream_memdev_allocate(PTR, SIZE))
+    : ((*(PTR) = libxstream_memdev_allocate(SIZE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE))
 # define OZAKI_DEV_FREE(PTR) do { \
   if (NULL != (PTR)) { \
     if (NULL != pool) libxs_free(PTR); else libxstream_memdev_deallocate(PTR); \
   } \
 } while (0)
 #else
-# define OZAKI_DEV_ALLOC(PTR, SIZE) libxstream_memdev_allocate(PTR, SIZE)
+# define OZAKI_DEV_ALLOC(PTR, SIZE) \
+  ((*(PTR) = libxstream_memdev_allocate(SIZE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE)
 # define OZAKI_DEV_FREE(PTR) do { \
   if (NULL != (PTR)) libxstream_memdev_deallocate(PTR); \
 } while (0)
