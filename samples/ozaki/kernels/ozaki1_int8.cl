@@ -7,6 +7,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "../../../include/opencl/libxstream_common.h"
+#include "ozaki_common.cl"
 
 /* Ozaki Scheme 1: mantissa-slicing low-precision GEMM via OpenCL.
  *
@@ -154,21 +155,7 @@ kernel void preprocess_a(
 
   if (row < M && col < K) {
     const int idx = transa ? (row * lda + col) : (col * lda + row);
-    const real_t val = a[idx];
-    const uint_repr_t bits = AS_UINT(val);
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-    elem_sign = (int)(bits >> 63);
-    elem_exp  = (short)((bits >> 52) & EXP_MASK);
-    elem_mant = (bits & 0x000FFFFFFFFFFFFFUL) | 0x0010000000000000UL;
-#else
-    elem_sign = (int)(bits >> 31);
-    elem_exp  = (short)((bits >> 23) & EXP_MASK);
-    elem_mant = (bits & 0x007FFFFFU) | 0x00800000U;
-#endif
-    if (0 == elem_exp) { /* zero or subnormal: treat as zero */
-      elem_mant = 0;
-      elem_exp  = 0;
-    }
+    ieee_decompose(a[idx], &elem_sign, &elem_exp, &elem_mant);
   }
 
   /* Find per-row max exponent (reduction across K dimension within work-group) */
@@ -260,21 +247,7 @@ kernel void preprocess_b(
 
   if (row < K && col < N) {
     const int idx = transb ? (row * ldb + col) : (col * ldb + row);
-    const real_t val = b[idx];
-    const uint_repr_t bits = AS_UINT(val);
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-    elem_sign = (int)(bits >> 63);
-    elem_exp  = (short)((bits >> 52) & EXP_MASK);
-    elem_mant = (bits & 0x000FFFFFFFFFFFFFUL) | 0x0010000000000000UL;
-#else
-    elem_sign = (int)(bits >> 31);
-    elem_exp  = (short)((bits >> 23) & EXP_MASK);
-    elem_mant = (bits & 0x007FFFFFU) | 0x00800000U;
-#endif
-    if (0 == elem_exp) {
-      elem_mant = 0;
-      elem_exp  = 0;
-    }
+    ieee_decompose(b[idx], &elem_sign, &elem_exp, &elem_mant);
   }
 
   if (0 == kk) col_max_exp[nj] = 0;
