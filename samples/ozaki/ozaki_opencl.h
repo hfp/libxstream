@@ -15,10 +15,12 @@
 # define OZAKI_DEVPOOL
 #endif
 
-/* Ozaki flags */
-#define OZAKI_TRIANGULAR 1
-#define OZAKI_SYMMETRIZE 2
 
+/* Ozaki flags */
+typedef enum ozaki_flags_t {
+  OZAKI_TRIANGULAR = 1,
+  OZAKI_SYMMETRIZE = 2
+} ozaki_flags_t;
 
 /* State for an Ozaki OpenCL session.
  * All tuning parameters are set by ozaki_init (0 = auto). */
