@@ -35,7 +35,7 @@ typedef struct ozaki_context_t {
   int use_xmx;     /* 1: hardware matrix multiply (DPAS/XMX) */
   int sg;          /* sub-group size used for compilation */
   int nslices;
-  int kind;        /* 1: ozaki1 int8, 3: ozaki1 bf16 */
+  int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT), 3: ozaki1 bf16 */
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim;
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
@@ -50,7 +50,7 @@ typedef struct ozaki_context_t {
  * Pass -1 for ozflags to use the default (TRIANGULAR | SYMMETRIZE);
  * 0 disables both flags.  Auto defaults choose XMX-friendly sizes
  * when hardware support is detected.
- * kind: 1 = ozaki1 int8 (default), 3 = ozaki1 bf16.
+ * kind: 1 = ozaki1 int8 (default), 2 = ozaki2 int8 (CRT), 3 = ozaki1 bf16.
  * verbosity: 0 = quiet, 1 = info, 2+ = debug. */
 int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
                int use_double, int kind, int verbosity,

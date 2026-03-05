@@ -21,7 +21,9 @@
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_BF16)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1_BF16)"
 #endif
-
+#if !defined(OPENCL_KERNELS_SOURCE_OZAKI2_INT8)
+# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2_INT8)"
+#endif
 
 #define CL_CHECK(CALL) do { \
   cl_int _err = (CALL); \
@@ -118,6 +120,11 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   use_bf16 = (3 == kind) ? 1 : 0;
   if (0 >= kind) kind = 1;
 
+  /* CRT (kind=2): no XMX support (scalar only), no triangular/symmetrize */
+  if (2 == kind) {
+    if (0 > ozflags) ozflags = 0; /* CRT does not use triangular/symmetrize */
+  }
+
   gpu = (CL_DEVICE_TYPE_GPU == devinfo->type) ? 1 : 0;
 
   { char name[256] = "";
@@ -154,12 +161,14 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   if (0 >= bm) bm = 16;
   if (0 >= bn) bn = 16;
   if (0 >= bk) bk = use_xmx ? (use_bf16 ? 16 : 32) : 16;
-  if (0 >= nslices) nslices = 8;
+  if (0 >= nslices) nslices = (2 == kind) ? 17 : 8; /* CRT: 17 primes default */
   if (0 >= batch_k) batch_k = 4;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   /* Validate XMX constraints against final block sizes.
-   * DPAS SG=16: XMX_N=16, so BN must be divisible by 16. */
+   * DPAS SG=16: XMX_N=16, so BN must be divisible by 16.
+   * CRT (kind=2) does not support XMX. */
+  if (2 == kind) use_xmx = 0;
   if (use_xmx && ((use_bf16 ? 16 : 32) != bk || 0 != (bm % 8) || 0 != (bn % 16))) {
     if (0 < verbosity) {
       fprintf(stderr, "INFO OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
@@ -211,19 +220,31 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     }
 
     offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-      "-DCONSTANT=%s -DBM=%d -DBN=%d -DBK=%d -DNSLICES=%d"
-      " -DTRIANGULAR=%d -DSYMMETRIZE=%d -DTRIM=%d"
+      "-DCONSTANT=%s -DBM=%d -DBN=%d -DBK=%d"
       " -DUSE_DOUBLE=%d",
-      constant_qual, bm, bn, bk, nslices,
-      (ozflags & OZAKI_TRIANGULAR) ? 1 : 0,
-      (ozflags & OZAKI_SYMMETRIZE) ? 1 : 0,
-      oztrim, use_double);
+      constant_qual, bm, bn, bk, use_double);
 
-    if (!use_bf16) {
+    if (2 == kind) {
+      /* CRT: pass NPRIMES and mantissa parameters */
       const int mant_bits      = use_double ? 52 : 23;
       const int bias_plus_mant = use_double ? 1075 : 150;
       offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-        " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d", mant_bits, bias_plus_mant);
+        " -DNPRIMES=%d -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d", nslices, mant_bits, bias_plus_mant);
+    }
+    else {
+      offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
+        " -DNSLICES=%d -DTRIANGULAR=%d -DSYMMETRIZE=%d -DTRIM=%d",
+        nslices,
+        (ozflags & OZAKI_TRIANGULAR) ? 1 : 0,
+        (ozflags & OZAKI_SYMMETRIZE) ? 1 : 0,
+        oztrim);
+
+      if (!use_bf16) {
+        const int mant_bits      = use_double ? 52 : 23;
+        const int bias_plus_mant = use_double ? 1075 : 150;
+        offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
+          " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d", mant_bits, bias_plus_mant);
+      }
     }
 
     if (0 < wg) {
@@ -247,9 +268,14 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
 
   /* JIT compile kernels via ACC */
-  kernel_source = use_bf16
-    ? OPENCL_KERNELS_SOURCE_OZAKI1_BF16
-    : OPENCL_KERNELS_SOURCE_OZAKI1_INT8;
+  if (2 == kind) {
+    kernel_source = OPENCL_KERNELS_SOURCE_OZAKI2_INT8;
+  }
+  else {
+    kernel_source = use_bf16
+      ? OPENCL_KERNELS_SOURCE_OZAKI1_BF16
+      : OPENCL_KERNELS_SOURCE_OZAKI1_INT8;
+  }
 
   result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
     "preprocess_a", build_params, build_options,
@@ -281,10 +307,12 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     if (CL_SUCCESS == clGetKernelWorkGroupInfo(ctx->kern_dotprod, device,
       CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL))
     {
-      fprintf(stderr, "INFO OZAKI: dotprod-%s compiled for WG=%ux%ux%u\n", use_bf16 ? "bf16" : "int8",
+      fprintf(stderr, "INFO OZAKI: dotprod-%s compiled for WG=%ux%ux%u\n",
+        2 == kind ? "crt" : (use_bf16 ? "bf16" : "int8"),
         LIBXS_CAST_UINT(wgs[0]), LIBXS_CAST_UINT(wgs[1]), LIBXS_CAST_UINT(wgs[2]));
     }
     fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
+    ozaki_print_opt(stderr, "kind", kind);
     ozaki_print_opt(stderr, "bf16", use_bf16);
     ozaki_print_opt(stderr, "fp", use_double ? 64 : 32);
     ozaki_print_opt(stderr, "xmx", use_xmx);
