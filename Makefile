@@ -144,7 +144,8 @@ endif
 
 information = \
   $(info ================================================================================) \
-  $(info $(PROJUPP) $(VERSION_ALL) ($(UNAME)$(if $(filter-out 0,$(LIBXS_TARGET_HIDDEN)),$(NULL),$(if $(HOSTNAME),@$(HOSTNAME))))) \
+  $(info $(PROJUPP)$(if $(VERSION_ALL), $(VERSION_ALL)) ($(UNAME)$(if \
+         $(filter-out 0,$(LIBXS_TARGET_HIDDEN)),$(NULL),$(if $(HOSTNAME),@$(HOSTNAME))))) \
   $(info --------------------------------------------------------------------------------) \
   $(info $(GINFO)) \
   $(info $(CINFO)) \
