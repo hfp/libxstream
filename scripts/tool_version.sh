@@ -15,16 +15,17 @@ PRFIX=$1
 CMPNT=${2:-0}
 SHIFT=${3:-0}
 
+if [ ! "${SORT}" ] || [ ! "${HEAD}" ] || [ ! "${CUT}" ] || [ ! "${TR}" ]; then
+  >&2 echo "ERROR: missing prerequisites!"
+  exit 1
+fi
+
 if [ "${PRFIX}" ]; then
   PREFIX="$(echo "${PRFIX}_" | ${TR} a-z A-Z)"
 fi
 
-if [ "${SORT}" ] && [ "${HEAD}" ]; then
-  TAG=$(${GIT} tag | ${SORT} -nr -t. -k1,1 -k2,2 -k3,3 | ${HEAD} -n1)
-fi
-
+TAG=$(${GIT} tag 2>/dev/null | ${SORT} -nr -t. -k1,1 -k2,2 -k3,3 | ${HEAD} -n1)
 BRANCH=$(${GIT} rev-parse --abbrev-ref HEAD 2>/dev/null)
-BRANCH=${BRANCH:-unknown}
 
 if [ "${TAG}" ]; then
   REVC=$(${GIT} rev-list --count --no-merges "${TAG}"..HEAD 2>/dev/null)
