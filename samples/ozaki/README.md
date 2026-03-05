@@ -1,16 +1,19 @@
-# Ozaki Scheme 1 — OpenCL
+# Ozaki Scheme — OpenCL
 
 This sample demonstrates high-precision GEMM emulation via **mantissa slicing**
-(Ozaki Scheme 1) fully offloaded to an OpenCL device. It is an OpenCL adaptation
-of the CPU-based Ozaki sample in [LIBXS](https://github.com/hfp/libxs).
+(Ozaki Scheme 1) and **Chinese Remainder Theorem** (Ozaki Scheme 2), both
+fully offloaded to an OpenCL device. It is an OpenCL adaptation of the
+CPU-based Ozaki sample in [LIBXS](https://github.com/hfp/libxs).
 
 ## Algorithm
 
+### Scheme 1 — Mantissa Slicing
+
 Two kernel variants implement the mantissa decomposition:
 
-- **int8** (`ozaki1_int8.cl`, default) — Each IEEE-754 mantissa is decomposed
-  into 7-bit signed int8 slices with a shared per-row/per-column exponent.
-  The DPAS path uses `i8_i8_matrix_mad_k32` (BK=32).
+- **int8** (`ozaki1_int8.cl`, default, `OZAKI=1`) — Each IEEE-754 mantissa is
+  decomposed into 7-bit signed int8 slices with a shared per-row/per-column
+  exponent. The DPAS path uses `i8_i8_matrix_mad_k32` (BK=32).
 
 - **bf16** (`ozaki1_bf16.cl`, `OZAKI=3`) — Dekker splitting: each element
   is successively rounded to bf16 and the residual re-split.  Each bf16 slice
@@ -22,14 +25,32 @@ The GEMM `C = alpha * A * B + beta * C` is then computed as a sum of
 `S*(S+1)/2` (with triangular + symmetrize) pairwise dot products over
 `BM×BN×BK` tiles, matching the granularity of GPU matrix engines.
 
-Three OpenCL kernels implement the pipeline:
-1. **preprocess_a** — decompose rows of A into int8 or bf16 slices
-2. **preprocess_b** — decompose columns of B into int8 or bf16 slices
-3. **dotprod** — iterate slice pairs, accumulate dot products into C
+### Scheme 2 — Chinese Remainder Theorem (CRT)
+
+- **int8** (`ozaki2_int8.cl`, `OZAKI=2`) — Each IEEE-754 mantissa, shifted by
+  a per-row/per-column max exponent, is reduced modulo each of up to 18
+  pairwise coprime moduli (≤ 128, fitting int8).  One int8 dot product is
+  performed per modulus channel (NPRIMES independent products instead of
+  S*(S+1)/2 pairwise slice products).  The results are reconstructed via
+  **Garner's algorithm** and evaluated with **Horner's method** in a
+  mixed-radix representation.  The product of 17 moduli exceeds 2^111,
+  providing sufficient range for fp64.
+
+  XMX / DPAS is currently not used for this scheme (scalar path only).
+  The triangular and symmetrize optimisations do not apply (each modulus
+  channel is independent).
+
+### Pipeline
+
+Both schemes share the same three-kernel pipeline:
+1. **preprocess_a** — decompose rows of A into int8/bf16 slices (Scheme 1)
+   or modular residues (Scheme 2)
+2. **preprocess_b** — decompose columns of B into int8/bf16 slices or residues
+3. **dotprod** — iterate slice pairs or modulus channels, accumulate into C
 
 When Intel XMX hardware is detected (`cl_intel_subgroup_matrix_multiply_accumulate`
-and `cl_intel_subgroup_2d_block_io`), the dotprod kernel uses **DPAS** (Data
-Processing Accelerator Systolic) instructions with 2D block I/O for data
+and `cl_intel_subgroup_2d_block_io`), the Scheme 1 dotprod kernel uses **DPAS**
+(Data Processing Accelerator Systolic) instructions with 2D block I/O for data
 movement (SG=16, 8×32 A reads, 32×16 VNNI-transformed B reads). Otherwise a
 scalar fallback is used.
 
@@ -77,20 +98,20 @@ All arguments are positional and optional (defaults shown):
 
 | Variable         | Default | Description                                    |
 |------------------|---------|------------------------------------------------|
-| `GEMM_OZFLAGS`   | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S² square. |
-| `GEMM_OZTRIM`    | 0       | Diagonal trim: drop T least significant diagonals (~7/8 bits each). |
-| `GEMM_OZN`       | 8       | Number of slices per element (int8 or bf16).   |
+| `GEMM_OZFLAGS`   | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S² square. Ignored for Scheme 2. |
+| `GEMM_OZTRIM`    | 0       | Diagonal trim: drop T least significant diagonals (~7/8 bits each). Scheme 1 only. |
+| `GEMM_OZN`       | 8/17    | Scheme 1: number of slices per element. Scheme 2: number of CRT primes (default 17, max 18). |
 | `OZAKI_VERBOSE`  | 0       | Verbosity level (1 = info, 2+ = debug).        |
-| `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 3 = bf16 Dekker slices. |
+| `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 2 = int8 CRT, 3 = bf16 Dekker slices. |
 | `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on).|
 | `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint).            |
 | `OZAKI_SG`       | auto    | Sub-group size (forced to 16 when XMX active). |
 | `OZAKI_CONSTANT` | 0       | 1 = use `constant` address space for read-only buffers. |
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
-detected.  For int8 (default): `BK=32`, `BM=16`, `BN=16`.  For bf16
-(`OZAKI=3`): `BK=16`, `BM=16`, `BN=16`.  Common defaults: `SG=16`,
-`nslices=8`, `batch_k=4`.
+detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For bf16
+(`OZAKI=3`): `BK=16`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): XMX is not used,
+`nprimes=17`.  Common defaults: `SG=16`, `batch_k=4`.
 
 ## Example
 
@@ -106,6 +127,5 @@ GEMM: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
 
 ## Limitations
 
-- Only Scheme 1 (mantissa slicing) is implemented; Scheme 2 (CRT) is not
-  included.
+- Scheme 2 (CRT) uses a scalar dotprod (no XMX/DPAS acceleration).
 - Complex GEMM (3M method) is not yet supported.
