@@ -88,8 +88,8 @@ int main(int argc, char* argv[])
     return EXIT_FAILURE;
   }
 
-  printf("Ozaki Scheme 1 OpenCL benchmark\n");
-  printf("%c%c M=%d N=%d K=%d lda=%d ldb=%d ldc=%d alpha=%g beta=%g\n",
+  printf("OpenCL benchmark for Ozaki's methods\n");
+  printf("GEMM: %c%c M=%d N=%d K=%d lda=%d ldb=%d ldc=%d alpha=%g beta=%g\n",
     transa, transb, M, N, K, lda, ldb, ldc, alpha, beta);
 
   /* Initialize Ozaki context (kernels) */
@@ -204,12 +204,12 @@ static void print_diff(FILE* ostream, const libxs_matdiff_info_t* diff)
 {
   const double epsilon = libxs_matdiff_epsilon(diff);
   if (1E-6 <= epsilon) {
-    fprintf(ostream, "GEMM: linf=%f linf_rel=%f l2_rel=%f eps=%f rsq=%f -> %g != %g\n",
+    fprintf(ostream, "DIFF: linf=%f linf_rel=%f l2_rel=%f eps=%f rsq=%f -> %g != %g\n",
       diff->linf_abs, diff->linf_rel, diff->l2_rel, epsilon, diff->rsq,
       diff->v_ref, diff->v_tst);
   }
   else {
-    fprintf(ostream, "GEMM: linf=%f linf_rel=%f l2_rel=%f eps=%f rsq=%f\n",
+    fprintf(ostream, "DIFF: linf=%f linf_rel=%f l2_rel=%f eps=%f rsq=%f\n",
       diff->linf_abs, diff->linf_rel, diff->l2_rel, epsilon, diff->rsq);
   }
 }

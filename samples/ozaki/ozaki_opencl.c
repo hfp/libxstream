@@ -215,9 +215,10 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   if (0 < verbosity) {
     size_t wgs[3] = {0};
     if (CL_SUCCESS == clGetKernelWorkGroupInfo(ctx->kern_dotprod, device,
-          CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL)) {
-      fprintf(stderr, "INFO OZAKI: dotprod compiled WG=%lux%lux%lu\n",
-              (unsigned long)wgs[0], (unsigned long)wgs[1], (unsigned long)wgs[2]);
+      CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL))
+    {
+      fprintf(stderr, "INFO OZAKI: dotprod-%s compiled for WG=%ux%ux%u\n", use_bf16 ? "bf16" : "int8",
+        LIBXS_CAST_UINT(wgs[0]), LIBXS_CAST_UINT(wgs[1]), LIBXS_CAST_UINT(wgs[2]));
     }
     fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
     ozaki_print_opt(stderr, "bf16", use_bf16);
