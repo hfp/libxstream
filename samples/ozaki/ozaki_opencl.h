@@ -11,6 +11,10 @@
 
 #include "libxstream_opencl.h"
 
+#if defined(OZAKI_DEVPOOL) && 0
+# define OZAKI_DEVPOOL
+#endif
+
 /* Ozaki flags */
 #define OZAKI_TRIANGULAR 1
 #define OZAKI_SYMMETRIZE 2
@@ -33,7 +37,9 @@ typedef struct ozaki_context_t {
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim;
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
+#if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
+#endif
 } ozaki_context_t;
 
 
