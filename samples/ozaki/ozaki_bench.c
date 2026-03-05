@@ -182,7 +182,7 @@ int main(int argc, char* argv[])
   printf("BLAS  GEMM: %.3f ms\n", 1000.0 * libxs_timer_duration(t0, t1));
 
   /* Compare */
-  { libxs_datatype dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
+  { libxs_data_t dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
     result = libxs_matdiff(&diff, dtype, M, N, c_ref, c_oz, &ldc, &ldc);
   }
   if (EXIT_SUCCESS == result) {
