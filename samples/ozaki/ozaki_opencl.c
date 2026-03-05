@@ -8,10 +8,6 @@
 ******************************************************************************/
 #include "ozaki_opencl.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 /* Embedded kernel source (generated at build time via acc_opencl.sh) */
 #include "ozaki_kernels.h"
 
