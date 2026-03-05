@@ -33,6 +33,7 @@ typedef struct ozaki_context_t {
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim;
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
+  void* devpool;   /* device memory pool (libxs_malloc-backed) */
 } ozaki_context_t;
 
 

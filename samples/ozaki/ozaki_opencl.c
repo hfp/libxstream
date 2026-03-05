@@ -31,9 +31,65 @@
   } \
 } while (0)
 
+#define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
+  (NULL != pool) \
+    ? ((*(PTR) = libxs_malloc(pool, SIZE, 0)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
+    : libxstream_memdev_allocate(PTR, SIZE))
+
+#define OZAKI_DEV_FREE(PTR) do { \
+  if (NULL != (PTR)) { \
+    if (NULL != pool) libxs_free(PTR); else libxstream_memdev_deallocate(PTR); \
+  } \
+} while (0)
+
 
 /* Internal helpers */
 static void ozaki_print_opt(FILE* stream, const char* name, int val);
+
+
+static void* ozaki_devpool_malloc(size_t size, const void* extra) {
+  const libxstream_opencl_device_t* const devinfo = (const libxstream_opencl_device_t*)extra;
+  void* result = NULL;
+  int rc;
+  LIBXS_UNUSED(rc);
+#if (1 >= LIBXSTREAM_USM)
+  if (NULL != devinfo->clSharedMemAllocINTEL) {
+    const cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
+    result = devinfo->clSharedMemAllocINTEL(devinfo->context, device, NULL, size, 0, &rc);
+  }
+  else
+#endif
+#if (0 != LIBXSTREAM_USM)
+    if (0 != devinfo->usm)
+  {
+    const int flags = (0 != ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm)
+                        ? CL_MEM_SVM_FINE_GRAIN_BUFFER : 0);
+    result = clSVMAlloc(devinfo->context, (cl_svm_mem_flags)(CL_MEM_READ_WRITE | flags), size, 0);
+  }
+  else
+#endif
+  { (void)devinfo; }
+  return result;
+}
+
+/** Extended deallocator for the device-memory pool. */
+static void ozaki_devpool_free(void* pointer, const void* extra) {
+  const libxstream_opencl_device_t* const devinfo = (const libxstream_opencl_device_t*)extra;
+#if (1 >= LIBXSTREAM_USM)
+  if (NULL != devinfo->clMemFreeINTEL) {
+    devinfo->clMemFreeINTEL(devinfo->context, pointer);
+  }
+  else
+#endif
+#if (0 != LIBXSTREAM_USM)
+    if (0 != devinfo->usm)
+  {
+    clSVMFree(devinfo->context, pointer);
+  }
+  else
+#endif
+  { LIBXS_UNUSED(pointer); (void)devinfo; }
+}
 
 
 int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
@@ -230,6 +286,34 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     fprintf(stderr, "\n");
   }
 
+  /* Create device memory pool for buffer reuse across ozaki_gemm calls.
+   * Requires USM shared or SVM; falls back to direct allocation otherwise. */
+  ctx->devpool = NULL;
+  { const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
+    int pool_ok = 0;
+#if (1 >= LIBXSTREAM_USM)
+    if (NULL != devinfo->clSharedMemAllocINTEL) pool_ok = 1;
+    else
+#endif
+#if (0 != LIBXSTREAM_USM)
+      if (0 != devinfo->usm) pool_ok = 1;
+    else
+#endif
+    { (void)devinfo; }
+    if (0 != pool_ok) {
+      ctx->devpool = libxs_malloc_xpool(
+        ozaki_devpool_malloc, ozaki_devpool_free,
+        LIBXS_MAX(libxstream_opencl_config.nthreads, 1));
+      if (NULL != ctx->devpool) {
+        libxs_malloc_arg((libxs_malloc_pool_t*)ctx->devpool, devinfo);
+      }
+    }
+    if (0 < verbosity) {
+      fprintf(stderr, "INFO OZAKI: device memory pool %s\n",
+        NULL != ctx->devpool ? "enabled" : "unavailable (direct allocation)");
+    }
+  }
+
   return EXIT_SUCCESS;
 }
 
@@ -239,6 +323,7 @@ void ozaki_destroy(ozaki_context_t* ctx)
   if (NULL != ctx->kern_preprocess_a) clReleaseKernel(ctx->kern_preprocess_a);
   if (NULL != ctx->kern_preprocess_b) clReleaseKernel(ctx->kern_preprocess_b);
   if (NULL != ctx->kern_dotprod)      clReleaseKernel(ctx->kern_dotprod);
+  if (NULL != ctx->devpool) libxs_free_pool((libxs_malloc_pool_t*)ctx->devpool);
   LIBXS_MEMZERO(ctx);
 }
 
@@ -251,6 +336,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                double beta,        void* c, int ldc)
 {
   const libxstream_opencl_stream_t* str = stream;
+  libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
   const int BM = ctx->bm, BN = ctx->bn, BK = ctx->bk;
   /* Pad B column stride so surface width >= 64 bytes (2D block I/O).
    * bf16: 2 bytes/elem, min 32 elements.  int8: 1 byte/elem, min 64. */
@@ -297,9 +383,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     size_t b_nbytes = (size_t)ldb * b_cols * elem_size;
     c_nbytes = (size_t)ldc * (size_t)N * elem_size;
 
-    if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_a, a_nbytes);
-    if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_b, b_nbytes);
-    if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_c, c_nbytes);
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_a, a_nbytes);
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b, b_nbytes);
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_c, c_nbytes);
     if (EXIT_SUCCESS != result) goto cleanup;
     /* Overlapped H2D: A via stream_a, B via stream_b, C via main */
     if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(a, d_a, a_nbytes, stream_a);
@@ -314,13 +400,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     const size_t bk_size = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
     int s;
     for (s = 0; s < 2 && s < n_batches; ++s) {
-      if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_ak[s], ak_size);
-      if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_bk[s], bk_size);
+      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ak[s], ak_size);
+      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bk[s], bk_size);
       if (!ctx->use_bf16) {
         const size_t expa_size = (size_t)max_nkb * nblk_m * BM * sizeof(cl_short);
         const size_t expb_size = (size_t)max_nkb * nblk_n * BN * sizeof(cl_short);
-        if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_expa[s], expa_size);
-        if (EXIT_SUCCESS == result) result = libxstream_memdev_allocate(&d_expb[s], expb_size);
+        if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa[s], expa_size);
+        if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb[s], expb_size);
       }
     }
     if (EXIT_SUCCESS != result) goto cleanup;
@@ -456,13 +542,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
 
 cleanup:
-  /* Destroy double-buffered preprocessing buffers */
+  /* Return double-buffered preprocessing buffers */
   { int s;
     for (s = 0; s < 2; ++s) {
-      if (NULL != d_ak[s]) libxstream_memdev_deallocate(d_ak[s]);
-      if (NULL != d_expa[s]) libxstream_memdev_deallocate(d_expa[s]);
-      if (NULL != d_bk[s]) libxstream_memdev_deallocate(d_bk[s]);
-      if (NULL != d_expb[s]) libxstream_memdev_deallocate(d_expb[s]);
+      OZAKI_DEV_FREE(d_ak[s]);   OZAKI_DEV_FREE(d_expa[s]);
+      OZAKI_DEV_FREE(d_bk[s]);   OZAKI_DEV_FREE(d_expb[s]);
     }
   }
   /* Destroy synchronization events */
@@ -473,10 +557,8 @@ cleanup:
   /* Destroy helper streams */
   if (NULL != stream_a) libxstream_stream_destroy(stream_a);
   if (NULL != stream_b) libxstream_stream_destroy(stream_b);
-  /* Deallocate input/output matrices */
-  if (NULL != d_a) libxstream_memdev_deallocate(d_a);
-  if (NULL != d_b) libxstream_memdev_deallocate(d_b);
-  if (NULL != d_c) libxstream_memdev_deallocate(d_c);
+  /* Return input/output matrices */
+  OZAKI_DEV_FREE(d_a); OZAKI_DEV_FREE(d_b); OZAKI_DEV_FREE(d_c);
 
   return result;
 }

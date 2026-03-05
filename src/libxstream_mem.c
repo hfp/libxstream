@@ -21,7 +21,7 @@
 
 #  if !defined(LIBXSTREAM_MEM_ALLOC)
 #    if 1
-#      define LIBXSTREAM_MEM_ALLOC(SIZE, ALIGNMENT) libxs_malloc(SIZE, ALIGNMENT)
+#      define LIBXSTREAM_MEM_ALLOC(SIZE, ALIGNMENT) libxs_malloc(libxstream_opencl_config.pool_hst, SIZE, ALIGNMENT)
 #      define LIBXSTREAM_MEM_FREE(PTR) libxs_free(PTR)
 #    else
 #      define LIBXSTREAM_MEM_ALLOC(SIZE, ALIGNMENT) aligned_alloc(ALIGNMENT, SIZE)

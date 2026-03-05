@@ -590,6 +590,11 @@ int libxstream_init(void) {
           libxstream_opencl_config.nevents = 0;
           result = EXIT_FAILURE;
         }
+        /* create host memory pool (3-arg libxs_malloc) */
+        if (EXIT_SUCCESS == result) {
+          libxstream_opencl_config.pool_hst = libxs_malloc_pool(NULL /*malloc*/, NULL /*free*/);
+          if (NULL == libxstream_opencl_config.pool_hst) result = EXIT_FAILURE;
+        }
         if (
           1 <= libxstream_opencl_config.profile ||
           0 > libxstream_opencl_config.profile)
@@ -698,6 +703,7 @@ LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void) {
     libxs_hist_destroy(libxstream_opencl_config.hist_h2d);
     libxs_hist_destroy(libxstream_opencl_config.hist_d2h);
     libxs_hist_destroy(libxstream_opencl_config.hist_d2d);
+    libxs_free_pool(libxstream_opencl_config.pool_hst);
     /* NOTE: registered streams/events are not individually released here;
      * the OpenCL runtime reclaims resources at process exit (atexit context). */
     free(libxstream_opencl_config.memptrs);

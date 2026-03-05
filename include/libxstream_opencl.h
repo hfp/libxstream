@@ -307,6 +307,8 @@ typedef struct libxstream_opencl_config_t {
   /** All memptrs and related storage/counter. */
   libxstream_opencl_info_memptr_t **memptrs, *memptr_data;
   size_t nmemptrs; /* counter */
+  /** Host memory pool (3-arg libxs_malloc). */
+  libxs_malloc_pool_t* pool_hst;
   /** Handle-counter. */
   size_t nstreams, nevents;
   /** All streams and related storage. */
