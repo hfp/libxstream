@@ -53,54 +53,9 @@
 
 
 /* Internal helpers */
-static void ozaki_print_opt(FILE* stream, const char* name, int val);
-
-
-#if defined(OZAKI_DEVPOOL)
-static void* ozaki_devpool_malloc(size_t size, const void* extra) {
-  const libxstream_opencl_device_t* const devinfo = (const libxstream_opencl_device_t*)extra;
-  void* result = NULL;
-  int rc;
-  LIBXS_UNUSED(rc);
-#if (1 >= LIBXSTREAM_USM)
-  if (NULL != devinfo->clSharedMemAllocINTEL) {
-    const cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-    result = devinfo->clSharedMemAllocINTEL(devinfo->context, device, NULL, size, 0, &rc);
-  }
-  else
-#endif
-#if (0 != LIBXSTREAM_USM)
-    if (0 != devinfo->usm)
-  {
-    const int flags = (0 != ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm)
-                        ? CL_MEM_SVM_FINE_GRAIN_BUFFER : 0);
-    result = clSVMAlloc(devinfo->context, (cl_svm_mem_flags)(CL_MEM_READ_WRITE | flags), size, 0);
-  }
-  else
-#endif
-  { (void)devinfo; }
-  return result;
+static void ozaki_print_opt(FILE* stream, const char* name, int val) {
+  if (0 != val) fprintf(stream, " %s=%d", name, val);
 }
-
-/** Extended deallocator for the device-memory pool. */
-static void ozaki_devpool_free(void* pointer, const void* extra) {
-  const libxstream_opencl_device_t* const devinfo = (const libxstream_opencl_device_t*)extra;
-#if (1 >= LIBXSTREAM_USM)
-  if (NULL != devinfo->clMemFreeINTEL) {
-    devinfo->clMemFreeINTEL(devinfo->context, pointer);
-  }
-  else
-#endif
-#if (0 != LIBXSTREAM_USM)
-    if (0 != devinfo->usm)
-  {
-    clSVMFree(devinfo->context, pointer);
-  }
-  else
-#endif
-  { LIBXS_UNUSED(pointer); (void)devinfo; }
-}
-#endif /* defined(OZAKI_DEVPOOL) */
 
 
 int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
@@ -210,7 +165,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     "-cl-fast-relaxed-math -cl-denorms-are-zero");
 
   { const char* constant_qual;
-
     env = getenv("OZAKI_CONSTANT");
     constant_qual = (NULL != env && 0 != atoi(env)) ? "constant" : "global";
 
@@ -338,12 +292,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 #endif
     { (void)devinfo; }
     if (0 != pool_ok) {
-      ctx->devpool = libxs_malloc_xpool(
-        ozaki_devpool_malloc, ozaki_devpool_free,
-        LIBXS_MAX(libxstream_opencl_config.nthreads, 1));
-      if (NULL != ctx->devpool) {
-        libxs_malloc_arg((libxs_malloc_pool_t*)ctx->devpool, devinfo);
-      }
+      ctx->devpool = libxs_malloc_pool(
+        libxstream_memdev_allocate, libxstream_memdev_deallocate);
     }
     if (0 < verbosity) {
       fprintf(stderr, "INFO OZAKI: device memory pool %s\n",
@@ -603,9 +553,4 @@ cleanup:
   OZAKI_DEV_FREE(d_a); OZAKI_DEV_FREE(d_b); OZAKI_DEV_FREE(d_c);
 
   return result;
-}
-
-
-static void ozaki_print_opt(FILE* stream, const char* name, int val) {
-  if (0 != val) fprintf(stream, " %s=%d", name, val);
 }
