@@ -25,10 +25,11 @@ typedef struct ozaki_context_t {
   int bm, bn, bk;  /* block dimensions (JIT-compiled into kernels) */
   int batch_k;     /* K sub-panels per kernel launch */
   int use_double;  /* 1: fp64, 0: fp32 */
-  int use_bf16;    /* 1: bf16 Dekker slices, 0: int8 mantissa slices */
+  int use_bf16;    /* derived: 1 = bf16 Dekker slices, 0 = int8 mantissa slices */
   int use_xmx;     /* 1: hardware matrix multiply (DPAS/XMX) */
   int sg;          /* sub-group size used for compilation */
   int nslices;
+  int kind;        /* 1: ozaki1 int8, 3: ozaki1 bf16 */
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim;
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
@@ -40,10 +41,11 @@ typedef struct ozaki_context_t {
  * Pass -1 for ozflags to use the default (TRIANGULAR | SYMMETRIZE);
  * 0 disables both flags.  Auto defaults choose XMX-friendly sizes
  * when hardware support is detected.
- * use_bf16: 1 selects Dekker bf16 slices, 0 selects int8 mantissa slices.
- * Can be overridden by OZAKI_BF16 environment variable. */
+ * kind: 1 = ozaki1 int8 (default), 3 = ozaki1 bf16.
+ * verbosity: 0 = quiet, 1 = info, 2+ = debug. */
 int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
-               int use_double, int use_bf16, int nslices, int batch_k,
+               int use_double, int kind, int verbosity,
+               int nslices, int batch_k,
                int ozflags, int oztrim);
 void ozaki_destroy(ozaki_context_t* ctx);
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,

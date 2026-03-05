@@ -37,7 +37,8 @@ static void ozaki_print_opt(FILE* stream, const char* name, int val);
 
 
 int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
-               int use_double, int use_bf16, int nslices, int batch_k,
+               int use_double, int kind, int verbosity,
+               int nslices, int batch_k,
                int ozflags, int oztrim)
 {
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
@@ -47,11 +48,11 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   size_t offset;
   const char* kernel_source;
   const char* env;
-  int verbosity, wg, sg, gpu, use_xmx, result;
+  int use_bf16, wg, sg, gpu, use_xmx, result;
 
-  /* Verbosity from environment */
-  env = getenv("OZAKI_VERBOSE");
-  verbosity = (NULL != env ? atoi(env) : 0);
+  /* Derive bf16 flag from kind (3 = bf16, else int8) */
+  use_bf16 = (3 == kind) ? 1 : 0;
+  if (0 >= kind) kind = 1;
 
   gpu = (CL_DEVICE_TYPE_GPU == devinfo->type) ? 1 : 0;
 
@@ -84,10 +85,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     }
   }
 
-  /* bf16 mode can be overridden via environment */
-  env = getenv("OZAKI_BF16");
-  if (NULL != env) use_bf16 = atoi(env);
-
   /* Choose smart defaults: XMX-friendly when hardware is available.
    * XMX requires BK==32 (int8) or BK==16 (bf16), BM/BN divisible by 8. */
   if (0 >= bm) bm = 16;
@@ -115,6 +112,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   ctx->use_bf16 = use_bf16;
   ctx->use_xmx = use_xmx;
   ctx->nslices = nslices;
+  ctx->kind = kind;
   ctx->ozflags = ozflags;
   ctx->oztrim  = oztrim;
   ctx->verbosity = verbosity;

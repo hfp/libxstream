@@ -95,14 +95,19 @@ int main(int argc, char* argv[])
   /* Initialize Ozaki context (kernels) */
   { const char* env;
     int ozflags = -1 /*auto*/, oztrim = 0, nslices = 0 /*auto*/;
+    int kind = 1 /*int8*/, verbosity = 0;
     env = getenv("GEMM_OZFLAGS");
     if (NULL != env) ozflags = atoi(env);
     env = getenv("GEMM_OZTRIM");
     if (NULL != env) oztrim = atoi(env);
     env = getenv("GEMM_OZN");
     if (NULL != env) nslices = atoi(env);
+    env = getenv("OZAKI");
+    if (NULL != env) kind = atoi(env);
+    env = getenv("OZAKI_VERBOSE");
+    if (NULL != env) verbosity = atoi(env);
     LIBXS_MEMZERO(&ctx);
-    result = ozaki_init(&ctx, 0, 0, 0, 1 /*use_double*/, 0 /*use_bf16*/,
+    result = ozaki_init(&ctx, 0, 0, 0, 1 /*use_double*/, kind, verbosity,
       nslices, 0, ozflags, oztrim);
   }
   if (EXIT_SUCCESS != result) {
