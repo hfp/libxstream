@@ -12,7 +12,7 @@ Two kernel variants implement the mantissa decomposition:
   into 7-bit signed int8 slices with a shared per-row/per-column exponent.
   The DPAS path uses `i8_i8_matrix_mad_k32` (BK=32).
 
-- **bf16** (`ozaki1_bf16.cl`, `OZAKI_BF16=1`) — Dekker splitting: each element
+- **bf16** (`ozaki1_bf16.cl`, `OZAKI=3`) — Dekker splitting: each element
   is successively rounded to bf16 and the residual re-split.  Each bf16 slice
   carries its own sign and exponent, eliminating the exponent panels and
   exponent-reconstruction step during accumulation.  The DPAS path uses
@@ -75,7 +75,7 @@ All arguments are positional and optional (defaults shown):
 | `GEMM_OZTRIM`    | 0       | Diagonal trim: drop T least significant diagonals (~7/8 bits each). |
 | `GEMM_OZN`       | 8       | Number of slices per element (int8 or bf16).   |
 | `OZAKI_VERBOSE`  | 0       | Verbosity level (1 = info, 2+ = debug).        |
-| `OZAKI_BF16`     | 0       | 1 = bf16 Dekker-split slices, 0 = int8 mantissa slices. |
+| `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 3 = bf16 Dekker slices. |
 | `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on).|
 | `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint).            |
 | `OZAKI_SG`       | auto    | Sub-group size (forced to 16 when XMX active). |
@@ -83,7 +83,7 @@ All arguments are positional and optional (defaults shown):
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
 detected.  For int8 (default): `BK=32`, `BM=16`, `BN=16`.  For bf16
-(`OZAKI_BF16=1`): `BK=16`, `BM=16`, `BN=16`.  Common defaults: `SG=16`,
+(`OZAKI=3`): `BK=16`, `BM=16`, `BN=16`.  Common defaults: `SG=16`,
 `nslices=8`, `batch_k=4`.
 
 ## Example
