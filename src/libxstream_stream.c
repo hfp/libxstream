@@ -46,7 +46,7 @@ const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, i
 
 const libxstream_opencl_stream_t* libxstream_opencl_stream_default(void) {
   const libxstream_opencl_stream_t* result = NULL;
-  result = libxstream_opencl_stream(libxstream_opencl_config.lock_stream, LIBXSTREAM_OMP_TID());
+  result = libxstream_opencl_stream(libxstream_opencl_config.lock_stream, libxs_tid());
   assert(NULL != result);
   return result;
 }
@@ -72,7 +72,7 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
         least != greatest)
     {
       properties[3] = (0 != (2 & libxstream_opencl_config.priority) &&
-                        (NULL != LIBXS_STRISTR(name, "calc") || (NULL != strstr(name, "priority"))))
+                        (NULL != libxs_stristr(name, "calc") || (NULL != strstr(name, "priority"))))
                         ? CL_QUEUE_PRIORITY_HIGH_KHR
                         : CL_QUEUE_PRIORITY_MED_KHR;
     }
@@ -241,7 +241,7 @@ int libxstream_stream_sync(libxstream_stream_t* stream) {
       assert(NULL != event);
       result = clWaitForEvents(1, &event);
     }
-    if (NULL != event) LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+    if (NULL != event) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
   }
   LIBXSTREAM_RETURN(result);
 }

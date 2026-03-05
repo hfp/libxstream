@@ -215,13 +215,13 @@ int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream
     void* host_ptr = NULL;
     cl_mem memory = NULL;
     assert(NULL != str);
-    if ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_CACHELINE) <= nbytes) {
-      const int a = ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_MAXALIGN) <= nbytes ? LIBXSTREAM_MAXALIGN : LIBXSTREAM_CACHELINE);
+    if ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXS_CACHELINE) <= nbytes) {
+      const int a = ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_MAXALIGN) <= nbytes ? LIBXSTREAM_MAXALIGN : LIBXS_CACHELINE);
       if (alignment < a) alignment = a;
     }
 #  if !defined(LIBXSTREAM_ACTIVATE)
     if (NULL == devinfo->context) {
-      LIBXSTREAM_EXPECT(EXIT_SUCCESS == libxstream_opencl_set_active_device(
+      LIBXS_EXPECT(EXIT_SUCCESS == libxstream_opencl_set_active_device(
                                           libxstream_opencl_config.lock_main, libxstream_opencl_config.device_id));
     }
 #  endif
@@ -302,9 +302,9 @@ int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream
       }
     }
     if (EXIT_SUCCESS != result) {
-      if (NULL != memory) LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
+      if (NULL != memory) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
       if (NULL != host_ptr) {
-        LIBXSTREAM_EXPECT(EXIT_SUCCESS == libxstream_memhst_deallocate_internal(host_ptr, str->queue));
+        LIBXS_EXPECT(EXIT_SUCCESS == libxstream_memhst_deallocate_internal(host_ptr, str->queue));
       }
       *host_mem = NULL;
     }
@@ -385,7 +385,7 @@ void CL_CALLBACK libxstream_memcpy_notify(cl_event event, cl_int event_status, v
       } break;
     }
   }
-  if (NULL != event) LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+  if (NULL != event) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
 }
 
 
@@ -396,7 +396,7 @@ int libxstream_memdev_allocate(void** dev_mem, size_t nbytes) {
   void* memptr = NULL;
 #  if !defined(LIBXSTREAM_ACTIVATE)
   if (NULL == devinfo->context) {
-    LIBXSTREAM_EXPECT(EXIT_SUCCESS == libxstream_opencl_set_active_device(
+    LIBXS_EXPECT(EXIT_SUCCESS == libxstream_opencl_set_active_device(
                                         libxstream_opencl_config.lock_main, libxstream_opencl_config.device_id));
   }
 #  endif
@@ -425,8 +425,8 @@ int libxstream_memdev_allocate(void** dev_mem, size_t nbytes) {
       memptr = clSVMAlloc(devinfo->context, (cl_svm_mem_flags)(CL_MEM_READ_WRITE | svmflags), nbytes, 0 /*alignment*/);
 #    else
       int alignment = LIBXS_MAX(0x10000, sizeof(void*));
-      if ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_CACHELINE) <= nbytes) {
-        const int a = ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_MAXALIGN) <= nbytes ? LIBXSTREAM_MAXALIGN : LIBXSTREAM_CACHELINE);
+      if ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXS_CACHELINE) <= nbytes) {
+        const int a = ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_MAXALIGN) <= nbytes ? LIBXSTREAM_MAXALIGN : LIBXS_CACHELINE);
         if (alignment < a) alignment = a;
       }
       memptr = LIBXSTREAM_MEM_ALLOC(nbytes, alignment);
@@ -453,7 +453,7 @@ int libxstream_memdev_allocate(void** dev_mem, size_t nbytes) {
         static cl_kernel kernel = NULL; /* singleton, intentionally process-lifetime */
         const size_t size = 1;
         LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-        str = libxstream_opencl_stream(NULL /*lock*/, LIBXSTREAM_OMP_TID());
+        str = libxstream_opencl_stream(NULL /*lock*/, libxs_tid());
         assert(NULL != str && NULL != memory);
         /* determine device-side value of device-memory object by running some kernel */
         if (NULL == kernel) { /* generate kernel */
@@ -496,7 +496,7 @@ int libxstream_memdev_allocate(void** dev_mem, size_t nbytes) {
         fprintf(stderr, "ERROR ACC/OpenCL: memory=%p pointer=%p size=%llu failed to allocate\n", (const void*)memory, memptr,
           (unsigned long long)nbytes);
       }
-      if (NULL != memory) LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
+      if (NULL != memory) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
       *dev_mem = NULL;
     }
   }
@@ -582,7 +582,7 @@ int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, li
     const libxstream_opencl_stream_t* str;
     cl_event event = NULL;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str);
 #  if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
@@ -623,7 +623,7 @@ int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, li
         }
         else libxstream_memcpy_notify(event, CL_COMPLETE, data); /* synchronous */
       }
-      else LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+      else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
   LIBXSTREAM_RETURN(result);
@@ -718,7 +718,7 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, li
     const libxstream_opencl_stream_t* str;
     nconst.input = dev_mem;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str);
     info = libxstream_opencl_info_devptr_modify(NULL, nconst.ptr, 1 /*elsize*/, &nbytes, &offset);
     if (NULL == info) { /* USM-pointer: info_devptr_modify returns NULL when USM is active */
@@ -739,7 +739,7 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, li
         }
         else libxstream_memcpy_notify(event, CL_COMPLETE, data); /* synchronous */
       }
-      else LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+      else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
   LIBXSTREAM_RETURN(result);
@@ -763,7 +763,7 @@ int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyte
     const libxstream_opencl_stream_t* str;
     nconst.input = devmem_src;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str && NULL != devinfo->context);
 #  if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
@@ -812,10 +812,10 @@ int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyte
             }
             else result = clReleaseEvent(event);
           }
-          else LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+          else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
         }
       }
-      else LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+      else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
   LIBXSTREAM_RETURN(result);
@@ -837,7 +837,7 @@ int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nby
     if (0 == LIBXS_MOD2(nbytes, 4)) vsize = 4;
     else if (0 == LIBXS_MOD2(nbytes, 2)) vsize = 2;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str && NULL != devinfo->context);
 #  if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemFillINTEL) {
@@ -908,7 +908,7 @@ int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t*
 #      endif
 #    elif defined(__APPLE__) && defined(__MACH__)
   /*const*/ size_t size_pages_free = sizeof(const long), size_pages_total = sizeof(const long);
-  LIBXSTREAM_EXPECT(0 == sysctlbyname("hw.memsize", &pages_total, &size_pages_total, NULL, 0));
+  LIBXS_EXPECT(0 == sysctlbyname("hw.memsize", &pages_total, &size_pages_total, NULL, 0));
   if (0 < page_size) pages_total /= page_size;
   if (0 != sysctlbyname("vm.page_free_count", &pages_free, &size_pages_free, NULL, 0)) {
     pages_free = pages_total;

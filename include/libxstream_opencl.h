@@ -35,47 +35,17 @@
 #  endif
 #endif
 
-#if !defined(LIBXS_SYNC_NPAUSE)
-#  define LIBXS_SYNC_NPAUSE 0
-#endif
-
-#if defined(__LIBXSMM) && !defined(LIBXS_DEFAULT_CONFIG)
-#  include <libxsmm.h>
-#  if !defined(LIBXS_TIMER_H)
-#    include <utils/libxs_timer.h>
-#  endif
-#  if !defined(LIBXS_SYNC_H)
-#    include <libxs_sync.h>
-#  endif
-#else
-/* OpenCL backend depends on LIBXSMM */
-#  if defined(__GNUC__)
-#    pragma GCC diagnostic push
-#    pragma GCC diagnostic ignored "-Wpedantic"
-#  endif
-#  include <libxs_source.h>
-#  if defined(__GNUC__)
-#    pragma GCC diagnostic pop
-#  endif
-#  if !defined(__LIBXSMM)
-#    define __LIBXSMM
-#  endif
-#endif
-#include <libxs_hist.h>
-
 #include "libxstream.h"
-#if !defined(NDEBUG)
-#  include <assert.h>
+#if defined(__LIBXS)
+#  include <libxs_malloc.h>
+#  include <libxs_timer.h>
+#  include <libxs_hist.h>
+#  include <libxs_mem.h>
+#else /* code depends on LIBXS */
+#  include <libxs_source.h>
+#  define __LIBXS
 #endif
-#include <stdlib.h>
-#include <stdio.h>
 
-#if !defined(LIBXSTREAM_CACHELINE)
-#  define LIBXSTREAM_CACHELINE LIBXS_CACHELINE
-#endif
-#if !defined(LIBXSTREAM_TLS)
-#  define LIBXSTREAM_TLS LIBXS_TLS
-#endif
 #if !defined(LIBXSTREAM_MAXALIGN)
 #  define LIBXSTREAM_MAXALIGN (2 << 20 /*2MB*/)
 #endif
@@ -126,13 +96,6 @@
 #  define LIBXSTREAM_ACTIVATE 0
 #endif
 
-#if defined(_OPENMP)
-#  include <omp.h>
-#  define LIBXSTREAM_OMP_TID() omp_get_thread_num()
-#else
-#  define LIBXSTREAM_OMP_TID() (/*main*/ 0)
-#endif
-
 #if defined(CL_VERSION_2_0)
 #  define LIBXSTREAM_STREAM_PROPERTIES_TYPE cl_queue_properties
 #  define LIBXSTREAM_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) clCreateCommandQueueWithProperties(CTX, DEV, PROPS, RESULT)
@@ -141,9 +104,6 @@
 #  define LIBXSTREAM_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) \
     clCreateCommandQueue(CTX, DEV, (cl_command_queue_properties)(NULL != (PROPS) ? ((PROPS)[1]) : 0), RESULT)
 #endif
-
-#define LIBXSTREAM_EXPECT(EXPR) LIBXS_EXPECT(EXPR)
-#define LIBXS_STRISTR libxs_stristr
 
 #define LIBXSTREAM_ERROR() libxstream_opencl_config.device.error.code
 #define LIBXSTREAM_ERROR_NAME(CODE) \

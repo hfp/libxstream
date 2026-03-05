@@ -18,16 +18,23 @@ OCL = 2
 include $(DEPDIR)/Makefile.inc
 
 # root directory of LIBXS
-LIBXSROOT := $(DEPDIR)/../libxs
+LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
+LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
+LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
+LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
+LIBXS := $(if $(LIBXS),$(LIBXS), \
+  $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL)))
+ifneq (,$(LIBXSROOT))
+  IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
+  IFLAGS += -I$(call quote,$(LIBXSROOT)/samples/ozaki)
+endif
+ifneq (,$(LIBXS))
+  DFLAGS += -D__LIBXS
+endif
 
-# necessary include directories
-IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
-IFLAGS += -I$(call quote,$(LIBXSROOT)/samples/ozaki)
+# include directories
 IFLAGS += -I$(call quote,$(DEPDIR)/include)
 IFLAGS += -I$(call quote,$(INCDIR))
-
-# ACC/OpenCL backend library (libxstream)
-XSTLIB := $(DEPDIR)/lib/libxstream.$(SLIBEXT)
 
 SCRDIR := $(DEPDIR)/scripts
 KRNELS := $(SRCDIR)/kernels/ozaki1_int8.cl $(SRCDIR)/kernels/ozaki1_bf16.cl
@@ -53,8 +60,8 @@ compile: $(OBJECTS)
 $(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/include/common/*.h) $(SCRDIR)/acc_opencl.sh Makefile $(DEPDIR)/Makefile.inc
 	$(SCRDIR)/acc_opencl.sh -p "" $(KRNELS) $@
 
-$(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XSTLIB)
-	$(LD) -o $@ $(OBJECTS) $(XSTLIB) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
+$(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
+	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
 
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(DEPDIR)/Makefile.inc
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@

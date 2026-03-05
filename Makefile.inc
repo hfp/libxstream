@@ -2215,8 +2215,10 @@ endif
 OMPFLAG ?= $(NULL)
 
 # Link dependencies and libraries
-XDEP := $(DEPDIR)/lib/$(PROJECT).$(LIBEXT)
-XLIB := $(call abslib,$(XDEP))
+SLIB := $(wildcard $(DEPDIR)/lib/$(PROJECT).$(SLIBEXT))
+DLIB := $(wildcard $(DEPDIR)/lib/$(PROJECT).$(DLIBEXT))
+XLIB := $(wildcard $(DEPDIR)/lib/$(PROJECT).$(LIBEXT))
+XLIB := $(if $(XLIB),$(XLIB),$(if $(SLIB),$(SLIB),$(DLIB)))
 
 # some stand-alone libomp versions can cause warnings
 ifneq (,$(filter 1 2,$(PEDANTIC)))

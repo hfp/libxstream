@@ -97,10 +97,21 @@ endif
 SSE ?= 1
 
 # root directory of LIBXS
-LIBXSROOT := $(ROOTDIR)/../libxs
+LIBXSROOT := $(wildcard $(ROOTDIR)/../libxs)
+LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
+LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
+LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
+LIBXS := $(if $(LIBXS),$(LIBXS), \
+  $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL)))
+ifneq (,$(LIBXSROOT))
+  IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
+  IFLAGS += -I$(call quote,$(LIBXSROOT)/samples/ozaki)
+endif
+ifneq (,$(LIBXS))
+  DFLAGS += -D__LIBXS
+endif
 
-# necessary include directories
-IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
+# include directories
 IFLAGS += -I$(call quote,$(INCDIR))
 
 # Version numbers according to interface (version.txt)
@@ -198,7 +209,7 @@ endef
 $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
   $(OBJ),$(patsubst %.o,$(ROOTSRC)/%.c,$(notdir $(OBJ))), \
   $(HEADERS_MAIN) $(INCDIR)/$(PROJECT)_version.h, \
-  $(DFLAGS) $(IFLAGS) -I$(BLDDIR)) $(CTARGET) $(CFLAGS)))
+  $(DFLAGS) $(IFLAGS)) $(CTARGET) $(CFLAGS)))
 
 .PHONY: libs
 libs: $(OUTDIR)/$(PROJECT)-static.pc $(OUTDIR)/$(PROJECT)-shared.pc

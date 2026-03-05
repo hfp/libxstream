@@ -379,8 +379,8 @@ int libsmm_acc_init(void) {
           if (NULL != file) {
             /* consume first line, check for device entry, and skip CSV header */
             if (NULL != fgets(buffer, LIBXSTREAM_BUFFERSIZE, file)) {
-              char* const device = (NULL != LIBXS_STRISTR(buffer, "device") ? bufname : NULL);
-              opencl_libsmm_perfest_t* const gflops = (NULL != LIBXS_STRISTR(buffer, "gflops") ? &perfest : NULL);
+              char* const device = (NULL != libxs_stristr(buffer, "device") ? bufname : NULL);
+              opencl_libsmm_perfest_t* const gflops = (NULL != libxs_stristr(buffer, "gflops") ? &perfest : NULL);
               while (NULL != fgets(buffer, LIBXSTREAM_BUFFERSIZE, file)) { /* read params from CSV-file */
                 if (EXIT_SUCCESS == opencl_libsmm_read_smm_params(buffer, &key, &config, gflops, device, NULL /*key_ok*/)) {
                   opencl_libsmm_smm_t* config_init;
