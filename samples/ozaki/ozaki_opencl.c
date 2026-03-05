@@ -244,14 +244,14 @@ void ozaki_destroy(ozaki_context_t* ctx)
 }
 
 
-int ozaki_gemm(ozaki_context_t* ctx, void* stream,
+int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                char transa, char transb,
                int M, int N, int K,
                double alpha, const void* a, int lda,
                              const void* b, int ldb,
                double beta,        void* c, int ldc)
 {
-  const libxstream_opencl_stream_t* str = LIBXSTREAM_STREAM(stream);
+  const libxstream_opencl_stream_t* str = stream;
   const int BM = ctx->bm, BN = ctx->bn, BK = ctx->bk;
   /* Pad B column stride so surface width >= 64 bytes (2D block I/O).
    * bf16: 2 bytes/elem, min 32 elements.  int8: 1 byte/elem, min 64. */
@@ -271,10 +271,10 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
   void *d_ak[2] = {NULL, NULL}, *d_expa[2] = {NULL, NULL};
   void *d_bk[2] = {NULL, NULL}, *d_expb[2] = {NULL, NULL};
   /* Helper streams: preprocess_a on stream_a, preprocess_b on stream_b */
-  void *stream_a = NULL, *stream_b = NULL;
+  libxstream_stream_t *stream_a = NULL, *stream_b = NULL;
   /* Synchronization events */
-  void *evt_prep_a = NULL, *evt_prep_b = NULL;
-  void *evt_dotprod[2] = {NULL, NULL};
+  libxstream_event_t *evt_prep_a = NULL, *evt_prep_b = NULL;
+  libxstream_event_t *evt_dotprod[2] = {NULL, NULL};
   size_t c_nbytes;
   int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
   int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
@@ -347,7 +347,7 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     }
 
     /* Launch preprocess_a on stream_a */
-    { const libxstream_opencl_stream_t* str_a = LIBXSTREAM_STREAM(stream_a);
+    { const libxstream_opencl_stream_t* str_a = stream_a;
       size_t global_a[2], local_a[2];
       global_a[0] = (size_t)nblk_m * BM; global_a[1] = (size_t)nkb * BK;
       local_a[0] = BM; local_a[1] = BK;
@@ -370,7 +370,7 @@ int ozaki_gemm(ozaki_context_t* ctx, void* stream,
     }
 
     /* Launch preprocess_b on stream_b (parallel with preprocess_a) */
-    { const libxstream_opencl_stream_t* str_b = LIBXSTREAM_STREAM(stream_b);
+    { const libxstream_opencl_stream_t* str_b = stream_b;
       size_t global_b[2], local_b[2];
       global_b[0] = (size_t)nblk_n * BN; global_b[1] = (size_t)nkb * BK;
       local_b[0] = BN; local_b[1] = BK;

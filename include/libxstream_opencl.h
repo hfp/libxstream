@@ -125,10 +125,6 @@
 #if !defined(LIBXSTREAM_ACTIVATE) && 0
 #  define LIBXSTREAM_ACTIVATE 0
 #endif
-/* attaching libxstream_opencl_stream_t is needed */
-#define LIBXSTREAM_STREAM(A) ((const libxstream_opencl_stream_t*)(A))
-/* incompatible with libxstream_event_record */
-#define LIBXSTREAM_EVENT(A) ((const cl_event*)(A))
 
 #if defined(_OPENMP)
 #  include <omp.h>
@@ -223,13 +219,18 @@ typedef struct libxstream_opencl_error_t {
 } libxstream_opencl_error_t;
 
 /** Information about streams (libxstream_stream_create). */
-typedef struct libxstream_opencl_stream_t {
+typedef struct libxstream_stream_t {
   cl_command_queue queue;
   int tid;
 #if defined(LIBXSTREAM_STREAM_PRIORITIES)
   int priority;
 #endif
 } libxstream_opencl_stream_t;
+
+/** Information about events (libxstream_event_create). */
+struct libxstream_event_t {
+  cl_event cl_evt;
+};
 
 /** Settings updated during libxstream_set_active_device. */
 typedef struct libxstream_opencl_device_t {
@@ -370,7 +371,7 @@ const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, i
 /** Determines default-stream (see libxstream_opencl_device_t::stream). */
 const libxstream_opencl_stream_t* libxstream_opencl_stream_default(void);
 /** Like libxstream_memset_zero, but supporting an arbitrary value used as initialization pattern. */
-int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream);
+int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, libxstream_stream_t* stream);
 /** Amount of device memory; local memory is only non-zero if separate from global. */
 int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
 /** Get device-ID for given device, and optionally global device-ID. */

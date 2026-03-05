@@ -57,7 +57,7 @@ int main(int argc, char* argv[])
   const char transa = (0 == ta ? 'N' : 'T');
   const char transb = (0 == tb ? 'N' : 'T');
   void *a = NULL, *b = NULL, *c_oz = NULL, *c_ref = NULL;
-  void* stream = NULL;
+  libxstream_stream_t* stream = NULL;
   libxs_matdiff_info_t diff;
   libxs_timer_tick_t t0, t1;
   size_t elem_size;

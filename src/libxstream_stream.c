@@ -52,7 +52,7 @@ const libxstream_opencl_stream_t* libxstream_opencl_stream_default(void) {
 }
 
 
-int libxstream_stream_create(void** stream_p, const char* name, int priority) {
+int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, int priority) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   LIBXSTREAM_STREAM_PROPERTIES_TYPE properties[9] = {
     CL_QUEUE_PROPERTIES, 0 /*placeholder*/, 0 /* terminator */
@@ -175,10 +175,10 @@ int libxstream_stream_create(void** stream_p, const char* name, int priority) {
 }
 
 
-int libxstream_stream_destroy(void* stream) {
+int libxstream_stream_destroy(libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   if (NULL != stream) {
-    const libxstream_opencl_stream_t* const str = LIBXSTREAM_STREAM(stream);
+    const libxstream_opencl_stream_t* const str = stream;
     const cl_command_queue queue = str->queue;
     assert(NULL != libxstream_opencl_config.streams);
 #  if !defined(NDEBUG)
@@ -224,10 +224,10 @@ int libxstream_stream_priority_range(int* least, int* greatest) {
 }
 
 
-int libxstream_stream_sync(void* stream) {
+int libxstream_stream_sync(libxstream_stream_t* stream) {
   const libxstream_opencl_stream_t* str = NULL;
   int result = EXIT_SUCCESS;
-  str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream_default());
+  str = (NULL != stream ? stream : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue);
   if (0 == (16 & libxstream_opencl_config.wa)) result = clFinish(str->queue);
   else {

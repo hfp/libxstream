@@ -664,7 +664,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       mn <= (max_kernel_dim * max_kernel_dim))
   {
     const libxs_timer_tickint start = libxs_timer_tick();
-    const libxstream_opencl_stream_t* const str = LIBXSTREAM_STREAM(stream);
+    const libxstream_opencl_stream_t* const str = (const libxstream_opencl_stream_t*)stream;
     opencl_libsmm_trans_t* config;
     opencl_libsmm_transkey_t key;
     LIBXS_MEMZERO(&key); /* potentially heterogeneous key-data (alignment gaps) */
@@ -877,7 +877,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     libxstream_opencl_info_memptr_t info_stack, info_adata, info_bdata, info_cdata;
     opencl_libsmm_smmkey_t key;
-    const libxstream_opencl_stream_t* const str = LIBXSTREAM_STREAM(stream);
+    const libxstream_opencl_stream_t* const str = (const libxstream_opencl_stream_t*)stream;
     LIBXS_MEMZERO(&key); /* potentially heterogeneous key-data */
     key.devuid = ((1 != libxstream_opencl_config.devmatch && ((unsigned int)-1) != libxstream_opencl_config.devmatch)
                     ? libxstream_opencl_config.devmatch

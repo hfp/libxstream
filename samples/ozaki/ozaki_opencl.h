@@ -46,7 +46,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
                int use_double, int use_bf16, int nslices, int batch_k,
                int ozflags, int oztrim);
 void ozaki_destroy(ozaki_context_t* ctx);
-int ozaki_gemm(ozaki_context_t* ctx, void* stream,
+int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                char transa, char transb,
                int M, int N, int K,
                double alpha, const void* a, int lda,

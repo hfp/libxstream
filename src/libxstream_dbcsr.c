@@ -88,7 +88,7 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
 int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_stream_create(stream_p, name, priority);
+  result = libxstream_stream_create((libxstream_stream_t**)stream_p, name, priority);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -96,7 +96,7 @@ int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
 int c_dbcsr_acc_stream_destroy(void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_stream_destroy(stream);
+  result = libxstream_stream_destroy((libxstream_stream_t*)stream);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -104,7 +104,7 @@ int c_dbcsr_acc_stream_destroy(void* stream) {
 int c_dbcsr_acc_stream_sync(void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_stream_sync(stream);
+  result = libxstream_stream_sync((libxstream_stream_t*)stream);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -112,7 +112,7 @@ int c_dbcsr_acc_stream_sync(void* stream) {
 int c_dbcsr_acc_stream_wait_event(void* stream, void* event) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_stream_wait_event(stream, event);
+  result = libxstream_stream_wait_event((libxstream_stream_t*)stream, (libxstream_event_t*)event);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -120,7 +120,7 @@ int c_dbcsr_acc_stream_wait_event(void* stream, void* event) {
 int c_dbcsr_acc_event_create(void** event_p) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_event_create(event_p);
+  result = libxstream_event_create((libxstream_event_t**)event_p);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -128,7 +128,7 @@ int c_dbcsr_acc_event_create(void** event_p) {
 int c_dbcsr_acc_event_destroy(void* event) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_event_destroy(event);
+  result = libxstream_event_destroy((libxstream_event_t*)event);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -136,7 +136,7 @@ int c_dbcsr_acc_event_destroy(void* event) {
 int c_dbcsr_acc_event_record(void* event, void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_event_record(event, stream);
+  result = libxstream_event_record((libxstream_event_t*)event, (libxstream_stream_t*)stream);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -144,7 +144,7 @@ int c_dbcsr_acc_event_record(void* event, void* stream) {
 int c_dbcsr_acc_event_query(void* event, c_dbcsr_acc_bool_t* has_occurred) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_event_query(event, has_occurred);
+  result = libxstream_event_query((libxstream_event_t*)event, has_occurred);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -152,7 +152,7 @@ int c_dbcsr_acc_event_query(void* event, c_dbcsr_acc_bool_t* has_occurred) {
 int c_dbcsr_acc_event_synchronize(void* event) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_event_synchronize(event);
+  result = libxstream_event_synchronize((libxstream_event_t*)event);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -184,7 +184,7 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t lb) {
 int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_memhst_allocate(host_mem, nbytes, stream);
+  result = libxstream_memhst_allocate(host_mem, nbytes, (libxstream_stream_t*)stream);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -192,7 +192,7 @@ int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) 
 int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_memhst_deallocate(host_mem, stream);
+  result = libxstream_memhst_deallocate(host_mem, (libxstream_stream_t*)stream);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -200,7 +200,7 @@ int c_dbcsr_acc_host_mem_deallocate(void* host_mem, void* stream) {
 int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_memcpy_h2d(host_mem, dev_mem, nbytes, stream);
+  result = libxstream_memcpy_h2d(host_mem, dev_mem, nbytes, (libxstream_stream_t*)stream);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -208,7 +208,7 @@ int c_dbcsr_acc_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, v
 int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_memcpy_d2h(dev_mem, host_mem, nbytes, stream);
+  result = libxstream_memcpy_d2h(dev_mem, host_mem, nbytes, (libxstream_stream_t*)stream);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -216,7 +216,7 @@ int c_dbcsr_acc_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, v
 int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_memcpy_d2d(devmem_src, devmem_dst, nbytes, stream);
+  result = libxstream_memcpy_d2d(devmem_src, devmem_dst, nbytes, (libxstream_stream_t*)stream);
   LIBXSTREAM_PROFILE_END;
   return result;
 }
@@ -224,7 +224,7 @@ int c_dbcsr_acc_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyt
 int c_dbcsr_acc_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_memset_zero(dev_mem, offset, nbytes, stream);
+  result = libxstream_memset_zero(dev_mem, offset, nbytes, (libxstream_stream_t*)stream);
   LIBXSTREAM_PROFILE_END;
   return result;
 }

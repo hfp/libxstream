@@ -14,24 +14,24 @@
 extern "C" {
 #  endif
 
-int libxstream_event_create(void** event_p) {
+int libxstream_event_create(libxstream_event_t** event_p) {
   int result = EXIT_SUCCESS;
   assert(NULL != libxstream_opencl_config.events && NULL != event_p);
   *event_p = libxs_pmalloc_lock(
     (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
-  if (NULL != *event_p) *(cl_event*)*event_p = NULL;
+  if (NULL != *event_p) (*event_p)->cl_evt = NULL;
   else result = EXIT_FAILURE;
   LIBXSTREAM_RETURN(result);
 }
 
 
-int libxstream_event_destroy(void* event) {
+int libxstream_event_destroy(libxstream_event_t* event) {
   int result = EXIT_SUCCESS;
   if (NULL != event) {
-    const cl_event clevent = *LIBXSTREAM_EVENT(event);
+    const cl_event clevent = event->cl_evt;
     assert(NULL != libxstream_opencl_config.events);
 #  if !defined(NDEBUG)
-    *(cl_event*)event = NULL;
+    event->cl_evt = NULL;
 #  endif
     libxs_pfree_lock(event, (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
     if (NULL != clevent) {
@@ -42,13 +42,13 @@ int libxstream_event_destroy(void* event) {
 }
 
 
-int libxstream_stream_wait_event(void* stream, void* event) { /* wait for an event (device-side) */
+int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t* event) { /* wait for an event (device-side) */
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = NULL;
   cl_event clevent = NULL;
-  str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream_default());
+  str = (NULL != stream ? stream : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue && NULL != event);
-  clevent = *LIBXSTREAM_EVENT(event);
+  clevent = event->cl_evt;
   if (NULL != clevent) {
 #  if defined(CL_VERSION_1_2)
     result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, NULL);
@@ -57,7 +57,7 @@ int libxstream_stream_wait_event(void* stream, void* event) { /* wait for an eve
 #  endif
     if (EXIT_SUCCESS != result) {
       LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent));
-      *(cl_event*)event = NULL;
+      event->cl_evt = NULL;
     }
   }
   else if (3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
@@ -67,13 +67,13 @@ int libxstream_stream_wait_event(void* stream, void* event) { /* wait for an eve
 }
 
 
-int libxstream_event_record(void* event, void* stream) {
+int libxstream_event_record(libxstream_event_t* event, libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = NULL;
   cl_event clevent = NULL, clevent_result = NULL;
-  str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream_default());
+  str = (NULL != stream ? stream : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue && NULL != event);
-  clevent = *LIBXSTREAM_EVENT(event);
+  clevent = event->cl_evt;
 #  if defined(CL_VERSION_1_2)
   result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &clevent_result);
 #  else
@@ -85,21 +85,21 @@ int libxstream_event_record(void* event, void* stream) {
   }
   if (EXIT_SUCCESS == result) {
     assert(NULL != clevent_result);
-    *(cl_event*)event = clevent_result;
+    event->cl_evt = clevent_result;
   }
   else {
     if (NULL != clevent_result) LIBXSTREAM_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent_result));
-    *(cl_event*)event = NULL;
+    event->cl_evt = NULL;
   }
   LIBXSTREAM_RETURN(result);
 }
 
 
-int libxstream_event_query(void* event, int* has_occurred) {
+int libxstream_event_query(libxstream_event_t* event, int* has_occurred) {
   cl_int status = CL_COMPLETE;
   int result;
   assert(NULL != event && NULL != has_occurred);
-  result = clGetEventInfo(*LIBXSTREAM_EVENT(event), CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int), &status, NULL);
+  result = clGetEventInfo(event->cl_evt, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int), &status, NULL);
   if (EXIT_SUCCESS == result && 0 <= status) *has_occurred = (CL_COMPLETE == status ? 1 : 0);
   else { /* error state */
     result = EXIT_SUCCESS; /* soft-error */
@@ -109,11 +109,11 @@ int libxstream_event_query(void* event, int* has_occurred) {
 }
 
 
-int libxstream_event_synchronize(void* event) { /* waits on the host-side */
+int libxstream_event_synchronize(libxstream_event_t* event) { /* waits on the host-side */
   int result = EXIT_SUCCESS;
   cl_event clevent;
   assert(NULL != event);
-  clevent = *LIBXSTREAM_EVENT(event);
+  clevent = event->cl_evt;
   if (NULL != clevent) {
     if (0 == (32 & libxstream_opencl_config.wa)) {
       cl_int status = CL_COMPLETE + 1;

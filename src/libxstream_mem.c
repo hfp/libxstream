@@ -204,12 +204,12 @@ int libxstream_memhst_deallocate_internal(void* host_ptr, cl_command_queue queue
 }
 
 
-int libxstream_memhst_allocate(void** host_mem, size_t nbytes, void* stream) {
+int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   assert(NULL != host_mem);
   if (0 != nbytes) {
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-    const libxstream_opencl_stream_t* const str = (NULL != stream ? LIBXSTREAM_STREAM(stream)
+    const libxstream_opencl_stream_t* const str = (NULL != stream ? stream
                                                                    : libxstream_opencl_stream_default());
     int alignment = LIBXS_MAX(0x10000, sizeof(void*));
     void* host_ptr = NULL;
@@ -315,10 +315,10 @@ int libxstream_memhst_allocate(void** host_mem, size_t nbytes, void* stream) {
 }
 
 
-int libxstream_memhst_deallocate(void* host_mem, void* stream) {
+int libxstream_memhst_deallocate(void* host_mem, libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   if (NULL != host_mem) {
-    const libxstream_opencl_stream_t* const str = (NULL != stream ? LIBXSTREAM_STREAM(stream)
+    const libxstream_opencl_stream_t* const str = (NULL != stream ? stream
                                                                    : libxstream_opencl_stream_default());
     const libxstream_opencl_info_memptr_t* const meminfo = libxstream_opencl_info_hostptr(host_mem);
     assert(NULL != str);
@@ -562,7 +562,7 @@ int libxstream_memdev_set_ptr(void** dev_mem, void* other, size_t offset) {
 }
 
 
-int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, void* stream) {
+int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
@@ -582,7 +582,7 @@ int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, vo
     const libxstream_opencl_stream_t* str;
     cl_event event = NULL;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
     assert(NULL != str);
 #  if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
@@ -698,7 +698,7 @@ int libxstream_opencl_memcpy_d2h(
 }
 
 
-int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, void* stream) {
+int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   assert((NULL != dev_mem && NULL != host_mem) || 0 == nbytes);
   if (
@@ -718,7 +718,7 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, vo
     const libxstream_opencl_stream_t* str;
     nconst.input = dev_mem;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
     assert(NULL != str);
     info = libxstream_opencl_info_devptr_modify(NULL, nconst.ptr, 1 /*elsize*/, &nbytes, &offset);
     if (NULL == info) { /* USM-pointer: info_devptr_modify returns NULL when USM is active */
@@ -746,7 +746,7 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, vo
 }
 
 
-int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, void* stream) {
+int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   assert((NULL != devmem_src && NULL != devmem_dst) || 0 == nbytes);
   if (NULL != devmem_src && NULL != devmem_dst && devmem_src != devmem_dst && 0 != nbytes) {
@@ -763,7 +763,7 @@ int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyte
     const libxstream_opencl_stream_t* str;
     nconst.input = devmem_src;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
     assert(NULL != str && NULL != devinfo->context);
 #  if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
@@ -822,7 +822,7 @@ int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyte
 }
 
 
-int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, void* stream) {
+int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   assert(NULL != dev_mem || 0 == nbytes);
   if (0 != nbytes) {
@@ -837,7 +837,7 @@ int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nby
     if (0 == LIBXS_MOD2(nbytes, 4)) vsize = 4;
     else if (0 == LIBXS_MOD2(nbytes, 2)) vsize = 2;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? LIBXSTREAM_STREAM(stream) : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, LIBXSTREAM_OMP_TID()));
     assert(NULL != str && NULL != devinfo->context);
 #  if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemFillINTEL) {
@@ -877,7 +877,7 @@ int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nby
 }
 
 
-int libxstream_memset_zero(void* dev_mem, size_t offset, size_t nbytes, void* stream) {
+int libxstream_memset_zero(void* dev_mem, size_t offset, size_t nbytes, libxstream_stream_t* stream) {
   return libxstream_opencl_memset(dev_mem, 0 /*value*/, offset, nbytes, stream);
 }
 
