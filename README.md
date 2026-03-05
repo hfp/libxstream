@@ -2,7 +2,7 @@
 
 LIBXSTREAM is an OpenCL-based accelerator backend library that provides streams, events, and device memory management for offloading compute work to GPUs. The library implements the [DBCSR ACC interface](https://github.com/cp2k/dbcsr/blob/develop/src/acc/), making it a drop-in OpenCL backend for [CP2K](https://cp2k.org/)/[DBCSR](https://dbcsr.cp2k.org/).
 
-LIBXSTREAM targets OpenCL 2.0+ devices across vendors (Intel, AMD, NVIDIA) and optionally integrates with [LIBXSMM](https://github.com/libxsmm/libxsmm).
+LIBXSTREAM targets OpenCL devices across vendors (Intel, AMD, NVIDIA) and depends on [LIBXS](https://github.com/hfp/libxs) for utility infrastructure (memory pools, timers, synchronization, etc.).
 
 ## API
 
@@ -64,9 +64,24 @@ The header [`include/libxstream_dbcsr.h`](include/libxstream_dbcsr.h) provides t
 
 ## Building
 
-LIBXSTREAM uses GNU Make. An OpenCL SDK must be available.
+LIBXSTREAM depends on [LIBXS](https://github.com/hfp/libxs), which is included at compile time via source inclusion (`libxs_source.h`). The Makefiles expect LIBXS to reside as a sibling directory (`../libxs` relative to the LIBXSTREAM root). This is controlled by the `LIBXSROOT` variable in both the top-level [Makefile](Makefile) and the sample Makefiles.
 
 ```sh
+# clone both repositories side by side
+git clone https://github.com/hfp/libxs.git
+git clone https://github.com/hfp/libxstream.git
+```
+
+```
+parent/
+  libxs/          <-- LIBXS (required)
+  libxstream/     <-- this repository
+```
+
+An OpenCL SDK must also be available.
+
+```sh
+cd libxstream
 make          # builds lib/libxstream.a and lib/libxstream.so
 ```
 
