@@ -67,6 +67,17 @@
 # define CONSTANT global
 #endif
 
+/* KGROUP: number of consecutive K sub-panels whose exponents are grouped.
+ * Preprocessing uses the max exponent over KGROUP*BK elements instead of BK.
+ * Dotprod accumulates int32 DPAS results across KGROUP panels before
+ * mod reduction + Garner reconstruction.  Reduces Garner calls by KGROUP×
+ * at the cost of wider exponent alignment (more mantissa bits lost for
+ * elements far from the group max).  Set via GEMM_OZTRIM: kgroup = 2^oztrim.
+ * Default 1 = no grouping (current behaviour). */
+#if !defined(KGROUP)
+# define KGROUP 1
+#endif
+
 #if defined(USE_XMX) && (0 < USE_XMX)
 # define XMX_M 8
 # define XMX_N 16
@@ -144,7 +155,7 @@ inline uint oz2_mod64(ulong x, SINT pidx)
  *
  * Outputs:
  *   ak   - int8 residues: [panels][BM][NPRIMES][BK]
- *   expa - per-row max exponent: [panels][BM]
+ *   expa - per-row max exponent: [groups][BM]  (one per KGROUP panels)
  */
 __attribute__((reqd_work_group_size(BM, BK, 1)))
 #if defined(SG) && (0 < SG)
@@ -155,72 +166,82 @@ kernel void preprocess_a(
   int M, int K, int lda, int transa,
   int kb_offset,
   global char* restrict ak,     /* int8: [panels][BM][NPRIMES][BK] */
-  global short* restrict expa,  /* int16: [panels][BM] */
+  global short* restrict expa,  /* int16: [groups][BM] */
   int nblk_m)
 {
   const int ib_idx = (int)get_group_id(0);
-  const int ki     = (int)get_group_id(1);
+  const int ki_group = (int)get_group_id(1); /* group index: covers KGROUP panels */
   const int mi     = (int)get_local_id(0);
   const int kk     = (int)get_local_id(1);
 
   const int ib  = ib_idx * BM;
-  const int kb  = kb_offset + ki * BK;
   const int row = ib + mi;
-  const int col = kb + kk;
 
-  const int panel = ki * nblk_m + ib_idx;
-
-  /* Local memory for per-row max exponent reduction */
   local int row_max_exp[BM];
-
-  short elem_exp = 0;
-  uint_repr_t elem_mant = 0;
-  int elem_sign = 0;
   SINT pidx;
+  int s;
 
-  if (row < M && col < K) {
-    const int idx = transa ? (row * lda + col) : (col * lda + row);
-    ieee_decompose(a[idx], &elem_sign, &elem_exp, &elem_mant);
-  }
-
-  /* Find per-row max exponent (reduction across K dimension within work-group) */
+  /* Phase 1: find per-row max exponent across all KGROUP sub-panels */
   if (0 == kk) row_max_exp[mi] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
-  if (row < M && col < K && elem_exp > 0) {
-    atomic_max(&row_max_exp[mi], (int)elem_exp);
+  for (s = 0; s < KGROUP; ++s) {
+    const int ki  = ki_group * KGROUP + s;
+    const int col = kb_offset + ki * BK + kk;
+    if (row < M && col < K) {
+      const int idx = transa ? (row * lda + col) : (col * lda + row);
+      short elem_exp;
+      uint_repr_t elem_mant;
+      int elem_sign;
+      ieee_decompose(a[idx], &elem_sign, &elem_exp, &elem_mant);
+      if (elem_exp > 0) {
+        atomic_max(&row_max_exp[mi], (int)elem_exp);
+      }
+    }
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /* Write per-row max exponent (one thread per row) */
+  /* Write per-row max exponent (one entry per group) */
   if (0 == kk && mi < MIN(BM, M - ib)) {
-    expa[panel * BM + mi] = (short)row_max_exp[mi];
+    const int group_idx = ki_group * nblk_m + ib_idx;
+    expa[group_idx * BM + mi] = (short)row_max_exp[mi];
   }
 
-  /* Compute CRT residues: align mantissa, reduce mod each modulus, fold sign */
-  if (row < M && col < K && elem_mant != 0) {
-    const short max_exp = (short)row_max_exp[mi];
-    const int shift = (int)(max_exp - elem_exp); /* always >= 0 */
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-    const ulong aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0UL;
-#else
-    const uint aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0U;
-#endif
+  /* Phase 2: compute CRT residues for each sub-panel using group max_exp */
+  for (s = 0; s < KGROUP; ++s) {
+    const int ki    = ki_group * KGROUP + s;
+    const int col   = kb_offset + ki * BK + kk;
+    const int panel = ki * nblk_m + ib_idx;
+    short elem_exp = 0;
+    uint_repr_t elem_mant = 0;
+    int elem_sign = 0;
 
-    UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-      char residue = (char)oz2_mod64(aligned, pidx);
-#else
-      char residue = (char)oz2_mod((uint)aligned, pidx);
-#endif
-      /* Fold sign into residue */
-      if (elem_sign) residue = -residue;
-      ak[(((long)panel * BM + mi) * NPRIMES + pidx) * BK + kk] = residue;
+    if (row < M && col < K) {
+      const int idx = transa ? (row * lda + col) : (col * lda + row);
+      ieee_decompose(a[idx], &elem_sign, &elem_exp, &elem_mant);
     }
-  }
-  else {
-    /* Zero or out-of-bounds: write zero residues */
-    UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
-      ak[(((long)panel * BM + mi) * NPRIMES + pidx) * BK + kk] = 0;
+
+    if (row < M && col < K && elem_mant != 0) {
+      const short max_exp = (short)row_max_exp[mi];
+      const int shift = (int)(max_exp - elem_exp);
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+      const ulong aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0UL;
+#else
+      const uint aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0U;
+#endif
+      UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+        char residue = (char)oz2_mod64(aligned, pidx);
+#else
+        char residue = (char)oz2_mod((uint)aligned, pidx);
+#endif
+        if (elem_sign) residue = -residue;
+        ak[(((long)panel * BM + mi) * NPRIMES + pidx) * BK + kk] = residue;
+      }
+    }
+    else {
+      UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+        ak[(((long)panel * BM + mi) * NPRIMES + pidx) * BK + kk] = 0;
+      }
     }
   }
 }
@@ -245,66 +266,81 @@ kernel void preprocess_b(
 #else
   global char* restrict bk,     /* int8: [panels][BN][NPRIMES][BK] */
 #endif
-  global short* restrict expb,  /* int16: [panels][BN] */
+  global short* restrict expb,  /* int16: [groups][BN] */
   int nblk_n)
 {
-  const int jb_idx = (int)get_group_id(0);
-  const int ki     = (int)get_group_id(1);
-  const int nj     = (int)get_local_id(0);
-  const int kk     = (int)get_local_id(1);
+  const int jb_idx  = (int)get_group_id(0);
+  const int ki_group = (int)get_group_id(1);
+  const int nj      = (int)get_local_id(0);
+  const int kk      = (int)get_local_id(1);
 
   const int jb  = jb_idx * BN;
-  const int kb  = kb_offset + ki * BK;
   const int col = jb + nj;
-  const int row = kb + kk;
-
-  const int panel = ki * nblk_n + jb_idx;
 
   local int col_max_exp[BN];
-
-  short elem_exp = 0;
-  uint_repr_t elem_mant = 0;
-  int elem_sign = 0;
   SINT pidx;
+  int s;
 
-  if (row < K && col < N) {
-    const int idx = transb ? (row * ldb + col) : (col * ldb + row);
-    ieee_decompose(b[idx], &elem_sign, &elem_exp, &elem_mant);
-  }
-
+  /* Phase 1: find per-col max exponent across KGROUP sub-panels */
   if (0 == kk) col_max_exp[nj] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
-  if (row < K && col < N && elem_exp > 0) {
-    atomic_max(&col_max_exp[nj], (int)elem_exp);
+  for (s = 0; s < KGROUP; ++s) {
+    const int ki  = ki_group * KGROUP + s;
+    const int row = kb_offset + ki * BK + kk;
+    if (row < K && col < N) {
+      const int idx = transb ? (row * ldb + col) : (col * ldb + row);
+      short elem_exp;
+      uint_repr_t elem_mant;
+      int elem_sign;
+      ieee_decompose(b[idx], &elem_sign, &elem_exp, &elem_mant);
+      if (elem_exp > 0) {
+        atomic_max(&col_max_exp[nj], (int)elem_exp);
+      }
+    }
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
   if (0 == kk && nj < MIN(BN, N - jb)) {
-    expb[panel * BN + nj] = (short)col_max_exp[nj];
+    const int group_idx = ki_group * nblk_n + jb_idx;
+    expb[group_idx * BN + nj] = (short)col_max_exp[nj];
   }
 
-  if (row < K && col < N && elem_mant != 0) {
-    const short max_exp = (short)col_max_exp[nj];
-    const int shift = (int)(max_exp - elem_exp);
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-    const ulong aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0UL;
-#else
-    const uint aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0U;
-#endif
+  /* Phase 2: compute CRT residues for each sub-panel using group max_exp */
+  for (s = 0; s < KGROUP; ++s) {
+    const int ki    = ki_group * KGROUP + s;
+    const int row   = kb_offset + ki * BK + kk;
+    const int panel = ki * nblk_n + jb_idx;
+    short elem_exp = 0;
+    uint_repr_t elem_mant = 0;
+    int elem_sign = 0;
 
-    UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-      char residue = (char)oz2_mod64(aligned, pidx);
-#else
-      char residue = (char)oz2_mod((uint)aligned, pidx);
-#endif
-      if (elem_sign) residue = -residue;
-      bk[BK_IDX(panel, nj, pidx, kk)] = residue;
+    if (row < K && col < N) {
+      const int idx = transb ? (row * ldb + col) : (col * ldb + row);
+      ieee_decompose(b[idx], &elem_sign, &elem_exp, &elem_mant);
     }
-  }
-  else {
-    UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
-      bk[BK_IDX(panel, nj, pidx, kk)] = 0;
+
+    if (row < K && col < N && elem_mant != 0) {
+      const short max_exp = (short)col_max_exp[nj];
+      const int shift = (int)(max_exp - elem_exp);
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+      const ulong aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0UL;
+#else
+      const uint aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0U;
+#endif
+      UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+        char residue = (char)oz2_mod64(aligned, pidx);
+#else
+        char residue = (char)oz2_mod((uint)aligned, pidx);
+#endif
+        if (elem_sign) residue = -residue;
+        bk[BK_IDX(panel, nj, pidx, kk)] = residue;
+      }
+    }
+    else {
+      UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+        bk[BK_IDX(panel, nj, pidx, kk)] = 0;
+      }
     }
   }
 }
@@ -528,62 +564,126 @@ kernel void dotprod(
       : (real_t)0;
   }
 
-  /* Loop over k-sub-panels */
-  for (ki = 0; ki < nkb; ++ki) {
-    const int a_panel = ki * nblk_m + ib_idx;
-    const int b_panel = ki * nblk_n + jb_idx;
+  /* Loop over k-groups (KGROUP consecutive sub-panels share one exponent) */
+  { const int nkb_groups = (nkb + KGROUP - 1) / KGROUP;
+    int gi;
+    for (gi = 0; gi < nkb_groups; ++gi) {
+      const int ki_start = gi * KGROUP;
+      const int ki_end = ((ki_start + KGROUP) < nkb)
+                       ? (ki_start + KGROUP) : nkb;
+      const int group_idx_a = gi * nblk_m + ib_idx;
+      const int group_idx_b = gi * nblk_n + jb_idx;
 
-    /* Compute DPAS products for all primes, reduce to per-row residues */
-    uint row_res[XMX_M * 18]; /* [m * 18 + pidx] */
-    UNROLL_OUTER(1) for (pidx = 0; pidx < NPRIMES; ++pidx) {
-      ushort8 a_raw; uint8 b_raw;
-      int8 dot;
-      union { int8 v; int a[8]; } dot_u;
+#if KGROUP == 1
+      /* KGROUP=1: direct per-panel processing, no accumulation */
+      { uint row_res[XMX_M * NPRIMES];
+        const int a_panel = ki_start * nblk_m + ib_idx;
+        const int b_panel = ki_start * nblk_n + jb_idx;
 
-      /* Load A tile [8 x 32]: 8 rows x BK cols of int8 residues.
-       * Surface: width=a_stride, height=BM. Offset=(pidx*BK, mi_base). */
-      intel_sub_group_2d_block_read_8b_8r32x1c(
-          (global void*)(ak + (long)a_panel * BM * a_stride),
-          a_stride, BM, a_stride,
-          (int2)(pidx * BK, mi_base), (private ushort*)&a_raw);
+        UNROLL_OUTER(1) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+          ushort8 a_raw; uint8 b_raw;
+          int8 dot;
+          union { int8 v; int a[8]; } dot_u;
 
-      /* Load B tile [32 x 16] with VNNI transform.
-       * Surface: width=BN_PAD, height=BK. Offset=(nj_base, 0). */
-      intel_sub_group_2d_block_read_transform_8b_32r16x1c(
-          (global void*)(bk + ((long)b_panel * NPRIMES + pidx) * BK * BN_PAD),
-          BN_PAD, BK, BN_PAD,
-          (int2)(nj_base, 0), (private uint*)&b_raw);
+          intel_sub_group_2d_block_read_8b_8r32x1c(
+              (global void*)(ak + (long)a_panel * BM * a_stride),
+              a_stride, BM, a_stride,
+              (int2)(pidx * BK, mi_base), (private ushort*)&a_raw);
 
-      /* DPAS: C[8x16] += A[8x32] * B[32x16] */
-      dot = intel_sub_group_i8_i8_matrix_mad_k32(
-                as_short8(a_raw), as_int8(b_raw), (int8)(0));
+          intel_sub_group_2d_block_read_transform_8b_32r16x1c(
+              (global void*)(bk + ((long)b_panel * NPRIMES + pidx) * BK * BN_PAD),
+              BN_PAD, BK, BN_PAD,
+              (int2)(nj_base, 0), (private uint*)&b_raw);
 
-      /* Reduce each row's dot product to unsigned residue mod prime */
-      dot_u.v = dot;
-      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-        uint r;
-        if (dot_u.a[m] >= 0) {
-          r = oz2_mod((uint)dot_u.a[m], pidx);
+          dot = intel_sub_group_i8_i8_matrix_mad_k32(
+                    as_short8(a_raw), as_int8(b_raw), (int8)(0));
+          dot_u.v = dot;
+          UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+            uint r;
+            if (dot_u.a[m] >= 0) {
+              r = oz2_mod((uint)dot_u.a[m], pidx);
+            }
+            else {
+              const uint neg_r = oz2_mod((uint)(-dot_u.a[m]), pidx);
+              r = (0 != neg_r) ? (oz2_moduli[pidx] - neg_r) : 0;
+            }
+            row_res[m * NPRIMES + pidx] = r;
+          }
         }
-        else {
-          const uint neg_r = oz2_mod((uint)(-dot_u.a[m]), pidx);
-          r = (0 != neg_r) ? (oz2_moduli[pidx] - neg_r) : 0;
-        }
-        row_res[m * 18 + pidx] = r;
-      }
-    }
 
-    /* Garner reconstruction + Horner accumulation for each row */
-    UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-      const int row_m = ib_idx * BM + mi_base + m;
-      if (row_m < M && col < N) {
-        const short ea = expa[a_panel * BM + mi_base + m];
-        const short eb = expb[b_panel * BN + nj_base + sg_lid];
-        const int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
-        uint v[18];
-        const int is_negative = oz2_garner_reconstruct(row_res + m * 18, v);
-        oz2_horner_accumulate(v, is_negative, alpha, base_sh, &c_acc[m]);
+        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+          const int row_m = ib_idx * BM + mi_base + m;
+          if (row_m < M && col < N) {
+            const short ea = expa[group_idx_a * BM + mi_base + m];
+            const short eb = expb[group_idx_b * BN + nj_base + sg_lid];
+            const int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
+            uint v[NPRIMES];
+            const int is_negative = oz2_garner_reconstruct(
+              row_res + m * NPRIMES, v);
+            oz2_horner_accumulate(v, is_negative, alpha, base_sh, &c_acc[m]);
+          }
+        }
       }
+#else
+      /* KGROUP>1: accumulate int32 dot products across panels, one Garner
+       * per group.  Requires NPRIMES=18 (M_crt ~ 2^118) for headroom. */
+      { uint row_res[XMX_M * NPRIMES];
+
+        UNROLL_OUTER(1) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+          int8 dot = (int8)(0);
+
+          for (ki = ki_start; ki < ki_end; ++ki) {
+            ushort8 a_raw; uint8 b_raw;
+            int8 panel_dot;
+            const int a_panel = ki * nblk_m + ib_idx;
+            const int b_panel = ki * nblk_n + jb_idx;
+
+            intel_sub_group_2d_block_read_8b_8r32x1c(
+                (global void*)(ak + (long)a_panel * BM * a_stride),
+                a_stride, BM, a_stride,
+                (int2)(pidx * BK, mi_base), (private ushort*)&a_raw);
+
+            intel_sub_group_2d_block_read_transform_8b_32r16x1c(
+                (global void*)(bk + ((long)b_panel * NPRIMES + pidx) * BK * BN_PAD),
+                BN_PAD, BK, BN_PAD,
+                (int2)(nj_base, 0), (private uint*)&b_raw);
+
+            panel_dot = intel_sub_group_i8_i8_matrix_mad_k32(
+                      as_short8(a_raw), as_int8(b_raw), (int8)(0));
+            dot += panel_dot;
+          }
+
+          { union { int8 v; int a[8]; } dot_u;
+            dot_u.v = dot;
+            UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+              if (dot_u.a[m] >= 0) {
+                row_res[m * NPRIMES + pidx] = oz2_mod(
+                  (uint)dot_u.a[m], pidx);
+              }
+              else {
+                const uint neg_r = oz2_mod(
+                  (uint)(-dot_u.a[m]), pidx);
+                row_res[m * NPRIMES + pidx] = (0 != neg_r)
+                  ? (oz2_moduli[pidx] - neg_r) : 0;
+              }
+            }
+          }
+        }
+
+        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+          const int row_m = ib_idx * BM + mi_base + m;
+          if (row_m < M && col < N) {
+            const short ea = expa[group_idx_a * BM + mi_base + m];
+            const short eb = expb[group_idx_b * BN + nj_base + sg_lid];
+            const int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
+            uint v[NPRIMES];
+            const int is_negative = oz2_garner_reconstruct(
+              row_res + m * NPRIMES, v);
+            oz2_horner_accumulate(v, is_negative, alpha, base_sh, &c_acc[m]);
+          }
+        }
+      }
+#endif
     }
   }
 
@@ -633,39 +733,56 @@ kernel void dotprod(
     cval *= beta;
   }
 
-  /* Loop over k-sub-panels */
-  UNROLL_OUTER(1) for (ki = 0; ki < nkb; ++ki) {
-    const int a_panel = ki * nblk_m + ib_idx;
-    const int b_panel = ki * nblk_n + jb_idx;
-    const short ea = expa[a_panel * BM + mi];
-    const short eb = expb[b_panel * BN + nj];
-    const int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
-    const long a_base = ((long)a_panel * BM + mi) * NPRIMES;
-    const long b_base = ((long)b_panel * BN + nj) * NPRIMES;
+  /* Loop over k-groups (KGROUP consecutive sub-panels share one exponent) */
+  { const int nkb_groups = (nkb + KGROUP - 1) / KGROUP;
+    int gi;
+    UNROLL_OUTER(1) for (gi = 0; gi < nkb_groups; ++gi) {
+      const int ki_start = gi * KGROUP;
+      const int ki_end = ((ki_start + KGROUP) < nkb)
+                       ? (ki_start + KGROUP) : nkb;
+      const int group_idx_a = gi * nblk_m + ib_idx;
+      const int group_idx_b = gi * nblk_n + jb_idx;
+      const short ea = expa[group_idx_a * BM + mi];
+      const short eb = expb[group_idx_b * BN + nj];
+      const int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
 
-    /* Step 1: Compute int8 dot product for each modulus channel */
-    uint dot_residues[18]; /* sized for max NPRIMES */
-    UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
-      int dot = 0;
-      UNROLL(BK) for (kk = 0; kk < BK; ++kk) {
-        dot += (int)ak[(a_base + pidx) * BK + kk]
-             * (int)bk[(b_base + pidx) * BK + kk];
+      /* Accumulate int32 dot products across KGROUP sub-panels per prime */
+      int dot_acc[18];
+      UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+        dot_acc[pidx] = 0;
       }
-      /* Reduce signed dot product to unsigned residue in [0, m_i) */
-      if (dot >= 0) {
-        dot_residues[pidx] = oz2_mod((uint)dot, pidx);
-      }
-      else {
-        const uint r = oz2_mod((uint)(-dot), pidx);
-        dot_residues[pidx] = (0 != r)
-          ? (oz2_moduli[pidx] - r) : 0;
-      }
-    }
 
-    /* Step 2: Garner reconstruction + Horner accumulation */
-    { uint v[18];
-      const int is_negative = oz2_garner_reconstruct(dot_residues, v);
-      oz2_horner_accumulate(v, is_negative, alpha, base_sh, &cval);
+      for (ki = ki_start; ki < ki_end; ++ki) {
+        const long a_base = (((long)ki * nblk_m + ib_idx) * BM + mi) * NPRIMES;
+        const long b_base = (((long)ki * nblk_n + jb_idx) * BN + nj) * NPRIMES;
+        UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+          int dot = 0;
+          UNROLL(BK) for (kk = 0; kk < BK; ++kk) {
+            dot += (int)ak[(a_base + pidx) * BK + kk]
+                 * (int)bk[(b_base + pidx) * BK + kk];
+          }
+          dot_acc[pidx] += dot;
+        }
+      }
+
+      /* Mod-reduce and Garner reconstruct (once per group) */
+      { uint dot_residues[18];
+        UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+          const int d = dot_acc[pidx];
+          if (d >= 0) {
+            dot_residues[pidx] = oz2_mod((uint)d, pidx);
+          }
+          else {
+            const uint r = oz2_mod((uint)(-d), pidx);
+            dot_residues[pidx] = (0 != r)
+              ? (oz2_moduli[pidx] - r) : 0;
+          }
+        }
+        { uint v[18];
+          const int is_negative = oz2_garner_reconstruct(dot_residues, v);
+          oz2_horner_accumulate(v, is_negative, alpha, base_sh, &cval);
+        }
+      }
     }
   }
 

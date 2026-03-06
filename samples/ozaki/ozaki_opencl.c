@@ -134,10 +134,24 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   ctx->use_double = use_double;
   ctx->use_bf16 = use_bf16;
   ctx->use_xmx = use_xmx;
-  ctx->nslices = nslices;
   ctx->kind = kind;
   ctx->ozflags = ozflags;
   ctx->oztrim  = oztrim;
+  /* For kind==2 (CRT): kgroup = 2^oztrim, clamped to [1, batch_k].
+   * Larger kgroup amortises Garner across more K sub-panels. */
+  { int kg = 1;
+    if (2 == kind && oztrim > 0) {
+      int i;
+      for (i = 0; i < oztrim && kg < batch_k; ++i) kg *= 2;
+    }
+    ctx->kgroup = kg;
+    /* KGROUP>1 accumulates dot products across panels, requiring the CRT
+     * modulus M_crt to cover KGROUP * BK * (2^53)^2.  With 17 primes
+     * M_crt ~ 2^112 — barely enough for one BK=32 panel.  Use the 18th
+     * prime (61, already in the tables) whenever KGROUP > 1. */
+    if (2 == kind && kg > 1 && nslices < 18) nslices = 18;
+  }
+  ctx->nslices = nslices;
   ctx->verbosity = verbosity;
 
   /* Environment-driven tuning */
@@ -186,7 +200,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       const int mant_bits      = use_double ? 52 : 23;
       const int bias_plus_mant = use_double ? 1075 : 150;
       offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-        " -DNPRIMES=%d -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d", nslices, mant_bits, bias_plus_mant);
+        " -DNPRIMES=%d -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DKGROUP=%d",
+        nslices, mant_bits, bias_plus_mant, ctx->kgroup);
     }
     else {
       offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
@@ -278,6 +293,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     ozaki_print_opt(stderr, "wg", wg);
     ozaki_print_opt(stderr, "sg", sg);
     ozaki_print_opt(stderr, "nslices", nslices);
+    if (2 == kind) ozaki_print_opt(stderr, "kgroup", ctx->kgroup);
     fprintf(stderr, "\n");
   }
 
@@ -346,6 +362,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
   const int nkb_total = (K + BK - 1) / BK;
   const int max_nkb = (BATCH_K < nkb_total) ? BATCH_K : nkb_total;
+  const int kgroup = ctx->kgroup; /* K-grouping factor (1 = no grouping) */
   const int n_batches = (0 < K) ? ((nkb_total + BATCH_K - 1) / BATCH_K) : 0;
   /* Device buffers for input matrices */
   void *d_a = NULL, *d_b = NULL, *d_c = NULL;
@@ -401,8 +418,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ak[s], ak_size);
       if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bk[s], bk_size);
       if (!ctx->use_bf16) {
-        const size_t expa_size = (size_t)max_nkb * nblk_m * BM * sizeof(cl_short);
-        const size_t expb_size = (size_t)max_nkb * nblk_n * BN * sizeof(cl_short);
+        const int max_ngroups = (max_nkb + kgroup - 1) / kgroup;
+        const size_t expa_size = (size_t)max_ngroups * nblk_m * BM * sizeof(cl_short);
+        const size_t expb_size = (size_t)max_ngroups * nblk_n * BN * sizeof(cl_short);
         if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa[s], expa_size);
         if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb[s], expb_size);
       }
@@ -432,8 +450,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     /* Launch preprocess_a on stream_a */
     { const libxstream_opencl_stream_t* str_a = stream_a;
+      const int nkb_groups_a = (nkb + kgroup - 1) / kgroup;
       size_t global_a[2], local_a[2];
-      global_a[0] = (size_t)nblk_m * BM; global_a[1] = (size_t)nkb * BK;
+      global_a[0] = (size_t)nblk_m * BM; global_a[1] = (size_t)nkb_groups_a * BK;
       local_a[0] = BM; local_a[1] = BK;
       CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 0, d_a));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 1, sizeof(int), &M));
@@ -455,8 +474,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     /* Launch preprocess_b on stream_b (parallel with preprocess_a) */
     { const libxstream_opencl_stream_t* str_b = stream_b;
+      const int nkb_groups_b = (nkb + kgroup - 1) / kgroup;
       size_t global_b[2], local_b[2];
-      global_b[0] = (size_t)nblk_n * BN; global_b[1] = (size_t)nkb * BK;
+      global_b[0] = (size_t)nblk_n * BN; global_b[1] = (size_t)nkb_groups_b * BK;
       local_b[0] = BN; local_b[1] = BK;
       CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 0, d_b));
       CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 1, sizeof(int), &N));

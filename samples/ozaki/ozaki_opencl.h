@@ -38,6 +38,7 @@ typedef struct ozaki_context_t {
   int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT), 3: ozaki1 bf16 */
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim;
+  int kgroup;      /* K-grouping factor for kind==2: 2^oztrim, clamped to batch_k */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
