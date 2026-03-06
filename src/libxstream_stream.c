@@ -180,11 +180,13 @@ int libxstream_stream_destroy(libxstream_stream_t* stream) {
   if (NULL != stream) {
     const libxstream_opencl_stream_t* const str = stream;
     const cl_command_queue queue = str->queue;
-    assert(NULL != libxstream_opencl_config.streams);
 #  if !defined(NDEBUG)
     LIBXS_MEMZERO((libxstream_opencl_stream_t*)stream);
 #  endif
-    libxs_pfree_lock(stream, (void**)libxstream_opencl_config.streams, &libxstream_opencl_config.nstreams, libxstream_opencl_config.lock_stream);
+    if (NULL != libxstream_opencl_config.streams) {
+      libxs_pfree_lock(stream, (void**)libxstream_opencl_config.streams,
+        &libxstream_opencl_config.nstreams, libxstream_opencl_config.lock_stream);
+    }
     if (NULL != queue) {
       result = clReleaseCommandQueue(queue);
     }
