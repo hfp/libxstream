@@ -36,14 +36,22 @@ The GEMM `C = alpha * A * B + beta * C` is then computed as a sum of
   mixed-radix representation.  The product of 17 moduli exceeds 2^111,
   providing sufficient range for fp64.
 
-  XMX / DPAS acceleration is supported via a two-phase pipeline: the
-  `dotprod` kernel computes DPAS int8 matmuls per modulus channel and
-  stores unsigned residues to a global intermediate buffer; then a
-  separate `postprocess` kernel runs Garner reconstruction and Horner
-  evaluation with an independently-sized grid over M×N, fully decoupled
-  from DPAS tile dimensions.  A scalar fallback fuses both phases into a
-  single `dotprod` kernel.  The triangular and symmetrize optimisations
-  do not apply (each modulus channel is independent).
+  XMX / DPAS acceleration uses a **fused** `dotprod` kernel that computes
+  DPAS int8 matmuls per modulus channel, reduces to unsigned residues in
+  registers, and immediately runs Garner reconstruction and Horner
+  evaluation — no intermediate global buffer is needed.  A scalar
+  fallback follows the same fused structure.  The triangular and
+  symmetrize optimisations do not apply (each modulus channel is
+  independent).
+
+  **K-grouping** (`OZAKI_TRIM`): When `OZAKI_TRIM` > 0, KGROUP = 2^OZAKI_TRIM
+  consecutive K sub-panels share a common max exponent and their DPAS dot
+  products are accumulated before a single Garner reconstruction per group.
+  This amortises the (expensive) Garner/Horner phase across KGROUP panels.
+  KGROUP > 1 automatically uses 18 primes (instead of 17) to provide
+  sufficient CRT range for accumulated dot products.  With `OZAKI_TRIM=2`
+  (KGROUP=4) the Garner cost is cut by 4× and overall speedups of ~3× have
+  been measured on PVC at large matrix sizes.
 
 ### Pipeline
 
@@ -53,16 +61,15 @@ Both schemes share the same three-kernel pipeline:
 2. **preprocess_b** — decompose columns of B into int8/bf16 slices or residues
 3. **dotprod** — iterate slice pairs or modulus channels, accumulate into C
 
-Scheme 2 with XMX adds a fourth phase:
-4. **postprocess** — CRT (Garner) reconstruction and Horner evaluation,
-   reading residues from the intermediate buffer and accumulating into C
+Scheme 2 fuses Garner reconstruction and Horner evaluation directly into
+the `dotprod` kernel (both XMX and scalar paths), eliminating the need for
+an intermediate residue buffer or a separate postprocess phase.
 
 Shared IEEE-754 field extraction is factored into `ozaki_common.cl`
 (`ieee_decompose`), included by both `ozaki1_int8.cl` and `ozaki2_int8.cl`.
 Scheme 2 additionally factors Garner reconstruction and Horner evaluation
 into file-local inline helpers (`oz2_garner_reconstruct`,
-`oz2_horner_accumulate`) shared between the `postprocess` and scalar
-`dotprod` kernels.
+`oz2_horner_accumulate`) shared between the XMX and scalar `dotprod` paths.
 
 When Intel XMX hardware is detected (`cl_intel_subgroup_matrix_multiply_accumulate`
 and `cl_intel_subgroup_2d_block_io`), the Scheme 1 dotprod kernel uses **DPAS**
@@ -114,21 +121,21 @@ All arguments are positional and optional (defaults shown):
 
 | Variable         | Default | Description                                    |
 |------------------|---------|------------------------------------------------|
-| `GEMM_OZFLAGS`   | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S² square. Ignored for Scheme 2. |
-| `GEMM_OZTRIM`    | 0       | Diagonal trim: drop T least significant diagonals (~7/8 bits each). Scheme 1 only. |
-| `GEMM_OZN`       | 8/17    | Scheme 1: number of slices per element. Scheme 2: number of CRT primes (default 17, max 18). |
-| `OZAKI_VERBOSE`  | 0       | Verbosity level (1 = info, 2+ = debug).        |
 | `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 2 = int8 CRT, 3 = bf16 Dekker slices. |
+| `OZAKI_FLAGS`    | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S² square. Ignored for Scheme 2. |
+| `OZAKI_TRIM`     | 0       | Scheme 1: diagonal trim (drop T least significant diagonals). Scheme 2: K-grouping exponent — KGROUP = 2^TRIM consecutive K sub-panels share one exponent and one Garner reconstruction (0 = no grouping, 1 = pairs, 2 = quads). |
+| `OZAKI_N`        | 8/17    | Scheme 1: number of slices per element. Scheme 2: number of CRT primes (default 17, max 18; automatically raised to 18 when KGROUP > 1). |
+| `OZAKI_VERBOSE`  | 0       | Verbosity level (1 = info, 2+ = debug).        |
 | `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on).|
 | `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint).            |
 | `OZAKI_SG`       | auto    | Sub-group size (forced to 16 when XMX active). |
+| `OZAKI_GRF256`   | 0       | 1 = request 256 GRF per thread (Intel XMX only). |
 | `OZAKI_CONSTANT` | 0       | 1 = use `constant` address space for read-only buffers. |
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
 detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For bf16
-(`OZAKI=3`): `BK=16`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=17`,
-XMX uses `BK=32` plus an intermediate residue buffer of
-`nkb×nblk_m×nblk_n×NPRIMES×BM×BN×4` bytes per double-buffer slot.
+(`OZAKI=3`): `BK=16`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=17`
+(18 when KGROUP > 1), XMX uses `BK=32` with fused in-register Garner/Horner.
 Common defaults: `SG=16`, `batch_k=4`.
 
 ## Example

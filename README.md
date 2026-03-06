@@ -115,7 +115,7 @@ cd samples/ozaki && make
 
 ### Ozaki — High-Precision GEMM via Mantissa Slicing
 
-[`samples/ozaki/`](samples/ozaki/) demonstrates Ozaki Scheme 1 for high-precision GEMM emulation, fully offloaded to OpenCL. Two kernel variants (int8 and bf16) with automatic detection of Intel XMX matrix engines. See [`samples/ozaki/README.md`](samples/ozaki/README.md) for details.
+[`samples/ozaki/`](samples/ozaki/) demonstrates Ozaki Scheme 1 for high-precision GEMM emulation, fully offloaded to OpenCL. Two kernel variants (int8 and bf16) with automatic detection of Intel XMX matrix engines. See [`samples/ozaki/README.md`](samples/ozaki/README.md) for details. The CPU-side GEMM wrapper that drives this GPU implementation is part of [LIBXS Ozaki](https://github.com/hfp/libxs/tree/main/samples/ozaki#ozaki-scheme-low-precision-gemm).
 
 ## References
 
