@@ -384,21 +384,52 @@ inline int oz2_garner_reconstruct(
  * oz2_horner_accumulate: Horner evaluation of mixed-radix digits,
  * scale by exponent, and accumulate into *cval.
  *
- * fp64: use double (product of 17 moduli ~ 2^112 exceeds int64).
+ * fp64: grouped uint64 Horner — partitions digits into groups of up to
+ *       OZ2_HORNER_GROUP (9) digits, evaluates each group exactly in
+ *       ulong (product of 9 largest moduli ~ 2^62.9 fits uint64),
+ *       then combines groups with a single double mul-add per group
+ *       boundary.  For 17 primes: 2 groups, 1 double mul-add.
  * fp32: use long   (product of 10 moduli ~ 2^59  fits in int64).
  */
+
+#if !defined(OZ2_HORNER_GROUP)
+# define OZ2_HORNER_GROUP 9
+#endif
+
 inline void oz2_horner_accumulate(
   const uint* restrict v, int is_negative,
   real_t alpha, int base_sh, real_t* cval)
 {
   SINT i;
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-  { double r = (double)v[NPRIMES - 1];
+  { /* Grouped Horner: exact uint64 within groups, double only between */
+    const int ngroups = (NPRIMES + OZ2_HORNER_GROUP - 1) / OZ2_HORNER_GROUP;
     double result;
-    for (i = NPRIMES - 2; i >= 0; --i) {
-      r = r * (double)oz2_moduli[i] + (double)v[i];
+    int g;
+
+    /* MSB group: digits [(ngroups-1)*OZ2_HORNER_GROUP .. NPRIMES-1] */
+    { const int lo = (ngroups - 1) * OZ2_HORNER_GROUP;
+      ulong r = (ulong)v[NPRIMES - 1];
+      for (i = NPRIMES - 2; i >= lo; --i) {
+        r = r * (ulong)oz2_moduli[i] + (ulong)v[i];
+      }
+      result = (double)r;
     }
-    result = (0 != is_negative) ? -(r + 1.0) : r;
+
+    /* Remaining groups, MSB to LSB */
+    for (g = ngroups - 2; g >= 0; --g) {
+      const int lo = g * OZ2_HORNER_GROUP;
+      const int hi = lo + OZ2_HORNER_GROUP - 1;
+      ulong gval, gprod = 1;
+      for (i = lo; i <= hi; ++i) gprod *= (ulong)oz2_moduli[i];
+      gval = (ulong)v[hi];
+      for (i = hi - 1; i >= lo; --i) {
+        gval = gval * (ulong)oz2_moduli[i] + (ulong)v[i];
+      }
+      result = result * (double)gprod + (double)gval;
+    }
+
+    result = (0 != is_negative) ? -(result + 1.0) : result;
     if (0.0 != result && (real_t)0 != alpha) {
       const real_t scale = alpha * pown((real_t)2.0, base_sh);
       *cval += (real_t)(result * (double)scale);
@@ -447,21 +478,20 @@ inline void oz2_horner_accumulate(
 #if defined(USE_XMX) && (0 < USE_XMX)
 
 /**
- * dotprod (XMX path): DPAS-based int8 dot products, store raw residues.
+ * dotprod (XMX path): DPAS-based int8 dot products with fused Garner
+ * reconstruction and Horner evaluation — writes directly to C.
  *
  * Each DPAS computes an XMX_M(8) x XMX_N(16) sub-tile for one modulus.
- * The signed dot product is reduced to an unsigned residue and written
- * to an intermediate global buffer.  The postprocess kernel reconstructs
- * the final result via Garner's algorithm.
+ * After all NPRIMES DPASes for a given k-sub-panel, the signed dot
+ * products are reduced modulo each prime in registers, reconstructed
+ * via Garner's algorithm, and accumulated into C via Horner evaluation.
+ * No intermediate global buffer is needed.
  *
  * Work-group: (SG=16, NTM * NTN, 1).
  * Each sub-group handles one sub-tile; WI sg_lid owns column sg_lid.
  *
  * A layout: ak[panel][mi][pidx][kk]  (row of BK contiguous).
  * B layout: bk[panel][pidx][kk][nj]  (K-major, padded to BN_PAD >= 64).
- *
- * Output:
- *   residues - uint: [nkb][nblk_m][nblk_n][NPRIMES][BM][BN]
  */
 __attribute__((reqd_work_group_size(SG, NTM * NTN, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
@@ -470,7 +500,7 @@ kernel void dotprod(
   CONSTANT const short* restrict expa,
   CONSTANT const char* restrict bk,
   CONSTANT const short* restrict expb,
-  global uint* restrict residues,
+  global real_t* restrict c,
   int M, int N, int ldc,
   real_t alpha, real_t beta,
   int first_batch, int nkb,
@@ -489,19 +519,28 @@ kernel void dotprod(
   int ki, m;
   SINT pidx;
 
+  /* C accumulators — one per row of this sub-group's 8x16 tile */
+  real_t c_acc[XMX_M];
+  UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+    const int row_m = ib_idx * BM + mi_base + m;
+    c_acc[m] = (row_m < M && col < N)
+      ? (first_batch ? beta * c[col * ldc + row_m] : c[col * ldc + row_m])
+      : (real_t)0;
+  }
+
   /* Loop over k-sub-panels */
   for (ki = 0; ki < nkb; ++ki) {
     const int a_panel = ki * nblk_m + ib_idx;
     const int b_panel = ki * nblk_n + jb_idx;
 
-    /* Loop over moduli: one DPAS per modulus */
+    /* Compute DPAS products for all primes, reduce to per-row residues */
+    uint row_res[XMX_M * 18]; /* [m * 18 + pidx] */
     UNROLL_OUTER(1) for (pidx = 0; pidx < NPRIMES; ++pidx) {
       ushort8 a_raw; uint8 b_raw;
       int8 dot;
       union { int8 v; int a[8]; } dot_u;
 
       /* Load A tile [8 x 32]: 8 rows x BK cols of int8 residues.
-       * A layout: ak[a_panel * BM * a_stride + mi * a_stride + pidx * BK + kk]
        * Surface: width=a_stride, height=BM. Offset=(pidx*BK, mi_base). */
       intel_sub_group_2d_block_read_8b_8r32x1c(
           (global void*)(ak + (long)a_panel * BM * a_stride),
@@ -509,8 +548,7 @@ kernel void dotprod(
           (int2)(pidx * BK, mi_base), (private ushort*)&a_raw);
 
       /* Load B tile [32 x 16] with VNNI transform.
-       * B layout: bk[b_panel][pidx][kk][nj], surface: width=BN_PAD, height=BK.
-       * Offset=(nj_base, 0). */
+       * Surface: width=BN_PAD, height=BK. Offset=(nj_base, 0). */
       intel_sub_group_2d_block_read_transform_8b_32r16x1c(
           (global void*)(bk + ((long)b_panel * NPRIMES + pidx) * BK * BN_PAD),
           BN_PAD, BK, BN_PAD,
@@ -520,107 +558,42 @@ kernel void dotprod(
       dot = intel_sub_group_i8_i8_matrix_mad_k32(
                 as_short8(a_raw), as_int8(b_raw), (int8)(0));
 
-      /* Reduce dots to unsigned residues and store to global buffer.
-       * residues[ki][ib_idx][jb_idx][pidx][mi][nj] */
+      /* Reduce each row's dot product to unsigned residue mod prime */
       dot_u.v = dot;
-      { const long res_base =
-            ((((long)ki * nblk_m + ib_idx) * nblk_n + jb_idx)
-             * NPRIMES + pidx) * BM;
-        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-          const int row_m = ib_idx * BM + mi_base + m;
-          uint r;
-          if (dot_u.a[m] >= 0) {
-            r = oz2_mod((uint)dot_u.a[m], pidx);
-          }
-          else {
-            const uint neg_r = oz2_mod((uint)(-dot_u.a[m]), pidx);
-            r = (0 != neg_r) ? (oz2_moduli[pidx] - neg_r) : 0;
-          }
-          if (row_m < M && col < N) {
-            residues[(res_base + mi_base + m) * BN + nj_base + sg_lid] = r;
-          }
+      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+        uint r;
+        if (dot_u.a[m] >= 0) {
+          r = oz2_mod((uint)dot_u.a[m], pidx);
         }
+        else {
+          const uint neg_r = oz2_mod((uint)(-dot_u.a[m]), pidx);
+          r = (0 != neg_r) ? (oz2_moduli[pidx] - neg_r) : 0;
+        }
+        row_res[m * 18 + pidx] = r;
       }
     }
-  }
-}
 
-
-/**
- * postprocess: CRT reconstruction (Garner) and accumulation into C.
- *
- * Fully decoupled from XMX tile sizes.
- * Grid: (ceil(M/PP_BM) * PP_BM, ceil(N/PP_BN) * PP_BN, 1).
- * Work-group size: (PP_BM, PP_BN, 1) — tunable independently.
- *
- * Each work-item handles one element C(row, col):
- *   For each k-panel, read NPRIMES residues, Garner reconstruct,
- *   Horner evaluate, scale by exponent, accumulate into C.
- */
-#if !defined(PP_BM)
-# define PP_BM 16
-#endif
-#if !defined(PP_BN)
-# define PP_BN 16
-#endif
-
-__attribute__((reqd_work_group_size(PP_BM, PP_BN, 1)))
-kernel void postprocess(
-  CONSTANT const uint* restrict residues,
-  CONSTANT const short* restrict expa,
-  CONSTANT const short* restrict expb,
-  global real_t* restrict c,
-  int M, int N, int ldc,
-  real_t alpha, real_t beta,
-  int first_batch, int nkb,
-  int nblk_m, int nblk_n)
-{
-  const int row = (int)get_global_id(0);
-  const int col = (int)get_global_id(1);
-  real_t cval;
-  int ki;
-  SINT pidx;
-
-  if (row >= M || col >= N) return;
-
-  /* Beta scaling at first batch */
-  cval = c[col * ldc + row];
-  if (first_batch) {
-    cval *= beta;
-  }
-
-  { const int ib_idx = row / BM;
-    const int mi     = row % BM;   /* == row - ib_idx * BM */
-    const int jb_idx = col / BN;
-    const int nj     = col % BN;
-
-    for (ki = 0; ki < nkb; ++ki) {
-      const int a_panel = ki * nblk_m + ib_idx;
-      const int b_panel = ki * nblk_n + jb_idx;
-      const short ea = expa[a_panel * BM + mi];
-      const short eb = expb[b_panel * BN + nj];
-      const int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
-
-      /* Read residues for this element from the intermediate buffer */
-      uint dot_residues[18];
-      { const long res_base =
-            ((((long)ki * nblk_m + ib_idx) * nblk_n + jb_idx)
-             * NPRIMES) * BM;
-        UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
-          dot_residues[pidx] =
-            residues[(res_base + pidx * BM + mi) * BN + nj];
-        }
-      }
-
-      /* Garner reconstruction + Horner accumulation */
-      { uint v[18];
-        const int is_negative = oz2_garner_reconstruct(dot_residues, v);
-        oz2_horner_accumulate(v, is_negative, alpha, base_sh, &cval);
+    /* Garner reconstruction + Horner accumulation for each row */
+    UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+      const int row_m = ib_idx * BM + mi_base + m;
+      if (row_m < M && col < N) {
+        const short ea = expa[a_panel * BM + mi_base + m];
+        const short eb = expb[b_panel * BN + nj_base + sg_lid];
+        const int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
+        uint v[18];
+        const int is_negative = oz2_garner_reconstruct(row_res + m * 18, v);
+        oz2_horner_accumulate(v, is_negative, alpha, base_sh, &c_acc[m]);
       }
     }
   }
 
-  c[col * ldc + row] = cval;
+  /* Write C */
+  UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+    const int row_m = ib_idx * BM + mi_base + m;
+    if (row_m < M && col < N) {
+      c[col * ldc + row_m] = c_acc[m];
+    }
+  }
 }
 
 
