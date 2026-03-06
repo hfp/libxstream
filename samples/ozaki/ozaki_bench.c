@@ -163,7 +163,7 @@ int main(int argc, char* argv[])
     libxstream_finalize();
     return EXIT_FAILURE;
   }
-  printf("Ozaki GEMM: %.3f ms\n", 1000.0 * libxs_timer_duration(t0, t1));
+  printf("Ozaki GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
 
   /* Reference BLAS GEMM */
   t0 = libxs_timer_tick();
@@ -175,7 +175,7 @@ int main(int argc, char* argv[])
     SGEMM(&transa, &transb, &M, &N, &K, &falpha, (const float*)a, &lda, (const float*)b, &ldb, &fbeta, (float*)c_ref, &ldc);
   }
   t1 = libxs_timer_tick();
-  printf("BLAS  GEMM: %.3f ms\n", 1000.0 * libxs_timer_duration(t0, t1));
+  printf("BLAS  GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
 
   /* Compare */
   { libxs_data_t dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
