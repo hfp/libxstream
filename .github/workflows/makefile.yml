@@ -16,13 +16,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install Requirements
+    - name: Install OpenCL
       run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1
 
-    - name: Setup Dependencies
+    - name: Setup LIBXS
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
         echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> $GITHUB_ENV
 
-    - name: Build
+    - name: Build LIBXSTREAM
       run: make -j $(nproc) ${{ matrix.flags }}
