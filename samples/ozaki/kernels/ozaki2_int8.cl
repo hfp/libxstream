@@ -11,10 +11,16 @@
 
 /* Ozaki Scheme 2: CRT-based int8 GEMM via OpenCL.
  *
- * Three kernels:
+ * Kernels (scalar path):
  *   preprocess_a  - reduce mantissas of A mod coprime moduli -> int8 residues
  *   preprocess_b  - reduce mantissas of B mod coprime moduli -> int8 residues
  *   dotprod       - int8 dot products per modulus, CRT (Garner) reconstruction
+ *
+ * Kernels (XMX path, USE_XMX=1):
+ *   preprocess_a  - same as scalar
+ *   preprocess_b  - same (K-major B layout for VNNI/2D block I/O)
+ *   dotprod       - DPAS int8x8 matmul per modulus, store residues to global
+ *   postprocess   - Garner reconstruction + Horner evaluation, accumulate C
  *
  * Unlike Scheme 1 (mantissa-slicing with S*(S+1)/2 slice-pair iterations),
  * Scheme 2 performs one int8 dot product per modulus channel and reconstructs
@@ -59,6 +65,28 @@
 #endif
 #if !defined(CONSTANT)
 # define CONSTANT global
+#endif
+
+#if defined(USE_XMX) && (0 < USE_XMX)
+# define XMX_M 8
+# define XMX_N 16
+# define NTM (BM / XMX_M)
+# define NTN (BN / XMX_N)
+# define BN_PAD ((BN) < 64 ? 64 : (BN))
+# if (32 != BK)
+#   error "USE_XMX requires BK == 32"
+# endif
+# if (0 != (BM % XMX_M) || 0 != (BN % XMX_N))
+#   error "USE_XMX requires BM divisible by XMX_M (8) and BN by XMX_N (16)"
+# endif
+/* B layout for XMX: bk[panel][pidx][kk][nj] (K-major for VNNI load).
+ * Rows are padded to BN_PAD >= 64 for 2D block I/O surface constraints. */
+# define BK_IDX(panel, nj, pidx, kk) \
+    ((((long)(panel) * NPRIMES + (pidx)) * BK + (kk)) * BN_PAD + (nj))
+#else
+/* Default B layout: bk[panel][nj][pidx][kk] (N-major for scalar access). */
+# define BK_IDX(panel, nj, pidx, kk) \
+    ((((long)(panel) * BN + (nj)) * NPRIMES + (pidx)) * BK + (kk))
 #endif
 
 /* Small integer type for loop counters (states value range) */
@@ -212,7 +240,11 @@ kernel void preprocess_b(
   CONSTANT const real_t* restrict b,
   int N, int K, int ldb, int transb,
   int kb_offset,
+#if defined(USE_XMX) && (0 < USE_XMX)
+  global char* restrict bk,     /* int8: [panels][NPRIMES][BK][BN_PAD] */
+#else
   global char* restrict bk,     /* int8: [panels][BN][NPRIMES][BK] */
+#endif
   global short* restrict expb,  /* int16: [panels][BN] */
   int nblk_n)
 {
@@ -267,12 +299,12 @@ kernel void preprocess_b(
       char residue = (char)oz2_mod((uint)aligned, pidx);
 #endif
       if (elem_sign) residue = -residue;
-      bk[(((long)panel * BN + nj) * NPRIMES + pidx) * BK + kk] = residue;
+      bk[BK_IDX(panel, nj, pidx, kk)] = residue;
     }
   }
   else {
     UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
-      bk[(((long)panel * BN + nj) * NPRIMES + pidx) * BK + kk] = 0;
+      bk[BK_IDX(panel, nj, pidx, kk)] = 0;
     }
   }
 }
@@ -326,6 +358,243 @@ constant uint garner_inv[18][18] = {
  * In/Out:
  *   c         - output matrix C (column-major, ldc stride)
  */
+
+#if defined(USE_XMX) && (0 < USE_XMX)
+
+/**
+ * dotprod (XMX path): DPAS-based int8 dot products, store raw residues.
+ *
+ * Each DPAS computes an XMX_M(8) x XMX_N(16) sub-tile for one modulus.
+ * The signed dot product is reduced to an unsigned residue and written
+ * to an intermediate global buffer.  The postprocess kernel reconstructs
+ * the final result via Garner's algorithm.
+ *
+ * Work-group: (SG=16, NTM * NTN, 1).
+ * Each sub-group handles one sub-tile; WI sg_lid owns column sg_lid.
+ *
+ * A layout: ak[panel][mi][pidx][kk]  (row of BK contiguous).
+ * B layout: bk[panel][pidx][kk][nj]  (K-major, padded to BN_PAD >= 64).
+ *
+ * Output:
+ *   residues - uint: [nkb][nblk_m][nblk_n][NPRIMES][BM][BN]
+ */
+__attribute__((reqd_work_group_size(SG, NTM * NTN, 1)))
+__attribute__((intel_reqd_sub_group_size(SG)))
+kernel void dotprod(
+  CONSTANT const char* restrict ak,
+  CONSTANT const short* restrict expa,
+  CONSTANT const char* restrict bk,
+  CONSTANT const short* restrict expb,
+  global uint* restrict residues,
+  int M, int N, int ldc,
+  real_t alpha, real_t beta,
+  int first_batch, int nkb,
+  int nblk_m, int nblk_n)
+{
+  const int ib_idx  = (int)get_group_id(0);
+  const int jb_idx  = (int)get_group_id(1);
+  const int sg_lid  = (int)get_sub_group_local_id();
+  const int sg_id   = (int)get_sub_group_id();
+  const int tile_m  = sg_id / NTN;
+  const int tile_n  = sg_id % NTN;
+  const int mi_base = tile_m * XMX_M;
+  const int nj_base = tile_n * XMX_N;
+  const int col     = jb_idx * BN + nj_base + sg_lid;
+  const int a_stride = NPRIMES * BK;
+  int ki, m;
+  SINT pidx;
+
+  /* Loop over k-sub-panels */
+  for (ki = 0; ki < nkb; ++ki) {
+    const int a_panel = ki * nblk_m + ib_idx;
+    const int b_panel = ki * nblk_n + jb_idx;
+
+    /* Loop over moduli: one DPAS per modulus */
+    UNROLL_OUTER(1) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+      ushort8 a_raw; uint8 b_raw;
+      int8 dot;
+      union { int8 v; int a[8]; } dot_u;
+
+      /* Load A tile [8 x 32]: 8 rows x BK cols of int8 residues.
+       * A layout: ak[a_panel * BM * a_stride + mi * a_stride + pidx * BK + kk]
+       * Surface: width=a_stride, height=BM. Offset=(pidx*BK, mi_base). */
+      intel_sub_group_2d_block_read_8b_8r32x1c(
+          (global void*)(ak + (long)a_panel * BM * a_stride),
+          a_stride, BM, a_stride,
+          (int2)(pidx * BK, mi_base), (private ushort*)&a_raw);
+
+      /* Load B tile [32 x 16] with VNNI transform.
+       * B layout: bk[b_panel][pidx][kk][nj], surface: width=BN_PAD, height=BK.
+       * Offset=(nj_base, 0). */
+      intel_sub_group_2d_block_read_transform_8b_32r16x1c(
+          (global void*)(bk + ((long)b_panel * NPRIMES + pidx) * BK * BN_PAD),
+          BN_PAD, BK, BN_PAD,
+          (int2)(nj_base, 0), (private uint*)&b_raw);
+
+      /* DPAS: C[8x16] += A[8x32] * B[32x16] */
+      dot = intel_sub_group_i8_i8_matrix_mad_k32(
+                as_short8(a_raw), as_int8(b_raw), (int8)(0));
+
+      /* Reduce dots to unsigned residues and store to global buffer.
+       * residues[ki][ib_idx][jb_idx][pidx][mi][nj] */
+      dot_u.v = dot;
+      { const long res_base =
+            ((((long)ki * nblk_m + ib_idx) * nblk_n + jb_idx)
+             * NPRIMES + pidx) * BM;
+        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+          const int row_m = ib_idx * BM + mi_base + m;
+          uint r;
+          if (dot_u.a[m] >= 0) {
+            r = oz2_mod((uint)dot_u.a[m], pidx);
+          }
+          else {
+            const uint neg_r = oz2_mod((uint)(-dot_u.a[m]), pidx);
+            r = (0 != neg_r) ? (oz2_moduli[pidx] - neg_r) : 0;
+          }
+          if (row_m < M && col < N) {
+            residues[(res_base + mi_base + m) * BN + nj_base + sg_lid] = r;
+          }
+        }
+      }
+    }
+  }
+}
+
+
+/**
+ * postprocess: CRT reconstruction (Garner) and accumulation into C.
+ *
+ * Fully decoupled from XMX tile sizes.
+ * Grid: (ceil(M/PP_BM) * PP_BM, ceil(N/PP_BN) * PP_BN, 1).
+ * Work-group size: (PP_BM, PP_BN, 1) — tunable independently.
+ *
+ * Each work-item handles one element C(row, col):
+ *   For each k-panel, read NPRIMES residues, Garner reconstruct,
+ *   Horner evaluate, scale by exponent, accumulate into C.
+ */
+#if !defined(PP_BM)
+# define PP_BM 16
+#endif
+#if !defined(PP_BN)
+# define PP_BN 16
+#endif
+
+__attribute__((reqd_work_group_size(PP_BM, PP_BN, 1)))
+kernel void postprocess(
+  CONSTANT const uint* restrict residues,
+  CONSTANT const short* restrict expa,
+  CONSTANT const short* restrict expb,
+  global real_t* restrict c,
+  int M, int N, int ldc,
+  real_t alpha, real_t beta,
+  int first_batch, int nkb,
+  int nblk_m, int nblk_n)
+{
+  const int row = (int)get_global_id(0);
+  const int col = (int)get_global_id(1);
+  real_t cval;
+  int ki;
+  SINT pidx;
+
+  if (row >= M || col >= N) return;
+
+  /* Beta scaling at first batch */
+  cval = c[col * ldc + row];
+  if (first_batch) {
+    cval *= beta;
+  }
+
+  { const int ib_idx = row / BM;
+    const int mi     = row % BM;   /* == row - ib_idx * BM */
+    const int jb_idx = col / BN;
+    const int nj     = col % BN;
+
+    for (ki = 0; ki < nkb; ++ki) {
+      const int a_panel = ki * nblk_m + ib_idx;
+      const int b_panel = ki * nblk_n + jb_idx;
+      const short ea = expa[a_panel * BM + mi];
+      const short eb = expb[b_panel * BN + nj];
+      const int base_sh = (int)ea + (int)eb - (2 * BIAS_PLUS_MANT);
+
+      /* Read residues for this element from the intermediate buffer */
+      uint dot_residues[18];
+      { const long res_base =
+            ((((long)ki * nblk_m + ib_idx) * nblk_n + jb_idx)
+             * NPRIMES) * BM;
+        UNROLL_FORCE(NPRIMES) for (pidx = 0; pidx < NPRIMES; ++pidx) {
+          dot_residues[pidx] =
+            residues[(res_base + pidx * BM + mi) * BN + nj];
+        }
+      }
+
+      /* Garner's algorithm (CRT reconstruction) */
+      { uint v[18];
+        SINT i, j;
+        int is_negative;
+
+        UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
+          uint u = dot_residues[i];
+          const uint pi = oz2_moduli[i];
+          for (j = 0; j < i; ++j) {
+            uint vj = v[j];
+            if (vj >= pi) vj -= pi;
+            if (vj >= pi) vj -= pi;
+            { const uint diff = (u >= vj) ? (u - vj) : (pi + u - vj);
+              u = oz2_mod(diff * garner_inv[j][i], i);
+            }
+          }
+          v[i] = u;
+        }
+
+        /* Sign detection from MSB digit (centered representation) */
+        is_negative = (v[NPRIMES - 1]
+          >= (uint)(oz2_moduli[NPRIMES - 1] + 1) / 2) ? 1 : 0;
+
+        if (0 != is_negative) {
+          UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
+            v[i] = oz2_moduli[i] - 1 - v[i];
+          }
+        }
+
+        /* Horner's method to evaluate mixed-radix number.
+         * Evaluate MSB to LSB: result = v[N-1]*m[N-2]*...*m[0] + ... + v[0].
+         * fp64: use double (product of 17 moduli ~ 2^112 exceeds int64).
+         * fp32: use long   (product of 10 moduli ~ 2^59  fits in int64). */
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+        { double r = (double)v[NPRIMES - 1];
+          double result;
+          for (i = NPRIMES - 2; i >= 0; --i) {
+            r = r * (double)oz2_moduli[i] + (double)v[i];
+          }
+          result = (0 != is_negative) ? -(r + 1.0) : r;
+          if (0.0 != result && (real_t)0 != alpha) {
+            const real_t scale = alpha * pown((real_t)2.0, base_sh);
+            cval += (real_t)(result * (double)scale);
+          }
+        }
+#else
+        { long r = (long)v[NPRIMES - 1];
+          for (i = NPRIMES - 2; i >= 0; --i) {
+            r = r * (long)oz2_moduli[i] + (long)v[i];
+          }
+          { const long result = (0 != is_negative) ? -(r + 1) : r;
+            if (0 != result && (real_t)0 != alpha) {
+              const real_t scale = alpha * pown((real_t)2.0f, base_sh);
+              cval += (real_t)result * scale;
+            }
+          }
+        }
+#endif
+      }
+    }
+  }
+
+  c[col * ldc + row] = cval;
+}
+
+
+#else /* !USE_XMX: scalar dotprod (fused dot products + Garner + Horner) */
+
 __attribute__((reqd_work_group_size(BM, BN, 1)))
 #if defined(SG) && (0 < SG)
 __attribute__((intel_reqd_sub_group_size(SG)))
@@ -454,3 +723,5 @@ kernel void dotprod(
 
   c[col * ldc + row] = cval;
 }
+
+#endif /* USE_XMX */

@@ -28,6 +28,7 @@ typedef struct ozaki_context_t {
   cl_kernel kern_preprocess_a;
   cl_kernel kern_preprocess_b;
   cl_kernel kern_dotprod;
+  cl_kernel kern_postprocess; /* CRT + XMX: Garner reconstruction */
   int bm, bn, bk;  /* block dimensions (JIT-compiled into kernels) */
   int batch_k;     /* K sub-panels per kernel launch */
   int use_double;  /* 1: fp64, 0: fp32 */

@@ -118,9 +118,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   /* Validate XMX constraints against final block sizes.
-   * DPAS SG=16: XMX_N=16, so BN must be divisible by 16.
-   * CRT (kind=2) does not support XMX. */
-  if (2 == kind) use_xmx = 0;
+   * DPAS SG=16: XMX_N=16, so BN must be divisible by 16. */
   if (use_xmx && ((use_bf16 ? 16 : 32) != bk || 0 != (bm % 8) || 0 != (bn % 16))) {
     if (0 < verbosity) {
       fprintf(stderr, "INFO OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
@@ -208,7 +206,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     }
     if (use_xmx) {
       offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-        " -DUSE_XMX=1");
+        " -DUSE_XMX=1 -DPP_BM=%d -DPP_BN=%d", bm, bn);
     }
   }
   ctx->sg = sg;
@@ -250,6 +248,18 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   if (EXIT_SUCCESS != result) {
     fprintf(stderr, "ERROR: failed to build dotprod kernel\n");
     return EXIT_FAILURE;
+  }
+
+  /* Build postprocess kernel for CRT + XMX path */
+  ctx->kern_postprocess = NULL;
+  if (2 == kind && use_xmx) {
+    result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
+      "postprocess", build_params, build_options,
+      NULL, NULL, NULL, 0, &ctx->kern_postprocess);
+    if (EXIT_SUCCESS != result) {
+      fprintf(stderr, "ERROR: failed to build postprocess kernel\n");
+      return EXIT_FAILURE;
+    }
   }
 
   /* Report compiled kernel info */
@@ -307,6 +317,7 @@ void ozaki_destroy(ozaki_context_t* ctx)
   if (NULL != ctx->kern_preprocess_a) clReleaseKernel(ctx->kern_preprocess_a);
   if (NULL != ctx->kern_preprocess_b) clReleaseKernel(ctx->kern_preprocess_b);
   if (NULL != ctx->kern_dotprod)      clReleaseKernel(ctx->kern_dotprod);
+  if (NULL != ctx->kern_postprocess)  clReleaseKernel(ctx->kern_postprocess);
 #if defined(OZAKI_DEVPOOL)
   if (NULL != ctx->devpool) libxs_free_pool((libxs_malloc_pool_t*)ctx->devpool);
 #endif
@@ -343,6 +354,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   /* Double-buffered preprocessing buffers (2 slots) */
   void *d_ak[2] = {NULL, NULL}, *d_expa[2] = {NULL, NULL};
   void *d_bk[2] = {NULL, NULL}, *d_expb[2] = {NULL, NULL};
+  /* Intermediate residue buffer for CRT + XMX (double-buffered) */
+  void *d_residues[2] = {NULL, NULL};
   /* Helper streams: preprocess_a on stream_a, preprocess_b on stream_b */
   libxstream_stream_t *stream_a = NULL, *stream_b = NULL;
   /* Synchronization events */
@@ -395,6 +408,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         const size_t expb_size = (size_t)max_nkb * nblk_n * BN * sizeof(cl_short);
         if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa[s], expa_size);
         if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb[s], expb_size);
+      }
+      /* CRT + XMX: allocate intermediate residue buffer */
+      if (2 == ctx->kind && ctx->use_xmx) {
+        const size_t res_size = (size_t)max_nkb * nblk_m * nblk_n
+                              * nslices * BM * BN * sizeof(cl_uint);
+        if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_residues[s], res_size);
       }
     }
     if (EXIT_SUCCESS != result) goto cleanup;
@@ -476,6 +495,76 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS != result) goto cleanup;
 
     /* Launch dotprod on main stream */
+    if (2 == ctx->kind && ctx->use_xmx) {
+      /* CRT + XMX: two-phase pipeline (dotprod -> postprocess) */
+      /* Phase 1: XMX dot products, store residues to global memory */
+      { cl_int i = 0;
+        size_t global_c[2], local_c[2];
+        const int ntm = BM / 8, ntn = BN / 16;
+        local_c[0] = (size_t)ctx->sg;
+        local_c[1] = (size_t)(ntm * ntn);
+        global_c[0] = (size_t)nblk_m * local_c[0];
+        global_c[1] = (size_t)nblk_n * local_c[1];
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_residues[cur]));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
+        if (ctx->use_double) {
+          double dalpha = alpha, dbeta = beta;
+          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
+          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
+        }
+        else {
+          float falpha = (float)alpha, fbeta = (float)beta;
+          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
+          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
+        }
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
+        CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
+                   NULL, global_c, local_c, 0, NULL, NULL));
+      }
+
+      /* Phase 2: postprocess — Garner reconstruction, accumulate C.
+       * Grid is decoupled from XMX tile sizes: ceil(M/PP_BM)*PP_BM x ceil(N/PP_BN)*PP_BN. */
+      { cl_int i = 0;
+        size_t global_pp[2], local_pp[2];
+        local_pp[0] = BM;  local_pp[1] = BN;  /* PP_BM/PP_BN == BM/BN (passed via -D) */
+        global_pp[0] = (size_t)nblk_m * BM;
+        global_pp[1] = (size_t)nblk_n * BN;
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_postprocess, i++, d_residues[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_postprocess, i++, d_expa[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_postprocess, i++, d_expb[cur]));
+        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_postprocess, i++, d_c));
+        CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(int), &M));
+        CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(int), &N));
+        CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(int), &ldc));
+        if (ctx->use_double) {
+          double dalpha = alpha, dbeta = beta;
+          CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(double), &dalpha));
+          CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(double), &dbeta));
+        }
+        else {
+          float falpha = (float)alpha, fbeta = (float)beta;
+          CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(float), &falpha));
+          CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(float), &fbeta));
+        }
+        CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(int), &first_batch));
+        CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(int), &nkb));
+        CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(int), &nblk_m));
+        CL_CHECK(clSetKernelArg(ctx->kern_postprocess, i++, sizeof(int), &nblk_n));
+        CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_postprocess, 2,
+                   NULL, global_pp, local_pp, 0, NULL, NULL));
+      }
+    }
+    else {
+    /* Scheme 1 or scalar CRT path */
     { cl_int i = 0;
       size_t global_c[2], local_c[2];
       if (ctx->use_xmx) {
@@ -519,6 +608,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
                  NULL, global_c, local_c, 0, NULL, NULL));
     }
+    } /* end else (non-CRT-XMX path) */
 
     /* Record dotprod completion for this buffer slot */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_dotprod[cur], stream);
@@ -535,6 +625,7 @@ cleanup:
     for (s = 0; s < 2; ++s) {
       OZAKI_DEV_FREE(d_ak[s]);   OZAKI_DEV_FREE(d_expa[s]);
       OZAKI_DEV_FREE(d_bk[s]);   OZAKI_DEV_FREE(d_expb[s]);
+      OZAKI_DEV_FREE(d_residues[s]);
     }
   }
   /* Destroy synchronization events */
