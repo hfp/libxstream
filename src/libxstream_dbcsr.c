@@ -184,7 +184,8 @@ int c_dbcsr_acc_dev_mem_set_ptr(void** dev_mem, void* other, size_t lb) {
 int c_dbcsr_acc_host_mem_allocate(void** host_mem, size_t nbytes, void* stream) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_memhst_allocate(host_mem, nbytes, (libxstream_stream_t*)stream);
+  *host_mem = libxstream_memhst_allocate(nbytes, (libxstream_stream_t*)stream);
+  result = (NULL != *host_mem || 0 == nbytes) ? EXIT_SUCCESS : EXIT_FAILURE;
   LIBXSTREAM_PROFILE_END;
   return result;
 }

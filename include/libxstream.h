@@ -51,7 +51,7 @@ void* libxstream_memdev_allocate(size_t nbytes);
 void libxstream_memdev_deallocate(void* dev_mem);
 int libxstream_memdev_set_ptr(void** dev_mem, void* other, size_t lb);
 int libxstream_memdev_info(size_t* mem_free, size_t* mem_total);
-int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream_t* stream);
+void* libxstream_memhst_allocate(size_t nbytes, libxstream_stream_t* stream);
 int libxstream_memhst_deallocate(void* host_mem, libxstream_stream_t* stream);
 int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream);
 int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, libxstream_stream_t* stream);

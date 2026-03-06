@@ -127,11 +127,11 @@ int main(int argc, char* argv[])
   /* Allocate and fill matrices (column-major) */
   { const int a_rows = (0 == ta ? M : K), a_cols = (0 == ta ? K : M);
     const int b_rows = (0 == tb ? K : N), b_cols = (0 == tb ? N : K);
-    result = libxstream_memhst_allocate(&a, (size_t)lda * a_cols * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = libxstream_memhst_allocate(&b, (size_t)ldb * b_cols * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = libxstream_memhst_allocate(&c_oz, (size_t)ldc * N * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = libxstream_memhst_allocate(&c_ref, (size_t)ldc * N * elem_size, stream);
-    if (EXIT_SUCCESS != result) {
+    a = libxstream_memhst_allocate((size_t)lda * a_cols * elem_size, stream);
+    if (NULL != a) b = libxstream_memhst_allocate((size_t)ldb * b_cols * elem_size, stream);
+    if (NULL != b) c_oz = libxstream_memhst_allocate((size_t)ldc * N * elem_size, stream);
+    if (NULL != c_oz) c_ref = libxstream_memhst_allocate((size_t)ldc * N * elem_size, stream);
+    if (NULL == a || NULL == b || NULL == c_oz || NULL == c_ref) {
       fprintf(stderr, "ERROR: out of memory\n");
       libxstream_stream_destroy(stream);
       ozaki_destroy(&ctx);

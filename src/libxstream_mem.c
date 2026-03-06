@@ -204,9 +204,8 @@ int libxstream_memhst_deallocate_internal(void* host_ptr, cl_command_queue queue
 }
 
 
-int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream_t* stream) {
-  int result = EXIT_SUCCESS;
-  assert(NULL != host_mem);
+void* libxstream_memhst_allocate(size_t nbytes, libxstream_stream_t* stream) {
+  void* result_ptr = NULL;
   if (0 != nbytes) {
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     const libxstream_opencl_stream_t* const str = (NULL != stream ? stream
@@ -214,6 +213,7 @@ int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream
     int alignment = LIBXS_MAX(0x10000, sizeof(void*));
     void* host_ptr = NULL;
     cl_mem memory = NULL;
+    int result = EXIT_SUCCESS;
     assert(NULL != str);
     if ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXS_CACHELINE) <= nbytes) {
       const int a = ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_MAXALIGN) <= nbytes ? LIBXSTREAM_MAXALIGN : LIBXS_CACHELINE);
@@ -235,8 +235,7 @@ int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream
 #    else
       host_ptr = LIBXSTREAM_MEM_ALLOC(nbytes, alignment);
 #    endif
-      assert(NULL != host_ptr || EXIT_SUCCESS != result);
-      /*if (NULL != host_ptr)*/ *host_mem = host_ptr;
+      result_ptr = host_ptr;
     }
     else
 #  endif
@@ -254,16 +253,14 @@ int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream
             result = clEnqueueSVMMap(
               str->queue, CL_TRUE /*always block*/, CL_MAP_READ | CL_MAP_WRITE, host_ptr, nbytes, 0, NULL, NULL);
           }
-          *host_mem = host_ptr;
+          if (EXIT_SUCCESS == result) result_ptr = host_ptr;
         }
-        else result = EXIT_FAILURE;
       }
       else
 #    endif
       {
         host_ptr = LIBXSTREAM_MEM_ALLOC(nbytes, alignment);
-        if (NULL != host_ptr) *host_mem = host_ptr;
-        else result = EXIT_FAILURE;
+        result_ptr = host_ptr;
       }
 #  endif
     }
@@ -296,22 +293,19 @@ int libxstream_memhst_allocate(void** host_mem, size_t nbytes, libxstream_stream
           assert(address + size_meminfo <= aligned && NULL != meminfo);
           meminfo->memory = memory;
           meminfo->memptr = mapped;
-          *host_mem = (void*)aligned;
-          assert(meminfo == libxstream_opencl_info_hostptr(*host_mem));
+          result_ptr = (void*)aligned;
+          assert(meminfo == libxstream_opencl_info_hostptr(result_ptr));
         }
       }
     }
-    if (EXIT_SUCCESS != result) {
+    if (NULL == result_ptr) {
       if (NULL != memory) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
       if (NULL != host_ptr) {
         LIBXS_EXPECT(EXIT_SUCCESS == libxstream_memhst_deallocate_internal(host_ptr, str->queue));
       }
-      *host_mem = NULL;
     }
   }
-  else *host_mem = NULL; /* consider warning */
-  assert(EXIT_SUCCESS == result || NULL == *host_mem);
-  LIBXSTREAM_RETURN(result);
+  return result_ptr;
 }
 
 
