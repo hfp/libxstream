@@ -36,9 +36,14 @@ The GEMM `C = alpha * A * B + beta * C` is then computed as a sum of
   mixed-radix representation.  The product of 17 moduli exceeds 2^111,
   providing sufficient range for fp64.
 
-  XMX / DPAS is currently not used for this scheme (scalar path only).
-  The triangular and symmetrize optimisations do not apply (each modulus
-  channel is independent).
+  XMX / DPAS acceleration is supported via a two-phase pipeline: the
+  `dotprod` kernel computes DPAS int8 matmuls per modulus channel and
+  stores unsigned residues to a global intermediate buffer; then a
+  separate `postprocess` kernel runs Garner reconstruction and Horner
+  evaluation with an independently-sized grid over M×N, fully decoupled
+  from DPAS tile dimensions.  A scalar fallback fuses both phases into a
+  single `dotprod` kernel.  The triangular and symmetrize optimisations
+  do not apply (each modulus channel is independent).
 
 ### Pipeline
 
@@ -47,6 +52,17 @@ Both schemes share the same three-kernel pipeline:
    or modular residues (Scheme 2)
 2. **preprocess_b** — decompose columns of B into int8/bf16 slices or residues
 3. **dotprod** — iterate slice pairs or modulus channels, accumulate into C
+
+Scheme 2 with XMX adds a fourth phase:
+4. **postprocess** — CRT (Garner) reconstruction and Horner evaluation,
+   reading residues from the intermediate buffer and accumulating into C
+
+Shared IEEE-754 field extraction is factored into `ozaki_common.cl`
+(`ieee_decompose`), included by both `ozaki1_int8.cl` and `ozaki2_int8.cl`.
+Scheme 2 additionally factors Garner reconstruction and Horner evaluation
+into file-local inline helpers (`oz2_garner_reconstruct`,
+`oz2_horner_accumulate`) shared between the `postprocess` and scalar
+`dotprod` kernels.
 
 When Intel XMX hardware is detected (`cl_intel_subgroup_matrix_multiply_accumulate`
 and `cl_intel_subgroup_2d_block_io`), the Scheme 1 dotprod kernel uses **DPAS**
@@ -110,8 +126,10 @@ All arguments are positional and optional (defaults shown):
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
 detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For bf16
-(`OZAKI=3`): `BK=16`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): XMX is not used,
-`nprimes=17`.  Common defaults: `SG=16`, `batch_k=4`.
+(`OZAKI=3`): `BK=16`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=17`,
+XMX uses `BK=32` plus an intermediate residue buffer of
+`nkb×nblk_m×nblk_n×NPRIMES×BM×BN×4` bytes per double-buffer slot.
+Common defaults: `SG=16`, `batch_k=4`.
 
 ## Example
 
@@ -127,5 +145,4 @@ GEMM: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
 
 ## Limitations
 
-- Scheme 2 (CRT) uses a scalar dotprod (no XMX/DPAS acceleration).
 - Complex GEMM (3M method) is not yet supported.

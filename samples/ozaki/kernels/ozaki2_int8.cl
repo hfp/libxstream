@@ -336,6 +336,91 @@ constant uint garner_inv[18][18] = {
 
 
 /**
+ * oz2_garner_reconstruct: Garner's algorithm for CRT reconstruction.
+ *
+ * Converts NPRIMES unsigned residues into mixed-radix digits,
+ * detects sign via the MSB digit (centered representation),
+ * and returns the signed flag.
+ *
+ * On output v[] holds complemented mixed-radix digits when negative.
+ */
+inline int oz2_garner_reconstruct(
+  const uint* restrict dot_residues,
+  uint* restrict v)
+{
+  SINT i, j;
+  int is_negative;
+
+  UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
+    uint u = dot_residues[i];
+    const uint pi = oz2_moduli[i];
+    for (j = 0; j < i; ++j) {
+      /* Bounded subtract: v[j] < m_j <= 128, two subtracts suffice */
+      uint vj = v[j];
+      if (vj >= pi) vj -= pi;
+      if (vj >= pi) vj -= pi;
+      { const uint diff = (u >= vj) ? (u - vj) : (pi + u - vj);
+        u = oz2_mod(diff * garner_inv[j][i], i);
+      }
+    }
+    v[i] = u;
+  }
+
+  /* Sign detection from MSB digit (centered representation) */
+  is_negative = (v[NPRIMES - 1]
+    >= (uint)(oz2_moduli[NPRIMES - 1] + 1) / 2) ? 1 : 0;
+
+  /* Complement digits for negative values */
+  if (0 != is_negative) {
+    UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
+      v[i] = oz2_moduli[i] - 1 - v[i];
+    }
+  }
+  return is_negative;
+}
+
+
+/**
+ * oz2_horner_accumulate: Horner evaluation of mixed-radix digits,
+ * scale by exponent, and accumulate into *cval.
+ *
+ * fp64: use double (product of 17 moduli ~ 2^112 exceeds int64).
+ * fp32: use long   (product of 10 moduli ~ 2^59  fits in int64).
+ */
+inline void oz2_horner_accumulate(
+  const uint* restrict v, int is_negative,
+  real_t alpha, int base_sh, real_t* cval)
+{
+  SINT i;
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+  { double r = (double)v[NPRIMES - 1];
+    double result;
+    for (i = NPRIMES - 2; i >= 0; --i) {
+      r = r * (double)oz2_moduli[i] + (double)v[i];
+    }
+    result = (0 != is_negative) ? -(r + 1.0) : r;
+    if (0.0 != result && (real_t)0 != alpha) {
+      const real_t scale = alpha * pown((real_t)2.0, base_sh);
+      *cval += (real_t)(result * (double)scale);
+    }
+  }
+#else
+  { long r = (long)v[NPRIMES - 1];
+    for (i = NPRIMES - 2; i >= 0; --i) {
+      r = r * (long)oz2_moduli[i] + (long)v[i];
+    }
+    { const long result = (0 != is_negative) ? -(r + 1) : r;
+      if (0 != result && (real_t)0 != alpha) {
+        const real_t scale = alpha * pown((real_t)2.0f, base_sh);
+        *cval += (real_t)result * scale;
+      }
+    }
+  }
+#endif
+}
+
+
+/**
  * dotprod: CRT-based int8 dot products, Garner reconstruction, accumulate into C.
  *
  * One work-group per (row-block, col-block) tile of C.
@@ -527,64 +612,10 @@ kernel void postprocess(
         }
       }
 
-      /* Garner's algorithm (CRT reconstruction) */
+      /* Garner reconstruction + Horner accumulation */
       { uint v[18];
-        SINT i, j;
-        int is_negative;
-
-        UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
-          uint u = dot_residues[i];
-          const uint pi = oz2_moduli[i];
-          for (j = 0; j < i; ++j) {
-            uint vj = v[j];
-            if (vj >= pi) vj -= pi;
-            if (vj >= pi) vj -= pi;
-            { const uint diff = (u >= vj) ? (u - vj) : (pi + u - vj);
-              u = oz2_mod(diff * garner_inv[j][i], i);
-            }
-          }
-          v[i] = u;
-        }
-
-        /* Sign detection from MSB digit (centered representation) */
-        is_negative = (v[NPRIMES - 1]
-          >= (uint)(oz2_moduli[NPRIMES - 1] + 1) / 2) ? 1 : 0;
-
-        if (0 != is_negative) {
-          UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
-            v[i] = oz2_moduli[i] - 1 - v[i];
-          }
-        }
-
-        /* Horner's method to evaluate mixed-radix number.
-         * Evaluate MSB to LSB: result = v[N-1]*m[N-2]*...*m[0] + ... + v[0].
-         * fp64: use double (product of 17 moduli ~ 2^112 exceeds int64).
-         * fp32: use long   (product of 10 moduli ~ 2^59  fits in int64). */
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-        { double r = (double)v[NPRIMES - 1];
-          double result;
-          for (i = NPRIMES - 2; i >= 0; --i) {
-            r = r * (double)oz2_moduli[i] + (double)v[i];
-          }
-          result = (0 != is_negative) ? -(r + 1.0) : r;
-          if (0.0 != result && (real_t)0 != alpha) {
-            const real_t scale = alpha * pown((real_t)2.0, base_sh);
-            cval += (real_t)(result * (double)scale);
-          }
-        }
-#else
-        { long r = (long)v[NPRIMES - 1];
-          for (i = NPRIMES - 2; i >= 0; --i) {
-            r = r * (long)oz2_moduli[i] + (long)v[i];
-          }
-          { const long result = (0 != is_negative) ? -(r + 1) : r;
-            if (0 != result && (real_t)0 != alpha) {
-              const real_t scale = alpha * pown((real_t)2.0f, base_sh);
-              cval += (real_t)result * scale;
-            }
-          }
-        }
-#endif
+        const int is_negative = oz2_garner_reconstruct(dot_residues, v);
+        oz2_horner_accumulate(v, is_negative, alpha, base_sh, &cval);
       }
     }
   }
@@ -658,66 +689,10 @@ kernel void dotprod(
       }
     }
 
-    /* Step 2: Garner's algorithm (CRT reconstruction) */
-    { uint v[18]; /* mixed-radix digits */
-      SINT i, j;
-      int is_negative;
-
-      UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
-        uint u = dot_residues[i];
-        const uint pi = oz2_moduli[i];
-        for (j = 0; j < i; ++j) {
-          /* Bounded subtract: v[j] < m_j <= 128, two subtracts suffice */
-          uint vj = v[j];
-          if (vj >= pi) vj -= pi;
-          if (vj >= pi) vj -= pi;
-          { const uint diff = (u >= vj) ? (u - vj) : (pi + u - vj);
-            u = oz2_mod(diff * garner_inv[j][i], i);
-          }
-        }
-        v[i] = u;
-      }
-
-      /* Step 3: Sign detection from MSB digit (centered representation) */
-      is_negative = (v[NPRIMES - 1]
-        >= (uint)(oz2_moduli[NPRIMES - 1] + 1) / 2) ? 1 : 0;
-
-      /* Complement digits for negative values */
-      if (0 != is_negative) {
-        UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
-          v[i] = oz2_moduli[i] - 1 - v[i];
-        }
-      }
-
-      /* Step 4: Horner's method to evaluate mixed-radix number.
-       * Evaluate MSB to LSB: result = v[N-1]*m[N-2]*...*m[0] + ... + v[0].
-       * fp64: use double (product of 17 moduli ~ 2^112 exceeds int64).
-       * fp32: use long   (product of 10 moduli ~ 2^59  fits in int64). */
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-      { double r = (double)v[NPRIMES - 1];
-        double result;
-        for (i = NPRIMES - 2; i >= 0; --i) {
-          r = r * (double)oz2_moduli[i] + (double)v[i];
-        }
-        result = (0 != is_negative) ? -(r + 1.0) : r;
-        if (0.0 != result && (real_t)0 != alpha) {
-          const real_t scale = alpha * pown((real_t)2.0, base_sh);
-          cval += (real_t)(result * (double)scale);
-        }
-      }
-#else
-      { long r = (long)v[NPRIMES - 1];
-        for (i = NPRIMES - 2; i >= 0; --i) {
-          r = r * (long)oz2_moduli[i] + (long)v[i];
-        }
-        { const long result = (0 != is_negative) ? -(r + 1) : r;
-          if (0 != result && (real_t)0 != alpha) {
-            const real_t scale = alpha * pown((real_t)2.0f, base_sh);
-            cval += (real_t)result * scale;
-          }
-        }
-      }
-#endif
+    /* Step 2: Garner reconstruction + Horner accumulation */
+    { uint v[18];
+      const int is_negative = oz2_garner_reconstruct(dot_residues, v);
+      oz2_horner_accumulate(v, is_negative, alpha, base_sh, &cval);
     }
   }
 
