@@ -79,7 +79,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 
   gpu = (CL_DEVICE_TYPE_GPU == devinfo->type) ? 1 : 0;
 
-  { char name[256] = "";
+  if (0 > verbosity || 2 < verbosity) {
+    char name[256] = "";
     libxstream_opencl_device_name(device, name, sizeof(name), NULL, 0, 1 /*cleanup*/);
     printf("Device: %s%s\n", name, gpu ? " (GPU)" : "");
   }
@@ -88,7 +89,9 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   if (use_double) {
     const char* const fp64_ext[] = {"cl_khr_fp64"};
     if (EXIT_SUCCESS != libxstream_opencl_device_ext(device, fp64_ext, 1)) {
-      fprintf(stderr, "WARN: device does not support cl_khr_fp64, falling back to float\n");
+      if (0 > verbosity || 1 < verbosity) {
+        fprintf(stderr, "WARN: device does not support cl_khr_fp64, falling back to float\n");
+      }
       use_double = 0;
     }
   }
@@ -120,8 +123,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   /* Validate XMX constraints against final block sizes.
    * DPAS SG=16: XMX_N=16, so BN must be divisible by 16. */
   if (use_xmx && ((use_bf16 ? 16 : 32) != bk || 0 != (bm % 8) || 0 != (bn % 16))) {
-    if (0 < verbosity) {
-      fprintf(stderr, "INFO OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
+    if (0 > verbosity || 1 < verbosity) {
+      fprintf(stderr, "WARN OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
               bk, bm, bn);
     }
     use_xmx = 0;
@@ -162,7 +165,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 
   /* 2D block I/O and SG=16 DPAS both require sub-group size 16 */
   if (use_xmx && 16 != sg) {
-    if (0 < verbosity) {
+    if (0 > verbosity || 2 < verbosity) {
       fprintf(stderr, "INFO OZAKI: SG forced to 16 for XMX\n");
     }
     sg = 16;
@@ -234,7 +237,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
   ctx->sg = sg;
 
-  if (0 < verbosity) {
+  if (0 > verbosity || 2 < verbosity) {
     fprintf(stderr, "INFO OZAKI: build params: %s\n", build_params);
     fprintf(stderr, "INFO OZAKI: build options: %s\n", build_options);
   }
@@ -253,7 +256,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     "preprocess_a", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_preprocess_a);
   if (EXIT_SUCCESS != result) {
-    fprintf(stderr, "ERROR: failed to build preprocess_a kernel\n");
+    if (0 != verbosity) fprintf(stderr, "ERROR: failed to build preprocess_a kernel\n");
     return EXIT_FAILURE;
   }
 
@@ -261,7 +264,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     "preprocess_b", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_preprocess_b);
   if (EXIT_SUCCESS != result) {
-    fprintf(stderr, "ERROR: failed to build preprocess_b kernel\n");
+    if (0 != verbosity) fprintf(stderr, "ERROR: failed to build preprocess_b kernel\n");
     return EXIT_FAILURE;
   }
 
@@ -269,14 +272,14 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     "dotprod", build_params, build_options,
     NULL, NULL, NULL, 0, &ctx->kern_dotprod);
   if (EXIT_SUCCESS != result) {
-    fprintf(stderr, "ERROR: failed to build dotprod kernel\n");
+    if (0 != verbosity) fprintf(stderr, "ERROR: failed to build dotprod kernel\n");
     return EXIT_FAILURE;
   }
 
 
 
   /* Report compiled kernel info */
-  if (0 < verbosity) {
+  if (0 > verbosity || 2 < verbosity) {
     size_t wgs[3] = {0};
     if (CL_SUCCESS == clGetKernelWorkGroupInfo(ctx->kern_dotprod, device,
       CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL))
@@ -315,7 +318,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       ctx->devpool = libxs_malloc_pool(
         libxstream_memdev_allocate, libxstream_memdev_deallocate);
     }
-    if (0 < verbosity) {
+    if (0 > verbosity || 2 < verbosity) {
       fprintf(stderr, "INFO OZAKI: device memory pool %s\n",
         NULL != ctx->devpool ? "enabled" : "unavailable (direct allocation)");
     }

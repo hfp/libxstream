@@ -125,7 +125,7 @@ All arguments are positional and optional (defaults shown):
 | `OZAKI_FLAGS`    | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S² square. Ignored for Scheme 2. |
 | `OZAKI_TRIM`     | 0       | Scheme 1: diagonal trim (drop T least significant diagonals). Scheme 2: K-grouping exponent — KGROUP = 2^TRIM consecutive K sub-panels share one exponent and one Garner reconstruction (0 = no grouping, 1 = pairs, 2 = quads). |
 | `OZAKI_N`        | 8/17    | Scheme 1: number of slices per element. Scheme 2: number of CRT primes (default 17, max 18; automatically raised to 18 when KGROUP > 1). |
-| `OZAKI_VERBOSE`  | 0       | Verbosity level (1 = info, 2+ = debug).        |
+| `OZAKI_VERBOSE`  | 0       | Verbosity level: 0 = silent, 1 = errors only, 2 = errors + warnings, 3+ = all info. Negative values also enable all output. |
 | `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on).|
 | `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint).            |
 | `OZAKI_SG`       | auto    | Sub-group size (forced to 16 when XMX active). |
@@ -142,12 +142,11 @@ Common defaults: `SG=16`, `batch_k=4`.
 
 ```
 $ ./ozaki.x 256
-Ozaki Scheme 1 OpenCL benchmark
-NN M=256 N=256 K=256 lda=256 ldb=256 ldc=256 alpha=1 beta=1
-Device: Intel(R) Data Center GPU Max 1550 (GPU)
+OpenCL benchmark for Ozaki's methods
+GEMM: NN M=256 N=256 K=256 lda=256 ldb=256 ldc=256 alpha=1 beta=1
 Ozaki GEMM: 12.345 ms
 BLAS  GEMM: 1.234 ms
-GEMM: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
+DIFF: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
 ```
 
 ## Limitations
