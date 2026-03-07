@@ -115,8 +115,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
    * XMX requires BK==32 (int8) or BK==16 (bf16), BM/BN divisible by 8. */
   if (0 >= bm) bm = 16;
   if (0 >= bn) bn = 16;
-  if (0 >= bk) bk = use_xmx ? (use_bf16 ? 16 : 32) : 16;
-  if (0 >= nslices) nslices = (2 == kind) ? 17 : 8; /* CRT: 17 primes default */
+  if (0 >= bk) bk = (use_xmx ? (use_bf16 ? 16 : 32) : 16);
+  if (0 >= nslices) nslices = (2 == kind ? 17 : 8); /* CRT: 17 primes default */
   if (0 >= batch_k) batch_k = 4;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
@@ -275,8 +275,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     if (0 != verbosity) fprintf(stderr, "ERROR: failed to build dotprod kernel\n");
     return EXIT_FAILURE;
   }
-
-
 
   /* Report compiled kernel info */
   if (0 > verbosity || 2 < verbosity) {
@@ -510,44 +508,42 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS != result) goto cleanup;
 
     /* Launch dotprod on main stream */
-    if (2 == ctx->kind && ctx->use_xmx) {
+    if (2 == ctx->kind && ctx->use_xmx) { 
       /* CRT + XMX: fused DPAS + Garner + Horner, writes directly to C */
-      { cl_int i = 0;
-        size_t global_c[2], local_c[2];
-        const int ntm = BM / 8, ntn = BN / 16;
-        local_c[0] = (size_t)ctx->sg;
-        local_c[1] = (size_t)(ntm * ntn);
-        global_c[0] = (size_t)nblk_m * local_c[0];
-        global_c[1] = (size_t)nblk_n * local_c[1];
-        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
-        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
-        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
-        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
-        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
-        if (ctx->use_double) {
-          double dalpha = alpha, dbeta = beta;
-          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
-          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
-        }
-        else {
-          float falpha = (float)alpha, fbeta = (float)beta;
-          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
-          CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
-        }
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
-        CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
-                   NULL, global_c, local_c, 0, NULL, NULL));
+      cl_int i = 0;
+      size_t global_c[2], local_c[2];
+      const int ntm = BM / 8, ntn = BN / 16;
+      local_c[0] = (size_t)ctx->sg;
+      local_c[1] = (size_t)(ntm * ntn);
+      global_c[0] = (size_t)nblk_m * local_c[0];
+      global_c[1] = (size_t)nblk_n * local_c[1];
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
+      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
+      if (ctx->use_double) {
+        double dalpha = alpha, dbeta = beta;
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
       }
+      else {
+        float falpha = (float)alpha, fbeta = (float)beta;
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
+        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
+      }
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
+      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
+      CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
+                 NULL, global_c, local_c, 0, NULL, NULL));
     }
-    else {
-    /* Scheme 1 or scalar CRT path */
-    { cl_int i = 0;
+    else { /* Scheme 1 or scalar CRT path */
+      cl_int i = 0;
       size_t global_c[2], local_c[2];
       if (ctx->use_xmx) {
         const int ntm = BM / 8, ntn = BN / 16;  /* XMX_M=8, XMX_N=16 */
@@ -589,7 +585,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
       CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
                  NULL, global_c, local_c, 0, NULL, NULL));
-    }
     } /* end else (non-CRT-XMX path) */
 
     /* Record dotprod completion for this buffer slot */
