@@ -115,8 +115,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
    * XMX requires BK==32 (int8) or BK==16 (bf16), BM/BN divisible by 8. */
   if (0 >= bm) bm = 16;
   if (0 >= bn) bn = 16;
-  if (0 >= bk) bk = use_xmx ? (use_bf16 ? 16 : 32) : 16;
-  if (0 >= nslices) nslices = (2 == kind) ? 17 : 8; /* CRT: 17 primes default */
+  if (0 >= bk) bk = (use_xmx ? (use_bf16 ? 16 : 32) : 16);
+  if (0 >= nslices) nslices = (2 == kind ? 17 : 8); /* CRT: 17 primes default */
   if (0 >= batch_k) batch_k = 4;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
@@ -275,8 +275,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     if (0 != verbosity) fprintf(stderr, "ERROR: failed to build dotprod kernel\n");
     return EXIT_FAILURE;
   }
-
-
 
   /* Report compiled kernel info */
   if (0 > verbosity || 2 < verbosity) {
