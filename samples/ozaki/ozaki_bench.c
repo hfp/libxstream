@@ -56,40 +56,48 @@ int main(int argc, char* argv[])
   libxstream_stream_t* stream = NULL;
   libxs_matdiff_info_t diff;
   libxs_timer_tick_t t0, t1;
-  size_t elem_size;
-  int result;
+  size_t elem_size = 0;
+  int result = EXIT_SUCCESS;
+  int initialized = 0;
+
+  LIBXS_MEMZERO(&ctx);
 
   if (1 > M || 1 > N || 1 > K || lda < (0 == ta ? M : K)
       || ldb < (0 == tb ? K : N) || ldc < M) {
     fprintf(stderr, "Invalid dimensions: M=%d N=%d K=%d lda=%d ldb=%d ldc=%d\n",
       M, N, K, lda, ldb, ldc);
-    return EXIT_FAILURE;
+    result = EXIT_FAILURE;
   }
 
   /* Initialize ACC (encompasses libxs initialization) */
-  result = libxstream_init();
   if (EXIT_SUCCESS == result) {
-    int ndevices = 0;
-    result = libxstream_get_ndevices(&ndevices);
-    if (EXIT_SUCCESS == result && 0 < ndevices) {
-      result = libxstream_set_active_device(0);
+    result = libxstream_init();
+    if (EXIT_SUCCESS == result) {
+      int ndevices = 0;
+      initialized = 1;
+      result = libxstream_get_ndevices(&ndevices);
+      if (EXIT_SUCCESS == result && 0 < ndevices) {
+        result = libxstream_set_active_device(0);
+      }
+      else if (EXIT_SUCCESS == result) {
+        fprintf(stderr, "ERROR: no ACC device found\n");
+        result = EXIT_FAILURE;
+      }
     }
-    else {
-      fprintf(stderr, "ERROR: no ACC device found\n");
-      result = EXIT_FAILURE;
+    if (EXIT_SUCCESS != result) {
+      fprintf(stderr, "ERROR: ACC initialization failed\n");
     }
-  }
-  if (EXIT_SUCCESS != result) {
-    fprintf(stderr, "ERROR: ACC initialization failed\n");
-    return EXIT_FAILURE;
   }
 
-  printf("OpenCL benchmark for Ozaki's methods\n");
-  printf("GEMM: %c%c M=%d N=%d K=%d lda=%d ldb=%d ldc=%d alpha=%g beta=%g\n",
-    transa, transb, M, N, K, lda, ldb, ldc, alpha, beta);
+  if (EXIT_SUCCESS == result) {
+    printf("OpenCL benchmark for Ozaki's methods\n");
+    printf("GEMM: %c%c M=%d N=%d K=%d lda=%d ldb=%d ldc=%d alpha=%g beta=%g\n",
+      transa, transb, M, N, K, lda, ldb, ldc, alpha, beta);
+  }
 
   /* Initialize Ozaki context (kernels) */
-  { const char* env;
+  if (EXIT_SUCCESS == result) {
+    const char* env;
     int ozflags = -1 /*auto*/, oztrim = 0, nslices = 0 /*auto*/;
     int kind = 1 /*int8*/, verbosity = 0;
     env = getenv("OZAKI_FLAGS");
@@ -102,30 +110,29 @@ int main(int argc, char* argv[])
     if (NULL != env) kind = atoi(env);
     env = getenv("OZAKI_VERBOSE");
     if (NULL != env) verbosity = atoi(env);
-    LIBXS_MEMZERO(&ctx);
     result = ozaki_init(&ctx, 0, 0, 0, 1 /*use_double*/, kind, verbosity,
       nslices, 0, ozflags, oztrim);
-  }
-  if (EXIT_SUCCESS != result) {
-    fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
-    libxstream_finalize();
-    return EXIT_FAILURE;
+    if (EXIT_SUCCESS != result) {
+      fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
+    }
   }
 
   /* Create own ACC stream (enables double-buffered transfers) */
-  result = libxstream_stream_create(&stream, "ozaki_main", -1 /*default priority*/);
-  if (EXIT_SUCCESS != result) {
-    fprintf(stderr, "ERROR: failed to create ACC stream\n");
-    ozaki_destroy(&ctx);
-    libxstream_finalize();
-    return EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_stream_create(&stream, "ozaki_main", -1 /*default priority*/);
+    if (EXIT_SUCCESS != result) {
+      fprintf(stderr, "ERROR: failed to create ACC stream\n");
+    }
   }
 
   /* Element size matches actual precision (may fall back to fp32) */
-  elem_size = ctx.use_double ? sizeof(double) : sizeof(float);
+  if (EXIT_SUCCESS == result) {
+    elem_size = ctx.use_double ? sizeof(double) : sizeof(float);
+  }
 
   /* Allocate and fill matrices (column-major) */
-  { const int a_rows = (0 == ta ? M : K), a_cols = (0 == ta ? K : M);
+  if (EXIT_SUCCESS == result) {
+    const int a_rows = (0 == ta ? M : K), a_cols = (0 == ta ? K : M);
     const int b_rows = (0 == tb ? K : N), b_cols = (0 == tb ? N : K);
     a = libxstream_memhst_allocate((size_t)lda * a_cols * elem_size, stream);
     if (NULL != a) b = libxstream_memhst_allocate((size_t)ldb * b_cols * elem_size, stream);
@@ -133,66 +140,70 @@ int main(int argc, char* argv[])
     if (NULL != c_oz) c_ref = libxstream_memhst_allocate((size_t)ldc * N * elem_size, stream);
     if (NULL == a || NULL == b || NULL == c_oz || NULL == c_ref) {
       fprintf(stderr, "ERROR: out of memory\n");
-      libxstream_stream_destroy(stream);
-      ozaki_destroy(&ctx);
-      libxstream_finalize();
-      return EXIT_FAILURE;
-    }
-    if (ctx.use_double) {
-      LIBXS_MATRNG(int, double, 0, a, a_rows, a_cols, lda, 1.0);
-      LIBXS_MATRNG(int, double, 0, b, b_rows, b_cols, ldb, 1.0);
-      LIBXS_MATRNG(int, double, 0, c_oz, M, N, ldc, 1.0);
+      result = EXIT_FAILURE;
     }
     else {
-      LIBXS_MATRNG(int, float, 0, a, a_rows, a_cols, lda, 1.0);
-      LIBXS_MATRNG(int, float, 0, b, b_rows, b_cols, ldb, 1.0);
-      LIBXS_MATRNG(int, float, 0, c_oz, M, N, ldc, 1.0);
+      if (ctx.use_double) {
+        LIBXS_MATRNG(int, double, 0, a, a_rows, a_cols, lda, 1.0);
+        LIBXS_MATRNG(int, double, 0, b, b_rows, b_cols, ldb, 1.0);
+        LIBXS_MATRNG(int, double, 0, c_oz, M, N, ldc, 1.0);
+      }
+      else {
+        LIBXS_MATRNG(int, float, 0, a, a_rows, a_cols, lda, 1.0);
+        LIBXS_MATRNG(int, float, 0, b, b_rows, b_cols, ldb, 1.0);
+        LIBXS_MATRNG(int, float, 0, c_oz, M, N, ldc, 1.0);
+      }
+      memcpy(c_ref, c_oz, (size_t)ldc * N * elem_size);
     }
-    memcpy(c_ref, c_oz, (size_t)ldc * N * elem_size);
   }
 
   /* Run Ozaki OpenCL GEMM */
-  t0 = libxs_timer_tick();
-  result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc);
-  /*libxstream_stream_sync(stream);*/
-  t1 = libxs_timer_tick();
-  if (EXIT_SUCCESS != result) {
-    fprintf(stderr, "Ozaki GEMM failed\n");
-    libxstream_stream_destroy(stream);
-    ozaki_destroy(&ctx);
-    libxstream_finalize();
-    return EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) {
+    t0 = libxs_timer_tick();
+    result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc);
+    /*libxstream_stream_sync(stream);*/
+    t1 = libxs_timer_tick();
+    if (EXIT_SUCCESS != result) {
+      fprintf(stderr, "Ozaki GEMM failed\n");
+    }
+    else {
+      printf("Ozaki GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
+    }
   }
-  printf("Ozaki GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
 
   /* Reference BLAS GEMM */
-  t0 = libxs_timer_tick();
-  if (ctx.use_double) {
-    DGEMM(&transa, &transb, &M, &N, &K, &alpha, (const double*)a, &lda, (const double*)b, &ldb, &beta, (double*)c_ref, &ldc);
+  if (EXIT_SUCCESS == result) {
+    t0 = libxs_timer_tick();
+    if (ctx.use_double) {
+      DGEMM(&transa, &transb, &M, &N, &K, &alpha, (const double*)a, &lda, (const double*)b, &ldb, &beta, (double*)c_ref, &ldc);
+    }
+    else {
+      float falpha = (float)alpha, fbeta = (float)beta;
+      SGEMM(&transa, &transb, &M, &N, &K, &falpha, (const float*)a, &lda, (const float*)b, &ldb, &fbeta, (float*)c_ref, &ldc);
+    }
+    t1 = libxs_timer_tick();
+    printf("BLAS  GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
   }
-  else {
-    float falpha = (float)alpha, fbeta = (float)beta;
-    SGEMM(&transa, &transb, &M, &N, &K, &falpha, (const float*)a, &lda, (const float*)b, &ldb, &fbeta, (float*)c_ref, &ldc);
-  }
-  t1 = libxs_timer_tick();
-  printf("BLAS  GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
 
   /* Compare */
-  { libxs_data_t dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
-    result = libxs_matdiff(&diff, dtype, M, N, c_ref, c_oz, &ldc, &ldc);
-  }
   if (EXIT_SUCCESS == result) {
-    print_diff(stdout, &diff);
+    libxs_data_t dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
+    result = libxs_matdiff(&diff, dtype, M, N, c_ref, c_oz, &ldc, &ldc);
+    if (EXIT_SUCCESS == result) {
+      print_diff(stdout, &diff);
+    }
   }
 
-  libxstream_memhst_deallocate(a, stream);
-  libxstream_memhst_deallocate(b, stream);
-  libxstream_memhst_deallocate(c_oz, stream);
-  libxstream_memhst_deallocate(c_ref, stream);
-  libxstream_stream_destroy(stream);
-  ozaki_destroy(&ctx);
-  libxstream_finalize();
-  return EXIT_SUCCESS;
+  if (0 != initialized) {
+    if (NULL != a) libxstream_memhst_deallocate(a, stream);
+    if (NULL != b) libxstream_memhst_deallocate(b, stream);
+    if (NULL != c_oz) libxstream_memhst_deallocate(c_oz, stream);
+    if (NULL != c_ref) libxstream_memhst_deallocate(c_ref, stream);
+    if (NULL != stream) libxstream_stream_destroy(stream);
+    ozaki_destroy(&ctx);
+    libxstream_finalize();
+  }
+  return result;
 }
 
 

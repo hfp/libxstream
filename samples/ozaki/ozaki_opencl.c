@@ -173,7 +173,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 
   /* Assemble JIT build flags: compiler options and -D defines separately */
   env = getenv("OZAKI_GRF256");
-  if (NULL != env && 0 != atoi(env) && 0 != devinfo->intel && use_xmx) {
+  if (NULL != env && 0 != atoi(env) && 0 != devinfo->intel) {
     LIBXS_SNPRINTF(build_options, sizeof(build_options),
       "-cl-fast-relaxed-math -cl-denorms-are-zero"
       " -cl-intel-256-GRF-per-thread");
@@ -257,27 +257,28 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     NULL, NULL, NULL, 0, &ctx->kern_preprocess_a);
   if (EXIT_SUCCESS != result) {
     if (0 != verbosity) fprintf(stderr, "ERROR: failed to build preprocess_a kernel\n");
-    return EXIT_FAILURE;
   }
 
-  result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
-    "preprocess_b", build_params, build_options,
-    NULL, NULL, NULL, 0, &ctx->kern_preprocess_b);
-  if (EXIT_SUCCESS != result) {
-    if (0 != verbosity) fprintf(stderr, "ERROR: failed to build preprocess_b kernel\n");
-    return EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
+      "preprocess_b", build_params, build_options,
+      NULL, NULL, NULL, 0, &ctx->kern_preprocess_b);
+    if (EXIT_SUCCESS != result) {
+      if (0 != verbosity) fprintf(stderr, "ERROR: failed to build preprocess_b kernel\n");
+    }
   }
 
-  result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
-    "dotprod", build_params, build_options,
-    NULL, NULL, NULL, 0, &ctx->kern_dotprod);
-  if (EXIT_SUCCESS != result) {
-    if (0 != verbosity) fprintf(stderr, "ERROR: failed to build dotprod kernel\n");
-    return EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
+      "dotprod", build_params, build_options,
+      NULL, NULL, NULL, 0, &ctx->kern_dotprod);
+    if (EXIT_SUCCESS != result) {
+      if (0 != verbosity) fprintf(stderr, "ERROR: failed to build dotprod kernel\n");
+    }
   }
 
   /* Report compiled kernel info */
-  if (0 > verbosity || 2 < verbosity) {
+  if (EXIT_SUCCESS == result && (0 > verbosity || 2 < verbosity)) {
     size_t wgs[3] = {0};
     if (CL_SUCCESS == clGetKernelWorkGroupInfo(ctx->kern_dotprod, device,
       CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL))
@@ -324,23 +325,21 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 #endif
 
   /* Create persistent helper streams and synchronization events */
-  result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", -1);
+  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", -1);
   if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", -1);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[0]);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[1]);
-  if (EXIT_SUCCESS != result) {
-    ozaki_destroy(ctx);
-    return EXIT_FAILURE;
-  }
+  if (EXIT_SUCCESS != result) ozaki_destroy(ctx);
 
-  return EXIT_SUCCESS;
+  return result;
 }
 
 
 void ozaki_destroy(ozaki_context_t* ctx)
 {
+  if (NULL == ctx) return;
   if (NULL != ctx->kern_preprocess_a) clReleaseKernel(ctx->kern_preprocess_a);
   if (NULL != ctx->kern_preprocess_b) clReleaseKernel(ctx->kern_preprocess_b);
   if (NULL != ctx->kern_dotprod)      clReleaseKernel(ctx->kern_dotprod);
