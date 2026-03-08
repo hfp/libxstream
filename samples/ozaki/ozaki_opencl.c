@@ -323,6 +323,18 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
 #endif
 
+  /* Create persistent helper streams and synchronization events */
+  result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", -1);
+  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", -1);
+  if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
+  if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
+  if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[0]);
+  if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[1]);
+  if (EXIT_SUCCESS != result) {
+    ozaki_destroy(ctx);
+    return EXIT_FAILURE;
+  }
+
   return EXIT_SUCCESS;
 }
 
@@ -332,6 +344,15 @@ void ozaki_destroy(ozaki_context_t* ctx)
   if (NULL != ctx->kern_preprocess_a) clReleaseKernel(ctx->kern_preprocess_a);
   if (NULL != ctx->kern_preprocess_b) clReleaseKernel(ctx->kern_preprocess_b);
   if (NULL != ctx->kern_dotprod)      clReleaseKernel(ctx->kern_dotprod);
+
+  /* Destroy persistent synchronization events */
+  if (NULL != ctx->evt_prep_a) libxstream_event_destroy(ctx->evt_prep_a);
+  if (NULL != ctx->evt_prep_b) libxstream_event_destroy(ctx->evt_prep_b);
+  if (NULL != ctx->evt_dotprod[0]) libxstream_event_destroy(ctx->evt_dotprod[0]);
+  if (NULL != ctx->evt_dotprod[1]) libxstream_event_destroy(ctx->evt_dotprod[1]);
+  /* Destroy persistent helper streams */
+  if (NULL != ctx->stream_a) libxstream_stream_destroy(ctx->stream_a);
+  if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
 
 #if defined(OZAKI_DEVPOOL)
   if (NULL != ctx->devpool) libxs_free_pool((libxs_malloc_pool_t*)ctx->devpool);
@@ -371,26 +392,17 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   void *d_ak[2] = {NULL, NULL}, *d_expa[2] = {NULL, NULL};
   void *d_bk[2] = {NULL, NULL}, *d_expb[2] = {NULL, NULL};
 
-  /* Helper streams: preprocess_a on stream_a, preprocess_b on stream_b */
-  libxstream_stream_t *stream_a = NULL, *stream_b = NULL;
-  /* Synchronization events */
-  libxstream_event_t *evt_prep_a = NULL, *evt_prep_b = NULL;
-  libxstream_event_t *evt_dotprod[2] = {NULL, NULL};
+  /* Persistent helper streams and events from context */
+  libxstream_stream_t *stream_a = ctx->stream_a;
+  libxstream_stream_t *stream_b = ctx->stream_b;
+  libxstream_event_t *evt_prep_a = ctx->evt_prep_a;
+  libxstream_event_t *evt_prep_b = ctx->evt_prep_b;
+  libxstream_event_t *evt_dotprod[2] = {ctx->evt_dotprod[0], ctx->evt_dotprod[1]};
   size_t c_nbytes;
   int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
   int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
   int batch;
-
-  /* Create helper streams for overlapped preprocessing */
-  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&stream_a, "ozaki_a", -1);
-  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&stream_b, "ozaki_b", -1);
-  /* Create synchronization events */
-  if (EXIT_SUCCESS == result) result = libxstream_event_create(&evt_prep_a);
-  if (EXIT_SUCCESS == result) result = libxstream_event_create(&evt_prep_b);
-  if (EXIT_SUCCESS == result) result = libxstream_event_create(&evt_dotprod[0]);
-  if (EXIT_SUCCESS == result) result = libxstream_event_create(&evt_dotprod[1]);
-  if (EXIT_SUCCESS != result) goto cleanup;
 
   /* Allocate device memory for A, B, C */
   { size_t a_cols = ta ? (size_t)M : (size_t)K;
@@ -604,14 +616,6 @@ cleanup:
       OZAKI_DEV_FREE(d_bk[s]);   OZAKI_DEV_FREE(d_expb[s]);
     }
   }
-  /* Destroy synchronization events */
-  if (NULL != evt_prep_a) libxstream_event_destroy(evt_prep_a);
-  if (NULL != evt_prep_b) libxstream_event_destroy(evt_prep_b);
-  if (NULL != evt_dotprod[0]) libxstream_event_destroy(evt_dotprod[0]);
-  if (NULL != evt_dotprod[1]) libxstream_event_destroy(evt_dotprod[1]);
-  /* Destroy helper streams */
-  if (NULL != stream_a) libxstream_stream_destroy(stream_a);
-  if (NULL != stream_b) libxstream_stream_destroy(stream_b);
   /* Return input/output matrices */
   OZAKI_DEV_FREE(d_a); OZAKI_DEV_FREE(d_b); OZAKI_DEV_FREE(d_c);
 

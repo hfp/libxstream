@@ -154,7 +154,7 @@ int main(int argc, char* argv[])
   /* Run Ozaki OpenCL GEMM */
   t0 = libxs_timer_tick();
   result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc);
-  libxstream_stream_sync(stream);
+  /*libxstream_stream_sync(stream);*/
   t1 = libxs_timer_tick();
   if (EXIT_SUCCESS != result) {
     fprintf(stderr, "Ozaki GEMM failed\n");

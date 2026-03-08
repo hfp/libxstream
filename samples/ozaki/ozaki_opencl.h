@@ -43,6 +43,10 @@ typedef struct ozaki_context_t {
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
 #endif
+  /* Persistent helper streams for overlapped preprocessing */
+  libxstream_stream_t *stream_a, *stream_b;
+  /* Persistent synchronization events */
+  libxstream_event_t *evt_prep_a, *evt_prep_b, *evt_dotprod[2];
 } ozaki_context_t;
 
 
@@ -58,6 +62,12 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
                int nslices, int batch_k,
                int ozflags, int oztrim);
 void ozaki_destroy(ozaki_context_t* ctx);
+/* ozaki_gemm enqueues the entire GEMM pipeline on stream and synchronizes
+ * before returning.  Helper streams (ctx->stream_a/b) and events are kept
+ * persistent in the context to avoid per-call creation overhead.
+ * NOTE: to enable fully-asynchronous operation the per-call device buffers
+ * would need to be promoted to persistent context members as well;
+ * the call-site could then sync the stream at its own discretion. */
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                char transa, char transb,
                int M, int N, int K,
