@@ -366,24 +366,25 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 
 void ozaki_destroy(ozaki_context_t* ctx)
 {
-  if (NULL == ctx) return;
-  if (NULL != ctx->kern_preprocess_a) clReleaseKernel(ctx->kern_preprocess_a);
-  if (NULL != ctx->kern_preprocess_b) clReleaseKernel(ctx->kern_preprocess_b);
-  if (NULL != ctx->kern_dotprod)      clReleaseKernel(ctx->kern_dotprod);
+  if (NULL != ctx) {
+    if (NULL != ctx->kern_preprocess_a) clReleaseKernel(ctx->kern_preprocess_a);
+    if (NULL != ctx->kern_preprocess_b) clReleaseKernel(ctx->kern_preprocess_b);
+    if (NULL != ctx->kern_dotprod)      clReleaseKernel(ctx->kern_dotprod);
 
-  /* Destroy persistent synchronization events */
-  if (NULL != ctx->evt_prep_a) libxstream_event_destroy(ctx->evt_prep_a);
-  if (NULL != ctx->evt_prep_b) libxstream_event_destroy(ctx->evt_prep_b);
-  if (NULL != ctx->evt_dotprod[0]) libxstream_event_destroy(ctx->evt_dotprod[0]);
-  if (NULL != ctx->evt_dotprod[1]) libxstream_event_destroy(ctx->evt_dotprod[1]);
-  /* Destroy persistent helper streams */
-  if (NULL != ctx->stream_a) libxstream_stream_destroy(ctx->stream_a);
-  if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
+    /* Destroy persistent synchronization events */
+    if (NULL != ctx->evt_prep_a) libxstream_event_destroy(ctx->evt_prep_a);
+    if (NULL != ctx->evt_prep_b) libxstream_event_destroy(ctx->evt_prep_b);
+    if (NULL != ctx->evt_dotprod[0]) libxstream_event_destroy(ctx->evt_dotprod[0]);
+    if (NULL != ctx->evt_dotprod[1]) libxstream_event_destroy(ctx->evt_dotprod[1]);
+    /* Destroy persistent helper streams */
+    if (NULL != ctx->stream_a) libxstream_stream_destroy(ctx->stream_a);
+    if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
 
 #if defined(OZAKI_DEVPOOL)
-  if (NULL != ctx->devpool) libxs_free_pool((libxs_malloc_pool_t*)ctx->devpool);
+    if (NULL != ctx->devpool) libxs_free_pool((libxs_malloc_pool_t*)ctx->devpool);
 #endif
-  LIBXS_MEMZERO(ctx);
+    LIBXS_MEMZERO(ctx);
+  }
 }
 
 
@@ -443,16 +444,15 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_a, a_nbytes);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b, b_nbytes);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_c, c_nbytes);
-    if (EXIT_SUCCESS != result) goto cleanup;
     /* Overlapped H2D: A via stream_a, B via stream_b, C via main */
     if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(a, d_a, a_nbytes, stream_a);
     if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(b, d_b, b_nbytes, stream_b);
     if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(c, d_c, c_nbytes, stream);
-    if (EXIT_SUCCESS != result) goto cleanup;
   }
 
   /* Pre-allocate double-buffered preprocessing buffers (max batch size) */
-  { const size_t slice_elem = ctx->use_bf16 ? 2 : 1; /* ushort vs char */
+  if (EXIT_SUCCESS == result) {
+    const size_t slice_elem = ctx->use_bf16 ? 2 : 1; /* ushort vs char */
     const size_t ak_size = (size_t)max_nkb * nblk_m * BM * nslices * BK * slice_elem;
     const size_t bk_size = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
     int s;
@@ -466,9 +466,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa[s], expa_size);
         if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb[s], expb_size);
       }
-
     }
-    if (EXIT_SUCCESS != result) goto cleanup;
   }
 
   /* Double-buffered K-batch pipeline:
@@ -476,7 +474,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
    *   stream_b  : preprocess_b  (parallel with preprocess_a)
    *   stream    : dotprod + C transfers
    * Batch N dotprod overlaps with batch N+1 preprocessing. */
-  for (batch = 0; batch < n_batches; ++batch) {
+  for (batch = 0; batch < n_batches && EXIT_SUCCESS == result; ++batch) {
     const int cur = batch & 1;
     const int kb_batch = batch * BATCH_K * BK;
     const int batch_end = (kb_batch + BATCH_K * BK < K) ? (kb_batch + BATCH_K * BK) : K;
@@ -487,7 +485,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (2 <= batch) {
       if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_a, evt_dotprod[cur]);
       if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_dotprod[cur]);
-      if (EXIT_SUCCESS != result) goto cleanup;
     }
 
     /* Launch preprocess_a on stream_a */
@@ -541,12 +538,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     /* Record preprocess completion events */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
-    if (EXIT_SUCCESS != result) goto cleanup;
 
     /* Main stream waits for both preprocess results */
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
-    if (EXIT_SUCCESS != result) goto cleanup;
 
     /* Launch dotprod on main stream */
     if (2 == ctx->kind && ctx->use_xmx) { 
@@ -630,17 +625,15 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     /* Record dotprod completion for this buffer slot */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_dotprod[cur], stream);
-    if (EXIT_SUCCESS != result) goto cleanup;
   }
 
   /* Read back result C; pool path skips sync (caller responsibility) */
-  result = libxstream_memcpy_d2h(d_c, c, c_nbytes, stream);
+  if (EXIT_SUCCESS == result) result = libxstream_memcpy_d2h(d_c, c, c_nbytes, stream);
 #if defined(OZAKI_DEVPOOL)
   if (NULL == pool) /* no pool: sync here; pool path: caller syncs */
 #endif
   if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
 
-cleanup:
   /* Return buffers to pool (no deallocation, no sync needed) or free directly */
   { int s;
     for (s = 0; s < 2; ++s) {
