@@ -30,9 +30,29 @@
 } while (0)
 
 #if defined(OZAKI_DEVPOOL)
+/* Wrapped allocator for libxs_malloc_xpool: delegates to device allocator. */
+static void* ozaki_dev_allocate(size_t size, const void* extra)
+{
+  (void)extra;
+  return libxstream_memdev_allocate(size);
+}
+
+/* Wrapped deallocator: syncs all streams before freeing device memory.
+ * Only called on the pool grow path (when a larger buffer is needed). */
+static void ozaki_dev_deallocate(void* pointer, const void* extra)
+{
+  const ozaki_context_t* ctx = (const ozaki_context_t*)extra;
+  if (NULL != ctx->stream)   libxstream_stream_sync(ctx->stream);
+  if (NULL != ctx->stream_a) libxstream_stream_sync(ctx->stream_a);
+  if (NULL != ctx->stream_b) libxstream_stream_sync(ctx->stream_b);
+  libxstream_memdev_deallocate(pointer);
+}
+#endif
+
+#if defined(OZAKI_DEVPOOL)
 # define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
   (NULL != pool) \
-    ? ((*(PTR) = libxs_malloc(pool, SIZE, 0)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
+    ? ((*(PTR) = libxs_malloc(pool, SIZE, LIBXS_MALLOC_NATIVE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
     : ((*(PTR) = libxstream_memdev_allocate(SIZE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE))
 # define OZAKI_DEV_FREE(PTR) do { \
   if (NULL != (PTR)) { \
@@ -300,7 +320,11 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
 
 #if defined(OZAKI_DEVPOOL)
-  /* Create device memory pool for buffer reuse across ozaki_gemm calls.
+  /* Create device memory pool for async buffer reuse across ozaki_gemm calls.
+   * Uses libxs_malloc_xpool with wrapped allocator/deallocator: the deallocator
+   * syncs all streams before freeing (grow path only).
+   * LIBXS_MALLOC_NATIVE preserves the allocator's exact pointer (no inline
+   * metadata) so USM/SVM device pointers remain valid for the OpenCL runtime.
    * Requires USM shared or SVM; falls back to direct allocation otherwise. */
   ctx->devpool = NULL;
   { int pool_ok = 0;
@@ -314,8 +338,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 #endif
     { (void)devinfo; }
     if (0 != pool_ok) {
-      ctx->devpool = libxs_malloc_pool(
-        libxstream_memdev_allocate, libxstream_memdev_deallocate);
+      ctx->devpool = libxs_malloc_xpool(
+        ozaki_dev_allocate, ozaki_dev_deallocate, 1);
     }
     if (0 > verbosity || 2 < verbosity) {
       fprintf(stderr, "INFO OZAKI: device memory pool %s\n",
@@ -331,6 +355,9 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[0]);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[1]);
+#if defined(OZAKI_DEVPOOL)
+  if (NULL != ctx->devpool) libxs_malloc_arg((libxs_malloc_pool_t*)ctx->devpool, ctx);
+#endif
   if (EXIT_SUCCESS != result) ozaki_destroy(ctx);
 
   return result;
@@ -370,6 +397,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   const libxstream_opencl_stream_t* str = stream;
 #if defined(OZAKI_DEVPOOL)
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
+  ctx->stream = stream; /* expose to deallocate wrapper */
 #endif
   const int BM = ctx->bm, BN = ctx->bn, BK = ctx->bk;
   /* Pad B column stride so surface width >= 64 bytes (2D block I/O).
@@ -396,12 +424,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   libxstream_stream_t *stream_b = ctx->stream_b;
   libxstream_event_t *evt_prep_a = ctx->evt_prep_a;
   libxstream_event_t *evt_prep_b = ctx->evt_prep_b;
-  libxstream_event_t *evt_dotprod[2] = {ctx->evt_dotprod[0], ctx->evt_dotprod[1]};
+  libxstream_event_t *evt_dotprod[2];
   size_t c_nbytes;
   int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
   int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
   int batch;
+  evt_dotprod[0] = ctx->evt_dotprod[0];
+  evt_dotprod[1] = ctx->evt_dotprod[1];
 
   /* Allocate device memory for A, B, C */
   { size_t a_cols = ta ? (size_t)M : (size_t)K;
@@ -603,19 +633,22 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS != result) goto cleanup;
   }
 
-  /* Read back result C */
+  /* Read back result C; pool path skips sync (caller responsibility) */
   result = libxstream_memcpy_d2h(d_c, c, c_nbytes, stream);
+#if defined(OZAKI_DEVPOOL)
+  if (NULL == pool) /* no pool: sync here; pool path: caller syncs */
+#endif
   if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
 
 cleanup:
-  /* Return double-buffered preprocessing buffers */
+  /* Return buffers to pool (no deallocation, no sync needed) or free directly */
   { int s;
     for (s = 0; s < 2; ++s) {
       OZAKI_DEV_FREE(d_ak[s]);   OZAKI_DEV_FREE(d_expa[s]);
       OZAKI_DEV_FREE(d_bk[s]);   OZAKI_DEV_FREE(d_expb[s]);
     }
   }
-  /* Return input/output matrices */
+  /* Return input/output buffers to pool or free directly */
   OZAKI_DEV_FREE(d_a); OZAKI_DEV_FREE(d_b); OZAKI_DEV_FREE(d_c);
 
   return result;

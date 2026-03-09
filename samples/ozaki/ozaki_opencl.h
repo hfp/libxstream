@@ -11,7 +11,7 @@
 
 #include "libxstream_opencl.h"
 
-#if defined(OZAKI_DEVPOOL) && 0
+#if defined(OZAKI_DEVPOOL) && 1
 # define OZAKI_DEVPOOL
 #endif
 
@@ -43,6 +43,8 @@ typedef struct ozaki_context_t {
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
 #endif
+  /* Main stream (set per ozaki_gemm call for pool realloc sync) */
+  libxstream_stream_t *stream;
   /* Persistent helper streams for overlapped preprocessing */
   libxstream_stream_t *stream_a, *stream_b;
   /* Persistent synchronization events */
@@ -62,12 +64,14 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
                int nslices, int batch_k,
                int ozflags, int oztrim);
 void ozaki_destroy(ozaki_context_t* ctx);
-/* ozaki_gemm enqueues the entire GEMM pipeline on stream and synchronizes
- * before returning.  Helper streams (ctx->stream_a/b) and events are kept
- * persistent in the context to avoid per-call creation overhead.
- * NOTE: to enable fully-asynchronous operation the per-call device buffers
- * would need to be promoted to persistent context members as well;
- * the call-site could then sync the stream at its own discretion. */
+/* ozaki_gemm enqueues the entire GEMM pipeline on stream.  When OZAKI_DEVPOOL
+ * is active, device buffers are returned to the pool (no deallocation) and the
+ * function returns without synchronizing — the caller must sync the stream.
+ * Without a pool, ozaki_gemm synchronizes internally before returning.
+ * Helper streams (ctx->stream_a/b) and events are kept persistent in the
+ * context to avoid per-call creation overhead.  On the rare pool grow path
+ * (larger problem size), the wrapped deallocator syncs all streams before
+ * reallocating. */
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                char transa, char transb,
                int M, int N, int K,
