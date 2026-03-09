@@ -22,8 +22,8 @@ LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
 LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
 LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
 LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
-LIBXS := $(if $(LIBXS),$(LIBXS), \
-  $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL)))
+LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
+  $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
 ifneq (,$(LIBXSROOT))
   IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
   IFLAGS += -I$(call quote,$(LIBXSROOT)/samples/ozaki)
