@@ -81,9 +81,12 @@ A double-buffered K-batch pipeline overlaps preprocessing of batch N+1 with the
 dot-product computation of batch N across three concurrent streams.
 
 When Intel USM or OpenCL SVM is available, `ozaki_init` creates a device-memory
-pool (backed by `libxs_malloc`).  Buffers allocated during `ozaki_gemm` are
-returned to the pool instead of being freed, eliminating per-call allocation
-overhead for repeated GEMM calls with identical dimensions.  The pool falls back
+pool (backed by `libxs_malloc_xpool` with `LIBXS_MALLOC_NATIVE`).  Buffers
+allocated during `ozaki_gemm` are returned to the pool instead of being freed,
+eliminating per-call allocation overhead for repeated GEMM calls.  With the pool
+active, `ozaki_gemm` returns without synchronizing — the caller is responsible
+for syncing the stream.  On the rare grow path (larger problem size), the
+wrapped deallocator syncs all streams before reallocating.  The pool falls back
 to direct `libxstream_memdev_allocate` transparently if USM/SVM is not supported.
 
 ## Build
