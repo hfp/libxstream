@@ -21,6 +21,24 @@
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2_INT8)"
 #endif
 
+#if defined(OZAKI_DEVPOOL)
+# define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
+  (NULL != pool) \
+    ? ((*(PTR) = libxs_malloc(pool, SIZE, LIBXS_MALLOC_NATIVE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
+    : ((*(PTR) = libxstream_memdev_allocate(SIZE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE))
+# define OZAKI_DEV_FREE(PTR) do { \
+  if (NULL != (PTR)) { \
+    if (NULL != pool) libxs_free(PTR); else libxstream_memdev_deallocate(PTR); \
+  } \
+} while (0)
+#else
+# define OZAKI_DEV_ALLOC(PTR, SIZE) \
+  ((*(PTR) = libxstream_memdev_allocate(SIZE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE)
+# define OZAKI_DEV_FREE(PTR) do { \
+  if (NULL != (PTR)) libxstream_memdev_deallocate(PTR); \
+} while (0)
+#endif
+
 #define CL_CHECK(CALL) do { \
   cl_int _err = (CALL); \
   if (CL_SUCCESS != _err) { \
@@ -47,24 +65,6 @@ static void ozaki_dev_deallocate(void* pointer, const void* extra)
   if (NULL != ctx->stream_b) libxstream_stream_sync(ctx->stream_b);
   libxstream_memdev_deallocate(pointer);
 }
-#endif
-
-#if defined(OZAKI_DEVPOOL)
-# define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
-  (NULL != pool) \
-    ? ((*(PTR) = libxs_malloc(pool, SIZE, LIBXS_MALLOC_NATIVE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
-    : ((*(PTR) = libxstream_memdev_allocate(SIZE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE))
-# define OZAKI_DEV_FREE(PTR) do { \
-  if (NULL != (PTR)) { \
-    if (NULL != pool) libxs_free(PTR); else libxstream_memdev_deallocate(PTR); \
-  } \
-} while (0)
-#else
-# define OZAKI_DEV_ALLOC(PTR, SIZE) \
-  ((*(PTR) = libxstream_memdev_allocate(SIZE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE)
-# define OZAKI_DEV_FREE(PTR) do { \
-  if (NULL != (PTR)) libxstream_memdev_deallocate(PTR); \
-} while (0)
 #endif
 
 
