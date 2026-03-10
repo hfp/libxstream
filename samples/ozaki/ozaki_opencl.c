@@ -345,9 +345,21 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
 #endif
 
+  /* OZAKI_PROF: kernel execution-time profiling */
+  ctx->hist = NULL;
+  { const char* env = getenv("OZAKI_PROF");
+    if (NULL != env && '0' != *env) {
+      const libxs_hist_update_t update[] = { libxs_hist_avg };
+      libxs_hist_create(&ctx->hist, 3, 16, 1, update);
+    }
+  }
+
   /* Create persistent helper streams and synchronization events */
-  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", LIBXSTREAM_STREAM_DEFAULT);
-  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", LIBXSTREAM_STREAM_DEFAULT);
+  { const int sflags = (NULL != ctx->hist
+      ? LIBXSTREAM_STREAM_PROFILING : LIBXSTREAM_STREAM_DEFAULT);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", sflags);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", sflags);
+  }
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[0]);
@@ -394,6 +406,11 @@ void ozaki_destroy(ozaki_context_t* ctx)
     /* Destroy persistent helper streams */
     if (NULL != ctx->stream_a) libxstream_stream_destroy(ctx->stream_a);
     if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
+    /* Report and destroy profiling histogram */
+    if (NULL != ctx->hist) {
+      libxs_hist_print(stderr, ctx->hist, "OZAKI PROF (GFLOPS/s)", NULL, NULL);
+      libxs_hist_destroy(ctx->hist);
+    }
     LIBXS_MEMZERO(ctx);
   }
 }
@@ -438,6 +455,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
   int batch;
+  cl_event *evt_prof = NULL;
 
 #if defined(OZAKI_DEVPOOL)
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
@@ -482,6 +500,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     }
   }
 
+  /* Profiling: allocate event array (3 events per batch) */
+  if (NULL != ctx->hist && 0 < n_batches) {
+    evt_prof = (cl_event*)calloc(3 * (size_t)n_batches, sizeof(cl_event));
+  }
+
   /* Double-buffered K-batch pipeline:
    *   stream_a  : preprocess_a  (parallel with preprocess_b)
    *   stream_b  : preprocess_b  (parallel with preprocess_a)
@@ -521,7 +544,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 8, sizeof(int), &nblk_m));
       }
       CL_CHECK(clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
-                 NULL, global_a, local_a, 0, NULL, NULL));
+                 NULL, global_a, local_a, 0, NULL,
+                 NULL != evt_prof ? &evt_prof[3 * batch] : NULL));
     }
 
     /* Launch preprocess_b on stream_b (parallel with preprocess_a) */
@@ -545,7 +569,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 8, sizeof(int), &nblk_n));
       }
       CL_CHECK(clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
-                 NULL, global_b, local_b, 0, NULL, NULL));
+                 NULL, global_b, local_b, 0, NULL,
+                 NULL != evt_prof ? &evt_prof[3 * batch + 1] : NULL));
     }
 
     /* Record preprocess completion events */
@@ -589,7 +614,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
       CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
-                 NULL, global_c, local_c, 0, NULL, NULL));
+                 NULL, global_c, local_c, 0, NULL,
+                 NULL != evt_prof ? &evt_prof[3 * batch + 2] : NULL));
     }
     else { /* Scheme 1 or scalar CRT path */
       cl_int i = 0;
@@ -633,11 +659,33 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
       CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
       CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
-                 NULL, global_c, local_c, 0, NULL, NULL));
+                 NULL, global_c, local_c, 0, NULL,
+                 NULL != evt_prof ? &evt_prof[3 * batch + 2] : NULL));
     } /* end else (non-CRT-XMX path) */
 
     /* Record dotprod completion for this buffer slot */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_dotprod[cur], stream);
+  }
+
+  /* Collect profiling data (forces synchronization) */
+  if (NULL != evt_prof) {
+    double total = 0;
+    int b;
+    libxstream_stream_sync(stream);
+    libxstream_stream_sync(stream_a);
+    libxstream_stream_sync(stream_b);
+    for (b = 0; b < 3 * n_batches; ++b) {
+      if (NULL != evt_prof[b]) {
+        total += libxstream_opencl_duration(evt_prof[b], NULL);
+        clReleaseEvent(evt_prof[b]);
+      }
+    }
+    if (0 < total) {
+      const double gflops = (2.0 * M * N * K) / (total * 1E9);
+      const double vals[] = { gflops };
+      libxs_hist_set(NULL, ctx->hist, vals);
+    }
+    free(evt_prof);
   }
 
   /* Read back result C; caller is responsible for syncing the stream */

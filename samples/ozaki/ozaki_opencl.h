@@ -40,6 +40,7 @@ typedef struct ozaki_context_t {
   int oztrim;
   int kgroup;      /* K-grouping factor for kind==2: 2^oztrim, clamped to batch_k */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
+  libxs_hist_t* hist; /* kernel execution-time histogram (OZAKI_PROF) */
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
 #endif
