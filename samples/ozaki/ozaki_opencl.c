@@ -25,17 +25,17 @@
 # define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
   (NULL != pool) \
     ? ((*(PTR) = libxs_malloc(pool, SIZE, LIBXS_MALLOC_NATIVE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
-    : ((*(PTR) = libxstream_memdev_allocate(SIZE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE))
+    : libxstream_mem_allocate((void**)(PTR), SIZE))
 # define OZAKI_DEV_FREE(PTR) do { \
   if (NULL != (PTR)) { \
-    if (NULL != pool) libxs_free(PTR); else libxstream_memdev_deallocate(PTR); \
+    if (NULL != pool) libxs_free(PTR); else libxstream_mem_deallocate(PTR); \
   } \
 } while (0)
 #else
 # define OZAKI_DEV_ALLOC(PTR, SIZE) \
-  ((*(PTR) = libxstream_memdev_allocate(SIZE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE)
+  libxstream_mem_allocate((void**)(PTR), SIZE)
 # define OZAKI_DEV_FREE(PTR) do { \
-  if (NULL != (PTR)) libxstream_memdev_deallocate(PTR); \
+  if (NULL != (PTR)) libxstream_mem_deallocate(PTR); \
 } while (0)
 #endif
 
@@ -51,8 +51,10 @@
 /* Wrapped allocator for libxs_malloc_xpool: delegates to device allocator. */
 static void* ozaki_dev_allocate(size_t size, const void* extra)
 {
+  void* result = NULL;
   (void)extra;
-  return libxstream_memdev_allocate(size);
+  libxstream_mem_allocate(&result, size);
+  return result;
 }
 
 /* Wrapped deallocator: syncs all streams before freeing device memory.
@@ -63,7 +65,7 @@ static void ozaki_dev_deallocate(void* pointer, const void* extra)
   if (NULL != ctx->stream)   libxstream_stream_sync(ctx->stream);
   if (NULL != ctx->stream_a) libxstream_stream_sync(ctx->stream_a);
   if (NULL != ctx->stream_b) libxstream_stream_sync(ctx->stream_b);
-  libxstream_memdev_deallocate(pointer);
+  libxstream_mem_deallocate(pointer);
 }
 #endif
 
@@ -457,9 +459,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b, b_nbytes);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_c, c_nbytes);
     /* Overlapped H2D: A via stream_a, B via stream_b, C via main */
-    if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(a, d_a, a_nbytes, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(b, d_b, b_nbytes, stream_b);
-    if (EXIT_SUCCESS == result) result = libxstream_memcpy_h2d(c, d_c, c_nbytes, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(a, d_a, a_nbytes, stream_a);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(b, d_b, b_nbytes, stream_b);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_c, c_nbytes, stream);
   }
 
   /* Pre-allocate double-buffered preprocessing buffers (max batch size) */
@@ -640,7 +642,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   }
 
   /* Read back result C; caller is responsible for syncing the stream */
-  if (EXIT_SUCCESS == result) result = libxstream_memcpy_d2h(d_c, c, c_nbytes, stream);
+  if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_c, c, c_nbytes, stream);
 
   /* Return buffers to pool (no deallocation, no sync needed) or free directly */
   { int s;

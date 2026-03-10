@@ -77,9 +77,9 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == result) {
       int ndevices = 0;
       initialized = 1;
-      result = libxstream_get_ndevices(&ndevices);
+      result = libxstream_device_count(&ndevices);
       if (EXIT_SUCCESS == result && 0 < ndevices) {
-        result = libxstream_set_active_device(0);
+        result = libxstream_device_set_active(0);
       }
       else if (EXIT_SUCCESS == result) {
         fprintf(stderr, "ERROR: no ACC device found\n");
@@ -136,11 +136,11 @@ int main(int argc, char* argv[])
   if (EXIT_SUCCESS == result) {
     const int a_rows = (0 == ta ? M : K), a_cols = (0 == ta ? K : M);
     const int b_rows = (0 == tb ? K : N), b_cols = (0 == tb ? N : K);
-    a = libxstream_memhst_allocate((size_t)lda * a_cols * elem_size, stream);
-    if (NULL != a) b = libxstream_memhst_allocate((size_t)ldb * b_cols * elem_size, stream);
-    if (NULL != b) c_oz = libxstream_memhst_allocate((size_t)ldc * N * elem_size, stream);
-    if (NULL != c_oz) c_ref = libxstream_memhst_allocate((size_t)ldc * N * elem_size, stream);
-    if (NULL == a || NULL == b || NULL == c_oz || NULL == c_ref) {
+    result = libxstream_mem_host_allocate((void**)&a, (size_t)lda * a_cols * elem_size, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&b, (size_t)ldb * b_cols * elem_size, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_oz, (size_t)ldc * N * elem_size, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_ref, (size_t)ldc * N * elem_size, stream);
+    if (EXIT_SUCCESS != result) {
       fprintf(stderr, "ERROR: out of memory\n");
       result = EXIT_FAILURE;
     }
@@ -219,10 +219,10 @@ int main(int argc, char* argv[])
   }
 
   if (0 != initialized) {
-    if (NULL != a) libxstream_memhst_deallocate(a, stream);
-    if (NULL != b) libxstream_memhst_deallocate(b, stream);
-    if (NULL != c_oz) libxstream_memhst_deallocate(c_oz, stream);
-    if (NULL != c_ref) libxstream_memhst_deallocate(c_ref, stream);
+    if (NULL != a) libxstream_mem_host_deallocate(a, stream);
+    if (NULL != b) libxstream_mem_host_deallocate(b, stream);
+    if (NULL != c_oz) libxstream_mem_host_deallocate(c_oz, stream);
+    if (NULL != c_ref) libxstream_mem_host_deallocate(c_ref, stream);
     if (NULL != stream) libxstream_stream_destroy(stream);
     ozaki_destroy(&ctx);
     libxstream_finalize();

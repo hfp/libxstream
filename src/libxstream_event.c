@@ -109,7 +109,7 @@ int libxstream_event_query(libxstream_event_t* event, int* has_occurred) {
 }
 
 
-int libxstream_event_synchronize(libxstream_event_t* event) { /* waits on the host-side */
+int libxstream_event_sync(libxstream_event_t* event) { /* waits on the host-side */
   int result = EXIT_SUCCESS;
   cl_event clevent;
   assert(NULL != event);
@@ -130,7 +130,7 @@ int libxstream_event_synchronize(libxstream_event_t* event) { /* waits on the ho
     }
   }
   else if (3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
-    fprintf(stderr, "WARN ACC/OpenCL: libxstream_event_synchronize discovered an empty event.\n");
+    fprintf(stderr, "WARN ACC/OpenCL: libxstream_event_sync discovered an empty event.\n");
   }
   LIBXSTREAM_RETURN(result);
 }

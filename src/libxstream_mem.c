@@ -169,8 +169,8 @@ int libxstream_opencl_info_devptr(
 }
 
 
-int libxstream_memhst_deallocate_internal(void* /*host_ptr*/, cl_command_queue /*queue*/);
-int libxstream_memhst_deallocate_internal(void* host_ptr, cl_command_queue queue) {
+int libxstream_mem_host_deallocate_internal(void* /*host_ptr*/, cl_command_queue /*queue*/);
+int libxstream_mem_host_deallocate_internal(void* host_ptr, cl_command_queue queue) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_FAILURE;
 #  if (1 >= LIBXSTREAM_USM)
@@ -204,8 +204,9 @@ int libxstream_memhst_deallocate_internal(void* host_ptr, cl_command_queue queue
 }
 
 
-void* libxstream_memhst_allocate(size_t nbytes, libxstream_stream_t* stream) {
+int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, libxstream_stream_t* stream) {
   void* result_ptr = NULL;
+  assert(NULL != host_mem);
   if (0 != nbytes) {
     const libxstream_opencl_stream_t* str;
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
@@ -301,15 +302,16 @@ void* libxstream_memhst_allocate(size_t nbytes, libxstream_stream_t* stream) {
     if (NULL == result_ptr) {
       if (NULL != memory) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
       if (NULL != host_ptr) {
-        LIBXS_EXPECT(EXIT_SUCCESS == libxstream_memhst_deallocate_internal(host_ptr, str->queue));
+        LIBXS_EXPECT(EXIT_SUCCESS == libxstream_mem_host_deallocate_internal(host_ptr, str->queue));
       }
     }
   }
-  return result_ptr;
+  *host_mem = result_ptr;
+  return (NULL != result_ptr || 0 == nbytes) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 
-int libxstream_memhst_deallocate(void* host_mem, libxstream_stream_t* stream) {
+int libxstream_mem_host_deallocate(void* host_mem, libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   if (NULL != host_mem) {
     const libxstream_opencl_stream_t* const str = (NULL != stream ? stream : libxstream_opencl_stream_default());
@@ -317,7 +319,7 @@ int libxstream_memhst_deallocate(void* host_mem, libxstream_stream_t* stream) {
     assert(NULL != str);
     if (NULL == meminfo || NULL == meminfo->memory) { /* USM-pointer */
       assert(0 != libxstream_opencl_config.device.usm || NULL != libxstream_opencl_config.device.clMemFreeINTEL);
-      result = libxstream_memhst_deallocate_internal(host_mem, str->queue);
+      result = libxstream_mem_host_deallocate_internal(host_mem, str->queue);
     }
     else { /* info-augmented pointer */
       const libxstream_opencl_info_memptr_t info = *meminfo; /* copy meminfo prior to unmap */
@@ -325,7 +327,7 @@ int libxstream_memhst_deallocate(void* host_mem, libxstream_stream_t* stream) {
       void* host_ptr = NULL;
       assert(0 == libxstream_opencl_config.device.usm && NULL == libxstream_opencl_config.device.clMemFreeINTEL);
       if (EXIT_SUCCESS == clGetMemObjectInfo(info.memory, CL_MEM_HOST_PTR, sizeof(void*), &host_ptr, NULL) && NULL != host_ptr) {
-        result = libxstream_memhst_deallocate_internal(host_ptr, str->queue);
+        result = libxstream_mem_host_deallocate_internal(host_ptr, str->queue);
       }
       else { /* clReleaseMemObject later on synchronizes */
         result = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, NULL);
@@ -338,8 +340,8 @@ int libxstream_memhst_deallocate(void* host_mem, libxstream_stream_t* stream) {
 }
 
 
-void CL_CALLBACK libxstream_memcpy_notify(cl_event /*event*/, cl_int /*event_status*/, void* /*data*/);
-void CL_CALLBACK libxstream_memcpy_notify(cl_event event, cl_int event_status, void* data) {
+void CL_CALLBACK libxstream_mem_copy_notify(cl_event /*event*/, cl_int /*event_status*/, void* /*data*/);
+void CL_CALLBACK libxstream_mem_copy_notify(cl_event event, cl_int event_status, void* data) {
   int result = EXIT_SUCCESS;
   const double durdev = libxstream_opencl_duration(event, &result);
   cl_command_type type = CL_COMMAND_SVM_MEMCPY;
@@ -382,11 +384,12 @@ void CL_CALLBACK libxstream_memcpy_notify(cl_event event, cl_int event_status, v
 }
 
 
-void* libxstream_memdev_allocate(size_t nbytes) {
+int libxstream_mem_allocate(void** dev_mem, size_t nbytes) {
   /* assume no lock is needed to protect against context/device changes */
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   void* memptr = NULL;
+  assert(NULL != dev_mem);
 #  if !defined(LIBXSTREAM_ACTIVATE)
   if (NULL == devinfo->context) {
     LIBXS_EXPECT(EXIT_SUCCESS == libxstream_opencl_set_active_device(
@@ -490,11 +493,13 @@ void* libxstream_memdev_allocate(size_t nbytes) {
       memptr = NULL;
     }
   }
-  return memptr;
+  *dev_mem = memptr;
+  return (NULL != memptr || 0 == nbytes) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 
-void libxstream_memdev_deallocate(void* dev_mem) {
+int libxstream_mem_deallocate(void* dev_mem) {
+  int result = EXIT_SUCCESS;
   if (NULL != dev_mem) {
     assert(NULL != libxstream_opencl_config.device.context);
 #  if (1 >= LIBXSTREAM_USM)
@@ -530,10 +535,11 @@ void libxstream_memdev_deallocate(void* dev_mem) {
       LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     }
   }
+  LIBXSTREAM_RETURN(result);
 }
 
 
-int libxstream_memdev_set_ptr(void** dev_mem, void* other, size_t offset) {
+int libxstream_mem_offset(void** dev_mem, void* other, size_t offset) {
   int result = EXIT_SUCCESS;
   assert(NULL != dev_mem);
   if (NULL != other || 0 == offset) {
@@ -547,7 +553,7 @@ int libxstream_memdev_set_ptr(void** dev_mem, void* other, size_t offset) {
 }
 
 
-int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream) {
+int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
@@ -599,14 +605,14 @@ int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, li
       else result = EXIT_FAILURE;
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (NULL != event) { /* libxstream_memcpy_notify must be outside of locked region */
+    if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
       if (EXIT_SUCCESS == result) {
         void* const data = (void*)(nbytes | ((size_t)libxstream_event_kind_h2d) << 62);
         assert(NULL != libxstream_opencl_config.hist_h2d);
         if (!finish) { /* asynchronous */
-          result = clSetEventCallback(event, CL_COMPLETE, libxstream_memcpy_notify, data);
+          result = clSetEventCallback(event, CL_COMPLETE, libxstream_mem_copy_notify, data);
         }
-        else libxstream_memcpy_notify(event, CL_COMPLETE, data); /* synchronous */
+        else libxstream_mem_copy_notify(event, CL_COMPLETE, data); /* synchronous */
       }
       else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
@@ -615,10 +621,10 @@ int libxstream_memcpy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, li
 }
 
 
-/* like libxstream_memcpy_d2h, but apply some async workaround. */
-int libxstream_opencl_memcpy_d2h(const void* /*dev_mem*/, void* /*host_mem*/, size_t /*offset*/, size_t /*nbytes*/,
+/* like libxstream_mem_copy_d2h, but apply some async workaround. */
+int libxstream_opencl_mem_copy_d2h(const void* /*dev_mem*/, void* /*host_mem*/, size_t /*offset*/, size_t /*nbytes*/,
   cl_command_queue /*queue*/, int /*blocking*/, cl_event* /*event*/);
-int libxstream_opencl_memcpy_d2h(
+int libxstream_opencl_mem_copy_d2h(
   const void* dev_mem, void* host_mem, size_t offset, size_t nbytes, cl_command_queue queue, int blocking, cl_event* event) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
 #  if defined(LIBXSTREAM_ASYNC)
@@ -683,7 +689,7 @@ int libxstream_opencl_memcpy_d2h(
 }
 
 
-int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, libxstream_stream_t* stream) {
+int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   assert((NULL != dev_mem && NULL != host_mem) || 0 == nbytes);
   if (
@@ -707,22 +713,22 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, li
     assert(NULL != str);
     info = libxstream_opencl_info_devptr_modify(NULL, nconst.ptr, 1 /*elsize*/, &nbytes, &offset);
     if (NULL == info) { /* USM-pointer: info_devptr_modify returns NULL when USM is active */
-      result = libxstream_opencl_memcpy_d2h(
+      result = libxstream_opencl_mem_copy_d2h(
         dev_mem, host_mem, offset, nbytes, str->queue, finish, NULL == libxstream_opencl_config.hist_d2h ? NULL : &event);
     }
     else {
-      result = libxstream_opencl_memcpy_d2h(
+      result = libxstream_opencl_mem_copy_d2h(
         info->memory, host_mem, offset, nbytes, str->queue, finish, NULL == libxstream_opencl_config.hist_d2h ? NULL : &event);
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (NULL != event) { /* libxstream_memcpy_notify must be outside of locked region */
+    if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
       if (EXIT_SUCCESS == result) {
         void* const data = (void*)(nbytes | ((size_t)libxstream_event_kind_d2h) << 62);
         assert(NULL != libxstream_opencl_config.hist_d2h);
         if (!finish) { /* asynchronous */
-          result = clSetEventCallback(event, CL_COMPLETE, libxstream_memcpy_notify, data);
+          result = clSetEventCallback(event, CL_COMPLETE, libxstream_mem_copy_notify, data);
         }
-        else libxstream_memcpy_notify(event, CL_COMPLETE, data); /* synchronous */
+        else libxstream_mem_copy_notify(event, CL_COMPLETE, data); /* synchronous */
       }
       else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
@@ -731,7 +737,7 @@ int libxstream_memcpy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, li
 }
 
 
-int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, libxstream_stream_t* stream) {
+int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, libxstream_stream_t* stream) {
   int result = EXIT_SUCCESS;
   assert((NULL != devmem_src && NULL != devmem_dst) || 0 == nbytes);
   if (NULL != devmem_src && NULL != devmem_dst && devmem_src != devmem_dst && 0 != nbytes) {
@@ -782,18 +788,18 @@ int libxstream_memcpy_d2d(const void* devmem_src, void* devmem_dst, size_t nbyte
       else result = EXIT_FAILURE;
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (NULL != event) { /* libxstream_memcpy_notify must be outside of locked region */
+    if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
       if (EXIT_SUCCESS == result) {
         void* const data = (void*)(nbytes | ((size_t)libxstream_event_kind_d2d) << 62);
         if (NULL == pevent) { /* asynchronous */
           assert(NULL != libxstream_opencl_config.hist_d2d);
-          result = clSetEventCallback(event, CL_COMPLETE, libxstream_memcpy_notify, data);
+          result = clSetEventCallback(event, CL_COMPLETE, libxstream_mem_copy_notify, data);
         }
         else { /* synchronous */
           result = clWaitForEvents(1, &event);
           if (EXIT_SUCCESS == result) {
             if (NULL != libxstream_opencl_config.hist_d2d) {
-              libxstream_memcpy_notify(event, CL_COMPLETE, data);
+              libxstream_mem_copy_notify(event, CL_COMPLETE, data);
             }
             else result = clReleaseEvent(event);
           }
@@ -862,7 +868,7 @@ int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nby
 }
 
 
-int libxstream_memset_zero(void* dev_mem, size_t offset, size_t nbytes, libxstream_stream_t* stream) {
+int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbytes, libxstream_stream_t* stream) {
   return libxstream_opencl_memset(dev_mem, 0 /*value*/, offset, nbytes, stream);
 }
 
@@ -939,7 +945,7 @@ int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t*
 }
 
 
-int libxstream_memdev_info(size_t* mem_free, size_t* mem_total) {
+int libxstream_mem_info(size_t* mem_free, size_t* mem_total) {
   const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   int result;
   result = libxstream_opencl_info_devmem(device_id, mem_free, mem_total, NULL /*mem_local*/, NULL /*mem_unified*/);

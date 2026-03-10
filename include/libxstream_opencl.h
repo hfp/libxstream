@@ -192,7 +192,7 @@ struct libxstream_event_t {
   cl_event cl_evt;
 };
 
-/** Settings updated during libxstream_set_active_device. */
+/** Settings updated during libxstream_device_set_active. */
 typedef struct libxstream_opencl_device_t {
   /** Activated device context. */
   cl_context context;
@@ -255,7 +255,7 @@ typedef enum libxstream_opencl_atomic_fp_t {
 
 /**
  * Settings discovered/setup during libxstream_init (independent of the device)
- * and settings updated during libxstream_set_active_device (devinfo).
+ * and settings updated during libxstream_device_set_active (devinfo).
  */
 typedef struct libxstream_opencl_config_t {
   /** Table of ordered viable/discovered devices (matching criterion). */
@@ -332,7 +332,7 @@ int libxstream_opencl_info_devptr(
 const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, int thread_id);
 /** Determines default-stream (see libxstream_opencl_device_t::stream). */
 const libxstream_opencl_stream_t* libxstream_opencl_stream_default(void);
-/** Like libxstream_memset_zero, but supporting an arbitrary value used as initialization pattern. */
+/** Like libxstream_mem_zero, but supporting an arbitrary value used as initialization pattern. */
 int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, libxstream_stream_t* stream);
 /** Amount of device memory; local memory is only non-zero if separate from global. */
 int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
@@ -352,7 +352,7 @@ int libxstream_opencl_device_level(
 int libxstream_opencl_device_ext(cl_device_id device, const char* const extnames[], int num_exts);
 /** Create context for given device. */
 int libxstream_opencl_create_context(cl_device_id device_id, cl_context* context);
-/** Internal variant of libxstream_set_active_device. */
+/** Internal variant of libxstream_device_set_active. */
 int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id);
 /** Assemble flags to support atomic operations. */
 int libxstream_opencl_flags_atomics(const libxstream_opencl_device_t* devinfo, libxstream_opencl_atomic_fp_t kind,
@@ -373,7 +373,7 @@ int libxstream_opencl_kernel_flags(const char build_params[], const char build_o
 int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[], const char build_params[],
   const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], size_t num_exts,
   cl_kernel* kernel);
-/** Per-thread variant of libxstream_device_synchronize. */
+/** Per-thread variant of libxstream_device_sync. */
 int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id);
 /** To support USM, call this function for pointer arguments instead of clSetKernelArg. */
 int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value);

@@ -756,15 +756,15 @@ int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo) {
 }
 
 
-int libxstream_get_ndevices(int* ndevices) {
+int libxstream_device_count(int* ndevices) {
   int result;
 #  if defined(__DBCSR_ACC) /* lazy initialization */
-  /* DBCSR calls libxstream_get_ndevices before calling libxstream_init. */
+  /* DBCSR calls libxstream_device_count before calling libxstream_init. */
   result = libxstream_init();
   if (EXIT_SUCCESS == result)
 #  endif
   {
-    if (NULL != ndevices && 0 != libxstream_opencl_config.ndevices) {
+    if (NULL != ndevices) {
       *ndevices = (0 < libxstream_opencl_config.ndevices ? libxstream_opencl_config.ndevices : 0);
       result = EXIT_SUCCESS;
     }
@@ -1212,7 +1212,7 @@ int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
 }
 
 
-int libxstream_set_active_device(int device_id) {
+int libxstream_device_set_active(int device_id) {
   int result = EXIT_SUCCESS;
   if (0 <= device_id) {
 #  if defined(__DBCSR_ACC) && defined(__OFFLOAD_OPENCL)

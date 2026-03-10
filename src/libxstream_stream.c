@@ -273,7 +273,7 @@ int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id) {
 }
 
 
-int libxstream_device_synchronize(void) {
+int libxstream_device_sync(void) {
   int result = EXIT_SUCCESS;
 #  if defined(_OPENMP)
   if (1 == omp_get_num_threads()) {
