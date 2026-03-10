@@ -371,6 +371,24 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->kern_preprocess_b) clReleaseKernel(ctx->kern_preprocess_b);
     if (NULL != ctx->kern_dotprod)      clReleaseKernel(ctx->kern_dotprod);
 
+#if defined(OZAKI_DEVPOOL)
+    /* Free pool before helper streams: the pool deallocator may sync streams
+     * on the grow path.  Clear ctx->stream (caller-owned, possibly already
+     * destroyed) so the deallocator skips it during teardown. */
+    ctx->stream = NULL;
+    if (NULL != ctx->devpool) {
+      libxs_malloc_pool_t *const pool = (libxs_malloc_pool_t*)ctx->devpool;
+      if (0 > ctx->verbosity || 2 < ctx->verbosity) {
+        libxs_malloc_pool_info_t info;
+        if (EXIT_SUCCESS == libxs_malloc_pool_info(pool, &info)) {
+          const int size = (int)LIBXS_UPDIV(info.size, (size_t)1 << 20);
+          printf("POOL: size_mb=%i nmallocs=%lu\n", size,
+            (unsigned long int)info.nmallocs);
+        }
+      }
+      libxs_free_pool(pool);
+    }
+#endif
     /* Destroy persistent synchronization events */
     if (NULL != ctx->evt_prep_a) libxstream_event_destroy(ctx->evt_prep_a);
     if (NULL != ctx->evt_prep_b) libxstream_event_destroy(ctx->evt_prep_b);
@@ -379,10 +397,6 @@ void ozaki_destroy(ozaki_context_t* ctx)
     /* Destroy persistent helper streams */
     if (NULL != ctx->stream_a) libxstream_stream_destroy(ctx->stream_a);
     if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
-
-#if defined(OZAKI_DEVPOOL)
-    if (NULL != ctx->devpool) libxs_free_pool((libxs_malloc_pool_t*)ctx->devpool);
-#endif
     LIBXS_MEMZERO(ctx);
   }
 }
@@ -396,10 +410,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                double beta,        void* c, int ldc)
 {
   const libxstream_opencl_stream_t* str = stream;
-#if defined(OZAKI_DEVPOOL)
-  libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
-  ctx->stream = stream; /* expose to deallocate wrapper */
-#endif
   const int BM = ctx->bm, BN = ctx->bn, BK = ctx->bk;
   /* Pad B column stride so surface width >= 64 bytes (2D block I/O).
    * bf16: 2 bytes/elem, min 32 elements.  int8: 1 byte/elem, min 64. */
@@ -431,6 +441,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
   int batch;
+
+#if defined(OZAKI_DEVPOOL)
+  libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
+  ctx->stream = stream; /* expose to deallocate wrapper */
+#endif
+
   evt_dotprod[0] = ctx->evt_dotprod[0];
   evt_dotprod[1] = ctx->evt_dotprod[1];
 

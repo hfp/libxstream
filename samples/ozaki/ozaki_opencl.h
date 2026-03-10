@@ -11,7 +11,7 @@
 
 #include "libxstream_opencl.h"
 
-#if defined(OZAKI_DEVPOOL) && 1
+#if !defined(OZAKI_DEVPOOL) && 1
 # define OZAKI_DEVPOOL
 #endif
 
