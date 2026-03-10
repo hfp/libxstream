@@ -261,7 +261,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 
   if (0 > verbosity || 2 < verbosity) {
     fprintf(stderr, "INFO OZAKI: build params: %s\n", build_params);
-    fprintf(stderr, "INFO OZAKI: build options: %s\n", build_options);
   }
 
   /* JIT compile kernels via ACC */
@@ -305,9 +304,9 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     if (CL_SUCCESS == clGetKernelWorkGroupInfo(ctx->kern_dotprod, device,
       CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL))
     {
-      fprintf(stderr, "INFO OZAKI: dotprod-%s compiled for WG=%ux%ux%u\n",
+      fprintf(stderr, "INFO OZAKI: dotprod-%s compiled for WG=%ux%u\n",
         2 == kind ? "crt" : (use_bf16 ? "bf16" : "int8"),
-        LIBXS_CAST_UINT(wgs[0]), LIBXS_CAST_UINT(wgs[1]), LIBXS_CAST_UINT(wgs[2]));
+        LIBXS_CAST_UINT(wgs[0]), LIBXS_CAST_UINT(wgs[1]));
     }
     fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
     ozaki_print_opt(stderr, "kind", kind);
