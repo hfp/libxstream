@@ -87,7 +87,7 @@ eliminating per-call allocation overhead for repeated GEMM calls.  With the pool
 active, `ozaki_gemm` returns without synchronizing — the caller is responsible
 for syncing the stream.  On the rare grow path (larger problem size), the
 wrapped deallocator syncs all streams before reallocating.  The pool falls back
-to direct `libxstream_memdev_allocate` transparently if USM/SVM is not supported.
+to direct `libxstream_mem_allocate` transparently if USM/SVM is not supported.
 
 ## Build
 
