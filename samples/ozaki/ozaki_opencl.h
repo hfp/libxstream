@@ -64,10 +64,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
                int nslices, int batch_k,
                int ozflags, int oztrim);
 void ozaki_destroy(ozaki_context_t* ctx);
-/* ozaki_gemm enqueues the entire GEMM pipeline on stream.  When OZAKI_DEVPOOL
- * is active, device buffers are returned to the pool (no deallocation) and the
- * function returns without synchronizing — the caller must sync the stream.
- * Without a pool, ozaki_gemm synchronizes internally before returning.
+/* ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
+ * synchronizing — the caller must sync the stream before consuming the result.
  * Helper streams (ctx->stream_a/b) and events are kept persistent in the
  * context to avoid per-call creation overhead.  On the rare pool grow path
  * (larger problem size), the wrapped deallocator syncs all streams before

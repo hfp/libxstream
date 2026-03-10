@@ -182,21 +182,35 @@ int main(int argc, char* argv[])
 
   /* Reference BLAS GEMM */
   if (EXIT_SUCCESS == result) {
+    int i;
+    /* save original C (still in c_ref) into c_oz; the Ozaki result will
+     * be recomputed below for comparison after BLAS timing is done */
+    memcpy(c_oz, c_ref, (size_t)ldc * N * elem_size);
     t0 = libxs_timer_tick();
-    if (ctx.use_double) {
-      DGEMM(&transa, &transb, &M, &N, &K, &alpha, (const double*)a, &lda, (const double*)b, &ldb, &beta, (double*)c_ref, &ldc);
-    }
-    else {
-      float falpha = (float)alpha, fbeta = (float)beta;
-      SGEMM(&transa, &transb, &M, &N, &K, &falpha, (const float*)a, &lda, (const float*)b, &ldb, &fbeta, (float*)c_ref, &ldc);
+    for (i = 0; i < nrepeat; ++i) {
+      if (ctx.use_double) {
+        DGEMM(&transa, &transb, &M, &N, &K, &alpha, (const double*)a, &lda, (const double*)b, &ldb, &beta, (double*)c_ref, &ldc);
+      }
+      else {
+        const float falpha = (float)alpha, fbeta = (float)beta;
+        SGEMM(&transa, &transb, &M, &N, &K, &falpha, (const float*)a, &lda, (const float*)b, &ldb, &fbeta, (float*)c_ref, &ldc);
+      }
+      /* restore C before next iteration so beta does not accumulate */
+      if (i < nrepeat - 1) memcpy(c_ref, c_oz, (size_t)ldc * N * elem_size);
     }
     t1 = libxs_timer_tick();
-    printf("BLAS  GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
+    printf("BLAS  GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1) / nrepeat);
+  }
+
+  /* Recompute Ozaki GEMM once for accuracy comparison (c_oz holds original C) */
+  if (EXIT_SUCCESS == result) {
+    result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc);
+    libxstream_stream_sync(stream);
   }
 
   /* Compare */
   if (EXIT_SUCCESS == result) {
-    libxs_data_t dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
+    const libxs_data_t dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
     result = libxs_matdiff(&diff, dtype, M, N, c_ref, c_oz, &ldc, &ldc);
     if (EXIT_SUCCESS == result) {
       diff.r = nrepeat;

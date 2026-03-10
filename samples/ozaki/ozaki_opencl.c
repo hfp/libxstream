@@ -639,12 +639,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_dotprod[cur], stream);
   }
 
-  /* Read back result C; pool path skips sync (caller responsibility) */
+  /* Read back result C; caller is responsible for syncing the stream */
   if (EXIT_SUCCESS == result) result = libxstream_memcpy_d2h(d_c, c, c_nbytes, stream);
-#if defined(OZAKI_DEVPOOL)
-  if (NULL == pool) /* no pool: sync here; pool path: caller syncs */
-#endif
-  if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
 
   /* Return buffers to pool (no deallocation, no sync needed) or free directly */
   { int s;
