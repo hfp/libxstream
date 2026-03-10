@@ -341,10 +341,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       ctx->devpool = libxs_malloc_xpool(
         ozaki_dev_allocate, ozaki_dev_deallocate, 1);
     }
-    if (0 > verbosity || 2 < verbosity) {
-      fprintf(stderr, "INFO OZAKI: device memory pool %s\n",
-        NULL != ctx->devpool ? "enabled" : "unavailable (direct allocation)");
-    }
   }
 #endif
 
