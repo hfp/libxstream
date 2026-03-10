@@ -347,10 +347,10 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 
   /* OZAKI_PROF: kernel execution-time profiling */
   ctx->hist = NULL;
-  { const char* env = getenv("OZAKI_PROF");
-    if (NULL != env && '0' != *env) {
-      const libxs_hist_update_t update[] = { libxs_hist_avg };
-      libxs_hist_create(&ctx->hist, 3, 16, 1, update);
+  { const char* env_prof = getenv("OZAKI_PROF");
+    if (NULL != env_prof && '0' != *env_prof) {
+      const libxs_hist_update_t update[] = { libxs_hist_update_avg };
+      ctx->hist = libxs_hist_create(3, 1, update);
     }
   }
 
@@ -408,7 +408,7 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
     /* Report and destroy profiling histogram */
     if (NULL != ctx->hist) {
-      libxs_hist_print(stderr, ctx->hist, "OZAKI PROF (GFLOPS/s)", NULL, NULL);
+      libxs_hist_print(stderr, ctx->hist, "OZAKI PROF (GFLOPS/s)", NULL);
       libxs_hist_destroy(ctx->hist);
     }
     LIBXS_MEMZERO(ctx);
@@ -670,20 +670,19 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   /* Collect profiling data (forces synchronization) */
   if (NULL != evt_prof) {
     double total = 0;
-    int b;
+    int i;
     libxstream_stream_sync(stream);
     libxstream_stream_sync(stream_a);
     libxstream_stream_sync(stream_b);
-    for (b = 0; b < 3 * n_batches; ++b) {
-      if (NULL != evt_prof[b]) {
-        total += libxstream_opencl_duration(evt_prof[b], NULL);
-        clReleaseEvent(evt_prof[b]);
+    for (i = 0; i < 3 * n_batches; ++i) {
+      if (NULL != evt_prof[i]) {
+        total += libxstream_opencl_duration(evt_prof[i], NULL);
+        clReleaseEvent(evt_prof[i]);
       }
     }
     if (0 < total) {
       const double gflops = (2.0 * M * N * K) / (total * 1E9);
-      const double vals[] = { gflops };
-      libxs_hist_set(NULL, ctx->hist, vals);
+      libxs_hist_push(NULL, ctx->hist, &gflops);
     }
     free(evt_prof);
   }

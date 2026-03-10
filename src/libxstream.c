@@ -599,14 +599,11 @@ int libxstream_init(void) {
           1 <= libxstream_opencl_config.profile ||
           0 > libxstream_opencl_config.profile)
         {
-          const char* const env_qsize = getenv("LIBXSTREAM_PROFILE_QSIZE");
-          const int psize = (NULL == env_qsize ? 0 : atoi(env_qsize));
-          const int qsize = (0 >= psize ? 1024 : LIBXS_MIN(psize, 65536));
           const int profile = LIBXS_MAX(LIBXS_ABS(libxstream_opencl_config.profile), 2);
-          const libxs_hist_update_t update[] = {libxs_hist_avg, libxs_hist_add};
-          libxs_hist_create(&libxstream_opencl_config.hist_h2d, profile + 1, qsize, 2, update);
-          libxs_hist_create(&libxstream_opencl_config.hist_d2h, profile + 1, qsize, 2, update);
-          libxs_hist_create(&libxstream_opencl_config.hist_d2d, profile + 1, qsize, 2, update);
+          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_add};
+          libxstream_opencl_config.hist_h2d = libxs_hist_create(profile + 1, 2, update);
+          libxstream_opencl_config.hist_d2h = libxs_hist_create(profile + 1, 2, update);
+          libxstream_opencl_config.hist_d2d = libxs_hist_create(profile + 1, 2, update);
         }
         else {
           assert(NULL == libxstream_opencl_config.hist_h2d);
@@ -676,9 +673,9 @@ LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void) {
     const int precision[] = {0, 1};
     int i;
     LIBXS_STDIO_ACQUIRE();
-    libxs_hist_print(stderr, libxstream_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision, NULL /*adjust*/);
-    libxs_hist_print(stderr, libxstream_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision, NULL /*adjust*/);
-    libxs_hist_print(stderr, libxstream_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision, NULL /*adjust*/);
+    libxs_hist_print(stderr, libxstream_opencl_config.hist_h2d, "\nPROF ACC/OpenCL: H2D", precision);
+    libxs_hist_print(stderr, libxstream_opencl_config.hist_d2h, "\nPROF ACC/OpenCL: D2H", precision);
+    libxs_hist_print(stderr, libxstream_opencl_config.hist_d2d, "\nPROF ACC/OpenCL: D2D", precision);
     LIBXS_STDIO_RELEASE();
     for (i = 0; i < LIBXSTREAM_MAXNDEVS; ++i) {
       const cl_device_id device_id = libxstream_opencl_config.devices[i];
