@@ -346,8 +346,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 #endif
 
   /* Create persistent helper streams and synchronization events */
-  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", -1);
-  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", -1);
+  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", LIBXSTREAM_STREAM_DEFAULT);
+  if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", LIBXSTREAM_STREAM_DEFAULT);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[0]);

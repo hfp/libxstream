@@ -88,7 +88,18 @@ int c_dbcsr_acc_stream_priority_range(int* least, int* greatest) {
 int c_dbcsr_acc_stream_create(void** stream_p, const char* name, int priority) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
-  result = libxstream_stream_create((libxstream_stream_t**)stream_p, name, priority);
+#if defined(LIBXSTREAM_STREAM_PRIORITIES)
+  { int least = 0, greatest = 0, flags = LIBXSTREAM_STREAM_DEFAULT;
+    if (EXIT_SUCCESS == libxstream_stream_priority_range(&least, &greatest) && least != greatest) {
+      if (priority == greatest) flags = LIBXSTREAM_STREAM_HIGH;
+      else if (priority == least) flags = LIBXSTREAM_STREAM_LOW;
+    }
+    result = libxstream_stream_create((libxstream_stream_t**)stream_p, name, flags);
+  }
+#else
+  LIBXS_UNUSED(priority);
+  result = libxstream_stream_create((libxstream_stream_t**)stream_p, name, LIBXSTREAM_STREAM_DEFAULT);
+#endif
   LIBXSTREAM_PROFILE_END;
   return result;
 }

@@ -121,7 +121,7 @@ int main(int argc, char* argv[])
 
   /* Create own ACC stream (enables double-buffered transfers) */
   if (EXIT_SUCCESS == result) {
-    result = libxstream_stream_create(&stream, "ozaki_main", -1 /*default priority*/);
+    result = libxstream_stream_create(&stream, "ozaki_main", LIBXSTREAM_STREAM_DEFAULT);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "ERROR: failed to create ACC stream\n");
     }

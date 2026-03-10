@@ -31,10 +31,13 @@ int libxstream_device_set_active(int device_id);
 int libxstream_device_sync(void);
 
 /** streams */
-int libxstream_stream_priority_range(int* least, int* greatest);
-int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name,
-  /** lower number is higher priority */
-  int priority);
+typedef enum libxstream_stream_flags_t {
+  LIBXSTREAM_STREAM_DEFAULT   = 0,
+  LIBXSTREAM_STREAM_LOW       = 1,
+  LIBXSTREAM_STREAM_HIGH      = 2,
+  LIBXSTREAM_STREAM_PROFILING = 4
+} libxstream_stream_flags_t;
+int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, int flags);
 int libxstream_stream_destroy(libxstream_stream_t* stream);
 int libxstream_stream_sync(libxstream_stream_t* stream);
 int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t* event);

@@ -52,21 +52,25 @@ const libxstream_opencl_stream_t* libxstream_opencl_stream_default(void) {
 }
 
 
-int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, int priority) {
+int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, int flags) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   LIBXSTREAM_STREAM_PROPERTIES_TYPE properties[9] = {
     CL_QUEUE_PROPERTIES, 0 /*placeholder*/, 0 /* terminator */
   };
   int result, tid = 0, offset = 0;
   cl_command_queue queue = NULL;
+#  if defined(LIBXSTREAM_STREAM_PRIORITIES)
+  int priority = 0;
+#  endif
   assert(NULL != stream_p);
-#  if !defined(LIBXSTREAM_STREAM_PRIORITIES)
-  LIBXS_UNUSED(priority);
-#  else
-  if (CL_QUEUE_PRIORITY_HIGH_KHR <= priority && CL_QUEUE_PRIORITY_LOW_KHR >= priority) {
-    properties[3] = priority;
+#  if defined(LIBXSTREAM_STREAM_PRIORITIES)
+  if (0 != (LIBXSTREAM_STREAM_LOW & flags)) {
+    properties[3] = CL_QUEUE_PRIORITY_LOW_KHR;
   }
-  else {
+  else if (0 != (LIBXSTREAM_STREAM_HIGH & flags)) {
+    properties[3] = CL_QUEUE_PRIORITY_HIGH_KHR;
+  }
+  else { /* default: auto-detect from config and name */
     int least = -1, greatest = -1;
     if (0 != (1 & libxstream_opencl_config.priority) && EXIT_SUCCESS == libxstream_stream_priority_range(&least, &greatest) &&
         least != greatest)
@@ -113,7 +117,8 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
 #  endif
   {
     const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-    if (NULL != libxstream_opencl_config.hist_h2d || NULL != libxstream_opencl_config.hist_d2h ||
+    if (0 != (LIBXSTREAM_STREAM_PROFILING & flags) ||
+        NULL != libxstream_opencl_config.hist_h2d || NULL != libxstream_opencl_config.hist_d2h ||
         NULL != libxstream_opencl_config.hist_d2d)
     {
       properties[1] |= CL_QUEUE_PROFILING_ENABLE;

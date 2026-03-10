@@ -172,6 +172,8 @@
 extern "C" {
 #endif
 
+int libxstream_stream_priority_range(int* least, int* greatest);
+
 /** Rich type denoting an error. */
 typedef struct libxstream_opencl_error_t {
   const char* name;
