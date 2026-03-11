@@ -304,7 +304,10 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       "dotprod", build_params, build_options,
       NULL, NULL, NULL, 0, &ctx->kern_dotprod);
     if (EXIT_SUCCESS != result) {
-      if (0 != verbosity) fprintf(stderr, "ERROR: failed to build dotprod kernel\n");
+      if (0 > verbosity || 2 < verbosity) {
+        fprintf(stderr, "INFO OZAKI: dotprod kernel not available (GEMM path required)\n");
+      }
+      result = EXIT_SUCCESS; /* non-fatal: GEMM path can substitute */
     }
   }
 
@@ -320,18 +323,24 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   ctx->kern_gemm_crt_fused = NULL;
   ctx->kern_gemm_crt_scale_beta = NULL;
   { const char* env_gemm = getenv("OZAKI_GEMM");
-    int want_gemm = (use_xmx && !use_bf16) ? 1 : 0; /* default: on for int8+XMX (any kind) */
+    int want_gemm = !use_bf16 ? 1 : 0; /* default: on for int8 (any kind) */
     if (NULL != env_gemm) want_gemm = atoi(env_gemm);
-    if (want_gemm && use_xmx && !use_bf16 && 2 != kind) {
-      /* GEMM-mode block sizes */
-      const int gbm = 256, gbn = 256;
+    if (want_gemm && !use_bf16 && 2 != kind) {
+      /* GEMM-mode block sizes: fit SG * (gbm/8) * (gbn/16) <= max_wgs.
+       * gbm must be multiple of 8, gbn must be multiple of 16. */
+      const size_t max_wgs = devinfo->wgsize[0];
+      int gbm = 256, gbn = 256;
       const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
       char gemm_params[1024];
       char gemm_options[512];
       const int mant_bits      = use_double ? 52 : 23;
       const int bias_plus_mant = use_double ? 1075 : 150;
-      const int ntm = gbm / 8, ntn = gbn / 16;
+      int ntm, ntn;
       size_t goff = 0;
+      while ((size_t)gbm * gbn / 8 > max_wgs && (gbm > 8 || gbn > 16)) {
+        if (gbm >= gbn) gbm /= 2; else gbn /= 2;
+      }
+      ntm = gbm / 8; ntn = gbn / 16;
 
       /* 256-GRF for large register file (GEMM needs many regs) */
       if (0 != devinfo->intel) {
@@ -345,16 +354,20 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       }
 
       goff += (size_t)LIBXS_SNPRINTF(gemm_params + goff, sizeof(gemm_params) - goff,
-        "-DGPU -DBM=%d -DBN=%d -DBK=%d -DSG=%d"
+        "-DGPU -DBM=%d -DBN=%d -DBK=%d -DSG=16"
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DTRIANGULAR=%d -DCONSTANT=global",
-        gbm, gbn, bk_pre, sg,
+        gbm, gbn, bk_pre,
         nslices, use_double,
         mant_bits, bias_plus_mant,
         bm_pre, bn_pre, bk_pre,
         (ozflags & OZAKI_TRIANGULAR) ? 1 : 0);
+      if (use_xmx) {
+        goff += (size_t)LIBXS_SNPRINTF(gemm_params + goff, sizeof(gemm_params) - goff,
+          " -DUSE_XMX=1");
+      }
       (void)goff;
 
       if (0 > verbosity || 2 < verbosity) {
@@ -406,23 +419,33 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
         if (NULL != ctx->kern_gemm_fused)        { clReleaseKernel(ctx->kern_gemm_fused);        ctx->kern_gemm_fused = NULL; }
         if (NULL != ctx->kern_gemm_fused_sym)    { clReleaseKernel(ctx->kern_gemm_fused_sym);    ctx->kern_gemm_fused_sym = NULL; }
         if (NULL != ctx->kern_scale_beta)        { clReleaseKernel(ctx->kern_scale_beta);        ctx->kern_scale_beta = NULL; }
-        result = EXIT_SUCCESS; /* non-fatal: fall back to dotprod */
+        if (NULL != ctx->kern_dotprod) {
+          result = EXIT_SUCCESS; /* non-fatal: fall back to dotprod */
+        }
+        else {
+          if (0 != verbosity) fprintf(stderr, "ERROR: no usable kernel path\n");
+        }
       }
     }
     /* CRT GEMM (kind==2): single fused kernel per tile, all primes internal */
-    if (want_gemm && use_xmx && !use_bf16 && 2 == kind && 0 == ctx->use_gemm) {
-      const int gbm = 256, gbn = 256;
+    if (want_gemm && !use_bf16 && 2 == kind && 0 == ctx->use_gemm) {
+      const size_t max_wgs = devinfo->wgsize[0];
+      int gbm = 256, gbn = 256;
       const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
       char crt_params[1024];
       char crt_options[512];
       const int mant_bits      = use_double ? 52 : 23;
       const int bias_plus_mant = use_double ? 1075 : 150;
-      const int ntm = gbm / 8, ntn = gbn / 16;
+      int ntm, ntn;
       /* KGROUP_CRT: intermediate mod reduction every kgroup_crt*BK steps.
        * 0 = no intermediate reductions (safe for K <= ~133K).
        * For large K, set KGROUP_CRT = 4096/BK = 128 (safe up to any K). */
       int kgroup_crt = 0;
       size_t coff = 0;
+      while ((size_t)gbm * gbn / 8 > max_wgs && (gbm > 8 || gbn > 16)) {
+        if (gbm >= gbn) gbm /= 2; else gbn /= 2;
+      }
+      ntm = gbm / 8; ntn = gbn / 16;
 
       { const char* env_kg = getenv("OZAKI_KGROUP_CRT");
         if (NULL != env_kg) kgroup_crt = atoi(env_kg);
@@ -439,16 +462,20 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       }
 
       coff += (size_t)LIBXS_SNPRINTF(crt_params + coff, sizeof(crt_params) - coff,
-        "-DGPU -DBM=%d -DBN=%d -DBK=%d -DSG=%d"
+        "-DGPU -DBM=%d -DBN=%d -DBK=%d -DSG=16"
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DKGROUP_CRT=%d -DCONSTANT=global",
-        gbm, gbn, bk_pre, sg,
+        gbm, gbn, bk_pre,
         nslices, use_double,
         mant_bits, bias_plus_mant,
         bm_pre, bn_pre, bk_pre,
         kgroup_crt);
+      if (use_xmx) {
+        coff += (size_t)LIBXS_SNPRINTF(crt_params + coff, sizeof(crt_params) - coff,
+          " -DUSE_XMX=1");
+      }
       (void)coff;
 
       if (0 > verbosity || 2 < verbosity) {
@@ -493,7 +520,12 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
         if (NULL != ctx->kern_gemm_crt_preprocess_b) { clReleaseKernel(ctx->kern_gemm_crt_preprocess_b); ctx->kern_gemm_crt_preprocess_b = NULL; }
         if (NULL != ctx->kern_gemm_crt_fused)        { clReleaseKernel(ctx->kern_gemm_crt_fused);        ctx->kern_gemm_crt_fused = NULL; }
         if (NULL != ctx->kern_gemm_crt_scale_beta)   { clReleaseKernel(ctx->kern_gemm_crt_scale_beta);   ctx->kern_gemm_crt_scale_beta = NULL; }
-        result = EXIT_SUCCESS; /* non-fatal: fall back to dotprod */
+        if (NULL != ctx->kern_dotprod) {
+          result = EXIT_SUCCESS; /* non-fatal: fall back to dotprod */
+        }
+        else {
+          if (0 != verbosity) fprintf(stderr, "ERROR: no usable kernel path\n");
+        }
       }
     }
   }
@@ -501,7 +533,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   /* Report compiled kernel info */
   if (EXIT_SUCCESS == result && (0 > verbosity || 2 < verbosity)) {
     size_t wgs[3] = {0};
-    if (CL_SUCCESS == clGetKernelWorkGroupInfo(ctx->kern_dotprod, device,
+    if (NULL != ctx->kern_dotprod && CL_SUCCESS == clGetKernelWorkGroupInfo(ctx->kern_dotprod, device,
       CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL))
     {
       fprintf(stderr, "INFO OZAKI: dotprod-%s compiled for WG=%ux%u\n",
@@ -761,10 +793,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       const libxstream_opencl_stream_t* str_a = stream_a;
       size_t global_a[2], local_a[2];
       const int nblk_m_pre = (M + BM_PRE - 1) / BM_PRE;
-      const int nblk_k_pre = (K + BK_PRE - 1) / BK_PRE;
       local_a[0] = BM_PRE; local_a[1] = BK_PRE;
       global_a[0] = (size_t)nblk_m_pre * BM_PRE;
-      global_a[1] = (size_t)nblk_k_pre * BK_PRE;
+      global_a[1] = BK_PRE; /* single WG in K: kernel loops internally */
       { cl_int i = 0;
         CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_preprocess_a, i++, d_ag));
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_preprocess_a, i++, sizeof(int), &M));
@@ -785,10 +816,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       const libxstream_opencl_stream_t* str_b = stream_b;
       size_t global_b[2], local_b[2];
       const int nblk_n_pre = (N + BN_PRE - 1) / BN_PRE;
-      const int nblk_k_pre = (K + BK_PRE - 1) / BK_PRE;
       local_b[0] = BN_PRE; local_b[1] = BK_PRE;
       global_b[0] = (size_t)nblk_n_pre * BN_PRE;
-      global_b[1] = (size_t)nblk_k_pre * BK_PRE;
+      global_b[1] = BK_PRE; /* single WG in K: kernel loops internally */
       { cl_int i = 0;
         CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_preprocess_b, i++, d_bg));
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_preprocess_b, i++, sizeof(int), &N));
@@ -835,7 +865,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     }
 
     /* Tiled GEMM per slice pair */
-    first_pair = 1;
+    first_pair = (0.0 == beta) ? 1 : 0;
     for (sa = 0; sa < nslices_g && sa <= cutoff && EXIT_SUCCESS == result; ++sa) {
       const int sb_start = triangular ? sa : 0;
       const int sb_end_raw = cutoff + 1 - sa;
@@ -846,7 +876,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         const size_t bs_offset_sb = (size_t)sb * K_pad * N_pad;
 
         size_t global_g[2], local_g[2];
-        local_g[0] = (size_t)ctx->sg;
+        local_g[0] = 16; /* GEMM tile decomposition requires SG=16 */
         local_g[1] = (size_t)(ntm * ntn);
         global_g[0] = (size_t)nblk_gm * local_g[0];
         global_g[1] = (size_t)nblk_gn * local_g[1];
@@ -993,10 +1023,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       const libxstream_opencl_stream_t* str_a = stream_a;
       size_t global_a[2], local_a[2];
       const int nblk_m_pre = (M + BM_PRE - 1) / BM_PRE;
-      const int nblk_k_pre = (K + BK_PRE - 1) / BK_PRE;
       local_a[0] = BM_PRE; local_a[1] = BK_PRE;
       global_a[0] = (size_t)nblk_m_pre * BM_PRE;
-      global_a[1] = (size_t)nblk_k_pre * BK_PRE;
+      global_a[1] = BK_PRE; /* single WG in K: kernel loops internally */
       { cl_int i = 0;
         CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_preprocess_a, i++, d_ag));
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_a, i++, sizeof(int), &M));
@@ -1017,10 +1046,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       const libxstream_opencl_stream_t* str_b = stream_b;
       size_t global_b[2], local_b[2];
       const int nblk_n_pre = (N + BN_PRE - 1) / BN_PRE;
-      const int nblk_k_pre = (K + BK_PRE - 1) / BK_PRE;
       local_b[0] = BN_PRE; local_b[1] = BK_PRE;
       global_b[0] = (size_t)nblk_n_pre * BN_PRE;
-      global_b[1] = (size_t)nblk_k_pre * BK_PRE;
+      global_b[1] = BK_PRE; /* single WG in K: kernel loops internally */
       { cl_int i = 0;
         CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_preprocess_b, i++, d_bg));
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_b, i++, sizeof(int), &N));
@@ -1066,10 +1094,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     }
 
     /* Single fused CRT GEMM: one launch per output tile covers all primes */
-    first_tile = 1;
+    first_tile = (0.0 == beta) ? 1 : 0;
     if (EXIT_SUCCESS == result) {
       size_t global_g[2], local_g[2];
-      local_g[0] = (size_t)ctx->sg;
+      local_g[0] = 16; /* GEMM tile decomposition requires SG=16 */
       local_g[1] = (size_t)(GBM / 8) * (size_t)(GBN / 16);
       global_g[0] = (size_t)nblk_gm * local_g[0];
       global_g[1] = (size_t)nblk_gn * local_g[1];
