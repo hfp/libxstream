@@ -82,7 +82,7 @@ typedef struct ozaki_context_t {
   int use_double;  /* 1: fp64, 0: fp32 */
   int use_bf16;    /* derived: 1 = bf16 Dekker slices, 0 = int8 mantissa slices */
   int use_xmx;     /* 1: hardware matrix multiply (DPAS/XMX) */
-  int use_gemm;    /* 1: use tiled GEMM path (requires use_xmx) */
+  int use_gemm;    /* 1: Scheme-1 GEMM, 2: CRT GEMM (scalar emulation if !use_xmx) */
   int sg;          /* sub-group size used for compilation */
   int nslices;
   int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT), 3: ozaki1 bf16 */

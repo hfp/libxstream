@@ -22,14 +22,20 @@
 # define CONSTANT global
 #endif
 
-/* One DPAS step: 2D block read + int8x8->int32 MAD.
+/* One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
+ * Each work-item holds 8 rows; the column is get_sub_group_local_id().
  *
+ * XMX path:
  *   int8 intel_sub_group_i8_i8_matrix_mad_k32(short8 a, int8 b, int8 acc)
  *   A tile: 8 rows x 32 cols  (read as ushort8 via 2D block read)
  *   B tile: 32 rows x 16 cols (read with VNNI transform via 2D block read)
  *   C tile: 8 x 16 int32      (int8 per WI — 8 rows, sg_lid selects column)
+ *   2D block I/O requires SG=16 and surface pitch >= 64 bytes.
  *
- * 2D block I/O requires SG=16 and surface pitch >= 64 bytes. */
+ * Scalar path (USE_XMX not defined):
+ *   Same 8x32x16 tile contract via explicit loops.
+ *   Allows the GEMM kernels to run on hardware without DPAS/2D block I/O. */
+#if defined(USE_XMX) && (0 < USE_XMX)
 #define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
     ushort8 a_blk_; \
@@ -43,6 +49,25 @@
     (ACC) = intel_sub_group_i8_i8_matrix_mad_k32( \
                 as_short8(a_blk_), as_int8(b_blk_), (ACC)); \
   } while (0)
+#else
+#define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  do { \
+    const int col_ = (NJ) + (int)get_sub_group_local_id(); \
+    union { int8 v_; int a_[8]; } u_; \
+    int m_; \
+    u_.v_ = (ACC); \
+    for (m_ = 0; m_ < 8; ++m_) { \
+      int k_; \
+      for (k_ = 0; k_ < 32; ++k_) { \
+        u_.a_[m_] += (int)((CONSTANT const char*)(AS)) \
+            [(long)((MI) + m_) * (K_PAD) + (KOFF) + k_] \
+          * (int)((CONSTANT const char*)(BS)) \
+            [(long)((KOFF) + k_) * (N_PAD) + col_]; \
+      } \
+    } \
+    (ACC) = u_.v_; \
+  } while (0)
+#endif
 
 
 /* Decompose an IEEE-754 value into sign, biased exponent, and implicit-1 mantissa.

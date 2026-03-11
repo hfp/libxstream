@@ -146,6 +146,8 @@
  * K_pad must be >= 64 for 2D block I/O alignment.
  *
  * Work-group: (BM_PRE, BK_PRE, 1).
+ * Dispatch: global_a[1] = BK_PRE (single WG in K) — the kernel loops
+ * over K internally so that the local max exponent IS the global max.
  */
 __attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG)
@@ -155,50 +157,46 @@ kernel void preprocess_a_dense(
   CONSTANT const real_t* restrict a,
   int M, int K, int lda, int transa,
   global char* restrict as,       /* [NSLICES * M_pad * K_pad] */
-  global short* restrict expa,    /* [M] per-row max exponent */
+  global int* restrict expa,      /* [M] per-row max exponent (int for atomic_max) */
   int K_pad,                      /* padded K stride (>= 64) */
   int M_pad)                      /* padded M = nblk_m * BM_PRE */
 {
-  const int mi   = (int)get_local_id(0);
-  const int kk   = (int)get_local_id(1);
-  const int ib   = (int)get_group_id(0) * BM_PRE;
-  const int kb   = (int)get_group_id(1) * BK_PRE;
-  const int row  = ib + mi;
-  const int col  = kb + kk;
+  const int mi  = (int)get_local_id(0);
+  const int kk  = (int)get_local_id(1);
+  const int row = (int)get_group_id(0) * BM_PRE + mi;
+  int col;
 
   local int row_max_exp[BM_PRE];
-
-  short elem_exp = 0;
-  uint_repr_t elem_mant = 0;
-  int elem_sign = 0;
-
-  if (row < M && col < K) {
-    const int idx = transa ? (row * lda + col) : (col * lda + row);
-    ieee_decompose(a[idx], &elem_sign, &elem_exp, &elem_mant);
-  }
-
-  /* Per-row max exponent reduction across K within work-group */
   if (0 == kk) row_max_exp[mi] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
-  if (row < M && col < K && elem_exp > 0) {
-    atomic_max(&row_max_exp[mi], (int)elem_exp);
+
+  /* Pass 1: find max exponent across ALL of K for this row */
+  for (col = kk; col < K; col += BK_PRE) {
+    if (row < M) {
+      int s0; short e0; uint_repr_t m0;
+      const int idx = transa ? (row * lda + col) : (col * lda + row);
+      ieee_decompose(a[idx], &s0, &e0, &m0);
+      if (e0 > 0) atomic_max(&row_max_exp[mi], (int)e0);
+    }
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /* Write row max exponent (global atomic for cross-WG reduction) */
-  if (0 == kk && row < M) {
-    atomic_max((global volatile int*)(expa + row), (int)(short)row_max_exp[mi]);
-  }
+  /* Write global max exponent (single WG in K, so local == global) */
+  if (0 == kk && row < M) expa[row] = row_max_exp[mi];
 
-  /* Compute and store int8 slices into dense layout */
-  if (row < M && col < K && elem_mant != 0) {
+  /* Pass 2: compute and store int8 slices using the true max exponent */
+  if (row < M) {
     const short max_exp = (short)row_max_exp[mi];
-    const int shift = (int)(max_exp - elem_exp);
-    const uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
-    OZAKI_EXTRACT_SLICES(aligned, elem_sign, as, M_pad * K_pad, K_pad, row, col);
-  }
-  else if (col < K) {
-    OZAKI_ZERO_SLICES(as, M_pad * K_pad, K_pad, row, col);
+    for (col = kk; col < K; col += BK_PRE) {
+      int s1; short e1; uint_repr_t m1;
+      const int idx = transa ? (row * lda + col) : (col * lda + row);
+      ieee_decompose(a[idx], &s1, &e1, &m1);
+      if (m1 != 0) {
+        const int shift = (int)(max_exp - e1);
+        const uint_repr_t aligned = (shift < MANT_BITS) ? (m1 >> shift) : 0;
+        OZAKI_EXTRACT_SLICES(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
+      }
+    }
   }
 }
 
@@ -215,6 +213,7 @@ kernel void preprocess_a_dense(
  * height = K_pad rows.  N_pad >= 64 required.
  *
  * Work-group: (BN_PRE, BK_PRE, 1).
+ * Dispatch: global_b[1] = BK_PRE (single WG in K) — loops internally.
  */
 __attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG)
@@ -224,49 +223,46 @@ kernel void preprocess_b_dense(
   CONSTANT const real_t* restrict b,
   int N, int K, int ldb, int transb,
   global char* restrict bs,       /* [NSLICES * K_pad * N_pad] */
-  global short* restrict expb,    /* [N] per-column max exponent */
+  global int* restrict expb,      /* [N] per-column max exponent (int for atomic_max) */
   int K_pad,
   int N_pad)
 {
-  const int nj   = (int)get_local_id(0);
-  const int kk   = (int)get_local_id(1);
-  const int jb   = (int)get_group_id(0) * BN_PRE;
-  const int kb   = (int)get_group_id(1) * BK_PRE;
-  const int col  = jb + nj;
-  const int row  = kb + kk;
+  const int nj  = (int)get_local_id(0);
+  const int kk  = (int)get_local_id(1);
+  const int col = (int)get_group_id(0) * BN_PRE + nj;
+  int row;
 
   local int col_max_exp[BN_PRE];
-
-  short elem_exp = 0;
-  uint_repr_t elem_mant = 0;
-  int elem_sign = 0;
-
-  if (row < K && col < N) {
-    const int idx = transb ? (row * ldb + col) : (col * ldb + row);
-    ieee_decompose(b[idx], &elem_sign, &elem_exp, &elem_mant);
-  }
-
   if (0 == kk) col_max_exp[nj] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
-  if (row < K && col < N && elem_exp > 0) {
-    atomic_max(&col_max_exp[nj], (int)elem_exp);
+
+  /* Pass 1: find max exponent across ALL of K for this column */
+  for (row = kk; row < K; row += BK_PRE) {
+    if (col < N) {
+      int s0; short e0; uint_repr_t m0;
+      const int idx = transb ? (row * ldb + col) : (col * ldb + row);
+      ieee_decompose(b[idx], &s0, &e0, &m0);
+      if (e0 > 0) atomic_max(&col_max_exp[nj], (int)e0);
+    }
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /* Write column max exponent (global atomic for cross-WG reduction) */
-  if (0 == kk && col < N) {
-    atomic_max((global volatile int*)(expb + col), (int)(short)col_max_exp[nj]);
-  }
+  /* Write global max exponent */
+  if (0 == kk && col < N) expb[col] = col_max_exp[nj];
 
-  /* Compute and store int8 slices into dense K-major layout */
-  if (row < K && col < N && elem_mant != 0) {
+  /* Pass 2: compute and store int8 slices using the true max exponent */
+  if (col < N) {
     const short max_exp = (short)col_max_exp[nj];
-    const int shift = (int)(max_exp - elem_exp);
-    const uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
-    OZAKI_EXTRACT_SLICES(aligned, elem_sign, bs, K_pad * N_pad, N_pad, row, col);
-  }
-  else if (row < K) {
-    OZAKI_ZERO_SLICES(bs, K_pad * N_pad, N_pad, row, col);
+    for (row = kk; row < K; row += BK_PRE) {
+      int s1; short e1; uint_repr_t m1;
+      const int idx = transb ? (row * ldb + col) : (col * ldb + row);
+      ieee_decompose(b[idx], &s1, &e1, &m1);
+      if (m1 != 0) {
+        const int shift = (int)(max_exp - e1);
+        const uint_repr_t aligned = (shift < MANT_BITS) ? (m1 >> shift) : 0;
+        OZAKI_EXTRACT_SLICES(aligned, s1, bs, K_pad * N_pad, N_pad, row, col);
+      }
+    }
   }
 }
 
@@ -293,8 +289,8 @@ __attribute__((intel_reqd_sub_group_size(SG)))
 kernel void gemm_fused(
   CONSTANT const char* restrict as_base,    /* As[sa]: M_pad x K_pad */
   CONSTANT const char* restrict bs_base,    /* Bs[sb]: K_pad x N_pad */
-  CONSTANT const short* restrict expa,      /* [M] per-row max exponent */
-  CONSTANT const short* restrict expb,      /* [N] per-col max exponent */
+  CONSTANT const int* restrict expa,        /* [M] per-row max exponent */
+  CONSTANT const int* restrict expb,        /* [N] per-col max exponent */
   global real_t* restrict c,                /* [M x N] column-major, ldc */
   int M, int N, int K_pad, int N_pad, int ldc,
   real_t alpha,
@@ -342,8 +338,8 @@ kernel void gemm_fused_sym(
   CONSTANT const char* restrict bs_sb,      /* Bs[sb]: K_pad x N_pad */
   CONSTANT const char* restrict as_sb,      /* As[sb]: M_pad x K_pad */
   CONSTANT const char* restrict bs_sa,      /* Bs[sa]: K_pad x N_pad */
-  CONSTANT const short* restrict expa,
-  CONSTANT const short* restrict expb,
+  CONSTANT const int* restrict expa,
+  CONSTANT const int* restrict expb,
   global real_t* restrict c,
   int M, int N, int K_pad, int N_pad, int ldc,
   real_t alpha,
