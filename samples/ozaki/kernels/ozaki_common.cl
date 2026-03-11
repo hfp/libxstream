@@ -22,6 +22,11 @@
 # define CONSTANT global
 #endif
 
+/* Small integer type for loop counters (states value range) */
+#if !defined(SINT)
+# define SINT signed char
+#endif
+
 /* One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
  * Each work-item holds 8 rows; the column is get_sub_group_local_id().
  *
@@ -95,6 +100,7 @@ inline void ieee_decompose(real_t val, int* sign, short* exp, uint_repr_t* mant)
  * The mantissa ALIGNED is already right-shifted by (max_exp - elem_exp).
  * Returns a signed char: the digit with sign applied if SIGN != 0.
  * MANT_BITS must be defined by the including file. */
+#if defined(MANT_BITS)
 inline char ozaki_slice_digit(uint_repr_t aligned, int sign, int s)
 {
   const int high = MANT_BITS - (7 * s);
@@ -107,5 +113,6 @@ inline char ozaki_slice_digit(uint_repr_t aligned, int sign, int s)
   if (sign) digit = -digit;
   return digit;
 }
+#endif /*defined(MANT_BITS)*/
 
 #endif /*OZAKI_COMMON_CL*/

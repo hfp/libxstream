@@ -60,10 +60,6 @@
 #if !defined(SG)
 # define SG 16
 #endif
-#if !defined(SINT)
-# define SINT signed char
-#endif
-
 #if !defined(OZ2_HORNER_GROUP)
 # define OZ2_HORNER_GROUP 9
 #endif

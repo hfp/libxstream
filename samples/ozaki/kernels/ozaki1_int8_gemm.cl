@@ -78,10 +78,6 @@
 # define BN_B_PAD 64
 #endif
 
-#if !defined(SINT)
-# define SINT signed char
-#endif
-
 
 /* Composable macros (DBM-style factoring).
  * Each is a do{...}while(0) block for use in kernel functions. */

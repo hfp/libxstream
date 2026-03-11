@@ -97,11 +97,6 @@
     ((((long)(panel) * BN + (nj)) * NPRIMES + (pidx)) * BK + (kk))
 #endif
 
-/* Small integer type for loop counters (states value range) */
-#if !defined(SINT)
-# define SINT signed char
-#endif
-
 /* CRT moduli table: 18 pairwise coprime moduli <= 128.
  * Product of 17 moduli ~ 2^112 > 2^111 (sufficient for fp64).
  * Includes prime powers (128=2^7, 125=5^3, 121=11^2, 81=3^4)

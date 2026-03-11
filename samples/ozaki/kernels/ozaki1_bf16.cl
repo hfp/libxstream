@@ -7,6 +7,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "../../../include/opencl/libxstream_common.h"
+#include "ozaki_common.cl"
 
 /* Ozaki Scheme 3 (bf16): Dekker-splitting GEMM via OpenCL.
  *
@@ -57,14 +58,7 @@
 #if !defined(TRIM)
 # define TRIM 0
 #endif
-#if !defined(CONSTANT)
-# define CONSTANT global
-#endif
 
-/* Small integer type for loop counters (states value range) */
-#if !defined(SINT)
-# define SINT signed char
-#endif
 
 
 /* XMX (hardware matrix multiply-accumulate) definitions */

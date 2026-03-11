@@ -60,11 +60,6 @@
 # define TRIM 0
 #endif
 
-/* Small integer type for loop counters (states value range) */
-#if !defined(SINT)
-# define SINT signed char
-#endif
-
 /* Reinterpret a floating-point value as its unsigned integer representation.
  * real_t, uint_repr_t, EXP_MASK, and AS_UINT are defined in libxstream_common.h. */
 
