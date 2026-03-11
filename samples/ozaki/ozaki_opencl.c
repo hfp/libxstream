@@ -430,11 +430,24 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   const int max_nkb = (BATCH_K < nkb_total) ? BATCH_K : nkb_total;
   const int kgroup = ctx->kgroup; /* K-grouping factor (1 = no grouping) */
   const int n_batches = (0 < K) ? ((nkb_total + BATCH_K - 1) / BATCH_K) : 0;
+  /* Hoisted buffer sizes (used by both device and host staging allocation) */
+  const size_t slice_elem = ctx->use_bf16 ? 2 : 1; /* ushort vs char */
+  const size_t ak_max_size = (size_t)max_nkb * nblk_m * BM * nslices * BK * slice_elem;
+  const size_t bk_max_size = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
+  const int max_ngroups = (max_nkb + kgroup - 1) / kgroup;
+  const size_t expa_max_size = ctx->use_bf16 ? 0 : (size_t)max_ngroups * nblk_m * BM * sizeof(cl_short);
+  const size_t expb_max_size = ctx->use_bf16 ? 0 : (size_t)max_ngroups * nblk_n * BN * sizeof(cl_short);
+  /* Host-side preprocessing flags */
+  const int host_a = (NULL != ctx->host_preprocess_a) ? 1 : 0;
+  const int host_b = (NULL != ctx->host_preprocess_b) ? 1 : 0;
   /* Device buffers for input matrices */
   void *d_a = NULL, *d_b = NULL, *d_c = NULL;
   /* Double-buffered preprocessing buffers (2 slots) */
   void *d_ak[2] = {NULL, NULL}, *d_expa[2] = {NULL, NULL};
   void *d_bk[2] = {NULL, NULL}, *d_expb[2] = {NULL, NULL};
+  /* Host staging buffers for host-side preprocessing (double-buffered) */
+  void *h_ak[2] = {NULL, NULL}, *h_expa[2] = {NULL, NULL};
+  void *h_bk[2] = {NULL, NULL}, *h_expb[2] = {NULL, NULL};
 
   /* Persistent helper streams and events from context */
   libxstream_stream_t *stream_a = ctx->stream_a;
@@ -457,37 +470,53 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   evt_dotprod[0] = ctx->evt_dotprod[0];
   evt_dotprod[1] = ctx->evt_dotprod[1];
 
-  /* Allocate device memory for A, B, C */
-  { size_t a_cols = ta ? (size_t)M : (size_t)K;
-    size_t b_cols = tb ? (size_t)K : (size_t)N;
-    size_t a_nbytes = (size_t)lda * a_cols * elem_size;
-    size_t b_nbytes = (size_t)ldb * b_cols * elem_size;
-    c_nbytes = (size_t)ldc * (size_t)N * elem_size;
-
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_a, a_nbytes);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b, b_nbytes);
+  /* Allocate device memory for A, B, C.
+   * When host preprocessing is active for a side, the full matrix is not
+   * needed on device — only the preprocessed slice buffers are transferred.
+   * C is always needed on device for beta-scaling and result accumulation. */
+  { c_nbytes = (size_t)ldc * (size_t)N * elem_size;
+    if (0 == host_a) {
+      const size_t a_cols = ta ? (size_t)M : (size_t)K;
+      const size_t a_nbytes = (size_t)lda * a_cols * elem_size;
+      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_a, a_nbytes);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(a, d_a, a_nbytes, stream_a);
+    }
+    if (0 == host_b) {
+      const size_t b_cols = tb ? (size_t)K : (size_t)N;
+      const size_t b_nbytes = (size_t)ldb * b_cols * elem_size;
+      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b, b_nbytes);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(b, d_b, b_nbytes, stream_b);
+    }
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_c, c_nbytes);
-    /* Overlapped H2D: A via stream_a, B via stream_b, C via main */
-    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(a, d_a, a_nbytes, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(b, d_b, b_nbytes, stream_b);
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_c, c_nbytes, stream);
   }
 
   /* Pre-allocate double-buffered preprocessing buffers (max batch size) */
   if (EXIT_SUCCESS == result) {
-    const size_t slice_elem = ctx->use_bf16 ? 2 : 1; /* ushort vs char */
-    const size_t ak_size = (size_t)max_nkb * nblk_m * BM * nslices * BK * slice_elem;
-    const size_t bk_size = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
     int s;
     for (s = 0; s < 2 && s < n_batches; ++s) {
-      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ak[s], ak_size);
-      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bk[s], bk_size);
-      if (!ctx->use_bf16) {
-        const int max_ngroups = (max_nkb + kgroup - 1) / kgroup;
-        const size_t expa_size = (size_t)max_ngroups * nblk_m * BM * sizeof(cl_short);
-        const size_t expb_size = (size_t)max_ngroups * nblk_n * BN * sizeof(cl_short);
-        if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa[s], expa_size);
-        if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb[s], expb_size);
+      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ak[s], ak_max_size);
+      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bk[s], bk_max_size);
+      if (0 < expa_max_size) {
+        if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa[s], expa_max_size);
+        if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb[s], expb_max_size);
+      }
+    }
+  }
+
+  /* Allocate host staging buffers for host-side preprocessing */
+  if (EXIT_SUCCESS == result && (0 != host_a || 0 != host_b)) {
+    int s;
+    for (s = 0; s < 2 && s < n_batches; ++s) {
+      if (0 != host_a) {
+        h_ak[s] = calloc(1, ak_max_size);
+        if (0 < expa_max_size) h_expa[s] = calloc(1, expa_max_size);
+        if (NULL == h_ak[s]) result = EXIT_FAILURE;
+      }
+      if (0 != host_b) {
+        h_bk[s] = calloc(1, bk_max_size);
+        if (0 < expb_max_size) h_expb[s] = calloc(1, expb_max_size);
+        if (NULL == h_bk[s]) result = EXIT_FAILURE;
       }
     }
   }
@@ -515,7 +544,23 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_dotprod[cur]);
     }
 
-    /* Launch preprocess_a on stream_a */
+    /* Launch preprocess_a on stream_a (or host callback + H2D) */
+    if (0 != host_a) {
+      const size_t ak_cur = (size_t)nkb * nblk_m * BM * nslices * BK * slice_elem;
+      const int nkb_groups_a = (nkb + kgroup - 1) / kgroup;
+      const size_t expa_cur = (size_t)nkb_groups_a * nblk_m * BM * sizeof(cl_short);
+      ctx->host_preprocess_a(a, lda, ta, M, K, kb_batch,
+        nkb, nblk_m, BM, BK, nslices, kgroup, ctx->use_xmx,
+        h_ak[cur], h_expa[cur]);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(
+        h_ak[cur], d_ak[cur], ak_cur, stream_a);
+      if (0 < expa_cur && NULL != h_expa[cur]) {
+        if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(
+          h_expa[cur], d_expa[cur], expa_cur, stream_a);
+      }
+    }
+    else {
+    /* GPU preprocess_a on stream_a */
     { const libxstream_opencl_stream_t* str_a = stream_a;
       const int nkb_groups_a = (nkb + kgroup - 1) / kgroup;
       size_t global_a[2], local_a[2];
@@ -539,8 +584,25 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                  NULL, global_a, local_a, 0, NULL,
                  NULL != evt_prof ? &evt_prof[3 * batch] : NULL));
     }
+    } /* end host_a else */
 
-    /* Launch preprocess_b on stream_b (parallel with preprocess_a) */
+    /* Launch preprocess_b on stream_b (or host callback + H2D) */
+    if (0 != host_b) {
+      const size_t bk_cur = (size_t)nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
+      const int nkb_groups_b = (nkb + kgroup - 1) / kgroup;
+      const size_t expb_cur = (size_t)nkb_groups_b * nblk_n * BN * sizeof(cl_short);
+      ctx->host_preprocess_b(b, ldb, tb, N, K, kb_batch,
+        nkb, nblk_n, BN, BK, nslices, kgroup, ctx->use_xmx,
+        h_bk[cur], h_expb[cur]);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(
+        h_bk[cur], d_bk[cur], bk_cur, stream_b);
+      if (0 < expb_cur && NULL != h_expb[cur]) {
+        if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(
+          h_expb[cur], d_expb[cur], expb_cur, stream_b);
+      }
+    }
+    else {
+    /* GPU preprocess_b on stream_b (parallel with preprocess_a) */
     { const libxstream_opencl_stream_t* str_b = stream_b;
       const int nkb_groups_b = (nkb + kgroup - 1) / kgroup;
       size_t global_b[2], local_b[2];
@@ -564,6 +626,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                  NULL, global_b, local_b, 0, NULL,
                  NULL != evt_prof ? &evt_prof[3 * batch + 1] : NULL));
     }
+    } /* end host_b else */
 
     /* Record preprocess completion events */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
@@ -682,6 +745,18 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
   /* Read back result C; caller is responsible for syncing the stream */
   if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_c, c, c_nbytes, stream);
+
+  /* Sync helper streams and free host staging buffers.
+   * The sync ensures all H2D transfers from staging buffers have completed
+   * before freeing the source memory. */
+  if (0 != host_a) libxstream_stream_sync(stream_a);
+  if (0 != host_b) libxstream_stream_sync(stream_b);
+  { int s;
+    for (s = 0; s < 2; ++s) {
+      free(h_ak[s]); free(h_expa[s]);
+      free(h_bk[s]); free(h_expb[s]);
+    }
+  }
 
   /* Return buffers to pool (no deallocation, no sync needed) or free directly */
   { int s;

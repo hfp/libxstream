@@ -22,6 +22,45 @@ typedef enum ozaki_flags_t {
   OZAKI_SYMMETRIZE = 2
 } ozaki_flags_t;
 
+/* Host-side preprocessing callback for one K-batch of A or B.
+ * When non-NULL in the context, ozaki_gemm calls these instead of
+ * the GPU preprocess kernels and skips the full-matrix H2D.
+ *
+ * matrix   : host pointer to source matrix (A or B)
+ * ld       : leading dimension
+ * trans    : 0 = not transposed, 1 = transposed
+ * dim      : outer dimension: M (for A) or N (for B)
+ * K        : inner dimension
+ * kb_batch : K-offset (first K column of this batch)
+ * nkb      : number of K-blocks in this batch
+ * nblk     : number of row/column blocks
+ * brc      : block size: BM (for A) or BN (for B)
+ * bk       : block K dimension
+ * nslices  : number of mantissa slices or CRT primes
+ * kgroup   : K-grouping factor (1 unless CRT with oztrim>0)
+ * use_xmx  : 1 if XMX layout (affects B-side only)
+ * slices   : output flat slice buffer (GPU-compatible layout)
+ * exp      : output flat exponent buffer (NULL for bf16 scheme)
+ *
+ * A-side slice layout : slices[panel][brc][nslices][bk]
+ * B-side (no XMX)     : slices[panel][brc][nslices][bk]
+ * B-side (XMX, int8)  : slices[panel][nslices][bk][bn_pad],
+ *   where bn_pad = max(brc, 64)
+ * B-side (XMX, bf16)  : slices[panel][nslices][bk][bn_pad],
+ *   where bn_pad = max(brc, 32)
+ * Exponent layout     : exp[panel][brc] (int16)
+ * CRT exponent layout : exp[group][brc],
+ *   where group = ki_group * nblk + blk_idx,
+ *   panel = ki * nblk + blk_idx */
+struct ozaki_context_t;
+typedef void (*ozaki_host_preprocess_fn)(
+    const void* matrix, int ld, int trans,
+    int dim, int K, int kb_batch,
+    int nkb, int nblk,
+    int brc, int bk, int nslices,
+    int kgroup, int use_xmx,
+    void* slices, void* exp);
+
 /* State for an Ozaki OpenCL session.
  * All tuning parameters are set by ozaki_init (0 = auto). */
 typedef struct ozaki_context_t {
@@ -50,6 +89,12 @@ typedef struct ozaki_context_t {
   libxstream_stream_t *stream_a, *stream_b;
   /* Persistent synchronization events */
   libxstream_event_t *evt_prep_a, *evt_prep_b, *evt_dotprod[2];
+  /* Optional host-side preprocessing (NULL = GPU kernels).
+   * When non-NULL, ozaki_gemm calls these callbacks to fill host
+   * staging buffers, then H2D-copies to device, skipping the GPU
+   * preprocess kernels and the full-matrix H2D transfers. */
+  ozaki_host_preprocess_fn host_preprocess_a;
+  ozaki_host_preprocess_fn host_preprocess_b;
 } ozaki_context_t;
 
 
