@@ -336,7 +336,7 @@ kernel void dotprod(
       if (first_batch) cval[m] *= beta;
     }
     else {
-      cval[m] = (real_t)0;
+      cval[m] = ZERO;
     }
   }
 

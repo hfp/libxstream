@@ -150,7 +150,7 @@
         is_neg_ = oz2g_garner_reconstruct(dot_r_, vg_); \
         { const int sh_ = (int)ea_c_[ms_] + (int)eb_c_ \
                         - (2 * BIAS_PLUS_MANT); \
-          real_t cv_ = (FIRST) ? (real_t)0 : (C_PTR)[(COL) * (LDC) + rm_]; \
+          real_t cv_ = (FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
           oz2g_horner_accumulate(vg_, is_neg_, (ALPHA), sh_, &cv_); \
           (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
         } \
@@ -267,7 +267,7 @@ inline void oz2g_horner_accumulate(
     }
 
     result = (0 != is_negative) ? -(result + 1.0) : result;
-    if (0.0 != result && (real_t)0 != alpha) {
+    if (0.0 != result && ZERO != alpha) {
       const real_t scale = alpha * EXP2I(base_sh);
       *cval += (real_t)(result * (double)scale);
     }
@@ -278,7 +278,7 @@ inline void oz2g_horner_accumulate(
       r = r * (long)oz2g_moduli[i] + (long)v[i];
     }
     { const long result = (0 != is_negative) ? -(r + 1) : r;
-      if (0 != result && (real_t)0 != alpha) {
+      if (0 != result && ZERO != alpha) {
         const real_t scale = alpha * EXP2I(base_sh);
         *cval += (real_t)result * scale;
       }

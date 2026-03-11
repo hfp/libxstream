@@ -458,7 +458,7 @@ inline void oz2_horner_accumulate(
     }
 
     result = (0 != is_negative) ? -(result + 1.0) : result;
-    if (0.0 != result && (real_t)0 != alpha) {
+    if (0.0 != result && ZERO != alpha) {
       const real_t scale = alpha * EXP2I(base_sh);
       *cval += (real_t)(result * (double)scale);
     }
@@ -469,7 +469,7 @@ inline void oz2_horner_accumulate(
       r = r * (long)oz2_moduli[i] + (long)v[i];
     }
     { const long result = (0 != is_negative) ? -(r + 1) : r;
-      if (0 != result && (real_t)0 != alpha) {
+      if (0 != result && ZERO != alpha) {
         const real_t scale = alpha * EXP2I(base_sh);
         *cval += (real_t)result * scale;
       }
@@ -553,7 +553,7 @@ kernel void dotprod(
     const int row_m = ib_idx * BM + mi_base + m;
     c_acc[m] = (row_m < M && col < N)
       ? (first_batch ? beta * c[col * ldc + row_m] : c[col * ldc + row_m])
-      : (real_t)0;
+      : ZERO;
   }
 
   /* Loop over k-groups (KGROUP consecutive sub-panels share one exponent) */

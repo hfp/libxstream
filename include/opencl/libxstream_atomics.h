@@ -15,14 +15,20 @@
 #  if !defined(T)
 #    define T double
 #  endif
-#  define ZERO 0.0
+#  if !defined(ZERO)
+#    define ZERO 0.0
+#  endif
 #elif (1 == TAN /*libxstream_opencl_atomic_fp_32*/)
 #  if !defined(T)
 #    define T float
 #  endif
-#  define ZERO 0.f
+#  if !defined(ZERO)
+#    define ZERO 0.f
+#  endif
 #elif defined(T) /*libxstream_opencl_atomic_fp_no*/
-#  define ZERO 0
+#  if !defined(ZERO)
+#    define ZERO 0
+#  endif
 #endif
 
 #define GLOBAL_VOLATILE(A) global volatile A

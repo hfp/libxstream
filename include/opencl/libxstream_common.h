@@ -71,11 +71,17 @@
   typedef ulong  uint_repr_t;
 # define EXP_MASK 2047U
 # define AS_UINT(x) as_ulong(x)
+# if !defined(ZERO)
+#   define ZERO 0.0
+# endif
 #else
   typedef float  real_t;
   typedef uint   uint_repr_t;
 # define EXP_MASK 255U
 # define AS_UINT(x) as_uint(x)
+# if !defined(ZERO)
+#   define ZERO 0.f
+# endif
 #endif
 
 /* BF16 conversion helpers.
