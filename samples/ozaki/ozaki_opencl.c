@@ -126,13 +126,23 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     }
   }
 
+  /* Environment-driven block/batch overrides (0 = caller wants auto) */
+  env = getenv("OZAKI_BM");
+  if (NULL != env && 0 >= bm) { int v = atoi(env); if (0 < v) bm = v; }
+  env = getenv("OZAKI_BN");
+  if (NULL != env && 0 >= bn) { int v = atoi(env); if (0 < v) bn = v; }
+  env = getenv("OZAKI_BK");
+  if (NULL != env && 0 >= bk) { int v = atoi(env); if (0 < v) bk = v; }
+  env = getenv("OZAKI_BATCH_K");
+  if (NULL != env && 0 >= batch_k) { int v = atoi(env); if (0 < v) batch_k = v; }
+
   /* Choose smart defaults: XMX-friendly when hardware is available.
    * XMX requires BK==32 (int8) or BK==16 (bf16), BM/BN divisible by 8. */
   if (0 >= bm) bm = 16;
   if (0 >= bn) bn = 16;
   if (0 >= bk) bk = (use_xmx ? (use_bf16 ? 16 : 32) : 16);
   if (0 >= nslices) nslices = (2 == kind ? 17 : 8); /* CRT: 17 primes default */
-  if (0 >= batch_k) batch_k = 4;
+  if (0 >= batch_k) batch_k = 16; /* number of BK-sized panels grouped per launch */
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   /* Validate XMX constraints against final block sizes.
@@ -309,6 +319,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     ozaki_print_opt(stderr, "wg", wg);
     ozaki_print_opt(stderr, "sg", sg);
     ozaki_print_opt(stderr, "nslices", nslices);
+    ozaki_print_opt(stderr, "batch_k", batch_k);
     if (2 == kind) ozaki_print_opt(stderr, "kgroup", ctx->kgroup);
     fprintf(stderr, "\n");
   }
