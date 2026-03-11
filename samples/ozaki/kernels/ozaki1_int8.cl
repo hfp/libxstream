@@ -179,20 +179,8 @@ kernel void preprocess_a(
     const uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
 
     UNROLL_FORCE(NSLICES) for (s = 0; s < NSLICES; ++s) {
-      const int high = MANT_BITS - (7 * s);
-      const int low = MAX(0, high - 6);
-      const int width = high - low + 1;
-      char digit;
-      if (width > 0 && high >= 0) {
-        const uint mask = (1U << width) - 1U;
-        digit = (char)((aligned >> low) & mask);
-      }
-      else {
-        digit = 0;
-      }
-      /* Apply sign */
-      if (elem_sign) digit = -digit;
-      ak[(((long)panel * BM + mi) * NSLICES + s) * BK + kk] = digit;
+      ak[(((long)panel * BM + mi) * NSLICES + s) * BK + kk] =
+          ozaki_slice_digit(aligned, elem_sign, (int)s);
     }
   }
   else {
@@ -267,19 +255,8 @@ kernel void preprocess_b(
     const uint_repr_t aligned = (shift < MANT_BITS) ? (elem_mant >> shift) : 0;
 
     UNROLL_FORCE(NSLICES) for (s = 0; s < NSLICES; ++s) {
-      const int high = MANT_BITS - (7 * s);
-      const int low = MAX(0, high - 6);
-      const int width = high - low + 1;
-      char digit;
-      if (width > 0 && high >= 0) {
-        const uint mask = (1U << width) - 1U;
-        digit = (char)((aligned >> low) & mask);
-      }
-      else {
-        digit = 0;
-      }
-      if (elem_sign) digit = -digit;
-      bk[BK_IDX(panel, nj, s, kk)] = digit;
+      bk[BK_IDX(panel, nj, s, kk)] =
+          ozaki_slice_digit(aligned, elem_sign, (int)s);
     }
   }
   else {

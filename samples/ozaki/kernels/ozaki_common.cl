@@ -29,4 +29,21 @@ inline void ieee_decompose(real_t val, int* sign, short* exp, uint_repr_t* mant)
   }
 }
 
+/* Extract a 7-bit signed digit from an aligned mantissa for slice index S.
+ * The mantissa ALIGNED is already right-shifted by (max_exp - elem_exp).
+ * Returns a signed char: the digit with sign applied if SIGN != 0.
+ * MANT_BITS must be defined by the including file. */
+inline char ozaki_slice_digit(uint_repr_t aligned, int sign, int s)
+{
+  const int high = MANT_BITS - (7 * s);
+  const int low  = MAX(0, high - 6);
+  const int width = high - low + 1;
+  char digit = 0;
+  if (width > 0 && high >= 0) {
+    digit = (char)((aligned >> low) & ((1U << width) - 1U));
+  }
+  if (sign) digit = -digit;
+  return digit;
+}
+
 #endif /*OZAKI_COMMON_CL*/

@@ -66,11 +66,18 @@ typedef struct ozaki_context_t {
   cl_kernel kern_preprocess_a;
   cl_kernel kern_preprocess_b;
   cl_kernel kern_dotprod;
+  /* GEMM-mode kernels (tiled K-loop + fused accumulation) */
+  cl_kernel kern_gemm_preprocess_a;
+  cl_kernel kern_gemm_preprocess_b;
+  cl_kernel kern_gemm_fused;
+  cl_kernel kern_gemm_fused_sym;
+  cl_kernel kern_scale_beta;
   int bm, bn, bk;  /* block dimensions (JIT-compiled into kernels) */
   int batch_k;     /* K sub-panels per kernel launch */
   int use_double;  /* 1: fp64, 0: fp32 */
   int use_bf16;    /* derived: 1 = bf16 Dekker slices, 0 = int8 mantissa slices */
   int use_xmx;     /* 1: hardware matrix multiply (DPAS/XMX) */
+  int use_gemm;    /* 1: use tiled GEMM path (requires use_xmx) */
   int sg;          /* sub-group size used for compilation */
   int nslices;
   int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT), 3: ozaki1 bf16 */
@@ -79,6 +86,10 @@ typedef struct ozaki_context_t {
   int kgroup;      /* K-grouping factor for kind==2: 2^oztrim, clamped to batch_k */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
   int profile;     /* 0: off, 1 (or negative): pre+dot, 2: dot, 3: pre-a, 4: pre-b */
+  /* GEMM-mode block sizes for preprocessing WGs */
+  int bm_pre, bn_pre, bk_pre;
+  /* GEMM-mode output tile (compiled into GEMM kernel) */
+  int gbm, gbn;
   libxs_hist_t* hist; /* kernel execution-time histogram (OZAKI_PROF) */
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
