@@ -27,6 +27,14 @@
 # define SINT signed char
 #endif
 
+/* Integer power of two via bit manipulation: 2^N exactly.
+ * Avoids FP transcendental — one integer add, one shift, one bitcast. */
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+# define EXP2I(N) as_double((long)((N) + 1023) << 52)
+#else
+# define EXP2I(N) as_float(((N) + 127) << 23)
+#endif
+
 /* One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
  * Each work-item holds 8 rows; the column is get_sub_group_local_id().
  *

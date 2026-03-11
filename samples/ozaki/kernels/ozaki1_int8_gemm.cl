@@ -107,7 +107,7 @@
 
 /* Scale i32 accumulator and write/accumulate into fp C.
  *   shift = ea[m] + eb - 2*BIAS_PLUS_MANT + LOW_SA + LOW_SB
- *   C[col*ldc+m] =/+= (real_t)dot[m] * alpha * native_exp2(shift) */
+ *   C[col*ldc+m] =/+= (real_t)dot[m] * alpha * EXP2I(shift) */
 #define OZAKI_GEMM_STORE(DOT, EXPA, EXPB, C_PTR, M, N, MI, COL, \
                          LDC, ALPHA, LOW_SA, LOW_SB, FIRST) \
   do { \
@@ -125,7 +125,7 @@
       if (rm_ < (M) && (COL) < (N)) { \
         const int sh_ = (int)ea_s_[m_s_] + (int)eb_s_ \
                         - (2 * BIAS_PLUS_MANT) + (LOW_SA) + (LOW_SB); \
-        const real_t sc_ = (ALPHA) * native_exp2((real_t)sh_); \
+        const real_t sc_ = (ALPHA) * EXP2I(sh_); \
         const real_t ct_ = (real_t)du_s_.a_[m_s_] * sc_; \
         if (FIRST) { (C_PTR)[(COL) * (LDC) + rm_] = ct_; } \
         else       { (C_PTR)[(COL) * (LDC) + rm_] += ct_; } \

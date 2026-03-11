@@ -459,7 +459,7 @@ inline void oz2_horner_accumulate(
 
     result = (0 != is_negative) ? -(result + 1.0) : result;
     if (0.0 != result && (real_t)0 != alpha) {
-      const real_t scale = alpha * pown((real_t)2.0, base_sh);
+      const real_t scale = alpha * EXP2I(base_sh);
       *cval += (real_t)(result * (double)scale);
     }
   }
@@ -470,7 +470,7 @@ inline void oz2_horner_accumulate(
     }
     { const long result = (0 != is_negative) ? -(r + 1) : r;
       if (0 != result && (real_t)0 != alpha) {
-        const real_t scale = alpha * pown((real_t)2.0f, base_sh);
+        const real_t scale = alpha * EXP2I(base_sh);
         *cval += (real_t)result * scale;
       }
     }

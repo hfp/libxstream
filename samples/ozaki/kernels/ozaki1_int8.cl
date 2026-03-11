@@ -411,7 +411,7 @@ kernel void dotprod(
             const int base_sh = (int)ea[m] + (int)eb_val
                                 - (2 * BIAS_PLUS_MANT);
             const int shift = base_sh + slice_low_bit[sa] + slice_low_bit[sb];
-            const real_t scale = alpha * pown((real_t)2.0, shift);
+            const real_t scale = alpha * EXP2I(shift);
             cval[m] += (real_t)dot_u.a[m] * scale;
           }
         }
