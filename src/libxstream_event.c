@@ -126,7 +126,7 @@ int libxstream_event_sync(libxstream_event_t* event) { /* waits on the host-side
     else {
       cl_command_queue queue = NULL;
       result = clGetEventInfo(clevent, CL_EVENT_COMMAND_QUEUE, sizeof(cl_command_queue), &queue, NULL);
-      if (EXIT_SUCCESS == result) result = clFinish(queue);
+      CL_CHECK(result, clFinish(queue));
     }
   }
   else if (3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {

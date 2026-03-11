@@ -345,8 +345,7 @@ int libxstream_init(void) {
       libxstream_opencl_config.devmatch = 1;
     }
     if (EXIT_SUCCESS == clGetPlatformIDs(0, NULL, &nplatforms) && 0 < nplatforms) {
-      CL_EXPECT(result, clGetPlatformIDs(nplatforms <= LIBXSTREAM_MAXNDEVS ? nplatforms : LIBXSTREAM_MAXNDEVS, platforms, 0),
-        "retrieve platform ids");
+      CL_CHECK(result, clGetPlatformIDs(nplatforms <= LIBXSTREAM_MAXNDEVS ? nplatforms : LIBXSTREAM_MAXNDEVS, platforms, 0));
     }
     if (EXIT_SUCCESS == result) {
       if (NULL != env_devtype && '\0' != *env_devtype) {
@@ -366,7 +365,7 @@ int libxstream_init(void) {
       libxstream_opencl_config.ndevices = 0;
       for (i = 0; i < nplatforms; ++i) {
         if (EXIT_SUCCESS == clGetDeviceIDs(platforms[i], type, 0, NULL, &ndevices) && 0 < ndevices) {
-          CL_EXPECT(result, clGetDeviceIDs(platforms[i], type, ndevices, devices, NULL), "retrieve device ids");
+          CL_CHECK(result, clGetDeviceIDs(platforms[i], type, ndevices, devices, NULL));
           if (EXIT_SUCCESS == result) {
             cl_uint j = 0;
             for (; j < ndevices; ++j) {
@@ -400,7 +399,7 @@ int libxstream_init(void) {
                 if (EXIT_SUCCESS == clCreateSubDevices(devices[j], properties, n,
                                       libxstream_opencl_config.devices + libxstream_opencl_config.ndevices, NULL))
                 {
-                  CL_EXPECT(result, clReleaseDevice(devices[j]), "release device");
+                  CL_CHECK(result, clReleaseDevice(devices[j]));
                   libxstream_opencl_config.ndevices += n;
                 }
                 else break;
@@ -947,8 +946,7 @@ int libxstream_opencl_device_ext(cl_device_id device, const char* const extnames
   int result = ((NULL != extnames && 0 < num_exts) ? EXIT_SUCCESS : EXIT_FAILURE);
   char extensions[LIBXSTREAM_BUFFERSIZE], buffer[LIBXSTREAM_BUFFERSIZE];
   assert(NULL != device);
-  CL_EXPECT(
-    result, clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, LIBXSTREAM_BUFFERSIZE, extensions, NULL), "retrieve device extensions");
+  CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, LIBXSTREAM_BUFFERSIZE, extensions, NULL));
   if (EXIT_SUCCESS == result) {
     do {
       if (NULL != extnames[--num_exts]) {
@@ -1799,6 +1797,14 @@ double libxstream_opencl_duration(cl_event event, int* result_code) {
   }
   if (NULL != result_code) *result_code = r;
   return result;
+}
+
+
+int libxstream_opencl_error_consume(void) {
+  const int code = libxstream_opencl_config.device.error.code;
+  libxstream_opencl_config.device.error.name = NULL;
+  libxstream_opencl_config.device.error.code = EXIT_SUCCESS;
+  return code;
 }
 
 

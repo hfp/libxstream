@@ -461,7 +461,7 @@ int libxstream_mem_allocate(void** dev_mem, size_t nbytes) {
             NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &kernel);
         }
         /* TODO: backup/restore memory */
-        if (EXIT_SUCCESS == result) result = clSetKernelArg(kernel, 0, sizeof(cl_mem), &memory);
+        CL_CHECK(result, clSetKernelArg(kernel, 0, sizeof(cl_mem), &memory));
         if (EXIT_SUCCESS == result) {
           result = clEnqueueNDRangeKernel(
             str->queue, kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL);
@@ -859,7 +859,7 @@ int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nby
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != event) {
       int result_release;
-      if (EXIT_SUCCESS == result) result = clWaitForEvents(1, &event);
+      CL_CHECK(result, clWaitForEvents(1, &event));
       result_release = clReleaseEvent(event);
       if (EXIT_SUCCESS == result) result = result_release;
     }
@@ -918,17 +918,12 @@ int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t*
     size_free = (size_t)mem_status.ullAvailPhys;
   }
 #  endif
-  CL_EXPECT(result, clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_total, NULL),
-    "retrieve amount of global memory");
-  CL_EXPECT(result,
-    clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_TYPE, sizeof(cl_device_local_mem_type), &cl_local_type, NULL),
-    "retrieve kind of local memory");
+  CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_total, NULL));
+  CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_TYPE, sizeof(cl_device_local_mem_type), &cl_local_type, NULL));
   if (CL_LOCAL == cl_local_type) {
-    CL_EXPECT(result, clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_local, NULL),
-      "retrieve amount of local memory");
+    CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_local, NULL));
   }
-  CL_EXPECT(result, clGetDeviceInfo(device, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool), &cl_unified, NULL),
-    "retrieve if host memory is unified");
+  CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool), &cl_unified, NULL));
   if (EXIT_SUCCESS == result) {
     if (cl_size_total < size_total) size_total = cl_size_total;
     if (size_total < size_free) size_free = size_total;

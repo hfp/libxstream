@@ -211,10 +211,8 @@ int libxstream_stream_priority_range(int* least, int* greatest) {
     char buffer[LIBXSTREAM_BUFFERSIZE];
     cl_platform_id platform = NULL;
     assert(NULL != devinfo->context);
-    CL_EXPECT(result, clGetDeviceInfo(device_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL),
-      "retrieve platform associated with active device");
-    CL_EXPECT(result, clGetPlatformInfo(platform, CL_PLATFORM_EXTENSIONS, LIBXSTREAM_BUFFERSIZE, buffer, NULL),
-      "retrieve platform extensions");
+    CL_CHECK(result, clGetDeviceInfo(device_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL));
+    CL_CHECK(result, clGetPlatformInfo(platform, CL_PLATFORM_EXTENSIONS, LIBXSTREAM_BUFFERSIZE, buffer, NULL));
     if (EXIT_SUCCESS == result) {
       if (NULL != strstr(buffer, "cl_khr_priority_hints") ||
           EXIT_SUCCESS == libxstream_opencl_device_vendor(device_id, "nvidia", 0 /*use_platform_name*/))

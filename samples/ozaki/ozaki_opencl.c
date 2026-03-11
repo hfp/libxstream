@@ -446,7 +446,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
   int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
-  int batch;
+  int batch, n_profiled = 0;
   cl_event *evt_prof = NULL;
 
 #if defined(OZAKI_DEVPOOL)
@@ -521,21 +521,21 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       size_t global_a[2], local_a[2];
       global_a[0] = (size_t)nblk_m * BM; global_a[1] = (size_t)nkb_groups_a * BK;
       local_a[0] = BM; local_a[1] = BK;
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 0, d_a));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 1, sizeof(int), &M));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 2, sizeof(int), &K));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 3, sizeof(int), &lda));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 4, sizeof(int), &ta));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 5, sizeof(int), &kb_batch));
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 6, d_ak[cur]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 0, d_a));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 1, sizeof(int), &M));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 2, sizeof(int), &K));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 3, sizeof(int), &lda));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 4, sizeof(int), &ta));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 5, sizeof(int), &kb_batch));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 6, d_ak[cur]));
       if (ctx->use_bf16) {
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 7, sizeof(int), &nblk_m));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 7, sizeof(int), &nblk_m));
       }
       else {
-        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 7, d_expa[cur]));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_a, 8, sizeof(int), &nblk_m));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 7, d_expa[cur]));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 8, sizeof(int), &nblk_m));
       }
-      CL_CHECK(clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
+      CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
                  NULL, global_a, local_a, 0, NULL,
                  NULL != evt_prof ? &evt_prof[3 * batch] : NULL));
     }
@@ -546,21 +546,21 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       size_t global_b[2], local_b[2];
       global_b[0] = (size_t)nblk_n * BN; global_b[1] = (size_t)nkb_groups_b * BK;
       local_b[0] = BN; local_b[1] = BK;
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 0, d_b));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 1, sizeof(int), &N));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 2, sizeof(int), &K));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 3, sizeof(int), &ldb));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 4, sizeof(int), &tb));
-      CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 5, sizeof(int), &kb_batch));
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 6, d_bk[cur]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 0, d_b));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 1, sizeof(int), &N));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 2, sizeof(int), &K));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 3, sizeof(int), &ldb));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 4, sizeof(int), &tb));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 5, sizeof(int), &kb_batch));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 6, d_bk[cur]));
       if (ctx->use_bf16) {
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 7, sizeof(int), &nblk_n));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 7, sizeof(int), &nblk_n));
       }
       else {
-        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 7, d_expb[cur]));
-        CL_CHECK(clSetKernelArg(ctx->kern_preprocess_b, 8, sizeof(int), &nblk_n));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 7, d_expb[cur]));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 8, sizeof(int), &nblk_n));
       }
-      CL_CHECK(clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
+      CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
                  NULL, global_b, local_b, 0, NULL,
                  NULL != evt_prof ? &evt_prof[3 * batch + 1] : NULL));
     }
@@ -583,29 +583,29 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       local_c[1] = (size_t)(ntm * ntn);
       global_c[0] = (size_t)nblk_m * local_c[0];
       global_c[1] = (size_t)nblk_n * local_c[1];
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
       if (ctx->use_double) {
         double dalpha = alpha, dbeta = beta;
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
       }
       else {
         float falpha = (float)alpha, fbeta = (float)beta;
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
       }
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
-      CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
+      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
                  NULL, global_c, local_c, 0, NULL,
                  NULL != evt_prof ? &evt_prof[3 * batch + 2] : NULL));
     }
@@ -624,53 +624,54 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         global_c[0] = (size_t)nblk_m * BM;
         global_c[1] = (size_t)nblk_n * BN;
       }
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
       if (!ctx->use_bf16) {
-        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
       }
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
       if (!ctx->use_bf16) {
-        CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
       }
-      CL_CHECK(libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
       if (ctx->use_double) {
         double dalpha = alpha, dbeta = beta;
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
       }
       else {
         float falpha = (float)alpha, fbeta = (float)beta;
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
-        CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
       }
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
-      CL_CHECK(clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
-      CL_CHECK(clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
+      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
                  NULL, global_c, local_c, 0, NULL,
                  NULL != evt_prof ? &evt_prof[3 * batch + 2] : NULL));
     } /* end else (non-CRT-XMX path) */
 
     /* Record dotprod completion for this buffer slot */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_dotprod[cur], stream);
+    if (NULL != evt_prof && EXIT_SUCCESS == result) n_profiled = 3 * (batch + 1);
   }
 
-  /* Collect profiling data (forces synchronization) */
+  /* Collect profiling data (wait on captured events, not full queues) */
   if (NULL != evt_prof) {
     double total = 0;
     int i;
-    libxstream_stream_sync(stream);
-    libxstream_stream_sync(stream_a);
-    libxstream_stream_sync(stream_b);
-    for (i = 0; i < 3 * n_batches; ++i) {
-      if (NULL != evt_prof[i]) {
-        total += libxstream_opencl_duration(evt_prof[i], NULL);
-        clReleaseEvent(evt_prof[i]);
-      }
+    if (0 < n_profiled) clWaitForEvents((cl_uint)n_profiled, evt_prof);
+    for (i = 0; i < n_profiled; ++i) {
+      total += libxstream_opencl_duration(evt_prof[i], NULL);
+      clReleaseEvent(evt_prof[i]);
+    }
+    /* Release orphaned events from a partially-failed batch */
+    for (; i < 3 * n_batches; ++i) {
+      if (NULL != evt_prof[i]) clReleaseEvent(evt_prof[i]);
     }
     if (0 < total) {
       const double gflops = (2.0 * M * N * K) / (total * 1E9);
