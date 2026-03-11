@@ -78,12 +78,13 @@ typedef struct ozaki_context_t {
   int oztrim;
   int kgroup;      /* K-grouping factor for kind==2: 2^oztrim, clamped to batch_k */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
+  int profile;     /* 0: off, 1 (or negative): pre+dot, 2: dot, 3: pre-a, 4: pre-b */
   libxs_hist_t* hist; /* kernel execution-time histogram (OZAKI_PROF) */
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
-#endif
   /* Main stream (set per ozaki_gemm call for pool realloc sync) */
   libxstream_stream_t *stream;
+#endif
   /* Persistent helper streams for overlapped preprocessing */
   libxstream_stream_t *stream_a, *stream_b;
   /* Persistent synchronization events */
