@@ -22,7 +22,7 @@ int libxstream_event_create(libxstream_event_t** event_p) {
     (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
   if (NULL != *event_p) (*event_p)->cl_evt = NULL;
   else result = EXIT_FAILURE;
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -39,7 +39,7 @@ int libxstream_event_destroy(libxstream_event_t* event) {
       result = clReleaseEvent(clevent);
     }
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -64,7 +64,7 @@ int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t
   else if (3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
     fprintf(stderr, "WARN ACC/OpenCL: libxstream_stream_wait_event discovered an empty event.\n");
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -92,7 +92,7 @@ int libxstream_event_record(libxstream_event_t* event, libxstream_stream_t* stre
     if (NULL != clevent_result) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent_result));
     event->cl_evt = NULL;
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -106,7 +106,7 @@ int libxstream_event_query(libxstream_event_t* event, int* has_occurred) {
     result = EXIT_SUCCESS; /* soft-error */
     *has_occurred = 1;
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -133,7 +133,7 @@ int libxstream_event_sync(libxstream_event_t* event) { /* waits on the host-side
   else if (3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
     fprintf(stderr, "WARN ACC/OpenCL: libxstream_event_sync discovered an empty event.\n");
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 #  if defined(__cplusplus)
