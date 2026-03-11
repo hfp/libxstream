@@ -60,9 +60,6 @@
 #if !defined(TRIM)
 # define TRIM 0
 #endif
-#if !defined(CONSTANT)
-# define CONSTANT global
-#endif
 
 /* Small integer type for loop counters (states value range) */
 #if !defined(SINT)
