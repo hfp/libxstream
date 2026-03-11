@@ -134,7 +134,7 @@ ifeq (file,$(origin AVX))
 endif
 AVX_STATIC ?= $(AVX)
 
-HEADERS_MAIN := $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream.h
+HEADERS_MAIN := $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream_opencl.h $(ROOTINC)/libxstream.h
 HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
 SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_stream.c)
