@@ -23,6 +23,9 @@
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_INT8_GEMM)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1_INT8_GEMM)"
 #endif
+#if !defined(OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM)
+# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM)"
+#endif
 
 #if defined(OZAKI_DEVPOOL)
 # define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
@@ -311,8 +314,12 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   ctx->kern_gemm_fused = NULL;
   ctx->kern_gemm_fused_sym = NULL;
   ctx->kern_scale_beta = NULL;
+  ctx->kern_gemm_crt_preprocess_a = NULL;
+  ctx->kern_gemm_crt_preprocess_b = NULL;
+  ctx->kern_gemm_crt_fused = NULL;
+  ctx->kern_gemm_crt_scale_beta = NULL;
   { const char* env_gemm = getenv("OZAKI_GEMM");
-    int want_gemm = (use_xmx && 1 == kind) ? 1 : 0; /* default: on for int8+XMX */
+    int want_gemm = (use_xmx && !use_bf16) ? 1 : 0; /* default: on for int8+XMX (any kind) */
     if (NULL != env_gemm) want_gemm = atoi(env_gemm);
     if (want_gemm && use_xmx && !use_bf16 && 2 != kind) {
       /* GEMM-mode block sizes */
@@ -398,6 +405,93 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
         if (NULL != ctx->kern_gemm_fused)        { clReleaseKernel(ctx->kern_gemm_fused);        ctx->kern_gemm_fused = NULL; }
         if (NULL != ctx->kern_gemm_fused_sym)    { clReleaseKernel(ctx->kern_gemm_fused_sym);    ctx->kern_gemm_fused_sym = NULL; }
         if (NULL != ctx->kern_scale_beta)        { clReleaseKernel(ctx->kern_scale_beta);        ctx->kern_scale_beta = NULL; }
+        result = EXIT_SUCCESS; /* non-fatal: fall back to dotprod */
+      }
+    }
+    /* CRT GEMM (kind==2): single fused kernel per tile, all primes internal */
+    if (want_gemm && use_xmx && !use_bf16 && 2 == kind && 0 == ctx->use_gemm) {
+      const int gbm = 256, gbn = 256;
+      const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
+      char crt_params[1024];
+      char crt_options[512];
+      const int mant_bits      = use_double ? 52 : 23;
+      const int bias_plus_mant = use_double ? 1075 : 150;
+      const int ntm = gbm / 8, ntn = gbn / 16;
+      /* KGROUP_CRT: intermediate mod reduction every kgroup_crt*BK steps.
+       * 0 = no intermediate reductions (safe for K <= ~133K).
+       * For large K, set KGROUP_CRT = 4096/BK = 128 (safe up to any K). */
+      int kgroup_crt = 0;
+      size_t coff = 0;
+
+      { const char* env_kg = getenv("OZAKI_KGROUP_CRT");
+        if (NULL != env_kg) kgroup_crt = atoi(env_kg);
+      }
+
+      if (0 != devinfo->intel) {
+        LIBXS_SNPRINTF(crt_options, sizeof(crt_options),
+          "-cl-fast-relaxed-math -cl-denorms-are-zero"
+          " -cl-intel-256-GRF-per-thread");
+      }
+      else {
+        LIBXS_SNPRINTF(crt_options, sizeof(crt_options),
+          "-cl-fast-relaxed-math -cl-denorms-are-zero");
+      }
+
+      coff += (size_t)LIBXS_SNPRINTF(crt_params + coff, sizeof(crt_params) - coff,
+        "-DGPU -DBM=%d -DBN=%d -DBK=%d -DSG=%d"
+        " -DNPRIMES=%d -DUSE_DOUBLE=%d"
+        " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
+        " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
+        " -DKGROUP_CRT=%d -DCONSTANT=global",
+        gbm, gbn, bk_pre, sg,
+        nslices, use_double,
+        mant_bits, bias_plus_mant,
+        bm_pre, bn_pre, bk_pre,
+        kgroup_crt);
+      (void)coff;
+
+      if (0 > verbosity || 2 < verbosity) {
+        fprintf(stderr, "INFO OZAKI CRT-GEMM: params: %s\n", crt_params);
+      }
+
+      result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM,
+        "preprocess_a_crt_dense", crt_params, crt_options,
+        NULL, NULL, NULL, 0, &ctx->kern_gemm_crt_preprocess_a);
+      if (EXIT_SUCCESS == result) {
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM,
+          "preprocess_b_crt_dense", crt_params, crt_options,
+          NULL, NULL, NULL, 0, &ctx->kern_gemm_crt_preprocess_b);
+      }
+      if (EXIT_SUCCESS == result) {
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM,
+          "gemm_crt_fused", crt_params, crt_options,
+          NULL, NULL, NULL, 0, &ctx->kern_gemm_crt_fused);
+      }
+      if (EXIT_SUCCESS == result) {
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM,
+          "scale_beta", crt_params, crt_options,
+          NULL, NULL, NULL, 0, &ctx->kern_gemm_crt_scale_beta);
+      }
+      if (EXIT_SUCCESS == result) {
+        ctx->use_gemm = 2; /* 2 = CRT GEMM path */
+        ctx->gbm = gbm;
+        ctx->gbn = gbn;
+        ctx->bm_pre = bm_pre;
+        ctx->bn_pre = bn_pre;
+        ctx->bk_pre = bk_pre;
+        if (0 > verbosity || 2 < verbosity) {
+          fprintf(stderr, "INFO OZAKI CRT-GEMM: enabled GBM=%d GBN=%d NTM=%d NTN=%d\n",
+            gbm, gbn, ntm, ntn);
+        }
+      }
+      else {
+        if (0 != verbosity) {
+          fprintf(stderr, "WARN OZAKI: CRT-GEMM kernel build failed, falling back to dotprod\n");
+        }
+        if (NULL != ctx->kern_gemm_crt_preprocess_a) { clReleaseKernel(ctx->kern_gemm_crt_preprocess_a); ctx->kern_gemm_crt_preprocess_a = NULL; }
+        if (NULL != ctx->kern_gemm_crt_preprocess_b) { clReleaseKernel(ctx->kern_gemm_crt_preprocess_b); ctx->kern_gemm_crt_preprocess_b = NULL; }
+        if (NULL != ctx->kern_gemm_crt_fused)        { clReleaseKernel(ctx->kern_gemm_crt_fused);        ctx->kern_gemm_crt_fused = NULL; }
+        if (NULL != ctx->kern_gemm_crt_scale_beta)   { clReleaseKernel(ctx->kern_gemm_crt_scale_beta);   ctx->kern_gemm_crt_scale_beta = NULL; }
         result = EXIT_SUCCESS; /* non-fatal: fall back to dotprod */
       }
     }
@@ -493,6 +587,10 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->kern_gemm_fused)        clReleaseKernel(ctx->kern_gemm_fused);
     if (NULL != ctx->kern_gemm_fused_sym)    clReleaseKernel(ctx->kern_gemm_fused_sym);
     if (NULL != ctx->kern_scale_beta)        clReleaseKernel(ctx->kern_scale_beta);
+    if (NULL != ctx->kern_gemm_crt_preprocess_a) clReleaseKernel(ctx->kern_gemm_crt_preprocess_a);
+    if (NULL != ctx->kern_gemm_crt_preprocess_b) clReleaseKernel(ctx->kern_gemm_crt_preprocess_b);
+    if (NULL != ctx->kern_gemm_crt_fused)        clReleaseKernel(ctx->kern_gemm_crt_fused);
+    if (NULL != ctx->kern_gemm_crt_scale_beta)   clReleaseKernel(ctx->kern_gemm_crt_scale_beta);
 
 #if defined(OZAKI_DEVPOOL)
     /* Free pool before helper streams: the pool deallocator may sync streams
@@ -592,10 +690,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   evt_dotprod[0] = ctx->evt_dotprod[0];
   evt_dotprod[1] = ctx->evt_dotprod[1];
 
-  /* GEMM path: full-split-then-tiled-GEMM.
+  /* GEMM path (Scheme 1): full-split-then-tiled-GEMM.
    * Preprocesses entire K dimension up front into dense per-slice
    * int8 matrices, then runs a proper tiled GEMM per slice pair. */
-  if (ctx->use_gemm && 0 < K) {
+  if (1 == ctx->use_gemm && 0 < K) {
     const int nslices_g = ctx->nslices;
     const int BK_PRE = ctx->bk_pre;
     const int BM_PRE = ctx->bm_pre;
@@ -829,7 +927,185 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     return result;
   }
-  /* End GEMM path; fall through to legacy batched dotprod path. */
+  /* End Scheme-1 GEMM path */
+
+  /* CRT GEMM path (Scheme 2): full-split-then-single-fused-GEMM.
+   * Preprocesses entire K into dense per-prime CRT residue matrices,
+   * then runs a single kernel per tile that loops over all primes
+   * internally (full-K DPAS + Garner + Horner in one launch). */
+  if (2 == ctx->use_gemm && 0 < K) {
+    const int nprimes_g = ctx->nslices;
+    const int BK_PRE = ctx->bk_pre;
+    const int BM_PRE = ctx->bm_pre;
+    const int BN_PRE = ctx->bn_pre;
+    const int GBM = ctx->gbm, GBN = ctx->gbn;
+    int K_pad = ((K + BK_PRE - 1) / BK_PRE) * BK_PRE;
+    const int M_pad = ((M + BM_PRE - 1) / BM_PRE) * BM_PRE;
+    int N_pad = ((N + BN_PRE - 1) / BN_PRE) * BN_PRE;
+    const int nblk_gm = (M + GBM - 1) / GBM;
+    const int nblk_gn = (N + GBN - 1) / GBN;
+    const int ntm = GBM / 8, ntn = GBN / 16;
+    size_t as_size, bs_size, expa_size, expb_size;
+    void *d_as = NULL, *d_bs = NULL;
+    void *d_expa_g = NULL, *d_expb_g = NULL;
+    void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
+    int first_tile;
+
+    (void)ntm; (void)ntn;
+    if (K_pad < 64) K_pad = 64;
+    if (N_pad < 64) N_pad = 64;
+
+    as_size   = (size_t)nprimes_g * M_pad * K_pad;
+    bs_size   = (size_t)nprimes_g * K_pad * N_pad;
+    expa_size = (size_t)M * sizeof(cl_int);
+    expb_size = (size_t)N * sizeof(cl_int);
+    c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
+
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_as, as_size);
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bs, bs_size);
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa_g, expa_size);
+    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
+
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_mem_copy_h2d(a, d_ag,
+        (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
+    }
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_mem_copy_h2d(b, d_bg,
+        (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
+    }
+    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
+
+    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
+
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
+
+    /* Preprocess A (CRT residues, on stream_a) */
+    if (EXIT_SUCCESS == result) {
+      const libxstream_opencl_stream_t* str_a = stream_a;
+      size_t global_a[2], local_a[2];
+      const int nblk_m_pre = (M + BM_PRE - 1) / BM_PRE;
+      const int nblk_k_pre = (K + BK_PRE - 1) / BK_PRE;
+      local_a[0] = BM_PRE; local_a[1] = BK_PRE;
+      global_a[0] = (size_t)nblk_m_pre * BM_PRE;
+      global_a[1] = (size_t)nblk_k_pre * BK_PRE;
+      { cl_int i = 0;
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_preprocess_a, i++, d_ag));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_a, i++, sizeof(int), &M));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_a, i++, sizeof(int), &K));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_a, i++, sizeof(int), &lda));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_a, i++, sizeof(int), &ta));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_preprocess_a, i++, d_as));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_preprocess_a, i++, d_expa_g));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_a, i++, sizeof(int), &K_pad));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_a, i++, sizeof(int), &M_pad));
+      }
+      CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_gemm_crt_preprocess_a, 2,
+        NULL, global_a, local_a, 0, NULL, NULL));
+    }
+
+    /* Preprocess B (CRT residues, on stream_b, parallel) */
+    if (EXIT_SUCCESS == result) {
+      const libxstream_opencl_stream_t* str_b = stream_b;
+      size_t global_b[2], local_b[2];
+      const int nblk_n_pre = (N + BN_PRE - 1) / BN_PRE;
+      const int nblk_k_pre = (K + BK_PRE - 1) / BK_PRE;
+      local_b[0] = BN_PRE; local_b[1] = BK_PRE;
+      global_b[0] = (size_t)nblk_n_pre * BN_PRE;
+      global_b[1] = (size_t)nblk_k_pre * BK_PRE;
+      { cl_int i = 0;
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_preprocess_b, i++, d_bg));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_b, i++, sizeof(int), &N));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_b, i++, sizeof(int), &K));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_b, i++, sizeof(int), &ldb));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_b, i++, sizeof(int), &tb));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_preprocess_b, i++, d_bs));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_preprocess_b, i++, d_expb_g));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_b, i++, sizeof(int), &K_pad));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_b, i++, sizeof(int), &N_pad));
+      }
+      CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_gemm_crt_preprocess_b, 2,
+        NULL, global_b, local_b, 0, NULL, NULL));
+    }
+
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
+
+    /* Scale C by beta */
+    if (EXIT_SUCCESS == result && 1.0 != beta) {
+      size_t global_s[2], local_s[2];
+      local_s[0] = (size_t)BM_PRE; local_s[1] = 1;
+      global_s[0] = (size_t)((M + BM_PRE - 1) / BM_PRE) * BM_PRE;
+      global_s[1] = (size_t)N;
+      { cl_int i = 0;
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_scale_beta, i++, d_cg));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_scale_beta, i++, sizeof(int), &M));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_scale_beta, i++, sizeof(int), &N));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_scale_beta, i++, sizeof(int), &ldc));
+        if (ctx->use_double) {
+          double dbeta = beta;
+          CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_scale_beta, i++, sizeof(double), &dbeta));
+        }
+        else {
+          float fbeta = (float)beta;
+          CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_scale_beta, i++, sizeof(float), &fbeta));
+        }
+      }
+      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_gemm_crt_scale_beta, 2,
+        NULL, global_s, local_s, 0, NULL, NULL));
+    }
+
+    /* Single fused CRT GEMM: one launch per output tile covers all primes */
+    first_tile = 1;
+    if (EXIT_SUCCESS == result) {
+      size_t global_g[2], local_g[2];
+      local_g[0] = (size_t)ctx->sg;
+      local_g[1] = (size_t)(GBM / 8) * (size_t)(GBN / 16);
+      global_g[0] = (size_t)nblk_gm * local_g[0];
+      global_g[1] = (size_t)nblk_gn * local_g[1];
+      { cl_int i = 0;
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_fused, i++, d_as));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_fused, i++, d_bs));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_fused, i++, d_expa_g));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_fused, i++, d_expb_g));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_gemm_crt_fused, i++, d_cg));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &M));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &N));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &K_pad));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &N_pad));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &ldc));
+        if (ctx->use_double) {
+          double dalpha = alpha;
+          CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(double), &dalpha));
+        }
+        else {
+          float falpha = (float)alpha;
+          CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(float), &falpha));
+        }
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &first_tile));
+      }
+      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_gemm_crt_fused, 2,
+        NULL, global_g, local_g, 0, NULL, NULL));
+    }
+
+    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
+
+    OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
+    OZAKI_DEV_FREE(d_as); OZAKI_DEV_FREE(d_bs);
+    OZAKI_DEV_FREE(d_expa_g); OZAKI_DEV_FREE(d_expb_g);
+
+    return result;
+  }
+  /* End CRT GEMM path; fall through to legacy batched dotprod path. */
 
   /* Allocate device memory for A, B, C.
    * When host preprocessing is active for a side, the full matrix is not

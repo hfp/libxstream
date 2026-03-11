@@ -72,6 +72,11 @@ typedef struct ozaki_context_t {
   cl_kernel kern_gemm_fused;
   cl_kernel kern_gemm_fused_sym;
   cl_kernel kern_scale_beta;
+  /* CRT GEMM-mode kernels (Scheme-2 tiled path) */
+  cl_kernel kern_gemm_crt_preprocess_a;
+  cl_kernel kern_gemm_crt_preprocess_b;
+  cl_kernel kern_gemm_crt_fused;
+  cl_kernel kern_gemm_crt_scale_beta;
   int bm, bn, bk;  /* block dimensions (JIT-compiled into kernels) */
   int batch_k;     /* K sub-panels per kernel launch */
   int use_double;  /* 1: fp64, 0: fp32 */

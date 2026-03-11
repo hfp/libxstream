@@ -63,9 +63,6 @@
 #if !defined(BIAS_PLUS_MANT)
 # define BIAS_PLUS_MANT 1075
 #endif
-#if !defined(CONSTANT)
-# define CONSTANT global
-#endif
 
 /* KGROUP: number of consecutive K sub-panels whose exponents are grouped.
  * Preprocessing uses the max exponent over KGROUP*BK elements instead of BK.

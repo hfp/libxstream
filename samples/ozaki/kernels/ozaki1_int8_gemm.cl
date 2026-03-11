@@ -78,9 +78,6 @@
 # define BN_B_PAD 64
 #endif
 
-#if !defined(CONSTANT)
-# define CONSTANT global
-#endif
 #if !defined(SINT)
 # define SINT signed char
 #endif
@@ -109,22 +106,8 @@
     } \
   } while (0)
 
-/* One DPAS step: 2D-block-read A[8x32] and B-VNNI[32x16], then MAD into ACC.
- * A surface: width=K_PAD, height=M_HT, pitch=K_PAD.
- * B surface: width=N_PAD, height=K_PAD, pitch=N_PAD. */
-#define OZAKI_GEMM_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
-  do { \
-    ushort8 a_blk_; \
-    uint8 b_blk_; \
-    intel_sub_group_2d_block_read_8b_8r32x1c( \
-        (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
-        (int2)((KOFF), (MI)), (private ushort*)&a_blk_); \
-    intel_sub_group_2d_block_read_transform_8b_32r16x1c( \
-        (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
-        (int2)((NJ), (KOFF)), (private uint*)&b_blk_); \
-    (ACC) = intel_sub_group_i8_i8_matrix_mad_k32( \
-                as_short8(a_blk_), as_int8(b_blk_), (ACC)); \
-  } while (0)
+/* Alias the shared DPAS primitive from ozaki_common.cl */
+#define OZAKI_GEMM_DPAS OZAKI_DPAS
 
 /* Scale i32 accumulator and write/accumulate into fp C.
  *   shift = ea[m] + eb - 2*BIAS_PLUS_MANT + LOW_SA + LOW_SB
