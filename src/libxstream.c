@@ -345,7 +345,7 @@ int libxstream_init(void) {
       libxstream_opencl_config.devmatch = 1;
     }
     if (EXIT_SUCCESS == clGetPlatformIDs(0, NULL, &nplatforms) && 0 < nplatforms) {
-      LIBXSTREAM_CHECK(result, clGetPlatformIDs(nplatforms <= LIBXSTREAM_MAXNDEVS ? nplatforms : LIBXSTREAM_MAXNDEVS, platforms, 0),
+      CL_EXPECT(result, clGetPlatformIDs(nplatforms <= LIBXSTREAM_MAXNDEVS ? nplatforms : LIBXSTREAM_MAXNDEVS, platforms, 0),
         "retrieve platform ids");
     }
     if (EXIT_SUCCESS == result) {
@@ -366,7 +366,7 @@ int libxstream_init(void) {
       libxstream_opencl_config.ndevices = 0;
       for (i = 0; i < nplatforms; ++i) {
         if (EXIT_SUCCESS == clGetDeviceIDs(platforms[i], type, 0, NULL, &ndevices) && 0 < ndevices) {
-          LIBXSTREAM_CHECK(result, clGetDeviceIDs(platforms[i], type, ndevices, devices, NULL), "retrieve device ids");
+          CL_EXPECT(result, clGetDeviceIDs(platforms[i], type, ndevices, devices, NULL), "retrieve device ids");
           if (EXIT_SUCCESS == result) {
             cl_uint j = 0;
             for (; j < ndevices; ++j) {
@@ -400,7 +400,7 @@ int libxstream_init(void) {
                 if (EXIT_SUCCESS == clCreateSubDevices(devices[j], properties, n,
                                       libxstream_opencl_config.devices + libxstream_opencl_config.ndevices, NULL))
                 {
-                  LIBXSTREAM_CHECK(result, clReleaseDevice(devices[j]), "release device");
+                  CL_EXPECT(result, clReleaseDevice(devices[j]), "release device");
                   libxstream_opencl_config.ndevices += n;
                 }
                 else break;
@@ -651,7 +651,7 @@ int libxstream_init(void) {
     if (EXIT_SUCCESS == result) result = libsmm_acc_init();
 #  endif
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -740,7 +740,7 @@ int libxstream_finalize(void) {
     if (EXIT_SUCCESS == result) result = atexit(cleanup);
     cleanup = NULL;
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -767,7 +767,7 @@ int libxstream_device_count(int* ndevices) {
     }
     else result = EXIT_FAILURE;
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -947,7 +947,7 @@ int libxstream_opencl_device_ext(cl_device_id device, const char* const extnames
   int result = ((NULL != extnames && 0 < num_exts) ? EXIT_SUCCESS : EXIT_FAILURE);
   char extensions[LIBXSTREAM_BUFFERSIZE], buffer[LIBXSTREAM_BUFFERSIZE];
   assert(NULL != device);
-  LIBXSTREAM_CHECK(
+  CL_EXPECT(
     result, clGetDeviceInfo(device, CL_DEVICE_EXTENSIONS, LIBXSTREAM_BUFFERSIZE, extensions, NULL), "retrieve device extensions");
   if (EXIT_SUCCESS == result) {
     do {
@@ -1233,7 +1233,7 @@ int libxstream_device_set_active(int device_id) {
     }
     else result = EXIT_FAILURE;
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -1754,7 +1754,7 @@ int libxstream_opencl_kernel(size_t source_kind, const char source[], const char
     LIBXS_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* release in any case (EXIT_SUCCESS) */
   }
   if (NULL != try_ok) *try_ok = result | ok;
-  LIBXSTREAM_RETURN_CAUSE(result, buffer);
+  CL_RETURN(result, buffer);
 }
 
 
@@ -1780,7 +1780,7 @@ int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const 
   {
     result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &arg_value);
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -1802,7 +1802,7 @@ double libxstream_opencl_duration(cl_event event, int* result_code) {
 }
 
 
-const char* cl_strerror(cl_int err) {
+const char* libxstream_opencl_strerror(cl_int err) {
   switch (err) {
     case  0: return "CL_SUCCESS";
     case -1: return "CL_DEVICE_NOT_FOUND";

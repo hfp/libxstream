@@ -39,14 +39,6 @@
 } while (0)
 #endif
 
-#define CL_CHECK(CALL) do { \
-  cl_int _err = (CALL); \
-  if (CL_SUCCESS != _err) { \
-    fprintf(stderr, "ERROR %s (%d) at %s:%d\n", cl_strerror(_err), (int)_err, __FILE__, __LINE__); \
-    exit(EXIT_FAILURE); \
-  } \
-} while (0)
-
 #if defined(OZAKI_DEVPOOL)
 /* Wrapped allocator for libxs_malloc_xpool: delegates to device allocator. */
 static void* ozaki_dev_allocate(size_t size, const void* extra)

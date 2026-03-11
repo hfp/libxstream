@@ -200,7 +200,7 @@ int libxstream_mem_host_deallocate_internal(void* host_ptr, cl_command_queue que
     LIBXSTREAM_MEM_FREE(host_ptr);
     result = EXIT_SUCCESS;
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -336,7 +336,7 @@ int libxstream_mem_host_deallocate(void* host_mem, libxstream_stream_t* stream) 
       if (EXIT_SUCCESS == result) result = result_release;
     }
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -535,7 +535,7 @@ int libxstream_mem_deallocate(void* dev_mem) {
       LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     }
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -549,7 +549,7 @@ int libxstream_mem_offset(void** dev_mem, void* other, size_t offset) {
     result = EXIT_FAILURE;
     *dev_mem = NULL;
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -617,7 +617,7 @@ int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, 
       else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -733,7 +733,7 @@ int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, 
       else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -809,7 +809,7 @@ int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_dst, size_t nby
       else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -864,7 +864,7 @@ int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nby
       if (EXIT_SUCCESS == result) result = result_release;
     }
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -918,16 +918,16 @@ int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t*
     size_free = (size_t)mem_status.ullAvailPhys;
   }
 #  endif
-  LIBXSTREAM_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_total, NULL),
+  CL_EXPECT(result, clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_total, NULL),
     "retrieve amount of global memory");
-  LIBXSTREAM_CHECK(result,
+  CL_EXPECT(result,
     clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_TYPE, sizeof(cl_device_local_mem_type), &cl_local_type, NULL),
     "retrieve kind of local memory");
   if (CL_LOCAL == cl_local_type) {
-    LIBXSTREAM_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_local, NULL),
+    CL_EXPECT(result, clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_local, NULL),
       "retrieve amount of local memory");
   }
-  LIBXSTREAM_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool), &cl_unified, NULL),
+  CL_EXPECT(result, clGetDeviceInfo(device, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool), &cl_unified, NULL),
     "retrieve if host memory is unified");
   if (EXIT_SUCCESS == result) {
     if (cl_size_total < size_total) size_total = cl_size_total;
@@ -949,7 +949,7 @@ int libxstream_mem_info(size_t* mem_free, size_t* mem_total) {
   const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   int result;
   result = libxstream_opencl_info_devmem(device_id, mem_free, mem_total, NULL /*mem_local*/, NULL /*mem_unified*/);
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 #  if defined(__cplusplus)

@@ -176,7 +176,7 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
     clReleaseCommandQueue(queue);
     *stream_p = NULL;
   }
-  LIBXSTREAM_RETURN_CAUSE(result, name);
+  CL_RETURN(result, name);
 }
 
 
@@ -196,7 +196,7 @@ int libxstream_stream_destroy(libxstream_stream_t* stream) {
       result = clReleaseCommandQueue(queue);
     }
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -211,9 +211,9 @@ int libxstream_stream_priority_range(int* least, int* greatest) {
     char buffer[LIBXSTREAM_BUFFERSIZE];
     cl_platform_id platform = NULL;
     assert(NULL != devinfo->context);
-    LIBXSTREAM_CHECK(result, clGetDeviceInfo(device_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL),
+    CL_EXPECT(result, clGetDeviceInfo(device_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL),
       "retrieve platform associated with active device");
-    LIBXSTREAM_CHECK(result, clGetPlatformInfo(platform, CL_PLATFORM_EXTENSIONS, LIBXSTREAM_BUFFERSIZE, buffer, NULL),
+    CL_EXPECT(result, clGetPlatformInfo(platform, CL_PLATFORM_EXTENSIONS, LIBXSTREAM_BUFFERSIZE, buffer, NULL),
       "retrieve platform extensions");
     if (EXIT_SUCCESS == result) {
       if (NULL != strstr(buffer, "cl_khr_priority_hints") ||
@@ -227,7 +227,7 @@ int libxstream_stream_priority_range(int* least, int* greatest) {
 #  endif
   if (NULL != greatest) *greatest = priohi;
   if (NULL != least) *least = priolo;
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -250,7 +250,7 @@ int libxstream_stream_sync(libxstream_stream_t* stream) {
     }
     if (NULL != event) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
   }
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 
@@ -290,7 +290,7 @@ int libxstream_device_sync(void) {
 #  else
   result = libxstream_opencl_device_synchronize(NULL /*lock*/, /*main*/ 0);
 #  endif
-  LIBXSTREAM_RETURN(result);
+  CL_RETURN(result, "");
 }
 
 #  if defined(__cplusplus)

@@ -105,30 +105,46 @@
     clCreateCommandQueue(CTX, DEV, (cl_command_queue_properties)(NULL != (PROPS) ? ((PROPS)[1]) : 0), RESULT)
 #endif
 
+/** Check CL-call and abort on error (for sample/external code). */
+#if !defined(CL_CHECK)
+#define CL_CHECK(CALL) do { \
+  const cl_int cl_check_result_ = (CALL); \
+  if (CL_SUCCESS != cl_check_result_) { \
+    fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i) at %s:%d\n", \
+      libxstream_opencl_strerror(cl_check_result_), (int)cl_check_result_, __FILE__, __LINE__); \
+    assert(CL_SUCCESS == cl_check_result_); \
+    exit(EXIT_FAILURE); \
+  } \
+} while (0)
+#endif
+
+/** Last error code (delayed error report). */
 #define LIBXSTREAM_ERROR() libxstream_opencl_config.device.error.code
+/** Map error code to a name (use stored name if matching current error). */
 #define LIBXSTREAM_ERROR_NAME(CODE) \
   ((EXIT_SUCCESS != libxstream_opencl_config.device.error.code && (CODE) == libxstream_opencl_config.device.error.code) \
       ? libxstream_opencl_config.device.error.name \
-      : cl_strerror(CODE))
+      : libxstream_opencl_strerror(CODE))
 
-#define LIBXSTREAM_ERROR_REPORT(NAME) \
+/** Report error details from the error slot, then assert. NAME can be empty. */
+#define CL_ERROR_REPORT(NAME) \
   do { \
-    const char* const acc_opencl_error_report_name_ = (const char*)('\0' != *#NAME ? (uintptr_t)(NAME + 0) : 0); \
+    const char* const cl_error_report_name_ = (const char*)('\0' != *#NAME ? (uintptr_t)(NAME + 0) : 0); \
     if (0 != libxstream_opencl_config.verbosity) { \
-      if (NULL != acc_opencl_error_report_name_ && '\0' != *acc_opencl_error_report_name_) { \
-        fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", acc_opencl_error_report_name_); \
+      if (NULL != cl_error_report_name_ && '\0' != *cl_error_report_name_) { \
+        fprintf(stderr, "ERROR ACC/OpenCL: failed for %s!\n", cl_error_report_name_); \
       } \
       else if (0 != libxstream_opencl_config.device.error.code) { \
         if (NULL != libxstream_opencl_config.device.error.name && '\0' != *libxstream_opencl_config.device.error.name) { \
           fprintf(stderr, "ERROR ACC/OpenCL: %s: %s (code=%i)\n", libxstream_opencl_config.device.error.name, \
-            cl_strerror(libxstream_opencl_config.device.error.code), libxstream_opencl_config.device.error.code); \
+            libxstream_opencl_strerror(libxstream_opencl_config.device.error.code), libxstream_opencl_config.device.error.code); \
         } \
         else if (-1001 == libxstream_opencl_config.device.error.code) { \
           fprintf(stderr, "ERROR ACC/OpenCL: incomplete OpenCL installation?\n"); \
         } \
         else { \
           fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", \
-            cl_strerror(libxstream_opencl_config.device.error.code), libxstream_opencl_config.device.error.code); \
+            libxstream_opencl_strerror(libxstream_opencl_config.device.error.code), libxstream_opencl_config.device.error.code); \
         } \
       } \
       memset(&libxstream_opencl_config.device.error, 0, sizeof(libxstream_opencl_config.device.error)); \
@@ -136,7 +152,8 @@
     assert(!"SUCCESS"); \
   } while (0)
 
-#define LIBXSTREAM_CHECK(RESULT, CMD, MSG) \
+/** Chain CMD into RESULT: skip if RESULT already failed, otherwise run and record. */
+#define CL_EXPECT(RESULT, CMD, MSG) \
   do { \
     if (EXIT_SUCCESS == (RESULT)) { \
       (RESULT) = (CMD); /* update result given code from cmd */ \
@@ -144,26 +161,17 @@
       libxstream_opencl_config.device.error.code = (RESULT); \
       assert(EXIT_SUCCESS == (RESULT)); \
     } \
-    else LIBXSTREAM_ERROR_REPORT(); \
+    else CL_ERROR_REPORT(""); \
   } while (0)
 
-#define LIBXSTREAM_RETURN_CAUSE(RESULT, NAME) \
+/** Return RESULT from function, reporting error with optional cause NAME. */
+#define CL_RETURN(RESULT, NAME) \
   do { \
     if (EXIT_SUCCESS == (RESULT)) { \
       assert(EXIT_SUCCESS == libxstream_opencl_config.device.error.code); \
       memset(&libxstream_opencl_config.device.error, 0, sizeof(libxstream_opencl_config.device.error)); \
     } \
-    else LIBXSTREAM_ERROR_REPORT(NAME); \
-    return (RESULT); \
-  } while (0)
-
-#define LIBXSTREAM_RETURN(RESULT) \
-  do { \
-    if (EXIT_SUCCESS == (RESULT)) { \
-      assert(EXIT_SUCCESS == libxstream_opencl_config.device.error.code); \
-      memset(&libxstream_opencl_config.device.error, 0, sizeof(libxstream_opencl_config.device.error)); \
-    } \
-    else LIBXSTREAM_ERROR_REPORT(); \
+    else CL_ERROR_REPORT(NAME); \
     return (RESULT); \
   } while (0)
 
@@ -384,7 +392,7 @@ int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const 
 double libxstream_opencl_duration(cl_event event, int* result_code);
 
 /** Map a raw cl_int error code to a human-readable string. */
-const char* cl_strerror(cl_int err);
+const char* libxstream_opencl_strerror(cl_int err);
 
 #if defined(__cplusplus)
 }
