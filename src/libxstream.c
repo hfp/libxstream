@@ -1816,6 +1816,7 @@ const char* libxstream_opencl_strerror(cl_int err) {
     case -3: return "CL_COMPILER_NOT_AVAILABLE";
     case -5: return "CL_OUT_OF_RESOURCES";
     case -6: return "CL_OUT_OF_HOST_MEMORY";
+    case -7: return "CL_PROFILING_INFO_NOT_AVAILABLE";
     case -11: return "CL_BUILD_PROGRAM_FAILURE";
     case -12: return "CL_MAP_FAILURE";
     case -30: return "CL_INVALID_VALUE";

@@ -276,6 +276,39 @@ int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id) {
 }
 
 
+int libxstream_stream_set_profiling(libxstream_stream_t* stream) {
+  int result = EXIT_SUCCESS;
+  if (NULL != stream) {
+    libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)stream;
+    cl_command_queue_properties props = 0;
+    CL_CHECK(result, clGetCommandQueueInfo(str->queue, CL_QUEUE_PROPERTIES,
+      sizeof(props), &props, NULL));
+    if (EXIT_SUCCESS == result && 0 == (CL_QUEUE_PROFILING_ENABLE & props)) {
+      cl_context ctx = NULL;
+      cl_device_id dev = NULL;
+      CL_CHECK(result, clGetCommandQueueInfo(str->queue,
+        CL_QUEUE_CONTEXT, sizeof(ctx), &ctx, NULL));
+      CL_CHECK(result, clGetCommandQueueInfo(str->queue,
+        CL_QUEUE_DEVICE, sizeof(dev), &dev, NULL));
+      if (EXIT_SUCCESS == result) {
+        LIBXSTREAM_STREAM_PROPERTIES_TYPE qprops[3];
+        cl_command_queue queue;
+        qprops[0] = CL_QUEUE_PROPERTIES;
+        qprops[1] = (LIBXSTREAM_STREAM_PROPERTIES_TYPE)(
+          props | CL_QUEUE_PROFILING_ENABLE);
+        qprops[2] = 0; /* terminator */
+        queue = LIBXSTREAM_CREATE_COMMAND_QUEUE(ctx, dev, qprops, &result);
+        if (EXIT_SUCCESS == result) {
+          clReleaseCommandQueue(str->queue);
+          str->queue = queue;
+        }
+      }
+    }
+  }
+  CL_RETURN(result, "");
+}
+
+
 int libxstream_device_sync(void) {
   int result = EXIT_SUCCESS;
 #  if defined(_OPENMP)

@@ -41,6 +41,8 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
 int libxstream_stream_destroy(libxstream_stream_t* stream);
 int libxstream_stream_sync(libxstream_stream_t* stream);
 int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t* event);
+/** Enable CL_QUEUE_PROFILING_ENABLE on stream (no-op if already set). */
+int libxstream_stream_set_profiling(libxstream_stream_t* stream);
 
 /** events */
 int libxstream_event_create(libxstream_event_t** event_p);
