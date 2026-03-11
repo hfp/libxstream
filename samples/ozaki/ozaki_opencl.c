@@ -81,6 +81,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   const char* kernel_source;
   const char* env;
   int use_bf16, wg, sg, gpu, use_xmx, result;
+  memset(ctx, 0, sizeof(*ctx));
 
   /* Derive bf16 flag from kind (3 = bf16, else int8) */
   use_bf16 = (3 == kind) ? 1 : 0;

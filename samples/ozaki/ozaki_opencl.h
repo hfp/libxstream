@@ -52,7 +52,6 @@ typedef enum ozaki_flags_t {
  * CRT exponent layout : exp[group][brc],
  *   where group = ki_group * nblk + blk_idx,
  *   panel = ki * nblk + blk_idx */
-struct ozaki_context_t;
 typedef void (*ozaki_host_preprocess_fn)(
     const void* matrix, int ld, int trans,
     int dim, int K, int kb_batch,
