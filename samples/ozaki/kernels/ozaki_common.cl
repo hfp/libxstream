@@ -9,13 +9,27 @@
 #ifndef OZAKI_COMMON_CL
 #define OZAKI_COMMON_CL
 
-/* Decompose an IEEE-754 value into sign, biased exponent, and implicit-1 mantissa.
- * Zero and subnormal inputs yield exp=0, mant=0. */
+/* Shared primitives for all Ozaki kernel files.
+ *
+ * Provides:
+ *   CONSTANT            - address-space qualifier (global or __constant)
+ *   OZAKI_DPAS          - one DPAS step (2D block I/O + int8 MAD)
+ *   ieee_decompose()    - IEEE-754 -> (sign, biased exponent, mantissa)
+ *   ozaki_slice_digit() - extract a 7-bit signed digit from aligned mantissa
+ */
+
 #if !defined(CONSTANT)
 # define CONSTANT global
 #endif
 
-/* One DPAS step: 2D block read A[8x32] + B-VNNI[32x16], MAD into ACC. */
+/* One DPAS step: 2D block read + int8x8->int32 MAD.
+ *
+ *   int8 intel_sub_group_i8_i8_matrix_mad_k32(short8 a, int8 b, int8 acc)
+ *   A tile: 8 rows x 32 cols  (read as ushort8 via 2D block read)
+ *   B tile: 32 rows x 16 cols (read with VNNI transform via 2D block read)
+ *   C tile: 8 x 16 int32      (int8 per WI — 8 rows, sg_lid selects column)
+ *
+ * 2D block I/O requires SG=16 and surface pitch >= 64 bytes. */
 #define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
     ushort8 a_blk_; \
@@ -31,6 +45,9 @@
   } while (0)
 
 
+/* Decompose an IEEE-754 value into sign, biased exponent, and implicit-1 mantissa.
+ * Zero and subnormal inputs yield exp=0, mant=0.
+ * real_t, uint_repr_t, EXP_MASK, and AS_UINT come from libxstream_common.h. */
 inline void ieee_decompose(real_t val, int* sign, short* exp, uint_repr_t* mant)
 {
   const uint_repr_t bits = AS_UINT(val);

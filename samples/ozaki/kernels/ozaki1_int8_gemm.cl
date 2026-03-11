@@ -141,25 +141,11 @@
 /**
  * preprocess_a_dense: decompose A into dense per-slice int8 matrices.
  *
- * Output layout: As[s][M_pad][K_pad] where M_pad = nblk_m * BM_PRE,
- *   K_pad = ceil(K, BK_PRE), stored row-major.
- * For the A-side DPAS reads: surface is (NSLICES * BK) wide, M_pad tall,
- *   indexing: As[(row * NSLICES + s) * BK + kk]
- *   i.e. identical to the existing panel layout but with ALL K panels
- *   concatenated: row's data for slice s at K-offset kk is at
- *     As[row * NSLICES * K_pad + s * BK + kk]
- *   which for DPAS reads as surface width = NSLICES * K_pad.
- *
- * Actually, for the GEMM kernel we want per-slice dense M x K matrices.
- *   As_s[row * K_pad + col] stores int8 for slice s, row row, K column col.
- *   The full buffer is As[s * M_pad * K_pad + row * K_pad + col].
- *
- * For 2D block read of A[8 rows x 32 cols]: surface width = K_pad bytes,
- * height = M_pad rows.  K_pad must be >= 64.
+ * Output layout: As[s * M_pad * K_pad + row * K_pad + col].
+ * For 2D block read of A[8x32]: surface width = K_pad, height = M_pad.
+ * K_pad must be >= 64 for 2D block I/O alignment.
  *
  * Work-group: (BM_PRE, BK_PRE, 1).
- *   BM_PRE = rows per work-group (e.g. 16).
- *   BK_PRE = cols per work-group = BK (32).
  */
 __attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG)
@@ -286,7 +272,7 @@ kernel void preprocess_b_dense(
 
 
 /**
- * gemm_fused: Tiled int8 GEMM with K-loop + fused i32→fp accumulation.
+ * gemm_fused: Tiled int8 GEMM with K-loop + fused i32->fp accumulation.
  *
  * For one slice pair (sa, sb), computes:
  *   C_i32[tile] = As[sa][m_tile, :] * Bs[sb][:, n_tile]  (full K sum)
@@ -297,16 +283,10 @@ kernel void preprocess_b_dense(
  * Layout assumptions:
  *   As[sa]: M_pad x K_pad, row-major (each row is K_pad bytes)
  *   Bs[sb]: K_pad x N_pad, row-major (each row is N_pad bytes)
- *   C:      M x N, column-major with stride ldc (fp64 or fp32)
+ *   C:      M x N, column-major with stride ldc
  *
  * Work-group: (SG, NTM * NTN, 1) — each sub-group owns one XMX_M x XMX_N tile.
  * Dispatch: global = (nblk_m * SG, nblk_n * NTM * NTN, 1).
- *
- * DPAS i8xi8->i32 (SG=16):
- *   int8 intel_sub_group_i8_i8_matrix_mad_k32(short8 a, int8 b, int8 acc)
- *   A tile: 8 x 32 (read as ushort8 via 2D block read)
- *   B tile: 32 x 16 (read with VNNI transform via 2D block read)
- *   C tile: 8 x 16 (int8 per WI — 8 rows, sg_lid selects column)
  */
 __attribute__((reqd_work_group_size(SG, NTM * NTN, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
