@@ -52,25 +52,23 @@ typedef void (*ozaki_host_preprocess_fn)(
  * All tuning parameters are set by ozaki_init (0 = auto). */
 typedef struct ozaki_context_t {
   /* GEMM-mode kernels (tiled K-loop + fused accumulation) */
-  cl_kernel kern_gemm_preprocess_a;
-  cl_kernel kern_gemm_preprocess_b;
-  cl_kernel kern_gemm_fused;
-  cl_kernel kern_gemm_fused_sym;
+  cl_kernel kern_preprocess_a;
+  cl_kernel kern_preprocess_b;
+  cl_kernel kern_fused;
+  cl_kernel kern_fused_sym;
   cl_kernel kern_scale_beta;
   /* CRT GEMM-mode kernels (Scheme-2 tiled path) */
-  cl_kernel kern_gemm_crt_preprocess_a;
-  cl_kernel kern_gemm_crt_preprocess_b;
-  cl_kernel kern_gemm_crt_fused;
-  cl_kernel kern_gemm_crt_scale_beta;
+  cl_kernel kern_crt_preprocess_a;
+  cl_kernel kern_crt_preprocess_b;
+  cl_kernel kern_crt_fused;
+  cl_kernel kern_crt_scale_beta;
   int bm, bn, bk;  /* block dimensions (JIT-compiled into kernels) */
   int batch_k;     /* K sub-panels per kernel launch */
   int use_double;  /* 1: fp64, 0: fp32 */
-  int use_bf16;    /* derived: 1 = bf16 Dekker slices, 0 = int8 mantissa slices */
   int use_xmx;     /* 1: hardware matrix multiply (DPAS/XMX) */
-  int use_gemm;    /* 1: Scheme-1 GEMM, 2: CRT GEMM (scalar emulation if !use_xmx) */
   int sg;          /* sub-group size used for compilation */
   int nslices;
-  int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT), 3: ozaki1 bf16 */
+  int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT) */
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim;
   int kgroup;      /* K-grouping factor for kind==2: 2^oztrim, clamped to batch_k */
@@ -104,7 +102,7 @@ typedef struct ozaki_context_t {
  * Pass -1 for ozflags to use the default (TRIANGULAR | SYMMETRIZE);
  * 0 disables both flags.  Auto defaults choose XMX-friendly sizes
  * when hardware support is detected.
- * kind: 1 = ozaki1 int8 (default), 2 = ozaki2 int8 (CRT), 3 = ozaki1 bf16.
+ * kind: 1 = ozaki1 int8 (default), 2 = ozaki2 int8 (CRT).
  * verbosity: 0 = quiet, 1 = info, 2+ = debug. */
 int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
                int use_double, int kind, int verbosity,
