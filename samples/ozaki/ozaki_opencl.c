@@ -132,7 +132,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   if (0 >= bm) bm = 16;
   if (0 >= bn) bn = 16;
   if (0 >= bk) bk = (use_xmx ? 32 : 16);
-  if (0 >= nslices) nslices = (2 == kind ? 17 : 8); /* CRT: 17 primes default */
+  if (0 >= nslices) nslices = (2 == kind ? 18 : 8); /* CRT: 18 primes default */
   if (0 >= batch_k) batch_k = 16; /* number of BK-sized panels grouped per launch */
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
@@ -164,10 +164,10 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     }
     ctx->kgroup = kg;
     /* KGROUP>1 accumulates dot products across panels, requiring the CRT
-     * modulus M_crt to cover KGROUP * BK * (2^53)^2.  With 17 primes
-     * M_crt ~ 2^112 — barely enough for one BK=32 panel.  Use the 18th
-     * prime (61, already in the tables) whenever KGROUP > 1. */
-    if (2 == kind && kg > 1 && nslices < 18) nslices = 18;
+     * modulus M_crt to cover KGROUP * BK * (2^53)^2.  Default 18 primes
+     * gives M_crt ~ 2^118 — enough for one BK=32 panel.  Bump to 19th
+     * prime when KGROUP > 1 for headroom. */
+    if (2 == kind && kg > 1 && nslices < 19) nslices = 19;
   }
   ctx->nslices = nslices;
   ctx->verbosity = verbosity;
@@ -290,17 +290,9 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       char build_params[1024], build_options[512];
       const int mant_bits      = use_double ? 52 : 23;
       const int bias_plus_mant = use_double ? 1075 : 150;
-      /* KGROUP_CRT: intermediate mod reduction every kgroup_crt*BK steps.
-       * 0 = no intermediate reductions (safe for K <= ~133K).
-       * For large K, set KGROUP_CRT = 4096/BK = 128 (safe up to any K). */
-      int kgroup_crt = 0;
       size_t coff = 0;
       while ((size_t)tm * tn / 8 > max_wgs && (tm > 8 || tn > 16)) {
         if (tm >= tn) tm /= 2; else tn /= 2;
-      }
-
-      { const char* env_kg = getenv("OZAKI_KGROUP_CRT");
-        if (NULL != env_kg) kgroup_crt = atoi(env_kg);
       }
 
       LIBXS_SNPRINTF(build_options, sizeof(build_options),
@@ -316,7 +308,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
         nslices, use_double,
         mant_bits, bias_plus_mant,
         bm_pre, bn_pre, bk_pre,
-        kgroup_crt);
+        ctx->kgroup > 1 ? ctx->kgroup : 0);
       if (use_xmx) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
           " -DUSE_XMX=1");
