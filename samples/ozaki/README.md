@@ -15,12 +15,6 @@ Two kernel variants implement the mantissa decomposition:
   decomposed into 7-bit signed int8 slices with a shared per-row/per-column
   exponent. The DPAS path uses `i8_i8_matrix_mad_k32` (BK=32).
 
-- **bf16** (`ozaki1_bf16.cl`, `OZAKI=3`) — Dekker splitting: each element
-  is successively rounded to bf16 and the residual re-split.  Each bf16 slice
-  carries its own sign and exponent, eliminating the exponent panels and
-  exponent-reconstruction step during accumulation.  The DPAS path uses
-  `bf16_bf16_matrix_mad_k16` (BK=16).
-
 The GEMM `C = alpha * A * B + beta * C` is then computed as a sum of
 `S*(S+1)/2` (with triangular + symmetrize) pairwise dot products over
 `BM×BN×BK` tiles, matching the granularity of GPU matrix engines.
@@ -56,9 +50,9 @@ The GEMM `C = alpha * A * B + beta * C` is then computed as a sum of
 ### Pipeline
 
 Both schemes share the same three-kernel pipeline:
-1. **preprocess_a** — decompose rows of A into int8/bf16 slices (Scheme 1)
+1. **preprocess_a** — decompose rows of A into int8 slices (Scheme 1)
    or modular residues (Scheme 2)
-2. **preprocess_b** — decompose columns of B into int8/bf16 slices or residues
+2. **preprocess_b** — decompose columns of B into int8 slices or residues
 3. **dotprod** — iterate slice pairs or modulus channels, accumulate into C
 
 Scheme 2 fuses Garner reconstruction and Horner evaluation directly into
@@ -124,7 +118,7 @@ All arguments are positional and optional (defaults shown):
 
 | Variable         | Default | Description                                    |
 |------------------|---------|------------------------------------------------|
-| `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 2 = int8 CRT, 3 = bf16 Dekker slices. |
+| `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 2 = int8 CRT. |
 | `OZAKI_FLAGS`    | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S² square. Ignored for Scheme 2. |
 | `OZAKI_TRIM`     | 0       | Scheme 1: diagonal trim (drop T least significant diagonals). Scheme 2: K-grouping exponent — KGROUP = 2^TRIM consecutive K sub-panels share one exponent and one Garner reconstruction (0 = no grouping, 1 = pairs, 2 = quads). |
 | `OZAKI_N`        | 8/17    | Scheme 1: number of slices per element. Scheme 2: number of CRT primes (default 17, max 18; automatically raised to 18 when KGROUP > 1). |
@@ -136,8 +130,7 @@ All arguments are positional and optional (defaults shown):
 | `OZAKI_CONSTANT` | 0       | 1 = use `constant` address space for read-only buffers. |
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
-detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For bf16
-(`OZAKI=3`): `BK=16`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=17`
+detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=17`
 (18 when KGROUP > 1), XMX uses `BK=32` with fused in-register Garner/Horner.
 Common defaults: `SG=16`, `batch_k=4`.
 
