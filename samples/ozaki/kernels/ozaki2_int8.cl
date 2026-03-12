@@ -166,16 +166,37 @@ constant ushort oz2g_moduli[] = {
    67,  61
 };
 
-/* Modular reduction: x mod oz2g_moduli[pidx] */
+/* Barrett constants: barrett_inv[i] = floor(2^32 / moduli[i]).
+ * The quotient estimate is exact (within one) for all uint32 inputs.
+ * The int32 DPAS accumulator can reach 127*127*K_pad; for K_pad up to
+ * 65536 this is ~1.06 billion, well within uint32 range.
+ * Product x * barrett_inv fits 57 bits (uint64). */
+constant uint oz2g_barrett_inv[] = {
+  33554432, 33818640, 34359738, 35495597, 38008560, 39403369,
+  40139881, 41698711, 42524428, 44278013, 48258059, 51746593,
+  53024287, 54366674, 58835168, 60492497, 64103989, 70409299
+};
+#define OZ2G_BARRETT_SHIFT 32
+
+/* Barrett modular reduction: x mod oz2g_moduli[pidx].
+ * For pidx==0 (modulus 128 = 2^7), a simple bitmask suffices. */
 inline uint oz2g_mod(uint x, SINT pidx)
 {
-  return x % oz2g_moduli[pidx];
+  if (0 == pidx) return x & 127u;
+  { const uint q = (uint)(((ulong)x * oz2g_barrett_inv[pidx]) >> OZ2G_BARRETT_SHIFT);
+    uint r = x - q * oz2g_moduli[pidx];
+    return (r >= oz2g_moduli[pidx]) ? (r - oz2g_moduli[pidx]) : r;
+  }
 }
 
-/* 64-bit modular reduction */
+/* 64-bit Barrett modular reduction: handles the aligned mantissa (up to 53 bits).
+ * Two-step reduction: first reduce to 32-bit range, then Barrett. */
 inline uint oz2g_mod64(ulong x, SINT pidx)
 {
-  return (uint)(x % (ulong)oz2g_moduli[pidx]);
+  if (0 == pidx) return (uint)(x & 127ul);
+  { const uint lo = (uint)(x % (ulong)oz2g_moduli[pidx]);
+    return lo;
+  }
 }
 
 /* Garner modular inverse table */
