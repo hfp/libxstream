@@ -40,8 +40,6 @@ SCRDIR := $(DEPDIR)/scripts
 KRNELS := $(SRCDIR)/kernels/ozaki1_int8.cl \
           $(SRCDIR)/kernels/ozaki1_bf16.cl \
           $(SRCDIR)/kernels/ozaki2_int8.cl \
-          $(SRCDIR)/kernels/ozaki1_int8_gemm.cl \
-          $(SRCDIR)/kernels/ozaki2_int8_gemm.cl \
           $(NULL)
 GENHDR := $(SRCDIR)/ozaki_kernels.h
 

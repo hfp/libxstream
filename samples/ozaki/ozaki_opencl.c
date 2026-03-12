@@ -20,12 +20,6 @@
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI2_INT8)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2_INT8)"
 #endif
-#if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_INT8_GEMM)
-# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1_INT8_GEMM)"
-#endif
-#if !defined(OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM)
-# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM)"
-#endif
 
 #if defined(OZAKI_DEVPOOL)
 # define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
@@ -81,10 +75,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 {
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-  char build_options[256];
-  char build_params[1024];
-  size_t offset;
-  const char* kernel_source;
   const char* env;
   int use_bf16, wg, sg, gpu, use_xmx, result;
   memset(ctx, 0, sizeof(*ctx));
@@ -202,105 +192,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     sg = 16;
   }
 
-  /* Assemble JIT build flags: compiler options and -D defines separately */
-  LIBXS_SNPRINTF(build_options, sizeof(build_options),
-    "-cl-fast-relaxed-math -cl-denorms-are-zero");
-
-  { const char* constant_qual;
-    env = getenv("OZAKI_CONSTANT");
-    constant_qual = (NULL != env && 0 != atoi(env)) ? "constant" : "global";
-
-    offset = 0;
-    if (gpu) {
-      offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-        "-DGPU ");
-    }
-
-    offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-      "-DCONSTANT=%s -DBM=%d -DBN=%d -DBK=%d"
-      " -DUSE_DOUBLE=%d",
-      constant_qual, bm, bn, bk, use_double);
-
-    if (2 == kind) {
-      /* CRT: pass NPRIMES and mantissa parameters */
-      const int mant_bits      = use_double ? 52 : 23;
-      const int bias_plus_mant = use_double ? 1075 : 150;
-      offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-        " -DNPRIMES=%d -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DKGROUP=%d",
-        nslices, mant_bits, bias_plus_mant, ctx->kgroup);
-    }
-    else {
-      offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-        " -DNSLICES=%d -DTRIANGULAR=%d -DSYMMETRIZE=%d -DTRIM=%d",
-        nslices,
-        (ozflags & OZAKI_TRIANGULAR) ? 1 : 0,
-        (ozflags & OZAKI_SYMMETRIZE) ? 1 : 0,
-        oztrim);
-
-      if (!use_bf16) {
-        const int mant_bits      = use_double ? 52 : 23;
-        const int bias_plus_mant = use_double ? 1075 : 150;
-        offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-          " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d", mant_bits, bias_plus_mant);
-      }
-    }
-
-    if (0 < wg) {
-      offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-        " -DWG=%d", wg);
-    }
-    if (0 < sg) {
-      offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-        " -DSG=%d", sg);
-    }
-    if (use_xmx) {
-      offset += (size_t)LIBXS_SNPRINTF(build_params + offset, sizeof(build_params) - offset,
-        " -DUSE_XMX=1");
-    }
-  }
   ctx->sg = sg;
-
-  if (0 > verbosity || 2 < verbosity) {
-    fprintf(stderr, "INFO OZAKI: build params: %s\n", build_params);
-  }
-
-  /* JIT compile kernels via ACC */
-  if (2 == kind) {
-    kernel_source = OPENCL_KERNELS_SOURCE_OZAKI2_INT8;
-  }
-  else {
-    kernel_source = use_bf16
-      ? OPENCL_KERNELS_SOURCE_OZAKI1_BF16
-      : OPENCL_KERNELS_SOURCE_OZAKI1_INT8;
-  }
-
-  result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
-    "preprocess_a", build_params, build_options,
-    NULL, NULL, NULL, 0, &ctx->kern_preprocess_a);
-  if (EXIT_SUCCESS != result) {
-    if (0 != verbosity) fprintf(stderr, "ERROR: failed to build preprocess_a kernel\n");
-  }
-
-  if (EXIT_SUCCESS == result) {
-    result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
-      "preprocess_b", build_params, build_options,
-      NULL, NULL, NULL, 0, &ctx->kern_preprocess_b);
-    if (EXIT_SUCCESS != result) {
-      if (0 != verbosity) fprintf(stderr, "ERROR: failed to build preprocess_b kernel\n");
-    }
-  }
-
-  if (EXIT_SUCCESS == result) {
-    result = libxstream_opencl_kernel(0 /*source*/, kernel_source,
-      "dotprod", build_params, build_options,
-      NULL, NULL, NULL, 0, &ctx->kern_dotprod);
-    if (EXIT_SUCCESS != result) {
-      if (0 > verbosity || 2 < verbosity) {
-        fprintf(stderr, "INFO OZAKI: dotprod kernel not available (GEMM path required)\n");
-      }
-      result = EXIT_SUCCESS; /* non-fatal: GEMM path can substitute */
-    }
-  }
 
   /* GEMM-mode kernels (tiled K-loop path) */
   ctx->use_gemm = 0;
@@ -359,26 +251,26 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
         fprintf(stderr, "INFO OZAKI GEMM: params: %s\n", gemm_params);
       }
 
-      result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8_GEMM,
+      result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
         "preprocess_a_dense", gemm_params, gemm_options,
         NULL, NULL, NULL, 0, &ctx->kern_gemm_preprocess_a);
       if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8_GEMM,
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
           "preprocess_b_dense", gemm_params, gemm_options,
           NULL, NULL, NULL, 0, &ctx->kern_gemm_preprocess_b);
       }
       if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8_GEMM,
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
           "gemm_fused", gemm_params, gemm_options,
           NULL, NULL, NULL, 0, &ctx->kern_gemm_fused);
       }
       if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8_GEMM,
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
           "gemm_fused_sym", gemm_params, gemm_options,
           NULL, NULL, NULL, 0, &ctx->kern_gemm_fused_sym);
       }
       if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8_GEMM,
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
           "scale_beta", gemm_params, gemm_options,
           NULL, NULL, NULL, 0, &ctx->kern_scale_beta);
       }
@@ -396,7 +288,7 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       }
       else {
         if (0 != verbosity) {
-          fprintf(stderr, "WARN OZAKI: GEMM kernel build failed, falling back to dotprod\n");
+          fprintf(stderr, "ERROR OZAKI: GEMM kernel build failed\n");
         }
         /* Clean up any partially-built kernels */
         if (NULL != ctx->kern_gemm_preprocess_a) { clReleaseKernel(ctx->kern_gemm_preprocess_a); ctx->kern_gemm_preprocess_a = NULL; }
@@ -404,12 +296,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
         if (NULL != ctx->kern_gemm_fused)        { clReleaseKernel(ctx->kern_gemm_fused);        ctx->kern_gemm_fused = NULL; }
         if (NULL != ctx->kern_gemm_fused_sym)    { clReleaseKernel(ctx->kern_gemm_fused_sym);    ctx->kern_gemm_fused_sym = NULL; }
         if (NULL != ctx->kern_scale_beta)        { clReleaseKernel(ctx->kern_scale_beta);        ctx->kern_scale_beta = NULL; }
-        if (NULL != ctx->kern_dotprod) {
-          result = EXIT_SUCCESS; /* non-fatal: fall back to dotprod */
-        }
-        else {
-          if (0 != verbosity) fprintf(stderr, "ERROR: no usable kernel path\n");
-        }
       }
     }
     /* CRT GEMM (kind==2): single fused kernel per tile, all primes internal */
@@ -462,21 +348,21 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
         fprintf(stderr, "INFO OZAKI CRT-GEMM: params: %s\n", crt_params);
       }
 
-      result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM,
+      result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
         "preprocess_a_crt_dense", crt_params, crt_options,
         NULL, NULL, NULL, 0, &ctx->kern_gemm_crt_preprocess_a);
       if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM,
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
           "preprocess_b_crt_dense", crt_params, crt_options,
           NULL, NULL, NULL, 0, &ctx->kern_gemm_crt_preprocess_b);
       }
       if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM,
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
           "gemm_crt_fused", crt_params, crt_options,
           NULL, NULL, NULL, 0, &ctx->kern_gemm_crt_fused);
       }
       if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8_GEMM,
+        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
           "scale_beta", crt_params, crt_options,
           NULL, NULL, NULL, 0, &ctx->kern_gemm_crt_scale_beta);
       }
@@ -494,32 +380,18 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       }
       else {
         if (0 != verbosity) {
-          fprintf(stderr, "WARN OZAKI: CRT-GEMM kernel build failed, falling back to dotprod\n");
+          fprintf(stderr, "ERROR OZAKI: CRT-GEMM kernel build failed\n");
         }
         if (NULL != ctx->kern_gemm_crt_preprocess_a) { clReleaseKernel(ctx->kern_gemm_crt_preprocess_a); ctx->kern_gemm_crt_preprocess_a = NULL; }
         if (NULL != ctx->kern_gemm_crt_preprocess_b) { clReleaseKernel(ctx->kern_gemm_crt_preprocess_b); ctx->kern_gemm_crt_preprocess_b = NULL; }
         if (NULL != ctx->kern_gemm_crt_fused)        { clReleaseKernel(ctx->kern_gemm_crt_fused);        ctx->kern_gemm_crt_fused = NULL; }
         if (NULL != ctx->kern_gemm_crt_scale_beta)   { clReleaseKernel(ctx->kern_gemm_crt_scale_beta);   ctx->kern_gemm_crt_scale_beta = NULL; }
-        if (NULL != ctx->kern_dotprod) {
-          result = EXIT_SUCCESS; /* non-fatal: fall back to dotprod */
-        }
-        else {
-          if (0 != verbosity) fprintf(stderr, "ERROR: no usable kernel path\n");
-        }
       }
     }
   }
 
   /* Report compiled kernel info */
   if (EXIT_SUCCESS == result && (0 > verbosity || 2 < verbosity)) {
-    size_t wgs[3] = {0};
-    if (NULL != ctx->kern_dotprod && CL_SUCCESS == clGetKernelWorkGroupInfo(ctx->kern_dotprod, device,
-      CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL))
-    {
-      fprintf(stderr, "INFO OZAKI: dotprod-%s compiled for WG=%ux%u\n",
-        2 == kind ? "crt" : (use_bf16 ? "bf16" : "int8"),
-        LIBXS_CAST_UINT(wgs[0]), LIBXS_CAST_UINT(wgs[1]));
-    }
     fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
     ozaki_print_opt(stderr, "kind", kind);
     ozaki_print_opt(stderr, "bf16", use_bf16);
@@ -578,8 +450,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
-  if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[0]);
-  if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_dotprod[1]);
 #if defined(OZAKI_DEVPOOL)
   if (NULL != ctx->devpool) libxs_malloc_arg((libxs_malloc_pool_t*)ctx->devpool, ctx);
 #endif
@@ -592,9 +462,6 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 void ozaki_destroy(ozaki_context_t* ctx)
 {
   if (NULL != ctx) {
-    if (NULL != ctx->kern_preprocess_a) clReleaseKernel(ctx->kern_preprocess_a);
-    if (NULL != ctx->kern_preprocess_b) clReleaseKernel(ctx->kern_preprocess_b);
-    if (NULL != ctx->kern_dotprod)      clReleaseKernel(ctx->kern_dotprod);
     if (NULL != ctx->kern_gemm_preprocess_a) clReleaseKernel(ctx->kern_gemm_preprocess_a);
     if (NULL != ctx->kern_gemm_preprocess_b) clReleaseKernel(ctx->kern_gemm_preprocess_b);
     if (NULL != ctx->kern_gemm_fused)        clReleaseKernel(ctx->kern_gemm_fused);
@@ -626,8 +493,6 @@ void ozaki_destroy(ozaki_context_t* ctx)
     /* Destroy persistent synchronization events */
     if (NULL != ctx->evt_prep_a) libxstream_event_destroy(ctx->evt_prep_a);
     if (NULL != ctx->evt_prep_b) libxstream_event_destroy(ctx->evt_prep_b);
-    if (NULL != ctx->evt_dotprod[0]) libxstream_event_destroy(ctx->evt_dotprod[0]);
-    if (NULL != ctx->evt_dotprod[1]) libxstream_event_destroy(ctx->evt_dotprod[1]);
     /* Destroy persistent helper streams */
     if (NULL != ctx->stream_a) libxstream_stream_destroy(ctx->stream_a);
     if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
@@ -649,59 +514,23 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                double beta,        void* c, int ldc)
 {
   const libxstream_opencl_stream_t* str = stream;
-  const int BM = ctx->bm, BN = ctx->bn, BK = ctx->bk;
-  /* Pad B column stride so surface width >= 64 bytes (2D block I/O).
-   * bf16: 2 bytes/elem, min 32 elements.  int8: 1 byte/elem, min 64. */
-  const int bn_min = ctx->use_bf16 ? 32 : 64;
-  const int BN_PAD = ctx->use_xmx ? ((BN < bn_min) ? bn_min : BN) : BN;
-  const int BATCH_K = ctx->batch_k;
-  const int nslices = ctx->nslices;
-  const int nblk_m = (M + BM - 1) / BM;
-  const int nblk_n = (N + BN - 1) / BN;
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
-  const int nkb_total = (K + BK - 1) / BK;
-  const int max_nkb = (BATCH_K < nkb_total) ? BATCH_K : nkb_total;
-  const int kgroup = ctx->kgroup; /* K-grouping factor (1 = no grouping) */
-  const int n_batches = (0 < K) ? ((nkb_total + BATCH_K - 1) / BATCH_K) : 0;
-  /* Hoisted buffer sizes (used by both device and host staging allocation) */
-  const size_t slice_elem = ctx->use_bf16 ? 2 : 1; /* ushort vs char */
-  const size_t ak_max_size = (size_t)max_nkb * nblk_m * BM * nslices * BK * slice_elem;
-  const size_t bk_max_size = (size_t)max_nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
-  const int max_ngroups = (max_nkb + kgroup - 1) / kgroup;
-  const size_t expa_max_size = ctx->use_bf16 ? 0 : (size_t)max_ngroups * nblk_m * BM * sizeof(cl_short);
-  const size_t expb_max_size = ctx->use_bf16 ? 0 : (size_t)max_ngroups * nblk_n * BN * sizeof(cl_short);
-  /* Host-side preprocessing flags */
-  const int host_a = (NULL != ctx->host_preprocess_a) ? 1 : 0;
-  const int host_b = (NULL != ctx->host_preprocess_b) ? 1 : 0;
-  /* Device buffers for input matrices */
-  void *d_a = NULL, *d_b = NULL, *d_c = NULL;
-  /* Double-buffered preprocessing buffers (2 slots) */
-  void *d_ak[2] = {NULL, NULL}, *d_expa[2] = {NULL, NULL};
-  void *d_bk[2] = {NULL, NULL}, *d_expb[2] = {NULL, NULL};
-  /* Host staging buffers for host-side preprocessing (double-buffered) */
-  void *h_ak[2] = {NULL, NULL}, *h_expa[2] = {NULL, NULL};
-  void *h_bk[2] = {NULL, NULL}, *h_expb[2] = {NULL, NULL};
 
   /* Persistent helper streams and events from context */
   libxstream_stream_t *stream_a = ctx->stream_a;
   libxstream_stream_t *stream_b = ctx->stream_b;
   libxstream_event_t *evt_prep_a = ctx->evt_prep_a;
   libxstream_event_t *evt_prep_b = ctx->evt_prep_b;
-  libxstream_event_t *evt_dotprod[2];
   size_t c_nbytes;
   int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
   int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
-  int batch, n_profiled = 0;
-  cl_event *evt_prof = NULL;
 
 #if defined(OZAKI_DEVPOOL)
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
   ctx->stream = stream; /* expose to deallocate wrapper */
 #endif
 
-  evt_dotprod[0] = ctx->evt_dotprod[0];
-  evt_dotprod[1] = ctx->evt_dotprod[1];
 
   /* GEMM path (Scheme 1): full-split-then-tiled-GEMM.
    * Preprocesses entire K dimension up front into dense per-slice
@@ -727,7 +556,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
     void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
+    void *h_as = NULL, *h_expa = NULL, *h_bs = NULL, *h_expb = NULL;
     int sa, sb, first_pair;
+    int n_profiled = 0;
+    cl_event *evt_prof = NULL;
 
     if (K_pad < 64) K_pad = 64;
     if (N_pad < 64) N_pad = 64;
@@ -738,38 +570,66 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     expb_size = (size_t)N * sizeof(cl_int);
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
-    /* Allocate device memory */
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+    /* Allocate device memory (skip full-matrix buffers for host-preprocessed sides) */
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+      result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
+    }
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+      result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+    }
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_as, as_size);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bs, bs_size);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa_g, expa_size);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
 
-    /* H2D transfers */
-    if (EXIT_SUCCESS == result) {
+    /* H2D transfers (skip full-matrix H2D for host-preprocessed sides) */
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
       result = libxstream_mem_copy_h2d(a, d_ag,
         (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
     }
-    if (EXIT_SUCCESS == result) {
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
       result = libxstream_mem_copy_h2d(b, d_bg,
         (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
     }
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
 
-    /* Zero exponent arrays and slice buffers */
-    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
+    /* Zero exponent arrays and slice buffers (skip for host-preprocessed sides) */
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+      result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
+    }
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+      result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
+    }
 
     /* Wait for H2D to finish before preprocessing */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
 
-    /* Phase 1: Preprocess A (on stream_a) */
-    if (EXIT_SUCCESS == result) {
+    /* Profiling: allocate event array (pre_a + pre_b + slice_pairs) */
+    LIBXS_ASSERT(0 == ctx->profile || NULL != ctx->hist);
+    if (NULL != ctx->hist) {
+      evt_prof = (cl_event*)calloc((size_t)(nslices_g * nslices_g) + 2, sizeof(cl_event));
+      if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
+    }
+
+    /* Phase 1: Preprocess A (host callback or GPU kernel on stream_a) */
+    if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
+      h_as = calloc(as_size, 1);
+      h_expa = calloc(expa_size, 1);
+      if (NULL != h_as && NULL != h_expa) {
+        ctx->host_preprocess_a(a, lda, ta, M, K, K_pad, M_pad,
+          nslices_g, ctx->use_xmx, h_as, h_expa);
+        result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
+        }
+      }
+      else result = EXIT_FAILURE;
+    }
+    else if (EXIT_SUCCESS == result) {
       const libxstream_opencl_stream_t* str_a = stream_a;
       size_t global_a[2], local_a[2];
       const int nblk_m_pre = (M + BM_PRE - 1) / BM_PRE;
@@ -788,11 +648,28 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_preprocess_a, i++, sizeof(int), &M_pad));
       }
       CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_gemm_preprocess_a, 2,
-        NULL, global_a, local_a, 0, NULL, NULL));
+        NULL, global_a, local_a, 0, NULL,
+        (NULL != evt_prof && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
+          ? (evt_prof + n_profiled) : NULL));
+      if (EXIT_SUCCESS == result && NULL != evt_prof
+        && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
     }
 
-    /* Phase 1: Preprocess B (on stream_b, parallel) */
-    if (EXIT_SUCCESS == result) {
+    /* Phase 1: Preprocess B (host callback or GPU kernel on stream_b) */
+    if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
+      h_bs = calloc(bs_size, 1);
+      h_expb = calloc(expb_size, 1);
+      if (NULL != h_bs && NULL != h_expb) {
+        ctx->host_preprocess_b(b, ldb, tb, N, K, K_pad, N_pad,
+          nslices_g, ctx->use_xmx, h_bs, h_expb);
+        result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
+        }
+      }
+      else result = EXIT_FAILURE;
+    }
+    else if (EXIT_SUCCESS == result) {
       const libxstream_opencl_stream_t* str_b = stream_b;
       size_t global_b[2], local_b[2];
       const int nblk_n_pre = (N + BN_PRE - 1) / BN_PRE;
@@ -811,14 +688,22 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_preprocess_b, i++, sizeof(int), &N_pad));
       }
       CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_gemm_preprocess_b, 2,
-        NULL, global_b, local_b, 0, NULL, NULL));
+        NULL, global_b, local_b, 0, NULL,
+        (NULL != evt_prof && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
+          ? (evt_prof + n_profiled) : NULL));
+      if (EXIT_SUCCESS == result && NULL != evt_prof
+        && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
     }
 
-    /* Wait for both preprocessing kernels to complete */
+    /* Wait for both preprocessing to complete */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
+
+    /* Free host staging buffers (sync ensures H2D completed) */
+    free(h_as); h_as = NULL; free(h_expa); h_expa = NULL;
+    free(h_bs); h_bs = NULL; free(h_expb); h_expb = NULL;
 
     /* Scale C by beta */
     if (EXIT_SUCCESS == result && 1.0 != beta) {
@@ -894,7 +779,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
           CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_fused_sym, i++, sizeof(int), &sb));
           CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_fused_sym, i++, sizeof(int), &first_pair));
           CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_gemm_fused_sym, 2,
-            NULL, global_g, local_g, 0, NULL, NULL));
+              NULL, global_g, local_g, 0, NULL,
+              (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
+                ? (evt_prof + n_profiled) : NULL));
+          if (EXIT_SUCCESS == result && NULL != evt_prof
+              && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
         }
         else {
           /* Single pair (sa,sb) — diagonal or non-symmetric */
@@ -923,12 +812,35 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
           CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_fused, i++, sizeof(int), &sb));
           CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_fused, i++, sizeof(int), &first_pair));
           CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_gemm_fused, 2,
-            NULL, global_g, local_g, 0, NULL, NULL));
+              NULL, global_g, local_g, 0, NULL,
+              (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
+                ? (evt_prof + n_profiled) : NULL));
+          if (EXIT_SUCCESS == result && NULL != evt_prof
+              && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
         }
         first_pair = 0;
       }
     }
 
+
+    /* Collect profiling data */
+    if (NULL != evt_prof) {
+      int resprof = clWaitForEvents((cl_uint)n_profiled, evt_prof);
+      double total = 0;
+      { int pi;
+        for (pi = 0; pi < n_profiled && EXIT_SUCCESS == resprof; ++pi) {
+          total += libxstream_opencl_duration(evt_prof[pi], &resprof);
+        }
+        for (pi = 0; pi < n_profiled; ++pi) {
+          if (NULL != evt_prof[pi]) clReleaseEvent(evt_prof[pi]);
+        }
+      }
+      if (EXIT_SUCCESS == resprof && 0 < total) {
+        const double gflops = (2.0 * M * N * K) / (total * 1E9);
+        libxs_hist_push(NULL, ctx->hist, &gflops);
+      }
+      free(evt_prof);
+    }
     /* D2H result and cleanup */
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
 
@@ -960,7 +872,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
     void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
+    void *h_as = NULL, *h_expa = NULL, *h_bs = NULL, *h_expb = NULL;
     int first_tile;
+    int n_profiled_c = 0;
+    cl_event *evt_prof_c = NULL;
 
     (void)ntm; (void)ntn;
     if (K_pad < 64) K_pad = 64;
@@ -972,34 +887,62 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     expb_size = (size_t)N * sizeof(cl_int);
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+      result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
+    }
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+      result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+    }
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_as, as_size);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bs, bs_size);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa_g, expa_size);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
 
-    if (EXIT_SUCCESS == result) {
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
       result = libxstream_mem_copy_h2d(a, d_ag,
         (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
     }
-    if (EXIT_SUCCESS == result) {
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
       result = libxstream_mem_copy_h2d(b, d_bg,
         (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
     }
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
 
-    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+      result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
+    }
+    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+      result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
+    }
 
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
 
-    /* Preprocess A (CRT residues, on stream_a) */
-    if (EXIT_SUCCESS == result) {
+    /* Profiling: allocate event array (pre_a + pre_b + crt_gemm) */
+    LIBXS_ASSERT(0 == ctx->profile || NULL != ctx->hist);
+    if (NULL != ctx->hist) {
+      evt_prof_c = (cl_event*)calloc(3, sizeof(cl_event));
+      if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
+    }
+
+    /* Preprocess A (host callback or CRT GPU kernel on stream_a) */
+    if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
+      h_as = calloc(as_size, 1);
+      h_expa = calloc(expa_size, 1);
+      if (NULL != h_as && NULL != h_expa) {
+        ctx->host_preprocess_a(a, lda, ta, M, K, K_pad, M_pad,
+          nprimes_g, ctx->use_xmx, h_as, h_expa);
+        result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
+        }
+      }
+      else result = EXIT_FAILURE;
+    }
+    else if (EXIT_SUCCESS == result) {
       const libxstream_opencl_stream_t* str_a = stream_a;
       size_t global_a[2], local_a[2];
       const int nblk_m_pre = (M + BM_PRE - 1) / BM_PRE;
@@ -1018,11 +961,28 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_a, i++, sizeof(int), &M_pad));
       }
       CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_gemm_crt_preprocess_a, 2,
-        NULL, global_a, local_a, 0, NULL, NULL));
+        NULL, global_a, local_a, 0, NULL,
+        (NULL != evt_prof_c && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
+          ? (evt_prof_c + n_profiled_c) : NULL));
+      if (EXIT_SUCCESS == result && NULL != evt_prof_c
+        && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile)) ++n_profiled_c;
     }
 
-    /* Preprocess B (CRT residues, on stream_b, parallel) */
-    if (EXIT_SUCCESS == result) {
+    /* Preprocess B (host callback or CRT GPU kernel on stream_b) */
+    if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
+      h_bs = calloc(bs_size, 1);
+      h_expb = calloc(expb_size, 1);
+      if (NULL != h_bs && NULL != h_expb) {
+        ctx->host_preprocess_b(b, ldb, tb, N, K, K_pad, N_pad,
+          nprimes_g, ctx->use_xmx, h_bs, h_expb);
+        result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
+        }
+      }
+      else result = EXIT_FAILURE;
+    }
+    else if (EXIT_SUCCESS == result) {
       const libxstream_opencl_stream_t* str_b = stream_b;
       size_t global_b[2], local_b[2];
       const int nblk_n_pre = (N + BN_PRE - 1) / BN_PRE;
@@ -1041,13 +1001,21 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_preprocess_b, i++, sizeof(int), &N_pad));
       }
       CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_gemm_crt_preprocess_b, 2,
-        NULL, global_b, local_b, 0, NULL, NULL));
+        NULL, global_b, local_b, 0, NULL,
+        (NULL != evt_prof_c && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
+          ? (evt_prof_c + n_profiled_c) : NULL));
+      if (EXIT_SUCCESS == result && NULL != evt_prof_c
+        && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile)) ++n_profiled_c;
     }
 
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
+
+    /* Free host staging buffers (sync ensures H2D completed) */
+    free(h_as); h_as = NULL; free(h_expa); h_expa = NULL;
+    free(h_bs); h_bs = NULL; free(h_expb); h_expb = NULL;
 
     /* Scale C by beta */
     if (EXIT_SUCCESS == result && 1.0 != beta) {
@@ -1104,9 +1072,32 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &first_tile));
       }
       CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_gemm_crt_fused, 2,
-        NULL, global_g, local_g, 0, NULL, NULL));
+        NULL, global_g, local_g, 0, NULL,
+        (NULL != evt_prof_c && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
+          ? (evt_prof_c + n_profiled_c) : NULL));
+      if (EXIT_SUCCESS == result && NULL != evt_prof_c
+        && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled_c;
     }
 
+
+    /* Collect profiling data */
+    if (NULL != evt_prof_c) {
+      int resprof = clWaitForEvents((cl_uint)n_profiled_c, evt_prof_c);
+      double total = 0;
+      { int pi;
+        for (pi = 0; pi < n_profiled_c && EXIT_SUCCESS == resprof; ++pi) {
+          total += libxstream_opencl_duration(evt_prof_c[pi], &resprof);
+        }
+        for (pi = 0; pi < n_profiled_c; ++pi) {
+          if (NULL != evt_prof_c[pi]) clReleaseEvent(evt_prof_c[pi]);
+        }
+      }
+      if (EXIT_SUCCESS == resprof && 0 < total) {
+        const double gflops = (2.0 * M * N * K) / (total * 1E9);
+        libxs_hist_push(NULL, ctx->hist, &gflops);
+      }
+      free(evt_prof_c);
+    }
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
 
     OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
@@ -1115,307 +1106,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     return result;
   }
-  /* End CRT GEMM path; fall through to legacy batched dotprod path. */
-
-  /* Allocate device memory for A, B, C.
-   * When host preprocessing is active for a side, the full matrix is not
-   * needed on device — only the preprocessed slice buffers are transferred.
-   * C is always needed on device for beta-scaling and result accumulation. */
-  { c_nbytes = (size_t)ldc * (size_t)N * elem_size;
-    if (0 == host_a) {
-      const size_t a_cols = ta ? (size_t)M : (size_t)K;
-      const size_t a_nbytes = (size_t)lda * a_cols * elem_size;
-      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_a, a_nbytes);
-      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(a, d_a, a_nbytes, stream_a);
-    }
-    if (0 == host_b) {
-      const size_t b_cols = tb ? (size_t)K : (size_t)N;
-      const size_t b_nbytes = (size_t)ldb * b_cols * elem_size;
-      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b, b_nbytes);
-      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(b, d_b, b_nbytes, stream_b);
-    }
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_c, c_nbytes);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_c, c_nbytes, stream);
-  }
-
-  /* Pre-allocate double-buffered preprocessing buffers (max batch size) */
-  if (EXIT_SUCCESS == result) {
-    int s;
-    for (s = 0; s < 2 && s < n_batches; ++s) {
-      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ak[s], ak_max_size);
-      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bk[s], bk_max_size);
-      if (0 < expa_max_size) {
-        if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa[s], expa_max_size);
-        if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb[s], expb_max_size);
-      }
-    }
-  }
-
-  /* Allocate host staging buffers for host-side preprocessing */
-  if (EXIT_SUCCESS == result && (0 != host_a || 0 != host_b)) {
-    int s;
-    for (s = 0; s < 2 && s < n_batches; ++s) {
-      if (0 != host_a) {
-        h_ak[s] = calloc(1, ak_max_size);
-        if (0 < expa_max_size) h_expa[s] = calloc(1, expa_max_size);
-        if (NULL == h_ak[s]) result = EXIT_FAILURE;
-      }
-      if (0 != host_b) {
-        h_bk[s] = calloc(1, bk_max_size);
-        if (0 < expb_max_size) h_expb[s] = calloc(1, expb_max_size);
-        if (NULL == h_bk[s]) result = EXIT_FAILURE;
-      }
-    }
-  }
-
-  /* Profiling: allocate event array (3 events per batch) */
-  LIBXS_ASSERT(0 == ctx->profile || NULL != ctx->hist);
-  if (NULL != ctx->hist && 0 < n_batches) {
-    evt_prof = (cl_event*)calloc(3 * (size_t)n_batches, sizeof(cl_event));
-    /* Ensure the caller's main stream supports profiling queries */
-    if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
-  }
-
-  /* Double-buffered K-batch pipeline:
-   *   stream_a  : preprocess_a  (parallel with preprocess_b)
-   *   stream_b  : preprocess_b  (parallel with preprocess_a)
-   *   stream    : dotprod + C transfers
-   * Batch N dotprod overlaps with batch N+1 preprocessing. */
-  for (batch = 0; batch < n_batches && EXIT_SUCCESS == result; ++batch) {
-    const int cur = batch & 1;
-    const int kb_batch = batch * BATCH_K * BK;
-    const int batch_end = (kb_batch + BATCH_K * BK < K) ? (kb_batch + BATCH_K * BK) : K;
-    const int nkb = (batch_end - kb_batch + BK - 1) / BK;
-    const int first_batch = (0 == batch) ? 1 : 0;
-    cl_event *event = NULL;
-
-    /* Ensure the dotprod that last used this buffer slot is done */
-    if (2 <= batch) {
-      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_a, evt_dotprod[cur]);
-      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_dotprod[cur]);
-    }
-
-    /* Launch preprocess_a on stream_a (or host callback + H2D) */
-    if (0 != host_a) {
-      const size_t ak_cur = (size_t)nkb * nblk_m * BM * nslices * BK * slice_elem;
-      const int nkb_groups_a = (nkb + kgroup - 1) / kgroup;
-      const size_t expa_cur = (size_t)nkb_groups_a * nblk_m * BM * sizeof(cl_short);
-      ctx->host_preprocess_a(a, lda, ta, M, K, kb_batch,
-        nkb, nblk_m, BM, BK, nslices, kgroup, ctx->use_xmx,
-        h_ak[cur], h_expa[cur]);
-      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(
-        h_ak[cur], d_ak[cur], ak_cur, stream_a);
-      if (0 < expa_cur && NULL != h_expa[cur]) {
-        if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(
-          h_expa[cur], d_expa[cur], expa_cur, stream_a);
-      }
-    }
-    else { /* GPU preprocess_a on stream_a */
-      const libxstream_opencl_stream_t* str_a = stream_a;
-      const int nkb_groups_a = (nkb + kgroup - 1) / kgroup;
-      size_t global_a[2], local_a[2];
-      global_a[0] = (size_t)nblk_m * BM; global_a[1] = (size_t)nkb_groups_a * BK;
-      local_a[0] = BM; local_a[1] = BK;
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 0, d_a));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 1, sizeof(int), &M));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 2, sizeof(int), &K));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 3, sizeof(int), &lda));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 4, sizeof(int), &ta));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 5, sizeof(int), &kb_batch));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 6, d_ak[cur]));
-      if (ctx->use_bf16) {
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 7, sizeof(int), &nblk_m));
-      }
-      else {
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, 7, d_expa[cur]));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, 8, sizeof(int), &nblk_m));
-      }
-      event = ((1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile) ? (evt_prof + n_profiled) : NULL);
-      CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
-        NULL, global_a, local_a, 0, NULL, event));
-      if (EXIT_SUCCESS == result && NULL != event) ++n_profiled;
-    } /* end host_a else */
-
-    /* Launch preprocess_b on stream_b (or host callback + H2D) */
-    if (0 != host_b) {
-      const size_t bk_cur = (size_t)nkb * nblk_n * BN_PAD * nslices * BK * slice_elem;
-      const int nkb_groups_b = (nkb + kgroup - 1) / kgroup;
-      const size_t expb_cur = (size_t)nkb_groups_b * nblk_n * BN * sizeof(cl_short);
-      ctx->host_preprocess_b(b, ldb, tb, N, K, kb_batch,
-        nkb, nblk_n, BN, BK, nslices, kgroup, ctx->use_xmx,
-        h_bk[cur], h_expb[cur]);
-      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(
-        h_bk[cur], d_bk[cur], bk_cur, stream_b);
-      if (0 < expb_cur && NULL != h_expb[cur]) {
-        if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(
-          h_expb[cur], d_expb[cur], expb_cur, stream_b);
-      }
-    }
-    else { /* GPU preprocess_b on stream_b (parallel with preprocess_a) */
-      const libxstream_opencl_stream_t* str_b = stream_b;
-      const int nkb_groups_b = (nkb + kgroup - 1) / kgroup;
-      size_t global_b[2], local_b[2];
-      global_b[0] = (size_t)nblk_n * BN; global_b[1] = (size_t)nkb_groups_b * BK;
-      local_b[0] = BN; local_b[1] = BK;
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 0, d_b));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 1, sizeof(int), &N));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 2, sizeof(int), &K));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 3, sizeof(int), &ldb));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 4, sizeof(int), &tb));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 5, sizeof(int), &kb_batch));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 6, d_bk[cur]));
-      if (ctx->use_bf16) {
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 7, sizeof(int), &nblk_n));
-      }
-      else {
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, 7, d_expb[cur]));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, 8, sizeof(int), &nblk_n));
-      }
-      event = ((1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile) ? (evt_prof + n_profiled) : NULL);
-      CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
-         NULL, global_b, local_b, 0, NULL, event));
-      if (EXIT_SUCCESS == result && NULL != event) ++n_profiled;
-    } /* end host_b else */
-
-    /* Record preprocess completion events */
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
-
-    /* Main stream waits for both preprocess results */
-    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
-    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
-
-    /* Profile dot-product */
-    event = ((1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)
-      ? (evt_prof + n_profiled) : NULL);
-
-    /* Launch dotprod on main stream */
-    if (2 == ctx->kind && ctx->use_xmx) { 
-      /* CRT + XMX: fused DPAS + Garner + Horner, writes directly to C */
-      cl_int i = 0;
-      size_t global_c[2], local_c[2];
-      const int ntm = BM / 8, ntn = BN / 16;
-      local_c[0] = (size_t)ctx->sg;
-      local_c[1] = (size_t)(ntm * ntn);
-      global_c[0] = (size_t)nblk_m * local_c[0];
-      global_c[1] = (size_t)nblk_n * local_c[1];
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
-      if (ctx->use_double) {
-        double dalpha = alpha, dbeta = beta;
-        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
-      }
-      else {
-        float falpha = (float)alpha, fbeta = (float)beta;
-        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
-      }
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
-      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
-        NULL, global_c, local_c, 0, NULL, event));
-      if (EXIT_SUCCESS == result && NULL != event) ++n_profiled;
-    }
-    else { /* Scheme 1 or scalar CRT path */
-      cl_int i = 0;
-      size_t global_c[2], local_c[2];
-      if (ctx->use_xmx) {
-        const int ntm = BM / 8, ntn = BN / 16;  /* XMX_M=8, XMX_N=16 */
-        local_c[0] = (size_t)ctx->sg;  /* SG=16 */
-        local_c[1] = (size_t)(ntm * ntn);
-        global_c[0] = (size_t)nblk_m * local_c[0];
-        global_c[1] = (size_t)nblk_n * local_c[1];
-      }
-      else {
-        local_c[0] = BM; local_c[1] = BN;
-        global_c[0] = (size_t)nblk_m * BM;
-        global_c[1] = (size_t)nblk_n * BN;
-      }
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_ak[cur]));
-      if (!ctx->use_bf16) {
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expa[cur]));
-      }
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_bk[cur]));
-      if (!ctx->use_bf16) {
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_expb[cur]));
-      }
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_dotprod, i++, d_c));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &M));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &N));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &ldc));
-      if (ctx->use_double) {
-        double dalpha = alpha, dbeta = beta;
-        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dalpha));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(double), &dbeta));
-      }
-      else {
-        float falpha = (float)alpha, fbeta = (float)beta;
-        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &falpha));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(float), &fbeta));
-      }
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &first_batch));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nkb));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_m));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_dotprod, i++, sizeof(int), &nblk_n));
-      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_dotprod, 2,
-        NULL, global_c, local_c, 0, NULL, event));
-      if (EXIT_SUCCESS == result && NULL != event) ++n_profiled;
-    } /* end else (non-CRT-XMX path) */
-
-    /* Record dotprod completion for this buffer slot */
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_dotprod[cur], stream);
-  }
-
-  /* Collect profiling data (wait for events, not entire queues) */
-  if (NULL != evt_prof) {
-    int resprof = clWaitForEvents((cl_uint)n_profiled, evt_prof), i;
-    double total = 0;
-    for (i = 0; i < n_profiled && EXIT_SUCCESS == resprof; ++i) {
-      total += libxstream_opencl_duration(evt_prof[i], &resprof);
-    }
-    for (i = 0; i < n_profiled; ++i) { /* release events */
-      if (NULL != evt_prof[i]) clReleaseEvent(evt_prof[i]);
-    }
-    if (EXIT_SUCCESS == resprof && 0 < total) {
-      const double gflops = (2.0 * M * N * K) / (total * 1E9);
-      libxs_hist_push(NULL, ctx->hist, &gflops);
-    }
-    free(evt_prof);
-  }
-
-  /* Read back result C; caller is responsible for syncing the stream */
-  if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_c, c, c_nbytes, stream);
-
-  /* Sync helper streams and free host staging buffers.
-   * The sync ensures all H2D transfers from staging buffers have completed
-   * before freeing the source memory. */
-  if (0 != host_a) libxstream_stream_sync(stream_a);
-  if (0 != host_b) libxstream_stream_sync(stream_b);
-  { int s;
-    for (s = 0; s < 2; ++s) {
-      free(h_ak[s]); free(h_expa[s]);
-      free(h_bk[s]); free(h_expb[s]);
-    }
-  }
-
-  /* Return buffers to pool (no deallocation, no sync needed) or free directly */
-  { int s;
-    for (s = 0; s < 2; ++s) {
-      OZAKI_DEV_FREE(d_ak[s]); OZAKI_DEV_FREE(d_expa[s]);
-      OZAKI_DEV_FREE(d_bk[s]); OZAKI_DEV_FREE(d_expb[s]);
-    }
-  }
-  /* Return input/output buffers to pool or free directly */
-  OZAKI_DEV_FREE(d_a); OZAKI_DEV_FREE(d_b); OZAKI_DEV_FREE(d_c);
 
   return result;
 }

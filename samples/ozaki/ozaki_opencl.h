@@ -22,7 +22,7 @@ typedef enum ozaki_flags_t {
   OZAKI_SYMMETRIZE = 2
 } ozaki_flags_t;
 
-/* Host-side preprocessing callback for one K-batch of A or B.
+/* Host-side preprocessing callback for A or B (GEMM single-shot model).
  * When non-NULL in the context, ozaki_gemm calls these instead of
  * the GPU preprocess kernels and skips the full-matrix H2D.
  *
@@ -30,42 +30,27 @@ typedef enum ozaki_flags_t {
  * ld       : leading dimension
  * trans    : 0 = not transposed, 1 = transposed
  * dim      : outer dimension: M (for A) or N (for B)
- * K        : inner dimension
- * kb_batch : K-offset (first K column of this batch)
- * nkb      : number of K-blocks in this batch
- * nblk     : number of row/column blocks
- * brc      : block size: BM (for A) or BN (for B)
- * bk       : block K dimension
+ * K        : inner dimension (unpadded)
+ * K_pad    : padded K (multiple of 32, >= 64)
+ * dim_pad  : padded outer dimension: M_pad (for A) or N_pad (for B)
  * nslices  : number of mantissa slices or CRT primes
- * kgroup   : K-grouping factor (1 unless CRT with oztrim>0)
- * use_xmx  : 1 if XMX layout (affects B-side only)
- * slices   : output flat slice buffer (GPU-compatible layout)
- * exp      : output flat exponent buffer (NULL for bf16 scheme)
+ * use_xmx  : 1 if XMX hardware (DPAS)
+ * slices   : output int8 buffer, pre-zeroed, size nslices*dim_pad*K_pad (A)
+ *            or nslices*K_pad*dim_pad (B)
+ * exp      : output int32 exponent buffer, pre-zeroed, size dim
  *
- * A-side slice layout : slices[panel][brc][nslices][bk]
- * B-side (no XMX)     : slices[panel][brc][nslices][bk]
- * B-side (XMX, int8)  : slices[panel][nslices][bk][bn_pad],
- *   where bn_pad = max(brc, 64)
- * B-side (XMX, bf16)  : slices[panel][nslices][bk][bn_pad],
- *   where bn_pad = max(brc, 32)
- * Exponent layout     : exp[panel][brc] (int16)
- * CRT exponent layout : exp[group][brc],
- *   where group = ki_group * nblk + blk_idx,
- *   panel = ki * nblk + blk_idx */
+ * A-side slice layout: slices[s * dim_pad * K_pad + row * K_pad + k]
+ * B-side slice layout: slices[s * K_pad * dim_pad + k * dim_pad + col]
+ * Exponent layout:     exp[i] -- global max exponent per row (A) or col (B) */
 typedef void (*ozaki_host_preprocess_fn)(
     const void* matrix, int ld, int trans,
-    int dim, int K, int kb_batch,
-    int nkb, int nblk,
-    int brc, int bk, int nslices,
-    int kgroup, int use_xmx,
+    int dim, int K, int K_pad, int dim_pad,
+    int nslices, int use_xmx,
     void* slices, void* exp);
 
 /* State for an Ozaki OpenCL session.
  * All tuning parameters are set by ozaki_init (0 = auto). */
 typedef struct ozaki_context_t {
-  cl_kernel kern_preprocess_a;
-  cl_kernel kern_preprocess_b;
-  cl_kernel kern_dotprod;
   /* GEMM-mode kernels (tiled K-loop + fused accumulation) */
   cl_kernel kern_gemm_preprocess_a;
   cl_kernel kern_gemm_preprocess_b;
@@ -90,7 +75,7 @@ typedef struct ozaki_context_t {
   int oztrim;
   int kgroup;      /* K-grouping factor for kind==2: 2^oztrim, clamped to batch_k */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
-  int profile;     /* 0: off, 1 (or negative): pre+dot, 2: dot, 3: pre-a, 4: pre-b */
+  int profile;     /* 0: off, 1 (or negative): pre+gemm, 2: gemm, 3: pre-a, 4: pre-b */
   /* GEMM-mode block sizes for preprocessing WGs */
   int bm_pre, bn_pre, bk_pre;
   /* GEMM-mode output tile (compiled into GEMM kernel) */
@@ -104,7 +89,7 @@ typedef struct ozaki_context_t {
   /* Persistent helper streams for overlapped preprocessing */
   libxstream_stream_t *stream_a, *stream_b;
   /* Persistent synchronization events */
-  libxstream_event_t *evt_prep_a, *evt_prep_b, *evt_dotprod[2];
+  libxstream_event_t *evt_prep_a, *evt_prep_b;
   /* Optional host-side preprocessing (NULL = GPU kernels).
    * When non-NULL, ozaki_gemm calls these callbacks to fill host
    * staging buffers, then H2D-copies to device, skipping the GPU
