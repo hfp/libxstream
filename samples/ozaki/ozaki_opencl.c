@@ -94,7 +94,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
 
   /* If double requested, verify fp64 support */
   if (use_double) {
-    const char* const fp64_ext[] = {"cl_khr_fp64"};
+    const char* const fp64_ext[] = { "cl_khr_fp64" };
     if (EXIT_SUCCESS != libxstream_opencl_device_ext(
           device, fp64_ext, 1))
     {
@@ -110,8 +110,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   /* Detect hardware matrix multiply support */
   { const char* const xmx_exts[] = {
       "cl_intel_subgroup_matrix_multiply_accumulate",
-      "cl_intel_subgroup_2d_block_io"
-    };
+      "cl_intel_subgroup_2d_block_io" };
     env = getenv("OZAKI_XMX");
     if (NULL != env) {
       use_xmx = atoi(env);
@@ -123,6 +122,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   }
 
   if (0 >= ndecomp) ndecomp = (2 == kind ? 18 : 8);
+  if (2 == kind && 18 < ndecomp) ndecomp = 18;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   ctx->use_double = use_double;
@@ -130,11 +130,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   ctx->kind = kind;
   ctx->ozflags = ozflags;
   ctx->oztrim  = oztrim;
-  /* KGROUPS>1 accumulates dot products across K sub-panels, requiring
-   * the CRT modulus to cover KGROUPS * BK * (2^53)^2.  Default
-   * 18 primes gives M_crt ~ 2^118 — enough for one BK=32
-   * panel.  Bump to 19 when KGROUPS > 1 for headroom. */
-  if (2 == kind && 1 < ozgroups && ndecomp < 19) ndecomp = 19;
   ctx->ndecomp = ndecomp;
   ctx->verbosity = verbosity;
 

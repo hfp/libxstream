@@ -160,7 +160,7 @@
 
 
 /* CRT moduli: 18 pairwise coprime integers <= 128 */
-constant ushort oz2g_moduli[18] = {
+constant ushort oz2g_moduli[] = {
   128, 127, 125, 121, 113, 109, 107, 103,
   101,  97,  89,  83,  81,  79,  73,  71,
    67,  61
@@ -179,7 +179,7 @@ inline uint oz2g_mod64(ulong x, SINT pidx)
 }
 
 /* Garner modular inverse table */
-constant uint oz2g_garner_inv[18][18] = {
+constant uint oz2g_garner_inv[][18] = {
   /* m_0=128 */ {0,   1,  42,  52,  98,  23,  51,  33,  15,  72,  16,  24,  50,  50,   4,   5,  11,  51},
   /* m_1=127 */ {0,   0,  63, 101, 105, 103,  91,  73,  35,  55,  82,  17,  37,  28,  23,  52,  19,  49},
   /* m_2=125 */ {0,   0,   0,  91,  66,  75,   6,  89,  80,  52,  47,   2,  35,  67,  66,  25,  52,  41},
