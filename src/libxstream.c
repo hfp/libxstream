@@ -1121,6 +1121,10 @@ int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
             }
           }
           else devinfo->wgsize[2] = 0;
+          if (0 != devinfo->intel) {
+            const char* const env_biggrf = getenv("LIBXSTREAM_BIGGRF");
+            devinfo->biggrf = (NULL != env_biggrf && 0 != atoi(env_biggrf));
+          }
 #  if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
           { /* cl_intel_unified_shared_memory extension */
             cl_platform_id platform = NULL;
@@ -1417,8 +1421,9 @@ int libxstream_opencl_kernel_flags(const char build_params[], const char build_o
   nchar = libxstream_opencl_defines(build_params, buffer, buffer_size, 1 /*cleanup*/);
   if (0 <= nchar && LIBXS_CAST_INT(buffer_size) > nchar) {
     const int debug = (0 != libxstream_opencl_config.debug && 0 != devinfo->intel && CL_DEVICE_TYPE_CPU != devinfo->type);
-    int n = LIBXS_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s%s %s", 0 == debug ? "" : "-gline-tables-only ",
-      devinfo->std_flag, NULL != build_options ? build_options : "");
+    int n = LIBXS_SNPRINTF(buffer + nchar, buffer_size - nchar, " %s%s %s%s", 0 == debug ? "" : "-gline-tables-only ",
+      devinfo->std_flag, NULL != build_options ? build_options : "",
+      0 != devinfo->biggrf ? " -cl-intel-256-GRF-per-thread" : "");
     if (0 <= n) {
       nchar += n;
       if (NULL != try_options && '\0' != *try_options) { /* length is not reported in result */

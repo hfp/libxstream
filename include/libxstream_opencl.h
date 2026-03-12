@@ -208,6 +208,8 @@ typedef struct libxstream_opencl_device_t {
   cl_uint uid;
   /** Main vendor? */
   cl_int intel, amd, nv;
+  /** Large GRF mode (opt-in via LIBXSTREAM_BIGGRF). */
+  cl_int biggrf;
   /* USM support functions */
   cl_int (*clSetKernelArgMemPointerINTEL)(cl_kernel, cl_uint, const void*);
   cl_int (*clEnqueueMemFillINTEL)(cl_command_queue, void*, const void*, size_t, size_t, cl_uint, const cl_event*, cl_event*);
