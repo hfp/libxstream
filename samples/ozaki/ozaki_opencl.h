@@ -74,10 +74,10 @@ typedef struct ozaki_context_t {
   int kgroup;      /* K-grouping factor for kind==2: 2^oztrim, clamped to batch_k */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
   int profile;     /* 0: off, 1 (or negative): pre+gemm, 2: gemm, 3: pre-a, 4: pre-b */
-  /* GEMM-mode block sizes for preprocessing WGs */
+  /* block sizes for preprocessing WGs */
   int bm_pre, bn_pre, bk_pre;
-  /* GEMM-mode output tile (compiled into GEMM kernel) */
-  int gbm, gbn;
+  /* output tile size (compiled into kernel) */
+  int tm, tn;
   libxs_hist_t* hist; /* kernel execution-time histogram (OZAKI_PROF) */
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
