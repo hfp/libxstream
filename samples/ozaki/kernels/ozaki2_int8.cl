@@ -18,10 +18,10 @@
  *      performing full-K DPAS accumulation per prime, then fuses Garner
  *      CRT reconstruction + Horner evaluation + scaling into the store
  *
- * The KGROUP_CRT tunable controls intermediate int32 mod reductions within
+ * The KGROUPS tunable controls intermediate int32 mod reductions within
  * the K-loop.  When 0 (default), no intermediate reductions — the int32
  * accumulator covers the full K (safe for K <= ~133K).  When > 0, a Barrett
- * mod reduction fires every KGROUP_CRT * BK steps, preventing int32 overflow
+ * mod reduction fires every KGROUPS * BK steps, preventing int32 overflow
  * for large K.  Garner reconstruction always runs once per C element regardless.
  *
  * Compile-time parameters (-D):
@@ -30,7 +30,7 @@
  *   NPRIMES         - number of CRT moduli (17 or 18)
  *   MANT_BITS       - mantissa bits (52=fp64, 23=fp32)
  *   BIAS_PLUS_MANT  - exponent bias + mantissa bits
- *   KGROUP_CRT      - intermediate mod reduction period (0 = full K)
+ *   KGROUPS         - intermediate mod reduction period (0 = full K)
  *   USE_DOUBLE      - 1: fp64, 0: fp32
  *   SG              - sub-group size (16)
  *   BM_PRE, BN_PRE, BK_PRE - preprocessing work-group sizes
@@ -54,8 +54,8 @@
 #if !defined(BIAS_PLUS_MANT)
 # define BIAS_PLUS_MANT 1075
 #endif
-#if !defined(KGROUP_CRT)
-# define KGROUP_CRT 0
+#if !defined(KGROUPS)
+# define KGROUPS 0
 #endif
 #if !defined(SG)
 # define SG 16
@@ -412,7 +412,7 @@ kernel void preprocess_b_crt_dense(
  *
  * Loops over all NPRIMES internally.  For each prime:
  *   1. Full K-loop DPAS accumulation in int32
- *   2. Mod-reduce into per-prime uint residue (with optional KGROUP_CRT
+ *   2. Mod-reduce into per-prime uint residue (with optional KGROUPS
  *      intermediate reductions for large-K overflow safety)
  * After all primes: Garner CRT + Horner evaluation + scaled C store.
  *
@@ -463,12 +463,12 @@ kernel void gemm_crt_fused(
     CONSTANT const char* bs_p = bs_base + (long)pidx * b_plane;
     int8 acc = (int8)(0);
 
-#if KGROUP_CRT > 0
+#if KGROUPS > 0
     { int k, steps = 0;
       for (k = 0; k < K_pad; k += BK) {
         OZAKI_CRT_DPAS(as_p, bs_p, K_pad, N_pad, mi_base, nj_base, k, M, acc);
         ++steps;
-        if (steps >= KGROUP_CRT) {
+        if (steps >= KGROUPS) {
           OZAKI_CRT_MOD_REDUCE(acc, pidx, residues);
           acc = (int8)(0);
           steps = 0;

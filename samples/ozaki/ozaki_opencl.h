@@ -33,10 +33,10 @@ typedef enum ozaki_flags_t {
  * K        : inner dimension (unpadded)
  * K_pad    : padded K (multiple of 32, >= 64)
  * dim_pad  : padded outer dimension: M_pad (for A) or N_pad (for B)
- * nslices  : number of mantissa slices or CRT primes
+ * ndecomp  : number of decomposition components (slices or CRT primes)
  * use_xmx  : 1 if XMX hardware (DPAS)
- * slices   : output int8 buffer, pre-zeroed, size nslices*dim_pad*K_pad (A)
- *            or nslices*K_pad*dim_pad (B)
+ * slices   : output int8 buffer, pre-zeroed, size ndecomp*dim_pad*K_pad (A)
+ *            or ndecomp*K_pad*dim_pad (B)
  * exp      : output int32 exponent buffer, pre-zeroed, size dim
  *
  * A-side slice layout: slices[s * dim_pad * K_pad + row * K_pad + k]
@@ -45,7 +45,7 @@ typedef enum ozaki_flags_t {
 typedef void (*ozaki_host_preprocess_fn)(
     const void* matrix, int ld, int trans,
     int dim, int K, int K_pad, int dim_pad,
-    int nslices, int use_xmx,
+    int ndecomp, int use_xmx,
     void* slices, void* exp);
 
 /* State for an Ozaki OpenCL session.
@@ -62,16 +62,13 @@ typedef struct ozaki_context_t {
   cl_kernel kern_crt_preprocess_b;
   cl_kernel kern_crt_fused;
   cl_kernel kern_crt_scale_beta;
-  int bm, bn, bk;  /* block dimensions (JIT-compiled into kernels) */
-  int batch_k;     /* K sub-panels per kernel launch */
   int use_double;  /* 1: fp64, 0: fp32 */
   int use_xmx;     /* 1: hardware matrix multiply (DPAS/XMX) */
   int sg;          /* sub-group size used for compilation */
-  int nslices;
+  int ndecomp;     /* number of decomposition components (slices or primes) */
   int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT) */
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
-  int oztrim;
-  int kgroup;      /* K-grouping factor for kind==2: 2^oztrim, clamped to batch_k */
+  int oztrim;      /* Scheme 1: diagonal trim (higher = less accurate, faster) */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
   int profile;     /* 0: off, 1 (or negative): pre+gemm, 2: gemm, 3: pre-a, 4: pre-b */
   /* block sizes for preprocessing WGs */
@@ -98,16 +95,17 @@ typedef struct ozaki_context_t {
 
 
 /* Function prototypes (public API).
- * Pass 0 for bm/bn/bk/nslices/batch_k to use auto defaults.
+ * Pass 0 for tm/tn/ndecomp to use auto defaults.
  * Pass -1 for ozflags to use the default (TRIANGULAR | SYMMETRIZE);
  * 0 disables both flags.  Auto defaults choose XMX-friendly sizes
  * when hardware support is detected.
  * kind: 1 = ozaki1 int8 (default), 2 = ozaki2 int8 (CRT).
- * verbosity: 0 = quiet, 1 = info, 2+ = debug. */
-int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
+ * verbosity: 0 = quiet, 1 = info, 2+ = debug.
+ * ozgroups (Scheme 2 only): K-grouping factor, 0/1 = disabled. */
+int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
                int use_double, int kind, int verbosity,
-               int nslices, int batch_k,
-               int ozflags, int oztrim);
+               int ndecomp, int ozflags, int oztrim,
+               int ozgroups);
 void ozaki_destroy(ozaki_context_t* ctx);
 /* ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
  * synchronizing — the caller must sync the stream before consuming the result.

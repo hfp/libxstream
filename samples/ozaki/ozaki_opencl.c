@@ -65,10 +65,10 @@ static void ozaki_print_opt(FILE* stream, const char* name, int val) {
 }
 
 
-int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
+int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
                int use_double, int kind, int verbosity,
-               int nslices, int batch_k,
-               int ozflags, int oztrim)
+               int ndecomp, int ozflags, int oztrim,
+               int ozgroups)
 {
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
@@ -87,22 +87,27 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 
   if (0 > verbosity || 2 < verbosity) {
     char name[256] = "";
-    libxstream_opencl_device_name(device, name, sizeof(name), NULL, 0, 1 /*cleanup*/);
+    libxstream_opencl_device_name(
+      device, name, sizeof(name), NULL, 0, 1 /*cleanup*/);
     printf("Device: %s%s\n", name, gpu ? " (GPU)" : "");
   }
 
   /* If double requested, verify fp64 support */
   if (use_double) {
     const char* const fp64_ext[] = {"cl_khr_fp64"};
-    if (EXIT_SUCCESS != libxstream_opencl_device_ext(device, fp64_ext, 1)) {
+    if (EXIT_SUCCESS != libxstream_opencl_device_ext(
+          device, fp64_ext, 1))
+    {
       if (0 > verbosity || 1 < verbosity) {
-        fprintf(stderr, "WARN: device does not support cl_khr_fp64, falling back to float\n");
+        fprintf(stderr,
+          "WARN: device does not support cl_khr_fp64,"
+          " falling back to float\n");
       }
       use_double = 0;
     }
   }
 
-  /* Detect hardware matrix multiply support (before choosing defaults) */
+  /* Detect hardware matrix multiply support */
   { const char* const xmx_exts[] = {
       "cl_intel_subgroup_matrix_multiply_accumulate",
       "cl_intel_subgroup_2d_block_io"
@@ -117,59 +122,20 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     }
   }
 
-  /* Environment-driven block/batch overrides (0 = caller wants auto) */
-  env = getenv("OZAKI_BM");
-  if (NULL != env && 0 >= bm) { int v = atoi(env); if (0 < v) bm = v; }
-  env = getenv("OZAKI_BN");
-  if (NULL != env && 0 >= bn) { int v = atoi(env); if (0 < v) bn = v; }
-  env = getenv("OZAKI_BK");
-  if (NULL != env && 0 >= bk) { int v = atoi(env); if (0 < v) bk = v; }
-  env = getenv("OZAKI_BATCH_K");
-  if (NULL != env && 0 >= batch_k) { int v = atoi(env); if (0 < v) batch_k = v; }
-
-  /* Choose smart defaults: XMX-friendly when hardware is available.
-   * XMX requires BK==32 (int8), BM divisible by 8, BN divisible by 16. */
-  if (0 >= bm) bm = 16;
-  if (0 >= bn) bn = 16;
-  if (0 >= bk) bk = (use_xmx ? 32 : 16);
-  if (0 >= nslices) nslices = (2 == kind ? 18 : 8); /* CRT: 18 primes default */
-  if (0 >= batch_k) batch_k = 16; /* number of BK-sized panels grouped per launch */
+  if (0 >= ndecomp) ndecomp = (2 == kind ? 18 : 8);
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
-  /* Validate XMX constraints against final block sizes.
-   * DPAS SG=16: XMX_N=16, so BN must be divisible by 16. */
-  if (use_xmx && (32 != bk || 0 != (bm % 8) || 0 != (bn % 16))) {
-    if (0 > verbosity || 1 < verbosity) {
-      fprintf(stderr, "WARN OZAKI: XMX disabled (BK=%d, BM=%d, BN=%d)\n",
-              bk, bm, bn);
-    }
-    use_xmx = 0;
-  }
-
-  ctx->bm = bm;
-  ctx->bn = bn;
-  ctx->bk = bk;
-  ctx->batch_k = batch_k;
   ctx->use_double = use_double;
   ctx->use_xmx = use_xmx;
   ctx->kind = kind;
   ctx->ozflags = ozflags;
   ctx->oztrim  = oztrim;
-  /* For kind==2 (CRT): kgroup = 2^oztrim, clamped to [1, batch_k].
-   * Larger kgroup amortises Garner across more K sub-panels. */
-  { int kg = 1;
-    if (2 == kind && oztrim > 0) {
-      int i;
-      for (i = 0; i < oztrim && kg < batch_k; ++i) kg *= 2;
-    }
-    ctx->kgroup = kg;
-    /* KGROUP>1 accumulates dot products across panels, requiring the CRT
-     * modulus M_crt to cover KGROUP * BK * (2^53)^2.  Default 18 primes
-     * gives M_crt ~ 2^118 — enough for one BK=32 panel.  Bump to 19th
-     * prime when KGROUP > 1 for headroom. */
-    if (2 == kind && kg > 1 && nslices < 19) nslices = 19;
-  }
-  ctx->nslices = nslices;
+  /* KGROUPS>1 accumulates dot products across K sub-panels, requiring
+   * the CRT modulus to cover KGROUPS * BK * (2^53)^2.  Default
+   * 18 primes gives M_crt ~ 2^118 — enough for one BK=32
+   * panel.  Bump to 19 when KGROUPS > 1 for headroom. */
+  if (2 == kind && 1 < ozgroups && ndecomp < 19) ndecomp = 19;
+  ctx->ndecomp = ndecomp;
   ctx->verbosity = verbosity;
 
   /* Environment-driven tuning */
@@ -198,162 +164,183 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   ctx->kern_crt_preprocess_b = NULL;
   ctx->kern_crt_fused = NULL;
   ctx->kern_crt_scale_beta = NULL;
-  if (2 != kind) {
-      /* output tile sizes: fit SG * (tm/8) * (tn/16) <= max_wgs.
-       * tm must be multiple of 8, tn must be multiple of 16.
-       * Large GRF halves effective max work-group size. */
-      const size_t max_wgs = (0 != devinfo->biggrf)
-        ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
-      int tm = 256, tn = 256;
-      const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
-      char build_params[1024], build_options[512];
-      const int mant_bits      = use_double ? 52 : 23;
-      const int bias_plus_mant = use_double ? 1075 : 150;
+  { /* output tile sizes: fit SG * (tm/8) * (tn/16) <= max_wgs.
+     * tm must be multiple of 8, tn must be multiple of 16.
+     * Large GRF halves effective max work-group size. */
+    const size_t max_wgs = (0 != devinfo->biggrf)
+      ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
+    const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
+    char build_params[1024];
+    const char build_options[] =
+      "-cl-fast-relaxed-math -cl-denorms-are-zero";
+    const int mant_bits      = use_double ? 52 : 23;
+    const int bias_plus_mant = use_double ? 1075 : 150;
+    if (0 >= tm) tm = 256;
+    if (0 >= tn) tn = 256;
+    while ((size_t)tm * tn / 8 > max_wgs && (tm > 8 || tn > 16)) {
+      if (tm >= tn) tm /= 2; else tn /= 2;
+    }
+    if (1 == kind) {
       size_t goff = 0;
-      while ((size_t)tm * tn / 8 > max_wgs && (tm > 8 || tn > 16)) {
-        if (tm >= tn) tm /= 2; else tn /= 2;
-      }
-
-      LIBXS_SNPRINTF(build_options, sizeof(build_options),
-        "-cl-fast-relaxed-math -cl-denorms-are-zero");
-
-      goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
-        "-DGPU -DBM=%d -DBN=%d -DBK=%d -DSG=16"
+      goff += (size_t)LIBXS_SNPRINTF(
+        build_params + goff, sizeof(build_params) - goff,
+        "-DBM=%d -DBN=%d -DBK=%d -DSG=16"
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
-        " -DTRIANGULAR=%d -DCONSTANT=global",
+        " -DCONSTANT=global",
         tm, tn, bk_pre,
-        nslices, use_double,
+        ndecomp, use_double,
         mant_bits, bias_plus_mant,
-        bm_pre, bn_pre, bk_pre,
-        (ozflags & OZAKI_TRIANGULAR) ? 1 : 0);
+        bm_pre, bn_pre, bk_pre);
       if (use_xmx) {
-        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
+        goff += (size_t)LIBXS_SNPRINTF(
+          build_params + goff, sizeof(build_params) - goff,
           " -DUSE_XMX=1");
       }
       (void)goff;
-
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
-
-      result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
-        "preprocess_a_dense", build_params, build_options,
-        NULL, NULL, NULL, 0, &ctx->kern_preprocess_a);
-      if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
-          "preprocess_b_dense", build_params, build_options,
-          NULL, NULL, NULL, 0, &ctx->kern_preprocess_b);
-      }
-      if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
-          "gemm_fused", build_params, build_options,
-          NULL, NULL, NULL, 0, &ctx->kern_fused);
-      }
-      if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
-          "gemm_fused_sym", build_params, build_options,
-          NULL, NULL, NULL, 0, &ctx->kern_fused_sym);
-      }
-      if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
-          "scale_beta", build_params, build_options,
-          NULL, NULL, NULL, 0, &ctx->kern_scale_beta);
-      }
-      if (EXIT_SUCCESS == result) {
-        ctx->tm = tm;
-        ctx->tn = tn;
-        ctx->bm_pre = bm_pre;
-        ctx->bn_pre = bn_pre;
-        ctx->bk_pre = bk_pre;
-      }
-      else {
-        if (0 != verbosity) {
-          fprintf(stderr, "ERROR OZAKI: GEMM kernel build failed\n");
+      { cl_program program = NULL;
+        result = libxstream_opencl_program(
+          0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
+          "ozaki1", build_params, build_options,
+          NULL, NULL, NULL, 0, &program);
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_opencl_kernel_query(
+            program, "preprocess_a_dense",
+            &ctx->kern_preprocess_a);
         }
-        /* Clean up any partially-built kernels */
-        if (NULL != ctx->kern_preprocess_a) { clReleaseKernel(ctx->kern_preprocess_a); ctx->kern_preprocess_a = NULL; }
-        if (NULL != ctx->kern_preprocess_b) { clReleaseKernel(ctx->kern_preprocess_b); ctx->kern_preprocess_b = NULL; }
-        if (NULL != ctx->kern_fused)        { clReleaseKernel(ctx->kern_fused);        ctx->kern_fused = NULL; }
-        if (NULL != ctx->kern_fused_sym)    { clReleaseKernel(ctx->kern_fused_sym);    ctx->kern_fused_sym = NULL; }
-        if (NULL != ctx->kern_scale_beta)        { clReleaseKernel(ctx->kern_scale_beta);        ctx->kern_scale_beta = NULL; }
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_opencl_kernel_query(
+            program, "preprocess_b_dense",
+            &ctx->kern_preprocess_b);
+        }
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_opencl_kernel_query(
+            program, "gemm_fused", &ctx->kern_fused);
+        }
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_opencl_kernel_query(
+            program, "gemm_fused_sym",
+            &ctx->kern_fused_sym);
+        }
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_opencl_kernel_query(
+            program, "scale_beta",
+            &ctx->kern_scale_beta);
+        }
+        if (NULL != program) clReleaseProgram(program);
+      }
+      if (EXIT_SUCCESS != result) {
+        if (NULL != ctx->kern_preprocess_a) {
+          clReleaseKernel(ctx->kern_preprocess_a);
+          ctx->kern_preprocess_a = NULL;
+        }
+        if (NULL != ctx->kern_preprocess_b) {
+          clReleaseKernel(ctx->kern_preprocess_b);
+          ctx->kern_preprocess_b = NULL;
+        }
+        if (NULL != ctx->kern_fused) {
+          clReleaseKernel(ctx->kern_fused);
+          ctx->kern_fused = NULL;
+        }
+        if (NULL != ctx->kern_fused_sym) {
+          clReleaseKernel(ctx->kern_fused_sym);
+          ctx->kern_fused_sym = NULL;
+        }
+        if (NULL != ctx->kern_scale_beta) {
+          clReleaseKernel(ctx->kern_scale_beta);
+          ctx->kern_scale_beta = NULL;
+        }
       }
     }
-    /* CRT GEMM (kind==2): single fused kernel per tile, all primes internal */
-    if (2 == kind) {
-      /* Large GRF halves effective max work-group size. */
-      const size_t max_wgs = (0 != devinfo->biggrf)
-        ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
-      int tm = 256, tn = 256;
-      const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
-      char build_params[1024], build_options[512];
-      const int mant_bits      = use_double ? 52 : 23;
-      const int bias_plus_mant = use_double ? 1075 : 150;
+    /* CRT GEMM (kind==2): fused kernel per tile, all primes internal */
+    else if (2 == kind) {
       size_t coff = 0;
-      while ((size_t)tm * tn / 8 > max_wgs && (tm > 8 || tn > 16)) {
-        if (tm >= tn) tm /= 2; else tn /= 2;
-      }
-
-      LIBXS_SNPRINTF(build_options, sizeof(build_options),
-        "-cl-fast-relaxed-math -cl-denorms-are-zero");
-
-      coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-        "-DGPU -DBM=%d -DBN=%d -DBK=%d -DSG=16"
+      coff += (size_t)LIBXS_SNPRINTF(
+        build_params + coff, sizeof(build_params) - coff,
+        "-DBM=%d -DBN=%d -DBK=%d -DSG=16"
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
-        " -DKGROUP_CRT=%d -DCONSTANT=global",
+        " -DKGROUPS=%d -DCONSTANT=global",
         tm, tn, bk_pre,
-        nslices, use_double,
+        ndecomp, use_double,
         mant_bits, bias_plus_mant,
         bm_pre, bn_pre, bk_pre,
-        ctx->kgroup > 1 ? ctx->kgroup : 0);
+        (2 == kind && 1 < ozgroups) ? ozgroups : 0);
       if (use_xmx) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+        coff += (size_t)LIBXS_SNPRINTF(
+          build_params + coff, sizeof(build_params) - coff,
           " -DUSE_XMX=1");
       }
       (void)coff;
-
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
-
-      result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
-        "preprocess_a_crt_dense", build_params, build_options,
-        NULL, NULL, NULL, 0, &ctx->kern_crt_preprocess_a);
-      if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
-          "preprocess_b_crt_dense", build_params, build_options,
-          NULL, NULL, NULL, 0, &ctx->kern_crt_preprocess_b);
-      }
-      if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
-          "gemm_crt_fused", build_params, build_options,
-          NULL, NULL, NULL, 0, &ctx->kern_crt_fused);
-      }
-      if (EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel(0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
-          "scale_beta", build_params, build_options,
-          NULL, NULL, NULL, 0, &ctx->kern_crt_scale_beta);
-      }
-      if (EXIT_SUCCESS == result) {
-        ctx->tm = tm;
-        ctx->tn = tn;
-        ctx->bm_pre = bm_pre;
-        ctx->bn_pre = bn_pre;
-        ctx->bk_pre = bk_pre;
-      }
-      else {
-        if (0 != verbosity) {
-          fprintf(stderr, "ERROR OZAKI: CRT-GEMM kernel build failed\n");
+      { cl_program program = NULL;
+        result = libxstream_opencl_program(
+          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
+          "ozaki2", build_params, build_options,
+          NULL, NULL, NULL, 0, &program);
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_opencl_kernel_query(
+            program, "preprocess_a_crt_dense",
+            &ctx->kern_crt_preprocess_a);
         }
-        if (NULL != ctx->kern_crt_preprocess_a) { clReleaseKernel(ctx->kern_crt_preprocess_a); ctx->kern_crt_preprocess_a = NULL; }
-        if (NULL != ctx->kern_crt_preprocess_b) { clReleaseKernel(ctx->kern_crt_preprocess_b); ctx->kern_crt_preprocess_b = NULL; }
-        if (NULL != ctx->kern_crt_fused)        { clReleaseKernel(ctx->kern_crt_fused);        ctx->kern_crt_fused = NULL; }
-        if (NULL != ctx->kern_crt_scale_beta)   { clReleaseKernel(ctx->kern_crt_scale_beta);   ctx->kern_crt_scale_beta = NULL; }
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_opencl_kernel_query(
+            program, "preprocess_b_crt_dense",
+            &ctx->kern_crt_preprocess_b);
+        }
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_opencl_kernel_query(
+            program, "gemm_crt_fused",
+            &ctx->kern_crt_fused);
+        }
+        if (EXIT_SUCCESS == result) {
+          result = libxstream_opencl_kernel_query(
+            program, "scale_beta",
+            &ctx->kern_crt_scale_beta);
+        }
+        if (NULL != program) clReleaseProgram(program);
+      }
+      if (EXIT_SUCCESS != result) {
+        if (NULL != ctx->kern_crt_preprocess_a) {
+          clReleaseKernel(ctx->kern_crt_preprocess_a);
+          ctx->kern_crt_preprocess_a = NULL;
+        }
+        if (NULL != ctx->kern_crt_preprocess_b) {
+          clReleaseKernel(ctx->kern_crt_preprocess_b);
+          ctx->kern_crt_preprocess_b = NULL;
+        }
+        if (NULL != ctx->kern_crt_fused) {
+          clReleaseKernel(ctx->kern_crt_fused);
+          ctx->kern_crt_fused = NULL;
+        }
+        if (NULL != ctx->kern_crt_scale_beta) {
+          clReleaseKernel(ctx->kern_crt_scale_beta);
+          ctx->kern_crt_scale_beta = NULL;
+        }
       }
     }
+    else {
+      fprintf(stderr, "ERROR OZAKI: unsupported kind=%d\n", kind);
+      result = EXIT_FAILURE;
+    }
+    if (EXIT_SUCCESS == result) {
+      ctx->tm = tm;
+      ctx->tn = tn;
+      ctx->bm_pre = bm_pre;
+      ctx->bn_pre = bn_pre;
+      ctx->bk_pre = bk_pre;
+    }
+    else if (0 != verbosity) {
+      fprintf(stderr, "ERROR OZAKI: kernel build failed\n");
+    }
+  }
 
   /* Report compiled kernel info */
   if (EXIT_SUCCESS == result && (0 > verbosity || 2 < verbosity)) {
@@ -363,11 +350,11 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     ozaki_print_opt(stderr, "xmx", use_xmx);
     ozaki_print_opt(stderr, "wg", wg);
     ozaki_print_opt(stderr, "sg", sg);
-    ozaki_print_opt(stderr, "nslices", nslices);
-    ozaki_print_opt(stderr, "batch_k", batch_k);
-    if (2 == kind) ozaki_print_opt(stderr, "kgroup", ctx->kgroup);
     ozaki_print_opt(stderr, "tm", ctx->tm);
     ozaki_print_opt(stderr, "tn", ctx->tn);
+    ozaki_print_opt(stderr, "ndecomp", ndecomp);
+    if (1 == kind) ozaki_print_opt(stderr, "trim", oztrim);
+    if (2 == kind) ozaki_print_opt(stderr, "kgroups", ozgroups);
     fprintf(stderr, "\n");
   }
 
@@ -409,9 +396,16 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
 
   /* Create persistent helper streams and synchronization events */
-  { const int sflags = (NULL != ctx->hist ? LIBXSTREAM_STREAM_PROFILING : LIBXSTREAM_STREAM_DEFAULT);
-    if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", sflags);
-    if (EXIT_SUCCESS == result) result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", sflags);
+  { const int sflags = (NULL != ctx->hist
+      ? LIBXSTREAM_STREAM_PROFILING : LIBXSTREAM_STREAM_DEFAULT);
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_stream_create(
+        &ctx->stream_a, "ozaki_a", sflags);
+    }
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_stream_create(
+        &ctx->stream_b, "ozaki_b", sflags);
+    }
   }
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
@@ -427,15 +421,33 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
 void ozaki_destroy(ozaki_context_t* ctx)
 {
   if (NULL != ctx) {
-    if (NULL != ctx->kern_preprocess_a) clReleaseKernel(ctx->kern_preprocess_a);
-    if (NULL != ctx->kern_preprocess_b) clReleaseKernel(ctx->kern_preprocess_b);
-    if (NULL != ctx->kern_fused)        clReleaseKernel(ctx->kern_fused);
-    if (NULL != ctx->kern_fused_sym)    clReleaseKernel(ctx->kern_fused_sym);
-    if (NULL != ctx->kern_scale_beta)        clReleaseKernel(ctx->kern_scale_beta);
-    if (NULL != ctx->kern_crt_preprocess_a) clReleaseKernel(ctx->kern_crt_preprocess_a);
-    if (NULL != ctx->kern_crt_preprocess_b) clReleaseKernel(ctx->kern_crt_preprocess_b);
-    if (NULL != ctx->kern_crt_fused)        clReleaseKernel(ctx->kern_crt_fused);
-    if (NULL != ctx->kern_crt_scale_beta)   clReleaseKernel(ctx->kern_crt_scale_beta);
+    if (NULL != ctx->kern_preprocess_a) {
+      clReleaseKernel(ctx->kern_preprocess_a);
+    }
+    if (NULL != ctx->kern_preprocess_b) {
+      clReleaseKernel(ctx->kern_preprocess_b);
+    }
+    if (NULL != ctx->kern_fused) {
+      clReleaseKernel(ctx->kern_fused);
+    }
+    if (NULL != ctx->kern_fused_sym) {
+      clReleaseKernel(ctx->kern_fused_sym);
+    }
+    if (NULL != ctx->kern_scale_beta) {
+      clReleaseKernel(ctx->kern_scale_beta);
+    }
+    if (NULL != ctx->kern_crt_preprocess_a) {
+      clReleaseKernel(ctx->kern_crt_preprocess_a);
+    }
+    if (NULL != ctx->kern_crt_preprocess_b) {
+      clReleaseKernel(ctx->kern_crt_preprocess_b);
+    }
+    if (NULL != ctx->kern_crt_fused) {
+      clReleaseKernel(ctx->kern_crt_fused);
+    }
+    if (NULL != ctx->kern_crt_scale_beta) {
+      clReleaseKernel(ctx->kern_crt_scale_beta);
+    }
 
 #if defined(OZAKI_DEVPOOL)
     /* Free pool before helper streams: the pool deallocator may sync streams
@@ -482,13 +494,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
 
   /* Persistent helper streams and events from context */
-  libxstream_stream_t *stream_a = ctx->stream_a;
-  libxstream_stream_t *stream_b = ctx->stream_b;
-  libxstream_event_t *evt_prep_a = ctx->evt_prep_a;
-  libxstream_event_t *evt_prep_b = ctx->evt_prep_b;
+  libxstream_stream_t* const stream_a = ctx->stream_a;
+  libxstream_stream_t* const stream_b = ctx->stream_b;
+  libxstream_event_t* const evt_prep_a = ctx->evt_prep_a;
+  libxstream_event_t* const evt_prep_b = ctx->evt_prep_b;
   size_t c_nbytes;
-  int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
-  int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
+  const int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
+  const int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
 
 #if defined(OZAKI_DEVPOOL)
@@ -500,7 +512,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
    * Preprocesses entire K dimension up front into dense per-slice
    * int8 matrices, then runs a proper tiled GEMM per slice pair. */
   if (NULL != ctx->kern_fused && 0 < K) {
-    const int nslices_g = ctx->nslices;
+    const int nslices_g = ctx->ndecomp;
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
@@ -817,7 +829,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
    * then runs a single kernel per tile that loops over all primes
    * internally (full-K DPAS + Garner + Horner in one launch). */
   else if (NULL != ctx->kern_crt_fused && 0 < K) {
-    const int nprimes_g = ctx->nslices;
+    const int nprimes_g = ctx->ndecomp;
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;

@@ -100,20 +100,27 @@ int main(int argc, char* argv[])
   /* Initialize Ozaki context (kernels) */
   if (EXIT_SUCCESS == result) {
     const char* env;
-    int ozflags = -1 /*auto*/, oztrim = 0, nslices = 0 /*auto*/;
-    int kind = 1 /*int8*/, verbosity = 0;
+    int ozflags = -1 /*auto*/, oztrim = 0, ndecomp = 0 /*auto*/;
+    int ozgroups = 0, kind = 1 /*int8*/, verbosity = 0;
+    int tm = 0, tn = 0;
+    env = getenv("OZAKI_TM");
+    if (NULL != env) tm = atoi(env);
+    env = getenv("OZAKI_TN");
+    if (NULL != env) tn = atoi(env);
     env = getenv("OZAKI_FLAGS");
     if (NULL != env) ozflags = atoi(env);
     env = getenv("OZAKI_TRIM");
     if (NULL != env) oztrim = atoi(env);
     env = getenv("OZAKI_N");
-    if (NULL != env) nslices = atoi(env);
+    if (NULL != env) ndecomp = atoi(env);
     env = getenv("OZAKI");
     if (NULL != env) kind = atoi(env);
+    env = getenv("OZAKI_GROUPS");
+    if (NULL != env) ozgroups = atoi(env);
     env = getenv("OZAKI_VERBOSE");
     if (NULL != env) verbosity = atoi(env);
-    result = ozaki_init(&ctx, 0, 0, 0, 1 /*use_double*/, kind, verbosity,
-      nslices, 0, ozflags, oztrim);
+    result = ozaki_init(&ctx, tm, tn, 1 /*use_double*/, kind, verbosity,
+      ndecomp, ozflags, oztrim, ozgroups);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
     }

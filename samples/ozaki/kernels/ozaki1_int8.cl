@@ -27,11 +27,8 @@
  *   NSLICES         - number of mantissa slices
  *   MANT_BITS       - mantissa bit count (52 for fp64, 23 for fp32)
  *   BIAS_PLUS_MANT  - exponent bias + mantissa bits
- *   TRIANGULAR      - if 1, iterate upper triangle of slice pairs
  *   USE_DOUBLE      - if 1, fp64 accumulation; otherwise fp32
  *   SG              - sub-group size (16)
- *   BN_A_PAD        - padded K stride for A slices (>= 64 for 2D block I/O)
- *   BN_B_PAD        - padded N stride for B slices (>= 64 for 2D block I/O)
  */
 
 #if !defined(BM)
@@ -54,9 +51,6 @@
 #endif
 #if !defined(BIAS_PLUS_MANT)
 # define BIAS_PLUS_MANT 1075
-#endif
-#if !defined(TRIANGULAR)
-# define TRIANGULAR 1
 #endif
 #if !defined(SG)
 # define SG 16
