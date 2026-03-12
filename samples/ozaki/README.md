@@ -38,13 +38,13 @@ The GEMM `C = alpha * A * B + beta * C` is then computed as a sum of
   symmetrize optimisations do not apply (each modulus channel is
   independent).
 
-  **K-grouping** (`OZAKI_TRIM`): When `OZAKI_TRIM` > 0, KGROUP = 2^OZAKI_TRIM
+  **K-grouping** (`OZAKI_GROUPS`): When `OZAKI_GROUPS` > 1, that many
   consecutive K sub-panels share a common max exponent and their DPAS dot
   products are accumulated before a single Garner reconstruction per group.
-  This amortises the (expensive) Garner/Horner phase across KGROUP panels.
-  KGROUP > 1 automatically uses 18 primes (instead of 17) to provide
-  sufficient CRT range for accumulated dot products.  With `OZAKI_TRIM=2`
-  (KGROUP=4) the Garner cost is cut by 4× and overall speedups of ~3× have
+  This amortises the (expensive) Garner/Horner phase across OZAKI_GROUPS panels.
+  OZAKI_GROUPS > 1 automatically uses 18 primes (instead of 17) to provide
+  sufficient CRT range for accumulated dot products.  With `OZAKI_GROUPS=4`
+  the Garner cost is cut by 4× and overall speedups of ~3× have
   been measured on PVC at large matrix sizes.
 
 ### Pipeline
@@ -120,8 +120,9 @@ All arguments are positional and optional (defaults shown):
 |------------------|---------|------------------------------------------------|
 | `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 2 = int8 CRT. |
 | `OZAKI_FLAGS`    | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S² square. Ignored for Scheme 2. |
-| `OZAKI_TRIM`     | 0       | Scheme 1: diagonal trim (drop T least significant diagonals). Scheme 2: K-grouping exponent — KGROUP = 2^TRIM consecutive K sub-panels share one exponent and one Garner reconstruction (0 = no grouping, 1 = pairs, 2 = quads). |
-| `OZAKI_N`        | 8/17    | Scheme 1: number of slices per element. Scheme 2: number of CRT primes (default 17, max 18; automatically raised to 18 when KGROUP > 1). |
+| `OZAKI_TRIM`     | 0       | Scheme 1: diagonal trim — higher trim drops more least significant diagonals (less accurate but faster). Not applicable to Scheme 2. |
+| `OZAKI_N`        | 8/18    | Number of decomposition components. Scheme 1: number of slices per element (default 8). Scheme 2: number of CRT primes (default 18; automatically raised to 19 when OZAKI_GROUPS > 1). |
+| `OZAKI_GROUPS`   | 0       | Scheme 2 only: K-grouping factor — that many consecutive K sub-panels share one exponent and one Garner reconstruction (0/1 = no grouping, 4 = quads). |
 | `OZAKI_VERBOSE`  | 0       | Verbosity level: 0 = silent, 1 = errors only, 2 = errors + warnings, 3+ = all info. Negative values also enable all output. |
 | `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on).|
 | `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint).            |
@@ -130,9 +131,9 @@ All arguments are positional and optional (defaults shown):
 | `OZAKI_CONSTANT` | 0       | 1 = use `constant` address space for read-only buffers. |
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
-detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=17`
-(18 when KGROUP > 1), XMX uses `BK=32` with fused in-register Garner/Horner.
-Common defaults: `SG=16`, `batch_k=4`.
+detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=18`,
+XMX uses `BK=32` with fused in-register Garner/Horner.
+Common defaults: `SG=16`.
 
 ## Example
 
