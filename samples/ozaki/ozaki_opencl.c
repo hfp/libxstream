@@ -350,6 +350,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     if (1 == kind) ozaki_print_opt(stderr, "trim", oztrim);
     if (2 == kind) ozaki_print_opt(stderr, "kgroups", ozgroups);
+    ozaki_print_opt(stderr, "cache", ctx->cache.flags);
     fprintf(stderr, "\n");
   }
 
@@ -377,6 +378,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     }
   }
 #endif
+
+  /* OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, 3=both) */
+  { const char* env_cache = getenv("OZAKI_CACHE");
+    ctx->cache.flags = (NULL != env_cache) ? atoi(env_cache) : 3;
+  }
 
   /* OZAKI_PROFILE: kernel execution-time profiling */
   ctx->hist = NULL;
@@ -443,6 +449,12 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->kern_crt_scale_beta) {
       clReleaseKernel(ctx->kern_crt_scale_beta);
     }
+
+    /* Free preprocessing cache (non-pool device memory) */
+    if (NULL != ctx->cache.a.d_slices) libxstream_mem_deallocate(ctx->cache.a.d_slices);
+    if (NULL != ctx->cache.a.d_exp) libxstream_mem_deallocate(ctx->cache.a.d_exp);
+    if (NULL != ctx->cache.b.d_slices) libxstream_mem_deallocate(ctx->cache.b.d_slices);
+    if (NULL != ctx->cache.b.d_exp) libxstream_mem_deallocate(ctx->cache.b.d_exp);
 
 #if defined(OZAKI_DEVPOOL)
     /* Free pool before helper streams: the pool deallocator may sync streams
@@ -531,6 +543,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     int sa, sb, first_pair;
     int n_profiled = 0;
     cl_event *evt_prof = NULL;
+    int cache_hit_a = 0, cache_hit_b = 0;
 
     if (k_pad < 64) k_pad = 64;
     if (n_pad < 64) n_pad = 64;
@@ -541,36 +554,64 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     expb_size = (size_t)N * sizeof(cl_int);
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
-    /* Allocate device memory (skip full-matrix buffers for host-preprocessed sides) */
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+    /* Preprocessing cache: reuse slices+exponents when matrix unchanged */
+    if (0 != (ctx->cache.flags & 1) && a == ctx->cache.a.ptr
+        && M == ctx->cache.a.dim && K == ctx->cache.a.K
+        && lda == ctx->cache.a.ld && ta == ctx->cache.a.trans
+        && as_size == ctx->cache.a.slices_size && expa_size == ctx->cache.a.exp_size
+        && NULL != ctx->cache.a.d_slices && NULL != ctx->cache.a.d_exp)
+    {
+      d_as = ctx->cache.a.d_slices; d_expa_g = ctx->cache.a.d_exp;
+      cache_hit_a = 1;
+    }
+    if (0 != (ctx->cache.flags & 2) && b == ctx->cache.b.ptr
+        && N == ctx->cache.b.dim && K == ctx->cache.b.K
+        && ldb == ctx->cache.b.ld && tb == ctx->cache.b.trans
+        && bs_size == ctx->cache.b.slices_size && expb_size == ctx->cache.b.exp_size
+        && NULL != ctx->cache.b.d_slices && NULL != ctx->cache.b.d_exp)
+    {
+      d_bs = ctx->cache.b.d_slices; d_expb_g = ctx->cache.b.d_exp;
+      cache_hit_b = 1;
+    }
+
+    /* Allocate device memory (skip cached sides and host-preprocessed sides) */
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
       result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
     }
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
       result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
     }
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_as, as_size);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bs, bs_size);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa_g, expa_size);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
+      result = OZAKI_DEV_ALLOC(&d_as, as_size);
+    }
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+      result = OZAKI_DEV_ALLOC(&d_bs, bs_size);
+    }
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
+      result = OZAKI_DEV_ALLOC(&d_expa_g, expa_size);
+    }
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+      result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
+    }
 
-    /* H2D transfers (skip full-matrix H2D for host-preprocessed sides) */
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+    /* H2D transfers (skip cached and host-preprocessed sides) */
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
       result = libxstream_mem_copy_h2d(a, d_ag,
         (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
     }
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
       result = libxstream_mem_copy_h2d(b, d_bg,
         (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
     }
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
 
-    /* Zero exponent arrays and slice buffers (skip for host-preprocessed sides) */
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+    /* Zero exponent arrays and slice buffers (skip cached and host-preprocessed sides) */
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
       result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
       if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
     }
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
       result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
       if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
     }
@@ -586,7 +627,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
 
-    /* Phase 1: Preprocess A (host callback or GPU kernel on stream_a) */
+    /* Phase 1: Preprocess A (skip entirely on cache hit) */
+    if (0 == cache_hit_a) {
     if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
       h_as = calloc(as_size, 1);
       h_expa = calloc(expa_size, 1);
@@ -625,8 +667,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (EXIT_SUCCESS == result && NULL != evt_prof
         && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
     }
+    } /* cache_hit_a */
 
-    /* Phase 1: Preprocess B (host callback or GPU kernel on stream_b) */
+    /* Phase 1: Preprocess B (skip entirely on cache hit) */
+    if (0 == cache_hit_b) {
     if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
       h_bs = calloc(bs_size, 1);
       h_expb = calloc(expb_size, 1);
@@ -665,6 +709,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (EXIT_SUCCESS == result && NULL != evt_prof
         && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
     }
+    } /* cache_hit_b */
 
     /* Wait for both preprocessing to complete */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
@@ -676,8 +721,35 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     free(h_as); h_as = NULL; free(h_expa); h_expa = NULL;
     free(h_bs); h_bs = NULL; free(h_expb); h_expb = NULL;
 
-    /* Scale C by beta */
-    if (EXIT_SUCCESS == result && 1.0 != beta) {
+    /* Save preprocessed buffers to cache on miss (transfers ownership) */
+    if (0 == cache_hit_a && 0 != (ctx->cache.flags & 1) && EXIT_SUCCESS == result) {
+      if (NULL != ctx->cache.a.d_slices && as_size != ctx->cache.a.slices_size) {
+        libxstream_mem_deallocate(ctx->cache.a.d_slices); ctx->cache.a.d_slices = NULL;
+      }
+      if (NULL != ctx->cache.a.d_exp && expa_size != ctx->cache.a.exp_size) {
+        libxstream_mem_deallocate(ctx->cache.a.d_exp); ctx->cache.a.d_exp = NULL;
+      }
+      ctx->cache.a.ptr = a; ctx->cache.a.dim = M; ctx->cache.a.K = K;
+      ctx->cache.a.ld = lda; ctx->cache.a.trans = ta;
+      ctx->cache.a.d_slices = d_as; ctx->cache.a.d_exp = d_expa_g;
+      ctx->cache.a.slices_size = as_size; ctx->cache.a.exp_size = expa_size;
+    }
+    if (0 == cache_hit_b && 0 != (ctx->cache.flags & 2) && EXIT_SUCCESS == result) {
+      if (NULL != ctx->cache.b.d_slices && bs_size != ctx->cache.b.slices_size) {
+        libxstream_mem_deallocate(ctx->cache.b.d_slices); ctx->cache.b.d_slices = NULL;
+      }
+      if (NULL != ctx->cache.b.d_exp && expb_size != ctx->cache.b.exp_size) {
+        libxstream_mem_deallocate(ctx->cache.b.d_exp); ctx->cache.b.d_exp = NULL;
+      }
+      ctx->cache.b.ptr = b; ctx->cache.b.dim = N; ctx->cache.b.K = K;
+      ctx->cache.b.ld = ldb; ctx->cache.b.trans = tb;
+      ctx->cache.b.d_slices = d_bs; ctx->cache.b.d_exp = d_expb_g;
+      ctx->cache.b.slices_size = bs_size; ctx->cache.b.exp_size = expb_size;
+    }
+
+    /* Scale C by beta (skip for beta==0: first_pair overwrite handles it;
+     * skip for beta==1: multiplying by 1 is a no-op) */
+    if (EXIT_SUCCESS == result && 1.0 != beta && 0.0 != beta) {
       size_t global_s[2], local_s[2];
       local_s[0] = (size_t)bm_pre; local_s[1] = 1;
       global_s[0] = (size_t)((M + bm_pre - 1) / bm_pre) * bm_pre;
@@ -815,8 +887,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
 
     OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
-    OZAKI_DEV_FREE(d_as); OZAKI_DEV_FREE(d_bs);
-    OZAKI_DEV_FREE(d_expa_g); OZAKI_DEV_FREE(d_expb_g);
+    if (d_as != ctx->cache.a.d_slices) OZAKI_DEV_FREE(d_as);
+    if (d_bs != ctx->cache.b.d_slices) OZAKI_DEV_FREE(d_bs);
+    if (d_expa_g != ctx->cache.a.d_exp) OZAKI_DEV_FREE(d_expa_g);
+    if (d_expb_g != ctx->cache.b.d_exp) OZAKI_DEV_FREE(d_expb_g);
 
   }
   /* CRT GEMM path (Scheme 2): full-split-then-single-fused-GEMM.
@@ -843,6 +917,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     int first_tile;
     int n_profiled_c = 0;
     cl_event *evt_prof_c = NULL;
+    int cache_hit_a = 0, cache_hit_b = 0;
 
     (void)ntm; (void)ntn;
     if (k_pad < 64) k_pad = 64;
@@ -854,33 +929,62 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     expb_size = (size_t)N * sizeof(cl_int);
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+    /* Preprocessing cache: reuse slices+exponents when matrix unchanged */
+    if (0 != (ctx->cache.flags & 1) && a == ctx->cache.a.ptr
+        && M == ctx->cache.a.dim && K == ctx->cache.a.K
+        && lda == ctx->cache.a.ld && ta == ctx->cache.a.trans
+        && as_size == ctx->cache.a.slices_size && expa_size == ctx->cache.a.exp_size
+        && NULL != ctx->cache.a.d_slices && NULL != ctx->cache.a.d_exp)
+    {
+      d_as = ctx->cache.a.d_slices; d_expa_g = ctx->cache.a.d_exp;
+      cache_hit_a = 1;
+    }
+    if (0 != (ctx->cache.flags & 2) && b == ctx->cache.b.ptr
+        && N == ctx->cache.b.dim && K == ctx->cache.b.K
+        && ldb == ctx->cache.b.ld && tb == ctx->cache.b.trans
+        && bs_size == ctx->cache.b.slices_size && expb_size == ctx->cache.b.exp_size
+        && NULL != ctx->cache.b.d_slices && NULL != ctx->cache.b.d_exp)
+    {
+      d_bs = ctx->cache.b.d_slices; d_expb_g = ctx->cache.b.d_exp;
+      cache_hit_b = 1;
+    }
+
+    /* Allocate device memory (skip cached sides and host-preprocessed sides) */
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
       result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
     }
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
       result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
     }
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_as, as_size);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bs, bs_size);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expa_g, expa_size);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
+      result = OZAKI_DEV_ALLOC(&d_as, as_size);
+    }
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+      result = OZAKI_DEV_ALLOC(&d_bs, bs_size);
+    }
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
+      result = OZAKI_DEV_ALLOC(&d_expa_g, expa_size);
+    }
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+      result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
+    }
 
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
       result = libxstream_mem_copy_h2d(a, d_ag,
         (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
     }
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
       result = libxstream_mem_copy_h2d(b, d_bg,
         (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
     }
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
 
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_a) {
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
       result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
       if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
     }
-    if (EXIT_SUCCESS == result && NULL == ctx->host_preprocess_b) {
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
       result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
       if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
     }
@@ -895,7 +999,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
 
-    /* Preprocess A (host callback or CRT GPU kernel on stream_a) */
+    /* Preprocess A (skip entirely on cache hit) */
+    if (0 == cache_hit_a) {
     if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
       h_as = calloc(as_size, 1);
       h_expa = calloc(expa_size, 1);
@@ -934,8 +1039,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (EXIT_SUCCESS == result && NULL != evt_prof_c
         && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile)) ++n_profiled_c;
     }
+    } /* cache_hit_a */
 
-    /* Preprocess B (host callback or CRT GPU kernel on stream_b) */
+    /* Preprocess B (skip entirely on cache hit) */
+    if (0 == cache_hit_b) {
     if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
       h_bs = calloc(bs_size, 1);
       h_expb = calloc(expb_size, 1);
@@ -974,6 +1081,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (EXIT_SUCCESS == result && NULL != evt_prof_c
         && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile)) ++n_profiled_c;
     }
+    } /* cache_hit_b */
 
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
@@ -984,8 +1092,35 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     free(h_as); h_as = NULL; free(h_expa); h_expa = NULL;
     free(h_bs); h_bs = NULL; free(h_expb); h_expb = NULL;
 
-    /* Scale C by beta */
-    if (EXIT_SUCCESS == result && 1.0 != beta) {
+    /* Save preprocessed buffers to cache on miss (transfers ownership) */
+    if (0 == cache_hit_a && 0 != (ctx->cache.flags & 1) && EXIT_SUCCESS == result) {
+      if (NULL != ctx->cache.a.d_slices && as_size != ctx->cache.a.slices_size) {
+        libxstream_mem_deallocate(ctx->cache.a.d_slices); ctx->cache.a.d_slices = NULL;
+      }
+      if (NULL != ctx->cache.a.d_exp && expa_size != ctx->cache.a.exp_size) {
+        libxstream_mem_deallocate(ctx->cache.a.d_exp); ctx->cache.a.d_exp = NULL;
+      }
+      ctx->cache.a.ptr = a; ctx->cache.a.dim = M; ctx->cache.a.K = K;
+      ctx->cache.a.ld = lda; ctx->cache.a.trans = ta;
+      ctx->cache.a.d_slices = d_as; ctx->cache.a.d_exp = d_expa_g;
+      ctx->cache.a.slices_size = as_size; ctx->cache.a.exp_size = expa_size;
+    }
+    if (0 == cache_hit_b && 0 != (ctx->cache.flags & 2) && EXIT_SUCCESS == result) {
+      if (NULL != ctx->cache.b.d_slices && bs_size != ctx->cache.b.slices_size) {
+        libxstream_mem_deallocate(ctx->cache.b.d_slices); ctx->cache.b.d_slices = NULL;
+      }
+      if (NULL != ctx->cache.b.d_exp && expb_size != ctx->cache.b.exp_size) {
+        libxstream_mem_deallocate(ctx->cache.b.d_exp); ctx->cache.b.d_exp = NULL;
+      }
+      ctx->cache.b.ptr = b; ctx->cache.b.dim = N; ctx->cache.b.K = K;
+      ctx->cache.b.ld = ldb; ctx->cache.b.trans = tb;
+      ctx->cache.b.d_slices = d_bs; ctx->cache.b.d_exp = d_expb_g;
+      ctx->cache.b.slices_size = bs_size; ctx->cache.b.exp_size = expb_size;
+    }
+
+    /* Scale C by beta (skip for beta==0: first_tile overwrite handles it;
+     * skip for beta==1: multiplying by 1 is a no-op) */
+    if (EXIT_SUCCESS == result && 1.0 != beta && 0.0 != beta) {
       size_t global_s[2], local_s[2];
       local_s[0] = (size_t)bm_pre; local_s[1] = 1;
       global_s[0] = (size_t)((M + bm_pre - 1) / bm_pre) * bm_pre;
@@ -1067,8 +1202,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
 
     OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
-    OZAKI_DEV_FREE(d_as); OZAKI_DEV_FREE(d_bs);
-    OZAKI_DEV_FREE(d_expa_g); OZAKI_DEV_FREE(d_expb_g);
+    if (d_as != ctx->cache.a.d_slices) OZAKI_DEV_FREE(d_as);
+    if (d_bs != ctx->cache.b.d_slices) OZAKI_DEV_FREE(d_bs);
+    if (d_expa_g != ctx->cache.a.d_exp) OZAKI_DEV_FREE(d_expa_g);
+    if (d_expb_g != ctx->cache.b.d_exp) OZAKI_DEV_FREE(d_expb_g);
 
   }
 

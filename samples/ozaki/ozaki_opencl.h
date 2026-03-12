@@ -48,6 +48,21 @@ typedef void (*ozaki_host_preprocess_fn)(
     int ndecomp, int use_xmx,
     void* slices, void* exp);
 
+/* Per-side preprocessing cache: check fields + cached device buffers.
+ * dim is the outer dimension (M for A, N for B). */
+typedef struct ozaki_cache_side_t {
+  const void* ptr;
+  int dim, K, ld, trans;
+  void* d_slices;
+  void* d_exp;
+  size_t slices_size, exp_size;
+} ozaki_cache_side_t;
+
+typedef struct ozaki_cache_t {
+  int flags; /* bitmask: 1=A, 2=B */
+  ozaki_cache_side_t a, b;
+} ozaki_cache_t;
+
 /* State for an Ozaki OpenCL session.
  * All tuning parameters are set by ozaki_init (0 = auto). */
 typedef struct ozaki_context_t {
@@ -91,6 +106,8 @@ typedef struct ozaki_context_t {
    * preprocess kernels and the full-matrix H2D transfers. */
   ozaki_host_preprocess_fn host_preprocess_a;
   ozaki_host_preprocess_fn host_preprocess_b;
+  /* Preprocessing cache (OZAKI_CACHE env, bitmask: 1=A, 2=B, 3=both). */
+  ozaki_cache_t cache;
 } ozaki_context_t;
 
 
