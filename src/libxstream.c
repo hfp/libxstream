@@ -1446,20 +1446,19 @@ int libxstream_opencl_kernel_flags(const char build_params[], const char build_o
 }
 
 
-int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[], const char build_params[],
+int libxstream_opencl_program(size_t source_kind, const char source[], const char name[], const char build_params[],
   const char build_options[], const char try_options[], int* try_ok, const char* const extnames[], size_t num_exts,
-  cl_kernel* kernel) {
+  cl_program* program) {
   char buffer[LIBXSTREAM_BUFFERSIZE] = "", buffer_name[LIBXSTREAM_MAXSTRLEN * 2];
   const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-  int result = ((NULL != source && NULL != kernel_name && '\0' != *kernel_name) ? EXIT_SUCCESS : EXIT_FAILURE);
+  int result = ((NULL != source && NULL != name && '\0' != *name) ? EXIT_SUCCESS : EXIT_FAILURE);
   int ok = EXIT_SUCCESS, source_is_cl = (2 > source_kind), nchar = 0;
   size_t size_src = 0, size = 0;
-  cl_program program = NULL;
   FILE* file_src = NULL;
   assert(NULL != devinfo->context);
-  assert(NULL != kernel);
-  *kernel = NULL;
+  assert(NULL != program);
+  *program = NULL;
   if (EXIT_SUCCESS == result && (1 == source_kind)) file_src = fopen(source, "rb");
   if (NULL != file_src) {
     if (EXIT_SUCCESS == result) {
@@ -1560,7 +1559,7 @@ int libxstream_opencl_kernel(size_t source_kind, const char source[], const char
     /* cpp: consider to preprocess kernel (failure does not impact result code) */
     if (0 != libxstream_opencl_config.dump && NULL == file_src) {
       char dump_filename[LIBXSTREAM_MAXSTRLEN];
-      nchar = LIBXS_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", kernel_name);
+      nchar = LIBXS_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", name);
       if (0 < nchar && (int)sizeof(dump_filename) > nchar) {
         const int std_flag_len = LIBXS_CAST_INT(strlen(devinfo->std_flag));
         const char* const env_cpp = getenv("LIBXSTREAM_CPP");
@@ -1572,7 +1571,7 @@ int libxstream_opencl_kernel(size_t source_kind, const char source[], const char
 #  endif
         int file_dmp = -1;
         if (NULL != file_cpp) {
-          nchar = LIBXS_SNPRINTF(buffer_name, sizeof(buffer_name), LIBXSTREAM_TEMPDIR "/.%s.XXXXXX", kernel_name);
+          nchar = LIBXS_SNPRINTF(buffer_name, sizeof(buffer_name), LIBXSTREAM_TEMPDIR "/.%s.XXXXXX", name);
           if (0 < nchar && (int)sizeof(buffer_name) > nchar) file_dmp = mkstemp(buffer_name);
           fclose(file_cpp); /* existence-check */
         }
@@ -1635,15 +1634,15 @@ int libxstream_opencl_kernel(size_t source_kind, const char source[], const char
 #  endif
       }
     }
-    program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
-    assert(EXIT_SUCCESS != result || NULL != program);
+    *program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
+    assert(EXIT_SUCCESS != result || NULL != *program);
     if (EXIT_SUCCESS == result) {
-      ok = libxstream_opencl_kernel_flags(build_params, build_options, try_options, program, buffer, LIBXSTREAM_BUFFERSIZE);
+      ok = libxstream_opencl_kernel_flags(build_params, build_options, try_options, *program, buffer, LIBXSTREAM_BUFFERSIZE);
       if (EXIT_SUCCESS != ok) {
-        program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
-        assert(EXIT_SUCCESS != result || NULL != program);
+        *program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
+        assert(EXIT_SUCCESS != result || NULL != *program);
         if (EXIT_SUCCESS == result) {
-          result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
+          result = clBuildProgram(*program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
         }
       }
     }
@@ -1654,34 +1653,28 @@ int libxstream_opencl_kernel(size_t source_kind, const char source[], const char
         libxs_free(p);
       }
       buffer[0] = '\0'; /* reset to empty */
-      if (EXIT_SUCCESS == result) { /* extract kernel */
-        *kernel = clCreateKernel(program, kernel_name, &result);
-        if (EXIT_SUCCESS == result) {
-          assert(NULL != *kernel);
-          if (NULL == file_src && (2 <= libxstream_opencl_config.dump || 0 > libxstream_opencl_config.dump)) {
-            unsigned char* binary = NULL;
-            binary = (unsigned char*)(EXIT_SUCCESS ==
-                                          clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &size, NULL)
-                                        ? libxs_malloc(libxstream_opencl_config.pool_hst, size, 0 /*auto-align*/)
-                                        : NULL);
-            if (NULL != binary) {
-              result = clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(unsigned char*), &binary, NULL);
-              if (EXIT_SUCCESS == result) { /* successfully queried program binary */
-                FILE* file;
-                nchar = LIBXS_SNPRINTF(buffer, LIBXSTREAM_BUFFERSIZE, "%s.dump", kernel_name);
-                file = ((0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar) ? fopen(buffer, "wb") : NULL);
-                buffer[0] = '\0'; /* reset to empty */
-                if (NULL != file) {
-                  if (size != fwrite(binary, 1, size, file)) result = EXIT_FAILURE;
-                  fclose(file);
-                }
-                else result = EXIT_FAILURE;
-              }
-              libxs_free(binary);
+      if (EXIT_SUCCESS == result && NULL == file_src && (2 <= libxstream_opencl_config.dump || 0 > libxstream_opencl_config.dump)) {
+        unsigned char* binary = NULL;
+        binary = (unsigned char*)(EXIT_SUCCESS ==
+                                      clGetProgramInfo(*program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &size, NULL)
+                                    ? libxs_malloc(libxstream_opencl_config.pool_hst, size, 0 /*auto-align*/)
+                                    : NULL);
+        if (NULL != binary) {
+          result = clGetProgramInfo(*program, CL_PROGRAM_BINARIES, sizeof(unsigned char*), &binary, NULL);
+          if (EXIT_SUCCESS == result) { /* successfully queried program binary */
+            FILE* file;
+            nchar = LIBXS_SNPRINTF(buffer, LIBXSTREAM_BUFFERSIZE, "%s.dump", name);
+            file = ((0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar) ? fopen(buffer, "wb") : NULL);
+            buffer[0] = '\0'; /* reset to empty */
+            if (NULL != file) {
+              if (size != fwrite(binary, 1, size, file)) result = EXIT_FAILURE;
+              fclose(file);
             }
             else result = EXIT_FAILURE;
           }
+          libxs_free(binary);
         }
+        else result = EXIT_FAILURE;
       }
     }
     else if (source != ext_source) { /* error: creating program */
@@ -1693,45 +1686,32 @@ int libxstream_opencl_kernel(size_t source_kind, const char source[], const char
   else if (EXIT_SUCCESS == result) { /* binary representation */
     assert(1 < size_src || 0 == size_src);
 #  if defined(CL_VERSION_2_1)
-    if (0 != libxstream_opencl_config.dump) program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
+    if (0 != libxstream_opencl_config.dump) *program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
     else
 #  endif
     {
-      program = clCreateProgramWithBinary(
+      *program = clCreateProgramWithBinary(
         devinfo->context, 1, &device_id, &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
     }
-    assert(EXIT_SUCCESS != result || NULL != program);
+    assert(EXIT_SUCCESS != result || NULL != *program);
     if (EXIT_SUCCESS == result) {
-      ok = libxstream_opencl_kernel_flags(build_params, build_options, try_options, program, buffer, LIBXSTREAM_BUFFERSIZE);
+      ok = libxstream_opencl_kernel_flags(build_params, build_options, try_options, *program, buffer, LIBXSTREAM_BUFFERSIZE);
       if (EXIT_SUCCESS == ok) result = ok;
       else {
 #  if defined(CL_VERSION_2_1)
-        if (0 != libxstream_opencl_config.dump) program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
+        if (0 != libxstream_opencl_config.dump) *program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
         else
 #  endif
         {
-          program = clCreateProgramWithBinary(
+          *program = clCreateProgramWithBinary(
             devinfo->context, 1, &device_id, &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
         }
-        assert(EXIT_SUCCESS != result || NULL != program);
+        assert(EXIT_SUCCESS != result || NULL != *program);
         if (EXIT_SUCCESS == result) {
-          result = clBuildProgram(program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
+          result = clBuildProgram(*program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
           ok = EXIT_FAILURE;
         }
       }
-    }
-    if (EXIT_SUCCESS == result) {
-      *kernel = clCreateKernel(program, kernel_name, &result);
-#  if defined(CL_VERSION_1_2)
-      /* error creating kernel: discover available kernels in program, and adopt the last kernel listed */
-      if (EXIT_SUCCESS != result &&
-          EXIT_SUCCESS == clGetProgramInfo(program, CL_PROGRAM_KERNEL_NAMES, sizeof(char*), buffer, NULL) && '\0' != *buffer)
-      {
-        const char *const semicolon = strrchr(buffer, ';'), *const name = (NULL == semicolon ? buffer : (semicolon + 1));
-        *kernel = clCreateKernel(program, name, &result);
-      }
-#  endif
-      assert(EXIT_SUCCESS != result || NULL != *kernel);
     }
   }
   if (NULL != file_src) {
@@ -1740,24 +1720,68 @@ int libxstream_opencl_kernel(size_t source_kind, const char source[], const char
     assert(1 == source_kind);
     libxs_free(p);
   }
+  if (NULL != *program) {
+    if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
+      if (EXIT_SUCCESS == clGetProgramBuildInfo(*program, device_id, CL_PROGRAM_BUILD_LOG, LIBXSTREAM_BUFFERSIZE, buffer, &size)) {
+        const char* info = buffer;
+        while ('\0' != *info && NULL != strchr("\n\r\t ", *info)) ++info; /* remove preceding newline etc. */
+        assert(NULL != name && '\0' != *name);
+        if ('\0' != *info) fprintf(stderr, "INFO ACC/OpenCL: %s -> %s\n", name, info);
+      }
+      else buffer[0] = '\0'; /* reset to empty */
+    }
+    if (EXIT_SUCCESS != result) {
+      LIBXS_EXPECT(EXIT_SUCCESS == clReleaseProgram(*program));
+      *program = NULL;
+    }
+  }
+  if (NULL != try_ok) *try_ok = result | ok;
+  CL_RETURN(result, buffer);
+}
+
+
+int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[], cl_kernel* kernel) {
+  int result;
+  assert(NULL != kernel);
+  *kernel = NULL;
+  if (NULL != program && NULL != kernel_name && '\0' != *kernel_name) {
+    *kernel = clCreateKernel(program, kernel_name, &result);
+#  if defined(CL_VERSION_1_2)
+    if (EXIT_SUCCESS != result) { /* discover available kernels in program, and adopt the last kernel listed */
+      char kbuf[LIBXSTREAM_BUFFERSIZE];
+      if (EXIT_SUCCESS == clGetProgramInfo(program, CL_PROGRAM_KERNEL_NAMES, sizeof(kbuf), kbuf, NULL) && '\0' != *kbuf) {
+        const char *const semicolon = strrchr(kbuf, ';'), *const kname = (NULL == semicolon ? kbuf : (semicolon + 1));
+        *kernel = clCreateKernel(program, kname, &result);
+      }
+    }
+#  endif
+    assert(EXIT_SUCCESS != result || NULL != *kernel);
+  }
+  else result = EXIT_FAILURE;
+  return result;
+}
+
+
+int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[], const char build_params[],
+  const char build_options[], const char try_options[], int* try_ok, const char* const extnames[], size_t num_exts,
+  cl_kernel* kernel) {
+  cl_program program = NULL;
+  int result;
+  assert(NULL != kernel);
+  *kernel = NULL;
+  result = libxstream_opencl_program(source_kind, source, kernel_name, build_params,
+    build_options, try_options, try_ok, extnames, num_exts, &program);
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_kernel_query(program, kernel_name, kernel);
+  }
   if (NULL != program) {
     if (EXIT_SUCCESS != result && NULL != *kernel) {
       LIBXS_EXPECT(EXIT_SUCCESS == clReleaseKernel(*kernel));
       *kernel = NULL;
     }
-    if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
-      if (EXIT_SUCCESS == clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, LIBXSTREAM_BUFFERSIZE, buffer, &size)) {
-        const char* info = buffer;
-        while ('\0' != *info && NULL != strchr("\n\r\t ", *info)) ++info; /* remove preceding newline etc. */
-        assert(NULL != kernel_name && '\0' != *kernel_name);
-        if ('\0' != *info) fprintf(stderr, "INFO ACC/OpenCL: %s -> %s\n", kernel_name, info);
-      }
-      else buffer[0] = '\0'; /* reset to empty */
-    }
-    LIBXS_EXPECT(EXIT_SUCCESS == clReleaseProgram(program)); /* release in any case (EXIT_SUCCESS) */
+    LIBXS_EXPECT(EXIT_SUCCESS == clReleaseProgram(program));
   }
-  if (NULL != try_ok) *try_ok = result | ok;
-  CL_RETURN(result, buffer);
+  return result;
 }
 
 

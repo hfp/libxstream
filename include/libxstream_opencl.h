@@ -350,13 +350,21 @@ int libxstream_opencl_defines(const char defines[], char buffer[], size_t buffer
 int libxstream_opencl_kernel_flags(const char build_params[], const char build_options[], const char try_options[],
   cl_program program, char buffer[], size_t buffer_size);
 /**
- * Build kernel from source with given kernel_name, build_params and build_options.
+ * Build program from source with given build_params and build_options.
  * The build_params are meant to instantiate the kernel (-D) whereas build_options
- * are are meant to be compiler-flags. The source_kind denotes source's content:
+ * are meant to be compiler-flags. The source_kind denotes source's content:
  *  0: OpenCL source code
  *  1: Filename (OpenCL or binary)
  * >1: Binary code (source_kind denotes size)
+ * The name is used for dump-filenames and diagnostic messages.
+ * Caller must release the program with clReleaseProgram.
  */
+int libxstream_opencl_program(size_t source_kind, const char source[], const char name[], const char build_params[],
+  const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], size_t num_exts,
+  cl_program* program);
+/** Extract a kernel from a built program. */
+int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[], cl_kernel* kernel);
+/** Convenience: build program, extract kernel, release program. */
 int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[], const char build_params[],
   const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], size_t num_exts,
   cl_kernel* kernel);
