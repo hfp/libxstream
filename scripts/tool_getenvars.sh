@@ -20,7 +20,7 @@ SRC="${HERE}/../src"
 EXT="c"
 
 if [ ! -d "${SRC}" ]; then
-  SRC="${HERE}/../include/libxs"
+  SRC="${HERE}/../include/libxstream"
 fi
 
 if [ "${FIND}" ] && [ "${SORT}" ] && [ "${SED}" ] && [ -d "${SRC}" ]; then
@@ -29,14 +29,14 @@ if [ "${FIND}" ] && [ "${SORT}" ] && [ "${SED}" ] && [ -d "${SRC}" ]; then
     "${SED}" "s/getenv[[:space:]]*([[:space:]]*\".[^\"]*/\n&/g" {} \; | \
      ${SED} -n "s/.*getenv[[:space:]]*([[:space:]]*\"\(.[^\"]*\)..*/\1/p" | \
      ${SORT} -u)"
-  echo "============================="
+  echo "================================"
   echo "Other environment variables"
-  echo "============================="
-  echo "${ENVARS}" | ${SED} "/LIBXS_/d"
-  echo "============================="
-  echo "LIBXS environment variables"
-  echo "============================="
-  echo "${ENVARS}" | ${SED} -n "/LIBXS_/p"
+  echo "================================"
+  echo "${ENVARS}" | ${SED} "/LIBXSTREAM_/d"
+  echo "================================"
+  echo "LIBXSTREAM environment variables"
+  echo "================================"
+  echo "${ENVARS}" | ${SED} -n "/LIBXSTREAM_/p"
 else
   >&2 echo "ERROR: missing prerequisites!"
   exit 1

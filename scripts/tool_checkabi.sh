@@ -9,7 +9,7 @@
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 LIBS=${HERE}/../lib
 
-#EXCLUDE="libxsf"
+#EXCLUDE="libxstreamf"
 INCLUDE="*"
 ABINEW=.abi.log
 ABITMP=.abi.tmp
@@ -65,13 +65,14 @@ then
           if [ "${SYMBOL}" ]; then
             # cleanup compiler-specific symbols (Intel Fortran, GNU Fortran)
             SYMBOL=$(${SED} <<<"${SYMBOL}" \
-              -e "s/^libxs_mp_libxs_\(..*\)_/libxs_\1/" \
-              -e "s/^__libxs_MOD_libxs_/libxs_/")
-            if [ "$(${SED} -n "/^LIBXS_[^.]/p" <<<"${SYMBOL}")" ] || \
-               [ "$(${SED} -n "/^libxs_[^.]/p" <<<"${SYMBOL}")" ];
+              -e "s/^libxstream_mp_libxstream_\(..*\)_/libxstream_\1/" \
+              -e "s/^__libxstream_MOD_libxstream_/libxstream_/")
+            if [ "$(${SED} -n "/^LIBXSTREAM_[^.]/p" <<<"${SYMBOL}")" ] || \
+               [ "$(${SED} -n "/^libxstream_[^.]/p" <<<"${SYMBOL}")" ] || \
+               [ "$(${SED} -n "/^c_dbcsr_acc_[^.]/p" <<<"${SYMBOL}")" ];
             then
               echo "${SYMBOL}" >>${ABINEW}
-            elif [ ! "$(${SED} <<<"${SYMBOL}" -n "/^__libxs_MOD___/p")" ] && \
+            elif [ ! "$(${SED} <<<"${SYMBOL}" -n "/^__libxstream_MOD___/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^__wrap_..*/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^internal_/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^_init/p")" ] && \
@@ -90,7 +91,7 @@ then
     ${SORT} -u ${ABINEW} >${ABITMP}
     ${MV} ${ABITMP} ${ABINEW}
     if [ "so" != "${LIBTYPE}" ]; then
-      echo "Note: LIBXS must be built with \"make STATIC=0 SYM|DBG=1\"!"
+      echo "Note: LIBXSTREAM must be built with \"make STATIC=0 SYM|DBG=1\"!"
     fi
     REMOVED=$(${DIFF} --new-line-format="" --unchanged-line-format="" <(${SORT} ${ABICUR}) ${ABINEW})
     if [ ! "${REMOVED}" ]; then
