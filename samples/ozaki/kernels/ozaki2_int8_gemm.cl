@@ -431,6 +431,7 @@ kernel void gemm_crt_fused(
   CONSTANT const int* restrict expb,        /* [N] per-col max exponent */
   global real_t* restrict c,
   int M, int N, int K_pad, int N_pad, int ldc,
+  int M_pad,
   real_t alpha,
   int first)                                /* 1: overwrite C, 0: accumulate */
 {

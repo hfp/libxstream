@@ -177,7 +177,7 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == result) {
       printf("Ozaki GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1) / nrepeat);
     }
-    else fprintf(stderr, "Ozaki GEMM failed\n");
+    else fprintf(stderr, "Ozaki GEMM failed (result=%d)\n", result);
   }
 
   /* Reference BLAS GEMM */

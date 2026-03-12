@@ -203,16 +203,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
   }
 
   /* Assemble JIT build flags: compiler options and -D defines separately */
-  env = getenv("OZAKI_GRF256");
-  if (NULL != env && 0 != atoi(env) && 0 != devinfo->intel) {
-    LIBXS_SNPRINTF(build_options, sizeof(build_options),
-      "-cl-fast-relaxed-math -cl-denorms-are-zero"
-      " -cl-intel-256-GRF-per-thread");
-  }
-  else {
-    LIBXS_SNPRINTF(build_options, sizeof(build_options),
-      "-cl-fast-relaxed-math -cl-denorms-are-zero");
-  }
+  LIBXS_SNPRINTF(build_options, sizeof(build_options),
+    "-cl-fast-relaxed-math -cl-denorms-are-zero");
 
   { const char* constant_qual;
     env = getenv("OZAKI_CONSTANT");
@@ -326,8 +318,10 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     if (NULL != env_gemm) want_gemm = atoi(env_gemm);
     if (want_gemm && !use_bf16 && 2 != kind) {
       /* GEMM-mode block sizes: fit SG * (gbm/8) * (gbn/16) <= max_wgs.
-       * gbm must be multiple of 8, gbn must be multiple of 16. */
-      const size_t max_wgs = devinfo->wgsize[0];
+       * gbm must be multiple of 8, gbn must be multiple of 16.
+       * Large GRF halves effective max work-group size. */
+      const size_t max_wgs = (0 != devinfo->biggrf)
+        ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
       int gbm = 256, gbn = 256;
       const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
       char gemm_params[1024];
@@ -341,16 +335,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
       }
       ntm = gbm / 8; ntn = gbn / 16;
 
-      /* 256-GRF for large register file (GEMM needs many regs) */
-      if (0 != devinfo->intel) {
-        LIBXS_SNPRINTF(gemm_options, sizeof(gemm_options),
-          "-cl-fast-relaxed-math -cl-denorms-are-zero"
-          " -cl-intel-256-GRF-per-thread");
-      }
-      else {
-        LIBXS_SNPRINTF(gemm_options, sizeof(gemm_options),
-          "-cl-fast-relaxed-math -cl-denorms-are-zero");
-      }
+      LIBXS_SNPRINTF(gemm_options, sizeof(gemm_options),
+        "-cl-fast-relaxed-math -cl-denorms-are-zero");
 
       goff += (size_t)LIBXS_SNPRINTF(gemm_params + goff, sizeof(gemm_params) - goff,
         "-DGPU -DBM=%d -DBN=%d -DBK=%d -DSG=16"
@@ -428,7 +414,9 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
     }
     /* CRT GEMM (kind==2): single fused kernel per tile, all primes internal */
     if (want_gemm && !use_bf16 && 2 == kind && 0 == ctx->use_gemm) {
-      const size_t max_wgs = devinfo->wgsize[0];
+      /* Large GRF halves effective max work-group size. */
+      const size_t max_wgs = (0 != devinfo->biggrf)
+        ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
       int gbm = 256, gbn = 256;
       const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
       char crt_params[1024];
@@ -450,15 +438,8 @@ int ozaki_init(ozaki_context_t* ctx, int bm, int bn, int bk,
         if (NULL != env_kg) kgroup_crt = atoi(env_kg);
       }
 
-      if (0 != devinfo->intel) {
-        LIBXS_SNPRINTF(crt_options, sizeof(crt_options),
-          "-cl-fast-relaxed-math -cl-denorms-are-zero"
-          " -cl-intel-256-GRF-per-thread");
-      }
-      else {
-        LIBXS_SNPRINTF(crt_options, sizeof(crt_options),
-          "-cl-fast-relaxed-math -cl-denorms-are-zero");
-      }
+      LIBXS_SNPRINTF(crt_options, sizeof(crt_options),
+        "-cl-fast-relaxed-math -cl-denorms-are-zero");
 
       coff += (size_t)LIBXS_SNPRINTF(crt_params + coff, sizeof(crt_params) - coff,
         "-DGPU -DBM=%d -DBN=%d -DBK=%d -DSG=16"
@@ -1111,6 +1092,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &K_pad));
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &N_pad));
         CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &ldc));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(int), &M_pad));
         if (ctx->use_double) {
           double dalpha = alpha;
           CL_CHECK(result, clSetKernelArg(ctx->kern_gemm_crt_fused, i++, sizeof(double), &dalpha));
