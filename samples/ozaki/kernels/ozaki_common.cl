@@ -40,6 +40,11 @@
 # define RTN 1
 #endif
 
+/* DPAS repeat count: 8 (default) or 4 (split for scheduling). */
+#if !defined(RC)
+# define RC 8
+#endif
+
 /* DPAS sub-tile dimensions (fixed for PVC XMX) */
 #define XMX_M 8
 #define XMX_N 16
@@ -79,6 +84,7 @@
       (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
       (int2)((NJ), (KOFF)))
 
+#if (8 == RC)
 #define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
     ushort8 a_blk_; \
@@ -92,6 +98,44 @@
     (ACC) = intel_sub_group_i8_i8_matrix_mad_k32( \
                 as_short8(a_blk_), as_int8(b_blk_), (ACC)); \
   } while (0)
+#elif (4 == RC)
+#define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  do { \
+    ushort8 a_blk_; \
+    uint8 b_blk_; \
+    int4 lo_, hi_; \
+    intel_sub_group_2d_block_read_8b_8r32x1c( \
+        (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+        (int2)((KOFF), (MI)), (private ushort*)&a_blk_); \
+    intel_sub_group_2d_block_read_transform_8b_32r16x1c( \
+        (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+        (int2)((NJ), (KOFF)), (private uint*)&b_blk_); \
+    lo_ = (ACC).lo; hi_ = (ACC).hi; \
+    lo_ = intel_sub_group_i8_i8_matrix_mad_k32( \
+              as_short4(a_blk_.lo), as_int8(b_blk_), lo_); \
+    hi_ = intel_sub_group_i8_i8_matrix_mad_k32( \
+              as_short4(a_blk_.hi), as_int8(b_blk_), hi_); \
+    (ACC) = (int8)(lo_, hi_); \
+  } while (0)
+#endif
+
+/* Single-tile DPAS from pre-loaded A (ushort8) and B (uint8).
+ * RC=8: one DPAS(short8,int8,int8). RC=4: split into two DPAS(short4,int8,int4). */
+#if (8 == RC)
+#define OZAKI_DPAS_ONE_(A, B, ACC) \
+  (ACC) = intel_sub_group_i8_i8_matrix_mad_k32( \
+              as_short8(A), as_int8(B), (ACC))
+#elif (4 == RC)
+#define OZAKI_DPAS_ONE_(A, B, ACC) \
+  do { \
+    int4 lo1_ = (ACC).lo, hi1_ = (ACC).hi; \
+    lo1_ = intel_sub_group_i8_i8_matrix_mad_k32( \
+               as_short4((A).lo), as_int8(B), lo1_); \
+    hi1_ = intel_sub_group_i8_i8_matrix_mad_k32( \
+               as_short4((A).hi), as_int8(B), hi1_); \
+    (ACC) = (int8)(lo1_, hi1_); \
+  } while (0)
+#endif
 
 /* Tiled DPAS: RTM x RTN sub-tiles per sub-group.
  * Loads RTM A-strips and RTN B-strips, then issues RTM*RTN DPAS.
@@ -115,10 +159,39 @@
     } \
     UNROLL_FORCE(RTM) for (rm_t_ = 0; rm_t_ < RTM; ++rm_t_) { \
       UNROLL_FORCE(RTN) for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) { \
-        (ACC)[rm_t_ * RTN + rn_t_] = \
-            intel_sub_group_i8_i8_matrix_mad_k32( \
-                as_short8(a_rt_[rm_t_]), as_int8(b_rt_[rn_t_]), \
-                (ACC)[rm_t_ * RTN + rn_t_]); \
+        OZAKI_DPAS_ONE_(a_rt_[rm_t_], b_rt_[rn_t_], \
+                        (ACC)[rm_t_ * RTN + rn_t_]); \
+      } \
+    } \
+  } while (0)
+
+/* Split load/compute for software pipelining.
+ * OZAKI_LOAD_TILED: load A/B tiles into caller-supplied arrays.
+ * OZAKI_COMPUTE_TILED: issue DPAS from pre-loaded tiles. */
+#define OZAKI_LOAD_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, A_BUF, B_BUF) \
+  do { \
+    int rl_m_, rl_n_; \
+    UNROLL_FORCE(RTM) for (rl_m_ = 0; rl_m_ < RTM; ++rl_m_) { \
+      intel_sub_group_2d_block_read_8b_8r32x1c( \
+          (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+          (int2)((KOFF), (MI) + rl_m_ * XMX_M), \
+          (private ushort*)&(A_BUF)[rl_m_]); \
+    } \
+    UNROLL_FORCE(RTN) for (rl_n_ = 0; rl_n_ < RTN; ++rl_n_) { \
+      intel_sub_group_2d_block_read_transform_8b_32r16x1c( \
+          (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+          (int2)((NJ) + rl_n_ * XMX_N, (KOFF)), \
+          (private uint*)&(B_BUF)[rl_n_]); \
+    } \
+  } while (0)
+
+#define OZAKI_COMPUTE_TILED(A_BUF, B_BUF, ACC) \
+  do { \
+    int rc_m_, rc_n_; \
+    UNROLL_FORCE(RTM) for (rc_m_ = 0; rc_m_ < RTM; ++rc_m_) { \
+      UNROLL_FORCE(RTN) for (rc_n_ = 0; rc_n_ < RTN; ++rc_n_) { \
+        OZAKI_DPAS_ONE_((A_BUF)[rc_m_], (B_BUF)[rc_n_], \
+                        (ACC)[rc_m_ * RTN + rc_n_]); \
       } \
     } \
   } while (0)

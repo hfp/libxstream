@@ -202,6 +202,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     { int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : 4;
       ctx->ku = ku;
     }
+    env = getenv("OZAKI_RC");
+    { int rc = (NULL != env && 0 < atoi(env)) ? atoi(env) : 8;
+      ctx->rc = (rc <= 4) ? 4 : 8;
+    }
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
         rtm = (0 != biggrf) ? 4 : 2;
@@ -230,13 +234,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       size_t goff = 0;
       goff += (size_t)LIBXS_SNPRINTF(
         build_params + goff, sizeof(build_params) - goff,
-        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DSG=16"
+        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16"
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DRTM=%d -DRTN=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku,
+        tm, tn, bk_pre, ctx->ku, ctx->rc,
         ndecomp, use_double,
         mant_bits, bias_plus_mant,
         bm_pre, bn_pre, bk_pre,

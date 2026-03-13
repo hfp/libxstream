@@ -119,6 +119,26 @@
     } \
   } while (0)
 
+/* Like OZAKI_GEMM_ACCUM but with pre-cached exponents in registers.
+ * EA_CACHE is a short array[XMX_M], EB_CACHE is a short scalar.
+ * Avoids re-reading expa/expb from global memory for every pair. */
+#define OZAKI_GEMM_ACCUM_CACHED(DOT, EA_CACHE, EB_CACHE, C_REG, M, N, MI, COL, \
+                                ALPHA, LOW_SA, LOW_SB) \
+  do { \
+    union { int8 v_; int a_[8]; } du_c_; \
+    int m_c_; \
+    du_c_.v_ = (DOT); \
+    UNROLL_FORCE(XMX_M) for (m_c_ = 0; m_c_ < XMX_M; ++m_c_) { \
+      const int rm_c_ = (MI) + m_c_; \
+      if (rm_c_ < (M) && (COL) < (N)) { \
+        const int sh_c_ = (int)(EA_CACHE)[m_c_] + (int)(EB_CACHE) \
+                         - (2 * BIAS_PLUS_MANT) + (LOW_SA) + (LOW_SB); \
+        const real_t sc_c_ = (ALPHA) * EXP2I(sh_c_); \
+        (C_REG)[m_c_] += (real_t)du_c_.a_[m_c_] * sc_c_; \
+      } \
+    } \
+  } while (0)
+
 /* Scale i32 accumulator and write/accumulate into fp C (global memory).
  *   shift = ea[m] + eb - 2*BIAS_PLUS_MANT + LOW_SA + LOW_SB
  *   C[col*ldc+m] =/+= (real_t)dot[m] * alpha * EXP2I(shift) */
@@ -317,6 +337,27 @@ kernel void gemm_fused(
   const long b_stride = (long)K_pad * N_pad;
   SINT sa;
 
+  /* Pre-cache exponents in registers: avoid re-reading from global per pair.
+   * ea_cache[rm][m] = expa[mi_base + rm*XMX_M + m]
+   * eb_cache[rn]    = expb[nj_base + rn*XMX_N + sg_lid] */
+  short ea_cache[RTM * XMX_M];
+  short eb_cache[RTN];
+  { int rm;
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+      int m_;
+      UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+        const int r_ = mi_base + rm * XMX_M + m_;
+        ea_cache[rm * XMX_M + m_] = (r_ < M) ? expa[r_] : 0;
+      }
+    }
+  }
+  { int rn;
+    UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+      const int col = nj_base + rn * XMX_N + sg_lid;
+      eb_cache[rn] = (col < N) ? expb[col] : 0;
+    }
+  }
+
   /* Register-resident C accumulators: c_fp[rm*RTN*XMX_M + rn*XMX_M + m] */
   real_t c_fp[RTM * RTN * XMX_M];
   { int ci;
@@ -411,13 +452,14 @@ kernel void gemm_fused(
         }
       }
 
-      /* Scale and accumulate into register C */
+      /* Scale and accumulate into register C (cached exponents) */
       { int rm, rn;
         UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
           UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
             const int idx = rm * RTN + rn;
             const int col = nj_base + rn * XMX_N + sg_lid;
-            OZAKI_GEMM_ACCUM(c_acc[idx], expa, expb,
+            OZAKI_GEMM_ACCUM_CACHED(c_acc[idx],
+                             ea_cache + rm * XMX_M, eb_cache[rn],
                              c_fp + idx * XMX_M,
                              M, N, mi_base + rm * XMX_M, col,
                              alpha, low_bit_sa, low_bit_sb);
