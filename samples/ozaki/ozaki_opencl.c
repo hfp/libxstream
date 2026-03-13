@@ -159,25 +159,68 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   ctx->kern_crt_preprocess_b = NULL;
   ctx->kern_crt_fused = NULL;
   ctx->kern_crt_scale_beta = NULL;
-  { /* output tile sizes: fit SG * (tm/8) * (tn/16) <= max_wgs.
-     * tm must be multiple of 8, tn must be multiple of 16.
+  { /* output tile sizes: fit SG * NTM * NTN <= max_wgs.
+     * tm must be multiple of 8*RTM, tn must be multiple of 16*RTN.
      * Large GRF halves effective max work-group size. */
-    const size_t max_wgs = (0 != devinfo->biggrf)
-      ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
     const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
     char build_params[1024];
-    const char build_options[] =
-      "-cl-fast-relaxed-math -cl-denorms-are-zero";
+    char build_options[128];
     const int mant_bits      = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
-    int rtm = 1, rtn = 1;
+    int rtm = 0, rtn = 0, biggrf;
+    size_t max_wgs;
+    int v;
+    /* Ozaki-local 256-GRF decision (per-kernel, not global).
+     * LIBXSTREAM_BIGGRF: explicit user override for all kernels.
+     * OZAKI_BIGGRF: Ozaki-specific override.
+     * Default: auto-enable for Intel GPUs. */
+    env = getenv("OZAKI_BIGGRF");
+    if (NULL != env) {
+      biggrf = (0 != atoi(env));
+    }
+    else if (NULL != getenv("LIBXSTREAM_BIGGRF")) {
+      biggrf = (0 != devinfo->biggrf);
+    }
+    else {
+      biggrf = (0 != devinfo->intel && 0 != gpu);
+    }
+    LIBXS_SNPRINTF(build_options, sizeof(build_options),
+      "-cl-fast-relaxed-math -cl-denorms-are-zero%s",
+      (0 != biggrf && 0 != devinfo->intel && 0 == devinfo->biggrf)
+        ? " -cl-intel-256-GRF-per-thread" : "");
+    max_wgs = (0 != biggrf)
+      ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
+    /* Read optional user overrides for register tiling factors. */
     env = getenv("OZAKI_RTM");
     if (NULL != env && 0 < atoi(env)) rtm = atoi(env);
     env = getenv("OZAKI_RTN");
     if (NULL != env && 0 < atoi(env)) rtn = atoi(env);
+    /* Choose defaults when not explicitly set:
+     *  256-GRF: RTM=4 RTN=2 (8 accumulators, measured sweet spot)
+     *  128-GRF: RTM=2 RTN=2 (4 accumulators)
+     *  Other vendors:  RTM=1 RTN=1 (conservative) */
+    if (0 == rtm) {
+      if (0 != devinfo->intel && 0 != gpu) {
+        rtm = (0 != biggrf) ? 4 : 2;
+      }
+      else rtm = 1;
+    }
+    if (0 == rtn) {
+      if (0 != devinfo->intel && 0 != gpu) {
+        rtn = 2;
+      }
+      else rtn = 1;
+    }
+    /* Sanitize: round down to nearest power of two. */
+    v = rtm; rtm = 1; while (v > 1) { v >>= 1; rtm <<= 1; }
+    v = rtn; rtn = 1; while (v > 1) { v >>= 1; rtn <<= 1; }
     if (0 >= tm) tm = 256;
     if (0 >= tn) tn = 256;
-    while ((size_t)tm * tn / (8 * rtm * rtn) > max_wgs && (tm > 8 || tn > 16)) {
+    /* Clamp tiling factors so at least one sub-tile remains per dimension. */
+    while (rtm > 1 && tm / (8 * rtm) < 1) rtm >>= 1;
+    while (rtn > 1 && tn / (16 * rtn) < 1) rtn >>= 1;
+    /* Shrink tile to satisfy work-group size constraint. */
+    while ((size_t)tm * tn / (8 * rtm * rtn) > max_wgs && (tm > 8 * rtm || tn > 16 * rtn)) {
       if (tm >= tn) tm /= 2; else tn /= 2;
     }
     if (1 == kind) {
@@ -339,6 +382,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       ctx->tn = tn;
       ctx->rtm = rtm;
       ctx->rtn = rtn;
+      ctx->biggrf = biggrf;
       ctx->bm_pre = bm_pre;
       ctx->bn_pre = bn_pre;
       ctx->bk_pre = bk_pre;
@@ -360,6 +404,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     ozaki_print_opt(stderr, "tn", ctx->tn);
     ozaki_print_opt(stderr, "rtm", ctx->rtm);
     ozaki_print_opt(stderr, "rtn", ctx->rtn);
+    if (0 != devinfo->intel) {
+      ozaki_print_opt(stderr, "grf", ctx->biggrf ? 256 : 128);
+    }
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     if (1 == kind) ozaki_print_opt(stderr, "trim", oztrim);
     if (2 == kind) ozaki_print_opt(stderr, "kgroups", ozgroups);

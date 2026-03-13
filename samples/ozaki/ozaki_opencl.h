@@ -92,6 +92,7 @@ typedef struct ozaki_context_t {
   int tm, tn;
   /* register tiling: sub-tiles per sub-group (compiled into kernel) */
   int rtm, rtn;
+  int biggrf; /* Ozaki-local 256-GRF decision */
   libxs_hist_t* hist; /* kernel execution-time histogram (OZAKI_PROF) */
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
