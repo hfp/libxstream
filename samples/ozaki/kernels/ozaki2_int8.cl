@@ -135,8 +135,7 @@
     const short eb_c_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
     int ms_; \
     UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) { \
-      const int rm_ = (MI) + ms_; \
-      ea_c_[ms_] = (rm_ < (M)) ? (EXPA)[rm_] : 0; \
+      ea_c_[ms_] = (EXPA)[(MI) + ms_]; \
     } \
     UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) { \
       const int rm_ = (MI) + ms_; \
@@ -492,6 +491,8 @@ kernel void gemm_crt_fused(
 #if KGROUPS > 0
     { int k, steps = 0;
       for (k = 0; k < K_pad; k += BK) {
+        OZAKI_PREFETCH_A(as_p, K_pad, M, k + BK, mi_base);
+        OZAKI_PREFETCH_B(bs_p, N_pad, K_pad, k + BK, nj_base);
         OZAKI_CRT_DPAS(as_p, bs_p, K_pad, N_pad, mi_base, nj_base, k, M, acc);
         ++steps;
         if (steps >= KGROUPS) {
@@ -507,6 +508,8 @@ kernel void gemm_crt_fused(
 #else
     { int k;
       for (k = 0; k < K_pad; k += BK) {
+        OZAKI_PREFETCH_A(as_p, K_pad, M, k + BK, mi_base);
+        OZAKI_PREFETCH_B(bs_p, N_pad, K_pad, k + BK, nj_base);
         OZAKI_CRT_DPAS(as_p, bs_p, K_pad, N_pad, mi_base, nj_base, k, M, acc);
       }
       OZAKI_CRT_MOD_REDUCE(acc, pidx, residues);
