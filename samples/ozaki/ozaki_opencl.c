@@ -198,6 +198,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
      *  256-GRF: RTM=4 RTN=2 (8 accumulators, measured sweet spot)
      *  128-GRF: RTM=2 RTN=2 (4 accumulators)
      *  Other vendors:  RTM=1 RTN=1 (conservative) */
+    env = getenv("OZAKI_KU");
+    { int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : 4;
+      ctx->ku = ku;
+    }
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
         rtm = (0 != biggrf) ? 4 : 2;
@@ -226,13 +230,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       size_t goff = 0;
       goff += (size_t)LIBXS_SNPRINTF(
         build_params + goff, sizeof(build_params) - goff,
-        "-DBM=%d -DBN=%d -DBK=%d -DSG=16"
+        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DSG=16"
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DRTM=%d -DRTN=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre,
+        tm, tn, bk_pre, ctx->ku,
         ndecomp, use_double,
         mant_bits, bias_plus_mant,
         bm_pre, bn_pre, bk_pre,

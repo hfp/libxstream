@@ -41,7 +41,7 @@
 # define BK 32
 #endif
 #if !defined(KU)
-# define KU 2
+# define KU 4
 #endif
 #if !defined(NSLICES)
 # define NSLICES 8
@@ -97,7 +97,29 @@
 /* Alias the shared DPAS primitive from ozaki_common.cl */
 #define OZAKI_GEMM_DPAS OZAKI_DPAS
 
-/* Scale i32 accumulator and write/accumulate into fp C.
+/* Scale i32 accumulator and accumulate into register-resident fp C.
+ *   shift = ea[m] + eb - 2*BIAS_PLUS_MANT + LOW_SA + LOW_SB
+ *   C_REG[m] += (real_t)dot[m] * alpha * EXP2I(shift)
+ * C_REG is a real_t array of XMX_M elements owned by this lane. */
+#define OZAKI_GEMM_ACCUM(DOT, EXPA, EXPB, C_REG, M, N, MI, COL, \
+                         ALPHA, LOW_SA, LOW_SB) \
+  do { \
+    const short eb_a_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
+    union { int8 v_; int a_[8]; } du_a_; \
+    int m_a_; \
+    du_a_.v_ = (DOT); \
+    UNROLL_FORCE(XMX_M) for (m_a_ = 0; m_a_ < XMX_M; ++m_a_) { \
+      const int rm_a_ = (MI) + m_a_; \
+      if (rm_a_ < (M) && (COL) < (N)) { \
+        const int sh_a_ = (int)(EXPA)[(MI) + m_a_] + (int)eb_a_ \
+                         - (2 * BIAS_PLUS_MANT) + (LOW_SA) + (LOW_SB); \
+        const real_t sc_a_ = (ALPHA) * EXP2I(sh_a_); \
+        (C_REG)[m_a_] += (real_t)du_a_.a_[m_a_] * sc_a_; \
+      } \
+    } \
+  } while (0)
+
+/* Scale i32 accumulator and write/accumulate into fp C (global memory).
  *   shift = ea[m] + eb - 2*BIAS_PLUS_MANT + LOW_SA + LOW_SB
  *   C[col*ldc+m] =/+= (real_t)dot[m] * alpha * EXP2I(shift) */
 #define OZAKI_GEMM_STORE(DOT, EXPA, EXPB, C_PTR, M, N, MI, COL, \
@@ -257,18 +279,15 @@ kernel void preprocess_b_dense(
 /**
  * gemm_fused: Single-launch GEMM over ALL slice pairs.
  *
- * Replaces the host-side (sa, sb) loop with an on-device loop, so the
- * entire Ozaki GEMM phase is ONE kernel launch.  Each work-group owns
- * a tile of C and iterates over all (sa, sb) pairs internally.
+ * C is kept in fp registers across all pairs — only one global C read
+ * (or zero) at the start, and one global C write at the end.
  *
- * Triangular iteration (default): for sa in [0..nslices), sb in [sa..nslices)
- * subject to sa + sb <= cutoff.  Off-diagonal pairs (sa != sb) compute both
- * (sa, sb) and (sb, sa) in one iteration, adding their i32 accumulators.
+ * Triangular iteration (default): sa in [0..nslices), sb in [sa..nslices)
+ * subject to sa + sb <= cutoff.  Off-diagonal pairs compute both (sa,sb)
+ * and (sb,sa) sequentially, summing i32 accumulators before scaling.
  *
- * Square iteration (sq=1): for sa in [0..nslices), sb in [0..nslices)
+ * Square iteration (sq=1): sa in [0..nslices), sb in [0..nslices)
  * subject to sa + sb <= cutoff.  Each pair computed individually.
- *
- * Kernel arguments replace per-pair pointers with base pointers + strides.
  */
 __attribute__((reqd_work_group_size(SG, NTM * NTN, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
@@ -296,8 +315,33 @@ kernel void gemm_fused(
   const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
   const long a_stride = (long)M_pad * K_pad;
   const long b_stride = (long)K_pad * N_pad;
-  int is_first = first_pair;
   SINT sa;
+
+  /* Register-resident C accumulators: c_fp[rm*RTN*XMX_M + rn*XMX_M + m] */
+  real_t c_fp[RTM * RTN * XMX_M];
+  { int ci;
+    if (0 != first_pair) {
+      UNROLL_FORCE(RTM * RTN * XMX_M)
+      for (ci = 0; ci < RTM * RTN * XMX_M; ++ci) c_fp[ci] = ZERO;
+    }
+    else {
+      int rm, rn;
+      for (ci = 0; ci < RTM * RTN * XMX_M; ++ci) c_fp[ci] = ZERO;
+      UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+        UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+          const int col = nj_base + rn * XMX_N + sg_lid;
+          int m_;
+          UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+            const int r_ = mi_base + rm * XMX_M + m_;
+            if (r_ < M && col < N) {
+              c_fp[(rm * RTN + rn) * XMX_M + m_] =
+                c[(long)col * ldc + r_];
+            }
+          }
+        }
+      }
+    }
+  }
 
   for (sa = 0; sa < (SINT)nslices; ++sa) {
     const int high_sa = MANT_BITS - (7 * (int)sa);
@@ -314,25 +358,30 @@ kernel void gemm_fused(
       CONSTANT const char* as_sb = as_base + (long)sb * a_stride;
       CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 
-      /* RTM x RTN accumulators: (sa, sb) pair */
+      /* (sa, sb) K-loop — unrolled by KU */
       int8 c_acc[RTM * RTN];
       { int ri;
         UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
           c_acc[ri] = (int8)(0);
         }
       }
-
-      /* K-loop DPAS for (sa, sb) */
       { int k;
-        for (k = 0; k < K_pad; k += BK) {
+        for (k = 0; k + (KU - 1) * BK < K_pad; k += KU * BK) {
+          int ku;
           OZAKI_PREFETCH_TILED(as_sa, bs_sb, K_pad, N_pad,
-                               M, k + BK, mi_base, nj_base);
+                               M, k + KU * BK, mi_base, nj_base);
+          UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
+            OZAKI_DPAS_TILED(as_sa, bs_sb, K_pad, N_pad,
+                             mi_base, nj_base, k + ku * BK, M, c_acc);
+          }
+        }
+        for (; k < K_pad; k += BK) {
           OZAKI_DPAS_TILED(as_sa, bs_sb, K_pad, N_pad,
                            mi_base, nj_base, k, M, c_acc);
         }
       }
 
-      /* For off-diagonal pairs in triangular mode, also compute (sb, sa) */
+      /* For off-diagonal triangle pairs, also compute (sb, sa) */
       if (0 == sq && sa != sb) {
         int8 c_mir[RTM * RTN];
         { int ri;
@@ -341,9 +390,16 @@ kernel void gemm_fused(
           }
         }
         { int k;
-          for (k = 0; k < K_pad; k += BK) {
+          for (k = 0; k + (KU - 1) * BK < K_pad; k += KU * BK) {
+            int ku;
             OZAKI_PREFETCH_TILED(as_sb, bs_sa, K_pad, N_pad,
-                                 M, k + BK, mi_base, nj_base);
+                                 M, k + KU * BK, mi_base, nj_base);
+            UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
+              OZAKI_DPAS_TILED(as_sb, bs_sa, K_pad, N_pad,
+                               mi_base, nj_base, k + ku * BK, M, c_mir);
+            }
+          }
+          for (; k < K_pad; k += BK) {
             OZAKI_DPAS_TILED(as_sb, bs_sa, K_pad, N_pad,
                              mi_base, nj_base, k, M, c_mir);
           }
@@ -355,18 +411,36 @@ kernel void gemm_fused(
         }
       }
 
-      /* Scale and accumulate into fp C */
+      /* Scale and accumulate into register C */
       { int rm, rn;
         UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
           UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+            const int idx = rm * RTN + rn;
             const int col = nj_base + rn * XMX_N + sg_lid;
-            OZAKI_GEMM_STORE(c_acc[rm * RTN + rn], expa, expb, c,
+            OZAKI_GEMM_ACCUM(c_acc[idx], expa, expb,
+                             c_fp + idx * XMX_M,
                              M, N, mi_base + rm * XMX_M, col,
-                             ldc, alpha, low_bit_sa, low_bit_sb, is_first);
+                             alpha, low_bit_sa, low_bit_sb);
           }
         }
       }
-      is_first = 0;
+    }
+  }
+
+  /* Final write: register C -> global C */
+  { int rm, rn;
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+        const int col = nj_base + rn * XMX_N + sg_lid;
+        int m_;
+        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+          const int r_ = mi_base + rm * XMX_M + m_;
+          if (r_ < M && col < N) {
+            c[(long)col * ldc + r_] =
+              c_fp[(rm * RTN + rn) * XMX_M + m_];
+          }
+        }
+      }
     }
   }
 }
