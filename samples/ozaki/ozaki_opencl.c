@@ -121,7 +121,26 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     }
   }
 
-  if (0 >= ndecomp) ndecomp = (2 == kind ? (use_double ? 19 : 10) : 8);
+  { const int ndecomp_auto = (0 >= ndecomp);
+    if (ndecomp_auto) {
+      ndecomp = (2 == kind ? (use_double ? 19 : 10) : 8);
+    }
+    if (2 == kind) {
+      const int mant = use_double ? 52 : 23;
+      if (oztrim >= mant) oztrim = mant - 1;
+      if (0 < oztrim && 0 != ndecomp_auto) {
+        /* floor(cumulative log2) of CRT moduli products */
+        static const int cumbits[20] = {
+          7, 13, 20, 27, 34, 41, 48, 55, 61, 68,
+          75, 81, 87, 94, 100, 106, 112, 118, 124, 130
+        };
+        const int req = 2 * (mant - oztrim) + 23;
+        int np;
+        for (np = 0; np < 20 && cumbits[np] < req; ++np) {}
+        ndecomp = (np < 20) ? np + 1 : 20;
+      }
+    }
+  }
   if (2 == kind && 20 < ndecomp) ndecomp = 20;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR;
 
@@ -304,15 +323,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       size_t coff = 0;
       coff += (size_t)LIBXS_SNPRINTF(
         build_params + coff, sizeof(build_params) - coff,
-        "-DBM=%d -DBN=%d -DBK=%d -DSG=16"
+        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16"
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
-        " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
+        " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DKGROUPS=%d -DRTM=%d -DRTN=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre,
+        tm, tn, bk_pre, ctx->ku, ctx->rc,
         ndecomp, use_double,
-        mant_bits, bias_plus_mant,
+        mant_bits, bias_plus_mant - oztrim, oztrim,
         bm_pre, bn_pre, bk_pre,
         (2 == kind && 1 < ozgroups) ? ozgroups : 0,
         rtm, rtn);
@@ -407,7 +426,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     }
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     if (1 == kind) ozaki_print_opt(stderr, "trim", oztrim);
-    if (2 == kind) ozaki_print_opt(stderr, "kgroups", ozgroups);
+    if (2 == kind) {
+      ozaki_print_opt(stderr, "trim", oztrim);
+      ozaki_print_opt(stderr, "kgroups", ozgroups);
+    }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);
     fprintf(stderr, "\n");
   }

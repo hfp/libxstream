@@ -54,8 +54,14 @@
 #if !defined(BIAS_PLUS_MANT)
 # define BIAS_PLUS_MANT 1075
 #endif
+#if !defined(MANT_TRUNC)
+# define MANT_TRUNC 0
+#endif
 #if !defined(KGROUPS)
 # define KGROUPS 0
+#endif
+#if !defined(KU)
+# define KU 1
 #endif
 #if !defined(SG)
 # define SG 16
@@ -364,7 +370,8 @@ kernel void preprocess_a_crt_dense(
       ieee_decompose(a[idx], &s1, &e1, &m1);
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
-        const uint_repr_t aligned = (shift < MANT_BITS) ? (m1 >> shift) : 0;
+        const uint_repr_t aligned = (shift + MANT_TRUNC < MANT_BITS)
+          ? (m1 >> (shift + MANT_TRUNC)) : 0;
         OZAKI_EXTRACT_CRT(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
       }
     }
@@ -423,7 +430,8 @@ kernel void preprocess_b_crt_dense(
       ieee_decompose(b[idx], &s1, &e1, &m1);
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
-        const uint_repr_t aligned = (shift < MANT_BITS) ? (m1 >> shift) : 0;
+        const uint_repr_t aligned = (shift + MANT_TRUNC < MANT_BITS)
+          ? (m1 >> (shift + MANT_TRUNC)) : 0;
         OZAKI_EXTRACT_CRT(aligned, s1, bs, K_pad * N_pad, N_pad, row, col);
       }
     }
@@ -471,15 +479,18 @@ kernel void gemm_crt_fused(
   const long b_plane = (long)K_pad * N_pad;
   SINT pidx;
 
-  /* Per-prime residue accumulators: residues[rt][pidx][m]
-   * Flattened: residues[(rm*RTN+rn) * NPRIMES * XMX_M + pidx * XMX_M + m] */
-  uint residues[RTM * RTN * NPRIMES * XMX_M];
+  /* Per-prime residue accumulators in SLM (private slice per sub-group).
+   * Frees ~160 GRF so the GEMM K-loop can run at full throughput.
+   * Layout: slm_res[sg_id][(rm*RTN+rn) * NPRIMES * XMX_M + pidx*XMX_M + m] */
+#define RES_STRIDE (RTM * RTN * NPRIMES * XMX_M)
+  local uint slm_res[NTM * NTN][RES_STRIDE];
+  local uint* residues = slm_res[sg_id];
 
   { int ri;
-    UNROLL_FORCE(RTM * RTN * NPRIMES * XMX_M)
-    for (ri = 0; ri < RTM * RTN * NPRIMES * XMX_M; ++ri) {
+    for (ri = sg_lid; ri < RES_STRIDE; ri += SG) {
       residues[ri] = 0;
     }
+    barrier(CLK_LOCAL_MEM_FENCE);
   }
 
   /* Loop over all primes */
@@ -495,12 +506,15 @@ kernel void gemm_crt_fused(
 
 #if KGROUPS > 0
     { int k, steps = 0;
-      for (k = 0; k < K_pad; k += BK) {
-        OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
-                             M, k + BK, mi_base, nj_base);
-        OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
-                         mi_base, nj_base, k, M, acc);
-        ++steps;
+      for (k = 0; k < K_pad; k += KU * BK) {
+        int ku;
+        UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
+          OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
+                               M, k + (ku + 1) * BK, mi_base, nj_base);
+          OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
+                           mi_base, nj_base, k + ku * BK, M, acc);
+        }
+        steps += KU;
         if (steps >= KGROUPS) {
           { int rm, rn;
             UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
@@ -526,11 +540,14 @@ kernel void gemm_crt_fused(
     }
 #else
     { int k;
-      for (k = 0; k < K_pad; k += BK) {
-        OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
-                             M, k + BK, mi_base, nj_base);
-        OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
-                         mi_base, nj_base, k, M, acc);
+      for (k = 0; k < K_pad; k += KU * BK) {
+        int ku;
+        UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
+          OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
+                               M, k + (ku + 1) * BK, mi_base, nj_base);
+          OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
+                           mi_base, nj_base, k + ku * BK, M, acc);
+        }
       }
       { int rm, rn;
         UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
@@ -545,6 +562,7 @@ kernel void gemm_crt_fused(
   }
 
   /* Garner CRT reconstruction + Horner evaluation + store */
+#if !defined(SKIP_GARNER) || (0 == SKIP_GARNER)
   { int rm, rn;
     UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
       UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
@@ -556,6 +574,7 @@ kernel void gemm_crt_fused(
       }
     }
   }
+#endif
 }
 
 
