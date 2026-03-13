@@ -255,35 +255,36 @@ kernel void preprocess_b_dense(
 
 
 /**
- * gemm_fused: Tiled int8 GEMM with K-loop + fused i32->fp accumulation.
+ * gemm_fused: Single-launch GEMM over ALL slice pairs.
  *
- * For one slice pair (sa, sb), computes:
- *   C_i32[tile] = As[sa][m_tile, :] * Bs[sb][:, n_tile]  (full K sum)
- *   C_fp[tile] += C_i32[tile] * scale * eA[m] * eB[n]
+ * Replaces the host-side (sa, sb) loop with an on-device loop, so the
+ * entire Ozaki GEMM phase is ONE kernel launch.  Each work-group owns
+ * a tile of C and iterates over all (sa, sb) pairs internally.
  *
- * where scale = alpha * exp2(base_shift + low_bit[sa] + low_bit[sb]).
+ * Triangular iteration (default): for sa in [0..nslices), sb in [sa..nslices)
+ * subject to sa + sb <= cutoff.  Off-diagonal pairs (sa != sb) compute both
+ * (sa, sb) and (sb, sa) in one iteration, adding their i32 accumulators.
  *
- * Layout assumptions:
- *   As[sa]: M_pad x K_pad, row-major (each row is K_pad bytes)
- *   Bs[sb]: K_pad x N_pad, row-major (each row is N_pad bytes)
- *   C:      M x N, column-major with stride ldc
+ * Square iteration (sq=1): for sa in [0..nslices), sb in [0..nslices)
+ * subject to sa + sb <= cutoff.  Each pair computed individually.
  *
- * Each sub-group owns RTM x RTN DPAS sub-tiles (register tiling).
- * Work-group: (SG, NTM * NTN, 1).
- * Dispatch: global = (nblk_m * SG, nblk_n * NTM * NTN, 1).
+ * Kernel arguments replace per-pair pointers with base pointers + strides.
  */
 __attribute__((reqd_work_group_size(SG, NTM * NTN, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 kernel void gemm_fused(
-  CONSTANT const char* restrict as_base,    /* As[sa]: M_pad x K_pad */
-  CONSTANT const char* restrict bs_base,    /* Bs[sb]: K_pad x N_pad */
+  CONSTANT const char* restrict as_base,    /* all slices: [nslices][M_pad][K_pad] */
+  CONSTANT const char* restrict bs_base,    /* all slices: [nslices][K_pad][N_pad] */
   CONSTANT const int* restrict expa,        /* [M] per-row max exponent */
   CONSTANT const int* restrict expb,        /* [N] per-col max exponent */
   global real_t* restrict c,                /* [M x N] column-major, ldc */
   int M, int N, int K_pad, int N_pad, int ldc,
+  int M_pad,                                /* padded M dimension = slice row stride */
   real_t alpha,
-  int sa, int sb,                           /* slice indices */
-  int first_pair)                           /* 1 if this is the first (sa,sb) */
+  int nslices,                              /* total number of slices */
+  int cutoff,                               /* sa + sb <= cutoff */
+  int first_pair,                           /* 1 if beta == 0 (overwrite C) */
+  int sq)                                   /* 1: full square, 0: triangle+mirror */
 {
   const int ib_idx  = (int)get_group_id(0);
   const int jb_idx  = (int)get_group_id(1);
@@ -293,114 +294,79 @@ kernel void gemm_fused(
   const int tile_n  = sg_id % NTN;
   const int mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
   const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
+  const long a_stride = (long)M_pad * K_pad;
+  const long b_stride = (long)K_pad * N_pad;
+  int is_first = first_pair;
+  SINT sa;
 
-  /* Precompute slice low-bit positions */
-  const int high_sa = MANT_BITS - (7 * sa);
-  const int low_bit_sa = MAX(0, high_sa - 6);
-  const int high_sb = MANT_BITS - (7 * sb);
-  const int low_bit_sb = MAX(0, high_sb - 6);
+  for (sa = 0; sa < (SINT)nslices; ++sa) {
+    const int high_sa = MANT_BITS - (7 * (int)sa);
+    const int low_bit_sa = MAX(0, high_sa - 6);
+    CONSTANT const char* as_sa = as_base + (long)sa * a_stride;
+    CONSTANT const char* bs_sa = bs_base + (long)sa * b_stride;
+    const int sb_end_raw = cutoff + 1 - (int)sa;
+    const SINT sb_end = (SINT)(sb_end_raw < nslices ? sb_end_raw : nslices);
+    SINT sb;
 
-  /* RTM x RTN accumulators */
-  int8 c_acc[RTM * RTN];
-  { int ri;
-    UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-      c_acc[ri] = (int8)(0);
-    }
-  }
+    for (sb = sq ? 0 : sa; sb < sb_end; ++sb) {
+      const int high_sb = MANT_BITS - (7 * (int)sb);
+      const int low_bit_sb = MAX(0, high_sb - 6);
+      CONSTANT const char* as_sb = as_base + (long)sb * a_stride;
+      CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 
-  /* K-loop: tiled DPAS accumulation with prefetch */
-  { int k;
-    for (k = 0; k < K_pad; k += BK) {
-      OZAKI_PREFETCH_TILED(as_base, bs_base, K_pad, N_pad,
-                           M, k + BK, mi_base, nj_base);
-      OZAKI_DPAS_TILED(as_base, bs_base, K_pad, N_pad,
-                       mi_base, nj_base, k, M, c_acc);
-    }
-  }
-
-  /* Scale and accumulate into fp C */
-  { int rm, rn;
-    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-        const int col = nj_base + rn * XMX_N + sg_lid;
-        OZAKI_GEMM_STORE(c_acc[rm * RTN + rn], expa, expb, c,
-                         M, N, mi_base + rm * XMX_M, col,
-                         ldc, alpha, low_bit_sa, low_bit_sb, first_pair);
+      /* RTM x RTN accumulators: (sa, sb) pair */
+      int8 c_acc[RTM * RTN];
+      { int ri;
+        UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+          c_acc[ri] = (int8)(0);
+        }
       }
-    }
-  }
-}
 
-
-/**
- * gemm_fused_sym: Same as gemm_fused but computes BOTH (sa,sb) AND (sb,sa)
- * in one kernel launch (SYMMETRIZE optimization for off-diagonal pairs).
- *
- * This halves the number of kernel launches for off-diagonal slice pairs.
- */
-__attribute__((reqd_work_group_size(SG, NTM * NTN, 1)))
-__attribute__((intel_reqd_sub_group_size(SG)))
-kernel void gemm_fused_sym(
-  CONSTANT const char* restrict as_sa,      /* As[sa]: M_pad x K_pad */
-  CONSTANT const char* restrict bs_sb,      /* Bs[sb]: K_pad x N_pad */
-  CONSTANT const char* restrict as_sb,      /* As[sb]: M_pad x K_pad */
-  CONSTANT const char* restrict bs_sa,      /* Bs[sa]: K_pad x N_pad */
-  CONSTANT const int* restrict expa,
-  CONSTANT const int* restrict expb,
-  global real_t* restrict c,
-  int M, int N, int K_pad, int N_pad, int ldc,
-  real_t alpha,
-  int sa, int sb,
-  int first_pair)
-{
-  const int ib_idx  = (int)get_group_id(0);
-  const int jb_idx  = (int)get_group_id(1);
-  const int sg_lid  = (int)get_sub_group_local_id();
-  const int sg_id   = (int)get_sub_group_id();
-  const int tile_m  = sg_id / NTN;
-  const int tile_n  = sg_id % NTN;
-  const int mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
-  const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
-
-  const int high_sa = MANT_BITS - (7 * sa);
-  const int low_bit_sa = MAX(0, high_sa - 6);
-  const int high_sb = MANT_BITS - (7 * sb);
-  const int low_bit_sb = MAX(0, high_sb - 6);
-
-  /* Two sets of RTM x RTN accumulators: (sa,sb) and (sb,sa) */
-  int8 c_fwd[RTM * RTN];
-  int8 c_mir[RTM * RTN];
-  { int ri;
-    UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-      c_fwd[ri] = (int8)(0);
-      c_mir[ri] = (int8)(0);
-    }
-  }
-
-  { int k;
-    for (k = 0; k < K_pad; k += BK) {
-      OZAKI_PREFETCH_TILED(as_sa, bs_sb, K_pad, N_pad,
-                           M, k + BK, mi_base, nj_base);
-      OZAKI_PREFETCH_TILED(as_sb, bs_sa, K_pad, N_pad,
-                           M, k + BK, mi_base, nj_base);
-      OZAKI_DPAS_TILED(as_sa, bs_sb, K_pad, N_pad,
-                       mi_base, nj_base, k, M, c_fwd);
-      OZAKI_DPAS_TILED(as_sb, bs_sa, K_pad, N_pad,
-                       mi_base, nj_base, k, M, c_mir);
-    }
-  }
-
-  /* Both pairs share the same scale: low_bit[sa]+low_bit[sb] is symmetric */
-  { int rm, rn;
-    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-        const int idx = rm * RTN + rn;
-        const int col = nj_base + rn * XMX_N + sg_lid;
-        int8 c_sum = c_fwd[idx] + c_mir[idx];
-        OZAKI_GEMM_STORE(c_sum, expa, expb, c,
-                         M, N, mi_base + rm * XMX_M, col,
-                         ldc, alpha, low_bit_sa, low_bit_sb, first_pair);
+      /* K-loop DPAS for (sa, sb) */
+      { int k;
+        for (k = 0; k < K_pad; k += BK) {
+          OZAKI_PREFETCH_TILED(as_sa, bs_sb, K_pad, N_pad,
+                               M, k + BK, mi_base, nj_base);
+          OZAKI_DPAS_TILED(as_sa, bs_sb, K_pad, N_pad,
+                           mi_base, nj_base, k, M, c_acc);
+        }
       }
+
+      /* For off-diagonal pairs in triangular mode, also compute (sb, sa) */
+      if (0 == sq && sa != sb) {
+        int8 c_mir[RTM * RTN];
+        { int ri;
+          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+            c_mir[ri] = (int8)(0);
+          }
+        }
+        { int k;
+          for (k = 0; k < K_pad; k += BK) {
+            OZAKI_PREFETCH_TILED(as_sb, bs_sa, K_pad, N_pad,
+                                 M, k + BK, mi_base, nj_base);
+            OZAKI_DPAS_TILED(as_sb, bs_sa, K_pad, N_pad,
+                             mi_base, nj_base, k, M, c_mir);
+          }
+        }
+        { int ri;
+          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+            c_acc[ri] = c_acc[ri] + c_mir[ri];
+          }
+        }
+      }
+
+      /* Scale and accumulate into fp C */
+      { int rm, rn;
+        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+            const int col = nj_base + rn * XMX_N + sg_lid;
+            OZAKI_GEMM_STORE(c_acc[rm * RTN + rn], expa, expb, c,
+                             M, N, mi_base + rm * XMX_M, col,
+                             ldc, alpha, low_bit_sa, low_bit_sb, is_first);
+          }
+        }
+      }
+      is_first = 0;
     }
   }
 }

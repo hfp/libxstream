@@ -123,7 +123,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
 
   if (0 >= ndecomp) ndecomp = (2 == kind ? (use_double ? 19 : 10) : 8);
   if (2 == kind && 20 < ndecomp) ndecomp = 20;
-  if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
+  if (0 > ozflags) ozflags = OZAKI_TRIANGULAR;
 
   ctx->use_double = use_double;
   ctx->use_xmx = use_xmx;
@@ -153,7 +153,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   ctx->kern_preprocess_a = NULL;
   ctx->kern_preprocess_b = NULL;
   ctx->kern_fused = NULL;
-  ctx->kern_fused_sym = NULL;
   ctx->kern_scale_beta = NULL;
   ctx->kern_crt_preprocess_a = NULL;
   ctx->kern_crt_preprocess_b = NULL;
@@ -268,11 +267,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         }
         if (EXIT_SUCCESS == result) {
           result = libxstream_opencl_kernel_query(
-            program, "gemm_fused_sym",
-            &ctx->kern_fused_sym);
-        }
-        if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
             program, "scale_beta",
             &ctx->kern_scale_beta);
         }
@@ -290,10 +284,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         if (NULL != ctx->kern_fused) {
           clReleaseKernel(ctx->kern_fused);
           ctx->kern_fused = NULL;
-        }
-        if (NULL != ctx->kern_fused_sym) {
-          clReleaseKernel(ctx->kern_fused_sym);
-          ctx->kern_fused_sym = NULL;
         }
         if (NULL != ctx->kern_scale_beta) {
           clReleaseKernel(ctx->kern_scale_beta);
@@ -491,9 +481,6 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->kern_fused) {
       clReleaseKernel(ctx->kern_fused);
     }
-    if (NULL != ctx->kern_fused_sym) {
-      clReleaseKernel(ctx->kern_fused_sym);
-    }
     if (NULL != ctx->kern_scale_beta) {
       clReleaseKernel(ctx->kern_scale_beta);
     }
@@ -591,8 +578,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     const int nblk_gm = (M + tm - 1) / tm;
     const int nblk_gn = (N + tn - 1) / tn;
     const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
-    const int triangular = (ctx->ozflags & OZAKI_TRIANGULAR) ? 1 : 0;
-    const int symmetrize = (ctx->ozflags & OZAKI_SYMMETRIZE) ? 1 : 0;
     const int cutoff = 2 * (nslices_g - 1) - ctx->oztrim;
     /* Dense slice buffer sizes */
     size_t as_size, bs_size, expa_size, expb_size;
@@ -600,7 +585,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     void *d_expa_g = NULL, *d_expb_g = NULL;
     void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
     void *h_as = NULL, *h_expa = NULL, *h_bs = NULL, *h_expb = NULL;
-    int sa, sb, first_pair;
+    int first_pair;
     int n_profiled = 0;
     cl_event *evt_prof = NULL;
     int cache_hit_a = 0, cache_hit_b = 0;
@@ -832,97 +817,45 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         NULL, global_s, local_s, 0, NULL, NULL));
     }
 
-    /* Tiled GEMM per slice pair */
+    /* Tiled GEMM phase: single kernel launch over all slice pairs */
     first_pair = (0.0 == beta) ? 1 : 0;
-    for (sa = 0; sa < nslices_g && sa <= cutoff && EXIT_SUCCESS == result; ++sa) {
-      const int sb_start = triangular ? sa : 0;
-      const int sb_end_raw = cutoff + 1 - sa;
-      const int sb_end = (sb_end_raw < nslices_g) ? sb_end_raw : nslices_g;
-      for (sb = sb_start; sb < sb_end && EXIT_SUCCESS == result; ++sb) {
-        /* Pointers to this slice pair's dense matrices */
-        const size_t as_offset_sa = (size_t)sa * m_pad * k_pad;
-        const size_t bs_offset_sb = (size_t)sb * k_pad * n_pad;
-
-        size_t global_g[2], local_g[2];
-        local_g[0] = 16; /* GEMM tile decomposition requires SG=16 */
-        local_g[1] = (size_t)(ntm * ntn);
-        global_g[0] = (size_t)nblk_gm * local_g[0];
-        global_g[1] = (size_t)nblk_gn * local_g[1];
-
-        if (symmetrize && sa != sb) {
-          /* Symmetric path: compute (sa,sb) and (sb,sa) in one launch */
-          const size_t as_offset_sb = (size_t)sb * m_pad * k_pad;
-          const size_t bs_offset_sa = (size_t)sa * k_pad * n_pad;
-          cl_int i = 0;
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused_sym, i++,
-            (char*)d_as + as_offset_sa));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused_sym, i++,
-            (char*)d_bs + bs_offset_sb));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused_sym, i++,
-            (char*)d_as + as_offset_sb));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused_sym, i++,
-            (char*)d_bs + bs_offset_sa));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused_sym, i++, d_expa_g));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused_sym, i++, d_expb_g));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused_sym, i++, d_cg));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(int), &M));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(int), &N));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(int), &k_pad));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(int), &n_pad));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(int), &ldc));
-          if (ctx->use_double) {
-            double dalpha = alpha;
-            CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(double), &dalpha));
-          }
-          else {
-            float falpha = (float)alpha;
-            CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(float), &falpha));
-          }
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(int), &sa));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(int), &sb));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused_sym, i++, sizeof(int), &first_pair));
-          CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_fused_sym, 2,
-              NULL, global_g, local_g, 0, NULL,
-              (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-                ? (evt_prof + n_profiled) : NULL));
-          if (EXIT_SUCCESS == result && NULL != evt_prof
-              && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
+    { const int sq = (ctx->ozflags & OZAKI_TRIANGULAR) ? 0 : 1;
+      size_t global_g[2], local_g[2];
+      local_g[0] = 16;
+      local_g[1] = (size_t)(ntm * ntn);
+      global_g[0] = (size_t)nblk_gm * local_g[0];
+      global_g[1] = (size_t)nblk_gn * local_g[1];
+      { cl_int i = 0;
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++, d_as));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++, d_bs));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++, d_expa_g));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++, d_expb_g));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++, d_cg));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &M));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &N));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &k_pad));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &n_pad));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &ldc));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &m_pad));
+        if (ctx->use_double) {
+          double dalpha = alpha;
+          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(double), &dalpha));
         }
         else {
-          /* Single pair (sa,sb) — diagonal or non-symmetric */
-          cl_int i = 0;
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++,
-            (char*)d_as + as_offset_sa));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++,
-            (char*)d_bs + bs_offset_sb));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++, d_expa_g));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++, d_expb_g));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++, d_cg));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &M));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &N));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &k_pad));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &n_pad));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &ldc));
-          if (ctx->use_double) {
-            double dalpha = alpha;
-            CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(double), &dalpha));
-          }
-          else {
-            float falpha = (float)alpha;
-            CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(float), &falpha));
-          }
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &sa));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &sb));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &first_pair));
-          CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_fused, 2,
-              NULL, global_g, local_g, 0, NULL,
-              (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-                ? (evt_prof + n_profiled) : NULL));
-          if (EXIT_SUCCESS == result && NULL != evt_prof
-              && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
+          float falpha = (float)alpha;
+          CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(float), &falpha));
         }
-        first_pair = 0;
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &nslices_g));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &cutoff));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &first_pair));
+        CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &sq));
       }
+      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_fused, 2,
+          NULL, global_g, local_g, 0, NULL,
+          (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
+            ? (evt_prof + n_profiled) : NULL));
+      if (EXIT_SUCCESS == result && NULL != evt_prof
+          && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
     }
 
     /* Collect profiling data */

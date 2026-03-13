@@ -18,8 +18,7 @@
 
 /* Ozaki flags */
 typedef enum ozaki_flags_t {
-  OZAKI_TRIANGULAR = 1,
-  OZAKI_SYMMETRIZE = 2
+  OZAKI_TRIANGULAR = 1
 } ozaki_flags_t;
 
 /* Host-side preprocessing callback for A or B (GEMM single-shot model).
@@ -70,7 +69,6 @@ typedef struct ozaki_context_t {
   cl_kernel kern_preprocess_a;
   cl_kernel kern_preprocess_b;
   cl_kernel kern_fused;
-  cl_kernel kern_fused_sym;
   cl_kernel kern_scale_beta;
   /* CRT GEMM-mode kernels (Scheme-2 tiled path) */
   cl_kernel kern_crt_preprocess_a;
@@ -82,7 +80,7 @@ typedef struct ozaki_context_t {
   int sg;          /* sub-group size used for compilation */
   int ndecomp;     /* number of decomposition components (slices or primes) */
   int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT) */
-  int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
+  int ozflags;     /* bitmask: OZAKI_TRIANGULAR */
   int oztrim;      /* Scheme 1: diagonal trim (higher = less accurate, faster) */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
   int profile;     /* 0: off, 1 (or negative): pre+gemm, 2: gemm, 3: pre-a, 4: pre-b */
