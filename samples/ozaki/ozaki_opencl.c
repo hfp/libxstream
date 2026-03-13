@@ -550,8 +550,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     as_size   = (size_t)nslices_g * m_pad * k_pad;
     bs_size   = (size_t)nslices_g * k_pad * n_pad;
-    expa_size = (size_t)M * sizeof(cl_int);   /* int for atomic_max */
-    expb_size = (size_t)N * sizeof(cl_int);
+    expa_size = (size_t)nblk_gm * tm * sizeof(cl_int); /* pad to tile boundary */
+    expb_size = (size_t)nblk_gn * tn * sizeof(cl_int);
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
     /* Preprocessing cache: reuse slices+exponents when matrix unchanged */
@@ -925,8 +925,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     as_size   = (size_t)nprimes_g * m_pad * k_pad;
     bs_size   = (size_t)nprimes_g * k_pad * n_pad;
-    expa_size = (size_t)M * sizeof(cl_int);
-    expb_size = (size_t)N * sizeof(cl_int);
+    expa_size = (size_t)nblk_gm * tm * sizeof(cl_int); /* pad to tile boundary */
+    expb_size = (size_t)nblk_gn * tn * sizeof(cl_int);
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
     /* Preprocessing cache: reuse slices+exponents when matrix unchanged */

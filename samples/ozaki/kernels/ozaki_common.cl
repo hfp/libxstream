@@ -49,6 +49,19 @@
  *   Same 8x32x16 tile contract via explicit loops.
  *   Allows the GEMM kernels to run on hardware without DPAS/2D block I/O. */
 #if defined(USE_XMX) && (0 < USE_XMX)
+
+/* Prefetch next K-step's A and B tiles into cache.
+ * 2D block prefetch with .ca.ca hints — writes to null, no register cost.
+ * OOB prefetches are silently clamped by the hardware. */
+#define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI) \
+  intel_sub_group_2d_block_prefetch_8b_8r32x1c( \
+      (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+      (int2)((KOFF), (MI)))
+#define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ) \
+  intel_sub_group_2d_block_prefetch_8b_32r16x1c( \
+      (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+      (int2)((NJ), (KOFF)))
+
 #define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
     ushort8 a_blk_; \
@@ -63,6 +76,8 @@
                 as_short8(a_blk_), as_int8(b_blk_), (ACC)); \
   } while (0)
 #else
+#define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
+#define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)
 #define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
     const int col_ = (NJ) + (int)get_sub_group_local_id(); \

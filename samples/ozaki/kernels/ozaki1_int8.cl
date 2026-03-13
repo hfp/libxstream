@@ -110,8 +110,7 @@
     union { int8 v_; int a_[8]; } du_s_; \
     int m_s_; \
     UNROLL_FORCE(XMX_M) for (m_s_ = 0; m_s_ < XMX_M; ++m_s_) { \
-      const int rm_ = (MI) + m_s_; \
-      ea_s_[m_s_] = (rm_ < (M)) ? (EXPA)[rm_] : 0; \
+      ea_s_[m_s_] = (EXPA)[(MI) + m_s_]; \
     } \
     du_s_.v_ = (DOT); \
     UNROLL_FORCE(XMX_M) for (m_s_ = 0; m_s_ < XMX_M; ++m_s_) { \
@@ -121,8 +120,8 @@
                         - (2 * BIAS_PLUS_MANT) + (LOW_SA) + (LOW_SB); \
         const real_t sc_ = (ALPHA) * EXP2I(sh_); \
         const real_t ct_ = (real_t)du_s_.a_[m_s_] * sc_; \
-        if (FIRST) { (C_PTR)[(COL) * (LDC) + rm_] = ct_; } \
-        else       { (C_PTR)[(COL) * (LDC) + rm_] += ct_; } \
+        const real_t old_ = (FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+        (C_PTR)[(COL) * (LDC) + rm_] = old_ + ct_; \
       } \
     } \
   } while (0)
@@ -303,9 +302,11 @@ kernel void gemm_fused(
   const int high_sb = MANT_BITS - (7 * sb);
   const int low_bit_sb = MAX(0, high_sb - 6);
 
-  /* K-loop: full DPAS accumulation */
+  /* K-loop: full DPAS accumulation with prefetch */
   int8 c_i32 = (int8)(0);
   for (int k = 0; k < K_pad; k += BK) {
+    OZAKI_PREFETCH_A(as_base, K_pad, M, k + BK, mi_base);
+    OZAKI_PREFETCH_B(bs_base, N_pad, K_pad, k + BK, nj_base);
     OZAKI_GEMM_DPAS(as_base, bs_base, K_pad, N_pad, mi_base, nj_base, k, M, c_i32);
   }
 
@@ -356,6 +357,10 @@ kernel void gemm_fused_sym(
   int8 c_mir = (int8)(0);
 
   for (int k = 0; k < K_pad; k += BK) {
+    OZAKI_PREFETCH_A(as_sa, K_pad, M, k + BK, mi_base);
+    OZAKI_PREFETCH_B(bs_sb, N_pad, K_pad, k + BK, nj_base);
+    OZAKI_PREFETCH_A(as_sb, K_pad, M, k + BK, mi_base);
+    OZAKI_PREFETCH_B(bs_sa, N_pad, K_pad, k + BK, nj_base);
     OZAKI_GEMM_DPAS(as_sa, bs_sb, K_pad, N_pad, mi_base, nj_base, k, M, c_fwd);
     OZAKI_GEMM_DPAS(as_sb, bs_sa, K_pad, N_pad, mi_base, nj_base, k, M, c_mir);
   }
