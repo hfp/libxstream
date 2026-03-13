@@ -145,8 +145,6 @@
     UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) { \
       const int rm_ = (MI) + ms_; \
       if (rm_ < (M) && (COL) < (N)) { \
-        uint dot_r_[NPRIMES]; \
-        uint vg_[NPRIMES]; \
         int is_neg_; \
         SINT pg_; \
         UNROLL_FORCE(NPRIMES) for (pg_ = 0; pg_ < NPRIMES; ++pg_) { \
@@ -477,6 +475,8 @@ kernel void gemm_crt_fused(
   const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
   const long a_plane = (long)M_pad * K_pad;
   const long b_plane = (long)K_pad * N_pad;
+  uint dot_r_[NPRIMES];
+  uint vg_[NPRIMES];
   SINT pidx;
 
   /* Per-prime residue accumulators in SLM (private slice per sub-group).
