@@ -121,8 +121,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     }
   }
 
-  if (0 >= ndecomp) ndecomp = (2 == kind ? 18 : 8);
-  if (2 == kind && 18 < ndecomp) ndecomp = 18;
+  if (0 >= ndecomp) ndecomp = (2 == kind ? (use_double ? 19 : 10) : 8);
+  if (2 == kind && 20 < ndecomp) ndecomp = 20;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   ctx->use_double = use_double;
