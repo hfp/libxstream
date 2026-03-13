@@ -90,6 +90,8 @@ typedef struct ozaki_context_t {
   int bm_pre, bn_pre, bk_pre;
   /* output tile size (compiled into kernel) */
   int tm, tn;
+  /* register tiling: sub-tiles per sub-group (compiled into kernel) */
+  int rtm, rtn;
   libxs_hist_t* hist; /* kernel execution-time histogram (OZAKI_PROF) */
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */

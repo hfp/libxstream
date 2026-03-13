@@ -170,9 +170,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       "-cl-fast-relaxed-math -cl-denorms-are-zero";
     const int mant_bits      = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
+    int rtm = 1, rtn = 1;
+    env = getenv("OZAKI_RTM");
+    if (NULL != env && 0 < atoi(env)) rtm = atoi(env);
+    env = getenv("OZAKI_RTN");
+    if (NULL != env && 0 < atoi(env)) rtn = atoi(env);
     if (0 >= tm) tm = 256;
     if (0 >= tn) tn = 256;
-    while ((size_t)tm * tn / 8 > max_wgs && (tm > 8 || tn > 16)) {
+    while ((size_t)tm * tn / (8 * rtm * rtn) > max_wgs && (tm > 8 || tn > 16)) {
       if (tm >= tn) tm /= 2; else tn /= 2;
     }
     if (1 == kind) {
@@ -183,11 +188,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
+        " -DRTM=%d -DRTN=%d"
         " -DCONSTANT=global",
         tm, tn, bk_pre,
         ndecomp, use_double,
         mant_bits, bias_plus_mant,
-        bm_pre, bn_pre, bk_pre);
+        bm_pre, bn_pre, bk_pre,
+        rtm, rtn);
       if (use_xmx) {
         goff += (size_t)LIBXS_SNPRINTF(
           build_params + goff, sizeof(build_params) - goff,
@@ -260,12 +267,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
-        " -DKGROUPS=%d -DCONSTANT=global",
+        " -DKGROUPS=%d -DRTM=%d -DRTN=%d"
+        " -DCONSTANT=global",
         tm, tn, bk_pre,
         ndecomp, use_double,
         mant_bits, bias_plus_mant,
         bm_pre, bn_pre, bk_pre,
-        (2 == kind && 1 < ozgroups) ? ozgroups : 0);
+        (2 == kind && 1 < ozgroups) ? ozgroups : 0,
+        rtm, rtn);
       if (use_xmx) {
         coff += (size_t)LIBXS_SNPRINTF(
           build_params + coff, sizeof(build_params) - coff,
@@ -328,6 +337,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     if (EXIT_SUCCESS == result) {
       ctx->tm = tm;
       ctx->tn = tn;
+      ctx->rtm = rtm;
+      ctx->rtn = rtn;
       ctx->bm_pre = bm_pre;
       ctx->bn_pre = bn_pre;
       ctx->bk_pre = bk_pre;
@@ -347,6 +358,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     ozaki_print_opt(stderr, "sg", sg);
     ozaki_print_opt(stderr, "tm", ctx->tm);
     ozaki_print_opt(stderr, "tn", ctx->tn);
+    ozaki_print_opt(stderr, "rtm", ctx->rtm);
+    ozaki_print_opt(stderr, "rtn", ctx->rtn);
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     if (1 == kind) ozaki_print_opt(stderr, "trim", oztrim);
     if (2 == kind) ozaki_print_opt(stderr, "kgroups", ozgroups);
@@ -530,7 +543,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     int n_pad = ((N + bn_pre - 1) / bn_pre) * bn_pre;
     const int nblk_gm = (M + tm - 1) / tm;
     const int nblk_gn = (N + tn - 1) / tn;
-    const int ntm = tm / 8, ntn = tn / 16;
+    const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
     const int triangular = (ctx->ozflags & OZAKI_TRIANGULAR) ? 1 : 0;
     const int symmetrize = (ctx->ozflags & OZAKI_SYMMETRIZE) ? 1 : 0;
     const int cutoff = 2 * (nslices_g - 1) - ctx->oztrim;
@@ -908,7 +921,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     int n_pad = ((N + bn_pre - 1) / bn_pre) * bn_pre;
     const int nblk_gm = (M + tm - 1) / tm;
     const int nblk_gn = (N + tn - 1) / tn;
-    const int ntm = tm / 8, ntn = tn / 16;
+    const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;

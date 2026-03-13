@@ -27,6 +27,23 @@
 # define SINT signed char
 #endif
 
+/* Register tiling: RTM x RTN sub-tiles per sub-group.
+ * Each sub-group computes (RTM*XMX_M) x (RTN*XMX_N) output elements,
+ * issuing RTM*RTN DPAS instructions per K-step.
+ * RTM=1, RTN=1 reproduces the non-tiled baseline (1 DPAS per K-step).
+ * Higher values (e.g. RTM=4,RTN=4) saturate the systolic pipeline and
+ * require 256-GRF mode (LIBXSTREAM_BIGGRF=1). */
+#if !defined(RTM)
+# define RTM 1
+#endif
+#if !defined(RTN)
+# define RTN 1
+#endif
+
+/* DPAS sub-tile dimensions (fixed for PVC XMX) */
+#define XMX_M 8
+#define XMX_N 16
+
 /* Integer power of two via bit manipulation: 2^N exactly.
  * Avoids FP transcendental — one integer add, one shift, one bitcast. */
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
@@ -75,9 +92,52 @@
     (ACC) = intel_sub_group_i8_i8_matrix_mad_k32( \
                 as_short8(a_blk_), as_int8(b_blk_), (ACC)); \
   } while (0)
+
+/* Tiled DPAS: RTM x RTN sub-tiles per sub-group.
+ * Loads RTM A-strips and RTN B-strips, then issues RTM*RTN DPAS.
+ * ACC is an int8 array of size RTM*RTN, indexed [rm * RTN + rn]. */
+#define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  do { \
+    ushort8 a_rt_[RTM]; \
+    uint8 b_rt_[RTN]; \
+    int rm_t_, rn_t_; \
+    UNROLL_FORCE(RTM) for (rm_t_ = 0; rm_t_ < RTM; ++rm_t_) { \
+      intel_sub_group_2d_block_read_8b_8r32x1c( \
+          (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+          (int2)((KOFF), (MI) + rm_t_ * XMX_M), \
+          (private ushort*)&a_rt_[rm_t_]); \
+    } \
+    UNROLL_FORCE(RTN) for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) { \
+      intel_sub_group_2d_block_read_transform_8b_32r16x1c( \
+          (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+          (int2)((NJ) + rn_t_ * XMX_N, (KOFF)), \
+          (private uint*)&b_rt_[rn_t_]); \
+    } \
+    UNROLL_FORCE(RTM) for (rm_t_ = 0; rm_t_ < RTM; ++rm_t_) { \
+      UNROLL_FORCE(RTN) for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) { \
+        (ACC)[rm_t_ * RTN + rn_t_] = \
+            intel_sub_group_i8_i8_matrix_mad_k32( \
+                as_short8(a_rt_[rm_t_]), as_int8(b_rt_[rn_t_]), \
+                (ACC)[rm_t_ * RTN + rn_t_]); \
+      } \
+    } \
+  } while (0)
+
+/* Tiled prefetch: prefetch next K-step for all RTM A and RTN B tiles. */
+#define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ) \
+  do { \
+    int rp_m_, rp_n_; \
+    UNROLL_FORCE(RTM) for (rp_m_ = 0; rp_m_ < RTM; ++rp_m_) { \
+      OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, (MI) + rp_m_ * XMX_M); \
+    } \
+    UNROLL_FORCE(RTN) for (rp_n_ = 0; rp_n_ < RTN; ++rp_n_) { \
+      OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, (NJ) + rp_n_ * XMX_N); \
+    } \
+  } while (0)
 #else
 #define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
 #define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)
+#define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ)
 #define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
     const int col_ = (NJ) + (int)get_sub_group_local_id(); \
@@ -94,6 +154,19 @@
       } \
     } \
     (ACC) = u_.v_; \
+  } while (0)
+
+/* Scalar DPAS_TILED: loop over RTM x RTN sub-tiles using scalar DPAS. */
+#define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  do { \
+    int rm_t_, rn_t_; \
+    for (rm_t_ = 0; rm_t_ < RTM; ++rm_t_) { \
+      for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) { \
+        OZAKI_DPAS(AS, BS, K_PAD, N_PAD, \
+                   (MI) + rm_t_ * XMX_M, (NJ) + rn_t_ * XMX_N, \
+                   KOFF, M_HT, (ACC)[rm_t_ * RTN + rn_t_]); \
+      } \
+    } \
   } while (0)
 #endif
 

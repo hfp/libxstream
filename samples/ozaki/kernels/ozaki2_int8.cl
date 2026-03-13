@@ -64,11 +64,11 @@
 # define OZ2_HORNER_GROUP 9
 #endif
 
-/* DPAS tile dimensions */
-#define XMX_M 8
-#define XMX_N 16
-#define NTM (BM / XMX_M)
-#define NTN (BN / XMX_N)
+/* DPAS tile dimensions are in ozaki_common.cl (XMX_M=8, XMX_N=16) */
+
+/* Sub-tiles per work-group dimension, accounting for register tiling */
+#define NTM (BM / (XMX_M * RTM))
+#define NTN (BN / (XMX_N * RTN))
 
 /* Minimum strides for 2D block I/O (64 bytes for int8) */
 #if !defined(BN_A_PAD)
@@ -465,18 +465,19 @@ kernel void gemm_crt_fused(
   const int sg_id   = (int)get_sub_group_id();
   const int tile_m  = sg_id / NTN;
   const int tile_n  = sg_id % NTN;
-  const int mi_base = ib_idx * BM + tile_m * XMX_M;
-  const int nj_base = jb_idx * BN + tile_n * XMX_N;
-  const int col     = nj_base + sg_lid;
+  const int mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
+  const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
   const long a_plane = (long)M_pad * K_pad;
   const long b_plane = (long)K_pad * N_pad;
   SINT pidx;
 
-  /* Per-prime residue accumulators: residues[pidx][m] */
-  uint residues[NPRIMES * XMX_M];
+  /* Per-prime residue accumulators: residues[rt][pidx][m]
+   * Flattened: residues[(rm*RTN+rn) * NPRIMES * XMX_M + pidx * XMX_M + m] */
+  uint residues[RTM * RTN * NPRIMES * XMX_M];
 
   { int ri;
-    UNROLL_FORCE(NPRIMES * XMX_M) for (ri = 0; ri < NPRIMES * XMX_M; ++ri) {
+    UNROLL_FORCE(RTM * RTN * NPRIMES * XMX_M)
+    for (ri = 0; ri < RTM * RTN * NPRIMES * XMX_M; ++ri) {
       residues[ri] = 0;
     }
   }
@@ -485,40 +486,76 @@ kernel void gemm_crt_fused(
   UNROLL_OUTER(1) for (pidx = 0; pidx < NPRIMES; ++pidx) {
     CONSTANT const char* as_p = as_base + (long)pidx * a_plane;
     CONSTANT const char* bs_p = bs_base + (long)pidx * b_plane;
-    int8 acc = (int8)(0);
+    int8 acc[RTM * RTN];
+    { int ai;
+      UNROLL_FORCE(RTM * RTN) for (ai = 0; ai < RTM * RTN; ++ai) {
+        acc[ai] = (int8)(0);
+      }
+    }
 
 #if KGROUPS > 0
     { int k, steps = 0;
       for (k = 0; k < K_pad; k += BK) {
-        OZAKI_PREFETCH_A(as_p, K_pad, M, k + BK, mi_base);
-        OZAKI_PREFETCH_B(bs_p, N_pad, K_pad, k + BK, nj_base);
-        OZAKI_CRT_DPAS(as_p, bs_p, K_pad, N_pad, mi_base, nj_base, k, M, acc);
+        OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
+                             M, k + BK, mi_base, nj_base);
+        OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
+                         mi_base, nj_base, k, M, acc);
         ++steps;
         if (steps >= KGROUPS) {
-          OZAKI_CRT_MOD_REDUCE(acc, pidx, residues);
-          acc = (int8)(0);
+          { int rm, rn;
+            UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+              UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+                OZAKI_CRT_MOD_REDUCE(acc[rm * RTN + rn], pidx,
+                  residues + (rm * RTN + rn) * NPRIMES * XMX_M);
+                acc[rm * RTN + rn] = (int8)(0);
+              }
+            }
+          }
           steps = 0;
         }
       }
       if (0 != steps) {
-        OZAKI_CRT_MOD_REDUCE(acc, pidx, residues);
+        int rm, rn;
+        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+            OZAKI_CRT_MOD_REDUCE(acc[rm * RTN + rn], pidx,
+              residues + (rm * RTN + rn) * NPRIMES * XMX_M);
+          }
+        }
       }
     }
 #else
     { int k;
       for (k = 0; k < K_pad; k += BK) {
-        OZAKI_PREFETCH_A(as_p, K_pad, M, k + BK, mi_base);
-        OZAKI_PREFETCH_B(bs_p, N_pad, K_pad, k + BK, nj_base);
-        OZAKI_CRT_DPAS(as_p, bs_p, K_pad, N_pad, mi_base, nj_base, k, M, acc);
+        OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
+                             M, k + BK, mi_base, nj_base);
+        OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
+                         mi_base, nj_base, k, M, acc);
       }
-      OZAKI_CRT_MOD_REDUCE(acc, pidx, residues);
+      { int rm, rn;
+        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+            OZAKI_CRT_MOD_REDUCE(acc[rm * RTN + rn], pidx,
+              residues + (rm * RTN + rn) * NPRIMES * XMX_M);
+          }
+        }
+      }
     }
 #endif
   }
 
   /* Garner CRT reconstruction + Horner evaluation + store */
-  OZAKI_CRT_STORE(residues, expa, expb, c, M, N, mi_base, col,
-                  ldc, alpha, first);
+  { int rm, rn;
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+        const int col = nj_base + rn * XMX_N + sg_lid;
+        OZAKI_CRT_STORE(
+          residues + (rm * RTN + rn) * NPRIMES * XMX_M,
+          expa, expb, c, M, N, mi_base + rm * XMX_M, col,
+          ldc, alpha, first);
+      }
+    }
+  }
 }
 
 
