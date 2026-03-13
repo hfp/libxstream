@@ -932,7 +932,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     cl_event *evt_prof_c = NULL;
     int cache_hit_a = 0, cache_hit_b = 0;
 
-    (void)ntm; (void)ntn;
     if (k_pad < 64) k_pad = 64;
     if (n_pad < 64) n_pad = 64;
 
@@ -1161,7 +1160,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) {
       size_t global_g[2], local_g[2];
       local_g[0] = 16; /* GEMM tile decomposition requires SG=16 */
-      local_g[1] = (size_t)(tm / 8) * (size_t)(tn / 16);
+      local_g[1] = (size_t)(ntm * ntn);
       global_g[0] = (size_t)nblk_gm * local_g[0];
       global_g[1] = (size_t)nblk_gn * local_g[1];
       { cl_int i = 0;
