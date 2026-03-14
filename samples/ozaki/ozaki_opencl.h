@@ -92,6 +92,7 @@ typedef struct ozaki_context_t {
   int rtm, rtn;
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
+  int pb; /* CRT prime batching factor (compiled into kernel) */
   int biggrf; /* Ozaki-local 256-GRF decision */
   libxs_hist_t* hist; /* kernel execution-time histogram (OZAKI_PROF) */
 #if defined(OZAKI_DEVPOOL)

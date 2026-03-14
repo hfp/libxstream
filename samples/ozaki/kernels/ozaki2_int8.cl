@@ -69,6 +69,9 @@
 #if !defined(OZ2_HORNER_GROUP)
 # define OZ2_HORNER_GROUP 9
 #endif
+#if !defined(PB)
+# define PB 1
+#endif
 
 /* DPAS tile dimensions are in ozaki_common.cl (XMX_M=8, XMX_N=16) */
 
@@ -194,14 +197,33 @@ inline uint oz2g_mod(uint x, SINT pidx)
   }
 }
 
-/* 64-bit Barrett modular reduction: handles the aligned mantissa (up to 53 bits).
- * Two-step reduction: first reduce to 32-bit range, then Barrett. */
+/* 2^32 mod moduli[i], precomputed for 64-bit Barrett decomposition.
+ * Used to split x = hi*2^32 + lo into two 32-bit Barrett reductions. */
+constant ushort oz2g_pow32_mod[] = {
+   0, 16, 46, 59, 18, 16, 75, 29,
+  63, 68, 35, 45, 77, 49, 50, 32,
+   9, 33, 57, 51
+};
+
+/* Modular reduction for aligned mantissa (up to 53 bits for FP64, 24 for FP32).
+ * Decomposes x = hi*2^32 + lo, reduces each part via 32-bit Barrett,
+ * then combines.  Avoids expensive 64-bit integer division. */
 inline uint oz2g_mod64(ulong x, SINT pidx)
 {
   if (0 == pidx) return (uint)(x & 127ul);
-  { const uint lo = (uint)(x % (ulong)oz2g_moduli[pidx]);
-    return lo;
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+  { const uint hi = (uint)(x >> 32);
+    const uint lo = (uint)x;
+    /* hi * pow32_mod: max ~2^21 * 77 < 2^28, fits uint32.
+     * Adding Barrett-reduced lo (< 128) stays in uint32. */
+    const uint partial = hi * oz2g_pow32_mod[pidx]
+                       + oz2g_mod(lo, pidx);
+    return oz2g_mod(partial, pidx);
   }
+#else
+  /* FP32: aligned mantissa <= 24 bits, direct 32-bit Barrett. */
+  return oz2g_mod((uint)x, pidx);
+#endif
 }
 
 /* Garner modular inverse table */
@@ -477,7 +499,6 @@ kernel void gemm_crt_fused(
   const long b_plane = (long)K_pad * N_pad;
   uint dot_r_[NPRIMES];
   uint vg_[NPRIMES];
-  SINT pidx;
 
   /* Per-prime residue accumulators (private, per work-item).
    * Each SIMD lane accumulates a different output column, so this
@@ -494,72 +515,117 @@ kernel void gemm_crt_fused(
     }
   }
 
-  /* Loop over all primes */
-  UNROLL_OUTER(1) for (pidx = 0; pidx < NPRIMES; ++pidx) {
-    CONSTANT const char* as_p = as_base + (long)pidx * a_plane;
-    CONSTANT const char* bs_p = bs_base + (long)pidx * b_plane;
-    int8 acc[RTM * RTN];
-    { int ai;
-      UNROLL_FORCE(RTM * RTN) for (ai = 0; ai < RTM * RTN; ++ai) {
-        acc[ai] = (int8)(0);
+  /* Loop over primes in batches of PB for improved ILP.
+   * PB=1 reproduces the original per-prime loop.
+   * PB=2 interleaves two primes in the K-loop, hiding memory
+   * latency behind independent DPAS chains. */
+  { SINT pidx_base;
+    UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NPRIMES; pidx_base += PB) {
+      int8 acc[PB * RTM * RTN];
+      { int ai;
+        UNROLL_FORCE(PB * RTM * RTN)
+        for (ai = 0; ai < PB * RTM * RTN; ++ai) {
+          acc[ai] = (int8)(0);
+        }
       }
-    }
 
 #if KGROUPS > 0
-    { int k, steps = 0;
-      for (k = 0; k < K_pad; k += KU * BK) {
-        int ku;
-        UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
-          OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
-                               M, k + (ku + 1) * BK, mi_base, nj_base);
-          OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
-                           mi_base, nj_base, k + ku * BK, M, acc);
-        }
-        steps += KU;
-        if (steps >= KGROUPS) {
-          { int rm, rn;
-            UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-              UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-                OZAKI_CRT_MOD_REDUCE(acc[rm * RTN + rn], pidx,
-                  residues + (rm * RTN + rn) * NPRIMES * XMX_M);
-                acc[rm * RTN + rn] = (int8)(0);
+      { int k, steps = 0;
+        for (k = 0; k < K_pad; k += KU * BK) {
+          int ku;
+          UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
+            SINT bi;
+            UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
+              if (pidx_base + bi < NPRIMES) {
+                CONSTANT const char* as_p = as_base
+                  + (long)(pidx_base + bi) * a_plane;
+                CONSTANT const char* bs_p = bs_base
+                  + (long)(pidx_base + bi) * b_plane;
+                OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
+                  M, k + (ku + 1) * BK, mi_base, nj_base);
+                OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
+                  mi_base, nj_base, k + ku * BK, M,
+                  acc + bi * RTM * RTN);
               }
             }
           }
-          steps = 0;
+          steps += KU;
+          if (steps >= KGROUPS) {
+            { SINT bi;
+              UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
+                if (pidx_base + bi < NPRIMES) {
+                  int rm, rn;
+                  UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+                    UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+                      OZAKI_CRT_MOD_REDUCE(
+                        acc[bi * RTM * RTN + rm * RTN + rn],
+                        pidx_base + bi,
+                        residues + (rm * RTN + rn) * NPRIMES * XMX_M);
+                      acc[bi * RTM * RTN + rm * RTN + rn] = (int8)(0);
+                    }
+                  }
+                }
+              }
+            }
+            steps = 0;
+          }
         }
-      }
-      if (0 != steps) {
-        int rm, rn;
-        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-            OZAKI_CRT_MOD_REDUCE(acc[rm * RTN + rn], pidx,
-              residues + (rm * RTN + rn) * NPRIMES * XMX_M);
+        if (0 != steps) {
+          SINT bi;
+          UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
+            if (pidx_base + bi < NPRIMES) {
+              int rm, rn;
+              UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+                UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+                  OZAKI_CRT_MOD_REDUCE(
+                    acc[bi * RTM * RTN + rm * RTN + rn],
+                    pidx_base + bi,
+                    residues + (rm * RTN + rn) * NPRIMES * XMX_M);
+                }
+              }
+            }
           }
         }
       }
-    }
 #else
-    { int k;
-      for (k = 0; k < K_pad; k += KU * BK) {
-        int ku;
-        UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
-          OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
-                               M, k + (ku + 1) * BK, mi_base, nj_base);
-          OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
-                           mi_base, nj_base, k + ku * BK, M, acc);
+      { int k;
+        for (k = 0; k < K_pad; k += KU * BK) {
+          int ku;
+          UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
+            SINT bi;
+            UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
+              if (pidx_base + bi < NPRIMES) {
+                CONSTANT const char* as_p = as_base
+                  + (long)(pidx_base + bi) * a_plane;
+                CONSTANT const char* bs_p = bs_base
+                  + (long)(pidx_base + bi) * b_plane;
+                OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
+                  M, k + (ku + 1) * BK, mi_base, nj_base);
+                OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
+                  mi_base, nj_base, k + ku * BK, M,
+                  acc + bi * RTM * RTN);
+              }
+            }
+          }
         }
-      }
-      { int rm, rn;
-        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-            OZAKI_CRT_MOD_REDUCE(acc[rm * RTN + rn], pidx,
-              residues + (rm * RTN + rn) * NPRIMES * XMX_M);
+        { SINT bi;
+          UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
+            if (pidx_base + bi < NPRIMES) {
+              int rm, rn;
+              UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+                UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+                  OZAKI_CRT_MOD_REDUCE(
+                    acc[bi * RTM * RTN + rm * RTN + rn],
+                    pidx_base + bi,
+                    residues + (rm * RTN + rn) * NPRIMES * XMX_M);
+                }
+              }
+            }
           }
         }
       }
-    }
 #endif
+    }
   }
 
   /* Garner CRT reconstruction + Horner evaluation + store */

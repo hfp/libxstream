@@ -230,6 +230,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     { int rc = (NULL != env && 0 < atoi(env)) ? atoi(env) : 8;
       ctx->rc = (rc <= 4) ? 4 : 8;
     }
+    env = getenv("OZAKI_PB");
+    { int pb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
+      ctx->pb = pb;
+    }
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
         rtm = (0 != biggrf) ? 4 : 2;
@@ -332,14 +336,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
-        " -DKGROUPS=%d -DRTM=%d -DRTN=%d"
+        " -DKGROUPS=%d -DRTM=%d -DRTN=%d -DPB=%d"
         " -DCONSTANT=global",
         tm, tn, bk_pre, ctx->ku, ctx->rc,
         ndecomp, use_double,
         mant_bits, bias_plus_mant - oztrim, oztrim,
         bm_pre, bn_pre, bk_pre,
         (2 == kind && 1 < ozgroups) ? ozgroups : 0,
-        rtm, rtn);
+        rtm, rtn, ctx->pb);
       if (use_xmx) {
         coff += (size_t)LIBXS_SNPRINTF(
           build_params + coff, sizeof(build_params) - coff,
@@ -433,6 +437,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     ozaki_print_opt(stderr, "trim", oztrim);
     if (2 == kind) {
       ozaki_print_opt(stderr, "kgroups", ozgroups);
+      ozaki_print_opt(stderr, "pb", ctx->pb);
     }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);
     fprintf(stderr, "\n");
