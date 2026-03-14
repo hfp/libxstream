@@ -425,9 +425,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       ozaki_print_opt(stderr, "grf", ctx->biggrf ? 256 : 128);
     }
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
-    if (1 == kind) ozaki_print_opt(stderr, "trim", oztrim);
+    ozaki_print_opt(stderr, "trim", oztrim);
     if (2 == kind) {
-      ozaki_print_opt(stderr, "trim", oztrim);
       ozaki_print_opt(stderr, "kgroups", ozgroups);
     }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);
