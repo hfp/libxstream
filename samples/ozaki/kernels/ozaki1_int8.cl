@@ -97,6 +97,27 @@
 /* Alias the shared DPAS primitive from ozaki_common.cl */
 #define OZAKI_GEMM_DPAS OZAKI_DPAS
 
+/* Full tiled K-loop: prefetch + KU-unrolled DPAS, then remainder.
+ * AS, BS: slice pointers for this pair.
+ * ACC: int8[RTM*RTN] accumulator array (must be pre-zeroed by caller). */
+#define OZAKI_KLOOP(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
+  do { \
+    int k_l_; \
+    for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
+      int ku_l_; \
+      OZAKI_PREFETCH_TILED(AS, BS, K_PAD_, N_PAD_, \
+                           M_, k_l_ + KU * BK, MI, NJ); \
+      UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) { \
+        OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, \
+                         MI, NJ, k_l_ + ku_l_ * BK, M_, ACC); \
+      } \
+    } \
+    for (; k_l_ < (K_PAD_); k_l_ += BK) { \
+      OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, \
+                       MI, NJ, k_l_, M_, ACC); \
+    } \
+  } while (0)
+
 /* Scale i32 accumulator and accumulate into register-resident fp C.
  *   shift = ea[m] + eb - 2*BIAS_PLUS_MANT + LOW_SA + LOW_SB
  *   C_REG[m] += (real_t)dot[m] * alpha * EXP2I(shift)
@@ -406,21 +427,7 @@ kernel void gemm_fused(
           c_acc[ri] = (int8)(0);
         }
       }
-      { int k;
-        for (k = 0; k + (KU - 1) * BK < K_pad; k += KU * BK) {
-          int ku;
-          OZAKI_PREFETCH_TILED(as_sa, bs_sb, K_pad, N_pad,
-                               M, k + KU * BK, mi_base, nj_base);
-          UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
-            OZAKI_DPAS_TILED(as_sa, bs_sb, K_pad, N_pad,
-                             mi_base, nj_base, k + ku * BK, M, c_acc);
-          }
-        }
-        for (; k < K_pad; k += BK) {
-          OZAKI_DPAS_TILED(as_sa, bs_sb, K_pad, N_pad,
-                           mi_base, nj_base, k, M, c_acc);
-        }
-      }
+      OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
 
       /* For off-diagonal triangle pairs, also compute (sb, sa) */
       if (0 == sq && sa != sb) {
@@ -430,21 +437,7 @@ kernel void gemm_fused(
             c_mir[ri] = (int8)(0);
           }
         }
-        { int k;
-          for (k = 0; k + (KU - 1) * BK < K_pad; k += KU * BK) {
-            int ku;
-            OZAKI_PREFETCH_TILED(as_sb, bs_sa, K_pad, N_pad,
-                                 M, k + KU * BK, mi_base, nj_base);
-            UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
-              OZAKI_DPAS_TILED(as_sb, bs_sa, K_pad, N_pad,
-                               mi_base, nj_base, k + ku * BK, M, c_mir);
-            }
-          }
-          for (; k < K_pad; k += BK) {
-            OZAKI_DPAS_TILED(as_sb, bs_sa, K_pad, N_pad,
-                             mi_base, nj_base, k, M, c_mir);
-          }
-        }
+        OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
         { int ri;
           UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
             c_acc[ri] = c_acc[ri] + c_mir[ri];

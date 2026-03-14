@@ -164,6 +164,52 @@
     } \
   } while (0)
 
+/* K-loop inner body: prefetch + DPAS for PB batched primes.
+ * AS_BASE, BS_BASE: base pointers for all prime planes.
+ * A_PLANE, B_PLANE: per-prime plane offsets.
+ * PIDX_BASE: first prime in current batch.
+ * ACC: int8 array of PB*RTM*RTN accumulators. */
+#define OZAKI_CRT_KSTEP(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, \
+                        M_, MI, NJ, KOFF, PIDX_BASE, ACC) \
+  do { \
+    SINT bi_k_; \
+    UNROLL_FORCE(PB) for (bi_k_ = 0; bi_k_ < PB; ++bi_k_) { \
+      if ((PIDX_BASE) + bi_k_ < NPRIMES) { \
+        CONSTANT const char* as_k_ = (AS_BASE) \
+          + (long)((PIDX_BASE) + bi_k_) * (A_PLANE); \
+        CONSTANT const char* bs_k_ = (BS_BASE) \
+          + (long)((PIDX_BASE) + bi_k_) * (B_PLANE); \
+        OZAKI_PREFETCH_TILED(as_k_, bs_k_, K_PAD_, N_PAD_, \
+          M_, (KOFF) + BK, MI, NJ); \
+        OZAKI_DPAS_TILED(as_k_, bs_k_, K_PAD_, N_PAD_, \
+          MI, NJ, KOFF, M_, (ACC) + bi_k_ * RTM * RTN); \
+      } \
+    } \
+  } while (0)
+
+/* Mod-reduce all PB batched primes' accumulators into residues.
+ * If ZERO_ACC is non-zero, also zero the accumulators after reduction. */
+#define OZAKI_CRT_REDUCE_BATCH(ACC, PIDX_BASE, RESIDUES, ZERO_ACC) \
+  do { \
+    SINT bi_r_; \
+    UNROLL_FORCE(PB) for (bi_r_ = 0; bi_r_ < PB; ++bi_r_) { \
+      if ((PIDX_BASE) + bi_r_ < NPRIMES) { \
+        int rm_r_, rn_r_; \
+        UNROLL_FORCE(RTM) for (rm_r_ = 0; rm_r_ < RTM; ++rm_r_) { \
+          UNROLL_FORCE(RTN) for (rn_r_ = 0; rn_r_ < RTN; ++rn_r_) { \
+            OZAKI_CRT_MOD_REDUCE( \
+              (ACC)[bi_r_ * RTM * RTN + rm_r_ * RTN + rn_r_], \
+              (PIDX_BASE) + bi_r_, \
+              (RESIDUES) + (rm_r_ * RTN + rn_r_) * NPRIMES * XMX_M); \
+            if (ZERO_ACC) { \
+              (ACC)[bi_r_ * RTM * RTN + rm_r_ * RTN + rn_r_] = (int8)(0); \
+            } \
+          } \
+        } \
+      } \
+    } \
+  } while (0)
+
 
 /* CRT moduli: 20 pairwise coprime integers <= 128.
  * 119 = 7*17 (composite, larger than either prime alone). */
@@ -534,57 +580,18 @@ kernel void gemm_crt_fused(
         for (k = 0; k < K_pad; k += KU * BK) {
           int ku;
           UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
-            SINT bi;
-            UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
-              if (pidx_base + bi < NPRIMES) {
-                CONSTANT const char* as_p = as_base
-                  + (long)(pidx_base + bi) * a_plane;
-                CONSTANT const char* bs_p = bs_base
-                  + (long)(pidx_base + bi) * b_plane;
-                OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
-                  M, k + (ku + 1) * BK, mi_base, nj_base);
-                OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
-                  mi_base, nj_base, k + ku * BK, M,
-                  acc + bi * RTM * RTN);
-              }
-            }
+            OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane,
+              K_pad, N_pad, M, mi_base, nj_base,
+              k + ku * BK, pidx_base, acc);
           }
           steps += KU;
           if (steps >= KGROUPS) {
-            { SINT bi;
-              UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
-                if (pidx_base + bi < NPRIMES) {
-                  int rm, rn;
-                  UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-                    UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-                      OZAKI_CRT_MOD_REDUCE(
-                        acc[bi * RTM * RTN + rm * RTN + rn],
-                        pidx_base + bi,
-                        residues + (rm * RTN + rn) * NPRIMES * XMX_M);
-                      acc[bi * RTM * RTN + rm * RTN + rn] = (int8)(0);
-                    }
-                  }
-                }
-              }
-            }
+            OZAKI_CRT_REDUCE_BATCH(acc, pidx_base, residues, 1);
             steps = 0;
           }
         }
         if (0 != steps) {
-          SINT bi;
-          UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
-            if (pidx_base + bi < NPRIMES) {
-              int rm, rn;
-              UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-                UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-                  OZAKI_CRT_MOD_REDUCE(
-                    acc[bi * RTM * RTN + rm * RTN + rn],
-                    pidx_base + bi,
-                    residues + (rm * RTN + rn) * NPRIMES * XMX_M);
-                }
-              }
-            }
-          }
+          OZAKI_CRT_REDUCE_BATCH(acc, pidx_base, residues, 0);
         }
       }
 #else
@@ -592,37 +599,12 @@ kernel void gemm_crt_fused(
         for (k = 0; k < K_pad; k += KU * BK) {
           int ku;
           UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku) {
-            SINT bi;
-            UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
-              if (pidx_base + bi < NPRIMES) {
-                CONSTANT const char* as_p = as_base
-                  + (long)(pidx_base + bi) * a_plane;
-                CONSTANT const char* bs_p = bs_base
-                  + (long)(pidx_base + bi) * b_plane;
-                OZAKI_PREFETCH_TILED(as_p, bs_p, K_pad, N_pad,
-                  M, k + (ku + 1) * BK, mi_base, nj_base);
-                OZAKI_DPAS_TILED(as_p, bs_p, K_pad, N_pad,
-                  mi_base, nj_base, k + ku * BK, M,
-                  acc + bi * RTM * RTN);
-              }
-            }
+            OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane,
+              K_pad, N_pad, M, mi_base, nj_base,
+              k + ku * BK, pidx_base, acc);
           }
         }
-        { SINT bi;
-          UNROLL_FORCE(PB) for (bi = 0; bi < PB; ++bi) {
-            if (pidx_base + bi < NPRIMES) {
-              int rm, rn;
-              UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-                UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-                  OZAKI_CRT_MOD_REDUCE(
-                    acc[bi * RTM * RTN + rm * RTN + rn],
-                    pidx_base + bi,
-                    residues + (rm * RTN + rn) * NPRIMES * XMX_M);
-                }
-              }
-            }
-          }
-        }
+        OZAKI_CRT_REDUCE_BATCH(acc, pidx_base, residues, 0);
       }
 #endif
     }
