@@ -140,6 +140,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         ndecomp = (np < 20) ? np + 1 : 20;
       }
     }
+    else if (1 == kind) {
+      /* cutoff = 2*(ndecomp-1) - oztrim must stay >= 0 */
+      const int max_trim = 2 * (ndecomp - 1);
+      if (oztrim > max_trim) oztrim = max_trim;
+    }
   }
   if (2 == kind && 20 < ndecomp) ndecomp = 20;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR;
