@@ -479,18 +479,19 @@ kernel void gemm_crt_fused(
   uint vg_[NPRIMES];
   SINT pidx;
 
-  /* Per-prime residue accumulators in SLM (private slice per sub-group).
-   * Frees ~160 GRF so the GEMM K-loop can run at full throughput.
-   * Layout: slm_res[sg_id][(rm*RTN+rn) * NPRIMES * XMX_M + pidx*XMX_M + m] */
+  /* Per-prime residue accumulators (private, per work-item).
+   * Each SIMD lane accumulates a different output column, so this
+   * cannot be shared across lanes in SLM without a lane dimension —
+   * but NTM*NTN*SG*RES_STRIDE exceeds SLM capacity.  Private lets
+   * the compiler spill to scratch with liveness-aware scheduling
+   * (residues are cold during the DPAS K-loop, hot during reduce/store). */
 #define RES_STRIDE (RTM * RTN * NPRIMES * XMX_M)
-  local uint slm_res[NTM * NTN][RES_STRIDE];
-  local uint* residues = slm_res[sg_id];
+  uint residues[RES_STRIDE];
 
   { int ri;
-    for (ri = sg_lid; ri < RES_STRIDE; ri += SG) {
+    for (ri = 0; ri < RES_STRIDE; ++ri) {
       residues[ri] = 0;
     }
-    barrier(CLK_LOCAL_MEM_FENCE);
   }
 
   /* Loop over all primes */
