@@ -40,6 +40,11 @@
 # define RTN 1
 #endif
 
+/* Accumulator strategy: 1 = individual scalar variables, 0 = int8 array (default). */
+#if !defined(OZAKI_SCALAR_ACC)
+# define OZAKI_SCALAR_ACC 0
+#endif
+
 /* DPAS repeat count: 8 (default) or 4 (split for scheduling). */
 #if !defined(RC)
 # define RC 8
@@ -137,10 +142,98 @@
   } while (0)
 #endif
 
+#if OZAKI_SCALAR_ACC
+/* Flat DPAS compute: preprocessor-expanded, no loops, no runtime indexing.
+ * Each RTM x RTN specialization directly references accumulator scalars
+ * P##0, P##1, ... via token pasting — LLVM sees plain variables from the
+ * start, so SROA keeps them in SSA registers throughout the K-loop.
+ * A and B are ushort8[] and uint8[] arrays (short-lived, easily SROA'd). */
+#if RTM == 1 && RTN == 1
+#define OZAKI_COMPUTE_DIRECT_(A, B, P) \
+  OZAKI_DPAS_ONE_((A)[0], (B)[0], P##0)
+#elif RTM == 1 && RTN == 2
+#define OZAKI_COMPUTE_DIRECT_(A, B, P) \
+  OZAKI_DPAS_ONE_((A)[0], (B)[0], P##0); \
+  OZAKI_DPAS_ONE_((A)[0], (B)[1], P##1)
+#elif RTM == 2 && RTN == 1
+#define OZAKI_COMPUTE_DIRECT_(A, B, P) \
+  OZAKI_DPAS_ONE_((A)[0], (B)[0], P##0); \
+  OZAKI_DPAS_ONE_((A)[1], (B)[0], P##1)
+#elif RTM == 2 && RTN == 2
+#define OZAKI_COMPUTE_DIRECT_(A, B, P) \
+  OZAKI_DPAS_ONE_((A)[0], (B)[0], P##0); \
+  OZAKI_DPAS_ONE_((A)[0], (B)[1], P##1); \
+  OZAKI_DPAS_ONE_((A)[1], (B)[0], P##2); \
+  OZAKI_DPAS_ONE_((A)[1], (B)[1], P##3)
+#elif RTM == 4 && RTN == 1
+#define OZAKI_COMPUTE_DIRECT_(A, B, P) \
+  OZAKI_DPAS_ONE_((A)[0], (B)[0], P##0); \
+  OZAKI_DPAS_ONE_((A)[1], (B)[0], P##1); \
+  OZAKI_DPAS_ONE_((A)[2], (B)[0], P##2); \
+  OZAKI_DPAS_ONE_((A)[3], (B)[0], P##3)
+#elif RTM == 4 && RTN == 2
+#define OZAKI_COMPUTE_DIRECT_(A, B, P) \
+  OZAKI_DPAS_ONE_((A)[0], (B)[0], P##0); \
+  OZAKI_DPAS_ONE_((A)[0], (B)[1], P##1); \
+  OZAKI_DPAS_ONE_((A)[1], (B)[0], P##2); \
+  OZAKI_DPAS_ONE_((A)[1], (B)[1], P##3); \
+  OZAKI_DPAS_ONE_((A)[2], (B)[0], P##4); \
+  OZAKI_DPAS_ONE_((A)[2], (B)[1], P##5); \
+  OZAKI_DPAS_ONE_((A)[3], (B)[0], P##6); \
+  OZAKI_DPAS_ONE_((A)[3], (B)[1], P##7)
+#elif RTM == 4 && RTN == 4
+#define OZAKI_COMPUTE_DIRECT_(A, B, P) \
+  OZAKI_DPAS_ONE_((A)[0], (B)[0], P##0);  \
+  OZAKI_DPAS_ONE_((A)[0], (B)[1], P##1);  \
+  OZAKI_DPAS_ONE_((A)[0], (B)[2], P##2);  \
+  OZAKI_DPAS_ONE_((A)[0], (B)[3], P##3);  \
+  OZAKI_DPAS_ONE_((A)[1], (B)[0], P##4);  \
+  OZAKI_DPAS_ONE_((A)[1], (B)[1], P##5);  \
+  OZAKI_DPAS_ONE_((A)[1], (B)[2], P##6);  \
+  OZAKI_DPAS_ONE_((A)[1], (B)[3], P##7);  \
+  OZAKI_DPAS_ONE_((A)[2], (B)[0], P##8);  \
+  OZAKI_DPAS_ONE_((A)[2], (B)[1], P##9);  \
+  OZAKI_DPAS_ONE_((A)[2], (B)[2], P##10); \
+  OZAKI_DPAS_ONE_((A)[2], (B)[3], P##11); \
+  OZAKI_DPAS_ONE_((A)[3], (B)[0], P##12); \
+  OZAKI_DPAS_ONE_((A)[3], (B)[1], P##13); \
+  OZAKI_DPAS_ONE_((A)[3], (B)[2], P##14); \
+  OZAKI_DPAS_ONE_((A)[3], (B)[3], P##15)
+#endif /* OZAKI_SCALAR_ACC — OZAKI_COMPUTE_DIRECT_ */
+#endif /* OZAKI_SCALAR_ACC */
+
 /* Tiled DPAS: RTM x RTN sub-tiles per sub-group.
  * Loads RTM A-strips and RTN B-strips, then issues RTM*RTN DPAS.
- * ACC is an int8 array of size RTM*RTN, indexed [rm * RTN + rn]. */
+ * Scalar path: OZAKI_COMPUTE_DIRECT_ pastes ACC##0, ACC##1, ...
+ * Array path: loop over ACC##_arr_[rm*RTN+rn]. */
+#if OZAKI_SCALAR_ACC
 #define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  do { \
+    ushort8 a_rt_[RTM]; \
+    uint8 b_rt_[RTN]; \
+    int rm_t_, rn_t_; \
+    UNROLL_FORCE(RTM) for (rm_t_ = 0; rm_t_ < RTM; ++rm_t_) { \
+      intel_sub_group_2d_block_read_8b_8r32x1c( \
+          (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+          (int2)((KOFF), (MI) + rm_t_ * XMX_M), \
+          (private ushort*)&a_rt_[rm_t_]); \
+    } \
+    UNROLL_FORCE(RTN) for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) { \
+      intel_sub_group_2d_block_read_transform_8b_32r16x1c( \
+          (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+          (int2)((NJ) + rn_t_ * XMX_N, (KOFF)), \
+          (private uint*)&b_rt_[rn_t_]); \
+    } \
+    OZAKI_COMPUTE_DIRECT_(a_rt_, b_rt_, ACC); \
+  } while (0)
+#else
+#define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  OZAKI_DPAS_TILED_ARR(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC)
+#endif
+
+/* Array-based DPAS tiled: ACC is an int8 array indexed [rm*RTN+rn].
+ * Use for kernels where accumulators cannot be individual scalars. */
+#define OZAKI_DPAS_TILED_ARR(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
     ushort8 a_rt_[RTM]; \
     uint8 b_rt_[RTN]; \
@@ -185,6 +278,10 @@
     } \
   } while (0)
 
+#if OZAKI_SCALAR_ACC
+#define OZAKI_COMPUTE_TILED(A_BUF, B_BUF, ACC) \
+  OZAKI_COMPUTE_DIRECT_(A_BUF, B_BUF, ACC)
+#else
 #define OZAKI_COMPUTE_TILED(A_BUF, B_BUF, ACC) \
   do { \
     int rc_m_, rc_n_; \
@@ -195,6 +292,7 @@
       } \
     } \
   } while (0)
+#endif
 
 /* Tiled prefetch: prefetch next K-step for all RTM A and RTN B tiles. */
 #define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ) \
@@ -237,10 +335,106 @@
       for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) { \
         OZAKI_DPAS(AS, BS, K_PAD, N_PAD, \
                    (MI) + rm_t_ * XMX_M, (NJ) + rn_t_ * XMX_N, \
+                   KOFF, M_HT, OZAKI_ACC_GET(ACC, rm_t_ * RTN + rn_t_)); \
+      } \
+    } \
+  } while (0)
+
+/* Scalar array-based DPAS_TILED: ACC is an int8 array. */
+#define OZAKI_DPAS_TILED_ARR(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  do { \
+    int rm_t_, rn_t_; \
+    for (rm_t_ = 0; rm_t_ < RTM; ++rm_t_) { \
+      for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) { \
+        OZAKI_DPAS(AS, BS, K_PAD, N_PAD, \
+                   (MI) + rm_t_ * XMX_M, (NJ) + rn_t_ * XMX_N, \
                    KOFF, M_HT, (ACC)[rm_t_ * RTN + rn_t_]); \
       } \
     } \
   } while (0)
+#endif
+
+
+#if OZAKI_SCALAR_ACC
+/* Register-resident accumulator helpers (tiling-aware).
+ * Only RTM*RTN scalars are declared/touched to minimize register pressure. */
+#if RTM * RTN <= 2
+#define OZAKI_ACC_DECL(P) \
+  int8 P##0 = (int8)(0), P##1 = (int8)(0)
+#define OZAKI_ACC_ZERO(P) do { \
+  (P##0)=(int8)(0); (P##1)=(int8)(0); \
+} while (0)
+#define OZAKI_ACC_ADD(D, S) do { \
+  (D##0)+=(S##0); (D##1)+=(S##1); \
+} while (0)
+#define OZAKI_ACC_GET(P, I) \
+  (*((I)==0?&(P##0):&(P##1)))
+#elif RTM * RTN <= 4
+#define OZAKI_ACC_DECL(P) \
+  int8 P##0 = (int8)(0), P##1 = (int8)(0), \
+       P##2 = (int8)(0), P##3 = (int8)(0)
+#define OZAKI_ACC_ZERO(P) do { \
+  (P##0)=(int8)(0); (P##1)=(int8)(0); \
+  (P##2)=(int8)(0); (P##3)=(int8)(0); \
+} while (0)
+#define OZAKI_ACC_ADD(D, S) do { \
+  (D##0)+=(S##0); (D##1)+=(S##1); \
+  (D##2)+=(S##2); (D##3)+=(S##3); \
+} while (0)
+#define OZAKI_ACC_GET(P, I) \
+  (*((I)==0?&(P##0):(I)==1?&(P##1):(I)==2?&(P##2):&(P##3)))
+#else
+#define OZAKI_ACC_DECL(P) \
+  int8 P##0 = (int8)(0), P##1 = (int8)(0), \
+       P##2 = (int8)(0), P##3 = (int8)(0), \
+       P##4 = (int8)(0), P##5 = (int8)(0), \
+       P##6 = (int8)(0), P##7 = (int8)(0)
+#define OZAKI_ACC_ZERO(P) do { \
+  (P##0)=(int8)(0); (P##1)=(int8)(0); \
+  (P##2)=(int8)(0); (P##3)=(int8)(0); \
+  (P##4)=(int8)(0); (P##5)=(int8)(0); \
+  (P##6)=(int8)(0); (P##7)=(int8)(0); \
+} while (0)
+#define OZAKI_ACC_ADD(D, S) do { \
+  (D##0)+=(S##0); (D##1)+=(S##1); \
+  (D##2)+=(S##2); (D##3)+=(S##3); \
+  (D##4)+=(S##4); (D##5)+=(S##5); \
+  (D##6)+=(S##6); (D##7)+=(S##7); \
+} while (0)
+#define OZAKI_ACC_GET(P, I) \
+  (*((I)==0?&(P##0):(I)==1?&(P##1):(I)==2?&(P##2):(I)==3?&(P##3): \
+     (I)==4?&(P##4):(I)==5?&(P##5):(I)==6?&(P##6):&(P##7)))
+#endif
+/* Pack scalar accumulators into an int8 array (for indexed access
+ * outside the DPAS hot loop). Avoids the ternary chain of ACC_GET. */
+#if RTM * RTN <= 2
+#define OZAKI_ACC_PACK(P, ARR) do { \
+  (ARR)[0] = P##0; (ARR)[1] = P##1; \
+} while (0)
+#elif RTM * RTN <= 4
+#define OZAKI_ACC_PACK(P, ARR) do { \
+  (ARR)[0] = P##0; (ARR)[1] = P##1; \
+  (ARR)[2] = P##2; (ARR)[3] = P##3; \
+} while (0)
+#else
+#define OZAKI_ACC_PACK(P, ARR) do { \
+  (ARR)[0] = P##0; (ARR)[1] = P##1; \
+  (ARR)[2] = P##2; (ARR)[3] = P##3; \
+  (ARR)[4] = P##4; (ARR)[5] = P##5; \
+  (ARR)[6] = P##6; (ARR)[7] = P##7; \
+} while (0)
+#endif
+#else /* !OZAKI_SCALAR_ACC — array-based accumulators */
+#define OZAKI_ACC_DECL(P) \
+  int8 P##_arr_[RTM * RTN]; \
+  do { int zi_; for (zi_ = 0; zi_ < RTM * RTN; ++zi_) P##_arr_[zi_] = (int8)(0); } while (0)
+#define OZAKI_ACC_ZERO(P) do { \
+  int zi_; for (zi_ = 0; zi_ < RTM * RTN; ++zi_) (P##_arr_)[zi_] = (int8)(0); \
+} while (0)
+#define OZAKI_ACC_ADD(D, S) do { \
+  int zi_; for (zi_ = 0; zi_ < RTM * RTN; ++zi_) (D##_arr_)[zi_] += (S##_arr_)[zi_]; \
+} while (0)
+#define OZAKI_ACC_GET(P, I) ((P##_arr_)[I])
 #endif
 
 

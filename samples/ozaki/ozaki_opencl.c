@@ -234,6 +234,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     { int pb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
       ctx->pb = pb;
     }
+    env = getenv("OZAKI_SCALAR_ACC");
+    { int scalar_acc = (NULL != env) ? atoi(env) : 0;
+      ctx->scalar_acc = (0 != scalar_acc);
+    }
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
         rtm = (0 != biggrf) ? 4 : 2;
@@ -277,6 +281,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         goff += (size_t)LIBXS_SNPRINTF(
           build_params + goff, sizeof(build_params) - goff,
           " -DUSE_XMX=1");
+      }
+      if (0 != ctx->scalar_acc) {
+        goff += (size_t)LIBXS_SNPRINTF(
+          build_params + goff, sizeof(build_params) - goff,
+          " -DOZAKI_SCALAR_ACC=1");
       }
       (void)goff;
       if (0 > verbosity || 2 < verbosity) {

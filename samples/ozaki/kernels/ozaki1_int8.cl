@@ -421,6 +421,20 @@ kernel void gemm_fused(
       CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 
       /* (sa, sb) K-loop — unrolled by KU */
+#if OZAKI_SCALAR_ACC
+      /* Scalar accumulators for DPAS, packed to array for scaling. */
+      OZAKI_ACC_DECL(c_acc_);
+      OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc_);
+
+      if (0 == sq && sa != sb) {
+        OZAKI_ACC_DECL(c_mir_);
+        OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir_);
+        OZAKI_ACC_ADD(c_acc_, c_mir_);
+      }
+
+      { int8 c_acc[RTM * RTN];
+        OZAKI_ACC_PACK(c_acc_, c_acc);
+#else
       int8 c_acc[RTM * RTN];
       { int ri;
         UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
@@ -445,6 +459,9 @@ kernel void gemm_fused(
         }
       }
 
+      {
+#endif
+
       /* Scale and accumulate into register C (cached exponents) */
       { int rm, rn;
         UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
@@ -458,6 +475,7 @@ kernel void gemm_fused(
                              alpha, low_bit_sa, low_bit_sb);
           }
         }
+      }
       }
     }
   }
