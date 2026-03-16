@@ -139,7 +139,78 @@
 
 /* Tiled DPAS: RTM x RTN sub-tiles per sub-group.
  * Loads RTM A-strips and RTN B-strips, then issues RTM*RTN DPAS.
- * ACC is an int8 array of size RTM*RTN, indexed [rm * RTN + rn]. */
+ * ACC is an int8 array of size RTM*RTN, indexed [rm * RTN + rn].
+ *
+ * Coalesced-load specializations use wider 2D block reads to reduce
+ * the number of load messages per K-step (matching TinyTC codegen):
+ *   A: _8b_{RTM*8}r32x1c loads all RTM subtiles in one message.
+ *   B: _transform_8b_32r16x{RTN}c loads all RTN subtiles in one message.
+ * Fallback: per-subtile loops (generic for any RTM/RTN). */
+#if (RTM == 4) && (RTN == 2)
+#define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  do { \
+    ushort8 a_rt_[4]; \
+    uint8 b_rt_[2]; \
+    intel_sub_group_2d_block_read_8b_32r32x1c( \
+        (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+        (int2)((KOFF), (MI)), (private ushort*)a_rt_); \
+    intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
+        (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+        (int2)((NJ), (KOFF)), (private uint*)b_rt_); \
+    OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[0], (ACC)[0]); \
+    OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[1], (ACC)[1]); \
+    OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[0], (ACC)[2]); \
+    OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[1], (ACC)[3]); \
+    OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[0], (ACC)[4]); \
+    OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[1], (ACC)[5]); \
+    OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[0], (ACC)[6]); \
+    OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[1], (ACC)[7]); \
+  } while (0)
+#elif (RTM == 4) && (RTN == 4)
+#define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  do { \
+    ushort8 a_rt_[4]; \
+    uint8 b_rt_[4]; \
+    intel_sub_group_2d_block_read_8b_32r32x1c( \
+        (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+        (int2)((KOFF), (MI)), (private ushort*)a_rt_); \
+    intel_sub_group_2d_block_read_transform_8b_32r16x4c( \
+        (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+        (int2)((NJ), (KOFF)), (private uint*)b_rt_); \
+    OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[0], (ACC)[0]);  \
+    OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[1], (ACC)[1]);  \
+    OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[2], (ACC)[2]);  \
+    OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[3], (ACC)[3]);  \
+    OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[0], (ACC)[4]);  \
+    OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[1], (ACC)[5]);  \
+    OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[2], (ACC)[6]);  \
+    OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[3], (ACC)[7]);  \
+    OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[0], (ACC)[8]);  \
+    OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[1], (ACC)[9]);  \
+    OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[2], (ACC)[10]); \
+    OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[3], (ACC)[11]); \
+    OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[0], (ACC)[12]); \
+    OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[1], (ACC)[13]); \
+    OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[2], (ACC)[14]); \
+    OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[3], (ACC)[15]); \
+  } while (0)
+#elif (RTM == 2) && (RTN == 2)
+#define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+  do { \
+    ushort8 a_rt_[2]; \
+    uint8 b_rt_[2]; \
+    intel_sub_group_2d_block_read_8b_16r32x1c( \
+        (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+        (int2)((KOFF), (MI)), (private ushort*)a_rt_); \
+    intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
+        (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+        (int2)((NJ), (KOFF)), (private uint*)b_rt_); \
+    OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[0], (ACC)[0]); \
+    OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[1], (ACC)[1]); \
+    OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[0], (ACC)[2]); \
+    OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[1], (ACC)[3]); \
+  } while (0)
+#else
 #define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
     ushort8 a_rt_[RTM]; \
@@ -164,25 +235,59 @@
       } \
     } \
   } while (0)
+#endif
 
 /* Split load/compute for software pipelining.
  * OZAKI_LOAD_TILED: load A/B tiles into caller-supplied arrays.
  * OZAKI_COMPUTE_TILED: issue DPAS from pre-loaded tiles. */
-#define OZAKI_LOAD_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, A_BUF, B_BUF) \
+#if (RTM == 4)
+#define OZAKI_LOAD_A_TILED_(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
+  intel_sub_group_2d_block_read_8b_32r32x1c( \
+      (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+      (int2)((KOFF), (MI)), (private ushort*)(A_BUF))
+#elif (RTM == 2)
+#define OZAKI_LOAD_A_TILED_(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
+  intel_sub_group_2d_block_read_8b_16r32x1c( \
+      (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+      (int2)((KOFF), (MI)), (private ushort*)(A_BUF))
+#else
+#define OZAKI_LOAD_A_TILED_(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
   do { \
-    int rl_m_, rl_n_; \
+    int rl_m_; \
     UNROLL_FORCE(RTM) for (rl_m_ = 0; rl_m_ < RTM; ++rl_m_) { \
       intel_sub_group_2d_block_read_8b_8r32x1c( \
           (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
           (int2)((KOFF), (MI) + rl_m_ * XMX_M), \
           (private ushort*)&(A_BUF)[rl_m_]); \
     } \
+  } while (0)
+#endif
+#if (RTN == 4)
+#define OZAKI_LOAD_B_TILED_(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF) \
+  intel_sub_group_2d_block_read_transform_8b_32r16x4c( \
+      (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+      (int2)((NJ), (KOFF)), (private uint*)(B_BUF))
+#elif (RTN == 2)
+#define OZAKI_LOAD_B_TILED_(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF) \
+  intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
+      (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+      (int2)((NJ), (KOFF)), (private uint*)(B_BUF))
+#else
+#define OZAKI_LOAD_B_TILED_(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF) \
+  do { \
+    int rl_n_; \
     UNROLL_FORCE(RTN) for (rl_n_ = 0; rl_n_ < RTN; ++rl_n_) { \
       intel_sub_group_2d_block_read_transform_8b_32r16x1c( \
           (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
           (int2)((NJ) + rl_n_ * XMX_N, (KOFF)), \
           (private uint*)&(B_BUF)[rl_n_]); \
     } \
+  } while (0)
+#endif
+#define OZAKI_LOAD_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, A_BUF, B_BUF) \
+  do { \
+    OZAKI_LOAD_A_TILED_(AS, K_PAD, M_HT, MI, KOFF, A_BUF); \
+    OZAKI_LOAD_B_TILED_(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF); \
   } while (0)
 
 #define OZAKI_COMPUTE_TILED(A_BUF, B_BUF, ACC) \
@@ -196,16 +301,50 @@
     } \
   } while (0)
 
-/* Tiled prefetch: prefetch next K-step for all RTM A and RTN B tiles. */
-#define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ) \
+/* Tiled prefetch: prefetch next K-step for all RTM A and RTN B tiles.
+ * Coalesced variants match the wider loads above. */
+#if (RTM == 4)
+#define OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI) \
+  intel_sub_group_2d_block_prefetch_8b_32r32x1c( \
+      (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+      (int2)((KOFF), (MI)))
+#elif (RTM == 2)
+#define OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI) \
+  intel_sub_group_2d_block_prefetch_8b_16r32x1c( \
+      (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+      (int2)((KOFF), (MI)))
+#else
+#define OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI) \
   do { \
-    int rp_m_, rp_n_; \
+    int rp_m_; \
     UNROLL_FORCE(RTM) for (rp_m_ = 0; rp_m_ < RTM; ++rp_m_) { \
       OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, (MI) + rp_m_ * XMX_M); \
     } \
+  } while (0)
+#endif
+#if (RTN == 4)
+#define OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ) \
+  intel_sub_group_2d_block_prefetch_8b_32r16x4c( \
+      (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+      (int2)((NJ), (KOFF)))
+#elif (RTN == 2)
+#define OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ) \
+  intel_sub_group_2d_block_prefetch_8b_32r16x2c( \
+      (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+      (int2)((NJ), (KOFF)))
+#else
+#define OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ) \
+  do { \
+    int rp_n_; \
     UNROLL_FORCE(RTN) for (rp_n_ = 0; rp_n_ < RTN; ++rp_n_) { \
       OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, (NJ) + rp_n_ * XMX_N); \
     } \
+  } while (0)
+#endif
+#define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ) \
+  do { \
+    OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI); \
+    OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ); \
   } while (0)
 #else
 #define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
