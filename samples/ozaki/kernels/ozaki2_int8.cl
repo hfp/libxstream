@@ -181,7 +181,7 @@
           + (long)((PIDX_BASE) + bi_k_) * (B_PLANE); \
         OZAKI_PREFETCH_TILED(as_k_, bs_k_, K_PAD_, N_PAD_, \
           M_, (KOFF) + BK, MI, NJ); \
-        OZAKI_DPAS_TILED_ARR(as_k_, bs_k_, K_PAD_, N_PAD_, \
+        OZAKI_DPAS_TILED(as_k_, bs_k_, K_PAD_, N_PAD_, \
           MI, NJ, KOFF, M_, (ACC) + bi_k_ * RTM * RTN); \
       } \
     } \
