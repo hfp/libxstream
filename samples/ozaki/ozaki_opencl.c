@@ -278,6 +278,16 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + goff, sizeof(build_params) - goff,
           " -DUSE_XMX=1");
       }
+      if (NULL != getenv("ASM_KLOOP")) {
+        goff += (size_t)LIBXS_SNPRINTF(
+          build_params + goff, sizeof(build_params) - goff,
+          " -DASM_KLOOP");
+      }
+      if (NULL != getenv("NO_OCL_KLOOP")) {
+        goff += (size_t)LIBXS_SNPRINTF(
+          build_params + goff, sizeof(build_params) - goff,
+          " -DNO_OCL_KLOOP");
+      }
       (void)goff;
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);

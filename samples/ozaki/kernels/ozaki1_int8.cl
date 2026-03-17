@@ -70,12 +70,21 @@
 # define BN_B_PAD 64
 #endif
 
-/* Auto-enable inline asm K-loop for tested RTM=4 RTN=2 KU=4 config.
+/* Inline asm K-loop (vISA): opt-in via ASM_KLOOP env var.
  * Uses vISA .decl for zero-copy dpas register allocation, SLM extraction.
- * Disable with -DNO_ASM_KLOOP. */
-#if !defined(NO_ASM_KLOOP) && defined(USE_XMX) && (0 < USE_XMX) \
+ * Only tested with RTM=4 RTN=2 KU=4 RC=8 BK=32. */
+#if defined(ASM_KLOOP) && defined(USE_XMX) && (0 < USE_XMX) \
     && (RTM == 4) && (RTN == 2) && (KU == 4) && (RC == 8) && (BK == 32)
 # define OZAKI_USE_ASM_KLOOP
+#endif
+
+/* OpenCL no-prefetch K-loop: same DPAS builtins as OZAKI_KLOOP but without
+ * prefetch messages.  Default for RTM>=2 RTN>=2 XMX configs when the asm
+ * K-loop is not active.
+ * Suppress with -DNO_OCL_KLOOP to fall back to the prefetch baseline. */
+#if !defined(OZAKI_USE_ASM_KLOOP) && !defined(NO_OCL_KLOOP) \
+    && defined(USE_XMX) && (0 < USE_XMX) && (RTM >= 2) && (RTN >= 2)
+# define OZAKI_USE_OCL_KLOOP
 #endif
 
 
@@ -101,6 +110,26 @@
       (DST)[(long)(s_) * (SS) + (long)(ROW) * (RS) + (COL)] = 0; \
     } \
   } while (0)
+
+/* No-prefetch K-loop: simple DPAS_TILED loop without prefetch messages.
+ * Mirrors the asm K-loop structure but in pure OpenCL C builtins. */
+#if defined(OZAKI_USE_OCL_KLOOP)
+#define OZAKI_KLOOP_OCL(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
+  do { \
+    int k_l_; \
+    for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
+      int ku_l_; \
+      UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) { \
+        OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, \
+                         MI, NJ, k_l_ + ku_l_ * BK, M_, ACC); \
+      } \
+    } \
+    for (; k_l_ < (K_PAD_); k_l_ += BK) { \
+      OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, \
+                       MI, NJ, k_l_, M_, ACC); \
+    } \
+  } while (0)
+#endif
 
 /* Full tiled K-loop: prefetch + KU-unrolled DPAS, then remainder.
  * AS, BS: slice pointers for this pair.
@@ -578,6 +607,8 @@ kernel void gemm_fused(
 #if defined(OZAKI_USE_ASM_KLOOP)
       OZAKI_KLOOP_ASM("P", as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base,
                       c_acc, my_slm_);
+#elif defined(OZAKI_USE_OCL_KLOOP)
+      OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
 #else
       OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
 #endif
@@ -593,6 +624,8 @@ kernel void gemm_fused(
 #if defined(OZAKI_USE_ASM_KLOOP)
         OZAKI_KLOOP_ASM("M", as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base,
                         c_mir, my_slm_);
+#elif defined(OZAKI_USE_OCL_KLOOP)
+        OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
 #else
         OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
 #endif
