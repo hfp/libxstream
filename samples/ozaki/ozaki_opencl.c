@@ -223,7 +223,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
      *  128-GRF: RTM=2 RTN=2 (4 accumulators)
      *  Other vendors:  RTM=1 RTN=1 (conservative) */
     env = getenv("OZAKI_KU");
-    { int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : 4;
+    { int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : 2;
       ctx->ku = ku;
     }
     env = getenv("OZAKI_RC");
@@ -289,10 +289,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           " -DNO_OCL_KLOOP");
       }
       env = getenv("OZAKI_BOUNDS");
-      if (NULL != env && '0' == *env) {
+      if (NULL != env && '1' == *env) {
         goff += (size_t)LIBXS_SNPRINTF(
           build_params + goff, sizeof(build_params) - goff,
-          " -DOZAKI_BOUNDS=0");
+          " -DOZAKI_BOUNDS=1");
       }
       (void)goff;
       if (0 > verbosity || 2 < verbosity) {
@@ -651,6 +651,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
     void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
+    void *d_scratch = NULL;
     void *h_as = NULL, *h_expa = NULL, *h_bs = NULL, *h_expb = NULL;
     int first_pair;
     int n_profiled = 0;
@@ -705,6 +706,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
       result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
+    }
+    if (EXIT_SUCCESS == result) {
+      const size_t scratch_size = (size_t)nblk_gm * nblk_gn
+        * ntm * ntn * ctx->rtm * ctx->rtn * ctx->sg * 8 * sizeof(cl_int);
+      result = OZAKI_DEV_ALLOC(&d_scratch, scratch_size);
     }
 
     /* H2D transfers (skip cached and host-preprocessed sides) */
@@ -916,6 +922,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &cutoff));
         CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &first_pair));
         CL_CHECK(result, clSetKernelArg(ctx->kern_fused, i++, sizeof(int), &sq));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_fused, i++, d_scratch));
       }
       CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_fused, 2,
           NULL, global_g, local_g, 0, NULL,
@@ -947,6 +954,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
 
     OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
+    OZAKI_DEV_FREE(d_scratch);
     if (d_as != ctx->cache.a.d_slices) OZAKI_DEV_FREE(d_as);
     if (d_bs != ctx->cache.b.d_slices) OZAKI_DEV_FREE(d_bs);
     if (d_expa_g != ctx->cache.a.d_exp) OZAKI_DEV_FREE(d_expa_g);

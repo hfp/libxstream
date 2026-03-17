@@ -87,13 +87,14 @@
 # define OZAKI_USE_OCL_KLOOP
 #endif
 
-/* Set -DOZAKI_BOUNDS=0 to skip per-element M/N guards
+/* Bounds checks are OFF by default for performance.
+ * Set -DOZAKI_BOUNDS=1 to enable per-element M/N guards
  * in gemm_fused (exponent caching, C load/store, scaling).
- * Requires host-side C buffer padded to tile boundaries. */
-#if defined(OZAKI_BOUNDS) && !(OZAKI_BOUNDS)
-# define OZAKI_IN_BOUNDS(R, M, COL, N) (1)
-#else
+ * OFF requires host-side C buffer padded to tile boundaries. */
+#if defined(OZAKI_BOUNDS) && (OZAKI_BOUNDS)
 # define OZAKI_IN_BOUNDS(R, M, COL, N) ((R) < (M) && (COL) < (N))
+#else
+# define OZAKI_IN_BOUNDS(R, M, COL, N) (1)
 #endif
 
 
@@ -512,7 +513,8 @@ kernel void gemm_fused(
   int nslices,                              /* total number of slices */
   int cutoff,                               /* sa + sb <= cutoff */
   int first_pair,                           /* 1 if beta == 0 (overwrite C) */
-  int sq)                                   /* 1: full square, 0: triangle+mirror */
+  int sq,                                   /* 1: full square, 0: triangle+mirror */
+  global int* restrict acc_scratch)         /* [nwg * NTM*NTN * RTM*RTN * SG*8] */
 {
   const int ib_idx  = (int)get_group_id(0);
   const int jb_idx  = (int)get_group_id(1);
@@ -529,6 +531,10 @@ kernel void gemm_fused(
   local int acc_slm_[NTM * NTN * RTM * RTN * 128];
   local int* my_slm_ = acc_slm_ + sg_id * (RTM * RTN * 128);
 #endif
+  { const long wg_lin = (long)ib_idx * get_num_groups(1) + jb_idx;
+    const long ntiles = (long)(NTM * NTN) * (RTM * RTN) * (SG * 8);
+    acc_scratch += wg_lin * ntiles + sg_id * (RTM * RTN * SG * 8);
+  }
 
   /* Pre-cache exponents in registers: avoid re-reading from global per pair.
    * ea_cache[rm][m] = expa[mi_base + rm*XMX_M + m]
@@ -551,6 +557,25 @@ kernel void gemm_fused(
     }
   }
 
+#if defined(OZAKI_USE_OCL_KLOOP)
+  /* OCL path: c_fp lives in global C between pairs, not in registers.
+   * Pre-zero C tile if first_pair so the first load returns zeros. */
+  if (0 != first_pair) {
+    int rm, rn;
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+        const int col = nj_base + rn * XMX_N + sg_lid;
+        int m_;
+        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+          const int r_ = mi_base + rm * XMX_M + m_;
+          if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
+            c[(long)col * ldc + r_] = ZERO;
+          }
+        }
+      }
+    }
+  }
+#else
   /* Register-resident C accumulators: c_fp[rm*RTN*XMX_M + rn*XMX_M + m] */
   real_t c_fp[RTM * RTN * XMX_M];
   { int ci;
@@ -576,6 +601,7 @@ kernel void gemm_fused(
       }
     }
   }
+#endif
 
   for (sa = 0; sa < (SINT)nslices; ++sa) {
     const int high_sa = MANT_BITS - (7 * (int)sa);
@@ -607,47 +633,103 @@ kernel void gemm_fused(
       { int8 c_acc[RTM * RTN];
         OZAKI_ACC_PACK(c_acc_, c_acc);
 #else
-      int8 c_acc[RTM * RTN];
-      { int ri;
-        UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-          c_acc[ri] = (int8)(0);
-        }
-      }
-#if defined(OZAKI_USE_ASM_KLOOP)
-      OZAKI_KLOOP_ASM("P", as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base,
-                      c_acc, my_slm_);
-#elif defined(OZAKI_USE_OCL_KLOOP)
-      OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-#else
-      OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-#endif
-
-      /* For off-diagonal triangle pairs, also compute (sb, sa) */
-      if (0 == sq && sa != sb) {
-        int8 c_mir[RTM * RTN];
+#if defined(OZAKI_USE_OCL_KLOOP)
+      /* Global-scratch phase split: full K-loop, store to scratch,
+       * then read back tile-by-tile for scaling (c_acc dead). */
+      { int8 c_acc[RTM * RTN];
         { int ri;
           UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-            c_mir[ri] = (int8)(0);
+            c_acc[ri] = (int8)(0);
           }
         }
-#if defined(OZAKI_USE_ASM_KLOOP)
-        OZAKI_KLOOP_ASM("M", as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base,
-                        c_mir, my_slm_);
-#elif defined(OZAKI_USE_OCL_KLOOP)
-        OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
-#else
-        OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
-#endif
+        OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
+        if (0 == sq && sa != sb) {
+          int8 c_mir[RTM * RTN];
+          { int ri;
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+              c_mir[ri] = (int8)(0);
+            }
+          }
+          OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
+          { int ri;
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+              c_acc[ri] = c_acc[ri] + c_mir[ri];
+            }
+          }
+        }
         { int ri;
           UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-            c_acc[ri] = c_acc[ri] + c_mir[ri];
+            intel_sub_group_block_write8(
+              (global uint*)(acc_scratch + ri * (SG * 8)), as_uint8(c_acc[ri]));
           }
         }
       }
-
-      {
+      /* Scale phase: load/scale/store one (rm,rn) tile at a time.
+       * Only XMX_M fp64 values (16 GRFs) + 1 int8 tile (8 GRFs) live. */
+      { int rm, rn;
+        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+            const int idx = rm * RTN + rn;
+            const int col = nj_base + rn * XMX_N + sg_lid;
+            real_t c_tile[XMX_M];
+            int m_;
+            UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+              const int r_ = mi_base + rm * XMX_M + m_;
+              c_tile[m_] = OZAKI_IN_BOUNDS(r_, M, col, N)
+                ? c[(long)col * ldc + r_] : ZERO;
+            }
+            { const int8 tile = as_int8(intel_sub_group_block_read8(
+                (const global uint*)(acc_scratch + idx * (SG * 8))));
+              OZAKI_GEMM_ACCUM_CACHED(tile,
+                               ea_cache + rm * XMX_M, eb_cache[rn],
+                               c_tile,
+                               M, N, mi_base + rm * XMX_M, col,
+                               alpha, low_bit_sa, low_bit_sb);
+            }
+            UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+              const int r_ = mi_base + rm * XMX_M + m_;
+              if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
+                c[(long)col * ldc + r_] = c_tile[m_];
+              }
+            }
+          }
+        }
+      }
+#else
+      { int8 c_acc[RTM * RTN];
+        { int ri;
+          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+            c_acc[ri] = (int8)(0);
+          }
+        }
+#if defined(OZAKI_USE_ASM_KLOOP)
+        OZAKI_KLOOP_ASM("P", as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base,
+                        c_acc, my_slm_);
+#else
+        OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
 #endif
+        if (0 == sq && sa != sb) {
+          int8 c_mir[RTM * RTN];
+          { int ri;
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+              c_mir[ri] = (int8)(0);
+            }
+          }
+#if defined(OZAKI_USE_ASM_KLOOP)
+          OZAKI_KLOOP_ASM("M", as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base,
+                          c_mir, my_slm_);
+#else
+          OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
+#endif
+          { int ri;
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+              c_acc[ri] = c_acc[ri] + c_mir[ri];
+            }
+          }
+        }
+#endif /* OZAKI_USE_OCL_KLOOP */
 
+#if !defined(OZAKI_USE_OCL_KLOOP)
       /* Scale and accumulate into register C (cached exponents) */
       { int rm, rn;
         UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
@@ -663,9 +745,12 @@ kernel void gemm_fused(
         }
       }
       }
+#endif /* !OZAKI_USE_OCL_KLOOP */
+#endif /* OZAKI_SCALAR_ACC */
     }
   }
 
+#if !defined(OZAKI_USE_OCL_KLOOP)
   /* Final write: register C -> global C */
   { int rm, rn;
     UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
@@ -682,6 +767,7 @@ kernel void gemm_fused(
       }
     }
   }
+#endif
 }
 
 
