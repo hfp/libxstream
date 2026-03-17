@@ -530,11 +530,16 @@ kernel void gemm_fused(
 #if defined(OZAKI_USE_ASM_KLOOP)
   local int acc_slm_[NTM * NTN * RTM * RTN * 128];
   local int* my_slm_ = acc_slm_ + sg_id * (RTM * RTN * 128);
+#elif defined(OZAKI_USE_OCL_KLOOP)
+  local int acc_slm_[NTM * NTN * 128];
+  local int* my_slm_ = acc_slm_ + sg_id * 128;
 #endif
+#if !defined(OZAKI_USE_OCL_KLOOP)
   { const long wg_lin = (long)ib_idx * get_num_groups(1) + jb_idx;
     const long ntiles = (long)(NTM * NTN) * (RTM * RTN) * (SG * 8);
     acc_scratch += wg_lin * ntiles + sg_id * (RTM * RTN * SG * 8);
   }
+#endif
 
   /* Pre-cache exponents in registers: avoid re-reading from global per pair.
    * ea_cache[rm][m] = expa[mi_base + rm*XMX_M + m]
@@ -634,8 +639,9 @@ kernel void gemm_fused(
         OZAKI_ACC_PACK(c_acc_, c_acc);
 #else
 #if defined(OZAKI_USE_OCL_KLOOP)
-      /* Global-scratch phase split: full K-loop, store to scratch,
-       * then read back tile-by-tile for scaling (c_acc dead). */
+      /* SLM phase split: full K-loop, then interleaved store-1/scale-1.
+       * Only 1 SLM slot per SG (128 ints = 512 B) is reused per tile,
+       * reducing SLM from 128 KB to 16 KB per WG. */
       { int8 c_acc[RTM * RTN];
         { int ri;
           UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
@@ -657,39 +663,33 @@ kernel void gemm_fused(
             }
           }
         }
-        { int ri;
-          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-            intel_sub_group_block_write8(
-              (global uint*)(acc_scratch + ri * (SG * 8)), as_uint8(c_acc[ri]));
-          }
-        }
-      }
-      /* Scale phase: load/scale/store one (rm,rn) tile at a time.
-       * Only XMX_M fp64 values (16 GRFs) + 1 int8 tile (8 GRFs) live. */
-      { int rm, rn;
-        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-            const int idx = rm * RTN + rn;
-            const int col = nj_base + rn * XMX_N + sg_lid;
-            real_t c_tile[XMX_M];
-            int m_;
-            UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-              const int r_ = mi_base + rm * XMX_M + m_;
-              c_tile[m_] = OZAKI_IN_BOUNDS(r_, M, col, N)
-                ? c[(long)col * ldc + r_] : ZERO;
-            }
-            { const int8 tile = as_int8(intel_sub_group_block_read8(
-                (const global uint*)(acc_scratch + idx * (SG * 8))));
-              OZAKI_GEMM_ACCUM_CACHED(tile,
-                               ea_cache + rm * XMX_M, eb_cache[rn],
-                               c_tile,
-                               M, N, mi_base + rm * XMX_M, col,
-                               alpha, low_bit_sa, low_bit_sb);
-            }
-            UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-              const int r_ = mi_base + rm * XMX_M + m_;
-              if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
-                c[(long)col * ldc + r_] = c_tile[m_];
+        { int rm, rn;
+          UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+            UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+              const int idx = rm * RTN + rn;
+              const int col = nj_base + rn * XMX_N + sg_lid;
+              real_t c_tile[XMX_M];
+              int m_;
+              intel_sub_group_block_write8(
+                (local uint*)my_slm_, as_uint8(c_acc[idx]));
+              UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+                const int r_ = mi_base + rm * XMX_M + m_;
+                c_tile[m_] = OZAKI_IN_BOUNDS(r_, M, col, N)
+                  ? c[(long)col * ldc + r_] : ZERO;
+              }
+              { const int8 tile = as_int8(intel_sub_group_block_read8(
+                  (const local uint*)my_slm_));
+                OZAKI_GEMM_ACCUM_CACHED(tile,
+                                 ea_cache + rm * XMX_M, eb_cache[rn],
+                                 c_tile,
+                                 M, N, mi_base + rm * XMX_M, col,
+                                 alpha, low_bit_sa, low_bit_sb);
+              }
+              UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+                const int r_ = mi_base + rm * XMX_M + m_;
+                if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
+                  c[(long)col * ldc + r_] = c_tile[m_];
+                }
               }
             }
           }
