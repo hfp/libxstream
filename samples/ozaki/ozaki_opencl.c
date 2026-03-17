@@ -288,6 +288,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + goff, sizeof(build_params) - goff,
           " -DNO_OCL_KLOOP");
       }
+      env = getenv("OZAKI_BOUNDS");
+      if (NULL != env && '0' == *env) {
+        goff += (size_t)LIBXS_SNPRINTF(
+          build_params + goff, sizeof(build_params) - goff,
+          " -DOZAKI_BOUNDS=0");
+      }
       (void)goff;
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);

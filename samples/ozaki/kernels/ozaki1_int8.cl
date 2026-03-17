@@ -87,6 +87,15 @@
 # define OZAKI_USE_OCL_KLOOP
 #endif
 
+/* Set -DOZAKI_BOUNDS=0 to skip per-element M/N guards
+ * in gemm_fused (exponent caching, C load/store, scaling).
+ * Requires host-side C buffer padded to tile boundaries. */
+#if defined(OZAKI_BOUNDS) && !(OZAKI_BOUNDS)
+# define OZAKI_IN_BOUNDS(R, M, COL, N) (1)
+#else
+# define OZAKI_IN_BOUNDS(R, M, COL, N) ((R) < (M) && (COL) < (N))
+#endif
+
 
 /* Composable macros (DBM-style factoring).
  * Each is a do{...}while(0) block for use in kernel functions. */
@@ -337,7 +346,7 @@
     du_c_.v_ = (DOT); \
     UNROLL_FORCE(XMX_M) for (m_c_ = 0; m_c_ < XMX_M; ++m_c_) { \
       const int rm_c_ = (MI) + m_c_; \
-      if (rm_c_ < (M) && (COL) < (N)) { \
+      if (OZAKI_IN_BOUNDS(rm_c_, (M), (COL), (N))) { \
         const int sh_c_ = (int)(EA_CACHE)[m_c_] + (int)(EB_CACHE) \
                          - (2 * BIAS_PLUS_MANT) + (LOW_SA) + (LOW_SB); \
         const real_t sc_c_ = (ALPHA) * EXP2I(sh_c_); \
@@ -531,14 +540,14 @@ kernel void gemm_fused(
       int m_;
       UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
         const int r_ = mi_base + rm * XMX_M + m_;
-        ea_cache[rm * XMX_M + m_] = (r_ < M) ? expa[r_] : 0;
+        ea_cache[rm * XMX_M + m_] = OZAKI_IN_BOUNDS(r_, M, 0, 1) ? expa[r_] : 0;
       }
     }
   }
   { int rn;
     UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
       const int col = nj_base + rn * XMX_N + sg_lid;
-      eb_cache[rn] = (col < N) ? expb[col] : 0;
+      eb_cache[rn] = OZAKI_IN_BOUNDS(0, 1, col, N) ? expb[col] : 0;
     }
   }
 
@@ -558,7 +567,7 @@ kernel void gemm_fused(
           int m_;
           UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
             const int r_ = mi_base + rm * XMX_M + m_;
-            if (r_ < M && col < N) {
+            if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
               c_fp[(rm * RTN + rn) * XMX_M + m_] =
                 c[(long)col * ldc + r_];
             }
@@ -665,7 +674,7 @@ kernel void gemm_fused(
         int m_;
         UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
           const int r_ = mi_base + rm * XMX_M + m_;
-          if (r_ < M && col < N) {
+          if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
             c[(long)col * ldc + r_] =
               c_fp[(rm * RTN + rn) * XMX_M + m_];
           }
