@@ -70,6 +70,14 @@
 # define BN_B_PAD 64
 #endif
 
+/* Auto-enable inline asm K-loop for tested RTM=4 RTN=2 KU=4 config.
+ * Uses vISA .decl for zero-copy dpas register allocation, SLM extraction.
+ * Disable with -DNO_ASM_KLOOP. */
+#if !defined(NO_ASM_KLOOP) && defined(USE_XMX) && (0 < USE_XMX) \
+    && (RTM == 4) && (RTN == 2) && (KU == 4) && (RC == 8) && (BK == 32)
+# define OZAKI_USE_ASM_KLOOP
+#endif
+
 
 /* Composable macros (DBM-style factoring).
  * Each is a do{...}while(0) block for use in kernel functions. */
@@ -94,9 +102,6 @@
     } \
   } while (0)
 
-/* Alias the shared DPAS primitive from ozaki_common.cl */
-#define OZAKI_GEMM_DPAS OZAKI_DPAS
-
 /* Full tiled K-loop: prefetch + KU-unrolled DPAS, then remainder.
  * AS, BS: slice pointers for this pair.
  * ACC: int8[RTM*RTN] accumulator array (must be pre-zeroed by caller). */
@@ -118,29 +123,181 @@
     } \
   } while (0)
 
-/* Scale i32 accumulator and accumulate into register-resident fp C.
- *   shift = ea[m] + eb - 2*BIAS_PLUS_MANT + LOW_SA + LOW_SB
- *   C_REG[m] += (real_t)dot[m] * alpha * EXP2I(shift)
- * C_REG is a real_t array of XMX_M elements owned by this lane. */
-#define OZAKI_GEMM_ACCUM(DOT, EXPA, EXPB, C_REG, M, N, MI, COL, \
-                         ALPHA, LOW_SA, LOW_SB) \
+/* vISA inline asm K-loop for RTM=4 RTN=2: full K-loop inside one asm
+ * block with KU=4-step unroll and goto-based loop. Only one SLM
+ * extraction at the end of the entire K dimension.
+ * dpas convention: src1 = B (8 GRFs, .offset), src2 = A (4 GRFs, (row,col)).
+ * TAG is a string literal suffix for unique .decl names per call site. */
+#if defined(OZAKI_USE_ASM_KLOOP)
+
+/* K-step with zero-init: load A/B blocks, 8 dpas with %%null src0, advance */
+#define OZAKI_ASM_KSTEP_INIT(T) \
+  "lsc_load_block2d.ugm (M1, 1) ab" T ":d8.32x32nn flat[pa" T " + (0,0)]\n" \
+  "lsc_load_block2d.ugm (M1, 1) bb" T ":d8.2x16x32nt flat[pb" T " + (0,0)]\n" \
+  "dpas.s8.s8.8.8 (M1,16) c0" T ".0 %%null.0 bb" T ".0   ab" T "(0,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c1" T ".0 %%null.0 bb" T ".512 ab" T "(0,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c2" T ".0 %%null.0 bb" T ".0   ab" T "(4,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c3" T ".0 %%null.0 bb" T ".512 ab" T "(4,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c4" T ".0 %%null.0 bb" T ".0   ab" T "(8,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c5" T ".0 %%null.0 bb" T ".512 ab" T "(8,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c6" T ".0 %%null.0 bb" T ".0   ab" T "(12,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c7" T ".0 %%null.0 bb" T ".512 ab" T "(12,0)\n" \
+  "add (M1_NM, 1) pa" T "(0,5)<1> pa" T "(0,5)<0;1,0> 32:d\n" \
+  "add (M1_NM, 1) pb" T "(0,6)<1> pb" T "(0,6)<0;1,0> 32:d\n"
+
+/* K-step with accumulation: load A/B blocks, 8 dpas accumulating, advance */
+#define OZAKI_ASM_KSTEP(T) \
+  "lsc_load_block2d.ugm (M1, 1) ab" T ":d8.32x32nn flat[pa" T " + (0,0)]\n" \
+  "lsc_load_block2d.ugm (M1, 1) bb" T ":d8.2x16x32nt flat[pb" T " + (0,0)]\n" \
+  "dpas.s8.s8.8.8 (M1,16) c0" T ".0 c0" T ".0 bb" T ".0   ab" T "(0,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c1" T ".0 c1" T ".0 bb" T ".512 ab" T "(0,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c2" T ".0 c2" T ".0 bb" T ".0   ab" T "(4,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c3" T ".0 c3" T ".0 bb" T ".512 ab" T "(4,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c4" T ".0 c4" T ".0 bb" T ".0   ab" T "(8,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c5" T ".0 c5" T ".0 bb" T ".512 ab" T "(8,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c6" T ".0 c6" T ".0 bb" T ".0   ab" T "(12,0)\n" \
+  "dpas.s8.s8.8.8 (M1,16) c7" T ".0 c7" T ".0 bb" T ".512 ab" T "(12,0)\n" \
+  "add (M1_NM, 1) pa" T "(0,5)<1> pa" T "(0,5)<0;1,0> 32:d\n" \
+  "add (M1_NM, 1) pb" T "(0,6)<1> pb" T "(0,6)<0;1,0> 32:d\n"
+
+/* SLM store for one tile: store halves a/b, advance sp by 512 */
+#define OZAKI_ASM_SLM_TILE(T, I) \
+  "lsc_store.slm (M1_NM, 1) flat[sp" T "]:a32        c" #I "a" T ".0:d32x64t\n" \
+  "lsc_store.slm (M1_NM, 1) flat[sp" T "+0x100]:a32  c" #I "b" T ".0:d32x64t\n" \
+  "add (M1_NM, 1) sp" T "(0,0)<1> sp" T "(0,0)<0;1,0> 512:d\n"
+
+#define OZAKI_KLOOP_ASM(TAG, AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC, SLM_PTR) \
   do { \
-    const short eb_a_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
-    union { int8 v_; int a_[8]; } du_a_; \
-    int m_a_; \
-    du_a_.v_ = (DOT); \
-    UNROLL_FORCE(XMX_M) for (m_a_ = 0; m_a_ < XMX_M; ++m_a_) { \
-      const int rm_a_ = (MI) + m_a_; \
-      if (rm_a_ < (M) && (COL) < (N)) { \
-        const int sh_a_ = (int)(EXPA)[(MI) + m_a_] + (int)eb_a_ \
-                         - (2 * BIAS_PLUS_MANT) + (LOW_SA) + (LOW_SB); \
-        const real_t sc_a_ = (ALPHA) * EXP2I(sh_a_); \
-        (C_REG)[m_a_] += (real_t)du_a_.a_[m_a_] * sc_a_; \
+    const long as_q_ = (long)(AS); \
+    const long bs_q_ = (long)(BS); \
+    const long slm_kp_ = \
+      ((long)(unsigned int)((K_PAD_) - 1) << 32) | \
+       (unsigned int)(int)((local char*)(SLM_PTR) - (local char*)0); \
+    const long np_mh_ = \
+      ((long)(unsigned int)((M_) - 1) << 32) | \
+       (unsigned int)((N_PAD_) - 1); \
+    const long ko_mi_ = \
+      ((long)(unsigned int)(MI) << 32) | (unsigned int)0; \
+    const long nj_q_ = ((long)0x11F0FU << 32) | (unsigned int)(NJ); \
+    const int kpad_ = (int)(K_PAD_); \
+    __asm__ volatile( \
+      ".decl ab" TAG " v_type=G type=d num_elts=256 align=wordx32\n" \
+      ".decl bb" TAG " v_type=G type=d num_elts=256 align=wordx32\n" \
+      ".decl c0" TAG " v_type=G type=d num_elts=128 align=wordx32\n" \
+      ".decl c0a" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c0" TAG ",0>\n" \
+      ".decl c0b" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c0" TAG ",256>\n" \
+      ".decl c1" TAG " v_type=G type=d num_elts=128 align=wordx32\n" \
+      ".decl c1a" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c1" TAG ",0>\n" \
+      ".decl c1b" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c1" TAG ",256>\n" \
+      ".decl c2" TAG " v_type=G type=d num_elts=128 align=wordx32\n" \
+      ".decl c2a" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c2" TAG ",0>\n" \
+      ".decl c2b" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c2" TAG ",256>\n" \
+      ".decl c3" TAG " v_type=G type=d num_elts=128 align=wordx32\n" \
+      ".decl c3a" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c3" TAG ",0>\n" \
+      ".decl c3b" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c3" TAG ",256>\n" \
+      ".decl c4" TAG " v_type=G type=d num_elts=128 align=wordx32\n" \
+      ".decl c4a" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c4" TAG ",0>\n" \
+      ".decl c4b" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c4" TAG ",256>\n" \
+      ".decl c5" TAG " v_type=G type=d num_elts=128 align=wordx32\n" \
+      ".decl c5a" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c5" TAG ",0>\n" \
+      ".decl c5b" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c5" TAG ",256>\n" \
+      ".decl c6" TAG " v_type=G type=d num_elts=128 align=wordx32\n" \
+      ".decl c6a" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c6" TAG ",0>\n" \
+      ".decl c6b" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c6" TAG ",256>\n" \
+      ".decl c7" TAG " v_type=G type=d num_elts=128 align=wordx32\n" \
+      ".decl c7a" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c7" TAG ",0>\n" \
+      ".decl c7b" TAG " v_type=G type=d num_elts=64 align=wordx32 alias=<c7" TAG ",256>\n" \
+      /* Unpack constraint words */ \
+      ".decl skq" TAG " v_type=G type=uq num_elts=1 align=qword\n" \
+      ".decl skd" TAG " v_type=G type=ud num_elts=2 align=qword alias=<skq" TAG ",0>\n" \
+      "mov (M1_NM, 1) skq" TAG "(0,0)<1> %2(0,0)<0;1,0>\n" \
+      ".decl nmq" TAG " v_type=G type=uq num_elts=1 align=qword\n" \
+      ".decl nmd" TAG " v_type=G type=ud num_elts=2 align=qword alias=<nmq" TAG ",0>\n" \
+      "mov (M1_NM, 1) nmq" TAG "(0,0)<1> %3(0,0)<0;1,0>\n" \
+      ".decl kmq" TAG " v_type=G type=uq num_elts=1 align=qword\n" \
+      ".decl kmd" TAG " v_type=G type=ud num_elts=2 align=qword alias=<kmq" TAG ",0>\n" \
+      "mov (M1_NM, 1) kmq" TAG "(0,0)<1> %4(0,0)<0;1,0>\n" \
+      ".decl njq" TAG " v_type=G type=uq num_elts=1 align=qword\n" \
+      ".decl njd" TAG " v_type=G type=ud num_elts=2 align=qword alias=<njq" TAG ",0>\n" \
+      "mov (M1_NM, 1) njq" TAG "(0,0)<1> %5(0,0)<0;1,0>\n" \
+      ".decl sa" TAG " v_type=G type=ud num_elts=1 align=dword\n" \
+      "mov (M1_NM, 1) sa" TAG "(0,0)<1> skd" TAG "(0,0)<0;1,0>\n" \
+      /* K-loop end value */ \
+      ".decl ke" TAG " v_type=G type=ud num_elts=1 align=dword\n" \
+      "mov (M1_NM, 1) ke" TAG "(0,0)<1> %6(0,0)<0;1,0>\n" \
+      /* Address payloads: A (pa) and B (pb) */ \
+      ".decl ap" TAG " v_type=G type=uq num_elts=1 align=qword\n" \
+      "mov (M1_NM, 1) ap" TAG "(0,0)<1> %0(0,0)<0;1,0>\n" \
+      ".decl bp" TAG " v_type=G type=uq num_elts=1 align=qword\n" \
+      "mov (M1_NM, 1) bp" TAG "(0,0)<1> %1(0,0)<0;1,0>\n" \
+      ".decl pa" TAG " v_type=G type=ud num_elts=8 align=wordx32\n" \
+      ".decl paq" TAG " v_type=G type=uq num_elts=4 align=wordx32 alias=<pa" TAG ",0>\n" \
+      "mov (M1_NM, 1) paq" TAG "(0,0)<1> ap" TAG "(0,0)<0;1,0>\n" \
+      "mov (M1_NM, 1) pa" TAG "(0,2)<1> skd" TAG "(0,1)<0;1,0>\n" \
+      "mov (M1_NM, 1) pa" TAG "(0,3)<1> nmd" TAG "(0,1)<0;1,0>\n" \
+      "mov (M1_NM, 1) pa" TAG "(0,4)<1> skd" TAG "(0,1)<0;1,0>\n" \
+      "mov (M1_NM, 1) pa" TAG "(0,5)<1> kmd" TAG "(0,0)<0;1,0>\n" \
+      "mov (M1_NM, 1) pa" TAG "(0,6)<1> kmd" TAG "(0,1)<0;1,0>\n" \
+      "mov (M1_NM, 1) pa" TAG "(0,7)<1> 0x1F1F:d\n" \
+      ".decl pb" TAG " v_type=G type=ud num_elts=8 align=wordx32\n" \
+      ".decl pbq" TAG " v_type=G type=uq num_elts=4 align=wordx32 alias=<pb" TAG ",0>\n" \
+      "mov (M1_NM, 1) pbq" TAG "(0,0)<1> bp" TAG "(0,0)<0;1,0>\n" \
+      "mov (M1_NM, 1) pb" TAG "(0,2)<1> nmd" TAG "(0,0)<0;1,0>\n" \
+      "mov (M1_NM, 1) pb" TAG "(0,3)<1> skd" TAG "(0,1)<0;1,0>\n" \
+      "mov (M1_NM, 1) pb" TAG "(0,4)<1> nmd" TAG "(0,0)<0;1,0>\n" \
+      "mov (M1_NM, 1) pb" TAG "(0,5)<1> njd" TAG "(0,0)<0;1,0>\n" \
+      "mov (M1_NM, 1) pb" TAG "(0,6)<1> kmd" TAG "(0,0)<0;1,0>\n" \
+      "mov (M1_NM, 1) pb" TAG "(0,7)<1> njd" TAG "(0,1)<0;1,0>\n" \
+      /* K-loop counter */ \
+      ".decl kc" TAG " v_type=G type=ud num_elts=1 align=dword\n" \
+      "mov (M1_NM, 1) kc" TAG "(0,0)<1> 0:d\n" \
+      /* First KU=4 block: zero-init + 3 accumulating steps */ \
+      OZAKI_ASM_KSTEP_INIT(TAG) \
+      OZAKI_ASM_KSTEP(TAG) \
+      OZAKI_ASM_KSTEP(TAG) \
+      OZAKI_ASM_KSTEP(TAG) \
+      "add (M1_NM, 1) kc" TAG "(0,0)<1> kc" TAG "(0,0)<0;1,0> 128:d\n" \
+      /* Loop: remaining KU=4 blocks with accumulating dpas */ \
+      ".decl P0" TAG " v_type=P num_elts=1\n" \
+      "kloop" TAG ":\n" \
+      "cmp.ge (M1_NM, 1) P0" TAG " kc" TAG "(0,0)<0;1,0> ke" TAG "(0,0)<0;1,0>\n" \
+      "(P0" TAG ") goto (M1_NM, 1) kexit" TAG "\n" \
+      OZAKI_ASM_KSTEP(TAG) \
+      OZAKI_ASM_KSTEP(TAG) \
+      OZAKI_ASM_KSTEP(TAG) \
+      OZAKI_ASM_KSTEP(TAG) \
+      "add (M1_NM, 1) kc" TAG "(0,0)<1> kc" TAG "(0,0)<0;1,0> 128:d\n" \
+      "goto (M1_NM, 1) kloop" TAG "\n" \
+      "kexit" TAG ":\n" \
+      /* SLM extraction: 2 stores per tile x 8 tiles */ \
+      ".decl sp" TAG " v_type=G type=ud num_elts=1 align=wordx32\n" \
+      "mov (M1_NM, 1) sp" TAG "(0,0)<1> sa" TAG "(0,0)<0;1,0>\n" \
+      OZAKI_ASM_SLM_TILE(TAG, 0) \
+      OZAKI_ASM_SLM_TILE(TAG, 1) \
+      OZAKI_ASM_SLM_TILE(TAG, 2) \
+      OZAKI_ASM_SLM_TILE(TAG, 3) \
+      OZAKI_ASM_SLM_TILE(TAG, 4) \
+      OZAKI_ASM_SLM_TILE(TAG, 5) \
+      OZAKI_ASM_SLM_TILE(TAG, 6) \
+      OZAKI_ASM_SLM_TILE(TAG, 7) \
+      : /* no outputs */ \
+      : "rw"(as_q_), "rw"(bs_q_), "rw"(slm_kp_), \
+        "rw"(np_mh_), "rw"(ko_mi_), "rw"(nj_q_), "rw"(kpad_) \
+      : "memory" \
+    ); \
+    barrier(CLK_LOCAL_MEM_FENCE); \
+    { int t_a_; \
+      UNROLL_FORCE(RTM * RTN) \
+      for (t_a_ = 0; t_a_ < RTM * RTN; ++t_a_) { \
+        (ACC)[t_a_] += as_int8(intel_sub_group_block_read8( \
+          (const local uint*)((SLM_PTR) + t_a_ * 128))); \
       } \
     } \
   } while (0)
+#endif
 
-/* Like OZAKI_GEMM_ACCUM but with pre-cached exponents in registers.
+/* Scale i32 accumulator + accumulate into register-resident fp C with
+ * pre-cached exponents in registers.
  * EA_CACHE is a short array[XMX_M], EB_CACHE is a short scalar.
  * Avoids re-reading expa/expb from global memory for every pair. */
 #define OZAKI_GEMM_ACCUM_CACHED(DOT, EA_CACHE, EB_CACHE, C_REG, M, N, MI, COL, \
@@ -156,33 +313,6 @@
                          - (2 * BIAS_PLUS_MANT) + (LOW_SA) + (LOW_SB); \
         const real_t sc_c_ = (ALPHA) * EXP2I(sh_c_); \
         (C_REG)[m_c_] += (real_t)du_c_.a_[m_c_] * sc_c_; \
-      } \
-    } \
-  } while (0)
-
-/* Scale i32 accumulator and write/accumulate into fp C (global memory).
- *   shift = ea[m] + eb - 2*BIAS_PLUS_MANT + LOW_SA + LOW_SB
- *   C[col*ldc+m] =/+= (real_t)dot[m] * alpha * EXP2I(shift) */
-#define OZAKI_GEMM_STORE(DOT, EXPA, EXPB, C_PTR, M, N, MI, COL, \
-                         LDC, ALPHA, LOW_SA, LOW_SB, FIRST) \
-  do { \
-    short ea_s_[XMX_M]; \
-    const short eb_s_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
-    union { int8 v_; int a_[8]; } du_s_; \
-    int m_s_; \
-    UNROLL_FORCE(XMX_M) for (m_s_ = 0; m_s_ < XMX_M; ++m_s_) { \
-      ea_s_[m_s_] = (EXPA)[(MI) + m_s_]; \
-    } \
-    du_s_.v_ = (DOT); \
-    UNROLL_FORCE(XMX_M) for (m_s_ = 0; m_s_ < XMX_M; ++m_s_) { \
-      const int rm_ = (MI) + m_s_; \
-      if (rm_ < (M) && (COL) < (N)) { \
-        const int sh_ = (int)ea_s_[m_s_] + (int)eb_s_ \
-                        - (2 * BIAS_PLUS_MANT) + (LOW_SA) + (LOW_SB); \
-        const real_t sc_ = (ALPHA) * EXP2I(sh_); \
-        const real_t ct_ = (real_t)du_s_.a_[m_s_] * sc_; \
-        const real_t old_ = (FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
-        (C_PTR)[(COL) * (LDC) + rm_] = old_ + ct_; \
       } \
     } \
   } while (0)
@@ -357,6 +487,10 @@ kernel void gemm_fused(
   const long a_stride = (long)M_pad * K_pad;
   const long b_stride = (long)K_pad * N_pad;
   SINT sa;
+#if defined(OZAKI_USE_ASM_KLOOP)
+  local int acc_slm_[NTM * NTN * RTM * RTN * 128];
+  local int* my_slm_ = acc_slm_ + sg_id * (RTM * RTN * 128);
+#endif
 
   /* Pre-cache exponents in registers: avoid re-reading from global per pair.
    * ea_cache[rm][m] = expa[mi_base + rm*XMX_M + m]
@@ -421,13 +555,32 @@ kernel void gemm_fused(
       CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 
       /* (sa, sb) K-loop — unrolled by KU */
+#if OZAKI_SCALAR_ACC
+      /* Scalar accumulators for DPAS, packed to array for scaling. */
+      OZAKI_ACC_DECL(c_acc_);
+      OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc_);
+
+      if (0 == sq && sa != sb) {
+        OZAKI_ACC_DECL(c_mir_);
+        OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir_);
+        OZAKI_ACC_ADD(c_acc_, c_mir_);
+      }
+
+      { int8 c_acc[RTM * RTN];
+        OZAKI_ACC_PACK(c_acc_, c_acc);
+#else
       int8 c_acc[RTM * RTN];
       { int ri;
         UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
           c_acc[ri] = (int8)(0);
         }
       }
+#if defined(OZAKI_USE_ASM_KLOOP)
+      OZAKI_KLOOP_ASM("P", as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base,
+                      c_acc, my_slm_);
+#else
       OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
+#endif
 
       /* For off-diagonal triangle pairs, also compute (sb, sa) */
       if (0 == sq && sa != sb) {
@@ -437,13 +590,21 @@ kernel void gemm_fused(
             c_mir[ri] = (int8)(0);
           }
         }
+#if defined(OZAKI_USE_ASM_KLOOP)
+        OZAKI_KLOOP_ASM("M", as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base,
+                        c_mir, my_slm_);
+#else
         OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
+#endif
         { int ri;
           UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
             c_acc[ri] = c_acc[ri] + c_mir[ri];
           }
         }
       }
+
+      {
+#endif
 
       /* Scale and accumulate into register C (cached exponents) */
       { int rm, rn;
@@ -458,6 +619,7 @@ kernel void gemm_fused(
                              alpha, low_bit_sa, low_bit_sb);
           }
         }
+      }
       }
     }
   }
