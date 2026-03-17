@@ -530,9 +530,6 @@ kernel void gemm_fused(
 #if defined(OZAKI_USE_ASM_KLOOP)
   local int acc_slm_[NTM * NTN * RTM * RTN * 128];
   local int* my_slm_ = acc_slm_ + sg_id * (RTM * RTN * 128);
-#elif defined(OZAKI_USE_OCL_KLOOP)
-  local int acc_slm_[NTM * NTN * 128];
-  local int* my_slm_ = acc_slm_ + sg_id * 128;
 #endif
 #if !defined(OZAKI_USE_OCL_KLOOP)
   { const long wg_lin = (long)ib_idx * get_num_groups(1) + jb_idx;
@@ -639,9 +636,9 @@ kernel void gemm_fused(
         OZAKI_ACC_PACK(c_acc_, c_acc);
 #else
 #if defined(OZAKI_USE_OCL_KLOOP)
-      /* SLM phase split: full K-loop, then interleaved store-1/scale-1.
-       * Only 1 SLM slot per SG (128 ints = 512 B) is reused per tile,
-       * reducing SLM from 128 KB to 16 KB per WG. */
+      /* No-spill phase split: full K-loop, then scale tile-by-tile.
+       * c_fp is NOT in registers; c_acc dies progressively in the loop.
+       * Peak: c_acc(64) + DPAS temps(48) + ea_cache(18) ≈ 130 GRFs. */
       { int8 c_acc[RTM * RTN];
         { int ri;
           UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
@@ -670,21 +667,16 @@ kernel void gemm_fused(
               const int col = nj_base + rn * XMX_N + sg_lid;
               real_t c_tile[XMX_M];
               int m_;
-              intel_sub_group_block_write8(
-                (local uint*)my_slm_, as_uint8(c_acc[idx]));
               UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
                 const int r_ = mi_base + rm * XMX_M + m_;
                 c_tile[m_] = OZAKI_IN_BOUNDS(r_, M, col, N)
                   ? c[(long)col * ldc + r_] : ZERO;
               }
-              { const int8 tile = as_int8(intel_sub_group_block_read8(
-                  (const local uint*)my_slm_));
-                OZAKI_GEMM_ACCUM_CACHED(tile,
-                                 ea_cache + rm * XMX_M, eb_cache[rn],
-                                 c_tile,
-                                 M, N, mi_base + rm * XMX_M, col,
-                                 alpha, low_bit_sa, low_bit_sb);
-              }
+              OZAKI_GEMM_ACCUM_CACHED(c_acc[idx],
+                               ea_cache + rm * XMX_M, eb_cache[rn],
+                               c_tile,
+                               M, N, mi_base + rm * XMX_M, col,
+                               alpha, low_bit_sa, low_bit_sb);
               UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
                 const int r_ = mi_base + rm * XMX_M + m_;
                 if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
