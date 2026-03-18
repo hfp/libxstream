@@ -513,8 +513,7 @@ kernel void gemm_fused(
   int nslices,                              /* total number of slices */
   int cutoff,                               /* sa + sb <= cutoff */
   int first_pair,                           /* 1 if beta == 0 (overwrite C) */
-  int sq,                                   /* 1: full square, 0: triangle+mirror */
-  global int* restrict acc_scratch)         /* [nwg * NTM*NTN * RTM*RTN * SG*8] */
+  int sq)                                   /* 1: full square, 0: triangle+mirror */
 {
   const int ib_idx  = (int)get_group_id(0);
   const int jb_idx  = (int)get_group_id(1);
@@ -530,12 +529,6 @@ kernel void gemm_fused(
 #if defined(OZAKI_USE_ASM_KLOOP)
   local int acc_slm_[NTM * NTN * RTM * RTN * 128];
   local int* my_slm_ = acc_slm_ + sg_id * (RTM * RTN * 128);
-#endif
-#if !defined(OZAKI_USE_OCL_KLOOP)
-  { const long wg_lin = (long)ib_idx * get_num_groups(1) + jb_idx;
-    const long ntiles = (long)(NTM * NTN) * (RTM * RTN) * (SG * 8);
-    acc_scratch += wg_lin * ntiles + sg_id * (RTM * RTN * SG * 8);
-  }
 #endif
 
   /* Pre-cache exponents in registers: avoid re-reading from global per pair.
@@ -559,25 +552,7 @@ kernel void gemm_fused(
     }
   }
 
-#if defined(OZAKI_USE_OCL_KLOOP)
-  /* OCL path: c_fp lives in global C between pairs, not in registers.
-   * Pre-zero C tile if first_pair so the first load returns zeros. */
-  if (0 != first_pair) {
-    int rm, rn;
-    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-        const int col = nj_base + rn * XMX_N + sg_lid;
-        int m_;
-        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-          const int r_ = mi_base + rm * XMX_M + m_;
-          if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
-            c[(long)col * ldc + r_] = ZERO;
-          }
-        }
-      }
-    }
-  }
-#else
+#if !defined(OZAKI_USE_OCL_KLOOP)
   /* Register-resident C accumulators: c_fp[rm*RTN*XMX_M + rn*XMX_M + m] */
   real_t c_fp[RTM * RTN * XMX_M];
   { int ci;
@@ -636,9 +611,7 @@ kernel void gemm_fused(
         OZAKI_ACC_PACK(c_acc_, c_acc);
 #else
 #if defined(OZAKI_USE_OCL_KLOOP)
-      /* No-spill phase split: full K-loop, then scale tile-by-tile.
-       * c_fp is NOT in registers; c_acc dies progressively in the loop.
-       * Peak: c_acc(64) + DPAS temps(48) + ea_cache(18) ≈ 130 GRFs. */
+      /* OCL K-loop -> tile-by-tile scale: keep c_fp out of K-loop scope. */
       { int8 c_acc[RTM * RTN];
         { int ri;
           UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
@@ -660,6 +633,7 @@ kernel void gemm_fused(
             }
           }
         }
+        /* Tile-by-tile scale: one c_tile[XMX_M] at a time to limit register pressure */
         { int rm, rn;
           UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
             UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
