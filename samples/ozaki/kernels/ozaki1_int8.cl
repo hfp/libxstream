@@ -121,6 +121,52 @@
     } \
   } while (0)
 
+/* Scalar accumulator DPAS: individual int8 variables instead of an array.
+ * Helps IGC keep accumulators in GRFs instead of lowering to stack.
+ * Only for RTM=4 RTN=2 (the hot path). */
+#if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) \
+    && (RTM == 4) && (RTN == 2) && defined(OZAKI_USE_OCL_KLOOP)
+#define OZAKI_SC_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, \
+                      C00,C01,C10,C11,C20,C21,C30,C31) \
+  do { \
+    ushort8 a_sc_[4]; \
+    uint8 b_sc_[2]; \
+    intel_sub_group_2d_block_read_8b_32r32x1c( \
+        (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
+        (int2)((KOFF), (MI)), (private ushort*)a_sc_); \
+    intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
+        (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
+        (int2)((NJ), (KOFF)), (private uint*)b_sc_); \
+    OZAKI_DPAS_ONE_(a_sc_[0], b_sc_[0], C00); \
+    OZAKI_DPAS_ONE_(a_sc_[0], b_sc_[1], C01); \
+    OZAKI_DPAS_ONE_(a_sc_[1], b_sc_[0], C10); \
+    OZAKI_DPAS_ONE_(a_sc_[1], b_sc_[1], C11); \
+    OZAKI_DPAS_ONE_(a_sc_[2], b_sc_[0], C20); \
+    OZAKI_DPAS_ONE_(a_sc_[2], b_sc_[1], C21); \
+    OZAKI_DPAS_ONE_(a_sc_[3], b_sc_[0], C30); \
+    OZAKI_DPAS_ONE_(a_sc_[3], b_sc_[1], C31); \
+  } while (0)
+
+#define OZAKI_KLOOP_SC(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, \
+                       C00,C01,C10,C11,C20,C21,C30,C31) \
+  do { \
+    int k_l_; \
+    for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
+      int ku_l_; \
+      UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) { \
+        OZAKI_SC_DPAS(AS, BS, K_PAD_, N_PAD_, \
+                      MI, NJ, k_l_ + ku_l_ * BK, M_, \
+                      C00,C01,C10,C11,C20,C21,C30,C31); \
+      } \
+    } \
+    for (; k_l_ < (K_PAD_); k_l_ += BK) { \
+      OZAKI_SC_DPAS(AS, BS, K_PAD_, N_PAD_, \
+                    MI, NJ, k_l_, M_, \
+                    C00,C01,C10,C11,C20,C21,C30,C31); \
+    } \
+  } while (0)
+#endif /* OZAKI_SCALAR_ACC */
+
 /* No-prefetch K-loop: simple DPAS_TILED loop without prefetch messages.
  * Mirrors the asm K-loop structure but in pure OpenCL C builtins. */
 #if defined(OZAKI_USE_OCL_KLOOP)
@@ -592,8 +638,16 @@ kernel void gemm_fused(
 #if defined(OZAKI_USE_OCL_KLOOP)
   /* c_acc hoisted for pair batching: pairs with the same exponent shift sum
    * accumulate int32 results before a single tile-by-tile fp64 scale. */
+#if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2)
+  { int8 sc00 = (int8)(0), sc01 = (int8)(0);
+    int8 sc10 = (int8)(0), sc11 = (int8)(0);
+    int8 sc20 = (int8)(0), sc21 = (int8)(0);
+    int8 sc30 = (int8)(0), sc31 = (int8)(0);
+    int batch_acc = 0;
+#else
   { int8 c_acc[RTM * RTN];
     int batch_acc = 0;
+#endif /* OZAKI_SCALAR_ACC hoist */
 #endif
 
   for (sa = 0; sa < (SINT)nslices; ++sa) {
@@ -612,19 +666,77 @@ kernel void gemm_fused(
       CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 
       /* (sa, sb) K-loop — unrolled by KU */
-#if OZAKI_SCALAR_ACC
-      /* Scalar accumulators for DPAS, packed to array for scaling. */
-      OZAKI_ACC_DECL(c_acc_);
-      OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc_);
-
-      if (0 == sq && sa != sb) {
-        OZAKI_ACC_DECL(c_mir_);
-        OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir_);
-        OZAKI_ACC_ADD(c_acc_, c_mir_);
+#if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2)
+      /* Scalar accumulator K-loop with pair batching. */
+      if (0 == batch_acc) {
+        sc00 = (int8)(0); sc01 = (int8)(0);
+        sc10 = (int8)(0); sc11 = (int8)(0);
+        sc20 = (int8)(0); sc21 = (int8)(0);
+        sc30 = (int8)(0); sc31 = (int8)(0);
       }
-
-      { int8 c_acc[RTM * RTN];
-        OZAKI_ACC_PACK(c_acc_, c_acc);
+      OZAKI_KLOOP_SC(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base,
+                     sc00, sc01, sc10, sc11, sc20, sc21, sc30, sc31);
+      if (0 == sq && sa != sb) {
+        int8 sm00 = (int8)(0), sm01 = (int8)(0);
+        int8 sm10 = (int8)(0), sm11 = (int8)(0);
+        int8 sm20 = (int8)(0), sm21 = (int8)(0);
+        int8 sm30 = (int8)(0), sm31 = (int8)(0);
+        OZAKI_KLOOP_SC(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base,
+                       sm00, sm01, sm10, sm11, sm20, sm21, sm30, sm31);
+        sc00 = sc00 + sm00; sc01 = sc01 + sm01;
+        sc10 = sc10 + sm10; sc11 = sc11 + sm11;
+        sc20 = sc20 + sm20; sc21 = sc21 + sm21;
+        sc30 = sc30 + sm30; sc31 = sc31 + sm31;
+      }
+      /* Batch check + tile-by-tile scale (pack scalars on flush) */
+      { const int cur_shift = low_bit_sa + low_bit_sb;
+        int next_shift = -1;
+        if (sb + 1 < sb_end) {
+          next_shift = low_bit_sa
+            + MAX(0, MANT_BITS - 7 * ((int)sb + 1) - 6);
+        }
+        else if (0 == sq && (int)sa + 1 < nslices) {
+          const int nls = MAX(0, MANT_BITS - 7 * ((int)sa + 1) - 6);
+          next_shift = nls + nls;
+        }
+        if (cur_shift == next_shift) {
+          batch_acc = 1;
+        }
+        else {
+          int8 c_acc_sc[RTM * RTN];
+          batch_acc = 0;
+          c_acc_sc[0] = sc00; c_acc_sc[1] = sc01;
+          c_acc_sc[2] = sc10; c_acc_sc[3] = sc11;
+          c_acc_sc[4] = sc20; c_acc_sc[5] = sc21;
+          c_acc_sc[6] = sc30; c_acc_sc[7] = sc31;
+          { int rm, rn;
+            UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+              UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+                const int idx = rm * RTN + rn;
+                const int col = nj_base + rn * XMX_N + sg_lid;
+                real_t c_tile[XMX_M];
+                int m_;
+                UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+                  const int r_ = mi_base + rm * XMX_M + m_;
+                  c_tile[m_] = OZAKI_IN_BOUNDS(r_, M, col, N)
+                    ? c[(long)col * ldc + r_] : ZERO;
+                }
+                OZAKI_GEMM_ACCUM_CACHED(c_acc_sc[idx],
+                                 ea_cache + rm * XMX_M, eb_cache[rn],
+                                 c_tile,
+                                 M, N, mi_base + rm * XMX_M, col,
+                                 alpha, low_bit_sa, low_bit_sb);
+                UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+                  const int r_ = mi_base + rm * XMX_M + m_;
+                  if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
+                    c[(long)col * ldc + r_] = c_tile[m_];
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
 #else
 #if defined(OZAKI_USE_OCL_KLOOP)
       /* OCL K-loop with pair batching: defer scale when next pair shares
