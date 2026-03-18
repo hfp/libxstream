@@ -141,16 +141,25 @@
   } while (0)
 #endif
 
-/* Full tiled K-loop: prefetch + KU-unrolled DPAS, then remainder.
+/* K-loop prefetch: opt-in via OZAKI_PREFETCH=1 (default off on PVC). */
+#if defined(OZAKI_PREFETCH) && (0 < OZAKI_PREFETCH)
+# define OZAKI_KLOOP_PREFETCH(AS, BS, K, N, M, KOFF, MI, NJ) \
+    OZAKI_PREFETCH_TILED(AS, BS, K, N, M, KOFF, MI, NJ)
+#else
+# define OZAKI_KLOOP_PREFETCH(AS, BS, K, N, M, KOFF, MI, NJ)
+#endif
+
+/* Full tiled K-loop: KU-unrolled DPAS with optional prefetch, then remainder.
  * AS, BS: slice pointers for this pair.
- * ACC: int8[RTM*RTN] accumulator array (must be pre-zeroed by caller). */
+ * ACC: int8[RTM*RTN] accumulator array (must be pre-zeroed by caller).
+ * OZAKI_PREFETCH: opt-in prefetch (default off — hurts PVC perf). */
 #define OZAKI_KLOOP(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
   do { \
     int k_l_; \
     for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
       int ku_l_; \
-      OZAKI_PREFETCH_TILED(AS, BS, K_PAD_, N_PAD_, \
-                           M_, k_l_ + KU * BK, MI, NJ); \
+      OZAKI_KLOOP_PREFETCH(AS, BS, K_PAD_, N_PAD_, \
+                            M_, k_l_ + KU * BK, MI, NJ); \
       UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) { \
         OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, \
                          MI, NJ, k_l_ + ku_l_ * BK, M_, ACC); \

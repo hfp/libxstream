@@ -288,6 +288,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + goff, sizeof(build_params) - goff,
           " -DNO_OCL_KLOOP");
       }
+      env = getenv("OZAKI_PREFETCH");
+      if (NULL != env && '1' == *env) {
+        goff += (size_t)LIBXS_SNPRINTF(
+          build_params + goff, sizeof(build_params) - goff,
+          " -DOZAKI_PREFETCH=1");
+      }
       env = getenv("OZAKI_BOUNDS");
       if (NULL != env && '1' == *env) {
         goff += (size_t)LIBXS_SNPRINTF(
