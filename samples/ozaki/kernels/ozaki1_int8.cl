@@ -589,6 +589,13 @@ kernel void gemm_fused(
   }
 #endif
 
+#if defined(OZAKI_USE_OCL_KLOOP)
+  /* c_acc hoisted for pair batching: pairs with the same exponent shift sum
+   * accumulate int32 results before a single tile-by-tile fp64 scale. */
+  { int8 c_acc[RTM * RTN];
+    int batch_acc = 0;
+#endif
+
   for (sa = 0; sa < (SINT)nslices; ++sa) {
     const int high_sa = MANT_BITS - (7 * (int)sa);
     const int low_bit_sa = MAX(0, high_sa - 6);
@@ -620,50 +627,69 @@ kernel void gemm_fused(
         OZAKI_ACC_PACK(c_acc_, c_acc);
 #else
 #if defined(OZAKI_USE_OCL_KLOOP)
-      /* OCL K-loop -> tile-by-tile scale: keep c_fp out of K-loop scope. */
-      { int8 c_acc[RTM * RTN];
+      /* OCL K-loop with pair batching: defer scale when next pair shares
+       * the same exponent shift sum (low_bit_sa + low_bit_sb). */
+      if (0 == batch_acc) {
+        int ri;
+        UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+          c_acc[ri] = (int8)(0);
+        }
+      }
+      OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
+      if (0 == sq && sa != sb) {
+        int8 c_mir[RTM * RTN];
         { int ri;
           UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-            c_acc[ri] = (int8)(0);
+            c_mir[ri] = (int8)(0);
           }
         }
-        OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-        if (0 == sq && sa != sb) {
-          int8 c_mir[RTM * RTN];
-          { int ri;
-            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-              c_mir[ri] = (int8)(0);
-            }
-          }
-          OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
-          { int ri;
-            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-              c_acc[ri] = c_acc[ri] + c_mir[ri];
-            }
+        OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
+        { int ri;
+          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+            c_acc[ri] = c_acc[ri] + c_mir[ri];
           }
         }
-        /* Tile-by-tile scale: one c_tile[XMX_M] at a time to limit register pressure */
-        { int rm, rn;
-          UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-            UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-              const int idx = rm * RTN + rn;
-              const int col = nj_base + rn * XMX_N + sg_lid;
-              real_t c_tile[XMX_M];
-              int m_;
-              UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-                const int r_ = mi_base + rm * XMX_M + m_;
-                c_tile[m_] = OZAKI_IN_BOUNDS(r_, M, col, N)
-                  ? c[(long)col * ldc + r_] : ZERO;
-              }
-              OZAKI_GEMM_ACCUM_CACHED(c_acc[idx],
-                               ea_cache + rm * XMX_M, eb_cache[rn],
-                               c_tile,
-                               M, N, mi_base + rm * XMX_M, col,
-                               alpha, low_bit_sa, low_bit_sb);
-              UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-                const int r_ = mi_base + rm * XMX_M + m_;
-                if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
-                  c[(long)col * ldc + r_] = c_tile[m_];
+      }
+      /* Check if next pair (in iteration order) has the same shift sum.
+       * If so, defer scaling and accumulate int32 across pairs. */
+      { const int cur_shift = low_bit_sa + low_bit_sb;
+        int next_shift = -1;
+        if (sb + 1 < sb_end) {
+          next_shift = low_bit_sa
+            + MAX(0, MANT_BITS - 7 * ((int)sb + 1) - 6);
+        }
+        else if (0 == sq && (int)sa + 1 < nslices) {
+          const int nls = MAX(0, MANT_BITS - 7 * ((int)sa + 1) - 6);
+          next_shift = nls + nls;
+        }
+        if (cur_shift == next_shift) {
+          batch_acc = 1;
+        }
+        else {
+          batch_acc = 0;
+          /* Tile-by-tile scale: one c_tile[XMX_M] at a time */
+          { int rm, rn;
+            UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+              UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+                const int idx = rm * RTN + rn;
+                const int col = nj_base + rn * XMX_N + sg_lid;
+                real_t c_tile[XMX_M];
+                int m_;
+                UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+                  const int r_ = mi_base + rm * XMX_M + m_;
+                  c_tile[m_] = OZAKI_IN_BOUNDS(r_, M, col, N)
+                    ? c[(long)col * ldc + r_] : ZERO;
+                }
+                OZAKI_GEMM_ACCUM_CACHED(c_acc[idx],
+                                 ea_cache + rm * XMX_M, eb_cache[rn],
+                                 c_tile,
+                                 M, N, mi_base + rm * XMX_M, col,
+                                 alpha, low_bit_sa, low_bit_sb);
+                UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+                  const int r_ = mi_base + rm * XMX_M + m_;
+                  if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
+                    c[(long)col * ldc + r_] = c_tile[m_];
+                  }
                 }
               }
             }
@@ -724,6 +750,10 @@ kernel void gemm_fused(
 #endif /* OZAKI_SCALAR_ACC */
     }
   }
+
+#if defined(OZAKI_USE_OCL_KLOOP)
+  } /* close c_acc scope for OCL pair batching */
+#endif
 
 #if !defined(OZAKI_USE_OCL_KLOOP)
   /* Final write: register C -> global C */
