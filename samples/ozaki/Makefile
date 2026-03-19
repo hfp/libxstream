@@ -1,5 +1,6 @@
 ROOTDIR = $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
-DEPDIR = ../..
+PROJECT := libxstream
+DEPDIR = $(ROOTDIR)/../..
 SRCDIR = .
 INCDIR = .
 BLDDIR = obj
@@ -14,17 +15,19 @@ OMP = 1
 SYM = 0
 OCL = 2
 
-# include common Makefile artifacts
-include $(DEPDIR)/Makefile.inc
-
 # root directory of LIBXS
 LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
-LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
-LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
-LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
-LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
-  $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
+
+# include common Makefile artifacts
+include $(LIBXSROOT)/Makefile.inc
+
+# setup LIBXS
 ifneq (,$(LIBXSROOT))
+  LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
+  LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
+  LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
+  LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
+    $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
   IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
   IFLAGS += -I$(call quote,$(LIBXSROOT)/samples/ozaki)
 endif
@@ -59,13 +62,13 @@ all: $(XFILES)
 compile: $(OBJECTS)
 
 # Generate embedded kernel header from .cl sources (resolves #include directives)
-$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/include/common/*.h) $(SCRDIR)/tool_opencl.sh Makefile $(DEPDIR)/Makefile.inc
+$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/include/common/*.h) $(SCRDIR)/tool_opencl.sh Makefile $(LIBXSROOT)/Makefile.inc
 	$(SCRDIR)/tool_opencl.sh -p "" $(KRNELS) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
 
-$(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(DEPDIR)/Makefile.inc
+$(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(LIBXSROOT)/Makefile.inc
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@
 
 .PHONY: test
