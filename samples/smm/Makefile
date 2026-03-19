@@ -287,8 +287,8 @@ endif
 		if [ "0" != "$(if $(CHECK),$(CHECK),1)" ]; then exit 1; fi; \
 	fi
 
-$(MAKDIR)/smm/opencl_kernels.h: $(MAKDIR)/acc_opencl.sh $(KERNEL) $(PARAMS)
-	CPPFLAGS=$(CPP_OPENCL_FLAGS) $(MAKDIR)/acc_opencl.sh $(KERNEL) $(PARAMS) $@
+$(MAKDIR)/smm/opencl_kernels.h: $(MAKDIR)/tool_opencl.sh $(KERNEL) $(PARAMS)
+	CPPFLAGS=$(CPP_OPENCL_FLAGS) $(MAKDIR)/tool_opencl.sh $(KERNEL) $(PARAMS) $@
 
 .PHONY: backend
 backend: $(ACCDIR)/dbcsr_acc.a

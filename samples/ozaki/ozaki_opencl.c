@@ -8,7 +8,7 @@
 ******************************************************************************/
 #include "ozaki_opencl.h"
 
-/* Embedded kernel source (generated at build time via acc_opencl.sh) */
+/* Embedded kernel source (generated at build time via tool_opencl.sh) */
 #include "ozaki_kernels.h"
 
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_INT8)
