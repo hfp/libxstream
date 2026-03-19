@@ -34,7 +34,7 @@ void SGEMM(const char* transa, const char* transb,
            const float* beta,        float* c, const int* ldc);
 
 /* Function prototypes */
-static void print_diff(FILE* ostream, const libxs_matdiff_info_t* diff);
+static void print_diff(FILE* ostream, const libxs_matdiff_t* diff);
 
 
 int main(int argc, char* argv[])
@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
   const char transb = (0 == tb ? 'N' : 'T');
   void *a = NULL, *b = NULL, *c_oz = NULL, *c_ref = NULL;
   libxstream_stream_t* stream = NULL;
-  libxs_matdiff_info_t diff;
+  libxs_matdiff_t diff;
   libxs_timer_tick_t t0, t1;
   size_t elem_size = 0;
   int result = EXIT_SUCCESS;
@@ -239,7 +239,7 @@ int main(int argc, char* argv[])
 }
 
 
-static void print_diff(FILE* ostream, const libxs_matdiff_info_t* diff)
+static void print_diff(FILE* ostream, const libxs_matdiff_t* diff)
 {
   const double epsilon = libxs_matdiff_epsilon(diff);
   if (1E-6 <= epsilon) {

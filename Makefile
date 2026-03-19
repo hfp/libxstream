@@ -84,6 +84,19 @@ LIBXSROOT := $(wildcard $(ROOTDIR)/../libxs)
 # include common Makefile artifacts
 include $(LIBXSROOT)/Makefile.inc
 
+# setup LIBXS
+ifneq (,$(LIBXSROOT))
+  LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
+  LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
+  LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
+  LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
+    $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
+  IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
+endif
+ifneq (,$(LIBXS))
+  DFLAGS += -D__LIBXS
+endif
+
 # 0: static, 1: shared, 2: static and shared
 ifneq (,$(filter-out file,$(origin STATIC)))
   ifneq (0,$(STATIC))
@@ -97,19 +110,6 @@ endif
 
 # target library for a broad range of systems
 SSE ?= 1
-
-# setup LIBXS
-ifneq (,$(LIBXSROOT))
-  LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
-  LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
-  LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
-  LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
-    $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
-  IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
-endif
-ifneq (,$(LIBXS))
-  DFLAGS += -D__LIBXS
-endif
 
 # include directories
 IFLAGS += -I$(call quote,$(INCDIR))
