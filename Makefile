@@ -14,7 +14,6 @@ SRCDIR := src
 OUTDIR := lib
 BINDIR := bin
 SPLDIR := samples
-UTLDIR := $(SPLDIR)/utilities
 DOCDIR := documentation
 
 # subdirectories (relative) to PREFIX (install targets)
@@ -77,10 +76,13 @@ WCHECK := 1
 EXCLUDE_STATE := \
   DESTDIR PREFIX BINDIR CURDIR DOCDIR DOCEXT INCDIR LICFDIR OUTDIR TSTDIR TIMEOUT \
   PBINDIR PINCDIR POUTDIR PPKGDIR PMODDIR PSRCDIR PTSTDIR PSHRDIR PDOCDIR SCRDIR \
-  SPLDIR UTLDIR SRCDIR TEST VERSION_STRING ALIAS_% %_TARGET %ROOT
+  SPLDIR SRCDIR TEST VERSION_STRING ALIAS_% %_TARGET %ROOT
+
+# root directory of LIBXS
+LIBXSROOT := $(wildcard $(ROOTDIR)/../libxs)
 
 # include common Makefile artifacts
-include $(ROOTDIR)/Makefile.inc
+include $(LIBXSROOT)/Makefile.inc
 
 # 0: static, 1: shared, 2: static and shared
 ifneq (,$(filter-out file,$(origin STATIC)))
@@ -96,16 +98,14 @@ endif
 # target library for a broad range of systems
 SSE ?= 1
 
-# root directory of LIBXS
-LIBXSROOT := $(wildcard $(ROOTDIR)/../libxs)
-LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
-LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
-LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
-LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
-  $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
+# setup LIBXS
 ifneq (,$(LIBXSROOT))
+  LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
+  LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
+  LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
+  LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
+    $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
   IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
-  IFLAGS += -I$(call quote,$(LIBXSROOT)/samples/ozaki)
 endif
 ifneq (,$(LIBXS))
   DFLAGS += -D__LIBXS
@@ -209,7 +209,7 @@ endef
 $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
   $(OBJ),$(patsubst %.o,$(ROOTSRC)/%.c,$(notdir $(OBJ))), \
   $(HEADERS_MAIN) $(INCDIR)/$(PROJECT)_version.h, \
-  $(DFLAGS) $(IFLAGS)) $(CTARGET) $(CFLAGS)))
+  $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS))))
 
 .PHONY: libs
 libs: $(OUTDIR)/$(PROJECT)-static.pc $(OUTDIR)/$(PROJECT)-shared.pc
@@ -227,9 +227,15 @@ else
 .PHONY: $(OUTDIR)/$(PROJECT).$(DLIBEXT)
 endif
 
-# use dir not qdir to avoid quotes; also $(ROOTDIR)/$(SPLDIR) is relative
-DIRS_SAMPLES := $(dir $(shell find $(ROOTDIR)/$(SPLDIR) -type f -name Makefile \
-	$(NULL)))
+# use dir not qdir to avoid quotes
+SAMPLES := $(dir $(shell $(if $(GIT),$(GIT) ls-files,ls -1) $(SPLDIR)/*/Makefile 2>/dev/null))
+SPLMDS := $(addprefix $(ABSDIR)/,$(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
+  $(SPLDIR)/*/README.md 2>/dev/null))
+DOCMDS := $(addprefix $(ABSDIR)/,$(filter-out \
+    $(DOCDIR)/$(PROJECT)_samples.md \
+    $(DOCDIR)/$(PROJECT)_scripts.md, \
+  $(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
+    $(DOCDIR)/$(PROJECT)_*.md 2>/dev/null)))
 
 .PHONY: samples $(DIRS_SAMPLES)
 samples: $(DIRS_SAMPLES)
@@ -260,8 +266,34 @@ $(DOCDIR)/index.md: $(DOCDIR)/.make $(ROOTDIR)/Makefile $(ROOTDIR)/README.md
 		-e "s/](${DOCDIR}\//](/g" \
 		-e 'N;/^\n$$/d;P;D' \
 		>$@
+	@$(CP) $(ROOTDIR)/LICENSE.md $(DOCDIR)/LICENSE.md
 
-$(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/$(DOCDIR)/index.md \
+$(DOCDIR)/$(PROJECT)_scripts.md: $(DOCDIR)/.make $(ROOTDIR)/Makefile $(ROOTSCR)/README.md
+	@$(SED) $(ROOTSCR)/README.md \
+		-e 's/\[!\[..*\](..*)\](..*)//g' \
+		-e 's/\[\[..*\](..*)\]//g' \
+		-e "s/](${DOCDIR}\//](/g" \
+		-e 'N;/^\n$$/d;P;D' \
+		>$@
+
+$(DOCDIR)/$(PROJECT)_samples.md: $(DOCDIR)/.make $(DOCDIR)/$(SPLDIR)/.make $(ROOTDIR)/Makefile $(SPLMDS)
+	@for MD in $(SPLMDS); do \
+		$(SED) $${MD} \
+			-e 's/\[!\[..*\](..*)\](..*)//g' \
+			-e 's/\[\[..*\](..*)\]//g' \
+			-e "s/](${DOCDIR}\//](/g" \
+			-e 'N;/^\n$$/d;P;D' \
+			>$(DOCDIR)/$(SPLDIR)/$(PROJECT)_$$(basename $$(dirname $${MD})).md; \
+	done
+	@$(SED) $(SPLMDS) \
+		-e 's/^#/##/' \
+		-e 's/<sub>/~/g' -e 's/<\/sub>/~/g' \
+		-e 's/<sup>/^/g' -e 's/<\/sup>/^/g' \
+		-e 's/----*//g' \
+		-e '1s/^/# [$(PROJUPP) Samples](https:\/\/github.com\/hfp\/$(PROJECT)\/raw\/main\/$(DOCDIR)\/$(PROJECT)_samples.pdf)\n\n/' \
+		>$@
+
+$(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ABSDIR)/$(DOCDIR)/index.md $(ABSDIR)/$(DOCDIR)/$(PROJECT)_scripts.md $(DOCMDS)
 	$(eval TMPFILE = $(shell $(MKTEMP) $(ROOTDIR)/$(DOCDIR)/.$(PROJECT)_XXXXXX.tex))
 	@pandoc -D latex \
 	| $(SED) \
@@ -270,14 +302,13 @@ $(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/$(DOCDIR)/index.md \
 		-e 's/\(\\usepackage.*{hyperref}\)/\\usepackage[hyphens]{url}\n\1/' \
 		>$(TMPFILE)
 	@cd $(ROOTDIR)/$(DOCDIR) && ( \
-		iconv -t utf-8 index.md && echo && \
+		iconv -t utf-8 $(ABSDIR)/$(DOCDIR)/index.md && echo && \
 		echo "# $(PROJUPP) Domains" && \
-		iconv -t utf-8 libxstream_mm.md && echo && \
-		iconv -t utf-8 libxstream_be.md && echo && \
+		for DOC in $(DOCMDS); do \
+			$(SED) "s/^\(##*\) /#\1 /" $${DOC} | iconv -t utf-8 && echo; \
+		done && \
 		echo "# Appendix" && \
-		$(SED) "s/^\(##*\) /#\1 /" libxstream_compat.md | iconv -t utf-8 && \
-		$(SED) "s/^\(##*\) /#\1 /" libxstream_valid.md | iconv -t utf-8 && \
-		$(SED) "s/^\(##*\) /#\1 /" libxstream_qna.md | iconv -t utf-8; ) \
+		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_scripts.md | iconv -t utf-8; ) \
 	| $(SED) \
 		-e 's/<sub>/~/g' -e 's/<\/sub>/~/g' \
 		-e 's/<sup>/^/g' -e 's/<\/sup>/^/g' \
@@ -295,22 +326,7 @@ $(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/$(DOCDIR)/index.md \
 		-o $(call qndir,$@)
 	@rm $(TMPFILE)
 
-$(DOCDIR)/libxstream_samples.md: $(ROOTDIR)/Makefile $(ROOTDIR)/$(SPLDIR)/*/README.md $(ROOTDIR)/$(SPLDIR)/deeplearning/*/README.md $(ROOTDIR)/$(UTLDIR)/*/README.md
-	@cd $(ROOTDIR)
-	@if [ "$$(command -v git)" ] && [ "$$(git ls-files version.txt)" ]; then \
-		git ls-files $(SPLDIR)/*/README.md $(SPLDIR)/deeplearning/*/README.md $(UTLDIR)/*/README.md | xargs -I {} cat {}; \
-	else \
-		cat $(SPLDIR)/*/README.md $(SPLDIR)/deeplearning/*/README.md $(UTLDIR)/*/README.md; \
-	fi \
-	| $(SED) \
-		-e 's/^#/##/' \
-		-e 's/<sub>/~/g' -e 's/<\/sub>/~/g' \
-		-e 's/<sup>/^/g' -e 's/<\/sup>/^/g' \
-		-e 's/----*//g' \
-		-e '1s/^/# [$(PROJUPP) Samples](https:\/\/github.com\/$(PROJECT)\/$(PROJECT)\/raw\/main\/documentation\/libxstream_samples.pdf)\n\n/' \
-		>$@
-
-$(DOCDIR)/libxstream_samples.$(DOCEXT): $(ROOTDIR)/$(DOCDIR)/libxstream_samples.md
+$(DOCDIR)/$(PROJECT)_samples.$(DOCEXT): $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md
 	$(eval TMPFILE = $(shell $(MKTEMP) .$(PROJECT)_XXXXXX.tex))
 	@pandoc -D latex \
 	| $(SED) \
@@ -318,7 +334,20 @@ $(DOCDIR)/libxstream_samples.$(DOCEXT): $(ROOTDIR)/$(DOCDIR)/libxstream_samples.
 		-e 's/\\usepackage{listings}/\\usepackage{listings}\\lstset{basicstyle=\\footnotesize\\ttfamily,showstringspaces=false}/' \
 		-e 's/\(\\usepackage.*{hyperref}\)/\\usepackage[hyphens]{url}\n\1/' \
 		>$(TMPFILE)
-	@iconv -t utf-8 $(ROOTDIR)/$(DOCDIR)/libxstream_samples.md \
+	@iconv -t utf-8 $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md \
+	| $(SED) \
+		-e 's/\xe2\x88\x92/-/g' \
+		-e 's/\xe2\x89\xa4/<=/g' \
+		-e 's/\xc2\xb7/*/g' \
+		-e 's/\xc3\x97/x/g' \
+		-e 's/\xe2\x80\x93/--/g' \
+		-e 's/\xe2\x80\x94/---/g' \
+		-e 's/\xe2\x80\xa6/.../g' \
+		-e 's/\xe2\x86\x92/->/g' \
+		-e 's/\xc2\xb2/2/g' \
+		-e 's/\xc2\xa0/ /g' \
+		-e 's/\xe2\x80\xaf/ /g' \
+		-e 's/----*//g' \
 	| pandoc \
 		--template=$(TMPFILE) --listings \
 		-f gfm+subscript+superscript \
@@ -332,12 +361,10 @@ $(DOCDIR)/libxstream_samples.$(DOCEXT): $(ROOTDIR)/$(DOCDIR)/libxstream_samples.
 	@rm $(TMPFILE)
 
 .PHONY: documentation
-documentation: \
-$(DOCDIR)/$(PROJECT).$(DOCEXT) \
-$(DOCDIR)/libxstream_samples.$(DOCEXT)
+documentation: $(DOCDIR)/$(PROJECT).$(DOCEXT) $(DOCDIR)/$(PROJECT)_samples.$(DOCEXT)
 
 .PHONY: mkdocs
-mkdocs: $(ROOTDIR)/$(DOCDIR)/index.md $(ROOTDIR)/$(DOCDIR)/libxstream_samples.md
+mkdocs: $(ROOTDIR)/$(DOCDIR)/index.md
 	@mkdocs build --clean
 	@mkdocs serve
 
@@ -492,10 +519,9 @@ ifneq ($(PREFIX),$(ABSDIR))
 	@echo
 	@echo "$(PROJUPP) installing samples..."
 	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)/$(SPLDIR)
-	@$(CP) -v $(addprefix $(ROOTDIR)/$(SPLDIR)/memcmp/,*.x) $(PREFIX)/$(PSHRDIR)/$(SPLDIR) 2>/dev/null || true
-	@$(CP) -v $(addprefix $(ROOTDIR)/$(SPLDIR)/scratch/,*.x) $(PREFIX)/$(PSHRDIR)/$(SPLDIR) 2>/dev/null || true
-	@$(CP) -v $(addprefix $(ROOTDIR)/$(SPLDIR)/shuffle/,*.x) $(PREFIX)/$(PSHRDIR)/$(SPLDIR) 2>/dev/null || true
-	@$(CP) -v $(addprefix $(ROOTDIR)/$(SPLDIR)/sync/,*.x) $(PREFIX)/$(PSHRDIR)/$(SPLDIR) 2>/dev/null || true
+	@for SAMPLE in $(SAMPLES); do \
+		$(CP) -v $(addprefix $(ROOTDIR)/$(SPLDIR)/$${SAMPLE}/,*.x) $(PREFIX)/$(PSHRDIR)/$(SPLDIR) 2>/dev/null || true; \
+	done
 endif
 
 ifeq (Windows_NT,$(UNAME))

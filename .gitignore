@@ -1,10 +1,12 @@
-documentation/.libxstream_*.tex
-include/libxstream_version.h
+.libxstream_*.tex
 lib/libxstream*
 .abi.log
 .state
 .make
+*.json
 *.mod
 *.x
+build
+site
 bin
 obj
