@@ -199,6 +199,7 @@ $(INCDIR)/$(PROJECT)_version.h: $(INCDIR)/.make $(DIRSTATE)/.state $(ROOTSCR)/to
 	@$(CP) $(HEADERS_MAIN) $(INCDIR) 2>/dev/null || true
 	@$(CP) $(SRCFILES) $(HEADERS_SRC) $(SRCDIR) 2>/dev/null || true
 	@$(ROOTSCR)/tool_version.sh $(PROJECT) -1 >$@
+	@$(SED) 's/^\(  VERSION \)[0-9][0-9.]*/\1$(VERSION_STRING)/' $(ROOTDIR)/CMakeLists.txt >$(ROOTDIR)/CMakeLists.tmp 2>/dev/null && mv $(ROOTDIR)/CMakeLists.tmp $(ROOTDIR)/CMakeLists.txt || true
 
 define DEFINE_COMPILE_RULE
 $(1): $(2) $(3) $(dir $(1))/.make
@@ -524,19 +525,6 @@ ifneq ($(PREFIX),$(ABSDIR))
 	done
 endif
 
-ifeq (Windows_NT,$(UNAME))
-  ALIAS_PRIVLIBS := $(call ldlib,$(LD),$(SLDFLAGS),dbghelp)
-else ifneq (Darwin,$(UNAME))
-  ifneq (FreeBSD,$(UNAME))
-    ALIAS_PRIVLIBS := $(LIBPTHREAD) $(LIBRT) $(LIBDL) $(LIBM) $(LIBC)
-  else
-    ALIAS_PRIVLIBS := $(LIBDL) $(LIBM) $(LIBC)
-  endif
-endif
-ifneq (,$(OMPFLAG_FORCE))
-  ALIAS_PRIVLIBS_EXT := -fopenmp
-endif
-
 ALIAS_INCDIR := $(subst $$$$,$(if $(findstring $$$$/,$$$$$(PINCDIR)),,\$${prefix}/),$(subst $$$$$(ALIAS_PREFIX),\$${prefix},$$$$$(PINCDIR)))
 ALIAS_LIBDIR := $(subst $$$$,$(if $(findstring $$$$/,$$$$$(POUTDIR)),,\$${prefix}/),$(subst $$$$$(ALIAS_PREFIX),\$${prefix},$$$$$(POUTDIR)))
 
@@ -552,14 +540,13 @@ $(OUTDIR)/$(PROJECT)-static.pc: $(OUTDIR)/$(PROJECT).$(SLIBEXT)
 	@echo "libdir=$(ALIAS_LIBDIR)" >>$@
 	@echo >>$@
 	@echo "Cflags: -I\$${includedir}" >>$@
-  ifneq (,$(ALIAS_PRIVLIBS))
   ifneq (Windows_NT,$(UNAME))
-	@echo "Libs: -L\$${libdir} -l:$(PROJECT).$(SLIBEXT) $(ALIAS_PRIVLIBS)" >>$@
+	@echo "Libs: -L\$${libdir} -l:$(PROJECT).$(SLIBEXT)" >>$@
   else
-	@echo "Libs: -L\$${libdir} -lxsmm $(ALIAS_PRIVLIBS)" >>$@
-  endif
-  else # no private libraries
 	@echo "Libs: -L\$${libdir} -lxsmm" >>$@
+  endif
+  ifneq (,$(LIBXS))
+	@echo "Requires.private: libxs-static" >>$@
   endif
   ifeq (,$(filter-out 0 2,$(BUILD)))
 	@ln -fs $(notdir $@) $(OUTDIR)/$(PROJECT).pc
@@ -580,11 +567,9 @@ $(OUTDIR)/$(PROJECT)-shared.pc: $(OUTDIR)/$(PROJECT).$(DLIBEXT)
 	@echo "libdir=$(ALIAS_LIBDIR)" >>$@
 	@echo >>$@
 	@echo "Cflags: -I\$${includedir}" >>$@
-  ifneq (,$(ALIAS_PRIVLIBS))
 	@echo "Libs: -L\$${libdir} -lxsmm" >>$@
-	@echo "Libs.private: $(ALIAS_PRIVLIBS)" >>$@
-  else # no private libraries
-	@echo "Libs: -L\$${libdir} -lxsmm" >>$@
+  ifneq (,$(LIBXS))
+	@echo "Requires.private: libxs" >>$@
   endif
   ifeq (,$(filter-out 1,$(BUILD)))
 	@ln -fs $(notdir $@) $(OUTDIR)/$(PROJECT).pc
