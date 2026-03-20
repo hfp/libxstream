@@ -47,8 +47,8 @@ $func_attr = {subgroup_size=$sgs, work_group_size=[$wg_size_x,$wg_size_y]}
 ; sq:         0 for triangular+mirror iteration, 1 for full square
 
 func @ozaki1(
-        %A: memref<i8x?x?x?> {shape_gcd=[$BM,1,1], stride_gcd=[1,16,64]},
-        %B: memref<i8x?x?x?> {shape_gcd=[1,$BN,1], stride_gcd=[1,16,64]},
+        %A: memref<i8x?x?x?> {shape_gcd=[$BM,$BN], stride_gcd=[1,16,64]},
+        %B: memref<i8x?x?x?> {shape_gcd=[$BM,$BN], stride_gcd=[1,16,64]},
         %C: memref<i32x?x?> {shape_gcd=[$BM,$BN], stride_gcd=[1,4]},
         %C_acc: memref<$ty x?x?> {stride_gcd=[1,4]},
         %eA: memref<$ty x?>,
@@ -66,8 +66,9 @@ func @ozaki1(
     %row_offset = mul %row_block, %BM : index
     %col_offset = mul %col_block, %BN : index
 
-    %K = size %A[1] : index
+    %K = size %B[0] : index
     %c0 = constant 0 : index
+    %bk = constant $bk : index
     %c0_i32 = constant 0 : i32
     %c1_i32 = constant 1 : i32
     %nslices_idx = cast %nslices : index
@@ -163,14 +164,17 @@ func @ozaki1(
                 $fmat_t = coopmatrix<$ty x $bm_acc x $bn_acc,matrix_acc>
                 $imat32_t = coopmatrix<i32x $bm_acc x $bn_acc,matrix_acc>
 
-                ; Load exponent tiles and apply pair scale + alpha
-                %ea = cooperative_matrix_load %eA_mat[%i2,%c0] : coopmatrix<$ty x $bm_acc x 1,matrix_a>
-                %eb = cooperative_matrix_load %eB_mat[%c0,%j2] : coopmatrix<$ty x 1 x $bn_acc,matrix_b>
-                %scale_ea = cooperative_matrix_scale %alpha_scale, %ea : coopmatrix<$ty x $bm_acc x 1,matrix_a>
+                ; Load FP exponent tiles, apply scale
+                %ea_fp = cooperative_matrix_load %eA_mat[%i2,%c0] : coopmatrix<$ty x $bm_acc x 1,matrix_acc>
+                %ea_a = cast %ea_fp : coopmatrix<$ty x $bm_acc x 1,matrix_a>
+                %scale_ea = cooperative_matrix_scale %alpha_scale, %ea_a : coopmatrix<$ty x $bm_acc x 1,matrix_a>
+
+                %eb_fp = cooperative_matrix_load %eB_mat[%c0,%j2] : coopmatrix<$ty x 1 x $bn_acc,matrix_acc>
+                %eb_b = cast %eb_fp : coopmatrix<$ty x 1 x $bn_acc,matrix_b>
 
                 ; scale_ea_eb[m,n] = alpha_scale * eA[m] * eB[n]
                 %zero_f = constant 0.0 : $fmat_t
-                %scale_ea_eb = cooperative_matrix_mul_add %scale_ea, %eb, %zero_f : $fmat_t
+                %scale_ea_eb = cooperative_matrix_mul_add %scale_ea, %eb_b, %zero_f : $fmat_t
 
                 ; Load i32 tile, convert to FP, apply scale
                 %I2 = add %row_offset, %i2 : index
