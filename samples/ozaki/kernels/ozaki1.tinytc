@@ -1,0 +1,194 @@
+; Copyright (C) 2025 Intel Corporation
+; SPDX-License-Identifier: BSD-3-Clause
+;
+; Ozaki-1 fused GEMM kernel for TinyTC.
+; Performs tiled int8 GEMM across all slice pairs with inline
+; exponent scaling and FP accumulation.
+;
+; Compile-time parameters (prepended before parsing):
+;   $ty        - accumulator/exponent type (f64 or f32)
+;   $bm        - cooperative matrix rows for int8 GEMM
+;   $bn        - cooperative matrix cols for int8 GEMM
+;   $bk        - K-step for cooperative matrix multiply
+;   $BM        - output tile rows per work-group
+;   $BN        - output tile cols per work-group
+;   $sgs       - sub-group size (16)
+;   $mant_bits - mantissa bits per slice (7)
+;   $bm_acc    - cooperative matrix rows for FP accumulation
+;   $bn_acc    - cooperative matrix cols for FP accumulation
+
+;$ty = f64
+;$bm = 64
+;$bn = 32
+;$bk = 32
+;$BM = 256
+;$BN = 256
+;$sgs = 16
+;$mant_bits = 7
+;$bm_acc = 64
+;$bn_acc = 8
+
+$num_sg_x = !calc($BM $bm /)
+$num_sg_y = !calc($BN $bn /)
+$wg_size_x = !calc($num_sg_x $sgs *)
+$wg_size_y = $num_sg_y
+$func_attr = {subgroup_size=$sgs, work_group_size=[$wg_size_x,$wg_size_y]}
+
+; A:          preprocessed int8 slices [M_pad, K_pad, nslices]
+; B:          preprocessed int8 slices [K_pad, N_pad, nslices]
+; C:          scratch i32 accumulator  [M_total, N_total]
+; C_acc:      output FP matrix         [M_total, N_total]
+; eA:         per-row exponents as FP  [M_total]  (value = 2*max_biased_exp)
+; eB:         per-col exponents as FP  [N_total]  (value = 2*max_biased_exp)
+; gemm_alpha: GEMM scalar alpha
+; nslices:    number of decomposition slices
+; cutoff:     maximum sa+sb sum (2*(nslices-1) - oztrim)
+; first_pair: 1 if beta==0 (overwrite C_acc on first write), 0 to always add
+; sq:         0 for triangular+mirror iteration, 1 for full square
+
+func @ozaki1(
+        %A: memref<i8x?x?x?> {shape_gcd=[$BM,1,1], stride_gcd=[1,16,64]},
+        %B: memref<i8x?x?x?> {shape_gcd=[1,$BN,1], stride_gcd=[1,16,64]},
+        %C: memref<i32x?x?> {shape_gcd=[$BM,$BN], stride_gcd=[1,4]},
+        %C_acc: memref<$ty x?x?> {stride_gcd=[1,4]},
+        %eA: memref<$ty x?>,
+        %eB: memref<$ty x?>,
+        %gemm_alpha: $ty,
+        %nslices: i32,
+        %cutoff: i32,
+        %first_pair: i32,
+        %sq: i32
+    ) attributes $func_attr {
+    %row_block = group_id.x : index
+    %col_block = group_id.y : index
+    %BM = constant $BM : index
+    %BN = constant $BN : index
+    %row_offset = mul %row_block, %BM : index
+    %col_offset = mul %col_block, %BN : index
+
+    %K = size %A[1] : index
+    %c0 = constant 0 : index
+    %c0_i32 = constant 0 : i32
+    %c1_i32 = constant 1 : i32
+    %nslices_idx = cast %nslices : index
+    %sq_ne_0 = not_equal %sq, %c0_i32 : bool
+
+    for %sa_idx=%c0,%nslices_idx {
+        %sa = cast %sa_idx : i32
+
+        ; sb_start: sa for triangular (sq=0), 0 for square (sq=1)
+        %sb_start_idx = if %sq_ne_0 -> (index) {
+            yield (%c0)
+        } else {
+            yield (%sa_idx)
+        }
+
+        ; sb_end: min(nslices, cutoff + 1 - sa)
+        %cut_minus_sa = sub %cutoff, %sa : i32
+        %sb_lim = add %cut_minus_sa, %c1_i32 : i32
+        %sb_end_i32 = min %sb_lim, %nslices : i32
+        %sb_end_idx = cast %sb_end_i32 : index
+
+        for %sb_idx=%sb_start_idx,%sb_end_idx {
+            %sb = cast %sb_idx : i32
+
+            ; === Phase 1: int8 DPAS for pair (sa, sb) ===
+            %a_view = subview %A[%row_offset:$BM, 0:%K, %sa_idx] : memref<i8x $BM x ?,strided<1,?>>
+            %b_view = subview %B[0:%K, %col_offset:$BN, %sb_idx] : memref<i8x ? x $BN,strided<1,?>>
+            %c_view = subview %C[%row_offset:$BM, %col_offset:$BN] : memref<i32x $BM x $BN,strided<1,?>>
+
+            foreach_tile (%i,%j)=(%c0,%c0),(%BM,%BN) as (%ti,%tj) <= ($bm,$bn) {
+                $acc_mat_t = coopmatrix<i32x $bm x $bn,matrix_acc>
+                %c_zero = constant 0 : $acc_mat_t
+                %c_gemm = for %k=%c0,%K,%bk init(%c_iter=%c_zero) -> ($acc_mat_t) {
+                    %aa = cooperative_matrix_load %a_view[%i,%k] : coopmatrix<i8x $bm x $bk,matrix_a>
+                    %bb = cooperative_matrix_load %b_view[%k,%j] : coopmatrix<i8x $bk x $bn,matrix_b>
+                    %k_next = add %k, %bk : index
+                    cooperative_matrix_prefetch 0, %a_view[%i,%k_next], $bm, $bk
+                    cooperative_matrix_prefetch 0, %b_view[%k_next,%j], $bk, $bn
+                    %c_next = cooperative_matrix_mul_add %aa, %bb, %c_iter : $acc_mat_t
+                    yield (%c_next)
+                } attributes{unroll=2}
+
+                ; Triangular mirror: if sq==0 and sa!=sb, also DPAS for (sb,sa)
+                %sa_eq_sb = equal %sa, %sb : bool
+                %skip_mirror = or %sq_ne_0, %sa_eq_sb : bool
+                %c_final = if %skip_mirror -> ($acc_mat_t) {
+                    yield (%c_gemm)
+                } else {
+                    %a_mir = subview %A[%row_offset:$BM, 0:%K, %sb_idx] : memref<i8x $BM x ?,strided<1,?>>
+                    %b_mir = subview %B[0:%K, %col_offset:$BN, %sa_idx] : memref<i8x ? x $BN,strided<1,?>>
+                    %c_mir = for %km=%c0,%K,%bk init(%cm_iter=%c_gemm) -> ($acc_mat_t) {
+                        %aam = cooperative_matrix_load %a_mir[%i,%km] : coopmatrix<i8x $bm x $bk,matrix_a>
+                        %bbm = cooperative_matrix_load %b_mir[%km,%j] : coopmatrix<i8x $bk x $bn,matrix_b>
+                        %cm_next = cooperative_matrix_mul_add %aam, %bbm, %cm_iter : $acc_mat_t
+                        yield (%cm_next)
+                    } attributes{unroll=2}
+                    yield (%c_mir)
+                }
+
+                cooperative_matrix_store %c_final, %c_view[%i,%j]
+            }
+
+            barrier.local
+
+            ; === Phase 2: FP scaling and accumulation ===
+            ; Scale: gemm_alpha * 2^(2 - (sa+sb+2) * mant_bits)
+            ;        * eA[row] * eB[col]
+            ; where eA/eB encode 2*max_biased_exponent as FP (so that
+            ; scale_ea * scale_eb gives the correct power-of-2 contribution).
+            %step = add %sa, %sb : i32
+            %c2_i32 = constant 2 : i32
+            %step_plus_2 = add %step, %c2_i32 : i32
+            %mant = constant $mant_bits : i32
+            %scale0 = mul %step_plus_2, %mant : i32
+            %scale1 = sub %c2_i32, %scale0 : i32
+            %scale1_fp = cast %scale1 : $ty
+            %pair_scale = native_exp2 %scale1_fp : $ty
+            %alpha_scale = mul %gemm_alpha, %pair_scale : $ty
+
+            %eA_sub = subview %eA[%row_offset:$BM] : memref<$ty x $BM>
+            %eB_sub = subview %eB[%col_offset:$BN] : memref<$ty x $BN>
+            %eA_mat = expand %eA_sub[0->$BM x 1] : memref<$ty x $BM x 1>
+            %eB_mat = expand %eB_sub[0->1 x $BN] : memref<$ty x 1 x $BN>
+
+            ; Decide whether to accumulate (add to existing C_acc) or overwrite
+            %is_first_write = equal %step, %c0_i32 : bool
+            %fp_ne_0 = not_equal %first_pair, %c0_i32 : bool
+            ; Overwrite when: first_pair!=0 AND step==0
+            ; Accumulate otherwise
+            %do_overwrite = and %fp_ne_0, %is_first_write : bool
+
+            foreach_tile (%i2,%j2)=(%c0,%c0),(%BM,%BN) as (%ti2,%tj2)<=($bm_acc,$bn_acc) {
+                $fmat_t = coopmatrix<$ty x $bm_acc x $bn_acc,matrix_acc>
+                $imat32_t = coopmatrix<i32x $bm_acc x $bn_acc,matrix_acc>
+
+                ; Load exponent tiles and apply pair scale + alpha
+                %ea = cooperative_matrix_load %eA_mat[%i2,%c0] : coopmatrix<$ty x $bm_acc x 1,matrix_a>
+                %eb = cooperative_matrix_load %eB_mat[%c0,%j2] : coopmatrix<$ty x 1 x $bn_acc,matrix_b>
+                %scale_ea = cooperative_matrix_scale %alpha_scale, %ea : coopmatrix<$ty x $bm_acc x 1,matrix_a>
+
+                ; scale_ea_eb[m,n] = alpha_scale * eA[m] * eB[n]
+                %zero_f = constant 0.0 : $fmat_t
+                %scale_ea_eb = cooperative_matrix_mul_add %scale_ea, %eb, %zero_f : $fmat_t
+
+                ; Load i32 tile, convert to FP, apply scale
+                %I2 = add %row_offset, %i2 : index
+                %J2 = add %col_offset, %j2 : index
+                %c_tmp = cooperative_matrix_load %C[%I2,%J2] : $imat32_t
+                %c_tmp_f = cast %c_tmp : $fmat_t
+                %c_tmp_f_scaled = mul %c_tmp_f, %scale_ea_eb : $fmat_t
+
+                ; Accumulate or overwrite
+                %result = if %do_overwrite -> ($fmat_t) {
+                    yield (%c_tmp_f_scaled)
+                } else {
+                    %c_in = cooperative_matrix_load %C_acc[%I2,%J2] : $fmat_t
+                    %result_add = add %c_in, %c_tmp_f_scaled : $fmat_t
+                    yield (%result_add)
+                }
+                cooperative_matrix_store %result, %C_acc[%I2,%J2]
+            }
+        }
+    }
+}
