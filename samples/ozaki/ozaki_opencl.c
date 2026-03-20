@@ -595,9 +595,10 @@ void ozaki_destroy(ozaki_context_t* ctx)
       {
         libxs_malloc_pool_info_t info;
         if (EXIT_SUCCESS == libxs_malloc_pool_info(pool, &info)) {
+          const int peak = (int)LIBXS_UPDIV(info.peak, (size_t)1 << 20);
           const int size = (int)LIBXS_UPDIV(info.size, (size_t)1 << 20);
-          printf("POOL: size_mb=%i nmallocs=%lu\n", size,
-            (unsigned long int)info.nmallocs);
+          printf("POOL: peak_mb=%i size_mb=%i nmallocs=%lu\n",
+            peak, size, (unsigned long int)info.nmallocs);
         }
       }
       libxs_free_pool(pool);
