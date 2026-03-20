@@ -147,7 +147,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     }
   }
   if (2 == kind && 20 < ndecomp) ndecomp = 20;
-  if (0 > ozflags) ozflags = OZAKI_TRIANGULAR;
+  if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   ctx->use_double = use_double;
   ctx->use_xmx = use_xmx;
@@ -306,6 +306,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + goff, sizeof(build_params) - goff,
           " -DOZAKI_SCALAR_ACC=1");
       }
+      if (NULL != getenv("OZAKI_TINYTC")) {
+        goff += (size_t)LIBXS_SNPRINTF(
+          build_params + goff, sizeof(build_params) - goff,
+          " -DOZAKI_TRANSPOSE_AB");
+      }
       (void)goff;
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
@@ -352,6 +357,55 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         if (NULL != ctx->kern_scale_beta) {
           clReleaseKernel(ctx->kern_scale_beta);
           ctx->kern_scale_beta = NULL;
+        }
+      }
+    }
+    /* Optional TinyTC SPIR-V kernel (OZAKI_TINYTC=path-to-.clx) */
+    ctx->kern_tinytc = NULL;
+    ctx->prog_tinytc = NULL;
+    if (1 == kind) {
+      const char* tinytc_path = getenv("OZAKI_TINYTC");
+      if (NULL != tinytc_path) {
+        FILE* f = fopen(tinytc_path, "rb");
+        if (NULL != f) {
+          long fsize; void* spirv; cl_int clerr;
+          fseek(f, 0, SEEK_END); fsize = ftell(f); rewind(f);
+          spirv = malloc((size_t)fsize);
+          if (NULL != spirv
+              && (long)fread(spirv, 1, (size_t)fsize, f) == fsize)
+          {
+#if defined(CL_VERSION_2_1)
+            cl_program prog = clCreateProgramWithIL(
+              devinfo->context, spirv, (size_t)fsize, &clerr);
+            if (CL_SUCCESS == clerr) {
+              clerr = clBuildProgram(
+                prog, 1, &device, build_options, NULL, NULL);
+              if (CL_SUCCESS == clerr) {
+                ctx->kern_tinytc = clCreateKernel(
+                  prog, "ozaki1", &clerr);
+                if (CL_SUCCESS != clerr) {
+                  ctx->kern_tinytc = clCreateKernel(
+                    prog, "gemm_fused", &clerr);
+                }
+              }
+              if (CL_SUCCESS != clerr) {
+                if (NULL != prog) clReleaseProgram(prog);
+              }
+              else ctx->prog_tinytc = prog;
+            }
+#else
+            clerr = CL_INVALID_OPERATION;
+#endif
+          }
+          free(spirv);
+          fclose(f);
+          if (NULL != ctx->kern_tinytc
+            && (0 > verbosity || 2 < verbosity))
+          {
+            fprintf(stderr,
+              "INFO OZAKI: TinyTC kernel loaded from %s\n",
+              tinytc_path);
+          }
         }
       }
     }
@@ -551,6 +605,12 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->kern_scale_beta) {
       clReleaseKernel(ctx->kern_scale_beta);
     }
+    if (NULL != ctx->kern_tinytc) {
+      clReleaseKernel(ctx->kern_tinytc);
+    }
+    if (NULL != ctx->prog_tinytc) {
+      clReleaseProgram(ctx->prog_tinytc);
+    }
     if (NULL != ctx->kern_crt_preprocess_a) {
       clReleaseKernel(ctx->kern_crt_preprocess_a);
     }
@@ -666,7 +726,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
-    void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
+    void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL, *d_scratch = NULL;
     void *h_as = NULL, *h_expa = NULL, *h_bs = NULL, *h_expb = NULL;
     int first_pair;
     int n_profiled = 0;
@@ -678,8 +738,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     as_size   = (size_t)nslices_g * m_pad * k_pad;
     bs_size   = (size_t)nslices_g * k_pad * n_pad;
-    expa_size = (size_t)nblk_gm * tm * sizeof(cl_int); /* pad to tile boundary */
-    expb_size = (size_t)nblk_gn * tn * sizeof(cl_int);
+    { const size_t exp_elem = (NULL != ctx->kern_tinytc) ? elem_size : sizeof(cl_int);
+      expa_size = (size_t)nblk_gm * tm * exp_elem;
+      expb_size = (size_t)nblk_gn * tn * exp_elem;
+    }
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
     /* Preprocessing cache: reuse slices+exponents when matrix unchanged */
@@ -710,6 +772,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
     }
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
+    if (EXIT_SUCCESS == result && NULL != ctx->kern_tinytc) {
+      result = OZAKI_DEV_ALLOC(&d_scratch, (size_t)M * N * sizeof(cl_int));
+    }
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
       result = OZAKI_DEV_ALLOC(&d_as, as_size);
     }
@@ -763,6 +828,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (NULL != h_as && NULL != h_expa) {
         ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad,
           nslices_g, ctx->use_xmx, h_as, h_expa);
+        if (NULL != ctx->kern_tinytc) { /* convert int exponents to FP */
+          int ii;
+          for (ii = M - 1; ii >= 0; --ii) {
+            const cl_long bits = (cl_long)((cl_int*)h_expa)[ii] << (ctx->use_double ? 52 : 23);
+            memcpy((char*)h_expa + (size_t)ii * elem_size, &bits, elem_size);
+          }
+        }
         result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
         if (EXIT_SUCCESS == result) {
           result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
@@ -805,6 +877,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (NULL != h_bs && NULL != h_expb) {
         ctx->host_preprocess_b(b, ldb, tb, N, K, k_pad, n_pad,
           nslices_g, ctx->use_xmx, h_bs, h_expb);
+        if (NULL != ctx->kern_tinytc) { /* convert int exponents to FP */
+          int ii;
+          for (ii = N - 1; ii >= 0; --ii) {
+            const cl_long bits = (cl_long)((cl_int*)h_expb)[ii] << (ctx->use_double ? 52 : 23);
+            memcpy((char*)h_expb + (size_t)ii * elem_size, &bits, elem_size);
+          }
+        }
         result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
         if (EXIT_SUCCESS == result) {
           result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
@@ -902,8 +981,98 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     /* Tiled GEMM phase: single kernel launch over all slice pairs */
     first_pair = (0.0 == beta) ? 1 : 0;
-    { const int sq = (ctx->ozflags & OZAKI_TRIANGULAR) ? 0 : 1;
+    { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
       size_t global_g[2], local_g[2];
+      if (NULL != ctx->kern_tinytc) {
+        /* TinyTC SPIR-V kernel (two-phase): memref calling convention.
+         * BM/BN baked into the .clx; read from OZAKI_TINYTC_BM/BN
+         * or default to 256. M and N must be multiples of BM/BN. */
+        int BM_TC = 256, BN_TC = 256;
+        int nblk_tc_m, nblk_tc_n;
+        { const char* ev = getenv("OZAKI_TINYTC_BM");
+          if (NULL != ev && 0 < atoi(ev)) BM_TC = atoi(ev);
+          ev = getenv("OZAKI_TINYTC_BN");
+          if (NULL != ev && 0 < atoi(ev)) BN_TC = atoi(ev);
+        }
+        nblk_tc_m = (M + BM_TC - 1) / BM_TC;
+        nblk_tc_n = (N + BN_TC - 1) / BN_TC;
+        if (0 == M % BM_TC && 0 == N % BN_TC) {
+          cl_long a_s0 = m_pad, a_s1 = k_pad, a_s2 = nslices_g;
+          cl_long a_st1 = m_pad, a_st2 = (cl_long)m_pad * k_pad;
+          cl_long b_s0 = k_pad, b_s1 = n_pad, b_s2 = nslices_g;
+          cl_long b_st1 = k_pad, b_st2 = (cl_long)k_pad * n_pad;
+          cl_long sc_s0 = (cl_long)M, sc_s1 = (cl_long)N;
+          cl_long sc_st1 = (cl_long)M;
+          cl_long ca_s0 = m_pad, ca_s1 = n_pad, ca_st1 = (cl_long)ldc;
+          cl_long ea_s0 = (cl_long)M, eb_s0 = (cl_long)N;
+          cl_int i = 0;
+          /* A: memref<i8x?x?x?> -> ptr, 3 shapes, 2 strides */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s0));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s2));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st2));
+          /* B: memref<i8x?x?x?> -> ptr, 3 shapes, 2 strides */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s0));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s2));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st2));
+          /* C: memref<i32x?x?> scratch -> ptr, 2 shapes, 1 stride */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s0));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_st1));
+          /* C_acc: memref<$ty x?x?> -> ptr, 2 shapes, 1 stride */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s0));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_st1));
+          /* eA: memref<i32x?> -> ptr, 1 shape */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ea_s0));
+          /* eB: memref<f64x?> -> ptr, 1 shape */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &eb_s0));
+          if (NULL == getenv("OZAKI_TINYTC_REF")) {
+          /* gemm_alpha */
+          if (ctx->use_double) {
+            double dalpha = alpha;
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(double), &dalpha));
+          }
+          else {
+            float falpha = (float)alpha;
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(float), &falpha));
+          }
+          /* nslices, cutoff */
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &nslices_g));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &cutoff));
+          /* first_pair */
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &first_pair));
+          /* sq (ozflags bitmask) */
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &sq));
+          } /* OZAKI_TINYTC_REF */
+          { size_t cwgs[3] = {0, 0, 0};
+            cl_device_id device = libxstream_opencl_config.devices[
+              libxstream_opencl_config.device_id];
+            clGetKernelWorkGroupInfo(ctx->kern_tinytc, device,
+              CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(cwgs), cwgs, NULL);
+            local_g[0] = cwgs[0]; local_g[1] = cwgs[1];
+            global_g[0] = (size_t)nblk_tc_m * local_g[0];
+            global_g[1] = (size_t)nblk_tc_n * local_g[1];
+          }
+          CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_tinytc, 2,
+              NULL, global_g, local_g, 0, NULL,
+              (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
+                ? (evt_prof + n_profiled) : NULL));
+          if (EXIT_SUCCESS == result && NULL != evt_prof
+              && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
+        } /* if M%BM_TC==0 && N%BN_TC==0 */
+        else goto tinytc_fallback;
+      }
+      else { tinytc_fallback: /* Original OpenCL fused kernel */
       local_g[0] = 16;
       local_g[1] = (size_t)(ntm * ntn);
       global_g[0] = (size_t)nblk_gm * local_g[0];
@@ -939,6 +1108,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
             ? (evt_prof + n_profiled) : NULL));
       if (EXIT_SUCCESS == result && NULL != evt_prof
           && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
+      } /* else: original kernel */
     }
 
     /* Collect profiling data */
@@ -963,6 +1133,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
 
     OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
+    OZAKI_DEV_FREE(d_scratch);
     if (d_as != ctx->cache.a.d_slices) OZAKI_DEV_FREE(d_as);
     if (d_bs != ctx->cache.b.d_slices) OZAKI_DEV_FREE(d_bs);
     if (d_expa_g != ctx->cache.a.d_exp) OZAKI_DEV_FREE(d_expa_g);
