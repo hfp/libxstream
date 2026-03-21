@@ -15,15 +15,15 @@
 ;   $bm_acc/$bn_acc - accumulation phase tile sizes
 
 ;$ty = f64
-;$bm = 32
-;$bn = 32
-;$bk = 32
-;$BM = 256
-;$BN = 128
-;$sgs = 16
-;$alpha = 7
-;$bm_acc = 64
-;$bn_acc = 8
+$bm = 32
+$bn = 32
+$bk = 32
+$BM = 256
+$BN = 128
+$sgs = 16
+$alpha = 7
+$bm_acc = 64
+$bn_acc = 8
 
 $num_sg_x = !calc($BM $bm /)
 $num_sg_y = !calc($BN $bn /)
@@ -46,34 +46,33 @@ func @ozaki1(
     %row_offset = mul %row_block, %BM : index
     %col_offset = mul %col_block, %BN : index
 
-    %K = size %B[0] : index
-    %num_splits = size %B[2] : index
+    %K = size %A[0] : index
+    %num_splits = size %A[2] : index
 
     %c0 = constant 0 : index
     %bk = constant $bk : index
     for %p=%c0,%num_splits {
-        %q_max = sub %num_splits, %p : index
-        for %q=%c0,%q_max {
-            %a = subview %A[%row_offset:$BM,0:%K,%p] : memref<i8x $BM x ?,strided<1,?>>
-            %b = subview %B[0:%K,%col_offset:$BN,%q] : memref<i8x ? x $BN,strided<1,?>>
+        for %q=%c0,%num_splits {
+            %a = subview %A[0:%K,%row_offset:$BM,%p] : memref<i8x ? x $BM,strided<1,?>>
+            %b = subview %B[%col_offset:$BN,0:%K,%q] : memref<i8x $BN x ?,strided<1,?>>
             %c = subview %C[%row_offset:$BM,%col_offset:$BN] : memref<i32x $BM x $BN,strided<1,?>>
 
             foreach_tile (%i,%j)=(%c0,%c0),(%BM,%BN) as (%ti,%tj) <= ($bm,$bn) {
                 $acc_mat_t = coopmatrix<i32x $bm x $bn,matrix_acc>
                 %c_init = constant 0 : $acc_mat_t
                 %c_acc = for %k=%c0,%K,%bk init(%c_iter=%c_init) -> ($acc_mat_t) {
-                    %aa = cooperative_matrix_load %a[%i,%k] : coopmatrix<i8x $bm x $bk,matrix_a>
-                    %bb = cooperative_matrix_load %b[%k,%j] : coopmatrix<i8x $bk x $bn,matrix_b>
+                    %aa = cooperative_matrix_load.t %a[%k,%i] : coopmatrix<i8x $bm x $bk,matrix_a>
+                    %bb = cooperative_matrix_load.t %b[%j,%k] : coopmatrix<i8x $bk x $bn,matrix_b>
                     %k_next = add %k, %bk : index
-                    cooperative_matrix_prefetch 0, %a[%i,%k_next], $bm, $bk
-                    cooperative_matrix_prefetch 0, %b[%k_next,%j], $bk, $bn
+                    cooperative_matrix_prefetch 0, %a[%k_next,%i], $bk, $bm
+                    cooperative_matrix_prefetch 0, %b[%j,%k_next], $bn, $bk
                     %c_next = cooperative_matrix_mul_add %aa, %bb, %c_iter : $acc_mat_t
                     yield (%c_next)
                 } attributes{unroll=2}
                 cooperative_matrix_store %c_acc, %c[%i,%j]
             }
 
-            barrier.local
+            barrier.global
 
             %step = add %p, %q : index
             %step_i32 = cast %step : i32
@@ -90,7 +89,6 @@ func @ozaki1(
             %eA_mat = expand %eA_sub[0->$BM x 1] : memref<$ty x $BM x 1>
             %eB_mat = expand %eB_sub[0->1 x $BN] : memref<$ty x 1 x $BN>
 
-            %step_gt_0 = greater_than %step, %c0 : bool
             foreach_tile (%i,%j)=(%c0,%c0),(%BM,%BN) as (%ti,%tj)<=($bm_acc,$bn_acc) {
                 $fmat_t = coopmatrix<$ty x $bm_acc x $bn_acc,matrix_acc>
                 $imat32_t = coopmatrix<i32x $bm_acc x $bn_acc,matrix_acc>
@@ -106,13 +104,8 @@ func @ozaki1(
                 %scale_ea_eb = cooperative_matrix_mul_add %scale_ea, %eb, %zero : $fmat_t
                 %c_tmp_f = cast %c_tmp : $fmat_t
                 %c_tmp_f_scaled = mul %c_tmp_f, %scale_ea_eb : $fmat_t
-                %result = if %step_gt_0 -> ($fmat_t) {
-                    %c_in = cooperative_matrix_load %C_acc[%I,%J] : $fmat_t
-                    %result = add %c_in, %c_tmp_f_scaled : $fmat_t
-                    yield (%result)
-                } else {
-                    yield (%c_tmp_f_scaled)
-                }
+                %c_in = cooperative_matrix_load %C_acc[%I,%J] : $fmat_t
+                %result = add %c_in, %c_tmp_f_scaled : $fmat_t
                 cooperative_matrix_store %result, %C_acc[%I,%J]
             }
         }

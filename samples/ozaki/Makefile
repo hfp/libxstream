@@ -35,6 +35,19 @@ ifneq (,$(LIBXS))
   DFLAGS += -D__LIBXS
 endif
 
+# Embed precompiled TinyTC kernels if .clx files are present.
+# Filenames encode BM x BN, e.g. ozaki1_f64_256x128.clx.
+OZAKI_CLX_F64 := $(wildcard $(SRCDIR)/kernels/ozaki1_f64_*x*.clx)
+OZAKI_CLX_F32 := $(wildcard $(SRCDIR)/kernels/ozaki1_f32_*x*.clx)
+ifneq (,$(OZAKI_CLX_F64))
+ifneq (,$(OZAKI_CLX_F32))
+  OZAKI_BMBN := $(lastword $(subst _, ,$(basename $(notdir $(OZAKI_CLX_F64)))))
+  DFLAGS += -DOZAKI_TINYTC_EMBED \
+    -DOZAKI_TINYTC_BM=$(word 1,$(subst x, ,$(OZAKI_BMBN))) \
+    -DOZAKI_TINYTC_BN=$(word 2,$(subst x, ,$(OZAKI_BMBN)))
+endif
+endif
+
 # include directories
 IFLAGS += -I$(call quote,$(DEPDIR)/include)
 IFLAGS += -I$(call quote,$(INCDIR))

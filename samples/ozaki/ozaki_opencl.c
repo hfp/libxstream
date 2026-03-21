@@ -18,6 +18,19 @@
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2_INT8)"
 #endif
 
+#if !defined(OZAKI_TINYTC_BM)
+# define OZAKI_TINYTC_BM 256
+#endif
+#if !defined(OZAKI_TINYTC_BN)
+# define OZAKI_TINYTC_BN 128
+#endif
+#define OZAKI_TINYTC_STR_(X) #X
+#define OZAKI_TINYTC_STR(X) OZAKI_TINYTC_STR_(X)
+#define OZAKI_TINYTC_CLX(TY) \
+  "kernels/ozaki1_" TY "_" \
+  OZAKI_TINYTC_STR(OZAKI_TINYTC_BM) "x" \
+  OZAKI_TINYTC_STR(OZAKI_TINYTC_BN) ".clx"
+
 #if defined(OZAKI_DEVPOOL)
 # define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
   (NULL != pool) \
@@ -56,6 +69,14 @@ static void ozaki_dev_deallocate(void* pointer, const void* extra)
   if (NULL != ctx->stream_b) libxstream_stream_sync(ctx->stream_b);
   libxstream_mem_deallocate(pointer);
 }
+#endif
+
+/* Embed precompiled TinyTC SPIR-V kernels (one per precision).
+ * Filenames encode BM x BN so the Makefile can parse them back.
+ * Build with -DOZAKI_TINYTC_EMBED after running kernels/ozaki1.sh. */
+#if defined(LIBXS_INCBIN) && defined(OZAKI_TINYTC_EMBED)
+LIBXS_INCBIN(ozaki_tinytc_f64, OZAKI_TINYTC_CLX("f64"), 16);
+LIBXS_INCBIN(ozaki_tinytc_f32, OZAKI_TINYTC_CLX("f32"), 16);
 #endif
 
 
@@ -193,6 +214,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     int rtm = 0, rtn = 0, biggrf;
     size_t max_wgs;
     int v;
+    const char* tinytc_source = NULL;
+    size_t tinytc_source_kind = 0;
     char tinytc_path[512];
     int tinytc_avail = 0;
     /* Ozaki-local 256-GRF decision (per-kernel, not global).
@@ -298,29 +321,26 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + goff, sizeof(build_params) - goff,
           " -DOZAKI_SCALAR_ACC=1");
       }
-      /* TinyTC auto-detection: check .clx availability before OpenCL build
-       * so OZAKI_TRANSPOSE_AB can be set for preprocessing layout.
-       * OZAKI_TINYTC=0 disables; OZAKI_TINYTC=path overrides auto-detect. */
+      /* TinyTC kernel selection: disabled by default.
+       * OZAKI_TINYTC=1 enables embedded binary, OZAKI_TINYTC=<path>
+       * loads from file, OZAKI_TINYTC=0 or unset disables. */
       { const char* tinytc_env = getenv("OZAKI_TINYTC");
-        if (NULL != tinytc_env && '0' == *tinytc_env
-          && '\0' == tinytc_env[1])
-        {
-          tinytc_avail = 0;
-        }
-        else {
-          FILE* fp;
-          if (NULL != tinytc_env) {
-            LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path),
-              "%s", tinytc_env);
+        if (NULL != tinytc_env && '0' != *tinytc_env) {
+          if ('1' == *tinytc_env && '\0' == tinytc_env[1]) {
+#if defined(LIBXS_INCBIN) && defined(OZAKI_TINYTC_EMBED)
+            tinytc_source = use_double
+              ? ozaki_tinytc_f64 : ozaki_tinytc_f32;
+            tinytc_source_kind = (size_t)(use_double
+              ? (ozaki_tinytc_f64_end - ozaki_tinytc_f64)
+              : (ozaki_tinytc_f32_end - ozaki_tinytc_f32));
+            tinytc_avail = 1;
+#endif
           }
           else {
             LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path),
-              "kernels/ozaki1_%s.clx",
-              use_double ? "f64" : "f32");
-          }
-          fp = fopen(tinytc_path, "rb");
-          if (NULL != fp) {
-            fclose(fp);
+              "%s", tinytc_env);
+            tinytc_source = tinytc_path;
+            tinytc_source_kind = 1;
             tinytc_avail = 1;
           }
         }
@@ -399,55 +419,41 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         }
       }
     }
-    /* TinyTC SPIR-V kernel: auto-detected from kernels/ozaki1_<prec>.clx
-     * or from path in OZAKI_TINYTC env var. Set OZAKI_TINYTC=0 to disable. */
+    /* TinyTC SPIR-V kernel: use libxstream_opencl_program to handle both
+     * embedded binary (source_kind>1) and file path (source_kind=1). */
     ctx->kern_tinytc = NULL;
     ctx->prog_tinytc = NULL;
-    if (1 == kind && 0 != tinytc_avail) {
-      FILE* f = fopen(tinytc_path, "rb");
-      if (NULL != f) {
-        long fsize; void* spirv; cl_int clerr;
-        fseek(f, 0, SEEK_END); fsize = ftell(f); rewind(f);
-        spirv = malloc((size_t)fsize);
-        if (NULL != spirv
-            && (long)fread(spirv, 1, (size_t)fsize, f) == fsize)
-        {
-#if defined(CL_VERSION_2_1)
-          cl_program prog = clCreateProgramWithIL(
-            devinfo->context, spirv, (size_t)fsize, &clerr);
-          if (CL_SUCCESS == clerr) {
-            clerr = clBuildProgram(
-              prog, 1, &device, build_options, NULL, NULL);
-            if (CL_SUCCESS == clerr) {
-              ctx->kern_tinytc = clCreateKernel(
-                prog, "ozaki1", &clerr);
-              if (CL_SUCCESS != clerr) {
-                ctx->kern_tinytc = clCreateKernel(
-                  prog, "gemm_fused", &clerr);
-              }
-            }
-            if (CL_SUCCESS != clerr) {
-              if (NULL != prog) clReleaseProgram(prog);
-            }
-            else ctx->prog_tinytc = prog;
-          }
-#else
-          clerr = CL_INVALID_OPERATION;
-#endif
+    if (1 == kind && 0 != tinytc_avail && NULL != tinytc_source) {
+      cl_program prog = NULL;
+      int tc_res = libxstream_opencl_program(
+        tinytc_source_kind, tinytc_source, "ozaki1_tinytc",
+        NULL /*build_params*/, build_options,
+        NULL /*try*/, NULL /*try_ok*/,
+        NULL /*exts*/, 0 /*num_exts*/, &prog);
+      if (EXIT_SUCCESS == tc_res && NULL != prog) {
+        tc_res = libxstream_opencl_kernel_query(
+          prog, "ozaki1", &ctx->kern_tinytc);
+        if (EXIT_SUCCESS != tc_res) {
+          tc_res = libxstream_opencl_kernel_query(
+            prog, "gemm_fused", &ctx->kern_tinytc);
         }
-        free(spirv);
-        fclose(f);
-        if (NULL != ctx->kern_tinytc
-          && (0 > verbosity || 2 < verbosity))
-        {
-          fprintf(stderr,
-            "INFO OZAKI: TinyTC kernel loaded from %s\n",
-            tinytc_path);
+        if (EXIT_SUCCESS == tc_res) {
+          ctx->prog_tinytc = prog;
+        }
+        else {
+          clReleaseProgram(prog);
         }
       }
+      if (NULL != ctx->kern_tinytc
+        && (0 > verbosity || 2 < verbosity))
+      {
+        fprintf(stderr,
+          "INFO OZAKI: TinyTC kernel loaded%s%s\n",
+          1 == tinytc_source_kind ? " from " : " (embedded)",
+          1 == tinytc_source_kind ? tinytc_path : "");
+      }
     }
-    /* CRT GEMM (kind==2): fused kernel per tile, all primes internal */
-    else if (2 == kind) {
+    if (2 == kind) {
       size_t coff = 0;
       coff += (size_t)LIBXS_SNPRINTF(
         build_params + coff, sizeof(build_params) - coff,
@@ -518,7 +524,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         }
       }
     }
-    else {
+    else if (1 != kind) {
       fprintf(stderr, "ERROR OZAKI: unsupported kind=%d\n", kind);
       result = EXIT_FAILURE;
     }
@@ -772,13 +778,15 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     int n_profiled = 0;
     cl_event *evt_prof = NULL;
     int cache_hit_a = 0, cache_hit_b = 0;
+    const int use_tinytc = (NULL != ctx->kern_tinytc
+      && 0 == M % OZAKI_TINYTC_BM && 0 == N % OZAKI_TINYTC_BN);
 
     if (k_pad < 64) k_pad = 64;
     if (n_pad < 64) n_pad = 64;
 
     as_size   = (size_t)nslices_g * m_pad * k_pad;
     bs_size   = (size_t)nslices_g * k_pad * n_pad;
-    { const size_t exp_elem = (NULL != ctx->kern_tinytc) ? elem_size : sizeof(cl_int);
+    { const size_t exp_elem = use_tinytc ? elem_size : sizeof(cl_int);
       expa_size = (size_t)nblk_gm * tm * exp_elem;
       expb_size = (size_t)nblk_gn * tn * exp_elem;
     }
@@ -812,7 +820,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
     }
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
-    if (EXIT_SUCCESS == result && NULL != ctx->kern_tinytc) {
+    if (EXIT_SUCCESS == result && 0 != use_tinytc) {
       result = OZAKI_DEV_ALLOC(&d_scratch, (size_t)M * N * sizeof(cl_int));
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
@@ -868,7 +876,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (NULL != h_as && NULL != h_expa) {
         ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad,
           nslices_g, ctx->use_xmx, h_as, h_expa);
-        if (NULL != ctx->kern_tinytc) { /* convert int exponents to FP */
+        if (0 != use_tinytc) { /* convert int exponents to FP */
           int ii;
           for (ii = M - 1; ii >= 0; --ii) {
             const cl_long bits = (cl_long)((cl_int*)h_expa)[ii] << (ctx->use_double ? 52 : 23);
@@ -917,7 +925,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (NULL != h_bs && NULL != h_expb) {
         ctx->host_preprocess_b(b, ldb, tb, N, K, k_pad, n_pad,
           nslices_g, ctx->use_xmx, h_bs, h_expb);
-        if (NULL != ctx->kern_tinytc) { /* convert int exponents to FP */
+        if (0 != use_tinytc) { /* convert int exponents to FP */
           int ii;
           for (ii = N - 1; ii >= 0; --ii) {
             const cl_long bits = (cl_long)((cl_int*)h_expb)[ii] << (ctx->use_double ? 52 : 23);
@@ -963,6 +971,76 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
+
+    /* GPU preprocess writes int exponents; TinyTC expects FP scale factors.
+     * Download, convert in-place (backward), and re-upload. */
+    if (EXIT_SUCCESS == result && 0 != use_tinytc) {
+      if (0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
+        const int n_a = nblk_gm * tm;
+        void* h_tmp = calloc((size_t)n_a, elem_size);
+        if (NULL != h_tmp) {
+          int ii;
+          libxstream_stream_sync(stream_a);
+          result = libxstream_mem_copy_d2h(d_expa_g, h_tmp,
+            (size_t)n_a * sizeof(cl_int), NULL);
+          for (ii = n_a - 1; ii >= 0; --ii) {
+            const cl_long bits = (cl_long)((cl_int*)h_tmp)[ii]
+              << (ctx->use_double ? 52 : 23);
+            memcpy((char*)h_tmp + (size_t)ii * elem_size,
+              &bits, elem_size);
+          }
+          if (EXIT_SUCCESS == result) {
+            result = libxstream_mem_copy_h2d(h_tmp, d_expa_g,
+              (size_t)n_a * elem_size, stream_a);
+            libxstream_stream_sync(stream_a);
+          }
+          free(h_tmp);
+        }
+        else result = EXIT_FAILURE;
+      }
+      if (EXIT_SUCCESS == result
+        && 0 == cache_hit_b && NULL == ctx->host_preprocess_b)
+      {
+        const int n_b = nblk_gn * tn;
+        void* h_tmp = calloc((size_t)n_b, elem_size);
+        if (NULL != h_tmp) {
+          int ii;
+          libxstream_stream_sync(stream_b);
+          result = libxstream_mem_copy_d2h(d_expb_g, h_tmp,
+            (size_t)n_b * sizeof(cl_int), NULL);
+          for (ii = n_b - 1; ii >= 0; --ii) {
+            const cl_long bits = (cl_long)((cl_int*)h_tmp)[ii]
+              << (ctx->use_double ? 52 : 23);
+            memcpy((char*)h_tmp + (size_t)ii * elem_size,
+              &bits, elem_size);
+          }
+          if (EXIT_SUCCESS == result) {
+            result = libxstream_mem_copy_h2d(h_tmp, d_expb_g,
+              (size_t)n_b * elem_size, stream_b);
+            libxstream_stream_sync(stream_b);
+          }
+          free(h_tmp);
+        }
+        else result = EXIT_FAILURE;
+      }
+      /* Sync: uploads went on stream_a/stream_b; kernel uses main stream */
+      if (EXIT_SUCCESS == result) {
+        if (0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
+          result = libxstream_event_record(evt_prep_a, stream_a);
+          if (EXIT_SUCCESS == result) {
+            result = libxstream_stream_wait_event(stream, evt_prep_a);
+          }
+        }
+        if (EXIT_SUCCESS == result
+          && 0 == cache_hit_b && NULL == ctx->host_preprocess_b)
+        {
+          result = libxstream_event_record(evt_prep_b, stream_b);
+          if (EXIT_SUCCESS == result) {
+            result = libxstream_stream_wait_event(stream, evt_prep_b);
+          }
+        }
+      }
+    }
 
     /* Free host staging buffers (sync ensures H2D completed) */
     free(h_as); h_as = NULL; free(h_expa); h_expa = NULL;
@@ -1023,24 +1101,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     first_pair = (0.0 == beta) ? 1 : 0;
     { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
       size_t global_g[2], local_g[2];
-      if (NULL != ctx->kern_tinytc) {
-        /* TinyTC SPIR-V kernel: memref-only calling convention.
-         * BM=256, BN=128 baked into the .clx (winner config).
-         * M and N must be multiples of BM/BN. */
-        int BM_TC = 256, BN_TC = 128;
-        int nblk_tc_m, nblk_tc_n;
-        { const char* ev = getenv("OZAKI_TINYTC_BM");
-          if (NULL != ev && 0 < atoi(ev)) BM_TC = atoi(ev);
-          ev = getenv("OZAKI_TINYTC_BN");
-          if (NULL != ev && 0 < atoi(ev)) BN_TC = atoi(ev);
-        }
-        nblk_tc_m = (M + BM_TC - 1) / BM_TC;
-        nblk_tc_n = (N + BN_TC - 1) / BN_TC;
-        if (0 == M % BM_TC && 0 == N % BN_TC) {
-          cl_long a_s0 = m_pad, a_s1 = k_pad, a_s2 = nslices_g;
-          cl_long a_st1 = m_pad, a_st2 = (cl_long)m_pad * k_pad;
-          cl_long b_s0 = k_pad, b_s1 = n_pad, b_s2 = nslices_g;
-          cl_long b_st1 = k_pad, b_st2 = (cl_long)k_pad * n_pad;
+      if (0 != use_tinytc) {
+        int nblk_tc_m = (M + OZAKI_TINYTC_BM - 1) / OZAKI_TINYTC_BM;
+        int nblk_tc_n = (N + OZAKI_TINYTC_BN - 1) / OZAKI_TINYTC_BN;
+        {
+          cl_long a_s0 = k_pad, a_s1 = m_pad, a_s2 = nslices_g;
+          cl_long a_st1 = k_pad, a_st2 = (cl_long)m_pad * k_pad;
+          cl_long b_s0 = n_pad, b_s1 = k_pad, b_s2 = nslices_g;
+          cl_long b_st1 = n_pad, b_st2 = (cl_long)k_pad * n_pad;
           cl_long sc_s0 = (cl_long)M, sc_s1 = (cl_long)N;
           cl_long sc_st1 = (cl_long)M;
           cl_long ca_s0 = m_pad, ca_s1 = n_pad, ca_st1 = (cl_long)ldc;
@@ -1091,10 +1159,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                 ? (evt_prof + n_profiled) : NULL));
           if (EXIT_SUCCESS == result && NULL != evt_prof
               && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
-        } /* if M%BM_TC==0 && N%BN_TC==0 */
-        else goto tinytc_fallback;
+        }
       }
-      else { tinytc_fallback: /* Original OpenCL fused kernel */
+      else { /* Original OpenCL fused kernel */
       { cl_kernel kern_g = (0 != M % tm || 0 != N % tn)
           ? ctx->kern_fused_bounds : ctx->kern_fused;
       local_g[0] = 16;
