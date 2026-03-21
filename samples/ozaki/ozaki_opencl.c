@@ -193,6 +193,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     int rtm = 0, rtn = 0, biggrf;
     size_t max_wgs;
     int v;
+    char tinytc_path[512];
+    int tinytc_avail = 0;
     /* Ozaki-local 256-GRF decision (per-kernel, not global).
      * LIBXSTREAM_BIGGRF: explicit user override for all kernels.
      * OZAKI_BIGGRF: Ozaki-specific override.
@@ -296,7 +298,34 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + goff, sizeof(build_params) - goff,
           " -DOZAKI_SCALAR_ACC=1");
       }
-      if (NULL != getenv("OZAKI_TINYTC")) {
+      /* TinyTC auto-detection: check .clx availability before OpenCL build
+       * so OZAKI_TRANSPOSE_AB can be set for preprocessing layout.
+       * OZAKI_TINYTC=0 disables; OZAKI_TINYTC=path overrides auto-detect. */
+      { const char* tinytc_env = getenv("OZAKI_TINYTC");
+        if (NULL != tinytc_env && '0' == *tinytc_env
+          && '\0' == tinytc_env[1])
+        {
+          tinytc_avail = 0;
+        }
+        else {
+          FILE* fp;
+          if (NULL != tinytc_env) {
+            LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path),
+              "%s", tinytc_env);
+          }
+          else {
+            LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path),
+              "kernels/ozaki1_%s.clx",
+              use_double ? "f64" : "f32");
+          }
+          fp = fopen(tinytc_path, "rb");
+          if (NULL != fp) {
+            fclose(fp);
+            tinytc_avail = 1;
+          }
+        }
+      }
+      if (0 != tinytc_avail) {
         goff += (size_t)LIBXS_SNPRINTF(
           build_params + goff, sizeof(build_params) - goff,
           " -DOZAKI_TRANSPOSE_AB");
@@ -370,52 +399,50 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         }
       }
     }
-    /* Optional TinyTC SPIR-V kernel (OZAKI_TINYTC=path-to-.clx) */
+    /* TinyTC SPIR-V kernel: auto-detected from kernels/ozaki1_<prec>.clx
+     * or from path in OZAKI_TINYTC env var. Set OZAKI_TINYTC=0 to disable. */
     ctx->kern_tinytc = NULL;
     ctx->prog_tinytc = NULL;
-    if (1 == kind) {
-      const char* tinytc_path = getenv("OZAKI_TINYTC");
-      if (NULL != tinytc_path) {
-        FILE* f = fopen(tinytc_path, "rb");
-        if (NULL != f) {
-          long fsize; void* spirv; cl_int clerr;
-          fseek(f, 0, SEEK_END); fsize = ftell(f); rewind(f);
-          spirv = malloc((size_t)fsize);
-          if (NULL != spirv
-              && (long)fread(spirv, 1, (size_t)fsize, f) == fsize)
-          {
+    if (1 == kind && 0 != tinytc_avail) {
+      FILE* f = fopen(tinytc_path, "rb");
+      if (NULL != f) {
+        long fsize; void* spirv; cl_int clerr;
+        fseek(f, 0, SEEK_END); fsize = ftell(f); rewind(f);
+        spirv = malloc((size_t)fsize);
+        if (NULL != spirv
+            && (long)fread(spirv, 1, (size_t)fsize, f) == fsize)
+        {
 #if defined(CL_VERSION_2_1)
-            cl_program prog = clCreateProgramWithIL(
-              devinfo->context, spirv, (size_t)fsize, &clerr);
+          cl_program prog = clCreateProgramWithIL(
+            devinfo->context, spirv, (size_t)fsize, &clerr);
+          if (CL_SUCCESS == clerr) {
+            clerr = clBuildProgram(
+              prog, 1, &device, build_options, NULL, NULL);
             if (CL_SUCCESS == clerr) {
-              clerr = clBuildProgram(
-                prog, 1, &device, build_options, NULL, NULL);
-              if (CL_SUCCESS == clerr) {
-                ctx->kern_tinytc = clCreateKernel(
-                  prog, "ozaki1", &clerr);
-                if (CL_SUCCESS != clerr) {
-                  ctx->kern_tinytc = clCreateKernel(
-                    prog, "gemm_fused", &clerr);
-                }
-              }
+              ctx->kern_tinytc = clCreateKernel(
+                prog, "ozaki1", &clerr);
               if (CL_SUCCESS != clerr) {
-                if (NULL != prog) clReleaseProgram(prog);
+                ctx->kern_tinytc = clCreateKernel(
+                  prog, "gemm_fused", &clerr);
               }
-              else ctx->prog_tinytc = prog;
             }
+            if (CL_SUCCESS != clerr) {
+              if (NULL != prog) clReleaseProgram(prog);
+            }
+            else ctx->prog_tinytc = prog;
+          }
 #else
-            clerr = CL_INVALID_OPERATION;
+          clerr = CL_INVALID_OPERATION;
 #endif
-          }
-          free(spirv);
-          fclose(f);
-          if (NULL != ctx->kern_tinytc
-            && (0 > verbosity || 2 < verbosity))
-          {
-            fprintf(stderr,
-              "INFO OZAKI: TinyTC kernel loaded from %s\n",
-              tinytc_path);
-          }
+        }
+        free(spirv);
+        fclose(f);
+        if (NULL != ctx->kern_tinytc
+          && (0 > verbosity || 2 < verbosity))
+        {
+          fprintf(stderr,
+            "INFO OZAKI: TinyTC kernel loaded from %s\n",
+            tinytc_path);
         }
       }
     }
@@ -997,10 +1024,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
       size_t global_g[2], local_g[2];
       if (NULL != ctx->kern_tinytc) {
-        /* TinyTC SPIR-V kernel (two-phase): memref calling convention.
-         * BM/BN baked into the .clx; read from OZAKI_TINYTC_BM/BN
-         * or default to 256. M and N must be multiples of BM/BN. */
-        int BM_TC = 256, BN_TC = 256;
+        /* TinyTC SPIR-V kernel: memref-only calling convention.
+         * BM=256, BN=128 baked into the .clx (winner config).
+         * M and N must be multiples of BM/BN. */
+        int BM_TC = 256, BN_TC = 128;
         int nblk_tc_m, nblk_tc_n;
         { const char* ev = getenv("OZAKI_TINYTC_BM");
           if (NULL != ev && 0 < atoi(ev)) BM_TC = atoi(ev);
@@ -1043,30 +1070,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
           CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s0));
           CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s1));
           CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_st1));
-          /* eA: memref<i32x?> -> ptr, 1 shape */
+          /* eA: memref<$ty x?> -> ptr, 1 shape */
           CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
           CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ea_s0));
-          /* eB: memref<f64x?> -> ptr, 1 shape */
+          /* eB: memref<$ty x?> -> ptr, 1 shape */
           CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
           CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &eb_s0));
-          if (NULL == getenv("OZAKI_TINYTC_REF")) {
-          /* gemm_alpha */
-          if (ctx->use_double) {
-            double dalpha = alpha;
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(double), &dalpha));
-          }
-          else {
-            float falpha = (float)alpha;
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(float), &falpha));
-          }
-          /* nslices, cutoff */
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &nslices_g));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &cutoff));
-          /* first_pair */
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &first_pair));
-          /* sq (ozflags bitmask) */
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &sq));
-          } /* OZAKI_TINYTC_REF */
           { size_t cwgs[3] = {0, 0, 0};
             cl_device_id device = libxstream_opencl_config.devices[
               libxstream_opencl_config.device_id];
