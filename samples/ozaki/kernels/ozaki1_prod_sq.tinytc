@@ -1,0 +1,122 @@
+; Production Ozaki-1 full-square (symmetric pairs) kernel.
+; Compile-time params (prepend "$param = value" lines):
+;   $ty       - f64 or f32
+;   $nslices  - number of mantissa slices (3-9)
+;   $cutoff   - pair cutoff = 2*(nslices-1)-trim
+; Dynamic: M, N, K from memref ? dims.
+; Static:  nslices, cutoff, tile sizes, full square loop (no mirror).
+
+;$ty = f64
+;$nslices = 8
+;$cutoff = 14
+$bm = 32
+$bn = 32
+$bk = 32
+$BM = 256
+$BN = 128
+$sgs = 16
+$alpha = 7
+$bm_acc = 64
+$bn_acc = 8
+
+$cutoff_p1 = !calc($cutoff 1 +)
+
+$num_sg_x = !calc($BM $bm /)
+$num_sg_y = !calc($BN $bn /)
+$wg_size_x = !calc($num_sg_x $sgs *)
+$wg_size_y = $num_sg_y
+$func_attr = {subgroup_size=$sgs, work_group_size=[$wg_size_x,$wg_size_y]}
+
+func @ozaki1(
+        %A: memref<i8x ?x ?x $nslices>,
+        %B: memref<i8x ?x ?x $nslices>,
+        %C: memref<i32x ?x ?>,
+        %C_acc: memref<$ty x ?x ?>,
+        %eA: memref<$ty x ?>,
+        %eB: memref<$ty x ?>
+    ) attributes $func_attr {
+    %row_block = group_id.x : index
+    %col_block = group_id.y : index
+    %BM = constant $BM : index
+    %BN = constant $BN : index
+    %row_offset = mul %row_block, %BM : index
+    %col_offset = mul %col_block, %BN : index
+
+    %K = size %A[0] : index
+    %nslices = constant $nslices : index
+    %c0 = constant 0 : index
+    %bk = constant $bk : index
+    %cutoff_p1 = constant $cutoff_p1 : i32
+
+    for %p=%c0,%nslices {
+        %p_i32 = cast %p : i32
+        %sb_end_raw = sub %cutoff_p1, %p_i32 : i32
+        %sb_end_idx = cast %sb_end_raw : index
+        %sb_lt = less_than %sb_end_idx, %nslices : bool
+        %sb_end = if %sb_lt -> (index) {
+            yield (%sb_end_idx)
+        } else {
+            yield (%nslices)
+        }
+
+        for %q=%c0,%sb_end {
+            %a_p = subview %A[0:%K,%row_offset:$BM,%p] : memref<i8x ? x $BM,strided<1,?>>
+            %b_q = subview %B[%col_offset:$BN,0:%K,%q] : memref<i8x $BN x ?,strided<1,?>>
+            %c = subview %C[%row_offset:$BM,%col_offset:$BN] : memref<i32x $BM x $BN,strided<1,?>>
+
+            ; Phase 1: DPAS int8 -> i32 scratch for pair (p, q)
+            foreach_tile (%i,%j)=(%c0,%c0),(%BM,%BN) as (%ti,%tj) <= ($bm,$bn) {
+                $acc_mat_t = coopmatrix<i32x $bm x $bn,matrix_acc>
+                %c_init = constant 0 : $acc_mat_t
+                %c_acc = for %k=%c0,%K,%bk init(%c_iter=%c_init) -> ($acc_mat_t) {
+                    %aa = cooperative_matrix_load.t %a_p[%k,%i] : coopmatrix<i8x $bm x $bk,matrix_a>
+                    %bb = cooperative_matrix_load.t %b_q[%j,%k] : coopmatrix<i8x $bk x $bn,matrix_b>
+                    %k_next = add %k, %bk : index
+                    cooperative_matrix_prefetch 0, %a_p[%k_next,%i], $bk, $bm
+                    cooperative_matrix_prefetch 0, %b_q[%j,%k_next], $bn, $bk
+                    %c_next = cooperative_matrix_mul_add %aa, %bb, %c_iter : $acc_mat_t
+                    yield (%c_next)
+                } attributes{unroll=2}
+                cooperative_matrix_store %c_acc, %c[%i,%j]
+            }
+
+            barrier.global
+
+            ; Phase 2: FP scale + accumulate
+            %step = add %p, %q : index
+            %step_i32 = cast %step : i32
+            %c2 = constant 2 : i32
+            %alpha = constant $alpha : i32
+            %scale0 = add %step_i32, %c2 : i32
+            %scale1 = mul %scale0, %alpha : i32
+            %scale2 = sub %c2, %scale1 : i32
+            %scale3 = cast %scale2 : $ty
+            %scale = native_exp2 %scale3 : $ty
+
+            %eA_sub = subview %eA[%row_offset:$BM] : memref<$ty x $BM>
+            %eB_sub = subview %eB[%col_offset:$BN] : memref<$ty x $BN>
+            %eA_mat = expand %eA_sub[0->$BM x 1] : memref<$ty x $BM x 1>
+            %eB_mat = expand %eB_sub[0->1 x $BN] : memref<$ty x 1 x $BN>
+
+            foreach_tile (%i,%j)=(%c0,%c0),(%BM,%BN) as (%ti,%tj)<=($bm_acc,$bn_acc) {
+                $fmat_t = coopmatrix<$ty x $bm_acc x $bn_acc,matrix_acc>
+                $imat32_t = coopmatrix<i32x $bm_acc x $bn_acc,matrix_acc>
+
+                %ea = cooperative_matrix_load %eA_mat[%i,%c0] : coopmatrix<$ty x $bm_acc x 1,matrix_a>
+                %eb = cooperative_matrix_load %eB_mat[%c0,%j] : coopmatrix<$ty x 1 x $bn_acc,matrix_b>
+                %scale_ea = cooperative_matrix_scale %scale, %ea : coopmatrix<$ty x $bm_acc x 1,matrix_a>
+
+                %I = add %row_offset, %i : index
+                %J = add %col_offset, %j : index
+                %c_tmp = cooperative_matrix_load %C[%I,%J] : $imat32_t
+                %zero = constant 0.0 : $fmat_t
+                %scale_ea_eb = cooperative_matrix_mul_add %scale_ea, %eb, %zero : $fmat_t
+                %c_tmp_f = cast %c_tmp : $fmat_t
+                %c_tmp_f_scaled = mul %c_tmp_f, %scale_ea_eb : $fmat_t
+                %c_in = cooperative_matrix_load %C_acc[%I,%J] : $fmat_t
+                %result = add %c_in, %c_tmp_f_scaled : $fmat_t
+                cooperative_matrix_store %result, %C_acc[%I,%J]
+            }
+        }
+    }
+}
