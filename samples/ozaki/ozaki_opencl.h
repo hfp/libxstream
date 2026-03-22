@@ -41,7 +41,8 @@ typedef enum ozaki_flags_t {
  *
  * A-side slice layout: slices[s * dim_pad * K_pad + row * K_pad + k]
  * B-side slice layout: slices[s * K_pad * dim_pad + k * dim_pad + col]
- * Exponent layout:     exp[i] -- global max exponent per row (A) or col (B) */
+ * Exponent layout:     exp[i] -- 2^(max exponent) per row (A) or col (B),
+ *                      stored as real_t (double or float matching matrix type) */
 typedef void (*ozaki_host_preprocess_fn)(
     const void* matrix, int ld, int trans,
     int dim, int K, int K_pad, int dim_pad,

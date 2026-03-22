@@ -375,11 +375,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + goff, sizeof(build_params) - goff,
           " -DOZAKI_CUTOFF=%d -DOZAKI_SQ=%d", cutoff_jit, sq_jit);
       }
-      if (0 != tinytc_avail) {
-        goff += (size_t)LIBXS_SNPRINTF(
-          build_params + goff, sizeof(build_params) - goff,
-          " -DOZAKI_TRANSPOSE_AB");
-      }
       (void)goff;
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
@@ -816,9 +811,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     as_size   = (size_t)nslices_g * m_pad * k_pad;
     bs_size   = (size_t)nslices_g * k_pad * n_pad;
-    { const size_t exp_elem = use_tinytc ? elem_size : sizeof(cl_int);
-      expa_size = (size_t)nblk_gm * tm * exp_elem;
-      expb_size = (size_t)nblk_gn * tn * exp_elem;
+    { expa_size = (size_t)nblk_gm * tm * elem_size;
+      expb_size = (size_t)nblk_gn * tn * elem_size;
     }
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
@@ -906,13 +900,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (NULL != h_as && NULL != h_expa) {
         ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad,
           nslices_g, ctx->use_xmx, h_as, h_expa);
-        if (0 != use_tinytc) { /* convert int exponents to FP */
-          int ii;
-          for (ii = M - 1; ii >= 0; --ii) {
-            const cl_long bits = (cl_long)((cl_int*)h_expa)[ii] << (ctx->use_double ? 52 : 23);
-            memcpy((char*)h_expa + (size_t)ii * elem_size, &bits, elem_size);
-          }
-        }
         result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
         if (EXIT_SUCCESS == result) {
           result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
@@ -955,13 +942,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (NULL != h_bs && NULL != h_expb) {
         ctx->host_preprocess_b(b, ldb, tb, N, K, k_pad, n_pad,
           nslices_g, ctx->use_xmx, h_bs, h_expb);
-        if (0 != use_tinytc) { /* convert int exponents to FP */
-          int ii;
-          for (ii = N - 1; ii >= 0; --ii) {
-            const cl_long bits = (cl_long)((cl_int*)h_expb)[ii] << (ctx->use_double ? 52 : 23);
-            memcpy((char*)h_expb + (size_t)ii * elem_size, &bits, elem_size);
-          }
-        }
         result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
         if (EXIT_SUCCESS == result) {
           result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
@@ -1001,76 +981,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
-
-    /* GPU preprocess writes int exponents; TinyTC expects FP scale factors.
-     * Download, convert in-place (backward), and re-upload. */
-    if (EXIT_SUCCESS == result && 0 != use_tinytc) {
-      if (0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
-        const int n_a = nblk_gm * tm;
-        void* h_tmp = calloc((size_t)n_a, elem_size);
-        if (NULL != h_tmp) {
-          int ii;
-          libxstream_stream_sync(stream_a);
-          result = libxstream_mem_copy_d2h(d_expa_g, h_tmp,
-            (size_t)n_a * sizeof(cl_int), NULL);
-          for (ii = n_a - 1; ii >= 0; --ii) {
-            const cl_long bits = (cl_long)((cl_int*)h_tmp)[ii]
-              << (ctx->use_double ? 52 : 23);
-            memcpy((char*)h_tmp + (size_t)ii * elem_size,
-              &bits, elem_size);
-          }
-          if (EXIT_SUCCESS == result) {
-            result = libxstream_mem_copy_h2d(h_tmp, d_expa_g,
-              (size_t)n_a * elem_size, stream_a);
-            libxstream_stream_sync(stream_a);
-          }
-          free(h_tmp);
-        }
-        else result = EXIT_FAILURE;
-      }
-      if (EXIT_SUCCESS == result
-        && 0 == cache_hit_b && NULL == ctx->host_preprocess_b)
-      {
-        const int n_b = nblk_gn * tn;
-        void* h_tmp = calloc((size_t)n_b, elem_size);
-        if (NULL != h_tmp) {
-          int ii;
-          libxstream_stream_sync(stream_b);
-          result = libxstream_mem_copy_d2h(d_expb_g, h_tmp,
-            (size_t)n_b * sizeof(cl_int), NULL);
-          for (ii = n_b - 1; ii >= 0; --ii) {
-            const cl_long bits = (cl_long)((cl_int*)h_tmp)[ii]
-              << (ctx->use_double ? 52 : 23);
-            memcpy((char*)h_tmp + (size_t)ii * elem_size,
-              &bits, elem_size);
-          }
-          if (EXIT_SUCCESS == result) {
-            result = libxstream_mem_copy_h2d(h_tmp, d_expb_g,
-              (size_t)n_b * elem_size, stream_b);
-            libxstream_stream_sync(stream_b);
-          }
-          free(h_tmp);
-        }
-        else result = EXIT_FAILURE;
-      }
-      /* Sync: uploads went on stream_a/stream_b; kernel uses main stream */
-      if (EXIT_SUCCESS == result) {
-        if (0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
-          result = libxstream_event_record(evt_prep_a, stream_a);
-          if (EXIT_SUCCESS == result) {
-            result = libxstream_stream_wait_event(stream, evt_prep_a);
-          }
-        }
-        if (EXIT_SUCCESS == result
-          && 0 == cache_hit_b && NULL == ctx->host_preprocess_b)
-        {
-          result = libxstream_event_record(evt_prep_b, stream_b);
-          if (EXIT_SUCCESS == result) {
-            result = libxstream_stream_wait_event(stream, evt_prep_b);
-          }
-        }
-      }
-    }
 
     /* Free host staging buffers (sync ensures H2D completed) */
     free(h_as); h_as = NULL; free(h_expa); h_expa = NULL;

@@ -205,11 +205,13 @@
   } while (0)
 
 /* Scale i32 accumulator + accumulate into register-resident fp C with
- * pre-cached exponents in registers.
- * EA_CACHE is a short array[XMX_M], EB_CACHE is a short scalar.
+ * pre-cached FP exponent scales in registers.
+ * EA is a real_t array[XMX_M], EB is a real_t scalar (FP scale factors).
+ * PAIR_SCALE = alpha * EXP2I(low_sa + low_sb - 2*MANT_BITS), safe from
+ * underflow because preprocessing stores 2^(exp-BIAS) not 2^exp.
  * Avoids re-reading expa/expb from global memory for every pair. */
-#define OZAKI_GEMM_ACCUM_CACHED(DOT, EA_CACHE, EB_CACHE, C_REG, M, N, MI, COL, \
-                                ALPHA, LOW_SA, LOW_SB) \
+#define OZAKI_GEMM_ACCUM_CACHED(DOT, EA, EB, C, M, N, MI, COL, \
+                                PAIR_SCALE) \
   do { \
     union { int8 v_; int a_[8]; } du_c_; \
     int m_c_; \
@@ -217,10 +219,8 @@
     UNROLL_FORCE(XMX_M) for (m_c_ = 0; m_c_ < XMX_M; ++m_c_) { \
       const int rm_c_ = (MI) + m_c_; \
       if (OZAKI_IN_BOUNDS(rm_c_, (M), (COL), (N))) { \
-        const int sh_c_ = (int)(EA_CACHE)[m_c_] + (int)(EB_CACHE) \
-                         - (2 * BIAS_PLUS_MANT) + (LOW_SA) + (LOW_SB); \
-        const real_t sc_c_ = (ALPHA) * EXP2I(sh_c_); \
-        (C_REG)[m_c_] += (real_t)du_c_.a_[m_c_] * sc_c_; \
+        const real_t sc_c_ = (PAIR_SCALE) * (EA)[m_c_] * (EB); \
+        (C)[m_c_] += (real_t)du_c_.a_[m_c_] * sc_c_; \
       } \
     } \
   } while (0)
@@ -245,7 +245,7 @@ kernel void preprocess_a_dense(
   CONSTANT const real_t* restrict a,
   int M, int K, int lda, int transa,
   global char* restrict as,       /* [NSLICES * M_pad * K_pad] */
-  global int* restrict expa,      /* [M] per-row max exponent (int for atomic_max) */
+  global real_t* restrict expa,   /* [M] per-row FP scale factor = 2^max_exp */
   int K_pad,                      /* padded K stride (>= 64) */
   int M_pad)                      /* padded M = nblk_m * BM_PRE */
 {
@@ -269,8 +269,12 @@ kernel void preprocess_a_dense(
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /* Write global max exponent (single WG in K, so local == global) */
-  if (0 == kk && row < M) expa[row] = row_max_exp[mi];
+/* Write global max exponent as FP scale: 2^(max_exp - BIAS).
+     * EXP2I arg range: [-(BPM-MANT)..BPM-MANT] i.e. [-1022..1023] for f64. */
+    if (0 == kk && row < M) {
+      expa[row] = EXP2I(row_max_exp[mi]
+        - (BIAS_PLUS_MANT - MANT_BITS));
+    }
 
   /* Pass 2: compute and store int8 slices using the true max exponent */
   if (row < M) {
@@ -311,7 +315,7 @@ kernel void preprocess_b_dense(
   CONSTANT const real_t* restrict b,
   int N, int K, int ldb, int transb,
   global char* restrict bs,       /* [NSLICES * K_pad * N_pad] */
-  global int* restrict expb,      /* [N] per-column max exponent (int for atomic_max) */
+  global real_t* restrict expb,   /* [N] per-column FP scale factor = 2^max_exp */
   int K_pad,
   int N_pad)
 {
@@ -335,8 +339,11 @@ kernel void preprocess_b_dense(
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /* Write global max exponent */
-  if (0 == kk && col < N) expb[col] = col_max_exp[nj];
+/* Write global max exponent as FP scale: 2^(max_exp - BIAS). */
+    if (0 == kk && col < N) {
+      expb[col] = EXP2I(col_max_exp[nj]
+        - (BIAS_PLUS_MANT - MANT_BITS));
+    }
 
   /* Pass 2: compute and store int8 slices using the true max exponent */
   if (col < N) {
@@ -373,8 +380,8 @@ __attribute__((intel_reqd_sub_group_size(SG)))
 kernel void gemm_fused(
   CONSTANT const char* restrict as_base,    /* all slices: [nslices][M_pad][K_pad] */
   CONSTANT const char* restrict bs_base,    /* all slices: [nslices][K_pad][N_pad] */
-  CONSTANT const int* restrict expa,        /* [M] per-row max exponent */
-  CONSTANT const int* restrict expb,        /* [N] per-col max exponent */
+  CONSTANT const real_t* restrict expa,     /* [M] per-row FP scale = 2^exp */
+  CONSTANT const real_t* restrict expb,     /* [N] per-col FP scale = 2^exp */
   global real_t* restrict c,                /* [M x N] column-major, ldc */
   int M, int N, int K_pad, int N_pad, int ldc,
   int M_pad,                                /* padded M dimension = slice row stride */
@@ -393,24 +400,24 @@ kernel void gemm_fused(
   const long b_stride = (long)K_pad * N_pad;
   SINT sa;
 
-  /* Pre-cache exponents in registers: avoid re-reading from global per pair.
-   * ea_cache[rm][m] = expa[mi_base + rm*XMX_M + m]
-   * eb_cache[rn]    = expb[nj_base + rn*XMX_N + sg_lid] */
-  short ea_cache[RTM * XMX_M];
-  short eb_cache[RTN];
-  { int rm;
-    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-      int m_;
-      UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-        const int r_ = mi_base + rm * XMX_M + m_;
-        ea_cache[rm * XMX_M + m_] = OZAKI_IN_BOUNDS(r_, M, 0, 1) ? expa[r_] : 0;
+  /* Pre-cache FP exponent scales in registers: avoid re-reading from
+   * global memory per pair.  Preprocessing stores 2^(max_exp - BIAS). */
+  real_t ea_cache[RTM * XMX_M];
+    real_t eb_cache[RTN];
+    { int rm;
+      UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+        int m_;
+        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+          const int r_ = mi_base + rm * XMX_M + m_;
+          ea_cache[rm * XMX_M + m_] = OZAKI_IN_BOUNDS(r_, M, 0, 1)
+            ? expa[r_] : ZERO;
+        }
       }
     }
-  }
-  { int rn;
-    UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-      const int col = nj_base + rn * XMX_N + sg_lid;
-      eb_cache[rn] = OZAKI_IN_BOUNDS(0, 1, col, N) ? expb[col] : 0;
+    { int rn;
+      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+        const int col = nj_base + rn * XMX_N + sg_lid;
+        eb_cache[rn] = OZAKI_IN_BOUNDS(0, 1, col, N) ? expb[col] : ZERO;
     }
   }
 
@@ -469,6 +476,8 @@ kernel void gemm_fused(
     for (sb = OZAKI_SQ ? 0 : sa; sb < sb_end; ++sb) {
       const int high_sb = MANT_BITS - (7 * (int)sb);
       const int low_bit_sb = MAX(0, high_sb - 6);
+      const real_t pair_scale = alpha
+        * EXP2I(low_bit_sa + low_bit_sb - 2 * MANT_BITS);
       CONSTANT const char* as_sb = as_base + (long)sb * a_stride;
       CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 
@@ -532,7 +541,7 @@ kernel void gemm_fused(
                                  ea_cache + rm * XMX_M, eb_cache[rn],
                                  c_tile,
                                  M, N, mi_base + rm * XMX_M, col,
-                                 alpha, low_bit_sa, low_bit_sb);
+                                 pair_scale);
                 UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
                   const int r_ = mi_base + rm * XMX_M + m_;
                   if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
@@ -603,7 +612,7 @@ kernel void gemm_fused(
                                  ea_cache + rm * XMX_M, eb_cache[rn],
                                  c_tile,
                                  M, N, mi_base + rm * XMX_M, col,
-                                 alpha, low_bit_sa, low_bit_sb);
+                                 pair_scale);
                 UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
                   const int r_ = mi_base + rm * XMX_M + m_;
                   if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
@@ -650,7 +659,7 @@ kernel void gemm_fused(
                              ea_cache + rm * XMX_M, eb_cache[rn],
                              c_fp + idx * XMX_M,
                              M, N, mi_base + rm * XMX_M, col,
-                             alpha, low_bit_sa, low_bit_sb);
+                             pair_scale);
           }
         }
       }
