@@ -122,7 +122,7 @@ endif
 ifneq (,$(wildcard $(OUTDIR))) # still exists
 	@-rm -f $(XFILES)
 endif
-	@-rm -f $(GENHDR)
+	@-rm -f $(GENHDR_PROD) $(GENHDR)
 
 .PHONY: deepclean
 deepclean: realclean

@@ -720,9 +720,9 @@ void ozaki_destroy(ozaki_context_t* ctx)
     ctx->stream = NULL;
     if (NULL != ctx->devpool) {
       libxs_malloc_pool_t *const pool = (libxs_malloc_pool_t*)ctx->devpool;
-      const int libxs_verbosity = libxs_get_verbosity();
-      if  (0 > LIBXS_MIN(ctx->verbosity, libxs_verbosity)
-        || 2 < LIBXS_MAX(ctx->verbosity, libxs_verbosity))
+      const int verbosity = libxs_get_verbosity();
+      if  (0 > LIBXS_MIN(ctx->verbosity, verbosity)
+        || 2 < LIBXS_MAX(ctx->verbosity, verbosity))
       {
         libxs_malloc_pool_info_t info;
         if (EXIT_SUCCESS == libxs_malloc_pool_info(pool, &info)) {
