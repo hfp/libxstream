@@ -246,7 +246,7 @@ int libxstream_stream_sync(libxstream_stream_t* stream) {
       assert(NULL != event);
       result = clWaitForEvents(1, &event);
     }
-    if (NULL != event) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+    if (NULL != event) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(event));
   }
   CL_RETURN(result, "");
 }

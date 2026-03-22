@@ -216,7 +216,7 @@ int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, libxstream_stre
     cl_mem memory = NULL;
 #  if !defined(LIBXSTREAM_ACTIVATE)
     if (NULL == devinfo->context) {
-      LIBXS_EXPECT(EXIT_SUCCESS == libxstream_opencl_set_active_device(
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_set_active_device(
         libxstream_opencl_config.lock_main, libxstream_opencl_config.device_id));
     }
 #  endif
@@ -300,9 +300,9 @@ int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, libxstream_stre
       }
     }
     if (NULL == result_ptr) {
-      if (NULL != memory) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
+      if (NULL != memory) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(memory));
       if (NULL != host_ptr) {
-        LIBXS_EXPECT(EXIT_SUCCESS == libxstream_mem_host_deallocate_internal(host_ptr, str->queue));
+        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_mem_host_deallocate_internal(host_ptr, str->queue));
       }
     }
   }
@@ -380,7 +380,7 @@ void CL_CALLBACK libxstream_mem_copy_notify(cl_event event, cl_int event_status,
       } break;
     }
   }
-  if (NULL != event) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+  if (NULL != event) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(event));
 }
 
 
@@ -392,7 +392,7 @@ int libxstream_mem_allocate(void** dev_mem, size_t nbytes) {
   assert(NULL != dev_mem);
 #  if !defined(LIBXSTREAM_ACTIVATE)
   if (NULL == devinfo->context) {
-    LIBXS_EXPECT(EXIT_SUCCESS == libxstream_opencl_set_active_device(
+    LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_set_active_device(
       libxstream_opencl_config.lock_main, libxstream_opencl_config.device_id));
   }
 #  endif
@@ -489,7 +489,7 @@ int libxstream_mem_allocate(void** dev_mem, size_t nbytes) {
         fprintf(stderr, "ERROR ACC/OpenCL: memory=%p pointer=%p size=%llu failed to allocate\n", (const void*)memory, memptr,
           (unsigned long long)nbytes);
       }
-      if (NULL != memory) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseMemObject(memory));
+      if (NULL != memory) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(memory));
       memptr = NULL;
     }
   }
@@ -504,7 +504,7 @@ int libxstream_mem_deallocate(void* dev_mem) {
     assert(NULL != libxstream_opencl_config.device.context);
 #  if (1 >= LIBXSTREAM_USM)
     if (NULL != libxstream_opencl_config.device.clMemFreeINTEL) {
-      LIBXS_EXPECT(EXIT_SUCCESS == libxstream_opencl_config.device.clMemFreeINTEL(libxstream_opencl_config.device.context, dev_mem));
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_config.device.clMemFreeINTEL(libxstream_opencl_config.device.context, dev_mem));
     }
     else
 #  endif
@@ -527,7 +527,7 @@ int libxstream_mem_deallocate(void* dev_mem) {
         /* compact: pfree points to the last-used slot (at [nmemptrs]); after libxs_pfree
          * decrements nmemptrs, copy pfree's content into info's slot, then zero pfree. */
         libxstream_opencl_info_memptr_t* const pfree = libxstream_opencl_config.memptrs[libxstream_opencl_config.nmemptrs];
-        LIBXS_EXPECT(EXIT_SUCCESS == clReleaseMemObject(info->memory));
+        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->memory));
         libxs_pfree(pfree, (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
         *info = *pfree;
         LIBXS_MEMZERO(pfree);
@@ -614,7 +614,7 @@ int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, 
         }
         else libxstream_mem_copy_notify(event, CL_COMPLETE, data); /* synchronous */
       }
-      else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+      else LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
   CL_RETURN(result, "");
@@ -730,7 +730,7 @@ int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, 
         }
         else libxstream_mem_copy_notify(event, CL_COMPLETE, data); /* synchronous */
       }
-      else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+      else LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
   CL_RETURN(result, "");
@@ -803,10 +803,10 @@ int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_dst, size_t nby
             }
             else result = clReleaseEvent(event);
           }
-          else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+          else LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(event));
         }
       }
-      else LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(event));
+      else LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(event));
     }
   }
   CL_RETURN(result, "");

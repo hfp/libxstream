@@ -56,7 +56,7 @@ int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t
     result = clEnqueueWaitForEvents(str->queue, 1, &clevent);
 #  endif
     if (EXIT_SUCCESS != result) {
-      LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent));
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(clevent));
       event->cl_evt = NULL;
     }
   }
@@ -88,7 +88,7 @@ int libxstream_event_record(libxstream_event_t* event, libxstream_stream_t* stre
     event->cl_evt = clevent_result;
   }
   else {
-    if (NULL != clevent_result) LIBXS_EXPECT(EXIT_SUCCESS == clReleaseEvent(clevent_result));
+    if (NULL != clevent_result) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(clevent_result));
     event->cl_evt = NULL;
   }
   CL_RETURN(result, "");
