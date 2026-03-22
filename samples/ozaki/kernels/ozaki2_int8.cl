@@ -625,23 +625,3 @@ kernel void gemm_crt_fused(
   }
 #endif
 }
-
-
-/**
- * scale_beta: Prescale C by beta before accumulation.
- *
- * Work-group: (BM_PRE, 1, 1).
- * Dispatch: global = (ceil(M, BM_PRE) * BM_PRE, N, 1).
- */
-__attribute__((reqd_work_group_size(BM_PRE, 1, 1)))
-kernel void scale_beta(
-  global real_t* restrict c,
-  int M, int N, int ldc,
-  real_t beta)
-{
-  const int row = (int)get_global_id(0);
-  const int col = (int)get_global_id(1);
-  if (row < M && col < N) {
-    c[col * ldc + row] *= beta;
-  }
-}

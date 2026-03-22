@@ -225,6 +225,45 @@
     } \
   } while (0)
 
+/* Compute the next pair's shift sum to decide whether to batch or flush.
+ * Returns -1 (flush) or the matching shift (batch). */
+#define OZAKI_BATCH_NEXT_SHIFT(LOW_SA, LOW_SB, SB, SB_END, SA) \
+  (((SB) + 1 < (SB_END)) \
+    ? ((LOW_SA) + MAX(0, MANT_BITS - 7 * ((int)(SB) + 1) - 6)) \
+    : ((0 == OZAKI_SQ && (int)(SA) + 1 < NSLICES) \
+      ? (MAX(0, MANT_BITS - 7 * ((int)(SA) + 1) - 6) * 2) \
+      : -1))
+
+/* Tile-by-tile scale+flush: read C tile, accumulate scaled i32 result,
+ * write C tile back.  ACC is an int8 array indexed by [rm*RTN+rn]. */
+#define OZAKI_SCALE_FLUSH(ACC, C_PTR, LDC, EA_CACHE, EB_CACHE, \
+                          MI_BASE, NJ_BASE, SG_LID, M, N, PAIR_SCALE) \
+  do { int rm_sf_, rn_sf_; \
+    UNROLL_FORCE(RTM) for (rm_sf_ = 0; rm_sf_ < RTM; ++rm_sf_) { \
+      UNROLL_FORCE(RTN) for (rn_sf_ = 0; rn_sf_ < RTN; ++rn_sf_) { \
+        const int idx_sf_ = rm_sf_ * RTN + rn_sf_; \
+        const int col_sf_ = (NJ_BASE) + rn_sf_ * XMX_N + (SG_LID); \
+        real_t ct_sf_[XMX_M]; \
+        int m_sf_; \
+        UNROLL_FORCE(XMX_M) for (m_sf_ = 0; m_sf_ < XMX_M; ++m_sf_) { \
+          const int r_sf_ = (MI_BASE) + rm_sf_ * XMX_M + m_sf_; \
+          ct_sf_[m_sf_] = OZAKI_IN_BOUNDS(r_sf_, (M), col_sf_, (N)) \
+            ? (C_PTR)[(long)col_sf_ * (LDC) + r_sf_] : ZERO; \
+        } \
+        OZAKI_GEMM_ACCUM_CACHED((ACC)[idx_sf_], \
+          (EA_CACHE) + rm_sf_ * XMX_M, (EB_CACHE)[rn_sf_], \
+          ct_sf_, (M), (N), (MI_BASE) + rm_sf_ * XMX_M, col_sf_, \
+          (PAIR_SCALE)); \
+        UNROLL_FORCE(XMX_M) for (m_sf_ = 0; m_sf_ < XMX_M; ++m_sf_) { \
+          const int r_sf_ = (MI_BASE) + rm_sf_ * XMX_M + m_sf_; \
+          if (OZAKI_IN_BOUNDS(r_sf_, (M), col_sf_, (N))) { \
+            (C_PTR)[(long)col_sf_ * (LDC) + r_sf_] = ct_sf_[m_sf_]; \
+          } \
+        } \
+      } \
+    } \
+  } while (0)
+
 
 /**
  * preprocess_a_dense: decompose A into dense per-slice int8 matrices.
@@ -506,15 +545,8 @@ kernel void gemm_fused(
       }
       /* Batch check + tile-by-tile scale (pack scalars on flush) */
       { const int cur_shift = low_bit_sa + low_bit_sb;
-        int next_shift = -1;
-        if (sb + 1 < sb_end) {
-          next_shift = low_bit_sa
-            + MAX(0, MANT_BITS - 7 * ((int)sb + 1) - 6);
-        }
-        else if (0 == OZAKI_SQ && (int)sa + 1 < NSLICES) {
-          const int nls = MAX(0, MANT_BITS - 7 * ((int)sa + 1) - 6);
-          next_shift = nls + nls;
-        }
+        const int next_shift = OZAKI_BATCH_NEXT_SHIFT(
+          low_bit_sa, low_bit_sb, sb, sb_end, sa);
         if (cur_shift == next_shift) {
           batch_acc = 1;
         }
@@ -525,32 +557,8 @@ kernel void gemm_fused(
           c_acc_sc[2] = sc10; c_acc_sc[3] = sc11;
           c_acc_sc[4] = sc20; c_acc_sc[5] = sc21;
           c_acc_sc[6] = sc30; c_acc_sc[7] = sc31;
-          { int rm, rn;
-            UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-              UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-                const int idx = rm * RTN + rn;
-                const int col = nj_base + rn * XMX_N + sg_lid;
-                real_t c_tile[XMX_M];
-                int m_;
-                UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-                  const int r_ = mi_base + rm * XMX_M + m_;
-                  c_tile[m_] = OZAKI_IN_BOUNDS(r_, M, col, N)
-                    ? c[(long)col * ldc + r_] : ZERO;
-                }
-                OZAKI_GEMM_ACCUM_CACHED(c_acc_sc[idx],
-                                 ea_cache + rm * XMX_M, eb_cache[rn],
-                                 c_tile,
-                                 M, N, mi_base + rm * XMX_M, col,
-                                 pair_scale);
-                UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-                  const int r_ = mi_base + rm * XMX_M + m_;
-                  if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
-                    c[(long)col * ldc + r_] = c_tile[m_];
-                  }
-                }
-              }
-            }
-          }
+          OZAKI_SCALE_FLUSH(c_acc_sc, c, ldc, ea_cache, eb_cache,
+                            mi_base, nj_base, sg_lid, M, N, pair_scale);
         }
       }
 #else
@@ -581,47 +589,15 @@ kernel void gemm_fused(
       /* Check if next pair (in iteration order) has the same shift sum.
        * If so, defer scaling and accumulate int32 across pairs. */
       { const int cur_shift = low_bit_sa + low_bit_sb;
-        int next_shift = -1;
-        if (sb + 1 < sb_end) {
-          next_shift = low_bit_sa
-            + MAX(0, MANT_BITS - 7 * ((int)sb + 1) - 6);
-        }
-        else if (0 == OZAKI_SQ && (int)sa + 1 < NSLICES) {
-          const int nls = MAX(0, MANT_BITS - 7 * ((int)sa + 1) - 6);
-          next_shift = nls + nls;
-        }
+        const int next_shift = OZAKI_BATCH_NEXT_SHIFT(
+          low_bit_sa, low_bit_sb, sb, sb_end, sa);
         if (cur_shift == next_shift) {
           batch_acc = 1;
         }
         else {
           batch_acc = 0;
-          /* Tile-by-tile scale: one c_tile[XMX_M] at a time */
-          { int rm, rn;
-            UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-              UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-                const int idx = rm * RTN + rn;
-                const int col = nj_base + rn * XMX_N + sg_lid;
-                real_t c_tile[XMX_M];
-                int m_;
-                UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-                  const int r_ = mi_base + rm * XMX_M + m_;
-                  c_tile[m_] = OZAKI_IN_BOUNDS(r_, M, col, N)
-                    ? c[(long)col * ldc + r_] : ZERO;
-                }
-                OZAKI_GEMM_ACCUM_CACHED(c_acc[idx],
-                                 ea_cache + rm * XMX_M, eb_cache[rn],
-                                 c_tile,
-                                 M, N, mi_base + rm * XMX_M, col,
-                                 pair_scale);
-                UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-                  const int r_ = mi_base + rm * XMX_M + m_;
-                  if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
-                    c[(long)col * ldc + r_] = c_tile[m_];
-                  }
-                }
-              }
-            }
-          }
+          OZAKI_SCALE_FLUSH(c_acc, c, ldc, ea_cache, eb_cache,
+                            mi_base, nj_base, sg_lid, M, N, pair_scale);
         }
       }
 #else
@@ -691,24 +667,4 @@ kernel void gemm_fused(
     }
   }
 #endif
-}
-
-
-/**
- * scale_beta: Prescale C by beta before accumulation.
- *
- * Work-group: (BM_PRE, 1, 1).
- * Dispatch: global = (ceil(M, BM_PRE) * BM_PRE, N, 1).
- */
-__attribute__((reqd_work_group_size(BM_PRE, 1, 1)))
-kernel void scale_beta(
-  global real_t* restrict c,
-  int M, int N, int ldc,
-  real_t beta)
-{
-  const int row = (int)get_global_id(0);
-  const int col = (int)get_global_id(1);
-  if (row < M && col < N) {
-    c[col * ldc + row] *= beta;
-  }
 }
