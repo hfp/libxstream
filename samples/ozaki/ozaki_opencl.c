@@ -79,6 +79,9 @@ LIBXS_INCBIN(ozaki_tinytc_f64, OZAKI_TINYTC_CLX("f64"), 16);
 LIBXS_INCBIN(ozaki_tinytc_f32, OZAKI_TINYTC_CLX("f32"), 16);
 #endif
 
+/* Embedded production TinyTC kernels (specialized per ndecomp/trim/scheme) */
+#include "ozaki_tinytc.h"
+
 
 /* Internal helpers */
 static void ozaki_print_opt(FILE* stream, const char* name, int val) {
@@ -322,18 +325,39 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           " -DOZAKI_SCALAR_ACC=1");
       }
       /* TinyTC kernel selection: disabled by default.
-       * OZAKI_TINYTC=1 enables embedded binary, OZAKI_TINYTC=<path>
-       * loads from file, OZAKI_TINYTC=0 or unset disables. */
+       * OZAKI_TINYTC=1 tries specialized embedded .clx then general,
+       * OZAKI_TINYTC=<path> loads from file,
+       * OZAKI_TINYTC=0 or unset disables. */
       { const char* tinytc_env = getenv("OZAKI_TINYTC");
         if (NULL != tinytc_env && '0' != *tinytc_env) {
           if ('1' == *tinytc_env && '\0' == tinytc_env[1]) {
 #if defined(LIBXS_INCBIN) && defined(OZAKI_TINYTC_EMBED)
-            tinytc_source = use_double
-              ? ozaki_tinytc_f64 : ozaki_tinytc_f32;
-            tinytc_source_kind = (size_t)(use_double
-              ? (ozaki_tinytc_f64_end - ozaki_tinytc_f64)
-              : (ozaki_tinytc_f32_end - ozaki_tinytc_f32));
-            tinytc_avail = 1;
+            { const int sq_prod =
+                0 != (ozflags
+                  & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE));
+              const struct ozaki_tinytc_prod_entry* e;
+              for (e = ozaki_tinytc_prod; NULL != e->data; ++e) {
+                if (e->use_double == use_double
+                  && e->ndecomp == ndecomp
+                  && e->oztrim == oztrim
+                  && (0 != e->sq) == (0 != sq_prod))
+                {
+                  tinytc_source = e->data;
+                  tinytc_source_kind =
+                    (size_t)(e->data_end - e->data);
+                  tinytc_avail = 1;
+                  break;
+                }
+              }
+            }
+            if (0 == tinytc_avail) {
+              tinytc_source = use_double
+                ? ozaki_tinytc_f64 : ozaki_tinytc_f32;
+              tinytc_source_kind = (size_t)(use_double
+                ? (ozaki_tinytc_f64_end - ozaki_tinytc_f64)
+                : (ozaki_tinytc_f32_end - ozaki_tinytc_f32));
+              tinytc_avail = 1;
+            }
 #endif
           }
           else {
@@ -344,6 +368,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
             tinytc_avail = 1;
           }
         }
+      }
+      { const int cutoff_jit = 2 * (ndecomp - 1) - oztrim;
+        const int sq_jit = ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
+        goff += (size_t)LIBXS_SNPRINTF(
+          build_params + goff, sizeof(build_params) - goff,
+          " -DOZAKI_CUTOFF=%d -DOZAKI_SQ=%d", cutoff_jit, sq_jit);
       }
       if (0 != tinytc_avail) {
         goff += (size_t)LIBXS_SNPRINTF(
@@ -1105,48 +1135,69 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         int nblk_tc_m = (M + OZAKI_TINYTC_BM - 1) / OZAKI_TINYTC_BM;
         int nblk_tc_n = (N + OZAKI_TINYTC_BN - 1) / OZAKI_TINYTC_BN;
         {
-          cl_long a_s0 = k_pad, a_s1 = m_pad, a_s2 = nslices_g;
-          cl_long a_st1 = k_pad, a_st2 = (cl_long)m_pad * k_pad;
-          cl_long b_s0 = n_pad, b_s1 = k_pad, b_s2 = nslices_g;
-          cl_long b_st1 = n_pad, b_st2 = (cl_long)k_pad * n_pad;
-          cl_long sc_s0 = (cl_long)M, sc_s1 = (cl_long)N;
-          cl_long sc_st1 = (cl_long)M;
-          cl_long ca_s0 = m_pad, ca_s1 = n_pad, ca_st1 = (cl_long)ldc;
-          cl_long ea_s0 = (cl_long)M, eb_s0 = (cl_long)N;
+          cl_uint tc_nargs = 0;
           cl_int i = 0;
-          /* A: memref<i8x?x?x?> -> ptr, 3 shapes, 2 strides */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s0));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s2));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st2));
-          /* B: memref<i8x?x?x?> -> ptr, 3 shapes, 2 strides */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s0));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s2));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st2));
-          /* C: memref<i32x?x?> scratch -> ptr, 2 shapes, 1 stride */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s0));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_st1));
-          /* C_acc: memref<$ty x?x?> -> ptr, 2 shapes, 1 stride */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s0));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_st1));
-          /* eA: memref<$ty x?> -> ptr, 1 shape */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ea_s0));
-          /* eB: memref<$ty x?> -> ptr, 1 shape */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &eb_s0));
-          /* cutoff_in: i32, sq_in: i32 */
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &cutoff));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &sq));
+          clGetKernelInfo(ctx->kern_tinytc, CL_KERNEL_NUM_ARGS,
+            sizeof(tc_nargs), &tc_nargs, NULL);
+          if (tc_nargs <= 6) {
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
+          }
+          else {
+            cl_long a_s0 = k_pad, a_s1 = m_pad;
+            cl_long a_st1 = k_pad, a_st2 = (cl_long)m_pad * k_pad;
+            cl_long b_s0 = n_pad, b_s1 = k_pad;
+            cl_long b_st1 = n_pad, b_st2 = (cl_long)k_pad * n_pad;
+            cl_long sc_s0 = (cl_long)M, sc_s1 = (cl_long)N;
+            cl_long sc_st1 = (cl_long)M;
+            cl_long ca_s0 = m_pad, ca_s1 = n_pad, ca_st1 = (cl_long)ldc;
+            cl_long ea_s0 = (cl_long)M, eb_s0 = (cl_long)N;
+            /* A: memref<i8x?x?xN> -> ptr, 2 shapes, 2 strides */
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s0));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s1));
+            if (tc_nargs > 22) {
+              cl_long a_s2 = nslices_g;
+              CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s2));
+            }
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st1));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st2));
+            /* B: memref<i8x?x?xN> -> ptr, 2 shapes, 2 strides */
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s0));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s1));
+            if (tc_nargs > 22) {
+              cl_long b_s2 = nslices_g;
+              CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s2));
+            }
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st1));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st2));
+            /* C: memref<i32x?x?> scratch -> ptr, 2 shapes, 1 stride */
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s0));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s1));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_st1));
+            /* C_acc: memref<$ty x?x?> -> ptr, 2 shapes, 1 stride */
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s0));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s1));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_st1));
+            /* eA: memref<$ty x?> -> ptr, 1 shape */
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ea_s0));
+            /* eB: memref<$ty x?> -> ptr, 1 shape */
+            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &eb_s0));
+            if (tc_nargs > 22) {
+              /* cutoff_in: i32, sq_in: i32 */
+              CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &cutoff));
+              CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &sq));
+            }
+          }
           { size_t cwgs[3] = {0, 0, 0};
             cl_device_id device = libxstream_opencl_config.devices[
               libxstream_opencl_config.device_id];
@@ -1191,10 +1242,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
           float falpha = (float)alpha;
           CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(float), &falpha));
         }
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &nslices_g));
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &cutoff));
         CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &first_pair));
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &sq));
       }
       CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern_g, 2,
           NULL, global_g, local_g, 0, NULL,

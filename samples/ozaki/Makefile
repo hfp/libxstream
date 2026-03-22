@@ -37,8 +37,11 @@ endif
 
 # Embed precompiled TinyTC kernels if .clx files are present.
 # Filenames encode BM x BN, e.g. ozaki1_f64_256x128.clx.
-OZAKI_CLX_F64 := $(wildcard $(SRCDIR)/kernels/ozaki1_f64_*x*.clx)
-OZAKI_CLX_F32 := $(wildcard $(SRCDIR)/kernels/ozaki1_f32_*x*.clx)
+# Exclude production variants (*_tri.clx, *_sq.clx) loaded at runtime.
+OZAKI_CLX_F64 := $(filter-out %_tri.clx %_sq.clx, \
+  $(wildcard $(SRCDIR)/kernels/ozaki1_f64_*x*.clx))
+OZAKI_CLX_F32 := $(filter-out %_tri.clx %_sq.clx, \
+  $(wildcard $(SRCDIR)/kernels/ozaki1_f32_*x*.clx))
 ifneq (,$(OZAKI_CLX_F64))
 ifneq (,$(OZAKI_CLX_F32))
   OZAKI_BMBN := $(lastword $(subst _, ,$(basename $(notdir $(OZAKI_CLX_F64)))))
@@ -47,6 +50,11 @@ ifneq (,$(OZAKI_CLX_F32))
     -DOZAKI_TINYTC_BN=$(word 2,$(subst x, ,$(OZAKI_BMBN)))
 endif
 endif
+
+# Production .clx files (specialized per ndecomp/trim/scheme)
+OZAKI_CLX_PROD := $(wildcard $(SRCDIR)/kernels/ozaki1_*_n*t*_tri.clx \
+                             $(SRCDIR)/kernels/ozaki1_*_n*t*_sq.clx)
+GENHDR_PROD := $(SRCDIR)/ozaki_tinytc.h
 
 # include directories
 IFLAGS += -I$(call quote,$(DEPDIR)/include)
@@ -60,7 +68,7 @@ GENHDR := $(SRCDIR)/ozaki_kernels.h
 
 OUTNAME := $(shell basename "$(ROOTDIR)")
 HEADERS := $(wildcard $(INCDIR)/*.h) \
-           $(GENHDR) \
+           $(GENHDR) $(GENHDR_PROD) \
            $(wildcard $(DEPDIR)/include/common/*.h)
 CSOURCS := $(wildcard $(SRCDIR)/*.c)
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
@@ -77,6 +85,11 @@ compile: $(OBJECTS)
 # Generate embedded kernel header from .cl sources (resolves #include directives)
 $(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/include/common/*.h) $(SCRDIR)/tool_opencl.sh Makefile $(LIBXSROOT)/Makefile.inc
 	$(SCRDIR)/tool_opencl.sh -p "" $(KRNELS) $@
+
+# Generate production TinyTC kernel header (INCBIN + lookup table).
+# Depends on the prod .clx files; if none exist the header is a no-op stub.
+$(GENHDR_PROD): $(OZAKI_CLX_PROD) $(SRCDIR)/kernels/ozaki1.sh
+	$(SRCDIR)/kernels/ozaki1.sh -h $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)

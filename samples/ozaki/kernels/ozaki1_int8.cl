@@ -379,10 +379,7 @@ kernel void gemm_fused(
   int M, int N, int K_pad, int N_pad, int ldc,
   int M_pad,                                /* padded M dimension = slice row stride */
   real_t alpha,
-  int nslices,                              /* total number of slices */
-  int cutoff,                               /* sa + sb <= cutoff */
-  int first_pair,                           /* 1 if beta == 0 (overwrite C) */
-  int sq)                                   /* 1: full square, 0: triangle+mirror */
+  int first_pair)                           /* 1 if beta == 0 (overwrite C) */
 {
   const int ib_idx  = (int)get_group_id(0);
   const int jb_idx  = (int)get_group_id(1);
@@ -460,16 +457,16 @@ kernel void gemm_fused(
 #endif /* OZAKI_SCALAR_ACC hoist */
 #endif
 
-  for (sa = 0; sa < (SINT)nslices; ++sa) {
+  for (sa = 0; sa < (SINT)NSLICES; ++sa) {
     const int high_sa = MANT_BITS - (7 * (int)sa);
     const int low_bit_sa = MAX(0, high_sa - 6);
     CONSTANT const char* as_sa = as_base + (long)sa * a_stride;
     CONSTANT const char* bs_sa = bs_base + (long)sa * b_stride;
-    const int sb_end_raw = cutoff + 1 - (int)sa;
-    const SINT sb_end = (SINT)(sb_end_raw < nslices ? sb_end_raw : nslices);
+    const int sb_end_raw = OZAKI_CUTOFF + 1 - (int)sa;
+    const SINT sb_end = (SINT)(sb_end_raw < NSLICES ? sb_end_raw : NSLICES);
     SINT sb;
 
-    for (sb = sq ? 0 : sa; sb < sb_end; ++sb) {
+    for (sb = OZAKI_SQ ? 0 : sa; sb < sb_end; ++sb) {
       const int high_sb = MANT_BITS - (7 * (int)sb);
       const int low_bit_sb = MAX(0, high_sb - 6);
       CONSTANT const char* as_sb = as_base + (long)sb * a_stride;
@@ -486,7 +483,7 @@ kernel void gemm_fused(
       }
       OZAKI_KLOOP_SC(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base,
                      sc00, sc01, sc10, sc11, sc20, sc21, sc30, sc31);
-      if (0 == sq && sa != sb) {
+      if (0 == OZAKI_SQ && sa != sb) {
         int8 sm00 = (int8)(0), sm01 = (int8)(0);
         int8 sm10 = (int8)(0), sm11 = (int8)(0);
         int8 sm20 = (int8)(0), sm21 = (int8)(0);
@@ -505,7 +502,7 @@ kernel void gemm_fused(
           next_shift = low_bit_sa
             + MAX(0, MANT_BITS - 7 * ((int)sb + 1) - 6);
         }
-        else if (0 == sq && (int)sa + 1 < nslices) {
+        else if (0 == OZAKI_SQ && (int)sa + 1 < NSLICES) {
           const int nls = MAX(0, MANT_BITS - 7 * ((int)sa + 1) - 6);
           next_shift = nls + nls;
         }
@@ -558,7 +555,7 @@ kernel void gemm_fused(
         }
       }
       OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-      if (0 == sq && sa != sb) {
+      if (0 == OZAKI_SQ && sa != sb) {
         int8 c_mir[RTM * RTN];
         { int ri;
           UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
@@ -580,7 +577,7 @@ kernel void gemm_fused(
           next_shift = low_bit_sa
             + MAX(0, MANT_BITS - 7 * ((int)sb + 1) - 6);
         }
-        else if (0 == sq && (int)sa + 1 < nslices) {
+        else if (0 == OZAKI_SQ && (int)sa + 1 < NSLICES) {
           const int nls = MAX(0, MANT_BITS - 7 * ((int)sa + 1) - 6);
           next_shift = nls + nls;
         }
@@ -626,7 +623,7 @@ kernel void gemm_fused(
           }
         }
         OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-        if (0 == sq && sa != sb) {
+        if (0 == OZAKI_SQ && sa != sb) {
           int8 c_mir[RTM * RTN];
           { int ri;
             UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
