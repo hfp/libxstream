@@ -37,7 +37,9 @@ func @ozaki1(
         %C: memref<i32x?x?> {shape_gcd=[$BM,$BN],stride_gcd=[1,4]},
         %C_acc: memref<$ty x?x?> {stride_gcd=[1,4]},
         %eA: memref<$ty x?>,
-        %eB: memref<$ty x?>
+        %eB: memref<$ty x?>,
+        %cutoff_in: i32,
+        %sq_in: i32
     ) attributes $func_attr {
     %row_block = group_id.x : index
     %col_block = group_id.y : index
@@ -48,32 +50,84 @@ func @ozaki1(
 
     %K = size %A[0] : index
     %num_splits = size %A[2] : index
+    %c1_idx = constant 1 : index
 
     %c0 = constant 0 : index
+    %c0_i32 = constant 0 : i32
+    %c1_i32 = constant 1 : i32
     %bk = constant $bk : index
+    %cutoff_p1 = add %cutoff_in, %c1_i32 : i32
+    %is_sq = not_equal %sq_in, %c0_i32 : bool
     for %p=%c0,%num_splits {
-        for %q=%c0,%num_splits {
-            %a = subview %A[0:%K,%row_offset:$BM,%p] : memref<i8x ? x $BM,strided<1,?>>
-            %b = subview %B[%col_offset:$BN,0:%K,%q] : memref<i8x $BN x ?,strided<1,?>>
+        %p_i32 = cast %p : i32
+        %sb_end_raw = sub %cutoff_p1, %p_i32 : i32
+        %sb_end_idx_raw = cast %sb_end_raw : index
+        %ns_i = size %A[2] : index
+        %sb_lt = less_than %sb_end_idx_raw, %ns_i : bool
+        %sb_end_idx = if %sb_lt -> (index) {
+            yield (%sb_end_idx_raw)
+        } else {
+            yield (%ns_i)
+        }
+        %q_start = if %is_sq -> (index) {
+            yield (%c0)
+        } else {
+            yield (%p)
+        }
+        for %q=%q_start,%sb_end_idx {
+            %a_p = subview %A[0:%K,%row_offset:$BM,%p] : memref<i8x ? x $BM,strided<1,?>>
+            %b_q = subview %B[%col_offset:$BN,0:%K,%q] : memref<i8x $BN x ?,strided<1,?>>
             %c = subview %C[%row_offset:$BM,%col_offset:$BN] : memref<i32x $BM x $BN,strided<1,?>>
 
+            ; Phase 1: DPAS int8 -> i32 scratch for pair (p, q)
             foreach_tile (%i,%j)=(%c0,%c0),(%BM,%BN) as (%ti,%tj) <= ($bm,$bn) {
                 $acc_mat_t = coopmatrix<i32x $bm x $bn,matrix_acc>
                 %c_init = constant 0 : $acc_mat_t
                 %c_acc = for %k=%c0,%K,%bk init(%c_iter=%c_init) -> ($acc_mat_t) {
-                    %aa = cooperative_matrix_load.t %a[%k,%i] : coopmatrix<i8x $bm x $bk,matrix_a>
-                    %bb = cooperative_matrix_load.t %b[%j,%k] : coopmatrix<i8x $bk x $bn,matrix_b>
+                    %aa = cooperative_matrix_load.t %a_p[%k,%i] : coopmatrix<i8x $bm x $bk,matrix_a>
+                    %bb = cooperative_matrix_load.t %b_q[%j,%k] : coopmatrix<i8x $bk x $bn,matrix_b>
                     %k_next = add %k, %bk : index
-                    cooperative_matrix_prefetch 0, %a[%k_next,%i], $bk, $bm
-                    cooperative_matrix_prefetch 0, %b[%j,%k_next], $bn, $bk
+                    cooperative_matrix_prefetch 0, %a_p[%k_next,%i], $bk, $bm
+                    cooperative_matrix_prefetch 0, %b_q[%j,%k_next], $bn, $bk
                     %c_next = cooperative_matrix_mul_add %aa, %bb, %c_iter : $acc_mat_t
                     yield (%c_next)
                 } attributes{unroll=2}
                 cooperative_matrix_store %c_acc, %c[%i,%j]
             }
 
+            ; Phase 1b: mirror pair (q, p) for triangular mode
+            %is_mirror = not_equal %p, %q : bool
+            %do_mirror = if %is_sq -> (bool) {
+                %false = constant false : bool
+                yield (%false)
+            } else {
+                yield (%is_mirror)
+            }
+            if %do_mirror {
+                %a_q = subview %A[0:%K,%row_offset:$BM,%q] : memref<i8x ? x $BM,strided<1,?>>
+                %b_p = subview %B[%col_offset:$BN,0:%K,%p] : memref<i8x $BN x ?,strided<1,?>>
+
+                barrier.global
+
+                foreach_tile (%mi,%mj)=(%c0,%c0),(%BM,%BN) as (%mti,%mtj) <= ($bm,$bn) {
+                    $macc_t = coopmatrix<i32x $bm x $bn,matrix_acc>
+                    %c_prev = cooperative_matrix_load %c[%mi,%mj] : $macc_t
+                    %m_acc = for %mk=%c0,%K,%bk init(%m_iter=%c_prev) -> ($macc_t) {
+                        %ma = cooperative_matrix_load.t %a_q[%mk,%mi] : coopmatrix<i8x $bm x $bk,matrix_a>
+                        %mb = cooperative_matrix_load.t %b_p[%mj,%mk] : coopmatrix<i8x $bk x $bn,matrix_b>
+                        %mk_next = add %mk, %bk : index
+                        cooperative_matrix_prefetch 0, %a_q[%mk_next,%mi], $bk, $bm
+                        cooperative_matrix_prefetch 0, %b_p[%mj,%mk_next], $bn, $bk
+                        %m_next = cooperative_matrix_mul_add %ma, %mb, %m_iter : $macc_t
+                        yield (%m_next)
+                    } attributes{unroll=2}
+                    cooperative_matrix_store %m_acc, %c[%mi,%mj]
+                }
+            }
+
             barrier.global
 
+            ; Phase 2: FP scale + accumulate
             %step = add %p, %q : index
             %step_i32 = cast %step : i32
             %c2 = constant 2 : i32

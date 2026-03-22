@@ -1144,6 +1144,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
           /* eB: memref<$ty x?> -> ptr, 1 shape */
           CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
           CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &eb_s0));
+          /* cutoff_in: i32, sq_in: i32 */
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &cutoff));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &sq));
           { size_t cwgs[3] = {0, 0, 0};
             cl_device_id device = libxstream_opencl_config.devices[
               libxstream_opencl_config.device_id];
