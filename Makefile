@@ -50,9 +50,9 @@ ASNEEDED ?= 0
 # project needs OpenCL by default
 OCL ?= 2
 
-# OpenMP is disabled by default and the library
-# is agnostic wrt the threading runtime
-OMP ?= 0
+# OpenMP is needed for correct per-thread resource sizing
+# (streams, memory pointers) when called from threaded consumers.
+OMP ?= 1
 
 # There is no reliance on Fortran
 FORTRAN ?= 0
