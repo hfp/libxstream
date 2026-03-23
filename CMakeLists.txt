@@ -52,6 +52,9 @@ target_include_directories(libxstream
 
 target_link_libraries(libxstream PUBLIC OpenCL::OpenCL)
 
+find_package(OpenMP REQUIRED)
+target_link_libraries(libxstream PUBLIC OpenMP::OpenMP_C)
+
 # prefer pre-built LIBXS library, fall back to header-only (libxs_source.h)
 find_library(LIBXS_LIBRARY NAMES xs libxs HINTS "${LIBXSROOT}/lib")
 if(LIBXS_LIBRARY)
