@@ -103,5 +103,5 @@ Enumerates floating-point atomics support: none, 32-bit, or 64-bit.
 
 ## See Also
 
-* [LIBXSTREAM API](../README.md) — public API built on top of this layer
+* LIBXSTREAM API (`include/libxstream.h`) — public API built on top of this layer
 * [DBCSR ACC Interface](libxstream_dbcsr.md) — the DBCSR compatibility shim

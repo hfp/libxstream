@@ -1,66 +1,108 @@
-# CP2K Open Source Molecular Dynamics
-This document focuses on offloading CP2K's DBCSR small matrix multiplication to the Intel Xeon Phi Coprocessor, and this document is accompanying the recipe for building and running CP2K's "intel" branch as described in:
-> https://github.com/hfp/libxsmm/raw/master/documentation/cp2k.pdf.
+# CP2K Offload Interface
 
-## Getting and Building the Source Code
-Please read the above mentioned document entirely, and use one of the recommended compiler versions:
-* Intel Compiler 15.0.3.187 (Build 20150407)
-* Intel Compiler 16.0.0.109 (Build 20150815)
+[`include/libxstream_cp2k.h`](https://github.com/hfp/libxstream/blob/main/include/libxstream_cp2k.h) implements CP2K's [offload runtime interface](https://github.com/cp2k/cp2k/blob/master/src/offload/offload_runtime.h) — the hardware-abstraction layer that CP2K uses for GPU-accelerated operations beyond DBCSR (grid integration, PW operations, etc.). The original interface provides `static inline` wrappers for CUDA, HIP, and OpenCL; LIBXSTREAM replaces the OpenCL path with a dedicated translation unit ([`src/libxstream_cp2k.c`](https://github.com/hfp/libxstream/blob/main/src/libxstream_cp2k.c)) that routes directly through LIBXSTREAM's internal API.
 
-For Intel MPI, usually any version is fine.
+## Relationship to the DBCSR Interface
 
-```
-git clone --branch intel https://github.com/cp2k/cp2k.git cp2k.git
-ln -s cp2k.git/cp2k cp2k
-source /opt/intel/composer_xe_2015.3.187/bin/compilervars.sh intel64
-source /opt/intel/impi/5.1.0.069/intel64/bin/mpivars.sh
-cd cp2k/makefiles
-make ARCH=Linux-x86-64-intel VERSION=popt ACC=1 -j
-```
+CP2K's code has two accelerator interfaces:
 
-It is recommended to rely on a non-SMP build ("popt", "sopt") where "popt" makes the most sense in order to partition the coprocessor according to the number of ranks on the host system. Please note that although the host may be only MPI-parallelized, the coprocessor uses OpenMP within each partition formed by a host-rank.
+| Interface | Header | Purpose |
+|---|---|---|
+| **DBCSR ACC** | [`libxstream_dbcsr.h`](https://github.com/hfp/libxstream/blob/main/include/libxstream_dbcsr.h) | Sparse matrix operations (DBCSR library) |
+| **Offload Runtime** | [`libxstream_cp2k.h`](https://github.com/hfp/libxstream/blob/main/include/libxstream_cp2k.h) | General offload (memory, streams, events, synchronization) |
 
-## Running the Application
-To improve scalability, the coprocessor can partitioned by the MPI-ranks launched on the host system with each rank offloading work independently. This is solely achieved by setting a number of environment variables helping to place and pin the threads on the coprocessor. In order to ease this step, one may employ scripts as found at:
-> https://github.com/hfp/mpirun.
+The DBCSR adapter ([`src/libxstream_dbcsr.c`](https://github.com/hfp/libxstream/blob/main/src/libxstream_dbcsr.c)) uses opaque `void*` handles and translates to LIBXSTREAM's typed API. The offload runtime adapter does the same but uses CP2K's `offloadStream_t`/`offloadEvent_t` typedefs (also `void*`). Both share the underlying LIBXSTREAM implementation.
 
-Although the script can take a list of nodes, it may not be suitable for launching on a larger set of cluster nodes due to building an excessively large command line (rather than relying on the "host file").
+## API
 
-In below example, the argument "-p8" could be very suitable for single socket of a 16-core system with a single 3-series coprocessor (57 cores) attached to the first socket. The number of cores (total number minus one core for the uOS) may be divisible by the number of ranks per host-socket. It is usually preferable to minimize the number of remaining cores on the coprocessor since the current implementation in the CP2K/intel branch is leaving the host processor(s) unutilized (beside from offloading and transferring the work).
+The header is self-contained (C99, no LIBXSTREAM headers required) and provides opaque handle types, an error-checking macro, and functions covering five domains.
 
-```
-wget https://raw.githubusercontent.com/hfp/mpirun/master/mpirun.sh
-wget https://raw.githubusercontent.com/hfp/mpirun/master/mpirun.py
-chmod +x mpirun.*
-mpirun.sh -p8 -x exe/Linux-x86-64-intel/cp2k.popt workload.inp
+### Types and Constants
+
+```C
+typedef void* offloadStream_t;
+typedef void* offloadEvent_t;
+typedef int   offloadError_t;
+
+#define offloadSuccess EXIT_SUCCESS
 ```
 
-For an actual workload, one may try the following:
+### Error Handling
 
+```C
+const char* offloadGetErrorName(offloadError_t error);
+offloadError_t offloadGetLastError(void);
 ```
-&GLOBAL
-  PRINT_LEVEL MEDIUM
-  PROGRAM_NAME TEST
-  RUN_TYPE NONE
-  &TIMINGS
-     THRESHOLD 0.00001
-  &END
-&END GLOBAL
-&TEST
-  &CP_DBCSR
-     K  6440
-     M  6440
-     N  6440
-     TRANSA TRUE
-     TRANSB FALSE
-     N_LOOP 4
-     ASPARSITY 0.0001
-     BSPARSITY 0.0001
-     CSPARSITY 0.0001
-     bs_m 1 23
-     bs_n 1 23
-     bs_k 1 23
-     KEEPSPARSE .FALSE.
-  &END
-&END TEST
+
+`offloadGetErrorName` maps error codes to OpenCL error strings via `libxstream_opencl_strerror`. `offloadGetLastError` consumes and clears the last recorded error.
+
+The `OFFLOAD_CHECK` macro aborts on failure after printing the error name and source location:
+
+```C
+OFFLOAD_CHECK(offloadMalloc(&ptr, nbytes));
 ```
+
+### Streams
+
+```C
+void offloadStreamCreate(offloadStream_t* stream);
+void offloadStreamDestroy(offloadStream_t stream);
+void offloadStreamSynchronize(offloadStream_t stream);
+void offloadStreamWaitEvent(offloadStream_t stream, offloadEvent_t event);
+```
+
+`offloadStreamCreate` creates a stream with default priority (`LIBXSTREAM_STREAM_DEFAULT`).
+
+### Events
+
+```C
+void offloadEventCreate(offloadEvent_t* event);
+void offloadEventDestroy(offloadEvent_t event);
+void offloadEventRecord(offloadEvent_t event, offloadStream_t stream);
+void offloadEventSynchronize(offloadEvent_t event);
+bool offloadEventQuery(offloadEvent_t event);
+```
+
+### Memory
+
+```C
+void offloadMalloc(void** ptr, size_t size);
+void offloadFree(void* ptr);
+void offloadMallocHost(void** ptr, size_t size);
+void offloadFreeHost(void* ptr);
+```
+
+### Transfers
+
+```C
+void offloadMemcpyAsyncHtoD(void* ptr_dev, const void* ptr_hst, size_t size, offloadStream_t stream);
+void offloadMemcpyAsyncDtoH(void* ptr_hst, const void* ptr_dev, size_t size, offloadStream_t stream);
+void offloadMemcpyAsyncDtoD(void* dst, const void* src, size_t size, offloadStream_t stream);
+void offloadMemcpyHtoD(void* ptr_dev, const void* ptr_hst, size_t size);
+void offloadMemcpyDtoH(void* ptr_hst, const void* ptr_dev, size_t size);
+void offloadMemsetAsync(void* ptr, int val, size_t size, offloadStream_t stream);
+void offloadMemset(void* ptr, int val, size_t size);
+```
+
+The synchronous variants (`offloadMemcpyHtoD`, `offloadMemcpyDtoH`, `offloadMemset`) pass a NULL stream. `offloadMemsetAsync` supports arbitrary fill values via `libxstream_opencl_memset`.
+
+### Device
+
+```C
+void offloadDeviceSynchronize(void);
+```
+
+### Stubs
+
+```C
+void offloadMemcpyToSymbol(const void* symbol, const void* src, size_t count);
+void offloadEnsureMallocHeapSize(size_t required_size);
+```
+
+These are CUDA-specific operations (constant-memory writes and device-heap sizing) that have no direct OpenCL equivalent. They are currently stubs guarded by assertions. CP2K's OpenCL path disables the GPU grid subsystem (`__NO_OFFLOAD_GRID`) that would call them.
+
+## See Also
+
+* LIBXSTREAM API (`include/libxstream.h`) — the underlying OpenCL backend API
+* [DBCSR ACC Interface](libxstream_dbcsr.md) — the DBCSR adapter layer
+* [CP2K offload_runtime.h](https://github.com/cp2k/cp2k/blob/master/src/offload/offload_runtime.h) — upstream interface definition
