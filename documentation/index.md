@@ -6,7 +6,7 @@ LIBXSTREAM targets OpenCL devices across vendors (Intel, AMD, NVIDIA) and depend
 
 ## API
 
-The public C API is declared in [`include/libxstream.h`](include/libxstream.h). All implementation details are sealed behind opaque types.
+The public C API is declared in `include/libxstream.h`. All implementation details are sealed behind opaque types.
 
 ```C
 typedef int libxstream_bool_t;
@@ -60,11 +60,15 @@ int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbytes, libxstream_
 
 ### DBCSR Compatibility
 
-The header [`include/libxstream_dbcsr.h`](include/libxstream_dbcsr.h) provides the full set of `c_dbcsr_acc_*` symbols expected by DBCSR, allowing LIBXSTREAM to serve as a drop-in accelerator backend. The DBCSR interface retains `void*` handles for streams and events; casts to the opaque types are confined to the adapter layer ([`src/libxstream_dbcsr.c`](src/libxstream_dbcsr.c)).
+The header `include/libxstream_dbcsr.h` provides the full set of `c_dbcsr_acc_*` symbols expected by DBCSR, allowing LIBXSTREAM to serve as a drop-in accelerator backend. The DBCSR interface retains `void*` handles for streams and events; casts to the opaque types are confined to the adapter layer (`src/libxstream_dbcsr.c`).
+
+### CP2K Offload Interface
+
+The header `include/libxstream_cp2k.h` implements CP2K's [offload runtime interface](https://github.com/cp2k/cp2k/blob/master/src/offload/offload_runtime.h) — the `offload*` functions that CP2K uses for general GPU operations (memory, streams, events, synchronization). The implementation (`src/libxstream_cp2k.c`) routes through LIBXSTREAM's internal API, including `libxstream_opencl_memset` for arbitrary-value fills and `libxstream_opencl_strerror` for error reporting.
 
 ## Building
 
-LIBXSTREAM depends on [LIBXS](https://github.com/hfp/libxs), which is included at compile time via source inclusion (`libxs_source.h`). The Makefiles expect LIBXS to reside as a sibling directory (`../libxs` relative to the LIBXSTREAM root). This is controlled by the `LIBXSROOT` variable in both the top-level [Makefile](Makefile) and the sample Makefiles.
+LIBXSTREAM depends on [LIBXS](https://github.com/hfp/libxs), which is included at compile time via source inclusion (`libxs_source.h`). The Makefiles expect LIBXS to reside as a sibling directory (`../libxs` relative to the LIBXSTREAM root). This is controlled by the `LIBXSROOT` variable in both the top-level `Makefile` and the sample Makefiles.
 
 ```sh
 # clone both repositories side by side
@@ -111,11 +115,11 @@ cd samples/ozaki && make
 
 ### SMM — Small Matrix Multiplication
 
-[`samples/smm/`](samples/smm/) implements the [ACC LIBSMM interface](https://github.com/cp2k/dbcsr/blob/develop/src/acc/acc_libsmm.h) for batched small matrix multiply and transpose on OpenCL devices. Includes an auto-tuning framework (`tune_multiply.py`) and pre-tuned parameter sets for A100, BMG, GH200, H100, Mi250, P100, PVC, and V100. See [`samples/smm/README.md`](samples/smm/README.md) for details.
+`samples/smm/` implements the [ACC LIBSMM interface](https://github.com/cp2k/dbcsr/blob/develop/src/acc/acc_libsmm.h) for batched small matrix multiply and transpose on OpenCL devices. Includes an auto-tuning framework (`tune_multiply.py`) and pre-tuned parameter sets for A100, BMG, GH200, H100, Mi250, P100, PVC, and V100. See `samples/smm/README.md` for details.
 
 ### Ozaki — High-Precision GEMM via Mantissa Slicing
 
-[`samples/ozaki/`](samples/ozaki/) demonstrates Ozaki Scheme 1 for high-precision GEMM emulation, fully offloaded to OpenCL. Two kernel variants (int8 and bf16) with automatic detection of Intel XMX matrix engines. See [`samples/ozaki/README.md`](samples/ozaki/README.md) for details. The CPU-side GEMM wrapper that drives this GPU implementation is part of [LIBXS Ozaki](https://github.com/hfp/libxs/tree/main/samples/ozaki#ozaki-scheme-low-precision-gemm).
+`samples/ozaki/` demonstrates Ozaki Scheme 1 for high-precision GEMM emulation, fully offloaded to OpenCL. Two kernel variants (int8 and bf16) with automatic detection of Intel XMX matrix engines. See `samples/ozaki/README.md` for details. The CPU-side GEMM wrapper that drives this GPU implementation is part of [LIBXS Ozaki](https://github.com/hfp/libxs/tree/main/samples/ozaki#ozaki-scheme-low-precision-gemm).
 
 ## References
 

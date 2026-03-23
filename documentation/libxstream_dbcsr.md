@@ -30,5 +30,5 @@ The header also declares `c_dbcsr_timeset` and `c_dbcsr_timestop`, which are DBC
 
 ## See Also
 
-* [LIBXSTREAM API](../README.md) — the underlying OpenCL backend API
+* LIBXSTREAM API (`include/libxstream.h`) — the underlying OpenCL backend API
 * [DBCSR ACC specification](https://github.com/cp2k/dbcsr/blob/develop/src/acc/) — upstream interface definition
