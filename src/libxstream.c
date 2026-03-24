@@ -317,7 +317,7 @@ void libxstream_opencl_configure(void) {
 
 
 int libxstream_init(void) {
-#  if defined(_OPENMP)
+#  if defined(_OPENMP) && 0 /* TODO */
   /* initialization/finalization is not meant to be thread-safe */
   int result = ((0 == omp_in_parallel() || /*main*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
 #  else
