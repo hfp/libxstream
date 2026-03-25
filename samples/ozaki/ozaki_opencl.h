@@ -60,6 +60,8 @@ typedef struct ozaki_cache_side_t {
 } ozaki_cache_side_t;
 
 typedef struct ozaki_cache_t {
+  libxs_lock_t lock;
+  volatile LIBXS_ATOMIC_LOCKTYPE nusers;
   int flags; /* bitmask: 1=A, 2=B */
   ozaki_cache_side_t a, b;
 } ozaki_cache_t;

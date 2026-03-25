@@ -695,23 +695,35 @@ void ozaki_destroy(ozaki_context_t* ctx)
       clReleaseKernel(ctx->kern_crt_scale_beta);
     }
 
-#if defined(OZAKI_DEVPOOL)
-    /* Free pool (includes any cache buffers allocated from it). */
+    /* Quiesce cache: NULL pointers under lock (prevents new hits),
+     * then wait for in-flight gemm threads to finish using cached buffers. */
     {
+#if defined(OZAKI_DEVPOOL)
       libxs_malloc_pool_t* const pool = ctx->devpool;
-      OZAKI_DEV_FREE(ctx->cache.a.d_slices);
-      OZAKI_DEV_FREE(ctx->cache.a.d_exp);
-      OZAKI_DEV_FREE(ctx->cache.b.d_slices);
-      OZAKI_DEV_FREE(ctx->cache.b.d_exp);
-      (void)pool;
-    }
-#else
-    /* Free preprocessing cache (non-pool device memory) */
-    if (NULL != ctx->cache.a.d_slices) libxstream_mem_deallocate(ctx->cache.a.d_slices);
-    if (NULL != ctx->cache.a.d_exp) libxstream_mem_deallocate(ctx->cache.a.d_exp);
-    if (NULL != ctx->cache.b.d_slices) libxstream_mem_deallocate(ctx->cache.b.d_slices);
-    if (NULL != ctx->cache.b.d_exp) libxstream_mem_deallocate(ctx->cache.b.d_exp);
 #endif
+      void *sa_sl, *sa_ex, *sb_sl, *sb_ex;
+      LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+      sa_sl = ctx->cache.a.d_slices; ctx->cache.a.d_slices = NULL;
+      sa_ex = ctx->cache.a.d_exp;    ctx->cache.a.d_exp = NULL;
+      sb_sl = ctx->cache.b.d_slices; ctx->cache.b.d_slices = NULL;
+      sb_ex = ctx->cache.b.d_exp;    ctx->cache.b.d_exp = NULL;
+      ctx->cache.flags = 0;
+      LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
+      /* Drain active users that grabbed pointers before the NULL.
+       * LIBXS_SYNC_CYCLE only tests the low bit (lock semantics),
+       * so spin explicitly on the full counter value. */
+      while (0 != ctx->cache.nusers) LIBXS_SYNC_PAUSE;
+#if defined(OZAKI_DEVPOOL)
+      OZAKI_DEV_FREE(sa_sl); OZAKI_DEV_FREE(sa_ex);
+      OZAKI_DEV_FREE(sb_sl); OZAKI_DEV_FREE(sb_ex);
+      (void)pool;
+#else
+      if (NULL != sa_sl) libxstream_mem_deallocate(sa_sl);
+      if (NULL != sa_ex) libxstream_mem_deallocate(sa_ex);
+      if (NULL != sb_sl) libxstream_mem_deallocate(sb_sl);
+      if (NULL != sb_ex) libxstream_mem_deallocate(sb_ex);
+#endif
+    }
 
 #if defined(OZAKI_DEVPOOL)
     /* Free pool before helper streams: the pool deallocator may sync streams
@@ -817,6 +829,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
     /* Preprocessing cache: reuse slices+exponents when matrix unchanged */
+    LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
     if (0 != (ctx->cache.flags & 1) && a == ctx->cache.a.ptr
         && M == ctx->cache.a.dim && K == ctx->cache.a.K
         && lda == ctx->cache.a.ld && ta == ctx->cache.a.trans
@@ -835,6 +848,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       d_bs = ctx->cache.b.d_slices; d_expb_g = ctx->cache.b.d_exp;
       cache_hit_b = 1;
     }
+    if (0 != cache_hit_a || 0 != cache_hit_b) ++ctx->cache.nusers;
+    LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
 
     /* Allocate device memory (skip cached sides and host-preprocessed sides) */
     if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
@@ -894,86 +909,92 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     /* Phase 1: Preprocess A (skip entirely on cache hit) */
     if (0 == cache_hit_a) {
-    if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
-      h_as = calloc(as_size, 1);
-      h_expa = calloc(expa_size, 1);
-      if (NULL != h_as && NULL != h_expa) {
-        ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad,
-          nslices_g, ctx->use_xmx, h_as, h_expa);
-        result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
-        if (EXIT_SUCCESS == result) {
-          result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
+      if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
+        h_as = calloc(as_size, 1);
+        h_expa = calloc(expa_size, 1);
+        if (NULL != h_as && NULL != h_expa) {
+          ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad,
+            nslices_g, ctx->use_xmx, h_as, h_expa);
+          result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
+          if (EXIT_SUCCESS == result) {
+            result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
+          }
+        }
+        else result = EXIT_FAILURE;
+      }
+      else if (EXIT_SUCCESS == result) {
+        const libxstream_opencl_stream_t* str_a = stream_a;
+        size_t global_a[2], local_a[2];
+        const int nblk_m_pre = (M + bm_pre - 1) / bm_pre;
+        local_a[0] = bm_pre; local_a[1] = bk_pre;
+        global_a[0] = (size_t)nblk_m_pre * bm_pre;
+        global_a[1] = bk_pre; /* single WG in K: kernel loops internally */
+        { cl_int i = 0;
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, i++, d_ag));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &M));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &K));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &lda));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &ta));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, i++, d_as));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, i++, d_expa_g));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &k_pad));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &m_pad));
+        }
+        CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
+          NULL, global_a, local_a, 0, NULL,
+          (NULL != evt_prof && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
+            ? (evt_prof + n_profiled) : NULL));
+        if (EXIT_SUCCESS == result && NULL != evt_prof
+          && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
+        {
+          ++n_profiled;
         }
       }
-      else result = EXIT_FAILURE;
-    }
-    else if (EXIT_SUCCESS == result) {
-      const libxstream_opencl_stream_t* str_a = stream_a;
-      size_t global_a[2], local_a[2];
-      const int nblk_m_pre = (M + bm_pre - 1) / bm_pre;
-      local_a[0] = bm_pre; local_a[1] = bk_pre;
-      global_a[0] = (size_t)nblk_m_pre * bm_pre;
-      global_a[1] = bk_pre; /* single WG in K: kernel loops internally */
-      { cl_int i = 0;
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, i++, d_ag));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &M));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &K));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &lda));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &ta));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, i++, d_as));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, i++, d_expa_g));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &k_pad));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &m_pad));
-      }
-      CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
-        NULL, global_a, local_a, 0, NULL,
-        (NULL != evt_prof && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
-          ? (evt_prof + n_profiled) : NULL));
-      if (EXIT_SUCCESS == result && NULL != evt_prof
-        && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
-    }
     } /* cache_hit_a */
 
     /* Phase 1: Preprocess B (skip entirely on cache hit) */
     if (0 == cache_hit_b) {
-    if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
-      h_bs = calloc(bs_size, 1);
-      h_expb = calloc(expb_size, 1);
-      if (NULL != h_bs && NULL != h_expb) {
-        ctx->host_preprocess_b(b, ldb, tb, N, K, k_pad, n_pad,
-          nslices_g, ctx->use_xmx, h_bs, h_expb);
-        result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
-        if (EXIT_SUCCESS == result) {
-          result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
+      if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
+        h_bs = calloc(bs_size, 1);
+        h_expb = calloc(expb_size, 1);
+        if (NULL != h_bs && NULL != h_expb) {
+          ctx->host_preprocess_b(b, ldb, tb, N, K, k_pad, n_pad,
+            nslices_g, ctx->use_xmx, h_bs, h_expb);
+          result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
+          if (EXIT_SUCCESS == result) {
+            result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
+          }
+        }
+        else result = EXIT_FAILURE;
+      }
+      else if (EXIT_SUCCESS == result) {
+        const libxstream_opencl_stream_t* str_b = stream_b;
+        size_t global_b[2], local_b[2];
+        const int nblk_n_pre = (N + bn_pre - 1) / bn_pre;
+        local_b[0] = bn_pre; local_b[1] = bk_pre;
+        global_b[0] = (size_t)nblk_n_pre * bn_pre;
+        global_b[1] = bk_pre; /* single WG in K: kernel loops internally */
+        { cl_int i = 0;
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, i++, d_bg));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &N));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &K));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &ldb));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &tb));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, i++, d_bs));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, i++, d_expb_g));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &k_pad));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &n_pad));
+        }
+        CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
+          NULL, global_b, local_b, 0, NULL,
+          (NULL != evt_prof && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
+            ? (evt_prof + n_profiled) : NULL));
+        if (EXIT_SUCCESS == result && NULL != evt_prof
+          && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
+        {
+          ++n_profiled;
         }
       }
-      else result = EXIT_FAILURE;
-    }
-    else if (EXIT_SUCCESS == result) {
-      const libxstream_opencl_stream_t* str_b = stream_b;
-      size_t global_b[2], local_b[2];
-      const int nblk_n_pre = (N + bn_pre - 1) / bn_pre;
-      local_b[0] = bn_pre; local_b[1] = bk_pre;
-      global_b[0] = (size_t)nblk_n_pre * bn_pre;
-      global_b[1] = bk_pre; /* single WG in K: kernel loops internally */
-      { cl_int i = 0;
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, i++, d_bg));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &N));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &K));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &ldb));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &tb));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, i++, d_bs));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, i++, d_expb_g));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &k_pad));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &n_pad));
-      }
-      CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
-        NULL, global_b, local_b, 0, NULL,
-        (NULL != evt_prof && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
-          ? (evt_prof + n_profiled) : NULL));
-      if (EXIT_SUCCESS == result && NULL != evt_prof
-        && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
-    }
     } /* cache_hit_b */
 
     /* Wait for both preprocessing to complete */
@@ -987,30 +1008,37 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     free(h_bs); h_bs = NULL; free(h_expb); h_expb = NULL;
 
     /* Save preprocessed buffers to cache on miss (transfers ownership) */
-    if (0 == cache_hit_a && 0 != (ctx->cache.flags & 1) && EXIT_SUCCESS == result) {
-      if (NULL != ctx->cache.a.d_slices && as_size != ctx->cache.a.slices_size) {
-        OZAKI_DEV_FREE(ctx->cache.a.d_slices); ctx->cache.a.d_slices = NULL;
+    { const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
+      LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+      if (0 == cache_hit_a && 0 != (ctx->cache.flags & 1) && EXIT_SUCCESS == result) {
+        if (NULL != ctx->cache.a.d_slices && as_size != ctx->cache.a.slices_size) {
+          OZAKI_DEV_FREE(ctx->cache.a.d_slices); ctx->cache.a.d_slices = NULL;
+        }
+        if (NULL != ctx->cache.a.d_exp && expa_size != ctx->cache.a.exp_size) {
+          OZAKI_DEV_FREE(ctx->cache.a.d_exp); ctx->cache.a.d_exp = NULL;
+        }
+        ctx->cache.a.ptr = a; ctx->cache.a.dim = M; ctx->cache.a.K = K;
+        ctx->cache.a.ld = lda; ctx->cache.a.trans = ta;
+        ctx->cache.a.d_slices = d_as; ctx->cache.a.d_exp = d_expa_g;
+        ctx->cache.a.slices_size = as_size; ctx->cache.a.exp_size = expa_size;
+        cache_hit_a = 1; /* ownership transferred; suppress cleanup free */
       }
-      if (NULL != ctx->cache.a.d_exp && expa_size != ctx->cache.a.exp_size) {
-        OZAKI_DEV_FREE(ctx->cache.a.d_exp); ctx->cache.a.d_exp = NULL;
+      if (0 == cache_hit_b && 0 != (ctx->cache.flags & 2) && EXIT_SUCCESS == result) {
+        if (NULL != ctx->cache.b.d_slices && bs_size != ctx->cache.b.slices_size) {
+          OZAKI_DEV_FREE(ctx->cache.b.d_slices); ctx->cache.b.d_slices = NULL;
+        }
+        if (NULL != ctx->cache.b.d_exp && expb_size != ctx->cache.b.exp_size) {
+          OZAKI_DEV_FREE(ctx->cache.b.d_exp); ctx->cache.b.d_exp = NULL;
+        }
+        ctx->cache.b.ptr = b; ctx->cache.b.dim = N; ctx->cache.b.K = K;
+        ctx->cache.b.ld = ldb; ctx->cache.b.trans = tb;
+        ctx->cache.b.d_slices = d_bs; ctx->cache.b.d_exp = d_expb_g;
+        ctx->cache.b.slices_size = bs_size; ctx->cache.b.exp_size = expb_size;
+        cache_hit_b = 1; /* ownership transferred; suppress cleanup free */
       }
-      ctx->cache.a.ptr = a; ctx->cache.a.dim = M; ctx->cache.a.K = K;
-      ctx->cache.a.ld = lda; ctx->cache.a.trans = ta;
-      ctx->cache.a.d_slices = d_as; ctx->cache.a.d_exp = d_expa_g;
-      ctx->cache.a.slices_size = as_size; ctx->cache.a.exp_size = expa_size;
-    }
-    if (0 == cache_hit_b && 0 != (ctx->cache.flags & 2) && EXIT_SUCCESS == result) {
-      if (NULL != ctx->cache.b.d_slices && bs_size != ctx->cache.b.slices_size) {
-        OZAKI_DEV_FREE(ctx->cache.b.d_slices); ctx->cache.b.d_slices = NULL;
-      }
-      if (NULL != ctx->cache.b.d_exp && expb_size != ctx->cache.b.exp_size) {
-        OZAKI_DEV_FREE(ctx->cache.b.d_exp); ctx->cache.b.d_exp = NULL;
-      }
-      ctx->cache.b.ptr = b; ctx->cache.b.dim = N; ctx->cache.b.K = K;
-      ctx->cache.b.ld = ldb; ctx->cache.b.trans = tb;
-      ctx->cache.b.d_slices = d_bs; ctx->cache.b.d_exp = d_expb_g;
-      ctx->cache.b.slices_size = bs_size; ctx->cache.b.exp_size = expb_size;
-    }
+      if (0 == prev_owned && (0 != cache_hit_a || 0 != cache_hit_b)) ++ctx->cache.nusers;
+      LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
+    } /* prev_owned scope */
 
     /* Scale C by beta (skip for beta==0: first_pair overwrite handles it;
      * skip for beta==1: multiplying by 1 is a no-op) */
@@ -1044,137 +1072,139 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (0 != use_tinytc) {
         int nblk_tc_m = (M + OZAKI_TINYTC_BM - 1) / OZAKI_TINYTC_BM;
         int nblk_tc_n = (N + OZAKI_TINYTC_BN - 1) / OZAKI_TINYTC_BN;
+        cl_uint tc_nargs = 0;
+        cl_int i = 0;
+        clGetKernelInfo(ctx->kern_tinytc, CL_KERNEL_NUM_ARGS,
+          sizeof(tc_nargs), &tc_nargs, NULL);
+        if (tc_nargs <= 6) {
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
+        }
+        else {
+          cl_long a_s0 = k_pad, a_s1 = m_pad;
+          cl_long a_st1 = k_pad, a_st2 = (cl_long)m_pad * k_pad;
+          cl_long b_s0 = n_pad, b_s1 = k_pad;
+          cl_long b_st1 = n_pad, b_st2 = (cl_long)k_pad * n_pad;
+          cl_long sc_s0 = (cl_long)M, sc_s1 = (cl_long)N;
+          cl_long sc_st1 = (cl_long)M;
+          cl_long ca_s0 = m_pad, ca_s1 = n_pad, ca_st1 = (cl_long)ldc;
+          cl_long ea_s0 = (cl_long)M, eb_s0 = (cl_long)N;
+          /* A: memref<i8x?x?xN> -> ptr, 2 shapes, 2 strides */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s0));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s1));
+          if (tc_nargs > 22) {
+            cl_long a_s2 = nslices_g;
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s2));
+          }
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st2));
+          /* B: memref<i8x?x?xN> -> ptr, 2 shapes, 2 strides */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s0));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s1));
+          if (tc_nargs > 22) {
+            cl_long b_s2 = nslices_g;
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s2));
+          }
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st2));
+          /* C: memref<i32x?x?> scratch -> ptr, 2 shapes, 1 stride */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s0));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_st1));
+          /* C_acc: memref<$ty x?x?> -> ptr, 2 shapes, 1 stride */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s0));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s1));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_st1));
+          /* eA: memref<$ty x?> -> ptr, 1 shape */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ea_s0));
+          /* eB: memref<$ty x?> -> ptr, 1 shape */
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &eb_s0));
+          if (tc_nargs > 22) {
+            /* cutoff_in: i32, sq_in: i32 */
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &cutoff));
+            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &sq));
+          }
+        }
+        { size_t cwgs[3] = {0, 0, 0};
+          cl_device_id device = libxstream_opencl_config.devices[
+            libxstream_opencl_config.device_id];
+          clGetKernelWorkGroupInfo(ctx->kern_tinytc, device,
+            CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(cwgs), cwgs, NULL);
+          local_g[0] = cwgs[0]; local_g[1] = cwgs[1];
+          global_g[0] = (size_t)nblk_tc_m * local_g[0];
+          global_g[1] = (size_t)nblk_tc_n * local_g[1];
+        }
+        CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_tinytc, 2,
+            NULL, global_g, local_g, 0, NULL,
+            (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
+              ? (evt_prof + n_profiled) : NULL));
+        if (EXIT_SUCCESS == result && NULL != evt_prof
+            && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
         {
-          cl_uint tc_nargs = 0;
-          cl_int i = 0;
-          clGetKernelInfo(ctx->kern_tinytc, CL_KERNEL_NUM_ARGS,
-            sizeof(tc_nargs), &tc_nargs, NULL);
-          if (tc_nargs <= 6) {
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
-          }
-          else {
-            cl_long a_s0 = k_pad, a_s1 = m_pad;
-            cl_long a_st1 = k_pad, a_st2 = (cl_long)m_pad * k_pad;
-            cl_long b_s0 = n_pad, b_s1 = k_pad;
-            cl_long b_st1 = n_pad, b_st2 = (cl_long)k_pad * n_pad;
-            cl_long sc_s0 = (cl_long)M, sc_s1 = (cl_long)N;
-            cl_long sc_st1 = (cl_long)M;
-            cl_long ca_s0 = m_pad, ca_s1 = n_pad, ca_st1 = (cl_long)ldc;
-            cl_long ea_s0 = (cl_long)M, eb_s0 = (cl_long)N;
-            /* A: memref<i8x?x?xN> -> ptr, 2 shapes, 2 strides */
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s0));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s1));
-            if (tc_nargs > 22) {
-              cl_long a_s2 = nslices_g;
-              CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s2));
-            }
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st1));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st2));
-            /* B: memref<i8x?x?xN> -> ptr, 2 shapes, 2 strides */
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s0));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s1));
-            if (tc_nargs > 22) {
-              cl_long b_s2 = nslices_g;
-              CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s2));
-            }
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st1));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st2));
-            /* C: memref<i32x?x?> scratch -> ptr, 2 shapes, 1 stride */
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s0));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s1));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_st1));
-            /* C_acc: memref<$ty x?x?> -> ptr, 2 shapes, 1 stride */
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s0));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s1));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_st1));
-            /* eA: memref<$ty x?> -> ptr, 1 shape */
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ea_s0));
-            /* eB: memref<$ty x?> -> ptr, 1 shape */
-            CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &eb_s0));
-            if (tc_nargs > 22) {
-              /* cutoff_in: i32, sq_in: i32 */
-              CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &cutoff));
-              CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &sq));
-            }
-          }
-          { size_t cwgs[3] = {0, 0, 0};
-            cl_device_id device = libxstream_opencl_config.devices[
-              libxstream_opencl_config.device_id];
-            clGetKernelWorkGroupInfo(ctx->kern_tinytc, device,
-              CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(cwgs), cwgs, NULL);
-            local_g[0] = cwgs[0]; local_g[1] = cwgs[1];
-            global_g[0] = (size_t)nblk_tc_m * local_g[0];
-            global_g[1] = (size_t)nblk_tc_n * local_g[1];
-          }
-          CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_tinytc, 2,
-              NULL, global_g, local_g, 0, NULL,
-              (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-                ? (evt_prof + n_profiled) : NULL));
-          if (EXIT_SUCCESS == result && NULL != evt_prof
-              && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
+          ++n_profiled;
         }
       }
       else { /* Original OpenCL fused kernel */
-      { cl_kernel kern_g = (0 != M % tm || 0 != N % tn)
+        /* kern_g scope */
+        cl_kernel kern_g = (0 != M % tm || 0 != N % tn)
           ? ctx->kern_fused_bounds : ctx->kern_fused;
-      local_g[0] = 16;
-      local_g[1] = (size_t)(ntm * ntn);
-      global_g[0] = (size_t)nblk_gm * local_g[0];
-      global_g[1] = (size_t)nblk_gn * local_g[1];
-      { cl_int i = 0;
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_as));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_bs));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expa_g));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expb_g));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_cg));
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &M));
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &N));
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &k_pad));
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &n_pad));
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &ldc));
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &m_pad));
-        if (ctx->use_double) {
-          double dalpha = alpha;
-          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(double), &dalpha));
+        local_g[0] = 16;
+        local_g[1] = (size_t)(ntm * ntn);
+        global_g[0] = (size_t)nblk_gm * local_g[0];
+        global_g[1] = (size_t)nblk_gn * local_g[1];
+        { cl_int i = 0;
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_as));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_bs));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expa_g));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expb_g));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_cg));
+          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &M));
+          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &N));
+          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &k_pad));
+          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &n_pad));
+          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &ldc));
+          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &m_pad));
+          if (ctx->use_double) {
+            double dalpha = alpha;
+            CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(double), &dalpha));
+          }
+          else {
+            float falpha = (float)alpha;
+            CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(float), &falpha));
+          }
+          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &first_pair));
         }
-        else {
-          float falpha = (float)alpha;
-          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(float), &falpha));
+        CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern_g, 2,
+            NULL, global_g, local_g, 0, NULL,
+            (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
+              ? (evt_prof + n_profiled) : NULL));
+        if (EXIT_SUCCESS == result && NULL != evt_prof
+            && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
+        {
+          ++n_profiled;
         }
-        CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &first_pair));
-      }
-      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern_g, 2,
-          NULL, global_g, local_g, 0, NULL,
-          (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-            ? (evt_prof + n_profiled) : NULL));
-      if (EXIT_SUCCESS == result && NULL != evt_prof
-          && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled;
-      } /* kern_g scope */
       } /* else: original kernel */
     }
 
     /* Collect profiling data */
     if (NULL != evt_prof) {
-      int resprof = clWaitForEvents((cl_uint)n_profiled, evt_prof);
+      int resprof = clWaitForEvents((cl_uint)n_profiled, evt_prof), pi;
       double total = 0;
-      { int pi;
-        for (pi = 0; pi < n_profiled && EXIT_SUCCESS == resprof; ++pi) {
-          total += libxstream_opencl_duration(evt_prof[pi], &resprof);
-        }
-        for (pi = 0; pi < n_profiled; ++pi) {
-          if (NULL != evt_prof[pi]) clReleaseEvent(evt_prof[pi]);
-        }
+      for (pi = 0; pi < n_profiled && EXIT_SUCCESS == resprof; ++pi) {
+        total += libxstream_opencl_duration(evt_prof[pi], &resprof);
+      }
+      for (pi = 0; pi < n_profiled; ++pi) {
+        if (NULL != evt_prof[pi]) clReleaseEvent(evt_prof[pi]);
       }
       if (EXIT_SUCCESS == resprof && 0 < total) {
         const double gflops = (2.0 * M * N * K) / (total * 1E9);
@@ -1187,11 +1217,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
     OZAKI_DEV_FREE(d_scratch);
-    if (d_as != ctx->cache.a.d_slices) OZAKI_DEV_FREE(d_as);
-    if (d_bs != ctx->cache.b.d_slices) OZAKI_DEV_FREE(d_bs);
-    if (d_expa_g != ctx->cache.a.d_exp) OZAKI_DEV_FREE(d_expa_g);
-    if (d_expb_g != ctx->cache.b.d_exp) OZAKI_DEV_FREE(d_expb_g);
-
+    if (0 == cache_hit_a) { OZAKI_DEV_FREE(d_as); OZAKI_DEV_FREE(d_expa_g); }
+    if (0 == cache_hit_b) { OZAKI_DEV_FREE(d_bs); OZAKI_DEV_FREE(d_expb_g); }
+    if (0 != cache_hit_a || 0 != cache_hit_b) {
+      LIBXS_ATOMIC_SUB_FETCH(&ctx->cache.nusers, 1, LIBXS_ATOMIC_LOCKORDER);
+    }
   }
   /* CRT GEMM path (Scheme 2): full-split-then-single-fused-GEMM.
    * Preprocesses entire K into dense per-prime CRT residue matrices,
@@ -1229,6 +1259,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
     /* Preprocessing cache: reuse slices+exponents when matrix unchanged */
+    LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
     if (0 != (ctx->cache.flags & 1) && a == ctx->cache.a.ptr
         && M == ctx->cache.a.dim && K == ctx->cache.a.K
         && lda == ctx->cache.a.ld && ta == ctx->cache.a.trans
@@ -1247,6 +1278,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       d_bs = ctx->cache.b.d_slices; d_expb_g = ctx->cache.b.d_exp;
       cache_hit_b = 1;
     }
+    if (0 != cache_hit_a || 0 != cache_hit_b) ++ctx->cache.nusers;
+    LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
 
     /* Allocate device memory (skip cached sides and host-preprocessed sides) */
     if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
@@ -1300,86 +1333,92 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     /* Preprocess A (skip entirely on cache hit) */
     if (0 == cache_hit_a) {
-    if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
-      h_as = calloc(as_size, 1);
-      h_expa = calloc(expa_size, 1);
-      if (NULL != h_as && NULL != h_expa) {
-        ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad,
-          nprimes_g, ctx->use_xmx, h_as, h_expa);
-        result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
-        if (EXIT_SUCCESS == result) {
-          result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
+      if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
+        h_as = calloc(as_size, 1);
+        h_expa = calloc(expa_size, 1);
+        if (NULL != h_as && NULL != h_expa) {
+          ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad,
+            nprimes_g, ctx->use_xmx, h_as, h_expa);
+          result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
+          if (EXIT_SUCCESS == result) {
+            result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
+          }
+        }
+        else result = EXIT_FAILURE;
+      }
+      else if (EXIT_SUCCESS == result) {
+        const libxstream_opencl_stream_t* str_a = stream_a;
+        size_t global_a[2], local_a[2];
+        const int nblk_m_pre = (M + bm_pre - 1) / bm_pre;
+        local_a[0] = bm_pre; local_a[1] = bk_pre;
+        global_a[0] = (size_t)nblk_m_pre * bm_pre;
+        global_a[1] = bk_pre; /* single WG in K: kernel loops internally */
+        { cl_int i = 0;
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_a, i++, d_ag));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &M));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &K));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &lda));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &ta));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_a, i++, d_as));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_a, i++, d_expa_g));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &k_pad));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &m_pad));
+        }
+        CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_crt_preprocess_a, 2,
+          NULL, global_a, local_a, 0, NULL,
+          (NULL != evt_prof_c && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
+            ? (evt_prof_c + n_profiled_c) : NULL));
+        if (EXIT_SUCCESS == result && NULL != evt_prof_c
+          && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
+        {
+          ++n_profiled_c;
         }
       }
-      else result = EXIT_FAILURE;
-    }
-    else if (EXIT_SUCCESS == result) {
-      const libxstream_opencl_stream_t* str_a = stream_a;
-      size_t global_a[2], local_a[2];
-      const int nblk_m_pre = (M + bm_pre - 1) / bm_pre;
-      local_a[0] = bm_pre; local_a[1] = bk_pre;
-      global_a[0] = (size_t)nblk_m_pre * bm_pre;
-      global_a[1] = bk_pre; /* single WG in K: kernel loops internally */
-      { cl_int i = 0;
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_a, i++, d_ag));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &M));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &K));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &lda));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &ta));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_a, i++, d_as));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_a, i++, d_expa_g));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &k_pad));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &m_pad));
-      }
-      CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_crt_preprocess_a, 2,
-        NULL, global_a, local_a, 0, NULL,
-        (NULL != evt_prof_c && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
-          ? (evt_prof_c + n_profiled_c) : NULL));
-      if (EXIT_SUCCESS == result && NULL != evt_prof_c
-        && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile)) ++n_profiled_c;
-    }
     } /* cache_hit_a */
 
     /* Preprocess B (skip entirely on cache hit) */
     if (0 == cache_hit_b) {
-    if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
-      h_bs = calloc(bs_size, 1);
-      h_expb = calloc(expb_size, 1);
-      if (NULL != h_bs && NULL != h_expb) {
-        ctx->host_preprocess_b(b, ldb, tb, N, K, k_pad, n_pad,
-          nprimes_g, ctx->use_xmx, h_bs, h_expb);
-        result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
-        if (EXIT_SUCCESS == result) {
-          result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
+      if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
+        h_bs = calloc(bs_size, 1);
+        h_expb = calloc(expb_size, 1);
+        if (NULL != h_bs && NULL != h_expb) {
+          ctx->host_preprocess_b(b, ldb, tb, N, K, k_pad, n_pad,
+            nprimes_g, ctx->use_xmx, h_bs, h_expb);
+          result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
+          if (EXIT_SUCCESS == result) {
+            result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
+          }
+        }
+        else result = EXIT_FAILURE;
+      }
+      else if (EXIT_SUCCESS == result) {
+        const libxstream_opencl_stream_t* str_b = stream_b;
+        size_t global_b[2], local_b[2];
+        const int nblk_n_pre = (N + bn_pre - 1) / bn_pre;
+        local_b[0] = bn_pre; local_b[1] = bk_pre;
+        global_b[0] = (size_t)nblk_n_pre * bn_pre;
+        global_b[1] = bk_pre; /* single WG in K: kernel loops internally */
+        { cl_int i = 0;
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_b, i++, d_bg));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &N));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &K));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &ldb));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &tb));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_b, i++, d_bs));
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_b, i++, d_expb_g));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &k_pad));
+          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &n_pad));
+        }
+        CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_crt_preprocess_b, 2,
+          NULL, global_b, local_b, 0, NULL,
+          (NULL != evt_prof_c && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
+            ? (evt_prof_c + n_profiled_c) : NULL));
+        if (EXIT_SUCCESS == result && NULL != evt_prof_c
+          && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
+        {
+          ++n_profiled_c;
         }
       }
-      else result = EXIT_FAILURE;
-    }
-    else if (EXIT_SUCCESS == result) {
-      const libxstream_opencl_stream_t* str_b = stream_b;
-      size_t global_b[2], local_b[2];
-      const int nblk_n_pre = (N + bn_pre - 1) / bn_pre;
-      local_b[0] = bn_pre; local_b[1] = bk_pre;
-      global_b[0] = (size_t)nblk_n_pre * bn_pre;
-      global_b[1] = bk_pre; /* single WG in K: kernel loops internally */
-      { cl_int i = 0;
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_b, i++, d_bg));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &N));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &K));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &ldb));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &tb));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_b, i++, d_bs));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_b, i++, d_expb_g));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &k_pad));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &n_pad));
-      }
-      CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_crt_preprocess_b, 2,
-        NULL, global_b, local_b, 0, NULL,
-        (NULL != evt_prof_c && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
-          ? (evt_prof_c + n_profiled_c) : NULL));
-      if (EXIT_SUCCESS == result && NULL != evt_prof_c
-        && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile)) ++n_profiled_c;
-    }
     } /* cache_hit_b */
 
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
@@ -1392,30 +1431,37 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     free(h_bs); h_bs = NULL; free(h_expb); h_expb = NULL;
 
     /* Save preprocessed buffers to cache on miss (transfers ownership) */
-    if (0 == cache_hit_a && 0 != (ctx->cache.flags & 1) && EXIT_SUCCESS == result) {
-      if (NULL != ctx->cache.a.d_slices && as_size != ctx->cache.a.slices_size) {
-        OZAKI_DEV_FREE(ctx->cache.a.d_slices); ctx->cache.a.d_slices = NULL;
+    { const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
+      LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+      if (0 == cache_hit_a && 0 != (ctx->cache.flags & 1) && EXIT_SUCCESS == result) {
+        if (NULL != ctx->cache.a.d_slices && as_size != ctx->cache.a.slices_size) {
+          OZAKI_DEV_FREE(ctx->cache.a.d_slices); ctx->cache.a.d_slices = NULL;
+        }
+        if (NULL != ctx->cache.a.d_exp && expa_size != ctx->cache.a.exp_size) {
+          OZAKI_DEV_FREE(ctx->cache.a.d_exp); ctx->cache.a.d_exp = NULL;
+        }
+        ctx->cache.a.ptr = a; ctx->cache.a.dim = M; ctx->cache.a.K = K;
+        ctx->cache.a.ld = lda; ctx->cache.a.trans = ta;
+        ctx->cache.a.d_slices = d_as; ctx->cache.a.d_exp = d_expa_g;
+        ctx->cache.a.slices_size = as_size; ctx->cache.a.exp_size = expa_size;
+        cache_hit_a = 1; /* ownership transferred; suppress cleanup free */
       }
-      if (NULL != ctx->cache.a.d_exp && expa_size != ctx->cache.a.exp_size) {
-        OZAKI_DEV_FREE(ctx->cache.a.d_exp); ctx->cache.a.d_exp = NULL;
+      if (0 == cache_hit_b && 0 != (ctx->cache.flags & 2) && EXIT_SUCCESS == result) {
+        if (NULL != ctx->cache.b.d_slices && bs_size != ctx->cache.b.slices_size) {
+          OZAKI_DEV_FREE(ctx->cache.b.d_slices); ctx->cache.b.d_slices = NULL;
+        }
+        if (NULL != ctx->cache.b.d_exp && expb_size != ctx->cache.b.exp_size) {
+          OZAKI_DEV_FREE(ctx->cache.b.d_exp); ctx->cache.b.d_exp = NULL;
+        }
+        ctx->cache.b.ptr = b; ctx->cache.b.dim = N; ctx->cache.b.K = K;
+        ctx->cache.b.ld = ldb; ctx->cache.b.trans = tb;
+        ctx->cache.b.d_slices = d_bs; ctx->cache.b.d_exp = d_expb_g;
+        ctx->cache.b.slices_size = bs_size; ctx->cache.b.exp_size = expb_size;
+        cache_hit_b = 1; /* ownership transferred; suppress cleanup free */
       }
-      ctx->cache.a.ptr = a; ctx->cache.a.dim = M; ctx->cache.a.K = K;
-      ctx->cache.a.ld = lda; ctx->cache.a.trans = ta;
-      ctx->cache.a.d_slices = d_as; ctx->cache.a.d_exp = d_expa_g;
-      ctx->cache.a.slices_size = as_size; ctx->cache.a.exp_size = expa_size;
-    }
-    if (0 == cache_hit_b && 0 != (ctx->cache.flags & 2) && EXIT_SUCCESS == result) {
-      if (NULL != ctx->cache.b.d_slices && bs_size != ctx->cache.b.slices_size) {
-        OZAKI_DEV_FREE(ctx->cache.b.d_slices); ctx->cache.b.d_slices = NULL;
-      }
-      if (NULL != ctx->cache.b.d_exp && expb_size != ctx->cache.b.exp_size) {
-        OZAKI_DEV_FREE(ctx->cache.b.d_exp); ctx->cache.b.d_exp = NULL;
-      }
-      ctx->cache.b.ptr = b; ctx->cache.b.dim = N; ctx->cache.b.K = K;
-      ctx->cache.b.ld = ldb; ctx->cache.b.trans = tb;
-      ctx->cache.b.d_slices = d_bs; ctx->cache.b.d_exp = d_expb_g;
-      ctx->cache.b.slices_size = bs_size; ctx->cache.b.exp_size = expb_size;
-    }
+      if (0 == prev_owned && (0 != cache_hit_a || 0 != cache_hit_b)) ++ctx->cache.nusers;
+      LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
+    } /* prev_owned scope */
 
     /* Scale C by beta (skip for beta==0: first_tile overwrite handles it;
      * skip for beta==1: multiplying by 1 is a no-op) */
@@ -1477,20 +1523,21 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         (NULL != evt_prof_c && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
           ? (evt_prof_c + n_profiled_c) : NULL));
       if (EXIT_SUCCESS == result && NULL != evt_prof_c
-        && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile)) ++n_profiled_c;
+        && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
+      {
+        ++n_profiled_c;
+      }
     }
 
     /* Collect profiling data */
     if (NULL != evt_prof_c) {
-      int resprof = clWaitForEvents((cl_uint)n_profiled_c, evt_prof_c);
+      int resprof = clWaitForEvents((cl_uint)n_profiled_c, evt_prof_c), pi;
       double total = 0;
-      { int pi;
-        for (pi = 0; pi < n_profiled_c && EXIT_SUCCESS == resprof; ++pi) {
-          total += libxstream_opencl_duration(evt_prof_c[pi], &resprof);
-        }
-        for (pi = 0; pi < n_profiled_c; ++pi) {
-          if (NULL != evt_prof_c[pi]) clReleaseEvent(evt_prof_c[pi]);
-        }
+      for (pi = 0; pi < n_profiled_c && EXIT_SUCCESS == resprof; ++pi) {
+        total += libxstream_opencl_duration(evt_prof_c[pi], &resprof);
+      }
+      for (pi = 0; pi < n_profiled_c; ++pi) {
+        if (NULL != evt_prof_c[pi]) clReleaseEvent(evt_prof_c[pi]);
       }
       if (EXIT_SUCCESS == resprof && 0 < total) {
         const double gflops = (2.0 * M * N * K) / (total * 1E9);
@@ -1501,11 +1548,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
 
     OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
-    if (d_as != ctx->cache.a.d_slices) OZAKI_DEV_FREE(d_as);
-    if (d_bs != ctx->cache.b.d_slices) OZAKI_DEV_FREE(d_bs);
-    if (d_expa_g != ctx->cache.a.d_exp) OZAKI_DEV_FREE(d_expa_g);
-    if (d_expb_g != ctx->cache.b.d_exp) OZAKI_DEV_FREE(d_expb_g);
-
+    if (0 == cache_hit_a) { OZAKI_DEV_FREE(d_as); OZAKI_DEV_FREE(d_expa_g); }
+    if (0 == cache_hit_b) { OZAKI_DEV_FREE(d_bs); OZAKI_DEV_FREE(d_expb_g); }
+    if (0 != cache_hit_a || 0 != cache_hit_b) {
+      LIBXS_ATOMIC_SUB_FETCH(&ctx->cache.nusers, 1, LIBXS_ATOMIC_LOCKORDER);
+    }
   }
 
   return result;
