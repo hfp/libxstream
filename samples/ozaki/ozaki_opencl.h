@@ -15,6 +15,34 @@
 # define OZAKI_DEVPOOL
 #endif
 
+#if !defined(OZAKI_TINYTC_BM)
+# define OZAKI_TINYTC_BM 256
+#endif
+#if !defined(OZAKI_TINYTC_BN)
+# define OZAKI_TINYTC_BN 128
+#endif
+
+/* Device memory allocation macros (shared by ozaki_opencl.c and ozaki_gemm.c).
+ * Callers must have a local `pool` variable (libxs_malloc_pool_t*)
+ * when OZAKI_DEVPOOL is defined. */
+#if defined(OZAKI_DEVPOOL)
+# define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
+  (NULL != pool) \
+    ? ((*(PTR) = libxs_malloc(pool, SIZE, LIBXS_MALLOC_NATIVE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
+    : libxstream_mem_allocate((void**)(PTR), SIZE))
+# define OZAKI_DEV_FREE(PTR) do { \
+  if (NULL != (PTR)) { \
+    if (NULL != pool) libxs_free(PTR); else libxstream_mem_deallocate(PTR); \
+  } \
+} while (0)
+#else
+# define OZAKI_DEV_ALLOC(PTR, SIZE) \
+  libxstream_mem_allocate((void**)(PTR), SIZE)
+# define OZAKI_DEV_FREE(PTR) do { \
+  if (NULL != (PTR)) libxstream_mem_deallocate(PTR); \
+} while (0)
+#endif
+
 
 /* Ozaki flags */
 typedef enum ozaki_flags_t {
