@@ -823,9 +823,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
     as_size   = (size_t)nslices_g * m_pad * k_pad;
     bs_size   = (size_t)nslices_g * k_pad * n_pad;
-    { expa_size = (size_t)nblk_gm * tm * elem_size;
-      expb_size = (size_t)nblk_gn * tn * elem_size;
-    }
+    expa_size = (size_t)nblk_gm * tm * elem_size;
+    expb_size = (size_t)nblk_gn * tn * elem_size;
     c_nbytes  = (size_t)ldc * (size_t)N * elem_size;
 
     /* Preprocessing cache: reuse slices+exponents when matrix unchanged */
