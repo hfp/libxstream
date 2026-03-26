@@ -36,7 +36,7 @@
 static void* ozaki_dev_allocate(size_t size, const void* extra)
 {
   void* result = NULL;
-  (void)extra;
+  LIBXS_UNUSED(extra);
   libxstream_mem_allocate(&result, size);
   return result;
 }
@@ -79,7 +79,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const char* env;
-  int wg, sg, gpu, use_xmx, result;
+  const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
+  int wg, sg, use_xmx, result;
   memset(ctx, 0, sizeof(*ctx));
 
   if (0 >= kind) kind = 1;
@@ -88,8 +89,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   if (2 == kind) {
     if (0 > ozflags) ozflags = 0; /* CRT does not use triangular/symmetrize */
   }
-
-  gpu = (CL_DEVICE_TYPE_GPU == devinfo->type) ? 1 : 0;
 
   if (0 > verbosity || 2 < verbosity) {
     char name[256] = "";
@@ -306,49 +305,45 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + goff, sizeof(build_params) - goff,
           " -DOZAKI_SCALAR_ACC=1");
       }
-      /* TinyTC kernel selection: disabled by default.
-       * OZAKI_TINYTC=1 tries specialized embedded .clx then general,
-       * OZAKI_TINYTC=<path> loads from file,
-       * OZAKI_TINYTC=0 or unset disables. */
-      { const char* tinytc_env = getenv("OZAKI_TINYTC");
-        if (NULL != tinytc_env && '0' != *tinytc_env) {
-          if ('1' == *tinytc_env && '\0' == tinytc_env[1]) {
+      { /* TinyTC kernel selection: disabled by default.
+         * OZAKI_TINYTC=1 tries specialized embedded .clx then general,
+         * OZAKI_TINYTC=<path> loads from file,
+         * OZAKI_TINYTC=0 or unset disables. */
+        const char* tinytc_env = getenv("OZAKI_TINYTC");
 #if defined(LIBXS_INCBIN) && defined(OZAKI_TINYTC_EMBED)
-            { const int sq_prod =
-                0 != (ozflags
-                  & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE));
-              const struct ozaki_tinytc_prod_entry* e;
-              for (e = ozaki_tinytc_prod; NULL != e->data; ++e) {
-                if (e->use_double == use_double
-                  && e->ndecomp == ndecomp
-                  && e->oztrim == oztrim
-                  && (0 != e->sq) == (0 != sq_prod))
-                {
-                  tinytc_source = e->data;
-                  tinytc_source_kind =
-                    (size_t)(e->data_end - e->data);
-                  tinytc_avail = 1;
-                  break;
-                }
-              }
-            }
-            if (0 == tinytc_avail) {
-              tinytc_source = use_double
-                ? ozaki_tinytc_f64 : ozaki_tinytc_f32;
-              tinytc_source_kind = (size_t)(use_double
-                ? (ozaki_tinytc_f64_end - ozaki_tinytc_f64)
-                : (ozaki_tinytc_f32_end - ozaki_tinytc_f32));
+        if (NULL != tinytc_env && '0' != *tinytc_env) {
+          const int sq_prod = (0 != (ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE)));
+          const struct ozaki_tinytc_prod_entry* e;
+          for (e = ozaki_tinytc_prod; NULL != e->data; ++e) {
+            if (e->use_double == use_double
+              && e->ndecomp == ndecomp
+              && e->oztrim == oztrim
+              && (0 != e->sq) == (0 != sq_prod))
+            {
+              tinytc_source = e->data;
+              tinytc_source_kind =
+                (size_t)(e->data_end - e->data);
               tinytc_avail = 1;
+              break;
             }
-#endif
           }
-          else {
-            LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path),
-              "%s", tinytc_env);
-            tinytc_source = tinytc_path;
-            tinytc_source_kind = 1;
+          if (0 == tinytc_avail) {
+            tinytc_source = use_double
+              ? ozaki_tinytc_f64 : ozaki_tinytc_f32;
+            tinytc_source_kind = (size_t)(use_double
+              ? (ozaki_tinytc_f64_end - ozaki_tinytc_f64)
+              : (ozaki_tinytc_f32_end - ozaki_tinytc_f32));
             tinytc_avail = 1;
           }
+        }
+        else
+#endif
+        {
+          LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path),
+            "%s", tinytc_env);
+          tinytc_source = tinytc_path;
+          tinytc_source_kind = 1;
+          tinytc_avail = 1;
         }
       }
       { const int cutoff_jit = 2 * (ndecomp - 1) - oztrim;
@@ -357,7 +352,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + goff, sizeof(build_params) - goff,
           " -DOZAKI_CUTOFF=%d -DOZAKI_SQ=%d", cutoff_jit, sq_jit);
       }
-      (void)goff;
+      LIBXS_UNUSED(goff);
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
@@ -481,7 +476,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           build_params + coff, sizeof(build_params) - coff,
           " -DUSE_XMX=1");
       }
-      (void)coff;
+      LIBXS_UNUSED(coff);
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
@@ -592,7 +587,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       if (0 != devinfo->usm) pool_ok = 1;
     else
 #endif
-    { (void)devinfo; }
+    {
+      LIBXS_UNUSED(devinfo);
+    }
     if (0 != pool_ok) {
       ctx->devpool = libxs_malloc_xpool(
         ozaki_dev_allocate, ozaki_dev_deallocate, 1);
@@ -677,9 +674,8 @@ void ozaki_destroy(ozaki_context_t* ctx)
       clReleaseKernel(ctx->kern_crt_scale_beta);
     }
 
-    /* Quiesce cache: NULL pointers under lock (prevents new hits),
-     * then wait for in-flight gemm threads to finish using cached buffers. */
-    {
+    { /* Quiesce cache: NULL pointers under lock (prevents new hits),
+       * then wait for in-flight gemm threads to finish using cached buffers. */
 #if defined(OZAKI_DEVPOOL)
       libxs_malloc_pool_t* const pool = ctx->devpool;
 #endif

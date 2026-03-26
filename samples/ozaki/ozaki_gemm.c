@@ -8,6 +8,28 @@
 ******************************************************************************/
 #include "ozaki_opencl.h"
 
+
+/* Local helper functions (static) to manage kernel argument setup and launches.
+ * These were kept local to avoid adding new translation units for the sample. */
+static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream,
+  cl_kernel kern, void* d_src, void* d_slices, void* d_exp,
+  int M, int K, int ld, int trans, int k_pad, int pad,
+  int bm_pre, int bk_pre, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled);
+static int ozaki_enqueue_scale_beta(ozaki_context_t* ctx, libxstream_stream_t* stream,
+  cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta);
+static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream,
+  void* d_as, void* d_bs, void* d_scratch, void* d_cg,
+  void* d_expa_g, void* d_expb_g,
+  int M, int N, int k_pad, int m_pad, int n_pad,
+  int nslices_g, int tm, int tn, int ldc, int cutoff, int sq,
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled);
+static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
+  cl_kernel kern_g, void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g,
+  void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad,
+  int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double,
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled);
+
+
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                char transa, char transb,
                int M, int N, int K,
@@ -15,7 +37,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                              const void* b, int ldb,
                double beta,        void* c, int ldc)
 {
-  const libxstream_opencl_stream_t* str = stream;
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
 
   /* Persistent helper streams and events from context */
@@ -154,8 +175,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     /* Phase 1: Preprocess A (skip entirely on cache hit) */
     if (0 == cache_hit_a) {
       if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
-        h_as = calloc(as_size, 1);
-        h_expa = calloc(expa_size, 1);
+          h_as = calloc(as_size, 1);
+          h_expa = calloc(expa_size, 1);
         if (NULL != h_as && NULL != h_expa) {
           ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad,
             nslices_g, ctx->use_xmx, h_as, h_expa);
@@ -167,32 +188,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         else result = EXIT_FAILURE;
       }
       else if (EXIT_SUCCESS == result) {
-        const libxstream_opencl_stream_t* str_a = stream_a;
-        size_t global_a[2], local_a[2];
-        const int nblk_m_pre = (M + bm_pre - 1) / bm_pre;
-        local_a[0] = bm_pre; local_a[1] = bk_pre;
-        global_a[0] = (size_t)nblk_m_pre * bm_pre;
-        global_a[1] = bk_pre; /* single WG in K: kernel loops internally */
-        { cl_int i = 0;
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, i++, d_ag));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &M));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &K));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &lda));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &ta));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, i++, d_as));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_a, i++, d_expa_g));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &k_pad));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_a, i++, sizeof(int), &m_pad));
-        }
-        CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_preprocess_a, 2,
-          NULL, global_a, local_a, 0, NULL,
-          (NULL != evt_prof && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
-            ? (evt_prof + n_profiled) : NULL));
-        if (EXIT_SUCCESS == result && NULL != evt_prof
-          && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
-        {
-          ++n_profiled;
-        }
+        result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_preprocess_a,
+          d_ag, d_as, d_expa_g, M, K, lda, ta, k_pad, m_pad,
+          bm_pre, bk_pre, evt_prof, 1, 3, &n_profiled);
       }
     } /* cache_hit_a */
 
@@ -212,32 +210,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         else result = EXIT_FAILURE;
       }
       else if (EXIT_SUCCESS == result) {
-        const libxstream_opencl_stream_t* str_b = stream_b;
-        size_t global_b[2], local_b[2];
-        const int nblk_n_pre = (N + bn_pre - 1) / bn_pre;
-        local_b[0] = bn_pre; local_b[1] = bk_pre;
-        global_b[0] = (size_t)nblk_n_pre * bn_pre;
-        global_b[1] = bk_pre; /* single WG in K: kernel loops internally */
-        { cl_int i = 0;
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, i++, d_bg));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &N));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &K));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &ldb));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &tb));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, i++, d_bs));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_preprocess_b, i++, d_expb_g));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &k_pad));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_preprocess_b, i++, sizeof(int), &n_pad));
-        }
-        CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_preprocess_b, 2,
-          NULL, global_b, local_b, 0, NULL,
-          (NULL != evt_prof && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
-            ? (evt_prof + n_profiled) : NULL));
-        if (EXIT_SUCCESS == result && NULL != evt_prof
-          && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
-        {
-          ++n_profiled;
-        }
+        result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_preprocess_b,
+          d_bg, d_bs, d_expb_g, N, K, ldb, tb, k_pad, n_pad,
+          bn_pre, bk_pre, evt_prof, 1, 4, &n_profiled);
       }
     } /* cache_hit_b */
 
@@ -287,157 +262,23 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     /* Scale C by beta (skip for beta==0: first_pair overwrite handles it;
      * skip for beta==1: multiplying by 1 is a no-op) */
     if (EXIT_SUCCESS == result && 1.0 != beta && 0.0 != beta) {
-      size_t global_s[2], local_s[2];
-      local_s[0] = (size_t)bm_pre; local_s[1] = 1;
-      global_s[0] = (size_t)((M + bm_pre - 1) / bm_pre) * bm_pre;
-      global_s[1] = (size_t)N;
-      { cl_int i = 0;
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_scale_beta, i++, d_cg));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_scale_beta, i++, sizeof(int), &M));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_scale_beta, i++, sizeof(int), &N));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_scale_beta, i++, sizeof(int), &ldc));
-        if (ctx->use_double) {
-          double dbeta = beta;
-          CL_CHECK(result, clSetKernelArg(ctx->kern_scale_beta, i++, sizeof(double), &dbeta));
-        }
-        else {
-          float fbeta = (float)beta;
-          CL_CHECK(result, clSetKernelArg(ctx->kern_scale_beta, i++, sizeof(float), &fbeta));
-        }
-      }
-      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_scale_beta, 2,
-        NULL, global_s, local_s, 0, NULL, NULL));
+      result = ozaki_enqueue_scale_beta(ctx, stream, ctx->kern_scale_beta, d_cg, M, N, ldc, beta);
     }
 
     /* Tiled GEMM phase: single kernel launch over all slice pairs */
     first_pair = (0.0 == beta) ? 1 : 0;
     { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
-      size_t global_g[2], local_g[2];
       if (0 != use_tinytc) {
-        int nblk_tc_m = (M + OZAKI_TINYTC_BM - 1) / OZAKI_TINYTC_BM;
-        int nblk_tc_n = (N + OZAKI_TINYTC_BN - 1) / OZAKI_TINYTC_BN;
-        cl_uint tc_nargs = 0;
-        cl_int i = 0;
-        clGetKernelInfo(ctx->kern_tinytc, CL_KERNEL_NUM_ARGS,
-          sizeof(tc_nargs), &tc_nargs, NULL);
-        if (tc_nargs <= 6) {
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
-        }
-        else {
-          cl_long a_s0 = k_pad, a_s1 = m_pad;
-          cl_long a_st1 = k_pad, a_st2 = (cl_long)m_pad * k_pad;
-          cl_long b_s0 = n_pad, b_s1 = k_pad;
-          cl_long b_st1 = n_pad, b_st2 = (cl_long)k_pad * n_pad;
-          cl_long sc_s0 = (cl_long)M, sc_s1 = (cl_long)N;
-          cl_long sc_st1 = (cl_long)M;
-          cl_long ca_s0 = m_pad, ca_s1 = n_pad, ca_st1 = (cl_long)ldc;
-          cl_long ea_s0 = (cl_long)M, eb_s0 = (cl_long)N;
-          /* A: memref<i8x?x?xN> -> ptr, 2 shapes, 2 strides */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_as));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s0));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s1));
-          if (tc_nargs > 22) {
-            cl_long a_s2 = nslices_g;
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_s2));
-          }
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &a_st2));
-          /* B: memref<i8x?x?xN> -> ptr, 2 shapes, 2 strides */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_bs));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s0));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s1));
-          if (tc_nargs > 22) {
-            cl_long b_s2 = nslices_g;
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_s2));
-          }
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &b_st2));
-          /* C: memref<i32x?x?> scratch -> ptr, 2 shapes, 1 stride */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_scratch));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s0));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_s1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &sc_st1));
-          /* C_acc: memref<$ty x?x?> -> ptr, 2 shapes, 1 stride */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_cg));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s0));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_s1));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ca_st1));
-          /* eA: memref<$ty x?> -> ptr, 1 shape */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expa_g));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &ea_s0));
-          /* eB: memref<$ty x?> -> ptr, 1 shape */
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_tinytc, i++, d_expb_g));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_long), &eb_s0));
-          if (tc_nargs > 22) {
-            /* cutoff_in: i32, sq_in: i32 */
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &cutoff));
-            CL_CHECK(result, clSetKernelArg(ctx->kern_tinytc, i++, sizeof(cl_int), &sq));
-          }
-        }
-        { size_t cwgs[3] = {0, 0, 0};
-          cl_device_id device = libxstream_opencl_config.devices[
-            libxstream_opencl_config.device_id];
-          clGetKernelWorkGroupInfo(ctx->kern_tinytc, device,
-            CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(cwgs), cwgs, NULL);
-          local_g[0] = cwgs[0]; local_g[1] = cwgs[1];
-          global_g[0] = (size_t)nblk_tc_m * local_g[0];
-          global_g[1] = (size_t)nblk_tc_n * local_g[1];
-        }
-        CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_tinytc, 2,
-            NULL, global_g, local_g, 0, NULL,
-            (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-              ? (evt_prof + n_profiled) : NULL));
-        if (EXIT_SUCCESS == result && NULL != evt_prof
-            && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-        {
-          ++n_profiled;
-        }
+        result = ozaki_launch_tinytc(ctx, stream, d_as, d_bs, d_scratch, d_cg,
+          d_expa_g, d_expb_g, M, N, k_pad, m_pad, n_pad,
+          nslices_g, tm, tn, ldc, cutoff, sq, evt_prof, 1, 2, &n_profiled);
       }
-      else { /* Original OpenCL fused kernel */
-        /* kern_g scope */
-        cl_kernel kern_g = (0 != M % tm || 0 != N % tn)
-          ? ctx->kern_fused_bounds : ctx->kern_fused;
-        local_g[0] = 16;
-        local_g[1] = (size_t)(ntm * ntn);
-        global_g[0] = (size_t)nblk_gm * local_g[0];
-        global_g[1] = (size_t)nblk_gn * local_g[1];
-        { cl_int i = 0;
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_as));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_bs));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expa_g));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expb_g));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_cg));
-          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &M));
-          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &N));
-          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &k_pad));
-          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &n_pad));
-          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &ldc));
-          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &m_pad));
-          if (ctx->use_double) {
-            double dalpha = alpha;
-            CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(double), &dalpha));
-          }
-          else {
-            float falpha = (float)alpha;
-            CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(float), &falpha));
-          }
-          CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &first_pair));
-        }
-        CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern_g, 2,
-            NULL, global_g, local_g, 0, NULL,
-            (NULL != evt_prof && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-              ? (evt_prof + n_profiled) : NULL));
-        if (EXIT_SUCCESS == result && NULL != evt_prof
-            && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-        {
-          ++n_profiled;
-        }
-      } /* else: original kernel */
+      else {
+        cl_kernel kern_g = (0 != M % tm || 0 != N % tn) ? ctx->kern_fused_bounds : ctx->kern_fused;
+        result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g,
+          d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn,
+          alpha, first_pair, ctx->use_double, evt_prof, 1, 2, &n_profiled);
+      }
     }
 
     /* Collect profiling data */
@@ -619,6 +460,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         }
       }
     } /* cache_hit_a */
+    else if (EXIT_SUCCESS == result) {
+      result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a,
+        d_ag, d_as, d_expa_g, M, K, lda, ta, k_pad, m_pad,
+        bm_pre, bk_pre, evt_prof_c, 1, 3, &n_profiled_c);
+    }
 
     /* Preprocess B (skip entirely on cache hit) */
     if (0 == cache_hit_b) {
@@ -636,32 +482,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         else result = EXIT_FAILURE;
       }
       else if (EXIT_SUCCESS == result) {
-        const libxstream_opencl_stream_t* str_b = stream_b;
-        size_t global_b[2], local_b[2];
-        const int nblk_n_pre = (N + bn_pre - 1) / bn_pre;
-        local_b[0] = bn_pre; local_b[1] = bk_pre;
-        global_b[0] = (size_t)nblk_n_pre * bn_pre;
-        global_b[1] = bk_pre; /* single WG in K: kernel loops internally */
-        { cl_int i = 0;
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_b, i++, d_bg));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &N));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &K));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &ldb));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &tb));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_b, i++, d_bs));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_b, i++, d_expb_g));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &k_pad));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_b, i++, sizeof(int), &n_pad));
-        }
-        CL_CHECK(result, clEnqueueNDRangeKernel(str_b->queue, ctx->kern_crt_preprocess_b, 2,
-          NULL, global_b, local_b, 0, NULL,
-          (NULL != evt_prof_c && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
-            ? (evt_prof_c + n_profiled_c) : NULL));
-        if (EXIT_SUCCESS == result && NULL != evt_prof_c
-          && (1 == ctx->profile || 4 == ctx->profile || 0 > ctx->profile))
-        {
-          ++n_profiled_c;
-        }
+        result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b,
+          d_bg, d_bs, d_expb_g, N, K, ldb, tb, k_pad, n_pad,
+          bn_pre, bk_pre, evt_prof_c, 1, 4, &n_profiled_c);
       }
     } /* cache_hit_b */
 
@@ -710,67 +533,37 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     /* Scale C by beta (skip for beta==0: first_tile overwrite handles it;
      * skip for beta==1: multiplying by 1 is a no-op) */
     if (EXIT_SUCCESS == result && 1.0 != beta && 0.0 != beta) {
-      size_t global_s[2], local_s[2];
-      local_s[0] = (size_t)bm_pre; local_s[1] = 1;
-      global_s[0] = (size_t)((M + bm_pre - 1) / bm_pre) * bm_pre;
-      global_s[1] = (size_t)N;
-      { cl_int i = 0;
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_scale_beta, i++, d_cg));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_scale_beta, i++, sizeof(int), &M));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_scale_beta, i++, sizeof(int), &N));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_scale_beta, i++, sizeof(int), &ldc));
-        if (ctx->use_double) {
-          double dbeta = beta;
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_scale_beta, i++, sizeof(double), &dbeta));
-        }
-        else {
-          float fbeta = (float)beta;
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_scale_beta, i++, sizeof(float), &fbeta));
-        }
-      }
-      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_crt_scale_beta, 2,
-        NULL, global_s, local_s, 0, NULL, NULL));
+      result = ozaki_enqueue_scale_beta(ctx, stream, ctx->kern_crt_scale_beta, d_cg, M, N, ldc, beta);
     }
 
     /* Single fused CRT GEMM: one launch per output tile covers all primes */
     first_tile = (0.0 == beta) ? 1 : 0;
     if (EXIT_SUCCESS == result) {
-      size_t global_g[2], local_g[2];
-      local_g[0] = 16; /* GEMM tile decomposition requires SG=16 */
-      local_g[1] = (size_t)(ntm * ntn);
-      global_g[0] = (size_t)nblk_gm * local_g[0];
-      global_g[1] = (size_t)nblk_gn * local_g[1];
-      { cl_int i = 0;
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_as));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_bs));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_expa_g));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_expb_g));
-        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_cg));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &M));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &N));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &k_pad));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &n_pad));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &ldc));
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &m_pad));
-        if (ctx->use_double) {
-          double dalpha = alpha;
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(double), &dalpha));
-        }
-        else {
-          float falpha = (float)alpha;
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(float), &falpha));
-        }
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &first_tile));
+      cl_int i = 0;
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_as));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_bs));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_expa_g));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_expb_g));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_cg));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &M));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &N));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &k_pad));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &n_pad));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &ldc));
+      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &m_pad));
+      if (ctx->use_double) {
+        double dalpha = alpha;
+        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(double), &dalpha));
       }
-      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, ctx->kern_crt_fused, 2,
-        NULL, global_g, local_g, 0, NULL,
-        (NULL != evt_prof_c && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-          ? (evt_prof_c + n_profiled_c) : NULL));
-      if (EXIT_SUCCESS == result && NULL != evt_prof_c
-        && (1 == ctx->profile || 2 == ctx->profile || 0 > ctx->profile))
-      {
-        ++n_profiled_c;
+      else {
+        float falpha = (float)alpha;
+        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(float), &falpha));
       }
+      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &first_tile));
+
+      result = ozaki_launch_fused(ctx, stream, ctx->kern_crt_fused, d_as, d_bs, d_expa_g, d_expb_g,
+        d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn,
+        alpha, first_tile, ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c);
     }
 
     /* Collect profiling data */
@@ -799,5 +592,211 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     }
   }
 
+  return result;
+}
+
+
+static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream,
+  cl_kernel kern, void* d_src, void* d_slices, void* d_exp,
+  int M, int K, int ld, int trans, int k_pad, int pad,
+  int bm_pre, int bk_pre, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled)
+{
+  int result = EXIT_SUCCESS;
+  const libxstream_opencl_stream_t* str = stream;
+  size_t global[2], local[2];
+  const int nblk_m_pre = (M + bm_pre - 1) / bm_pre;
+  local[0] = bm_pre; local[1] = bk_pre;
+  global[0] = (size_t)nblk_m_pre * bm_pre;
+  global[1] = bk_pre; /* single WG in K: kernel loops internally */
+  { cl_int i = 0;
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_src));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &M));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &K));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &ld));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &trans));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_slices));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_exp));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &k_pad));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &pad));
+  }
+  CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2,
+    NULL, global, local, 0, NULL,
+    (NULL != evt_prof && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+      ? (evt_prof + *n_profiled) : NULL));
+  if (EXIT_SUCCESS == result && NULL != evt_prof
+    && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+  {
+    ++(*n_profiled);
+  }
+  return result;
+}
+
+
+static int ozaki_enqueue_scale_beta(ozaki_context_t* ctx, libxstream_stream_t* stream,
+  cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta)
+{
+  int result = EXIT_SUCCESS;
+  const libxstream_opencl_stream_t* str = stream;
+  size_t global_s[2], local_s[2];
+  local_s[0] = (size_t)ctx->bm_pre; local_s[1] = 1;
+  global_s[0] = (size_t)((M + ctx->bm_pre - 1) / ctx->bm_pre) * ctx->bm_pre;
+  global_s[1] = (size_t)N;
+  { cl_int i = 0;
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_scale, i++, d_cg));
+    CL_CHECK(result, clSetKernelArg(kern_scale, i++, sizeof(int), &M));
+    CL_CHECK(result, clSetKernelArg(kern_scale, i++, sizeof(int), &N));
+    CL_CHECK(result, clSetKernelArg(kern_scale, i++, sizeof(int), &ldc));
+    if (ctx->use_double) {
+      double dbeta = beta;
+      CL_CHECK(result, clSetKernelArg(kern_scale, i++, sizeof(double), &dbeta));
+    }
+    else {
+      float fbeta = (float)beta;
+      CL_CHECK(result, clSetKernelArg(kern_scale, i++, sizeof(float), &fbeta));
+    }
+  }
+  CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern_scale, 2,
+    NULL, global_s, local_s, 0, NULL, NULL));
+  return result;
+}
+
+
+static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream,
+  void* d_as, void* d_bs, void* d_scratch, void* d_cg,
+  void* d_expa_g, void* d_expb_g,
+  int M, int N, int k_pad, int m_pad, int n_pad,
+  int nslices_g, int tm, int tn, int ldc, int cutoff, int sq,
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled)
+{
+  int result = EXIT_SUCCESS;
+  cl_kernel kern = ctx->kern_tinytc;
+  const libxstream_opencl_stream_t* str = stream;
+  int nblk_tc_m = (M + OZAKI_TINYTC_BM - 1) / OZAKI_TINYTC_BM;
+  int nblk_tc_n = (N + OZAKI_TINYTC_BN - 1) / OZAKI_TINYTC_BN;
+  cl_uint tc_nargs = 0;
+  cl_int i = 0;
+  clGetKernelInfo(kern, CL_KERNEL_NUM_ARGS, sizeof(tc_nargs), &tc_nargs, NULL);
+  if (tc_nargs <= 6) {
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_as));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_bs));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_scratch));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_cg));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_expa_g));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_expb_g));
+  }
+  else {
+    cl_long a_s0 = k_pad, a_s1 = m_pad;
+    cl_long a_st1 = k_pad, a_st2 = (cl_long)m_pad * k_pad;
+    cl_long b_s0 = n_pad, b_s1 = k_pad;
+    cl_long b_st1 = n_pad, b_st2 = (cl_long)k_pad * n_pad;
+    cl_long sc_s0 = (cl_long)M, sc_s1 = (cl_long)N;
+    cl_long sc_st1 = (cl_long)M;
+    cl_long ca_s0 = m_pad, ca_s1 = n_pad, ca_st1 = (cl_long)ldc;
+    cl_long ea_s0 = (cl_long)M, eb_s0 = (cl_long)N;
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_as));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_s0));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_s1));
+    if (tc_nargs > 22) {
+      cl_long a_s2 = nslices_g;
+      CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_s2));
+    }
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_st1));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_st2));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_bs));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_s0));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_s1));
+    if (tc_nargs > 22) {
+      cl_long b_s2 = nslices_g;
+      CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_s2));
+    }
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_st1));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_st2));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_scratch));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &sc_s0));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &sc_s1));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &sc_st1));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_cg));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &ca_s0));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &ca_s1));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &ca_st1));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_expa_g));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &ea_s0));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_expb_g));
+    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &eb_s0));
+    if (tc_nargs > 22) {
+      CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_int), &cutoff));
+      CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_int), &sq));
+    }
+  }
+  { size_t cwgs[3] = {0, 0, 0};
+    size_t local_g[2]; size_t global_g[2];
+    cl_device_id device = libxstream_opencl_config.devices[
+      libxstream_opencl_config.device_id];
+    clGetKernelWorkGroupInfo(kern, device,
+      CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(cwgs), cwgs, NULL);
+    local_g[0] = cwgs[0]; local_g[1] = cwgs[1];
+    global_g[0] = (size_t)nblk_tc_m * local_g[0];
+    global_g[1] = (size_t)nblk_tc_n * local_g[1];
+    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2,
+        NULL, global_g, local_g, 0, NULL,
+        (NULL != evt_prof && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+          ? (evt_prof + *n_profiled) : NULL));
+    if (EXIT_SUCCESS == result && NULL != evt_prof
+        && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+    {
+      ++(*n_profiled);
+    }
+  }
+  return result;
+}
+
+
+static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
+  cl_kernel kern_g, void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g,
+  void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad,
+  int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double,
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled)
+{
+  int result = EXIT_SUCCESS;
+  const libxstream_opencl_stream_t* str = stream;
+  size_t local_g[2], global_g[2];
+  local_g[0] = 16;
+  local_g[1] = (size_t)(ntm * ntn);
+  { const int nblk_gm = (M + tm - 1) / tm;
+    const int nblk_gn = (N + tn - 1) / tn;
+    global_g[0] = (size_t)nblk_gm * local_g[0];
+    global_g[1] = (size_t)nblk_gn * local_g[1];
+  }
+  { cl_int i = 0;
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_as));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_bs));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expa_g));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expb_g));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_cg));
+    CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &M));
+    CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &N));
+    CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &k_pad));
+    CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &n_pad));
+    CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &ldc));
+    CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &m_pad));
+    if (use_double) {
+      double dalpha = alpha;
+      CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(double), &dalpha));
+    }
+    else {
+      float falpha = (float)alpha;
+      CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(float), &falpha));
+    }
+    CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &first_pair));
+  }
+  CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern_g, 2,
+      NULL, global_g, local_g, 0, NULL,
+      (NULL != evt_prof && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+        ? (evt_prof + *n_profiled) : NULL));
+  if (EXIT_SUCCESS == result && NULL != evt_prof
+      && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+  {
+    ++(*n_profiled);
+  }
   return result;
 }
