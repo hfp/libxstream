@@ -133,22 +133,29 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       ndecomp = (2 == kind ? (use_double ? 19 : 10) : (use_double ? 8 : 5));
     }
     if (2 == kind) {
+      /* Scheme 2: Convert trim levels to bits (unified semantics with Scheme 1).
+       * Each level = 7 bits. Max levels: 7 (fp64), 3 (fp32). */
       const int mant = use_double ? 52 : 23;
-      if (oztrim >= mant) oztrim = mant - 1;
-      if (0 < oztrim && 0 != ndecomp_auto) {
+      const int max_levels = mant / 7;  /* 7 for fp64, 3 for fp32 */
+      if (oztrim > max_levels) oztrim = max_levels;
+      const int oztrim_bits = oztrim * 7;
+
+      if (0 < oztrim_bits && 0 != ndecomp_auto) {
         /* floor(cumulative log2) of CRT moduli products */
         static const int cumbits[20] = {
           7, 13, 20, 27, 34, 41, 48, 55, 61, 68,
           75, 81, 87, 94, 100, 106, 112, 118, 124, 130
         };
-        const int req = 2 * (mant - oztrim) + 23;
+        const int req = 2 * (mant - oztrim_bits) + 23;
         int np;
         for (np = 0; np < 20 && cumbits[np] < req; ++np) {}
         ndecomp = (np < 20) ? np + 1 : 20;
       }
+      /* Store as bits for kernel compilation */
+      oztrim = oztrim_bits;
     }
     else if (1 == kind) {
-      /* cutoff = 2*(ndecomp-1) - oztrim must stay >= 0 */
+      /* Scheme 1: cutoff = 2*(ndecomp-1) - oztrim must stay >= 0 */
       const int max_trim = 2 * (ndecomp - 1);
       if (oztrim > max_trim) oztrim = max_trim;
     }

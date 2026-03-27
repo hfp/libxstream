@@ -117,7 +117,7 @@ typedef struct ozaki_context_t {
   int ndecomp;     /* number of decomposition components (slices or primes) */
   int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT) */
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
-  int oztrim;      /* Scheme 1: diagonal trim (higher = less accurate, faster) */
+  int oztrim;      /* Precision levels to trim (~7 bits each). Scheme 1: diagonals. Scheme 2: stored as bits (levels*7) after conversion. */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
   int profile;     /* 0: off, 1 (or negative): pre+gemm, 2: gemm, 3: pre-a, 4: pre-b */
   /* block sizes for preprocessing WGs */
