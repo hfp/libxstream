@@ -7,49 +7,49 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #if defined(__OPENCL)
-#  include <libxstream_opencl.h>
-#  include <string.h>
-#  if defined(_WIN32)
-#    include <Windows.h>
-#  else
-#    if !defined(__linux__) && defined(__APPLE__) && defined(__MACH__)
-#      include <sys/types.h>
-#      include <sys/sysctl.h>
-#    endif
-#    include <unistd.h>
-#  endif
+# include <libxstream_opencl.h>
+# include <string.h>
+# if defined(_WIN32)
+#   include <Windows.h>
+# else
+#   if !defined(__linux__) && defined(__APPLE__) && defined(__MACH__)
+#     include <sys/types.h>
+#     include <sys/sysctl.h>
+#   endif
+#   include <unistd.h>
+# endif
 
-#  if !defined(LIBXSTREAM_MEM_ALLOC)
-#    if 1
-#      define LIBXSTREAM_MEM_ALLOC(SIZE, ALIGNMENT) libxs_malloc(libxstream_opencl_config.pool_hst, SIZE, ALIGNMENT)
-#      define LIBXSTREAM_MEM_FREE(PTR) libxs_free(PTR)
-#    else
-#      define LIBXSTREAM_MEM_ALLOC(SIZE, ALIGNMENT) aligned_alloc(ALIGNMENT, SIZE)
-#      define LIBXSTREAM_MEM_FREE(PTR) free(PTR)
-#    endif
-#  endif
-#  if !defined(LIBXSTREAM_MEM_ALIGNSCALE)
-#    define LIBXSTREAM_MEM_ALIGNSCALE 8
-#  endif
-#  if !defined(LIBXSTREAM_MEM_SVM_INTEL) && 0
-#    define LIBXSTREAM_MEM_SVM_INTEL
-#  endif
-#  if !defined(LIBXSTREAM_MEM_HST_INTEL) && 0
-#    define LIBXSTREAM_MEM_HST_INTEL
-#  endif
-#  if !defined(LIBXSTREAM_MEM_SVM_USM) && 0
-#    define LIBXSTREAM_MEM_SVM_USM
-#  endif
-#  if !defined(LIBXSTREAM_MEM_DEBUG) && 0
-#    if !defined(NDEBUG)
-#      define LIBXSTREAM_MEM_DEBUG
-#    endif
-#  endif
+# if !defined(LIBXSTREAM_MEM_ALLOC)
+#   if 1
+#     define LIBXSTREAM_MEM_ALLOC(SIZE, ALIGNMENT) libxs_malloc(libxstream_opencl_config.pool_hst, SIZE, ALIGNMENT)
+#     define LIBXSTREAM_MEM_FREE(PTR) libxs_free(PTR)
+#   else
+#     define LIBXSTREAM_MEM_ALLOC(SIZE, ALIGNMENT) aligned_alloc(ALIGNMENT, SIZE)
+#     define LIBXSTREAM_MEM_FREE(PTR) free(PTR)
+#   endif
+# endif
+# if !defined(LIBXSTREAM_MEM_ALIGNSCALE)
+#   define LIBXSTREAM_MEM_ALIGNSCALE 8
+# endif
+# if !defined(LIBXSTREAM_MEM_SVM_INTEL) && 0
+#   define LIBXSTREAM_MEM_SVM_INTEL
+# endif
+# if !defined(LIBXSTREAM_MEM_HST_INTEL) && 0
+#   define LIBXSTREAM_MEM_HST_INTEL
+# endif
+# if !defined(LIBXSTREAM_MEM_SVM_USM) && 0
+#   define LIBXSTREAM_MEM_SVM_USM
+# endif
+# if !defined(LIBXSTREAM_MEM_DEBUG) && 0
+#   if !defined(NDEBUG)
+#     define LIBXSTREAM_MEM_DEBUG
+#   endif
+# endif
 
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 extern "C" {
-#  endif
+# endif
 
 
 
@@ -57,9 +57,9 @@ extern "C" {
 libxstream_opencl_info_memptr_t* libxstream_opencl_info_hostptr(const void* memory) {
   libxstream_opencl_info_memptr_t* result = NULL;
   if (NULL == libxstream_opencl_config.device.clHostMemAllocINTEL &&
-#  if (0 != LIBXSTREAM_USM)
+# if (0 != LIBXSTREAM_USM)
       0 == libxstream_opencl_config.device.usm &&
-#  endif
+# endif
       NULL != memory)
   {
     assert(sizeof(libxstream_opencl_info_memptr_t) < (uintptr_t)memory);
@@ -72,15 +72,15 @@ libxstream_opencl_info_memptr_t* libxstream_opencl_info_hostptr(const void* memo
 libxstream_opencl_info_memptr_t* libxstream_opencl_info_devptr_modify(
   libxs_lock_t* lock, void* memory, size_t elsize, const size_t* amount, size_t* offset) {
   libxstream_opencl_info_memptr_t* result = NULL;
-#  if !defined(LIBXSTREAM_MEM_DEBUG)
+# if !defined(LIBXSTREAM_MEM_DEBUG)
   LIBXS_UNUSED(amount);
-#  endif
+# endif
   if (NULL != memory) {
     assert(NULL != libxstream_opencl_config.device.context);
     if (/* USM-pointer */
-#  if (0 != LIBXSTREAM_USM)
+# if (0 != LIBXSTREAM_USM)
       0 != libxstream_opencl_config.device.usm ||
-#  endif
+# endif
       NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL)
     { /* assume only first item of libxstream_opencl_info_memptr_t is accessed */
       assert(0 != libxstream_opencl_config.device.usm || NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL);
@@ -107,23 +107,23 @@ libxstream_opencl_info_memptr_t* libxstream_opencl_info_devptr_modify(
             size_t d = pointer - memptr, s = d;
             assert(0 < elsize && 0 != d);
             if (d < hit && (1 == elsize || 0 == (d % elsize)) &&
-#  if defined(LIBXSTREAM_MEM_DEBUG) /* TODO: verify enclosed conditions */
+# if defined(LIBXSTREAM_MEM_DEBUG) /* TODO: verify enclosed conditions */
                 (EXIT_SUCCESS == clGetMemObjectInfo(info->memory, CL_MEM_SIZE, sizeof(size_t), &s, NULL)) &&
                 (NULL == amount || (*amount * elsize + d) <= s) &&
-#  endif
+# endif
                 (1 == elsize || 0 == (s % elsize)) && d <= s)
             {
               *offset = (1 == elsize ? d : (d / elsize));
               result = info;
               hit = d;
             }
-#  if defined(LIBXSTREAM_MEM_DEBUG)
+# if defined(LIBXSTREAM_MEM_DEBUG)
             else if (d < hit && 0 != libxstream_opencl_config.debug && 0 != libxstream_opencl_config.verbosity) {
               fprintf(stderr, "ERROR ACC/OpenCL: memory=%p pointer=%p size=%llu offset=%llu info failed\n",
                 (const void*)info->memory, info->memptr, (unsigned long long)s,
                 (unsigned long long)(1 == elsize ? d : (d / elsize)));
             }
-#  endif
+# endif
           }
         }
         else break;
@@ -159,9 +159,9 @@ int libxstream_opencl_info_devptr_lock(libxstream_opencl_info_memptr_t* info, li
 int libxstream_opencl_info_devptr(
   libxstream_opencl_info_memptr_t* info, const void* memory, size_t elsize, const size_t* amount, size_t* offset) {
   libxs_lock_t* const lock_memory = ((
-#  if (0 != LIBXSTREAM_USM)
+# if (0 != LIBXSTREAM_USM)
                                               0 != libxstream_opencl_config.device.usm ||
-#  endif
+# endif
                                               NULL != libxstream_opencl_config.device.clSetKernelArgMemPointerINTEL)
                                               ? NULL /* no lock required */
                                               : libxstream_opencl_config.lock_memory);
@@ -173,18 +173,18 @@ int libxstream_mem_host_deallocate_internal(void* /*host_ptr*/, cl_command_queue
 int libxstream_mem_host_deallocate_internal(void* host_ptr, cl_command_queue queue) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_FAILURE;
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
   if (NULL != devinfo->clMemFreeINTEL) {
-#    if defined(LIBXSTREAM_MEM_SVM_INTEL) || defined(LIBXSTREAM_MEM_HST_INTEL)
+#   if defined(LIBXSTREAM_MEM_SVM_INTEL) || defined(LIBXSTREAM_MEM_HST_INTEL)
     result = devinfo->clMemFreeINTEL(devinfo->context, host_ptr);
-#    else
+#   else
     LIBXSTREAM_MEM_FREE(host_ptr);
     result = EXIT_SUCCESS;
-#    endif
+#   endif
   }
   else
-#  endif
-#  if (0 != LIBXSTREAM_USM) && ((1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM))
+# endif
+# if (0 != LIBXSTREAM_USM) && ((1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM))
     if (0 != devinfo->usm && 0 != devinfo->unified)
   {
     if (0 == ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm)) {
@@ -194,7 +194,7 @@ int libxstream_mem_host_deallocate_internal(void* host_ptr, cl_command_queue que
     clSVMFree(devinfo->context, host_ptr);
   }
   else
-#  endif
+# endif
   {
     LIBXS_UNUSED(queue);
     LIBXSTREAM_MEM_FREE(host_ptr);
@@ -214,36 +214,36 @@ int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, libxstream_stre
     int result = EXIT_SUCCESS;
     void* host_ptr = NULL;
     cl_mem memory = NULL;
-#  if !defined(LIBXSTREAM_ACTIVATE)
+# if !defined(LIBXSTREAM_ACTIVATE)
     if (NULL == devinfo->context) {
       LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_set_active_device(
         libxstream_opencl_config.lock_main, libxstream_opencl_config.device_id));
     }
-#  endif
+# endif
     str = (NULL != stream ? stream : libxstream_opencl_stream_default()); /* after LIBXSTREAM_ACTIVATE */
     assert(NULL != str);
     if ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXS_CACHELINE) <= nbytes) {
       const int a = ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_MAXALIGN) <= nbytes ? LIBXSTREAM_MAXALIGN : LIBXS_CACHELINE);
       if (alignment < a) alignment = a;
     }
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clMemFreeINTEL) {
-#    if defined(LIBXSTREAM_MEM_SVM_INTEL)
+#   if defined(LIBXSTREAM_MEM_SVM_INTEL)
       const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
       host_ptr = devinfo->clSharedMemAllocINTEL(devinfo->context, device_id, NULL /*properties*/, nbytes, 0 /*alignment*/, &result);
-#    elif defined(LIBXSTREAM_MEM_HST_INTEL)
+#   elif defined(LIBXSTREAM_MEM_HST_INTEL)
       host_ptr = devinfo->clHostMemAllocINTEL(devinfo->context, NULL /*properties*/, nbytes, 0 /*alignment*/, &result);
-#    else
+#   else
       host_ptr = LIBXSTREAM_MEM_ALLOC(nbytes, alignment);
-#    endif
+#   endif
       result_ptr = host_ptr;
     }
     else
-#  endif
+# endif
       if (0 != devinfo->usm)
     {
-#  if (0 != LIBXSTREAM_USM)
-#    if ((1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM))
+# if (0 != LIBXSTREAM_USM)
+#   if ((1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM))
       if (0 != devinfo->unified) {
         const int svmmem_fine = (0 != ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm)
                                    ? CL_MEM_SVM_FINE_GRAIN_BUFFER
@@ -258,31 +258,31 @@ int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, libxstream_stre
         }
       }
       else
-#    endif
+#   endif
       {
         host_ptr = LIBXSTREAM_MEM_ALLOC(nbytes, alignment);
         result_ptr = host_ptr;
       }
-#  endif
+# endif
     }
     else {
       const size_t size_meminfo = sizeof(libxstream_opencl_info_memptr_t);
       int memflags = CL_MEM_ALLOC_HOST_PTR;
       nbytes += alignment + size_meminfo - 1;
-#  if defined(LIBXSTREAM_XHINTS)
+# if defined(LIBXSTREAM_XHINTS)
       if (0 != (8 & libxstream_opencl_config.xhints) && (0 != devinfo->nv || NULL != (LIBXSTREAM_XHINTS))) {
         host_ptr = LIBXSTREAM_MEM_ALLOC(nbytes, alignment);
         if (NULL != host_ptr) memflags = CL_MEM_USE_HOST_PTR;
       }
-#  endif
+# endif
       memory = clCreateBuffer(devinfo->context, (cl_mem_flags)(CL_MEM_READ_WRITE | memflags), nbytes, host_ptr, &result);
       if (EXIT_SUCCESS == result) {
         void* mapped = host_ptr;
         if (NULL == host_ptr) {
           mapped = clEnqueueMapBuffer(str->queue, memory, CL_TRUE /*always block*/,
-#  if defined(LIBXSTREAM_XHINTS) && (defined(CL_VERSION_1_2) || defined(CL_MAP_WRITE_INVALIDATE_REGION))
+# if defined(LIBXSTREAM_XHINTS) && (defined(CL_VERSION_1_2) || defined(CL_MAP_WRITE_INVALIDATE_REGION))
             (32 & libxstream_opencl_config.xhints) ? CL_MAP_WRITE_INVALIDATE_REGION :
-#  endif
+# endif
                                                     (CL_MAP_READ | CL_MAP_WRITE),
             0 /*offset*/, nbytes, 0, NULL, NULL, &result);
         }
@@ -390,47 +390,47 @@ int libxstream_mem_allocate(void** dev_mem, size_t nbytes) {
   int result = EXIT_SUCCESS;
   void* memptr = NULL;
   assert(NULL != dev_mem);
-#  if !defined(LIBXSTREAM_ACTIVATE)
+# if !defined(LIBXSTREAM_ACTIVATE)
   if (NULL == devinfo->context) {
     LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_set_active_device(
       libxstream_opencl_config.lock_main, libxstream_opencl_config.device_id));
   }
-#  endif
+# endif
   assert(NULL != devinfo->context);
   if (0 != nbytes) {
     cl_mem memory = NULL;
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clMemFreeINTEL) {
       const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-#    if defined(LIBXSTREAM_MEM_SVM_INTEL)
+#   if defined(LIBXSTREAM_MEM_SVM_INTEL)
       memptr = devinfo->clSharedMemAllocINTEL(devinfo->context, device_id, NULL /*properties*/, nbytes, 0 /*alignment*/, &result);
-#    else
+#   else
       memptr = devinfo->clDeviceMemAllocINTEL(devinfo->context, device_id, NULL /*properties*/, nbytes, 0 /*alignment*/, &result);
-#    endif
+#   endif
     }
     else
-#  endif
-#  if (0 != LIBXSTREAM_USM)
+# endif
+# if (0 != LIBXSTREAM_USM)
       if (0 != devinfo->usm)
     {
-#    if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
+#   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       const int svmflags = (0 != ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm)
                               ? CL_MEM_SVM_FINE_GRAIN_BUFFER
                               : 0);
       memptr = clSVMAlloc(devinfo->context, (cl_svm_mem_flags)(CL_MEM_READ_WRITE | svmflags), nbytes, 0 /*alignment*/);
-#    else
+#   else
       int alignment = LIBXS_MAX(0x10000, sizeof(void*));
       if ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXS_CACHELINE) <= nbytes) {
         const int a = ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_MAXALIGN) <= nbytes ? LIBXSTREAM_MAXALIGN : LIBXS_CACHELINE);
         if (alignment < a) alignment = a;
       }
       memptr = LIBXSTREAM_MEM_ALLOC(nbytes, alignment);
-#    endif
+#   endif
     }
     else
-#  endif
+# endif
     {
-#  if defined(LIBXSTREAM_XHINTS)
+# if defined(LIBXSTREAM_XHINTS)
       const int devuid = devinfo->uid, devuids = (0x4905 == devuid || 0x020a == devuid || (0x0bd0 <= devuid && 0x0bdb >= devuid));
       const int try_flag = ((0 != (16 & libxstream_opencl_config.xhints) && 0 != devinfo->intel && 0 == devinfo->unified &&
                               (devuids || NULL != (LIBXSTREAM_XHINTS)))
@@ -438,7 +438,7 @@ int libxstream_mem_allocate(void** dev_mem, size_t nbytes) {
                               : 0);
       memory = clCreateBuffer(devinfo->context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes, NULL /*host_ptr*/, &result);
       if (0 != try_flag && EXIT_SUCCESS != result) /* retry without try_flag */
-#  endif
+# endif
       {
         memory = clCreateBuffer(devinfo->context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result);
       }
@@ -502,23 +502,23 @@ int libxstream_mem_deallocate(void* dev_mem) {
   int result = EXIT_SUCCESS;
   if (NULL != dev_mem) {
     assert(NULL != libxstream_opencl_config.device.context);
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
     if (NULL != libxstream_opencl_config.device.clMemFreeINTEL) {
       LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_config.device.clMemFreeINTEL(libxstream_opencl_config.device.context, dev_mem));
     }
     else
-#  endif
-#  if (0 != LIBXSTREAM_USM)
+# endif
+# if (0 != LIBXSTREAM_USM)
       if (0 != libxstream_opencl_config.device.usm)
     {
-#    if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
+#   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       clSVMFree(libxstream_opencl_config.device.context, dev_mem);
-#    else
+#   else
       LIBXSTREAM_MEM_FREE(dev_mem);
-#    endif
+#   endif
     }
     else
-#  endif
+# endif
     {
       libxstream_opencl_info_memptr_t* info = NULL;
       LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
@@ -559,41 +559,41 @@ int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, 
   assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
   assert(NULL != devinfo->context);
   if (
-#  if (0 != LIBXSTREAM_USM)
+# if (0 != LIBXSTREAM_USM)
     host_mem != dev_mem && /* fast-path only sensible without offsets */
-#  endif
+# endif
     NULL != host_mem && NULL != dev_mem && 0 != nbytes)
   {
-#  if defined(LIBXSTREAM_ASYNC)
+# if defined(LIBXSTREAM_ASYNC)
     const cl_bool finish = (0 == (1 & libxstream_opencl_config.async) || NULL == stream ||
                             (0 != (8 & libxstream_opencl_config.wa) && 0 != devinfo->intel && 0 != devinfo->unified));
-#  else
+# else
     const cl_bool finish = CL_TRUE;
-#  endif
+# endif
     const libxstream_opencl_stream_t* str;
     cl_event event = NULL;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str);
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
       result = devinfo->clEnqueueMemcpyINTEL(
         str->queue, finish, dev_mem, host_mem, nbytes, 0, NULL, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
     }
     else
-#  endif
-#  if (0 != LIBXSTREAM_USM)
+# endif
+# if (0 != LIBXSTREAM_USM)
       if (0 != devinfo->usm)
     {
-#    if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
+#   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       result = clEnqueueSVMMemcpy(
         str->queue, finish, dev_mem, host_mem, nbytes, 0, NULL, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
-#    else
+#   else
       memcpy(dev_mem, host_mem, nbytes);
-#    endif
+#   endif
     }
     else
-#  endif
+# endif
     {
       size_t offset = 0;
       libxstream_opencl_info_memptr_t* const info = libxstream_opencl_info_devptr_modify(
@@ -627,53 +627,53 @@ int libxstream_opencl_mem_copy_d2h(const void* /*dev_mem*/, void* /*host_mem*/, 
 int libxstream_opencl_mem_copy_d2h(
   const void* dev_mem, void* host_mem, size_t offset, size_t nbytes, cl_command_queue queue, int blocking, cl_event* event) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-#  if defined(LIBXSTREAM_ASYNC)
+# if defined(LIBXSTREAM_ASYNC)
   const cl_bool finish = (0 != blocking || 0 == (2 & libxstream_opencl_config.async) ||
                           (0 != (8 & libxstream_opencl_config.wa) && 0 != devinfo->intel && 0 != devinfo->unified));
-#  else
+# else
   const cl_bool finish = CL_TRUE;
-#  endif
+# endif
   int result = EXIT_SUCCESS;
   assert(NULL != dev_mem);
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
   if (NULL != devinfo->clEnqueueMemcpyINTEL) {
     result = devinfo->clEnqueueMemcpyINTEL(queue, finish, host_mem, (const char*)dev_mem + offset, nbytes, 0, NULL, event);
   }
   else
-#  endif
-#  if (0 != LIBXSTREAM_USM)
+# endif
+# if (0 != LIBXSTREAM_USM)
     if (0 != devinfo->usm)
   {
-#    if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
+#   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
     result = clEnqueueSVMMemcpy(queue, finish, host_mem, (const char*)dev_mem + offset, nbytes, 0, NULL, event);
-#    else
+#   else
     memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
-#    endif
+#   endif
   }
   else
-#  endif
+# endif
   {
     result = clEnqueueReadBuffer(queue, (cl_mem)(uintptr_t)dev_mem, finish, offset, nbytes, host_mem, 0, NULL, event);
   }
   if (EXIT_SUCCESS != result && !finish) { /* retry synchronously */
     int result_sync = EXIT_FAILURE;
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
       result_sync = devinfo->clEnqueueMemcpyINTEL(queue, CL_TRUE, host_mem, (const char*)dev_mem + offset, nbytes, 0, NULL, event);
     }
     else
-#  endif
-#  if (0 != LIBXSTREAM_USM)
+# endif
+# if (0 != LIBXSTREAM_USM)
       if (0 != devinfo->usm)
     {
-#    if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
+#   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       result_sync = clEnqueueSVMMemcpy(queue, CL_TRUE, host_mem, (const char*)dev_mem + offset, nbytes, 0, NULL, event);
-#    else
+#   else
       memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
-#    endif
+#   endif
     }
     else
-#  endif
+# endif
     {
       result_sync = clEnqueueReadBuffer(queue, (cl_mem)(uintptr_t)dev_mem, CL_TRUE, offset, nbytes, host_mem, 0, NULL, event);
     }
@@ -693,9 +693,9 @@ int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, 
   int result = EXIT_SUCCESS;
   assert((NULL != dev_mem && NULL != host_mem) || 0 == nbytes);
   if (
-#  if (0 != LIBXSTREAM_USM)
+# if (0 != LIBXSTREAM_USM)
     host_mem != dev_mem && /* fast-path only sensible without offsets */
-#  endif
+# endif
     NULL != host_mem && NULL != dev_mem && 0 != nbytes)
   {
     const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
@@ -741,11 +741,11 @@ int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_dst, size_t nby
   int result = EXIT_SUCCESS;
   assert((NULL != devmem_src && NULL != devmem_dst) || 0 == nbytes);
   if (NULL != devmem_src && NULL != devmem_dst && devmem_src != devmem_dst && 0 != nbytes) {
-#  if defined(LIBXSTREAM_ASYNC)
+# if defined(LIBXSTREAM_ASYNC)
     cl_event event = NULL, *const pevent = (0 == (4 & libxstream_opencl_config.async) || NULL == stream) ? &event : NULL;
-#  else
+# else
     cl_event event = NULL, *const pevent = NULL;
-#  endif
+# endif
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     union {
       const void* input;
@@ -756,25 +756,25 @@ int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_dst, size_t nby
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str && NULL != devinfo->context);
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
       result = devinfo->clEnqueueMemcpyINTEL(str->queue, CL_FALSE /*blocking*/, devmem_dst, devmem_src, nbytes, 0, NULL,
         NULL == libxstream_opencl_config.hist_d2d ? pevent : &event);
     }
     else
-#  endif
-#  if (0 != LIBXSTREAM_USM)
+# endif
+# if (0 != LIBXSTREAM_USM)
       if (0 != devinfo->usm)
     {
-#    if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
+#   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       result = clEnqueueSVMMemcpy(str->queue, CL_FALSE /*blocking*/, devmem_dst, devmem_src, nbytes, 0, NULL,
         NULL == libxstream_opencl_config.hist_d2d ? pevent : &event);
-#    else
+#   else
       memcpy(devmem_dst, devmem_src, nbytes);
-#    endif
+#   endif
     }
     else
-#  endif
+# endif
     {
       size_t offset_src = 0, offset_dst = 0;
       libxstream_opencl_info_memptr_t* const info_src = libxstream_opencl_info_devptr_modify(
@@ -817,11 +817,11 @@ int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nby
   int result = EXIT_SUCCESS;
   assert(NULL != dev_mem || 0 == nbytes);
   if (0 != nbytes) {
-#  if defined(LIBXSTREAM_ASYNC)
+# if defined(LIBXSTREAM_ASYNC)
     cl_event event = NULL, *const pevent = (0 == (8 & libxstream_opencl_config.async) || NULL == stream) ? &event : NULL;
-#  else
+# else
     cl_event event = NULL, *const pevent = NULL;
-#  endif
+# endif
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     const libxstream_opencl_stream_t* str;
     size_t base = 0, vsize = 1;
@@ -830,23 +830,23 @@ int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nby
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str && NULL != devinfo->context);
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemFillINTEL) {
       result = devinfo->clEnqueueMemFillINTEL(str->queue, (char*)dev_mem + offset, &value, vsize, nbytes, 0, NULL, pevent);
     }
     else
-#  endif
-#  if (0 != LIBXSTREAM_USM)
+# endif
+# if (0 != LIBXSTREAM_USM)
       if (0 != devinfo->usm)
     {
-#    if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
+#   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       result = clEnqueueSVMMemFill(str->queue, (char*)dev_mem + offset, &value, vsize, nbytes, 0, NULL, pevent);
-#    else
+#   else
       memset((char*)dev_mem + offset, value, nbytes);
-#    endif
+#   endif
     }
     else
-#  endif
+# endif
     {
       const libxstream_opencl_info_memptr_t* const info = libxstream_opencl_info_devptr_modify(
         NULL, dev_mem, 1 /*elsize*/, &nbytes, &base);
@@ -879,45 +879,45 @@ int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t*
   cl_device_local_mem_type cl_local_type = CL_GLOBAL;
   cl_ulong cl_size_total = 0, cl_size_local = 0;
   cl_bool cl_unified = CL_FALSE;
-#  if !defined(_WIN32)
-#    if defined(_SC_PAGE_SIZE)
+# if !defined(_WIN32)
+#   if defined(_SC_PAGE_SIZE)
   const long page_size = sysconf(_SC_PAGE_SIZE);
-#    else
+#   else
   const long page_size = 4096;
-#    endif
+#   endif
   long pages_free = 0, pages_total = 0;
-#    if defined(__linux__)
-#      if defined(_SC_PHYS_PAGES)
+#   if defined(__linux__)
+#     if defined(_SC_PHYS_PAGES)
   pages_total = sysconf(_SC_PHYS_PAGES);
-#      else
+#     else
   pages_total = 0;
-#      endif
-#      if defined(_SC_AVPHYS_PAGES)
+#     endif
+#     if defined(_SC_AVPHYS_PAGES)
   pages_free = sysconf(_SC_AVPHYS_PAGES);
-#      else
+#     else
   pages_free = pages_total;
-#      endif
-#    elif defined(__APPLE__) && defined(__MACH__)
+#     endif
+#   elif defined(__APPLE__) && defined(__MACH__)
   /*const*/ size_t size_pages_free = sizeof(const long), size_pages_total = sizeof(const long);
   LIBXS_EXPECT(0 == sysctlbyname("hw.memsize", &pages_total, &size_pages_total, NULL, 0));
   if (0 < page_size) pages_total /= page_size;
   if (0 != sysctlbyname("vm.page_free_count", &pages_free, &size_pages_free, NULL, 0)) {
     pages_free = pages_total;
   }
-#    endif
+#   endif
   if (0 < page_size && 0 <= pages_free && 0 <= pages_total) {
     const size_t size_page = (size_t)page_size;
     size_total = size_page * (size_t)pages_total;
     size_free = size_page * (size_t)pages_free;
   }
-#  else
+# else
   MEMORYSTATUSEX mem_status;
   mem_status.dwLength = sizeof(mem_status);
   if (GlobalMemoryStatusEx(&mem_status)) {
     size_total = (size_t)mem_status.ullTotalPhys;
     size_free = (size_t)mem_status.ullAvailPhys;
   }
-#  endif
+# endif
   CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_total, NULL));
   CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_TYPE, sizeof(cl_device_local_mem_type), &cl_local_type, NULL));
   if (CL_LOCAL == cl_local_type) {
@@ -947,8 +947,8 @@ int libxstream_mem_info(size_t* mem_free, size_t* mem_total) {
   CL_RETURN(result, "");
 }
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 }
-#  endif
+# endif
 
 #endif /*__OPENCL*/

@@ -5,7 +5,6 @@
 # For information on the license, see the LICENSE file.                       #
 # SPDX-License-Identifier: BSD-3-Clause                                       #
 ###############################################################################
-
 FIND=$(command -v find)
 SORT=$(command -v sort)
 SED=$(command -v gsed)

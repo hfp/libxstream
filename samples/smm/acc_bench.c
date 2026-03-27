@@ -13,34 +13,34 @@
 #include <math.h>
 
 #if defined(__LIBXSMM)
-#  if defined(LIBXS_DEFAULT_CONFIG)
-#    include <libxs_source.h>
-#  else
-#    include <libxsmm.h>
-#    if !defined(LIBXS_TIMER_H)
-#      include <utils/libxs_timer.h>
-#    endif
-#    if !defined(LIBXS_SYNC_H)
-#      include <libxs_sync.h>
-#    endif
-#  endif
-#  if defined(LIBXS_VERSION_NUMBER) && LIBXS_VERSION4(1, 17, 0, 0) < LIBXS_VERSION_NUMBER
-#    define USE_LIBXSMM
-#  endif
+# if defined(LIBXS_DEFAULT_CONFIG)
+#   include <libxs_source.h>
+# else
+#   include <libxsmm.h>
+#   if !defined(LIBXS_TIMER_H)
+#     include <utils/libxs_timer.h>
+#   endif
+#   if !defined(LIBXS_SYNC_H)
+#     include <libxs_sync.h>
+#   endif
+# endif
+# if defined(LIBXS_VERSION_NUMBER) && LIBXS_VERSION4(1, 17, 0, 0) < LIBXS_VERSION_NUMBER
+#   define USE_LIBXSMM
+# endif
 #endif
 
 #if defined(USE_LIBXSMM)
-#  if defined(_OPENMP)
-#    define ACC_BENCH_USEOMP(FUNC) LIBXS_USEOMP(FUNC)
-#  else
-#    define ACC_BENCH_USEOMP(FUNC) (FUNC)
-#  endif
-#  define ACC_BENCH_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, \
+# if defined(_OPENMP)
+#   define ACC_BENCH_USEOMP(FUNC) LIBXS_USEOMP(FUNC)
+# else
+#   define ACC_BENCH_USEOMP(FUNC) (FUNC)
+# endif
+# define ACC_BENCH_GEMM_BATCH(IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, \
     STRIDE_C, INDEX_STRIDE, INDEX_BASE, BATCHSIZE) \
     ACC_BENCH_USEOMP(libxs_gemm_batch) \
     (IPREC, OPREC, TRANSA, TRANSB, M, N, K, ALPHA, A, LDA, STRIDE_A, B, LDB, STRIDE_B, BETA, C, LDC, STRIDE_C, INDEX_STRIDE, \
       INDEX_BASE, BATCHSIZE)
-#  define PRINTF(...) \
+# define PRINTF(...) \
     do { \
       const size_t print_buffer_size = sizeof(print_buffer) - print_offset; \
       const int print_buffer_result = LIBXS_SNPRINTF(print_buffer + print_offset, print_buffer_size, __VA_ARGS__); \
@@ -48,44 +48,44 @@
       print_offset += print_buffer_result; \
     } while (0)
 #else
-#  define PRINTF(...) printf(__VA_ARGS__)
+# define PRINTF(...) printf(__VA_ARGS__)
 #endif
 
 #if !defined(DEDUPLICATE) && 0
-#  define DEDUPLICATE
+# define DEDUPLICATE
 #endif
 #if !defined(ELEM_TYPE)
-#  define ELEM_TYPE double
+# define ELEM_TYPE double
 #endif
 #if !defined(ALIGNMENT)
-#  define ALIGNMENT 64
+# define ALIGNMENT 64
 #endif
 #if !defined(BATCHGRAIN)
-#  define BATCHGRAIN 100
+# define BATCHGRAIN 100
 #endif
 #if !defined(BATCHSIZE)
-#  define BATCHSIZE (300 * BATCHGRAIN)
+# define BATCHSIZE (300 * BATCHGRAIN)
 #endif
 #if !defined(NRAND)
-#  define NRAND BATCHSIZE
+# define NRAND BATCHSIZE
 #endif
 #if !defined(NREPEAT)
-#  define NREPEAT 3
+# define NREPEAT 3
 #endif
 #if !defined(XREPEAT)
-#  define XREPEAT 66
+# define XREPEAT 66
 #endif
 #if !defined(TRANSPOSE)
-#  define TRANSPOSE
+# define TRANSPOSE
 #endif
 #if !defined(VALIDATE)
-#  define VALIDATE
+# define VALIDATE
 #endif
 #if !defined(WARMUP)
-#  define WARMUP 2
+# define WARMUP 2
 #endif
 #if !defined(DELIMS)
-#  define DELIMS ",;:|/\n\t "
+# define DELIMS ",;:|/\n\t "
 #endif
 
 #define ACC_BENCH_SMM_EPSILON(T) DBCSR_CONCATENATE(ACC_BENCH_SMM_EPSILON_, T)
@@ -224,17 +224,17 @@ int main(int argc, char* argv[]) {
   const char* const env_check_h2d = getenv("CHECK_H2D");
   const char* const env_check_dev = getenv("CHECK_DEV");
   const char* const env_check_hst = getenv("CHECK_HST");
-#  if defined(__OPENCL)
+# if defined(__OPENCL)
   const char* const env_nrepeat_smm = getenv("NREPEAT_SMM");
   const int nrepeat_smm = (NULL == env_nrepeat_smm ? 1 : MAX(atoi(env_nrepeat_smm), 1));
-#  else
+# else
   const int nrepeat_smm = 1;
-#  endif
-#  if defined(VALIDATE)
+# endif
+# if defined(VALIDATE)
   double maxdiff = 0;
-#  else
+# else
   DBCSR_MARK_USED(check);
-#  endif
+# endif
 #else
   DBCSR_MARK_USED(check);
 #endif
@@ -304,9 +304,9 @@ int main(int argc, char* argv[]) {
       libxs_timer_tickint start;
       int print_offset = 0;
       char print_buffer[1024] = "";
-#  if defined(TRANSPOSE) && defined(VALIDATE)
+# if defined(TRANSPOSE) && defined(VALIDATE)
       double transpose = 0;
-#  endif
+# endif
       double duration = 0;
 #endif
       const char* const env_batchsize_smm = getenv("BATCHSIZE_SMM");
@@ -372,15 +372,15 @@ int main(int argc, char* argv[]) {
       if (NULL != amat_hst && NULL != bmat_hst && NULL != trans_hst && NULL != stack_hst) {
         init_stack(stack_hst, stack_size, NRAND, rnd, mn, mk, kn, nc, na, nb);
 #if defined(_OPENMP)
-#  pragma omp parallel
+# pragma omp parallel
 #endif
         {
 #if defined(_OPENMP)
-#  pragma omp for nowait
+# pragma omp for nowait
 #endif
           for (i = 0; i < na; ++i) INIT_MAT(ELEM_TYPE, i /*seed*/ + 42, &amat_hst[i * mk], m, k, 1.0 / (nr * na));
 #if defined(_OPENMP)
-#  pragma omp for
+# pragma omp for
 #endif
           for (i = 0; i < nb; ++i) {
             INIT_MAT(ELEM_TYPE, i /*seed*/ + 24, &bmat_hst[i * kn], k, n, 1.0 / (nr * nb));
@@ -396,25 +396,25 @@ int main(int argc, char* argv[]) {
       CHECK(c_dbcsr_acc_dev_mem_allocate((void**)(void*)&trans_dev, sizeof(int) * nb), &result, check);
       CHECK(c_dbcsr_acc_memset_zero(cmat_dev, 0 /*offset*/, sizeof(ELEM_TYPE) * mn * nc, stream), &result, check);
       CHECK(c_dbcsr_acc_memcpy_h2d(trans_hst, trans_dev, sizeof(int) * nb, stream), &result, check);
-#  if defined(USE_LIBXSMM)
+# if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
       start = libxs_timer_tick();
-#  endif
+# endif
       CHECK(c_dbcsr_acc_memcpy_h2d(amat_hst, amat_dev, sizeof(ELEM_TYPE) * mk * na, stream), &result, check);
       CHECK(c_dbcsr_acc_memcpy_h2d(bmat_hst, bmat_dev, sizeof(ELEM_TYPE) * kn * nb, stream), &result, check);
       CHECK(c_dbcsr_acc_memcpy_h2d(stack_hst, stack_dev, sizeof(int) * 3 * stack_size, stream), &result, check);
       if (1 < nrepeat_h2d) {
-#  if defined(USE_LIBXSMM)
+# if defined(USE_LIBXSMM)
         CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
         start = libxs_timer_tick();
-#  endif
+# endif
         for (r = 0; r < nrepeat_h2d; ++r) {
           CHECK(c_dbcsr_acc_memcpy_h2d(amat_hst, amat_dev, sizeof(ELEM_TYPE) * mk * na, stream), &result, check);
           CHECK(c_dbcsr_acc_memcpy_h2d(bmat_hst, bmat_dev, sizeof(ELEM_TYPE) * kn * nb, stream), &result, check);
           CHECK(c_dbcsr_acc_memcpy_h2d(stack_hst, stack_dev, sizeof(int) * 3 * stack_size, stream), &result, check);
         }
       }
-#  if defined(USE_LIBXSMM)
+# if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
       if (NULL != amat_hst && NULL != bmat_hst && NULL != stack_hst && EXIT_SUCCESS == result) {
         const size_t size = (sizeof(ELEM_TYPE) * (mk * na + kn * nb) + sizeof(int) * 3 * stack_size);
@@ -422,7 +422,7 @@ int main(int argc, char* argv[]) {
         perf_h2d = size / (duration * (1ULL << 30));
         PRINTF("copy-in (%i MB): %.2g ms %.1f GB/s\n", (int)((size + (1 << 19)) >> 20), 1000.0 * duration, perf_h2d);
       }
-#  endif
+# endif
 #else
       amat_dev = amat_hst;
       bmat_dev = bmat_hst;
@@ -439,17 +439,17 @@ int main(int argc, char* argv[]) {
         CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), n, k, MAX_KERNEL_DIM, stream),
           &result, check);
       }
-#  if defined(USE_LIBXSMM)
+# if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
       start = libxs_timer_tick();
-#  endif
+# endif
       /* to perform NN-SMMs on the device, all B-matrices are transposed upfront (SMM-kernel is limited to NT) */
       CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), k, n, MAX_KERNEL_DIM, stream),
         &result, check);
-#  if defined(USE_LIBXSMM)
+# if defined(USE_LIBXSMM)
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
       transpose = libxs_timer_duration(start, libxs_timer_tick());
-#  endif
+# endif
 #endif
       /* warmup execution and prebuild SMM-kernel */
       for (r = 0; r < warmup; ++r) {
@@ -473,32 +473,32 @@ int main(int argc, char* argv[]) {
       duration = libxs_timer_duration(start, libxs_timer_tick());
       if (EXIT_SUCCESS == result) {
         if (0 < duration) {
-#  if defined(TRANSPOSE) && defined(VALIDATE)
+# if defined(TRANSPOSE) && defined(VALIDATE)
           PRINTF("transpose: %.2g ms %.1f GFLOPS/s\n", 1000.0 * (duration + transpose) / (nrepeat * nrepeat_smm),
             1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / (duration + transpose));
-#  endif
+# endif
           perf_dev = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / duration;
           PRINTF("device: %.2g ms %.1f GFLOPS/s\n", 1000.0 * duration / (nrepeat * nrepeat_smm), perf_dev);
         }
         else {
-#  if defined(TRANSPOSE)
+# if defined(TRANSPOSE)
           PRINTF("transpose: 0 ms 0 GFLOPS/s\n");
-#  endif
+# endif
           PRINTF("device: 0 ms 0 GFLOPS/s\n");
         }
       }
-#  if defined(VALIDATE)
+# if defined(VALIDATE)
       if (EXIT_SUCCESS == result) {
         ELEM_TYPE* const gold_hst = (ELEM_TYPE*)(0 != check ? libxs_malloc(sizeof(ELEM_TYPE) * mn * nc) : NULL);
         /* determine host's performance independent of current result code/status */
         if (NULL != gold_hst && NULL != amat_hst && NULL != bmat_hst && NULL != stack_hst) {
           const ELEM_TYPE alpha = 1, beta = 1;
           const char transa = 'N';
-#    if defined(TRANSPOSE)
+#   if defined(TRANSPOSE)
           const char transb = 'N';
-#    else
+#   else
           const char transb = 'T';
-#    endif
+#   endif
           memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
           for (r = 0; r < warmup; ++r) {
             ACC_BENCH_GEMM_BATCH(LIBXS_DATATYPE(ELEM_TYPE), LIBXS_DATATYPE(ELEM_TYPE), &transa, &transb, m, n, k, &alpha,
@@ -518,22 +518,22 @@ int main(int argc, char* argv[]) {
           PRINTF("host: %.2g ms %.1f GFLOPS/s\n", 1000.0 * duration / (nrepeat * nrepeat_smm), perf_hst);
           /* validate correctness in case of successful result code/status */
           if (EXIT_SUCCESS == result) {
-#    if !defined(__OFFLOAD_UNIFIED_MEMORY) || !defined(DEDUPLICATE)
+#   if !defined(__OFFLOAD_UNIFIED_MEMORY) || !defined(DEDUPLICATE)
             /* transfer result from device to host for validation */
             CHECK(c_dbcsr_acc_memcpy_d2h(cmat_dev, cmat_hst, sizeof(ELEM_TYPE) * mn * nc, stream), &result, check);
             CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
-#    endif
-#    if defined(USE_LIBXSMM)
+#   endif
+#   if defined(USE_LIBXSMM)
             if (EXIT_SUCCESS == result) {
               libxs_matdiff_info diff;
               /* validate result buffers at once (including excess/padded space) */
               result = libxs_matdiff(&diff, LIBXS_DATATYPE(ELEM_TYPE), mn, nc, gold_hst, cmat_hst, &mn, &mn);
               if (EXIT_SUCCESS == result) {
-#      if defined(USE_LIBXSMM) && LIBXS_VERSION4(1, 17, 0, 0) < LIBXS_VERSION_NUMBER
+#     if defined(USE_LIBXSMM) && LIBXS_VERSION4(1, 17, 0, 0) < LIBXS_VERSION_NUMBER
                 const double epsilon = libxs_matdiff_epsilon(&diff); /* 1.0 - diff.rsq */
-#      else
+#     else
                 const double epsilon = diff.normf_rel;
-#      endif
+#     endif
                 PRINTF("diff.cur: %g", epsilon);
                 if (maxdiff < epsilon && NULL != file) maxdiff = epsilon;
                 if (0 < epsilon) {
@@ -551,12 +551,12 @@ int main(int argc, char* argv[]) {
               }
               else fprintf(stderr, "ERROR: failed to validate!\n");
             }
-#    endif
+#   endif
           }
         }
         libxs_free(gold_hst);
       }
-#  endif
+# endif
 #endif
       CHECK(c_dbcsr_acc_host_mem_deallocate(stack_hst, stream), NULL, check);
       CHECK(c_dbcsr_acc_host_mem_deallocate(trans_hst, stream), NULL, check);

@@ -7,8 +7,8 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #if defined(__OPENCL)
-#  include <libxstream_cp2k.h>
-#  include <libxstream_opencl.h>
+# include <libxstream_cp2k.h>
+# include <libxstream_opencl.h>
 
 #define OFFLOAD_EXPECT(RESULT, NAME) \
   do { \
@@ -19,9 +19,9 @@
   } while (0)
 
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 extern "C" {
-#  endif
+# endif
 
 const char* offloadGetErrorName(offloadError_t error) {
   return libxstream_opencl_strerror(error);
@@ -171,8 +171,8 @@ void offloadEnsureMallocHeapSize(size_t required_size) {
   LIBXS_ASSERT(0 == required_size);
 }
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 }
-#  endif
+# endif
 
 #endif /*__OPENCL*/

@@ -5,7 +5,6 @@
 # For information on the license, see the LICENSE file.                       #
 # SPDX-License-Identifier: BSD-3-Clause                                       #
 ###############################################################################
-
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 LIBS=${HERE}/../lib
 

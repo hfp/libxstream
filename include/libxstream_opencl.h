@@ -11,97 +11,97 @@
 
 /* Support for other libraries, e.g., CP2K's DBM/DBT */
 #if defined(__OFFLOAD_OPENCL) && !defined(__OPENCL)
-#  define __OPENCL
+# define __OPENCL
 #endif
 
 #if defined(__OPENCL)
-#  if !defined(CL_TARGET_OPENCL_VERSION)
-#    define CL_TARGET_OPENCL_VERSION 220
-#  endif
-#  if defined(__APPLE__)
-#    include <OpenCL/cl.h>
-#  else
-#    include <CL/cl.h>
-#  endif
+# if !defined(CL_TARGET_OPENCL_VERSION)
+#   define CL_TARGET_OPENCL_VERSION 220
+# endif
+# if defined(__APPLE__)
+#   include <OpenCL/cl.h>
+# else
+#   include <CL/cl.h>
+# endif
 #else
-#  error Definition of __OPENCL preprocessor symbol is missing!
+# error Definition of __OPENCL preprocessor symbol is missing!
 #endif
 
 #if !defined(LIBXSTREAM_NOEXT)
-#  if defined(__APPLE__)
-#    include <OpenCL/cl_ext.h>
-#  else
-#    include <CL/cl_ext.h>
-#  endif
+# if defined(__APPLE__)
+#   include <OpenCL/cl_ext.h>
+# else
+#   include <CL/cl_ext.h>
+# endif
 #endif
 
 #include "libxstream.h"
 #if defined(__LIBXS)
-#  include <libxs_malloc.h>
-#  include <libxs_timer.h>
-#  include <libxs_hist.h>
-#  include <libxs_mem.h>
+# include <libxs_malloc.h>
+# include <libxs_timer.h>
+# include <libxs_hist.h>
+# include <libxs_mem.h>
 #else /* code depends on LIBXS */
-#  include <libxs_source.h>
-#  define __LIBXS
+# include <libxs_source.h>
+# define __LIBXS
 #endif
 
 #if !defined(LIBXSTREAM_MAXALIGN)
-#  define LIBXSTREAM_MAXALIGN (2 << 20 /*2MB*/)
+# define LIBXSTREAM_MAXALIGN (2 << 20 /*2MB*/)
 #endif
 #if !defined(LIBXSTREAM_BUFFERSIZE)
-#  define LIBXSTREAM_BUFFERSIZE (8 << 10 /*8KB*/)
+# define LIBXSTREAM_BUFFERSIZE (8 << 10 /*8KB*/)
 #endif
 #if !defined(LIBXSTREAM_MAXSTRLEN)
-#  define LIBXSTREAM_MAXSTRLEN 48
+# define LIBXSTREAM_MAXSTRLEN 48
 #endif
 #if !defined(LIBXSTREAM_MAXNDEVS)
-#  define LIBXSTREAM_MAXNDEVS 64
+# define LIBXSTREAM_MAXNDEVS 64
 #endif
 /* Counted on a per-thread basis! */
 #if !defined(LIBXSTREAM_MAXNITEMS)
-#  define LIBXSTREAM_MAXNITEMS 1024
+# define LIBXSTREAM_MAXNITEMS 1024
 #endif
 /* First char is CSV-separator by default (w/o spaces) */
 #if !defined(LIBXSTREAM_DELIMS)
-#  define LIBXSTREAM_DELIMS ",;"
+# define LIBXSTREAM_DELIMS ",;"
 #endif
 #if !defined(LIBXSTREAM_CMEM) && 1
-#  define LIBXSTREAM_CMEM
+# define LIBXSTREAM_CMEM
 #endif
 #if !defined(LIBXSTREAM_ASYNC) && 1
-#  define LIBXSTREAM_ASYNC getenv("LIBXSTREAM_ASYNC")
+# define LIBXSTREAM_ASYNC getenv("LIBXSTREAM_ASYNC")
 #endif
 #if !defined(LIBXSTREAM_XHINTS) && 1
-#  define LIBXSTREAM_XHINTS getenv("LIBXSTREAM_XHINTS")
+# define LIBXSTREAM_XHINTS getenv("LIBXSTREAM_XHINTS")
 #endif
 #if !defined(LIBXSTREAM_STREAM_PRIORITIES) && 0
-#  if defined(CL_QUEUE_PRIORITY_KHR)
-#    define LIBXSTREAM_STREAM_PRIORITIES
-#  endif
+# if defined(CL_QUEUE_PRIORITY_KHR)
+#   define LIBXSTREAM_STREAM_PRIORITIES
+# endif
 #endif
 #if !defined(LIBXSTREAM_USM) && defined(CL_VERSION_2_0) && 1
-#  if defined(__OFFLOAD_UNIFIED_MEMORY)
+# if defined(__OFFLOAD_UNIFIED_MEMORY)
 /* Do not rely on an Intel extension for pointer arithmetic */
-#    define LIBXSTREAM_USM 2
-#  else
+#   define LIBXSTREAM_USM 2
+# else
 /* Rely on OpenCL 2.0 (eventually mix-in an Intel ext.) */
-#    define LIBXSTREAM_USM 1
-#  endif
+#   define LIBXSTREAM_USM 1
+# endif
 #else
-#  define LIBXSTREAM_USM 0
+# define LIBXSTREAM_USM 0
 #endif
 /* Activate device by default */
 #if !defined(LIBXSTREAM_ACTIVATE) && 0
-#  define LIBXSTREAM_ACTIVATE 0
+# define LIBXSTREAM_ACTIVATE 0
 #endif
 
 #if defined(CL_VERSION_2_0)
-#  define LIBXSTREAM_STREAM_PROPERTIES_TYPE cl_queue_properties
-#  define LIBXSTREAM_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) clCreateCommandQueueWithProperties(CTX, DEV, PROPS, RESULT)
+# define LIBXSTREAM_STREAM_PROPERTIES_TYPE cl_queue_properties
+# define LIBXSTREAM_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) clCreateCommandQueueWithProperties(CTX, DEV, PROPS, RESULT)
 #else
-#  define LIBXSTREAM_STREAM_PROPERTIES_TYPE cl_int
-#  define LIBXSTREAM_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) \
+# define LIBXSTREAM_STREAM_PROPERTIES_TYPE cl_int
+# define LIBXSTREAM_CREATE_COMMAND_QUEUE(CTX, DEV, PROPS, RESULT) \
     clCreateCommandQueue(CTX, DEV, (cl_command_queue_properties)(NULL != (PROPS) ? ((PROPS)[1]) : 0), RESULT)
 #endif
 

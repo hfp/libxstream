@@ -7,13 +7,13 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #if defined(__OPENCL)
-#  include <libxstream_opencl.h>
-#  include <string.h>
+# include <libxstream_opencl.h>
+# include <string.h>
 
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 extern "C" {
-#  endif
+# endif
 
 const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, int thread_id) {
   const libxstream_opencl_stream_t *result = NULL, *result_main = NULL;
@@ -59,11 +59,11 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
   };
   int result, tid = 0, offset = 0;
   cl_command_queue queue = NULL;
-#  if defined(LIBXSTREAM_STREAM_PRIORITIES)
+# if defined(LIBXSTREAM_STREAM_PRIORITIES)
   int priority = 0;
-#  endif
+# endif
   assert(NULL != stream_p);
-#  if defined(LIBXSTREAM_STREAM_PRIORITIES)
+# if defined(LIBXSTREAM_STREAM_PRIORITIES)
   if (0 != (LIBXSTREAM_STREAM_LOW & flags)) {
     properties[3] = CL_QUEUE_PRIORITY_LOW_KHR;
   }
@@ -89,9 +89,9 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
     properties[2] = CL_QUEUE_PRIORITY_KHR;
     properties[4] = 0; /* terminator */
   }
-#  endif
+# endif
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_stream);
-#  if defined(_OPENMP)
+# if defined(_OPENMP)
   {
     static int libxstream_opencl_stream_counter_base = 0;
     static int libxstream_opencl_stream_counter = 0;
@@ -102,19 +102,19 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
     }
     else offset = libxstream_opencl_stream_counter_base++;
   }
-#  endif
+# endif
   if (NULL == devinfo->context)
-#  if defined(LIBXSTREAM_ACTIVATE)
+# if defined(LIBXSTREAM_ACTIVATE)
   {
     result = EXIT_FAILURE;
   }
   else
-#  else
+# else
   {
     result = libxstream_opencl_set_active_device(NULL /*lock*/, libxstream_opencl_config.device_id);
   }
   if (NULL != devinfo->context)
-#  endif
+# endif
   {
     const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
     if (0 != (LIBXSTREAM_STREAM_PROFILING & flags) ||
@@ -123,7 +123,7 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
     {
       properties[1] |= CL_QUEUE_PROFILING_ENABLE;
     }
-#  if defined(LIBXSTREAM_XHINTS)
+# if defined(LIBXSTREAM_XHINTS)
     if ((2 & libxstream_opencl_config.xhints) && 0 != devinfo->intel) {
       properties[1] |= (((LIBXSTREAM_STREAM_PROPERTIES_TYPE)1) << 31); /* CL_QUEUE_THREAD_LOCAL_EXEC_ENABLE_INTEL */
     }
@@ -151,7 +151,7 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
         }
       }
     }
-#  endif
+# endif
     queue = LIBXSTREAM_CREATE_COMMAND_QUEUE(devinfo->context, device_id, properties, &result);
   }
   if (EXIT_SUCCESS == result) { /* register stream */
@@ -160,14 +160,14 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
       (void**)libxstream_opencl_config.streams, &libxstream_opencl_config.nstreams);
     if (NULL != *stream_p) {
       libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)*stream_p;
-#  if !defined(NDEBUG)
+# if !defined(NDEBUG)
       LIBXS_MEMZERO(str);
-#  endif
+# endif
       str->queue = queue;
       str->tid = tid;
-#  if defined(LIBXSTREAM_STREAM_PRIORITIES)
+# if defined(LIBXSTREAM_STREAM_PRIORITIES)
       str->priority = priority;
-#  endif
+# endif
     }
     else result = EXIT_FAILURE;
   }
@@ -185,9 +185,9 @@ int libxstream_stream_destroy(libxstream_stream_t* stream) {
   if (NULL != stream) {
     const libxstream_opencl_stream_t* const str = stream;
     const cl_command_queue queue = str->queue;
-#  if !defined(NDEBUG)
+# if !defined(NDEBUG)
     LIBXS_MEMZERO((libxstream_opencl_stream_t*)stream);
-#  endif
+# endif
     if (NULL != libxstream_opencl_config.streams) {
       libxs_pfree_lock(stream, (void**)libxstream_opencl_config.streams,
         &libxstream_opencl_config.nstreams, libxstream_opencl_config.lock_stream);
@@ -204,7 +204,7 @@ int libxstream_stream_priority_range(int* least, int* greatest) {
   int result = ((NULL != least || NULL != greatest) ? EXIT_SUCCESS : EXIT_FAILURE);
   int priohi = -1, priolo = -1;
   assert(NULL == least || NULL == greatest || least != greatest); /* no alias */
-#  if defined(LIBXSTREAM_STREAM_PRIORITIES)
+# if defined(LIBXSTREAM_STREAM_PRIORITIES)
   if (0 < libxstream_opencl_config.ndevices) {
     const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
@@ -222,7 +222,7 @@ int libxstream_stream_priority_range(int* least, int* greatest) {
       }
     }
   }
-#  endif
+# endif
   if (NULL != greatest) *greatest = priohi;
   if (NULL != least) *least = priolo;
   CL_RETURN(result, "");
@@ -237,11 +237,11 @@ int libxstream_stream_sync(libxstream_stream_t* stream) {
   if (0 == (16 & libxstream_opencl_config.wa)) result = clFinish(str->queue);
   else {
     cl_event event = NULL;
-#  if defined(CL_VERSION_1_2)
+# if defined(CL_VERSION_1_2)
     result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &event);
-#  else
+# else
     result = clEnqueueMarker(str->queue, &event);
-#  endif
+# endif
     if (EXIT_SUCCESS == result) {
       assert(NULL != event);
       result = clWaitForEvents(1, &event);
@@ -311,21 +311,21 @@ int libxstream_stream_set_profiling(libxstream_stream_t* stream) {
 
 int libxstream_device_sync(void) {
   int result = EXIT_SUCCESS;
-#  if defined(_OPENMP)
+# if defined(_OPENMP)
   if (1 == omp_get_num_threads()) {
     result = libxstream_opencl_device_synchronize(libxstream_opencl_config.lock_stream, -1 /*all*/);
   }
   else {
     result = libxstream_opencl_device_synchronize(NULL /*lock*/, omp_get_thread_num());
   }
-#  else
+# else
   result = libxstream_opencl_device_synchronize(NULL /*lock*/, /*main*/ 0);
-#  endif
+# endif
   CL_RETURN(result, "");
 }
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 }
-#  endif
+# endif
 
 #endif /*__OPENCL*/

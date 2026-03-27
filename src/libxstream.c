@@ -7,76 +7,76 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #if defined(__OPENCL)
-#  include <libxstream_opencl.h>
-#  include <string.h>
-#  include <limits.h>
-#  include <ctype.h>
-#  include <math.h>
-#  if defined(_WIN32)
-#    include <windows.h>
-#    include <process.h>
-#  else
-#    include <unistd.h>
-#    include <errno.h>
-#    include <glob.h>
-#  endif
-#  if defined(__DBCSR_ACC)
-#    include "../acc_libsmm.h"
-#  endif
-#  include <fcntl.h>
-#  include <sys/stat.h>
-#  if !defined(S_ISDIR) && defined(S_IFMT) && defined(S_IFDIR)
-#    define S_ISDIR(A) ((S_IFMT & (A)) == S_IFDIR)
-#  endif
-#  if !defined(S_IREAD)
-#    define S_IREAD S_IRUSR
-#  endif
-#  if !defined(S_IWRITE)
-#    define S_IWRITE S_IWUSR
-#  endif
+# include <libxstream_opencl.h>
+# include <string.h>
+# include <limits.h>
+# include <ctype.h>
+# include <math.h>
+# if defined(_WIN32)
+#   include <windows.h>
+#   include <process.h>
+# else
+#   include <unistd.h>
+#   include <errno.h>
+#   include <glob.h>
+# endif
+# if defined(__DBCSR_ACC)
+#   include "../acc_libsmm.h"
+# endif
+# include <fcntl.h>
+# include <sys/stat.h>
+# if !defined(S_ISDIR) && defined(S_IFMT) && defined(S_IFDIR)
+#   define S_ISDIR(A) ((S_IFMT & (A)) == S_IFDIR)
+# endif
+# if !defined(S_IREAD)
+#   define S_IREAD S_IRUSR
+# endif
+# if !defined(S_IWRITE)
+#   define S_IWRITE S_IWUSR
+# endif
 
-#  if !defined(LIBXSTREAM_NLOCKS)
-#    define LIBXSTREAM_NLOCKS 4
-#  endif
-#  if !defined(LIBXSTREAM_TEMPDIR) && 1
-#    define LIBXSTREAM_TEMPDIR "/tmp"
-#  endif
-#  if !defined(LIBXSTREAM_CACHE_DID) && 1
-#    define LIBXSTREAM_CACHE_DID
-#  endif
-#  if !defined(LIBXSTREAM_CACHE_DIR) && 0
-#    define LIBXSTREAM_CACHE_DIR ".cl_cache"
-#  endif
-#  if !defined(LIBXSTREAM_CPPBIN) && 1
-#    define LIBXSTREAM_CPPBIN "/usr/bin/cpp"
-#  endif
-#  if !defined(LIBXSTREAM_SEDBIN) && 1
-#    define LIBXSTREAM_SEDBIN "/usr/bin/sed"
-#  endif
+# if !defined(LIBXSTREAM_NLOCKS)
+#   define LIBXSTREAM_NLOCKS 4
+# endif
+# if !defined(LIBXSTREAM_TEMPDIR) && 1
+#   define LIBXSTREAM_TEMPDIR "/tmp"
+# endif
+# if !defined(LIBXSTREAM_CACHE_DID) && 1
+#   define LIBXSTREAM_CACHE_DID
+# endif
+# if !defined(LIBXSTREAM_CACHE_DIR) && 0
+#   define LIBXSTREAM_CACHE_DIR ".cl_cache"
+# endif
+# if !defined(LIBXSTREAM_CPPBIN) && 1
+#   define LIBXSTREAM_CPPBIN "/usr/bin/cpp"
+# endif
+# if !defined(LIBXSTREAM_SEDBIN) && 1
+#   define LIBXSTREAM_SEDBIN "/usr/bin/sed"
+# endif
 /* disabled: let MPI runtime come up before */
-#  if !defined(LIBXSTREAM_PREINIT) && 0
-#    define LIBXSTREAM_PREINIT
-#  endif
+# if !defined(LIBXSTREAM_PREINIT) && 0
+#   define LIBXSTREAM_PREINIT
+# endif
 /* attempt to enable command aggregation */
-#  if !defined(LIBXSTREAM_CMDAGR) && 1
-#    define LIBXSTREAM_CMDAGR
-#  endif
-#  if !defined(LIBXSTREAM_NCCS) && 1
-#    define LIBXSTREAM_NCCS 0
-#  endif
+# if !defined(LIBXSTREAM_CMDAGR) && 1
+#   define LIBXSTREAM_CMDAGR
+# endif
+# if !defined(LIBXSTREAM_NCCS) && 1
+#   define LIBXSTREAM_NCCS 0
+# endif
 
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 extern "C" {
-#  endif
+# endif
 
 char libxstream_opencl_locks[LIBXS_CACHELINE * LIBXSTREAM_NLOCKS];
 /* global configuration discovered during initialization */
 libxstream_opencl_config_t libxstream_opencl_config;
 
-#  if defined(LIBXSTREAM_CACHE_DID)
+# if defined(LIBXSTREAM_CACHE_DID)
 int libxstream_opencl_active_id;
-#  endif
+# endif
 
 
 void libxstream_opencl_notify(const char /*errinfo*/[], const void* /*private_info*/, size_t /*cb*/, void* /*user_data*/);
@@ -161,38 +161,38 @@ void libxstream_opencl_configure(void) {
   const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
   const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("LIBXSTREAM_WA");
   static char neo_enable_debug_keys[] = "NEOReadDebugKeys=1";
-#  if defined(LIBXSTREAM_STREAM_PRIORITIES)
+# if defined(LIBXSTREAM_STREAM_PRIORITIES)
   const char* const env_priority = getenv("LIBXSTREAM_PRIORITY");
-#  endif
-#  if defined(LIBXSTREAM_NCCS)
+# endif
+# if defined(LIBXSTREAM_NCCS)
   const char* const env_nccs = getenv("LIBXSTREAM_NCCS");
   const int nccs = (NULL == env_nccs ? LIBXSTREAM_NCCS : atoi(env_nccs));
-#  endif
-#  if defined(LIBXSTREAM_XHINTS)
+# endif
+# if defined(LIBXSTREAM_XHINTS)
   const char* const env_xhints = (LIBXSTREAM_XHINTS);
   const int xhints_default = 1 + 2 + 4 + 8 + 16;
-#  else
+# else
   const char* const env_xhints = NULL;
   const int xhints_default = 0;
-#  endif
-#  if defined(LIBXSTREAM_ASYNC)
+# endif
+# if defined(LIBXSTREAM_ASYNC)
   const char* const env_async = (LIBXSTREAM_ASYNC);
   const int async_default = 1 + 2 + 4 + 8;
-#  else
+# else
   const char* const env_async = NULL;
   const int async_default = 0;
-#  endif
+# endif
   const int nlocks = (NULL == env_nlocks ? 1 /*default*/ : atoi(env_nlocks));
   const int neo = (NULL == env_neo ? 1 : atoi(env_neo));
   int i;
-#  if defined(_OPENMP)
+# if defined(_OPENMP)
   const int max_threads = omp_get_max_threads(), num_threads = omp_get_num_threads();
   memset(&libxstream_opencl_config, 0, sizeof(libxstream_opencl_config));
   libxstream_opencl_config.nthreads = (num_threads < max_threads ? max_threads : num_threads);
-#  else
+# else
   memset(&libxstream_opencl_config, 0, sizeof(libxstream_opencl_config));
   libxstream_opencl_config.nthreads = 1;
-#  endif
+# endif
   assert(NULL == libxstream_opencl_config.lock_main); /* test condition to avoid initializing multiple times */
   libxs_init(); /* before using LIBXSMM's functionality */
   libxstream_opencl_config.nranks = LIBXS_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
@@ -217,9 +217,9 @@ void libxstream_opencl_configure(void) {
   libxstream_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
   libxstream_opencl_config.devsplit = (NULL == env_devsplit ? (/*1 < libxstream_opencl_config.nranks ? -1 :*/ 0)
                                                              : atoi(env_devsplit));
-#  if defined(LIBXSTREAM_STREAM_PRIORITIES)
+# if defined(LIBXSTREAM_STREAM_PRIORITIES)
   libxstream_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
-#  endif
+# endif
   libxstream_opencl_config.profile = (NULL == env_profile ? /*default*/ 0 : atoi(env_profile));
   libxstream_opencl_config.xhints = (NULL == env_xhints ? xhints_default : atoi(env_xhints));
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
@@ -227,7 +227,7 @@ void libxstream_opencl_configure(void) {
   libxstream_opencl_config.debug = (NULL == env_debug ? libxstream_opencl_config.dump : atoi(env_debug));
   libxstream_opencl_config.wa = neo * (NULL == env_wa ? ((1 != libxstream_opencl_config.devsplit ? 0 : 1) + (2 + 4 + 8))
                                                        : atoi(env_wa));
-#  if defined(LIBXSTREAM_CACHE_DIR)
+# if defined(LIBXSTREAM_CACHE_DIR)
   { /* environment is populated before touching the compute runtime */
     const char *const env_cache = getenv("LIBXSTREAM_CACHE"), *env_cachedir = getenv("NEO_CACHE_DIR");
     int cache = (NULL == env_cache ? 0 : atoi(env_cache));
@@ -243,7 +243,7 @@ void libxstream_opencl_configure(void) {
       LIBXS_EXPECT(0 == LIBXS_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
       env_cachedir = LIBXSTREAM_CACHE_DIR;
     }
-#    if defined(LIBXSTREAM_TEMPDIR)
+#   if defined(LIBXSTREAM_TEMPDIR)
     else if (NULL == env_cachedir) { /* code-path entered by default */
       if (NULL == env_cache || 0 != cache) { /* customize NEO_CACHE_DIR unless LIBXSTREAM_CACHE=0 */
         static char neo_cachedir[] = "NEO_CACHE_DIR=" LIBXSTREAM_TEMPDIR "/" LIBXSTREAM_CACHE_DIR;
@@ -255,22 +255,22 @@ void libxstream_opencl_configure(void) {
         LIBXS_EXPECT(0 == LIBXS_PUTENV(ocl_cachedir)); /* putenv before entering OpenCL */
       }
     }
-#    endif
+#   endif
     if (NULL != env_cachedir) {
-#    if defined(_WIN32)
+#   if defined(_WIN32)
       LIBXS_UNUSED(env_cachedir);
-#    else
-#      if defined(S_IRWXU) && defined(S_IRGRP) && defined(S_IXGRP) && defined(S_IROTH) && defined(S_IXOTH)
+#   else
+#     if defined(S_IRWXU) && defined(S_IRGRP) && defined(S_IXGRP) && defined(S_IROTH) && defined(S_IXOTH)
       const int mode = S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
-#      else
+#     else
       const int mode = 0xFFFFFFFF;
-#      endif
+#     endif
       LIBXS_EXPECT(0 == mkdir(env_cachedir, mode) || EEXIST == errno); /* soft-error */
-#    endif
+#   endif
     }
   }
-#  endif
-#  if defined(LIBXSTREAM_NCCS)
+# endif
+# if defined(LIBXSTREAM_NCCS)
   if (0 != nccs && NULL == getenv("ZEX_NUMBER_OF_CCS")) {
     static char zex_nccs[LIBXSTREAM_MAXNDEVS * 8 + 32] = "ZEX_NUMBER_OF_CCS=";
     const int mode = ((1 == nccs || 2 == nccs) ? nccs : 4);
@@ -291,7 +291,7 @@ void libxstream_opencl_configure(void) {
       fprintf(stderr, "INFO ACC/OpenCL: support multiple separate compute command streamers (%i-CCS mode)\n", mode);
     }
   }
-#  endif
+# endif
   if (0 != neo && (NULL != env_neo || 0 == LIBXS_PUTENV(neo_enable_debug_keys))) {
     if ((1 + 2 + 4) & libxstream_opencl_config.wa) {
       static char a[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE", b[] = "EnableRecoverablePageFaults=0";
@@ -299,11 +299,11 @@ void libxstream_opencl_configure(void) {
       if ((1 & libxstream_opencl_config.wa) && NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY")) {
         LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[0]));
       }
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
       if ((2 & libxstream_opencl_config.wa) && NULL == getenv("EnableRecoverablePageFaults")) {
         LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[1]));
       }
-#  endif
+# endif
       if ((4 & libxstream_opencl_config.wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
         LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[2]));
       }
@@ -317,12 +317,12 @@ void libxstream_opencl_configure(void) {
 
 
 int libxstream_init(void) {
-#  if defined(_OPENMP) && 0 /* TODO */
+# if defined(_OPENMP) && 0 /* TODO */
   /* initialization/finalization is not meant to be thread-safe */
   int result = ((0 == omp_in_parallel() || /*main*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
-#  else
+# else
   int result = EXIT_SUCCESS;
-#  endif
+# endif
   if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
     libxstream_opencl_configure();
   }
@@ -338,9 +338,9 @@ int libxstream_init(void) {
     const char* const env_device = getenv("LIBXSTREAM_DEVICE");
     char* const env_devids = getenv("LIBXSTREAM_DEVIDS");
     int device_id = (NULL == env_device ? 0 : atoi(env_device));
-#  if defined(LIBXSTREAM_CACHE_DID)
+# if defined(LIBXSTREAM_CACHE_DID)
     assert(0 == libxstream_opencl_active_id);
-#  endif
+# endif
     if (EXIT_SUCCESS != libxstream_opencl_device_uid(NULL /*device*/, env_devmatch, &libxstream_opencl_config.devmatch)) {
       libxstream_opencl_config.devmatch = 1;
     }
@@ -369,7 +369,7 @@ int libxstream_init(void) {
           if (EXIT_SUCCESS == result) {
             cl_uint j = 0;
             for (; j < ndevices; ++j) {
-#  if defined(CL_VERSION_1_2)
+# if defined(CL_VERSION_1_2)
               cl_device_partition_property properties[] = {
                 CL_DEVICE_PARTITION_BY_AFFINITY_DOMAIN, CL_DEVICE_AFFINITY_DOMAIN_NUMA, /*terminator*/ 0};
               cl_uint nunits = 0, n = 0;
@@ -386,12 +386,12 @@ int libxstream_init(void) {
               if (0 == libxstream_opencl_config.devsplit || 1 == libxstream_opencl_config.devsplit ||
                   (libxstream_opencl_config.ndevices + 1) == LIBXSTREAM_MAXNDEVS ||
                   EXIT_SUCCESS != clCreateSubDevices(devices[j], properties, 0, NULL, &n))
-#  endif
+# endif
               {
                 libxstream_opencl_config.devices[libxstream_opencl_config.ndevices] = devices[j];
                 ++libxstream_opencl_config.ndevices;
               }
-#  if defined(CL_VERSION_1_2)
+# if defined(CL_VERSION_1_2)
               else if (1 < n) { /* create subdevices */
                 if (LIBXSTREAM_MAXNDEVS < (libxstream_opencl_config.ndevices + n)) {
                   n = (cl_uint)LIBXSTREAM_MAXNDEVS - libxstream_opencl_config.ndevices;
@@ -408,7 +408,7 @@ int libxstream_init(void) {
                 libxstream_opencl_config.devices[libxstream_opencl_config.ndevices] = devices[j];
                 ++libxstream_opencl_config.ndevices;
               }
-#  endif
+# endif
             }
           } /*else break;*/
         }
@@ -423,9 +423,9 @@ int libxstream_init(void) {
               clGetDeviceInfo(libxstream_opencl_config.devices[i], CL_DEVICE_VENDOR, LIBXSTREAM_BUFFERSIZE, buffer, NULL))
           {
             if (NULL == libxs_stristr(buffer, env_vendor)) {
-#  if defined(CL_VERSION_1_2)
+# if defined(CL_VERSION_1_2)
               LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseDevice(libxstream_opencl_config.devices[i]));
-#  endif
+# endif
               --libxstream_opencl_config.ndevices;
               if (LIBXS_CAST_INT(i) < libxstream_opencl_config.ndevices) { /* keep original order (stable) */
                 memmove(&libxstream_opencl_config.devices[i], &libxstream_opencl_config.devices[i + 1],
@@ -461,9 +461,9 @@ int libxstream_init(void) {
               }
             while (++j < ndevids);
             if (0 == match) {
-#  if defined(CL_VERSION_1_2)
+# if defined(CL_VERSION_1_2)
               LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseDevice(libxstream_opencl_config.devices[i]));
-#  endif
+# endif
               libxstream_opencl_config.devices[i] = NULL;
             }
           }
@@ -610,7 +610,7 @@ int libxstream_init(void) {
           assert(NULL == libxstream_opencl_config.hist_d2d);
         }
         if (EXIT_SUCCESS == result) { /* lastly, print active device and list of devices */
-#  if defined(LIBXSTREAM_ACTIVATE)
+# if defined(LIBXSTREAM_ACTIVATE)
           if (0 <= LIBXSTREAM_ACTIVATE && LIBXSTREAM_ACTIVATE < libxstream_opencl_config.ndevices) {
             result = libxstream_opencl_set_active_device(NULL /*lock*/, LIBXSTREAM_ACTIVATE);
           }
@@ -620,9 +620,9 @@ int libxstream_init(void) {
             }
             result = libxstream_opencl_set_active_device(NULL /*lock*/, device_id);
           }
-#  else
+# else
           libxstream_opencl_config.device_id = device_id;
-#  endif
+# endif
           if ((2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) &&
               (0 == libxstream_opencl_config.nrank))
           {
@@ -641,14 +641,14 @@ int libxstream_init(void) {
     else { /* mark as initialized */
       libxstream_opencl_config.ndevices = -1;
     }
-#  if defined(__DBCSR_ACC)
+# if defined(__DBCSR_ACC)
     /* DBCSR shall call libxstream_init as well as libsmm_acc_init (since both interfaces are used).
      * Also, libsmm_acc_init may privately call libxstream_init (as it depends on the ACC interface).
      * The implementation of libxstream_init should hence be safe against "over initialization".
      * However, DBCSR only calls libxstream_init (and expects an implicit libsmm_acc_init).
      */
     if (EXIT_SUCCESS == result) result = libsmm_acc_init();
-#  endif
+# endif
   }
   CL_RETURN(result, "");
 }
@@ -659,9 +659,9 @@ LIBXS_ATTRIBUTE_CTOR void libxstream_opencl_init(void) {
   if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
     libxstream_opencl_configure();
   }
-#  if defined(LIBXSTREAM_PREINIT)
+# if defined(LIBXSTREAM_PREINIT)
   LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_init());
-#  endif
+# endif
 }
 
 
@@ -679,9 +679,9 @@ LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void) {
     for (i = 0; i < LIBXSTREAM_MAXNDEVS; ++i) {
       const cl_device_id device_id = libxstream_opencl_config.devices[i];
       if (NULL != device_id) {
-#  if defined(CL_VERSION_1_2) && 0 /* avoid potential segfault */
+# if defined(CL_VERSION_1_2) && 0 /* avoid potential segfault */
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseDevice(device_id));
-#  endif
+# endif
       }
     }
     if (NULL != libxstream_opencl_config.device.stream.queue) { /* release private stream */
@@ -710,32 +710,32 @@ LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void) {
     free(libxstream_opencl_config.event_data);
     /* clear entire configuration structure */
     memset(&libxstream_opencl_config, 0, sizeof(libxstream_opencl_config));
-#  if defined(LIBXSTREAM_CACHE_DID)
+# if defined(LIBXSTREAM_CACHE_DID)
     libxstream_opencl_active_id = 0; /* reset cached active device-ID */
-#  endif
+# endif
     libxs_finalize();
   }
 }
 
 
 int libxstream_finalize(void) {
-#  if defined(_OPENMP)
+# if defined(_OPENMP)
   /* initialization/finalization is not meant to be thread-safe */
   int result = ((0 == omp_in_parallel() || /*main*/ 0 == omp_get_thread_num()) ? EXIT_SUCCESS : EXIT_FAILURE);
-#  else
+# else
   int result = EXIT_SUCCESS;
-#  endif
+# endif
   static void (*cleanup)(void) = libxstream_opencl_finalize;
   assert(libxstream_opencl_config.ndevices < LIBXSTREAM_MAXNDEVS);
   if (0 != libxstream_opencl_config.ndevices && NULL != cleanup) {
-#  if defined(__DBCSR_ACC)
+# if defined(__DBCSR_ACC)
     /* DBCSR may call libxstream_init as well as libsmm_acc_init() since both interface are used.
      * libsmm_acc_init may privately call libxstream_init (as it depends on the ACC interface).
      * The implementation of libxstream_init should be safe against "over initialization".
      * However, DBCSR only calls libxstream_init and expects an implicit libsmm_acc_init().
      */
     if (EXIT_SUCCESS == result) result = libsmm_acc_finalize();
-#  endif
+# endif
     if (EXIT_SUCCESS == result) result = atexit(cleanup);
     cleanup = NULL;
   }
@@ -744,21 +744,21 @@ int libxstream_finalize(void) {
 
 
 int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo) {
-#  if defined(LIBXSTREAM_CMEM)
+# if defined(LIBXSTREAM_CMEM)
   return (0 != devinfo->size_maxalloc && devinfo->size_maxalloc <= devinfo->size_maxcmem) ? EXIT_SUCCESS : EXIT_FAILURE;
-#  else
+# else
   return EXIT_FAILURE;
-#  endif
+# endif
 }
 
 
 int libxstream_device_count(int* ndevices) {
   int result;
-#  if defined(__DBCSR_ACC) /* lazy initialization */
+# if defined(__DBCSR_ACC) /* lazy initialization */
   /* DBCSR calls libxstream_device_count before calling libxstream_init. */
   result = libxstream_init();
   if (EXIT_SUCCESS == result)
-#  endif
+# endif
   {
     if (NULL != ndevices) {
       *ndevices = (0 < libxstream_opencl_config.ndevices ? libxstream_opencl_config.ndevices : 0);
@@ -1039,9 +1039,9 @@ int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
         if (device_id != libxstream_opencl_config.device_id) {
           const cl_device_id context_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
           assert(NULL != context_id);
-#  if defined(CL_VERSION_1_2)
+# if defined(CL_VERSION_1_2)
           LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseDevice(context_id));
-#  endif
+# endif
           result = clReleaseContext(context);
           context = NULL;
         }
@@ -1125,7 +1125,7 @@ int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
             const char* const env_biggrf = getenv("LIBXSTREAM_BIGGRF");
             devinfo->biggrf = (NULL != env_biggrf && 0 != atoi(env_biggrf));
           }
-#  if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
+# if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
           { /* cl_intel_unified_shared_memory extension */
             cl_platform_id platform = NULL;
             cl_bitfield bitfield = 0;
@@ -1163,8 +1163,8 @@ int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
               }
             }
           }
-#  endif
-#  if (0 != LIBXSTREAM_USM)
+# endif
+# if (0 != LIBXSTREAM_USM)
           { /* OpenCL 2.0 based SVM capabilities */
             const char* const env_usm = getenv("LIBXSTREAM_USM");
             cl_device_svm_capabilities svmcaps = 0;
@@ -1177,8 +1177,8 @@ int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
             else svmcaps = (cl_device_svm_capabilities)atoi(env_usm);
             devinfo->usm = (cl_int)svmcaps;
           }
-#  endif
-#  if defined(LIBXSTREAM_CMDAGR)
+# endif
+# if defined(LIBXSTREAM_CMDAGR)
           if (0 != devinfo->intel) { /* device vendor (above) can now be used */
             int result_cmdagr = EXIT_SUCCESS;
             const cl_command_queue q = LIBXSTREAM_CREATE_COMMAND_QUEUE(context, active_id, properties, &result_cmdagr);
@@ -1187,7 +1187,7 @@ int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
               clReleaseCommandQueue(q);
             }
           }
-#  endif
+# endif
           properties[1] = 0;
           if (EXIT_SUCCESS == result) {
             devinfo->stream.queue = LIBXSTREAM_CREATE_COMMAND_QUEUE(context, active_id, properties, &result);
@@ -1214,23 +1214,23 @@ int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id) {
 int libxstream_device_set_active(int device_id) {
   int result = EXIT_SUCCESS;
   if (0 <= device_id) {
-#  if defined(__DBCSR_ACC) && defined(__OFFLOAD_OPENCL)
+# if defined(__DBCSR_ACC) && defined(__OFFLOAD_OPENCL)
     if (0 == libxstream_opencl_config.ndevices) { /* not initialized */
       result = libxstream_init();
     }
-#  endif
+# endif
   }
   else result = EXIT_FAILURE;
   if (EXIT_SUCCESS == result) {
     if (device_id < libxstream_opencl_config.ndevices) {
-#  if defined(LIBXSTREAM_CACHE_DID)
+# if defined(LIBXSTREAM_CACHE_DID)
       if (libxstream_opencl_active_id != (device_id + 1))
-#  endif
+# endif
       {
         result = libxstream_opencl_set_active_device(libxstream_opencl_config.lock_main, device_id);
-#  if defined(LIBXSTREAM_CACHE_DID)
+# if defined(LIBXSTREAM_CACHE_DID)
         if (EXIT_SUCCESS == result) libxstream_opencl_active_id = device_id + 1;
-#  endif
+# endif
       }
     }
     else result = EXIT_FAILURE;
@@ -1317,9 +1317,9 @@ int libxstream_opencl_flags_atomics(const libxstream_opencl_device_t* devinfo, l
               0 != (/*add*/ (1 << 1) & fp_atomics))
           {
             exts[ext2] = "cl_ext_float_atomics";
-#  if 1 /* enabling this permitted extension in source code causes compiler warning */
+# if 1 /* enabling this permitted extension in source code causes compiler warning */
             *exts_maxlen = ext2; /* quietly report extension by reducing exts_maxlen */
-#  endif
+# endif
             atomic_exp = (libxstream_opencl_atomic_fp_64 == kind
                             ? "atomic_fetch_add_explicit((GLOBAL_VOLATILE(atomic_double)*)A,B,"
                               "memory_order_relaxed,memory_scope_work_group)"
@@ -1530,20 +1530,20 @@ int libxstream_opencl_program(size_t source_kind, const char source[], const cha
                   }
                   else break;
                 }
-#  if !defined(NDEBUG)
+# if !defined(NDEBUG)
                 if (EXIT_SUCCESS == libxstream_opencl_device_ext(device_id, (const char* const*)&ext, 1))
-#  endif
+# endif
                 { /* NDEBUG: assume given extension is supported (confirmed upfront) */
                   if (NULL == line) { /* extension is not already part of source */
                     n += LIBXS_SNPRINTF(
                       ext_source_buffer + n, size_src_ext + 1 /*terminator*/ - n, "#pragma OPENCL EXTENSION %s : enable\n", ext);
                   }
                 }
-#  if !defined(NDEBUG)
+# if !defined(NDEBUG)
                 else if (0 != strcmp("cl_intel_global_float_atomics", ext)) {
                   fprintf(stderr, "WARN ACC/OpenCL: extension \"%s\" is not supported.\n", ext);
                 }
-#  endif
+# endif
               }
             }
           }
@@ -1564,11 +1564,11 @@ int libxstream_opencl_program(size_t source_kind, const char source[], const cha
         const int std_flag_len = LIBXS_CAST_INT(strlen(devinfo->std_flag));
         const char* const env_cpp = getenv("LIBXSTREAM_CPP");
         const int cpp = (NULL == env_cpp ? 1 /*default*/ : atoi(env_cpp));
-#  if defined(LIBXSTREAM_CPPBIN)
+# if defined(LIBXSTREAM_CPPBIN)
         FILE* const file_cpp = (0 != cpp ? fopen(LIBXSTREAM_CPPBIN, "rb") : NULL);
-#  else
+# else
         FILE* const file_cpp = NULL;
-#  endif
+# endif
         int file_dmp = -1;
         if (NULL != file_cpp) {
           nchar = LIBXS_SNPRINTF(buffer_name, sizeof(buffer_name), LIBXSTREAM_TEMPDIR "/.%s.XXXXXX", name);
@@ -1586,16 +1586,16 @@ int libxstream_opencl_program(size_t source_kind, const char source[], const cha
           }
           LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == close(file_dmp));
         }
-#  if defined(LIBXSTREAM_CPPBIN)
+# if defined(LIBXSTREAM_CPPBIN)
         if (NULL != file_cpp && 0 <= file_dmp) { /* preprocess source-code */
           const char* sed_pattern = "";
-#    if defined(LIBXSTREAM_SEDBIN)
+#   if defined(LIBXSTREAM_SEDBIN)
           FILE* const file_sed = fopen(LIBXSTREAM_SEDBIN, "rb");
           if (NULL != file_sed) {
             sed_pattern = "| " LIBXSTREAM_SEDBIN " '/^[[:space:]]*\\(\\/\\/.*\\)*$/d'";
             fclose(file_sed); /* existence-check */
           }
-#    endif
+#   endif
           nchar = LIBXS_SNPRINTF(
             buffer, LIBXSTREAM_BUFFERSIZE, LIBXSTREAM_CPPBIN " -P -C -nostdinc %s", 0 == devinfo->nv ? "" : "-D__NV_CL_C_VERSION ");
           if (0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar) {
@@ -1631,7 +1631,7 @@ int libxstream_opencl_program(size_t source_kind, const char source[], const cha
           LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == unlink(buffer_name)); /* remove temporary file */
           buffer[0] = '\0'; /* reset to empty */
         }
-#  endif
+# endif
       }
     }
     *program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);
@@ -1685,10 +1685,10 @@ int libxstream_opencl_program(size_t source_kind, const char source[], const cha
   }
   else if (EXIT_SUCCESS == result) { /* binary representation */
     assert(1 < size_src || 0 == size_src);
-#  if defined(CL_VERSION_2_1)
+# if defined(CL_VERSION_2_1)
     if (0 != libxstream_opencl_config.dump) *program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
     else
-#  endif
+# endif
     {
       *program = clCreateProgramWithBinary(
         devinfo->context, 1, &device_id, &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
@@ -1698,10 +1698,10 @@ int libxstream_opencl_program(size_t source_kind, const char source[], const cha
       ok = libxstream_opencl_kernel_flags(build_params, build_options, try_options, *program, buffer, LIBXSTREAM_BUFFERSIZE);
       if (EXIT_SUCCESS == ok) result = ok;
       else {
-#  if defined(CL_VERSION_2_1)
+# if defined(CL_VERSION_2_1)
         if (0 != libxstream_opencl_config.dump) *program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
         else
-#  endif
+# endif
         {
           *program = clCreateProgramWithBinary(
             devinfo->context, 1, &device_id, &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
@@ -1746,7 +1746,7 @@ int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[],
   *kernel = NULL;
   if (NULL != program && NULL != kernel_name && '\0' != *kernel_name) {
     *kernel = clCreateKernel(program, kernel_name, &result);
-#  if defined(CL_VERSION_1_2)
+# if defined(CL_VERSION_1_2)
     if (EXIT_SUCCESS != result) { /* discover available kernels in program, and adopt the last kernel listed */
       char kbuf[LIBXSTREAM_BUFFERSIZE];
       if (EXIT_SUCCESS == clGetProgramInfo(program, CL_PROGRAM_KERNEL_NAMES, sizeof(kbuf), kbuf, NULL) && '\0' != *kbuf) {
@@ -1754,7 +1754,7 @@ int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[],
         *kernel = clCreateKernel(program, kname, &result);
       }
     }
-#  endif
+# endif
     assert(EXIT_SUCCESS != result || NULL != *kernel);
   }
   else result = EXIT_FAILURE;
@@ -1789,21 +1789,21 @@ int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const 
   libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_FAILURE;
   assert(NULL != devinfo->context);
-#  if (1 >= LIBXSTREAM_USM)
+# if (1 >= LIBXSTREAM_USM)
   if (NULL != devinfo->clSetKernelArgMemPointerINTEL) {
     result = devinfo->clSetKernelArgMemPointerINTEL(kernel, arg_index, arg_value);
   }
   else
-#  endif
-#  if (0 != LIBXSTREAM_USM)
+# endif
+# if (0 != LIBXSTREAM_USM)
     if (0 != devinfo->usm)
   {
     result = clSetKernelArgSVMPointer(kernel, arg_index, arg_value);
   }
   else
-#  elif defined(NDEBUG)
+# elif defined(NDEBUG)
   LIBXS_UNUSED(devinfo);
-#  endif
+# endif
   {
     result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &arg_value);
   }
@@ -1904,8 +1904,8 @@ const char* libxstream_opencl_strerror(cl_int err) {
   }
 }
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 }
-#  endif
+# endif
 
 #endif /*__OPENCL*/

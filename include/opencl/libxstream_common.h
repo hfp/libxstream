@@ -10,50 +10,50 @@
 #define OPENCL_COMMON_H
 
 #if !defined(LIBXSTREAM_C_VERSION)
-#  define LIBXSTREAM_C_VERSION __OPENCL_C_VERSION__
+# define LIBXSTREAM_C_VERSION __OPENCL_C_VERSION__
 #endif
 #if !defined(LIBXSTREAM_VERSION)
-#  define LIBXSTREAM_VERSION __OPENCL_VERSION__
+# define LIBXSTREAM_VERSION __OPENCL_VERSION__
 #endif
 
 #if (200 /*CL_VERSION_2_0*/ <= LIBXSTREAM_C_VERSION) || defined(__NV_CL_C_VERSION)
-#  define UNROLL_FORCE(N) __attribute__((opencl_unroll_hint(N)))
-#  define UNROLL_AUTO __attribute__((opencl_unroll_hint))
+# define UNROLL_FORCE(N) __attribute__((opencl_unroll_hint(N)))
+# define UNROLL_AUTO __attribute__((opencl_unroll_hint))
 #else
-#  define UNROLL_FORCE(N)
-#  define UNROLL_AUTO
+# define UNROLL_FORCE(N)
+# define UNROLL_AUTO
 #endif
 
 #if !defined(LU) || (-1 == LU)
-#  define UNROLL_OUTER(N)
-#  define UNROLL(N)
+# define UNROLL_OUTER(N)
+# define UNROLL(N)
 #else /* (-2) full, (-1) no hints, (0) inner, (1) outer-dehint, (2) block-m */
-#  if (1 <= LU) /* outer-dehint */
-#    define UNROLL_OUTER(N) UNROLL_FORCE(1)
-#  elif (-1 > LU) /* full */
-#    define UNROLL_OUTER(N) UNROLL_FORCE(N)
-#  else /* inner */
-#    define UNROLL_OUTER(N)
-#  endif
-#  define UNROLL(N) UNROLL_FORCE(N)
+# if (1 <= LU) /* outer-dehint */
+#   define UNROLL_OUTER(N) UNROLL_FORCE(1)
+# elif (-1 > LU) /* full */
+#   define UNROLL_OUTER(N) UNROLL_FORCE(N)
+# else /* inner */
+#   define UNROLL_OUTER(N)
+# endif
+# define UNROLL(N) UNROLL_FORCE(N)
 #endif
 
 #define BCST_NO(V, I) (V)
 #if defined(WG) && (0 < WG) && defined(GPU) && (200 <= LIBXSTREAM_VERSION)
-#  define BCST_WG(V, I) work_group_broadcast(V, I)
+# define BCST_WG(V, I) work_group_broadcast(V, I)
 #endif
 #if defined(SG) && (0 < SG) && defined(GPU) && (200 <= LIBXSTREAM_VERSION)
-#  define BCST_SG(V, I) sub_group_broadcast(V, I)
+# define BCST_SG(V, I) sub_group_broadcast(V, I)
 #endif
 
 #if !defined(MIN)
-#  define MIN(A, B) ((A) < (B) ? (A) : (B))
+# define MIN(A, B) ((A) < (B) ? (A) : (B))
 #endif
 #if !defined(MAX)
-#  define MAX(A, B) ((A) < (B) ? (B) : (A))
+# define MAX(A, B) ((A) < (B) ? (B) : (A))
 #endif
 #if !defined(MAD)
-#  define MAD fma
+# define MAD fma
 #endif
 
 #define DIVUP(A, B) (((A) + (B) - 1) / (B))

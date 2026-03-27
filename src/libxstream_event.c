@@ -7,12 +7,12 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #if defined(__OPENCL)
-#  include <libxstream_opencl.h>
+# include <libxstream_opencl.h>
 
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 extern "C" {
-#  endif
+# endif
 
 int libxstream_event_create(libxstream_event_t** event_p) {
   int result = EXIT_SUCCESS;
@@ -54,11 +54,11 @@ int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t
   if (NULL != clevent) clRetainEvent(clevent);
   LIBXS_ATOMIC_RELEASE(libxstream_opencl_config.lock_event, LIBXS_ATOMIC_LOCKORDER);
   if (NULL != clevent) {
-#  if defined(CL_VERSION_1_2)
+# if defined(CL_VERSION_1_2)
     result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, NULL);
-#  else
+# else
     result = clEnqueueWaitForEvents(str->queue, 1, &clevent);
-#  endif
+# endif
     if (EXIT_SUCCESS != result) {
       LIBXS_ATOMIC_ACQUIRE(libxstream_opencl_config.lock_event, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
       if (clevent == event->cl_evt) {
@@ -85,11 +85,11 @@ int libxstream_event_record(libxstream_event_t* event, libxstream_stream_t* stre
   cl_event clevent = NULL, clevent_result = NULL;
   str = (NULL != stream ? stream : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue && NULL != event);
-#  if defined(CL_VERSION_1_2)
+# if defined(CL_VERSION_1_2)
   result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &clevent_result);
-#  else
+# else
   result = clEnqueueMarker(str->queue, &clevent_result);
-#  endif
+# endif
   LIBXS_ATOMIC_ACQUIRE(libxstream_opencl_config.lock_event, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
   clevent = event->cl_evt;
   if (EXIT_SUCCESS == result) {
@@ -164,8 +164,8 @@ int libxstream_event_sync(libxstream_event_t* event) { /* waits on the host-side
   CL_RETURN(result, "");
 }
 
-#  if defined(__cplusplus)
+# if defined(__cplusplus)
 }
-#  endif
+# endif
 
 #endif /*__OPENCL*/

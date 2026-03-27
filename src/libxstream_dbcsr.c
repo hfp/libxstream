@@ -12,9 +12,9 @@
 
 /* Use DBCSR's profile for detailed timings (function name prefix-offset) */
 #if !defined(LIBXSTREAM_PROFILE_DBCSR) && (defined(__OFFLOAD_PROFILING) || 1)
-#  if defined(__DBCSR_ACC)
-#    define LIBXSTREAM_PROFILE_DBCSR 8
-#  endif
+# if defined(__DBCSR_ACC)
+#   define LIBXSTREAM_PROFILE_DBCSR 8
+# endif
 #endif
 
 #if defined(LIBXSTREAM_PROFILE_DBCSR)
