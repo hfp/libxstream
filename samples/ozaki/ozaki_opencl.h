@@ -148,6 +148,10 @@ typedef struct ozaki_context_t {
   ozaki_host_preprocess_fn host_preprocess_b;
   /* Preprocessing cache (OZAKI_CACHE env, bitmask: 1=A, 2=B, 3=both). */
   ozaki_cache_t cache;
+  /* Complex GEMM 3M-method kernels (deinterleave, matadd, finalize) */
+  cl_kernel kern_zgemm3m_deinterleave;
+  cl_kernel kern_zgemm3m_matadd;
+  cl_kernel kern_zgemm3m_finalize;
 } ozaki_context_t;
 
 
@@ -176,5 +180,17 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                double alpha, const void* a, int lda,
                              const void* b, int ldb,
                double beta,        void* c, int ldc);
+
+/* Complex GEMM via 3M (Karatsuba) method - GPU-native version.
+ * All complex matrices are in standard BLAS interleaved format.
+ * alpha and beta each point to 2 consecutive real values [real, imag].
+ * All intermediate buffers remain on device - no round-trips through host.
+ * Returns EXIT_SUCCESS or EXIT_FAILURE. */
+int ozaki_zgemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
+                  char transa, char transb,
+                  int M, int N, int K,
+                  const double* alpha, const void* a, int lda,
+                                       const void* b, int ldb,
+                  const double* beta,        void* c, int ldc);
 
 #endif /* OZAKI_OPENCL_H */

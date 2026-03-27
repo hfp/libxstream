@@ -530,6 +530,78 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       fprintf(stderr, "ERROR OZAKI: unsupported kind=%d\n", kind);
       result = EXIT_FAILURE;
     }
+
+    /* Initialize complex GEMM 3M kernels (precision-agnostic, always compiled) */
+    if (EXIT_SUCCESS == result) {
+      cl_program program_3m = NULL;
+      char build_params_3m[256];
+      FILE* kern_file;
+      char* source_3m = NULL;
+      size_t source_size = 0;
+
+      /* Build params and options (single string for consistency with other callers) */
+      LIBXS_SNPRINTF(build_params_3m, sizeof(build_params_3m),
+        "-DUSE_DOUBLE=%d", use_double ? 1 : 0);
+
+      /* Read zgemm3m.cl kernel source from file */
+      kern_file = fopen("samples/ozaki/kernels/zgemm3m.cl", "r");
+      if (NULL == kern_file) kern_file = fopen("kernels/zgemm3m.cl", "r");
+      if (NULL != kern_file) {
+        fseek(kern_file, 0, SEEK_END);
+        source_size = (size_t)ftell(kern_file);
+        fseek(kern_file, 0, SEEK_SET);
+        source_3m = (char*)malloc(source_size + 1);
+        if (NULL != source_3m) {
+          const size_t nread = fread(source_3m, 1, source_size, kern_file);
+          source_3m[nread] = '\0';
+          result = libxstream_opencl_program(
+            0, source_3m, "zgemm3m",
+            build_params_3m, build_options,
+            NULL, NULL, NULL, 0, &program_3m);
+          free(source_3m);
+        }
+        fclose(kern_file);
+      }
+      else if (0 != verbosity) {
+        fprintf(stderr, "WARN OZAKI: zgemm3m.cl not found, complex GEMM disabled\n");
+      }
+
+      if (NULL != program_3m && EXIT_SUCCESS == result) {
+        result = libxstream_opencl_kernel_query(
+          program_3m, "zgemm3m_deinterleave",
+          &ctx->kern_zgemm3m_deinterleave);
+      }
+      if (NULL != program_3m && EXIT_SUCCESS == result) {
+        result = libxstream_opencl_kernel_query(
+          program_3m, "zgemm3m_matadd",
+          &ctx->kern_zgemm3m_matadd);
+      }
+      if (NULL != program_3m && EXIT_SUCCESS == result) {
+        result = libxstream_opencl_kernel_query(
+          program_3m, "zgemm3m_finalize",
+          &ctx->kern_zgemm3m_finalize);
+      }
+      if (NULL != program_3m) clReleaseProgram(program_3m);
+
+      /* 3M kernel failure is non-fatal - just disables complex GEMM */
+      if (EXIT_SUCCESS != result && 0 != verbosity) {
+        fprintf(stderr, "WARN OZAKI: 3M kernel build failed, complex GEMM disabled\n");
+        if (NULL != ctx->kern_zgemm3m_deinterleave) {
+          clReleaseKernel(ctx->kern_zgemm3m_deinterleave);
+          ctx->kern_zgemm3m_deinterleave = NULL;
+        }
+        if (NULL != ctx->kern_zgemm3m_matadd) {
+          clReleaseKernel(ctx->kern_zgemm3m_matadd);
+          ctx->kern_zgemm3m_matadd = NULL;
+        }
+        if (NULL != ctx->kern_zgemm3m_finalize) {
+          clReleaseKernel(ctx->kern_zgemm3m_finalize);
+          ctx->kern_zgemm3m_finalize = NULL;
+        }
+        result = EXIT_SUCCESS; /* non-fatal */
+      }
+    }
+
     if (EXIT_SUCCESS == result) {
       ctx->tm = tm;
       ctx->tn = tn;
@@ -672,6 +744,15 @@ void ozaki_destroy(ozaki_context_t* ctx)
     }
     if (NULL != ctx->kern_crt_scale_beta) {
       clReleaseKernel(ctx->kern_crt_scale_beta);
+    }
+    if (NULL != ctx->kern_zgemm3m_deinterleave) {
+      clReleaseKernel(ctx->kern_zgemm3m_deinterleave);
+    }
+    if (NULL != ctx->kern_zgemm3m_matadd) {
+      clReleaseKernel(ctx->kern_zgemm3m_matadd);
+    }
+    if (NULL != ctx->kern_zgemm3m_finalize) {
+      clReleaseKernel(ctx->kern_zgemm3m_finalize);
     }
 
     { /* Quiesce cache: NULL pointers under lock (prevents new hits),
