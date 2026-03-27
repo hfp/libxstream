@@ -102,7 +102,7 @@ int main(int argc, char* argv[])
     const char* env;
     int ozflags = -1 /*auto*/, oztrim = 0, ndecomp = 0 /*auto*/;
     int ozgroups = 0, kind = 1 /*int8*/, verbosity = 0;
-    int tm = 0, tn = 0;
+    int tm = 0, tn = 0, use_double = 1;
     env = getenv("OZAKI_TM");
     if (NULL != env) tm = atoi(env);
     env = getenv("OZAKI_TN");
@@ -119,7 +119,9 @@ int main(int argc, char* argv[])
     if (NULL != env) ozgroups = atoi(env);
     env = getenv("OZAKI_VERBOSE");
     if (NULL != env) verbosity = atoi(env);
-    result = ozaki_init(&ctx, tm, tn, 1 /*use_double*/, kind, verbosity,
+    env = getenv("OZAKI_FP");
+    if (NULL != env) use_double = (32 != atoi(env));
+    result = ozaki_init(&ctx, tm, tn, use_double, kind, verbosity,
       ndecomp, ozflags, oztrim, ozgroups);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");

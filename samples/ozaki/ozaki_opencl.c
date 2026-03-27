@@ -80,7 +80,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const char* env;
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
-  int wg, sg, use_xmx, result;
+  int wg, sg, use_xmx;
+  int result = EXIT_SUCCESS;
   memset(ctx, 0, sizeof(*ctx));
 
   if (0 >= kind) kind = 1;
@@ -100,15 +101,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   /* If double requested, verify fp64 support */
   if (use_double) {
     const char* const fp64_ext[] = { "cl_khr_fp64" };
-    if (EXIT_SUCCESS != libxstream_opencl_device_ext(
-          device, fp64_ext, 1))
-    {
-      if (0 > verbosity || 1 < verbosity) {
-        fprintf(stderr,
-          "WARN: device does not support cl_khr_fp64,"
-          " falling back to float\n");
-      }
-      use_double = 0;
+    result = libxstream_opencl_device_ext(device, fp64_ext, 1);
+    if (EXIT_SUCCESS != result) {
+      fprintf(stderr,
+        "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
     }
   }
 
@@ -181,7 +177,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     }
     sg = 16;
   }
-
   ctx->sg = sg;
 
   /* GEMM-mode kernels (tiled K-loop path) */
@@ -193,7 +188,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   ctx->kern_crt_preprocess_b = NULL;
   ctx->kern_crt_fused = NULL;
   ctx->kern_crt_scale_beta = NULL;
-  { /* output tile sizes: fit SG * NTM * NTN <= max_wgs.
+  if (EXIT_SUCCESS == result) { /* output tile sizes: fit SG * NTM * NTN <= max_wgs.
      * tm must be multiple of 8*RTM, tn must be multiple of 16*RTN.
      * Large GRF halves effective max work-group size. */
     const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
@@ -540,14 +535,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     /* Initialize complex GEMM 3M kernels (precision-agnostic, always compiled) */
     if (EXIT_SUCCESS == result) {
       cl_program program_3m = NULL;
-      char build_params_3m[256];
+      char build_params_3m[512];
       FILE* kern_file;
       char* source_3m = NULL;
       size_t source_size = 0;
+      int try_ok_3m = 0;
+      char try_msg_3m[4096];
+      try_msg_3m[0] = '\0';
 
-      /* Build params and options (single string for consistency with other callers) */
+      /* Build params and options with include paths for zgemm3m.cl
+       * Need both relative paths since cwd could be ozaki/ or samples/ */
       LIBXS_SNPRINTF(build_params_3m, sizeof(build_params_3m),
-        "-DUSE_DOUBLE=%d", use_double ? 1 : 0);
+        "-DUSE_DOUBLE=%d -I../../include -I../../../libxstream/include",
+        use_double ? 1 : 0);
 
       /* Read zgemm3m.cl kernel source from file */
       kern_file = fopen("samples/ozaki/kernels/zgemm3m.cl", "r");
@@ -563,12 +563,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           result = libxstream_opencl_program(
             0, source_3m, "zgemm3m",
             build_params_3m, build_options,
-            NULL, NULL, NULL, 0, &program_3m);
+            try_msg_3m, &try_ok_3m, NULL, sizeof(try_msg_3m), &program_3m);
           free(source_3m);
         }
         fclose(kern_file);
       }
-      else if (0 != verbosity) {
+      else if (2 < verbosity) {
         fprintf(stderr, "WARN OZAKI: zgemm3m.cl not found, complex GEMM disabled\n");
       }
 
@@ -590,8 +590,23 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       if (NULL != program_3m) clReleaseProgram(program_3m);
 
       /* 3M kernel failure is non-fatal - just disables complex GEMM */
-      if (EXIT_SUCCESS != result && 0 != verbosity) {
-        fprintf(stderr, "WARN OZAKI: 3M kernel build failed, complex GEMM disabled\n");
+      if (EXIT_SUCCESS != result) {
+        if (2 < verbosity) {
+          if (NULL == program_3m) {
+            fprintf(stderr,
+              "WARN OZAKI: 3M kernel compilation failed (fp=%d), complex GEMM disabled\n",
+              use_double ? 64 : 32);
+            if (3 < verbosity && 0 < try_msg_3m[0]) {
+              fprintf(stderr, "  Build details: try_ok=%d\n", try_ok_3m);
+              fprintf(stderr, "  Build log: %s\n", try_msg_3m);
+            }
+          }
+          else {
+            fprintf(stderr,
+              "WARN OZAKI: 3M kernel query failed (fp=%d), complex GEMM disabled\n",
+              use_double ? 64 : 32);
+          }
+        }
         if (NULL != ctx->kern_zgemm3m_deinterleave) {
           clReleaseKernel(ctx->kern_zgemm3m_deinterleave);
           ctx->kern_zgemm3m_deinterleave = NULL;
@@ -621,32 +636,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     else if (0 != verbosity) {
       fprintf(stderr, "ERROR OZAKI: kernel build failed\n");
     }
-  }
-
-  /* Report compiled kernel info */
-  if (EXIT_SUCCESS == result && (0 > verbosity || 2 < verbosity)) {
-    fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
-    ozaki_print_opt(stderr, "kind", kind);
-    ozaki_print_opt(stderr, "fp", use_double ? 64 : 32);
-    ozaki_print_opt(stderr, "xmx", use_xmx);
-    ozaki_print_opt(stderr, "wg", wg);
-    ozaki_print_opt(stderr, "sg", sg);
-    ozaki_print_opt(stderr, "tm", ctx->tm);
-    ozaki_print_opt(stderr, "tn", ctx->tn);
-    ozaki_print_opt(stderr, "rtm", ctx->rtm);
-    ozaki_print_opt(stderr, "rtn", ctx->rtn);
-    if (0 != devinfo->intel) {
-      ozaki_print_opt(stderr, "grf", ctx->biggrf ? 256 : 128);
-    }
-    ozaki_print_opt(stderr, "ndecomp", ndecomp);
-    ozaki_print_opt(stderr, "trim", oztrim);
-    if (2 == kind) {
-      ozaki_print_opt(stderr, "kgroups", ozgroups);
-      ozaki_print_opt(stderr, "pb", ctx->pb);
-    }
-    ozaki_print_opt(stderr, "cache", ctx->cache.flags);
-    fprintf(stderr, "\n");
-  }
+  } /* end if (EXIT_SUCCESS == result) for kernel initialization */
 
 #if defined(OZAKI_DEVPOOL)
   /* Create device memory pool for async buffer reuse across ozaki_gemm calls.
@@ -692,6 +682,31 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     }
   }
 
+  /* Report compiled kernel info */
+  if (EXIT_SUCCESS == result && (0 > verbosity || 2 < verbosity)) {
+    fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
+    ozaki_print_opt(stderr, "kind", kind);
+    ozaki_print_opt(stderr, "fp", use_double ? 64 : 32);
+    ozaki_print_opt(stderr, "xmx", use_xmx);
+    ozaki_print_opt(stderr, "wg", wg);
+    ozaki_print_opt(stderr, "sg", sg);
+    ozaki_print_opt(stderr, "tm", ctx->tm);
+    ozaki_print_opt(stderr, "tn", ctx->tn);
+    ozaki_print_opt(stderr, "rtm", ctx->rtm);
+    ozaki_print_opt(stderr, "rtn", ctx->rtn);
+    if (0 != devinfo->intel) {
+      ozaki_print_opt(stderr, "grf", ctx->biggrf ? 256 : 128);
+    }
+    ozaki_print_opt(stderr, "ndecomp", ndecomp);
+    ozaki_print_opt(stderr, "trim", oztrim);
+    if (2 == kind) {
+      ozaki_print_opt(stderr, "kgroups", ozgroups);
+      ozaki_print_opt(stderr, "pb", ctx->pb);
+    }
+    ozaki_print_opt(stderr, "cache", ctx->cache.flags);
+    fprintf(stderr, "\n");
+  }
+
   /* Create persistent helper streams and synchronization events */
   { const int sflags = (NULL != ctx->hist
       ? LIBXSTREAM_STREAM_PROFILING : LIBXSTREAM_STREAM_DEFAULT);
@@ -709,7 +724,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
 #if defined(OZAKI_DEVPOOL)
   if (NULL != ctx->devpool) libxs_malloc_arg((libxs_malloc_pool_t*)ctx->devpool, ctx);
 #endif
-  if (EXIT_SUCCESS != result) ozaki_destroy(ctx);
 
   return result;
 }
