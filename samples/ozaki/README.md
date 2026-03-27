@@ -140,7 +140,7 @@ All arguments are positional and optional (defaults shown):
 |------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 2 = int8 CRT.                                                                                                      |
 | `OZAKI_FLAGS`    | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S^2 square. Ignored for Scheme 2.                                                                  |
-| `OZAKI_TRIM`     | 0       | Scheme 1: diagonal trim - higher trim drops more least significant diagonals (less accurate but faster). Not applicable to Scheme 2.                         |
+| `OZAKI_TRIM`     | 0       | Precision levels to trim (~7 bits each). Scheme 1: drops diagonals from slice-pair iteration. Scheme 2: truncates levels*7 mantissa bits before CRT. Max: 7 (fp64), 3 (fp32). |
 | `OZAKI_N`        | 8/18    | Number of decomposition components. Scheme 1: number of slices per element (default 8). Scheme 2: number of CRT primes (default 18; raised to 19 with OZAKI_GROUPS > 1). |
 | `OZAKI_GROUPS`   | 0       | Scheme 2 only: K-grouping factor - that many consecutive K sub-panels share one exponent and one Garner reconstruction (0/1 = no grouping, 4 = quads).      |
 | `OZAKI_CACHE`    | 0       | Preprocessing cache bitmask: 1 = cache A, 2 = cache B, 3 = cache both. Skips preprocessing when same matrix pointer is reused with matching dims/transpose.  |
