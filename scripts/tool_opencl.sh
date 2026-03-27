@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-####################################################################################################
-# Copyright (C) by the DBCSR developers group - All rights reserved                                #
-# This file is part of the DBCSR library.                                                          #
-#                                                                                                  #
-# For information on the license, see the LICENSE file.                                            #
-# For further information please visit https://dbcsr.cp2k.org                                      #
-# SPDX-License-Identifier: BSD-3-Clause                                                            #
-####################################################################################################
+###############################################################################
+# Copyright (c) 2009-2026 Hans Pabst                                          #
+# Copyright (c) 2009-2026 Intel Corporation                                   #
+#                                                                             #
+# For information on the license, see the LICENSE file.                       #
+# SPDX-License-Identifier: BSD-3-Clause                                       #
+###############################################################################
 # shellcheck disable=SC2048,SC2129
-
 BASENAME=$(command -v basename)
 DIRNAME=$(command -v dirname)
 HEAD=$(command -v head)

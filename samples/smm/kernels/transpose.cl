@@ -20,13 +20,13 @@ __attribute__((reqd_work_group_size(WG, 1, 1))) kernel void FN(
 #endif
 #if (WG == SM)
   const int m = idx;
-#  if (SM != SN) || (0 == INPLACE)
+# if (SM != SN) || (0 == INPLACE)
   /* copy matrix elements into local buffer */
   for (int n = 0; n < SN; ++n) buf[m][n] = mat[SM * n + m];
   barrier(CLK_LOCAL_MEM_FENCE);
   /* overwrite matrix elements (gather) */
   for (int n = 0; n < SN; ++n) mat[SN * m + n] = buf[m][n];
-#  else
+# else
   for (int n = 0; n < m; ++n) {
     const int i = SM * n + m;
     const int j = SN * m + n;
@@ -34,22 +34,22 @@ __attribute__((reqd_work_group_size(WG, 1, 1))) kernel void FN(
     mat[i] = mat[j];
     mat[j] = tmp;
   }
-#  endif
+# endif
 #else
   T prv[SN]; /* private buffer */
-#  if (SM != SN) || (0 == INPLACE)
+# if (SM != SN) || (0 == INPLACE)
   /* copy matrix elements into local buffer */
   for (int m = idx; m < SM; m += WG) {
     for (int n = 0; n < SN; ++n) buf[m][n] = mat[SM * n + m];
   }
   barrier(CLK_LOCAL_MEM_FENCE);
-#  endif
+# endif
   for (int m = idx; m < SM; m += WG) {
-#  if (SM != SN) || (0 == INPLACE)
+# if (SM != SN) || (0 == INPLACE)
     for (int n = 0; n < SN; ++n) prv[n] = buf[m][n];
     /* overwrite matrix elements (gather) */
     for (int n = 0; n < SN; ++n) mat[SN * m + n] = prv[n];
-#  else
+# else
     for (int n = 0; n < SN; ++n) prv[n] = mat[SM * n + m];
     for (int n = 0; n < m; ++n) {
       const int i = SM * n + m;
@@ -57,7 +57,7 @@ __attribute__((reqd_work_group_size(WG, 1, 1))) kernel void FN(
       mat[i] = mat[j];
       mat[j] = prv[n];
     }
-#  endif
+# endif
   }
 #endif
 }

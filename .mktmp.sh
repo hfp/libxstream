@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 ###############################################################################
-# Copyright (c) Intel Corporation - All rights reserved.                      #
-# This file is part of the LIBXS library.                                     #
+# Copyright (c) 2009-2026 Hans Pabst                                          #
+# Copyright (c) 2009-2026 Intel Corporation                                   #
 #                                                                             #
 # For information on the license, see the LICENSE file.                       #
-# Further information: https://github.com/hfp/libxs/                          #
 # SPDX-License-Identifier: BSD-3-Clause                                       #
 ###############################################################################
-
 MKTEMP=$(command -v mktemp)
 MV=$(command -v mv)
 
