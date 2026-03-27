@@ -76,7 +76,7 @@ WCHECK := 1
 EXCLUDE_STATE := \
   DESTDIR PREFIX BINDIR CURDIR DOCDIR DOCEXT INCDIR LICFDIR OUTDIR TSTDIR TIMEOUT \
   PBINDIR PINCDIR POUTDIR PPKGDIR PMODDIR PSRCDIR PTSTDIR PSHRDIR PDOCDIR SCRDIR \
-  SPLDIR SRCDIR TEST VERSION_STRING ALIAS_% %_TARGET %ROOT
+  SPLDIR SRCDIR TEST VERSION_STRING ALIAS_% %ROOT
 
 # root directory of LIBXS
 LIBXSROOT := $(wildcard $(ROOTDIR)/../libxs)
@@ -155,8 +155,7 @@ endif
 
 information = \
   $(info ================================================================================) \
-  $(info $(PROJUPP)$(if $(VERSION_ALL), $(VERSION_ALL)) ($(UNAME)$(if \
-         $(filter-out 0,$(LIBXS_TARGET_HIDDEN)),$(NULL),$(if $(HOSTNAME),@$(HOSTNAME))))) \
+  $(info $(PROJUPP)$(if $(VERSION_ALL), $(VERSION_ALL)) ($(UNAME)$(if $(HOSTNAME),@$(HOSTNAME)))) \
   $(info --------------------------------------------------------------------------------) \
   $(info $(GINFO)) \
   $(info $(CINFO)) \
