@@ -432,39 +432,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
         else result = EXIT_FAILURE;
       }
       else if (EXIT_SUCCESS == result) {
-        const libxstream_opencl_stream_t* str_a = stream_a;
-        size_t global_a[2], local_a[2];
-        const int nblk_m_pre = (M + bm_pre - 1) / bm_pre;
-        local_a[0] = bm_pre; local_a[1] = bk_pre;
-        global_a[0] = (size_t)nblk_m_pre * bm_pre;
-        global_a[1] = bk_pre; /* single WG in K: kernel loops internally */
-        { cl_int i = 0;
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_a, i++, d_ag));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &M));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &K));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &lda));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &ta));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_a, i++, d_as));
-          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_preprocess_a, i++, d_expa_g));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &k_pad));
-          CL_CHECK(result, clSetKernelArg(ctx->kern_crt_preprocess_a, i++, sizeof(int), &m_pad));
-        }
-        CL_CHECK(result, clEnqueueNDRangeKernel(str_a->queue, ctx->kern_crt_preprocess_a, 2,
-          NULL, global_a, local_a, 0, NULL,
-          (NULL != evt_prof_c && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
-            ? (evt_prof_c + n_profiled_c) : NULL));
-        if (EXIT_SUCCESS == result && NULL != evt_prof_c
-          && (1 == ctx->profile || 3 == ctx->profile || 0 > ctx->profile))
-        {
-          ++n_profiled_c;
-        }
+        result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a,
+          d_ag, d_as, d_expa_g, M, K, lda, ta, k_pad, m_pad,
+          bm_pre, bk_pre, evt_prof_c, 1, 3, &n_profiled_c);
       }
     } /* cache_hit_a */
-    else if (EXIT_SUCCESS == result) {
-      result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a,
-        d_ag, d_as, d_expa_g, M, K, lda, ta, k_pad, m_pad,
-        bm_pre, bk_pre, evt_prof_c, 1, 3, &n_profiled_c);
-    }
 
     /* Preprocess B (skip entirely on cache hit) */
     if (0 == cache_hit_b) {
@@ -539,28 +511,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     /* Single fused CRT GEMM: one launch per output tile covers all primes */
     first_tile = (0.0 == beta) ? 1 : 0;
     if (EXIT_SUCCESS == result) {
-      cl_int i = 0;
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_as));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_bs));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_expa_g));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_expb_g));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(ctx->kern_crt_fused, i++, d_cg));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &M));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &N));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &k_pad));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &n_pad));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &ldc));
-      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &m_pad));
-      if (ctx->use_double) {
-        double dalpha = alpha;
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(double), &dalpha));
-      }
-      else {
-        float falpha = (float)alpha;
-        CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(float), &falpha));
-      }
-      CL_CHECK(result, clSetKernelArg(ctx->kern_crt_fused, i++, sizeof(int), &first_tile));
-
       result = ozaki_launch_fused(ctx, stream, ctx->kern_crt_fused, d_as, d_bs, d_expa_g, d_expb_g,
         d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn,
         alpha, first_tile, ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c);
