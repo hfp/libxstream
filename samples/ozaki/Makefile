@@ -63,6 +63,7 @@ IFLAGS += -I$(call quote,$(INCDIR))
 SCRDIR := $(DEPDIR)/scripts
 KRNELS := $(SRCDIR)/kernels/ozaki1_int8.cl \
           $(SRCDIR)/kernels/ozaki2_int8.cl \
+          $(SRCDIR)/kernels/zgemm3m.cl \
           $(NULL)
 GENHDR := $(SRCDIR)/ozaki_kernels.h
 
