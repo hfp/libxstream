@@ -214,7 +214,19 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
 
-    /* Free host staging buffers (sync ensures H2D completed) */
+    /* Sync helper streams before freeing host staging buffers to ensure H2D completed.
+     * stream_wait_event only blocks the main stream; helper streams may still be
+     * transferring data from host memory when we free it, causing corruption. */
+    if (NULL != h_as || NULL != h_bs) {
+      if (EXIT_SUCCESS == result && NULL != stream_a && NULL != h_as) {
+        result = libxstream_stream_sync(stream_a);
+      }
+      if (EXIT_SUCCESS == result && NULL != stream_b && NULL != h_bs) {
+        result = libxstream_stream_sync(stream_b);
+      }
+    }
+
+    /* Free host staging buffers (now safe after sync) */
     free(h_as); h_as = NULL; free(h_expa); h_expa = NULL;
     free(h_bs); h_bs = NULL; free(h_expb); h_expb = NULL;
 
@@ -265,6 +277,20 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     }
     /* D2H result and cleanup */
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
+
+    /* Sync ALL streams before freeing device buffers to ensure transfers completed.
+     * Device pool deallocator only syncs on grow path, not regular frees.
+     * - Main stream uses d_cg (for D2H)
+     * - stream_a uses d_ag (for preprocessing)
+     * - stream_b uses d_bg (for preprocessing)
+     * Without sync, freed buffers can be reallocated while DMA is still reading. */
+    if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
+    if (EXIT_SUCCESS == result && NULL != stream_a && 0 == cache_hit_a) {
+      result = libxstream_stream_sync(stream_a);
+    }
+    if (EXIT_SUCCESS == result && NULL != stream_b && 0 == cache_hit_b) {
+      result = libxstream_stream_sync(stream_b);
+    }
 
     OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
     OZAKI_DEV_FREE(d_scratch);
@@ -413,7 +439,19 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
 
-    /* Free host staging buffers (sync ensures H2D completed) */
+    /* Sync helper streams before freeing host staging buffers to ensure H2D completed.
+     * stream_wait_event only blocks the main stream; helper streams may still be
+     * transferring data from host memory when we free it, causing corruption. */
+    if (NULL != h_as || NULL != h_bs) {
+      if (EXIT_SUCCESS == result && NULL != stream_a && NULL != h_as) {
+        result = libxstream_stream_sync(stream_a);
+      }
+      if (EXIT_SUCCESS == result && NULL != stream_b && NULL != h_bs) {
+        result = libxstream_stream_sync(stream_b);
+      }
+    }
+
+    /* Free host staging buffers (now safe after sync) */
     free(h_as); h_as = NULL; free(h_expa); h_expa = NULL;
     free(h_bs); h_bs = NULL; free(h_expb); h_expb = NULL;
 
@@ -455,6 +493,20 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       free(evt_prof_c);
     }
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
+
+    /* Sync ALL streams before freeing device buffers to ensure transfers completed.
+     * Device pool deallocator only syncs on grow path, not regular frees.
+     * - Main stream uses d_cg (for D2H)
+     * - stream_a uses d_ag (for preprocessing)
+     * - stream_b uses d_bg (for preprocessing)
+     * Without sync, freed buffers can be reallocated while DMA is still reading. */
+    if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
+    if (EXIT_SUCCESS == result && NULL != stream_a && 0 == cache_hit_a) {
+      result = libxstream_stream_sync(stream_a);
+    }
+    if (EXIT_SUCCESS == result && NULL != stream_b && 0 == cache_hit_b) {
+      result = libxstream_stream_sync(stream_b);
+    }
 
     OZAKI_DEV_FREE(d_ag); OZAKI_DEV_FREE(d_bg); OZAKI_DEV_FREE(d_cg);
     if (0 == cache_hit_a) { OZAKI_DEV_FREE(d_as); OZAKI_DEV_FREE(d_expa_g); }
