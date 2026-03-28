@@ -193,4 +193,11 @@ int ozaki_zgemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
                                        const void* b, int ldb,
                   const double* beta,        void* c, int ldc);
 
+/* Invalidate preprocessing cache entries for the given matrix pointers.
+ * This function must be called when matrices are modified outside of
+ * ozaki_gemm (e.g., by CPU-side BLAS operations) to prevent stale
+ * cached data from being reused. Pass NULL for pointers that should
+ * not be invalidated. Thread-safe. */
+void ozaki_invalidate_cache(ozaki_context_t* ctx, const void* a, const void* b);
+
 #endif /* OZAKI_OPENCL_H */

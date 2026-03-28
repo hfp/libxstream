@@ -847,3 +847,28 @@ void ozaki_destroy(ozaki_context_t* ctx)
     LIBXS_MEMZERO(ctx);
   }
 }
+
+
+void ozaki_invalidate_cache(ozaki_context_t* ctx, const void* a, const void* b)
+{
+  if (NULL != ctx) {
+    LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+    /* Invalidate A cache entry if it matches the given pointer */
+    if (NULL != a && a == ctx->cache.a.ptr) {
+      ctx->cache.a.ptr = NULL;
+      ctx->cache.a.dim = 0;
+      ctx->cache.a.K = 0;
+      ctx->cache.a.ld = 0;
+      ctx->cache.a.trans = 0;
+    }
+    /* Invalidate B cache entry if it matches the given pointer */
+    if (NULL != b && b == ctx->cache.b.ptr) {
+      ctx->cache.b.ptr = NULL;
+      ctx->cache.b.dim = 0;
+      ctx->cache.b.K = 0;
+      ctx->cache.b.ld = 0;
+      ctx->cache.b.trans = 0;
+    }
+    LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
+  }
+}
