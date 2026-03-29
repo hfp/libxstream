@@ -92,8 +92,8 @@
 # define LIBXSTREAM_USM 0
 #endif
 /* Activate device by default */
-#if !defined(LIBXSTREAM_ACTIVATE) && 0
-# define LIBXSTREAM_ACTIVATE 0
+#if !defined(LIBXSTREAM_ACTIVATE)
+# define LIBXSTREAM_ACTIVATE -1
 #endif
 
 #if defined(CL_VERSION_2_0)

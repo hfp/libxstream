@@ -214,13 +214,7 @@ int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, libxstream_stre
     int result = EXIT_SUCCESS;
     void* host_ptr = NULL;
     cl_mem memory = NULL;
-# if !defined(LIBXSTREAM_ACTIVATE)
-    if (NULL == devinfo->context) {
-      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_set_active_device(
-        libxstream_opencl_config.lock_main, libxstream_opencl_config.device_id));
-    }
-# endif
-    str = (NULL != stream ? stream : libxstream_opencl_stream_default()); /* after LIBXSTREAM_ACTIVATE */
+    str = (NULL != stream ? stream : libxstream_opencl_stream_default());
     assert(NULL != str);
     if ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXS_CACHELINE) <= nbytes) {
       const int a = ((LIBXSTREAM_MEM_ALIGNSCALE * LIBXSTREAM_MAXALIGN) <= nbytes ? LIBXSTREAM_MAXALIGN : LIBXS_CACHELINE);
@@ -389,14 +383,7 @@ int libxstream_mem_allocate(void** dev_mem, size_t nbytes) {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   void* memptr = NULL;
-  assert(NULL != dev_mem);
-# if !defined(LIBXSTREAM_ACTIVATE)
-  if (NULL == devinfo->context) {
-    LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_set_active_device(
-      libxstream_opencl_config.lock_main, libxstream_opencl_config.device_id));
-  }
-# endif
-  assert(NULL != devinfo->context);
+  assert(NULL != dev_mem && NULL != devinfo->context);
   if (0 != nbytes) {
     cl_mem memory = NULL;
 # if (1 >= LIBXSTREAM_USM)

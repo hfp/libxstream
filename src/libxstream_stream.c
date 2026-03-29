@@ -103,19 +103,7 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
     else offset = libxstream_opencl_stream_counter_base++;
   }
 # endif
-  if (NULL == devinfo->context)
-# if defined(LIBXSTREAM_ACTIVATE)
-  {
-    result = EXIT_FAILURE;
-  }
-  else
-# else
-  {
-    result = libxstream_opencl_set_active_device(NULL /*lock*/, libxstream_opencl_config.device_id);
-  }
-  if (NULL != devinfo->context)
-# endif
-  {
+  if (NULL != devinfo->context) {
     const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
     if (0 != (LIBXSTREAM_STREAM_PROFILING & flags) ||
         NULL != libxstream_opencl_config.hist_h2d || NULL != libxstream_opencl_config.hist_d2h ||
@@ -154,6 +142,7 @@ int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, i
 # endif
     queue = LIBXSTREAM_CREATE_COMMAND_QUEUE(devinfo->context, device_id, properties, &result);
   }
+  else result = EXIT_FAILURE;
   if (EXIT_SUCCESS == result) { /* register stream */
     assert(NULL != libxstream_opencl_config.streams && NULL != queue);
     *stream_p = libxs_pmalloc(

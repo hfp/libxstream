@@ -609,20 +609,19 @@ int libxstream_init(void) {
           assert(NULL == libxstream_opencl_config.hist_d2h);
           assert(NULL == libxstream_opencl_config.hist_d2d);
         }
-        if (EXIT_SUCCESS == result) { /* lastly, print active device and list of devices */
-# if defined(LIBXSTREAM_ACTIVATE)
-          if (0 <= LIBXSTREAM_ACTIVATE && LIBXSTREAM_ACTIVATE < libxstream_opencl_config.ndevices) {
+        if (EXIT_SUCCESS == result) { /* lastly, print list of devices and actived device */
+# if defined(LIBXSTREAM_ACTIVATE) && (0 <= LIBXSTREAM_ACTIVATE)
+          if (LIBXSTREAM_ACTIVATE < libxstream_opencl_config.ndevices) {
             result = libxstream_opencl_set_active_device(NULL /*lock*/, LIBXSTREAM_ACTIVATE);
           }
-          else {
+          else
+# endif
+          { /* auto-select initial device */
             if (0 < libxstream_opencl_config.nrank && 1 < libxstream_opencl_config.ndevices) {
               device_id = libxstream_opencl_config.nrank % libxstream_opencl_config.ndevices;
             }
             result = libxstream_opencl_set_active_device(NULL /*lock*/, device_id);
           }
-# else
-          libxstream_opencl_config.device_id = device_id;
-# endif
           if ((2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) &&
               (0 == libxstream_opencl_config.nrank))
           {
