@@ -153,8 +153,6 @@ int libxstream_opencl_order_devices(const void* dev_a, const void* dev_b) {
 /** Setup to run prior to touching OpenCL runtime. */
 void libxstream_opencl_configure(void);
 void libxstream_opencl_configure(void) {
-  const char* const env_rank = (NULL != getenv("PMI_RANK") ? getenv("PMI_RANK") : getenv("OMPI_COMM_WORLD_LOCAL_RANK"));
-  const char* const env_nranks = getenv("MPI_LOCALNRANKS"); /* TODO */
   const char *const env_devsplit = getenv("LIBXSTREAM_DEVSPLIT"), *const env_nlocks = getenv("LIBXSTREAM_NLOCKS");
   const char *const env_verbose = getenv("LIBXSTREAM_VERBOSE"), *const env_dump_acc = getenv("LIBXSTREAM_DUMP");
   const char *const env_debug = getenv("LIBXSTREAM_DEBUG"), *const env_profile = getenv("LIBXSTREAM_PROFILE");
@@ -195,8 +193,6 @@ void libxstream_opencl_configure(void) {
 # endif
   assert(NULL == libxstream_opencl_config.lock_main); /* test condition to avoid initializing multiple times */
   libxs_init(); /* before using LIBXSMM's functionality */
-  libxstream_opencl_config.nranks = LIBXS_MAX(NULL != env_nranks ? atoi(env_nranks) : 1, 1);
-  libxstream_opencl_config.nrank = (NULL != env_rank ? atoi(env_rank) : 0) % libxstream_opencl_config.nranks;
   assert(sizeof(libxs_lock_t) <= LIBXS_CACHELINE);
   for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) {
     LIBXS_LOCK_ATTR_TYPE(LIBXS_LOCK) acc_opencl_attr_;
@@ -215,7 +211,7 @@ void libxstream_opencl_configure(void) {
     (3 < LIBXS_MIN(nlocks, LIBXSTREAM_NLOCKS) ? ((libxs_lock_t*)(libxstream_opencl_locks + LIBXS_CACHELINE * 3))
                                                 : libxstream_opencl_config.lock_main);
   libxstream_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
-  libxstream_opencl_config.devsplit = (NULL == env_devsplit ? (/*1 < libxstream_opencl_config.nranks ? -1 :*/ 0)
+  libxstream_opencl_config.devsplit = (NULL == env_devsplit ? (/*1 < libxs_nranks() ? -1 :*/ 0)
                                                              : atoi(env_devsplit));
 # if defined(LIBXSTREAM_STREAM_PRIORITIES)
   libxstream_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
@@ -610,6 +606,7 @@ int libxstream_init(void) {
           assert(NULL == libxstream_opencl_config.hist_d2d);
         }
         if (EXIT_SUCCESS == result) { /* lastly, print list of devices and actived device */
+          const unsigned int nrank = libxs_nrank();
 # if defined(LIBXSTREAM_ACTIVATE) && (0 <= LIBXSTREAM_ACTIVATE)
           if (LIBXSTREAM_ACTIVATE < libxstream_opencl_config.ndevices) {
             result = libxstream_opencl_set_active_device(NULL /*lock*/, LIBXSTREAM_ACTIVATE);
@@ -617,13 +614,13 @@ int libxstream_init(void) {
           else
 # endif
           { /* auto-select initial device */
-            if (0 < libxstream_opencl_config.nrank && 1 < libxstream_opencl_config.ndevices) {
-              device_id = libxstream_opencl_config.nrank % libxstream_opencl_config.ndevices;
+            if (0 < nrank && 1 < libxstream_opencl_config.ndevices) {
+              device_id = nrank % libxstream_opencl_config.ndevices;
             }
             result = libxstream_opencl_set_active_device(NULL /*lock*/, device_id);
           }
           if ((2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) &&
-              (0 == libxstream_opencl_config.nrank))
+              (0 == nrank))
           {
             char platform_name[LIBXSTREAM_BUFFERSIZE];
             for (i = 0; i < (cl_uint)libxstream_opencl_config.ndevices; ++i) {

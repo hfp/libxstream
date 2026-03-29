@@ -270,8 +270,6 @@ typedef struct libxstream_opencl_config_t {
   cl_int devsplit;
   /** Verbosity level (output on stderr). */
   cl_int verbosity;
-  /** Guessed number of ranks per node (local), and rank-ID. */
-  cl_int nranks, nrank;
   /** Non-zero if library is initialized (negative: no device). */
   cl_int ndevices;
   /** Maximum number of threads (omp_get_max_threads). */
