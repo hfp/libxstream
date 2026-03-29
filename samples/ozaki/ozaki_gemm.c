@@ -516,6 +516,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     }
   }
 
+  /* Invalidate cache entries whose pointer matches the output matrix C.
+   * C was just written; if C's address is later passed as A or B,
+   * stale preprocessed data from before the write would be used. */
+  if (0 != ctx->cache.flags) {
+    ozaki_invalidate_cache(ctx, c, c);
+  }
+
   return result;
 }
 
