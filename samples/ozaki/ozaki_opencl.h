@@ -85,7 +85,14 @@ typedef struct ozaki_cache_side_t {
   void* d_slices;
   void* d_exp;
   size_t slices_size, exp_size;
+  unsigned int fingerprint; /* content fingerprint to detect in-place modifications */
 } ozaki_cache_side_t;
+
+/* Compute a lightweight fingerprint by sampling matrix elements at
+ * deterministic positions. Catches in-place modifications that
+ * pointer comparison alone cannot detect. */
+unsigned int ozaki_cache_fingerprint(
+  const void* ptr, size_t elem_size, int dim, int K, int ld, int trans);
 
 typedef struct ozaki_cache_t {
   libxs_lock_t lock;

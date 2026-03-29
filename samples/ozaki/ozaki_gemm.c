@@ -7,6 +7,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "ozaki_opencl.h"
+#include <libxs_mem.h>
 
 
 /* Local helper functions (static) to manage kernel argument setup and launches.
@@ -733,18 +734,45 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
 }
 
 
+unsigned int ozaki_cache_fingerprint(
+  const void* ptr, size_t elem_size, int dim, int K, int ld, int trans)
+{
+  const unsigned char* p = (const unsigned char*)ptr;
+  const size_t stride = (size_t)ld * elem_size;
+  const int rows = trans ? K : dim;
+  const int cols = trans ? dim : K;
+  unsigned int fp = 0;
+  int pr[8], pc[8], i;
+  pr[0] = 0;                        pc[0] = 0;
+  pr[1] = 0;                        pc[1] = cols > 0 ? cols - 1 : 0;
+  pr[2] = rows > 0 ? rows - 1 : 0;  pc[2] = 0;
+  pr[3] = rows > 0 ? rows - 1 : 0;  pc[3] = cols > 0 ? cols - 1 : 0;
+  pr[4] = rows / 2;                 pc[4] = cols / 2;
+  pr[5] = rows / 3;                 pc[5] = cols / 3;
+  pr[6] = rows > 0 ? rows - 1 : 0;  pc[6] = cols / 2;
+  pr[7] = 0;                        pc[7] = cols / 2;
+  for (i = 0; i < 8; ++i) {
+    const size_t offset = (size_t)pr[i] * stride + (size_t)pc[i] * elem_size;
+    fp = libxs_hash(p + offset, (unsigned int)elem_size, fp);
+  }
+  return fp;
+}
+
+
 static void ozaki_cache_check(ozaki_context_t* ctx,
   const void* a, const void* b, int M, int N, int K, int lda, int ldb, int ta, int tb,
   size_t as_size, size_t bs_size, size_t expa_size, size_t expb_size,
   void** d_as, void** d_bs, void** d_expa_g, void** d_expb_g,
   int* cache_hit_a, int* cache_hit_b)
 {
+  const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
   LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
   if (0 != (ctx->cache.flags & 1) && a == ctx->cache.a.ptr
       && M == ctx->cache.a.dim && K == ctx->cache.a.K
       && lda == ctx->cache.a.ld && ta == ctx->cache.a.trans
       && as_size == ctx->cache.a.slices_size && expa_size == ctx->cache.a.exp_size
-      && NULL != ctx->cache.a.d_slices && NULL != ctx->cache.a.d_exp)
+      && NULL != ctx->cache.a.d_slices && NULL != ctx->cache.a.d_exp
+      && ctx->cache.a.fingerprint == ozaki_cache_fingerprint(a, elem_size, M, K, lda, ta))
   {
     *d_as = ctx->cache.a.d_slices; *d_expa_g = ctx->cache.a.d_exp;
     *cache_hit_a = 1;
@@ -753,7 +781,8 @@ static void ozaki_cache_check(ozaki_context_t* ctx,
       && N == ctx->cache.b.dim && K == ctx->cache.b.K
       && ldb == ctx->cache.b.ld && tb == ctx->cache.b.trans
       && bs_size == ctx->cache.b.slices_size && expb_size == ctx->cache.b.exp_size
-      && NULL != ctx->cache.b.d_slices && NULL != ctx->cache.b.d_exp)
+      && NULL != ctx->cache.b.d_slices && NULL != ctx->cache.b.d_exp
+      && ctx->cache.b.fingerprint == ozaki_cache_fingerprint(b, elem_size, N, K, ldb, tb))
   {
     *d_bs = ctx->cache.b.d_slices; *d_expb_g = ctx->cache.b.d_exp;
     *cache_hit_b = 1;
@@ -769,6 +798,7 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result,
   void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g,
   int prev_owned, int* cache_hit_a, int* cache_hit_b)
 {
+  const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
 #if defined(OZAKI_DEVPOOL)
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
 #endif
@@ -784,6 +814,7 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result,
     ctx->cache.a.ld = lda; ctx->cache.a.trans = ta;
     ctx->cache.a.d_slices = d_as; ctx->cache.a.d_exp = d_expa_g;
     ctx->cache.a.slices_size = as_size; ctx->cache.a.exp_size = expa_size;
+    ctx->cache.a.fingerprint = ozaki_cache_fingerprint(a, elem_size, M, K, lda, ta);
     *cache_hit_a = 1; /* ownership transferred; suppress cleanup free */
   }
   if (0 == *cache_hit_b && 0 != (ctx->cache.flags & 2) && EXIT_SUCCESS == result) {
@@ -797,6 +828,7 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result,
     ctx->cache.b.ld = ldb; ctx->cache.b.trans = tb;
     ctx->cache.b.d_slices = d_bs; ctx->cache.b.d_exp = d_expb_g;
     ctx->cache.b.slices_size = bs_size; ctx->cache.b.exp_size = expb_size;
+    ctx->cache.b.fingerprint = ozaki_cache_fingerprint(b, elem_size, N, K, ldb, tb);
     *cache_hit_b = 1; /* ownership transferred; suppress cleanup free */
   }
   if (0 == prev_owned && (0 != *cache_hit_a || 0 != *cache_hit_b)) ++ctx->cache.nusers;
