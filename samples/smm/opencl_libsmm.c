@@ -490,7 +490,7 @@ int libsmm_acc_init(void) {
                     config_init = (opencl_libsmm_smm_t*)libxs_registry_get(opencl_libsmm_registry, &key, sizeof(key));
                     if (NULL != config_init || NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config))) {
                       static int info = 0;
-                      if (0 == info && 0 == libxstream_opencl_config.nrank && 0 != libxstream_opencl_config.verbosity &&
+                      if (0 == info && 0 == libxs_nrank() && 0 != libxstream_opencl_config.verbosity &&
                           EXIT_SUCCESS == libxstream_opencl_device_name(device_id, bufname, LIBXSTREAM_BUFFERSIZE,
                                             NULL /*platform*/, 0 /*platform_maxlen*/, /*cleanup*/ 0))
                       {
@@ -522,8 +522,8 @@ int libsmm_acc_init(void) {
         }
 # endif
 # if defined(OPENCL_KERNELS_DEVICES)
-        if (EXIT_SUCCESS == result && 0 != ntuned && 0 == libxstream_opencl_config.nrank &&
-            (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+        if (EXIT_SUCCESS == result && 0 != ntuned && 0 == libxs_nrank()
+          && (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
         {
           fprintf(stderr, "INFO ACC/LIBSMM: PARAMS in %i set%s loaded targeting ", ntuned, 1 != ntuned ? "s" : "");
           if (0 != libxstream_opencl_config.devmatch) {
