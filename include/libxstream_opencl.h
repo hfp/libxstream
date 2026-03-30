@@ -355,6 +355,11 @@ int libxstream_opencl_kernel_flags(const char build_params[], const char build_o
  *  1: Filename (OpenCL or binary)
  * >1: Binary code (source_kind denotes size)
  * The name is used for dump-filenames and diagnostic messages.
+ * try_build_options are extra flags appended speculatively: if the build fails
+ * with them, the program is rebuilt without them. try_ok (if non-NULL) receives
+ * EXIT_SUCCESS when try_build_options were accepted, EXIT_FAILURE otherwise.
+ * extnames/num_exts prepend #pragma OPENCL EXTENSION ... enable directives
+ * for the given extension names (only for OpenCL source, i.e. source_kind < 2).
  * Caller must release the program with clReleaseProgram.
  */
 int libxstream_opencl_program(size_t source_kind, const char source[], const char name[], const char build_params[],

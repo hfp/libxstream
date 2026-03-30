@@ -17,6 +17,9 @@
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI2_INT8)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2_INT8)"
 #endif
+#if !defined(OPENCL_KERNELS_SOURCE_ZGEMM3M)
+# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_ZGEMM3M)"
+#endif
 
 #if !defined(OZAKI_TINYTC_BM)
 # define OZAKI_TINYTC_BM 256
@@ -542,41 +545,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     if (EXIT_SUCCESS == result) {
       cl_program program_3m = NULL;
       char build_params_3m[512];
-      FILE* kern_file;
-      char* source_3m = NULL;
-      size_t source_size = 0;
-      int try_ok_3m = 0;
-      char try_msg_3m[4096];
-      try_msg_3m[0] = '\0';
 
-      /* Build params and options with include paths for zgemm3m.cl
-       * Need both relative paths since cwd could be ozaki/ or samples/ */
       LIBXS_SNPRINTF(build_params_3m, sizeof(build_params_3m),
-        "-DUSE_DOUBLE=%d -I../../include -I../../../libxstream/include",
-        use_double ? 1 : 0);
+        "-DUSE_DOUBLE=%d", use_double ? 1 : 0);
 
-      /* Read zgemm3m.cl kernel source from file */
-      kern_file = fopen("samples/ozaki/kernels/zgemm3m.cl", "r");
-      if (NULL == kern_file) kern_file = fopen("kernels/zgemm3m.cl", "r");
-      if (NULL != kern_file) {
-        fseek(kern_file, 0, SEEK_END);
-        source_size = (size_t)ftell(kern_file);
-        fseek(kern_file, 0, SEEK_SET);
-        source_3m = (char*)malloc(source_size + 1);
-        if (NULL != source_3m) {
-          const size_t nread = fread(source_3m, 1, source_size, kern_file);
-          source_3m[nread] = '\0';
-          result = libxstream_opencl_program(
-            0, source_3m, "zgemm3m",
-            build_params_3m, build_options,
-            try_msg_3m, &try_ok_3m, NULL, sizeof(try_msg_3m), &program_3m);
-          free(source_3m);
-        }
-        fclose(kern_file);
-      }
-      else if (2 < verbosity) {
-        fprintf(stderr, "WARN OZAKI: zgemm3m.cl not found, complex GEMM disabled\n");
-      }
+      result = libxstream_opencl_program(
+        0, OPENCL_KERNELS_SOURCE_ZGEMM3M, "zgemm3m",
+        build_params_3m, build_options,
+        NULL, NULL, NULL, 0, &program_3m);
 
       if (NULL != program_3m && EXIT_SUCCESS == result) {
         result = libxstream_opencl_kernel_query(
@@ -602,10 +578,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
             fprintf(stderr,
               "WARN OZAKI: 3M kernel compilation failed (fp=%d), complex GEMM disabled\n",
               use_double ? 64 : 32);
-            if (3 < verbosity && 0 < try_msg_3m[0]) {
-              fprintf(stderr, "  Build details: try_ok=%d\n", try_ok_3m);
-              fprintf(stderr, "  Build log: %s\n", try_msg_3m);
-            }
           }
           else {
             fprintf(stderr,
