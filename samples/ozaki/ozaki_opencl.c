@@ -137,8 +137,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
        * Each level = 7 bits. Max levels: 7 (fp64), 3 (fp32). */
       const int mant = use_double ? 52 : 23;
       const int max_levels = mant / 7;  /* 7 for fp64, 3 for fp32 */
-      if (oztrim > max_levels) oztrim = max_levels;
-      const int oztrim_bits = oztrim * 7;
+      const int oztrim_bits = LIBXS_MIN(oztrim, max_levels) * 7;
 
       if (0 < oztrim_bits && 0 != ndecomp_auto) {
         /* floor(cumulative log2) of CRT moduli products */
