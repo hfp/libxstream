@@ -671,9 +671,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   }
 #endif
 
-  /* OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, 3=both) */
+  /* OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, 3=both).
+   * Default off: cache assumes matrix content at a given pointer is unchanged
+   * between calls. Applications that modify matrices in-place must either
+   * disable cache (0) or ensure cached matrices are truly constant.
+   * The fingerprint check catches some modifications but is not exhaustive. */
   { const char* env_cache = getenv("OZAKI_CACHE");
-    ctx->cache.flags = (NULL != env_cache) ? atoi(env_cache) : 3;
+    ctx->cache.flags = (NULL != env_cache) ? atoi(env_cache) : 0;
   }
 
   /* OZAKI_PROFILE: kernel execution-time profiling */
