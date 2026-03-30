@@ -5,7 +5,6 @@
 # For information on the license, see the LICENSE file.                       #
 # SPDX-License-Identifier: BSD-3-Clause                                       #
 ###############################################################################
-# shellcheck disable=SC2048,SC2129
 BASENAME=$(command -v basename)
 DIRNAME=$(command -v dirname)
 HEAD=$(command -v head)
@@ -35,14 +34,14 @@ trap_exit() {
 process_pre() {
   if [ "$1" ]; then
     if [ "${CPP}" ] && \
-       [ "$(eval "${CPP} ${CPPBASEFLAGS} $1" 2>/dev/null >/dev/null && echo "YES")" ];
+       [ "$(eval "${CPP} ${CPPBASEFLAGS} \"$1\"" 2>/dev/null >/dev/null && echo "YES")" ];
     then
       if [ "${CPPFLAGS}" ] && \
-         [ "$(eval "${CPP} ${CPPFLAGS} ${CPPBASEFLAGS} $1" 2>/dev/null >/dev/null && echo "YES")" ];
+         [ "$(eval "${CPP} ${CPPFLAGS} ${CPPBASEFLAGS} \"$1\"" 2>/dev/null >/dev/null && echo "YES")" ];
       then
-        eval "${CPP} ${CPPFLAGS} ${CPPBASEFLAGS} $1" 2>/dev/null
+        eval "${CPP} ${CPPFLAGS} ${CPPBASEFLAGS} \"$1\"" 2>/dev/null
       else
-        eval "${CPP} ${CPPBASEFLAGS} $1" 2>/dev/null
+        eval "${CPP} ${CPPBASEFLAGS} \"$1\"" 2>/dev/null
       fi
     else # fallback to sed
       ${SED} -r ':a;s%(.*)/\*.*\*/%\1%;ta;/\/\*/!b;N;ba' "$1"
@@ -60,18 +59,36 @@ process_pre() {
   fi
 }
 
+process_find() { # resolve include: $1=include-path, $2=parent-file
+  local CLINC=$1 FILE
+  # try relative to parent file's directory
+  if [ "$2" ] && [ -e "$2" ]; then
+    FILE=$(${DIRNAME} "$2")/${CLINC}
+    if [ -e "${FILE}" ]; then echo "${FILE}"; return 0; fi
+  fi
+  # try -I search paths
+  local IPATH
+  for IPATH in ${INCPATHS}; do
+    FILE=${IPATH}/${CLINC}
+    if [ -e "${FILE}" ]; then echo "${FILE}"; return 0; fi
+  done
+  return 1
+}
+
 process() {
   IFS=$'\n'
   while read -r LINE; do
     INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*\"/\"/p" <<<"${LINE}")
-    if [ "${INCLUDE}" ] && [ "$1" ] && [ -e "$1" ]; then
-      CLINC=$(${SED} "s/\"//g" <<<"${INCLUDE}")
-      CLPATH=$(${DIRNAME} "$1")
-      FILE=${CLPATH}/${CLINC}
-      if [ "${FILE}" ] && [ -e "${FILE}" ]; then
+    if [ ! "${INCLUDE}" ]; then
+      INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*</</;s/[[:space:]]*$//;/<.*>/p" <<<"${LINE}")
+    fi
+    if [ "${INCLUDE}" ]; then
+      CLINC=$(${SED} "s/[\"<>]//g" <<<"${INCLUDE}")
+      FILE=$(process_find "${CLINC}" "$1")
+      if [ "${FILE}" ]; then
         process_pre "${FILE}" "$2" | process "${FILE}" "$2"
       else
-        >&2 echo "WARNING: header file ${FILE} not found!"
+        >&2 echo "WARNING: header file ${CLINC} not found!"
         #exit 1
       fi
     else
@@ -87,7 +104,7 @@ process() {
 if [ "${BASENAME}" ] && [ "${DIRNAME}" ] && [ "${HEAD}" ] && [ "${SORT}" ] && \
    [ "${SED}" ] && [ "${CAT}" ] && [ "${TR}" ] && [ "${RM}" ] && [ "${WC}" ];
 then
-  for OFILE in "$@"; do :; done
+  OFILE="${*: -1}"
   while test $# -gt 0; do
     case "$1" in
     -h|--help)
@@ -100,6 +117,9 @@ then
       shift 2;;
     -p|--params)
       PARAMS="$2\t"
+      shift 2;;
+    -I|--include)
+      INCPATHS="${INCPATHS:+${INCPATHS} }$2"
       shift 2;;
     -c|-d|--debug|--comments)
       CPPFLAGS+=" -C"
@@ -136,7 +156,7 @@ then
     RNAME=$(${BASENAME} "$(cd "$(${DIRNAME} "$1")" && pwd -P)")
     ANAME=$(${TR} '[:lower:]' '[:upper:]' <<<"${RNAME}")
     NFILES_OCL=0
-    for CLFILE in ${*:1:${#@}-1}; do
+    for CLFILE in "${@:1:$#-1}"; do
       if [ "${CLFILE##*.}" = "cl" ]; then
         CLEXT=".cl"
       elif [ "${CLFILE##*.}" = "h" ]; then
@@ -167,7 +187,7 @@ then
           exit 1
         fi >>"${OFILE}"
       else
-        CSVFILES=("${*:NFILES_OCL+1:${#@}-NFILES_OCL-1}")
+        CSVFILES=("${@:NFILES_OCL+1:$#-NFILES_OCL-1}")
         break
       fi
     done
@@ -251,6 +271,7 @@ then
     echo "       -b|--banner N: number of lines used as banner (default: 0)"
     echo "       -p|--params P: directory-path to CSV-files (can be \"\")"
     echo "             default: ${PARAMDIR}"
+    echo "       -I|--include P: search path for angle-bracket includes"
     echo "       -c|-d|--debug|--comments: keep comments in source-code"
     echo "       -v|--verbose: repeat command-line arguments"
   fi
