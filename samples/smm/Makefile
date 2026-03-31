@@ -7,7 +7,7 @@ BLDDIR = obj
 OUTDIR = .
 
 CXXFLAGS = $(NULL)
-CFLAGS = $(NULL)
+CFLAGS = -Wno-format-nonliteral
 DFLAGS = $(if $(ELEM_TYPE),-DELEM_TYPE=$(ELEM_TYPE))
 
 BLAS = 2

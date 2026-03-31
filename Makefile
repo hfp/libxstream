@@ -237,9 +237,9 @@ DOCMDS := $(addprefix $(ABSDIR)/,$(filter-out \
   $(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
     $(DOCDIR)/$(PROJECT)_*.md 2>/dev/null)))
 
-.PHONY: samples $(DIRS_SAMPLES)
-samples: $(DIRS_SAMPLES)
-$(DIRS_SAMPLES): libs
+.PHONY: samples $(SAMPLES)
+samples: $(SAMPLES)
+$(SAMPLES): libs
 	@$(FLOCK) $@ "$(MAKE)"
 
 .PHONY: test-all
