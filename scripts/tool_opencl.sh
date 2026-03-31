@@ -80,7 +80,7 @@ process() {
   while read -r LINE; do
     INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*\"/\"/p" <<<"${LINE}")
     if [ ! "${INCLUDE}" ]; then
-      INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*</</;s/[[:space:]]*$//;/<.*>/p" <<<"${LINE}")
+      INCLUDE=$(${SED} -n "s/#[[:space:]]*include[[:space:]][[:space:]]*</</;s/[[:space:]]*$//;/^[[:space:]]*<.*>/p" <<<"${LINE}")
     fi
     if [ "${INCLUDE}" ]; then
       CLINC=$(${SED} "s/[\"<>]//g" <<<"${INCLUDE}")
