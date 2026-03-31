@@ -16,6 +16,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install OpenBLAS
+      run: sudo apt install -y libopenblas-openmp-dev
+
     - name: Install OpenCL
       run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1
 
@@ -24,5 +27,11 @@ jobs:
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
         echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> $GITHUB_ENV
 
+    - name: Build LIBXS
+      run: cd ${LIBXSROOT} && make -j $(nproc) ${{ matrix.flags }}
+
     - name: Build LIBXSTREAM
       run: make -j $(nproc) ${{ matrix.flags }}
+
+    - name: Build Samples
+      run: make -j $(nproc) ${{ matrix.flags }} samples
