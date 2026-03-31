@@ -30,6 +30,9 @@ typedef int c_dbcsr_acc_bool_t;
 int c_dbcsr_acc_init(void);
 int c_dbcsr_acc_finalize(void);
 
+/** error handling */
+void c_dbcsr_acc_clear_errors(void);
+
 /** devices */
 int c_dbcsr_acc_get_ndevices(int* ndevices);
 int c_dbcsr_acc_set_active_device(int device_id);

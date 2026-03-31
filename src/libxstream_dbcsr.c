@@ -55,6 +55,13 @@ int c_dbcsr_acc_finalize(void) {
 }
 
 
+void c_dbcsr_acc_clear_errors(void) {
+#if defined(__OFFLOAD_OPENCL)
+  libxstream_opencl_error_consume();
+#endif
+}
+
+
 int c_dbcsr_acc_get_ndevices(int* ndevices) {
   int result;
   LIBXSTREAM_PROFILE_BEGIN;
