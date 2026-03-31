@@ -9,8 +9,7 @@
 #ifndef DBCSR_ACC_BENCH_H
 #define DBCSR_ACC_BENCH_H
 
-#include <stdlib.h>
-#include <assert.h>
+#include <libxs_macros.h>
 
 #if !defined(MIN)
 # define MIN(A, B) ((A) < (B) ? (A) : (B))
@@ -47,7 +46,7 @@
  * The arguments rnd and rnd_size optionally allow
  * to supply an array of (pseudo-)random-numbers.
  */
-static INLINE void init_stack(
+LIBXS_ATTRIBUTE_UNUSED static INLINE void init_stack(
   int* stack, int stack_size, int rnd_size, const int* rnd, int mn, int mk, int kn, int nc, int na, int nb) {
   /* navg matrix products are accumulated into a C-matrix */
   const int navg = stack_size / nc;
