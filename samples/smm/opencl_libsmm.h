@@ -9,7 +9,7 @@
 #ifndef OPENCL_LIBSMM_H
 #define OPENCL_LIBSMM_H
 
-#include "../../acc_libsmm.h"
+#include "acc_libsmm.h"
 #include "libxstream_opencl.h"
 #include <libxs_reg.h>
 
