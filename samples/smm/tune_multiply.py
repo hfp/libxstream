@@ -90,11 +90,9 @@ class SmmTuner(MeasurementInterface):
         self.config = self.typename = self.typeid = self.device = self.size = None
         self.bs = self.bm = self.bn = self.bk = self.ws = self.wg = self.lu = None
         self.nz = self.al = self.tb = self.tc = None
-        self.ap = self.aa = self.ab = self.ac = None
+        self.ap = self.aa = self.ab = self.ac = self.xf = None
         self.idevice, self.ndevices = None, 0
-        self.exepath = os.path.join(
-            os.path.dirname(sys.argv[0]), "..", "..", "acc_bench"
-        )
+        self.exepath = os.path.join(os.path.dirname(sys.argv[0]), "acc_bench.x")
         runcmd = self.launch(["LIBXSTREAM_VERBOSE=2"], 0, nrep=1)
         self.run_result = (  # verbosity to capture device name and tuned parameters
             self.call_program(" ".join(runcmd))
@@ -152,7 +150,7 @@ class SmmTuner(MeasurementInterface):
             nprm = len(seed.groups()) if seed else 0
             if 15 > nprm:
                 print("WARNING: missed to parse initial parameters!")
-            maxlu = (self.mnk[0] + default_vlen - 1) / default_vlen
+            maxlu = (self.mnk[0] + default_vlen - 1) // default_vlen
             # setup fixed and tunable parameters
             params, paramt = [], []
             self.create_param("BS", params, paramt, seed, 1, 1, self.args.mb)
@@ -337,7 +335,9 @@ class SmmTuner(MeasurementInterface):
             if 2 == len(key)
         ]
 
-    def run(self, desired_result, input=None, limit=None, message=None, nrep=None):
+    def run(
+        self, desired_result, input=None, limit=None, message=None, nrep=None
+    ):  # noqa: A002
         """Run a configuration and return performance"""
         try:
             config = desired_result.configuration.data
@@ -403,6 +403,11 @@ class SmmTuner(MeasurementInterface):
             result = Result(time=float("inf"), accuracy=0.0, size=100.0)
         return result
 
+    def run_check(self, data):
+        """Run configuration and return process return code (0 on success)"""
+        self.run(data, nrep=1)
+        return self.run_result["returncode"] if self.run_result else 1
+
     def update_jsons(self, filenames):
         """Update device name or verify all JSONs"""
         if self.device:
@@ -411,19 +416,18 @@ class SmmTuner(MeasurementInterface):
                 try:
                     with open(filename, "r") as file:
                         data = json.load(file)
-                        if self.args.check is None or 0 != self.args.check:
-                            progress, r = "[{}/{}]: {}".format(i + 1, n, filename), 1
-                            if self.args.check is not None:
-                                r = max(self.args.check, 0)
-                            if "TYPEID" in data and self.typeid == data["TYPEID"]:
-                                self.run(data, message=progress, nrep=r)
-                        elif "DEVICE" in data and data["DEVICE"] != self.device:
-                            print("Updated {} to {}.".format(filename, self.device))
-                            data.update({"DEVICE": self.device})
-                            file.close()
-                            with open(filename, "w") as file:
-                                json.dump(data, file, sort_keys=True)
-                                file.write("\n")
+                    if self.args.check is None or 0 != self.args.check:
+                        progress, r = "[{}/{}]: {}".format(i + 1, n, filename), 1
+                        if self.args.check is not None:
+                            r = max(self.args.check, 0)
+                        if "TYPEID" in data and self.typeid == data["TYPEID"]:
+                            self.run(data, message=progress, nrep=r)
+                    elif "DEVICE" in data and data["DEVICE"] != self.device:
+                        print("Updated {} to {}.".format(filename, self.device))
+                        data.update({"DEVICE": self.device})
+                        with open(filename, "w") as file:
+                            json.dump(data, file, sort_keys=True)
+                            file.write("\n")
                 except (json.JSONDecodeError, KeyError):
                     print("Failed to update {}.".format(filename))
         else:
@@ -481,7 +485,6 @@ class SmmTuner(MeasurementInterface):
                 continue
             except:  # noqa: E722
                 continue
-                pass
             if bool(data) and key in merged:
                 gfbase, mname = merged[key][1], merged[key][-1]
                 gflops, mtime = value[1], os.path.getmtime(mname)
@@ -508,7 +511,7 @@ class SmmTuner(MeasurementInterface):
                     data = dict()  # ensure data is not merged
             if bool(data) and (  # consider to finally validate result
                 (self.args.check is not None and 0 == self.args.check)
-                or 0 == self.run(data, nrep=1)
+                or 0 == self.run_check(data)
             ):
                 merged[key] = value
         # replace older/best with latest/best (forced refresh)
