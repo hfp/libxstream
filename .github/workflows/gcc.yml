@@ -34,4 +34,4 @@ jobs:
       run: make -j $(nproc) ${{ matrix.flags }}
 
     - name: Build Samples
-      run: make -j $(nproc) ${{ matrix.flags }} samples
+      run: make -j $(nproc) ${{ matrix.flags }} PARAMS= samples
