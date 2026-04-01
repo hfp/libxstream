@@ -18,7 +18,7 @@
 #include <stdio.h>
 #include <math.h>
 #if defined(_OPENMP)
-# include <omp.h>
+#  include <omp.h>
 #endif
 
 #define PRINTF(...) \
@@ -30,40 +30,40 @@
   } while (0)
 
 #if !defined(DEDUPLICATE) && 0
-# define DEDUPLICATE
+#  define DEDUPLICATE
 #endif
 #if !defined(ELEM_TYPE)
-# define ELEM_TYPE double
+#  define ELEM_TYPE double
 #endif
 #if !defined(ALIGNMENT)
-# define ALIGNMENT LIBXS_ALIGNMENT
+#  define ALIGNMENT LIBXS_ALIGNMENT
 #endif
 #if !defined(BATCHGRAIN)
-# define BATCHGRAIN 100
+#  define BATCHGRAIN 100
 #endif
 #if !defined(BATCHSIZE)
-# define BATCHSIZE (300 * BATCHGRAIN)
+#  define BATCHSIZE (300 * BATCHGRAIN)
 #endif
 #if !defined(NRAND)
-# define NRAND BATCHSIZE
+#  define NRAND BATCHSIZE
 #endif
 #if !defined(NREPEAT)
-# define NREPEAT 3
+#  define NREPEAT 3
 #endif
 #if !defined(XREPEAT)
-# define XREPEAT 66
+#  define XREPEAT 66
 #endif
 #if !defined(TRANSPOSE)
-# define TRANSPOSE
+#  define TRANSPOSE
 #endif
 #if !defined(VALIDATE)
-# define VALIDATE
+#  define VALIDATE
 #endif
 #if !defined(WARMUP)
-# define WARMUP 2
+#  define WARMUP 2
 #endif
 #if !defined(DELIMS)
-# define DELIMS ",;:|/\n\t "
+#  define DELIMS ",;:|/\n\t "
 #endif
 
 #define ACC_BENCH_SMM_EPSILON(T) DBCSR_CONCATENATE(ACC_BENCH_SMM_EPSILON_, T)
@@ -257,15 +257,15 @@ int main(int argc, char* argv[]) {
       if (NULL != amat_hst && NULL != bmat_hst && NULL != trans_hst && NULL != stack_hst) {
         init_stack(stack_hst, stack_size, NRAND, rnd, mn, mk, kn, nc, na, nb);
 #if defined(_OPENMP)
-# pragma omp parallel
+#  pragma omp parallel
 #endif
         {
 #if defined(_OPENMP)
-# pragma omp for nowait
+#  pragma omp for nowait
 #endif
           for (i = 0; i < na; ++i) INIT_MAT(ELEM_TYPE, i /*seed*/ + 42, &amat_hst[i * mk], m, k, 1.0 / (nr * na));
 #if defined(_OPENMP)
-# pragma omp for
+#  pragma omp for
 #endif
           for (i = 0; i < nb; ++i) {
             INIT_MAT(ELEM_TYPE, i /*seed*/ + 24, &bmat_hst[i * kn], k, n, 1.0 / (nr * nb));
@@ -362,56 +362,52 @@ int main(int argc, char* argv[]) {
         if (NULL != gold_hst && NULL != amat_hst && NULL != bmat_hst && NULL != stack_hst) {
           const ELEM_TYPE alpha = 1, beta = 1;
           const char transa = 'N';
-#if defined(TRANSPOSE)
+#  if defined(TRANSPOSE)
           const char transb = 'N';
-#else
+#  else
           const char transb = 'T';
-#endif
-          memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
-          for (r = 0; r < warmup; ++r) {
-#if defined(_OPENMP)
-#           pragma omp parallel
-            libxs_gemm_index_task(LIBXS_DATATYPE(ELEM_TYPE), &transa, &transb, m, n, k,
-              &alpha, amat_hst, m, stack_hst + 0 /*stride_a*/,
-              bmat_hst, k, stack_hst + 1 /*stride_b*/,
-              &beta, gold_hst, m, stack_hst + 2 /*stride_c*/,
-              sizeof(int) * 3, 1 /*index_base*/, stack_size, NULL /*config*/,
-              omp_get_thread_num(), omp_get_num_threads());
-#else
-            libxs_gemm_index(LIBXS_DATATYPE(ELEM_TYPE), &transa, &transb, m, n, k,
-              &alpha, amat_hst, m, stack_hst + 0 /*stride_a*/,
-              bmat_hst, k, stack_hst + 1 /*stride_b*/,
-              &beta, gold_hst, m, stack_hst + 2 /*stride_c*/,
-              sizeof(int) * 3, 1 /*index_base*/, stack_size, NULL /*config*/);
-#endif
-          }
-          memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
-          start = libxs_timer_tick();
-          for (r = 0; r < (nrepeat * nrepeat_smm); ++r) {
-#if defined(_OPENMP)
-#           pragma omp parallel
-            libxs_gemm_index_task(LIBXS_DATATYPE(ELEM_TYPE), &transa, &transb, m, n, k,
-              &alpha, amat_hst, m, stack_hst + 0 /*stride_a*/,
-              bmat_hst, k, stack_hst + 1 /*stride_b*/,
-              &beta, gold_hst, m, stack_hst + 2 /*stride_c*/,
-              sizeof(int) * 3, 1 /*index_base*/, stack_size, NULL /*config*/,
-              omp_get_thread_num(), omp_get_num_threads());
-#else
-            libxs_gemm_index(LIBXS_DATATYPE(ELEM_TYPE), &transa, &transb, m, n, k,
-              &alpha, amat_hst, m, stack_hst + 0 /*stride_a*/,
-              bmat_hst, k, stack_hst + 1 /*stride_b*/,
-              &beta, gold_hst, m, stack_hst + 2 /*stride_c*/,
-              sizeof(int) * 3, 1 /*index_base*/, stack_size, NULL /*config*/);
-#endif
+#  endif
+          {
+            libxs_registry_t* host_registry = libxs_registry_create();
+            libxs_gemm_config_t host_config;
+            memset(&host_config, 0, sizeof(host_config));
+            libxs_gemm_dispatch(
+              &host_config, LIBXS_DATATYPE(ELEM_TYPE), transa, transb, m, n, k, m, k, m, &alpha, &beta, host_registry);
+            memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
+            for (r = 0; r < warmup; ++r) {
+#  if defined(_OPENMP)
+#    pragma omp parallel
+              libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
+                stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config, omp_get_thread_num(),
+                omp_get_num_threads());
+#  else
+              libxs_gemm_index(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
+                stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config);
+#  endif
+            }
+            memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
+            start = libxs_timer_tick();
+            for (r = 0; r < (nrepeat * nrepeat_smm); ++r) {
+#  if defined(_OPENMP)
+#    pragma omp parallel
+              libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
+                stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config, omp_get_thread_num(),
+                omp_get_num_threads());
+#  else
+              libxs_gemm_index(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
+                stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config);
+#  endif
+            }
+            libxs_gemm_release_registry(host_registry);
           }
           duration = libxs_timer_duration(start, libxs_timer_tick());
           perf_hst = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / duration;
           PRINTF("host: %.2g ms %.1f GFLOPS/s\n", 1000.0 * duration / (nrepeat * nrepeat_smm), perf_hst);
           if (EXIT_SUCCESS == result) {
-#if !defined(__OFFLOAD_UNIFIED_MEMORY) || !defined(DEDUPLICATE)
+#  if !defined(__OFFLOAD_UNIFIED_MEMORY) || !defined(DEDUPLICATE)
             CHECK(c_dbcsr_acc_memcpy_d2h(cmat_dev, cmat_hst, sizeof(ELEM_TYPE) * mn * nc, stream), &result, check);
             CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
-#endif
+#  endif
             if (EXIT_SUCCESS == result) {
               libxs_matdiff_t diff;
               result = libxs_matdiff(&diff, LIBXS_DATATYPE(ELEM_TYPE), mn, nc, gold_hst, cmat_hst, &mn, &mn);

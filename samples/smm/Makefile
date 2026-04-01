@@ -106,6 +106,10 @@ ifneq (,$(wildcard $(OUTDIR))) # still exists
 endif
 	@-rm -f $(GENHDR)
 
+.PHONY: reformat
+reformat: $(CSOURCS) $(wildcard $(INCDIR)/*.h)
+	$(SCRDIR)/tool_clangformat.sh -style=file:$(SRCDIR)/.clang-format -i $^
+
 .PHONY: deepclean
 deepclean: realclean
 	@-rm -f .make .state
