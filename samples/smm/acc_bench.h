@@ -12,20 +12,20 @@
 #include <libxs_macros.h>
 
 #if !defined(MIN)
-# define MIN(A, B) ((A) < (B) ? (A) : (B))
+#  define MIN(A, B) ((A) < (B) ? (A) : (B))
 #endif
 #if !defined(MAX)
-# define MAX(A, B) ((B) < (A) ? (A) : (B))
+#  define MAX(A, B) ((B) < (A) ? (A) : (B))
 #endif
 
 #if !defined(INLINE) && (defined(__cplusplus) || (defined(__STDC_VERSION__) && (199901L <= __STDC_VERSION__) /*C99*/))
-# define INLINE inline
+#  define INLINE inline
 #else
-# define INLINE
+#  define INLINE
 #endif
 
 #if !defined(MAX_KERNEL_DIM)
-# define MAX_KERNEL_DIM 80
+#  define MAX_KERNEL_DIM 80
 #endif
 
 #define INIT_MAT(ELEM_TYPE, SEED, MAT, M, N, SCALE) \

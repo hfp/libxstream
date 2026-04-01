@@ -15,19 +15,19 @@
 
 /* Inplace-transpose by default (corresponding environment variable exists also) */
 #if !defined(OPENCL_LIBSMM_TRANS_INPLACE) && 0
-# define OPENCL_LIBSMM_TRANS_INPLACE
+#  define OPENCL_LIBSMM_TRANS_INPLACE
 #endif
 #if !defined(OPENCL_LIBSMM_F32_OFF) && defined(__DBCSR_ACC) && 0
-# define OPENCL_LIBSMM_F32_OFF
+#  define OPENCL_LIBSMM_F32_OFF
 #endif
 #if !defined(OPENCL_LIBSMM_F32) && !defined(OPENCL_LIBSMM_F32_OFF)
-# define OPENCL_LIBSMM_F32
+#  define OPENCL_LIBSMM_F32
 #endif
 #if !defined(OPENCL_LIBSMM_F64) && !defined(OPENCL_LIBSMM_F64_OFF)
-# define OPENCL_LIBSMM_F64
+#  define OPENCL_LIBSMM_F64
 #endif
 #if !defined(OPENCL_LIBSMM_PFORMAT) && 1
-# define OPENCL_LIBSMM_PFORMAT 8
+#  define OPENCL_LIBSMM_PFORMAT 8
 #endif
 
 
