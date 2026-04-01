@@ -68,7 +68,8 @@ then
               -e "s/^__libxstream_MOD_libxstream_/libxstream_/")
             if [ "$(${SED} -n "/^LIBXSTREAM_[^.]/p" <<<"${SYMBOL}")" ] || \
                [ "$(${SED} -n "/^libxstream_[^.]/p" <<<"${SYMBOL}")" ] || \
-               [ "$(${SED} -n "/^c_dbcsr_acc_[^.]/p" <<<"${SYMBOL}")" ];
+               [ "$(${SED} -n "/^c_dbcsr_acc_[^.]/p" <<<"${SYMBOL}")" ] || \
+               [ "$(${SED} -n "/^offload[^.]/p" <<<"${SYMBOL}")" ];
             then
               echo "${SYMBOL}" >>${ABINEW}
             elif [ ! "$(${SED} <<<"${SYMBOL}" -n "/^__libxstream_MOD___/p")" ] && \
