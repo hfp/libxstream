@@ -44,6 +44,11 @@ PARAMS_WITHGPU := $(SRCDIR)/params/tune_multiply_$(WITH_GPU).csv
 PARAMS_DEFAULT := $(SRCDIR)/tune_multiply.csv
 PARAMS := $(if $(wildcard $(PARAMS_WITHGPU)),$(PARAMS_WITHGPU),$(wildcard $(PARAMS_DEFAULT)))
 
+PARAMDIR ?= $(SRCDIR)/params
+ifeq (,$(PARAMS))
+  PARAMS := $(wildcard $(PARAMDIR)/*.csv)
+endif
+
 # kernel source and generated header
 SCRDIR := $(DEPDIR)/scripts
 KRNELS := $(wildcard $(SRCDIR)/kernels/*.cl)
@@ -66,7 +71,7 @@ compile: $(OBJECTS)
 
 # generate embedded kernel header from .cl sources
 $(GENHDR): $(KRNELS) $(PARAMS) $(SCRDIR)/tool_opencl.sh Makefile $(LIBXSROOT)/Makefile.inc
-	$(SCRDIR)/tool_opencl.sh -I $(DEPDIR)/include $(KRNELS) $(PARAMS) $@
+	$(SCRDIR)/tool_opencl.sh $(KRNELS) $(PARAMS) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)

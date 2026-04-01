@@ -1,11 +1,11 @@
-/*------------------------------------------------------------------------------------------------*/
-/* Copyright (C) by the DBCSR developers group - All rights reserved                              */
-/* This file is part of the DBCSR library.                                                        */
-/*                                                                                                */
-/* For information on the license, see the LICENSE file.                                          */
-/* For further information please visit https://dbcsr.cp2k.org                                    */
-/* SPDX-License-Identifier: BSD-3-Clause                                                          */
-/*------------------------------------------------------------------------------------------------*/
+/******************************************************************************
+* Copyright (c) Intel Corporation - All rights reserved.                      *
+* This file is part of the LIBXSTREAM library.                                *
+*                                                                             *
+* For information on the license, see the LICENSE file.                       *
+* Further information: https://github.com/hfp/libxstream/                     *
+* SPDX-License-Identifier: BSD-3-Clause                                       *
+******************************************************************************/
 #include "../../../include/opencl/libxstream_atomics.h"
 
 #if !defined(AL) || (SM != SN) || (SM != BM) || (SN != SK) || (1 == BS)
