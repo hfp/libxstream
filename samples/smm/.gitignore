@@ -1,4 +1,4 @@
 opencl_kernels.h
-.with_gpu
+opentuner.log
 *.pdf
 *.txt
