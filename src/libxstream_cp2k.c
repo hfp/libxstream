@@ -253,16 +253,16 @@ void offload_mempool_stats_get(offload_mempool_stats_t* memstats) {
   if (EXIT_SUCCESS == libxs_malloc_pool_info(
         LIBXS_ATOMIC_LOAD(&offload_pool_hst, LIBXS_ATOMIC_RELAXED), &info))
   {
+    memstats->host_used = info.used;
     memstats->host_size = info.size;
-    memstats->host_used = info.size;
     memstats->host_peak = info.peak;
     memstats->host_mallocs = info.nmallocs;
   }
   if (EXIT_SUCCESS == libxs_malloc_pool_info(
         LIBXS_ATOMIC_LOAD(&offload_pool_dev, LIBXS_ATOMIC_RELAXED), &info))
   {
+    memstats->device_used = info.used;
     memstats->device_size = info.size;
-    memstats->device_used = info.size;
     memstats->device_peak = info.peak;
     memstats->device_mallocs = info.nmallocs;
   }
