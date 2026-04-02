@@ -539,11 +539,7 @@ $(OUTDIR)/$(PROJECT)-static.pc: $(OUTDIR)/$(PROJECT).$(SLIBEXT)
 	@echo "libdir=$(ALIAS_LIBDIR)" >>$@
 	@echo >>$@
 	@echo "Cflags: -I\$${includedir}" >>$@
-  ifneq (Windows_NT,$(UNAME))
-	@echo "Libs: -L\$${libdir} -l:$(PROJECT).$(SLIBEXT)" >>$@
-  else
-	@echo "Libs: -L\$${libdir} -lxsmm" >>$@
-  endif
+	@echo "Libs: -L\$${libdir} -l$(patsubst lib%,%,$(PROJECT))" >>$@
   ifneq (,$(LIBXS))
 	@echo "Requires.private: libxs-static" >>$@
   endif
@@ -566,7 +562,7 @@ $(OUTDIR)/$(PROJECT)-shared.pc: $(OUTDIR)/$(PROJECT).$(DLIBEXT)
 	@echo "libdir=$(ALIAS_LIBDIR)" >>$@
 	@echo >>$@
 	@echo "Cflags: -I\$${includedir}" >>$@
-	@echo "Libs: -L\$${libdir} -lxsmm" >>$@
+	@echo "Libs: -L\$${libdir} -l$(patsubst lib%,%,$(PROJECT))" >>$@
   ifneq (,$(LIBXS))
 	@echo "Requires.private: libxs" >>$@
   endif
