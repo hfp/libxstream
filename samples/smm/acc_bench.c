@@ -8,15 +8,17 @@
 /*------------------------------------------------------------------------------------------------*/
 #include "acc_libsmm.h"
 #include "acc_bench.h"
-#include <libxs_malloc.h>
-#include <libxs_timer.h>
-#include <libxs_hist.h>
-#include <libxs_math.h>
-#include <libxs_gemm.h>
-#include <libxs_mem.h>
-#include <string.h>
-#include <stdio.h>
-#include <math.h>
+
+#if defined(__LIBXS)
+#  include <libxs_malloc.h>
+#  include <libxs_timer.h>
+#  include <libxs_math.h>
+#  include <libxs_gemm.h>
+#else /* code depends on LIBXS */
+#  include <libxs_source.h>
+#  define __LIBXS
+#endif
+
 #if defined(_OPENMP)
 #  include <omp.h>
 #endif
@@ -29,14 +31,11 @@
     print_offset += print_buffer_result; \
   } while (0)
 
-#if !defined(DEDUPLICATE) && 0
-#  define DEDUPLICATE
+#if !defined(ALIGNMENT)
+#  define ALIGNMENT LIBXS_ALIGNMENT
 #endif
 #if !defined(ELEM_TYPE)
 #  define ELEM_TYPE double
-#endif
-#if !defined(ALIGNMENT)
-#  define ALIGNMENT LIBXS_ALIGNMENT
 #endif
 #if !defined(BATCHGRAIN)
 #  define BATCHGRAIN 100
@@ -47,17 +46,14 @@
 #if !defined(NRAND)
 #  define NRAND BATCHSIZE
 #endif
+#if !defined(DEDUPLICATE) && 0
+#  define DEDUPLICATE
+#endif
 #if !defined(NREPEAT)
 #  define NREPEAT 3
 #endif
 #if !defined(XREPEAT)
 #  define XREPEAT 66
-#endif
-#if !defined(TRANSPOSE)
-#  define TRANSPOSE
-#endif
-#if !defined(VALIDATE)
-#  define VALIDATE
 #endif
 #if !defined(WARMUP)
 #  define WARMUP 2
@@ -110,7 +106,7 @@ int main(int argc, char* argv[]) {
   const char* const env_nrepeat_h2d = getenv("NREPEAT_H2D");
   const int nrepeat_h2d = (NULL == env_nrepeat_h2d ? 1 : MAX(atoi(env_nrepeat_h2d), 1));
 #endif
-  double perf_h2d = 0, perf_dev = 0, perf_hst = 0;
+  double maxdiff = 0, perf_h2d = 0, perf_dev = 0, perf_hst = 0;
   const char* const env_check_h2d = getenv("CHECK_H2D");
   const char* const env_check_dev = getenv("CHECK_DEV");
   const char* const env_check_hst = getenv("CHECK_HST");
@@ -120,21 +116,15 @@ int main(int argc, char* argv[]) {
 #else
   const int nrepeat_smm = 1;
 #endif
-#if defined(VALIDATE)
-  double maxdiff = 0;
-#else
-  DBCSR_MARK_USED(check);
-#endif
   CHECK(libsmm_acc_init(), &result, check);
   if (EXIT_SUCCESS == result) {
     int ndevices = 0;
     result = c_dbcsr_acc_get_ndevices(&ndevices);
     if (EXIT_SUCCESS == result && 0 < ndevices) {
       const char* const env_device = getenv("DEVICE");
-      const char* const env_rank = (NULL != getenv("PMI_RANK") ? getenv("PMI_RANK") : getenv("OMPI_COMM_WORLD_LOCAL_RANK"));
-      const int rank = (NULL != env_rank ? atoi(env_rank) : -1);
+      const int nranks = libxs_nranks(), nrank = libxs_nrank();
       int device = ((NULL == env_device || '\0' == *env_device) ? 0 : atoi(env_device));
-      device = ((0 <= device && device < ndevices) ? (0 <= rank ? (rank % ndevices) : device) : -1);
+      device = ((0 <= device && device < ndevices) ? (1 < nranks ? (nrank % ndevices) : device) : -1);
       result = c_dbcsr_acc_set_active_device(device);
       if (EXIT_SUCCESS == result) {
         printf("Activated device%i (ndevices=%i)\n", device, ndevices);
@@ -190,10 +180,7 @@ int main(int argc, char* argv[]) {
       libxs_timer_tick_t start;
       int print_offset = 0;
       char print_buffer[1024] = "";
-#if defined(TRANSPOSE) && defined(VALIDATE)
-      double transpose = 0;
-#endif
-      double duration = 0;
+      double transpose = 0, duration = 0;
       const char* const env_batchsize_smm = getenv("BATCHSIZE_SMM");
       const int xrepeat = (0 != check ? NREPEAT : XREPEAT);
       int nrepeat = (0 < inr ? inr : xrepeat);
@@ -216,7 +203,7 @@ int main(int argc, char* argv[]) {
           else stack_size = (int)nelems;
         }
       }
-      else {
+      else { /* parse SMM_BATCHSIZE=batchsize,nrepfactor */
         i = strcspn(env_batchsize_smm, DELIMS);
         if (i < (int)sizeof(DELIMS)) {
           r = atoi(env_batchsize_smm + i + 1);
@@ -224,14 +211,14 @@ int main(int argc, char* argv[]) {
         }
         stack_size = atoi(env_batchsize_smm);
       }
-      if (0 >= stack_size) {
-        if (0 > stack_size) {
+      if (0 >= stack_size) { /* trigger default */
+        if (0 > stack_size) { /* randomize batchsize */
           const int rr = rnd[nok % NRAND], ss = -stack_size, bs = (1 < ss ? ss : BATCHSIZE);
           const int limit = (BATCHGRAIN < ss ? ((bs + BATCHGRAIN - 1) / BATCHGRAIN) : ss);
           stack_size = (rr % limit + 1) * BATCHGRAIN;
           nrepeat = MAX((BATCHSIZE * nrepeat + stack_size - 1) / stack_size, xrepeat);
         }
-        else stack_size = BATCHSIZE;
+        else stack_size = BATCHSIZE; /* plain default */
       }
       nc = (0 < inc ? MIN(inc, stack_size) : MAX(stack_size / 16, 1));
       na = (0 < ina ? ina : (10 * nc));
@@ -253,7 +240,7 @@ int main(int argc, char* argv[]) {
       CHECK(c_dbcsr_acc_host_mem_allocate((void**)(void*)&cmat_hst, sizeof(ELEM_TYPE) * mn * nc, stream), &result, check);
       CHECK(c_dbcsr_acc_host_mem_allocate((void**)(void*)&stack_hst, sizeof(int) * 3 * stack_size, stream), &result, check);
       CHECK(c_dbcsr_acc_host_mem_allocate((void**)(void*)&trans_hst, sizeof(int) * nb, stream), &result, check);
-      CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
+      CHECK(c_dbcsr_acc_stream_sync(stream), &result, check); /* ensure host-data is allocated */
       if (NULL != amat_hst && NULL != bmat_hst && NULL != trans_hst && NULL != stack_hst) {
         init_stack(stack_hst, stack_size, NRAND, rnd, mn, mk, kn, nc, na, nb);
 #if defined(_OPENMP)
@@ -310,7 +297,7 @@ int main(int argc, char* argv[]) {
       trans_dev = trans_hst;
       CHECK(c_dbcsr_acc_memset_zero(cmat_dev, 0 /*offset*/, sizeof(ELEM_TYPE) * mn * nc, stream), &result, check);
 #endif
-#if defined(TRANSPOSE) && defined(VALIDATE)
+      /* warmup execution and prebuild transpose-kernel */
       for (r = 0; r < warmup / 2; ++r) {
         CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), k, n, MAX_KERNEL_DIM, stream),
           &result, check);
@@ -323,7 +310,6 @@ int main(int argc, char* argv[]) {
         &result, check);
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
       transpose = libxs_timer_duration(start, libxs_timer_tick());
-#endif
       /* warmup execution and prebuild SMM-kernel */
       for (r = 0; r < warmup; ++r) {
         CHECK(libsmm_acc_process(stack_hst, stack_dev, stack_size, DBCSR_TYPE(ELEM_TYPE), amat_dev, bmat_dev, cmat_dev, m, n, k,
@@ -342,64 +328,47 @@ int main(int argc, char* argv[]) {
       duration = libxs_timer_duration(start, libxs_timer_tick());
       if (EXIT_SUCCESS == result) {
         if (0 < duration) {
-#if defined(TRANSPOSE) && defined(VALIDATE)
           PRINTF("transpose: %.2g ms %.1f GFLOPS/s\n", 1000.0 * (duration + transpose) / (nrepeat * nrepeat_smm),
             1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / (duration + transpose));
-#endif
           perf_dev = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / duration;
           PRINTF("device: %.2g ms %.1f GFLOPS/s\n", 1000.0 * duration / (nrepeat * nrepeat_smm), perf_dev);
         }
         else {
-#if defined(TRANSPOSE)
           PRINTF("transpose: 0 ms 0 GFLOPS/s\n");
-#endif
           PRINTF("device: 0 ms 0 GFLOPS/s\n");
         }
       }
-#if defined(VALIDATE)
       if (EXIT_SUCCESS == result) {
         ELEM_TYPE* const gold_hst = (ELEM_TYPE*)(0 != check ? libxs_malloc(NULL, sizeof(ELEM_TYPE) * mn * nc, 0) : NULL);
         if (NULL != gold_hst && NULL != amat_hst && NULL != bmat_hst && NULL != stack_hst) {
           const ELEM_TYPE alpha = 1, beta = 1;
-          const char transa = 'N';
-#  if defined(TRANSPOSE)
-          const char transb = 'N';
-#  else
-          const char transb = 'T';
-#  endif
-          {
-            libxs_registry_t* host_registry = libxs_registry_create();
-            libxs_gemm_config_t host_config;
-            memset(&host_config, 0, sizeof(host_config));
-            libxs_gemm_dispatch(
-              &host_config, LIBXS_DATATYPE(ELEM_TYPE), transa, transb, m, n, k, m, k, m, &alpha, &beta, host_registry);
-            memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
-            for (r = 0; r < warmup; ++r) {
-#  if defined(_OPENMP)
-#    pragma omp parallel
-              libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
-                stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config, omp_get_thread_num(),
-                omp_get_num_threads());
-#  else
-              libxs_gemm_index(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
-                stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config);
-#  endif
-            }
-            memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
-            start = libxs_timer_tick();
-            for (r = 0; r < (nrepeat * nrepeat_smm); ++r) {
-#  if defined(_OPENMP)
-#    pragma omp parallel
-              libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
-                stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config, omp_get_thread_num(),
-                omp_get_num_threads());
-#  else
-              libxs_gemm_index(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
-                stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config);
-#  endif
-            }
-            libxs_gemm_release_registry(host_registry);
+          const char transa = 'N', transb = 'N';
+          libxs_registry_t* host_registry = libxs_registry_create();
+          libxs_gemm_config_t host_config;
+          libxs_gemm_dispatch(
+            &host_config, LIBXS_DATATYPE(ELEM_TYPE), transa, transb, m, n, k, m, k, m, &alpha, &beta, host_registry);
+          memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
+          for (r = 0; r < warmup; ++r) {
+#if defined(_OPENMP)
+#  pragma omp parallel
+            libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
+              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config, omp_get_thread_num(),
+              omp_get_num_threads());
           }
+          memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
+          start = libxs_timer_tick();
+          for (r = 0; r < (nrepeat * nrepeat_smm); ++r) {
+#  if defined(_OPENMP)
+#    pragma omp parallel
+            libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
+              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config, omp_get_thread_num(),
+              omp_get_num_threads());
+#  else
+            libxs_gemm_index(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
+              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config);
+#  endif
+          }
+          libxs_gemm_release_registry(host_registry);
           duration = libxs_timer_duration(start, libxs_timer_tick());
           perf_hst = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / duration;
           PRINTF("host: %.2g ms %.1f GFLOPS/s\n", 1000.0 * duration / (nrepeat * nrepeat_smm), perf_hst);
@@ -464,14 +433,12 @@ int main(int argc, char* argv[]) {
       if (NULL == file && (0 == result || (0 > result && 0 == check))) break;
     }
   }
-  free(rnd);
+  free(rnd); /* release array of random numbers */
 #if !defined(__CUDA)
   CHECK(libsmm_acc_finalize(), NULL, check);
 #endif
   CHECK(c_dbcsr_acc_finalize(), NULL, check);
-#if defined(VALIDATE)
   if (1 < nok) printf("\ndiff.max: %g\n", maxdiff);
-#endif
   if (EXIT_SUCCESS == result) {
     if (NULL != env_check_h2d && 0 < perf_h2d) {
       const double check_h2d = atof(env_check_h2d);
