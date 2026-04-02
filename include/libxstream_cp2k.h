@@ -73,21 +73,6 @@ void offloadFreeHost(void* ptr);
 void offloadDeviceSynchronize(void);
 void offloadEnsureMallocHeapSize(size_t required_size);
 
-void* offload_mempool_host_malloc(size_t size);
-void* offload_mempool_device_malloc(size_t size);
-void offload_mempool_host_free(const void* memory);
-void offload_mempool_device_free(const void* memory);
-void offload_mempool_clear(void);
-
-typedef struct offload_mempool_stats_t {
-  uint64_t host_size, device_size;
-  uint64_t host_used, device_used;
-  uint64_t host_peak, device_peak;
-  uint64_t host_mallocs, device_mallocs;
-} offload_mempool_stats_t;
-
-void offload_mempool_stats_get(offload_mempool_stats_t* memstats);
-
 #if defined(__cplusplus)
 }
 #endif
