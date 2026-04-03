@@ -11,7 +11,8 @@
 # include <libxstream_opencl.h>
 
 
-LIBXSTREAM_API int libxstream_event_create(libxstream_event_t** event_p) {
+LIBXSTREAM_API int libxstream_event_create(libxstream_event_t** event_p)
+{
   int result = EXIT_SUCCESS;
   assert(NULL != libxstream_opencl_config.events && NULL != event_p);
   *event_p = libxs_pmalloc_lock(
@@ -22,7 +23,8 @@ LIBXSTREAM_API int libxstream_event_create(libxstream_event_t** event_p) {
 }
 
 
-LIBXSTREAM_API int libxstream_event_destroy(libxstream_event_t* event) {
+LIBXSTREAM_API int libxstream_event_destroy(libxstream_event_t* event)
+{
   int result = EXIT_SUCCESS;
   if (NULL != event) {
     cl_event clevent;
@@ -31,7 +33,8 @@ LIBXSTREAM_API int libxstream_event_destroy(libxstream_event_t* event) {
     clevent = event->cl_evt;
     event->cl_evt = NULL;
     LIBXS_ATOMIC_RELEASE(libxstream_opencl_config.lock_event, LIBXS_ATOMIC_LOCKORDER);
-    libxs_pfree_lock(event, (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
+    libxs_pfree_lock(
+      event, (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
     if (NULL != clevent) {
       result = clReleaseEvent(clevent);
     }
@@ -40,7 +43,8 @@ LIBXSTREAM_API int libxstream_event_destroy(libxstream_event_t* event) {
 }
 
 
-LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t* event) { /* wait for an event (device-side) */
+LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t* event)
+{ /* wait for an event (device-side) */
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = NULL;
   cl_event clevent = NULL;
@@ -76,7 +80,8 @@ LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, lib
 }
 
 
-LIBXSTREAM_API int libxstream_event_record(libxstream_event_t* event, libxstream_stream_t* stream) {
+LIBXSTREAM_API int libxstream_event_record(libxstream_event_t* event, libxstream_stream_t* stream)
+{
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = NULL;
   cl_event clevent = NULL, clevent_result = NULL;
@@ -108,7 +113,8 @@ LIBXSTREAM_API int libxstream_event_record(libxstream_event_t* event, libxstream
 }
 
 
-LIBXSTREAM_API int libxstream_event_query(libxstream_event_t* event, int* has_occurred) {
+LIBXSTREAM_API int libxstream_event_query(libxstream_event_t* event, int* has_occurred)
+{
   cl_int status = CL_COMPLETE;
   cl_event clevent;
   int result;
@@ -131,7 +137,8 @@ LIBXSTREAM_API int libxstream_event_query(libxstream_event_t* event, int* has_oc
 }
 
 
-LIBXSTREAM_API int libxstream_event_sync(libxstream_event_t* event) { /* waits on the host-side */
+LIBXSTREAM_API int libxstream_event_sync(libxstream_event_t* event)
+{ /* waits on the host-side */
   int result = EXIT_SUCCESS;
   cl_event clevent;
   assert(NULL != event);
