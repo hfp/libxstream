@@ -402,6 +402,10 @@ endif
 deepclean: realclean
 	@find . -type f \( -name .make -or -name .state \) -exec rm {} \;
 
+.PHONY: reformat
+reformat: $(SRCFILES) $(HEADERS_MAIN) $(wildcard $(ROOTINC)/$(PROJECT)_macros.h $(ROOTINC)/opencl/*.h)
+	$(ROOTSCR)/tool_clangformat.sh -style=file:$(ROOTDIR)/.clang-format -i $^
+
 .PHONY: distclean
 distclean: deepclean
 	@find $(ROOTDIR)/$(SPLDIR) $(ROOTDIR)/$(TSTDIR) -type f -name Makefile -exec $(FLOCK) {} \
