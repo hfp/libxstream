@@ -151,11 +151,7 @@
   } while (0)
 
 
-#if defined(__cplusplus)
-extern "C" {
-#endif
-
-int libxstream_stream_priority_range(int* least, int* greatest);
+LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest);
 
 /** Rich type denoting an error. */
 typedef struct libxstream_opencl_error_t {
@@ -295,57 +291,57 @@ typedef struct libxstream_opencl_config_t {
 } libxstream_opencl_config_t;
 
 /** Global configuration setup in libxstream_init. */
-extern libxstream_opencl_config_t libxstream_opencl_config;
+LIBXSTREAM_APIVAR_PUBLIC(libxstream_opencl_config_t libxstream_opencl_config);
 
 /** If buffers are hinted for non-concurrent writes aka "OpenCL constant". */
-int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo);
+LIBXSTREAM_API int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo);
 /** Determines host-pointer registration (for modification). Returns NULL if memory is SVM/USM. */
-libxstream_opencl_info_memptr_t* libxstream_opencl_info_hostptr(const void* memory);
+LIBXSTREAM_API libxstream_opencl_info_memptr_t* libxstream_opencl_info_hostptr(const void* memory);
 /**
  * Determines device-pointer registration (for modification; internal). The offset is measured in elsize.
  * Returns NULL if memory is SVM/USM (offset is zero in this case).
  */
-libxstream_opencl_info_memptr_t* libxstream_opencl_info_devptr_modify(
+LIBXSTREAM_API libxstream_opencl_info_memptr_t* libxstream_opencl_info_devptr_modify(
   libxs_lock_t* lock, void* memory, size_t elsize, const size_t* amount, size_t* offset);
 /** Determines device-pointer registration for info/ro (lock-control); offset is measured in elsize. */
-int libxstream_opencl_info_devptr_lock(libxstream_opencl_info_memptr_t* info, libxs_lock_t* lock, const void* memory,
+LIBXSTREAM_API int libxstream_opencl_info_devptr_lock(libxstream_opencl_info_memptr_t* info, libxs_lock_t* lock, const void* memory,
   size_t elsize, const size_t* amount, size_t* offset);
 /** Determines device-pointer registration for info/ro; offset is measured in elsize. */
-int libxstream_opencl_info_devptr(
+LIBXSTREAM_API int libxstream_opencl_info_devptr(
   libxstream_opencl_info_memptr_t* info, const void* memory, size_t elsize, const size_t* amount, size_t* offset);
 /** Finds an existing stream for the given thread-ID (or NULL). */
-const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, int thread_id);
+LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, int thread_id);
 /** Determines default-stream (see libxstream_opencl_device_t::stream). */
-const libxstream_opencl_stream_t* libxstream_opencl_stream_default(void);
+LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream_default(void);
 /** Like libxstream_mem_zero, but supporting an arbitrary value used as initialization pattern. */
-int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, libxstream_stream_t* stream);
+LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, libxstream_stream_t* stream);
 /** Amount of device memory; local memory is only non-zero if separate from global. */
-int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
+LIBXSTREAM_API int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
 /** Get device-ID for given device, and optionally global device-ID. */
-int libxstream_opencl_device_id(cl_device_id device, int* device_id, int* global_id);
+LIBXSTREAM_API int libxstream_opencl_device_id(cl_device_id device, int* device_id, int* global_id);
 /** Confirm the vendor of the given device. */
-int libxstream_opencl_device_vendor(cl_device_id device, const char vendor[], int use_platform_name);
+LIBXSTREAM_API int libxstream_opencl_device_vendor(cl_device_id device, const char vendor[], int use_platform_name);
 /** Capture or calculate UID based on the device-name. */
-int libxstream_opencl_device_uid(cl_device_id device, const char devname[], unsigned int* uid);
+LIBXSTREAM_API int libxstream_opencl_device_uid(cl_device_id device, const char devname[], unsigned int* uid);
 /** Based on the device-ID, return the device's UID (capture or calculate), device name, and platform name. */
-int libxstream_opencl_device_name(
+LIBXSTREAM_API int libxstream_opencl_device_name(
   cl_device_id device, char name[], size_t name_maxlen, char platform[], size_t platform_maxlen, int cleanup);
 /** Return the OpenCL support-level for the given device. */
-int libxstream_opencl_device_level(
+LIBXSTREAM_API int libxstream_opencl_device_level(
   cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[16], cl_device_type* type);
 /** Check if given device supports the extensions. */
-int libxstream_opencl_device_ext(cl_device_id device, const char* const extnames[], int num_exts);
+LIBXSTREAM_API int libxstream_opencl_device_ext(cl_device_id device, const char* const extnames[], int num_exts);
 /** Create context for given device. */
-int libxstream_opencl_create_context(cl_device_id device_id, cl_context* context);
+LIBXSTREAM_API int libxstream_opencl_create_context(cl_device_id device_id, cl_context* context);
 /** Internal variant of libxstream_device_set_active. */
-int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id);
+LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id);
 /** Assemble flags to support atomic operations. */
-int libxstream_opencl_flags_atomics(const libxstream_opencl_device_t* devinfo, libxstream_opencl_atomic_fp_t kind,
+LIBXSTREAM_API int libxstream_opencl_flags_atomics(const libxstream_opencl_device_t* devinfo, libxstream_opencl_atomic_fp_t kind,
   const char* exts[], size_t* exts_maxlen, char flags[], size_t flags_maxlen);
 /** Assemble given defines and internal definitions. */
-int libxstream_opencl_defines(const char defines[], char buffer[], size_t buffer_size, int cleanup);
+LIBXSTREAM_API int libxstream_opencl_defines(const char defines[], char buffer[], size_t buffer_size, int cleanup);
 /** Combines build-params, build-options, and extra flags. */
-int libxstream_opencl_kernel_flags(const char build_params[], const char build_options[], const char try_options[],
+LIBXSTREAM_API int libxstream_opencl_kernel_flags(const char build_params[], const char build_options[], const char try_options[],
   cl_program program, char buffer[], size_t buffer_size);
 /**
  * Build program from source with given build_params and build_options.
@@ -362,30 +358,26 @@ int libxstream_opencl_kernel_flags(const char build_params[], const char build_o
  * for the given extension names (only for OpenCL source, i.e. source_kind < 2).
  * Caller must release the program with clReleaseProgram.
  */
-int libxstream_opencl_program(size_t source_kind, const char source[], const char name[], const char build_params[],
+LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char source[], const char name[], const char build_params[],
   const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], size_t num_exts,
   cl_program* program);
 /** Extract a kernel from a built program. */
-int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[], cl_kernel* kernel);
+LIBXSTREAM_API int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[], cl_kernel* kernel);
 /** Convenience: build program, extract kernel, release program. */
-int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[], const char build_params[],
+LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[], const char build_params[],
   const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], size_t num_exts,
   cl_kernel* kernel);
 /** Per-thread variant of libxstream_device_sync. */
-int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id);
+LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id);
 /** To support USM, call this function for pointer arguments instead of clSetKernelArg. */
-int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value);
+LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value);
 
 /** Measure time in seconds for the given event. */
-double libxstream_opencl_duration(cl_event event, int* result_code);
+LIBXSTREAM_API double libxstream_opencl_duration(cl_event event, int* result_code);
 
 /** Map a raw cl_int error code to a human-readable string. */
-const char* libxstream_opencl_strerror(cl_int err);
+LIBXSTREAM_API const char* libxstream_opencl_strerror(cl_int err);
 /** Consume and clear the last error. */
-int libxstream_opencl_error_consume(void);
-
-#if defined(__cplusplus)
-}
-#endif
+LIBXSTREAM_API int libxstream_opencl_error_consume(void);
 
 #endif /*LIBXSTREAM_OPENCL_H*/

@@ -111,9 +111,3 @@ offloadStreamCreate
 offloadStreamDestroy
 offloadStreamSynchronize
 offloadStreamWaitEvent
-offload_mempool_clear
-offload_mempool_device_free
-offload_mempool_device_malloc
-offload_mempool_host_free
-offload_mempool_host_malloc
-offload_mempool_stats_get
