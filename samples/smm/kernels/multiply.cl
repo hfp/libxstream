@@ -20,15 +20,15 @@
 
 #if defined(SLM_A)
 # if (1 != BK || BM < SM || 1 != BN)
-#   define AMK(M, K) amk[M][K]
+#  define AMK(M, K) amk[M][K]
 # else
-#   define AMK(M, K) amk[M]
+#  define AMK(M, K) amk[M]
 # endif
 #elif defined(REG_A)
 # if (1 != BK)
-#   define AMK(M, K) amk[K]
+#  define AMK(M, K) amk[K]
 # else
-#   define AMK(M, K) amk[M]
+#  define AMK(M, K) amk[M]
 # endif
 #else
 # define AMK(M, K) ADX(M, K)
@@ -37,9 +37,9 @@
 # define BNK(N, K) bnk[N][K]
 #elif defined(REG_B)
 # if (BM < SM && 1 != BN)
-#   define BNK(N, K) bnk[N][K]
+#  define BNK(N, K) bnk[N][K]
 # else
-#   define BNK(N, K) bnk[K]
+#  define BNK(N, K) bnk[K]
 # endif
 #else
 # define BNK(N, K) BDX(K, N)
@@ -104,18 +104,18 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
   T amk[BM];
 # endif
 # if defined(REG_B) && !defined(SLM_B)
-#   if (1 != BN)
+#  if (1 != BN)
   T bnk[BN][SK]; /* rows */
-#   else
+#  else
   T bnk[SK]; /* row */
-#   endif
+#  endif
 # endif
 # if !defined(SLM_C) && (1 < BS)
-#   if (1 != BN)
+#  if (1 != BN)
   T cnm[BN][BM]; /* general tile */
-#   else
+#  else
   T cnm[BM]; /* column-block */
-#   endif
+#  endif
 # endif
   const int m0 = (idx / NBN) * BM, n0 = (idx % NBN) * BN;
 #else
@@ -141,10 +141,10 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
   local T cnm[SN][SM + SLM_C - 1]; /* tile in SLM */
   UNROLL_AUTO for (SINT n = (SINT)idx; n < SN; n += WG) { UNROLL_FORCE(SM) for (SINT m = 0; m < SM; ++m) cnm[n][m] = ZERO; }
 # elif (BM < SM || 1 != BN)
-#   if (1 != BN)
+#  if (1 != BN)
   UNROLL(BN)
   for (SINT bn = 0; bn < BN; ++bn)
-#   endif
+#  endif
   {
     UNROLL_FORCE(BM) for (SINT bm = 0; bm < BM; ++bm) CNM(bn, bm) = ZERO;
   }
@@ -226,16 +226,16 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
       UNROLL(SK) for (SINT k = 0; k < SK; ++k) {
 # if (BM < SM || 1 != BN)
         SINT bn = 0;
-#   if (1 != BN)
+#  if (1 != BN)
         UNROLL_FORCE(BN)
         for (; bn < BN; ++bn)
-#   endif
+#  endif
         {
-#   if (SN % BN)
+#  if (SN % BN)
           const int n = min(bn + n0, SN - 1);
-#   else
+#  else
           const int n = bn + n0;
-#   endif
+#  endif
           BNK(bn, k) = BDX(k, n);
         }
 # else
@@ -253,186 +253,186 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #if (BM < SM || 1 != BN)
     { /* calculate result-tile using general tiles */
 # if defined(REG_A) && !defined(SLM_A) && (1 != BK)
-#   if (1 == BS)
+#  if (1 == BS)
       T cnm[BN]; /* row */
       UNROLL_FORCE(BN) for (SINT n = 0; n < BN; ++n) cnm[n] = ZERO;
-#   endif
-#   if (SM % BM)
+#  endif
+#  if (SM % BM)
       UNROLL(BM)
       for (SINT bm = 0, m = m0; bm < BM && m < SM; m = ++bm + m0)
-#   else
+#  else
       UNROLL(BM)
       for (SINT bm = 0, m = m0; bm < BM; m = ++bm + m0)
-#   endif
+#  endif
       { /* general BK, A in registers */
         SINT bn = 0;
         UNROLL_FORCE(SK) for (SINT k = 0; k < SK; ++k) amk[k] = ADX(m, k);
-#   if (1 != BN)
+#  if (1 != BN)
         UNROLL(BN)
         for (; bn < BN; ++bn)
-#   endif
+#  endif
         {
-#   if (SN % BN) || (defined(SLM_C) && (1 < BS)) || !defined(REG_B)
+#  if (SN % BN) || (defined(SLM_C) && (1 < BS)) || !defined(REG_B)
           const int n = bn + n0;
-#   endif
-#   if (SN % BN)
+#  endif
+#  if (SN % BN)
           if (n < SN) /* n < SN */
-#   endif
+#  endif
           {
-#   if defined(SLM_C) && (1 < BS)
+#  if defined(SLM_C) && (1 < BS)
             const int mc = m, nc = n;
-#   elif (1 < BS)
+#  elif (1 < BS)
             const int mc = bm, nc = bn;
-#   else
+#  else
             const int mc = bn, nc = idx;
-#   endif
+#  endif
             UNROLL_FORCE(SK) for (SINT k = 0; k < SK; ++k) {
               CNM(nc, mc) = MAD(AMK(m, k),
-#   if defined(REG_B)
+#  if defined(REG_B)
                 BNK(bn, k),
-#   else
+#  else
                 BNK(n, k),
-#   endif
+#  endif
                 CNM(nc, mc));
             }
           }
         }
-#   if (1 == BS)
+#  if (1 == BS)
         bn = 0;
-#     if (1 != BN)
+#    if (1 != BN)
         UNROLL(BN)
         for (; bn < BN; ++bn)
-#     endif
+#    endif
         {
-#     if defined(ATOMIC_INC_NZ)
+#    if defined(ATOMIC_INC_NZ)
           if (ZERO != CNM(idx, bn))
-#     endif
+#    endif
           {
             ACCUMULATE(&CDX(m, bn + n0), CNM(idx, bn));
             CNM(idx, bn) = ZERO; /* reset */
           }
         }
-#   endif
+#  endif
       }
 # elif (1 == BK)
-#   if (1 == BS)
+#  if (1 == BS)
       T cnm[BM]; /* column-block */
       UNROLL_FORCE(BM) for (SINT m = 0; m < BM; ++m) cnm[m] = ZERO;
-#   endif
+#  endif
       UNROLL(SK) for (SINT k = 0; k < SK; ++k) {
-#   if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS) || (1 != BN)
+#  if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS) || (1 != BN)
         SINT bn = 0;
-#   endif
-#   if defined(REG_A) && !defined(SLM_A)
+#  endif
+#  if defined(REG_A) && !defined(SLM_A)
         UNROLL_FORCE(BM) for (SINT bm = 0; bm < BM; ++bm) amk[bm] = ADX(bm + m0, k);
-#   endif
-#   if (1 != BN)
+#  endif
+#  if (1 != BN)
         UNROLL(BN)
         for (; bn < BN; ++bn)
-#   endif
+#  endif
         { /* BK=1 */
-#   if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
+#  if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
           const int n = bn + n0;
-#   endif
-#   if (SN % BN)
+#  endif
+#  if (SN % BN)
           if (n < SN) /* n < SN */
-#   endif
+#  endif
           {
-#   if defined(REG_B)
+#  if defined(REG_B)
             const T b = BNK(bn, k);
-#   else
+#  else
             const T b = BNK(n, k);
-#   endif
-#   if (SM % BM)
+#  endif
+#  if (SM % BM)
             UNROLL(BM)
             for (SINT bm = 0, m = m0; bm < BM && m < SM; m = ++bm + m0)
-#   else
+#  else
             UNROLL_FORCE(BM)
             for (SINT bm = 0, m = m0; bm < BM; m = ++bm + m0)
-#   endif
+#  endif
             {
-#   if defined(REG_A) && !defined(SLM_A)
+#  if defined(REG_A) && !defined(SLM_A)
               const T a = AMK(bm, k);
-#   else
+#  else
               const T a = AMK(m, k);
-#   endif
-#   if defined(SLM_C) && (1 < BS)
+#  endif
+#  if defined(SLM_C) && (1 < BS)
               CNM(n, m) = MAD(a, b, CNM(n, m));
-#   else
+#  else
               CNM(bn, bm) = MAD(a, b, CNM(bn, bm));
-#   endif
+#  endif
             }
-#   if (1 == BS)
+#  if (1 == BS)
             UNROLL(BM) for (SINT bm = 0; bm < BM; ++bm) {
-#     if defined(ATOMIC_INC_NZ)
+#    if defined(ATOMIC_INC_NZ)
               if (ZERO != CNM(idx, bm))
-#     endif
+#    endif
               {
                 ACCUMULATE(&CDX(bm + m0, n), CNM(idx, bm));
                 CNM(idx, bm) = ZERO; /* reset */
               }
             }
-#   endif
+#  endif
           }
         }
       }
 # else /* general BK */
     SINT bn = 0;
-#   if (1 != BN)
+#  if (1 != BN)
     UNROLL(BN)
     for (; bn < BN; ++bn)
-#   endif
+#  endif
     {
-#   if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
+#  if (SN % BN) || !defined(REG_B) || (defined(SLM_C) && (1 < BS)) || (1 == BS)
       const int n = bn + n0;
-#   endif
-#   if (SN % BN)
+#  endif
+#  if (SN % BN)
       if (n < SN) /* n < SN */
-#   endif
+#  endif
       { /* general BK */
-#   if (1 == BS)
+#  if (1 == BS)
         T cnm[BM]; /* column-block */
         UNROLL_FORCE(BM) for (SINT m = 0; m < BM; ++m) cnm[m] = ZERO;
-#   endif
-#   if (SM % BM)
+#  endif
+#  if (SM % BM)
         UNROLL(BM)
         for (SINT bm = 0, m = m0; bm < BM && m < SM; m = ++bm + m0)
-#   else
+#  else
         UNROLL(BM)
         for (SINT bm = 0, m = m0; bm < BM; m = ++bm + m0)
-#   endif
+#  endif
         {
-#   if defined(SLM_C) && (1 < BS)
-#     if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
+#  if defined(SLM_C) && (1 < BS)
+#    if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
           const int mc = m, nc = n;
-#     else
+#    else
           const int mc = m;
-#     endif
-#   else
-#     if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
+#    endif
+#  else
+#    if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
           const int mc = bm, nc = bn;
-#     else
+#    else
           const int mc = bm;
-#     endif
-#   endif
-#   if defined(REG_B)
+#    endif
+#  endif
+#  if defined(REG_B)
           const int nb = bn;
-#   else
+#  else
           const int nb = n;
-#   endif
+#  endif
           UNROLL_FORCE(SK) for (SINT k = 0; k < SK; ++k) CNM(nc, mc) = MAD(AMK(m, k), BNK(nb, k), CNM(nc, mc));
         }
-#   if (1 == BS)
+#  if (1 == BS)
         UNROLL(BM) for (SINT bm = 0; bm < BM; ++bm) {
-#     if defined(ATOMIC_INC_NZ)
+#    if defined(ATOMIC_INC_NZ)
           if (ZERO != CNM(idx, bm))
-#     endif
+#    endif
           {
             ACCUMULATE(&CDX(bm + m0, n), CNM(idx, bm));
             CNM(idx, bm) = ZERO; /* reset */
           }
         }
-#   endif
+#  endif
       }
     }
 # endif
@@ -446,120 +446,120 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 # if (1 == BK)
       UNROLL_OUTER(SK) for (SINT k = 0; k < SK; ++k) {
         const T b = BNK(idx, k);
-#   if defined(SLM_A)
-#     if (WRK != SM)
+#  if defined(SLM_A)
+#    if (WRK != SM)
         UNROLL_AUTO for (SINT m = (SINT)idx; m < SM; m += WRK) amk[m] = ADX(m, k);
-#     else
+#    else
         amk[idx] = ADX(idx, k);
-#     endif
-#   elif defined(REG_A)
+#    endif
+#  elif defined(REG_A)
         UNROLL_FORCE(SM) for (SINT m = 0; m < SM; ++m) amk[m] = ADX(m, k);
-#   endif
-#   if defined(BARRIER) && (MAX(1, SG) < WG) && defined(SLM_A)
+#  endif
+#  if defined(BARRIER) && (MAX(1, SG) < WG) && defined(SLM_A)
         BARRIER(CLK_LOCAL_MEM_FENCE);
-#   endif
-#   if defined(ACC_OPENCL_VERSION) && (200 /*2.0*/ <= ACC_OPENCL_VERSION) && (!defined(GPU) || (0 != GPU)) && !defined(SLM_A) && \
+#  endif
+#  if defined(ACC_OPENCL_VERSION) && (200 /*2.0*/ <= ACC_OPENCL_VERSION) && (!defined(GPU) || (0 != GPU)) && !defined(SLM_A) && \
       !defined(REG_A) && (WRK == SM) && (SM <= SG || SM <= WG) /* use ACC_OPENCL_VERSION rather than ACC_OPENCL_C_VERSION */
         const T a = AMK(idx, k);
         UNROLL_FORCE(SM) for (SINT m = 0; m < SM; ++m) {
-#     if (SM <= SG)
+#    if (SM <= SG)
           CNM(idx, m) = MAD(sub_group_broadcast(a, m), b, CNM(idx, m)); /* size of subgroup is sufficient */
-#     else
+#    else
           CNM(idx, m) = MAD(work_group_broadcast(a, m), b, CNM(idx, m)); /* size of workgroup is sufficient */
-#     endif
+#    endif
         }
-#   else
+#  else
         UNROLL_FORCE(SM) for (SINT m = 0; m < SM; ++m) CNM(idx, m) = MAD(AMK(m, k), b, CNM(idx, m)); /* fallback */
-#   endif
-#   if defined(BARRIER) && (MAX(1, SG) < WG) && defined(SLM_A)
+#  endif
+#  if defined(BARRIER) && (MAX(1, SG) < WG) && defined(SLM_A)
         BARRIER(CLK_LOCAL_MEM_FENCE);
-#   endif
+#  endif
       }
-#   if (1 == BS)
+#  if (1 == BS)
       UNROLL(SM) for (SINT m = 0; m < SM; ++m) {
-#     if defined(ATOMIC_INC_NZ)
+#    if defined(ATOMIC_INC_NZ)
         if (ZERO != CNM(idx, m))
-#     endif
+#    endif
         {
           ACCUMULATE(&CDX(m, idx), CNM(idx, m));
           CNM(idx, m) = ZERO; /* reset */
         }
       }
-#   endif
+#  endif
 # else
       SINT m = 0, u;
-#   if (1 == UM)
+#  if (1 == UM)
       UNROLL_OUTER(SM)
-#   else
+#  else
       UNROLL_AUTO
-#   endif
+#  endif
       for (; m < (SM - UM + 1); m += UM) {
         u = 0;
-#   if (1 < UM)
+#  if (1 < UM)
         UNROLL(UM)
         for (; u < UM; ++u)
-#   endif
+#  endif
         {
           const int um = u + m;
-#   if (1 < BS)
+#  if (1 < BS)
           const int vm = um;
-#   else
+#  else
           const int vm = u;
-#   endif
-#   if defined(REG_A) && !defined(SLM_A)
+#  endif
+#  if defined(REG_A) && !defined(SLM_A)
           UNROLL_FORCE(SK) for (SINT k = 0; k < SK; ++k) amk[k] = ADX(um, k);
-#   endif
+#  endif
           UNROLL_FORCE(SK) for (SINT k = 0; k < SK; ++k) { CNM(idx, vm) = MAD(AMK(um, k), BNK(idx, k), CNM(idx, vm)); }
         }
-#   if (1 == BS)
+#  if (1 == BS)
         u = 0;
-#     if (1 < UM)
+#    if (1 < UM)
         UNROLL(UM)
         for (; u < UM; ++u)
-#     endif
-#     if defined(ATOMIC_INC_NZ)
+#    endif
+#    if defined(ATOMIC_INC_NZ)
           if (ZERO != CNM(idx, u))
-#     endif
+#    endif
           {
             ACCUMULATE(&CDX(u + m, idx), CNM(idx, u));
             CNM(idx, u) = ZERO; /* reset */
           }
-#   endif
+#  endif
       }
-#   if (0 < VM)
+#  if (0 < VM)
       /* calculate remainder */
       u = 0;
-#     if (1 < VM)
+#    if (1 < VM)
       UNROLL(VM)
       for (; u < VM; ++u)
-#     endif
+#    endif
       {
         const int um = u + m;
-#     if (1 < BS)
+#    if (1 < BS)
         const int vm = um;
-#     else
+#    else
         const int vm = u;
-#     endif
-#     if defined(REG_A) && !defined(SLM_A)
+#    endif
+#    if defined(REG_A) && !defined(SLM_A)
         UNROLL_FORCE(SK) for (SINT k = 0; k < SK; ++k) amk[k] = ADX(um, k);
-#     endif
+#    endif
         UNROLL_FORCE(SK) for (SINT k = 0; k < SK; ++k) { CNM(idx, vm) = MAD(AMK(um, k), BNK(idx, k), CNM(idx, vm)); }
       }
-#     if (1 == BS)
+#    if (1 == BS)
       u = 0;
-#       if (1 < VM)
+#      if (1 < VM)
       UNROLL(VM)
       for (; u < VM; ++u)
-#       endif
-#       if defined(ATOMIC_INC_NZ)
+#      endif
+#      if defined(ATOMIC_INC_NZ)
         if (ZERO != CNM(idx, u))
-#       endif
+#      endif
         {
           ACCUMULATE(&CDX(u + m, idx), CNM(idx, u));
           CNM(idx, u) = ZERO; /* reset */
         }
-#     endif
-#   endif
+#    endif
+#  endif
 # endif
     }
 #endif
@@ -571,40 +571,40 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 # if (BM < SM || 1 != BN)
     { /* atomically commit C-tile to global memory */
       SINT bn = 0;
-#   if (1 != BN)
+#  if (1 != BN)
       UNROLL(BN)
       for (; bn < BN; ++bn)
-#   endif
+#  endif
       {
         const int n = bn + n0;
-#   if (SN % BN)
+#  if (SN % BN)
         if (n < SN) /* n < SN */
-#   endif
+#  endif
         {
-#   if (SM % BM)
+#  if (SM % BM)
           UNROLL(BM)
           for (SINT bm = 0, m = m0; bm < BM && m < SM; m = ++bm + m0)
-#   else
+#  else
           UNROLL_FORCE(BM)
           for (SINT bm = 0, m = m0; bm < BM; m = ++bm + m0)
-#   endif
+#  endif
           {
-#   if defined(SLM_C)
-#     if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
+#  if defined(SLM_C)
+#    if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
             const int mc = m, nc = n;
-#     else
+#    else
             const int mc = m;
-#     endif
-#   else
-#     if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
+#    endif
+#  else
+#    if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
             const int mc = bm, nc = bn;
-#     else
+#    else
             const int mc = bm;
-#     endif
-#   endif
-#   if defined(ATOMIC_INC_NZ)
+#    endif
+#  endif
+#  if defined(ATOMIC_INC_NZ)
             if (ZERO != CNM(nc, mc))
-#   endif
+#  endif
             {
               ACCUMULATE(&CDX(m, n), CNM(nc, mc));
               CNM(nc, mc) = ZERO; /* reset */
@@ -615,31 +615,31 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 # else
     { /* atomically commit C-column to global memory */
       SINT m = 0;
-#   if defined(ATOMIC_ADD2_GLOBAL)
+#  if defined(ATOMIC_ADD2_GLOBAL)
       UNROLL_AUTO for (; m < (SM - 1); m += 2) {
-#     if defined(ATOMIC_INC_NZ)
+#    if defined(ATOMIC_INC_NZ)
         if (ZERO != CNM(idx, m) && ZERO != CNM(idx, m + 1))
-#     endif
+#    endif
         {
           const float2 r2 = (float2)(CNM(idx, m), CNM(idx, m + 1));
           ATOMIC_ADD2_GLOBAL(&CDX(m, idx), r2);
           CNM(idx, m) = CNM(idx, m + 1) = ZERO; /* reset */
         }
       }
-#   else
+#  else
       UNROLL(SM)
-#   endif
-#   if !defined(ATOMIC_ADD2_GLOBAL) || (SM & 1)
+#  endif
+#  if !defined(ATOMIC_ADD2_GLOBAL) || (SM & 1)
       for (; m < SM; ++m) {
-#     if defined(ATOMIC_INC_NZ)
+#    if defined(ATOMIC_INC_NZ)
         if (ZERO != CNM(idx, m))
-#     endif
+#    endif
         {
           ACCUMULATE(&CDX(m, idx), CNM(idx, m));
           CNM(idx, m) = ZERO; /* reset */
         }
       }
-#   endif
+#  endif
 # endif
       /* next iteration */
       c0 = c1;

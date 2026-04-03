@@ -60,7 +60,8 @@ __attribute__((overloadable)) T atomic_add(GLOBAL_VOLATILE(T) *, T);
 
 #if !defined(cl_intel_global_float_atomics) || (2 == TAN /*libxstream_opencl_atomic_fp_64*/)
 # if defined(ATOMIC32_ADD64)
-__attribute__((always_inline)) inline void atomic32_add64_global(GLOBAL_VOLATILE(double) * dst, double inc) {
+__attribute__((always_inline)) inline void atomic32_add64_global(GLOBAL_VOLATILE(double) * dst, double inc)
+{
   *dst += inc; /* TODO */
 }
 # endif
@@ -69,7 +70,8 @@ __attribute__((always_inline)) inline void atomic32_add64_global(GLOBAL_VOLATILE
 
 #if !defined(cl_intel_global_float_atomics) || (2 == TAN /*libxstream_opencl_atomic_fp_64*/)
 # if defined(CMPXCHG)
-__attribute__((always_inline)) inline void atomic_add_global_cmpxchg(GLOBAL_VOLATILE(T) * dst, T inc) {
+__attribute__((always_inline)) inline void atomic_add_global_cmpxchg(GLOBAL_VOLATILE(T) * dst, T inc)
+{
 #   if !defined(ATOMIC32_ADD64)
   union {
     T f;
@@ -96,7 +98,8 @@ __attribute__((always_inline)) inline void atomic_add_global_cmpxchg(GLOBAL_VOLA
 
 #if !defined(cl_intel_global_float_atomics) || (2 == TAN /*libxstream_opencl_atomic_fp_64*/)
 # if defined(ATOMIC_ADD2_GLOBAL) && (1 == TAN /*libxstream_opencl_atomic_fp_32*/)
-__attribute__((always_inline)) inline void atomic_add_global_cmpxchg2(GLOBAL_VOLATILE(float) * dst, float2 inc) {
+__attribute__((always_inline)) inline void atomic_add_global_cmpxchg2(GLOBAL_VOLATILE(float) * dst, float2 inc)
+{
   union {
     float2 f;
     long a;
@@ -119,7 +122,8 @@ __attribute__((always_inline)) inline void atomic_add_global_cmpxchg2(GLOBAL_VOL
 
 #if !defined(cl_intel_global_float_atomics) || (2 == TAN /*libxstream_opencl_atomic_fp_64*/)
 # if defined(XCHG) || (defined(__NV_CL_C_VERSION) && !defined(CMPXCHG) && !defined(ATOMIC_PROTOTYPES))
-__attribute__((always_inline)) inline void atomic_add_global_xchg(GLOBAL_VOLATILE(T) * dst, T inc) {
+__attribute__((always_inline)) inline void atomic_add_global_xchg(GLOBAL_VOLATILE(T) * dst, T inc)
+{
 #   if !defined(ATOMIC32_ADD64)
 #     if (defined(__NV_CL_C_VERSION) && !defined(XCHG)) && (1 == TAN /*libxstream_opencl_atomic_fp_32*/)
   asm("{ .reg .f32 t; atom.global.add.f32 t, [%0], %1; }" ::"l"(dst), "f"(inc));

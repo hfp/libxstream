@@ -23,19 +23,19 @@ typedef int offloadError_t;
 
 #if !defined(OFFLOAD_CHECK)
 # define OFFLOAD_CHECK(CMD) \
-  do { \
-    const offloadError_t offload_check_error_ = (CMD); \
-    if (offloadSuccess != offload_check_error_) { \
-      const char* const offload_check_name_ = offloadGetErrorName(offload_check_error_); \
-      if (NULL != offload_check_name_ && '\0' != *offload_check_name_) { \
-        fprintf(stderr, "ERROR: \"%s\" at %s:%i\n", offload_check_name_, __FILE__, __LINE__); \
+    do { \
+      const offloadError_t offload_check_error_ = (CMD); \
+      if (offloadSuccess != offload_check_error_) { \
+        const char* const offload_check_name_ = offloadGetErrorName(offload_check_error_); \
+        if (NULL != offload_check_name_ && '\0' != *offload_check_name_) { \
+          fprintf(stderr, "ERROR: \"%s\" at %s:%i\n", offload_check_name_, __FILE__, __LINE__); \
+        } \
+        else { \
+          fprintf(stderr, "ERROR %i: %s:%i\n", (int)offload_check_error_, __FILE__, __LINE__); \
+        } \
+        abort(); \
       } \
-      else { \
-        fprintf(stderr, "ERROR %i: %s:%i\n", (int)offload_check_error_, __FILE__, __LINE__); \
-      } \
-      abort(); \
-    } \
-  } while (0)
+    } while (0)
 #endif
 
 #if defined(__cplusplus)

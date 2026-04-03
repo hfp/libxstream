@@ -107,38 +107,34 @@
 
 /** Skip-on-error: if RESULT is success, execute CALL and record any error. */
 #if !defined(CL_CHECK)
-#define CL_CHECK(RESULT, CALL) do { \
-  if (EXIT_SUCCESS == (RESULT)) { \
-    const cl_int cl_check_result_ = (CALL); \
-    if (CL_SUCCESS != cl_check_result_) { \
-      (RESULT) = (int)cl_check_result_; \
-      libxstream_opencl_config.device.error.name = \
-        libxstream_opencl_strerror(cl_check_result_); \
-      libxstream_opencl_config.device.error.code = (RESULT); \
-    } \
-  } \
-} while (0)
+# define CL_CHECK(RESULT, CALL) \
+    do { \
+      if (EXIT_SUCCESS == (RESULT)) { \
+        const cl_int cl_check_result_ = (CALL); \
+        if (CL_SUCCESS != cl_check_result_) { \
+          (RESULT) = (int)cl_check_result_; \
+          libxstream_opencl_config.device.error.name = libxstream_opencl_strerror(cl_check_result_); \
+          libxstream_opencl_config.device.error.code = (RESULT); \
+        } \
+      } \
+    } while (0)
 #endif
 
 /** Report error details from the error slot to stderr (if verbose). */
 #define CL_ERROR_REPORT(NAME) \
   do { \
-    if (0 != libxstream_opencl_config.verbosity \
-     && 0 != libxstream_opencl_config.device.error.code) { \
+    if (0 != libxstream_opencl_config.verbosity && 0 != libxstream_opencl_config.device.error.code) { \
       const char* const cl_error_report_name_ = (const char*)('\0' != *#NAME ? (uintptr_t)(NAME + 0) : 0); \
       if (NULL != cl_error_report_name_ && '\0' != *cl_error_report_name_) { \
         fprintf(stderr, "ERROR ACC/OpenCL: %s: %s (code=%i)\n", cl_error_report_name_, \
-          libxstream_opencl_strerror(libxstream_opencl_config.device.error.code), \
-          libxstream_opencl_config.device.error.code); \
+          libxstream_opencl_strerror(libxstream_opencl_config.device.error.code), libxstream_opencl_config.device.error.code); \
       } \
       else if (NULL != libxstream_opencl_config.device.error.name) { \
-        fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", \
-          libxstream_opencl_config.device.error.name, \
+        fprintf(stderr, "ERROR ACC/OpenCL: %s (code=%i)\n", libxstream_opencl_config.device.error.name, \
           libxstream_opencl_config.device.error.code); \
       } \
       else { \
-        fprintf(stderr, "ERROR ACC/OpenCL: code=%i\n", \
-          libxstream_opencl_config.device.error.code); \
+        fprintf(stderr, "ERROR ACC/OpenCL: code=%i\n", libxstream_opencl_config.device.error.code); \
       } \
     } \
   } while (0)
@@ -316,7 +312,8 @@ LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream_defaul
 /** Like libxstream_mem_zero, but supporting an arbitrary value used as initialization pattern. */
 LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t offset, size_t nbytes, libxstream_stream_t* stream);
 /** Amount of device memory; local memory is only non-zero if separate from global. */
-LIBXSTREAM_API int libxstream_opencl_info_devmem(cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
+LIBXSTREAM_API int libxstream_opencl_info_devmem(
+  cl_device_id device, size_t* mem_free, size_t* mem_total, size_t* mem_local, int* mem_unified);
 /** Get device-ID for given device, and optionally global device-ID. */
 LIBXSTREAM_API int libxstream_opencl_device_id(cl_device_id device, int* device_id, int* global_id);
 /** Confirm the vendor of the given device. */
@@ -364,9 +361,9 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
 /** Extract a kernel from a built program. */
 LIBXSTREAM_API int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[], cl_kernel* kernel);
 /** Convenience: build program, extract kernel, release program. */
-LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[], const char build_params[],
-  const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], size_t num_exts,
-  cl_kernel* kernel);
+LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char source[], const char kernel_name[],
+  const char build_params[], const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[],
+  size_t num_exts, cl_kernel* kernel);
 /** Per-thread variant of libxstream_device_sync. */
 LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id);
 /** To support USM, call this function for pointer arguments instead of clSetKernelArg. */

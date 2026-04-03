@@ -11,7 +11,8 @@
 # include <string.h>
 
 
-LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, int thread_id) {
+LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, int thread_id)
+{
   const libxstream_opencl_stream_t *result = NULL, *result_main = NULL;
   const size_t n = LIBXSTREAM_MAXNITEMS * libxstream_opencl_config.nthreads;
   size_t i;
@@ -40,7 +41,8 @@ LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_
 }
 
 
-LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream_default(void) {
+LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream_default(void)
+{
   const libxstream_opencl_stream_t* result = NULL;
   result = libxstream_opencl_stream(libxstream_opencl_config.lock_stream, libxs_tid());
   assert(NULL != result);
@@ -48,7 +50,8 @@ LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream_defaul
 }
 
 
-LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, int flags) {
+LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, int flags)
+{
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   LIBXSTREAM_STREAM_PROPERTIES_TYPE properties[9] = {
     CL_QUEUE_PROPERTIES, 0 /*placeholder*/, 0 /* terminator */
@@ -101,9 +104,8 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
 # endif
   if (NULL != devinfo->context) {
     const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-    if (0 != (LIBXSTREAM_STREAM_PROFILING & flags) ||
-        NULL != libxstream_opencl_config.hist_h2d || NULL != libxstream_opencl_config.hist_d2h ||
-        NULL != libxstream_opencl_config.hist_d2d)
+    if (0 != (LIBXSTREAM_STREAM_PROFILING & flags) || NULL != libxstream_opencl_config.hist_h2d ||
+        NULL != libxstream_opencl_config.hist_d2h || NULL != libxstream_opencl_config.hist_d2d)
     {
       properties[1] |= CL_QUEUE_PROFILING_ENABLE;
     }
@@ -141,8 +143,7 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
   else result = EXIT_FAILURE;
   if (EXIT_SUCCESS == result) { /* register stream */
     assert(NULL != libxstream_opencl_config.streams && NULL != queue);
-    *stream_p = libxs_pmalloc(
-      (void**)libxstream_opencl_config.streams, &libxstream_opencl_config.nstreams);
+    *stream_p = libxs_pmalloc((void**)libxstream_opencl_config.streams, &libxstream_opencl_config.nstreams);
     if (NULL != *stream_p) {
       libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)*stream_p;
 # if !defined(NDEBUG)
@@ -165,7 +166,8 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
 }
 
 
-LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream) {
+LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream)
+{
   int result = EXIT_SUCCESS;
   if (NULL != stream) {
     const libxstream_opencl_stream_t* const str = stream;
@@ -174,8 +176,8 @@ LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream) {
     LIBXS_MEMZERO((libxstream_opencl_stream_t*)stream);
 # endif
     if (NULL != libxstream_opencl_config.streams) {
-      libxs_pfree_lock(stream, (void**)libxstream_opencl_config.streams,
-        &libxstream_opencl_config.nstreams, libxstream_opencl_config.lock_stream);
+      libxs_pfree_lock(
+        stream, (void**)libxstream_opencl_config.streams, &libxstream_opencl_config.nstreams, libxstream_opencl_config.lock_stream);
     }
     if (NULL != queue) {
       result = clReleaseCommandQueue(queue);
@@ -185,7 +187,8 @@ LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream) {
 }
 
 
-LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest) {
+LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest)
+{
   int result = ((NULL != least || NULL != greatest) ? EXIT_SUCCESS : EXIT_FAILURE);
   int priohi = -1, priolo = -1;
   assert(NULL == least || NULL == greatest || least != greatest); /* no alias */
@@ -214,7 +217,8 @@ LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest) {
 }
 
 
-LIBXSTREAM_API int libxstream_stream_sync(libxstream_stream_t* stream) {
+LIBXSTREAM_API int libxstream_stream_sync(libxstream_stream_t* stream)
+{
   const libxstream_opencl_stream_t* str = NULL;
   int result = EXIT_SUCCESS;
   str = (NULL != stream ? stream : libxstream_opencl_stream_default());
@@ -237,7 +241,8 @@ LIBXSTREAM_API int libxstream_stream_sync(libxstream_stream_t* stream) {
 }
 
 
-LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id) {
+LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id)
+{
   int result = EXIT_SUCCESS;
   const size_t n = LIBXSTREAM_MAXNITEMS * libxstream_opencl_config.nthreads;
   size_t i;
@@ -261,26 +266,23 @@ LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int 
 }
 
 
-LIBXSTREAM_API int libxstream_stream_set_profiling(libxstream_stream_t* stream) {
+LIBXSTREAM_API int libxstream_stream_set_profiling(libxstream_stream_t* stream)
+{
   int result = EXIT_SUCCESS;
   if (NULL != stream) {
     libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)stream;
     cl_command_queue_properties props = 0;
-    CL_CHECK(result, clGetCommandQueueInfo(str->queue, CL_QUEUE_PROPERTIES,
-      sizeof(props), &props, NULL));
+    CL_CHECK(result, clGetCommandQueueInfo(str->queue, CL_QUEUE_PROPERTIES, sizeof(props), &props, NULL));
     if (EXIT_SUCCESS == result && 0 == (CL_QUEUE_PROFILING_ENABLE & props)) {
       cl_context ctx = NULL;
       cl_device_id dev = NULL;
-      CL_CHECK(result, clGetCommandQueueInfo(str->queue,
-        CL_QUEUE_CONTEXT, sizeof(ctx), &ctx, NULL));
-      CL_CHECK(result, clGetCommandQueueInfo(str->queue,
-        CL_QUEUE_DEVICE, sizeof(dev), &dev, NULL));
+      CL_CHECK(result, clGetCommandQueueInfo(str->queue, CL_QUEUE_CONTEXT, sizeof(ctx), &ctx, NULL));
+      CL_CHECK(result, clGetCommandQueueInfo(str->queue, CL_QUEUE_DEVICE, sizeof(dev), &dev, NULL));
       if (EXIT_SUCCESS == result) {
         LIBXSTREAM_STREAM_PROPERTIES_TYPE qprops[3];
         cl_command_queue queue;
         qprops[0] = CL_QUEUE_PROPERTIES;
-        qprops[1] = (LIBXSTREAM_STREAM_PROPERTIES_TYPE)(
-          props | CL_QUEUE_PROFILING_ENABLE);
+        qprops[1] = (LIBXSTREAM_STREAM_PROPERTIES_TYPE)(props | CL_QUEUE_PROFILING_ENABLE);
         qprops[2] = 0; /* terminator */
         queue = LIBXSTREAM_CREATE_COMMAND_QUEUE(ctx, dev, qprops, &result);
         if (EXIT_SUCCESS == result) {
@@ -294,7 +296,8 @@ LIBXSTREAM_API int libxstream_stream_set_profiling(libxstream_stream_t* stream) 
 }
 
 
-LIBXSTREAM_API int libxstream_device_sync(void) {
+LIBXSTREAM_API int libxstream_device_sync(void)
+{
   int result = EXIT_SUCCESS;
 # if defined(_OPENMP)
   if (1 == omp_get_num_threads()) {

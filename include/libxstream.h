@@ -28,9 +28,9 @@ LIBXSTREAM_API int libxstream_device_sync(void);
 
 /** streams */
 typedef enum libxstream_stream_flags_t {
-  LIBXSTREAM_STREAM_DEFAULT   = 0,
-  LIBXSTREAM_STREAM_LOW       = 1,
-  LIBXSTREAM_STREAM_HIGH      = 2,
+  LIBXSTREAM_STREAM_DEFAULT = 0,
+  LIBXSTREAM_STREAM_LOW = 1,
+  LIBXSTREAM_STREAM_HIGH = 2,
   LIBXSTREAM_STREAM_PROFILING = 4
 } libxstream_stream_flags_t;
 LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, int flags);

@@ -67,16 +67,16 @@
  * Controlled by USE_DOUBLE (define to 1 for fp64, 0 or undef for fp32). */
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
 # pragma OPENCL EXTENSION cl_khr_fp64 : enable
-  typedef double real_t;
-  typedef ulong  uint_repr_t;
+typedef double real_t;
+typedef ulong uint_repr_t;
 # define EXP_MASK 2047U
 # define AS_UINT(x) as_ulong(x)
 # if !defined(ZERO)
 #   define ZERO 0.0
 # endif
 #else
-  typedef float  real_t;
-  typedef uint   uint_repr_t;
+typedef float real_t;
+typedef uint uint_repr_t;
 # define EXP_MASK 255U
 # define AS_UINT(x) as_uint(x)
 # if !defined(ZERO)
@@ -92,7 +92,7 @@
  * is checked at init time. */
 /*# pragma OPENCL EXTENSION cl_intel_bfloat16_conversions : enable*/
 # define ROUND_TO_BF16(x) intel_convert_bfloat16_as_ushort(x)
-# define BF16_TO_F32(x)   intel_convert_as_bfloat16_float(x)
+# define BF16_TO_F32(x) intel_convert_as_bfloat16_float(x)
 #elif !defined(ROUND_TO_BF16)
 /** Round a float to BF16 (round-to-nearest-even).
  *  Portable uint32 bit-manipulation (no __bf16 intrinsic required). */
@@ -109,7 +109,7 @@ inline float bf16_to_f32(ushort v)
   return as_float((uint)v << 16);
 }
 # define ROUND_TO_BF16(x) round_to_bf16(x)
-# define BF16_TO_F32(x)   bf16_to_f32(x)
+# define BF16_TO_F32(x) bf16_to_f32(x)
 #endif
 
 #endif /*OPENCL_COMMON_H*/
