@@ -128,12 +128,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   { const int ndecomp_auto = (0 >= ndecomp);
     if (ndecomp_auto) {
       /* Scheme 1: mantissa slicing - 7 bits/slice
-       *   FP32 (23-bit): 4 slices minimum, 5 for safety margin
+       *   FP32 (23-bit): 4 slices (28 bits, covers 23-bit mantissa)
        *   FP64 (52-bit): 8 slices
        * Scheme 2: CRT - formula req = 2*mant + 23 (accumulation headroom)
        *   FP32: 10 primes (68 bits, sufficient for typical K < 4M)
        *   FP64: 19 primes (124 bits, sufficient for typical K < 8M) */
-      ndecomp = (2 == kind ? (use_double ? 19 : 10) : (use_double ? 8 : 5));
+      ndecomp = (2 == kind ? (use_double ? 19 : 10) : (use_double ? 8 : 4));
     }
     if (2 == kind) {
       /* Scheme 2: Convert trim levels to bits (unified semantics with Scheme 1).
