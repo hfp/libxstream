@@ -140,24 +140,32 @@ All arguments are positional and optional (defaults shown):
 |------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 2 = int8 CRT.                                                                                                      |
 | `OZAKI_FLAGS`    | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S^2 square. Ignored for Scheme 2.                                                                  |
-| `OZAKI_TRIM`     | 0       | Scheme 1: diagonal trim - higher trim drops more least significant diagonals (less accurate but faster). Not applicable to Scheme 2.                         |
-| `OZAKI_N`        | 8/18    | Number of decomposition components. Scheme 1: number of slices per element (default 8). Scheme 2: number of CRT primes (default 18; raised to 19 with OZAKI_GROUPS > 1). |
+| `OZAKI_TRIM`     | 0       | Precision levels to trim (~7 bits each). Scheme 1: drops diagonals from slice-pair iteration. Scheme 2: truncates levels*7 mantissa bits before CRT. Max: 7 (fp64), 3 (fp32). |
+| `OZAKI_N`        | 8/19    | Number of decomposition components. Scheme 1: number of slices per element (fp64: default 8, fp32: default 4). Scheme 2: number of CRT primes (fp64: default 19, fp32: default 10; max 20). |
 | `OZAKI_GROUPS`   | 0       | Scheme 2 only: K-grouping factor - that many consecutive K sub-panels share one exponent and one Garner reconstruction (0/1 = no grouping, 4 = quads).      |
 | `OZAKI_CACHE`    | 0       | Preprocessing cache bitmask: 1 = cache A, 2 = cache B, 3 = cache both. Skips preprocessing when same matrix pointer is reused with matching dims/transpose.  |
 | `OZAKI_TINYTC`   | 0       | Load TinyTC SPIR-V kernel from .clx file path (e.g., `kernels/ozaki1_f64_256x128_n8t3_tri.clx`). 0 = use embedded or OpenCL C kernels.                      |
-| `OZAKI_PROF`     | 0       | Profile kernels: 0 = off, 1 or negative = all kernels, 2 = dotprod/compute kernel only, 3 = preprocess_a only, 4 = preprocess_b only. Prints timing histogram. |
+| `OZAKI_PROFILE`  | 0       | Profile kernels: 0 = off, 1 or negative = all kernels, 2 = dotprod/compute kernel only, 3 = preprocess_a only, 4 = preprocess_b only. Prints timing histogram. |
 | `OZAKI_VERBOSE`  | 0       | Verbosity level: 0 = silent, 1 = errors only, 2 = errors + warnings, 3+ = all info. Negative values also enable all output.                                 |
 | `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on).                                                                                                              |
 | `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint).                                                                                                                          |
 | `OZAKI_SG`       | auto    | Sub-group size (forced to 16 when XMX active).                                                                                                               |
-| `OZAKI_GRF256`   | 0       | 1 = request 256 GRF per thread (Intel XMX only).                                                                                                             |
-| `OZAKI_CONSTANT` | 0       | 1 = use `constant` address space for read-only buffers.                                                                                                      |
+| `OZAKI_BIGGRF`   | auto    | Override 256 GRF per thread (0 = force off, 1 = on). Auto-enabled for Intel GPUs.                                                                            |
+| `OZAKI_FP`       | 64      | Floating-point precision: 64 = fp64 (double), 32 = fp32 (float).                                                                                            |
+| `OZAKI_RTM`      | auto    | Register tiling factor for M dimension (power of two). Auto: 4 (256-GRF Intel GPU), 2 (128-GRF), 1 (other).                                                 |
+| `OZAKI_RTN`      | auto    | Register tiling factor for N dimension (power of two). Auto: 2 (Intel GPU), 1 (other).                                                                      |
+| `OZAKI_KU`       | 2       | K-loop unroll factor (compiled into kernel).                                                                                                                 |
+| `OZAKI_RC`       | 8       | DPAS repeat count: 8 (default) or 4 (split).                                                                                                                |
+| `OZAKI_PB`       | 1       | Scheme 2 only: CRT prime batching factor (compiled into kernel).                                                                                             |
+| `OZAKI_PREFETCH` | 0       | 1 = enable prefetching in Scheme 1 dotprod kernel.                                                                                                           |
+| `OZAKI_BOUNDS`   | 0       | 1 = force bounds checking in Scheme 1 dotprod kernel (automatic for non-tile-aligned sizes).                                                                 |
+| `OZAKI_SCALAR_ACC` | 0     | 1 = force scalar accumulation in Scheme 1 dotprod kernel.                                                                                                    |
 | `NREPEAT`        | 1       | Number of times to repeat the benchmark (for timing measurements).                                                                                           |
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
 detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=18`,
 XMX uses `BK=32` with fused in-register Garner/Horner.
-Common defaults: `SG=16`.
+Common defaults: `SG=16`.  Scheme 2 auto-default for fp64 is 19 primes (not 18).
 
 ## Example
 
@@ -189,11 +197,13 @@ DIFF: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
 | `ozaki_bench.c`        | Main benchmark driver (initializes context, runs GEMM, compares with BLAS)        |
 | `ozaki_gemm.c`         | GEMM implementation (preprocessing pipeline, dotprod launch, buffer management)   |
 | `ozaki_opencl.c`       | Context initialization (device selection, kernel compilation, parameter tuning)   |
+| `ozaki_zgemm.c`        | Complex GEMM via 3M (Karatsuba) method - all intermediates stay on device          |
 | `ozaki_opencl.h`       | Public API and context structure definitions                                       |
 | `ozaki_kernels.h`      | Auto-generated header embedding OpenCL C kernel sources                            |
 | `ozaki_tinytc.h`       | Auto-generated header embedding specialized TinyTC SPIR-V kernels                  |
 | `kernels/ozaki1_int8.cl` | Scheme 1 OpenCL C kernels (preprocess + XMX/scalar dotprod)                     |
 | `kernels/ozaki2_int8.cl` | Scheme 2 OpenCL C kernels (preprocess + fused CRT dotprod)                      |
+| `kernels/zgemm3m.cl`    | Complex GEMM 3M helper kernels (deinterleave, matadd, finalize)                 |
 | `kernels/ozaki_common.cl` | Shared IEEE-754 field extraction helpers                                        |
 | `kernels/ozaki1.tinytc`  | TinyTC kernel definition for generic Scheme 1 dotprod                            |
 | `kernels/ozaki1_prod_*.tinytc` | Specialized TinyTC definitions (triangular/square)                         |
@@ -236,12 +246,12 @@ DIFF: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
 
 ### Profiling
 
-- Use `OZAKI_PROF=1` to print per-kernel timing histograms for all kernels. Use
-  `OZAKI_PROF=2` to focus only on the main dotprod/compute kernel, excluding
+- Use `OZAKI_PROFILE=1` to print per-kernel timing histograms for all kernels. Use
+  `OZAKI_PROFILE=2` to focus only on the main dotprod/compute kernel, excluding
   preprocessing overhead. Combine with `NREPEAT=100` for statistically significant
   measurements.
 
 ## Limitations
 
-- Complex GEMM (3M method) is not yet supported.
+- Complex GEMM (3M method) is implemented (`ozaki_zgemm3m` in `ozaki_zgemm.c`) but not called from this sample's benchmark driver. It is exercised by the [LIBXS Ozaki sample](https://github.com/hfp/libxs), whose interceptor-based driver calls `zgemm-wrap.x` / `cgemm-wrap.x` and dispatches through the OpenCL 3M path when LIBXSTREAM is available.
 - TinyTC kernels are Scheme 1 only (Scheme 2 uses OpenCL C kernels).
