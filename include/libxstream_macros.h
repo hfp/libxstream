@@ -9,7 +9,13 @@
 #ifndef LIBXSTREAM_MACROS_H
 #define LIBXSTREAM_MACROS_H
 
-#include <libxs_macros.h>
+#if !defined(LIBXS_MACROS_H)
+# if defined(__LIBXS) || defined(LIBXS_BUILD)
+#   include <libxs_macros.h>
+# else /* header-only: libxs_source.h must come first */
+#   include <libxs_source.h>
+# endif
+#endif
 #include "libxstream_version.h"
 
 /**

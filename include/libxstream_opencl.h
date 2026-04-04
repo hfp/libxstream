@@ -35,7 +35,6 @@
 # endif
 #endif
 
-#include "libxstream.h"
 #if defined(__LIBXS)
 # include <libxs_malloc.h>
 # include <libxs_timer.h>
@@ -45,6 +44,7 @@
 # include <libxs_source.h>
 # define __LIBXS
 #endif
+#include "libxstream.h"
 
 #if !defined(LIBXSTREAM_MAXALIGN)
 # define LIBXSTREAM_MAXALIGN (2 << 20 /*2MB*/)
