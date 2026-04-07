@@ -66,6 +66,12 @@ KRNELS := $(SRCDIR)/kernels/ozaki1_int8.cl \
           $(SRCDIR)/kernels/zgemm3m.cl \
           $(NULL)
 GENHDR := $(SRCDIR)/ozaki_kernels.h
+GENSCR := $(SCRDIR)/tool_opencl.sh
+GENARG := -p ""
+
+ifneq (0,$(SYM))
+  GENARG += -d
+endif
 
 OUTNAME := $(shell basename "$(ROOTDIR)")
 HEADERS := $(wildcard $(INCDIR)/*.h) \
@@ -84,8 +90,8 @@ all: $(XFILES)
 compile: $(OBJECTS)
 
 # Generate embedded kernel header from .cl sources (resolves #include directives)
-$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/include/common/*.h) $(SCRDIR)/tool_opencl.sh Makefile $(LIBXSROOT)/Makefile.inc
-	$(SCRDIR)/tool_opencl.sh -p "" $(KRNELS) $@
+$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/include/common/*.h) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
+	$(GENSCR) $(GENARG) $(KRNELS) $@
 
 # Generate production TinyTC kernel header (INCBIN + lookup table).
 # Depends on the prod .clx files; if none exist the header is a no-op stub.

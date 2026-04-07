@@ -53,6 +53,11 @@ endif
 SCRDIR := $(DEPDIR)/scripts
 KRNELS := $(wildcard $(SRCDIR)/kernels/*.cl)
 GENHDR := $(SRCDIR)/opencl_kernels.h
+GENSCR := $(SCRDIR)/tool_opencl.sh
+
+ifneq (0,$(SYM))
+  GENARG += -d
+endif
 
 OUTNAME := acc_bench
 HEADERS := $(wildcard $(INCDIR)/*.h) $(GENHDR) \
@@ -70,8 +75,8 @@ all: $(XFILES)
 compile: $(OBJECTS)
 
 # generate embedded kernel header from .cl sources
-$(GENHDR): $(KRNELS) $(PARAMS) $(SCRDIR)/tool_opencl.sh Makefile $(LIBXSROOT)/Makefile.inc
-	$(SCRDIR)/tool_opencl.sh $(KRNELS) $(PARAMS) $@
+$(GENHDR): $(KRNELS) $(PARAMS) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
+	$(GENSCR) $(GENARG) $(KRNELS) $(PARAMS) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
