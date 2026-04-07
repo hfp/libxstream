@@ -124,7 +124,7 @@
 #define CL_ERROR_REPORT(NAME) \
   do { \
     if (0 != libxstream_opencl_config.verbosity && 0 != libxstream_opencl_config.device.error.code) { \
-      const char* const cl_error_report_name_ = (const char*)('\0' != *#NAME ? (uintptr_t)(NAME + 0) : 0); \
+      const char* const cl_error_report_name_ = (const char*)('\0' != *#NAME ? (uintptr_t)(&(NAME)[0]) : 0); \
       if (NULL != cl_error_report_name_ && '\0' != *cl_error_report_name_) { \
         fprintf(stderr, "ERROR ACC/OpenCL: %s: %s (code=%i)\n", cl_error_report_name_, \
           libxstream_opencl_strerror(libxstream_opencl_config.device.error.code), libxstream_opencl_config.device.error.code); \
