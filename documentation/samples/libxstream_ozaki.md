@@ -140,12 +140,11 @@ All arguments are positional and optional (defaults shown):
 |------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 2 = int8 CRT.                                                                                                      |
 | `OZAKI_FLAGS`    | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S^2 square. Ignored for Scheme 2.                                                                  |
-| `OZAKI_TRIM`     | 0       | Precision levels to trim (~7 bits each). Scheme 1: drops diagonals from slice-pair iteration. Scheme 2: truncates levels*7 mantissa bits before CRT. Max: 7 (fp64), 3 (fp32). |
+| `OZAKI_TRIM`     | 0       | Precision levels to trim. Scheme 1: drops diagonals from slice-pair iteration (~7 product bits/level). Scheme 2: truncates mantissa before CRT (~2 input bits/level, ~4 product bits/level). The level semantics are calibrated so the same trim value gives comparable accuracy across schemes. |
 | `OZAKI_N`        | 8/19    | Number of decomposition components. Scheme 1: number of slices per element (fp64: default 8, fp32: default 4). Scheme 2: number of CRT primes (fp64: default 19, fp32: default 10; max 20). |
 | `OZAKI_GROUPS`   | 0       | Scheme 2 only: K-grouping factor - that many consecutive K sub-panels share one exponent and one Garner reconstruction (0/1 = no grouping, 4 = quads).      |
 | `OZAKI_CACHE`    | 0       | Preprocessing cache bitmask: 1 = cache A, 2 = cache B, 3 = cache both. Skips preprocessing when same matrix pointer is reused with matching dims/transpose.  |
 | `OZAKI_TINYTC`   | 0       | Load TinyTC SPIR-V kernel from .clx file path (e.g., `kernels/ozaki1_f64_256x128_n8t3_tri.clx`). 0 = use embedded or OpenCL C kernels.                      |
-| `OZAKI_PROFILE`  | 0       | Profile kernels: 0 = off, 1 or negative = all kernels, 2 = dotprod/compute kernel only, 3 = preprocess_a only, 4 = preprocess_b only. Prints timing histogram. |
 | `OZAKI_VERBOSE`  | 0       | Verbosity level: 0 = silent, 1 = errors only, 2 = errors + warnings, 3+ = all info. Negative values also enable all output.                                 |
 | `OZAKI_XMX`      | auto    | Override XMX detection (0 = force off, 1 = on).                                                                                                              |
 | `OZAKI_WG`       | 0       | Work-group size hint (0 = no hint).                                                                                                                          |
@@ -161,6 +160,12 @@ All arguments are positional and optional (defaults shown):
 | `OZAKI_BOUNDS`   | 0       | 1 = force bounds checking in Scheme 1 dotprod kernel (automatic for non-tile-aligned sizes).                                                                 |
 | `OZAKI_SCALAR_ACC` | 0     | 1 = force scalar accumulation in Scheme 1 dotprod kernel.                                                                                                    |
 | `NREPEAT`        | 1       | Number of times to repeat the benchmark (for timing measurements).                                                                                           |
+
+Additional environment variables (`OZAKI_PROFILE`, `OZAKI_THRESHOLD`, `OZAKI_STAT`,
+`OZAKI_EPS`, `OZAKI_RSQ`, `OZAKI_EXIT`) are handled by the
+[LIBXS Ozaki sample](https://github.com/hfp/libxs) which owns the GEMM interceptor,
+histogram-based profiling, and accuracy monitoring. See the LIBXS Ozaki README for
+their documentation.
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
 detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=18`,
@@ -246,10 +251,11 @@ DIFF: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
 
 ### Profiling
 
-- Use `OZAKI_PROFILE=1` to print per-kernel timing histograms for all kernels. Use
-  `OZAKI_PROFILE=2` to focus only on the main dotprod/compute kernel, excluding
-  preprocessing overhead. Combine with `NREPEAT=100` for statistically significant
-  measurements.
+Profiling is controlled by the [LIBXS Ozaki sample](https://github.com/hfp/libxs)
+via the `OZAKI_PROFILE` environment variable. Both GPU and CPU paths push into the
+same histogram, and at exit a summary line reports effective GFLOPS/s together with
+the implied INT8-TOPS/s (derived from the scheme's decomposition multiplier).
+See the LIBXS Ozaki README for details on profile modes and output format.
 
 ## Limitations
 

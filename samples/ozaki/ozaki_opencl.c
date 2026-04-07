@@ -136,11 +136,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       ndecomp = (2 == kind ? (use_double ? 19 : 10) : (use_double ? 8 : 4));
     }
     if (2 == kind) {
-      /* Scheme 2: Convert trim levels to bits (unified semantics with Scheme 1).
-       * Each level = 7 bits. Max levels: 7 (fp64), 3 (fp32). */
+      /* Scheme 2: Convert trim levels to input mantissa bits.
+       * Scheme 1 trim drops slice-pair diagonals: each level removes pairs
+       * whose product contribution is ~7 bits below the next level, but the
+       * full mantissa is preserved in every surviving pair.  In Scheme 2,
+       * trim truncates the mantissa before CRT reduction, affecting both
+       * operands: B input bits cost 2*B product bits.  To give comparable
+       * accuracy at the same trim level, use 2 input bits per level so that
+       * trim=7 truncates 14 input bits (product loses ~28 bits, leaving
+       * ~76 of 104 product bits — well above the 52-bit fp64 threshold). */
       const int mant = use_double ? 52 : 23;
-      const int max_levels = mant / 7;  /* 7 for fp64, 3 for fp32 */
-      const int oztrim_bits = LIBXS_MIN(oztrim, max_levels) * 7;
+      const int max_levels = mant / 2;  /* 26 for fp64, 11 for fp32 */
+      const int oztrim_bits = LIBXS_MIN(oztrim, max_levels) * 2;
 
       if (0 < oztrim_bits && 0 != ndecomp_auto) {
         /* floor(cumulative log2) of CRT moduli products */
