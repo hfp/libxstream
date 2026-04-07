@@ -77,7 +77,7 @@ static void ozaki_print_opt(FILE* stream, const char* name, int val) {
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
                int use_double, int kind, int verbosity,
                int ndecomp, int ozflags, int oztrim,
-               int ozgroups)
+               int ozgroups, int profiling)
 {
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
@@ -652,18 +652,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     ctx->cache.flags = (NULL != env_cache) ? atoi(env_cache) : 0;
   }
 
-  /* OZAKI_PROFILE: kernel execution-time profiling */
-  ctx->hist = NULL;
-  ctx->profile = 0;
-  { const char* env_prof = getenv("OZAKI_PROFILE");
-    ctx->profile = (NULL == env_prof ? 0 : atoi(env_prof));
-    if (0 != ctx->profile) {
-      const libxs_hist_update_t update[] = { libxs_hist_update_avg };
-      ctx->hist = libxs_hist_create(3, 1, update);
-      if (NULL == ctx->hist) ctx->profile = 0;
-    }
-  }
-
   /* Report compiled kernel info */
   if (EXIT_SUCCESS == result && (0 > verbosity || 2 < verbosity)) {
     fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
@@ -690,8 +678,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   }
 
   /* Create persistent helper streams and synchronization events */
-  { const int sflags = (NULL != ctx->hist
-      ? LIBXSTREAM_STREAM_PROFILING : LIBXSTREAM_STREAM_DEFAULT);
+  { const int sflags = (0 != profiling)
+      ? LIBXSTREAM_STREAM_PROFILING : LIBXSTREAM_STREAM_DEFAULT;
     if (EXIT_SUCCESS == result) {
       result = libxstream_stream_create(
         &ctx->stream_a, "ozaki_a", sflags);
@@ -814,14 +802,6 @@ void ozaki_destroy(ozaki_context_t* ctx)
     /* Destroy persistent helper streams */
     if (NULL != ctx->stream_a) libxstream_stream_destroy(ctx->stream_a);
     if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
-    /* Report and destroy profiling histogram */
-    if (NULL != ctx->hist) {
-      const char *const kind = (0 != ctx->use_double ? "DP" : "SP");
-      double gflops = 0;
-      libxs_hist_get_median(NULL /*lock*/, ctx->hist, &gflops);
-      fprintf(stderr, "OZAKI PROF: %.0f %s-GFLOPS/s\n", gflops, kind);
-      libxs_hist_destroy(ctx->hist);
-    }
     LIBXS_MEMZERO(ctx);
   }
 }

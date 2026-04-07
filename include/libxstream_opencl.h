@@ -181,7 +181,7 @@ typedef struct libxstream_opencl_device_t {
   /** Last error (not necessarily thread-safe/specific). */
   libxstream_opencl_error_t error;
   /** OpenCL compiler flag (language standard). */
-  char std_flag[16];
+  char std_flag[32];
   /** OpenCL support-level (major and minor). */
   cl_int std_level[2], std_clevel[2];
   /**
@@ -325,7 +325,7 @@ LIBXSTREAM_API int libxstream_opencl_device_name(
   cl_device_id device, char name[], size_t name_maxlen, char platform[], size_t platform_maxlen, int cleanup);
 /** Return the OpenCL support-level for the given device. */
 LIBXSTREAM_API int libxstream_opencl_device_level(
-  cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[16], cl_device_type* type);
+  cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[32], cl_device_type* type);
 /** Check if given device supports the extensions. */
 LIBXSTREAM_API int libxstream_opencl_device_ext(cl_device_id device, const char* const extnames[], int num_exts);
 /** Create context for given device. */

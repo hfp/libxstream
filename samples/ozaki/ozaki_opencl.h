@@ -126,7 +126,6 @@ typedef struct ozaki_context_t {
   int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim;      /* Precision levels to trim (~7 bits each). Scheme 1: diagonals. Scheme 2: stored as bits (levels*7) after conversion. */
   int verbosity;   /* 0: quiet, 1: info, 2+: debug */
-  int profile;     /* 0: off, 1 (or negative): pre+gemm, 2: gemm, 3: pre-a, 4: pre-b */
   /* block sizes for preprocessing WGs */
   int bm_pre, bn_pre, bk_pre;
   /* output tile size (compiled into kernel) */
@@ -137,7 +136,6 @@ typedef struct ozaki_context_t {
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int pb; /* CRT prime batching factor (compiled into kernel) */
   int biggrf; /* Ozaki-local 256-GRF decision */
-  libxs_hist_t* hist; /* kernel execution-time histogram (OZAKI_PROF) */
 #if defined(OZAKI_DEVPOOL)
   void* devpool;   /* device memory pool (libxs_malloc-backed) */
   /* Main stream (set per ozaki_gemm call for pool realloc sync) */
@@ -173,7 +171,7 @@ typedef struct ozaki_context_t {
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
                int use_double, int kind, int verbosity,
                int ndecomp, int ozflags, int oztrim,
-               int ozgroups);
+               int ozgroups, int profiling);
 void ozaki_destroy(ozaki_context_t* ctx);
 /* ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
  * synchronizing — the caller must sync the stream before consuming the result.
@@ -186,7 +184,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                int M, int N, int K,
                double alpha, const void* a, int lda,
                              const void* b, int ldb,
-               double beta,        void* c, int ldc);
+               double beta,        void* c, int ldc,
+               libxs_hist_t* hist, int profile);
 
 /* Complex GEMM via 3M (Karatsuba) method - GPU-native version.
  * All complex matrices are in standard BLAS interleaved format.

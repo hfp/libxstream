@@ -25,7 +25,8 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result,
 static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream,
   cl_kernel kern, void* d_src, void* d_slices, void* d_exp,
   int M, int K, int ld, int trans, int k_pad, int pad,
-  int bm_pre, int bk_pre, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled);
+  int bm_pre, int bk_pre, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled,
+  int profile);
 static int ozaki_enqueue_scale_beta(ozaki_context_t* ctx, libxstream_stream_t* stream,
   cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta);
 static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream,
@@ -33,12 +34,14 @@ static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream
   void* d_expa_g, void* d_expb_g,
   int M, int N, int k_pad, int m_pad, int n_pad,
   int nslices_g, int tm, int tn, int ldc, int cutoff, int sq,
-  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled);
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled,
+  int profile);
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   cl_kernel kern_g, void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g,
   void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad,
   int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double,
-  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled);
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled,
+  int profile);
 
 
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
@@ -46,7 +49,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
                int M, int N, int K,
                double alpha, const void* a, int lda,
                              const void* b, int ldb,
-               double beta,        void* c, int ldc)
+               double beta,        void* c, int ldc,
+               libxs_hist_t* hist, int profile)
 {
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
 
@@ -159,8 +163,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
 
     /* Profiling: allocate event array (pre_a + pre_b + slice_pairs) */
-    LIBXS_ASSERT(0 == ctx->profile || NULL != ctx->hist);
-    if (NULL != ctx->hist) {
+    LIBXS_ASSERT(0 == profile || NULL != hist);
+    if (NULL != hist) {
       evt_prof = (cl_event*)calloc((size_t)(nslices_g * nslices_g) + 2, sizeof(cl_event));
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
@@ -183,7 +187,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       else if (EXIT_SUCCESS == result) {
         result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_preprocess_a,
           d_ag, d_as, d_expa_g, M, K, lda, ta, k_pad, m_pad,
-          bm_pre, bk_pre, evt_prof, 1, 3, &n_profiled);
+          bm_pre, bk_pre, evt_prof, 1, 3, &n_profiled, profile);
       }
     } /* cache_hit_a */
 
@@ -205,7 +209,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       else if (EXIT_SUCCESS == result) {
         result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_preprocess_b,
           d_bg, d_bs, d_expb_g, N, K, ldb, tb, k_pad, n_pad,
-          bn_pre, bk_pre, evt_prof, 1, 4, &n_profiled);
+          bn_pre, bk_pre, evt_prof, 1, 4, &n_profiled, profile);
       }
     } /* cache_hit_b */
 
@@ -250,13 +254,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       if (0 != use_tinytc) {
         result = ozaki_launch_tinytc(ctx, stream, d_as, d_bs, d_scratch, d_cg,
           d_expa_g, d_expb_g, M, N, k_pad, m_pad, n_pad,
-          nslices_g, tm, tn, ldc, cutoff, sq, evt_prof, 1, 2, &n_profiled);
+          nslices_g, tm, tn, ldc, cutoff, sq, evt_prof, 1, 2, &n_profiled, profile);
       }
       else {
         cl_kernel kern_g = (0 != M % tm || 0 != N % tn) ? ctx->kern_fused_bounds : ctx->kern_fused;
         result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g,
           d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn,
-          alpha, first_pair, ctx->use_double, evt_prof, 1, 2, &n_profiled);
+          alpha, first_pair, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
       }
     }
 
@@ -272,7 +276,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       }
       if (EXIT_SUCCESS == resprof && 0 < total) {
         const double gflops = (2.0 * M * N * K) / (total * 1E9);
-        libxs_hist_push(NULL, ctx->hist, &gflops);
+        libxs_hist_push(NULL, hist, &gflops);
       }
       free(evt_prof);
     }
@@ -385,8 +389,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
 
     /* Profiling: allocate event array (pre_a + pre_b + crt_gemm) */
-    LIBXS_ASSERT(0 == ctx->profile || NULL != ctx->hist);
-    if (NULL != ctx->hist) {
+    LIBXS_ASSERT(0 == profile || NULL != hist);
+    if (NULL != hist) {
       evt_prof_c = (cl_event*)calloc(3, sizeof(cl_event));
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
@@ -409,7 +413,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       else if (EXIT_SUCCESS == result) {
         result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a,
           d_ag, d_as, d_expa_g, M, K, lda, ta, k_pad, m_pad,
-          bm_pre, bk_pre, evt_prof_c, 1, 3, &n_profiled_c);
+          bm_pre, bk_pre, evt_prof_c, 1, 3, &n_profiled_c, profile);
       }
     } /* cache_hit_a */
 
@@ -431,7 +435,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       else if (EXIT_SUCCESS == result) {
         result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b,
           d_bg, d_bs, d_expb_g, N, K, ldb, tb, k_pad, n_pad,
-          bn_pre, bk_pre, evt_prof_c, 1, 4, &n_profiled_c);
+          bn_pre, bk_pre, evt_prof_c, 1, 4, &n_profiled_c, profile);
       }
     } /* cache_hit_b */
 
@@ -474,7 +478,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
     if (EXIT_SUCCESS == result) {
       result = ozaki_launch_fused(ctx, stream, ctx->kern_crt_fused, d_as, d_bs, d_expa_g, d_expb_g,
         d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn,
-        alpha, first_tile, ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c);
+        alpha, first_tile, ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
     }
 
     /* Collect profiling data */
@@ -489,7 +493,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
       }
       if (EXIT_SUCCESS == resprof && 0 < total) {
         const double gflops = (2.0 * M * N * K) / (total * 1E9);
-        libxs_hist_push(NULL, ctx->hist, &gflops);
+        libxs_hist_push(NULL, hist, &gflops);
       }
       free(evt_prof_c);
     }
@@ -531,7 +535,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
 static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream,
   cl_kernel kern, void* d_src, void* d_slices, void* d_exp,
   int M, int K, int ld, int trans, int k_pad, int pad,
-  int bm_pre, int bk_pre, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled)
+  int bm_pre, int bk_pre, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled,
+  int profile)
 {
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = stream;
@@ -553,10 +558,10 @@ static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* s
   }
   CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2,
     NULL, global, local, 0, NULL,
-    (NULL != evt_prof && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+    (NULL != evt_prof && (prof_a == profile || prof_b == profile || 0 > profile))
       ? (evt_prof + *n_profiled) : NULL));
   if (EXIT_SUCCESS == result && NULL != evt_prof
-    && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+    && (prof_a == profile || prof_b == profile || 0 > profile))
   {
     ++(*n_profiled);
   }
@@ -598,7 +603,8 @@ static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream
   void* d_expa_g, void* d_expb_g,
   int M, int N, int k_pad, int m_pad, int n_pad,
   int nslices_g, int tm, int tn, int ldc, int cutoff, int sq,
-  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled)
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled,
+  int profile)
 {
   int result = EXIT_SUCCESS;
   cl_kernel kern = ctx->kern_tinytc;
@@ -671,10 +677,10 @@ static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream
     global_g[1] = (size_t)nblk_tc_n * local_g[1];
     CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2,
         NULL, global_g, local_g, 0, NULL,
-        (NULL != evt_prof && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+        (NULL != evt_prof && (prof_a == profile || prof_b == profile || 0 > profile))
           ? (evt_prof + *n_profiled) : NULL));
     if (EXIT_SUCCESS == result && NULL != evt_prof
-        && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+        && (prof_a == profile || prof_b == profile || 0 > profile))
     {
       ++(*n_profiled);
     }
@@ -687,7 +693,8 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   cl_kernel kern_g, void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g,
   void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad,
   int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double,
-  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled)
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled,
+  int profile)
 {
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = stream;
@@ -723,10 +730,10 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   }
   CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern_g, 2,
       NULL, global_g, local_g, 0, NULL,
-      (NULL != evt_prof && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+      (NULL != evt_prof && (prof_a == profile || prof_b == profile || 0 > profile))
         ? (evt_prof + *n_profiled) : NULL));
   if (EXIT_SUCCESS == result && NULL != evt_prof
-      && (prof_a == ctx->profile || prof_b == ctx->profile || 0 > ctx->profile))
+      && (prof_a == profile || prof_b == profile || 0 > profile))
   {
     ++(*n_profiled);
   }

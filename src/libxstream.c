@@ -897,7 +897,7 @@ LIBXSTREAM_API int libxstream_opencl_device_name(
 
 
 LIBXSTREAM_API int libxstream_opencl_device_level(
-  cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[16], cl_device_type* type)
+  cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[32], cl_device_type* type)
 {
   char buffer[LIBXSTREAM_BUFFERSIZE];
   unsigned int std_clevel_uint[2] = {0}, std_level_uint[2] = {0};
@@ -928,17 +928,17 @@ LIBXSTREAM_API int libxstream_opencl_device_level(
   }
   if (EXIT_SUCCESS == result && NULL != std_flag) {
     if (2 <= std_level_uint[0]) {
-      const int nchar = LIBXS_SNPRINTF(std_flag, 16, "-cl-std=CL%u.0", std_level_uint[0]);
-      if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
+      const int nchar = LIBXS_SNPRINTF(std_flag, 32, "-cl-std=CL%u.0", std_level_uint[0]);
+      if (0 >= nchar || 32 <= nchar) result = EXIT_FAILURE;
     }
     else if (1 <= std_level_uint[0]) {
       if (1 <= std_level_uint[1]) {
-        const int nchar = LIBXS_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_level_uint[0], std_level_uint[1]);
-        if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
+        const int nchar = LIBXS_SNPRINTF(std_flag, 32, "-cl-std=CL%u.%u", std_level_uint[0], std_level_uint[1]);
+        if (0 >= nchar || 32 <= nchar) result = EXIT_FAILURE;
       }
       else if (1 <= std_clevel_uint[0]) { /* fallback */
-        const int nchar = LIBXS_SNPRINTF(std_flag, 16, "-cl-std=CL%u.%u", std_clevel_uint[0], std_clevel_uint[1]);
-        if (0 >= nchar || 16 <= nchar) result = EXIT_FAILURE;
+        const int nchar = LIBXS_SNPRINTF(std_flag, 32, "-cl-std=CL%u.%u", std_clevel_uint[0], std_clevel_uint[1]);
+        if (0 >= nchar || 32 <= nchar) result = EXIT_FAILURE;
       }
       else *std_flag = '\0'; /* not an error */
     }
