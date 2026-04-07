@@ -816,7 +816,10 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
     /* Report and destroy profiling histogram */
     if (NULL != ctx->hist) {
-      libxs_hist_print(stderr, ctx->hist, "OZAKI PROF (GFLOPS/s)", NULL);
+      const char *const kind = (0 != ctx->use_double ? "DP" : "SP");
+      double gflops = 0;
+      libxs_hist_get_median(NULL /*lock*/, ctx->hist, &gflops);
+      fprintf(stderr, "OZAKI PROF: %.0f %s-GFLOPS/s\n", gflops, kind);
       libxs_hist_destroy(ctx->hist);
     }
     LIBXS_MEMZERO(ctx);

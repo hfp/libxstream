@@ -337,18 +337,16 @@ LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem, libxstream_str
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event /*event*/, cl_int /*event_status*/, void* /*data*/);
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event, cl_int event_status, void* data)
 {
-  int result = EXIT_SUCCESS;
-  const double durdev = libxstream_opencl_duration(event, &result);
   cl_command_type type = CL_COMMAND_SVM_MEMCPY;
+  int result = EXIT_SUCCESS;
+  double vals[2];
+  vals[1] = libxstream_opencl_duration(event, &result) * 1E6; /* Microseconds */
   LIBXS_UNUSED(event_status);
   assert(CL_COMPLETE == event_status && NULL != data && 8 == sizeof(data));
   if (EXIT_SUCCESS == result && EXIT_SUCCESS == clGetEventInfo(event, CL_EVENT_COMMAND_TYPE, sizeof(type), &type, NULL)) {
     const size_t size = 0x3FFFFFFFFFFFFFFF & (size_t)data;
     const int kind = LIBXS_CAST_INT(((size_t)data) >> 62);
-    double vals[2];
-    const int mb = LIBXS_CAST_INT((size + (1 << 19)) >> 20);
-    vals[0] = (double)size;
-    vals[1] = durdev;
+    vals[0] = 1E-6 * size; /* Megabyte */
     if (CL_COMMAND_WRITE_BUFFER != type && CL_COMMAND_READ_BUFFER != type && CL_COMMAND_COPY_BUFFER != type) {
       switch (kind) {
         case libxstream_event_kind_h2d: type = CL_COMMAND_WRITE_BUFFER; break;
@@ -361,17 +359,17 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
       case CL_COMMAND_WRITE_BUFFER: {
         assert(NULL != libxstream_opencl_config.hist_h2d && libxstream_event_kind_h2d == kind);
         libxs_hist_push(libxstream_opencl_config.lock_memory, libxstream_opencl_config.hist_h2d, vals);
-        if (0 > libxstream_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: H2D mb=%i us=%.0f\n", mb, durdev * 1E6);
+        if (0 > libxstream_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: H2D mb=%.1f us=%.0f\n", vals[0], vals[1]);
       } break;
       case CL_COMMAND_READ_BUFFER: {
         assert(NULL != libxstream_opencl_config.hist_d2h && libxstream_event_kind_d2h == kind);
         libxs_hist_push(libxstream_opencl_config.lock_memory, libxstream_opencl_config.hist_d2h, vals);
-        if (0 > libxstream_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2H mb=%i us=%.0f\n", mb, durdev * 1E6);
+        if (0 > libxstream_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2H mb=%.1f us=%.0f\n", vals[0], vals[1]);
       } break;
       case CL_COMMAND_COPY_BUFFER: {
         assert(NULL != libxstream_opencl_config.hist_d2d && libxstream_event_kind_d2d == kind);
         libxs_hist_push(libxstream_opencl_config.lock_memory, libxstream_opencl_config.hist_d2d, vals);
-        if (0 > libxstream_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2D mb=%i us=%.0f\n", mb, durdev * 1E6);
+        if (0 > libxstream_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2D mb=%.1f us=%.0f\n", vals[0], vals[1]);
       } break;
     }
   }
