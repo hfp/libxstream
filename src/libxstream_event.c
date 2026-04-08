@@ -28,10 +28,10 @@ LIBXSTREAM_API int libxstream_event_destroy(libxstream_event_t* event)
   if (NULL != event) {
     cl_event clevent;
     assert(NULL != libxstream_opencl_config.events);
-    LIBXS_ATOMIC_ACQUIRE(libxstream_opencl_config.lock_event, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
     clevent = event->cl_evt;
     event->cl_evt = NULL;
-    LIBXS_ATOMIC_RELEASE(libxstream_opencl_config.lock_event, LIBXS_ATOMIC_LOCKORDER);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
     libxs_pfree_lock(
       event, (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
     if (NULL != clevent) {
@@ -49,10 +49,10 @@ LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, lib
   cl_event clevent = NULL;
   str = (NULL != stream ? stream : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue && NULL != event);
-  LIBXS_ATOMIC_ACQUIRE(libxstream_opencl_config.lock_event, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   clevent = event->cl_evt;
   if (NULL != clevent) clRetainEvent(clevent);
-  LIBXS_ATOMIC_RELEASE(libxstream_opencl_config.lock_event, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   if (NULL != clevent) {
 # if defined(CL_VERSION_1_2)
     result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, NULL);
@@ -60,14 +60,14 @@ LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, lib
     result = clEnqueueWaitForEvents(str->queue, 1, &clevent);
 # endif
     if (EXIT_SUCCESS != result) {
-      LIBXS_ATOMIC_ACQUIRE(libxstream_opencl_config.lock_event, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
       if (clevent == event->cl_evt) {
         event->cl_evt = NULL;
-        LIBXS_ATOMIC_RELEASE(libxstream_opencl_config.lock_event, LIBXS_ATOMIC_LOCKORDER);
+        LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(clevent));
       }
       else {
-        LIBXS_ATOMIC_RELEASE(libxstream_opencl_config.lock_event, LIBXS_ATOMIC_LOCKORDER);
+        LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
       }
     }
     clReleaseEvent(clevent);
@@ -91,7 +91,7 @@ LIBXSTREAM_API int libxstream_event_record(libxstream_event_t* event, libxstream
 # else
   result = clEnqueueMarker(str->queue, &clevent_result);
 # endif
-  LIBXS_ATOMIC_ACQUIRE(libxstream_opencl_config.lock_event, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   clevent = event->cl_evt;
   if (EXIT_SUCCESS == result) {
     assert(NULL != clevent_result);
@@ -100,7 +100,7 @@ LIBXSTREAM_API int libxstream_event_record(libxstream_event_t* event, libxstream
   else {
     event->cl_evt = NULL;
   }
-  LIBXS_ATOMIC_RELEASE(libxstream_opencl_config.lock_event, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   if (NULL != clevent) {
     const int result_release = clReleaseEvent(clevent);
     if (EXIT_SUCCESS == result) result = result_release;
@@ -118,10 +118,10 @@ LIBXSTREAM_API int libxstream_event_query(libxstream_event_t* event, int* has_oc
   cl_event clevent;
   int result;
   assert(NULL != event && NULL != has_occurred);
-  LIBXS_ATOMIC_ACQUIRE(libxstream_opencl_config.lock_event, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   clevent = event->cl_evt;
   if (NULL != clevent) clRetainEvent(clevent);
-  LIBXS_ATOMIC_RELEASE(libxstream_opencl_config.lock_event, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   if (NULL != clevent) {
     result = clGetEventInfo(clevent, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int), &status, NULL);
     clReleaseEvent(clevent);
@@ -141,10 +141,10 @@ LIBXSTREAM_API int libxstream_event_sync(libxstream_event_t* event)
   int result = EXIT_SUCCESS;
   cl_event clevent;
   assert(NULL != event);
-  LIBXS_ATOMIC_ACQUIRE(libxstream_opencl_config.lock_event, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   clevent = event->cl_evt;
   if (NULL != clevent) clRetainEvent(clevent);
-  LIBXS_ATOMIC_RELEASE(libxstream_opencl_config.lock_event, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   if (NULL != clevent) {
     if (0 == (32 & libxstream_opencl_config.wa)) {
       cl_int status = CL_COMPLETE + 1;

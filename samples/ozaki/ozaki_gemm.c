@@ -773,7 +773,7 @@ static void ozaki_cache_check(ozaki_context_t* ctx,
   int* cache_hit_a, int* cache_hit_b)
 {
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
-  LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
   if (0 != (ctx->cache.flags & 1) && a == ctx->cache.a.ptr
       && M == ctx->cache.a.dim && K == ctx->cache.a.K
       && lda == ctx->cache.a.ld && ta == ctx->cache.a.trans
@@ -795,7 +795,7 @@ static void ozaki_cache_check(ozaki_context_t* ctx,
     *cache_hit_b = 1;
   }
   if (0 != *cache_hit_a || 0 != *cache_hit_b) ++ctx->cache.nusers;
-  LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->cache.lock);
 }
 
 
@@ -809,7 +809,7 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result,
 #if defined(OZAKI_DEVPOOL)
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
 #endif
-  LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
   if (0 == *cache_hit_a && 0 != (ctx->cache.flags & 1) && EXIT_SUCCESS == result) {
     if (NULL != ctx->cache.a.d_slices) {
       OZAKI_DEV_FREE(ctx->cache.a.d_slices); ctx->cache.a.d_slices = NULL;
@@ -839,5 +839,5 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result,
     *cache_hit_b = 1; /* ownership transferred; suppress cleanup free */
   }
   if (0 == prev_owned && (0 != *cache_hit_a || 0 != *cache_hit_b)) ++ctx->cache.nusers;
-  LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->cache.lock);
 }

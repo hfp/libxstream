@@ -492,23 +492,19 @@ LIBXSTREAM_API int libxstream_mem_deallocate(void* dev_mem)
     assert(NULL != libxstream_opencl_config.device.context);
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != libxstream_opencl_config.device.clMemFreeINTEL) {
-      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
       LIBXS_EXPECT_DEBUG(
         EXIT_SUCCESS == libxstream_opencl_config.device.clMemFreeINTEL(libxstream_opencl_config.device.context, dev_mem));
-      LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     }
     else
 # endif
 # if (0 != LIBXSTREAM_USM)
       if (0 != libxstream_opencl_config.device.usm)
     {
-      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       clSVMFree(libxstream_opencl_config.device.context, dev_mem);
 #   else
       LIBXSTREAM_MEM_FREE(dev_mem);
 #   endif
-      LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     }
     else
 # endif

@@ -758,13 +758,13 @@ void ozaki_destroy(ozaki_context_t* ctx)
       libxs_malloc_pool_t* const pool = ctx->devpool;
 #endif
       void *sa_sl, *sa_ex, *sb_sl, *sb_ex;
-      LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
       sa_sl = ctx->cache.a.d_slices; ctx->cache.a.d_slices = NULL;
       sa_ex = ctx->cache.a.d_exp;    ctx->cache.a.d_exp = NULL;
       sb_sl = ctx->cache.b.d_slices; ctx->cache.b.d_slices = NULL;
       sb_ex = ctx->cache.b.d_exp;    ctx->cache.b.d_exp = NULL;
       ctx->cache.flags = 0;
-      LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
+      LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->cache.lock);
       /* Drain active users that grabbed pointers before the NULL.
        * LIBXS_SYNC_CYCLE only tests the low bit (lock semantics),
        * so spin explicitly on the full counter value. */
@@ -817,7 +817,7 @@ void ozaki_destroy(ozaki_context_t* ctx)
 void ozaki_invalidate_cache(ozaki_context_t* ctx, const void* a, const void* b)
 {
   if (NULL != ctx) {
-    LIBXS_ATOMIC_ACQUIRE(&ctx->cache.lock, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
     /* Invalidate A cache entry if it matches the given pointer */
     if (NULL != a && a == ctx->cache.a.ptr) {
       ctx->cache.a.ptr = NULL;
@@ -834,6 +834,6 @@ void ozaki_invalidate_cache(ozaki_context_t* ctx, const void* a, const void* b)
       ctx->cache.b.ld = 0;
       ctx->cache.b.trans = 0;
     }
-    LIBXS_ATOMIC_RELEASE(&ctx->cache.lock, LIBXS_ATOMIC_LOCKORDER);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->cache.lock);
   }
 }
