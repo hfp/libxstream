@@ -112,7 +112,7 @@ endif
 	@-rm -f $(GENHDR)
 
 .PHONY: reformat
-reformat: $(CSOURCS) $(wildcard $(INCDIR)/*.h)
+reformat: $(wildcard $(SRCDIR)/acc_.c) $(wildcard $(INCDIR)/acc_*.h)
 	$(SCRDIR)/tool_clangformat.sh -style=file:$(SRCDIR)/.clang-format -i $^
 
 .PHONY: deepclean
