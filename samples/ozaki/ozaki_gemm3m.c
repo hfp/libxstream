@@ -232,6 +232,11 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     result = libxstream_mem_copy_d2h(d_cg, c, sz_c_complex, stream);
   }
 
+  /* Sync stream before freeing device buffers to ensure finalize kernel
+   * and D2H transfer have completed. Without this, freed buffers can be
+   * recycled by the pool while DMA is still reading them. */
+  if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
+
   /* Cleanup device buffers */
   OZAKI_DEV_FREE(d_ag);
   OZAKI_DEV_FREE(d_bg);
