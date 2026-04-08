@@ -283,7 +283,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
     if (0 < j && 0 == LIBXS_PUTENV(zex_nccs) && /* populate before touching the compute runtime */
         (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
     {
-      fprintf(stderr, "INFO ACC/OpenCL: support multiple separate compute command streamers (%i-CCS mode)\n", mode);
+      fprintf(stderr, "INFO ACC/OpenCL: directly map to Compute Command Streamers (%i-CCS mode)\n", mode);
     }
   }
 # endif
@@ -1667,6 +1667,9 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
           result = clBuildProgram(*program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
         }
       }
+      else if (0 != libxstream_opencl_config.verbosity && 0 != libxstream_opencl_config.debug) {
+        fprintf(stderr, "INFO ACC/OpenCL [%s]: %s\n", name, buffer);
+      }
     }
     if (EXIT_SUCCESS == result) {
       if (source != ext_source) {
@@ -1717,8 +1720,7 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
     assert(EXIT_SUCCESS != result || NULL != *program);
     if (EXIT_SUCCESS == result) {
       ok = libxstream_opencl_kernel_flags(build_params, build_options, try_options, *program, buffer, LIBXSTREAM_BUFFERSIZE);
-      if (EXIT_SUCCESS == ok) result = ok;
-      else {
+      if (EXIT_SUCCESS != ok) {
 # if defined(CL_VERSION_2_1)
         if (0 != libxstream_opencl_config.dump) *program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
         else
@@ -1730,8 +1732,10 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
         assert(EXIT_SUCCESS != result || NULL != *program);
         if (EXIT_SUCCESS == result) {
           result = clBuildProgram(*program, 1 /*num_devices*/, &device_id, buffer, NULL /*callback*/, NULL /*user_data*/);
-          ok = EXIT_FAILURE;
         }
+      }
+      else if (0 != libxstream_opencl_config.verbosity && 0 != libxstream_opencl_config.debug) {
+        fprintf(stderr, "INFO ACC/OpenCL [%s]: %s\n", name, buffer);
       }
     }
   }
