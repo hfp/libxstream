@@ -192,7 +192,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
  * alpha and beta each point to 2 consecutive real values [real, imag].
  * All intermediate buffers remain on device - no round-trips through host.
  * Returns EXIT_SUCCESS or EXIT_FAILURE. */
-int ozaki_zgemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
+int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
                   char transa, char transb,
                   int M, int N, int K,
                   const double* alpha, const void* a, int lda,

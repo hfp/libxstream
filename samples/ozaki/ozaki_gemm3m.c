@@ -25,7 +25,7 @@
  *
  * This reduces 6 PCIe transfers (3 in + 3 out) to 2 (1 in + 1 out).
  */
-int ozaki_zgemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
+int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
                   char transa, char transb,
                   int M, int N, int K,
                   const double* alpha, const void* a, int lda,

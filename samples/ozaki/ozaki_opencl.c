@@ -17,8 +17,8 @@
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI2_INT8)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2_INT8)"
 #endif
-#if !defined(OPENCL_KERNELS_SOURCE_ZGEMM3M)
-# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_ZGEMM3M)"
+#if !defined(OPENCL_KERNELS_SOURCE_GEMM3M)
+# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_GEMM3M)"
 #endif
 
 #if !defined(OZAKI_TINYTC_BM)
@@ -557,7 +557,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
         "-DUSE_DOUBLE=%d", use_double ? 1 : 0);
 
       result = libxstream_opencl_program(
-        0, OPENCL_KERNELS_SOURCE_ZGEMM3M, "zgemm3m",
+        0, OPENCL_KERNELS_SOURCE_GEMM3M, "zgemm3m",
         build_params_3m, build_options,
         NULL, NULL, NULL, 0, &program_3m);
 
