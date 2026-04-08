@@ -202,13 +202,13 @@ DIFF: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
 | `ozaki_bench.c`        | Main benchmark driver (initializes context, runs GEMM, compares with BLAS)        |
 | `ozaki_gemm.c`         | GEMM implementation (preprocessing pipeline, dotprod launch, buffer management)   |
 | `ozaki_opencl.c`       | Context initialization (device selection, kernel compilation, parameter tuning)   |
-| `ozaki_zgemm.c`        | Complex GEMM via 3M (Karatsuba) method - all intermediates stay on device          |
+| `ozaki_gemm3m.c`       | Complex GEMM via 3M (Karatsuba) method - all intermediates stay on device          |
 | `ozaki_opencl.h`       | Public API and context structure definitions                                       |
 | `ozaki_kernels.h`      | Auto-generated header embedding OpenCL C kernel sources                            |
 | `ozaki_tinytc.h`       | Auto-generated header embedding specialized TinyTC SPIR-V kernels                  |
 | `kernels/ozaki1_int8.cl` | Scheme 1 OpenCL C kernels (preprocess + XMX/scalar dotprod)                     |
 | `kernels/ozaki2_int8.cl` | Scheme 2 OpenCL C kernels (preprocess + fused CRT dotprod)                      |
-| `kernels/zgemm3m.cl`    | Complex GEMM 3M helper kernels (deinterleave, matadd, finalize)                 |
+| `kernels/gemm3m.cl`     | Complex GEMM 3M helper kernels (deinterleave, matadd, finalize)                 |
 | `kernels/ozaki_common.cl` | Shared IEEE-754 field extraction helpers                                        |
 | `kernels/ozaki1.tinytc`  | TinyTC kernel definition for generic Scheme 1 dotprod                            |
 | `kernels/ozaki1_prod_*.tinytc` | Specialized TinyTC definitions (triangular/square)                         |
@@ -259,5 +259,5 @@ See the LIBXS Ozaki README for details on profile modes and output format.
 
 ## Limitations
 
-- Complex GEMM (3M method) is implemented (`ozaki_zgemm3m` in `ozaki_zgemm.c`) but not called from this sample's benchmark driver. It is exercised by the [LIBXS Ozaki sample](https://github.com/hfp/libxs), whose interceptor-based driver calls `zgemm-wrap.x` / `cgemm-wrap.x` and dispatches through the OpenCL 3M path when LIBXSTREAM is available.
+- Complex GEMM (3M method) is implemented (`ozaki_zgemm3m` in `ozaki_gemm3m.c`) but not called from this sample's benchmark driver. It is exercised by the [LIBXS Ozaki sample](https://github.com/hfp/libxs), whose interceptor-based driver calls `zgemm-wrap.x` / `cgemm-wrap.x` and dispatches through the OpenCL 3M path when LIBXSTREAM is available.
 - TinyTC kernels are Scheme 1 only (Scheme 2 uses OpenCL C kernels).
