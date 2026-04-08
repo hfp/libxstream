@@ -1077,7 +1077,10 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           active_id, devinfo->std_clevel, devinfo->std_level, devinfo->std_flag, &devinfo->type);
         if (EXIT_SUCCESS == result) {
           char devname[LIBXSTREAM_BUFFERSIZE] = "";
-          const char* const sgexts[] = {"cl_intel_required_subgroup_size", "cl_intel_subgroups", "cl_khr_subgroups"};
+          const char* const sgexts[] = {
+            "cl_khr_subgroups", "cl_intel_required_subgroup_size",
+            "cl_intel_subgroups", "cl_intel_subgroups_long", 
+          };
           size_t sgsizes[16], nbytes = 0, i;
           LIBXSTREAM_STREAM_PROPERTIES_TYPE properties[4] = {
             CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
