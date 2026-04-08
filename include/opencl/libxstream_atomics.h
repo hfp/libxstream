@@ -13,21 +13,11 @@
 
 #if (2 == TAN /*libxstream_opencl_atomic_fp_64*/)
 # if !defined(T)
-#   define T double
-# endif
-# if !defined(ZERO)
-#   define ZERO 0.0
+#   define T real_t
 # endif
 #elif (1 == TAN /*libxstream_opencl_atomic_fp_32*/)
 # if !defined(T)
-#   define T float
-# endif
-# if !defined(ZERO)
-#   define ZERO 0.f
-# endif
-#elif defined(T) /*libxstream_opencl_atomic_fp_no*/
-# if !defined(ZERO)
-#   define ZERO 0
+#   define T real_t
 # endif
 #endif
 

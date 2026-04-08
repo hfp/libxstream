@@ -65,7 +65,7 @@
 
 /* Floating-point type and IEEE bit-manipulation utilities.
  * Controlled by USE_DOUBLE (define to 1 for fp64, 0 or undef for fp32). */
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+#if (defined(USE_DOUBLE) && (1 == USE_DOUBLE)) || (defined(TAN) && (2 == TAN))
 # pragma OPENCL EXTENSION cl_khr_fp64 : enable
 typedef double real_t;
 typedef ulong uint_repr_t;
@@ -74,7 +74,7 @@ typedef ulong uint_repr_t;
 # if !defined(ZERO)
 #   define ZERO 0.0
 # endif
-#else
+#elif !defined(TAN) || (1 == TAN)
 typedef float real_t;
 typedef uint uint_repr_t;
 # define EXP_MASK 255U
