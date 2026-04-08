@@ -383,9 +383,12 @@ int libsmm_acc_init(void) {
                   opencl_libsmm_smm_t* config_init;
                   libxstream_opencl_config.devmatch = 0; /* disable device-match */
                   key.devuid = 0;
-                  config_init = (opencl_libsmm_smm_t*)libxs_registry_get(opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
+                  config_init = (opencl_libsmm_smm_t*)libxs_registry_get(
+                    opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
                   if (NULL == config_init) {
-                    if (NULL == libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config), libxs_registry_lock(opencl_libsmm_registry))) {
+                    if (NULL == libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config),
+                                  libxs_registry_lock(opencl_libsmm_registry)))
+                    {
                       result = EXIT_FAILURE;
                       break;
                     }
@@ -412,7 +415,8 @@ int libsmm_acc_init(void) {
                                      env_params, &key_direct, &config, NULL /*perfest*/, NULL /*device*/, &key_direct_skip))
           { /* try OPENCL_LIBSMM_SMM_PARAMS as string of kernel parameters (not device-specific) */
             LIBXS_ASSERT(0 == key_direct.devuid && 0 != key_direct_skip);
-            if (NULL != libxs_registry_set(opencl_libsmm_registry, &key_direct, sizeof(key_direct), &config, sizeof(config), libxs_registry_lock(opencl_libsmm_registry)))
+            if (NULL != libxs_registry_set(opencl_libsmm_registry, &key_direct, sizeof(key_direct), &config, sizeof(config),
+                          libxs_registry_lock(opencl_libsmm_registry)))
             {
               libxstream_opencl_config.devmatch = 0; /* disable device-match */
               ntuned = 1;
@@ -470,10 +474,10 @@ int libsmm_acc_init(void) {
                     key.devuid = 0;
                   }
                   config_init = (opencl_libsmm_smm_t*)libxs_registry_get(
-                    opencl_libsmm_registry, &key, sizeof(key),
-                    libxs_registry_lock(opencl_libsmm_registry)); /* duplicate? */
+                    opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry)); /* duplicate? */
                   if (NULL == config_init) {
-                    if (NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config), libxs_registry_lock(opencl_libsmm_registry)))
+                    if (NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config),
+                                  libxs_registry_lock(opencl_libsmm_registry)))
                       ++ntuned;
                     else { /* failed to register */
                       result = EXIT_FAILURE;
@@ -485,9 +489,10 @@ int libsmm_acc_init(void) {
                   }
                   if (active_match == i && 0 != default_uid) {
                     key.devuid = default_uid;
-                    config_init = (opencl_libsmm_smm_t*)libxs_registry_get(opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
-                    if (NULL != config_init ||
-                        NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config), libxs_registry_lock(opencl_libsmm_registry)))
+                    config_init = (opencl_libsmm_smm_t*)libxs_registry_get(
+                      opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
+                    if (NULL != config_init || NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config,
+                                                         sizeof(config), libxs_registry_lock(opencl_libsmm_registry)))
                     {
                       static int info = 0;
                       if (0 == info && 0 == libxs_nrank() && 0 != libxstream_opencl_config.verbosity &&
@@ -668,7 +673,8 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
     key.type = datatype;
     key.m = m;
     key.n = n; /* initialize key */
-    config = (opencl_libsmm_trans_t*)libxs_registry_get(opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
+    config = (opencl_libsmm_trans_t*)libxs_registry_get(
+      opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
     if (NULL == config) {
       char buffer[LIBXSTREAM_BUFFERSIZE], build_params[LIBXSTREAM_BUFFERSIZE];
       char fname[LIBXSTREAM_MAXSTRLEN];
@@ -733,9 +739,8 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
                 else result = EXIT_FAILURE;
               }
               if (EXIT_SUCCESS == result) {
-                config = (opencl_libsmm_trans_t*)libxs_registry_set(
-                  opencl_libsmm_registry, &key, sizeof(key), &new_config, sizeof(new_config),
-                  libxs_registry_lock(opencl_libsmm_registry));
+                config = (opencl_libsmm_trans_t*)libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &new_config,
+                  sizeof(new_config), libxs_registry_lock(opencl_libsmm_registry));
                 if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
                   const double duration = libxs_timer_duration(start, libxs_timer_tick());
                   LIBXS_STDIO_ACQUIRE();
@@ -901,7 +906,8 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       lock += LIBXS_MOD2(libxs_hash(&key, sizeof(key), 25071975 /*seed*/), OPENCL_LIBSMM_NLOCKS_SMM);
 # endif
       LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock); /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
-      config = (opencl_libsmm_smm_t*)libxs_registry_get(opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
+      config = (opencl_libsmm_smm_t*)libxs_registry_get(
+        opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
       if (0 >= bs) bs = ((NULL != config && 0 < config->bs) ? config->bs : OPENCL_LIBSMM_DEFAULT_BS);
       /* determine kernel-kind (mini-batch vs. mini-kernel) */
       if (1 == bs || 0 > s || (bs * s) > stack_size) kernel_idx = bs = 1;
@@ -1116,9 +1122,8 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
                   LIBXS_ASSERT(wgsize_max_kernel <= devinfo->wgsize[0]);
                   if (new_config.wgsize[kernel_idx] <= wgsize_max_kernel) { /* check planned WG-size vs kernel-specific WG-size */
                     if (NULL == config || NULL == config->kernel[kernel_idx]) {
-                      config = (opencl_libsmm_smm_t*)libxs_registry_set(
-                        opencl_libsmm_registry, &key, sizeof(key), &new_config, sizeof(new_config),
-                        libxs_registry_lock(opencl_libsmm_registry));
+                      config = (opencl_libsmm_smm_t*)libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &new_config,
+                        sizeof(new_config), libxs_registry_lock(opencl_libsmm_registry));
                     }
                     if (NULL != config) {
                       if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
