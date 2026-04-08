@@ -1583,7 +1583,7 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
       if (0 < nchar && (int)sizeof(dump_filename) > nchar) {
         const int std_flag_len = LIBXS_CAST_INT(strlen(devinfo->std_flag));
         const char* const env_cpp = getenv("LIBXSTREAM_CPP");
-        const int cpp = (NULL == env_cpp ? 1 /*default*/ : atoi(env_cpp));
+        const int cpp = (NULL == env_cpp ? (3 <= libxstream_opencl_config.dump) : atoi(env_cpp));
 # if defined(LIBXSTREAM_CPPBIN)
         FILE* const file_cpp = (0 != cpp ? fopen(LIBXSTREAM_CPPBIN, "rb") : NULL);
 # else
