@@ -1,4 +1,5 @@
 opencl_kernels.h
 opentuner.log
+/*.cl
 *.pdf
 *.txt
