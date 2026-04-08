@@ -9,14 +9,14 @@
 #ifndef OPENCL_COMMON_H
 #define OPENCL_COMMON_H
 
-#if !defined(LIBXSTREAM_C_VERSION)
-# define LIBXSTREAM_C_VERSION __OPENCL_C_VERSION__
+#if !defined(LIBXSTREAM_OCLVER_C)
+# define LIBXSTREAM_OCLVER_C __OPENCL_C_VERSION__
 #endif
-#if !defined(LIBXSTREAM_VERSION)
-# define LIBXSTREAM_VERSION __OPENCL_VERSION__
+#if !defined(LIBXSTREAM_OCLVER)
+# define LIBXSTREAM_OCLVER __OPENCL_VERSION__
 #endif
 
-#if (200 /*CL_VERSION_2_0*/ <= LIBXSTREAM_C_VERSION) || defined(__NV_CL_C_VERSION)
+#if (200 /*CL_VERSION_2_0*/ <= LIBXSTREAM_OCLVER_C) || defined(__NV_CL_C_VERSION)
 # define UNROLL_FORCE(N) __attribute__((opencl_unroll_hint(N)))
 # define UNROLL_AUTO __attribute__((opencl_unroll_hint))
 #else
@@ -39,10 +39,10 @@
 #endif
 
 #define BCST_NO(V, I) (V)
-#if defined(WG) && (0 < WG) && defined(GPU) && (200 <= LIBXSTREAM_VERSION)
+#if defined(WG) && (0 < WG) && defined(GPU) && (200 <= LIBXSTREAM_OCLVER)
 # define BCST_WG(V, I) work_group_broadcast(V, I)
 #endif
-#if defined(SG) && (0 < SG) && defined(GPU) && (200 <= LIBXSTREAM_VERSION)
+#if defined(SG) && (0 < SG) && defined(GPU) && (200 <= LIBXSTREAM_OCLVER)
 # define BCST_SG(V, I) sub_group_broadcast(V, I)
 #endif
 

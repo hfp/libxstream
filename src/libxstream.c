@@ -1412,7 +1412,7 @@ LIBXSTREAM_API int libxstream_opencl_defines(const char defines[], char buffer[]
   if (NULL != buffer && NULL != devinfo->context) {
     const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
     const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
-    result = LIBXS_SNPRINTF(buffer, buffer_size, " -DLIBXSTREAM_VERSION=%u -DLIBXSTREAM_C_VERSION=%u%s", std_level, std_clevel,
+    result = LIBXS_SNPRINTF(buffer, buffer_size, " -DLIBXSTREAM_OCLVER=%u -DLIBXSTREAM_OCLVER_C=%u%s", std_level, std_clevel,
       0 == libxstream_opencl_config.debug ? " -DNDEBUG" : "");
     if (0 < result && LIBXS_CAST_INT(buffer_size) > result) {
       const int n = LIBXS_SNPRINTF(
