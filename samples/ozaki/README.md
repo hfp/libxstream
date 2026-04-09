@@ -21,31 +21,31 @@ The GEMM `C = alpha * A * B + beta * C` is then computed as a sum of
 
 ### Scheme 2 - Chinese Remainder Theorem (CRT)
 
-- **int8** (`ozaki2_int8.cl`, `OZAKI=2`) - Each IEEE-754 mantissa, shifted by
-  a per-row/per-column max exponent, is reduced modulo each of up to 18
-  pairwise coprime moduli (<= 128, fitting int8).  One int8 dot product is
-  performed per modulus channel (NPRIMES independent products instead of
-  S*(S+1)/2 pairwise slice products).  The results are reconstructed via
-  **Garner's algorithm** and evaluated with **Horner's method** in a
-  mixed-radix representation.  The product of 17 moduli exceeds 2^111,
-  providing sufficient range for fp64.
+- **u8 default** (`ozaki2_int8.cl`, `OZAKI=2`) - Each IEEE-754 mantissa, shifted
+  by a per-row/per-column max exponent, is reduced modulo each of up to 20
+  pairwise coprime moduli.  One dot product is performed per modulus channel
+  (NPRIMES independent products instead of S*(S+1)/2 pairwise slice products).
+  The results are reconstructed via **Garner's algorithm** and evaluated with
+  **Horner's method** in a mixed-radix representation.
+
+  Residues are unsigned uint8 with moduli up to 256 (prime powers 256=2^8,
+  243=3^5, 169=13^2 alongside large primes).  Sign is encoded via the modular
+  additive inverse (p - r).  The DPAS path uses `u8_u8_matrix_mad_k32`;
+  a signed i8 equivalent is available via `OZAKI_I8=1`.
 
   XMX / DPAS acceleration uses a **fused** `dotprod` kernel that computes
-  DPAS int8 matmuls per modulus channel, reduces to unsigned residues in
-  registers, and immediately runs Garner reconstruction and Horner
-  evaluation - no intermediate global buffer is needed.  A scalar
-  fallback follows the same fused structure.  The triangular and
-  symmetrize optimisations do not apply (each modulus channel is
-  independent).
+  DPAS matmuls per modulus channel, reduces to unsigned residues in registers,
+  and immediately runs Garner reconstruction and Horner evaluation - no
+  intermediate global buffer is needed.  A scalar fallback follows the same
+  fused structure.  The triangular and symmetrize optimisations do not apply
+  (each modulus channel is independent).
 
   **K-grouping** (`OZAKI_GROUPS`): When `OZAKI_GROUPS` > 1, that many
   consecutive K sub-panels share a common max exponent and their DPAS dot
   products are accumulated before a single Garner reconstruction per group.
   This amortises the (expensive) Garner/Horner phase across OZAKI_GROUPS panels.
-  OZAKI_GROUPS > 1 automatically uses 18 primes (instead of 17) to provide
-  sufficient CRT range for accumulated dot products.  With `OZAKI_GROUPS=4`
-  the Garner cost is cut by 4x and overall speedups of ~3x have
-  been measured on PVC at large matrix sizes.
+  With `OZAKI_GROUPS=4` the Garner cost is cut by 4x and overall speedups of ~3x
+  have been measured on PVC at large matrix sizes.
 
 ### Pipeline
 
@@ -141,7 +141,8 @@ All arguments are positional and optional (defaults shown):
 | `OZAKI`          | 1       | Kernel variant: 1 = int8 mantissa slices, 2 = int8 CRT.                                                                                                      |
 | `OZAKI_FLAGS`    | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S^2 square. Ignored for Scheme 2.                                                                  |
 | `OZAKI_TRIM`     | 0       | Precision levels to trim. Scheme 1: drops diagonals from slice-pair iteration (~7 product bits/level). Scheme 2: truncates mantissa before CRT (~2 input bits/level, ~4 product bits/level). The level semantics are calibrated so the same trim value gives comparable accuracy across schemes. |
-| `OZAKI_N`        | 8/19    | Number of decomposition components. Scheme 1: number of slices per element (fp64: default 8, fp32: default 4). Scheme 2: number of CRT primes (fp64: default 19, fp32: default 10; max 20). |
+| `OZAKI_N`        | 8/16    | Number of decomposition components. Scheme 1: number of slices per element (fp64: default 8, fp32: default 4). Scheme 2: number of CRT primes (fp64: default 16, fp32: default 9; max 20). |
+| `OZAKI_I8`       | 0       | Scheme 2 only: use signed i8 residues (moduli <= 128) instead of the default unsigned u8. |
 | `OZAKI_GROUPS`   | 0       | Scheme 2 only: K-grouping factor - that many consecutive K sub-panels share one exponent and one Garner reconstruction (0/1 = no grouping, 4 = quads).      |
 | `OZAKI_CACHE`    | 0       | Preprocessing cache bitmask: 1 = cache A, 2 = cache B, 3 = cache both. Skips preprocessing when same matrix pointer is reused with matching dims/transpose.  |
 | `OZAKI_TINYTC`   | 0       | Load TinyTC SPIR-V kernel from .clx file path (e.g., `kernels/ozaki1_f64_256x128_n8t3_tri.clx`). 0 = use embedded or OpenCL C kernels.                      |
@@ -168,9 +169,10 @@ histogram-based profiling, and accuracy monitoring. See the LIBXS Ozaki README f
 their documentation.
 
 The Ozaki context auto-selects XMX-friendly defaults when hardware support is
-detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For CRT (`OZAKI=2`): `nprimes=18`,
-XMX uses `BK=32` with fused in-register Garner/Horner.
-Common defaults: `SG=16`.  Scheme 2 auto-default for fp64 is 19 primes (not 18).
+detected.  For int8 Scheme 1 (default): `BK=32`, `BM=16`, `BN=16`.  For CRT
+Scheme 2: XMX uses `BK=32` with fused in-register Garner/Horner.  Common
+defaults: `SG=16`.  Scheme 2 auto-default for fp64 is 16 primes (u8) or 19
+primes (i8 with `OZAKI_I8=1`).
 
 ## Example
 
