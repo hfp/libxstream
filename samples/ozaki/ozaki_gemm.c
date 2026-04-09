@@ -32,7 +32,7 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
 
 
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K, double alpha,
-  const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc, libxs_hist_t* hist, int profile)
+  const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc, libxs_hist_t* hist, int profile, int dev)
 {
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
 
@@ -91,20 +91,30 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     expb_size = (size_t)nblk_gn * tn * elem_size;
     c_nbytes = (size_t)ldc * (size_t)N * elem_size;
 
-    /* Preprocessing cache: skip when K-grouping is active */
-    if (n_kgroups <= 1) {
+    /* Preprocessing cache: skip when K-grouping is active or a/b/c are device pointers */
+    if (0 == dev && n_kgroups <= 1) {
       ozaki_cache_check(ctx, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, &d_as, &d_bs, &d_expa_g,
         &d_expb_g, &cache_hit_a, &cache_hit_b);
     }
 
-    /* Allocate device memory (skip cached sides and host-preprocessed sides) */
-    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
-      result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
+    /* Allocate device memory (skip cached sides and host-preprocessed sides).
+     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm3m). */
+    if (0 != dev) {
+      union { const void* cv; void* v; } ca, cb;
+      ca.cv = a; cb.cv = b;
+      d_ag = ca.v;
+      d_bg = cb.v;
+      d_cg = c;
     }
-    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
-      result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+    else {
+      if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
+        result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
+      }
+      if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
+        result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+      }
+      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
     }
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
     if (EXIT_SUCCESS == result && 0 != use_tinytc) {
       result = OZAKI_DEV_ALLOC(&d_scratch, (size_t)M * N * sizeof(cl_int));
     }
@@ -121,14 +131,17 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
     }
 
-    /* H2D transfers: full source matrices (once) */
-    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
-      result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
+    /* H2D transfers: full source matrices (once).
+     * Skip when dev != 0: a/b/c are already on device. */
+    if (0 == dev) {
+      if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
+        result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
+      }
+      if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
+        result = libxstream_mem_copy_h2d(b, d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
+      }
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
     }
-    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
-      result = libxstream_mem_copy_h2d(b, d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
-    }
-    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
 
     /* Profiling: allocate event array (scaled for K-groups) */
     LIBXS_ASSERT(0 == profile || NULL != hist);
@@ -248,8 +261,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       first_pair = 0; /* subsequent groups accumulate */
     } /* end K-group loop */
 
-    /* Save preprocessed buffers to cache (only for single-group case) */
-    if (n_kgroups <= 1) {
+    /* Save preprocessed buffers to cache (only for single-group case).
+     * Skip when dev != 0: device pointers are not valid cache keys. */
+    if (0 == dev && n_kgroups <= 1) {
       const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
       ozaki_cache_update(ctx, result, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, d_as, d_bs, d_expa_g,
         d_expb_g, prev_owned, &cache_hit_a, &cache_hit_b);
@@ -271,8 +285,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       }
       free(evt_prof);
     }
-    /* D2H result and cleanup */
-    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
+    /* D2H result and cleanup.
+     * Skip when dev != 0: result is already in caller's device buffer. */
+    if (0 == dev) {
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
+    }
 
     /* Sync ALL streams before freeing device buffers to ensure transfers completed.
      * Device pool deallocator only syncs on grow path, not regular frees.
@@ -288,9 +305,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       result = libxstream_stream_sync(stream_b);
     }
 
-    OZAKI_DEV_FREE(d_ag);
-    OZAKI_DEV_FREE(d_bg);
-    OZAKI_DEV_FREE(d_cg);
+    if (0 == dev) {
+      OZAKI_DEV_FREE(d_ag);
+      OZAKI_DEV_FREE(d_bg);
+      OZAKI_DEV_FREE(d_cg);
+    }
     OZAKI_DEV_FREE(d_scratch);
     if (0 == cache_hit_a) {
       OZAKI_DEV_FREE(d_as);
@@ -343,20 +362,30 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     expb_size = (size_t)nblk_gn * tn * sizeof(cl_int);
     c_nbytes = (size_t)ldc * (size_t)N * elem_size;
 
-    /* Preprocessing cache: skip when K-grouping is active */
-    if (n_kgroups <= 1) {
+    /* Preprocessing cache: skip when K-grouping is active or a/b/c are device pointers */
+    if (0 == dev && n_kgroups <= 1) {
       ozaki_cache_check(ctx, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, &d_as, &d_bs, &d_expa_g,
         &d_expb_g, &cache_hit_a, &cache_hit_b);
     }
 
-    /* Allocate device memory (skip cached sides and host-preprocessed sides) */
-    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
-      result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
+    /* Allocate device memory (skip cached sides and host-preprocessed sides).
+     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm3m). */
+    if (0 != dev) {
+      union { const void* cv; void* v; } ca, cb;
+      ca.cv = a; cb.cv = b;
+      d_ag = ca.v;
+      d_bg = cb.v;
+      d_cg = c;
     }
-    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
-      result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+    else {
+      if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
+        result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
+      }
+      if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
+        result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+      }
+      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
     }
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
       result = OZAKI_DEV_ALLOC(&d_as, as_size);
     }
@@ -370,14 +399,17 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
     }
 
-    /* H2D transfers: full source matrices (once) */
-    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
-      result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
+    /* H2D transfers: full source matrices (once).
+     * Skip when dev != 0: a/b/c are already on device. */
+    if (0 == dev) {
+      if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
+        result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
+      }
+      if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
+        result = libxstream_mem_copy_h2d(b, d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
+      }
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
     }
-    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
-      result = libxstream_mem_copy_h2d(b, d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
-    }
-    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
 
     /* Profiling: allocate event array (scaled for K-groups) */
     LIBXS_ASSERT(0 == profile || NULL != hist);
@@ -489,8 +521,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       first_tile = 0; /* subsequent groups accumulate */
     } /* end K-group loop */
 
-    /* Save preprocessed buffers to cache (only for single-group case) */
-    if (n_kgroups <= 1) {
+    /* Save preprocessed buffers to cache (only for single-group case).
+     * Skip when dev != 0: device pointers are not valid cache keys. */
+    if (0 == dev && n_kgroups <= 1) {
       const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
       ozaki_cache_update(ctx, result, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, d_as, d_bs, d_expa_g,
         d_expb_g, prev_owned, &cache_hit_a, &cache_hit_b);
@@ -512,7 +545,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       }
       free(evt_prof_c);
     }
-    if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
+    /* D2H result. Skip when dev != 0: result is already in caller's device buffer. */
+    if (0 == dev) {
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
+    }
 
     /* Sync ALL streams before freeing device buffers to ensure transfers completed.
      * Device pool deallocator only syncs on grow path, not regular frees.
@@ -528,9 +564,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       result = libxstream_stream_sync(stream_b);
     }
 
-    OZAKI_DEV_FREE(d_ag);
-    OZAKI_DEV_FREE(d_bg);
-    OZAKI_DEV_FREE(d_cg);
+    if (0 == dev) {
+      OZAKI_DEV_FREE(d_ag);
+      OZAKI_DEV_FREE(d_bg);
+      OZAKI_DEV_FREE(d_cg);
+    }
     if (0 == cache_hit_a) {
       OZAKI_DEV_FREE(d_as);
       OZAKI_DEV_FREE(d_expa_g);

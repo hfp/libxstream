@@ -162,13 +162,13 @@ int main(int argc, char* argv[])
   if (EXIT_SUCCESS == result) {
     int i;
     /* warmup (not timed) */
-    result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, NULL, 0);
+    result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, NULL, 0, 0);
     libxstream_stream_sync(stream);
     /* restore C for the timed run (beta may be non-zero) */
     if (EXIT_SUCCESS == result) memcpy(c_oz, c_ref, (size_t)ldc * N * elem_size);
     t0 = libxs_timer_tick();
     for (i = 0; i < nrepeat; ++i) {
-      result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, NULL, 0);
+      result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, NULL, 0, 0);
       if (EXIT_SUCCESS != result) break;
     }
     libxstream_stream_sync(stream);
@@ -203,7 +203,7 @@ int main(int argc, char* argv[])
 
   /* Recompute Ozaki GEMM once for accuracy comparison (c_oz holds original C) */
   if (EXIT_SUCCESS == result) {
-    result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, NULL, 0);
+    result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, NULL, 0, 0);
     libxstream_stream_sync(stream);
   }
 

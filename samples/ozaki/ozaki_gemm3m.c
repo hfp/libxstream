@@ -168,19 +168,19 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
     const double one = 1.0, zero = 0.0;
     const int ld_real = ta ? K : M; /* leading dimension of real A matrices */
     const int ldb_real = tb ? N : K; /* leading dimension of real B matrices */
-    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ar, ld_real, d_br, ldb_real, zero, d_p1, M, NULL, 0);
+    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ar, ld_real, d_br, ldb_real, zero, d_p1, M, NULL, 0, 1);
   }
   if (EXIT_SUCCESS == result) {
     const double one = 1.0, zero = 0.0;
     const int ld_real = ta ? K : M;
     const int ldb_real = tb ? N : K;
-    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ai, ld_real, d_bi, ldb_real, zero, d_p2, M, NULL, 0);
+    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ai, ld_real, d_bi, ldb_real, zero, d_p2, M, NULL, 0, 1);
   }
   if (EXIT_SUCCESS == result) {
     const double one = 1.0, zero = 0.0;
     const int ld_real = ta ? K : M;
     const int ldb_real = tb ? N : K;
-    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ta, ld_real, d_tb, ldb_real, zero, d_p3, M, NULL, 0);
+    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ta, ld_real, d_tb, ldb_real, zero, d_p3, M, NULL, 0, 1);
   }
 
   /* Phase 4: Finalize - compute complex result and apply alpha/beta */

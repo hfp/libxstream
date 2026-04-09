@@ -175,7 +175,7 @@ void ozaki_destroy(ozaki_context_t* ctx);
  * (larger problem size), the wrapped deallocator syncs all streams before
  * reallocating. */
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K, double alpha,
-  const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc, libxs_hist_t* hist, int profile);
+  const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc, libxs_hist_t* hist, int profile, int dev);
 
 /* Complex GEMM via 3M (Karatsuba) method - GPU-native version.
  * All complex matrices are in standard BLAS interleaved format.
