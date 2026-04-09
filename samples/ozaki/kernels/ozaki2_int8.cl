@@ -462,7 +462,7 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
  * Dispatch: global[1] = BK_PRE (single WG in K) — loops internally.
  */
 __attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
-#if defined(SG) && (0 < SG)
+#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
@@ -523,7 +523,7 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a, int M, int K, int lda,
  * Dispatch: global[1] = BK_PRE (single WG in K) — loops internally.
  */
 __attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
-#if defined(SG) && (0 < SG)
+#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
@@ -590,7 +590,11 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb,
  * Work-group: (SG, NTM * NTN, 1).
  * Dispatch: global = (nblk_m * SG, nblk_n * NTM * NTN, 1).
  */
-__attribute__((reqd_work_group_size(SG, NTM* NTN, 1))) __attribute__((intel_reqd_sub_group_size(SG))) kernel void gemm_crt_fused(
+__attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
+#if defined(INTEL) && (0 != INTEL)
+__attribute__((intel_reqd_sub_group_size(SG)))
+#endif
+kernel void gemm_crt_fused(
   CONSTANT const char* restrict as_base, /* As: [NPRIMES * M_pad * K_pad] */
   CONSTANT const char* restrict bs_base, /* Bs: [NPRIMES * K_pad * N_pad] */
   CONSTANT const int* restrict expa, /* [M] per-row max exponent */

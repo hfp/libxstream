@@ -315,13 +315,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     if (1 == kind) {
       size_t goff = 0;
       goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
-        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16"
+        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16 -DINTEL=%d"
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DRTM=%d -DRTN=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, ndecomp, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn);
+        tm, tn, bk_pre, ctx->ku, ctx->rc, (int)(0 != devinfo->intel), ndecomp, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn);
       if (use_xmx) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DUSE_XMX=1");
       }
@@ -461,13 +461,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     if (2 == kind) {
       size_t coff = 0;
       coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16"
+        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16 -DINTEL=%d"
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DKGROUPS=%d -DRTM=%d -DRTN=%d -DPB=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, ndecomp, use_double, mant_bits, bias_plus_mant - oztrim, oztrim, bm_pre, bn_pre, bk_pre,
+        tm, tn, bk_pre, ctx->ku, ctx->rc, (int)(0 != devinfo->intel), ndecomp, use_double, mant_bits, bias_plus_mant - oztrim, oztrim, bm_pre, bn_pre, bk_pre,
         (2 == kind && 1 < ozgroups) ? ozgroups : 0, rtm, rtn, ctx->pb);
       if (use_xmx) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DUSE_XMX=1");

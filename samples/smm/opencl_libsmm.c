@@ -1079,11 +1079,11 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
               const int slm_c = (1 != new_config.ac ? 0 : (LIBXS_ISPOT(m_max * typesize) + 1));
               /* compose build parameters and flags */
               nchar = LIBXS_SNPRINTF(build_params, sizeof(build_params),
-                "-DT=%s -DGPU=%u -DCONSTANT=%s -DWG=%i -DSG=%i -DFN=%s -DREPEAT=%i -DLU=%i "
+                "-DT=%s -DGPU=%u -DCONSTANT=%s -DWG=%i -DSG=%i -DINTEL=%i -DFN=%s -DREPEAT=%i -DLU=%i "
                 "-DSM=%i -DSN=%i -DSK=%i -DBS=%i -DVL=%i %s -DBM=%i -DBN=%i -DBK=%i "
                 "%s %s %s %s %s %s %s %s ", /* space! */
                 tname, CL_DEVICE_TYPE_GPU == devinfo->type, cmem, LIBXS_CAST_INT(new_config.wgsize[kernel_idx]),
-                LIBXS_CAST_INT(sgs), fname, NULL == env_nrepeat ? 1 : atoi(env_nrepeat), new_config.lu, m_max, n_max, k_max, bs,
+                LIBXS_CAST_INT(sgs), (int)(0 != devinfo->intel), fname, NULL == env_nrepeat ? 1 : atoi(env_nrepeat), new_config.lu, m_max, n_max, k_max, bs,
                 OPENCL_LIBSMM_VMIN, bs == new_config.bs ? "-DBSC" : "", new_config.bm, new_config.bn, new_config.bk,
                 0 == new_config.tb ? "" : "-DTRACK_B", 0 != new_config.tc ? "-DTRACK_C" : "",
                 0 == new_config.nz ? "" : "-DATOMIC_INC_NZ", 0 == new_config.al ? "" : "-DAL", 0 == new_config.ap ? "" : "-DSLM_P",

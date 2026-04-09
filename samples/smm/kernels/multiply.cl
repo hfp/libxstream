@@ -66,7 +66,7 @@
 
 
 __attribute__((reqd_work_group_size(WG, 1, 1)))
-#if (0 < SG)
+#if (0 < SG) && defined(INTEL) && (0 != INTEL)
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void

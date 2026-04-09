@@ -1128,19 +1128,22 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             devinfo->wgsize[1] = 1;
           }
           assert(0 == devinfo->wgsize[2]);
-          if (EXIT_SUCCESS == libxstream_opencl_device_ext(active_id, sgexts, 2) && 0 != devinfo->wgsize[1] &&
-              EXIT_SUCCESS ==
-                clGetDeviceInfo(active_id, 0x4108 /*CL_DEVICE_SUB_GROUP_SIZES_INTEL*/, sizeof(sgsizes), sgsizes, &nbytes))
-          {
-            for (i = 0; (i * sizeof(size_t)) < nbytes; ++i) {
-              const size_t sgsize = sgsizes[i];
-              if (devinfo->wgsize[2] < sgsize && (0 == (sgsize % devinfo->wgsize[1]) || 0 == (devinfo->wgsize[1] % sgsize))) {
-                if (devinfo->wgsize[1] < sgsize) devinfo->wgsize[1] = sgsize;
-                devinfo->wgsize[2] = sgsize;
+          if (EXIT_SUCCESS == libxstream_opencl_device_ext(active_id, sgexts, 1) && 1 < devinfo->wgsize[1]) {
+            if (0 != devinfo->intel &&
+                EXIT_SUCCESS == libxstream_opencl_device_ext(active_id, sgexts + 1, 1) &&
+                EXIT_SUCCESS ==
+                  clGetDeviceInfo(active_id, 0x4108 /*CL_DEVICE_SUB_GROUP_SIZES_INTEL*/, sizeof(sgsizes), sgsizes, &nbytes))
+            {
+              for (i = 0; (i * sizeof(size_t)) < nbytes; ++i) {
+                const size_t sgsize = sgsizes[i];
+                if (devinfo->wgsize[2] < sgsize && (0 == (sgsize % devinfo->wgsize[1]) || 0 == (devinfo->wgsize[1] % sgsize))) {
+                  if (devinfo->wgsize[1] < sgsize) devinfo->wgsize[1] = sgsize;
+                  devinfo->wgsize[2] = sgsize;
+                }
               }
             }
+            else devinfo->wgsize[2] = devinfo->wgsize[1]; /* KHR-only */
           }
-          else devinfo->wgsize[2] = 0;
           if (0 != devinfo->intel) {
             const char* const env_biggrf = getenv("LIBXSTREAM_BIGGRF");
             devinfo->biggrf = (NULL != env_biggrf && 0 != atoi(env_biggrf));
