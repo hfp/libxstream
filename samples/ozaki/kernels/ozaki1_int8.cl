@@ -93,9 +93,9 @@
 #define OZAKI_EXTRACT_SLICES(ALIGNED, SIGN, DST, SS, RS, ROW, COL) \
   do { \
     SINT s_; \
-    UNROLL_FORCE(NSLICES) for (s_ = 0; s_ < NSLICES; ++s_) { \
-      (DST)[(long)(s_) * (SS) + (long)(ROW) * (RS) + (COL)] = \
-          ozaki_slice_digit((ALIGNED), (SIGN), (int)(s_)); \
+    UNROLL_FORCE(NSLICES) for (s_ = 0; s_ < NSLICES; ++s_) \
+    { \
+      (DST)[(long)(s_) * (SS) + (long)(ROW) * (RS) + (COL)] = ozaki_slice_digit((ALIGNED), (SIGN), (int)(s_)); \
     } \
   } while (0)
 
@@ -103,7 +103,8 @@
 #define OZAKI_ZERO_SLICES(DST, SS, RS, ROW, COL) \
   do { \
     SINT s_; \
-    UNROLL_FORCE(NSLICES) for (s_ = 0; s_ < NSLICES; ++s_) { \
+    UNROLL_FORCE(NSLICES) for (s_ = 0; s_ < NSLICES; ++s_) \
+    { \
       (DST)[(long)(s_) * (SS) + (long)(ROW) * (RS) + (COL)] = 0; \
     } \
   } while (0)
@@ -111,73 +112,63 @@
 /* Scalar accumulator DPAS: individual int8 variables instead of an array.
  * Helps IGC keep accumulators in GRFs instead of lowering to stack.
  * Only for RTM=4 RTN=2 (the hot path). */
-#if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) \
-    && (RTM == 4) && (RTN == 2) && defined(OZAKI_USE_OCL_KLOOP)
-#define OZAKI_SC_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, \
-                      C00,C01,C10,C11,C20,C21,C30,C31) \
-  do { \
-    ushort8 a_sc_[4]; \
-    uint8 b_sc_[2]; \
-    intel_sub_group_2d_block_read_8b_32r32x1c( \
-        (global void*)(AS), (K_PAD), (M_HT), (K_PAD), \
-        (int2)((KOFF), (MI)), (private ushort*)a_sc_); \
-    intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
-        (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
-        (int2)((NJ), (KOFF)), (private uint*)b_sc_); \
-    OZAKI_DPAS_ONE_(a_sc_[0], b_sc_[0], C00); \
-    OZAKI_DPAS_ONE_(a_sc_[0], b_sc_[1], C01); \
-    OZAKI_DPAS_ONE_(a_sc_[1], b_sc_[0], C10); \
-    OZAKI_DPAS_ONE_(a_sc_[1], b_sc_[1], C11); \
-    OZAKI_DPAS_ONE_(a_sc_[2], b_sc_[0], C20); \
-    OZAKI_DPAS_ONE_(a_sc_[2], b_sc_[1], C21); \
-    OZAKI_DPAS_ONE_(a_sc_[3], b_sc_[0], C30); \
-    OZAKI_DPAS_ONE_(a_sc_[3], b_sc_[1], C31); \
-  } while (0)
+#if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2) && defined(OZAKI_USE_OCL_KLOOP)
+# define OZAKI_SC_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, C00, C01, C10, C11, C20, C21, C30, C31) \
+    do { \
+      ushort8 a_sc_[4]; \
+      uint8 b_sc_[2]; \
+      intel_sub_group_2d_block_read_8b_32r32x1c( \
+        (global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)), (private ushort*)a_sc_); \
+      intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
+        (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)), (private uint*)b_sc_); \
+      OZAKI_DPAS_ONE_(a_sc_[0], b_sc_[0], C00); \
+      OZAKI_DPAS_ONE_(a_sc_[0], b_sc_[1], C01); \
+      OZAKI_DPAS_ONE_(a_sc_[1], b_sc_[0], C10); \
+      OZAKI_DPAS_ONE_(a_sc_[1], b_sc_[1], C11); \
+      OZAKI_DPAS_ONE_(a_sc_[2], b_sc_[0], C20); \
+      OZAKI_DPAS_ONE_(a_sc_[2], b_sc_[1], C21); \
+      OZAKI_DPAS_ONE_(a_sc_[3], b_sc_[0], C30); \
+      OZAKI_DPAS_ONE_(a_sc_[3], b_sc_[1], C31); \
+    } while (0)
 
-#define OZAKI_KLOOP_SC(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, \
-                       C00,C01,C10,C11,C20,C21,C30,C31) \
-  do { \
-    int k_l_; \
-    for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
-      int ku_l_; \
-      UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) { \
-        OZAKI_SC_DPAS(AS, BS, K_PAD_, N_PAD_, \
-                      MI, NJ, k_l_ + ku_l_ * BK, M_, \
-                      C00,C01,C10,C11,C20,C21,C30,C31); \
+# define OZAKI_KLOOP_SC(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, C00, C01, C10, C11, C20, C21, C30, C31) \
+    do { \
+      int k_l_; \
+      for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
+        int ku_l_; \
+        UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) \
+        { \
+          OZAKI_SC_DPAS(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_ + ku_l_ * BK, M_, C00, C01, C10, C11, C20, C21, C30, C31); \
+        } \
       } \
-    } \
-    for (; k_l_ < (K_PAD_); k_l_ += BK) { \
-      OZAKI_SC_DPAS(AS, BS, K_PAD_, N_PAD_, \
-                    MI, NJ, k_l_, M_, \
-                    C00,C01,C10,C11,C20,C21,C30,C31); \
-    } \
-  } while (0)
+      for (; k_l_ < (K_PAD_); k_l_ += BK) { \
+        OZAKI_SC_DPAS(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_, M_, C00, C01, C10, C11, C20, C21, C30, C31); \
+      } \
+    } while (0)
 #endif /* OZAKI_SCALAR_ACC */
 
 /* No-prefetch K-loop: simple DPAS_TILED loop without prefetch messages.
  * Mirrors the asm K-loop structure but in pure OpenCL C builtins. */
 #if defined(OZAKI_USE_OCL_KLOOP)
-#define OZAKI_KLOOP_OCL(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
-  do { \
-    int k_l_; \
-    for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
-      int ku_l_; \
-      UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) { \
-        OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, \
-                         MI, NJ, k_l_ + ku_l_ * BK, M_, ACC); \
+# define OZAKI_KLOOP_OCL(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
+    do { \
+      int k_l_; \
+      for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
+        int ku_l_; \
+        UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) \
+        { \
+          OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_ + ku_l_ * BK, M_, ACC); \
+        } \
       } \
-    } \
-    for (; k_l_ < (K_PAD_); k_l_ += BK) { \
-      OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, \
-                       MI, NJ, k_l_, M_, ACC); \
-    } \
-  } while (0)
+      for (; k_l_ < (K_PAD_); k_l_ += BK) { \
+        OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_, M_, ACC); \
+      } \
+    } while (0)
 #endif
 
 /* K-loop prefetch: opt-in via OZAKI_PREFETCH=1 (default off on PVC). */
 #if defined(OZAKI_PREFETCH) && (0 < OZAKI_PREFETCH)
-# define OZAKI_KLOOP_PREFETCH(AS, BS, K, N, M, KOFF, MI, NJ) \
-    OZAKI_PREFETCH_TILED(AS, BS, K, N, M, KOFF, MI, NJ)
+# define OZAKI_KLOOP_PREFETCH(AS, BS, K, N, M, KOFF, MI, NJ) OZAKI_PREFETCH_TILED(AS, BS, K, N, M, KOFF, MI, NJ)
 #else
 # define OZAKI_KLOOP_PREFETCH(AS, BS, K, N, M, KOFF, MI, NJ)
 #endif
@@ -191,16 +182,14 @@
     int k_l_; \
     for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
       int ku_l_; \
-      OZAKI_KLOOP_PREFETCH(AS, BS, K_PAD_, N_PAD_, \
-                            M_, k_l_ + KU * BK, MI, NJ); \
-      UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) { \
-        OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, \
-                         MI, NJ, k_l_ + ku_l_ * BK, M_, ACC); \
+      OZAKI_KLOOP_PREFETCH(AS, BS, K_PAD_, N_PAD_, M_, k_l_ + KU * BK, MI, NJ); \
+      UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) \
+      { \
+        OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_ + ku_l_ * BK, M_, ACC); \
       } \
     } \
     for (; k_l_ < (K_PAD_); k_l_ += BK) { \
-      OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, \
-                       MI, NJ, k_l_, M_, ACC); \
+      OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_, M_, ACC); \
     } \
   } while (0)
 
@@ -210,13 +199,16 @@
  * PAIR_SCALE = alpha * EXP2I(low_sa + low_sb - 2*MANT_BITS), safe from
  * underflow because preprocessing stores 2^(exp-BIAS) not 2^exp.
  * Avoids re-reading expa/expb from global memory for every pair. */
-#define OZAKI_GEMM_ACCUM_CACHED(DOT, EA, EB, C, M, N, MI, COL, \
-                                PAIR_SCALE) \
+#define OZAKI_GEMM_ACCUM_CACHED(DOT, EA, EB, C, M, N, MI, COL, PAIR_SCALE) \
   do { \
-    union { int8 v_; int a_[8]; } du_c_; \
+    union { \
+      int8 v_; \
+      int a_[8]; \
+    } du_c_; \
     int m_c_; \
     du_c_.v_ = (DOT); \
-    UNROLL_FORCE(XMX_M) for (m_c_ = 0; m_c_ < XMX_M; ++m_c_) { \
+    UNROLL_FORCE(XMX_M) for (m_c_ = 0; m_c_ < XMX_M; ++m_c_) \
+    { \
       const int rm_c_ = (MI) + m_c_; \
       if (OZAKI_IN_BOUNDS(rm_c_, (M), (COL), (N))) { \
         const real_t sc_c_ = (PAIR_SCALE) * (EA)[m_c_] * (EB); \
@@ -228,33 +220,31 @@
 /* Compute the next pair's shift sum to decide whether to batch or flush.
  * Returns -1 (flush) or the matching shift (batch). */
 #define OZAKI_BATCH_NEXT_SHIFT(LOW_SA, LOW_SB, SB, SB_END, SA) \
-  (((SB) + 1 < (SB_END)) \
-    ? ((LOW_SA) + MAX(0, MANT_BITS - 7 * ((int)(SB) + 1) - 6)) \
-    : ((0 == OZAKI_SQ && (int)(SA) + 1 < NSLICES) \
-      ? (MAX(0, MANT_BITS - 7 * ((int)(SA) + 1) - 6) * 2) \
-      : -1))
+  (((SB) + 1 < (SB_END)) ? ((LOW_SA) + MAX(0, MANT_BITS - 7 * ((int)(SB) + 1) - 6)) \
+                         : ((0 == OZAKI_SQ && (int)(SA) + 1 < NSLICES) ? (MAX(0, MANT_BITS - 7 * ((int)(SA) + 1) - 6) * 2) : -1))
 
 /* Tile-by-tile scale+flush: read C tile, accumulate scaled i32 result,
  * write C tile back.  ACC is an int8 array indexed by [rm*RTN+rn]. */
-#define OZAKI_SCALE_FLUSH(ACC, C_PTR, LDC, EA_CACHE, EB_CACHE, \
-                          MI_BASE, NJ_BASE, SG_LID, M, N, PAIR_SCALE) \
-  do { int rm_sf_, rn_sf_; \
-    UNROLL_FORCE(RTM) for (rm_sf_ = 0; rm_sf_ < RTM; ++rm_sf_) { \
-      UNROLL_FORCE(RTN) for (rn_sf_ = 0; rn_sf_ < RTN; ++rn_sf_) { \
+#define OZAKI_SCALE_FLUSH(ACC, C_PTR, LDC, EA_CACHE, EB_CACHE, MI_BASE, NJ_BASE, SG_LID, M, N, PAIR_SCALE) \
+  do { \
+    int rm_sf_, rn_sf_; \
+    UNROLL_FORCE(RTM) for (rm_sf_ = 0; rm_sf_ < RTM; ++rm_sf_) \
+    { \
+      UNROLL_FORCE(RTN) for (rn_sf_ = 0; rn_sf_ < RTN; ++rn_sf_) \
+      { \
         const int idx_sf_ = rm_sf_ * RTN + rn_sf_; \
         const int col_sf_ = (NJ_BASE) + rn_sf_ * XMX_N + (SG_LID); \
         real_t ct_sf_[XMX_M]; \
         int m_sf_; \
-        UNROLL_FORCE(XMX_M) for (m_sf_ = 0; m_sf_ < XMX_M; ++m_sf_) { \
+        UNROLL_FORCE(XMX_M) for (m_sf_ = 0; m_sf_ < XMX_M; ++m_sf_) \
+        { \
           const int r_sf_ = (MI_BASE) + rm_sf_ * XMX_M + m_sf_; \
-          ct_sf_[m_sf_] = OZAKI_IN_BOUNDS(r_sf_, (M), col_sf_, (N)) \
-            ? (C_PTR)[(long)col_sf_ * (LDC) + r_sf_] : ZERO; \
+          ct_sf_[m_sf_] = OZAKI_IN_BOUNDS(r_sf_, (M), col_sf_, (N)) ? (C_PTR)[(long)col_sf_ * (LDC) + r_sf_] : ZERO; \
         } \
-        OZAKI_GEMM_ACCUM_CACHED((ACC)[idx_sf_], \
-          (EA_CACHE) + rm_sf_ * XMX_M, (EB_CACHE)[rn_sf_], \
-          ct_sf_, (M), (N), (MI_BASE) + rm_sf_ * XMX_M, col_sf_, \
-          (PAIR_SCALE)); \
-        UNROLL_FORCE(XMX_M) for (m_sf_ = 0; m_sf_ < XMX_M; ++m_sf_) { \
+        OZAKI_GEMM_ACCUM_CACHED((ACC)[idx_sf_], (EA_CACHE) + rm_sf_ * XMX_M, (EB_CACHE)[rn_sf_], ct_sf_, (M), (N), \
+          (MI_BASE) + rm_sf_ * XMX_M, col_sf_, (PAIR_SCALE)); \
+        UNROLL_FORCE(XMX_M) for (m_sf_ = 0; m_sf_ < XMX_M; ++m_sf_) \
+        { \
           const int r_sf_ = (MI_BASE) + rm_sf_ * XMX_M + m_sf_; \
           if (OZAKI_IN_BOUNDS(r_sf_, (M), col_sf_, (N))) { \
             (C_PTR)[(long)col_sf_ * (LDC) + r_sf_] = ct_sf_[m_sf_]; \
@@ -280,16 +270,15 @@ __attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG)
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
-kernel void preprocess_a_dense(
-  CONSTANT const real_t* restrict a,
-  int M, int K, int lda, int transa,
-  global char* restrict as,       /* [NSLICES * M_pad * K_pad] */
-  global real_t* restrict expa,   /* [M] per-row FP scale factor = 2^max_exp */
-  int K_pad,                      /* padded K stride (>= 64) */
-  int M_pad)                      /* padded M = nblk_m * BM_PRE */
+kernel void
+preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int transa,
+  global char* restrict as, /* [NSLICES * M_pad * K_pad] */
+  global real_t* restrict expa, /* [M] per-row FP scale factor = 2^max_exp */
+  int K_pad, /* padded K stride (>= 64) */
+  int M_pad) /* padded M = nblk_m * BM_PRE */
 {
-  const int mi  = (int)get_local_id(0);
-  const int kk  = (int)get_local_id(1);
+  const int mi = (int)get_local_id(0);
+  const int kk = (int)get_local_id(1);
   const int row = (int)get_group_id(0) * BM_PRE + mi;
   int col;
 
@@ -300,7 +289,9 @@ kernel void preprocess_a_dense(
   /* Pass 1: find max exponent across ALL of K for this row */
   for (col = kk; col < K; col += BK_PRE) {
     if (row < M) {
-      int s0; short e0; uint_repr_t m0;
+      int s0;
+      short e0;
+      uint_repr_t m0;
       const int idx = transa ? (row * lda + col) : (col * lda + row);
       ieee_decompose(a[idx], &s0, &e0, &m0);
       if (e0 > 0) atomic_max(&row_max_exp[mi], (int)e0);
@@ -308,18 +299,19 @@ kernel void preprocess_a_dense(
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-/* Write global max exponent as FP scale: 2^(max_exp - BIAS).
+  /* Write global max exponent as FP scale: 2^(max_exp - BIAS).
      * EXP2I arg range: [-(BPM-MANT)..BPM-MANT] i.e. [-1022..1023] for f64. */
-    if (0 == kk && row < M) {
-      expa[row] = EXP2I(row_max_exp[mi]
-        - (BIAS_PLUS_MANT - MANT_BITS));
-    }
+  if (0 == kk && row < M) {
+    expa[row] = EXP2I(row_max_exp[mi] - (BIAS_PLUS_MANT - MANT_BITS));
+  }
 
   /* Pass 2: compute and store int8 slices using the true max exponent */
   if (row < M) {
     const short max_exp = (short)row_max_exp[mi];
     for (col = kk; col < K; col += BK_PRE) {
-      int s1; short e1; uint_repr_t m1;
+      int s1;
+      short e1;
+      uint_repr_t m1;
       const int idx = transa ? (row * lda + col) : (col * lda + row);
       ieee_decompose(a[idx], &s1, &e1, &m1);
       if (m1 != 0) {
@@ -350,16 +342,14 @@ __attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG)
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
-kernel void preprocess_b_dense(
-  CONSTANT const real_t* restrict b,
-  int N, int K, int ldb, int transb,
-  global char* restrict bs,       /* [NSLICES * K_pad * N_pad] */
-  global real_t* restrict expb,   /* [N] per-column FP scale factor = 2^max_exp */
-  int K_pad,
-  int N_pad)
+kernel void
+preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int transb,
+  global char* restrict bs, /* [NSLICES * K_pad * N_pad] */
+  global real_t* restrict expb, /* [N] per-column FP scale factor = 2^max_exp */
+  int K_pad, int N_pad)
 {
-  const int nj  = (int)get_local_id(0);
-  const int kk  = (int)get_local_id(1);
+  const int nj = (int)get_local_id(0);
+  const int kk = (int)get_local_id(1);
   const int col = (int)get_group_id(0) * BN_PRE + nj;
   int row;
 
@@ -370,7 +360,9 @@ kernel void preprocess_b_dense(
   /* Pass 1: find max exponent across ALL of K for this column */
   for (row = kk; row < K; row += BK_PRE) {
     if (col < N) {
-      int s0; short e0; uint_repr_t m0;
+      int s0;
+      short e0;
+      uint_repr_t m0;
       const int idx = transb ? (row * ldb + col) : (col * ldb + row);
       ieee_decompose(b[idx], &s0, &e0, &m0);
       if (e0 > 0) atomic_max(&col_max_exp[nj], (int)e0);
@@ -378,17 +370,18 @@ kernel void preprocess_b_dense(
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-/* Write global max exponent as FP scale: 2^(max_exp - BIAS). */
-    if (0 == kk && col < N) {
-      expb[col] = EXP2I(col_max_exp[nj]
-        - (BIAS_PLUS_MANT - MANT_BITS));
-    }
+  /* Write global max exponent as FP scale: 2^(max_exp - BIAS). */
+  if (0 == kk && col < N) {
+    expb[col] = EXP2I(col_max_exp[nj] - (BIAS_PLUS_MANT - MANT_BITS));
+  }
 
   /* Pass 2: compute and store int8 slices using the true max exponent */
   if (col < N) {
     const short max_exp = (short)col_max_exp[nj];
     for (row = kk; row < K; row += BK_PRE) {
-      int s1; short e1; uint_repr_t m1;
+      int s1;
+      short e1;
+      uint_repr_t m1;
       const int idx = transb ? (row * ldb + col) : (col * ldb + row);
       ieee_decompose(b[idx], &s1, &e1, &m1);
       if (m1 != 0) {
@@ -414,25 +407,21 @@ kernel void preprocess_b_dense(
  * Square iteration (sq=1): sa in [0..nslices), sb in [0..nslices)
  * subject to sa + sb <= cutoff.  Each pair computed individually.
  */
-__attribute__((reqd_work_group_size(SG, NTM * NTN, 1)))
-__attribute__((intel_reqd_sub_group_size(SG)))
-kernel void gemm_fused(
-  CONSTANT const char* restrict as_base,    /* all slices: [nslices][M_pad][K_pad] */
-  CONSTANT const char* restrict bs_base,    /* all slices: [nslices][K_pad][N_pad] */
-  CONSTANT const real_t* restrict expa,     /* [M] per-row FP scale = 2^exp */
-  CONSTANT const real_t* restrict expb,     /* [N] per-col FP scale = 2^exp */
-  global real_t* restrict c,                /* [M x N] column-major, ldc */
-  int M, int N, int K_pad, int N_pad, int ldc,
-  int M_pad,                                /* padded M dimension = slice row stride */
-  real_t alpha,
-  int first_pair)                           /* 1 if beta == 0 (overwrite C) */
+__attribute__((reqd_work_group_size(SG, NTM* NTN, 1))) __attribute__((intel_reqd_sub_group_size(SG))) kernel void gemm_fused(
+  CONSTANT const char* restrict as_base, /* all slices: [nslices][M_pad][K_pad] */
+  CONSTANT const char* restrict bs_base, /* all slices: [nslices][K_pad][N_pad] */
+  CONSTANT const real_t* restrict expa, /* [M] per-row FP scale = 2^exp */
+  CONSTANT const real_t* restrict expb, /* [N] per-col FP scale = 2^exp */
+  global real_t* restrict c, /* [M x N] column-major, ldc */
+  int M, int N, int K_pad, int N_pad, int ldc, int M_pad, /* padded M dimension = slice row stride */
+  real_t alpha, int first_pair) /* 1 if beta == 0 (overwrite C) */
 {
-  const int ib_idx  = (int)get_group_id(0);
-  const int jb_idx  = (int)get_group_id(1);
-  const int sg_lid  = (int)get_sub_group_local_id();
-  const int sg_id   = (int)get_sub_group_id();
-  const int tile_m  = sg_id / NTN;
-  const int tile_n  = sg_id % NTN;
+  const int ib_idx = (int)get_group_id(0);
+  const int jb_idx = (int)get_group_id(1);
+  const int sg_lid = (int)get_sub_group_local_id();
+  const int sg_id = (int)get_sub_group_id();
+  const int tile_m = sg_id / NTN;
+  const int tile_n = sg_id % NTN;
   const int mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
   const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
   const long a_stride = (long)M_pad * K_pad;
@@ -442,28 +431,33 @@ kernel void gemm_fused(
   /* Pre-cache FP exponent scales in registers: avoid re-reading from
    * global memory per pair.  Preprocessing stores 2^(max_exp - BIAS). */
   real_t ea_cache[RTM * XMX_M];
-    real_t eb_cache[RTN];
-    { int rm;
-      UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-        int m_;
-        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
-          const int r_ = mi_base + rm * XMX_M + m_;
-          ea_cache[rm * XMX_M + m_] = OZAKI_IN_BOUNDS(r_, M, 0, 1)
-            ? expa[r_] : ZERO;
-        }
+  real_t eb_cache[RTN];
+  {
+    int rm;
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
+    {
+      int m_;
+      UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_)
+      {
+        const int r_ = mi_base + rm * XMX_M + m_;
+        ea_cache[rm * XMX_M + m_] = OZAKI_IN_BOUNDS(r_, M, 0, 1) ? expa[r_] : ZERO;
       }
     }
-    { int rn;
-      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-        const int col = nj_base + rn * XMX_N + sg_lid;
-        eb_cache[rn] = OZAKI_IN_BOUNDS(0, 1, col, N) ? expb[col] : ZERO;
+  }
+  {
+    int rn;
+    UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
+    {
+      const int col = nj_base + rn * XMX_N + sg_lid;
+      eb_cache[rn] = OZAKI_IN_BOUNDS(0, 1, col, N) ? expb[col] : ZERO;
     }
   }
 
 #if !defined(OZAKI_USE_OCL_KLOOP)
   /* Register-resident C accumulators: c_fp[rm*RTN*XMX_M + rn*XMX_M + m] */
   real_t c_fp[RTM * RTN * XMX_M];
-  { int ci;
+  {
+    int ci;
     if (0 != first_pair) {
       UNROLL_FORCE(RTM * RTN * XMX_M)
       for (ci = 0; ci < RTM * RTN * XMX_M; ++ci) c_fp[ci] = ZERO;
@@ -471,15 +465,17 @@ kernel void gemm_fused(
     else {
       int rm, rn;
       for (ci = 0; ci < RTM * RTN * XMX_M; ++ci) c_fp[ci] = ZERO;
-      UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-        UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+      UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
+      {
+        UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
+        {
           const int col = nj_base + rn * XMX_N + sg_lid;
           int m_;
-          UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+          UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_)
+          {
             const int r_ = mi_base + rm * XMX_M + m_;
             if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
-              c_fp[(rm * RTN + rn) * XMX_M + m_] =
-                c[(long)col * ldc + r_];
+              c_fp[(rm * RTN + rn) * XMX_M + m_] = c[(long)col * ldc + r_];
             }
           }
         }
@@ -491,159 +487,180 @@ kernel void gemm_fused(
 #if defined(OZAKI_USE_OCL_KLOOP)
   /* c_acc hoisted for pair batching: pairs with the same exponent shift sum
    * accumulate int32 results before a single tile-by-tile fp64 scale. */
-#if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2)
-  { int8 sc00 = (int8)(0), sc01 = (int8)(0);
+# if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2)
+  {
+    int8 sc00 = (int8)(0), sc01 = (int8)(0);
     int8 sc10 = (int8)(0), sc11 = (int8)(0);
     int8 sc20 = (int8)(0), sc21 = (int8)(0);
     int8 sc30 = (int8)(0), sc31 = (int8)(0);
     int batch_acc = 0;
-#else
-  { int8 c_acc[RTM * RTN];
+# else
+  {
+    int8 c_acc[RTM * RTN];
     int batch_acc = 0;
-#endif /* OZAKI_SCALAR_ACC hoist */
+# endif /* OZAKI_SCALAR_ACC hoist */
 #endif
 
-  for (sa = 0; sa < (SINT)NSLICES; ++sa) {
-    const int high_sa = MANT_BITS - (7 * (int)sa);
-    const int low_bit_sa = MAX(0, high_sa - 6);
-    CONSTANT const char* as_sa = as_base + (long)sa * a_stride;
-    CONSTANT const char* bs_sa = bs_base + (long)sa * b_stride;
-    const int sb_end_raw = OZAKI_CUTOFF + 1 - (int)sa;
-    const SINT sb_end = (SINT)(sb_end_raw < NSLICES ? sb_end_raw : NSLICES);
-    SINT sb;
+    for (sa = 0; sa < (SINT)NSLICES; ++sa) {
+      const int high_sa = MANT_BITS - (7 * (int)sa);
+      const int low_bit_sa = MAX(0, high_sa - 6);
+      CONSTANT const char* as_sa = as_base + (long)sa * a_stride;
+      CONSTANT const char* bs_sa = bs_base + (long)sa * b_stride;
+      const int sb_end_raw = OZAKI_CUTOFF + 1 - (int)sa;
+      const SINT sb_end = (SINT)(sb_end_raw < NSLICES ? sb_end_raw : NSLICES);
+      SINT sb;
 
-    for (sb = OZAKI_SQ ? 0 : sa; sb < sb_end; ++sb) {
-      const int high_sb = MANT_BITS - (7 * (int)sb);
-      const int low_bit_sb = MAX(0, high_sb - 6);
-      const real_t pair_scale = alpha
-        * EXP2I(low_bit_sa + low_bit_sb - 2 * MANT_BITS);
-      CONSTANT const char* as_sb = as_base + (long)sb * a_stride;
-      CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
+      for (sb = OZAKI_SQ ? 0 : sa; sb < sb_end; ++sb) {
+        const int high_sb = MANT_BITS - (7 * (int)sb);
+        const int low_bit_sb = MAX(0, high_sb - 6);
+        const real_t pair_scale = alpha * EXP2I(low_bit_sa + low_bit_sb - 2 * MANT_BITS);
+        CONSTANT const char* as_sb = as_base + (long)sb * a_stride;
+        CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 
-      /* (sa, sb) K-loop — unrolled by KU */
+        /* (sa, sb) K-loop — unrolled by KU */
 #if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2)
-      /* Scalar accumulator K-loop with pair batching. */
-      if (0 == batch_acc) {
-        sc00 = (int8)(0); sc01 = (int8)(0);
-        sc10 = (int8)(0); sc11 = (int8)(0);
-        sc20 = (int8)(0); sc21 = (int8)(0);
-        sc30 = (int8)(0); sc31 = (int8)(0);
-      }
-      OZAKI_KLOOP_SC(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base,
-                     sc00, sc01, sc10, sc11, sc20, sc21, sc30, sc31);
-      if (0 == OZAKI_SQ && sa != sb) {
-        int8 sm00 = (int8)(0), sm01 = (int8)(0);
-        int8 sm10 = (int8)(0), sm11 = (int8)(0);
-        int8 sm20 = (int8)(0), sm21 = (int8)(0);
-        int8 sm30 = (int8)(0), sm31 = (int8)(0);
-        OZAKI_KLOOP_SC(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base,
-                       sm00, sm01, sm10, sm11, sm20, sm21, sm30, sm31);
-        sc00 = sc00 + sm00; sc01 = sc01 + sm01;
-        sc10 = sc10 + sm10; sc11 = sc11 + sm11;
-        sc20 = sc20 + sm20; sc21 = sc21 + sm21;
-        sc30 = sc30 + sm30; sc31 = sc31 + sm31;
-      }
-      /* Batch check + tile-by-tile scale (pack scalars on flush) */
-      { const int cur_shift = low_bit_sa + low_bit_sb;
-        const int next_shift = OZAKI_BATCH_NEXT_SHIFT(
-          low_bit_sa, low_bit_sb, sb, sb_end, sa);
-        if (cur_shift == next_shift) {
-          batch_acc = 1;
+        /* Scalar accumulator K-loop with pair batching. */
+        if (0 == batch_acc) {
+          sc00 = (int8)(0);
+          sc01 = (int8)(0);
+          sc10 = (int8)(0);
+          sc11 = (int8)(0);
+          sc20 = (int8)(0);
+          sc21 = (int8)(0);
+          sc30 = (int8)(0);
+          sc31 = (int8)(0);
         }
-        else {
-          int8 c_acc_sc[RTM * RTN];
-          batch_acc = 0;
-          c_acc_sc[0] = sc00; c_acc_sc[1] = sc01;
-          c_acc_sc[2] = sc10; c_acc_sc[3] = sc11;
-          c_acc_sc[4] = sc20; c_acc_sc[5] = sc21;
-          c_acc_sc[6] = sc30; c_acc_sc[7] = sc31;
-          OZAKI_SCALE_FLUSH(c_acc_sc, c, ldc, ea_cache, eb_cache,
-                            mi_base, nj_base, sg_lid, M, N, pair_scale);
+        OZAKI_KLOOP_SC(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, sc00, sc01, sc10, sc11, sc20, sc21, sc30, sc31);
+        if (0 == OZAKI_SQ && sa != sb) {
+          int8 sm00 = (int8)(0), sm01 = (int8)(0);
+          int8 sm10 = (int8)(0), sm11 = (int8)(0);
+          int8 sm20 = (int8)(0), sm21 = (int8)(0);
+          int8 sm30 = (int8)(0), sm31 = (int8)(0);
+          OZAKI_KLOOP_SC(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, sm00, sm01, sm10, sm11, sm20, sm21, sm30, sm31);
+          sc00 = sc00 + sm00;
+          sc01 = sc01 + sm01;
+          sc10 = sc10 + sm10;
+          sc11 = sc11 + sm11;
+          sc20 = sc20 + sm20;
+          sc21 = sc21 + sm21;
+          sc30 = sc30 + sm30;
+          sc31 = sc31 + sm31;
         }
-      }
+        /* Batch check + tile-by-tile scale (pack scalars on flush) */
+        {
+          const int cur_shift = low_bit_sa + low_bit_sb;
+          const int next_shift = OZAKI_BATCH_NEXT_SHIFT(low_bit_sa, low_bit_sb, sb, sb_end, sa);
+          if (cur_shift == next_shift) {
+            batch_acc = 1;
+          }
+          else {
+            int8 c_acc_sc[RTM * RTN];
+            batch_acc = 0;
+            c_acc_sc[0] = sc00;
+            c_acc_sc[1] = sc01;
+            c_acc_sc[2] = sc10;
+            c_acc_sc[3] = sc11;
+            c_acc_sc[4] = sc20;
+            c_acc_sc[5] = sc21;
+            c_acc_sc[6] = sc30;
+            c_acc_sc[7] = sc31;
+            OZAKI_SCALE_FLUSH(c_acc_sc, c, ldc, ea_cache, eb_cache, mi_base, nj_base, sg_lid, M, N, pair_scale);
+          }
+        }
 #else
-#if defined(OZAKI_USE_OCL_KLOOP)
+# if defined(OZAKI_USE_OCL_KLOOP)
       /* OCL K-loop with pair batching: defer scale when next pair shares
        * the same exponent shift sum (low_bit_sa + low_bit_sb). */
       if (0 == batch_acc) {
         int ri;
-        UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+        UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+        {
           c_acc[ri] = (int8)(0);
         }
       }
       OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
       if (0 == OZAKI_SQ && sa != sb) {
         int8 c_mir[RTM * RTN];
-        { int ri;
-          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+        {
+          int ri;
+          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+          {
             c_mir[ri] = (int8)(0);
           }
         }
         OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
-        { int ri;
-          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+        {
+          int ri;
+          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+          {
             c_acc[ri] = c_acc[ri] + c_mir[ri];
           }
         }
       }
       /* Check if next pair (in iteration order) has the same shift sum.
        * If so, defer scaling and accumulate int32 across pairs. */
-      { const int cur_shift = low_bit_sa + low_bit_sb;
-        const int next_shift = OZAKI_BATCH_NEXT_SHIFT(
-          low_bit_sa, low_bit_sb, sb, sb_end, sa);
+      {
+        const int cur_shift = low_bit_sa + low_bit_sb;
+        const int next_shift = OZAKI_BATCH_NEXT_SHIFT(low_bit_sa, low_bit_sb, sb, sb_end, sa);
         if (cur_shift == next_shift) {
           batch_acc = 1;
         }
         else {
           batch_acc = 0;
-          OZAKI_SCALE_FLUSH(c_acc, c, ldc, ea_cache, eb_cache,
-                            mi_base, nj_base, sg_lid, M, N, pair_scale);
+          OZAKI_SCALE_FLUSH(c_acc, c, ldc, ea_cache, eb_cache, mi_base, nj_base, sg_lid, M, N, pair_scale);
         }
       }
-#else
-      { int8 c_acc[RTM * RTN];
-        { int ri;
-          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+# else
+      {
+        int8 c_acc[RTM * RTN];
+        {
+          int ri;
+          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+          {
             c_acc[ri] = (int8)(0);
           }
         }
         OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
         if (0 == OZAKI_SQ && sa != sb) {
           int8 c_mir[RTM * RTN];
-          { int ri;
-            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+          {
+            int ri;
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+            {
               c_mir[ri] = (int8)(0);
             }
           }
           OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
-          { int ri;
-            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
+          {
+            int ri;
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+            {
               c_acc[ri] = c_acc[ri] + c_mir[ri];
             }
           }
         }
-#endif /* OZAKI_USE_OCL_KLOOP */
+# endif /* OZAKI_USE_OCL_KLOOP */
 
-#if !defined(OZAKI_USE_OCL_KLOOP)
+# if !defined(OZAKI_USE_OCL_KLOOP)
       /* Scale and accumulate into register C (cached exponents) */
-      { int rm, rn;
-        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+      {
+        int rm, rn;
+        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
+        {
+          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
+          {
             const int idx = rm * RTN + rn;
             const int col = nj_base + rn * XMX_N + sg_lid;
-            OZAKI_GEMM_ACCUM_CACHED(c_acc[idx],
-                             ea_cache + rm * XMX_M, eb_cache[rn],
-                             c_fp + idx * XMX_M,
-                             M, N, mi_base + rm * XMX_M, col,
-                             pair_scale);
+            OZAKI_GEMM_ACCUM_CACHED(
+              c_acc[idx], ea_cache + rm * XMX_M, eb_cache[rn], c_fp + idx * XMX_M, M, N, mi_base + rm * XMX_M, col, pair_scale);
           }
         }
       }
-      }
-#endif /* !OZAKI_USE_OCL_KLOOP */
-#endif /* OZAKI_SCALAR_ACC */
     }
-  }
+# endif /* !OZAKI_USE_OCL_KLOOP */
+#endif /* OZAKI_SCALAR_ACC */
+      }
+    }
 
 #if defined(OZAKI_USE_OCL_KLOOP)
   } /* close c_acc scope for OCL pair batching */
@@ -651,16 +668,19 @@ kernel void gemm_fused(
 
 #if !defined(OZAKI_USE_OCL_KLOOP)
   /* Final write: register C -> global C */
-  { int rm, rn;
-    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
-      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
+  {
+    int rm, rn;
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
+    {
+      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
+      {
         const int col = nj_base + rn * XMX_N + sg_lid;
         int m_;
-        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) {
+        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_)
+        {
           const int r_ = mi_base + rm * XMX_M + m_;
           if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
-            c[(long)col * ldc + r_] =
-              c_fp[(rm * RTN + rn) * XMX_M + m_];
+            c[(long)col * ldc + r_] = c_fp[(rm * RTN + rn) * XMX_M + m_];
           }
         }
       }

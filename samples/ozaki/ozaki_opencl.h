@@ -26,29 +26,27 @@
  * Callers must have a local `pool` variable (libxs_malloc_pool_t*)
  * when OZAKI_DEVPOOL is defined. */
 #if defined(OZAKI_DEVPOOL)
-# define OZAKI_DEV_ALLOC(PTR, SIZE) ( \
-  (NULL != pool) \
-    ? ((*(PTR) = libxs_malloc(pool, SIZE, LIBXS_MALLOC_NATIVE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
-    : libxstream_mem_allocate((void**)(PTR), SIZE))
-# define OZAKI_DEV_FREE(PTR) do { \
-  if (NULL != (PTR)) { \
-    if (NULL != pool) libxs_free(PTR); else libxstream_mem_deallocate(PTR); \
-  } \
-} while (0)
-#else
 # define OZAKI_DEV_ALLOC(PTR, SIZE) \
-  libxstream_mem_allocate((void**)(PTR), SIZE)
-# define OZAKI_DEV_FREE(PTR) do { \
-  if (NULL != (PTR)) libxstream_mem_deallocate(PTR); \
-} while (0)
+    ((NULL != pool) ? ((*(PTR) = libxs_malloc(pool, SIZE, LIBXS_MALLOC_NATIVE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
+                    : libxstream_mem_allocate((void**)(PTR), SIZE))
+# define OZAKI_DEV_FREE(PTR) \
+    do { \
+      if (NULL != (PTR)) { \
+        if (NULL != pool) libxs_free(PTR); \
+        else libxstream_mem_deallocate(PTR); \
+      } \
+    } while (0)
+#else
+# define OZAKI_DEV_ALLOC(PTR, SIZE) libxstream_mem_allocate((void**)(PTR), SIZE)
+# define OZAKI_DEV_FREE(PTR) \
+    do { \
+      if (NULL != (PTR)) libxstream_mem_deallocate(PTR); \
+    } while (0)
 #endif
 
 
 /* Ozaki flags */
-typedef enum ozaki_flags_t {
-  OZAKI_TRIANGULAR = 1,
-  OZAKI_SYMMETRIZE = 2
-} ozaki_flags_t;
+typedef enum ozaki_flags_t { OZAKI_TRIANGULAR = 1, OZAKI_SYMMETRIZE = 2 } ozaki_flags_t;
 
 /* Host-side preprocessing callback for A or B (GEMM single-shot model).
  * When non-NULL in the context, ozaki_gemm calls these instead of
@@ -72,10 +70,7 @@ typedef enum ozaki_flags_t {
  * Exponent layout:     exp[i] -- 2^(max exponent) per row (A) or col (B),
  *                      stored as real_t (double or float matching matrix type) */
 typedef void (*ozaki_host_preprocess_fn)(
-    const void* matrix, int ld, int trans,
-    int dim, int K, int K_pad, int dim_pad,
-    int ndecomp, int use_xmx,
-    void* slices, void* exp);
+  const void* matrix, int ld, int trans, int dim, int K, int K_pad, int dim_pad, int ndecomp, int use_xmx, void* slices, void* exp);
 
 /* Per-side preprocessing cache: check fields + cached device buffers.
  * dim is the outer dimension (M for A, N for B). */
@@ -91,8 +86,7 @@ typedef struct ozaki_cache_side_t {
 /* Compute a lightweight fingerprint by sampling matrix elements at
  * deterministic positions. Catches in-place modifications that
  * pointer comparison alone cannot detect. */
-unsigned int ozaki_cache_fingerprint(
-  const void* ptr, size_t elem_size, int dim, int K, int ld, int trans);
+unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int dim, int K, int ld, int trans);
 
 typedef struct ozaki_cache_t {
   libxs_lock_t lock;
@@ -118,14 +112,14 @@ typedef struct ozaki_context_t {
   cl_kernel kern_crt_preprocess_b;
   cl_kernel kern_crt_fused;
   cl_kernel kern_crt_scale_beta;
-  int use_double;  /* 1: fp64, 0: fp32 */
-  int use_xmx;     /* 1: hardware matrix multiply (DPAS/XMX) */
-  int sg;          /* sub-group size used for compilation */
-  int ndecomp;     /* number of decomposition components (slices or primes) */
-  int kind;        /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT) */
-  int ozflags;     /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
-  int oztrim;      /* Precision levels to trim (~7 bits each). Scheme 1: diagonals. Scheme 2: stored as bits (levels*7) after conversion. */
-  int verbosity;   /* 0: quiet, 1: info, 2+: debug */
+  int use_double; /* 1: fp64, 0: fp32 */
+  int use_xmx; /* 1: hardware matrix multiply (DPAS/XMX) */
+  int sg; /* sub-group size used for compilation */
+  int ndecomp; /* number of decomposition components (slices or primes) */
+  int kind; /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT) */
+  int ozflags; /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
+  int oztrim; /* Precision levels to trim (~7 bits each). Scheme 1: diagonals. Scheme 2: stored as bits (levels*7) after conversion. */
+  int verbosity; /* 0: quiet, 1: info, 2+: debug */
   /* block sizes for preprocessing WGs */
   int bm_pre, bn_pre, bk_pre;
   /* output tile size (compiled into kernel) */
@@ -137,9 +131,9 @@ typedef struct ozaki_context_t {
   int pb; /* CRT prime batching factor (compiled into kernel) */
   int biggrf; /* Ozaki-local 256-GRF decision */
 #if defined(OZAKI_DEVPOOL)
-  void* devpool;   /* device memory pool (libxs_malloc-backed) */
+  void* devpool; /* device memory pool (libxs_malloc-backed) */
   /* Main stream (set per ozaki_gemm call for pool realloc sync) */
-  libxstream_stream_t *stream;
+  libxstream_stream_t* stream;
 #endif
   /* Persistent helper streams for overlapped preprocessing */
   libxstream_stream_t *stream_a, *stream_b;
@@ -168,10 +162,8 @@ typedef struct ozaki_context_t {
  * kind: 1 = ozaki1 int8 (default), 2 = ozaki2 int8 (CRT).
  * verbosity: 0 = quiet, 1 = info, 2+ = debug.
  * ozgroups (Scheme 2 only): K-grouping factor, 0/1 = disabled. */
-int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
-               int use_double, int kind, int verbosity,
-               int ndecomp, int ozflags, int oztrim,
-               int ozgroups, int profiling);
+int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
+  int ozgroups, int profiling);
 void ozaki_destroy(ozaki_context_t* ctx);
 /* ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
  * synchronizing — the caller must sync the stream before consuming the result.
@@ -179,25 +171,16 @@ void ozaki_destroy(ozaki_context_t* ctx);
  * context to avoid per-call creation overhead.  On the rare pool grow path
  * (larger problem size), the wrapped deallocator syncs all streams before
  * reallocating. */
-int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream,
-               char transa, char transb,
-               int M, int N, int K,
-               double alpha, const void* a, int lda,
-                             const void* b, int ldb,
-               double beta,        void* c, int ldc,
-               libxs_hist_t* hist, int profile);
+int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K, double alpha,
+  const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc, libxs_hist_t* hist, int profile);
 
 /* Complex GEMM via 3M (Karatsuba) method - GPU-native version.
  * All complex matrices are in standard BLAS interleaved format.
  * alpha and beta each point to 2 consecutive real values [real, imag].
  * All intermediate buffers remain on device - no round-trips through host.
  * Returns EXIT_SUCCESS or EXIT_FAILURE. */
-int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
-                  char transa, char transb,
-                  int M, int N, int K,
-                  const double* alpha, const void* a, int lda,
-                                       const void* b, int ldb,
-                  const double* beta,        void* c, int ldc);
+int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
+  const double* alpha, const void* a, int lda, const void* b, int ldb, const double* beta, void* c, int ldc);
 
 /* Invalidate preprocessing cache entries for the given matrix pointers.
  * This function must be called when matrices are modified outside of

@@ -10,6 +10,8 @@
 
 /* Embedded kernel source (generated at build time via tool_opencl.sh) */
 #include "ozaki_kernels.h"
+/* Embedded production TinyTC kernels (specialized per ndecomp/trim/scheme) */
+#include "ozaki_tinytc.h"
 
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_INT8)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1_INT8)"
@@ -29,10 +31,17 @@
 #endif
 #define OZAKI_TINYTC_STR_(X) #X
 #define OZAKI_TINYTC_STR(X) OZAKI_TINYTC_STR_(X)
-#define OZAKI_TINYTC_CLX(TY) \
-  "kernels/ozaki1_" TY "_" \
-  OZAKI_TINYTC_STR(OZAKI_TINYTC_BM) "x" \
-  OZAKI_TINYTC_STR(OZAKI_TINYTC_BN) ".clx"
+#define OZAKI_TINYTC_CLX(TY) "kernels/ozaki1_" TY "_" OZAKI_TINYTC_STR(OZAKI_TINYTC_BM) "x" OZAKI_TINYTC_STR(OZAKI_TINYTC_BN) ".clx"
+
+
+/* Embed precompiled TinyTC SPIR-V kernels (one per precision).
+ * Filenames encode BM x BN so the Makefile can parse them back.
+ * Build with -DOZAKI_TINYTC_EMBED after running kernels/ozaki1.sh. */
+#if defined(LIBXS_INCBIN) && defined(OZAKI_TINYTC_EMBED)
+LIBXS_INCBIN(ozaki_tinytc_f64, OZAKI_TINYTC_CLX("f64"), 16);
+LIBXS_INCBIN(ozaki_tinytc_f32, OZAKI_TINYTC_CLX("f32"), 16);
+#endif
+
 
 #if defined(OZAKI_DEVPOOL)
 /* Wrapped allocator for libxs_malloc_xpool: delegates to device allocator. */
@@ -49,41 +58,29 @@ static void* ozaki_dev_allocate(size_t size, const void* extra)
 static void ozaki_dev_deallocate(void* pointer, const void* extra)
 {
   const ozaki_context_t* ctx = (const ozaki_context_t*)extra;
-  if (NULL != ctx->stream)   libxstream_stream_sync(ctx->stream);
+  if (NULL != ctx->stream) libxstream_stream_sync(ctx->stream);
   if (NULL != ctx->stream_a) libxstream_stream_sync(ctx->stream_a);
   if (NULL != ctx->stream_b) libxstream_stream_sync(ctx->stream_b);
   libxstream_mem_deallocate(pointer);
 }
 #endif
 
-/* Embed precompiled TinyTC SPIR-V kernels (one per precision).
- * Filenames encode BM x BN so the Makefile can parse them back.
- * Build with -DOZAKI_TINYTC_EMBED after running kernels/ozaki1.sh. */
-#if defined(LIBXS_INCBIN) && defined(OZAKI_TINYTC_EMBED)
-LIBXS_INCBIN(ozaki_tinytc_f64, OZAKI_TINYTC_CLX("f64"), 16);
-LIBXS_INCBIN(ozaki_tinytc_f32, OZAKI_TINYTC_CLX("f32"), 16);
-#endif
-
-/* Embedded production TinyTC kernels (specialized per ndecomp/trim/scheme) */
-#include "ozaki_tinytc.h"
-
 
 /* Internal helpers */
-static void ozaki_print_opt(FILE* stream, const char* name, int val) {
+static void ozaki_print_opt(FILE* stream, const char* name, int val)
+{
   if (0 != val) fprintf(stream, " %s=%d", name, val);
 }
 
 
-int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
-               int use_double, int kind, int verbosity,
-               int ndecomp, int ozflags, int oztrim,
-               int ozgroups, int profiling)
+int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
+  int ozgroups, int profiling)
 {
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const char* env;
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
-  int wg, sg, use_xmx;
+  int wg, sg, use_xmx, use_i8;
   int result = EXIT_SUCCESS;
   memset(ctx, 0, sizeof(*ctx));
 
@@ -96,40 +93,39 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
 
   if (0 > verbosity || 2 < verbosity) {
     char name[256] = "";
-    libxstream_opencl_device_name(
-      device, name, sizeof(name), NULL, 0, 1 /*cleanup*/);
+    libxstream_opencl_device_name(device, name, sizeof(name), NULL, 0, 1 /*cleanup*/);
     printf("Device: %s%s\n", name, gpu ? " (GPU)" : "");
   }
 
   /* If double requested, verify fp64 support */
   if (use_double) {
-    const char* const fp64_ext[] = { "cl_khr_fp64" };
+    const char* const fp64_ext[] = {"cl_khr_fp64"};
     result = libxstream_opencl_device_ext(device, fp64_ext, 1);
     if (EXIT_SUCCESS != result) {
-      fprintf(stderr,
-        "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
+      fprintf(stderr, "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
     }
   }
 
   /* Detect hardware matrix multiply support */
-  { const char* const xmx_exts[] = {
-      "cl_intel_subgroup_matrix_multiply_accumulate",
-      "cl_intel_subgroup_2d_block_io" };
+  {
+    const char* const xmx_exts[] = {"cl_intel_subgroup_matrix_multiply_accumulate", "cl_intel_subgroup_2d_block_io"};
     env = getenv("OZAKI_XMX");
     if (NULL != env) {
       use_xmx = atoi(env);
     }
     else {
-      use_xmx = (EXIT_SUCCESS == libxstream_opencl_device_ext(
-                   device, xmx_exts, 2)) ? 1 : 0;
+      use_xmx = (EXIT_SUCCESS == libxstream_opencl_device_ext(device, xmx_exts, 2)) ? 1 : 0;
     }
   }
 
   /* Scheme 2 signed i8 fallback: OZAKI_I8=1 uses moduli<=128 (legacy).
    * Default (u8): moduli<=256, fewer primes for same cumulative product. */
-  { const char* env_i8 = getenv("OZAKI_I8");
-    const int use_i8 = (2 == kind && NULL != env_i8 && 0 != atoi(env_i8));
-  { const int ndecomp_auto = (0 >= ndecomp);
+  {
+    const char* env_i8 = getenv("OZAKI_I8");
+    use_i8 = (2 == kind && NULL != env_i8 && 0 != atoi(env_i8));
+  }
+  {
+    const int ndecomp_auto = (0 >= ndecomp);
     if (ndecomp_auto) {
       /* Scheme 1: mantissa slicing - 7 bits/slice
        *   FP32 (23-bit): 4 slices (28 bits, covers 23-bit mantissa)
@@ -163,25 +159,20 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
        * trim=7 truncates 14 input bits (product loses ~28 bits, leaving
        * ~76 of 104 product bits — well above the 52-bit fp64 threshold). */
       const int mant = use_double ? 52 : 23;
-      const int max_levels = mant / 2;  /* 26 for fp64, 11 for fp32 */
+      const int max_levels = mant / 2; /* 26 for fp64, 11 for fp32 */
       const int oztrim_bits = LIBXS_MIN(oztrim, max_levels) * 2;
 
       if (0 < oztrim_bits && 0 != ndecomp_auto) {
         /* floor(cumulative log2) of CRT moduli products.
          * u8 (moduli<=256): {8,15,23,...,153}
          * i8 (moduli<=128): {7,13,20,...,130} */
-        static const int cumbits_u8[20] = {
-          8, 15, 23, 31, 39, 47, 55, 63, 71, 78,
-          86, 94, 101, 109, 116, 124, 131, 139, 146, 153
-        };
-        static const int cumbits_i8[20] = {
-          7, 13, 20, 27, 34, 41, 48, 55, 61, 68,
-          75, 81, 87, 94, 100, 106, 112, 118, 124, 130
-        };
+        static const int cumbits_u8[20] = {8, 15, 23, 31, 39, 47, 55, 63, 71, 78, 86, 94, 101, 109, 116, 124, 131, 139, 146, 153};
+        static const int cumbits_i8[20] = {7, 13, 20, 27, 34, 41, 48, 55, 61, 68, 75, 81, 87, 94, 100, 106, 112, 118, 124, 130};
         const int* cumbits = (0 != use_i8) ? cumbits_i8 : cumbits_u8;
         const int req = 2 * (mant - oztrim_bits) + 23;
         int np;
-        for (np = 0; np < 20 && cumbits[np] < req; ++np) {}
+        for (np = 0; np < 20 && cumbits[np] < req; ++np) {
+        }
         ndecomp = (np < 20) ? np + 1 : 20;
       }
       /* Store as bits for kernel compilation */
@@ -200,7 +191,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   ctx->use_xmx = use_xmx;
   ctx->kind = kind;
   ctx->ozflags = ozflags;
-  ctx->oztrim  = oztrim;
+  ctx->oztrim = oztrim;
   ctx->ndecomp = ndecomp;
   ctx->verbosity = verbosity;
 
@@ -234,7 +225,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
     char build_params[1024];
     char build_options[128];
-    const int mant_bits      = use_double ? 52 : 23;
+    const int mant_bits = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
     int rtm = 0, rtn = 0, biggrf;
     size_t max_wgs;
@@ -257,12 +248,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     else {
       biggrf = (0 != devinfo->intel && 0 != gpu);
     }
-    LIBXS_SNPRINTF(build_options, sizeof(build_options),
-      "-cl-fast-relaxed-math -cl-denorms-are-zero%s",
-      (0 != biggrf && 0 != devinfo->intel && 0 == devinfo->biggrf)
-        ? " -cl-intel-256-GRF-per-thread" : "");
-    max_wgs = (0 != biggrf)
-      ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
+    LIBXS_SNPRINTF(build_options, sizeof(build_options), "-cl-fast-relaxed-math -cl-denorms-are-zero%s",
+      (0 != biggrf && 0 != devinfo->intel && 0 == devinfo->biggrf) ? " -cl-intel-256-GRF-per-thread" : "");
+    max_wgs = (0 != biggrf) ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
     /* Read optional user overrides for register tiling factors. */
     env = getenv("OZAKI_RTM");
     if (NULL != env && 0 < atoi(env)) rtm = atoi(env);
@@ -273,15 +261,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
      *  128-GRF: RTM=2 RTN=2 (4 accumulators)
      *  Other vendors:  RTM=1 RTN=1 (conservative) */
     env = getenv("OZAKI_KU");
-    { int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : 2;
+    {
+      int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : 2;
       ctx->ku = ku;
     }
     env = getenv("OZAKI_RC");
-    { int rc = (NULL != env && 0 < atoi(env)) ? atoi(env) : 8;
+    {
+      int rc = (NULL != env && 0 < atoi(env)) ? atoi(env) : 8;
       ctx->rc = (rc <= 4) ? 4 : 8;
     }
     env = getenv("OZAKI_PB");
-    { int pb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
+    {
+      int pb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
       ctx->pb = pb;
     }
     if (0 == rtm) {
@@ -297,8 +288,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       else rtn = 1;
     }
     /* Sanitize: round down to nearest power of two. */
-    v = rtm; rtm = 1; while (v > 1) { v >>= 1; rtm <<= 1; }
-    v = rtn; rtn = 1; while (v > 1) { v >>= 1; rtn <<= 1; }
+    v = rtm;
+    rtm = 1;
+    while (v > 1) {
+      v >>= 1;
+      rtm <<= 1;
+    }
+    v = rtn;
+    rtn = 1;
+    while (v > 1) {
+      v >>= 1;
+      rtn <<= 1;
+    }
     if (0 >= tm) tm = 256;
     if (0 >= tn) tn = 256;
     /* Clamp tiling factors so at least one sub-tile remains per dimension. */
@@ -306,45 +307,33 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     while (rtn > 1 && tn / (16 * rtn) < 1) rtn >>= 1;
     /* Shrink tile to satisfy work-group size constraint. */
     while ((size_t)tm * tn / (8 * rtm * rtn) > max_wgs && (tm > 8 * rtm || tn > 16 * rtn)) {
-      if (tm >= tn) tm /= 2; else tn /= 2;
+      if (tm >= tn) tm /= 2;
+      else tn /= 2;
     }
     if (1 == kind) {
       size_t goff = 0;
-      goff += (size_t)LIBXS_SNPRINTF(
-        build_params + goff, sizeof(build_params) - goff,
+      goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
         "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16"
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DRTM=%d -DRTN=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc,
-        ndecomp, use_double,
-        mant_bits, bias_plus_mant,
-        bm_pre, bn_pre, bk_pre,
-        rtm, rtn);
+        tm, tn, bk_pre, ctx->ku, ctx->rc, ndecomp, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn);
       if (use_xmx) {
-        goff += (size_t)LIBXS_SNPRINTF(
-          build_params + goff, sizeof(build_params) - goff,
-          " -DUSE_XMX=1");
+        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DUSE_XMX=1");
       }
       env = getenv("OZAKI_PREFETCH");
       if (NULL != env && '1' == *env) {
-        goff += (size_t)LIBXS_SNPRINTF(
-          build_params + goff, sizeof(build_params) - goff,
-          " -DOZAKI_PREFETCH=1");
+        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_PREFETCH=1");
       }
       env = getenv("OZAKI_BOUNDS");
       if (NULL != env && '1' == *env) {
-        goff += (size_t)LIBXS_SNPRINTF(
-          build_params + goff, sizeof(build_params) - goff,
-          " -DOZAKI_BOUNDS=1");
+        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_BOUNDS=1");
       }
       env = getenv("OZAKI_SCALAR_ACC");
       if (NULL != env && '1' == *env) {
-        goff += (size_t)LIBXS_SNPRINTF(
-          build_params + goff, sizeof(build_params) - goff,
-          " -DOZAKI_SCALAR_ACC=1");
+        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_SCALAR_ACC=1");
       }
       { /* TinyTC kernel selection: disabled by default.
          * OZAKI_TINYTC=1 tries specialized embedded .clx then general,
@@ -356,70 +345,54 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           const int sq_prod = (0 != (ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE)));
           const struct ozaki_tinytc_prod_entry* e;
           for (e = ozaki_tinytc_prod; NULL != e->data; ++e) {
-            if (e->use_double == use_double
-              && e->ndecomp == ndecomp
-              && e->oztrim == oztrim
-              && (0 != e->sq) == (0 != sq_prod))
-            {
+            if (e->use_double == use_double && e->ndecomp == ndecomp && e->oztrim == oztrim && (0 != e->sq) == (0 != sq_prod)) {
               tinytc_source = e->data;
-              tinytc_source_kind =
-                (size_t)(e->data_end - e->data);
+              tinytc_source_kind = (size_t)(e->data_end - e->data);
               tinytc_avail = 1;
               break;
             }
           }
           if (0 == tinytc_avail) {
-            tinytc_source = use_double
-              ? ozaki_tinytc_f64 : ozaki_tinytc_f32;
-            tinytc_source_kind = (size_t)(use_double
-              ? (ozaki_tinytc_f64_end - ozaki_tinytc_f64)
-              : (ozaki_tinytc_f32_end - ozaki_tinytc_f32));
+            tinytc_source = use_double ? ozaki_tinytc_f64 : ozaki_tinytc_f32;
+            tinytc_source_kind = (size_t)(use_double ? (ozaki_tinytc_f64_end - ozaki_tinytc_f64)
+                                                     : (ozaki_tinytc_f32_end - ozaki_tinytc_f32));
             tinytc_avail = 1;
           }
         }
         else
 #endif
         {
-          LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path),
-            "%s", tinytc_env);
+          LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path), "%s", tinytc_env);
           tinytc_source = tinytc_path;
           tinytc_source_kind = 1;
           tinytc_avail = 1;
         }
       }
-      { const int cutoff_jit = 2 * (ndecomp - 1) - oztrim;
+      {
+        const int cutoff_jit = 2 * (ndecomp - 1) - oztrim;
         const int sq_jit = ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
         goff += (size_t)LIBXS_SNPRINTF(
-          build_params + goff, sizeof(build_params) - goff,
-          " -DOZAKI_CUTOFF=%d -DOZAKI_SQ=%d", cutoff_jit, sq_jit);
+          build_params + goff, sizeof(build_params) - goff, " -DOZAKI_CUTOFF=%d -DOZAKI_SQ=%d", cutoff_jit, sq_jit);
       }
       LIBXS_UNUSED(goff);
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
-      { cl_program program = NULL;
+      {
+        cl_program program = NULL;
         result = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
-          "ozaki1", build_params, build_options,
-          NULL, NULL, NULL, 0, &program);
+          0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, "ozaki1", build_params, build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
-            program, "preprocess_a_dense",
-            &ctx->kern_preprocess_a);
+          result = libxstream_opencl_kernel_query(program, "preprocess_a_dense", &ctx->kern_preprocess_a);
         }
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
-            program, "preprocess_b_dense",
-            &ctx->kern_preprocess_b);
+          result = libxstream_opencl_kernel_query(program, "preprocess_b_dense", &ctx->kern_preprocess_b);
         }
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
-            program, "gemm_fused", &ctx->kern_fused);
+          result = libxstream_opencl_kernel_query(program, "gemm_fused", &ctx->kern_fused);
         }
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
-            program, "scale_beta",
-            &ctx->kern_scale_beta);
+          result = libxstream_opencl_kernel_query(program, "scale_beta", &ctx->kern_scale_beta);
         }
         if (NULL != program) clReleaseProgram(program);
       }
@@ -427,15 +400,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       if (EXIT_SUCCESS == result) {
         cl_program program_b = NULL;
         char bp_bounds[sizeof(build_params) + 20];
-        LIBXS_SNPRINTF(bp_bounds, sizeof(bp_bounds),
-          "%s -DOZAKI_BOUNDS=1", build_params);
+        LIBXS_SNPRINTF(bp_bounds, sizeof(bp_bounds), "%s -DOZAKI_BOUNDS=1", build_params);
         result = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8,
-          "ozaki1_b", bp_bounds, build_options,
-          NULL, NULL, NULL, 0, &program_b);
+          0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, "ozaki1_b", bp_bounds, build_options, NULL, NULL, NULL, 0, &program_b);
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
-            program_b, "gemm_fused", &ctx->kern_fused_bounds);
+          result = libxstream_opencl_kernel_query(program_b, "gemm_fused", &ctx->kern_fused_bounds);
         }
         if (NULL != program_b) clReleaseProgram(program_b);
       }
@@ -468,17 +437,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     ctx->prog_tinytc = NULL;
     if (1 == kind && 0 != tinytc_avail && NULL != tinytc_source) {
       cl_program prog = NULL;
-      int tc_res = libxstream_opencl_program(
-        tinytc_source_kind, tinytc_source, "ozaki1_tinytc",
-        NULL /*build_params*/, build_options,
-        NULL /*try*/, NULL /*try_ok*/,
-        NULL /*exts*/, 0 /*num_exts*/, &prog);
+      int tc_res = libxstream_opencl_program(tinytc_source_kind, tinytc_source, "ozaki1_tinytc", NULL /*build_params*/,
+        build_options, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0 /*num_exts*/, &prog);
       if (EXIT_SUCCESS == tc_res && NULL != prog) {
-        tc_res = libxstream_opencl_kernel_query(
-          prog, "ozaki1", &ctx->kern_tinytc);
+        tc_res = libxstream_opencl_kernel_query(prog, "ozaki1", &ctx->kern_tinytc);
         if (EXIT_SUCCESS != tc_res) {
-          tc_res = libxstream_opencl_kernel_query(
-            prog, "gemm_fused", &ctx->kern_tinytc);
+          tc_res = libxstream_opencl_kernel_query(prog, "gemm_fused", &ctx->kern_tinytc);
         }
         if (EXIT_SUCCESS == tc_res) {
           ctx->prog_tinytc = prog;
@@ -487,69 +451,47 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
           clReleaseProgram(prog);
         }
       }
-      if (NULL != ctx->kern_tinytc
-        && (0 > verbosity || 2 < verbosity))
-      {
-        fprintf(stderr,
-          "INFO OZAKI: TinyTC kernel loaded%s%s\n",
-          1 == tinytc_source_kind ? " from " : " (embedded)",
+      if (NULL != ctx->kern_tinytc && (0 > verbosity || 2 < verbosity)) {
+        fprintf(stderr, "INFO OZAKI: TinyTC kernel loaded%s%s\n", 1 == tinytc_source_kind ? " from " : " (embedded)",
           1 == tinytc_source_kind ? tinytc_path : "");
       }
     }
     if (2 == kind) {
       size_t coff = 0;
-      coff += (size_t)LIBXS_SNPRINTF(
-        build_params + coff, sizeof(build_params) - coff,
+      coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
         "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16"
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DKGROUPS=%d -DRTM=%d -DRTN=%d -DPB=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc,
-        ndecomp, use_double,
-        mant_bits, bias_plus_mant - oztrim, oztrim,
-        bm_pre, bn_pre, bk_pre,
-        (2 == kind && 1 < ozgroups) ? ozgroups : 0,
-        rtm, rtn, ctx->pb);
+        tm, tn, bk_pre, ctx->ku, ctx->rc, ndecomp, use_double, mant_bits, bias_plus_mant - oztrim, oztrim, bm_pre, bn_pre, bk_pre,
+        (2 == kind && 1 < ozgroups) ? ozgroups : 0, rtm, rtn, ctx->pb);
       if (use_xmx) {
-        coff += (size_t)LIBXS_SNPRINTF(
-          build_params + coff, sizeof(build_params) - coff,
-          " -DUSE_XMX=1");
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DUSE_XMX=1");
       }
       if (0 == use_i8) {
-        coff += (size_t)LIBXS_SNPRINTF(
-          build_params + coff, sizeof(build_params) - coff,
-          " -DOZAKI_U8=1");
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
       }
       LIBXS_UNUSED(coff);
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
-      { cl_program program = NULL;
+      {
+        cl_program program = NULL;
         result = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8,
-          "ozaki2", build_params, build_options,
-          NULL, NULL, NULL, 0, &program);
+          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2", build_params, build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
-            program, "preprocess_a_crt_dense",
-            &ctx->kern_crt_preprocess_a);
+          result = libxstream_opencl_kernel_query(program, "preprocess_a_crt_dense", &ctx->kern_crt_preprocess_a);
         }
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
-            program, "preprocess_b_crt_dense",
-            &ctx->kern_crt_preprocess_b);
+          result = libxstream_opencl_kernel_query(program, "preprocess_b_crt_dense", &ctx->kern_crt_preprocess_b);
         }
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
-            program, "gemm_crt_fused",
-            &ctx->kern_crt_fused);
+          result = libxstream_opencl_kernel_query(program, "gemm_crt_fused", &ctx->kern_crt_fused);
         }
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(
-            program, "scale_beta",
-            &ctx->kern_crt_scale_beta);
+          result = libxstream_opencl_kernel_query(program, "scale_beta", &ctx->kern_crt_scale_beta);
         }
         if (NULL != program) clReleaseProgram(program);
       }
@@ -576,35 +518,25 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       fprintf(stderr, "ERROR OZAKI: unsupported kind=%d\n", kind);
       result = EXIT_FAILURE;
     }
-  } /* use_i8 scope */
 
     /* Initialize complex GEMM 3M kernels (precision-agnostic, always compiled) */
     if (EXIT_SUCCESS == result) {
       cl_program program_3m = NULL;
       char build_params_3m[512];
 
-      LIBXS_SNPRINTF(build_params_3m, sizeof(build_params_3m),
-        "-DUSE_DOUBLE=%d", use_double ? 1 : 0);
+      LIBXS_SNPRINTF(build_params_3m, sizeof(build_params_3m), "-DUSE_DOUBLE=%d", use_double ? 1 : 0);
 
       result = libxstream_opencl_program(
-        0, OPENCL_KERNELS_SOURCE_GEMM3M, "zgemm3m",
-        build_params_3m, build_options,
-        NULL, NULL, NULL, 0, &program_3m);
+        0, OPENCL_KERNELS_SOURCE_GEMM3M, "zgemm3m", build_params_3m, build_options, NULL, NULL, NULL, 0, &program_3m);
 
       if (NULL != program_3m && EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel_query(
-          program_3m, "zgemm3m_deinterleave",
-          &ctx->kern_zgemm3m_deinterleave);
+        result = libxstream_opencl_kernel_query(program_3m, "zgemm3m_deinterleave", &ctx->kern_zgemm3m_deinterleave);
       }
       if (NULL != program_3m && EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel_query(
-          program_3m, "zgemm3m_matadd",
-          &ctx->kern_zgemm3m_matadd);
+        result = libxstream_opencl_kernel_query(program_3m, "zgemm3m_matadd", &ctx->kern_zgemm3m_matadd);
       }
       if (NULL != program_3m && EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel_query(
-          program_3m, "zgemm3m_finalize",
-          &ctx->kern_zgemm3m_finalize);
+        result = libxstream_opencl_kernel_query(program_3m, "zgemm3m_finalize", &ctx->kern_zgemm3m_finalize);
       }
       if (NULL != program_3m) clReleaseProgram(program_3m);
 
@@ -612,14 +544,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
       if (EXIT_SUCCESS != result) {
         if (2 < verbosity) {
           if (NULL == program_3m) {
-            fprintf(stderr,
-              "WARN OZAKI: 3M kernel compilation failed (fp=%d), complex GEMM disabled\n",
-              use_double ? 64 : 32);
+            fprintf(stderr, "WARN OZAKI: 3M kernel compilation failed (fp=%d), complex GEMM disabled\n", use_double ? 64 : 32);
           }
           else {
-            fprintf(stderr,
-              "WARN OZAKI: 3M kernel query failed (fp=%d), complex GEMM disabled\n",
-              use_double ? 64 : 32);
+            fprintf(stderr, "WARN OZAKI: 3M kernel query failed (fp=%d), complex GEMM disabled\n", use_double ? 64 : 32);
           }
         }
         if (NULL != ctx->kern_zgemm3m_deinterleave) {
@@ -661,21 +589,22 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
    * metadata) so USM/SVM device pointers remain valid for the OpenCL runtime.
    * Requires USM shared or SVM; falls back to direct allocation otherwise. */
   ctx->devpool = NULL;
-  { int pool_ok = 0;
-#if (1 >= LIBXSTREAM_USM)
+  {
+    int pool_ok = 0;
+# if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clSharedMemAllocINTEL) pool_ok = 1;
     else
-#endif
-#if (0 != LIBXSTREAM_USM)
-      if (0 != devinfo->usm) pool_ok = 1;
+# endif
+# if (0 != LIBXSTREAM_USM)
+      if (0 != devinfo->usm)
+      pool_ok = 1;
     else
-#endif
+# endif
     {
       LIBXS_UNUSED(devinfo);
     }
     if (0 != pool_ok) {
-      ctx->devpool = libxs_malloc_xpool(
-        ozaki_dev_allocate, ozaki_dev_deallocate, 1);
+      ctx->devpool = libxs_malloc_xpool(ozaki_dev_allocate, ozaki_dev_deallocate, 1);
     }
   }
 #endif
@@ -685,7 +614,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
    * between calls. Applications that modify matrices in-place must either
    * disable cache (0) or ensure cached matrices are truly constant.
    * The fingerprint check catches some modifications but is not exhaustive. */
-  { const char* env_cache = getenv("OZAKI_CACHE");
+  {
+    const char* env_cache = getenv("OZAKI_CACHE");
     ctx->cache.flags = (NULL != env_cache) ? atoi(env_cache) : 0;
   }
 
@@ -707,7 +637,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     ozaki_print_opt(stderr, "trim", oztrim);
     if (2 == kind) {
-      { const char* e_i8 = getenv("OZAKI_I8");
+      {
+        const char* e_i8 = getenv("OZAKI_I8");
         fprintf(stderr, " u8=%d", (NULL == e_i8 || 0 == atoi(e_i8)) ? 1 : 0);
       }
       ozaki_print_opt(stderr, "kgroups", ozgroups);
@@ -718,15 +649,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn,
   }
 
   /* Create persistent helper streams and synchronization events */
-  { const int sflags = (0 != profiling)
-      ? LIBXSTREAM_STREAM_PROFILING : LIBXSTREAM_STREAM_DEFAULT;
+  {
+    const int sflags = (0 != profiling) ? LIBXSTREAM_STREAM_PROFILING : LIBXSTREAM_STREAM_DEFAULT;
     if (EXIT_SUCCESS == result) {
-      result = libxstream_stream_create(
-        &ctx->stream_a, "ozaki_a", sflags);
+      result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", sflags);
     }
     if (EXIT_SUCCESS == result) {
-      result = libxstream_stream_create(
-        &ctx->stream_b, "ozaki_b", sflags);
+      result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", sflags);
     }
   }
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
@@ -792,10 +721,14 @@ void ozaki_destroy(ozaki_context_t* ctx)
 #endif
       void *sa_sl, *sa_ex, *sb_sl, *sb_ex;
       LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
-      sa_sl = ctx->cache.a.d_slices; ctx->cache.a.d_slices = NULL;
-      sa_ex = ctx->cache.a.d_exp;    ctx->cache.a.d_exp = NULL;
-      sb_sl = ctx->cache.b.d_slices; ctx->cache.b.d_slices = NULL;
-      sb_ex = ctx->cache.b.d_exp;    ctx->cache.b.d_exp = NULL;
+      sa_sl = ctx->cache.a.d_slices;
+      ctx->cache.a.d_slices = NULL;
+      sa_ex = ctx->cache.a.d_exp;
+      ctx->cache.a.d_exp = NULL;
+      sb_sl = ctx->cache.b.d_slices;
+      ctx->cache.b.d_slices = NULL;
+      sb_ex = ctx->cache.b.d_exp;
+      ctx->cache.b.d_exp = NULL;
       ctx->cache.flags = 0;
       LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->cache.lock);
       /* Drain active users that grabbed pointers before the NULL.
@@ -803,8 +736,10 @@ void ozaki_destroy(ozaki_context_t* ctx)
        * so spin explicitly on the full counter value. */
       while (0 != ctx->cache.nusers) LIBXS_SYNC_PAUSE;
 #if defined(OZAKI_DEVPOOL)
-      OZAKI_DEV_FREE(sa_sl); OZAKI_DEV_FREE(sa_ex);
-      OZAKI_DEV_FREE(sb_sl); OZAKI_DEV_FREE(sb_ex);
+      OZAKI_DEV_FREE(sa_sl);
+      OZAKI_DEV_FREE(sa_ex);
+      OZAKI_DEV_FREE(sb_sl);
+      OZAKI_DEV_FREE(sb_ex);
       (void)pool;
 #else
       if (NULL != sa_sl) libxstream_mem_deallocate(sa_sl);
@@ -820,17 +755,14 @@ void ozaki_destroy(ozaki_context_t* ctx)
      * destroyed) so the deallocator skips it during teardown. */
     ctx->stream = NULL;
     if (NULL != ctx->devpool) {
-      libxs_malloc_pool_t *const pool = (libxs_malloc_pool_t*)ctx->devpool;
+      libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
       const int verbosity = libxs_get_verbosity();
-      if  (0 > LIBXS_MIN(ctx->verbosity, verbosity)
-        || 2 < LIBXS_MAX(ctx->verbosity, verbosity))
-      {
+      if (0 > LIBXS_MIN(ctx->verbosity, verbosity) || 2 < LIBXS_MAX(ctx->verbosity, verbosity)) {
         libxs_malloc_pool_info_t info;
         if (EXIT_SUCCESS == libxs_malloc_pool_info(pool, &info)) {
           const int peak = (int)LIBXS_UPDIV(info.peak, (size_t)1 << 20);
           const int size = (int)LIBXS_UPDIV(info.size, (size_t)1 << 20);
-          printf("POOL: peak_mb=%i size_mb=%i nmallocs=%lu\n",
-            peak, size, (unsigned long int)info.nmallocs);
+          printf("POOL: peak_mb=%i size_mb=%i nmallocs=%lu\n", peak, size, (unsigned long int)info.nmallocs);
         }
       }
       libxs_free_pool(pool);

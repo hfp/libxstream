@@ -22,16 +22,10 @@
 #define SGEMM LIBXS_FSYMBOL(sgemm)
 
 
-void DGEMM(const char* transa, const char* transb,
-           const int* m, const int* n, const int* k,
-           const double* alpha, const double* a, const int* lda,
-                                const double* b, const int* ldb,
-           const double* beta,        double* c, const int* ldc);
-void SGEMM(const char* transa, const char* transb,
-           const int* m, const int* n, const int* k,
-           const float* alpha, const float* a, const int* lda,
-                               const float* b, const int* ldb,
-           const float* beta,        float* c, const int* ldc);
+void DGEMM(const char* transa, const char* transb, const int* m, const int* n, const int* k, const double* alpha, const double* a,
+  const int* lda, const double* b, const int* ldb, const double* beta, double* c, const int* ldc);
+void SGEMM(const char* transa, const char* transb, const int* m, const int* n, const int* k, const float* alpha, const float* a,
+  const int* lda, const float* b, const int* ldb, const float* beta, float* c, const int* ldc);
 
 /* Function prototypes */
 static void print_diff(FILE* ostream, const libxs_matdiff_t* diff);
@@ -40,7 +34,7 @@ static void print_diff(FILE* ostream, const libxs_matdiff_t* diff);
 int main(int argc, char* argv[])
 {
   ozaki_context_t ctx;
-  const char *const env_nrepeat = getenv("NREPEAT");
+  const char* const env_nrepeat = getenv("NREPEAT");
   const int nrepeat = (NULL != env_nrepeat ? LIBXS_MAX(atoi(env_nrepeat), 1) : 1);
   const int M = (1 < argc ? atoi(argv[1]) : 257);
   const int N = (2 < argc ? atoi(argv[2]) : M);
@@ -48,7 +42,7 @@ int main(int argc, char* argv[])
   const int ta = (4 < argc ? atoi(argv[4]) : 0);
   const int tb = (5 < argc ? atoi(argv[5]) : 0);
   const double alpha = (6 < argc ? atof(argv[6]) : 1);
-  const double beta  = (7 < argc ? atof(argv[7]) : 1);
+  const double beta = (7 < argc ? atof(argv[7]) : 1);
   const int lda = (8 < argc ? atoi(argv[8]) : (0 == ta ? M : K));
   const int ldb = (9 < argc ? atoi(argv[9]) : (0 == tb ? K : N));
   const int ldc = (10 < argc ? atoi(argv[10]) : M);
@@ -64,10 +58,8 @@ int main(int argc, char* argv[])
 
   LIBXS_MEMZERO(&ctx);
 
-  if (1 > M || 1 > N || 1 > K || lda < (0 == ta ? M : K)
-      || ldb < (0 == tb ? K : N) || ldc < M) {
-    fprintf(stderr, "Invalid dimensions: M=%d N=%d K=%d lda=%d ldb=%d ldc=%d\n",
-      M, N, K, lda, ldb, ldc);
+  if (1 > M || 1 > N || 1 > K || lda < (0 == ta ? M : K) || ldb < (0 == tb ? K : N) || ldc < M) {
+    fprintf(stderr, "Invalid dimensions: M=%d N=%d K=%d lda=%d ldb=%d ldc=%d\n", M, N, K, lda, ldb, ldc);
     result = EXIT_FAILURE;
   }
 
@@ -93,8 +85,7 @@ int main(int argc, char* argv[])
 
   if (EXIT_SUCCESS == result) {
     printf("OpenCL benchmark for Ozaki's methods\n");
-    printf("GEMM: %c%c M=%d N=%d K=%d lda=%d ldb=%d ldc=%d alpha=%g beta=%g\n",
-      transa, transb, M, N, K, lda, ldb, ldc, alpha, beta);
+    printf("GEMM: %c%c M=%d N=%d K=%d lda=%d ldb=%d ldc=%d alpha=%g beta=%g\n", transa, transb, M, N, K, lda, ldb, ldc, alpha, beta);
   }
 
   /* Initialize Ozaki context (kernels) */
@@ -121,8 +112,7 @@ int main(int argc, char* argv[])
     if (NULL != env) verbosity = atoi(env);
     env = getenv("OZAKI_FP");
     if (NULL != env) use_double = (32 != atoi(env));
-    result = ozaki_init(&ctx, tm, tn, use_double, kind, verbosity,
-      ndecomp, ozflags, oztrim, ozgroups, 0 /*profiling*/);
+    result = ozaki_init(&ctx, tm, tn, use_double, kind, verbosity, ndecomp, ozflags, oztrim, ozgroups, 0 /*profiling*/);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
     }
@@ -186,8 +176,7 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == result) {
       printf("Ozaki GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1) / nrepeat);
     }
-    else fprintf(stderr, "Ozaki GEMM failed (%s)\n",
-      libxstream_opencl_strerror(result));
+    else fprintf(stderr, "Ozaki GEMM failed (%s)\n", libxstream_opencl_strerror(result));
   }
 
   /* Reference BLAS GEMM */
@@ -245,12 +234,11 @@ static void print_diff(FILE* ostream, const libxs_matdiff_t* diff)
 {
   const double epsilon = libxs_matdiff_epsilon(diff);
   if (1E-6 <= epsilon) {
-    fprintf(ostream, "DIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f -> %g != %g\n",
-      diff->r, diff->linf_abs, diff->linf_rel, diff->l2_rel, epsilon, diff->rsq,
-      diff->v_ref, diff->v_tst);
+    fprintf(ostream, "DIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f -> %g != %g\n", diff->r, diff->linf_abs,
+      diff->linf_rel, diff->l2_rel, epsilon, diff->rsq, diff->v_ref, diff->v_tst);
   }
   else {
-    fprintf(ostream, "DIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f\n",
-      diff->r, diff->linf_abs, diff->linf_rel, diff->l2_rel, epsilon, diff->rsq);
+    fprintf(ostream, "DIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f\n", diff->r, diff->linf_abs,
+      diff->linf_rel, diff->l2_rel, epsilon, diff->rsq);
   }
 }

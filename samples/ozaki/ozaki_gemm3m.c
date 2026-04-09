@@ -25,12 +25,8 @@
  *
  * This reduces 6 PCIe transfers (3 in + 3 out) to 2 (1 in + 1 out).
  */
-int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
-                  char transa, char transb,
-                  int M, int N, int K,
-                  const double* alpha, const void* a, int lda,
-                                       const void* b, int ldb,
-                  const double* beta,        void* c, int ldc)
+int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
+  const double* alpha, const void* a, int lda, const void* b, int ldb, const double* beta, void* c, int ldc)
 {
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
   const int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
@@ -40,7 +36,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
   const int b_rows = tb ? N : K;
   const int b_cols = tb ? K : N;
   const double ar_d = alpha[0], ai_d = alpha[1];
-  const double br_d = beta[0],  bi_d = beta[1];
+  const double br_d = beta[0], bi_d = beta[1];
   const libxstream_opencl_stream_t* str = stream;
   int result = EXIT_SUCCESS;
 #if defined(OZAKI_DEVPOOL)
@@ -54,9 +50,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
   size_t sz_a_real, sz_b_real, sz_c_real;
 
   /* Check if 3M kernels are available */
-  if (NULL == ctx->kern_zgemm3m_deinterleave ||
-      NULL == ctx->kern_zgemm3m_matadd ||
-      NULL == ctx->kern_zgemm3m_finalize) {
+  if (NULL == ctx->kern_zgemm3m_deinterleave || NULL == ctx->kern_zgemm3m_matadd || NULL == ctx->kern_zgemm3m_finalize) {
     return EXIT_FAILURE;
   }
 
@@ -102,7 +96,8 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     size_t global[2];
     cl_kernel kern = ctx->kern_zgemm3m_deinterleave;
     cl_int iarg = 0;
-    global[0] = (size_t)a_rows; global[1] = (size_t)a_cols;
+    global[0] = (size_t)a_rows;
+    global[1] = (size_t)a_cols;
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ag));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ar));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ai));
@@ -110,8 +105,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_cols));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &lda));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2,
-      NULL, global, NULL, 0, NULL, NULL));
+    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
   /* Phase 1: Deinterleave B → Br, Bi */
@@ -119,7 +113,8 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     size_t global[2];
     cl_kernel kern = ctx->kern_zgemm3m_deinterleave;
     cl_int iarg = 0;
-    global[0] = (size_t)b_rows; global[1] = (size_t)b_cols;
+    global[0] = (size_t)b_rows;
+    global[1] = (size_t)b_cols;
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_bg));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_br));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_bi));
@@ -127,8 +122,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_cols));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ldb));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2,
-      NULL, global, NULL, 0, NULL, NULL));
+    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
   /* Phase 2: Matrix add Ta = Ar + Ai */
@@ -136,7 +130,8 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     size_t global[2];
     cl_kernel kern = ctx->kern_zgemm3m_matadd;
     cl_int iarg = 0;
-    global[0] = (size_t)a_rows; global[1] = (size_t)a_cols;
+    global[0] = (size_t)a_rows;
+    global[1] = (size_t)a_cols;
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ta));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ar));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ai));
@@ -145,8 +140,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2,
-      NULL, global, NULL, 0, NULL, NULL));
+    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
   /* Phase 2: Matrix add Tb = Br + Bi */
@@ -154,7 +148,8 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     size_t global[2];
     cl_kernel kern = ctx->kern_zgemm3m_matadd;
     cl_int iarg = 0;
-    global[0] = (size_t)b_rows; global[1] = (size_t)b_cols;
+    global[0] = (size_t)b_rows;
+    global[1] = (size_t)b_cols;
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_tb));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_br));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_bi));
@@ -163,8 +158,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2,
-      NULL, global, NULL, 0, NULL, NULL));
+    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
   /* Phase 3: Three real GEMM calls (via ozaki_gemm)
@@ -174,22 +168,19 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     const double one = 1.0, zero = 0.0;
     const int ld_real = ta ? K : M; /* leading dimension of real A matrices */
     const int ldb_real = tb ? N : K; /* leading dimension of real B matrices */
-    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K,
-                        one, d_ar, ld_real, d_br, ldb_real, zero, d_p1, M, NULL, 0);
+    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ar, ld_real, d_br, ldb_real, zero, d_p1, M, NULL, 0);
   }
   if (EXIT_SUCCESS == result) {
     const double one = 1.0, zero = 0.0;
     const int ld_real = ta ? K : M;
     const int ldb_real = tb ? N : K;
-    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K,
-                        one, d_ai, ld_real, d_bi, ldb_real, zero, d_p2, M, NULL, 0);
+    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ai, ld_real, d_bi, ldb_real, zero, d_p2, M, NULL, 0);
   }
   if (EXIT_SUCCESS == result) {
     const double one = 1.0, zero = 0.0;
     const int ld_real = ta ? K : M;
     const int ldb_real = tb ? N : K;
-    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K,
-                        one, d_ta, ld_real, d_tb, ldb_real, zero, d_p3, M, NULL, 0);
+    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ta, ld_real, d_tb, ldb_real, zero, d_p3, M, NULL, 0);
   }
 
   /* Phase 4: Finalize - compute complex result and apply alpha/beta */
@@ -198,7 +189,8 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
     cl_kernel kern = ctx->kern_zgemm3m_finalize;
     const int ld_prod = M;
     cl_int iarg = 0;
-    global[0] = (size_t)M; global[1] = (size_t)N;
+    global[0] = (size_t)M;
+    global[1] = (size_t)N;
 
     /* Set kernel arguments (precision-dependent alpha/beta) */
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_cg));
@@ -223,8 +215,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream,
       CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(float), &br_f));
       CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(float), &bi_f));
     }
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2,
-      NULL, global, NULL, 0, NULL, NULL));
+    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
   /* D2H: download result C */

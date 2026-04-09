@@ -21,10 +21,7 @@
  * Output: re[i + j*ld_out], im[i + j*ld_out]
  */
 kernel void zgemm3m_deinterleave(
-  global const real_t* restrict z,
-  global real_t* restrict re,
-  global real_t* restrict im,
-  int rows, int cols, int ldz, int ld_out)
+  global const real_t* restrict z, global real_t* restrict re, global real_t* restrict im, int rows, int cols, int ldz, int ld_out)
 {
   const int i = get_global_id(0);
   const int j = get_global_id(1);
@@ -42,11 +39,8 @@ kernel void zgemm3m_deinterleave(
  * Matrix addition: dst = a + b
  * All matrices are column-major real matrices.
  */
-kernel void zgemm3m_matadd(
-  global real_t* restrict dst,
-  global const real_t* restrict a,
-  global const real_t* restrict b,
-  int rows, int cols, int ld_dst, int ld_a, int ld_b)
+kernel void zgemm3m_matadd(global real_t* restrict dst, global const real_t* restrict a, global const real_t* restrict b, int rows,
+  int cols, int ld_dst, int ld_a, int ld_b)
 {
   const int i = get_global_id(0);
   const int j = get_global_id(1);
@@ -78,13 +72,8 @@ kernel void zgemm3m_matadd(
  * Output:
  *   c  = result (interleaved complex, in-place)
  */
-kernel void zgemm3m_finalize(
-  global real_t* restrict c,
-  global const real_t* restrict p1,
-  global const real_t* restrict p2,
-  global const real_t* restrict p3,
-  int M, int N, int ldc, int ld_prod,
-  real_t ar, real_t ai, real_t br, real_t bi)
+kernel void zgemm3m_finalize(global real_t* restrict c, global const real_t* restrict p1, global const real_t* restrict p2,
+  global const real_t* restrict p3, int M, int N, int ldc, int ld_prod, real_t ar, real_t ai, real_t br, real_t bi)
 {
   const int i = get_global_id(0);
   const int j = get_global_id(1);
@@ -111,10 +100,10 @@ kernel void zgemm3m_finalize(
      * Complex multiplication: (ar + i*ai) * (re_ab + i*im_ab)
      *   = ar*re_ab - ai*im_ab + i*(ar*im_ab + ai*re_ab) */
     const real_t alpha_ab_re = MAD(ar, re_ab, -ai * im_ab);
-    const real_t alpha_ab_im = MAD(ar, im_ab,  ai * re_ab);
-    const real_t beta_c_re   = MAD(br, c_re,  -bi * c_im);
-    const real_t beta_c_im   = MAD(br, c_im,   bi * c_re);
-    c[c_base]     = alpha_ab_re + beta_c_re;
+    const real_t alpha_ab_im = MAD(ar, im_ab, ai * re_ab);
+    const real_t beta_c_re = MAD(br, c_re, -bi * c_im);
+    const real_t beta_c_im = MAD(br, c_im, bi * c_re);
+    c[c_base] = alpha_ab_re + beta_c_re;
     c[c_base + 1] = alpha_ab_im + beta_c_im;
   }
 }
