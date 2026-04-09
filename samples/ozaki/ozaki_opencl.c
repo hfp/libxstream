@@ -124,8 +124,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     const char* env_i8 = getenv("OZAKI_I8");
     use_i8 = (2 == kind && NULL != env_i8 && 0 != atoi(env_i8));
   }
-  {
-    const int ndecomp_auto = (0 >= ndecomp);
+  { /* Treat ndecomp as auto when 0 or when it matches the compiled default
+     * that disagrees with runtime i8/u8 mode (ozaki.c passes the compiled
+     * OZ2_NPRIMES_DEFAULT which is u8-sized; if OZAKI_I8=1 at runtime the
+     * GPU needs more primes). */
+    const int u8_def = use_double ? 16 : 9;
+    const int i8_def = use_double ? 19 : 10;
+    const int ndecomp_auto = (0 >= ndecomp
+      || (2 == kind && 0 != use_i8 && ndecomp == u8_def)
+      || (2 == kind && 0 == use_i8 && ndecomp == i8_def));
     if (ndecomp_auto) {
       /* Scheme 1: mantissa slicing - 7 bits/slice
        *   FP32 (23-bit): 4 slices (28 bits, covers 23-bit mantissa)
@@ -137,12 +144,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        *   FP32: 10 primes (68 bits)
        *   FP64: 19 primes (124 bits) */
       if (2 == kind) {
-        if (0 != use_i8) {
-          ndecomp = use_double ? 19 : 10;
-        }
-        else {
-          ndecomp = use_double ? 16 : 9;
-        }
+        ndecomp = (0 != use_i8) ? i8_def : u8_def;
       }
       else {
         ndecomp = use_double ? 8 : 4;
