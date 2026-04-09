@@ -60,15 +60,16 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
     const int tm = ctx->tm, tn = ctx->tn;
-    /* Pad K to multiple of bk_pre (=32) and ensure >= 64 for 2D block I/O */
-    int k_pad = ((K + bk_pre - 1) / bk_pre) * bk_pre;
     const int m_pad = ((M + bm_pre - 1) / bm_pre) * bm_pre;
     int n_pad = ((N + bn_pre - 1) / bn_pre) * bn_pre;
     const int nblk_gm = (M + tm - 1) / tm;
     const int nblk_gn = (N + tn - 1) / tn;
     const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
     const int cutoff = 2 * (nslices_g - 1) - ctx->oztrim;
-    /* Dense slice buffer sizes */
+    /* K-group: size buffers for min(K, K_GRP_GPU), not full K */
+    const int k_grp_max = K < K_GRP_GPU ? K : K_GRP_GPU;
+    int k_grp_pad = ((k_grp_max + bk_pre - 1) / bk_pre) * bk_pre;
+    const int n_kgroups = (K + K_GRP_GPU - 1) / K_GRP_GPU;
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
@@ -79,19 +80,22 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     cl_event* evt_prof = NULL;
     int cache_hit_a = 0, cache_hit_b = 0;
     const int use_tinytc = (NULL != ctx->kern_tinytc && 0 == M % OZAKI_TINYTC_BM && 0 == N % OZAKI_TINYTC_BN);
+    int kg;
 
-    if (k_pad < 64) k_pad = 64;
+    if (k_grp_pad < 64) k_grp_pad = 64;
     if (n_pad < 64) n_pad = 64;
 
-    as_size = (size_t)nslices_g * m_pad * k_pad;
-    bs_size = (size_t)nslices_g * k_pad * n_pad;
+    as_size = (size_t)nslices_g * m_pad * k_grp_pad;
+    bs_size = (size_t)nslices_g * k_grp_pad * n_pad;
     expa_size = (size_t)nblk_gm * tm * elem_size;
     expb_size = (size_t)nblk_gn * tn * elem_size;
     c_nbytes = (size_t)ldc * (size_t)N * elem_size;
 
-    /* Preprocessing cache: reuse slices+exponents when matrix unchanged */
-    ozaki_cache_check(ctx, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, &d_as, &d_bs, &d_expa_g,
-      &d_expb_g, &cache_hit_a, &cache_hit_b);
+    /* Preprocessing cache: skip when K-grouping is active */
+    if (n_kgroups <= 1) {
+      ozaki_cache_check(ctx, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, &d_as, &d_bs, &d_expa_g,
+        &d_expb_g, &cache_hit_a, &cache_hit_b);
+    }
 
     /* Allocate device memory (skip cached sides and host-preprocessed sides) */
     if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
@@ -117,7 +121,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
     }
 
-    /* H2D transfers (skip cached and host-preprocessed sides) */
+    /* H2D transfers: full source matrices (once) */
     if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
       result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
     }
@@ -126,121 +130,129 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
 
-    /* Zero exponent arrays and slice buffers (skip cached and host-preprocessed sides) */
-    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
-      result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
-      if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
-    }
-    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
-      result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
-      if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
-    }
-
-    /* Wait for H2D to finish before preprocessing */
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
-
-    /* Profiling: allocate event array (pre_a + pre_b + slice_pairs) */
+    /* Profiling: allocate event array (scaled for K-groups) */
     LIBXS_ASSERT(0 == profile || NULL != hist);
     if (NULL != hist) {
-      evt_prof = (cl_event*)calloc((size_t)(nslices_g * nslices_g) + 2, sizeof(cl_event));
+      evt_prof = (cl_event*)calloc((size_t)n_kgroups * ((size_t)(nslices_g * nslices_g) + 2), sizeof(cl_event));
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
 
-    /* Phase 1: Preprocess A (skip entirely on cache hit) */
-    if (0 == cache_hit_a) {
-      if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
-        h_as = calloc(as_size, 1);
-        h_expa = calloc(expa_size, 1);
-        if (NULL != h_as && NULL != h_expa) {
-          ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad, nslices_g, ctx->use_xmx, h_as, h_expa);
-          result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
-          if (EXIT_SUCCESS == result) {
-            result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
-          }
-        }
-        else result = EXIT_FAILURE;
-      }
-      else if (EXIT_SUCCESS == result) {
-        result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_preprocess_a, d_ag, d_as, d_expa_g, M, K, lda, ta, k_pad, m_pad,
-          bm_pre, bk_pre, evt_prof, 1, 3, &n_profiled, profile);
-      }
-    } /* cache_hit_a */
-
-    /* Phase 1: Preprocess B (skip entirely on cache hit) */
-    if (0 == cache_hit_b) {
-      if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
-        h_bs = calloc(bs_size, 1);
-        h_expb = calloc(expb_size, 1);
-        if (NULL != h_bs && NULL != h_expb) {
-          ctx->host_preprocess_b(b, ldb, tb, N, K, k_pad, n_pad, nslices_g, ctx->use_xmx, h_bs, h_expb);
-          result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
-          if (EXIT_SUCCESS == result) {
-            result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
-          }
-        }
-        else result = EXIT_FAILURE;
-      }
-      else if (EXIT_SUCCESS == result) {
-        result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_preprocess_b, d_bg, d_bs, d_expb_g, N, K, ldb, tb, k_pad, n_pad,
-          bn_pre, bk_pre, evt_prof, 1, 4, &n_profiled, profile);
-      }
-    } /* cache_hit_b */
-
-    /* Wait for both preprocessing to complete */
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
-    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
-    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
-
-    /* Sync helper streams before freeing host staging buffers to ensure H2D completed.
-     * stream_wait_event only blocks the main stream; helper streams may still be
-     * transferring data from host memory when we free it, causing corruption. */
-    if (NULL != h_as || NULL != h_bs) {
-      if (EXIT_SUCCESS == result && NULL != stream_a && NULL != h_as) {
-        result = libxstream_stream_sync(stream_a);
-      }
-      if (EXIT_SUCCESS == result && NULL != stream_b && NULL != h_bs) {
-        result = libxstream_stream_sync(stream_b);
-      }
-    }
-
-    /* Free host staging buffers (now safe after sync) */
-    free(h_as);
-    h_as = NULL;
-    free(h_expa);
-    h_expa = NULL;
-    free(h_bs);
-    h_bs = NULL;
-    free(h_expb);
-    h_expb = NULL;
-
-    /* Save preprocessed buffers to cache on miss (transfers ownership) */
-    {
-      const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
-      ozaki_cache_update(ctx, result, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, d_as, d_bs, d_expa_g,
-        d_expb_g, prev_owned, &cache_hit_a, &cache_hit_b);
-    }
-
-    /* Scale C by beta (skip for beta==0: first_pair overwrite handles it;
-     * skip for beta==1: multiplying by 1 is a no-op) */
+    /* Scale C by beta (once, before K-group loop) */
     if (EXIT_SUCCESS == result && 1.0 != beta && 0.0 != beta) {
       result = ozaki_enqueue_scale_beta(ctx, stream, ctx->kern_scale_beta, d_cg, M, N, ldc, beta);
     }
-
-    /* Tiled GEMM phase: single kernel launch over all slice pairs */
     first_pair = (0.0 == beta) ? 1 : 0;
-    {
-      const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
-      if (0 != use_tinytc) {
-        result = ozaki_launch_tinytc(ctx, stream, d_as, d_bs, d_scratch, d_cg, d_expa_g, d_expb_g, M, N, k_pad, m_pad, n_pad,
-          nslices_g, tm, tn, ldc, cutoff, sq, evt_prof, 1, 2, &n_profiled, profile);
+
+    /* K-group loop: preprocess + GEMM per group */
+    for (kg = 0; kg < n_kgroups && EXIT_SUCCESS == result; ++kg) {
+      const int kb_grp = kg * K_GRP_GPU;
+      const int K_len = ((K - kb_grp) < K_GRP_GPU) ? (K - kb_grp) : K_GRP_GPU;
+      int k_pad = ((K_len + bk_pre - 1) / bk_pre) * bk_pre;
+      const size_t a_off = ta ? ((size_t)kb_grp * elem_size) : ((size_t)kb_grp * lda * elem_size);
+      const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);
+      if (k_pad < 64) k_pad = 64;
+
+      /* Ensure previous GEMM finished before helper streams zero/preprocess */
+      if (kg > 0) {
+        if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream);
+        if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_a, evt_prep_a);
+        if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_prep_a);
       }
-      else {
-        cl_kernel kern_g = (0 != M % tm || 0 != N % tn) ? ctx->kern_fused_bounds : ctx->kern_fused;
-        result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
-          tn, ntm, ntn, alpha, first_pair, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
+
+      /* Zero slice/exp buffers */
+      if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
+        result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
+        if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
       }
+      if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+        result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
+        if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
+      }
+
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
+
+      /* Preprocess A for this K-group */
+      if (0 == cache_hit_a) {
+        if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
+          h_as = calloc(as_size, 1);
+          h_expa = calloc(expa_size, 1);
+          if (NULL != h_as && NULL != h_expa) {
+            ctx->host_preprocess_a((const char*)a + a_off, lda, ta, M, K_len, k_pad, m_pad, nslices_g, ctx->use_xmx, h_as, h_expa);
+            result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
+            if (EXIT_SUCCESS == result) {
+              result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
+            }
+          }
+          else result = EXIT_FAILURE;
+        }
+        else if (EXIT_SUCCESS == result) {
+          result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g, M, K_len,
+            lda, ta, k_pad, m_pad, bm_pre, bk_pre, evt_prof, 1, 3, &n_profiled, profile);
+        }
+      }
+
+      /* Preprocess B for this K-group */
+      if (0 == cache_hit_b) {
+        if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
+          h_bs = calloc(bs_size, 1);
+          h_expb = calloc(expb_size, 1);
+          if (NULL != h_bs && NULL != h_expb) {
+            ctx->host_preprocess_b((const char*)b + b_off, ldb, tb, N, K_len, k_pad, n_pad, nslices_g, ctx->use_xmx, h_bs, h_expb);
+            result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
+            if (EXIT_SUCCESS == result) {
+              result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
+            }
+          }
+          else result = EXIT_FAILURE;
+        }
+        else if (EXIT_SUCCESS == result) {
+          result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_preprocess_b, (char*)d_bg + b_off, d_bs, d_expb_g, N, K_len,
+            ldb, tb, k_pad, n_pad, bn_pre, bk_pre, evt_prof, 1, 4, &n_profiled, profile);
+        }
+      }
+
+      /* Wait for preprocessing to complete */
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
+
+      /* Sync helper streams for host staging buffers */
+      if (NULL != h_as || NULL != h_bs) {
+        if (EXIT_SUCCESS == result && NULL != stream_a && NULL != h_as) {
+          result = libxstream_stream_sync(stream_a);
+        }
+        if (EXIT_SUCCESS == result && NULL != stream_b && NULL != h_bs) {
+          result = libxstream_stream_sync(stream_b);
+        }
+      }
+      free(h_as); h_as = NULL;
+      free(h_expa); h_expa = NULL;
+      free(h_bs); h_bs = NULL;
+      free(h_expb); h_expb = NULL;
+
+      /* Launch GEMM for this K-group */
+      {
+        const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
+        if (0 != use_tinytc) {
+          result = ozaki_launch_tinytc(ctx, stream, d_as, d_bs, d_scratch, d_cg, d_expa_g, d_expb_g, M, N, k_pad, m_pad, n_pad,
+            nslices_g, tm, tn, ldc, cutoff, sq, evt_prof, 1, 2, &n_profiled, profile);
+        }
+        else {
+          cl_kernel kern_g = (0 != M % tm || 0 != N % tn) ? ctx->kern_fused_bounds : ctx->kern_fused;
+          result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
+            tn, ntm, ntn, alpha, first_pair, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
+        }
+      }
+      first_pair = 0; /* subsequent groups accumulate */
+    } /* end K-group loop */
+
+    /* Save preprocessed buffers to cache (only for single-group case) */
+    if (n_kgroups <= 1) {
+      const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
+      ozaki_cache_update(ctx, result, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, d_as, d_bs, d_expa_g,
+        d_expb_g, prev_owned, &cache_hit_a, &cache_hit_b);
     }
 
     /* Collect profiling data */
@@ -302,12 +314,15 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
     const int tm = ctx->tm, tn = ctx->tn;
-    int k_pad = ((K + bk_pre - 1) / bk_pre) * bk_pre;
     const int m_pad = ((M + bm_pre - 1) / bm_pre) * bm_pre;
     int n_pad = ((N + bn_pre - 1) / bn_pre) * bn_pre;
     const int nblk_gm = (M + tm - 1) / tm;
     const int nblk_gn = (N + tn - 1) / tn;
     const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
+    /* K-group: size buffers for min(K, K_GRP_GPU), not full K */
+    const int k_grp_max = K < K_GRP_GPU ? K : K_GRP_GPU;
+    int k_grp_pad = ((k_grp_max + bk_pre - 1) / bk_pre) * bk_pre;
+    const int n_kgroups = (K + K_GRP_GPU - 1) / K_GRP_GPU;
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
@@ -317,19 +332,22 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     int n_profiled_c = 0;
     cl_event* evt_prof_c = NULL;
     int cache_hit_a = 0, cache_hit_b = 0;
+    int kg;
 
-    if (k_pad < 64) k_pad = 64;
+    if (k_grp_pad < 64) k_grp_pad = 64;
     if (n_pad < 64) n_pad = 64;
 
-    as_size = (size_t)nprimes_g * m_pad * k_pad;
-    bs_size = (size_t)nprimes_g * k_pad * n_pad;
+    as_size = (size_t)nprimes_g * m_pad * k_grp_pad;
+    bs_size = (size_t)nprimes_g * k_grp_pad * n_pad;
     expa_size = (size_t)nblk_gm * tm * sizeof(cl_int); /* pad to tile boundary */
     expb_size = (size_t)nblk_gn * tn * sizeof(cl_int);
     c_nbytes = (size_t)ldc * (size_t)N * elem_size;
 
-    /* Preprocessing cache: reuse slices+exponents when matrix unchanged */
-    ozaki_cache_check(ctx, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, &d_as, &d_bs, &d_expa_g,
-      &d_expb_g, &cache_hit_a, &cache_hit_b);
+    /* Preprocessing cache: skip when K-grouping is active */
+    if (n_kgroups <= 1) {
+      ozaki_cache_check(ctx, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, &d_as, &d_bs, &d_expa_g,
+        &d_expb_g, &cache_hit_a, &cache_hit_b);
+    }
 
     /* Allocate device memory (skip cached sides and host-preprocessed sides) */
     if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
@@ -352,6 +370,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
     }
 
+    /* H2D transfers: full source matrices (once) */
     if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
       result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
     }
@@ -360,110 +379,121 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
     if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
 
-    if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
-      result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
-      if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
-    }
-    if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
-      result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
-      if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
-    }
-
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
-
-    /* Profiling: allocate event array (pre_a + pre_b + crt_gemm) */
+    /* Profiling: allocate event array (scaled for K-groups) */
     LIBXS_ASSERT(0 == profile || NULL != hist);
     if (NULL != hist) {
-      evt_prof_c = (cl_event*)calloc(3, sizeof(cl_event));
+      evt_prof_c = (cl_event*)calloc((size_t)n_kgroups * 3, sizeof(cl_event));
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
 
-    /* Preprocess A (skip entirely on cache hit) */
-    if (0 == cache_hit_a) {
-      if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
-        h_as = calloc(as_size, 1);
-        h_expa = calloc(expa_size, 1);
-        if (NULL != h_as && NULL != h_expa) {
-          ctx->host_preprocess_a(a, lda, ta, M, K, k_pad, m_pad, nprimes_g, ctx->use_xmx, h_as, h_expa);
-          result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
-          if (EXIT_SUCCESS == result) {
-            result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
-          }
-        }
-        else result = EXIT_FAILURE;
-      }
-      else if (EXIT_SUCCESS == result) {
-        result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, d_ag, d_as, d_expa_g, M, K, lda, ta, k_pad,
-          m_pad, bm_pre, bk_pre, evt_prof_c, 1, 3, &n_profiled_c, profile);
-      }
-    } /* cache_hit_a */
-
-    /* Preprocess B (skip entirely on cache hit) */
-    if (0 == cache_hit_b) {
-      if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
-        h_bs = calloc(bs_size, 1);
-        h_expb = calloc(expb_size, 1);
-        if (NULL != h_bs && NULL != h_expb) {
-          ctx->host_preprocess_b(b, ldb, tb, N, K, k_pad, n_pad, nprimes_g, ctx->use_xmx, h_bs, h_expb);
-          result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
-          if (EXIT_SUCCESS == result) {
-            result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
-          }
-        }
-        else result = EXIT_FAILURE;
-      }
-      else if (EXIT_SUCCESS == result) {
-        result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b, d_bg, d_bs, d_expb_g, N, K, ldb, tb, k_pad,
-          n_pad, bn_pre, bk_pre, evt_prof_c, 1, 4, &n_profiled_c, profile);
-      }
-    } /* cache_hit_b */
-
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
-    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
-    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
-
-    /* Sync helper streams before freeing host staging buffers to ensure H2D completed.
-     * stream_wait_event only blocks the main stream; helper streams may still be
-     * transferring data from host memory when we free it, causing corruption. */
-    if (NULL != h_as || NULL != h_bs) {
-      if (EXIT_SUCCESS == result && NULL != stream_a && NULL != h_as) {
-        result = libxstream_stream_sync(stream_a);
-      }
-      if (EXIT_SUCCESS == result && NULL != stream_b && NULL != h_bs) {
-        result = libxstream_stream_sync(stream_b);
-      }
-    }
-
-    /* Free host staging buffers (now safe after sync) */
-    free(h_as);
-    h_as = NULL;
-    free(h_expa);
-    h_expa = NULL;
-    free(h_bs);
-    h_bs = NULL;
-    free(h_expb);
-    h_expb = NULL;
-
-    /* Save preprocessed buffers to cache on miss (transfers ownership) */
-    {
-      const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
-      ozaki_cache_update(ctx, result, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, d_as, d_bs, d_expa_g,
-        d_expb_g, prev_owned, &cache_hit_a, &cache_hit_b);
-    }
-
-    /* Scale C by beta (skip for beta==0: first_tile overwrite handles it;
-     * skip for beta==1: multiplying by 1 is a no-op) */
+    /* Scale C by beta (once, before K-group loop) */
     if (EXIT_SUCCESS == result && 1.0 != beta && 0.0 != beta) {
       result = ozaki_enqueue_scale_beta(ctx, stream, ctx->kern_crt_scale_beta, d_cg, M, N, ldc, beta);
     }
-
-    /* Single fused CRT GEMM: one launch per output tile covers all primes */
     first_tile = (0.0 == beta) ? 1 : 0;
-    if (EXIT_SUCCESS == result) {
-      result = ozaki_launch_fused(ctx, stream, ctx->kern_crt_fused, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc,
-        m_pad, tm, tn, ntm, ntn, alpha, first_tile, ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
+
+    /* K-group loop: preprocess + CRT GEMM per group */
+    for (kg = 0; kg < n_kgroups && EXIT_SUCCESS == result; ++kg) {
+      const int kb_grp = kg * K_GRP_GPU;
+      const int K_len = ((K - kb_grp) < K_GRP_GPU) ? (K - kb_grp) : K_GRP_GPU;
+      int k_pad = ((K_len + bk_pre - 1) / bk_pre) * bk_pre;
+      const size_t a_off = ta ? ((size_t)kb_grp * elem_size) : ((size_t)kb_grp * lda * elem_size);
+      const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);
+      if (k_pad < 64) k_pad = 64;
+
+      /* Ensure previous GEMM finished before helper streams zero/preprocess */
+      if (kg > 0) {
+        if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream);
+        if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_a, evt_prep_a);
+        if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_prep_a);
+      }
+
+      /* Zero slice/exp buffers */
+      if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
+        result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
+        if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
+      }
+      if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+        result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
+        if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
+      }
+
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
+
+      /* Preprocess A for this K-group */
+      if (0 == cache_hit_a) {
+        if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_a) {
+          h_as = calloc(as_size, 1);
+          h_expa = calloc(expa_size, 1);
+          if (NULL != h_as && NULL != h_expa) {
+            ctx->host_preprocess_a((const char*)a + a_off, lda, ta, M, K_len, k_pad, m_pad, nprimes_g, ctx->use_xmx, h_as, h_expa);
+            result = libxstream_mem_copy_h2d(h_as, d_as, as_size, stream_a);
+            if (EXIT_SUCCESS == result) {
+              result = libxstream_mem_copy_h2d(h_expa, d_expa_g, expa_size, stream_a);
+            }
+          }
+          else result = EXIT_FAILURE;
+        }
+        else if (EXIT_SUCCESS == result) {
+          result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g, M, K_len,
+            lda, ta, k_pad, m_pad, bm_pre, bk_pre, evt_prof_c, 1, 3, &n_profiled_c, profile);
+        }
+      }
+
+      /* Preprocess B for this K-group */
+      if (0 == cache_hit_b) {
+        if (EXIT_SUCCESS == result && NULL != ctx->host_preprocess_b) {
+          h_bs = calloc(bs_size, 1);
+          h_expb = calloc(expb_size, 1);
+          if (NULL != h_bs && NULL != h_expb) {
+            ctx->host_preprocess_b((const char*)b + b_off, ldb, tb, N, K_len, k_pad, n_pad, nprimes_g, ctx->use_xmx, h_bs, h_expb);
+            result = libxstream_mem_copy_h2d(h_bs, d_bs, bs_size, stream_b);
+            if (EXIT_SUCCESS == result) {
+              result = libxstream_mem_copy_h2d(h_expb, d_expb_g, expb_size, stream_b);
+            }
+          }
+          else result = EXIT_FAILURE;
+        }
+        else if (EXIT_SUCCESS == result) {
+          result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b, (char*)d_bg + b_off, d_bs, d_expb_g, N, K_len,
+            ldb, tb, k_pad, n_pad, bn_pre, bk_pre, evt_prof_c, 1, 4, &n_profiled_c, profile);
+        }
+      }
+
+      /* Wait for preprocessing to complete */
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
+
+      /* Sync helper streams for host staging buffers */
+      if (NULL != h_as || NULL != h_bs) {
+        if (EXIT_SUCCESS == result && NULL != stream_a && NULL != h_as) {
+          result = libxstream_stream_sync(stream_a);
+        }
+        if (EXIT_SUCCESS == result && NULL != stream_b && NULL != h_bs) {
+          result = libxstream_stream_sync(stream_b);
+        }
+      }
+      free(h_as); h_as = NULL;
+      free(h_expa); h_expa = NULL;
+      free(h_bs); h_bs = NULL;
+      free(h_expb); h_expb = NULL;
+
+      /* Launch CRT GEMM for this K-group */
+      if (EXIT_SUCCESS == result) {
+        result = ozaki_launch_fused(ctx, stream, ctx->kern_crt_fused, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc,
+          m_pad, tm, tn, ntm, ntn, alpha, first_tile, ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
+      }
+      first_tile = 0; /* subsequent groups accumulate */
+    } /* end K-group loop */
+
+    /* Save preprocessed buffers to cache (only for single-group case) */
+    if (n_kgroups <= 1) {
+      const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
+      ozaki_cache_update(ctx, result, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, d_as, d_bs, d_expa_g,
+        d_expb_g, prev_owned, &cache_hit_a, &cache_hit_b);
     }
 
     /* Collect profiling data */

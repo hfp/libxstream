@@ -21,6 +21,9 @@
 #if !defined(OZAKI_TINYTC_BN)
 # define OZAKI_TINYTC_BN 128
 #endif
+#if !defined(K_GRP_GPU)
+# define K_GRP_GPU 32768
+#endif
 
 /* Device memory allocation macros (shared by ozaki_opencl.c and ozaki_gemm.c).
  * Callers must have a local `pool` variable (libxs_malloc_pool_t*)
