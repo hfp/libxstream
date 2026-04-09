@@ -18,11 +18,17 @@
  *      performing full-K DPAS accumulation per prime, then fuses Garner
  *      CRT reconstruction + Horner evaluation + scaling into the store
  *
+ * OZAKI_U8 (default 1 for Scheme 2):
+ *   Uses unsigned u8 DPAS with moduli up to 256 (vs 128 for signed i8).
+ *   Larger moduli reduce the number of primes: fp64 16 (vs 19), fp32 9 (vs 10).
+ *   Sign is encoded via modular additive inverse: (p - r) ≡ -r (mod p).
+ *   Trade-off: safe K without KGROUPS drops from ~133K to ~33K.
+ *
  * The KGROUPS tunable controls intermediate int32 mod reductions within
  * the K-loop.  When 0 (default), no intermediate reductions — the int32
- * accumulator covers the full K (safe for K <= ~133K).  When > 0, a Barrett
- * mod reduction fires every KGROUPS * BK steps, preventing int32 overflow
- * for large K.  Garner reconstruction always runs once per C element regardless.
+ * accumulator covers the full K.  When > 0, a Barrett mod reduction fires
+ * every KGROUPS * BK steps, preventing int32 overflow for large K.
+ * Garner reconstruction always runs once per C element regardless.
  *
  * Compile-time parameters (-D):
  *   BM, BN          - output tile per work-group (256x256 default)
@@ -31,6 +37,7 @@
  *   MANT_BITS       - mantissa bits (52=fp64, 23=fp32)
  *   BIAS_PLUS_MANT  - exponent bias + mantissa bits
  *   KGROUPS         - intermediate mod reduction period (0 = full K)
+ *   OZAKI_U8        - 1: unsigned u8 DPAS (default), 0: signed i8 DPAS
  *   USE_DOUBLE      - 1: fp64, 0: fp32
  *   SG              - sub-group size (16)
  *   BM_PRE, BN_PRE, BK_PRE - preprocessing work-group sizes
@@ -67,7 +74,14 @@
 # define SG 16
 #endif
 #if !defined(OZ2_HORNER_GROUP)
-# define OZ2_HORNER_GROUP 9
+  /* Max primes per Horner group that fit ulong accumulation:
+   * u8 (moduli<=256): product of 8 largest < 2^64 (group=8)
+   * i8 (moduli<=128): product of 9 largest < 2^64 (group=9) */
+# if defined(OZAKI_U8) && (OZAKI_U8)
+#  define OZ2_HORNER_GROUP 8
+# else
+#  define OZ2_HORNER_GROUP 9
+# endif
 #endif
 #if !defined(PB)
 # define PB 1
@@ -91,16 +105,25 @@
 #define OZAKI_CRT_DPAS OZAKI_DPAS
 
 /* Extract NPRIMES CRT residues from aligned mantissa into DST buffer.
- * DST[p * SS + ROW * RS + COL] = (aligned mod m_p), sign-folded. */
+ * DST[p * SS + ROW * RS + COL] = (aligned mod m_p), sign-folded.
+ * u8: sign via modular additive inverse (p - r), stored as uchar [0, p-1].
+ * i8: sign via negation (-r), stored as char [-(p-1), p-1]. */
 #define OZAKI_EXTRACT_CRT(ALIGNED, SIGN, DST, SS, RS, ROW, COL) \
   do { \
     SINT p_; \
     UNROLL_FORCE(NPRIMES) for (p_ = 0; p_ < NPRIMES; ++p_) { \
-      char res_ = (char)oz2g_mod64((ulong)(ALIGNED), p_); \
-      if (SIGN) res_ = -res_; \
-      (DST)[(long)(p_) * (SS) + (long)(ROW) * (RS) + (COL)] = res_; \
+      uint r_ = oz2g_mod64((ulong)(ALIGNED), p_); \
+      if ((SIGN) && 0 != r_) \
+        OZAKI_SIGN_FOLD_(r_, p_); \
+      (DST)[(long)(p_) * (SS) + (long)(ROW) * (RS) + (COL)] \
+        = (char)r_; \
     } \
   } while (0)
+#if defined(OZAKI_U8) && (OZAKI_U8)
+# define OZAKI_SIGN_FOLD_(R, P) (R) = oz2g_moduli[(P)] - (R)
+#else
+# define OZAKI_SIGN_FOLD_(R, P) (R) = -(R)
+#endif
 
 /* Zero NPRIMES entries at the given position. */
 #define OZAKI_ZERO_CRT(DST, SS, RS, ROW, COL) \
@@ -111,8 +134,10 @@
     } \
   } while (0)
 
-/* Mod-reduce int8 DPAS accumulator into uint residue array.
- * RESIDUES[pidx * XMX_M + m] accumulates the unsigned residue. */
+/* Mod-reduce DPAS accumulator into uint residue array.
+ * RESIDUES[pidx * XMX_M + m] accumulates the unsigned residue.
+ * u8: accumulator is always non-negative (unsigned products) — branchless.
+ * i8: accumulator can be negative — requires sign-aware reduction. */
 #define OZAKI_CRT_MOD_REDUCE(ACC, PIDX, RESIDUES) \
   do { \
     union { int8 v_; int a_[8]; } du_; \
@@ -120,13 +145,7 @@
     du_.v_ = (ACC); \
     UNROLL_FORCE(XMX_M) for (mr_ = 0; mr_ < XMX_M; ++mr_) { \
       uint r_; \
-      if (du_.a_[mr_] >= 0) { \
-        r_ = oz2g_mod((uint)du_.a_[mr_], (PIDX)); \
-      } \
-      else { \
-        const uint nr_ = oz2g_mod((uint)(-du_.a_[mr_]), (PIDX)); \
-        r_ = (0 != nr_) ? (oz2g_moduli[(PIDX)] - nr_) : 0; \
-      } \
+      OZAKI_MOD_REDUCE_ELEM_(du_.a_[mr_], (PIDX), r_); \
       { const uint prev_ = (RESIDUES)[(int)(PIDX) * XMX_M + mr_]; \
         const uint sum_ = prev_ + r_; \
         (RESIDUES)[(int)(PIDX) * XMX_M + mr_] = \
@@ -134,6 +153,19 @@
       } \
     } \
   } while (0)
+#if defined(OZAKI_U8) && (OZAKI_U8)
+# define OZAKI_MOD_REDUCE_ELEM_(VAL, PIDX, R) \
+    (R) = oz2g_mod((uint)(VAL), (PIDX))
+#else
+# define OZAKI_MOD_REDUCE_ELEM_(VAL, PIDX, R) \
+    if ((VAL) >= 0) { \
+      (R) = oz2g_mod((uint)(VAL), (PIDX)); \
+    } \
+    else { \
+      const uint nr_ = oz2g_mod((uint)(-(VAL)), (PIDX)); \
+      (R) = (0 != nr_) ? (oz2g_moduli[(PIDX)] - nr_) : 0; \
+    }
+#endif
 
 /* Garner + Horner store: reconstruct from per-prime residues, scale, write C */
 #define OZAKI_CRT_STORE(RESIDUES, EXPA, EXPB, C_PTR, M, N, MI, COL, \
@@ -211,68 +243,83 @@
   } while (0)
 
 
-/* CRT moduli: 20 pairwise coprime integers <= 128.
- * 119 = 7*17 (composite, larger than either prime alone). */
+/* CRT moduli, Barrett constants, pow32_mod, and Garner inverse table.
+ *
+ * u8 (OZAKI_U8=1, default): 20 pairwise coprime integers <= 256.
+ *   Prime powers: 256=2^8, 243=3^5, 169=13^2.  Rest are primes.
+ *   Larger moduli -> fewer primes for the same cumulative product.
+ *   Safe K without KGROUPS: ~33K (255^2 * 32 per DPAS step).
+ *
+ * i8 (OZAKI_U8=0): 20 pairwise coprime integers <= 128.
+ *   Prime powers: 128=2^7, 125=5^3, 121=11^2, 81=3^4.
+ *   119=7*17 (composite).
+ *   Safe K without KGROUPS: ~133K (127^2 * 32 per DPAS step). */
+
+#if defined(OZAKI_U8) && (OZAKI_U8)
+
+constant ushort oz2g_moduli[] = {
+  256, 251, 243, 241, 239, 233, 229, 227,
+  223, 211, 199, 197, 193, 191, 181, 179,
+  173, 169, 167, 163
+};
+
+constant uint oz2g_barrett_inv[] = {
+  16777216, 17111423, 17674762, 17821441, 17970574, 18433336,
+  18755315, 18920560, 19259943, 20355295, 21582750, 21801864,
+  22253716, 22486739, 23729101, 23994230, 24826400, 25414007,
+  25718367, 26349492
+};
+
+constant ushort oz2g_pow32_mod[] = {
+    0, 123, 130,  15, 110,   8, 161, 176,
+    7,  51,  46,  88, 108, 147,  15, 126,
+   96, 113,   7, 100
+};
+
+constant uint oz2g_garner_inv[][20] = {
+  /* m_0=256 */ {  0, 201, 187, 225, 225, 152,  17,  47, 196, 136,   7, 187, 144, 144,  70,  93, 148,  68, 152, 156},
+  /* m_1=251 */ {  0,   0, 152, 217,  20,  13, 177, 123,   8, 153, 111, 135,  10, 156,  75,  92, 122, 101,   2, 113},
+  /* m_2=243 */ {  0,   0,   0, 121,  60,  70, 180,  71, 145,  33,  95,  30, 166, 180,  73,  14, 131,  16,  11, 108},
+  /* m_3=241 */ {  0,   0,   0,   0, 120, 204, 210, 146,  62, 204, 109, 103, 189, 149, 178,  26,  28,  54,  79,  23},
+  /* m_4=239 */ {  0,   0,   0,   0,   0,  39,  23,  19,  14,  98,   5,  61,  21,   4, 103,   3,  97,  99,  58, 148},
+  /* m_5=233 */ {  0,   0,   0,   0,   0,   0, 172,  38,  67,  48,  41, 104, 111, 141,  94,  63, 124, 103, 124,   7},
+  /* m_6=229 */ {  0,   0,   0,   0,   0,   0,   0, 114, 186, 129,  73, 117,  59, 186, 132, 111,  34,  31, 132,  42},
+  /* m_7=227 */ {  0,   0,   0,   0,   0,   0,   0,   0,  56,  66,  64,  46, 176,  69, 122, 138, 157, 102, 103, 135},
+  /* m_8=223 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,  88, 141, 144, 148,   6, 125, 118,  45,  72,   3, 144},
+  /* m_9=211 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  83, 183, 118,  86, 175,  28,  41, 165,  19,  17},
+  /* m10=199 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  99, 161,  24, 171,   9,  20,  62,  47,  77},
+  /* m11=197 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 145,  32,  34,  10, 137, 163,  39,  24},
+  /* m12=193 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  96, 166,  64,  26, 162,  45, 125},
+  /* m13=191 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 163,  15, 125, 146,   7,  99},
+  /* m14=181 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  90,  65, 155,  12, 154},
+  /* m15=179 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  29,  17,  14,  51},
+  /* m16=173 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, 127,  28,  49},
+  /* m17=169 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  84, 136},
+  /* m18=167 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  41},
+  /* m19=163 */ {  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0}
+};
+
+#else /* i8 fallback */
+
 constant ushort oz2g_moduli[] = {
   128, 127, 125, 121, 119, 113, 109, 107,
   103, 101,  97,  89,  83,  81,  79,  73,
    71,  67,  61,  59
 };
 
-/* Barrett constants: barrett_inv[i] = floor(2^32 / moduli[i]).
- * The quotient estimate is exact (within one) for all uint32 inputs.
- * The int32 DPAS accumulator can reach 127*127*K_pad; for K_pad up to
- * 65536 this is ~1.06 billion, well within uint32 range.
- * Product x * barrett_inv fits 57 bits (uint64). */
 constant uint oz2g_barrett_inv[] = {
   33554432, 33818640, 34359738, 35495597, 36092162, 38008560,
   39403369, 40139881, 41698711, 42524428, 44278013, 48258059,
   51746593, 53024287, 54366674, 58835168, 60492497, 64103989,
   70409299, 72796055
 };
-#define OZ2G_BARRETT_SHIFT 32
 
-/* Barrett modular reduction: x mod oz2g_moduli[pidx].
- * For pidx==0 (modulus 128 = 2^7), a simple bitmask suffices. */
-inline uint oz2g_mod(uint x, SINT pidx)
-{
-  if (0 == pidx) return x & 127u;
-  { const uint q = (uint)(((ulong)x * oz2g_barrett_inv[pidx]) >> OZ2G_BARRETT_SHIFT);
-    uint r = x - q * oz2g_moduli[pidx];
-    return (r >= oz2g_moduli[pidx]) ? (r - oz2g_moduli[pidx]) : r;
-  }
-}
-
-/* 2^32 mod moduli[i], precomputed for 64-bit Barrett decomposition.
- * Used to split x = hi*2^32 + lo into two 32-bit Barrett reductions. */
 constant ushort oz2g_pow32_mod[] = {
    0, 16, 46, 59, 18, 16, 75, 29,
   63, 68, 35, 45, 77, 49, 50, 32,
    9, 33, 57, 51
 };
 
-/* Modular reduction for aligned mantissa (up to 53 bits for FP64, 24 for FP32).
- * Decomposes x = hi*2^32 + lo, reduces each part via 32-bit Barrett,
- * then combines.  Avoids expensive 64-bit integer division. */
-inline uint oz2g_mod64(ulong x, SINT pidx)
-{
-  if (0 == pidx) return (uint)(x & 127ul);
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-  { const uint hi = (uint)(x >> 32);
-    const uint lo = (uint)x;
-    /* hi * pow32_mod: max ~2^21 * 77 < 2^28, fits uint32.
-     * Adding Barrett-reduced lo (< 128) stays in uint32. */
-    const uint partial = hi * oz2g_pow32_mod[pidx]
-                       + oz2g_mod(lo, pidx);
-    return oz2g_mod(partial, pidx);
-  }
-#else
-  /* FP32: aligned mantissa <= 24 bits, direct 32-bit Barrett. */
-  return oz2g_mod((uint)x, pidx);
-#endif
-}
-
-/* Garner modular inverse table */
 constant uint oz2g_garner_inv[][20] = {
   /* m_0=128 */ {   0,   1,  42,  52,  53,  98,  23,  51,  33,  15,  72,  16,  24,  50,  50,   4,   5,  11,  51,   6},
   /* m_1=127 */ {   0,   0,  63, 101,  15, 105, 103,  91,  73,  35,  55,  82,  17,  37,  28,  23,  52,  19,  49,  46},
@@ -295,6 +342,48 @@ constant uint oz2g_garner_inv[][20] = {
   /* m18= 61 */ {   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,  30},
   /* m19= 59 */ {   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0}
 };
+
+#endif /* OZAKI_U8 */
+
+#define OZ2G_BARRETT_SHIFT 32
+
+/* Barrett modular reduction: x mod oz2g_moduli[pidx].
+ * For pidx==0 (power-of-2 modulus), a simple bitmask suffices:
+ * u8: 256 = 2^8 -> mask 0xFF.  i8: 128 = 2^7 -> mask 0x7F. */
+#if defined(OZAKI_U8) && (OZAKI_U8)
+# define OZ2G_MOD0_MASK 0xFFu
+# define OZ2G_MOD0_MASK64 0xFFul
+#else
+# define OZ2G_MOD0_MASK 0x7Fu
+# define OZ2G_MOD0_MASK64 0x7Ful
+#endif
+inline uint oz2g_mod(uint x, SINT pidx)
+{
+  if (0 == pidx) return x & OZ2G_MOD0_MASK;
+  { const uint q = (uint)(((ulong)x * oz2g_barrett_inv[pidx]) >> OZ2G_BARRETT_SHIFT);
+    uint r = x - q * oz2g_moduli[pidx];
+    return (r >= oz2g_moduli[pidx]) ? (r - oz2g_moduli[pidx]) : r;
+  }
+}
+
+/* Modular reduction for aligned mantissa (up to 53 bits for FP64, 24 for FP32).
+ * Decomposes x = hi*2^32 + lo, reduces each part via 32-bit Barrett,
+ * then combines.  Avoids expensive 64-bit integer division. */
+inline uint oz2g_mod64(ulong x, SINT pidx)
+{
+  if (0 == pidx) return (uint)(x & OZ2G_MOD0_MASK64);
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+  { const uint hi = (uint)(x >> 32);
+    const uint lo = (uint)x;
+    const uint partial = hi * oz2g_pow32_mod[pidx]
+                       + oz2g_mod(lo, pidx);
+    return oz2g_mod(partial, pidx);
+  }
+#else
+  /* FP32: aligned mantissa <= 24 bits, direct 32-bit Barrett. */
+  return oz2g_mod((uint)x, pidx);
+#endif
+}
 
 
 /* Garner CRT reconstruction: residues -> mixed-radix digits + sign */

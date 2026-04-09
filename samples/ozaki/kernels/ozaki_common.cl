@@ -13,9 +13,15 @@
  *
  * Provides:
  *   CONSTANT            - address-space qualifier (global or __constant)
- *   OZAKI_DPAS          - one DPAS step (2D block I/O + int8 MAD)
+ *   OZAKI_DPAS          - one DPAS step (2D block I/O + MAD)
  *   ieee_decompose()    - IEEE-754 -> (sign, biased exponent, mantissa)
  *   ozaki_slice_digit() - extract a 7-bit signed digit from aligned mantissa
+ *
+ * OZAKI_U8 (compile-time):
+ *   0 or undefined: signed i8 DPAS (intel_sub_group_i8_i8_matrix_mad_k32)
+ *   1:             unsigned u8 DPAS (intel_sub_group_u8_u8_matrix_mad_k32)
+ *   Scheme 2 (CRT) defaults to u8 for larger moduli (<=256 vs <=128).
+ *   Scheme 1 (slicing) always uses i8 (signed slice digits).
  */
 
 #if !defined(CONSTANT)
@@ -60,7 +66,9 @@
 /* One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
  * Each work-item holds 8 rows; the column is get_sub_group_local_id().
  *
- * XMX path:
+ * XMX path (OZAKI_U8=1 — unsigned, default for CRT):
+ *   int8 intel_sub_group_u8_u8_matrix_mad_k32(ushort8 a, uint8 b, int8 acc)
+ * XMX path (OZAKI_U8=0 — signed, default for slicing):
  *   int8 intel_sub_group_i8_i8_matrix_mad_k32(short8 a, int8 b, int8 acc)
  *   A tile: 8 rows x 32 cols  (read as ushort8 via 2D block read)
  *   B tile: 32 rows x 16 cols (read with VNNI transform via 2D block read)
@@ -84,6 +92,18 @@
       (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
       (int2)((NJ), (KOFF)))
 
+#if defined(OZAKI_U8) && (OZAKI_U8)
+# define OZAKI_MAD_K32_8_(A, B, ACC) \
+    intel_sub_group_u8_u8_matrix_mad_k32(A, B, ACC)
+# define OZAKI_MAD_K32_4_(A, B, ACC) \
+    intel_sub_group_u8_u8_matrix_mad_k32(A, B, ACC)
+#else
+# define OZAKI_MAD_K32_8_(A, B, ACC) \
+    intel_sub_group_i8_i8_matrix_mad_k32(as_short8(A), as_int8(B), ACC)
+# define OZAKI_MAD_K32_4_(A, B, ACC) \
+    intel_sub_group_i8_i8_matrix_mad_k32(as_short4(A), as_int8(B), ACC)
+#endif
+
 #if (8 == RC)
 #define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
@@ -95,8 +115,7 @@
     intel_sub_group_2d_block_read_transform_8b_32r16x1c( \
         (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
         (int2)((NJ), (KOFF)), (private uint*)&b_blk_); \
-    (ACC) = intel_sub_group_i8_i8_matrix_mad_k32( \
-                as_short8(a_blk_), as_int8(b_blk_), (ACC)); \
+    (ACC) = OZAKI_MAD_K32_8_(a_blk_, b_blk_, (ACC)); \
   } while (0)
 #elif (4 == RC)
 #define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
@@ -111,28 +130,23 @@
         (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), \
         (int2)((NJ), (KOFF)), (private uint*)&b_blk_); \
     lo_ = (ACC).lo; hi_ = (ACC).hi; \
-    lo_ = intel_sub_group_i8_i8_matrix_mad_k32( \
-              as_short4(a_blk_.lo), as_int8(b_blk_), lo_); \
-    hi_ = intel_sub_group_i8_i8_matrix_mad_k32( \
-              as_short4(a_blk_.hi), as_int8(b_blk_), hi_); \
+    lo_ = OZAKI_MAD_K32_4_(a_blk_.lo, b_blk_, lo_); \
+    hi_ = OZAKI_MAD_K32_4_(a_blk_.hi, b_blk_, hi_); \
     (ACC) = (int8)(lo_, hi_); \
   } while (0)
 #endif
 
 /* Single-tile DPAS from pre-loaded A (ushort8) and B (uint8).
- * RC=8: one DPAS(short8,int8,int8). RC=4: split into two DPAS(short4,int8,int4). */
+ * RC=8: one MAD(8rows). RC=4: split into two MAD(4rows). */
 #if (8 == RC)
 #define OZAKI_DPAS_ONE_(A, B, ACC) \
-  (ACC) = intel_sub_group_i8_i8_matrix_mad_k32( \
-              as_short8(A), as_int8(B), (ACC))
+  (ACC) = OZAKI_MAD_K32_8_(A, B, (ACC))
 #elif (4 == RC)
 #define OZAKI_DPAS_ONE_(A, B, ACC) \
   do { \
     int4 lo1_ = (ACC).lo, hi1_ = (ACC).hi; \
-    lo1_ = intel_sub_group_i8_i8_matrix_mad_k32( \
-               as_short4((A).lo), as_int8(B), lo1_); \
-    hi1_ = intel_sub_group_i8_i8_matrix_mad_k32( \
-               as_short4((A).hi), as_int8(B), hi1_); \
+    lo1_ = OZAKI_MAD_K32_4_((A).lo, B, lo1_); \
+    hi1_ = OZAKI_MAD_K32_4_((A).hi, B, hi1_); \
     (ACC) = (int8)(lo1_, hi1_); \
   } while (0)
 #endif
@@ -350,6 +364,11 @@
 #define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
 #define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)
 #define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ)
+#if defined(OZAKI_U8) && (OZAKI_U8)
+# define OZAKI_SCALAR_BYTE_T_ uchar
+#else
+# define OZAKI_SCALAR_BYTE_T_ char
+#endif
 #define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
   do { \
     const int col_ = (NJ) + (int)get_sub_group_local_id(); \
@@ -359,9 +378,9 @@
     for (m_ = 0; m_ < 8; ++m_) { \
       int k_; \
       for (k_ = 0; k_ < 32; ++k_) { \
-        u_.a_[m_] += (int)((CONSTANT const char*)(AS)) \
+        u_.a_[m_] += (int)((CONSTANT const OZAKI_SCALAR_BYTE_T_*)(AS)) \
             [(long)((MI) + m_) * (K_PAD) + (KOFF) + k_] \
-          * (int)((CONSTANT const char*)(BS)) \
+          * (int)((CONSTANT const OZAKI_SCALAR_BYTE_T_*)(BS)) \
             [(long)((KOFF) + k_) * (N_PAD) + col_]; \
       } \
     } \
