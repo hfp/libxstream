@@ -43,7 +43,6 @@ LIBXS_INCBIN(ozaki_tinytc_f32, OZAKI_TINYTC_CLX("f32"), 16);
 #endif
 
 
-#if defined(OZAKI_DEVPOOL)
 /* Wrapped allocator for libxs_malloc_xpool: delegates to device allocator. */
 static void* ozaki_dev_allocate(size_t size, const void* extra)
 {
@@ -63,7 +62,6 @@ static void ozaki_dev_deallocate(void* pointer, const void* extra)
   if (NULL != ctx->stream_b) libxstream_stream_sync(ctx->stream_b);
   libxstream_mem_deallocate(pointer);
 }
-#endif
 
 
 /* Internal helpers */
@@ -583,8 +581,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
   } /* end if (EXIT_SUCCESS == result) for kernel initialization */
 
-#if defined(OZAKI_DEVPOOL)
-  /* Create device memory pool for async buffer reuse across ozaki_gemm calls.
+  /* Device memory pool for async buffer reuse across ozaki_gemm calls.
+   * Controlled via OZAKI_DEVPOOL environment variable.
    * Uses libxs_malloc_xpool with wrapped allocator/deallocator: the deallocator
    * syncs all streams before freeing (grow path only).
    * LIBXS_MALLOC_NATIVE preserves the allocator's exact pointer (no inline
@@ -592,24 +590,26 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
    * Requires USM shared or SVM; falls back to direct allocation otherwise. */
   ctx->devpool = NULL;
   {
-    int pool_ok = 0;
-# if (1 >= LIBXSTREAM_USM)
-    if (NULL != devinfo->clSharedMemAllocINTEL) pool_ok = 1;
-    else
-# endif
-# if (0 != LIBXSTREAM_USM)
-      if (0 != devinfo->usm)
-      pool_ok = 1;
-    else
-# endif
-    {
-      LIBXS_UNUSED(devinfo);
-    }
-    if (0 != pool_ok) {
-      ctx->devpool = libxs_malloc_xpool(ozaki_dev_allocate, ozaki_dev_deallocate, 1);
+    const char* const devpool_env = getenv("OZAKI_DEVPOOL");
+    if (NULL != devpool_env && 0 != atoi(devpool_env)) {
+      int pool_ok = 0;
+#if (1 >= LIBXSTREAM_USM)
+      if (NULL != devinfo->clSharedMemAllocINTEL) pool_ok = 1;
+      else
+#endif
+#if (0 != LIBXSTREAM_USM)
+        if (0 != devinfo->usm)
+        pool_ok = 1;
+      else
+#endif
+      {
+        LIBXS_UNUSED(devinfo);
+      }
+      if (0 != pool_ok) {
+        ctx->devpool = libxs_malloc_xpool(ozaki_dev_allocate, ozaki_dev_deallocate, 1);
+      }
     }
   }
-#endif
 
   /* OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, 3=both).
    * Default off: cache assumes matrix content at a given pointer is unchanged
@@ -662,9 +662,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   }
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
-#if defined(OZAKI_DEVPOOL)
   if (NULL != ctx->devpool) libxs_malloc_arg((libxs_malloc_pool_t*)ctx->devpool, ctx);
-#endif
 
   return result;
 }
@@ -718,9 +716,7 @@ void ozaki_destroy(ozaki_context_t* ctx)
 
     { /* Quiesce cache: NULL pointers under lock (prevents new hits),
        * then wait for in-flight gemm threads to finish using cached buffers. */
-#if defined(OZAKI_DEVPOOL)
-      libxs_malloc_pool_t* const pool = ctx->devpool;
-#endif
+      libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
       void *sa_sl, *sa_ex, *sb_sl, *sb_ex;
       LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
       sa_sl = ctx->cache.a.d_slices;
@@ -737,21 +733,12 @@ void ozaki_destroy(ozaki_context_t* ctx)
        * LIBXS_SYNC_CYCLE only tests the low bit (lock semantics),
        * so spin explicitly on the full counter value. */
       while (0 != ctx->cache.nusers) LIBXS_SYNC_PAUSE;
-#if defined(OZAKI_DEVPOOL)
       OZAKI_DEV_FREE(sa_sl);
       OZAKI_DEV_FREE(sa_ex);
       OZAKI_DEV_FREE(sb_sl);
       OZAKI_DEV_FREE(sb_ex);
-      (void)pool;
-#else
-      if (NULL != sa_sl) libxstream_mem_deallocate(sa_sl);
-      if (NULL != sa_ex) libxstream_mem_deallocate(sa_ex);
-      if (NULL != sb_sl) libxstream_mem_deallocate(sb_sl);
-      if (NULL != sb_ex) libxstream_mem_deallocate(sb_ex);
-#endif
     }
 
-#if defined(OZAKI_DEVPOOL)
     /* Free pool before helper streams: the pool deallocator may sync streams
      * on the grow path.  Clear ctx->stream (caller-owned, possibly already
      * destroyed) so the deallocator skips it during teardown. */
@@ -769,7 +756,6 @@ void ozaki_destroy(ozaki_context_t* ctx)
       }
       libxs_free_pool(pool);
     }
-#endif
     /* Destroy persistent synchronization events */
     if (NULL != ctx->evt_prep_a) libxstream_event_destroy(ctx->evt_prep_a);
     if (NULL != ctx->evt_prep_b) libxstream_event_destroy(ctx->evt_prep_b);

@@ -46,10 +46,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
   const int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
 
-#if defined(OZAKI_DEVPOOL)
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
   ctx->stream = stream; /* expose to deallocate wrapper */
-#endif
 
   /* GEMM path (Scheme 1): full-split-then-tiled-GEMM.
    * Preprocesses entire K dimension up front into dense per-slice
@@ -863,9 +861,7 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result, const void* a, 
   void* d_expa_g, void* d_expb_g, int prev_owned, int* cache_hit_a, int* cache_hit_b)
 {
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
-#if defined(OZAKI_DEVPOOL)
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
-#endif
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
   if (0 == *cache_hit_a && 0 != (ctx->cache.flags & 1) && EXIT_SUCCESS == result) {
     if (NULL != ctx->cache.a.d_slices) {

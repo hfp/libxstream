@@ -39,9 +39,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
   const double br_d = beta[0], bi_d = beta[1];
   const libxstream_opencl_stream_t* str = stream;
   int result = EXIT_SUCCESS;
-#if defined(OZAKI_DEVPOOL)
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
-#endif
   void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
   void *d_ar = NULL, *d_ai = NULL, *d_br = NULL, *d_bi = NULL;
   void *d_ta = NULL, *d_tb = NULL;
@@ -54,9 +52,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
     return EXIT_FAILURE;
   }
 
-#if defined(OZAKI_DEVPOOL)
   ctx->stream = stream; /* expose to deallocate wrapper */
-#endif
 
   /* Buffer sizes */
   sz_a_complex = (size_t)lda * (size_t)a_cols * 2 * elem_size;

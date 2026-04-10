@@ -11,10 +11,6 @@
 
 #include "libxstream_opencl.h"
 
-#if !defined(OZAKI_DEVPOOL) && 1
-# define OZAKI_DEVPOOL
-#endif
-
 #if !defined(OZAKI_TINYTC_BM)
 # define OZAKI_TINYTC_BM 256
 #endif
@@ -26,26 +22,18 @@
 #endif
 
 /* Device memory allocation macros (shared by ozaki_opencl.c and ozaki_gemm.c).
- * Callers must have a local `pool` variable (libxs_malloc_pool_t*)
- * when OZAKI_DEVPOOL is defined. */
-#if defined(OZAKI_DEVPOOL)
-# define OZAKI_DEV_ALLOC(PTR, SIZE) \
+ * Callers must have a local `pool` variable (libxs_malloc_pool_t*).
+ * When pool is NULL, falls back to direct device allocation. */
+#define OZAKI_DEV_ALLOC(PTR, SIZE) \
     ((NULL != pool) ? ((*(PTR) = libxs_malloc(pool, SIZE, LIBXS_MALLOC_NATIVE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
                     : libxstream_mem_allocate((void**)(PTR), SIZE))
-# define OZAKI_DEV_FREE(PTR) \
+#define OZAKI_DEV_FREE(PTR) \
     do { \
       if (NULL != (PTR)) { \
         if (NULL != pool) libxs_free(PTR); \
         else libxstream_mem_deallocate(PTR); \
       } \
     } while (0)
-#else
-# define OZAKI_DEV_ALLOC(PTR, SIZE) libxstream_mem_allocate((void**)(PTR), SIZE)
-# define OZAKI_DEV_FREE(PTR) \
-    do { \
-      if (NULL != (PTR)) libxstream_mem_deallocate(PTR); \
-    } while (0)
-#endif
 
 
 /* Ozaki flags */
@@ -121,7 +109,7 @@ typedef struct ozaki_context_t {
   int ndecomp; /* number of decomposition components (slices or primes) */
   int kind; /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT) */
   int ozflags; /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
-  int oztrim; /* Precision levels to trim (~7 bits each). Scheme 1: diagonals. Scheme 2: stored as bits (levels*7) after conversion. */
+  int oztrim; /* Precision levels to trim (~2 bits each). */
   int verbosity; /* 0: quiet, 1: info, 2+: debug */
   /* block sizes for preprocessing WGs */
   int bm_pre, bn_pre, bk_pre;
@@ -133,11 +121,9 @@ typedef struct ozaki_context_t {
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int pb; /* CRT prime batching factor (compiled into kernel) */
   int biggrf; /* Ozaki-local 256-GRF decision */
-#if defined(OZAKI_DEVPOOL)
   void* devpool; /* device memory pool (libxs_malloc-backed) */
   /* Main stream (set per ozaki_gemm call for pool realloc sync) */
   libxstream_stream_t* stream;
-#endif
   /* Persistent helper streams for overlapped preprocessing */
   libxstream_stream_t *stream_a, *stream_b;
   /* Persistent synchronization events */

@@ -236,9 +236,9 @@ DIFF: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
   (e.g., batched inference with fixed weights). Preprocessing is skipped entirely on
   cache hits, yielding 2-5x speedup for the overall GEMM.
 
-- The device memory pool (enabled by default with USM/SVM) eliminates allocation
-  overhead across repeated calls. If your workload involves many different matrix
-  sizes, consider disabling it by removing `-DOZAKI_DEVPOOL` from the build.
+- The device memory pool (requires USM/SVM) eliminates allocation overhead across
+  repeated calls (`export OZAKI_DEVPOOL=1`). If your workload involves many
+  different matrix sizes, consider keeping it disabled.
 
 ### TinyTC vs OpenCL C
 
