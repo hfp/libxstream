@@ -148,7 +148,7 @@ LIBXSTREAM_API int libxstream_event_sync(libxstream_event_t* event)
   if (NULL != clevent) {
     if (0 == (32 & libxstream_opencl_config.wa)) {
       cl_int status = CL_COMPLETE + 1;
-      if (64 & libxstream_opencl_config.xhints) {
+      if (32 & libxstream_opencl_config.xhints) {
         result = clGetEventInfo(clevent, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(cl_int), &status, NULL);
         assert(EXIT_SUCCESS == result || CL_COMPLETE != status);
       }

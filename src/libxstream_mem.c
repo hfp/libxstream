@@ -263,7 +263,7 @@ LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, 
       int memflags = CL_MEM_ALLOC_HOST_PTR;
       nbytes += alignment + size_meminfo - 1;
 # if defined(LIBXSTREAM_XHINTS)
-      if (0 != (8 & libxstream_opencl_config.xhints) && (0 != devinfo->nv || NULL != (LIBXSTREAM_XHINTS))) {
+      if (0 != (4 & libxstream_opencl_config.xhints) && (0 != devinfo->nv || NULL != (LIBXSTREAM_XHINTS))) {
         host_ptr = LIBXSTREAM_MEM_ALLOC(nbytes, alignment);
         if (NULL != host_ptr) memflags = CL_MEM_USE_HOST_PTR;
       }
@@ -274,7 +274,7 @@ LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, 
         if (NULL == host_ptr) {
           mapped = clEnqueueMapBuffer(str->queue, memory, CL_TRUE /*always block*/,
 # if defined(LIBXSTREAM_XHINTS) && (defined(CL_VERSION_1_2) || defined(CL_MAP_WRITE_INVALIDATE_REGION))
-            (32 & libxstream_opencl_config.xhints) ? CL_MAP_WRITE_INVALIDATE_REGION :
+            (16 & libxstream_opencl_config.xhints) ? CL_MAP_WRITE_INVALIDATE_REGION :
 # endif
                                                    (CL_MAP_READ | CL_MAP_WRITE),
             0 /*offset*/, nbytes, 0, NULL, NULL, &result);
@@ -419,7 +419,7 @@ LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
     {
 # if defined(LIBXSTREAM_XHINTS)
       const int devuid = devinfo->uid, devuids = (0x4905 == devuid || 0x020a == devuid || (0x0bd0 <= devuid && 0x0bdb >= devuid));
-      const int try_flag = ((0 != (16 & libxstream_opencl_config.xhints) && 0 != devinfo->intel && 0 == devinfo->unified &&
+      const int try_flag = ((0 != (8 & libxstream_opencl_config.xhints) && 0 != devinfo->intel && 0 == devinfo->unified &&
                               (devuids || NULL != (LIBXSTREAM_XHINTS)))
                               ? (1u << 22)
                               : 0);

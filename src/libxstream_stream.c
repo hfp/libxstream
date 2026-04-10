@@ -110,10 +110,10 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
       properties[1] |= CL_QUEUE_PROFILING_ENABLE;
     }
 # if defined(LIBXSTREAM_XHINTS)
-    if ((2 & libxstream_opencl_config.xhints) && 0 != devinfo->intel) {
+    if ((1 & libxstream_opencl_config.xhints) && 0 != devinfo->intel) {
       properties[1] |= (((LIBXSTREAM_STREAM_PROPERTIES_TYPE)1) << 31); /* CL_QUEUE_THREAD_LOCAL_EXEC_ENABLE_INTEL */
     }
-    if ((4 & libxstream_opencl_config.xhints) && 0 != devinfo->intel) {
+    if ((2 & libxstream_opencl_config.xhints) && 0 != devinfo->intel) {
       struct {
         cl_command_queue_properties properties;
         cl_bitfield capabilities;

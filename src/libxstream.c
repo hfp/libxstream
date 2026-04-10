@@ -168,7 +168,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
 # endif
 # if defined(LIBXSTREAM_XHINTS)
   const char* const env_xhints = (LIBXSTREAM_XHINTS);
-  const int xhints_default = 1 + 2 + 4 + 8 + 16;
+  const int xhints_default = 1 + 2 + 4 + 8;
 # else
   const char* const env_xhints = NULL;
   const int xhints_default = 0;
@@ -1148,59 +1148,70 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             const char* const env_biggrf = getenv("LIBXSTREAM_BIGGRF");
             devinfo->biggrf = (NULL != env_biggrf && 0 != atoi(env_biggrf));
           }
+          /* LIBXSTREAM_USM runtime levels:
+           *   not set: auto-detect (Intel ext preferred, SVM fallback)
+           *   0: disable all USM, force clCreateBuffer path
+           *   1: Intel USM ext preferred, SVM fallback
+           *   2: OpenCL 2.0 SVM coarse-grain only (skip Intel ext)
+           *   3: OpenCL 2.0 SVM with device-reported caps (skip Intel ext) */
+          {
+            const char* const env_usm = getenv("LIBXSTREAM_USM");
+            const int usm_level = (NULL != env_usm ? atoi(env_usm) : -1 /*auto*/);
 # if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
-          { /* cl_intel_unified_shared_memory extension */
-            cl_platform_id platform = NULL;
-            cl_bitfield bitfield = 0;
-            if (0 != (1 & libxstream_opencl_config.xhints) && 2 <= *devinfo->std_level && 0 != devinfo->intel &&
-                /*0 == libxstream_opencl_config.profile &&*/ (0 == devinfo->unified || NULL != (LIBXSTREAM_XHINTS)) &&
-                EXIT_SUCCESS == clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL) &&
-                EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "intel", 2 /*platform vendor*/) &&
-                EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/, sizeof(cl_bitfield),
-                                  &bitfield, NULL) &&
-                0 != bitfield)
+            /* Intel USM extensions: enabled for auto-detect or level 1 */
+            if ((0 > usm_level || 1 == usm_level) && 2 <= *devinfo->std_level && 0 != devinfo->intel &&
+                (0 == devinfo->unified || NULL != (LIBXSTREAM_XHINTS)))
             {
-              void* ptr[8] = {NULL};
-              int ii = 0, n = 0;
-              ptr[0] = clGetExtensionFunctionAddressForPlatform(platform, "clSetKernelArgMemPointerINTEL");
-              ptr[1] = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemFillINTEL");
-              ptr[2] = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemcpyINTEL");
-              ptr[3] = clGetExtensionFunctionAddressForPlatform(platform, "clDeviceMemAllocINTEL");
-              ptr[4] = clGetExtensionFunctionAddressForPlatform(platform, "clSharedMemAllocINTEL");
-              ptr[5] = clGetExtensionFunctionAddressForPlatform(platform, "clHostMemAllocINTEL");
-              ptr[6] = clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL");
-              for (; ii < (int)(sizeof(ptr) / sizeof(*ptr)); ++ii) {
-                if (NULL != ptr[ii]) ++n;
-              }
-              if (7 == n) {
-                LIBXS_ASSIGN(&devinfo->clSetKernelArgMemPointerINTEL, ptr + 0);
-                LIBXS_ASSIGN(&devinfo->clEnqueueMemFillINTEL, ptr + 1);
-                LIBXS_ASSIGN(&devinfo->clEnqueueMemcpyINTEL, ptr + 2);
-                LIBXS_ASSIGN(&devinfo->clDeviceMemAllocINTEL, ptr + 3);
-                LIBXS_ASSIGN(&devinfo->clSharedMemAllocINTEL, ptr + 4);
-                LIBXS_ASSIGN(&devinfo->clHostMemAllocINTEL, ptr + 5);
-                LIBXS_ASSIGN(&devinfo->clMemFreeINTEL, ptr + 6);
-              }
-              else if (0 != n) {
-                fprintf(stderr, "WARN ACC/OpenCL: inconsistent state discovered!\n");
+              cl_platform_id platform = NULL;
+              cl_bitfield bitfield = 0;
+              if (EXIT_SUCCESS == clGetDeviceInfo(active_id, CL_DEVICE_PLATFORM, sizeof(cl_platform_id), &platform, NULL) &&
+                  EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "intel", 2 /*platform vendor*/) &&
+                  EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4191 /*CL_DEVICE_DEVICE_MEM_CAPABILITIES_INTEL*/, sizeof(cl_bitfield),
+                                    &bitfield, NULL) &&
+                  0 != bitfield)
+              {
+                void* ptr[8] = {NULL};
+                int ii = 0, n = 0;
+                ptr[0] = clGetExtensionFunctionAddressForPlatform(platform, "clSetKernelArgMemPointerINTEL");
+                ptr[1] = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemFillINTEL");
+                ptr[2] = clGetExtensionFunctionAddressForPlatform(platform, "clEnqueueMemcpyINTEL");
+                ptr[3] = clGetExtensionFunctionAddressForPlatform(platform, "clDeviceMemAllocINTEL");
+                ptr[4] = clGetExtensionFunctionAddressForPlatform(platform, "clSharedMemAllocINTEL");
+                ptr[5] = clGetExtensionFunctionAddressForPlatform(platform, "clHostMemAllocINTEL");
+                ptr[6] = clGetExtensionFunctionAddressForPlatform(platform, "clMemFreeINTEL");
+                for (; ii < (int)(sizeof(ptr) / sizeof(*ptr)); ++ii) {
+                  if (NULL != ptr[ii]) ++n;
+                }
+                if (7 == n) {
+                  LIBXS_ASSIGN(&devinfo->clSetKernelArgMemPointerINTEL, ptr + 0);
+                  LIBXS_ASSIGN(&devinfo->clEnqueueMemFillINTEL, ptr + 1);
+                  LIBXS_ASSIGN(&devinfo->clEnqueueMemcpyINTEL, ptr + 2);
+                  LIBXS_ASSIGN(&devinfo->clDeviceMemAllocINTEL, ptr + 3);
+                  LIBXS_ASSIGN(&devinfo->clSharedMemAllocINTEL, ptr + 4);
+                  LIBXS_ASSIGN(&devinfo->clHostMemAllocINTEL, ptr + 5);
+                  LIBXS_ASSIGN(&devinfo->clMemFreeINTEL, ptr + 6);
+                }
+                else if (0 != n) {
+                  fprintf(stderr, "WARN ACC/OpenCL: inconsistent state discovered!\n");
+                }
               }
             }
-          }
 # endif
 # if (0 != LIBXSTREAM_USM)
-          { /* OpenCL 2.0 based SVM capabilities */
-            const char* const env_usm = getenv("LIBXSTREAM_USM");
-            cl_device_svm_capabilities svmcaps = 0;
-            if (NULL == env_usm) {
+            /* OpenCL 2.0 SVM: enabled for auto-detect or levels 2-3 */
+            if (0 > usm_level || 2 <= usm_level) {
+              cl_device_svm_capabilities svmcaps = 0;
               if (0 == devinfo->nv) { /* vendor workaround (force with LIBXSTREAM_USM=1) */
                 result = clGetDeviceInfo(active_id, CL_DEVICE_SVM_CAPABILITIES, sizeof(cl_device_svm_capabilities), &svmcaps, NULL);
                 assert(EXIT_SUCCESS == result || 0 == svmcaps);
               }
+              if (2 == usm_level) { /* coarse-grain only */
+                svmcaps &= CL_DEVICE_SVM_COARSE_GRAIN_BUFFER;
+              }
+              devinfo->usm = (cl_int)svmcaps;
             }
-            else svmcaps = (cl_device_svm_capabilities)atoi(env_usm);
-            devinfo->usm = (cl_int)svmcaps;
-          }
 # endif
+          }
 # if defined(LIBXSTREAM_CMDAGR)
           if (0 != devinfo->intel) { /* device vendor (above) can now be used */
             int result_cmdagr = EXIT_SUCCESS;
