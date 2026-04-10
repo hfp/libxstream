@@ -1198,8 +1198,11 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             }
 # endif
 # if (0 != LIBXSTREAM_USM)
-            /* OpenCL 2.0 SVM: enabled for auto-detect or levels 2-3 */
-            if (0 > usm_level || 2 <= usm_level) {
+            /* OpenCL 2.0 SVM: enabled for levels 2-3, or as fallback
+             * when Intel USM extensions were not loaded (auto/level 1). */
+            if (2 <= usm_level ||
+                (0 != usm_level && NULL == devinfo->clMemFreeINTEL))
+            {
               cl_device_svm_capabilities svmcaps = 0;
               if (0 == devinfo->nv) { /* vendor workaround (force with LIBXSTREAM_USM=1) */
                 result = clGetDeviceInfo(active_id, CL_DEVICE_SVM_CAPABILITIES, sizeof(cl_device_svm_capabilities), &svmcaps, NULL);
@@ -1849,7 +1852,34 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
   LIBXS_UNUSED(devinfo);
 # endif
   {
-    result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &arg_value);
+    size_t offset = 0;
+    union { const void* cv; void* v; } nc;
+    libxstream_opencl_info_memptr_t* info;
+    nc.cv = arg_value;
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+    info = libxstream_opencl_info_devptr_modify(NULL, nc.v, 1 /*elsize*/, NULL /*amount*/, &offset);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+    if (NULL != info) {
+      if (0 == offset) {
+        result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &info->memory);
+      }
+      else { /* sub-pointer within a cl_mem buffer: create sub-buffer */
+        size_t total = 0;
+        result = clGetMemObjectInfo(info->memory, CL_MEM_SIZE, sizeof(size_t), &total, NULL);
+        if (EXIT_SUCCESS == result && offset < total) {
+          cl_buffer_region region;
+          cl_mem sub;
+          region.origin = offset;
+          region.size = total - offset;
+          sub = clCreateSubBuffer(info->memory, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region, &result);
+          if (EXIT_SUCCESS == result) {
+            result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &sub);
+            LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(sub));
+          }
+        }
+        else if (EXIT_SUCCESS == result) result = EXIT_FAILURE;
+      }
+    }
   }
   CL_RETURN(result, "");
 }
