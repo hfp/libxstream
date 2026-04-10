@@ -429,7 +429,7 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
     }
 
     result = (0 != is_negative) ? -(result + 1.0) : result;
-    if (0.0 != result && ZERO != alpha) {
+    if (0.0 != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
       const real_t scale = alpha * EXP2I(base_sh);
       *cval += (real_t)(result * (double)scale);
     }
@@ -442,7 +442,7 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
     }
     {
       const long result = (0 != is_negative) ? -(r + 1) : r;
-      if (0 != result && ZERO != alpha) {
+      if (0 != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
         const real_t scale = alpha * EXP2I(base_sh);
         *cval += (real_t)result * scale;
       }
