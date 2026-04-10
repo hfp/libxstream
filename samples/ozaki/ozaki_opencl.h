@@ -120,6 +120,7 @@ typedef struct ozaki_context_t {
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int pb; /* CRT prime batching factor (compiled into kernel) */
+  int maxk; /* max K per preprocessing pass (0 = no grouping) */
   int biggrf; /* Ozaki-local 256-GRF decision */
   void* devpool; /* device memory pool (libxs_malloc-backed) */
   /* Main stream (set per ozaki_gemm call for pool realloc sync) */
@@ -152,7 +153,7 @@ typedef struct ozaki_context_t {
  * verbosity: 0 = quiet, 1 = info, 2+ = debug.
  * ozgroups (Scheme 2 only): K-grouping factor, 0/1 = disabled. */
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
-  int ozgroups, int profiling);
+  int ozgroups, int maxk, int profiling);
 void ozaki_destroy(ozaki_context_t* ctx);
 /* ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
  * synchronizing — the caller must sync the stream before consuming the result.

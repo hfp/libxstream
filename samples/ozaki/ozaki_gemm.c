@@ -64,10 +64,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int nblk_gn = (N + tn - 1) / tn;
     const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
     const int cutoff = 2 * (nslices_g - 1) - ctx->oztrim;
-    /* K-group: size buffers for min(K, K_GRP_GPU), not full K */
-    const int k_grp_max = K < K_GRP_GPU ? K : K_GRP_GPU;
+    /* K-group: size buffers for min(K, maxk), not full K.
+     * maxk=0 means no grouping (full K in one pass). */
+    const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
+    const int k_grp_max = K < k_grp_size ? K : k_grp_size;
     int k_grp_pad = ((k_grp_max + bk_pre - 1) / bk_pre) * bk_pre;
-    const int n_kgroups = (K + K_GRP_GPU - 1) / K_GRP_GPU;
+    const int n_kgroups = (K + k_grp_size - 1) / k_grp_size;
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
@@ -163,8 +165,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 
     /* K-group loop: preprocess + GEMM per group */
     for (kg = 0; kg < n_kgroups && EXIT_SUCCESS == result; ++kg) {
-      const int kb_grp = kg * K_GRP_GPU;
-      const int K_len = ((K - kb_grp) < K_GRP_GPU) ? (K - kb_grp) : K_GRP_GPU;
+      const int kb_grp = kg * k_grp_size;
+      const int K_len = ((K - kb_grp) < k_grp_size) ? (K - kb_grp) : k_grp_size;
       int k_pad = ((K_len + bk_pre - 1) / bk_pre) * bk_pre;
       const size_t a_off = ta ? ((size_t)kb_grp * elem_size) : ((size_t)kb_grp * lda * elem_size);
       const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);
@@ -343,10 +345,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int nblk_gm = (M + tm - 1) / tm;
     const int nblk_gn = (N + tn - 1) / tn;
     const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
-    /* K-group: size buffers for min(K, K_GRP_GPU), not full K */
-    const int k_grp_max = K < K_GRP_GPU ? K : K_GRP_GPU;
+    /* K-group: size buffers for min(K, maxk), not full K.
+     * maxk=0 means no grouping (full K in one pass). */
+    const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
+    const int k_grp_max = K < k_grp_size ? K : k_grp_size;
     int k_grp_pad = ((k_grp_max + bk_pre - 1) / bk_pre) * bk_pre;
-    const int n_kgroups = (K + K_GRP_GPU - 1) / K_GRP_GPU;
+    const int n_kgroups = (K + k_grp_size - 1) / k_grp_size;
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
@@ -431,8 +435,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 
     /* K-group loop: preprocess + CRT GEMM per group */
     for (kg = 0; kg < n_kgroups && EXIT_SUCCESS == result; ++kg) {
-      const int kb_grp = kg * K_GRP_GPU;
-      const int K_len = ((K - kb_grp) < K_GRP_GPU) ? (K - kb_grp) : K_GRP_GPU;
+      const int kb_grp = kg * k_grp_size;
+      const int K_len = ((K - kb_grp) < k_grp_size) ? (K - kb_grp) : k_grp_size;
       int k_pad = ((K_len + bk_pre - 1) / bk_pre) * bk_pre;
       const size_t a_off = ta ? ((size_t)kb_grp * elem_size) : ((size_t)kb_grp * lda * elem_size);
       const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);

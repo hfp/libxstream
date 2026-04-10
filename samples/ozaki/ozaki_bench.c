@@ -112,7 +112,7 @@ int main(int argc, char* argv[])
     if (NULL != env) verbosity = atoi(env);
     env = getenv("OZAKI_FP");
     if (NULL != env) use_double = (32 != atoi(env));
-    result = ozaki_init(&ctx, tm, tn, use_double, kind, verbosity, ndecomp, ozflags, oztrim, ozgroups, 0 /*profiling*/);
+    result = ozaki_init(&ctx, tm, tn, use_double, kind, verbosity, ndecomp, ozflags, oztrim, ozgroups, 0 /*maxk: no grouping*/, 0 /*profiling*/);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
     }

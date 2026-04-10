@@ -72,7 +72,7 @@ static void ozaki_print_opt(FILE* stream, const char* name, int val)
 
 
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
-  int ozgroups, int profiling)
+  int ozgroups, int maxk, int profiling)
 {
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
@@ -275,6 +275,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       int pb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
       ctx->pb = pb;
     }
+    ctx->maxk = maxk;
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
         rtm = (0 != biggrf) ? 4 : 2;
