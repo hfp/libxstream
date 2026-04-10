@@ -150,9 +150,16 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
 
-    /* Scale C by beta (once, before K-group loop) */
-    if (EXIT_SUCCESS == result && 1.0 != beta && 0.0 != beta) {
-      result = ozaki_enqueue_scale_beta(ctx, stream, ctx->kern_scale_beta, d_cg, M, N, ldc, beta);
+    /* Scale C by beta (once, before K-group loop).
+     * When beta == 0, zero d_cg so the fused kernel's tile-by-tile
+     * read-modify-write (OZAKI_SCALE_FLUSH) starts from zero. */
+    if (EXIT_SUCCESS == result && 1.0 != beta) {
+      if (0.0 != beta) {
+        result = ozaki_enqueue_scale_beta(ctx, stream, ctx->kern_scale_beta, d_cg, M, N, ldc, beta);
+      }
+      else {
+        result = libxstream_mem_zero(d_cg, 0, c_nbytes, stream);
+      }
     }
     first_pair = (0.0 == beta) ? 1 : 0;
 
