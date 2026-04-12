@@ -217,12 +217,6 @@
     } \
   } while (0)
 
-/* Compute the next pair's shift sum to decide whether to batch or flush.
- * Returns -1 (flush) or the matching shift (batch). */
-#define OZAKI_BATCH_NEXT_SHIFT(LOW_SA, LOW_SB, SB, SB_END, SA) \
-  (((SB) + 1 < (SB_END)) ? ((LOW_SA) + MAX(0, MANT_BITS - 7 * ((int)(SB) + 1) - 6)) \
-                         : ((0 == OZAKI_SQ && (int)(SA) + 1 < NSLICES) ? (MAX(0, MANT_BITS - 7 * ((int)(SA) + 1) - 6) * 2) : -1))
-
 /* Tile-by-tile scale+flush: read C tile, accumulate scaled i32 result,
  * write C tile back.  ACC is an int8 array indexed by [rm*RTN+rn]. */
 #define OZAKI_SCALE_FLUSH(ACC, C_PTR, LDC, EA_CACHE, EB_CACHE, MI_BASE, NJ_BASE, SG_LID, M, N, PAIR_SCALE) \
@@ -488,23 +482,6 @@ kernel void gemm_fused(
   }
 #endif
 
-#if defined(OZAKI_USE_OCL_KLOOP)
-  /* c_acc hoisted for pair batching: pairs with the same exponent shift sum
-   * accumulate int32 results before a single tile-by-tile fp64 scale. */
-# if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2)
-  {
-    int8 sc00 = (int8)(0), sc01 = (int8)(0);
-    int8 sc10 = (int8)(0), sc11 = (int8)(0);
-    int8 sc20 = (int8)(0), sc21 = (int8)(0);
-    int8 sc30 = (int8)(0), sc31 = (int8)(0);
-    int batch_acc = 0;
-# else
-  {
-    int8 c_acc[RTM * RTN];
-    int batch_acc = 0;
-# endif /* OZAKI_SCALAR_ACC hoist */
-#endif
-
     for (sa = 0; sa < (SINT)NSLICES; ++sa) {
       const int high_sa = MANT_BITS - (7 * (int)sa);
       const int low_bit_sa = MAX(0, high_sa - 6);
@@ -521,154 +498,120 @@ kernel void gemm_fused(
         CONSTANT const char* as_sb = as_base + (long)sb * a_stride;
         CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 
-        /* (sa, sb) K-loop — unrolled by KU */
-#if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2)
-        /* Scalar accumulator K-loop with pair batching. */
-        if (0 == batch_acc) {
-          sc00 = (int8)(0);
-          sc01 = (int8)(0);
-          sc10 = (int8)(0);
-          sc11 = (int8)(0);
-          sc20 = (int8)(0);
-          sc21 = (int8)(0);
-          sc30 = (int8)(0);
-          sc31 = (int8)(0);
-        }
-        OZAKI_KLOOP_SC(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, sc00, sc01, sc10, sc11, sc20, sc21, sc30, sc31);
-        if (0 == OZAKI_SQ && sa != sb) {
-          int8 sm00 = (int8)(0), sm01 = (int8)(0);
-          int8 sm10 = (int8)(0), sm11 = (int8)(0);
-          int8 sm20 = (int8)(0), sm21 = (int8)(0);
-          int8 sm30 = (int8)(0), sm31 = (int8)(0);
-          OZAKI_KLOOP_SC(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, sm00, sm01, sm10, sm11, sm20, sm21, sm30, sm31);
-          sc00 = sc00 + sm00;
-          sc01 = sc01 + sm01;
-          sc10 = sc10 + sm10;
-          sc11 = sc11 + sm11;
-          sc20 = sc20 + sm20;
-          sc21 = sc21 + sm21;
-          sc30 = sc30 + sm30;
-          sc31 = sc31 + sm31;
-        }
-        /* Batch check + tile-by-tile scale (pack scalars on flush) */
+        /* (sa, sb) K-loop - unrolled by KU */
+#if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2) && defined(OZAKI_USE_OCL_KLOOP)
+        /* Scalar accumulator K-loop. */
         {
-          const int cur_shift = low_bit_sa + low_bit_sb;
-          const int next_shift = OZAKI_BATCH_NEXT_SHIFT(low_bit_sa, low_bit_sb, sb, sb_end, sa);
-          if (cur_shift == next_shift) {
-            batch_acc = 1;
+          int8 sc00 = (int8)(0), sc01 = (int8)(0);
+          int8 sc10 = (int8)(0), sc11 = (int8)(0);
+          int8 sc20 = (int8)(0), sc21 = (int8)(0);
+          int8 sc30 = (int8)(0), sc31 = (int8)(0);
+          int8 c_acc_sc[RTM * RTN];
+          OZAKI_KLOOP_SC(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, sc00, sc01, sc10, sc11, sc20, sc21, sc30, sc31);
+          if (0 == OZAKI_SQ && sa != sb) {
+            int8 sm00 = (int8)(0), sm01 = (int8)(0);
+            int8 sm10 = (int8)(0), sm11 = (int8)(0);
+            int8 sm20 = (int8)(0), sm21 = (int8)(0);
+            int8 sm30 = (int8)(0), sm31 = (int8)(0);
+            OZAKI_KLOOP_SC(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, sm00, sm01, sm10, sm11, sm20, sm21, sm30, sm31);
+            sc00 = sc00 + sm00;
+            sc01 = sc01 + sm01;
+            sc10 = sc10 + sm10;
+            sc11 = sc11 + sm11;
+            sc20 = sc20 + sm20;
+            sc21 = sc21 + sm21;
+            sc30 = sc30 + sm30;
+            sc31 = sc31 + sm31;
           }
-          else {
-            int8 c_acc_sc[RTM * RTN];
-            batch_acc = 0;
-            c_acc_sc[0] = sc00;
-            c_acc_sc[1] = sc01;
-            c_acc_sc[2] = sc10;
-            c_acc_sc[3] = sc11;
-            c_acc_sc[4] = sc20;
-            c_acc_sc[5] = sc21;
-            c_acc_sc[6] = sc30;
-            c_acc_sc[7] = sc31;
-            OZAKI_SCALE_FLUSH(c_acc_sc, c, ldc, ea_cache, eb_cache, mi_base, nj_base, sg_lid, M, N, pair_scale);
-          }
+          c_acc_sc[0] = sc00;
+          c_acc_sc[1] = sc01;
+          c_acc_sc[2] = sc10;
+          c_acc_sc[3] = sc11;
+          c_acc_sc[4] = sc20;
+          c_acc_sc[5] = sc21;
+          c_acc_sc[6] = sc30;
+          c_acc_sc[7] = sc31;
+          OZAKI_SCALE_FLUSH(c_acc_sc, c, ldc, ea_cache, eb_cache, mi_base, nj_base, sg_lid, M, N, pair_scale);
         }
-#else
-# if defined(OZAKI_USE_OCL_KLOOP)
-      /* OCL K-loop with pair batching: defer scale when next pair shares
-       * the same exponent shift sum (low_bit_sa + low_bit_sb). */
-      if (0 == batch_acc) {
-        int ri;
-        UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+#elif defined(OZAKI_USE_OCL_KLOOP)
+        /* OCL K-loop: per-pair compute + scale+flush. */
         {
-          c_acc[ri] = (int8)(0);
-        }
-      }
-      OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-      if (0 == OZAKI_SQ && sa != sb) {
-        int8 c_mir[RTM * RTN];
-        {
-          int ri;
-          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+          int8 c_acc[RTM * RTN];
           {
-            c_mir[ri] = (int8)(0);
+            int ri;
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+            {
+              c_acc[ri] = (int8)(0);
+            }
           }
-        }
-        OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
-        {
-          int ri;
-          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-          {
-            c_acc[ri] = c_acc[ri] + c_mir[ri];
+          OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
+          if (0 == OZAKI_SQ && sa != sb) {
+            int8 c_mir[RTM * RTN];
+            {
+              int ri;
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+              {
+                c_mir[ri] = (int8)(0);
+              }
+            }
+            OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
+            {
+              int ri;
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+              {
+                c_acc[ri] = c_acc[ri] + c_mir[ri];
+              }
+            }
           }
-        }
-      }
-      /* Check if next pair (in iteration order) has the same shift sum.
-       * If so, defer scaling and accumulate int32 across pairs. */
-      {
-        const int cur_shift = low_bit_sa + low_bit_sb;
-        const int next_shift = OZAKI_BATCH_NEXT_SHIFT(low_bit_sa, low_bit_sb, sb, sb_end, sa);
-        if (cur_shift == next_shift) {
-          batch_acc = 1;
-        }
-        else {
-          batch_acc = 0;
           OZAKI_SCALE_FLUSH(c_acc, c, ldc, ea_cache, eb_cache, mi_base, nj_base, sg_lid, M, N, pair_scale);
         }
-      }
-# else
-      {
-        int8 c_acc[RTM * RTN];
+#else
         {
-          int ri;
-          UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-          {
-            c_acc[ri] = (int8)(0);
-          }
-        }
-        OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-        if (0 == OZAKI_SQ && sa != sb) {
-          int8 c_mir[RTM * RTN];
+          int8 c_acc[RTM * RTN];
           {
             int ri;
             UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
             {
-              c_mir[ri] = (int8)(0);
+              c_acc[ri] = (int8)(0);
             }
           }
-          OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
-          {
-            int ri;
-            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+          OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
+          if (0 == OZAKI_SQ && sa != sb) {
+            int8 c_mir[RTM * RTN];
             {
-              c_acc[ri] = c_acc[ri] + c_mir[ri];
+              int ri;
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+              {
+                c_mir[ri] = (int8)(0);
+              }
+            }
+            OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
+            {
+              int ri;
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+              {
+                c_acc[ri] = c_acc[ri] + c_mir[ri];
+              }
+            }
+          }
+          /* Scale and accumulate into register C (cached exponents) */
+          {
+            int rm, rn;
+            UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
+            {
+              UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
+              {
+                const int idx = rm * RTN + rn;
+                const int col = nj_base + rn * XMX_N + sg_lid;
+                OZAKI_GEMM_ACCUM_CACHED(
+                  c_acc[idx], ea_cache + rm * XMX_M, eb_cache[rn], c_fp + idx * XMX_M, M, N, mi_base + rm * XMX_M, col, pair_scale);
+              }
             }
           }
         }
-# endif /* OZAKI_USE_OCL_KLOOP */
-
-# if !defined(OZAKI_USE_OCL_KLOOP)
-      /* Scale and accumulate into register C (cached exponents) */
-      {
-        int rm, rn;
-        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
-        {
-          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
-          {
-            const int idx = rm * RTN + rn;
-            const int col = nj_base + rn * XMX_N + sg_lid;
-            OZAKI_GEMM_ACCUM_CACHED(
-              c_acc[idx], ea_cache + rm * XMX_M, eb_cache[rn], c_fp + idx * XMX_M, M, N, mi_base + rm * XMX_M, col, pair_scale);
-          }
-        }
-      }
-    }
-# endif /* !OZAKI_USE_OCL_KLOOP */
-#endif /* OZAKI_SCALAR_ACC */
-      }
-    }
-
-#if defined(OZAKI_USE_OCL_KLOOP)
-  } /* close c_acc scope for OCL pair batching */
 #endif
+      }
+    }
 
 #if !defined(OZAKI_USE_OCL_KLOOP)
   /* Final write: register C -> global C */
