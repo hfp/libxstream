@@ -372,7 +372,7 @@
 
 
 /* Decompose an IEEE-754 value into sign, biased exponent, and implicit-1 mantissa.
- * Zero and subnormal inputs yield exp=0, mant=0.
+ * Zero, subnormal, Inf, and NaN inputs yield exp=0, mant=0.
  * real_t, uint_repr_t, EXP_MASK, and AS_UINT come from libxstream_common.h. */
 inline void ieee_decompose(real_t val, int* sign, short* exp, uint_repr_t* mant)
 {
@@ -386,7 +386,7 @@ inline void ieee_decompose(real_t val, int* sign, short* exp, uint_repr_t* mant)
   *exp = (short)((bits >> 23) & EXP_MASK);
   *mant = (bits & 0x007FFFFFU) | 0x00800000U;
 #endif
-  if (0 == *exp) {
+  if (0 == *exp || *exp == (short)EXP_MASK) {
     *mant = 0;
     *exp = 0;
   }
