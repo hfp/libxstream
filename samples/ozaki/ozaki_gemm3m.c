@@ -76,14 +76,15 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_p2, sz_c_real);
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_p3, sz_c_real);
 
-  /* H2D: upload interleaved complex A, B, C */
+  /* H2D: upload interleaved complex A, B, C.
+   * Skip C when beta == 0: finalize kernel will not read C_old. */
   if (EXIT_SUCCESS == result) {
     result = libxstream_mem_copy_h2d(a, d_ag, sz_a_complex, stream);
   }
   if (EXIT_SUCCESS == result) {
     result = libxstream_mem_copy_h2d(b, d_bg, sz_b_complex, stream);
   }
-  if (EXIT_SUCCESS == result) {
+  if (EXIT_SUCCESS == result && (0.0 != br_d || 0.0 != bi_d)) {
     result = libxstream_mem_copy_h2d(c, d_cg, sz_c_complex, stream);
   }
 

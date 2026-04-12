@@ -91,19 +91,22 @@ kernel void zgemm3m_finalize(global real_t* restrict c, global const real_t* res
     const real_t re_ab = v1 - v2;
     const real_t im_ab = v3 - v1 - v2;
 
-    /* Read original C */
-    const real_t c_re = c[c_base];
-    const real_t c_im = c[c_base + 1];
-
     /* Compute C_new = alpha * (A*B) + beta * C_old
      * where alpha = ar + i*ai, beta = br + i*bi
      * Complex multiplication: (ar + i*ai) * (re_ab + i*im_ab)
      *   = ar*re_ab - ai*im_ab + i*(ar*im_ab + ai*re_ab) */
     const real_t alpha_ab_re = MAD(ar, re_ab, -ai * im_ab);
     const real_t alpha_ab_im = MAD(ar, im_ab, ai * re_ab);
-    const real_t beta_c_re = MAD(br, c_re, -bi * c_im);
-    const real_t beta_c_im = MAD(br, c_im, bi * c_re);
-    c[c_base] = alpha_ab_re + beta_c_re;
-    c[c_base + 1] = alpha_ab_im + beta_c_im;
+    if (ZERO != br || ZERO != bi) {
+      /* Read original C (beta != 0) */
+      const real_t c_re = c[c_base];
+      const real_t c_im = c[c_base + 1];
+      c[c_base] = alpha_ab_re + MAD(br, c_re, -bi * c_im);
+      c[c_base + 1] = alpha_ab_im + MAD(br, c_im, bi * c_re);
+    }
+    else { /* beta == 0: do not read C (may contain NaN/Inf) */
+      c[c_base] = alpha_ab_re;
+      c[c_base + 1] = alpha_ab_im;
+    }
   }
 }
