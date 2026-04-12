@@ -316,7 +316,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
       ieee_decompose(a[idx], &s1, &e1, &m1);
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
-        const uint_repr_t aligned = (shift < MANT_BITS) ? (m1 >> shift) : 0;
+        const uint_repr_t aligned = (shift <= MANT_BITS) ? (m1 >> shift) : 0;
         OZAKI_EXTRACT_SLICES(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
       }
     }
@@ -386,7 +386,7 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
       ieee_decompose(b[idx], &s1, &e1, &m1);
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
-        const uint_repr_t aligned = (shift < MANT_BITS) ? (m1 >> shift) : 0;
+        const uint_repr_t aligned = (shift <= MANT_BITS) ? (m1 >> shift) : 0;
         OZAKI_EXTRACT_SLICES(aligned, s1, bs, K_pad * N_pad, N_pad, row, col);
       }
     }
