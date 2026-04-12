@@ -132,7 +132,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
 
     /* H2D transfers: full source matrices (once).
-     * Skip when dev != 0: a/b/c are already on device. */
+     * Skip when dev != 0: a/b/c are already on device.
+     * Skip C when beta == 0: kernel does not read C_old (BLAS spec). */
     if (0 == dev) {
       if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
         result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
@@ -140,7 +141,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
         result = libxstream_mem_copy_h2d(b, d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
       }
-      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
+      if (EXIT_SUCCESS == result && 0.0 != beta) {
+        result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
+      }
     }
 
     /* Profiling: allocate event array (scaled for K-groups) */
@@ -409,7 +412,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
 
     /* H2D transfers: full source matrices (once).
-     * Skip when dev != 0: a/b/c are already on device. */
+     * Skip when dev != 0: a/b/c are already on device.
+     * Skip C when beta == 0: kernel does not read C_old (BLAS spec). */
     if (0 == dev) {
       if (EXIT_SUCCESS == result && 0 == cache_hit_a && NULL == ctx->host_preprocess_a) {
         result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
@@ -417,7 +421,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result && 0 == cache_hit_b && NULL == ctx->host_preprocess_b) {
         result = libxstream_mem_copy_h2d(b, d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
       }
-      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
+      if (EXIT_SUCCESS == result && 0.0 != beta) {
+        result = libxstream_mem_copy_h2d(c, d_cg, c_nbytes, stream);
+      }
     }
 
     /* Profiling: allocate event array (scaled for K-groups) */
@@ -427,7 +433,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
 
-    /* Scale C by beta (once, before K-group loop) */
+    /* Scale C when beta != 0 and beta != 1 (once, before K-group loop) */
     if (EXIT_SUCCESS == result && 1.0 != beta && 0.0 != beta) {
       result = ozaki_enqueue_scale_beta(ctx, stream, ctx->kern_crt_scale_beta, d_cg, M, N, ldc, beta);
     }
