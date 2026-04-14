@@ -25,7 +25,7 @@
  * same complex row/column share a common Ozaki exponent base, eliminating
  * the catastrophic cancellation that plagued the 3M (Karatsuba) method.
  */
-int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
+int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
   const double* alpha, const void* a, int lda, const void* b, int ldb, const double* beta, void* c, int ldc)
 {
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);

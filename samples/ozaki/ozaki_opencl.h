@@ -170,7 +170,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
  * alpha and beta each point to 2 consecutive real values [real, imag].
  * All intermediate buffers remain on device - no round-trips through host.
  * Returns EXIT_SUCCESS or EXIT_FAILURE. */
-int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
+int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
   const double* alpha, const void* a, int lda, const void* b, int ldb, const double* beta, void* c, int ldc);
 
 /* Invalidate preprocessing cache entries for the given matrix pointers.

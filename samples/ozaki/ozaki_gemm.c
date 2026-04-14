@@ -98,7 +98,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
 
     /* Allocate device memory (skip cached sides and host-preprocessed sides).
-     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm3m). */
+     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm_complex). */
     if (0 != dev) {
       union { const void* cv; void* v; } ca, cb;
       ca.cv = a; cb.cv = b;
@@ -381,7 +381,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
 
     /* Allocate device memory (skip cached sides and host-preprocessed sides).
-     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm3m). */
+     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm_complex). */
     if (0 != dev) {
       union { const void* cv; void* v; } ca, cb;
       ca.cv = a; cb.cv = b;
