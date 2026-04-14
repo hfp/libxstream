@@ -665,7 +665,6 @@ LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     const libxs_hist_t* hist[] = { NULL, NULL, NULL };
     const char *const env_slurm = getenv("SLURM_JOBID");
     const int slurm = (NULL == env_slurm ? -1 : atoi(env_slurm));
-    const int id = (1 < libxs_nranks() ? libxs_nrank() : libxs_pid());
     const int precision[] = {1, 1};
     int i;
     hist[0] = libxstream_opencl_config.hist_h2d;
@@ -677,8 +676,8 @@ LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       gflops = (0 < vals[1] ? (vals[0] / vals[1]) : -1);
       LIBXS_STDIO_ACQUIRE();
       if (0 <= gflops) {
-        if (0 <= slurm) fprintf(stderr, "\nPROF ACC/OpenCL: ID=%i %s=%.0f MB/s", id, kind[i], gflops);
-        else fprintf(stderr, "\nPROF ACC/OpenCL: ID=%i.%i %s=%.0f MB/s", slurm, id, kind[i], gflops);
+        if (0 <= slurm) fprintf(stderr, "\nPROF ACC/OpenCL: ID=%i %s=%.0f MB/s", libxs_rid(), kind[i], gflops);
+        else fprintf(stderr, "\nPROF ACC/OpenCL: ID=%i.%i %s=%.0f MB/s", slurm, libxs_rid(), kind[i], gflops);
       }
       if (0 < gflops) libxs_hist_print(stderr, hist[i], precision, "\n");
       LIBXS_STDIO_RELEASE();
