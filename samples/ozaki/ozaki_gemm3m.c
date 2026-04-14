@@ -10,20 +10,20 @@
 
 
 /**
- * GPU-native complex GEMM via 3M (Karatsuba) method.
+ * GPU-native complex GEMM via block embedding.
  * All intermediate buffers remain on device to minimize PCIe transfers.
  *
  * Algorithm:
  *   1. H2D: upload interleaved complex A, B, C
- *   2. GPU: deinterleave A → Ar, Ai; B → Br, Bi
- *   3. GPU: matadd Ta = Ar + Ai, Tb = Br + Bi
- *   4. GPU: ozaki_gemm(Ar, Br) → P1
- *   5. GPU: ozaki_gemm(Ai, Bi) → P2
- *   6. GPU: ozaki_gemm(Ta, Tb) → P3
- *   7. GPU: finalize(P1, P2, P3, alpha, beta) → C (interleaved)
- *   8. D2H: download result C
+ *   2. GPU: construct A_hat (2*a_rows x 2*a_cols) from interleaved A
+ *   3. GPU: construct B_hat from interleaved B
+ *   4. GPU: ozaki_gemm(A_hat, B_hat) -> C_hat (2M x N)
+ *   5. GPU: finalize(C_hat, alpha, beta) -> C (interleaved)
+ *   6. D2H: download result C
  *
- * This reduces 6 PCIe transfers (3 in + 3 out) to 2 (1 in + 1 out).
+ * The block structure guarantees that Re and Im contributions from the
+ * same complex row/column share a common Ozaki exponent base, eliminating
+ * the catastrophic cancellation that plagued the 3M (Karatsuba) method.
  */
 int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
   const double* alpha, const void* a, int lda, const void* b, int ldb, const double* beta, void* c, int ldc)
@@ -41,14 +41,15 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
   int result = EXIT_SUCCESS;
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
   void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
-  void *d_ar = NULL, *d_ai = NULL, *d_br = NULL, *d_bi = NULL;
-  void *d_ta = NULL, *d_tb = NULL;
-  void *d_p1 = NULL, *d_p2 = NULL, *d_p3 = NULL;
+  void *d_a_hat = NULL, *d_b_hat = NULL, *d_c_hat = NULL;
   size_t sz_a_complex, sz_b_complex, sz_c_complex;
-  size_t sz_a_real, sz_b_real, sz_c_real;
+  size_t sz_a_hat, sz_b_hat, sz_c_hat;
+  int m_hat, k_hat, lda_hat, ldb_hat, ldc_hat;
 
-  /* Check if 3M kernels are available */
-  if (NULL == ctx->kern_zgemm3m_deinterleave || NULL == ctx->kern_zgemm3m_matadd || NULL == ctx->kern_zgemm3m_finalize) {
+  /* Check if block-embedding kernels are available */
+  if (NULL == ctx->kern_zgemm_block_construct_a || NULL == ctx->kern_zgemm_block_finalize ||
+      NULL == ctx->kern_zgemm_block_construct_b_n || NULL == ctx->kern_zgemm_block_construct_b_t)
+  {
     return EXIT_FAILURE;
   }
 
@@ -58,25 +59,26 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
   sz_a_complex = (size_t)lda * (size_t)a_cols * 2 * elem_size;
   sz_b_complex = (size_t)ldb * (size_t)b_cols * 2 * elem_size;
   sz_c_complex = (size_t)ldc * (size_t)N * 2 * elem_size;
-  sz_a_real = (size_t)a_rows * (size_t)a_cols * elem_size;
-  sz_b_real = (size_t)b_rows * (size_t)b_cols * elem_size;
-  sz_c_real = (size_t)M * (size_t)N * elem_size;
+
+  /* Augmented real matrix sizes */
+  m_hat = 2 * M;
+  k_hat = 2 * K;
+  lda_hat = 2 * a_rows;
+  ldb_hat = tb ? b_rows : 2 * b_rows;
+  ldc_hat = 2 * M;
+  sz_a_hat = (size_t)(2 * a_rows) * (size_t)(2 * a_cols) * elem_size;
+  sz_b_hat = (tb ? (size_t)b_rows * (size_t)(2 * b_cols) : (size_t)(2 * b_rows) * (size_t)b_cols) * elem_size;
+  sz_c_hat = (size_t)(2 * M) * (size_t)N * elem_size;
 
   /* Allocate device memory */
   result = OZAKI_DEV_ALLOC(&d_ag, sz_a_complex);
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bg, sz_b_complex);
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, sz_c_complex);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ar, sz_a_real);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ai, sz_a_real);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_br, sz_b_real);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bi, sz_b_real);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ta, sz_a_real);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_tb, sz_b_real);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_p1, sz_c_real);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_p2, sz_c_real);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_p3, sz_c_real);
+  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_a_hat, sz_a_hat);
+  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b_hat, sz_b_hat);
+  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_c_hat, sz_c_hat);
 
-  /* H2D: upload interleaved complex A, B, C.
+  /* H2D: upload interleaved complex A, B.
    * Skip C when beta == 0: finalize kernel will not read C_old. */
   if (EXIT_SUCCESS == result) {
     result = libxstream_mem_copy_h2d(a, d_ag, sz_a_complex, stream);
@@ -88,116 +90,57 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
     result = libxstream_mem_copy_h2d(c, d_cg, sz_c_complex, stream);
   }
 
-  /* Phase 1: Deinterleave A → Ar, Ai */
+  /* Phase 1: Construct A_hat from interleaved A */
   if (EXIT_SUCCESS == result) {
     size_t global[2];
-    cl_kernel kern = ctx->kern_zgemm3m_deinterleave;
+    cl_kernel kern = ctx->kern_zgemm_block_construct_a;
     cl_int iarg = 0;
     global[0] = (size_t)a_rows;
     global[1] = (size_t)a_cols;
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ag));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ar));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ai));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_a_hat));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_cols));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &lda));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ta));
     CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
-  /* Phase 1: Deinterleave B → Br, Bi */
+  /* Phase 1: Construct B_hat from interleaved B */
   if (EXIT_SUCCESS == result) {
     size_t global[2];
-    cl_kernel kern = ctx->kern_zgemm3m_deinterleave;
+    cl_kernel kern = tb ? ctx->kern_zgemm_block_construct_b_t : ctx->kern_zgemm_block_construct_b_n;
     cl_int iarg = 0;
     global[0] = (size_t)b_rows;
     global[1] = (size_t)b_cols;
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_bg));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_br));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_bi));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_b_hat));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_cols));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ldb));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
     CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
-  /* Phase 2: Matrix add Ta = Ar + Ai */
-  if (EXIT_SUCCESS == result) {
-    size_t global[2];
-    cl_kernel kern = ctx->kern_zgemm3m_matadd;
-    cl_int iarg = 0;
-    global[0] = (size_t)a_rows;
-    global[1] = (size_t)a_cols;
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ta));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ar));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ai));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_cols));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
-  }
-
-  /* Phase 2: Matrix add Tb = Br + Bi */
-  if (EXIT_SUCCESS == result) {
-    size_t global[2];
-    cl_kernel kern = ctx->kern_zgemm3m_matadd;
-    cl_int iarg = 0;
-    global[0] = (size_t)b_rows;
-    global[1] = (size_t)b_cols;
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_tb));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_br));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_bi));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_cols));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
-  }
-
-  /* Phase 3: Three real GEMM calls (via ozaki_gemm)
-   * P1 = Ar * Br, P2 = Ai * Bi, P3 = Ta * Tb
-   * All use alpha=1, beta=0 (accumulation done in finalize) */
+  /* Phase 2: Single real GEMM via Ozaki: C_hat = op(A_hat) * op(B_hat) */
   if (EXIT_SUCCESS == result) {
     const double one = 1.0, zero = 0.0;
-    const int ld_real = ta ? K : M; /* leading dimension of real A matrices */
-    const int ldb_real = tb ? N : K; /* leading dimension of real B matrices */
-    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ar, ld_real, d_br, ldb_real, zero, d_p1, M, NULL, 0, 1);
-  }
-  if (EXIT_SUCCESS == result) {
-    const double one = 1.0, zero = 0.0;
-    const int ld_real = ta ? K : M;
-    const int ldb_real = tb ? N : K;
-    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ai, ld_real, d_bi, ldb_real, zero, d_p2, M, NULL, 0, 1);
-  }
-  if (EXIT_SUCCESS == result) {
-    const double one = 1.0, zero = 0.0;
-    const int ld_real = ta ? K : M;
-    const int ldb_real = tb ? N : K;
-    result = ozaki_gemm(ctx, stream, transa, transb, M, N, K, one, d_ta, ld_real, d_tb, ldb_real, zero, d_p3, M, NULL, 0, 1);
+    result = ozaki_gemm(ctx, stream, transa, transb, m_hat, N, k_hat, one,
+      d_a_hat, lda_hat, d_b_hat, ldb_hat, zero, d_c_hat, ldc_hat, NULL, 0, 1);
   }
 
-  /* Phase 4: Finalize - compute complex result and apply alpha/beta */
+  /* Phase 3: Finalize - extract Re/Im from C_hat, apply alpha/beta */
   if (EXIT_SUCCESS == result) {
     size_t global[2];
-    cl_kernel kern = ctx->kern_zgemm3m_finalize;
-    const int ld_prod = M;
+    cl_kernel kern = ctx->kern_zgemm_block_finalize;
     cl_int iarg = 0;
     global[0] = (size_t)M;
     global[1] = (size_t)N;
 
-    /* Set kernel arguments (precision-dependent alpha/beta) */
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_cg));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_p1));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_p2));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_p3));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_c_hat));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &M));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &N));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ldc));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ld_prod));
     if (ctx->use_double) {
       CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(double), &ar_d));
       CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(double), &ai_d));
@@ -229,15 +172,9 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
   OZAKI_DEV_FREE(d_ag);
   OZAKI_DEV_FREE(d_bg);
   OZAKI_DEV_FREE(d_cg);
-  OZAKI_DEV_FREE(d_ar);
-  OZAKI_DEV_FREE(d_ai);
-  OZAKI_DEV_FREE(d_br);
-  OZAKI_DEV_FREE(d_bi);
-  OZAKI_DEV_FREE(d_ta);
-  OZAKI_DEV_FREE(d_tb);
-  OZAKI_DEV_FREE(d_p1);
-  OZAKI_DEV_FREE(d_p2);
-  OZAKI_DEV_FREE(d_p3);
+  OZAKI_DEV_FREE(d_a_hat);
+  OZAKI_DEV_FREE(d_b_hat);
+  OZAKI_DEV_FREE(d_c_hat);
 
   return result;
 }

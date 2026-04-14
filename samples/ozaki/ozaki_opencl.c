@@ -520,7 +520,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       result = EXIT_FAILURE;
     }
 
-    /* Initialize complex GEMM 3M kernels (precision-agnostic, always compiled) */
+    /* Initialize complex GEMM block-embedding kernels (precision-agnostic, always compiled) */
     if (EXIT_SUCCESS == result) {
       cl_program program_3m = NULL;
       char build_params_3m[512];
@@ -528,40 +528,49 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       LIBXS_SNPRINTF(build_params_3m, sizeof(build_params_3m), "-DUSE_DOUBLE=%d", use_double ? 1 : 0);
 
       result = libxstream_opencl_program(
-        0, OPENCL_KERNELS_SOURCE_GEMM3M, "zgemm3m", build_params_3m, build_options, NULL, NULL, NULL, 0, &program_3m);
+        0, OPENCL_KERNELS_SOURCE_GEMM3M, "zgemm_block", build_params_3m, build_options, NULL, NULL, NULL, 0, &program_3m);
 
       if (NULL != program_3m && EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel_query(program_3m, "zgemm3m_deinterleave", &ctx->kern_zgemm3m_deinterleave);
+        result = libxstream_opencl_kernel_query(program_3m, "zgemm_block_construct_a", &ctx->kern_zgemm_block_construct_a);
       }
       if (NULL != program_3m && EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel_query(program_3m, "zgemm3m_matadd", &ctx->kern_zgemm3m_matadd);
+        result = libxstream_opencl_kernel_query(program_3m, "zgemm_block_construct_b_n", &ctx->kern_zgemm_block_construct_b_n);
       }
       if (NULL != program_3m && EXIT_SUCCESS == result) {
-        result = libxstream_opencl_kernel_query(program_3m, "zgemm3m_finalize", &ctx->kern_zgemm3m_finalize);
+        result = libxstream_opencl_kernel_query(program_3m, "zgemm_block_construct_b_t", &ctx->kern_zgemm_block_construct_b_t);
+      }
+      if (NULL != program_3m && EXIT_SUCCESS == result) {
+        result = libxstream_opencl_kernel_query(program_3m, "zgemm_block_finalize", &ctx->kern_zgemm_block_finalize);
       }
       if (NULL != program_3m) clReleaseProgram(program_3m);
 
-      /* 3M kernel failure is non-fatal - just disables complex GEMM */
+      /* Block-embedding kernel failure is non-fatal - just disables complex GEMM */
       if (EXIT_SUCCESS != result) {
         if (2 < verbosity) {
           if (NULL == program_3m) {
-            fprintf(stderr, "WARN OZAKI: 3M kernel compilation failed (fp=%d), complex GEMM disabled\n", use_double ? 64 : 32);
+            fprintf(stderr, "WARN OZAKI: block-embedding kernel compilation failed (fp=%d), complex GEMM disabled\n",
+              use_double ? 64 : 32);
           }
           else {
-            fprintf(stderr, "WARN OZAKI: 3M kernel query failed (fp=%d), complex GEMM disabled\n", use_double ? 64 : 32);
+            fprintf(stderr, "WARN OZAKI: block-embedding kernel query failed (fp=%d), complex GEMM disabled\n",
+              use_double ? 64 : 32);
           }
         }
-        if (NULL != ctx->kern_zgemm3m_deinterleave) {
-          clReleaseKernel(ctx->kern_zgemm3m_deinterleave);
-          ctx->kern_zgemm3m_deinterleave = NULL;
+        if (NULL != ctx->kern_zgemm_block_construct_a) {
+          clReleaseKernel(ctx->kern_zgemm_block_construct_a);
+          ctx->kern_zgemm_block_construct_a = NULL;
         }
-        if (NULL != ctx->kern_zgemm3m_matadd) {
-          clReleaseKernel(ctx->kern_zgemm3m_matadd);
-          ctx->kern_zgemm3m_matadd = NULL;
+        if (NULL != ctx->kern_zgemm_block_construct_b_n) {
+          clReleaseKernel(ctx->kern_zgemm_block_construct_b_n);
+          ctx->kern_zgemm_block_construct_b_n = NULL;
         }
-        if (NULL != ctx->kern_zgemm3m_finalize) {
-          clReleaseKernel(ctx->kern_zgemm3m_finalize);
-          ctx->kern_zgemm3m_finalize = NULL;
+        if (NULL != ctx->kern_zgemm_block_construct_b_t) {
+          clReleaseKernel(ctx->kern_zgemm_block_construct_b_t);
+          ctx->kern_zgemm_block_construct_b_t = NULL;
+        }
+        if (NULL != ctx->kern_zgemm_block_finalize) {
+          clReleaseKernel(ctx->kern_zgemm_block_finalize);
+          ctx->kern_zgemm_block_finalize = NULL;
         }
         result = EXIT_SUCCESS; /* non-fatal */
       }
@@ -705,14 +714,17 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->kern_crt_scale_beta) {
       clReleaseKernel(ctx->kern_crt_scale_beta);
     }
-    if (NULL != ctx->kern_zgemm3m_deinterleave) {
-      clReleaseKernel(ctx->kern_zgemm3m_deinterleave);
+    if (NULL != ctx->kern_zgemm_block_construct_a) {
+      clReleaseKernel(ctx->kern_zgemm_block_construct_a);
     }
-    if (NULL != ctx->kern_zgemm3m_matadd) {
-      clReleaseKernel(ctx->kern_zgemm3m_matadd);
+    if (NULL != ctx->kern_zgemm_block_construct_b_n) {
+      clReleaseKernel(ctx->kern_zgemm_block_construct_b_n);
     }
-    if (NULL != ctx->kern_zgemm3m_finalize) {
-      clReleaseKernel(ctx->kern_zgemm3m_finalize);
+    if (NULL != ctx->kern_zgemm_block_construct_b_t) {
+      clReleaseKernel(ctx->kern_zgemm_block_construct_b_t);
+    }
+    if (NULL != ctx->kern_zgemm_block_finalize) {
+      clReleaseKernel(ctx->kern_zgemm_block_finalize);
     }
 
     { /* Quiesce cache: NULL pointers under lock (prevents new hits),
