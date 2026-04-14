@@ -75,6 +75,7 @@ then
             elif [ ! "$(${SED} <<<"${SYMBOL}" -n "/^__libxstream_MOD___/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^__wrap_..*/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^internal_/p")" ] && \
+                 [ ! "$(${SED} <<<"${SYMBOL}" -n "/^libxs_/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^_init/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^_fini/p")" ];
             then
