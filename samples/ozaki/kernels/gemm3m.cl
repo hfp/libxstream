@@ -67,7 +67,7 @@ kernel void zgemm_block_construct_a(
  */
 kernel void zgemm_block_construct_b_n(
   global const real_t* restrict z, global real_t* restrict b_hat,
-  int b_rows, int b_cols, int ldz)
+  int b_rows, int b_cols, int ldz, int conj)
 {
   const int k = get_global_id(0);
   const int j = get_global_id(1);
@@ -76,8 +76,9 @@ kernel void zgemm_block_construct_b_n(
     const int ldb_hat = 2 * b_rows;
     const size_t z_base = 2 * (k + (size_t)j * ldz);
     const size_t out_base = k + (size_t)j * ldb_hat;
-    b_hat[out_base] = z[z_base];              /* top: Br */
-    b_hat[out_base + b_rows] = z[z_base + 1]; /* bottom: Bi */
+    const real_t im = z[z_base + 1];
+    b_hat[out_base] = z[z_base];                       /* top: Br */
+    b_hat[out_base + b_rows] = conj ? -im : im;        /* bottom: Bi (negated for 'C') */
   }
 }
 
@@ -92,7 +93,7 @@ kernel void zgemm_block_construct_b_n(
  */
 kernel void zgemm_block_construct_b_t(
   global const real_t* restrict z, global real_t* restrict b_hat,
-  int b_rows, int b_cols, int ldz)
+  int b_rows, int b_cols, int ldz, int conj)
 {
   const int i = get_global_id(0);
   const int j = get_global_id(1);
@@ -101,8 +102,9 @@ kernel void zgemm_block_construct_b_t(
     const size_t z_base = 2 * (i + (size_t)j * ldz);
     const size_t left = i + (size_t)j * b_rows;
     const size_t right = i + (size_t)(b_cols + j) * b_rows;
-    b_hat[left] = z[z_base];       /* Br (left half) */
-    b_hat[right] = z[z_base + 1];  /* Bi (right half) */
+    const real_t im = z[z_base + 1];
+    b_hat[left] = z[z_base];              /* Br (left half) */
+    b_hat[right] = conj ? -im : im;       /* Bi (right half, negated for 'C') */
   }
 }
 

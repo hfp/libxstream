@@ -29,8 +29,11 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
   const double* alpha, const void* a, int lda, const void* b, int ldb, const double* beta, void* c, int ldc)
 {
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
+  const int ca = ('C' == transa || 'c' == transa);
+  const int cb = ('C' == transb || 'c' == transb);
   const int ta = (transa != 'N' && transa != 'n') ? 1 : 0;
   const int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
+  const int ta_sign = (ta && !ca); /* 'C' uses 'N' sign pattern */
   const int a_rows = ta ? K : M;
   const int a_cols = ta ? M : K;
   const int b_rows = tb ? N : K;
@@ -102,7 +105,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_rows));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_cols));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &lda));
-    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ta));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ta_sign));
     CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
@@ -118,6 +121,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_rows));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_cols));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ldb));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &cb));
     CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
