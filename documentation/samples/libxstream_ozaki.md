@@ -139,7 +139,7 @@ All arguments are positional and optional (defaults shown):
 | Variable         | Default | Description                                                                                                                                                   |
 |------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `OZAKI`          | 1       | Kernel variant for real GEMM: 1 = int8 mantissa slices, 2 = int8 CRT.                                                                                        |
-| `OZAKI_3M`       | *auto*  | Complex GEMM dispatch (ZGEMM/CGEMM): 0 = original BLAS, 1 = CPU 3M, 2 = GPU 3M (falls back to CPU). Default: 0 if `OZAKI=0`, else 2. Controlled by [LIBXS](https://github.com/hfp/libxs). |
+| `OZAKI_COMPLEX`       | *auto*  | Complex GEMM dispatch (ZGEMM/CGEMM): 0 = original BLAS, 1 = CPU (single real GEMM), 2 = GPU (all on device, CPU fallback). Default: 0 if `OZAKI=0`, else 2. Controlled by [LIBXS](https://github.com/hfp/libxs). |
 | `OZAKI_MAXK`     | 32768   | Max K elements per preprocessing pass. 0 = no grouping (full K in one pass). Trades exponent-scope precision vs FP accumulation rounding. Applies to both CPU and GPU. |
 | `OZAKI_FLAGS`    | 3       | Scheme 1 bitmask: Triangular (1), Symmetrize (2). 0 = full S^2 square. Ignored for Scheme 2.                                                                  |
 | `OZAKI_TRIM`     | 0       | Precision levels to trim. Scheme 1: drops diagonals from slice-pair iteration (~7 product bits/level). Scheme 2: truncates mantissa before CRT (~2 input bits/level, ~4 product bits/level). The level semantics are calibrated so the same trim value gives comparable accuracy across schemes. |
@@ -199,25 +199,6 @@ BLAS  GEMM: 12.345 ms
 DIFF: linf=0.000000 linf_rel=0.000000 l2_rel=0.000000 eps=0.000000 rsq=1.000000
 ```
 
-## Files and Directory Structure
-
-| File/Directory          | Description                                                                        |
-|------------------------|------------------------------------------------------------------------------------|
-| `ozaki_bench.c`        | Main benchmark driver (initializes context, runs GEMM, compares with BLAS)        |
-| `ozaki_gemm.c`         | GEMM implementation (preprocessing pipeline, dotprod launch, buffer management)   |
-| `ozaki_opencl.c`       | Context initialization (device selection, kernel compilation, parameter tuning)   |
-| `ozaki_gemm3m.c`       | Complex GEMM via 3M (Karatsuba) method - all intermediates stay on device          |
-| `ozaki_opencl.h`       | Public API and context structure definitions                                       |
-| `ozaki_kernels.h`      | Auto-generated header embedding OpenCL C kernel sources                            |
-| `ozaki_tinytc.h`       | Auto-generated header embedding specialized TinyTC SPIR-V kernels                  |
-| `kernels/ozaki1_int8.cl` | Scheme 1 OpenCL C kernels (preprocess + XMX/scalar dotprod)                     |
-| `kernels/ozaki2_int8.cl` | Scheme 2 OpenCL C kernels (preprocess + fused CRT dotprod)                      |
-| `kernels/gemm3m.cl`     | Complex GEMM 3M helper kernels (deinterleave, matadd, finalize)                 |
-| `kernels/ozaki_common.cl` | Shared IEEE-754 field extraction helpers                                        |
-| `kernels/ozaki1.tinytc`  | TinyTC kernel definition for generic Scheme 1 dotprod                            |
-| `kernels/ozaki1_prod_*.tinytc` | Specialized TinyTC definitions (triangular/square)                         |
-| `kernels/*.clx`        | Precompiled TinyTC SPIR-V binaries (embedded at build time or loaded at runtime) |
-
 ## Performance Tuning
 
 ### Scheme Selection
@@ -263,5 +244,5 @@ See the LIBXS Ozaki README for details on profile modes and output format.
 
 ## Limitations
 
-- Complex GEMM (3M method) is implemented (`ozaki_gemm3m` in `ozaki_gemm3m.c`) but not called from this sample's benchmark driver. It is exercised by the [LIBXS Ozaki sample](https://github.com/hfp/libxs), whose interceptor-based driver dispatches ZGEMM/CGEMM through the GPU 3M path when LIBXSTREAM is available. The `OZAKI_3M` environment variable (0 = original BLAS, 1 = CPU 3M, 2 = GPU 3M) controls the complex GEMM dispatch; see the LIBXS Ozaki README for details.
+- Complex GEMM is implemented (`ozaki_gemm_complex`) but not called from this sample's benchmark driver. It is exercised by the [LIBXS Ozaki sample](https://github.com/hfp/libxs), whose interceptor dispatches ZGEMM/CGEMM through the GPU path when LIBXSTREAM is available. The `OZAKI_COMPLEX` environment variable (0 = original BLAS, 1 = CPU, 2 = GPU) controls complex GEMM dispatch; see the LIBXS Ozaki README for details.
 - TinyTC kernels are Scheme 1 only (Scheme 2 uses OpenCL C kernels).
