@@ -53,10 +53,12 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
   if (NULL == ctx->kern_zgemm_block_construct_a || NULL == ctx->kern_zgemm_block_finalize ||
       NULL == ctx->kern_zgemm_block_construct_b_n || NULL == ctx->kern_zgemm_block_construct_b_t)
   {
-    return EXIT_FAILURE;
+    result = EXIT_FAILURE;
   }
 
-  ctx->stream = stream; /* expose to deallocate wrapper */
+  if (EXIT_SUCCESS == result) {
+    ctx->stream = stream; /* expose to deallocate wrapper */
+  }
 
   /* Buffer sizes */
   sz_a_complex = (size_t)lda * (size_t)a_cols * 2 * elem_size;
@@ -74,7 +76,7 @@ int ozaki_gemm3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa,
   sz_c_hat = (size_t)(2 * M) * (size_t)N * elem_size;
 
   /* Allocate device memory */
-  result = OZAKI_DEV_ALLOC(&d_ag, sz_a_complex);
+  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ag, sz_a_complex);
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bg, sz_b_complex);
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, sz_c_complex);
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_a_hat, sz_a_hat);
