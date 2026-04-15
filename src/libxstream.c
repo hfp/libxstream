@@ -323,6 +323,7 @@ LIBXSTREAM_API int libxstream_init(void)
   }
   /* eventually touch OpenCL/compute runtime after configure */
   if (0 == libxstream_opencl_config.ndevices && EXIT_SUCCESS == result) { /* avoid to initialize multiple times */
+    const unsigned int mxcsr_saved = LIBXS_MXCSR_GET();
     char buffer[LIBXSTREAM_BUFFERSIZE];
     cl_platform_id platforms[LIBXSTREAM_MAXNDEVS] = {NULL};
     cl_device_id devices[LIBXSTREAM_MAXNDEVS];
@@ -639,6 +640,7 @@ LIBXSTREAM_API int libxstream_init(void)
      */
     if (EXIT_SUCCESS == result) result = libsmm_acc_init();
 # endif
+    LIBXS_MXCSR_SET(mxcsr_saved);
   }
   CL_RETURN(result, "");
 }
