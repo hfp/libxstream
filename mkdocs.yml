@@ -22,7 +22,7 @@ theme:
 nav:
 - Overview: index.md
 - Ozaki Getting Started:
-  - Howto: libxs_ozaki.md
+  - Howto: libxstream_ozaki.md
   - Details: samples/libxstream_ozaki.md
 - LIBXSTREAM Domains:
   - "OpenCL": libxstream_opencl.md
@@ -33,6 +33,7 @@ nav:
 - Example Code:
   - Ozaki: samples/libxstream_ozaki.md
   - SMM: samples/libxstream_smm.md
-- Scripts: libxstream_scripts.md
+- Development:
+  - Scripts: libxstream_scripts.md
 - About:
   - License: LICENSE.md
