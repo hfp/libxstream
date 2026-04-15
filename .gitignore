@@ -1,11 +1,12 @@
-.libxstream_*.tex
-lib/libxstream*
+.libxs*.tex
+lib/libxs*
 .abi.log
 .state
 .make
 *.json
 *.mod
 *.x
+/.*
 build
 site
 bin
