@@ -601,7 +601,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   ctx->devpool = NULL;
   {
     const char* const devpool_env = getenv("OZAKI_DEVPOOL");
-    if (NULL != devpool_env && 0 != atoi(devpool_env)) {
+    if (NULL == devpool_env || 0 != atoi(devpool_env)) {
       int pool_ok = 0;
 #if (1 >= LIBXSTREAM_USM)
       if (NULL != devinfo->clSharedMemAllocINTEL) pool_ok = 1;
