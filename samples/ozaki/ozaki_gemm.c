@@ -676,7 +676,7 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = stream;
   size_t local_g[2], global_g[2];
-  local_g[0] = 16;
+  local_g[0] = (size_t)ctx->sg;
   local_g[1] = (size_t)(ntm * ntn);
   {
     const int nblk_gm = (M + tm - 1) / tm;
