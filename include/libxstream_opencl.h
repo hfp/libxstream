@@ -45,7 +45,6 @@
 # include <libxs_source.h>
 # define __LIBXS
 #endif
-#include "libxstream.h"
 
 #if !defined(LIBXSTREAM_MAXALIGN)
 # define LIBXSTREAM_MAXALIGN (2 << 20 /*2MB*/)
@@ -147,6 +146,12 @@
     return (RESULT); \
   } while (0)
 
+/* header-only fallback for LIBXSTREAM */
+#if !defined(LIBXSTREAM_SOURCE_H) && !defined(LIBXSTREAM_BUILD) && !defined(__LIBXSTREAM)
+# include "libxstream_source.h"
+# define __LIBXSTREAM
+#endif
+#include "libxstream.h"
 
 LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest);
 
