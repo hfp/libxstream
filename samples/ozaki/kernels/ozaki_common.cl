@@ -405,41 +405,90 @@
 #   endif
 # endif
 
-/* OZAKI_DPAS using dp4a: same tile contract as scalar (8x16, K=32) but
- * processes 4 K-elements per dp4a instead of 1.  8 dp4a calls per row
- * (32 / 4 = 8).  A is packed as uint from 4 consecutive bytes. */
+/* dp4a single-tile DPAS: 8 rows x 16 cols, K=32.
+ * Processes 4 K-elements per dp4a (8 dp4a calls per row).
+ * A row data (8 uints) and B column data (8 uints) are pre-loaded by caller. */
+# define NV_DP4A_8x1_(AROW, BCOL, ACC) \
+    do { \
+      int k4d_; \
+      for (k4d_ = 0; k4d_ < 8; ++k4d_) { \
+        NV_DP4A((ACC), (AROW)[k4d_], (BCOL)[k4d_], (ACC)); \
+      } \
+    } while (0)
+
+/* Load one B column (8 packed uints covering K=32) into BDST. */
+# define NV_LOAD_BCOL_(BS, N_PAD, KOFF, COL, BDST) \
+    do { \
+      CONSTANT const OZAKI_BYTE_T* bcp_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (COL); \
+      int kb_; \
+      for (kb_ = 0; kb_ < 8; ++kb_) { \
+        (BDST)[kb_] = as_uint((OZAKI_BYTE4_T)(bcp_[0], bcp_[(N_PAD)], bcp_[2*(N_PAD)], bcp_[3*(N_PAD)])); \
+        bcp_ += 4 * (N_PAD); \
+      } \
+    } while (0)
+
+/* Load one A row (8 packed uints covering K=32) into ADST. */
+# define NV_LOAD_AROW_(AS, K_PAD, ROW, KOFF, ADST) \
+    do { \
+      CONSTANT const OZAKI_BYTE_T* arp_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)(ROW) * (K_PAD) + (KOFF); \
+      int ka_; \
+      for (ka_ = 0; ka_ < 8; ++ka_) { \
+        (ADST)[ka_] = as_uint(vload4(ka_, (CONSTANT const OZAKI_BYTE_T*)arp_)); \
+      } \
+    } while (0)
+
+/* Tiled dp4a with register reuse: pre-load all RTM A-strips and RTN B-columns
+ * into registers, then compute RTM*RTN dot products from registers.
+ * B reuse: each B column is loaded once, used by all RTM row-tiles.
+ * A reuse: each A row-set is loaded once, used by all RTN column-tiles. */
+# define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+    do { \
+      const int col0_ = (NJ) + (int)LIBXS_SGLID(); \
+      uint b_reg_[RTN][8]; \
+      uint a_reg_[RTM][8][8]; \
+      int rn_l_, rm_l_; \
+      /* Load all B columns (one per RTN tile, this thread's column) */ \
+      for (rn_l_ = 0; rn_l_ < RTN; ++rn_l_) { \
+        NV_LOAD_BCOL_(BS, N_PAD, KOFF, col0_ + rn_l_ * XMX_N, b_reg_[rn_l_]); \
+      } \
+      /* Load all A rows (8 rows per RTM tile) */ \
+      for (rm_l_ = 0; rm_l_ < RTM; ++rm_l_) { \
+        int m_l_; \
+        for (m_l_ = 0; m_l_ < 8; ++m_l_) { \
+          NV_LOAD_AROW_(AS, K_PAD, (MI) + rm_l_ * XMX_M + m_l_, KOFF, a_reg_[rm_l_][m_l_]); \
+        } \
+      } \
+      /* Compute: RTM * RTN sub-tiles from registers */ \
+      for (rm_l_ = 0; rm_l_ < RTM; ++rm_l_) { \
+        for (rn_l_ = 0; rn_l_ < RTN; ++rn_l_) { \
+          union { int8 v_; int a_[8]; } u_t_; \
+          int m_c_; \
+          u_t_.v_ = (ACC)[rm_l_ * RTN + rn_l_]; \
+          for (m_c_ = 0; m_c_ < 8; ++m_c_) { \
+            NV_DP4A_8x1_(a_reg_[rm_l_][m_c_], b_reg_[rn_l_], u_t_.a_[m_c_]); \
+          } \
+          (ACC)[rm_l_ * RTN + rn_l_] = u_t_.v_; \
+        } \
+      } \
+    } while (0)
+
+/* Single-tile fallback (RTM=1, RTN=1 or direct call). */
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
       const int col_ = (NJ) + (int)LIBXS_SGLID(); \
-      union { int8 v_; int a_[8]; } u_; \
-      int m_; \
-      u_.v_ = (ACC); \
-      for (m_ = 0; m_ < 8; ++m_) { \
-        CONSTANT const OZAKI_BYTE_T* arow_ = \
-          (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + m_) * (K_PAD) + (KOFF); \
-        CONSTANT const OZAKI_BYTE_T* bcol_ = \
-          (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + col_; \
-        int k4_; \
-        for (k4_ = 0; k4_ < 8; ++k4_) { \
-          uint a4_ = as_uint(vload4(k4_, (CONSTANT const OZAKI_BYTE_T*)arow_)); \
-          uint b4_ = as_uint((OZAKI_BYTE4_T)(bcol_[0], bcol_[(N_PAD)], bcol_[2*(N_PAD)], bcol_[3*(N_PAD)])); \
-          NV_DP4A(u_.a_[m_], a4_, b4_, u_.a_[m_]); \
-          bcol_ += 4 * (N_PAD); \
-        } \
+      uint b_s_[8]; \
+      union { int8 v_; int a_[8]; } u_s_; \
+      int m_s_; \
+      NV_LOAD_BCOL_(BS, N_PAD, KOFF, col_, b_s_); \
+      u_s_.v_ = (ACC); \
+      for (m_s_ = 0; m_s_ < 8; ++m_s_) { \
+        uint a_s_[8]; \
+        NV_LOAD_AROW_(AS, K_PAD, (MI) + m_s_, KOFF, a_s_); \
+        NV_DP4A_8x1_(a_s_, b_s_, u_s_.a_[m_s_]); \
       } \
-      (ACC) = u_.v_; \
-    } while (0)
-
-/* Tiled variant: loop over RTM x RTN sub-tiles. */
-# define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
-    do { \
-      int rm_t_, rn_t_; \
-      for (rm_t_ = 0; rm_t_ < RTM; ++rm_t_) { \
-        for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) { \
-          OZAKI_DPAS(AS, BS, K_PAD, N_PAD, (MI) + rm_t_ * XMX_M, (NJ) + rn_t_ * XMX_N, \
-                     KOFF, M_HT, (ACC)[rm_t_ * RTN + rn_t_]); \
-        } \
-      } \
+      (ACC) = u_s_.v_; \
     } while (0)
 
 /* Scalar fallback (no hardware acceleration) */

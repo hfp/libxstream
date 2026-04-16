@@ -269,10 +269,16 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (0 != devinfo->intel && 0 != gpu) {
         rtm = (0 != biggrf) ? 4 : 2;
       }
+      else if (2 <= devinfo->nv && 0 != gpu && 2 == kind) {
+        rtm = 2; /* Ozaki-2 CRT benefits from register tiling on NV */
+      }
       else rtm = 1;
     }
     if (0 == rtn) {
       if (0 != devinfo->intel && 0 != gpu) {
+        rtn = 2;
+      }
+      else if (2 <= devinfo->nv && 0 != gpu && 2 == kind) {
         rtn = 2;
       }
       else rtn = 1;
