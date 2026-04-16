@@ -70,4 +70,9 @@ LIBXSTREAM_API void offloadFreeHost(void* ptr);
 LIBXSTREAM_API void offloadDeviceSynchronize(void);
 LIBXSTREAM_API void offloadEnsureMallocHeapSize(size_t required_size);
 
+/* header-only: include implementation (deferred from libxstream_macros.h) */
+#if defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_SOURCE_H)
+# include "libxstream_source.h"
+#endif
+
 #endif /*LIBXSTREAM_CP2K_H*/

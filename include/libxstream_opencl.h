@@ -380,7 +380,7 @@ LIBXSTREAM_API const char* libxstream_opencl_strerror(cl_int err);
 /** Consume and clear the last error. */
 LIBXSTREAM_API int libxstream_opencl_error_consume(void);
 
-/* header-only: include implementation when not building or linking the library */
+/* header-only: include implementation (deferred from libxstream_macros.h) */
 #if defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_SOURCE_H)
 # include "libxstream_source.h"
 #endif

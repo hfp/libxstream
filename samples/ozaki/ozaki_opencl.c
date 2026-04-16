@@ -372,7 +372,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
         else
 #endif
-        {
+        if (NULL != tinytc_env && '0' != *tinytc_env) {
           LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path), "%s", tinytc_env);
           tinytc_source = tinytc_path;
           tinytc_source_kind = 1;

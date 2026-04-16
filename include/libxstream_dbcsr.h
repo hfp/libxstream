@@ -66,4 +66,9 @@ LIBXSTREAM_API int c_dbcsr_acc_dev_mem_info(size_t* mem_free, size_t* mem_total)
 LIBXS_EXTERN void c_dbcsr_timeset(const char** routineN, const int* routineN_len, int* handle);
 LIBXS_EXTERN void c_dbcsr_timestop(const int* handle);
 
+/* header-only: include implementation (deferred from libxstream_macros.h) */
+#if defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_SOURCE_H)
+# include "libxstream_source.h"
+#endif
+
 #endif /*DBCSR_ACC_H*/
