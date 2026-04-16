@@ -53,12 +53,8 @@
 
 /* Hardware sub-tile dimensions.
  * Intel DPAS (PVC XMX):  8 rows x 16 cols, K=32  (SG=16)
- * NVIDIA dp4a / MMA:     8 rows x 16 cols, K=32  (SG=32, matching layout)
- * Scalar fallback:       8 rows x 16 cols, K=32
- *
- * The MMA tile (m16n8k32 for SM80+, m8n8k16 for SM75) differs from Intel
- * DPAS in native shape but is composed/transposed inside OZAKI_DPAS so
- * that the 8x16 accumulator contract is preserved for all paths. */
+ * NVIDIA dp4a:           8 rows x 16 cols, K=32  (SG=16)
+ * Scalar fallback:       8 rows x 16 cols, K=32  (SG=16) */
 #define XMX_M 8
 #define XMX_N 16
 
@@ -358,17 +354,16 @@
 #   define OZAKI_BYTE4_T  char4
 # endif
 
-/* PTX MMA primitives for Tensor Cores (NV>=2).  These define the raw
- * warp-cooperative MMA instructions; the OZAKI_DPAS macro below uses dp4a
- * to maintain the 8x16 tile contract.  A dedicated MMA-based GEMM kernel
- * can call NV_MMA_* directly with the appropriate fragment packing.
+/* PTX MMA primitives for Tensor Cores.  These define the raw warp-cooperative
+ * MMA instructions but are NOT wired into OZAKI_DPAS -- the 8x16 tile / SG=16
+ * contract is incompatible with the 32-thread warp-cooperative MMA model.
+ * Using MMA requires a dedicated GEMM kernel with SG=32 and a different
+ * accumulator layout (16 rows x 8 cols per warp, fragment redistribution
+ * via shfl.sync).  The macros are provided for such a future kernel.
  *
  * m8n8k16 (SM>=7.5, NV>=2): A=1xb32, B=1xb32, C/D=2xb32, tile 8x8xK16
  * m16n8k16 (SM>=8.0, NV>=3): A=2xb32, B=1xb32, C/D=4xb32, tile 16x8xK16
- * m16n8k32 (SM>=8.0, NV>=3): A=4xb32, B=2xb32, C/D=4xb32, tile 16x8xK32
- *
- * All integer variants support mixed-sign: .u8/.s8 for A and B independently.
- * Accumulator is always .s32.  The .satfinite modifier clamps to INT_MAX/MIN. */
+ * m16n8k32 (SM>=8.0, NV>=3): A=4xb32, B=2xb32, C/D=4xb32, tile 16x8xK32 */
 # if (2 <= NV)
 #   if defined(OZAKI_U8) && (OZAKI_U8)
 #     define NV_MMA_M8N8K16(D0,D1, A0, B0, C0,C1) \
