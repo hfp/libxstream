@@ -30,9 +30,15 @@ ifneq (,$(LIBXSROOT))
     $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
   IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
   IFLAGS += -I$(call quote,$(LIBXSROOT)/samples/ozaki)
+  ifneq (,$(LIBXS))
+    DFLAGS += -D__LIBXS
+  endif
 endif
-ifneq (,$(LIBXS))
-  DFLAGS += -D__LIBXS
+
+# setup LIBXSTREAM (header-only)
+XSTREAM_SOURCE := $(wildcard $(DEPDIR)/include/libxstream_source.h)
+ifneq (,$(XSTREAM_SOURCE))
+  DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
 endif
 
 # Embed precompiled TinyTC kernels if .clx files are present.
