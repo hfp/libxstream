@@ -24,6 +24,7 @@
  * code for every (internal) change of LIBXSTREAM. Please make sure to only rely on the
  * public interface as the internal implementation may change without notice.
  */
+#include "libxstream.h"
 #include "../src/libxstream.c"
 #include "../src/libxstream_cp2k.c"
 #include "../src/libxstream_dbcsr.c"

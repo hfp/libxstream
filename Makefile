@@ -97,6 +97,9 @@ ifneq (,$(LIBXS))
   DFLAGS += -D__LIBXS
 endif
 
+# building the library (export symbols, suppress header-only fallback)
+DFLAGS += -DLIBXSTREAM_BUILD
+
 # 0: static, 1: shared, 2: static and shared
 ifneq (,$(filter-out file,$(origin STATIC)))
   ifneq (0,$(STATIC))
@@ -408,7 +411,7 @@ ifneq ($(call qapath,$(BINDIR)),$(HEREDIR))
 	@-rm -rf $(BINDIR)
 endif
 endif
-	@-rm -f $(INCDIR)/$(PROJECT)_version.h $(INCDIR)/$(PROJECT)_source.h
+	@-rm -f $(INCDIR)/$(PROJECT)_version.h
 
 .PHONY: deepclean
 deepclean: realclean

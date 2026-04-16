@@ -39,6 +39,7 @@ cat << EOM
  * code for every (internal) change of LIBXSTREAM. Please make sure to only rely on the
  * public interface as the internal implementation may change without notice.
  */
+#include "libxstream.h"
 EOM
 
 if [ "$1" ]; then
