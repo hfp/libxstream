@@ -46,6 +46,17 @@
 # define BCST_SG(V, I) sub_group_broadcast(V, I)
 #endif
 
+/* Sub-group lane and group ID: use sub-group builtins when available,
+ * fall back to local IDs for vendors without cl_khr_subgroups (e.g. NVIDIA).
+ * Requires work-group layout (SG, num_sub_groups, 1). */
+#if defined(INTEL) && (0 < INTEL)
+# define LIBXS_SGLID() get_sub_group_local_id()
+# define LIBXS_SGID()  get_sub_group_id()
+#else
+# define LIBXS_SGLID() get_local_id(0)
+# define LIBXS_SGID()  get_local_id(1)
+#endif
+
 #if !defined(MIN)
 # define MIN(A, B) ((A) < (B) ? (A) : (B))
 #endif

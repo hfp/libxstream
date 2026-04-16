@@ -205,6 +205,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   wg = (NULL != env ? atoi(env) : 0);
   env = getenv("OZAKI_SG");
   sg = (NULL != env ? atoi(env) : (int)devinfo->wgsize[2]);
+  /* fallback: preferred WG multiple (warp size on NV) */
+  if (0 >= sg) sg = (int)devinfo->wgsize[1];
+  if (0 >= sg) sg = 16; /* last resort */
 
   /* Intel DPAS + 2D block I/O requires sub-group size 16 */
   if (2 <= intel_level && 16 != sg) {

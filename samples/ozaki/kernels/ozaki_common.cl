@@ -349,11 +349,13 @@
  *   dp4a.s32.s32 d, a, b, c  =>  d = c + dot(a.bytes, b.bytes)  (signed)
  * Available on SM>=6.1 (Pascal and later). */
 # if defined(OZAKI_U8) && (OZAKI_U8)
-#   define NV_DP4A_(D, A, B, C) asm("dp4a.u32.u32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
-#   define OZAKI_SCALAR_BYTE_T_ uchar
+#   define NV_DP4A(D, A, B, C) asm("dp4a.u32.u32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
+#   define OZAKI_BYTE_T uchar
+#   define OZAKI_BYTE4_T  uchar4
 # else
-#   define NV_DP4A_(D, A, B, C) asm("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
-#   define OZAKI_SCALAR_BYTE_T_ char
+#   define NV_DP4A(D, A, B, C) asm("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
+#   define OZAKI_BYTE_T char
+#   define OZAKI_BYTE4_T  char4
 # endif
 
 /* PTX MMA primitives for Tensor Cores (NV>=2).  These define the raw
@@ -369,12 +371,12 @@
  * Accumulator is always .s32.  The .satfinite modifier clamps to INT_MAX/MIN. */
 # if (2 <= NV)
 #   if defined(OZAKI_U8) && (OZAKI_U8)
-#     define NV_MMA_M8N8K16_(D0,D1, A0, B0, C0,C1) \
+#     define NV_MMA_M8N8K16(D0,D1, A0, B0, C0,C1) \
         asm volatile("mma.sync.aligned.m8n8k16.row.col.s32.u8.u8.s32 " \
           "{%0,%1}, {%2}, {%3}, {%4,%5};" \
           : "=r"(D0), "=r"(D1) : "r"(A0), "r"(B0), "r"(C0), "r"(C1))
 #   else
-#     define NV_MMA_M8N8K16_(D0,D1, A0, B0, C0,C1) \
+#     define NV_MMA_M8N8K16(D0,D1, A0, B0, C0,C1) \
         asm volatile("mma.sync.aligned.m8n8k16.row.col.s32.s8.s8.s32 " \
           "{%0,%1}, {%2}, {%3}, {%4,%5};" \
           : "=r"(D0), "=r"(D1) : "r"(A0), "r"(B0), "r"(C0), "r"(C1))
@@ -382,24 +384,24 @@
 # endif
 # if (3 <= NV)
 #   if defined(OZAKI_U8) && (OZAKI_U8)
-#     define NV_MMA_M16N8K16_(D0,D1,D2,D3, A0,A1, B0, C0,C1,C2,C3) \
+#     define NV_MMA_M16N8K16(D0,D1,D2,D3, A0,A1, B0, C0,C1,C2,C3) \
         asm volatile("mma.sync.aligned.m16n8k16.row.col.s32.u8.u8.s32 " \
           "{%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};" \
           : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
           : "r"(A0), "r"(A1), "r"(B0), "r"(C0), "r"(C1), "r"(C2), "r"(C3))
-#     define NV_MMA_M16N8K32_(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
+#     define NV_MMA_M16N8K32(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
         asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.u8.u8.s32 " \
           "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
           : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
           : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
             "r"(C0), "r"(C1), "r"(C2), "r"(C3))
 #   else
-#     define NV_MMA_M16N8K16_(D0,D1,D2,D3, A0,A1, B0, C0,C1,C2,C3) \
+#     define NV_MMA_M16N8K16(D0,D1,D2,D3, A0,A1, B0, C0,C1,C2,C3) \
         asm volatile("mma.sync.aligned.m16n8k16.row.col.s32.s8.s8.s32 " \
           "{%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};" \
           : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
           : "r"(A0), "r"(A1), "r"(B0), "r"(C0), "r"(C1), "r"(C2), "r"(C3))
-#     define NV_MMA_M16N8K32_(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
+#     define NV_MMA_M16N8K32(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
         asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 " \
           "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
           : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
@@ -413,20 +415,20 @@
  * (32 / 4 = 8).  A is packed as uint from 4 consecutive bytes. */
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
-      const int col_ = (NJ) + (int)get_sub_group_local_id(); \
+      const int col_ = (NJ) + (int)LIBXS_SGLID(); \
       union { int8 v_; int a_[8]; } u_; \
       int m_; \
       u_.v_ = (ACC); \
       for (m_ = 0; m_ < 8; ++m_) { \
-        CONSTANT const OZAKI_SCALAR_BYTE_T_* arow_ = \
-          (CONSTANT const OZAKI_SCALAR_BYTE_T_*)(AS) + (long)((MI) + m_) * (K_PAD) + (KOFF); \
-        CONSTANT const OZAKI_SCALAR_BYTE_T_* bcol_ = \
-          (CONSTANT const OZAKI_SCALAR_BYTE_T_*)(BS) + (long)(KOFF) * (N_PAD) + col_; \
+        CONSTANT const OZAKI_BYTE_T* arow_ = \
+          (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + m_) * (K_PAD) + (KOFF); \
+        CONSTANT const OZAKI_BYTE_T* bcol_ = \
+          (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + col_; \
         int k4_; \
         for (k4_ = 0; k4_ < 8; ++k4_) { \
-          uint a4_ = as_uint(vload4(k4_, (CONSTANT const OZAKI_SCALAR_BYTE_T_*)arow_)); \
-          uint b4_ = as_uint((OZAKI_SCALAR_BYTE_T_##4)(bcol_[0], bcol_[(N_PAD)], bcol_[2*(N_PAD)], bcol_[3*(N_PAD)])); \
-          NV_DP4A_(u_.a_[m_], a4_, b4_, u_.a_[m_]); \
+          uint a4_ = as_uint(vload4(k4_, (CONSTANT const OZAKI_BYTE_T*)arow_)); \
+          uint b4_ = as_uint((OZAKI_BYTE4_T)(bcol_[0], bcol_[(N_PAD)], bcol_[2*(N_PAD)], bcol_[3*(N_PAD)])); \
+          NV_DP4A(u_.a_[m_], a4_, b4_, u_.a_[m_]); \
           bcol_ += 4 * (N_PAD); \
         } \
       } \
@@ -451,13 +453,13 @@
 # define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)
 # define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ)
 # if defined(OZAKI_U8) && (OZAKI_U8)
-# define OZAKI_SCALAR_BYTE_T_ uchar
+# define OZAKI_BYTE_T uchar
 # else
-# define OZAKI_SCALAR_BYTE_T_ char
+# define OZAKI_BYTE_T char
 # endif
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
-      const int col_ = (NJ) + (int)get_sub_group_local_id(); \
+      const int col_ = (NJ) + (int)LIBXS_SGLID(); \
       union { \
         int8 v_; \
         int a_[8]; \
@@ -467,8 +469,8 @@
       for (m_ = 0; m_ < 8; ++m_) { \
         int k_; \
         for (k_ = 0; k_ < 32; ++k_) { \
-          u_.a_[m_] += (int)((CONSTANT const OZAKI_SCALAR_BYTE_T_*)(AS))[(long)((MI) + m_) * (K_PAD) + (KOFF) + k_] * \
-                       (int)((CONSTANT const OZAKI_SCALAR_BYTE_T_*)(BS))[(long)((KOFF) + k_) * (N_PAD) + col_]; \
+          u_.a_[m_] += (int)((CONSTANT const OZAKI_BYTE_T*)(AS))[(long)((MI) + m_) * (K_PAD) + (KOFF) + k_] * \
+                       (int)((CONSTANT const OZAKI_BYTE_T*)(BS))[(long)((KOFF) + k_) * (N_PAD) + col_]; \
         } \
       } \
       (ACC) = u_.v_; \
