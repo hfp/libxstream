@@ -182,11 +182,22 @@ all: $(PROJECT)
 .PHONY: realall
 realall: all samples
 
+.PHONY: headers
+headers: cheader
+
+.PHONY: header-only
+header-only: cheader
+
 .PHONY: winterface
 winterface: headers sources
 
 .PHONY: config
 config: $(INCDIR)/$(PROJECT)_version.h
+
+.PHONY: cheader
+cheader: $(INCDIR)/$(PROJECT)_source.h $(INCDIR)/$(PROJECT)_version.h
+$(INCDIR)/$(PROJECT)_source.h: $(INCDIR)/.make $(ROOTSCR)/tool_source.sh $(HEADERS_SRC) $(SRCFILES)
+	@$(ROOTSCR)/tool_source.sh >$@
 
 $(INCDIR)/$(PROJECT)_version.h: $(INCDIR)/.make $(DIRSTATE)/.state $(ROOTSCR)/tool_version.sh
 	$(information)
@@ -397,7 +408,7 @@ ifneq ($(call qapath,$(BINDIR)),$(HEREDIR))
 	@-rm -rf $(BINDIR)
 endif
 endif
-	@-rm -f $(INCDIR)/$(PROJECT)_version.h
+	@-rm -f $(INCDIR)/$(PROJECT)_version.h $(INCDIR)/$(PROJECT)_source.h
 
 .PHONY: deepclean
 deepclean: realclean
@@ -464,6 +475,12 @@ endif
 	@$(CP) -v  $(INCDIR)/$(PROJECT)_version.h $(PREFIX)/$(PINCDIR) 2>/dev/null || true
 	@$(CP) -v  $(INCDIR)/$(PROJECT).h $(PREFIX)/$(PINCDIR) 2>/dev/null || true
 	@$(CP) -va $(INCDIR)/*.mod* $(PREFIX)/$(PINCDIR) 2>/dev/null || true
+	@echo
+	@echo "$(PROJUPP) installing header-only..."
+	@$(MKDIR) -p $(PREFIX)/$(PINCDIR)/$(PSRCDIR)
+	@$(CP) -r $(ROOTSRC)/* $(PREFIX)/$(PINCDIR)/$(PSRCDIR) >/dev/null 2>/dev/null || true
+# regenerate header-only
+	@$(ROOTSCR)/tool_source.sh $(PSRCDIR) >$(PREFIX)/$(PINCDIR)/$(PROJECT)_source.h
 endif
 
 .PHONY: install
