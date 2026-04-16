@@ -1087,18 +1087,32 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
           };
           devinfo->intel = (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
+          if (0 != devinfo->intel) { /* intel: 1=GPU, 2=GPU with XMX (DPAS + 2D block I/O) */
+            const char* const xmx_exts[] = {
+              "cl_intel_subgroup_matrix_multiply_accumulate", "cl_intel_subgroup_2d_block_io"
+            };
+            if (EXIT_SUCCESS == libxstream_opencl_device_ext(active_id, xmx_exts, 2)) {
+              devinfo->intel = 2;
+            }
+          }
+          { const char* const env_intel = getenv("LIBXSTREAM_INTEL");
+            if (NULL != env_intel) devinfo->intel = atoi(env_intel);
+          }
           devinfo->nv = (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
-          if (0 != devinfo->nv) { /* query SM compute capability via cl_nv_device_attribute_query */
+          if (0 != devinfo->nv) { /* nv: 1=generic, 2=SM>=7.5 (dp4a/mma.m8n8k16), 3=SM>=8.0 (mma.m16n8k32) */
             cl_uint sm_major = 0, sm_minor = 0;
             if (EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4000 /*CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV*/, sizeof(cl_uint),
                                   &sm_major, NULL) &&
                 EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4001 /*CL_DEVICE_COMPUTE_CAPABILITY_MINOR_NV*/, sizeof(cl_uint),
                                   &sm_minor, NULL))
-            { /* nv=1: generic, nv=2: SM>=7.5 (Turing mma.m8n8k16), nv=3: SM>=8.0 (Ampere mma.m16n8k32) */
+            {
               const int sm = (int)(sm_major * 10 + sm_minor);
               if (80 <= sm) devinfo->nv = 3;
               else if (75 <= sm) devinfo->nv = 2;
             }
+          }
+          { const char* const env_nv = getenv("LIBXSTREAM_NV");
+            if (NULL != env_nv) devinfo->nv = atoi(env_nv);
           }
           if (EXIT_SUCCESS != libxstream_opencl_device_name(active_id, devname, LIBXSTREAM_BUFFERSIZE, NULL /*platform*/,
                                 0 /*platform_maxlen*/, /*cleanup*/ 1) ||

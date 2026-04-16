@@ -78,7 +78,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const char* env;
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
-  int wg, sg, use_xmx, use_i8, nv_level, intel_level;
+  int wg, sg, use_i8;
   int result = EXIT_SUCCESS;
   memset(ctx, 0, sizeof(*ctx));
 
@@ -103,24 +103,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       fprintf(stderr, "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
     }
   }
-
-  /* INTEL level: 0=not Intel, 1=Intel GPU (no XMX), 2=Intel GPU with XMX (DPAS + 2D block I/O).
-   * OZAKI_XMX overrides XMX auto-detection. */
-  {
-    const char* const xmx_exts[] = {"cl_intel_subgroup_matrix_multiply_accumulate", "cl_intel_subgroup_2d_block_io"};
-    env = getenv("OZAKI_XMX");
-    if (NULL != env) {
-      use_xmx = atoi(env);
-    }
-    else {
-      use_xmx = (EXIT_SUCCESS == libxstream_opencl_device_ext(device, xmx_exts, 2)) ? 1 : 0;
-    }
-    intel_level = (0 != devinfo->intel) ? (use_xmx ? 2 : 1) : 0;
-  }
-  /* NVIDIA level: 0=scalar, 1=generic NV, 2=SM75 dp4a/mma.m8n8k16, 3=SM80+ mma.m16n8k32.
-   * OZAKI_NV overrides auto-detection (e.g. OZAKI_NV=0 forces scalar fallback). */
-  env = getenv("OZAKI_NV");
-  nv_level = (NULL != env) ? atoi(env) : (int)devinfo->nv;
 
   /* Scheme 2 signed i8 fallback: OZAKI_I8=1 uses moduli<=128 (legacy).
    * Default (u8): moduli<=256, fewer primes for same cumulative product. */
@@ -210,7 +192,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   if (0 >= sg) sg = 16; /* last resort */
 
   /* Intel DPAS + 2D block I/O requires sub-group size 16 */
-  if (2 <= intel_level && 16 != sg) {
+  if (2 <= devinfo->intel && 16 != sg) {
     if (0 > verbosity || 2 < verbosity) {
       fprintf(stderr, "INFO OZAKI: SG forced to 16 for XMX\n");
     }
@@ -332,7 +314,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DRTM=%d -DRTN=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, intel_level, nv_level,
+        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
         ndecomp, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn);
       env = getenv("OZAKI_PREFETCH");
       if (NULL != env && '1' == *env) {
@@ -476,7 +458,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DKGROUPS=%d -DRTM=%d -DRTN=%d -DPB=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, intel_level, nv_level,
+        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
         ndecomp, use_double, mant_bits, bias_plus_mant - oztrim, oztrim, bm_pre, bn_pre, bk_pre,
         (2 == kind && 1 < ozgroups) ? ozgroups : 0, rtm, rtn, ctx->pb);
       if (0 == use_i8) {
@@ -644,7 +626,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     fprintf(stderr, "INFO OZAKI: gpu=%d", gpu);
     ozaki_print_opt(stderr, "kind", kind);
     ozaki_print_opt(stderr, "fp", use_double ? 64 : 32);
-    ozaki_print_opt(stderr, "xmx", use_xmx);
+    ozaki_print_opt(stderr, "intel", (int)devinfo->intel);
+    ozaki_print_opt(stderr, "nv", (int)devinfo->nv);
     ozaki_print_opt(stderr, "wg", wg);
     ozaki_print_opt(stderr, "sg", sg);
     ozaki_print_opt(stderr, "tm", ctx->tm);
