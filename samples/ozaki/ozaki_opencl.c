@@ -187,14 +187,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   wg = (NULL != env ? atoi(env) : 0);
   env = getenv("OZAKI_SG");
   sg = (NULL != env ? atoi(env) : (int)devinfo->wgsize[2]);
-  /* fallback: preferred WG multiple (warp size on NV) */
-  if (0 >= sg) sg = (int)devinfo->wgsize[1];
+  if (0 >= sg) sg = (int)devinfo->wgsize[1]; /* fallback: preferred WG multiple */
   if (0 >= sg) sg = 16; /* last resort */
-
-  /* Intel DPAS + 2D block I/O requires sub-group size 16 */
-  if (2 <= devinfo->intel && 16 != sg) {
+  /* Tile addressing requires SG=16 (XMX_N=16 columns per sub-group).
+   * Intel DPAS and 2D block I/O also mandate SG=16. */
+  if (16 != sg) {
     if (0 > verbosity || 2 < verbosity) {
-      fprintf(stderr, "INFO OZAKI: SG forced to 16 for XMX\n");
+      fprintf(stderr, "INFO OZAKI: SG forced to 16\n");
     }
     sg = 16;
   }
