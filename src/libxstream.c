@@ -647,7 +647,7 @@ LIBXSTREAM_API int libxstream_init(void)
 
 
 /* attempt to automatically initialize backend */
-LIBXS_ATTRIBUTE_CTOR void libxstream_opencl_init(void)
+LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_CTOR void libxstream_opencl_init(void)
 {
   if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
     libxstream_opencl_configure();
@@ -659,7 +659,7 @@ LIBXS_ATTRIBUTE_CTOR void libxstream_opencl_init(void)
 
 
 /* attempt to automatically finalize backend */
-LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
+LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
 {
   assert(libxstream_opencl_config.ndevices < LIBXSTREAM_MAXNDEVS);
   if (0 != libxstream_opencl_config.ndevices) {

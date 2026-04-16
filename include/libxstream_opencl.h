@@ -44,6 +44,11 @@
 # include <libxs_source.h>
 # define __LIBXS
 #endif
+/* signal header-only mode before libxstream_macros.h selects build-kind */
+#if !defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_BUILD) && !defined(__LIBXSTREAM)
+# define LIBXSTREAM_SOURCE
+#endif
+#include "libxstream.h"
 
 #if !defined(LIBXSTREAM_MAXALIGN)
 # define LIBXSTREAM_MAXALIGN (2 << 20 /*2MB*/)
@@ -144,15 +149,6 @@
     if (EXIT_SUCCESS != (RESULT)) CL_ERROR_REPORT(NAME); \
     return (RESULT); \
   } while (0)
-
-/* header-only fallback for LIBXSTREAM */
-#if !defined(LIBXSTREAM_SOURCE_H) && !defined(LIBXSTREAM_BUILD) && !defined(__LIBXSTREAM)
-# include "libxstream_source.h"
-# define __LIBXSTREAM
-#endif
-#include "libxstream.h"
-
-LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest);
 
 /** Rich type denoting an error. */
 typedef struct libxstream_opencl_error_t {
@@ -291,6 +287,8 @@ typedef struct libxstream_opencl_config_t {
   cl_int wa;
 } libxstream_opencl_config_t;
 
+LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest);
+
 /** Global configuration setup in libxstream_init. */
 LIBXSTREAM_APIVAR_PUBLIC(libxstream_opencl_config_t libxstream_opencl_config);
 
@@ -381,5 +379,11 @@ LIBXSTREAM_API double libxstream_opencl_duration(cl_event event, int* result_cod
 LIBXSTREAM_API const char* libxstream_opencl_strerror(cl_int err);
 /** Consume and clear the last error. */
 LIBXSTREAM_API int libxstream_opencl_error_consume(void);
+
+/* header-only fallback for LIBXSTREAM */
+#if !defined(LIBXSTREAM_BUILD) && !defined(__LIBXSTREAM)
+# include "libxstream_source.h"
+# define __LIBXSTREAM
+#endif
 
 #endif /*LIBXSTREAM_OPENCL_H*/

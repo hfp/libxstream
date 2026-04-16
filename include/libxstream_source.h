@@ -8,10 +8,8 @@
 ******************************************************************************/
 #ifndef LIBXSTREAM_SOURCE_H
 #define LIBXSTREAM_SOURCE_H
+#define LIBXSTREAM_SOURCE
 
-#if defined(LIBXSTREAM_MACROS_H)
-# error Please do not include any LIBXSTREAM header other than libxstream_source.h!
-#endif
 #if defined(LIBXSTREAM_BUILD)
 # error LIBXSTREAM_BUILD cannot be defined for the header-only LIBXSTREAM!
 #endif
@@ -24,7 +22,6 @@
  * code for every (internal) change of LIBXSTREAM. Please make sure to only rely on the
  * public interface as the internal implementation may change without notice.
  */
-#include "libxstream.h"
 #include "../src/libxstream.c"
 #include "../src/libxstream_cp2k.c"
 #include "../src/libxstream_dbcsr.c"

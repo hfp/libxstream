@@ -16,16 +16,18 @@
 #   include <libxs_source.h>
 # endif
 #endif
-#include "libxstream_version.h"
+#if defined(LIBXSTREAM_BUILD)
+# include "libxstream_version.h"
+#endif
 
 /**
  * Build-kind selection for LIBXSTREAM's own API decoration.
  * Uses the parameterized API macros from libxs_macros.h:
- *  - LIBXSTREAM_SOURCE_H: header-only / inline build
- *  - LIBXSTREAM_BUILD:    building the library (export symbols)
- *  - neither:             consuming the library (import symbols)
+ *  - LIBXSTREAM_SOURCE: header-only / inline build
+ *  - LIBXSTREAM_BUILD:  building the library (export symbols)
+ *  - neither:           consuming the library (import symbols)
  */
-#if defined(LIBXSTREAM_SOURCE_H)
+#if defined(LIBXSTREAM_SOURCE)
 # define LIBXSTREAM_BUILD_KIND LIBXS_APIKIND_INLINE
 #elif defined(LIBXSTREAM_BUILD)
 # define LIBXSTREAM_BUILD_KIND LIBXS_APIKIND_EXPORT
