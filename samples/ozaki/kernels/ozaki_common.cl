@@ -51,7 +51,14 @@
 # define RC 8
 #endif
 
-/* DPAS sub-tile dimensions (fixed for PVC XMX) */
+/* Hardware sub-tile dimensions.
+ * Intel DPAS (PVC XMX):  8 rows x 16 cols, K=32  (SG=16)
+ * NVIDIA dp4a / MMA:     8 rows x 16 cols, K=32  (SG=32, matching layout)
+ * Scalar fallback:       8 rows x 16 cols, K=32
+ *
+ * The MMA tile (m16n8k32 for SM80+, m8n8k16 for SM75) differs from Intel
+ * DPAS in native shape but is composed/transposed inside OZAKI_DPAS so
+ * that the 8x16 accumulator contract is preserved for all paths. */
 #define XMX_M 8
 #define XMX_N 16
 
@@ -75,10 +82,10 @@
  *   C tile: 8 x 16 int32      (int8 per WI — 8 rows, sg_lid selects column)
  *   2D block I/O requires SG=16 and surface pitch >= 64 bytes.
  *
- * Scalar path (USE_XMX not defined):
+ * Scalar path (INTEL < 2):
  *   Same 8x32x16 tile contract via explicit loops.
  *   Allows the GEMM kernels to run on hardware without DPAS/2D block I/O. */
-#if defined(USE_XMX) && (0 < USE_XMX)
+#if defined(INTEL) && (2 <= INTEL)
 
 /* Prefetch next K-step's A and B tiles into cache.
  * 2D block prefetch with .ca.ca hints — writes to null, no register cost.
@@ -330,6 +337,115 @@
       OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI); \
       OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ); \
     } while (0)
+/* NVIDIA PTX path (NV>=2: dp4a + MMA primitives, SM>=7.5) */
+#elif defined(NV) && (2 <= NV)
+
+# define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
+# define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)
+# define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ)
+
+/* PTX dp4a: 4-element dot product of packed bytes with int32 accumulator.
+ *   dp4a.u32.u32 d, a, b, c  =>  d = c + dot(a.bytes, b.bytes)  (unsigned)
+ *   dp4a.s32.s32 d, a, b, c  =>  d = c + dot(a.bytes, b.bytes)  (signed)
+ * Available on SM>=6.1 (Pascal and later). */
+# if defined(OZAKI_U8) && (OZAKI_U8)
+#   define NV_DP4A_(D, A, B, C) asm("dp4a.u32.u32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
+#   define OZAKI_SCALAR_BYTE_T_ uchar
+# else
+#   define NV_DP4A_(D, A, B, C) asm("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
+#   define OZAKI_SCALAR_BYTE_T_ char
+# endif
+
+/* PTX MMA primitives for Tensor Cores (NV>=2).  These define the raw
+ * warp-cooperative MMA instructions; the OZAKI_DPAS macro below uses dp4a
+ * to maintain the 8x16 tile contract.  A dedicated MMA-based GEMM kernel
+ * can call NV_MMA_* directly with the appropriate fragment packing.
+ *
+ * m8n8k16 (SM>=7.5, NV>=2): A=1xb32, B=1xb32, C/D=2xb32, tile 8x8xK16
+ * m16n8k16 (SM>=8.0, NV>=3): A=2xb32, B=1xb32, C/D=4xb32, tile 16x8xK16
+ * m16n8k32 (SM>=8.0, NV>=3): A=4xb32, B=2xb32, C/D=4xb32, tile 16x8xK32
+ *
+ * All integer variants support mixed-sign: .u8/.s8 for A and B independently.
+ * Accumulator is always .s32.  The .satfinite modifier clamps to INT_MAX/MIN. */
+# if (2 <= NV)
+#   if defined(OZAKI_U8) && (OZAKI_U8)
+#     define NV_MMA_M8N8K16_(D0,D1, A0, B0, C0,C1) \
+        asm volatile("mma.sync.aligned.m8n8k16.row.col.s32.u8.u8.s32 " \
+          "{%0,%1}, {%2}, {%3}, {%4,%5};" \
+          : "=r"(D0), "=r"(D1) : "r"(A0), "r"(B0), "r"(C0), "r"(C1))
+#   else
+#     define NV_MMA_M8N8K16_(D0,D1, A0, B0, C0,C1) \
+        asm volatile("mma.sync.aligned.m8n8k16.row.col.s32.s8.s8.s32 " \
+          "{%0,%1}, {%2}, {%3}, {%4,%5};" \
+          : "=r"(D0), "=r"(D1) : "r"(A0), "r"(B0), "r"(C0), "r"(C1))
+#   endif
+# endif
+# if (3 <= NV)
+#   if defined(OZAKI_U8) && (OZAKI_U8)
+#     define NV_MMA_M16N8K16_(D0,D1,D2,D3, A0,A1, B0, C0,C1,C2,C3) \
+        asm volatile("mma.sync.aligned.m16n8k16.row.col.s32.u8.u8.s32 " \
+          "{%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};" \
+          : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
+          : "r"(A0), "r"(A1), "r"(B0), "r"(C0), "r"(C1), "r"(C2), "r"(C3))
+#     define NV_MMA_M16N8K32_(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
+        asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.u8.u8.s32 " \
+          "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
+          : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
+          : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
+            "r"(C0), "r"(C1), "r"(C2), "r"(C3))
+#   else
+#     define NV_MMA_M16N8K16_(D0,D1,D2,D3, A0,A1, B0, C0,C1,C2,C3) \
+        asm volatile("mma.sync.aligned.m16n8k16.row.col.s32.s8.s8.s32 " \
+          "{%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};" \
+          : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
+          : "r"(A0), "r"(A1), "r"(B0), "r"(C0), "r"(C1), "r"(C2), "r"(C3))
+#     define NV_MMA_M16N8K32_(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
+        asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 " \
+          "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
+          : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
+          : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
+            "r"(C0), "r"(C1), "r"(C2), "r"(C3))
+#   endif
+# endif
+
+/* OZAKI_DPAS using dp4a: same tile contract as scalar (8x16, K=32) but
+ * processes 4 K-elements per dp4a instead of 1.  8 dp4a calls per row
+ * (32 / 4 = 8).  A is packed as uint from 4 consecutive bytes. */
+# define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+    do { \
+      const int col_ = (NJ) + (int)get_sub_group_local_id(); \
+      union { int8 v_; int a_[8]; } u_; \
+      int m_; \
+      u_.v_ = (ACC); \
+      for (m_ = 0; m_ < 8; ++m_) { \
+        CONSTANT const OZAKI_SCALAR_BYTE_T_* arow_ = \
+          (CONSTANT const OZAKI_SCALAR_BYTE_T_*)(AS) + (long)((MI) + m_) * (K_PAD) + (KOFF); \
+        CONSTANT const OZAKI_SCALAR_BYTE_T_* bcol_ = \
+          (CONSTANT const OZAKI_SCALAR_BYTE_T_*)(BS) + (long)(KOFF) * (N_PAD) + col_; \
+        int k4_; \
+        for (k4_ = 0; k4_ < 8; ++k4_) { \
+          uint a4_ = as_uint(vload4(k4_, (CONSTANT const OZAKI_SCALAR_BYTE_T_*)arow_)); \
+          uint b4_ = as_uint((OZAKI_SCALAR_BYTE_T_##4)(bcol_[0], bcol_[(N_PAD)], bcol_[2*(N_PAD)], bcol_[3*(N_PAD)])); \
+          NV_DP4A_(u_.a_[m_], a4_, b4_, u_.a_[m_]); \
+          bcol_ += 4 * (N_PAD); \
+        } \
+      } \
+      (ACC) = u_.v_; \
+    } while (0)
+
+/* Tiled variant: loop over RTM x RTN sub-tiles. */
+# define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+    do { \
+      int rm_t_, rn_t_; \
+      for (rm_t_ = 0; rm_t_ < RTM; ++rm_t_) { \
+        for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) { \
+          OZAKI_DPAS(AS, BS, K_PAD, N_PAD, (MI) + rm_t_ * XMX_M, (NJ) + rn_t_ * XMX_N, \
+                     KOFF, M_HT, (ACC)[rm_t_ * RTN + rn_t_]); \
+        } \
+      } \
+    } while (0)
+
+/* Scalar fallback (no hardware acceleration) */
 #else
 # define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
 # define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)

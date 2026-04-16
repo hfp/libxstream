@@ -78,7 +78,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const char* env;
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
-  int wg, sg, use_xmx, use_i8;
+  int wg, sg, use_xmx, use_i8, nv_level, intel_level;
   int result = EXIT_SUCCESS;
   memset(ctx, 0, sizeof(*ctx));
 
@@ -104,7 +104,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
   }
 
-  /* Detect hardware matrix multiply support */
+  /* INTEL level: 0=not Intel, 1=Intel GPU (no XMX), 2=Intel GPU with XMX (DPAS + 2D block I/O).
+   * OZAKI_XMX overrides XMX auto-detection. */
   {
     const char* const xmx_exts[] = {"cl_intel_subgroup_matrix_multiply_accumulate", "cl_intel_subgroup_2d_block_io"};
     env = getenv("OZAKI_XMX");
@@ -114,7 +115,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     else {
       use_xmx = (EXIT_SUCCESS == libxstream_opencl_device_ext(device, xmx_exts, 2)) ? 1 : 0;
     }
+    intel_level = (0 != devinfo->intel) ? (use_xmx ? 2 : 1) : 0;
   }
+  /* NVIDIA level: 0=scalar, 1=generic NV, 2=SM75 dp4a/mma.m8n8k16, 3=SM80+ mma.m16n8k32.
+   * OZAKI_NV overrides auto-detection (e.g. OZAKI_NV=0 forces scalar fallback). */
+  env = getenv("OZAKI_NV");
+  nv_level = (NULL != env) ? atoi(env) : (int)devinfo->nv;
 
   /* Scheme 2 signed i8 fallback: OZAKI_I8=1 uses moduli<=128 (legacy).
    * Default (u8): moduli<=256, fewer primes for same cumulative product. */
@@ -188,7 +194,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   ctx->use_double = use_double;
-  ctx->use_xmx = use_xmx;
   ctx->kind = kind;
   ctx->ozflags = ozflags;
   ctx->oztrim = oztrim;
@@ -201,8 +206,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   env = getenv("OZAKI_SG");
   sg = (NULL != env ? atoi(env) : (int)devinfo->wgsize[2]);
 
-  /* 2D block I/O and SG=16 DPAS both require sub-group size 16 */
-  if (use_xmx && 16 != sg) {
+  /* Intel DPAS + 2D block I/O requires sub-group size 16 */
+  if (2 <= intel_level && 16 != sg) {
     if (0 > verbosity || 2 < verbosity) {
       fprintf(stderr, "INFO OZAKI: SG forced to 16 for XMX\n");
     }
@@ -303,27 +308,29 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
     if (0 >= tm) tm = 256;
     if (0 >= tn) tn = 256;
-    /* Clamp tiling factors so at least one sub-tile remains per dimension. */
+    /* Clamp tiling factors so at least one sub-tile remains per dimension.
+     * XMX_M=8, XMX_N=16 for all paths (Intel DPAS, NVIDIA dp4a, scalar). */
     while (rtm > 1 && tm / (8 * rtm) < 1) rtm >>= 1;
     while (rtn > 1 && tn / (16 * rtn) < 1) rtn >>= 1;
-    /* Shrink tile to satisfy work-group size constraint. */
-    while ((size_t)tm * tn / (8 * rtm * rtn) > max_wgs && (tm > 8 * rtm || tn > 16 * rtn)) {
-      if (tm >= tn) tm /= 2;
-      else tn /= 2;
+    /* Shrink tile to satisfy work-group size constraint.
+     * WGS = SG * NTM * NTN = SG * (BM/(8*RTM)) * (BN/(16*RTN)). */
+    { const size_t xmx_area = (size_t)(8 * rtm) * (16 * rtn);
+      while ((size_t)sg * ((size_t)tm * tn / xmx_area) > max_wgs && (tm > 8 * rtm || tn > 16 * rtn)) {
+        if (tm >= tn) tm /= 2;
+        else tn /= 2;
+      }
     }
     if (1 == kind) {
       size_t goff = 0;
       goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
-        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16 -DINTEL=%d"
+        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DRTM=%d -DRTN=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, (int)(0 != devinfo->intel), ndecomp, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn);
-      if (use_xmx) {
-        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DUSE_XMX=1");
-      }
+        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, intel_level, nv_level,
+        ndecomp, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn);
       env = getenv("OZAKI_PREFETCH");
       if (NULL != env && '1' == *env) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_PREFETCH=1");
@@ -460,17 +467,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     if (2 == kind) {
       size_t coff = 0;
       coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=16 -DINTEL=%d"
+        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DKGROUPS=%d -DRTM=%d -DRTN=%d -DPB=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, (int)(0 != devinfo->intel), ndecomp, use_double, mant_bits, bias_plus_mant - oztrim, oztrim, bm_pre, bn_pre, bk_pre,
+        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, intel_level, nv_level,
+        ndecomp, use_double, mant_bits, bias_plus_mant - oztrim, oztrim, bm_pre, bn_pre, bk_pre,
         (2 == kind && 1 < ozgroups) ? ozgroups : 0, rtm, rtn, ctx->pb);
-      if (use_xmx) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DUSE_XMX=1");
-      }
       if (0 == use_i8) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
       }

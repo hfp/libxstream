@@ -1088,6 +1088,18 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           };
           devinfo->intel = (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
           devinfo->nv = (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
+          if (0 != devinfo->nv) { /* query SM compute capability via cl_nv_device_attribute_query */
+            cl_uint sm_major = 0, sm_minor = 0;
+            if (EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4000 /*CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV*/, sizeof(cl_uint),
+                                  &sm_major, NULL) &&
+                EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4001 /*CL_DEVICE_COMPUTE_CAPABILITY_MINOR_NV*/, sizeof(cl_uint),
+                                  &sm_minor, NULL))
+            { /* nv=1: generic, nv=2: SM>=7.5 (Turing mma.m8n8k16), nv=3: SM>=8.0 (Ampere mma.m16n8k32) */
+              const int sm = (int)(sm_major * 10 + sm_minor);
+              if (80 <= sm) devinfo->nv = 3;
+              else if (75 <= sm) devinfo->nv = 2;
+            }
+          }
           if (EXIT_SUCCESS != libxstream_opencl_device_name(active_id, devname, LIBXSTREAM_BUFFERSIZE, NULL /*platform*/,
                                 0 /*platform_maxlen*/, /*cleanup*/ 1) ||
               EXIT_SUCCESS != libxstream_opencl_device_uid(active_id, devname, &devinfo->uid))

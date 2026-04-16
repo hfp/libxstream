@@ -70,7 +70,7 @@
 # define BN_B_PAD 64
 #endif
 
-#if defined(USE_XMX) && (0 < USE_XMX) && (RTM >= 2) && (RTN >= 2)
+#if defined(INTEL) && (2 <= INTEL) && (RTM >= 2) && (RTN >= 2)
 # define OZAKI_USE_OCL_KLOOP
 #endif
 

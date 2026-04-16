@@ -45,25 +45,7 @@ typedef enum ozaki_flags_t { OZAKI_TRIANGULAR = 1, OZAKI_SYMMETRIZE = 2 } ozaki_
  *
  * matrix   : host pointer to source matrix (A or B)
  * ld       : leading dimension
- * trans    : 0 = not transposed, 1 = transposed
- * dim      : outer dimension: M (for A) or N (for B)
- * K        : inner dimension (unpadded)
- * K_pad    : padded K (multiple of 32, >= 64)
- * dim_pad  : padded outer dimension: M_pad (for A) or N_pad (for B)
- * ndecomp  : number of decomposition components (slices or CRT primes)
- * use_xmx  : 1 if XMX hardware (DPAS)
- * slices   : output int8 buffer, pre-zeroed, size ndecomp*dim_pad*K_pad (A)
- *            or ndecomp*K_pad*dim_pad (B)
- * exp      : output int32 exponent buffer, pre-zeroed, size dim
- *
- * A-side slice layout: slices[s * dim_pad * K_pad + row * K_pad + k]
- * B-side slice layout: slices[s * K_pad * dim_pad + k * dim_pad + col]
- * Exponent layout:     exp[i] -- 2^(max exponent) per row (A) or col (B),
- *                      stored as real_t (double or float matching matrix type) */
-typedef void (*ozaki_host_preprocess_fn)(
-  const void* matrix, int ld, int trans, int dim, int K, int K_pad, int dim_pad, int ndecomp, int use_xmx, void* slices, void* exp);
-
-/* Per-side preprocessing cache: check fields + cached device buffers.
+ * Per-side preprocessing cache: check fields + cached device buffers.
  * dim is the outer dimension (M for A, N for B). */
 typedef struct ozaki_cache_side_t {
   const void* ptr;
@@ -104,7 +86,6 @@ typedef struct ozaki_context_t {
   cl_kernel kern_crt_fused;
   cl_kernel kern_crt_scale_beta;
   int use_double; /* 1: fp64, 0: fp32 */
-  int use_xmx; /* 1: hardware matrix multiply (DPAS/XMX) */
   int sg; /* sub-group size used for compilation */
   int ndecomp; /* number of decomposition components (slices or primes) */
   int kind; /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT) */
@@ -129,12 +110,6 @@ typedef struct ozaki_context_t {
   libxstream_stream_t *stream_a, *stream_b;
   /* Persistent synchronization events */
   libxstream_event_t *evt_prep_a, *evt_prep_b;
-  /* Optional host-side preprocessing (NULL = GPU kernels).
-   * When non-NULL, ozaki_gemm calls these callbacks to fill host
-   * staging buffers, then H2D-copies to device, skipping the GPU
-   * preprocess kernels and the full-matrix H2D transfers. */
-  ozaki_host_preprocess_fn host_preprocess_a;
-  ozaki_host_preprocess_fn host_preprocess_b;
   /* Preprocessing cache (OZAKI_CACHE env, bitmask: 1=A, 2=B, 3=both). */
   ozaki_cache_t cache;
   /* Complex GEMM block-embedding kernels (construct A_hat, B_hat, finalize) */
