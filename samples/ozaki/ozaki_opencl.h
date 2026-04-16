@@ -76,6 +76,8 @@ typedef struct ozaki_context_t {
   cl_kernel kern_preprocess_b;
   cl_kernel kern_fused;
   cl_kernel kern_fused_bounds; /* bounds-checked variant for unaligned sizes */
+  cl_kernel kern_fused_nv; /* NVIDIA Tensor Core MMA path (NV>=3) */
+  int nv_tm, nv_tn; /* MMA kernel tile sizes */
   cl_kernel kern_scale_beta;
   /* Optional TinyTC SPIR-V kernel (loaded from .clx via OZAKI_TINYTC env) */
   cl_kernel kern_tinytc;
