@@ -400,45 +400,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
         if (NULL != program_b) clReleaseProgram(program_b);
       }
-      /* NVIDIA Tensor Core MMA kernel (non-fatal: falls back to dp4a). */
-      ctx->kern_fused_nv = NULL;
-#if defined(OPENCL_KERNELS_SOURCE_OZAKI1_INT8_NV)
-      if (EXIT_SUCCESS == result && 3 <= devinfo->nv) {
-        /* MMA tile: 16 rows x 8 cols, SG=32.  Recompute tm/tn for MMA geometry. */
-        const int nv_sg = 32, nv_mma_m = 16, nv_mma_n = 8;
-        int nv_tm = 128, nv_tn = 64; /* defaults for MMA path */
-        char bp_nv[sizeof(build_params) + 64];
-        cl_program program_nv = NULL;
-        /* Clamp to WGS limit */
-        while ((size_t)nv_sg * (nv_tm / (nv_mma_m * rtm)) * (nv_tn / (nv_mma_n * rtn)) > max_wgs) {
-          if (nv_tm >= nv_tn) nv_tm /= 2; else nv_tn /= 2;
-        }
-        LIBXS_SNPRINTF(bp_nv, sizeof(bp_nv),
-          "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DSG=%d -DINTEL=0 -DNV=%d"
-          " -DNSLICES=%d -DUSE_DOUBLE=%d -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
-          " -DRTM=%d -DRTN=%d -DOZAKI_CUTOFF=%d -DOZAKI_SQ=%d -DCONSTANT=global",
-          nv_tm, nv_tn, bk_pre, ctx->ku, nv_sg, (int)devinfo->nv,
-          ndecomp, use_double, mant_bits, bias_plus_mant,
-          rtm, rtn, 2 * (ndecomp - 1) - oztrim, ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE));
-        if (0 > verbosity || 2 < verbosity) {
-          fprintf(stderr, "INFO OZAKI: NV MMA %s\n", bp_nv);
-        }
-        if (EXIT_SUCCESS == libxstream_opencl_program(
-              0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8_NV, "ozaki1_nv", bp_nv, build_options,
-              NULL, NULL, NULL, 0, &program_nv))
-        {
-          libxstream_opencl_kernel_query(program_nv, "gemm_fused_nv", &ctx->kern_fused_nv);
-        }
-        if (NULL != program_nv) clReleaseProgram(program_nv);
-        if (NULL != ctx->kern_fused_nv) {
-          ctx->nv_tm = nv_tm;
-          ctx->nv_tn = nv_tn;
-          if (0 > verbosity || 2 < verbosity) {
-            fprintf(stderr, "INFO OZAKI: NV MMA kernel loaded (BM=%d BN=%d)\n", nv_tm, nv_tn);
-          }
-        }
-      }
-#endif
       if (EXIT_SUCCESS != result) {
         if (NULL != ctx->kern_preprocess_a) {
           clReleaseKernel(ctx->kern_preprocess_a);
@@ -721,9 +682,6 @@ void ozaki_destroy(ozaki_context_t* ctx)
     }
     if (NULL != ctx->kern_fused_bounds) {
       clReleaseKernel(ctx->kern_fused_bounds);
-    }
-    if (NULL != ctx->kern_fused_nv) {
-      clReleaseKernel(ctx->kern_fused_nv);
     }
     if (NULL != ctx->kern_scale_beta) {
       clReleaseKernel(ctx->kern_scale_beta);

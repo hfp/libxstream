@@ -218,12 +218,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           result = ozaki_launch_tinytc(ctx, stream, d_as, d_bs, d_scratch, d_cg, d_expa_g, d_expb_g, M, N, k_pad, m_pad, n_pad,
             nslices_g, tm, tn, ldc, cutoff, sq, evt_prof, 1, 2, &n_profiled, profile);
         }
-        else if (NULL != ctx->kern_fused_nv) {
-          const int nv_tm = ctx->nv_tm, nv_tn = ctx->nv_tn;
-          const int nv_ntm = nv_tm / (16 * ctx->rtm), nv_ntn = nv_tn / (8 * ctx->rtn);
-          result = ozaki_launch_fused(ctx, stream, ctx->kern_fused_nv, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad,
-            ldc, m_pad, nv_tm, nv_tn, nv_ntm, nv_ntn, alpha, first_pair, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
-        }
         else {
           cl_kernel kern_g = (0 != M % tm || 0 != N % tn) ? ctx->kern_fused_bounds : ctx->kern_fused;
           result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
@@ -682,7 +676,7 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = stream;
   size_t local_g[2], global_g[2];
-  local_g[0] = (NULL != ctx->kern_fused_nv && kern_g == ctx->kern_fused_nv) ? 32 : (size_t)ctx->sg;
+  local_g[0] = 16;
   local_g[1] = (size_t)(ntm * ntn);
   {
     const int nblk_gm = (M + tm - 1) / tm;

@@ -68,7 +68,6 @@ IFLAGS += -I$(call quote,$(INCDIR))
 
 SCRDIR := $(DEPDIR)/scripts
 KRNELS := $(SRCDIR)/kernels/ozaki1_int8.cl \
-          $(SRCDIR)/kernels/ozaki1_int8_nv.cl \
           $(SRCDIR)/kernels/ozaki2_int8.cl \
           $(SRCDIR)/kernels/gemm3m.cl \
           $(NULL)
