@@ -23,7 +23,10 @@ cat << EOM
 ******************************************************************************/
 #ifndef LIBXSTREAM_SOURCE_H
 #define LIBXSTREAM_SOURCE_H
-#define LIBXSTREAM_SOURCE
+
+#if !defined(LIBXSTREAM_SOURCE)
+# define LIBXSTREAM_SOURCE
+#endif
 
 #if defined(LIBXSTREAM_BUILD)
 # error LIBXSTREAM_BUILD cannot be defined for the header-only LIBXSTREAM!
