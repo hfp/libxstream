@@ -9,8 +9,9 @@
 #ifndef LIBXSTREAM_MACROS_H
 #define LIBXSTREAM_MACROS_H
 
-/* LIBXSTREAM header-only implies LIBXS header-only */
-#if defined(LIBXSTREAM_SOURCE) && !defined(LIBXS_SOURCE)
+/* LIBXSTREAM header-only implies LIBXS header-only (unless prebuilt) */
+#if defined(LIBXSTREAM_SOURCE) && !defined(LIBXS_SOURCE) \
+ && !defined(__LIBXS) && !defined(LIBXS_BUILD)
 # define LIBXS_SOURCE
 #endif
 
