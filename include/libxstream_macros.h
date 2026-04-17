@@ -27,7 +27,7 @@
  *  - LIBXSTREAM_BUILD:  building the library (export symbols)
  *  - neither:           consuming the library (import symbols)
  */
-#if defined(LIBXSTREAM_SOURCE)
+#if defined(LIBXSTREAM_SOURCE) || defined(LIBXSTREAM_SOURCE_H)
 # define LIBXSTREAM_BUILD_KIND LIBXS_APIKIND_INLINE
 #elif defined(LIBXSTREAM_BUILD)
 # define LIBXSTREAM_BUILD_KIND LIBXS_APIKIND_EXPORT
