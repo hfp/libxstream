@@ -1,22 +1,67 @@
 # LIBXSTREAM
 
-LIBXSTREAM is an OpenCL-based accelerator backend library that provides streams, events, and device memory management for offloading compute work to GPUs. The library implements the [DBCSR ACC interface](https://github.com/cp2k/dbcsr/blob/develop/src/acc/), making it a drop-in OpenCL backend for [CP2K](https://cp2k.org/)/[DBCSR](https://dbcsr.cp2k.org/).
+LIBXSTREAM is an OpenCL-based accelerator backend library providing
+streams, events, and device memory management for GPU offloading. It
+implements the [DBCSR ACC interface](https://github.com/cp2k/dbcsr/blob/develop/src/acc/),
+making it a drop-in OpenCL backend for
+[CP2K](https://cp2k.org/)/[DBCSR](https://dbcsr.cp2k.org/).
 
-LIBXSTREAM targets OpenCL devices across vendors (Intel, AMD, NVIDIA) and depends on [LIBXS](https://github.com/hfp/libxs) for utility infrastructure (memory pools, timers, synchronization, etc.).
+Targets OpenCL devices across vendors (Intel, AMD, NVIDIA). Depends
+on [LIBXS](https://github.com/hfp/libxs) for utility infrastructure.
+
+## Build
+
+LIBXS must be a sibling directory (controlled by `LIBXSROOT`).
+An OpenCL SDK must be available.
+
+**Library** -- build both LIBXS and LIBXSTREAM as separate
+libraries:
+
+```bash
+git clone https://github.com/hfp/libxs.git
+git clone https://github.com/hfp/libxstream.git
+
+cd libxs && make GNU=1 -j $(nproc)
+cd ../libxstream && make GNU=1 -j $(nproc)
+```
+
+This produces `lib/libxstream.a` and `lib/libxstream.so`.
+
+**Header-only** (explicit) -- include `libxstream_source.h` in
+exactly one translation unit (no separate library needed for
+either LIBXSTREAM or LIBXS):
+
+```c
+#include <libxstream_source.h>
+```
+
+**Header-only** (implicit) -- compile with `-DLIBXSTREAM_SOURCE`.
+Any LIBXSTREAM or LIBXS public header then automatically includes
+the implementation. No special include order is required.
+`-DLIBXSTREAM_SOURCE` implies `-DLIBXS_SOURCE`; LIBXS can also
+be made header-only independently with `-DLIBXS_SOURCE`.
+
+The library is compiled for SSE4.2 by default but dynamically
+dispatches to the best ISA available at runtime (up to AVX-512).
+Use `SSE=0` to compile natively for the build host.
+
+| Variable   | Default   | Description                                     |
+|------------|-----------|-------------------------------------------------|
+| GNU        | 0         | Use GNU GCC-compatible compiler                 |
+| DBG        | 0         | Debug build                                     |
+| SYM        | 0         | Include debug symbols (-g)                      |
+| SSE        | 1         | x86 baseline: 0=native, 1=SSE4.2 (portable)     |
+
+pkg-config support: `lib/libxstream.pc`.
 
 ## API
 
-The public C API is declared in `include/libxstream.h`. All implementation details are sealed behind opaque types.
-
-```C
-typedef int libxstream_bool_t;
-typedef struct libxstream_stream_t libxstream_stream_t;
-typedef struct libxstream_event_t libxstream_event_t;
-```
+The public C API is declared in `include/libxstream.h`. All
+implementation details are sealed behind opaque types.
 
 ### Devices
 
-```C
+```c
 int libxstream_init(void);
 int libxstream_finalize(void);
 int libxstream_device_count(int* ndevices);
@@ -26,104 +71,85 @@ int libxstream_device_sync(void);
 
 ### Streams
 
-```C
-int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, int priority);
+```c
+int libxstream_stream_create(libxstream_stream_t** stream_p,
+                             const char* name, int priority);
 int libxstream_stream_destroy(libxstream_stream_t* stream);
 int libxstream_stream_sync(libxstream_stream_t* stream);
-int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t* event);
+int libxstream_stream_wait_event(libxstream_stream_t* stream,
+                                 libxstream_event_t* event);
 ```
 
 ### Events
 
-```C
+```c
 int libxstream_event_create(libxstream_event_t** event_p);
 int libxstream_event_destroy(libxstream_event_t* event);
-int libxstream_event_record(libxstream_event_t* event, libxstream_stream_t* stream);
-int libxstream_event_query(libxstream_event_t* event, libxstream_bool_t* has_occurred);
+int libxstream_event_record(libxstream_event_t* event,
+                            libxstream_stream_t* stream);
+int libxstream_event_query(libxstream_event_t* event,
+                           libxstream_bool_t* has_occurred);
 int libxstream_event_sync(libxstream_event_t* event);
 ```
 
 ### Memory
 
-Device and host memory allocation, transfers (H2D, D2H, D2D), and initialization. Memory pointers remain untyped (`void*`); stream parameters use the opaque stream type.
+Device and host memory allocation, transfers (H2D, D2H, D2D), and
+initialization:
 
-```C
+```c
 int libxstream_mem_allocate(void** dev_mem, size_t nbytes);
 int libxstream_mem_deallocate(void* dev_mem);
-int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, libxstream_stream_t* stream);
-int libxstream_mem_host_deallocate(void* host_mem, libxstream_stream_t* stream);
-int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream);
-int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, libxstream_stream_t* stream);
-int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, libxstream_stream_t* stream);
-int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbytes, libxstream_stream_t* stream);
+int libxstream_mem_host_allocate(void** host_mem, size_t nbytes,
+                                 libxstream_stream_t* stream);
+int libxstream_mem_host_deallocate(void* host_mem,
+                                   libxstream_stream_t* stream);
+int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem,
+                            size_t nbytes, libxstream_stream_t* stream);
+int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem,
+                            size_t nbytes, libxstream_stream_t* stream);
+int libxstream_mem_copy_d2d(const void* src, void* dst,
+                            size_t nbytes, libxstream_stream_t* stream);
+int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbytes,
+                        libxstream_stream_t* stream);
 ```
 
 ### DBCSR Compatibility
 
-The header `include/libxstream_dbcsr.h` provides the full set of `c_dbcsr_acc_*` symbols expected by DBCSR, allowing LIBXSTREAM to serve as a drop-in accelerator backend. The DBCSR interface retains `void*` handles for streams and events; casts to the opaque types are confined to the adapter layer (`src/libxstream_dbcsr.c`).
+The header `include/libxstream_dbcsr.h` provides the `c_dbcsr_acc_*`
+symbols expected by DBCSR, allowing LIBXSTREAM to serve as a drop-in
+accelerator backend.
 
 ### CP2K Offload Interface
 
-The header `include/libxstream_cp2k.h` implements CP2K's [offload runtime interface](https://github.com/cp2k/cp2k/blob/master/src/offload/offload_runtime.h) — the `offload*` functions that CP2K uses for general GPU operations (memory, streams, events, synchronization). The implementation (`src/libxstream_cp2k.c`) routes through LIBXSTREAM's internal API, including `libxstream_opencl_memset` for arbitrary-value fills and `libxstream_opencl_strerror` for error reporting.
-
-## Building
-
-LIBXSTREAM depends on [LIBXS](https://github.com/hfp/libxs), which is included at compile time via source inclusion (`libxs_source.h`). The Makefiles expect LIBXS to reside as a sibling directory (`../libxs` relative to the LIBXSTREAM root). This is controlled by the `LIBXSROOT` variable in both the top-level `Makefile` and the sample Makefiles.
-
-```sh
-# clone both repositories side by side
-git clone https://github.com/hfp/libxs.git
-git clone https://github.com/hfp/libxstream.git
-```
-
-```
-parent/
-  libxs/          <-- LIBXS (required)
-  libxstream/     <-- this repository
-```
-
-An OpenCL SDK must also be available.
-
-```sh
-cd libxstream
-make          # builds lib/libxstream.a and lib/libxstream.so
-```
-
-Key Makefile variables:
-
-| Variable    | Default | Description                          |
-|-------------|---------|--------------------------------------|
-| `OCL`       | `2`     | OpenCL requirement level             |
-| `STATIC`    | `1`     | `0`: shared only, `1`: both, `2`: static only |
-| `THREADS`   | `1`     | Thread-safe library                  |
-| `OMP`       | `0`     | OpenMP support                       |
-| `DBG`       | `0`     | Debug build                          |
-| `CACHELINE` | `64`    | Cacheline size (bytes)               |
-
-pkg-config support is available via `lib/libxstream.pc`.
-
-### Samples
-
-Each sample has its own Makefile under `samples/`:
-
-```sh
-cd samples/smm && make
-cd samples/ozaki && make
-```
+The header `include/libxstream_cp2k.h` implements CP2K's offload
+runtime interface -- the `offload*` functions for general GPU
+operations (memory, streams, events, synchronization).
 
 ## Samples
 
-### SMM — Small Matrix Multiplication
+Each sample has its own Makefile under `samples/`:
 
-`samples/smm/` implements the [ACC LIBSMM interface](https://github.com/cp2k/dbcsr/blob/develop/src/acc/acc_libsmm.h) for batched small matrix multiply and transpose on OpenCL devices. Includes an auto-tuning framework (`tune_multiply.py`) and pre-tuned parameter sets for A100, BMG, GH200, H100, Mi250, P100, PVC, and V100. See `samples/smm/README.md` for details.
+```bash
+cd samples/smm && make GNU=1
+cd samples/ozaki && make GNU=1
+```
 
-### Ozaki — High-Precision GEMM via Mantissa Slicing
+### SMM -- Small Matrix Multiplication
 
-`samples/ozaki/` demonstrates Ozaki Scheme 1 for high-precision GEMM emulation, fully offloaded to OpenCL. Two kernel variants (int8 and bf16) with automatic detection of Intel XMX matrix engines. See `samples/ozaki/README.md` for details. The CPU-side GEMM wrapper that drives this GPU implementation is part of [LIBXS Ozaki](https://github.com/hfp/libxs/tree/main/samples/ozaki#ozaki-scheme-low-precision-gemm).
+Implements the ACC LIBSMM interface for batched small matrix multiply
+and transpose on OpenCL devices. Includes an auto-tuning framework
+and pre-tuned parameter sets for A100, BMG, GH200, H100, Mi250, P100,
+PVC, and V100. See [samples/smm/README.md](samples/smm/README.md).
 
-## References
+### Ozaki -- High-Precision GEMM
 
-**[1]** [CP2K](https://cp2k.org/) — Open Source Molecular Dynamics. LIBXSTREAM provides the OpenCL accelerator backend for CP2K's [DBCSR](https://dbcsr.cp2k.org/) sparse matrix library.
+Ozaki scheme for high-precision GEMM emulation, fully offloaded to
+OpenCL. Two schemes (mantissa slicing and CRT) with automatic
+detection of Intel XMX matrix engines. See
+[samples/ozaki/README.md](samples/ozaki/README.md). The CPU-side
+GEMM wrapper is part of
+[LIBXS Ozaki](https://github.com/hfp/libxs/tree/main/samples/ozaki).
 
 ## License
 

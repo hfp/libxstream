@@ -308,7 +308,7 @@ $(DOCDIR)/$(PROJECT)_samples.md: $(DOCDIR)/.make $(DOCDIR)/$(SPLDIR)/.make $(ROO
 		-e '1s/^/# [$(PROJUPP) Samples](https:\/\/github.com\/hfp\/$(PROJECT)\/raw\/main\/$(DOCDIR)\/$(PROJECT)_samples.pdf)\n\n/' \
 		>$@
 
-$(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ABSDIR)/$(DOCDIR)/index.md $(ABSDIR)/$(DOCDIR)/$(PROJECT)_scripts.md $(DOCMDS)
+$(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(DOCDIR)/index.md $(DOCDIR)/$(PROJECT)_scripts.md $(DOCMDS)
 	$(eval TMPFILE = $(shell $(MKTEMP) $(ROOTDIR)/$(DOCDIR)/.$(PROJECT)_XXXXXX.tex))
 	@pandoc -D latex \
 	| $(SED) \
