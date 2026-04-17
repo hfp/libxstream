@@ -27,9 +27,9 @@ cd ../libxstream && make GNU=1 -j $(nproc)
 
 This produces `lib/libxstream.a` and `lib/libxstream.so`.
 
-**Header-only** (explicit) -- include `libxstream_source.h` in
-exactly one translation unit (no separate library needed for
-either LIBXSTREAM or LIBXS):
+**Header-only** (explicit) -- include `libxstream_source.h` (no
+separate library needed for either LIBXSTREAM or LIBXS). Safe
+to include from multiple translation units:
 
 ```c
 #include <libxstream_source.h>
