@@ -54,6 +54,24 @@ Use `SSE=0` to compile natively for the build host.
 
 pkg-config support: `lib/libxstream.pc`.
 
+## Installation
+
+Install into a chosen prefix (LIBXS must be built first):
+
+```bash
+make GNU=1 -j $(nproc) install PREFIX=$HOME/libxstream
+```
+
+This installs headers, the static and shared libraries, and the
+header-only source tree under `PREFIX`.
+
+Out-of-tree builds are also supported:
+
+```bash
+mkdir /tmp/libxstream-build && cd /tmp/libxstream-build
+make -j $(nproc) -f /path/to/libxstream/Makefile
+```
+
 ## API
 
 The public C API is declared in `include/libxstream.h`. All
