@@ -137,7 +137,7 @@ ifeq (file,$(origin AVX))
 endif
 AVX_STATIC ?= $(AVX)
 
-HEADERS_MAIN := $(ROOTINC)/libxstream_cp2k.h $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream_opencl.h $(ROOTINC)/libxstream.h
+HEADERS_MAIN := $(ROOTINC)/libxstream_cp2k.h $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream_macros.h $(ROOTINC)/libxstream_opencl.h $(ROOTINC)/libxstream.h
 LIBXS_SOURCE := $(wildcard $(LIBXSROOT)/include/libxs_source.h)
 HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
@@ -380,7 +380,7 @@ documentation: $(DOCDIR)/$(PROJECT).$(DOCEXT) $(DOCDIR)/$(PROJECT)_samples.$(DOC
 
 .PHONY: mkdocs
 mkdocs: $(ROOTDIR)/$(DOCDIR)/index.md
-	@mkdocs build --clean
+#	@mkdocs build --clean
 	@mkdocs serve
 
 .PHONY: clean
@@ -474,14 +474,15 @@ endif
 	fi
 	@echo
 	@echo "$(PROJUPP) installing interface..."
-	@$(CP) -v  $(HEADERS_MAIN) $(PREFIX)/$(PINCDIR) 2>/dev/null || true
-	@$(CP) -v  $(INCDIR)/$(PROJECT)_version.h $(PREFIX)/$(PINCDIR) 2>/dev/null || true
-	@$(CP) -v  $(INCDIR)/$(PROJECT).h $(PREFIX)/$(PINCDIR) 2>/dev/null || true
+	@$(MKDIR) -p $(PREFIX)/$(PINCDIR)
+	@$(CP) -v  $(HEADERS_MAIN) $(PREFIX)/$(PINCDIR)
+	@$(CP) -v  $(INCDIR)/$(PROJECT)_version.h $(PREFIX)/$(PINCDIR)
+	@$(CP) -v  $(INCDIR)/$(PROJECT).h $(PREFIX)/$(PINCDIR)
 	@$(CP) -va $(INCDIR)/*.mod* $(PREFIX)/$(PINCDIR) 2>/dev/null || true
 	@echo
 	@echo "$(PROJUPP) installing header-only..."
 	@$(MKDIR) -p $(PREFIX)/$(PINCDIR)/$(PSRCDIR)
-	@$(CP) -r $(ROOTSRC)/* $(PREFIX)/$(PINCDIR)/$(PSRCDIR) >/dev/null 2>/dev/null || true
+	@$(CP) -r $(ROOTSRC)/* $(PREFIX)/$(PINCDIR)/$(PSRCDIR)
 # regenerate header-only
 	@$(ROOTSCR)/tool_source.sh $(PSRCDIR) >$(PREFIX)/$(PINCDIR)/$(PROJECT)_source.h
 endif
@@ -494,8 +495,8 @@ ifneq ($(PREFIX),$(ABSDIR))
 	@$(MKDIR) -p $(PREFIX)/$(PDOCDIR)
 	@$(CP) -va $(ROOTDIR)/$(DOCDIR)/*.pdf $(PREFIX)/$(PDOCDIR)
 	@$(CP) -va $(ROOTDIR)/$(DOCDIR)/*.md $(PREFIX)/$(PDOCDIR)
-	@$(CP) -v  $(ROOTDIR)/SECURITY.md $(PREFIX)/$(PDOCDIR)
-	@$(CP) -v  $(ROOTDIR)/version.txt $(PREFIX)/$(PDOCDIR)
+	@$(CP) -v  $(ROOTDIR)/SECURITY.md $(PREFIX)/$(PDOCDIR) || true
+	@$(CP) -v  $(ROOTDIR)/version.txt $(PREFIX)/$(PDOCDIR) || true
 	@$(SED) "s/^\"//;s/\\\n\"$$//;/STATIC=/d" $(DIRSTATE)/.state >$(PREFIX)/$(PDOCDIR)/build.txt 2>/dev/null || true
 	@$(MKDIR) -p $(PREFIX)/$(LICFDIR)
 ifneq ($(call qapath,$(PREFIX)/$(PDOCDIR)/LICENSE.md),$(call qapath,$(PREFIX)/$(LICFDIR)/$(LICFILE)))
