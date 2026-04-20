@@ -34,6 +34,22 @@ jobs:
     - name: Build LIBXSTREAM
       run: make -j $(nproc) ${{ matrix.flags }}
 
+    - name: Install (PREFIX)
+      run: make -j $(nproc) ${{ matrix.flags }} install PREFIX=$HOME/libxstream-install
+
+    - name: Verify install (PREFIX)
+      run: |
+        test -f $HOME/libxstream-install/include/libxstream.h
+        test -f $HOME/libxstream-install/include/libxstream_version.h
+        test -f $HOME/libxstream-install/include/libxstream_source.h
+        test -d $HOME/libxstream-install/include/libxstream
+        ls $HOME/libxstream-install/lib/libxstream.* >/dev/null
+
+    - name: Out-of-tree build
+      run: |
+        mkdir $HOME/libxstream-oot && cd $HOME/libxstream-oot
+        make -j $(nproc) -f ${{ github.workspace }}/Makefile ${{ matrix.flags }}
+
     - name: Build Samples
       run: make -j $(nproc) ${{ matrix.flags }} PARAMS= samples
 
