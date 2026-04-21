@@ -76,10 +76,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
 {
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-  const char* env;
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
-  int wg, sg, use_i8;
   int result = EXIT_SUCCESS;
+  int wg, sg, use_i8;
+  const char* env;
   memset(ctx, 0, sizeof(*ctx));
 
   if (0 >= kind) kind = 1;
@@ -97,7 +97,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
 
   /* If double requested, verify fp64 support */
   if (use_double) {
-    const char* const fp64_ext[] = {"cl_khr_fp64"};
+    const char *const fp64_ext[] = {"cl_khr_fp64"};
     result = libxstream_opencl_device_ext(device, fp64_ext, 1);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
@@ -107,7 +107,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   /* Scheme 2 signed i8 fallback: OZAKI_I8=1 uses moduli<=128 (legacy).
    * Default (u8): moduli<=256, fewer primes for same cumulative product. */
   {
-    const char* env_i8 = getenv("OZAKI_I8");
+    const char *const env_i8 = getenv("OZAKI_I8");
     use_i8 = (2 == kind && NULL != env_i8 && 0 != atoi(env_i8));
   }
   { /* Treat ndecomp as auto when 0 or when it matches the compiled default
@@ -337,7 +337,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          * OZAKI_TINYTC=1 tries specialized embedded .clx then general,
          * OZAKI_TINYTC=<path> loads from file,
          * OZAKI_TINYTC=0 or unset disables. */
-        const char* tinytc_env = getenv("OZAKI_TINYTC");
+        const char *const tinytc_env = getenv("OZAKI_TINYTC");
 #if defined(LIBXS_INCBIN) && defined(OZAKI_TINYTC_EMBED)
         if (NULL != tinytc_env && '0' != *tinytc_env) {
           const int sq_prod = (0 != (ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE)));
@@ -594,8 +594,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
    * metadata) so USM/SVM device pointers remain valid for the OpenCL runtime.
    * Requires USM shared or SVM; falls back to direct allocation otherwise. */
   ctx->devpool = NULL;
-  {
-    const char* const devpool_env = getenv("OZAKI_DEVPOOL");
+  { const char *const devpool_env = getenv("OZAKI_DEVPOOL");
     if (NULL == devpool_env || 0 != atoi(devpool_env)) {
       int pool_ok = 0;
 #if (1 >= LIBXSTREAM_USM)
@@ -616,14 +615,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
   }
 
-  /* OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, 3=both).
+  /* OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, -1 or 3=both).
    * Default off: cache assumes matrix content at a given pointer is unchanged
    * between calls. Applications that modify matrices in-place must either
    * disable cache (0) or ensure cached matrices are truly constant.
    * The fingerprint check catches some modifications but is not exhaustive. */
   {
-    const char* env_cache = getenv("OZAKI_CACHE");
-    ctx->cache.flags = (NULL != env_cache) ? atoi(env_cache) : 0;
+    const char *const env_cache = getenv("OZAKI_CACHE");
+    const int cache = (NULL != env_cache ? atoi(env_cache) : 0);
+    ctx->cache.flags = (0 == cache ? 0 : (0 > cache ? 3 : cache));
   }
 
   /* Report compiled kernel info */
@@ -645,10 +645,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     ozaki_print_opt(stderr, "trim", oztrim);
     if (2 == kind) {
-      {
-        const char* e_i8 = getenv("OZAKI_I8");
-        fprintf(stderr, " u8=%d", (NULL == e_i8 || 0 == atoi(e_i8)) ? 1 : 0);
-      }
+      const char *const e_i8 = getenv("OZAKI_I8");
+      fprintf(stderr, " u8=%d", (NULL == e_i8 || 0 == atoi(e_i8)) ? 1 : 0);
       ozaki_print_opt(stderr, "kgroups", ozgroups);
       ozaki_print_opt(stderr, "pb", ctx->pb);
     }
