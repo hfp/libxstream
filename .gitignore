@@ -1,5 +1,6 @@
 .libxs*.tex
 lib/libxs*
+lib/pkgconfig
 .abi.log
 .state
 .make
