@@ -1,5 +1,9 @@
 name: GCC
 
+permissions:
+  contents: read
+  pull-requests: write
+
 on:
   push:
     branches: [ "main" ]
@@ -15,7 +19,7 @@ jobs:
       matrix:
         flags: [DBG=0, DBG=1 PEDANTIC=2]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Install OpenBLAS
       run: sudo apt install -y libopenblas-openmp-dev
