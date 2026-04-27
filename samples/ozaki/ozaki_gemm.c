@@ -28,7 +28,8 @@ static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream
   int cutoff, int sq, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile);
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
   void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
-  int ntn, double alpha, int first_pair, int use_double, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile);
+  int ntn, double alpha, int first_pair, int cutoff_rt, int use_double,
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile);
 
 
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K, double alpha,
@@ -221,7 +222,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         else {
           cl_kernel kern_g = (0 != M % tm || 0 != N % tn) ? ctx->kern_fused_bounds : ctx->kern_fused;
           result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
-            tn, ntm, ntn, alpha, first_pair, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
+            tn, ntm, ntn, alpha, first_pair, cutoff, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
         }
       }
       first_pair = 0; /* subsequent groups accumulate */
@@ -443,7 +444,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       /* Launch CRT GEMM for this K-group */
       if (EXIT_SUCCESS == result) {
         result = ozaki_launch_fused(ctx, stream, ctx->kern_crt_fused, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc,
-          m_pad, tm, tn, ntm, ntn, alpha, first_tile, ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
+          m_pad, tm, tn, ntm, ntn, alpha, first_tile, 2 * (nprimes_g - 1) /*no adaptive cutoff for CRT*/,
+          ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
       }
       first_tile = 0; /* subsequent groups accumulate */
     } /* end K-group loop */
@@ -671,7 +673,8 @@ static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream
 
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
   void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
-  int ntn, double alpha, int first_pair, int use_double, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile)
+  int ntn, double alpha, int first_pair, int cutoff_rt, int use_double,
+  cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile)
 {
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = stream;
@@ -706,6 +709,7 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
       CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(float), &falpha));
     }
     CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &first_pair));
+    CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &cutoff_rt));
   }
   CL_CHECK(
     result, clEnqueueNDRangeKernel(str->queue, kern_g, 2, NULL, global_g, local_g, 0, NULL,
