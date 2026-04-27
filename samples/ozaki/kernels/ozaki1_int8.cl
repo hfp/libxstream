@@ -269,7 +269,8 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
   global char* restrict as, /* [NSLICES * M_pad * K_pad] */
   global real_t* restrict expa, /* [M] per-row FP scale factor = 2^max_exp */
   int K_pad, /* padded K stride (>= 64) */
-  int M_pad) /* padded M = nblk_m * BM_PRE */
+  int M_pad, /* padded M = nblk_m * BM_PRE */
+  global int* restrict slice_occ) /* [NSLICES] per-slice nonzero flag (or NULL) */
 {
   const int mi = (int)get_local_id(0);
   const int kk = (int)get_local_id(1);
@@ -277,7 +278,9 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
   int col;
 
   local int row_max_exp[BM_PRE];
+  local int occ_local[NSLICES];
   if (0 == kk) row_max_exp[mi] = 0;
+  if (0 == kk && mi < NSLICES) occ_local[mi] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
 
   /* Pass 1: find max exponent across ALL of K for this row */
@@ -312,8 +315,18 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
         const int shift = (int)(max_exp - e1);
         const uint_repr_t aligned = (shift <= MANT_BITS) ? (m1 >> shift) : 0;
         OZAKI_EXTRACT_SLICES(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
+        if (aligned != 0) {
+          SINT s_;
+          UNROLL_FORCE(NSLICES) for (s_ = 0; s_ < NSLICES; ++s_) {
+            if (0 != ozaki_slice_digit(aligned, s1, (int)s_)) occ_local[s_] = 1;
+          }
+        }
       }
     }
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (0 == kk && mi < NSLICES && 0 != occ_local[mi]) {
+    atomic_or(&slice_occ[mi], 1);
   }
 }
 
@@ -340,7 +353,8 @@ kernel void
 preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int transb,
   global char* restrict bs, /* [NSLICES * K_pad * N_pad] */
   global real_t* restrict expb, /* [N] per-column FP scale factor = 2^max_exp */
-  int K_pad, int N_pad)
+  int K_pad, int N_pad,
+  global int* restrict slice_occ) /* [NSLICES] per-slice nonzero flag */
 {
   const int nj = (int)get_local_id(0);
   const int kk = (int)get_local_id(1);
@@ -348,7 +362,9 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
   int row;
 
   local int col_max_exp[BN_PRE];
+  local int occ_local[NSLICES];
   if (0 == kk) col_max_exp[nj] = 0;
+  if (0 == kk && nj < NSLICES) occ_local[nj] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
 
   /* Pass 1: find max exponent across ALL of K for this column */
@@ -382,8 +398,18 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
         const int shift = (int)(max_exp - e1);
         const uint_repr_t aligned = (shift <= MANT_BITS) ? (m1 >> shift) : 0;
         OZAKI_EXTRACT_SLICES(aligned, s1, bs, K_pad * N_pad, N_pad, row, col);
+        if (aligned != 0) {
+          SINT s_;
+          UNROLL_FORCE(NSLICES) for (s_ = 0; s_ < NSLICES; ++s_) {
+            if (0 != ozaki_slice_digit(aligned, s1, (int)s_)) occ_local[s_] = 1;
+          }
+        }
       }
     }
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (0 == kk && nj < NSLICES && 0 != occ_local[nj]) {
+    atomic_or(&slice_occ[nj], 1);
   }
 }
 

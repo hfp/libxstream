@@ -39,6 +39,21 @@
 /* Ozaki flags */
 typedef enum ozaki_flags_t { OZAKI_TRIANGULAR = 1, OZAKI_SYMMETRIZE = 2 } ozaki_flags_t;
 
+LIBXS_API_INLINE int ozaki_count_pairs(int nslices, int co, int flags)
+{
+  int sa, n = 0;
+  for (sa = 0; sa < nslices && sa <= co; ++sa) {
+    const int sb_start = (0 != (flags & OZAKI_TRIANGULAR)) ? sa : 0;
+    const int sb_end = nslices < (co + 1 - sa) ? nslices : (co + 1 - sa);
+    int sb;
+    for (sb = sb_start; sb < sb_end; ++sb) {
+      ++n;
+      if (0 != (flags & OZAKI_SYMMETRIZE) && sa != sb) ++n;
+    }
+  }
+  return n;
+}
+
 /* Host-side preprocessing callback for A or B (GEMM single-shot model).
  * When non-NULL in the context, ozaki_gemm calls these instead of
  * the GPU preprocess kernels and skips the full-matrix H2D.
