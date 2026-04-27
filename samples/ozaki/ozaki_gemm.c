@@ -267,7 +267,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         if (NULL != evt_prof[pi]) clReleaseEvent(evt_prof[pi]);
       }
       if (EXIT_SUCCESS == resprof && 0 < total) {
-        const double vals[2] = {(2.0 * M * N * K) / (total * 1E9), (double)total_pairs};
+        double vals[2];
+        vals[0] = (2.0 * M * N * K) / (total * 1E9);
+        vals[1] = (double)total_pairs;
         libxs_hist_push(NULL, hist, vals);
       }
       free(evt_prof);
@@ -491,7 +493,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         if (NULL != evt_prof_c[pi]) clReleaseEvent(evt_prof_c[pi]);
       }
       if (EXIT_SUCCESS == resprof && 0 < total) {
-        const double vals[2] = {(2.0 * M * N * K) / (total * 1E9), (double)nprimes_g};
+        double vals[2];
+        vals[0] = (2.0 * M * N * K) / (total * 1E9);
+        vals[1] = (double)nprimes_g;
         libxs_hist_push(NULL, hist, vals);
       }
       free(evt_prof_c);
