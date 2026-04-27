@@ -33,7 +33,8 @@ typedef enum libxstream_stream_flags_t {
   LIBXSTREAM_STREAM_HIGH = 2,
   LIBXSTREAM_STREAM_PROFILING = 4
 } libxstream_stream_flags_t;
-LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, const char* name, int flags);
+LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p,
+  const char* LIBXS_ARGDEF(name, NULL), int LIBXS_ARGDEF(flags, LIBXSTREAM_STREAM_DEFAULT));
 LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream);
 LIBXSTREAM_API int libxstream_stream_sync(libxstream_stream_t* stream);
 LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t* event);
@@ -52,11 +53,17 @@ LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes);
 LIBXSTREAM_API int libxstream_mem_deallocate(void* dev_mem);
 LIBXSTREAM_API int libxstream_mem_offset(void** dev_mem, void* other, size_t lb);
 LIBXSTREAM_API int libxstream_mem_info(size_t* mem_free, size_t* mem_total);
-LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, libxstream_stream_t* stream);
-LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem, libxstream_stream_t* stream);
-LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream);
-LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, libxstream_stream_t* stream);
-LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes, libxstream_stream_t* stream);
-LIBXSTREAM_API int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbytes, libxstream_stream_t* stream);
+LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes,
+  libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
+LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem,
+  libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
+LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes,
+  libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
+LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, size_t nbytes,
+  libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
+LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_dst, size_t nbytes,
+  libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
+LIBXSTREAM_API int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbytes,
+  libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
 
 #endif /*LIBXSTREAM_H*/
