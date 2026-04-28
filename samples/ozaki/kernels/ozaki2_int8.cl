@@ -404,6 +404,7 @@ constant uint oz2g_garner_inv[][20] = {
 
 #if OZAKI_HIER
 constant uint oz2g_hier_gprod[] = {3763024128u, 2894777321u, 1844618759u, 1194324337u, 795860377u};
+constant ulong oz2g_hier_l2_barrett[] = {4902106243ul, 6372422479ul, 10000301679ul, 15445338843ul, 23178367219ul};
 constant uint oz2g_hier_l2_garner_inv[][5] = {
   {0u, 1446853624u, 1005253939u, 770237679u, 172580120u},
   {0u, 0u, 1814901465u, 792337191u, 200087968u},
@@ -445,6 +446,7 @@ constant uint oz2g_garner_inv[][20] = {
 
 #if OZAKI_HIER
 constant uint oz2g_hier_gprod[] = {245872000u, 156832361u, 89809099u, 38771541u, 17120443u};
+constant ulong oz2g_hier_l2_barrett[] = {75025802343ul, 117620776452ul, 205399500486ul, 475780523495ul, 1077468852512ul};
 constant uint oz2g_hier_l2_garner_inv[][5] = {
   {0u, 146738044u, 56047808u, 13577725u, 1636041u},
   {0u, 0u, 71944193u, 14697530u, 15493618u},
@@ -587,11 +589,15 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
 
 
 #if OZAKI_HIER
-/* Level-2 modular reduction: (ulong)x mod (uint)oz2g_hier_gprod[gidx]. */
+/* Level-2 Barrett reduction: (ulong)x mod (uint)oz2g_hier_gprod[gidx].
+ * Uses mul_hi(x, floor(2^64/m)) to approximate the quotient,
+ * then a single conditional subtract to correct. */
 inline uint oz2g_mod_l2(ulong x, int gidx)
 {
   const uint m = oz2g_hier_gprod[gidx];
-  return (uint)(x % (ulong)m);
+  const ulong q = mul_hi(x, oz2g_hier_l2_barrett[gidx]);
+  uint r = (uint)(x - q * (ulong)m);
+  return (r >= m) ? (r - m) : r;
 }
 
 /* Level-1 Garner: reconstruct HIER_GS residues for group g -> uint group value.
