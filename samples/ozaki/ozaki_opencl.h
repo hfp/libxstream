@@ -11,12 +11,6 @@
 
 #include "libxstream_opencl.h"
 
-#if !defined(OZAKI_TINYTC_BM)
-# define OZAKI_TINYTC_BM 256
-#endif
-#if !defined(OZAKI_TINYTC_BN)
-# define OZAKI_TINYTC_BN 128
-#endif
 #if !defined(K_GRP_GPU)
 # define K_GRP_GPU 32768
 #endif
@@ -92,9 +86,6 @@ typedef struct ozaki_context_t {
   cl_kernel kern_fused;
   cl_kernel kern_fused_bounds; /* bounds-checked variant for unaligned sizes */
   cl_kernel kern_scale_beta;
-  /* Optional TinyTC SPIR-V kernel (loaded from .clx via OZAKI_TINYTC env) */
-  cl_kernel kern_tinytc;
-  cl_program prog_tinytc;
   /* CRT GEMM-mode kernels (Scheme-2 tiled path) */
   cl_kernel kern_crt_preprocess_a;
   cl_kernel kern_crt_preprocess_b;

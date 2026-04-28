@@ -10,8 +10,6 @@
 
 /* Embedded kernel source (generated at build time via tool_opencl.sh) */
 #include "ozaki_kernels.h"
-/* Embedded production TinyTC kernels (specialized per ndecomp/trim/scheme) */
-#include "ozaki_tinytc.h"
 
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_INT8)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1_INT8)"
@@ -21,25 +19,6 @@
 #endif
 #if !defined(OPENCL_KERNELS_SOURCE_GEMM3M)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_GEMM3M)"
-#endif
-
-#if !defined(OZAKI_TINYTC_BM)
-# define OZAKI_TINYTC_BM 256
-#endif
-#if !defined(OZAKI_TINYTC_BN)
-# define OZAKI_TINYTC_BN 128
-#endif
-#define OZAKI_TINYTC_STR_(X) #X
-#define OZAKI_TINYTC_STR(X) OZAKI_TINYTC_STR_(X)
-#define OZAKI_TINYTC_CLX(TY) "kernels/ozaki1_" TY "_" OZAKI_TINYTC_STR(OZAKI_TINYTC_BM) "x" OZAKI_TINYTC_STR(OZAKI_TINYTC_BN) ".clx"
-
-
-/* Embed precompiled TinyTC SPIR-V kernels (one per precision).
- * Filenames encode BM x BN so the Makefile can parse them back.
- * Build with -DOZAKI_TINYTC_EMBED after running kernels/ozaki1.sh. */
-#if defined(LIBXS_INCBIN) && defined(OZAKI_TINYTC_EMBED)
-LIBXS_INCBIN(ozaki_tinytc_f64, OZAKI_TINYTC_CLX("f64"), 16);
-LIBXS_INCBIN(ozaki_tinytc_f32, OZAKI_TINYTC_CLX("f32"), 16);
 #endif
 
 
@@ -218,10 +197,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     int rtm = 0, rtn = 0, biggrf;
     size_t max_wgs;
     int v;
-    const char* tinytc_source = NULL;
-    size_t tinytc_source_kind = 0;
-    char tinytc_path[512];
-    int tinytc_avail = 0;
     /* Ozaki-local 256-GRF decision (per-kernel, not global).
      * LIBXSTREAM_BIGGRF: explicit user override for all kernels.
      * OZAKI_BIGGRF: Ozaki-specific override.
@@ -332,39 +307,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (NULL != env && '1' == *env) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_SCALAR_ACC=1");
       }
-      { /* TinyTC kernel selection: disabled by default.
-         * OZAKI_TINYTC=1 tries specialized embedded .clx then general,
-         * OZAKI_TINYTC=<path> loads from file,
-         * OZAKI_TINYTC=0 or unset disables. */
-        const char *const tinytc_env = getenv("OZAKI_TINYTC");
-#if defined(LIBXS_INCBIN) && defined(OZAKI_TINYTC_EMBED)
-        if (NULL != tinytc_env && '0' != *tinytc_env) {
-          const int sq_prod = (0 != (ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE)));
-          const struct ozaki_tinytc_prod_entry* e;
-          for (e = ozaki_tinytc_prod; NULL != e->data; ++e) {
-            if (e->use_double == use_double && e->ndecomp == ndecomp && e->oztrim == oztrim && (0 != e->sq) == (0 != sq_prod)) {
-              tinytc_source = e->data;
-              tinytc_source_kind = (size_t)(e->data_end - e->data);
-              tinytc_avail = 1;
-              break;
-            }
-          }
-          if (0 == tinytc_avail) {
-            tinytc_source = use_double ? ozaki_tinytc_f64 : ozaki_tinytc_f32;
-            tinytc_source_kind = (size_t)(use_double ? (ozaki_tinytc_f64_end - ozaki_tinytc_f64)
-                                                     : (ozaki_tinytc_f32_end - ozaki_tinytc_f32));
-            tinytc_avail = 1;
-          }
-        }
-        else
-#endif
-        if (NULL != tinytc_env && '0' != *tinytc_env) {
-          LIBXS_SNPRINTF(tinytc_path, sizeof(tinytc_path), "%s", tinytc_env);
-          tinytc_source = tinytc_path;
-          tinytc_source_kind = 1;
-          tinytc_avail = 1;
-        }
-      }
       {
         const int cutoff_jit = 2 * (ndecomp - 1) - oztrim;
         const int sq_jit = ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
@@ -426,31 +368,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           clReleaseKernel(ctx->kern_scale_beta);
           ctx->kern_scale_beta = NULL;
         }
-      }
-    }
-    /* TinyTC SPIR-V kernel: use libxstream_opencl_program to handle both
-     * embedded binary (source_kind>1) and file path (source_kind=1). */
-    ctx->kern_tinytc = NULL;
-    ctx->prog_tinytc = NULL;
-    if (1 == kind && 0 != tinytc_avail && NULL != tinytc_source) {
-      cl_program prog = NULL;
-      int tc_res = libxstream_opencl_program(tinytc_source_kind, tinytc_source, "ozaki1_tinytc", NULL /*build_params*/,
-        build_options, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0 /*num_exts*/, &prog);
-      if (EXIT_SUCCESS == tc_res && NULL != prog) {
-        tc_res = libxstream_opencl_kernel_query(prog, "ozaki1", &ctx->kern_tinytc);
-        if (EXIT_SUCCESS != tc_res) {
-          tc_res = libxstream_opencl_kernel_query(prog, "gemm_fused", &ctx->kern_tinytc);
-        }
-        if (EXIT_SUCCESS == tc_res) {
-          ctx->prog_tinytc = prog;
-        }
-        else {
-          clReleaseProgram(prog);
-        }
-      }
-      if (NULL != ctx->kern_tinytc && (0 > verbosity || 2 < verbosity)) {
-        fprintf(stderr, "INFO OZAKI: TinyTC kernel loaded%s%s\n", 1 == tinytc_source_kind ? " from " : " (embedded)",
-          1 == tinytc_source_kind ? tinytc_path : "");
       }
     }
     if (2 == kind) {
@@ -688,12 +605,6 @@ void ozaki_destroy(ozaki_context_t* ctx)
     }
     if (NULL != ctx->kern_scale_beta) {
       clReleaseKernel(ctx->kern_scale_beta);
-    }
-    if (NULL != ctx->kern_tinytc) {
-      clReleaseKernel(ctx->kern_tinytc);
-    }
-    if (NULL != ctx->prog_tinytc) {
-      clReleaseProgram(ctx->prog_tinytc);
     }
     if (NULL != ctx->kern_crt_preprocess_a) {
       clReleaseKernel(ctx->kern_crt_preprocess_a);

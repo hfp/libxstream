@@ -23,9 +23,6 @@ static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* s
   cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile);
 static int ozaki_enqueue_scale_beta(
   ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta);
-static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream, void* d_as, void* d_bs, void* d_scratch,
-  void* d_cg, void* d_expa_g, void* d_expb_g, int M, int N, int k_pad, int m_pad, int n_pad, int nslices_g, int tm, int tn, int ldc,
-  int cutoff, int sq, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile);
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
   void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
   int ntn, double alpha, int first_pair, int cutoff_rt, int use_double,
@@ -74,13 +71,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
-    void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL, *d_scratch = NULL;
+    void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
     void *d_occ_a = NULL, *d_occ_b = NULL;
     int first_pair;
     int n_profiled = 0, total_pairs = 0;
     cl_event* evt_prof = NULL;
     int cache_hit_a = 0, cache_hit_b = 0;
-    const int use_tinytc = (NULL != ctx->kern_tinytc && 0 == M % OZAKI_TINYTC_BM && 0 == N % OZAKI_TINYTC_BN);
     const size_t occ_size = (size_t)nslices_g * sizeof(cl_int);
     int kg;
 
@@ -116,9 +112,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
       }
       if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
-    }
-    if (EXIT_SUCCESS == result && 0 != use_tinytc) {
-      result = OZAKI_DEV_ALLOC(&d_scratch, (size_t)M * N * sizeof(cl_int));
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
       result = OZAKI_DEV_ALLOC(&d_as, as_size);
@@ -234,12 +227,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       /* Launch GEMM for this K-group */
       { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
         total_pairs += ozaki_count_pairs(nslices_g, eff_cutoff, sq);
-        if (0 != use_tinytc) {
-          result = ozaki_launch_tinytc(ctx, stream, d_as, d_bs, d_scratch, d_cg, d_expa_g, d_expb_g, M, N, k_pad, m_pad, n_pad,
-            nslices_g, tm, tn, ldc, eff_cutoff, sq, evt_prof, 1, 2, &n_profiled, profile);
-        }
-        else {
-          cl_kernel kern_g = (0 != M % tm || 0 != N % tn) ? ctx->kern_fused_bounds : ctx->kern_fused;
+        { cl_kernel kern_g = (0 != M % tm || 0 != N % tn) ? ctx->kern_fused_bounds : ctx->kern_fused;
           result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
             tn, ntm, ntn, alpha, first_pair, eff_cutoff, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
         }
@@ -299,7 +287,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       OZAKI_DEV_FREE(d_bg);
       OZAKI_DEV_FREE(d_cg);
     }
-    OZAKI_DEV_FREE(d_scratch);
     OZAKI_DEV_FREE(d_occ_a);
     OZAKI_DEV_FREE(d_occ_b);
     if (0 == cache_hit_a) {
@@ -611,91 +598,6 @@ static int ozaki_enqueue_scale_beta(
     }
   }
   CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern_scale, 2, NULL, global_s, local_s, 0, NULL, NULL));
-  return result;
-}
-
-
-static int ozaki_launch_tinytc(ozaki_context_t* ctx, libxstream_stream_t* stream, void* d_as, void* d_bs, void* d_scratch,
-  void* d_cg, void* d_expa_g, void* d_expb_g, int M, int N, int k_pad, int m_pad, int n_pad, int nslices_g, int tm, int tn, int ldc,
-  int cutoff, int sq, cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile)
-{
-  int result = EXIT_SUCCESS;
-  cl_kernel kern = ctx->kern_tinytc;
-  const libxstream_opencl_stream_t* str = stream;
-  int nblk_tc_m = (M + OZAKI_TINYTC_BM - 1) / OZAKI_TINYTC_BM;
-  int nblk_tc_n = (N + OZAKI_TINYTC_BN - 1) / OZAKI_TINYTC_BN;
-  cl_uint tc_nargs = 0;
-  cl_int i = 0;
-  clGetKernelInfo(kern, CL_KERNEL_NUM_ARGS, sizeof(tc_nargs), &tc_nargs, NULL);
-  if (tc_nargs <= 6) {
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_as));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_bs));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_scratch));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_cg));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_expa_g));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_expb_g));
-  }
-  else {
-    cl_long a_s0 = k_pad, a_s1 = m_pad;
-    cl_long a_st1 = k_pad, a_st2 = (cl_long)m_pad * k_pad;
-    cl_long b_s0 = n_pad, b_s1 = k_pad;
-    cl_long b_st1 = n_pad, b_st2 = (cl_long)k_pad * n_pad;
-    cl_long sc_s0 = (cl_long)M, sc_s1 = (cl_long)N;
-    cl_long sc_st1 = (cl_long)M;
-    cl_long ca_s0 = m_pad, ca_s1 = n_pad, ca_st1 = (cl_long)ldc;
-    cl_long ea_s0 = (cl_long)M, eb_s0 = (cl_long)N;
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_as));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_s0));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_s1));
-    if (tc_nargs > 22) {
-      cl_long a_s2 = nslices_g;
-      CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_s2));
-    }
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_st1));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &a_st2));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_bs));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_s0));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_s1));
-    if (tc_nargs > 22) {
-      cl_long b_s2 = nslices_g;
-      CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_s2));
-    }
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_st1));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &b_st2));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_scratch));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &sc_s0));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &sc_s1));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &sc_st1));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_cg));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &ca_s0));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &ca_s1));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &ca_st1));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_expa_g));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &ea_s0));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_expb_g));
-    CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_long), &eb_s0));
-    if (tc_nargs > 22) {
-      CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_int), &cutoff));
-      CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(cl_int), &sq));
-    }
-  }
-  {
-    size_t cwgs[3] = {0, 0, 0};
-    size_t local_g[2];
-    size_t global_g[2];
-    cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-    clGetKernelWorkGroupInfo(kern, device, CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(cwgs), cwgs, NULL);
-    local_g[0] = cwgs[0];
-    local_g[1] = cwgs[1];
-    global_g[0] = (size_t)nblk_tc_m * local_g[0];
-    global_g[1] = (size_t)nblk_tc_n * local_g[1];
-    CL_CHECK(
-      result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global_g, local_g, 0, NULL,
-                (NULL != evt_prof && (prof_a == profile || prof_b == profile || 0 > profile)) ? (evt_prof + *n_profiled) : NULL));
-    if (EXIT_SUCCESS == result && NULL != evt_prof && (prof_a == profile || prof_b == profile || 0 > profile)) {
-      ++(*n_profiled);
-    }
-  }
   return result;
 }
 
