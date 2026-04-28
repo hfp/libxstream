@@ -183,14 +183,7 @@
     }
 #endif
 
-#if OZAKI_HIER
-# define OZAKI_CRT_RECONSTRUCT_(NEG, DR, VG) (NEG) = oz2g_hier_reconstruct((DR), gval_, (VG))
-# define OZAKI_CRT_HORNER_(VG, NEG, A, SH, CV) oz2g_hier_horner_accumulate((VG), (NEG), (A), (SH), (CV))
-#else
-# define OZAKI_CRT_RECONSTRUCT_(NEG, DR, VG) (NEG) = oz2g_garner_reconstruct((DR), (VG))
-# define OZAKI_CRT_HORNER_(VG, NEG, A, SH, CV) oz2g_horner_accumulate((VG), (NEG), (A), (SH), (CV))
-#endif
-
+#if !OZAKI_HIER
 /* Garner + Horner store: reconstruct from per-prime residues, scale, write C */
 #define OZAKI_CRT_STORE(RESIDUES, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
   do { \
@@ -211,16 +204,67 @@
         { \
           dot_r_[pg_] = (RESIDUES)[(int)pg_ * XMX_M + ms_]; \
         } \
-        OZAKI_CRT_RECONSTRUCT_(is_neg_, dot_r_, vg_); \
+        is_neg_ = oz2g_garner_reconstruct(dot_r_, vg_); \
         { \
           const int sh_ = (int)ea_c_[ms_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
           real_t cv_ = (FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
-          OZAKI_CRT_HORNER_(vg_, is_neg_, (ALPHA), sh_, &cv_); \
+          oz2g_horner_accumulate(vg_, is_neg_, (ALPHA), sh_, &cv_); \
           (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
         } \
       } \
     } \
   } while (0)
+#else /* OZAKI_HIER */
+
+/* Level-1 Garner from group-local residues -> gval_all.
+ * GROUP_RES: base of group-local residues for this tile [HIER_GS * XMX_M].
+ * GVAL_ALL: base of gval_all for this tile [HIER_NGROUPS * XMX_M].
+ * GIDX: group index. */
+#define OZAKI_CRT_L1_STORE(GROUP_RES, GVAL_ALL, GIDX) \
+  do { \
+    int ms_l1_; \
+    UNROLL_FORCE(XMX_M) for (ms_l1_ = 0; ms_l1_ < XMX_M; ++ms_l1_) \
+    { \
+      SINT pg_l1_; \
+      UNROLL_FORCE(HIER_GS) for (pg_l1_ = 0; pg_l1_ < HIER_GS; ++pg_l1_) \
+      { \
+        dot_r_[pg_l1_] = (GROUP_RES)[(int)pg_l1_ * XMX_M + ms_l1_]; \
+      } \
+      (GVAL_ALL)[(GIDX) * XMX_M + ms_l1_] = oz2g_hier_l1_garner(dot_r_, (GIDX)); \
+    } \
+  } while (0)
+
+/* Level-2 Garner + Horner + store C from gval_all. */
+#define OZAKI_CRT_L2_STORE(GVAL_ALL, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
+  do { \
+    short ea_c_[XMX_M]; \
+    const short eb_c_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
+    int ms_l2_; \
+    UNROLL_FORCE(XMX_M) for (ms_l2_ = 0; ms_l2_ < XMX_M; ++ms_l2_) \
+    { \
+      ea_c_[ms_l2_] = (EXPA)[(MI) + ms_l2_]; \
+    } \
+    UNROLL_FORCE(XMX_M) for (ms_l2_ = 0; ms_l2_ < XMX_M; ++ms_l2_) \
+    { \
+      const int rm_ = (MI) + ms_l2_; \
+      if (rm_ < (M) && (COL) < (N)) { \
+        int is_neg_; \
+        SINT pg_l2_; \
+        UNROLL_FORCE(HIER_NGROUPS) for (pg_l2_ = 0; pg_l2_ < HIER_NGROUPS; ++pg_l2_) \
+        { \
+          gval_[pg_l2_] = (GVAL_ALL)[(int)pg_l2_ * XMX_M + ms_l2_]; \
+        } \
+        is_neg_ = oz2g_hier_l2_garner(gval_, vg_); \
+        { \
+          const int sh_ = (int)ea_c_[ms_l2_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
+          real_t cv_ = (FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+          oz2g_hier_horner_accumulate(vg_, is_neg_, (ALPHA), sh_, &cv_); \
+          (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
+        } \
+      } \
+    } \
+  } while (0)
+#endif /* OZAKI_HIER */
 
 /* K-loop inner body: prefetch + DPAS for PB batched primes.
  * AS_BASE, BS_BASE: base pointers for all prime planes.
@@ -240,6 +284,55 @@
       } \
     } \
   } while (0)
+
+#if OZAKI_HIER
+/* Mod-reduce with separate global prime index (for moduli lookup)
+ * and local storage index (for residue array offset). */
+#define OZAKI_CRT_MOD_REDUCE_LOCAL(ACC, PIDX, LOCAL_IDX, RESIDUES) \
+  do { \
+    union { \
+      int8 v_; \
+      int a_[8]; \
+    } dul_; \
+    int mrl_; \
+    dul_.v_ = (ACC); \
+    UNROLL_FORCE(XMX_M) for (mrl_ = 0; mrl_ < XMX_M; ++mrl_) \
+    { \
+      uint rl_; \
+      OZAKI_MOD_REDUCE_ELEM_(dul_.a_[mrl_], (PIDX), rl_); \
+      { \
+        const uint prevl_ = (RESIDUES)[(int)(LOCAL_IDX) * XMX_M + mrl_]; \
+        const uint suml_ = prevl_ + rl_; \
+        (RESIDUES)[(int)(LOCAL_IDX) * XMX_M + mrl_] = (suml_ >= oz2g_moduli[(PIDX)]) ? (suml_ - oz2g_moduli[(PIDX)]) : suml_; \
+      } \
+    } \
+  } while (0)
+
+/* HIER variant: mod-reduce into group-local residues (stride HIER_GS * XMX_M).
+ * PIDX_BASE: global prime index.  GROUP_LO: first prime in group. */
+#define OZAKI_CRT_REDUCE_BATCH_GROUP(ACC, PIDX_BASE, GROUP_LO, GROUP_RES, ZERO_ACC) \
+  do { \
+    SINT bi_rg_; \
+    UNROLL_FORCE(PB) for (bi_rg_ = 0; bi_rg_ < PB; ++bi_rg_) \
+    { \
+      if ((PIDX_BASE) + bi_rg_ < NPRIMES) { \
+        int rm_rg_, rn_rg_; \
+        const SINT lpidx_ = (PIDX_BASE) + bi_rg_ - (GROUP_LO); \
+        UNROLL_FORCE(RTM) for (rm_rg_ = 0; rm_rg_ < RTM; ++rm_rg_) \
+        { \
+          UNROLL_FORCE(RTN) for (rn_rg_ = 0; rn_rg_ < RTN; ++rn_rg_) \
+          { \
+            OZAKI_CRT_MOD_REDUCE_LOCAL((ACC)[bi_rg_ * RTM * RTN + rm_rg_ * RTN + rn_rg_], (PIDX_BASE) + bi_rg_, lpidx_, \
+              (GROUP_RES) + (rm_rg_ * RTN + rn_rg_) * HIER_GS * XMX_M); \
+            if (ZERO_ACC) { \
+              (ACC)[bi_rg_ * RTM * RTN + rm_rg_ * RTN + rn_rg_] = (int8)(0); \
+            } \
+          } \
+        } \
+      } \
+    } \
+  } while (0)
+#endif
 
 /* Mod-reduce all PB batched primes' accumulators into residues.
  * If ZERO_ACC is non-zero, also zero the accumulators after reduction. */
@@ -501,47 +594,46 @@ inline uint oz2g_mod_l2(ulong x, int gidx)
   return (uint)(x % (ulong)m);
 }
 
-/* Hierarchical Garner CRT reconstruction.
- * Level 1: Garner within each group of HIER_GS primes -> Horner -> uint group value.
- * Level 2: Garner over HIER_NGROUPS group-moduli -> mixed-radix digits + sign. */
-inline int oz2g_hier_reconstruct(const uint* restrict dot_residues,
-                                 uint* restrict gval, uint* restrict d)
+/* Level-1 Garner: reconstruct HIER_GS residues for group g -> uint group value.
+ * group_residues[0..gsz-1] are the per-prime residues within this group.
+ * g: group index (for moduli/garner_inv offset = g * HIER_GS). */
+inline uint oz2g_hier_l1_garner(const uint* restrict group_residues, int g)
 {
-  SINT g, i, j;
-  int is_negative;
+  const int lo = g * HIER_GS;
+  const int hi = (lo + HIER_GS <= NPRIMES) ? (lo + HIER_GS) : NPRIMES;
+  const int gsz = hi - lo;
+  uint v[HIER_GS];
+  SINT li, lj;
+  ulong hval;
 
-  /* Level 1: per-group Garner + Horner evaluation */
-  for (g = 0; g < HIER_NGROUPS; ++g) {
-    const int lo = g * HIER_GS;
-    const int hi = (lo + HIER_GS <= NPRIMES) ? (lo + HIER_GS) : NPRIMES;
-    const int gsz = hi - lo;
-    uint v[HIER_GS];
-    SINT li, lj;
-    ulong hval;
-
-    for (li = 0; li < gsz; ++li) {
-      uint u = dot_residues[lo + li];
-      const uint pi = oz2g_moduli[lo + li];
-      for (lj = 0; lj < li; ++lj) {
-        uint vj = v[lj];
-        if (vj >= pi) vj -= pi;
-        if (vj >= pi) vj -= pi;
-        {
-          const uint diff = (u >= vj) ? (u - vj) : (pi + u - vj);
-          u = oz2g_mod(diff * oz2g_garner_inv[lo + lj][lo + li], lo + li);
-        }
+  for (li = 0; li < gsz; ++li) {
+    uint u = group_residues[li];
+    const uint pi = oz2g_moduli[lo + li];
+    for (lj = 0; lj < li; ++lj) {
+      uint vj = v[lj];
+      if (vj >= pi) vj -= pi;
+      if (vj >= pi) vj -= pi;
+      {
+        const uint diff = (u >= vj) ? (u - vj) : (pi + u - vj);
+        u = oz2g_mod(diff * oz2g_garner_inv[lo + lj][lo + li], lo + li);
       }
-      v[li] = u;
     }
-
-    hval = (ulong)v[gsz - 1];
-    for (li = gsz - 2; li >= 0; --li) {
-      hval = hval * (ulong)oz2g_moduli[lo + li] + (ulong)v[li];
-    }
-    gval[g] = (uint)(hval % (ulong)oz2g_hier_gprod[g]);
+    v[li] = u;
   }
 
-  /* Level 2: Garner over group-moduli */
+  hval = (ulong)v[gsz - 1];
+  for (li = gsz - 2; li >= 0; --li) {
+    hval = hval * (ulong)oz2g_moduli[lo + li] + (ulong)v[li];
+  }
+  return (uint)hval;
+}
+
+/* Level-2 Garner: reconstruct HIER_NGROUPS group values -> mixed-radix digits + sign. */
+inline int oz2g_hier_l2_garner(const uint* restrict gval, uint* restrict d)
+{
+  SINT i, j;
+  int is_negative;
+
   for (i = 0; i < HIER_NGROUPS; ++i) {
     uint u = gval[i];
     const uint mi = oz2g_hier_gprod[i];
@@ -783,13 +875,114 @@ kernel void gemm_crt_fused(
   const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
   const long a_plane = (long)M_pad * K_pad;
   const long b_plane = (long)K_pad * N_pad;
-  uint dot_r_[NPRIMES];
 #if OZAKI_HIER
+  uint dot_r_[HIER_GS];
   uint vg_[HIER_NGROUPS];
   uint gval_[HIER_NGROUPS];
+
+#define GRP_RES_STRIDE (RTM * RTN * HIER_GS * XMX_M)
+#define GVAL_ALL_STRIDE (RTM * RTN * HIER_NGROUPS * XMX_M)
+  uint group_res[GRP_RES_STRIDE];
+  uint gval_all[GVAL_ALL_STRIDE];
+
+  /* Group-at-a-time: for each group, accumulate HIER_GS primes into
+   * group_res (reused), then level-1 Garner into gval_all (persistent). */
+  {
+    SINT gidx;
+    for (gidx = 0; gidx < HIER_NGROUPS; ++gidx) {
+      const int group_lo = gidx * HIER_GS;
+      {
+        int ri;
+        for (ri = 0; ri < GRP_RES_STRIDE; ++ri) {
+          group_res[ri] = 0;
+        }
+      }
+
+      {
+        SINT pidx_base;
+        UNROLL_OUTER(1) for (pidx_base = group_lo; pidx_base < group_lo + HIER_GS && pidx_base < NPRIMES; pidx_base += PB)
+        {
+          int8 acc[PB * RTM * RTN];
+          {
+            int ai;
+            UNROLL_FORCE(PB * RTM * RTN)
+            for (ai = 0; ai < PB * RTM * RTN; ++ai) {
+              acc[ai] = (int8)(0);
+            }
+          }
+
+#if KGROUPS > 0
+          {
+            int k, steps = 0;
+            for (k = 0; k < K_pad; k += KU * BK) {
+              int ku;
+              UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
+              {
+                OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+              }
+              steps += KU;
+              if (steps >= KGROUPS) {
+                OZAKI_CRT_REDUCE_BATCH_GROUP(acc, pidx_base, group_lo, group_res, 1);
+                steps = 0;
+              }
+            }
+            if (0 != steps) {
+              OZAKI_CRT_REDUCE_BATCH_GROUP(acc, pidx_base, group_lo, group_res, 0);
+            }
+          }
 #else
-  uint vg_[NPRIMES];
+          {
+            int k;
+            for (k = 0; k < K_pad; k += KU * BK) {
+              int ku;
+              UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
+              {
+                OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+              }
+            }
+            OZAKI_CRT_REDUCE_BATCH_GROUP(acc, pidx_base, group_lo, group_res, 0);
+          }
 #endif
+        }
+      }
+
+      /* Level-1 Garner: group_res -> gval_all[gidx] per tile element */
+#if !defined(SKIP_GARNER) || (0 == SKIP_GARNER)
+      {
+        int rm, rn;
+        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
+        {
+          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
+          {
+            OZAKI_CRT_L1_STORE(
+              group_res + (rm * RTN + rn) * HIER_GS * XMX_M,
+              gval_all + (rm * RTN + rn) * HIER_NGROUPS * XMX_M, gidx);
+          }
+        }
+      }
+#endif
+    }
+  }
+
+  /* Level-2 Garner + Horner evaluation + store C */
+#if !defined(SKIP_GARNER) || (0 == SKIP_GARNER)
+  {
+    int rm, rn;
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
+    {
+      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
+      {
+        const int col = nj_base + rn * XMX_N + sg_lid;
+        OZAKI_CRT_L2_STORE(
+          gval_all + (rm * RTN + rn) * HIER_NGROUPS * XMX_M, expa, expb, c, M, N, mi_base + rm * XMX_M, col, ldc, alpha, first);
+      }
+    }
+  }
+#endif
+
+#else /* !OZAKI_HIER */
+  uint dot_r_[NPRIMES];
+  uint vg_[NPRIMES];
 
   /* Per-prime residue accumulators (private, per work-item).
    * Each SIMD lane accumulates a different output column, so this
@@ -874,4 +1067,5 @@ kernel void gemm_crt_fused(
     }
   }
 #endif
+#endif /* OZAKI_HIER */
 }

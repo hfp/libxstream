@@ -107,6 +107,7 @@ typedef struct ozaki_context_t {
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int pb; /* CRT prime batching factor (compiled into kernel) */
+  int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   int maxk; /* max K per preprocessing pass (0 = no grouping) */
   int biggrf; /* Ozaki-local 256-GRF decision */
   void* devpool; /* device memory pool (libxs_malloc-backed) */

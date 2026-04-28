@@ -238,6 +238,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       int pb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
       ctx->pb = pb;
     }
+    env = getenv("OZAKI_HIER");
+    ctx->hier = (NULL != env && 0 != atoi(env)) ? 1 : 0;
     ctx->maxk = maxk;
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
@@ -384,6 +386,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         (2 == kind && 1 < ozgroups) ? ozgroups : 0, rtm, rtn, ctx->pb);
       if (0 == use_i8) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
+      }
+      if (0 != ctx->hier) {
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_HIER=1");
       }
       LIBXS_UNUSED(coff);
       if (0 > verbosity || 2 < verbosity) {
@@ -565,6 +570,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       fprintf(stderr, " u8=%d", (NULL == e_i8 || 0 == atoi(e_i8)) ? 1 : 0);
       ozaki_print_opt(stderr, "kgroups", ozgroups);
       ozaki_print_opt(stderr, "pb", ctx->pb);
+      ozaki_print_opt(stderr, "hier", ctx->hier);
     }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);
     fprintf(stderr, "\n");
