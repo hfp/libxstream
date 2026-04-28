@@ -159,8 +159,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         const int* cumbits = (0 != use_i8) ? cumbits_i8 : cumbits_u8;
         const int req = 2 * (mant - oztrim_bits) + 23;
         int np;
-        for (np = 0; np < 20 && cumbits[np] < req; ++np) {
-        }
+        for (np = 0; np < 20 && cumbits[np] < req; ++np);
         ndecomp = (np < 20) ? np + 1 : 20;
       }
       /* Store as bits for kernel compilation */
