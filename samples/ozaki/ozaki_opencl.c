@@ -194,13 +194,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     char build_options[128];
     const int mant_bits = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
-    int rtm = 0, rtn = 0, biggrf;
+    int rtm = 0, rtn = 0, biggrf, hier;
     size_t max_wgs;
     int v;
+    {
+      const char *const env_hier = getenv("OZAKI_HIER");
+      hier = (NULL != env_hier) ? (0 != atoi(env_hier) ? 1 : 0) : (2 == kind ? 1 : 0);
+    }
     /* Ozaki-local 256-GRF decision (per-kernel, not global).
      * LIBXSTREAM_BIGGRF: explicit user override for all kernels.
      * OZAKI_BIGGRF: Ozaki-specific override.
-     * Default: auto-enable for Intel GPUs. */
+     * Default: auto-enable for Intel GPUs, but HIER prefers GRF128
+     * (halved private arrays make 2x occupancy the better trade-off). */
     env = getenv("OZAKI_BIGGRF");
     if (NULL != env) {
       biggrf = (0 != atoi(env));
@@ -209,7 +214,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       biggrf = (0 != devinfo->biggrf);
     }
     else {
-      biggrf = (0 != devinfo->intel && 0 != gpu);
+      biggrf = (0 != hier && 0 != devinfo->intel && 0 != gpu) ? 0 : (0 != devinfo->intel && 0 != gpu);
     }
     LIBXS_SNPRINTF(build_options, sizeof(build_options), "-cl-fast-relaxed-math -cl-denorms-are-zero%s",
       (0 != biggrf && 0 != devinfo->intel && 0 == devinfo->biggrf) ? " -cl-intel-256-GRF-per-thread" : "");
@@ -238,8 +243,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       int pb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
       ctx->pb = pb;
     }
-    env = getenv("OZAKI_HIER");
-    ctx->hier = (NULL != env && 0 != atoi(env)) ? 1 : 0;
+    ctx->hier = hier;
     ctx->maxk = maxk;
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
