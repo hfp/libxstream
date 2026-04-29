@@ -180,7 +180,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   /* GEMM-mode kernels (tiled K-loop path) */
   ctx->kern_preprocess_a = NULL;
   ctx->kern_preprocess_b = NULL;
-  ctx->kern_fused = NULL;
+  ctx->kernel_registry = NULL;
   ctx->kern_scale_beta = NULL;
   ctx->kern_crt_preprocess_a = NULL;
   ctx->kern_crt_preprocess_b = NULL;
@@ -291,6 +291,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
     }
     if (1 == kind) {
+      const int sq_jit = ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
+      const int cutoff_jit = 2 * (ndecomp - 1) - oztrim;
       size_t goff = 0;
       goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
         "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
@@ -298,35 +300,30 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DRTM=%d -DRTN=%d"
-        " -DCONSTANT=global",
+        " -DOZAKI_SQ=%d -DCONSTANT=global",
         tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
-        ndecomp, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn);
+        ndecomp, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn, sq_jit);
       env = getenv("OZAKI_PREFETCH");
       if (NULL != env && '1' == *env) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_PREFETCH=1");
-      }
-      env = getenv("OZAKI_BOUNDS");
-      if (NULL != env && '1' == *env) {
-        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_BOUNDS=1");
       }
       env = getenv("OZAKI_SCALAR_ACC");
       if (NULL != env && '1' == *env) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_SCALAR_ACC=1");
       }
-      {
-        const int cutoff_jit = 2 * (ndecomp - 1) - oztrim;
-        const int sq_jit = ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
-        goff += (size_t)LIBXS_SNPRINTF(
-          build_params + goff, sizeof(build_params) - goff, " -DOZAKI_CUTOFF=%d -DOZAKI_SQ=%d", cutoff_jit, sq_jit);
-      }
       LIBXS_UNUSED(goff);
+      memcpy(ctx->base_flags, build_params, sizeof(ctx->base_flags));
+      LIBXS_SNPRINTF(ctx->base_options, sizeof(ctx->base_options), "%s", build_options);
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
+      /* Compile preprocessing + scale_beta (shared, cutoff-independent) */
       {
+        char pp_flags[sizeof(build_params) + 32];
         cl_program program = NULL;
+        LIBXS_SNPRINTF(pp_flags, sizeof(pp_flags), "%s -DOZAKI_CUTOFF=%d", build_params, cutoff_jit);
         result = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, "ozaki1", build_params, build_options, NULL, NULL, NULL, 0, &program);
+          0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, "ozaki1", pp_flags, build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
           result = libxstream_opencl_kernel_query(program, "preprocess_a_dense", &ctx->kern_preprocess_a);
         }
@@ -334,25 +331,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           result = libxstream_opencl_kernel_query(program, "preprocess_b_dense", &ctx->kern_preprocess_b);
         }
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(program, "gemm_fused", &ctx->kern_fused);
-        }
-        if (EXIT_SUCCESS == result) {
           result = libxstream_opencl_kernel_query(program, "scale_beta", &ctx->kern_scale_beta);
         }
         if (NULL != program) clReleaseProgram(program);
       }
-      /* Build bounds-checked fused kernel for non-tile-aligned sizes */
-      if (EXIT_SUCCESS == result) {
-        cl_program program_b = NULL;
-        char bp_bounds[sizeof(build_params) + 20];
-        LIBXS_SNPRINTF(bp_bounds, sizeof(bp_bounds), "%s -DOZAKI_BOUNDS=1", build_params);
-        result = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, "ozaki1_b", bp_bounds, build_options, NULL, NULL, NULL, 0, &program_b);
-        if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(program_b, "gemm_fused", &ctx->kern_fused_bounds);
-        }
-        if (NULL != program_b) clReleaseProgram(program_b);
-      }
+      ctx->kernel_registry = libxs_registry_create();
       if (EXIT_SUCCESS != result) {
         if (NULL != ctx->kern_preprocess_a) {
           clReleaseKernel(ctx->kern_preprocess_a);
@@ -361,14 +344,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         if (NULL != ctx->kern_preprocess_b) {
           clReleaseKernel(ctx->kern_preprocess_b);
           ctx->kern_preprocess_b = NULL;
-        }
-        if (NULL != ctx->kern_fused) {
-          clReleaseKernel(ctx->kern_fused);
-          ctx->kern_fused = NULL;
-        }
-        if (NULL != ctx->kern_fused_bounds) {
-          clReleaseKernel(ctx->kern_fused_bounds);
-          ctx->kern_fused_bounds = NULL;
         }
         if (NULL != ctx->kern_scale_beta) {
           clReleaseKernel(ctx->kern_scale_beta);
@@ -607,14 +582,20 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->kern_preprocess_b) {
       clReleaseKernel(ctx->kern_preprocess_b);
     }
-    if (NULL != ctx->kern_fused) {
-      clReleaseKernel(ctx->kern_fused);
-    }
-    if (NULL != ctx->kern_fused_bounds) {
-      clReleaseKernel(ctx->kern_fused_bounds);
-    }
     if (NULL != ctx->kern_scale_beta) {
       clReleaseKernel(ctx->kern_scale_beta);
+    }
+    if (NULL != ctx->kernel_registry) {
+      const void* rkey = NULL;
+      size_t cursor = 0;
+      ozaki_kernel_set_t* kset = (ozaki_kernel_set_t*)libxs_registry_begin(
+        ctx->kernel_registry, &rkey, &cursor);
+      while (NULL != kset) {
+        if (NULL != kset->kern_fused) clReleaseKernel(kset->kern_fused);
+        kset = (ozaki_kernel_set_t*)libxs_registry_next(
+          ctx->kernel_registry, &rkey, &cursor);
+      }
+      libxs_registry_destroy(ctx->kernel_registry);
     }
     if (NULL != ctx->kern_crt_preprocess_a) {
       clReleaseKernel(ctx->kern_crt_preprocess_a);

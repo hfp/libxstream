@@ -438,7 +438,7 @@ kernel void gemm_fused(
   CONSTANT const real_t* restrict expb, /* [N] per-col FP scale = 2^exp */
   global real_t* restrict c, /* [M x N] column-major, ldc */
   int M, int N, int K_pad, int N_pad, int ldc, int M_pad, /* padded M dimension = slice row stride */
-  real_t alpha, int first_pair, int cutoff_rt) /* cutoff_rt: adaptive per-K-group cutoff */
+  real_t alpha, int first_pair)
 {
   const int ib_idx = (int)get_group_id(0);
   const int jb_idx = (int)get_group_id(1);
@@ -508,12 +508,12 @@ kernel void gemm_fused(
   }
 #endif
 
-    for (sa = 0; sa < (SINT)NSLICES && (int)sa <= cutoff_rt; ++sa) {
+    for (sa = 0; sa < (SINT)NSLICES && (int)sa <= OZAKI_CUTOFF; ++sa) {
       const int high_sa = MANT_BITS - (7 * (int)sa);
       const int low_bit_sa = MAX(0, high_sa - 6);
       CONSTANT const char* as_sa = as_base + (long)sa * a_stride;
       CONSTANT const char* bs_sa = bs_base + (long)sa * b_stride;
-      const int sb_end_raw = MIN(OZAKI_CUTOFF, cutoff_rt) + 1 - (int)sa;
+      const int sb_end_raw = OZAKI_CUTOFF + 1 - (int)sa;
       const SINT sb_end = (SINT)(sb_end_raw < NSLICES ? sb_end_raw : NSLICES);
       SINT sb;
 

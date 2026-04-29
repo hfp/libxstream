@@ -7,6 +7,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "ozaki_opencl.h"
+#include "ozaki_kernels.h"
 #include <libxs_mem.h>
 
 
@@ -25,8 +26,9 @@ static int ozaki_enqueue_scale_beta(
   ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta);
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
   void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
-  int ntn, double alpha, int first_pair, int cutoff_rt, int use_double,
+  int ntn, double alpha, int first_pair, int use_double,
   cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile);
+static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds);
 
 
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K, double alpha,
@@ -50,7 +52,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
   /* GEMM path (Scheme 1): full-split-then-tiled-GEMM.
    * Preprocesses entire K dimension up front into dense per-slice
    * int8 matrices, then runs a proper tiled GEMM per slice pair. */
-  if (NULL != ctx->kern_fused && 0 < K) {
+  if (NULL != ctx->kernel_registry && 0 < K) {
     const int nslices_g = ctx->ndecomp;
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
@@ -226,10 +228,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         }
       /* Launch GEMM for this K-group */
       { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
+        const int bounds = (0 != M % tm || 0 != N % tn);
         total_pairs += ozaki_count_pairs(nslices_g, eff_cutoff, sq);
-        { cl_kernel kern_g = (0 != M % tm || 0 != N % tn) ? ctx->kern_fused_bounds : ctx->kern_fused;
-          result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
-            tn, ntm, ntn, alpha, first_pair, eff_cutoff, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
+        { cl_kernel kern_g = ozaki_get_fused_kernel(ctx, eff_cutoff, bounds);
+          if (NULL != kern_g) {
+            result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
+              tn, ntm, ntn, alpha, first_pair, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
+          }
+          else result = EXIT_FAILURE;
         }
       }
       } /* end adaptive cutoff scope */
@@ -455,7 +461,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       /* Launch CRT GEMM for this K-group */
       if (EXIT_SUCCESS == result) {
         result = ozaki_launch_fused(ctx, stream, ctx->kern_crt_fused, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc,
-          m_pad, tm, tn, ntm, ntn, alpha, first_tile, 2 * (nprimes_g - 1) /*no adaptive cutoff for CRT*/,
+          m_pad, tm, tn, ntm, ntn, alpha, first_tile,
           ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
       }
       first_tile = 0; /* subsequent groups accumulate */
@@ -602,9 +608,49 @@ static int ozaki_enqueue_scale_beta(
 }
 
 
+static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds)
+{
+  ozaki_kernel_key_t key;
+  ozaki_kernel_set_t* kset;
+  memset(&key, 0, sizeof(key));
+  key.cutoff = cutoff;
+  key.bounds = bounds;
+  kset = (ozaki_kernel_set_t*)libxs_registry_get(ctx->kernel_registry, &key,
+    sizeof(key), libxs_registry_lock(ctx->kernel_registry));
+  if (NULL == kset || NULL == kset->kern_fused) {
+    char flags[1280];
+    ozaki_kernel_set_t newset;
+    cl_program program = NULL;
+    int n;
+    memset(&newset, 0, sizeof(newset));
+    { char pname[32];
+      LIBXS_SNPRINTF(pname, sizeof(pname), "oz1_c%d%s", cutoff, 0 != bounds ? "b" : "");
+      n = LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DOZAKI_CUTOFF=%d%s",
+        ctx->base_flags, cutoff, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
+      LIBXS_UNUSED(n);
+      if (EXIT_SUCCESS == libxstream_opencl_program(
+            0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, pname, flags,
+            ctx->base_options, NULL, NULL, NULL, 0, &program)) {
+        libxstream_opencl_kernel_query(program, "gemm_fused", &newset.kern_fused);
+      }
+    }
+    if (NULL != program) clReleaseProgram(program);
+    if (NULL != newset.kern_fused) {
+      kset = (ozaki_kernel_set_t*)libxs_registry_set(ctx->kernel_registry, &key,
+        sizeof(key), &newset, sizeof(newset), libxs_registry_lock(ctx->kernel_registry));
+    }
+    if (0 > ctx->verbosity || 2 < ctx->verbosity) {
+      fprintf(stderr, "INFO OZAKI: JIT cutoff=%d bounds=%d -> %s\n",
+        cutoff, bounds, NULL != newset.kern_fused ? "OK" : "FAILED");
+    }
+  }
+  return (NULL != kset) ? kset->kern_fused : NULL;
+}
+
+
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
   void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
-  int ntn, double alpha, int first_pair, int cutoff_rt, int use_double,
+  int ntn, double alpha, int first_pair, int use_double,
   cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile)
 {
   int result = EXIT_SUCCESS;
@@ -640,7 +686,6 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
       CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(float), &falpha));
     }
     CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &first_pair));
-    CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &cutoff_rt));
   }
   CL_CHECK(
     result, clEnqueueNDRangeKernel(str->queue, kern_g, 2, NULL, global_g, local_g, 0, NULL,

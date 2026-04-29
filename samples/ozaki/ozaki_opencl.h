@@ -10,6 +10,7 @@
 #define OZAKI_OPENCL_H
 
 #include "libxstream_opencl.h"
+#include <libxs_reg.h>
 
 #if !defined(K_GRP_GPU)
 # define K_GRP_GPU 32768
@@ -77,15 +78,29 @@ typedef struct ozaki_cache_t {
   ozaki_cache_side_t a, b;
 } ozaki_cache_t;
 
+/* Ozaki-1 kernel specialization key: compile-time cutoff.
+ * bounds: 0 = tile-aligned, 1 = bounds-checked variant. */
+typedef struct ozaki_kernel_key_t {
+  int cutoff;
+  int bounds;
+} ozaki_kernel_key_t;
+
+/* Ozaki-1 kernel set: one entry per registry specialization. */
+typedef struct ozaki_kernel_set_t {
+  cl_kernel kern_fused;
+} ozaki_kernel_set_t;
+
 /* State for an Ozaki OpenCL session.
  * All tuning parameters are set by ozaki_init (0 = auto). */
 typedef struct ozaki_context_t {
-  /* GEMM-mode kernels (tiled K-loop + fused accumulation) */
+  /* Ozaki-1: preprocessing + scale kernels (shared across specializations) */
   cl_kernel kern_preprocess_a;
   cl_kernel kern_preprocess_b;
-  cl_kernel kern_fused;
-  cl_kernel kern_fused_bounds; /* bounds-checked variant for unaligned sizes */
   cl_kernel kern_scale_beta;
+  /* Ozaki-1: registry of cutoff-specialized fused kernels */
+  libxs_registry_t* kernel_registry;
+  char base_flags[1024]; /* base compile flags (without OZAKI_CUTOFF) */
+  char base_options[128]; /* build options (e.g. -cl-intel-256-GRF-per-thread) */
   /* CRT GEMM-mode kernels (Scheme-2 tiled path) */
   cl_kernel kern_crt_preprocess_a;
   cl_kernel kern_crt_preprocess_b;

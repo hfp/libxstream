@@ -869,7 +869,7 @@ kernel void gemm_crt_fused(
   CONSTANT const int* restrict expa, /* [M] per-row max exponent */
   CONSTANT const int* restrict expb, /* [N] per-col max exponent */
   global real_t* restrict c, int M, int N, int K_pad, int N_pad, int ldc, int M_pad, real_t alpha,
-  int first, int cutoff_rt) /* cutoff_rt: unused by CRT (Ozaki-1 only) */
+  int first)
 {
   const int ib_idx = (int)get_group_id(0);
   const int jb_idx = (int)get_group_id(1);
