@@ -109,8 +109,10 @@ typedef struct ozaki_context_t {
   cl_kernel kern_crt_scale_beta;
   int use_double; /* 1: fp64, 0: fp32 */
   int sg; /* sub-group size used for compilation */
-  int ndecomp; /* number of decomposition components (slices or primes) */
-  int kind; /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT) */
+  int ndecomp; /* number of decomposition components (slices or primes, per active kind) */
+  int nslices; /* Ozaki-1: number of mantissa slices (compiled into Scheme-1 kernels) */
+  int nprimes; /* Ozaki-2: number of CRT primes (compiled into Scheme-2 kernels) */
+  int kind; /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT), 0: adaptive */
   int ozflags; /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim; /* Precision levels to trim (~2 bits each). */
   int verbosity; /* 0: quiet, 1: info, 2+: debug */

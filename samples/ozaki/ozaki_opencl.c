@@ -58,6 +58,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
   int result = EXIT_SUCCESS;
   int wg, sg, use_i8;
+  int nslices, nprimes, oztrim_crt;
   const char* env;
   memset(ctx, 0, sizeof(*ctx));
 
@@ -87,68 +88,39 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
    * Default (u8): moduli<=256, fewer primes for same cumulative product. */
   {
     const char *const env_i8 = getenv("OZAKI_I8");
-    use_i8 = (2 == kind && NULL != env_i8 && 0 != atoi(env_i8));
+    use_i8 = (NULL != env_i8 && 0 != atoi(env_i8));
   }
-  { /* Treat ndecomp as auto when 0 or when it matches the compiled default
-     * that disagrees with runtime i8/u8 mode (ozaki.c passes the compiled
-     * OZ2_NPRIMES_DEFAULT which is u8-sized; if OZAKI_I8=1 at runtime the
-     * GPU needs more primes). */
+  { /* Compute nslices (Scheme 1) and nprimes (Scheme 2) independently.
+     * Both are needed for adaptive scheme selection. */
     const int u8_def = use_double ? 16 : 9;
     const int i8_def = use_double ? 19 : 10;
-    const int ndecomp_auto = (0 >= ndecomp
-      || (2 == kind && 0 != use_i8 && ndecomp == u8_def)
-      || (2 == kind && 0 == use_i8 && ndecomp == i8_def));
-    if (ndecomp_auto) {
-      /* Scheme 1: mantissa slicing - 7 bits/slice
-       *   FP32 (23-bit): 4 slices (28 bits, covers 23-bit mantissa)
-       *   FP64 (52-bit): 8 slices
-       * Scheme 2 u8: CRT with moduli<=256
-       *   FP32:  9 primes (71 bits, sufficient for typical K < 4M)
-       *   FP64: 16 primes (124 bits, sufficient for typical K < 8M)
-       * Scheme 2 i8: CRT with moduli<=128
-       *   FP32: 10 primes (68 bits)
-       *   FP64: 19 primes (124 bits) */
-      if (2 == kind) {
-        ndecomp = (0 != use_i8) ? i8_def : u8_def;
-      }
-      else {
-        ndecomp = use_double ? 8 : 4;
-      }
+    nslices = use_double ? 8 : 4;
+    nprimes = (0 != use_i8) ? i8_def : u8_def;
+    if (0 < ndecomp) {
+      if (1 == kind) nslices = ndecomp;
+      else nprimes = ndecomp;
     }
-    if (2 == kind) {
-      /* Scheme 2: Convert trim levels to input mantissa bits.
-       * Scheme 1 trim drops slice-pair diagonals: each level removes pairs
-       * whose product contribution is ~7 bits below the next level, but the
-       * full mantissa is preserved in every surviving pair.  In Scheme 2,
-       * trim truncates the mantissa before CRT reduction, affecting both
-       * operands: B input bits cost 2*B product bits.  To give comparable
-       * accuracy at the same trim level, use 2 input bits per level so that
-       * trim=7 truncates 14 input bits (product loses ~28 bits, leaving
-       * ~76 of 104 product bits — well above the 52-bit fp64 threshold). */
+    { /* Scheme 2: Convert trim levels to input mantissa bits. */
       const int mant = use_double ? 52 : 23;
-      const int max_levels = mant / 2; /* 26 for fp64, 11 for fp32 */
-      const int oztrim_bits = LIBXS_MIN(oztrim, max_levels) * 2;
-
-      if (0 < oztrim_bits && 0 != ndecomp_auto) {
-        /* floor(cumulative log2) of CRT moduli products.
-         * u8 (moduli<=256): {8,15,23,...,153}
-         * i8 (moduli<=128): {7,13,20,...,130} */
+      const int max_levels = mant / 2;
+      oztrim_crt = LIBXS_MIN(oztrim, max_levels) * 2;
+      if (0 < oztrim_crt) {
         static const int cumbits_u8[20] = {8, 15, 23, 31, 39, 47, 55, 63, 71, 78, 86, 94, 101, 109, 116, 124, 131, 139, 146, 153};
         static const int cumbits_i8[20] = {7, 13, 20, 27, 34, 41, 48, 55, 61, 68, 75, 81, 87, 94, 100, 106, 112, 118, 124, 130};
         const int* cumbits = (0 != use_i8) ? cumbits_i8 : cumbits_u8;
-        const int req = 2 * (mant - oztrim_bits) + 23;
+        const int req = 2 * (mant - oztrim_crt) + 23;
         int np;
         for (np = 0; np < 20 && cumbits[np] < req; ++np);
-        ndecomp = (np < 20) ? np + 1 : 20;
+        nprimes = (np < 20) ? np + 1 : 20;
       }
-      /* Store as bits for kernel compilation */
-      oztrim = oztrim_bits;
     }
-    else if (1 == kind) {
-      /* Scheme 1: cutoff = 2*(ndecomp-1) - oztrim must stay >= 0 */
-      const int max_trim = 2 * (ndecomp - 1);
+    { /* Scheme 1: cutoff = 2*(nslices-1) - oztrim must stay >= 0 */
+      const int max_trim = 2 * (nslices - 1);
       if (oztrim > max_trim) oztrim = max_trim;
     }
+    ctx->nslices = nslices;
+    ctx->nprimes = nprimes;
+    ndecomp = (2 == kind) ? nprimes : nslices;
   } /* ndecomp_auto */
   if (2 == kind && 20 < ndecomp) ndecomp = 20;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
@@ -290,9 +262,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         else tn /= 2;
       }
     }
-    if (1 == kind) {
+    { /* Scheme 1: always compile preprocessing + create registry (for adaptive) */
       const int sq_jit = ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
-      const int cutoff_jit = 2 * (ndecomp - 1) - oztrim;
+      const int cutoff_jit = 2 * (nslices - 1) - oztrim;
       size_t goff = 0;
       goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
         "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
@@ -302,7 +274,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DRTM=%d -DRTN=%d"
         " -DOZAKI_SQ=%d -DCONSTANT=global",
         tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
-        ndecomp, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn, sq_jit);
+        nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn, sq_jit);
       env = getenv("OZAKI_PREFETCH");
       if (NULL != env && '1' == *env) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_PREFETCH=1");
@@ -351,7 +323,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
       }
     }
-    if (2 == kind) {
+    { /* Scheme 2: always compile CRT kernels (for adaptive) */
       size_t coff = 0;
       coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
         "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
@@ -361,8 +333,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DKGROUPS=%d -DRTM=%d -DRTN=%d -DPB=%d"
         " -DCONSTANT=global",
         tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
-        ndecomp, use_double, mant_bits, bias_plus_mant - oztrim, oztrim, bm_pre, bn_pre, bk_pre,
-        (2 == kind && 1 < ozgroups) ? ozgroups : 0, rtm, rtn, ctx->pb);
+        nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
+        (1 < ozgroups) ? ozgroups : 0, rtm, rtn, ctx->pb);
       if (0 == use_i8) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
       }
@@ -409,10 +381,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           ctx->kern_crt_scale_beta = NULL;
         }
       }
-    }
-    else if (1 != kind) {
-      fprintf(stderr, "ERROR OZAKI: unsupported kind=%d\n", kind);
-      result = EXIT_FAILURE;
     }
 
     /* Initialize complex GEMM block-embedding kernels (precision-agnostic, always compiled) */

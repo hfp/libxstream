@@ -47,13 +47,35 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
   int result = EXIT_SUCCESS;
 
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
+  int use_scheme1;
   ctx->stream = stream; /* expose to deallocate wrapper */
+
+  /* Adaptive scheme selection (kind==3): first call uses Scheme 1 to learn
+   * the effective cutoff from occupancy data. Subsequent calls compare
+   * Scheme-1 pair count (at cached cutoff) vs Scheme-2 prime count and
+   * pick the cheaper path. kind==1 or kind==2 force that scheme. */
+  { const int lc = ctx->cache.last_cutoff;
+    const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
+    if (1 == ctx->kind) {
+      use_scheme1 = 1;
+    }
+    else if (2 == ctx->kind) {
+      use_scheme1 = 0;
+    }
+    else if (0 < lc) {
+      const int pairs = ozaki_count_pairs(ctx->nslices, lc, sq);
+      use_scheme1 = (pairs < ctx->nprimes);
+    }
+    else {
+      use_scheme1 = 1; /* kind==3, no cutoff yet: use Scheme 1 to learn */
+    }
+  }
 
   /* GEMM path (Scheme 1): full-split-then-tiled-GEMM.
    * Preprocesses entire K dimension up front into dense per-slice
    * int8 matrices, then runs a proper tiled GEMM per slice pair. */
-  if (NULL != ctx->kernel_registry && 0 < K) {
-    const int nslices_g = ctx->ndecomp;
+  if (0 != use_scheme1 && NULL != ctx->kernel_registry && 0 < K) {
+    const int nslices_g = ctx->nslices;
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
@@ -318,7 +340,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
    * then runs a single kernel per tile that loops over all primes
    * internally (full-K DPAS + Garner + Horner in one launch). */
   else if (NULL != ctx->kern_crt_fused && 0 < K) {
-    const int nprimes_g = ctx->ndecomp;
+    const int nprimes_g = ctx->nprimes;
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
