@@ -61,7 +61,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   const char* env;
   memset(ctx, 0, sizeof(*ctx));
 
-  if (0 >= kind) kind = 1;
+  if (0 >= kind) kind = 2;
 
   /* CRT (kind=2): no XMX support (scalar only), no triangular/symmetrize */
   if (2 == kind) {
