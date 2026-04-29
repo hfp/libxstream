@@ -213,9 +213,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
       if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
 
-      /* Compute adaptive cutoff from occupancy data */
+      /* Compute adaptive cutoff from occupancy data.
+       * On cache hit: reuse last_cutoff (no D2H readback, no sync bubble).
+       * On miss: read occupancy from GPU, compute eff_cutoff, save for next time. */
       { int eff_cutoff = cutoff;
-        if (0 == cache_hit_a && 0 == cache_hit_b) {
+        if (0 != cache_hit_a && 0 != cache_hit_b && 0 != ctx->cache.last_cutoff) {
+          eff_cutoff = ctx->cache.last_cutoff;
+        }
+        else if (0 == cache_hit_a && 0 == cache_hit_b) {
           cl_int occ_a[20], occ_b[20]; /* max NSLICES = 16 (fp64), pad to 20 */
           int sma = -1, smb = -1, si;
           if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_occ_a, occ_a, occ_size, stream);
@@ -225,6 +230,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           for (si = nslices_g - 1; si >= 0; --si) { if (0 != occ_b[si]) { smb = si; break; } }
           if (sma >= 0 && smb >= 0) { eff_cutoff = sma + smb < cutoff ? sma + smb : cutoff; }
           else eff_cutoff = -1;
+          ctx->cache.last_cutoff = eff_cutoff;
         }
       /* Launch GEMM for this K-group */
       { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
@@ -765,6 +771,9 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result, const void* a, 
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
   libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
+  if ((0 == *cache_hit_a || 0 == *cache_hit_b) && EXIT_SUCCESS == result) {
+    ctx->cache.last_cutoff = 0;
+  }
   if (0 == *cache_hit_a && 0 != (ctx->cache.flags & 1) && EXIT_SUCCESS == result) {
     if (NULL != ctx->cache.a.d_slices) {
       OZAKI_DEV_FREE(ctx->cache.a.d_slices);

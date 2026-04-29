@@ -75,6 +75,7 @@ typedef struct ozaki_cache_t {
   libxs_lock_t lock;
   volatile LIBXS_ATOMIC_LOCKTYPE nusers;
   int flags; /* bitmask: 1=A, 2=B */
+  int last_cutoff; /* adaptive cutoff from previous call (reused on cache hit) */
   ozaki_cache_side_t a, b;
 } ozaki_cache_t;
 
