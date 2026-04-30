@@ -1,0 +1,13 @@
+Name: @PROJECT@
+Description: @DESCRIPTION@
+URL: @URL@
+Version: @VERSION@
+
+prefix=@PREFIX@
+includedir=@INCLUDEDIR@
+libdir=@LIBDIR@
+
+Cflags: -I${includedir}
+Libs: -L${libdir} -l@LINKNAME@
+@LIBS_PRIVATE@
+@REQUIRES_PRIVATE@

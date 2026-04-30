@@ -119,7 +119,14 @@ endif()
 
 # Pkg-config file
 if(NOT LIBXSTREAM_HEADER_ONLY)
-  set(LIBXSTREAM_VERSION_STRING "${PROJECT_VERSION}")
+  set(PREFIX "${CMAKE_INSTALL_PREFIX}")
+  set(INCLUDEDIR "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
+  set(LIBDIR "\${prefix}/${CMAKE_INSTALL_LIBDIR}")
+  set(PROJECT "libxstream")
+  set(DESCRIPTION "Specialized tensor operations")
+  set(URL "https://github.com/hfp/libxstream/")
+  set(VERSION "${PROJECT_VERSION}")
+  set(LINKNAME "xstream")
   set(LIBS_PRIVATE "")
   set(REQUIRES_PRIVATE "")
   if(NOT LIBXSTREAM_SHARED)
@@ -140,7 +147,7 @@ if(NOT LIBXSTREAM_HEADER_ONLY)
   endif()
 
   configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_pkgconfig.pc.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstream.pc.in"
     "${CMAKE_CURRENT_BINARY_DIR}/libxstream.pc"
     @ONLY
   )
