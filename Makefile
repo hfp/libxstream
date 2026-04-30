@@ -553,22 +553,22 @@ endif
 ALIAS_INCDIR := $(subst $$$$,$(if $(findstring $$$$/,$$$$$(PINCDIR)),,\$${prefix}/),$(subst $$$$$(ALIAS_PREFIX),\$${prefix},$$$$$(PINCDIR)))
 ALIAS_LIBDIR := $(subst $$$$,$(if $(findstring $$$$/,$$$$$(POUTDIR)),,\$${prefix}/),$(subst $$$$$(ALIAS_PREFIX),\$${prefix},$$$$$(POUTDIR)))
 
+PCTEMPLATE := $(ROOTSCR)/$(PROJECT).pc.in
+PCSUBST_BASE = $(SED) $(PCTEMPLATE) \
+  -e 's|@PROJECT@|$(PROJECT)|g' \
+  -e 's|@DESCRIPTION@|Specialized tensor operations|g' \
+  -e 's|@URL@|https://github.com/hfp/$(PROJECT)/|g' \
+  -e 's|@VERSION@|$(VERSION_STRING)|g' \
+  -e 's|@PREFIX@|$(ALIAS_PREFIX)|g' \
+  -e 's|@INCLUDEDIR@|$(ALIAS_INCDIR)|g' \
+  -e 's|@LIBDIR@|$(ALIAS_LIBDIR)|g' \
+  -e 's|@LINKNAME@|$(patsubst lib%,%,$(PROJECT))|g' \
+  -e 's|@LIBS_PRIVATE@||g'
+
 ifeq (,$(filter-out 0 2,$(BUILD)))
-$(PPKGDIR)/$(PROJECT)-static.pc: $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(PPKGDIR)/.make
-	@echo "Name: $(PROJECT)" >$@
-	@echo "Description: Specialized tensor operations" >>$@
-	@echo "URL: https://github.com/hfp/$(PROJECT)/" >>$@
-	@echo "Version: $(VERSION_STRING)" >>$@
-	@echo >>$@
-	@echo "prefix=$(ALIAS_PREFIX)" >>$@
-	@echo "includedir=$(ALIAS_INCDIR)" >>$@
-	@echo "libdir=$(ALIAS_LIBDIR)" >>$@
-	@echo >>$@
-	@echo "Cflags: -I\$${includedir}" >>$@
-	@echo "Libs: -L\$${libdir} -l$(patsubst lib%,%,$(PROJECT))" >>$@
-  ifneq (,$(LIBXS))
-	@echo "Requires.private: libxs-static" >>$@
-  endif
+$(PPKGDIR)/$(PROJECT)-static.pc: $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(PPKGDIR)/.make $(PCTEMPLATE)
+	@$(PCSUBST_BASE) \
+	  -e 's|@REQUIRES_PRIVATE@|$(if $(LIBXS),Requires.private: libxs-static,)|g' >$@
   ifeq (,$(filter-out 0 2,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc
   endif
@@ -577,21 +577,9 @@ else
 endif
 
 ifeq (,$(filter-out 1 2,$(BUILD)))
-$(PPKGDIR)/$(PROJECT)-shared.pc: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(PPKGDIR)/.make
-	@echo "Name: $(PROJECT)" >$@
-	@echo "Description: Specialized tensor operations" >>$@
-	@echo "URL: https://github.com/hfp/$(PROJECT)/" >>$@
-	@echo "Version: $(VERSION_STRING)" >>$@
-	@echo >>$@
-	@echo "prefix=$(ALIAS_PREFIX)" >>$@
-	@echo "includedir=$(ALIAS_INCDIR)" >>$@
-	@echo "libdir=$(ALIAS_LIBDIR)" >>$@
-	@echo >>$@
-	@echo "Cflags: -I\$${includedir}" >>$@
-	@echo "Libs: -L\$${libdir} -l$(patsubst lib%,%,$(PROJECT))" >>$@
-  ifneq (,$(LIBXS))
-	@echo "Requires.private: libxs" >>$@
-  endif
+$(PPKGDIR)/$(PROJECT)-shared.pc: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(PPKGDIR)/.make $(PCTEMPLATE)
+	@$(PCSUBST_BASE) \
+	  -e 's|@REQUIRES_PRIVATE@|$(if $(LIBXS),Requires.private: libxs,)|g' >$@
   ifeq (,$(filter-out 1,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc
   endif
