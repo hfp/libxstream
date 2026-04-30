@@ -11,7 +11,6 @@
 #define LIBXSTREAM_H
 
 #include "libxstream_macros.h"
-#include <stddef.h>
 
 /** types */
 typedef int libxstream_bool_t;

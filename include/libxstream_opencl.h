@@ -38,7 +38,6 @@
 
 #if defined(__LIBXS)
 # include <libxs_malloc.h>
-# include <libxs_timer.h>
 # include <libxs_hist.h>
 # include <libxs_mem.h>
 #else /* code depends on LIBXS */
@@ -150,6 +149,7 @@
     if (EXIT_SUCCESS != (RESULT)) CL_ERROR_REPORT(NAME); \
     return (RESULT); \
   } while (0)
+
 
 /** Rich type denoting an error. */
 typedef struct libxstream_opencl_error_t {

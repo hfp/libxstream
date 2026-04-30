@@ -9,7 +9,6 @@
 #ifndef DBCSR_ACC_H
 #define DBCSR_ACC_H
 
-#include <stddef.h>
 #include "libxstream_macros.h"
 
 #define DBCSR_STRINGIFY_AUX(SYMBOL) #SYMBOL
@@ -19,6 +18,7 @@
 
 /** used to mark variables used */
 #define DBCSR_MARK_USED(x) (void)(x)
+
 
 /** types */
 typedef int c_dbcsr_acc_bool_t;
