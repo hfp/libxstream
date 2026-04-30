@@ -8,10 +8,8 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 # include <libxstream_opencl.h>
-# include <string.h>
-# include <limits.h>
-# include <ctype.h>
-# include <math.h>
+# include <libxs_hash.h>
+# include <libxs_str.h>
 # if defined(_WIN32)
 #   include <windows.h>
 #   include <process.h>

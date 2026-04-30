@@ -9,18 +9,8 @@
 #ifndef LIBXSTREAM_CP2K_H
 #define LIBXSTREAM_CP2K_H
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include "libxstream_macros.h"
-
-typedef void* offloadStream_t;
-typedef void* offloadEvent_t;
-typedef int offloadError_t;
-
-#define offloadSuccess EXIT_SUCCESS
+#include <stdbool.h>
 
 #if !defined(OFFLOAD_CHECK)
 # define OFFLOAD_CHECK(CMD) \
@@ -38,6 +28,13 @@ typedef int offloadError_t;
       } \
     } while (0)
 #endif
+
+#define offloadSuccess EXIT_SUCCESS
+
+
+typedef void* offloadStream_t;
+typedef void* offloadEvent_t;
+typedef int offloadError_t;
 
 LIBXSTREAM_API const char* offloadGetErrorName(offloadError_t error);
 LIBXSTREAM_API offloadError_t offloadGetLastError(void);
