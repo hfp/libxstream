@@ -591,13 +591,40 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
 
 
 #if OZAKI_HIER
-/* Level-2 Barrett reduction: (ulong)x mod (uint)oz2g_hier_gprod[gidx].
- * Uses mul_hi(x, floor(2^64/m)) to approximate the quotient,
- * then a single conditional subtract to correct. */
+/* Actual group product for group g (handles partial last group). */
+inline uint oz2g_hier_actual_gprod(int g)
+{
+  const int lo = g * HIER_GS;
+  const int hi = (lo + HIER_GS <= NPRIMES) ? (lo + HIER_GS) : NPRIMES;
+  uint p = 1;
+  int i;
+  for (i = lo; i < hi; ++i) p *= (uint)oz2g_moduli[i];
+  return p;
+}
+
+/* Modular inverse: a^{-1} mod m via extended Euclidean algorithm. */
+inline uint oz2g_mod_inverse(uint a, uint m)
+{
+  long r0 = (long)m, r1 = (long)(a % m);
+  long s0 = 0, s1 = 1;
+  while (0 != r1) {
+    const long q = r0 / r1;
+    const long tmp_r = r0 - q * r1; r0 = r1; r1 = tmp_r;
+    { const long tmp_s = s0 - q * s1; s0 = s1; s1 = tmp_s; }
+  }
+  return (uint)((s0 % (long)m + (long)m) % (long)m);
+}
+
+/* Level-2 Barrett reduction: (ulong)x mod group product for group gidx. */
 inline uint oz2g_mod_l2(ulong x, int gidx)
 {
+#if (0 != (NPRIMES % HIER_GS))
+  const uint m = oz2g_hier_actual_gprod(gidx);
+  const ulong q = mul_hi(x, (ulong)(-1) / (ulong)m);
+#else
   const uint m = oz2g_hier_gprod[gidx];
   const ulong q = mul_hi(x, oz2g_hier_l2_barrett[gidx]);
+#endif
   uint r = (uint)(x - q * (ulong)m);
   return (r >= m) ? (r - m) : r;
 }
@@ -636,33 +663,53 @@ inline uint oz2g_hier_l1_garner(const uint* restrict group_residues, int g)
   return (uint)hval;
 }
 
-/* Level-2 Garner: reconstruct HIER_NGROUPS group values -> mixed-radix digits + sign. */
+/* Level-2 Garner: reconstruct HIER_NGROUPS group values -> mixed-radix digits + sign.
+ * Uses oz2g_hier_actual_gprod() for group moduli to handle partial last group.
+ * L2 Garner inverses are computed inline via oz2g_mod_l2 when the precomputed
+ * table may not match (partial group changes the modulus). */
 inline int oz2g_hier_l2_garner(const uint* restrict gval, uint* restrict d)
 {
   SINT i, j;
   int is_negative;
+#if (0 != (NPRIMES % HIER_GS))
+  uint gprod_actual[HIER_NGROUPS];
+  for (i = 0; i < HIER_NGROUPS; ++i) gprod_actual[i] = oz2g_hier_actual_gprod(i);
+#else
+# define gprod_actual oz2g_hier_gprod
+#endif
 
   for (i = 0; i < HIER_NGROUPS; ++i) {
     uint u = gval[i];
-    const uint mi = oz2g_hier_gprod[i];
+    const uint mi = gprod_actual[i];
     for (j = 0; j < i; ++j) {
+      uint inv_ji;
       uint dj = d[j];
       if (dj >= mi) dj = oz2g_mod_l2((ulong)dj, i);
+#if (0 != (NPRIMES % HIER_GS))
+      inv_ji = (i == HIER_NGROUPS - 1 || j == HIER_NGROUPS - 1)
+        ? oz2g_mod_inverse(gprod_actual[j], mi)
+        : oz2g_hier_l2_garner_inv[j][i];
+#else
+      inv_ji = oz2g_hier_l2_garner_inv[j][i];
+#endif
       {
         const uint diff = (u >= dj) ? (u - dj) : (mi + u - dj);
-        u = oz2g_mod_l2((ulong)diff * (ulong)oz2g_hier_l2_garner_inv[j][i], i);
+        u = oz2g_mod_l2((ulong)diff * (ulong)inv_ji, i);
       }
     }
     d[i] = u;
   }
 
-  is_negative = (d[HIER_NGROUPS - 1] >= (oz2g_hier_gprod[HIER_NGROUPS - 1] + 1) / 2) ? 1 : 0;
+  is_negative = (d[HIER_NGROUPS - 1] >= (gprod_actual[HIER_NGROUPS - 1] + 1) / 2) ? 1 : 0;
 
   if (0 != is_negative) {
     for (i = 0; i < HIER_NGROUPS; ++i) {
-      d[i] = oz2g_hier_gprod[i] - 1 - d[i];
+      d[i] = gprod_actual[i] - 1 - d[i];
     }
   }
+#if (0 == (NPRIMES % HIER_GS))
+# undef gprod_actual
+#endif
   return is_negative;
 }
 
@@ -671,6 +718,12 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
                                         real_t alpha, int base_sh, real_t* cval)
 {
   SINT i;
+#if (0 != (NPRIMES % HIER_GS))
+  uint gp[HIER_NGROUPS];
+  for (i = 0; i < HIER_NGROUPS; ++i) gp[i] = oz2g_hier_actual_gprod(i);
+#else
+# define gp oz2g_hier_gprod
+#endif
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
   {
     const int nsuper = (HIER_NGROUPS + HIER_L2_HORNER_GROUP - 1) / HIER_L2_HORNER_GROUP;
@@ -681,7 +734,7 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
       const int lo = (nsuper - 1) * HIER_L2_HORNER_GROUP;
       ulong r = (ulong)d[HIER_NGROUPS - 1];
       for (i = HIER_NGROUPS - 2; i >= lo; --i) {
-        r = r * (ulong)oz2g_hier_gprod[i] + (ulong)d[i];
+        r = r * (ulong)gp[i] + (ulong)d[i];
       }
       result = (double)r;
     }
@@ -690,10 +743,10 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
       const int lo = sg * HIER_L2_HORNER_GROUP;
       const int hi = lo + HIER_L2_HORNER_GROUP - 1;
       ulong sgval, sgprod = 1;
-      for (i = lo; i <= hi; ++i) sgprod *= (ulong)oz2g_hier_gprod[i];
+      for (i = lo; i <= hi; ++i) sgprod *= (ulong)gp[i];
       sgval = (ulong)d[hi];
       for (i = hi - 1; i >= lo; --i) {
-        sgval = sgval * (ulong)oz2g_hier_gprod[i] + (ulong)d[i];
+        sgval = sgval * (ulong)gp[i] + (ulong)d[i];
       }
       result = result * (double)sgprod + (double)sgval;
     }
@@ -708,7 +761,7 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
   {
     long r = (long)d[HIER_NGROUPS - 1];
     for (i = HIER_NGROUPS - 2; i >= 0; --i) {
-      r = r * (long)oz2g_hier_gprod[i] + (long)d[i];
+      r = r * (long)gp[i] + (long)d[i];
     }
     {
       const long result = (0 != is_negative) ? -(r + 1) : r;
@@ -718,6 +771,9 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
       }
     }
   }
+#endif
+#if (0 == (NPRIMES % HIER_GS))
+# undef gp
 #endif
 }
 #endif /* OZAKI_HIER */

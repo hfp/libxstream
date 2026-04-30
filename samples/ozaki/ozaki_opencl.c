@@ -105,8 +105,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       const int max_levels = mant / 2;
       oztrim_crt = LIBXS_MIN(oztrim, max_levels) * 2;
       if (0 < oztrim_crt) {
-        static const int cumbits_u8[20] = {8, 15, 23, 31, 39, 47, 55, 63, 71, 78, 86, 94, 101, 109, 116, 124, 131, 139, 146, 153};
-        static const int cumbits_i8[20] = {7, 13, 20, 27, 34, 41, 48, 55, 61, 68, 75, 81, 87, 94, 100, 106, 112, 118, 124, 130};
+        static const int cumbits_u8[20] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
+        static const int cumbits_i8[20] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
         const int* cumbits = (0 != use_i8) ? cumbits_i8 : cumbits_u8;
         const int req = 2 * (mant - oztrim_crt) + 23;
         int np;
