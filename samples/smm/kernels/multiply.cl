@@ -403,13 +403,9 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 # endif
         {
 # if defined(SLM_C) && (1 < BS)
-#   if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
           const int mc = m, nc = n;
-#   else
-          const int mc = m;
-#   endif
 # else
-#   if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
+#   if (1 < BS) && (BM < SM && 1 != BN)
           const int mc = bm, nc = bn;
 #   else
           const int mc = bm;
@@ -590,17 +586,9 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 # endif
           {
 # if defined(SLM_C)
-#   if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
             const int mc = m, nc = n;
-#   else
-            const int mc = m;
-#   endif
 # else
-#   if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
             const int mc = bm, nc = bn;
-#   else
-            const int mc = bm;
-#   endif
 # endif
 # if defined(ATOMIC_INC_NZ)
             if (ZERO != CNM(nc, mc))
@@ -618,7 +606,7 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 # if defined(ATOMIC_ADD2_GLOBAL)
       UNROLL_AUTO for (; m < (SM - 1); m += 2) {
 #   if defined(ATOMIC_INC_NZ)
-        if (ZERO != CNM(idx, m) && ZERO != CNM(idx, m + 1))
+        if (ZERO != CNM(idx, m) || ZERO != CNM(idx, m + 1))
 #   endif
         {
           const float2 r2 = (float2)(CNM(idx, m), CNM(idx, m + 1));
