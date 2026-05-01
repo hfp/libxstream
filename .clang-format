@@ -11,7 +11,7 @@ IndentWrappedFunctionNames: false
 UseTab: Never
 
 # ==== Column & wrapping ====
-ColumnLimit: 132
+ColumnLimit: 96
 AlignAfterOpenBracket: DontAlign
 AlignEscapedNewlines: DontAlign
 BinPackArguments: true

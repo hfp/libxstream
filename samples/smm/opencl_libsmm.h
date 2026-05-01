@@ -45,6 +45,7 @@ typedef struct opencl_libsmm_transkey_t {
 typedef struct opencl_libsmm_trans_t {
   cl_kernel kernel; /* must be the 1st data member */
   size_t wgsize;
+  int bs;
 } opencl_libsmm_trans_t;
 
 /** Type for querying SMM-kernel configuration. */
