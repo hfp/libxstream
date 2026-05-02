@@ -574,15 +574,36 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
   }
 #else
   {
-    long r = (long)v[NPRIMES - 1];
-    for (i = NPRIMES - 2; i >= 0; --i) {
-      r = r * (long)oz2g_moduli[i] + (long)v[i];
-    }
+    const int ngroups = (NPRIMES + OZ2_HORNER_GROUP - 1) / OZ2_HORNER_GROUP;
+    float result;
+    int g;
+
     {
-      const long result = (0 != is_negative) ? -(r + 1) : r;
-      if (0 != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
+      const int lo = (ngroups - 1) * OZ2_HORNER_GROUP;
+      ulong r = (ulong)v[NPRIMES - 1];
+      for (i = NPRIMES - 2; i >= lo; --i) {
+        r = r * (ulong)oz2g_moduli[i] + (ulong)v[i];
+      }
+      result = (float)r;
+    }
+
+    for (g = ngroups - 2; g >= 0; --g) {
+      const int lo = g * OZ2_HORNER_GROUP;
+      const int hi = lo + OZ2_HORNER_GROUP - 1;
+      ulong gval, gprod = 1;
+      for (i = lo; i <= hi; ++i) gprod *= (ulong)oz2g_moduli[i];
+      gval = (ulong)v[hi];
+      for (i = hi - 1; i >= lo; --i) {
+        gval = gval * (ulong)oz2g_moduli[i] + (ulong)v[i];
+      }
+      result = result * (float)gprod + (float)gval;
+    }
+
+    {
+      const float fresult = (0 != is_negative) ? -(result + 1.0f) : result;
+      if (0.0f != fresult && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
         const real_t scale = alpha * EXP2I(base_sh);
-        *cval += (real_t)result * scale;
+        *cval += fresult * scale;
       }
     }
   }
@@ -759,15 +780,36 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
   }
 #else
   {
-    long r = (long)d[HIER_NGROUPS - 1];
-    for (i = HIER_NGROUPS - 2; i >= 0; --i) {
-      r = r * (long)gp[i] + (long)d[i];
-    }
+    const int nsuper_s = (HIER_NGROUPS + HIER_L2_HORNER_GROUP - 1) / HIER_L2_HORNER_GROUP;
+    float result_s;
+    int sg_s;
+
     {
-      const long result = (0 != is_negative) ? -(r + 1) : r;
-      if (0 != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
+      const int lo = (nsuper_s - 1) * HIER_L2_HORNER_GROUP;
+      ulong r = (ulong)d[HIER_NGROUPS - 1];
+      for (i = HIER_NGROUPS - 2; i >= lo; --i) {
+        r = r * (ulong)gp[i] + (ulong)d[i];
+      }
+      result_s = (float)r;
+    }
+
+    for (sg_s = nsuper_s - 2; sg_s >= 0; --sg_s) {
+      const int lo = sg_s * HIER_L2_HORNER_GROUP;
+      const int hi = lo + HIER_L2_HORNER_GROUP - 1;
+      ulong sgval, sgprod = 1;
+      for (i = lo; i <= hi; ++i) sgprod *= (ulong)gp[i];
+      sgval = (ulong)d[hi];
+      for (i = hi - 1; i >= lo; --i) {
+        sgval = sgval * (ulong)gp[i] + (ulong)d[i];
+      }
+      result_s = result_s * (float)sgprod + (float)sgval;
+    }
+
+    {
+      const float fresult = (0 != is_negative) ? -(result_s + 1.0f) : result_s;
+      if (0.0f != fresult && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
         const real_t scale = alpha * EXP2I(base_sh);
-        *cval += (real_t)result * scale;
+        *cval += fresult * scale;
       }
     }
   }
@@ -982,7 +1024,9 @@ kernel void gemm_crt_fused(
               int ku;
               UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
               {
-                OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+                if (k + ku * BK < K_pad) {
+                  OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+                }
               }
               steps += KU;
               if (steps >= KGROUPS) {
@@ -1001,7 +1045,9 @@ kernel void gemm_crt_fused(
               int ku;
               UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
               {
-                OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+                if (k + ku * BK < K_pad) {
+                  OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+                }
               }
             }
             OZAKI_CRT_REDUCE_BATCH_GROUP(acc, pidx_base, group_lo, group_res, 0);
@@ -1088,7 +1134,9 @@ kernel void gemm_crt_fused(
           int ku;
           UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
           {
-            OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+            if (k + ku * BK < K_pad) {
+              OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+            }
           }
           steps += KU;
           if (steps >= KGROUPS) {
@@ -1107,7 +1155,9 @@ kernel void gemm_crt_fused(
           int ku;
           UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
           {
-            OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+            if (k + ku * BK < K_pad) {
+              OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+            }
           }
         }
         OZAKI_CRT_REDUCE_BATCH(acc, pidx_base, residues, 0);

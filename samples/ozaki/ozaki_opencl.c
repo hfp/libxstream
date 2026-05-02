@@ -98,7 +98,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     nprimes = (0 != use_i8) ? i8_def : u8_def;
     if (0 < ndecomp) {
       if (1 == kind) nslices = ndecomp;
-      else nprimes = ndecomp;
+      else if (ndecomp != u8_def && ndecomp != i8_def) nprimes = ndecomp;
     }
     { /* Scheme 2: Convert trim levels to input mantissa bits. */
       const int mant = use_double ? 52 : 23;
