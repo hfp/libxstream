@@ -7,6 +7,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "ozaki_opencl.h"
+#include <libxs_math.h>
 
 /* Embedded kernel source (generated at build time via tool_opencl.sh) */
 #include "ozaki_kernels.h"
@@ -46,16 +47,6 @@ static void ozaki_dev_deallocate(void* pointer, const void* extra)
 /* Internal helpers */
 static const uint16_t ozaki_u8_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
 static const uint16_t ozaki_i8_moduli[] = {101, 97, 59, 128, 127, 103, 89, 61, 125, 107, 83, 67, 121, 109, 81, 71, 119, 113, 79, 73};
-
-static uint32_t ozaki_mod_inverse_u32(uint32_t a, uint32_t m) {
-  int64_t r0 = (int64_t)m, r1 = (int64_t)(a % m), s0 = 0, s1 = 1;
-  while (0 != r1) {
-    const int64_t q = r0 / r1;
-    const int64_t tr = r0 - q * r1; r0 = r1; r1 = tr;
-    { const int64_t ts = s0 - q * s1; s0 = s1; s1 = ts; }
-  }
-  return (uint32_t)((s0 % (int64_t)m + (int64_t)m) % (int64_t)m);
-}
 
 static void ozaki_print_opt(FILE* stream, const char* name, int val)
 {
@@ -338,7 +329,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
     { /* Scheme 2: always compile CRT kernels (for adaptive) */
       const int crt_hier = (0 != ctx->hier);
-      const int crt_rtm = rtm;
       size_t coff = 0;
       coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
         "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
@@ -349,7 +339,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DCONSTANT=global",
         tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
         nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
-        (1 < ozgroups) ? ozgroups : 0, crt_rtm, rtn, ctx->pb);
+        (1 < ozgroups) ? ozgroups : 0, rtm, rtn, ctx->pb);
       if (0 == use_i8) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
       }
@@ -377,7 +367,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           for (gj = gi + 1; gj < ngroups; ++gj) {
             coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
               " -DHIER_L2INV_%d_%d=%uu", gi, gj,
-              (unsigned)ozaki_mod_inverse_u32(gp[gi] % gp[gj], gp[gj]));
+              (unsigned)libxs_mod_inverse_u32(gp[gi] % gp[gj], gp[gj]));
           }
         }
       }
@@ -403,7 +393,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
         if (NULL != program) clReleaseProgram(program);
       }
-      ctx->crt_rtm = crt_rtm;
       if (EXIT_SUCCESS != result) {
         if (NULL != ctx->kern_crt_preprocess_a) {
           clReleaseKernel(ctx->kern_crt_preprocess_a);
@@ -484,7 +473,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ctx->tm = tm;
       ctx->tn = tn;
       ctx->rtm = rtm;
-      if (0 == ctx->crt_rtm) ctx->crt_rtm = rtm;
       ctx->rtn = rtn;
       ctx->biggrf = biggrf;
       ctx->bm_pre = bm_pre;

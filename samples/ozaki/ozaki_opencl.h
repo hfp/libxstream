@@ -122,7 +122,6 @@ typedef struct ozaki_context_t {
   int tm, tn;
   /* register tiling: sub-tiles per sub-group (compiled into kernel) */
   int rtm, rtn;
-  int crt_rtm; /* CRT-specific RTM (may differ from rtm for adaptive+HIER) */
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int pb; /* CRT prime batching factor (compiled into kernel) */
