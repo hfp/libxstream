@@ -1024,9 +1024,7 @@ kernel void gemm_crt_fused(
               int ku;
               UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
               {
-                if (k + ku * BK < K_pad) {
-                  OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
-                }
+                OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
               }
               steps += KU;
               if (steps >= KGROUPS) {
@@ -1045,9 +1043,7 @@ kernel void gemm_crt_fused(
               int ku;
               UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
               {
-                if (k + ku * BK < K_pad) {
-                  OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
-                }
+                OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
               }
             }
             OZAKI_CRT_REDUCE_BATCH_GROUP(acc, pidx_base, group_lo, group_res, 0);

@@ -354,7 +354,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * maxk=0 means no grouping (full K in one pass). */
     const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
     const int k_grp_max = K < k_grp_size ? K : k_grp_size;
-    int k_grp_pad = ((k_grp_max + bk_pre - 1) / bk_pre) * bk_pre;
+    const int ku_bk = ctx->ku * bk_pre;
+    int k_grp_pad = ((k_grp_max + ku_bk - 1) / ku_bk) * ku_bk;
     const int n_kgroups = (K + k_grp_size - 1) / k_grp_size;
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
