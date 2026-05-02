@@ -120,8 +120,10 @@ typedef struct ozaki_context_t {
   int bm_pre, bn_pre, bk_pre;
   /* output tile size (compiled into kernel) */
   int tm, tn;
-  /* register tiling: sub-tiles per sub-group (compiled into kernel) */
-  int rtm, rtn;
+  /* register tiling: sub-tiles per sub-group (compiled into kernel).
+   * crt_rtm may differ from rtm when adaptive (kind=3) uses HIER+GRF128
+   * for CRT while Scheme 1 uses GRF256. */
+  int rtm, rtn, crt_rtm;
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int pb; /* CRT prime batching factor (compiled into kernel) */

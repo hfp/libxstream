@@ -328,8 +328,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
     }
     { /* Scheme 2: always compile CRT kernels (for adaptive) */
-      const int crt_hier = (0 != ctx->hier);
+      const int crt_hier = (0 != ctx->hier || 3 == kind);
+      const int crt_rtm = (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm / 2, 1) : rtm;
+      char crt_build_options[128];
       size_t coff = 0;
+      if (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) {
+        LIBXS_SNPRINTF(crt_build_options, sizeof(crt_build_options),
+          "-cl-fast-relaxed-math -cl-denorms-are-zero");
+      }
+      else {
+        LIBXS_SNPRINTF(crt_build_options, sizeof(crt_build_options), "%s", build_options);
+      }
       coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
         "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
@@ -339,7 +348,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DCONSTANT=global",
         tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
         nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
-        (1 < ozgroups) ? ozgroups : 0, rtm, rtn, ctx->pb);
+        (1 < ozgroups) ? ozgroups : 0, crt_rtm, rtn, ctx->pb);
       if (0 == use_i8) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
       }
@@ -378,7 +387,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       {
         cl_program program = NULL;
         result = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2", build_params, build_options, NULL, NULL, NULL, 0, &program);
+          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2", build_params, crt_build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
           result = libxstream_opencl_kernel_query(program, "preprocess_a_crt_dense", &ctx->kern_crt_preprocess_a);
         }
@@ -393,6 +402,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
         if (NULL != program) clReleaseProgram(program);
       }
+      ctx->crt_rtm = crt_rtm;
       if (EXIT_SUCCESS != result) {
         if (NULL != ctx->kern_crt_preprocess_a) {
           clReleaseKernel(ctx->kern_crt_preprocess_a);

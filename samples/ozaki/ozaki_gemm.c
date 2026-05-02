@@ -67,7 +67,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       use_scheme1 = (pairs < ctx->nprimes);
     }
     else {
-      use_scheme1 = 1; /* kind==3, no cutoff yet: use Scheme 1 to learn */
+      use_scheme1 = 0; /* kind==3, no cutoff yet: default to Scheme 2 */
     }
   }
 
@@ -349,7 +349,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     int n_pad = ((N + bn_pre - 1) / bn_pre) * bn_pre;
     const int nblk_gm = (M + tm - 1) / tm;
     const int nblk_gn = (N + tn - 1) / tn;
-    const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
+    const int ntm = tm / (8 * ctx->crt_rtm), ntn = tn / (16 * ctx->rtn);
     /* K-group: size buffers for min(K, maxk), not full K.
      * maxk=0 means no grouping (full K in one pass). */
     const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
