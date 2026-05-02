@@ -44,6 +44,19 @@ static void ozaki_dev_deallocate(void* pointer, const void* extra)
 
 
 /* Internal helpers */
+static const uint16_t ozaki_u8_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
+static const uint16_t ozaki_i8_moduli[] = {101, 97, 59, 128, 127, 103, 89, 61, 125, 107, 83, 67, 121, 109, 81, 71, 119, 113, 79, 73};
+
+static uint32_t ozaki_mod_inverse_u32(uint32_t a, uint32_t m) {
+  int64_t r0 = (int64_t)m, r1 = (int64_t)(a % m), s0 = 0, s1 = 1;
+  while (0 != r1) {
+    const int64_t q = r0 / r1;
+    const int64_t tr = r0 - q * r1; r0 = r1; r1 = tr;
+    { const int64_t ts = s0 - q * s1; s0 = s1; s1 = ts; }
+  }
+  return (uint32_t)((s0 % (int64_t)m + (int64_t)m) % (int64_t)m);
+}
+
 static void ozaki_print_opt(FILE* stream, const char* name, int val)
 {
   if (0 != val) fprintf(stream, " %s=%d", name, val);
@@ -341,7 +354,32 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
       }
       if (0 != crt_hier) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_HIER=1");
+        const uint16_t* modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
+        const int hier_gs = 4, ngroups = (nprimes + hier_gs - 1) / hier_gs;
+        uint32_t gp[5];
+        uint64_t l2b[5];
+        int gi, gj;
+        for (gi = 0; gi < ngroups; ++gi) {
+          const int lo = gi * hier_gs, hi = (lo + hier_gs <= nprimes) ? lo + hier_gs : nprimes;
+          uint32_t p = 1;
+          int k;
+          for (k = lo; k < hi; ++k) p *= (uint32_t)modtab[k];
+          gp[gi] = p;
+          l2b[gi] = (uint64_t)(-1) / (uint64_t)p;
+        }
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+          " -DOZAKI_HIER=1 -DHIER_NGROUPS_ACTUAL=%d", ngroups);
+        for (gi = 0; gi < ngroups; ++gi) {
+          coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+            " -DHIER_GPROD_%d=%uu -DHIER_L2B_%d=%luul", gi, (unsigned)gp[gi], gi, (unsigned long)l2b[gi]);
+        }
+        for (gi = 0; gi < ngroups; ++gi) {
+          for (gj = gi + 1; gj < ngroups; ++gj) {
+            coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+              " -DHIER_L2INV_%d_%d=%uu", gi, gj,
+              (unsigned)ozaki_mod_inverse_u32(gp[gi] % gp[gj], gp[gj]));
+          }
+        }
       }
       LIBXS_UNUSED(coff);
       if (0 > verbosity || 2 < verbosity) {
