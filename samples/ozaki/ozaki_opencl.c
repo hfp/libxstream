@@ -546,9 +546,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ozaki_print_opt(stderr, "tm", ctx->tm);
     ozaki_print_opt(stderr, "tn", ctx->tn);
     ozaki_print_opt(stderr, "rtm", ctx->rtm);
+    if (ctx->crt_rtm != ctx->rtm) ozaki_print_opt(stderr, "crt_rtm", ctx->crt_rtm);
     ozaki_print_opt(stderr, "rtn", ctx->rtn);
     if (0 != devinfo->intel) {
+      const int crt_grf128 = (0 != ctx->crt_rtm && ctx->crt_rtm < ctx->rtm);
       ozaki_print_opt(stderr, "grf", ctx->biggrf ? 256 : 128);
+      if (0 != crt_grf128) ozaki_print_opt(stderr, "crt_grf", 128);
     }
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     ozaki_print_opt(stderr, "trim", oztrim);
