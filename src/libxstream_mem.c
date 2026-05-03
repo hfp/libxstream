@@ -577,8 +577,29 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
       if (0 != devinfo->usm)
     {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
-      result = clEnqueueSVMMemcpy(
-        str->queue, finish, dev_mem, host_mem, nbytes, 0, NULL, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
+      const int svmfine = (0 != ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm));
+      if (0 == svmfine) {
+        cl_event unmap_event = NULL;
+        result = clEnqueueSVMMap(str->queue, CL_TRUE, CL_MAP_WRITE, dev_mem, nbytes, 0, NULL, NULL);
+        if (EXIT_SUCCESS == result) {
+          memcpy(dev_mem, host_mem, nbytes);
+          result = clEnqueueSVMUnmap(str->queue, dev_mem, 0, NULL, &unmap_event);
+          if (EXIT_SUCCESS == result && finish) {
+            result = clWaitForEvents(1, &unmap_event);
+          }
+        }
+        if (NULL != unmap_event) {
+          if (NULL != libxstream_opencl_config.hist_h2d) {
+            event = unmap_event;
+          }
+          else {
+            LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(unmap_event));
+          }
+        }
+      }
+      else {
+        memcpy(dev_mem, host_mem, nbytes);
+      }
 #   else
       memcpy(dev_mem, host_mem, nbytes);
 #   endif
@@ -637,7 +658,32 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
     if (0 != devinfo->usm)
   {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
-    result = clEnqueueSVMMemcpy(queue, finish, host_mem, (const char*)dev_mem + offset, nbytes, 0, NULL, event);
+    const int svmfine = (0 != ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm));
+    union { const void* cv; void* v; } src;
+    src.cv = dev_mem;
+    if (0 == svmfine) {
+      cl_event unmap_event = NULL;
+      result = clEnqueueSVMMap(queue, CL_TRUE, CL_MAP_READ, (char*)src.v + offset, nbytes, 0, NULL, NULL);
+      if (EXIT_SUCCESS == result) {
+        memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
+        result = clEnqueueSVMUnmap(queue, (char*)src.v + offset, 0, NULL, &unmap_event);
+        if (EXIT_SUCCESS == result && finish) {
+          result = clWaitForEvents(1, &unmap_event);
+        }
+      }
+      if (NULL != unmap_event) {
+        if (NULL != event) {
+          *event = unmap_event;
+        }
+        else {
+          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(unmap_event));
+        }
+      }
+    }
+    else {
+      if (finish) result = clFinish(queue);
+      if (EXIT_SUCCESS == result) memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
+    }
 #   else
     memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
 #   endif
@@ -659,7 +705,34 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
       if (0 != devinfo->usm)
     {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
-      result_sync = clEnqueueSVMMemcpy(queue, CL_TRUE, host_mem, (const char*)dev_mem + offset, nbytes, 0, NULL, event);
+      result_sync = EXIT_SUCCESS;
+      if (0 == ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm)) {
+        cl_event unmap_event = NULL;
+        union { const void* cv; void* v; } src2;
+        src2.cv = dev_mem;
+        result_sync = clEnqueueSVMMap(queue, CL_TRUE, CL_MAP_READ, (char*)src2.v + offset, nbytes, 0, NULL, NULL);
+        if (EXIT_SUCCESS == result_sync) {
+          memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
+          result_sync = clEnqueueSVMUnmap(queue, (char*)src2.v + offset, 0, NULL, &unmap_event);
+          if (EXIT_SUCCESS == result_sync) {
+            result_sync = clWaitForEvents(1, &unmap_event);
+          }
+        }
+        if (NULL != unmap_event) {
+          if (NULL != event) {
+            *event = unmap_event;
+          }
+          else {
+            LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(unmap_event));
+          }
+        }
+      }
+      else {
+        result_sync = clFinish(queue);
+        if (EXIT_SUCCESS == result_sync) {
+          memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
+        }
+      }
 #   else
       memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
 #   endif
