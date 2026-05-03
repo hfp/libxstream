@@ -73,6 +73,9 @@
         const int check_r_ = (EXPR); \
         if (0 != check_r_) { \
           *((int*)(RPTR)) = check_r_; \
+          if (!(0 > check_r_ && 0 == (VALUE))) { \
+            fprintf(stderr, "ERROR ACC/BENCH: %s failed (code=%i)\n", #EXPR, check_r_); \
+          } \
           assert(0 > check_r_ && 0 == (VALUE)); \
         } \
       } \

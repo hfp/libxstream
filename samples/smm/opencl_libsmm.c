@@ -951,6 +951,16 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
             } break;
             default: LIBXS_ASSERT(NULL == tname);
           }
+          if (NULL != tname && dbcsr_type_real_8 == datatype) {
+            const char* const fp64ext[] = {"cl_khr_fp64"};
+            if (EXIT_SUCCESS != libxstream_opencl_device_ext(
+                  libxstream_opencl_config.devices[libxstream_opencl_config.device_id], fp64ext, 1))
+            {
+              fprintf(stderr, "ERROR ACC/LIBSMM: device does not support FP64 (cl_khr_fp64) -- build with ELEM_TYPE=float\n");
+              result = EXIT_FAILURE;
+              tname = NULL;
+            }
+          }
           if (NULL != tname) {
             const char *extensions[] = {NULL, NULL}, *const env_devid = OPENCL_LIBSMM_SMMENV("DEVID");
             const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
@@ -1166,10 +1176,9 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
                   }
                 }
               }
-# if defined(NDEBUG)
-              else if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
+              else if (0 != libxstream_opencl_config.verbosity) {
                 LIBXS_STDIO_ACQUIRE();
-                fprintf(stderr, "WARNING: SMM-kernel ");
+                fprintf(stderr, "ERROR ACC/LIBSMM: SMM-kernel ");
                 opencl_libsmm_write_smm_params(
                   stderr, 0 /*only_key*/, &key, NULL /*config*/, NULL /*delim*/, NULL /*begin*/, NULL /*close*/);
                 fprintf(stderr, "=");
@@ -1178,7 +1187,6 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
                 fprintf(stderr, " failed to compile!\n");
                 LIBXS_STDIO_RELEASE();
               }
-# endif
             }
           }
           /* insufficient device capabilities */
