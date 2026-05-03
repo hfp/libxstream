@@ -21,7 +21,7 @@ LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
 # include common Makefile artifacts
 include $(LIBXSROOT)/Makefile.inc
 
-# setup LIBXS
+# setup LIBXS (library or header-only)
 ifneq (,$(LIBXSROOT))
   LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
   LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
@@ -31,6 +31,8 @@ ifneq (,$(LIBXSROOT))
   IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
   ifneq (,$(LIBXS))
     DFLAGS += -D__LIBXS
+  else ifneq (,$(wildcard $(LIBXSROOT)/include/libxs_source.h))
+    DFLAGS += -D__LIBXS -DLIBXS_SOURCE
   endif
 endif
 
