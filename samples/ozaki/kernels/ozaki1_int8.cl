@@ -84,6 +84,29 @@
 # define OZAKI_IN_BOUNDS(R, M, COL, N) (1)
 #endif
 
+#if defined(OZAKI_FIRST)
+# define OZAKI_IS_FIRST(ARG) (OZAKI_FIRST)
+#else
+# define OZAKI_IS_FIRST(ARG) (ARG)
+#endif
+
+#if defined(OZAKI_ALPHA_ONE) && (OZAKI_ALPHA_ONE)
+# define OZAKI_ALPHA_MUL(A, X) (X)
+#else
+# define OZAKI_ALPHA_MUL(A, X) ((A) * (X))
+#endif
+
+#if defined(OZAKI_TRANSA)
+# define OZAKI_IDX_A(ROW, COL, LD) ((OZAKI_TRANSA) ? ((ROW) * (LD) + (COL)) : ((COL) * (LD) + (ROW)))
+#else
+# define OZAKI_IDX_A(ROW, COL, LD) (transa ? ((ROW) * (LD) + (COL)) : ((COL) * (LD) + (ROW)))
+#endif
+#if defined(OZAKI_TRANSB)
+# define OZAKI_IDX_B(ROW, COL, LD) ((OZAKI_TRANSB) ? ((ROW) * (LD) + (COL)) : ((COL) * (LD) + (ROW)))
+#else
+# define OZAKI_IDX_B(ROW, COL, LD) (transb ? ((ROW) * (LD) + (COL)) : ((COL) * (LD) + (ROW)))
+#endif
+
 
 /* Composable macros (DBM-style factoring).
  * Each is a do{...}while(0) block for use in kernel functions. */
@@ -289,7 +312,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
       int s0;
       short e0;
       uint_repr_t m0;
-      const int idx = transa ? (row * lda + col) : (col * lda + row);
+      const int idx = OZAKI_IDX_A(row, col, lda);
       ieee_decompose(a[idx], &s0, &e0, &m0);
       if (e0 > 0) atomic_max(&row_max_exp[mi], (int)e0);
     }
@@ -309,7 +332,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
       int s1;
       short e1;
       uint_repr_t m1;
-      const int idx = transa ? (row * lda + col) : (col * lda + row);
+      const int idx = OZAKI_IDX_A(row, col, lda);
       ieee_decompose(a[idx], &s1, &e1, &m1);
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
@@ -373,7 +396,7 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
       int s0;
       short e0;
       uint_repr_t m0;
-      const int idx = transb ? (row * ldb + col) : (col * ldb + row);
+      const int idx = OZAKI_IDX_B(row, col, ldb);
       ieee_decompose(b[idx], &s0, &e0, &m0);
       if (e0 > 0) atomic_max(&col_max_exp[nj], (int)e0);
     }
@@ -392,7 +415,7 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
       int s1;
       short e1;
       uint_repr_t m1;
-      const int idx = transb ? (row * ldb + col) : (col * ldb + row);
+      const int idx = OZAKI_IDX_B(row, col, ldb);
       ieee_decompose(b[idx], &s1, &e1, &m1);
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
@@ -482,7 +505,7 @@ kernel void gemm_fused(
   real_t c_fp[RTM * RTN * XMX_M];
   {
     int ci;
-    if (0 != first_pair) {
+    if (0 != OZAKI_IS_FIRST(first_pair)) {
       UNROLL_FORCE(RTM * RTN * XMX_M)
       for (ci = 0; ci < RTM * RTN * XMX_M; ++ci) c_fp[ci] = ZERO;
     }
@@ -520,7 +543,7 @@ kernel void gemm_fused(
       for (sb = OZAKI_SQ ? 0 : sa; sb < sb_end; ++sb) {
         const int high_sb = MANT_BITS - (7 * (int)sb);
         const int low_bit_sb = MAX(0, high_sb - 6);
-        const real_t pair_scale = alpha * EXP2I(low_bit_sa + low_bit_sb - 2 * MANT_BITS);
+        const real_t pair_scale = OZAKI_ALPHA_MUL(alpha, EXP2I(low_bit_sa + low_bit_sb - 2 * MANT_BITS));
         CONSTANT const char* as_sb = as_base + (long)sb * a_stride;
         CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 

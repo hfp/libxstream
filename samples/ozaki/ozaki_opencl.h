@@ -105,7 +105,8 @@ typedef struct ozaki_context_t {
   /* CRT GEMM-mode kernels (Scheme-2 tiled path) */
   cl_kernel kern_crt_preprocess_a;
   cl_kernel kern_crt_preprocess_b;
-  cl_kernel kern_crt_fused;
+  cl_kernel kern_crt_fused;       /* bounds-checked (safe for any M/N) */
+  cl_kernel kern_crt_fused_fast;  /* no bounds checks (tile-aligned M/N only) */
   cl_kernel kern_crt_scale_beta;
   int use_double; /* 1: fp64, 0: fp32 */
   int sg; /* sub-group size used for compilation */

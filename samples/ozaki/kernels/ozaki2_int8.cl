@@ -83,6 +83,7 @@
 # define OZ2_HORNER_GROUP 9
 # endif
 #endif
+#define OZ2_HORNER_NGROUPS ((NPRIMES + OZ2_HORNER_GROUP - 1) / OZ2_HORNER_GROUP)
 #if !defined(PB)
 # define PB 1
 #endif
@@ -99,6 +100,7 @@
 # define HIER_GS 4
 # define HIER_NGROUPS ((NPRIMES + HIER_GS - 1) / HIER_GS)
 # define HIER_L2_HORNER_GROUP 2
+# define HIER_L2_HORNER_NGROUPS ((HIER_NGROUPS + HIER_L2_HORNER_GROUP - 1) / HIER_L2_HORNER_GROUP)
 #endif
 
 /* DPAS tile dimensions are in ozaki_common.cl (XMX_M=8, XMX_N=16) */
@@ -113,6 +115,42 @@
 #endif
 #if !defined(BN_B_PAD)
 # define BN_B_PAD 64
+#endif
+
+#if defined(OZAKI_BOUNDS) && (OZAKI_BOUNDS)
+# define OZAKI_IN_BOUNDS(R, M, COL, N) ((R) < (M) && (COL) < (N))
+#else
+# define OZAKI_IN_BOUNDS(R, M, COL, N) (1)
+#endif
+
+/* OZAKI_FIRST: compile-time specialization for first-tile (C = 0 + result)
+ * vs accumulate (C = C_old + result).  When defined, the kernel ignores
+ * the `first` runtime argument and uses this value instead. */
+#if defined(OZAKI_FIRST)
+# define OZAKI_IS_FIRST(ARG) (OZAKI_FIRST)
+#else
+# define OZAKI_IS_FIRST(ARG) (ARG)
+#endif
+
+/* OZAKI_ALPHA_ONE: compile-time specialization for alpha==1.0.
+ * Eliminates the multiply when alpha is known to be unity. */
+#if defined(OZAKI_ALPHA_ONE) && (OZAKI_ALPHA_ONE)
+# define OZAKI_ALPHA_MUL(A, X) (X)
+#else
+# define OZAKI_ALPHA_MUL(A, X) ((A) * (X))
+#endif
+
+/* Transpose specialization: when OZAKI_TRANSA / OZAKI_TRANSB are defined
+ * at compile time, the ternary index computation becomes straight-line. */
+#if defined(OZAKI_TRANSA)
+# define OZAKI_IDX_A(ROW, COL, LD) ((OZAKI_TRANSA) ? ((ROW) * (LD) + (COL)) : ((COL) * (LD) + (ROW)))
+#else
+# define OZAKI_IDX_A(ROW, COL, LD) (transa ? ((ROW) * (LD) + (COL)) : ((COL) * (LD) + (ROW)))
+#endif
+#if defined(OZAKI_TRANSB)
+# define OZAKI_IDX_B(ROW, COL, LD) ((OZAKI_TRANSB) ? ((ROW) * (LD) + (COL)) : ((COL) * (LD) + (ROW)))
+#else
+# define OZAKI_IDX_B(ROW, COL, LD) (transb ? ((ROW) * (LD) + (COL)) : ((COL) * (LD) + (ROW)))
 #endif
 
 /* Alias the shared DPAS primitive from ozaki_common.cl */
@@ -198,7 +236,7 @@
     UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) \
     { \
       const int rm_ = (MI) + ms_; \
-      if (rm_ < (M) && (COL) < (N)) { \
+      if (OZAKI_IN_BOUNDS(rm_, (M), (COL), (N))) { \
         int is_neg_; \
         SINT pg_; \
         UNROLL_FORCE(NPRIMES) for (pg_ = 0; pg_ < NPRIMES; ++pg_) \
@@ -208,7 +246,7 @@
         is_neg_ = oz2g_garner_reconstruct(dot_r_, vg_); \
         { \
           const int sh_ = (int)ea_c_[ms_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
-          real_t cv_ = (FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
           oz2g_horner_accumulate(vg_, is_neg_, (ALPHA), sh_, &cv_); \
           (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
         } \
@@ -248,7 +286,7 @@
     UNROLL_FORCE(XMX_M) for (ms_l2_ = 0; ms_l2_ < XMX_M; ++ms_l2_) \
     { \
       const int rm_ = (MI) + ms_l2_; \
-      if (rm_ < (M) && (COL) < (N)) { \
+      if (OZAKI_IN_BOUNDS(rm_, (M), (COL), (N))) { \
         int is_neg_; \
         SINT pg_l2_; \
         UNROLL_FORCE(HIER_NGROUPS) for (pg_l2_ = 0; pg_l2_ < HIER_NGROUPS; ++pg_l2_) \
@@ -258,7 +296,7 @@
         is_neg_ = oz2g_hier_l2_garner(gval_, vg_); \
         { \
           const int sh_ = (int)ea_c_[ms_l2_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
-          real_t cv_ = (FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
           oz2g_hier_horner_accumulate(vg_, is_neg_, (ALPHA), sh_, &cv_); \
           (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
         } \
@@ -541,7 +579,7 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
   SINT i;
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
   {
-    const int ngroups = (NPRIMES + OZ2_HORNER_GROUP - 1) / OZ2_HORNER_GROUP;
+    const int ngroups = OZ2_HORNER_NGROUPS;
     double result;
     int g;
 
@@ -568,13 +606,13 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
 
     result = (0 != is_negative) ? -(result + 1.0) : result;
     if (0.0 != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
-      const real_t scale = alpha * EXP2I(base_sh);
+      const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
       *cval += (real_t)(result * (double)scale);
     }
   }
 #else
   {
-    const int ngroups = (NPRIMES + OZ2_HORNER_GROUP - 1) / OZ2_HORNER_GROUP;
+    const int ngroups = OZ2_HORNER_NGROUPS;
     float result;
     int g;
 
@@ -602,7 +640,7 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
     {
       const float fresult = (0 != is_negative) ? -(result + 1.0f) : result;
       if (0.0f != fresult && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
-        const real_t scale = alpha * EXP2I(base_sh);
+        const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
         *cval += fresult * scale;
       }
     }
@@ -775,7 +813,7 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
 #define gp oz2g_hier_gprod_actual
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
   {
-    const int nsuper = (HIER_NGROUPS + HIER_L2_HORNER_GROUP - 1) / HIER_L2_HORNER_GROUP;
+    const int nsuper = HIER_L2_HORNER_NGROUPS;
     double result;
     int sg;
 
@@ -802,13 +840,13 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
 
     result = (0 != is_negative) ? -(result + 1.0) : result;
     if (0.0 != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
-      const real_t scale = alpha * EXP2I(base_sh);
+      const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
       *cval += (real_t)(result * (double)scale);
     }
   }
 #else
   {
-    const int nsuper_s = (HIER_NGROUPS + HIER_L2_HORNER_GROUP - 1) / HIER_L2_HORNER_GROUP;
+    const int nsuper_s = HIER_L2_HORNER_NGROUPS;
     float result_s;
     int sg_s;
 
@@ -836,7 +874,7 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
     {
       const float fresult = (0 != is_negative) ? -(result_s + 1.0f) : result_s;
       if (0.0f != fresult && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
-        const real_t scale = alpha * EXP2I(base_sh);
+        const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
         *cval += fresult * scale;
       }
     }
@@ -881,7 +919,7 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a, int M, int K, int lda,
       int s0;
       short e0;
       uint_repr_t m0;
-      const int idx = transa ? (row * lda + col) : (col * lda + row);
+      const int idx = OZAKI_IDX_A(row, col, lda);
       ieee_decompose(a[idx], &s0, &e0, &m0);
       if (e0 > 0) atomic_max(&row_max_exp[mi], (int)e0);
     }
@@ -897,7 +935,7 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a, int M, int K, int lda,
       int s1;
       short e1;
       uint_repr_t m1;
-      const int idx = transa ? (row * lda + col) : (col * lda + row);
+      const int idx = OZAKI_IDX_A(row, col, lda);
       ieee_decompose(a[idx], &s1, &e1, &m1);
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
@@ -942,7 +980,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb,
       int s0;
       short e0;
       uint_repr_t m0;
-      const int idx = transb ? (row * ldb + col) : (col * ldb + row);
+      const int idx = OZAKI_IDX_B(row, col, ldb);
       ieee_decompose(b[idx], &s0, &e0, &m0);
       if (e0 > 0) atomic_max(&col_max_exp[nj], (int)e0);
     }
@@ -958,7 +996,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb,
       int s1;
       short e1;
       uint_repr_t m1;
-      const int idx = transb ? (row * ldb + col) : (col * ldb + row);
+      const int idx = OZAKI_IDX_B(row, col, ldb);
       ieee_decompose(b[idx], &s1, &e1, &m1);
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
@@ -1156,9 +1194,7 @@ kernel void gemm_crt_fused(
           int ku;
           UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
           {
-            if (k + ku * BK < K_pad) {
-              OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
-            }
+            OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
           }
           steps += KU;
           if (steps >= KGROUPS) {
@@ -1177,9 +1213,7 @@ kernel void gemm_crt_fused(
           int ku;
           UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
           {
-            if (k + ku * BK < K_pad) {
-              OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
-            }
+            OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
           }
         }
         OZAKI_CRT_REDUCE_BATCH(acc, pidx_base, residues, 0);

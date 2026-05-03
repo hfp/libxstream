@@ -385,9 +385,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
       {
+        char base_flags[sizeof(build_params) + 32];
         cl_program program = NULL;
+        LIBXS_SNPRINTF(base_flags, sizeof(base_flags), "%s -DOZAKI_BOUNDS=1", build_params);
         result = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2", build_params, crt_build_options, NULL, NULL, NULL, 0, &program);
+          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2", base_flags, crt_build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
           result = libxstream_opencl_kernel_query(program, "preprocess_a_crt_dense", &ctx->kern_crt_preprocess_a);
         }
@@ -402,6 +404,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
         if (NULL != program) clReleaseProgram(program);
       }
+      if (EXIT_SUCCESS == result) {
+        cl_program program_f = NULL;
+        int fast_ok = libxstream_opencl_program(
+          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2f", build_params, crt_build_options, NULL, NULL, NULL, 0, &program_f);
+        if (EXIT_SUCCESS == fast_ok) {
+          fast_ok = libxstream_opencl_kernel_query(program_f, "gemm_crt_fused", &ctx->kern_crt_fused_fast);
+        }
+        if (NULL != program_f) clReleaseProgram(program_f);
+      }
       ctx->crt_rtm = crt_rtm;
       if (EXIT_SUCCESS != result) {
         if (NULL != ctx->kern_crt_preprocess_a) {
@@ -415,6 +426,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         if (NULL != ctx->kern_crt_fused) {
           clReleaseKernel(ctx->kern_crt_fused);
           ctx->kern_crt_fused = NULL;
+        }
+        if (NULL != ctx->kern_crt_fused_fast) {
+          clReleaseKernel(ctx->kern_crt_fused_fast);
+          ctx->kern_crt_fused_fast = NULL;
         }
         if (NULL != ctx->kern_crt_scale_beta) {
           clReleaseKernel(ctx->kern_crt_scale_beta);
@@ -616,6 +631,9 @@ void ozaki_destroy(ozaki_context_t* ctx)
     }
     if (NULL != ctx->kern_crt_fused) {
       clReleaseKernel(ctx->kern_crt_fused);
+    }
+    if (NULL != ctx->kern_crt_fused_fast) {
+      clReleaseKernel(ctx->kern_crt_fused_fast);
     }
     if (NULL != ctx->kern_crt_scale_beta) {
       clReleaseKernel(ctx->kern_crt_scale_beta);

@@ -489,7 +489,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 
       /* Launch CRT GEMM for this K-group */
       if (EXIT_SUCCESS == result) {
-        result = ozaki_launch_fused(ctx, stream, ctx->kern_crt_fused, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc,
+        const int crt_aligned = (0 == M % tm && 0 == N % tn);
+        cl_kernel crt_kern = (0 != crt_aligned && NULL != ctx->kern_crt_fused_fast)
+          ? ctx->kern_crt_fused_fast : ctx->kern_crt_fused;
+        result = ozaki_launch_fused(ctx, stream, crt_kern, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc,
           m_pad, tm, tn, ntm, ntn, alpha, first_tile,
           ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
       }
