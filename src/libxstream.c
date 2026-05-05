@@ -672,7 +672,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     hist[2] = libxstream_opencl_config.hist_d2d;
     for (i = 0; i < 3; ++i) if (NULL != hist[i]) {
       double vals[2], gflops = 0;
-      libxs_hist_get_median(NULL /*lock*/, hist[i], vals);
+      libxs_hist_query_median(NULL /*lock*/, hist[i], vals);
       gflops = (0 < vals[1] ? (vals[0] / vals[1]) : -1);
       LIBXS_STDIO_ACQUIRE();
       if (0 <= gflops) {
