@@ -35,13 +35,15 @@
 # endif
 #endif
 
-#if defined(__LIBXS)
+#if defined(__LIBXS) && !defined(LIBXS_SOURCE)
 # include <libxs_malloc.h>
 # include <libxs_hist.h>
 # include <libxs_mem.h>
 #else /* code depends on LIBXS */
 # include <libxs_source.h>
-# define __LIBXS
+# if !defined(__LIBXS)
+#   define __LIBXS
+# endif
 #endif
 /* signal header-only mode before libxstream_macros.h selects build-kind */
 #if !defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_BUILD) && !defined(__LIBXSTREAM)
