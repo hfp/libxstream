@@ -436,7 +436,42 @@
         b_base_[(long)(k0_ + 19) * (N_PAD) + grp_])); \
     } while (0)
 
+/* One MMA step: 16x8x32 tile, accumulates into int4 fragment (D0..D3).
+ * PTX ISA fragment: b[reg] byte j = B[k=threadID*4+j+reg*16, n=groupID]
+ *                   a[reg] byte j = A[m=groupID+(reg/2)*8, k=threadID*4+j+(reg%2)*16]
+ * Host must set KU=1: NVIDIA OpenCL compiler evaluates all asm inputs upfront
+ * when unrolling, so iteration N+1 reads stale C (not iteration N's D output). */
+# define NV_MMA_STEP(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, LANE, D0, D1, D2, D3) \
+    do { \
+      const int grp_ = (LANE) / 4; \
+      const int tid_ = (LANE) % 4; \
+      CONSTANT const OZAKI_BYTE_T* ap0_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_) * (K_PAD) + (KOFF) + tid_ * 4; \
+      CONSTANT const OZAKI_BYTE_T* ap1_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_ + 8) * (K_PAD) + (KOFF) + tid_ * 4; \
+      CONSTANT const OZAKI_BYTE_T* b_base_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ); \
+      uint a0_ = as_uint((OZAKI_BYTE4_T)(ap0_[0], ap0_[1], ap0_[2], ap0_[3])); \
+      uint a1_ = as_uint((OZAKI_BYTE4_T)(ap0_[16], ap0_[17], ap0_[18], ap0_[19])); \
+      uint a2_ = as_uint((OZAKI_BYTE4_T)(ap1_[0], ap1_[1], ap1_[2], ap1_[3])); \
+      uint a3_ = as_uint((OZAKI_BYTE4_T)(ap1_[16], ap1_[17], ap1_[18], ap1_[19])); \
+      const int k0_ = tid_ * 4; \
+      uint b0_ = as_uint((OZAKI_BYTE4_T)( \
+        b_base_[(long)(k0_) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 1) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 2) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 3) * (N_PAD) + grp_])); \
+      uint b1_ = as_uint((OZAKI_BYTE4_T)( \
+        b_base_[(long)(k0_ + 16) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 17) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 18) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 19) * (N_PAD) + grp_])); \
+      NV_MMA_16x8x32(D0, D1, D2, D3, a0_, a1_, a2_, a3_, b0_, b1_); \
+    } while (0)
 
+/* Tiled MMA: RTM x RTN sub-tiles of m16n8k32 each.
+ * ACC is int4[RTM*RTN] -- each int4 is one MMA fragment (4 int32 values).
+ * XMX_M=16 rows, XMX_N=8 cols per MMA tile. */
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
       const int lane_ = (int)LIBXS_SGLID(); \
@@ -451,6 +486,7 @@
       } \
     } while (0)
 
+/* Single-tile MMA (RTM=1, RTN=1). */
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
       const int lane_ = (int)LIBXS_SGLID(); \
