@@ -146,14 +146,14 @@
         (global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)), (private ushort*)a_sc_); \
       intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
         (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)), (private uint*)b_sc_); \
-      OZAKI_DPAS_ONE_(a_sc_[0], b_sc_[0], C00); \
-      OZAKI_DPAS_ONE_(a_sc_[0], b_sc_[1], C01); \
-      OZAKI_DPAS_ONE_(a_sc_[1], b_sc_[0], C10); \
-      OZAKI_DPAS_ONE_(a_sc_[1], b_sc_[1], C11); \
-      OZAKI_DPAS_ONE_(a_sc_[2], b_sc_[0], C20); \
-      OZAKI_DPAS_ONE_(a_sc_[2], b_sc_[1], C21); \
-      OZAKI_DPAS_ONE_(a_sc_[3], b_sc_[0], C30); \
-      OZAKI_DPAS_ONE_(a_sc_[3], b_sc_[1], C31); \
+      OZAKI_DPAS_ONE(a_sc_[0], b_sc_[0], C00); \
+      OZAKI_DPAS_ONE(a_sc_[0], b_sc_[1], C01); \
+      OZAKI_DPAS_ONE(a_sc_[1], b_sc_[0], C10); \
+      OZAKI_DPAS_ONE(a_sc_[1], b_sc_[1], C11); \
+      OZAKI_DPAS_ONE(a_sc_[2], b_sc_[0], C20); \
+      OZAKI_DPAS_ONE(a_sc_[2], b_sc_[1], C21); \
+      OZAKI_DPAS_ONE(a_sc_[3], b_sc_[0], C30); \
+      OZAKI_DPAS_ONE(a_sc_[3], b_sc_[1], C31); \
     } while (0)
 
 # define OZAKI_KLOOP_SC(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, C00, C01, C10, C11, C20, C21, C30, C31) \

@@ -215,6 +215,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     env = getenv("OZAKI_KU");
     {
       int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : 2;
+      if (0 != ctx->nv_mma && ku > 1) ku = 1;
       ctx->ku = ku;
     }
     env = getenv("OZAKI_RC");

@@ -99,11 +99,11 @@
     intel_sub_group_2d_block_prefetch_8b_32r16x1c((global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)))
 
 # if defined(OZAKI_U8) && (OZAKI_U8)
-# define OZAKI_MAD_K32_8_(A, B, ACC) intel_sub_group_u8_u8_matrix_mad_k32(A, B, ACC)
-# define OZAKI_MAD_K32_4_(A, B, ACC) intel_sub_group_u8_u8_matrix_mad_k32(A, B, ACC)
+# define OZAKI_MAD_K32_8(A, B, ACC) intel_sub_group_u8_u8_matrix_mad_k32(A, B, ACC)
+# define OZAKI_MAD_K32_4(A, B, ACC) intel_sub_group_u8_u8_matrix_mad_k32(A, B, ACC)
 # else
-# define OZAKI_MAD_K32_8_(A, B, ACC) intel_sub_group_i8_i8_matrix_mad_k32(as_short8(A), as_int8(B), ACC)
-# define OZAKI_MAD_K32_4_(A, B, ACC) intel_sub_group_i8_i8_matrix_mad_k32(as_short4(A), as_int8(B), ACC)
+# define OZAKI_MAD_K32_8(A, B, ACC) intel_sub_group_i8_i8_matrix_mad_k32(as_short8(A), as_int8(B), ACC)
+# define OZAKI_MAD_K32_4(A, B, ACC) intel_sub_group_i8_i8_matrix_mad_k32(as_short4(A), as_int8(B), ACC)
 # endif
 
 # if (8 == RC)
@@ -115,7 +115,7 @@
           (global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)), (private ushort*)&a_blk_); \
         intel_sub_group_2d_block_read_transform_8b_32r16x1c( \
           (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)), (private uint*)&b_blk_); \
-        (ACC) = OZAKI_MAD_K32_8_(a_blk_, b_blk_, (ACC)); \
+        (ACC) = OZAKI_MAD_K32_8(a_blk_, b_blk_, (ACC)); \
       } while (0)
 # elif (4 == RC)
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
@@ -129,8 +129,8 @@
           (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)), (private uint*)&b_blk_); \
         lo_ = (ACC).lo; \
         hi_ = (ACC).hi; \
-        lo_ = OZAKI_MAD_K32_4_(a_blk_.lo, b_blk_, lo_); \
-        hi_ = OZAKI_MAD_K32_4_(a_blk_.hi, b_blk_, hi_); \
+        lo_ = OZAKI_MAD_K32_4(a_blk_.lo, b_blk_, lo_); \
+        hi_ = OZAKI_MAD_K32_4(a_blk_.hi, b_blk_, hi_); \
         (ACC) = (int8)(lo_, hi_); \
       } while (0)
 # endif
@@ -138,13 +138,13 @@
 /* Single-tile DPAS from pre-loaded A (ushort8) and B (uint8).
  * RC=8: one MAD(8rows). RC=4: split into two MAD(4rows). */
 # if (8 == RC)
-# define OZAKI_DPAS_ONE_(A, B, ACC) (ACC) = OZAKI_MAD_K32_8_(A, B, (ACC))
+# define OZAKI_DPAS_ONE(A, B, ACC) (ACC) = OZAKI_MAD_K32_8(A, B, (ACC))
 # elif (4 == RC)
-# define OZAKI_DPAS_ONE_(A, B, ACC) \
+# define OZAKI_DPAS_ONE(A, B, ACC) \
       do { \
         int4 lo1_ = (ACC).lo, hi1_ = (ACC).hi; \
-        lo1_ = OZAKI_MAD_K32_4_((A).lo, B, lo1_); \
-        hi1_ = OZAKI_MAD_K32_4_((A).hi, B, hi1_); \
+        lo1_ = OZAKI_MAD_K32_4((A).lo, B, lo1_); \
+        hi1_ = OZAKI_MAD_K32_4((A).hi, B, hi1_); \
         (ACC) = (int8)(lo1_, hi1_); \
       } while (0)
 # endif
@@ -167,14 +167,14 @@
           (global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)), (private ushort*)a_rt_); \
         intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
           (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)), (private uint*)b_rt_); \
-        OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[0], (ACC)[0]); \
-        OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[1], (ACC)[1]); \
-        OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[0], (ACC)[2]); \
-        OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[1], (ACC)[3]); \
-        OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[0], (ACC)[4]); \
-        OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[1], (ACC)[5]); \
-        OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[0], (ACC)[6]); \
-        OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[1], (ACC)[7]); \
+        OZAKI_DPAS_ONE(a_rt_[0], b_rt_[0], (ACC)[0]); \
+        OZAKI_DPAS_ONE(a_rt_[0], b_rt_[1], (ACC)[1]); \
+        OZAKI_DPAS_ONE(a_rt_[1], b_rt_[0], (ACC)[2]); \
+        OZAKI_DPAS_ONE(a_rt_[1], b_rt_[1], (ACC)[3]); \
+        OZAKI_DPAS_ONE(a_rt_[2], b_rt_[0], (ACC)[4]); \
+        OZAKI_DPAS_ONE(a_rt_[2], b_rt_[1], (ACC)[5]); \
+        OZAKI_DPAS_ONE(a_rt_[3], b_rt_[0], (ACC)[6]); \
+        OZAKI_DPAS_ONE(a_rt_[3], b_rt_[1], (ACC)[7]); \
       } while (0)
 # elif (RTM == 4) && (RTN == 4)
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
@@ -185,22 +185,22 @@
           (global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)), (private ushort*)a_rt_); \
         intel_sub_group_2d_block_read_transform_8b_32r16x4c( \
           (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)), (private uint*)b_rt_); \
-        OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[0], (ACC)[0]); \
-        OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[1], (ACC)[1]); \
-        OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[2], (ACC)[2]); \
-        OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[3], (ACC)[3]); \
-        OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[0], (ACC)[4]); \
-        OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[1], (ACC)[5]); \
-        OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[2], (ACC)[6]); \
-        OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[3], (ACC)[7]); \
-        OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[0], (ACC)[8]); \
-        OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[1], (ACC)[9]); \
-        OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[2], (ACC)[10]); \
-        OZAKI_DPAS_ONE_(a_rt_[2], b_rt_[3], (ACC)[11]); \
-        OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[0], (ACC)[12]); \
-        OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[1], (ACC)[13]); \
-        OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[2], (ACC)[14]); \
-        OZAKI_DPAS_ONE_(a_rt_[3], b_rt_[3], (ACC)[15]); \
+        OZAKI_DPAS_ONE(a_rt_[0], b_rt_[0], (ACC)[0]); \
+        OZAKI_DPAS_ONE(a_rt_[0], b_rt_[1], (ACC)[1]); \
+        OZAKI_DPAS_ONE(a_rt_[0], b_rt_[2], (ACC)[2]); \
+        OZAKI_DPAS_ONE(a_rt_[0], b_rt_[3], (ACC)[3]); \
+        OZAKI_DPAS_ONE(a_rt_[1], b_rt_[0], (ACC)[4]); \
+        OZAKI_DPAS_ONE(a_rt_[1], b_rt_[1], (ACC)[5]); \
+        OZAKI_DPAS_ONE(a_rt_[1], b_rt_[2], (ACC)[6]); \
+        OZAKI_DPAS_ONE(a_rt_[1], b_rt_[3], (ACC)[7]); \
+        OZAKI_DPAS_ONE(a_rt_[2], b_rt_[0], (ACC)[8]); \
+        OZAKI_DPAS_ONE(a_rt_[2], b_rt_[1], (ACC)[9]); \
+        OZAKI_DPAS_ONE(a_rt_[2], b_rt_[2], (ACC)[10]); \
+        OZAKI_DPAS_ONE(a_rt_[2], b_rt_[3], (ACC)[11]); \
+        OZAKI_DPAS_ONE(a_rt_[3], b_rt_[0], (ACC)[12]); \
+        OZAKI_DPAS_ONE(a_rt_[3], b_rt_[1], (ACC)[13]); \
+        OZAKI_DPAS_ONE(a_rt_[3], b_rt_[2], (ACC)[14]); \
+        OZAKI_DPAS_ONE(a_rt_[3], b_rt_[3], (ACC)[15]); \
       } while (0)
 # elif (RTM == 2) && (RTN == 2)
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
@@ -211,10 +211,10 @@
           (global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)), (private ushort*)a_rt_); \
         intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
           (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)), (private uint*)b_rt_); \
-        OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[0], (ACC)[0]); \
-        OZAKI_DPAS_ONE_(a_rt_[0], b_rt_[1], (ACC)[1]); \
-        OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[0], (ACC)[2]); \
-        OZAKI_DPAS_ONE_(a_rt_[1], b_rt_[1], (ACC)[3]); \
+        OZAKI_DPAS_ONE(a_rt_[0], b_rt_[0], (ACC)[0]); \
+        OZAKI_DPAS_ONE(a_rt_[0], b_rt_[1], (ACC)[1]); \
+        OZAKI_DPAS_ONE(a_rt_[1], b_rt_[0], (ACC)[2]); \
+        OZAKI_DPAS_ONE(a_rt_[1], b_rt_[1], (ACC)[3]); \
       } while (0)
 # else
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
@@ -236,7 +236,7 @@
         { \
           UNROLL_FORCE(RTN) for (rn_t_ = 0; rn_t_ < RTN; ++rn_t_) \
           { \
-            OZAKI_DPAS_ONE_(a_rt_[rm_t_], b_rt_[rn_t_], (ACC)[rm_t_ * RTN + rn_t_]); \
+            OZAKI_DPAS_ONE(a_rt_[rm_t_], b_rt_[rn_t_], (ACC)[rm_t_ * RTN + rn_t_]); \
           } \
         } \
       } while (0)
@@ -246,15 +246,15 @@
  * OZAKI_LOAD_TILED: load A/B tiles into caller-supplied arrays.
  * OZAKI_COMPUTE_TILED: issue DPAS from pre-loaded tiles. */
 # if (RTM == 4)
-# define OZAKI_LOAD_A_TILED_(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
+# define OZAKI_LOAD_A_TILED(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
       intel_sub_group_2d_block_read_8b_32r32x1c( \
         (global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)), (private ushort*)(A_BUF))
 # elif (RTM == 2)
-# define OZAKI_LOAD_A_TILED_(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
+# define OZAKI_LOAD_A_TILED(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
       intel_sub_group_2d_block_read_8b_16r32x1c( \
         (global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)), (private ushort*)(A_BUF))
 # else
-# define OZAKI_LOAD_A_TILED_(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
+# define OZAKI_LOAD_A_TILED(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
       do { \
         int rl_m_; \
         UNROLL_FORCE(RTM) for (rl_m_ = 0; rl_m_ < RTM; ++rl_m_) \
@@ -265,15 +265,15 @@
       } while (0)
 # endif
 # if (RTN == 4)
-# define OZAKI_LOAD_B_TILED_(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF) \
+# define OZAKI_LOAD_B_TILED(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF) \
       intel_sub_group_2d_block_read_transform_8b_32r16x4c( \
         (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)), (private uint*)(B_BUF))
 # elif (RTN == 2)
-# define OZAKI_LOAD_B_TILED_(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF) \
+# define OZAKI_LOAD_B_TILED(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF) \
       intel_sub_group_2d_block_read_transform_8b_32r16x2c( \
         (global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)), (private uint*)(B_BUF))
 # else
-# define OZAKI_LOAD_B_TILED_(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF) \
+# define OZAKI_LOAD_B_TILED(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF) \
       do { \
         int rl_n_; \
         UNROLL_FORCE(RTN) for (rl_n_ = 0; rl_n_ < RTN; ++rl_n_) \
@@ -285,8 +285,8 @@
 # endif
 # define OZAKI_LOAD_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, A_BUF, B_BUF) \
     do { \
-      OZAKI_LOAD_A_TILED_(AS, K_PAD, M_HT, MI, KOFF, A_BUF); \
-      OZAKI_LOAD_B_TILED_(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF); \
+      OZAKI_LOAD_A_TILED(AS, K_PAD, M_HT, MI, KOFF, A_BUF); \
+      OZAKI_LOAD_B_TILED(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF); \
     } while (0)
 
 # define OZAKI_COMPUTE_TILED(A_BUF, B_BUF, ACC) \
@@ -296,7 +296,7 @@
       { \
         UNROLL_FORCE(RTN) for (rc_n_ = 0; rc_n_ < RTN; ++rc_n_) \
         { \
-          OZAKI_DPAS_ONE_((A_BUF)[rc_m_], (B_BUF)[rc_n_], (ACC)[rc_m_ * RTN + rc_n_]); \
+          OZAKI_DPAS_ONE((A_BUF)[rc_m_], (B_BUF)[rc_n_], (ACC)[rc_m_ * RTN + rc_n_]); \
         } \
       } \
     } while (0)
@@ -304,13 +304,13 @@
 /* Tiled prefetch: prefetch next K-step for all RTM A and RTN B tiles.
  * Coalesced variants match the wider loads above. */
 # if (RTM == 4)
-# define OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI) \
+# define OZAKI_PREFETCH_A_TILED(AS, K_PAD, M_HT, KOFF, MI) \
       intel_sub_group_2d_block_prefetch_8b_32r32x1c((global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)))
 # elif (RTM == 2)
-# define OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI) \
+# define OZAKI_PREFETCH_A_TILED(AS, K_PAD, M_HT, KOFF, MI) \
       intel_sub_group_2d_block_prefetch_8b_16r32x1c((global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)))
 # else
-# define OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI) \
+# define OZAKI_PREFETCH_A_TILED(AS, K_PAD, M_HT, KOFF, MI) \
       do { \
         int rp_m_; \
         UNROLL_FORCE(RTM) for (rp_m_ = 0; rp_m_ < RTM; ++rp_m_) \
@@ -320,13 +320,13 @@
       } while (0)
 # endif
 # if (RTN == 4)
-# define OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ) \
+# define OZAKI_PREFETCH_B_TILED(BS, N_PAD, K_PAD, KOFF, NJ) \
       intel_sub_group_2d_block_prefetch_8b_32r16x4c((global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)))
 # elif (RTN == 2)
-# define OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ) \
+# define OZAKI_PREFETCH_B_TILED(BS, N_PAD, K_PAD, KOFF, NJ) \
       intel_sub_group_2d_block_prefetch_8b_32r16x2c((global void*)(BS), (N_PAD), (K_PAD), (N_PAD), (int2)((NJ), (KOFF)))
 # else
-# define OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ) \
+# define OZAKI_PREFETCH_B_TILED(BS, N_PAD, K_PAD, KOFF, NJ) \
       do { \
         int rp_n_; \
         UNROLL_FORCE(RTN) for (rp_n_ = 0; rp_n_ < RTN; ++rp_n_) \
@@ -337,8 +337,8 @@
 # endif
 # define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ) \
     do { \
-      OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI); \
-      OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ); \
+      OZAKI_PREFETCH_A_TILED(AS, K_PAD, M_HT, KOFF, MI); \
+      OZAKI_PREFETCH_B_TILED(BS, N_PAD, K_PAD, KOFF, NJ); \
     } while (0)
 /* NVIDIA MMA path (NV_MMA: warp-cooperative m16n8k32, SM>=8.0, SG=32).
  * Tile: 16 rows x 8 cols, K=32. Accumulator: 4 int32 per thread (fragment).
@@ -354,21 +354,21 @@
 # if defined(OZAKI_U8) && (OZAKI_U8)
 #   define OZAKI_BYTE_T uchar
 #   define OZAKI_BYTE4_T uchar4
-#   define NV_MMA_16x8x32_(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
-      asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.u8.u8.s32 " \
+#   define NV_MMA_16x8x32(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1) \
+      asm("mma.sync.aligned.m16n8k32.row.col.s32.u8.u8.s32 " \
         "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
         : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
         : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
-          "r"(C0), "r"(C1), "r"(C2), "r"(C3))
+          "r"(D0), "r"(D1), "r"(D2), "r"(D3))
 # else
 #   define OZAKI_BYTE_T char
 #   define OZAKI_BYTE4_T char4
-#   define NV_MMA_16x8x32_(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
-      asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 " \
+#   define NV_MMA_16x8x32(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1) \
+      asm("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 " \
         "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
         : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
         : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
-          "r"(C0), "r"(C1), "r"(C2), "r"(C3))
+          "r"(D0), "r"(D1), "r"(D2), "r"(D3))
 # endif
 
 /* m16n8k32 C/D fragment layout (per-thread in a 32-thread warp):
@@ -395,7 +395,7 @@
  *   a[2] = row[lane/4 + 8],     k[lane%4 * 4 .. +3]              (bytes 8-11)
  *   a[3] = row[lane/4 + 8],     k[16 + lane%4 * 4 .. +3]         (bytes 12-15)
  * Each register holds 4 packed int8 values (one uint). */
-# define NV_MMA_LOAD_A_(AS, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
+# define NV_MMA_LOAD_A(AS, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
     do { \
       const int grp_ = (LANE) / 4; \
       const int tid_ = (LANE) % 4; \
@@ -410,38 +410,63 @@
     } while (0)
 
 /* Load B fragment from global memory into 2 registers for m16n8k32.
- * B is K-major [K_pad x N_pad] with .col operand ordering.
- * B-fragment layout (per thread in 32-thread warp):
- *   grp = lane/4 (0..7), tid = lane%4 (0..3)
- *   b[0] = { B[grp*2][tid], B[grp*2+1][tid], B[grp*2][tid+4], B[grp*2+1][tid+4] }
- *   b[1] = { B[grp*2+16][tid], B[grp*2+17][tid], B[grp*2+16][tid+4], B[grp*2+17][tid+4] }
- * where B[k][n] = BS[(KOFF+k) * N_PAD + NJ + n]. */
-# define NV_MMA_LOAD_B_(BS, N_PAD, NJ, KOFF, LANE, B0, B1) \
+ * B is K-major [K_pad x N_pad]. MMA .col operand.
+ * PTX ISA fragment layout (Table "mma.m16n8k32", .col B, .s8/.u8):
+ *   groupID = lane/4 (0..7) -> selects column n
+ *   threadID = lane%4 (0..3) -> selects K-group
+ *   b[reg] byte j = B[k = threadID*4 + j + reg*16, n = groupID]
+ * Coverage: 4 tids * 4 bytes = 16 K per reg, 2 regs = 32 K; 8 grps = 8 cols.
+ * B[k][n] = BS[(KOFF+k) * N_PAD + NJ + n]. */
+# define NV_MMA_LOAD_B(BS, N_PAD, NJ, KOFF, LANE, B0, B1) \
     do { \
       const int grp_ = (LANE) / 4; \
       const int tid_ = (LANE) % 4; \
       CONSTANT const OZAKI_BYTE_T* b_base_ = \
         (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ); \
-      const int k0_ = grp_ * 2; \
+      const int k0_ = tid_ * 4; \
       (B0) = as_uint((OZAKI_BYTE4_T)( \
-        b_base_[(long)(k0_) * (N_PAD) + tid_], \
-        b_base_[(long)(k0_ + 1) * (N_PAD) + tid_], \
-        b_base_[(long)(k0_) * (N_PAD) + tid_ + 4], \
-        b_base_[(long)(k0_ + 1) * (N_PAD) + tid_ + 4])); \
+        b_base_[(long)(k0_) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 1) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 2) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 3) * (N_PAD) + grp_])); \
       (B1) = as_uint((OZAKI_BYTE4_T)( \
-        b_base_[(long)(k0_ + 16) * (N_PAD) + tid_], \
-        b_base_[(long)(k0_ + 17) * (N_PAD) + tid_], \
-        b_base_[(long)(k0_ + 16) * (N_PAD) + tid_ + 4], \
-        b_base_[(long)(k0_ + 17) * (N_PAD) + tid_ + 4])); \
+        b_base_[(long)(k0_ + 16) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 17) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 18) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 19) * (N_PAD) + grp_])); \
     } while (0)
 
-/* One MMA step: 16x8x32 tile, accumulates into int4 fragment (D0..D3). */
-# define NV_MMA_STEP_(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, LANE, D0, D1, D2, D3) \
+/* One MMA step: 16x8x32 tile, accumulates into int4 fragment (D0..D3).
+ * PTX ISA fragment: b[reg] byte j = B[k=threadID*4+j+reg*16, n=groupID]
+ *                   a[reg] byte j = A[m=groupID+(reg/2)*8, k=threadID*4+j+(reg%2)*16]
+ * Host must set KU=1: NVIDIA OpenCL compiler evaluates all asm inputs upfront
+ * when unrolling, so iteration N+1 reads stale C (not iteration N's D output). */
+# define NV_MMA_STEP(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, LANE, D0, D1, D2, D3) \
     do { \
-      uint a0_, a1_, a2_, a3_, b0_, b1_; \
-      NV_MMA_LOAD_A_(AS, K_PAD, MI, KOFF, LANE, a0_, a1_, a2_, a3_); \
-      NV_MMA_LOAD_B_(BS, N_PAD, NJ, KOFF, LANE, b0_, b1_); \
-      NV_MMA_16x8x32_(D0, D1, D2, D3, a0_, a1_, a2_, a3_, b0_, b1_, D0, D1, D2, D3); \
+      const int grp_ = (LANE) / 4; \
+      const int tid_ = (LANE) % 4; \
+      CONSTANT const OZAKI_BYTE_T* ap0_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_) * (K_PAD) + (KOFF) + tid_ * 4; \
+      CONSTANT const OZAKI_BYTE_T* ap1_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_ + 8) * (K_PAD) + (KOFF) + tid_ * 4; \
+      CONSTANT const OZAKI_BYTE_T* b_base_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ); \
+      uint a0_ = as_uint((OZAKI_BYTE4_T)(ap0_[0], ap0_[1], ap0_[2], ap0_[3])); \
+      uint a1_ = as_uint((OZAKI_BYTE4_T)(ap0_[16], ap0_[17], ap0_[18], ap0_[19])); \
+      uint a2_ = as_uint((OZAKI_BYTE4_T)(ap1_[0], ap1_[1], ap1_[2], ap1_[3])); \
+      uint a3_ = as_uint((OZAKI_BYTE4_T)(ap1_[16], ap1_[17], ap1_[18], ap1_[19])); \
+      const int k0_ = tid_ * 4; \
+      uint b0_ = as_uint((OZAKI_BYTE4_T)( \
+        b_base_[(long)(k0_) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 1) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 2) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 3) * (N_PAD) + grp_])); \
+      uint b1_ = as_uint((OZAKI_BYTE4_T)( \
+        b_base_[(long)(k0_ + 16) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 17) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 18) * (N_PAD) + grp_], \
+        b_base_[(long)(k0_ + 19) * (N_PAD) + grp_])); \
+      NV_MMA_16x8x32(D0, D1, D2, D3, a0_, a1_, a2_, a3_, b0_, b1_); \
     } while (0)
 
 /* Tiled MMA: RTM x RTN sub-tiles of m16n8k32 each.
@@ -454,7 +479,7 @@
       for (rm_l_ = 0; rm_l_ < RTM; ++rm_l_) { \
         for (rn_l_ = 0; rn_l_ < RTN; ++rn_l_) { \
           const int idx_ = rm_l_ * RTN + rn_l_; \
-          NV_MMA_STEP_(AS, BS, K_PAD, N_PAD, \
+          NV_MMA_STEP(AS, BS, K_PAD, N_PAD, \
             (MI) + rm_l_ * XMX_M, (NJ) + rn_l_ * XMX_N, KOFF, lane_, \
             (ACC)[idx_].s0, (ACC)[idx_].s1, (ACC)[idx_].s2, (ACC)[idx_].s3); \
         } \
@@ -465,7 +490,7 @@
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
       const int lane_ = (int)LIBXS_SGLID(); \
-      NV_MMA_STEP_(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, lane_, \
+      NV_MMA_STEP(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, lane_, \
         (ACC).s0, (ACC).s1, (ACC).s2, (ACC).s3); \
     } while (0)
 
@@ -490,7 +515,7 @@
 /* dp4a single-tile DPAS: 8 rows x 16 cols, K=32.
  * Processes 4 K-elements per dp4a (8 dp4a calls per row).
  * A row data (8 uints) and B column data (8 uints) are pre-loaded by caller. */
-# define NV_DP4A_8x1_(AROW, BCOL, ACC) \
+# define NV_DP4A_8x1(AROW, BCOL, ACC) \
     do { \
       int k4d_; \
       for (k4d_ = 0; k4d_ < 8; ++k4d_) { \
@@ -499,7 +524,7 @@
     } while (0)
 
 /* Load one B column (8 packed uints covering K=32) into BDST. */
-# define NV_LOAD_BCOL_(BS, N_PAD, KOFF, COL, BDST) \
+# define NV_LOAD_BCOL(BS, N_PAD, KOFF, COL, BDST) \
     do { \
       CONSTANT const OZAKI_BYTE_T* bcp_ = \
         (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (COL); \
@@ -511,7 +536,7 @@
     } while (0)
 
 /* Load one A row (8 packed uints covering K=32) into ADST. */
-# define NV_LOAD_AROW_(AS, K_PAD, ROW, KOFF, ADST) \
+# define NV_LOAD_AROW(AS, K_PAD, ROW, KOFF, ADST) \
     do { \
       CONSTANT const OZAKI_BYTE_T* arp_ = \
         (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)(ROW) * (K_PAD) + (KOFF); \
@@ -533,13 +558,13 @@
       int rn_l_, rm_l_; \
       /* Load all B columns (one per RTN tile, this thread's column) */ \
       for (rn_l_ = 0; rn_l_ < RTN; ++rn_l_) { \
-        NV_LOAD_BCOL_(BS, N_PAD, KOFF, col0_ + rn_l_ * XMX_N, b_reg_[rn_l_]); \
+        NV_LOAD_BCOL(BS, N_PAD, KOFF, col0_ + rn_l_ * XMX_N, b_reg_[rn_l_]); \
       } \
       /* Load all A rows (8 rows per RTM tile) */ \
       for (rm_l_ = 0; rm_l_ < RTM; ++rm_l_) { \
         int m_l_; \
         for (m_l_ = 0; m_l_ < 8; ++m_l_) { \
-          NV_LOAD_AROW_(AS, K_PAD, (MI) + rm_l_ * XMX_M + m_l_, KOFF, a_reg_[rm_l_][m_l_]); \
+          NV_LOAD_AROW(AS, K_PAD, (MI) + rm_l_ * XMX_M + m_l_, KOFF, a_reg_[rm_l_][m_l_]); \
         } \
       } \
       /* Compute: RTM * RTN sub-tiles from registers */ \
@@ -549,7 +574,7 @@
           int m_c_; \
           u_t_.v_ = (ACC)[rm_l_ * RTN + rn_l_]; \
           for (m_c_ = 0; m_c_ < 8; ++m_c_) { \
-            NV_DP4A_8x1_(a_reg_[rm_l_][m_c_], b_reg_[rn_l_], u_t_.a_[m_c_]); \
+            NV_DP4A_8x1(a_reg_[rm_l_][m_c_], b_reg_[rn_l_], u_t_.a_[m_c_]); \
           } \
           (ACC)[rm_l_ * RTN + rn_l_] = u_t_.v_; \
         } \
@@ -563,12 +588,12 @@
       uint b_s_[8]; \
       union { int8 v_; int a_[8]; } u_s_; \
       int m_s_; \
-      NV_LOAD_BCOL_(BS, N_PAD, KOFF, col_, b_s_); \
+      NV_LOAD_BCOL(BS, N_PAD, KOFF, col_, b_s_); \
       u_s_.v_ = (ACC); \
       for (m_s_ = 0; m_s_ < 8; ++m_s_) { \
         uint a_s_[8]; \
-        NV_LOAD_AROW_(AS, K_PAD, (MI) + m_s_, KOFF, a_s_); \
-        NV_DP4A_8x1_(a_s_, b_s_, u_s_.a_[m_s_]); \
+        NV_LOAD_AROW(AS, K_PAD, (MI) + m_s_, KOFF, a_s_); \
+        NV_DP4A_8x1(a_s_, b_s_, u_s_.a_[m_s_]); \
       } \
       (ACC) = u_s_.v_; \
     } while (0)
