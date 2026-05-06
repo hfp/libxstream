@@ -72,6 +72,8 @@
 
 #if defined(INTEL) && (2 <= INTEL) && (RTM >= 2) && (RTN >= 2)
 # define OZAKI_USE_OCL_KLOOP
+#elif defined(NV_MMA) && (NV_MMA)
+# define OZAKI_USE_OCL_KLOOP
 #endif
 
 /* Bounds checks are OFF by default for performance.
@@ -216,6 +218,68 @@
     } \
   } while (0)
 
+#if defined(NV_MMA) && (NV_MMA)
+/* MMA scale+flush: accumulator is int4[RTM*RTN], fragment layout per tile.
+ * Each thread holds 4 int32 values at positions determined by lane ID:
+ *   D[0] -> (row=lane/4,     col=(lane%4)*2)
+ *   D[1] -> (row=lane/4,     col=(lane%4)*2+1)
+ *   D[2] -> (row=lane/4 + 8, col=(lane%4)*2+1)  -- NOTE: swapped vs naive
+ *   D[3] -> (row=lane/4 + 8, col=(lane%4)*2)    -- NOTE: swapped vs naive
+ * Wait -- the actual PTX ISA m16n8k32 C/D mapping for .s32 accumulator is:
+ *   For thread (lane) in warp [0..31]:
+ *     C[0]: matrix element at (row = lane/4,     col = (lane%4)*2    )
+ *     C[1]: matrix element at (row = lane/4,     col = (lane%4)*2 + 1)
+ *     C[2]: matrix element at (row = lane/4 + 8, col = (lane%4)*2    )
+ *     C[3]: matrix element at (row = lane/4 + 8, col = (lane%4)*2 + 1)
+ */
+#define OZAKI_SCALE_FLUSH(ACC, C_PTR, LDC, EA_CACHE, EB_CACHE, MI_BASE, NJ_BASE, SG_LID, M, N, PAIR_SCALE) \
+  do { \
+    const int lane_sf_ = (SG_LID); \
+    const int grp_sf_ = lane_sf_ / 4; \
+    const int tid_sf_ = lane_sf_ % 4; \
+    int rm_sf_, rn_sf_; \
+    UNROLL_FORCE(RTM) for (rm_sf_ = 0; rm_sf_ < RTM; ++rm_sf_) \
+    { \
+      UNROLL_FORCE(RTN) for (rn_sf_ = 0; rn_sf_ < RTN; ++rn_sf_) \
+      { \
+        const int idx_sf_ = rm_sf_ * RTN + rn_sf_; \
+        const int frag_[4] = { \
+          (ACC)[idx_sf_].s0, (ACC)[idx_sf_].s1, \
+          (ACC)[idx_sf_].s2, (ACC)[idx_sf_].s3 }; \
+        const int row0_ = (MI_BASE) + rm_sf_ * XMX_M + grp_sf_; \
+        const int row1_ = row0_ + 8; \
+        const int col0_ = (NJ_BASE) + rn_sf_ * XMX_N + tid_sf_ * 2; \
+        const int col1_ = col0_ + 1; \
+        /* Fragment element 0: (row0_, col0_) */ \
+        if (OZAKI_IN_BOUNDS(row0_, (M), col0_, (N))) { \
+          real_t cv_ = (C_PTR)[(long)col0_ * (LDC) + row0_]; \
+          cv_ += (real_t)frag_[0] * (PAIR_SCALE) * (EA_CACHE)[rm_sf_ * XMX_M + grp_sf_] * (EB_CACHE)[rn_sf_ * 2 + 0]; \
+          (C_PTR)[(long)col0_ * (LDC) + row0_] = cv_; \
+        } \
+        /* Fragment element 1: (row0_, col1_) */ \
+        if (OZAKI_IN_BOUNDS(row0_, (M), col1_, (N))) { \
+          real_t cv_ = (C_PTR)[(long)col1_ * (LDC) + row0_]; \
+          cv_ += (real_t)frag_[1] * (PAIR_SCALE) * (EA_CACHE)[rm_sf_ * XMX_M + grp_sf_] * (EB_CACHE)[rn_sf_ * 2 + 1]; \
+          (C_PTR)[(long)col1_ * (LDC) + row0_] = cv_; \
+        } \
+        /* Fragment element 2: (row1_, col0_) */ \
+        if (OZAKI_IN_BOUNDS(row1_, (M), col0_, (N))) { \
+          real_t cv_ = (C_PTR)[(long)col0_ * (LDC) + row1_]; \
+          cv_ += (real_t)frag_[2] * (PAIR_SCALE) * (EA_CACHE)[rm_sf_ * XMX_M + grp_sf_ + 8] * (EB_CACHE)[rn_sf_ * 2 + 0]; \
+          (C_PTR)[(long)col0_ * (LDC) + row1_] = cv_; \
+        } \
+        /* Fragment element 3: (row1_, col1_) */ \
+        if (OZAKI_IN_BOUNDS(row1_, (M), col1_, (N))) { \
+          real_t cv_ = (C_PTR)[(long)col1_ * (LDC) + row1_]; \
+          cv_ += (real_t)frag_[3] * (PAIR_SCALE) * (EA_CACHE)[rm_sf_ * XMX_M + grp_sf_ + 8] * (EB_CACHE)[rn_sf_ * 2 + 1]; \
+          (C_PTR)[(long)col1_ * (LDC) + row1_] = cv_; \
+        } \
+      } \
+    } \
+  } while (0)
+
+#else /* non-MMA paths: dp4a / Intel DPAS / scalar */
+
 /* Scale i32 accumulator + accumulate into register-resident fp C with
  * pre-cached FP exponent scales in registers.
  * EA is a real_t array[XMX_M], EB is a real_t scalar (FP scale factors).
@@ -270,6 +334,7 @@
       } \
     } \
   } while (0)
+#endif /* NV_MMA */
 
 
 /**
@@ -478,7 +543,11 @@ kernel void gemm_fused(
   /* Pre-cache FP exponent scales in registers: avoid re-reading from
    * global memory per pair.  Preprocessing stores 2^(max_exp - BIAS). */
   real_t ea_cache[RTM * XMX_M];
+#if defined(NV_MMA) && (NV_MMA)
+  real_t eb_cache[RTN * 2];
+#else
   real_t eb_cache[RTN];
+#endif
   {
     int rm;
     UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
@@ -493,14 +562,24 @@ kernel void gemm_fused(
   }
   {
     int rn;
+#if defined(NV_MMA) && (NV_MMA)
+    const int tid_eb_ = sg_lid % 4;
+    UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
+    {
+      const int col0 = nj_base + rn * XMX_N + tid_eb_ * 2;
+      eb_cache[rn * 2 + 0] = OZAKI_IN_BOUNDS(0, 1, col0, N) ? expb[col0] : ZERO;
+      eb_cache[rn * 2 + 1] = OZAKI_IN_BOUNDS(0, 1, col0 + 1, N) ? expb[col0 + 1] : ZERO;
+    }
+#else
     UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
     {
       const int col = nj_base + rn * XMX_N + sg_lid;
       eb_cache[rn] = OZAKI_IN_BOUNDS(0, 1, col, N) ? expb[col] : ZERO;
     }
+#endif
   }
 
-#if !defined(OZAKI_USE_OCL_KLOOP)
+#if !defined(OZAKI_USE_OCL_KLOOP) && !(defined(NV_MMA) && (NV_MMA))
   /* Register-resident C accumulators: c_fp[rm*RTN*XMX_M + rn*XMX_M + m] */
   real_t c_fp[RTM * RTN * XMX_M];
   {
@@ -548,7 +627,38 @@ kernel void gemm_fused(
         CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
 
         /* (sa, sb) K-loop - unrolled by KU */
-#if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2) && defined(OZAKI_USE_OCL_KLOOP)
+#if defined(NV_MMA) && (NV_MMA)
+        {
+          int4 c_acc[RTM * RTN];
+          {
+            int ri;
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+            {
+              c_acc[ri] = (int4)(0);
+            }
+          }
+          OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
+          if (0 == OZAKI_SQ && sa != sb) {
+            int4 c_mir[RTM * RTN];
+            {
+              int ri;
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+              {
+                c_mir[ri] = (int4)(0);
+              }
+            }
+            OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
+            {
+              int ri;
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
+              {
+                c_acc[ri] = c_acc[ri] + c_mir[ri];
+              }
+            }
+          }
+          OZAKI_SCALE_FLUSH(c_acc, c, ldc, ea_cache, eb_cache, mi_base, nj_base, sg_lid, M, N, pair_scale);
+        }
+#elif defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2) && defined(OZAKI_USE_OCL_KLOOP)
         /* Scalar accumulator K-loop. */
         {
           int8 sc00 = (int8)(0), sc01 = (int8)(0);
@@ -662,7 +772,7 @@ kernel void gemm_fused(
       }
     }
 
-#if !defined(OZAKI_USE_OCL_KLOOP)
+#if !defined(OZAKI_USE_OCL_KLOOP) && !(defined(NV_MMA) && (NV_MMA))
   /* Final write: register C -> global C */
   {
     int rm, rn;

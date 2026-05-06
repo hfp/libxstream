@@ -54,9 +54,16 @@
 /* Hardware sub-tile dimensions.
  * Intel DPAS (PVC XMX):  8 rows x 16 cols, K=32  (SG=16)
  * NVIDIA dp4a:           8 rows x 16 cols, K=32  (SG=16)
+ * NVIDIA MMA m16n8k32:  16 rows x  8 cols, K=32  (SG=32)
  * Scalar fallback:       8 rows x 16 cols, K=32  (SG=16) */
-#define XMX_M 8
-#define XMX_N 16
+#if defined(NV_MMA) && (NV_MMA)
+# define XMX_M 16
+# define XMX_N 8
+# define XMX_K 32
+#else
+# define XMX_M 8
+# define XMX_N 16
+#endif
 
 /* Integer power of two via bit manipulation: 2^N exactly.
  * Avoids FP transcendental — one integer add, one shift, one bitcast. */
@@ -333,17 +340,143 @@
       OZAKI_PREFETCH_A_TILED_(AS, K_PAD, M_HT, KOFF, MI); \
       OZAKI_PREFETCH_B_TILED_(BS, N_PAD, K_PAD, KOFF, NJ); \
     } while (0)
-/* NVIDIA PTX path (NV>=2: dp4a + MMA primitives, SM>=7.5) */
+/* NVIDIA MMA path (NV_MMA: warp-cooperative m16n8k32, SM>=8.0, SG=32).
+ * Tile: 16 rows x 8 cols, K=32. Accumulator: 4 int32 per thread (fragment).
+ * A layout in global: row-major [M_pad x K_pad] -- same as dp4a/Intel path.
+ * B layout in global: K-major  [K_pad x N_pad] -- same as dp4a/Intel path.
+ * Shared memory staging + ldmatrix for fragment generation. */
+#elif defined(NV_MMA) && (NV_MMA)
+
+# define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
+# define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)
+# define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ)
+
+# if defined(OZAKI_U8) && (OZAKI_U8)
+#   define OZAKI_BYTE_T uchar
+#   define OZAKI_BYTE4_T uchar4
+#   define NV_MMA_16x8x32_(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
+      asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.u8.u8.s32 " \
+        "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
+        : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
+        : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
+          "r"(C0), "r"(C1), "r"(C2), "r"(C3))
+# else
+#   define OZAKI_BYTE_T char
+#   define OZAKI_BYTE4_T char4
+#   define NV_MMA_16x8x32_(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
+      asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 " \
+        "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
+        : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
+        : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
+          "r"(C0), "r"(C1), "r"(C2), "r"(C3))
+# endif
+
+/* m16n8k32 C/D fragment layout (per-thread in a 32-thread warp):
+ *   lane = threadIdx.x % 32
+ *   groupID   = lane / 4           (0..7)
+ *   threadID  = lane % 4           (0..3)
+ *   D[0] -> row = groupID,     col = threadID * 2
+ *   D[1] -> row = groupID,     col = threadID * 2 + 1
+ *   D[2] -> row = groupID + 8, col = threadID * 2
+ *   D[3] -> row = groupID + 8, col = threadID * 2 + 1
+ *
+ * Accumulator type: int4 (4 int32 values) per MMA tile. */
+# define NV_MMA_FRAG_ROW0(LANE) ((LANE) / 4)
+# define NV_MMA_FRAG_ROW2(LANE) ((LANE) / 4 + 8)
+# define NV_MMA_FRAG_COL0(LANE) (((LANE) % 4) * 2)
+# define NV_MMA_FRAG_COL1(LANE) (((LANE) % 4) * 2 + 1)
+
+/* Load A fragment from global memory into 4 registers for m16n8k32.
+ * A is row-major [M_pad x K_pad]. Thread cooperation:
+ * Each of 32 threads loads 4 bytes at specific (row, k) positions.
+ * A-fragment register layout for m16n8k32:
+ *   a[0] = row[lane/4],         k[lane%4 * 4 .. lane%4 * 4 + 3]  (bytes 0-3)
+ *   a[1] = row[lane/4],         k[16 + lane%4 * 4 .. +3]         (bytes 4-7)
+ *   a[2] = row[lane/4 + 8],     k[lane%4 * 4 .. +3]              (bytes 8-11)
+ *   a[3] = row[lane/4 + 8],     k[16 + lane%4 * 4 .. +3]         (bytes 12-15)
+ * Each register holds 4 packed int8 values (one uint). */
+# define NV_MMA_LOAD_A_(AS, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
+    do { \
+      const int grp_ = (LANE) / 4; \
+      const int tid_ = (LANE) % 4; \
+      CONSTANT const OZAKI_BYTE_T* ap0_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_) * (K_PAD) + (KOFF) + tid_ * 4; \
+      CONSTANT const OZAKI_BYTE_T* ap1_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_ + 8) * (K_PAD) + (KOFF) + tid_ * 4; \
+      (A0) = *(CONSTANT const uint*)ap0_; \
+      (A1) = *(CONSTANT const uint*)(ap0_ + 16); \
+      (A2) = *(CONSTANT const uint*)ap1_; \
+      (A3) = *(CONSTANT const uint*)(ap1_ + 16); \
+    } while (0)
+
+/* Load B fragment from global memory into 2 registers for m16n8k32.
+ * B is K-major [K_pad x N_pad] with .col operand ordering.
+ * B-fragment layout (per thread in 32-thread warp):
+ *   grp = lane/4 (0..7), tid = lane%4 (0..3)
+ *   b[0] = { B[grp*2][tid], B[grp*2+1][tid], B[grp*2][tid+4], B[grp*2+1][tid+4] }
+ *   b[1] = { B[grp*2+16][tid], B[grp*2+17][tid], B[grp*2+16][tid+4], B[grp*2+17][tid+4] }
+ * where B[k][n] = BS[(KOFF+k) * N_PAD + NJ + n]. */
+# define NV_MMA_LOAD_B_(BS, N_PAD, NJ, KOFF, LANE, B0, B1) \
+    do { \
+      const int grp_ = (LANE) / 4; \
+      const int tid_ = (LANE) % 4; \
+      CONSTANT const OZAKI_BYTE_T* b_base_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ); \
+      const int k0_ = grp_ * 2; \
+      (B0) = as_uint((OZAKI_BYTE4_T)( \
+        b_base_[(long)(k0_) * (N_PAD) + tid_], \
+        b_base_[(long)(k0_ + 1) * (N_PAD) + tid_], \
+        b_base_[(long)(k0_) * (N_PAD) + tid_ + 4], \
+        b_base_[(long)(k0_ + 1) * (N_PAD) + tid_ + 4])); \
+      (B1) = as_uint((OZAKI_BYTE4_T)( \
+        b_base_[(long)(k0_ + 16) * (N_PAD) + tid_], \
+        b_base_[(long)(k0_ + 17) * (N_PAD) + tid_], \
+        b_base_[(long)(k0_ + 16) * (N_PAD) + tid_ + 4], \
+        b_base_[(long)(k0_ + 17) * (N_PAD) + tid_ + 4])); \
+    } while (0)
+
+/* One MMA step: 16x8x32 tile, accumulates into int4 fragment (D0..D3). */
+# define NV_MMA_STEP_(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, LANE, D0, D1, D2, D3) \
+    do { \
+      uint a0_, a1_, a2_, a3_, b0_, b1_; \
+      NV_MMA_LOAD_A_(AS, K_PAD, MI, KOFF, LANE, a0_, a1_, a2_, a3_); \
+      NV_MMA_LOAD_B_(BS, N_PAD, NJ, KOFF, LANE, b0_, b1_); \
+      NV_MMA_16x8x32_(D0, D1, D2, D3, a0_, a1_, a2_, a3_, b0_, b1_, D0, D1, D2, D3); \
+    } while (0)
+
+/* Tiled MMA: RTM x RTN sub-tiles of m16n8k32 each.
+ * ACC is int4[RTM*RTN] -- each int4 is one MMA fragment (4 int32 values).
+ * XMX_M=16 rows, XMX_N=8 cols per MMA tile. */
+# define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+    do { \
+      const int lane_ = (int)LIBXS_SGLID(); \
+      int rm_l_, rn_l_; \
+      for (rm_l_ = 0; rm_l_ < RTM; ++rm_l_) { \
+        for (rn_l_ = 0; rn_l_ < RTN; ++rn_l_) { \
+          const int idx_ = rm_l_ * RTN + rn_l_; \
+          NV_MMA_STEP_(AS, BS, K_PAD, N_PAD, \
+            (MI) + rm_l_ * XMX_M, (NJ) + rn_l_ * XMX_N, KOFF, lane_, \
+            (ACC)[idx_].s0, (ACC)[idx_].s1, (ACC)[idx_].s2, (ACC)[idx_].s3); \
+        } \
+      } \
+    } while (0)
+
+/* Single-tile MMA (RTM=1, RTN=1). */
+# define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
+    do { \
+      const int lane_ = (int)LIBXS_SGLID(); \
+      NV_MMA_STEP_(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, lane_, \
+        (ACC).s0, (ACC).s1, (ACC).s2, (ACC).s3); \
+    } while (0)
+
+/* NVIDIA PTX dp4a path (NV>=2, SG=16, no tensor cores) */
 #elif defined(NV) && (2 <= NV)
 
 # define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
 # define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)
 # define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ)
 
-/* PTX dp4a: 4-element dot product of packed bytes with int32 accumulator.
- *   dp4a.u32.u32 d, a, b, c  =>  d = c + dot(a.bytes, b.bytes)  (unsigned)
- *   dp4a.s32.s32 d, a, b, c  =>  d = c + dot(a.bytes, b.bytes)  (signed)
- * Available on SM>=6.1 (Pascal and later). */
+/* PTX dp4a: 4-element dot product of packed bytes with int32 accumulator. */
 # if defined(OZAKI_U8) && (OZAKI_U8)
 #   define NV_DP4A(D, A, B, C) asm("dp4a.u32.u32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
 #   define OZAKI_BYTE_T uchar
@@ -352,57 +485,6 @@
 #   define NV_DP4A(D, A, B, C) asm("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
 #   define OZAKI_BYTE_T char
 #   define OZAKI_BYTE4_T  char4
-# endif
-
-/* PTX MMA primitives for Tensor Cores.  These define the raw warp-cooperative
- * MMA instructions but are NOT wired into OZAKI_DPAS -- the 8x16 tile / SG=16
- * contract is incompatible with the 32-thread warp-cooperative MMA model.
- * Using MMA requires a dedicated GEMM kernel with SG=32 and a different
- * accumulator layout (16 rows x 8 cols per warp, fragment redistribution
- * via shfl.sync).  The macros are provided for such a future kernel.
- *
- * m8n8k16 (SM>=7.5, NV>=2): A=1xb32, B=1xb32, C/D=2xb32, tile 8x8xK16
- * m16n8k16 (SM>=8.0, NV>=3): A=2xb32, B=1xb32, C/D=4xb32, tile 16x8xK16
- * m16n8k32 (SM>=8.0, NV>=3): A=4xb32, B=2xb32, C/D=4xb32, tile 16x8xK32 */
-# if (2 <= NV)
-#   if defined(OZAKI_U8) && (OZAKI_U8)
-#     define NV_MMA_M8N8K16(D0,D1, A0, B0, C0,C1) \
-        asm volatile("mma.sync.aligned.m8n8k16.row.col.s32.u8.u8.s32 " \
-          "{%0,%1}, {%2}, {%3}, {%4,%5};" \
-          : "=r"(D0), "=r"(D1) : "r"(A0), "r"(B0), "r"(C0), "r"(C1))
-#   else
-#     define NV_MMA_M8N8K16(D0,D1, A0, B0, C0,C1) \
-        asm volatile("mma.sync.aligned.m8n8k16.row.col.s32.s8.s8.s32 " \
-          "{%0,%1}, {%2}, {%3}, {%4,%5};" \
-          : "=r"(D0), "=r"(D1) : "r"(A0), "r"(B0), "r"(C0), "r"(C1))
-#   endif
-# endif
-# if (3 <= NV)
-#   if defined(OZAKI_U8) && (OZAKI_U8)
-#     define NV_MMA_M16N8K16(D0,D1,D2,D3, A0,A1, B0, C0,C1,C2,C3) \
-        asm volatile("mma.sync.aligned.m16n8k16.row.col.s32.u8.u8.s32 " \
-          "{%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};" \
-          : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
-          : "r"(A0), "r"(A1), "r"(B0), "r"(C0), "r"(C1), "r"(C2), "r"(C3))
-#     define NV_MMA_M16N8K32(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
-        asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.u8.u8.s32 " \
-          "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
-          : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
-          : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
-            "r"(C0), "r"(C1), "r"(C2), "r"(C3))
-#   else
-#     define NV_MMA_M16N8K16(D0,D1,D2,D3, A0,A1, B0, C0,C1,C2,C3) \
-        asm volatile("mma.sync.aligned.m16n8k16.row.col.s32.s8.s8.s32 " \
-          "{%0,%1,%2,%3}, {%4,%5}, {%6}, {%7,%8,%9,%10};" \
-          : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
-          : "r"(A0), "r"(A1), "r"(B0), "r"(C0), "r"(C1), "r"(C2), "r"(C3))
-#     define NV_MMA_M16N8K32(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1, C0,C1,C2,C3) \
-        asm volatile("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 " \
-          "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
-          : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
-          : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
-            "r"(C0), "r"(C1), "r"(C2), "r"(C3))
-#   endif
 # endif
 
 /* dp4a single-tile DPAS: 8 rows x 16 cols, K=32.

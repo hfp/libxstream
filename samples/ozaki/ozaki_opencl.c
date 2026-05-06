@@ -143,13 +143,21 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   sg = (NULL != env ? atoi(env) : (int)devinfo->wgsize[2]);
   if (0 >= sg) sg = (int)devinfo->wgsize[1]; /* fallback: preferred WG multiple */
   if (0 >= sg) sg = 16; /* last resort */
-  /* Tile addressing requires SG=16 (XMX_N=16 columns per sub-group).
-   * Intel DPAS and 2D block I/O also mandate SG=16. */
-  if (16 != sg) {
-    if (0 > verbosity || 2 < verbosity) {
-      fprintf(stderr, "INFO OZAKI: SG forced to 16\n");
+  { /* NV MMA: enabled when NV>=3 (SM>=80 Ampere+, set via LIBXSTREAM_NV). */
+    const int nv_mma = (3 <= devinfo->nv && 0 != gpu) ? 1 : 0;
+    if (0 != nv_mma) {
+      sg = 32;
+      if (0 > verbosity || 2 < verbosity) {
+        fprintf(stderr, "INFO OZAKI: NV_MMA enabled (SG=32, m16n8k32)\n");
+      }
     }
-    sg = 16;
+    else if (16 != sg) {
+      if (0 > verbosity || 2 < verbosity) {
+        fprintf(stderr, "INFO OZAKI: SG forced to 16\n");
+      }
+      sg = 16;
+    }
+    ctx->nv_mma = nv_mma;
   }
   ctx->sg = sg;
 
@@ -225,13 +233,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (0 != devinfo->intel && 0 != gpu) {
         rtm = (0 != biggrf) ? 4 : 2;
       }
+      else if (0 != ctx->nv_mma && 0 != gpu) {
+        rtm = 2;
+      }
       else if (2 <= devinfo->nv && 0 != gpu && 2 == kind) {
-        rtm = 2; /* Ozaki-2 CRT benefits from register tiling on NV */
+        rtm = 2;
       }
       else rtm = 1;
     }
     if (0 == rtn) {
       if (0 != devinfo->intel && 0 != gpu) {
+        rtn = 2;
+      }
+      else if (0 != ctx->nv_mma && 0 != gpu) {
         rtn = 2;
       }
       else if (2 <= devinfo->nv && 0 != gpu && 2 == kind) {
@@ -255,15 +269,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     if (0 >= tm) tm = 256;
     if (0 >= tn) tn = 256;
     /* Clamp tiling factors so at least one sub-tile remains per dimension.
-     * XMX_M=8, XMX_N=16 for all paths (Intel DPAS, NVIDIA dp4a, scalar). */
-    while (rtm > 1 && tm / (8 * rtm) < 1) rtm >>= 1;
-    while (rtn > 1 && tn / (16 * rtn) < 1) rtn >>= 1;
-    /* Shrink tile to satisfy work-group size constraint.
-     * WGS = SG * NTM * NTN = SG * (BM/(8*RTM)) * (BN/(16*RTN)). */
-    { const size_t xmx_area = (size_t)(8 * rtm) * (16 * rtn);
-      while ((size_t)sg * ((size_t)tm * tn / xmx_area) > max_wgs && (tm > 8 * rtm || tn > 16 * rtn)) {
-        if (tm >= tn) tm /= 2;
-        else tn /= 2;
+     * XMX_M=8, XMX_N=16 for dp4a/DPAS/scalar; XMX_M=16, XMX_N=8 for NV_MMA. */
+    { const int xmx_m = (0 != ctx->nv_mma) ? 16 : 8;
+      const int xmx_n = (0 != ctx->nv_mma) ? 8 : 16;
+      while (rtm > 1 && tm / (xmx_m * rtm) < 1) rtm >>= 1;
+      while (rtn > 1 && tn / (xmx_n * rtn) < 1) rtn >>= 1;
+      /* Shrink tile to satisfy work-group size constraint.
+       * WGS = SG * NTM * NTN = SG * (BM/(XMX_M*RTM)) * (BN/(XMX_N*RTN)). */
+      { const size_t xmx_area = (size_t)(xmx_m * rtm) * (xmx_n * rtn);
+        while ((size_t)sg * ((size_t)tm * tn / xmx_area) > max_wgs && (tm > xmx_m * rtm || tn > xmx_n * rtn)) {
+          if (tm >= tn) tm /= 2;
+          else tn /= 2;
+        }
       }
     }
     { /* Scheme 1: always compile preprocessing + create registry (for adaptive) */
@@ -279,6 +296,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DOZAKI_SQ=%d -DCONSTANT=global",
         tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
         nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn, sq_jit);
+      if (0 != ctx->nv_mma) {
+        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DNV_MMA=1");
+      }
       env = getenv("OZAKI_PREFETCH");
       if (NULL != env && '1' == *env) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_PREFETCH=1");

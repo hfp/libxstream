@@ -127,6 +127,7 @@ typedef struct ozaki_context_t {
   int rtm, rtn, crt_rtm;
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
+  int nv_mma; /* NV MMA path enabled (m16n8k32, SG=32) */
   int pb; /* CRT prime batching factor (compiled into kernel) */
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   int maxk; /* max K per preprocessing pass (0 = no grouping) */
