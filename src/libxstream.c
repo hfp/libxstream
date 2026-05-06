@@ -1097,7 +1097,7 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             if (NULL != env_intel) devinfo->intel = atoi(env_intel);
           }
           devinfo->nv = (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/));
-          if (0 != devinfo->nv) { /* nv: 1=generic, 2=SM>=7.5 (dp4a/mma.m8n8k16), 3=SM>=8.0 (mma.m16n8k32) */
+          if (0 != devinfo->nv) { /* nv: 1=generic, 2=SM>=7.5 (dp4a/mma.m8n8k16), 3=SM>=8.0 (mma.m16n8k32), 4=SM>=9.0 (TMA/wgmma) */
             cl_uint sm_major = 0, sm_minor = 0;
             if (EXIT_SUCCESS == clGetDeviceInfo(active_id, 0x4000 /*CL_DEVICE_COMPUTE_CAPABILITY_MAJOR_NV*/, sizeof(cl_uint),
                                   &sm_major, NULL) &&
@@ -1105,7 +1105,8 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
                                   &sm_minor, NULL))
             {
               const int sm = (int)(sm_major * 10 + sm_minor);
-              if (80 <= sm) devinfo->nv = 3;
+              if (90 <= sm) devinfo->nv = 4;
+              else if (80 <= sm) devinfo->nv = 3;
               else if (75 <= sm) devinfo->nv = 2;
             }
           }
