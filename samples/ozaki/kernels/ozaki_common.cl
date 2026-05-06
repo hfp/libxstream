@@ -436,101 +436,25 @@
         b_base_[(long)(k0_ + 19) * (N_PAD) + grp_])); \
     } while (0)
 
-/* MMA step from SLM-staged tiles.
- * sa: local A tile [16 x 32] row-major (K contiguous), 512 bytes per RTM tile.
- * sb: local B tile [8 x 32] col-major (K contiguous per col), 256 bytes per RTN tile.
- * PTX ISA fragment: b[reg] byte j = B[k=threadID*4+j+reg*16, n=groupID]
- *                   a[reg] byte j = A[m=groupID+(reg/2)*8, k=threadID*4+j+(reg%2)*16]
- * Host must set KU=1 (compiler register-renames D/C across unrolled iterations). */
-# define NV_MMA_STEP_SLM(SA, SB, LANE, D0, D1, D2, D3) \
-    do { \
-      const int grp_ = (LANE) / 4; \
-      const int tid_ = (LANE) % 4; \
-      const local OZAKI_BYTE_T* la0_ = (SA) + grp_ * 32 + tid_ * 4; \
-      const local OZAKI_BYTE_T* la1_ = la0_ + 8 * 32; \
-      uint a0_ = as_uint((OZAKI_BYTE4_T)(la0_[0], la0_[1], la0_[2], la0_[3])); \
-      uint a1_ = as_uint((OZAKI_BYTE4_T)(la0_[16], la0_[17], la0_[18], la0_[19])); \
-      uint a2_ = as_uint((OZAKI_BYTE4_T)(la1_[0], la1_[1], la1_[2], la1_[3])); \
-      uint a3_ = as_uint((OZAKI_BYTE4_T)(la1_[16], la1_[17], la1_[18], la1_[19])); \
-      const local OZAKI_BYTE_T* lb_ = (SB) + grp_ * 32 + tid_ * 4; \
-      uint b0_ = as_uint((OZAKI_BYTE4_T)(lb_[0], lb_[1], lb_[2], lb_[3])); \
-      uint b1_ = as_uint((OZAKI_BYTE4_T)(lb_[16], lb_[17], lb_[18], lb_[19])); \
-      NV_MMA_16x8x32(D0, D1, D2, D3, a0_, a1_, a2_, a3_, b0_, b1_); \
-    } while (0)
-
-/* Tiled MMA with SLM staging: cooperatively load A and B tiles into local
- * memory, then compute RTM x RTN sub-tiles from the staged data.
- * SLM per warp: A[RTM*512] + B[RTN*256] bytes. Total = NTM*NTN warps.
- * Warp-synchronous: no barrier needed within a warp on NVIDIA. */
-# define NV_MMA_SLM_A (RTM * 16 * 32)
-# define NV_MMA_SLM_B (RTN * 8 * 32)
-# define NV_MMA_SLM_WARP (NV_MMA_SLM_A + NV_MMA_SLM_B)
 
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
       const int lane_ = (int)LIBXS_SGLID(); \
-      const int warp_ = (int)LIBXS_SGID(); \
-      local OZAKI_BYTE_T slm_[NTM * NTN * NV_MMA_SLM_WARP]; \
-      local OZAKI_BYTE_T* slm_a_ = slm_ + warp_ * NV_MMA_SLM_WARP; \
-      local OZAKI_BYTE_T* slm_b_ = slm_a_ + NV_MMA_SLM_A; \
       int rm_l_, rn_l_; \
-      /* Stage A: 32 threads load 16 bytes each per RTM tile */ \
-      for (rm_l_ = 0; rm_l_ < RTM; ++rm_l_) { \
-        local OZAKI_BYTE_T* dst_a_ = slm_a_ + rm_l_ * 512; \
-        CONSTANT const OZAKI_BYTE_T* src_a_ = \
-          (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + rm_l_ * 16) * (K_PAD) + (KOFF); \
-        const int arow_ = lane_ / 2; \
-        const int ahalf_ = (lane_ % 2) * 16; \
-        int kb_; \
-        for (kb_ = 0; kb_ < 16; ++kb_) \
-          dst_a_[arow_ * 32 + ahalf_ + kb_] = src_a_[(long)arow_ * (K_PAD) + ahalf_ + kb_]; \
-      } \
-      /* Stage B: 32 threads load 8 bytes each per RTN tile */ \
-      for (rn_l_ = 0; rn_l_ < RTN; ++rn_l_) { \
-        local OZAKI_BYTE_T* dst_b_ = slm_b_ + rn_l_ * 256; \
-        CONSTANT const OZAKI_BYTE_T* src_b_ = \
-          (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ) + rn_l_ * 8; \
-        const int bcol_ = lane_ / 4; \
-        const int bk0_ = (lane_ % 4) * 8; \
-        int bk_; \
-        for (bk_ = 0; bk_ < 8; ++bk_) \
-          dst_b_[bcol_ * 32 + bk0_ + bk_] = src_b_[(long)(bk0_ + bk_) * (N_PAD) + bcol_]; \
-      } \
-      /* Compute RTM x RTN from SLM (warp-synchronous, no barrier) */ \
       for (rm_l_ = 0; rm_l_ < RTM; ++rm_l_) { \
         for (rn_l_ = 0; rn_l_ < RTN; ++rn_l_) { \
           const int idx_ = rm_l_ * RTN + rn_l_; \
-          NV_MMA_STEP_SLM(slm_a_ + rm_l_ * 512, slm_b_ + rn_l_ * 256, lane_, \
+          NV_MMA_STEP(AS, BS, K_PAD, N_PAD, \
+            (MI) + rm_l_ * XMX_M, (NJ) + rn_l_ * XMX_N, KOFF, lane_, \
             (ACC)[idx_].s0, (ACC)[idx_].s1, (ACC)[idx_].s2, (ACC)[idx_].s3); \
         } \
       } \
     } while (0)
 
-/* Single-tile MMA (RTM=1, RTN=1) with SLM staging. */
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
       const int lane_ = (int)LIBXS_SGLID(); \
-      const int warp_ = (int)LIBXS_SGID(); \
-      local OZAKI_BYTE_T slm1_[NTM * NTN * (512 + 256)]; \
-      local OZAKI_BYTE_T* sa1_ = slm1_ + warp_ * (512 + 256); \
-      local OZAKI_BYTE_T* sb1_ = sa1_ + 512; \
-      CONSTANT const OZAKI_BYTE_T* src_a1_ = \
-        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)(MI) * (K_PAD) + (KOFF); \
-      CONSTANT const OZAKI_BYTE_T* src_b1_ = \
-        (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ); \
-      { const int arow_ = lane_ / 2; \
-        const int ahalf_ = (lane_ % 2) * 16; \
-        int kb_; \
-        for (kb_ = 0; kb_ < 16; ++kb_) \
-          sa1_[arow_ * 32 + ahalf_ + kb_] = src_a1_[(long)arow_ * (K_PAD) + ahalf_ + kb_]; \
-      } \
-      { const int bcol_ = lane_ / 4; \
-        const int bk0_ = (lane_ % 4) * 8; \
-        int bk_; \
-        for (bk_ = 0; bk_ < 8; ++bk_) \
-          sb1_[bcol_ * 32 + bk0_ + bk_] = src_b1_[(long)(bk0_ + bk_) * (N_PAD) + bcol_]; \
-      } \
-      NV_MMA_STEP_SLM(sa1_, sb1_, lane_, \
+      NV_MMA_STEP(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, lane_, \
         (ACC).s0, (ACC).s1, (ACC).s2, (ACC).s3); \
     } while (0)
 

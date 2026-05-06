@@ -175,6 +175,15 @@
 /* No-prefetch K-loop: simple DPAS_TILED loop without prefetch messages.
  * Mirrors the asm K-loop structure but in pure OpenCL C builtins. */
 #if defined(OZAKI_USE_OCL_KLOOP)
+# if defined(NV_MMA) && (NV_MMA)
+#   define OZAKI_KLOOP_OCL(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
+    do { \
+      int k_l_; \
+      for (k_l_ = 0; k_l_ < (K_PAD_); k_l_ += BK) { \
+        OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_, M_, ACC); \
+      } \
+    } while (0)
+# else
 # define OZAKI_KLOOP_OCL(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
     do { \
       int k_l_; \
@@ -189,6 +198,7 @@
         OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_, M_, ACC); \
       } \
     } while (0)
+# endif
 #endif
 
 /* K-loop prefetch: opt-in via OZAKI_PREFETCH=1 (default off on PVC). */
