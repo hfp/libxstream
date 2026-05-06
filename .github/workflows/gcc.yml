@@ -18,6 +18,10 @@ jobs:
       fail-fast: false
       matrix:
         flags: [DBG=0, DBG=1 PEDANTIC=2]
+        libxs: [prebuilt]
+        include:
+          - flags: DBG=1 PEDANTIC=2
+            libxs: header-only
     steps:
     - uses: actions/checkout@v5
 
@@ -33,15 +37,19 @@ jobs:
         echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> $GITHUB_ENV
 
     - name: Build LIBXS
+      if: matrix.libxs == 'prebuilt'
       run: cd ${LIBXSROOT} && make -j $(nproc) ${{ matrix.flags }}
 
     - name: Build LIBXSTREAM
+      if: matrix.libxs == 'prebuilt'
       run: make -j $(nproc) ${{ matrix.flags }}
 
     - name: Install (PREFIX)
+      if: matrix.libxs == 'prebuilt'
       run: make -j $(nproc) ${{ matrix.flags }} install PREFIX=$HOME/libxstream-install
 
     - name: Verify install (PREFIX)
+      if: matrix.libxs == 'prebuilt'
       run: |
         test -f $HOME/libxstream-install/include/libxstream.h
         test -f $HOME/libxstream-install/include/libxstream_version.h
@@ -50,6 +58,7 @@ jobs:
         ls $HOME/libxstream-install/lib/libxstream.* >/dev/null
 
     - name: Out-of-tree build
+      if: matrix.libxs == 'prebuilt'
       run: |
         mkdir $HOME/libxstream-oot && cd $HOME/libxstream-oot
         make -j $(nproc) -f ${{ github.workspace }}/Makefile ${{ matrix.flags }}
