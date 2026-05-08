@@ -347,15 +347,14 @@ int main(int argc, char* argv[]) {
           const ELEM_TYPE alpha = 1, beta = 1;
           const char transa = 'N', transb = 'N';
           libxs_registry_t* host_registry = libxs_registry_create();
-          libxs_gemm_config_t host_config;
-          libxs_gemm_dispatch(
-            &host_config, LIBXS_DATATYPE(ELEM_TYPE), transa, transb, m, n, k, m, k, m, &alpha, &beta, host_registry);
+          const libxs_gemm_config_t *const host_config = libxs_gemm_dispatch(
+            LIBXS_DATATYPE(ELEM_TYPE), transa, transb, m, n, k, m, k, m, &alpha, &beta, host_registry);
           memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
           for (r = 0; r < warmup; ++r) {
 #if defined(_OPENMP)
 #  pragma omp parallel
             libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
-              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config, omp_get_thread_num(),
+              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, host_config, omp_get_thread_num(),
               omp_get_num_threads());
           }
           memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
@@ -364,11 +363,11 @@ int main(int argc, char* argv[]) {
 #  if defined(_OPENMP)
 #    pragma omp parallel
             libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
-              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config, omp_get_thread_num(),
+              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, host_config, omp_get_thread_num(),
               omp_get_num_threads());
 #  else
             libxs_gemm_index(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
-              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, &host_config);
+              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, host_config);
 #  endif
           }
           libxs_gemm_release_registry(host_registry);
