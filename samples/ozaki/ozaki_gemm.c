@@ -445,7 +445,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     for (kg = 0; kg < n_kgroups && EXIT_SUCCESS == result; ++kg) {
       const int kb_grp = kg * k_grp_size;
       const int K_len = ((K - kb_grp) < k_grp_size) ? (K - kb_grp) : k_grp_size;
-      int k_pad = ((K_len + bk_pre - 1) / bk_pre) * bk_pre;
+      int k_pad = ((K_len + ku_bk - 1) / ku_bk) * ku_bk;
       const size_t a_off = ta ? ((size_t)kb_grp * elem_size) : ((size_t)kb_grp * lda * elem_size);
       const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);
       if (k_pad < 64) k_pad = 64;
