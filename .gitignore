@@ -1,6 +1,7 @@
 .libxs*.tex
 lib/libxs*
 lib/pkgconfig
+__pycache__
 .abi.log
 .state
 .make
