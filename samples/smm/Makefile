@@ -56,6 +56,7 @@ PARAMDIR ?= $(SRCDIR)/params
 ifeq (,$(PARAMS))
   PARAMS := $(wildcard $(PARAMDIR)/*.csv)
 endif
+PARAMS_BIN := $(wildcard $(PARAMDIR)/*.bin)
 
 # kernel source and generated header
 SCRDIR := $(DEPDIR)/scripts
@@ -83,7 +84,7 @@ all: $(XFILES)
 compile: $(OBJECTS)
 
 # generate embedded kernel header from .cl sources
-$(GENHDR): $(KRNELS) $(PARAMS) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
+$(GENHDR): $(KRNELS) $(PARAMS) $(PARAMS_BIN) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
 	$(GENSCR) $(GENARG) $(KRNELS) $(PARAMS) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)

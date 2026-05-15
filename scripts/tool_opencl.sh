@@ -263,6 +263,60 @@ then
       done
       unset IFS
       echo "};"
+      # emit LIBXS_INCBIN declarations for .bin prediction models
+      BINFILES=()
+      for CSVFILE in "${CSVFILES[@]}"; do
+        BINFILE="${CSVFILE%.csv}.bin"
+        if [ -f "${BINFILE}" ]; then
+          BINFILES+=("${BINFILE}")
+        fi
+      done
+      if [ "0" != "${#BINFILES[@]}" ]; then
+        echo
+        echo "#if defined(LIBXS_INCBIN)"
+        I=0
+        for BINFILE in "${BINFILES[@]}"; do
+          BBASE=$(${BASENAME} "${BINFILE}" .bin)
+          SYMNAME=opencl_${RNAME}_predict_$(echo "${BBASE}" | ${SED} "s/tune_multiply_//;s/[^A-Za-z0-9_]/_/g" | ${TR} '[:upper:]' '[:lower:]')
+          echo "LIBXS_INCBIN(${SYMNAME}, \"${BINFILE}\", 16);"
+          I=$((I+1))
+        done
+        echo
+        echo "typedef struct opencl_${RNAME}_predict_entry_t {"
+        echo "  const char* data;"
+        echo "  const char* data_end;"
+        echo "  int device_id;"
+        echo "} opencl_${RNAME}_predict_entry_t;"
+        echo
+        echo "static const opencl_${RNAME}_predict_entry_t opencl_${RNAME}_predict_models[] = {"
+        I=0
+        for BINFILE in "${BINFILES[@]}"; do
+          BBASE=$(${BASENAME} "${BINFILE}" .bin)
+          SYMNAME=opencl_${RNAME}_predict_$(echo "${BBASE}" | ${SED} "s/tune_multiply_//;s/[^A-Za-z0-9_]/_/g" | ${TR} '[:upper:]' '[:lower:]')
+          # match .bin to device index: derive device name from CSV header
+          CSVFILE="${BINFILE%.bin}.csv"
+          DEVNAME=""
+          if [ -f "${CSVFILE}" ]; then
+            DEVNAME=$(${SED} -n "2{${DEVPAT};p}" "${CSVFILE}" 2>/dev/null)
+          fi
+          DIDX=-1
+          if [ "${DEVNAME}" ]; then
+            J=0
+            IFS=$'\n'
+            for DEVICE in ${DEVICES}; do
+              if [ "${DEVICE}" = "${DEVNAME}" ]; then DIDX=${J}; break; fi
+              J=$((J+1))
+            done
+            unset IFS
+          fi
+          echo "  { ${SYMNAME}, ${SYMNAME}_end, ${DIDX} },"
+          I=$((I+1))
+        done
+        echo "  { 0, 0, -1 }"
+        echo "};"
+        echo "#define OPENCL_${ANAME}_PREDICT_MODELS opencl_${RNAME}_predict_models"
+        echo "#endif"
+      fi
     fi >>"${OFILE}"
   else
     echo "Usage: $0 infile.cl [infile2.cl .. infileN.cl] [infile.csv [.. infileN.csv]] outfile.h"
