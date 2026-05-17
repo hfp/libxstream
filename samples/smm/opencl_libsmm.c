@@ -583,11 +583,11 @@ int libsmm_acc_init(void) {
             if (NULL != opencl_libsmm_predict_model && 0 == libxs_nrank() &&
                 (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
             {
-              int nclusters = 0, nentries = 0;
-              double compression = 0;
-              libxs_predict_query(opencl_libsmm_predict_model, &nclusters, &nentries, &compression);
+              libxs_predict_query_t qinfo;
+              LIBXS_MEMZERO(&qinfo);
+              libxs_predict_query(opencl_libsmm_predict_model, &qinfo);
               fprintf(stderr, "INFO ACC/LIBSMM: PREDICT model loaded (%d entries, %d clusters, %.1fx)\n",
-                nentries, nclusters, compression);
+                qinfo.nentries, qinfo.nclusters, qinfo.compression);
             }
           }
         }
@@ -977,29 +977,28 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
         opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
 # if defined(OPENCL_KERNELS_PREDICT_MODELS)
       if (NULL == config && NULL != opencl_libsmm_predict_model) {
+        opencl_libsmm_smm_t predicted;
         double inputs[3], outputs[15];
         inputs[0] = (double)key.m; inputs[1] = (double)key.n; inputs[2] = (double)key.k;
         libxs_predict_eval(NULL, opencl_libsmm_predict_model, inputs, outputs, NULL, 0);
-        { opencl_libsmm_smm_t predicted;
-          LIBXS_MEMZERO(&predicted);
-          predicted.bs = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[0]), 1);
-          predicted.bm = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[1]), 1, key.m);
-          predicted.bn = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[2]), 1, key.n);
-          predicted.bk = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[3]), 1, key.m);
-          predicted.ws = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[4]), 1);
-          predicted.wg = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[5]), -2, 1);
-          predicted.lu = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[6]), -2);
-          predicted.nz = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[7]), 0, 1);
-          predicted.al = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[8]), 0, 1);
-          predicted.tb = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[9]), 0, 1);
-          predicted.tc = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[10]), 0, 1);
-          predicted.ap = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[11]), 0, 1);
-          predicted.aa = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[12]), 0, 2);
-          predicted.ab = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[13]), 0, 2);
-          predicted.ac = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[14]), 0, 1);
-          config = (opencl_libsmm_smm_t*)libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key),
-            &predicted, sizeof(predicted), libxs_registry_lock(opencl_libsmm_registry));
-        }
+        LIBXS_MEMZERO(&predicted);
+        predicted.bs = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[0]), 1);
+        predicted.bm = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[1]), 1, key.m);
+        predicted.bn = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[2]), 1, key.n);
+        predicted.bk = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[3]), 1, key.m);
+        predicted.ws = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[4]), 1);
+        predicted.wg = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[5]), -2, 1);
+        predicted.lu = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[6]), -2);
+        predicted.nz = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[7]), 0, 1);
+        predicted.al = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[8]), 0, 1);
+        predicted.tb = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[9]), 0, 1);
+        predicted.tc = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[10]), 0, 1);
+        predicted.ap = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[11]), 0, 1);
+        predicted.aa = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[12]), 0, 2);
+        predicted.ab = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[13]), 0, 2);
+        predicted.ac = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[14]), 0, 1);
+        config = (opencl_libsmm_smm_t*)libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key),
+          &predicted, sizeof(predicted), libxs_registry_lock(opencl_libsmm_registry));
       }
 # endif
       if (0 >= bs) bs = ((NULL != config && 0 < config->bs) ? config->bs : OPENCL_LIBSMM_DEFAULT_BS);
