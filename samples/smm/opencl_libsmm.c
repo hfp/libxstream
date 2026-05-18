@@ -977,28 +977,28 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
         opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
 # if defined(OPENCL_KERNELS_PREDICT_MODELS)
       if (NULL == config && NULL != opencl_libsmm_predict_model) {
-        opencl_libsmm_smm_t predicted;
-        double inputs[3], outputs[15];
+        libxs_predict_info_t pinfo;
+        double inputs[3], outputs[16];
+        const double thr = 0.9;
         inputs[0] = (double)key.m; inputs[1] = (double)key.n; inputs[2] = (double)key.k;
-        libxs_predict_eval(NULL, opencl_libsmm_predict_model, inputs, outputs, NULL, 0);
-        LIBXS_MEMZERO(&predicted);
-        predicted.bs = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[0]), 1);
-        predicted.bm = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[1]), 1, key.m);
-        predicted.bn = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[2]), 1, key.n);
-        predicted.bk = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[3]), 1, key.m);
-        predicted.ws = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[4]), 1);
-        predicted.wg = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[5]), -2, 1);
-        predicted.lu = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[6]), -2);
-        predicted.nz = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[7]), 0, 1);
-        predicted.al = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[8]), 0, 1);
-        predicted.tb = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[9]), 0, 1);
-        predicted.tc = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[10]), 0, 1);
-        predicted.ap = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[11]), 0, 1);
-        predicted.aa = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[12]), 0, 2);
-        predicted.ab = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[13]), 0, 2);
-        predicted.ac = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[14]), 0, 1);
-        config = (opencl_libsmm_smm_t*)libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key),
-          &predicted, sizeof(predicted), libxs_registry_lock(opencl_libsmm_registry));
+        libxs_predict_eval(NULL, opencl_libsmm_predict_model, inputs, outputs, &pinfo, 0);
+        if (pinfo.distance <= 2.0) {
+          opencl_libsmm_smm_t predicted;
+          LIBXS_MEMZERO(&predicted);
+          if (pinfo.confidence[5] >= thr) predicted.wg = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[5]), -2, 1);
+          if (pinfo.confidence[6] >= thr) predicted.lu = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[6]), -2);
+          if (pinfo.confidence[7] >= thr) predicted.nz = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[7]), 0, 1);
+          if (pinfo.confidence[8] >= thr) predicted.al = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[8]), 0, 1);
+          if (pinfo.confidence[9] >= thr) predicted.tb = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[9]), 0, 1);
+          if (pinfo.confidence[10] >= thr) predicted.tc = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[10]), 0, 1);
+          if (pinfo.confidence[11] >= thr) predicted.ap = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[11]), 0, 1);
+          if (pinfo.confidence[12] >= thr) predicted.aa = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[12]), 0, 2);
+          if (pinfo.confidence[13] >= thr) predicted.ab = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[13]), 0, 2);
+          if (pinfo.confidence[14] >= thr) predicted.ac = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[14]), 0, 1);
+          if (pinfo.confidence[15] >= thr) predicted.flags = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[15]), 0, 1);
+          config = (opencl_libsmm_smm_t*)libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key),
+            &predicted, sizeof(predicted), libxs_registry_lock(opencl_libsmm_registry));
+        }
       }
 # endif
       if (0 >= bs) bs = ((NULL != config && 0 < config->bs) ? config->bs : OPENCL_LIBSMM_DEFAULT_BS);
@@ -1088,18 +1088,18 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
                         ? (1 >= new_config.lu ? 0 : LIBXS_UP(m_max / new_config.lu, OPENCL_LIBSMM_VMIN))
                         : atoi(env_bm));
             /* two defaults for new_config parameters: 1st - regular, 2nd - BS=1 kernel */
-            new_config.bm = (0 >= blockm ? (0 == kernel_idx ? (0 != defaults ? LIBXS_MIN(OPENCL_LIBSMM_DEFAULT_BM, m_max)
-                                                                             : LIBXS_CLMP(config->bm, 1, m_max))
+            new_config.bm = (0 >= blockm ? (0 == kernel_idx ? ((0 != defaults || 0 >= config->bm) ? LIBXS_MIN(OPENCL_LIBSMM_DEFAULT_BM, m_max)
+                                                                                                  : LIBXS_CLMP(config->bm, 1, m_max))
                                                             : LIBXS_MIN(OPENCL_LIBSMM_DEFAULT_BM, m_max))
                                          : LIBXS_MIN(blockm, m_max));
-            new_config.bn = (0 >= blockn ? (0 == kernel_idx ? (0 != defaults ? LIBXS_MIN(OPENCL_LIBSMM_DEFAULT_BN, n_max)
-                                                                             : LIBXS_CLMP(config->bn, 1, n_max))
+            new_config.bn = (0 >= blockn ? (0 == kernel_idx ? ((0 != defaults || 0 >= config->bn) ? LIBXS_MIN(OPENCL_LIBSMM_DEFAULT_BN, n_max)
+                                                                                                  : LIBXS_CLMP(config->bn, 1, n_max))
                                                             : LIBXS_MIN(OPENCL_LIBSMM_DEFAULT_BN, n_max))
                                          : LIBXS_MIN(blockn, n_max));
-            new_config.bk = (0 >= blockk ? (0 != defaults ? default_bk : LIBXS_CLMP(config->bk, 1, m_max))
+            new_config.bk = (0 >= blockk ? ((0 != defaults || 0 >= config->bk) ? default_bk : LIBXS_CLMP(config->bk, 1, m_max))
                                          : LIBXS_MIN(blockk, m_max));
             new_config.ws = (0 >= wgmin ? (0 == kernel_idx
-                                              ? (0 != defaults ? LIBXS_MAX(m_max, n_max) : LIBXS_CLMP(config->ws, 1, n_max * m_max))
+                                              ? ((0 != defaults || 0 >= config->ws) ? LIBXS_MAX(m_max, n_max) : LIBXS_CLMP(config->ws, 1, n_max * m_max))
                                               : LIBXS_MAX(m_max, n_max))
                                         : LIBXS_MIN(wgmin, n_max * m_max));
             new_config.wg = LIBXS_CLMP(
