@@ -1173,8 +1173,9 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
               nbm = LIBXS_UPDIV(m_max, new_config.bm);
               nbn = LIBXS_UPDIV(n_max, new_config.bn);
             }
-            /* limit WG-size to maximum WG-size */
-            while (devinfo->wgsize[0] < new_config.wgsize[kernel_idx] && (new_config.bm < m_max || new_config.bn < n_max)) {
+            while (((0 != new_config.flags) ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0])
+              < new_config.wgsize[kernel_idx] && (new_config.bm < m_max || new_config.bn < n_max))
+            {
               if (new_config.bn < n_max) {
                 ++new_config.bn;
                 nbn = LIBXS_UPDIV(n_max, new_config.bn);
@@ -1185,7 +1186,9 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
               }
               new_config.wgsize[kernel_idx] = (2 > new_config.wg ? (nbm * nbn) : (LIBXS_CAST_INT(LIBXS_UP2POT(nbm * nbn))));
             }
-            if (new_config.wgsize[kernel_idx] <= devinfo->wgsize[0]) { /* SMM can be handled by device */
+            if (new_config.wgsize[kernel_idx] <= ((0 != new_config.flags)
+              ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0]))
+            { /* SMM can be handled by device */
               const char* const cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem(devinfo) ? "global" : "constant");
               const char* const env_nrepeat = getenv("NREPEAT_SMM");
               const int typesize = OPENCL_LIBSMM_TYPESIZE(datatype);
