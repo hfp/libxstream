@@ -375,7 +375,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       if (0 != crt_hier) {
         const uint16_t* modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
-        const int hier_gs = 4, ngroups = (nprimes + hier_gs - 1) / hier_gs;
+        const int hier_gs = 4, ngroups = LIBXS_UPDIV(nprimes, hier_gs);
         uint32_t gp[5];
         uint64_t l2b[5];
         int gi, gj;

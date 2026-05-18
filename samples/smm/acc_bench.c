@@ -217,9 +217,9 @@ int main(int argc, char* argv[]) {
       if (0 >= stack_size) { /* trigger default */
         if (0 > stack_size) { /* randomize batchsize */
           const int rr = rnd[nok % NRAND], ss = -stack_size, bs = (1 < ss ? ss : BATCHSIZE);
-          const int limit = (BATCHGRAIN < ss ? ((bs + BATCHGRAIN - 1) / BATCHGRAIN) : ss);
+          const int limit = (BATCHGRAIN < ss ? LIBXS_UPDIV(bs, BATCHGRAIN) : ss);
           stack_size = (rr % limit + 1) * BATCHGRAIN;
-          nrepeat = MAX((BATCHSIZE * nrepeat + stack_size - 1) / stack_size, xrepeat);
+          nrepeat = MAX(LIBXS_UPDIV(BATCHSIZE * nrepeat, stack_size), xrepeat);
         }
         else stack_size = BATCHSIZE; /* plain default */
       }

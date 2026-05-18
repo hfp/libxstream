@@ -831,7 +831,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
     LIBXS_ASSERT((NULL != config && NULL != config->kernel && 0 < config->wgsize && 1 <= config->bs) || EXIT_SUCCESS != result);
     if (EXIT_SUCCESS == result) {
       const int bs = config->bs;
-      const size_t work_size = config->wgsize * ((stack_size + bs - 1) / bs);
+      const size_t work_size = config->wgsize * LIBXS_UPDIV(stack_size, bs);
       LIBXS_ASSERT(!(OPENCL_LIBSMM_NLOCKS_TRANS & (OPENCL_LIBSMM_NLOCKS_TRANS - 1))); /* POT */
       { /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
         static libxs_lock_t locks[OPENCL_LIBSMM_NLOCKS_TRANS];
@@ -1127,8 +1127,8 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
               (NULL == env_ac || '\0' == *env_ac) ? (0 != defaults ? default_ac : config->ac) : atoi(env_ac), 0, 1);
             if (0 >= new_config.s) new_config.s = stack_size;
             if (0 == kernel_idx || 1 >= new_config.bs) new_config.bs = bs;
-            nbm = (m_max + new_config.bm - 1) / new_config.bm;
-            nbn = (n_max + new_config.bn - 1) / new_config.bn;
+            nbm = LIBXS_UPDIV(m_max, new_config.bm);
+            nbn = LIBXS_UPDIV(n_max, new_config.bn);
             new_config.wgsize[kernel_idx] = LIBXS_MAX(nbm * nbn, new_config.ws);
             if (0 != new_config.wg) {
               if (1 < devinfo->wgsize[2]) { /* subgroups supported */
@@ -1153,23 +1153,23 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
               else if (nbm < m_max) ++nbm;
             }
             if ((nbm * nbn) < new_config.ws) {
-              new_config.bn = (n_max + nbn - 1) / nbn;
-              new_config.bm = (m_max + nbm - 1) / nbm;
+              new_config.bn = LIBXS_UPDIV(n_max, nbn);
+              new_config.bm = LIBXS_UPDIV(m_max, nbm);
               new_config.wgsize[kernel_idx] = (2 > new_config.wg ? (nbm * nbn) : (LIBXS_CAST_INT(LIBXS_UP2POT(nbm * nbn))));
             }
             else { /* reset */
-              nbm = (m_max + new_config.bm - 1) / new_config.bm;
-              nbn = (n_max + new_config.bn - 1) / new_config.bn;
+              nbm = LIBXS_UPDIV(m_max, new_config.bm);
+              nbn = LIBXS_UPDIV(n_max, new_config.bn);
             }
             /* limit WG-size to maximum WG-size */
             while (devinfo->wgsize[0] < new_config.wgsize[kernel_idx] && (new_config.bm < m_max || new_config.bn < n_max)) {
               if (new_config.bn < n_max) {
                 ++new_config.bn;
-                nbn = (n_max + new_config.bn - 1) / new_config.bn;
+                nbn = LIBXS_UPDIV(n_max, new_config.bn);
               }
               else if (new_config.bm < m_max) {
                 ++new_config.bm;
-                nbm = (m_max + new_config.bm - 1) / new_config.bm;
+                nbm = LIBXS_UPDIV(m_max, new_config.bm);
               }
               new_config.wgsize[kernel_idx] = (2 > new_config.wg ? (nbm * nbn) : (LIBXS_CAST_INT(LIBXS_UP2POT(nbm * nbn))));
             }
@@ -1305,11 +1305,11 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
 # else
           const int config_bs = config->bs;
 # endif
-          bs = (stack_size * config_bs + config->s - 1) / (config->s - 1);
+          bs = LIBXS_UPDIV(stack_size * config_bs, config->s - 1);
           if (config->bs < bs) bs = config->bs;
         }
         /* adjust launchsize according to intra-kernel batchsize */
-        work_size = ((stack_size + bs - 1) / bs) * config->wgsize[kernel_idx];
+        work_size = LIBXS_UPDIV(stack_size, bs) * config->wgsize[kernel_idx];
         /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
         LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 0, info_cdata.memory),
           "set C-matrix argument of SMM-kernel");

@@ -375,7 +375,7 @@ LIBXSTREAM_API int libxstream_init(void)
                 n = LIBXS_MIN(
                   1 < libxstream_opencl_config.devsplit ? (cl_uint)libxstream_opencl_config.devsplit : nunits, LIBXSTREAM_MAXNDEVS);
                 properties[0] = CL_DEVICE_PARTITION_EQUALLY;
-                properties[1] = (nunits + n - 1) / n;
+                properties[1] = LIBXS_UPDIV(nunits, n);
               }
               if (0 == libxstream_opencl_config.devsplit || 1 == libxstream_opencl_config.devsplit ||
                   (libxstream_opencl_config.ndevices + 1) == LIBXSTREAM_MAXNDEVS ||

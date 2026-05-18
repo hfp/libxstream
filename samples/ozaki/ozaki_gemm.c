@@ -80,18 +80,18 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
     const int tm = ctx->tm, tn = ctx->tn;
-    const int m_pad = ((M + bm_pre - 1) / bm_pre) * bm_pre;
-    int n_pad = ((N + bn_pre - 1) / bn_pre) * bn_pre;
-    const int nblk_gm = (M + tm - 1) / tm;
-    const int nblk_gn = (N + tn - 1) / tn;
+    const int m_pad = LIBXS_UP(M, bm_pre);
+    int n_pad = LIBXS_UP(N, bn_pre);
+    const int nblk_gm = LIBXS_UPDIV(M, tm);
+    const int nblk_gn = LIBXS_UPDIV(N, tn);
     const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
     const int cutoff = 2 * (nslices_g - 1) - ctx->oztrim;
     /* K-group: size buffers for min(K, maxk), not full K.
      * maxk=0 means no grouping (full K in one pass). */
     const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
     const int k_grp_max = K < k_grp_size ? K : k_grp_size;
-    int k_grp_pad = ((k_grp_max + bk_pre - 1) / bk_pre) * bk_pre;
-    const int n_kgroups = (K + k_grp_size - 1) / k_grp_size;
+    int k_grp_pad = LIBXS_UP(k_grp_max, bk_pre);
+    const int n_kgroups = LIBXS_UPDIV(K, k_grp_size);
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
@@ -191,7 +191,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     for (kg = 0; kg < n_kgroups && EXIT_SUCCESS == result; ++kg) {
       const int kb_grp = kg * k_grp_size;
       const int K_len = ((K - kb_grp) < k_grp_size) ? (K - kb_grp) : k_grp_size;
-      int k_pad = ((K_len + bk_pre - 1) / bk_pre) * bk_pre;
+      int k_pad = LIBXS_UP(K_len, bk_pre);
       const size_t a_off = ta ? ((size_t)kb_grp * elem_size) : ((size_t)kb_grp * lda * elem_size);
       const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);
       if (k_pad < 64) k_pad = 64;
@@ -345,18 +345,18 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
     const int tm = ctx->tm, tn = ctx->tn;
-    const int m_pad = ((M + bm_pre - 1) / bm_pre) * bm_pre;
-    int n_pad = ((N + bn_pre - 1) / bn_pre) * bn_pre;
-    const int nblk_gm = (M + tm - 1) / tm;
-    const int nblk_gn = (N + tn - 1) / tn;
+    const int m_pad = LIBXS_UP(M, bm_pre);
+    int n_pad = LIBXS_UP(N, bn_pre);
+    const int nblk_gm = LIBXS_UPDIV(M, tm);
+    const int nblk_gn = LIBXS_UPDIV(N, tn);
     const int ntm = tm / (8 * ctx->crt_rtm), ntn = tn / (16 * ctx->rtn);
     /* K-group: size buffers for min(K, maxk), not full K.
      * maxk=0 means no grouping (full K in one pass). */
     const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
     const int k_grp_max = K < k_grp_size ? K : k_grp_size;
     const int ku_bk = ctx->ku * bk_pre;
-    int k_grp_pad = ((k_grp_max + ku_bk - 1) / ku_bk) * ku_bk;
-    const int n_kgroups = (K + k_grp_size - 1) / k_grp_size;
+    int k_grp_pad = LIBXS_UP(k_grp_max, ku_bk);
+    const int n_kgroups = LIBXS_UPDIV(K, k_grp_size);
     size_t as_size, bs_size, expa_size, expb_size;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
@@ -445,7 +445,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     for (kg = 0; kg < n_kgroups && EXIT_SUCCESS == result; ++kg) {
       const int kb_grp = kg * k_grp_size;
       const int K_len = ((K - kb_grp) < k_grp_size) ? (K - kb_grp) : k_grp_size;
-      int k_pad = ((K_len + ku_bk - 1) / ku_bk) * ku_bk;
+      int k_pad = LIBXS_UP(K_len, ku_bk);
       const size_t a_off = ta ? ((size_t)kb_grp * elem_size) : ((size_t)kb_grp * lda * elem_size);
       const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);
       if (k_pad < 64) k_pad = 64;
@@ -580,7 +580,7 @@ static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* s
   int result = EXIT_SUCCESS;
   const libxstream_opencl_stream_t* str = stream;
   size_t global[2], local[2];
-  const int nblk_m_pre = (M + bm_pre - 1) / bm_pre;
+  const int nblk_m_pre = LIBXS_UPDIV(M, bm_pre);
   local[0] = bm_pre;
   local[1] = bk_pre;
   global[0] = (size_t)nblk_m_pre * bm_pre;
@@ -618,7 +618,7 @@ static int ozaki_enqueue_scale_beta(
   size_t global_s[2], local_s[2];
   local_s[0] = (size_t)ctx->bm_pre;
   local_s[1] = 1;
-  global_s[0] = (size_t)((M + ctx->bm_pre - 1) / ctx->bm_pre) * ctx->bm_pre;
+  global_s[0] = (size_t)LIBXS_UP(M, ctx->bm_pre);
   global_s[1] = (size_t)N;
   {
     cl_int i = 0;
@@ -691,8 +691,8 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   local_g[0] = (size_t)ctx->sg;
   local_g[1] = (size_t)(ntm * ntn);
   {
-    const int nblk_gm = (M + tm - 1) / tm;
-    const int nblk_gn = (N + tn - 1) / tn;
+    const int nblk_gm = LIBXS_UPDIV(M, tm);
+    const int nblk_gn = LIBXS_UPDIV(N, tn);
     global_g[0] = (size_t)nblk_gm * local_g[0];
     global_g[1] = (size_t)nblk_gn * local_g[1];
   }
