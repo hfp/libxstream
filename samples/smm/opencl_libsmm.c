@@ -94,6 +94,7 @@ libxs_registry_t* opencl_libsmm_registry;
 # if defined(OPENCL_KERNELS_PREDICT_MODELS)
 /* prediction model for SMM kernel parameters (fallback) */
 static libxs_predict_t* opencl_libsmm_predict_model;
+static int opencl_libsmm_predict_mode; /* -1=disabled, 0=fallback(default), 1=force */
 # endif
 
 
@@ -368,8 +369,18 @@ int libsmm_acc_init(void) {
     if (EXIT_SUCCESS == result) {
       opencl_libsmm_perfest_t perfest;
       char* const env_params = getenv("OPENCL_LIBSMM_SMM_PARAMS"); /* !opencl_libsmm_getenv */
+# if defined(OPENCL_KERNELS_PREDICT_MODELS)
+      { const char* const env_predict = OPENCL_LIBSMM_SMMENV("PREDICT");
+        opencl_libsmm_predict_mode = (NULL == env_predict || '\0' == *env_predict)
+          ? 0 : ('0' == *env_predict ? -1 : 1);
+      }
+# endif
       LIBXS_MEMZERO(&perfest);
-      if (NULL == env_params || '0' != *env_params) {
+      if ((NULL == env_params || '0' != *env_params)
+# if defined(OPENCL_KERNELS_PREDICT_MODELS)
+        && 0 >= opencl_libsmm_predict_mode
+# endif
+      ) {
         char buffer[LIBXSTREAM_BUFFERSIZE], bufname[LIBXSTREAM_BUFFERSIZE];
 # if defined(OPENCL_KERNELS_DEVICES)
         const int ndevices_params = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
@@ -548,51 +559,52 @@ int libsmm_acc_init(void) {
           else fprintf(stderr, "any device\n");
         }
 # endif
+      }
 # if defined(OPENCL_KERNELS_PREDICT_MODELS) && defined(OPENCL_KERNELS_DEVICES)
-        if (EXIT_SUCCESS == result && NULL == opencl_libsmm_predict_model) {
-          const opencl_kernels_predict_entry_t* entry;
-          const opencl_kernels_predict_entry_t* best = NULL;
-          const int ndevices_predict = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
-          int predict_match = -1;
-          if (EXIT_SUCCESS == libxstream_opencl_device_name(
-                libxstream_opencl_config.devices[libxstream_opencl_config.device_id],
-                bufname, LIBXSTREAM_BUFFERSIZE, NULL, 0, 1))
-          {
-            int i = 0, count = 0;
-            double best_score = 0;
-            for (; i < ndevices_predict; ++i) {
-              const int n = libxs_strimatch(bufname, OPENCL_KERNELS_DEVICES[i], NULL, &count);
-              if (0 != n && 0 != count) {
-                const double score = (double)n / count;
-                if (best_score < score) { predict_match = i; best_score = score; }
-              }
-            }
-          }
-          if (0 <= predict_match) {
-            for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
-              if (entry->device_id == predict_match) { best = entry; break; }
-            }
-          }
-          if (NULL == best) {
-            for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
-              if (0 <= entry->device_id) { best = entry; break; }
-            }
-          }
-          if (NULL != best) {
-            opencl_libsmm_predict_model = libxs_predict_load(best->data, (size_t)(best->data_end - best->data));
-            if (NULL != opencl_libsmm_predict_model && 0 == libxs_nrank() &&
-                (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
-            {
-              libxs_predict_query_t qinfo;
-              LIBXS_MEMZERO(&qinfo);
-              libxs_predict_query(opencl_libsmm_predict_model, &qinfo);
-              fprintf(stderr, "INFO ACC/LIBSMM: PREDICT model loaded (%d entries, %d clusters, %.1fx)\n",
-                qinfo.nentries, qinfo.nclusters, qinfo.compression);
+      if (EXIT_SUCCESS == result && NULL == opencl_libsmm_predict_model && 0 <= opencl_libsmm_predict_mode) {
+        char bufname[LIBXSTREAM_BUFFERSIZE];
+        const opencl_kernels_predict_entry_t* entry;
+        const opencl_kernels_predict_entry_t* best = NULL;
+        const int ndevices_predict = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
+        int predict_match = -1;
+        if (EXIT_SUCCESS == libxstream_opencl_device_name(
+              libxstream_opencl_config.devices[libxstream_opencl_config.device_id],
+              bufname, LIBXSTREAM_BUFFERSIZE, NULL, 0, 1))
+        {
+          int i = 0, count = 0;
+          double best_score = 0;
+          for (; i < ndevices_predict; ++i) {
+            const int n = libxs_strimatch(bufname, OPENCL_KERNELS_DEVICES[i], NULL, &count);
+            if (0 != n && 0 != count) {
+              const double score = (double)n / count;
+              if (best_score < score) { predict_match = i; best_score = score; }
             }
           }
         }
-# endif
+        if (0 <= predict_match) {
+          for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
+            if (entry->device_id == predict_match) { best = entry; break; }
+          }
+        }
+        if (NULL == best) {
+          for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
+            if (0 <= entry->device_id) { best = entry; break; }
+          }
+        }
+        if (NULL != best) {
+          opencl_libsmm_predict_model = libxs_predict_load(best->data, (size_t)(best->data_end - best->data));
+          if (NULL != opencl_libsmm_predict_model && 0 == libxs_nrank() &&
+              (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+          {
+            libxs_predict_query_t qinfo;
+            LIBXS_MEMZERO(&qinfo);
+            libxs_predict_query(opencl_libsmm_predict_model, &qinfo);
+            fprintf(stderr, "INFO ACC/LIBSMM: PREDICT model loaded (%d entries, %d clusters, %.1fx)\n",
+              qinfo.nentries, qinfo.nclusters, qinfo.compression);
+          }
+        }
       }
+# endif
     }
   }
   return result;
