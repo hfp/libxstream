@@ -6,8 +6,8 @@
 /* For further information please visit https://dbcsr.cp2k.org                                    */
 /* SPDX-License-Identifier: BSD-3-Clause                                                          */
 /*------------------------------------------------------------------------------------------------*/
-#ifndef DBCSR_ACC_H
-#define DBCSR_ACC_H
+#ifndef LIBXSTREAM_DBCSR_H
+#define LIBXSTREAM_DBCSR_H
 
 #include "libxstream_macros.h"
 
@@ -71,4 +71,4 @@ LIBXS_EXTERN void c_dbcsr_timestop(const int* handle);
 # include "libxstream_source.h"
 #endif
 
-#endif /*DBCSR_ACC_H*/
+#endif /*LIBXSTREAM_DBCSR_H*/
