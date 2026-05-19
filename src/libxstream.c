@@ -19,7 +19,7 @@
 #   include <glob.h>
 # endif
 # if defined(__DBCSR_ACC)
-#   include "../acc_libsmm.h"
+#   include "acc/acc_libsmm.h"
 # endif
 # include <fcntl.h>
 # include <sys/stat.h>
