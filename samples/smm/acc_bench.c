@@ -356,29 +356,33 @@ int main(int argc, char* argv[]) {
             libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
               stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, host_config, omp_get_thread_num(),
               omp_get_num_threads());
+#else
+            libxs_gemm_index(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
+              stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, host_config);
+#endif
           }
           memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
           start = libxs_timer_tick();
           for (r = 0; r < (nrepeat * nrepeat_smm); ++r) {
-#  if defined(_OPENMP)
-#    pragma omp parallel
+#if defined(_OPENMP)
+#  pragma omp parallel
             libxs_gemm_index_task(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
               stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, host_config, omp_get_thread_num(),
               omp_get_num_threads());
-#  else
+#else
             libxs_gemm_index(amat_hst, stack_hst + 0 /*stride_a*/, bmat_hst, stack_hst + 1 /*stride_b*/, gold_hst,
               stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, host_config);
-#  endif
+#endif
           }
           libxs_gemm_release_registry(host_registry);
           duration = libxs_timer_duration(start, libxs_timer_tick());
           perf_hst = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / duration;
           PRINTF("host: %.2g ms %.1f GFLOPS/s\n", 1000.0 * duration / (nrepeat * nrepeat_smm), perf_hst);
           if (EXIT_SUCCESS == result) {
-#  if !defined(__OFFLOAD_UNIFIED_MEMORY) || !defined(DEDUPLICATE)
+#if !defined(__OFFLOAD_UNIFIED_MEMORY) || !defined(DEDUPLICATE)
             CHECK(c_dbcsr_acc_memcpy_d2h(cmat_dev, cmat_hst, sizeof(ELEM_TYPE) * mn * nc, stream), &result, check);
             CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
-#  endif
+#endif
             if (EXIT_SUCCESS == result) {
               libxs_matdiff_t diff;
               result = libxs_matdiff(&diff, LIBXS_DATATYPE(ELEM_TYPE), mn, nc, gold_hst, cmat_hst, &mn, &mn);
@@ -405,7 +409,6 @@ int main(int argc, char* argv[]) {
         }
         libxs_free(gold_hst);
       }
-#endif
       CHECK(c_dbcsr_acc_host_mem_deallocate(stack_hst, stream), NULL, check);
       CHECK(c_dbcsr_acc_host_mem_deallocate(trans_hst, stream), NULL, check);
       CHECK(c_dbcsr_acc_host_mem_deallocate(amat_hst, stream), NULL, check);
