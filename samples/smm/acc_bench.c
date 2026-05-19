@@ -245,7 +245,7 @@ int main(int argc, char* argv[]) {
       CHECK(c_dbcsr_acc_host_mem_allocate((void**)(void*)&trans_hst, sizeof(int) * nb, stream), &result, check);
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check); /* ensure host-data is allocated */
       if (NULL != amat_hst && NULL != bmat_hst && NULL != trans_hst && NULL != stack_hst) {
-        init_stack(stack_hst, stack_size, NRAND, rnd, mn, mk, kn, nc, na, nb);
+        INIT_STACK(stack_hst, stack_size, NRAND, rnd, mn, mk, kn, nc, na, nb);
 #if defined(_OPENMP)
 #  pragma omp parallel
 #endif
@@ -347,7 +347,7 @@ int main(int argc, char* argv[]) {
           const ELEM_TYPE alpha = 1, beta = 1;
           const char transa = 'N', transb = 'N';
           libxs_registry_t* host_registry = libxs_registry_create();
-          const libxs_gemm_config_t *const host_config = libxs_gemm_dispatch(
+          const libxs_gemm_config_t* const host_config = libxs_gemm_dispatch(
             LIBXS_DATATYPE(ELEM_TYPE), transa, transb, m, n, k, m, k, m, &alpha, &beta, host_registry);
           memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
           for (r = 0; r < warmup; ++r) {
