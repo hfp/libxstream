@@ -273,12 +273,12 @@ then
       done
       if [ "0" != "${#BINFILES[@]}" ]; then
         echo
-        echo "#if defined(LIBXS_INCBIN)"
+        echo "#if defined(LIBXS_INCBIN_LOCAL)"
         I=0
         for BINFILE in "${BINFILES[@]}"; do
           BBASE=$(${BASENAME} "${BINFILE}" .bin)
           SYMNAME=opencl_${RNAME}_predict_$(echo "${BBASE}" | ${SED} "s/tune_multiply_//;s/[^A-Za-z0-9_]/_/g" | ${TR} '[:upper:]' '[:lower:]')
-          echo "LIBXS_INCBIN(${SYMNAME}, \"${BINFILE}\", 16);"
+          echo "LIBXS_INCBIN_LOCAL(${SYMNAME}, \"${BINFILE}\", 16);"
           I=$((I+1))
         done
         echo

@@ -1,4 +1,4 @@
-opencl_kernels.h
+smm_kernels.h
 opentuner.log
 /*.cl
 *.pdf

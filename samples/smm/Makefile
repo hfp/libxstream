@@ -61,7 +61,7 @@ PARAMS_BIN := $(wildcard $(PARAMDIR)/*.bin)
 # kernel source and generated header
 SCRDIR := $(DEPDIR)/scripts
 KRNELS := $(wildcard $(SRCDIR)/kernels/*.cl)
-GENHDR := $(SRCDIR)/opencl_kernels.h
+GENHDR := $(SRCDIR)/smm_kernels.h
 GENSCR := $(SCRDIR)/tool_opencl.sh
 
 ifneq (0,$(SYM))
@@ -72,7 +72,7 @@ OUTNAME := acc_bench
 HEADERS := $(wildcard $(INCDIR)/*.h) $(GENHDR) \
            $(wildcard $(DEPDIR)/include/*.h) \
            $(wildcard $(DEPDIR)/include/opencl/*.h)
-CSOURCS := $(SRCDIR)/acc_bench.c $(SRCDIR)/opencl_libsmm.c
+CSOURCS := $(SRCDIR)/acc_bench.c $(SRCDIR)/smm_acc.c $(SRCDIR)/smm_trans.c $(SRCDIR)/smm_params.c $(SRCDIR)/smm_kernel.c
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 OBJECTS := $(COBJCTS)
 XFILES := $(OUTDIR)/$(OUTNAME).x
