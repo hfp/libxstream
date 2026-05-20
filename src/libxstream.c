@@ -18,9 +18,6 @@
 #   include <errno.h>
 #   include <glob.h>
 # endif
-# if defined(__DBCSR_ACC)
-#   include "acc/acc_libsmm.h"
-# endif
 # include <fcntl.h>
 # include <sys/stat.h>
 # if !defined(S_ISDIR) && defined(S_IFMT) && defined(S_IFDIR)
@@ -630,14 +627,6 @@ LIBXSTREAM_API int libxstream_init(void)
     else { /* mark as initialized */
       libxstream_opencl_config.ndevices = -1;
     }
-# if defined(__DBCSR_ACC)
-    /* DBCSR shall call libxstream_init as well as libsmm_acc_init (since both interfaces are used).
-     * Also, libsmm_acc_init may privately call libxstream_init (as it depends on the ACC interface).
-     * The implementation of libxstream_init should hence be safe against "over initialization".
-     * However, DBCSR only calls libxstream_init (and expects an implicit libsmm_acc_init).
-     */
-    if (EXIT_SUCCESS == result) result = libsmm_acc_init();
-# endif
     LIBXS_MXCSR_SET(mxcsr_saved);
   }
   CL_RETURN(result, "");
@@ -735,14 +724,6 @@ LIBXSTREAM_API int libxstream_finalize(void)
   static void (*cleanup)(void) = libxstream_opencl_finalize;
   assert(libxstream_opencl_config.ndevices < LIBXSTREAM_MAXNDEVS);
   if (0 != libxstream_opencl_config.ndevices && NULL != cleanup) {
-# if defined(__DBCSR_ACC)
-    /* DBCSR may call libxstream_init as well as libsmm_acc_init() since both interface are used.
-     * libsmm_acc_init may privately call libxstream_init (as it depends on the ACC interface).
-     * The implementation of libxstream_init should be safe against "over initialization".
-     * However, DBCSR only calls libxstream_init and expects an implicit libsmm_acc_init().
-     */
-    if (EXIT_SUCCESS == result) result = libsmm_acc_finalize();
-# endif
     if (EXIT_SUCCESS == result) result = atexit(cleanup);
     cleanup = NULL;
   }
@@ -1275,11 +1256,9 @@ LIBXSTREAM_API int libxstream_device_set_active(int device_id)
 {
   int result = EXIT_SUCCESS;
   if (0 <= device_id) {
-# if defined(__DBCSR_ACC) && defined(__OFFLOAD_OPENCL)
     if (0 == libxstream_opencl_config.ndevices) { /* not initialized */
       result = libxstream_init();
     }
-# endif
   }
   else result = EXIT_FAILURE;
   if (EXIT_SUCCESS == result) {
