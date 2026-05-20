@@ -8,12 +8,10 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 # include "smm_acc_opencl.h"
+# include "smm_kernels.h"
 # include "acc_bench.h"
 # include <libxs_predict.h>
 # include <libxs_timer.h>
-
-extern const char opencl_kernels_source_multiply[];
-# define OPENCL_KERNELS_SOURCE_MULTIPLY opencl_kernels_source_multiply
 
 # if !defined(LIBXSTREAM_CHECK)
 #   define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \

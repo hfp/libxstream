@@ -24,6 +24,10 @@
 # endif
 # define OPENCL_LIBSMM_SMMENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_SMM", KEY)
 
+# if defined(OPENCL_KERNELS_PREDICT_MODELS)
+OPENCL_KERNELS_PREDICT_INCBIN();
+# endif
+
 # if defined(__cplusplus)
 extern "C" {
 # endif

@@ -180,7 +180,7 @@ then
           echo "#define ${SNAME} \\"
           process_pre "${CLFILE}" "${KEEP}" | process "${CLFILE}" "${KEEP}"
           echo "  \"\""
-          echo "const char ${VNAME}[] = ${SNAME};"
+          echo "static const char ${VNAME}[] = ${SNAME};"
           NFILES_OCL=$((NFILES_OCL+1))
         else
           >&2 echo "ERROR: ${CLFILE} does not exist!"
@@ -252,7 +252,7 @@ then
         ${SED} "s/[^${DELIM}]*/  \"${I}/" <<<"${LINE}"
       done
       echo "  \"\""
-      echo "const char ${VNAME}[] = ${SNAME};"
+      echo "static const char ${VNAME}[] = ${SNAME};"
       echo
       echo "#define ${NNAME} ${DNAME}"
       echo "static const char *const ${DNAME}[] = {"
@@ -273,23 +273,19 @@ then
       done
       if [ "0" != "${#BINFILES[@]}" ]; then
         echo
-        echo "#if defined(LIBXS_INCBIN)"
-        I=0
-        for BINFILE in "${BINFILES[@]}"; do
-          BBASE=$(${BASENAME} "${BINFILE}" .bin)
-          SYMNAME=opencl_${RNAME}_predict_$(echo "${BBASE}" | ${SED} "s/tune_multiply_//;s/[^A-Za-z0-9_]/_/g" | ${TR} '[:upper:]' '[:lower:]')
-          echo "LIBXS_INCBIN(${SYMNAME}, \"${BINFILE}\", 16);"
-          I=$((I+1))
-        done
-        echo
         echo "typedef struct opencl_${RNAME}_predict_entry_t {"
         echo "  const char* data;"
         echo "  const char* data_end;"
         echo "  int device_id;"
         echo "} opencl_${RNAME}_predict_entry_t;"
         echo
-        echo "static const opencl_${RNAME}_predict_entry_t opencl_${RNAME}_predict_models[] = {"
-        I=0
+        printf "#define OPENCL_${ANAME}_PREDICT_INCBIN() \\\\\n"
+        for BINFILE in "${BINFILES[@]}"; do
+          BBASE=$(${BASENAME} "${BINFILE}" .bin)
+          SYMNAME=opencl_${RNAME}_predict_$(echo "${BBASE}" | ${SED} "s/tune_multiply_//;s/[^A-Za-z0-9_]/_/g" | ${TR} '[:upper:]' '[:lower:]')
+          printf "  LIBXS_INCBIN(${SYMNAME}, \"${BINFILE}\", 16); \\\\\n"
+        done
+        printf "  static const opencl_${RNAME}_predict_entry_t opencl_${RNAME}_predict_models[] = { \\\\\n"
         for BINFILE in "${BINFILES[@]}"; do
           BBASE=$(${BASENAME} "${BINFILE}" .bin)
           SYMNAME=opencl_${RNAME}_predict_$(echo "${BBASE}" | ${SED} "s/tune_multiply_//;s/[^A-Za-z0-9_]/_/g" | ${TR} '[:upper:]' '[:lower:]')
@@ -309,13 +305,11 @@ then
             done
             unset IFS
           fi
-          echo "  { ${SYMNAME}, ${SYMNAME}_end, ${DIDX} },"
-          I=$((I+1))
+          printf "    { ${SYMNAME}, ${SYMNAME}_end, ${DIDX} }, \\\\\n"
         done
-        echo "  { 0, 0, -1 }"
-        echo "};"
+        printf "    { 0, 0, -1 } \\\\\n"
+        echo "  }"
         echo "#define OPENCL_${ANAME}_PREDICT_MODELS opencl_${RNAME}_predict_models"
-        echo "#endif"
       fi
     fi >>"${OFILE}"
   else
