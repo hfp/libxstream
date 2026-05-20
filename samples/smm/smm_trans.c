@@ -8,8 +8,10 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 # include "smm_acc_opencl.h"
-# include "smm_kernels.h"
 # include <libxs_timer.h>
+
+extern const char opencl_kernels_source_transpose[];
+# define OPENCL_KERNELS_SOURCE_TRANSPOSE opencl_kernels_source_transpose
 
 # if !defined(LIBXSTREAM_CHECK)
 #   define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \

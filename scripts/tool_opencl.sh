@@ -180,7 +180,7 @@ then
           echo "#define ${SNAME} \\"
           process_pre "${CLFILE}" "${KEEP}" | process "${CLFILE}" "${KEEP}"
           echo "  \"\""
-          echo "static const char ${VNAME}[] = ${SNAME};"
+          echo "const char ${VNAME}[] = ${SNAME};"
           NFILES_OCL=$((NFILES_OCL+1))
         else
           >&2 echo "ERROR: ${CLFILE} does not exist!"
@@ -252,7 +252,7 @@ then
         ${SED} "s/[^${DELIM}]*/  \"${I}/" <<<"${LINE}"
       done
       echo "  \"\""
-      echo "static const char ${VNAME}[] = ${SNAME};"
+      echo "const char ${VNAME}[] = ${SNAME};"
       echo
       echo "#define ${NNAME} ${DNAME}"
       echo "static const char *const ${DNAME}[] = {"
@@ -273,12 +273,12 @@ then
       done
       if [ "0" != "${#BINFILES[@]}" ]; then
         echo
-        echo "#if defined(LIBXS_INCBIN_LOCAL)"
+        echo "#if defined(LIBXS_INCBIN)"
         I=0
         for BINFILE in "${BINFILES[@]}"; do
           BBASE=$(${BASENAME} "${BINFILE}" .bin)
           SYMNAME=opencl_${RNAME}_predict_$(echo "${BBASE}" | ${SED} "s/tune_multiply_//;s/[^A-Za-z0-9_]/_/g" | ${TR} '[:upper:]' '[:lower:]')
-          echo "LIBXS_INCBIN_LOCAL(${SYMNAME}, \"${BINFILE}\", 16);"
+          echo "LIBXS_INCBIN(${SYMNAME}, \"${BINFILE}\", 16);"
           I=$((I+1))
         done
         echo
