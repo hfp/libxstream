@@ -715,6 +715,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
   if (0 == stack_size || 1 == mn) return EXIT_SUCCESS;
   result |= libxstream_opencl_info_devptr(&info_stack, dev_trs_stack, sizeof(int), NULL /*amount*/, NULL /*offset*/);
   result |= libxstream_opencl_info_devptr(&info_mdata, dev_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
+  LIBXS_ASSERT(EXIT_SUCCESS == result);
   if (EXIT_SUCCESS == result &&
       (
 # if defined(OPENCL_LIBSMM_F64)
@@ -886,7 +887,6 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
       }
     }
   }
-  else if (EXIT_SUCCESS == result) result = EXIT_FAILURE;
   return result;
 }
 
