@@ -13,8 +13,7 @@
 # include "smm_kernels.h"
 # include "acc_bench.h"
 # include <libxs_predict.h>
-# include <libxs_timer.h>
-# include <libxs_math.h>
+# include <libxs_str.h>
 # include <ctype.h>
 
 # if !defined(OPENCL_LIBSMM_KERNELNAME_TRANS)
