@@ -12,6 +12,7 @@
 # include "acc_bench.h"
 # include <libxs_predict.h>
 # include <libxs_timer.h>
+# include <libxs_hash.h>
 
 # if !defined(LIBXSTREAM_CHECK)
 #   define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \
