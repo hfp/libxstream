@@ -763,11 +763,8 @@ LIBXSTREAM_API int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* 
 LIBXSTREAM_API int libxstream_device_count(int* ndevices)
 {
   int result;
-# if defined(__DBCSR_ACC) /* lazy initialization */
-  /* DBCSR calls libxstream_device_count before calling libxstream_init. */
   result = libxstream_init();
   if (EXIT_SUCCESS == result)
-# endif
   {
     if (NULL != ndevices) {
       *ndevices = (0 < libxstream_opencl_config.ndevices ? libxstream_opencl_config.ndevices : 0);
