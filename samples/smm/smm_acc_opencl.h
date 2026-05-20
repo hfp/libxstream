@@ -6,8 +6,8 @@
 /* For further information please visit https://dbcsr.cp2k.org                                    */
 /* SPDX-License-Identifier: BSD-3-Clause                                                          */
 /*------------------------------------------------------------------------------------------------*/
-#ifndef OPENCL_LIBSMM_H
-#define OPENCL_LIBSMM_H
+#ifndef SMM_ACC_OPENCL_H
+#define SMM_ACC_OPENCL_H
 
 #include "acc_libsmm.h"
 #include "libxstream_opencl.h"
@@ -73,6 +73,10 @@ typedef struct opencl_libsmm_perfest_t {
 } opencl_libsmm_perfest_t;
 
 
+/** Globals shared across SMM translation units. */
+extern int opencl_libsmm_initialized;
+extern libxs_registry_t* opencl_libsmm_registry;
+
 /** Returns environment variable's value for given domain and key. */
 const char* opencl_libsmm_getenv(const char domain[], const char key[]);
 
@@ -123,4 +127,4 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
 }
 #endif
 
-#endif /*OPENCL_LIBSMM_H*/
+#endif /*SMM_ACC_OPENCL_H*/
