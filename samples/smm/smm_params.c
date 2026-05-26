@@ -7,17 +7,17 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #if defined(__OPENCL)
-# include "smm_acc_opencl.h"
-# include <libxs_math.h>
-# include <ctype.h>
+#  include "smm_acc_opencl.h"
+#  include <libxs_math.h>
+#  include <ctype.h>
 
-# define OPENCL_LIBSMM_AI(M, N, K, TYPESIZE) ((2.0 * (M) * (N) * (K)) / ((TYPESIZE) * (K) * ((M) + (N))))
-# define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
+#  define OPENCL_LIBSMM_AI(M, N, K, TYPESIZE) ((2.0 * (M) * (N) * (K)) / ((TYPESIZE) * (K) * ((M) + (N))))
+#  define OPENCL_LIBSMM_TYPESIZE(TYPEID) \
     (dbcsr_type_real_8 == (TYPEID) ? ((int)sizeof(double)) : (dbcsr_type_real_4 == (TYPEID) ? ((int)sizeof(float)) : 0 /*unknown*/))
 
-# if defined(__cplusplus)
+#  if defined(__cplusplus)
 extern "C" {
-# endif
+#  endif
 
 
 int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_libsmm_transkey_t* key,
@@ -40,7 +40,9 @@ int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_li
     }
     if (NULL != key || 0 == only_key) result += fprintf(stream, "%c", NULL == close ? '}' : *close);
   }
-  else result = -1;
+  else {
+    result = -1;
+  }
   LIBXS_ASSERT(0 < result);
   return result;
 }
@@ -76,7 +78,9 @@ int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libs
     }
     if (NULL != key || 0 == only_key) result += fprintf(stream, "%c", NULL == close ? '}' : *close);
   }
-  else result = -1;
+  else {
+    result = -1;
+  }
   LIBXS_ASSERT(0 < result);
   return result;
 }
@@ -258,13 +262,15 @@ int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, o
       default: result = EXIT_FAILURE;
     }
   }
-  else result = EXIT_FAILURE;
+  else {
+    result = EXIT_FAILURE;
+  }
   if (NULL != key_ok && 4 <= consumed) *key_ok = 1;
   return result;
 }
 
-# if defined(__cplusplus)
+#  if defined(__cplusplus)
 }
-# endif
+#  endif
 
 #endif /*defined(__OPENCL)*/
