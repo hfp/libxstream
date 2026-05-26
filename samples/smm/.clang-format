@@ -3,7 +3,8 @@ AlignAfterOpenBracket: DontAlign
 AlignEscapedNewlines: DontAlign
 AlignTrailingComments: false
 AllowShortCaseLabelsOnASingleLine: true
-AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortBlocksOnASingleLine: Never
+AllowShortIfStatementsOnASingleLine: WithoutElse
 AllowShortLoopsOnASingleLine: true
 BraceWrapping:
   AfterControlStatement: MultiLine
