@@ -46,17 +46,11 @@ extern "C" {
 
 int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, void* dev_data, libsmm_acc_data_t datatype, int m,
   int n, int max_kernel_dim, void* stream) {
-  libxstream_opencl_info_memptr_t info_stack, info_mdata;
   int result = EXIT_SUCCESS;
   const int mn = m * n;
   LIBXS_ASSERT((NULL != dev_trs_stack && NULL != stream && NULL != dev_data && 0 <= offset && 0 < stack_size) || 0 == stack_size);
   LIBXS_ASSERT(0 < m && 0 < n);
-  if (0 == stack_size || 1 == mn) return EXIT_SUCCESS;
-  result |= libxstream_opencl_info_devptr(&info_stack, dev_trs_stack, sizeof(int), NULL /*amount*/, NULL /*offset*/);
-  result |= libxstream_opencl_info_devptr(&info_mdata, dev_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
-  LIBXS_ASSERT(EXIT_SUCCESS == result);
-  if (EXIT_SUCCESS == result &&
-      (
+  if (0 != stack_size && 1 != mn && (
 # if defined(OPENCL_LIBSMM_F64)
         dbcsr_type_real_8 == datatype
 # else
@@ -197,9 +191,9 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
         LIBXSTREAM_CHECK(
           result, clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel");
-        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel, 1, info_stack.memory),
+        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel, 1, dev_trs_stack),
           "set batch-list argument of transpose kernel");
-        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel, 2, info_mdata.memory),
+        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel, 2, dev_data),
           "set matrix-data argument of transpose kernel");
         if (1 < bs) {
           LIBXSTREAM_CHECK(result, clSetKernelArg(config->kernel, 3, sizeof(int), &stack_size),

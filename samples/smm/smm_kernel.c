@@ -88,7 +88,6 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
   if (0 != libsmm_acc_process_suitable(def_mnk, datatype, stack_size, m_max, n_max, k_max, max_kernel_dim)) {
     const libxs_timer_tick_t start = libxs_timer_tick();
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-    libxstream_opencl_info_memptr_t info_stack, info_adata, info_bdata, info_cdata;
     opencl_libsmm_smmkey_t key;
     const libxstream_opencl_stream_t* const str = (const libxstream_opencl_stream_t*)stream;
     LIBXS_MEMZERO(&key); /* potentially heterogeneous key-data */
@@ -99,11 +98,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
     key.m = m_max;
     key.n = n_max;
     key.k = k_max;
-    result |= libxstream_opencl_info_devptr(&info_stack, dev_param_stack, sizeof(int), NULL /*amount*/, NULL /*offset*/);
-    result |= libxstream_opencl_info_devptr(&info_adata, dev_a_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
-    result |= libxstream_opencl_info_devptr(&info_bdata, dev_b_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
-    result |= libxstream_opencl_info_devptr(&info_cdata, dev_c_data, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
-    if (EXIT_SUCCESS == result) {
+    {
       static libxs_lock_t locks[OPENCL_LIBSMM_NLOCKS_SMM];
       const char *const env_s = OPENCL_LIBSMM_SMMENV("S"), *const env_bs = OPENCL_LIBSMM_SMMENV("BS");
       const int s = ((NULL == env_s || '\0' == *env_s) ? OPENCL_LIBSMM_SMM_S : atoi(env_s));
@@ -456,13 +451,13 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
         /* adjust launchsize according to intra-kernel batchsize */
         work_size = LIBXS_UPDIV(stack_size, bs) * config->wgsize[kernel_idx];
         /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
-        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 0, info_cdata.memory),
+        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 0, dev_c_data),
           "set C-matrix argument of SMM-kernel");
-        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 1, info_adata.memory),
+        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 1, dev_a_data),
           "set A-matrix argument of SMM-kernel");
-        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 2, info_bdata.memory),
+        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 2, dev_b_data),
           "set B-matrix argument of SMM-kernel");
-        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 3, info_stack.memory),
+        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 3, dev_param_stack),
           "set batch-list argument of SMM-kernel");
         LIBXSTREAM_CHECK(result, clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &param_format),
           "set batch-format argument of SMM-kernel");
