@@ -27,30 +27,22 @@ default_enable_tune = {"tune", "enabled", "on"}
 default_basename = "tune_multiply"
 default_mnk = "23x23x23"
 default_dbg = False
-default_retry = 1
 default_vlen = 8
 
-type_dp = 3
-type_sp = 1
+type_dp = 3  # TYPEID for double-precision
+type_sp = 1  # TYPEID for single-precision
+sp_dp_ratio = 0.5  # assumed SP:DP throughput ratio for normalization
 
 
 def start(args):
     """Construct and start tuner instance"""
     instance = SmmTuner(args)
     if not default_dbg:
-        for retry in range(default_retry):
-            try:
-                TuningRunMain(instance, args).main()
-                return
-            except Exception as e:
-                ign = (
-                    "[{}/{}]".format(retry + 1, default_retry)
-                    if 1 < default_retry
-                    else ""
-                )
-                print("IGNORED{} {}: {}".format(ign, type(e).__name__, e))
-                pass
-        instance.save_final_config(None, True)
+        try:
+            TuningRunMain(instance, args).main()
+        except Exception as e:
+            print("IGNORED {}: {}".format(type(e).__name__, e))
+            instance.save_final_config(None, True)
     else:
         TuningRunMain(instance, args).main()
 
@@ -92,7 +84,9 @@ class SmmTuner(MeasurementInterface):
         self.nz = self.al = self.tb = self.tc = None
         self.ap = self.aa = self.ab = self.ac = self.xf = None
         self.idevice, self.ndevices = None, 0
-        self.exepath = os.path.join(os.path.dirname(sys.argv[0]), "acc_bench.x")
+        self.exepath = os.path.join(
+            os.path.dirname(os.path.realpath(sys.argv[0])), "acc_bench.x"
+        )
         runcmd = self.launch(["LIBXSTREAM_VERBOSE=2"], 0, nrep=1)
         self.run_result = (  # verbosity to capture device name and tuned parameters
             self.call_program(" ".join(runcmd))
@@ -201,14 +195,17 @@ class SmmTuner(MeasurementInterface):
             filenames = glob.glob(
                 os.path.normpath(os.path.join(self.args.jsondir, filepattern))
             )
-            if self.args.update is None or "" != self.args.update:
+            do_update = self.args.update is None or "" != self.args.update
+            do_check = self.args.check is None or 0 != self.args.check
+            do_merge = self.args.merge is not None
+            if do_update:
                 self.update_jsons(filenames)
-            elif self.args.check is None or 0 != self.args.check:
+            elif do_check:
                 self.update_jsons(filenames)
                 if 0 < self.gfscnt and self.args.check and 0 > self.args.check:
                     gmn = math.exp(self.gflogs / self.gfscnt)
                     print("Geometric mean of {} GFLOPS/s".format(round(gmn)))
-            elif self.args.merge is not None:
+            elif do_merge:
                 self.merge_jsons(filenames)
             exit(0)
         elif (
@@ -223,7 +220,7 @@ class SmmTuner(MeasurementInterface):
                     tmpdir += str(self.idevice)
                 try:
                     os.mkdir(tmpdir)
-                except:  # noqa: E722
+                except Exception:
                     pass
                 self.args.database = "sqlite:///" + os.path.join(
                     tmpdir, "{}.db".format(os.getpid())
@@ -406,7 +403,8 @@ class SmmTuner(MeasurementInterface):
     def run_check(self, data):
         """Run configuration and return process return code (0 on success)"""
         self.run(data, nrep=1)
-        return self.run_result["returncode"] if self.run_result else 1
+        result = self.run_result
+        return result["returncode"] if result else 1
 
     def update_jsons(self, filenames):
         """Update device name or verify all JSONs"""
@@ -459,12 +457,10 @@ class SmmTuner(MeasurementInterface):
         )
         return (device, data["TYPEID"], data["M"], data["N"], data["K"]), value
 
-    def merge_jsons(self, filenames):
-        """Merge all JSONs into a single CSV-file"""
-        if not self.args.csvfile or (self.idevice is not None and 0 != self.idevice):
-            return  # early exit
+    def merge_collect(self, filenames):
+        """Collect merge candidates from JSON files"""
         merged, retain, delete = dict(), dict(), []
-        self.gflogs = self.gfscnt = skipcnt = 0
+        skipcnt = 0
         for filename in filenames:
             try:
                 with open(filename, "r") as file:
@@ -476,14 +472,14 @@ class SmmTuner(MeasurementInterface):
                         or (1 == self.args.merge and type_sp != data["TYPEID"])
                         or (2 == self.args.merge and type_dp != data["TYPEID"])
                     )
-                ):  # skip parameter set (JSON-file)
+                ):
                     skipcnt = skipcnt + 1
                     continue
                 key, value = self.make_csv_record(data, filename)
             except (json.JSONDecodeError, KeyError, TypeError):
                 print("Failed to merge {} into CSV-file.".format(filename))
                 continue
-            except:  # noqa: E722
+            except Exception:
                 continue
             if bool(data) and key in merged:
                 gfbase, mname = merged[key][1], merged[key][-1]
@@ -493,9 +489,13 @@ class SmmTuner(MeasurementInterface):
                         delete.append(mname)
                     else:
                         if key in retain:
-                            if retain[key][1] < gflops:
+                            if retain[key][1] < gfbase:
                                 delete.append(retain[key][-1])
-                        retain[key] = merged[key]
+                                retain[key] = merged[key]
+                            else:
+                                delete.append(mname)
+                        else:
+                            retain[key] = merged[key]
                 else:  # merged data is leading
                     if mtime < os.path.getmtime(filename):  # older
                         if key in retain:
@@ -509,13 +509,64 @@ class SmmTuner(MeasurementInterface):
                     else:  # newer
                         delete.append(filename)
                     data = dict()  # ensure data is not merged
-            if bool(data) and (  # consider to finally validate result
+            if bool(data) and (
                 (self.args.check is not None and 0 == self.args.check)
                 or 0 == self.run_check(data)
             ):
                 merged[key] = value
-        # replace older/best with latest/best (forced refresh)
-        if self.args.delete and 3 <= self.args.delete:
+        return merged, retain, delete, skipcnt
+
+    def merge_write_csv(self, merged, total, skipcnt):
+        """Write merged data to CSV and print summary"""
+        if bool(merged):
+            with open(self.args.csvfile, "w") as csvfile:
+                csvfile.write(
+                    "{}{}{}{}{}{}{}{}{}\n".format(
+                        self.args.csvsep.join(["DEVICE", "TYPEID", "M", "N", "K"]),
+                        self.args.csvsep,
+                        "S",
+                        self.args.csvsep,
+                        self.args.csvsep.join(["GFLOPS", "BS", "BM", "BN", "BK"]),
+                        self.args.csvsep,
+                        self.args.csvsep.join(["WS", "WG", "LU", "NZ", "AL"]),
+                        self.args.csvsep,
+                        self.args.csvsep.join(["TB", "TC", "AP", "AA", "AB", "AC"]),
+                    )
+                )
+                types = [key[1] for key in merged.keys()]
+                pure = min(types) == max(types)
+                for key, value in sorted(merged.items()):
+                    gflops = (
+                        value[1]
+                        if pure or type_sp != key[1]
+                        else value[1] * sp_dp_ratio
+                    )
+                    values = list(value[:-1])
+                    if self.args.nogflops:
+                        values[1] = 0
+                    if 0 < gflops:
+                        self.gflogs = self.gflogs + math.log(gflops)
+                        self.gfscnt = self.gfscnt + 1
+                    strkey = self.args.csvsep.join([str(k) for k in key])
+                    strval = self.args.csvsep.join([str(v) for v in values])
+                    csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
+        msg = "Merged {} of {} JSONs into {}".format(
+            len(merged), total - skipcnt, self.args.csvfile
+        )
+        if 0 < self.gfscnt:
+            gmn = math.exp(self.gflogs / self.gfscnt)
+            msg = "{} (geometric mean of {} GFLOPS/s)".format(msg, round(gmn))
+        if not self.args.verbose and (self.args.check is None or 0 != self.args.check):
+            print("")
+        print(msg)
+
+    def merge_jsons(self, filenames):
+        """Merge all JSONs into a single CSV-file"""
+        if not self.args.csvfile or (self.idevice is not None and 0 != self.idevice):
+            return
+        self.gflogs = self.gfscnt = 0
+        merged, retain, delete, skipcnt = self.merge_collect(filenames)
+        if self.args.prefer_new:
             losslog, losscnt = 0, 0
             for key, value in retain.items():
                 if key in merged:
@@ -546,62 +597,22 @@ class SmmTuner(MeasurementInterface):
                         gmn, losscnt
                     )
                 )
-        # print/delete outperformed results
-        if self.args.delete and 2 <= self.args.delete:
+        if self.args.delete:
             rfiles = [v[-1] for v in retain.values()]
             delete = delete + rfiles
         if bool(delete):
             num, lst, msg = len(delete), " ".join(delete), "Remove"
-            if self.args.delete and 3 != self.args.delete:
+            if self.args.delete and not self.args.dry_run:
                 for filename in delete:
                     try:
                         os.remove(filename)
-                    except:  # noqa: E722
+                    except Exception:
                         pass
                 msg = "Removed"
                 skipcnt = skipcnt + num
             print("{} {}: {}".format(msg, num, lst))
             print("")
-        # write CSV-file and collect overall-statistics
-        if bool(merged):
-            with open(self.args.csvfile, "w") as csvfile:
-                csvfile.write(  # CSV header line with termination/newline
-                    "{}{}{}{}{}{}{}{}{}\n".format(  # key-part
-                        self.args.csvsep.join(["DEVICE", "TYPEID", "M", "N", "K"]),
-                        self.args.csvsep,  # separator for value-part
-                        "S",  # pseudo-key component
-                        self.args.csvsep,
-                        self.args.csvsep.join(["GFLOPS", "BS", "BM", "BN", "BK"]),
-                        self.args.csvsep,
-                        self.args.csvsep.join(["WS", "WG", "LU", "NZ", "AL"]),
-                        self.args.csvsep,
-                        self.args.csvsep.join(["TB", "TC", "AP", "AA", "AB", "AC"]),
-                    )
-                )
-                types = [key[1] for key in merged.keys()]
-                pure = min(types) == max(types)
-                for key, value in sorted(merged.items()):  # CSV data lines (records)
-                    # FLOPS are normalized for double-precision (ratio of 1:2 assumed)
-                    gflops = value[1] if pure or type_sp != key[1] else value[1] * 0.5
-                    values = list(value[:-1])
-                    if self.args.nogflops:
-                        values[1] = 0  # zero instead of gflops written into CSV-file
-                    if 0 < gflops:
-                        self.gflogs = self.gflogs + math.log(gflops)
-                        self.gfscnt = self.gfscnt + 1
-                    strkey = self.args.csvsep.join([str(k) for k in key])
-                    strval = self.args.csvsep.join([str(v) for v in values])
-                    csvfile.write("{}{}{}\n".format(strkey, self.args.csvsep, strval))
-        # print summary information
-        msg = "Merged {} of {} JSONs into {}".format(
-            len(merged), len(filenames) - skipcnt, self.args.csvfile
-        )
-        if 0 < self.gfscnt:
-            gmn = math.exp(self.gflogs / self.gfscnt)
-            msg = "{} (geometric mean of {} GFLOPS/s)".format(msg, round(gmn))
-        if not self.args.verbose and (self.args.check is None or 0 != self.args.check):
-            print("")
-        print(msg)
+        self.merge_write_csv(merged, len(filenames), skipcnt)
 
     def rename_dotfile(self, dotfile):
         try:
@@ -615,7 +626,7 @@ class SmmTuner(MeasurementInterface):
                     default_basename, filemain, round(gflops)
                 )
                 os.rename(dotfile, os.path.join(self.args.jsondir, filename))
-        except:  # noqa: E722
+        except Exception:
             pass
 
     def save_final_config(self, configuration, final=True):
@@ -672,7 +683,7 @@ class SmmTuner(MeasurementInterface):
             filename = os.path.normpath(os.path.join(self.args.jsondir, fileonly))
             try:
                 os.rename(filedot, filename)
-            except:  # noqa: E722
+            except Exception:
                 pass
             if filename not in filenames:  # rebuild CSV-file
                 filenames.append(filename)
@@ -691,7 +702,7 @@ class SmmTuner(MeasurementInterface):
             print(msg.format("x".join(map(str, self.mnk))))
             try:
                 self.save_final_config(self.config, True)
-            except:  # noqa: E722
+            except Exception:
                 pass
         exit(1)
 
@@ -782,11 +793,23 @@ if __name__ == "__main__":
     argparser.add_argument(
         "-d",
         "--delete",
-        type=int,
-        default=None,
-        const=1,
-        nargs="?",
-        help="Remove JSONs (1:worse/old, 2:worse/new, 3:dry, 4:prefer/new)",
+        action="store_true",
+        default=False,
+        help="Delete outperformed duplicates during merge",
+    )
+    argparser.add_argument(
+        "--prefer-new",
+        action="store_true",
+        default=False,
+        dest="prefer_new",
+        help="Swap older-best with newer entries (implies --delete)",
+    )
+    argparser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        dest="dry_run",
+        help="Print what would be deleted without deleting",
     )
     argparser.add_argument(
         "-v",
@@ -956,6 +979,8 @@ if __name__ == "__main__":
         help="Size of batch (a.k.a. stacksize)",
     )
     args, argd = argparser.parse_args(), argparser.parse_args([])
+    if args.prefer_new:
+        args.delete = True
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in default_enable_tune:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
@@ -997,7 +1022,7 @@ if __name__ == "__main__":
         else:
             try:
                 mnk = tuple(max(int(i), 1) for i in args.mnk.split("x"))
-            except:  # noqa: E722
+            except Exception:
                 mnk = None
                 pass
             if not mnk:
