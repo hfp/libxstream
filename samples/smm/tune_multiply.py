@@ -516,12 +516,36 @@ class SmmTuner(MeasurementInterface):
                 merged[key] = value
         # replace older/best with latest/best (forced refresh)
         if self.args.delete and 3 <= self.args.delete:
+            losslog, losscnt = 0, 0
             for key, value in retain.items():
                 if key in merged:
                     rname, mname = value[-1], merged[key][-1]
                     if os.path.getmtime(mname) < os.path.getmtime(rname):
                         retain[key] = merged[key]
                         merged[key] = value
+                        gf_old = retain[key][1]
+                        gf_new = merged[key][1]
+                        if 0 < gf_old and 0 < gf_new:
+                            ratio = gf_new / gf_old
+                            losslog = losslog + math.log(ratio)
+                            losscnt = losscnt + 1
+                            if self.args.verbose:
+                                mnk = "x".join(map(str, key[2:]))
+                                print(
+                                    "{}: {} -> {} GFLOPS/s ({:.1f}%)".format(
+                                        mnk,
+                                        round(gf_old),
+                                        round(gf_new),
+                                        100.0 * (ratio - 1),
+                                    )
+                                )
+            if 0 < losscnt:
+                gmn = math.exp(losslog / losscnt)
+                print(
+                    "Prefer newer: {:.2f}x (geometric mean over {} kernels)".format(
+                        gmn, losscnt
+                    )
+                )
         # print/delete outperformed results
         if self.args.delete and 2 <= self.args.delete:
             rfiles = [v[-1] for v in retain.values()]
