@@ -244,6 +244,7 @@ then
     sleep ${WAIT}
   fi
   N=0
+  HOSTNAME=$(hostname)
   MNKPART=$(${CUT} -d' ' -f $((PARTOFFS+1))-$((PARTOFFS+PARTSIZE)) <<<"${MNKS}")
   for MNK in ${MNKPART}; do
     if [ "0" != "$(((N)<PARTSIZE))" ]; then
