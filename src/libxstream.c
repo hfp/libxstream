@@ -655,22 +655,23 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     const char *const env_slurm = getenv("SLURM_JOBID");
     const int slurm = (NULL == env_slurm ? -1 : atoi(env_slurm));
     const int precision[] = {1, 1};
+    double vals[2], rate = 0;
     int i;
     hist[0] = libxstream_opencl_config.hist_h2d;
     hist[1] = libxstream_opencl_config.hist_d2h;
     hist[2] = libxstream_opencl_config.hist_d2d;
+    LIBXS_STDIO_ACQUIRE();
     for (i = 0; i < 3; ++i) if (NULL != hist[i]) {
-      double vals[2], gflops = 0;
       libxs_hist_query_median(NULL /*lock*/, hist[i], vals);
-      gflops = (0 < vals[1] ? (vals[0] / vals[1]) : -1);
-      LIBXS_STDIO_ACQUIRE();
-      if (0 <= gflops) {
-        if (0 <= slurm) fprintf(stderr, "\nPROF ACC/OpenCL: ID=%i %s=%.0f MB/s", libxs_rid(), kind[i], gflops);
-        else fprintf(stderr, "\nPROF ACC/OpenCL: ID=%i.%i %s=%.0f MB/s", slurm, libxs_rid(), kind[i], gflops);
+      rate = (0 < vals[1] ? (1E6 * vals[0] / vals[1]) : -1);
+      if (0 <= rate) {
+        if (0 > slurm) fprintf(stderr, "\nPROF ACC/OpenCL: ID=%i %s=%.0f MB/s", libxs_rid(), kind[i], rate);
+        else fprintf(stderr, "\nPROF ACC/OpenCL: ID=%i.%i %s=%.0f MB/s", slurm, libxs_rid(), kind[i], rate);
       }
-      if (0 < gflops) libxs_hist_print(stderr, hist[i], precision, "\n");
-      LIBXS_STDIO_RELEASE();
+      if (0 < rate) libxs_hist_print(stderr, hist[i], precision, "\n");
     }
+    fprintf(stderr, "\n\n");
+    LIBXS_STDIO_RELEASE();
     for (i = 0; i < LIBXSTREAM_MAXNDEVS; ++i) {
       const cl_device_id device_id = libxstream_opencl_config.devices[i];
       if (NULL != device_id) {
