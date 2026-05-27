@@ -72,7 +72,7 @@ int libsmm_acc_init(void) {
       char* const env_params = getenv("OPENCL_LIBSMM_SMM_PARAMS"); /* !opencl_libsmm_getenv */
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
       const char* const env_predict = OPENCL_LIBSMM_SMMENV("PREDICT");
-      opencl_libsmm_predict_mode = (NULL == env_predict || '\0' == *env_predict) ? 0 : ('0' == *env_predict ? -1 : 1);
+      opencl_libsmm_predict_mode = (NULL == env_predict || '\0' == *env_predict) ? 0 : atoi(env_predict);
 #  endif
       LIBXS_MEMZERO(&perfest);
       if ((NULL == env_params || '0' != *env_params)
@@ -310,6 +310,12 @@ int libsmm_acc_init(void) {
         }
         if (NULL != best) {
           opencl_libsmm_predict_model = libxs_predict_load(best->data, (size_t)(best->data_end - best->data));
+          if (NULL != opencl_libsmm_predict_model && opencl_libsmm_predict_mode > 1
+            && 0 == ((opencl_libsmm_predict_mode - 1)
+              & ~(LIBXS_PREDICT_INTERPOLATE | LIBXS_PREDICT_CLASSIFY | LIBXS_PREDICT_TEMPORAL)))
+          {
+            libxs_predict_set_mode(opencl_libsmm_predict_model, opencl_libsmm_predict_mode - 1);
+          }
           if (NULL != opencl_libsmm_predict_model && 0 == libxs_nrank() &&
               (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
           {
