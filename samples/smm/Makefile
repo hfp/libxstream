@@ -57,6 +57,7 @@ ifeq (,$(PARAMS))
   PARAMS := $(wildcard $(PARAMDIR)/*.csv)
 endif
 PARAMS_BIN := $(wildcard $(PARAMDIR)/*.bin)
+PARAMS_PREDICT := $(sort $(PARAMS) $(patsubst %.bin,%.csv,$(PARAMS_BIN)))
 
 # kernel source and generated header
 SCRDIR := $(DEPDIR)/scripts
@@ -84,8 +85,8 @@ all: $(XFILES)
 compile: $(OBJECTS)
 
 # generate embedded kernel header from .cl sources
-$(GENHDR): $(KRNELS) $(PARAMS) $(PARAMS_BIN) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
-	$(GENSCR) $(GENARG) $(KRNELS) $(PARAMS) $@
+$(GENHDR): $(KRNELS) $(PARAMS_PREDICT) $(PARAMS_BIN) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
+	$(GENSCR) $(GENARG) $(KRNELS) $(PARAMS_PREDICT) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
