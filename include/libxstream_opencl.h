@@ -245,8 +245,10 @@ typedef struct libxstream_opencl_config_t {
   /** All memptrs and related storage/counter. */
   libxstream_opencl_info_memptr_t **memptrs, *memptr_data;
   size_t nmemptrs; /* counter */
-  /** Host memory pool (3-arg libxs_malloc). */
+  /** Host memory pool (3-arg libxs_malloc, LIBXS_MALLOC_NATIVE). */
   libxs_malloc_pool_t* pool_hst;
+  /** Device memory pool (3-arg libxs_malloc, LIBXS_MALLOC_NATIVE). */
+  libxs_malloc_pool_t* pool_dev;
   /** Handle-counter. */
   size_t nstreams, nevents;
   /** All streams and related storage. */
@@ -284,6 +286,11 @@ typedef struct libxstream_opencl_config_t {
   /** WA level */
   cl_int wa;
 } libxstream_opencl_config_t;
+
+LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t, const void*);
+LIBXSTREAM_API_INTERN void libxstream_mem_hst_xfree(void*, const void*);
+LIBXSTREAM_API_INTERN void* libxstream_mem_dev_xmalloc(size_t, const void*);
+LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void*, const void*);
 
 LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest);
 

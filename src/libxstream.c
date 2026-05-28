@@ -583,9 +583,11 @@ LIBXSTREAM_API int libxstream_init(void)
           libxstream_opencl_config.nevents = 0;
           result = EXIT_FAILURE;
         }
-        /* create host memory pool (3-arg libxs_malloc) */
+        /* create host memory pool (USM/SVM-aware custom allocator) */
         if (EXIT_SUCCESS == result) {
-          libxstream_opencl_config.pool_hst = libxs_malloc_pool(NULL /*malloc*/, NULL /*free*/);
+          libxstream_opencl_config.pool_hst = libxs_malloc_xpool(
+            (libxs_malloc_xfn)libxstream_mem_hst_xmalloc,
+            (libxs_free_xfn)libxstream_mem_hst_xfree, libxstream_opencl_config.nthreads);
           if (NULL == libxstream_opencl_config.pool_hst) result = EXIT_FAILURE;
         }
         if (1 <= libxstream_opencl_config.profile || 0 > libxstream_opencl_config.profile) {
@@ -613,6 +615,20 @@ LIBXSTREAM_API int libxstream_init(void)
               device_id = nrank % libxstream_opencl_config.ndevices;
             }
             result = libxstream_opencl_set_active_device(NULL /*lock*/, device_id);
+          }
+          if (EXIT_SUCCESS == result && (
+# if (1 >= LIBXSTREAM_USM)
+              NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL ||
+              NULL != libxstream_opencl_config.device.clSharedMemAllocINTEL ||
+# endif
+# if (0 != LIBXSTREAM_USM)
+              0 != libxstream_opencl_config.device.usm ||
+# endif
+              0 /*sentinel*/))
+          {
+            libxstream_opencl_config.pool_dev = libxs_malloc_xpool(
+              (libxs_malloc_xfn)libxstream_mem_dev_xmalloc,
+              (libxs_free_xfn)libxstream_mem_dev_xfree, libxstream_opencl_config.nthreads);
           }
           if ((2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) && (0 == nrank)) {
             char platform_name[LIBXSTREAM_BUFFERSIZE];
@@ -698,6 +714,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     libxs_hist_destroy(libxstream_opencl_config.hist_h2d);
     libxs_hist_destroy(libxstream_opencl_config.hist_d2h);
     libxs_hist_destroy(libxstream_opencl_config.hist_d2d);
+    libxs_free_pool(libxstream_opencl_config.pool_dev);
     libxs_free_pool(libxstream_opencl_config.pool_hst);
     /* NOTE: registered streams/events are not individually released here;
      * the OpenCL runtime reclaims resources at process exit (atexit context). */
