@@ -133,7 +133,9 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_dev_xmalloc(size_t size, const void* 
 LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void* pointer, const void* extra)
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-  LIBXS_UNUSED(extra);
+  if (NULL != extra) {
+    libxstream_stream_sync((libxstream_stream_t*)extra);
+  }
 # if (1 >= LIBXSTREAM_USM)
   if (NULL != devinfo->clMemFreeINTEL) {
     devinfo->clMemFreeINTEL(devinfo->context, pointer);
