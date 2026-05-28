@@ -24,7 +24,7 @@ int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_li
   const opencl_libsmm_trans_t* config, const char* delim, const char* begin, const char* close) {
   int result = 0;
   if (NULL != stream) {
-    const char d = (NULL == delim ? *LIBXSTREAM_DELIMS : *delim);
+    const char d = (NULL == delim ? *LIBXS_DELIMS : *delim);
     if (NULL != key || 0 == only_key) result += fprintf(stream, "%c", NULL == begin ? '{' : *begin);
     if (NULL != config) {
       if (NULL != key) {
@@ -52,7 +52,7 @@ int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libs
   const char* delim, const char* begin, const char* close) {
   int result = 0;
   if (NULL != stream) {
-    const char d = (NULL == delim ? *LIBXSTREAM_DELIMS : *delim);
+    const char d = (NULL == delim ? *LIBXS_DELIMS : *delim);
     if (NULL != key || 0 == only_key) result += fprintf(stream, "%c", NULL == begin ? '{' : *begin);
     if (NULL != config) {
       if (NULL != key) {
@@ -89,7 +89,7 @@ int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libs
 int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, opencl_libsmm_smm_t* value,
   opencl_libsmm_perfest_t* perfest, char* device, int* key_ok) {
   const char* const end = parambuf + strlen(parambuf); /* before strtok */
-  char* s = strtok(parambuf, LIBXSTREAM_DELIMS);
+  char* s = strtok(parambuf, LIBXS_DELIMS);
   const int opt_consumed = (NULL != perfest ? 2 : 0) + (NULL != device ? 1 : 0);
   int result = EXIT_SUCCESS, i = 0, ivalue, consumed = 0, c = 0, max_consumed = opt_consumed + 19;
   double gflops;
@@ -97,11 +97,11 @@ int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, o
   LIBXS_MEMZERO(key); /* potentially heterogeneous key-data (alignment gaps) */
   LIBXS_MEMZERO(value);
   for (; NULL != s;
-    ++i, s = (c != consumed ? ((s + 1) < end ? strtok((s + 1) + strlen(s), LIBXSTREAM_DELIMS) : NULL) : s), c = consumed)
+    ++i, s = (c != consumed ? ((s + 1) < end ? strtok((s + 1) + strlen(s), LIBXS_DELIMS) : NULL) : s), c = consumed)
   {
     switch (i) {
       case 0:
-        if (NULL != device && 1 == sscanf(s, "%[^" LIBXSTREAM_DELIMS "]", device)) {
+        if (NULL != device && 1 == sscanf(s, "%[^" LIBXS_DELIMS "]", device)) {
           ++consumed; /* optional device name */
         }
         break;

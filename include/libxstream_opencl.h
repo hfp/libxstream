@@ -67,10 +67,6 @@
 #if !defined(LIBXSTREAM_MAXNITEMS)
 # define LIBXSTREAM_MAXNITEMS 1024
 #endif
-/* First char is CSV-separator by default (w/o spaces) */
-#if !defined(LIBXSTREAM_DELIMS)
-# define LIBXSTREAM_DELIMS ",;"
-#endif
 #if !defined(LIBXSTREAM_CMEM) && 1
 # define LIBXSTREAM_CMEM
 #endif

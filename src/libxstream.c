@@ -436,9 +436,12 @@ LIBXSTREAM_API int libxstream_init(void)
       /* LIBXSTREAM_DEVIDS is parsed as a list of devices (whitelist) */
       if (EXIT_SUCCESS == result && NULL != env_devids && '\0' != *env_devids) {
         cl_uint devids[LIBXSTREAM_MAXNDEVS], ndevids = 0;
-        char* did = strtok(env_devids, LIBXSTREAM_DELIMS " ");
-        for (; NULL != did && ndevids < LIBXSTREAM_MAXNDEVS; did = strtok(NULL, LIBXSTREAM_DELIMS " ")) {
-          const int id = atoi(did);
+        int di = 0, dlen = 0;
+        const char* did = libxs_strtoken(env_devids, LIBXS_DELIMS " ", di, &dlen);
+        for (; NULL != did && ndevids < LIBXSTREAM_MAXNDEVS;
+          did = libxs_strtoken(env_devids, LIBXS_DELIMS " ", ++di, &dlen))
+        {
+          const int id = (int)strtol(did, NULL, 10);
           if (0 <= id && id < libxstream_opencl_config.ndevices) devids[ndevids++] = id;
         }
         if (0 < ndevids) {
@@ -948,8 +951,8 @@ LIBXSTREAM_API int libxstream_opencl_device_ext(cl_device_id device, const char*
         char* ext;
         strncpy(buffer, extnames[num_exts], LIBXSTREAM_BUFFERSIZE - 1);
         buffer[LIBXSTREAM_BUFFERSIZE - 1] = '\0';
-        ext = strtok(buffer, LIBXSTREAM_DELIMS " \t");
-        for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), LIBXSTREAM_DELIMS " \t") : NULL)) {
+        ext = strtok(buffer, LIBXS_DELIMS " \t");
+        for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), LIBXS_DELIMS " \t") : NULL)) {
           if (NULL == strstr(extensions, ext)) {
             return EXIT_FAILURE;
           }
@@ -1535,8 +1538,8 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
       for (; 0 < n; --n) {
         if (NULL != extnames[n - 1]) {
           const char* const end = buffer + strlen(extnames[n - 1]); /* before strtok */
-          char* ext = strtok(strncpy(buffer, extnames[n - 1], LIBXSTREAM_BUFFERSIZE - 1), LIBXSTREAM_DELIMS " \t");
-          for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), LIBXSTREAM_DELIMS " \t") : NULL), ++nflat) {
+          char* ext = strtok(strncpy(buffer, extnames[n - 1], LIBXSTREAM_BUFFERSIZE - 1), LIBXS_DELIMS " \t");
+          for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), LIBXS_DELIMS " \t") : NULL), ++nflat) {
             size_ext += strlen(ext);
           }
         }
@@ -1553,8 +1556,8 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
               char* ext;
               strncpy(buffer_name, extnames[num_exts - 1], LIBXSTREAM_MAXSTRLEN * 2 - 1);
               buffer_name[LIBXSTREAM_MAXSTRLEN * 2 - 1] = '\0';
-              ext = strtok(buffer_name, LIBXSTREAM_DELIMS " \t");
-              for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), LIBXSTREAM_DELIMS " \t") : NULL)) {
+              ext = strtok(buffer_name, LIBXS_DELIMS " \t");
+              for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), LIBXS_DELIMS " \t") : NULL)) {
                 const char* line = source;
                 for (;;) {
                   if (2 != sscanf(line, "#pragma OPENCL EXTENSION %[^: ]%*[: ]%[^\n]", buffer, buffer + LIBXSTREAM_BUFFERSIZE / 2))
