@@ -509,7 +509,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
   } /* end if (EXIT_SUCCESS == result) for kernel initialization */
 
-  ctx->devpool = libxstream_opencl_config.pool_dev;
 
   /* OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, -1 or 3=both).
    * Default off: cache assumes matrix content at a given pointer is unchanged
@@ -566,7 +565,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   }
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
-  if (NULL != ctx->devpool) libxs_malloc_arg((libxs_malloc_pool_t*)ctx->devpool, ctx->stream);
 
   return result;
 }
@@ -626,7 +624,6 @@ void ozaki_destroy(ozaki_context_t* ctx)
 
     { /* Quiesce cache: NULL pointers under lock (prevents new hits),
        * then wait for in-flight gemm threads to finish using cached buffers. */
-      libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
       void *sa_sl, *sa_ex, *sb_sl, *sb_ex;
       LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
       sa_sl = ctx->cache.a.d_slices;
@@ -639,9 +636,6 @@ void ozaki_destroy(ozaki_context_t* ctx)
       ctx->cache.b.d_exp = NULL;
       ctx->cache.flags = 0;
       LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->cache.lock);
-      /* Drain active users that grabbed pointers before the NULL.
-       * LIBXS_SYNC_CYCLE only tests the low bit (lock semantics),
-       * so spin explicitly on the full counter value. */
       while (0 != ctx->cache.nusers) LIBXS_SYNC_PAUSE;
       OZAKI_DEV_FREE(sa_sl);
       OZAKI_DEV_FREE(sa_ex);
@@ -649,12 +643,11 @@ void ozaki_destroy(ozaki_context_t* ctx)
       OZAKI_DEV_FREE(sb_ex);
     }
 
-    if (NULL != ctx->devpool) {
-      libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
+    if (NULL != libxstream_opencl_config.pool_dev) {
       const int verbosity = libxs_get_verbosity();
       if (0 > LIBXS_MIN(ctx->verbosity, verbosity) || 2 < LIBXS_MAX(ctx->verbosity, verbosity)) {
         libxs_malloc_pool_info_t info;
-        if (EXIT_SUCCESS == libxs_malloc_pool_info(pool, &info)) {
+        if (EXIT_SUCCESS == libxs_malloc_pool_info(libxstream_opencl_config.pool_dev, &info)) {
           const int peak = (int)LIBXS_UPDIV(info.peak, (size_t)1 << 20);
           const int size = (int)LIBXS_UPDIV(info.size, (size_t)1 << 20);
           printf("POOL: peak_mb=%i size_mb=%i nmallocs=%lu\n", peak, size, (unsigned long int)info.nmallocs);

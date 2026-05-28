@@ -17,15 +17,16 @@
 #endif
 
 /* Device memory allocation macros (shared by ozaki_opencl.c and ozaki_gemm.c).
- * Callers must have a local `pool` variable (libxs_malloc_pool_t*).
- * When pool is NULL, falls back to direct device allocation. */
+ * Uses libxstream's internal device pool when available. */
 #define OZAKI_DEV_ALLOC(PTR, SIZE) \
-    ((NULL != pool) ? ((*(PTR) = libxs_malloc(pool, SIZE, LIBXS_MALLOC_NATIVE)) != NULL ? EXIT_SUCCESS : EXIT_FAILURE) \
-                    : libxstream_mem_allocate((void**)(PTR), SIZE))
+    ((NULL != libxstream_opencl_config.pool_dev) \
+      ? ((*(PTR) = libxs_malloc(libxstream_opencl_config.pool_dev, SIZE, LIBXS_MALLOC_NATIVE)) != NULL \
+          ? EXIT_SUCCESS : EXIT_FAILURE) \
+      : libxstream_mem_allocate((void**)(PTR), SIZE))
 #define OZAKI_DEV_FREE(PTR) \
     do { \
       if (NULL != (PTR)) { \
-        if (NULL != pool) libxs_free(PTR); \
+        if (NULL != libxstream_opencl_config.pool_dev) libxs_free(PTR); \
         else libxstream_mem_deallocate(PTR); \
       } \
     } while (0)
@@ -132,7 +133,6 @@ typedef struct ozaki_context_t {
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   int maxk; /* max K per preprocessing pass (0 = no grouping) */
   int biggrf; /* Ozaki-local 256-GRF decision */
-  void* devpool; /* device memory pool (libxs_malloc-backed) */
   /* Main stream (set per ozaki_gemm call for pool realloc sync) */
   libxstream_stream_t* stream;
   /* Persistent helper streams for overlapped preprocessing */

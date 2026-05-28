@@ -46,9 +46,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
   const int tb = (transb != 'N' && transb != 'n') ? 1 : 0;
   int result = EXIT_SUCCESS;
 
-  libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
   int use_scheme1;
-  ctx->stream = stream; /* expose to deallocate wrapper */
+  ctx->stream = stream;
+  if (NULL != libxstream_opencl_config.pool_dev) {
+    libxs_malloc_arg(libxstream_opencl_config.pool_dev, stream);
+  }
 
   /* Adaptive scheme selection (kind==3): first call uses Scheme 1 to learn
    * the effective cutoff from occupancy data. Subsequent calls compare
@@ -795,7 +797,6 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result, const void* a, 
   void* d_expa_g, void* d_expb_g, int prev_owned, int* cache_hit_a, int* cache_hit_b)
 {
   const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
-  libxs_malloc_pool_t* const pool = (libxs_malloc_pool_t*)ctx->devpool;
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
   if ((0 == *cache_hit_a || 0 == *cache_hit_b) && EXIT_SUCCESS == result) {
     ctx->cache.last_cutoff = 0;
