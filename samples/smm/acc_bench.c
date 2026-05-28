@@ -59,7 +59,7 @@
 #  define WARMUP 2
 #endif
 #if !defined(DELIMS)
-#  define DELIMS ",;:|/\n\t "
+#  define DELIMS LIBXS_DELIMS "|/\n\t "
 #endif
 
 #define ACC_BENCH_SMM_EPSILON(T) DBCSR_CONCATENATE(ACC_BENCH_SMM_EPSILON_, T)
