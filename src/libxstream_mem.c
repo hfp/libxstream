@@ -134,7 +134,8 @@ LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void* pointer, const void* e
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   if (NULL != extra) {
-    libxstream_stream_sync((libxstream_stream_t*)extra);
+    const uintptr_t addr = (uintptr_t)extra;
+    libxstream_stream_sync((libxstream_stream_t*)addr);
   }
 # if (1 >= LIBXSTREAM_USM)
   if (NULL != devinfo->clMemFreeINTEL) {
