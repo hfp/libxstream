@@ -16,7 +16,7 @@
 # define LIBXSTREAM_OCLVER __OPENCL_VERSION__
 #endif
 
-#if (200 /*CL_VERSION_2_0*/ <= LIBXSTREAM_OCLVER_C) || defined(__NV_CL_C_VERSION)
+#if (200 /*CL_VERSION_2_0*/ <= LIBXSTREAM_OCLVER) || defined(__NV_CL_C_VERSION)
 # define UNROLL_FORCE(N) __attribute__((opencl_unroll_hint(N)))
 # define UNROLL_AUTO __attribute__((opencl_unroll_hint))
 #else
