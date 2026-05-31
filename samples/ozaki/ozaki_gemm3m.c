@@ -41,16 +41,16 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   const double ar_d = alpha[0], ai_d = alpha[1];
   const double br_d = beta[0], bi_d = beta[1];
   const libxstream_opencl_stream_t* str = stream;
-  int result = EXIT_SUCCESS;
-  ctx->stream = (libxstream_stream_t*)stream;
-  if (NULL != libxstream_opencl_config.pool_dev) {
-    libxs_malloc_arg(libxstream_opencl_config.pool_dev, (libxstream_stream_t*)stream);
-  }
   void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
   void *d_a_hat = NULL, *d_b_hat = NULL, *d_c_hat = NULL;
   size_t sz_a_complex, sz_b_complex, sz_c_complex;
   size_t sz_a_hat, sz_b_hat, sz_c_hat;
   int m_hat, k_hat, lda_hat, ldb_hat, ldc_hat;
+  int result = EXIT_SUCCESS;
+  ctx->stream = (libxstream_stream_t*)stream;
+  if (NULL != libxstream_opencl_config.pool_dev) {
+    libxs_malloc_arg(libxstream_opencl_config.pool_dev, (libxstream_stream_t*)stream);
+  }
 
   /* Check if block-embedding kernels are available */
   if (NULL == ctx->kern_zgemm_block_construct_a || NULL == ctx->kern_zgemm_block_finalize ||
