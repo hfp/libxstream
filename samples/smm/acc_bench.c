@@ -384,8 +384,8 @@ int main(int argc, char* argv[]) {
               stack_hst + 2 /*stride_c*/, sizeof(int) * 3, 1 /*index_base*/, stack_size, host_config);
 #endif
           }
-          libxs_gemm_release_registry(host_registry);
           duration = libxs_timer_duration(start, libxs_timer_tick());
+          libxs_gemm_release_registry(host_registry);
           perf_hst = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / duration;
           PRINTF("host: %.2g ms %.1f GFLOPS/s\n", 1000.0 * duration / (nrepeat * nrepeat_smm), perf_hst);
           if (EXIT_SUCCESS == result) {
