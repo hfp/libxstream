@@ -265,8 +265,10 @@ LIBXSTREAM_API libxstream_opencl_info_memptr_t* libxstream_opencl_info_devptr_mo
     else { /* info-augmented pointer */
       const uintptr_t pointer = (uintptr_t)memory;
       const size_t n = LIBXSTREAM_MAXNITEMS * libxstream_opencl_config.nthreads;
+      const libxstream_opencl_info_memptr_t* miss = NULL;
       size_t hit = (size_t)-1, i;
-      assert(0 == libxstream_opencl_config.device.usm && NULL == libxstream_opencl_config.device.clDeviceMemAllocINTEL);
+      assert(NULL == libxstream_opencl_config.device.clDeviceMemAllocINTEL);
+      assert(0 == libxstream_opencl_config.device.usm);
       assert(NULL != libxstream_opencl_config.memptrs);
       if (NULL != lock) LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
       for (i = libxstream_opencl_config.nmemptrs; i < n; ++i) {
@@ -281,6 +283,7 @@ LIBXSTREAM_API libxstream_opencl_info_memptr_t* libxstream_opencl_info_devptr_mo
           else if (memptr < pointer && NULL != offset) {
             size_t d = pointer - memptr, s = d;
             assert(0 < elsize && 0 != d);
+            if (d < hit) miss = info;
             if (d < hit && (1 == elsize || 0 == (d % elsize)) &&
 # if defined(LIBXSTREAM_MEM_DEBUG) /* TODO: verify enclosed conditions */
                 (EXIT_SUCCESS == clGetMemObjectInfo(info->memory, CL_MEM_SIZE, sizeof(size_t), &s, NULL)) &&
@@ -304,7 +307,12 @@ LIBXSTREAM_API libxstream_opencl_info_memptr_t* libxstream_opencl_info_devptr_mo
         else break;
       }
       if (NULL != lock) LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
-      assert(NULL != result);
+      if (NULL == result && 0 != libxstream_opencl_config.debug && 0 != libxstream_opencl_config.verbosity) {
+        fprintf(stderr, "ERROR ACC/OpenCL: pointer=%p base=%p size=%llu offset=%llu info failed\n",
+          memory, NULL != miss ? miss->memptr : NULL,
+          (unsigned long long)(NULL != amount ? (*amount * elsize) : 0),
+          (unsigned long long)(NULL != miss ? (pointer - (uintptr_t)miss->memptr) : 0));
+      }
     }
   }
   return result;
@@ -321,8 +329,16 @@ LIBXSTREAM_API int libxstream_opencl_info_devptr_lock(libxstream_opencl_info_mem
   meminfo = libxstream_opencl_info_devptr_modify(lock, non_const, elsize, amount, offset);
   assert(NULL != info);
   if (NULL == meminfo) { /* USM-pointer */
-    LIBXS_MEMZERO(info);
-    info->memory = (cl_mem)non_const;
+    if (
+# if (0 != LIBXSTREAM_USM)
+      0 != libxstream_opencl_config.device.usm ||
+# endif
+      NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL)
+    {
+      LIBXS_MEMZERO(info);
+      info->memory = (cl_mem)non_const;
+    }
+    else result = EXIT_FAILURE;
   }
   else { /* info-augmented pointer */
     assert(NULL != libxstream_opencl_config.device.context);
