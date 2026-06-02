@@ -356,7 +356,7 @@ int main(int argc, char* argv[]) {
         if (NULL != gold_hst && NULL != amat_hst && NULL != bmat_hst && NULL != stack_hst) {
           const ELEM_TYPE alpha = 1, beta = 1;
           const char transa = 'N', transb = 'N';
-          libxs_registry_t *const host_registry = libxs_registry_create();
+          libxs_registry_t* const host_registry = libxs_registry_create();
           const libxs_gemm_config_t* const host_config = libxs_gemm_dispatch(
             LIBXS_DATATYPE(ELEM_TYPE), transa, transb, m, n, k, m, k, m, &alpha, &beta, host_registry);
           memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
