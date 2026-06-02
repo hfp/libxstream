@@ -1873,7 +1873,7 @@ LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char sourc
 
 LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value)
 {
-  libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+  const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_FAILURE;
   assert(NULL != devinfo->context);
 # if (1 >= LIBXSTREAM_USM)

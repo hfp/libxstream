@@ -547,7 +547,7 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
 LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
 {
   /* assume no lock is needed to protect against context/device changes */
-  const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+  libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   void* memptr = NULL;
   assert(NULL != dev_mem && NULL != devinfo->context);
