@@ -117,7 +117,7 @@ SSE ?= 1
 # include directories
 IFLAGS += -I$(call quote,$(INCDIR))
 
-# Version numbers according to interface (version.txt)
+# Version numbers according to interface
 VERSION_MAJOR ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 1)
 VERSION_MINOR ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 2)
 VERSION_UPDATE ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 3)
@@ -495,8 +495,8 @@ ifneq ($(PREFIX),$(ABSDIR))
 	@$(MKDIR) -p $(PREFIX)/$(PDOCDIR)
 	@$(CP) -va $(ROOTDIR)/$(DOCDIR)/*.pdf $(PREFIX)/$(PDOCDIR)
 	@$(CP) -va $(ROOTDIR)/$(DOCDIR)/*.md $(PREFIX)/$(PDOCDIR)
-	@$(CP) -v  $(ROOTDIR)/SECURITY.md $(PREFIX)/$(PDOCDIR) || true
-	@$(CP) -v  $(ROOTDIR)/version.txt $(PREFIX)/$(PDOCDIR) || true
+#	@$(CP) -v  $(ROOTDIR)/SECURITY.md $(PREFIX)/$(PDOCDIR) || true
+#	@$(CP) -v  $(ROOTDIR)/version.txt $(PREFIX)/$(PDOCDIR) || true
 	@$(SED) "s/^\"//;s/\\\n\"$$//;/STATIC=/d" $(DIRSTATE)/.state >$(PREFIX)/$(PDOCDIR)/build.txt 2>/dev/null || true
 	@$(MKDIR) -p $(PREFIX)/$(LICFDIR)
 ifneq ($(call qapath,$(PREFIX)/$(PDOCDIR)/LICENSE.md),$(call qapath,$(PREFIX)/$(LICFDIR)/$(LICFILE)))
