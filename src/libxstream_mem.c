@@ -256,19 +256,21 @@ LIBXSTREAM_API libxstream_opencl_info_memptr_t* libxstream_opencl_info_devptr_mo
 # if (0 != LIBXSTREAM_USM)
       0 != libxstream_opencl_config.device.usm ||
 # endif
-      NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL)
+      NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL ||
+      NULL != libxstream_opencl_config.device.clSharedMemAllocINTEL)
     { /* assume only first item of libxstream_opencl_info_memptr_t is accessed */
-      assert(0 != libxstream_opencl_config.device.usm || NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL);
+      assert(0 != libxstream_opencl_config.device.usm || NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL ||
+        NULL != libxstream_opencl_config.device.clSharedMemAllocINTEL);
       result = NULL; /*(libxstream_opencl_info_memptr_t*)memory*/
       if (NULL != offset) *offset = 0;
     }
     else { /* info-augmented pointer */
       const uintptr_t pointer = (uintptr_t)memory;
       const size_t n = LIBXSTREAM_MAXNITEMS * libxstream_opencl_config.nthreads;
-      const libxstream_opencl_info_memptr_t* miss = NULL;
       size_t hit = (size_t)-1, i;
-      assert(NULL == libxstream_opencl_config.device.clDeviceMemAllocINTEL);
-      assert(0 == libxstream_opencl_config.device.usm);
+      const libxstream_opencl_info_memptr_t* miss = NULL;
+      assert(0 == libxstream_opencl_config.device.usm && NULL == libxstream_opencl_config.device.clDeviceMemAllocINTEL &&
+        NULL == libxstream_opencl_config.device.clSharedMemAllocINTEL);
       assert(NULL != libxstream_opencl_config.memptrs);
       if (NULL != lock) LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
       for (i = libxstream_opencl_config.nmemptrs; i < n; ++i) {
@@ -333,7 +335,8 @@ LIBXSTREAM_API int libxstream_opencl_info_devptr_lock(libxstream_opencl_info_mem
 # if (0 != LIBXSTREAM_USM)
       0 != libxstream_opencl_config.device.usm ||
 # endif
-      NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL)
+      NULL != libxstream_opencl_config.device.clDeviceMemAllocINTEL ||
+      NULL != libxstream_opencl_config.device.clSharedMemAllocINTEL)
     {
       LIBXS_MEMZERO(info);
       info->memory = (cl_mem)non_const;
@@ -544,12 +547,21 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
 LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
 {
   /* assume no lock is needed to protect against context/device changes */
-  libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+  const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   void* memptr = NULL;
   assert(NULL != dev_mem && NULL != devinfo->context);
   if (0 != nbytes) {
-    if (NULL != libxstream_opencl_config.pool_dev) {
+    if (NULL != libxstream_opencl_config.pool_dev && (
+# if (1 >= LIBXSTREAM_USM)
+        NULL != devinfo->clDeviceMemAllocINTEL ||
+        NULL != devinfo->clSharedMemAllocINTEL ||
+# endif
+# if (0 != LIBXSTREAM_USM)
+        0 != devinfo->usm ||
+# endif
+        0 /*sentinel*/))
+    {
       memptr = libxs_malloc(libxstream_opencl_config.pool_dev, nbytes, LIBXS_MALLOC_NATIVE);
     }
     else {
@@ -629,10 +641,20 @@ LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
 
 LIBXSTREAM_API int libxstream_mem_deallocate(void* dev_mem)
 {
+  const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   if (NULL != dev_mem) {
-    assert(NULL != libxstream_opencl_config.device.context);
-    if (NULL != libxstream_opencl_config.pool_dev) {
+    assert(NULL != devinfo->context);
+    if (NULL != libxstream_opencl_config.pool_dev && (
+# if (1 >= LIBXSTREAM_USM)
+        NULL != devinfo->clDeviceMemAllocINTEL ||
+        NULL != devinfo->clSharedMemAllocINTEL ||
+# endif
+# if (0 != LIBXSTREAM_USM)
+        0 != devinfo->usm ||
+# endif
+        0 /*sentinel*/))
+    {
       libxs_free(dev_mem);
     }
     else {
