@@ -699,8 +699,25 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
 # endif
       }
     }
+    /* release/reset buffers */
+    libxs_hist_destroy(libxstream_opencl_config.hist_h2d);
+    libxs_hist_destroy(libxstream_opencl_config.hist_d2h);
+    libxs_hist_destroy(libxstream_opencl_config.hist_d2d);
+    libxs_free_pool(libxstream_opencl_config.pool_dev);
+    libxs_free_pool(libxstream_opencl_config.pool_hst);
+    if (NULL != libxstream_opencl_config.pool_hst_queue) {
+      clReleaseCommandQueue(libxstream_opencl_config.pool_hst_queue); /* ignore return code */
+    }
+    if (NULL != libxstream_opencl_config.pool_hst_context) {
+      clReleaseContext(libxstream_opencl_config.pool_hst_context); /* ignore return code */
+    }
     if (NULL != libxstream_opencl_config.device.stream.queue) { /* release private stream */
       clReleaseCommandQueue(libxstream_opencl_config.device.stream.queue); /* ignore return code */
+    }
+    if (NULL != libxstream_opencl_config.device.memptr_kernel) {
+      clReleaseKernel(libxstream_opencl_config.device.memptr_kernel); /* ignore return code */
+      libxstream_opencl_config.device.memptr_kernel = NULL;
+      libxstream_opencl_config.device.memptr_context = NULL;
     }
     if (NULL != libxstream_opencl_config.device.context) {
       const cl_context context = libxstream_opencl_config.device.context;
@@ -710,12 +727,6 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) { /* destroy locks */
       LIBXS_LOCK_DESTROY(LIBXS_LOCK, (libxs_lock_t*)(libxstream_opencl_locks + LIBXS_CACHELINE * i));
     }
-    /* release/reset buffers */
-    libxs_hist_destroy(libxstream_opencl_config.hist_h2d);
-    libxs_hist_destroy(libxstream_opencl_config.hist_d2h);
-    libxs_hist_destroy(libxstream_opencl_config.hist_d2d);
-    libxs_free_pool(libxstream_opencl_config.pool_dev);
-    libxs_free_pool(libxstream_opencl_config.pool_hst);
     /* NOTE: registered streams/events are not individually released here;
      * the OpenCL runtime reclaims resources at process exit (atexit context). */
     free(libxstream_opencl_config.memptrs);
@@ -1057,7 +1068,13 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
 # if defined(CL_VERSION_1_2)
           LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseDevice(context_id));
 # endif
+          if (NULL != devinfo->memptr_kernel) {
+            LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseKernel(devinfo->memptr_kernel));
+            devinfo->memptr_kernel = NULL;
+            devinfo->memptr_context = NULL;
+          }
           result = clReleaseContext(context);
+          if (EXIT_SUCCESS == result) devinfo->context = NULL;
           context = NULL;
         }
       }

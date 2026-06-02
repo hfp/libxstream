@@ -201,6 +201,9 @@ typedef struct libxstream_opencl_device_t {
   cl_int intel, amd, nv;
   /** Large GRF mode (opt-in via LIBXSTREAM_BIGGRF). */
   cl_int biggrf;
+  /** Helper kernel used to recover device-side pointer representations. */
+  cl_context memptr_context;
+  cl_kernel memptr_kernel;
   /* USM support functions */
   cl_int (*clSetKernelArgMemPointerINTEL)(cl_kernel, cl_uint, const void*);
   cl_int (*clEnqueueMemFillINTEL)(cl_command_queue, void*, const void*, size_t, size_t, cl_uint, const cl_event*, cl_event*);
@@ -231,6 +234,14 @@ typedef enum libxstream_opencl_atomic_fp_t {
   libxstream_opencl_atomic_fp_64 = 2
 } libxstream_opencl_atomic_fp_t;
 
+typedef enum libxstream_opencl_mem_hst_t {
+  libxstream_opencl_mem_hst_unknown = 0,
+  libxstream_opencl_mem_hst_malloc = 1,
+  libxstream_opencl_mem_hst_shared_intel = 2,
+  libxstream_opencl_mem_hst_host_intel = 3,
+  libxstream_opencl_mem_hst_svm = 4
+} libxstream_opencl_mem_hst_t;
+
 /**
  * Settings discovered/setup during libxstream_init (independent of the device)
  * and settings updated during libxstream_device_set_active (devinfo).
@@ -247,6 +258,13 @@ typedef struct libxstream_opencl_config_t {
   size_t nmemptrs; /* counter */
   /** Host memory pool (3-arg libxs_malloc, LIBXS_MALLOC_NATIVE). */
   libxs_malloc_pool_t* pool_hst;
+  cl_context pool_hst_context;
+  cl_device_id pool_hst_device;
+  cl_command_queue pool_hst_queue;
+  void* (*pool_hst_clSharedMemAllocINTEL)(cl_context, cl_device_id, const void*, size_t, cl_uint, cl_int*);
+  void* (*pool_hst_clHostMemAllocINTEL)(cl_context, const void*, size_t, cl_uint, cl_int*);
+  cl_int (*pool_hst_clMemFreeINTEL)(cl_context, void*);
+  cl_int pool_hst_usm;
   /** Device memory pool (3-arg libxs_malloc, LIBXS_MALLOC_NATIVE). */
   libxs_malloc_pool_t* pool_dev;
   /** Handle-counter. */
@@ -267,6 +285,8 @@ typedef struct libxstream_opencl_config_t {
   cl_int ndevices;
   /** Maximum number of threads (omp_get_max_threads). */
   cl_int nthreads;
+  /** Host pool allocation kind. */
+  cl_int mem_hst;
 #if defined(LIBXSTREAM_STREAM_PRIORITIES)
   /** Runtime-adjust LIBXSTREAM_STREAM_PRIORITIES. */
   cl_int priority;
