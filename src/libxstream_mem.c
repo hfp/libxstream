@@ -348,6 +348,7 @@ LIBXSTREAM_API int libxstream_opencl_info_devptr_lock(libxstream_opencl_info_mem
   else { /* info-augmented pointer */
     assert(NULL != libxstream_opencl_config.device.context);
     LIBXS_ASSIGN(info, meminfo);
+    info->memory = (cl_mem)meminfo->memptr;
   }
   return result;
 }
