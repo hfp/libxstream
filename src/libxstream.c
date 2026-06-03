@@ -175,6 +175,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
   const char* const env_async = NULL;
   const int async_default = 0;
 # endif
+  const int wa_default = 2 + 4 + 8 + 16;
   const int nlocks = (NULL == env_nlocks ? 1 /*default*/ : atoi(env_nlocks));
   const int neo = (NULL == env_neo ? 1 : atoi(env_neo));
   int i;
@@ -215,8 +216,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
   libxstream_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
   libxstream_opencl_config.debug = (NULL == env_debug ? libxstream_opencl_config.dump : atoi(env_debug));
-  libxstream_opencl_config.wa = neo *
-                                (NULL == env_wa ? ((1 != libxstream_opencl_config.devsplit ? 0 : 1) + (2 + 4 + 8)) : atoi(env_wa));
+  libxstream_opencl_config.wa = (NULL == env_wa ? ((1 != libxstream_opencl_config.devsplit ? 0 : 1) + wa_default) : atoi(env_wa)) * neo;
 # if defined(LIBXSTREAM_CACHE_DIR)
   { /* environment is populated before touching the compute runtime */
     const char *const env_cache = getenv("LIBXSTREAM_CACHE"), *env_cachedir = getenv("NEO_CACHE_DIR");
@@ -282,24 +282,25 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
   }
 # endif
   if (0 != neo && (NULL != env_neo || 0 == LIBXS_PUTENV(neo_enable_debug_keys))) {
-    if ((1 + 2 + 4) & libxstream_opencl_config.wa) {
-      static char a[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE", b[] = "EnableRecoverablePageFaults=0";
-      static char c[] = "DirectSubmissionOverrideBlitterSupport=0", *const apply[] = {a, b, c};
-      if ((1 & libxstream_opencl_config.wa) && NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY")) {
-        LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[0]));
-      }
+    static char a[] = "ZE_FLAT_DEVICE_HIERARCHY=COMPOSITE", b[] = "EnableRecoverablePageFaults=0";
+    static char c[] = "DirectSubmissionOverrideBlitterSupport=0", d[] = "UCX_RCACHE_ENABLE=0";
+    static char e[] = "DisableScratchPages=1", *const apply[] = {a, b, c, d, e};
+    if ((1 & libxstream_opencl_config.wa) && NULL == getenv("ZE_FLAT_DEVICE_HIERARCHY")) {
+      LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[0]));
+    }
 # if (1 >= LIBXSTREAM_USM)
-      if ((2 & libxstream_opencl_config.wa) && NULL == getenv("EnableRecoverablePageFaults")) {
-        LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[1]));
-      }
+    if ((2 & libxstream_opencl_config.wa) && NULL == getenv("EnableRecoverablePageFaults")) {
+      LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[1]));
+    }
 # endif
-      if ((4 & libxstream_opencl_config.wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
-        LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[2]));
-      }
+    if ((4 & libxstream_opencl_config.wa) && NULL == getenv("DirectSubmissionOverrideBlitterSupport")) {
+      LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[2]));
+    }
+    if ((8 & libxstream_opencl_config.wa) && NULL == getenv("UCX_RCACHE_ENABLE")) {
+      LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[3]));
     }
     if (0 != libxstream_opencl_config.debug && NULL == getenv("DisableScratchPages")) {
-      static char a[] = "DisableScratchPages=1", *const apply[] = {a};
-      LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[0]));
+      LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[4]));
     }
   }
 }
@@ -1191,17 +1192,17 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             devinfo->biggrf = (NULL != env_biggrf && 0 != atoi(env_biggrf));
           }
           /* LIBXSTREAM_USM runtime levels:
-           *   not set: auto-detect (Intel ext preferred, SVM fallback)
+           *   not set: OpenCL 2.0 SVM coarse-grain with non-USM fallback
            *   0: disable all USM, force clCreateBuffer path
-           *   1: Intel USM ext preferred, SVM fallback
+           *   1: Intel USM ext
            *   2: OpenCL 2.0 SVM coarse-grain only (skip Intel ext)
            *   3: OpenCL 2.0 SVM with device-reported caps (skip Intel ext) */
           {
             const char* const env_usm = getenv("LIBXSTREAM_USM");
-            const int usm_level = (NULL != env_usm ? atoi(env_usm) : -1 /*auto*/);
+            const int usm_level = (NULL != env_usm ? atoi(env_usm) : -1 /*default*/);
 # if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
-            /* Intel USM extensions: enabled for auto-detect or level 1 */
-            if ((0 > usm_level || 1 == usm_level) && 2 <= *devinfo->std_level && 0 != devinfo->intel &&
+            /* Intel USM extensions: enabled only by explicit level 1 */
+            if (1 == usm_level && 2 <= *devinfo->std_level && 0 != devinfo->intel &&
                 (0 == devinfo->unified || NULL != (LIBXSTREAM_XHINTS)))
             {
               cl_platform_id platform = NULL;
@@ -1240,20 +1241,20 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             }
 # endif
 # if (0 != LIBXSTREAM_USM)
-            /* OpenCL 2.0 SVM: enabled for levels 2-3, or as fallback
-             * when Intel USM extensions were not loaded (auto/level 1). */
-            if (2 <= usm_level ||
-                (0 != usm_level && NULL == devinfo->clMemFreeINTEL))
+            /* OpenCL 2.0 SVM: default to coarse-grain when available. */
+            if (0 > usm_level || 2 <= usm_level)
             {
               cl_device_svm_capabilities svmcaps = 0;
-              if (0 == devinfo->nv) { /* vendor workaround (force with LIBXSTREAM_USM=1) */
-                result = clGetDeviceInfo(active_id, CL_DEVICE_SVM_CAPABILITIES, sizeof(cl_device_svm_capabilities), &svmcaps, NULL);
-                assert(EXIT_SUCCESS == result || 0 == svmcaps);
+              cl_int query_result = EXIT_SUCCESS;
+              if (0 == devinfo->nv) { /* vendor workaround */
+                query_result = clGetDeviceInfo(active_id, CL_DEVICE_SVM_CAPABILITIES, sizeof(cl_device_svm_capabilities), &svmcaps, NULL);
+                assert(EXIT_SUCCESS == query_result || 0 == svmcaps);
+                if (EXIT_SUCCESS != query_result && 0 <= usm_level) result = query_result;
               }
-              if (2 == usm_level) { /* coarse-grain only */
+              if (EXIT_SUCCESS == query_result && 3 != usm_level) { /* coarse-grain only */
                 svmcaps &= CL_DEVICE_SVM_COARSE_GRAIN_BUFFER;
               }
-              devinfo->usm = (cl_int)svmcaps;
+              if (EXIT_SUCCESS == query_result) devinfo->usm = (cl_int)svmcaps;
             }
 # endif
           }

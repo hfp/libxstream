@@ -566,10 +566,6 @@ LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
         0 /*sentinel*/))
     {
       memptr = libxs_malloc(libxstream_opencl_config.pool_dev, nbytes, LIBXS_MALLOC_NATIVE);
-      if (0 != libxstream_opencl_config.debug && 0 != libxstream_opencl_config.verbosity) {
-        fprintf(stderr, "INFO ACC/OpenCL: allocate pool pointer=%p size=%llu\n",
-          memptr, (unsigned long long)nbytes);
-      }
     }
     else {
       cl_mem memory = NULL;
@@ -625,13 +621,6 @@ LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
           if (NULL != info) {
             info->memory = memory;
             info->memptr = memptr;
-            if (0 != libxstream_opencl_config.debug && 0 != libxstream_opencl_config.verbosity) {
-              const size_t n = LIBXSTREAM_MAXNITEMS * libxstream_opencl_config.nthreads;
-              fprintf(stderr, "INFO ACC/OpenCL: allocate memory=%p pointer=%p size=%llu registry=%llu/%llu\n",
-                (const void*)memory, memptr, (unsigned long long)nbytes,
-                (unsigned long long)(n - libxstream_opencl_config.nmemptrs),
-                (unsigned long long)n);
-            }
           }
           else result = EXIT_FAILURE;
         }
@@ -669,9 +658,6 @@ LIBXSTREAM_API int libxstream_mem_deallocate(void* dev_mem)
 # endif
         0 /*sentinel*/))
     {
-      if (0 != libxstream_opencl_config.debug && 0 != libxstream_opencl_config.verbosity) {
-        fprintf(stderr, "INFO ACC/OpenCL: deallocate pool pointer=%p\n", dev_mem);
-      }
       libxs_free(dev_mem);
     }
     else {
@@ -680,13 +666,6 @@ LIBXSTREAM_API int libxstream_mem_deallocate(void* dev_mem)
       info = libxstream_opencl_info_devptr_modify(NULL, dev_mem, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
       if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
         libxstream_opencl_info_memptr_t* const pfree = libxstream_opencl_config.memptrs[libxstream_opencl_config.nmemptrs];
-        if (0 != libxstream_opencl_config.debug && 0 != libxstream_opencl_config.verbosity) {
-          const size_t n = LIBXSTREAM_MAXNITEMS * libxstream_opencl_config.nthreads;
-          fprintf(stderr, "INFO ACC/OpenCL: deallocate memory=%p pointer=%p registry=%llu/%llu\n",
-            (const void*)info->memory, info->memptr,
-            (unsigned long long)(n - libxstream_opencl_config.nmemptrs),
-            (unsigned long long)n);
-        }
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->memory));
         libxs_pfree(pfree, (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
         *info = *pfree;
@@ -728,7 +707,7 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
   {
 # if defined(LIBXSTREAM_ASYNC)
     const cl_bool finish = (0 == (1 & libxstream_opencl_config.async) || NULL == stream ||
-                            (0 != (8 & libxstream_opencl_config.wa) && 0 != devinfo->intel && 0 != devinfo->unified));
+                            (0 != (16 & libxstream_opencl_config.wa) && 0 != devinfo->intel && 0 != devinfo->unified));
 # else
     const cl_bool finish = CL_TRUE;
 # endif
@@ -813,7 +792,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
 # if defined(LIBXSTREAM_ASYNC)
   const cl_bool finish = (0 != blocking || 0 == (2 & libxstream_opencl_config.async) ||
-                          (0 != (8 & libxstream_opencl_config.wa) && 0 != devinfo->intel && 0 != devinfo->unified));
+                          (0 != (16 & libxstream_opencl_config.wa) && 0 != devinfo->intel && 0 != devinfo->unified));
 # else
   const cl_bool finish = CL_TRUE;
 # endif

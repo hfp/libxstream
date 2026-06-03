@@ -223,7 +223,7 @@ LIBXSTREAM_API int libxstream_stream_sync(libxstream_stream_t* stream)
   int result = EXIT_SUCCESS;
   str = (NULL != stream ? stream : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue);
-  if (0 == (16 & libxstream_opencl_config.wa)) result = clFinish(str->queue);
+  if (0 == (32 & libxstream_opencl_config.wa)) result = clFinish(str->queue);
   else {
     cl_event event = NULL;
 # if defined(CL_VERSION_1_2)
