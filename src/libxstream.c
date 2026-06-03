@@ -1547,8 +1547,8 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
       source_is_cl = ((NULL != file_ext && NULL != libxs_stristr(file_ext + 1, "cl")) ? 1 : 0);
       size_src = (EXIT_SUCCESS == fseek(file_src, 0 /*offset*/, SEEK_END) ? ftell(file_src) : 0);
       src = (char*)((0 != size_src && EXIT_SUCCESS == fseek(file_src, 0 /*offset*/, SEEK_SET))
-                      ? libxs_malloc(libxstream_opencl_config.pool_hst, size_src + source_is_cl /*terminator?*/, 0 /*auto-align*/)
-                      : NULL);
+              ? libxs_malloc(NULL, size_src + source_is_cl /*terminator?*/, 0 /*auto-align*/)
+              : NULL);
       if (NULL != src) {
         if (size_src == fread(src, 1 /*sizeof(char)*/, size_src /*count*/, file_src)) {
           if (0 != source_is_cl) src[size_src] = '\0'; /* terminator */
@@ -1583,7 +1583,7 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
         const char* const enable_ext = "#pragma OPENCL EXTENSION %s : enable\n";
         const size_t size_src_ext = size_src + size_ext + nflat * (strlen(enable_ext) - 2 /*%s*/);
         char* const ext_source_buffer = (char*)libxs_malloc(
-          libxstream_opencl_config.pool_hst, size_src_ext + 1 /*terminator*/, 0 /*auto-align*/);
+          NULL, size_src_ext + 1 /*terminator*/, 0 /*auto-align*/);
         if (NULL != ext_source_buffer) {
           for (n = 0; 0 < num_exts; --num_exts) {
             if (NULL != extnames[num_exts - 1]) {
@@ -1693,7 +1693,7 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
               const long int size_file = (EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_END) ? ftell(file) : 0);
               char* const src = (char*)(EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_SET)
                                           ? libxs_malloc(
-                                              libxstream_opencl_config.pool_hst, size_file + 1 /*terminator*/, 0 /*auto-align*/)
+                                              NULL, size_file + 1 /*terminator*/, 0 /*auto-align*/)
                                           : NULL);
               if (NULL != src) {
                 if ((size_t)size_file == fread(src, 1 /*sizeof(char)*/, size_file /*count*/, file)) {
@@ -1741,7 +1741,7 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
       if (EXIT_SUCCESS == result && NULL == file_src && (2 <= libxstream_opencl_config.dump || 0 > libxstream_opencl_config.dump)) {
         unsigned char* binary = NULL;
         binary = (unsigned char*)(EXIT_SUCCESS == clGetProgramInfo(*program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &size, NULL)
-                                    ? libxs_malloc(libxstream_opencl_config.pool_hst, size, 0 /*auto-align*/)
+                                    ? libxs_malloc(NULL, size, 0 /*auto-align*/)
                                     : NULL);
         if (NULL != binary) {
           result = clGetProgramInfo(*program, CL_PROGRAM_BINARIES, sizeof(unsigned char*), &binary, NULL);
