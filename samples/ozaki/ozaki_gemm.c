@@ -652,31 +652,37 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
   kset = (ozaki_kernel_set_t*)libxs_registry_get(ctx->kernel_registry, &key,
     sizeof(key), libxs_registry_lock(ctx->kernel_registry));
   if (NULL == kset || NULL == kset->kern_fused) {
-    char flags[1280];
-    ozaki_kernel_set_t newset;
-    cl_program program = NULL;
-    int n;
-    memset(&newset, 0, sizeof(newset));
-    { char pname[32];
-      LIBXS_SNPRINTF(pname, sizeof(pname), "oz1_c%d%s", cutoff, 0 != bounds ? "b" : "");
-      n = LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DOZAKI_CUTOFF=%d%s",
-        ctx->base_flags, cutoff, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
-      LIBXS_UNUSED(n);
-      if (EXIT_SUCCESS == libxstream_opencl_program(
-            0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, pname, flags,
-            ctx->base_options, NULL, NULL, NULL, 0, &program)) {
-        libxstream_opencl_kernel_query(program, "gemm_fused", &newset.kern_fused);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->kernel_lock);
+    kset = (ozaki_kernel_set_t*)libxs_registry_get(ctx->kernel_registry, &key,
+      sizeof(key), libxs_registry_lock(ctx->kernel_registry));
+    if (NULL == kset || NULL == kset->kern_fused) {
+      char flags[1280];
+      ozaki_kernel_set_t newset;
+      cl_program program = NULL;
+      int n;
+      memset(&newset, 0, sizeof(newset));
+      { char pname[32];
+        LIBXS_SNPRINTF(pname, sizeof(pname), "oz1_c%d%s", cutoff, 0 != bounds ? "b" : "");
+        n = LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DOZAKI_CUTOFF=%d%s",
+          ctx->base_flags, cutoff, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
+        LIBXS_UNUSED(n);
+        if (EXIT_SUCCESS == libxstream_opencl_program(
+              0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, pname, flags,
+              ctx->base_options, NULL, NULL, NULL, 0, &program)) {
+          libxstream_opencl_kernel_query(program, "gemm_fused", &newset.kern_fused);
+        }
+      }
+      if (NULL != program) clReleaseProgram(program);
+      if (NULL != newset.kern_fused) {
+        kset = (ozaki_kernel_set_t*)libxs_registry_set(ctx->kernel_registry, &key,
+          sizeof(key), &newset, sizeof(newset), libxs_registry_lock(ctx->kernel_registry));
+      }
+      if (0 > ctx->verbosity || 2 < ctx->verbosity) {
+        fprintf(stderr, "INFO OZAKI: JIT cutoff=%d bounds=%d -> %s\n",
+          cutoff, bounds, NULL != newset.kern_fused ? "OK" : "FAILED");
       }
     }
-    if (NULL != program) clReleaseProgram(program);
-    if (NULL != newset.kern_fused) {
-      kset = (ozaki_kernel_set_t*)libxs_registry_set(ctx->kernel_registry, &key,
-        sizeof(key), &newset, sizeof(newset), libxs_registry_lock(ctx->kernel_registry));
-    }
-    if (0 > ctx->verbosity || 2 < ctx->verbosity) {
-      fprintf(stderr, "INFO OZAKI: JIT cutoff=%d bounds=%d -> %s\n",
-        cutoff, bounds, NULL != newset.kern_fused ? "OK" : "FAILED");
-    }
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->kernel_lock);
   }
   return (NULL != kset) ? kset->kern_fused : NULL;
 }

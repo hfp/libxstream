@@ -101,6 +101,7 @@ typedef struct ozaki_context_t {
   cl_kernel kern_scale_beta;
   /* Ozaki-1: registry of cutoff-specialized fused kernels */
   libxs_registry_t* kernel_registry;
+  libxs_lock_t kernel_lock;
   char base_flags[1024]; /* base compile flags (without OZAKI_CUTOFF) */
   char base_options[128]; /* build options (e.g. -cl-intel-256-GRF-per-thread) */
   /* CRT GEMM-mode kernels (Scheme-2 tiled path) */

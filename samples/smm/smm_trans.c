@@ -66,14 +66,26 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         ) &&
       mn <= (max_kernel_dim * max_kernel_dim))
   {
+    static libxs_lock_t locks[OPENCL_LIBSMM_NLOCKS_TRANS];
     const libxs_timer_tick_t start = libxs_timer_tick();
     const libxstream_opencl_stream_t* const str = (const libxstream_opencl_stream_t*)stream;
     opencl_libsmm_trans_t* config;
+    libxs_lock_t* lock = locks;
     opencl_libsmm_transkey_t key;
+#  if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
+    unsigned int hash;
+#  endif
     LIBXS_MEMZERO(&key); /* potentially heterogeneous key-data (alignment gaps) */
     key.type = datatype;
     key.m = m;
     key.n = n; /* initialize key */
+#  if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
+    LIBXS_ASSERT(!(OPENCL_LIBSMM_NLOCKS_TRANS & (OPENCL_LIBSMM_NLOCKS_TRANS - 1))); /* POT */
+    hash = libxs_hash(&key, sizeof(key), 25071975 /*seed*/);
+    lock += LIBXS_MOD2(hash, OPENCL_LIBSMM_NLOCKS_TRANS);
+#  endif
+    /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
     config = (opencl_libsmm_trans_t*)libxs_registry_get(
       opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
     if (NULL == config) {
@@ -179,18 +191,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
     }
     LIBXS_ASSERT((NULL != config && NULL != config->kernel && 0 < config->wgsize && 1 <= config->bs) || EXIT_SUCCESS != result);
     if (EXIT_SUCCESS == result) {
-      static libxs_lock_t locks[OPENCL_LIBSMM_NLOCKS_TRANS];
       const size_t work_size = config->wgsize * LIBXS_UPDIV(stack_size, config->bs);
-#  if (1 < OPENCL_LIBSMM_NLOCKS_TRANS)
-      const unsigned int hash = libxs_hash(&config->kernel, sizeof(cl_kernel), 25071975 /*seed*/);
-      const unsigned int lidx = LIBXS_MOD2(hash, OPENCL_LIBSMM_NLOCKS_TRANS);
-      libxs_lock_t* const lock = locks + lidx;
-      LIBXS_ASSERT(!(OPENCL_LIBSMM_NLOCKS_TRANS & (OPENCL_LIBSMM_NLOCKS_TRANS - 1))); /* POT */
-#  else
-      libxs_lock_t* const lock = locks;
-#  endif
-      /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
-      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
       LIBXSTREAM_CHECK(result, clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel");
       LIBXSTREAM_CHECK(
         result, libxstream_opencl_set_kernel_ptr(config->kernel, 1, dev_trs_stack), "set batch-list argument of transpose kernel");
@@ -217,8 +218,8 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         fprintf(stderr, " ss=%i\n", stack_size);
         LIBXS_STDIO_RELEASE();
       }
-      LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
     }
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
   }
   return result;
 }
