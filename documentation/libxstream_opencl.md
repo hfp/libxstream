@@ -13,7 +13,7 @@ The header is guarded by `__OPENCL` (set automatically when `__OFFLOAD_OPENCL` i
 | `LIBXSTREAM_MAXSTRLEN` | 48 | Maximum string length for names |
 | `LIBXSTREAM_MAXNDEVS` | 64 | Maximum number of OpenCL devices |
 | `LIBXSTREAM_MAXNITEMS` | 1024 | Per-thread maximum item count |
-| `LIBXSTREAM_USM` | auto | Unified Shared Memory level (0 = off, 1 = OpenCL 2.0, 2 = Intel USM) |
+| `LIBXSTREAM_USM` | SVM coarse-grain | Runtime Unified Shared Memory level (unset = OpenCL 2.0 SVM coarse-grain with non-USM fallback, 0 = off, 1 = Intel USM, 2 = OpenCL 2.0 SVM coarse-grain, 3 = OpenCL 2.0 SVM reported caps) |
 
 ## Data Types
 
