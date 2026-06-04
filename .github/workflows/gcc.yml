@@ -29,7 +29,7 @@ jobs:
       run: sudo apt install -y libopenblas-openmp-dev
 
     - name: Install OpenCL
-      run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1
+      run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
 
     - name: Setup LIBXS
       run: |
