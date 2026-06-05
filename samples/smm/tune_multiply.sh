@@ -19,6 +19,13 @@ WC=$(command -v wc)
 # initial delay before auto-tuning (interactive)
 WAIT_DEFAULT=12
 
+MPI_SIZE=${PMI_SIZE:-${OMPI_COMM_WORLD_SIZE:-${PMIX_SIZE:-${SLURM_NTASKS:-1}}}}
+MPI_RANK=${PMI_RANK:-${OMPI_COMM_WORLD_RANK:-${PMIX_RANK:-${SLURM_PROCID:-0}}}}
+MPI_LOCAL_RANK=${MPI_LOCALRANKID:-${OMPI_COMM_WORLD_LOCAL_RANK:-${PMI_LOCAL_RANK:-${PMIX_LOCAL_RANK:-${SLURM_LOCALID}}}}}
+if [ "${MPI_LOCAL_RANK}" ] && [ ! "${MPI_LOCALRANKID}" ]; then
+  export MPI_LOCALRANKID=${MPI_LOCAL_RANK}
+fi
+
 # GNU sed is desired (macOS)
 if [ ! "${SED}" ]; then
   SED=$(command -v sed)
@@ -92,10 +99,13 @@ then
   if [ ! "${BATCHSIZE}" ]; then BATCHSIZE=0; fi
   if [ ! "${JSONDIR}" ]; then JSONDIR=.; fi
   if [ ! "${TLEVEL}" ]; then TLEVEL=-1; fi
-  if [ ! "${NPARTS}" ]; then NPARTS=${PMI_SIZE:-${OMPI_COMM_WORLD_SIZE:-1}}; fi
+  if [ ! "${NPARTS}" ]; then NPARTS=${MPI_SIZE}; fi
+  if [ "0" != "$((1>NPARTS))" ]; then
+    >&2 echo "ERROR: number of parts must be positive!"
+    exit 1
+  fi
   if [ ! "${PART}" ]; then
-    PART0=${PMI_RANK:-${OMPI_COMM_WORLD_RANK:-0}}
-    PART=$(((PART0+1)%NPARTS+1))
+    PART=$((MPI_RANK%NPARTS+1))
   fi
   if [ ! "${WAIT}" ] && [ "1" != "${NPARTS}" ]; then WAIT=0; fi
   # sanity checks
@@ -112,7 +122,7 @@ then
   fi
   # how to print standard vs error messages
   if [ ! "${HELP}" ] || [ "0" = "${HELP}" ]; then
-    JSONS=$(${LS} -1 ${JSONDIR}/tune_multiply-*-*x*x*-*gflops.json 2>/dev/null)
+    JSONS=$(${LS} -1 "${JSONDIR}"/tune_multiply-*-*x*x*-*gflops.json 2>/dev/null)
     HERE=$(cd "$(dirname "$0")" && pwd -P)
     ECHO=">&2 echo"
     if [ "${UPDATE}" ] && [ "0" != "${UPDATE}" ]; then
@@ -203,7 +213,11 @@ then
     if [ "0" = "$((NPARTS<=NTRIPLETS))" ]; then
       >&2 echo "WARNING: problem is over-decomposed!"
     fi
-    echo "Session ${PART} of ${NPARTS} part(s)."
+    if [ "${MPI_LOCAL_RANK}" ]; then
+      echo "Session ${PART} of ${NPARTS} part(s), local MPI rank ${MPI_LOCAL_RANK}."
+    else
+      echo "Session ${PART} of ${NPARTS} part(s)."
+    fi
   fi
   if [ ! "${MAXTIME}" ] && [[ (! "${CONTINUE}"  || \
       "${CONTINUE}" = "false"                   || \
@@ -215,7 +229,7 @@ then
   PARTLOSZ=$((NPARTS<NTRIPLETS?(NTRIPLETS/NPARTS):1))
   PARTUPSZ=$(((NTRIPLETS+NPARTS-1)/NPARTS))
   PARTUPNM=$((PARTUPSZ!=PARTLOSZ?(NTRIPLETS-PARTLOSZ*NPARTS):(NTRIPLETS/PARTUPSZ)))
-  PARTLONM=$((NPARTS-PARTUPNM)); PARTZERO=PART-1
+  PARTZERO=$((PART-1))
   PARTOFFS=$((PARTZERO<=PARTUPNM?(PARTZERO*PARTUPSZ):(PARTUPNM*PARTUPSZ+(PARTZERO-PARTUPNM)*PARTLOSZ)))
   PARTSIZE=$((PART<=PARTUPNM?PARTUPSZ:PARTLOSZ))
   if [ "${MAXTIME}" ] && [ "0" != "$((0<MAXTIME))" ]; then
@@ -241,14 +255,17 @@ then
   if [ "0" != "$((0<WAIT))" ] && [ "$(command -v sleep)" ]; then
     echo
     echo "Tuning will start in ${WAIT} seconds. Hit CTRL-C to abort."
-    sleep ${WAIT}
+    sleep "${WAIT}"
   fi
   N=0
   HOSTNAME=$(hostname)
   MNKPART=$(${CUT} -d' ' -f $((PARTOFFS+1))-$((PARTOFFS+PARTSIZE)) <<<"${MNKS}")
   for MNK in ${MNKPART}; do
     if [ "0" != "$(((N)<PARTSIZE))" ]; then
-      if [ "1" != "${NPARTS}" ] && [ "${HOSTNAME}" ]; then STEP="@${HOSTNAME}"; fi
+      if [ "1" != "${NPARTS}" ] && [ "${HOSTNAME}" ]; then
+        STEP="@${HOSTNAME}"
+        if [ "${MPI_LOCAL_RANK}" ]; then STEP="${STEP}:${MPI_LOCAL_RANK}"; fi
+      fi
       echo
       echo "[$((N+1))/${PARTSIZE}]${STEP}: auto-tuning ${MNK}-kernel..."
       # avoid mixing database of previous results into new session
