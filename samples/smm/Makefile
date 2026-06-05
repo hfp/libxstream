@@ -36,10 +36,18 @@ ifneq (,$(LIBXSROOT))
   endif
 endif
 
-# setup LIBXSTREAM (header-only)
-XSTREAM_SOURCE := $(wildcard $(DEPDIR)/include/libxstream_source.h)
-ifneq (,$(XSTREAM_SOURCE))
+# setup LIBXSTREAM (library or header-only)
+ifneq (,$(XLIB))
+ifneq (,$(LIBXS))
+  DFLAGS += -D__LIBXSTREAM
+else
   DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
+endif
+else
+  XSTREAM_SOURCE := $(wildcard $(DEPDIR)/include/libxstream_source.h)
+  ifneq (,$(XSTREAM_SOURCE))
+    DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
+  endif
 endif
 
 # include directories
