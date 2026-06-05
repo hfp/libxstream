@@ -62,9 +62,13 @@ PARAMS := $(if $(wildcard $(PARAMS_WITHGPU)),$(PARAMS_WITHGPU),$(wildcard $(PARA
 
 PARAMDIR ?= $(SRCDIR)/params
 ifeq (,$(PARAMS))
+ifneq (command line,$(origin WITH_GPU))
   PARAMS := $(wildcard $(PARAMDIR)/*.csv)
 endif
-PARAMS_BIN := $(wildcard $(PARAMDIR)/*.bin)
+endif
+ifneq (command line,$(origin WITH_GPU))
+  PARAMS_BIN := $(wildcard $(PARAMDIR)/*.bin)
+endif
 PARAMS_PREDICT := $(sort $(PARAMS) $(patsubst %.bin,%.csv,$(PARAMS_BIN)))
 
 # kernel source and generated header
