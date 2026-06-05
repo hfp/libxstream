@@ -7,8 +7,9 @@ __pycache__
 .make
 *.json
 *.mod
-*.x
+/*.md
 /.*
+*.x
 build
 site
 bin
