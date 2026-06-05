@@ -144,61 +144,193 @@ cd samples/smm
 pip install -r requirements.txt
 ```
 
-### Tuning a Single Kernel
+Build `acc_bench.x` before tuning. Keep GPU clocks and driver state as
+stable as practical during a run.
+
+### tune_multiply.py
+
+Use `tune_multiply.py` when you want direct control over one tuning
+run or over JSON maintenance.
+
+Tune one kernel and write JSON results in the current directory:
 
 ```bash
 ./tune_multiply.py 13x5x7
 ```
 
-Use `--stop-after=N` to limit to N seconds. Tuning can be interrupted
-with Ctrl-C and results are still written. Delete the `opentuner.db`
-directory before tuning a different kernel (`tune_multiply.sh` does
-this automatically).
-
-### Tuning Multiple Kernels
+Limit the search time, choose the JSON directory, and set the benchmark
+batch size:
 
 ```bash
-./tune_multiply.sh -t 300 -j 8 -i 1  4 10 15, 6 7 8, 23
+mkdir -p params/local
+./tune_multiply.py 13x5x7 --stop-after=300 -p params/local -s 30000
 ```
 
-Triplets are comma-separated groups expanded as a Cartesian product.
-The example above expands to 55 kernels.
+Tune several explicit kernels from a file, one `MxNxK` per line:
 
-| Option          | Description                                       |
+```bash
+printf '%s\n' 13x5x7 23x23x23 32x32x32 > kernels.txt
+./tune_multiply.py kernels.txt --stop-after=180 -p params/local
+```
+
+Merge JSON files into a CSV file:
+
+```bash
+./tune_multiply.py -m -p params/local -o tune_multiply_local.csv
+```
+
+Update stored device names after rebuilding for a different target:
+
+```bash
+./tune_multiply.py -u -p params/local
+```
+
+Check existing JSONs without re-tuning:
+
+```bash
+./tune_multiply.py -c -p params/local
+```
+
+Useful options:
+
+| Option              | Meaning                                      |
+|---------------------|----------------------------------------------|
+| --stop-after N      | Stop the search after N seconds              |
+| -p path             | Directory for JSON input and output          |
+| -s size             | Benchmark batch size, also called stack size |
+| -a level            | Tuning level: 0=all, 1=most, 2=some, 3=least |
+| -m                  | Merge JSON files into a CSV file             |
+| -o file             | CSV output file                              |
+| -u [device]         | Update JSON device names                     |
+| -c [epsilon]        | Validate JSON entries                        |
+| -d                  | Delete outperformed duplicates during merge  |
+
+The tuner can run under MPI. It detects local MPI rank variables and
+uses them to select `LIBXSTREAM_DEVICE`, so ranks on the same node can
+use different devices. This is most useful when each rank is tuning a
+different kernel.
+
+```bash
+mpirun \
+  ./tune_multiply.py 13x5x7 --stop-after=300 -p params/local : \
+  ./tune_multiply.py 23x23x23 --stop-after=300 -p params/local
+```
+
+Interrupted tuning writes the best result seen so far. If you tune a
+different kernel with `tune_multiply.py` directly, remove any old
+OpenTuner database first:
+
+```bash
+rm -rf opentuner.db
+```
+
+The wrapper below does this cleanup automatically.
+
+### tune_multiply.sh
+
+Use `tune_multiply.sh` when you want to expand triplet specifications,
+retune a directory, or split a larger tuning job into parts.
+
+Tune a compact Cartesian-product specification:
+
+```bash
+./tune_multiply.sh -t 300 4 10 15, 6 7 8, 23
+```
+
+Triplets are comma-separated groups. The command above expands to all
+`MxNxK` combinations with `M` in `4 10 15`, `N` in `6 7 8`, and `K=23`.
+
+Tune an explicit list instead:
+
+```bash
+./tune_multiply.sh -t 300 1x1x1 2x2x2 13x5x7 23x23x23
+```
+
+Split the same work into four parts and run the second part:
+
+```bash
+./tune_multiply.sh -t 300 -j 4 -i 2 4 10 15, 6 7 8, 23
+```
+
+Retune every JSON file found in a directory:
+
+```bash
+./tune_multiply.sh -u -p params/local -t 300
+```
+
+Limit the generated work before splitting it:
+
+```bash
+./tune_multiply.sh -t 180 -r 4 32 -m 64 -n 100 \
+  4 8 16 32, 4 8 16 32, 4 8 16 32
+```
+
+Useful options:
+
+| Option          | Meaning                                           |
 |-----------------|---------------------------------------------------|
-| -t seconds      | Time limit per kernel (default: 160s for updates) |
-| -j parts        | Total partitions for distributed tuning           |
-| -i index        | Partition index to process (1-based)              |
-| -c / --continue | Continue after Ctrl-C instead of stopping         |
-| -u / --update   | Re-tune existing JSON files                       |
-| -p path         | Directory containing JSON files to update         |
-| -a level        | Tuning level (default: 1 for updates)             |
+| -t seconds      | Time limit per kernel                             |
+| -p path         | Directory for JSON files                          |
+| -s size         | Benchmark batch size, also called stack size      |
+| -a level        | Tuning level: 0=all, 1=most, 2=some, 3=least      |
+| -u              | Retune JSON files found under `-p`                |
+| -d              | Ask the merge step to delete outperformed JSONs   |
+| -c              | Continue with the next kernel after an error      |
+| -b              | Tune triplets in reverse order                    |
+| -j parts        | Total number of tuning parts                      |
+| -i index        | Part to run, using 1-based numbering              |
+| -r low high     | Keep kernels with low**3 < M*N*K <= high**3       |
+| -m extent       | Keep kernels with M, N, and K no larger than this |
+| -n count        | Keep only the first count kernels                 |
+| -k id           | Use a predefined triplet set                      |
 
 ### Bulk Tuning with MPI
 
+Under MPI, the wrapper defaults `-j` to the MPI world size and `-i` to
+`rank + 1`. It also forwards a normalized local rank to
+`tune_multiply.py`, so the Python tuner can select a different device
+per local rank.
+
+For most MPI launchers, this is enough:
+
 ```bash
-MAXTIME=200 NPARTS=8 UPDATE=1 JSONDIR=params/pvc mpirun \
-  ./tune_multiply.sh -i 1 : \
-  ./tune_multiply.sh -i 2 : \
-  ./tune_multiply.sh -i 3 : \
-  ./tune_multiply.sh -i 4 : \
-  ./tune_multiply.sh -i 5 : \
-  ./tune_multiply.sh -i 6 : \
-  ./tune_multiply.sh -i 7 : \
-  ./tune_multiply.sh -i 8 \
+mpirun -np 8 ./tune_multiply.sh -t 300 -p params/local \
+  4 10 15, 6 7 8, 23
+```
+
+You can still spell out parts explicitly when the launcher or scheduler
+needs it:
+
+```bash
+mpirun \
+  ./tune_multiply.sh -t 300 -j 4 -i 1 -p params/local \
+    4 10 15, 6 7 8, 23 : \
+  ./tune_multiply.sh -t 300 -j 4 -i 2 -p params/local \
+    4 10 15, 6 7 8, 23 : \
+  ./tune_multiply.sh -t 300 -j 4 -i 3 -p params/local \
+    4 10 15, 6 7 8, 23 : \
+  ./tune_multiply.sh -t 300 -j 4 -i 4 -p params/local \
+    4 10 15, 6 7 8, 23 \
 >out.log 2>&1
+```
+
+To retune an existing JSON directory across eight MPI ranks:
+
+```bash
+mpirun -np 8 ./tune_multiply.sh -u -p params/local -t 300
 ```
 
 ### Managing Tuned Parameters
 
-JSON files are merged into CSV by `tune_multiply.py -m`. Device names
-in JSON can be updated with `tune_multiply.py -u`. To retune:
+JSON files are the working format. CSV files are the deployable format.
+A typical retune flow is:
 
 ```bash
 make realclean
 make WITH_GPU=P100
-smm/tune_multiply.sh -p smm/params/p100 -u
-cp tune_multiply.csv smm/params/tune_multiply_P100.csv
+mkdir -p params/p100
+./tune_multiply.sh -u -p params/p100 -t 300
+./tune_multiply.py -m -p params/p100 -o params/tune_multiply_P100.csv
 ```
 
 Keep GPU driver state persistent during tuning (e.g.,
