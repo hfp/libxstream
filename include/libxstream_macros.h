@@ -72,7 +72,8 @@
  * Skip when inside libxstream_opencl.h, libxstream_dbcsr.h, or libxstream_cp2k.h
  * (deferred to the end of libxstream_opencl.h, after all types are defined). */
 #if defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_SOURCE_H) \
- && !defined(LIBXSTREAM_OPENCL_H) && !defined(DBCSR_ACC_H) && !defined(LIBXSTREAM_CP2K_H)
+ && !defined(LIBXSTREAM_OPENCL_H) && !defined(LIBXSTREAM_DBCSR_H) \
+ && !defined(DBCSR_ACC_H) && !defined(LIBXSTREAM_CP2K_H)
 # include "libxstream_source.h"
 #endif
 
