@@ -7,7 +7,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #if defined(__OPENCL)
-# include <libxstream_opencl.h>
+# include <libxstream/libxstream_opencl.h>
 
 
 LIBXSTREAM_API int libxstream_event_create(libxstream_event_t** event_p)

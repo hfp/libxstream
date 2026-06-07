@@ -8,7 +8,7 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 #  include "smm_acc_opencl.h"
-#  include <libxs_math.h>
+#  include <libxs/libxs_math.h>
 #  include <ctype.h>
 
 #  define OPENCL_LIBSMM_AI(M, N, K, TYPESIZE) ((2.0 * (M) * (N) * (K)) / ((TYPESIZE) * (K) * ((M) + (N))))

@@ -6,7 +6,7 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#include "../../../include/opencl/libxstream_common.h"
+#include "../../../libxstream/opencl/libxstream_common.h"
 #include "ozaki_common.cl"
 
 /* Ozaki Scheme 2 — GEMM-based XMX path (CRT).

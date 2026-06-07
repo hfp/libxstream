@@ -2,11 +2,11 @@
 ROOTDIR := $(subst //,,$(dir $(firstword $(MAKEFILE_LIST)))/)
 PROJECT := libxstream
 # Source and scripts locations
-ROOTINC := $(ROOTDIR)/include
+ROOTINC := $(ROOTDIR)/$(PROJECT)
 ROOTSCR := $(ROOTDIR)/scripts
 ROOTSRC := $(ROOTDIR)/src
 # Project directory structure
-INCDIR := include
+INCDIR := $(PROJECT)
 SCRDIR := scripts
 TSTDIR := tests
 BLDDIR := obj
@@ -17,7 +17,7 @@ SPLDIR := samples
 DOCDIR := documentation
 
 # subdirectories (relative) to PREFIX (install targets)
-PINCDIR ?= $(INCDIR)
+PINCDIR ?= include/$(PROJECT)
 PSRCDIR ?= $(PROJECT)
 POUTDIR ?= $(OUTDIR)
 PPKGDIR ?= $(OUTDIR)/pkgconfig
@@ -91,7 +91,7 @@ ifneq (,$(LIBXSROOT))
   LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
   LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
     $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
-  IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
+  IFLAGS += -I$(call quote,$(LIBXSROOT))
 endif
 ifneq (,$(LIBXS))
   DFLAGS += -D__LIBXS
@@ -115,6 +115,7 @@ endif
 SSE ?= 1
 
 # include directories
+IFLAGS += -I.
 IFLAGS += -I$(call quote,$(INCDIR))
 
 # Version numbers according to interface
@@ -138,7 +139,7 @@ endif
 AVX_STATIC ?= $(AVX)
 
 HEADERS_MAIN := $(ROOTINC)/libxstream_cp2k.h $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream_macros.h $(ROOTINC)/libxstream_opencl.h $(ROOTINC)/libxstream.h
-LIBXS_SOURCE := $(wildcard $(LIBXSROOT)/include/libxs_source.h)
+LIBXS_SOURCE := $(wildcard $(LIBXSROOT)/libxs/libxs_source.h)
 HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
 SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_stream.c)

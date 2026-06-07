@@ -19,7 +19,7 @@ SRC="${HERE}/../src"
 EXT="c"
 
 if [ ! -d "${SRC}" ]; then
-  SRC="${HERE}/../include/libxstream"
+  SRC="${HERE}/../libxstream"
 fi
 
 if [ "${FIND}" ] && [ "${SORT}" ] && [ "${SED}" ] && [ -d "${SRC}" ]; then

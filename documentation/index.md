@@ -32,7 +32,7 @@ separate library needed for either LIBXSTREAM or LIBXS). Safe
 to include from multiple translation units:
 
 ```c
-#include <libxstream_source.h>
+#include <libxstream/libxstream_source.h>
 ```
 
 **Header-only** (implicit) -- compile with `-DLIBXSTREAM_SOURCE`.
@@ -74,7 +74,7 @@ make -j $(nproc) -f /path/to/libxstream/Makefile
 
 ## API
 
-The public C API is declared in `include/libxstream.h`. All
+The public C API is declared in `libxstream/libxstream.h`. All
 implementation details are sealed behind opaque types.
 
 ### Devices
@@ -134,13 +134,13 @@ int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbytes,
 
 ### DBCSR Compatibility
 
-The header `include/libxstream_dbcsr.h` provides the `c_dbcsr_acc_*`
+The header `libxstream/libxstream_dbcsr.h` provides the `c_dbcsr_acc_*`
 symbols expected by DBCSR, allowing LIBXSTREAM to serve as a drop-in
 accelerator backend.
 
 ### CP2K Offload Interface
 
-The header `include/libxstream_cp2k.h` implements CP2K's offload
+The header `libxstream/libxstream_cp2k.h` implements CP2K's offload
 runtime interface -- the `offload*` functions for general GPU
 operations (memory, streams, events, synchronization).
 

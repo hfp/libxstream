@@ -7,9 +7,9 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #if defined(__OPENCL)
-# include <libxstream_opencl.h>
-# include <libxs_hash.h>
-# include <libxs_str.h>
+# include <libxstream/libxstream_opencl.h>
+# include <libxs/libxs_hash.h>
+# include <libxs/libxs_str.h>
 # if defined(_WIN32)
 #   include <windows.h>
 #   include <process.h>

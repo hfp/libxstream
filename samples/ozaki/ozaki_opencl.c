@@ -7,7 +7,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "ozaki_opencl.h"
-#include <libxs_math.h>
+#include <libxs/libxs_math.h>
 
 /* Embedded kernel source (generated at build time via tool_opencl.sh) */
 #include "ozaki_kernels.h"

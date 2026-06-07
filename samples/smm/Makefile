@@ -28,10 +28,10 @@ ifneq (,$(LIBXSROOT))
   LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
   LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
     $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
-  IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
+  IFLAGS += -I$(call quote,$(LIBXSROOT))
   ifneq (,$(LIBXS))
     DFLAGS += -D__LIBXS
-  else ifneq (,$(wildcard $(LIBXSROOT)/include/libxs_source.h))
+  else ifneq (,$(wildcard $(LIBXSROOT)/libxs/libxs_source.h))
     DFLAGS += -D__LIBXS -DLIBXS_SOURCE
   endif
 endif
@@ -44,14 +44,14 @@ else
   DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
 endif
 else
-  XSTREAM_SOURCE := $(wildcard $(DEPDIR)/include/libxstream_source.h)
+  XSTREAM_SOURCE := $(wildcard $(DEPDIR)/libxstream/libxstream_source.h)
   ifneq (,$(XSTREAM_SOURCE))
     DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
   endif
 endif
 
 # include directories
-IFLAGS += -I$(call quote,$(DEPDIR)/include)
+IFLAGS += -I$(call quote,$(DEPDIR))
 IFLAGS += -I$(call quote,$(INCDIR))
 
 # GPU-specific tuning parameters
@@ -83,8 +83,8 @@ endif
 
 OUTNAME := acc_bench
 HEADERS := $(wildcard $(INCDIR)/*.h) $(GENHDR) \
-           $(wildcard $(DEPDIR)/include/*.h) \
-           $(wildcard $(DEPDIR)/include/opencl/*.h)
+           $(wildcard $(DEPDIR)/libxstream/*.h) \
+           $(wildcard $(DEPDIR)/libxstream/opencl/*.h)
 CSOURCS := $(SRCDIR)/acc_bench.c $(SRCDIR)/smm_acc.c $(SRCDIR)/smm_trans.c $(SRCDIR)/smm_params.c $(SRCDIR)/smm_kernel.c
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 OBJECTS := $(COBJCTS)

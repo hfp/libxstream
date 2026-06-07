@@ -6,8 +6,8 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#ifndef OPENCL_COMMON_H
-#define OPENCL_COMMON_H
+#ifndef LIBXSTREAM_OPENCL_COMMON_H
+#define LIBXSTREAM_OPENCL_COMMON_H
 
 #if !defined(LIBXSTREAM_OCLVER_C)
 # define LIBXSTREAM_OCLVER_C __OPENCL_C_VERSION__
@@ -121,4 +121,4 @@ inline float bf16_to_f32(ushort v)
 # define BF16_TO_F32(x) bf16_to_f32(x)
 #endif
 
-#endif /*OPENCL_COMMON_H*/
+#endif /*LIBXSTREAM_OPENCL_COMMON_H*/

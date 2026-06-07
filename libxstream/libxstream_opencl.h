@@ -36,11 +36,11 @@
 #endif
 
 #if defined(__LIBXS) && !defined(LIBXS_SOURCE)
-# include <libxs_malloc.h>
-# include <libxs_hist.h>
-# include <libxs_mem.h>
+# include <libxs/libxs_malloc.h>
+# include <libxs/libxs_hist.h>
+# include <libxs/libxs_mem.h>
 #else /* code depends on LIBXS */
-# include <libxs_source.h>
+# include <libxs/libxs_source.h>
 # if !defined(__LIBXS)
 #   define __LIBXS
 # endif

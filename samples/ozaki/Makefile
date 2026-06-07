@@ -28,11 +28,11 @@ ifneq (,$(LIBXSROOT))
   LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
   LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
     $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
-  IFLAGS += -I$(call quote,$(LIBXSROOT)/include)
+  IFLAGS += -I$(call quote,$(LIBXSROOT))
   IFLAGS += -I$(call quote,$(LIBXSROOT)/samples/ozaki)
   ifneq (,$(LIBXS))
     DFLAGS += -D__LIBXS
-  else ifneq (,$(wildcard $(LIBXSROOT)/include/libxs_source.h))
+  else ifneq (,$(wildcard $(LIBXSROOT)/libxs/libxs_source.h))
     DFLAGS += -D__LIBXS -DLIBXS_SOURCE
   endif
 endif
@@ -45,14 +45,14 @@ else
   DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
 endif
 else
-  XSTREAM_SOURCE := $(wildcard $(DEPDIR)/include/libxstream_source.h)
+  XSTREAM_SOURCE := $(wildcard $(DEPDIR)/libxstream/libxstream_source.h)
   ifneq (,$(XSTREAM_SOURCE))
     DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
   endif
 endif
 
 # include directories
-IFLAGS += -I$(call quote,$(DEPDIR)/include)
+IFLAGS += -I$(call quote,$(DEPDIR))
 IFLAGS += -I$(call quote,$(INCDIR))
 
 SCRDIR := $(DEPDIR)/scripts
@@ -71,7 +71,7 @@ endif
 OUTNAME := $(shell basename "$(ROOTDIR)")
 HEADERS := $(wildcard $(INCDIR)/*.h) \
            $(GENHDR) \
-           $(wildcard $(DEPDIR)/include/common/*.h)
+           $(wildcard $(DEPDIR)/libxstream/opencl/*.h)
 CSOURCS := $(wildcard $(SRCDIR)/*.c)
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 SOURCES := $(CSOURCS)
@@ -85,7 +85,7 @@ all: $(XFILES)
 compile: $(OBJECTS)
 
 # Generate embedded kernel header from .cl sources (resolves #include directives)
-$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/include/common/*.h) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
+$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/libxstream/opencl/*.h) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
 	$(GENSCR) $(GENARG) $(KRNELS) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)

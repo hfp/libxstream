@@ -20,7 +20,7 @@
  * Compile-time parameters (-D):
  *   USE_DOUBLE - if 1, fp64 (double-complex); otherwise fp32 (single-complex)
  */
-#include "../../../include/opencl/libxstream_common.h"
+#include "../../../libxstream/opencl/libxstream_common.h"
 
 /**
  * Construct block-augmented A_hat from interleaved complex A.

@@ -51,10 +51,10 @@ jobs:
     - name: Verify install (PREFIX)
       if: matrix.libxs == 'prebuilt'
       run: |
-        test -f $HOME/libxstream-install/include/libxstream.h
-        test -f $HOME/libxstream-install/include/libxstream_version.h
-        test -f $HOME/libxstream-install/include/libxstream_source.h
-        test -d $HOME/libxstream-install/include/libxstream
+        test -f $HOME/libxstream-install/include/libxstream/libxstream.h
+        test -f $HOME/libxstream-install/include/libxstream/libxstream_version.h
+        test -f $HOME/libxstream-install/include/libxstream/libxstream_source.h
+        test -d $HOME/libxstream-install/include/libxstream/libxstream
         ls $HOME/libxstream-install/lib/libxstream.* >/dev/null
 
     - name: Out-of-tree build

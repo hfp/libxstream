@@ -17,9 +17,9 @@
 
 #if !defined(LIBXS_MACROS_H)
 # if defined(__LIBXS) || defined(LIBXS_BUILD)
-#   include <libxs_macros.h>
+#   include <libxs/libxs_macros.h>
 # else /* header-only: libxs_source.h must come first */
-#   include <libxs_source.h>
+#   include <libxs/libxs_source.h>
 # endif
 #endif
 #if defined(LIBXSTREAM_BUILD)

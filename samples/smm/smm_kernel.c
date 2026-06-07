@@ -10,9 +10,9 @@
 #  include "smm_acc_opencl.h"
 #  include "smm_kernels.h"
 #  include "acc_bench.h"
-#  include <libxs_predict.h>
-#  include <libxs_timer.h>
-#  include <libxs_hash.h>
+#  include <libxs/libxs_predict.h>
+#  include <libxs/libxs_timer.h>
+#  include <libxs/libxs_hash.h>
 
 #  if !defined(LIBXSTREAM_CHECK)
 #    define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \

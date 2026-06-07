@@ -1,6 +1,6 @@
 # OpenCL Backend
 
-[`include/libxstream_opencl.h`](https://github.com/hfp/libxstream/blob/main/include/libxstream_opencl.h) is the internal OpenCL layer that powers every public `libxstream_*` function. It owns the OpenCL platform/device/context lifecycle, memory management, kernel compilation, and error handling. Sample code and other LIBXSTREAM extensions (e.g., LIBSMM, Ozaki) include this header to access the OpenCL runtime directly.
+[`libxstream/libxstream_opencl.h`](https://github.com/hfp/libxstream/blob/main/libxstream/libxstream_opencl.h) is the internal OpenCL layer that powers every public `libxstream_*` function. It owns the OpenCL platform/device/context lifecycle, memory management, kernel compilation, and error handling. Sample code and other LIBXSTREAM extensions (e.g., LIBSMM, Ozaki) include this header to access the OpenCL runtime directly.
 
 ## Compile-Time Configuration
 
@@ -102,5 +102,5 @@ Enumerates floating-point atomics support: none, 32-bit, or 64-bit.
 
 ## See Also
 
-* LIBXSTREAM API (`include/libxstream.h`) — public API built on top of this layer
+* LIBXSTREAM API (`libxstream/libxstream.h`) — public API built on top of this layer
 * [DBCSR ACC Interface](libxstream_dbcsr.md) — the DBCSR compatibility shim

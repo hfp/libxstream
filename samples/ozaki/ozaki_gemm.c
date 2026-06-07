@@ -8,7 +8,7 @@
 ******************************************************************************/
 #include "ozaki_opencl.h"
 #include "ozaki_kernels.h"
-#include <libxs_mem.h>
+#include <libxs/libxs_mem.h>
 
 
 /* Local helper functions (static) to manage kernel argument setup and launches.

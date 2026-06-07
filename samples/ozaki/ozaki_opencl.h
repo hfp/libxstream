@@ -9,8 +9,8 @@
 #ifndef OZAKI_OPENCL_H
 #define OZAKI_OPENCL_H
 
-#include "libxstream_opencl.h"
-#include <libxs_reg.h>
+#include <libxstream/libxstream_opencl.h>
+#include <libxs/libxs_reg.h>
 
 #if !defined(K_GRP_GPU)
 # define K_GRP_GPU 32768

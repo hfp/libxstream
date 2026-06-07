@@ -6,8 +6,8 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#ifndef OPENCL_ATOMICS_H
-#define OPENCL_ATOMICS_H
+#ifndef LIBXSTREAM_OPENCL_ATOMICS_H
+#define LIBXSTREAM_OPENCL_ATOMICS_H
 
 #include "libxstream_common.h"
 
@@ -148,4 +148,4 @@ __attribute__((always_inline)) inline void atomic_add_global_xchg(GLOBAL_VOLATIL
 # endif
 #endif
 
-#endif /*OPENCL_ATOMICS_H*/
+#endif /*LIBXSTREAM_OPENCL_ATOMICS_H*/

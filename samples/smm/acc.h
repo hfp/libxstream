@@ -19,7 +19,7 @@
 
 #if defined(__OPENCL)
 /* ACC interface provided by LIBXSTREAM */
-#  include <libxstream_dbcsr.h>
+#  include <libxstream/libxstream_dbcsr.h>
 #else
 #  include <stddef.h>
 

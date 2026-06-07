@@ -7,8 +7,8 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #if defined(__OPENCL)
-# include <libxstream_cp2k.h>
-# include <libxstream_opencl.h>
+# include <libxstream/libxstream_cp2k.h>
+# include <libxstream/libxstream_opencl.h>
 
 # define OFFLOAD_EXPECT(RESULT, NAME) \
     do { \

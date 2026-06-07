@@ -6,9 +6,9 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#include <libxstream.h>
-#include <libxstream_dbcsr.h>
-#include <libxstream_opencl.h>
+#include <libxstream/libxstream.h>
+#include <libxstream/libxstream_dbcsr.h>
+#include <libxstream/libxstream_opencl.h>
 
 /* Use DBCSR's profile for detailed timings (function name prefix-offset) */
 #if !defined(LIBXSTREAM_PROFILE_DBCSR) && (defined(__OFFLOAD_PROFILING) || 1)
