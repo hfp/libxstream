@@ -10,8 +10,8 @@
 #define SMM_ACC_OPENCL_H
 
 #include "acc_libsmm.h"
-#include "libxstream_opencl.h"
-#include <libxs_reg.h>
+#include <libxstream/libxstream_opencl.h>
+#include <libxs/libxs_reg.h>
 
 /* Inplace-transpose by default (corresponding environment variable exists also) */
 #if !defined(OPENCL_LIBSMM_TRANS_INPLACE) && 0

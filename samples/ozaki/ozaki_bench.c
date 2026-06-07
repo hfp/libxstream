@@ -16,8 +16,8 @@
  * and the dot-product accumulation are performed entirely on the device.
  */
 #include "ozaki_opencl.h"
-#include <libxs_timer.h>
-#include <libxs_rng.h>
+#include <libxs/libxs_timer.h>
+#include <libxs/libxs_rng.h>
 
 /* BLAS GEMM symbols and prototypes (Fortran calling convention) */
 #define DGEMM LIBXS_FSYMBOL(dgemm)

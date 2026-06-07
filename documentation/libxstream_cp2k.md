@@ -1,6 +1,6 @@
 # CP2K Offload Interface
 
-[`include/libxstream_cp2k.h`](https://github.com/hfp/libxstream/blob/main/include/libxstream_cp2k.h) implements CP2K's [offload runtime interface](https://github.com/cp2k/cp2k/blob/master/src/offload/offload_runtime.h) — the hardware-abstraction layer that CP2K uses for GPU-accelerated operations beyond DBCSR (grid integration, PW operations, etc.). The original interface provides `static inline` wrappers for CUDA, HIP, and OpenCL; LIBXSTREAM replaces the OpenCL path with a dedicated translation unit ([`src/libxstream_cp2k.c`](https://github.com/hfp/libxstream/blob/main/src/libxstream_cp2k.c)) that routes directly through LIBXSTREAM's internal API.
+[`libxstream/libxstream_cp2k.h`](https://github.com/hfp/libxstream/blob/main/libxstream/libxstream_cp2k.h) implements CP2K's [offload runtime interface](https://github.com/cp2k/cp2k/blob/master/src/offload/offload_runtime.h) — the hardware-abstraction layer that CP2K uses for GPU-accelerated operations beyond DBCSR (grid integration, PW operations, etc.). The original interface provides `static inline` wrappers for CUDA, HIP, and OpenCL; LIBXSTREAM replaces the OpenCL path with a dedicated translation unit ([`src/libxstream_cp2k.c`](https://github.com/hfp/libxstream/blob/main/src/libxstream_cp2k.c)) that routes directly through LIBXSTREAM's internal API.
 
 ## Relationship to the DBCSR Interface
 
@@ -8,8 +8,8 @@ CP2K's code has two accelerator interfaces:
 
 | Interface | Header | Purpose |
 |---|---|---|
-| **DBCSR ACC** | [`libxstream_dbcsr.h`](https://github.com/hfp/libxstream/blob/main/include/libxstream_dbcsr.h) | Sparse matrix operations (DBCSR library) |
-| **Offload Runtime** | [`libxstream_cp2k.h`](https://github.com/hfp/libxstream/blob/main/include/libxstream_cp2k.h) | General offload (memory, streams, events, synchronization) |
+| **DBCSR ACC** | [`libxstream_dbcsr.h`](https://github.com/hfp/libxstream/blob/main/libxstream/libxstream_dbcsr.h) | Sparse matrix operations (DBCSR library) |
+| **Offload Runtime** | [`libxstream_cp2k.h`](https://github.com/hfp/libxstream/blob/main/libxstream/libxstream_cp2k.h) | General offload (memory, streams, events, synchronization) |
 
 The DBCSR adapter ([`src/libxstream_dbcsr.c`](https://github.com/hfp/libxstream/blob/main/src/libxstream_dbcsr.c)) uses opaque `void*` handles and translates to LIBXSTREAM's typed API. The offload runtime adapter does the same but uses CP2K's `offloadStream_t`/`offloadEvent_t` typedefs (also `void*`). Both share the underlying LIBXSTREAM implementation.
 
@@ -103,6 +103,6 @@ These are CUDA-specific operations (constant-memory writes and device-heap sizin
 
 ## See Also
 
-* LIBXSTREAM API (`include/libxstream.h`) — the underlying OpenCL backend API
+* LIBXSTREAM API (`libxstream/libxstream.h`) — the underlying OpenCL backend API
 * [DBCSR ACC Interface](libxstream_dbcsr.md) — the DBCSR adapter layer
 * [CP2K offload_runtime.h](https://github.com/cp2k/cp2k/blob/master/src/offload/offload_runtime.h) — upstream interface definition

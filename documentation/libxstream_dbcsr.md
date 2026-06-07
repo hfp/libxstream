@@ -1,6 +1,6 @@
 # DBCSR ACC Interface
 
-[`include/libxstream_dbcsr.h`](https://github.com/hfp/libxstream/blob/main/include/libxstream_dbcsr.h) implements the [DBCSR ACC interface](https://github.com/cp2k/dbcsr/blob/develop/src/acc/) — the accelerator backend contract defined by the [DBCSR](https://dbcsr.cp2k.org/) sparse-matrix library used in [CP2K](https://cp2k.org/). By providing this interface on top of LIBXSTREAM's OpenCL runtime, the library acts as a **drop-in OpenCL backend** for DBCSR: no changes to DBCSR or CP2K source code are required.
+[`libxstream/libxstream_dbcsr.h`](https://github.com/hfp/libxstream/blob/main/libxstream/libxstream_dbcsr.h) implements the [DBCSR ACC interface](https://github.com/cp2k/dbcsr/blob/develop/src/acc/) — the accelerator backend contract defined by the [DBCSR](https://dbcsr.cp2k.org/) sparse-matrix library used in [CP2K](https://cp2k.org/). By providing this interface on top of LIBXSTREAM's OpenCL runtime, the library acts as a **drop-in OpenCL backend** for DBCSR: no changes to DBCSR or CP2K source code are required.
 
 ## Purpose
 
@@ -30,5 +30,5 @@ The header also declares `c_dbcsr_timeset` and `c_dbcsr_timestop`, which are DBC
 
 ## See Also
 
-* LIBXSTREAM API (`include/libxstream.h`) — the underlying OpenCL backend API
+* LIBXSTREAM API (`libxstream/libxstream.h`) — the underlying OpenCL backend API
 * [DBCSR ACC specification](https://github.com/cp2k/dbcsr/blob/develop/src/acc/) — upstream interface definition
