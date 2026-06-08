@@ -14,7 +14,7 @@ set(LIBXS_GIT_TAG "main")
 
 find_package(libxs CONFIG QUIET)
 if(NOT TARGET libxs::libxs)
-  message(STATUS "CMake-built libxs NOT found; finding Makefile-based LIBXS tree...")
+  message(STATUS "CMake-built libxs NOT found; searching for Makefile-based LIBXS tree...")
   set(LIBXSROOT "${PROJECT_SOURCE_DIR}/../libxs" CACHE PATH
     "Root of a Makefile-built LIBXS tree (sibling directory by default)")
   find_library(LIBXS_LIBRARY NAMES xs HINTS "${LIBXSROOT}/lib")
@@ -205,10 +205,14 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/"
     PATTERN "*.c"
     PATTERN "*.h"
     PATTERN "*.cl"
-    PATTERN "*.csv"
-    PATTERN "*.bin"
     PATTERN "*.py"
     PATTERN "*.sh")
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/"
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm/params
+  FILES_MATCHING
+    PATTERN "*.bin"
+    PATTERN "*.csv")
 
 install(EXPORT libxstreamTargets
   FILE libxstreamTargets.cmake
