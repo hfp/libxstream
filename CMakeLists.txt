@@ -14,6 +14,7 @@ set(LIBXS_GIT_TAG "main")
 
 find_package(libxs CONFIG QUIET)
 if(NOT TARGET libxs::libxs)
+  message(STATUS "CMake-built libxs NOT found; finding Makefile-based LIBXS tree...")
   set(LIBXSROOT "${PROJECT_SOURCE_DIR}/../libxs" CACHE PATH
     "Root of a Makefile-built LIBXS tree (sibling directory by default)")
   find_library(LIBXS_LIBRARY NAMES xs HINTS "${LIBXSROOT}/lib")
@@ -25,6 +26,7 @@ if(NOT TARGET libxs::libxs)
   endif()
 endif()
 if(NOT TARGET libxs::libxs)
+  message(STATUS "Cannot find libxs locally; downloading through FetchContent...")
   include(FetchContent)
   FetchContent_Declare(libxs
     GIT_REPOSITORY ${LIBXS_GIT_REPOSITORY}
