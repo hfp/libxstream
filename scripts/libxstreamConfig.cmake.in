@@ -1,0 +1,17 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+set(LIBXSTREAM_VERSION "@PROJECT_VERSION@")
+set(LIBXSTREAM_HEADER_ONLY "@LIBXSTREAM_HEADER_ONLY@")
+set(LIBXSTREAM_SHARED "@LIBXSTREAM_SHARED@")
+
+find_dependency(libxs CONFIG)
+find_dependency(OpenCL)
+find_dependency(OpenMP COMPONENTS C)
+
+set_and_check(LIBXSTREAM_TARGETS_FILE
+  "${CMAKE_CURRENT_LIST_DIR}/libxstreamTargets.cmake")
+include("${LIBXSTREAM_TARGETS_FILE}")
+
+check_required_components(libxstream)
