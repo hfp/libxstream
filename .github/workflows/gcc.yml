@@ -89,6 +89,11 @@ jobs:
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
         cd ${{ github.workspace }}/../libxs && make -j $(nproc)
+        cmake -B ${{ github.workspace }}/../libxs/build \
+          -S ${{ github.workspace }}/../libxs \
+          -DCMAKE_INSTALL_PREFIX=$HOME/libxs-install
+        cmake --build ${{ github.workspace }}/../libxs/build -j $(nproc)
+        cmake --install ${{ github.workspace }}/../libxs/build
 
     - name: Configure LIBXSTREAM
       run: |
@@ -108,6 +113,26 @@ jobs:
         test -f $HOME/libxstream-install/include/libxstream/libxstream.h
         ls $HOME/libxstream-install/lib/libxstream* >/dev/null
         ls $HOME/libxstream-install/lib/pkgconfig/libxstream.pc >/dev/null
+        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
+        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamTargets.cmake
+
+    - name: Verify find_package
+      run: |
+        mkdir -p /tmp/test_find
+        cat > /tmp/test_find/CMakeLists.txt <<'EOF'
+        cmake_minimum_required(VERSION 3.13)
+        project(test_find C)
+        find_package(libxstream CONFIG REQUIRED)
+        add_executable(test_find test_find.c)
+        target_link_libraries(test_find libxstream::libxstream)
+        EOF
+        cat > /tmp/test_find/test_find.c <<'EOF'
+        #include <libxstream/libxstream.h>
+        int main(void) { return 0; }
+        EOF
+        cmake -B /tmp/test_find/build -S /tmp/test_find \
+          -DCMAKE_PREFIX_PATH="$HOME/libxstream-install;$HOME/libxs-install"
+        cmake --build /tmp/test_find/build
 
   Dispatch:
     needs: Test
