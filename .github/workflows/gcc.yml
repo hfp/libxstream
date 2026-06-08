@@ -66,6 +66,59 @@ jobs:
     - name: Build Samples
       run: make -j $(nproc) ${{ matrix.flags }} PARAMS= samples
 
+  CMake:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gcc: [12, 14]
+        shared: [static, shared]
+    env:
+      CC: gcc-${{ matrix.gcc }}
+      CXX: g++-${{ matrix.gcc }}
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install GCC ${{ matrix.gcc }}
+      run: sudo apt install -y gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }}
+
+    - name: Install OpenCL
+      run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
+
+    - name: Setup LIBXS
+      run: |
+        git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
+
+    - name: Build and install LIBXS (CMake)
+      run: |
+        cmake -B ${{ github.workspace }}/../libxs/build \
+          -S ${{ github.workspace }}/../libxs \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/../libxs \
+          -DLIBXS_SHARED=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }}
+        cmake --build ${{ github.workspace }}/../libxs/build -j $(nproc)
+        cmake --install ${{ github.workspace }}/../libxs/build
+
+    - name: Configure LIBXSTREAM
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_INSTALL_PREFIX=$HOME/libxstream-install \
+          -DLIBXSTREAM_SHARED=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }} \
+          -DLIBXSROOT=${{ github.workspace }}/../libxs
+
+    - name: Build
+      run: cmake --build build -j $(nproc)
+
+    - name: Install
+      run: cmake --install build
+
+    - name: Verify install
+      run: |
+        test -f $HOME/libxstream-install/include/libxstream/libxstream.h
+        ls $HOME/libxstream-install/lib/libxstream* >/dev/null
+        ls $HOME/libxstream-install/lib/pkgconfig/libxstream.pc >/dev/null
+
   Dispatch:
     needs: Test
     runs-on: ubuntu-latest
