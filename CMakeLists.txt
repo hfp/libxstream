@@ -9,7 +9,21 @@ include(CMakePackageConfigHelpers)
 option(LIBXSTREAM_HEADER_ONLY "Header-only usage (no library target)" OFF)
 option(LIBXSTREAM_SHARED "Build shared library instead of static" OFF)
 
-find_package(libxs CONFIG REQUIRED)
+set(LIBXS_GIT_REPOSITORY "https://github.com/Growl1234/libxs.git")
+set(LIBXS_GIT_TAG "main")
+
+find_package(libxs CONFIG QUIET)
+if(NOT TARGET libxs::libxs)
+  include(FetchContent)
+  FetchContent_Declare(libxs
+    GIT_REPOSITORY ${LIBXS_GIT_REPOSITORY}
+    GIT_TAG ${LIBXS_GIT_TAG})
+  FetchContent_MakeAvailable(libxs)
+endif()
+if(NOT TARGET libxs::libxs)
+  message(FATAL_ERROR "libxs target libxs::libxs was not found or created")
+endif()
+
 find_package(OpenCL REQUIRED)
 find_package(OpenMP REQUIRED COMPONENTS C)
 
