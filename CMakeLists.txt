@@ -149,7 +149,7 @@ configure_package_config_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstreamConfig.cmake.in"
   "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfig.cmake"
   INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxstream
-  PATH_VARS CMAKE_INSTALL_INCLUDEDIR CMAKE_INSTALL_LIBDIR)
+  PATH_VARS CMAKE_INSTALL_INCLUDEDIR CMAKE_INSTALL_LIBDIR CMAKE_INSTALL_DATADIR)
 
 write_basic_package_version_file(
   "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfigVersion.cmake"
@@ -192,6 +192,21 @@ if(NOT LIBXSTREAM_HEADER_ONLY)
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
   )
 endif()
+
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/scripts)
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/"
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm
+  FILES_MATCHING
+    PATTERN "*.c"
+    PATTERN "*.h"
+    PATTERN "*.cl"
+    PATTERN "*.csv"
+    PATTERN "*.bin"
+    PATTERN "*.py"
+    PATTERN "*.sh")
 
 install(EXPORT libxstreamTargets
   FILE libxstreamTargets.cmake

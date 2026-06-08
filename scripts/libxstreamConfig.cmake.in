@@ -16,4 +16,11 @@ set_and_check(LIBXSTREAM_TARGETS_FILE
   "${CMAKE_CURRENT_LIST_DIR}/libxstreamTargets.cmake")
 include("${LIBXSTREAM_TARGETS_FILE}")
 
+set_and_check(LIBXSTREAM_OPENCL_SCRIPT
+  "@PACKAGE_CMAKE_INSTALL_DATADIR@/libxstream/scripts/tool_opencl.sh")
+set_and_check(LIBXSTREAM_SMM_DIR
+  "@PACKAGE_CMAKE_INSTALL_DATADIR@/libxstream/samples/smm")
+set_and_check(LIBXSTREAM_SMM_ACC_SOURCE
+  "@PACKAGE_CMAKE_INSTALL_DATADIR@/libxstream/samples/smm/smm_acc.c")
+
 check_required_components(libxstream)
