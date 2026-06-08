@@ -88,24 +88,14 @@ jobs:
     - name: Setup LIBXS
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
-
-    - name: Build and install LIBXS (CMake)
-      run: |
-        cmake -B ${{ github.workspace }}/../libxs/build \
-          -S ${{ github.workspace }}/../libxs \
-          -DCMAKE_BUILD_TYPE=Debug \
-          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/../libxs \
-          -DLIBXS_SHARED=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }}
-        cmake --build ${{ github.workspace }}/../libxs/build -j $(nproc)
-        cmake --install ${{ github.workspace }}/../libxs/build
+        cd ${{ github.workspace }}/../libxs && make -j $(nproc)
 
     - name: Configure LIBXSTREAM
       run: |
         cmake -B build \
           -DCMAKE_BUILD_TYPE=Debug \
           -DCMAKE_INSTALL_PREFIX=$HOME/libxstream-install \
-          -DLIBXSTREAM_SHARED=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }} \
-          -DLIBXSROOT=${{ github.workspace }}/../libxs
+          -DLIBXSTREAM_SHARED=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }}
 
     - name: Build
       run: cmake --build build -j $(nproc)
