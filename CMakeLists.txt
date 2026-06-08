@@ -3,31 +3,28 @@ project(libxstream
   VERSION 0.9.1
   LANGUAGES C)
 
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
 option(LIBXSTREAM_HEADER_ONLY "Header-only usage (no library target)" OFF)
 option(LIBXSTREAM_SHARED "Build shared library instead of static" OFF)
-set(LIBXSROOT "${PROJECT_SOURCE_DIR}/../libxs" CACHE PATH
-  "Root of the LIBXS library (sibling directory by default)")
 
-if(NOT IS_DIRECTORY "${LIBXSROOT}")
-  message(FATAL_ERROR
-    "LIBXS not found at ${LIBXSROOT}\n"
-    "Set -DLIBXSROOT=<path> to the LIBXS source/install tree.")
-endif()
-set(LIBXS_INCLUDE_DIR "${LIBXSROOT}")
+find_package(libxs CONFIG REQUIRED)
+find_package(OpenCL REQUIRED)
+find_package(OpenMP REQUIRED COMPONENTS C)
 
-if(NOT LIBXSTREAM_HEADER_ONLY)
-  find_package(OpenCL REQUIRED)
-endif()
+set(LIBXSTREAM_LINK_LIBRARIES
+  OpenCL::OpenCL
+  OpenMP::OpenMP_C
+  libxs::libxs)
 
 message(STATUS "******** Build Summary ********")
 message(STATUS "  CMake version         : ${CMAKE_VERSION}")
 message(STATUS "  System                : ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  LIBXSTREAM_HEADER_ONLY: ${LIBXSTREAM_HEADER_ONLY}")
 message(STATUS "  LIBXSTREAM_SHARED     : ${LIBXSTREAM_SHARED}")
-message(STATUS "  LIBXSROOT             : ${LIBXSROOT}")
-if(NOT LIBXSTREAM_HEADER_ONLY)
-  message(STATUS "  OpenCL                : ${OpenCL_VERSION_STRING}")
-endif()
+message(STATUS "  libxs target          : libxs::libxs")
+message(STATUS "  OpenCL                : ${OpenCL_VERSION_STRING}")
 
 set(LIBXSTREAM_ROOT_DIR ${PROJECT_SOURCE_DIR})
 set(LIBXSTREAM_INCLUDE_DIR ${LIBXSTREAM_ROOT_DIR}/libxstream)
@@ -58,12 +55,24 @@ endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${LIBXSTREAM_VERSION_SCRIPT}")
 
+set(LIBXSTREAM_PUBLIC_INCLUDE_DIRS
+  $<BUILD_INTERFACE:${LIBXSTREAM_ROOT_DIR}>
+  $<BUILD_INTERFACE:${LIBXSTREAM_INCLUDE_DIR}>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/libxstream>)
+
+set(LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS __OPENCL __ACC)
+if(NOT LIBXS_HEADER_ONLY)
+  list(APPEND LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS __LIBXS)
+endif()
+
 if(LIBXSTREAM_HEADER_ONLY)
   add_library(libxstream INTERFACE)
-  target_include_directories(libxstream INTERFACE
-    $<BUILD_INTERFACE:${LIBXSTREAM_ROOT_DIR}>
-    $<BUILD_INTERFACE:${LIBXSROOT}>
-    $<INSTALL_INTERFACE:include>)
+  target_include_directories(libxstream INTERFACE ${LIBXSTREAM_PUBLIC_INCLUDE_DIRS})
+  target_compile_definitions(libxstream INTERFACE
+    ${LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS}
+    LIBXSTREAM_SOURCE=1)
+  target_link_libraries(libxstream INTERFACE ${LIBXSTREAM_LINK_LIBRARIES})
   add_library(libxstream::libxstream ALIAS libxstream)
 else()
   file(GLOB LIBXSTREAM_SRCS LIST_DIRECTORIES false CONFIGURE_DEPENDS
@@ -78,48 +87,15 @@ else()
   set_target_properties(libxstream PROPERTIES OUTPUT_NAME xstream)
 
   target_compile_definitions(libxstream PRIVATE LIBXSTREAM_BUILD=1)
-  target_compile_definitions(libxstream PUBLIC __OPENCL __ACC)
+  target_compile_definitions(libxstream PUBLIC ${LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS})
 
   target_include_directories(libxstream
     PUBLIC
-      $<BUILD_INTERFACE:${LIBXSTREAM_ROOT_DIR}>
-      $<BUILD_INTERFACE:${LIBXSROOT}>
-      $<INSTALL_INTERFACE:include>
+      ${LIBXSTREAM_PUBLIC_INCLUDE_DIRS}
     PRIVATE
       ${LIBXSTREAM_ROOT_DIR}/src)
 
-  target_link_libraries(libxstream PUBLIC OpenCL::OpenCL)
-
-  find_package(OpenMP REQUIRED)
-  target_link_libraries(libxstream PUBLIC OpenMP::OpenMP_C)
-
-  # prefer in-tree LIBXS target, then pre-built library
-  if(TARGET libxs::libxs)
-    target_compile_definitions(libxstream PUBLIC __LIBXS)
-    target_link_libraries(libxstream PUBLIC libxs::libxs)
-  else()
-    find_library(LIBXS_LIBRARY NAMES xs libxs HINTS "${LIBXSROOT}/lib")
-    if(LIBXS_LIBRARY)
-      target_compile_definitions(libxstream PUBLIC __LIBXS)
-      target_link_libraries(libxstream PUBLIC "${LIBXS_LIBRARY}")
-    endif()
-  endif()
-
-  # transitive dependencies of LIBXS (pthread, dl, m, rt)
-  set(THREADS_PREFER_PTHREAD_FLAG ON)
-  find_package(Threads REQUIRED)
-  target_link_libraries(libxstream PUBLIC Threads::Threads)
-  target_link_libraries(libxstream PUBLIC ${CMAKE_DL_LIBS})
-
-  include(CheckLibraryExists)
-  check_library_exists(m sqrt "" LIBXSTREAM_HAS_LIBM)
-  if(LIBXSTREAM_HAS_LIBM)
-    target_link_libraries(libxstream PUBLIC m)
-  endif()
-  check_library_exists(rt clock_gettime "" LIBXSTREAM_HAS_LIBRT)
-  if(LIBXSTREAM_HAS_LIBRT)
-    target_link_libraries(libxstream PUBLIC rt)
-  endif()
+  target_link_libraries(libxstream PUBLIC ${LIBXSTREAM_LINK_LIBRARIES})
 endif()
 
 # Pkg-config file
@@ -133,22 +109,9 @@ if(NOT LIBXSTREAM_HEADER_ONLY)
   set(VERSION "${PROJECT_VERSION}")
   set(LINKNAME "xstream")
   set(LIBS_PRIVATE "")
-  set(REQUIRES_PRIVATE "")
+  set(REQUIRES_PRIVATE "Requires.private: libxs")
   if(NOT LIBXSTREAM_SHARED)
     set(LIBS_PRIVATE "Libs.private: -lpthread -ldl")
-    if(LIBXSTREAM_HAS_LIBM)
-      string(APPEND LIBS_PRIVATE " -lm")
-    endif()
-    if(LIBXSTREAM_HAS_LIBRT)
-      string(APPEND LIBS_PRIVATE " -lrt")
-    endif()
-    if(LIBXS_LIBRARY)
-      set(REQUIRES_PRIVATE "Requires.private: libxs-static")
-    endif()
-  else()
-    if(LIBXS_LIBRARY)
-      set(REQUIRES_PRIVATE "Requires.private: libxs")
-    endif()
   endif()
 
   configure_file(
@@ -158,13 +121,21 @@ if(NOT LIBXSTREAM_HEADER_ONLY)
   )
 endif()
 
-# Installation rules
-include(GNUInstallDirs)
+configure_package_config_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstreamConfig.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfig.cmake"
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxstream
+  PATH_VARS CMAKE_INSTALL_INCLUDEDIR CMAKE_INSTALL_LIBDIR)
 
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfigVersion.cmake"
+  VERSION ${PROJECT_VERSION}
+  COMPATIBILITY SameMajorVersion)
+
+# Installation rules
 if(LIBXSTREAM_HEADER_ONLY)
   install(TARGETS libxstream
-    EXPORT libxstreamTargets
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    EXPORT libxstreamTargets)
 else()
   install(TARGETS libxstream
     EXPORT libxstreamTargets
@@ -177,6 +148,20 @@ install(DIRECTORY ${LIBXSTREAM_INCLUDE_DIR}/
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libxstream
   FILES_MATCHING PATTERN "*.h")
 
+if(LIBXSTREAM_HEADER_ONLY)
+  file(READ "${LIBXSTREAM_INCLUDE_DIR}/libxstream_source.h" LIBXSTREAM_SOURCE_HEADER)
+  string(REPLACE "../src/" "src/" LIBXSTREAM_SOURCE_HEADER "${LIBXSTREAM_SOURCE_HEADER}")
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h" "${LIBXSTREAM_SOURCE_HEADER}")
+
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h"
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libxstream)
+  install(DIRECTORY ${LIBXSTREAM_ROOT_DIR}/src/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libxstream/src
+    FILES_MATCHING
+      PATTERN "*.c"
+      PATTERN "*.h")
+endif()
+
 if(NOT LIBXSTREAM_HEADER_ONLY)
   install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/libxstream.pc"
@@ -187,4 +172,9 @@ endif()
 install(EXPORT libxstreamTargets
   FILE libxstreamTargets.cmake
   NAMESPACE libxstream::
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxstream)
+
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfig.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfigVersion.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxstream)
