@@ -106,7 +106,9 @@ else()
     add_library(libxstream STATIC ${LIBXSTREAM_SRCS})
   endif()
   add_library(libxstream::libxstream ALIAS libxstream)
-  set_target_properties(libxstream PROPERTIES OUTPUT_NAME xstream)
+  set_target_properties(libxstream PROPERTIES
+    OUTPUT_NAME xstream
+    POSITION_INDEPENDENT_CODE ON)
 
   target_compile_definitions(libxstream PRIVATE LIBXSTREAM_BUILD=1)
   target_compile_definitions(libxstream PUBLIC ${LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS})
