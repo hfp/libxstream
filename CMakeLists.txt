@@ -9,10 +9,21 @@ include(CMakePackageConfigHelpers)
 option(LIBXSTREAM_HEADER_ONLY "Header-only usage (no library target)" OFF)
 option(LIBXSTREAM_SHARED "Build shared library instead of static" OFF)
 
-set(LIBXS_GIT_REPOSITORY "https://github.com/Growl1234/libxs.git")
+set(LIBXS_GIT_REPOSITORY "https://github.com/hfp/libxs.git")
 set(LIBXS_GIT_TAG "main")
 
 find_package(libxs CONFIG QUIET)
+if(NOT TARGET libxs::libxs)
+  set(LIBXSROOT "${PROJECT_SOURCE_DIR}/../libxs" CACHE PATH
+    "Root of a Makefile-built LIBXS tree (sibling directory by default)")
+  find_library(LIBXS_LIBRARY NAMES xs HINTS "${LIBXSROOT}/lib")
+  if(LIBXS_LIBRARY AND EXISTS "${LIBXSROOT}/libxs/libxs.h")
+    add_library(libxs::libxs STATIC IMPORTED)
+    set_target_properties(libxs::libxs PROPERTIES
+      IMPORTED_LOCATION "${LIBXS_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${LIBXSROOT}")
+  endif()
+endif()
 if(NOT TARGET libxs::libxs)
   include(FetchContent)
   FetchContent_Declare(libxs
@@ -75,10 +86,7 @@ set(LIBXSTREAM_PUBLIC_INCLUDE_DIRS
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/libxstream>)
 
-set(LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS __OPENCL __ACC)
-if(NOT LIBXS_HEADER_ONLY)
-  list(APPEND LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS __LIBXS)
-endif()
+set(LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS __OPENCL __ACC __LIBXS)
 
 if(LIBXSTREAM_HEADER_ONLY)
   add_library(libxstream INTERFACE)
