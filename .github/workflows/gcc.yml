@@ -56,6 +56,7 @@ jobs:
         test -f $HOME/libxstream-install/include/libxstream/libxstream_source.h
         test -d $HOME/libxstream-install/include/libxstream/src
         ls $HOME/libxstream-install/lib/libxstream.* >/dev/null
+        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
         test -f $HOME/libxstream-install/share/libxstream/scripts/tool_opencl.sh
 
     - name: Out-of-tree build
@@ -90,11 +91,6 @@ jobs:
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
         cd ${{ github.workspace }}/../libxs && make -j $(nproc)
-        cmake -B ${{ github.workspace }}/../libxs/build \
-          -S ${{ github.workspace }}/../libxs \
-          -DCMAKE_INSTALL_PREFIX=$HOME/libxs-install
-        cmake --build ${{ github.workspace }}/../libxs/build -j $(nproc)
-        cmake --install ${{ github.workspace }}/../libxs/build
 
     - name: Configure LIBXSTREAM
       run: |
@@ -137,7 +133,7 @@ jobs:
         int main(void) { return 0; }
         EOF
         cmake -B /tmp/test_find/build -S /tmp/test_find \
-          -DCMAKE_PREFIX_PATH="$HOME/libxstream-install;$HOME/libxs-install"
+          -DCMAKE_PREFIX_PATH="$HOME/libxstream-install;${{ github.workspace }}/../libxs"
         cmake --build /tmp/test_find/build
 
   Dispatch:

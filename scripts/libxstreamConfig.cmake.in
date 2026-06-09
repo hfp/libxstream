@@ -14,6 +14,8 @@ set_and_check(LIBXSTREAM_TARGETS_FILE
   "${CMAKE_CURRENT_LIST_DIR}/libxstreamTargets.cmake")
 include("${LIBXSTREAM_TARGETS_FILE}")
 
+set_and_check(LIBXSTREAM_INCLUDE_DIRS
+  "@PACKAGE_CMAKE_INSTALL_INCLUDEDIR@")
 set_and_check(LIBXSTREAM_OPENCL_SCRIPT
   "@PACKAGE_CMAKE_INSTALL_DATADIR@/libxstream/scripts/tool_opencl.sh")
 set_and_check(LIBXSTREAM_SMM_DIR

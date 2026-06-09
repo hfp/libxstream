@@ -9,19 +9,8 @@ include(CMakePackageConfigHelpers)
 set(LIBXS_GIT_REPOSITORY "https://github.com/hfp/libxs.git")
 set(LIBXS_GIT_TAG "main")
 
-find_package(libxs CONFIG QUIET)
-if(NOT TARGET libxs::libxs)
-  message(STATUS "CMake-built libxs NOT found; searching for Makefile-based LIBXS tree...")
-  set(LIBXSROOT "${PROJECT_SOURCE_DIR}/../libxs" CACHE PATH
-    "Root of a Makefile-built LIBXS tree (sibling directory by default)")
-  find_library(LIBXS_LIBRARY NAMES xs HINTS "${LIBXSROOT}/lib")
-  if(LIBXS_LIBRARY AND EXISTS "${LIBXSROOT}/libxs/libxs.h")
-    add_library(libxs::libxs STATIC IMPORTED)
-    set_target_properties(libxs::libxs PROPERTIES
-      IMPORTED_LOCATION "${LIBXS_LIBRARY}"
-      INTERFACE_INCLUDE_DIRECTORIES "${LIBXSROOT}")
-  endif()
-endif()
+find_package(libxs CONFIG QUIET
+  HINTS "${PROJECT_SOURCE_DIR}/../libxs")
 if(NOT TARGET libxs::libxs)
   message(STATUS "Cannot find libxs locally; downloading through FetchContent...")
   include(FetchContent)
