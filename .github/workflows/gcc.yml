@@ -54,8 +54,9 @@ jobs:
         test -f $HOME/libxstream-install/include/libxstream/libxstream.h
         test -f $HOME/libxstream-install/include/libxstream/libxstream_version.h
         test -f $HOME/libxstream-install/include/libxstream/libxstream_source.h
-        test -d $HOME/libxstream-install/include/libxstream/libxstream
+        test -d $HOME/libxstream-install/include/libxstream/src
         ls $HOME/libxstream-install/lib/libxstream.* >/dev/null
+        test -f $HOME/libxstream-install/share/libxstream/scripts/tool_opencl.sh
 
     - name: Out-of-tree build
       if: matrix.libxs == 'prebuilt'
@@ -100,7 +101,7 @@ jobs:
         cmake -B build \
           -DCMAKE_BUILD_TYPE=Debug \
           -DCMAKE_INSTALL_PREFIX=$HOME/libxstream-install \
-          -DLIBXSTREAM_SHARED=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }}
+          -DBUILD_SHARED_LIBS=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }}
 
     - name: Build
       run: cmake --build build -j $(nproc)
@@ -111,10 +112,15 @@ jobs:
     - name: Verify install
       run: |
         test -f $HOME/libxstream-install/include/libxstream/libxstream.h
+        test -f $HOME/libxstream-install/include/libxstream/libxstream_source.h
+        test -d $HOME/libxstream-install/include/libxstream/src
         ls $HOME/libxstream-install/lib/libxstream* >/dev/null
         ls $HOME/libxstream-install/lib/pkgconfig/libxstream.pc >/dev/null
         test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
         test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamTargets.cmake
+        test -f $HOME/libxstream-install/share/libxstream/scripts/tool_opencl.sh
+        test -f $HOME/libxstream-install/share/libxstream/samples/smm/smm_acc.c
+        test -f $HOME/libxstream-install/share/libxstream/samples/smm/kernels/multiply.cl
 
     - name: Verify find_package
       run: |

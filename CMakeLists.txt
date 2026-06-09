@@ -6,9 +6,6 @@ project(libxstream
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-option(LIBXSTREAM_HEADER_ONLY "Header-only usage (no library target)" OFF)
-option(LIBXSTREAM_SHARED "Build shared library instead of static" OFF)
-
 set(LIBXS_GIT_REPOSITORY "https://github.com/hfp/libxs.git")
 set(LIBXS_GIT_TAG "main")
 
@@ -48,8 +45,6 @@ set(LIBXSTREAM_LINK_LIBRARIES
 message(STATUS "******** Build Summary ********")
 message(STATUS "  CMake version         : ${CMAKE_VERSION}")
 message(STATUS "  System                : ${CMAKE_SYSTEM_NAME}")
-message(STATUS "  LIBXSTREAM_HEADER_ONLY: ${LIBXSTREAM_HEADER_ONLY}")
-message(STATUS "  LIBXSTREAM_SHARED     : ${LIBXSTREAM_SHARED}")
 message(STATUS "  libxs target          : libxs::libxs")
 message(STATUS "  OpenCL                : ${OpenCL_VERSION_STRING}")
 
@@ -90,62 +85,46 @@ set(LIBXSTREAM_PUBLIC_INCLUDE_DIRS
 
 set(LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS __OPENCL __ACC __LIBXS)
 
-if(LIBXSTREAM_HEADER_ONLY)
-  add_library(libxstream INTERFACE)
-  target_include_directories(libxstream INTERFACE ${LIBXSTREAM_PUBLIC_INCLUDE_DIRS})
-  target_compile_definitions(libxstream INTERFACE
-    ${LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS}
-    LIBXSTREAM_SOURCE=1)
-  target_link_libraries(libxstream INTERFACE ${LIBXSTREAM_LINK_LIBRARIES})
-  add_library(libxstream::libxstream ALIAS libxstream)
-else()
-  file(GLOB LIBXSTREAM_SRCS LIST_DIRECTORIES false CONFIGURE_DEPENDS
-    ${LIBXSTREAM_ROOT_DIR}/src/*.c)
+file(GLOB LIBXSTREAM_SRCS LIST_DIRECTORIES false CONFIGURE_DEPENDS
+  ${LIBXSTREAM_ROOT_DIR}/src/*.c)
 
-  if(LIBXSTREAM_SHARED)
-    add_library(libxstream SHARED ${LIBXSTREAM_SRCS})
-  else()
-    add_library(libxstream STATIC ${LIBXSTREAM_SRCS})
-  endif()
-  add_library(libxstream::libxstream ALIAS libxstream)
-  set_target_properties(libxstream PROPERTIES
-    OUTPUT_NAME xstream
-    POSITION_INDEPENDENT_CODE ON)
+add_library(libxstream ${LIBXSTREAM_SRCS})
+add_library(libxstream::libxstream ALIAS libxstream)
+set_target_properties(libxstream PROPERTIES
+  OUTPUT_NAME xstream
+  POSITION_INDEPENDENT_CODE ON)
 
-  target_compile_definitions(libxstream PRIVATE LIBXSTREAM_BUILD=1)
-  target_compile_definitions(libxstream PUBLIC ${LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS})
+target_compile_definitions(libxstream PRIVATE LIBXSTREAM_BUILD=1)
+target_compile_definitions(libxstream PUBLIC ${LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS})
 
-  target_include_directories(libxstream
-    PUBLIC
-      ${LIBXSTREAM_PUBLIC_INCLUDE_DIRS}
-    PRIVATE
-      ${LIBXSTREAM_ROOT_DIR}/src)
+target_include_directories(libxstream
+  PUBLIC
+    ${LIBXSTREAM_PUBLIC_INCLUDE_DIRS}
+  PRIVATE
+    ${LIBXSTREAM_ROOT_DIR}/src)
 
-  target_link_libraries(libxstream PUBLIC ${LIBXSTREAM_LINK_LIBRARIES})
-endif()
+target_link_libraries(libxstream PUBLIC ${LIBXSTREAM_LINK_LIBRARIES})
 
 # Pkg-config file
-if(NOT LIBXSTREAM_HEADER_ONLY)
-  set(PREFIX "${CMAKE_INSTALL_PREFIX}")
-  set(INCLUDEDIR "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
-  set(LIBDIR "\${prefix}/${CMAKE_INSTALL_LIBDIR}")
-  set(PROJECT "libxstream")
-  set(DESCRIPTION "Specialized tensor operations")
-  set(URL "https://github.com/hfp/libxstream/")
-  set(VERSION "${PROJECT_VERSION}")
-  set(LINKNAME "xstream")
-  set(LIBS_PRIVATE "")
-  set(REQUIRES_PRIVATE "Requires.private: libxs")
-  if(NOT LIBXSTREAM_SHARED)
-    set(LIBS_PRIVATE "Libs.private: -lpthread -ldl")
-  endif()
-
-  configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstream.pc.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/libxstream.pc"
-    @ONLY
-  )
+set(PREFIX "${CMAKE_INSTALL_PREFIX}")
+set(INCLUDEDIR "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
+set(LIBDIR "\${prefix}/${CMAKE_INSTALL_LIBDIR}")
+set(PROJECT "libxstream")
+set(DESCRIPTION "Specialized tensor operations")
+set(URL "https://github.com/hfp/libxstream/")
+set(VERSION "${PROJECT_VERSION}")
+set(LINKNAME "xstream")
+set(LIBS_PRIVATE "")
+set(REQUIRES_PRIVATE "Requires.private: libxs")
+if(NOT BUILD_SHARED_LIBS)
+  set(LIBS_PRIVATE "Libs.private: -lpthread -ldl")
 endif()
+
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstream.pc.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/libxstream.pc"
+  @ONLY
+)
 
 configure_package_config_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstreamConfig.cmake.in"
@@ -159,60 +138,80 @@ write_basic_package_version_file(
   COMPATIBILITY SameMajorVersion)
 
 # Installation rules
-if(LIBXSTREAM_HEADER_ONLY)
-  install(TARGETS libxstream
-    EXPORT libxstreamTargets)
-else()
-  install(TARGETS libxstream
-    EXPORT libxstreamTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-endif()
+install(TARGETS libxstream
+  EXPORT libxstreamTargets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 install(DIRECTORY ${LIBXSTREAM_INCLUDE_DIR}/
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libxstream
   FILES_MATCHING PATTERN "*.h")
 
-if(LIBXSTREAM_HEADER_ONLY)
-  file(READ "${LIBXSTREAM_INCLUDE_DIR}/libxstream_source.h" LIBXSTREAM_SOURCE_HEADER)
-  string(REPLACE "../src/" "src/" LIBXSTREAM_SOURCE_HEADER "${LIBXSTREAM_SOURCE_HEADER}")
-  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h" "${LIBXSTREAM_SOURCE_HEADER}")
+# Install header-only source files (always available)
+file(READ "${LIBXSTREAM_INCLUDE_DIR}/libxstream_source.h" LIBXSTREAM_SOURCE_HEADER)
+string(REPLACE "../src/" "src/" LIBXSTREAM_SOURCE_HEADER "${LIBXSTREAM_SOURCE_HEADER}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h" "${LIBXSTREAM_SOURCE_HEADER}")
 
-  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h"
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libxstream)
-  install(DIRECTORY ${LIBXSTREAM_ROOT_DIR}/src/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libxstream/src
-    FILES_MATCHING
-      PATTERN "*.c"
-      PATTERN "*.h")
-endif()
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h"
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libxstream)
+install(DIRECTORY ${LIBXSTREAM_ROOT_DIR}/src/
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libxstream/src
+  FILES_MATCHING
+    PATTERN "*.c"
+    PATTERN "*.h")
 
-if(NOT LIBXSTREAM_HEADER_ONLY)
-  install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/libxstream.pc"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
-  )
-endif()
+# Install pkg-config files
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/libxstream.pc"
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+)
 
 install(PROGRAMS
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
   DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/scripts)
 
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/"
-  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm
-  FILES_MATCHING
-    PATTERN "*.c"
-    PATTERN "*.h"
-    PATTERN "*.cl"
-    PATTERN "*.py"
-    PATTERN "*.sh")
+set(LIBXSTREAM_SMM_SRC
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_acc.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_kernel.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_params.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_trans.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/smm_acc_opencl.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/acc.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/acc_bench.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/acc_libsmm.h")
+install(FILES ${LIBXSTREAM_SMM_SRC}
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm)
 
-install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/"
-  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm/params
-  FILES_MATCHING
-    PATTERN "*.bin"
-    PATTERN "*.csv")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/kernels/"
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm/kernels
+  FILES_MATCHING PATTERN "*.cl")
+
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/tune_multiply.py"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/tune_multiply.sh"
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm)
+
+file(GLOB LIBXSTREAM_SMM_PARAMS LIST_DIRECTORIES false
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.bin"
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.csv")
+install(FILES ${LIBXSTREAM_SMM_PARAMS}
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm/params)
+
+file(GLOB LIBXSTREAM_SMM_CL LIST_DIRECTORIES false
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/kernels/*.cl")
+file(GLOB LIBXSTREAM_SMM_CSV LIST_DIRECTORIES false
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.csv")
+install(CODE "
+  set(_out \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm/smm_kernels.h\")
+  execute_process(
+    COMMAND \"${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh\"
+      ${LIBXSTREAM_SMM_CL} ${LIBXSTREAM_SMM_CSV} \${_out}
+    RESULT_VARIABLE _rc)
+  if(NOT _rc EQUAL 0)
+    message(FATAL_ERROR \"tool_opencl.sh failed with code \${_rc}\")
+  endif()
+")
 
 install(EXPORT libxstreamTargets
   FILE libxstreamTargets.cmake
@@ -223,3 +222,22 @@ install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfig.cmake"
   "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfigVersion.cmake"
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libxstream)
+
+# Install documentation into share/libxstream
+set(LIBXSTREAM_SHARE_DIR ${CMAKE_INSTALL_DATADIR}/libxstream)
+
+file(GLOB LIBXSTREAM_DOC_MDS LIST_DIRECTORIES false
+  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/libxstream_*.md")
+list(REMOVE_ITEM LIBXSTREAM_DOC_MDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/libxstream_samples.md"
+  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/libxstream_scripts.md")
+
+set(LIBXSTREAM_DOC_EXTRA
+  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/index.md"
+  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/LICENSE.md")
+
+file(GLOB LIBXSTREAM_DOC_PDFS LIST_DIRECTORIES false
+  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/*.pdf")
+
+install(FILES ${LIBXSTREAM_DOC_MDS} ${LIBXSTREAM_DOC_EXTRA} ${LIBXSTREAM_DOC_PDFS}
+  DESTINATION ${LIBXSTREAM_SHARE_DIR})

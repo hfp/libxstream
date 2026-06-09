@@ -18,7 +18,7 @@ DOCDIR := documentation
 
 # subdirectories (relative) to PREFIX (install targets)
 PINCDIR ?= include/$(PROJECT)
-PSRCDIR ?= $(PROJECT)
+PSRCDIR ?= src
 POUTDIR ?= $(OUTDIR)
 PPKGDIR ?= $(OUTDIR)/pkgconfig
 PMODDIR ?= $(OUTDIR)
@@ -252,6 +252,8 @@ DOCMDS := $(addprefix $(ABSDIR)/,$(filter-out \
     $(DOCDIR)/$(PROJECT)_scripts.md, \
   $(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
     $(DOCDIR)/$(PROJECT)_*.md 2>/dev/null)))
+INSTMDS := $(DOCMDS) $(addprefix $(ABSDIR)/,$(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
+    $(DOCDIR)/index.md $(DOCDIR)/LICENSE.md 2>/dev/null))
 
 .PHONY: samples $(SAMPLES)
 samples: $(SAMPLES)
@@ -486,6 +488,31 @@ endif
 	@$(CP) -r $(ROOTSRC)/* $(PREFIX)/$(PINCDIR)/$(PSRCDIR)
 # regenerate header-only
 	@$(ROOTSCR)/tool_source.sh $(PSRCDIR) >$(PREFIX)/$(PINCDIR)/$(PROJECT)_source.h
+	@echo
+	@echo "$(PROJUPP) installing support scripts..."
+	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)/$(SCRDIR)
+	@$(CP) -v $(ROOTSCR)/tool_opencl.sh $(PREFIX)/$(PSHRDIR)/$(SCRDIR)
+	@echo
+	@echo "$(PROJUPP) installing OpenCL SMM support files..."
+	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm/kernels
+	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm/params
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/smm_acc.c $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/smm_kernel.c $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/smm_params.c $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/smm_trans.c $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/smm_acc_opencl.h $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/acc.h $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/acc_bench.h $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/acc_libsmm.h $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/kernels/*.cl $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm/kernels
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/tune_multiply.py $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/tune_multiply.sh $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/params/*.bin $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm/params 2>/dev/null || true
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/smm/params/*.csv $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm/params 2>/dev/null || true
+	@$(ROOTSCR)/tool_opencl.sh \
+		$(ROOTDIR)/$(SPLDIR)/smm/kernels/*.cl \
+		$(ROOTDIR)/$(SPLDIR)/smm/params/*.csv \
+		$(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm/smm_kernels.h
 endif
 
 .PHONY: install
@@ -495,7 +522,7 @@ ifneq ($(PREFIX),$(ABSDIR))
 	@echo "$(PROJUPP) installing documentation..."
 	@$(MKDIR) -p $(PREFIX)/$(PDOCDIR)
 	@$(CP) -va $(ROOTDIR)/$(DOCDIR)/*.pdf $(PREFIX)/$(PDOCDIR)
-	@$(CP) -va $(ROOTDIR)/$(DOCDIR)/*.md $(PREFIX)/$(PDOCDIR)
+	@$(CP) -va $(INSTMDS) $(PREFIX)/$(PDOCDIR)
 #	@$(CP) -v  $(ROOTDIR)/SECURITY.md $(PREFIX)/$(PDOCDIR) || true
 #	@$(CP) -v  $(ROOTDIR)/version.txt $(PREFIX)/$(PDOCDIR) || true
 	@$(SED) "s/^\"//;s/\\\n\"$$//;/STATIC=/d" $(DIRSTATE)/.state >$(PREFIX)/$(PDOCDIR)/build.txt 2>/dev/null || true
