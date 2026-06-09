@@ -3,8 +3,6 @@
 include(CMakeFindDependencyMacro)
 
 set(LIBXSTREAM_VERSION "@PROJECT_VERSION@")
-set(LIBXSTREAM_HEADER_ONLY "@LIBXSTREAM_HEADER_ONLY@")
-set(LIBXSTREAM_SHARED "@LIBXSTREAM_SHARED@")
 
 if(NOT TARGET libxs::libxs)
   find_dependency(libxs CONFIG)
