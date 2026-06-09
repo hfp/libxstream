@@ -349,7 +349,8 @@ class SmmTuner(MeasurementInterface):
         performance = None
         if not skip:
             runcmd = self.launch(config, self.args.check, nrep, self.args.verbose)
-            self.run_result = self.call_program(" ".join(runcmd))
+            tlimit = self.args.timeout if 0 < self.args.timeout else None
+            self.run_result = self.call_program(" ".join(runcmd), limit=tlimit)
             result = self.run_result["returncode"] if self.run_result else 1
             if 0 == result:
                 performance = re.search(
@@ -638,7 +639,10 @@ class SmmTuner(MeasurementInterface):
         envchk = os.getenv("CHECK")  # force CHECKing result unless CHECK=0
         result = self.run_result["returncode"] if config and self.run_result else 1
         if 0 == result and 0 == self.args.check and (envchk is None or "0" != envchk):
-            self.run_result = self.call_program(" ".join(self.launch(cfgenv, 1)))
+            tlimit = self.args.timeout if 0 < self.args.timeout else None
+            self.run_result = self.call_program(
+                " ".join(self.launch(cfgenv, 1)), limit=tlimit
+            )
             result = self.run_result["returncode"] if self.run_result else 1
         # extend result for easier reuse
         if config:
@@ -977,6 +981,14 @@ if __name__ == "__main__":
         nargs="?",
         dest="size",
         help="Size of batch (a.k.a. stacksize)",
+    )
+    argparser.add_argument(
+        "--timeout",
+        type=float,
+        default=0,
+        nargs="?",
+        dest="timeout",
+        help="Per-kernel timeout in seconds (0:unlimited)",
     )
     args, argd = argparser.parse_args(), argparser.parse_args([])
     if args.prefer_new:
