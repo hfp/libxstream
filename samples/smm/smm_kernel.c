@@ -125,6 +125,11 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       if (pinfo.distance <= 2.0) {
         opencl_libsmm_smm_t predicted;
         LIBXS_MEMZERO(&predicted);
+        if (pinfo.confidence[0] >= thr) predicted.bs = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[0]), 1);
+        if (pinfo.confidence[1] >= thr) predicted.bm = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[1]), 1, key.m);
+        if (pinfo.confidence[2] >= thr) predicted.bn = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[2]), 1, key.n);
+        if (pinfo.confidence[3] >= thr) predicted.bk = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[3]), 1, key.m);
+        if (pinfo.confidence[4] >= thr) predicted.ws = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[4]), 1, key.m * key.n);
         if (pinfo.confidence[5] >= thr) predicted.wg = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[5]), -2, 1);
         if (pinfo.confidence[6] >= thr) predicted.lu = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[6]), -2);
         if (pinfo.confidence[7] >= thr) predicted.nz = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[7]), 0, 1);
