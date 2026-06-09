@@ -195,7 +195,7 @@ if(NOT LIBXSTREAM_HEADER_ONLY)
   )
 endif()
 
-install(FILES
+install(PROGRAMS
   "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
   DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/scripts)
 
