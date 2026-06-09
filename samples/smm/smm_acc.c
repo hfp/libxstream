@@ -420,9 +420,18 @@ const char* opencl_libsmm_getenv(const char domain[], const char key[]) {
     if (0 < nchar && (int)sizeof(buffer) > nchar) result = getenv(buffer);
   }
   else {
+    int suppress = 0;
     nchar = LIBXS_SNPRINTF(buffer, sizeof(buffer), "%s_PARAMS", domain);
     if (0 < nchar && (int)sizeof(buffer) > nchar) result = getenv(buffer);
-    if (NULL == result || '0' != *result) {
+    if (NULL != result && '0' == *result) suppress = 1;
+#  if defined(OPENCL_KERNELS_PREDICT_MODELS)
+    if (0 == suppress) {
+      nchar = LIBXS_SNPRINTF(buffer, sizeof(buffer), "%s_PREDICT", domain);
+      if (0 < nchar && (int)sizeof(buffer) > nchar) result = getenv(buffer);
+      if (NULL != result && '0' < *result && '9' >= *result) suppress = 1;
+    }
+#  endif
+    if (0 == suppress) {
       nchar = LIBXS_SNPRINTF(buffer, sizeof(buffer), "%s_%s", domain, key);
       result = (0 < nchar && (int)sizeof(buffer) > nchar) ? getenv(buffer) : NULL;
     }
