@@ -37,6 +37,8 @@ extern opencl_libsmm_acc_dbm_launch_fn_t opencl_libsmm_acc_dbm_launch_fn;
 int opencl_libsmm_initialized;
 /* registry for dispatch/register of SMM and transpose kernels */
 libxs_registry_t* opencl_libsmm_registry;
+/* OPENCL_LIBSMM_SMM_DEVID override (0 = not set, use actual device) */
+unsigned int opencl_libsmm_devuid;
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
 libxs_predict_t* opencl_libsmm_predict_model;
 static int opencl_libsmm_predict_mode; /* -1=disabled, 0=fallback(default), 1=force */
@@ -70,10 +72,13 @@ int libsmm_acc_init(void) {
     if (EXIT_SUCCESS == result) {
       opencl_libsmm_perfest_t perfest;
       char* const env_params = getenv("OPENCL_LIBSMM_SMM_PARAMS"); /* !opencl_libsmm_getenv */
+      const char* const env_devid = OPENCL_LIBSMM_SMMENV("DEVID");
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
       const char* const env_predict = OPENCL_LIBSMM_SMMENV("PREDICT");
       opencl_libsmm_predict_mode = (NULL == env_predict || '\0' == *env_predict) ? 0 : atoi(env_predict);
 #  endif
+      opencl_libsmm_devuid = (NULL == env_devid || '\0' == *env_devid)
+        ? 0 : LIBXS_CAST_UINT(strtoul(env_devid, NULL, 0));
       LIBXS_MEMZERO(&perfest);
       if ((NULL == env_params || '0' != *env_params)
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
@@ -153,7 +158,8 @@ int libsmm_acc_init(void) {
         if (EXIT_SUCCESS == result && (0 == ntuned || 0 != key_direct_skip)) {
           const char *line = OPENCL_KERNELS_PARAMS_SMM, *next;
           const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-          unsigned int default_uid = libxstream_opencl_config.device.uid;
+          unsigned int default_uid = (0 != opencl_libsmm_devuid)
+            ? opencl_libsmm_devuid : libxstream_opencl_config.device.uid;
           int active_match = -1;
           if (EXIT_SUCCESS == libxstream_opencl_device_name(device_id, bufname, LIBXSTREAM_BUFFERSIZE, NULL /*platform*/,
                                 0 /*platform_maxlen*/,
@@ -162,7 +168,7 @@ int libsmm_acc_init(void) {
             /* determine best-matching parameters based on name of device */
             int i = 0, count = 0;
             double best = 0;
-            if (1 >= libxstream_opencl_config.devmatch) {
+            if (0 == opencl_libsmm_devuid && 1 >= libxstream_opencl_config.devmatch) {
               libxstream_opencl_device_uid(device_id, bufname, &default_uid);
             }
             for (; i < ndevices_params; ++i) {

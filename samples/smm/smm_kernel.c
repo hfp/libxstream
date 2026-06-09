@@ -65,6 +65,7 @@ extern "C" {
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
 extern libxs_predict_t* opencl_libsmm_predict_model;
 #  endif
+extern unsigned int opencl_libsmm_devuid;
 
 opencl_libsmm_acc_dbm_launch_fn_t opencl_libsmm_acc_dbm_launch_fn;
 
@@ -97,9 +98,10 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
     libxs_lock_t* lock = locks;
     opencl_libsmm_smmkey_t key;
     LIBXS_MEMZERO(&key); /* potentially heterogeneous key-data */
-    key.devuid = ((1 != libxstream_opencl_config.devmatch && ((unsigned int)-1) != libxstream_opencl_config.devmatch)
-                    ? libxstream_opencl_config.devmatch
-                    : devinfo->uid);
+    key.devuid = (0 != opencl_libsmm_devuid) ? opencl_libsmm_devuid
+      : ((1 != libxstream_opencl_config.devmatch && ((unsigned int)-1) != libxstream_opencl_config.devmatch)
+          ? libxstream_opencl_config.devmatch
+          : devinfo->uid);
     key.type = datatype;
     key.m = m_max;
     key.n = n_max;
@@ -179,10 +181,9 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
           }
         }
         if (NULL != tname) {
-          const char *extensions[] = {NULL, NULL}, *const env_devid = OPENCL_LIBSMM_SMMENV("DEVID");
+          const char *extensions[] = {NULL, NULL};
           const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-          const unsigned int devuid = (NULL == env_devid || '\0' == *env_devid) ? devinfo->uid
-                                                                                : LIBXS_CAST_UINT(strtoul(env_devid, NULL, 0));
+          const unsigned int devuid = (0 != opencl_libsmm_devuid) ? opencl_libsmm_devuid : devinfo->uid;
           size_t nextensions = sizeof(extensions) / sizeof(*extensions), sgs = 0, wgsize_prf = 1;
           const char *const env_bm = OPENCL_LIBSMM_SMMENV("BM"), *const env_bn = OPENCL_LIBSMM_SMMENV("BN");
           const char *const env_bk = OPENCL_LIBSMM_SMMENV("BK"), *const env_ws = OPENCL_LIBSMM_SMMENV("WS");
