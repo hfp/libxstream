@@ -41,7 +41,7 @@ int main(void)
       }
     }
     if (EXIT_SUCCESS == result) {
-      result = libxs_predict_build(model, 0, 2);
+      result = libxs_predict_build(model, 0, 2, 0);
     }
     if (EXIT_SUCCESS == result) {
       libxs_predict_query_t qinfo;
@@ -97,38 +97,56 @@ int main(void)
         }
       }
       if (EXIT_SUCCESS == result) {
-        for (i = 0; i < nentries && EXIT_SUCCESS == result; ++i) {
-          double inputs[NINPUTS], out_orig[NOUTPUTS], out_load[NOUTPUTS];
-          inputs[0] = 4.0 + (i % 8) * 4;
-          inputs[1] = 4.0 + ((i / 8) % 8) * 4;
-          inputs[2] = 4.0 + (i % 5) * 8;
-          libxs_predict_eval(NULL, model, inputs, out_orig, NULL, 1);
-          libxs_predict_eval(NULL, loaded, inputs, out_load, NULL, 1);
-          for (j = 0; j < NOUTPUTS; ++j) {
-            const double delta = out_orig[j] - out_load[j];
-            if (delta > 1e-10 || delta < -1e-10) {
-              FPRINTF(stderr, "ERROR: prediction mismatch at entry %d output %d"
-                " (%.6f vs %.6f)\n", i, j, out_orig[j], out_load[j]);
-              result = EXIT_FAILURE;
+        size_t size2 = 0;
+        void* buffer2 = NULL;
+        libxs_predict_t* loaded2 = NULL;
+        libxs_predict_save(loaded, NULL, &size2);
+        buffer2 = malloc(size2);
+        if (NULL != buffer2) {
+          if (EXIT_SUCCESS == libxs_predict_save(loaded, buffer2, &size2)) {
+            loaded2 = libxs_predict_load(buffer2, size2);
+          }
+        }
+        if (NULL != loaded2) {
+          for (i = 0; i < nentries && EXIT_SUCCESS == result; ++i) {
+            double inputs[NINPUTS], out1[NOUTPUTS], out2[NOUTPUTS];
+            inputs[0] = 4.0 + (i % 8) * 4;
+            inputs[1] = 4.0 + ((i / 8) % 8) * 4;
+            inputs[2] = 4.0 + (i % 5) * 8;
+            libxs_predict_eval(NULL, loaded, inputs, out1, NULL, 1);
+            libxs_predict_eval(NULL, loaded2, inputs, out2, NULL, 1);
+            for (j = 0; j < NOUTPUTS; ++j) {
+              const double delta = out1[j] - out2[j];
+              if (delta > 1e-10 || delta < -1e-10) {
+                FPRINTF(stderr, "ERROR: roundtrip mismatch at entry %d"
+                  " output %d (%.6f vs %.6f)\n", i, j, out1[j], out2[j]);
+                result = EXIT_FAILURE;
+              }
             }
           }
-        }
-      }
-      if (EXIT_SUCCESS == result) {
-        double novel[NINPUTS], out_orig[NOUTPUTS], out_load[NOUTPUTS];
-        novel[0] = 14.0;
-        novel[1] = 22.0;
-        novel[2] = 18.0;
-        libxs_predict_eval(NULL, model, novel, out_orig, NULL, 0);
-        libxs_predict_eval(NULL, loaded, novel, out_load, NULL, 0);
-        for (j = 0; j < NOUTPUTS; ++j) {
-          const double delta = out_orig[j] - out_load[j];
-          if (delta > 1e-10 || delta < -1e-10) {
-            FPRINTF(stderr, "ERROR: novel prediction mismatch at output %d"
-              " (%.6f vs %.6f)\n", j, out_orig[j], out_load[j]);
-            result = EXIT_FAILURE;
+          if (EXIT_SUCCESS == result) {
+            double novel[NINPUTS], out1[NOUTPUTS], out2[NOUTPUTS];
+            novel[0] = 14.0;
+            novel[1] = 22.0;
+            novel[2] = 18.0;
+            libxs_predict_eval(NULL, loaded, novel, out1, NULL, 0);
+            libxs_predict_eval(NULL, loaded2, novel, out2, NULL, 0);
+            for (j = 0; j < NOUTPUTS; ++j) {
+              const double delta = out1[j] - out2[j];
+              if (delta > 1e-10 || delta < -1e-10) {
+                FPRINTF(stderr, "ERROR: novel roundtrip mismatch at"
+                  " output %d (%.6f vs %.6f)\n", j, out1[j], out2[j]);
+                result = EXIT_FAILURE;
+              }
+            }
           }
+          libxs_predict_destroy(loaded2);
         }
+        else {
+          FPRINTF(stderr, "ERROR: double roundtrip load failed\n");
+          result = EXIT_FAILURE;
+        }
+        free(buffer2);
       }
       libxs_predict_destroy(loaded);
       free(buffer);

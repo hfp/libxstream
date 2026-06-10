@@ -115,14 +115,14 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
     if (NULL == config && NULL != opencl_libsmm_predict_model) {
-      libxs_predict_info_t pinfo;
+      libxs_predict_info_t pinfo = { 0 };
       double inputs[3], outputs[16];
       const double thr = 0.9;
       inputs[0] = (double)key.m;
       inputs[1] = (double)key.n;
       inputs[2] = (double)key.k;
       libxs_predict_eval(NULL, opencl_libsmm_predict_model, inputs, outputs, &pinfo, 0);
-      if (pinfo.distance <= 2.0) {
+      if (pinfo.distance <= 2.0 && NULL != pinfo.confidence) {
         opencl_libsmm_smm_t predicted;
         LIBXS_MEMZERO(&predicted);
         if (pinfo.confidence[0] >= thr) predicted.bs = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[0]), 1);
