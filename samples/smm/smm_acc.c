@@ -282,8 +282,21 @@ int libsmm_acc_init(void) {
         const opencl_kernels_predict_entry_t* best = NULL;
         const int ndevices_predict = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
         int predict_match = -1;
-        if (EXIT_SUCCESS == libxstream_opencl_device_name(libxstream_opencl_config.devices[libxstream_opencl_config.device_id],
-                              bufname, LIBXSTREAM_BUFFERSIZE, NULL, 0, 1))
+        if (0 != opencl_libsmm_devuid) {
+          char uidstr[16];
+          int i = 0;
+          LIBXS_SNPRINTF(uidstr, sizeof(uidstr), "0x%04x", opencl_libsmm_devuid);
+          for (; i < ndevices_predict; ++i) {
+            if (NULL != strstr(OPENCL_KERNELS_DEVICES[i], uidstr)) {
+              predict_match = i;
+              break;
+            }
+          }
+        }
+        if (0 > predict_match
+          && EXIT_SUCCESS == libxstream_opencl_device_name(
+            libxstream_opencl_config.devices[libxstream_opencl_config.device_id],
+            bufname, LIBXSTREAM_BUFFERSIZE, NULL, 0, 1))
         {
           int i = 0, count = 0;
           double best_score = 0;
