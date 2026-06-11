@@ -1,7 +1,8 @@
-.libxs*.tex
-lib/libxs*
-lib/pkgconfig
+/lib/pkgconfig
+/lib/cmake
+/lib/libxs*
 __pycache__
+.libxs*.tex
 .abi.log
 .state
 .make
@@ -10,6 +11,7 @@ __pycache__
 /*.md
 /.*
 *.x
+install
 build
 site
 bin
