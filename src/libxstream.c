@@ -690,6 +690,14 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       }
       if (0 < rate) libxs_hist_print(stderr, hist[i], precision, "\n");
     }
+    if ((2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) &&
+        NULL != libxstream_opencl_config.pool_dev) {
+      libxs_malloc_pool_print(stderr, "\nINFO ACC/OpenCL: pool_dev ", libxstream_opencl_config.pool_dev);
+    }
+    if ((2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) &&
+        NULL != libxstream_opencl_config.pool_hst) {
+      libxs_malloc_pool_print(stderr, "\nINFO ACC/OpenCL: pool_hst ", libxstream_opencl_config.pool_hst);
+    }
     fprintf(stderr, "\n\n");
     LIBXS_STDIO_RELEASE();
     for (i = 0; i < LIBXSTREAM_MAXNDEVS; ++i) {
