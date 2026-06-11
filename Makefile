@@ -593,12 +593,12 @@ PCSUBST_BASE = $(SED) $(PCTEMPLATE) \
   -e 's|@PREFIX@|$(ALIAS_PREFIX)|g' \
   -e 's|@INCLUDEDIR@|$(ALIAS_INCDIR)|g' \
   -e 's|@LIBDIR@|$(ALIAS_LIBDIR)|g' \
-  -e 's|@LINKNAME@|$(patsubst lib%,%,$(PROJECT))|g' \
   -e 's|@LIBS_PRIVATE@||g'
 
 ifeq (,$(filter-out 0 2,$(BUILD)))
 $(PPKGDIR)/$(PROJECT)-static.pc: $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(PPKGDIR)/.make $(PCTEMPLATE)
 	@$(PCSUBST_BASE) \
+	  -e 's|@LIBS@|$${libdir}/$(PROJECT).$(SLIBEXT)|g' \
 	  -e 's|@REQUIRES_PRIVATE@|$(if $(LIBXS),Requires.private: libxs-static,)|g' >$@
   ifeq (,$(filter-out 0 2,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc
@@ -610,6 +610,7 @@ endif
 ifeq (,$(filter-out 1 2,$(BUILD)))
 $(PPKGDIR)/$(PROJECT)-shared.pc: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(PPKGDIR)/.make $(PCTEMPLATE)
 	@$(PCSUBST_BASE) \
+	  -e 's|@LIBS@|-L$${libdir} -l$(patsubst lib%,%,$(PROJECT))|g' \
 	  -e 's|@REQUIRES_PRIVATE@|$(if $(LIBXS),Requires.private: libxs,)|g' >$@
   ifeq (,$(filter-out 1,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc
