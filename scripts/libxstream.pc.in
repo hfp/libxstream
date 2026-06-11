@@ -8,6 +8,6 @@ includedir=@INCLUDEDIR@
 libdir=@LIBDIR@
 
 Cflags: -I${includedir}
-Libs: -L${libdir} -l@LINKNAME@
+Libs: @LIBS@
 @LIBS_PRIVATE@
 @REQUIRES_PRIVATE@
