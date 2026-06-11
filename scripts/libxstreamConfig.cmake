@@ -1,10 +1,20 @@
 get_filename_component(_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 
-if(NOT TARGET libxstream::libxstream)
+set(_libxstream_suffixes_save "${CMAKE_FIND_LIBRARY_SUFFIXES}")
+if(DEFINED BUILD_SHARED_LIBS AND NOT BUILD_SHARED_LIBS)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
+endif()
+find_library(LIBXSTREAM_LIBRARY NAMES xstream HINTS "${_prefix}/lib" NO_DEFAULT_PATH)
+if(NOT LIBXSTREAM_LIBRARY)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES "${_libxstream_suffixes_save}")
   find_library(LIBXSTREAM_LIBRARY NAMES xstream HINTS "${_prefix}/lib" NO_DEFAULT_PATH)
-  find_path(LIBXSTREAM_INCLUDE_DIR NAMES libxstream/libxstream.h HINTS "${_prefix}/include" "${_prefix}" NO_DEFAULT_PATH)
+endif()
+set(CMAKE_FIND_LIBRARY_SUFFIXES "${_libxstream_suffixes_save}")
+unset(_libxstream_suffixes_save)
+find_path(LIBXSTREAM_INCLUDE_DIR NAMES libxstream/libxstream.h HINTS "${_prefix}/include" "${_prefix}" NO_DEFAULT_PATH)
 
-  if(LIBXSTREAM_LIBRARY AND LIBXSTREAM_INCLUDE_DIR)
+if(LIBXSTREAM_LIBRARY AND LIBXSTREAM_INCLUDE_DIR)
+  if(NOT TARGET libxstream::libxstream)
     find_package(libxs CONFIG QUIET
       HINTS "${_prefix}")
     find_package(OpenCL QUIET)
@@ -25,6 +35,9 @@ if(NOT TARGET libxstream::libxstream)
       set_property(TARGET libxstream::libxstream APPEND PROPERTY
         INTERFACE_LINK_LIBRARIES OpenMP::OpenMP_C)
     endif()
+  else()
+    set_property(TARGET libxstream::libxstream PROPERTY
+      IMPORTED_LOCATION "${LIBXSTREAM_LIBRARY}")
   endif()
 endif()
 
