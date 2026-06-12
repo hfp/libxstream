@@ -81,6 +81,8 @@ add_library(libxstream ${LIBXSTREAM_SRCS})
 add_library(libxstream::libxstream ALIAS libxstream)
 set_target_properties(libxstream PROPERTIES
   OUTPUT_NAME xstream
+  VERSION ${PROJECT_VERSION}
+  SOVERSION ${PROJECT_VERSION_MAJOR}
   POSITION_INDEPENDENT_CODE ON)
 
 target_compile_definitions(libxstream PRIVATE LIBXSTREAM_BUILD=1)
