@@ -341,8 +341,8 @@ int libsmm_acc_init(void) {
             libxs_predict_query_t qinfo;
             LIBXS_MEMZERO(&qinfo);
             libxs_predict_query(opencl_libsmm_predict_model, &qinfo);
-            fprintf(stderr, "INFO ACC/LIBSMM: PREDICT model loaded (%d entries, %d clusters, %.1fx)\n", qinfo.nentries,
-              qinfo.nclusters, qinfo.compression);
+            fprintf(stderr, "INFO ACC/LIBSMM: PREDICT model loaded (%d entries, %d clusters, %.1fx) for \"%s\"\n",
+              qinfo.nentries, qinfo.nclusters, qinfo.compression, OPENCL_KERNELS_DEVICES[best->device_id]);
           }
 #  if !defined(OPENCL_KERNELS_PARAMS_SMM)
           if (NULL != opencl_libsmm_predict_model && 0 >= opencl_libsmm_predict_mode
