@@ -93,6 +93,11 @@ ifneq (,$(LIBXSROOT))
   LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
     $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
   IFLAGS += -I$(call quote,$(LIBXSROOT))
+  ifneq (,$(LIBXS_DL))
+    LIBXS_LINK := -L$(LIBXSROOT)/lib -lxs
+  else
+    LIBXS_LINK := $(LIBXS)
+  endif
 endif
 ifneq (,$(LIBXS))
   DFLAGS += -D__LIBXS
@@ -239,7 +244,7 @@ endif
 ifeq (0,$(filter-out 1 2,$(BUILD))$(ANALYZE))
 $(OUTDIR)/$(PROJECT).$(DLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS)
 	$(LIB_SOLD) $(call solink_version,$(OUTDIR)/$(PROJECT).$(DLIBEXT)) \
-		$(call tailwords,$^) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
+		$(OBJFILES) $(FTNOBJS) $(LIBXS_LINK) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 else
 .PHONY: $(OUTDIR)/$(PROJECT).$(DLIBEXT)
 endif
