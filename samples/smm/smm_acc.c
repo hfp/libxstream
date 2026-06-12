@@ -345,7 +345,9 @@ int libsmm_acc_init(void) {
               qinfo.nclusters, qinfo.compression);
           }
 #  if !defined(OPENCL_KERNELS_PARAMS_SMM)
-          if (NULL != opencl_libsmm_predict_model && 0 >= opencl_libsmm_predict_mode) {
+          if (NULL != opencl_libsmm_predict_model && 0 >= opencl_libsmm_predict_mode
+              && (NULL == env_params || '0' != *env_params))
+          {
             libxs_predict_query_t qinfo;
             int i, npreloaded = 0;
             LIBXS_MEMZERO(&qinfo);
