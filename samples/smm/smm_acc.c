@@ -344,6 +344,62 @@ int libsmm_acc_init(void) {
             fprintf(stderr, "INFO ACC/LIBSMM: PREDICT model loaded (%d entries, %d clusters, %.1fx)\n", qinfo.nentries,
               qinfo.nclusters, qinfo.compression);
           }
+#  if !defined(OPENCL_KERNELS_PARAMS_SMM)
+          if (NULL != opencl_libsmm_predict_model && 0 >= opencl_libsmm_predict_mode) {
+            libxs_predict_query_t qinfo;
+            int i, npreloaded = 0;
+            LIBXS_MEMZERO(&qinfo);
+            libxs_predict_query(opencl_libsmm_predict_model, &qinfo);
+            for (i = 0; i < qinfo.nentries && EXIT_SUCCESS == result; ++i) {
+              double inputs[3], outputs[16];
+              opencl_libsmm_smmkey_t key;
+              opencl_libsmm_smm_t config;
+              libxs_predict_get(opencl_libsmm_predict_model, i, inputs, outputs);
+              LIBXS_MEMZERO(&key);
+              key.type = dbcsr_type_real_8;
+              key.m = LIBXS_ROUNDX(int, inputs[0]);
+              key.n = LIBXS_ROUNDX(int, inputs[1]);
+              key.k = LIBXS_ROUNDX(int, inputs[2]);
+              key.devuid = (0 != opencl_libsmm_devuid)
+                ? opencl_libsmm_devuid : libxstream_opencl_config.device.uid;
+              if (NULL != libxs_registry_get(opencl_libsmm_registry, &key, sizeof(key),
+                              libxs_registry_lock(opencl_libsmm_registry)))
+              {
+                continue;
+              }
+              LIBXS_MEMZERO(&config);
+              config.bs = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[0]), 1);
+              config.bm = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[1]), 1, key.m);
+              config.bn = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[2]), 1, key.n);
+              config.bk = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[3]), 1, key.m);
+              config.ws = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[4]), 1, key.m * key.n);
+              config.wg = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[5]), -2, 1);
+              config.lu = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[6]), -2);
+              config.nz = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[7]), 0, 1);
+              config.al = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[8]), 0, 1);
+              config.tb = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[9]), 0, 1);
+              config.tc = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[10]), 0, 1);
+              config.ap = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[11]), 0, 1);
+              config.aa = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[12]), 0, 2);
+              config.ab = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[13]), 0, 2);
+              config.ac = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[14]), 0, 1);
+              config.flags = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[15]), 0, 1);
+              if (NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config),
+                              libxs_registry_lock(opencl_libsmm_registry)))
+              {
+                ++npreloaded;
+              }
+              else {
+                result = EXIT_FAILURE;
+              }
+            }
+            if (EXIT_SUCCESS == result && 0 != npreloaded && 0 == libxs_nrank() &&
+                (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+            {
+              fprintf(stderr, "INFO ACC/LIBSMM: PREDICT preloaded %i set%s\n", npreloaded, 1 != npreloaded ? "s" : "");
+            }
+          }
+#  endif
         }
       }
 #  endif

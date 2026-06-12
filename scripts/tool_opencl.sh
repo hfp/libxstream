@@ -238,21 +238,35 @@ then
     MNAME=$(${TR} '[:lower:]' '[:upper:]' <<<"${VNAME}")
     NNAME=$(${TR} '[:lower:]' '[:upper:]' <<<"${DNAME}")
     if [ "${DEVICES}" ]; then
-      echo
-      echo "#define ${MNAME} ${VNAME}"
-      echo "#define ${SNAME} \\"
-      CSVLINES=$(for CSVFILE in "${CSVFILES[@]}"; do ${SED} "1d;/^[[:space:]]*$/d;s/[\r]*$/\\\n\" \\\/" "${CSVFILE}"; done)
-      IFS=$'\n'
-      for LINE in ${CSVLINES}; do
-        I=0; IDEVICE=$(${SED} "${DEVPAT}" <<<"${LINE}")
-        for DEVICE in ${DEVICES}; do
-          if [ "${DEVICE}" = "${IDEVICE}" ]; then break; fi
-          I=$((I+1));
-        done
-        ${SED} "s/[^${DELIM}]*/  \"${I}/" <<<"${LINE}"
+      # check if all CSVs have corresponding .bin prediction models
+      BINFILES=()
+      for CSVFILE in "${CSVFILES[@]}"; do
+        BINFILE="${CSVFILE%.csv}.bin"
+        if [ -f "${BINFILE}" ]; then
+          BINFILES+=("${BINFILE}")
+        fi
       done
-      echo "  \"\""
-      echo "static const char ${VNAME}[] = ${SNAME};"
+      ALL_HAVE_BIN=0
+      if [ "0" != "${#BINFILES[@]}" ] && [ "${#BINFILES[@]}" = "${NFILES_CSV}" ]; then
+        ALL_HAVE_BIN=1
+      fi
+      IFS=$'\n'
+      if [ "0" = "${ALL_HAVE_BIN}" ]; then
+        echo
+        echo "#define ${MNAME} ${VNAME}"
+        echo "#define ${SNAME} \\"
+        CSVLINES=$(for CSVFILE in "${CSVFILES[@]}"; do ${SED} "1d;/^[[:space:]]*$/d;s/[\r]*$/\\\n\" \\\/" "${CSVFILE}"; done)
+        for LINE in ${CSVLINES}; do
+          I=0; IDEVICE=$(${SED} "${DEVPAT}" <<<"${LINE}")
+          for DEVICE in ${DEVICES}; do
+            if [ "${DEVICE}" = "${IDEVICE}" ]; then break; fi
+            I=$((I+1));
+          done
+          ${SED} "s/[^${DELIM}]*/  \"${I}/" <<<"${LINE}"
+        done
+        echo "  \"\""
+        echo "static const char ${VNAME}[] = ${SNAME};"
+      fi
       echo
       echo "#define ${NNAME} ${DNAME}"
       echo "static const char *const ${DNAME}[] = {"
@@ -263,14 +277,6 @@ then
       done
       unset IFS
       echo "};"
-      # emit LIBXS_INCBIN declarations for .bin prediction models
-      BINFILES=()
-      for CSVFILE in "${CSVFILES[@]}"; do
-        BINFILE="${CSVFILE%.csv}.bin"
-        if [ -f "${BINFILE}" ]; then
-          BINFILES+=("${BINFILE}")
-        fi
-      done
       if [ "0" != "${#BINFILES[@]}" ]; then
         echo
         echo "typedef struct opencl_${RNAME}_predict_entry_t {"
@@ -279,13 +285,13 @@ then
         echo "  int device_id;"
         echo "} opencl_${RNAME}_predict_entry_t;"
         echo
-        printf "#define OPENCL_${ANAME}_PREDICT_INCBIN() \\\\\n"
+        printf "#define OPENCL_%s_PREDICT_INCBIN() \\\\\n" "${ANAME}"
         for BINFILE in "${BINFILES[@]}"; do
           BBASE=$(${BASENAME} "${BINFILE}" .bin)
           SYMNAME=opencl_${RNAME}_predict_$(echo "${BBASE}" | ${SED} "s/tune_multiply_//;s/[^A-Za-z0-9_]/_/g" | ${TR} '[:upper:]' '[:lower:]')
-          printf "  LIBXS_INCBIN(${SYMNAME}, \"${BINFILE}\", 16); \\\\\n"
+          printf "  LIBXS_INCBIN(%s, \"%s\", 16); \\\\\n" "${SYMNAME}" "${BINFILE}"
         done
-        printf "  static const opencl_${RNAME}_predict_entry_t opencl_${RNAME}_predict_models[] = { \\\\\n"
+        printf "  static const opencl_%s_predict_entry_t opencl_%s_predict_models[] = { \\\\\n" "${RNAME}" "${RNAME}"
         for BINFILE in "${BINFILES[@]}"; do
           BBASE=$(${BASENAME} "${BINFILE}" .bin)
           SYMNAME=opencl_${RNAME}_predict_$(echo "${BBASE}" | ${SED} "s/tune_multiply_//;s/[^A-Za-z0-9_]/_/g" | ${TR} '[:upper:]' '[:lower:]')
@@ -305,7 +311,7 @@ then
             done
             unset IFS
           fi
-          printf "    { ${SYMNAME}, ${SYMNAME}_end, ${DIDX} }, \\\\\n"
+          printf "    { %s, %s_end, %s }, \\\\\n" "${SYMNAME}" "${SYMNAME}" "${DIDX}"
         done
         printf "    { 0, 0, -1 } \\\\\n"
         echo "  }"
