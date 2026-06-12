@@ -14,6 +14,7 @@
 #  include <libxs/libxs_predict.h>
 #  include <libxs/libxs_str.h>
 #  include <ctype.h>
+#  include <strings.h>
 
 #  if !defined(OPENCL_LIBSMM_KERNELNAME_TRANS)
 #    define OPENCL_LIBSMM_KERNELNAME_TRANS "trans"
@@ -26,6 +27,106 @@
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
 OPENCL_KERNELS_PREDICT_INCBIN();
 #  endif
+
+
+static void opencl_libsmm_devname_cleanup(char* name)
+{
+  char* dst = name;
+  char* src = name;
+  while ('\0' != *src) {
+    if ('[' == *src && '0' == src[1] && 'x' == src[2]) {
+      while ('\0' != *src && ']' != *src) ++src;
+      if (']' == *src) ++src;
+    }
+    else if ('(' == *src && (('R' == src[1] && ')' == src[2]) ||
+      ('T' == src[1] && 'M' == src[2] && ')' == src[3])))
+    {
+      src += ('T' == src[1]) ? 4 : 3;
+    }
+    else if ('-' == *src &&
+      (0 == strncasecmp(src + 1, "PCIe", 4) || 0 == strncasecmp(src + 1, "PCIE", 4)))
+    {
+      src += 5;
+      while ('\0' != *src && ' ' != *src) ++src;
+    }
+    else if ((' ' == *src || src == name) &&
+      (0 == strncasecmp(src + (' ' == *src ? 1 : 0), "PCIe", 4) ||
+       0 == strncasecmp(src + (' ' == *src ? 1 : 0), "PCIE", 4)))
+    {
+      char* p = src + (' ' == *src ? 1 : 0) + 4;
+      if ('\0' == *p || ' ' == *p || '-' == *p) {
+        src = p;
+        if ('-' == *src) {
+          ++src;
+          while ('\0' != *src && ' ' != *src) ++src;
+        }
+      }
+      else {
+        *dst++ = *src++;
+      }
+    }
+    else if ('-' == *src && 0 != isdigit((unsigned char)src[1])) {
+      char* p = src + 1;
+      while (0 != isdigit((unsigned char)*p)) ++p;
+      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
+          ('\0' == p[2] || ' ' == p[2]))
+      {
+        src = p + 2;
+      }
+      else {
+        *dst++ = *src++;
+      }
+    }
+    else if ((' ' == *src || src == name) && 0 != isdigit((unsigned char)src[' ' == *src ? 1 : 0])) {
+      char* p = src + (' ' == *src ? 1 : 0);
+      while (0 != isdigit((unsigned char)*p)) ++p;
+      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
+          ('\0' == p[2] || ' ' == p[2] || '-' == p[2]))
+      {
+        src = p + 2;
+      }
+      else {
+        *dst++ = *src++;
+      }
+    }
+    else if ((' ' == *src || src == name) &&
+      (0 == strncasecmp(src + (' ' == *src ? 1 : 0), "HBM", 3) ||
+       0 == strncasecmp(src + (' ' == *src ? 1 : 0), "SXM", 3)))
+    {
+      char* p = src + (' ' == *src ? 1 : 0) + 3;
+      while (0 != isdigit((unsigned char)*p)) ++p;
+      if ('\0' == *p || ' ' == *p) {
+        src = p;
+      }
+      else {
+        *dst++ = *src++;
+      }
+    }
+    else {
+      *dst++ = *src++;
+    }
+  }
+  *dst = '\0';
+  while (dst > name && ' ' == dst[-1]) *--dst = '\0';
+  dst = name;
+  src = name;
+  while ('\0' != *src) {
+    if (' ' == *src && ' ' == src[1]) {
+      ++src;
+    }
+    else {
+      *dst++ = *src++;
+    }
+  }
+  *dst = '\0';
+  if (' ' == *name) {
+    src = name + 1;
+    dst = name;
+    while ('\0' != *src) *dst++ = *src++;
+    *dst = '\0';
+  }
+}
+
 
 #  if defined(__cplusplus)
 extern "C" {
@@ -165,23 +266,31 @@ int libsmm_acc_init(void) {
                                 0 /*platform_maxlen*/,
                                 /*cleanup*/ 1))
           {
-            /* determine best-matching parameters based on name of device */
-            int i = 0, count = 0;
+            char devclean[LIBXSTREAM_BUFFERSIZE], parclean[LIBXSTREAM_BUFFERSIZE];
+            int i = 0, count = 0, best_dist = INT_MAX;
             double best = 0;
             if (0 == opencl_libsmm_devuid && 1 >= libxstream_opencl_config.devmatch) {
               libxstream_opencl_device_uid(device_id, bufname, &default_uid);
             }
+            LIBXS_SNPRINTF(devclean, sizeof(devclean), "%s", bufname);
+            opencl_libsmm_devname_cleanup(devclean);
             for (; i < ndevices_params; ++i) {
-              const int n = libxs_strimatch(bufname, OPENCL_KERNELS_DEVICES[i], NULL, &count);
-              if (0 != n && 0 != count) {
-                const double score = (double)n / count;
-                unsigned int uid;
-                if (best < score ||
-                    (EXIT_SUCCESS == libxstream_opencl_device_uid(NULL /*device*/, OPENCL_KERNELS_DEVICES[i], &uid) &&
-                      uid == default_uid))
-                {
-                  active_match = i;
-                  best = score;
+              unsigned int uid;
+              LIBXS_SNPRINTF(parclean, sizeof(parclean), "%s", OPENCL_KERNELS_DEVICES[i]);
+              opencl_libsmm_devname_cleanup(parclean);
+              count = 0;
+              { const int n = libxs_strimatch(devclean, parclean, NULL, &count);
+                if (0 != n && 0 != count) {
+                  const double score = (double)n / count;
+                  const int dist = libxs_strisimilar(devclean, parclean, NULL, LIBXS_STRISIMILAR_DEFAULT, NULL);
+                  if (best < score || (best == score && dist < best_dist) ||
+                      (EXIT_SUCCESS == libxstream_opencl_device_uid(NULL /*device*/, OPENCL_KERNELS_DEVICES[i], &uid) &&
+                        uid == default_uid))
+                  {
+                    active_match = i;
+                    best = score;
+                    best_dist = dist;
+                  }
                 }
               }
             }
@@ -298,15 +407,24 @@ int libsmm_acc_init(void) {
             libxstream_opencl_config.devices[libxstream_opencl_config.device_id],
             bufname, LIBXSTREAM_BUFFERSIZE, NULL, 0, 1))
         {
-          int i = 0, count = 0;
+          char devclean[LIBXSTREAM_BUFFERSIZE], parclean[LIBXSTREAM_BUFFERSIZE];
+          int i = 0, count = 0, best_dist = INT_MAX;
           double best_score = 0;
+          LIBXS_SNPRINTF(devclean, sizeof(devclean), "%s", bufname);
+          opencl_libsmm_devname_cleanup(devclean);
           for (; i < ndevices_predict; ++i) {
-            const int n = libxs_strimatch(bufname, OPENCL_KERNELS_DEVICES[i], NULL, &count);
-            if (0 != n && 0 != count) {
-              const double score = (double)n / count;
-              if (best_score < score) {
-                predict_match = i;
-                best_score = score;
+            LIBXS_SNPRINTF(parclean, sizeof(parclean), "%s", OPENCL_KERNELS_DEVICES[i]);
+            opencl_libsmm_devname_cleanup(parclean);
+            count = 0;
+            { const int n = libxs_strimatch(devclean, parclean, NULL, &count);
+              if (0 != n && 0 != count) {
+                const double score = (double)n / count;
+                const int dist = libxs_strisimilar(devclean, parclean, NULL, LIBXS_STRISIMILAR_DEFAULT, NULL);
+                if (best_score < score || (best_score == score && dist < best_dist)) {
+                  predict_match = i;
+                  best_score = score;
+                  best_dist = dist;
+                }
               }
             }
           }

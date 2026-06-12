@@ -103,6 +103,12 @@ $(GENHDR): $(KRNELS) $(PARAMS_PREDICT) $(PARAMS_BIN) $(GENSCR) Makefile $(LIBXSR
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
 
+.PHONY: match
+match: $(OUTDIR)/acc_match.x
+
+$(OUTDIR)/acc_match.x: $(OUTDIR)/.make $(BLDDIR)/acc_match-c.o $(LIBXS)
+	$(LD) -o $@ $(BLDDIR)/acc_match-c.o $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS)
+
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(LIBXSROOT)/Makefile.inc
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@
 
@@ -129,7 +135,7 @@ ifneq ($(call qapath,$(OUTDIR)),$(call qapath,.))
 endif
 endif
 ifneq (,$(wildcard $(OUTDIR))) # still exists
-	@-rm -f $(XFILES)
+	@-rm -f $(XFILES) $(OUTDIR)/acc_match.x
 endif
 	@-rm -f $(GENHDR)
 
