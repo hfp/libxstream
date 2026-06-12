@@ -237,7 +237,15 @@ $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
 libs: $(PPKGDIR)/$(PROJECT)-static.pc $(PPKGDIR)/$(PROJECT)-shared.pc $(PCMKDIR)/$(PROJECT)Config.cmake
 ifeq (,$(filter-out 0 2,$(BUILD)))
 $(OUTDIR)/$(PROJECT).$(SLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS)
+ifneq (,$(LIBXS_SL))
+	$(MAKE_AR) $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(OBJFILES) $(FTNOBJS)
+	@TMPDIR=$$(mktemp -d) && cd $${TMPDIR} && \
+		$(AR) -x $(abspath $(LIBXS_SL)) && \
+		$(AR) -rs $(abspath $(OUTDIR)/$(PROJECT).$(SLIBEXT)) *.o && \
+		$(RM) -rf $${TMPDIR}
+else
 	$(MAKE_AR) $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(call tailwords,$^)
+endif
 else
 .PHONY: $(OUTDIR)/$(PROJECT).$(SLIBEXT)
 endif
