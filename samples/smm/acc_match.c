@@ -76,40 +76,6 @@ static void opencl_libsmm_devname_cleanup(char* name)
     {
       src += ('T' == src[1]) ? 4 : 3;
     }
-    else if ('-' == *src &&
-      (0 == strncasecmp(src + 1, "PCIe", 4) || 0 == strncasecmp(src + 1, "PCIE", 4)))
-    {
-      src += 5;
-      while ('\0' != *src && ' ' != *src) ++src;
-    }
-    else if ((' ' == *src || src == name) &&
-      (0 == strncasecmp(src + (' ' == *src ? 1 : 0), "PCIe", 4) ||
-       0 == strncasecmp(src + (' ' == *src ? 1 : 0), "PCIE", 4)))
-    {
-      char* p = src + (' ' == *src ? 1 : 0) + 4;
-      if ('\0' == *p || ' ' == *p || '-' == *p) {
-        src = p;
-        if ('-' == *src) {
-          ++src;
-          while ('\0' != *src && ' ' != *src) ++src;
-        }
-      }
-      else {
-        *dst++ = *src++;
-      }
-    }
-    else if ('-' == *src && 0 != isdigit((unsigned char)src[1])) {
-      char* p = src + 1;
-      while (0 != isdigit((unsigned char)*p)) ++p;
-      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
-          ('\0' == p[2] || ' ' == p[2]))
-      {
-        src = p + 2;
-      }
-      else {
-        *dst++ = *src++;
-      }
-    }
     else if ((' ' == *src || src == name) && 0 != isdigit((unsigned char)src[' ' == *src ? 1 : 0])) {
       char* p = src + (' ' == *src ? 1 : 0);
       while (0 != isdigit((unsigned char)*p)) ++p;
@@ -122,14 +88,13 @@ static void opencl_libsmm_devname_cleanup(char* name)
         *dst++ = *src++;
       }
     }
-    else if ((' ' == *src || src == name) &&
-      (0 == strncasecmp(src + (' ' == *src ? 1 : 0), "HBM", 3) ||
-       0 == strncasecmp(src + (' ' == *src ? 1 : 0), "SXM", 3)))
-    {
-      char* p = src + (' ' == *src ? 1 : 0) + 3;
+    else if ('-' == *src && 0 != isdigit((unsigned char)src[1])) {
+      char* p = src + 1;
       while (0 != isdigit((unsigned char)*p)) ++p;
-      if ('\0' == *p || ' ' == *p) {
-        src = p;
+      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
+          ('\0' == p[2] || ' ' == p[2]))
+      {
+        src = p + 2;
       }
       else {
         *dst++ = *src++;
