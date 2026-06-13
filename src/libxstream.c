@@ -109,7 +109,19 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, con
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*a, NULL, &size_a, NULL, &unified_a));
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*b, NULL, &size_b, NULL, &unified_b));
         if ((0 == unified_a && 0 == unified_b) || (0 != unified_a && 0 != unified_b)) {
-          return (size_a < size_b ? 1 : (size_a != size_b ? -1 : (a < b ? -1 : 1)));
+          if (size_a != size_b) return (size_a < size_b ? 1 : -1);
+          if (0 != (64 & libxstream_opencl_config.xhints)) {
+            cl_uint bus_a = 0, bus_b = 0;
+            struct { cl_uint domain, bus, device, function; } pci_a, pci_b;
+            if (EXIT_SUCCESS == clGetDeviceInfo(*a, 0x420F /*CL_DEVICE_PCI_BUS_INFO_INTEL*/, sizeof(pci_a), &pci_a, NULL) &&
+                EXIT_SUCCESS == clGetDeviceInfo(*b, 0x420F /*CL_DEVICE_PCI_BUS_INFO_INTEL*/, sizeof(pci_b), &pci_b, NULL))
+            {
+              bus_a = pci_a.bus;
+              bus_b = pci_b.bus;
+            }
+            if (bus_a != bus_b) return (bus_a < bus_b ? -1 : 1);
+          }
+          return (a < b ? -1 : 1);
         }
         /* discrete GPU goes in front */
         else if (0 == unified_b) return 1;
@@ -163,7 +175,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
 # endif
 # if defined(LIBXSTREAM_XHINTS)
   const char* const env_xhints = (LIBXSTREAM_XHINTS);
-  const int xhints_default = 1 + 2 + 4 + 8;
+  const int xhints_default = 1 + 2 + 4 + 8 + 64;
 # else
   const char* const env_xhints = NULL;
   const int xhints_default = 0;
