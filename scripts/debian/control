@@ -4,8 +4,6 @@ Priority: optional
 Maintainer: Hans Pabst <hans.pabst@intel.com>
 Build-Depends:
  debhelper-compat (= 13),
- cmake (>= 3.13),
- ninja-build,
  libxs-dev,
  ocl-icd-opencl-dev,
  opencl-c-headers,
