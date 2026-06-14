@@ -106,8 +106,8 @@ $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 .PHONY: match
 match: $(OUTDIR)/acc_match.x
 
-$(OUTDIR)/acc_match.x: $(OUTDIR)/.make $(BLDDIR)/acc_match-c.o $(LIBXS)
-	$(LD) -o $@ $(BLDDIR)/acc_match-c.o $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS)
+$(OUTDIR)/acc_match.x: $(OUTDIR)/.make $(BLDDIR)/acc_match-c.o $(XLIB) $(LIBXS)
+	$(LD) -o $@ $(BLDDIR)/acc_match-c.o $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS)
 
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(LIBXSROOT)/Makefile.inc
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@
