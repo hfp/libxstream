@@ -8,10 +8,9 @@ URL:            https://github.com/hfp/libxstream
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  bash
-BuildRequires:  cmake
-BuildRequires:  cmake-rpm-macros
 BuildRequires:  gcc
-BuildRequires:  ninja-build
+BuildRequires:  gcc-gfortran
+BuildRequires:  make
 BuildRequires:  ocl-icd-devel
 BuildRequires:  opencl-headers
 BuildRequires:  libxs-devel
@@ -29,21 +28,22 @@ Requires:       ocl-icd-devel%{?_isa}
 
 %description devel
 This package contains headers, pkg-config metadata, CMake package files,
-the supported header-only source tree, and API documentation for developing
-applications that use LIBXSTREAM.
+the supported header-only source tree, OpenCL kernels, and API documentation
+for developing applications that use LIBXSTREAM.
 
 %prep
 %autosetup
 
 %build
-%cmake \
-    -DBUILD_SHARED_LIBS=ON
-%cmake_build
+%make_build GNU=1 STATIC=0 \
+    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name}
 
 %install
-%cmake_install
+%make_install PREFIX=%{_prefix} CLEAN=0 \
+    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name} \
+    LICFDIR=%{_licensedir}/%{name}
 
-rm -f %{buildroot}%{_datadir}/%{name}/LICENSE.md
+rm -f %{buildroot}%{_licensedir}/%{name}/LICENSE.md
 
 %files
 %license LICENSE.md
@@ -52,7 +52,7 @@ rm -f %{buildroot}%{_datadir}/%{name}/LICENSE.md
 
 %files devel
 %license LICENSE.md
-%{_datadir}/%{name}
+%doc %{_datadir}/%{name}
 %{_includedir}/%{name}/
 %{_libdir}/libxstream.so
 %{_libdir}/pkgconfig/libxstream.pc

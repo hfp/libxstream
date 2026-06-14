@@ -1,0 +1,37 @@
+Source: libxstream
+Section: libs
+Priority: optional
+Maintainer: Hans Pabst <hans.pabst@intel.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ cmake (>= 3.13),
+ ninja-build,
+ libxs-dev,
+ ocl-icd-opencl-dev,
+ opencl-c-headers,
+Standards-Version: 4.7.0
+Homepage: https://github.com/hfp/libxstream
+Rules-Requires-Root: no
+
+Package: libxstream0
+Architecture: any
+Multi-Arch: same
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: OpenCL-accelerated tensor operations built on LIBXS
+ LIBXSTREAM is a library for OpenCL-accelerated tensor operations (batched
+ small matrix multiplications and related numerics).  It builds on top of
+ LIBXS and targets GPU offload via a portable OpenCL backend.
+
+Package: libxstream-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends:
+ libxstream0 (= ${binary:Version}),
+ libxs-dev,
+ ocl-icd-opencl-dev,
+ ${misc:Depends},
+Description: Development files for LIBXSTREAM
+ This package contains headers, pkg-config metadata, CMake package files,
+ the supported header-only source tree, and data files for developing
+ applications that use LIBXSTREAM.

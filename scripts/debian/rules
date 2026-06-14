@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+LIBDIR = usr/lib/$(DEB_HOST_MULTIARCH)
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) GNU=1 STATIC=0 \
+	    POUTDIR=$(LIBDIR) PPKGDIR=$(LIBDIR)/pkgconfig \
+	    PCMKDIR=$(LIBDIR)/cmake/libxstream
+
+override_dh_auto_install:
+	$(MAKE) install PREFIX=usr DESTDIR=$(CURDIR)/debian/tmp CLEAN=0 \
+	    POUTDIR=$(LIBDIR) PPKGDIR=$(LIBDIR)/pkgconfig \
+	    PCMKDIR=$(LIBDIR)/cmake/libxstream \
+	    LICFDIR=usr/share/doc/libxstream
+	rm -f debian/tmp/usr/share/doc/libxstream/LICENSE.md
+
+override_dh_auto_clean:
+	$(MAKE) realclean || true
