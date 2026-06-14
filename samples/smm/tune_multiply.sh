@@ -86,6 +86,9 @@ then
     -s|--batchsize)
       BATCHSIZE=$2
       shift 2;;
+    -f|--file)
+      MNKFILE=$2
+      shift 2;;
     *)
       if [ "-" != "${1:0:1}" ]; then
         break
@@ -120,6 +123,10 @@ then
     >&2 echo "ERROR: --specid and <triplet-spec> are mutual exclusive!"
     exit 1
   fi
+  if [ "${MNKFILE}" ] && [ "${SPECID}" ]; then
+    >&2 echo "ERROR: --file and --specid are mutual exclusive!"
+    exit 1
+  fi
   # how to print standard vs error messages
   if [ ! "${HELP}" ] || [ "0" = "${HELP}" ]; then
     JSONS=$(${LS} -1 "${JSONDIR}"/tune_multiply-*-*x*x*-*gflops.json 2>/dev/null)
@@ -128,6 +135,13 @@ then
     if [ "${UPDATE}" ] && [ "0" != "${UPDATE}" ]; then
       MNKS=$(${SED} -n "s/.*tune_multiply-..*-\(..*x..*x.[^-]*\)-..*gflops\.json/\1/p" <<<"${JSONS}" \
          | ${SORT} -u -n -tx -k1,1 -k2,2 -k3,3)
+    elif [ "${MNKFILE}" ]; then
+      if [ ! -f "${MNKFILE}" ]; then
+        >&2 echo "ERROR: file not found: ${MNKFILE}"
+        exit 1
+      fi
+      MNKS=$(${SED} -e "s/#.*//" -e "s/[[:space:]]//g" "${MNKFILE}" \
+           | ${SED} -n "/[0-9].*x.*[0-9]/p" | ${XARGS})
     elif [ "${SPECID}" ]; then
       MNKS=$(eval "${HERE}/../../acc_triplets.sh -k ${SPECID} 2>/dev/null")
     else
@@ -146,6 +160,7 @@ then
     eval "${ECHO} \"       -w|--wait N: initial delay before auto-tuning (default: ${WAIT_DEFAULT} s)\""
     eval "${ECHO} \"       -c|--continue: proceed with plan if tuning is interrupted\""
     eval "${ECHO} \"       -u|--update: retune all JSONs found in directory (see -p)\""
+    eval "${ECHO} \"       -f|--file F: read MxNxK list from file (one per line, # comments)\""
     eval "${ECHO} \"       -s|--batchsize N: Number of batched SMMs (a.k.a. stacksize)\""
     eval "${ECHO} \"       -a|--tuning-level N=0..3: all, most, some, least tunables\""
     eval "${ECHO} \"       -b|--backwards: tune in descending order of triplets\""
