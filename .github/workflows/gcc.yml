@@ -76,32 +76,39 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update -y
-        sudo apt install -y debhelper devscripts fakeroot \
+        sudo apt install -y build-essential debhelper devscripts fakeroot \
           gfortran opencl-c-headers ocl-icd-opencl-dev
 
-    - name: Build and install LIBXS .deb
+    - name: Build and install LIBXS
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
         cd ${{ github.workspace }}/../libxs
-        cp -a scripts/debian .
-        dpkg-buildpackage -us -uc -b
-        sudo dpkg -i ../libxs0_*.deb ../libxs-dev_*.deb
+        make -j $(nproc) GNU=1 STATIC=0
+        sudo make install PREFIX=/usr STATIC=0 \
+          POUTDIR=lib/x86_64-linux-gnu \
+          PPKGDIR=lib/x86_64-linux-gnu/pkgconfig \
+          PCMKDIR=lib/x86_64-linux-gnu/cmake/libxs
+        sudo ldconfig
 
     - name: Build Debian package
       run: |
         cp -a scripts/debian .
-        dpkg-buildpackage -us -uc -b
+        chmod +x debian/rules
+        dpkg-buildpackage -us -uc -d -b
 
     - name: Verify Debian packages
       run: |
         dpkg-deb -c ../libxstream0_*.deb
         dpkg-deb -c ../libxstream-dev_*.deb
 
+    - name: Collect packages
+      run: cp ../*.deb .
+
     - name: Upload packages
       uses: actions/upload-artifact@v5
       with:
         name: libxstream-deb
-        path: ../*.deb
+        path: "*.deb"
 
   RPM:
     runs-on: ubuntu-latest
@@ -111,20 +118,13 @@ jobs:
 
     - name: Install dependencies
       run: |
-        dnf install -y rpm-build gcc gcc-gfortran make bash \
+        dnf install -y rpm-build gcc gcc-gfortran make bash git \
           ocl-icd-devel opencl-headers
 
-    - name: Build and install LIBXS RPM
+    - name: Build LIBXS
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ../libxs
-        cd ../libxs
-        mkdir -p $HOME/rpmbuild/{SOURCES,SPECS}
-        cp scripts/fedora/libxs.spec $HOME/rpmbuild/SPECS/
-        VERSION=$(grep '^Version:' scripts/fedora/libxs.spec | awk '{print $2}')
-        tar czf $HOME/rpmbuild/SOURCES/libxs-${VERSION}.tar.gz \
-          --transform="s,^\.,libxs-${VERSION}," .
-        rpmbuild -bb --nocheck $HOME/rpmbuild/SPECS/libxs.spec
-        dnf install -y $HOME/rpmbuild/RPMS/*/*.rpm
+        cd ../libxs && make -j $(nproc) GNU=1 STATIC=0
 
     - name: Build RPM package
       run: |
@@ -133,7 +133,9 @@ jobs:
         VERSION=$(grep '^Version:' scripts/fedora/libxstream.spec | awk '{print $2}')
         tar czf $HOME/rpmbuild/SOURCES/libxstream-${VERSION}.tar.gz \
           --transform="s,^\.,libxstream-${VERSION}," .
-        rpmbuild -bb --nocheck $HOME/rpmbuild/SPECS/libxstream.spec
+        rpmbuild -bb --nodeps --nocheck \
+          --define "libxsroot $(cd ../libxs && pwd)" \
+          $HOME/rpmbuild/SPECS/libxstream.spec
 
     - name: Upload packages
       uses: actions/upload-artifact@v5
