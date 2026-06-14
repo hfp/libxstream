@@ -1,5 +1,5 @@
 usr/include/libxstream/
 usr/lib/*/libxstream.so
-usr/lib/*/pkgconfig/libxstream.pc
+usr/lib/*/pkgconfig/libxstream*.pc
 usr/lib/*/cmake/libxstream/
 usr/share/libxstream/

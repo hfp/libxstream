@@ -1,3 +1,5 @@
+%global debug_package %{nil}
+
 Name:           libxstream
 Version:        0.9.1
 Release:        %autorelease
@@ -36,14 +38,15 @@ for developing applications that use LIBXSTREAM.
 
 %build
 %make_build GNU=1 STATIC=0 \
-    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name}
+    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name} \
+    %{?libxsroot:LIBXSROOT=%{libxsroot}}
 
 %install
-%make_install PREFIX=%{_prefix} CLEAN=0 \
+%make_install PREFIX=%{_prefix} CLEAN=0 STATIC=0 \
     POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name} \
-    LICFDIR=%{_licensedir}/%{name}
+    %{?libxsroot:LIBXSROOT=%{libxsroot}}
 
-rm -f %{buildroot}%{_licensedir}/%{name}/LICENSE.md
+rm -f %{buildroot}%{_datadir}/%{name}/LICENSE.md
 
 %files
 %license LICENSE.md
@@ -55,7 +58,7 @@ rm -f %{buildroot}%{_licensedir}/%{name}/LICENSE.md
 %doc %{_datadir}/%{name}
 %{_includedir}/%{name}/
 %{_libdir}/libxstream.so
-%{_libdir}/pkgconfig/libxstream.pc
+%{_libdir}/pkgconfig/libxstream*.pc
 %{_libdir}/cmake/libxstream/
 
 %changelog
