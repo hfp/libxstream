@@ -1,0 +1,44 @@
+specfile_path: scripts/fedora/libxstream.spec
+files_to_sync:
+  - src: scripts/fedora/
+    dest: ./
+    delete: true
+    filters:
+      - "protect .git*"
+      - "protect sources"
+      - "protect changelog"
+  - .packit.yaml
+upstream_package_name: libxstream
+downstream_package_name: libxstream
+upstream_tag_template: "{version}"
+
+targets:
+  - fedora-development-x86_64
+  - fedora-development-aarch64
+  - fedora-latest-x86_64
+  - fedora-latest-aarch64
+
+jobs:
+  - &copr_build
+    job: copr_build
+    trigger: release
+  - <<: *copr_build
+    trigger: commit
+    branch: main
+  - <<: *copr_build
+    trigger: pull_request
+
+  - job: propose_downstream
+    trigger: release
+    dist_git_branches:
+      - fedora-rawhide
+
+  - job: koji_build
+    trigger: commit
+    dist_git_branches:
+      - fedora-all
+
+  - job: bodhi_update
+    trigger: commit
+    dist_git_branches:
+      - fedora-branched
