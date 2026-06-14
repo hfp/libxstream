@@ -351,6 +351,8 @@ LIBXSTREAM_API int libxstream_opencl_device_uid(cl_device_id device, const char 
 /** Based on the device-ID, return the device's UID (capture or calculate), device name, and platform name. */
 LIBXSTREAM_API int libxstream_opencl_device_name(
   cl_device_id device, char name[], size_t name_maxlen, char platform[], size_t platform_maxlen, int cleanup);
+/** Strip noise tokens from device name (UID brackets, decorators, memory sizes) for fuzzy matching. */
+LIBXSTREAM_API void libxstream_opencl_device_name_cleanup(char name[]);
 /** Return the OpenCL support-level for the given device. */
 LIBXSTREAM_API int libxstream_opencl_device_level(
   cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[32], cl_device_type* type);

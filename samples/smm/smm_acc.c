@@ -13,8 +13,6 @@
 #  include "acc_bench.h"
 #  include <libxs/libxs_predict.h>
 #  include <libxs/libxs_str.h>
-#  include <ctype.h>
-#  include <strings.h>
 
 #  if !defined(OPENCL_LIBSMM_KERNELNAME_TRANS)
 #    define OPENCL_LIBSMM_KERNELNAME_TRANS "trans"
@@ -27,70 +25,6 @@
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
 OPENCL_KERNELS_PREDICT_INCBIN();
 #  endif
-
-
-static void opencl_libsmm_devname_cleanup(char* name)
-{
-  char* dst = name;
-  char* src = name;
-  while ('\0' != *src) {
-    if ('[' == *src && '0' == src[1] && 'x' == src[2]) {
-      while ('\0' != *src && ']' != *src) ++src;
-      if (']' == *src) ++src;
-    }
-    else if ('(' == *src && (('R' == src[1] && ')' == src[2]) ||
-      ('T' == src[1] && 'M' == src[2] && ')' == src[3])))
-    {
-      src += ('T' == src[1]) ? 4 : 3;
-    }
-    else if ((' ' == *src || src == name) && 0 != isdigit((unsigned char)src[' ' == *src ? 1 : 0])) {
-      char* p = src + (' ' == *src ? 1 : 0);
-      while (0 != isdigit((unsigned char)*p)) ++p;
-      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
-          ('\0' == p[2] || ' ' == p[2] || '-' == p[2]))
-      {
-        src = p + 2;
-      }
-      else {
-        *dst++ = *src++;
-      }
-    }
-    else if ('-' == *src && 0 != isdigit((unsigned char)src[1])) {
-      char* p = src + 1;
-      while (0 != isdigit((unsigned char)*p)) ++p;
-      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
-          ('\0' == p[2] || ' ' == p[2]))
-      {
-        src = p + 2;
-      }
-      else {
-        *dst++ = *src++;
-      }
-    }
-    else {
-      *dst++ = *src++;
-    }
-  }
-  *dst = '\0';
-  while (dst > name && ' ' == dst[-1]) *--dst = '\0';
-  dst = name;
-  src = name;
-  while ('\0' != *src) {
-    if (' ' == *src && ' ' == src[1]) {
-      ++src;
-    }
-    else {
-      *dst++ = *src++;
-    }
-  }
-  *dst = '\0';
-  if (' ' == *name) {
-    src = name + 1;
-    dst = name;
-    while ('\0' != *src) *dst++ = *src++;
-    *dst = '\0';
-  }
-}
 
 
 #  if defined(__cplusplus)
@@ -238,11 +172,11 @@ int libsmm_acc_init(void) {
               libxstream_opencl_device_uid(device_id, bufname, &default_uid);
             }
             LIBXS_SNPRINTF(devclean, sizeof(devclean), "%s", bufname);
-            opencl_libsmm_devname_cleanup(devclean);
+            libxstream_opencl_device_name_cleanup(devclean);
             for (; i < ndevices_params; ++i) {
               unsigned int uid;
               LIBXS_SNPRINTF(parclean, sizeof(parclean), "%s", OPENCL_KERNELS_DEVICES[i]);
-              opencl_libsmm_devname_cleanup(parclean);
+              libxstream_opencl_device_name_cleanup(parclean);
               count = 0;
               { const int n = libxs_strimatch(devclean, parclean, NULL, &count);
                 if (0 != n && 0 != count) {
@@ -376,10 +310,10 @@ int libsmm_acc_init(void) {
           int i = 0, count = 0, best_dist = INT_MAX;
           double best_score = 0;
           LIBXS_SNPRINTF(devclean, sizeof(devclean), "%s", bufname);
-          opencl_libsmm_devname_cleanup(devclean);
+          libxstream_opencl_device_name_cleanup(devclean);
           for (; i < ndevices_predict; ++i) {
             LIBXS_SNPRINTF(parclean, sizeof(parclean), "%s", OPENCL_KERNELS_DEVICES[i]);
-            opencl_libsmm_devname_cleanup(parclean);
+            libxstream_opencl_device_name_cleanup(parclean);
             count = 0;
             { const int n = libxs_strimatch(devclean, parclean, NULL, &count);
               if (0 != n && 0 != count) {

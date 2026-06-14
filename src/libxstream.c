@@ -10,6 +10,7 @@
 # include <libxstream/libxstream_opencl.h>
 # include <libxs/libxs_hash.h>
 # include <libxs/libxs_str.h>
+# include <ctype.h>
 # if defined(_WIN32)
 #   include <windows.h>
 #   include <process.h>
@@ -915,6 +916,71 @@ LIBXSTREAM_API int libxstream_opencl_device_name(
     }
   }
   return result_name | result_platform;
+}
+
+
+LIBXSTREAM_API void libxstream_opencl_device_name_cleanup(char name[])
+{
+  char* dst = name;
+  char* src = name;
+  if (NULL == name) return;
+  while ('\0' != *src) {
+    if ('[' == *src && '0' == src[1] && 'x' == src[2]) {
+      while ('\0' != *src && ']' != *src) ++src;
+      if (']' == *src) ++src;
+    }
+    else if ('(' == *src && (('R' == src[1] && ')' == src[2]) ||
+      ('T' == src[1] && 'M' == src[2] && ')' == src[3])))
+    {
+      src += ('T' == src[1]) ? 4 : 3;
+    }
+    else if ((' ' == *src || src == name) && 0 != isdigit((unsigned char)src[' ' == *src ? 1 : 0])) {
+      char* p = src + (' ' == *src ? 1 : 0);
+      while (0 != isdigit((unsigned char)*p)) ++p;
+      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
+          ('\0' == p[2] || ' ' == p[2] || '-' == p[2]))
+      {
+        src = p + 2;
+      }
+      else {
+        *dst++ = *src++;
+      }
+    }
+    else if ('-' == *src && 0 != isdigit((unsigned char)src[1])) {
+      char* p = src + 1;
+      while (0 != isdigit((unsigned char)*p)) ++p;
+      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
+          ('\0' == p[2] || ' ' == p[2]))
+      {
+        src = p + 2;
+      }
+      else {
+        *dst++ = *src++;
+      }
+    }
+    else {
+      *dst++ = *src++;
+    }
+  }
+  *dst = '\0';
+  while (dst > name && ' ' == dst[-1]) *--dst = '\0';
+  dst = name;
+  src = name;
+  while ('\0' != *src) {
+    if (' ' == *src && ' ' == src[1]) {
+      ++src;
+    }
+    else {
+      *dst++ = *src++;
+    }
+  }
+  *dst = '\0';
+  if (' ' == *name) {
+    src = name + 1;
+    dst = name;
+    while ('\0' != *src) *dst++ = *src++;
+    *dst = '\0';
+  }
 }
 
 

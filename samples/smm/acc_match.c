@@ -6,19 +6,10 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
+#include <libxstream/libxstream_opencl.h>
 #include <libxs/libxs_str.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#if defined(_WIN32)
-# define strncasecmp _strnicmp
-#else
-# include <strings.h>
-#endif
-
-
-static void opencl_libsmm_devname_cleanup(char* name);
 
 
 int main(int argc, char* argv[])
@@ -39,8 +30,8 @@ int main(int argc, char* argv[])
       fprintf(stdout, "strimatch: no match\n");
     }
     fprintf(stdout, "strisimilar: distance=%d order=%d\n", dist, order);
-    opencl_libsmm_devname_cleanup(a);
-    opencl_libsmm_devname_cleanup(b);
+    libxstream_opencl_device_name_cleanup(a);
+    libxstream_opencl_device_name_cleanup(b);
     fprintf(stdout, "cleaned: \"%s\" vs \"%s\"\n", a, b);
     count = 0;
     order = 0;
@@ -59,68 +50,4 @@ int main(int argc, char* argv[])
     result = EXIT_FAILURE;
   }
   return result;
-}
-
-
-static void opencl_libsmm_devname_cleanup(char* name)
-{
-  char* dst = name;
-  char* src = name;
-  while ('\0' != *src) {
-    if ('[' == *src && '0' == src[1] && 'x' == src[2]) {
-      while ('\0' != *src && ']' != *src) ++src;
-      if (']' == *src) ++src;
-    }
-    else if ('(' == *src && (('R' == src[1] && ')' == src[2]) ||
-      ('T' == src[1] && 'M' == src[2] && ')' == src[3])))
-    {
-      src += ('T' == src[1]) ? 4 : 3;
-    }
-    else if ((' ' == *src || src == name) && 0 != isdigit((unsigned char)src[' ' == *src ? 1 : 0])) {
-      char* p = src + (' ' == *src ? 1 : 0);
-      while (0 != isdigit((unsigned char)*p)) ++p;
-      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
-          ('\0' == p[2] || ' ' == p[2] || '-' == p[2]))
-      {
-        src = p + 2;
-      }
-      else {
-        *dst++ = *src++;
-      }
-    }
-    else if ('-' == *src && 0 != isdigit((unsigned char)src[1])) {
-      char* p = src + 1;
-      while (0 != isdigit((unsigned char)*p)) ++p;
-      if (('G' == *p || 'g' == *p) && ('B' == p[1] || 'b' == p[1]) &&
-          ('\0' == p[2] || ' ' == p[2]))
-      {
-        src = p + 2;
-      }
-      else {
-        *dst++ = *src++;
-      }
-    }
-    else {
-      *dst++ = *src++;
-    }
-  }
-  *dst = '\0';
-  while (dst > name && ' ' == dst[-1]) *--dst = '\0';
-  dst = name;
-  src = name;
-  while ('\0' != *src) {
-    if (' ' == *src && ' ' == src[1]) {
-      ++src;
-    }
-    else {
-      *dst++ = *src++;
-    }
-  }
-  *dst = '\0';
-  if (' ' == *name) {
-    src = name + 1;
-    dst = name;
-    while ('\0' != *src) *dst++ = *src++;
-    *dst = '\0';
-  }
 }
