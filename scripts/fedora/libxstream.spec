@@ -38,13 +38,11 @@ for developing applications that use LIBXSTREAM.
 
 %build
 %make_build GNU=1 STATIC=0 \
-    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name} \
-    %{?libxsroot:LIBXSROOT=%{libxsroot}}
+    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name}
 
 %install
 %make_install PREFIX=%{_prefix} CLEAN=0 STATIC=0 \
-    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name} \
-    %{?libxsroot:LIBXSROOT=%{libxsroot}}
+    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name}
 
 rm -f %{buildroot}%{_datadir}/%{name}/LICENSE.md
 

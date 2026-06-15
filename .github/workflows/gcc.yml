@@ -121,10 +121,13 @@ jobs:
         dnf install -y rpm-build gcc gcc-gfortran make bash git \
           ocl-icd-devel opencl-headers
 
-    - name: Build LIBXS
+    - name: Install LIBXS
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ../libxs
         cd ../libxs && make -j $(nproc) GNU=1 STATIC=0
+        cd ../libxs && make install PREFIX=/usr STATIC=0 \
+          POUTDIR=lib64 PPKGDIR=lib64/pkgconfig PCMKDIR=lib64/cmake/libxs
+        ldconfig
 
     - name: Build RPM package
       run: |
@@ -134,7 +137,6 @@ jobs:
         tar czf $HOME/rpmbuild/SOURCES/libxstream-${VERSION}.tar.gz \
           --transform="s,^\.,libxstream-${VERSION}," .
         rpmbuild -bb --nodeps --nocheck \
-          --define "libxsroot $(cd ../libxs && pwd)" \
           $HOME/rpmbuild/SPECS/libxstream.spec
 
     - name: Upload packages
