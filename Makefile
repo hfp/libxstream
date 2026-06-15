@@ -80,12 +80,21 @@ EXCLUDE_STATE := \
   SPLDIR SRCDIR TEST VERSION_STRING ALIAS_% %ROOT
 
 # root directory of LIBXS
-LIBXSROOT := $(wildcard $(ROOTDIR)/../libxs)
+ifeq (,$(LIBXSROOT))
+  LIBXSROOT := $(wildcard $(ROOTDIR)/../libxs)
+endif
+ifeq (,$(LIBXSROOT))
+  LIBXSROOT := $(shell pkg-config --variable=prefix libxs 2>/dev/null)
+endif
 
 # include common Makefile artifacts
-include $(LIBXSROOT)/Makefile.inc
+LIBXSINC := $(wildcard $(LIBXSROOT)/Makefile.inc)
+ifeq (,$(LIBXSINC))
+  LIBXSINC := $(wildcard $(LIBXSROOT)/share/libxs/Makefile.inc)
+endif
+include $(LIBXSINC)
 
-# setup LIBXS
+# setup LIBXS (source-tree layout)
 ifneq (,$(LIBXSROOT))
   LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
   LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
@@ -95,11 +104,19 @@ ifneq (,$(LIBXSROOT))
   IFLAGS += -I$(call quote,$(LIBXSROOT))
   ifneq (,$(LIBXS_DL))
     LIBXS_LINK := -L$(LIBXSROOT)/lib -lxs
-  else
+  else ifneq (,$(LIBXS))
     LIBXS_LINK := $(LIBXS)
   endif
 endif
-ifneq (,$(LIBXS))
+# setup LIBXS (installed layout via pkg-config)
+ifeq (,$(LIBXS))
+  LIBXS_PC := $(shell pkg-config --variable=prefix libxs 2>/dev/null)
+  ifneq (,$(LIBXS_PC))
+    IFLAGS += -I$(LIBXS_PC)/include
+    LIBXS_LINK := $(shell pkg-config --libs libxs)
+  endif
+endif
+ifneq (,$(LIBXS)$(LIBXS_PC))
   DFLAGS += -D__LIBXS
 endif
 
