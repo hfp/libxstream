@@ -33,6 +33,9 @@
 #if !defined(METHOD)
 # define METHOD 0
 #endif
+#if !defined(TRIM)
+# define TRIM 0
+#endif
 
 /* Number of Dekker BF16 digits for operator (A) and wavefield (X). */
 #if !defined(NDIGITS_A)

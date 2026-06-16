@@ -243,7 +243,11 @@ kernel void stencil_apply(
       global const ushort* d_digit = dk + (long)sa * BLK * K_PAD;
 
       for (sb = 0; sb < NDIGITS_X; ++sb) {
-        local const ushort* x_digit = x_slm + sb * K_PAD * XMX_N;
+        local const ushort* x_digit;
+#if defined(TRIM) && (0 < TRIM)
+        if (sa + sb >= NDIGITS_A + NDIGITS_X - 1 - (TRIM - 1)) continue;
+#endif
+        x_digit = x_slm + sb * K_PAD * XMX_N;
 
         for (kstep = 0; kstep < K_PAD; kstep += 16) {
           ushort8 a_bf;

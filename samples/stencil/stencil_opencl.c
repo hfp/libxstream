@@ -76,6 +76,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.r_per_step = ctx->r_per_step;
   key.sg = ctx->sg;
   key.grf256 = ctx->grf256;
+  key.trim = ctx->trim;
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
     kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
@@ -98,9 +99,9 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       { const int intel_level = (int)devinfo->intel;
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSG=%d -DINTEL=%d"
-          " -DMETHOD=%d %s",
+          " -DMETHOD=%d -DTRIM=%d %s",
           base_flags, key.r_per_step, key.k_steps, key.r_per_step,
-          key.sg, intel_level, key.method,
+          key.sg, intel_level, key.method, key.trim,
           (intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1");
       }
 
@@ -156,6 +157,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   const char* method_env = getenv("STENCIL_METHOD");
   const char* sg_env = getenv("STENCIL_SG");
   const char* grf_env = getenv("STENCIL_GRF256");
+  const char* trim_env = getenv("STENCIL_TRIM");
   int method_val;
 
   LIBXS_MEMZERO(ctx);
@@ -181,6 +183,9 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   ctx->grf256 = (NULL == grf_env)
     ? devinfo->biggrf
     : atoi(grf_env);
+
+  ctx->trim = (NULL == trim_env) ? 0 : atoi(trim_env);
+  if (ctx->trim < 0) ctx->trim = 0;
 
   ctx->dpas = (devinfo->intel >= 2) ? 1 : 0;
 
