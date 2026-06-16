@@ -1037,8 +1037,8 @@ kernel void gemm_crt_fused(
 {
   const int ib_idx = (int)get_group_id(0);
   const int jb_idx = (int)get_group_id(1);
-  const int sg_lid = (int)LIBXS_SGLID();
-  const int sg_id = (int)LIBXS_SGID();
+  const int sg_lid = (int)SGLID();
+  const int sg_id = (int)SGID();
   const int tile_m = sg_id / NTN;
   const int tile_n = sg_id % NTN;
   const int mi_base = ib_idx * BM + tile_m * XMX_M * RTM;

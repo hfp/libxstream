@@ -65,13 +65,6 @@
 # define XMX_N 16
 #endif
 
-/* Integer power of two via bit manipulation: 2^N exactly.
- * Avoids FP transcendental — one integer add, one shift, one bitcast. */
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-# define EXP2I(N) as_double((long)((N) + 1023) << 52)
-#else
-# define EXP2I(N) as_float(((N) + 127) << 23)
-#endif
 
 /* One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
  * Each work-item holds 8 rows; the column is get_sub_group_local_id().
@@ -474,7 +467,7 @@
  * XMX_M=16 rows, XMX_N=8 cols per MMA tile. */
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
-      const int lane_ = (int)LIBXS_SGLID(); \
+      const int lane_ = (int)SGLID(); \
       int rm_l_, rn_l_; \
       for (rm_l_ = 0; rm_l_ < RTM; ++rm_l_) { \
         for (rn_l_ = 0; rn_l_ < RTN; ++rn_l_) { \
@@ -489,7 +482,7 @@
 /* Single-tile MMA (RTM=1, RTN=1). */
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
-      const int lane_ = (int)LIBXS_SGLID(); \
+      const int lane_ = (int)SGLID(); \
       NV_MMA_STEP(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, lane_, \
         (ACC).s0, (ACC).s1, (ACC).s2, (ACC).s3); \
     } while (0)
@@ -552,7 +545,7 @@
  * A reuse: each A row-set is loaded once, used by all RTN column-tiles. */
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
-      const int col0_ = (NJ) + (int)LIBXS_SGLID(); \
+      const int col0_ = (NJ) + (int)SGLID(); \
       uint b_reg_[RTN][8]; \
       uint a_reg_[RTM][8][8]; \
       int rn_l_, rm_l_; \
@@ -584,7 +577,7 @@
 /* Single-tile fallback (RTM=1, RTN=1 or direct call). */
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
-      const int col_ = (NJ) + (int)LIBXS_SGLID(); \
+      const int col_ = (NJ) + (int)SGLID(); \
       uint b_s_[8]; \
       union { int8 v_; int a_[8]; } u_s_; \
       int m_s_; \
@@ -610,7 +603,7 @@
 # endif
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
-      const int col_ = (NJ) + (int)LIBXS_SGLID(); \
+      const int col_ = (NJ) + (int)SGLID(); \
       union { \
         int8 v_; \
         int a_[8]; \

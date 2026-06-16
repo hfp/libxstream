@@ -50,11 +50,11 @@
  * fall back to local IDs for vendors without cl_khr_subgroups (e.g. NVIDIA).
  * Requires work-group layout (SG, num_sub_groups, 1). */
 #if defined(INTEL) && (0 < INTEL)
-# define LIBXS_SGLID() get_sub_group_local_id()
-# define LIBXS_SGID()  get_sub_group_id()
+# define SGLID() get_sub_group_local_id()
+# define SGID()  get_sub_group_id()
 #else
-# define LIBXS_SGLID() get_local_id(0)
-# define LIBXS_SGID()  get_local_id(1)
+# define SGLID() get_local_id(0)
+# define SGID()  get_local_id(1)
 #endif
 
 #if !defined(MIN)
@@ -96,6 +96,14 @@ typedef uint uint_repr_t;
 #endif
 
 /* BF16 conversion helpers. Controlled by USE_BF16_EXT/USE_BF16. */
+/* Integer power of two via bit manipulation: 2^N exactly.
+ * Avoids FP transcendental -- one integer add, one shift, one bitcast. */
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+# define EXP2I(N) as_double((long)((N) + 1023) << 52)
+#else
+# define EXP2I(N) as_float(((N) + 127) << 23)
+#endif
+
 #if defined(USE_BF16_EXT) && (0 < USE_BF16_EXT)
 /* Hardware round-to-nearest-even via cl_intel_bfloat16_conversions.
  * Extension pragmas trigger warnings on some drivers; availability
