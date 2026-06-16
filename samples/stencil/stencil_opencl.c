@@ -344,13 +344,15 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
 
   for (dim = 0; dim < nterms && EXIT_SUCCESS == result; ++dim) {
     const int mode = (0 == dim) ? 1 : 2;
-    size_t global_apply[2], local_apply[2];
+    size_t global_apply[3], local_apply[3];
     cl_int i;
 
     global_apply[0] = (size_t)total_blocks * ctx->sg;
     global_apply[1] = STENCIL_M_TILES;
+    global_apply[2] = STENCIL_N_STRIPS;
     local_apply[0] = (size_t)ctx->sg;
     local_apply[1] = STENCIL_M_TILES;
+    local_apply[2] = 1;
 
     i = 0;
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[dim]));
@@ -369,7 +371,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nby));
 
     CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply,
-      2, NULL, global_apply, local_apply, 0, NULL, NULL));
+      3, NULL, global_apply, local_apply, 0, NULL, NULL));
   }
 
   return result;
