@@ -203,6 +203,12 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   ctx->nblocks[1] = (ny + STENCIL_BLK - 1) / STENCIL_BLK;
   ctx->nblocks[2] = (nz + STENCIL_BLK - 1) / STENCIL_BLK;
 
+  if (EXIT_SUCCESS == result) {
+    const int total_blocks = ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2];
+    const size_t xk_size = (size_t)total_blocks * STENCIL_NDIGITS_X
+                         * STENCIL_K_PAD * STENCIL_N_PAD * sizeof(cl_ushort);
+    result = libxstream_mem_allocate(&ctx->xk, xk_size);
+  }
   if (ctx->k_steps > 1 && EXIT_SUCCESS == result) {
     const size_t grid_bytes = (size_t)nx * ny * nz * sizeof(float);
     result = libxstream_mem_allocate(&ctx->cascade_a, grid_bytes);
@@ -308,31 +314,28 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
   const stencil_kernels_t* knl = stencil_get_kernels(ctx);
   const int total_blocks = ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2];
   const int k_steps = ctx->k_steps;
-  const size_t x_size = (size_t)STENCIL_NDIGITS_X * STENCIL_K_PAD
-                       * STENCIL_N_PAD * sizeof(cl_ushort);
   const libxstream_opencl_stream_t* str =
     (const libxstream_opencl_stream_t*)ctx->stream;
-  void* xk = NULL;
+  const int nx = ctx->grid_size[0];
+  const int ny = ctx->grid_size[1];
+  const int nz = ctx->grid_size[2];
+  const int nbx = ctx->nblocks[0];
+  const int nby = ctx->nblocks[1];
+  void* xk = ctx->xk;
   int dim;
 
-  if (NULL == knl) return EXIT_FAILURE;
-
-  result = libxstream_mem_allocate(&xk, x_size);
+  if (NULL == knl || NULL == xk) return EXIT_FAILURE;
 
   for (dim = 0; dim < nterms && EXIT_SUCCESS == result; ++dim) {
-    const int super_m = STENCIL_BLK + 2 * ctx->r_per_step;
-    const int super_n = STENCIL_BLK + 2 * ctx->r_per_step;
-    const int super_p = STENCIL_BLK + 2 * ctx->r_per_step;
     int kstep;
 
     for (kstep = 0; kstep < k_steps && EXIT_SUCCESS == result; ++kstep) {
-      /* mode: 0=write intermediate, 1=write Y=v^2*res, 2=accumulate Y+=res */
       const int is_final = (kstep == k_steps - 1) ? 1 : 0;
       const int mode = (0 == is_final) ? 0 : ((0 == dim) ? 1 : 2);
       void* src;
       void* dst;
-      size_t global_pre[3], local_pre[3];
-      size_t global_apply[2], local_apply[2];
+      size_t global_pre[2];
+      size_t global_apply[3];
       cl_int i;
 
       if (1 == k_steps) {
@@ -352,37 +355,28 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
         dst = (0 == (kstep & 1)) ? ctx->cascade_b : ctx->cascade_a;
       }
 
-      global_pre[0] = STENCIL_BLK;
-      global_pre[1] = STENCIL_BLK;
-      global_pre[2] = STENCIL_BLK;
-      local_pre[0] = STENCIL_BLK;
-      local_pre[1] = 1;
-      local_pre[2] = 1;
+      global_pre[0] = (size_t)total_blocks * STENCIL_BLK;
+      global_pre[1] = STENCIL_N_TOTAL;
 
       i = 0;
       CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->preprocess_x, i++, src));
       CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &dim));
-      { int stride = (0 == dim) ? 1 : (1 == dim) ? super_m : super_m * super_n;
-        CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &stride));
-      }
-      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &super_m));
-      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &super_n));
-      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &super_p));
+      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nx));
+      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &ny));
+      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nz));
+      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nbx));
+      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nby));
       CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->preprocess_x, i++, xk));
-      { int doff = 0;
-        CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &doff));
-      }
       { int nd = STENCIL_NDIGITS_X;
         CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nd));
       }
 
       CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->preprocess_x,
-        3, NULL, global_pre, ctx->dpas ? local_pre : NULL, 0, NULL, NULL));
+        2, NULL, global_pre, NULL, 0, NULL, NULL));
 
       global_apply[0] = (size_t)total_blocks * ctx->sg;
-      global_apply[1] = STENCIL_M_TILES * STENCIL_N_STRIPS;
-      local_apply[0] = (size_t)ctx->sg;
-      local_apply[1] = global_apply[1];
+      global_apply[1] = STENCIL_M_TILES;
+      global_apply[2] = STENCIL_N_STRIPS;
 
       i = 0;
       CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[dim]));
@@ -395,11 +389,10 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
       }
 
       CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply,
-        2, NULL, global_apply, ctx->dpas ? local_apply : NULL, 0, NULL, NULL));
+        3, NULL, global_apply, NULL, 0, NULL, NULL));
     }
   }
 
-  if (NULL != xk) libxstream_mem_deallocate(xk);
   return result;
 }
 
@@ -413,6 +406,7 @@ void stencil_finalize(stencil_context_t* ctx)
   }
   if (NULL != ctx->cascade_b) libxstream_mem_deallocate(ctx->cascade_b);
   if (NULL != ctx->cascade_a) libxstream_mem_deallocate(ctx->cascade_a);
+  if (NULL != ctx->xk) libxstream_mem_deallocate(ctx->xk);
   if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
   LIBXS_MEMZERO(ctx);
 }
