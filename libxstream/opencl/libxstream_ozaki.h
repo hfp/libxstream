@@ -118,6 +118,72 @@ inline void dekker_split_bf16_private(real_t val, int ndigits,
       (global void*)(B_SURF), (B_WB), (B_HT), (B_WB), \
       (int2)((NJ) * 2, (KOFF)))
 
+#else /* scalar fallback */
+
+# define BF16_MAD_K16(A, B, ACC) (ACC)
+
+# define BF16_DPAS(A_SURF, B_SURF, A_WB, A_HT, B_WB, B_HT, \
+                          MI, NJ, A_KOFF, B_KOFF, ACC) \
+    do { \
+      const int col_ = (NJ) + (int)SGLID(); \
+      union { float8 v_; float a_[8]; } u_dpas_; \
+      int m_, k_; \
+      u_dpas_.v_ = (ACC); \
+      for (m_ = 0; m_ < 8; ++m_) { \
+        for (k_ = 0; k_ < 16; ++k_) { \
+          const ushort a_val_ = ((global const ushort*)(A_SURF)) \
+            [(long)((MI) + m_) * ((A_WB) / 2) + (A_KOFF) + k_]; \
+          const ushort b_val_ = ((global const ushort*)(B_SURF)) \
+            [(long)((B_KOFF) + k_) * ((B_WB) / 2) + col_]; \
+          u_dpas_.a_[m_] += BF16_TO_F32(a_val_) * BF16_TO_F32(b_val_); \
+        } \
+      } \
+      (ACC) = u_dpas_.v_; \
+    } while (0)
+
+# define BF16_DPAS_ONE(A, B, ACC) \
+    do { \
+      union { float8 v_; float a_[8]; } u_one_; \
+      union { ushort8 va_; ushort aa_[8]; } a_one_; \
+      int m_, k_; \
+      u_one_.v_ = (ACC); \
+      a_one_.va_ = (A); \
+      for (m_ = 0; m_ < 8; ++m_) { \
+        const ushort a_val_ = a_one_.aa_[m_]; \
+        for (k_ = 0; k_ < 16; ++k_) { \
+          const uint b_packed_ = ((private const uint*)&(B))[k_]; \
+          const ushort b_lo_ = (ushort)(b_packed_ & 0xFFFFu); \
+          const ushort b_hi_ = (ushort)(b_packed_ >> 16); \
+          u_one_.a_[m_] += BF16_TO_F32(a_val_) * BF16_TO_F32(b_lo_); \
+          u_one_.a_[m_] += BF16_TO_F32(a_val_) * BF16_TO_F32(b_hi_); \
+        } \
+      } \
+      (ACC) = u_one_.v_; \
+    } while (0)
+
+# define BF16_LOAD_A(A_SURF, A_WB, A_HT, MI, KOFF, DST) \
+    do { \
+      int m_la_; \
+      for (m_la_ = 0; m_la_ < 8; ++m_la_) { \
+        ((private ushort*)(DST))[m_la_] = \
+          ((global const ushort*)(A_SURF))[(long)((MI) + m_la_) * ((A_WB) / 2) + (KOFF) + (int)SGLID()]; \
+      } \
+    } while (0)
+
+# define BF16_LOAD_B(B_SURF, B_WB, B_HT, NJ, KOFF, DST) \
+    do { \
+      int k_lb_; \
+      const int col_lb_ = (NJ) + (int)SGLID(); \
+      for (k_lb_ = 0; k_lb_ < 16; ++k_lb_) { \
+        const ushort lo_ = ((global const ushort*)(B_SURF))[(long)((KOFF) + k_lb_ * 2) * ((B_WB) / 2) + col_lb_]; \
+        const ushort hi_ = ((global const ushort*)(B_SURF))[(long)((KOFF) + k_lb_ * 2 + 1) * ((B_WB) / 2) + col_lb_]; \
+        ((private uint*)(DST))[k_lb_] = (uint)lo_ | ((uint)hi_ << 16); \
+      } \
+    } while (0)
+
+# define BF16_PREFETCH_A(A_SURF, A_WB, A_HT, MI, KOFF)
+# define BF16_PREFETCH_B(B_SURF, B_WB, B_HT, NJ, KOFF)
+
 #endif /* INTEL >= 2 */
 
 #endif /*LIBXSTREAM_OPENCL_OZAKI_H*/

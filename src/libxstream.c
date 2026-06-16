@@ -158,8 +158,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, con
 
 
 /** Setup to run prior to touching OpenCL runtime. */
-LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void);
-LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
+LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void);
+LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
 {
   const char *const env_devsplit = getenv("LIBXSTREAM_DEVSPLIT"), *const env_nlocks = getenv("LIBXSTREAM_NLOCKS");
   const char *const env_verbose = getenv("LIBXSTREAM_VERBOSE"), *const env_dump_acc = getenv("LIBXSTREAM_DUMP");
@@ -319,6 +319,33 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
 }
 
 
+static libxstream_init_config_t libxstream_init_cfg = {-1, -1, -1};
+
+
+LIBXSTREAM_API void libxstream_init_config_default(libxstream_init_config_t* cfg)
+{
+  if (NULL != cfg) {
+    cfg->usm = -1;
+    cfg->device = -1;
+    cfg->verbosity = -1;
+  }
+}
+
+
+LIBXSTREAM_API int libxstream_init_config(const libxstream_init_config_t* cfg)
+{
+  if (NULL != cfg) {
+    libxstream_init_cfg = *cfg;
+  }
+  else {
+    libxstream_init_cfg.usm = -1;
+    libxstream_init_cfg.device = -1;
+    libxstream_init_cfg.verbosity = -1;
+  }
+  return libxstream_init();
+}
+
+
 LIBXSTREAM_API int libxstream_init(void)
 {
 # if defined(_OPENMP) && 0 /* TODO */
@@ -328,7 +355,10 @@ LIBXSTREAM_API int libxstream_init(void)
   int result = EXIT_SUCCESS;
 # endif
   if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
-    libxstream_opencl_configure();
+    libxstream_opencl_setup();
+    if (0 <= libxstream_init_cfg.verbosity) {
+      libxstream_opencl_config.verbosity = libxstream_init_cfg.verbosity;
+    }
   }
   /* eventually touch OpenCL/compute runtime after configure */
   if (0 == libxstream_opencl_config.ndevices && EXIT_SUCCESS == result) { /* avoid to initialize multiple times */
@@ -342,7 +372,8 @@ LIBXSTREAM_API int libxstream_init(void)
     const char* const env_devtype = getenv("LIBXSTREAM_DEVTYPE");
     const char* const env_device = getenv("LIBXSTREAM_DEVICE");
     char* const env_devids = getenv("LIBXSTREAM_DEVIDS");
-    int device_id = (NULL == env_device ? 0 : atoi(env_device));
+    int device_id = (0 <= libxstream_init_cfg.device) ? libxstream_init_cfg.device
+      : (NULL == env_device ? 0 : atoi(env_device));
 # if defined(LIBXSTREAM_CACHE_DID)
     assert(0 == libxstream_opencl_active_id);
 # endif
@@ -670,7 +701,7 @@ LIBXSTREAM_API int libxstream_init(void)
 LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_CTOR void libxstream_opencl_init(void)
 {
   if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
-    libxstream_opencl_configure();
+    libxstream_opencl_setup();
   }
 # if defined(LIBXSTREAM_PREINIT)
   LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_init());
@@ -1277,7 +1308,8 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
            *   3: OpenCL 2.0 SVM with device-reported caps (skip Intel ext) */
           {
             const char* const env_usm = getenv("LIBXSTREAM_USM");
-            const int usm_level = (NULL != env_usm ? atoi(env_usm) : -1 /*default*/);
+            const int usm_level = (0 <= libxstream_init_cfg.usm) ? libxstream_init_cfg.usm
+              : (NULL != env_usm ? atoi(env_usm) : -1 /*default*/);
 # if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
             /* Intel USM extensions: enabled only by explicit level 1 */
             if (1 == usm_level && 2 <= *devinfo->std_level && 0 != devinfo->intel &&

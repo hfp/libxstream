@@ -34,6 +34,8 @@ libxstream_event_record
 libxstream_event_sync
 libxstream_finalize
 libxstream_init
+libxstream_init_config
+libxstream_init_config_default
 libxstream_mem_allocate
 libxstream_mem_copy_d2d
 libxstream_mem_copy_d2h
@@ -50,6 +52,7 @@ libxstream_opencl_device_ext
 libxstream_opencl_device_id
 libxstream_opencl_device_level
 libxstream_opencl_device_name
+libxstream_opencl_device_name_cleanup
 libxstream_opencl_device_synchronize
 libxstream_opencl_device_uid
 libxstream_opencl_device_vendor

@@ -77,11 +77,34 @@ make -j $(nproc) -f /path/to/libxstream/Makefile
 The public C API is declared in `libxstream/libxstream.h`. All
 implementation details are sealed behind opaque types.
 
-### Devices
+### Initialization
 
 ```c
 int libxstream_init(void);
+int libxstream_init_config(const libxstream_init_config_t* cfg);
+void libxstream_init_config_default(libxstream_init_config_t* cfg);
 int libxstream_finalize(void);
+```
+
+`libxstream_init()` initializes with environment/defaults.
+`libxstream_init_config()` allows explicit control over USM level,
+device selection, and verbosity before the runtime starts:
+
+```c
+libxstream_init_config_t cfg;
+libxstream_init_config_default(&cfg);  /* -1 = use env/default */
+cfg.usm = 1;      /* 0:off, 1:Intel USM, 2:SVM coarse, 3:SVM caps */
+cfg.device = 0;   /* device index (-1: env/first) */
+cfg.verbosity = 2;
+libxstream_init_config(&cfg);
+```
+
+Passing NULL to `libxstream_init_config` is equivalent to calling
+`libxstream_init`.
+
+### Devices
+
+```c
 int libxstream_device_count(int* ndevices);
 int libxstream_device_set_active(int device_id);
 int libxstream_device_sync(void);
@@ -168,6 +191,16 @@ detection of Intel XMX matrix engines. See
 [samples/ozaki/README.md](samples/ozaki/README.md). The CPU-side
 GEMM wrapper is part of
 [LIBXS Ozaki](https://github.com/hfp/libxs/tree/main/samples/ozaki).
+
+### Stencil -- BF16-DPAS Finite Difference
+
+Seismic wave propagation (RTM/FWI) via dimension-split stencils
+computed as batched small GEMMs on BF16 DPAS/XMX tensor units.
+Achieves FP32 accuracy through Dekker splitting. Supports isotropic
+and TTI operators, multiple factorization methods (sparse, dense
+cascade, hybrid), and runtime kernel specialization via a
+thread-safe registry. Includes a scalar proxy for non-DPAS hardware.
+See [samples/stencil/README.md](samples/stencil/README.md).
 
 ## License
 

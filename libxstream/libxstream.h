@@ -17,6 +17,17 @@ typedef struct libxstream_stream_t libxstream_stream_t;
 typedef struct libxstream_event_t libxstream_event_t;
 
 /** initialization and finalization */
+typedef struct libxstream_init_config_t {
+  int usm;        /* -1: env/default, 0: disable, 1: Intel USM ext, 2: SVM coarse, 3: SVM caps */
+  int device;     /* -1: env/default (first), >=0: device index */
+  int verbosity;  /* -1: env/default, >=0: explicit level */
+} libxstream_init_config_t;
+
+/** Fill config with sentinel values (all -1: no opinion, use env/defaults). */
+LIBXSTREAM_API void libxstream_init_config_default(libxstream_init_config_t* cfg);
+/** Initialize with explicit configuration (NULL: same as libxstream_init). */
+LIBXSTREAM_API int libxstream_init_config(const libxstream_init_config_t* cfg);
+/** Initialize with env/defaults (equivalent to libxstream_init_config(NULL)). */
 LIBXSTREAM_API int libxstream_init(void);
 LIBXSTREAM_API int libxstream_finalize(void);
 

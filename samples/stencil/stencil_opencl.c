@@ -62,7 +62,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       LIBXS_MEMZERO(base_flags);
       LIBXS_SNPRINTF(base_flags, sizeof(base_flags),
         "-cl-fast-relaxed-math -cl-denorms-are-zero"
-        " -DBLK=%d -DNDIGITS_A=%d -DNDIGITS_X=%d -DGPU=1 -DUSE_BF16_EXT=1",
+        " -DBLK=%d -DNDIGITS_A=%d -DNDIGITS_X=%d -DGPU=1",
         STENCIL_BLK, STENCIL_NDIGITS_A, STENCIL_NDIGITS_X);
       kernel_registry = libxs_registry_create();
       LIBXS_ATOMIC_STORE(&base_ready, 1, LIBXS_ATOMIC_SEQ_CST);
@@ -95,12 +95,14 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 
       LIBXS_MEMZERO(&knl);
 
-      LIBXS_SNPRINTF(flags, sizeof(flags),
-        "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSG=%d -DINTEL=%d"
-        " -DMETHOD=%d",
-        base_flags, key.r_per_step, key.k_steps, key.r_per_step,
-        key.sg, (devinfo->intel >= 2) ? devinfo->intel : 2,
-        key.method);
+      { const int intel_level = (int)devinfo->intel;
+        LIBXS_SNPRINTF(flags, sizeof(flags),
+          "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSG=%d -DINTEL=%d"
+          " -DMETHOD=%d %s",
+          base_flags, key.r_per_step, key.k_steps, key.r_per_step,
+          key.sg, intel_level, key.method,
+          (intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1");
+      }
 
       if (0 != key.grf256 && 0 != devinfo->intel && 0 == devinfo->biggrf) {
         options = "-cl-intel-256-GRF-per-thread";
@@ -179,6 +181,8 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   ctx->grf256 = (NULL == grf_env)
     ? devinfo->biggrf
     : atoi(grf_env);
+
+  ctx->dpas = (devinfo->intel >= 2) ? 1 : 0;
 
   if (EXIT_SUCCESS == result) {
     result = libxstream_stream_create(&ctx->stream, "stencil", 0);
@@ -373,12 +377,12 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
       }
 
       CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->preprocess_x,
-        3, NULL, global_pre, local_pre, 0, NULL, NULL));
+        3, NULL, global_pre, ctx->dpas ? local_pre : NULL, 0, NULL, NULL));
 
-      local_apply[0] = (size_t)ctx->sg;
-      local_apply[1] = STENCIL_M_TILES * STENCIL_N_STRIPS;
       global_apply[0] = (size_t)total_blocks * ctx->sg;
-      global_apply[1] = local_apply[1];
+      global_apply[1] = STENCIL_M_TILES * STENCIL_N_STRIPS;
+      local_apply[0] = (size_t)ctx->sg;
+      local_apply[1] = global_apply[1];
 
       i = 0;
       CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[dim]));
@@ -391,7 +395,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
       }
 
       CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply,
-        2, NULL, global_apply, local_apply, 0, NULL, NULL));
+        2, NULL, global_apply, ctx->dpas ? local_apply : NULL, 0, NULL, NULL));
     }
   }
 

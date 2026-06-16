@@ -61,6 +61,7 @@ typedef struct {
   int r_per_step;
   int sg;
   int grf256;
+  int dpas;
   int verbosity;
 } stencil_context_t;
 
