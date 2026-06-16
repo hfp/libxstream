@@ -50,6 +50,7 @@ int main(int argc, char* argv[])
   vel_model_t vel_model = VEL_GRADIENT;
   const char* vel_file = NULL;
   double fd_w[2 * STENCIL_RADIUS + 1];
+  int method_override = -1;
   int ndevices = 0;
   int initialized = 0;
   int argi;
@@ -107,6 +108,9 @@ int main(int argc, char* argv[])
       v_min = 2000.0f; v_max = 6000.0f;
       vel_model = VEL_GRADIENT;
     }
+    else if (0 == strcmp(argv[argi], "-m") && argi + 1 < argc) {
+      method_override = atoi(argv[++argi]);
+    }
     else if (0 == strcmp(argv[argi], "--help")) {
       usage(argv[0]); return EXIT_SUCCESS;
     }
@@ -115,7 +119,7 @@ int main(int argc, char* argv[])
   {
     const double gpoints = (double)nx * ny * nz * 1.0e-9;
     const float dt = 0.6f * (float)h
-                   / (v_max * sqrtf(3.0f) * (2.0f * radius + 1.0f));
+                   / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
     printf("Stencil BF16-DPAS benchmark\n");
     printf("  Grid:       %d x %d x %d (%.3f GPoints)\n",
            nx, ny, nz, gpoints);
@@ -158,7 +162,12 @@ int main(int argc, char* argv[])
     printf("  Device:     %s\n\n", devname);
   }
   if (EXIT_SUCCESS == result) {
-    result = stencil_init(&ctx, 1);
+    result = stencil_init(&ctx, 1, method_override);
+  }
+  if (EXIT_SUCCESS == result) {
+    const char* mnames[] = {"sparse", "dense", "hybrid", "best"};
+    printf("  Method:     %s (K=%d, r=%d)\n",
+           mnames[(int)ctx.method], ctx.k_steps, ctx.r_per_step);
   }
   if (EXIT_SUCCESS == result) {
     result = stencil_configure(&ctx, nx, ny, nz);
@@ -216,7 +225,7 @@ int main(int argc, char* argv[])
 
     for (t = 0; t < warmup && EXIT_SUCCESS == result; ++t) {
       inject_source(p_host, nx, ny, nz,
-        0.6f * (float)h / (v_max * sqrtf(3.0f) * (2.0f * radius + 1.0f)),
+        0.6f * (float)h / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f)),
         t, freq);
       result = stencil_apply_laplacian(&ctx, p_dev, y_dev, vel_dev, nterms);
     }
@@ -224,7 +233,7 @@ int main(int argc, char* argv[])
       result = libxstream_stream_sync(ctx.stream);
     }
 
-    libxs_timer_tick(&t0);
+    t0 = libxs_timer_tick();
 
     for (t = 0; t < ntsteps && EXIT_SUCCESS == result; ++t) {
       result = stencil_apply_laplacian(&ctx, p_dev, y_dev, vel_dev, nterms);
@@ -233,7 +242,7 @@ int main(int argc, char* argv[])
       result = libxstream_stream_sync(ctx.stream);
     }
 
-    libxs_timer_tick(&t1);
+    t1 = libxs_timer_tick();
     t_elapsed = libxs_timer_duration(t0, t1);
 
     if (EXIT_SUCCESS == result) {
@@ -324,8 +333,8 @@ static int load_velocity_file(const char* path, float* vel,
   if (EXIT_SUCCESS == result) {
     nread = fread(vel, sizeof(float), n, f);
     if (nread != n) {
-      fprintf(stderr, "Velocity file too short: read %zu of %zu elements\n",
-              nread, n);
+      fprintf(stderr, "Velocity file too short: read %lu of %lu elements\n",
+              (unsigned long)nread, (unsigned long)n);
       result = EXIT_FAILURE;
     }
   }
@@ -388,7 +397,7 @@ static void inject_source(float* p, int nx, int ny, int nz,
   const float t0 = 1.2f / freq;
   const float arg = 3.14159265f * freq * (t - t0);
   const float ricker = (1.0f - 2.0f * arg * arg)
-                     * expf(-arg * arg);
+                     * (float)exp((double)(-arg * arg));
   const int sx = nx / 2, sy = ny / 2, sz = nz / 2;
   p[sz * ny * nx + sy * nx + sx] += ricker;
 }
@@ -401,6 +410,7 @@ static void usage(const char* prog)
          "  -nx/ny/nz <N> individual grid dimensions\n"
          "  -t <steps>    number of time steps (default 100)\n"
          "  -d <dims>     operator terms: 3=isotropic, 9=TTI (default 3)\n"
+         "  -m <method>   operator method: 0=sparse 1=dense 2=hybrid 3=best\n"
          "  -h <spacing>  grid spacing in meters (default 10.0)\n"
          "  -v <model>    velocity model: const|grad|layered|<file.bin>\n"
          "  -vmin <vel>   min velocity m/s (default 1500)\n"
@@ -411,6 +421,8 @@ static void usage(const char* prog)
          "Benchmark models (shortcuts):\n"
          "  -seg-salt      SEG/EAGE Salt (676x676x210, h=20m)\n"
          "  -overthrust    SEG/EAGE Overthrust (801x801x187, h=25m)\n"
+         "\n"
+         "Environment: STENCIL_METHOD, STENCIL_SG, STENCIL_GRF256\n"
          "\n"
          "Performance is reported in GPoints/s.\n", prog);
 }

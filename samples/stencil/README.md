@@ -238,6 +238,42 @@ buffer the intermediate result between two GEMM phases:
 SLM budget per cross-term: 2 x K_PAD x XMX_N x sizeof(ushort) = 2 KB.
 Total for 3 cross-terms with barrier: fits within 128 KB (Xe2/BMG).
 
+## Operator Cascade (Densification)
+
+The standard kernel applies one wide-reach operator (radius-4, 9-point)
+per dimension.  The cascade variants factor this into K sub-steps each
+with a smaller radius r, such that K*r >= R_target.  Sub-step results
+stay in registers (no memory round-trip), trading extra DPAS calls for
+reduced halo size and fully dense operator matrices.
+
+Methods (selected via STENCIL_METHOD environment variable):
+
+    0 = sparse    K=1, r=4  standard high-order (default)
+    1 = dense     K=4, r=1  pure cascade, tridiagonal, minimal halo
+    2 = hybrid    K=2, r=2  balanced (pentadiagonal, half halo)
+    3 = best      coefficients dispersion-optimized (static)
+
+The "best" mode uses the free degrees of freedom in the K-factor
+coefficient product to match or exceed the dispersion quality of the
+standard 8th-order stencil at target frequencies, while retaining the
+memory savings of the cascade.  Coefficients are precomputed once at
+initialization for the grid's frequency content.
+
+Environment variables controlling kernel specialization:
+
+    STENCIL_METHOD   operator method (0-3, default 0)
+    STENCIL_BK       K-unroll block size (default: K_PAD)
+    STENCIL_SG       subgroup size override (default: device preferred)
+    STENCIL_GRF256   force 256-GRF mode (0/1, default: auto)
+
+Specialized kernels are compiled on first use and cached in a
+thread-safe registry keyed by the (method, k_steps, r_per_step, sg)
+tuple.  Subsequent launches with the same parameters are zero-cost.
+
+Future extension: per-block adaptive method selection (different K in
+regions with different velocity/frequency content).  This requires
+per-block dispatch logic and is not yet implemented.
+
 ## File Layout
 
     samples/stencil/
