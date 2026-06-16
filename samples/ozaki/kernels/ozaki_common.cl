@@ -147,7 +147,7 @@
  * ACC is an int8 array of size RTM*RTN, indexed [rm * RTN + rn].
  *
  * Coalesced-load specializations use wider 2D block reads to reduce
- * the number of load messages per K-step (matching TinyTC codegen):
+ * the number of load messages per K-step:
  *   A: _8b_{RTM*8}r32x1c loads all RTM subtiles in one message.
  *   B: _transform_8b_32r16x{RTN}c loads all RTN subtiles in one message.
  * Fallback: per-subtile loops (generic for any RTM/RTN). */
