@@ -9,8 +9,8 @@
 #ifndef STENCIL_OPENCL_H
 #define STENCIL_OPENCL_H
 
-#include <libxstream/libxstream.h>
 #include <libxstream/libxstream_opencl.h>
+#include <libxs/libxs_reg.h>
 
 #define STENCIL_BLK 32
 #define STENCIL_RADIUS 4
@@ -27,19 +27,45 @@
 #define STENCIL_SG 16
 
 
+typedef enum {
+  STENCIL_SPARSE = 0,
+  STENCIL_DENSE  = 1,
+  STENCIL_HYBRID = 2,
+  STENCIL_BEST   = 3
+} stencil_method_t;
+
+typedef struct {
+  int method;
+  int k_steps;
+  int r_per_step;
+  int sg;
+  int grf256;
+} stencil_opencl_key_t;
+
 typedef struct {
   cl_kernel preprocess_x;
   cl_kernel stencil_apply;
   cl_kernel stencil_apply_tti;
+} stencil_kernels_t;
+
+typedef struct {
+  libxs_registry_t* registry;
   cl_mem dk[3];
+  void* cascade_a;
+  void* cascade_b;
   libxstream_stream_t* stream;
   int nblocks[3];
   int grid_size[3];
+  stencil_method_t method;
+  int k_steps;
+  int r_per_step;
+  int sg;
+  int grf256;
   int verbosity;
 } stencil_context_t;
 
 
-int stencil_init(stencil_context_t* ctx, int verbosity);
+int stencil_init(stencil_context_t* ctx, int verbosity, int method_override);
 int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz);
 int stencil_precompute_operators(stencil_context_t* ctx,
                                  const double* fd_weights, int radius);

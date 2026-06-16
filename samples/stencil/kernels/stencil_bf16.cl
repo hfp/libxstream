@@ -131,29 +131,9 @@ kernel void preprocess_x(
 /**
  * stencil_apply: One dimension-split operator term via BF16 DPAS.
  *
- * Computes: Y += D * X  (or Y = c^2 * D * X if first==1)
- *
- * One sub-group owns one 8x16 output tile of Y.
- * Loops over NDIGITS_A * NDIGITS_X digit pairs, each pair uses
- * K_PAD/16 DPAS K-steps.
- *
- * D surface (A-side): BLK x K_PAD bf16, read via 2D block load.
- *   BLK=32, K_PAD=32: 2 K-steps of 16.  The banded zeros (only
- *   STENCIL_WIDTH diagonals non-zero) are structurally zero in
- *   the surface -- DPAS multiplies them by zero at no extra cost
- *   since the kernel is memory-bound on X reads.
- *
- * X surface (B-side): K_PAD x N_PAD bf16, K-major for VNNI.
- *   Read via intel_sub_group_2d_block_read_transform_16b_16r16x1c.
- *   Preprocess kernel ensures K-contiguity for all dimensions.
- *
- * Parameters:
- *   dk       - D digit surface [NDIGITS_A][BLK][K_PAD] ushort
- *   xk       - X digit surface [NDIGITS_X][K_PAD][N_PAD] ushort
- *   y        - output block [BLK * N_TOTAL] float
- *   vel      - velocity field [BLK^3] float (c^2, applied if first)
- *   first    - if 1, write Y = c^2 * result; else Y += result
- *   y_stride - leading dimension of Y (>= N_TOTAL)
+ * mode: 0 = write intermediate (Y = result)
+ *       1 = first term (Y = v^2 * result)
+ *       2 = accumulate (Y += result)
  *
  * Dispatch:
  *   local  = (SG, M_TILES * N_STRIPS, 1)
@@ -166,7 +146,7 @@ kernel void stencil_apply(
   global const ushort* restrict xk,
   global float* restrict y,
   global const float* restrict vel,
-  int first, int y_stride)
+  int mode, int y_stride)
 {
   const int blk_idx = (int)get_group_id(0);
   const int sg_id = (int)get_sub_group_id();
@@ -199,7 +179,7 @@ kernel void stencil_apply(
     union { float8 v; float a[8]; } u;
     int m;
     u.v = acc;
-    if (first) {
+    if (1 == mode) {
       const long vel_base = (long)blk_idx * BLK * BLK * BLK;
       UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
         const int row = mi + m;
@@ -210,12 +190,21 @@ kernel void stencil_apply(
         }
       }
     }
-    else {
+    else if (2 == mode) {
       UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
         const int row = mi + m;
         const int col = nj + sg_lid;
         if (row < BLK && col < N_TOTAL) {
           y[y_base + (long)row * y_stride + col] += u.a[m];
+        }
+      }
+    }
+    else {
+      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+        const int row = mi + m;
+        const int col = nj + sg_lid;
+        if (row < BLK && col < N_TOTAL) {
+          y[y_base + (long)row * y_stride + col] = u.a[m];
         }
       }
     }

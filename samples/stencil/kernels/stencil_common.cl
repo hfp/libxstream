@@ -23,6 +23,17 @@
 
 #define STENCIL_WIDTH (2 * RADIUS + 1)
 
+/* Cascade parameters: K sub-steps each with R_PER_STEP radius. */
+#if !defined(K_STEPS)
+# define K_STEPS 1
+#endif
+#if !defined(R_PER_STEP)
+# define R_PER_STEP RADIUS
+#endif
+#if !defined(METHOD)
+# define METHOD 0
+#endif
+
 /* Number of Dekker BF16 digits for operator (A) and wavefield (X). */
 #if !defined(NDIGITS_A)
 # define NDIGITS_A 2
