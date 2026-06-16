@@ -143,85 +143,152 @@ kernel void preprocess_x(
 
 
 /**
- * stencil_apply: One dimension-split operator term via BF16 DPAS.
+ * stencil_apply: Fused gather + Dekker-split + DPAS via SLM.
+ *
+ * WG = (SG, M_TILES, 1). Each WG handles one block and loops over
+ * N-strips. Per strip: the WG cooperatively gathers K_PAD x XMX_N
+ * floats from the grid, Dekker-splits into SLM, then each sub-group
+ * reads the SLM surface for DPAS (reusing all M_TILES rows of D).
+ *
+ * SLM budget: NDIGITS_X * K_PAD * XMX_N * sizeof(ushort)
+ *           = 3 * 32 * 16 * 2 = 3072 bytes.
  *
  * mode: 0 = write intermediate (Y = result)
  *       1 = first term (Y = v^2 * result)
  *       2 = accumulate (Y += result)
  *
  * Dispatch:
- *   global = (nblocks * SG, M_TILES, N_STRIPS)
- *   local  = NULL (runtime-selected)
+ *   global = (nblocks * SG, M_TILES, 1)
+ *   local  = (SG, M_TILES, 1)
  */
 #if defined(INTEL) && (2 <= INTEL)
+__attribute__((reqd_work_group_size(SG, M_TILES, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void stencil_apply(
   global const ushort* restrict dk,
-  global const ushort* restrict xk,
+  global const float* restrict p_grid,
   global float* restrict y,
   global const float* restrict vel,
-  int mode, int y_stride)
+  int mode, int y_stride,
+  int dim, int nx, int ny, int nz,
+  int nbx, int nby)
 {
-  const int blk_idx = (int)get_global_id(0) / SG;
-  const int mi = (int)get_global_id(1) * XMX_M;
-  const int nj = (int)get_global_id(2) * XMX_N;
+  const int blk_idx = (int)get_group_id(0);
+  const int sg_id = (int)get_sub_group_id();
   const int sg_lid = (int)get_sub_group_local_id();
+  const int mi = sg_id * XMX_M;
 
-  float8 acc = (float8)(0.0f);
+  const int bz = blk_idx / (nbx * nby);
+  const int by = (blk_idx / nbx) % nby;
+  const int bx = blk_idx % nbx;
+  const int ox = bx * BLK;
+  const int oy = by * BLK;
+  const int oz = bz * BLK;
+
+  local ushort x_slm[NDIGITS_X * K_PAD * XMX_N];
 
   const int d_wb = K_PAD * 2;
-  const int x_wb = N_PAD * 2;
-  int sa, sb, kstep;
+  int nstrip, sa, sb, kstep;
 
-  {
-    global const ushort* xk_blk = xk + (long)blk_idx * NDIGITS_X * K_PAD * N_PAD;
+  for (nstrip = 0; nstrip < N_STRIPS; ++nstrip) {
+    const int nj = nstrip * XMX_N;
+    const int n_col = nj + sg_lid;
+    const int li = n_col % BLK;
+    const int lj = n_col / BLK;
+    float8 acc = (float8)(0.0f);
+
+    { const int fill_id = sg_id * SG + sg_lid;
+      const int fill_total = M_TILES * SG;
+      int idx;
+      for (idx = fill_id; idx < K_PAD * XMX_N; idx += fill_total) {
+        const int k = idx / XMX_N;
+        const int col_local = idx % XMX_N;
+        const int nc = nj + col_local;
+        const int ci = nc % BLK;
+        const int cj = nc / BLK;
+        int gx, gy, gz;
+        long src_idx;
+        float val, residual;
+        int s;
+
+        if (0 == dim) {
+          gx = ox + k - RADIUS; gy = oy + ci; gz = oz + cj;
+        }
+        else if (1 == dim) {
+          gx = ox + ci; gy = oy + k - RADIUS; gz = oz + cj;
+        }
+        else {
+          gx = ox + ci; gy = oy + cj; gz = oz + k - RADIUS;
+        }
+        if (gx < 0) gx = 0; else if (gx >= nx) gx = nx - 1;
+        if (gy < 0) gy = 0; else if (gy >= ny) gy = ny - 1;
+        if (gz < 0) gz = 0; else if (gz >= nz) gz = nz - 1;
+
+        src_idx = (long)gz * ny * nx + (long)gy * nx + gx;
+        val = p_grid[src_idx];
+
+        residual = val;
+        for (s = 0; s < NDIGITS_X; ++s) {
+          const ushort bf = ROUND_TO_BF16(residual);
+          x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
+          residual -= BF16_TO_F32(bf);
+        }
+      }
+    }
+
+    barrier(CLK_LOCAL_MEM_FENCE);
+
     for (sa = 0; sa < NDIGITS_A; ++sa) {
       global const ushort* d_digit = dk + (long)sa * BLK * K_PAD;
 
       for (sb = 0; sb < NDIGITS_X; ++sb) {
-        global const ushort* x_digit = xk_blk + (long)sb * K_PAD * N_PAD;
+        local const ushort* x_digit = x_slm + sb * K_PAD * XMX_N;
 
         for (kstep = 0; kstep < K_PAD; kstep += 16) {
-          BF16_DPAS(d_digit, x_digit,
-                          d_wb, BLK, x_wb, K_PAD,
-                          mi, nj, kstep, kstep, acc);
+          ushort8 a_bf;
+          uint8 b_bf;
+          BF16_LOAD_A(d_digit, d_wb, BLK, mi, kstep, &a_bf);
+          b_bf = *(local const uint8*)(x_digit + kstep * XMX_N);
+          BF16_DPAS_ONE(a_bf, b_bf, acc);
         }
       }
     }
-  }
 
-  {
-    const long y_base = (long)blk_idx * BLK * (long)y_stride;
-    union { float8 v; float a[8]; } u;
-    int m;
-    u.v = acc;
-    if (1 == mode) {
-      const long vel_base = (long)blk_idx * BLK * BLK * BLK;
-      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-        const int row = mi + m;
-        const int col = nj + sg_lid;
-        if (row < BLK && col < N_TOTAL) {
-          const float v2 = vel[vel_base + (long)row * N_TOTAL + col];
-          y[y_base + (long)row * y_stride + col] = u.a[m] * v2;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    {
+      const long y_base = (long)blk_idx * BLK * (long)y_stride;
+      union { float8 v; float a[8]; } u;
+      int m;
+      u.v = acc;
+      if (1 == mode) {
+        const long vel_base = (long)blk_idx * BLK * BLK * BLK;
+        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+          const int row = mi + m;
+          const int col = nj + sg_lid;
+          if (row < BLK && col < N_TOTAL) {
+            const float v2 = vel[vel_base + (long)row * N_TOTAL + col];
+            y[y_base + (long)row * y_stride + col] = u.a[m] * v2;
+          }
         }
       }
-    }
-    else if (2 == mode) {
-      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-        const int row = mi + m;
-        const int col = nj + sg_lid;
-        if (row < BLK && col < N_TOTAL) {
-          y[y_base + (long)row * y_stride + col] += u.a[m];
+      else if (2 == mode) {
+        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+          const int row = mi + m;
+          const int col = nj + sg_lid;
+          if (row < BLK && col < N_TOTAL) {
+            y[y_base + (long)row * y_stride + col] += u.a[m];
+          }
         }
       }
-    }
-    else {
-      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-        const int row = mi + m;
-        const int col = nj + sg_lid;
-        if (row < BLK && col < N_TOTAL) {
-          y[y_base + (long)row * y_stride + col] = u.a[m];
+      else {
+        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+          const int row = mi + m;
+          const int col = nj + sg_lid;
+          if (row < BLK && col < N_TOTAL) {
+            y[y_base + (long)row * y_stride + col] = u.a[m];
+          }
         }
       }
     }

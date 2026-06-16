@@ -51,7 +51,6 @@ typedef struct {
 typedef struct {
   libxs_registry_t* registry;
   void* dk[3];
-  void* xk;
   void* cascade_a;
   void* cascade_b;
   libxstream_stream_t* stream;

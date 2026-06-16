@@ -203,19 +203,6 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   ctx->nblocks[1] = (ny + STENCIL_BLK - 1) / STENCIL_BLK;
   ctx->nblocks[2] = (nz + STENCIL_BLK - 1) / STENCIL_BLK;
 
-  if (EXIT_SUCCESS == result) {
-    const int total_blocks = ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2];
-    const size_t xk_size = (size_t)total_blocks * STENCIL_NDIGITS_X
-                         * STENCIL_K_PAD * STENCIL_N_PAD * sizeof(cl_ushort);
-    result = libxstream_mem_allocate(&ctx->xk, xk_size);
-  }
-  if (ctx->k_steps > 1 && EXIT_SUCCESS == result) {
-    const size_t grid_bytes = (size_t)nx * ny * nz * sizeof(float);
-    result = libxstream_mem_allocate(&ctx->cascade_a, grid_bytes);
-    if (EXIT_SUCCESS == result) {
-      result = libxstream_mem_allocate(&ctx->cascade_b, grid_bytes);
-    }
-  }
   return result;
 }
 
@@ -241,41 +228,67 @@ int stencil_precompute_operators(stencil_context_t* ctx,
   if (NULL == d_host) return EXIT_FAILURE;
 
   {
-    const double* weights;
-    double sub_w[2 * STENCIL_RADIUS + 1];
-    int eff_radius;
+    double d_mat[STENCIL_BLK * STENCIL_BLK];
     int row, col, s;
 
     if (1 == k_steps) {
-      weights = fd_weights;
-      eff_radius = radius;
+      for (row = 0; row < blk; ++row) {
+        for (col = 0; col < blk; ++col) {
+          const int dist = col - row;
+          d_mat[row * blk + col] = (dist >= -radius && dist <= radius)
+            ? fd_weights[dist + radius] : 0.0;
+        }
+      }
     }
     else {
-      int i;
-      LIBXS_MEMZERO(sub_w);
-      sub_w[r_step] = -2.0;
-      for (i = 1; i <= r_step; ++i) {
-        sub_w[r_step - i] = 1.0;
-        sub_w[r_step + i] = 1.0;
+      double sub[STENCIL_BLK * STENCIL_BLK];
+      double tmp[STENCIL_BLK * STENCIL_BLK];
+      int i, j, k, step;
+
+      for (i = 0; i < blk * blk; ++i) sub[i] = 0.0;
+      for (row = 0; row < blk; ++row) {
+        for (col = 0; col < blk; ++col) {
+          const int dist = col - row;
+          if (dist >= -r_step && dist <= r_step) {
+            double w = 0.0;
+            if (0 == dist) w = -2.0;
+            else if (dist == -r_step || dist == r_step) w = 1.0;
+            else if (r_step > 1) {
+              const double h2 = 1.0;
+              if (2 == r_step) {
+                if (1 == dist || -1 == dist) w = 4.0 / 3.0;
+                else w = -1.0 / 12.0;
+                if (0 == dist) w = -5.0 / 2.0;
+              }
+              else { w = (1 == dist || -1 == dist) ? 1.0 : 0.0; }
+              (void)h2;
+            }
+            sub[row * blk + col] = w;
+          }
+        }
       }
-      weights = sub_w;
-      eff_radius = r_step;
+
+      for (i = 0; i < blk * blk; ++i) d_mat[i] = (i / blk == i % blk) ? 1.0 : 0.0;
+      for (step = 0; step < k_steps; ++step) {
+        for (i = 0; i < blk * blk; ++i) tmp[i] = 0.0;
+        for (i = 0; i < blk; ++i) {
+          for (j = 0; j < blk; ++j) {
+            double sum = 0.0;
+            for (k = 0; k < blk; ++k) {
+              sum += sub[i * blk + k] * d_mat[k * blk + j];
+            }
+            tmp[i * blk + j] = sum;
+          }
+        }
+        for (i = 0; i < blk * blk; ++i) d_mat[i] = tmp[i];
+      }
     }
 
     for (row = 0; row < blk; ++row) {
       for (col = 0; col < blk; ++col) {
-        const int dist = col - row;
-        float val = 0.0f;
-        float residual;
-        unsigned int bits;
-
-        if (dist >= -eff_radius && dist <= eff_radius) {
-          val = (float)weights[dist + eff_radius];
-        }
-
-        residual = val;
+        float residual = (float)d_mat[row * blk + col];
         for (s = 0; s < nda; ++s) {
-          unsigned int rounded, bf32;
+          unsigned int bits, rounded, bf32;
           cl_ushort bf;
           float bf_f;
           memcpy(&bits, &residual, sizeof(bits));
@@ -313,7 +326,6 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
   int result = EXIT_SUCCESS;
   const stencil_kernels_t* knl = stencil_get_kernels(ctx);
   const int total_blocks = ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2];
-  const int k_steps = ctx->k_steps;
   const libxstream_opencl_stream_t* str =
     (const libxstream_opencl_stream_t*)ctx->stream;
   const int nx = ctx->grid_size[0];
@@ -321,76 +333,38 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
   const int nz = ctx->grid_size[2];
   const int nbx = ctx->nblocks[0];
   const int nby = ctx->nblocks[1];
-  void* xk = ctx->xk;
   int dim;
 
-  if (NULL == knl || NULL == xk) return EXIT_FAILURE;
+  if (NULL == knl) return EXIT_FAILURE;
 
   for (dim = 0; dim < nterms && EXIT_SUCCESS == result; ++dim) {
-    int kstep;
+    const int mode = (0 == dim) ? 1 : 2;
+    size_t global_apply[2], local_apply[2];
+    cl_int i;
 
-    for (kstep = 0; kstep < k_steps && EXIT_SUCCESS == result; ++kstep) {
-      const int is_final = (kstep == k_steps - 1) ? 1 : 0;
-      const int mode = (0 == is_final) ? 0 : ((0 == dim) ? 1 : 2);
-      void* src;
-      void* dst;
-      size_t global_pre[2];
-      size_t global_apply[3];
-      cl_int i;
+    global_apply[0] = (size_t)total_blocks * ctx->sg;
+    global_apply[1] = STENCIL_M_TILES;
+    local_apply[0] = (size_t)ctx->sg;
+    local_apply[1] = STENCIL_M_TILES;
 
-      if (1 == k_steps) {
-        src = p_in;
-        dst = y_out;
-      }
-      else if (0 == kstep) {
-        src = p_in;
-        dst = ctx->cascade_a;
-      }
-      else if (0 != is_final) {
-        src = (0 == (kstep & 1)) ? ctx->cascade_a : ctx->cascade_b;
-        dst = y_out;
-      }
-      else {
-        src = (0 == (kstep & 1)) ? ctx->cascade_a : ctx->cascade_b;
-        dst = (0 == (kstep & 1)) ? ctx->cascade_b : ctx->cascade_a;
-      }
-
-      global_pre[0] = (size_t)total_blocks * STENCIL_BLK;
-      global_pre[1] = STENCIL_N_TOTAL;
-
-      i = 0;
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->preprocess_x, i++, src));
-      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &dim));
-      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nx));
-      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &ny));
-      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nz));
-      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nbx));
-      CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nby));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->preprocess_x, i++, xk));
-      { int nd = STENCIL_NDIGITS_X;
-        CL_CHECK(result, clSetKernelArg(knl->preprocess_x, i++, sizeof(int), &nd));
-      }
-
-      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->preprocess_x,
-        2, NULL, global_pre, NULL, 0, NULL, NULL));
-
-      global_apply[0] = (size_t)total_blocks * ctx->sg;
-      global_apply[1] = STENCIL_M_TILES;
-      global_apply[2] = STENCIL_N_STRIPS;
-
-      i = 0;
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[dim]));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, xk));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, dst));
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, vel));
-      CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &mode));
-      { int ys = STENCIL_N_TOTAL;
-        CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &ys));
-      }
-
-      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply,
-        3, NULL, global_apply, NULL, 0, NULL, NULL));
+    i = 0;
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[dim]));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_in));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, y_out));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, vel));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &mode));
+    { int ys = STENCIL_N_TOTAL;
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &ys));
     }
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &dim));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nx));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &ny));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nz));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nbx));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nby));
+
+    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply,
+      2, NULL, global_apply, local_apply, 0, NULL, NULL));
   }
 
   return result;
@@ -406,7 +380,6 @@ void stencil_finalize(stencil_context_t* ctx)
   }
   if (NULL != ctx->cascade_b) libxstream_mem_deallocate(ctx->cascade_b);
   if (NULL != ctx->cascade_a) libxstream_mem_deallocate(ctx->cascade_a);
-  if (NULL != ctx->xk) libxstream_mem_deallocate(ctx->xk);
   if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
   LIBXS_MEMZERO(ctx);
 }
