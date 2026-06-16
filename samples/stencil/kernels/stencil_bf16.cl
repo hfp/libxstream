@@ -47,9 +47,6 @@
  *   K-major surfaces suitable for 2D block B-side loads.
  */
 
-#if defined(INTEL) && (2 <= INTEL)
-
-
 /**
  * preprocess_x: Gather along one dimension and Dekker-split into BF16.
  *
@@ -69,8 +66,10 @@
  * Dispatch: global = (BLK, BLK, BLK) covers all N = BLK^2 columns
  * and BLK rows of K.  One launch per digit.
  */
+#if defined(INTEL) && (2 <= INTEL)
 __attribute__((reqd_work_group_size(BLK, 1, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
+#endif
 kernel void preprocess_x(
   global const float* restrict p_super,
   int dim, int stride_k,
@@ -82,7 +81,6 @@ kernel void preprocess_x(
   const int ni = (int)get_global_id(1);
   const int nj = (int)get_global_id(2);
   const int n_col = ni * BLK + nj;
-  int result = EXIT_SUCCESS;
 
   if (ki < BLK && n_col < N_TOTAL) {
     int src_idx;
@@ -140,8 +138,10 @@ kernel void preprocess_x(
  *   local  = (SG, M_TILES * N_STRIPS, 1)
  *   global = (nblocks * SG, M_TILES * N_STRIPS, 1)
  */
+#if defined(INTEL) && (2 <= INTEL)
 __attribute__((reqd_work_group_size(SG, M_TILES * N_STRIPS, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
+#endif
 kernel void stencil_apply(
   global const ushort* restrict dk,
   global const ushort* restrict xk,
@@ -241,8 +241,10 @@ kernel void stencil_apply(
  *   c_ij     - anisotropy coefficient [BLK^3] float
  *   y_stride - leading dimension of Y
  */
+#if defined(INTEL) && (2 <= INTEL)
 __attribute__((reqd_work_group_size(SG, M_TILES, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
+#endif
 kernel void stencil_apply_tti(
   global const ushort* restrict dk_i,
   global const ushort* restrict dk_j,
@@ -255,7 +257,6 @@ kernel void stencil_apply_tti(
   const int sg_id = (int)get_sub_group_id();
   const int sg_lid = (int)get_sub_group_local_id();
   const int mi = sg_id * XMX_M;
-  int result = EXIT_SUCCESS;
 
   const int d_wb = K_PAD * 2;
   const int x_wb = N_PAD * 2;
@@ -313,7 +314,6 @@ kernel void stencil_apply_tti(
         barrier(CLK_LOCAL_MEM_FENCE);
 
         {
-          const int t_wb = XMX_N * 2;
           UNROLL_FORCE(NDIGITS_A) for (int sa2 = 0; sa2 < NDIGITS_A; ++sa2) {
             global const ushort* di_digit = dk_i + (long)sa2 * BLK * K_PAD;
             local const ushort* t_digit = t_slm + sa2 * K_PAD * XMX_N;
@@ -321,9 +321,7 @@ kernel void stencil_apply_tti(
             for (kstep = 0; kstep < K_PAD; kstep += 16) {
               ushort8 a_bf;
               uint8 b_bf;
-              intel_sub_group_2d_block_read_16b_8r16x1c(
-                (global void*)di_digit, d_wb, BLK, d_wb,
-                (int2)(kstep * 2, mi), (private ushort*)&a_bf);
+              BF16_LOAD_A(di_digit, d_wb, BLK, mi, kstep, &a_bf);
               b_bf = *(local const uint8*)(t_digit + kstep * XMX_N);
               BF16_DPAS_ONE(a_bf, b_bf, y_acc);
             }
@@ -350,4 +348,3 @@ kernel void stencil_apply_tti(
 }
 
 
-#endif /* INTEL >= 2 */

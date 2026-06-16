@@ -282,7 +282,24 @@ Useful options:
 | -r low high     | Keep kernels with low**3 < M*N*K <= high**3       |
 | -m extent       | Keep kernels with M, N, and K no larger than this |
 | -n count        | Keep only the first count kernels                 |
+| -f file         | Read MxNxK list from a file (one per line)        |
 | -k id           | Use a predefined triplet set                      |
+
+### Tuning from a File
+
+A text file with one `MxNxK` per line can drive the tuning session.
+Lines starting with `#` are comments, and inline comments after `#`
+are stripped. Whitespace within an entry is ignored:
+
+```bash
+./tune_multiply.sh -t 300 -f retune_shapes.txt -p params/local
+```
+
+Under MPI, the file entries are partitioned across ranks as usual:
+
+```bash
+mpirun -np 8 ./tune_multiply.sh -t 300 -f retune_shapes.txt -p params/local
+```
 
 ### Bulk Tuning with MPI
 
