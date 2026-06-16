@@ -48,7 +48,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 {
   static libxs_registry_t* kernel_registry /*= NULL*/;
   static libxs_lock_t compile_lock /*= LIBXS_LOCK_INITIALIZER*/;
-  static char base_flags[LIBXSTREAM_BUFFERSIZE];
+  static char base_flags[256];
   static int base_ready /*= 0*/;
 
   const libxstream_opencl_config_t* config = &libxstream_opencl_config;
