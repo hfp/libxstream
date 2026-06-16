@@ -338,13 +338,10 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
   const int nz = ctx->grid_size[2];
   const int nbx = ctx->nblocks[0];
   const int nby = ctx->nblocks[1];
-  int dim;
 
   if (NULL == knl) return EXIT_FAILURE;
 
-  for (dim = 0; dim < nterms && EXIT_SUCCESS == result; ++dim) {
-    const int mode = (0 == dim) ? 1 : 2;
-    size_t global_apply[3], local_apply[3];
+  { size_t global_apply[3], local_apply[3];
     cl_int i;
 
     global_apply[0] = (size_t)total_blocks * ctx->sg;
@@ -355,15 +352,16 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     local_apply[2] = 1;
 
     i = 0;
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[dim]));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[0]));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[1]));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[2]));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_in));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, y_out));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, vel));
-    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &mode));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nterms));
     { int ys = STENCIL_N_TOTAL;
       CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &ys));
     }
-    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &dim));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nx));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &ny));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nz));

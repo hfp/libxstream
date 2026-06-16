@@ -143,19 +143,17 @@ kernel void preprocess_x(
 
 
 /**
- * stencil_apply: Fused gather + Dekker-split + DPAS via SLM.
+ * stencil_apply: Fused 3-dim gather + Dekker-split + DPAS via SLM.
  *
  * WG = (SG, M_TILES, 1). Each WG handles one (block, N-strip) pair.
- * The WG cooperatively gathers K_PAD x XMX_N floats from the grid,
- * Dekker-splits into SLM, then each sub-group reads the SLM surface
- * for DPAS (reusing all M_TILES rows of D).
+ * For each dimension: cooperatively gathers K_PAD x XMX_N floats,
+ * Dekker-splits into SLM, DPAS accumulates into registers.
+ * After all nterms dimensions: writes Y = v^2 * acc (single store).
+ *
+ * Eliminates Y read-modify-write traffic for dims 1,2.
  *
  * SLM budget: NDIGITS_X * K_PAD * XMX_N * sizeof(ushort)
- *           = 3 * 32 * 16 * 2 = 3072 bytes.
- *
- * mode: 0 = write intermediate (Y = result)
- *       1 = first term (Y = v^2 * result)
- *       2 = accumulate (Y += result)
+ *           = 3 * 32 * 16 * 2 = 3072 bytes (reused per dim).
  *
  * Dispatch:
  *   global = (nblocks * SG, M_TILES, N_STRIPS)
@@ -166,12 +164,14 @@ __attribute__((reqd_work_group_size(SG, M_TILES, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void stencil_apply(
-  global const ushort* restrict dk,
+  global const ushort* restrict dk_x,
+  global const ushort* restrict dk_y,
+  global const ushort* restrict dk_z,
   global const float* restrict p_grid,
   global float* restrict y,
   global const float* restrict vel,
-  int mode, int y_stride,
-  int dim, int nx, int ny, int nz,
+  int nterms, int y_stride,
+  int nx, int ny, int nz,
   int nbx, int nby)
 {
   const int blk_idx = (int)get_group_id(0);
@@ -191,12 +191,15 @@ kernel void stencil_apply(
   local ushort x_slm[NDIGITS_X * K_PAD * XMX_N];
 
   const int d_wb = K_PAD * 2;
+  const int fill_id = sg_id * SG + sg_lid;
+  const int fill_total = M_TILES * SG;
   float8 acc = (float8)(0.0f);
-  int sa, sb, kstep;
+  int dim;
 
-  { const int fill_id = sg_id * SG + sg_lid;
-    const int fill_total = M_TILES * SG;
-    int idx;
+  for (dim = 0; dim < nterms; ++dim) {
+    global const ushort* dk = (0 == dim) ? dk_x : ((1 == dim) ? dk_y : dk_z);
+    int idx, sa, sb, kstep;
+
     for (idx = fill_id; idx < K_PAD * XMX_N; idx += fill_total) {
       const int k = idx / XMX_N;
       const int col_local = idx % XMX_N;
@@ -231,62 +234,44 @@ kernel void stencil_apply(
         residual -= BF16_TO_F32(bf);
       }
     }
-  }
 
-  barrier(CLK_LOCAL_MEM_FENCE);
+    barrier(CLK_LOCAL_MEM_FENCE);
 
-  for (sa = 0; sa < NDIGITS_A; ++sa) {
-    global const ushort* d_digit = dk + (long)sa * BLK * K_PAD;
+    for (sa = 0; sa < NDIGITS_A; ++sa) {
+      global const ushort* d_digit = dk + (long)sa * BLK * K_PAD;
 
-    for (sb = 0; sb < NDIGITS_X; ++sb) {
-      local const ushort* x_digit;
+      for (sb = 0; sb < NDIGITS_X; ++sb) {
+        local const ushort* x_digit;
 #if defined(TRIM) && (0 < TRIM)
-      if (sa + sb >= NDIGITS_A + NDIGITS_X - 1 - (TRIM - 1)) continue;
+        if (sa + sb >= NDIGITS_A + NDIGITS_X - 1 - (TRIM - 1)) continue;
 #endif
-      x_digit = x_slm + sb * K_PAD * XMX_N;
+        x_digit = x_slm + sb * K_PAD * XMX_N;
 
-      for (kstep = 0; kstep < K_PAD; kstep += 16) {
-        ushort8 a_bf;
-        uint8 b_bf;
-        BF16_LOAD_A(d_digit, d_wb, BLK, mi, kstep, &a_bf);
-        b_bf = *(local const uint8*)(x_digit + kstep * XMX_N);
-        BF16_DPAS_ONE(a_bf, b_bf, acc);
+        for (kstep = 0; kstep < K_PAD; kstep += 16) {
+          ushort8 a_bf;
+          uint8 b_bf;
+          BF16_LOAD_A(d_digit, d_wb, BLK, mi, kstep, &a_bf);
+          b_bf = *(local const uint8*)(x_digit + kstep * XMX_N);
+          BF16_DPAS_ONE(a_bf, b_bf, acc);
+        }
       }
     }
+
+    barrier(CLK_LOCAL_MEM_FENCE);
   }
 
   {
     const long y_base = (long)blk_idx * BLK * (long)y_stride;
+    const long vel_base = (long)blk_idx * BLK * BLK * BLK;
     union { float8 v; float a[8]; } u;
     int m;
     u.v = acc;
-    if (1 == mode) {
-      const long vel_base = (long)blk_idx * BLK * BLK * BLK;
-      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-        const int row = mi + m;
-        const int col = nj + sg_lid;
-        if (row < BLK && col < N_TOTAL) {
-          const float v2 = vel[vel_base + (long)row * N_TOTAL + col];
-          y[y_base + (long)row * y_stride + col] = u.a[m] * v2;
-        }
-      }
-    }
-    else if (2 == mode) {
-      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-        const int row = mi + m;
-        const int col = nj + sg_lid;
-        if (row < BLK && col < N_TOTAL) {
-          y[y_base + (long)row * y_stride + col] += u.a[m];
-        }
-      }
-    }
-    else {
-      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-        const int row = mi + m;
-        const int col = nj + sg_lid;
-        if (row < BLK && col < N_TOTAL) {
-          y[y_base + (long)row * y_stride + col] = u.a[m];
-        }
+    UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+      const int row = mi + m;
+      const int col = nj + sg_lid;
+      if (row < BLK && col < N_TOTAL) {
+        const float v2 = vel[vel_base + (long)row * N_TOTAL + col];
+        y[y_base + (long)row * y_stride + col] = u.a[m] * v2;
       }
     }
   }
