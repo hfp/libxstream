@@ -273,6 +273,8 @@ Environment variables controlling kernel specialization:
 
     STENCIL_METHOD   operator method (0-3, default 0)
     STENCIL_BK       K-unroll block size (default: K_PAD)
+    STENCIL_STRIPS_PER_WG
+             adjacent N-strips handled by one work-group
     STENCIL_SG       subgroup size override (default: device preferred)
     STENCIL_GRF256   force 256-GRF mode (0/1, default: auto)
 
