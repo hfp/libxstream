@@ -18,7 +18,8 @@
 #define STENCIL_NDIGITS_A 2
 #define STENCIL_NDIGITS_X 3
 #define STENCIL_ALIGN16(VALUE) (((VALUE) + 15) & ~15)
-#define STENCIL_K_PAD STENCIL_ALIGN16(STENCIL_BLK + 2 * STENCIL_RADIUS)
+#define STENCIL_K_BASE (STENCIL_BLK + 2 * STENCIL_RADIUS)
+#define STENCIL_K_PAD STENCIL_ALIGN16(STENCIL_K_BASE)
 #define STENCIL_N_TOTAL (STENCIL_BLK * STENCIL_BLK)
 #define STENCIL_N_PAD STENCIL_N_TOTAL
 #define STENCIL_XMX_M 8
@@ -41,6 +42,7 @@ typedef struct {
   int method;
   int k_steps;
   int r_per_step;
+  int strips_per_wg;
   int sg;
   int grf256;
   int trim;
@@ -60,6 +62,7 @@ typedef struct {
   stencil_method_t method;
   int k_steps;
   int r_per_step;
+  int strips_per_wg;
   int sg;
   int grf256;
   int trim;

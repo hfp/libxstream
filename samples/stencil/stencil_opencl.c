@@ -91,6 +91,16 @@ static void stencil_store_bf16_digits(cl_ushort* dst, int stride,
 }
 
 
+static int stencil_valid_strips_per_wg(int value)
+{
+  int result = value;
+  if (1 > result) result = STENCIL_STRIPS_PER_WG;
+  if (1 > result) result = 1;
+  if (0 != (STENCIL_N_STRIPS % result)) result = 1;
+  return result;
+}
+
+
 static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 {
   static libxs_registry_t* kernel_registry /*= NULL*/;
@@ -121,6 +131,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.method = (int)ctx->method;
   key.k_steps = ctx->k_steps;
   key.r_per_step = ctx->r_per_step;
+  key.strips_per_wg = ctx->strips_per_wg;
   key.sg = ctx->sg;
   key.grf256 = ctx->grf256;
   key.trim = ctx->trim;
@@ -146,10 +157,10 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 
       { const int intel_level = (int)devinfo->intel;
         LIBXS_SNPRINTF(flags, sizeof(flags),
-          "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSG=%d -DINTEL=%d"
-          " -DMETHOD=%d -DTRIM=%d -DNTERMS=%d %s",
+          "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
+          " -DSG=%d -DINTEL=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d %s",
           base_flags, STENCIL_RADIUS, key.k_steps, key.r_per_step,
-          key.sg, intel_level, key.method, key.trim, key.nterms,
+          key.strips_per_wg, key.sg, intel_level, key.method, key.trim, key.nterms,
           (intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1");
       }
 
@@ -178,9 +189,10 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 
       if (2 <= ctx->verbosity || 0 > ctx->verbosity) {
         const libxs_timer_tick_t t1 = libxs_timer_tick();
-        fprintf(stderr, "%s ACC/STENCIL: method=%d k=%d r=%d sg=%d grf256=%d -> ",
+        fprintf(stderr, "%s ACC/STENCIL: method=%d k=%d r=%d strips=%d sg=%d grf256=%d -> ",
           EXIT_SUCCESS == ok ? "INFO" : "ERROR",
-          key.method, key.k_steps, key.r_per_step, key.sg, key.grf256);
+          key.method, key.k_steps, key.r_per_step, key.strips_per_wg,
+          key.sg, key.grf256);
         if (EXIT_SUCCESS == ok) {
           fprintf(stderr, "%.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
         }
@@ -201,6 +213,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
   const char* method_env = getenv("STENCIL_METHOD");
   const char* sg_env = getenv("STENCIL_SG");
+  const char* strips_env = getenv("STENCIL_STRIPS_PER_WG");
   const char* grf_env = getenv("STENCIL_GRF256");
   const char* trim_env = getenv("STENCIL_TRIM");
   int method_val;
@@ -224,6 +237,9 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   ctx->sg = (NULL == sg_env)
     ? ((0 < (int)devinfo->wgsize[2]) ? (int)devinfo->wgsize[2] : STENCIL_SG)
     : atoi(sg_env);
+
+  ctx->strips_per_wg = stencil_valid_strips_per_wg(
+    (NULL == strips_env) ? STENCIL_STRIPS_PER_WG : atoi(strips_env));
 
   ctx->grf256 = (NULL == grf_env) ? 0 : atoi(grf_env);
 
@@ -382,7 +398,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
 
   global_apply[0] = (size_t)total_blocks * ctx->sg;
   global_apply[1] = STENCIL_M_TILES;
-  global_apply[2] = STENCIL_N_STRIP_GROUPS;
+  global_apply[2] = STENCIL_N_STRIPS / ctx->strips_per_wg;
   local_apply[0] = (size_t)ctx->sg;
   local_apply[1] = STENCIL_M_TILES;
   local_apply[2] = 1;

@@ -90,20 +90,27 @@ kernel void stencil_apply(
         STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
         STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
-        val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
+        if (k < K_BASE) {
+          val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
 
-        bits = as_uint(val);
-        e = (int)((bits >> 23) & 0xFFu);
-        if (0 != e) {
-          if (e > local_max_exp) local_max_exp = e;
-          if (e < local_min_exp) local_min_exp = e;
+          bits = as_uint(val);
+          e = (int)((bits >> 23) & 0xFFu);
+          if (0 != e) {
+            if (e > local_max_exp) local_max_exp = e;
+            if (e < local_min_exp) local_min_exp = e;
+          }
+
+          residual = val;
+          for (s = 0; s < NDIGITS_X; ++s) {
+            const ushort bf = ROUND_TO_BF16(residual);
+            x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
+            residual -= BF16_TO_F32(bf);
+          }
         }
-
-        residual = val;
-        for (s = 0; s < NDIGITS_X; ++s) {
-          const ushort bf = ROUND_TO_BF16(residual);
-          x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
-          residual -= BF16_TO_F32(bf);
+        else {
+          for (s = 0; s < NDIGITS_X; ++s) {
+            x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = (ushort)0;
+          }
         }
       }
 
@@ -214,13 +221,20 @@ kernel void stencil_apply_tti(
     STENCIL_GATHER_COORD(dim_j, ox, oy, oz, k, ci, cj, gx, gy, gz);
     STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
-    val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
+    if (k < K_BASE) {
+      val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
 
-    residual = val;
-    for (s = 0; s < NDIGITS_X; ++s) {
-      const ushort bf = ROUND_TO_BF16(residual);
-      x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
-      residual -= BF16_TO_F32(bf);
+      residual = val;
+      for (s = 0; s < NDIGITS_X; ++s) {
+        const ushort bf = ROUND_TO_BF16(residual);
+        x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
+        residual -= BF16_TO_F32(bf);
+      }
+    }
+    else {
+      for (s = 0; s < NDIGITS_X; ++s) {
+        x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = (ushort)0;
+      }
     }
   }
 
@@ -245,6 +259,12 @@ kernel void stencil_apply_tti(
         union { float8 v; float a[8]; } t_u;
         const long cij_base = (long)blk_idx * BLK * BLK * BLK;
         t_u.v = t_acc;
+
+        for (idx = fill_id; idx < NDIGITS_A * K_PAD * XMX_N; idx += fill_total) {
+          t_slm[idx] = (ushort)0;
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+
         UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
           const int row = mi + m;
           const int col = nj + sg_lid;

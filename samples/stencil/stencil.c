@@ -166,8 +166,9 @@ int main(int argc, char* argv[])
   if (EXIT_SUCCESS == result) {
     const char* mnames[] = {"sparse", "dense", "hybrid", "best"};
     ctx.nterms = nterms;
-    printf("  Method:     %s (K=%d, r=%d)\n",
-           mnames[(int)ctx.method], ctx.k_steps, ctx.r_per_step);
+        printf("  Method:     %s (K=%d, r=%d, strips/WG=%d)\n",
+          mnames[(int)ctx.method], ctx.k_steps, ctx.r_per_step,
+          ctx.strips_per_wg);
   }
   if (EXIT_SUCCESS == result) {
     result = stencil_configure(&ctx, nx, ny, nz);
@@ -438,7 +439,7 @@ static void usage(const char* prog)
          "  -seg-salt      SEG/EAGE Salt (676x676x210, h=20m)\n"
          "  -overthrust    SEG/EAGE Overthrust (801x801x187, h=25m)\n"
          "\n"
-         "Environment: STENCIL_METHOD, STENCIL_SG, STENCIL_GRF256\n"
+         "Environment: STENCIL_METHOD, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256\n"
          "\n"
          "Performance is reported in GPoints/s.\n", prog);
 }

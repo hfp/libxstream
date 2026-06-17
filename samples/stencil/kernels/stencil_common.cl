@@ -65,7 +65,8 @@
  * D is BLK rows over a haloed K dimension. K_PAD is rounded to a
  * multiple of 16 because each DPAS step consumes 16 K entries. */
 #define STENCIL_ALIGN16(VALUE) (((VALUE) + 15) & ~15)
-#define K_PAD STENCIL_ALIGN16(BLK + 2 * RADIUS)
+#define K_BASE (BLK + 2 * RADIUS)
+#define K_PAD STENCIL_ALIGN16(K_BASE)
 
 /* Padded N dimension for X surface (must be >= 32 bf16 = 64 bytes). */
 #define N_PAD ((N_TOTAL < 32) ? 32 : N_TOTAL)
