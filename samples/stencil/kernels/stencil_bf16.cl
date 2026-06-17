@@ -8,149 +8,13 @@
 ******************************************************************************/
 #include "stencil_common.cl"
 
-/* Stencil via Dekker-split BF16 DPAS.
- *
- * Dimension-split formulation:
- *   Y = D_x * P + D_y * P + D_z * P   (isotropic, 3 terms)
- *   Y = sum_{i,j} D_i * (c_ij . D_j * P)  (TTI, 9 terms)
- *
- * Each term is a GEMM: D is BLK x BLK (banded FD operator),
- * P is BLK x BLK^2 (wavefield block reshaped along one axis).
- * With Dekker splitting: D has NDIGITS_A bf16 digits,
- * P (or intermediate) has NDIGITS_X bf16 digits.
- * Total products per term: NDIGITS_A * NDIGITS_X.
- *
- * Memory layout:
- *   D surfaces: precomputed BF16 digit arrays, one per operator per digit.
- *     Shape [NDIGITS_A][BLK][K_PAD] ushort, row-major.
- *     K_PAD >= BLK ensures 2D block I/O surface width >= 64 bytes.
- *     D is banded (only STENCIL_WIDTH diagonals non-zero) but stored
- *     dense -- zero entries cost nothing in DPAS (compute-bound on X).
- *
- *   X surfaces: Dekker-split wavefield along target dimension.
- *     Shape [NDIGITS_X][K_PAD][N_PAD] ushort, K-major for VNNI load.
- *     K_PAD rows, N_PAD columns (N_PAD >= 32 for surface constraint).
- *     Preprocess kernel gathers along the stencil dimension and splits.
- *
- *   Y output: float [BLK][BLK*BLK], accumulated in registers.
- *
- * Kernel: stencil_apply
- *   One work-group computes one output block (BLK^3 elements).
- *   Work-group: (SG, M_TILES * N_STRIPS, 1).
- *   Each sub-group owns one 8x16 output tile, accumulates all
- *   operator terms, then writes to global Y.
- *
- * Kernel: preprocess_x
- *   Gathers wavefield data along one dimension from the super-block
- *   (including halo), Dekker-splits into BF16 digits, and writes
- *   K-major surfaces suitable for 2D block B-side loads.
- */
-
 /**
- * preprocess_x: Gather along one dimension and Dekker-split into BF16.
- *
- * For dimension d, the super-block P_super has shape:
- *   d=x: (BLK+2R) x BLK x BLK  -- x-fastest, K-axis contiguous
- *   d=y: BLK x (BLK+2R) x BLK  -- stride-BLK along K-axis
- *   d=z: BLK x BLK x (BLK+2R)  -- stride-BLK^2 along K-axis
- *
- * Output: xk[digit][k][n] in K-major layout, K=BLK (padded to K_PAD),
- *         N = BLK*BLK (padded to N_PAD).
- *
- * For d=x the gather is trivial (memcpy + split).
- * For d=y,z we gather with stride into contiguous K-rows.
- *
- * Work-group: (BLK, BLK, 1).  One WG per (z-plane, digit) for d=x,
- * or per (appropriate plane, digit) for other dims.
- * Dispatch: global = (BLK, BLK, BLK) covers all N = BLK^2 columns
- * and BLK rows of K.  One launch per digit.
- */
-#if defined(INTEL) && (2 <= INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
-kernel void preprocess_x(
-  global const float* restrict p_grid,
-  int dim, int nx, int ny, int nz,
-  int nbx, int nby,
-  global ushort* restrict xk,
-  int ndigits)
-{
-  const int blk_idx = (int)get_group_id(0);
-  const int ki = (int)get_local_id(0);
-  const int n_col = (int)get_global_id(1);
-
-  if (ki < BLK && n_col < N_TOTAL) {
-    const int bz = blk_idx / (nbx * nby);
-    const int by = (blk_idx / nbx) % nby;
-    const int bx = blk_idx % nbx;
-    const int ox = bx * BLK;
-    const int oy = by * BLK;
-    const int oz = bz * BLK;
-
-    const int li = n_col % BLK;
-    const int lj = n_col / BLK;
-
-    int gx, gy, gz;
-    long src_idx;
-    float val;
-    int s;
-
-    if (0 == dim) {
-      gx = ox + ki - RADIUS;
-      gy = oy + li;
-      gz = oz + lj;
-    }
-    else if (1 == dim) {
-      gx = ox + li;
-      gy = oy + ki - RADIUS;
-      gz = oz + lj;
-    }
-    else {
-      gx = ox + li;
-      gy = oy + lj;
-      gz = oz + ki - RADIUS;
-    }
-
-    if (gx < 0) gx = 0; else if (gx >= nx) gx = nx - 1;
-    if (gy < 0) gy = 0; else if (gy >= ny) gy = ny - 1;
-    if (gz < 0) gz = 0; else if (gz >= nz) gz = nz - 1;
-
-    src_idx = (long)gz * ny * nx + (long)gy * nx + gx;
-    val = p_grid[src_idx];
-
-    {
-      const long xk_base = (long)blk_idx * NDIGITS_X * K_PAD * N_PAD;
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-      double residual = (double)val;
-#else
-      float residual = val;
-#endif
-      for (s = 0; s < ndigits; ++s) {
-        const ushort bf = ROUND_TO_BF16((float)residual);
-        const long dst_idx = xk_base
-                           + (long)s * K_PAD * N_PAD
-                           + (long)ki * N_PAD + n_col;
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-        residual -= (double)BF16_TO_F32(bf);
-#else
-        residual -= BF16_TO_F32(bf);
-#endif
-        xk[dst_idx] = bf;
-      }
-    }
-  }
-}
-
-
-/**
- * stencil_apply: Fused 3-dim gather + Dekker-split + DPAS via SLM.
+ * stencil_apply: Fused 3-dim gather + Dekker-split + DPAS + leapfrog.
  *
  * WG = (SG, M_TILES, 1). Each WG handles one (block, N-strip) pair.
  * For each dimension: cooperatively gathers K_PAD x XMX_N floats,
  * Dekker-splits into SLM, DPAS accumulates into registers.
- * After all nterms dimensions: writes Y = v^2 * acc (single store).
- *
- * Eliminates Y read-modify-write traffic for dims 1,2.
+ * After all NTERMS dimensions: writes P_new via leapfrog update.
  *
  * SLM budget: NDIGITS_X * K_PAD * XMX_N * sizeof(ushort)
  *           = 3 * 32 * 16 * 2 = 3072 bytes (reused per dim).
@@ -198,9 +62,9 @@ kernel void stencil_apply(
   float8 acc = (float8)(0.0f);
   int dim;
 
-  for (dim = 0; dim < nterms; ++dim) {
+  for (dim = 0; dim < NTERMS; ++dim) {
     global const ushort* dk = (0 == dim) ? dk_x : ((1 == dim) ? dk_y : dk_z);
-    int idx, sa, sb, kstep, ndigits_eff;
+    int idx, ndigits_eff;
     int local_max_exp = 0, local_min_exp = 255;
 
     if (0 == fill_id) { exp_range[0] = 0; exp_range[1] = 255; }
@@ -213,26 +77,14 @@ kernel void stencil_apply(
       const int ci = nc % BLK;
       const int cj = nc / BLK;
       int gx, gy, gz;
-      long src_idx;
       float val, residual;
       unsigned int bits;
       int e, s;
 
-      if (0 == dim) {
-        gx = ox + k - RADIUS; gy = oy + ci; gz = oz + cj;
-      }
-      else if (1 == dim) {
-        gx = ox + ci; gy = oy + k - RADIUS; gz = oz + cj;
-      }
-      else {
-        gx = ox + ci; gy = oy + cj; gz = oz + k - RADIUS;
-      }
-      if (gx < 0) gx = 0; else if (gx >= nx) gx = nx - 1;
-      if (gy < 0) gy = 0; else if (gy >= ny) gy = ny - 1;
-      if (gz < 0) gz = 0; else if (gz >= nz) gz = nz - 1;
+      STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
+      STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
-      src_idx = (long)gz * ny * nx + (long)gy * nx + gx;
-      val = p_grid[src_idx];
+      val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
 
       bits = as_uint(val);
       e = (int)((bits >> 23) & 0xFFu);
@@ -258,25 +110,7 @@ kernel void stencil_apply(
       if (0 == exp_range[0]) ndigits_eff = 1;
     }
 
-    for (sa = 0; sa < NDIGITS_A; ++sa) {
-      global const ushort* d_digit = dk + (long)sa * BLK * K_PAD;
-
-      for (sb = 0; sb < ndigits_eff; ++sb) {
-        local const ushort* x_digit;
-#if defined(TRIM) && (0 < TRIM)
-        if (sa + sb >= NDIGITS_A + ndigits_eff - 1 - (TRIM - 1)) continue;
-#endif
-        x_digit = x_slm + sb * K_PAD * XMX_N;
-
-        for (kstep = 0; kstep < K_PAD; kstep += 16) {
-          ushort8 a_bf;
-          uint8 b_bf;
-          BF16_LOAD_A(d_digit, d_wb, BLK, mi, kstep, &a_bf);
-          b_bf = *(local const uint8*)(x_digit + kstep * XMX_N);
-          BF16_DPAS_ONE(a_bf, b_bf, acc);
-        }
-      }
-    }
+    STENCIL_DPAS_ACC(dk, ndigits_eff, x_slm, d_wb, mi, acc);
 
     barrier(CLK_LOCAL_MEM_FENCE);
   }
@@ -289,17 +123,12 @@ kernel void stencil_apply(
       const int row = mi + m;
       const int col = nj + sg_lid;
       if (row < BLK && col < N_TOTAL) {
-        const int lx = row;
-        const int ly = col % BLK;
-        const int lz = col / BLK;
-        const int gx = ox + lx;
-        const int gy = oy + ly;
-        const int gz = oz + lz;
+        const int gx = ox + row;
+        const int gy = oy + (col % BLK);
+        const int gz = oz + (col / BLK);
         if (gx < nx && gy < ny && gz < nz) {
-          const long i = (long)gz * ny * nx + (long)gy * nx + gx;
-          const float v2 = vel[i];
-          const float p_cur = p_grid[i];
-          p_new[i] = 2.0f * p_cur - p_old[i] + dt2 * v2 * u.a[m];
+          const long i = STENCIL_GRID_IDX(gz, gy, gx, ny, nx);
+          p_new[i] = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[i] * u.a[m];
         }
       }
     }
@@ -308,32 +137,24 @@ kernel void stencil_apply(
 
 
 /**
- * stencil_apply_tti: TTI cross-derivative term via two GEMMs with
- * inter-GEMM point-wise scaling through SLM.
+ * stencil_apply_tti: TTI cross-derivative term via fused
+ * gather + two-phase DPAS with SLM intermediate.
  *
  * Computes: Y += D_i * (c_ij . (D_j * P))
  *
- * Two-phase approach per N-strip:
- *   Phase 1: All M_TILES sub-groups cooperate to produce a full
- *            BLK-row column of T = D_j * P, scale by c_ij,
- *            Dekker-split, and store to SLM as BF16 surface.
- *   Phase 2: Each sub-group reads the SLM surface (now K=BLK rows
- *            of BF16) as B-side, applies D_i via DPAS, accumulates Y.
+ * Per (block, N-strip) WG:
+ *   1. Cooperative gather along dim j into x_slm (same as stencil_apply)
+ *   2. DPAS: D_j * X -> T (float8 per sub-group)
+ *   3. Scale: T *= c_ij (point-wise)
+ *   4. Dekker re-split T into t_slm as BF16
+ *   5. DPAS: D_i * T -> accumulate into Y
  *
- * SLM budget: NDIGITS_A * K_PAD * XMX_N * sizeof(ushort)
- *   = 2 * 32 * 16 * 2 = 2048 bytes per N-strip.
- *   With barrier between strips, only one strip active at a time.
+ * SLM: x_slm (3 KB) for phase 1, t_slm (2 KB) for phase 2.
+ * Both fit within 128 KB. Reused across (sa, sb) pairs.
  *
- * Work-group: (SG, M_TILES, 1).  Each WG handles one N-strip at a
- * time in a loop, synchronizing via barriers.
- *
- * Parameters:
- *   dk_i     - D digit surface for dimension i [NDIGITS_A][BLK][K_PAD]
- *   dk_j     - D digit surface for dimension j [NDIGITS_A][BLK][K_PAD]
- *   xk       - X digit surface along dim j [NDIGITS_X][K_PAD][N_PAD]
- *   y        - output block [BLK][N_TOTAL] float (read-modify-write)
- *   c_ij     - anisotropy coefficient [BLK^3] float
- *   y_stride - leading dimension of Y
+ * Dispatch:
+ *   global = (nblocks * SG, M_TILES, N_STRIPS)
+ *   local  = (SG, M_TILES, 1)
  */
 #if defined(INTEL) && (2 <= INTEL)
 __attribute__((reqd_work_group_size(SG, M_TILES, 1)))
@@ -342,104 +163,130 @@ __attribute__((intel_reqd_sub_group_size(SG)))
 kernel void stencil_apply_tti(
   global const ushort* restrict dk_i,
   global const ushort* restrict dk_j,
-  global const ushort* restrict xk,
+  global const float* restrict p_grid,
   global float* restrict y,
   global const float* restrict c_ij,
-  int y_stride)
+  int y_stride,
+  int dim_j, int nx, int ny, int nz,
+  int nbx, int nby)
 {
   const int blk_idx = (int)get_group_id(0);
+  const int nstrip = (int)get_group_id(2);
   const int sg_id = (int)get_sub_group_id();
   const int sg_lid = (int)get_sub_group_local_id();
   const int mi = sg_id * XMX_M;
+  const int nj = nstrip * XMX_N;
 
-  const int d_wb = K_PAD * 2;
-  const int x_wb = N_PAD * 2;
+  const int bz = blk_idx / (nbx * nby);
+  const int by = (blk_idx / nbx) % nby;
+  const int bx = blk_idx % nbx;
+  const int ox = bx * BLK;
+  const int oy = by * BLK;
+  const int oz = bz * BLK;
 
+  local ushort x_slm[NDIGITS_X * K_PAD * XMX_N];
   local ushort t_slm[NDIGITS_A * K_PAD * XMX_N];
 
-  int nstrip, sa, sb, kstep, m;
+  const int d_wb = K_PAD * 2;
+  const int fill_id = sg_id * SG + sg_lid;
+  const int fill_total = M_TILES * SG;
+  float8 y_acc = (float8)(0.0f);
+  int sa, sb, kstep, m, idx;
 
-  {
-    global const ushort* xk_blk = xk + (long)blk_idx * NDIGITS_X * K_PAD * N_PAD;
+  for (idx = fill_id; idx < K_PAD * XMX_N; idx += fill_total) {
+    const int k = idx / XMX_N;
+    const int col_local = idx % XMX_N;
+    const int nc = nj + col_local;
+    const int ci = nc % BLK;
+    const int cj = nc / BLK;
+    int gx, gy, gz;
+    float val, residual;
+    int s;
 
-    for (nstrip = 0; nstrip < N_STRIPS; ++nstrip) {
-      const int nj = nstrip * XMX_N;
-      float8 y_acc = (float8)(0.0f);
+    STENCIL_GATHER_COORD(dim_j, ox, oy, oz, k, ci, cj, gx, gy, gz);
+    STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
-      for (sb = 0; sb < NDIGITS_X; ++sb) {
-        global const ushort* x_digit = xk_blk + (long)sb * K_PAD * N_PAD;
+    val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
 
-        for (sa = 0; sa < NDIGITS_A; ++sa) {
-          global const ushort* dj_digit = dk_j + (long)sa * BLK * K_PAD;
-          float8 t_acc = (float8)(0.0f);
+    residual = val;
+    for (s = 0; s < NDIGITS_X; ++s) {
+      const ushort bf = ROUND_TO_BF16(residual);
+      x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
+      residual -= BF16_TO_F32(bf);
+    }
+  }
 
-          for (kstep = 0; kstep < K_PAD; kstep += 16) {
-            BF16_DPAS(dj_digit, x_digit,
-                            d_wb, BLK, x_wb, K_PAD,
-                            mi, nj, kstep, kstep, t_acc);
-          }
+  barrier(CLK_LOCAL_MEM_FENCE);
 
-          {
-            union { float8 v; float a[8]; } t_u;
-            const long cij_base = (long)blk_idx * BLK * BLK * BLK;
-            t_u.v = t_acc;
-            UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-              const int row = mi + m;
-              const int col = nj + sg_lid;
-              if (row < BLK && col < N_TOTAL) {
-                t_u.a[m] *= c_ij[cij_base + row * N_TOTAL + col];
-              }
-            }
-            t_acc = t_u.v;
-          }
+  for (sb = 0; sb < NDIGITS_X; ++sb) {
+    local const ushort* x_digit = x_slm + sb * K_PAD * XMX_N;
 
-          {
-            union { float8 v; float a[8]; } t_u;
-            int sa2;
-            t_u.v = t_acc;
-            UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-              float residual = t_u.a[m];
-              const int row = mi + m;
-              UNROLL_FORCE(NDIGITS_A) for (sa2 = 0; sa2 < NDIGITS_A; ++sa2) {
-                const ushort bf = ROUND_TO_BF16(residual);
-                t_slm[sa2 * K_PAD * XMX_N + row * XMX_N + sg_lid] = bf;
-                residual -= BF16_TO_F32(bf);
-              }
-            }
-          }
+    for (sa = 0; sa < NDIGITS_A; ++sa) {
+      global const ushort* dj_digit = dk_j + (long)sa * BLK * K_PAD;
+      float8 t_acc = (float8)(0.0f);
 
-          barrier(CLK_LOCAL_MEM_FENCE);
-
-          {
-            UNROLL_FORCE(NDIGITS_A) for (int sa2 = 0; sa2 < NDIGITS_A; ++sa2) {
-              global const ushort* di_digit = dk_i + (long)sa2 * BLK * K_PAD;
-              local const ushort* t_digit = t_slm + sa2 * K_PAD * XMX_N;
-
-              for (kstep = 0; kstep < K_PAD; kstep += 16) {
-                ushort8 a_bf;
-                uint8 b_bf;
-                BF16_LOAD_A(di_digit, d_wb, BLK, mi, kstep, &a_bf);
-                b_bf = *(local const uint8*)(t_digit + kstep * XMX_N);
-                BF16_DPAS_ONE(a_bf, b_bf, y_acc);
-              }
-            }
-          }
-
-          barrier(CLK_LOCAL_MEM_FENCE);
-        }
+      for (kstep = 0; kstep < K_PAD; kstep += 16) {
+        ushort8 a_bf;
+        uint8 b_bf;
+        BF16_LOAD_A(dj_digit, d_wb, BLK, mi, kstep, &a_bf);
+        b_bf = *(local const uint8*)(x_digit + kstep * XMX_N);
+        BF16_DPAS_ONE(a_bf, b_bf, t_acc);
       }
 
       {
-        const long y_base = (long)blk_idx * BLK * y_stride;
-        union { float8 v; float a[8]; } u;
-        u.v = y_acc;
+        union { float8 v; float a[8]; } t_u;
+        const long cij_base = (long)blk_idx * BLK * BLK * BLK;
+        int sa2;
+        t_u.v = t_acc;
         UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
           const int row = mi + m;
           const int col = nj + sg_lid;
           if (row < BLK && col < N_TOTAL) {
-            y[y_base + row * y_stride + col] += u.a[m];
+            t_u.a[m] *= c_ij[cij_base + (long)row * N_TOTAL + col];
           }
         }
+
+        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+          float residual = t_u.a[m];
+          const int row = mi + m;
+          UNROLL_FORCE(NDIGITS_A) for (sa2 = 0; sa2 < NDIGITS_A; ++sa2) {
+            const ushort bf = ROUND_TO_BF16(residual);
+            t_slm[sa2 * K_PAD * XMX_N + row * XMX_N + sg_lid] = bf;
+            residual -= BF16_TO_F32(bf);
+          }
+        }
+      }
+
+      barrier(CLK_LOCAL_MEM_FENCE);
+
+      { int sa2;
+        UNROLL_FORCE(NDIGITS_A) for (sa2 = 0; sa2 < NDIGITS_A; ++sa2) {
+          global const ushort* di_digit = dk_i + (long)sa2 * BLK * K_PAD;
+          local const ushort* t_digit = t_slm + sa2 * K_PAD * XMX_N;
+
+          for (kstep = 0; kstep < K_PAD; kstep += 16) {
+            ushort8 a_bf;
+            uint8 b_bf;
+            BF16_LOAD_A(di_digit, d_wb, BLK, mi, kstep, &a_bf);
+            b_bf = *(local const uint8*)(t_digit + kstep * XMX_N);
+            BF16_DPAS_ONE(a_bf, b_bf, y_acc);
+          }
+        }
+      }
+
+      barrier(CLK_LOCAL_MEM_FENCE);
+    }
+  }
+
+  {
+    const long y_base = (long)blk_idx * BLK * (long)y_stride;
+    union { float8 v; float a[8]; } u;
+    u.v = y_acc;
+    UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+      const int row = mi + m;
+      const int col = nj + sg_lid;
+      if (row < BLK && col < N_TOTAL) {
+        y[y_base + (long)row * y_stride + col] += u.a[m];
       }
     }
   }

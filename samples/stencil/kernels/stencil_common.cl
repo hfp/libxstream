@@ -36,6 +36,9 @@
 #if !defined(TRIM)
 # define TRIM 0
 #endif
+#if !defined(NTERMS)
+# define NTERMS 3
+#endif
 
 /* Number of Dekker BF16 digits for operator (A) and wavefield (X). */
 #if !defined(NDIGITS_A)
@@ -69,5 +72,51 @@
 
 /* Super-block dimension including halo for one time step. */
 #define SUPER_BLK (BLK + 2 * RADIUS)
+
+/* Gather coordinate: maps (dim, block-origin, k-index, local i/j) to grid (gx, gy, gz). */
+#define STENCIL_GATHER_COORD(DIM, OX, OY, OZ, K, CI, CJ, GX, GY, GZ) \
+  do { \
+    if (0 == (DIM))      { (GX) = (OX) + (K) - RADIUS; (GY) = (OY) + (CI); (GZ) = (OZ) + (CJ); } \
+    else if (1 == (DIM)) { (GX) = (OX) + (CI); (GY) = (OY) + (K) - RADIUS; (GZ) = (OZ) + (CJ); } \
+    else                 { (GX) = (OX) + (CI); (GY) = (OY) + (CJ); (GZ) = (OZ) + (K) - RADIUS; } \
+  } while (0)
+
+#define STENCIL_CLAMP_COORD(GX, GY, GZ, NX, NY, NZ) \
+  do { \
+    if ((GX) < 0) (GX) = 0; else if ((GX) >= (NX)) (GX) = (NX) - 1; \
+    if ((GY) < 0) (GY) = 0; else if ((GY) >= (NY)) (GY) = (NY) - 1; \
+    if ((GZ) < 0) (GZ) = 0; else if ((GZ) >= (NZ)) (GZ) = (NZ) - 1; \
+  } while (0)
+
+#define STENCIL_GRID_IDX(GZ, GY, GX, NY, NX) \
+  ((long)(GZ) * (NY) * (NX) + (long)(GY) * (NX) + (GX))
+
+/* DPAS accumulation from SLM strip: iterates (sa, sb, kstep). */
+#define STENCIL_DPAS_ACC(DK, NDIGITS_EFF, X_SLM, D_WB, MI, ACC) \
+  do { \
+    int sa_, sb_, ks_; \
+    for (sa_ = 0; sa_ < NDIGITS_A; ++sa_) { \
+      global const ushort* d_digit_ = (DK) + (long)sa_ * BLK * K_PAD; \
+      for (sb_ = 0; sb_ < (NDIGITS_EFF); ++sb_) { \
+        local const ushort* x_digit_; \
+        STENCIL_TRIM_CHECK(sa_, sb_, NDIGITS_EFF); \
+        x_digit_ = (X_SLM) + sb_ * K_PAD * XMX_N; \
+        for (ks_ = 0; ks_ < K_PAD; ks_ += 16) { \
+          ushort8 a_bf_; \
+          uint8 b_bf_; \
+          BF16_LOAD_A(d_digit_, (D_WB), BLK, (MI), ks_, &a_bf_); \
+          b_bf_ = *(local const uint8*)(x_digit_ + ks_ * XMX_N); \
+          BF16_DPAS_ONE(a_bf_, b_bf_, (ACC)); \
+        } \
+      } \
+    } \
+  } while (0)
+
+#if defined(TRIM) && (0 < TRIM)
+# define STENCIL_TRIM_CHECK(SA, SB, ND) \
+    if ((SA) + (SB) >= NDIGITS_A + (ND) - 1 - (TRIM - 1)) continue
+#else
+# define STENCIL_TRIM_CHECK(SA, SB, ND) ((void)0)
+#endif
 
 #endif /*STENCIL_COMMON_CL*/

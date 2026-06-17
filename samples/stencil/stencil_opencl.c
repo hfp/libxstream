@@ -77,6 +77,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.sg = ctx->sg;
   key.grf256 = ctx->grf256;
   key.trim = ctx->trim;
+  key.nterms = ctx->nterms;
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
     kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
@@ -99,9 +100,9 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       { const int intel_level = (int)devinfo->intel;
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSG=%d -DINTEL=%d"
-          " -DMETHOD=%d -DTRIM=%d %s",
+          " -DMETHOD=%d -DTRIM=%d -DNTERMS=%d %s",
           base_flags, key.r_per_step, key.k_steps, key.r_per_step,
-          key.sg, intel_level, key.method, key.trim,
+          key.sg, intel_level, key.method, key.trim, key.nterms,
           (intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1");
       }
 
@@ -114,9 +115,6 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           OPENCL_KERNELS_SOURCE_STENCIL_BF16, "stencil", flags,
           options, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0,
           &program);
-      }
-      if (EXIT_SUCCESS == ok) {
-        ok = libxstream_opencl_kernel_query(program, "preprocess_x", &knl.preprocess_x);
       }
       if (EXIT_SUCCESS == ok) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply", &knl.stencil_apply);
@@ -180,13 +178,14 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
     ? ((0 < (int)devinfo->wgsize[2]) ? (int)devinfo->wgsize[2] : STENCIL_SG)
     : atoi(sg_env);
 
-  ctx->grf256 = (NULL == grf_env)
-    ? devinfo->biggrf
-    : atoi(grf_env);
+  ctx->grf256 = (NULL == grf_env) ? 0 : atoi(grf_env);
 
-  ctx->trim = (NULL == trim_env) ? 0 : atoi(trim_env);
+  ctx->trim = (NULL == trim_env)
+    ? ((STENCIL_RADIUS >= 4) ? 1 : 0)
+    : atoi(trim_env);
   if (ctx->trim < 0) ctx->trim = 0;
 
+  ctx->nterms = 3;
   ctx->dpas = (devinfo->intel >= 2) ? 1 : 0;
 
   if (EXIT_SUCCESS == result) {
@@ -256,17 +255,14 @@ int stencil_precompute_operators(stencil_context_t* ctx,
           const int dist = col - row;
           if (dist >= -r_step && dist <= r_step) {
             double w = 0.0;
-            if (0 == dist) w = -2.0;
-            else if (dist == -r_step || dist == r_step) w = 1.0;
-            else if (r_step > 1) {
-              const double h2 = 1.0;
-              if (2 == r_step) {
-                if (1 == dist || -1 == dist) w = 4.0 / 3.0;
-                else w = -1.0 / 12.0;
-                if (0 == dist) w = -5.0 / 2.0;
-              }
-              else { w = (1 == dist || -1 == dist) ? 1.0 : 0.0; }
-              (void)h2;
+            if (1 == r_step) {
+              if (0 == dist) w = -2.0;
+              else w = 1.0;
+            }
+            else if (2 == r_step) {
+              if (0 == dist) w = -5.0 / 2.0;
+              else if (1 == dist || -1 == dist) w = 4.0 / 3.0;
+              else w = -1.0 / 12.0;
             }
             sub[row * blk + col] = w;
           }
@@ -382,8 +378,6 @@ void stencil_finalize(stencil_context_t* ctx)
   for (dim = 0; dim < 3; ++dim) {
     if (NULL != ctx->dk[dim]) libxstream_mem_deallocate(ctx->dk[dim]);
   }
-  if (NULL != ctx->cascade_b) libxstream_mem_deallocate(ctx->cascade_b);
-  if (NULL != ctx->cascade_a) libxstream_mem_deallocate(ctx->cascade_a);
   if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
   LIBXS_MEMZERO(ctx);
 }

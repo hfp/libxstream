@@ -232,8 +232,12 @@ int main(int argc, char* argv[])
 
     for (t = 0; t < warmup && EXIT_SUCCESS == result; ++t) {
       int tmp;
-      result = stencil_apply_laplacian(&ctx,
-        p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, nterms);
+      inject_source(p_host, nx, ny, nz, dt_local, t, freq);
+      result = libxstream_mem_copy_h2d(p_host, p_buf[cur], grid_bytes, ctx.stream);
+      if (EXIT_SUCCESS == result) {
+        result = stencil_apply_laplacian(&ctx,
+          p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, nterms);
+      }
       tmp = old; old = cur; cur = new_idx; new_idx = tmp;
     }
     if (EXIT_SUCCESS == result) {

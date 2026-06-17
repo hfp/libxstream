@@ -41,19 +41,16 @@ typedef struct {
   int sg;
   int grf256;
   int trim;
+  int nterms;
 } stencil_opencl_key_t;
 
 typedef struct {
-  cl_kernel preprocess_x;
   cl_kernel stencil_apply;
   cl_kernel stencil_apply_tti;
 } stencil_kernels_t;
 
 typedef struct {
-  libxs_registry_t* registry;
   void* dk[3];
-  void* cascade_a;
-  void* cascade_b;
   libxstream_stream_t* stream;
   int nblocks[3];
   int grid_size[3];
@@ -63,6 +60,7 @@ typedef struct {
   int sg;
   int grf256;
   int trim;
+  int nterms;
   int dpas;
   int verbosity;
 } stencil_context_t;
