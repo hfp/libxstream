@@ -190,6 +190,7 @@ kernel void stencil_apply(
   const int oz = bz * BLK;
 
   local ushort x_slm[NDIGITS_X * K_PAD * XMX_N];
+  local int exp_range[2];
 
   const int d_wb = K_PAD * 2;
   const int fill_id = sg_id * SG + sg_lid;
@@ -199,7 +200,11 @@ kernel void stencil_apply(
 
   for (dim = 0; dim < nterms; ++dim) {
     global const ushort* dk = (0 == dim) ? dk_x : ((1 == dim) ? dk_y : dk_z);
-    int idx, sa, sb, kstep;
+    int idx, sa, sb, kstep, ndigits_eff;
+    int local_max_exp = 0, local_min_exp = 255;
+
+    if (0 == fill_id) { exp_range[0] = 0; exp_range[1] = 255; }
+    barrier(CLK_LOCAL_MEM_FENCE);
 
     for (idx = fill_id; idx < K_PAD * XMX_N; idx += fill_total) {
       const int k = idx / XMX_N;
@@ -210,7 +215,8 @@ kernel void stencil_apply(
       int gx, gy, gz;
       long src_idx;
       float val, residual;
-      int s;
+      unsigned int bits;
+      int e, s;
 
       if (0 == dim) {
         gx = ox + k - RADIUS; gy = oy + ci; gz = oz + cj;
@@ -228,6 +234,13 @@ kernel void stencil_apply(
       src_idx = (long)gz * ny * nx + (long)gy * nx + gx;
       val = p_grid[src_idx];
 
+      bits = as_uint(val);
+      e = (int)((bits >> 23) & 0xFFu);
+      if (0 != e) {
+        if (e > local_max_exp) local_max_exp = e;
+        if (e < local_min_exp) local_min_exp = e;
+      }
+
       residual = val;
       for (s = 0; s < NDIGITS_X; ++s) {
         const ushort bf = ROUND_TO_BF16(residual);
@@ -236,15 +249,22 @@ kernel void stencil_apply(
       }
     }
 
+    atomic_max(&exp_range[0], local_max_exp);
+    atomic_min(&exp_range[1], local_min_exp);
     barrier(CLK_LOCAL_MEM_FENCE);
+
+    { const int span = exp_range[0] - exp_range[1];
+      ndigits_eff = (span <= 7) ? 1 : ((span <= 14) ? 2 : NDIGITS_X);
+      if (0 == exp_range[0]) ndigits_eff = 1;
+    }
 
     for (sa = 0; sa < NDIGITS_A; ++sa) {
       global const ushort* d_digit = dk + (long)sa * BLK * K_PAD;
 
-      for (sb = 0; sb < NDIGITS_X; ++sb) {
+      for (sb = 0; sb < ndigits_eff; ++sb) {
         local const ushort* x_digit;
 #if defined(TRIM) && (0 < TRIM)
-        if (sa + sb >= NDIGITS_A + NDIGITS_X - 1 - (TRIM - 1)) continue;
+        if (sa + sb >= NDIGITS_A + ndigits_eff - 1 - (TRIM - 1)) continue;
 #endif
         x_digit = x_slm + sb * K_PAD * XMX_N;
 
