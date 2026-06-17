@@ -58,6 +58,9 @@ IFLAGS += -I$(call quote,$(INCDIR))
 SCRDIR := $(DEPDIR)/scripts
 KRNELS := $(SRCDIR)/kernels/stencil_bf16.cl \
           $(NULL)
+KRNDEP := $(KRNELS) \
+          $(SRCDIR)/kernels/stencil_common.cl \
+          $(NULL)
 GENHDR := $(SRCDIR)/stencil_kernels.h
 GENSCR := $(SCRDIR)/tool_opencl.sh
 GENARG := -p ""
@@ -83,7 +86,7 @@ all: $(XFILES)
 compile: $(OBJECTS)
 
 # Generate embedded kernel header from .cl sources (resolves #include directives)
-$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/libxstream/opencl/*.h) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
+$(GENHDR): $(KRNDEP) $(wildcard $(DEPDIR)/libxstream/opencl/*.h) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
 	$(GENSCR) $(GENARG) $(KRNELS) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
