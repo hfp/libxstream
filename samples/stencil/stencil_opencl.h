@@ -73,8 +73,8 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz);
 int stencil_precompute_operators(stencil_context_t* ctx,
                                  const double* fd_weights, int radius);
 int stencil_apply_laplacian(stencil_context_t* ctx,
-                            void* p_in, void* y_out, void* vel,
-                            int nterms);
+                            void* p_cur, void* p_old, void* p_new,
+                            void* vel, float dt2, int nterms);
 void stencil_finalize(stencil_context_t* ctx);
 
 #endif /*STENCIL_OPENCL_H*/

@@ -177,14 +177,16 @@ int main(int argc, char* argv[])
   if (EXIT_SUCCESS == result) {
     const size_t grid_bytes = (size_t)nx * ny * nz * sizeof(float);
     const double gpoints = (double)nx * ny * nz * 1.0e-9;
-    void* p_dev = NULL;
-    void* y_dev = NULL;
+    const float dt_local = 0.6f * (float)h
+                         / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
+    const float dt2 = dt_local * dt_local;
+    void* p_buf[3] = { NULL, NULL, NULL };
     void* vel_dev = NULL;
     float* p_host = NULL;
     float* vel_host = NULL;
     libxs_timer_tick_t t0, t1;
     double t_elapsed, gpts_per_s;
-    int t;
+    int t, cur, old, new_idx;
 
     if (EXIT_SUCCESS == result) {
       result = libxstream_mem_host_allocate((void**)&p_host, grid_bytes, ctx.stream);
@@ -208,12 +210,16 @@ int main(int argc, char* argv[])
       for (i = 0; i < n; ++i) p_host[i] = 0.0f;
     }
 
-    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&p_dev, grid_bytes);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&y_dev, grid_bytes);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&p_buf[0], grid_bytes);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&p_buf[1], grid_bytes);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&p_buf[2], grid_bytes);
     if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&vel_dev, grid_bytes);
 
     if (EXIT_SUCCESS == result) {
-      result = libxstream_mem_copy_h2d(p_host, p_dev, grid_bytes, ctx.stream);
+      result = libxstream_mem_copy_h2d(p_host, p_buf[0], grid_bytes, ctx.stream);
+    }
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_mem_zero(p_buf[1], 0, grid_bytes, ctx.stream);
     }
     if (EXIT_SUCCESS == result) {
       result = libxstream_mem_copy_h2d(vel_host, vel_dev, grid_bytes, ctx.stream);
@@ -222,11 +228,13 @@ int main(int argc, char* argv[])
       result = libxstream_stream_sync(ctx.stream);
     }
 
+    cur = 0; old = 1; new_idx = 2;
+
     for (t = 0; t < warmup && EXIT_SUCCESS == result; ++t) {
-      inject_source(p_host, nx, ny, nz,
-        0.6f * (float)h / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f)),
-        t, freq);
-      result = stencil_apply_laplacian(&ctx, p_dev, y_dev, vel_dev, nterms);
+      int tmp;
+      result = stencil_apply_laplacian(&ctx,
+        p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, nterms);
+      tmp = old; old = cur; cur = new_idx; new_idx = tmp;
     }
     if (EXIT_SUCCESS == result) {
       result = libxstream_stream_sync(ctx.stream);
@@ -235,7 +243,10 @@ int main(int argc, char* argv[])
     t0 = libxs_timer_tick();
 
     for (t = 0; t < ntsteps && EXIT_SUCCESS == result; ++t) {
-      result = stencil_apply_laplacian(&ctx, p_dev, y_dev, vel_dev, nterms);
+      int tmp;
+      result = stencil_apply_laplacian(&ctx,
+        p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, nterms);
+      tmp = old; old = cur; cur = new_idx; new_idx = tmp;
     }
     if (EXIT_SUCCESS == result) {
       result = libxstream_stream_sync(ctx.stream);
@@ -255,8 +266,9 @@ int main(int argc, char* argv[])
     }
 
     if (NULL != vel_dev) libxstream_mem_deallocate(vel_dev);
-    if (NULL != y_dev) libxstream_mem_deallocate(y_dev);
-    if (NULL != p_dev) libxstream_mem_deallocate(p_dev);
+    if (NULL != p_buf[2]) libxstream_mem_deallocate(p_buf[2]);
+    if (NULL != p_buf[1]) libxstream_mem_deallocate(p_buf[1]);
+    if (NULL != p_buf[0]) libxstream_mem_deallocate(p_buf[0]);
     if (NULL != vel_host) libxstream_mem_host_deallocate(vel_host, ctx.stream);
     if (NULL != p_host) libxstream_mem_host_deallocate(p_host, ctx.stream);
   }

@@ -168,9 +168,10 @@ kernel void stencil_apply(
   global const ushort* restrict dk_y,
   global const ushort* restrict dk_z,
   global const float* restrict p_grid,
-  global float* restrict y,
+  global float* restrict p_old,
+  global float* restrict p_new,
   global const float* restrict vel,
-  int nterms, int y_stride,
+  int nterms, float dt2,
   int nx, int ny, int nz,
   int nbx, int nby)
 {
@@ -261,8 +262,6 @@ kernel void stencil_apply(
   }
 
   {
-    const long y_base = (long)blk_idx * BLK * (long)y_stride;
-    const long vel_base = (long)blk_idx * BLK * BLK * BLK;
     union { float8 v; float a[8]; } u;
     int m;
     u.v = acc;
@@ -270,8 +269,18 @@ kernel void stencil_apply(
       const int row = mi + m;
       const int col = nj + sg_lid;
       if (row < BLK && col < N_TOTAL) {
-        const float v2 = vel[vel_base + (long)row * N_TOTAL + col];
-        y[y_base + (long)row * y_stride + col] = u.a[m] * v2;
+        const int lx = row;
+        const int ly = col % BLK;
+        const int lz = col / BLK;
+        const int gx = ox + lx;
+        const int gy = oy + ly;
+        const int gz = oz + lz;
+        if (gx < nx && gy < ny && gz < nz) {
+          const long i = (long)gz * ny * nx + (long)gy * nx + gx;
+          const float v2 = vel[i];
+          const float p_cur = p_grid[i];
+          p_new[i] = 2.0f * p_cur - p_old[i] + dt2 * v2 * u.a[m];
+        }
       }
     }
   }

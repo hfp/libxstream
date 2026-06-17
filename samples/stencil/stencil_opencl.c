@@ -325,8 +325,8 @@ int stencil_precompute_operators(stencil_context_t* ctx,
 
 
 int stencil_apply_laplacian(stencil_context_t* ctx,
-                            void* p_in, void* y_out, void* vel,
-                            int nterms)
+                            void* p_cur, void* p_old, void* p_new,
+                            void* vel, float dt2, int nterms)
 {
   int result = EXIT_SUCCESS;
   const stencil_kernels_t* knl = stencil_get_kernels(ctx);
@@ -355,13 +355,12 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[0]));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[1]));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[2]));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_in));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, y_out));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_cur));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_old));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_new));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, vel));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nterms));
-    { int ys = STENCIL_N_TOTAL;
-      CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &ys));
-    }
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(float), &dt2));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nx));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &ny));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nz));
