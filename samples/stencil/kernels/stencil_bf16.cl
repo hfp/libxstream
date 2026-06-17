@@ -11,16 +11,16 @@
 /**
  * stencil_apply: Fused 3-dim gather + Dekker-split + DPAS + leapfrog.
  *
- * WG = (SG, M_TILES, 1). Each WG handles one (block, N-strip) pair.
- * For each dimension: cooperatively gathers K_PAD x XMX_N floats,
- * Dekker-splits into SLM, DPAS accumulates into registers.
- * After all NTERMS dimensions: writes P_new via leapfrog update.
+ * WG = (SG, M_TILES, 1). Each WG handles one block and STRIPS_PER_WG
+ * adjacent N-strips. For each strip and dimension: cooperatively
+ * gathers K_PAD x XMX_N floats, Dekker-splits into SLM, DPAS
+ * accumulates. A-side D loads are shared across strips within a WG.
  *
  * SLM budget: NDIGITS_X * K_PAD * XMX_N * sizeof(ushort)
- *           = 3 * 32 * 16 * 2 = 3072 bytes (reused per dim).
+ *           = 3 * 32 * 16 * 2 = 3072 bytes (reused per strip/dim).
  *
  * Dispatch:
- *   global = (nblocks * SG, M_TILES, N_STRIPS)
+ *   global = (nblocks * SG, M_TILES, N_STRIP_GROUPS)
  *   local  = (SG, M_TILES, 1)
  */
 #if defined(INTEL) && (2 <= INTEL)
@@ -40,11 +40,10 @@ kernel void stencil_apply(
   int nbx, int nby)
 {
   const int blk_idx = (int)get_group_id(0);
-  const int nstrip = (int)get_group_id(2);
+  const int strip_grp = (int)get_group_id(2);
   const int sg_id = (int)get_sub_group_id();
   const int sg_lid = (int)get_sub_group_local_id();
   const int mi = sg_id * XMX_M;
-  const int nj = nstrip * XMX_N;
 
   const int bz = blk_idx / (nbx * nby);
   const int by = (blk_idx / nbx) % nby;
@@ -59,66 +58,75 @@ kernel void stencil_apply(
   const int d_wb = K_PAD * 2;
   const int fill_id = sg_id * SG + sg_lid;
   const int fill_total = M_TILES * SG;
-  float8 acc = (float8)(0.0f);
-  int dim;
+  float8 acc[STRIPS_PER_WG];
+  int strip_local, dim;
+
+  for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
+    acc[strip_local] = (float8)(0.0f);
+  }
 
   for (dim = 0; dim < NTERMS; ++dim) {
     global const ushort* dk = (0 == dim) ? dk_x : ((1 == dim) ? dk_y : dk_z);
-    int idx, ndigits_eff;
-    int local_max_exp = 0, local_min_exp = 255;
 
-    if (0 == fill_id) { exp_range[0] = 0; exp_range[1] = 255; }
-    barrier(CLK_LOCAL_MEM_FENCE);
+    for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
+      const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
+      int idx, ndigits_eff;
+      int local_max_exp = 0, local_min_exp = 255;
 
-    for (idx = fill_id; idx < K_PAD * XMX_N; idx += fill_total) {
-      const int k = idx / XMX_N;
-      const int col_local = idx % XMX_N;
-      const int nc = nj + col_local;
-      const int ci = nc % BLK;
-      const int cj = nc / BLK;
-      int gx, gy, gz;
-      float val, residual;
-      unsigned int bits;
-      int e, s;
+      if (0 == fill_id) { exp_range[0] = 0; exp_range[1] = 255; }
+      barrier(CLK_LOCAL_MEM_FENCE);
 
-      STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
-      STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
+      for (idx = fill_id; idx < K_PAD * XMX_N; idx += fill_total) {
+        const int k = idx / XMX_N;
+        const int col_local = idx % XMX_N;
+        const int nc = nj + col_local;
+        const int ci = nc % BLK;
+        const int cj = nc / BLK;
+        int gx, gy, gz;
+        float val, residual;
+        unsigned int bits;
+        int e, s;
 
-      val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
+        STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
+        STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
-      bits = as_uint(val);
-      e = (int)((bits >> 23) & 0xFFu);
-      if (0 != e) {
-        if (e > local_max_exp) local_max_exp = e;
-        if (e < local_min_exp) local_min_exp = e;
+        val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
+
+        bits = as_uint(val);
+        e = (int)((bits >> 23) & 0xFFu);
+        if (0 != e) {
+          if (e > local_max_exp) local_max_exp = e;
+          if (e < local_min_exp) local_min_exp = e;
+        }
+
+        residual = val;
+        for (s = 0; s < NDIGITS_X; ++s) {
+          const ushort bf = ROUND_TO_BF16(residual);
+          x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
+          residual -= BF16_TO_F32(bf);
+        }
       }
 
-      residual = val;
-      for (s = 0; s < NDIGITS_X; ++s) {
-        const ushort bf = ROUND_TO_BF16(residual);
-        x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
-        residual -= BF16_TO_F32(bf);
+      atomic_max(&exp_range[0], local_max_exp);
+      atomic_min(&exp_range[1], local_min_exp);
+      barrier(CLK_LOCAL_MEM_FENCE);
+
+      { const int span = exp_range[0] - exp_range[1];
+        ndigits_eff = (span <= 7) ? 1 : ((span <= 14) ? 2 : NDIGITS_X);
+        if (0 == exp_range[0]) ndigits_eff = 1;
       }
+
+      STENCIL_DPAS_ACC(dk, ndigits_eff, x_slm, d_wb, mi, acc[strip_local]);
+
+      barrier(CLK_LOCAL_MEM_FENCE);
     }
-
-    atomic_max(&exp_range[0], local_max_exp);
-    atomic_min(&exp_range[1], local_min_exp);
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    { const int span = exp_range[0] - exp_range[1];
-      ndigits_eff = (span <= 7) ? 1 : ((span <= 14) ? 2 : NDIGITS_X);
-      if (0 == exp_range[0]) ndigits_eff = 1;
-    }
-
-    STENCIL_DPAS_ACC(dk, ndigits_eff, x_slm, d_wb, mi, acc);
-
-    barrier(CLK_LOCAL_MEM_FENCE);
   }
 
-  {
+  for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
+    const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
     union { float8 v; float a[8]; } u;
     int m;
-    u.v = acc;
+    u.v = acc[strip_local];
     UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
       const int row = mi + m;
       const int col = nj + sg_lid;
@@ -164,7 +172,7 @@ kernel void stencil_apply_tti(
   global const ushort* restrict dk_i,
   global const ushort* restrict dk_j,
   global const float* restrict p_grid,
-  global float* restrict y,
+  global float* restrict p_new,
   global const float* restrict c_ij,
   int y_stride,
   int dim_j, int nx, int ny, int nz,
@@ -279,14 +287,19 @@ kernel void stencil_apply_tti(
   }
 
   {
-    const long y_base = (long)blk_idx * BLK * (long)y_stride;
     union { float8 v; float a[8]; } u;
     u.v = y_acc;
     UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
       const int row = mi + m;
       const int col = nj + sg_lid;
       if (row < BLK && col < N_TOTAL) {
-        y[y_base + (long)row * y_stride + col] += u.a[m];
+        const int gx = ox + row;
+        const int gy = oy + (col % BLK);
+        const int gz = oz + (col / BLK);
+        if (gx < nx && gy < ny && gz < nz) {
+          const long i = STENCIL_GRID_IDX(gz, gy, gx, ny, nx);
+          p_new[i] += c_ij[i] * u.a[m];
+        }
       }
     }
   }

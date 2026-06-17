@@ -334,20 +334,19 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
   const int nz = ctx->grid_size[2];
   const int nbx = ctx->nblocks[0];
   const int nby = ctx->nblocks[1];
+  size_t global_apply[3], local_apply[3];
 
   if (NULL == knl) return EXIT_FAILURE;
 
-  { size_t global_apply[3], local_apply[3];
-    cl_int i;
+  global_apply[0] = (size_t)total_blocks * ctx->sg;
+  global_apply[1] = STENCIL_M_TILES;
+  global_apply[2] = STENCIL_N_STRIP_GROUPS;
+  local_apply[0] = (size_t)ctx->sg;
+  local_apply[1] = STENCIL_M_TILES;
+  local_apply[2] = 1;
 
-    global_apply[0] = (size_t)total_blocks * ctx->sg;
-    global_apply[1] = STENCIL_M_TILES;
-    global_apply[2] = STENCIL_N_STRIPS;
-    local_apply[0] = (size_t)ctx->sg;
-    local_apply[1] = STENCIL_M_TILES;
-    local_apply[2] = 1;
-
-    i = 0;
+  { cl_int i = 0;
+    const int nterms_iso = (nterms <= 3) ? nterms : 3;
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[0]));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[1]));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[2]));
@@ -355,7 +354,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_old));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_new));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, vel));
-    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nterms));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nterms_iso));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(float), &dt2));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nx));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &ny));
@@ -365,6 +364,34 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
 
     CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply,
       3, NULL, global_apply, local_apply, 0, NULL, NULL));
+  }
+
+  if (nterms > 3 && EXIT_SUCCESS == result) {
+    static const int cross_pairs[6][2] = {
+      {0, 1}, {0, 2}, {1, 0}, {1, 2}, {2, 0}, {2, 1}
+    };
+    int pair;
+    for (pair = 0; pair < 6 && EXIT_SUCCESS == result; ++pair) {
+      const int dim_i = cross_pairs[pair][0];
+      const int dim_j = cross_pairs[pair][1];
+      cl_int i = 0;
+      int ys = STENCIL_N_TOTAL;
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_tti, i++, ctx->dk[dim_i]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_tti, i++, ctx->dk[dim_j]));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_tti, i++, p_cur));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_tti, i++, p_new));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_tti, i++, vel));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &ys));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &dim_j));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &nx));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &ny));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &nz));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &nbx));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &nby));
+
+      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply_tti,
+        3, NULL, global_apply, local_apply, 0, NULL, NULL));
+    }
   }
 
   return result;

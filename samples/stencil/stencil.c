@@ -165,6 +165,7 @@ int main(int argc, char* argv[])
   }
   if (EXIT_SUCCESS == result) {
     const char* mnames[] = {"sparse", "dense", "hybrid", "best"};
+    ctx.nterms = nterms;
     printf("  Method:     %s (K=%d, r=%d)\n",
            mnames[(int)ctx.method], ctx.k_steps, ctx.r_per_step);
   }

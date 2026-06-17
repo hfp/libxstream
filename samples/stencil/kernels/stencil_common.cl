@@ -73,6 +73,12 @@
 /* Super-block dimension including halo for one time step. */
 #define SUPER_BLK (BLK + 2 * RADIUS)
 
+/* N-strips batched per work-group (1 = no batching). */
+#if !defined(STRIPS_PER_WG)
+# define STRIPS_PER_WG 1
+#endif
+#define N_STRIP_GROUPS (N_STRIPS / STRIPS_PER_WG)
+
 /* Gather coordinate: maps (dim, block-origin, k-index, local i/j) to grid (gx, gy, gz). */
 #define STENCIL_GATHER_COORD(DIM, OX, OY, OZ, K, CI, CJ, GX, GY, GZ) \
   do { \
