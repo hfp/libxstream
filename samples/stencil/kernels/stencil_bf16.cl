@@ -11,7 +11,7 @@
 /**
  * stencil_apply: Fused 3-dim gather + Dekker-split + DPAS + leapfrog.
  *
- * WG = (SG, M_TILES, 1). Each WG handles one block and STRIPS_PER_WG
+ * WG = (SG, WG_M_TILES, 1). Each WG handles one block and STRIPS_PER_WG
  * adjacent N-strips. For each strip and dimension: cooperatively
  * gathers K_PAD x XMX_N floats, Dekker-splits into SLM, DPAS
  * accumulates. A-side D loads are shared across strips within a WG.
@@ -21,10 +21,10 @@
  *
  * Dispatch:
  *   global = (nblocks * SG, M_TILES, N_STRIP_GROUPS)
- *   local  = (SG, M_TILES, 1)
+ *   local  = (SG, WG_M_TILES, 1)
  */
 #if defined(INTEL) && (2 <= INTEL)
-__attribute__((reqd_work_group_size(SG, M_TILES, 1)))
+__attribute__((reqd_work_group_size(SG, WG_M_TILES, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void stencil_apply(
@@ -57,7 +57,7 @@ kernel void stencil_apply(
 
   const int d_wb = K_PAD * 2;
   const int fill_id = sg_id * SG + sg_lid;
-  const int fill_total = M_TILES * SG;
+  const int fill_total = WG_M_TILES * SG;
   float8 acc[STRIPS_PER_WG];
   int strip_local, dim;
 
@@ -137,7 +137,7 @@ kernel void stencil_apply(
     UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
       const int row = mi + m;
       const int col = nj + sg_lid;
-      if (row < BLK && col < N_TOTAL) {
+      if (0 <= row && row < BLK && col < N_TOTAL) {
         const int gx = ox + row;
         const int gy = oy + (col % BLK);
         const int gz = oz + (col / BLK);

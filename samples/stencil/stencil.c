@@ -52,9 +52,11 @@ int main(int argc, char* argv[])
   int method_override = -1;
   int ndevices = 0;
   int initialized = 0;
+  int trace = 0;
   int argi;
 
   LIBXS_MEMZERO(&ctx);
+  trace = (NULL != getenv("STENCIL_TRACE"));
 
   for (argi = 1; argi < argc; ++argi) {
     if (0 == strcmp(argv[argi], "-n") && argi + 1 < argc) {
@@ -164,17 +166,21 @@ int main(int argc, char* argv[])
     result = stencil_init(&ctx, 1, method_override);
   }
   if (EXIT_SUCCESS == result) {
-    const char* mnames[] = {"sparse", "dense", "hybrid", "best"};
+    const char* mnames[] = {"direct", "staged-r1", "staged-r2", "staged-fit"};
     ctx.nterms = nterms;
-        printf("  Method:     %s (K=%d, r=%d, strips/WG=%d)\n",
-          mnames[(int)ctx.method], ctx.k_steps, ctx.r_per_step,
-          ctx.strips_per_wg);
+    printf("  Method:     %s (K=%d, r=%d, strips/WG=%d)\n",
+           mnames[(int)ctx.method], ctx.k_steps, ctx.r_per_step,
+           ctx.strips_per_wg);
   }
   if (EXIT_SUCCESS == result) {
+    if (0 != trace) fprintf(stderr, "TRACE: configure\n");
     result = stencil_configure(&ctx, nx, ny, nz);
+    if (0 != trace) fprintf(stderr, "TRACE: configure done result=%d\n", result);
   }
   if (EXIT_SUCCESS == result) {
+    if (0 != trace) fprintf(stderr, "TRACE: precompute operators\n");
     result = stencil_precompute_operators(&ctx, fd_w, radius);
+    if (0 != trace) fprintf(stderr, "TRACE: precompute operators done result=%d\n", result);
   }
   if (EXIT_SUCCESS == result) {
     const size_t grid_bytes = (size_t)nx * ny * nz * sizeof(float);
@@ -191,10 +197,14 @@ int main(int argc, char* argv[])
     int t, cur, old, new_idx;
 
     if (EXIT_SUCCESS == result) {
+      if (0 != trace) fprintf(stderr, "TRACE: allocate p_host\n");
       result = libxstream_mem_host_allocate((void**)&p_host, grid_bytes, ctx.stream);
+      if (0 != trace) fprintf(stderr, "TRACE: allocate p_host done result=%d\n", result);
     }
     if (EXIT_SUCCESS == result) {
+      if (0 != trace) fprintf(stderr, "TRACE: allocate vel_host\n");
       result = libxstream_mem_host_allocate((void**)&vel_host, grid_bytes, ctx.stream);
+      if (0 != trace) fprintf(stderr, "TRACE: allocate vel_host done result=%d\n", result);
     }
 
     if (EXIT_SUCCESS == result) {
@@ -427,7 +437,7 @@ static void usage(const char* prog)
          "  -nx/ny/nz <N> individual grid dimensions\n"
          "  -t <steps>    number of time steps (default 100)\n"
          "  -d <dims>     operator terms: 3=isotropic, 9=TTI (default 3)\n"
-         "  -m <method>   operator method: 0=sparse 1=dense 2=hybrid 3=best\n"
+         "  -m <method>   operator method: 0=direct 1=staged-r1 2=staged-r2 3=staged-fit\n"
          "  -h <spacing>  grid spacing in meters (default 10.0)\n"
          "  -v <model>    velocity model: const|grad|layered|<file.bin>\n"
          "  -vmin <vel>   min velocity m/s (default 1500)\n"

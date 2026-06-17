@@ -32,10 +32,10 @@
 
 
 typedef enum {
-  STENCIL_SPARSE = 0,
-  STENCIL_DENSE  = 1,
-  STENCIL_HYBRID = 2,
-  STENCIL_BEST   = 3
+  STENCIL_DIRECT    = 0,
+  STENCIL_STAGED_R1 = 1,
+  STENCIL_STAGED_R2 = 2,
+  STENCIL_STAGED_FIT = 3
 } stencil_method_t;
 
 typedef struct {

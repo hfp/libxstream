@@ -24,16 +24,16 @@ static int stencil_method_params(stencil_method_t method, int* k_steps, int* r_p
 {
   int result = EXIT_SUCCESS;
   switch (method) {
-    case STENCIL_SPARSE:
+    case STENCIL_DIRECT:
       *k_steps = 1; *r_per_step = STENCIL_RADIUS;
       break;
-    case STENCIL_DENSE:
+    case STENCIL_STAGED_R1:
       *k_steps = STENCIL_RADIUS; *r_per_step = 1;
       break;
-    case STENCIL_HYBRID:
+    case STENCIL_STAGED_R2:
       *k_steps = 2; *r_per_step = (STENCIL_RADIUS + 1) / 2;
       break;
-    case STENCIL_BEST:
+    case STENCIL_STAGED_FIT:
       *k_steps = STENCIL_RADIUS; *r_per_step = 1;
       break;
     default:
@@ -54,7 +54,7 @@ static double stencil_fd_weight(const double* fd_weights, int radius, int dist)
 }
 
 
-static double stencil_compact_weight(int radius, int dist)
+static double stencil_compact_weight(int radius, int dist, double inv_h2)
 {
   double result = 0.0;
   if (dist >= -radius && dist <= radius) {
@@ -67,6 +67,7 @@ static double stencil_compact_weight(int radius, int dist)
       else result = -1.0 / 12.0;
     }
   }
+  result *= inv_h2;
   return result;
 }
 
@@ -159,7 +160,8 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d %s",
-          base_flags, STENCIL_RADIUS, key.k_steps, key.r_per_step,
+          base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
+          key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, key.method, key.trim, key.nterms,
           (intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1");
       }
@@ -283,7 +285,9 @@ int stencil_precompute_operators(stencil_context_t* ctx,
   const int nda = STENCIL_NDIGITS_A;
   const int k_steps = ctx->k_steps;
   const int r_step = ctx->r_per_step;
-  const size_t d_size = (size_t)nda * blk * kpad * sizeof(cl_ushort);
+  const int d_rows = blk;
+  const size_t d_size = (size_t)nda * d_rows * kpad * sizeof(cl_ushort);
+  const double inv_h2 = -72.0 * fd_weights[radius] / 205.0;
   cl_ushort* d_host = NULL;
   int dim;
 
@@ -291,12 +295,18 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     return EXIT_FAILURE;
   }
 
-  d_host = (cl_ushort*)calloc((size_t)nda * blk * kpad, sizeof(cl_ushort));
+  d_host = (cl_ushort*)calloc((size_t)nda * d_rows * kpad, sizeof(cl_ushort));
   if (NULL == d_host) return EXIT_FAILURE;
 
   {
-    double d_mat[STENCIL_BLK * STENCIL_K_PAD];
+    double d_mat[STENCIL_K_PAD * STENCIL_K_PAD];
     int row, col, dist;
+
+    for (row = 0; row < kpad; ++row) {
+      for (col = 0; col < kpad; ++col) {
+        d_mat[row * kpad + col] = 0.0;
+      }
+    }
 
     if (1 == k_steps) {
       for (row = 0; row < blk; ++row) {
@@ -307,56 +317,18 @@ int stencil_precompute_operators(stencil_context_t* ctx,
       }
     }
     else {
-      double sub[STENCIL_K_PAD * STENCIL_K_PAD];
-      double composed[STENCIL_K_PAD * STENCIL_K_PAD];
-      double tmp[STENCIL_K_PAD * STENCIL_K_PAD];
-      int out_pos, in_pos, mid_pos, step;
-      double sum;
-
-      for (out_pos = 0; out_pos < kpad * kpad; ++out_pos) {
-        sub[out_pos] = 0.0;
-        composed[out_pos] = 0.0;
-        tmp[out_pos] = 0.0;
-      }
-      for (out_pos = 0; out_pos < kpad; ++out_pos) {
-        for (in_pos = 0; in_pos < kpad; ++in_pos) {
-          dist = in_pos - out_pos;
-          sub[out_pos * kpad + in_pos] = stencil_compact_weight(r_step, dist);
-        }
-      }
-
-      for (out_pos = 0; out_pos < kpad; ++out_pos) {
-        composed[out_pos * kpad + out_pos] = 1.0;
-      }
-      for (step = 0; step < k_steps; ++step) {
-        for (out_pos = 0; out_pos < kpad * kpad; ++out_pos) tmp[out_pos] = 0.0;
-        for (out_pos = 0; out_pos < kpad; ++out_pos) {
-          for (in_pos = 0; in_pos < kpad; ++in_pos) {
-            sum = 0.0;
-            for (mid_pos = 0; mid_pos < kpad; ++mid_pos) {
-              sum += sub[out_pos * kpad + mid_pos]
-                   * composed[mid_pos * kpad + in_pos];
-            }
-            tmp[out_pos * kpad + in_pos] = sum;
-          }
-        }
-        for (out_pos = 0; out_pos < kpad * kpad; ++out_pos) {
-          composed[out_pos] = tmp[out_pos];
-        }
-      }
-
-      for (row = 0; row < blk; ++row) {
-        out_pos = row + radius;
+      for (row = 0; row < d_rows; ++row) {
         for (col = 0; col < kpad; ++col) {
-          d_mat[row * kpad + col] = composed[out_pos * kpad + col];
+          dist = col - r_step - row;
+          d_mat[row * kpad + col] = stencil_compact_weight(r_step, dist, inv_h2);
         }
       }
     }
 
-    for (row = 0; row < blk; ++row) {
+    for (row = 0; row < d_rows; ++row) {
       for (col = 0; col < kpad; ++col) {
         stencil_store_bf16_digits(
-          d_host + row * kpad + col, blk * kpad, nda,
+          d_host + row * kpad + col, d_rows * kpad, nda,
           (float)d_mat[row * kpad + col]);
       }
     }

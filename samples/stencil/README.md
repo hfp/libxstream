@@ -239,35 +239,29 @@ SLM budget per cross-term: 2 x K_PAD x XMX_N x sizeof(ushort),
 rounded up to the DPAS K block size.
 Total for 3 cross-terms with barrier: fits within 128 KB (Xe2/BMG).
 
-## Operator Cascade (Densification)
+## Operator Paths
 
-The standard kernel applies one wide-reach operator (radius-4, 9-point)
-per dimension.  The cascade variants currently precompose K compact
-sub-steps into one haloed operator at initialization, then apply that
-operator with the same Ozaki-split BF16 x BF16 DPAS path as the sparse
-operator.  This keeps the low-precision implementation path intact,
-but it does not yet reduce the runtime halo.
+The standard direct kernel applies one wide-reach operator (radius-4,
+9-point) per dimension.  The staged variants are independent compact
+runtime paths: they compile the same Ozaki-split BF16 x BF16 DPAS
+primitive with a smaller gather radius and rely on time evolution to
+build longer effective reach.
 
 Methods (selected via STENCIL_METHOD environment variable):
 
-    0 = sparse    K=1, r=4  standard high-order (default)
-    1 = dense     K=4, r=1  pure cascade, tridiagonal, minimal halo
-    2 = hybrid    K=2, r=2  balanced (pentadiagonal, half halo)
-    3 = best      coefficients dispersion-optimized (static)
+  0 = direct      K=1, r=4  standard high-order (default)
+  1 = staged-r1   K=4, r=1  compact tridiagonal runtime path
+  2 = staged-r2   K=2, r=2  compact pentadiagonal runtime path
+  3 = staged-fit  K=4, r=1  placeholder for dispersion-fitted stages
 
-The "best" mode uses the free degrees of freedom in the K-factor
+The "staged-fit" mode uses the free degrees of freedom in the K-factor
 coefficient product to match or exceed the dispersion quality of the
 standard 8th-order stencil at target frequencies, while retaining the
 memory savings of the cascade.  Coefficients are precomputed once at
 initialization for the grid's frequency content.
 
-The staged implementation should keep each compact sub-step as a
-low-precision DPAS operation: gather a compact halo, split the operand
-into BF16 digits, apply the compact factor, re-split the intermediate
-into BF16 digits, and continue to the next sub-step in SLM/registers.
-That path is distinct from the current precomposed operator path and is
-the route for reducing halo traffic while preserving Ozaki-style
-accuracy recovery.
+The first staged path is implemented for the isotropic apply kernel in
+methods 1-3.  TTI cross-terms still use the direct two-phase DPAS path.
 
 Environment variables controlling kernel specialization:
 

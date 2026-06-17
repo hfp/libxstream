@@ -67,6 +67,7 @@
 #define STENCIL_ALIGN16(VALUE) (((VALUE) + 15) & ~15)
 #define K_BASE (BLK + 2 * RADIUS)
 #define K_PAD STENCIL_ALIGN16(K_BASE)
+#define WG_M_TILES M_TILES
 
 /* Padded N dimension for X surface (must be >= 32 bf16 = 64 bytes). */
 #define N_PAD ((N_TOTAL < 32) ? 32 : N_TOTAL)
@@ -99,11 +100,11 @@
   ((long)(GZ) * (NY) * (NX) + (long)(GY) * (NX) + (GX))
 
 /* DPAS accumulation from SLM strip: iterates (sa, sb, kstep). */
-#define STENCIL_DPAS_ACC(DK, NDIGITS_EFF, X_SLM, D_WB, MI, ACC) \
+#define STENCIL_DPAS_ACC_ROWS(DK, NDIGITS_EFF, X_SLM, D_WB, A_ROWS, MI, ACC) \
   do { \
     int sa_, sb_, ks_; \
     for (sa_ = 0; sa_ < NDIGITS_A; ++sa_) { \
-      global const ushort* d_digit_ = (DK) + (long)sa_ * BLK * K_PAD; \
+      global const ushort* d_digit_ = (DK) + (long)sa_ * (A_ROWS) * K_PAD; \
       for (sb_ = 0; sb_ < (NDIGITS_EFF); ++sb_) { \
         local const ushort* x_digit_; \
         STENCIL_TRIM_CHECK(sa_, sb_, NDIGITS_EFF); \
@@ -111,13 +112,16 @@
         for (ks_ = 0; ks_ < K_PAD; ks_ += 16) { \
           ushort8 a_bf_; \
           uint8 b_bf_; \
-          BF16_LOAD_A(d_digit_, (D_WB), BLK, (MI), ks_, &a_bf_); \
+          BF16_LOAD_A(d_digit_, (D_WB), (A_ROWS), (MI), ks_, &a_bf_); \
           b_bf_ = *(local const uint8*)(x_digit_ + ks_ * XMX_N); \
           BF16_DPAS_ONE(a_bf_, b_bf_, (ACC)); \
         } \
       } \
     } \
   } while (0)
+
+#define STENCIL_DPAS_ACC(DK, NDIGITS_EFF, X_SLM, D_WB, MI, ACC) \
+  STENCIL_DPAS_ACC_ROWS(DK, NDIGITS_EFF, X_SLM, D_WB, BLK, MI, ACC)
 
 /* Re-split an FP32 intermediate into BF16 digits for a following DPAS stage. */
 #define STENCIL_SPLIT_F32_TO_SLM(SLM, NDIGITS, ROW, COL, VALUE) \
