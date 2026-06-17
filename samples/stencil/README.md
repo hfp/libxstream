@@ -235,16 +235,18 @@ buffer the intermediate result between two GEMM phases:
     T  = c_ij . T        (point-wise anisotropy scaling)
     Y += D_i x T         (second GEMM)
 
-SLM budget per cross-term: 2 x K_PAD x XMX_N x sizeof(ushort) = 2 KB.
+SLM budget per cross-term: 2 x K_PAD x XMX_N x sizeof(ushort),
+rounded up to the DPAS K block size.
 Total for 3 cross-terms with barrier: fits within 128 KB (Xe2/BMG).
 
 ## Operator Cascade (Densification)
 
 The standard kernel applies one wide-reach operator (radius-4, 9-point)
-per dimension.  The cascade variants factor this into K sub-steps each
-with a smaller radius r, such that K*r >= R_target.  Sub-step results
-stay in registers (no memory round-trip), trading extra DPAS calls for
-reduced halo size and fully dense operator matrices.
+per dimension.  The cascade variants currently precompose K compact
+sub-steps into one haloed operator at initialization, then apply that
+operator with the same Ozaki-split BF16 x BF16 DPAS path as the sparse
+operator.  This keeps the low-precision implementation path intact,
+but it does not yet reduce the runtime halo.
 
 Methods (selected via STENCIL_METHOD environment variable):
 
@@ -258,6 +260,14 @@ coefficient product to match or exceed the dispersion quality of the
 standard 8th-order stencil at target frequencies, while retaining the
 memory savings of the cascade.  Coefficients are precomputed once at
 initialization for the grid's frequency content.
+
+The staged implementation should keep each compact sub-step as a
+low-precision DPAS operation: gather a compact halo, split the operand
+into BF16 digits, apply the compact factor, re-split the intermediate
+into BF16 digits, and continue to the next sub-step in SLM/registers.
+That path is distinct from the current precomposed operator path and is
+the route for reducing halo traffic while preserving Ozaki-style
+accuracy recovery.
 
 Environment variables controlling kernel specialization:
 
