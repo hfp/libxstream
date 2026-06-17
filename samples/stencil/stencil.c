@@ -449,7 +449,7 @@ static void usage(const char* prog)
          "  -seg-salt      SEG/EAGE Salt (676x676x210, h=20m)\n"
          "  -overthrust    SEG/EAGE Overthrust (801x801x187, h=25m)\n"
          "\n"
-         "Environment: STENCIL_METHOD, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256\n"
+         "Environment: STENCIL_METHOD, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256, STENCIL_TRIM\n"
          "\n"
          "Performance is reported in GPoints/s.\n", prog);
 }

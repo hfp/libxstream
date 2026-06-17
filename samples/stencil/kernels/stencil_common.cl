@@ -77,7 +77,7 @@
 
 /* N-strips batched per work-group (1 = no batching). */
 #if !defined(STRIPS_PER_WG)
-# define STRIPS_PER_WG 1
+# define STRIPS_PER_WG 2
 #endif
 #define N_STRIP_GROUPS (N_STRIPS / STRIPS_PER_WG)
 
