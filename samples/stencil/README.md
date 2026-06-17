@@ -268,13 +268,15 @@ Environment variables controlling kernel specialization:
     STENCIL_METHOD   operator method (0-3, default 0)
     STENCIL_BK       K-unroll block size (default: K_PAD)
     STENCIL_STRIPS_PER_WG
-             adjacent N-strips handled by one work-group
+         adjacent N-strips handled by one work-group (default: 2)
     STENCIL_SG       subgroup size override (default: device preferred)
     STENCIL_GRF256   force 256-GRF mode (0/1, default: auto)
+    STENCIL_TRIM     drop least-significant digit products (accuracy tradeoff)
 
 Specialized kernels are compiled on first use and cached in a
-thread-safe registry keyed by the (method, k_steps, r_per_step, sg)
-tuple.  Subsequent launches with the same parameters are zero-cost.
+thread-safe registry keyed by the method, compact-step parameters,
+strip grouping, subgroup size, GRF mode, trim level, and term count.
+Subsequent launches with the same parameters are zero-cost.
 
 Future extension: per-block adaptive method selection (different K in
 regions with different velocity/frequency content).  This requires
