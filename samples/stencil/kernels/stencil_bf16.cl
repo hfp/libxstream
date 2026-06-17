@@ -17,7 +17,7 @@
  * accumulates. A-side D loads are shared across strips within a WG.
  *
  * SLM budget: NDIGITS_X * K_PAD * XMX_N * sizeof(ushort)
- *           = 3 * 32 * 16 * 2 = 3072 bytes (reused per strip/dim).
+ *           = 3 * 48 * 16 * 2 = 4608 bytes (reused per strip/dim).
  *
  * Dispatch:
  *   global = (nblocks * SG, M_TILES, N_STRIP_GROUPS)
@@ -157,7 +157,7 @@ kernel void stencil_apply(
  *   4. Dekker re-split T into t_slm as BF16
  *   5. DPAS: D_i * T -> accumulate into Y
  *
- * SLM: x_slm (3 KB) for phase 1, t_slm (2 KB) for phase 2.
+ * SLM: x_slm (4.5 KB) for phase 1, t_slm (3 KB) for phase 2.
  * Both fit within 128 KB. Reused across (sa, sb) pairs.
  *
  * Dispatch:
@@ -244,7 +244,6 @@ kernel void stencil_apply_tti(
       {
         union { float8 v; float a[8]; } t_u;
         const long cij_base = (long)blk_idx * BLK * BLK * BLK;
-        int sa2;
         t_u.v = t_acc;
         UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
           const int row = mi + m;
@@ -255,13 +254,8 @@ kernel void stencil_apply_tti(
         }
 
         UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-          float residual = t_u.a[m];
           const int row = mi + m;
-          UNROLL_FORCE(NDIGITS_A) for (sa2 = 0; sa2 < NDIGITS_A; ++sa2) {
-            const ushort bf = ROUND_TO_BF16(residual);
-            t_slm[sa2 * K_PAD * XMX_N + row * XMX_N + sg_lid] = bf;
-            residual -= BF16_TO_F32(bf);
-          }
+          STENCIL_SPLIT_F32_TO_SLM(t_slm, NDIGITS_A, row, sg_lid, t_u.a[m]);
         }
       }
 

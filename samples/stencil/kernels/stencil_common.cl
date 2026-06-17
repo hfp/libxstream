@@ -62,10 +62,10 @@
 #define M_TILES (BLK / XMX_M)
 
 /* Padded K dimension for the operator surface.
- * D is BLK x BLK (banded), stored as BLK rows x K_PAD bf16.
- * K_PAD >= BLK and must be >= 32 bytes (16 bf16) for 2D block I/O.
- * For BLK=32: K_PAD=32, surface width = 64 bytes -- meets minimum. */
-#define K_PAD ((BLK < 16) ? 16 : BLK)
+ * D is BLK rows over a haloed K dimension. K_PAD is rounded to a
+ * multiple of 16 because each DPAS step consumes 16 K entries. */
+#define STENCIL_ALIGN16(VALUE) (((VALUE) + 15) & ~15)
+#define K_PAD STENCIL_ALIGN16(BLK + 2 * RADIUS)
 
 /* Padded N dimension for X surface (must be >= 32 bf16 = 64 bytes). */
 #define N_PAD ((N_TOTAL < 32) ? 32 : N_TOTAL)
@@ -115,6 +115,18 @@
           BF16_DPAS_ONE(a_bf_, b_bf_, (ACC)); \
         } \
       } \
+    } \
+  } while (0)
+
+/* Re-split an FP32 intermediate into BF16 digits for a following DPAS stage. */
+#define STENCIL_SPLIT_F32_TO_SLM(SLM, NDIGITS, ROW, COL, VALUE) \
+  do { \
+    float residual_ = (VALUE); \
+    int digit_; \
+    for (digit_ = 0; digit_ < (NDIGITS); ++digit_) { \
+      ushort bf_ = ROUND_TO_BF16(residual_); \
+      (SLM)[digit_ * K_PAD * XMX_N + (ROW) * XMX_N + (COL)] = bf_; \
+      residual_ -= BF16_TO_F32(bf_); \
     } \
   } while (0)
 
