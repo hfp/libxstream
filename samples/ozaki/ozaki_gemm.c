@@ -8,6 +8,7 @@
 ******************************************************************************/
 #include "ozaki_opencl.h"
 #include "ozaki_kernels.h"
+#include <libxs/libxs_hash.h>
 #include <libxs/libxs_mem.h>
 
 
