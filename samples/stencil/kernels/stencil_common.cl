@@ -99,17 +99,23 @@
 #define STENCIL_GRID_IDX(GZ, GY, GX, NY, NX) \
   ((long)(GZ) * (NY) * (NX) + (long)(GY) * (NX) + (GX))
 
+/* Kstep range for a given MI based on operator non-zero band [MI, MI + 7 + 2*RADIUS]. */
+#define KSTEP_LO(MI) ((MI) & ~15)
+#define KSTEP_HI(MI) (((MI) + XMX_M - 1 + 2 * RADIUS) & ~15)
+
 /* DPAS accumulation from SLM strip: iterates (sa, sb, kstep). */
 #define STENCIL_DPAS_ACC_ROWS(DK, NDIGITS_EFF, X_SLM, D_WB, A_ROWS, MI, ACC) \
   do { \
+    const int ks_lo_ = KSTEP_LO(MI); \
+    const int ks_hi_ = KSTEP_HI(MI); \
     int sa_, sb_, ks_; \
-    for (sa_ = 0; sa_ < NDIGITS_A; ++sa_) { \
+    UNROLL_FORCE(NDIGITS_A) for (sa_ = 0; sa_ < NDIGITS_A; ++sa_) { \
       global const ushort* d_digit_ = (DK) + (long)sa_ * (A_ROWS) * K_PAD; \
-      for (sb_ = 0; sb_ < (NDIGITS_EFF); ++sb_) { \
+      UNROLL_AUTO for (sb_ = 0; sb_ < (NDIGITS_EFF); ++sb_) { \
         local const ushort* x_digit_; \
         STENCIL_TRIM_CHECK(sa_, sb_, NDIGITS_EFF); \
         x_digit_ = (X_SLM) + sb_ * K_PAD * XMX_N; \
-        for (ks_ = 0; ks_ < K_PAD; ks_ += 16) { \
+        UNROLL_AUTO for (ks_ = ks_lo_; ks_ <= ks_hi_; ks_ += 16) { \
           ushort8 a_bf_; \
           uint8 b_bf_; \
           BF16_LOAD_A(d_digit_, (D_WB), (A_ROWS), (MI), ks_, &a_bf_); \
@@ -128,7 +134,7 @@
   do { \
     float residual_ = (VALUE); \
     int digit_; \
-    for (digit_ = 0; digit_ < (NDIGITS); ++digit_) { \
+    UNROLL_FORCE(NDIGITS) for (digit_ = 0; digit_ < (NDIGITS); ++digit_) { \
       ushort bf_ = ROUND_TO_BF16(residual_); \
       (SLM)[digit_ * K_PAD * XMX_N + (ROW) * XMX_N + (COL)] = bf_; \
       residual_ -= BF16_TO_F32(bf_); \

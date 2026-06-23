@@ -61,14 +61,14 @@ kernel void stencil_apply(
   float8 acc[STRIPS_PER_WG];
   int strip_local, dim;
 
-  for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
+  UNROLL_FORCE(STRIPS_PER_WG) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
     acc[strip_local] = (float8)(0.0f);
   }
 
-  for (dim = 0; dim < NTERMS; ++dim) {
+  UNROLL_OUTER(1) for (dim = 0; dim < NTERMS; ++dim) {
     global const ushort* dk = (0 == dim) ? dk_x : ((1 == dim) ? dk_y : dk_z);
 
-    for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
+    UNROLL_OUTER(1) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
       const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
       int idx, ndigits_eff;
       int local_max_exp = 0, local_min_exp = 255;
@@ -101,14 +101,14 @@ kernel void stencil_apply(
           }
 
           residual = val;
-          for (s = 0; s < NDIGITS_X; ++s) {
+          UNROLL_FORCE(NDIGITS_X) for (s = 0; s < NDIGITS_X; ++s) {
             const ushort bf = ROUND_TO_BF16(residual);
             x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
             residual -= BF16_TO_F32(bf);
           }
         }
         else {
-          for (s = 0; s < NDIGITS_X; ++s) {
+          UNROLL_FORCE(NDIGITS_X) for (s = 0; s < NDIGITS_X; ++s) {
             x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = (ushort)0;
           }
         }
@@ -129,7 +129,7 @@ kernel void stencil_apply(
     }
   }
 
-  for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
+  UNROLL_FORCE(STRIPS_PER_WG) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
     const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
     union { float8 v; float a[8]; } u;
     int m;
@@ -225,14 +225,14 @@ kernel void stencil_apply_tti(
       val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
 
       residual = val;
-      for (s = 0; s < NDIGITS_X; ++s) {
+      UNROLL_FORCE(NDIGITS_X) for (s = 0; s < NDIGITS_X; ++s) {
         const ushort bf = ROUND_TO_BF16(residual);
         x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
         residual -= BF16_TO_F32(bf);
       }
     }
     else {
-      for (s = 0; s < NDIGITS_X; ++s) {
+      UNROLL_FORCE(NDIGITS_X) for (s = 0; s < NDIGITS_X; ++s) {
         x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = (ushort)0;
       }
     }
@@ -240,63 +240,67 @@ kernel void stencil_apply_tti(
 
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  for (sb = 0; sb < NDIGITS_X; ++sb) {
-    local const ushort* x_digit = x_slm + sb * K_PAD * XMX_N;
+  { const int ks_lo_tti = KSTEP_LO(mi);
+    const int ks_hi_tti = KSTEP_HI(mi);
 
-    for (sa = 0; sa < NDIGITS_A; ++sa) {
-      global const ushort* dj_digit = dk_j + (long)sa * BLK * K_PAD;
-      float8 t_acc = (float8)(0.0f);
+    UNROLL_OUTER(1) for (sb = 0; sb < NDIGITS_X; ++sb) {
+      local const ushort* x_digit = x_slm + sb * K_PAD * XMX_N;
 
-      for (kstep = 0; kstep < K_PAD; kstep += 16) {
-        ushort8 a_bf;
-        uint8 b_bf;
-        BF16_LOAD_A(dj_digit, d_wb, BLK, mi, kstep, &a_bf);
-        b_bf = *(local const uint8*)(x_digit + kstep * XMX_N);
-        BF16_DPAS_ONE(a_bf, b_bf, t_acc);
-      }
+      UNROLL_FORCE(NDIGITS_A) for (sa = 0; sa < NDIGITS_A; ++sa) {
+        global const ushort* dj_digit = dk_j + (long)sa * BLK * K_PAD;
+        float8 t_acc = (float8)(0.0f);
 
-      {
-        union { float8 v; float a[8]; } t_u;
-        const long cij_base = (long)blk_idx * BLK * BLK * BLK;
-        t_u.v = t_acc;
-
-        for (idx = fill_id; idx < NDIGITS_A * K_PAD * XMX_N; idx += fill_total) {
-          t_slm[idx] = (ushort)0;
+        UNROLL_AUTO for (kstep = ks_lo_tti; kstep <= ks_hi_tti; kstep += 16) {
+          ushort8 a_bf;
+          uint8 b_bf;
+          BF16_LOAD_A(dj_digit, d_wb, BLK, mi, kstep, &a_bf);
+          b_bf = *(local const uint8*)(x_digit + kstep * XMX_N);
+          BF16_DPAS_ONE(a_bf, b_bf, t_acc);
         }
+
+        {
+          union { float8 v; float a[8]; } t_u;
+          const long cij_base = (long)blk_idx * BLK * BLK * BLK;
+          t_u.v = t_acc;
+
+          for (idx = fill_id; idx < NDIGITS_A * K_PAD * XMX_N; idx += fill_total) {
+            t_slm[idx] = (ushort)0;
+          }
+          barrier(CLK_LOCAL_MEM_FENCE);
+
+          UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+            const int row = mi + m;
+            const int col = nj + sg_lid;
+            if (row < BLK && col < N_TOTAL) {
+              t_u.a[m] *= c_ij[cij_base + (long)row * N_TOTAL + col];
+            }
+          }
+
+          UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+            const int row = mi + m;
+            STENCIL_SPLIT_F32_TO_SLM(t_slm, NDIGITS_A, row, sg_lid, t_u.a[m]);
+          }
+        }
+
         barrier(CLK_LOCAL_MEM_FENCE);
 
-        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-          const int row = mi + m;
-          const int col = nj + sg_lid;
-          if (row < BLK && col < N_TOTAL) {
-            t_u.a[m] *= c_ij[cij_base + (long)row * N_TOTAL + col];
+        { int sa2;
+          UNROLL_FORCE(NDIGITS_A) for (sa2 = 0; sa2 < NDIGITS_A; ++sa2) {
+            global const ushort* di_digit = dk_i + (long)sa2 * BLK * K_PAD;
+            local const ushort* t_digit = t_slm + sa2 * K_PAD * XMX_N;
+
+            UNROLL_AUTO for (kstep = ks_lo_tti; kstep <= ks_hi_tti; kstep += 16) {
+              ushort8 a_bf;
+              uint8 b_bf;
+              BF16_LOAD_A(di_digit, d_wb, BLK, mi, kstep, &a_bf);
+              b_bf = *(local const uint8*)(t_digit + kstep * XMX_N);
+              BF16_DPAS_ONE(a_bf, b_bf, y_acc);
+            }
           }
         }
 
-        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-          const int row = mi + m;
-          STENCIL_SPLIT_F32_TO_SLM(t_slm, NDIGITS_A, row, sg_lid, t_u.a[m]);
-        }
+        barrier(CLK_LOCAL_MEM_FENCE);
       }
-
-      barrier(CLK_LOCAL_MEM_FENCE);
-
-      { int sa2;
-        UNROLL_FORCE(NDIGITS_A) for (sa2 = 0; sa2 < NDIGITS_A; ++sa2) {
-          global const ushort* di_digit = dk_i + (long)sa2 * BLK * K_PAD;
-          local const ushort* t_digit = t_slm + sa2 * K_PAD * XMX_N;
-
-          for (kstep = 0; kstep < K_PAD; kstep += 16) {
-            ushort8 a_bf;
-            uint8 b_bf;
-            BF16_LOAD_A(di_digit, d_wb, BLK, mi, kstep, &a_bf);
-            b_bf = *(local const uint8*)(t_digit + kstep * XMX_N);
-            BF16_DPAS_ONE(a_bf, b_bf, y_acc);
-          }
-        }
-      }
-
-      barrier(CLK_LOCAL_MEM_FENCE);
     }
   }
 

@@ -47,6 +47,7 @@ typedef struct {
   int grf256;
   int trim;
   int nterms;
+  int lu;
 } stencil_opencl_key_t;
 
 typedef struct {
@@ -67,6 +68,7 @@ typedef struct {
   int grf256;
   int trim;
   int nterms;
+  int lu;
   int dpas;
   int verbosity;
 } stencil_context_t;
