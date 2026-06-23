@@ -138,7 +138,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
         result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
       }
-      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint((void**)&d_cg, c_nbytes, libxstream_opencl_mem_hint_atomics);
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
       result = OZAKI_DEV_ALLOC(&d_as, as_size);
@@ -322,7 +322,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     if (0 == dev) {
       OZAKI_DEV_FREE(d_ag);
       OZAKI_DEV_FREE(d_bg);
-      OZAKI_DEV_FREE(d_cg);
+      if (NULL != d_cg) libxstream_mem_dev_deallocate_hint(d_cg);
     }
     OZAKI_DEV_FREE(d_occ_a);
     OZAKI_DEV_FREE(d_occ_b);
@@ -401,7 +401,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
         result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
       }
-      if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, c_nbytes);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint((void**)&d_cg, c_nbytes, libxstream_opencl_mem_hint_atomics);
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
       result = OZAKI_DEV_ALLOC(&d_as, as_size);
@@ -550,7 +550,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     if (0 == dev) {
       OZAKI_DEV_FREE(d_ag);
       OZAKI_DEV_FREE(d_bg);
-      OZAKI_DEV_FREE(d_cg);
+      if (NULL != d_cg) libxstream_mem_dev_deallocate_hint(d_cg);
     }
     if (0 == cache_hit_a) {
       OZAKI_DEV_FREE(d_as);

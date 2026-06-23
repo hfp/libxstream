@@ -222,10 +222,10 @@ int main(int argc, char* argv[])
       for (i = 0; i < n; ++i) p_host[i] = 0.0f;
     }
 
-    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&p_buf[0], grid_bytes);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&p_buf[1], grid_bytes);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&p_buf[2], grid_bytes);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&vel_dev, grid_bytes);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[0], grid_bytes, libxstream_opencl_mem_hint_compress);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[1], grid_bytes, libxstream_opencl_mem_hint_compress);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[2], grid_bytes, libxstream_opencl_mem_hint_compress);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, grid_bytes, libxstream_opencl_mem_hint_compress);
 
     if (EXIT_SUCCESS == result) {
       result = libxstream_mem_copy_h2d(p_host, p_buf[0], grid_bytes, ctx.stream);
@@ -281,10 +281,10 @@ int main(int argc, char* argv[])
              gpoints * ntsteps * 2.0 * sizeof(float) / t_elapsed);
     }
 
-    if (NULL != vel_dev) libxstream_mem_deallocate(vel_dev);
-    if (NULL != p_buf[2]) libxstream_mem_deallocate(p_buf[2]);
-    if (NULL != p_buf[1]) libxstream_mem_deallocate(p_buf[1]);
-    if (NULL != p_buf[0]) libxstream_mem_deallocate(p_buf[0]);
+    if (NULL != vel_dev) libxstream_mem_dev_deallocate_hint(vel_dev);
+    if (NULL != p_buf[2]) libxstream_mem_dev_deallocate_hint(p_buf[2]);
+    if (NULL != p_buf[1]) libxstream_mem_dev_deallocate_hint(p_buf[1]);
+    if (NULL != p_buf[0]) libxstream_mem_dev_deallocate_hint(p_buf[0]);
     if (NULL != vel_host) libxstream_mem_host_deallocate(vel_host, ctx.stream);
     if (NULL != p_host) libxstream_mem_host_deallocate(p_host, ctx.stream);
   }

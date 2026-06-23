@@ -335,7 +335,7 @@ int stencil_precompute_operators(stencil_context_t* ctx,
   }
 
   for (dim = 0; dim < 3 && EXIT_SUCCESS == result; ++dim) {
-    result = libxstream_mem_allocate((void**)&ctx->dk[dim], d_size);
+    result = libxstream_mem_dev_allocate_hint((void**)&ctx->dk[dim], d_size, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) {
       result = libxstream_mem_copy_h2d(d_host, ctx->dk[dim], d_size,
                                        ctx->stream);
@@ -433,7 +433,7 @@ void stencil_finalize(stencil_context_t* ctx)
   int dim;
   if (NULL == ctx) return;
   for (dim = 0; dim < 3; ++dim) {
-    if (NULL != ctx->dk[dim]) libxstream_mem_deallocate(ctx->dk[dim]);
+    if (NULL != ctx->dk[dim]) libxstream_mem_dev_deallocate_hint(ctx->dk[dim]);
   }
   if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
   LIBXS_MEMZERO(ctx);

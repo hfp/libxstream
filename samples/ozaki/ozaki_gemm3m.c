@@ -84,7 +84,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, sz_c_complex);
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_a_hat, sz_a_hat);
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b_hat, sz_b_hat);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_c_hat, sz_c_hat);
+  if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint((void**)&d_c_hat, sz_c_hat, libxstream_opencl_mem_hint_atomics);
 
   /* H2D: upload interleaved complex A, B.
    * Skip C when beta == 0: finalize kernel will not read C_old. */
@@ -183,7 +183,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   OZAKI_DEV_FREE(d_cg);
   OZAKI_DEV_FREE(d_a_hat);
   OZAKI_DEV_FREE(d_b_hat);
-  OZAKI_DEV_FREE(d_c_hat);
+  if (NULL != d_c_hat) libxstream_mem_dev_deallocate_hint(d_c_hat);
 
   return result;
 }
