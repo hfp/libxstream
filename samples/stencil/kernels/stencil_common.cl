@@ -102,25 +102,33 @@
 /* Kstep range for a given MI based on operator non-zero band [MI, MI + 7 + 2*RADIUS]. */
 #define KSTEP_LO(MI) ((MI) & ~15)
 #define KSTEP_HI(MI) (((MI) + XMX_M - 1 + 2 * RADIUS) & ~15)
+#define KSTEP_MAX_COUNT (((XMX_M - 1 + 2 * RADIUS) >> 4) + 1)
 
-/* DPAS accumulation from SLM strip: iterates (sa, sb, kstep). */
+/* DPAS accumulation from SLM strip: iterates (sa, sb, kstep).
+ * B tiles are preloaded from SLM into registers before DPAS. */
 #define STENCIL_DPAS_ACC_ROWS(DK, NDIGITS_EFF, X_SLM, D_WB, A_ROWS, MI, ACC) \
   do { \
     const int ks_lo_ = KSTEP_LO(MI); \
     const int ks_hi_ = KSTEP_HI(MI); \
-    int sa_, sb_, ks_; \
+    int sa_, sb_, ks_, bi_; \
     UNROLL_FORCE(NDIGITS_A) for (sa_ = 0; sa_ < NDIGITS_A; ++sa_) { \
       global const ushort* d_digit_ = (DK) + (long)sa_ * (A_ROWS) * K_PAD; \
       UNROLL_AUTO for (sb_ = 0; sb_ < (NDIGITS_EFF); ++sb_) { \
+        uint8 b_reg_[KSTEP_MAX_COUNT]; \
         local const ushort* x_digit_; \
         STENCIL_TRIM_CHECK(sa_, sb_, NDIGITS_EFF); \
         x_digit_ = (X_SLM) + sb_ * K_PAD * XMX_N; \
-        UNROLL_AUTO for (ks_ = ks_lo_; ks_ <= ks_hi_; ks_ += 16) { \
+        bi_ = 0; \
+        UNROLL_FORCE(KSTEP_MAX_COUNT) \
+        for (ks_ = ks_lo_; ks_ <= ks_hi_; ks_ += 16) { \
+          b_reg_[bi_++] = *(local const uint8*)(x_digit_ + ks_ * XMX_N); \
+        } \
+        bi_ = 0; \
+        UNROLL_FORCE(KSTEP_MAX_COUNT) \
+        for (ks_ = ks_lo_; ks_ <= ks_hi_; ks_ += 16) { \
           ushort8 a_bf_; \
-          uint8 b_bf_; \
           BF16_LOAD_A(d_digit_, (D_WB), (A_ROWS), (MI), ks_, &a_bf_); \
-          b_bf_ = *(local const uint8*)(x_digit_ + ks_ * XMX_N); \
-          BF16_DPAS_ONE(a_bf_, b_bf_, (ACC)); \
+          BF16_DPAS_ONE(a_bf_, b_reg_[bi_++], (ACC)); \
         } \
       } \
     } \
