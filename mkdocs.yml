@@ -22,7 +22,6 @@ theme:
 
 extra:
   collapsed_nav:
-    - "Domains"
     - "Samples"
     - "Tests"
     - "More"

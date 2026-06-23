@@ -1,0 +1,4 @@
+mkslides>=2
+lxml
+Pillow
+python-pptx

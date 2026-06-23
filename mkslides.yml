@@ -1,0 +1,19 @@
+slides:
+  theme: black
+  highlight_theme: monokai
+  separator_notes: "^Note:"
+
+revealjs:
+  width: 1536
+  height: 864
+  controls: true
+  progress: true
+  history: true
+  center: true
+  transition: slide
+  transitionSpeed: default
+  slideNumber: "c/t"
+
+plugins:
+  - extra_css:
+      - custom.css

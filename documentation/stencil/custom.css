@@ -1,0 +1,44 @@
+/* Custom styling for LIBXSTEAM presentations */
+
+.reveal h1 {
+  font-size: 2.5em;
+  color: #42affa;
+}
+
+.reveal h2 {
+  font-size: 1.8em;
+  color: #42affa;
+}
+
+.reveal code {
+  font-family: 'Courier New', monospace;
+  background-color: #2d2d2d;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.reveal pre code {
+  padding: 20px;
+  font-size: 0.8em;
+  line-height: 1.4em;
+}
+
+.reveal table {
+  font-size: 0.7em;
+}
+
+.reveal section img {
+  max-width: 90%;
+  max-height: 60vh;
+  object-fit: contain;
+}
+
+.reveal .important {
+  color: #ff6b6b;
+  font-weight: bold;
+}
+
+.reveal .success {
+  color: #51cf66;
+  font-weight: bold;
+}

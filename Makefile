@@ -437,6 +437,12 @@ mkdocs: mkdocs-tests $(ROOTDIR)/$(DOCDIR)/index.md
 #	@mkdocs build --clean
 	@mkdocs serve
 
+.PHONY: mkslides
+SLIDES ?= stencil
+mkslides:
+#	@mkslides build $(DOCDIR)/$(SLIDES) -d site/$(SLIDES)
+	@mkslides serve $(DOCDIR)/$(SLIDES)
+
 .PHONY: mkdocs-tests
 mkdocs-tests: $(TSTMDS)
 
