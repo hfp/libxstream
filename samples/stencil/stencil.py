@@ -34,7 +34,9 @@ FIELDNAMES = (
     "command",
 )
 
-METHOD_RE = re.compile(r"Method:\s+([^\s]+)\s+\(K=([0-9]+),\s*r=([0-9]+),\s*strips/WG=([0-9]+)\)")
+METHOD_RE = re.compile(
+    r"Method:\s+([^\s]+)\s+\(K=([0-9]+),\s*r=([0-9]+),\s*strips/WG=([0-9]+)\)"
+)
 TIME_RE = re.compile(r"Time:\s+([0-9.]+)\s+s")
 THROUGHPUT_RE = re.compile(r"Throughput:\s+([0-9.]+)\s+GPoints/s")
 PER_STEP_RE = re.compile(r"Per step:\s+([0-9.]+)\s+ms")
@@ -162,9 +164,15 @@ def run_case(args, n, case):
 
     if not args.quiet:
         if row["gpoints_s"]:
-            print("{} GPoints/s, {} ms/step".format(row["gpoints_s"], row["ms_per_step"]))
+            print(
+                "{} GPoints/s, {} ms/step".format(row["gpoints_s"], row["ms_per_step"])
+            )
         else:
-            print("no result parsed, returncode={}, elapsed={:.3f}s".format(proc.returncode, elapsed))
+            print(
+                "no result parsed, returncode={}, elapsed={:.3f}s".format(
+                    proc.returncode, elapsed
+                )
+            )
         sys.stdout.flush()
 
     if 0 != proc.returncode and args.stop_on_error:
@@ -199,7 +207,50 @@ def read_csv(path):
         return list(csv.DictReader(csv_file))
 
 
-def plot_png(path, rows, metric, title, dpi):
+def row_float(row, field):
+    value = row.get(field, "")
+    if "" == value:
+        return None
+    return float(value)
+
+
+def memory_roof(rows, peak_bandwidth_gbs):
+    bytes_per_point = []
+    for row in rows:
+        gpoints_s = row_float(row, "gpoints_s")
+        bandwidth_gbs = row_float(row, "bandwidth_gbs")
+        if gpoints_s and bandwidth_gbs:
+            bytes_per_point.append(bandwidth_gbs / gpoints_s)
+    if not bytes_per_point:
+        return None, None
+    bytes_avg = sum(bytes_per_point) / len(bytes_per_point)
+    return peak_bandwidth_gbs / bytes_avg, bytes_avg
+
+
+def format_percent(value):
+    if 10.0 <= value:
+        return "{:.0f}%".format(value)
+    return "{:.1f}%".format(value)
+
+
+def case_label(case, points, roof_gpoints_s):
+    if not roof_gpoints_s:
+        return case
+    percentages = sorted(100.0 * point[1] / roof_gpoints_s for point in points)
+    lower = format_percent(percentages[0])
+    upper = format_percent(percentages[-1])
+    if lower == upper:
+        return "{} ({} of roof)".format(case, lower)
+    return "{} ({}-{} of roof)".format(case, lower, upper)
+
+
+def memory_roof_label(peak_bandwidth_gbs, roof_gpoints_s, bytes_per_point):
+    return "Memory roof uses {:.0f} GB/s / {:.1f} B/point (~{} GPoints/s)".format(
+        peak_bandwidth_gbs, bytes_per_point, int(round(roof_gpoints_s))
+    )
+
+
+def plot_png(path, rows, metric, title, dpi, peak_bandwidth_gbs):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -215,15 +266,19 @@ def plot_png(path, rows, metric, title, dpi):
     for row in rows:
         if str(row.get("returncode", "0")) not in ("", "0"):
             continue
-        value = row.get(metric, "")
-        n_value = row.get("n", "")
-        if "" == value or "" == n_value:
+        n_value = row_float(row, "n")
+        value = row_float(row, metric)
+        if n_value is None or value is None:
             continue
         case = row.get("case", "unknown")
-        series.setdefault(case, []).append((int(n_value), float(value)))
+        series.setdefault(case, []).append((int(n_value), value))
 
     if not series:
         raise RuntimeError("no plottable rows found for metric '{}'".format(metric))
+
+    roof_gpoints_s, bytes_per_point = (None, None)
+    if peak_bandwidth_gbs and "gpoints_s" == metric:
+        roof_gpoints_s, bytes_per_point = memory_roof(rows, peak_bandwidth_gbs)
 
     fig, axis = plt.subplots(figsize=(7.2, 4.4), dpi=dpi)
     for case in sorted(series):
@@ -234,7 +289,20 @@ def plot_png(path, rows, metric, title, dpi):
             marker="o",
             linewidth=2.0,
             markersize=5.0,
-            label=case,
+            label=case_label(case, points, roof_gpoints_s),
+        )
+
+    if roof_gpoints_s and bytes_per_point:
+        x_values = sorted(point[0] for points in series.values() for point in points)
+        axis.plot(
+            [x_values[0], x_values[-1]],
+            [roof_gpoints_s, roof_gpoints_s],
+            color="#333333",
+            linestyle="--",
+            linewidth=1.5,
+            label=memory_roof_label(
+                peak_bandwidth_gbs, roof_gpoints_s, bytes_per_point
+            ),
         )
 
     axis.set_xlabel("Grid size n for n x n x n")
@@ -270,11 +338,17 @@ def main(argv):
         action="append",
         help="Grid sizes, comma lists, or ranges start:stop[:step].",
     )
-    parser.add_argument("--exe", default="./stencil.x", help="Path to stencil executable.")
-    parser.add_argument("--dims", type=int, default=3, help="Stencil term count passed with -d.")
+    parser.add_argument(
+        "--exe", default="./stencil.x", help="Path to stencil executable."
+    )
+    parser.add_argument(
+        "--dims", type=int, default=3, help="Stencil term count passed with -d."
+    )
     parser.add_argument("--steps", type=int, help="Time steps passed with -t.")
     parser.add_argument("--warmup", type=int, help="Warmup steps passed with -w.")
-    parser.add_argument("--input", help="Read an existing CSV instead of running benchmarks.")
+    parser.add_argument(
+        "--input", help="Read an existing CSV instead of running benchmarks."
+    )
     parser.add_argument("--output", default="stencil.csv", help="CSV output path.")
     parser.add_argument("--jsonl", help="Optional JSON-lines output path.")
     parser.add_argument("--plot", help="Optional PNG output path.")
@@ -286,11 +360,22 @@ def main(argv):
     )
     parser.add_argument("--plot-title", help="Optional plot title.")
     parser.add_argument("--plot-dpi", type=int, default=180, help="PNG dots per inch.")
-    parser.add_argument("--log-dir", help="Optional directory for raw stencil.x output logs.")
+    parser.add_argument(
+        "--peak-bandwidth-gbs",
+        type=float,
+        help="Overlay memory roof using this peak bandwidth in GB/s.",
+    )
+    parser.add_argument(
+        "--log-dir", help="Optional directory for raw stencil.x output logs."
+    )
     parser.add_argument("--timeout", type=float, help="Timeout per case in seconds.")
-    parser.add_argument("--dry-run", action="store_true", help="Print commands without running them.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print commands without running them."
+    )
     parser.add_argument("--quiet", action="store_true", help="Reduce progress output.")
-    parser.add_argument("--keep-going", action="store_true", help="Continue after failed cases.")
+    parser.add_argument(
+        "--keep-going", action="store_true", help="Continue after failed cases."
+    )
     parser.add_argument(
         "--extra",
         nargs=argparse.REMAINDER,
@@ -320,7 +405,14 @@ def main(argv):
         if args.jsonl:
             write_jsonl(args.jsonl, rows)
         if args.plot:
-            plot_png(args.plot, rows, args.plot_metric, args.plot_title, args.plot_dpi)
+            plot_png(
+                args.plot,
+                rows,
+                args.plot_metric,
+                args.plot_title,
+                args.plot_dpi,
+                args.peak_bandwidth_gbs,
+            )
         if not args.quiet:
             if not args.input:
                 print("wrote {} rows to {}".format(len(rows), args.output))
