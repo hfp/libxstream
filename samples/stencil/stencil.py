@@ -194,9 +194,70 @@ def write_jsonl(path, rows):
             jsonl_file.write("\n")
 
 
+def read_csv(path):
+    with open(path, newline="") as csv_file:
+        return list(csv.DictReader(csv_file))
+
+
+def plot_png(path, rows, metric, title, dpi):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    labels = {
+        "gpoints_s": "Throughput [GPoints/s]",
+        "ms_per_step": "Time per step [ms]",
+        "bandwidth_gbs": "Effective bandwidth [GB/s]",
+        "time_s": "Total time [s]",
+    }
+    series = {}
+    for row in rows:
+        if str(row.get("returncode", "0")) not in ("", "0"):
+            continue
+        value = row.get(metric, "")
+        n_value = row.get("n", "")
+        if "" == value or "" == n_value:
+            continue
+        case = row.get("case", "unknown")
+        series.setdefault(case, []).append((int(n_value), float(value)))
+
+    if not series:
+        raise RuntimeError("no plottable rows found for metric '{}'".format(metric))
+
+    fig, axis = plt.subplots(figsize=(7.2, 4.4), dpi=dpi)
+    for case in sorted(series):
+        points = sorted(series[case])
+        axis.plot(
+            [point[0] for point in points],
+            [point[1] for point in points],
+            marker="o",
+            linewidth=2.0,
+            markersize=5.0,
+            label=case,
+        )
+
+    axis.set_xlabel("Grid size n for n x n x n")
+    axis.set_ylabel(labels[metric])
+    axis.grid(True, color="#d9d9d9", linewidth=0.8)
+    axis.legend(frameon=False)
+    if title:
+        axis.set_title(title)
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def default_plot_path(csv_path):
+    root, ext = os.path.splitext(csv_path)
+    if root and ".csv" == ext.lower():
+        return root + ".png"
+    return csv_path + ".png"
+
+
 def main(argv):
     parser = argparse.ArgumentParser(
-        description="Run stencil.x benchmark cases and collect CSV results."
+        description="Run stencil.x benchmark cases, collect CSV results, and optionally plot PNG output."
     )
     parser.add_argument(
         "sizes",
@@ -213,8 +274,18 @@ def main(argv):
     parser.add_argument("--dims", type=int, default=3, help="Stencil term count passed with -d.")
     parser.add_argument("--steps", type=int, help="Time steps passed with -t.")
     parser.add_argument("--warmup", type=int, help="Warmup steps passed with -w.")
-    parser.add_argument("--output", default="stencil-results.csv", help="CSV output path.")
+    parser.add_argument("--input", help="Read an existing CSV instead of running benchmarks.")
+    parser.add_argument("--output", default="stencil.csv", help="CSV output path.")
     parser.add_argument("--jsonl", help="Optional JSON-lines output path.")
+    parser.add_argument("--plot", help="Optional PNG output path.")
+    parser.add_argument(
+        "--plot-metric",
+        choices=("gpoints_s", "ms_per_step", "bandwidth_gbs", "time_s"),
+        default="gpoints_s",
+        help="CSV metric to plot (default: gpoints_s).",
+    )
+    parser.add_argument("--plot-title", help="Optional plot title.")
+    parser.add_argument("--plot-dpi", type=int, default=180, help="PNG dots per inch.")
     parser.add_argument("--log-dir", help="Optional directory for raw stencil.x output logs.")
     parser.add_argument("--timeout", type=float, help="Timeout per case in seconds.")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without running them.")
@@ -233,19 +304,30 @@ def main(argv):
     except ValueError as exc:
         parser.error(str(exc))
 
-    rows = []
-    for n in sizes:
-        for case in CASES:
-            rows.append(run_case(args, n, case))
+    if args.input:
+        if not args.plot:
+            args.plot = default_plot_path(args.input)
+        rows = read_csv(args.input)
+    else:
+        rows = []
+        for n in sizes:
+            for case in CASES:
+                rows.append(run_case(args, n, case))
 
     if not args.dry_run:
-        write_csv(args.output, rows)
+        if not args.input:
+            write_csv(args.output, rows)
         if args.jsonl:
             write_jsonl(args.jsonl, rows)
+        if args.plot:
+            plot_png(args.plot, rows, args.plot_metric, args.plot_title, args.plot_dpi)
         if not args.quiet:
-            print("wrote {} rows to {}".format(len(rows), args.output))
+            if not args.input:
+                print("wrote {} rows to {}".format(len(rows), args.output))
             if args.jsonl:
                 print("wrote {} rows to {}".format(len(rows), args.jsonl))
+            if args.plot:
+                print("wrote plot to {}".format(args.plot))
 
     return 0
 

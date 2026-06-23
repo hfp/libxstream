@@ -1,2 +1,4 @@
 stencil_kernels.h
+/*.csv
+/*.png
 /*.cl
