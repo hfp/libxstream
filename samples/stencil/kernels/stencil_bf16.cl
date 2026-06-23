@@ -14,7 +14,7 @@
  * WG = (SG, WG_M_TILES, 1). Each WG handles one block and STRIPS_PER_WG
  * adjacent N-strips. For each strip and dimension: cooperatively
  * gathers K_PAD x XMX_N floats, Dekker-splits into SLM, DPAS
- * accumulates. A-side D loads are shared across strips within a WG.
+ * accumulates. Exponent span uses sub-group reduce (no atomics).
  *
  * SLM budget: NDIGITS_X * K_PAD * XMX_N * sizeof(ushort)
  *           = 3 * 48 * 16 * 2 = 4608 bytes (reused per strip/dim).
@@ -53,7 +53,7 @@ kernel void stencil_apply(
   const int oz = bz * BLK;
 
   local ushort x_slm[NDIGITS_X * K_PAD * XMX_N];
-  local int exp_range[2];
+  local int exp_sg[WG_M_TILES * 2];
 
   const int d_wb = K_PAD * 2;
   const int fill_id = sg_id * SG + sg_lid;
@@ -70,11 +70,8 @@ kernel void stencil_apply(
 
     UNROLL_OUTER(1) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
       const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
-      int idx, ndigits_eff;
       int local_max_exp = 0, local_min_exp = 255;
-
-      if (0 == fill_id) { exp_range[0] = 0; exp_range[1] = 255; }
-      barrier(CLK_LOCAL_MEM_FENCE);
+      int ndigits_eff, idx;
 
       for (idx = fill_id; idx < K_PAD * XMX_N; idx += fill_total) {
         const int k = idx / XMX_N;
@@ -114,13 +111,26 @@ kernel void stencil_apply(
         }
       }
 
-      atomic_max(&exp_range[0], local_max_exp);
-      atomic_min(&exp_range[1], local_min_exp);
+      { const int sg_max = sub_group_reduce_max(local_max_exp);
+        const int sg_min = sub_group_reduce_min(local_min_exp);
+        if (0 == sg_lid) {
+          exp_sg[sg_id * 2 + 0] = sg_max;
+          exp_sg[sg_id * 2 + 1] = sg_min;
+        }
+      }
       barrier(CLK_LOCAL_MEM_FENCE);
 
-      { const int span = exp_range[0] - exp_range[1];
-        ndigits_eff = (span <= 7) ? 1 : ((span <= 14) ? 2 : NDIGITS_X);
-        if (0 == exp_range[0]) ndigits_eff = 1;
+      { int wg_max = 0, wg_min = 255, ti;
+        UNROLL_FORCE(WG_M_TILES) for (ti = 0; ti < WG_M_TILES; ++ti) {
+          const int mx = exp_sg[ti * 2 + 0];
+          const int mn = exp_sg[ti * 2 + 1];
+          if (mx > wg_max) wg_max = mx;
+          if (mn < wg_min) wg_min = mn;
+        }
+        { const int span = wg_max - wg_min;
+          ndigits_eff = (0 == wg_max) ? 1
+            : ((span <= 7) ? 1 : ((span <= 14) ? 2 : NDIGITS_X));
+        }
       }
 
       STENCIL_DPAS_ACC(dk, ndigits_eff, x_slm, d_wb, mi, acc[strip_local]);
