@@ -2,10 +2,21 @@ div.injected {
   display: none;
 }
 
-li.toctree-l1 > ul:nth-child(2) > ul {
-  display: none;
+p.caption.collapsible {
+  cursor: pointer;
 }
 
-li.current > ul:nth-child(2) > ul {
-  display: none;
+p.caption.collapsible .caption-text::before {
+  font-family: FontAwesome;
+  display: inline-block;
+  margin-right: 0.4em;
+  font-size: 0.8em;
+}
+
+p.caption.collapsed .caption-text::before {
+  content: "\f196";
+}
+
+p.caption.collapsible:not(.collapsed) .caption-text::before {
+  content: "\f147";
 }

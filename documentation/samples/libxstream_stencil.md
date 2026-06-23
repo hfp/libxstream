@@ -235,40 +235,48 @@ buffer the intermediate result between two GEMM phases:
     T  = c_ij . T        (point-wise anisotropy scaling)
     Y += D_i x T         (second GEMM)
 
-SLM budget per cross-term: 2 x K_PAD x XMX_N x sizeof(ushort) = 2 KB.
+SLM budget per cross-term: 2 x K_PAD x XMX_N x sizeof(ushort),
+rounded up to the DPAS K block size.
 Total for 3 cross-terms with barrier: fits within 128 KB (Xe2/BMG).
 
-## Operator Cascade (Densification)
+## Operator Paths
 
-The standard kernel applies one wide-reach operator (radius-4, 9-point)
-per dimension.  The cascade variants factor this into K sub-steps each
-with a smaller radius r, such that K*r >= R_target.  Sub-step results
-stay in registers (no memory round-trip), trading extra DPAS calls for
-reduced halo size and fully dense operator matrices.
+The standard direct kernel applies one wide-reach operator (radius-4,
+9-point) per dimension.  The staged variants are independent compact
+runtime paths: they compile the same Ozaki-split BF16 x BF16 DPAS
+primitive with a smaller gather radius and rely on time evolution to
+build longer effective reach.
 
 Methods (selected via STENCIL_METHOD environment variable):
 
-    0 = sparse    K=1, r=4  standard high-order (default)
-    1 = dense     K=4, r=1  pure cascade, tridiagonal, minimal halo
-    2 = hybrid    K=2, r=2  balanced (pentadiagonal, half halo)
-    3 = best      coefficients dispersion-optimized (static)
+  0 = direct      K=1, r=4  standard high-order (default)
+  1 = staged-r1   K=4, r=1  compact tridiagonal runtime path
+  2 = staged-r2   K=2, r=2  compact pentadiagonal runtime path
+  3 = staged-fit  K=4, r=1  placeholder for dispersion-fitted stages
 
-The "best" mode uses the free degrees of freedom in the K-factor
+The "staged-fit" mode uses the free degrees of freedom in the K-factor
 coefficient product to match or exceed the dispersion quality of the
 standard 8th-order stencil at target frequencies, while retaining the
 memory savings of the cascade.  Coefficients are precomputed once at
 initialization for the grid's frequency content.
 
+The first staged path is implemented for the isotropic apply kernel in
+methods 1-3.  TTI cross-terms still use the direct two-phase DPAS path.
+
 Environment variables controlling kernel specialization:
 
     STENCIL_METHOD   operator method (0-3, default 0)
     STENCIL_BK       K-unroll block size (default: K_PAD)
+    STENCIL_STRIPS_PER_WG
+         adjacent N-strips handled by one work-group (default: 2)
     STENCIL_SG       subgroup size override (default: device preferred)
     STENCIL_GRF256   force 256-GRF mode (0/1, default: auto)
+    STENCIL_TRIM     drop least-significant digit products (accuracy tradeoff)
 
 Specialized kernels are compiled on first use and cached in a
-thread-safe registry keyed by the (method, k_steps, r_per_step, sg)
-tuple.  Subsequent launches with the same parameters are zero-cost.
+thread-safe registry keyed by the method, compact-step parameters,
+strip grouping, subgroup size, GRF mode, trim level, and term count.
+Subsequent launches with the same parameters are zero-cost.
 
 Future extension: per-block adaptive method selection (different K in
 regions with different velocity/frequency content).  This requires

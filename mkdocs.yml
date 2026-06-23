@@ -12,6 +12,7 @@ markdown_extensions:
     permalink: True
     toc_depth: 3
     title: None
+- attr_list
 extra_css:
 - style.css
 
@@ -19,21 +20,26 @@ theme:
     name: readthedocs
     custom_dir: .theme
 
+extra:
+  collapsed_nav:
+    - "Domains"
+    - "Samples"
+    - "Tests"
+    - "More"
+
 nav:
 - Overview: index.md
-- Ozaki Getting Started:
-  - Howto: libxstream_ozaki.md
-  - Details: samples/libxstream_ozaki.md
-- LIBXSTREAM Domains:
+- Presentations: libxstream_present.md
+- Domains:
   - "OpenCL": libxstream_opencl.md
   - "DBCSR": libxstream_dbcsr.md
   - "CP2K": libxstream_cp2k.md
-- LIBXS:
-  - Reference: libxstream_libxs.md
-- Example Code:
+- Samples:
+  - Stencil: samples/libxstream_stencil.md
   - Ozaki: samples/libxstream_ozaki.md
   - SMM: samples/libxstream_smm.md
-- Development:
-  - Scripts: libxstream_scripts.md
-- About:
-  - License: LICENSE.md
+- Tests:
+  - Predict: tests/predict.md
+- More:
+  - Development: libxstream_scripts.md
+  - LIBXS: libxstream_libxs.md
