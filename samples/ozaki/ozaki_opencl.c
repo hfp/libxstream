@@ -287,14 +287,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (NULL != env && '1' == *env) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_SCALAR_ACC=1");
       }
+      env = getenv("OZAKI_LU");
+      { const int lu = (NULL != env) ? atoi(env) : 0;
+        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DLU=%d", lu);
+      }
       LIBXS_UNUSED(goff);
       memcpy(ctx->base_flags, build_params, sizeof(ctx->base_flags));
       LIBXS_SNPRINTF(ctx->base_options, sizeof(ctx->base_options), "%s", build_options);
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
-      /* Compile preprocessing + scale_beta (shared, cutoff-independent) */
-      {
+      { /* Compile preprocessing + scale_beta (shared, cutoff-independent) */
         char pp_flags[sizeof(build_params) + 32];
         cl_program program = NULL;
         LIBXS_SNPRINTF(pp_flags, sizeof(pp_flags), "%s -DOZAKI_CUTOFF=%d", build_params, cutoff_jit);
@@ -379,6 +382,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
               (unsigned)libxs_mod_inverse_u32(gp[gi] % gp[gj], gp[gj]));
           }
         }
+      }
+      env = getenv("OZAKI_LU");
+      { const int lu = (NULL != env) ? atoi(env) : 0;
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DLU=%d", lu);
       }
       LIBXS_UNUSED(coff);
       if (0 > verbosity || 2 < verbosity) {
