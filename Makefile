@@ -280,12 +280,15 @@ SAMPLES := $(dir $(shell $(if $(GIT),$(GIT) ls-files,ls -1) $(SPLDIR)/*/Makefile
 SPLMDS := $(addprefix $(ABSDIR)/,$(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
   $(SPLDIR)/*/README.md 2>/dev/null))
 DOCMDS := $(addprefix $(ABSDIR)/,$(filter-out \
+    $(DOCDIR)/$(PROJECT)_present.md \
     $(DOCDIR)/$(PROJECT)_samples.md \
     $(DOCDIR)/$(PROJECT)_scripts.md, \
   $(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
     $(DOCDIR)/$(PROJECT)_*.md 2>/dev/null)))
 INSTMDS := $(DOCMDS) $(addprefix $(ABSDIR)/,$(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
     $(DOCDIR)/index.md $(DOCDIR)/LICENSE.md 2>/dev/null))
+TSTSRC := $(shell $(if $(GIT),$(GIT) ls-files,ls -1) $(TSTDIR)/*.c 2>/dev/null)
+TSTMDS := $(patsubst $(TSTDIR)/%.c,$(DOCDIR)/tests/%.md,$(TSTSRC))
 
 .PHONY: samples $(SAMPLES)
 samples: $(SAMPLES)
@@ -343,7 +346,7 @@ $(DOCDIR)/$(PROJECT)_samples.md: $(DOCDIR)/.make $(DOCDIR)/$(SPLDIR)/.make $(ROO
 		-e '1s/^/# [$(PROJUPP) Samples](https:\/\/github.com\/hfp\/$(PROJECT)\/raw\/main\/$(DOCDIR)\/$(PROJECT)_samples.pdf)\n\n/' \
 		>$@
 
-$(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(DOCDIR)/index.md $(DOCDIR)/$(PROJECT)_scripts.md $(DOCMDS)
+$(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/Makefile $(DOCDIR)/index.md $(DOCDIR)/$(PROJECT)_scripts.md $(DOCMDS)
 	$(eval TMPFILE = $(shell $(MKTEMP) $(ROOTDIR)/$(DOCDIR)/.$(PROJECT)_XXXXXX.tex))
 	@pandoc -D latex \
 	| $(SED) \
@@ -352,17 +355,31 @@ $(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(DOCDIR)/index.md $(DOCDIR)/$(P
 		-e 's/\(\\usepackage.*{hyperref}\)/\\usepackage[hyphens]{url}\n\1/' \
 		>$(TMPFILE)
 	@cd $(ROOTDIR)/$(DOCDIR) && ( \
-		iconv -t utf-8 $(ABSDIR)/$(DOCDIR)/index.md && echo && \
+		cat $(ABSDIR)/$(DOCDIR)/index.md && echo && \
 		echo "# $(PROJUPP) Domains" && \
 		for DOC in $(DOCMDS); do \
-			$(SED) "s/^\(##*\) /#\1 /" $${DOC} | iconv -t utf-8 && echo; \
+			$(SED) "s/^\(##*\) /#\1 /" $${DOC} && echo; \
 		done && \
 		echo "# Appendix" && \
-		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_scripts.md | iconv -t utf-8; ) \
+		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_present.md && echo && \
+		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_scripts.md && echo; ) \
 	| $(SED) \
 		-e 's/<sub>/~/g' -e 's/<\/sub>/~/g' \
 		-e 's/<sup>/^/g' -e 's/<\/sup>/^/g' \
-		-e 's/----*//g' \
+		-e 's/\xe2\x88\x92/-/g' \
+		-e 's/\xe2\x89\xa4/<=/g' \
+		-e 's/\xe2\x89\xa5/>=/g' \
+		-e 's/\xc2\xb7/*/g' \
+		-e 's/\xc3\x97/x/g' \
+		-e 's/\xe2\x80\x93/--/g' \
+		-e 's/\xe2\x80\x94/---/g' \
+		-e 's/\xe2\x80\xa6/.../g' \
+		-e 's/\xe2\x86\x92/->/g' \
+		-e 's/\xc2\xb2/2/g' \
+		-e 's/\xc2\xa0/ /g' \
+		-e 's/\xe2\x80\xaf/ /g' \
+		-e 's/{:[^}]*}//g' \
+		-e '/^----*$$/d' \
 	| pandoc \
 		--template=$(call qndir,$(TMPFILE)) --listings \
 		-f gfm+subscript+superscript \
@@ -376,7 +393,7 @@ $(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(DOCDIR)/index.md $(DOCDIR)/$(P
 		-o $(call qndir,$@)
 	@rm $(TMPFILE)
 
-$(DOCDIR)/$(PROJECT)_samples.$(DOCEXT): $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md
+$(DOCDIR)/$(PROJECT)_samples.$(DOCEXT): $(ROOTDIR)/Makefile $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md
 	$(eval TMPFILE = $(shell $(MKTEMP) .$(PROJECT)_XXXXXX.tex))
 	@pandoc -D latex \
 	| $(SED) \
@@ -384,10 +401,11 @@ $(DOCDIR)/$(PROJECT)_samples.$(DOCEXT): $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.
 		-e 's/\\usepackage{listings}/\\usepackage{listings}\\lstset{basicstyle=\\footnotesize\\ttfamily,showstringspaces=false}/' \
 		-e 's/\(\\usepackage.*{hyperref}\)/\\usepackage[hyphens]{url}\n\1/' \
 		>$(TMPFILE)
-	@iconv -t utf-8 $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md \
+	@cat $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md \
 	| $(SED) \
 		-e 's/\xe2\x88\x92/-/g' \
 		-e 's/\xe2\x89\xa4/<=/g' \
+		-e 's/\xe2\x89\xa5/>=/g' \
 		-e 's/\xc2\xb7/*/g' \
 		-e 's/\xc3\x97/x/g' \
 		-e 's/\xe2\x80\x93/--/g' \
@@ -397,7 +415,8 @@ $(DOCDIR)/$(PROJECT)_samples.$(DOCEXT): $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.
 		-e 's/\xc2\xb2/2/g' \
 		-e 's/\xc2\xa0/ /g' \
 		-e 's/\xe2\x80\xaf/ /g' \
-		-e 's/----*//g' \
+		-e 's/{:[^}]*}//g' \
+		-e '/^----*$$/d' \
 	| pandoc \
 		--template=$(TMPFILE) --listings \
 		-f gfm+subscript+superscript \
@@ -414,9 +433,25 @@ $(DOCDIR)/$(PROJECT)_samples.$(DOCEXT): $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.
 documentation: $(DOCDIR)/$(PROJECT).$(DOCEXT) $(DOCDIR)/$(PROJECT)_samples.$(DOCEXT)
 
 .PHONY: mkdocs
-mkdocs: $(ROOTDIR)/$(DOCDIR)/index.md
+mkdocs: mkdocs-tests $(ROOTDIR)/$(DOCDIR)/index.md
 #	@mkdocs build --clean
 	@mkdocs serve
+
+.PHONY: mkdocs-tests
+mkdocs-tests: $(TSTMDS)
+
+$(DOCDIR)/tests/%.md: $(TSTDIR)/%.c $(DOCDIR)/tests/.make
+	@TITLE=$$(printf '%s\n' "$*" | $(SED) \
+		-e 's/_/ /g' \
+		-e 's/-/ /g' \
+		-e 's/\<\(.\)/\u\1/g'); \
+	echo "# $${TITLE}" >$@; \
+	echo "" >>$@; \
+	echo "$${TITLE} test source." >>$@
+	@echo "" >>$@
+	@echo '```c'  >>$@
+	@echo '--8<-- "tests/$*.c"' >>$@
+	@echo '```'   >>$@
 
 .PHONY: clean
 clean:

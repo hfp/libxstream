@@ -14,7 +14,7 @@ on [LIBXS](https://github.com/hfp/libxs) for utility infrastructure.
 LIBXS must be a sibling directory (controlled by `LIBXSROOT`).
 An OpenCL SDK must be available.
 
-**Library** -- build both LIBXS and LIBXSTREAM as separate
+**Library** — build both LIBXS and LIBXSTREAM as separate
 libraries:
 
 ```bash
@@ -27,7 +27,7 @@ cd ../libxstream && make GNU=1 -j $(nproc)
 
 This produces `lib/libxstream.a` and `lib/libxstream.so`.
 
-**Header-only** (explicit) -- include `libxstream_source.h` (no
+**Header-only** (explicit) — include `libxstream_source.h` (no
 separate library needed for either LIBXSTREAM or LIBXS). Safe
 to include from multiple translation units:
 
@@ -35,7 +35,7 @@ to include from multiple translation units:
 #include <libxstream/libxstream_source.h>
 ```
 
-**Header-only** (implicit) -- compile with `-DLIBXSTREAM_SOURCE`.
+**Header-only** (implicit) — compile with `-DLIBXSTREAM_SOURCE`.
 Any LIBXSTREAM or LIBXS public header then automatically includes
 the implementation. No special include order is required.
 `-DLIBXSTREAM_SOURCE` implies `-DLIBXS_SOURCE`; LIBXS can also
@@ -164,7 +164,7 @@ accelerator backend.
 ### CP2K Offload Interface
 
 The header `libxstream/libxstream_cp2k.h` implements CP2K's offload
-runtime interface -- the `offload*` functions for general GPU
+runtime interface — the `offload*` functions for general GPU
 operations (memory, streams, events, synchronization).
 
 ## Samples
@@ -176,14 +176,14 @@ cd samples/smm && make GNU=1
 cd samples/ozaki && make GNU=1
 ```
 
-### SMM -- Small Matrix Multiplication
+### SMM — Small Matrix Multiplication
 
 Implements the ACC LIBSMM interface for batched small matrix multiply
 and transpose on OpenCL devices. Includes an auto-tuning framework
 and pre-tuned parameter sets for A100, BMG, GH200, H100, Mi250, P100,
 PVC, and V100. See [samples/smm/README.md](samples/smm/README.md).
 
-### Ozaki -- High-Precision GEMM
+### Ozaki — High-Precision GEMM
 
 Ozaki scheme for high-precision GEMM emulation, fully offloaded to
 OpenCL. Two schemes (mantissa slicing and CRT) with automatic
@@ -192,7 +192,7 @@ detection of Intel XMX matrix engines. See
 GEMM wrapper is part of
 [LIBXS Ozaki](https://github.com/hfp/libxs/tree/main/samples/ozaki).
 
-### Stencil -- BF16-DPAS Finite Difference
+### Stencil — BF16-DPAS Finite Difference
 
 Seismic wave propagation (RTM/FWI) via dimension-split stencils
 computed as batched small GEMMs on BF16 DPAS/XMX tensor units.
