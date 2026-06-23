@@ -30,9 +30,12 @@ FIELDNAMES = (
     "gpoints_s",
     "ms_per_step",
     "bandwidth_gbs",
+    "gflops_s",
     "returncode",
     "command",
 )
+
+STENCIL_RADIUS = 4
 
 METHOD_RE = re.compile(
     r"Method:\s+([^\s]+)\s+\(K=([0-9]+),\s*r=([0-9]+),\s*strips/WG=([0-9]+)\)"
@@ -109,6 +112,7 @@ def run_case(args, n, case):
         "gpoints_s": "",
         "ms_per_step": "",
         "bandwidth_gbs": "",
+        "gflops_s": "",
         "returncode": "",
         "command": shell_command,
     }
@@ -152,6 +156,10 @@ def run_case(args, n, case):
         match = regex.search(output)
         if match:
             row[field] = match.group(1)
+
+    if row["gpoints_s"]:
+        fpp = flops_per_point(STENCIL_RADIUS, args.dims)
+        row["gflops_s"] = "{:.1f}".format(float(row["gpoints_s"]) * fpp)
 
     if args.log_dir:
         if not os.path.isdir(args.log_dir):
@@ -214,6 +222,15 @@ def row_float(row, field):
     return float(value)
 
 
+def flops_per_point(radius, nterms):
+    """Equivalent FP32 FLOPs per grid point for the Laplacian + leapfrog."""
+    flops_per_dim = (2 * radius + 1) + 2 * radius
+    nterms_iso = min(nterms, 3)
+    flops_lap = nterms_iso * flops_per_dim + (nterms_iso - 1)
+    flops_leapfrog = 5
+    return flops_lap + flops_leapfrog
+
+
 def memory_roof(rows, peak_bandwidth_gbs):
     bytes_per_point = []
     for row in rows:
@@ -250,7 +267,7 @@ def memory_roof_label(peak_bandwidth_gbs, roof_gpoints_s, bytes_per_point):
     )
 
 
-def plot_png(path, rows, metric, title, dpi, peak_bandwidth_gbs):
+def plot_png(path, rows, metric, title, dpi, peak_bandwidth_gbs, dark=False):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -258,6 +275,7 @@ def plot_png(path, rows, metric, title, dpi, peak_bandwidth_gbs):
 
     labels = {
         "gpoints_s": "Throughput [GPoints/s]",
+        "gflops_s": "Equivalent FP32 GFLOPS/s",
         "ms_per_step": "Time per step [ms]",
         "bandwidth_gbs": "Effective bandwidth [GB/s]",
         "time_s": "Total time [s]",
@@ -277,10 +295,34 @@ def plot_png(path, rows, metric, title, dpi, peak_bandwidth_gbs):
         raise RuntimeError("no plottable rows found for metric '{}'".format(metric))
 
     roof_gpoints_s, bytes_per_point = (None, None)
-    if peak_bandwidth_gbs and "gpoints_s" == metric:
+    roof_value = None
+    if peak_bandwidth_gbs and metric in ("gpoints_s", "gflops_s"):
         roof_gpoints_s, bytes_per_point = memory_roof(rows, peak_bandwidth_gbs)
+        if roof_gpoints_s:
+            if "gflops_s" == metric:
+                fpp = flops_per_point(STENCIL_RADIUS, 3)
+                roof_value = roof_gpoints_s * fpp
+            else:
+                roof_value = roof_gpoints_s
 
-    fig, axis = plt.subplots(figsize=(7.2, 4.4), dpi=dpi)
+    if dark:
+        text_color = "#e0e0e0"
+        grid_color = "#444444"
+        roof_color = "#999999"
+        fig, axis = plt.subplots(figsize=(7.2, 4.4), dpi=dpi)
+        fig.patch.set_alpha(0.0)
+        axis.set_facecolor((0, 0, 0, 0))
+        axis.tick_params(colors=text_color)
+        axis.xaxis.label.set_color(text_color)
+        axis.yaxis.label.set_color(text_color)
+        for spine in axis.spines.values():
+            spine.set_color(text_color)
+    else:
+        text_color = "#000000"
+        grid_color = "#d9d9d9"
+        roof_color = "#555555"
+        fig, axis = plt.subplots(figsize=(7.2, 4.4), dpi=dpi)
+
     for case in sorted(series):
         points = sorted(series[case])
         axis.plot(
@@ -289,30 +331,39 @@ def plot_png(path, rows, metric, title, dpi, peak_bandwidth_gbs):
             marker="o",
             linewidth=2.0,
             markersize=5.0,
-            label=case_label(case, points, roof_gpoints_s),
+            label=case_label(case, points, roof_value),
         )
 
-    if roof_gpoints_s and bytes_per_point:
-        x_values = sorted(point[0] for points in series.values() for point in points)
-        axis.plot(
-            [x_values[0], x_values[-1]],
-            [roof_gpoints_s, roof_gpoints_s],
-            color="#333333",
-            linestyle="--",
-            linewidth=1.5,
-            label=memory_roof_label(
-                peak_bandwidth_gbs, roof_gpoints_s, bytes_per_point
-            ),
-        )
-
-    axis.set_xlabel("Grid size n for n x n x n")
+    axis.set_xlabel("Grid size N for NxNxN")
     axis.set_ylabel(labels[metric])
-    axis.grid(True, color="#d9d9d9", linewidth=0.8)
-    axis.legend(frameon=False)
+    axis.grid(True, color=grid_color, linewidth=0.8)
+    axis.legend(frameon=False, fontsize="small", labelcolor=text_color)
+    if roof_value and bytes_per_point:
+        if "gflops_s" == metric:
+            roof_text = (
+                "Memory roof: {:.0f} GB/s / {:.1f} B/pt = {:.0f} GFLOPS/s".format(
+                    peak_bandwidth_gbs, bytes_per_point, roof_value
+                )
+            )
+        else:
+            roof_text = (
+                "Memory roof: {:.0f} GB/s / {:.1f} B/pt = {:.0f} GPoints/s".format(
+                    peak_bandwidth_gbs, bytes_per_point, roof_value
+                )
+            )
+        axis.annotate(
+            roof_text,
+            xy=(0.98, 0.04),
+            xycoords="axes fraction",
+            ha="right",
+            va="bottom",
+            fontsize="x-small",
+            color=roof_color,
+        )
     if title:
-        axis.set_title(title)
+        axis.set_title(title, color=text_color)
     fig.tight_layout()
-    fig.savefig(path)
+    fig.savefig(path, transparent=dark)
     plt.close(fig)
 
 
@@ -354,7 +405,7 @@ def main(argv):
     parser.add_argument("--plot", help="Optional PNG output path.")
     parser.add_argument(
         "--plot-metric",
-        choices=("gpoints_s", "ms_per_step", "bandwidth_gbs", "time_s"),
+        choices=("gpoints_s", "gflops_s", "ms_per_step", "bandwidth_gbs", "time_s"),
         default="gpoints_s",
         help="CSV metric to plot (default: gpoints_s).",
     )
@@ -377,6 +428,11 @@ def main(argv):
         "--keep-going", action="store_true", help="Continue after failed cases."
     )
     parser.add_argument(
+        "--dark",
+        action="store_true",
+        help="Dark-theme plot (transparent bg, light text).",
+    )
+    parser.add_argument(
         "--extra",
         nargs=argparse.REMAINDER,
         help="Extra arguments appended to each stencil.x invocation after --.",
@@ -393,6 +449,11 @@ def main(argv):
         if not args.plot:
             args.plot = default_plot_path(args.input)
         rows = read_csv(args.input)
+        for row in rows:
+            if row.get("gpoints_s") and not row.get("gflops_s"):
+                dims = int(row.get("dims", 3) or 3)
+                fpp = flops_per_point(STENCIL_RADIUS, dims)
+                row["gflops_s"] = "{:.1f}".format(float(row["gpoints_s"]) * fpp)
     else:
         rows = []
         for n in sizes:
@@ -412,6 +473,7 @@ def main(argv):
                 args.plot_title,
                 args.plot_dpi,
                 args.peak_bandwidth_gbs,
+                dark=args.dark,
             )
         if not args.quiet:
             if not args.input:
