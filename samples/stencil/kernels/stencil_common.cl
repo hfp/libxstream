@@ -80,6 +80,13 @@
 # define STRIPS_PER_WG 2
 #endif
 #define N_STRIP_GROUPS (N_STRIPS / STRIPS_PER_WG)
+#if (32 == N_STRIP_GROUPS)
+# define STENCIL_NSTRIP_SHIFT 5
+#elif (16 == N_STRIP_GROUPS)
+# define STENCIL_NSTRIP_SHIFT 4
+#elif (64 == N_STRIP_GROUPS)
+# define STENCIL_NSTRIP_SHIFT 6
+#endif
 
 /* FP32 mode: native float D*X without Dekker or DPAS. */
 #if defined(STENCIL_FP32) && (0 < STENCIL_FP32)

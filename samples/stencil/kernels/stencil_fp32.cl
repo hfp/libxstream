@@ -26,7 +26,7 @@ kernel void stencil_apply_direct(
   global const float* restrict p_old,
   global float* restrict p_new,
   global const float* restrict vel,
-  global const float* restrict coeff,
+  CONSTANT float* restrict coeff,
   int nterms, float dt2,
   int nx, int ny, int nz)
 {

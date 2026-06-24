@@ -164,10 +164,13 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK_DEFAULT, config->lock_main);
     if (0 == base_ready) {
       LIBXS_MEMZERO(base_flags);
-      LIBXS_SNPRINTF(base_flags, sizeof(base_flags),
-        "-cl-fast-relaxed-math -cl-denorms-are-zero"
-        " -DBLK=%d -DNDIGITS_A=%d -DNDIGITS_X=%d -DGPU=1",
-        STENCIL_BLK, STENCIL_NDIGITS_A, STENCIL_NDIGITS_X);
+      { const char* cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem(
+            devinfo, STENCIL_WIDTH * sizeof(float))) ? "global" : "constant";
+        LIBXS_SNPRINTF(base_flags, sizeof(base_flags),
+          "-cl-fast-relaxed-math -cl-denorms-are-zero"
+          " -DBLK=%d -DNDIGITS_A=%d -DNDIGITS_X=%d -DGPU=1 -DCONSTANT=%s",
+          STENCIL_BLK, STENCIL_NDIGITS_A, STENCIL_NDIGITS_X, cmem);
+      }
       kernel_registry = libxs_registry_create();
       LIBXS_ATOMIC_STORE(&base_ready, 1, LIBXS_ATOMIC_SEQ_CST);
     }
@@ -583,9 +586,9 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     return result;
   }
 
-  global_apply[0] = (size_t)total_blocks * ctx->sg;
-  global_apply[1] = STENCIL_M_TILES;
-  global_apply[2] = STENCIL_N_STRIPS / ctx->strips_per_wg;
+  global_apply[0] = (size_t)ctx->nblocks[0] * ctx->sg;
+  global_apply[1] = (size_t)ctx->nblocks[1] * STENCIL_M_TILES;
+  global_apply[2] = (size_t)ctx->nblocks[2] * (STENCIL_N_STRIPS / ctx->strips_per_wg);
   local_apply[0] = (size_t)ctx->sg;
   local_apply[1] = STENCIL_M_TILES;
   local_apply[2] = 1;
@@ -606,9 +609,6 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nz));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nbx));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nby));
-    if (NULL != ctx->block_map) {
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->block_map));
-    }
 
     CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply,
       3, NULL, global_apply, local_apply, 0, NULL, NULL));
@@ -618,7 +618,14 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     static const int cross_pairs[6][2] = {
       {0, 1}, {0, 2}, {1, 0}, {1, 2}, {2, 0}, {2, 1}
     };
+    size_t global_tti[3], local_tti[3];
     int pair;
+    global_tti[0] = (size_t)total_blocks * ctx->sg;
+    global_tti[1] = STENCIL_M_TILES;
+    global_tti[2] = STENCIL_N_STRIPS;
+    local_tti[0] = (size_t)ctx->sg;
+    local_tti[1] = STENCIL_M_TILES;
+    local_tti[2] = 1;
     for (pair = 0; pair < 6 && EXIT_SUCCESS == result; ++pair) {
       const int dim_i = cross_pairs[pair][0];
       const int dim_j = cross_pairs[pair][1];
@@ -638,7 +645,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
       CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &nby));
 
       CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply_tti,
-        3, NULL, global_apply, local_apply, 0, NULL, NULL));
+        3, NULL, global_tti, local_tti, 0, NULL, NULL));
     }
   }
 
