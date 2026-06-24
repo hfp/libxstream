@@ -37,7 +37,11 @@ kernel void stencil_apply(
   global const float* restrict vel,
   int nterms, float dt2,
   int nx, int ny, int nz,
-  int nbx, int nby)
+  int nbx, int nby
+#if defined(STENCIL_HILBERT) && (0 < STENCIL_HILBERT)
+  , global const int* restrict block_map
+#endif
+  )
 {
   const int blk_idx = (int)get_group_id(0);
   const int strip_grp = (int)get_group_id(2);
@@ -45,9 +49,15 @@ kernel void stencil_apply(
   const int sg_lid = (int)get_sub_group_local_id();
   const int mi = sg_id * XMX_M;
 
+#if defined(STENCIL_HILBERT) && (0 < STENCIL_HILBERT)
+  const int bx = block_map[blk_idx * 4 + 0];
+  const int by = block_map[blk_idx * 4 + 1];
+  const int bz = block_map[blk_idx * 4 + 2];
+#else
   const int bz = blk_idx / (nbx * nby);
   const int by = (blk_idx / nbx) % nby;
   const int bx = blk_idx % nbx;
+#endif
   const int ox = bx * BLK;
   const int oy = by * BLK;
   const int oz = bz * BLK;

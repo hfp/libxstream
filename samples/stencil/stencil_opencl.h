@@ -10,6 +10,7 @@
 #define STENCIL_OPENCL_H
 
 #include <libxstream/libxstream_opencl.h>
+#include <libxs/libxs_perm.h>
 #include <libxs/libxs_reg.h>
 
 #define STENCIL_BLK 32
@@ -51,6 +52,7 @@ typedef struct {
   int fp32;
   int bf16s;
   int blocked;
+  int hilbert;
 } stencil_opencl_key_t;
 
 typedef struct {
@@ -60,6 +62,7 @@ typedef struct {
 
 typedef struct {
   void* dk[3];
+  void* block_map;
   libxstream_stream_t* stream;
   int nblocks[3];
   int grid_size[3];
@@ -75,6 +78,7 @@ typedef struct {
   int fp32;
   int bf16s;
   int blocked;
+  int hilbert;
   int dpas;
   int verbosity;
 } stencil_context_t;
