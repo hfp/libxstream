@@ -128,6 +128,8 @@
 
 /* Blocked (tiled) grid index: data stored as [bz][by][bx][lz][ly][lx].
  * BLK must be a power of 2. All dims require nbx, nby as runtime params. */
+#define K_PAD_I8 64
+
 #define STENCIL_BLK_SHIFT 5
 #define STENCIL_BLK_MASK 31
 #define STENCIL_BLOCKED_IDX(GX, GY, GZ, NBX, NBY) \

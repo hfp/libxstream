@@ -28,6 +28,7 @@
 #define STENCIL_N_STRIPS (STENCIL_N_TOTAL / STENCIL_XMX_N)
 #define STENCIL_STRIPS_PER_WG 2
 #define STENCIL_N_STRIP_GROUPS (STENCIL_N_STRIPS / STENCIL_STRIPS_PER_WG)
+#define STENCIL_K_PAD_I8 64
 #define STENCIL_SG 16
 
 
@@ -49,6 +50,7 @@ typedef struct {
   int nterms;
   int lu;
   int fp32;
+  int int8;
   int bf16s;
   int blocked;
 } stencil_opencl_key_t;
@@ -61,6 +63,7 @@ typedef struct {
 
 typedef struct {
   void* dk[3];
+  void* dk_scale;
   void* coeff;
   libxstream_stream_t* stream;
   int nblocks[3];
@@ -75,6 +78,7 @@ typedef struct {
   int nterms;
   int lu;
   int fp32;
+  int int8;
   int bf16s;
   int blocked;
   int dpas;

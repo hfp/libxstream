@@ -22,6 +22,9 @@
 #if !defined(OPENCL_KERNELS_SOURCE_STENCIL_FP32)
 # error "OpenCL kernel source not found (stencil_kernels.h must define OPENCL_KERNELS_SOURCE_STENCIL_FP32)"
 #endif
+#if !defined(OPENCL_KERNELS_SOURCE_STENCIL_INT8)
+# error "OpenCL kernel source not found (stencil_kernels.h must define OPENCL_KERNELS_SOURCE_STENCIL_INT8)"
+#endif
 
 
 static int stencil_method_params(stencil_method_t method, int* k_steps, int* r_per_step)
@@ -188,6 +191,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.nterms = ctx->nterms;
   key.lu = ctx->lu;
   key.fp32 = ctx->fp32;
+  key.int8 = ctx->int8;
   key.bf16s = ctx->bf16s;
   key.blocked = ctx->blocked;
 
@@ -227,9 +231,10 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       }
 
       if (EXIT_SUCCESS == ok) {
-        const char* source = (2 == key.fp32)
-          ? OPENCL_KERNELS_SOURCE_STENCIL_FP32
-          : OPENCL_KERNELS_SOURCE_STENCIL_BF16;
+        const char* source;
+        if (2 == key.fp32) source = OPENCL_KERNELS_SOURCE_STENCIL_FP32;
+        else if (0 != key.int8) source = OPENCL_KERNELS_SOURCE_STENCIL_INT8;
+        else source = OPENCL_KERNELS_SOURCE_STENCIL_BF16;
         ok = libxstream_opencl_program(0 /*source_kind*/,
           source, "stencil", flags,
           options, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0,
@@ -237,6 +242,9 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       }
       if (EXIT_SUCCESS == ok && 2 == key.fp32) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_direct", &knl.stencil_apply_direct);
+      }
+      else if (EXIT_SUCCESS == ok && 0 != key.int8) {
+        ok = libxstream_opencl_kernel_query(program, "stencil_apply_int8", &knl.stencil_apply);
       }
       else if (EXIT_SUCCESS == ok) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply", &knl.stencil_apply);
@@ -318,6 +326,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 
   ctx->lu = (NULL == lu_env) ? 0 : atoi(lu_env);
   ctx->fp32 = (NULL == fp32_env) ? 0 : atoi(fp32_env);
+  ctx->int8 = (NULL != getenv("STENCIL_INT8")) ? atoi(getenv("STENCIL_INT8")) : 0;
   ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
   ctx->blocked = (NULL == blocked_env) ? 0 : atoi(blocked_env);
 
@@ -448,6 +457,105 @@ int stencil_precompute_operators(stencil_context_t* ctx,
                                        ctx->stream);
     }
   }
+  else if (0 != ctx->int8) {
+    const int kpad_i8 = STENCIL_K_PAD_I8;
+    const size_t d_i8_size = (size_t)nda * d_rows * kpad_i8 * sizeof(char);
+    const size_t scale_size = (size_t)nda * d_rows * sizeof(float);
+    signed char* d_i8 = (signed char*)calloc((size_t)nda * d_rows * kpad_i8, sizeof(char));
+    float* d_scale = (float*)calloc((size_t)nda * d_rows, sizeof(float));
+    if (NULL == d_i8 || NULL == d_scale) result = EXIT_FAILURE;
+
+    if (EXIT_SUCCESS == result) {
+      double d_mat_i8[STENCIL_K_PAD * STENCIL_K_PAD];
+      int row, col, sa;
+
+      for (row = 0; row < kpad; ++row) {
+        for (col = 0; col < kpad; ++col) {
+          d_mat_i8[row * kpad + col] = 0.0;
+        }
+      }
+      if (1 == k_steps) {
+        for (row = 0; row < blk; ++row) {
+          for (col = 0; col < kpad; ++col) {
+            int dist = col - radius - row;
+            d_mat_i8[row * kpad + col] = stencil_fd_weight(fd_weights, radius, dist);
+          }
+        }
+      }
+      else {
+        for (row = 0; row < d_rows; ++row) {
+          for (col = 0; col < kpad; ++col) {
+            int dist = col - r_step - row;
+            d_mat_i8[row * kpad + col] = stencil_compact_weight(r_step, dist, inv_h2);
+          }
+        }
+      }
+
+      for (row = 0; row < d_rows; ++row) {
+        double row_max = 0.0;
+        int max_exp_row;
+        for (col = 0; col < kpad; ++col) {
+          double av = d_mat_i8[row * kpad + col];
+          if (av < 0) av = -av;
+          if (av > row_max) row_max = av;
+        }
+        if (row_max > 0.0) {
+          unsigned int bits;
+          float fmax = (float)row_max;
+          memcpy(&bits, &fmax, sizeof(bits));
+          max_exp_row = (int)((bits >> 23) & 0xFFu);
+        }
+        else {
+          max_exp_row = 0;
+        }
+        for (sa = 0; sa < nda; ++sa) {
+          d_scale[sa * d_rows + row] = (float)(row_max > 0.0
+            ? ldexp(1.0, max_exp_row - 127 - 23 + 7 * sa) : 0.0);
+          for (col = 0; col < kpad_i8; ++col) {
+            signed char digit = 0;
+            if (col < kpad) {
+              float val = (float)d_mat_i8[row * kpad + col];
+              unsigned int vbits;
+              int e, sign_bit, shift;
+              unsigned int mantissa;
+              memcpy(&vbits, &val, sizeof(vbits));
+              e = (int)((vbits >> 23) & 0xFFu);
+              sign_bit = (int)(vbits >> 31);
+              mantissa = (0 != e) ? ((vbits & 0x7FFFFFu) | 0x800000u) : 0;
+              shift = max_exp_row - e;
+              if (shift > 0 && shift < 32) mantissa >>= shift;
+              else if (shift >= 32) mantissa = 0;
+              { int high = 23 - 7 * sa;
+                int low = (high - 6 > 0) ? (high - 6) : 0;
+                int width = high - low + 1;
+                if (width > 0 && high >= 0) {
+                  digit = (signed char)((mantissa >> low) & ((1U << width) - 1U));
+                }
+                if (sign_bit) digit = (signed char)(-digit);
+              }
+            }
+            d_i8[(long)sa * d_rows * kpad_i8 + (long)row * kpad_i8 + col] = digit;
+          }
+        }
+      }
+    }
+
+    for (dim = 0; dim < 3 && EXIT_SUCCESS == result; ++dim) {
+      result = libxstream_mem_dev_allocate_hint((void**)&ctx->dk[dim], d_i8_size, libxstream_opencl_mem_hint_compress);
+      if (EXIT_SUCCESS == result) {
+        result = libxstream_mem_copy_h2d(d_i8, ctx->dk[dim], d_i8_size, ctx->stream);
+      }
+    }
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_mem_dev_allocate_hint((void**)&ctx->dk_scale, scale_size, libxstream_opencl_mem_hint_compress);
+      if (EXIT_SUCCESS == result) {
+        result = libxstream_mem_copy_h2d(d_scale, ctx->dk_scale, scale_size, ctx->stream);
+      }
+    }
+
+    free(d_scale);
+    free(d_i8);
+  }
   else {
     for (dim = 0; dim < 3 && EXIT_SUCCESS == result; ++dim) {
       result = libxstream_mem_dev_allocate_hint((void**)&ctx->dk[dim], d_size, libxstream_opencl_mem_hint_compress);
@@ -519,11 +627,16 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[0]));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[1]));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk[2]));
+    if (0 != ctx->int8) {
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->dk_scale));
+    }
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_cur));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_old));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_new));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, vel));
-    CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nterms_iso));
+    if (0 == ctx->int8) {
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nterms_iso));
+    }
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(float), &dt2));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nx));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &ny));
@@ -581,6 +694,7 @@ void stencil_finalize(stencil_context_t* ctx)
   for (dim = 0; dim < 3; ++dim) {
     if (NULL != ctx->dk[dim]) libxstream_mem_dev_deallocate_hint(ctx->dk[dim]);
   }
+  if (NULL != ctx->dk_scale) libxstream_mem_dev_deallocate_hint(ctx->dk_scale);
   if (NULL != ctx->coeff) libxstream_mem_dev_deallocate_hint(ctx->coeff);
   if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
   LIBXS_MEMZERO(ctx);
