@@ -9,7 +9,7 @@
 #include "stencil_common.cl"
 
 #if !defined(NSLICES_A)
-# define NSLICES_A 2
+# define NSLICES_A 1
 #endif
 #if !defined(NSLICES_X)
 # define NSLICES_X 3
@@ -43,10 +43,9 @@ inline char i8_slice_digit(uint aligned, int sign, int s)
 /**
  * stencil_apply_int8: single-pass INT8 Ozaki-1 with carried-forward exponent.
  *
- * exp_buf[block * NTERMS * N_STRIP_GROUPS + dim * N_STRIP_GROUPS + strip]
- * holds the assumed max exponent for each strip, seeded by the host from
- * actual grid data. The kernel slices in one pass using this assumed_exp,
- * then updates exp_buf to max(actual_exp) + 1 for the next step.
+ * exp_buf is seeded by the host. Each step, the kernel updates exp_buf to
+ * max(own_observed, left_neighbor, right_neighbor) + margin, propagating
+ * growth at the wavefront speed (one block per step per dimension).
  */
 #if defined(INTEL) && (2 <= INTEL)
 __attribute__((reqd_work_group_size(SG, WG_M_TILES, 1)))
@@ -61,7 +60,8 @@ kernel void stencil_apply_int8(
   global float* restrict p_old,
   global float* restrict p_new,
   global const float* restrict vel,
-  global int* restrict exp_buf,
+  global const int* restrict exp_buf,
+  global int* restrict exp_buf_out,
   float dt2,
   int nx, int ny, int nz,
   int nbx, int nby)
@@ -78,6 +78,7 @@ kernel void stencil_apply_int8(
   const int oz = bz * BLK;
 
   local int x_slm[I8_SLM_INTS];
+  local int exp_sg[WG_M_TILES];
 
   const int fill_id = sg_id * SG + sg_lid;
   const int fill_total = WG_M_TILES * SG;
@@ -94,9 +95,11 @@ kernel void stencil_apply_int8(
 
     UNROLL_OUTER(1) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
       const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
-      const int exp_idx = (blk_linear * NTERMS + dim) * N_STRIPS
-                        + strip_grp * STRIPS_PER_WG + strip_local;
+      const int strip_abs = strip_grp * STRIPS_PER_WG + strip_local;
+      const int exp_idx = (blk_linear * NTERMS + dim) * N_STRIPS + strip_abs;
       const int assumed_exp = exp_buf[exp_idx];
+      const int nslices_eff = (0 == assumed_exp) ? 1
+        : ((assumed_exp <= 7) ? 1 : ((assumed_exp <= 14) ? 2 : NSLICES_X));
       int idx;
 
       for (idx = fill_id; idx < I8_FILL_COUNT; idx += fill_total) {
@@ -146,17 +149,16 @@ kernel void stencil_apply_int8(
       { int sa, sb, ks;
         UNROLL_FORCE(NSLICES_A) for (sa = 0; sa < NSLICES_A; ++sa) {
           global const char* d_digit = dk + (long)sa * BLK * K_PAD_I8;
-          UNROLL_FORCE(NSLICES_X) for (sb = 0; sb < NSLICES_X; ++sb) {
+          UNROLL_AUTO for (sb = 0; sb < nslices_eff; ++sb) {
             int8 pair_acc = (int8)(0);
             const float pair_scale = dk_scale[sa * BLK + mi]
               * EXP2I(assumed_exp - BIAS - MANT_BITS + 7 * sb);
 #if defined(TRIM) && (0 < TRIM)
-            if (sa + sb >= NSLICES_A + NSLICES_X - 1 - (TRIM - 1)) continue;
+            if (sa + sb >= NSLICES_A + nslices_eff - 1 - (TRIM - 1)) continue;
 #endif
             for (ks = 0; ks < K_PAD_I8 / 4; ks += 8) {
               ushort8 a_i8;
               int8 b_i8;
-              int bi;
               intel_sub_group_2d_block_read_8b_8r32x1c(
                 (global void*)d_digit, K_PAD_I8, BLK, K_PAD_I8,
                 (int2)(ks * 4, mi), (private ushort*)&a_i8);
@@ -182,7 +184,9 @@ kernel void stencil_apply_int8(
 
   UNROLL_FORCE(STRIPS_PER_WG) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
     const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
+    const int strip_abs = strip_grp * STRIPS_PER_WG + strip_local;
     union { float8 v; float a[8]; } u;
+    int out_max_exp = 0;
     int m;
     u.v = acc[strip_local];
     UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
@@ -194,9 +198,28 @@ kernel void stencil_apply_int8(
         const int gz = oz + (col / BLK);
         if (gx < nx && gy < ny && gz < nz) {
           const long i = STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby);
-          p_new[i] = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[i] * u.a[m];
+          const float val = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[i] * u.a[m];
+          const int oe = (int)((as_uint(val) >> 23) & 0xFFu);
+          p_new[i] = val;
+          if (oe > out_max_exp) out_max_exp = oe;
         }
       }
     }
+    { const int sg_out = sub_group_reduce_max(out_max_exp);
+      if (0 == sg_lid) exp_sg[sg_id] = sg_out;
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (0 == fill_id) {
+      int ti, wg_out = 0;
+      UNROLL_FORCE(WG_M_TILES) for (ti = 0; ti < WG_M_TILES; ++ti) {
+        if (exp_sg[ti] > wg_out) wg_out = exp_sg[ti];
+      }
+      { const int exp_idx = (blk_linear * NTERMS + 0) * N_STRIPS + strip_abs;
+        exp_buf_out[exp_idx] = wg_out + I8_EXP_MARGIN;
+        exp_buf_out[exp_idx + N_STRIPS] = wg_out + I8_EXP_MARGIN;
+        exp_buf_out[exp_idx + 2 * N_STRIPS] = wg_out + I8_EXP_MARGIN;
+      }
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
   }
 }

@@ -15,7 +15,7 @@
 #define STENCIL_BLK 32
 #define STENCIL_RADIUS 4
 #define STENCIL_WIDTH (2 * STENCIL_RADIUS + 1)
-#define STENCIL_NDIGITS_A 2
+#define STENCIL_NDIGITS_A 1
 #define STENCIL_NDIGITS_X 3
 #define STENCIL_ALIGN16(VALUE) (((VALUE) + 15) & ~15)
 #define STENCIL_K_BASE (STENCIL_BLK + 2 * STENCIL_RADIUS)
@@ -65,7 +65,8 @@ typedef struct {
 typedef struct {
   void* dk[3];
   void* dk_scale;
-  void* exp_buf;
+  void* exp_buf[2];
+  int exp_phase;
   void* coeff;
   libxstream_stream_t* stream;
   int nblocks[3];
