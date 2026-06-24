@@ -58,10 +58,12 @@ typedef struct {
 typedef struct {
   cl_kernel stencil_apply;
   cl_kernel stencil_apply_tti;
+  cl_kernel stencil_apply_direct;
 } stencil_kernels_t;
 
 typedef struct {
   void* dk[3];
+  void* coeff;
   void* block_map;
   libxstream_stream_t* stream;
   int nblocks[3];

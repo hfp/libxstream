@@ -19,6 +19,9 @@
 #if !defined(OPENCL_KERNELS_SOURCE_STENCIL_BF16)
 # error "OpenCL kernel source not found (stencil_kernels.h must define OPENCL_KERNELS_SOURCE_STENCIL_BF16)"
 #endif
+#if !defined(OPENCL_KERNELS_SOURCE_STENCIL_FP32)
+# error "OpenCL kernel source not found (stencil_kernels.h must define OPENCL_KERNELS_SOURCE_STENCIL_FP32)"
+#endif
 
 
 static int stencil_method_params(stencil_method_t method, int* k_steps, int* r_per_step)
@@ -223,12 +226,18 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       }
 
       if (EXIT_SUCCESS == ok) {
+        const char* source = (2 == key.fp32)
+          ? OPENCL_KERNELS_SOURCE_STENCIL_FP32
+          : OPENCL_KERNELS_SOURCE_STENCIL_BF16;
         ok = libxstream_opencl_program(0 /*source_kind*/,
-          OPENCL_KERNELS_SOURCE_STENCIL_BF16, "stencil", flags,
+          source, "stencil", flags,
           options, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0,
           &program);
       }
-      if (EXIT_SUCCESS == ok) {
+      if (EXIT_SUCCESS == ok && 2 == key.fp32) {
+        ok = libxstream_opencl_kernel_query(program, "stencil_apply_direct", &knl.stencil_apply_direct);
+      }
+      else if (EXIT_SUCCESS == ok) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply", &knl.stencil_apply);
       }
       if (EXIT_SUCCESS == ok && 0 == key.fp32) {
@@ -499,11 +508,27 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     d_host = d_bf16;
   }
 
-  for (dim = 0; dim < 3 && EXIT_SUCCESS == result; ++dim) {
-    result = libxstream_mem_dev_allocate_hint((void**)&ctx->dk[dim], d_size, libxstream_opencl_mem_hint_compress);
+  if (2 == use_fp32) {
+    const size_t coeff_size = (size_t)STENCIL_WIDTH * sizeof(float);
+    float coeff_host[2 * STENCIL_RADIUS + 1];
+    int r;
+    for (r = 0; r < STENCIL_WIDTH; ++r) {
+      coeff_host[r] = (float)fd_weights[r];
+    }
+    result = libxstream_mem_dev_allocate_hint(
+      (void**)&ctx->coeff, coeff_size, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) {
-      result = libxstream_mem_copy_h2d(d_host, ctx->dk[dim], d_size,
+      result = libxstream_mem_copy_h2d(coeff_host, ctx->coeff, coeff_size,
                                        ctx->stream);
+    }
+  }
+  else {
+    for (dim = 0; dim < 3 && EXIT_SUCCESS == result; ++dim) {
+      result = libxstream_mem_dev_allocate_hint((void**)&ctx->dk[dim], d_size, libxstream_opencl_mem_hint_compress);
+      if (EXIT_SUCCESS == result) {
+        result = libxstream_mem_copy_h2d(d_host, ctx->dk[dim], d_size,
+                                         ctx->stream);
+      }
     }
   }
   if (EXIT_SUCCESS == result) {
@@ -532,6 +557,31 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
   size_t global_apply[3], local_apply[3];
 
   if (NULL == knl) return EXIT_FAILURE;
+
+  if (2 == ctx->fp32 && NULL != knl->stencil_apply_direct) {
+    size_t global_direct[3], local_direct[3];
+    cl_int i = 0;
+    const int nterms_iso = (nterms <= 3) ? nterms : 3;
+    local_direct[0] = 32;
+    local_direct[1] = 8;
+    local_direct[2] = 1;
+    global_direct[0] = ((size_t)nx + 31) & ~(size_t)31;
+    global_direct[1] = ((size_t)ny + 7) & ~(size_t)7;
+    global_direct[2] = (size_t)nz;
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_cur));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_old));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_new));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, vel));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, ctx->coeff));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &nterms_iso));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(float), &dt2));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &nx));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &ny));
+    CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &nz));
+    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply_direct,
+      3, NULL, global_direct, local_direct, 0, NULL, NULL));
+    return result;
+  }
 
   global_apply[0] = (size_t)total_blocks * ctx->sg;
   global_apply[1] = STENCIL_M_TILES;
@@ -603,6 +653,7 @@ void stencil_finalize(stencil_context_t* ctx)
   for (dim = 0; dim < 3; ++dim) {
     if (NULL != ctx->dk[dim]) libxstream_mem_dev_deallocate_hint(ctx->dk[dim]);
   }
+  if (NULL != ctx->coeff) libxstream_mem_dev_deallocate_hint(ctx->coeff);
   if (NULL != ctx->block_map) libxstream_mem_dev_deallocate_hint(ctx->block_map);
   if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
   LIBXS_MEMZERO(ctx);
