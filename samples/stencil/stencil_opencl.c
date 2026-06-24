@@ -567,7 +567,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     local_direct[2] = 1;
     global_direct[0] = ((size_t)nx + 31) & ~(size_t)31;
     global_direct[1] = ((size_t)ny + 7) & ~(size_t)7;
-    global_direct[2] = (size_t)nz;
+    global_direct[2] = (size_t)((nz + STENCIL_BLK - 1) / STENCIL_BLK);
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_cur));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_old));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_new));
