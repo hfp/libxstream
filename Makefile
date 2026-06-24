@@ -378,6 +378,8 @@ $(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/Makefile $(DOCDIR)/in
 		-e 's/\xc2\xb2/2/g' \
 		-e 's/\xc2\xa0/ /g' \
 		-e 's/\xe2\x80\xaf/ /g' \
+		-e 's/\xc2\xae/\\\\textregistered{}/g' \
+		-e 's/\xe2\x84\xa2/\\\\texttrademark{}/g' \
 		-e 's/{:[^}]*}//g' \
 		-e '/^----*$$/d' \
 	| pandoc \
@@ -415,6 +417,8 @@ $(DOCDIR)/$(PROJECT)_samples.$(DOCEXT): $(ROOTDIR)/Makefile $(ROOTDIR)/$(DOCDIR)
 		-e 's/\xc2\xb2/2/g' \
 		-e 's/\xc2\xa0/ /g' \
 		-e 's/\xe2\x80\xaf/ /g' \
+		-e 's/\xc2\xae/\\\\textregistered{}/g' \
+		-e 's/\xe2\x84\xa2/\\\\texttrademark{}/g' \
 		-e 's/{:[^}]*}//g' \
 		-e '/^----*$$/d' \
 	| pandoc \
