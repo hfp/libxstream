@@ -190,7 +190,6 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.fp32 = ctx->fp32;
   key.bf16s = ctx->bf16s;
   key.blocked = ctx->blocked;
-  key.hilbert = ctx->hilbert;
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
     kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
@@ -214,12 +213,11 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
-          " -DSTENCIL_FP32=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
-          " -DSTENCIL_HILBERT=%d %s",
+          " -DSTENCIL_FP32=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, key.method, key.trim, key.nterms,
-          key.lu, key.fp32, key.bf16s, key.blocked, key.hilbert,
+          key.lu, key.fp32, key.bf16s, key.blocked,
           (0 != key.fp32) ? ""
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
@@ -321,10 +319,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   ctx->lu = (NULL == lu_env) ? 0 : atoi(lu_env);
   ctx->fp32 = (NULL == fp32_env) ? 0 : atoi(fp32_env);
   ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
-  { const int bval = (NULL == blocked_env) ? 0 : atoi(blocked_env);
-    ctx->blocked = (bval > 0) ? 1 : 0;
-    ctx->hilbert = (bval > 1 || bval < -1) ? 1 : 0;
-  }
+  ctx->blocked = (NULL == blocked_env) ? 0 : atoi(blocked_env);
 
   ctx->nterms = 3;
   ctx->dpas = (0 != ctx->fp32) ? 0 : ((devinfo->intel >= 2) ? 1 : 0);
@@ -347,78 +342,6 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   ctx->nblocks[0] = (nx + STENCIL_BLK - 1) / STENCIL_BLK;
   ctx->nblocks[1] = (ny + STENCIL_BLK - 1) / STENCIL_BLK;
   ctx->nblocks[2] = (nz + STENCIL_BLK - 1) / STENCIL_BLK;
-
-  if (EXIT_SUCCESS == result && 0 != ctx->hilbert) {
-    const int nbx = ctx->nblocks[0];
-    const int nby = ctx->nblocks[1];
-    const int nbz = ctx->nblocks[2];
-    const int total_blocks = nbx * nby * nbz;
-    const int max_nb = (nbx > nby) ? ((nbx > nbz) ? nbx : nbz)
-                                    : ((nby > nbz) ? nby : nbz);
-    int bits_per_dim = 1;
-    cl_int* map_host = NULL;
-    uint64_t* keys = NULL;
-    int* perm = NULL;
-    int i;
-
-    while ((1 << bits_per_dim) < max_nb) ++bits_per_dim;
-
-    map_host = (cl_int*)calloc((size_t)total_blocks * 4, sizeof(cl_int));
-    keys = (uint64_t*)malloc((size_t)total_blocks * sizeof(uint64_t));
-    perm = (int*)malloc((size_t)total_blocks * sizeof(int));
-    if (NULL == map_host || NULL == keys || NULL == perm) {
-      result = EXIT_FAILURE;
-    }
-
-    if (EXIT_SUCCESS == result) {
-      for (i = 0; i < total_blocks; ++i) {
-        unsigned int coords[3];
-        coords[0] = (unsigned int)(i % nbx);
-        coords[1] = (unsigned int)((i / nbx) % nby);
-        coords[2] = (unsigned int)(i / (nbx * nby));
-        keys[i] = libxs_hilbert_bits(coords, 3, bits_per_dim);
-        perm[i] = i;
-      }
-      { int gap, j;
-        for (gap = total_blocks / 2; gap > 0; gap /= 2) {
-          for (i = gap; i < total_blocks; ++i) {
-            const uint64_t ki = keys[i];
-            const int pi = perm[i];
-            for (j = i; j >= gap && keys[j - gap] > ki; j -= gap) {
-              keys[j] = keys[j - gap];
-              perm[j] = perm[j - gap];
-            }
-            keys[j] = ki;
-            perm[j] = pi;
-          }
-        }
-      }
-      for (i = 0; i < total_blocks; ++i) {
-        const int lin = perm[i];
-        map_host[i * 4 + 0] = lin % nbx;
-        map_host[i * 4 + 1] = (lin / nbx) % nby;
-        map_host[i * 4 + 2] = lin / (nbx * nby);
-        map_host[i * 4 + 3] = 0;
-      }
-    }
-
-    if (EXIT_SUCCESS == result) {
-      const size_t map_size = (size_t)total_blocks * 4 * sizeof(cl_int);
-      result = libxstream_mem_dev_allocate_hint(
-        &ctx->block_map, map_size, libxstream_opencl_mem_hint_compress);
-      if (EXIT_SUCCESS == result) {
-        result = libxstream_mem_copy_h2d(map_host, ctx->block_map, map_size,
-                                         ctx->stream);
-      }
-      if (EXIT_SUCCESS == result) {
-        result = libxstream_stream_sync(ctx->stream);
-      }
-    }
-
-    free(perm);
-    free(keys);
-    free(map_host);
-  }
 
   return result;
 }
@@ -564,7 +487,6 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
   if (2 == ctx->fp32 && NULL != knl->stencil_apply_direct) {
     size_t global_direct[3], local_direct[3];
     cl_int i = 0;
-    const int nterms_iso = (nterms <= 3) ? nterms : 3;
     local_direct[0] = 32;
     local_direct[1] = 8;
     local_direct[2] = 1;
@@ -576,7 +498,6 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_new));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, vel));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, ctx->coeff));
-    CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &nterms_iso));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(float), &dt2));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &nx));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &ny));
@@ -661,7 +582,6 @@ void stencil_finalize(stencil_context_t* ctx)
     if (NULL != ctx->dk[dim]) libxstream_mem_dev_deallocate_hint(ctx->dk[dim]);
   }
   if (NULL != ctx->coeff) libxstream_mem_dev_deallocate_hint(ctx->coeff);
-  if (NULL != ctx->block_map) libxstream_mem_dev_deallocate_hint(ctx->block_map);
   if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
   LIBXS_MEMZERO(ctx);
 }

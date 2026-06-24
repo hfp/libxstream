@@ -27,7 +27,7 @@ kernel void stencil_apply_direct(
   global float* restrict p_new,
   global const float* restrict vel,
   CONSTANT float* restrict coeff,
-  int nterms, float dt2,
+  float dt2,
   int nx, int ny, int nz)
 {
   const int ix = (int)get_global_id(0);
@@ -46,6 +46,7 @@ kernel void stencil_apply_direct(
   float z_win[Z_WINDOW];
   int iz, r, idx, w;
 
+#if !defined(NTERMS) || (2 < NTERMS)
   if (valid_xy) {
     UNROLL_FORCE(Z_WINDOW) for (w = 0; w < Z_WINDOW - 1; ++w) {
       int cz = iz_base - RADIUS + w;
@@ -53,6 +54,7 @@ kernel void stencil_apply_direct(
       z_win[w] = p_grid[(long)cz * ny * nx + xy_off];
     }
   }
+#endif
 
   UNROLL_OUTER(1) for (iz = iz_base; iz < iz_base + BLK && iz < nz; ++iz) {
     const long slice_base = (long)iz * ny * nx;
@@ -70,10 +72,12 @@ kernel void stencil_apply_direct(
     barrier(CLK_LOCAL_MEM_FENCE);
 
     if (valid_xy) {
+#if !defined(NTERMS) || (2 < NTERMS)
       { int cz = iz + RADIUS;
         if (cz >= nz) cz = nz - 1;
         z_win[Z_WINDOW - 1] = p_grid[(long)cz * ny * nx + xy_off];
       }
+#endif
 
       { const int c = (ly + RADIUS) * SLM_X + lx + RADIUS;
         p_center = xy_slm[c];
@@ -81,28 +85,30 @@ kernel void stencil_apply_direct(
         UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
           lap += coeff[RADIUS + r] * (xy_slm[c + r] + xy_slm[c - r]);
         }
-        if (1 < nterms) {
-          lap += coeff[RADIUS] * p_center;
-          UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
-            lap += coeff[RADIUS + r] * (xy_slm[c + r * SLM_X] + xy_slm[c - r * SLM_X]);
-          }
+#if !defined(NTERMS) || (1 < NTERMS)
+        lap += coeff[RADIUS] * p_center;
+        UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
+          lap += coeff[RADIUS + r] * (xy_slm[c + r * SLM_X] + xy_slm[c - r * SLM_X]);
         }
+#endif
       }
 
-      if (2 < nterms) {
-        lap += coeff[RADIUS] * z_win[RADIUS];
-        UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
-          lap += coeff[RADIUS + r] * (z_win[RADIUS + r] + z_win[RADIUS - r]);
-        }
+#if !defined(NTERMS) || (2 < NTERMS)
+      lap += coeff[RADIUS] * z_win[RADIUS];
+      UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
+        lap += coeff[RADIUS + r] * (z_win[RADIUS + r] + z_win[RADIUS - r]);
       }
+#endif
 
       { const long i = slice_base + xy_off;
         p_new[i] = 2.0f * p_center - p_old[i] + dt2 * vel[i] * lap;
       }
 
+#if !defined(NTERMS) || (2 < NTERMS)
       UNROLL_FORCE(Z_WINDOW - 1) for (w = 0; w < Z_WINDOW - 1; ++w) {
         z_win[w] = z_win[w + 1];
       }
+#endif
     }
 
     barrier(CLK_LOCAL_MEM_FENCE);
