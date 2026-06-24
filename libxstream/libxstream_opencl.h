@@ -329,8 +329,9 @@ LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest);
 /** Global configuration setup in libxstream_init. */
 LIBXSTREAM_APIVAR_PUBLIC(libxstream_opencl_config_t libxstream_opencl_config);
 
-/** If buffers are hinted for non-concurrent writes aka "OpenCL constant". */
-LIBXSTREAM_API int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo);
+/** If buffers are hinted for non-concurrent writes aka "OpenCL constant".
+ * size: desired constant allocation in bytes (0 = check against maxalloc). */
+LIBXSTREAM_API int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo, size_t size);
 /** Determines host-pointer registration (for modification). Returns NULL if memory is SVM/USM. */
 LIBXSTREAM_API libxstream_opencl_info_memptr_t* libxstream_opencl_info_hostptr(const void* memory);
 /**

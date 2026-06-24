@@ -808,11 +808,13 @@ LIBXSTREAM_API int libxstream_finalize(void)
 }
 
 
-LIBXSTREAM_API int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo)
+LIBXSTREAM_API int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo, size_t size)
 {
 # if defined(LIBXSTREAM_CMEM)
-  return (0 != devinfo->size_maxalloc && devinfo->size_maxalloc <= devinfo->size_maxcmem) ? EXIT_SUCCESS : EXIT_FAILURE;
+  const size_t needed = (0 != size) ? size : devinfo->size_maxalloc;
+  return (0 != devinfo->size_maxcmem && needed <= devinfo->size_maxcmem) ? EXIT_SUCCESS : EXIT_FAILURE;
 # else
+  LIBXS_UNUSED(size);
   return EXIT_FAILURE;
 # endif
 }
