@@ -57,6 +57,7 @@ IFLAGS += -I$(call quote,$(INCDIR))
 
 SCRDIR := $(DEPDIR)/scripts
 KRNELS := $(SRCDIR)/kernels/stencil_bf16.cl \
+          $(SRCDIR)/kernels/stencil_fp32.cl \
           $(NULL)
 KRNDEP := $(KRNELS) \
           $(SRCDIR)/kernels/stencil_common.cl \
