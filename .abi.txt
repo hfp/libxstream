@@ -41,6 +41,8 @@ libxstream_mem_copy_d2d
 libxstream_mem_copy_d2h
 libxstream_mem_copy_h2d
 libxstream_mem_deallocate
+libxstream_mem_dev_allocate_hint
+libxstream_mem_dev_deallocate_hint
 libxstream_mem_host_allocate
 libxstream_mem_host_deallocate
 libxstream_mem_info
