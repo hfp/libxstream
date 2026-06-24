@@ -1,4 +1,4 @@
-/* Custom styling for LIBXSTEAM presentations */
+/* Custom styling for presentations */
 
 .reveal h1 {
   font-size: 2.5em;
@@ -31,6 +31,11 @@
   max-width: 90%;
   max-height: 60vh;
   object-fit: contain;
+}
+
+.reveal section img.wide {
+  max-width: 95%;
+  max-height: 95vh;
 }
 
 .reveal .important {
