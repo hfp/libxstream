@@ -28,9 +28,9 @@ __attribute__((reqd_work_group_size(SG, WG_M_TILES, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void stencil_apply(
-  global const ushort* restrict dk_x,
-  global const ushort* restrict dk_y,
-  global const ushort* restrict dk_z,
+  global const STENCIL_D_ELEM* restrict dk_x,
+  global const STENCIL_D_ELEM* restrict dk_y,
+  global const STENCIL_D_ELEM* restrict dk_z,
   global const float* restrict p_grid,
   global float* restrict p_old,
   global float* restrict p_new,
@@ -52,10 +52,12 @@ kernel void stencil_apply(
   const int oy = by * BLK;
   const int oz = bz * BLK;
 
-  local ushort x_slm[NDIGITS_X * K_PAD * XMX_N];
+  local STENCIL_X_ELEM x_slm[STENCIL_X_SLM_COUNT];
+#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
   local int exp_sg[WG_M_TILES * 2];
-
   const int d_wb = K_PAD * 2;
+#endif
+
   const int fill_id = sg_id * SG + sg_lid;
   const int fill_total = WG_M_TILES * SG;
   float8 acc[STRIPS_PER_WG];
@@ -66,12 +68,16 @@ kernel void stencil_apply(
   }
 
   UNROLL_OUTER(1) for (dim = 0; dim < NTERMS; ++dim) {
-    global const ushort* dk = (0 == dim) ? dk_x : ((1 == dim) ? dk_y : dk_z);
+    global const STENCIL_D_ELEM* dk = (0 == dim)
+      ? dk_x : ((1 == dim) ? dk_y : dk_z);
 
     UNROLL_OUTER(1) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
       const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
+#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
       int local_max_exp = 0, local_min_exp = 255;
-      int ndigits_eff, idx;
+      int ndigits_eff;
+#endif
+      int idx;
 
       for (idx = fill_id; idx < K_PAD * XMX_N; idx += fill_total) {
         const int k = idx / XMX_N;
@@ -80,37 +86,33 @@ kernel void stencil_apply(
         const int ci = nc % BLK;
         const int cj = nc / BLK;
         int gx, gy, gz;
-        float val, residual;
-        unsigned int bits;
-        int e, s;
+        float val;
 
         STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
         STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
         if (k < K_BASE) {
           val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
-
-          bits = as_uint(val);
-          e = (int)((bits >> 23) & 0xFFu);
-          if (0 != e) {
-            if (e > local_max_exp) local_max_exp = e;
-            if (e < local_min_exp) local_min_exp = e;
+#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
+          { unsigned int bits = as_uint(val);
+            int e = (int)((bits >> 23) & 0xFFu);
+            if (0 != e) {
+              if (e > local_max_exp) local_max_exp = e;
+              if (e < local_min_exp) local_min_exp = e;
+            }
           }
-
-          residual = val;
-          UNROLL_FORCE(NDIGITS_X) for (s = 0; s < NDIGITS_X; ++s) {
-            const ushort bf = ROUND_TO_BF16(residual);
-            x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
-            residual -= BF16_TO_F32(bf);
-          }
+#endif
+          STENCIL_GATHER_STORE(x_slm, k, col_local, val);
         }
         else {
-          UNROLL_FORCE(NDIGITS_X) for (s = 0; s < NDIGITS_X; ++s) {
-            x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = (ushort)0;
-          }
+          STENCIL_GATHER_STORE_ZERO(x_slm, k, col_local);
         }
       }
 
+#if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
+      barrier(CLK_LOCAL_MEM_FENCE);
+      STENCIL_FP32_ACC(dk, x_slm, mi, acc[strip_local]);
+#else
       { const int sg_max = sub_group_reduce_max(local_max_exp);
         const int sg_min = sub_group_reduce_min(local_min_exp);
         if (0 == sg_lid) {
@@ -134,6 +136,7 @@ kernel void stencil_apply(
       }
 
       STENCIL_DPAS_ACC(dk, ndigits_eff, x_slm, d_wb, mi, acc[strip_local]);
+#endif
 
       barrier(CLK_LOCAL_MEM_FENCE);
     }
@@ -161,6 +164,7 @@ kernel void stencil_apply(
 }
 
 
+#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
 /**
  * stencil_apply_tti: TTI cross-derivative term via fused
  * gather + two-phase DPAS with SLM intermediate.
@@ -332,5 +336,4 @@ kernel void stencil_apply_tti(
     }
   }
 }
-
-
+#endif /* !STENCIL_FP32 */

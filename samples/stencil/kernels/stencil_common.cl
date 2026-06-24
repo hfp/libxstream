@@ -81,6 +81,18 @@
 #endif
 #define N_STRIP_GROUPS (N_STRIPS / STRIPS_PER_WG)
 
+/* FP32 mode: native float D*X without Dekker or DPAS. */
+#if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
+# define STENCIL_D_ELEM float
+# define STENCIL_X_ELEM float
+# define STENCIL_X_SLM_COUNT (K_PAD * XMX_N)
+# define STENCIL_D_BAND STENCIL_WIDTH
+#else
+# define STENCIL_D_ELEM ushort
+# define STENCIL_X_ELEM ushort
+# define STENCIL_X_SLM_COUNT (NDIGITS_X * K_PAD * XMX_N)
+#endif
+
 /* Gather coordinate: maps (dim, block-origin, k-index, local i/j) to grid (gx, gy, gz). */
 #define STENCIL_GATHER_COORD(DIM, OX, OY, OZ, K, CI, CJ, GX, GY, GZ) \
   do { \
@@ -136,6 +148,56 @@
 
 #define STENCIL_DPAS_ACC(DK, NDIGITS_EFF, X_SLM, D_WB, MI, ACC) \
   STENCIL_DPAS_ACC_ROWS(DK, NDIGITS_EFF, X_SLM, D_WB, BLK, MI, ACC)
+
+/* FP32 accumulation: D[row,col] * X[col,sg_lid] via banded FMA.
+ * D is stored as float[BLK][STENCIL_D_BAND], X in SLM as float[K_PAD][XMX_N].
+ * Each WI accumulates 8 rows (MI..MI+7), reading one X column (sg_lid). */
+#if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
+#define STENCIL_FP32_ACC(DK, X_SLM, MI, ACC) \
+  do { \
+    const int sg_lid_fp32_ = (int)SGLID(); \
+    union { float8 v; float a[8]; } u_fp32_; \
+    int m_fp32_, r_fp32_; \
+    u_fp32_.v = (ACC); \
+    UNROLL_FORCE(XMX_M) for (m_fp32_ = 0; m_fp32_ < XMX_M; ++m_fp32_) { \
+      const int row_ = (MI) + m_fp32_; \
+      global const float* d_row_ = (DK) + (long)row_ * STENCIL_D_BAND; \
+      UNROLL_FORCE(STENCIL_D_BAND) \
+      for (r_fp32_ = 0; r_fp32_ < STENCIL_D_BAND; ++r_fp32_) { \
+        const int col_ = row_ + r_fp32_; \
+        u_fp32_.a[m_fp32_] += d_row_[r_fp32_] \
+          * (X_SLM)[col_ * XMX_N + sg_lid_fp32_]; \
+      } \
+    } \
+    (ACC) = u_fp32_.v; \
+  } while (0)
+#endif
+
+/* Gather-store macros: write fetched value into SLM (type-switched). */
+#if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
+# define STENCIL_GATHER_STORE(SLM, K, COL, VAL) \
+    (SLM)[(K) * XMX_N + (COL)] = (VAL)
+# define STENCIL_GATHER_STORE_ZERO(SLM, K, COL) \
+    (SLM)[(K) * XMX_N + (COL)] = 0.0f
+#else
+# define STENCIL_GATHER_STORE(SLM, K, COL, VAL) \
+    do { \
+      float residual_gs_ = (VAL); \
+      int s_gs_; \
+      UNROLL_FORCE(NDIGITS_X) for (s_gs_ = 0; s_gs_ < NDIGITS_X; ++s_gs_) { \
+        const ushort bf_gs_ = ROUND_TO_BF16(residual_gs_); \
+        (SLM)[s_gs_ * K_PAD * XMX_N + (K) * XMX_N + (COL)] = bf_gs_; \
+        residual_gs_ -= BF16_TO_F32(bf_gs_); \
+      } \
+    } while (0)
+# define STENCIL_GATHER_STORE_ZERO(SLM, K, COL) \
+    do { \
+      int s_gs_; \
+      UNROLL_FORCE(NDIGITS_X) for (s_gs_ = 0; s_gs_ < NDIGITS_X; ++s_gs_) { \
+        (SLM)[s_gs_ * K_PAD * XMX_N + (K) * XMX_N + (COL)] = (ushort)0; \
+      } \
+    } while (0)
+#endif
 
 /* Re-split an FP32 intermediate into BF16 digits for a following DPAS stage. */
 #define STENCIL_SPLIT_F32_TO_SLM(SLM, NDIGITS, ROW, COL, VALUE) \

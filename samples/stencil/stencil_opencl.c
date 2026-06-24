@@ -138,6 +138,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.trim = ctx->trim;
   key.nterms = ctx->nterms;
   key.lu = ctx->lu;
+  key.fp32 = ctx->fp32;
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
     kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
@@ -160,11 +161,14 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       { const int intel_level = (int)devinfo->intel;
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
-          " -DSG=%d -DINTEL=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d %s",
+          " -DSG=%d -DINTEL=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
+          " -DSTENCIL_FP32=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, key.method, key.trim, key.nterms,
-          key.lu, (intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1");
+          key.lu, key.fp32,
+          (0 != key.fp32) ? ""
+            : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
 
       if (0 != key.grf256 && 0 != devinfo->intel && 0 == devinfo->biggrf) {
@@ -180,7 +184,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       if (EXIT_SUCCESS == ok) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply", &knl.stencil_apply);
       }
-      if (EXIT_SUCCESS == ok) {
+      if (EXIT_SUCCESS == ok && 0 == key.fp32) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_tti", &knl.stencil_apply_tti);
       }
 
@@ -220,6 +224,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   const char* grf_env = getenv("STENCIL_GRF256");
   const char* trim_env = getenv("STENCIL_TRIM");
   const char* lu_env = getenv("STENCIL_LU");
+  const char* fp32_env = getenv("STENCIL_FP32");
   int method_val;
 
   LIBXS_MEMZERO(ctx);
@@ -253,9 +258,10 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   if (ctx->trim < 0) ctx->trim = 0;
 
   ctx->lu = (NULL == lu_env) ? 0 : atoi(lu_env);
+  ctx->fp32 = (NULL == fp32_env) ? 0 : atoi(fp32_env);
 
   ctx->nterms = 3;
-  ctx->dpas = (devinfo->intel >= 2) ? 1 : 0;
+  ctx->dpas = (0 != ctx->fp32) ? 0 : ((devinfo->intel >= 2) ? 1 : 0);
 
   if (EXIT_SUCCESS == result) {
     result = libxstream_stream_create(&ctx->stream, "stencil", 0);
@@ -290,21 +296,49 @@ int stencil_precompute_operators(stencil_context_t* ctx,
   const int k_steps = ctx->k_steps;
   const int r_step = ctx->r_per_step;
   const int d_rows = blk;
-  const size_t d_size = (size_t)nda * d_rows * kpad * sizeof(cl_ushort);
+  const int d_band = STENCIL_WIDTH;
+  const int use_fp32 = ctx->fp32;
+  const size_t d_size_bf16 = (size_t)nda * d_rows * kpad * sizeof(cl_ushort);
+  const size_t d_size_fp32 = (size_t)d_rows * d_band * sizeof(float);
+  const size_t d_size = (0 != use_fp32) ? d_size_fp32 : d_size_bf16;
   const double inv_h2 = -72.0 * fd_weights[radius] / 205.0;
-  cl_ushort* d_host = NULL;
+  void* d_host = NULL;
   int dim;
 
   if (NULL == ctx || NULL == fd_weights || radius != STENCIL_RADIUS) {
     return EXIT_FAILURE;
   }
 
-  d_host = (cl_ushort*)calloc((size_t)nda * d_rows * kpad, sizeof(cl_ushort));
-  if (NULL == d_host) return EXIT_FAILURE;
+  if (0 != use_fp32) {
+    float* d_fp32 = (float*)calloc((size_t)d_rows * d_band, sizeof(float));
+    if (NULL == d_fp32) return EXIT_FAILURE;
 
-  {
+    if (1 == k_steps) {
+      int row, r;
+      for (row = 0; row < blk; ++row) {
+        for (r = 0; r < d_band; ++r) {
+          const int dist = r - radius;
+          d_fp32[row * d_band + r] = (float)stencil_fd_weight(fd_weights, radius, dist);
+        }
+      }
+    }
+    else {
+      int row, r;
+      for (row = 0; row < d_rows; ++row) {
+        for (r = 0; r < d_band; ++r) {
+          const int dist = r - r_step;
+          d_fp32[row * d_band + r] = (float)stencil_compact_weight(r_step, dist, inv_h2);
+        }
+      }
+    }
+    d_host = d_fp32;
+  }
+  else {
+    cl_ushort* d_bf16 = (cl_ushort*)calloc((size_t)nda * d_rows * kpad, sizeof(cl_ushort));
     double d_mat[STENCIL_K_PAD * STENCIL_K_PAD];
     int row, col, dist;
+
+    if (NULL == d_bf16) return EXIT_FAILURE;
 
     for (row = 0; row < kpad; ++row) {
       for (col = 0; col < kpad; ++col) {
@@ -332,10 +366,11 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     for (row = 0; row < d_rows; ++row) {
       for (col = 0; col < kpad; ++col) {
         stencil_store_bf16_digits(
-          d_host + row * kpad + col, d_rows * kpad, nda,
+          d_bf16 + row * kpad + col, d_rows * kpad, nda,
           (float)d_mat[row * kpad + col]);
       }
     }
+    d_host = d_bf16;
   }
 
   for (dim = 0; dim < 3 && EXIT_SUCCESS == result; ++dim) {
@@ -400,7 +435,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
       3, NULL, global_apply, local_apply, 0, NULL, NULL));
   }
 
-  if (nterms > 3 && EXIT_SUCCESS == result) {
+  if (nterms > 3 && 0 == ctx->fp32 && EXIT_SUCCESS == result) {
     static const int cross_pairs[6][2] = {
       {0, 1}, {0, 2}, {1, 0}, {1, 2}, {2, 0}, {2, 1}
     };
