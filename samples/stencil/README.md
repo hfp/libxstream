@@ -1,8 +1,9 @@
-# Stencil BF16-DPAS
+# Stencil DPAS
 
-Finite-difference stencil computation using Dekker-split BF16 and
-hardware matrix units (DPAS/XMX) to achieve single-precision accuracy
-from low-precision tensor operations.
+Finite-difference stencil computation using hardware matrix units
+(DPAS/XMX) to achieve single-precision accuracy from low-precision
+tensor operations.  Two paths are available: Dekker-split BF16 and
+Ozaki-1 INT8 with carried-forward exponent.
 
 Target application: seismic wave propagation (RTM, FWI) on GPUs.
 
@@ -12,37 +13,61 @@ The 3D Laplacian is decomposed into three 1D operators applied along
 each axis (dimension splitting).  Each 1D operator D is a BLK x BLK
 banded Toeplitz matrix (bandwidth 2R+1) representing the FD stencil.
 
-The wavefield block P (BLK x BLK^2) and operator D are Dekker-split
-into BF16 digits.  The matrix product D x P is then computed as a sum
-of BF16 x BF16 DPAS calls that accumulate into FP32.
-
 Parameters (compile-time):
 
     BLK       = 32    block side length (32^3 output cube)
     RADIUS    = 4     half-order (8th-order FD, 9-point stencil)
+
+### BF16 path (default)
+
+The wavefield block P and operator D are Dekker-split into BF16 digits.
+The matrix product D x P is computed as a sum of BF16 x BF16 DPAS
+calls that accumulate into FP32.
+
     NDIGITS_A = 2     BF16 digits for operator (11-bit range)
     NDIGITS_X = 3     BF16 digits for wavefield
 
 Products per dimension: NDIGITS_A x NDIGITS_X = 6 DPAS calls.
 Isotropic total: 3 x 6 = 18 DPAS calls per output block.
-TTI total:       9 x 6 = 54 DPAS calls per output block.
+
+### INT8 path (STENCIL_INT8=1)
+
+Ozaki-1 slicing: the FD operator fits in a single 7-bit signed digit
+(NSLICES_A=1).  The wavefield is sliced into 1-3 digits at runtime
+depending on local dynamic range.
+
+    NSLICES_A = 1     INT8 digits for operator
+    NSLICES_X = 1-3   INT8 digits for wavefield (runtime adaptive)
+    K_PAD_I8  = 64    K dimension (k=32 DPAS alignment)
+
+Products per dimension: 1 x nslices_eff = 1-3 DPAS calls.
+Isotropic total: 3 x (1-3) = 3-9 DPAS calls per output block.
+
+A per-block carried-forward exponent (exp_buf) tracks the dynamic
+range across time steps.  Double-buffered output-based tracking avoids
+race conditions between neighboring blocks.
 
 ## 2D Block I/O
 
-The kernel exploits Intel 2D block load instructions for both the
-A-side (operator) and B-side (wavefield):
+The kernel exploits Intel 2D block load instructions for the A-side
+(operator) and sub-group block reads for the B-side (wavefield in SLM):
+
+BF16 path:
 
     A: intel_sub_group_2d_block_read_16b_8r16x1c
     B: intel_sub_group_2d_block_read_transform_16b_16r16x1c (VNNI)
 
-The operator D is stored dense (banded zeros included).  The structural
-zeros cost no memory bandwidth (D fits in L1 after first access at
-4 KB) and no effective compute (kernel is memory-bound on wavefield
-reads at 192 KB per dimension per digit).
+INT8 path:
 
-A preprocess kernel gathers wavefield data along strided dimensions
-(y, z) into K-contiguous BF16 surfaces that satisfy the 2D block I/O
-surface constraints (width >= 64 bytes, pitch 16-byte aligned).
+    A: intel_sub_group_2d_block_read_8b_8r32x1c (k=32)
+    B: intel_sub_group_block_read8 from row-major SLM
+
+The operator D is stored dense (banded zeros included).  The structural
+zeros cost no memory bandwidth (D fits in L1 after first access) and no
+effective compute (kernel is memory-bound on wavefield reads).
+
+The INT8 kernel gathers the wavefield directly into SLM during the fill
+loop (no separate preprocess kernel).
 
 ## Build
 
@@ -266,12 +291,13 @@ methods 1-3.  TTI cross-terms still use the direct two-phase DPAS path.
 Environment variables controlling kernel specialization:
 
     STENCIL_METHOD   operator method (0-3, default 0)
-    STENCIL_BK       K-unroll block size (default: K_PAD)
+    STENCIL_INT8     enable INT8-DPAS Ozaki-1 path (0/1, default 0)
     STENCIL_STRIPS_PER_WG
          adjacent N-strips handled by one work-group (default: 2)
     STENCIL_SG       subgroup size override (default: device preferred)
     STENCIL_GRF256   force 256-GRF mode (0/1, default: auto)
-    STENCIL_TRIM     drop least-significant digit products (accuracy tradeoff)
+    STENCIL_TRIM     drop least-significant digit products (BF16 path)
+    STENCIL_LU       loop unroll strategy (-1=none, 0=inner, 1=outer)
 
 Specialized kernels are compiled on first use and cached in a
 thread-safe registry keyed by the method, compact-step parameters,
@@ -353,13 +379,14 @@ development and validation.
       Makefile             build rules
       README.md            this file
       stencil.c            host driver (benchmark, model loading)
-      stencil_opencl.c     OpenCL context, kernel dispatch
-      stencil_opencl.h     public API
+      stencil_opencl.c     OpenCL context, kernel dispatch, exp_buf management
+      stencil_opencl.h     public API, compile-time parameters
       stencil_kernels.h    generated at build time from .cl sources
       kernels/
-        stencil_common.cl  parameters, includes libxstream_ozaki.h
-        stencil_bf16.cl    preprocess_x, stencil_apply, stencil_apply_tti
+        stencil_common.cl  parameters, gather macros
+        stencil_bf16.cl    BF16 path: stencil_apply, stencil_apply_tti
+        stencil_int8.cl    INT8 path: stencil_apply_int8
 
     libxstream/opencl/
-      libxstream_common.h  IEEE utilities, BF16 conversion, EXP2I
+      libxstream_common.h  IEEE utilities, BF16 conversion, EXP2I, unroll macros
       libxstream_ozaki.h   Dekker split, BF16 DPAS macros
