@@ -49,6 +49,7 @@ typedef struct {
   int trim;
   int nterms;
   int lu;
+  int fp32;
 } stencil_opencl_key_t;
 
 typedef struct {
@@ -70,6 +71,7 @@ typedef struct {
   int trim;
   int nterms;
   int lu;
+  int fp32;
   int dpas;
   int verbosity;
 } stencil_context_t;
