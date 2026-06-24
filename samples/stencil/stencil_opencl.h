@@ -29,6 +29,7 @@
 #define STENCIL_STRIPS_PER_WG 2
 #define STENCIL_N_STRIP_GROUPS (STENCIL_N_STRIPS / STENCIL_STRIPS_PER_WG)
 #define STENCIL_K_PAD_I8 64
+#define STENCIL_I8_EXP_MARGIN 1
 #define STENCIL_SG 16
 
 
@@ -64,6 +65,7 @@ typedef struct {
 typedef struct {
   void* dk[3];
   void* dk_scale;
+  void* exp_buf;
   void* coeff;
   libxstream_stream_t* stream;
   int nblocks[3];
@@ -95,6 +97,8 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
                             void* vel, float dt2, int nterms);
 void stencil_finalize(stencil_context_t* ctx);
 
+int stencil_seed_exp_buf(stencil_context_t* ctx, const float* p_host,
+                         int nx, int ny, int nz);
 size_t stencil_blocked_size(int nbx, int nby, int nbz);
 void stencil_pack_blocked(float* dst, const float* src,
                           int nx, int ny, int nz,

@@ -103,6 +103,47 @@ void stencil_pack_bf16s(cl_ushort* dst, const float* src, size_t n)
 }
 
 
+int stencil_seed_exp_buf(stencil_context_t* ctx, const float* p_host,
+                         int nx, int ny, int nz)
+{
+  int result = EXIT_SUCCESS;
+  const int nbx = ctx->nblocks[0], nby = ctx->nblocks[1], nbz = ctx->nblocks[2];
+  const int total_blocks = nbx * nby * nbz;
+  const int nstrips = STENCIL_N_STRIPS / ctx->strips_per_wg;
+  const int n_exp = total_blocks * ctx->nterms * nstrips;
+  const size_t exp_size = (size_t)n_exp * sizeof(int);
+  int* exp_host = NULL;
+  int bx, by, bz, ix, iy, iz, ei;
+  int global_max_exp = 0;
+
+  if (NULL == ctx->exp_buf) return EXIT_SUCCESS;
+
+  for (iz = 0; iz < nz; ++iz) {
+    for (iy = 0; iy < ny; ++iy) {
+      for (ix = 0; ix < nx; ++ix) {
+        unsigned int bits;
+        int e;
+        memcpy(&bits, &p_host[(long)iz * ny * nx + (long)iy * nx + ix], sizeof(bits));
+        e = (int)((bits >> 23) & 0xFFu);
+        if (e > global_max_exp) global_max_exp = e;
+      }
+    }
+  }
+
+  exp_host = (int*)malloc(exp_size);
+  if (NULL == exp_host) return EXIT_FAILURE;
+  for (ei = 0; ei < n_exp; ++ei) {
+    exp_host[ei] = global_max_exp + STENCIL_I8_EXP_MARGIN;
+  }
+  result = libxstream_mem_copy_h2d(exp_host, ctx->exp_buf, exp_size, ctx->stream);
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_stream_sync(ctx->stream);
+  }
+  free(exp_host);
+  return result;
+}
+
+
 size_t stencil_blocked_size(int nbx, int nby, int nbz)
 {
   return (size_t)nbx * nby * nbz * STENCIL_BLK * STENCIL_BLK * STENCIL_BLK
@@ -351,6 +392,20 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   ctx->nblocks[0] = (nx + STENCIL_BLK - 1) / STENCIL_BLK;
   ctx->nblocks[1] = (ny + STENCIL_BLK - 1) / STENCIL_BLK;
   ctx->nblocks[2] = (nz + STENCIL_BLK - 1) / STENCIL_BLK;
+
+  if (EXIT_SUCCESS == result && 0 != ctx->int8) {
+    const int total_blocks = ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2];
+    const int nstrips = STENCIL_N_STRIPS / ctx->strips_per_wg;
+    const size_t exp_size = (size_t)total_blocks * ctx->nterms * nstrips * sizeof(int);
+    result = libxstream_mem_dev_allocate_hint(
+      &ctx->exp_buf, exp_size, libxstream_opencl_mem_hint_compress);
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_mem_zero(ctx->exp_buf, 0, exp_size, ctx->stream);
+    }
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_stream_sync(ctx->stream);
+    }
+  }
 
   return result;
 }
@@ -634,7 +689,10 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_old));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_new));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, vel));
-    if (0 == ctx->int8) {
+    if (0 != ctx->int8) {
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->exp_buf));
+    }
+    else {
       CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nterms_iso));
     }
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(float), &dt2));
@@ -695,6 +753,7 @@ void stencil_finalize(stencil_context_t* ctx)
     if (NULL != ctx->dk[dim]) libxstream_mem_dev_deallocate_hint(ctx->dk[dim]);
   }
   if (NULL != ctx->dk_scale) libxstream_mem_dev_deallocate_hint(ctx->dk_scale);
+  if (NULL != ctx->exp_buf) libxstream_mem_dev_deallocate_hint(ctx->exp_buf);
   if (NULL != ctx->coeff) libxstream_mem_dev_deallocate_hint(ctx->coeff);
   if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
   LIBXS_MEMZERO(ctx);

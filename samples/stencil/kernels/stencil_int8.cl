@@ -19,7 +19,11 @@
 #endif
 #define BIAS 127
 
-#define I8_SLM_COUNT (K_PAD_I8 * XMX_N)
+#define I8_SLM_INTS (NSLICES_X * (K_PAD_I8 / 4) * XMX_N)
+#define I8_FILL_COUNT ((K_PAD_I8 / 4) * XMX_N)
+#if !defined(I8_EXP_MARGIN)
+# define I8_EXP_MARGIN 1
+#endif
 
 inline char i8_slice_digit(uint aligned, int sign, int s)
 {
@@ -35,14 +39,12 @@ inline char i8_slice_digit(uint aligned, int sign, int s)
 }
 
 /**
- * stencil_apply_int8: Ozaki-1 INT8 slicing for the D*X stencil.
+ * stencil_apply_int8: single-pass INT8 Ozaki-1 with carried-forward exponent.
  *
- * D stored as char[NSLICES_A][BLK][K_PAD] with per-row FP scale dk_scale[BLK].
- * X sliced on-the-fly from FP32 p_grid with per-WG shared exponent.
- * Each (sa, sb) digit pair is accumulated in a separate int8 register,
- * converted to float and rescaled before summation.
- *
- * SLM: one X slice at a time (K_PAD * XMX_N bytes = 768 B).
+ * exp_buf[block * NTERMS * N_STRIP_GROUPS + dim * N_STRIP_GROUPS + strip]
+ * holds the assumed max exponent for each strip, seeded by the host from
+ * actual grid data. The kernel slices in one pass using this assumed_exp,
+ * then updates exp_buf to max(actual_exp) + 1 for the next step.
  */
 #if defined(INTEL) && (2 <= INTEL)
 __attribute__((reqd_work_group_size(SG, WG_M_TILES, 1)))
@@ -57,6 +59,7 @@ kernel void stencil_apply_int8(
   global float* restrict p_old,
   global float* restrict p_new,
   global const float* restrict vel,
+  global int* restrict exp_buf,
   float dt2,
   int nx, int ny, int nz,
   int nbx, int nby)
@@ -72,11 +75,12 @@ kernel void stencil_apply_int8(
   const int oy = by * BLK;
   const int oz = bz * BLK;
 
-  local char x_slm[I8_SLM_COUNT];
+  local int x_slm[I8_SLM_INTS];
   local int exp_sg[WG_M_TILES];
 
   const int fill_id = sg_id * SG + sg_lid;
   const int fill_total = WG_M_TILES * SG;
+  const int blk_linear = bz * nby * nbx + by * nbx + bx;
   float8 acc[STRIPS_PER_WG];
   int strip_local, dim;
 
@@ -89,26 +93,53 @@ kernel void stencil_apply_int8(
 
     UNROLL_OUTER(1) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
       const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
+      const int exp_idx = (blk_linear * NTERMS + dim) * N_STRIP_GROUPS
+                        + strip_grp * STRIPS_PER_WG + strip_local;
+      const int assumed_exp = exp_buf[exp_idx];
       int local_max_exp = 0;
-      int wg_max_exp, nslices_eff, idx, sb;
+      int wg_max_exp, nslices_eff, idx;
 
-      { uint max_bits = 0;
-        for (idx = fill_id; idx < K_PAD * XMX_N; idx += fill_total) {
-          const int k = idx / XMX_N;
-          const int col_local = idx % XMX_N;
-          const int nc = nj + col_local;
-          const int ci = nc % BLK;
-          const int cj = nc / BLK;
-          int gx, gy, gz;
+      for (idx = fill_id; idx < I8_FILL_COUNT; idx += fill_total) {
+        const int k4 = idx / XMX_N;
+        const int col_local = idx % XMX_N;
+        const int k_base = k4 * 4;
+        const int nc = nj + col_local;
+        const int ci = nc % BLK;
+        const int cj = nc / BLK;
+        int s, ki;
+        uint pack[NSLICES_X];
+        UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) pack[s] = 0;
 
-          STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
-          STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
-
+        UNROLL_FORCE(4) for (ki = 0; ki < 4; ++ki) {
+          const int k = k_base + ki;
+          uint mantissa = 0;
+          int sign_bit = 0;
           if (k < K_BASE) {
-            uint bits = as_uint(p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)]);
-            int e = (int)((bits >> 23) & 0xFFu);
+            int gx, gy, gz;
+            uint bits;
+            int e, shift;
+
+            STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
+            STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
+
+            bits = as_uint(p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)]);
+            e = (int)((bits >> 23) & 0xFFu);
+            sign_bit = (int)(bits >> 31);
+            mantissa = (0 != e) ? ((bits & 0x7FFFFFu) | 0x800000u) : 0;
+
             if (e > local_max_exp) local_max_exp = e;
+
+            shift = assumed_exp - e;
+            if (shift < 0 || shift >= 24 || 0 == e) mantissa = 0;
+            else if (shift > 0) mantissa >>= shift;
           }
+          UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) {
+            pack[s] |= ((uint)(uchar)i8_slice_digit(mantissa, sign_bit, s)) << (ki * 8);
+          }
+        }
+
+        UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) {
+          x_slm[s * (K_PAD_I8 / 4) * XMX_N + k4 * XMX_N + col_local] = (int)pack[s];
         }
       }
 
@@ -124,66 +155,32 @@ kernel void stencil_apply_int8(
         UNROLL_FORCE(WG_M_TILES) for (ti = 0; ti < WG_M_TILES; ++ti) {
           if (exp_sg[ti] > wg_max_exp) wg_max_exp = exp_sg[ti];
         }
+        if (0 == fill_id) {
+          exp_buf[exp_idx] = wg_max_exp + I8_EXP_MARGIN;
+        }
         nslices_eff = (0 == wg_max_exp) ? 1
-          : ((wg_max_exp - local_max_exp <= 7) ? 1
-            : ((wg_max_exp - local_max_exp <= 14) ? 2 : NSLICES_X));
+          : ((wg_max_exp <= 7) ? 1 : ((wg_max_exp <= 14) ? 2 : NSLICES_X));
       }
 
-      UNROLL_AUTO for (sb = 0; sb < nslices_eff; ++sb) {
-        for (idx = fill_id; idx < K_PAD_I8 * XMX_N; idx += fill_total) {
-          const int k = idx / XMX_N;
-          const int col_local = idx % XMX_N;
-          if (k < K_BASE) {
-            const int nc = nj + col_local;
-            const int ci = nc % BLK;
-            const int cj = nc / BLK;
-            int gx, gy, gz;
-            float val;
-            uint bits;
-            int e, sign_bit, shift;
-            uint mantissa;
-
-            STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
-            STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
-
-            val = p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)];
-            bits = as_uint(val);
-            e = (int)((bits >> 23) & 0xFFu);
-            sign_bit = (int)(bits >> 31);
-            mantissa = (0 != e) ? ((bits & 0x7FFFFFu) | 0x800000u) : 0;
-            shift = wg_max_exp - e;
-            if (shift > 0) mantissa >>= shift;
-            x_slm[k * XMX_N + col_local] = i8_slice_digit(mantissa, sign_bit, sb);
-          }
-          else {
-            x_slm[k * XMX_N + col_local] = 0;
-          }
-        }
-        barrier(CLK_LOCAL_MEM_FENCE);
-
-        { int sa, ks;
-          const float x_scale = EXP2I(wg_max_exp - BIAS - MANT_BITS + 7 * sb);
-          UNROLL_FORCE(NSLICES_A) for (sa = 0; sa < NSLICES_A; ++sa) {
-            global const char* d_digit = dk + (long)sa * BLK * K_PAD_I8;
+      { int sa, sb, ks;
+        UNROLL_FORCE(NSLICES_A) for (sa = 0; sa < NSLICES_A; ++sa) {
+          global const char* d_digit = dk + (long)sa * BLK * K_PAD_I8;
+          UNROLL_AUTO for (sb = 0; sb < nslices_eff; ++sb) {
             int8 pair_acc = (int8)(0);
-            const float pair_scale = dk_scale[sa * BLK + mi] * x_scale;
+            const float pair_scale = dk_scale[sa * BLK + mi]
+              * EXP2I(assumed_exp - BIAS - MANT_BITS + 7 * sb);
 #if defined(TRIM) && (0 < TRIM)
             if (sa + sb >= NSLICES_A + nslices_eff - 1 - (TRIM - 1)) continue;
 #endif
-            for (ks = 0; ks < K_PAD_I8; ks += 32) {
+            for (ks = 0; ks < K_PAD_I8 / 4; ks += 8) {
               ushort8 a_i8;
               int8 b_i8;
               int bi;
               intel_sub_group_2d_block_read_8b_8r32x1c(
                 (global void*)d_digit, K_PAD_I8, BLK, K_PAD_I8,
-                (int2)(ks, mi), (private ushort*)&a_i8);
+                (int2)(ks * 4, mi), (private ushort*)&a_i8);
               UNROLL_FORCE(8) for (bi = 0; bi < 8; ++bi) {
-                const int k0 = ks + bi * 4;
-                ((int*)&b_i8)[bi] =
-                  ((int)(uchar)x_slm[(k0 + 0) * XMX_N + sg_lid]) |
-                  ((int)(uchar)x_slm[(k0 + 1) * XMX_N + sg_lid] << 8) |
-                  ((int)(uchar)x_slm[(k0 + 2) * XMX_N + sg_lid] << 16) |
-                  ((int)(uchar)x_slm[(k0 + 3) * XMX_N + sg_lid] << 24);
+                ((int*)&b_i8)[bi] = x_slm[sb * (K_PAD_I8 / 4) * XMX_N + (ks + bi) * XMX_N + sg_lid];
               }
               pair_acc = intel_sub_group_i8_i8_matrix_mad_k32(
                 as_short8(a_i8), b_i8, pair_acc);
@@ -197,9 +194,9 @@ kernel void stencil_apply_int8(
             }
           }
         }
-
-        barrier(CLK_LOCAL_MEM_FENCE);
       }
+
+      barrier(CLK_LOCAL_MEM_FENCE);
     }
   }
 

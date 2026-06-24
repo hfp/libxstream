@@ -272,6 +272,9 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == result) {
       result = libxstream_stream_sync(ctx.stream);
     }
+    if (EXIT_SUCCESS == result && 0 != ctx.int8) {
+      result = stencil_seed_exp_buf(&ctx, p_host, nx, ny, nz);
+    }
 
     cur = 0; old = 1; new_idx = 2;
 
