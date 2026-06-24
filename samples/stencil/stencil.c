@@ -218,7 +218,7 @@ int main(int argc, char* argv[])
       result = libxstream_mem_host_allocate((void**)&vel_host, grid_bytes, ctx.stream);
       if (0 != trace) fprintf(stderr, "TRACE: allocate vel_host done result=%d\n", result);
     }
-    if (EXIT_SUCCESS == result && 0 != ctx.blocked) {
+    if (EXIT_SUCCESS == result && (0 != ctx.blocked || 0 != ctx.bf16s)) {
       result = libxstream_mem_host_allocate((void**)&pack_buf, dev_bytes, ctx.stream);
     }
 
@@ -243,7 +243,11 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, dev_bytes, libxstream_opencl_mem_hint_compress);
 
     if (EXIT_SUCCESS == result) {
-      if (0 != ctx.blocked) {
+      if (0 != ctx.bf16s) {
+        stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
+        result = libxstream_mem_copy_h2d(pack_buf, p_buf[0], grid_bytes, ctx.stream);
+      }
+      else if (0 != ctx.blocked) {
         stencil_pack_blocked(pack_buf, p_host, nx, ny, nz,
           ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
         result = libxstream_mem_copy_h2d(pack_buf, p_buf[0], dev_bytes, ctx.stream);
@@ -274,7 +278,11 @@ int main(int argc, char* argv[])
     for (t = 0; t < warmup && EXIT_SUCCESS == result; ++t) {
       int tmp;
       inject_source(p_host, nx, ny, nz, dt_local, t, freq);
-      if (0 != ctx.blocked) {
+      if (0 != ctx.bf16s) {
+        stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
+        result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], grid_bytes, ctx.stream);
+      }
+      else if (0 != ctx.blocked) {
         stencil_pack_blocked(pack_buf, p_host, nx, ny, nz,
           ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
         result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], dev_bytes, ctx.stream);
@@ -606,7 +614,7 @@ static void usage(const char* prog)
          "  -seg-salt      SEG/EAGE Salt (676x676x210, h=20m)\n"
          "  -overthrust    SEG/EAGE Overthrust (801x801x187, h=25m)\n"
          "\n"
-         "Environment: STENCIL_METHOD, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256, STENCIL_TRIM, STENCIL_LU, STENCIL_FP32, STENCIL_BLOCKED\n"
+         "Environment: STENCIL_METHOD, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256, STENCIL_TRIM, STENCIL_LU, STENCIL_FP32, STENCIL_BF16S, STENCIL_BLOCKED\n"
          "\n"
          "Performance is reported in GPoints/s.\n", prog);
 }

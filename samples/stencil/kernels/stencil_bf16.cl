@@ -31,9 +31,9 @@ kernel void stencil_apply(
   global const STENCIL_D_ELEM* restrict dk_x,
   global const STENCIL_D_ELEM* restrict dk_y,
   global const STENCIL_D_ELEM* restrict dk_z,
-  global const float* restrict p_grid,
-  global float* restrict p_old,
-  global float* restrict p_new,
+  global const STENCIL_P_ELEM* restrict p_grid,
+  global STENCIL_P_ELEM* restrict p_old,
+  global STENCIL_P_ELEM* restrict p_new,
   global const float* restrict vel,
   int nterms, float dt2,
   int nx, int ny, int nz,
@@ -53,8 +53,10 @@ kernel void stencil_apply(
   const int oz = bz * BLK;
 
   local STENCIL_X_ELEM x_slm[STENCIL_X_SLM_COUNT];
-#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
+#if (!defined(STENCIL_FP32) || (0 >= STENCIL_FP32)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
   local int exp_sg[WG_M_TILES * 2];
+#endif
+#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
   const int d_wb = K_PAD * 2;
 #endif
 
@@ -73,7 +75,7 @@ kernel void stencil_apply(
 
     UNROLL_OUTER(1) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
       const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
-#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
+#if (!defined(STENCIL_FP32) || (0 >= STENCIL_FP32)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
       int local_max_exp = 0, local_min_exp = 255;
       int ndigits_eff;
 #endif
@@ -86,23 +88,28 @@ kernel void stencil_apply(
         const int ci = nc % BLK;
         const int cj = nc / BLK;
         int gx, gy, gz;
-        float val;
 
         STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
         STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
         if (k < K_BASE) {
-          val = p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)];
-#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
-          { unsigned int bits = as_uint(val);
-            int e = (int)((bits >> 23) & 0xFFu);
-            if (0 != e) {
-              if (e > local_max_exp) local_max_exp = e;
-              if (e < local_min_exp) local_min_exp = e;
+#if defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
+          STENCIL_GATHER_STORE(x_slm, k, col_local,
+            p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)]);
+#else
+          { float val = p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)];
+#if (!defined(STENCIL_FP32) || (0 >= STENCIL_FP32)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
+            { unsigned int bits = as_uint(val);
+              int e = (int)((bits >> 23) & 0xFFu);
+              if (0 != e) {
+                if (e > local_max_exp) local_max_exp = e;
+                if (e < local_min_exp) local_min_exp = e;
+              }
             }
+#endif
+            STENCIL_GATHER_STORE(x_slm, k, col_local, val);
           }
 #endif
-          STENCIL_GATHER_STORE(x_slm, k, col_local, val);
         }
         else {
           STENCIL_GATHER_STORE_ZERO(x_slm, k, col_local);
@@ -112,6 +119,9 @@ kernel void stencil_apply(
 #if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
       barrier(CLK_LOCAL_MEM_FENCE);
       STENCIL_FP32_ACC(dk, x_slm, mi, acc[strip_local]);
+#elif defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
+      barrier(CLK_LOCAL_MEM_FENCE);
+      STENCIL_DPAS_ACC(dk, STENCIL_BF16S_NDIGITS, x_slm, d_wb, mi, acc[strip_local]);
 #else
       { const int sg_max = sub_group_reduce_max(local_max_exp);
         const int sg_min = sub_group_reduce_min(local_min_exp);
@@ -156,7 +166,21 @@ kernel void stencil_apply(
         const int gz = oz + (col / BLK);
         if (gx < nx && gy < ny && gz < nz) {
           const long i = STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby);
+#if defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
+          { const long n_total_grid = (long)nx * (long)ny * nz;
+            const float p_cur_f = BF16_TO_F32(p_grid[i])
+                                + BF16_TO_F32(p_grid[i + n_total_grid]);
+            const float p_old_f = BF16_TO_F32(p_old[i])
+                                + BF16_TO_F32(p_old[i + n_total_grid]);
+            const float new_val = 2.0f * p_cur_f - p_old_f
+                                + dt2 * vel[i] * u.a[m];
+            const ushort hi = ROUND_TO_BF16(new_val);
+            p_new[i] = hi;
+            p_new[i + n_total_grid] = ROUND_TO_BF16(new_val - BF16_TO_F32(hi));
+          }
+#else
           p_new[i] = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[i] * u.a[m];
+#endif
         }
       }
     }

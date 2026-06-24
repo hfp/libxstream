@@ -85,11 +85,19 @@
 #if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
 # define STENCIL_D_ELEM float
 # define STENCIL_X_ELEM float
+# define STENCIL_P_ELEM float
 # define STENCIL_X_SLM_COUNT (K_PAD * XMX_N)
 # define STENCIL_D_BAND STENCIL_WIDTH
+#elif defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
+# define STENCIL_D_ELEM ushort
+# define STENCIL_X_ELEM ushort
+# define STENCIL_P_ELEM ushort
+# define STENCIL_X_SLM_COUNT (K_PAD * XMX_N)
+# define STENCIL_BF16S_NDIGITS 1
 #else
 # define STENCIL_D_ELEM ushort
 # define STENCIL_X_ELEM ushort
+# define STENCIL_P_ELEM float
 # define STENCIL_X_SLM_COUNT (NDIGITS_X * K_PAD * XMX_N)
 #endif
 
@@ -199,6 +207,11 @@
     (SLM)[(K) * XMX_N + (COL)] = (VAL)
 # define STENCIL_GATHER_STORE_ZERO(SLM, K, COL) \
     (SLM)[(K) * XMX_N + (COL)] = 0.0f
+#elif defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
+# define STENCIL_GATHER_STORE(SLM, K, COL, VAL) \
+    (SLM)[(K) * XMX_N + (COL)] = (VAL)
+# define STENCIL_GATHER_STORE_ZERO(SLM, K, COL) \
+    (SLM)[(K) * XMX_N + (COL)] = (ushort)0
 #else
 # define STENCIL_GATHER_STORE(SLM, K, COL, VAL) \
     do { \

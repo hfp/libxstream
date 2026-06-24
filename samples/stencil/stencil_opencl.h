@@ -49,6 +49,7 @@ typedef struct {
   int nterms;
   int lu;
   int fp32;
+  int bf16s;
   int blocked;
 } stencil_opencl_key_t;
 
@@ -72,6 +73,7 @@ typedef struct {
   int nterms;
   int lu;
   int fp32;
+  int bf16s;
   int blocked;
   int dpas;
   int verbosity;
@@ -91,5 +93,6 @@ size_t stencil_blocked_size(int nbx, int nby, int nbz);
 void stencil_pack_blocked(float* dst, const float* src,
                           int nx, int ny, int nz,
                           int nbx, int nby, int nbz);
+void stencil_pack_bf16s(unsigned short* dst, const float* src, size_t n);
 
 #endif /*STENCIL_OPENCL_H*/

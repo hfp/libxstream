@@ -8,6 +8,7 @@
 ******************************************************************************/
 #include "stencil_opencl.h"
 #include "stencil_kernels.h"
+#include <libxs/libxs_math.h>
 #include <libxs/libxs_mem.h>
 #include <libxs/libxs_timer.h>
 
@@ -75,19 +76,23 @@ static double stencil_compact_weight(int radius, int dist, double inv_h2)
 static void stencil_store_bf16_digits(cl_ushort* dst, int stride,
                                       int ndigits, float value)
 {
-  float residual = value;
+  libxs_bf16_t digits[4];
   int digit;
+  libxs_dekker_bf16((double)value, ndigits, digits);
   for (digit = 0; digit < ndigits; ++digit) {
-    unsigned int bits, rounded, bf32;
-    cl_ushort bf;
-    float bf_f;
-    memcpy(&bits, &residual, sizeof(bits));
-    rounded = (bits + 0x7FFFU + ((bits >> 16) & 1U)) & 0xFFFF0000U;
-    bf = (cl_ushort)(rounded >> 16);
-    bf32 = (unsigned int)bf << 16;
-    memcpy(&bf_f, &bf32, sizeof(bf_f));
-    dst[(long)digit * stride] = bf;
-    residual -= bf_f;
+    dst[(long)digit * stride] = digits[digit];
+  }
+}
+
+
+void stencil_pack_bf16s(cl_ushort* dst, const float* src, size_t n)
+{
+  size_t i;
+  for (i = 0; i < n; ++i) {
+    libxs_bf16_t digits[2];
+    libxs_dekker_bf16((double)src[i], 2, digits);
+    dst[i] = digits[0];
+    dst[i + n] = digits[1];
   }
 }
 
@@ -177,6 +182,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.nterms = ctx->nterms;
   key.lu = ctx->lu;
   key.fp32 = ctx->fp32;
+  key.bf16s = ctx->bf16s;
   key.blocked = ctx->blocked;
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
@@ -201,11 +207,11 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
-          " -DSTENCIL_FP32=%d -DSTENCIL_BLOCKED=%d %s",
+          " -DSTENCIL_FP32=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, key.method, key.trim, key.nterms,
-          key.lu, key.fp32, key.blocked,
+          key.lu, key.fp32, key.bf16s, key.blocked,
           (0 != key.fp32) ? ""
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
@@ -264,6 +270,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   const char* trim_env = getenv("STENCIL_TRIM");
   const char* lu_env = getenv("STENCIL_LU");
   const char* fp32_env = getenv("STENCIL_FP32");
+  const char* bf16s_env = getenv("STENCIL_BF16S");
   const char* blocked_env = getenv("STENCIL_BLOCKED");
   int method_val;
 
@@ -299,6 +306,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 
   ctx->lu = (NULL == lu_env) ? 0 : atoi(lu_env);
   ctx->fp32 = (NULL == fp32_env) ? 0 : atoi(fp32_env);
+  ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
   ctx->blocked = (NULL == blocked_env) ? 0 : atoi(blocked_env);
 
   ctx->nterms = 3;
