@@ -8,6 +8,7 @@
 ******************************************************************************/
 #include "stencil_opencl.h"
 #include <libxs/libxs_timer.h>
+#include <libxs/libxs_math.h>
 #include <libxs/libxs_mem.h>
 
 #include <stdio.h>
@@ -30,6 +31,11 @@ static void generate_velocity(float* vel, int nx, int ny, int nz,
                               vel_model_t model, float v_top, float v_bot);
 static void inject_source(float* p, int nx, int ny, int nz,
                           float dt, int tstep, float freq);
+static void stencil_cpu_reference(float* p_new, const float* p_cur,
+                                  const float* p_old, const float* vel,
+                                  const double* fd_w, int radius,
+                                  int nx, int ny, int nz,
+                                  int nterms, float dt2);
 static void usage(const char* prog);
 
 
@@ -311,6 +317,91 @@ int main(int argc, char* argv[])
              gpoints * ntsteps * 2.0 * sizeof(float) / t_elapsed);
     }
 
+    if (EXIT_SUCCESS == result && NULL != getenv("STENCIL_CHECK")) {
+      float* gpu_new = NULL;
+      float* gpu_pcur = NULL;
+      float* gpu_pold = NULL;
+      float* cpu_ref = NULL;
+      const size_t n = (size_t)nx * ny * nz;
+      int check_ok = EXIT_SUCCESS;
+
+      if (EXIT_SUCCESS == check_ok) {
+        check_ok = libxstream_mem_host_allocate((void**)&gpu_new, grid_bytes, ctx.stream);
+      }
+      if (EXIT_SUCCESS == check_ok) {
+        check_ok = libxstream_mem_host_allocate((void**)&gpu_pcur, grid_bytes, ctx.stream);
+      }
+      if (EXIT_SUCCESS == check_ok) {
+        check_ok = libxstream_mem_host_allocate((void**)&gpu_pold, grid_bytes, ctx.stream);
+      }
+      if (EXIT_SUCCESS == check_ok) {
+        check_ok = libxstream_mem_host_allocate((void**)&cpu_ref, grid_bytes, ctx.stream);
+      }
+
+      if (EXIT_SUCCESS == check_ok) {
+        check_ok = libxstream_mem_copy_d2h(p_buf[cur], gpu_new, dev_bytes, ctx.stream);
+      }
+      if (EXIT_SUCCESS == check_ok) {
+        check_ok = libxstream_mem_copy_d2h(p_buf[old], gpu_pcur, dev_bytes, ctx.stream);
+      }
+      if (EXIT_SUCCESS == check_ok) {
+        check_ok = libxstream_mem_copy_d2h(p_buf[new_idx], gpu_pold, dev_bytes, ctx.stream);
+      }
+      if (EXIT_SUCCESS == check_ok) {
+        check_ok = libxstream_stream_sync(ctx.stream);
+      }
+
+      if (EXIT_SUCCESS == check_ok && 0 != ctx.blocked) {
+        float* tmp_linear = NULL;
+        check_ok = libxstream_mem_host_allocate((void**)&tmp_linear, grid_bytes, ctx.stream);
+        if (EXIT_SUCCESS == check_ok) {
+          size_t ii;
+          int buf;
+          float* bufs[3];
+          bufs[0] = gpu_new; bufs[1] = gpu_pcur; bufs[2] = gpu_pold;
+          for (buf = 0; buf < 3; ++buf) {
+            for (ii = 0; ii < n; ++ii) {
+              const int gx = (int)(ii % nx);
+              const int gy = (int)((ii / nx) % ny);
+              const int gz = (int)(ii / ((long)nx * ny));
+              const int bxi = gx >> 5, byi = gy >> 5, bzi = gz >> 5;
+              const long ti = ((long)bzi * ctx.nblocks[1] * ctx.nblocks[0]
+                + (long)byi * ctx.nblocks[0] + bxi) * (long)(32 * 32 * 32)
+                + (long)(gz & 31) * (32 * 32) + (long)(gy & 31) * 32 + (gx & 31);
+              tmp_linear[ii] = bufs[buf][ti];
+            }
+            memcpy(bufs[buf], tmp_linear, grid_bytes);
+          }
+          libxstream_mem_host_deallocate(tmp_linear, ctx.stream);
+        }
+      }
+
+      if (EXIT_SUCCESS == check_ok) {
+        libxs_matdiff_t diff;
+        const int n_int = (int)n;
+        stencil_cpu_reference(cpu_ref, gpu_pcur, gpu_pold, vel_host,
+          fd_w, radius, nx, ny, nz, nterms, dt2);
+        libxs_matdiff(&diff, LIBXS_DATATYPE_F32, n_int, 1,
+          cpu_ref, gpu_new, NULL, NULL);
+        printf("Check:\n");
+        printf("  Linf abs:   %.6e\n", diff.linf_abs);
+        printf("  Linf rel:   %.6e\n", diff.linf_rel);
+        printf("  L2 rel:     %.6e\n", diff.l2_rel);
+        if (0 <= diff.m) {
+          printf("  Max at:     %d (ref=%.6e, tst=%.6e)\n",
+                 diff.m, diff.v_ref, diff.v_tst);
+        }
+      }
+      else {
+        fprintf(stderr, "WARNING: check failed (memory or download error)\n");
+      }
+
+      if (NULL != cpu_ref) libxstream_mem_host_deallocate(cpu_ref, ctx.stream);
+      if (NULL != gpu_pold) libxstream_mem_host_deallocate(gpu_pold, ctx.stream);
+      if (NULL != gpu_pcur) libxstream_mem_host_deallocate(gpu_pcur, ctx.stream);
+      if (NULL != gpu_new) libxstream_mem_host_deallocate(gpu_new, ctx.stream);
+    }
+
     if (NULL != pack_buf) libxstream_mem_host_deallocate(pack_buf, ctx.stream);
     if (NULL != vel_dev) libxstream_mem_dev_deallocate_hint(vel_dev);
     if (NULL != p_buf[2]) libxstream_mem_dev_deallocate_hint(p_buf[2]);
@@ -458,6 +549,41 @@ static void inject_source(float* p, int nx, int ny, int nz,
                      * (float)exp((double)(-arg * arg));
   const int sx = nx / 2, sy = ny / 2, sz = nz / 2;
   p[sz * ny * nx + sy * nx + sx] += ricker;
+}
+
+
+static void stencil_cpu_reference(float* p_new, const float* p_cur,
+                                  const float* p_old, const float* vel,
+                                  const double* fd_w, int radius,
+                                  int nx, int ny, int nz,
+                                  int nterms, float dt2)
+{
+  const long n = (long)nx * ny * nz;
+  long i;
+  for (i = 0; i < n; ++i) p_new[i] = 0.0f;
+
+  for (i = 0; i < n; ++i) {
+    const int ix = (int)(i % nx);
+    const int iy = (int)((i / nx) % ny);
+    const int iz = (int)(i / ((long)nx * ny));
+    float lap = 0.0f;
+    int dim, r;
+    for (dim = 0; dim < nterms && dim < 3; ++dim) {
+      for (r = -radius; r <= radius; ++r) {
+        int gx = ix, gy = iy, gz = iz;
+        long j;
+        if (0 == dim) { gx += r; }
+        else if (1 == dim) { gy += r; }
+        else { gz += r; }
+        if (gx < 0) gx = 0; else if (gx >= nx) gx = nx - 1;
+        if (gy < 0) gy = 0; else if (gy >= ny) gy = ny - 1;
+        if (gz < 0) gz = 0; else if (gz >= nz) gz = nz - 1;
+        j = (long)gz * ny * nx + (long)gy * nx + gx;
+        lap += (float)fd_w[r + radius] * p_cur[j];
+      }
+    }
+    p_new[i] = 2.0f * p_cur[i] - p_old[i] + dt2 * vel[i] * lap;
+  }
 }
 
 
