@@ -1,14 +1,12 @@
 # Stencils as Small Matrix Multiplications
 
-## RTM, TTI, long-leg stencils, and BF16-DPAS
+## How to leverage low-precision compute?
 
 LIBXSTREAM stencil sample
 
-30-minute technical overview
-
 ---
 
-## Talk Goal
+## Outline
 
 - Show what the stencil sample implements today.
 - Explain why seismic stencils have long legs.
@@ -18,7 +16,7 @@ LIBXSTREAM stencil sample
 
 ---
 
-## 30 Minute Route
+## Timeline
 
 | Time      | Topic                                   |
 |-----------|-----------------------------------------|
@@ -318,17 +316,6 @@ STENCIL_GRF256=1          tested slower on target system
 
 ---
 
-## Target-System Snapshot
-
-Measured on TODO, `./stencil.x -n 800 -d 3`.
-
-TODO
-
-`TRIM` drops least-significant digit products, so it is
-a controlled accuracy tradeoff, not the default.
-
----
-
 ## Demo Script
 
 Build on the target system:
@@ -352,13 +339,17 @@ STENCIL_TRIM=3 ./stencil.x -m 1 -n 800 -d 3
 
 ---
 
-## Where to Go Next
+## Intel® Arc™ B580 Graphics (FP32)
 
-1. Add correctness and norm comparisons against direct/reference paths.
-2. Implement real `staged-fit` coefficient generation for dispersion targets.
-3. Extend compact staging to TTI cross terms, or explain why not.
-4. Study accuracy/performance of `STENCIL_TRIM` on realistic wavefields.
-5. Compare Salt/Overthrust model runs, not only synthetic gradient velocity.
+<img class="wide" src="assets/stencil-bmg-fp32.png" alt="BMG FP32"/>
+
+---
+
+## Intel® Arc™ B580 Graphics (BF16)
+
+<img class="wide" src="assets/stencil-bmg-bf16.png" alt="BMG BF16"/>
+
+Note: `TRIM` drops least-significant digit products, so it is a controlled accuracy tradeoff, not the default.
 
 ---
 
@@ -375,17 +366,6 @@ The hook: expressing stencil structure so matrix engines can execute it.
 
 ---
 
-## OpenCL?
-
-OpenCL is interoperable with respective vendor model, e.g., SYCL.
-
-- Intel: Driver and SYCL already deliver OpenCL, otherwise
-  - Install opencl-c-headers, ocl-icd-libopencl1, ocl-icd-opencl-dev
-  - Install https://github.com/intel/compute-runtime
-- Nvidia: Driver and CUDA already deliver OpenCL
-
----
-
 ## LIBXSTREAM
 
 Minimal compiler requirements (C90), e.g., GNU\* Compiler.
@@ -395,3 +375,14 @@ Minimal compiler requirements (C90), e.g., GNU\* Compiler.
   - For example, predicting tuning parameters
 
 Leverage runtime code generation to specialize kernels (JIT).
+
+---
+
+## OpenCL
+
+OpenCL is interoperable with respective vendor model, e.g., SYCL.
+
+- Intel: Driver and SYCL already deliver OpenCL, otherwise
+  - Install opencl-c-headers, ocl-icd-libopencl1, ocl-icd-opencl-dev
+  - Install https://github.com/intel/compute-runtime
+- Nvidia: Driver and CUDA already deliver OpenCL

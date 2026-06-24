@@ -261,9 +261,10 @@ def case_label(case, points, roof_gpoints_s):
     return "{} ({}-{} of roof)".format(case, lower, upper)
 
 
-def memory_roof_label(peak_bandwidth_gbs, roof_gpoints_s, bytes_per_point):
-    return "Memory roof uses {:.0f} GB/s / {:.1f} B/point (~{} GPoints/s)".format(
-        peak_bandwidth_gbs, bytes_per_point, int(round(roof_gpoints_s))
+def memory_roof_label(peak_bandwidth_gbs, bytes_per_point, roof_value, metric):
+    unit = "GFLOPS/s" if "gflops_s" == metric else "GPoints/s"
+    return "Memory roof: {:.0f} GB/s / {:.1f} B/pt = {:.0f} {}".format(
+        peak_bandwidth_gbs, bytes_per_point, roof_value, unit
     )
 
 
@@ -275,7 +276,7 @@ def plot_png(path, rows, metric, title, dpi, peak_bandwidth_gbs, dark=False):
 
     labels = {
         "gpoints_s": "Throughput [GPoints/s]",
-        "gflops_s": "Equivalent FP32 GFLOPS/s",
+        "gflops_s": "FP32 GFLOPS/s",
         "ms_per_step": "Time per step [ms]",
         "bandwidth_gbs": "Effective bandwidth [GB/s]",
         "time_s": "Total time [s]",
@@ -338,30 +339,39 @@ def plot_png(path, rows, metric, title, dpi, peak_bandwidth_gbs, dark=False):
     axis.set_ylabel(labels[metric])
     axis.grid(True, color=grid_color, linewidth=0.8)
     axis.legend(frameon=False, fontsize="small", labelcolor=text_color)
-    if roof_value and bytes_per_point:
-        if "gflops_s" == metric:
-            roof_text = (
-                "Memory roof: {:.0f} GB/s / {:.1f} B/pt = {:.0f} GFLOPS/s".format(
-                    peak_bandwidth_gbs, bytes_per_point, roof_value
-                )
+
+    if metric in ("gpoints_s", "gflops_s"):
+        dims = 3
+        for row in rows:
+            d = row.get("dims", "")
+            if "" != d:
+                dims = int(d)
+                break
+        fpp = flops_per_point(STENCIL_RADIUS, dims)
+        if "gpoints_s" == metric:
+            sec = axis.secondary_yaxis(
+                "right", functions=(lambda x: x * fpp, lambda x: x / fpp)
             )
+            sec.set_ylabel("FP32 GFLOPS/s")
         else:
-            roof_text = (
-                "Memory roof: {:.0f} GB/s / {:.1f} B/pt = {:.0f} GPoints/s".format(
-                    peak_bandwidth_gbs, bytes_per_point, roof_value
-                )
+            sec = axis.secondary_yaxis(
+                "right", functions=(lambda x: x / fpp, lambda x: x * fpp)
             )
-        axis.annotate(
-            roof_text,
-            xy=(0.98, 0.04),
-            xycoords="axes fraction",
-            ha="right",
-            va="bottom",
-            fontsize="x-small",
-            color=roof_color,
+            sec.set_ylabel("Throughput [GPoints/s]")
+        if dark:
+            sec.tick_params(colors=text_color)
+            sec.yaxis.label.set_color(text_color)
+    roof_text = None
+    if roof_value and bytes_per_point:
+        roof_text = memory_roof_label(
+            peak_bandwidth_gbs, bytes_per_point, roof_value, metric
         )
     if title:
-        axis.set_title(title, color=text_color)
+        fig.suptitle(title, color=text_color)
+        if roof_text:
+            axis.set_title(roof_text, fontsize="x-small", color=roof_color)
+    elif roof_text:
+        axis.set_title(roof_text, fontsize="small", color=roof_color)
     fig.tight_layout()
     fig.savefig(path, transparent=dark)
     plt.close(fig)
@@ -410,7 +420,7 @@ def main(argv):
         help="CSV metric to plot (default: gpoints_s).",
     )
     parser.add_argument("--plot-title", help="Optional plot title.")
-    parser.add_argument("--plot-dpi", type=int, default=180, help="PNG dots per inch.")
+    parser.add_argument("--plot-dpi", type=int, default=300, help="PNG dots per inch.")
     parser.add_argument(
         "--peak-bandwidth-gbs",
         type=float,
