@@ -49,6 +49,7 @@ typedef struct {
   int nterms;
   int lu;
   int fp32;
+  int blocked;
 } stencil_opencl_key_t;
 
 typedef struct {
@@ -71,6 +72,7 @@ typedef struct {
   int nterms;
   int lu;
   int fp32;
+  int blocked;
   int dpas;
   int verbosity;
 } stencil_context_t;
@@ -84,5 +86,10 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
                             void* p_cur, void* p_old, void* p_new,
                             void* vel, float dt2, int nterms);
 void stencil_finalize(stencil_context_t* ctx);
+
+size_t stencil_blocked_size(int nbx, int nby, int nbz);
+void stencil_pack_blocked(float* dst, const float* src,
+                          int nx, int ny, int nz,
+                          int nbx, int nby, int nbz);
 
 #endif /*STENCIL_OPENCL_H*/

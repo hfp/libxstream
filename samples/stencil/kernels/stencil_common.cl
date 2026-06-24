@@ -111,6 +111,26 @@
 #define STENCIL_GRID_IDX(GZ, GY, GX, NY, NX) \
   ((long)(GZ) * (NY) * (NX) + (long)(GY) * (NX) + (GX))
 
+/* Blocked (tiled) grid index: data stored as [bz][by][bx][lz][ly][lx].
+ * BLK must be a power of 2. All dims require nbx, nby as runtime params. */
+#define STENCIL_BLK_SHIFT 5
+#define STENCIL_BLK_MASK 31
+#define STENCIL_BLOCKED_IDX(GX, GY, GZ, NBX, NBY) \
+  (((long)((GZ) >> STENCIL_BLK_SHIFT) * (NBY) * (NBX) \
+    + (long)((GY) >> STENCIL_BLK_SHIFT) * (NBX) \
+    + ((GX) >> STENCIL_BLK_SHIFT)) * (BLK * BLK * BLK) \
+   + (long)((GZ) & STENCIL_BLK_MASK) * (BLK * BLK) \
+   + (long)((GY) & STENCIL_BLK_MASK) * BLK \
+   + ((GX) & STENCIL_BLK_MASK))
+
+#if defined(STENCIL_BLOCKED) && (0 < STENCIL_BLOCKED)
+# define STENCIL_P_IDX(GZ, GY, GX, NY, NX, NBX, NBY) \
+    STENCIL_BLOCKED_IDX(GX, GY, GZ, NBX, NBY)
+#else
+# define STENCIL_P_IDX(GZ, GY, GX, NY, NX, NBX, NBY) \
+    STENCIL_GRID_IDX(GZ, GY, GX, NY, NX)
+#endif
+
 /* Kstep range for a given MI based on operator non-zero band [MI, MI + 7 + 2*RADIUS]. */
 #define KSTEP_LO(MI) ((MI) & ~15)
 #define KSTEP_HI(MI) (((MI) + XMX_M - 1 + 2 * RADIUS) & ~15)

@@ -92,6 +92,44 @@ static void stencil_store_bf16_digits(cl_ushort* dst, int stride,
 }
 
 
+size_t stencil_blocked_size(int nbx, int nby, int nbz)
+{
+  return (size_t)nbx * nby * nbz * STENCIL_BLK * STENCIL_BLK * STENCIL_BLK
+    * sizeof(float);
+}
+
+
+void stencil_pack_blocked(float* dst, const float* src,
+                          int nx, int ny, int nz,
+                          int nbx, int nby, int nbz)
+{
+  const int blk = STENCIL_BLK;
+  int bz, by, bx, lz, ly, lx;
+  for (bz = 0; bz < nbz; ++bz) {
+    for (by = 0; by < nby; ++by) {
+      for (bx = 0; bx < nbx; ++bx) {
+        const long tile_base = ((long)bz * nby * nbx + (long)by * nbx + bx)
+                             * (long)(blk * blk * blk);
+        for (lz = 0; lz < blk; ++lz) {
+          const int gz = bz * blk + lz;
+          for (ly = 0; ly < blk; ++ly) {
+            const int gy = by * blk + ly;
+            for (lx = 0; lx < blk; ++lx) {
+              const int gx = bx * blk + lx;
+              float val = 0.0f;
+              if (gx < nx && gy < ny && gz < nz) {
+                val = src[(long)gz * ny * nx + (long)gy * nx + gx];
+              }
+              dst[tile_base + (long)lz * blk * blk + (long)ly * blk + lx] = val;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+
 static int stencil_valid_strips_per_wg(int value)
 {
   int result = value;
@@ -139,6 +177,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.nterms = ctx->nterms;
   key.lu = ctx->lu;
   key.fp32 = ctx->fp32;
+  key.blocked = ctx->blocked;
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
     kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
@@ -162,11 +201,11 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
-          " -DSTENCIL_FP32=%d %s",
+          " -DSTENCIL_FP32=%d -DSTENCIL_BLOCKED=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, key.method, key.trim, key.nterms,
-          key.lu, key.fp32,
+          key.lu, key.fp32, key.blocked,
           (0 != key.fp32) ? ""
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
@@ -225,6 +264,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   const char* trim_env = getenv("STENCIL_TRIM");
   const char* lu_env = getenv("STENCIL_LU");
   const char* fp32_env = getenv("STENCIL_FP32");
+  const char* blocked_env = getenv("STENCIL_BLOCKED");
   int method_val;
 
   LIBXS_MEMZERO(ctx);
@@ -259,6 +299,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 
   ctx->lu = (NULL == lu_env) ? 0 : atoi(lu_env);
   ctx->fp32 = (NULL == fp32_env) ? 0 : atoi(fp32_env);
+  ctx->blocked = (NULL == blocked_env) ? 0 : atoi(blocked_env);
 
   ctx->nterms = 3;
   ctx->dpas = (0 != ctx->fp32) ? 0 : ((devinfo->intel >= 2) ? 1 : 0);

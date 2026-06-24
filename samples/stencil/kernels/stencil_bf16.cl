@@ -92,7 +92,7 @@ kernel void stencil_apply(
         STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
         if (k < K_BASE) {
-          val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
+          val = p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)];
 #if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
           { unsigned int bits = as_uint(val);
             int e = (int)((bits >> 23) & 0xFFu);
@@ -155,7 +155,7 @@ kernel void stencil_apply(
         const int gy = oy + (col % BLK);
         const int gz = oz + (col / BLK);
         if (gx < nx && gy < ny && gz < nz) {
-          const long i = STENCIL_GRID_IDX(gz, gy, gx, ny, nx);
+          const long i = STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby);
           p_new[i] = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[i] * u.a[m];
         }
       }
@@ -236,7 +236,7 @@ kernel void stencil_apply_tti(
     STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
     if (k < K_BASE) {
-      val = p_grid[STENCIL_GRID_IDX(gz, gy, gx, ny, nx)];
+      val = p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)];
 
       residual = val;
       UNROLL_FORCE(NDIGITS_X) for (s = 0; s < NDIGITS_X; ++s) {
@@ -329,7 +329,7 @@ kernel void stencil_apply_tti(
         const int gy = oy + (col % BLK);
         const int gz = oz + (col / BLK);
         if (gx < nx && gy < ny && gz < nz) {
-          const long i = STENCIL_GRID_IDX(gz, gy, gx, ny, nx);
+          const long i = STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby);
           p_new[i] += c_ij[i] * u.a[m];
         }
       }
