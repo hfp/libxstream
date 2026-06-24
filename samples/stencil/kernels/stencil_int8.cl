@@ -19,8 +19,10 @@
 #endif
 #define BIAS 127
 
-#define I8_SLM_INTS (NSLICES_X * (K_PAD_I8 / 4) * XMX_N)
-#define I8_FILL_COUNT ((K_PAD_I8 / 4) * XMX_N)
+#define I8_K4_BASE ((K_BASE + 3) / 4)
+#define I8_K4_PAD (K_PAD_I8 / 4)
+#define I8_SLM_INTS (NSLICES_X * I8_K4_PAD * XMX_N)
+#define I8_FILL_COUNT (I8_K4_PAD * XMX_N)
 #if !defined(I8_EXP_MARGIN)
 # define I8_EXP_MARGIN 1
 #endif
@@ -76,7 +78,6 @@ kernel void stencil_apply_int8(
   const int oz = bz * BLK;
 
   local int x_slm[I8_SLM_INTS];
-  local int exp_sg[WG_M_TILES];
 
   const int fill_id = sg_id * SG + sg_lid;
   const int fill_total = WG_M_TILES * SG;
@@ -93,11 +94,10 @@ kernel void stencil_apply_int8(
 
     UNROLL_OUTER(1) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
       const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
-      const int exp_idx = (blk_linear * NTERMS + dim) * N_STRIP_GROUPS
+      const int exp_idx = (blk_linear * NTERMS + dim) * N_STRIPS
                         + strip_grp * STRIPS_PER_WG + strip_local;
       const int assumed_exp = exp_buf[exp_idx];
-      int local_max_exp = 0;
-      int wg_max_exp, nslices_eff, idx;
+      int idx;
 
       for (idx = fill_id; idx < I8_FILL_COUNT; idx += fill_total) {
         const int k4 = idx / XMX_N;
@@ -127,8 +127,6 @@ kernel void stencil_apply_int8(
             sign_bit = (int)(bits >> 31);
             mantissa = (0 != e) ? ((bits & 0x7FFFFFu) | 0x800000u) : 0;
 
-            if (e > local_max_exp) local_max_exp = e;
-
             shift = assumed_exp - e;
             if (shift < 0 || shift >= 24 || 0 == e) mantissa = 0;
             else if (shift > 0) mantissa >>= shift;
@@ -139,38 +137,21 @@ kernel void stencil_apply_int8(
         }
 
         UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) {
-          x_slm[s * (K_PAD_I8 / 4) * XMX_N + k4 * XMX_N + col_local] = (int)pack[s];
+          x_slm[s * I8_K4_PAD * XMX_N + k4 * XMX_N + col_local] = (int)pack[s];
         }
       }
 
-      { const int sg_max = sub_group_reduce_max(local_max_exp);
-        if (0 == sg_lid) {
-          exp_sg[sg_id] = sg_max;
-        }
-      }
       barrier(CLK_LOCAL_MEM_FENCE);
-
-      { int ti;
-        wg_max_exp = 0;
-        UNROLL_FORCE(WG_M_TILES) for (ti = 0; ti < WG_M_TILES; ++ti) {
-          if (exp_sg[ti] > wg_max_exp) wg_max_exp = exp_sg[ti];
-        }
-        if (0 == fill_id) {
-          exp_buf[exp_idx] = wg_max_exp + I8_EXP_MARGIN;
-        }
-        nslices_eff = (0 == wg_max_exp) ? 1
-          : ((wg_max_exp <= 7) ? 1 : ((wg_max_exp <= 14) ? 2 : NSLICES_X));
-      }
 
       { int sa, sb, ks;
         UNROLL_FORCE(NSLICES_A) for (sa = 0; sa < NSLICES_A; ++sa) {
           global const char* d_digit = dk + (long)sa * BLK * K_PAD_I8;
-          UNROLL_AUTO for (sb = 0; sb < nslices_eff; ++sb) {
+          UNROLL_FORCE(NSLICES_X) for (sb = 0; sb < NSLICES_X; ++sb) {
             int8 pair_acc = (int8)(0);
             const float pair_scale = dk_scale[sa * BLK + mi]
               * EXP2I(assumed_exp - BIAS - MANT_BITS + 7 * sb);
 #if defined(TRIM) && (0 < TRIM)
-            if (sa + sb >= NSLICES_A + nslices_eff - 1 - (TRIM - 1)) continue;
+            if (sa + sb >= NSLICES_A + NSLICES_X - 1 - (TRIM - 1)) continue;
 #endif
             for (ks = 0; ks < K_PAD_I8 / 4; ks += 8) {
               ushort8 a_i8;
@@ -179,9 +160,8 @@ kernel void stencil_apply_int8(
               intel_sub_group_2d_block_read_8b_8r32x1c(
                 (global void*)d_digit, K_PAD_I8, BLK, K_PAD_I8,
                 (int2)(ks * 4, mi), (private ushort*)&a_i8);
-              UNROLL_FORCE(8) for (bi = 0; bi < 8; ++bi) {
-                ((int*)&b_i8)[bi] = x_slm[sb * (K_PAD_I8 / 4) * XMX_N + (ks + bi) * XMX_N + sg_lid];
-              }
+              b_i8 = as_int8(intel_sub_group_block_read8(
+                (local const uint*)(x_slm + sb * I8_K4_PAD * XMX_N + ks * XMX_N)));
               pair_acc = intel_sub_group_i8_i8_matrix_mad_k32(
                 as_short8(a_i8), b_i8, pair_acc);
             }

@@ -109,7 +109,7 @@ int stencil_seed_exp_buf(stencil_context_t* ctx, const float* p_host,
   int result = EXIT_SUCCESS;
   const int nbx = ctx->nblocks[0], nby = ctx->nblocks[1], nbz = ctx->nblocks[2];
   const int total_blocks = nbx * nby * nbz;
-  const int nstrips = STENCIL_N_STRIPS / ctx->strips_per_wg;
+  const int nstrips = STENCIL_N_STRIPS;
   const int n_exp = total_blocks * ctx->nterms * nstrips;
   const size_t exp_size = (size_t)n_exp * sizeof(int);
   int* exp_host = NULL;
@@ -395,7 +395,7 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
 
   if (EXIT_SUCCESS == result && 0 != ctx->int8) {
     const int total_blocks = ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2];
-    const int nstrips = STENCIL_N_STRIPS / ctx->strips_per_wg;
+    const int nstrips = STENCIL_N_STRIPS;
     const size_t exp_size = (size_t)total_blocks * ctx->nterms * nstrips * sizeof(int);
     result = libxstream_mem_dev_allocate_hint(
       &ctx->exp_buf, exp_size, libxstream_opencl_mem_hint_compress);
