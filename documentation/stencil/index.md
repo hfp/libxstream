@@ -8,11 +8,11 @@ LIBXSTREAM stencil sample
 
 ## Outline
 
-- Show what the stencil sample implements today.
-- Explain why seismic stencils have long legs.
-- Map stencil families to small matrix multiplications.
-- Show how BF16-DPAS and Ozaki splitting preserve FP32-like accuracy.
-- Motivate compact staged operators as an alternative to explicit long legs.
+- Seismic stencils and their long spatial legs.
+- Mapping stencil operators to small dense GEMMs.
+- BF16 and INT8 DPAS preserving FP32 accuracy.
+- Compact staged operators as alternative paths.
+- Implementation and performance on Arc B580.
 
 ---
 
@@ -23,7 +23,7 @@ LIBXSTREAM stencil sample
 | 0-5 min   | Application: RTM and wave propagation   |
 | 5-10 min  | Stencil math and long legs              |
 | 10-18 min | Mapping stencils to GEMM/DPAS           |
-| 18-24 min | TTI and compact staged paths            |
+| 18-24 min | INT8-DPAS Ozaki-1, BF16 vs INT8         |
 | 24-30 min | Implementation, performance, discussion |
 
 ---
@@ -47,13 +47,15 @@ The hot loop is repeated stencil evaluation over (many) grid points.
 
 The current sample is a GPU stencil benchmark and integration example.
 
-| Mode                          | CLI            | Implemented path                             |
-|-------------------------------|----------------|----------------------------------------------|
-| Isotropic RTM-style Laplacian | `-d 3`         | fused 3-axis BF16-DPAS apply                 |
-| TTI-style anisotropic terms   | `-d 9`         | pure terms plus cross-derivative DPAS phases |
-| Direct high-order stencil     | `-m 0`         | radius-4 per axis                            |
-| Compact staged variants       | `-m 1`, `-m 2` | radius-1/radius-2 compact runtime paths      |
-| Staged fitting hook           | `-m 3`         | placeholder for fitted compact coefficients  |
+| Mode                          | CLI              | Implemented path                             |
+|-------------------------------|------------------|----------------------------------------------|
+| Isotropic RTM-style Laplacian | `-d 3`           | fused 3-axis BF16-DPAS apply                 |
+| TTI-style anisotropic terms   | `-d 9`           | pure terms plus cross-derivative DPAS phases |
+| Direct high-order stencil     | `-m 0`           | radius-4 per axis                            |
+| Compact staged variants       | `-m 1`, `-m 2`   | radius-1/radius-2 compact runtime paths      |
+| Staged fitting hook           | `-m 3`           | placeholder for fitted compact coefficients  |
+| INT8-DPAS Ozaki-1             | `STENCIL_INT8=1` | signed 8-bit slicing with carried exponent   |
+| FP32 scalar reference         | `STENCIL_FP32=1` | banded FMA, no DPAS (baseline comparison)    |
 
 ---
 
@@ -63,18 +65,18 @@ The sample updates one `32 x 32 x 32` output cube per block.
 
 ```text
 BLK       = 32
-RADIUS    = 4       direct 8th-order FD
-K_BASE    = BLK + 2 RADIUS = 40
-K_PAD     = align16(K_BASE) = 48
+RADIUS    = 4          direct 8th-order FD
+K_BASE    = BLK + 2*RADIUS = 40
+K_PAD     = align16(K_BASE) = 48  (BF16)
+K_PAD_I8  = 64                    (INT8, k=32 DPAS alignment)
 XMX tile  = 8 x 16
 ```
 
 For one axis, each block becomes a matrix multiplication.
 
 ```text
-D: 32 x 48          operator rows and haloed line
-P: 48 x 1024        gathered wavefield lines
-Y: 32 x 1024        output block contribution
+BF16: D[32 x 48]  * P[48 x 1024]  -> Y[32 x 1024]
+INT8: D[32 x 64]  * P[64 x 16]    -> Y[32 x 16]  (per strip)
 ```
 
 ---
@@ -127,32 +129,68 @@ for dim in x, y, z:
 
 ## Low Precision Compute
 
-Use matrix compute units but without giving up accuracy.
+Use matrix compute units but without giving up accuracy.  
+Ozaki/Dekker-style splitting represents FP32 values as digit sums:
 
-Ozaki/Dekker-style splitting represents FP32 values as BF16 digit sums.
+$$D\,P \approx \sum_i \sum_j D_i\,P_j \qquad \text{each } D_i P_j \text{ is one DPAS call}$$
 
-$$A \approx A_0 + A_1 \qquad (p = 2)$$
+| Datatype | Digit width | D slices | P slices | Products/dim |
+|----------|-------------|----------|----------|--------------|
+| BF16     | 8 mantissa  | 2        | 3        | 6            |
+| INT8     | 7 signed    | 1        | 1–3      | 1–3          |
 
-$$X \approx X_0 + X_1 + X_2 \qquad (q = 3)$$
+Note: BF16 needs 2 D-slices because FD weights span ~11 mantissa bits.
+INT8 needs only 1 D-slice because the same weights fit in 7 signed bits
+after per-row exponent alignment.
 
-$$A\,X \approx \sum_i \sum_j A_i\,X_j$$
+---
 
-Each $A_i X_j$ product is BF16 × BF16 DPAS with FP32 accumulation.
+## INT8 Ozaki-1
+
+FD operator weights fit in a single 7-bit signed digit (NSLICES_D=1).
+Only the wavefield (P-side) needs multi-slice representation.
+
+$$D\,P \approx D_0 \sum_j P_j$$
+
+Advantage: half the operator storage, fewer DPAS products.
+The number of P slices adapts at runtime to the local exponent range.
+
+```text
+nslices_eff = 1  if assumed_exp <= 7
+            = 2  if assumed_exp <= 14
+            = 3  otherwise
+```
+
+---
+
+## Carried-Forward Exponent
+
+INT8 slicing needs a shared exponent per spatial strip.
+
+```text
+step N:   read exp_buf[old]  →  slice P  →  DPAS  →  write p_new
+          scan p_new exponents  →  write exp_buf[new]
+
+step N+1: read exp_buf[new]  →  ...         (buffers flip)
+```
+
+- Margin of +1: covers one-step neighbor growth propagation lag
+- Output-based: tracks what was written, not what was read
+- Double-buffered: no read/write race between neighbors
 
 ---
 
 ## DPAS Work Count
 
-For each 1D operator:
+BF16 path (default): D-slices $\times$ P-slices $= 2 \times 3 = 6$ DPAS products per axis.  
+INT8 path: $1 \times$ P-slices$_{eff}$ = 1–3 DPAS products per axis.
 
-$$p \times q = 2 \times 3 = 6 \text{ DPAS products}$$
-
-| Operator family   | Matrix work per output block        |
-|-------------------|-------------------------------------|
-| Isotropic, direct | 3 axes × 6 products                 |
-| TTI pure terms    | 3 axes × 6 products                 |
-| TTI cross terms   | two DPAS phases per cross term      |
-| Compact staged    | same DPAS primitive, smaller radius |
+| Operator family   | BF16 work/block   | INT8 work/block    |
+|-------------------|-------------------|--------------------|
+| Isotropic, direct | 3 axes x 6 = 18  | 3 axes x 1-3 = 3-9  |
+| TTI pure terms    | 3 axes x 6 = 18  | (BF16 only today)   |
+| TTI cross terms   | two DPAS phases   | (BF16 only today)  |
+| Compact staged    | smaller radius    | same DPAS, fewer K |
 
 The shape is always small and regular: `8 x 16` DPAS tiles over the K dimension.
 
@@ -163,15 +201,15 @@ The shape is always small and regular: `8 x 16` DPAS tiles over the K dimension.
 The kernel uses Intel GPU matrix and block I/O features.
 
 ```text
-A-side: 8 rows x 16 K values   operator D
-B-side: 16 K x 16 columns      wavefield panel
-C:      8 rows x 16 columns    FP32 accumulator
+A-side: 8 rows x K_PAD    operator D (2D block read)
+B-side: K_PAD x 16 cols   wavefield (SLM block read)
+C:      8 x 16            FP32 accumulator
 ```
 
-- `BF16_LOAD_A`: 2D block read of operator rows
-- `B` panel: VNNI-transformed local BF16 data
-- `BF16_DPAS_ONE`: one 16-wide K step
-- SLM holds the gathered and split wavefield panel
+|      | A load         | B load          | DPAS         |
+|------|----------------|-----------------|--------------|
+| BF16 | 2D 16b 8r16x1c | VNNI from SLM   | bf16 mad k16 |
+| INT8 | 2D 8b 8r32x1c  | block_read8 SLM | i8 mad k32   |
 
 ---
 
@@ -183,25 +221,20 @@ $$\mathcal{L}_\text{TTI}(p) = \text{pure terms} + \text{cross terms}$$
 
 $$\text{cross term: } D_i\bigl(c_{ij} \cdot D_j\,p\bigr)$$
 
-This is not just a wider 1D stencil. It is a composition of two
-directional derivatives with a pointwise anisotropy field in between.
+Not a wider 1D stencil — a composition of two directional  
+derivatives with a pointwise anisotropy field in between.
 
 ---
 
 ## TTI as Two GEMM Phases
 
-The sample implements each cross term as a two-phase DPAS pipeline.
+Each cross term is a two-phase DPAS pipeline:
 
-$$T = D_j\,P \qquad \text{(first GEMM)}$$
-$$T = c_{ij} \cdot T \qquad \text{(pointwise scaling)}$$
-$$Y \mathrel{+}= D_i\,T \qquad \text{(second GEMM)}$$
-
-Implementation details:
+$$T = D_j\,P \qquad T = c_{ij} \cdot T \qquad Y \mathrel{+}= D_i\,T$$
 
 - `x_slm`: gathered wavefield digits
-- `t_slm`: BF16 re-split intermediate
-- `stencil_apply_tti`: cross-derivative kernel
-- Pure terms still use the isotropic `stencil_apply` path
+- `t_slm`: BF16 re-split intermediate after pointwise scaling
+- Pure terms reuse the isotropic `stencil_apply` path
 
 ---
 
@@ -224,11 +257,11 @@ small, predictable GEMMs.
 
 High-order FD stencils use long spatial legs to reduce dispersion error.
 
-| Benefit | Cost on large 3D grids |
-|---------|------------------------|
-| better wave propagation accuracy | wider block halos |
-| fewer time-step artifacts | more distant memory accesses |
-| familiar RTM/TTI formulation | more L2/TLB pressure |
+| Benefit                          | Cost on large 3D grids       |
+|----------------------------------|------------------------------|
+| better wave propagation accuracy | wider block halos            |
+| fewer time-step artifacts        | more distant memory accesses |
+| familiar RTM/TTI formulation     | more L2/TLB pressure         |
 
 Can time evolution provide the effective reach while each update  
 touches only a compact neighborhood?
@@ -253,51 +286,45 @@ staged-r2:    compact radius-2 operator, K=2
 staged-fit:   future fitted compact coefficients
 ```
 
-Current implementation uses compact runtime paths for isotropic mode.
-The longer effective behavior is intended to arise from repeated time updates,
-not from loading the long halo every time.
+Effective reach arises from repeated time updates,  
+not from loading the long halo every step.
 
 ---
 
 ## What Is Implemented Today
 
-| Method     | CLI    | Radius used by kernel | Status                   |
-|------------|--------|-----------------------|--------------------------|
-| Direct     | `-m 0` | `r=4`                 | baseline high-order path |
-| Staged r1  | `-m 1` | `r=1`                 | compact isotropic path   |
-| Staged r2  | `-m 2` | `r=2`                 | compact isotropic path   |
-| Staged fit | `-m 3` | `r=1`                 | placeholder coefficients |
-| TTI        | `-d 9` | direct two-phase      | cross terms implemented  |
+| Method     | CLI              | Radius | Status                   |
+|------------|------------------|--------|--------------------------|
+| Direct     | `-m 0`           | `r=4`  | baseline high-order path |
+| Staged r1  | `-m 1`           | `r=1`  | compact isotropic path   |
+| Staged r2  | `-m 2`           | `r=2`  | compact isotropic path   |
+| Staged fit | `-m 3`           | `r=1`  | placeholder coefficients |
+| TTI        | `-d 9`           | direct | cross terms implemented  |
+| INT8       | `STENCIL_INT8=1` | `r=4`  | Ozaki-1 with exp_buf     |
 
-Important caveat: fitted dispersion coefficients are not implemented yet.
+INT8 path uses signed 8-bit DPAS (k=32) with runtime slice adaptation.  
+Fitted dispersion coefficients are not implemented yet.
 
 ---
 
 ## Kernel Structure
 
 ```text
-host:
-  choose method, radius, strip grouping
-  precompute BF16 operator surfaces
-  JIT OpenCL with method-specific constants
+host:  precompute D (BF16 or INT8+scale), JIT kernel
 
-kernel stencil_apply:
-  for dim in active pure terms:
-    gather compact/direct halo into SLM
-    split wavefield into BF16 digits
-    DPAS accumulate into FP32
-  write leapfrog update
-
-kernel stencil_apply_tti:
-  GEMM -> scale -> re-split -> GEMM
+BF16:  gather → split → DPAS → leapfrog update
+INT8:  gather+slice → DPAS → update → scan exp → exp_buf_out
+TTI:   GEMM → scale → re-split → GEMM
 ```
+
+All paths: one dispatch per time step, 3-dim loop inside kernel.
 
 ---
 
 ## Runtime Controls
 
 ```text
-./stencil.x -n 800 -d 3 -m 1
+./stencil.x -n 800 -d 3 -m 0
 
 -d 3    isotropic pure terms
 -d 9    TTI-style pure plus cross terms
@@ -309,8 +336,9 @@ kernel stencil_apply_tti:
 Useful environment controls:
 
 ```text
+STENCIL_INT8=1            enable INT8-DPAS Ozaki-1 path
 STENCIL_STRIPS_PER_WG=2   default, best measured grouping
-STENCIL_TRIM=N            accuracy/performance tradeoff
+STENCIL_TRIM=N            accuracy/performance tradeoff (BF16)
 STENCIL_GRF256=1          tested slower on target system
 ```
 
@@ -333,8 +361,8 @@ Run the useful comparison (`stencil.py`):
 ```bash
 ./stencil.x -m 0 -n 800 -d 3
 ./stencil.x -m 1 -n 800 -d 3
-./stencil.x -m 2 -n 800 -d 3
-STENCIL_TRIM=3 ./stencil.x -m 1 -n 800 -d 3
+STENCIL_INT8=1 ./stencil.x -m 0 -n 800 -d 3
+STENCIL_TRIM=3 ./stencil.x -m 0 -n 800 -d 3
 ```
 
 ---
@@ -353,14 +381,42 @@ Note: `TRIM` drops least-significant digit products, so it is a controlled accur
 
 ---
 
+## Intel® Arc™ B580 Graphics (INT8)
+
+<img class="wide" src="assets/stencil-bmg-int8.png" alt="BMG INT8"/>
+
+Note: `TRIM` drops least-significant digit products, so it is a controlled accuracy tradeoff, not the default.
+
+---
+
+## GPoints/s at N=800
+
+| Path          | Arc B580 | PVC 1550\* |
+|---------------|----------|------------|
+| FP32 direct   | 22.5     | 43.8       |
+| FP32 staged   | 23.9     | 52.8       |
+| BF16 direct   | 9.2      | 15.0       |
+| BF16 staged   | 9.4      | 15.4       |
+| INT8 direct   | 7.7      | 11.8       |
+| INT8 staged   | 8.3      | 12.7       |
+
+<span style="opacity: 0.4; font-size: 50%;">\* Intel® Data Center GPU Max 1550 @ 450W TDP, 1 Tile</span>
+
+Note: B580 is bandwidth-bound — FP32 banded-FMA wins because it avoids
+the digit-slicing gather overhead. PVC has more compute headroom where
+staged paths and INT8 benefit. Both DPAS paths preserve FP32 accuracy.
+
+---
+
 ## Takeaway
 
 Seismic stencils as dense small matrix multiplications.
 
-- BF16-DPAS with FP32 accumulation via Ozaki splitting
+- BF16-DPAS (Dekker splitting, 2×3 digits) and INT8-DPAS (Ozaki-1, 1×1–3 digits)
+- FP32 banded-FMA fastest on bandwidth-bound B580
+- INT8 competitive on compute-rich PVC (fewer DPAS products)
 - Compact staged paths: long-leg reach, short-leg cost
-- TTI: pure terms + GEMM-scale-GEMM cross terms
-- RTM isotropic: three directional GEMMs
+- RTM isotropic: three directional GEMMs per time step
 
 The hook: expressing stencil structure so matrix engines can execute it.
 
