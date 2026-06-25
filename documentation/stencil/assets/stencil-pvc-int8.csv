@@ -1,57 +1,69 @@
 n,dims,case,method_arg,trim,reported_method,k_steps,r_per_step,strips_per_wg,time_s,gpoints_s,ms_per_step,bandwidth_gbs,gflops_s,returncode,command
-200,3,direct,0,,direct,1,4,2,0.085,9.389,0.852,75.1,544.6,0,./stencil.x -m 0 -n 200 -d 3
-200,3,staged-r1,1,,staged-r1,4,1,2,0.077,10.417,0.768,83.3,604.2,0,./stencil.x -m 1 -n 200 -d 3
-200,3,staged-r2,2,,staged-r2,2,2,2,0.082,9.794,0.817,78.4,568.1,0,./stencil.x -m 2 -n 200 -d 3
-200,3,staged-r1-trim3,1,3,staged-r1,4,1,2,0.068,11.777,0.679,94.2,683.1,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 200 -d 3
-250,3,direct,0,,direct,1,4,2,0.134,11.668,1.339,93.3,676.7,0,./stencil.x -m 0 -n 250 -d 3
-250,3,staged-r1,1,,staged-r1,4,1,2,0.125,12.469,1.253,99.7,723.2,0,./stencil.x -m 1 -n 250 -d 3
-250,3,staged-r2,2,,staged-r2,2,2,2,0.133,11.744,1.330,94.0,681.2,0,./stencil.x -m 2 -n 250 -d 3
-250,3,staged-r1-trim3,1,3,staged-r1,4,1,2,0.114,13.757,1.136,110.1,797.9,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 250 -d 3
-300,3,direct,0,,direct,1,4,2,0.253,10.671,2.530,85.4,618.9,0,./stencil.x -m 0 -n 300 -d 3
-300,3,staged-r1,1,,staged-r1,4,1,2,0.245,11.020,2.450,88.2,639.2,0,./stencil.x -m 1 -n 300 -d 3
-300,3,staged-r2,2,,staged-r2,2,2,2,0.260,10.400,2.596,83.2,603.2,0,./stencil.x -m 2 -n 300 -d 3
-300,3,staged-r1-trim3,1,3,staged-r1,4,1,2,0.219,12.304,2.194,98.4,713.6,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 300 -d 3
-350,3,direct,0,,direct,1,4,2,0.390,11.004,3.896,88.0,638.2,0,./stencil.x -m 0 -n 350 -d 3
-350,3,staged-r1,1,,staged-r1,4,1,2,0.374,11.468,3.739,91.7,665.1,0,./stencil.x -m 1 -n 350 -d 3
-350,3,staged-r2,2,,staged-r2,2,2,2,0.388,11.050,3.880,88.4,640.9,0,./stencil.x -m 2 -n 350 -d 3
-350,3,staged-r1-trim3,1,3,staged-r1,4,1,2,0.339,12.653,3.388,101.2,733.9,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 350 -d 3
-400,3,direct,0,,direct,1,4,2,0.601,10.651,6.009,85.2,617.8,0,./stencil.x -m 0 -n 400 -d 3
-400,3,staged-r1,1,,staged-r1,4,1,2,0.526,12.158,5.264,97.3,705.2,0,./stencil.x -m 1 -n 400 -d 3
-400,3,staged-r2,2,,staged-r2,2,2,2,0.585,10.933,5.854,87.5,634.1,0,./stencil.x -m 2 -n 400 -d 3
-400,3,staged-r1-trim3,1,3,staged-r1,4,1,2,0.481,13.303,4.811,106.4,771.6,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 400 -d 3
-450,3,direct,0,,direct,1,4,2,0.937,9.721,9.374,77.8,563.8,0,./stencil.x -m 0 -n 450 -d 3
-450,3,staged-r1,1,,staged-r1,4,1,2,0.874,10.431,8.736,83.4,605.0,0,./stencil.x -m 1 -n 450 -d 3
-450,3,staged-r2,2,,staged-r2,2,2,2,0.869,10.488,8.689,83.9,608.3,0,./stencil.x -m 2 -n 450 -d 3
-450,3,staged-r1-trim3,1,3,staged-r1,4,1,2,0.763,11.951,7.625,95.6,693.2,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 450 -d 3
-500,3,direct,0,,direct,1,4,2,1.124,11.118,11.243,88.9,644.8,0,./stencil.x -m 0 -n 500 -d 3
-500,3,staged-r1,1,,staged-r1,4,1,2,1.077,11.603,10.773,92.8,673.0,0,./stencil.x -m 1 -n 500 -d 3
-500,3,staged-r2,2,,staged-r2,2,2,2,1.119,11.173,11.187,89.4,648.0,0,./stencil.x -m 2 -n 500 -d 3
-500,3,staged-r1-trim3,1,3,staged-r1,4,1,2,0.982,12.724,9.824,101.8,738.0,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 500 -d 3
-550,3,direct,0,,direct,1,4,2,1.649,10.092,16.486,80.7,585.3,0,./stencil.x -m 0 -n 550 -d 3
-550,3,staged-r1,1,,staged-r1,4,1,2,1.492,11.150,14.921,89.2,646.7,0,./stencil.x -m 1 -n 550 -d 3
-550,3,staged-r2,2,,staged-r2,2,2,2,1.592,10.451,15.920,83.6,606.2,0,./stencil.x -m 2 -n 550 -d 3
-550,3,staged-r1-trim3,1,3,staged-r1,4,1,2,1.343,12.392,13.426,99.1,718.7,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 550 -d 3
-600,3,direct,0,,direct,1,4,2,1.909,11.314,19.092,90.5,656.2,0,./stencil.x -m 0 -n 600 -d 3
-600,3,staged-r1,1,,staged-r1,4,1,2,1.784,12.110,17.837,96.9,702.4,0,./stencil.x -m 1 -n 600 -d 3
-600,3,staged-r2,2,,staged-r2,2,2,2,1.884,11.463,18.843,91.7,664.9,0,./stencil.x -m 2 -n 600 -d 3
-600,3,staged-r1-trim3,1,3,staged-r1,4,1,2,1.654,13.062,16.536,104.5,757.6,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 600 -d 3
-650,3,direct,0,,direct,1,4,2,2.658,10.333,26.578,82.7,599.3,0,./stencil.x -m 0 -n 650 -d 3
-650,3,staged-r1,1,,staged-r1,4,1,2,2.426,11.318,24.264,90.5,656.4,0,./stencil.x -m 1 -n 650 -d 3
-650,3,staged-r2,2,,staged-r2,2,2,2,2.551,10.763,25.515,86.1,624.3,0,./stencil.x -m 2 -n 650 -d 3
-650,3,staged-r1-trim3,1,3,staged-r1,4,1,2,2.170,12.653,21.704,101.2,733.9,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 650 -d 3
-700,3,direct,0,,direct,1,4,2,3.045,11.265,30.449,90.1,653.4,0,./stencil.x -m 0 -n 700 -d 3
-700,3,staged-r1,1,,staged-r1,4,1,2,2.839,12.081,28.392,96.6,700.7,0,./stencil.x -m 1 -n 700 -d 3
-700,3,staged-r2,2,,staged-r2,2,2,2,2.965,11.569,29.649,92.6,671.0,0,./stencil.x -m 2 -n 700 -d 3
-700,3,staged-r1-trim3,1,3,staged-r1,4,1,2,2.628,13.050,26.285,104.4,756.9,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 700 -d 3
-750,3,direct,0,,direct,1,4,2,3.981,10.598,39.806,84.8,614.7,0,./stencil.x -m 0 -n 750 -d 3
-750,3,staged-r1,1,,staged-r1,4,1,2,3.658,11.534,36.578,92.3,669.0,0,./stencil.x -m 1 -n 750 -d 3
-750,3,staged-r2,2,,staged-r2,2,2,2,3.841,10.984,38.409,87.9,637.1,0,./stencil.x -m 2 -n 750 -d 3
-750,3,staged-r1-trim3,1,3,staged-r1,4,1,2,3.313,12.733,33.131,101.9,738.5,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 750 -d 3
-800,3,direct,0,,direct,1,4,2,4.326,11.835,43.263,94.7,686.4,0,./stencil.x -m 0 -n 800 -d 3
-800,3,staged-r1,1,,staged-r1,4,1,2,4.019,12.740,40.190,101.9,738.9,0,./stencil.x -m 1 -n 800 -d 3
-800,3,staged-r2,2,,staged-r2,2,2,2,4.224,12.120,42.243,97.0,703.0,0,./stencil.x -m 2 -n 800 -d 3
-800,3,staged-r1-trim3,1,3,staged-r1,4,1,2,3.772,13.572,37.724,108.6,787.2,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 800 -d 3
-850,3,direct,0,,direct,1,4,2,5.804,10.580,58.045,84.6,613.6,0,./stencil.x -m 0 -n 850 -d 3
-850,3,staged-r1,1,,staged-r1,4,1,2,5.334,11.513,53.340,92.1,667.8,0,./stencil.x -m 1 -n 850 -d 3
-850,3,staged-r2,2,,staged-r2,2,2,2,5.616,10.935,56.160,87.5,634.2,0,./stencil.x -m 2 -n 850 -d 3
-850,3,staged-r1-trim3,1,3,staged-r1,4,1,2,4.790,12.822,47.895,102.6,743.7,0,STENCIL_TRIM=3 ./stencil.x -m 1 -n 850 -d 3
+50,3,direct,0,,direct,1,4,2,0.006,1.987,0.063,15.9,115.2,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 50 -d 3
+50,3,compact-r1,1,,compact-r1,4,1,2,0.006,2.256,0.055,18.1,130.8,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 50 -d 3
+50,3,compact-r2,2,,compact-r2,2,2,2,0.006,2.055,0.061,16.4,119.2,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 50 -d 3
+50,3,compact-r1-trim3,1,3,compact-r1,4,1,2,0.005,2.742,0.046,21.9,159.0,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 50 -d 3
+100,3,direct,0,,direct,1,4,2,0.021,4.673,0.214,37.4,271.0,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 100 -d 3
+100,3,compact-r1,1,,compact-r1,4,1,2,0.019,5.134,0.195,41.1,297.8,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 100 -d 3
+100,3,compact-r2,2,,compact-r2,2,2,2,0.020,4.906,0.204,39.3,284.5,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 100 -d 3
+100,3,compact-r1-trim3,1,3,compact-r1,4,1,2,0.016,6.231,0.160,49.8,361.4,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 100 -d 3
+150,3,direct,0,,direct,1,4,2,0.045,7.577,0.445,60.6,439.5,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 150 -d 3
+150,3,compact-r1,1,,compact-r1,4,1,2,0.041,8.276,0.408,66.2,480.0,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 150 -d 3
+150,3,compact-r2,2,,compact-r2,2,2,2,0.043,7.916,0.426,63.3,459.1,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 150 -d 3
+150,3,compact-r1-trim3,1,3,compact-r1,4,1,2,0.034,9.820,0.344,78.6,569.6,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 150 -d 3
+200,3,direct,0,,direct,1,4,2,0.104,7.664,1.044,61.3,444.5,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 200 -d 3
+200,3,compact-r1,1,,compact-r1,4,1,2,0.094,8.524,0.938,68.2,494.4,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 200 -d 3
+200,3,compact-r2,2,,compact-r2,2,2,2,0.100,8.015,0.998,64.1,464.9,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 200 -d 3
+200,3,compact-r1-trim3,1,3,compact-r1,4,1,2,0.078,10.263,0.780,82.1,595.3,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 200 -d 3
+250,3,direct,0,,direct,1,4,2,0.164,9.514,1.642,76.1,551.8,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 250 -d 3
+250,3,compact-r1,1,,compact-r1,4,1,2,0.152,10.251,1.524,82.0,594.6,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 250 -d 3
+250,3,compact-r2,2,,compact-r2,2,2,2,0.158,9.866,1.584,78.9,572.2,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 250 -d 3
+250,3,compact-r1-trim3,1,3,compact-r1,4,1,2,0.129,12.113,1.290,96.9,702.6,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 250 -d 3
+300,3,direct,0,,direct,1,4,2,0.320,8.430,3.203,67.4,488.9,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 300 -d 3
+300,3,compact-r1,1,,compact-r1,4,1,2,0.293,9.208,2.932,73.7,534.1,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 300 -d 3
+300,3,compact-r2,2,,compact-r2,2,2,2,0.293,9.208,2.932,73.7,534.1,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 300 -d 3
+300,3,compact-r1-trim3,1,3,compact-r1,4,1,2,0.243,11.091,2.434,88.7,643.3,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 300 -d 3
+350,3,direct,0,,direct,1,4,2,0.476,9.010,4.759,72.1,522.6,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 350 -d 3
+350,3,compact-r1,1,,compact-r1,4,1,2,0.444,9.666,4.436,77.3,560.6,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 350 -d 3
+350,3,compact-r2,2,,compact-r2,2,2,2,0.461,9.298,4.611,74.4,539.3,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 350 -d 3
+350,3,compact-r1-trim3,1,3,compact-r1,4,1,2,0.362,11.853,3.617,94.8,687.5,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 350 -d 3
+400,3,direct,0,,direct,1,4,2,0.722,8.862,7.222,70.9,514.0,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 400 -d 3
+400,3,compact-r1,1,,compact-r1,4,1,2,0.637,10.050,6.368,80.4,582.9,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 400 -d 3
+400,3,compact-r2,2,,compact-r2,2,2,2,0.698,9.171,6.978,73.4,531.9,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 400 -d 3
+400,3,compact-r1-trim3,1,3,compact-r1,4,1,2,0.539,11.867,5.393,94.9,688.3,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 400 -d 3
+450,3,direct,0,,direct,1,4,2,1.112,8.195,11.120,65.6,475.3,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 450 -d 3
+450,3,compact-r1,1,,compact-r1,4,1,2,1.036,8.796,10.360,70.4,510.2,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 450 -d 3
+450,3,compact-r2,2,,compact-r2,2,2,2,1.074,8.484,10.740,67.9,492.1,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 450 -d 3
+450,3,compact-r1-trim3,1,3,compact-r1,4,1,2,0.876,10.399,8.763,83.2,603.1,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 450 -d 3
+500,3,direct,0,,direct,1,4,2,1.387,9.012,13.870,72.1,522.7,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 500 -d 3
+500,3,compact-r1,1,,compact-r1,4,1,2,1.272,9.824,12.724,78.6,569.8,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 500 -d 3
+500,3,compact-r2,2,,compact-r2,2,2,2,1.338,9.344,13.378,74.8,542.0,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 500 -d 3
+500,3,compact-r1-trim3,1,3,compact-r1,4,1,2,1.097,11.398,10.967,91.2,661.1,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 500 -d 3
+550,3,direct,0,,direct,1,4,2,1.987,8.372,19.874,67.0,485.6,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 550 -d 3
+550,3,compact-r1,1,,compact-r1,4,1,2,1.815,9.165,18.153,73.3,531.6,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 550 -d 3
+550,3,compact-r2,2,,compact-r2,2,2,2,1.909,8.715,19.091,69.7,505.5,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 550 -d 3
+550,3,compact-r1-trim3,1,3,compact-r1,4,1,2,1.526,10.902,15.260,87.2,632.3,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 550 -d 3
+600,3,direct,0,,direct,1,4,2,2.321,9.306,23.212,74.4,539.7,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 600 -d 3
+600,3,compact-r1,1,,compact-r1,4,1,2,2.159,10.004,21.591,80.0,580.2,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 600 -d 3
+600,3,compact-r2,2,,compact-r2,2,2,2,2.246,9.619,22.455,77.0,557.9,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 600 -d 3
+600,3,compact-r1-trim3,1,3,compact-r1,4,1,2,1.838,11.753,18.378,94.0,681.7,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 600 -d 3
+650,3,direct,0,,direct,1,4,2,3.196,8.593,31.957,68.7,498.4,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 650 -d 3
+650,3,compact-r1,1,,compact-r1,4,1,2,2.962,9.270,29.625,74.2,537.7,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 650 -d 3
+650,3,compact-r2,2,,compact-r2,2,2,2,3.085,8.903,30.848,71.2,516.4,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 650 -d 3
+650,3,compact-r1-trim3,1,3,compact-r1,4,1,2,2.505,10.963,25.050,87.7,635.9,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 650 -d 3
+700,3,direct,0,,direct,1,4,2,3.705,9.258,37.049,74.1,537.0,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 700 -d 3
+700,3,compact-r1,1,,compact-r1,4,1,2,3.449,9.944,34.494,79.5,576.8,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 700 -d 3
+700,3,compact-r2,2,,compact-r2,2,2,2,3.590,9.554,35.902,76.4,554.1,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 700 -d 3
+700,3,compact-r1-trim3,1,3,compact-r1,4,1,2,2.928,11.713,29.283,93.7,679.4,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 700 -d 3
+750,3,direct,0,,direct,1,4,2,4.826,8.742,48.256,69.9,507.0,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 750 -d 3
+750,3,compact-r1,1,,compact-r1,4,1,2,4.478,9.420,44.785,75.4,546.4,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 750 -d 3
+750,3,compact-r2,2,,compact-r2,2,2,2,4.650,9.072,46.504,72.6,526.2,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 750 -d 3
+750,3,compact-r1-trim3,1,3,compact-r1,4,1,2,3.773,11.183,37.726,89.5,648.6,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 750 -d 3
+800,3,direct,0,,direct,1,4,2,5.265,9.724,52.651,77.8,564.0,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 800 -d 3
+800,3,compact-r1,1,,compact-r1,4,1,2,4.865,10.524,48.651,84.2,610.4,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 800 -d 3
+800,3,compact-r2,2,,compact-r2,2,2,2,5.097,10.044,50.975,80.4,582.6,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 800 -d 3
+800,3,compact-r1-trim3,1,3,compact-r1,4,1,2,4.093,12.510,40.926,100.1,725.6,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 800 -d 3
+850,3,direct,0,,direct,1,4,2,6.969,8.812,69.691,70.5,511.1,0,STENCIL_INT8=1 ./stencil.x -m 0 -n 850 -d 3
+850,3,compact-r1,1,,compact-r1,4,1,2,6.562,9.359,65.621,74.9,542.8,0,STENCIL_INT8=1 ./stencil.x -m 1 -n 850 -d 3
+850,3,compact-r2,2,,compact-r2,2,2,2,6.748,9.100,67.483,72.8,527.8,0,STENCIL_INT8=1 ./stencil.x -m 2 -n 850 -d 3
+850,3,compact-r1-trim3,1,3,compact-r1,4,1,2,5.519,11.128,55.188,89.0,645.4,0,STENCIL_INT8=1 STENCIL_TRIM=3 ./stencil.x -m 1 -n 850 -d 3
