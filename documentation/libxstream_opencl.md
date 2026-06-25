@@ -70,7 +70,7 @@ Enumerates floating-point atomics support: none, 32-bit, or 64-bit.
 | `libxstream_opencl_info_devptr_modify` | Look up a device-pointer registration (writable) |
 | `libxstream_opencl_info_hostptr` | Look up a host-pointer registration |
 | `libxstream_opencl_memset` | Fill device memory with an arbitrary byte pattern |
-| `libxstream_opencl_use_cmem` | Whether OpenCL constant-memory hints apply |
+| `libxstream_opencl_use_cmem_size` | Whether OpenCL constant-memory hints apply |
 | `libxstream_opencl_set_kernel_ptr` | Set a pointer kernel argument (USM-aware) |
 
 ### Kernel Build
