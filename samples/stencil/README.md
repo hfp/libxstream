@@ -267,25 +267,25 @@ Total for 3 cross-terms with barrier: fits within 128 KB (Xe2/BMG).
 ## Operator Paths
 
 The standard direct kernel applies one wide-reach operator (radius-4,
-9-point) per dimension.  The staged variants are independent compact
-runtime paths: they compile the same Ozaki-split BF16 x BF16 DPAS
-primitive with a smaller gather radius and rely on time evolution to
-build longer effective reach.
+9-point) per dimension.  The compact variants are independent runtime
+paths: they compile the same Ozaki-split BF16 x BF16 DPAS primitive
+with a smaller gather radius and rely on time evolution to build longer
+effective reach.
 
 Methods (selected via STENCIL_METHOD environment variable):
 
   0 = direct      K=1, r=4  standard high-order (default)
-  1 = staged-r1   K=4, r=1  compact tridiagonal runtime path
-  2 = staged-r2   K=2, r=2  compact pentadiagonal runtime path
-  3 = staged-fit  K=4, r=1  placeholder for dispersion-fitted stages
+  1 = compact-r1  K=4, r=1  compact tridiagonal runtime path
+  2 = compact-r2  K=2, r=2  compact pentadiagonal runtime path
+  3 = compact-fit K=4, r=1  placeholder for dispersion-fitted coefficients
 
-The "staged-fit" mode uses the free degrees of freedom in the K-factor
+The "compact-fit" mode uses the free degrees of freedom in the K-factor
 coefficient product to match or exceed the dispersion quality of the
 standard 8th-order stencil at target frequencies, while retaining the
 memory savings of the cascade.  Coefficients are precomputed once at
 initialization for the grid's frequency content.
 
-The first staged path is implemented for the isotropic apply kernel in
+The first compact path is implemented for the isotropic apply kernel in
 methods 1-3.  TTI cross-terms still use the direct two-phase DPAS path.
 
 Environment variables controlling kernel specialization:

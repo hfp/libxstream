@@ -9,12 +9,39 @@ import sys
 import time
 
 
-CASES = (
+CASES_BF16 = (
     {"case": "direct", "method": 0, "trim": None},
-    {"case": "staged-r1", "method": 1, "trim": None},
-    {"case": "staged-r2", "method": 2, "trim": None},
-    {"case": "staged-r1-trim3", "method": 1, "trim": 3},
+    {"case": "compact-r1", "method": 1, "trim": None},
+    {"case": "compact-r2", "method": 2, "trim": None},
+    {"case": "compact-r1-trim3", "method": 1, "trim": 3},
 )
+
+CASES_INT8 = (
+    {"case": "direct", "method": 0, "trim": None},
+    {"case": "compact-r1", "method": 1, "trim": None},
+    {"case": "compact-r2", "method": 2, "trim": None},
+    {"case": "compact-r1-trim3", "method": 1, "trim": 3},
+)
+
+CASES_FP32 = (
+    {"case": "direct", "method": 0, "trim": None},
+    {"case": "compact-r1", "method": 1, "trim": None},
+    {"case": "compact-r2", "method": 2, "trim": None},
+)
+
+KERNEL_CASES = {
+    "bf16": CASES_BF16,
+    "int8": CASES_INT8,
+    "fp32": CASES_FP32,
+    "fp32-direct": CASES_FP32,
+}
+
+KERNEL_ENV = {
+    "bf16": {},
+    "int8": {"STENCIL_INT8": "1"},
+    "fp32": {"STENCIL_FP32": "1"},
+    "fp32-direct": {"STENCIL_FP32": "2"},
+}
 
 FIELDNAMES = (
     "n",
@@ -78,8 +105,9 @@ def parse_sizes(values):
     return result
 
 
-def run_case(args, n, case):
+def run_case(args, n, case, kernel_env):
     env = os.environ.copy()
+    env.update(kernel_env)
     trim = case["trim"]
     if trim is None:
         env.pop("STENCIL_TRIM", None)
@@ -91,12 +119,17 @@ def run_case(args, n, case):
         command.extend(["-t", str(args.steps)])
     if args.warmup is not None:
         command.extend(["-w", str(args.warmup)])
+    if args.init is not None:
+        command.extend(["-i", args.init])
     if args.extra:
         command.extend(args.extra)
 
-    shell_command = " ".join(command)
+    env_prefix = ""
+    for key, val in sorted(kernel_env.items()):
+        env_prefix += "{}={} ".format(key, val)
     if trim is not None:
-        shell_command = "STENCIL_TRIM={} {}".format(trim, shell_command)
+        env_prefix += "STENCIL_TRIM={} ".format(trim)
+    shell_command = env_prefix + " ".join(command)
 
     row = {
         "n": n,
@@ -384,6 +417,10 @@ def default_plot_path(csv_path):
     return csv_path + ".png"
 
 
+def default_output_path(kernel):
+    return "stencil-{}.csv".format(kernel)
+
+
 def main(argv):
     parser = argparse.ArgumentParser(
         description="Run stencil.x benchmark cases, collect CSV results, and optionally plot PNG output."
@@ -403,14 +440,27 @@ def main(argv):
         "--exe", default="./stencil.x", help="Path to stencil executable."
     )
     parser.add_argument(
+        "--kernel",
+        choices=("bf16", "int8", "fp32", "fp32-direct"),
+        default="bf16",
+        help="Kernel path to benchmark: bf16, int8, fp32, fp32-direct (default: bf16).",
+    )
+    parser.add_argument(
         "--dims", type=int, default=3, help="Stencil term count passed with -d."
     )
     parser.add_argument("--steps", type=int, help="Time steps passed with -t.")
     parser.add_argument("--warmup", type=int, help="Warmup steps passed with -w.")
     parser.add_argument(
+        "--init",
+        choices=("rand", "zero", "gauss"),
+        help="Initial wavefield mode passed with -i.",
+    )
+    parser.add_argument(
         "--input", help="Read an existing CSV instead of running benchmarks."
     )
-    parser.add_argument("--output", default="stencil.csv", help="CSV output path.")
+    parser.add_argument(
+        "--output", help="CSV output path (default: stencil-<kernel>.csv)."
+    )
     parser.add_argument("--jsonl", help="Optional JSON-lines output path.")
     parser.add_argument("--plot", help="Optional PNG output path.")
     parser.add_argument(
@@ -450,6 +500,9 @@ def main(argv):
     args = parser.parse_args(argv)
     args.stop_on_error = not args.keep_going
 
+    if args.output is None:
+        args.output = default_output_path(args.kernel)
+
     try:
         sizes = parse_sizes((args.sizes_option or []) + args.sizes)
     except ValueError as exc:
@@ -465,10 +518,12 @@ def main(argv):
                 fpp = flops_per_point(STENCIL_RADIUS, dims)
                 row["gflops_s"] = "{:.1f}".format(float(row["gpoints_s"]) * fpp)
     else:
+        cases = KERNEL_CASES[args.kernel]
+        kernel_env = KERNEL_ENV[args.kernel]
         rows = []
         for n in sizes:
-            for case in CASES:
-                rows.append(run_case(args, n, case))
+            for case in cases:
+                rows.append(run_case(args, n, case, kernel_env))
 
     if not args.dry_run:
         if not args.input:
