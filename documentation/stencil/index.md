@@ -399,18 +399,28 @@ Note: `TRIM` drops least-significant digit products, so it is a controlled accur
 
 ---
 
-## GPoints/s at N=800
+## GPoints/s @ N=800
 
-| Path          | Arc B580 | PVC 1550\* |
-|---------------|----------|------------|
-| FP32 direct   | 22.5     | 40.6       |
-| FP32 compact  | 23.9     | 52.3       |
-| BF16 direct   | 9.7      | 14.7       |
-| BF16 compact  | 9.9      | 15.1       |
-| INT8 direct   | 6.3      | 9.7        |
-| INT8 compact  | 6.7      | 10.5       |
+| Path          | Arc B580 | PVC-1T | PVC-2T\* | H100  |
+|---------------|----------|--------|----------|-------|
+| FP32 direct   | 22.5     | 40.6   |  81.2    | 100.4 |
+| FP32 compact  | 23.9     | 52.3   | 104.6    | 103.5 |
+| BF16 direct   | 9.7      | 14.7   |  29.4    | -     |
+| BF16 compact  | 9.9      | 15.1   |  30.2    | -     |
+| INT8 direct   | 6.3      | 9.7    |  19.4    | -     |
+| INT8 compact  | 6.7      | 10.5   |  21.0    | -     |
 
-<span style="opacity: 0.4; font-size: 50%;">\* Intel® Data Center GPU Max 1550 @ 450W TDP, 1 Tile</span>
+<div markdown="1" style="opacity: 0.4; font-size: 50%;">
+
+\* Not actually executed but trivially doubled like it is possible with MPI.
+
+**OpenCL device names**
+- Intel® Arc™ B580 Graphics
+- Intel® Data Center GPU Max 1550 (450W TDP)
+- NVIDIA H100 80GB HBM3
+
+</div>
+
 
 Note: B580 is bandwidth-bound — FP32 banded-FMA wins because it avoids
 the digit-slicing gather overhead. PVC has more compute headroom where
