@@ -214,7 +214,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK_DEFAULT, config->lock_main);
     if (0 == base_ready) {
       LIBXS_MEMZERO(base_flags);
-      { const char* cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem(
+      { const char* cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem_size(
             devinfo, STENCIL_WIDTH * sizeof(float))) ? "global" : "constant";
         LIBXS_SNPRINTF(base_flags, sizeof(base_flags),
           "-cl-fast-relaxed-math -cl-denorms-are-zero"

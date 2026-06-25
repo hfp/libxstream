@@ -103,7 +103,7 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
         const char *const env_cl = OPENCL_LIBSMM_TRANSENV("BUILDOPTS"), *const env_bm = OPENCL_LIBSMM_TRANSENV("BM");
         const char* const env_bs = OPENCL_LIBSMM_TRANSENV("BS");
-        const char* const cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem(devinfo, 0) ? "global" : "constant");
+        const char* const cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem_size(devinfo, 0) ? "global" : "constant");
         const char* const build_format = "-DCONSTANT=%s -DINPLACE=%i -DFN=%s -DSM=%i -DSN=%i -DWG=%i -DT=%s -DBS=%i -DSLM_PAD=%i";
         const char *const env_inplace = OPENCL_LIBSMM_TRANSENV("INPLACE"), *tname = "";
 #  if defined(OPENCL_LIBSMM_TRANS_INPLACE)

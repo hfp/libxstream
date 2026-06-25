@@ -808,7 +808,7 @@ LIBXSTREAM_API int libxstream_finalize(void)
 }
 
 
-LIBXSTREAM_API int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo, size_t size)
+LIBXSTREAM_API int libxstream_opencl_use_cmem_size(const libxstream_opencl_device_t* devinfo, size_t size)
 {
 # if defined(LIBXSTREAM_CMEM)
   const size_t needed = (0 != size) ? size : devinfo->size_maxalloc;
@@ -817,6 +817,12 @@ LIBXSTREAM_API int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* 
   LIBXS_UNUSED(size);
   return EXIT_FAILURE;
 # endif
+}
+
+
+LIBXSTREAM_API int libxstream_opencl_use_cmem(const libxstream_opencl_device_t* devinfo)
+{
+  return libxstream_opencl_use_cmem_size(devinfo, 0);
 }
 
 
