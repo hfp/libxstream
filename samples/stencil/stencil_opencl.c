@@ -34,13 +34,13 @@ static int stencil_method_params(stencil_method_t method, int* k_steps, int* r_p
     case STENCIL_DIRECT:
       *k_steps = 1; *r_per_step = STENCIL_RADIUS;
       break;
-    case STENCIL_STAGED_R1:
+    case STENCIL_COMPACT_R1:
       *k_steps = STENCIL_RADIUS; *r_per_step = 1;
       break;
-    case STENCIL_STAGED_R2:
+    case STENCIL_COMPACT_R2:
       *k_steps = 2; *r_per_step = (STENCIL_RADIUS + 1) / 2;
       break;
-    case STENCIL_STAGED_FIT:
+    case STENCIL_COMPACT_FIT:
       *k_steps = STENCIL_RADIUS; *r_per_step = 1;
       break;
     default:

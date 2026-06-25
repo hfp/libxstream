@@ -194,7 +194,7 @@ int main(int argc, char* argv[])
     result = stencil_init(&ctx, 1, method_override);
   }
   if (EXIT_SUCCESS == result) {
-    const char* mnames[] = {"direct", "staged-r1", "staged-r2", "staged-fit"};
+    const char* mnames[] = {"direct", "compact-r1", "compact-r2", "compact-fit"};
     ctx.nterms = nterms;
     printf("  Method:     %s (K=%d, r=%d, strips/WG=%d)\n",
            mnames[(int)ctx.method], ctx.k_steps, ctx.r_per_step,
@@ -647,7 +647,7 @@ static void usage(const char* prog)
          "  -nx/ny/nz <N> individual grid dimensions\n"
          "  -t <steps>    number of time steps (default 100)\n"
          "  -d <dims>     operator terms: 3=isotropic, 9=TTI (default 3)\n"
-         "  -m <method>   operator method: 0=direct 1=staged-r1 2=staged-r2 3=staged-fit\n"
+         "  -m <method>   operator method: 0=direct 1=compact-r1 2=compact-r2 3=compact-fit\n"
          "  -i <init>     initial wavefield: rand|zero|gauss (default rand)\n"
          "  -h <spacing>  grid spacing in meters (default 10.0)\n"
          "  -v <model>    velocity model: const|grad|layered|<file.bin>\n"
