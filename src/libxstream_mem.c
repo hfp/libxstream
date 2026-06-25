@@ -47,6 +47,64 @@
 # endif
 
 
+LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem /*memory*/, void** /*memptr_out*/);
+LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem memory, void** memptr_out)
+{
+  static const char source[] =
+    "kernel void memptr(global unsigned long* ptr) {\n"
+    "  const union { global unsigned long* p; unsigned long u; } cast = { ptr };\n"
+    "  const size_t i = get_global_id(0);\n"
+    "  ptr[i] = cast.u + i;\n"
+    "}\n";
+  libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+  libxstream_opencl_info_memptr_t* info = NULL;
+  const size_t size = 1;
+  int result = EXIT_SUCCESS;
+  void* memptr = NULL;
+
+  assert(NULL != memptr_out && NULL != memory);
+  assert(NULL != devinfo->stream.queue);
+  assert(sizeof(size_t) == sizeof(cl_ulong));
+
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+  if (devinfo->context != devinfo->memptr_context) {
+    if (NULL != devinfo->memptr_kernel) {
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseKernel(devinfo->memptr_kernel));
+      devinfo->memptr_kernel = NULL;
+    }
+    devinfo->memptr_context = NULL;
+  }
+  if (NULL == devinfo->memptr_kernel) {
+    result = libxstream_opencl_kernel(0, source, "memptr",
+      NULL, NULL, NULL, NULL, NULL, 0, &devinfo->memptr_kernel);
+    if (EXIT_SUCCESS == result) devinfo->memptr_context = devinfo->context;
+  }
+  CL_CHECK(result, clSetKernelArg(devinfo->memptr_kernel, 0, sizeof(cl_mem), &memory));
+  if (EXIT_SUCCESS == result) {
+    result = clEnqueueNDRangeKernel(devinfo->stream.queue, devinfo->memptr_kernel,
+      1, NULL, &size, NULL, 0, NULL, NULL);
+  }
+  if (EXIT_SUCCESS == result) {
+    result = clEnqueueReadBuffer(devinfo->stream.queue, memory, CL_TRUE,
+      0, sizeof(void*), &memptr, 0, NULL, NULL);
+  }
+  assert(EXIT_SUCCESS != result || NULL != memptr);
+  if (EXIT_SUCCESS == result) {
+    info = (libxstream_opencl_info_memptr_t*)libxs_pmalloc(
+      (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
+    if (NULL != info) {
+      info->memory = memory;
+      info->memptr = memptr;
+    }
+    else result = EXIT_FAILURE;
+  }
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+
+  *memptr_out = memptr;
+  return result;
+}
+
+
 LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* extra)
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
@@ -258,7 +316,7 @@ LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void* pointer, const void* e
 
 LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbytes, libxstream_opencl_mem_hint_t hint)
 {
-  const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+  libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   void* memptr = NULL;
   assert(NULL != dev_mem && NULL != devinfo->context);
@@ -330,7 +388,11 @@ LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbyte
       );
       memory = clCreateBuffer(devinfo->context, flags, nbytes, NULL, &result);
       if (EXIT_SUCCESS == result && NULL != memory) {
-        memptr = (void*)memory;
+        result = libxstream_memptr_register(memory, &memptr);
+        if (EXIT_SUCCESS != result) {
+          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(memory));
+          memptr = NULL;
+        }
       }
     }
   }
@@ -357,7 +419,17 @@ LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem)
     else
 # endif
     {
-      result = clReleaseMemObject((cl_mem)dev_mem);
+      libxstream_opencl_info_memptr_t* info = NULL;
+      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+      info = libxstream_opencl_info_devptr_modify(NULL, dev_mem, 1, NULL, NULL);
+      if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
+        libxstream_opencl_info_memptr_t* const pfree = libxstream_opencl_config.memptrs[libxstream_opencl_config.nmemptrs];
+        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->memory));
+        libxs_pfree(pfree, (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
+        *info = *pfree;
+        LIBXS_MEMZERO(pfree);
+      }
+      LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     }
   }
   CL_RETURN(result, "");
@@ -719,49 +791,7 @@ LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
         memory = clCreateBuffer(devinfo->context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result);
       }
       if (EXIT_SUCCESS == result) {
-        libxstream_opencl_info_memptr_t* info = NULL;
-        const size_t size = 1;
-        static const char source[] = "kernel void memptr(global unsigned long* ptr) {\n"
-                   "  const union { global unsigned long* p; unsigned long u; } cast = { ptr };\n"
-                   "  const size_t i = get_global_id(0);\n"
-                   "  ptr[i] = cast.u + i;\n"
-                   "}\n";
-        LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-        assert(NULL != devinfo->stream.queue && NULL != memory);
-        assert(sizeof(size_t) == sizeof(cl_ulong));
-        if (devinfo->context != devinfo->memptr_context) {
-          if (NULL != devinfo->memptr_kernel) {
-            LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseKernel(devinfo->memptr_kernel));
-            devinfo->memptr_kernel = NULL;
-          }
-          devinfo->memptr_context = NULL;
-        }
-        if (NULL == devinfo->memptr_kernel) {
-          result = libxstream_opencl_kernel(0 /*source_kind*/, source, "memptr" /*kernel_name*/, NULL /*build_params*/,
-            NULL /*build_options*/, NULL /*try_build_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/,
-            &devinfo->memptr_kernel);
-          if (EXIT_SUCCESS == result) devinfo->memptr_context = devinfo->context;
-        }
-        CL_CHECK(result, clSetKernelArg(devinfo->memptr_kernel, 0, sizeof(cl_mem), &memory));
-        if (EXIT_SUCCESS == result) {
-          result = clEnqueueNDRangeKernel(
-            devinfo->stream.queue, devinfo->memptr_kernel, 1 /*work_dim*/, NULL /*offset*/, &size, NULL /*local_work_size*/, 0, NULL, NULL);
-        }
-        if (EXIT_SUCCESS == result) {
-          result = clEnqueueReadBuffer(
-            devinfo->stream.queue, memory, CL_TRUE /*blocking*/, 0 /*offset*/, sizeof(void*), &memptr, 0, NULL, NULL /*event*/);
-        }
-        assert(EXIT_SUCCESS != result || NULL != memptr);
-        if (EXIT_SUCCESS == result) {
-          info = (libxstream_opencl_info_memptr_t*)libxs_pmalloc(
-            (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
-          if (NULL != info) {
-            info->memory = memory;
-            info->memptr = memptr;
-          }
-          else result = EXIT_FAILURE;
-        }
-        LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+        result = libxstream_memptr_register(memory, &memptr);
       }
       if (EXIT_SUCCESS != result) {
         if (0 != libxstream_opencl_config.verbosity) {
