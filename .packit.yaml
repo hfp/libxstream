@@ -10,7 +10,6 @@ files_to_sync:
   - .packit.yaml
 upstream_package_name: libxstream
 downstream_package_name: libxstream
-upstream_tag_template: "{version}"
 
 targets:
   - fedora-development-x86_64
