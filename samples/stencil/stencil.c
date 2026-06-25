@@ -10,6 +10,7 @@
 #include <libxs/libxs_timer.h>
 #include <libxs/libxs_math.h>
 #include <libxs/libxs_mem.h>
+#include <libxs/libxs_rng.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +25,13 @@ typedef enum {
   VEL_LAYERED,
   VEL_FILE
 } vel_model_t;
+
+/* Initial wavefield modes */
+typedef enum {
+  INIT_RAND,
+  INIT_ZERO,
+  INIT_GAUSS
+} init_mode_t;
 
 static void fd_weights_2nd(double* w, int radius, double h);
 static int load_velocity_file(const char* path, float* vel, int nx, int ny, int nz);
@@ -53,6 +61,7 @@ int main(int argc, char* argv[])
   float v_min = 1500.0f, v_max = 4500.0f;
   float freq = 25.0f;
   vel_model_t vel_model = VEL_GRADIENT;
+  init_mode_t init_mode = INIT_RAND;
   const char* vel_file = NULL;
   double fd_w[2 * STENCIL_RADIUS + 1];
   int method_override = -1;
@@ -118,6 +127,12 @@ int main(int argc, char* argv[])
     else if (0 == strcmp(argv[argi], "-m") && argi + 1 < argc) {
       method_override = atoi(argv[++argi]);
     }
+    else if (0 == strcmp(argv[argi], "-i") && argi + 1 < argc) {
+      const char* arg = argv[++argi];
+      if (0 == strcmp(arg, "zero")) init_mode = INIT_ZERO;
+      else if (0 == strcmp(arg, "gauss")) init_mode = INIT_GAUSS;
+      else init_mode = INIT_RAND;
+    }
     else if (0 == strcmp(argv[argi], "--help")) {
       usage(argv[0]); return EXIT_SUCCESS;
     }
@@ -129,7 +144,9 @@ int main(int argc, char* argv[])
                    / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
     printf("Stencil %s benchmark\n",
            (NULL != getenv("STENCIL_FP32") && 0 != atoi(getenv("STENCIL_FP32")))
-             ? "FP32" : "BF16-DPAS");
+             ? "FP32"
+             : ((NULL != getenv("STENCIL_INT8") && 0 != atoi(getenv("STENCIL_INT8")))
+               ? "INT8-DPAS" : "BF16-DPAS"));
     printf("  Grid:       %d x %d x %d (%.3f GPoints)\n",
            nx, ny, nz, gpoints);
     printf("  Block:      %d^3, radius=%d (order %d)\n",
@@ -140,6 +157,9 @@ int main(int argc, char* argv[])
            nterms * STENCIL_NDIGITS_A * STENCIL_NDIGITS_X);
     printf("  Terms:      %d (%s)\n", nterms,
            nterms <= 3 ? "isotropic" : "TTI");
+    printf("  Init:       %s\n",
+           INIT_RAND == init_mode ? "rand" :
+           (INIT_GAUSS == init_mode ? "gauss" : "zero"));
     printf("  Steps:      %d (+ %d warmup)\n", ntsteps, warmup);
     printf("  Spacing:    %.1f m, dt=%.3e s\n", h, (double)dt);
     printf("  Velocity:   %.0f - %.0f m/s", (double)v_min, (double)v_max);
@@ -232,9 +252,31 @@ int main(int argc, char* argv[])
     }
 
     if (EXIT_SUCCESS == result) {
-      const int n = nx * ny * nz;
-      int i;
-      for (i = 0; i < n; ++i) p_host[i] = 0.0f;
+      if (INIT_RAND == init_mode) {
+        LIBXS_MATRNG(int, float, 0, p_host, nx, (int)((long)ny * nz), nx, 1.0f);
+      }
+      else if (INIT_GAUSS == init_mode) {
+        const int cx = nx / 2, cy = ny / 2, cz = nz / 2;
+        const float sigma2 = (float)(nx * nx) / 32.0f;
+        int iz, iy, ix;
+        for (iz = 0; iz < nz; ++iz) {
+          for (iy = 0; iy < ny; ++iy) {
+            for (ix = 0; ix < nx; ++ix) {
+              const float dx = (float)(ix - cx);
+              const float dy = (float)(iy - cy);
+              const float dz = (float)(iz - cz);
+              const float r2 = dx * dx + dy * dy + dz * dz;
+              p_host[(long)iz * ny * nx + (long)iy * nx + ix] =
+                (float)exp((double)(-r2 / sigma2));
+            }
+          }
+        }
+      }
+      else {
+        const long n = (long)nx * ny * nz;
+        long i;
+        for (i = 0; i < n; ++i) p_host[i] = 0.0f;
+      }
     }
 
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[0], dev_bytes, libxstream_opencl_mem_hint_compress);
@@ -606,6 +648,7 @@ static void usage(const char* prog)
          "  -t <steps>    number of time steps (default 100)\n"
          "  -d <dims>     operator terms: 3=isotropic, 9=TTI (default 3)\n"
          "  -m <method>   operator method: 0=direct 1=staged-r1 2=staged-r2 3=staged-fit\n"
+         "  -i <init>     initial wavefield: rand|zero|gauss (default rand)\n"
          "  -h <spacing>  grid spacing in meters (default 10.0)\n"
          "  -v <model>    velocity model: const|grad|layered|<file.bin>\n"
          "  -vmin <vel>   min velocity m/s (default 1500)\n"
@@ -617,7 +660,7 @@ static void usage(const char* prog)
          "  -seg-salt      SEG/EAGE Salt (676x676x210, h=20m)\n"
          "  -overthrust    SEG/EAGE Overthrust (801x801x187, h=25m)\n"
          "\n"
-         "Environment: STENCIL_METHOD, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256, STENCIL_TRIM, STENCIL_LU, STENCIL_FP32, STENCIL_BF16S, STENCIL_BLOCKED\n"
+         "Environment: STENCIL_METHOD, STENCIL_INT8, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256, STENCIL_TRIM, STENCIL_LU, STENCIL_FP32, STENCIL_BF16S, STENCIL_BLOCKED\n"
          "\n"
          "Performance is reported in GPoints/s.\n", prog);
 }
