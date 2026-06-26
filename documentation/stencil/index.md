@@ -55,7 +55,8 @@ The current sample is a GPU stencil benchmark and integration example.
 | Compact variants              | `-m 1`, `-m 2`   | radius-1/radius-2 compact runtime paths      |
 | Compact fitting hook          | `-m 3`           | placeholder for fitted compact coefficients  |
 | INT8-DPAS Ozaki-1             | `STENCIL_INT8=1` | signed 8-bit slicing with carried exponent   |
-| FP32 scalar reference         | `STENCIL_FP32=1` | banded FMA, no DPAS (baseline comparison)    |
+| FP32 LP-like implementation   | `STENCIL_FP32=1` | banded FMA, DPAS replaced by scalar FP32     |
+| FP32 traditional stencil      | `STENCIL_FP32=2` | banded FMA, no DPAS                          |
 
 ---
 
