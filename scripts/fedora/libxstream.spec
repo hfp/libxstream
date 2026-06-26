@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           libxstream
-Version:        0.9.1
+Version:        1.0.0
 Release:        %autorelease
 Summary:        OpenCL-accelerated tensor operations built on LIBXS
 
