@@ -226,7 +226,7 @@ cheader: $(INCDIR)/$(PROJECT)_source.h $(INCDIR)/$(PROJECT)_version.h
 $(INCDIR)/$(PROJECT)_source.h: $(INCDIR)/.make $(ROOTSCR)/tool_source.sh $(HEADERS_SRC) $(SRCFILES)
 	@$(ROOTSCR)/tool_source.sh >$@
 
-$(INCDIR)/$(PROJECT)_version.h: $(INCDIR)/.make $(DIRSTATE)/.state $(ROOTSCR)/tool_version.sh
+$(INCDIR)/$(PROJECT)_version.h: $(INCDIR)/.make $(DIRSTATE)/.state $(ROOTDIR)/VERSION $(ROOTSCR)/tool_version.sh
 	$(information)
 	$(info --- $(PROJUPP) build log)
 	@$(CP) -r $(ROOTSCR) . 2>/dev/null || true
@@ -237,7 +237,6 @@ $(INCDIR)/$(PROJECT)_version.h: $(INCDIR)/.make $(DIRSTATE)/.state $(ROOTSCR)/to
 	@$(CP) $(HEADERS_MAIN) $(INCDIR) 2>/dev/null || true
 	@$(CP) $(SRCFILES) $(HEADERS_SRC) $(SRCDIR) 2>/dev/null || true
 	@$(ROOTSCR)/tool_version.sh $(PROJECT) -1 >$@
-	@$(SED) 's/^\(  VERSION \)[0-9][0-9.]*/\1$(VERSION_STRING)/' $(ROOTDIR)/CMakeLists.txt >$(ROOTDIR)/CMakeLists.tmp 2>/dev/null && mv $(ROOTDIR)/CMakeLists.tmp $(ROOTDIR)/CMakeLists.txt || true
 	@$(ROOTSCR)/tool_pkgversion.sh 2>/dev/null || true
 
 define DEFINE_COMPILE_RULE

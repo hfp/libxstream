@@ -6,8 +6,8 @@
 # SPDX-License-Identifier: BSD-3-Clause                                       #
 ###############################################################################
 # Synchronize packaging metadata (RPM spec, Debian changelog) with the
-# project version from CMakeLists.txt.  Only patches when the version
-# actually changed.  Run from the repository root:
+# project version from VERSION. Only patches when the version actually
+# changed. Run from the repository root:
 #   sh scripts/tool_pkgversion.sh
 ###############################################################################
 SED=$(command -v sed)
@@ -21,11 +21,15 @@ fi
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "${HERE}/.." && pwd)
 
-VERSION=$(${GREP} -m1 '^\s*VERSION' "${ROOT}/CMakeLists.txt" \
-  | ${SED} 's/[^0-9.]//g')
+VERSION_FILE="${ROOT}/VERSION"
+if [ ! -r "${VERSION_FILE}" ]; then
+  >&2 echo "ERROR: missing ${VERSION_FILE}"
+  exit 1
+fi
 
-if [ -z "${VERSION}" ]; then
-  >&2 echo "ERROR: cannot extract VERSION from CMakeLists.txt"
+VERSION=$(${SED} -n '1{s/\r$//;p;}' "${VERSION_FILE}")
+if ! printf '%s\n' "${VERSION}" | ${GREP} -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  >&2 echo "ERROR: invalid version '${VERSION}' in ${VERSION_FILE}"
   exit 1
 fi
 
