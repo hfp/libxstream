@@ -716,7 +716,11 @@ LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem, libxstream_str
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event /*event*/, cl_int /*event_status*/, void* /*data*/);
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event, cl_int event_status, void* data)
 {
+#if defined(CL_VERSION_2_0)
   cl_command_type type = CL_COMMAND_SVM_MEMCPY;
+#else
+  cl_command_type type = 0;
+#endif
   int result = EXIT_SUCCESS;
   double vals[2];
   vals[1] = libxstream_opencl_duration(event, &result) * 1E6; /* Microseconds */

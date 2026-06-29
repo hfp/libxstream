@@ -37,12 +37,14 @@ if(NOT TARGET libxs::libxs)
 endif()
 
 find_package(OpenCL REQUIRED)
-find_package(OpenMP REQUIRED COMPONENTS C)
+find_package(OpenMP COMPONENTS C)
 
 set(LIBXSTREAM_LINK_LIBRARIES
   OpenCL::OpenCL
-  OpenMP::OpenMP_C
   libxs::libxs)
+if(OpenMP_C_FOUND)
+  list(APPEND LIBXSTREAM_LINK_LIBRARIES OpenMP::OpenMP_C)
+endif()
 
 message(STATUS "******** Build Summary ********")
 message(STATUS "  CMake version         : ${CMAKE_VERSION}")

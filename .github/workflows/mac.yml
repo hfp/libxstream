@@ -1,0 +1,78 @@
+name: macOS
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+
+  Test:
+    runs-on: macos-latest
+
+    strategy:
+      matrix:
+        clang: [default]
+        flags: [DBG=0, DBG=1 PEDANTIC=2]
+        libxs: [prebuilt]
+        include:
+          - clang: default
+            flags: DBG=1 PEDANTIC=2
+            libxs: header-only
+
+    env:
+      CC: clang
+      CXX: clang++
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install gcc libomp
+
+      - name: Setup LIBXS
+        run: |
+          git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
+          echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> $GITHUB_ENV
+
+      - name: Build LIBXS
+        if: matrix.libxs == 'prebuilt'
+        run: cd ${LIBXSROOT} && make -j $(sysctl -n hw.ncpu) ${{ matrix.flags }}
+
+      - name: Build LIBXSTREAM
+        run: make -j $(sysctl -n hw.ncpu) ${{ matrix.flags }}
+
+  CMake:
+    runs-on: macos-latest
+
+    strategy:
+      matrix:
+        build_type: [Release, Debug]
+        shared: [static, shared]
+
+    env:
+      CC: clang
+      CXX: clang++
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: brew install cmake
+
+      - name: Configure
+        run: |
+          cmake -B build \
+                -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+                -DBUILD_SHARED_LIBS=$( [ "${{ matrix.shared }}" = "shared" ] && echo ON || echo OFF )
+
+      - name: Build
+        run: cmake --build build --parallel $(sysctl -n hw.ncpu)
