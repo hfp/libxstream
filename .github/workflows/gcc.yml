@@ -20,7 +20,7 @@ jobs:
         flags: [DBG=0, DBG=1 PEDANTIC=2]
         libxs: [prebuilt]
         include:
-          - flags: DBG=1 PEDANTIC=2
+          - flags: DBG=1 PEDANTIC=2 FORCE_CXX=1 FORTRAN=0
             libxs: header-only
     steps:
     - uses: actions/checkout@v5

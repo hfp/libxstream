@@ -226,7 +226,7 @@ cheader: $(INCDIR)/$(PROJECT)_source.h $(INCDIR)/$(PROJECT)_version.h
 $(INCDIR)/$(PROJECT)_source.h: $(INCDIR)/.make $(ROOTSCR)/tool_source.sh $(HEADERS_SRC) $(SRCFILES)
 	@$(ROOTSCR)/tool_source.sh >$@
 
-$(INCDIR)/$(PROJECT)_version.h: $(INCDIR)/.make $(DIRSTATE)/.state $(ROOTDIR)/VERSION $(ROOTSCR)/tool_version.sh
+$(INCDIR)/$(PROJECT)_version.h: $(INCDIR)/.make $(DIRSTATE)/.state $(ROOTDIR)/version.txt $(ROOTSCR)/tool_version.sh
 	$(information)
 	$(info --- $(PROJUPP) build log)
 	@$(CP) -r $(ROOTSCR) . 2>/dev/null || true
