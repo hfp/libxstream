@@ -21,7 +21,7 @@ if [ ! "${HEAD}" ] || [ ! "${CUT}" ] || [ ! "${TR}" ] || [ ! "${GREP}" ]; then
 fi
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || exit 1
-VERSION_FILE="${ROOT}/VERSION"
+VERSION_FILE="${ROOT}/version.txt"
 if [ ! -r "${VERSION_FILE}" ]; then
   >&2 echo "ERROR: missing ${VERSION_FILE}!"
   exit 1

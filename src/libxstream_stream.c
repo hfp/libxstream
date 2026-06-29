@@ -143,7 +143,7 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
   else result = EXIT_FAILURE;
   if (EXIT_SUCCESS == result) { /* register stream */
     assert(NULL != libxstream_opencl_config.streams && NULL != queue);
-    *stream_p = libxs_pmalloc((void**)libxstream_opencl_config.streams, &libxstream_opencl_config.nstreams);
+    *stream_p = (libxstream_stream_t*)libxs_pmalloc((void**)libxstream_opencl_config.streams, &libxstream_opencl_config.nstreams);
     if (NULL != *stream_p) {
       libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)*stream_p;
 # if !defined(NDEBUG)

@@ -14,7 +14,7 @@ LIBXSTREAM_API int libxstream_event_create(libxstream_event_t** event_p)
 {
   int result = EXIT_SUCCESS;
   assert(NULL != libxstream_opencl_config.events && NULL != event_p);
-  *event_p = libxs_pmalloc_lock(
+  *event_p = (libxstream_event_t*)libxs_pmalloc_lock(
     (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
   if (NULL != *event_p) (*event_p)->cl_evt = NULL;
   else result = EXIT_FAILURE;

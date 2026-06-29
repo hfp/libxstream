@@ -115,7 +115,8 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
     if (NULL == config && NULL != opencl_libsmm_predict_model) {
-      libxs_predict_info_t pinfo = { 0 };
+      libxs_predict_info_t pinfo;
+      LIBXS_MEMZERO(&pinfo);
       double inputs[3], outputs[16];
       const double thr = 0.9;
       inputs[0] = (double)key.m;

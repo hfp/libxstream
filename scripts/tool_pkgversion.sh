@@ -21,7 +21,7 @@ fi
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "${HERE}/.." && pwd)
 
-VERSION_FILE="${ROOT}/VERSION"
+VERSION_FILE="${ROOT}/version.txt"
 if [ ! -r "${VERSION_FILE}" ]; then
   >&2 echo "ERROR: missing ${VERSION_FILE}"
   exit 1
