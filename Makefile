@@ -58,9 +58,6 @@ OMP ?= 1
 # There is no reliance on Fortran
 FORTRAN ?= 0
 
-# Kind of documentation (internal key)
-DOCEXT := pdf
-
 # Timeout when downloading documentation parts
 TIMEOUT := 30
 
@@ -345,14 +342,8 @@ $(DOCDIR)/$(PROJECT)_samples.md: $(DOCDIR)/.make $(DOCDIR)/$(SPLDIR)/.make $(ROO
 		-e '1s/^/# [$(PROJUPP) Samples](https:\/\/github.com\/hfp\/$(PROJECT)\/raw\/main\/$(DOCDIR)\/$(PROJECT)_samples.pdf)\n\n/' \
 		>$@
 
+MDAUTHOR := Hans\ Pabst
 $(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/Makefile $(DOCDIR)/index.md $(DOCDIR)/$(PROJECT)_scripts.md $(DOCMDS)
-	$(eval TMPFILE = $(shell $(MKTEMP) $(ROOTDIR)/$(DOCDIR)/.$(PROJECT)_XXXXXX.tex))
-	@pandoc -D latex \
-	| $(SED) \
-		-e 's/\(\\documentclass\[..*\]{..*}\)/\1\n\\pagenumbering{gobble}\n\\RedeclareSectionCommands[beforeskip=-1pt,afterskip=1pt]{subsection,subsubsection}/' \
-		-e 's/\\usepackage{listings}/\\usepackage{listings}\\lstset{basicstyle=\\footnotesize\\ttfamily,showstringspaces=false}/' \
-		-e 's/\(\\usepackage.*{hyperref}\)/\\usepackage[hyphens]{url}\n\1/' \
-		>$(TMPFILE)
 	@cd $(ROOTDIR)/$(DOCDIR) && ( \
 		cat $(ABSDIR)/$(DOCDIR)/index.md && echo && \
 		echo "# $(PROJUPP) Domains" && \
@@ -365,75 +356,17 @@ $(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/Makefile $(DOCDIR)/in
 	| $(SED) \
 		-e 's/<sub>/~/g' -e 's/<\/sub>/~/g' \
 		-e 's/<sup>/^/g' -e 's/<\/sup>/^/g' \
-		-e 's/\xe2\x88\x92/-/g' \
-		-e 's/\xe2\x89\xa4/<=/g' \
-		-e 's/\xe2\x89\xa5/>=/g' \
-		-e 's/\xc2\xb7/*/g' \
-		-e 's/\xc3\x97/x/g' \
-		-e 's/\xe2\x80\x93/--/g' \
-		-e 's/\xe2\x80\x94/---/g' \
-		-e 's/\xe2\x80\xa6/.../g' \
-		-e 's/\xe2\x86\x92/->/g' \
-		-e 's/\xc2\xb2/2/g' \
-		-e 's/\xc2\xa0/ /g' \
-		-e 's/\xe2\x80\xaf/ /g' \
-		-e 's/\xc2\xae/\\\\textregistered{}/g' \
-		-e 's/\xe2\x84\xa2/\\\\texttrademark{}/g' \
-		-e 's/{:[^}]*}//g' \
-		-e '/^----*$$/d' \
-	| pandoc \
-		--template=$(call qndir,$(TMPFILE)) --listings \
-		-f gfm+subscript+superscript \
-		-V documentclass=scrartcl \
-		-V title-meta="$(PROJUPP) Documentation" \
-		-V author-meta="Hans Pabst" \
-		-V classoption=DIV=45 \
-		-V linkcolor=black \
-		-V citecolor=black \
-		-V urlcolor=black \
-		-o $(call qndir,$@)
-	@rm $(TMPFILE)
+	| $(call md2pdf,$(PROJUPP) Documentation,$(MDAUTHOR),$(call qndir,$@))
 
-$(DOCDIR)/$(PROJECT)_samples.$(DOCEXT): $(ROOTDIR)/Makefile $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md
-	$(eval TMPFILE = $(shell $(MKTEMP) .$(PROJECT)_XXXXXX.tex))
-	@pandoc -D latex \
-	| $(SED) \
-		-e 's/\(\\documentclass\[..*\]{..*}\)/\1\n\\pagenumbering{gobble}\n\\RedeclareSectionCommands[beforeskip=-1pt,afterskip=1pt]{subsection,subsubsection}/' \
-		-e 's/\\usepackage{listings}/\\usepackage{listings}\\lstset{basicstyle=\\footnotesize\\ttfamily,showstringspaces=false}/' \
-		-e 's/\(\\usepackage.*{hyperref}\)/\\usepackage[hyphens]{url}\n\1/' \
-		>$(TMPFILE)
-	@cat $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md \
-	| $(SED) \
-		-e 's/\xe2\x88\x92/-/g' \
-		-e 's/\xe2\x89\xa4/<=/g' \
-		-e 's/\xe2\x89\xa5/>=/g' \
-		-e 's/\xc2\xb7/*/g' \
-		-e 's/\xc3\x97/x/g' \
-		-e 's/\xe2\x80\x93/--/g' \
-		-e 's/\xe2\x80\x94/---/g' \
-		-e 's/\xe2\x80\xa6/.../g' \
-		-e 's/\xe2\x86\x92/->/g' \
-		-e 's/\xc2\xb2/2/g' \
-		-e 's/\xc2\xa0/ /g' \
-		-e 's/\xe2\x80\xaf/ /g' \
-		-e 's/\xc2\xae/\\\\textregistered{}/g' \
-		-e 's/\xe2\x84\xa2/\\\\texttrademark{}/g' \
-		-e 's/{:[^}]*}//g' \
-		-e '/^----*$$/d' \
-	| pandoc \
-		--template=$(TMPFILE) --listings \
-		-f gfm+subscript+superscript \
-		-V documentclass=scrartcl \
-		-V title-meta="$(PROJUPP) Sample Code Summary" \
-		-V classoption=DIV=45 \
-		-V linkcolor=black \
-		-V citecolor=black \
-		-V urlcolor=black \
-		-o $@
-	@rm $(TMPFILE)
+MDFILE := $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md
+DOCFILE := $(if $(filter file,$(origin MDFILE)),$(DOCDIR)/$(PROJECT)_samples,$(basename $(MDFILE))).$(DOCEXT)
+$(DOCFILE): $(ROOTDIR)/Makefile $(MDFILE)
+	@cat $(MDFILE) | $(call md2pdf, \
+		$(if $(filter file,$(origin MDFILE)),$(PROJUPP) Sample Code Summary), \
+		$(if $(filter file,$(origin MDFILE)),$(MDAUTHOR)),$@)
 
 .PHONY: documentation
-documentation: $(DOCDIR)/$(PROJECT).$(DOCEXT) $(DOCDIR)/$(PROJECT)_samples.$(DOCEXT)
+documentation: $(DOCDIR)/$(PROJECT).$(DOCEXT) $(DOCFILE)
 
 .PHONY: mkdocs
 mkdocs: mkdocs-tests $(ROOTDIR)/$(DOCDIR)/index.md
