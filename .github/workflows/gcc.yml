@@ -41,15 +41,18 @@ jobs:
       run: cd ${LIBXSROOT} && make -j $(nproc) ${{ matrix.flags }}
 
     - name: Build LIBXSTREAM
-      if: matrix.libxs == 'prebuilt'
+      if: matrix.libxs != 'header-only'
       run: make -j $(nproc) ${{ matrix.flags }}
 
+    - name: Test
+      run: make -j $(nproc) ${{ matrix.flags }} test
+
     - name: Install (PREFIX)
-      if: matrix.libxs == 'prebuilt'
+      if: matrix.libxs != 'header-only'
       run: make -j $(nproc) ${{ matrix.flags }} install PREFIX=$HOME/libxstream-install
 
     - name: Verify install (PREFIX)
-      if: matrix.libxs == 'prebuilt'
+      if: matrix.libxs != 'header-only'
       run: |
         test -f $HOME/libxstream-install/include/libxstream/libxstream.h
         test -f $HOME/libxstream-install/include/libxstream/libxstream_version.h
@@ -59,13 +62,13 @@ jobs:
         test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
         test -f $HOME/libxstream-install/share/libxstream/scripts/tool_opencl.sh
 
-    - name: Out-of-tree build
-      if: matrix.libxs == 'prebuilt'
+    - name: Out-of-tree build and test
       run: |
         mkdir $HOME/libxstream-oot && cd $HOME/libxstream-oot
-        make -j $(nproc) -f ${{ github.workspace }}/Makefile ${{ matrix.flags }}
+        make -j $(nproc) -f ${{ github.workspace }}/Makefile ${{ matrix.flags }} test
 
-    - name: Build Samples
+    - name: Build samples
+      if: matrix.libxs == 'header-only'
       run: make -j $(nproc) ${{ matrix.flags }} PARAMS= samples
 
   Debian:

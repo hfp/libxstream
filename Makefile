@@ -291,7 +291,7 @@ TSTMDS := $(patsubst $(TSTDIR)/%.c,$(DOCDIR)/tests/%.md,$(TSTSRC))
 
 .PHONY: samples $(SAMPLES)
 samples: $(SAMPLES)
-$(SAMPLES): libs
+$(SAMPLES): $(if $(wildcard $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(OUTDIR)/$(PROJECT).$(DLIBEXT)),libs)
 	@$(FLOCK) $@ "$(MAKE)"
 
 .PHONY: test-all
@@ -304,11 +304,11 @@ test: tests
 drytest: build-tests
 
 .PHONY: build-tests
-build-tests: libs
+build-tests: $(if $(wildcard $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(OUTDIR)/$(PROJECT).$(DLIBEXT)),libs)
 	@$(FLOCK) $(ROOTDIR)/$(TSTDIR) "$(MAKE) --no-print-directory"
 
 .PHONY: tests
-tests: libs
+tests: $(if $(wildcard $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(OUTDIR)/$(PROJECT).$(DLIBEXT)),libs)
 	@$(FLOCK) $(ROOTDIR)/$(TSTDIR) "$(MAKE) --no-print-directory test"
 
 $(DOCDIR)/index.md: $(DOCDIR)/.make $(ROOTDIR)/Makefile $(ROOTDIR)/README.md
