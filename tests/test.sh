@@ -7,6 +7,7 @@
 ###############################################################################
 
 HERE=$(cd "$(dirname "$0")" && pwd -P)
+BLDDIR=${BLDDIR:-${HERE}}
 GREP=$(command -v grep)
 SED=$(command -v sed)
 WC=$(command -v wc)
@@ -39,7 +40,11 @@ NMAX=$(${WC} <<<"${TESTS}" -w | ${TR} -d " ")
 for TEST in ${TESTS}; do
   NAME=$(${SED} <<<"${TEST}" 's/.*\///;s/\(.*\)\..*/\1/')
   printf "%02d of %02d: %-12s " "${NTEST}" "${NMAX}" "${NAME}"
-  TESTX="${HERE}/${NAME}${EXE}"
+  if [ -e "${BLDDIR}/${NAME}${EXE}" ]; then
+    TESTX="${BLDDIR}/${NAME}${EXE}"
+  else
+    TESTX="${HERE}/${NAME}${EXE}"
+  fi
   if [ -e "${TESTX}" ]; then
     RESULT=0
     ERROR=$({ \

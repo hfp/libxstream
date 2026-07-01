@@ -1,8 +1,8 @@
 ROOTDIR = $(abspath $(dir $(firstword $(MAKEFILE_LIST))))
 PROJECT := libxstream
 DEPDIR = $(ROOTDIR)/..
-SRCDIR = .
-INCDIR = .
+SRCDIR = $(ROOTDIR)
+INCDIR = $(ROOTDIR)
 BLDDIR = obj
 OUTDIR = .
 
@@ -12,6 +12,8 @@ DFLAGS = $(NULL)
 
 OMP = 1
 SYM = 1
+
+EXCLUDE_STATE := DESTDIR PREFIX CURDIR OUTDIR TEST VERSION_STRING ALIAS_% %ROOT
 
 # root directory of LIBXS
 LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
@@ -34,6 +36,15 @@ ifneq (,$(LIBXSROOT))
   endif
 endif
 
+# header-only when library is not (yet) built
+XLIB := $(wildcard $(DEPDIR)/lib/$(PROJECT).$(SLIBEXT) $(DEPDIR)/lib/$(PROJECT).$(DLIBEXT))
+ifeq (,$(XLIB))
+ifneq (,$(wildcard $(DEPDIR)/libxstream/libxstream_source.h))
+  DFLAGS += -DLIBXSTREAM_SOURCE
+  HEADERONLY = 1
+endif
+endif
+
 # include directories
 IFLAGS += -I$(call quote,$(DEPDIR))
 
@@ -52,12 +63,12 @@ all: $(XFILES)
 tests: test
 
 .PHONY: test
-test: $(OUTDIR)/.make $(OUTDIR)/test.sh $(XFILES)
-	@$(OUTDIR)/test.sh
+test: $(OUTDIR)/.make $(SRCDIR)/test.sh $(XFILES)
+	@BLDDIR=$(abspath $(OUTDIR)) $(SRCDIR)/test.sh
 
 define DEFINE_LINK_RULE
-$(1).x: $(2) $(dir $(1))/.make Makefile $(LIBXS)
-	$(LD) $(SLDFLAGS) -o $(1).x $(2) $(LIBXS) \
+$(1).x: $(2) $(dir $(1))/.make Makefile $(XLIB) $(LIBXS)
+	$(LD) $(SLDFLAGS) -o $(1).x $(2) $(XLIB) $(LIBXS) \
 		$(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 endef
 

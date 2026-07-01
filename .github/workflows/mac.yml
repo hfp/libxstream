@@ -48,7 +48,11 @@ jobs:
         run: cd ${LIBXSROOT} && make -j $(sysctl -n hw.ncpu) ${{ matrix.flags }}
 
       - name: Build LIBXSTREAM
+        if: matrix.libxs != 'header-only'
         run: make -j $(sysctl -n hw.ncpu) ${{ matrix.flags }}
+
+      - name: Test
+        run: make -j $(sysctl -n hw.ncpu) ${{ matrix.flags }} test
 
   CMake:
     runs-on: macos-latest
