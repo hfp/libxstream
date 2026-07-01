@@ -6,6 +6,21 @@ LIBXSTREAM stencil sample
 
 ---
 
+## Abstract
+
+<span style="font-size: 75%;">
+High-order FD stencils for seismic wave propagation are bandwidth-bound on modern GPUs.
+We reformulate the 3D isotropic Laplacian as three small dense matrix multiplications per axis,
+mapping the banded Toeplitz operator to hardware matrix engines (Intel DPAS) that would otherwise sit idle.
+To preserve FP32 accuracy from BF16 and INT8 datapaths, we apply Dekker splitting
+(2 operator digits x 3 wavefield digits) and Ozaki-1 slicing
+(1 operator digit x 1-3 adaptive wavefield digits with a carried-forward exponent).
+No prior work combines Dekker/Ozaki digit splitting with hardware matrix engines
+for finite-difference stencil operators.
+</span>
+
+---
+
 ## Outline
 
 - Seismic stencils and their long spatial legs.
