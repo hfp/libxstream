@@ -136,9 +136,9 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* 
       if (libxstream_opencl_mem_hst_malloc != libxstream_opencl_config.mem_hst) {
         libxstream_opencl_config.pool_hst_context = devinfo->context;
         libxstream_opencl_config.pool_hst_device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-      # if (0 != LIBXSTREAM_USM)
+# if (0 != LIBXSTREAM_USM)
         libxstream_opencl_config.pool_hst_usm = devinfo->usm;
-      # endif
+# endif
         if (NULL != libxstream_opencl_config.pool_hst_context &&
             EXIT_SUCCESS != clRetainContext(libxstream_opencl_config.pool_hst_context)) {
           libxstream_opencl_config.pool_hst_context = NULL;
