@@ -362,14 +362,15 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
     ? ((0 < (int)devinfo->wgsize[2]) ? (int)devinfo->wgsize[2] : STENCIL_SG)
     : atoi(sg_env);
 
-  ctx->strips_per_wg = stencil_valid_strips_per_wg(
-    (NULL == strips_env) ? STENCIL_STRIPS_PER_WG : atoi(strips_env));
-
   ctx->grf256 = (NULL == grf_env) ? 0 : atoi(grf_env);
 
   ctx->lu = (NULL == lu_env) ? 0 : atoi(lu_env);
   ctx->fp32 = (NULL == fp32_env) ? 0 : atoi(fp32_env);
   ctx->int8 = (NULL != int8_env) ? atoi(int8_env) : 0;
+
+  ctx->strips_per_wg = stencil_valid_strips_per_wg(
+    (NULL != strips_env) ? atoi(strips_env)
+    : ((0 != ctx->int8) ? 1 : STENCIL_STRIPS_PER_WG));
 
   ctx->trim = (NULL == trim_env)
     ? ((STENCIL_RADIUS >= 4) ? 1 : 0)
