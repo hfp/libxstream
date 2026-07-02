@@ -116,12 +116,16 @@
     else                 { (GX) = (OX) + (CI); (GY) = (OY) + (CJ); (GZ) = (OZ) + (K) - RADIUS; } \
   } while (0)
 
-#define STENCIL_CLAMP_COORD(GX, GY, GZ, NX, NY, NZ) \
+#if defined(STENCIL_PADDED) && (0 < STENCIL_PADDED)
+# define STENCIL_CLAMP_COORD(GX, GY, GZ, NX, NY, NZ) ((void)0)
+#else
+# define STENCIL_CLAMP_COORD(GX, GY, GZ, NX, NY, NZ) \
   do { \
     if ((GX) < 0) (GX) = 0; else if ((GX) >= (NX)) (GX) = (NX) - 1; \
     if ((GY) < 0) (GY) = 0; else if ((GY) >= (NY)) (GY) = (NY) - 1; \
     if ((GZ) < 0) (GZ) = 0; else if ((GZ) >= (NZ)) (GZ) = (NZ) - 1; \
   } while (0)
+#endif
 
 #define STENCIL_GRID_IDX(GZ, GY, GX, NY, NX) \
   ((long)(GZ) * (NY) * (NX) + (long)(GY) * (NX) + (GX))

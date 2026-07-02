@@ -54,6 +54,7 @@ typedef struct {
   int int8;
   int bf16s;
   int blocked;
+  int pml;
 } stencil_opencl_key_t;
 
 typedef struct {
@@ -84,6 +85,9 @@ typedef struct {
   int int8;
   int bf16s;
   int blocked;
+  int pml;
+  void* eta;
+  void* phi;
   int dpas;
   int verbosity;
 } stencil_context_t;

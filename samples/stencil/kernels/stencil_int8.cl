@@ -59,6 +59,11 @@ kernel void stencil_apply_int8(
   global const float* restrict vel,
   global const int* restrict exp_buf,
   global int* restrict exp_buf_out,
+#if defined(STENCIL_PML) && (0 < STENCIL_PML)
+  global const float* restrict eta,
+  global float* restrict phi,
+  float hdx_2, float hdy_2, float hdz_2,
+#endif
   float dt2,
   int nx, int ny, int nz,
   int nbx, int nby)
@@ -298,44 +303,87 @@ kernel void stencil_apply_int8(
   barrier(CLK_LOCAL_MEM_FENCE);
 
   /* Output: leapfrog update + exponent scan for exp_buf_out. */
-  UNROLL_FORCE(STRIPS_PER_WG) for (iter = 0; iter < STRIPS_PER_WG; ++iter) {
-    const int nj = (strip_grp * STRIPS_PER_WG + iter) * XMX_N;
-    const int strip_abs = strip_grp * STRIPS_PER_WG + iter;
-    union { float8 v; float a[8]; } u;
-    int out_max_exp = 0;
-    int m;
-    u.v = acc[iter];
-    UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-      const int row = mi + m;
-      const int col = nj + sg_lid;
-      if (0 <= row && row < BLK && col < N_TOTAL) {
-        const int gx = ox + row;
-        const int gy = oy + (col % BLK);
-        const int gz = oz + (col / BLK);
-        if (gx < nx && gy < ny && gz < nz) {
-          const long i = STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby);
-          const float val = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[i] * u.a[m];
-          const int oe = (int)((as_uint(val) >> 23) & 0xFFu);
-          p_new[i] = val;
-          if (oe > out_max_exp) out_max_exp = oe;
+#if defined(STENCIL_PML) && (0 < STENCIL_PML)
+  { const int pml_w = 20;
+    const int blk_interior =
+      (ox >= pml_w && ox + BLK <= nx - pml_w &&
+       oy >= pml_w && oy + BLK <= ny - pml_w &&
+       oz >= pml_w && oz + BLK <= nz - pml_w) ? 1 : 0;
+#endif
+
+    UNROLL_FORCE(STRIPS_PER_WG) for (iter = 0; iter < STRIPS_PER_WG; ++iter) {
+      const int nj = (strip_grp * STRIPS_PER_WG + iter) * XMX_N;
+      const int strip_abs = strip_grp * STRIPS_PER_WG + iter;
+      union { float8 v; float a[8]; } u;
+      int out_max_exp = 0;
+      int m;
+      u.v = acc[iter];
+      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+        const int row = mi + m;
+        const int col = nj + sg_lid;
+        if (0 <= row && row < BLK && col < N_TOTAL) {
+          const int gx = ox + row;
+          const int gy = oy + (col % BLK);
+          const int gz = oz + (col / BLK);
+          if (gx < nx && gy < ny && gz < nz) {
+            const long i = STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby);
+            float val;
+#if defined(STENCIL_PML) && (0 < STENCIL_PML)
+            if (0 != blk_interior) {
+              val = 2.0f * p_grid[i] - p_old[i] + vel[i] * u.a[m];
+            }
+            else {
+              const float eta1 = eta[i];
+              const float phi_val = phi[i];
+              const float p_cur = p_grid[i];
+              const float numerator =
+                (2.0f - eta1 * eta1 + 2.0f * eta1) * p_cur - p_old[i]
+                + vel[i] * (u.a[m] + phi_val);
+              const long stride_z = (long)ny * nx;
+              float tmp = 0.0f;
+              val = numerator / (1.0f + 2.0f * eta1);
+              if (gx > 0 && gx < nx - 1) {
+                tmp += (eta[i + 1] - eta[i - 1])
+                     * (p_grid[i + 1] - p_grid[i - 1]) * hdx_2;
+              }
+              if (gy > 0 && gy < ny - 1) {
+                tmp += (eta[i + nx] - eta[i - nx])
+                     * (p_grid[i + nx] - p_grid[i - nx]) * hdy_2;
+              }
+              if (gz > 0 && gz < nz - 1) {
+                tmp += (eta[i + stride_z] - eta[i - stride_z])
+                     * (p_grid[i + stride_z] - p_grid[i - stride_z]) * hdz_2;
+              }
+              phi[i] = (phi_val - tmp) / (1.0f + eta1);
+            }
+#else
+            val = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[i] * u.a[m];
+#endif
+            { const int oe = (int)((as_uint(val) >> 23) & 0xFFu);
+              p_new[i] = val;
+              if (oe > out_max_exp) out_max_exp = oe;
+            }
+          }
         }
       }
-    }
-    { const int sg_out = sub_group_reduce_max(out_max_exp);
-      if (0 == sg_lid) exp_sg[sg_id] = sg_out;
-    }
-    barrier(CLK_LOCAL_MEM_FENCE);
-    if (0 == fill_id) {
-      int ti, wg_out = 0;
-      UNROLL_FORCE(WG_M_TILES) for (ti = 0; ti < WG_M_TILES; ++ti) {
-        if (exp_sg[ti] > wg_out) wg_out = exp_sg[ti];
+      { const int sg_out = sub_group_reduce_max(out_max_exp);
+        if (0 == sg_lid) exp_sg[sg_id] = sg_out;
       }
-      { const int exp_idx = (blk_linear * NTERMS + 0) * N_STRIPS + strip_abs;
-        exp_buf_out[exp_idx] = wg_out + I8_EXP_MARGIN;
-        exp_buf_out[exp_idx + N_STRIPS] = wg_out + I8_EXP_MARGIN;
-        exp_buf_out[exp_idx + 2 * N_STRIPS] = wg_out + I8_EXP_MARGIN;
+      barrier(CLK_LOCAL_MEM_FENCE);
+      if (0 == fill_id) {
+        int ti, wg_out = 0;
+        UNROLL_FORCE(WG_M_TILES) for (ti = 0; ti < WG_M_TILES; ++ti) {
+          if (exp_sg[ti] > wg_out) wg_out = exp_sg[ti];
+        }
+        { const int exp_idx = (blk_linear * NTERMS + 0) * N_STRIPS + strip_abs;
+          exp_buf_out[exp_idx] = wg_out + I8_EXP_MARGIN;
+          exp_buf_out[exp_idx + N_STRIPS] = wg_out + I8_EXP_MARGIN;
+          exp_buf_out[exp_idx + 2 * N_STRIPS] = wg_out + I8_EXP_MARGIN;
+        }
       }
+      barrier(CLK_LOCAL_MEM_FENCE);
     }
-    barrier(CLK_LOCAL_MEM_FENCE);
+#if defined(STENCIL_PML) && (0 < STENCIL_PML)
   }
+#endif
 }

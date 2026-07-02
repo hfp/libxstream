@@ -241,6 +241,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.int8 = ctx->int8;
   key.bf16s = ctx->bf16s;
   key.blocked = ctx->blocked;
+  key.pml = ctx->pml;
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
     kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
@@ -264,11 +265,12 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
-          " -DSTENCIL_FP32=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d %s",
+          " -DSTENCIL_FP32=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
+          " -DSTENCIL_PML=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, key.method, key.trim, key.nterms,
-          key.lu, key.fp32, key.bf16s, key.blocked,
+          key.lu, key.fp32, key.bf16s, key.blocked, ctx->pml,
           (0 != key.fp32) ? ""
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
@@ -378,6 +380,9 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   if (ctx->trim < 0) ctx->trim = 0;
   ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
   ctx->blocked = (NULL == blocked_env) ? 0 : atoi(blocked_env);
+  { const char *const pml_env = getenv("STENCIL_PML");
+    ctx->pml = (NULL == pml_env) ? 0 : atoi(pml_env);
+  }
 
   ctx->nterms = 3;
   ctx->dpas = (0 != ctx->fp32) ? 0 : ((devinfo->intel >= 2) ? 1 : 0);
@@ -417,6 +422,50 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
     ctx->exp_phase = 0;
     if (EXIT_SUCCESS == result) {
       result = libxstream_stream_sync(ctx->stream);
+    }
+  }
+
+  if (EXIT_SUCCESS == result && 0 != ctx->pml) {
+    const size_t grid_n = (size_t)nx * ny * nz;
+    const size_t grid_bytes = grid_n * sizeof(float);
+    const int pml_width = 20;
+    float* eta_host = NULL;
+    result = libxstream_mem_host_allocate((void**)&eta_host, grid_bytes, ctx->stream);
+    if (EXIT_SUCCESS == result) {
+      size_t idx;
+      int ix, iy, iz;
+      for (idx = 0; idx < grid_n; ++idx) eta_host[idx] = 0.0f;
+      for (iz = 0; iz < nz; ++iz) {
+        for (iy = 0; iy < ny; ++iy) {
+          for (ix = 0; ix < nx; ++ix) {
+            int d = nx;
+            int dist;
+            if (ix < pml_width) { dist = pml_width - ix; if (dist < d) d = dist; }
+            if (ix >= nx - pml_width) { dist = ix - (nx - pml_width - 1); if (dist < d) d = dist; }
+            if (iy < pml_width) { dist = pml_width - iy; if (dist < d) d = dist; }
+            if (iy >= ny - pml_width) { dist = iy - (ny - pml_width - 1); if (dist < d) d = dist; }
+            if (iz < pml_width) { dist = pml_width - iz; if (dist < d) d = dist; }
+            if (iz >= nz - pml_width) { dist = iz - (nz - pml_width - 1); if (dist < d) d = dist; }
+            if (d < nx) {
+              float r = (float)d / (float)pml_width;
+              eta_host[(long)iz * ny * nx + (long)iy * nx + ix] = 0.05f * r * r;
+            }
+          }
+        }
+      }
+      result = libxstream_mem_dev_allocate_hint(&ctx->eta, grid_bytes,
+        libxstream_opencl_mem_hint_compress);
+      if (EXIT_SUCCESS == result) {
+        result = libxstream_mem_copy_h2d(eta_host, ctx->eta, grid_bytes, ctx->stream);
+      }
+      libxstream_mem_host_deallocate(eta_host, ctx->stream);
+    }
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_mem_dev_allocate_hint(&ctx->phi, grid_bytes,
+        libxstream_opencl_mem_hint_compress);
+      if (EXIT_SUCCESS == result) {
+        result = libxstream_mem_zero(ctx->phi, 0, grid_bytes, ctx->stream);
+      }
     }
   }
 
@@ -514,11 +563,13 @@ int stencil_precompute_operators(stencil_context_t* ctx,
   }
 
   if (2 == use_fp32) {
-    const size_t coeff_size = (size_t)STENCIL_WIDTH * sizeof(float);
-    float coeff_host[2 * STENCIL_RADIUS + 1];
-    int r;
-    for (r = 0; r < STENCIL_WIDTH; ++r) {
-      coeff_host[r] = (float)fd_weights[r];
+    const size_t coeff_size = (size_t)3 * STENCIL_WIDTH * sizeof(float);
+    float coeff_host[3 * (2 * STENCIL_RADIUS + 1)];
+    int r, d;
+    for (d = 0; d < 3; ++d) {
+      for (r = 0; r < STENCIL_WIDTH; ++r) {
+        coeff_host[d * STENCIL_WIDTH + r] = (float)fd_weights[r];
+      }
     }
     result = libxstream_mem_dev_allocate_hint(
       (void**)&ctx->coeff, coeff_size, libxstream_opencl_mem_hint_compress);
@@ -676,6 +727,17 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_new));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, vel));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, ctx->coeff));
+    if (0 != ctx->pml) {
+      const float h = 10.0f;
+      const float hdx_2 = 0.5f / h;
+      const float hdy_2 = 0.5f / h;
+      const float hdz_2 = 0.5f / h;
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, ctx->eta));
+      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, ctx->phi));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(float), &hdx_2));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(float), &hdy_2));
+      CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(float), &hdz_2));
+    }
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(float), &dt2));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &nx));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &ny));
@@ -710,7 +772,21 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
         CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->exp_buf[wr]));
         ctx->exp_phase = wr;
       }
-      else {
+      if (0 != ctx->pml) {
+        const float h = 10.0f;
+        const float hdx_2 = 0.5f / h;
+        const float hdy_2 = 0.5f / h;
+        const float hdz_2 = 0.5f / h;
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->eta));
+        CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->phi));
+        if (0 == ctx->int8) {
+          CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, p_cur));
+        }
+        CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(float), &hdx_2));
+        CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(float), &hdy_2));
+        CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(float), &hdz_2));
+      }
+      if (0 == ctx->int8) {
         CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nterms_iso));
       }
       CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(float), &dt2));
@@ -775,6 +851,8 @@ void stencil_finalize(stencil_context_t* ctx)
     if (NULL != ctx->exp_buf[0]) libxstream_mem_dev_deallocate_hint(ctx->exp_buf[0]);
     if (NULL != ctx->exp_buf[1]) libxstream_mem_dev_deallocate_hint(ctx->exp_buf[1]);
     if (NULL != ctx->coeff) libxstream_mem_dev_deallocate_hint(ctx->coeff);
+    if (NULL != ctx->eta) libxstream_mem_dev_deallocate_hint(ctx->eta);
+    if (NULL != ctx->phi) libxstream_mem_dev_deallocate_hint(ctx->phi);
     if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
     LIBXS_MEMZERO(ctx);
   }
