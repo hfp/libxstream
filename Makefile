@@ -313,6 +313,7 @@ $(DOCDIR)/index.md: $(DOCDIR)/.make $(ROOTDIR)/Makefile $(ROOTDIR)/README.md
 		-e 's/\[!\[..*\](..*)\](..*)//g' \
 		-e 's/\[\[..*\](..*)\]//g' \
 		-e "s/](${DOCDIR}\//](/g" \
+		-e "s/]:[[:space:]]*${DOCDIR}\//]: /g" \
 		-e 'N;/^\n$$/d;P;D' \
 		<$(ROOTDIR)/README.md >$@
 	@$(CP) $(ROOTDIR)/LICENSE.md $(DOCDIR)/LICENSE.md
@@ -322,6 +323,7 @@ $(DOCDIR)/$(PROJECT)_scripts.md: $(DOCDIR)/.make $(ROOTDIR)/Makefile $(ROOTSCR)/
 		-e 's/\[!\[..*\](..*)\](..*)//g' \
 		-e 's/\[\[..*\](..*)\]//g' \
 		-e "s/](${DOCDIR}\//](/g" \
+		-e "s/]:[[:space:]]*${DOCDIR}\//]: /g" \
 		-e 'N;/^\n$$/d;P;D' \
 		<$(ROOTSCR)/README.md >$@
 
@@ -331,6 +333,7 @@ $(DOCDIR)/$(PROJECT)_samples.md: $(DOCDIR)/.make $(DOCDIR)/$(SPLDIR)/.make $(ROO
 			-e 's/\[!\[..*\](..*)\](..*)//g' \
 			-e 's/\[\[..*\](..*)\]//g' \
 			-e "s/](${DOCDIR}\//](/g" \
+			-e "s/]:[[:space:]]*${DOCDIR}\//]: /g" \
 			-e 'N;/^\n$$/d;P;D' \
 			<$${MD} >$(DOCDIR)/$(SPLDIR)/$(PROJECT)_$$(basename $$(dirname $${MD})).md; \
 	done
