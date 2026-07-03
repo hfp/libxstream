@@ -101,6 +101,9 @@
 # define HIER_NGROUPS ((NPRIMES + HIER_GS - 1) / HIER_GS)
 # define HIER_L2_HORNER_GROUP 2
 # define HIER_L2_HORNER_NGROUPS ((HIER_NGROUPS + HIER_L2_HORNER_GROUP - 1) / HIER_L2_HORNER_GROUP)
+# if !defined(OZAKI_HIER_L2)
+#   define OZAKI_HIER_L2 0
+# endif
 #endif
 
 /* DPAS tile dimensions are in ozaki_common.cl (XMX_M=8, XMX_N=16) */
@@ -274,6 +277,7 @@
   } while (0)
 
 /* Level-2 Garner + Horner + store C from gval_all. */
+#if !defined(OZAKI_HIER_L2) || (0 == OZAKI_HIER_L2)
 #define OZAKI_CRT_L2_STORE(GVAL_ALL, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
   do { \
     short ea_c_[XMX_M]; \
@@ -303,6 +307,38 @@
       } \
     } \
   } while (0)
+#else /* OZAKI_HIER_L2 == 1: tree-merge */
+#define OZAKI_CRT_L2_STORE(GVAL_ALL, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
+  do { \
+    short ea_c_[XMX_M]; \
+    const short eb_c_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
+    int ms_l2_; \
+    UNROLL_FORCE(XMX_M) for (ms_l2_ = 0; ms_l2_ < XMX_M; ++ms_l2_) \
+    { \
+      ea_c_[ms_l2_] = (EXPA)[(MI) + ms_l2_]; \
+    } \
+    UNROLL_FORCE(XMX_M) for (ms_l2_ = 0; ms_l2_ < XMX_M; ++ms_l2_) \
+    { \
+      const int rm_ = (MI) + ms_l2_; \
+      if (OZAKI_IN_BOUNDS(rm_, (M), (COL), (N))) { \
+        ulong tree_val_; \
+        int is_neg_; \
+        SINT pg_l2_; \
+        UNROLL_FORCE(HIER_NGROUPS) for (pg_l2_ = 0; pg_l2_ < HIER_NGROUPS; ++pg_l2_) \
+        { \
+          gval_[pg_l2_] = (GVAL_ALL)[(int)pg_l2_ * XMX_M + ms_l2_]; \
+        } \
+        is_neg_ = oz2g_hier_l2_tree(gval_, &tree_val_); \
+        { \
+          const int sh_ = (int)ea_c_[ms_l2_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
+          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+          oz2g_hier_tree_accumulate(tree_val_, is_neg_, (ALPHA), sh_, &cv_); \
+          (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
+        } \
+      } \
+    } \
+  } while (0)
+#endif /* OZAKI_HIER_L2 */
 #endif /* OZAKI_HIER */
 
 /* K-loop inner body: prefetch + DPAS for PB batched primes.
@@ -734,6 +770,7 @@ inline uint oz2g_hier_l1_garner(const uint* restrict group_residues, int g)
   return (uint)hval;
 }
 
+#if !defined(OZAKI_HIER_L2) || (0 == OZAKI_HIER_L2)
 /* Level-2 Garner: reconstruct HIER_NGROUPS group values -> mixed-radix digits + sign.
  * Uses host-precomputed tables (oz2g_hier_gprod_actual, oz2g_hier_l2inv) to handle
  * partial last group without runtime modular-inverse computation. */
@@ -804,7 +841,71 @@ inline int oz2g_hier_l2_garner(const uint* restrict gval, uint* restrict d)
   }
   return is_negative;
 }
+#endif /* OZAKI_HIER_L2 == 0 */
 
+
+#if defined(OZAKI_HIER_L2) && (1 == OZAKI_HIER_L2)
+/* Tree-merge CRT: binary tree of pairwise merges over group values.
+ * Depth = ceil(log2(HIER_NGROUPS)) instead of HIER_NGROUPS-1 (sequential Garner).
+ * Each merge: val = gval[a] + gp[a] * ((gval[b] - gval[a]) * inv_a_b % gp[b])
+ * Host precomputes: HIER_TREE_INV_a_b = gp[a]^{-1} mod gp[b] for each merge pair.
+ * HIER_TREE_PROD_ab = gp[a] * gp[b] (uint64) for merged modulus. */
+
+/* Tree-merge L2 reconstruction.
+ * Returns combined integer value and sign. Result written to *out_val.
+ * Uses host-precomputed merge inverses (HIER_TREE_INV_a_b defines). */
+inline int oz2g_hier_l2_tree(const uint* restrict gval, ulong* out_val)
+{
+  int is_negative;
+#if HIER_NGROUPS == 1
+  { const ulong combined = (ulong)gval[0];
+    const ulong half_m = (ulong)oz2g_hier_gprod_actual[0] / 2;
+    is_negative = (combined > half_m) ? 1 : 0;
+    *out_val = (0 != is_negative) ? ((ulong)oz2g_hier_gprod_actual[0] - combined) : combined;
+  }
+#elif HIER_NGROUPS == 2
+  { const uint gp1 = oz2g_hier_gprod_actual[1];
+    const uint v0_mod1 = oz2g_mod_l2((ulong)gval[0], 1);
+    const uint diff = (gval[1] >= v0_mod1)
+      ? (gval[1] - v0_mod1) : (gp1 + gval[1] - v0_mod1);
+    const uint t = oz2g_mod_l2((ulong)diff * (ulong)HIER_TREE_INV_0_1, 1);
+    const ulong combined = (ulong)gval[0] + (ulong)oz2g_hier_gprod_actual[0] * (ulong)t;
+    const ulong half_m = HIER_TREE_PROD_01 / 2;
+    is_negative = (combined > half_m) ? 1 : 0;
+    *out_val = (0 != is_negative) ? (HIER_TREE_PROD_01 - combined) : combined;
+  }
+#endif
+  return is_negative;
+}
+
+/* Tree-merge accumulate: direct FP conversion from combined ulong value.
+ * Unlike Horner over complemented digits, the tree merge returns the
+ * absolute value directly (M - combined), so negation is -(val). */
+inline void oz2g_hier_tree_accumulate(ulong val, int is_negative,
+                                      real_t alpha, int base_sh, real_t* cval)
+{
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+  { double result = (double)val;
+    if (0 != is_negative) result = -result;
+    if (0.0 != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
+      const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
+      *cval += (real_t)(result * (double)scale);
+    }
+  }
+#else
+  { float result = (float)val;
+    if (0 != is_negative) result = -result;
+    if (0.0f != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
+      const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
+      *cval += result * scale;
+    }
+  }
+#endif
+}
+#endif /* OZAKI_HIER_L2 == 1 */
+
+
+#if !defined(OZAKI_HIER_L2) || (0 == OZAKI_HIER_L2)
 /* Horner evaluation over level-2 mixed-radix digits. */
 inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
                                         real_t alpha, int base_sh, real_t* cval)
@@ -882,6 +983,7 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
 #endif
 #undef gp
 }
+#endif /* OZAKI_HIER_L2 == 0 */
 #endif /* OZAKI_HIER */
 
 

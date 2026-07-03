@@ -33,14 +33,14 @@ KERNEL_CASES = {
     "bf16": CASES_BF16,
     "int8": CASES_INT8,
     "fp32": CASES_FP32,
-    "fp32-direct": CASES_FP32,
+    "fp32-split": CASES_FP32,
 }
 
 KERNEL_ENV = {
     "bf16": {},
     "int8": {"STENCIL_INT8": "1"},
     "fp32": {"STENCIL_FP32": "1"},
-    "fp32-direct": {"STENCIL_FP32": "2"},
+    "fp32-split": {"STENCIL_FP32": "2"},
 }
 
 FIELDNAMES = (
@@ -108,6 +108,8 @@ def parse_sizes(values):
 def run_case(args, n, case, kernel_env):
     env = os.environ.copy()
     env.update(kernel_env)
+    if args.pml:
+        env["STENCIL_PML"] = "1"
     trim = case["trim"]
     if trim is None:
         env.pop("STENCIL_TRIM", None)
@@ -127,6 +129,8 @@ def run_case(args, n, case, kernel_env):
     env_prefix = ""
     for key, val in sorted(kernel_env.items()):
         env_prefix += "{}={} ".format(key, val)
+    if args.pml:
+        env_prefix += "STENCIL_PML=1 "
     if trim is not None:
         env_prefix += "STENCIL_TRIM={} ".format(trim)
     shell_command = env_prefix + " ".join(command)
@@ -441,9 +445,9 @@ def main(argv):
     )
     parser.add_argument(
         "--kernel",
-        choices=("bf16", "int8", "fp32", "fp32-direct"),
+        choices=("bf16", "int8", "fp32", "fp32-split"),
         default="bf16",
-        help="Kernel path to benchmark: bf16, int8, fp32, fp32-direct (default: bf16).",
+        help="Kernel path to benchmark: bf16, int8, fp32, fp32-split (default: bf16).",
     )
     parser.add_argument(
         "--dims", type=int, default=3, help="Stencil term count passed with -d."
@@ -486,6 +490,11 @@ def main(argv):
     parser.add_argument("--quiet", action="store_true", help="Reduce progress output.")
     parser.add_argument(
         "--keep-going", action="store_true", help="Continue after failed cases."
+    )
+    parser.add_argument(
+        "--pml",
+        action="store_true",
+        help="Enable PML absorbing boundary (sets STENCIL_PML=1).",
     )
     parser.add_argument(
         "--dark",

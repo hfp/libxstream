@@ -97,6 +97,24 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         nprimes = (np < 20) ? np + 1 : 20;
       }
     }
+    if (0 < maxk && 2 == kind) {
+      static const int cumbits_u8[20] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
+      static const int cumbits_i8[20] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
+      const int* cumbits = (0 != use_i8) ? cumbits_i8 : cumbits_u8;
+      const int max_elem = (0 != use_i8) ? 127 : 255;
+      const uint64_t max_dot = (uint64_t)maxk * max_elem * max_elem;
+      int req_bits = 0, np_k;
+      uint64_t v = 2 * max_dot;
+      while (v > 0) { ++req_bits; v >>= 1; }
+      for (np_k = 0; np_k < 20 && cumbits[np_k] < req_bits; ++np_k);
+      np_k = (np_k < 20) ? np_k + 1 : 20;
+      if (np_k < nprimes) {
+        if (0 > verbosity || 2 < verbosity) {
+          fprintf(stderr, "INFO OZAKI: bounded-K=%d reduces primes %d -> %d\n", maxk, nprimes, np_k);
+        }
+        nprimes = np_k;
+      }
+    }
     { /* Scheme 1: cutoff = 2*(nslices-1) - oztrim must stay >= 0 */
       const int max_trim = 2 * (nslices - 1);
       if (oztrim > max_trim) oztrim = max_trim;
@@ -153,7 +171,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      * tm must be multiple of 8*RTM, tn must be multiple of 16*RTN.
      * Large GRF halves effective max work-group size. */
     const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
-    char build_params[1024];
+    char build_params[2048];
     char build_options[128];
     const int mant_bits = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
@@ -360,7 +378,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         const int hier_gs = 4, ngroups = LIBXS_UPDIV(nprimes, hier_gs);
         uint32_t gp[5];
         uint64_t l2b[5];
-        int gi, gj;
+        int gi, use_tree;
         for (gi = 0; gi < ngroups; ++gi) {
           const int lo = gi * hier_gs, hi = (lo + hier_gs <= nprimes) ? lo + hier_gs : nprimes;
           uint32_t p = 1;
@@ -369,17 +387,33 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           gp[gi] = p;
           l2b[gi] = (uint64_t)(-1) / (uint64_t)p;
         }
+        env = getenv("OZAKI_HIER_L2");
+        use_tree = (NULL != env) ? atoi(env) : (ngroups <= 2 ? 1 : 0);
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-          " -DOZAKI_HIER=1 -DHIER_NGROUPS_ACTUAL=%d", ngroups);
+          " -DOZAKI_HIER=1 -DHIER_NGROUPS_ACTUAL=%d -DOZAKI_HIER_L2=%d", ngroups, use_tree);
         for (gi = 0; gi < ngroups; ++gi) {
           coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
             " -DHIER_GPROD_%d=%uu -DHIER_L2B_%d=%luul", gi, (unsigned)gp[gi], gi, (unsigned long)l2b[gi]);
         }
-        for (gi = 0; gi < ngroups; ++gi) {
-          for (gj = gi + 1; gj < ngroups; ++gj) {
+        if (0 == use_tree) {
+          int gj;
+          for (gi = 0; gi < ngroups; ++gi) {
+            for (gj = gi + 1; gj < ngroups; ++gj) {
+              coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+                " -DHIER_L2INV_%d_%d=%uu", gi, gj,
+                (unsigned)libxs_mod_inverse_u32(gp[gi] % gp[gj], gp[gj]));
+            }
+          }
+        }
+        else {
+          uint64_t gprod[5];
+          gprod[0] = (uint64_t)gp[0];
+          if (ngroups >= 2) {
             coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-              " -DHIER_L2INV_%d_%d=%uu", gi, gj,
-              (unsigned)libxs_mod_inverse_u32(gp[gi] % gp[gj], gp[gj]));
+              " -DHIER_TREE_INV_0_1=%uu", (unsigned)libxs_mod_inverse_u32(gp[0] % gp[1], gp[1]));
+            gprod[0] = (uint64_t)gp[0] * (uint64_t)gp[1];
+            coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+              " -DHIER_TREE_PROD_01=%luul", (unsigned long)gprod[0]);
           }
         }
       }

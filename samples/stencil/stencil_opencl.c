@@ -281,7 +281,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 
       if (EXIT_SUCCESS == ok) {
         const char* source;
-        if (2 == key.fp32) source = OPENCL_KERNELS_SOURCE_STENCIL_FP32;
+        if (1 == key.fp32) source = OPENCL_KERNELS_SOURCE_STENCIL_FP32;
         else if (0 != key.int8) source = OPENCL_KERNELS_SOURCE_STENCIL_INT8;
         else source = OPENCL_KERNELS_SOURCE_STENCIL_BF16;
         ok = libxstream_opencl_program(0 /*source_kind*/,
@@ -289,7 +289,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           options, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0,
           &program);
       }
-      if (EXIT_SUCCESS == ok && 2 == key.fp32) {
+      if (EXIT_SUCCESS == ok && 1 == key.fp32) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_direct", &knl.stencil_apply_direct);
       }
       else if (EXIT_SUCCESS == ok && 0 != key.int8) {
@@ -562,7 +562,7 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     }
   }
 
-  if (2 == use_fp32) {
+  if (1 == use_fp32) {
     const size_t coeff_size = (size_t)3 * STENCIL_WIDTH * sizeof(float);
     float coeff_host[3 * (2 * STENCIL_RADIUS + 1)];
     int r, d;
@@ -713,7 +713,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
 
   if (NULL == knl) result = EXIT_FAILURE;
 
-  if (EXIT_SUCCESS == result && 2 == ctx->fp32 && NULL != knl->stencil_apply_direct) {
+  if (EXIT_SUCCESS == result && 1 == ctx->fp32 && NULL != knl->stencil_apply_direct) {
     size_t global_direct[3], local_direct[3];
     cl_int i = 0;
     local_direct[0] = 32;
