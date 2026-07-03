@@ -197,20 +197,22 @@
 #define STENCIL_FP32_ACC(DK, X_SLM, MI, ACC) \
   do { \
     const int sg_lid_fp32_ = (int)SGLID(); \
-    union { float8 v; float a[8]; } u_fp32_; \
-    int m_fp32_, r_fp32_; \
-    u_fp32_.v = (ACC); \
-    UNROLL_FORCE(XMX_M) for (m_fp32_ = 0; m_fp32_ < XMX_M; ++m_fp32_) { \
-      const int row_ = (MI) + m_fp32_; \
-      global const float* d_row_ = (DK) + (long)row_ * STENCIL_D_BAND; \
-      UNROLL_FORCE(STENCIL_D_BAND) \
-      for (r_fp32_ = 0; r_fp32_ < STENCIL_D_BAND; ++r_fp32_) { \
-        const int col_ = row_ + r_fp32_; \
-        u_fp32_.a[m_fp32_] += d_row_[r_fp32_] \
-          * (X_SLM)[col_ * XMX_N + sg_lid_fp32_]; \
+    if (sg_lid_fp32_ < XMX_N) { \
+      union { float8 v; float a[8]; } u_fp32_; \
+      int m_fp32_, r_fp32_; \
+      u_fp32_.v = (ACC); \
+      UNROLL_FORCE(XMX_M) for (m_fp32_ = 0; m_fp32_ < XMX_M; ++m_fp32_) { \
+        const int row_ = (MI) + m_fp32_; \
+        global const float* d_row_ = (DK) + (long)row_ * STENCIL_D_BAND; \
+        UNROLL_FORCE(STENCIL_D_BAND) \
+        for (r_fp32_ = 0; r_fp32_ < STENCIL_D_BAND; ++r_fp32_) { \
+          const int col_ = row_ + r_fp32_; \
+          u_fp32_.a[m_fp32_] += d_row_[r_fp32_] \
+            * (X_SLM)[col_ * XMX_N + sg_lid_fp32_]; \
+        } \
       } \
+      (ACC) = u_fp32_.v; \
     } \
-    (ACC) = u_fp32_.v; \
   } while (0)
 #endif
 

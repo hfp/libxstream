@@ -386,6 +386,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 
   ctx->nterms = 3;
   ctx->dpas = (0 != ctx->fp32) ? 0 : ((devinfo->intel >= 2) ? 1 : 0);
+  if (0 == ctx->dpas && NULL == fp32_env) ctx->fp32 = 2;
 
   if (EXIT_SUCCESS == result) {
     result = libxstream_stream_create(&ctx->stream, "stencil", 0);

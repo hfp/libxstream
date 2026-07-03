@@ -49,8 +49,8 @@ kernel void stencil_apply(
   const int by = (int)get_group_id(1);
   const int strip_grp = (int)get_group_id(2) & (N_STRIP_GROUPS - 1);
   const int bz = (int)get_group_id(2) >> STENCIL_NSTRIP_SHIFT;
-  const int sg_id = (int)get_sub_group_id();
-  const int sg_lid = (int)get_sub_group_local_id();
+  const int sg_id = (int)SGID();
+  const int sg_lid = (int)SGLID();
   const int mi = sg_id * XMX_M;
   const int ox = bx * BLK;
   const int oy = by * BLK;
@@ -172,7 +172,7 @@ kernel void stencil_apply(
       UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
         const int row = mi + m;
         const int col = nj + sg_lid;
-        if (0 <= row && row < BLK && col < N_TOTAL) {
+        if (0 <= row && row < BLK && sg_lid < XMX_N && col < N_TOTAL) {
           const int gx = ox + row;
           const int gy = oy + (col % BLK);
           const int gz = oz + (col / BLK);
@@ -268,8 +268,8 @@ kernel void stencil_apply_tti(
 {
   const int blk_idx = (int)get_group_id(0);
   const int nstrip = (int)get_group_id(2);
-  const int sg_id = (int)get_sub_group_id();
-  const int sg_lid = (int)get_sub_group_local_id();
+  const int sg_id = (int)SGID();
+  const int sg_lid = (int)SGLID();
   const int mi = sg_id * XMX_M;
   const int nj = nstrip * XMX_N;
 

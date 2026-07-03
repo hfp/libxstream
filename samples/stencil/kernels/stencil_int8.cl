@@ -29,6 +29,81 @@
 
 #define I8_TOTAL_ITERS (NTERMS * STRIPS_PER_WG)
 
+#if !defined(INTEL) || (INTEL < 2)
+# define I8_RED_SLM_SIZE (WG_M_TILES * SG)
+#endif
+
+#if defined(INTEL) && (2 <= INTEL)
+#define STENCIL_I8_ACC(CUR_DK, BUF_CUR, CUR_NSLICES_EFF, CUR_ASSUMED_EXP, MI, ACC_SLOT) \
+  do { int sa_, sb_, ks_; \
+    UNROLL_FORCE(NSLICES_A) for (sa_ = 0; sa_ < NSLICES_A; ++sa_) { \
+      global const char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
+      UNROLL_AUTO for (sb_ = 0; sb_ < (CUR_NSLICES_EFF); ++sb_) { \
+        int8 pair_acc_ = (int8)(0); \
+        const float pair_scale_ = dk_scale[sa_ * BLK + (MI)] \
+          * EXP2I((CUR_ASSUMED_EXP) - BIAS - MANT_BITS + 7 * sb_); \
+        STENCIL_I8_TRIM_CHECK(sa_, sb_, CUR_NSLICES_EFF); \
+        for (ks_ = 0; ks_ < K_PAD_I8 / 4; ks_ += 8) { \
+          ushort8 a_i8_; \
+          int8 b_i8_; \
+          intel_sub_group_2d_block_read_8b_8r32x1c( \
+            (global void*)d_digit_, K_PAD_I8, BLK, K_PAD_I8, \
+            (int2)(ks_ * 4, (MI)), (private ushort*)&a_i8_); \
+          b_i8_ = as_int8(intel_sub_group_block_read8( \
+            (local const uint*)(x_slm + (BUF_CUR) + sb_ * I8_K4_PAD * XMX_N + ks_ * XMX_N))); \
+          pair_acc_ = intel_sub_group_i8_i8_matrix_mad_k32( \
+            as_short8(a_i8_), b_i8_, pair_acc_); \
+        } \
+        { union { int8 v; int a[8]; } ui_; \
+          int m_; \
+          ui_.v = pair_acc_; \
+          UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) { \
+            ((float*)&(ACC_SLOT))[m_] += (float)ui_.a[m_] * pair_scale_; \
+          } \
+        } \
+      } \
+    } \
+  } while (0)
+#else
+#define STENCIL_I8_ACC(CUR_DK, BUF_CUR, CUR_NSLICES_EFF, CUR_ASSUMED_EXP, MI, ACC_SLOT) \
+  do { int sa_, sb_; \
+    const int sg_lid_i8_ = (int)SGLID(); \
+    if (sg_lid_i8_ < XMX_N) { \
+    UNROLL_FORCE(NSLICES_A) for (sa_ = 0; sa_ < NSLICES_A; ++sa_) { \
+      global const char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
+      UNROLL_AUTO for (sb_ = 0; sb_ < (CUR_NSLICES_EFF); ++sb_) { \
+        const float pair_scale_ = dk_scale[sa_ * BLK + (MI)] \
+          * EXP2I((CUR_ASSUMED_EXP) - BIAS - MANT_BITS + 7 * sb_); \
+        int m_; \
+        STENCIL_I8_TRIM_CHECK(sa_, sb_, CUR_NSLICES_EFF); \
+        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) { \
+          const int row_ = (MI) + m_; \
+          global const char* d_row_ = d_digit_ + (long)row_ * K_PAD_I8; \
+          local const int* x_col_ = x_slm + (BUF_CUR) \
+            + sb_ * I8_K4_PAD * XMX_N + sg_lid_i8_; \
+          int dot_ = 0, k4_; \
+          for (k4_ = 0; k4_ < I8_K4_BASE; ++k4_) { \
+            const int xpacked_ = x_col_[k4_ * XMX_N]; \
+            dot_ += (int)d_row_[k4_ * 4 + 0] * (int)(char)(xpacked_ & 0xFF); \
+            dot_ += (int)d_row_[k4_ * 4 + 1] * (int)(char)((xpacked_ >> 8) & 0xFF); \
+            dot_ += (int)d_row_[k4_ * 4 + 2] * (int)(char)((xpacked_ >> 16) & 0xFF); \
+            dot_ += (int)d_row_[k4_ * 4 + 3] * (int)(char)((xpacked_ >> 24) & 0xFF); \
+          } \
+          ((float*)&(ACC_SLOT))[m_] += (float)dot_ * pair_scale_; \
+        } \
+      } \
+    } \
+    } \
+  } while (0)
+#endif
+
+#if defined(TRIM) && (0 < TRIM)
+# define STENCIL_I8_TRIM_CHECK(SA, SB, ND) \
+    if ((SA) + (SB) >= NSLICES_A + (ND) - 1 - (TRIM - 1)) continue
+#else
+# define STENCIL_I8_TRIM_CHECK(SA, SB, ND) ((void)0)
+#endif
+
 
 inline char i8_slice_digit(uint aligned, int sign, int s)
 {
@@ -72,8 +147,8 @@ kernel void stencil_apply_int8(
   const int by = (int)get_group_id(1);
   const int strip_grp = (int)get_group_id(2) & (N_STRIP_GROUPS - 1);
   const int bz = (int)get_group_id(2) >> STENCIL_NSTRIP_SHIFT;
-  const int sg_id = (int)get_sub_group_id();
-  const int sg_lid = (int)get_sub_group_local_id();
+  const int sg_id = (int)SGID();
+  const int sg_lid = (int)SGLID();
   const int mi = sg_id * XMX_M;
   const int ox = bx * BLK;
   const int oy = by * BLK;
@@ -81,6 +156,9 @@ kernel void stencil_apply_int8(
 
   local int x_slm[2 * I8_SLM_INTS];
   local int exp_sg[WG_M_TILES];
+#if !defined(INTEL) || (INTEL < 2)
+  local int red_slm[I8_RED_SLM_SIZE];
+#endif
 
   const int fill_id = sg_id * SG + sg_lid;
   const int fill_total = WG_M_TILES * SG;
@@ -167,38 +245,7 @@ kernel void stencil_apply_int8(
 
     global const char* cur_dk = (0 == cur_dim) ? dk_x : ((1 == cur_dim) ? dk_y : dk_z);
 
-    /* DPAS on buf[cur] -- starts systolic pipe immediately. */
-    { int sa, sb, ks;
-      UNROLL_FORCE(NSLICES_A) for (sa = 0; sa < NSLICES_A; ++sa) {
-        global const char* d_digit = cur_dk + (long)sa * BLK * K_PAD_I8;
-        UNROLL_AUTO for (sb = 0; sb < cur_nslices_eff; ++sb) {
-          int8 pair_acc = (int8)(0);
-          const float pair_scale = dk_scale[sa * BLK + mi]
-            * EXP2I(cur_assumed_exp - BIAS - MANT_BITS + 7 * sb);
-#if defined(TRIM) && (0 < TRIM)
-          if (sa + sb >= NSLICES_A + cur_nslices_eff - 1 - (TRIM - 1)) continue;
-#endif
-          for (ks = 0; ks < K_PAD_I8 / 4; ks += 8) {
-            ushort8 a_i8;
-            int8 b_i8;
-            intel_sub_group_2d_block_read_8b_8r32x1c(
-              (global void*)d_digit, K_PAD_I8, BLK, K_PAD_I8,
-              (int2)(ks * 4, mi), (private ushort*)&a_i8);
-            b_i8 = as_int8(intel_sub_group_block_read8(
-              (local const uint*)(x_slm + buf_cur + sb * I8_K4_PAD * XMX_N + ks * XMX_N)));
-            pair_acc = intel_sub_group_i8_i8_matrix_mad_k32(
-              as_short8(a_i8), b_i8, pair_acc);
-          }
-          { union { int8 v; int a[8]; } ui;
-            int m;
-            ui.v = pair_acc;
-            UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-              ((float*)&acc[cur_strip])[m] += (float)ui.a[m] * pair_scale;
-            }
-          }
-        }
-      }
-    }
+    STENCIL_I8_ACC(cur_dk, buf_cur, cur_nslices_eff, cur_assumed_exp, mi, acc[cur_strip]);
 
     /* Gather next iteration's data into buf[next] -- global loads overlap
      * with residual systolic drain and EU integer work from DPAS above. */
@@ -267,37 +314,7 @@ kernel void stencil_apply_int8(
 
     global const char* cur_dk = (0 == cur_dim) ? dk_x : ((1 == cur_dim) ? dk_y : dk_z);
 
-    { int sa, sb, ks;
-      UNROLL_FORCE(NSLICES_A) for (sa = 0; sa < NSLICES_A; ++sa) {
-        global const char* d_digit = cur_dk + (long)sa * BLK * K_PAD_I8;
-        UNROLL_AUTO for (sb = 0; sb < cur_nslices_eff; ++sb) {
-          int8 pair_acc = (int8)(0);
-          const float pair_scale = dk_scale[sa * BLK + mi]
-            * EXP2I(cur_assumed_exp - BIAS - MANT_BITS + 7 * sb);
-#if defined(TRIM) && (0 < TRIM)
-          if (sa + sb >= NSLICES_A + cur_nslices_eff - 1 - (TRIM - 1)) continue;
-#endif
-          for (ks = 0; ks < K_PAD_I8 / 4; ks += 8) {
-            ushort8 a_i8;
-            int8 b_i8;
-            intel_sub_group_2d_block_read_8b_8r32x1c(
-              (global void*)d_digit, K_PAD_I8, BLK, K_PAD_I8,
-              (int2)(ks * 4, mi), (private ushort*)&a_i8);
-            b_i8 = as_int8(intel_sub_group_block_read8(
-              (local const uint*)(x_slm + buf_cur + sb * I8_K4_PAD * XMX_N + ks * XMX_N)));
-            pair_acc = intel_sub_group_i8_i8_matrix_mad_k32(
-              as_short8(a_i8), b_i8, pair_acc);
-          }
-          { union { int8 v; int a[8]; } ui;
-            int m;
-            ui.v = pair_acc;
-            UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
-              ((float*)&acc[cur_strip])[m] += (float)ui.a[m] * pair_scale;
-            }
-          }
-        }
-      }
-    }
+    STENCIL_I8_ACC(cur_dk, buf_cur, cur_nslices_eff, cur_assumed_exp, mi, acc[cur_strip]);
   }
 
   barrier(CLK_LOCAL_MEM_FENCE);
@@ -321,7 +338,7 @@ kernel void stencil_apply_int8(
       UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
         const int row = mi + m;
         const int col = nj + sg_lid;
-        if (0 <= row && row < BLK && col < N_TOTAL) {
+        if (0 <= row && row < BLK && sg_lid < XMX_N && col < N_TOTAL) {
           const int gx = ox + row;
           const int gy = oy + (col % BLK);
           const int gz = oz + (col / BLK);
@@ -366,9 +383,23 @@ kernel void stencil_apply_int8(
           }
         }
       }
+#if defined(INTEL) && (0 < INTEL)
       { const int sg_out = sub_group_reduce_max(out_max_exp);
         if (0 == sg_lid) exp_sg[sg_id] = sg_out;
       }
+#else
+      { red_slm[sg_id * SG + sg_lid] = out_max_exp;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        if (0 == sg_lid) {
+          int lane, sg_out = 0;
+          for (lane = 0; lane < SG; ++lane) {
+            const int v = red_slm[sg_id * SG + lane];
+            if (v > sg_out) sg_out = v;
+          }
+          exp_sg[sg_id] = sg_out;
+        }
+      }
+#endif
       barrier(CLK_LOCAL_MEM_FENCE);
       if (0 == fill_id) {
         int ti, wg_out = 0;
