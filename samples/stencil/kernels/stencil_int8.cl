@@ -36,6 +36,8 @@
 #if defined(INTEL) && (2 <= INTEL)
 #define STENCIL_I8_ACC(CUR_DK, BUF_CUR, CUR_NSLICES_EFF, CUR_ASSUMED_EXP, MI, ACC_SLOT) \
   do { int sa_, sb_, ks_; \
+    const int ks_lo_ = KSTEP_I8_LO(MI); \
+    const int ks_hi_ = KSTEP_I8_HI(MI); \
     UNROLL_FORCE(NSLICES_A) for (sa_ = 0; sa_ < NSLICES_A; ++sa_) { \
       global const char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
       UNROLL_AUTO for (sb_ = 0; sb_ < (CUR_NSLICES_EFF); ++sb_) { \
@@ -43,7 +45,8 @@
         const float pair_scale_ = dk_scale[sa_ * BLK + (MI)] \
           * EXP2I((CUR_ASSUMED_EXP) - BIAS - MANT_BITS + 7 * sb_); \
         STENCIL_I8_TRIM_CHECK(sa_, sb_, CUR_NSLICES_EFF); \
-        for (ks_ = 0; ks_ < K_PAD_I8 / 4; ks_ += 8) { \
+        UNROLL_FORCE(KSTEP_I8_MAX_COUNT) \
+        for (ks_ = ks_lo_; ks_ <= ks_hi_; ks_ += 8) { \
           ushort8 a_i8_; \
           int8 b_i8_; \
           intel_sub_group_2d_block_read_8b_8r32x1c( \
@@ -80,11 +83,13 @@
           STENCIL_I8_TRIM_CHECK(sa_, sb_, CUR_NSLICES_EFF); \
           UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) { \
             const int row_ = (MI) + m_; \
+            const int k4_lo_ = row_ >> 2; \
+            const int k4_hi_ = (row_ + 2 * RADIUS) >> 2; \
             global const int* d_row_ = (global const int*)(d_digit_ + (long)row_ * K_PAD_I8); \
             local const int* x_col_ = x_slm + (BUF_CUR) \
               + sb_ * I8_K4_PAD * XMX_N + sg_lid_i8_; \
             int dot_ = 0, k4_; \
-            for (k4_ = 0; k4_ < I8_K4_BASE; ++k4_) { \
+            for (k4_ = k4_lo_; k4_ <= k4_hi_; ++k4_) { \
               STENCIL_I8_DP4A(dot_, d_row_[k4_], x_col_[k4_ * XMX_N], dot_); \
             } \
             ((float*)&(ACC_SLOT))[m_] += (float)dot_ * pair_scale_; \
@@ -107,11 +112,13 @@
           STENCIL_I8_TRIM_CHECK(sa_, sb_, CUR_NSLICES_EFF); \
           UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) { \
             const int row_ = (MI) + m_; \
+            const int k4_lo_ = row_ >> 2; \
+            const int k4_hi_ = (row_ + 2 * RADIUS) >> 2; \
             global const char* d_row_ = d_digit_ + (long)row_ * K_PAD_I8; \
             local const int* x_col_ = x_slm + (BUF_CUR) \
               + sb_ * I8_K4_PAD * XMX_N + sg_lid_i8_; \
             int dot_ = 0, k4_; \
-            for (k4_ = 0; k4_ < I8_K4_BASE; ++k4_) { \
+            for (k4_ = k4_lo_; k4_ <= k4_hi_; ++k4_) { \
               const int xpacked_ = x_col_[k4_ * XMX_N]; \
               dot_ += (int)d_row_[k4_ * 4 + 0] * (int)(char)(xpacked_ & 0xFF); \
               dot_ += (int)d_row_[k4_ * 4 + 1] * (int)(char)((xpacked_ >> 8) & 0xFF); \
@@ -133,19 +140,98 @@
 # define STENCIL_I8_TRIM_CHECK(SA, SB, ND) ((void)0)
 #endif
 
+#define I8_SLICE_SHIFT_0 (MANT_BITS - 6)
+#define I8_SLICE_SHIFT_1 (MANT_BITS - 13)
+#define I8_SLICE_SHIFT_2 (MANT_BITS - 20)
 
-inline char i8_slice_digit(uint aligned, int sign, int s)
-{
-  const int high = MANT_BITS - (7 * s);
-  const int low = (high - 6 > 0) ? (high - 6) : 0;
-  const int width = high - low + 1;
-  char digit = 0;
-  if (width > 0 && high >= 0) {
-    digit = (char)((aligned >> low) & ((1U << width) - 1U));
-  }
-  if (0 != sign) digit = (char)(-digit);
-  return digit;
-}
+#define I8_EXTRACT_MANTISSA(BITS, ASSUMED_EXP, MANT, SIGN) \
+  do { \
+    const int e_ = (int)(((BITS) >> 23) & 0xFFu); \
+    const int sh_ = (ASSUMED_EXP) - e_; \
+    (SIGN) = (int)((BITS) >> 31); \
+    (MANT) = (0 != e_) ? (((BITS) & 0x7FFFFFu) | 0x800000u) : 0; \
+    if (sh_ < 0 || sh_ >= 24 || 0 == e_) (MANT) = 0; \
+    else if (sh_ > 0) (MANT) >>= sh_; \
+  } while (0)
+
+#define I8_PACK_BYTE(MANT, SIGN, SHIFT) \
+  ((uchar)((0 != (SIGN)) \
+    ? (char)(-((char)(((MANT) >> (SHIFT)) & 0x7Fu))) \
+    : (char)(((MANT) >> (SHIFT)) & 0x7Fu)))
+
+#define I8_GATHER_PACK4(PACK, MANT0, S0, MANT1, S1, MANT2, S2, MANT3, S3) \
+  do { \
+    (PACK)[0] = (uint)I8_PACK_BYTE(MANT0, S0, I8_SLICE_SHIFT_0) \
+              | ((uint)I8_PACK_BYTE(MANT1, S1, I8_SLICE_SHIFT_0) << 8) \
+              | ((uint)I8_PACK_BYTE(MANT2, S2, I8_SLICE_SHIFT_0) << 16) \
+              | ((uint)I8_PACK_BYTE(MANT3, S3, I8_SLICE_SHIFT_0) << 24); \
+    (PACK)[1] = (uint)I8_PACK_BYTE(MANT0, S0, I8_SLICE_SHIFT_1) \
+              | ((uint)I8_PACK_BYTE(MANT1, S1, I8_SLICE_SHIFT_1) << 8) \
+              | ((uint)I8_PACK_BYTE(MANT2, S2, I8_SLICE_SHIFT_1) << 16) \
+              | ((uint)I8_PACK_BYTE(MANT3, S3, I8_SLICE_SHIFT_1) << 24); \
+    (PACK)[2] = (uint)I8_PACK_BYTE(MANT0, S0, I8_SLICE_SHIFT_2) \
+              | ((uint)I8_PACK_BYTE(MANT1, S1, I8_SLICE_SHIFT_2) << 8) \
+              | ((uint)I8_PACK_BYTE(MANT2, S2, I8_SLICE_SHIFT_2) << 16) \
+              | ((uint)I8_PACK_BYTE(MANT3, S3, I8_SLICE_SHIFT_2) << 24); \
+  } while (0)
+
+#if !defined(STENCIL_BLOCKED) || (0 >= STENCIL_BLOCKED)
+#define I8_GATHER_LOAD4(DIM, OX, OY, OZ, K_BASE4, CI, CJ, NX, NY, NZ, P_GRID, BITS4) \
+  do { \
+    if (0 == (DIM) && (K_BASE4) + 3 < K_BASE) { \
+      const int gx4_ = (OX) + (K_BASE4) - RADIUS; \
+      const int gy4_ = (OY) + (CI); \
+      const int gz4_ = (OZ) + (CJ); \
+      if (gx4_ >= 0 && gx4_ + 3 < (NX) \
+          && gy4_ >= 0 && gy4_ < (NY) && gz4_ >= 0 && gz4_ < (NZ)) { \
+        const uint4 v4_ = as_uint4(vload4(0, \
+          (P_GRID) + (long)(gz4_) * (NY) * (NX) + (long)(gy4_) * (NX) + (gx4_))); \
+        (BITS4)[0] = v4_.s0; (BITS4)[1] = v4_.s1; \
+        (BITS4)[2] = v4_.s2; (BITS4)[3] = v4_.s3; \
+      } \
+      else { \
+        int ki_; \
+        UNROLL_FORCE(4) for (ki_ = 0; ki_ < 4; ++ki_) { \
+          const int k_ = (K_BASE4) + ki_; \
+          if (k_ < K_BASE) { \
+            int gx_, gy_, gz_; \
+            STENCIL_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
+            STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
+            (BITS4)[ki_] = as_uint((P_GRID)[STENCIL_GRID_IDX(gz_, gy_, gx_, NY, NX)]); \
+          } \
+          else (BITS4)[ki_] = 0; \
+        } \
+      } \
+    } \
+    else { \
+      int ki_; \
+      UNROLL_FORCE(4) for (ki_ = 0; ki_ < 4; ++ki_) { \
+        const int k_ = (K_BASE4) + ki_; \
+        if (k_ < K_BASE) { \
+          int gx_, gy_, gz_; \
+          STENCIL_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
+          STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
+          (BITS4)[ki_] = as_uint((P_GRID)[STENCIL_P_IDX(gz_, gy_, gx_, NY, NX, 0, 0)]); \
+        } \
+        else (BITS4)[ki_] = 0; \
+      } \
+    } \
+  } while (0)
+#else
+#define I8_GATHER_LOAD4(DIM, OX, OY, OZ, K_BASE4, CI, CJ, NX, NY, NZ, P_GRID, BITS4) \
+  do { int ki_; \
+    UNROLL_FORCE(4) for (ki_ = 0; ki_ < 4; ++ki_) { \
+      const int k_ = (K_BASE4) + ki_; \
+      if (k_ < K_BASE) { \
+        int gx_, gy_, gz_; \
+        STENCIL_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
+        STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
+        (BITS4)[ki_] = as_uint((P_GRID)[STENCIL_P_IDX(gz_, gy_, gx_, NY, NX, nbx, nby)]); \
+      } \
+      else (BITS4)[ki_] = 0; \
+    } \
+  } while (0)
+#endif
 
 
 #if defined(INTEL) && (2 <= INTEL)
@@ -214,38 +300,21 @@ kernel void stencil_apply_int8(
       const int nc = nj + col_local;
       const int ci = nc % BLK;
       const int cj = nc / BLK;
-      int s, ki;
+      uint bits4[4], mant4[4];
+      int sign4[4], ki;
       uint pack[NSLICES_X];
-      UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) pack[s] = 0;
+
+      I8_GATHER_LOAD4(0, ox, oy, oz, k_base, ci, cj, nx, ny, nz, p_grid, bits4);
 
       UNROLL_FORCE(4) for (ki = 0; ki < 4; ++ki) {
-        const int k = k_base + ki;
-        uint mantissa = 0;
-        int sign_bit = 0;
-        if (k < K_BASE) {
-          int gx, gy, gz;
-          uint bits;
-          int e, shift;
-
-          STENCIL_GATHER_COORD(0, ox, oy, oz, k, ci, cj, gx, gy, gz);
-          STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
-
-          bits = as_uint(p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)]);
-          e = (int)((bits >> 23) & 0xFFu);
-          sign_bit = (int)(bits >> 31);
-          mantissa = (0 != e) ? ((bits & 0x7FFFFFu) | 0x800000u) : 0;
-
-          shift = assumed_exp - e;
-          if (shift < 0 || shift >= 24 || 0 == e) mantissa = 0;
-          else if (shift > 0) mantissa >>= shift;
-        }
-        UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) {
-          pack[s] |= ((uint)(uchar)i8_slice_digit(mantissa, sign_bit, s)) << (ki * 8);
-        }
+        I8_EXTRACT_MANTISSA(bits4[ki], assumed_exp, mant4[ki], sign4[ki]);
       }
 
-      UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) {
-        x_slm[s * I8_K4_PAD * XMX_N + k4 * XMX_N + col_local] = (int)pack[s];
+      I8_GATHER_PACK4(pack, mant4[0], sign4[0], mant4[1], sign4[1],
+        mant4[2], sign4[2], mant4[3], sign4[3]);
+
+      UNROLL_FORCE(NSLICES_X) for (ki = 0; ki < NSLICES_X; ++ki) {
+        x_slm[ki * I8_K4_PAD * XMX_N + k4 * XMX_N + col_local] = (int)pack[ki];
       }
     }
   }
@@ -276,8 +345,6 @@ kernel void stencil_apply_int8(
 
     STENCIL_I8_ACC(cur_dk, buf_cur, cur_nslices_eff, cur_assumed_exp, mi, acc[cur_strip]);
 
-    /* Gather next iteration's data into buf[next] -- global loads overlap
-     * with residual systolic drain and EU integer work from DPAS above. */
     { int idx;
       for (idx = fill_id; idx < I8_FILL_COUNT; idx += fill_total) {
         const int k4 = idx / XMX_N;
@@ -286,38 +353,21 @@ kernel void stencil_apply_int8(
         const int nc = next_nj + col_local;
         const int ci = nc % BLK;
         const int cj = nc / BLK;
-        int s, ki;
+        uint bits4[4], mant4[4];
+        int sign4[4], ki;
         uint pack[NSLICES_X];
-        UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) pack[s] = 0;
+
+        I8_GATHER_LOAD4(next_dim, ox, oy, oz, k_base, ci, cj, nx, ny, nz, p_grid, bits4);
 
         UNROLL_FORCE(4) for (ki = 0; ki < 4; ++ki) {
-          const int k = k_base + ki;
-          uint mantissa = 0;
-          int sign_bit = 0;
-          if (k < K_BASE) {
-            int gx, gy, gz;
-            uint bits;
-            int e, shift;
-
-            STENCIL_GATHER_COORD(next_dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
-            STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
-
-            bits = as_uint(p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)]);
-            e = (int)((bits >> 23) & 0xFFu);
-            sign_bit = (int)(bits >> 31);
-            mantissa = (0 != e) ? ((bits & 0x7FFFFFu) | 0x800000u) : 0;
-
-            shift = next_assumed_exp - e;
-            if (shift < 0 || shift >= 24 || 0 == e) mantissa = 0;
-            else if (shift > 0) mantissa >>= shift;
-          }
-          UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) {
-            pack[s] |= ((uint)(uchar)i8_slice_digit(mantissa, sign_bit, s)) << (ki * 8);
-          }
+          I8_EXTRACT_MANTISSA(bits4[ki], next_assumed_exp, mant4[ki], sign4[ki]);
         }
 
-        UNROLL_FORCE(NSLICES_X) for (s = 0; s < NSLICES_X; ++s) {
-          x_slm[buf_next + s * I8_K4_PAD * XMX_N + k4 * XMX_N + col_local] = (int)pack[s];
+        I8_GATHER_PACK4(pack, mant4[0], sign4[0], mant4[1], sign4[1],
+          mant4[2], sign4[2], mant4[3], sign4[3]);
+
+        UNROLL_FORCE(NSLICES_X) for (ki = 0; ki < NSLICES_X; ++ki) {
+          x_slm[buf_next + ki * I8_K4_PAD * XMX_N + k4 * XMX_N + col_local] = (int)pack[ki];
         }
       }
     }

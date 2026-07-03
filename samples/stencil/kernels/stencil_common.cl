@@ -157,6 +157,13 @@
 #define KSTEP_HI(MI) (((MI) + XMX_M - 1 + 2 * RADIUS) & ~15)
 #define KSTEP_MAX_COUNT (((XMX_M - 1 + 2 * RADIUS) >> 4) + 1)
 
+/* INT8 K-step range: k32-aligned (8 int-quads per DPAS step).
+ * Non-zero band of operator row MI: columns [MI .. MI+XMX_M-1+2*RADIUS].
+ * DPAS k32 step starts at a multiple of 8 int-quads (32 bytes). */
+#define KSTEP_I8_LO(MI) (((MI) >> 2) & ~7)
+#define KSTEP_I8_HI(MI) ((((MI) + XMX_M - 1 + 2 * RADIUS) >> 2) & ~7)
+#define KSTEP_I8_MAX_COUNT ((((XMX_M - 1 + 2 * RADIUS + 31) >> 5) + 1))
+
 /* DPAS accumulation from SLM strip: iterates (sa, sb, kstep).
  * B tiles are preloaded from SLM into registers before DPAS. */
 #define STENCIL_DPAS_ACC_ROWS(DK, NDIGITS_EFF, X_SLM, D_WB, A_ROWS, MI, ACC) \
