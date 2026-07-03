@@ -64,35 +64,64 @@
       } \
     } \
   } while (0)
+#elif defined(NV) && (2 <= NV) && defined(STENCIL_INT8) && (1 == STENCIL_INT8)
+#define STENCIL_I8_DP4A(D, A, B, C) \
+  asm("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
+#define STENCIL_I8_ACC(CUR_DK, BUF_CUR, CUR_NSLICES_EFF, CUR_ASSUMED_EXP, MI, ACC_SLOT) \
+  do { int sa_, sb_; \
+    const int sg_lid_i8_ = (int)SGLID(); \
+    if (sg_lid_i8_ < XMX_N) { \
+      UNROLL_FORCE(NSLICES_A) for (sa_ = 0; sa_ < NSLICES_A; ++sa_) { \
+        global const char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
+        UNROLL_AUTO for (sb_ = 0; sb_ < (CUR_NSLICES_EFF); ++sb_) { \
+          const float pair_scale_ = dk_scale[sa_ * BLK + (MI)] \
+            * EXP2I((CUR_ASSUMED_EXP) - BIAS - MANT_BITS + 7 * sb_); \
+          int m_; \
+          STENCIL_I8_TRIM_CHECK(sa_, sb_, CUR_NSLICES_EFF); \
+          UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) { \
+            const int row_ = (MI) + m_; \
+            global const int* d_row_ = (global const int*)(d_digit_ + (long)row_ * K_PAD_I8); \
+            local const int* x_col_ = x_slm + (BUF_CUR) \
+              + sb_ * I8_K4_PAD * XMX_N + sg_lid_i8_; \
+            int dot_ = 0, k4_; \
+            for (k4_ = 0; k4_ < I8_K4_BASE; ++k4_) { \
+              STENCIL_I8_DP4A(dot_, d_row_[k4_], x_col_[k4_ * XMX_N], dot_); \
+            } \
+            ((float*)&(ACC_SLOT))[m_] += (float)dot_ * pair_scale_; \
+          } \
+        } \
+      } \
+    } \
+  } while (0)
 #else
 #define STENCIL_I8_ACC(CUR_DK, BUF_CUR, CUR_NSLICES_EFF, CUR_ASSUMED_EXP, MI, ACC_SLOT) \
   do { int sa_, sb_; \
     const int sg_lid_i8_ = (int)SGLID(); \
     if (sg_lid_i8_ < XMX_N) { \
-    UNROLL_FORCE(NSLICES_A) for (sa_ = 0; sa_ < NSLICES_A; ++sa_) { \
-      global const char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
-      UNROLL_AUTO for (sb_ = 0; sb_ < (CUR_NSLICES_EFF); ++sb_) { \
-        const float pair_scale_ = dk_scale[sa_ * BLK + (MI)] \
-          * EXP2I((CUR_ASSUMED_EXP) - BIAS - MANT_BITS + 7 * sb_); \
-        int m_; \
-        STENCIL_I8_TRIM_CHECK(sa_, sb_, CUR_NSLICES_EFF); \
-        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) { \
-          const int row_ = (MI) + m_; \
-          global const char* d_row_ = d_digit_ + (long)row_ * K_PAD_I8; \
-          local const int* x_col_ = x_slm + (BUF_CUR) \
-            + sb_ * I8_K4_PAD * XMX_N + sg_lid_i8_; \
-          int dot_ = 0, k4_; \
-          for (k4_ = 0; k4_ < I8_K4_BASE; ++k4_) { \
-            const int xpacked_ = x_col_[k4_ * XMX_N]; \
-            dot_ += (int)d_row_[k4_ * 4 + 0] * (int)(char)(xpacked_ & 0xFF); \
-            dot_ += (int)d_row_[k4_ * 4 + 1] * (int)(char)((xpacked_ >> 8) & 0xFF); \
-            dot_ += (int)d_row_[k4_ * 4 + 2] * (int)(char)((xpacked_ >> 16) & 0xFF); \
-            dot_ += (int)d_row_[k4_ * 4 + 3] * (int)(char)((xpacked_ >> 24) & 0xFF); \
+      UNROLL_FORCE(NSLICES_A) for (sa_ = 0; sa_ < NSLICES_A; ++sa_) { \
+        global const char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
+        UNROLL_AUTO for (sb_ = 0; sb_ < (CUR_NSLICES_EFF); ++sb_) { \
+          const float pair_scale_ = dk_scale[sa_ * BLK + (MI)] \
+            * EXP2I((CUR_ASSUMED_EXP) - BIAS - MANT_BITS + 7 * sb_); \
+          int m_; \
+          STENCIL_I8_TRIM_CHECK(sa_, sb_, CUR_NSLICES_EFF); \
+          UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_) { \
+            const int row_ = (MI) + m_; \
+            global const char* d_row_ = d_digit_ + (long)row_ * K_PAD_I8; \
+            local const int* x_col_ = x_slm + (BUF_CUR) \
+              + sb_ * I8_K4_PAD * XMX_N + sg_lid_i8_; \
+            int dot_ = 0, k4_; \
+            for (k4_ = 0; k4_ < I8_K4_BASE; ++k4_) { \
+              const int xpacked_ = x_col_[k4_ * XMX_N]; \
+              dot_ += (int)d_row_[k4_ * 4 + 0] * (int)(char)(xpacked_ & 0xFF); \
+              dot_ += (int)d_row_[k4_ * 4 + 1] * (int)(char)((xpacked_ >> 8) & 0xFF); \
+              dot_ += (int)d_row_[k4_ * 4 + 2] * (int)(char)((xpacked_ >> 16) & 0xFF); \
+              dot_ += (int)d_row_[k4_ * 4 + 3] * (int)(char)((xpacked_ >> 24) & 0xFF); \
+            } \
+            ((float*)&(ACC_SLOT))[m_] += (float)dot_ * pair_scale_; \
           } \
-          ((float*)&(ACC_SLOT))[m_] += (float)dot_ * pair_scale_; \
         } \
       } \
-    } \
     } \
   } while (0)
 #endif

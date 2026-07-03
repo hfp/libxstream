@@ -262,15 +262,16 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       LIBXS_MEMZERO(&knl);
 
       { const int intel_level = (int)devinfo->intel;
+        const int nv_level = (int)devinfo->nv;
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
-          " -DSG=%d -DINTEL=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
-          " -DSTENCIL_FP32=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
+          " -DSG=%d -DINTEL=%d -DNV=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
+          " -DSTENCIL_FP32=%d -DSTENCIL_INT8=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
           " -DSTENCIL_PML=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
-          key.strips_per_wg, key.sg, intel_level, key.method, key.trim, key.nterms,
-          key.lu, key.fp32, key.bf16s, key.blocked, ctx->pml,
+          key.strips_per_wg, key.sg, intel_level, nv_level, key.method, key.trim, key.nterms,
+          key.lu, key.fp32, key.int8, key.bf16s, key.blocked, ctx->pml,
           (0 != key.fp32) ? ""
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
