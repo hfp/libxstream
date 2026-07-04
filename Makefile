@@ -309,38 +309,20 @@ tests: $(if $(wildcard $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(OUTDIR)/$(PROJECT).$(DL
 	@$(FLOCK) $(ROOTDIR)/$(TSTDIR) "$(MAKE) --no-print-directory test"
 
 $(DOCDIR)/index.md: $(DOCDIR)/.make $(ROOTDIR)/Makefile $(ROOTDIR)/README.md
-	@$(SED) \
-		-e 's/\[!\[..*\](..*)\](..*)//g' \
-		-e 's/\[\[..*\](..*)\]//g' \
-		-e "s/](${DOCDIR}\//](/g" \
-		-e "s/]:[[:space:]]*${DOCDIR}\//]: /g" \
-		-e 'N;/^\n$$/d;P;D' \
-		<$(ROOTDIR)/README.md >$@
+	@$(SED) $(DOC_MD_SED) <$(ROOTDIR)/README.md >$@
 	@$(CP) $(ROOTDIR)/LICENSE.md $(DOCDIR)/LICENSE.md
 
 $(DOCDIR)/$(PROJECT)_scripts.md: $(DOCDIR)/.make $(ROOTDIR)/Makefile $(ROOTSCR)/README.md
-	@$(SED) \
-		-e 's/\[!\[..*\](..*)\](..*)//g' \
-		-e 's/\[\[..*\](..*)\]//g' \
-		-e "s/](${DOCDIR}\//](/g" \
-		-e "s/]:[[:space:]]*${DOCDIR}\//]: /g" \
-		-e 'N;/^\n$$/d;P;D' \
-		<$(ROOTSCR)/README.md >$@
+	@$(SED) $(DOC_MD_SED) <$(ROOTSCR)/README.md >$@
 
 $(DOCDIR)/$(PROJECT)_samples.md: $(DOCDIR)/.make $(DOCDIR)/$(SPLDIR)/.make $(ROOTDIR)/Makefile $(SPLMDS)
 	@for MD in $(SPLMDS); do \
-		$(SED) \
-			-e 's/\[!\[..*\](..*)\](..*)//g' \
-			-e 's/\[\[..*\](..*)\]//g' \
-			-e "s/](${DOCDIR}\//](/g" \
-			-e "s/]:[[:space:]]*${DOCDIR}\//]: /g" \
-			-e 'N;/^\n$$/d;P;D' \
+		$(SED) $(DOC_MD_SED) \
 			<$${MD} >$(DOCDIR)/$(SPLDIR)/$(PROJECT)_$$(basename $$(dirname $${MD})).md; \
 	done
 	@cat $(SPLMDS) | $(SED) \
 		-e 's/^#/##/' \
-		-e 's/<sub>/~/g' -e 's/<\/sub>/~/g' \
-		-e 's/<sup>/^/g' -e 's/<\/sup>/^/g' \
+		$(DOC_HTML_SED) \
 		-e 's/----*//g' \
 		-e '1s/^/# [$(PROJUPP) Samples](https:\/\/github.com\/hfp\/$(PROJECT)\/raw\/main\/$(DOCDIR)\/$(PROJECT)_samples.pdf)\n\n/' \
 		>$@
@@ -356,9 +338,7 @@ $(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/Makefile $(DOCDIR)/in
 		echo "# Appendix" && \
 		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_present.md && echo && \
 		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_scripts.md && echo; ) \
-	| $(SED) \
-		-e 's/<sub>/~/g' -e 's/<\/sub>/~/g' \
-		-e 's/<sup>/^/g' -e 's/<\/sup>/^/g' \
+	| $(SED) $(DOC_HTML_SED) \
 	| $(call md2pdf,$(PROJUPP) Documentation,$(MDAUTHOR),$(call qndir,$@))
 
 MDFILE := $(ROOTDIR)/$(DOCDIR)/$(PROJECT)_samples.md
@@ -441,27 +421,6 @@ distclean: deepclean
 	@find $(ROOTDIR)/$(SPLDIR) $(ROOTDIR)/$(TSTDIR) -type f -name Makefile -exec $(FLOCK) {} \
 		"$(MAKE) --no-print-directory deepclean" \; 2>/dev/null || true
 	@find . -maxdepth 1 -name '$(PROJECT)*' -not -name '*.in' -not -name '$(PROJECT)' -exec rm -rf {} +
-
-# keep original prefix (:)
-ALIAS_PREFIX := $(PREFIX)
-
-# DESTDIR is used as prefix of PREFIX
-ifneq (,$(strip $(DESTDIR)))
-  override PREFIX := $(call qapath,$(DESTDIR)/$(PREFIX))
-endif
-# fall-back
-ifeq (,$(strip $(PREFIX)))
-  override PREFIX := $(HEREDIR)
-endif
-
-# setup maintainer-layout
-ifeq (,$(strip $(ALIAS_PREFIX)))
-  override ALIAS_PREFIX := $(PREFIX)
-endif
-ifneq ($(ALIAS_PREFIX),$(PREFIX))
-  PPKGDIR := libdata/pkgconfig
-  PMODDIR := $(PSHRDIR)
-endif
 
 # remove existing PREFIX
 CLEAN ?= 0
