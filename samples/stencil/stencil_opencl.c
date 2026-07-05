@@ -243,16 +243,19 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.blocked = ctx->blocked;
   key.layout = ctx->layout;
   key.pml = ctx->pml;
+  key.grid_key = ctx->grid_size[0] ^ (ctx->grid_size[1] * 65599)
+               ^ (ctx->grid_size[2] * 8191) ^ (ctx->halo[0] * 131)
+               ^ (ctx->halo[1] * 257) ^ (ctx->halo[2] * 521);
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
     kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
 
-  if (NULL == kptr || NULL == kptr->stencil_apply) {
+  if (NULL == kptr || (NULL == kptr->stencil_apply && NULL == kptr->stencil_apply_direct)) {
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK_DEFAULT, &compile_lock);
     kptr = (stencil_kernels_t*)libxs_registry_get(
       kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
 
-    if (NULL == kptr || NULL == kptr->stencil_apply) {
+    if (NULL == kptr || (NULL == kptr->stencil_apply && NULL == kptr->stencil_apply_direct)) {
       const libxs_timer_tick_t t0 = libxs_timer_tick();
       char flags[LIBXSTREAM_BUFFERSIZE];
       const char* options = NULL;
@@ -277,27 +280,34 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
 
-      if (2 == key.layout) {
-        const int lx = ctx->halo[0], ly = ctx->halo[1], lz = ctx->halo[2];
-        const int nx = ctx->grid_size[0], ny = ctx->grid_size[1], nz = ctx->grid_size[2];
-        const int p_sx = (nz + 2 * lz) * (ny + 2 * ly);
-        const int p_sy = (nz + 2 * lz);
-        const int v_sx = nz * ny;
-        const int v_sy = nz;
-        const int e_sx = (nz + 2) * (ny + 2);
-        const int e_sy = (nz + 2);
-        char zyx_flags[512];
-        (void)nx;
-        LIBXS_SNPRINTF(zyx_flags, sizeof(zyx_flags),
-          " -DSTENCIL_P_SX=%d -DSTENCIL_P_SY=%d"
-          " -DSTENCIL_P_LX=%d -DSTENCIL_P_LY=%d -DSTENCIL_P_LZ=%d"
-          " -DSTENCIL_V_SX=%d -DSTENCIL_V_SY=%d"
-          " -DSTENCIL_V_LX=0 -DSTENCIL_V_LY=0 -DSTENCIL_V_LZ=0"
-          " -DSTENCIL_E_SX=%d -DSTENCIL_E_SY=%d"
-          " -DSTENCIL_E_LX=1 -DSTENCIL_E_LY=1 -DSTENCIL_E_LZ=1"
-          " -DSTENCIL_PADDED=1",
-          p_sx, p_sy, lx, ly, lz, v_sx, v_sy, e_sx, e_sy);
-        strncat(flags, zyx_flags, sizeof(flags) - strlen(flags) - 1);
+      { const int nx = ctx->grid_size[0], ny = ctx->grid_size[1], nz = ctx->grid_size[2];
+        char stride_flags[512];
+        if (2 == key.layout) {
+          const int lx = ctx->halo[0], ly = ctx->halo[1], lz = ctx->halo[2];
+          const int p_sx = (nz + 2 * lz) * (ny + 2 * ly);
+          const int p_sy = (nz + 2 * lz);
+          const int v_sx = nz * ny;
+          const int v_sy = nz;
+          const int e_sx = (nz + 2) * (ny + 2);
+          const int e_sy = (nz + 2);
+          const int radius = (0 == key.method) ? STENCIL_RADIUS : key.r_per_step;
+          const int padded = (lx >= radius && ly >= radius && lz >= radius) ? 1 : 0;
+          LIBXS_SNPRINTF(stride_flags, sizeof(stride_flags),
+            " -DSTENCIL_P_SX=%d -DSTENCIL_P_SY=%d"
+            " -DSTENCIL_P_LX=%d -DSTENCIL_P_LY=%d -DSTENCIL_P_LZ=%d"
+            " -DSTENCIL_V_SX=%d -DSTENCIL_V_SY=%d"
+            " -DSTENCIL_V_LX=0 -DSTENCIL_V_LY=0 -DSTENCIL_V_LZ=0"
+            " -DSTENCIL_E_SX=%d -DSTENCIL_E_SY=%d"
+            " -DSTENCIL_E_LX=1 -DSTENCIL_E_LY=1 -DSTENCIL_E_LZ=1"
+            " -DSTENCIL_PADDED=%d",
+            p_sx, p_sy, lx, ly, lz, v_sx, v_sy, e_sx, e_sy, padded);
+        }
+        else {
+          LIBXS_SNPRINTF(stride_flags, sizeof(stride_flags),
+            " -DSTENCIL_NX=%d -DSTENCIL_NY=%d -DSTENCIL_NZ=%d",
+            nx, ny, nz);
+        }
+        strncat(flags, stride_flags, sizeof(flags) - strlen(flags) - 1);
       }
 
       if (0 != key.grf256 && 0 != devinfo->intel && 0 == devinfo->biggrf) {
@@ -757,9 +767,16 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     local_direct[0] = 32;
     local_direct[1] = 8;
     local_direct[2] = 1;
-    global_direct[0] = ((size_t)nx + 31) & ~(size_t)31;
-    global_direct[1] = ((size_t)ny + 7) & ~(size_t)7;
-    global_direct[2] = (size_t)((nz + STENCIL_BLK - 1) / STENCIL_BLK);
+    if (2 == ctx->layout) {
+      global_direct[0] = ((size_t)nz + 31) & ~(size_t)31;
+      global_direct[1] = ((size_t)ny + 7) & ~(size_t)7;
+      global_direct[2] = (size_t)((nx + STENCIL_BLK - 1) / STENCIL_BLK);
+    }
+    else {
+      global_direct[0] = ((size_t)nx + 31) & ~(size_t)31;
+      global_direct[1] = ((size_t)ny + 7) & ~(size_t)7;
+      global_direct[2] = (size_t)((nz + STENCIL_BLK - 1) / STENCIL_BLK);
+    }
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_cur));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_old));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_new));

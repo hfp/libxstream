@@ -15,19 +15,38 @@
 # define WG_Y 8
 #endif
 #define WG_SIZE (WG_X * WG_Y)
-#define SLM_X (WG_X + 2 * RADIUS)
-#define SLM_Y (WG_Y + 2 * RADIUS)
-#define SLM_TOTAL (SLM_Y * SLM_X)
-#define Z_WINDOW (2 * RADIUS + 1)
+#define SLM_F (WG_X + 2 * RADIUS)
+#define SLM_M (WG_Y + 2 * RADIUS)
+#define SLM_TOTAL (SLM_M * SLM_F)
+#define S_WINDOW (2 * RADIUS + 1)
 
+/* Logical-to-physical axis mapping:
+ * XYZ: fast=X, medium=Y, slow=Z (Z-sliding window).
+ * ZYX: fast=Z, medium=Y, slow=X (X-sliding window). */
 #if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
-# define FP32_P_IDX(GX, GY, GZ) STENCIL_ZYX_P_IDX(GZ, GY, GX)
-# define FP32_V_IDX(GX, GY, GZ) STENCIL_ZYX_V_IDX(GZ, GY, GX)
-# define FP32_E_IDX(GX, GY, GZ) STENCIL_ZYX_E_IDX(GZ, GY, GX)
+# define FP32_NFAST nz
+# define FP32_NSLOW nx
+# define FP32_COEFF_FAST (coeff + 2 * STENCIL_WIDTH)
+# define FP32_COEFF_MED  (coeff + STENCIL_WIDTH)
+# define FP32_COEFF_SLOW (coeff)
+# define FP32_P_FMS(F, M, S) STENCIL_ZYX_P_IDX(F, M, S)
+# define FP32_V_FMS(F, M, S) STENCIL_ZYX_V_IDX(F, M, S)
+# define FP32_E_FMS(F, M, S) STENCIL_ZYX_E_IDX(F, M, S)
+# define FP32_HD_FAST hdz_2
+# define FP32_HD_MED  hdy_2
+# define FP32_HD_SLOW hdx_2
 #else
-# define FP32_P_IDX(GX, GY, GZ) ((long)(GZ) * (ny) * (nx) + (long)(GY) * (nx) + (GX))
-# define FP32_V_IDX(GX, GY, GZ) FP32_P_IDX(GX, GY, GZ)
-# define FP32_E_IDX(GX, GY, GZ) FP32_P_IDX(GX, GY, GZ)
+# define FP32_NFAST STENCIL_NX
+# define FP32_NSLOW STENCIL_NZ
+# define FP32_COEFF_FAST (coeff)
+# define FP32_COEFF_MED  (coeff + STENCIL_WIDTH)
+# define FP32_COEFF_SLOW (coeff + 2 * STENCIL_WIDTH)
+# define FP32_P_FMS(F, M, S) ((long)(S) * (STENCIL_NY) * (STENCIL_NX) + (long)(M) * (STENCIL_NX) + (F))
+# define FP32_V_FMS(F, M, S) FP32_P_FMS(F, M, S)
+# define FP32_E_FMS(F, M, S) FP32_P_FMS(F, M, S)
+# define FP32_HD_FAST hdx_2
+# define FP32_HD_MED  hdy_2
+# define FP32_HD_SLOW hdz_2
 #endif
 
 __attribute__((reqd_work_group_size(WG_X, WG_Y, 1)))
@@ -45,142 +64,141 @@ kernel void stencil_apply_direct(
   float dt2,
   int nx, int ny, int nz)
 {
-  local float xy_slm[SLM_TOTAL];
+  local float fm_slm[SLM_TOTAL];
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
   local float eta_slm[SLM_TOTAL];
-  float eta_z[3];
+  float eta_s[3];
 #endif
 
-  const int ix = (int)get_global_id(0);
-  const int iy = (int)get_global_id(1);
-  const int iz_base = (int)get_group_id(2) * BLK;
-  const int lx = (int)get_local_id(0);
-  const int ly = (int)get_local_id(1);
-  const int lid = ly * WG_X + lx;
-  const int valid_xy = (ix < nx && iy < ny);
+  const int i_f = (int)get_global_id(0);
+  const int i_m = (int)get_global_id(1);
+  const int is_base = (int)get_group_id(2) * BLK;
+  const int lf = (int)get_local_id(0);
+  const int lm = (int)get_local_id(1);
+  const int lid = lm * WG_X + lf;
+  const int valid_fm = (i_f < FP32_NFAST && i_m < ny);
 
-  const int gx0 = (int)get_group_id(0) * WG_X - RADIUS;
-  const int gy0 = (int)get_group_id(1) * WG_Y - RADIUS;
-  float z_win[Z_WINDOW];
-  int iz, r, idx, w;
+  const int gf0 = (int)get_group_id(0) * WG_X - RADIUS;
+  const int gm0 = (int)get_group_id(1) * WG_Y - RADIUS;
+  float s_win[S_WINDOW];
+  int i_s, r, idx, w;
 
 #if !defined(NTERMS) || (2 < NTERMS)
-  if (valid_xy) {
-    UNROLL_FORCE(Z_WINDOW) for (w = 0; w < Z_WINDOW - 1; ++w) {
-      int cz = iz_base - RADIUS + w;
+  if (valid_fm) {
+    UNROLL_FORCE(S_WINDOW) for (w = 0; w < S_WINDOW - 1; ++w) {
+      int cs = is_base - RADIUS + w;
 #if !defined(STENCIL_PADDED) || (0 >= STENCIL_PADDED)
-      if (cz < 0) cz = 0; else if (cz >= nz) cz = nz - 1;
+      if (cs < 0) cs = 0; else if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
 #endif
-      z_win[w] = p_grid[FP32_P_IDX(ix, iy, cz)];
+      s_win[w] = p_grid[FP32_P_FMS(i_f, i_m, cs)];
     }
   }
 #endif
 
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
   { const int pml_w = 20;
-    const int blk_x0 = (int)get_group_id(0) * WG_X;
-    const int blk_y0 = (int)get_group_id(1) * WG_Y;
+    const int blk_f0 = (int)get_group_id(0) * WG_X;
+    const int blk_m0 = (int)get_group_id(1) * WG_Y;
     const int blk_interior =
-      (blk_x0 >= pml_w && blk_x0 + WG_X <= nx - pml_w &&
-       blk_y0 >= pml_w && blk_y0 + WG_Y <= ny - pml_w &&
-       iz_base >= pml_w && iz_base + BLK <= nz - pml_w) ? 1 : 0;
+      (blk_f0 >= pml_w && blk_f0 + WG_X <= FP32_NFAST - pml_w &&
+       blk_m0 >= pml_w && blk_m0 + WG_Y <= ny - pml_w &&
+       is_base >= pml_w && is_base + BLK <= FP32_NSLOW - pml_w) ? 1 : 0;
 
-    if (valid_xy && 0 == blk_interior) {
-      int cz0 = (iz_base > 0) ? iz_base - 1 : 0;
-      int cz1 = iz_base;
-      eta_z[0] = eta[FP32_E_IDX(ix, iy, cz0)];
-      eta_z[1] = eta[FP32_E_IDX(ix, iy, cz1)];
+    if (valid_fm && 0 == blk_interior) {
+      int cs0 = (is_base > 0) ? is_base - 1 : 0;
+      int cs1 = is_base;
+      eta_s[0] = eta[FP32_E_FMS(i_f, i_m, cs0)];
+      eta_s[1] = eta[FP32_E_FMS(i_f, i_m, cs1)];
     }
 #endif
 
-    UNROLL_OUTER(1) for (iz = iz_base; iz < iz_base + BLK && iz < nz; ++iz) {
+    UNROLL_OUTER(1) for (i_s = is_base; i_s < is_base + BLK && i_s < FP32_NSLOW; ++i_s) {
       float lap, p_center;
 
       for (idx = lid; idx < SLM_TOTAL; idx += WG_SIZE) {
-        const int sy = idx / SLM_X;
-        const int sx = idx % SLM_X;
-        int gx = gx0 + sx;
-        int gy = gy0 + sy;
+        const int sm = idx / SLM_F;
+        const int sf = idx % SLM_F;
+        int gf = gf0 + sf;
+        int gm = gm0 + sm;
 #if !defined(STENCIL_PADDED) || (0 >= STENCIL_PADDED)
-        if (gx < 0) gx = 0; else if (gx >= nx) gx = nx - 1;
-        if (gy < 0) gy = 0; else if (gy >= ny) gy = ny - 1;
+        if (gf < 0) gf = 0; else if (gf >= FP32_NFAST) gf = FP32_NFAST - 1;
+        if (gm < 0) gm = 0; else if (gm >= ny) gm = ny - 1;
 #endif
-        { xy_slm[idx] = p_grid[FP32_P_IDX(gx, gy, iz)];
+        { fm_slm[idx] = p_grid[FP32_P_FMS(gf, gm, i_s)];
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
-          if (0 == blk_interior) eta_slm[idx] = eta[FP32_E_IDX(gx, gy, iz)];
+          if (0 == blk_interior) eta_slm[idx] = eta[FP32_E_FMS(gf, gm, i_s)];
 #endif
         }
       }
       barrier(CLK_LOCAL_MEM_FENCE);
 
-      if (valid_xy) {
+      if (valid_fm) {
 #if !defined(NTERMS) || (2 < NTERMS)
-        { int cz = iz + RADIUS;
+        { int cs = i_s + RADIUS;
 #if !defined(STENCIL_PADDED) || (0 >= STENCIL_PADDED)
-          if (cz >= nz) cz = nz - 1;
+          if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
 #endif
-          z_win[Z_WINDOW - 1] = p_grid[FP32_P_IDX(ix, iy, cz)];
+          s_win[S_WINDOW - 1] = p_grid[FP32_P_FMS(i_f, i_m, cs)];
         }
 #endif
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
         if (0 == blk_interior) {
-          int cz = iz + 1;
-          if (cz >= nz) cz = nz - 1;
-          eta_z[2] = eta[FP32_E_IDX(ix, iy, cz)];
+          int cs = i_s + 1;
+          if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
+          eta_s[2] = eta[FP32_E_FMS(i_f, i_m, cs)];
         }
 #endif
-        { const int c = (ly + RADIUS) * SLM_X + lx + RADIUS;
-          CONSTANT const float* cx = coeff;
-          CONSTANT const float* cy = coeff + STENCIL_WIDTH;
-          CONSTANT const float* cz = coeff + 2 * STENCIL_WIDTH;
-          p_center = xy_slm[c];
-          lap = cx[RADIUS] * p_center;
+        { const int c = (lm + RADIUS) * SLM_F + lf + RADIUS;
+          CONSTANT const float* cf = FP32_COEFF_FAST;
+          CONSTANT const float* cm = FP32_COEFF_MED;
+          p_center = fm_slm[c];
+          lap = cf[RADIUS] * p_center;
           UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
-            lap += cx[RADIUS + r] * (xy_slm[c + r] + xy_slm[c - r]);
+            lap += cf[RADIUS + r] * (fm_slm[c + r] + fm_slm[c - r]);
           }
 #if !defined(NTERMS) || (1 < NTERMS)
-          lap += cy[RADIUS] * p_center;
+          lap += cm[RADIUS] * p_center;
           UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
-            lap += cy[RADIUS + r] * (xy_slm[c + r * SLM_X] + xy_slm[c - r * SLM_X]);
+            lap += cm[RADIUS + r] * (fm_slm[c + r * SLM_F] + fm_slm[c - r * SLM_F]);
           }
 #endif
         }
 #if !defined(NTERMS) || (2 < NTERMS)
-        { CONSTANT const float* cz = coeff + 2 * STENCIL_WIDTH;
-          lap += cz[RADIUS] * z_win[RADIUS];
+        { CONSTANT const float* cs = FP32_COEFF_SLOW;
+          lap += cs[RADIUS] * s_win[RADIUS];
           UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
-            lap += cz[RADIUS + r] * (z_win[RADIUS + r] + z_win[RADIUS - r]);
+            lap += cs[RADIUS + r] * (s_win[RADIUS + r] + s_win[RADIUS - r]);
           }
         }
 #endif
-        { const long ip = FP32_P_IDX(ix, iy, iz);
-          const long iv = FP32_V_IDX(ix, iy, iz);
+        { const long ip = FP32_P_FMS(i_f, i_m, i_s);
+          const long iv = FP32_V_FMS(i_f, i_m, i_s);
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
           if (0 != blk_interior) {
             p_new[ip] = 2.0f * p_center - p_old[ip] + vel[iv] * lap;
           }
           else {
-            const int c = (ly + RADIUS) * SLM_X + lx + RADIUS;
+            const int c = (lm + RADIUS) * SLM_F + lf + RADIUS;
             const float eta1 = eta_slm[c];
             const float phi_val = phi[iv];
             const float numerator =
               (2.0f - eta1 * eta1 + 2.0f * eta1) * p_center - p_old[ip]
               + vel[iv] * (lap + phi_val);
             p_new[ip] = numerator / (1.0f + 2.0f * eta1);
-            { const float ux_p = xy_slm[c + 1];
-              const float ux_m = xy_slm[c - 1];
-              const float uy_p = xy_slm[c + SLM_X];
-              const float uy_m = xy_slm[c - SLM_X];
-              const float uz_p = z_win[RADIUS + 1];
-              const float uz_m = z_win[RADIUS - 1];
-              const float eta_xp = eta_slm[c + 1];
-              const float eta_xm = eta_slm[c - 1];
-              const float eta_yp = eta_slm[c + SLM_X];
-              const float eta_ym = eta_slm[c - SLM_X];
+            { const float uf_p = fm_slm[c + 1];
+              const float uf_m = fm_slm[c - 1];
+              const float um_p = fm_slm[c + SLM_F];
+              const float um_m = fm_slm[c - SLM_F];
+              const float us_p = s_win[RADIUS + 1];
+              const float us_m = s_win[RADIUS - 1];
+              const float eta_fp = eta_slm[c + 1];
+              const float eta_fm = eta_slm[c - 1];
+              const float eta_mp = eta_slm[c + SLM_F];
+              const float eta_mm = eta_slm[c - SLM_F];
               const float tmp =
-                (eta_xp - eta_xm) * (ux_p - ux_m) * hdx_2
-                + (eta_yp - eta_ym) * (uy_p - uy_m) * hdy_2
-                + (eta_z[2] - eta_z[0]) * (uz_p - uz_m) * hdz_2;
+                (eta_fp - eta_fm) * (uf_p - uf_m) * FP32_HD_FAST
+                + (eta_mp - eta_mm) * (um_p - um_m) * FP32_HD_MED
+                + (eta_s[2] - eta_s[0]) * (us_p - us_m) * FP32_HD_SLOW;
               phi[iv] = (phi_val - tmp) / (1.0f + eta1);
             }
           }
@@ -190,15 +208,15 @@ kernel void stencil_apply_direct(
         }
 
 #if !defined(NTERMS) || (2 < NTERMS)
-        UNROLL_FORCE(Z_WINDOW - 1) for (w = 0; w < Z_WINDOW - 1; ++w) {
-          z_win[w] = z_win[w + 1];
+        UNROLL_FORCE(S_WINDOW - 1) for (w = 0; w < S_WINDOW - 1; ++w) {
+          s_win[w] = s_win[w + 1];
         }
 #endif
 
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
         if (0 == blk_interior) {
-          eta_z[0] = eta_z[1];
-          eta_z[1] = eta_z[2];
+          eta_s[0] = eta_s[1];
+          eta_s[1] = eta_s[2];
         }
 #endif
       }

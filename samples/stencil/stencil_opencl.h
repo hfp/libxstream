@@ -56,6 +56,7 @@ typedef struct {
   int blocked;
   int layout;
   int pml;
+  int grid_key;
 } stencil_opencl_key_t;
 
 typedef struct {

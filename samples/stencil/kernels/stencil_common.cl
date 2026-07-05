@@ -135,6 +135,17 @@
 #define STENCIL_LAYOUT_BLK 1
 #define STENCIL_LAYOUT_ZYX 2
 
+/* Compile-time grid dimensions (passed via -DSTENCIL_NX/NY/NZ). */
+#if !defined(STENCIL_NX)
+# define STENCIL_NX 256
+#endif
+#if !defined(STENCIL_NY)
+# define STENCIL_NY 256
+#endif
+#if !defined(STENCIL_NZ)
+# define STENCIL_NZ 256
+#endif
+
 /* X-innermost: [gz][gy][gx], stride-x=1. */
 #define STENCIL_GRID_IDX(GZ, GY, GX, NY, NX) \
   ((long)(GZ) * (NY) * (NX) + (long)(GY) * (NX) + (GX))
