@@ -241,6 +241,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.int8 = ctx->int8;
   key.bf16s = ctx->bf16s;
   key.blocked = ctx->blocked;
+  key.layout = ctx->layout;
   key.pml = ctx->pml;
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
@@ -267,13 +268,36 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DNV=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
           " -DSTENCIL_FP32=%d -DSTENCIL_INT8=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
-          " -DSTENCIL_PML=%d %s",
+          " -DSTENCIL_LAYOUT=%d -DSTENCIL_PML=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, nv_level, key.method, key.trim, key.nterms,
-          key.lu, key.fp32, key.int8, key.bf16s, key.blocked, ctx->pml,
+          key.lu, key.fp32, key.int8, key.bf16s, key.blocked, key.layout, ctx->pml,
           (0 != key.fp32) ? ""
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
+      }
+
+      if (2 == key.layout) {
+        const int lx = ctx->halo[0], ly = ctx->halo[1], lz = ctx->halo[2];
+        const int nx = ctx->grid_size[0], ny = ctx->grid_size[1], nz = ctx->grid_size[2];
+        const int p_sx = (nz + 2 * lz) * (ny + 2 * ly);
+        const int p_sy = (nz + 2 * lz);
+        const int v_sx = nz * ny;
+        const int v_sy = nz;
+        const int e_sx = (nz + 2) * (ny + 2);
+        const int e_sy = (nz + 2);
+        char zyx_flags[512];
+        (void)nx;
+        LIBXS_SNPRINTF(zyx_flags, sizeof(zyx_flags),
+          " -DSTENCIL_P_SX=%d -DSTENCIL_P_SY=%d"
+          " -DSTENCIL_P_LX=%d -DSTENCIL_P_LY=%d -DSTENCIL_P_LZ=%d"
+          " -DSTENCIL_V_SX=%d -DSTENCIL_V_SY=%d"
+          " -DSTENCIL_V_LX=0 -DSTENCIL_V_LY=0 -DSTENCIL_V_LZ=0"
+          " -DSTENCIL_E_SX=%d -DSTENCIL_E_SY=%d"
+          " -DSTENCIL_E_LX=1 -DSTENCIL_E_LY=1 -DSTENCIL_E_LZ=1"
+          " -DSTENCIL_PADDED=1",
+          p_sx, p_sy, lx, ly, lz, v_sx, v_sy, e_sx, e_sy);
+        strncat(flags, zyx_flags, sizeof(flags) - strlen(flags) - 1);
       }
 
       if (0 != key.grf256 && 0 != devinfo->intel && 0 == devinfo->biggrf) {
@@ -331,10 +355,16 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 
 int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 {
-  int result = EXIT_SUCCESS;
-  const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
+  libxstream_init_config_t cfg;
+  int result;
+  const libxstream_opencl_device_t* devinfo;
+
+  libxstream_init_config_default(&cfg);
+  result = libxstream_init_config(&cfg);
+  devinfo = &libxstream_opencl_config.device;
   const char *const strips_env = getenv("STENCIL_STRIPS_PER_WG");
   const char *const blocked_env = getenv("STENCIL_BLOCKED");
+  const char *const layout_env = getenv("STENCIL_LAYOUT");
   const char *const method_env = getenv("STENCIL_METHOD");
   const char *const bf16s_env = getenv("STENCIL_BF16S");
   const char *const int8_env = getenv("STENCIL_INT8");
@@ -381,6 +411,12 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   if (ctx->trim < 0) ctx->trim = 0;
   ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
   ctx->blocked = (NULL == blocked_env) ? 0 : atoi(blocked_env);
+  ctx->layout = (NULL != layout_env) ? atoi(layout_env)
+    : ((0 != ctx->blocked) ? 1 : 0);
+  { const char *const halo_env = getenv("STENCIL_HALO");
+    const int halo_val = (NULL != halo_env) ? atoi(halo_env) : 0;
+    ctx->halo[0] = ctx->halo[1] = ctx->halo[2] = halo_val;
+  }
   { const char *const pml_env = getenv("STENCIL_PML");
     ctx->pml = (NULL == pml_env) ? 0 : atoi(pml_env);
   }

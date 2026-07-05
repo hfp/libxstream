@@ -127,8 +127,78 @@
   } while (0)
 #endif
 
+/* Layout identifiers (passed as -DSTENCIL_LAYOUT=N). */
+#if !defined(STENCIL_LAYOUT)
+# define STENCIL_LAYOUT 0
+#endif
+#define STENCIL_LAYOUT_XYZ 0
+#define STENCIL_LAYOUT_BLK 1
+#define STENCIL_LAYOUT_ZYX 2
+
+/* X-innermost: [gz][gy][gx], stride-x=1. */
 #define STENCIL_GRID_IDX(GZ, GY, GX, NY, NX) \
   ((long)(GZ) * (NY) * (NX) + (long)(GY) * (NX) + (GX))
+
+/* Z-innermost with per-array halo: [gx+lx][gy+ly][gz+lz], stride-z=1.
+ * Per-array strides (P=wavefield, V=velocity, E=eta) passed via -D flags. */
+#if !defined(STENCIL_P_SX)
+# define STENCIL_P_SX 1
+#endif
+#if !defined(STENCIL_P_SY)
+# define STENCIL_P_SY 1
+#endif
+#if !defined(STENCIL_P_LX)
+# define STENCIL_P_LX 0
+#endif
+#if !defined(STENCIL_P_LY)
+# define STENCIL_P_LY 0
+#endif
+#if !defined(STENCIL_P_LZ)
+# define STENCIL_P_LZ 0
+#endif
+#if !defined(STENCIL_V_SX)
+# define STENCIL_V_SX STENCIL_P_SX
+#endif
+#if !defined(STENCIL_V_SY)
+# define STENCIL_V_SY STENCIL_P_SY
+#endif
+#if !defined(STENCIL_V_LX)
+# define STENCIL_V_LX STENCIL_P_LX
+#endif
+#if !defined(STENCIL_V_LY)
+# define STENCIL_V_LY STENCIL_P_LY
+#endif
+#if !defined(STENCIL_V_LZ)
+# define STENCIL_V_LZ STENCIL_P_LZ
+#endif
+#if !defined(STENCIL_E_SX)
+# define STENCIL_E_SX STENCIL_P_SX
+#endif
+#if !defined(STENCIL_E_SY)
+# define STENCIL_E_SY STENCIL_P_SY
+#endif
+#if !defined(STENCIL_E_LX)
+# define STENCIL_E_LX STENCIL_P_LX
+#endif
+#if !defined(STENCIL_E_LY)
+# define STENCIL_E_LY STENCIL_P_LY
+#endif
+#if !defined(STENCIL_E_LZ)
+# define STENCIL_E_LZ STENCIL_P_LZ
+#endif
+
+#define STENCIL_ZYX_P_IDX(GZ, GY, GX) \
+  ((long)((GX) + STENCIL_P_LX) * STENCIL_P_SX \
+   + (long)((GY) + STENCIL_P_LY) * STENCIL_P_SY \
+   + ((GZ) + STENCIL_P_LZ))
+#define STENCIL_ZYX_V_IDX(GZ, GY, GX) \
+  ((long)((GX) + STENCIL_V_LX) * STENCIL_V_SX \
+   + (long)((GY) + STENCIL_V_LY) * STENCIL_V_SY \
+   + ((GZ) + STENCIL_V_LZ))
+#define STENCIL_ZYX_E_IDX(GZ, GY, GX) \
+  ((long)((GX) + STENCIL_E_LX) * STENCIL_E_SX \
+   + (long)((GY) + STENCIL_E_LY) * STENCIL_E_SY \
+   + ((GZ) + STENCIL_E_LZ))
 
 /* Blocked (tiled) grid index: data stored as [bz][by][bx][lz][ly][lx].
  * BLK must be a power of 2. All dims require nbx, nby as runtime params. */
@@ -144,12 +214,36 @@
    + (long)((GY) & STENCIL_BLK_MASK) * BLK \
    + ((GX) & STENCIL_BLK_MASK))
 
-#if defined(STENCIL_BLOCKED) && (0 < STENCIL_BLOCKED)
+#if (STENCIL_LAYOUT_BLK == STENCIL_LAYOUT)
 # define STENCIL_P_IDX(GZ, GY, GX, NY, NX, NBX, NBY) \
     STENCIL_BLOCKED_IDX(GX, GY, GZ, NBX, NBY)
+# define STENCIL_V_IDX(GZ, GY, GX, NY, NX) \
+    STENCIL_BLOCKED_IDX(GX, GY, GZ, NBX, NBY)
+# define STENCIL_E_IDX(GZ, GY, GX, NY, NX) \
+    STENCIL_BLOCKED_IDX(GX, GY, GZ, NBX, NBY)
+#elif (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
+# define STENCIL_P_IDX(GZ, GY, GX, NY, NX, NBX, NBY) \
+    STENCIL_ZYX_P_IDX(GZ, GY, GX)
+# define STENCIL_V_IDX(GZ, GY, GX, NY, NX) \
+    STENCIL_ZYX_V_IDX(GZ, GY, GX)
+# define STENCIL_E_IDX(GZ, GY, GX, NY, NX) \
+    STENCIL_ZYX_E_IDX(GZ, GY, GX)
 #else
 # define STENCIL_P_IDX(GZ, GY, GX, NY, NX, NBX, NBY) \
     STENCIL_GRID_IDX(GZ, GY, GX, NY, NX)
+# define STENCIL_V_IDX(GZ, GY, GX, NY, NX) \
+    STENCIL_GRID_IDX(GZ, GY, GX, NY, NX)
+# define STENCIL_E_IDX(GZ, GY, GX, NY, NX) \
+    STENCIL_GRID_IDX(GZ, GY, GX, NY, NX)
+#endif
+
+/* Dim iteration order: gather the memory-sequential axis first.
+ * XYZ/BLK: dim 0 (X) is fastest → order {0,1,2}.
+ * ZYX: dim 2 (Z) is fastest → order {2,1,0}. */
+#if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
+# define STENCIL_DIM(ITER) (NTERMS - 1 - (ITER))
+#else
+# define STENCIL_DIM(ITER) (ITER)
 #endif
 
 /* Kstep range for a given MI based on operator non-zero band [MI, MI + 7 + 2*RADIUS]. */

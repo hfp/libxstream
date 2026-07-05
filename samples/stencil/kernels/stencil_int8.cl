@@ -304,7 +304,7 @@ kernel void stencil_apply_int8(
       int sign4[4], ki;
       uint pack[NSLICES_X];
 
-      I8_GATHER_LOAD4(0, ox, oy, oz, k_base, ci, cj, nx, ny, nz, p_grid, bits4);
+      I8_GATHER_LOAD4(STENCIL_DIM(0), ox, oy, oz, k_base, ci, cj, nx, ny, nz, p_grid, bits4);
 
       UNROLL_FORCE(4) for (ki = 0; ki < 4; ++ki) {
         I8_EXTRACT_MANTISSA(bits4[ki], assumed_exp, mant4[ki], sign4[ki]);
@@ -341,7 +341,9 @@ kernel void stencil_apply_int8(
     const int next_exp_idx = (blk_linear * NTERMS + next_dim) * N_STRIPS + next_strip_abs;
     const int next_assumed_exp = exp_buf[next_exp_idx];
 
-    global const char* cur_dk = (0 == cur_dim) ? dk_x : ((1 == cur_dim) ? dk_y : dk_z);
+    { const int cur_dim_l = STENCIL_DIM(cur_dim);
+      const int next_dim_l = STENCIL_DIM(next_dim);
+      global const char* cur_dk = (0 == cur_dim_l) ? dk_x : ((1 == cur_dim_l) ? dk_y : dk_z);
 
     STENCIL_I8_ACC(cur_dk, buf_cur, cur_nslices_eff, cur_assumed_exp, mi, acc[cur_strip]);
 
@@ -357,7 +359,7 @@ kernel void stencil_apply_int8(
         int sign4[4], ki;
         uint pack[NSLICES_X];
 
-        I8_GATHER_LOAD4(next_dim, ox, oy, oz, k_base, ci, cj, nx, ny, nz, p_grid, bits4);
+        I8_GATHER_LOAD4(next_dim_l, ox, oy, oz, k_base, ci, cj, nx, ny, nz, p_grid, bits4);
 
         UNROLL_FORCE(4) for (ki = 0; ki < 4; ++ki) {
           I8_EXTRACT_MANTISSA(bits4[ki], next_assumed_exp, mant4[ki], sign4[ki]);
@@ -370,6 +372,7 @@ kernel void stencil_apply_int8(
           x_slm[buf_next + ki * I8_K4_PAD * XMX_N + k4 * XMX_N + col_local] = (int)pack[ki];
         }
       }
+    }
     }
 
     barrier(CLK_LOCAL_MEM_FENCE);
@@ -391,9 +394,10 @@ kernel void stencil_apply_int8(
     const int cur_nslices_eff = (0 == cur_assumed_exp) ? 1
       : ((cur_assumed_exp <= 7) ? 1 : ((cur_assumed_exp <= 14) ? 2 : NSLICES_X));
 
-    global const char* cur_dk = (0 == cur_dim) ? dk_x : ((1 == cur_dim) ? dk_y : dk_z);
-
-    STENCIL_I8_ACC(cur_dk, buf_cur, cur_nslices_eff, cur_assumed_exp, mi, acc[cur_strip]);
+    { const int cur_dim_l = STENCIL_DIM(cur_dim);
+      global const char* cur_dk = (0 == cur_dim_l) ? dk_x : ((1 == cur_dim_l) ? dk_y : dk_z);
+      STENCIL_I8_ACC(cur_dk, buf_cur, cur_nslices_eff, cur_assumed_exp, mi, acc[cur_strip]);
+    }
   }
 
   barrier(CLK_LOCAL_MEM_FENCE);

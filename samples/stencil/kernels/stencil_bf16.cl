@@ -74,8 +74,9 @@ kernel void stencil_apply(
   }
 
   UNROLL_OUTER(1) for (dim = 0; dim < NTERMS; ++dim) {
-    global const STENCIL_D_ELEM* dk = (0 == dim)
-      ? dk_x : ((1 == dim) ? dk_y : dk_z);
+    const int dim_logical = STENCIL_DIM(dim);
+    global const STENCIL_D_ELEM* dk = (0 == dim_logical)
+      ? dk_x : ((1 == dim_logical) ? dk_y : dk_z);
 
     UNROLL_OUTER(1) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
       const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
@@ -93,7 +94,7 @@ kernel void stencil_apply(
         const int cj = nc / BLK;
         int gx, gy, gz;
 
-        STENCIL_GATHER_COORD(dim, ox, oy, oz, k, ci, cj, gx, gy, gz);
+        STENCIL_GATHER_COORD(dim_logical, ox, oy, oz, k, ci, cj, gx, gy, gz);
         STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
         if (k < K_BASE) {
