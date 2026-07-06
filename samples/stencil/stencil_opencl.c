@@ -12,6 +12,7 @@
 #include <libxs/libxs_mem.h>
 #include <libxs/libxs_timer.h>
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +42,7 @@ static int stencil_method_params(stencil_method_t method, int* k_steps, int* r_p
       *k_steps = 2; *r_per_step = (STENCIL_RADIUS + 1) / 2;
       break;
     case STENCIL_COMPACT_FIT:
-      *k_steps = STENCIL_RADIUS; *r_per_step = 1;
+      *k_steps = 2; *r_per_step = (STENCIL_RADIUS + 1) / 2;
       break;
     default:
       result = EXIT_FAILURE;
@@ -72,6 +73,50 @@ static double stencil_compact_weight(int radius, int dist, double inv_h2)
       if (0 == dist) result = -5.0 / 2.0;
       else if (1 == dist || -1 == dist) result = 4.0 / 3.0;
       else result = -1.0 / 12.0;
+    }
+  }
+  result *= inv_h2;
+  return result;
+}
+
+
+static double stencil_fit_alpha(int radius, double ppw)
+{
+  double alpha = -1.0 / 12.0;
+  if (2 == radius) {
+    const double pi = 3.14159265358979323846;
+    const double tmax = 2.0 * pi / ppw;
+    const int nq = 1024;
+    const double dt = tmax / nq;
+    double num = 0.0, den = 0.0;
+    int q;
+    for (q = 0; q < nq; ++q) {
+      const double t = (q + 0.5) * dt;
+      const double A = -2.0 + 2.0 * cos(t);
+      const double B = 6.0 - 8.0 * cos(t) + 2.0 * cos(2.0 * t);
+      num += (A + t * t) * B;
+      den += B * B;
+    }
+    if (den > 1e-30) alpha = -num / den;
+  }
+  return alpha;
+}
+
+
+static double stencil_fit_weight(int radius, int dist, double inv_h2, double ppw)
+{
+  double result = 0.0;
+  if (dist >= -radius && dist <= radius) {
+    if (2 == radius) {
+      const double alpha = stencil_fit_alpha(radius, ppw);
+      const double c_1 = 1.0 - 4.0 * alpha;
+      const double c_0 = -(2.0 - 6.0 * alpha);
+      if (0 == dist) result = c_0;
+      else if (1 == dist || -1 == dist) result = c_1;
+      else result = alpha;
+    }
+    else if (1 == radius) {
+      result = (0 == dist) ? -2.0 : 1.0;
     }
   }
   result *= inv_h2;
@@ -615,11 +660,18 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     const int width_eff = 2 * r_eff + 1;
     const size_t coeff_size = (size_t)3 * width_eff * sizeof(float);
     float coeff_host[3 * (2 * STENCIL_RADIUS + 1)];
+    const int use_fit = (STENCIL_COMPACT_FIT == ctx->method);
+    const char *const ppw_env = use_fit ? getenv("STENCIL_PPW") : NULL;
+    const double ppw = (NULL != ppw_env) ? atof(ppw_env) : 8.0;
     int r, d;
     for (d = 0; d < 3; ++d) {
       for (r = 0; r < width_eff; ++r) {
         if (1 == k_steps) {
           coeff_host[d * width_eff + r] = (float)fd_weights[r];
+        }
+        else if (use_fit) {
+          coeff_host[d * width_eff + r] =
+            (float)stencil_fit_weight(r_step, r - r_eff, inv_h2, ppw);
         }
         else {
           coeff_host[d * width_eff + r] =
