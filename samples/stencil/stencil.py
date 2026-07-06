@@ -69,10 +69,12 @@ STENCIL_RADIUS = 4
 METHOD_RE = re.compile(
     r"Method:\s+([^\s]+)\s+\(K=([0-9]+),\s*r=([0-9]+),\s*strips/WG=([0-9]+)\)"
 )
+LAYOUT_RE = re.compile(r"Layout:\s+(\S+(?:\s+\+PML)?)")
 TIME_RE = re.compile(r"Time:\s+([0-9.]+)\s+s")
 THROUGHPUT_RE = re.compile(r"Throughput:\s+([0-9.]+)\s+GPoints/s")
 PER_STEP_RE = re.compile(r"Per step:\s+([0-9.]+)\s+ms")
 BANDWIDTH_RE = re.compile(r"Bandwidth:\s+([0-9.]+)\s+GB/s")
+CHECK_LINF_RE = re.compile(r"Linf abs:\s+([0-9.eE+\-]+)")
 
 
 def parse_sizes(values):
@@ -110,8 +112,12 @@ def parse_sizes(values):
 def run_case(args, n, case, kernel_env):
     env = os.environ.copy()
     env.update(kernel_env)
+    if args.layout is not None:
+        env["STENCIL_LAYOUT"] = str(args.layout)
     if args.pml:
         env["STENCIL_PML"] = "1"
+    if args.check:
+        env["STENCIL_CHECK"] = "1"
     trim = case["trim"]
     if trim is None:
         env.pop("STENCIL_TRIM", None)
@@ -131,8 +137,12 @@ def run_case(args, n, case, kernel_env):
     env_prefix = ""
     for key, val in sorted(kernel_env.items()):
         env_prefix += "{}={} ".format(key, val)
+    if args.layout is not None:
+        env_prefix += "STENCIL_LAYOUT={} ".format(args.layout)
     if args.pml:
         env_prefix += "STENCIL_PML=1 "
+    if args.check:
+        env_prefix += "STENCIL_CHECK=1 "
     if trim is not None:
         env_prefix += "STENCIL_TRIM={} ".format(trim)
     shell_command = env_prefix + " ".join(command)
@@ -186,11 +196,16 @@ def run_case(args, n, case, kernel_env):
         row["r_per_step"] = method_match.group(3)
         row["strips_per_wg"] = method_match.group(4)
 
+    layout_match = LAYOUT_RE.search(output)
+    if layout_match:
+        row["layout"] = layout_match.group(1)
+
     for regex, field in (
         (TIME_RE, "time_s"),
         (THROUGHPUT_RE, "gpoints_s"),
         (PER_STEP_RE, "ms_per_step"),
         (BANDWIDTH_RE, "bandwidth_gbs"),
+        (CHECK_LINF_RE, "check_linf"),
     ):
         match = regex.search(output)
         if match:
@@ -494,9 +509,20 @@ def main(argv):
         "--keep-going", action="store_true", help="Continue after failed cases."
     )
     parser.add_argument(
+        "--layout",
+        type=int,
+        choices=(0, 1, 2),
+        help="Memory layout: 0=XYZ, 1=blocked, 2=ZYX (sets STENCIL_LAYOUT).",
+    )
+    parser.add_argument(
         "--pml",
         action="store_true",
         help="Enable PML absorbing boundary (sets STENCIL_PML=1).",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Enable correctness check against CPU reference (sets STENCIL_CHECK=1).",
     )
     parser.add_argument(
         "--dark",
