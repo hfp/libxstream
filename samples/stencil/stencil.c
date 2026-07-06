@@ -199,6 +199,9 @@ int main(int argc, char* argv[])
     printf("  Method:     %s (K=%d, r=%d, strips/WG=%d)\n",
            mnames[(int)ctx.method], ctx.k_steps, ctx.r_per_step,
            ctx.strips_per_wg);
+    printf("  Layout:     %s%s\n",
+           2 == ctx.layout ? "ZYX" : (1 == ctx.layout ? "blocked" : "XYZ"),
+           0 != ctx.pml ? " +PML" : "");
   }
   if (EXIT_SUCCESS == result) {
     if (0 != trace) fprintf(stderr, "TRACE: configure\n");
@@ -660,7 +663,9 @@ static void usage(const char* prog)
          "  -seg-salt      SEG/EAGE Salt (676x676x210, h=20m)\n"
          "  -overthrust    SEG/EAGE Overthrust (801x801x187, h=25m)\n"
          "\n"
-         "Environment: STENCIL_METHOD, STENCIL_INT8, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256, STENCIL_TRIM, STENCIL_LU, STENCIL_FP32, STENCIL_BF16S, STENCIL_BLOCKED\n"
+         "Environment: STENCIL_METHOD, STENCIL_INT8, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256, STENCIL_TRIM, STENCIL_LU,\n"
+         "             STENCIL_FP32, STENCIL_BF16S, STENCIL_BLOCKED, STENCIL_LAYOUT, STENCIL_HALO, STENCIL_PML,\n"
+         "             STENCIL_CHECK, STENCIL_TRACE\n"
          "\n"
          "Performance is reported in GPoints/s.\n", prog);
 }
