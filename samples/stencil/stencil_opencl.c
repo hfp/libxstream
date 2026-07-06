@@ -611,12 +611,20 @@ int stencil_precompute_operators(stencil_context_t* ctx,
   }
 
   if (1 == use_fp32) {
-    const size_t coeff_size = (size_t)3 * STENCIL_WIDTH * sizeof(float);
+    const int r_eff = (1 == k_steps) ? radius : r_step;
+    const int width_eff = 2 * r_eff + 1;
+    const size_t coeff_size = (size_t)3 * width_eff * sizeof(float);
     float coeff_host[3 * (2 * STENCIL_RADIUS + 1)];
     int r, d;
     for (d = 0; d < 3; ++d) {
-      for (r = 0; r < STENCIL_WIDTH; ++r) {
-        coeff_host[d * STENCIL_WIDTH + r] = (float)fd_weights[r];
+      for (r = 0; r < width_eff; ++r) {
+        if (1 == k_steps) {
+          coeff_host[d * width_eff + r] = (float)fd_weights[r];
+        }
+        else {
+          coeff_host[d * width_eff + r] =
+            (float)stencil_compact_weight(r_step, r - r_eff, inv_h2);
+        }
       }
     }
     result = libxstream_mem_dev_allocate_hint(
