@@ -91,6 +91,7 @@ typedef struct {
   int layout;
   int halo[3];
   int pml;
+  int hint;
   void* eta;
   void* phi;
   int verbosity;
