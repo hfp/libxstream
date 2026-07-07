@@ -412,7 +412,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 {
   static libxs_registry_t* kernel_registry /*= NULL*/;
   static libxs_lock_t compile_lock /*= LIBXS_LOCK_INITIALIZER*/;
-  static char base_flags[256];
+  static char base_flags[256] = { 0 };
   static int base_ready /*= 0*/;
 
   const libxstream_opencl_config_t* config = &libxstream_opencl_config;
@@ -423,14 +423,11 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   if (0 == LIBXS_ATOMIC_LOAD(&base_ready, LIBXS_ATOMIC_SEQ_CST)) {
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK_DEFAULT, config->lock_main);
     if (0 == base_ready) {
-      LIBXS_MEMZERO(base_flags);
-      { const char* cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem_size(
-            devinfo, STENCIL_WIDTH * sizeof(float))) ? "global" : "constant";
-        LIBXS_SNPRINTF(base_flags, sizeof(base_flags),
-          "-cl-fast-relaxed-math -cl-denorms-are-zero"
-          " -DBLK=%d -DNDIGITS_A=%d -DNDIGITS_X=%d -DGPU=1 -DCONSTANT=%s",
-          STENCIL_BLK, STENCIL_NDIGITS_A, STENCIL_NDIGITS_X, cmem);
-      }
+      const char* cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem_size(
+          devinfo, STENCIL_WIDTH * sizeof(float))) ? "global" : "constant";
+      LIBXS_SNPRINTF(base_flags, sizeof(base_flags),
+        "-DBLK=%d -DNDIGITS_A=%d -DNDIGITS_X=%d -DGPU=1 -DCONSTANT=%s",
+        STENCIL_BLK, STENCIL_NDIGITS_A, STENCIL_NDIGITS_X, cmem);
       kernel_registry = libxs_registry_create();
       LIBXS_ATOMIC_STORE(&base_ready, 1, LIBXS_ATOMIC_SEQ_CST);
     }
@@ -468,12 +465,10 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
     if (NULL == kptr || (NULL == kptr->stencil_apply && NULL == kptr->stencil_apply_direct)) {
       const libxs_timer_tick_t t0 = libxs_timer_tick();
       char flags[LIBXSTREAM_BUFFERSIZE];
-      const char* options = NULL;
-      stencil_kernels_t knl;
+      char options[256];
       cl_program program = NULL;
+      stencil_kernels_t knl;
       int ok = EXIT_SUCCESS;
-
-      LIBXS_MEMZERO(&knl);
 
       { const int intel_level = (int)devinfo->intel;
         const int nv_level = (int)devinfo->nv;
@@ -531,9 +526,9 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         strncat(flags, stride_flags, sizeof(flags) - strlen(flags) - 1);
       }
 
-      if (0 != key.grf256 && 0 != devinfo->intel && 0 == devinfo->biggrf) {
-        options = "-cl-intel-256-GRF-per-thread";
-      }
+      LIBXS_SNPRINTF(options, sizeof(options), "-cl-fast-relaxed-math -cl-denorms-are-zero%s",
+        (0 != key.grf256 && 0 != devinfo->intel && 0 == devinfo->biggrf)
+          ? " -cl-intel-256-GRF-per-thread" : "");
 
       if (EXIT_SUCCESS == ok) {
         const char* source;
@@ -545,6 +540,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           options, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0,
           &program);
       }
+      LIBXS_MEMZERO(&knl);
       if (EXIT_SUCCESS == ok && 1 == ctx->fp32) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_direct", &knl.stencil_apply_direct);
       }
@@ -683,6 +679,11 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   int result = EXIT_SUCCESS;
 
   if (NULL == ctx) result = EXIT_FAILURE;
+  if (EXIT_SUCCESS == result && 2 == ctx->layout && 0 == ctx->fp32) {
+    ctx->fp32 = 1;
+    ctx->bf16 = 0;
+    ctx->int8 = 0;
+  }
   if (EXIT_SUCCESS == result) {
     ctx->grid_size[0] = nx;
     ctx->grid_size[1] = ny;
