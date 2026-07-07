@@ -27,6 +27,7 @@ CASES_FP32 = (
     {"case": "direct", "method": 0, "trim": None},
     {"case": "compact-r1", "method": 1, "trim": None},
     {"case": "compact-r2", "method": 2, "trim": None},
+    {"case": "compact-fit", "method": 3, "trim": None},
 )
 
 KERNEL_CASES = {
@@ -118,6 +119,12 @@ def run_case(args, n, case, kernel_env):
         env["STENCIL_PML"] = "1"
     if args.check:
         env["STENCIL_CHECK"] = "1"
+    if args.radius_fit is not None:
+        env["STENCIL_RADIUS_FIT"] = str(args.radius_fit)
+    if args.ppw is not None:
+        env["STENCIL_PPW"] = str(args.ppw)
+    if args.fit is not None:
+        env["STENCIL_FIT"] = str(args.fit)
     trim = case["trim"]
     if trim is None:
         env.pop("STENCIL_TRIM", None)
@@ -143,6 +150,12 @@ def run_case(args, n, case, kernel_env):
         env_prefix += "STENCIL_PML=1 "
     if args.check:
         env_prefix += "STENCIL_CHECK=1 "
+    if args.radius_fit is not None:
+        env_prefix += "STENCIL_RADIUS_FIT={} ".format(args.radius_fit)
+    if args.ppw is not None:
+        env_prefix += "STENCIL_PPW={} ".format(args.ppw)
+    if args.fit is not None:
+        env_prefix += "STENCIL_FIT={} ".format(args.fit)
     if trim is not None:
         env_prefix += "STENCIL_TRIM={} ".format(trim)
     shell_command = env_prefix + " ".join(command)
@@ -523,6 +536,23 @@ def main(argv):
         "--check",
         action="store_true",
         help="Enable correctness check against CPU reference (sets STENCIL_CHECK=1).",
+    )
+    parser.add_argument(
+        "--radius-fit",
+        type=int,
+        choices=(2, 3),
+        help="Fit radius for compact-fit method (sets STENCIL_RADIUS_FIT, default 2).",
+    )
+    parser.add_argument(
+        "--ppw",
+        type=float,
+        help="Points-per-wavelength target for compact-fit (sets STENCIL_PPW, default 8).",
+    )
+    parser.add_argument(
+        "--fit",
+        type=int,
+        choices=(0, 1, 2),
+        help="Fit method for compact-fit: 0=uniform L2, 1=Ricker-weighted, 2=minimax (sets STENCIL_FIT).",
     )
     parser.add_argument(
         "--dark",
