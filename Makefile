@@ -486,6 +486,17 @@ endif
 		$(ROOTDIR)/$(SPLDIR)/smm/kernels/*.cl \
 		$(ROOTDIR)/$(SPLDIR)/smm/params/*.csv \
 		$(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm/smm_kernels.h
+	@echo
+	@echo "$(PROJUPP) installing OpenCL stencil support files..."
+	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/stencil/kernels
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/stencil/stencil_opencl.c $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/stencil
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/stencil/stencil_opencl.h $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/stencil
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/stencil/kernels/*.cl $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/stencil/kernels
+	@$(ROOTSCR)/tool_opencl.sh -p "" \
+		$(ROOTDIR)/$(SPLDIR)/stencil/kernels/stencil_bf16.cl \
+		$(ROOTDIR)/$(SPLDIR)/stencil/kernels/stencil_fp32.cl \
+		$(ROOTDIR)/$(SPLDIR)/stencil/kernels/stencil_int8.cl \
+		$(PREFIX)/$(PSHRDIR)/$(SPLDIR)/stencil/stencil_kernels.h
 endif
 
 .PHONY: install
