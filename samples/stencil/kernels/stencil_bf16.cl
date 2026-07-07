@@ -179,33 +179,35 @@ kernel void stencil_apply(
           const int gz = oz + (col / BLK);
           if (gx < nx && gy < ny && gz < nz) {
             const long i = STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby);
+            const long iv = STENCIL_V_IDX(gz, gy, gx, ny, nx);
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
             if (0 != blk_interior) {
-              p_new[i] = 2.0f * p_grid_f[i] - p_old[i] + vel[i] * u.a[m];
+              p_new[i] = 2.0f * p_grid_f[i] - p_old[i] + vel[iv] * u.a[m];
             }
             else {
-              const float eta1 = eta[i];
-              const float phi_val = phi[i];
+              const long ie = STENCIL_E_IDX(gz, gy, gx, ny, nx);
+              const float eta1 = eta[ie];
+              const float phi_val = phi[iv];
               const float p_cur = p_grid_f[i];
               const float numerator =
                 (2.0f - eta1 * eta1 + 2.0f * eta1) * p_cur - p_old[i]
-                + vel[i] * (u.a[m] + phi_val);
+                + vel[iv] * (u.a[m] + phi_val);
               const long stride_z = (long)ny * nx;
               float tmp = 0.0f;
               p_new[i] = numerator / (1.0f + 2.0f * eta1);
               if (gx > 0 && gx < nx - 1) {
-                tmp += (eta[i + 1] - eta[i - 1])
+                tmp += (eta[ie + 1] - eta[ie - 1])
                      * (p_grid_f[i + 1] - p_grid_f[i - 1]) * hdx_2;
               }
               if (gy > 0 && gy < ny - 1) {
-                tmp += (eta[i + nx] - eta[i - nx])
+                tmp += (eta[ie + nx] - eta[ie - nx])
                      * (p_grid_f[i + nx] - p_grid_f[i - nx]) * hdy_2;
               }
               if (gz > 0 && gz < nz - 1) {
-                tmp += (eta[i + stride_z] - eta[i - stride_z])
+                tmp += (eta[ie + stride_z] - eta[ie - stride_z])
                      * (p_grid_f[i + stride_z] - p_grid_f[i - stride_z]) * hdz_2;
               }
-              phi[i] = (phi_val - tmp) / (1.0f + eta1);
+              phi[iv] = (phi_val - tmp) / (1.0f + eta1);
             }
 #elif defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
             { const long n_total_grid = (long)nx * (long)ny * nz;
@@ -214,13 +216,13 @@ kernel void stencil_apply(
               const float p_old_f = BF16_TO_F32(p_old[i])
                                   + BF16_TO_F32(p_old[i + n_total_grid]);
               const float new_val = 2.0f * p_cur_f - p_old_f
-                                  + dt2 * vel[i] * u.a[m];
+                                  + dt2 * vel[iv] * u.a[m];
               const ushort hi = ROUND_TO_BF16(new_val);
               p_new[i] = hi;
               p_new[i + n_total_grid] = ROUND_TO_BF16(new_val - BF16_TO_F32(hi));
             }
 #else
-            p_new[i] = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[i] * u.a[m];
+            p_new[i] = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[iv] * u.a[m];
 #endif
           }
         }

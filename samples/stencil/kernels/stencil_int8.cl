@@ -427,37 +427,39 @@ kernel void stencil_apply_int8(
           const int gz = oz + (col / BLK);
           if (gx < nx && gy < ny && gz < nz) {
             const long i = STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby);
+            const long iv = STENCIL_V_IDX(gz, gy, gx, ny, nx);
             float val;
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
             if (0 != blk_interior) {
-              val = 2.0f * p_grid[i] - p_old[i] + vel[i] * u.a[m];
+              val = 2.0f * p_grid[i] - p_old[i] + vel[iv] * u.a[m];
             }
             else {
-              const float eta1 = eta[i];
-              const float phi_val = phi[i];
+              const long ie = STENCIL_E_IDX(gz, gy, gx, ny, nx);
+              const float eta1 = eta[ie];
+              const float phi_val = phi[iv];
               const float p_cur = p_grid[i];
               const float numerator =
                 (2.0f - eta1 * eta1 + 2.0f * eta1) * p_cur - p_old[i]
-                + vel[i] * (u.a[m] + phi_val);
+                + vel[iv] * (u.a[m] + phi_val);
               const long stride_z = (long)ny * nx;
               float tmp = 0.0f;
               val = numerator / (1.0f + 2.0f * eta1);
               if (gx > 0 && gx < nx - 1) {
-                tmp += (eta[i + 1] - eta[i - 1])
+                tmp += (eta[ie + 1] - eta[ie - 1])
                      * (p_grid[i + 1] - p_grid[i - 1]) * hdx_2;
               }
               if (gy > 0 && gy < ny - 1) {
-                tmp += (eta[i + nx] - eta[i - nx])
+                tmp += (eta[ie + nx] - eta[ie - nx])
                      * (p_grid[i + nx] - p_grid[i - nx]) * hdy_2;
               }
               if (gz > 0 && gz < nz - 1) {
-                tmp += (eta[i + stride_z] - eta[i - stride_z])
+                tmp += (eta[ie + stride_z] - eta[ie - stride_z])
                      * (p_grid[i + stride_z] - p_grid[i - stride_z]) * hdz_2;
               }
-              phi[i] = (phi_val - tmp) / (1.0f + eta1);
+              phi[iv] = (phi_val - tmp) / (1.0f + eta1);
             }
 #else
-            val = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[i] * u.a[m];
+            val = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[iv] * u.a[m];
 #endif
             { const int oe = (int)((as_uint(val) >> 23) & 0xFFu);
               p_new[i] = val;

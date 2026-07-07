@@ -501,7 +501,18 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           const int e_sx = (nz + 2) * (ny + 2);
           const int e_sy = (nz + 2);
           const int radius = (0 == key.method) ? STENCIL_RADIUS : key.r_per_step;
-          const int padded = (lx >= radius && ly >= radius && lz >= radius) ? 1 : 0;
+          int padded = (lx >= radius && ly >= radius && lz >= radius) ? 1 : 0;
+          if (0 != padded && 0 == ctx->fp32) {
+            const int kpad = (0 != ctx->int8) ? STENCIL_K_PAD_I8 : STENCIL_K_PAD;
+            const int max_gather = kpad - 1 - radius;
+            const int nbx = ctx->nblocks[0], nby = ctx->nblocks[1], nbz = ctx->nblocks[2];
+            if ((nbx - 1) * STENCIL_BLK + max_gather >= nx + lx
+             || (nby - 1) * STENCIL_BLK + max_gather >= ny + ly
+             || (nbz - 1) * STENCIL_BLK + max_gather >= nz + lz)
+            {
+              padded = 0;
+            }
+          }
           LIBXS_SNPRINTF(stride_flags, sizeof(stride_flags),
             " -DSTENCIL_P_SX=%d -DSTENCIL_P_SY=%d"
             " -DSTENCIL_P_LX=%d -DSTENCIL_P_LY=%d -DSTENCIL_P_LZ=%d"
