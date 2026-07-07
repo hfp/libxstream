@@ -65,7 +65,7 @@ if(NOT EXISTS "${LIBXSTREAM_VERSION_SCRIPT}")
   message(FATAL_ERROR "Missing ${LIBXSTREAM_VERSION_SCRIPT}")
 endif()
 
-find_program(SH_EXECUTABLE NAMES sh bash REQUIRED)
+find_program(SH_EXECUTABLE NAMES bash sh REQUIRED)
 
 execute_process(
   COMMAND "${SH_EXECUTABLE}" "${LIBXSTREAM_VERSION_SCRIPT}" libxstream -1
@@ -209,20 +209,66 @@ file(GLOB LIBXSTREAM_SMM_PARAMS LIST_DIRECTORIES false
 install(FILES ${LIBXSTREAM_SMM_PARAMS}
   DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm/params)
 
-file(GLOB LIBXSTREAM_SMM_CL LIST_DIRECTORIES false
+file(GLOB LIBXSTREAM_SMM_CL LIST_DIRECTORIES false CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/kernels/*.cl")
-file(GLOB LIBXSTREAM_SMM_CSV LIST_DIRECTORIES false
+file(GLOB LIBXSTREAM_SMM_CSV LIST_DIRECTORIES false CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.csv")
-install(CODE "
-  set(_out \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm/smm_kernels.h\")
-  execute_process(
-    COMMAND \"${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh\"
-      ${LIBXSTREAM_SMM_CL} ${LIBXSTREAM_SMM_CSV} \${_out}
-    RESULT_VARIABLE _rc)
-  if(NOT _rc EQUAL 0)
-    message(FATAL_ERROR \"tool_opencl.sh failed with code \${_rc}\")
-  endif()
-")
+file(GLOB LIBXSTREAM_SMM_BIN LIST_DIRECTORIES false CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/params/*.bin")
+
+set(LIBXSTREAM_SMM_KERNELS_H "${CMAKE_CURRENT_BINARY_DIR}/smm_kernels.h")
+
+add_custom_command(
+  OUTPUT "${LIBXSTREAM_SMM_KERNELS_H}"
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
+    ${LIBXSTREAM_SMM_CL} ${LIBXSTREAM_SMM_CSV} "${LIBXSTREAM_SMM_KERNELS_H}"
+  DEPENDS ${LIBXSTREAM_SMM_CL} ${LIBXSTREAM_SMM_CSV} ${LIBXSTREAM_SMM_BIN}
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/samples/smm/kernels"
+  COMMENT "Generating smm_kernels.h from .cl and .csv sources"
+  VERBATIM)
+
+add_custom_target(smm_kernels_h ALL DEPENDS "${LIBXSTREAM_SMM_KERNELS_H}")
+
+install(FILES "${LIBXSTREAM_SMM_KERNELS_H}"
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm)
+
+# Stencil sample: generate stencil_kernels.h at build time and install sources
+set(LIBXSTREAM_STENCIL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/samples/stencil")
+set(LIBXSTREAM_STENCIL_KERNELS_H "${CMAKE_CURRENT_BINARY_DIR}/stencil_kernels.h")
+
+set(LIBXSTREAM_STENCIL_CL
+  "${LIBXSTREAM_STENCIL_DIR}/kernels/stencil_bf16.cl"
+  "${LIBXSTREAM_STENCIL_DIR}/kernels/stencil_fp32.cl"
+  "${LIBXSTREAM_STENCIL_DIR}/kernels/stencil_int8.cl")
+
+file(GLOB LIBXSTREAM_STENCIL_CL_ALL LIST_DIRECTORIES false CONFIGURE_DEPENDS
+  "${LIBXSTREAM_STENCIL_DIR}/kernels/*.cl")
+file(GLOB LIBXSTREAM_STENCIL_OCL_H LIST_DIRECTORIES false CONFIGURE_DEPENDS
+  "${LIBXSTREAM_ROOT_DIR}/libxstream/opencl/*.h")
+
+add_custom_command(
+  OUTPUT "${LIBXSTREAM_STENCIL_KERNELS_H}"
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
+    -p "" ${LIBXSTREAM_STENCIL_CL} "${LIBXSTREAM_STENCIL_KERNELS_H}"
+  DEPENDS ${LIBXSTREAM_STENCIL_CL_ALL} ${LIBXSTREAM_STENCIL_OCL_H}
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
+  WORKING_DIRECTORY "${LIBXSTREAM_STENCIL_DIR}/kernels"
+  COMMENT "Generating stencil_kernels.h from .cl sources"
+  VERBATIM)
+
+add_custom_target(stencil_kernels_h ALL DEPENDS "${LIBXSTREAM_STENCIL_KERNELS_H}")
+
+set(LIBXSTREAM_STENCIL_SRC
+  "${LIBXSTREAM_STENCIL_DIR}/stencil_opencl.c"
+  "${LIBXSTREAM_STENCIL_DIR}/stencil_opencl.h")
+
+install(FILES ${LIBXSTREAM_STENCIL_SRC} "${LIBXSTREAM_STENCIL_KERNELS_H}"
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/stencil)
+
+install(DIRECTORY "${LIBXSTREAM_STENCIL_DIR}/kernels/"
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/libxstream/samples/stencil/kernels
+  FILES_MATCHING PATTERN "*.cl")
 
 install(EXPORT libxstreamTargets
   FILE libxstreamTargets.cmake
