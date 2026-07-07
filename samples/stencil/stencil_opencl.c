@@ -583,24 +583,26 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 {
   libxstream_init_config_t cfg;
-  int result;
   const libxstream_opencl_device_t* devinfo;
+  const char *strips_env, *blocked_env, *layout_env, *method_env;
+  const char *bf16s_env, *bf16_env, *int8_env;
+  const char *grf_env, *trim_env, *sg_env, *lu_env;
+  int result, method_val;
 
   libxstream_init_config_default(&cfg);
   result = libxstream_init_config(&cfg);
   devinfo = &libxstream_opencl_config.device;
-  const char *const strips_env = getenv("STENCIL_STRIPS_PER_WG");
-  const char *const blocked_env = getenv("STENCIL_BLOCKED");
-  const char *const layout_env = getenv("STENCIL_LAYOUT");
-  const char *const method_env = getenv("STENCIL_METHOD");
-  const char *const bf16s_env = getenv("STENCIL_BF16S");
-  const char *const bf16_env = getenv("STENCIL_BF16");
-  const char *const int8_env = getenv("STENCIL_INT8");
-  const char *const grf_env = getenv("STENCIL_GRF256");
-  const char *const trim_env = getenv("STENCIL_TRIM");
-  const char *const sg_env = getenv("STENCIL_SG");
-  const char *const lu_env = getenv("STENCIL_LU");
-  int method_val;
+  strips_env = getenv("STENCIL_STRIPS_PER_WG");
+  blocked_env = getenv("STENCIL_BLOCKED");
+  layout_env = getenv("STENCIL_LAYOUT");
+  method_env = getenv("STENCIL_METHOD");
+  bf16s_env = getenv("STENCIL_BF16S");
+  bf16_env = getenv("STENCIL_BF16");
+  int8_env = getenv("STENCIL_INT8");
+  grf_env = getenv("STENCIL_GRF256");
+  trim_env = getenv("STENCIL_TRIM");
+  sg_env = getenv("STENCIL_SG");
+  lu_env = getenv("STENCIL_LU");
 
   LIBXS_MEMZERO(ctx);
   ctx->verbosity = verbosity;
