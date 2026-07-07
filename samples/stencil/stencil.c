@@ -218,10 +218,14 @@ int main(int argc, char* argv[])
     if (0 != trace) fprintf(stderr, "TRACE: precompute operators done result=%d\n", result);
   }
   if (EXIT_SUCCESS == result) {
+    const int hx = ctx.halo[0], hy = ctx.halo[1], hz = ctx.halo[2];
     const size_t grid_bytes = (size_t)nx * ny * nz * sizeof(float);
+    const size_t padded_bytes = (2 == ctx.layout)
+      ? (size_t)(nx + 2 * hx) * (ny + 2 * hy) * (nz + 2 * hz) * sizeof(float)
+      : grid_bytes;
     const size_t dev_bytes = (0 != ctx.blocked)
       ? stencil_blocked_size(ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2])
-      : grid_bytes;
+      : padded_bytes;
     const double gpoints = (double)nx * ny * nz * 1.0e-9;
     const float dt_local = 0.6f * (float)h
                          / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
@@ -289,7 +293,7 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[0], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[1], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[2], dev_bytes, libxstream_opencl_mem_hint_compress);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, dev_bytes, libxstream_opencl_mem_hint_compress);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, grid_bytes, libxstream_opencl_mem_hint_compress);
 
     if (EXIT_SUCCESS == result) {
       if (0 != ctx.bf16s) {
@@ -300,6 +304,28 @@ int main(int argc, char* argv[])
         stencil_pack_blocked(pack_buf, p_host, nx, ny, nz,
           ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
         result = libxstream_mem_copy_h2d(pack_buf, p_buf[0], dev_bytes, ctx.stream);
+      }
+      else if (2 == ctx.layout && (0 != hx || 0 != hy || 0 != hz)) {
+        const int pnx = nx + 2 * hx, pny = ny + 2 * hy, pnz = nz + 2 * hz;
+        float* zyx_buf = NULL;
+        result = libxstream_mem_host_allocate((void**)&zyx_buf, dev_bytes, ctx.stream);
+        if (EXIT_SUCCESS == result) {
+          int ix, iy, iz;
+          const size_t n_padded = (size_t)pnx * pny * pnz;
+          size_t idx;
+          for (idx = 0; idx < n_padded; ++idx) zyx_buf[idx] = 0.0f;
+          for (ix = 0; ix < nx; ++ix) {
+            for (iy = 0; iy < ny; ++iy) {
+              for (iz = 0; iz < nz; ++iz) {
+                const long src = (long)iz * ny * nx + (long)iy * nx + ix;
+                const long dst = (long)(ix + hx) * pny * pnz + (long)(iy + hy) * pnz + (iz + hz);
+                zyx_buf[dst] = p_host[src];
+              }
+            }
+          }
+          result = libxstream_mem_copy_h2d(zyx_buf, p_buf[0], dev_bytes, ctx.stream);
+          libxstream_mem_host_deallocate(zyx_buf, ctx.stream);
+        }
       }
       else {
         result = libxstream_mem_copy_h2d(p_host, p_buf[0], grid_bytes, ctx.stream);
@@ -313,6 +339,24 @@ int main(int argc, char* argv[])
         stencil_pack_blocked(pack_buf, vel_host, nx, ny, nz,
           ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
         result = libxstream_mem_copy_h2d(pack_buf, vel_dev, dev_bytes, ctx.stream);
+      }
+      else if (2 == ctx.layout) {
+        float* zyx_vel = NULL;
+        result = libxstream_mem_host_allocate((void**)&zyx_vel, grid_bytes, ctx.stream);
+        if (EXIT_SUCCESS == result) {
+          int ix, iy, iz;
+          for (ix = 0; ix < nx; ++ix) {
+            for (iy = 0; iy < ny; ++iy) {
+              for (iz = 0; iz < nz; ++iz) {
+                const long src = (long)iz * ny * nx + (long)iy * nx + ix;
+                const long dst = (long)ix * ny * nz + (long)iy * nz + iz;
+                zyx_vel[dst] = vel_host[src];
+              }
+            }
+          }
+          result = libxstream_mem_copy_h2d(zyx_vel, vel_dev, grid_bytes, ctx.stream);
+          libxstream_mem_host_deallocate(zyx_vel, ctx.stream);
+        }
       }
       else {
         result = libxstream_mem_copy_h2d(vel_host, vel_dev, grid_bytes, ctx.stream);
@@ -329,18 +373,20 @@ int main(int argc, char* argv[])
 
     for (t = 0; t < warmup && EXIT_SUCCESS == result; ++t) {
       int tmp;
-      inject_source(p_host, nx, ny, nz, dt_local, t, freq);
-      if (0 != ctx.bf16s) {
-        stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
-        result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], grid_bytes, ctx.stream);
-      }
-      else if (0 != ctx.blocked) {
-        stencil_pack_blocked(pack_buf, p_host, nx, ny, nz,
-          ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
-        result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], dev_bytes, ctx.stream);
-      }
-      else {
-        result = libxstream_mem_copy_h2d(p_host, p_buf[cur], grid_bytes, ctx.stream);
+      if (2 != ctx.layout) {
+        inject_source(p_host, nx, ny, nz, dt_local, t, freq);
+        if (0 != ctx.bf16s) {
+          stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
+          result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], grid_bytes, ctx.stream);
+        }
+        else if (0 != ctx.blocked) {
+          stencil_pack_blocked(pack_buf, p_host, nx, ny, nz,
+            ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
+          result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], dev_bytes, ctx.stream);
+        }
+        else {
+          result = libxstream_mem_copy_h2d(p_host, p_buf[cur], grid_bytes, ctx.stream);
+        }
       }
       if (EXIT_SUCCESS == result) {
         result = stencil_apply_laplacian(&ctx,

@@ -497,7 +497,15 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           const int e_sy = (nz + 2);
           const int radius = (0 == key.method) ? STENCIL_RADIUS : key.r_per_step;
           int padded = (lx >= radius && ly >= radius && lz >= radius) ? 1 : 0;
-          if (0 != padded && 0 == ctx->fp32) {
+          if (0 != padded && 1 == ctx->fp32) {
+            const int wg_x = 32, wg_y = 8;
+            const int max_fast = ((nz + wg_x - 1) / wg_x) * wg_x - 1 + radius;
+            const int max_med = ((ny + wg_y - 1) / wg_y) * wg_y - 1 + radius;
+            if (max_fast >= nz + lz || max_med >= ny + ly) {
+              padded = 0;
+            }
+          }
+          else if (0 != padded && 0 == ctx->fp32) {
             const int kpad = (0 != ctx->int8) ? STENCIL_K_PAD_I8 : STENCIL_K_PAD;
             const int max_gather = kpad - 1 - radius;
             const int nbx = ctx->nblocks[0], nby = ctx->nblocks[1], nbz = ctx->nblocks[2];
