@@ -51,7 +51,7 @@ typedef struct {
   int trim;
   int nterms;
   int lu;
-  int fp32;
+  int bf16;
   int int8;
   int bf16s;
   int blocked;
@@ -85,6 +85,7 @@ typedef struct {
   int nterms;
   int lu;
   int fp32;
+  int bf16;
   int int8;
   int bf16s;
   int blocked;
@@ -93,7 +94,6 @@ typedef struct {
   int pml;
   void* eta;
   void* phi;
-  int dpas;
   int verbosity;
 } stencil_context_t;
 

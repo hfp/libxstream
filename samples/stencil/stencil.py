@@ -39,11 +39,11 @@ KERNEL_CASES = {
 }
 
 KERNEL_ENV = {
-    "bf16": {},
+    "bf16": {"STENCIL_BF16": "1"},
     "int8": {"STENCIL_INT8": "1"},
     "int8-split": {"STENCIL_INT8": "2"},
-    "fp32": {"STENCIL_FP32": "1"},
-    "fp32-split": {"STENCIL_FP32": "2"},
+    "fp32": {},
+    "fp32-split": {"STENCIL_BF16": "2"},
 }
 
 FIELDNAMES = (
@@ -476,8 +476,8 @@ def main(argv):
     parser.add_argument(
         "--kernel",
         choices=("bf16", "int8", "int8-split", "fp32", "fp32-split"),
-        default="bf16",
-        help="Kernel path to benchmark: bf16, int8, int8-split, fp32, fp32-split (default: bf16).",
+        default="fp32",
+        help="Kernel path to benchmark: fp32, bf16, int8, int8-split, fp32-split (default: fp32).",
     )
     parser.add_argument(
         "--dims", type=int, default=3, help="Stencil term count passed with -d."

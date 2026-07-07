@@ -58,10 +58,10 @@ kernel void stencil_apply(
   const int oz = bz * BLK;
 
   local STENCIL_X_ELEM x_slm[STENCIL_X_SLM_COUNT];
-#if (!defined(STENCIL_FP32) || (0 >= STENCIL_FP32)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
+#if (!defined(STENCIL_BF16) || (2 > STENCIL_BF16)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
   local int exp_sg[WG_M_TILES * 2];
 #endif
-#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
+#if !defined(STENCIL_BF16) || (2 > STENCIL_BF16)
   const int d_wb = K_PAD * 2;
 #endif
 
@@ -81,7 +81,7 @@ kernel void stencil_apply(
 
     UNROLL_OUTER(1) for (strip_local = 0; strip_local < STRIPS_PER_WG; ++strip_local) {
       const int nj = (strip_grp * STRIPS_PER_WG + strip_local) * XMX_N;
-#if (!defined(STENCIL_FP32) || (0 >= STENCIL_FP32)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
+#if (!defined(STENCIL_BF16) || (2 > STENCIL_BF16)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
       int local_max_exp = 0, local_min_exp = 255;
       int ndigits_eff;
 #endif
@@ -104,7 +104,7 @@ kernel void stencil_apply(
             p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)]);
 #else
           { float val = p_grid[STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)];
-#if (!defined(STENCIL_FP32) || (0 >= STENCIL_FP32)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
+#if (!defined(STENCIL_BF16) || (2 > STENCIL_BF16)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
             { unsigned int bits = as_uint(val);
               int e = (int)((bits >> 23) & 0xFFu);
               if (0 != e) {
@@ -122,7 +122,7 @@ kernel void stencil_apply(
         }
       }
 
-#if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
+#if defined(STENCIL_BF16) && (2 <= STENCIL_BF16)
       barrier(CLK_LOCAL_MEM_FENCE);
       STENCIL_FP32_ACC(dk, x_slm, mi, acc[strip_local]);
 #elif defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
@@ -233,7 +233,7 @@ kernel void stencil_apply(
 }
 
 
-#if !defined(STENCIL_FP32) || (0 >= STENCIL_FP32)
+#if !defined(STENCIL_BF16) || (2 > STENCIL_BF16)
 /**
  * stencil_apply_tti: TTI cross-derivative term via fused
  * gather + two-phase DPAS with SLM intermediate.
@@ -405,4 +405,4 @@ kernel void stencil_apply_tti(
     }
   }
 }
-#endif /* !STENCIL_FP32 */
+#endif /* STENCIL_BF16 < 2 */

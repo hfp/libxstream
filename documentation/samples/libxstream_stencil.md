@@ -1,11 +1,16 @@
-# Stencil DPAS
+# Stencil
 
-Finite-difference stencil computation using hardware matrix units
-(DPAS/XMX) to achieve single-precision accuracy from low-precision
-tensor operations.  Two paths are available: Dekker-split BF16 and
-Ozaki-1 INT8 with carried-forward exponent.
+Finite-difference stencil computation for seismic wave propagation
+(RTM, FWI) on GPUs.  Three kernel paths are available:
 
-Target application: seismic wave propagation (RTM, FWI) on GPUs.
+- **FP32** (default): dedicated scalar kernel with SLM blocking
+- **BF16-DPAS** (STENCIL_BF16=1): Dekker-split BF16 via hardware
+  matrix units (DPAS/XMX)
+- **INT8-DPAS** (STENCIL_INT8=1): Ozaki-1 INT8 with carried-forward
+  exponent
+
+The DPAS paths achieve single-precision accuracy from low-precision
+tensor operations.
 
 ## Method
 
@@ -18,7 +23,14 @@ Parameters (compile-time):
     BLK       = 32    block side length (32^3 output cube)
     RADIUS    = 4     half-order (8th-order FD, 9-point stencil)
 
-### BF16 path (default)
+### FP32 path (default)
+
+The dedicated FP32 kernel uses SLM tiling with a sliding window along
+the slow axis.  Work-group size 32x8, cooperative SLM fill, no DPAS
+dependency.  Supports XYZ and ZYX memory layouts, PML absorbing
+boundaries, and compact/dispersion-fitted operator methods.
+
+### BF16 path (STENCIL_BF16=1)
 
 The wavefield block P and operator D are Dekker-split into BF16 digits.
 The matrix product D x P is computed as a sum of BF16 x BF16 DPAS
@@ -290,14 +302,18 @@ methods 1-3.  TTI cross-terms still use the direct two-phase DPAS path.
 
 Environment variables controlling kernel specialization:
 
+    STENCIL_BF16     BF16-DPAS kernel (1=native BF16, 2=FP32-split via BF16)
+    STENCIL_INT8     INT8-DPAS kernel (1=native INT8, 2=FP32-split via INT8)
     STENCIL_METHOD   operator method (0-3, default 0)
-    STENCIL_INT8     enable INT8-DPAS Ozaki-1 path (0/1, default 0)
     STENCIL_STRIPS_PER_WG
          adjacent N-strips handled by one work-group (default: 2)
     STENCIL_SG       subgroup size override (default: device preferred)
     STENCIL_GRF256   force 256-GRF mode (0/1, default: auto)
     STENCIL_TRIM     drop least-significant digit products (BF16 path)
     STENCIL_LU       loop unroll strategy (-1=none, 0=inner, 1=outer)
+    STENCIL_LAYOUT   memory layout (0=XYZ, 1=blocked, 2=ZYX)
+    STENCIL_HALO     halo/padding size per axis
+    STENCIL_PML      enable PML absorbing boundary (0/1)
 
 Specialized kernels are compiled on first use and cached in a
 thread-safe registry keyed by the method, compact-step parameters,
@@ -379,11 +395,13 @@ development and validation.
       Makefile             build rules
       README.md            this file
       stencil.c            host driver (benchmark, model loading)
+      stencil.py           Python benchmark harness (CSV/plot output)
       stencil_opencl.c     OpenCL context, kernel dispatch, exp_buf management
       stencil_opencl.h     public API, compile-time parameters
       stencil_kernels.h    generated at build time from .cl sources
       kernels/
-        stencil_common.cl  parameters, gather macros
+        stencil_common.cl  parameters, gather macros, layout indexing
+        stencil_fp32.cl    FP32 path: stencil_apply_direct (default)
         stencil_bf16.cl    BF16 path: stencil_apply, stencil_apply_tti
         stencil_int8.cl    INT8 path: stencil_apply_int8
 
