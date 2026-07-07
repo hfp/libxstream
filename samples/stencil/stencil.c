@@ -142,11 +142,15 @@ int main(int argc, char* argv[])
     const double gpoints = (double)nx * ny * nz * 1.0e-9;
     const float dt = 0.6f * (float)h
                    / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
-    printf("Stencil %s benchmark\n",
-           (NULL != getenv("STENCIL_FP32") && 0 != atoi(getenv("STENCIL_FP32")))
-             ? "FP32"
-             : ((NULL != getenv("STENCIL_INT8") && 0 != atoi(getenv("STENCIL_INT8")))
-               ? "INT8-DPAS" : "BF16-DPAS"));
+    { const char *bf16v = getenv("STENCIL_BF16");
+      const char *int8v = getenv("STENCIL_INT8");
+      const char *kname = "FP32";
+      if (NULL != bf16v && 2 == atoi(bf16v)) kname = "FP32-split (BF16-DPAS)";
+      else if (NULL != bf16v && 0 != atoi(bf16v)) kname = "BF16-DPAS";
+      else if (NULL != int8v && 2 == atoi(int8v)) kname = "FP32-split (INT8-DPAS)";
+      else if (NULL != int8v && 0 != atoi(int8v)) kname = "INT8-DPAS";
+      printf("Stencil %s benchmark\n", kname);
+    }
     printf("  Grid:       %d x %d x %d (%.3f GPoints)\n",
            nx, ny, nz, gpoints);
     printf("  Block:      %d^3, radius=%d (order %d)\n",
@@ -663,9 +667,9 @@ static void usage(const char* prog)
          "  -seg-salt      SEG/EAGE Salt (676x676x210, h=20m)\n"
          "  -overthrust    SEG/EAGE Overthrust (801x801x187, h=25m)\n"
          "\n"
-         "Environment: STENCIL_METHOD, STENCIL_INT8, STENCIL_STRIPS_PER_WG, STENCIL_SG, STENCIL_GRF256, STENCIL_TRIM, STENCIL_LU,\n"
-         "             STENCIL_FP32, STENCIL_BF16S, STENCIL_BLOCKED, STENCIL_LAYOUT, STENCIL_HALO, STENCIL_PML,\n"
-         "             STENCIL_CHECK, STENCIL_TRACE\n"
+         "Environment: STENCIL_METHOD, STENCIL_BF16, STENCIL_INT8, STENCIL_STRIPS_PER_WG, STENCIL_SG,\n"
+         "             STENCIL_GRF256, STENCIL_TRIM, STENCIL_LU, STENCIL_BF16S, STENCIL_BLOCKED, STENCIL_LAYOUT,\n"
+         "             STENCIL_HALO, STENCIL_PML, STENCIL_CHECK, STENCIL_TRACE\n"
          "\n"
          "Performance is reported in GPoints/s.\n", prog);
 }

@@ -88,8 +88,8 @@
 # define STENCIL_NSTRIP_SHIFT 6
 #endif
 
-/* FP32 mode: native float D*X without Dekker or DPAS. */
-#if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
+/* BF16 split mode (STENCIL_BF16=2): float D*X without Dekker or DPAS. */
+#if defined(STENCIL_BF16) && (2 <= STENCIL_BF16)
 # define STENCIL_D_ELEM float
 # define STENCIL_X_ELEM float
 # define STENCIL_P_ELEM float
@@ -305,7 +305,7 @@
 /* FP32 accumulation: D[row,col] * X[col,sg_lid] via banded FMA.
  * D is stored as float[BLK][STENCIL_D_BAND], X in SLM as float[K_PAD][XMX_N].
  * Each WI accumulates 8 rows (MI..MI+7), reading one X column (sg_lid). */
-#if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
+#if defined(STENCIL_BF16) && (2 <= STENCIL_BF16)
 #define STENCIL_FP32_ACC(DK, X_SLM, MI, ACC) \
   do { \
     const int sg_lid_fp32_ = (int)SGLID(); \
@@ -329,7 +329,7 @@
 #endif
 
 /* Gather-store macros: write fetched value into SLM (type-switched). */
-#if defined(STENCIL_FP32) && (0 < STENCIL_FP32)
+#if defined(STENCIL_BF16) && (2 <= STENCIL_BF16)
 # define STENCIL_GATHER_STORE(SLM, K, COL, VAL) \
     (SLM)[(K) * XMX_N + (COL)] = (VAL)
 # define STENCIL_GATHER_STORE_ZERO(SLM, K, COL) \

@@ -447,7 +447,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.trim = ctx->trim;
   key.nterms = ctx->nterms;
   key.lu = ctx->lu;
-  key.fp32 = ctx->fp32;
+  key.bf16 = ctx->bf16;
   key.int8 = ctx->int8;
   key.bf16s = ctx->bf16s;
   key.blocked = ctx->blocked;
@@ -480,13 +480,13 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DNV=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
-          " -DSTENCIL_FP32=%d -DSTENCIL_INT8=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
+          " -DSTENCIL_BF16=%d -DSTENCIL_INT8=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
           " -DSTENCIL_LAYOUT=%d -DSTENCIL_PML=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, nv_level, key.method, key.trim, key.nterms,
-          key.lu, key.fp32, key.int8, key.bf16s, key.blocked, key.layout, ctx->pml,
-          (0 != key.fp32) ? ""
+          key.lu, key.bf16, key.int8, key.bf16s, key.blocked, key.layout, ctx->pml,
+          (0 != ctx->fp32) ? ""
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
 
@@ -526,7 +526,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 
       if (EXIT_SUCCESS == ok) {
         const char* source;
-        if (1 == key.fp32) source = OPENCL_KERNELS_SOURCE_STENCIL_FP32;
+        if (1 == ctx->fp32) source = OPENCL_KERNELS_SOURCE_STENCIL_FP32;
         else if (0 != key.int8) source = OPENCL_KERNELS_SOURCE_STENCIL_INT8;
         else source = OPENCL_KERNELS_SOURCE_STENCIL_BF16;
         ok = libxstream_opencl_program(0 /*source_kind*/,
@@ -534,7 +534,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           options, NULL /*try*/, NULL /*try_ok*/, NULL /*exts*/, 0,
           &program);
       }
-      if (EXIT_SUCCESS == ok && 1 == key.fp32) {
+      if (EXIT_SUCCESS == ok && 1 == ctx->fp32) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_direct", &knl.stencil_apply_direct);
       }
       else if (EXIT_SUCCESS == ok && 0 != key.int8) {
@@ -543,7 +543,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       else if (EXIT_SUCCESS == ok) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply", &knl.stencil_apply);
       }
-      if (EXIT_SUCCESS == ok && 0 == key.fp32) {
+      if (EXIT_SUCCESS == ok && 0 == ctx->fp32) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_tti", &knl.stencil_apply_tti);
       }
 
@@ -587,8 +587,8 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   const char *const layout_env = getenv("STENCIL_LAYOUT");
   const char *const method_env = getenv("STENCIL_METHOD");
   const char *const bf16s_env = getenv("STENCIL_BF16S");
+  const char *const bf16_env = getenv("STENCIL_BF16");
   const char *const int8_env = getenv("STENCIL_INT8");
-  const char *const fp32_env = getenv("STENCIL_FP32");
   const char *const grf_env = getenv("STENCIL_GRF256");
   const char *const trim_env = getenv("STENCIL_TRIM");
   const char *const sg_env = getenv("STENCIL_SG");
@@ -618,8 +618,25 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   ctx->grf256 = (NULL == grf_env) ? 0 : atoi(grf_env);
 
   ctx->lu = (NULL == lu_env) ? 0 : atoi(lu_env);
-  ctx->fp32 = (NULL == fp32_env) ? 0 : atoi(fp32_env);
   ctx->int8 = (NULL != int8_env) ? atoi(int8_env) : 0;
+
+  { const int bf16_val = (NULL != bf16_env) ? atoi(bf16_env) : 0;
+    const int has_dpas = (devinfo->intel >= 2) ? 1 : 0;
+    if (0 != bf16_val) {
+      ctx->bf16 = has_dpas ? bf16_val : 2;
+      ctx->fp32 = 0;
+    }
+    else if (0 != ctx->int8) {
+      if (!has_dpas) ctx->int8 = 2;
+      ctx->bf16 = 0;
+      ctx->fp32 = 0;
+    }
+    else {
+      ctx->bf16 = 0;
+      ctx->fp32 = 1;
+      ctx->int8 = 0;
+    }
+  }
 
   ctx->strips_per_wg = stencil_valid_strips_per_wg(
     (NULL != strips_env) ? atoi(strips_env)
@@ -642,8 +659,6 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   }
 
   ctx->nterms = 3;
-  ctx->dpas = (0 != ctx->fp32) ? 0 : ((devinfo->intel >= 2) ? 1 : 0);
-  if (0 == ctx->dpas && NULL == fp32_env) ctx->fp32 = 2;
 
   if (EXIT_SUCCESS == result) {
     result = libxstream_stream_create(&ctx->stream, "stencil", 0);
@@ -759,8 +774,13 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     if (NULL == d_fp32) result = EXIT_FAILURE;
 
     if (EXIT_SUCCESS == result) {
+      const int use_fit = (STENCIL_COMPACT_FIT == ctx->method);
+      const char *const ppw_env = use_fit ? getenv("STENCIL_PPW") : NULL;
+      const char *const fit_env = use_fit ? getenv("STENCIL_FIT") : NULL;
+      const double ppw = (NULL != ppw_env) ? atof(ppw_env) : 8.0;
+      const int fit_method = (NULL != fit_env) ? atoi(fit_env) : 2;
+      int row, r;
       if (1 == k_steps) {
-        int row, r;
         for (row = 0; row < blk; ++row) {
           for (r = 0; r < d_band; ++r) {
             const int dist = r - radius;
@@ -768,8 +788,16 @@ int stencil_precompute_operators(stencil_context_t* ctx,
           }
         }
       }
+      else if (use_fit) {
+        for (row = 0; row < d_rows; ++row) {
+          for (r = 0; r < d_band; ++r) {
+            const int dist = r - r_step;
+            d_fp32[row * d_band + r] = (float)stencil_fit_weight(r_step, dist, inv_h2,
+                                                                   ppw, fit_method);
+          }
+        }
+      }
       else {
-        int row, r;
         for (row = 0; row < d_rows; ++row) {
           for (r = 0; r < d_band; ++r) {
             const int dist = r - r_step;
@@ -788,6 +816,11 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     if (NULL == d_bf16) result = EXIT_FAILURE;
 
     if (EXIT_SUCCESS == result) {
+      const int use_fit = (STENCIL_COMPACT_FIT == ctx->method);
+      const char *const ppw_env = use_fit ? getenv("STENCIL_PPW") : NULL;
+      const char *const fit_env = use_fit ? getenv("STENCIL_FIT") : NULL;
+      const double ppw = (NULL != ppw_env) ? atof(ppw_env) : 8.0;
+      const int fit_method = (NULL != fit_env) ? atoi(fit_env) : 2;
       for (row = 0; row < kpad; ++row) {
         for (col = 0; col < kpad; ++col) {
           d_mat[row * kpad + col] = 0.0;
@@ -798,6 +831,15 @@ int stencil_precompute_operators(stencil_context_t* ctx,
           for (col = 0; col < kpad; ++col) {
             dist = col - radius - row;
             d_mat[row * kpad + col] = stencil_fd_weight(fd_weights, radius, dist);
+          }
+        }
+      }
+      else if (use_fit) {
+        for (row = 0; row < d_rows; ++row) {
+          for (col = 0; col < kpad; ++col) {
+            dist = col - r_step - row;
+            d_mat[row * kpad + col] = stencil_fit_weight(r_step, dist, inv_h2,
+                                                          ppw, fit_method);
           }
         }
       }
@@ -863,6 +905,11 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     if (NULL == d_i8 || NULL == d_scale) result = EXIT_FAILURE;
 
     if (EXIT_SUCCESS == result) {
+      const int use_fit = (STENCIL_COMPACT_FIT == ctx->method);
+      const char *const ppw_env = use_fit ? getenv("STENCIL_PPW") : NULL;
+      const char *const fit_env = use_fit ? getenv("STENCIL_FIT") : NULL;
+      const double ppw = (NULL != ppw_env) ? atof(ppw_env) : 8.0;
+      const int fit_method = (NULL != fit_env) ? atoi(fit_env) : 2;
       double d_mat_i8[STENCIL_K_PAD * STENCIL_K_PAD];
       int row, col, sa;
 
@@ -876,6 +923,15 @@ int stencil_precompute_operators(stencil_context_t* ctx,
           for (col = 0; col < kpad; ++col) {
             int dist = col - radius - row;
             d_mat_i8[row * kpad + col] = stencil_fd_weight(fd_weights, radius, dist);
+          }
+        }
+      }
+      else if (use_fit) {
+        for (row = 0; row < d_rows; ++row) {
+          for (col = 0; col < kpad; ++col) {
+            int dist = col - r_step - row;
+            d_mat_i8[row * kpad + col] = stencil_fit_weight(r_step, dist, inv_h2,
+                                                             ppw, fit_method);
           }
         }
       }
