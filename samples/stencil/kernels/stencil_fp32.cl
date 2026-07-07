@@ -20,6 +20,12 @@
 #define SLM_TOTAL (SLM_M * SLM_F)
 #define S_WINDOW (2 * RADIUS + 1)
 
+#if defined(STENCIL_PADDED) && (0 < STENCIL_PADDED) && defined(INTEL) && (2 <= INTEL) \
+    && (!defined(STENCIL_LAYOUT) || STENCIL_LAYOUT_XYZ == STENCIL_LAYOUT) \
+    && (!defined(STENCIL_PML) || 0 >= STENCIL_PML)
+# define FP32_USE_BLOCK_IO 1
+#endif
+
 /* Logical-to-physical axis mapping:
  * XYZ: fast=X, medium=Y, slow=Z (Z-sliding window).
  * ZYX: fast=Z, medium=Y, slow=X (X-sliding window). */
@@ -50,6 +56,9 @@
 #endif
 
 __attribute__((reqd_work_group_size(WG_X, WG_Y, 1)))
+#if defined(FP32_USE_BLOCK_IO)
+__attribute__((intel_reqd_sub_group_size(16)))
+#endif
 kernel void stencil_apply_direct(
   global const float* restrict p_grid,
   global const float* restrict p_old,
@@ -115,6 +124,30 @@ kernel void stencil_apply_direct(
     UNROLL_OUTER(1) for (i_s = is_base; i_s < is_base + BLK && i_s < FP32_NSLOW; ++i_s) {
       float lap, p_center;
 
+#if defined(FP32_USE_BLOCK_IO)
+      { const int sgid = get_sub_group_id();
+        const int sglid = get_sub_group_local_id();
+        global const void* plane = (global const void*)(
+          p_grid + (long)i_s * (STENCIL_NY) * (STENCIL_NX));
+        const int wb = STENCIL_NX * 4;
+        float8 blk_data;
+        int col_base, row_base, c;
+        col_base = (sgid % 3) * 16;
+        row_base = (sgid / 3) * 8;
+        if (sgid < 6) {
+          intel_sub_group_2d_block_read_32b_8r16x1c(
+            plane, wb, STENCIL_NY, wb,
+            (int2)((gf0 + col_base) * 4, gm0 + row_base),
+            (private uint*)&blk_data);
+          for (c = 0; c < 8; ++c) {
+            const int sf = col_base + sglid;
+            const int sm = row_base + c;
+            if (sf < SLM_F && sm < SLM_M)
+              fm_slm[sm * SLM_F + sf] = ((float*)&blk_data)[c];
+          }
+        }
+      }
+#else
       for (idx = lid; idx < SLM_TOTAL; idx += WG_SIZE) {
         const int sm = idx / SLM_F;
         const int sf = idx % SLM_F;
@@ -130,6 +163,7 @@ kernel void stencil_apply_direct(
 #endif
         }
       }
+#endif
       barrier(CLK_LOCAL_MEM_FENCE);
 
       if (valid_fm) {
