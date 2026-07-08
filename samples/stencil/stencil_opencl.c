@@ -729,18 +729,21 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   if (EXIT_SUCCESS == result && 0 != ctx->pml) {
     const size_t grid_n = (size_t)nx * ny * nz;
     const size_t grid_bytes = grid_n * sizeof(float);
+    const size_t eta_n = (size_t)(nx + 2) * (ny + 2) * (nz + 2);
+    const size_t eta_bytes = eta_n * sizeof(float);
     const int pml_width = 20;
     float* eta_host = NULL;
-    result = libxstream_mem_host_allocate((void**)&eta_host, grid_bytes, ctx->stream);
+    result = libxstream_mem_host_allocate((void**)&eta_host, eta_bytes, ctx->stream);
     if (EXIT_SUCCESS == result) {
       size_t idx;
       int ix, iy, iz;
-      for (idx = 0; idx < grid_n; ++idx) eta_host[idx] = 0.0f;
+      for (idx = 0; idx < eta_n; ++idx) eta_host[idx] = 0.0f;
       for (iz = 0; iz < nz; ++iz) {
         for (iy = 0; iy < ny; ++iy) {
           for (ix = 0; ix < nx; ++ix) {
             int d = nx;
             int dist;
+            long ei;
             if (ix < pml_width) { dist = pml_width - ix; if (dist < d) d = dist; }
             if (ix >= nx - pml_width) { dist = ix - (nx - pml_width - 1); if (dist < d) d = dist; }
             if (iy < pml_width) { dist = pml_width - iy; if (dist < d) d = dist; }
@@ -749,14 +752,20 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
             if (iz >= nz - pml_width) { dist = iz - (nz - pml_width - 1); if (dist < d) d = dist; }
             if (d < nx) {
               float r = (float)d / (float)pml_width;
-              eta_host[(long)iz * ny * nx + (long)iy * nx + ix] = 0.05f * r * r;
+              if (2 == ctx->layout) {
+                ei = (long)(ix + 1) * (nz + 2) * (ny + 2) + (long)(iy + 1) * (nz + 2) + (iz + 1);
+              }
+              else {
+                ei = (long)(iz + 1) * (ny + 2) * (nx + 2) + (long)(iy + 1) * (nx + 2) + (ix + 1);
+              }
+              eta_host[ei] = 0.05f * r * r;
             }
           }
         }
       }
-      result = libxstream_mem_dev_allocate_hint(&ctx->eta, grid_bytes, mem_hint);
+      result = libxstream_mem_dev_allocate_hint(&ctx->eta, eta_bytes, mem_hint);
       if (EXIT_SUCCESS == result) {
-        result = libxstream_mem_copy_h2d(eta_host, ctx->eta, grid_bytes, ctx->stream);
+        result = libxstream_mem_copy_h2d(eta_host, ctx->eta, eta_bytes, ctx->stream);
       }
       libxstream_mem_host_deallocate(eta_host, ctx->stream);
     }
