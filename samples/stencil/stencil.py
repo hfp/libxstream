@@ -13,6 +13,8 @@ CASES_BF16 = (
     {"case": "direct", "method": 0, "trim": None},
     {"case": "compact-r1", "method": 1, "trim": None},
     {"case": "compact-r2", "method": 2, "trim": None},
+    {"case": "compact-fit-r2", "method": 3, "trim": None, "env": {"STENCIL_RADIUS_FIT": "2"}},
+    {"case": "compact-fit", "method": 3, "trim": None},
     {"case": "compact-r1-trim3", "method": 1, "trim": 3},
 )
 
@@ -20,6 +22,8 @@ CASES_INT8 = (
     {"case": "direct", "method": 0, "trim": None},
     {"case": "compact-r1", "method": 1, "trim": None},
     {"case": "compact-r2", "method": 2, "trim": None},
+    {"case": "compact-fit-r2", "method": 3, "trim": None, "env": {"STENCIL_RADIUS_FIT": "2"}},
+    {"case": "compact-fit", "method": 3, "trim": None},
     {"case": "compact-r1-trim3", "method": 1, "trim": 3},
 )
 
@@ -27,6 +31,12 @@ CASES_FP32 = (
     {"case": "direct", "method": 0, "trim": None},
     {"case": "compact-r1", "method": 1, "trim": None},
     {"case": "compact-r2", "method": 2, "trim": None},
+    {
+        "case": "compact-fit-r2",
+        "method": 3,
+        "trim": None,
+        "env": {"STENCIL_RADIUS_FIT": "2"},
+    },
     {"case": "compact-fit", "method": 3, "trim": None},
 )
 
@@ -113,6 +123,8 @@ def parse_sizes(values):
 def run_case(args, n, case, kernel_env):
     env = os.environ.copy()
     env.update(kernel_env)
+    if "env" in case:
+        env.update(case["env"])
     if args.layout is not None:
         env["STENCIL_LAYOUT"] = str(args.layout)
     if args.pml:
@@ -144,6 +156,9 @@ def run_case(args, n, case, kernel_env):
     env_prefix = ""
     for key, val in sorted(kernel_env.items()):
         env_prefix += "{}={} ".format(key, val)
+    if "env" in case:
+        for key, val in sorted(case["env"].items()):
+            env_prefix += "{}={} ".format(key, val)
     if args.layout is not None:
         env_prefix += "STENCIL_LAYOUT={} ".format(args.layout)
     if args.pml:
