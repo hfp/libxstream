@@ -62,16 +62,22 @@ The hot loop is repeated stencil evaluation over (many) grid points.
 
 The current sample is a GPU stencil benchmark and integration example.
 
-| Mode                          | CLI              | Implemented path                             |
-|-------------------------------|------------------|----------------------------------------------|
-| Isotropic RTM-style Laplacian | `-d 3`           | fused 3-axis BF16-DPAS apply                 |
-| TTI-style anisotropic terms   | `-d 9`           | pure terms plus cross-derivative DPAS phases |
-| Direct high-order stencil     | `-m 0`           | radius-4 per axis                            |
-| Compact variants              | `-m 1`, `-m 2`   | radius-1/radius-2 compact runtime paths      |
-| Compact fitting hook          | `-m 3`           | placeholder for fitted compact coefficients  |
-| INT8-DPAS Ozaki-1             | `STENCIL_INT8=1` | signed 8-bit slicing with carried exponent   |
-| FP32 LP-like implementation   | `STENCIL_FP32=1` | banded FMA, DPAS replaced by scalar FP32     |
-| FP32 traditional stencil      | `STENCIL_FP32=2` | banded FMA, no DPAS                          |
+| Mode                          | CLI              | Implemented path                              |
+|-------------------------------|------------------|-----------------------------------------------|
+| FP32 stencil (default)        |                  | SLM-tiled banded FMA, XYZ and ZYX layouts     |
+| Isotropic RTM-style Laplacian | `-d 3`           | fused 3-axis DPAS apply                       |
+| TTI-style anisotropic terms   | `-d 9`           | pure terms plus cross-derivative DPAS phases  |
+| Direct high-order stencil     | `-m 0`           | radius-4 per axis                             |
+| Compact variants              | `-m 1`, `-m 2`   | radius-1/radius-2 compact runtime paths       |
+| Compact dispersion-fit        | `-m 3`           | minimax-fitted coefficients (PPW=8 default)   |
+| BF16-DPAS Dekker split        | `STENCIL_BF16=1` | 2 operator x 3 wavefield BF16 digits          |
+| BF16-DPAS scalar fallback     | `STENCIL_BF16=2` | same structure, float accumulation            |
+| INT8-DPAS Ozaki-1 (Intel)     | `STENCIL_INT8=1` | signed 8-bit slicing with carried exponent    |
+| INT8 dp4a Ozaki-1 (NV>=2)     | `STENCIL_INT8=1` | Ozaki-1 slicing, PTX dp4a on NVIDIA SM>=7.5   |
+| INT8 scalar fallback          | `STENCIL_INT8=2` | Ozaki-1 slicing, scalar multiply-add          |
+
+Note: LP kernels (BF16/INT8) require XYZ or blocked layout.
+ZYX layout automatically falls back to the FP32 kernel.
 
 ---
 
@@ -203,7 +209,7 @@ step N+1: read exp_buf[new]  →  ...         (buffers flip)
 
 ## DPAS Work Count
 
-BF16 path (default): D-slices $\times$ P-slices $= 2 \times 3 = 6$ DPAS products per axis.  
+BF16 path: D-slices $\times$ P-slices $= 2 \times 3 = 6$ DPAS products per axis.  
 INT8 path: $1 \times$ P-slices$_{eff}$ = 1–3 DPAS products per axis.
 
 | Operator family   | BF16 work/block | INT8 work/block    |
@@ -309,27 +315,35 @@ direct:       one radius-4 operator
 
 compact-r1:   radius-1 operator, K=4
 compact-r2:   radius-2 operator, K=2
-compact-fit:  future fitted compact coefficients
+compact-fit:  radius-2/3 with dispersion-optimized coefficients
 ```
+
+Compact-fit uses Golden Section Search by default to minimize  
+the worst-case dispersion error over the band $[0, 2\pi/\text{PPW}]$.
 
 Effective reach arises from repeated time updates,  
 not from loading the long halo every step.
+
+Note: PPW = Points Per Wavelength -- the number of grid points
+that resolve one shortest wavelength of interest. Higher PPW
+means the fitting band covers only well-resolved frequencies.
 
 ---
 
 ## What Is Implemented Today
 
-| Method     | CLI              | Radius | Status                   |
-|------------|------------------|--------|--------------------------|
-| Direct     | `-m 0`           | `r=4`  | baseline high-order path |
-| Compact r1 | `-m 1`           | `r=1`  | compact isotropic path   |
-| Compact r2 | `-m 2`           | `r=2`  | compact isotropic path   |
-| Compact fit| `-m 3`           | `r=1`  | placeholder coefficients |
-| TTI        | `-d 9`           | direct | cross terms implemented  |
-| INT8       | `STENCIL_INT8=1` | `r=4`  | Ozaki-1 with exp_buf     |
+| Method     | CLI              | Radius | Status                              |
+|------------|------------------|--------|-------------------------------------|
+| Direct     | `-m 0`           | `r=4`  | baseline high-order path (default)  |
+| Compact r1 | `-m 1`           | `r=1`  | compact isotropic path              |
+| Compact r2 | `-m 2`           | `r=2`  | compact isotropic path              |
+| Compact fit| `-m 3`           | `r=2/3`| dispersion-fitted (minimax, PPW=8)  |
+| TTI        | `-d 9`           | direct | cross terms implemented             |
+| BF16       | `STENCIL_BF16=1` | all    | Dekker split, XYZ layout only       |
+| INT8       | `STENCIL_INT8=1` | all    | Ozaki-1 with exp_buf, XYZ only      |
 
-INT8 path uses signed 8-bit DPAS (k=32) with runtime slice adaptation.  
-Fitted dispersion coefficients are not implemented yet.
+Environment variables `STENCIL_PPW`, `STENCIL_FIT`, `STENCIL_RADIUS_FIT`
+control the target wavelength, fitting method, and fit radius.
 
 ---
 
@@ -349,30 +363,34 @@ All paths: one dispatch per time step, 3-dim loop inside kernel.
 
 ## Runtime Controls
 
-```text
-./stencil.x -n 800 -d 3 -m 0
+Kernel path selection (default: FP32):
 
--d 3    isotropic pure terms
--d 9    TTI-style pure plus cross terms
--m 0    direct radius-4
--m 1    compact-r1
--m 2    compact-r2
+```text
+STENCIL_BF16=1            BF16-DPAS Dekker path (Intel DPAS required)
+STENCIL_BF16=2            BF16 structure, scalar fallback (any device)
+STENCIL_INT8=1            INT8 Ozaki-1 (Intel DPAS or NVIDIA dp4a)
+STENCIL_INT8=2            INT8 structure, scalar fallback (any device)
 ```
 
-Useful environment controls:
+Tuning and accuracy controls:
 
 ```text
-STENCIL_INT8=1            enable INT8-DPAS Ozaki-1 path
 STENCIL_STRIPS_PER_WG=2   default, best measured grouping
 STENCIL_TRIM=N            accuracy/performance tradeoff (BF16)
 STENCIL_GRF256=1          tested slower on target system
+STENCIL_LAYOUT=N          0=XYZ (default), 1=blocked, 2=ZYX
+STENCIL_HALO=N            halo padding size per axis
+STENCIL_PML=1             enable PML absorbing boundaries
+STENCIL_PPW=8             points-per-wavelength for compact-fit
+STENCIL_FIT=N             fit method: 0=L2, 1=Ricker, 2=minimax
+STENCIL_RADIUS_FIT=N      fit radius (2 or 3, default 3)
 ```
 
 ---
 
 ## Demo Script
 
-Build on the target system:
+Build the code:
 
 ```bash
 git clone https://github.com/hfp/libxs.git
@@ -382,65 +400,177 @@ echo "Make OpenCL runtime available"
 make GNU=1
 ```
 
-Run the useful comparison (`stencil.py`):
+Run the code:
 
-```bash
-./stencil.x -m 0 -n 800 -d 3
-./stencil.x -m 1 -n 800 -d 3
-STENCIL_INT8=1 ./stencil.x -m 0 -n 800 -d 3
-STENCIL_TRIM=3 ./stencil.x -m 0 -n 800 -d 3
+```text
+./stencil.x -n 800 -d 3 -m 0
+
+-n N    grid dimension (NxNxN)
+-d 3    isotropic pure terms
+-d 9    TTI-style pure plus cross terms
+-m 0    direct radius-4
+-m 1    compact-r1
+-m 2    compact-r2
+-m 3    compact-fit (dispersion-optimized)
 ```
-
----
-
-## Intel® Arc™ B580 Graphics (FP32)
-
-<img class="wide" src="assets/stencil-bmg-fp32.png" alt="BMG FP32"/>
-
----
-
-## Intel® Arc™ B580 Graphics (BF16)
-
-<img class="wide" src="assets/stencil-bmg-bf16.png" alt="BMG BF16"/>
-
-Note: `TRIM` drops least-significant digit products, so it is a controlled accuracy tradeoff, not the default.
-
----
-
-## Intel® Arc™ B580 Graphics (INT8)
-
-<img class="wide" src="assets/stencil-bmg-int8.png" alt="BMG INT8"/>
-
-Note: `TRIM` drops least-significant digit products, so it is a controlled accuracy tradeoff, not the default.
 
 ---
 
 ## GPoints/s @ N=800
 
-| Path          | Arc B580 | PVC-1T | PVC-2T\* | H100  |
-|---------------|----------|--------|----------|-------|
-| FP32 direct   | 22.5     | 40.6   |  81.2    | 100.4 |
-| FP32 compact  | 23.9     | 52.3   | 104.6    | 103.5 |
-| BF16 direct   | 9.7      | 14.7   |  29.4    | -     |
-| BF16 compact  | 9.9      | 15.1   |  30.2    | -     |
-| INT8 direct   | 6.3      | 9.7    |  19.4    | -     |
-| INT8 compact  | 6.7      | 10.5   |  21.0    | -     |
+Uses XYZ layout and individual coefficients per axis.
 
-<div markdown="1" style="opacity: 0.4; font-size: 50%;">
+| Path          | B580 | PVC-1T | PVC-2T\* | H100 |
+|---------------|------|--------|----------|------|
+| FP32 direct   | 18.4 | 34.0   | 68.0     | 69.3 |
+| FP32 compact  | 19.6 | 39.7   | 79.4     | 85.7 |
+| BF16 direct   |  5.4 | 11.1   | 22.2     | -    |
+| BF16 compact  |  5.5 | 11.2   | 22.5     | -    |
+| INT8 direct   |  4.2 |  9.0   | 18.0     | -    |
+| INT8 compact  |  4.3 |  9.9   | 19.9     | -    |
 
-\* Not actually executed but trivially doubled like it is possible with MPI.
+<div markdown="1" style="opacity: 0.2; font-size: 50%;">
 
-**OpenCL device names**
-- Intel® Arc™ B580 Graphics
-- Intel® Data Center GPU Max 1550 (450W TDP)
-- NVIDIA H100 80GB HBM3
+&nbsp;
+
+- **B580**: Intel® Arc™ B580 Graphics
+- **B70**: Intel® Arc™ Pro B70 Graphics
+- **PVC**: Intel® Data Center GPU Max 1550 (450W TDP)\*
+- **H100**: NVIDIA H100 80GB HBM3
+
+\* Two tiles (2T) that can be utilized with MPI (shown result was trivially doubled).
 
 </div>
-
 
 Note: B580 is bandwidth-bound — FP32 banded-FMA wins because it avoids
 the digit-slicing gather overhead. PVC has more compute headroom where
 compact paths and INT8 benefit. Both DPAS paths preserve FP32 accuracy.
+FP32 kernel supports XYZ and ZYX layouts; LP kernels require XYZ.
+
+---
+
+## GPoints/s @ N=800 (PML, ZYX)
+
+Uses ZYX layout and individual coefficients per axis and Perfectly Matched Layer.
+
+| Path          | B580 | PVC-1T | PVC-2T\* | H100 |
+|---------------|------|--------|----------|------|
+| FP32 direct   | 18.4 | 34.0   | 68.0     | 69.3 |
+| FP32 compact  | 19.6 | 39.7   | 79.4     | 85.7 |
+| BF16 direct   |  5.4 | 11.1   | 22.2     | -    |
+| BF16 compact  |  5.5 | 11.2   | 22.5     | -    |
+| INT8 direct   |  4.2 |  9.0   | 18.0     | -    |
+| INT8 compact  |  4.3 |  9.9   | 19.9     | -    |
+
+<div markdown="1" style="opacity: 0.2; font-size: 50%;">
+
+&nbsp;
+
+- **B580**: Intel® Arc™ B580 Graphics
+- **B70**: Intel® Arc™ Pro B70 Graphics
+- **PVC**: Intel® Data Center GPU Max 1550 (450W TDP)\*
+- **H100**: NVIDIA H100 80GB HBM3
+
+\* Two tiles (2T) that can be utilized with MPI (shown result was trivially doubled).
+
+</div>
+
+---
+
+## GPoints/s @ N=800 (Minimod)
+
+Uses ZYX layout and individual coefficients per axis and Perfectly Matched Layer.  
+There is a point-source injection every time step (one grid point).
+
+### Zero Initialization
+
+| GPU    | 1k   | 2k   | 4k   |
+|--------|------|------|------|
+| PVC-1T | 40.0 | 39.2 | 37.7 |
+| B70    | 60.8 | 56.7 | 45.6 |
+| CRI    | NYA  | NYA  | NYA  |
+
+### Random Initialization
+
+| GPU    | 1k   | 2k   | 4k   |
+|--------|------|------|------|
+| PVC-1T | 36.4 | 36.4 | 36.4 |
+| B70    | 30.8 | 30.8 | 30.8 |
+| CRI    | NYA  | NYA  | NYA  |
+
+---
+
+## Collect Results
+
+Write CSV-files:
+
+```bash
+./stencil.py --kernel fp32 --sizes 50:850:50
+./stencil.py --kernel fp32 --sizes 50:850:50 --pml --layout 2
+./stencil.py --kernel bf16 --sizes 50:850:50
+./stencil.py --kernel int8 --sizes 50:850:50
+```
+
+Plot graph:
+
+```bash
+./stencil.py --input stencil-fp32.csv --peak-bandwidth-gbs 540 --dark
+```
+
+---
+
+## Intel® Arc™ Pro B70 (FP32)
+
+<img class="wide" src="assets/stencil-b70-fp32.png" alt="B70 FP32"/>
+
+Note: Performance is fully bandwidth-bound.
+
+---
+
+## Intel® Arc™ Pro B70 (FP32, PML, ZYX)
+
+<img class="wide" src="assets/stencil-b70-fp32-pml.png" alt="B70 FP32 PML"/>
+
+Note: Performance is fully bandwidth-bound.
+
+---
+
+## Intel® Arc™ Pro B70 (BF16)
+
+<img class="wide" src="assets/stencil-b70-bf16.png" alt="B70 BF16"/>
+
+Note: `TRIM` drops least-significant digit products (accuracy tradeoff). BF16 is bound by gather and Dekker split.
+
+---
+
+## Intel® Arc™ Pro B70 (INT8)
+
+<img class="wide" src="assets/stencil-b70-int8.png" alt="B70 INT8"/>
+
+Note: `TRIM` drops least-significant digit products (accuracy tradeoff). INT8 is bound by gather and slicing overhead.
+
+---
+
+## Accuracy vs. Performance (FP32)
+
+Compact operators trade spatial accuracy for throughput.  
+Measured on PVC-1T, N=128, 10 steps, random init, `STENCIL_CHECK=1`.
+
+| Method          | Radius | K | GPoints/s | Linf rel |
+|-----------------|--------|---|-----------|----------|
+| Direct          | r=4    | 1 | 29.5      | 7.0e-8   |
+| Compact-fit     | r=3    | 2 | 34.4      | 4.0e-4   |
+| Compact-fit     | r=2    | 2 | 42.9      | 1.4e-3   |
+| Compact r2      | r=2    | 2 | 43.1      | 1.6e-3   |
+| Compact r1      | r=1    | 4 | 43.1      | 3.8e-3   |
+
+Reference: CPU radius-4 direct stencil. Compact-fit uses  
+minimax dispersion fitting (PPW=8).
+
+Note: Linf rel stays bounded over time (e.g., 2.6e-4 for fit-r3 at
+N=800, 1000 steps) while L2 grows because the compact operator's
+different dispersion curve causes cumulative phase drift vs. the
+direct reference -- both are physically valid wave propagation.
 
 ---
 
@@ -448,13 +578,17 @@ compact paths and INT8 benefit. Both DPAS paths preserve FP32 accuracy.
 
 Seismic stencils as dense small matrix multiplications.
 
-- BF16-DPAS (Dekker splitting, 2×3 digits) and INT8-DPAS (Ozaki-1, 1×1–3 digits)
-- FP32 banded-FMA fastest on bandwidth-bound B580
-- INT8 competitive on compute-rich PVC (fewer DPAS products)
+- FP32 banded-FMA (default): fastest on BW-bound hardware, supports all layouts
+- BF16-DPAS (Dekker splitting, 2x3 digits) and INT8-DPAS (Ozaki-1, 1x1-3 digits)
+- INT8 competitive with BF16 on compute-rich PVC (fewer DPAS products)
 - Compact paths: long-leg reach, short-leg cost
+- Compact-fit: minimax dispersion optimization for target PPW
 - RTM isotropic: three directional GEMMs per time step
 
-The hook: expressing stencil structure so matrix engines can execute it.
+&#x2192; Expressing stencil structure so matrix engines can execute it.
+
+Note: Can LP exceed FP32 (assuming FP32 remains native)?
+This is only possible by reducing BW-consumption like STENCIL_BF16S=1.
 
 ---
 
@@ -463,10 +597,13 @@ The hook: expressing stencil structure so matrix engines can execute it.
 Minimal compiler requirements (C90), e.g., GNU\* Compiler.
 
 - API to ease buffer management and carrying kernel code
+- Abstracts memory model (pointer arithmetic, USM, etc.)
 - Based on LIBXS, can make use of powerful primitives
   - For example, predicting tuning parameters
 
 Leverage runtime code generation to specialize kernels (JIT).
+
+Note: Results on B580 and B70 may have been collected using LIBXSTREAM_USM=0.
 
 ---
 
