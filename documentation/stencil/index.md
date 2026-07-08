@@ -27,7 +27,7 @@ for finite-difference stencil operators.
 - Mapping stencil operators to small dense GEMMs.
 - BF16 and INT8 DPAS preserving FP32 accuracy.
 - Compact operators as alternative paths.
-- Implementation and performance on Arc B580.
+- Implementation and performance.
 
 ---
 
@@ -420,14 +420,14 @@ Run the code:
 
 Uses XYZ layout and individual coefficients per axis.
 
-| Path          | B580 | PVC-1T | PVC-2T\* | H100 |
-|---------------|------|--------|----------|------|
-| FP32 direct   | 18.4 | 34.0   | 68.0     | 69.3 |
-| FP32 compact  | 19.6 | 39.7   | 79.4     | 85.7 |
-| BF16 direct   |  5.4 | 11.1   | 22.2     | -    |
-| BF16 compact  |  5.5 | 11.2   | 22.5     | -    |
-| INT8 direct   |  4.2 |  9.0   | 18.0     | -    |
-| INT8 compact  |  4.3 |  9.9   | 19.9     | -    |
+| Path         | B580 | B70  | PVC-1T | PVC-2T\* | H100 |
+|--------------|------|------|--------|----------|------|
+| FP32 direct  | 26.6 | 36.5 | 40.4   | 80.8     | 77.7 |
+| FP32 compact | 27.4 | 37.1 | 45.3   | 90.6     | 82.1 |
+| BF16 direct  | 13.0 | 17.4 | 20.0   | 40.0     | -    |
+| BF16 compact | 12.9 | -    | 19.6   | 39.2     | -    |
+| INT8 direct  | 10.8 | 14.3 | 16.3   | 32.6     | -    |
+| INT8 compact | 10.7 | -    | 16.1   | 32.2     | -    |
 
 <div markdown="1" style="opacity: 0.2; font-size: 50%;">
 
@@ -442,38 +442,7 @@ Uses XYZ layout and individual coefficients per axis.
 
 </div>
 
-Note: B580 is bandwidth-bound — FP32 banded-FMA wins because it avoids
-the digit-slicing gather overhead. PVC has more compute headroom where
-compact paths and INT8 benefit. Both DPAS paths preserve FP32 accuracy.
-FP32 kernel supports XYZ and ZYX layouts; LP kernels require XYZ.
-
----
-
-## GPoints/s @ N=800 (PML, ZYX)
-
-Uses ZYX layout and individual coefficients per axis and Perfectly Matched Layer.
-
-| Path          | B580 | PVC-1T | PVC-2T\* | H100 |
-|---------------|------|--------|----------|------|
-| FP32 direct   | 18.4 | 34.0   | 68.0     | 69.3 |
-| FP32 compact  | 19.6 | 39.7   | 79.4     | 85.7 |
-| BF16 direct   |  5.4 | 11.1   | 22.2     | -    |
-| BF16 compact  |  5.5 | 11.2   | 22.5     | -    |
-| INT8 direct   |  4.2 |  9.0   | 18.0     | -    |
-| INT8 compact  |  4.3 |  9.9   | 19.9     | -    |
-
-<div markdown="1" style="opacity: 0.2; font-size: 50%;">
-
-&nbsp;
-
-- **B580**: Intel® Arc™ B580 Graphics
-- **B70**: Intel® Arc™ Pro B70 Graphics
-- **PVC**: Intel® Data Center GPU Max 1550 (450W TDP)\*
-- **H100**: NVIDIA H100 80GB HBM3
-
-\* Two tiles (2T) that can be utilized with MPI (shown result was trivially doubled).
-
-</div>
+Note: The "compact" case uses a radius-3 stencil with fitted coefficients.
 
 ---
 
@@ -484,19 +453,25 @@ There is a point-source injection every time step (one grid point).
 
 ### Zero Initialization
 
-| GPU    | 1k   | 2k   | 4k   |
-|--------|------|------|------|
-| PVC-1T | 40.0 | 39.2 | 37.7 |
-| B70    | 60.8 | 56.7 | 45.6 |
-| CRI    | NYA  | NYA  | NYA  |
+| GPU      | 1k   | 2k   | 4k   |
+|----------|------|------|------|
+| H100     | 58.9 | 59.0 | 58.7 |
+| PVC-1T\* | 40.0 | 39.2 | 37.7 |
+| B70      | 60.8 | 56.7 | 45.6 |
 
 ### Random Initialization
 
-| GPU    | 1k   | 2k   | 4k   |
-|--------|------|------|------|
-| PVC-1T | 36.4 | 36.4 | 36.4 |
-| B70    | 30.8 | 30.8 | 30.8 |
-| CRI    | NYA  | NYA  | NYA  |
+| GPU      | 1k   | 2k   | 4k   |
+|----------|------|------|------|
+| H100     | 58.9 | 59.0 | 58.7 |
+| PVC-1T\* | 36.4 | 36.4 | 36.4 |
+| B70      | 30.8 | 30.8 | 30.8 |
+
+<div markdown="1" style="opacity: 0.2; font-size: 50%;">
+
+\* Two tiles (2T) that can be utilized with MPI (shown result was trivially doubled).
+
+</div>
 
 ---
 
@@ -539,7 +514,8 @@ Note: Performance is fully bandwidth-bound.
 
 <img class="wide" src="assets/stencil-b70-bf16.png" alt="B70 BF16"/>
 
-Note: `TRIM` drops least-significant digit products (accuracy tradeoff). BF16 is bound by gather and Dekker split.
+Note: `TRIM` drops least-significant digit products (accuracy tradeoff).
+BF16 is bound by gather and Dekker split.
 
 ---
 
@@ -547,7 +523,8 @@ Note: `TRIM` drops least-significant digit products (accuracy tradeoff). BF16 is
 
 <img class="wide" src="assets/stencil-b70-int8.png" alt="B70 INT8"/>
 
-Note: `TRIM` drops least-significant digit products (accuracy tradeoff). INT8 is bound by gather and slicing overhead.
+Note: `TRIM` drops least-significant digit products (accuracy tradeoff).
+INT8 is bound by gather and slicing overhead.
 
 ---
 
