@@ -81,6 +81,13 @@ int main(int argc, char* argv[])
   trace = (NULL != getenv("STENCIL_TRACE"));
 
   for (argi = 1; argi < argc; ++argi) {
+    if (0 == strcmp(argv[argi], "-h") || 0 == strcmp(argv[argi], "--help")) {
+      usage(argv[0]);
+      return EXIT_SUCCESS;
+    }
+  }
+
+  for (argi = 1; argi < argc; ++argi) {
     if (0 == strcmp(argv[argi], "-n") && argi + 1 < argc) {
       nx = ny = nz = atoi(argv[++argi]);
     }
@@ -99,7 +106,8 @@ int main(int argc, char* argv[])
     else if (0 == strcmp(argv[argi], "-d") && argi + 1 < argc) {
       nterms = atoi(argv[++argi]);
     }
-    else if (0 == strcmp(argv[argi], "-h") && argi + 1 < argc) {
+    else if ((0 == strcmp(argv[argi], "-s")
+           || 0 == strcmp(argv[argi], "--spacing")) && argi + 1 < argc) {
       h = atof(argv[++argi]);
     }
     else if (0 == strcmp(argv[argi], "-v") && argi + 1 < argc) {
@@ -139,9 +147,6 @@ int main(int argc, char* argv[])
       if (0 == strcmp(arg, "zero")) init_mode = INIT_ZERO;
       else if (0 == strcmp(arg, "gauss")) init_mode = INIT_GAUSS;
       else init_mode = INIT_RAND;
-    }
-    else if (0 == strcmp(argv[argi], "--help")) {
-      usage(argv[0]); return EXIT_SUCCESS;
     }
   }
 
@@ -846,7 +851,8 @@ static void usage(const char* prog)
          "  -d <dims>     operator terms: 3=isotropic, 9=TTI (default 3)\n"
          "  -m <method>   operator method: 0=direct 1=compact-r1 2=compact-r2 3=compact-fit\n"
          "  -i <init>     initial wavefield: rand|zero|gauss (default rand)\n"
-         "  -h <spacing>  grid spacing in meters (default 10.0)\n"
+         "  -h, --help    show this help and exit\n"
+         "  -s, --spacing <h> grid spacing in meters (default 10.0)\n"
          "  -v <model>    velocity model: const|grad|layered|<file.bin>\n"
          "  -vmin <vel>   min velocity m/s (default 1500)\n"
          "  -vmax <vel>   max velocity m/s (default 4500)\n"
@@ -857,9 +863,12 @@ static void usage(const char* prog)
          "  -seg-salt      SEG/EAGE Salt (676x676x210, h=20m)\n"
          "  -overthrust    SEG/EAGE Overthrust (801x801x187, h=25m)\n"
          "\n"
-         "Environment: STENCIL_METHOD, STENCIL_BF16, STENCIL_INT8, STENCIL_STRIPS_PER_WG, STENCIL_SG,\n"
-         "             STENCIL_GRF256, STENCIL_TRIM, STENCIL_LU, STENCIL_BF16S, STENCIL_BLOCKED, STENCIL_LAYOUT,\n"
-         "             STENCIL_HALO, STENCIL_PML, STENCIL_CHECK, STENCIL_TRACE\n"
+         "Environment:\n"
+         "  STENCIL_BF16, STENCIL_BF16S, STENCIL_BLOCKED, STENCIL_CHECK, STENCIL_FIT\n"
+         "  STENCIL_FP32_BLOCK_IO, STENCIL_FP32_SBLOCK, STENCIL_FP32_WG_X, STENCIL_FP32_WG_Y\n"
+         "  STENCIL_GRF256, STENCIL_HALO, STENCIL_HINT, STENCIL_INT8, STENCIL_LAYOUT\n"
+         "  STENCIL_LU, STENCIL_METHOD, STENCIL_PML, STENCIL_PPW, STENCIL_RADIUS_FIT\n"
+         "  STENCIL_SG, STENCIL_STRIPS_PER_WG, STENCIL_TRACE, STENCIL_TRIM\n"
          "\n"
          "Performance is reported in GPoints/s.\n", prog);
 }
