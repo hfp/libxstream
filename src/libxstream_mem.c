@@ -538,7 +538,7 @@ LIBXSTREAM_API int libxstream_opencl_info_devptr_lock(libxstream_opencl_info_mem
   const libxstream_opencl_info_memptr_t* meminfo = NULL;
   int result = EXIT_SUCCESS;
   void* non_const;
-  LIBXS_ASSIGN(&non_const, &memory);
+  LIBXS_UNION_ASSIGN(void*, non_const, const void*, memory);
   meminfo = libxstream_opencl_info_devptr_modify(lock, non_const, elsize, amount, offset);
   assert(NULL != info);
   if (NULL == meminfo) { /* USM-pointer */
@@ -980,14 +980,14 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
   {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
     const int svmfine = (0 != ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm));
-    union { const void* cv; void* v; } src;
-    src.cv = dev_mem;
+    void* src;
+    LIBXS_UNION_ASSIGN(void*, src, const void*, dev_mem);
     if (0 == svmfine) {
       cl_event unmap_event = NULL;
-      result = clEnqueueSVMMap(queue, CL_TRUE, CL_MAP_READ, (char*)src.v + offset, nbytes, 0, NULL, NULL);
+      result = clEnqueueSVMMap(queue, CL_TRUE, CL_MAP_READ, (char*)src + offset, nbytes, 0, NULL, NULL);
       if (EXIT_SUCCESS == result) {
         memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
-        result = clEnqueueSVMUnmap(queue, (char*)src.v + offset, 0, NULL, &unmap_event);
+        result = clEnqueueSVMUnmap(queue, (char*)src + offset, 0, NULL, &unmap_event);
         if (EXIT_SUCCESS == result && finish) {
           result = clWaitForEvents(1, &unmap_event);
         }
@@ -1029,12 +1029,12 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
       result_sync = EXIT_SUCCESS;
       if (0 == ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm)) {
         cl_event unmap_event = NULL;
-        union { const void* cv; void* v; } src2;
-        src2.cv = dev_mem;
-        result_sync = clEnqueueSVMMap(queue, CL_TRUE, CL_MAP_READ, (char*)src2.v + offset, nbytes, 0, NULL, NULL);
+        void* src2;
+        LIBXS_UNION_ASSIGN(void*, src2, const void*, dev_mem);
+        result_sync = clEnqueueSVMMap(queue, CL_TRUE, CL_MAP_READ, (char*)src2 + offset, nbytes, 0, NULL, NULL);
         if (EXIT_SUCCESS == result_sync) {
           memcpy(host_mem, (const char*)dev_mem + offset, nbytes);
-          result_sync = clEnqueueSVMUnmap(queue, (char*)src2.v + offset, 0, NULL, &unmap_event);
+          result_sync = clEnqueueSVMUnmap(queue, (char*)src2 + offset, 0, NULL, &unmap_event);
           if (EXIT_SUCCESS == result_sync) {
             result_sync = clWaitForEvents(1, &unmap_event);
           }
@@ -1089,16 +1089,13 @@ LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, 
     libxstream_opencl_info_memptr_t* info = NULL;
     cl_event event = NULL;
     size_t offset = 0;
-    union {
-      const void* input;
-      void* ptr;
-    } nconst;
+    void* nconst;
     const libxstream_opencl_stream_t* str;
-    nconst.input = dev_mem;
+    LIBXS_UNION_ASSIGN(void*, nconst, const void*, dev_mem);
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str);
-    info = libxstream_opencl_info_devptr_modify(NULL, nconst.ptr, 1 /*elsize*/, &nbytes, &offset);
+    info = libxstream_opencl_info_devptr_modify(NULL, nconst, 1 /*elsize*/, &nbytes, &offset);
     if (NULL == info) { /* USM-pointer: info_devptr_modify returns NULL when USM is active */
       result = libxstream_opencl_mem_copy_d2h(
         dev_mem, host_mem, offset, nbytes, str->queue, finish, NULL == libxstream_opencl_config.hist_d2h ? NULL : &event);
@@ -1135,12 +1132,9 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
     cl_event event = NULL, *const pevent = NULL;
 # endif
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-    union {
-      const void* input;
-      void* ptr;
-    } nconst;
+    void* nconst;
     const libxstream_opencl_stream_t* str;
-    nconst.input = devmem_src;
+    LIBXS_UNION_ASSIGN(void*, nconst, const void*, devmem_src);
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str && NULL != devinfo->context);
@@ -1166,7 +1160,7 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
     {
       size_t offset_src = 0, offset_dst = 0;
       libxstream_opencl_info_memptr_t* const info_src = libxstream_opencl_info_devptr_modify(
-        NULL, nconst.ptr, 1 /*elsize*/, &nbytes, &offset_src);
+        NULL, nconst, 1 /*elsize*/, &nbytes, &offset_src);
       libxstream_opencl_info_memptr_t* const info_dst = libxstream_opencl_info_devptr_modify(
         NULL, devmem_dst, 1 /*elsize*/, &nbytes, &offset_dst);
       if (NULL != info_src && NULL != info_dst) {

@@ -2012,11 +2012,11 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
 # endif
   {
     size_t offset = 0;
-    union { const void* cv; void* v; } nc;
+    void* nc;
     libxstream_opencl_info_memptr_t* info;
-    nc.cv = arg_value;
+    LIBXS_UNION_ASSIGN(void*, nc, const void*, arg_value);
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    info = libxstream_opencl_info_devptr_modify(NULL, nc.v, 1 /*elsize*/, NULL /*amount*/, &offset);
+    info = libxstream_opencl_info_devptr_modify(NULL, nc, 1 /*elsize*/, NULL /*amount*/, &offset);
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != info) {
       if (0 == offset) {

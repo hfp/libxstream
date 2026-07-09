@@ -125,10 +125,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     /* Allocate device memory (skip cached sides and host-preprocessed sides).
      * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm_complex). */
     if (0 != dev) {
-      union { const void* cv; void* v; } ca, cb;
-      ca.cv = a; cb.cv = b;
-      d_ag = ca.v;
-      d_bg = cb.v;
+      LIBXS_UNION_ASSIGN(void*, d_ag, const void*, a);
+      LIBXS_UNION_ASSIGN(void*, d_bg, const void*, b);
       d_cg = c;
     }
     else {
@@ -388,10 +386,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     /* Allocate device memory (skip cached sides and host-preprocessed sides).
      * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm_complex). */
     if (0 != dev) {
-      union { const void* cv; void* v; } ca, cb;
-      ca.cv = a; cb.cv = b;
-      d_ag = ca.v;
-      d_bg = cb.v;
+      LIBXS_UNION_ASSIGN(void*, d_ag, const void*, a);
+      LIBXS_UNION_ASSIGN(void*, d_bg, const void*, b);
       d_cg = c;
     }
     else {
