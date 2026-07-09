@@ -46,17 +46,10 @@ typedef struct {
   int r_per_step;
   int strips_per_wg;
   int sg;
-  int grf256;
-  int trim;
   int nterms;
-  int lu;
-  int bf16;
-  int int8;
-  int bf16s;
-  int blocked;
-  int layout;
-  int pml;
   int grid_key;
+  int fp32_wg;
+  unsigned int flags;
 } stencil_opencl_key_t;
 
 typedef struct {

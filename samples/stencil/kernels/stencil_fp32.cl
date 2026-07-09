@@ -20,10 +20,11 @@
 #define SLM_TOTAL (SLM_M * SLM_F)
 #define S_WINDOW (2 * RADIUS + 1)
 
-#if defined(STENCIL_PADDED) && (0 < STENCIL_PADDED) && defined(INTEL) && (2 <= INTEL) \
-    && (!defined(STENCIL_LAYOUT) || STENCIL_LAYOUT_XYZ == STENCIL_LAYOUT) \
-  && (!defined(STENCIL_BF16S) || 0 >= STENCIL_BF16S) \
-    && (!defined(STENCIL_PML) || 0 >= STENCIL_PML)
+#if (32 == WG_X) && (8 == WG_Y) \
+  && defined(STENCIL_PADDED) && (0 < STENCIL_PADDED) && defined(INTEL) && (2 <= INTEL) \
+    && (!defined(STENCIL_BF16S) || 0 >= STENCIL_BF16S) \
+    && (!defined(FP32_DISABLE_BLOCK_IO) || 0 >= FP32_DISABLE_BLOCK_IO) \
+    && (STENCIL_LAYOUT_XYZ == STENCIL_LAYOUT || STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
 # define FP32_USE_BLOCK_IO 1
 #endif
 
@@ -43,6 +44,13 @@
 # define FP32_HD_FAST hdz_2
 # define FP32_HD_MED  hdy_2
 # define FP32_HD_SLOW hdx_2
+# define FP32_BLOCK_IO_PLANE(S) \
+  ((global const void*)(p_grid + (long)((S) + STENCIL_P_LX) * STENCIL_P_SX))
+# define FP32_BLOCK_IO_WB ((STENCIL_NZ + 2 * STENCIL_P_LZ) * 4)
+# define FP32_BLOCK_IO_HB (STENCIL_NY + 2 * STENCIL_P_LY)
+# define FP32_BLOCK_IO_PB (STENCIL_P_SY * 4)
+# define FP32_BLOCK_IO_X0 ((gf0 + STENCIL_P_LZ) * 4)
+# define FP32_BLOCK_IO_Y0 (gm0 + STENCIL_P_LY)
 #else
 # define FP32_NFAST STENCIL_NX
 # define FP32_NMED STENCIL_NY
@@ -56,6 +64,13 @@
 # define FP32_HD_FAST hdx_2
 # define FP32_HD_MED  hdy_2
 # define FP32_HD_SLOW hdz_2
+# define FP32_BLOCK_IO_PLANE(S) \
+  ((global const void*)(p_grid + (long)(S) * (STENCIL_NY) * (STENCIL_NX)))
+# define FP32_BLOCK_IO_WB (STENCIL_NX * 4)
+# define FP32_BLOCK_IO_HB STENCIL_NY
+# define FP32_BLOCK_IO_PB FP32_BLOCK_IO_WB
+# define FP32_BLOCK_IO_X0 (gf0 * 4)
+# define FP32_BLOCK_IO_Y0 gm0
 #endif
 
 __attribute__((reqd_work_group_size(WG_X, WG_Y, 1)))
@@ -130,17 +145,18 @@ kernel void stencil_apply_direct(
 #if defined(FP32_USE_BLOCK_IO)
       { const int sgid = get_sub_group_id();
         const int sglid = get_sub_group_local_id();
-        global const void* plane = (global const void*)(
-          p_grid + (long)i_s * (STENCIL_NY) * (STENCIL_NX));
-        const int wb = STENCIL_NX * 4;
+        global const void* plane = FP32_BLOCK_IO_PLANE(i_s);
+        const int wb = FP32_BLOCK_IO_WB;
+        const int hb = FP32_BLOCK_IO_HB;
+        const int pb = FP32_BLOCK_IO_PB;
         float8 blk_data;
         int col_base, row_base, c;
         col_base = (sgid % 3) * 16;
         row_base = (sgid / 3) * 8;
         if (sgid < 6) {
           intel_sub_group_2d_block_read_32b_8r16x1c(
-            plane, wb, STENCIL_NY, wb,
-            (int2)((gf0 + col_base) * 4, gm0 + row_base),
+            plane, wb, hb, pb,
+            (int2)(FP32_BLOCK_IO_X0 + col_base * 4, FP32_BLOCK_IO_Y0 + row_base),
             (private uint*)&blk_data);
           for (c = 0; c < 8; ++c) {
             const int sf = col_base + sglid;
@@ -150,6 +166,15 @@ kernel void stencil_apply_direct(
           }
         }
       }
+#if defined(STENCIL_PML) && (0 < STENCIL_PML)
+      if (0 == blk_interior) {
+        for (idx = lid; idx < SLM_TOTAL; idx += WG_SIZE) {
+          const int sm = idx / SLM_F;
+          const int sf = idx % SLM_F;
+          eta_slm[idx] = eta[FP32_E_FMS(gf0 + sf, gm0 + sm, i_s)];
+        }
+      }
+#endif
 #else
       for (idx = lid; idx < SLM_TOTAL; idx += WG_SIZE) {
         const int sm = idx / SLM_F;

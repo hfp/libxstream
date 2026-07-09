@@ -315,10 +315,15 @@ Environment variables controlling kernel specialization:
     STENCIL_LAYOUT   memory layout (0=XYZ, 1=blocked, 2=ZYX)
     STENCIL_HALO     halo/padding size per axis
     STENCIL_PML      enable PML absorbing boundary (0/1)
+    STENCIL_FP32_WG_X, STENCIL_FP32_WG_Y
+       FP32 direct-kernel work-group shape (default: 32x8)
+    STENCIL_FP32_BLOCK_IO
+       enable FP32 Intel 2D block reads for padded 32x8 cases (0/1, default: 0)
 
 Specialized kernels are compiled on first use and cached in a
 thread-safe registry keyed by the method, compact-step parameters,
-strip grouping, subgroup size, GRF mode, trim level, and term count.
+  strip grouping, subgroup size, packed specialization flags, FP32
+  work-group shape, grid shape, and term count.
 Subsequent launches with the same parameters are zero-cost.
 
 Future extension: per-block adaptive method selection (different K in

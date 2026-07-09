@@ -17,6 +17,22 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define STENCIL_FP32_WG_X_DEFAULT 32
+#define STENCIL_FP32_WG_Y_DEFAULT 8
+
+#define STENCIL_KEY_GRF256(FLAGS) ((int)((FLAGS) & 1u))
+#define STENCIL_KEY_TRIM(FLAGS) ((int)(((FLAGS) >> 1) & 255u))
+#define STENCIL_KEY_LU(FLAGS) ((int)(((FLAGS) >> 9) & 15u))
+#define STENCIL_KEY_BF16(FLAGS) ((int)(((FLAGS) >> 13) & 3u))
+#define STENCIL_KEY_INT8(FLAGS) ((int)(((FLAGS) >> 15) & 3u))
+#define STENCIL_KEY_BF16S(FLAGS) ((int)(((FLAGS) >> 17) & 3u))
+#define STENCIL_KEY_BLOCKED(FLAGS) ((int)(((FLAGS) >> 19) & 3u))
+#define STENCIL_KEY_LAYOUT(FLAGS) ((int)(((FLAGS) >> 21) & 3u))
+#define STENCIL_KEY_PML(FLAGS) ((int)(((FLAGS) >> 23) & 1u))
+#define STENCIL_KEY_FP32_BLOCK_IO(FLAGS) ((int)(((FLAGS) >> 24) & 1u))
+#define STENCIL_KEY_FP32_WGX(KEY) ((int)((unsigned int)(KEY).fp32_wg >> 16))
+#define STENCIL_KEY_FP32_WGY(KEY) ((int)((KEY).fp32_wg & 65535))
+
 #if !defined(OPENCL_KERNELS_SOURCE_STENCIL_BF16)
 # error "OpenCL kernel source not found (stencil_kernels.h must define OPENCL_KERNELS_SOURCE_STENCIL_BF16)"
 #endif
@@ -499,6 +515,41 @@ static int stencil_valid_strips_per_wg(int value)
 }
 
 
+static void stencil_fp32_wg_dims(int* wg_x, int* wg_y)
+{
+  const char *const wgx_env = getenv("STENCIL_FP32_WG_X");
+  const char *const wgy_env = getenv("STENCIL_FP32_WG_Y");
+  int x = (NULL == wgx_env) ? STENCIL_FP32_WG_X_DEFAULT : atoi(wgx_env);
+  int y = (NULL == wgy_env) ? STENCIL_FP32_WG_Y_DEFAULT : atoi(wgy_env);
+  if (1 > x || 0 != (x & (x - 1)) || 64 < x) x = STENCIL_FP32_WG_X_DEFAULT;
+  if (1 > y || 0 != (y & (y - 1)) || 32 < y) y = STENCIL_FP32_WG_Y_DEFAULT;
+  if (256 != x * y) {
+    x = STENCIL_FP32_WG_X_DEFAULT;
+    y = STENCIL_FP32_WG_Y_DEFAULT;
+  }
+  *wg_x = x;
+  *wg_y = y;
+}
+
+
+static unsigned int stencil_key_flags(const stencil_context_t* ctx)
+{
+  const char *const fp32_block_io_env = getenv("STENCIL_FP32_BLOCK_IO");
+  unsigned int result = 0u;
+  result |= (unsigned int)(ctx->grf256 & 1);
+  result |= (unsigned int)(ctx->trim & 255) << 1;
+  result |= (unsigned int)(ctx->lu & 15) << 9;
+  result |= (unsigned int)(ctx->bf16 & 3) << 13;
+  result |= (unsigned int)(ctx->int8 & 3) << 15;
+  result |= (unsigned int)(ctx->bf16s & 3) << 17;
+  result |= (unsigned int)(ctx->blocked & 3) << 19;
+  result |= (unsigned int)(ctx->layout & 3) << 21;
+  result |= (unsigned int)((0 != ctx->pml) ? 1 : 0) << 23;
+  result |= (unsigned int)((NULL != fp32_block_io_env && 0 != atoi(fp32_block_io_env)) ? 1 : 0) << 24;
+  return result;
+}
+
+
 static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 {
   static libxs_registry_t* kernel_registry /*= NULL*/;
@@ -531,19 +582,17 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.r_per_step = ctx->r_per_step;
   key.strips_per_wg = ctx->strips_per_wg;
   key.sg = ctx->sg;
-  key.grf256 = ctx->grf256;
-  key.trim = ctx->trim;
   key.nterms = ctx->nterms;
-  key.lu = ctx->lu;
-  key.bf16 = ctx->bf16;
-  key.int8 = ctx->int8;
-  key.bf16s = ctx->bf16s;
-  key.blocked = ctx->blocked;
-  key.layout = ctx->layout;
-  key.pml = ctx->pml;
   key.grid_key = ctx->grid_size[0] ^ (ctx->grid_size[1] * 65599)
                ^ (ctx->grid_size[2] * 8191) ^ (ctx->halo[0] * 131)
                ^ (ctx->halo[1] * 257) ^ (ctx->halo[2] * 521);
+  key.fp32_wg = 0;
+  key.flags = stencil_key_flags(ctx);
+  if (0 != ctx->fp32) {
+    int fp32_wgx, fp32_wgy;
+    stencil_fp32_wg_dims(&fp32_wgx, &fp32_wgy);
+    key.fp32_wg = (fp32_wgx << 16) | fp32_wgy;
+  }
 
   kptr = (stencil_kernels_t*)libxs_registry_get(
     kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
@@ -570,15 +619,18 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           " -DSTENCIL_LAYOUT=%d -DSTENCIL_PML=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
-          key.strips_per_wg, key.sg, intel_level, nv_level, key.method, key.trim, key.nterms,
-          key.lu, key.bf16, key.int8, key.bf16s, key.blocked, key.layout, ctx->pml,
+          key.strips_per_wg, key.sg, intel_level, nv_level, key.method,
+          STENCIL_KEY_TRIM(key.flags), key.nterms, STENCIL_KEY_LU(key.flags),
+          STENCIL_KEY_BF16(key.flags), STENCIL_KEY_INT8(key.flags),
+          STENCIL_KEY_BF16S(key.flags), STENCIL_KEY_BLOCKED(key.flags),
+          STENCIL_KEY_LAYOUT(key.flags), STENCIL_KEY_PML(key.flags),
           (0 != ctx->fp32) ? ""
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
 
       { const int nx = ctx->grid_size[0], ny = ctx->grid_size[1], nz = ctx->grid_size[2];
         char stride_flags[512];
-        if (2 == key.layout) {
+        if (2 == STENCIL_KEY_LAYOUT(key.flags)) {
           const int lx = ctx->halo[0], ly = ctx->halo[1], lz = ctx->halo[2];
           const long p_n = (long)(nx + 2 * lx) * (ny + 2 * ly) * (nz + 2 * lz);
           const int p_sx = (nz + 2 * lz) * (ny + 2 * ly);
@@ -590,9 +642,11 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           const int radius = (0 == key.method) ? STENCIL_RADIUS : key.r_per_step;
           int padded = (lx >= radius && ly >= radius && lz >= radius) ? 1 : 0;
           if (0 != padded && 1 == ctx->fp32) {
-            const int wg_x = 32, wg_y = 8;
-            const int max_fast = ((nz + wg_x - 1) / wg_x) * wg_x - 1 + radius;
-            const int max_med = ((ny + wg_y - 1) / wg_y) * wg_y - 1 + radius;
+            int wg_x, wg_y;
+            int max_fast, max_med;
+            stencil_fp32_wg_dims(&wg_x, &wg_y);
+            max_fast = ((nz + wg_x - 1) / wg_x) * wg_x - 1 + radius;
+            max_med = ((ny + wg_y - 1) / wg_y) * wg_y - 1 + radius;
             if (max_fast >= nz + lz || max_med >= ny + ly) {
               padded = 0;
             }
@@ -621,7 +675,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
             padded);
         }
         else {
-          const long p_n = (0 != ctx->blocked)
+          const long p_n = (0 != STENCIL_KEY_BLOCKED(key.flags))
             ? (long)ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2]
               * STENCIL_BLK * STENCIL_BLK * STENCIL_BLK
             : (long)nx * ny * nz;
@@ -632,14 +686,23 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         strncat(flags, stride_flags, sizeof(flags) - strlen(flags) - 1);
       }
 
+      if (1 == ctx->fp32) {
+        char fp32_flags[96];
+        LIBXS_SNPRINTF(fp32_flags, sizeof(fp32_flags),
+          " -DWG_X=%d -DWG_Y=%d -DFP32_DISABLE_BLOCK_IO=%d",
+          STENCIL_KEY_FP32_WGX(key), STENCIL_KEY_FP32_WGY(key),
+          (0 == STENCIL_KEY_FP32_BLOCK_IO(key.flags)) ? 1 : 0);
+        strncat(flags, fp32_flags, sizeof(flags) - strlen(flags) - 1);
+      }
+
       LIBXS_SNPRINTF(options, sizeof(options), "-cl-fast-relaxed-math -cl-denorms-are-zero%s",
-        (0 != key.grf256 && 0 != devinfo->intel && 0 == devinfo->biggrf)
+        (0 != STENCIL_KEY_GRF256(key.flags) && 0 != devinfo->intel && 0 == devinfo->biggrf)
           ? " -cl-intel-256-GRF-per-thread" : "");
 
       if (EXIT_SUCCESS == ok) {
         const char* source;
         if (1 == ctx->fp32) source = OPENCL_KERNELS_SOURCE_STENCIL_FP32;
-        else if (0 != key.int8) source = OPENCL_KERNELS_SOURCE_STENCIL_INT8;
+        else if (0 != STENCIL_KEY_INT8(key.flags)) source = OPENCL_KERNELS_SOURCE_STENCIL_INT8;
         else source = OPENCL_KERNELS_SOURCE_STENCIL_BF16;
         ok = libxstream_opencl_program(0 /*source_kind*/,
           source, "stencil", flags,
@@ -650,7 +713,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       if (EXIT_SUCCESS == ok && 1 == ctx->fp32) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_direct", &knl.stencil_apply_direct);
       }
-      else if (EXIT_SUCCESS == ok && 0 != key.int8) {
+      else if (EXIT_SUCCESS == ok && 0 != STENCIL_KEY_INT8(key.flags)) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_int8", &knl.stencil_apply);
       }
       else if (EXIT_SUCCESS == ok) {
@@ -671,7 +734,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         fprintf(stderr, "%s ACC/STENCIL: method=%d k=%d r=%d strips=%d sg=%d grf256=%d -> ",
           EXIT_SUCCESS == ok ? "INFO" : "ERROR",
           key.method, key.k_steps, key.r_per_step, key.strips_per_wg,
-          key.sg, key.grf256);
+          key.sg, STENCIL_KEY_GRF256(key.flags));
         if (EXIT_SUCCESS == ok) {
           fprintf(stderr, "%.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
         }
@@ -1183,18 +1246,20 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
 
   if (EXIT_SUCCESS == result && 1 == ctx->fp32 && NULL != knl->stencil_apply_direct) {
     size_t global_direct[3], local_direct[3];
+    int fp32_wgx, fp32_wgy;
     cl_int i = 0;
-    local_direct[0] = 32;
-    local_direct[1] = 8;
+    stencil_fp32_wg_dims(&fp32_wgx, &fp32_wgy);
+    local_direct[0] = (size_t)fp32_wgx;
+    local_direct[1] = (size_t)fp32_wgy;
     local_direct[2] = 1;
     if (2 == ctx->layout) {
-      global_direct[0] = ((size_t)nz + 31) & ~(size_t)31;
-      global_direct[1] = ((size_t)ny + 7) & ~(size_t)7;
+      global_direct[0] = ((size_t)(nz + fp32_wgx - 1) / fp32_wgx) * fp32_wgx;
+      global_direct[1] = ((size_t)(ny + fp32_wgy - 1) / fp32_wgy) * fp32_wgy;
       global_direct[2] = (size_t)((nx + STENCIL_BLK - 1) / STENCIL_BLK);
     }
     else {
-      global_direct[0] = ((size_t)nx + 31) & ~(size_t)31;
-      global_direct[1] = ((size_t)ny + 7) & ~(size_t)7;
+      global_direct[0] = ((size_t)(nx + fp32_wgx - 1) / fp32_wgx) * fp32_wgx;
+      global_direct[1] = ((size_t)(ny + fp32_wgy - 1) / fp32_wgy) * fp32_wgy;
       global_direct[2] = (size_t)((nz + STENCIL_BLK - 1) / STENCIL_BLK);
     }
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, p_cur));
