@@ -336,10 +336,13 @@ kernel void stencil_apply_tti(
 
         UNROLL_AUTO for (kstep = ks_lo_tti; kstep <= ks_hi_tti; kstep += 16) {
           ushort8 a_bf;
-          uint8 b_bf;
+          union { uint8 v; uint a[8]; } b_bf;
+          int bk;
           BF16_LOAD_A(dj_digit, d_wb, BLK, mi, kstep, &a_bf);
-          b_bf = *(local const uint8*)(x_digit + kstep * XMX_N);
-          BF16_DPAS_ONE(a_bf, b_bf, t_acc);
+          UNROLL_FORCE(8) for (bk = 0; bk < 8; ++bk) {
+            b_bf.a[bk] = STENCIL_BF16_PACK_B(x_digit, kstep, bk, sg_lid);
+          }
+          BF16_DPAS_ONE(a_bf, b_bf.v, t_acc);
         }
 
         {
@@ -375,10 +378,13 @@ kernel void stencil_apply_tti(
 
             UNROLL_AUTO for (kstep = ks_lo_tti; kstep <= ks_hi_tti; kstep += 16) {
               ushort8 a_bf;
-              uint8 b_bf;
+              union { uint8 v; uint a[8]; } b_bf;
+              int bk;
               BF16_LOAD_A(di_digit, d_wb, BLK, mi, kstep, &a_bf);
-              b_bf = *(local const uint8*)(t_digit + kstep * XMX_N);
-              BF16_DPAS_ONE(a_bf, b_bf, y_acc);
+              UNROLL_FORCE(8) for (bk = 0; bk < 8; ++bk) {
+                b_bf.a[bk] = STENCIL_BF16_PACK_B(t_digit, kstep, bk, sg_lid);
+              }
+              BF16_DPAS_ONE(a_bf, b_bf.v, y_acc);
             }
           }
         }

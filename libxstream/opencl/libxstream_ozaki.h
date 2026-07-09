@@ -89,10 +89,10 @@ inline void dekker_split_bf16_private(real_t val, int ndigits,
       uint8 b_bf_; \
       intel_sub_group_2d_block_read_16b_8r16x1c( \
         (global void*)(A_SURF), (A_WB), (A_HT), (A_WB), \
-        (int2)((A_KOFF) * 2, (MI)), (private ushort*)&a_bf_); \
+        (int2)((A_KOFF), (MI)), (private ushort*)&a_bf_); \
       intel_sub_group_2d_block_read_transform_16b_16r16x1c( \
         (global void*)(B_SURF), (B_WB), (B_HT), (B_WB), \
-        (int2)((NJ) * 2, (B_KOFF)), (private uint*)&b_bf_); \
+        (int2)((NJ), (B_KOFF)), (private uint*)&b_bf_); \
       (ACC) = BF16_MAD_K16(a_bf_, b_bf_, (ACC)); \
     } while (0)
 
@@ -103,24 +103,24 @@ inline void dekker_split_bf16_private(real_t val, int ndigits,
 # define BF16_LOAD_A(A_SURF, A_WB, A_HT, MI, KOFF, DST) \
     intel_sub_group_2d_block_read_16b_8r16x1c( \
       (global void*)(A_SURF), (A_WB), (A_HT), (A_WB), \
-      (int2)((KOFF) * 2, (MI)), (private ushort*)(DST))
+      (int2)((KOFF), (MI)), (private ushort*)(DST))
 
 /* Load B tile (16 x 16 bf16, VNNI-transformed) from 2D surface. */
 # define BF16_LOAD_B(B_SURF, B_WB, B_HT, NJ, KOFF, DST) \
     intel_sub_group_2d_block_read_transform_16b_16r16x1c( \
       (global void*)(B_SURF), (B_WB), (B_HT), (B_WB), \
-      (int2)((NJ) * 2, (KOFF)), (private uint*)(DST))
+      (int2)((NJ), (KOFF)), (private uint*)(DST))
 
 /* Prefetch hints for bf16 tiles. */
 # define BF16_PREFETCH_A(A_SURF, A_WB, A_HT, MI, KOFF) \
     intel_sub_group_2d_block_prefetch_16b_8r16x1c( \
       (global void*)(A_SURF), (A_WB), (A_HT), (A_WB), \
-      (int2)((KOFF) * 2, (MI)))
+      (int2)((KOFF), (MI)))
 
 # define BF16_PREFETCH_B(B_SURF, B_WB, B_HT, NJ, KOFF) \
     intel_sub_group_2d_block_prefetch_16b_16r16x1c( \
       (global void*)(B_SURF), (B_WB), (B_HT), (B_WB), \
-      (int2)((NJ) * 2, (KOFF)))
+      (int2)((NJ), (KOFF)))
 
 #else /* scalar fallback */
 

@@ -57,7 +57,7 @@
 # define FP32_BLOCK_IO_WB ((STENCIL_NZ + 2 * STENCIL_P_LZ) * 4)
 # define FP32_BLOCK_IO_HB (STENCIL_NY + 2 * STENCIL_P_LY)
 # define FP32_BLOCK_IO_PB (STENCIL_P_SY * 4)
-# define FP32_BLOCK_IO_X0 ((gf0 + STENCIL_P_LZ) * 4)
+# define FP32_BLOCK_IO_X0 (gf0 + STENCIL_P_LZ)
 # define FP32_BLOCK_IO_Y0 (gm0 + STENCIL_P_LY)
 #else
 # define FP32_NFAST STENCIL_NX
@@ -77,7 +77,7 @@
 # define FP32_BLOCK_IO_WB (STENCIL_NX * 4)
 # define FP32_BLOCK_IO_HB STENCIL_NY
 # define FP32_BLOCK_IO_PB FP32_BLOCK_IO_WB
-# define FP32_BLOCK_IO_X0 (gf0 * 4)
+# define FP32_BLOCK_IO_X0 gf0
 # define FP32_BLOCK_IO_Y0 gm0
 #endif
 
@@ -167,7 +167,7 @@ kernel void stencil_apply_direct(
             if (sgid < 6) {
               intel_sub_group_2d_block_read_32b_8r16x1c(
                 plane, wb, hb, pb,
-                (int2)(FP32_BLOCK_IO_X0 + col_base * 4, FP32_BLOCK_IO_Y0 + row_base),
+                (int2)(FP32_BLOCK_IO_X0 + col_base, FP32_BLOCK_IO_Y0 + row_base),
                 (private uint*)&blk_data);
               for (c = 0; c < 8; ++c) {
                 const int sf = col_base + sglid;
