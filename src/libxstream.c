@@ -10,7 +10,6 @@
 # include <libxstream/libxstream_opencl.h>
 # include <libxs/libxs_hash.h>
 # include <libxs/libxs_str.h>
-# include <ctype.h>
 # if defined(_WIN32)
 #   include <windows.h>
 #   include <process.h>
