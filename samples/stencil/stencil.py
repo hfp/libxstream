@@ -13,7 +13,12 @@ CASES_BF16 = (
     {"case": "direct", "method": 0, "trim": None},
     {"case": "compact-r1", "method": 1, "trim": None},
     {"case": "compact-r2", "method": 2, "trim": None},
-    {"case": "compact-fit-r2", "method": 3, "trim": None, "env": {"STENCIL_RADIUS_FIT": "2"}},
+    {
+        "case": "compact-fit-r2",
+        "method": 3,
+        "trim": None,
+        "env": {"STENCIL_RADIUS_FIT": "2"},
+    },
     {"case": "compact-fit", "method": 3, "trim": None},
     {"case": "compact-r1-trim3", "method": 1, "trim": 3},
 )
@@ -22,7 +27,12 @@ CASES_INT8 = (
     {"case": "direct", "method": 0, "trim": None},
     {"case": "compact-r1", "method": 1, "trim": None},
     {"case": "compact-r2", "method": 2, "trim": None},
-    {"case": "compact-fit-r2", "method": 3, "trim": None, "env": {"STENCIL_RADIUS_FIT": "2"}},
+    {
+        "case": "compact-fit-r2",
+        "method": 3,
+        "trim": None,
+        "env": {"STENCIL_RADIUS_FIT": "2"},
+    },
     {"case": "compact-fit", "method": 3, "trim": None},
     {"case": "compact-r1-trim3", "method": 1, "trim": 3},
 )
@@ -86,6 +96,13 @@ THROUGHPUT_RE = re.compile(r"Throughput:\s+([0-9.]+)\s+GPoints/s")
 PER_STEP_RE = re.compile(r"Per step:\s+([0-9.]+)\s+ms")
 BANDWIDTH_RE = re.compile(r"Bandwidth:\s+([0-9.]+)\s+GB/s")
 CHECK_LINF_RE = re.compile(r"Linf abs:\s+([0-9.eE+\-]+)")
+CHECK_LINF_REL_RE = re.compile(r"Linf rel:\s+([0-9.eE+\-]+)")
+CHECK_L2_REL_RE = re.compile(r"L2 rel:\s+([0-9.eE+\-]+)")
+CHECK_REF_RANGE_RE = re.compile(r"Ref min/max:\s+([0-9.eE+\-]+)\s+([0-9.eE+\-]+)")
+OUTPUT_RANGE_RE = re.compile(
+    r"(?:Tst|Output) min/max:\s+([0-9.eE+\-]+)\s+([0-9.eE+\-]+)"
+)
+FPRINT_RE = re.compile(r"Fprint:\s+([0-9.eE+\-]+)")
 
 
 def parse_sizes(values):
@@ -234,10 +251,22 @@ def run_case(args, n, case, kernel_env):
         (PER_STEP_RE, "ms_per_step"),
         (BANDWIDTH_RE, "bandwidth_gbs"),
         (CHECK_LINF_RE, "check_linf"),
+        (CHECK_LINF_REL_RE, "check_linf_rel"),
+        (CHECK_L2_REL_RE, "check_l2_rel"),
+        (FPRINT_RE, "fprint"),
     ):
         match = regex.search(output)
         if match:
             row[field] = match.group(1)
+
+    for regex, fields in (
+        (CHECK_REF_RANGE_RE, ("check_min_ref", "check_max_ref")),
+        (OUTPUT_RANGE_RE, ("min_u", "max_u")),
+    ):
+        match = regex.search(output)
+        if match:
+            row[fields[0]] = match.group(1)
+            row[fields[1]] = match.group(2)
 
     if row["gpoints_s"]:
         fpp = flops_per_point(STENCIL_RADIUS, args.dims)
@@ -551,6 +580,11 @@ def main(argv):
         "--check",
         action="store_true",
         help="Enable correctness check against CPU reference (sets STENCIL_CHECK=1).",
+    )
+    parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="Accepted for compatibility; output min/max is collected by default.",
     )
     parser.add_argument(
         "--radius-fit",
