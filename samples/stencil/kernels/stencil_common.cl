@@ -125,6 +125,12 @@
 # define STENCIL_STORE_P(PTR, IDX, VALUE) ((PTR)[(IDX)] = (VALUE))
 #endif
 
+#if defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
+# define STENCIL_TTI_X_NDIGITS STENCIL_BF16S_NDIGITS
+#else
+# define STENCIL_TTI_X_NDIGITS NDIGITS_X
+#endif
+
 /* Gather coordinate: maps (dim, block-origin, k-index, local i/j) to grid (gx, gy, gz). */
 #define STENCIL_GATHER_COORD(DIM, OX, OY, OZ, K, CI, CJ, GX, GY, GZ) \
   do { \
@@ -138,9 +144,9 @@
 #else
 # define STENCIL_CLAMP_COORD(GX, GY, GZ, NX, NY, NZ) \
   do { \
-    if ((GX) < 0) (GX) = 0; else if ((GX) >= (NX)) (GX) = (NX) - 1; \
-    if ((GY) < 0) (GY) = 0; else if ((GY) >= (NY)) (GY) = (NY) - 1; \
-    if ((GZ) < 0) (GZ) = 0; else if ((GZ) >= (NZ)) (GZ) = (NZ) - 1; \
+    if ((GX) < 0) (GX) = 0; else if ((GX) >= STENCIL_NX) (GX) = STENCIL_NX - 1; \
+    if ((GY) < 0) (GY) = 0; else if ((GY) >= STENCIL_NY) (GY) = STENCIL_NY - 1; \
+    if ((GZ) < 0) (GZ) = 0; else if ((GZ) >= STENCIL_NZ) (GZ) = STENCIL_NZ - 1; \
   } while (0)
 #endif
 
@@ -165,7 +171,7 @@
 
 /* X-innermost: [gz][gy][gx], stride-x=1. */
 #define STENCIL_GRID_IDX(GZ, GY, GX, NY, NX) \
-  ((long)(GZ) * (NY) * (NX) + (long)(GY) * (NX) + (GX))
+  ((long)(GZ) * STENCIL_NY * STENCIL_NX + (long)(GY) * STENCIL_NX + (GX))
 
 /* Z-innermost with per-array halo: [gx+lx][gy+ly][gz+lz], stride-z=1.
  * Per-array strides (P=wavefield, V=velocity, E=eta) passed via -D flags. */
@@ -393,9 +399,17 @@
     UNROLL_FORCE(NDIGITS) for (digit_ = 0; digit_ < (NDIGITS); ++digit_) { \
       ushort bf_ = ROUND_TO_BF16(residual_); \
       (SLM)[digit_ * K_PAD * XMX_N + (ROW) * XMX_N + (COL)] = bf_; \
-      residual_ -= BF16_TO_F32(bf_); \
+      if (digit_ + 1 < (NDIGITS)) residual_ -= BF16_TO_F32(bf_); \
     } \
   } while (0)
+
+#if defined(NDIGITS_A) && (1 == NDIGITS_A)
+# define STENCIL_SPLIT_F32_TO_SLM_A(SLM, ROW, COL, VALUE) \
+    ((SLM)[(ROW) * XMX_N + (COL)] = ROUND_TO_BF16(VALUE))
+#else
+# define STENCIL_SPLIT_F32_TO_SLM_A(SLM, ROW, COL, VALUE) \
+    STENCIL_SPLIT_F32_TO_SLM(SLM, NDIGITS_A, ROW, COL, VALUE)
+#endif
 
 #if defined(TRIM) && (0 < TRIM)
 # define STENCIL_TRIM_CHECK(SA, SB, ND) \

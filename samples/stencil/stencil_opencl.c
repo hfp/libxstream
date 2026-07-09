@@ -609,14 +609,16 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
             }
           }
           LIBXS_SNPRINTF(stride_flags, sizeof(stride_flags),
-            " -DSTENCIL_P_N=%ld -DSTENCIL_P_SX=%d -DSTENCIL_P_SY=%d"
+            " -DSTENCIL_P_N=%ld -DSTENCIL_NX=%d -DSTENCIL_NY=%d -DSTENCIL_NZ=%d"
+            " -DSTENCIL_P_SX=%d -DSTENCIL_P_SY=%d"
             " -DSTENCIL_P_LX=%d -DSTENCIL_P_LY=%d -DSTENCIL_P_LZ=%d"
             " -DSTENCIL_V_SX=%d -DSTENCIL_V_SY=%d"
             " -DSTENCIL_V_LX=0 -DSTENCIL_V_LY=0 -DSTENCIL_V_LZ=0"
             " -DSTENCIL_E_SX=%d -DSTENCIL_E_SY=%d"
             " -DSTENCIL_E_LX=1 -DSTENCIL_E_LY=1 -DSTENCIL_E_LZ=1"
             " -DSTENCIL_PADDED=%d",
-            p_n, p_sx, p_sy, lx, ly, lz, v_sx, v_sy, e_sx, e_sy, padded);
+            p_n, nx, ny, nz, p_sx, p_sy, lx, ly, lz, v_sx, v_sy, e_sx, e_sy,
+            padded);
         }
         else {
           const long p_n = (0 != ctx->blocked)

@@ -32,6 +32,7 @@
  * ZYX: fast=Z, medium=Y, slow=X (X-sliding window). */
 #if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
 # define FP32_NFAST nz
+# define FP32_NMED STENCIL_NY
 # define FP32_NSLOW nx
 # define FP32_COEFF_FAST (coeff + 2 * STENCIL_WIDTH)
 # define FP32_COEFF_MED  (coeff + STENCIL_WIDTH)
@@ -44,6 +45,7 @@
 # define FP32_HD_SLOW hdx_2
 #else
 # define FP32_NFAST STENCIL_NX
+# define FP32_NMED STENCIL_NY
 # define FP32_NSLOW STENCIL_NZ
 # define FP32_COEFF_FAST (coeff)
 # define FP32_COEFF_MED  (coeff + STENCIL_WIDTH)
@@ -86,7 +88,7 @@ kernel void stencil_apply_direct(
   const int lf = (int)get_local_id(0);
   const int lm = (int)get_local_id(1);
   const int lid = lm * WG_X + lf;
-  const int valid_fm = (i_f < FP32_NFAST && i_m < ny);
+  const int valid_fm = (i_f < FP32_NFAST && i_m < FP32_NMED);
 
   const int gf0 = (int)get_group_id(0) * WG_X - RADIUS;
   const int gm0 = (int)get_group_id(1) * WG_Y - RADIUS;
@@ -111,7 +113,7 @@ kernel void stencil_apply_direct(
     const int blk_m0 = (int)get_group_id(1) * WG_Y;
     const int blk_interior =
       (blk_f0 >= pml_w && blk_f0 + WG_X <= FP32_NFAST - pml_w &&
-       blk_m0 >= pml_w && blk_m0 + WG_Y <= ny - pml_w &&
+       blk_m0 >= pml_w && blk_m0 + WG_Y <= FP32_NMED - pml_w &&
        is_base >= pml_w && is_base + BLK <= FP32_NSLOW - pml_w) ? 1 : 0;
 
     if (valid_fm && 0 == blk_interior) {
@@ -156,7 +158,7 @@ kernel void stencil_apply_direct(
         int gm = gm0 + sm;
 #if !defined(STENCIL_PADDED) || (0 >= STENCIL_PADDED)
         if (gf < 0) gf = 0; else if (gf >= FP32_NFAST) gf = FP32_NFAST - 1;
-        if (gm < 0) gm = 0; else if (gm >= ny) gm = ny - 1;
+        if (gm < 0) gm = 0; else if (gm >= FP32_NMED) gm = FP32_NMED - 1;
 #endif
         { fm_slm[idx] = STENCIL_LOAD_P(p_grid, FP32_P_FMS(gf, gm, i_s));
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)

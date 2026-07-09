@@ -31,12 +31,14 @@ inline void dekker_split_bf16(real_t val, int ndigits, global ushort* dst)
   int s;
   for (s = 0; s < ndigits; ++s) {
     const ushort bf = ROUND_TO_BF16((float)residual);
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-    residual -= (double)BF16_TO_F32(bf);
-#else
-    residual -= BF16_TO_F32(bf);
-#endif
     dst[s] = bf;
+    if (s + 1 < ndigits) {
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+      residual -= (double)BF16_TO_F32(bf);
+#else
+      residual -= BF16_TO_F32(bf);
+#endif
+    }
   }
 }
 
@@ -51,12 +53,14 @@ inline void dekker_split_bf16_private(real_t val, int ndigits,
   int s;
   for (s = 0; s < ndigits; ++s) {
     const ushort bf = ROUND_TO_BF16((float)residual);
-#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-    residual -= (double)BF16_TO_F32(bf);
-#else
-    residual -= BF16_TO_F32(bf);
-#endif
     dst[s] = bf;
+    if (s + 1 < ndigits) {
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+      residual -= (double)BF16_TO_F32(bf);
+#else
+      residual -= BF16_TO_F32(bf);
+#endif
+    }
   }
 }
 #endif

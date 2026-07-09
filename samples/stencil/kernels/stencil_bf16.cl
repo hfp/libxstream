@@ -267,8 +267,8 @@ __attribute__((intel_reqd_sub_group_size(SG)))
 kernel void stencil_apply_tti(
   global const ushort* restrict dk_i,
   global const ushort* restrict dk_j,
-  global const float* restrict p_grid,
-  global float* restrict p_new,
+  global const STENCIL_P_ELEM* restrict p_grid,
+  global STENCIL_P_ELEM* restrict p_new,
   global const float* restrict c_ij,
   int y_stride,
   int dim_j, int nx, int ny, int nz,
@@ -288,7 +288,7 @@ kernel void stencil_apply_tti(
   const int oy = by * BLK;
   const int oz = bz * BLK;
 
-  local ushort x_slm[NDIGITS_X * K_PAD * XMX_N];
+  local ushort x_slm[STENCIL_TTI_X_NDIGITS * K_PAD * XMX_N];
   local ushort t_slm[NDIGITS_A * K_PAD * XMX_N];
 
   const int d_wb = K_PAD * 2;
@@ -304,26 +304,21 @@ kernel void stencil_apply_tti(
     const int ci = nc % BLK;
     const int cj = nc / BLK;
     int gx, gy, gz;
-    float val, residual;
-    int s;
 
     STENCIL_GATHER_COORD(dim_j, ox, oy, oz, k, ci, cj, gx, gy, gz);
     STENCIL_CLAMP_COORD(gx, gy, gz, nx, ny, nz);
 
     if (k < K_BASE) {
-      val = STENCIL_LOAD_P(p_grid, STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby));
-
-      residual = val;
-      UNROLL_FORCE(NDIGITS_X) for (s = 0; s < NDIGITS_X; ++s) {
-        const ushort bf = ROUND_TO_BF16(residual);
-        x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = bf;
-        residual -= BF16_TO_F32(bf);
-      }
+#if defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
+      STENCIL_GATHER_STORE_BF16S(x_slm, k, col_local, p_grid,
+        STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby));
+#else
+      STENCIL_GATHER_STORE(x_slm, k, col_local,
+        STENCIL_LOAD_P(p_grid, STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby)));
+#endif
     }
     else {
-      UNROLL_FORCE(NDIGITS_X) for (s = 0; s < NDIGITS_X; ++s) {
-        x_slm[s * K_PAD * XMX_N + k * XMX_N + col_local] = (ushort)0;
-      }
+      STENCIL_GATHER_STORE_ZERO(x_slm, k, col_local);
     }
   }
 
@@ -332,7 +327,7 @@ kernel void stencil_apply_tti(
   { const int ks_lo_tti = KSTEP_LO(mi);
     const int ks_hi_tti = KSTEP_HI(mi);
 
-    UNROLL_OUTER(1) for (sb = 0; sb < NDIGITS_X; ++sb) {
+    UNROLL_OUTER(1) for (sb = 0; sb < STENCIL_TTI_X_NDIGITS; ++sb) {
       local const ushort* x_digit = x_slm + sb * K_PAD * XMX_N;
 
       UNROLL_FORCE(NDIGITS_A) for (sa = 0; sa < NDIGITS_A; ++sa) {
@@ -367,7 +362,7 @@ kernel void stencil_apply_tti(
 
           UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
             const int row = mi + m;
-            STENCIL_SPLIT_F32_TO_SLM(t_slm, NDIGITS_A, row, sg_lid, t_u.a[m]);
+            STENCIL_SPLIT_F32_TO_SLM_A(t_slm, row, sg_lid, t_u.a[m]);
           }
         }
 
