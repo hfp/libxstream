@@ -19,6 +19,7 @@
 
 #define STENCIL_FP32_WG_X_DEFAULT 32
 #define STENCIL_FP32_WG_Y_DEFAULT 8
+#define STENCIL_FP32_SBLOCK_DEFAULT 2
 
 #define STENCIL_KEY_GRF256(FLAGS) ((int)((FLAGS) & 1u))
 #define STENCIL_KEY_TRIM(FLAGS) ((int)(((FLAGS) >> 1) & 255u))
@@ -30,6 +31,7 @@
 #define STENCIL_KEY_LAYOUT(FLAGS) ((int)(((FLAGS) >> 21) & 3u))
 #define STENCIL_KEY_PML(FLAGS) ((int)(((FLAGS) >> 23) & 1u))
 #define STENCIL_KEY_FP32_BLOCK_IO(FLAGS) ((int)(((FLAGS) >> 24) & 1u))
+#define STENCIL_KEY_FP32_SBLOCK(FLAGS) ((int)(((FLAGS) >> 25) & 3u))
 #define STENCIL_KEY_FP32_WGX(KEY) ((int)((unsigned int)(KEY).fp32_wg >> 16))
 #define STENCIL_KEY_FP32_WGY(KEY) ((int)((KEY).fp32_wg & 65535))
 
@@ -532,9 +534,26 @@ static void stencil_fp32_wg_dims(int* wg_x, int* wg_y)
 }
 
 
+static int stencil_fp32_sblock(const stencil_context_t* ctx)
+{
+  const char *const env = getenv("STENCIL_FP32_SBLOCK");
+  int result;
+  if (NULL != env) {
+    result = atoi(env);
+    if (2 != result) result = 1;
+  }
+  else {
+    result = (NULL != ctx && 0 != ctx->pml && 2 == ctx->layout)
+      ? 1 : STENCIL_FP32_SBLOCK_DEFAULT;
+  }
+  return result;
+}
+
+
 static unsigned int stencil_key_flags(const stencil_context_t* ctx)
 {
   const char *const fp32_block_io_env = getenv("STENCIL_FP32_BLOCK_IO");
+  const int fp32_sblock = stencil_fp32_sblock(ctx);
   unsigned int result = 0u;
   result |= (unsigned int)(ctx->grf256 & 1);
   result |= (unsigned int)(ctx->trim & 255) << 1;
@@ -545,7 +564,8 @@ static unsigned int stencil_key_flags(const stencil_context_t* ctx)
   result |= (unsigned int)(ctx->blocked & 3) << 19;
   result |= (unsigned int)(ctx->layout & 3) << 21;
   result |= (unsigned int)((0 != ctx->pml) ? 1 : 0) << 23;
-  result |= (unsigned int)((NULL != fp32_block_io_env && 0 != atoi(fp32_block_io_env)) ? 1 : 0) << 24;
+  result |= (unsigned int)((1 == fp32_sblock && NULL != fp32_block_io_env && 0 != atoi(fp32_block_io_env)) ? 1 : 0) << 24;
+  result |= (unsigned int)fp32_sblock << 25;
   return result;
 }
 
@@ -687,11 +707,12 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       }
 
       if (1 == ctx->fp32) {
-        char fp32_flags[96];
+        char fp32_flags[128];
         LIBXS_SNPRINTF(fp32_flags, sizeof(fp32_flags),
-          " -DWG_X=%d -DWG_Y=%d -DFP32_DISABLE_BLOCK_IO=%d",
+          " -DWG_X=%d -DWG_Y=%d -DFP32_DISABLE_BLOCK_IO=%d -DFP32_SBLOCK=%d",
           STENCIL_KEY_FP32_WGX(key), STENCIL_KEY_FP32_WGY(key),
-          (0 == STENCIL_KEY_FP32_BLOCK_IO(key.flags)) ? 1 : 0);
+          (0 == STENCIL_KEY_FP32_BLOCK_IO(key.flags)) ? 1 : 0,
+          STENCIL_KEY_FP32_SBLOCK(key.flags));
         strncat(flags, fp32_flags, sizeof(flags) - strlen(flags) - 1);
       }
 

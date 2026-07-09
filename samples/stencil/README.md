@@ -317,6 +317,9 @@ Environment variables controlling kernel specialization:
     STENCIL_PML      enable PML absorbing boundary (0/1)
     STENCIL_FP32_WG_X, STENCIL_FP32_WG_Y
        FP32 direct-kernel work-group shape (default: 32x8)
+        STENCIL_FP32_SBLOCK
+          FP32 direct-kernel slow-axis SLM microblock (1 or 2,
+          default: 2 except ZYX+PML)
     STENCIL_FP32_BLOCK_IO
        enable FP32 Intel 2D block reads for padded 32x8 cases (0/1, default: 0)
 
