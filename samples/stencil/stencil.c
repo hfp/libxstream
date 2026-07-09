@@ -275,6 +275,9 @@ int main(int argc, char* argv[])
         const int cx = nx / 2, cy = ny / 2, cz = nz / 2;
         const float sigma2 = (float)(nx * nx) / 32.0f;
         int iz, iy, ix;
+#if defined(_OPENMP)
+#       pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
+#endif
         for (iz = 0; iz < nz; ++iz) {
           for (iy = 0; iy < ny; ++iy) {
             for (ix = 0; ix < nx; ++ix) {
@@ -291,6 +294,9 @@ int main(int argc, char* argv[])
       else {
         const long n = (long)nx * ny * nz;
         long i;
+#if defined(_OPENMP)
+#       pragma omp parallel for
+#endif
         for (i = 0; i < n; ++i) p_host[i] = 0.0f;
       }
     }
@@ -328,7 +334,13 @@ int main(int argc, char* argv[])
           int ix, iy, iz;
           const size_t n_padded = (size_t)pnx * pny * pnz;
           size_t idx;
+#if defined(_OPENMP)
+#         pragma omp parallel for
+#endif
           for (idx = 0; idx < n_padded; ++idx) zyx_buf[idx] = 0.0f;
+#if defined(_OPENMP)
+#         pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
+#endif
           for (ix = 0; ix < nx; ++ix) {
             for (iy = 0; iy < ny; ++iy) {
               for (iz = 0; iz < nz; ++iz) {
@@ -360,6 +372,9 @@ int main(int argc, char* argv[])
         result = libxstream_mem_host_allocate((void**)&zyx_vel, grid_bytes, ctx.stream);
         if (EXIT_SUCCESS == result) {
           int ix, iy, iz;
+#if defined(_OPENMP)
+#         pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
+#endif
           for (ix = 0; ix < nx; ++ix) {
             for (iy = 0; iy < ny; ++iy) {
               for (iz = 0; iz < nz; ++iz) {
@@ -504,6 +519,9 @@ int main(int argc, char* argv[])
           float* bufs[3];
           bufs[0] = gpu_new; bufs[1] = gpu_pcur; bufs[2] = gpu_pold;
           for (buf = 0; buf < 3; ++buf) {
+#if defined(_OPENMP)
+#           pragma omp parallel for
+#endif
             for (ii = 0; ii < n; ++ii) {
               const int gx = (int)(ii % nx);
               const int gy = (int)((ii / nx) % ny);
@@ -530,6 +548,9 @@ int main(int argc, char* argv[])
           float* bufs[3];
           bufs[0] = gpu_new; bufs[1] = gpu_pcur; bufs[2] = gpu_pold;
           for (buf = 0; buf < 3; ++buf) {
+#if defined(_OPENMP)
+#           pragma omp parallel for
+#endif
             for (ii = 0; ii < n; ++ii) {
               const int gx = (int)(ii % nx);
               const int gy = (int)((ii / nx) % ny);
@@ -660,6 +681,9 @@ static int load_velocity_file(const char* path, float* vel,
 
   if (EXIT_SUCCESS == result) {
     size_t i;
+#if defined(_OPENMP)
+#   pragma omp parallel for
+#endif
     for (i = 0; i < n; ++i) vel[i] = vel[i] * vel[i];
   }
   return result;
@@ -676,6 +700,9 @@ static void generate_velocity(float* vel, int nx, int ny, int nz,
     case VEL_GRADIENT: {
       int ix, iy, iz;
       const float dv = (v_bot - v_top) / (float)(nz > 1 ? nz - 1 : 1);
+#if defined(_OPENMP)
+#     pragma omp parallel for
+#endif
       for (iz = 0; iz < nz; ++iz) {
         const float v = v_top + dv * (float)iz;
         const float v2 = v * v;
@@ -690,6 +717,9 @@ static void generate_velocity(float* vel, int nx, int ny, int nz,
       const int nlayers = 5;
       const float layer_v[] = {1500.0f, 2000.0f, 2500.0f, 3500.0f, 4500.0f};
       int ix, iy, iz;
+#if defined(_OPENMP)
+#     pragma omp parallel for
+#endif
       for (iz = 0; iz < nz; ++iz) {
         const int li = (iz * nlayers) / nz;
         const float v2 = layer_v[li] * layer_v[li];
@@ -701,6 +731,9 @@ static void generate_velocity(float* vel, int nx, int ny, int nz,
       }
     } break;
     default:
+#if defined(_OPENMP)
+#     pragma omp parallel for
+#endif
       for (i = 0; i < n; ++i) vel[i] = v_top * v_top;
       break;
   }
@@ -728,8 +761,14 @@ static void stencil_cpu_reference(float* p_new, const float* p_cur,
 {
   const long n = (long)nx * ny * nz;
   long i;
+#if defined(_OPENMP)
+# pragma omp parallel for
+#endif
   for (i = 0; i < n; ++i) p_new[i] = 0.0f;
 
+#if defined(_OPENMP)
+# pragma omp parallel for
+#endif
   for (i = 0; i < n; ++i) {
     const int ix = (int)(i % nx);
     const int iy = (int)((i / nx) % ny);
