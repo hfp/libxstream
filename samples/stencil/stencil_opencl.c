@@ -978,9 +978,10 @@ int stencil_precompute_operators(stencil_context_t* ctx,
   const libxstream_opencl_mem_hint_t mem_hint = (0 != ctx->hint)
     ? libxstream_opencl_mem_hint_atomics : libxstream_opencl_mem_hint_compress;
   const int use_fp32 = ctx->fp32;
+  const int use_float_d = (0 != ctx->fp32 || 2 <= ctx->bf16) ? 1 : 0;
   const size_t d_size_bf16 = (size_t)nda * d_rows * kpad * sizeof(cl_ushort);
   const size_t d_size_fp32 = (size_t)d_rows * d_band * sizeof(float);
-  const size_t d_size = (0 != use_fp32) ? d_size_fp32 : d_size_bf16;
+  const size_t d_size = (0 != use_float_d) ? d_size_fp32 : d_size_bf16;
   const double inv_h2 = -72.0 * fd_weights[radius] / 205.0;
   void* d_host = NULL;
   int dim;
@@ -989,7 +990,7 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     result = EXIT_FAILURE;
   }
 
-  if (EXIT_SUCCESS == result && 0 != use_fp32) {
+  if (EXIT_SUCCESS == result && 0 != use_float_d) {
     float* d_fp32 = (float*)calloc((size_t)d_rows * d_band, sizeof(float));
     if (NULL == d_fp32) result = EXIT_FAILURE;
 
