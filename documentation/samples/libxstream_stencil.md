@@ -303,6 +303,7 @@ methods 1-3.  TTI cross-terms still use the direct two-phase DPAS path.
 Environment variables controlling kernel specialization:
 
     STENCIL_BF16     BF16-DPAS kernel (1=native BF16, 2=FP32-split via BF16)
+    STENCIL_BF16S    BF16 split wavefield storage format (0/1)
     STENCIL_INT8     INT8-DPAS kernel (1=native INT8, 2=FP32-split via INT8)
     STENCIL_METHOD   operator method (0-3, default 0)
     STENCIL_STRIPS_PER_WG
@@ -314,10 +315,18 @@ Environment variables controlling kernel specialization:
     STENCIL_LAYOUT   memory layout (0=XYZ, 1=blocked, 2=ZYX)
     STENCIL_HALO     halo/padding size per axis
     STENCIL_PML      enable PML absorbing boundary (0/1)
+    STENCIL_FP32_WG_X, STENCIL_FP32_WG_Y
+       FP32 direct-kernel work-group shape (default: 32x8)
+        STENCIL_FP32_SBLOCK
+          FP32 direct-kernel slow-axis SLM microblock (1 or 2,
+          default: 2 except ZYX+PML)
+    STENCIL_FP32_BLOCK_IO
+       enable FP32 Intel 2D block reads for padded 32x8 cases (0/1, default: 0)
 
 Specialized kernels are compiled on first use and cached in a
 thread-safe registry keyed by the method, compact-step parameters,
-strip grouping, subgroup size, GRF mode, trim level, and term count.
+  strip grouping, subgroup size, packed specialization flags, FP32
+  work-group shape, grid shape, and term count.
 Subsequent launches with the same parameters are zero-cost.
 
 Future extension: per-block adaptive method selection (different K in
