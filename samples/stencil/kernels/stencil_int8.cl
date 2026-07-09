@@ -197,7 +197,7 @@
             int gx_, gy_, gz_; \
             STENCIL_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
             STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
-            (BITS4)[ki_] = as_uint((P_GRID)[STENCIL_GRID_IDX(gz_, gy_, gx_, NY, NX)]); \
+            (BITS4)[ki_] = STENCIL_LOAD_P_BITS(P_GRID, STENCIL_GRID_IDX(gz_, gy_, gx_, NY, NX)); \
           } \
           else (BITS4)[ki_] = 0; \
         } \
@@ -211,7 +211,7 @@
           int gx_, gy_, gz_; \
           STENCIL_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
           STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
-          (BITS4)[ki_] = as_uint((P_GRID)[STENCIL_P_IDX(gz_, gy_, gx_, NY, NX, 0, 0)]); \
+          (BITS4)[ki_] = STENCIL_LOAD_P_BITS(P_GRID, STENCIL_P_IDX(gz_, gy_, gx_, NY, NX, 0, 0)); \
         } \
         else (BITS4)[ki_] = 0; \
       } \
@@ -226,7 +226,7 @@
         int gx_, gy_, gz_; \
         STENCIL_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
         STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
-        (BITS4)[ki_] = as_uint((P_GRID)[STENCIL_P_IDX(gz_, gy_, gx_, NY, NX, nbx, nby)]); \
+        (BITS4)[ki_] = STENCIL_LOAD_P_BITS(P_GRID, STENCIL_P_IDX(gz_, gy_, gx_, NY, NX, nbx, nby)); \
       } \
       else (BITS4)[ki_] = 0; \
     } \
@@ -431,38 +431,41 @@ kernel void stencil_apply_int8(
             float val;
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
             if (0 != blk_interior) {
-              val = 2.0f * p_grid[i] - p_old[i] + vel[iv] * u.a[m];
+              val = 2.0f * STENCIL_LOAD_P(p_grid, i) - STENCIL_LOAD_P(p_old, i)
+                  + dt2 * vel[iv] * u.a[m];
             }
             else {
               const long ie = STENCIL_E_IDX(gz, gy, gx, ny, nx);
               const float eta1 = eta[ie];
               const float phi_val = phi[iv];
-              const float p_cur = p_grid[i];
+              const float p_cur = STENCIL_LOAD_P(p_grid, i);
+              const float p_old_val = STENCIL_LOAD_P(p_old, i);
               const float numerator =
-                (2.0f - eta1 * eta1 + 2.0f * eta1) * p_cur - p_old[i]
-                + vel[iv] * (u.a[m] + phi_val);
+                (2.0f - eta1 * eta1 + 2.0f * eta1) * p_cur - p_old_val
+                + dt2 * vel[iv] * (u.a[m] + phi_val);
               const long stride_z = (long)ny * nx;
               float tmp = 0.0f;
               val = numerator / (1.0f + 2.0f * eta1);
               if (gx > 0 && gx < nx - 1) {
                 tmp += (eta[ie + 1] - eta[ie - 1])
-                     * (p_grid[i + 1] - p_grid[i - 1]) * hdx_2;
+                     * (STENCIL_LOAD_P(p_grid, i + 1) - STENCIL_LOAD_P(p_grid, i - 1)) * hdx_2;
               }
               if (gy > 0 && gy < ny - 1) {
                 tmp += (eta[ie + nx] - eta[ie - nx])
-                     * (p_grid[i + nx] - p_grid[i - nx]) * hdy_2;
+                     * (STENCIL_LOAD_P(p_grid, i + nx) - STENCIL_LOAD_P(p_grid, i - nx)) * hdy_2;
               }
               if (gz > 0 && gz < nz - 1) {
                 tmp += (eta[ie + stride_z] - eta[ie - stride_z])
-                     * (p_grid[i + stride_z] - p_grid[i - stride_z]) * hdz_2;
+                     * (STENCIL_LOAD_P(p_grid, i + stride_z) - STENCIL_LOAD_P(p_grid, i - stride_z)) * hdz_2;
               }
               phi[iv] = (phi_val - tmp) / (1.0f + eta1);
             }
 #else
-            val = 2.0f * p_grid[i] - p_old[i] + dt2 * vel[iv] * u.a[m];
+            val = 2.0f * STENCIL_LOAD_P(p_grid, i) - STENCIL_LOAD_P(p_old, i)
+                + dt2 * vel[iv] * u.a[m];
 #endif
             { const int oe = (int)((as_uint(val) >> 23) & 0xFFu);
-              p_new[i] = val;
+              STENCIL_STORE_P(p_new, i, val);
               if (oe > out_max_exp) out_max_exp = oe;
             }
           }

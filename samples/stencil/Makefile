@@ -99,7 +99,7 @@ $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(LIBX
 
 .PHONY: test
 test: $(XFILES)
-	$(OUTDIR)/$(OUTNAME).x 32 4 3
+	$(OUTDIR)/$(OUTNAME).x -n 32 -t 4 -d 3
 
 .PHONY: clean
 clean:

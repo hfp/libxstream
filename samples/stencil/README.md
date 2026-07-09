@@ -303,6 +303,7 @@ methods 1-3.  TTI cross-terms still use the direct two-phase DPAS path.
 Environment variables controlling kernel specialization:
 
     STENCIL_BF16     BF16-DPAS kernel (1=native BF16, 2=FP32-split via BF16)
+    STENCIL_BF16S    BF16 split wavefield storage format (0/1)
     STENCIL_INT8     INT8-DPAS kernel (1=native INT8, 2=FP32-split via INT8)
     STENCIL_METHOD   operator method (0-3, default 0)
     STENCIL_STRIPS_PER_WG

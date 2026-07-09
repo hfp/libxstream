@@ -22,6 +22,7 @@
 
 #if defined(STENCIL_PADDED) && (0 < STENCIL_PADDED) && defined(INTEL) && (2 <= INTEL) \
     && (!defined(STENCIL_LAYOUT) || STENCIL_LAYOUT_XYZ == STENCIL_LAYOUT) \
+  && (!defined(STENCIL_BF16S) || 0 >= STENCIL_BF16S) \
     && (!defined(STENCIL_PML) || 0 >= STENCIL_PML)
 # define FP32_USE_BLOCK_IO 1
 #endif
@@ -99,7 +100,7 @@ kernel void stencil_apply_direct(
 #if !defined(STENCIL_PADDED) || (0 >= STENCIL_PADDED)
       if (cs < 0) cs = 0; else if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
 #endif
-      s_win[w] = p_grid[FP32_P_FMS(i_f, i_m, cs)];
+      s_win[w] = STENCIL_LOAD_P(p_grid, FP32_P_FMS(i_f, i_m, cs));
     }
   }
 #endif
@@ -157,7 +158,7 @@ kernel void stencil_apply_direct(
         if (gf < 0) gf = 0; else if (gf >= FP32_NFAST) gf = FP32_NFAST - 1;
         if (gm < 0) gm = 0; else if (gm >= ny) gm = ny - 1;
 #endif
-        { fm_slm[idx] = p_grid[FP32_P_FMS(gf, gm, i_s)];
+        { fm_slm[idx] = STENCIL_LOAD_P(p_grid, FP32_P_FMS(gf, gm, i_s));
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
           if (0 == blk_interior) eta_slm[idx] = eta[FP32_E_FMS(gf, gm, i_s)];
 #endif
@@ -172,7 +173,7 @@ kernel void stencil_apply_direct(
 #if !defined(STENCIL_PADDED) || (0 >= STENCIL_PADDED)
           if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
 #endif
-          s_win[S_WINDOW - 1] = p_grid[FP32_P_FMS(i_f, i_m, cs)];
+          s_win[S_WINDOW - 1] = STENCIL_LOAD_P(p_grid, FP32_P_FMS(i_f, i_m, cs));
         }
 #endif
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
@@ -209,16 +210,18 @@ kernel void stencil_apply_direct(
           const long iv = FP32_V_FMS(i_f, i_m, i_s);
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
           if (0 != blk_interior) {
-            p_new[ip] = 2.0f * p_center - p_old[ip] + vel[iv] * lap;
+            STENCIL_STORE_P(p_new, ip,
+              2.0f * p_center - STENCIL_LOAD_P(p_old, ip) + dt2 * vel[iv] * lap);
           }
           else {
             const int c = (lm + RADIUS) * SLM_F + lf + RADIUS;
             const float eta1 = eta_slm[c];
             const float phi_val = phi[iv];
+            const float p_old_val = STENCIL_LOAD_P(p_old, ip);
             const float numerator =
-              (2.0f - eta1 * eta1 + 2.0f * eta1) * p_center - p_old[ip]
-              + vel[iv] * (lap + phi_val);
-            p_new[ip] = numerator / (1.0f + 2.0f * eta1);
+              (2.0f - eta1 * eta1 + 2.0f * eta1) * p_center - p_old_val
+              + dt2 * vel[iv] * (lap + phi_val);
+            STENCIL_STORE_P(p_new, ip, numerator / (1.0f + 2.0f * eta1));
             { const float uf_p = fm_slm[c + 1];
               const float uf_m = fm_slm[c - 1];
               const float um_p = fm_slm[c + SLM_F];
@@ -237,7 +240,8 @@ kernel void stencil_apply_direct(
             }
           }
 #else
-          p_new[ip] = 2.0f * p_center - p_old[ip] + dt2 * vel[iv] * lap;
+          STENCIL_STORE_P(p_new, ip,
+            2.0f * p_center - STENCIL_LOAD_P(p_old, ip) + dt2 * vel[iv] * lap);
 #endif
         }
 

@@ -104,7 +104,7 @@ int stencil_precompute_operators(stencil_context_t* ctx,
                                  const double* fd_weights, int radius);
 int stencil_apply_laplacian(stencil_context_t* ctx,
                             void* p_cur, void* p_old, void* p_new,
-                            void* vel, float dt2, int nterms);
+                            void* vel, float dt2, float dh, int nterms);
 void stencil_finalize(stencil_context_t* ctx);
 
 int stencil_seed_exp_buf(stencil_context_t* ctx, const float* p_host,
@@ -114,5 +114,12 @@ void stencil_pack_blocked(float* dst, const float* src,
                           int nx, int ny, int nz,
                           int nbx, int nby, int nbz);
 void stencil_pack_bf16s(unsigned short* dst, const float* src, size_t n);
+void stencil_pack_bf16s_blocked(unsigned short* dst, const float* src,
+                                int nx, int ny, int nz,
+                                int nbx, int nby, int nbz);
+void stencil_pack_bf16s_zyx(unsigned short* dst, const float* src,
+                            int nx, int ny, int nz,
+                            int hx, int hy, int hz);
+void stencil_unpack_bf16s(float* dst, const unsigned short* src, size_t n);
 
 #endif /*STENCIL_OPENCL_H*/

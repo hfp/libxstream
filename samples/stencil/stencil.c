@@ -143,13 +143,16 @@ int main(int argc, char* argv[])
     const float dt = 0.6f * (float)h
                    / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
     { const char *bf16v = getenv("STENCIL_BF16");
+      const char *bf16s = getenv("STENCIL_BF16S");
       const char *int8v = getenv("STENCIL_INT8");
       const char *kname = "FP32";
+      const char *storage = (NULL != bf16s && 0 != atoi(bf16s))
+        ? " + BF16S-storage" : "";
       if (NULL != bf16v && 2 == atoi(bf16v)) kname = "FP32-split (BF16-DPAS)";
       else if (NULL != bf16v && 0 != atoi(bf16v)) kname = "BF16-DPAS";
       else if (NULL != int8v && 2 == atoi(int8v)) kname = "FP32-split (INT8-DPAS)";
       else if (NULL != int8v && 0 != atoi(int8v)) kname = "INT8-DPAS";
-      printf("Stencil %s benchmark\n", kname);
+      printf("Stencil %s%s benchmark\n", kname, storage);
     }
     printf("  Grid:       %d x %d x %d (%.3f GPoints)\n",
            nx, ny, nz, gpoints);
@@ -226,10 +229,12 @@ int main(int argc, char* argv[])
     const size_t dev_bytes = (0 != ctx.blocked)
       ? stencil_blocked_size(ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2])
       : padded_bytes;
+    const size_t vel_dev_bytes = (0 != ctx.blocked) ? dev_bytes : grid_bytes;
     const double gpoints = (double)nx * ny * nz * 1.0e-9;
     const float dt_local = 0.6f * (float)h
                          / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
     const float dt2 = dt_local * dt_local;
+    const float dh = (float)h;
     void* p_buf[3] = { NULL, NULL, NULL };
     void* vel_dev = NULL;
     float* p_host = NULL;
@@ -293,12 +298,22 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[0], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[1], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[2], dev_bytes, libxstream_opencl_mem_hint_compress);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, grid_bytes, libxstream_opencl_mem_hint_compress);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, vel_dev_bytes, libxstream_opencl_mem_hint_compress);
 
     if (EXIT_SUCCESS == result) {
       if (0 != ctx.bf16s) {
-        stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
-        result = libxstream_mem_copy_h2d(pack_buf, p_buf[0], grid_bytes, ctx.stream);
+        if (0 != ctx.blocked) {
+          stencil_pack_bf16s_blocked((unsigned short*)pack_buf, p_host, nx, ny, nz,
+            ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
+        }
+        else if (2 == ctx.layout) {
+          stencil_pack_bf16s_zyx((unsigned short*)pack_buf, p_host,
+            nx, ny, nz, hx, hy, hz);
+        }
+        else {
+          stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
+        }
+        result = libxstream_mem_copy_h2d(pack_buf, p_buf[0], dev_bytes, ctx.stream);
       }
       else if (0 != ctx.blocked) {
         stencil_pack_blocked(pack_buf, p_host, nx, ny, nz,
@@ -376,8 +391,14 @@ int main(int argc, char* argv[])
       if (2 != ctx.layout) {
         inject_source(p_host, nx, ny, nz, dt_local, t, freq);
         if (0 != ctx.bf16s) {
-          stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
-          result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], grid_bytes, ctx.stream);
+          if (0 != ctx.blocked) {
+            stencil_pack_bf16s_blocked((unsigned short*)pack_buf, p_host, nx, ny, nz,
+              ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
+          }
+          else {
+            stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
+          }
+          result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], dev_bytes, ctx.stream);
         }
         else if (0 != ctx.blocked) {
           stencil_pack_blocked(pack_buf, p_host, nx, ny, nz,
@@ -390,7 +411,7 @@ int main(int argc, char* argv[])
       }
       if (EXIT_SUCCESS == result) {
         result = stencil_apply_laplacian(&ctx,
-          p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, nterms);
+          p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, dh, nterms);
       }
       tmp = old; old = cur; cur = new_idx; new_idx = tmp;
     }
@@ -403,7 +424,7 @@ int main(int argc, char* argv[])
     for (t = 0; t < ntsteps && EXIT_SUCCESS == result; ++t) {
       int tmp;
       result = stencil_apply_laplacian(&ctx,
-        p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, nterms);
+        p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, dh, nterms);
       tmp = old; old = cur; cur = new_idx; new_idx = tmp;
     }
     if (EXIT_SUCCESS == result) {
@@ -429,32 +450,49 @@ int main(int argc, char* argv[])
       float* gpu_pold = NULL;
       float* cpu_ref = NULL;
       const size_t n = (size_t)nx * ny * nz;
+      const size_t check_bytes = (0 != ctx.blocked || 2 == ctx.layout)
+        ? dev_bytes : grid_bytes;
       int check_ok = EXIT_SUCCESS;
 
       if (EXIT_SUCCESS == check_ok) {
-        check_ok = libxstream_mem_host_allocate((void**)&gpu_new, grid_bytes, ctx.stream);
+        check_ok = libxstream_mem_host_allocate((void**)&gpu_new, check_bytes, ctx.stream);
       }
       if (EXIT_SUCCESS == check_ok) {
-        check_ok = libxstream_mem_host_allocate((void**)&gpu_pcur, grid_bytes, ctx.stream);
+        check_ok = libxstream_mem_host_allocate((void**)&gpu_pcur, check_bytes, ctx.stream);
       }
       if (EXIT_SUCCESS == check_ok) {
-        check_ok = libxstream_mem_host_allocate((void**)&gpu_pold, grid_bytes, ctx.stream);
+        check_ok = libxstream_mem_host_allocate((void**)&gpu_pold, check_bytes, ctx.stream);
       }
       if (EXIT_SUCCESS == check_ok) {
         check_ok = libxstream_mem_host_allocate((void**)&cpu_ref, grid_bytes, ctx.stream);
       }
 
       if (EXIT_SUCCESS == check_ok) {
-        check_ok = libxstream_mem_copy_d2h(p_buf[cur], gpu_new, dev_bytes, ctx.stream);
+        check_ok = libxstream_mem_copy_d2h(p_buf[cur], gpu_new, check_bytes, ctx.stream);
       }
       if (EXIT_SUCCESS == check_ok) {
-        check_ok = libxstream_mem_copy_d2h(p_buf[old], gpu_pcur, dev_bytes, ctx.stream);
+        check_ok = libxstream_mem_copy_d2h(p_buf[old], gpu_pcur, check_bytes, ctx.stream);
       }
       if (EXIT_SUCCESS == check_ok) {
-        check_ok = libxstream_mem_copy_d2h(p_buf[new_idx], gpu_pold, dev_bytes, ctx.stream);
+        check_ok = libxstream_mem_copy_d2h(p_buf[new_idx], gpu_pold, check_bytes, ctx.stream);
       }
       if (EXIT_SUCCESS == check_ok) {
         check_ok = libxstream_stream_sync(ctx.stream);
+      }
+
+      if (EXIT_SUCCESS == check_ok && 0 != ctx.bf16s) {
+        const size_t nphys = check_bytes / sizeof(float);
+        float* tmp_linear = NULL;
+        check_ok = libxstream_mem_host_allocate((void**)&tmp_linear, check_bytes, ctx.stream);
+        if (EXIT_SUCCESS == check_ok) {
+          stencil_unpack_bf16s(tmp_linear, (const unsigned short*)gpu_new, nphys);
+          memcpy(gpu_new, tmp_linear, check_bytes);
+          stencil_unpack_bf16s(tmp_linear, (const unsigned short*)gpu_pcur, nphys);
+          memcpy(gpu_pcur, tmp_linear, check_bytes);
+          stencil_unpack_bf16s(tmp_linear, (const unsigned short*)gpu_pold, nphys);
+          memcpy(gpu_pold, tmp_linear, check_bytes);
+          libxstream_mem_host_deallocate(tmp_linear, ctx.stream);
+        }
       }
 
       if (EXIT_SUCCESS == check_ok && 0 != ctx.blocked) {
@@ -475,6 +513,30 @@ int main(int argc, char* argv[])
                 + (long)byi * ctx.nblocks[0] + bxi) * (long)(32 * 32 * 32)
                 + (long)(gz & 31) * (32 * 32) + (long)(gy & 31) * 32 + (gx & 31);
               tmp_linear[ii] = bufs[buf][ti];
+            }
+            memcpy(bufs[buf], tmp_linear, grid_bytes);
+          }
+          libxstream_mem_host_deallocate(tmp_linear, ctx.stream);
+        }
+      }
+
+      if (EXIT_SUCCESS == check_ok && 2 == ctx.layout) {
+        float* tmp_linear = NULL;
+        check_ok = libxstream_mem_host_allocate((void**)&tmp_linear, grid_bytes, ctx.stream);
+        if (EXIT_SUCCESS == check_ok) {
+          const int pny = ny + 2 * hy, pnz = nz + 2 * hz;
+          size_t ii;
+          int buf;
+          float* bufs[3];
+          bufs[0] = gpu_new; bufs[1] = gpu_pcur; bufs[2] = gpu_pold;
+          for (buf = 0; buf < 3; ++buf) {
+            for (ii = 0; ii < n; ++ii) {
+              const int gx = (int)(ii % nx);
+              const int gy = (int)((ii / nx) % ny);
+              const int gz = (int)(ii / ((long)nx * ny));
+              const long zi = (long)(gx + hx) * pny * pnz
+                + (long)(gy + hy) * pnz + (gz + hz);
+              tmp_linear[ii] = bufs[buf][zi];
             }
             memcpy(bufs[buf], tmp_linear, grid_bytes);
           }

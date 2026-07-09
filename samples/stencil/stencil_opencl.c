@@ -301,14 +301,88 @@ static void stencil_store_bf16_digits(cl_ushort* dst, int stride,
 }
 
 
+static void stencil_store_bf16s_value(cl_ushort* dst, size_t idx,
+                                      size_t stride, float value)
+{
+  libxs_bf16_t digits[2];
+  libxs_dekker_bf16((double)value, 2, digits);
+  dst[idx] = digits[0];
+  dst[idx + stride] = digits[1];
+}
+
+
 void stencil_pack_bf16s(cl_ushort* dst, const float* src, size_t n)
 {
   size_t i;
   for (i = 0; i < n; ++i) {
-    libxs_bf16_t digits[2];
-    libxs_dekker_bf16((double)src[i], 2, digits);
-    dst[i] = digits[0];
-    dst[i + n] = digits[1];
+    stencil_store_bf16s_value(dst, i, n, src[i]);
+  }
+}
+
+
+void stencil_pack_bf16s_blocked(cl_ushort* dst, const float* src,
+                                int nx, int ny, int nz,
+                                int nbx, int nby, int nbz)
+{
+  const int blk = STENCIL_BLK;
+  const size_t stride = (size_t)nbx * nby * nbz * blk * blk * blk;
+  int bz, by, bx, lz, ly, lx;
+  for (bz = 0; bz < nbz; ++bz) {
+    for (by = 0; by < nby; ++by) {
+      for (bx = 0; bx < nbx; ++bx) {
+        const long tile_base = ((long)bz * nby * nbx + (long)by * nbx + bx)
+                             * (long)(blk * blk * blk);
+        for (lz = 0; lz < blk; ++lz) {
+          const int gz = bz * blk + lz;
+          for (ly = 0; ly < blk; ++ly) {
+            const int gy = by * blk + ly;
+            for (lx = 0; lx < blk; ++lx) {
+              const int gx = bx * blk + lx;
+              const long dst_idx = tile_base + (long)lz * blk * blk + (long)ly * blk + lx;
+              float val = 0.0f;
+              if (gx < nx && gy < ny && gz < nz) {
+                val = src[(long)gz * ny * nx + (long)gy * nx + gx];
+              }
+              stencil_store_bf16s_value(dst, (size_t)dst_idx, stride, val);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+
+void stencil_pack_bf16s_zyx(cl_ushort* dst, const float* src,
+                            int nx, int ny, int nz,
+                            int hx, int hy, int hz)
+{
+  const int pnx = nx + 2 * hx, pny = ny + 2 * hy, pnz = nz + 2 * hz;
+  const size_t stride = (size_t)pnx * pny * pnz;
+  size_t idx;
+  int ix, iy, iz;
+  for (idx = 0; idx < stride; ++idx) {
+    stencil_store_bf16s_value(dst, idx, stride, 0.0f);
+  }
+  for (ix = 0; ix < nx; ++ix) {
+    for (iy = 0; iy < ny; ++iy) {
+      for (iz = 0; iz < nz; ++iz) {
+        const long src_idx = (long)iz * ny * nx + (long)iy * nx + ix;
+        const long dst_idx = (long)(ix + hx) * pny * pnz
+          + (long)(iy + hy) * pnz + (iz + hz);
+        stencil_store_bf16s_value(dst, (size_t)dst_idx, stride, src[src_idx]);
+      }
+    }
+  }
+}
+
+
+void stencil_unpack_bf16s(float* dst, const cl_ushort* src, size_t n)
+{
+  size_t i;
+  for (i = 0; i < n; ++i) {
+    dst[i] = (float)(libxs_bf16_to_f64(src[i])
+      + libxs_bf16_to_f64(src[i + n]));
   }
 }
 
@@ -489,6 +563,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         char stride_flags[512];
         if (2 == key.layout) {
           const int lx = ctx->halo[0], ly = ctx->halo[1], lz = ctx->halo[2];
+          const long p_n = (long)(nx + 2 * lx) * (ny + 2 * ly) * (nz + 2 * lz);
           const int p_sx = (nz + 2 * lz) * (ny + 2 * ly);
           const int p_sy = (nz + 2 * lz);
           const int v_sx = nz * ny;
@@ -517,19 +592,23 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
             }
           }
           LIBXS_SNPRINTF(stride_flags, sizeof(stride_flags),
-            " -DSTENCIL_P_SX=%d -DSTENCIL_P_SY=%d"
+            " -DSTENCIL_P_N=%ld -DSTENCIL_P_SX=%d -DSTENCIL_P_SY=%d"
             " -DSTENCIL_P_LX=%d -DSTENCIL_P_LY=%d -DSTENCIL_P_LZ=%d"
             " -DSTENCIL_V_SX=%d -DSTENCIL_V_SY=%d"
             " -DSTENCIL_V_LX=0 -DSTENCIL_V_LY=0 -DSTENCIL_V_LZ=0"
             " -DSTENCIL_E_SX=%d -DSTENCIL_E_SY=%d"
             " -DSTENCIL_E_LX=1 -DSTENCIL_E_LY=1 -DSTENCIL_E_LZ=1"
             " -DSTENCIL_PADDED=%d",
-            p_sx, p_sy, lx, ly, lz, v_sx, v_sy, e_sx, e_sy, padded);
+            p_n, p_sx, p_sy, lx, ly, lz, v_sx, v_sy, e_sx, e_sy, padded);
         }
         else {
+          const long p_n = (0 != ctx->blocked)
+            ? (long)ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2]
+              * STENCIL_BLK * STENCIL_BLK * STENCIL_BLK
+            : (long)nx * ny * nz;
           LIBXS_SNPRINTF(stride_flags, sizeof(stride_flags),
-            " -DSTENCIL_NX=%d -DSTENCIL_NY=%d -DSTENCIL_NZ=%d",
-            nx, ny, nz);
+            " -DSTENCIL_P_N=%ld -DSTENCIL_NX=%d -DSTENCIL_NY=%d -DSTENCIL_NZ=%d",
+            p_n, nx, ny, nz);
         }
         strncat(flags, stride_flags, sizeof(flags) - strlen(flags) - 1);
       }
@@ -637,6 +716,8 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   ctx->lu = (NULL == lu_env) ? 0 : atoi(lu_env);
   ctx->int8 = (NULL != int8_env) ? atoi(int8_env) : 0;
 
+  ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
+
   { const int bf16_val = (NULL != bf16_env) ? atoi(bf16_env) : 0;
     const int has_dpas = (devinfo->intel >= 2) ? 1 : 0;
     if (0 != bf16_val) {
@@ -663,7 +744,6 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
     ? ((STENCIL_RADIUS >= 4) ? 1 : 0)
     : atoi(trim_env);
   if (ctx->trim < 0) ctx->trim = 0;
-  ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
   ctx->blocked = (NULL == blocked_env) ? 0 : atoi(blocked_env);
   ctx->layout = (NULL != layout_env) ? atoi(layout_env)
     : ((0 != ctx->blocked) ? 1 : 0);
@@ -1066,7 +1146,7 @@ int stencil_precompute_operators(stencil_context_t* ctx,
 
 int stencil_apply_laplacian(stencil_context_t* ctx,
                             void* p_cur, void* p_old, void* p_new,
-                            void* vel, float dt2, int nterms)
+                            void* vel, float dt2, float dh, int nterms)
 {
   int result = EXIT_SUCCESS;
   const stencil_kernels_t* knl = stencil_get_kernels(ctx);
@@ -1104,10 +1184,9 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, vel));
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, ctx->coeff));
     if (0 != ctx->pml) {
-      const float h = 10.0f;
-      const float hdx_2 = 0.5f / h;
-      const float hdy_2 = 0.5f / h;
-      const float hdz_2 = 0.5f / h;
+      const float hdx_2 = 0.5f / dh;
+      const float hdy_2 = 0.5f / dh;
+      const float hdz_2 = 0.5f / dh;
       CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, ctx->eta));
       CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply_direct, i++, ctx->phi));
       CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(float), &hdx_2));
@@ -1149,10 +1228,9 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
         ctx->exp_phase = wr;
       }
       if (0 != ctx->pml) {
-        const float h = 10.0f;
-        const float hdx_2 = 0.5f / h;
-        const float hdy_2 = 0.5f / h;
-        const float hdz_2 = 0.5f / h;
+        const float hdx_2 = 0.5f / dh;
+        const float hdy_2 = 0.5f / dh;
+        const float hdz_2 = 0.5f / dh;
         CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->eta));
         CL_CHECK(result, libxstream_opencl_set_kernel_ptr(knl->stencil_apply, i++, ctx->phi));
         if (0 == ctx->int8) {
