@@ -50,7 +50,7 @@ if [ "${NM}" ] && [ "${SED}"  ] && [ "${CUT}"  ] && \
 then
   PROJUPP=$(${TR} '[:lower:]' '[:upper:]' <<<"${PROJECT}")
   # determine behavior of sort command
-  export LC_ALL=C IFS=$'\n'
+  export LC_ALL=C
   if [ "0" != "$(${LS} -1 "${LIBS}"/${INCLUDE}.${LIBTYPE} 2>/dev/null | ${WC} -l)" ]; then
     if [ "${LIBARGS}" ]; then LIBARGS=${LIBARGS## }; fi
     ${CP} /dev/null ${ABINEW}
@@ -65,7 +65,7 @@ then
           fi
         fi
         echo "Checking ${LIB}..."
-        for LINE in $(eval "${CMD} ${LIBFILE} 2>/dev/null"); do
+        while IFS= read -r LINE; do
           SYMBOL=$(${SED} -n "/ T /p" <<<"${LINE}" | ${CUT} -d" " -f3)
           if [ "${SYMBOL}" ]; then
             # cleanup compiler-specific symbols (Intel Fortran, GNU Fortran)
@@ -89,7 +89,7 @@ then
               exit 1
             fi
           fi
-        done
+        done < <(eval "${CMD} ${LIBFILE}" 2>/dev/null)
       else
         echo "Excluded ${LIB}"
       fi
