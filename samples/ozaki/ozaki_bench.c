@@ -53,7 +53,7 @@ int main(int argc, char* argv[])
   libxstream_stream_t* stream = NULL;
   libxs_matdiff_t diff;
   libxs_timer_tick_t t0, t1;
-  size_t elem_size = 0;
+  size_t elem_size = 0, c_size = 0;
   int result = EXIT_SUCCESS;
   int initialized = 0;
 
@@ -136,16 +136,21 @@ int main(int argc, char* argv[])
   if (EXIT_SUCCESS == result) {
     const int a_rows = (0 == ta ? M : K), a_cols = (0 == ta ? K : M);
     const int b_rows = (0 == tb ? K : N), b_cols = (0 == tb ? N : K);
-    if ((size_t)lda > SIZE_MAX / (size_t)a_cols / sizeof(double)
-      || (size_t)ldb > SIZE_MAX / (size_t)b_cols / sizeof(double)
-      || (size_t)ldc > SIZE_MAX / (size_t)N / sizeof(double)) {
+    if ((size_t)lda * a_cols > SIZE_MAX / elem_size
+      || (size_t)ldb * b_cols > SIZE_MAX / elem_size
+      || (size_t)ldc * N > SIZE_MAX / elem_size) {
       fprintf(stderr, "ERROR: matrix dimensions too large (overflow)\n");
       result = EXIT_FAILURE;
     }
-    if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&a, (size_t)lda * a_cols * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&b, (size_t)ldb * b_cols * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_oz, (size_t)ldc * N * elem_size, stream);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_ref, (size_t)ldc * N * elem_size, stream);
+    if (EXIT_SUCCESS == result) {
+      const size_t a_size = (size_t)lda * a_cols * elem_size;
+      const size_t b_size = (size_t)ldb * b_cols * elem_size;
+      c_size = (size_t)ldc * N * elem_size;
+      result = libxstream_mem_host_allocate((void**)&a, a_size, stream);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&b, b_size, stream);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_oz, c_size, stream);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_ref, c_size, stream);
+    }
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "ERROR: out of memory\n");
       result = EXIT_FAILURE;
@@ -161,7 +166,7 @@ int main(int argc, char* argv[])
         LIBXS_MATRNG(int, float, 0, b, b_rows, b_cols, ldb, 1.0);
         LIBXS_MATRNG(int, float, 0, c_oz, M, N, ldc, 1.0);
       }
-      memcpy(c_ref, c_oz, (size_t)ldc * N * elem_size);
+      memcpy(c_ref, c_oz, c_size);
     }
   }
 
@@ -172,7 +177,7 @@ int main(int argc, char* argv[])
     result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, NULL, 0, 0);
     libxstream_stream_sync(stream);
     /* restore C for the timed run (beta may be non-zero) */
-    if (EXIT_SUCCESS == result) memcpy(c_oz, c_ref, (size_t)ldc * N * elem_size);
+    if (EXIT_SUCCESS == result) memcpy(c_oz, c_ref, c_size);
     t0 = libxs_timer_tick();
     for (i = 0; i < nrepeat; ++i) {
       result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, NULL, 0, 0);
@@ -191,7 +196,7 @@ int main(int argc, char* argv[])
     int i;
     /* save original C (still in c_ref) into c_oz; the Ozaki result will
      * be recomputed below for comparison after BLAS timing is done */
-    memcpy(c_oz, c_ref, (size_t)ldc * N * elem_size);
+    memcpy(c_oz, c_ref, c_size);
     t0 = libxs_timer_tick();
     for (i = 0; i < nrepeat; ++i) {
       if (ctx.use_double) {
@@ -202,7 +207,7 @@ int main(int argc, char* argv[])
         SGEMM(&transa, &transb, &M, &N, &K, &falpha, (const float*)a, &lda, (const float*)b, &ldb, &fbeta, (float*)c_ref, &ldc);
       }
       /* restore C before next iteration so beta does not accumulate */
-      if (i < nrepeat - 1) memcpy(c_ref, c_oz, (size_t)ldc * N * elem_size);
+      if (i < nrepeat - 1) memcpy(c_ref, c_oz, c_size);
     }
     t1 = libxs_timer_tick();
     printf("BLAS  GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1) / nrepeat);
