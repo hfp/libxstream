@@ -15,7 +15,8 @@
 #define STENCIL_BLK 32
 #define STENCIL_RADIUS 4
 #define STENCIL_WIDTH (2 * STENCIL_RADIUS + 1)
-#define STENCIL_NDIGITS_A 1
+#define STENCIL_NDIGITS_A_DEFAULT 1
+#define STENCIL_NDIGITS_A_MAX 3
 #define STENCIL_NDIGITS_X 3
 #define STENCIL_ALIGN16(VALUE) (((VALUE) + 15) & ~15)
 #define STENCIL_K_BASE (STENCIL_BLK + 2 * STENCIL_RADIUS)
@@ -79,6 +80,7 @@ typedef struct {
   int fp32;
   int bf16;
   int int8;
+  int ndigits_a;
   int bf16s;
   int blocked;
   int layout;

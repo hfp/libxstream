@@ -13,8 +13,8 @@ High-order FD stencils for seismic wave propagation are bandwidth-bound on moder
 We reformulate the 3D isotropic Laplacian as three small dense matrix multiplications per axis,
 mapping the banded Toeplitz operator to hardware matrix engines (Intel DPAS) that would otherwise sit idle.
 To preserve FP32 accuracy from BF16 and INT8 datapaths, we apply Dekker splitting
-(2 operator digits x 3 wavefield digits) and Ozaki-1 slicing
-(1 operator digit x 1-3 adaptive wavefield digits with a carried-forward exponent).
+(1-3 operator digits x 3 wavefield digits) and Ozaki-1 slicing
+(1-3 operator digits x 1-3 adaptive wavefield digits with a carried-forward exponent).
 No prior work combines Dekker/Ozaki digit splitting with hardware matrix engines
 for finite-difference stencil operators.
 </span>
@@ -70,7 +70,7 @@ The current sample is a GPU stencil benchmark and integration example.
 | Direct high-order stencil     | `-m 0`           | radius-4 per axis                             |
 | Compact variants              | `-m 1`, `-m 2`   | radius-1/radius-2 compact runtime paths       |
 | Compact dispersion-fit        | `-m 3`           | minimax-fitted coefficients (PPW=8 default)   |
-| BF16-DPAS Dekker split        | `STENCIL_BF16=1` | 2 operator x 3 wavefield BF16 digits          |
+| BF16-DPAS Dekker split        | `STENCIL_BF16=1` | 1-3 operator x 3 wavefield BF16 digits        |
 | BF16-DPAS scalar fallback     | `STENCIL_BF16=2` | same structure, float accumulation            |
 | INT8-DPAS Ozaki-1 (Intel)     | `STENCIL_INT8=1` | signed 8-bit slicing with carried exponent    |
 | INT8 dp4a Ozaki-1 (NV>=2)     | `STENCIL_INT8=1` | Ozaki-1 slicing, PTX dp4a on NVIDIA SM>=7.5   |
@@ -163,12 +163,16 @@ $$D \cdot P \approx \sum_i \sum_j D_i \cdot P_j \qquad \text{each } D_i \cdot P_
 
 | Datatype | Digit width | D slices | P slices | Products/dim |
 |----------|-------------|----------|----------|--------------|
-| BF16     | 8 mantissa  | 2        | 3        | 6            |
-| INT8     | 7 signed    | 1        | 1–3      | 1–3          |
+| BF16     | 8 mantissa  | 1-3      | 3        | 3-9          |
+| INT8     | 7 signed    | 1-3      | 1-3      | 1-9          |
 
-Note: BF16 needs 2 D-slices because FD weights span ~11 mantissa bits.
-INT8 needs only 1 D-slice because the same weights fit in 7 signed bits
-after per-row exponent alignment.
+The number of D-slices is configurable via `STENCIL_NDIGITS_A` (default 1).
+
+Note: With 1 D-slice, BF16 rounding breaks the zero-sum property of the FD
+weights (sum error ~1.4e-5 for 8th-order). This injects a DC bias each time
+step, causing an energy drift and min/max asymmetry over time. Two D-slices
+reduce the sum error to ~1e-8, restoring near-exact conservation. Use
+`STENCIL_NDIGITS_A=2` when long-running stability matters more than throughput.
 
 ---
 
@@ -209,15 +213,15 @@ step N+1: read exp_buf[new]  →  ...         (buffers flip)
 
 ## DPAS Work Count
 
-BF16 path: D-slices $\times$ P-slices $= 2 \times 3 = 6$ DPAS products per axis.  
-INT8 path: $1 \times$ P-slices$_{eff}$ = 1–3 DPAS products per axis.
+BF16 path: D-slices $\times$ P-slices $= N_A \times 3$ DPAS products per axis (default $N_A = 1$).  
+INT8 path: $N_A \times$ P-slices$_{eff}$ DPAS products per axis (default $N_A = 1$).
 
-| Operator family   | BF16 work/block | INT8 work/block    |
-|-------------------|-----------------|--------------------|
-| Isotropic, direct | 3 axes x 6 = 18 | 3 axes x 1-3 = 3-9 |
-| TTI pure terms    | 3 axes x 6 = 18 | (BF16 only today)  |
-| TTI cross terms   | two DPAS phases | (BF16 only today)  |
-| Compact           | smaller radius  | same DPAS, fewer K |
+| Operator family   | BF16 work/block (NDA=1) | INT8 work/block (NDA=1) |
+|-------------------|-------------------------|-------------------------|
+| Isotropic, direct | 3 axes x 3 = 9          | 3 axes x 1-3 = 3-9      |
+| TTI pure terms    | 3 axes x 3 = 9          | (BF16 only today)       |
+| TTI cross terms   | two DPAS phases         | (BF16 only today)       |
+| Compact           | smaller radius          | same DPAS, fewer K      |
 
 The shape is always small and regular: `8 x 16` DPAS tiles over the K dimension.
 
@@ -344,6 +348,7 @@ means the fitting band covers only well-resolved frequencies.
 
 Environment variables `STENCIL_PPW`, `STENCIL_FIT`, `STENCIL_RADIUS_FIT`
 control the target wavelength, fitting method, and fit radius.
+`STENCIL_NDIGITS_A` controls operator digit count (1-3, default 1).
 
 ---
 
@@ -375,6 +380,7 @@ STENCIL_INT8=2            INT8 structure, scalar fallback (any device)
 Tuning and accuracy controls:
 
 ```text
+STENCIL_NDIGITS_A=N       operator digits: 1-3 (default 1, use 2 for zero-sum)
 STENCIL_STRIPS_PER_WG=2   default, best measured grouping
 STENCIL_TRIM=N            accuracy/performance tradeoff (BF16)
 STENCIL_GRF256=1          tested slower on target system
@@ -556,7 +562,7 @@ direct reference -- both are physically valid wave propagation.
 Seismic stencils as dense small matrix multiplications.
 
 - FP32 banded-FMA (default): fastest on BW-bound hardware, supports all layouts
-- BF16-DPAS (Dekker splitting, 2x3 digits) and INT8-DPAS (Ozaki-1, 1x1-3 digits)
+- BF16-DPAS (Dekker splitting, configurable 1-3 operator digits) and INT8-DPAS (Ozaki-1, 1-3 digits)
 - INT8 competitive with BF16 on compute-rich PVC (fewer DPAS products)
 - Compact paths: long-leg reach, short-leg cost
 - Compact-fit: minimax dispersion optimization for target PPW

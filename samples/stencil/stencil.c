@@ -170,10 +170,6 @@ int main(int argc, char* argv[])
            nx, ny, nz, gpoints);
     printf("  Block:      %d^3, radius=%d (order %d)\n",
            blk, radius, 2 * radius);
-    printf("  Digits:     A=%d, X=%d (products/dim=%d, total=%d)\n",
-           STENCIL_NDIGITS_A, STENCIL_NDIGITS_X,
-           STENCIL_NDIGITS_A * STENCIL_NDIGITS_X,
-           nterms * STENCIL_NDIGITS_A * STENCIL_NDIGITS_X);
     printf("  Terms:      %d (%s)\n", nterms,
            nterms <= 3 ? "isotropic" : "TTI");
     printf("  Init:       %s\n",
@@ -215,6 +211,10 @@ int main(int argc, char* argv[])
   if (EXIT_SUCCESS == result) {
     const char* mnames[] = {"direct", "compact-r1", "compact-r2", "compact-fit"};
     ctx.nterms = nterms;
+    printf("  Digits:     A=%d, X=%d (products/dim=%d, total=%d)\n",
+           ctx.ndigits_a, STENCIL_NDIGITS_X,
+           ctx.ndigits_a * STENCIL_NDIGITS_X,
+           nterms * ctx.ndigits_a * STENCIL_NDIGITS_X);
     printf("  Method:     %s (K=%d, r=%d, strips/WG=%d)\n",
            mnames[(int)ctx.method], ctx.k_steps, ctx.r_per_step,
            ctx.strips_per_wg);
@@ -867,8 +867,8 @@ static void usage(const char* prog)
          "  STENCIL_BF16, STENCIL_BF16S, STENCIL_BLOCKED, STENCIL_CHECK, STENCIL_FIT\n"
          "  STENCIL_FP32_BLOCK_IO, STENCIL_FP32_SBLOCK, STENCIL_FP32_WG_X, STENCIL_FP32_WG_Y\n"
          "  STENCIL_GRF256, STENCIL_HALO, STENCIL_HINT, STENCIL_INT8, STENCIL_LAYOUT\n"
-         "  STENCIL_LU, STENCIL_METHOD, STENCIL_PML, STENCIL_PPW, STENCIL_RADIUS_FIT\n"
-         "  STENCIL_SG, STENCIL_STRIPS_PER_WG, STENCIL_TRACE, STENCIL_TRIM\n"
+         "  STENCIL_LU, STENCIL_METHOD, STENCIL_NDIGITS_A, STENCIL_PML, STENCIL_PPW\n"
+         "  STENCIL_RADIUS_FIT, STENCIL_SG, STENCIL_STRIPS_PER_WG, STENCIL_TRACE, STENCIL_TRIM\n"
          "\n"
          "Performance is reported in GPoints/s.\n", prog);
 }

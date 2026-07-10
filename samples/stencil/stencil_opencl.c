@@ -32,6 +32,7 @@
 #define STENCIL_KEY_PML(FLAGS) ((int)(((FLAGS) >> 23) & 1u))
 #define STENCIL_KEY_FP32_BLOCK_IO(FLAGS) ((int)(((FLAGS) >> 24) & 1u))
 #define STENCIL_KEY_FP32_SBLOCK(FLAGS) ((int)(((FLAGS) >> 25) & 3u))
+#define STENCIL_KEY_NDIGITS_A(FLAGS) ((int)(((FLAGS) >> 27) & 3u))
 #define STENCIL_KEY_FP32_WGX(KEY) ((int)((unsigned int)(KEY).fp32_wg >> 16))
 #define STENCIL_KEY_FP32_WGY(KEY) ((int)((KEY).fp32_wg & 65535))
 
@@ -566,6 +567,7 @@ static unsigned int stencil_key_flags(const stencil_context_t* ctx)
   result |= (unsigned int)((0 != ctx->pml) ? 1 : 0) << 23;
   result |= (unsigned int)((1 == fp32_sblock && NULL != fp32_block_io_env && 0 != atoi(fp32_block_io_env)) ? 1 : 0) << 24;
   result |= (unsigned int)fp32_sblock << 25;
+  result |= (unsigned int)(ctx->ndigits_a & 3) << 27;
   return result;
 }
 
@@ -588,8 +590,8 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       const char* cmem = (EXIT_SUCCESS != libxstream_opencl_use_cmem_size(
           devinfo, STENCIL_WIDTH * sizeof(float))) ? "global" : "constant";
       LIBXS_SNPRINTF(base_flags, sizeof(base_flags),
-        "-DBLK=%d -DNDIGITS_A=%d -DNDIGITS_X=%d -DGPU=1 -DCONSTANT=%s",
-        STENCIL_BLK, STENCIL_NDIGITS_A, STENCIL_NDIGITS_X, cmem);
+        "-DBLK=%d -DNDIGITS_X=%d -DGPU=1 -DCONSTANT=%s",
+        STENCIL_BLK, STENCIL_NDIGITS_X, cmem);
       kernel_registry = libxs_registry_create();
       LIBXS_ATOMIC_STORE(&base_ready, 1, LIBXS_ATOMIC_SEQ_CST);
     }
@@ -635,12 +637,14 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DNV=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
+          " -DNDIGITS_A=%d -DNSLICES_A=%d"
           " -DSTENCIL_BF16=%d -DSTENCIL_INT8=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
           " -DSTENCIL_LAYOUT=%d -DSTENCIL_PML=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, nv_level, key.method,
           STENCIL_KEY_TRIM(key.flags), key.nterms, STENCIL_KEY_LU(key.flags),
+          ctx->ndigits_a, ctx->ndigits_a,
           STENCIL_KEY_BF16(key.flags), STENCIL_KEY_INT8(key.flags),
           STENCIL_KEY_BF16S(key.flags), STENCIL_KEY_BLOCKED(key.flags),
           STENCIL_KEY_LAYOUT(key.flags), STENCIL_KEY_PML(key.flags),
@@ -839,6 +843,13 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
     }
   }
 
+  { const char *const nda_env = getenv("STENCIL_NDIGITS_A");
+    int nda = (NULL != nda_env) ? atoi(nda_env) : STENCIL_NDIGITS_A_DEFAULT;
+    if (nda < 1) nda = 1;
+    if (nda > STENCIL_NDIGITS_A_MAX) nda = STENCIL_NDIGITS_A_MAX;
+    ctx->ndigits_a = nda;
+  }
+
   ctx->strips_per_wg = stencil_valid_strips_per_wg(
     (NULL != strips_env) ? atoi(strips_env)
     : ((0 != ctx->int8) ? 1 : STENCIL_STRIPS_PER_WG));
@@ -970,7 +981,7 @@ int stencil_precompute_operators(stencil_context_t* ctx,
   int result = EXIT_SUCCESS;
   const int blk = STENCIL_BLK;
   const int kpad = STENCIL_K_PAD;
-  const int nda = STENCIL_NDIGITS_A;
+  const int nda = ctx->ndigits_a;
   const int k_steps = ctx->k_steps;
   const int r_step = ctx->r_per_step;
   const int d_rows = blk;
