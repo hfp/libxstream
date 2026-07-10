@@ -472,8 +472,9 @@ int main(int argc, char* argv[])
     }
 
     if (EXIT_SUCCESS == result) {
-      const int do_check = (NULL != getenv("STENCIL_CHECK")) ? 1 : 0;
-      const int do_stats = 1;
+      const char *const check_env = getenv("STENCIL_CHECK");
+      const int do_check = (NULL != check_env && 0 != atoi(check_env)) ? 1 : 0;
+      const int do_stats = (NULL != check_env && 0 == atoi(check_env)) ? 0 : 1;
       if (0 != do_stats) {
         float* gpu_new = NULL;
         float* gpu_pcur = NULL;
