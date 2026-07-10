@@ -136,7 +136,11 @@ int main(int argc, char* argv[])
   if (EXIT_SUCCESS == result) {
     const int a_rows = (0 == ta ? M : K), a_cols = (0 == ta ? K : M);
     const int b_rows = (0 == tb ? K : N), b_cols = (0 == tb ? N : K);
-    result = libxstream_mem_host_allocate((void**)&a, (size_t)lda * a_cols * elem_size, stream);
+    const size_t maxsize = SIZE_MAX / elem_size;
+    if (maxsize / a_cols < (size_t)lda || maxsize / b_cols < (size_t)ldb || maxsize / N < (size_t)ldc) {
+      result = EXIT_FAILURE;
+    }
+    if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&a, (size_t)lda * a_cols * elem_size, stream);
     if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&b, (size_t)ldb * b_cols * elem_size, stream);
     if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_oz, (size_t)ldc * N * elem_size, stream);
     if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_ref, (size_t)ldc * N * elem_size, stream);
