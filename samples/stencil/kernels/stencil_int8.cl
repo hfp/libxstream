@@ -19,6 +19,23 @@
 #endif
 #define BIAS 127
 
+#if defined(R_GATHER) && (R_GATHER >= 1) && (R_GATHER < RADIUS)
+# define I8_RG R_GATHER
+#else
+# define I8_RG RADIUS
+#endif
+#define I8_K_BASE_G (BLK + 2 * I8_RG)
+
+#undef KSTEP_I8_HI
+#define KSTEP_I8_HI(MI) ((((MI) + XMX_M - 1 + 2 * I8_RG) >> 2) & ~7)
+
+#define I8_GATHER_COORD(DIM, OX, OY, OZ, K, CI, CJ, GX, GY, GZ) \
+  do { \
+    if (0 == (DIM))      { (GX) = (OX) + (K) - I8_RG; (GY) = (OY) + (CI); (GZ) = (OZ) + (CJ); } \
+    else if (1 == (DIM)) { (GX) = (OX) + (CI); (GY) = (OY) + (K) - I8_RG; (GZ) = (OZ) + (CJ); } \
+    else                 { (GX) = (OX) + (CI); (GY) = (OY) + (CJ); (GZ) = (OZ) + (K) - I8_RG; } \
+  } while (0)
+
 #define I8_K4_BASE ((K_BASE + 3) / 4)
 #define I8_K4_PAD (K_PAD_I8 / 4)
 #define I8_SLM_INTS (NSLICES_X * I8_K4_PAD * XMX_N)
@@ -176,10 +193,11 @@
   } while (0)
 
 #if !defined(STENCIL_BLOCKED) || (0 >= STENCIL_BLOCKED)
+#if (STENCIL_LAYOUT_XYZ == STENCIL_LAYOUT)
 #define I8_GATHER_LOAD4(DIM, OX, OY, OZ, K_BASE4, CI, CJ, NX, NY, NZ, P_GRID, BITS4) \
   do { \
-    if (0 == (DIM) && (K_BASE4) + 3 < K_BASE) { \
-      const int gx4_ = (OX) + (K_BASE4) - RADIUS; \
+    if (0 == (DIM) && (K_BASE4) + 3 < I8_K_BASE_G) { \
+      const int gx4_ = (OX) + (K_BASE4) - I8_RG; \
       const int gy4_ = (OY) + (CI); \
       const int gz4_ = (OZ) + (CJ); \
       if (gx4_ >= 0 && gx4_ + 3 < (NX) \
@@ -193,9 +211,9 @@
         int ki_; \
         UNROLL_FORCE(4) for (ki_ = 0; ki_ < 4; ++ki_) { \
           const int k_ = (K_BASE4) + ki_; \
-          if (k_ < K_BASE) { \
+          if (k_ < I8_K_BASE_G) { \
             int gx_, gy_, gz_; \
-            STENCIL_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
+            I8_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
             STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
             (BITS4)[ki_] = STENCIL_LOAD_P_BITS(P_GRID, STENCIL_GRID_IDX(gz_, gy_, gx_, NY, NX)); \
           } \
@@ -207,9 +225,9 @@
       int ki_; \
       UNROLL_FORCE(4) for (ki_ = 0; ki_ < 4; ++ki_) { \
         const int k_ = (K_BASE4) + ki_; \
-        if (k_ < K_BASE) { \
+        if (k_ < I8_K_BASE_G) { \
           int gx_, gy_, gz_; \
-          STENCIL_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
+          I8_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
           STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
           (BITS4)[ki_] = STENCIL_LOAD_P_BITS(P_GRID, STENCIL_P_IDX(gz_, gy_, gx_, NY, NX, 0, 0)); \
         } \
@@ -217,14 +235,29 @@
       } \
     } \
   } while (0)
+#else /* non-XYZ (e.g. ZYX): no X-contiguous vload4 fast-path */
+#define I8_GATHER_LOAD4(DIM, OX, OY, OZ, K_BASE4, CI, CJ, NX, NY, NZ, P_GRID, BITS4) \
+  do { int ki_; \
+    UNROLL_FORCE(4) for (ki_ = 0; ki_ < 4; ++ki_) { \
+      const int k_ = (K_BASE4) + ki_; \
+      if (k_ < I8_K_BASE_G) { \
+        int gx_, gy_, gz_; \
+        I8_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
+        STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
+        (BITS4)[ki_] = STENCIL_LOAD_P_BITS(P_GRID, STENCIL_P_IDX(gz_, gy_, gx_, NY, NX, 0, 0)); \
+      } \
+      else (BITS4)[ki_] = 0; \
+    } \
+  } while (0)
+#endif
 #else
 #define I8_GATHER_LOAD4(DIM, OX, OY, OZ, K_BASE4, CI, CJ, NX, NY, NZ, P_GRID, BITS4) \
   do { int ki_; \
     UNROLL_FORCE(4) for (ki_ = 0; ki_ < 4; ++ki_) { \
       const int k_ = (K_BASE4) + ki_; \
-      if (k_ < K_BASE) { \
+      if (k_ < I8_K_BASE_G) { \
         int gx_, gy_, gz_; \
-        STENCIL_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
+        I8_GATHER_COORD(DIM, OX, OY, OZ, k_, CI, CJ, gx_, gy_, gz_); \
         STENCIL_CLAMP_COORD(gx_, gy_, gz_, NX, NY, NZ); \
         (BITS4)[ki_] = STENCIL_LOAD_P_BITS(P_GRID, STENCIL_P_IDX(gz_, gy_, gx_, NY, NX, nbx, nby)); \
       } \
@@ -443,20 +476,31 @@ kernel void stencil_apply_int8(
               const float numerator =
                 (2.0f - eta1 * eta1 + 2.0f * eta1) * p_cur - p_old_val
                 + dt2 * vel[iv] * (u.a[m] + phi_val);
-              const long stride_z = (long)ny * nx;
               float tmp = 0.0f;
               val = numerator / (1.0f + 2.0f * eta1);
               if (gx > 0 && gx < nx - 1) {
-                tmp += (eta[ie + 1] - eta[ie - 1])
-                     * (STENCIL_LOAD_P(p_grid, i + 1) - STENCIL_LOAD_P(p_grid, i - 1)) * hdx_2;
+                const long ip = STENCIL_P_IDX(gz, gy, gx + 1, ny, nx, nbx, nby);
+                const long im = STENCIL_P_IDX(gz, gy, gx - 1, ny, nx, nbx, nby);
+                const long ep = STENCIL_E_IDX(gz, gy, gx + 1, ny, nx);
+                const long em = STENCIL_E_IDX(gz, gy, gx - 1, ny, nx);
+                tmp += (eta[ep] - eta[em])
+                     * (STENCIL_LOAD_P(p_grid, ip) - STENCIL_LOAD_P(p_grid, im)) * hdx_2;
               }
               if (gy > 0 && gy < ny - 1) {
-                tmp += (eta[ie + nx] - eta[ie - nx])
-                     * (STENCIL_LOAD_P(p_grid, i + nx) - STENCIL_LOAD_P(p_grid, i - nx)) * hdy_2;
+                const long ip = STENCIL_P_IDX(gz, gy + 1, gx, ny, nx, nbx, nby);
+                const long im = STENCIL_P_IDX(gz, gy - 1, gx, ny, nx, nbx, nby);
+                const long ep = STENCIL_E_IDX(gz, gy + 1, gx, ny, nx);
+                const long em = STENCIL_E_IDX(gz, gy - 1, gx, ny, nx);
+                tmp += (eta[ep] - eta[em])
+                     * (STENCIL_LOAD_P(p_grid, ip) - STENCIL_LOAD_P(p_grid, im)) * hdy_2;
               }
               if (gz > 0 && gz < nz - 1) {
-                tmp += (eta[ie + stride_z] - eta[ie - stride_z])
-                     * (STENCIL_LOAD_P(p_grid, i + stride_z) - STENCIL_LOAD_P(p_grid, i - stride_z)) * hdz_2;
+                const long ip = STENCIL_P_IDX(gz + 1, gy, gx, ny, nx, nbx, nby);
+                const long im = STENCIL_P_IDX(gz - 1, gy, gx, ny, nx, nbx, nby);
+                const long ep = STENCIL_E_IDX(gz + 1, gy, gx, ny, nx);
+                const long em = STENCIL_E_IDX(gz - 1, gy, gx, ny, nx);
+                tmp += (eta[ep] - eta[em])
+                     * (STENCIL_LOAD_P(p_grid, ip) - STENCIL_LOAD_P(p_grid, im)) * hdz_2;
               }
               phi[iv] = (phi_val - tmp) / (1.0f + eta1);
             }

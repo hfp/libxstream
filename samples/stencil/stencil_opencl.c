@@ -609,6 +609,9 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
                ^ (ctx->grid_size[2] * 8191) ^ (ctx->halo[0] * 131)
                ^ (ctx->halo[1] * 257) ^ (ctx->halo[2] * 521);
   key.fp32_wg = 0;
+  key.r_gather = ctx->r_gather;
+  key.ndigits_x = ctx->ndigits_x;
+  key.i8_op = ctx->i8_op;
   key.flags = stencil_key_flags(ctx);
   if (0 != ctx->fp32) {
     int fp32_wgx, fp32_wgy;
@@ -637,14 +640,14 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DNV=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
-          " -DNDIGITS_A=%d -DNSLICES_A=%d"
+          " -DNDIGITS_A=%d -DNSLICES_A=%d -DR_GATHER=%d -DNSLICES_X=%d"
           " -DSTENCIL_BF16=%d -DSTENCIL_INT8=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
           " -DSTENCIL_LAYOUT=%d -DSTENCIL_PML=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, nv_level, key.method,
           STENCIL_KEY_TRIM(key.flags), key.nterms, STENCIL_KEY_LU(key.flags),
-          ctx->ndigits_a, ctx->ndigits_a,
+          ctx->ndigits_a, ctx->ndigits_a, ctx->r_gather, ctx->ndigits_x,
           STENCIL_KEY_BF16(key.flags), STENCIL_KEY_INT8(key.flags),
           STENCIL_KEY_BF16S(key.flags), STENCIL_KEY_BLOCKED(key.flags),
           STENCIL_KEY_LAYOUT(key.flags), STENCIL_KEY_PML(key.flags),
@@ -744,7 +747,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       else if (EXIT_SUCCESS == ok) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply", &knl.stencil_apply);
       }
-      if (EXIT_SUCCESS == ok && 0 == ctx->fp32) {
+      if (EXIT_SUCCESS == ok && 0 == ctx->fp32 && 0 == ctx->int8) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_tti", &knl.stencil_apply_tti);
       }
 
@@ -818,10 +821,19 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
     ? ((0 < (int)devinfo->wgsize[2]) ? (int)devinfo->wgsize[2] : STENCIL_SG)
     : atoi(sg_env);
 
-  ctx->grf256 = (NULL == grf_env) ? 0 : atoi(grf_env);
-
   ctx->lu = (NULL == lu_env) ? 0 : atoi(lu_env);
   ctx->int8 = (NULL != int8_env) ? atoi(int8_env) : 0;
+  ctx->grf256 = (NULL == grf_env) ? 0 : atoi(grf_env);
+
+  { const char *const op_env = getenv("STENCIL_I8_OP");
+    int op = STENCIL_I8_OP_IMPLICIT;
+    if (3 == ctx->int8) ctx->int8 = 1;
+    if (NULL != op_env) {
+      op = (0 == strcmp(op_env, "banded") || 1 == atoi(op_env))
+        ? STENCIL_I8_OP_BANDED : STENCIL_I8_OP_IMPLICIT;
+    }
+    ctx->i8_op = op;
+  }
 
   ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
 
@@ -848,6 +860,20 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
     if (nda < 1) nda = 1;
     if (nda > STENCIL_NDIGITS_A_MAX) nda = STENCIL_NDIGITS_A_MAX;
     ctx->ndigits_a = nda;
+  }
+
+  { const int implicit = (0 != ctx->int8 && STENCIL_I8_OP_IMPLICIT == ctx->i8_op);
+    const int rg_default = implicit ? 2 : STENCIL_RADIUS;
+    const char *const rg_env = (0 != ctx->int8) ? getenv("STENCIL_R_GATHER") : NULL;
+    const int rg = (NULL != rg_env) ? atoi(rg_env) : rg_default;
+    ctx->r_gather = (rg >= 1 && rg < STENCIL_RADIUS) ? rg : STENCIL_RADIUS;
+  }
+
+  { const int implicit = (0 != ctx->int8 && STENCIL_I8_OP_IMPLICIT == ctx->i8_op);
+    const int ndx_default = implicit ? 2 : STENCIL_NDIGITS_X;
+    const char *const ndx_env = (0 != ctx->int8) ? getenv("STENCIL_NDIGITS_X") : NULL;
+    const int ndx = (NULL != ndx_env) ? atoi(ndx_env) : ndx_default;
+    ctx->ndigits_x = (ndx >= 1 && ndx <= STENCIL_NDIGITS_X) ? ndx : STENCIL_NDIGITS_X;
   }
 
   ctx->strips_per_wg = stencil_valid_strips_per_wg(
@@ -887,10 +913,9 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   libxstream_opencl_mem_hint_t mem_hint;
 
   if (NULL == ctx) result = EXIT_FAILURE;
-  if (EXIT_SUCCESS == result && 2 == ctx->layout && 0 == ctx->fp32) {
+  if (EXIT_SUCCESS == result && 2 == ctx->layout && 0 == ctx->fp32 && 0 == ctx->int8) {
     ctx->fp32 = 1;
     ctx->bf16 = 0;
-    ctx->int8 = 0;
   }
   mem_hint = (NULL != ctx && 0 != ctx->hint)
     ? libxstream_opencl_mem_hint_atomics : libxstream_opencl_mem_hint_compress;
@@ -972,6 +997,74 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   }
 
   return result;
+}
+
+
+static void stencil_implicit_dense(int blk, int kpad, double inv_h2,
+                                   int r_gather, int center, double* d_mat)
+{
+  const double alpha = 2.0 / 11.0;
+  const double a1 = 12.0 / 11.0;
+  const double a2 = 3.0 / 44.0;
+  const int nbig = 512;
+  const int c = nbig / 2;
+  double* rhs = NULL;
+  double* cp = NULL;
+  double* dp = NULL;
+  double* g = NULL;
+  int i, col, row;
+
+  rhs = (double*)calloc((size_t)nbig, sizeof(double));
+  cp = (double*)calloc((size_t)nbig, sizeof(double));
+  dp = (double*)calloc((size_t)nbig, sizeof(double));
+  g = (double*)calloc((size_t)nbig, sizeof(double));
+  if (NULL == rhs || NULL == cp || NULL == dp || NULL == g) {
+    free(g);
+    free(dp);
+    free(cp);
+    free(rhs);
+    return;
+  }
+
+  rhs[c] = -(a1 * 2.0 + a2 * 2.0) * inv_h2;
+  rhs[c - 1] = a1 * inv_h2;
+  rhs[c + 1] = a1 * inv_h2;
+  rhs[c - 2] = a2 * inv_h2;
+  rhs[c + 2] = a2 * inv_h2;
+
+  cp[0] = alpha;
+  dp[0] = rhs[0];
+  for (i = 1; i < nbig; ++i) {
+    const double denom = 1.0 - alpha * cp[i - 1];
+    cp[i] = alpha / denom;
+    dp[i] = (rhs[i] - alpha * dp[i - 1]) / denom;
+  }
+  g[nbig - 1] = dp[nbig - 1];
+  for (i = nbig - 2; i >= 0; --i) {
+    g[i] = dp[i] - cp[i] * g[i + 1];
+  }
+
+  for (row = 0; row < blk; ++row) {
+    for (col = 0; col < kpad; ++col) {
+      const int dist = col - center - row;
+      const int keep = (r_gather <= 0 || (dist >= -r_gather && dist <= r_gather));
+      d_mat[row * kpad + col] = (0 != keep && dist + c >= 0 && dist + c < nbig)
+        ? g[c + dist] : 0.0;
+    }
+  }
+
+  if (r_gather > 0) {
+    for (row = 0; row < blk; ++row) {
+      double row_sum = 0.0;
+      for (col = 0; col < kpad; ++col) row_sum += d_mat[row * kpad + col];
+      d_mat[row * kpad + (center + row)] -= row_sum;
+    }
+  }
+
+  free(g);
+  free(dp);
+  free(cp);
+  free(rhs);
 }
 
 
@@ -1128,7 +1221,7 @@ int stencil_precompute_operators(stencil_context_t* ctx,
                                        ctx->stream);
     }
   }
-  else if (0 != ctx->int8) {
+  if (EXIT_SUCCESS == result && 0 != ctx->int8) {
     const int kpad_i8 = STENCIL_K_PAD_I8;
     const size_t d_i8_size = (size_t)nda * d_rows * kpad_i8 * sizeof(char);
     const size_t scale_size = (size_t)nda * d_rows * sizeof(float);
@@ -1150,7 +1243,13 @@ int stencil_precompute_operators(stencil_context_t* ctx,
           d_mat_i8[row * kpad + col] = 0.0;
         }
       }
-      if (1 == k_steps) {
+      if (STENCIL_I8_OP_IMPLICIT == ctx->i8_op) {
+        const int rg = ctx->r_gather;
+        const int narrow = (rg >= 1 && rg < STENCIL_RADIUS) ? rg : 0;
+        const int center = (0 != narrow) ? narrow : STENCIL_RADIUS;
+        stencil_implicit_dense(blk, kpad, inv_h2, narrow, center, d_mat_i8);
+      }
+      else if (1 == k_steps) {
         for (row = 0; row < blk; ++row) {
           for (col = 0; col < kpad; ++col) {
             int dist = col - radius - row;
@@ -1241,7 +1340,7 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     free(d_scale);
     free(d_i8);
   }
-  else {
+  else if (EXIT_SUCCESS == result && 0 == use_fp32) {
     for (dim = 0; dim < 3 && EXIT_SUCCESS == result; ++dim) {
       result = libxstream_mem_dev_allocate_hint((void**)&ctx->dk[dim], d_size, mem_hint);
       if (EXIT_SUCCESS == result) {
@@ -1371,7 +1470,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
         3, NULL, global_apply, local_apply, 0, NULL, NULL));
     }
 
-    if (nterms > 3 && 0 == ctx->fp32 && EXIT_SUCCESS == result) {
+    if (nterms > 3 && 0 == ctx->fp32 && 0 == ctx->int8 && EXIT_SUCCESS == result) {
       static const int cross_pairs[6][2] = {
         {0, 1}, {0, 2}, {1, 0}, {1, 2}, {2, 0}, {2, 1}
       };

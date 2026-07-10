@@ -41,6 +41,11 @@ typedef enum {
   STENCIL_COMPACT_FIT = 3
 } stencil_method_t;
 
+typedef enum {
+  STENCIL_I8_OP_IMPLICIT = 0,
+  STENCIL_I8_OP_BANDED   = 1
+} stencil_i8_op_t;
+
 typedef struct {
   int method;
   int k_steps;
@@ -50,6 +55,9 @@ typedef struct {
   int nterms;
   int grid_key;
   int fp32_wg;
+  int r_gather;
+  int ndigits_x;
+  int i8_op;
   unsigned int flags;
 } stencil_opencl_key_t;
 
@@ -80,7 +88,10 @@ typedef struct {
   int fp32;
   int bf16;
   int int8;
+  int i8_op;
+  int r_gather;
   int ndigits_a;
+  int ndigits_x;
   int bf16s;
   int blocked;
   int layout;
