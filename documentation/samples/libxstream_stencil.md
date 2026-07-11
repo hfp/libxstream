@@ -311,6 +311,8 @@ Environment variables controlling kernel specialization:
     STENCIL_SG       subgroup size override (default: device preferred)
     STENCIL_GRF256   force 256-GRF mode (0/1, default: auto)
     STENCIL_TRIM     drop least-significant digit products (BF16 path)
+    STENCIL_COMP     compensated (Kahan) sum across digit-pair partials (BF16 path)
+    STENCIL_BC       boundary: 0=clamp/edge-replicate (default), 1=zero-fill (BF16 path)
     STENCIL_LU       loop unroll strategy (-1=none, 0=inner, 1=outer)
     STENCIL_LAYOUT   memory layout (0=XYZ, 1=blocked, 2=ZYX)
     STENCIL_HALO     halo/padding size per axis
