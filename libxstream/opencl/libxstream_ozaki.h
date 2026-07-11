@@ -154,7 +154,7 @@ inline void dekker_split_bf16_private(real_t val, int ndigits,
       a_one_.va_ = (A); \
       for (m_ = 0; m_ < 8; ++m_) { \
         const ushort a_val_ = a_one_.aa_[m_]; \
-        for (k_ = 0; k_ < 16; ++k_) { \
+        for (k_ = 0; k_ < 8; ++k_) { \
           const uint b_packed_ = ((private const uint*)&(B))[k_]; \
           const ushort b_lo_ = (ushort)(b_packed_ & 0xFFFFu); \
           const ushort b_hi_ = (ushort)(b_packed_ >> 16); \
