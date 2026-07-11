@@ -33,6 +33,7 @@
 #define STENCIL_K_PAD_I8 64
 #define STENCIL_I8_EXP_MARGIN 1
 #define STENCIL_SG 16
+#define STENCIL_PML_ETA_PEAK 0.0199
 
 
 typedef enum {
