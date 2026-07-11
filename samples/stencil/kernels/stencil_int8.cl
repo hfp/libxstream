@@ -285,6 +285,7 @@ kernel void stencil_apply_int8(
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
   global const float* restrict eta,
   global float* restrict phi,
+  CONSTANT float* restrict coeff,
   float hdx_2, float hdy_2, float hdz_2,
 #endif
   float dt2,
@@ -473,9 +474,36 @@ kernel void stencil_apply_int8(
               const float phi_val = phi[iv];
               const float p_cur = STENCIL_LOAD_P(p_grid, i);
               const float p_old_val = STENCIL_LOAD_P(p_old, i);
-              const float numerator =
+              /* PML boundary blocks use the direct symmetric FD Laplacian
+               * (matches the stable FP32 kernel).  The DPAS operator result
+               * u.a[m] carries a small boundary asymmetry that the phi
+               * feedback amplifies over time. */
+              CONSTANT const float* c_fast = coeff + 2 * STENCIL_WIDTH;
+              CONSTANT const float* c_med = coeff + STENCIL_WIDTH;
+              CONSTANT const float* c_slow = coeff;
+              float lap_sym = (c_fast[RADIUS] + c_med[RADIUS] + c_slow[RADIUS])
+                * p_cur;
+              int rr;
+              UNROLL_FORCE(RADIUS) for (rr = 1; rr <= RADIUS; ++rr) {
+                const int gxa = (gx + rr < nx) ? gx + rr : nx - 1;
+                const int gxb = (gx - rr >= 0) ? gx - rr : 0;
+                const int gya = (gy + rr < ny) ? gy + rr : ny - 1;
+                const int gyb = (gy - rr >= 0) ? gy - rr : 0;
+                const int gza = (gz + rr < nz) ? gz + rr : nz - 1;
+                const int gzb = (gz - rr >= 0) ? gz - rr : 0;
+                lap_sym += c_fast[RADIUS + rr]
+                  * (STENCIL_LOAD_P(p_grid, STENCIL_P_IDX(gz, gy, gxa, ny, nx, nbx, nby))
+                   + STENCIL_LOAD_P(p_grid, STENCIL_P_IDX(gz, gy, gxb, ny, nx, nbx, nby)));
+                lap_sym += c_med[RADIUS + rr]
+                  * (STENCIL_LOAD_P(p_grid, STENCIL_P_IDX(gz, gya, gx, ny, nx, nbx, nby))
+                   + STENCIL_LOAD_P(p_grid, STENCIL_P_IDX(gz, gyb, gx, ny, nx, nbx, nby)));
+                lap_sym += c_slow[RADIUS + rr]
+                  * (STENCIL_LOAD_P(p_grid, STENCIL_P_IDX(gza, gy, gx, ny, nx, nbx, nby))
+                   + STENCIL_LOAD_P(p_grid, STENCIL_P_IDX(gzb, gy, gx, ny, nx, nbx, nby)));
+              }
+              { const float numerator =
                 (2.0f - eta1 * eta1 + 2.0f * eta1) * p_cur - p_old_val
-                + dt2 * vel[iv] * (u.a[m] + phi_val);
+                + dt2 * vel[iv] * (lap_sym + phi_val);
               float tmp = 0.0f;
               val = numerator / (1.0f + 2.0f * eta1);
               if (gx > 0 && gx < nx - 1) {
@@ -503,6 +531,7 @@ kernel void stencil_apply_int8(
                      * (STENCIL_LOAD_P(p_grid, ip) - STENCIL_LOAD_P(p_grid, im)) * hdz_2;
               }
               phi[iv] = (phi_val - tmp) / (1.0f + eta1);
+              }
             }
 #else
             val = 2.0f * STENCIL_LOAD_P(p_grid, i) - STENCIL_LOAD_P(p_old, i)
