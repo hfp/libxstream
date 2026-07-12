@@ -36,7 +36,6 @@
     else                 { (GX) = (OX) + (CI); (GY) = (OY) + (CJ); (GZ) = (OZ) + (K) - I8_RG; } \
   } while (0)
 
-#define I8_K4_BASE ((K_BASE + 3) / 4)
 #define I8_K4_PAD (K_PAD_I8 / 4)
 #define I8_SLM_INTS (NSLICES_X * I8_K4_PAD * XMX_N)
 #define I8_FILL_COUNT (I8_K4_PAD * XMX_N)

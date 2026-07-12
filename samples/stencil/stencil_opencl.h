@@ -59,7 +59,18 @@ typedef struct {
   int r_gather;
   int ndigits_x;
   int i8_op;
-  unsigned int flags;
+  signed char grf256;
+  signed char trim;
+  signed char lu;
+  signed char bf16;
+  signed char int8;
+  signed char bf16s;
+  signed char blocked;
+  signed char layout;
+  signed char pml;
+  signed char fp32_block_io;
+  signed char fp32_sblock;
+  signed char ndigits_a;
 } stencil_opencl_key_t;
 
 typedef struct {

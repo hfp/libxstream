@@ -21,20 +21,14 @@
 #define STENCIL_FP32_WG_Y_DEFAULT 8
 #define STENCIL_FP32_SBLOCK_DEFAULT 2
 
-#define STENCIL_KEY_GRF256(FLAGS) ((int)((FLAGS) & 1u))
-#define STENCIL_KEY_TRIM(FLAGS) ((int)(((FLAGS) >> 1) & 255u))
-#define STENCIL_KEY_LU(FLAGS) ((int)(((FLAGS) >> 9) & 15u))
-#define STENCIL_KEY_BF16(FLAGS) ((int)(((FLAGS) >> 13) & 3u))
-#define STENCIL_KEY_INT8(FLAGS) ((int)(((FLAGS) >> 15) & 3u))
-#define STENCIL_KEY_BF16S(FLAGS) ((int)(((FLAGS) >> 17) & 3u))
-#define STENCIL_KEY_BLOCKED(FLAGS) ((int)(((FLAGS) >> 19) & 3u))
-#define STENCIL_KEY_LAYOUT(FLAGS) ((int)(((FLAGS) >> 21) & 3u))
-#define STENCIL_KEY_PML(FLAGS) ((int)(((FLAGS) >> 23) & 1u))
-#define STENCIL_KEY_FP32_BLOCK_IO(FLAGS) ((int)(((FLAGS) >> 24) & 1u))
-#define STENCIL_KEY_FP32_SBLOCK(FLAGS) ((int)(((FLAGS) >> 25) & 3u))
-#define STENCIL_KEY_NDIGITS_A(FLAGS) ((int)(((FLAGS) >> 27) & 3u))
 #define STENCIL_KEY_FP32_WGX(KEY) ((int)((unsigned int)(KEY).fp32_wg >> 16))
 #define STENCIL_KEY_FP32_WGY(KEY) ((int)((KEY).fp32_wg & 65535))
+
+/* The JIT cache key is matched by memcmp; the registry silently rejects
+ * (returns NULL) keys larger than LIBXS_REGKEY_MAXSIZE. Fail at compile time
+ * if the key ever outgrows that limit. */
+typedef char stencil_key_size_assert_t[
+  (sizeof(stencil_opencl_key_t) <= LIBXS_REGKEY_MAXSIZE) ? 1 : -1];
 
 #if !defined(OPENCL_KERNELS_SOURCE_STENCIL_BF16)
 # error "OpenCL kernel source not found (stencil_kernels.h must define OPENCL_KERNELS_SOURCE_STENCIL_BF16)"
@@ -551,24 +545,23 @@ static int stencil_fp32_sblock(const stencil_context_t* ctx)
 }
 
 
-static unsigned int stencil_key_flags(const stencil_context_t* ctx)
+static void stencil_key_pack(const stencil_context_t* ctx, stencil_opencl_key_t* key)
 {
   const char *const fp32_block_io_env = getenv("STENCIL_FP32_BLOCK_IO");
   const int fp32_sblock = stencil_fp32_sblock(ctx);
-  unsigned int result = 0u;
-  result |= (unsigned int)(ctx->grf256 & 1);
-  result |= (unsigned int)(ctx->trim & 255) << 1;
-  result |= (unsigned int)(ctx->lu & 15) << 9;
-  result |= (unsigned int)(ctx->bf16 & 3) << 13;
-  result |= (unsigned int)(ctx->int8 & 3) << 15;
-  result |= (unsigned int)(ctx->bf16s & 3) << 17;
-  result |= (unsigned int)(ctx->blocked & 3) << 19;
-  result |= (unsigned int)(ctx->layout & 3) << 21;
-  result |= (unsigned int)((0 != ctx->pml) ? 1 : 0) << 23;
-  result |= (unsigned int)((1 == fp32_sblock && NULL != fp32_block_io_env && 0 != atoi(fp32_block_io_env)) ? 1 : 0) << 24;
-  result |= (unsigned int)fp32_sblock << 25;
-  result |= (unsigned int)(ctx->ndigits_a & 3) << 27;
-  return result;
+  key->grf256 = (signed char)(0 != ctx->grf256);
+  key->trim = (signed char)ctx->trim;
+  key->lu = (signed char)ctx->lu;
+  key->bf16 = (signed char)ctx->bf16;
+  key->int8 = (signed char)ctx->int8;
+  key->bf16s = (signed char)ctx->bf16s;
+  key->blocked = (signed char)ctx->blocked;
+  key->layout = (signed char)ctx->layout;
+  key->pml = (signed char)(0 != ctx->pml);
+  key->fp32_block_io = (signed char)(1 == fp32_sblock
+    && NULL != fp32_block_io_env && 0 != atoi(fp32_block_io_env));
+  key->fp32_sblock = (signed char)fp32_sblock;
+  key->ndigits_a = (signed char)ctx->ndigits_a;
 }
 
 
@@ -612,7 +605,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
   key.r_gather = ctx->r_gather;
   key.ndigits_x = ctx->ndigits_x;
   key.i8_op = ctx->i8_op;
-  key.flags = stencil_key_flags(ctx);
+  stencil_key_pack(ctx, &key);
   if (0 != ctx->fp32) {
     int fp32_wgx, fp32_wgy;
     stencil_fp32_wg_dims(&fp32_wgx, &fp32_wgy);
@@ -646,18 +639,18 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, nv_level, key.method,
-          STENCIL_KEY_TRIM(key.flags), key.nterms, STENCIL_KEY_LU(key.flags),
-          ctx->ndigits_a, ctx->ndigits_a, ctx->r_gather, ctx->ndigits_x,
-          STENCIL_KEY_BF16(key.flags), STENCIL_KEY_INT8(key.flags),
-          STENCIL_KEY_BF16S(key.flags), STENCIL_KEY_BLOCKED(key.flags),
-          STENCIL_KEY_LAYOUT(key.flags), STENCIL_KEY_PML(key.flags),
+          key.trim, key.nterms, key.lu,
+          key.ndigits_a, key.ndigits_a, key.r_gather, key.ndigits_x,
+          key.bf16, key.int8,
+          key.bf16s, key.blocked,
+          key.layout, key.pml,
           (0 != ctx->fp32) ? ""
             : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
       }
 
       { const int nx = ctx->grid_size[0], ny = ctx->grid_size[1], nz = ctx->grid_size[2];
         char stride_flags[512];
-        if (2 == STENCIL_KEY_LAYOUT(key.flags)) {
+        if (2 == key.layout) {
           const int lx = ctx->halo[0], ly = ctx->halo[1], lz = ctx->halo[2];
           const long p_n = (long)(nx + 2 * lx) * (ny + 2 * ly) * (nz + 2 * lz);
           const int p_sx = (nz + 2 * lz) * (ny + 2 * ly);
@@ -702,7 +695,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
             padded);
         }
         else {
-          const long p_n = (0 != STENCIL_KEY_BLOCKED(key.flags))
+          const long p_n = (0 != key.blocked)
             ? (long)ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2]
               * STENCIL_BLK * STENCIL_BLK * STENCIL_BLK
             : (long)nx * ny * nz;
@@ -718,19 +711,19 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         LIBXS_SNPRINTF(fp32_flags, sizeof(fp32_flags),
           " -DWG_X=%d -DWG_Y=%d -DFP32_DISABLE_BLOCK_IO=%d -DFP32_SBLOCK=%d",
           STENCIL_KEY_FP32_WGX(key), STENCIL_KEY_FP32_WGY(key),
-          (0 == STENCIL_KEY_FP32_BLOCK_IO(key.flags)) ? 1 : 0,
-          STENCIL_KEY_FP32_SBLOCK(key.flags));
+          (0 == key.fp32_block_io) ? 1 : 0,
+          key.fp32_sblock);
         strncat(flags, fp32_flags, sizeof(flags) - strlen(flags) - 1);
       }
 
       LIBXS_SNPRINTF(options, sizeof(options), "-cl-fast-relaxed-math -cl-denorms-are-zero%s",
-        (0 != STENCIL_KEY_GRF256(key.flags) && 0 != devinfo->intel && 0 == devinfo->biggrf)
+        (0 != key.grf256 && 0 != devinfo->intel && 0 == devinfo->biggrf)
           ? " -cl-intel-256-GRF-per-thread" : "");
 
       if (EXIT_SUCCESS == ok) {
         const char* source;
         if (1 == ctx->fp32) source = OPENCL_KERNELS_SOURCE_STENCIL_FP32;
-        else if (0 != STENCIL_KEY_INT8(key.flags)) source = OPENCL_KERNELS_SOURCE_STENCIL_INT8;
+        else if (0 != key.int8) source = OPENCL_KERNELS_SOURCE_STENCIL_INT8;
         else source = OPENCL_KERNELS_SOURCE_STENCIL_BF16;
         ok = libxstream_opencl_program(0 /*source_kind*/,
           source, "stencil", flags,
@@ -741,7 +734,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       if (EXIT_SUCCESS == ok && 1 == ctx->fp32) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_direct", &knl.stencil_apply_direct);
       }
-      else if (EXIT_SUCCESS == ok && 0 != STENCIL_KEY_INT8(key.flags)) {
+      else if (EXIT_SUCCESS == ok && 0 != key.int8) {
         ok = libxstream_opencl_kernel_query(program, "stencil_apply_int8", &knl.stencil_apply);
       }
       else if (EXIT_SUCCESS == ok) {
@@ -755,6 +748,8 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         kptr = (stencil_kernels_t*)libxs_registry_set(
           kernel_registry, &key, sizeof(key), &knl, sizeof(knl),
           libxs_registry_lock(kernel_registry));
+        LIBXS_ASSERT(NULL != kptr); /* NULL implies key > LIBXS_REGKEY_MAXSIZE */
+        if (NULL == kptr) ok = EXIT_FAILURE;
       }
 
       if (2 <= ctx->verbosity || 0 > ctx->verbosity) {
@@ -762,7 +757,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
         fprintf(stderr, "%s ACC/STENCIL: method=%d k=%d r=%d strips=%d sg=%d grf256=%d -> ",
           EXIT_SUCCESS == ok ? "INFO" : "ERROR",
           key.method, key.k_steps, key.r_per_step, key.strips_per_wg,
-          key.sg, STENCIL_KEY_GRF256(key.flags));
+          key.sg, key.grf256);
         if (EXIT_SUCCESS == ok) {
           fprintf(stderr, "%.1f ms\n", 1E3 * libxs_timer_duration(t0, t1));
         }
