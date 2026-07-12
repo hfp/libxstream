@@ -167,7 +167,10 @@ int main(int argc, char* argv[]) {
     m = (0 < ism ? ism : 23);
     n = (0 < isn ? isn : m);
     k = (0 < isk ? isk : m);
-    {
+    if (INT_MAX / m < LIBXS_MAX(k, n) || INT_MAX / k < n) {
+      result = EXIT_FAILURE;
+    }
+    if (EXIT_SUCCESS == result) {
 #if defined(ALIGNMENT) && (0 < ALIGNMENT)
       const int ma = (int)LIBXS_UP2(sizeof(ELEM_TYPE) * m, ALIGNMENT);
       const int ka = (int)LIBXS_UP2(sizeof(ELEM_TYPE) * k, ALIGNMENT);
