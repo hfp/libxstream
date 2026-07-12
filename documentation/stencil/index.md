@@ -12,10 +12,9 @@ LIBXSTREAM stencil sample
 High-order FD stencils for seismic wave propagation are bandwidth-bound on modern GPUs.
 We reformulate the 3D isotropic Laplacian as three small dense matrix multiplications per axis,
 mapping the banded Toeplitz operator to hardware matrix engines (Intel DPAS) that would otherwise sit idle.
-To preserve FP32 accuracy from BF16 and INT8 datapaths, we apply Dekker splitting
-(1-3 operator digits x 3 wavefield digits) and Ozaki-1 slicing
+To preserve FP32 accuracy from an INT8 datapath, we apply Ozaki-1 slicing
 (1-3 operator digits x 1-3 adaptive wavefield digits with a carried-forward exponent).
-No prior work combines Dekker/Ozaki digit splitting with hardware matrix engines
+No prior work combines Ozaki digit splitting with hardware matrix engines
 for finite-difference stencil operators.
 </span>
 
@@ -25,7 +24,7 @@ for finite-difference stencil operators.
 
 - Seismic stencils and their long spatial legs.
 - Mapping stencil operators to small dense GEMMs.
-- BF16 and INT8 DPAS preserving FP32 accuracy.
+- INT8 DPAS preserving FP32 accuracy.
 - Compact operators as alternative paths.
 - Implementation and performance.
 
@@ -38,7 +37,7 @@ for finite-difference stencil operators.
 | 0-5 min   | Application: RTM and wave propagation   |
 | 5-10 min  | Stencil math and long legs              |
 | 10-18 min | Mapping stencils to GEMM/DPAS           |
-| 18-24 min | INT8-DPAS Ozaki-1, BF16 vs INT8         |
+| 18-24 min | INT8-DPAS Ozaki-1                       |
 | 24-30 min | Implementation, performance, discussion |
 
 ---
@@ -70,14 +69,14 @@ The current sample is a GPU stencil benchmark and integration example.
 | Direct high-order stencil     | `-m 0`           | radius-4 per axis                             |
 | Compact variants              | `-m 1`, `-m 2`   | radius-1/radius-2 compact runtime paths       |
 | Compact dispersion-fit        | `-m 3`           | minimax-fitted coefficients (PPW=8 default)   |
-| BF16-DPAS Dekker split        | `STENCIL_BF16=1` | 1-3 operator x 3 wavefield BF16 digits        |
-| BF16-DPAS scalar fallback     | `STENCIL_BF16=2` | same structure, float accumulation            |
 | INT8-DPAS Ozaki-1 (Intel)     | `STENCIL_INT8=1` | signed 8-bit slicing with carried exponent    |
 | INT8 dp4a Ozaki-1 (NV>=2)     | `STENCIL_INT8=1` | Ozaki-1 slicing, PTX dp4a on NVIDIA SM>=7.5   |
 | INT8 scalar fallback          | `STENCIL_INT8=2` | Ozaki-1 slicing, scalar multiply-add          |
+| INT8 implicit operator (def.) | `STENCIL_I8_OP=implicit` | dense compact `A^-1 B`, radius-2 gather |
+| INT8 banded operator          | `STENCIL_I8_OP=banded`   | explicit radius-4 FD weights            |
 
-Note: LP kernels (BF16/INT8) require XYZ or blocked layout.
-ZYX layout automatically falls back to the FP32 kernel.
+Note: the INT8 path defaults to the implicit-dense compact operator (see below).
+INT8 supports XYZ and ZYX; ZYX no longer forces an FP32 fallback.
 
 ---
 
@@ -89,7 +88,6 @@ The sample updates one `32 x 32 x 32` output cube per block.
 BLK       = 32
 RADIUS    = 4          direct 8th-order FD
 K_BASE    = BLK + 2*RADIUS = 40
-K_PAD     = align16(K_BASE) = 48  (BF16)
 K_PAD_I8  = 64                    (INT8, k=32 DPAS alignment)
 XMX tile  = 8 x 16
 ```
@@ -97,7 +95,6 @@ XMX tile  = 8 x 16
 For one axis, each block becomes a matrix multiplication.
 
 ```text
-BF16: D[32 x 48]  * P[48 x 1024]  -> Y[32 x 1024]
 INT8: D[32 x 64]  * P[64 x 16]    -> Y[32 x 16]  (per strip)
 ```
 
@@ -126,7 +123,7 @@ c_4 & c_3 & c_2 & c_1 & c_0 & c_1 & c_2 & c_3 & c_4 & 0 & \cdots \\\\
 
 $$Y = D \cdot P$$
 
-The sample stores $D$ as a dense BF16 surface because DPAS wants regular tiles.  
+The sample stores $D$ as a dense surface because DPAS wants regular tiles.  
 The zeros are structural convenience.
 
 ---
@@ -143,8 +140,8 @@ and applies the same DPAS micro-kernel.
 ```text
 for dim in x, y, z:
     gather haloed lines into SLM
-    split wavefield into BF16 digits
-    accumulate D_dim * P_dim into FP32
+    slice wavefield into INT8 digits
+    accumulate D_dim * P_dim into INT32
 ```
 
 ---
@@ -157,22 +154,15 @@ Use matrix compute units but without giving up accuracy.
 [ConvStencil 2024] stencil-as-matmul on NVIDIA TC,
 [Ichimura+ 2025] INT8 TC elastic wave FE</span>
 
-This work represents FP32 values are as digit sums (Ozaki/Dekker):
+This work represents FP32 values are as digit sums (Ozaki):
 
 $$D \cdot P \approx \sum_i \sum_j D_i \cdot P_j \qquad \text{each } D_i \cdot P_j \text{ is one DPAS call}$$
 
 | Datatype | Digit width | D slices | P slices | Products/dim |
 |----------|-------------|----------|----------|--------------|
-| BF16     | 8 mantissa  | 1-3      | 3        | 3-9          |
 | INT8     | 7 signed    | 1-3      | 1-3      | 1-9          |
 
 The number of D-slices is configurable via `STENCIL_NDIGITS_A` (default 1).
-
-Note: With 1 D-slice, BF16 rounding breaks the zero-sum property of the FD
-weights (sum error ~1.4e-5 for 8th-order). This injects a DC bias each time
-step, causing an energy drift and min/max asymmetry over time. Two D-slices
-reduce the sum error to ~1e-8, restoring near-exact conservation. Use
-`STENCIL_NDIGITS_A=2` when long-running stability matters more than throughput.
 
 ---
 
@@ -191,6 +181,30 @@ nslices_eff = 1  if assumed_exp <= 7
             = 2  if assumed_exp <= 14
             = 3  otherwise
 ```
+
+---
+
+## INT8 Implicit Operator (default)
+
+The INT8 path defaults to a compact implicit operator instead of the banded
+explicit stencil. A Lele 6th-order tridiagonal scheme $A y = B p$ is inverted
+once, offline, into a dense translation-invariant operator $D' = A^{-1} B$ that
+maps the gathered wavefield window to the Laplacian.
+
+$$\mathcal{L}(p) \approx D' \cdot p, \qquad D' = A^{-1} B \text{ (precomputed)}$$
+
+- Same DPAS micro-kernel and single gather as the banded path.
+- `STENCIL_R_GATHER=2` (default): the exponentially-decaying `A^{-1}B` tail is
+  truncated to a radius-2 window; accuracy is quantization-limited, not
+  operator-limited, so this is essentially free.
+- `STENCIL_NDIGITS_X=2` (default): the wavefield SLM footprint shrinks, raising
+  occupancy. Measured ~+10% over the banded operator at N=800 on PVC-1T at
+  matched accuracy (Linf rel 1.28e-2 vs the FP32 reference).
+- `STENCIL_I8_OP=banded` selects the classic explicit radius-4 operator.
+
+Note: The dense operator's row weights are re-normalized to sum to zero after
+truncation, preserving the constant-annihilation property that keeps the
+leapfrog stable.
 
 ---
 
@@ -213,15 +227,12 @@ step N+1: read exp_buf[new]  →  ...         (buffers flip)
 
 ## DPAS Work Count
 
-BF16 path: D-slices $\times$ P-slices $= N_A \times 3$ DPAS products per axis (default $N_A = 1$).  
 INT8 path: $N_A \times$ P-slices$_{eff}$ DPAS products per axis (default $N_A = 1$).
 
-| Operator family   | BF16 work/block (NDA=1) | INT8 work/block (NDA=1) |
-|-------------------|-------------------------|-------------------------|
-| Isotropic, direct | 3 axes x 3 = 9          | 3 axes x 1-3 = 3-9      |
-| TTI pure terms    | 3 axes x 3 = 9          | (BF16 only today)       |
-| TTI cross terms   | two DPAS phases         | (BF16 only today)       |
-| Compact           | smaller radius          | same DPAS, fewer K      |
+| Operator family   | INT8 work/block (NDA=1) |
+|-------------------|-------------------------|
+| Isotropic, direct | 3 axes x 1-3 = 3-9      |
+| Compact           | same DPAS, fewer K      |
 
 The shape is always small and regular: `8 x 16` DPAS tiles over the K dimension.
 
@@ -239,7 +250,6 @@ C:      8 x 16            FP32 accumulator
 
 |      | A load         | B load          | DPAS         |
 |------|----------------|-----------------|--------------|
-| BF16 | 2D 16b 8r16x1c | VNNI from SLM   | bf16 mad k16 |
 | INT8 | 2D 8b 8r32x1c  | block_read8 SLM | i8 mad k32   |
 
 ---
@@ -264,7 +274,7 @@ Each cross term is a two-phase DPAS pipeline:
 $$T = D_j \cdot P \qquad T = c_{ij} \cdot T \qquad Y \mathrel{+}= D_i \cdot T$$
 
 - `x_slm`: gathered wavefield digits
-- `t_slm`: BF16 re-split intermediate after pointwise scaling
+- `t_slm`: re-split intermediate after pointwise scaling
 - Pure terms reuse the isotropic `stencil_apply` path
 
 ---
@@ -343,21 +353,21 @@ means the fitting band covers only well-resolved frequencies.
 | Compact r2 | `-m 2`           | `r=2`  | compact isotropic path              |
 | Compact fit| `-m 3`           | `r=2/3`| dispersion-fitted (minimax, PPW=8)  |
 | TTI        | `-d 9`           | direct | cross terms implemented             |
-| BF16       | `STENCIL_BF16=1` | all    | Dekker split, XYZ layout only       |
-| INT8       | `STENCIL_INT8=1` | all    | Ozaki-1 with exp_buf, XYZ only      |
+| INT8       | `STENCIL_INT8=1` | all    | Ozaki-1 with exp_buf, XYZ and ZYX   |
 
 Environment variables `STENCIL_PPW`, `STENCIL_FIT`, `STENCIL_RADIUS_FIT`
 control the target wavelength, fitting method, and fit radius.
 `STENCIL_NDIGITS_A` controls operator digit count (1-3, default 1).
+`STENCIL_I8_OP`, `STENCIL_R_GATHER`, `STENCIL_NDIGITS_X` control the INT8
+operator family, gather radius, and wavefield digit count.
 
 ---
 
 ## Kernel Structure
 
 ```text
-host:  precompute D (BF16 or INT8+scale), JIT kernel
+host:  precompute D (INT8+scale), JIT kernel
 
-BF16:  gather → split → DPAS → leapfrog update
 INT8:  gather+slice → DPAS → update → scan exp → exp_buf_out
 TTI:   GEMM → scale → re-split → GEMM
 ```
@@ -371,8 +381,6 @@ All paths: one dispatch per time step, 3-dim loop inside kernel.
 Kernel path selection (default: FP32):
 
 ```text
-STENCIL_BF16=1            BF16-DPAS Dekker path (Intel DPAS required)
-STENCIL_BF16=2            BF16 structure, scalar fallback (any device)
 STENCIL_INT8=1            INT8 Ozaki-1 (Intel DPAS or NVIDIA dp4a)
 STENCIL_INT8=2            INT8 structure, scalar fallback (any device)
 ```
@@ -381,16 +389,26 @@ Tuning and accuracy controls:
 
 ```text
 STENCIL_NDIGITS_A=N       operator digits: 1-3 (default 1, use 2 for zero-sum)
+STENCIL_I8_OP=X           INT8 operator: implicit (default) or banded
+STENCIL_R_GATHER=N        INT8 gather radius: 1..RADIUS (implicit default 2)
+STENCIL_NDIGITS_X=N       INT8 wavefield digits: 1-3 (implicit default 2)
 STENCIL_STRIPS_PER_WG=2   default, best measured grouping
-STENCIL_TRIM=N            accuracy/performance tradeoff (BF16)
+STENCIL_TRIM=N            accuracy/performance tradeoff (INT8)
 STENCIL_GRF256=1          tested slower on target system
 STENCIL_LAYOUT=N          0=XYZ (default), 1=blocked, 2=ZYX
 STENCIL_HALO=N            halo padding size per axis
 STENCIL_PML=1             enable PML absorbing boundaries
+STENCIL_PML_ETA=X         PML damping peak (default calibrated 0.0199)
 STENCIL_PPW=8             points-per-wavelength for compact-fit
 STENCIL_FIT=N             fit method: 0=L2, 1=Ricker, 2=minimax
 STENCIL_RADIUS_FIT=N      fit radius (2 or 3, default 3)
 ```
+
+Note: PML is stable and production-ready on the FP32 kernel (XYZ and ZYX).
+The INT8 low-precision kernel with PML is under validation: the PML
+`phi` feedback in the absorbing layer amplifies a small boundary asymmetry in
+the matrix-engine Laplacian and can drift over long runs. The interior
+(non-PML) INT8 path is stable.
 
 ---
 
@@ -430,8 +448,6 @@ Uses XYZ layout and individual coefficients per axis.
 |--------------|------|------|--------|----------|------|
 | FP32 direct  | 26.6 | 36.5 | 40.4   | 80.8     | 77.7 |
 | FP32 compact | 27.4 | 37.1 | 45.3   | 90.6     | 82.1 |
-| BF16 direct  | 13.0 | 17.4 | 20.0   | 40.0     | -    |
-| BF16 compact | 12.9 | -    | 19.6   | 39.2     | -    |
 | INT8 direct  | 10.8 | 14.3 | 16.3   | 32.6     | -    |
 | INT8 compact | 10.7 | -    | 16.1   | 32.2     | -    |
 
@@ -488,7 +504,6 @@ Write CSV-files:
 ```bash
 ./stencil.py --kernel fp32 --sizes 50:850:50
 ./stencil.py --kernel fp32 --sizes 50:850:50 --pml --layout 2
-./stencil.py --kernel bf16 --sizes 50:850:50
 ./stencil.py --kernel int8 --sizes 50:850:50
 ```
 
@@ -513,15 +528,6 @@ Note: Performance is fully bandwidth-bound.
 <img class="wide" src="assets/stencil-b70-fp32-pml.png" alt="B70 FP32 PML"/>
 
 Note: Performance is fully bandwidth-bound.
-
----
-
-## Intel® Arc™ Pro B70 (BF16)
-
-<img class="wide" src="assets/stencil-b70-bf16.png" alt="B70 BF16"/>
-
-Note: `TRIM` drops least-significant digit products (accuracy tradeoff).
-BF16 is bound by gather and Dekker split.
 
 ---
 
@@ -562,8 +568,8 @@ direct reference -- both are physically valid wave propagation.
 Seismic stencils as dense small matrix multiplications.
 
 - FP32 banded-FMA (default): fastest on BW-bound hardware, supports all layouts
-- BF16-DPAS (Dekker splitting, configurable 1-3 operator digits) and INT8-DPAS (Ozaki-1, 1-3 digits)
-- INT8 competitive with BF16 on compute-rich PVC (fewer DPAS products)
+- INT8-DPAS (Ozaki-1, configurable 1-3 operator digits x 1-3 adaptive wavefield digits)
+- INT8 defaults to an implicit-dense compact operator (`A^-1 B`), ~+10% over banded at matched accuracy
 - Compact paths: long-leg reach, short-leg cost
 - Compact-fit: minimax dispersion optimization for target PPW
 - RTM isotropic: three directional GEMMs per time step
