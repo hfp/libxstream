@@ -44,8 +44,6 @@ static void fd_weights_2nd(double* w, int radius, double h);
 static int load_velocity_file(const char* path, float* vel, int nx, int ny, int nz);
 static void generate_velocity(float* vel, int nx, int ny, int nz,
                               vel_model_t model, float v_top, float v_bot);
-static void inject_source(float* p, int nx, int ny, int nz,
-                          float dt, int tstep, float freq);
 static void stencil_cpu_reference(float* p_new, const float* p_cur,
                                   const float* p_old, const float* vel,
                                   const double* fd_w, int radius,
@@ -66,7 +64,6 @@ int main(int argc, char* argv[])
   int warmup = 5;
   double h = 10.0;
   float v_min = 1500.0f, v_max = 4500.0f;
-  float freq = 25.0f;
   vel_model_t vel_model = VEL_GRADIENT;
   init_mode_t init_mode = INIT_RAND;
   const char* vel_file = NULL;
@@ -122,9 +119,6 @@ int main(int argc, char* argv[])
     }
     else if (0 == strcmp(argv[argi], "-vmax") && argi + 1 < argc) {
       v_max = (float)atof(argv[++argi]);
-    }
-    else if (0 == strcmp(argv[argi], "-f") && argi + 1 < argc) {
-      freq = (float)atof(argv[++argi]);
     }
     else if (0 == strcmp(argv[argi], "-w") && argi + 1 < argc) {
       warmup = atoi(argv[++argi]);
@@ -423,46 +417,18 @@ int main(int argc, char* argv[])
     }
 
     cur = 0; old = 1; new_idx = 2;
+    t0 = libxs_timer_tick();
 
-    for (t = 0; t < warmup && EXIT_SUCCESS == result; ++t) {
+    for (t = 0; t < warmup + ntsteps && EXIT_SUCCESS == result; ++t) {
       int tmp;
-      if (2 != ctx.layout) {
-        inject_source(p_host, nx, ny, nz, dt_local, t, freq);
-        if (0 != ctx.bf16s) {
-          if (0 != ctx.blocked) {
-            stencil_pack_bf16s_blocked((unsigned short*)pack_buf, p_host, nx, ny, nz,
-              ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
-          }
-          else {
-            stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
-          }
-          result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], dev_bytes, ctx.stream);
-        }
-        else if (0 != ctx.blocked) {
-          stencil_pack_blocked(pack_buf, p_host, nx, ny, nz,
-            ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
-          result = libxstream_mem_copy_h2d(pack_buf, p_buf[cur], dev_bytes, ctx.stream);
-        }
-        else {
-          result = libxstream_mem_copy_h2d(p_host, p_buf[cur], grid_bytes, ctx.stream);
-        }
+      if (t == warmup) {
+        result = libxstream_stream_sync(ctx.stream);
+        t0 = libxs_timer_tick();
       }
       if (EXIT_SUCCESS == result) {
         result = stencil_apply_laplacian(&ctx,
           p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, dh, nterms);
       }
-      tmp = old; old = cur; cur = new_idx; new_idx = tmp;
-    }
-    if (EXIT_SUCCESS == result) {
-      result = libxstream_stream_sync(ctx.stream);
-    }
-
-    t0 = libxs_timer_tick();
-
-    for (t = 0; t < ntsteps && EXIT_SUCCESS == result; ++t) {
-      int tmp;
-      result = stencil_apply_laplacian(&ctx,
-        p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, dh, nterms);
       tmp = old; old = cur; cur = new_idx; new_idx = tmp;
     }
     if (EXIT_SUCCESS == result) {
@@ -572,22 +538,11 @@ int main(int argc, char* argv[])
         }
 
         if (EXIT_SUCCESS == check_ok && 0 != do_check) {
-          const int inject = (2 != ctx.layout) ? 1 : 0;
           int ts;
           memcpy(p_cpu[cpu_cur], p_host_init, grid_bytes);
           memset(p_cpu[cpu_old], 0, grid_bytes);
           memset(p_cpu[cpu_new_idx], 0, grid_bytes);
-          for (ts = 0; ts < warmup; ++ts) {
-            int tmp;
-            if (0 != inject) {
-              inject_source(p_cpu[cpu_cur], nx, ny, nz, dt_local, ts, freq);
-            }
-            stencil_cpu_reference(p_cpu[cpu_new_idx], p_cpu[cpu_cur],
-              p_cpu[cpu_old], vel_host, fd_w, radius, nx, ny, nz, nterms, dt2);
-            tmp = cpu_old; cpu_old = cpu_cur;
-            cpu_cur = cpu_new_idx; cpu_new_idx = tmp;
-          }
-          for (ts = 0; ts < ntsteps; ++ts) {
+          for (ts = 0; ts < warmup + ntsteps; ++ts) {
             int tmp;
             stencil_cpu_reference(p_cpu[cpu_new_idx], p_cpu[cpu_cur],
               p_cpu[cpu_old], vel_host, fd_w, radius, nx, ny, nz, nterms, dt2);
@@ -801,19 +756,6 @@ static void generate_velocity(float* vel, int nx, int ny, int nz,
 }
 
 
-static void inject_source(float* p, int nx, int ny, int nz,
-                          float dt, int tstep, float freq)
-{
-  const float t = (float)tstep * dt;
-  const float t0 = 1.2f / freq;
-  const float arg = 3.14159265f * freq * (t - t0);
-  const float ricker = (1.0f - 2.0f * arg * arg)
-                     * (float)exp((double)(-arg * arg));
-  const int sx = nx / 2, sy = ny / 2, sz = nz / 2;
-  p[sz * ny * nx + sy * nx + sx] += ricker;
-}
-
-
 static void stencil_cpu_reference(float* p_new, const float* p_cur,
                                   const float* p_old, const float* vel,
                                   const double* fd_w, int radius,
@@ -869,7 +811,6 @@ static void usage(const char* prog)
          "  -v <model>    velocity model: const|grad|layered|<file.bin>\n"
          "  -vmin <vel>   min velocity m/s (default 1500)\n"
          "  -vmax <vel>   max velocity m/s (default 4500)\n"
-         "  -f <freq>     source frequency Hz (default 25)\n"
          "  -w <steps>    warmup steps (default 5)\n"
          "\n"
          "Benchmark models (shortcuts):\n"
