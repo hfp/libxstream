@@ -241,7 +241,7 @@ int main(int argc, char* argv[])
                          / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
     const float dt2 = dt_local * dt_local;
     const float dh = (float)h;
-    void* p_buf[3] = { NULL, NULL, NULL };
+    void* p_buf[2] = { NULL, NULL };
     void* vel_dev = NULL;
     float* p_host = NULL;
     float* p_host_init = NULL;
@@ -249,7 +249,7 @@ int main(int argc, char* argv[])
     float* pack_buf = NULL;
     libxs_timer_tick_t t0, t1;
     double t_elapsed, gpts_per_s;
-    int t, cur, old, new_idx;
+    int t, cur, old;
 
     if (EXIT_SUCCESS == result) {
       if (0 != trace) fprintf(stderr, "TRACE: allocate p_host\n");
@@ -320,7 +320,6 @@ int main(int argc, char* argv[])
 
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[0], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[1], dev_bytes, libxstream_opencl_mem_hint_compress);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[2], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, vel_dev_bytes, libxstream_opencl_mem_hint_compress);
 
     if (EXIT_SUCCESS == result) {
@@ -416,7 +415,7 @@ int main(int argc, char* argv[])
       result = stencil_seed_exp_buf(&ctx, p_host, nx, ny, nz);
     }
 
-    cur = 0; old = 1; new_idx = 2;
+    cur = 0; old = 1;
     t0 = libxs_timer_tick();
 
     for (t = 0; t < warmup + ntsteps && EXIT_SUCCESS == result; ++t) {
@@ -427,9 +426,9 @@ int main(int argc, char* argv[])
       }
       if (EXIT_SUCCESS == result) {
         result = stencil_apply_laplacian(&ctx,
-          p_buf[cur], p_buf[old], p_buf[new_idx], vel_dev, dt2, dh, nterms);
+          p_buf[cur], p_buf[old], p_buf[old], vel_dev, dt2, dh, nterms);
       }
-      tmp = old; old = cur; cur = new_idx; new_idx = tmp;
+      tmp = cur; cur = old; old = tmp;
     }
     if (EXIT_SUCCESS == result) {
       result = libxstream_stream_sync(ctx.stream);
@@ -454,12 +453,12 @@ int main(int argc, char* argv[])
       const int do_stats = (NULL != check_env && 0 == atoi(check_env)) ? 0 : 1;
       if (0 != do_stats) {
         float* gpu_new = NULL;
-        float* p_cpu[3] = { NULL, NULL, NULL };
+        float* p_cpu[2] = { NULL, NULL };
         const size_t n = (size_t)nx * ny * nz;
         const size_t check_bytes = (0 != ctx.blocked || 2 == ctx.layout)
           ? dev_bytes : grid_bytes;
         int check_ok = EXIT_SUCCESS;
-        int cpu_cur = 0, cpu_old = 1, cpu_new_idx = 2;
+        int cpu_cur = 0, cpu_old = 1;
 
         if (EXIT_SUCCESS == check_ok) {
           check_ok = libxstream_mem_host_allocate((void**)&gpu_new, check_bytes, ctx.stream);
@@ -469,9 +468,6 @@ int main(int argc, char* argv[])
         }
         if (EXIT_SUCCESS == check_ok && 0 != do_check) {
           check_ok = libxstream_mem_host_allocate((void**)&p_cpu[1], grid_bytes, ctx.stream);
-        }
-        if (EXIT_SUCCESS == check_ok && 0 != do_check) {
-          check_ok = libxstream_mem_host_allocate((void**)&p_cpu[2], grid_bytes, ctx.stream);
         }
 
         if (EXIT_SUCCESS == check_ok) {
@@ -541,13 +537,11 @@ int main(int argc, char* argv[])
           int ts;
           memcpy(p_cpu[cpu_cur], p_host_init, grid_bytes);
           memset(p_cpu[cpu_old], 0, grid_bytes);
-          memset(p_cpu[cpu_new_idx], 0, grid_bytes);
           for (ts = 0; ts < warmup + ntsteps; ++ts) {
             int tmp;
-            stencil_cpu_reference(p_cpu[cpu_new_idx], p_cpu[cpu_cur],
+            stencil_cpu_reference(p_cpu[cpu_old], p_cpu[cpu_cur],
               p_cpu[cpu_old], vel_host, fd_w, radius, nx, ny, nz, nterms, dt2);
-            tmp = cpu_old; cpu_old = cpu_cur;
-            cpu_cur = cpu_new_idx; cpu_new_idx = tmp;
+            tmp = cpu_cur; cpu_cur = cpu_old; cpu_old = tmp;
           }
         }
 
@@ -599,7 +593,6 @@ int main(int argc, char* argv[])
           fprintf(stderr, "WARNING: check/stats failed (memory or download error)\n");
         }
 
-        if (NULL != p_cpu[2]) libxstream_mem_host_deallocate(p_cpu[2], ctx.stream);
         if (NULL != p_cpu[1]) libxstream_mem_host_deallocate(p_cpu[1], ctx.stream);
         if (NULL != p_cpu[0]) libxstream_mem_host_deallocate(p_cpu[0], ctx.stream);
         if (NULL != gpu_new) libxstream_mem_host_deallocate(gpu_new, ctx.stream);
@@ -608,7 +601,6 @@ int main(int argc, char* argv[])
 
     if (NULL != pack_buf) libxstream_mem_host_deallocate(pack_buf, ctx.stream);
     if (NULL != vel_dev) libxstream_mem_dev_deallocate_hint(vel_dev);
-    if (NULL != p_buf[2]) libxstream_mem_dev_deallocate_hint(p_buf[2]);
     if (NULL != p_buf[1]) libxstream_mem_dev_deallocate_hint(p_buf[1]);
     if (NULL != p_buf[0]) libxstream_mem_dev_deallocate_hint(p_buf[0]);
     if (NULL != vel_host) libxstream_mem_host_deallocate(vel_host, ctx.stream);
@@ -764,11 +756,6 @@ static void stencil_cpu_reference(float* p_new, const float* p_cur,
 {
   const long n = (long)nx * ny * nz;
   long i;
-#if defined(_OPENMP)
-# pragma omp parallel for
-#endif
-  for (i = 0; i < n; ++i) p_new[i] = 0.0f;
-
 #if defined(_OPENMP)
 # pragma omp parallel for
 #endif
