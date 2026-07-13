@@ -250,6 +250,7 @@ int main(int argc, char* argv[])
     void* p_buf[3] = { NULL, NULL, NULL };
     void* vel_dev = NULL;
     float* p_host = NULL;
+    float* p_host_init = NULL;
     float* vel_host = NULL;
     float* pack_buf = NULL;
     libxs_timer_tick_t t0, t1;
@@ -310,6 +311,16 @@ int main(int argc, char* argv[])
 #       pragma omp parallel for
 #endif
         for (i = 0; i < n; ++i) p_host[i] = 0.0f;
+      }
+    }
+
+    if (EXIT_SUCCESS == result) {
+      const char *const check_env0 = getenv("STENCIL_CHECK");
+      const int do_check0 = (NULL != check_env0 && 0 != atoi(check_env0)) ? 1 : 0;
+      if (0 != do_check0) {
+        result = libxstream_mem_host_allocate((void**)&p_host_init,
+          grid_bytes, ctx.stream);
+        if (EXIT_SUCCESS == result) memcpy(p_host_init, p_host, grid_bytes);
       }
     }
 
@@ -477,36 +488,28 @@ int main(int argc, char* argv[])
       const int do_stats = (NULL != check_env && 0 == atoi(check_env)) ? 0 : 1;
       if (0 != do_stats) {
         float* gpu_new = NULL;
-        float* gpu_pcur = NULL;
-        float* gpu_pold = NULL;
-        float* cpu_ref = NULL;
+        float* p_cpu[3] = { NULL, NULL, NULL };
         const size_t n = (size_t)nx * ny * nz;
         const size_t check_bytes = (0 != ctx.blocked || 2 == ctx.layout)
           ? dev_bytes : grid_bytes;
-        const int nbufs = (0 != do_check) ? 3 : 1;
         int check_ok = EXIT_SUCCESS;
+        int cpu_cur = 0, cpu_old = 1, cpu_new_idx = 2;
 
         if (EXIT_SUCCESS == check_ok) {
           check_ok = libxstream_mem_host_allocate((void**)&gpu_new, check_bytes, ctx.stream);
         }
         if (EXIT_SUCCESS == check_ok && 0 != do_check) {
-          check_ok = libxstream_mem_host_allocate((void**)&gpu_pcur, check_bytes, ctx.stream);
+          check_ok = libxstream_mem_host_allocate((void**)&p_cpu[0], grid_bytes, ctx.stream);
         }
         if (EXIT_SUCCESS == check_ok && 0 != do_check) {
-          check_ok = libxstream_mem_host_allocate((void**)&gpu_pold, check_bytes, ctx.stream);
+          check_ok = libxstream_mem_host_allocate((void**)&p_cpu[1], grid_bytes, ctx.stream);
         }
         if (EXIT_SUCCESS == check_ok && 0 != do_check) {
-          check_ok = libxstream_mem_host_allocate((void**)&cpu_ref, grid_bytes, ctx.stream);
+          check_ok = libxstream_mem_host_allocate((void**)&p_cpu[2], grid_bytes, ctx.stream);
         }
 
         if (EXIT_SUCCESS == check_ok) {
           check_ok = libxstream_mem_copy_d2h(p_buf[cur], gpu_new, check_bytes, ctx.stream);
-        }
-        if (EXIT_SUCCESS == check_ok && 0 != do_check) {
-          check_ok = libxstream_mem_copy_d2h(p_buf[old], gpu_pcur, check_bytes, ctx.stream);
-        }
-        if (EXIT_SUCCESS == check_ok && 0 != do_check) {
-          check_ok = libxstream_mem_copy_d2h(p_buf[new_idx], gpu_pold, check_bytes, ctx.stream);
         }
         if (EXIT_SUCCESS == check_ok) {
           check_ok = libxstream_stream_sync(ctx.stream);
@@ -517,13 +520,8 @@ int main(int argc, char* argv[])
           float* tmp_linear = NULL;
           check_ok = libxstream_mem_host_allocate((void**)&tmp_linear, check_bytes, ctx.stream);
           if (EXIT_SUCCESS == check_ok) {
-            int buf;
-            float* bufs[3];
-            bufs[0] = gpu_new; bufs[1] = gpu_pcur; bufs[2] = gpu_pold;
-            for (buf = 0; buf < nbufs; ++buf) {
-              stencil_unpack_bf16s(tmp_linear, (const unsigned short*)bufs[buf], nphys);
-              memcpy(bufs[buf], tmp_linear, check_bytes);
-            }
+            stencil_unpack_bf16s(tmp_linear, (const unsigned short*)gpu_new, nphys);
+            memcpy(gpu_new, tmp_linear, check_bytes);
             libxstream_mem_host_deallocate(tmp_linear, ctx.stream);
           }
         }
@@ -533,25 +531,20 @@ int main(int argc, char* argv[])
           check_ok = libxstream_mem_host_allocate((void**)&tmp_linear, grid_bytes, ctx.stream);
           if (EXIT_SUCCESS == check_ok) {
             size_t ii;
-            int buf;
-            float* bufs[3];
-            bufs[0] = gpu_new; bufs[1] = gpu_pcur; bufs[2] = gpu_pold;
-            for (buf = 0; buf < nbufs; ++buf) {
 #if defined(_OPENMP)
-#             pragma omp parallel for
+#           pragma omp parallel for
 #endif
-              for (ii = 0; ii < n; ++ii) {
-                const int gx = (int)(ii % nx);
-                const int gy = (int)((ii / nx) % ny);
-                const int gz = (int)(ii / ((long)nx * ny));
-                const int bxi = gx >> 5, byi = gy >> 5, bzi = gz >> 5;
-                const long ti = ((long)bzi * ctx.nblocks[1] * ctx.nblocks[0]
-                  + (long)byi * ctx.nblocks[0] + bxi) * (long)(32 * 32 * 32)
-                  + (long)(gz & 31) * (32 * 32) + (long)(gy & 31) * 32 + (gx & 31);
-                tmp_linear[ii] = bufs[buf][ti];
-              }
-              memcpy(bufs[buf], tmp_linear, grid_bytes);
+            for (ii = 0; ii < n; ++ii) {
+              const int gx = (int)(ii % nx);
+              const int gy = (int)((ii / nx) % ny);
+              const int gz = (int)(ii / ((long)nx * ny));
+              const int bxi = gx >> 5, byi = gy >> 5, bzi = gz >> 5;
+              const long ti = ((long)bzi * ctx.nblocks[1] * ctx.nblocks[0]
+                + (long)byi * ctx.nblocks[0] + bxi) * (long)(32 * 32 * 32)
+                + (long)(gz & 31) * (32 * 32) + (long)(gy & 31) * 32 + (gx & 31);
+              tmp_linear[ii] = gpu_new[ti];
             }
+            memcpy(gpu_new, tmp_linear, grid_bytes);
             libxstream_mem_host_deallocate(tmp_linear, ctx.stream);
           }
         }
@@ -562,24 +555,44 @@ int main(int argc, char* argv[])
           if (EXIT_SUCCESS == check_ok) {
             const int pny = ny + 2 * hy, pnz = nz + 2 * hz;
             size_t ii;
-            int buf;
-            float* bufs[3];
-            bufs[0] = gpu_new; bufs[1] = gpu_pcur; bufs[2] = gpu_pold;
-            for (buf = 0; buf < nbufs; ++buf) {
 #if defined(_OPENMP)
-#             pragma omp parallel for
+#           pragma omp parallel for
 #endif
-              for (ii = 0; ii < n; ++ii) {
-                const int gx = (int)(ii % nx);
-                const int gy = (int)((ii / nx) % ny);
-                const int gz = (int)(ii / ((long)nx * ny));
-                const long zi = (long)(gx + hx) * pny * pnz
-                  + (long)(gy + hy) * pnz + (gz + hz);
-                tmp_linear[ii] = bufs[buf][zi];
-              }
-              memcpy(bufs[buf], tmp_linear, grid_bytes);
+            for (ii = 0; ii < n; ++ii) {
+              const int gx = (int)(ii % nx);
+              const int gy = (int)((ii / nx) % ny);
+              const int gz = (int)(ii / ((long)nx * ny));
+              const long zi = (long)(gx + hx) * pny * pnz
+                + (long)(gy + hy) * pnz + (gz + hz);
+              tmp_linear[ii] = gpu_new[zi];
             }
+            memcpy(gpu_new, tmp_linear, grid_bytes);
             libxstream_mem_host_deallocate(tmp_linear, ctx.stream);
+          }
+        }
+
+        if (EXIT_SUCCESS == check_ok && 0 != do_check) {
+          const int inject = (2 != ctx.layout) ? 1 : 0;
+          int ts;
+          memcpy(p_cpu[cpu_cur], p_host_init, grid_bytes);
+          memset(p_cpu[cpu_old], 0, grid_bytes);
+          memset(p_cpu[cpu_new_idx], 0, grid_bytes);
+          for (ts = 0; ts < warmup; ++ts) {
+            int tmp;
+            if (0 != inject) {
+              inject_source(p_cpu[cpu_cur], nx, ny, nz, dt_local, ts, freq);
+            }
+            stencil_cpu_reference(p_cpu[cpu_new_idx], p_cpu[cpu_cur],
+              p_cpu[cpu_old], vel_host, fd_w, radius, nx, ny, nz, nterms, dt2);
+            tmp = cpu_old; cpu_old = cpu_cur;
+            cpu_cur = cpu_new_idx; cpu_new_idx = tmp;
+          }
+          for (ts = 0; ts < ntsteps; ++ts) {
+            int tmp;
+            stencil_cpu_reference(p_cpu[cpu_new_idx], p_cpu[cpu_cur],
+              p_cpu[cpu_old], vel_host, fd_w, radius, nx, ny, nz, nterms, dt2);
+            tmp = cpu_old; cpu_old = cpu_cur;
+            cpu_cur = cpu_new_idx; cpu_new_idx = tmp;
           }
         }
 
@@ -601,10 +614,8 @@ int main(int argc, char* argv[])
           }
           have_fprint = (EXIT_SUCCESS == fprint_ok) ? 1 : 0;
           if (0 != do_check) {
-            stencil_cpu_reference(cpu_ref, gpu_pcur, gpu_pold, vel_host,
-              fd_w, radius, nx, ny, nz, nterms, dt2);
             libxs_matdiff(&diff, LIBXS_DATATYPE_F32, n_int, 1,
-              cpu_ref, gpu_new, NULL, NULL);
+              p_cpu[cpu_cur], gpu_new, NULL, NULL);
             printf("Check:\n");
             printf("  Linf abs:   %.6e\n", diff.linf_abs);
             printf("  Linf rel:   %.6e\n", diff.linf_rel);
@@ -633,9 +644,9 @@ int main(int argc, char* argv[])
           fprintf(stderr, "WARNING: check/stats failed (memory or download error)\n");
         }
 
-        if (NULL != cpu_ref) libxstream_mem_host_deallocate(cpu_ref, ctx.stream);
-        if (NULL != gpu_pold) libxstream_mem_host_deallocate(gpu_pold, ctx.stream);
-        if (NULL != gpu_pcur) libxstream_mem_host_deallocate(gpu_pcur, ctx.stream);
+        if (NULL != p_cpu[2]) libxstream_mem_host_deallocate(p_cpu[2], ctx.stream);
+        if (NULL != p_cpu[1]) libxstream_mem_host_deallocate(p_cpu[1], ctx.stream);
+        if (NULL != p_cpu[0]) libxstream_mem_host_deallocate(p_cpu[0], ctx.stream);
         if (NULL != gpu_new) libxstream_mem_host_deallocate(gpu_new, ctx.stream);
       }
     }
@@ -646,6 +657,7 @@ int main(int argc, char* argv[])
     if (NULL != p_buf[1]) libxstream_mem_dev_deallocate_hint(p_buf[1]);
     if (NULL != p_buf[0]) libxstream_mem_dev_deallocate_hint(p_buf[0]);
     if (NULL != vel_host) libxstream_mem_host_deallocate(vel_host, ctx.stream);
+    if (NULL != p_host_init) libxstream_mem_host_deallocate(p_host_init, ctx.stream);
     if (NULL != p_host) libxstream_mem_host_deallocate(p_host, ctx.stream);
   }
 
