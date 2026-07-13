@@ -13,7 +13,7 @@ High-order FD stencils for seismic wave propagation are bandwidth-bound on moder
 We reformulate the 3D isotropic Laplacian as three small dense matrix multiplications per axis,
 mapping the banded Toeplitz operator to hardware matrix engines (Intel DPAS) that would otherwise sit idle.
 To preserve FP32 accuracy from an INT8 datapath, we apply Ozaki-1 slicing
-(1-3 operator digits x 1-3 adaptive wavefield digits with a carried-forward exponent).
+(1-3 operator digits × 1-3 adaptive wavefield digits with a carried-forward exponent).
 No prior work combines Ozaki digit splitting with hardware matrix engines
 for finite-difference stencil operators.
 </span>
@@ -61,19 +61,19 @@ The hot loop is repeated stencil evaluation over (many) grid points.
 
 The current sample is a GPU stencil benchmark and integration example.
 
-| Mode                          | CLI              | Implemented path                              |
-|-------------------------------|------------------|-----------------------------------------------|
-| FP32 stencil (default)        |                  | SLM-tiled banded FMA, XYZ and ZYX layouts     |
-| Isotropic RTM-style Laplacian | `-d 3`           | fused 3-axis DPAS apply                       |
-| TTI-style anisotropic terms   | `-d 9`           | pure terms plus cross-derivative DPAS phases  |
-| Direct high-order stencil     | `-m 0`           | radius-4 per axis                             |
-| Compact variants              | `-m 1`, `-m 2`   | radius-1/radius-2 compact runtime paths       |
-| Compact dispersion-fit        | `-m 3`           | minimax-fitted coefficients (PPW=8 default)   |
-| INT8-DPAS Ozaki-1 (Intel)     | `STENCIL_INT8=1` | signed 8-bit slicing with carried exponent    |
-| INT8 dp4a Ozaki-1 (NV>=2)     | `STENCIL_INT8=1` | Ozaki-1 slicing, PTX dp4a on NVIDIA SM>=7.5   |
-| INT8 scalar fallback          | `STENCIL_INT8=2` | Ozaki-1 slicing, scalar multiply-add          |
-| INT8 implicit operator (def.) | `STENCIL_I8_OP=implicit` | dense compact `A^-1 B`, radius-2 gather |
-| INT8 banded operator          | `STENCIL_I8_OP=banded`   | explicit radius-4 FD weights            |
+| Mode                          | CLI                      | Implemented path                              |
+|-------------------------------|--------------------------|-----------------------------------------------|
+| FP32 stencil (default)        |                          | SLM-tiled banded FMA, XYZ and ZYX layouts     |
+| Isotropic RTM-style Laplacian | `-d 3`                   | fused 3-axis DPAS apply                       |
+| TTI-style anisotropic terms   | `-d 9`                   | pure terms plus cross-derivative DPAS phases  |
+| Direct high-order stencil     | `-m 0`                   | radius-4 per axis                             |
+| Compact variants              | `-m 1`, `-m 2`           | radius-1/radius-2 compact runtime paths       |
+| Compact dispersion-fit        | `-m 3`                   | minimax-fitted coefficients (PPW=8 default)   |
+| INT8-DPAS Ozaki-1 (Intel)     | `STENCIL_INT8=1`         | signed 8-bit slicing with carried exponent    |
+| INT8 dp4a Ozaki-1 (NV>=2)     | `STENCIL_INT8=1`         | Ozaki-1 slicing, PTX dp4a on NVIDIA SM>=7.5   |
+| INT8 scalar fallback          | `STENCIL_INT8=2`         | Ozaki-1 slicing, scalar multiply-add          |
+| INT8 implicit operator (def.) | `STENCIL_I8_OP=implicit` | dense compact `A⁻¹ B`, radius-2 gather        |
+| INT8 banded operator          | `STENCIL_I8_OP=banded`   | explicit radius-4 FD weights                  |
 
 Note: the INT8 path defaults to the implicit-dense compact operator (see below).
 INT8 supports XYZ and ZYX; ZYX no longer forces an FP32 fallback.
@@ -82,7 +82,7 @@ INT8 supports XYZ and ZYX; ZYX no longer forces an FP32 fallback.
 
 ## Block View
 
-The sample updates one `32 x 32 x 32` output cube per block.
+The sample updates one `32 × 32 × 32` output cube per block.
 
 ```text
 BLK       = 32
@@ -186,25 +186,22 @@ nslices_eff = 1  if assumed_exp <= 7
 
 ## INT8 Implicit Operator (default)
 
-The INT8 path defaults to a compact implicit operator instead of the banded
-explicit stencil. A Lele 6th-order tridiagonal scheme $A y = B p$ is inverted
-once, offline, into a dense translation-invariant operator $D' = A^{-1} B$ that
-maps the gathered wavefield window to the Laplacian.
+Lele 6th-order tridiagonal $A y = B p$ inverted offline into a dense  
+translation-invariant operator that fits the DPAS micro-kernel.
 
-$$\mathcal{L}(p) \approx D' \cdot p, \qquad D' = A^{-1} B \text{ (precomputed)}$$
+$$\mathcal{L}(p) \approx D' \cdot p, \qquad D' = A^{-1} B$$
 
-- Same DPAS micro-kernel and single gather as the banded path.
-- `STENCIL_R_GATHER=2` (default): the exponentially-decaying `A^{-1}B` tail is
-  truncated to a radius-2 window; accuracy is quantization-limited, not
-  operator-limited, so this is essentially free.
-- `STENCIL_NDIGITS_X=2` (default): the wavefield SLM footprint shrinks, raising
-  occupancy. Measured ~+10% over the banded operator at N=800 on PVC-1T at
-  matched accuracy (Linf rel 1.28e-2 vs the FP32 reference).
-- `STENCIL_I8_OP=banded` selects the classic explicit radius-4 operator.
+- Same DPAS kernel and single gather as the banded path.
+- `STENCIL_R_GATHER=2` truncates the tail; quantization-limited, so free.
+- `STENCIL_NDIGITS_X=2` shrinks wavefield SLM, raises occupancy.
+- `STENCIL_I8_OP=banded` selects the classic radius-4 operator.
 
-Note: The dense operator's row weights are re-normalized to sum to zero after
-truncation, preserving the constant-annihilation property that keeps the
-leapfrog stable.
+Perf. 10% over banded at N=800 (PVC-1T), accuracy
+Linf_rel=1.28e-2 vs FP32 reference.
+
+Note: Row weights are re-normalized to sum to zero after truncation,
+preserving the constant-annihilation property that keeps the leapfrog
+stable.
 
 ---
 
@@ -231,10 +228,10 @@ INT8 path: $N_A \times$ P-slices$_{eff}$ DPAS products per axis (default $N_A = 
 
 | Operator family   | INT8 work/block (NDA=1) |
 |-------------------|-------------------------|
-| Isotropic, direct | 3 axes x 1-3 = 3-9      |
+| Isotropic, direct | 3 axes × 1-3 = 3-9      |
 | Compact           | same DPAS, fewer K      |
 
-The shape is always small and regular: `8 x 16` DPAS tiles over the K dimension.
+The shape is always small and regular: `8 × 16` DPAS tiles over the K dimension.
 
 ---
 
@@ -338,7 +335,7 @@ the worst-case dispersion error over the band $[0, 2\pi/\text{PPW}]$.
 Effective reach arises from repeated time updates,  
 not from loading the long halo every step.
 
-Note: PPW = Points Per Wavelength -- the number of grid points
+Note: PPW = Points Per Wavelength — the number of grid points
 that resolve one shortest wavelength of interest. Higher PPW
 means the fitting band covers only well-resolved frequencies.
 
@@ -473,21 +470,13 @@ Note: The "compact" case uses a radius-3 stencil with fitted coefficients.
 Uses ZYX layout and individual coefficients per axis and Perfectly Matched Layer.  
 There is a point-source injection every time step (one grid point).
 
-### Zero Initialization
+Starting point of shown iterations is either zero- or random-initialization.
 
-| GPU      | 1k   | 2k   | 4k   |
-|----------|------|------|------|
-| H100     | 58.9 | 59.0 | 58.7 |
-| PVC-1T\* | 40.0 | 39.2 | 37.7 |
-| B70      | 60.8 | 56.7 | 45.6 |
-
-### Random Initialization
-
-| GPU      | 1k   | 2k   | 4k   |
-|----------|------|------|------|
-| H100     | 58.9 | 59.0 | 58.7 |
-| PVC-1T\* | 36.4 | 36.4 | 36.4 |
-| B70      | 30.8 | 30.8 | 30.8 |
+| GPU      | Zero-1k | Zero-2k | Zero-4k | Rand-1k | Rand-2k | Rand-4k |
+|----------|---------|---------|---------|---------|---------|---------|
+| H100     | 58.9    | 59.0    | 58.7    | 58.9    | 59.0    | 58.7    |
+| PVC-1T\* | 40.0    | 39.2    | 37.7    | 36.4    | 36.4    | 36.4    |
+| B70      | 60.8    | 56.7    | 45.6    | 30.8    | 30.8    | 30.8    |
 
 <div markdown="1" style="opacity: 0.2; font-size: 50%;">
 
@@ -502,9 +491,9 @@ There is a point-source injection every time step (one grid point).
 Write CSV-files:
 
 ```bash
-./stencil.py --kernel fp32 --sizes 50:850:50
-./stencil.py --kernel fp32 --sizes 50:850:50 --pml --layout 2
-./stencil.py --kernel int8 --sizes 50:850:50
+STENCIL_CHECK=0 ./stencil.py --kernel int8 --sizes 50:850:50
+STENCIL_CHECK=0 ./stencil.py --kernel fp32 --sizes 50:850:50 --pml --layout 2
+STENCIL_CHECK=0 ./stencil.py --kernel fp32 --sizes 50:850:50
 ```
 
 Plot graph:
@@ -513,25 +502,11 @@ Plot graph:
 ./stencil.py --input stencil-fp32.csv --peak-bandwidth-gbs 540 --dark
 ```
 
----
-
-## Intel® Arc™ Pro B70 (FP32)
-
-<img class="wide" src="assets/stencil-b70-fp32.png" alt="B70 FP32"/>
-
-Note: Performance is fully bandwidth-bound.
+Note: Results on B580 and B70 may have been collected using LIBXSTREAM_USM=0.
 
 ---
 
-## Intel® Arc™ Pro B70 (FP32, PML, ZYX)
-
-<img class="wide" src="assets/stencil-b70-fp32-pml.png" alt="B70 FP32 PML"/>
-
-Note: Performance is fully bandwidth-bound.
-
----
-
-## Intel® Arc™ Pro B70 (INT8)
+## Intel® Arc™ Pro B70 (INT8, XYT)
 
 <img class="wide" src="assets/stencil-b70-int8.png" alt="B70 INT8"/>
 
@@ -540,26 +515,47 @@ INT8 is bound by gather and slicing overhead.
 
 ---
 
+## Intel® Arc™ Pro B70 (FP32+PML, ZYX)
+
+<img class="wide" src="assets/stencil-b70-fp32-pml.png" alt="B70 FP32 PML"/>
+
+Note: Performance is fully bandwidth-bound.
+
+---
+
+## Intel® Arc™ Pro B70 (FP32, XYZ)
+
+<img class="wide" src="assets/stencil-b70-fp32.png" alt="B70 FP32"/>
+
+Note: Performance is fully bandwidth-bound.
+
+---
+
 ## Accuracy vs. Performance (FP32)
 
-Compact operators trade spatial accuracy for throughput.  
-Measured on PVC-1T, N=128, 10 steps, random init, `STENCIL_CHECK=1`.
+Compact operators trade spatial accuracy for throughput. Measured on PVC-1T,  
+N=800, random init, no PML, `STENCIL_CHECK=1` with a CPU based radius-4 direct  
+stencil as reference, and an error measure using the relative Infinity Norm.
 
-| Method          | Radius | K | GPoints/s | Linf rel |
-|-----------------|--------|---|-----------|----------|
-| Direct          | r=4    | 1 | 29.5      | 7.0e-8   |
-| Compact-fit     | r=3    | 2 | 34.4      | 4.0e-4   |
-| Compact-fit     | r=2    | 2 | 42.9      | 1.4e-3   |
-| Compact r2      | r=2    | 2 | 43.1      | 1.6e-3   |
-| Compact r1      | r=1    | 4 | 43.1      | 3.8e-3   |
+| Method\*     | Radius | K | GPoints/s | t=10   | t=100  |
+|--------------|--------|---|-----------|--------|--------|
+| Direct       | r=4    | 1 | 42.6      | 1.8e-6 | 1.9e-5 |
+| Compact-fit  | r=3    | 2 | 44.6      | 2.1e-2 | 1.0    |
+| Compact-fit  | r=2    | 2 | 51.0      | 7.3e-2 | 5.8    |
+| Compact r2   | r=2    | 2 | 50.9      | 8.3e-2 | 5.8    |
+| Compact r1   | r=1    | 4 | 53.4      | 2.1e-1 | 11     |
 
-Reference: CPU radius-4 direct stencil. Compact-fit uses  
-minimax dispersion fitting (PPW=8).
+<div markdown="1" style="opacity: 0.2; font-size: 50%;">
 
-Note: Linf rel stays bounded over time (e.g., 2.6e-4 for fit-r3 at
-N=800, 1000 steps) while L2 grows because the compact operator's
-different dispersion curve causes cumulative phase drift vs. the
-direct reference -- both are physically valid wave propagation.
+\* Compact operators use different dispersion curves
+with "compact-fit" using minimax fitting (PPW=8).
+
+</div>
+
+The direct path on GPU matches the CPU to single-precision
+noise (even at t=100). Compact vs direct shows cumulative
+phase drift — still physically valid wave propagation but
+diverged on a per-point basis over time.
 
 ---
 
@@ -567,14 +563,13 @@ direct reference -- both are physically valid wave propagation.
 
 Seismic stencils as dense small matrix multiplications.
 
-- FP32 banded-FMA (default): fastest on BW-bound hardware, supports all layouts
-- INT8-DPAS (Ozaki-1, configurable 1-3 operator digits x 1-3 adaptive wavefield digits)
-- INT8 defaults to an implicit-dense compact operator (`A^-1 B`), ~+10% over banded at matched accuracy
+- FP32 banded-FMA: fastest on BW-bound hardware
+- INT8-DPAS via Ozaki-1: 1-3 D digits, 1-3 adaptive P digits
+- INT8 default: implicit `A⁻¹ B`, +10% over banded
 - Compact paths: long-leg reach, short-leg cost
-- Compact-fit: minimax dispersion optimization for target PPW
-- RTM isotropic: three directional GEMMs per time step
+- RTM isotropic: three directional GEMMs per step
 
-&#x2192; Expressing stencil structure so matrix engines can execute it.
+→ Expressing stencil structure so matrix engines can execute it.
 
 Note: Can LP exceed FP32 (assuming FP32 remains native)?
 This is only possible by reducing BW-consumption like STENCIL_BF16S=1.
@@ -591,8 +586,6 @@ Minimal compiler requirements (C90), e.g., GNU\* Compiler.
   - For example, predicting tuning parameters
 
 Leverage runtime code generation to specialize kernels (JIT).
-
-Note: Results on B580 and B70 may have been collected using LIBXSTREAM_USM=0.
 
 ---
 

@@ -590,7 +590,7 @@ def main(argv):
         "--radius-fit",
         type=int,
         choices=(2, 3),
-        help="Fit radius for compact-fit method (sets STENCIL_RADIUS_FIT, default 2).",
+        help="Fit radius for compact-fit method (sets STENCIL_RADIUS_FIT, default 3).",
     )
     parser.add_argument(
         "--ppw",
