@@ -28,6 +28,10 @@ jobs:
     branch: main
   - <<: *copr_build
     trigger: pull_request
+    manual_trigger: true
+    allowed_pr_authors:
+      - hfp
+      - Growl1234
 
   - job: propose_downstream
     trigger: release
