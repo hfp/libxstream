@@ -11,7 +11,6 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  bash
 BuildRequires:  gcc
-BuildRequires:  gcc-gfortran
 BuildRequires:  make
 BuildRequires:  ocl-icd-devel
 BuildRequires:  opencl-headers
