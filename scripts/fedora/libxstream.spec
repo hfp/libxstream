@@ -29,8 +29,8 @@ Requires:       ocl-icd-devel%{?_isa}
 
 %description devel
 This package contains headers, pkg-config metadata, CMake package files,
-the supported header-only source tree, OpenCL kernels, and API documentation
-for developing applications that use LIBXSTREAM.
+OpenCL kernels, and API documentation for developing applications that use
+LIBXSTREAM.
 
 %prep
 %autosetup
@@ -43,16 +43,18 @@ for developing applications that use LIBXSTREAM.
 %make_install PREFIX=%{_prefix} CLEAN=0 STATIC=0 \
     POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name}
 
-rm -f %{buildroot}%{_datadir}/%{name}/LICENSE.md
-
 %files
 %license LICENSE.md
 %doc README.md
 %{_libdir}/libxstream.so.*
 
 %files devel
-%license LICENSE.md
-%doc %{_datadir}/%{name}
+%license %{_docdir}/%{name}/LICENSE.md
+%doc %{_docdir}/%{name}/index.md
+%doc %{_docdir}/%{name}/libxstream_*.md
+%doc %{_docdir}/%{name}/*.pdf
+%doc %{_docdir}/%{name}/build.txt
+%{_datadir}/%{name}
 %{_includedir}/%{name}/
 %{_libdir}/libxstream.so
 %{_libdir}/pkgconfig/libxstream*.pc

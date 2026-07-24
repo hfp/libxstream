@@ -26,7 +26,7 @@ PMODDIR ?= $(OUTDIR)
 PBINDIR ?= $(BINDIR)
 PTSTDIR ?= $(TSTDIR)
 PSHRDIR ?= share/$(PROJECT)
-PDOCDIR ?= $(PSHRDIR)
+PDOCDIR ?= share/doc/$(PROJECT)
 LICFDIR ?= $(PDOCDIR)
 LICFILE ?= LICENSE.md
 
@@ -425,6 +425,9 @@ distclean: deepclean
 # remove existing PREFIX
 CLEAN ?= 0
 
+# install the header-only implementation sources
+HEADER_ONLY ?= 0
+
 .PHONY: install-minimal
 install-minimal: $(PROJECT)
 ifneq ($(PREFIX),$(ABSDIR))
@@ -456,12 +459,14 @@ endif
 	@$(CP) -v  $(INCDIR)/$(PROJECT).h $(PREFIX)/$(PINCDIR)
 	@$(CP) -va $(INCDIR)/*.mod* $(PREFIX)/$(PINCDIR) 2>/dev/null || true
 	@echo
+ifneq (0,$(HEADER_ONLY))
 	@echo "$(PROJUPP) installing header-only..."
 	@$(MKDIR) -p $(PREFIX)/$(PINCDIR)/$(PSRCDIR)
 	@$(CP) -r $(ROOTSRC)/* $(PREFIX)/$(PINCDIR)/$(PSRCDIR)
 # regenerate header-only
 	@$(ROOTSCR)/tool_source.sh $(PSRCDIR) >$(PREFIX)/$(PINCDIR)/$(PROJECT)_source.h
 	@echo
+endif
 	@echo "$(PROJUPP) installing support scripts..."
 	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)/$(SCRDIR)
 	@$(CP) -v $(ROOTSCR)/tool_opencl.sh $(PREFIX)/$(PSHRDIR)/$(SCRDIR)

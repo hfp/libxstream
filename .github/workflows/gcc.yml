@@ -49,7 +49,7 @@ jobs:
 
     - name: Install (PREFIX)
       if: matrix.libxs != 'header-only'
-      run: make -j $(nproc) ${{ matrix.flags }} install PREFIX=$HOME/libxstream-install
+      run: make -j $(nproc) ${{ matrix.flags }} HEADER_ONLY=1 install PREFIX=$HOME/libxstream-install
 
     - name: Verify install (PREFIX)
       if: matrix.libxs != 'header-only'
@@ -177,6 +177,7 @@ jobs:
         cmake -B build \
           -DCMAKE_BUILD_TYPE=Debug \
           -DCMAKE_INSTALL_PREFIX=$HOME/libxstream-install \
+          -DLIBXSTREAM_INSTALL_HEADER_ONLY=ON \
           -DBUILD_SHARED_LIBS=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }}
 
     - name: Build

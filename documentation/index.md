@@ -62,8 +62,8 @@ Install into a chosen prefix (LIBXS must be built first):
 make GNU=1 -j $(nproc) install PREFIX=$HOME/libxstream
 ```
 
-This installs headers, the static and shared libraries, and the
-header-only source tree under `PREFIX`.
+This installs headers and the static and shared libraries under `PREFIX`.
+The header-only source tree is optional; add `HEADER_ONLY=1` to install it.
 
 Out-of-tree builds are also supported:
 

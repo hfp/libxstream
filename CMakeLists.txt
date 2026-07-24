@@ -19,6 +19,8 @@ project(libxstream
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
+option(LIBXSTREAM_INSTALL_HEADER_ONLY "Install the header-only implementation sources" OFF)
+
 set(LIBXS_GIT_REPOSITORY "https://github.com/hfp/libxs.git")
 set(LIBXS_GIT_TAG "main")
 
@@ -157,20 +159,24 @@ install(TARGETS libxstream
 
 install(DIRECTORY "${LIBXSTREAM_INCLUDE_DIR}/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/libxstream"
-  FILES_MATCHING PATTERN "*.h")
-
-# Install header-only source files (always available)
-file(READ "${LIBXSTREAM_INCLUDE_DIR}/libxstream_source.h" LIBXSTREAM_SOURCE_HEADER)
-string(REPLACE "../src/" "src/" LIBXSTREAM_SOURCE_HEADER "${LIBXSTREAM_SOURCE_HEADER}")
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h" "${LIBXSTREAM_SOURCE_HEADER}")
-
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h"
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/libxstream")
-install(DIRECTORY "${LIBXSTREAM_ROOT_DIR}/src/"
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/libxstream/src"
   FILES_MATCHING
-    PATTERN "*.c"
-    PATTERN "*.h")
+    PATTERN "*.h"
+    PATTERN "libxstream_source.h" EXCLUDE)
+
+# Install the optional header-only implementation.
+if(LIBXSTREAM_INSTALL_HEADER_ONLY)
+  file(READ "${LIBXSTREAM_INCLUDE_DIR}/libxstream_source.h" LIBXSTREAM_SOURCE_HEADER)
+  string(REPLACE "../src/" "src/" LIBXSTREAM_SOURCE_HEADER "${LIBXSTREAM_SOURCE_HEADER}")
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h" "${LIBXSTREAM_SOURCE_HEADER}")
+
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/libxstream_source.h"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/libxstream")
+  install(DIRECTORY "${LIBXSTREAM_ROOT_DIR}/src/"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/libxstream/src"
+    FILES_MATCHING
+      PATTERN "*.c"
+      PATTERN "*.h")
+endif()
 
 # Install pkg-config files
 install(FILES
@@ -280,21 +286,17 @@ install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfigVersion.cmake"
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/libxstream")
 
-# Install documentation into share/libxstream
-set(LIBXSTREAM_SHARE_DIR "${CMAKE_INSTALL_DATADIR}/libxstream")
-
-file(GLOB LIBXSTREAM_DOC_MDS LIST_DIRECTORIES false
-  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/libxstream_*.md")
-list(REMOVE_ITEM LIBXSTREAM_DOC_MDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/libxstream_samples.md"
-  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/libxstream_scripts.md")
-
-set(LIBXSTREAM_DOC_EXTRA
-  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/index.md"
-  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/LICENSE.md")
-
-file(GLOB LIBXSTREAM_DOC_PDFS LIST_DIRECTORIES false
-  "${CMAKE_CURRENT_SOURCE_DIR}/documentation/*.pdf")
-
-install(FILES ${LIBXSTREAM_DOC_MDS} ${LIBXSTREAM_DOC_EXTRA} ${LIBXSTREAM_DOC_PDFS}
-  DESTINATION "${LIBXSTREAM_SHARE_DIR}")
+# Install documentation.
+install(
+  DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/documentation/"
+  DESTINATION "${CMAKE_INSTALL_DOCDIR}"
+  FILES_MATCHING
+    PATTERN "*.md"
+    PATTERN "*.pdf"
+    PATTERN "*.css"
+    PATTERN "*.png"
+    PATTERN "tests" EXCLUDE
+    PATTERN "libxstream_present.md" EXCLUDE
+    PATTERN "libxstream_samples.md" EXCLUDE
+    PATTERN "libxstream_scripts.md" EXCLUDE
+)

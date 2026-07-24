@@ -16,7 +16,7 @@ override_dh_auto_install:
 	$(MAKE) install PREFIX=usr DESTDIR=$(CURDIR)/debian/tmp CLEAN=0 STATIC=0 \
 	    POUTDIR=$(LIBDIR) PPKGDIR=$(LIBDIR)/pkgconfig \
 	    PCMKDIR=$(LIBDIR)/cmake/libxstream
-	rm -f debian/tmp/usr/share/libxstream/LICENSE.md
+	rm -f debian/tmp/usr/share/doc/libxstream/LICENSE.md
 
 override_dh_auto_test:
 

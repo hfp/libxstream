@@ -3,3 +3,4 @@ usr/lib/*/libxstream.so
 usr/lib/*/pkgconfig/libxstream*.pc
 usr/lib/*/cmake/libxstream/
 usr/share/libxstream/
+usr/share/doc/libxstream/
