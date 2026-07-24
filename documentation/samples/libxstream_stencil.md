@@ -303,7 +303,8 @@ methods 1-3.  TTI cross-terms still use the direct two-phase DPAS path.
 Environment variables controlling kernel specialization:
 
     STENCIL_BF16     BF16-DPAS kernel (1=native BF16, 2=FP32-split via BF16)
-    STENCIL_BF16S    BF16 split wavefield storage format (0/1)
+    STENCIL_BF16S    BF16 wavefield storage limbs (0=off, 1=single 2-byte
+                     limb halves traffic, 2=two limbs FP32-equivalent)
     STENCIL_INT8     INT8-DPAS kernel (1=native INT8, 2=FP32-split via INT8)
     STENCIL_METHOD   operator method (0-3, default 0)
     STENCIL_STRIPS_PER_WG
@@ -311,8 +312,6 @@ Environment variables controlling kernel specialization:
     STENCIL_SG       subgroup size override (default: device preferred)
     STENCIL_GRF256   force 256-GRF mode (0/1, default: auto)
     STENCIL_TRIM     drop least-significant digit products (BF16 path)
-    STENCIL_COMP     compensated (Kahan) sum across digit-pair partials (BF16 path)
-    STENCIL_BC       boundary: 0=clamp/edge-replicate (default), 1=zero-fill (BF16 path)
     STENCIL_LU       loop unroll strategy (-1=none, 0=inner, 1=outer)
     STENCIL_LAYOUT   memory layout (0=XYZ, 1=blocked, 2=ZYX)
     STENCIL_HALO     halo/padding size per axis

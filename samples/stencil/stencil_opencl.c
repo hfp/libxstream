@@ -316,34 +316,36 @@ static void stencil_store_bf16_digits(cl_ushort* dst, int stride,
 
 
 static void stencil_store_bf16s_value(cl_ushort* dst, size_t idx,
-                                      size_t stride, float value)
+                                      size_t stride, int ndigits, float value)
 {
   const libxs_bf16_t hi = libxs_round_bf16_f32(value);
   dst[idx] = hi;
-  dst[idx + stride] = libxs_round_bf16_f32(value - libxs_bf16_to_f32(hi));
+  if (1 < ndigits) {
+    dst[idx + stride] = libxs_round_bf16_f32(value - libxs_bf16_to_f32(hi));
+  }
 }
 
 
-void stencil_pack_bf16s(cl_ushort* dst, const float* src, size_t n)
+void stencil_pack_bf16s(cl_ushort* dst, const float* src, size_t n, int ndigits)
 {
   size_t i;
 #if defined(_OPENMP)
 # pragma omp parallel for
 #endif
   for (i = 0; i < n; ++i) {
-    stencil_store_bf16s_value(dst, i, n, src[i]);
+    stencil_store_bf16s_value(dst, i, n, ndigits, src[i]);
   }
 }
 
 
 void stencil_pack_bf16s_blocked(cl_ushort* dst, const float* src,
                                 int nx, int ny, int nz,
-                                int nbx, int nby, int nbz)
+                                int nbx, int nby, int nbz, int ndigits)
 {
   const int blk = STENCIL_BLK;
   const size_t stride = (size_t)nbx * nby * nbz * blk * blk * blk;
   int bz, by, bx, lz, ly, lx;
-  memset(dst, 0, 2 * stride * sizeof(cl_ushort));
+  memset(dst, 0, (size_t)ndigits * stride * sizeof(cl_ushort));
 #if defined(_OPENMP)
 # pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
 #endif
@@ -361,7 +363,7 @@ void stencil_pack_bf16s_blocked(cl_ushort* dst, const float* src,
               const long dst_idx = tile_base + (long)lz * blk * blk + (long)ly * blk + lx;
               if (gx < nx && gy < ny && gz < nz) {
                 const float val = src[(long)gz * ny * nx + (long)gy * nx + gx];
-                stencil_store_bf16s_value(dst, (size_t)dst_idx, stride, val);
+                stencil_store_bf16s_value(dst, (size_t)dst_idx, stride, ndigits, val);
               }
             }
           }
@@ -374,12 +376,12 @@ void stencil_pack_bf16s_blocked(cl_ushort* dst, const float* src,
 
 void stencil_pack_bf16s_zyx(cl_ushort* dst, const float* src,
                             int nx, int ny, int nz,
-                            int hx, int hy, int hz)
+                            int hx, int hy, int hz, int ndigits)
 {
   const int pnx = nx + 2 * hx, pny = ny + 2 * hy, pnz = nz + 2 * hz;
   const size_t stride = (size_t)pnx * pny * pnz;
   int ix, iy, iz;
-  memset(dst, 0, 2 * stride * sizeof(cl_ushort));
+  memset(dst, 0, (size_t)ndigits * stride * sizeof(cl_ushort));
 #if defined(_OPENMP)
 # pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
 #endif
@@ -389,22 +391,23 @@ void stencil_pack_bf16s_zyx(cl_ushort* dst, const float* src,
         const long src_idx = (long)iz * ny * nx + (long)iy * nx + ix;
         const long dst_idx = (long)(ix + hx) * pny * pnz
           + (long)(iy + hy) * pnz + (iz + hz);
-        stencil_store_bf16s_value(dst, (size_t)dst_idx, stride, src[src_idx]);
+        stencil_store_bf16s_value(dst, (size_t)dst_idx, stride, ndigits, src[src_idx]);
       }
     }
   }
 }
 
 
-void stencil_unpack_bf16s(float* dst, const cl_ushort* src, size_t n)
+void stencil_unpack_bf16s(float* dst, const cl_ushort* src, size_t n, int ndigits)
 {
   size_t i;
 #if defined(_OPENMP)
 # pragma omp parallel for
 #endif
   for (i = 0; i < n; ++i) {
-    dst[i] = (float)(libxs_bf16_to_f64(src[i])
-      + libxs_bf16_to_f64(src[i + n]));
+    double acc = libxs_bf16_to_f64(src[i]);
+    if (1 < ndigits) acc += libxs_bf16_to_f64(src[i + n]);
+    dst[i] = (float)acc;
   }
 }
 
@@ -832,6 +835,8 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   }
 
   ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
+  if (2 < ctx->bf16s) ctx->bf16s = 2;
+  if (0 > ctx->bf16s) ctx->bf16s = 0;
 
   { const int bf16_val = (NULL != bf16_env) ? atoi(bf16_env) : 0;
     const int has_dpas = (devinfo->intel >= 2) ? 1 : 0;

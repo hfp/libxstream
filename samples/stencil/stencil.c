@@ -153,8 +153,10 @@ int main(int argc, char* argv[])
       const char *bf16s = getenv("STENCIL_BF16S");
       const char *int8v = getenv("STENCIL_INT8");
       const char *kname = "FP32";
-      const char *storage = (NULL != bf16s && 0 != atoi(bf16s))
-        ? " + BF16S-storage" : "";
+      const int bf16s_n = (NULL != bf16s) ? atoi(bf16s) : 0;
+      const char *storage = (1 >= bf16s_n)
+        ? (1 == bf16s_n ? " + BF16S-storage (1 digit)" : "")
+        : " + BF16S-storage (2 digits)";
       if (NULL != bf16v && 2 == atoi(bf16v)) kname = "FP32-split (BF16-DPAS)";
       else if (NULL != bf16v && 0 != atoi(bf16v)) kname = "BF16-DPAS";
       else if (NULL != int8v && 2 == atoi(int8v)) kname = "FP32-split (INT8-DPAS)";
@@ -233,10 +235,13 @@ int main(int argc, char* argv[])
     const size_t padded_bytes = (2 == ctx.layout)
       ? (size_t)(nx + 2 * hx) * (ny + 2 * hy) * (nz + 2 * hz) * sizeof(float)
       : grid_bytes;
-    const size_t dev_bytes = (0 != ctx.blocked)
+    const size_t dev_fp32_bytes = (0 != ctx.blocked)
       ? stencil_blocked_size(ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2])
       : padded_bytes;
-    const size_t vel_dev_bytes = (0 != ctx.blocked) ? dev_bytes : grid_bytes;
+    const size_t dev_bytes = (0 != ctx.bf16s)
+      ? dev_fp32_bytes / sizeof(float) * (size_t)ctx.bf16s * sizeof(short)
+      : dev_fp32_bytes;
+    const size_t vel_dev_bytes = (0 != ctx.blocked) ? dev_fp32_bytes : grid_bytes;
     const double gpoints = (double)nx * ny * nz * 1.0e-9;
     const float dt_local = 0.6f * (float)h
                          / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
@@ -263,7 +268,9 @@ int main(int argc, char* argv[])
       if (0 != trace) fprintf(stderr, "TRACE: allocate vel_host done result=%d\n", result);
     }
     if (EXIT_SUCCESS == result && (0 != ctx.blocked || 0 != ctx.bf16s)) {
-      result = libxstream_mem_host_allocate((void**)&pack_buf, dev_bytes, ctx.stream);
+      const size_t pack_bytes = (dev_bytes < dev_fp32_bytes)
+        ? dev_fp32_bytes : dev_bytes;
+      result = libxstream_mem_host_allocate((void**)&pack_buf, pack_bytes, ctx.stream);
     }
 
     if (EXIT_SUCCESS == result) {
@@ -327,14 +334,15 @@ int main(int argc, char* argv[])
       if (0 != ctx.bf16s) {
         if (0 != ctx.blocked) {
           stencil_pack_bf16s_blocked((unsigned short*)pack_buf, p_host, nx, ny, nz,
-            ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
+            ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2], ctx.bf16s);
         }
         else if (2 == ctx.layout) {
           stencil_pack_bf16s_zyx((unsigned short*)pack_buf, p_host,
-            nx, ny, nz, hx, hy, hz);
+            nx, ny, nz, hx, hy, hz, ctx.bf16s);
         }
         else {
-          stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz);
+          stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz,
+            ctx.bf16s);
         }
         result = libxstream_mem_copy_h2d(pack_buf, p_buf[0], dev_bytes, ctx.stream);
       }
@@ -382,7 +390,7 @@ int main(int argc, char* argv[])
       if (0 != ctx.blocked) {
         stencil_pack_blocked(pack_buf, vel_host, nx, ny, nz,
           ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2]);
-        result = libxstream_mem_copy_h2d(pack_buf, vel_dev, dev_bytes, ctx.stream);
+        result = libxstream_mem_copy_h2d(pack_buf, vel_dev, vel_dev_bytes, ctx.stream);
       }
       else if (2 == ctx.layout) {
         float* zyx_vel = NULL;
@@ -457,7 +465,8 @@ int main(int argc, char* argv[])
         float* p_cpu[2] = { NULL, NULL };
         const size_t n = (size_t)nx * ny * nz;
         const size_t check_bytes = (0 != ctx.blocked || 2 == ctx.layout)
-          ? dev_bytes : grid_bytes;
+          ? dev_fp32_bytes : grid_bytes;
+        const size_t copy_bytes = (0 != ctx.bf16s) ? dev_bytes : check_bytes;
         int check_ok = EXIT_SUCCESS;
         int cpu_cur = 0, cpu_old = 1;
 
@@ -472,7 +481,7 @@ int main(int argc, char* argv[])
         }
 
         if (EXIT_SUCCESS == check_ok) {
-          check_ok = libxstream_mem_copy_d2h(p_buf[cur], gpu_new, check_bytes, ctx.stream);
+          check_ok = libxstream_mem_copy_d2h(p_buf[cur], gpu_new, copy_bytes, ctx.stream);
         }
         if (EXIT_SUCCESS == check_ok) {
           check_ok = libxstream_stream_sync(ctx.stream);
@@ -483,7 +492,8 @@ int main(int argc, char* argv[])
           float* tmp_linear = NULL;
           check_ok = libxstream_mem_host_allocate((void**)&tmp_linear, check_bytes, ctx.stream);
           if (EXIT_SUCCESS == check_ok) {
-            stencil_unpack_bf16s(tmp_linear, (const unsigned short*)gpu_new, nphys);
+            stencil_unpack_bf16s(tmp_linear, (const unsigned short*)gpu_new, nphys,
+              ctx.bf16s);
             memcpy(gpu_new, tmp_linear, check_bytes);
             libxstream_mem_host_deallocate(tmp_linear, ctx.stream);
           }

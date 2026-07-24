@@ -571,8 +571,12 @@ Seismic stencils as dense small matrix multiplications.
 
 → Expressing stencil structure so matrix engines can execute it.
 
-Note: Can LP exceed FP32 (assuming FP32 remains native)?
-This is only possible by reducing BW-consumption like STENCIL_BF16S=1.
+Note: Can LP exceed FP32 (assuming FP32 remains native)? Only by moving
+less data. STENCIL_BF16S selects the wavefield storage limbs: =2 keeps two
+BF16 limbs per point (4 bytes, FP32-equivalent bandwidth and accuracy),
+while =1 keeps a single limb (2 bytes) and halves wavefield traffic at
+reduced accuracy. Low-precision compute alone does not help a
+bandwidth-bound kernel.
 
 ---
 

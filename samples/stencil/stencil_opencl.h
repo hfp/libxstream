@@ -132,13 +132,15 @@ size_t stencil_blocked_size(int nbx, int nby, int nbz);
 void stencil_pack_blocked(float* dst, const float* src,
                           int nx, int ny, int nz,
                           int nbx, int nby, int nbz);
-void stencil_pack_bf16s(unsigned short* dst, const float* src, size_t n);
+void stencil_pack_bf16s(unsigned short* dst, const float* src, size_t n,
+                        int ndigits);
 void stencil_pack_bf16s_blocked(unsigned short* dst, const float* src,
                                 int nx, int ny, int nz,
-                                int nbx, int nby, int nbz);
+                                int nbx, int nby, int nbz, int ndigits);
 void stencil_pack_bf16s_zyx(unsigned short* dst, const float* src,
                             int nx, int ny, int nz,
-                            int hx, int hy, int hz);
-void stencil_unpack_bf16s(float* dst, const unsigned short* src, size_t n);
+                            int hx, int hy, int hz, int ndigits);
+void stencil_unpack_bf16s(float* dst, const unsigned short* src, size_t n,
+                          int ndigits);
 
 #endif /*STENCIL_OPENCL_H*/

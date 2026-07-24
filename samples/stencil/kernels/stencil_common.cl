@@ -106,19 +106,30 @@
 # if !defined(STENCIL_P_N)
 #   define STENCIL_P_N (STENCIL_NX * STENCIL_NY * STENCIL_NZ)
 # endif
-# define STENCIL_BF16S_NDIGITS 2
-# define STENCIL_LOAD_P(PTR, IDX) \
-    (BF16_TO_F32(((global const ushort*)(PTR))[(IDX)]) \
-   + BF16_TO_F32(((global const ushort*)(PTR))[(IDX) + STENCIL_P_N]))
+# if (2 <= STENCIL_BF16S)
+#   define STENCIL_BF16S_NDIGITS 2
+# else
+#   define STENCIL_BF16S_NDIGITS 1
+# endif
+# if (2 <= STENCIL_BF16S_NDIGITS)
+#   define STENCIL_LOAD_P(PTR, IDX) \
+      (BF16_TO_F32(((global const ushort*)(PTR))[(IDX)]) \
+     + BF16_TO_F32(((global const ushort*)(PTR))[(IDX) + STENCIL_P_N]))
+#   define STENCIL_STORE_P(PTR, IDX, VALUE) \
+      do { \
+        global ushort* ptr_sp_ = (global ushort*)(PTR); \
+        const float val_sp_ = (VALUE); \
+        const ushort hi_sp_ = ROUND_TO_BF16(val_sp_); \
+        ptr_sp_[(IDX)] = hi_sp_; \
+        ptr_sp_[(IDX) + STENCIL_P_N] = ROUND_TO_BF16(val_sp_ - BF16_TO_F32(hi_sp_)); \
+      } while (0)
+# else
+#   define STENCIL_LOAD_P(PTR, IDX) \
+      BF16_TO_F32(((global const ushort*)(PTR))[(IDX)])
+#   define STENCIL_STORE_P(PTR, IDX, VALUE) \
+      (((global ushort*)(PTR))[(IDX)] = ROUND_TO_BF16(VALUE))
+# endif
 # define STENCIL_LOAD_P_BITS(PTR, IDX) as_uint(STENCIL_LOAD_P(PTR, IDX))
-# define STENCIL_STORE_P(PTR, IDX, VALUE) \
-    do { \
-      global ushort* ptr_sp_ = (global ushort*)(PTR); \
-      const float val_sp_ = (VALUE); \
-      const ushort hi_sp_ = ROUND_TO_BF16(val_sp_); \
-      ptr_sp_[(IDX)] = hi_sp_; \
-      ptr_sp_[(IDX) + STENCIL_P_N] = ROUND_TO_BF16(val_sp_ - BF16_TO_F32(hi_sp_)); \
-    } while (0)
 #else
 # define STENCIL_P_ELEM float
 # define STENCIL_LOAD_P(PTR, IDX) ((PTR)[(IDX)])
@@ -362,19 +373,26 @@
 # define STENCIL_GATHER_STORE_ZERO(SLM, K, COL) \
     (SLM)[(K) * XMX_N + (COL)] = 0.0f
 #elif defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
-# define STENCIL_GATHER_STORE_BF16S(SLM, K, COL, PTR, IDX) \
-  do { \
-    (SLM)[(K) * XMX_N + (COL)] = ((global const ushort*)(PTR))[(IDX)]; \
-    (SLM)[K_PAD * XMX_N + (K) * XMX_N + (COL)] = \
-    ((global const ushort*)(PTR))[(IDX) + STENCIL_P_N]; \
-  } while (0)
+# if (2 <= STENCIL_BF16S_NDIGITS)
+#   define STENCIL_GATHER_STORE_BF16S(SLM, K, COL, PTR, IDX) \
+    do { \
+      (SLM)[(K) * XMX_N + (COL)] = ((global const ushort*)(PTR))[(IDX)]; \
+      (SLM)[K_PAD * XMX_N + (K) * XMX_N + (COL)] = \
+      ((global const ushort*)(PTR))[(IDX) + STENCIL_P_N]; \
+    } while (0)
+#   define STENCIL_GATHER_STORE_ZERO(SLM, K, COL) \
+    do { \
+      (SLM)[(K) * XMX_N + (COL)] = (ushort)0; \
+      (SLM)[K_PAD * XMX_N + (K) * XMX_N + (COL)] = (ushort)0; \
+    } while (0)
+# else
+#   define STENCIL_GATHER_STORE_BF16S(SLM, K, COL, PTR, IDX) \
+    (SLM)[(K) * XMX_N + (COL)] = ((global const ushort*)(PTR))[(IDX)]
+#   define STENCIL_GATHER_STORE_ZERO(SLM, K, COL) \
+    (SLM)[(K) * XMX_N + (COL)] = (ushort)0
+# endif
 # define STENCIL_GATHER_STORE(SLM, K, COL, VAL) \
   (SLM)[(K) * XMX_N + (COL)] = ROUND_TO_BF16(VAL)
-# define STENCIL_GATHER_STORE_ZERO(SLM, K, COL) \
-  do { \
-    (SLM)[(K) * XMX_N + (COL)] = (ushort)0; \
-    (SLM)[K_PAD * XMX_N + (K) * XMX_N + (COL)] = (ushort)0; \
-  } while (0)
 #else
 # define STENCIL_GATHER_STORE(SLM, K, COL, VAL) \
     do { \
