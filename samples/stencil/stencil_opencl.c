@@ -634,6 +634,9 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
 
       { const int intel_level = (int)devinfo->intel;
         const int nv_level = (int)devinfo->nv;
+        const int need_bf16 = (0 == ctx->fp32 || 0 != key.bf16s) ? 1 : 0;
+        const char *const bf16_flag = (0 == need_bf16) ? ""
+          : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1");
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DNV=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
@@ -648,8 +651,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           key.bf16, key.int8,
           key.bf16s, key.blocked,
           key.layout, key.pml,
-          (0 != ctx->fp32) ? ""
-            : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1"));
+          bf16_flag);
       }
 
       { const int nx = ctx->grid_size[0], ny = ctx->grid_size[1], nz = ctx->grid_size[2];
