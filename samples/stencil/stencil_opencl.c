@@ -315,13 +315,20 @@ static void stencil_store_bf16_digits(cl_ushort* dst, int stride,
 }
 
 
+/* ndigits selects the storage format: 0 = single IEEE FP16 value,
+ * 1 or 2 = that many Dekker BF16 limbs (limb k at idx + k * stride). */
 static void stencil_store_bf16s_value(cl_ushort* dst, size_t idx,
                                       size_t stride, int ndigits, float value)
 {
-  const libxs_bf16_t hi = libxs_round_bf16_f32(value);
-  dst[idx] = hi;
-  if (1 < ndigits) {
-    dst[idx + stride] = libxs_round_bf16_f32(value - libxs_bf16_to_f32(hi));
+  if (0 == ndigits) {
+    dst[idx] = libxs_round_f16_f32(value);
+  }
+  else {
+    const libxs_bf16_t hi = libxs_round_bf16_f32(value);
+    dst[idx] = hi;
+    if (1 < ndigits) {
+      dst[idx + stride] = libxs_round_bf16_f32(value - libxs_bf16_to_f32(hi));
+    }
   }
 }
 
@@ -344,8 +351,9 @@ void stencil_pack_bf16s_blocked(cl_ushort* dst, const float* src,
 {
   const int blk = STENCIL_BLK;
   const size_t stride = (size_t)nbx * nby * nbz * blk * blk * blk;
+  const int nlimbs = (0 < ndigits) ? ndigits : 1;
   int bz, by, bx, lz, ly, lx;
-  memset(dst, 0, (size_t)ndigits * stride * sizeof(cl_ushort));
+  memset(dst, 0, (size_t)nlimbs * stride * sizeof(cl_ushort));
 #if defined(_OPENMP)
 # pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
 #endif
@@ -380,8 +388,9 @@ void stencil_pack_bf16s_zyx(cl_ushort* dst, const float* src,
 {
   const int pnx = nx + 2 * hx, pny = ny + 2 * hy, pnz = nz + 2 * hz;
   const size_t stride = (size_t)pnx * pny * pnz;
+  const int nlimbs = (0 < ndigits) ? ndigits : 1;
   int ix, iy, iz;
-  memset(dst, 0, (size_t)ndigits * stride * sizeof(cl_ushort));
+  memset(dst, 0, (size_t)nlimbs * stride * sizeof(cl_ushort));
 #if defined(_OPENMP)
 # pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
 #endif
@@ -401,13 +410,23 @@ void stencil_pack_bf16s_zyx(cl_ushort* dst, const float* src,
 void stencil_unpack_bf16s(float* dst, const cl_ushort* src, size_t n, int ndigits)
 {
   size_t i;
+  if (0 == ndigits) {
 #if defined(_OPENMP)
-# pragma omp parallel for
+#   pragma omp parallel for
 #endif
-  for (i = 0; i < n; ++i) {
-    double acc = libxs_bf16_to_f64(src[i]);
-    if (1 < ndigits) acc += libxs_bf16_to_f64(src[i + n]);
-    dst[i] = (float)acc;
+    for (i = 0; i < n; ++i) {
+      dst[i] = libxs_f16_to_f32(src[i]);
+    }
+  }
+  else {
+#if defined(_OPENMP)
+#   pragma omp parallel for
+#endif
+    for (i = 0; i < n; ++i) {
+      double acc = libxs_bf16_to_f64(src[i]);
+      if (1 < ndigits) acc += libxs_bf16_to_f64(src[i + n]);
+      dst[i] = (float)acc;
+    }
   }
 }
 
@@ -559,6 +578,7 @@ static void stencil_key_pack(const stencil_context_t* ctx, stencil_opencl_key_t*
   key->bf16 = (signed char)ctx->bf16;
   key->int8 = (signed char)ctx->int8;
   key->bf16s = (signed char)ctx->bf16s;
+  key->fp16 = (signed char)ctx->fp16;
   key->blocked = (signed char)ctx->blocked;
   key->layout = (signed char)ctx->layout;
   key->pml = (signed char)(0 != ctx->pml);
@@ -635,23 +655,28 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
       { const int intel_level = (int)devinfo->intel;
         const int nv_level = (int)devinfo->nv;
         const int need_bf16 = (0 == ctx->fp32 || 0 != key.bf16s) ? 1 : 0;
-        const char *const bf16_flag = (0 == need_bf16) ? ""
-          : ((intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1");
+        const char *prec_flag = "";
+        if (0 != key.fp16) {
+          prec_flag = "-DUSE_F16=1";
+        }
+        else if (0 != need_bf16) {
+          prec_flag = (intel_level >= 2) ? "-DUSE_BF16_EXT=1" : "-DUSE_BF16=1";
+        }
         LIBXS_SNPRINTF(flags, sizeof(flags),
           "%s -DRADIUS=%d -DK_STEPS=%d -DR_PER_STEP=%d -DSTRIPS_PER_WG=%d"
           " -DSG=%d -DINTEL=%d -DNV=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
           " -DNDIGITS_A=%d -DNSLICES_A=%d -DR_GATHER=%d -DNSLICES_X=%d"
-          " -DSTENCIL_BF16=%d -DSTENCIL_INT8=%d -DSTENCIL_BF16S=%d -DSTENCIL_BLOCKED=%d"
-          " -DSTENCIL_LAYOUT=%d -DSTENCIL_PML=%d %s",
+          " -DSTENCIL_BF16=%d -DSTENCIL_INT8=%d -DSTENCIL_BF16S=%d -DSTENCIL_FP16S=%d"
+          " -DSTENCIL_BLOCKED=%d -DSTENCIL_LAYOUT=%d -DSTENCIL_PML=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, nv_level, key.method,
           key.trim, key.nterms, key.lu,
           key.ndigits_a, key.ndigits_a, key.r_gather, key.ndigits_x,
           key.bf16, key.int8,
-          key.bf16s, key.blocked,
+          key.bf16s, key.fp16, key.blocked,
           key.layout, key.pml,
-          bf16_flag);
+          prec_flag);
       }
 
       { const int nx = ctx->grid_size[0], ny = ctx->grid_size[1], nz = ctx->grid_size[2];
@@ -783,7 +808,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   libxstream_init_config_t cfg;
   const libxstream_opencl_device_t* devinfo;
   const char *strips_env, *blocked_env, *layout_env, *method_env;
-  const char *bf16s_env, *bf16_env, *int8_env;
+  const char *bf16s_env, *fp16_env, *bf16_env, *int8_env;
   const char *grf_env, *trim_env, *sg_env, *lu_env;
   int result, method_val;
 
@@ -795,6 +820,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   layout_env = getenv("STENCIL_LAYOUT");
   method_env = getenv("STENCIL_METHOD");
   bf16s_env = getenv("STENCIL_BF16S");
+  fp16_env = getenv("STENCIL_FP16S");
   bf16_env = getenv("STENCIL_BF16");
   int8_env = getenv("STENCIL_INT8");
   grf_env = getenv("STENCIL_GRF256");
@@ -839,6 +865,9 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   ctx->bf16s = (NULL == bf16s_env) ? 0 : atoi(bf16s_env);
   if (2 < ctx->bf16s) ctx->bf16s = 2;
   if (0 > ctx->bf16s) ctx->bf16s = 0;
+
+  ctx->fp16 = (NULL != fp16_env && 0 != atoi(fp16_env)) ? 1 : 0;
+  if (0 != ctx->fp16) ctx->bf16s = 0;
 
   { const int bf16_val = (NULL != bf16_env) ? atoi(bf16_env) : 0;
     const int has_dpas = (devinfo->intel >= 2) ? 1 : 0;

@@ -130,4 +130,24 @@ inline float bf16_to_f32(ushort v)
 # define BF16_TO_F32(x) bf16_to_f32(x)
 #endif
 
+/* IEEE FP16 storage conversions via core OpenCL half built-ins.
+ * vload_half/vstore_half_rte convert to/from float without requiring
+ * cl_khr_fp16 or half arithmetic; the raw storage is uint16_t. */
+#if !defined(ROUND_TO_F16) && defined(USE_F16) && (0 < USE_F16)
+/** Round a float to FP16 (round-to-nearest-even) and return raw bits. */
+inline ushort round_to_f16(float f)
+{
+  ushort v;
+  vstore_half_rte(f, 0, (half*)&v);
+  return v;
+}
+/** Expand an FP16 encoding to float32 (exact). */
+inline float f16_to_f32(ushort v)
+{
+  return vload_half(0, (const half*)&v);
+}
+# define ROUND_TO_F16(x) round_to_f16(x)
+# define F16_TO_F32(x) f16_to_f32(x)
+#endif
+
 #endif /*LIBXSTREAM_OPENCL_COMMON_H*/

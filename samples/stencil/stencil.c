@@ -151,12 +151,16 @@ int main(int argc, char* argv[])
                    / (v_max * (float)sqrt(3.0) * (2.0f * radius + 1.0f));
     { const char *bf16v = getenv("STENCIL_BF16");
       const char *bf16s = getenv("STENCIL_BF16S");
+      const char *fp16s = getenv("STENCIL_FP16S");
       const char *int8v = getenv("STENCIL_INT8");
       const char *kname = "FP32";
-      const int bf16s_n = (NULL != bf16s) ? atoi(bf16s) : 0;
-      const char *storage = (1 >= bf16s_n)
-        ? (1 == bf16s_n ? " + BF16S-storage (1 digit)" : "")
-        : " + BF16S-storage (2 digits)";
+      const int fp16s_n = (NULL != fp16s && 0 != atoi(fp16s)) ? 1 : 0;
+      const int bf16s_n = (0 != fp16s_n) ? 0
+        : ((NULL != bf16s) ? atoi(bf16s) : 0);
+      const char *storage = (0 != fp16s_n) ? " + FP16S-storage"
+        : ((1 >= bf16s_n)
+          ? (1 == bf16s_n ? " + BF16S-storage (1 digit)" : "")
+          : " + BF16S-storage (2 digits)");
       if (NULL != bf16v && 2 == atoi(bf16v)) kname = "FP32-split (BF16-DPAS)";
       else if (NULL != bf16v && 0 != atoi(bf16v)) kname = "BF16-DPAS";
       else if (NULL != int8v && 2 == atoi(int8v)) kname = "FP32-split (INT8-DPAS)";
@@ -238,8 +242,10 @@ int main(int argc, char* argv[])
     const size_t dev_fp32_bytes = (0 != ctx.blocked)
       ? stencil_blocked_size(ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2])
       : padded_bytes;
-    const size_t dev_bytes = (0 != ctx.bf16s)
-      ? dev_fp32_bytes / sizeof(float) * (size_t)ctx.bf16s * sizeof(short)
+    const int store_limbs = (0 != ctx.fp16) ? 1
+      : ((0 != ctx.bf16s) ? ctx.bf16s : 0);
+    const size_t dev_bytes = (0 != store_limbs)
+      ? dev_fp32_bytes / sizeof(float) * (size_t)store_limbs * sizeof(short)
       : dev_fp32_bytes;
     const size_t vel_dev_bytes = (0 != ctx.blocked) ? dev_fp32_bytes : grid_bytes;
     const double gpoints = (double)nx * ny * nz * 1.0e-9;
@@ -267,7 +273,7 @@ int main(int argc, char* argv[])
       result = libxstream_mem_host_allocate((void**)&vel_host, grid_bytes, ctx.stream);
       if (0 != trace) fprintf(stderr, "TRACE: allocate vel_host done result=%d\n", result);
     }
-    if (EXIT_SUCCESS == result && (0 != ctx.blocked || 0 != ctx.bf16s)) {
+    if (EXIT_SUCCESS == result && (0 != ctx.blocked || 0 != ctx.bf16s || 0 != ctx.fp16)) {
       const size_t pack_bytes = (dev_bytes < dev_fp32_bytes)
         ? dev_fp32_bytes : dev_bytes;
       result = libxstream_mem_host_allocate((void**)&pack_buf, pack_bytes, ctx.stream);
@@ -331,18 +337,19 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, vel_dev_bytes, libxstream_opencl_mem_hint_compress);
 
     if (EXIT_SUCCESS == result) {
-      if (0 != ctx.bf16s) {
+      if (0 != store_limbs) {
+        const int store_ndigits = (0 != ctx.fp16) ? 0 : store_limbs;
         if (0 != ctx.blocked) {
           stencil_pack_bf16s_blocked((unsigned short*)pack_buf, p_host, nx, ny, nz,
-            ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2], ctx.bf16s);
+            ctx.nblocks[0], ctx.nblocks[1], ctx.nblocks[2], store_ndigits);
         }
         else if (2 == ctx.layout) {
           stencil_pack_bf16s_zyx((unsigned short*)pack_buf, p_host,
-            nx, ny, nz, hx, hy, hz, ctx.bf16s);
+            nx, ny, nz, hx, hy, hz, store_ndigits);
         }
         else {
           stencil_pack_bf16s((unsigned short*)pack_buf, p_host, (size_t)nx * ny * nz,
-            ctx.bf16s);
+            store_ndigits);
         }
         result = libxstream_mem_copy_h2d(pack_buf, p_buf[0], dev_bytes, ctx.stream);
       }
@@ -466,7 +473,7 @@ int main(int argc, char* argv[])
         const size_t n = (size_t)nx * ny * nz;
         const size_t check_bytes = (0 != ctx.blocked || 2 == ctx.layout)
           ? dev_fp32_bytes : grid_bytes;
-        const size_t copy_bytes = (0 != ctx.bf16s) ? dev_bytes : check_bytes;
+        const size_t copy_bytes = (0 != store_limbs) ? dev_bytes : check_bytes;
         int check_ok = EXIT_SUCCESS;
         int cpu_cur = 0, cpu_old = 1;
 
@@ -487,13 +494,14 @@ int main(int argc, char* argv[])
           check_ok = libxstream_stream_sync(ctx.stream);
         }
 
-        if (EXIT_SUCCESS == check_ok && 0 != ctx.bf16s) {
+        if (EXIT_SUCCESS == check_ok && 0 != store_limbs) {
           const size_t nphys = check_bytes / sizeof(float);
+          const int store_ndigits = (0 != ctx.fp16) ? 0 : store_limbs;
           float* tmp_linear = NULL;
           check_ok = libxstream_mem_host_allocate((void**)&tmp_linear, check_bytes, ctx.stream);
           if (EXIT_SUCCESS == check_ok) {
             stencil_unpack_bf16s(tmp_linear, (const unsigned short*)gpu_new, nphys,
-              ctx.bf16s);
+              store_ndigits);
             memcpy(gpu_new, tmp_linear, check_bytes);
             libxstream_mem_host_deallocate(tmp_linear, ctx.stream);
           }
@@ -816,8 +824,8 @@ static void usage(const char* prog)
          "  -overthrust    SEG/EAGE Overthrust (801x801x187, h=25m)\n"
          "\n"
          "Environment:\n"
-         "  STENCIL_BF16, STENCIL_BF16S, STENCIL_BLOCKED, STENCIL_CHECK, STENCIL_FIT\n"
-         "  STENCIL_FP32_BLOCK_IO, STENCIL_FP32_SBLOCK, STENCIL_FP32_WG_X, STENCIL_FP32_WG_Y\n"
+         "  STENCIL_BF16, STENCIL_BF16S, STENCIL_FP16S, STENCIL_BLOCKED, STENCIL_CHECK\n"
+         "  STENCIL_FIT, STENCIL_FP32_BLOCK_IO, STENCIL_FP32_SBLOCK, STENCIL_FP32_WG_X, STENCIL_FP32_WG_Y\n"
          "  STENCIL_GRF256, STENCIL_HALO, STENCIL_HINT, STENCIL_INT8, STENCIL_LAYOUT\n"
          "  STENCIL_LU, STENCIL_METHOD, STENCIL_NDIGITS_A, STENCIL_PML, STENCIL_PPW\n"
          "  STENCIL_RADIUS_FIT, STENCIL_SG, STENCIL_STRIPS_PER_WG, STENCIL_TRACE, STENCIL_TRIM\n"

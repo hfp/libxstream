@@ -101,7 +101,17 @@
 # define STENCIL_X_SLM_COUNT (NDIGITS_X * K_PAD * XMX_N)
 #endif
 
-#if defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
+#if defined(STENCIL_FP16S) && (0 < STENCIL_FP16S)
+# define STENCIL_P_ELEM ushort
+# if !defined(STENCIL_P_N)
+#   define STENCIL_P_N (STENCIL_NX * STENCIL_NY * STENCIL_NZ)
+# endif
+# define STENCIL_LOAD_P(PTR, IDX) \
+    F16_TO_F32(((global const ushort*)(PTR))[(IDX)])
+# define STENCIL_STORE_P(PTR, IDX, VALUE) \
+    (((global ushort*)(PTR))[(IDX)] = ROUND_TO_F16(VALUE))
+# define STENCIL_LOAD_P_BITS(PTR, IDX) as_uint(STENCIL_LOAD_P(PTR, IDX))
+#elif defined(STENCIL_BF16S) && (0 < STENCIL_BF16S)
 # define STENCIL_P_ELEM ushort
 # if !defined(STENCIL_P_N)
 #   define STENCIL_P_N (STENCIL_NX * STENCIL_NY * STENCIL_NZ)

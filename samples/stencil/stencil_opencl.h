@@ -66,6 +66,7 @@ typedef struct {
   signed char bf16;
   signed char int8;
   signed char bf16s;
+  signed char fp16;
   signed char blocked;
   signed char layout;
   signed char pml;
@@ -106,6 +107,7 @@ typedef struct {
   int ndigits_a;
   int ndigits_x;
   int bf16s;
+  int fp16;
   int blocked;
   int layout;
   int halo[3];
@@ -132,6 +134,7 @@ size_t stencil_blocked_size(int nbx, int nby, int nbz);
 void stencil_pack_blocked(float* dst, const float* src,
                           int nx, int ny, int nz,
                           int nbx, int nby, int nbz);
+/* ndigits: 0 = single IEEE FP16 value, 1 or 2 = that many Dekker BF16 limbs. */
 void stencil_pack_bf16s(unsigned short* dst, const float* src, size_t n,
                         int ndigits);
 void stencil_pack_bf16s_blocked(unsigned short* dst, const float* src,

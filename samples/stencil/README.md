@@ -305,6 +305,8 @@ Environment variables controlling kernel specialization:
     STENCIL_BF16     BF16-DPAS kernel (1=native BF16, 2=FP32-split via BF16)
     STENCIL_BF16S    BF16 wavefield storage limbs (0=off, 1=single 2-byte
                      limb halves traffic, 2=two limbs FP32-equivalent)
+    STENCIL_FP16S    IEEE FP16 wavefield storage (0/1); single 2-byte value
+                     per point, halves traffic (10-bit mantissa, FP32 kernel)
     STENCIL_INT8     INT8-DPAS kernel (1=native INT8, 2=FP32-split via INT8)
     STENCIL_METHOD   operator method (0-3, default 0)
     STENCIL_STRIPS_PER_WG
