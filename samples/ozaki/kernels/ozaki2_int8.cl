@@ -94,18 +94,30 @@
  * Level 2: Garner over HIER_NGROUPS group-moduli (32-bit, ulong intermediate).
  * Reduces peak live registers from ~NPRIMES to ~max(HIER_GS, HIER_NGROUPS). */
 /**
- * Fractional-CRT (idea 1b) needs the raw per-prime residues, so it forces the
- * flat (non-hierarchical) residue path regardless of OZAKI_HIER.
+ * Fractional-CRT mode 1 replaces the whole reconstruction and needs the raw
+ * per-prime residues, so it forces the flat (non-hierarchical) path. Mode 2
+ * reconstructs per group and keeps the hierarchical path (leaf fractional CRT
+ * feeding the exact level-2 combine).
  */
-#if defined(OZAKI_FRACCRT) && (OZAKI_FRACCRT)
+#if defined(OZAKI_FRACCRT) && (1 == OZAKI_FRACCRT)
 # undef OZAKI_HIER
 # define OZAKI_HIER 0
+#endif
+#if defined(OZAKI_FRACCRT) && (2 == OZAKI_FRACCRT) && !defined(OZAKI_HIER)
+# define OZAKI_HIER 1
 #endif
 #if !defined(OZAKI_HIER)
 # define OZAKI_HIER 0
 #endif
 #define POW2_PIDX 3
 #if OZAKI_HIER
+/**
+ * Leaf group size, fixed at 4: the level-2 datapath is 32-bit, so group
+ * products and group values must fit uint32 (Barrett tables, gval_all).
+ * Fractional-CRT leaves could reconstruct up to 6 primes per group (group
+ * product below 2^53 rather than 2^32), which would shorten level 2, but that
+ * requires widening the whole level-2 datapath to 64-bit.
+ */
 # define HIER_GS 4
 # define HIER_NGROUPS ((NPRIMES + HIER_GS - 1) / HIER_GS)
 # define HIER_L2_HORNER_GROUP 2
@@ -303,10 +315,22 @@
 #endif /* OZAKI_FRACCRT */
 #else /* OZAKI_HIER */
 
-/* Level-1 Garner from group-local residues -> gval_all.
+/**
+ * Level-1 reconstruction of a group value: exact per-group fractional CRT
+ * (OZAKI_FRACCRT=2) or the sequential group Garner (default).
+ */
+#if defined(OZAKI_FRACCRT) && (2 == OZAKI_FRACCRT)
+# define OZAKI_L1_RECONSTRUCT(DOT_R, GIDX) oz2g_frac_l1((DOT_R), (GIDX))
+#else
+# define OZAKI_L1_RECONSTRUCT(DOT_R, GIDX) oz2g_hier_l1_garner((DOT_R), (GIDX))
+#endif
+
+/**
+ * Level-1 reconstruction from group-local residues -> gval_all.
  * GROUP_RES: base of group-local residues for this tile [HIER_GS * XMX_M].
  * GVAL_ALL: base of gval_all for this tile [HIER_NGROUPS * XMX_M].
- * GIDX: group index. */
+ * GIDX: group index.
+ */
 #define OZAKI_CRT_L1_STORE(GROUP_RES, GVAL_ALL, GIDX) \
   do { \
     int ms_l1_; \
@@ -317,7 +341,7 @@
       { \
         dot_r_[pg_l1_] = (GROUP_RES)[(int)pg_l1_ * XMX_M + ms_l1_]; \
       } \
-      (GVAL_ALL)[(GIDX) * XMX_M + ms_l1_] = oz2g_hier_l1_garner(dot_r_, (GIDX)); \
+      (GVAL_ALL)[(GIDX) * XMX_M + ms_l1_] = OZAKI_L1_RECONSTRUCT(dot_r_, (GIDX)); \
     } \
   } while (0)
 
@@ -622,18 +646,20 @@ inline uint oz2g_mod64(ulong x, SINT pidx)
 
 #if defined(OZAKI_FRACCRT) && (OZAKI_FRACCRT)
 /**
- * Fractional / rank-based CRT reconstruction (idea 1b).
+ * Fractional / rank-based CRT reconstruction.
  * x/M = frac(sum_i alpha_i / m_i), alpha_i = (residue_i * k_i) mod m_i.
  * 1/m_i is expanded into OZ2G_FRAC_L base-256 limbs so the fractional sum
  * becomes sum_l (sum_i alpha_i * climb[i][l]) * 2^-8(l+1). The inner limb
  * sums are O(P*L) parallel int MACs (no sequential dependency), replacing the
- * O(P^2) sequential Garner chain. Combine in double-double, centered-lift for
- * sign. Returns the signed reconstructed value as a double.
- * Tables OZ2G_FRAC_K, OZ2G_FRAC_CLIMB, OZ2G_FRAC_L, OZ2G_FRAC_MH/ML/HALFM come
- * as -D initializers from ozaki_emit_fraccrt() for the active moduli set (u8/i8,
- * any prime count), so a single kernel serves fp64/fp32 and trims.
+ * O(P^2) sequential Garner chain. Combine in double-double.
+ * Mode 1 (oz2g_frac_reconstruct) applies this over all P moduli, dividing by
+ * the full product M, with a centered lift for sign; it is opt-in due to a
+ * magnitude domain bound. Mode 2 (oz2g_frac_l1) applies it per hierarchical
+ * group, dividing by the group product M_g < 2^53, so it is exact for every
+ * group value and feeds the exact level-2 combine, which makes it exact over
+ * the whole range. Tables come as -D initializers from
+ * ozaki_emit_fraccrt()/ozaki_emit_fraccrt2().
  */
-constant uint oz2g_frac_k[NPRIMES] = OZ2G_FRAC_K;
 constant uchar oz2g_frac_climb[NPRIMES][OZ2G_FRAC_L] = OZ2G_FRAC_CLIMB;
 
 inline double oz2g_two_sum(double a, double b, double* err)
@@ -651,7 +677,11 @@ inline double oz2g_two_prod(double a, double b, double* err)
   *err = fma(a, b, -p);
   return p;
 }
+#endif /* OZAKI_FRACCRT */
 
+
+#if defined(OZAKI_FRACCRT) && (1 == OZAKI_FRACCRT)
+constant uint oz2g_frac_k[NPRIMES] = OZ2G_FRAC_K;
 
 inline double oz2g_frac_reconstruct(const uint* restrict dot_residues)
 {
@@ -679,10 +709,12 @@ inline double oz2g_frac_reconstruct(const uint* restrict dot_residues)
   s2 = oz2g_two_sum(frh, frl, &e);
   frh = s2;
   frl = e;
-  /* Branchless centered lift: frac in [0,1), so corr = floor(frac + 0.5) is 0
+  /**
+   * Branchless centered lift: frac in [0,1), so corr = floor(frac + 0.5) is 0
    * (|x| in the lower half, value >= 0) or 1 (upper half, value < 0). Folding
    * corr into the fractional part before scaling by M avoids the M-subtract and
-   * the sign branch. */
+   * the sign branch.
+   */
   corr = floor(frh + 0.5);
   frh = oz2g_two_sum(frh, -corr, &e);
   frl += e;
@@ -693,7 +725,55 @@ inline double oz2g_frac_reconstruct(const uint* restrict dot_residues)
   vl = frh * OZ2G_FRAC_ML + frl * OZ2G_FRAC_MH + eh;
   return vh + vl;
 }
-#endif /* OZAKI_FRACCRT */
+#endif /* OZAKI_FRACCRT == 1 */
+
+
+#if defined(OZAKI_FRACCRT) && (2 == OZAKI_FRACCRT)
+constant uint oz2g_frac_kg[NPRIMES] = OZ2G_FRAC_KG;
+constant double oz2g_frac_gmh[HIER_NGROUPS] = OZ2G_FRAC_GMH;
+
+/**
+ * Leaf fractional CRT for group g: reconstruct the group value V_g = x mod M_g
+ * from its HIER_GS residues (group_residues[0..gsz-1], global prime index
+ * lo+li). M_g < 2^53, so V_g is a non-negative integer exactly representable in
+ * a double; the result is exact for all V_g. Returns V_g as a uint.
+ */
+inline uint oz2g_frac_l1(const uint* restrict group_residues, int g)
+{
+  const int lo = g * HIER_GS;
+  const int hi = (lo + HIER_GS <= NPRIMES) ? (lo + HIER_GS) : NPRIMES;
+  double sl[OZ2G_FRAC_L];
+  double fh = 0.0, fl = 0.0;
+  double fi, e, eh, frh, frl, s2, vh, vl;
+  SINT li, l;
+  UNROLL_FORCE(OZ2G_FRAC_L) for (l = 0; l < OZ2G_FRAC_L; ++l) sl[l] = 0.0;
+  UNROLL_FORCE(HIER_GS) for (li = 0; li < HIER_GS; ++li) {
+    const int pidx = lo + li;
+    if (pidx < hi) {
+      const uint a = oz2g_mod(group_residues[li] * oz2g_frac_kg[pidx], pidx);
+      UNROLL_FORCE(OZ2G_FRAC_L) for (l = 0; l < OZ2G_FRAC_L; ++l) {
+        sl[l] += (double)(a * (uint)oz2g_frac_climb[pidx][l]);
+      }
+    }
+  }
+  UNROLL_FORCE(OZ2G_FRAC_L) for (l = 0; l < OZ2G_FRAC_L; ++l) {
+    const double term = sl[l] * EXP2I(-8 * (l + 1));
+    const double s = oz2g_two_sum(fh, term, &e);
+    const double lo_ = e + fl;
+    fh = oz2g_two_sum(s, lo_, &e);
+    fl = e;
+  }
+  fi = floor(fh);
+  frh = oz2g_two_sum(fh, -fi, &e);
+  frl = e + fl;
+  s2 = oz2g_two_sum(frh, frl, &e);
+  frh = s2;
+  frl = e;
+  vh = oz2g_two_prod(frh, oz2g_frac_gmh[g], &eh);
+  vl = frl * oz2g_frac_gmh[g] + eh;
+  return (uint)(vh + vl + 0.5);
+}
+#endif /* OZAKI_FRACCRT >= 2 */
 
 
 /* Garner CRT reconstruction: residues -> mixed-radix digits + sign */
@@ -856,6 +936,7 @@ inline uint oz2g_mod_l2(ulong x, int gidx)
   uint r = (uint)(x - q * (ulong)m);
   return (r >= m) ? (r - m) : r;
 }
+
 
 /* Level-1 Garner: reconstruct HIER_GS residues for group g -> uint group value.
  * group_residues[0..gsz-1] are the per-prime residues within this group.

@@ -84,6 +84,58 @@ static size_t ozaki_emit_fraccrt(char* buf, size_t size, const uint16_t* modtab,
 }
 
 
+/**
+ * Emit leaf fractional-CRT tables (OZAKI_FRACCRT=2): per-group fractional
+ * reconstruction feeding the exact hierarchical level-2 combine. Reuses the
+ * shared per-prime limb table OZ2G_FRAC_CLIMB and emits, per prime, the
+ * group-relative inverse OZ2G_FRAC_KG_i = (M_g/m_i)^{-1} mod m_i (M_g the
+ * product of that prime's group), plus each group product M_g as a
+ * double-double (OZ2G_FRAC_GMH/GML). Each group value V_g = x mod M_g is a
+ * non-negative integer below M_g < 2^53, so leaf reconstruction is exact for
+ * all group values -- the hierarchy keeps exactness across the full range.
+ */
+static size_t ozaki_emit_fraccrt2(char* buf, size_t size, const uint16_t* modtab, int nprimes, int frac_l, int hier_gs)
+{
+  const int ngroups = (nprimes + hier_gs - 1) / hier_gs;
+  size_t off = 0;
+  int i, l, g;
+  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, " -DOZ2G_FRAC_L=%d -DOZ2G_FRAC_CLIMB={", frac_l);
+  for (i = 0; i < nprimes; ++i) {
+    uint32_t rem = 1;
+    for (l = 0; l < frac_l; ++l) {
+      rem <<= 8;
+      off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%u",
+        (0 != i || 0 != l) ? "," : "", (unsigned)(rem / (uint32_t)modtab[i]));
+      rem %= (uint32_t)modtab[i];
+    }
+  }
+  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "} -DOZ2G_FRAC_KG={");
+  for (g = 0; g < ngroups; ++g) {
+    const int lo = g * hier_gs;
+    const int hi = (lo + hier_gs <= nprimes) ? (lo + hier_gs) : nprimes;
+    for (i = lo; i < hi; ++i) {
+      uint32_t prod_mod = 1;
+      int j;
+      for (j = lo; j < hi; ++j) {
+        if (j != i) prod_mod = (uint32_t)(((uint64_t)prod_mod * (uint32_t)modtab[j]) % (uint32_t)modtab[i]);
+      }
+      off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%u", (0 != i) ? "," : "",
+        (unsigned)libxs_mod_inverse_u32(prod_mod, (uint32_t)modtab[i]));
+    }
+  }
+  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "} -DOZ2G_FRAC_GMH={");
+  for (g = 0; g < ngroups; ++g) {
+    const int lo = g * hier_gs;
+    const int hi = (lo + hier_gs <= nprimes) ? (lo + hier_gs) : nprimes;
+    double mh = 1.0;
+    for (i = lo; i < hi; ++i) mh *= (double)modtab[i];
+    off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%.20e", (0 != g) ? "," : "", mh);
+  }
+  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "}");
+  return off;
+}
+
+
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
   int ozgroups, int maxk, int profiling)
 {
@@ -419,16 +471,29 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
     { /* Scheme 2: always compile CRT kernels (for adaptive) */
       /**
-       * Fractional-CRT (idea 1b): forces the flat residue path (needs raw
-       * per-prime residues). Tables are generated per active moduli set by
-       * ozaki_emit_fraccrt(), so it serves fp64/fp32, u8/i8, and trims.
+       * Fractional-CRT: mode 1 replaces the whole reconstruction with a flat
+       * fractional sum (needs raw per-prime residues, so the flat path;
+       * opt-in due to a magnitude domain bound). Mode 2 applies fractional
+       * reconstruction only per hierarchical group (each group product is
+       * below 2^53, so leaf reconstruction is exact for all group values) and
+       * keeps the exact hierarchical level-2 combine, so it is exact
+       * everywhere. Tables are generated per active moduli set.
        */
-      const int fraccrt = (NULL != getenv("OZAKI_FRACCRT") && 0 != atoi(getenv("OZAKI_FRACCRT"))) ? 1 : 0;
-      const int crt_hier = (0 != fraccrt) ? 0 : (0 != ctx->hier || 3 == kind);
+      const int fraccrt_env = (NULL != getenv("OZAKI_FRACCRT")) ? atoi(getenv("OZAKI_FRACCRT")) : 0;
+      const int fraccrt = (1 == fraccrt_env || 2 == fraccrt_env) ? fraccrt_env : 0;
+      const int crt_hier = (1 == fraccrt) ? 0 : (0 != ctx->hier || 3 == kind || 2 == fraccrt);
       const int crt_rtm = (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm / 2, 1) : rtm;
       char crt_build_options[128];
       size_t coff = 0;
-      if (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) {
+      if (0 != fraccrt) {
+        /**
+         * Fractional CRT relies on error-free transformations (two_sum,
+         * two_product), which relaxed math is allowed to algebraically
+         * simplify away. Keep strict floating-point semantics.
+         */
+        LIBXS_SNPRINTF(crt_build_options, sizeof(crt_build_options), "-cl-denorms-are-zero");
+      }
+      else if (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) {
         LIBXS_SNPRINTF(crt_build_options, sizeof(crt_build_options),
           "-cl-fast-relaxed-math -cl-denorms-are-zero");
       }
@@ -448,10 +513,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (0 == use_i8) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
       }
-      if (0 != fraccrt) {
+      if (1 == fraccrt) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=1");
         coff += ozaki_emit_fraccrt(build_params + coff, sizeof(build_params) - coff,
           (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 14);
+      }
+      else if (2 == fraccrt) {
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=2");
+        coff += ozaki_emit_fraccrt2(build_params + coff, sizeof(build_params) - coff,
+          (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 11, 4);
       }
       if (NULL != getenv("OZAKI_SKIP_GARNER") && 0 != atoi(getenv("OZAKI_SKIP_GARNER"))) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1");
