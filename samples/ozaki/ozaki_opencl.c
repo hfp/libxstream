@@ -79,7 +79,7 @@ static size_t ozaki_emit_fraccrt(char* buf, size_t size, const uint16_t* modtab,
     ml = serr;
   }
   off += (size_t)LIBXS_SNPRINTF(buf + off, size - off,
-    " -DOZ2G_FRAC_MH=%.20e -DOZ2G_FRAC_ML=%.20e -DOZ2G_FRAC_HALFM=%.20e", mh, ml, 0.5 * mh);
+    " -DOZ2G_FRAC_MH=%.20e -DOZ2G_FRAC_ML=%.20e", mh, ml);
   return off;
 }
 

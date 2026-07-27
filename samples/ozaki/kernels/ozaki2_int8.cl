@@ -657,7 +657,7 @@ inline double oz2g_frac_reconstruct(const uint* restrict dot_residues)
 {
   double sl[OZ2G_FRAC_L];
   double fh = 0.0, fl = 0.0;
-  double fi, e, eh, frh, frl, s2, uh, ul, uu, vh, vl;
+  double fi, e, eh, frh, frl, s2, corr, vh, vl;
   SINT i, l;
   UNROLL_FORCE(OZ2G_FRAC_L) for (l = 0; l < OZ2G_FRAC_L; ++l) sl[l] = 0.0;
   UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
@@ -679,17 +679,18 @@ inline double oz2g_frac_reconstruct(const uint* restrict dot_residues)
   s2 = oz2g_two_sum(frh, frl, &e);
   frh = s2;
   frl = e;
-  uh = oz2g_two_prod(frh, OZ2G_FRAC_MH, &eh);
-  ul = frh * OZ2G_FRAC_ML + frl * OZ2G_FRAC_MH + eh;
-  uu = uh + ul;
-  if (uu > OZ2G_FRAC_HALFM) {
-    vh = oz2g_two_sum(uh, -OZ2G_FRAC_MH, &e);
-    vl = ul - OZ2G_FRAC_ML + e;
-  }
-  else {
-    vh = uh;
-    vl = ul;
-  }
+  /* Branchless centered lift: frac in [0,1), so corr = floor(frac + 0.5) is 0
+   * (|x| in the lower half, value >= 0) or 1 (upper half, value < 0). Folding
+   * corr into the fractional part before scaling by M avoids the M-subtract and
+   * the sign branch. */
+  corr = floor(frh + 0.5);
+  frh = oz2g_two_sum(frh, -corr, &e);
+  frl += e;
+  s2 = oz2g_two_sum(frh, frl, &e);
+  frh = s2;
+  frl = e;
+  vh = oz2g_two_prod(frh, OZ2G_FRAC_MH, &eh);
+  vl = frh * OZ2G_FRAC_ML + frl * OZ2G_FRAC_MH + eh;
   return vh + vl;
 }
 #endif /* OZAKI_FRACCRT */
