@@ -54,30 +54,32 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     libxs_malloc_arg(libxstream_opencl_config.pool_dev, stream);
   }
 
-  /* Adaptive scheme selection (kind==3): first call uses Scheme 1 to learn
-   * the effective (trim+occupancy) cutoff from occupancy data. Subsequent
-   * calls compare the two bottlenecks: Scheme-1 pairs*K int8 MACs vs
-   * Scheme-2 P*K MACs + O(P^2) Garner reconstruction. Dividing by K:
+  /* Adaptive scheme selection (kind==3): stateless per-call comparison of the
+   * two bottlenecks -- Scheme-1 pairs*K int8 MACs vs Scheme-2 P*K MACs plus
+   * O(P^2) Garner reconstruction. Dividing by K:
    *   pairs < P + xover * P^2 / K
    * The reconstruction term vanishes as K grows (amortized) and dominates at
-   * small K. Scheme-2 runs untrimmed under kind==3 (oztrim_crt forced to 0 at
-   * init), so trim is a Scheme-1-only knob here; trimmed Scheme 2 needs
-   * explicit kind==2. kind==1 or kind==2 force that scheme. */
-  { const int lc = ctx->cache.last_cutoff;
-    const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
+   * small K. The pair count uses the static cutoff 2*(nslices-1)-oztrim, which
+   * depends only on (nslices, oztrim) and is knowable on every call with no
+   * cross-call state -- required for correctness under LD_PRELOAD with mixed
+   * matrix sizes. This is deliberately pessimistic for Scheme 1: occupancy may
+   * trim further at run time (dynamic cutoff), so a chosen Scheme 1 can only be
+   * faster than estimated, while Scheme 2 stays untrimmed (oztrim_crt forced to
+   * 0 at init) and thus favored when accuracy matters. Trim is a Scheme-1-only
+   * knob here; trimmed Scheme 2 needs explicit kind==2. kind==1 or kind==2
+   * force that scheme. */
+  { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
     if (1 == ctx->kind) {
       use_scheme1 = 1;
     }
     else if (2 == ctx->kind) {
       use_scheme1 = 0;
     }
-    else if (0 < lc) {
-      const int pairs = ozaki_count_pairs(ctx->nslices, lc, sq);
-      const double p = ctx->nprimes;
-      use_scheme1 = (pairs < p + ctx->xover * p * p / K);
-    }
     else {
-      use_scheme1 = 0; /* kind==3, no cutoff yet: default to Scheme 2 */
+      const int co = 2 * (ctx->nslices - 1) - ctx->oztrim;
+      const int pairs = ozaki_count_pairs(ctx->nslices, co, sq);
+      const double p = ctx->nprimes;
+      use_scheme1 = (0 < K && pairs < p + ctx->xover * p * p / K);
     }
   }
 

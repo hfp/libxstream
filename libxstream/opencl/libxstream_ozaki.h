@@ -12,7 +12,8 @@
 
 #include "libxstream_common.h"
 
-/* Dekker splitting: iterative residual subtraction into BF16 digits.
+/**
+ * Dekker splitting: iterative residual subtraction into BF16 digits.
  * Each digit carries its own sign and exponent -- no shared exponent
  * panel required.  The sum of all digits exactly reconstructs the
  * input (up to the trailing residual below BF16 precision^NDIGITS).

@@ -227,7 +227,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ctx->pb = pb;
     }
     env = getenv("OZAKI_XOVER");
-    ctx->xover = (NULL != env && 0 < atof(env)) ? atof(env) : 32.0;
+    ctx->xover = (NULL != env && 0 < atof(env)) ? atof(env) : 128.0;
     ctx->hier = hier;
     ctx->maxk = maxk;
     if (0 == rtm) {
