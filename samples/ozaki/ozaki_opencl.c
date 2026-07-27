@@ -102,11 +102,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       static const int cumbits_u8[20] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
       static const int cumbits_i8[20] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
       const int* cumbits = (0 != use_i8) ? cumbits_i8 : cumbits_u8;
-      const int max_elem = (0 != use_i8) ? 127 : 255;
-      const uint64_t max_dot = (uint64_t)maxk * max_elem * max_elem;
-      int req_bits = 0, np_k;
-      uint64_t v = 2 * max_dot;
-      while (v > 0) { ++req_bits; v >>= 1; }
+      const int mant = use_double ? 52 : 23;
+      int lgk = 0, req_bits, np_k;
+      uint64_t kk = (uint64_t)maxk - 1;
+      while (kk > 0) { ++lgk; kk >>= 1; }
+      req_bits = 2 * (mant - oztrim_crt + 1) + lgk + 1;
       for (np_k = 0; np_k < 20 && cumbits[np_k] < req_bits; ++np_k);
       np_k = (np_k < 20) ? np_k + 1 : 20;
       if (np_k < nprimes) {
