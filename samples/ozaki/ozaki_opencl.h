@@ -133,6 +133,7 @@ typedef struct ozaki_context_t {
   int nv_mma; /* NV MMA path enabled (m16n8k32, SG=32) */
   int pb; /* CRT prime batching factor (compiled into kernel) */
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
+  double xover; /* Scheme-1/2 crossover weight: reconstruction cost per Garner op vs int8 MAC */
   int maxk; /* max K per preprocessing pass (0 = no grouping) */
   int biggrf; /* Ozaki-local 256-GRF decision */
   /* Main stream (set per ozaki_gemm call for pool realloc sync) */

@@ -55,9 +55,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
   }
 
   /* Adaptive scheme selection (kind==3): first call uses Scheme 1 to learn
-   * the effective cutoff from occupancy data. Subsequent calls compare
-   * Scheme-1 pair count (at cached cutoff) vs Scheme-2 prime count and
-   * pick the cheaper path. kind==1 or kind==2 force that scheme. */
+   * the effective (trim+occupancy) cutoff from occupancy data. Subsequent
+   * calls compare the two bottlenecks: Scheme-1 pairs*K int8 MACs vs
+   * Scheme-2 P*K MACs + O(P^2) Garner reconstruction. Dividing by K:
+   *   pairs < P + xover * P^2 / K
+   * The reconstruction term vanishes as K grows (amortized) and dominates at
+   * small K. Scheme-2 runs untrimmed under kind==3 (oztrim_crt forced to 0 at
+   * init), so trim is a Scheme-1-only knob here; trimmed Scheme 2 needs
+   * explicit kind==2. kind==1 or kind==2 force that scheme. */
   { const int lc = ctx->cache.last_cutoff;
     const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
     if (1 == ctx->kind) {
@@ -68,7 +73,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
     else if (0 < lc) {
       const int pairs = ozaki_count_pairs(ctx->nslices, lc, sq);
-      use_scheme1 = (pairs < ctx->nprimes);
+      const double p = ctx->nprimes;
+      use_scheme1 = (pairs < p + ctx->xover * p * p / K);
     }
     else {
       use_scheme1 = 0; /* kind==3, no cutoff yet: default to Scheme 2 */

@@ -87,7 +87,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     { /* Scheme 2: Convert trim levels to input mantissa bits. */
       const int mant = use_double ? 52 : 23;
       const int max_levels = mant / 2;
-      oztrim_crt = LIBXS_MIN(oztrim, max_levels) * 2;
+      oztrim_crt = (3 == kind) ? 0 : LIBXS_MIN(oztrim, max_levels) * 2;
       if (0 < oztrim_crt) {
         static const int cumbits_u8[20] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
         static const int cumbits_i8[20] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
@@ -226,6 +226,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       int pb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
       ctx->pb = pb;
     }
+    env = getenv("OZAKI_XOVER");
+    ctx->xover = (NULL != env && 0 < atof(env)) ? atof(env) : 32.0;
     ctx->hier = hier;
     ctx->maxk = maxk;
     if (0 == rtm) {
@@ -592,6 +594,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ozaki_print_opt(stderr, "hier", ctx->hier);
     }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);
+    if (3 == kind) fprintf(stderr, " xover=%g", ctx->xover);
     fprintf(stderr, "\n");
   }
 
