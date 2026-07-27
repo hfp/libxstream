@@ -93,6 +93,14 @@
  * Level 1: HIER_GS primes per group (small Garner, 32-bit).
  * Level 2: Garner over HIER_NGROUPS group-moduli (32-bit, ulong intermediate).
  * Reduces peak live registers from ~NPRIMES to ~max(HIER_GS, HIER_NGROUPS). */
+/**
+ * Fractional-CRT (idea 1b) needs the raw per-prime residues, so it forces the
+ * flat (non-hierarchical) residue path regardless of OZAKI_HIER.
+ */
+#if defined(OZAKI_FRACCRT) && (OZAKI_FRACCRT)
+# undef OZAKI_HIER
+# define OZAKI_HIER 0
+#endif
 #if !defined(OZAKI_HIER)
 # define OZAKI_HIER 0
 #endif
@@ -227,6 +235,41 @@
 #endif
 
 #if !OZAKI_HIER
+#if defined(OZAKI_FRACCRT) && (OZAKI_FRACCRT)
+/* Fractional-CRT store (experiment): reconstruct signed value, scale, write C */
+#define OZAKI_CRT_STORE(RESIDUES, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
+  do { \
+    short ea_c_[XMX_M]; \
+    const short eb_c_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
+    int ms_; \
+    UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) \
+    { \
+      ea_c_[ms_] = (EXPA)[(MI) + ms_]; \
+    } \
+    UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) \
+    { \
+      const int rm_ = (MI) + ms_; \
+      if (OZAKI_IN_BOUNDS(rm_, (M), (COL), (N))) { \
+        SINT pg_; \
+        double val_; \
+        UNROLL_FORCE(NPRIMES) for (pg_ = 0; pg_ < NPRIMES; ++pg_) \
+        { \
+          dot_r_[pg_] = (RESIDUES)[(int)pg_ * XMX_M + ms_]; \
+        } \
+        val_ = oz2g_frac_reconstruct(dot_r_); \
+        { \
+          const int sh_ = (int)ea_c_[ms_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
+          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+          if (0.0 != val_ && ZERO != (ALPHA) && sh_ >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) { \
+            const real_t scale_ = OZAKI_ALPHA_MUL((ALPHA), EXP2I(sh_)); \
+            cv_ += (real_t)(val_ * (double)scale_); \
+          } \
+          (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
+        } \
+      } \
+    } \
+  } while (0)
+#else
 /* Garner + Horner store: reconstruct from per-prime residues, scale, write C */
 #define OZAKI_CRT_STORE(RESIDUES, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
   do { \
@@ -257,6 +300,7 @@
       } \
     } \
   } while (0)
+#endif /* OZAKI_FRACCRT */
 #else /* OZAKI_HIER */
 
 /* Level-1 Garner from group-local residues -> gval_all.
@@ -574,6 +618,81 @@ inline uint oz2g_mod64(ulong x, SINT pidx)
   return oz2g_mod((uint)x, pidx);
 #endif
 }
+
+
+#if defined(OZAKI_FRACCRT) && (OZAKI_FRACCRT)
+/**
+ * Fractional / rank-based CRT reconstruction (idea 1b).
+ * x/M = frac(sum_i alpha_i / m_i), alpha_i = (residue_i * k_i) mod m_i.
+ * 1/m_i is expanded into OZ2G_FRAC_L base-256 limbs so the fractional sum
+ * becomes sum_l (sum_i alpha_i * climb[i][l]) * 2^-8(l+1). The inner limb
+ * sums are O(P*L) parallel int MACs (no sequential dependency), replacing the
+ * O(P^2) sequential Garner chain. Combine in double-double, centered-lift for
+ * sign. Returns the signed reconstructed value as a double.
+ * Tables OZ2G_FRAC_K, OZ2G_FRAC_CLIMB, OZ2G_FRAC_L, OZ2G_FRAC_MH/ML/HALFM come
+ * as -D initializers from ozaki_emit_fraccrt() for the active moduli set (u8/i8,
+ * any prime count), so a single kernel serves fp64/fp32 and trims.
+ */
+constant uint oz2g_frac_k[NPRIMES] = OZ2G_FRAC_K;
+constant uchar oz2g_frac_climb[NPRIMES][OZ2G_FRAC_L] = OZ2G_FRAC_CLIMB;
+
+inline double oz2g_two_sum(double a, double b, double* err)
+{
+  const double s = a + b;
+  const double bb = s - a;
+  *err = (a - (s - bb)) + (b - bb);
+  return s;
+}
+
+
+inline double oz2g_two_prod(double a, double b, double* err)
+{
+  const double p = a * b;
+  *err = fma(a, b, -p);
+  return p;
+}
+
+
+inline double oz2g_frac_reconstruct(const uint* restrict dot_residues)
+{
+  double sl[OZ2G_FRAC_L];
+  double fh = 0.0, fl = 0.0;
+  double fi, e, eh, frh, frl, s2, uh, ul, uu, vh, vl;
+  SINT i, l;
+  UNROLL_FORCE(OZ2G_FRAC_L) for (l = 0; l < OZ2G_FRAC_L; ++l) sl[l] = 0.0;
+  UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i) {
+    const uint a = oz2g_mod(dot_residues[i] * oz2g_frac_k[i], i);
+    UNROLL_FORCE(OZ2G_FRAC_L) for (l = 0; l < OZ2G_FRAC_L; ++l) {
+      sl[l] += (double)(a * (uint)oz2g_frac_climb[i][l]);
+    }
+  }
+  UNROLL_FORCE(OZ2G_FRAC_L) for (l = 0; l < OZ2G_FRAC_L; ++l) {
+    const double term = sl[l] * EXP2I(-8 * (l + 1));
+    const double s = oz2g_two_sum(fh, term, &e);
+    const double lo = e + fl;
+    fh = oz2g_two_sum(s, lo, &e);
+    fl = e;
+  }
+  fi = floor(fh);
+  frh = oz2g_two_sum(fh, -fi, &e);
+  frl = e + fl;
+  s2 = oz2g_two_sum(frh, frl, &e);
+  frh = s2;
+  frl = e;
+  uh = oz2g_two_prod(frh, OZ2G_FRAC_MH, &eh);
+  ul = frh * OZ2G_FRAC_ML + frl * OZ2G_FRAC_MH + eh;
+  uu = uh + ul;
+  if (uu > OZ2G_FRAC_HALFM) {
+    vh = oz2g_two_sum(uh, -OZ2G_FRAC_MH, &e);
+    vl = ul - OZ2G_FRAC_ML + e;
+  }
+  else {
+    vh = uh;
+    vl = ul;
+  }
+  return vh + vl;
+}
+#endif /* OZAKI_FRACCRT */
 
 
 /* Garner CRT reconstruction: residues -> mixed-radix digits + sign */

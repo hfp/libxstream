@@ -34,6 +34,55 @@ static void ozaki_print_opt(FILE* stream, const char* name, int val)
 }
 
 
+/**
+ * Emit fractional-CRT (OZAKI_FRACCRT) reconstruction tables as -D flags for the
+ * active moduli set (nprimes entries of modtab). Computes, without bignum:
+ *   k_i     = (prod_{j!=i} m_j mod m_i)^{-1} mod m_i
+ *   climb[i][l] = l-th base-256 limb of 1/m_i
+ *   M       = prod m_i  as a double-double (Mh, Ml) via compensated product
+ * L (limb count) is fixed at OZ2G_FRAC_L; double-double reconstruction is exact
+ * whenever |x| > M * 2^-53, which holds for the real Ozaki-2 magnitude range.
+ */
+static size_t ozaki_emit_fraccrt(char* buf, size_t size, const uint16_t* modtab, int nprimes, int frac_l)
+{
+  size_t off = 0;
+  double mh = 1.0, ml = 0.0;
+  int i, l;
+  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, " -DOZ2G_FRAC_L=%d -DOZ2G_FRAC_K={", frac_l);
+  for (i = 0; i < nprimes; ++i) {
+    uint32_t prod_mod = 1;
+    int j;
+    for (j = 0; j < nprimes; ++j) {
+      if (j != i) prod_mod = (uint32_t)(((uint64_t)prod_mod * (uint32_t)modtab[j]) % (uint32_t)modtab[i]);
+    }
+    off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%u", (0 != i) ? "," : "",
+      (unsigned)libxs_mod_inverse_u32(prod_mod, (uint32_t)modtab[i]));
+  }
+  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "} -DOZ2G_FRAC_CLIMB={");
+  for (i = 0; i < nprimes; ++i) {
+    uint32_t rem = 1;
+    for (l = 0; l < frac_l; ++l) {
+      rem <<= 8;
+      off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%u",
+        (0 != i || 0 != l) ? "," : "", (unsigned)(rem / (uint32_t)modtab[i]));
+      rem %= (uint32_t)modtab[i];
+    }
+  }
+  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "}");
+  for (i = 0; i < nprimes; ++i) {
+    const double p = (double)modtab[i];
+    const double ph = mh * p;
+    const double e = fma(mh, p, -ph) + ml * p;
+    const double s = ph + e;
+    ml = (ph - s) + e;
+    mh = s;
+  }
+  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off,
+    " -DOZ2G_FRAC_MH=%.20e -DOZ2G_FRAC_ML=%.20e -DOZ2G_FRAC_HALFM=%.20e", mh, ml, 0.5 * mh);
+  return off;
+}
+
+
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
   int ozgroups, int maxk, int profiling)
 {
@@ -368,7 +417,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
     }
     { /* Scheme 2: always compile CRT kernels (for adaptive) */
-      const int crt_hier = (0 != ctx->hier || 3 == kind);
+      /**
+       * Fractional-CRT (idea 1b): forces the flat residue path (needs raw
+       * per-prime residues). Tables are generated per active moduli set by
+       * ozaki_emit_fraccrt(), so it serves fp64/fp32, u8/i8, and trims.
+       */
+      const int fraccrt = (NULL != getenv("OZAKI_FRACCRT") && 0 != atoi(getenv("OZAKI_FRACCRT"))) ? 1 : 0;
+      const int crt_hier = (0 != fraccrt) ? 0 : (0 != ctx->hier || 3 == kind);
       const int crt_rtm = (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm / 2, 1) : rtm;
       char crt_build_options[128];
       size_t coff = 0;
@@ -391,6 +446,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         (1 < ozgroups) ? ozgroups : 0, crt_rtm, rtn, ctx->pb);
       if (0 == use_i8) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
+      }
+      if (0 != fraccrt) {
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=1");
+        coff += ozaki_emit_fraccrt(build_params + coff, sizeof(build_params) - coff,
+          (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 14);
+      }
+      if (NULL != getenv("OZAKI_SKIP_GARNER") && 0 != atoi(getenv("OZAKI_SKIP_GARNER"))) {
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1");
       }
       if (0 != crt_hier) {
         const uint16_t* modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
