@@ -359,9 +359,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
   global real_t* restrict expa, /* [M] per-row FP scale factor = 2^max_exp */
   int K_pad, /* padded K stride (>= 64) */
   int M_pad, /* padded M = nblk_m * BM_PRE */
-  global int* restrict slice_occ, /* [NSLICES] per-slice nonzero flag (or NULL) */
-  global int* restrict blk_hi, /* [nblk] per output-block highest occupied slice */
-  int tm_gemm) /* GEMM output tile height (row -> block index) */
+  global int* restrict slice_occ) /* [NSLICES] per-slice nonzero flag (or NULL) */
 {
   const int mi = (int)get_local_id(0);
   const int kk = (int)get_local_id(1);
@@ -370,9 +368,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
 
   local int row_max_exp[BM_PRE];
   local int occ_local[NSLICES];
-  local int row_hi[BM_PRE];
   if (0 == kk) row_max_exp[mi] = 0;
-  if (0 == kk) row_hi[mi] = 0;
   if (0 == kk && mi < NSLICES) occ_local[mi] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
 
@@ -411,10 +407,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
         if (aligned != 0) {
           SINT s_;
           UNROLL_FORCE(NSLICES) for (s_ = 0; s_ < NSLICES; ++s_) {
-            if (0 != ozaki_slice_digit(aligned, s1, (int)s_)) {
-              occ_local[s_] = 1;
-              atomic_max(&row_hi[mi], (int)s_);
-            }
+            if (0 != ozaki_slice_digit(aligned, s1, (int)s_)) occ_local[s_] = 1;
           }
         }
       }
@@ -423,9 +416,6 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
   barrier(CLK_LOCAL_MEM_FENCE);
   if (0 == kk && mi < NSLICES && 0 != occ_local[mi]) {
     atomic_or(&slice_occ[mi], 1);
-  }
-  if (0 == kk && row < M && NULL != blk_hi) {
-    atomic_max(&blk_hi[row / tm_gemm], row_hi[mi]);
   }
 }
 
@@ -453,9 +443,7 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
   global char* restrict bs, /* [NSLICES * K_pad * N_pad] */
   global real_t* restrict expb, /* [N] per-column FP scale factor = 2^max_exp */
   int K_pad, int N_pad,
-  global int* restrict slice_occ, /* [NSLICES] per-slice nonzero flag */
-  global int* restrict blk_hi, /* [nblk] per output-block highest occupied slice */
-  int tn_gemm) /* GEMM output tile width (col -> block index) */
+  global int* restrict slice_occ) /* [NSLICES] per-slice nonzero flag */
 {
   const int nj = (int)get_local_id(0);
   const int kk = (int)get_local_id(1);
@@ -464,9 +452,7 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
 
   local int col_max_exp[BN_PRE];
   local int occ_local[NSLICES];
-  local int col_hi[BN_PRE];
   if (0 == kk) col_max_exp[nj] = 0;
-  if (0 == kk) col_hi[nj] = 0;
   if (0 == kk && nj < NSLICES) occ_local[nj] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
 
@@ -504,10 +490,7 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
         if (aligned != 0) {
           SINT s_;
           UNROLL_FORCE(NSLICES) for (s_ = 0; s_ < NSLICES; ++s_) {
-            if (0 != ozaki_slice_digit(aligned, s1, (int)s_)) {
-              occ_local[s_] = 1;
-              atomic_max(&col_hi[nj], (int)s_);
-            }
+            if (0 != ozaki_slice_digit(aligned, s1, (int)s_)) occ_local[s_] = 1;
           }
         }
       }
@@ -516,9 +499,6 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
   barrier(CLK_LOCAL_MEM_FENCE);
   if (0 == kk && nj < NSLICES && 0 != occ_local[nj]) {
     atomic_or(&slice_occ[nj], 1);
-  }
-  if (0 == kk && col < N && NULL != blk_hi) {
-    atomic_max(&blk_hi[col / tn_gemm], col_hi[nj]);
   }
 }
 
@@ -547,10 +527,7 @@ kernel void gemm_fused(
   CONSTANT const real_t* restrict expb, /* [N] per-col FP scale = 2^exp */
   global real_t* restrict c, /* [M x N] column-major, ldc */
   int M, int N, int K_pad, int N_pad, int ldc, int M_pad, /* padded M dimension = slice row stride */
-  real_t alpha, int first_pair,
-  CONSTANT const int* restrict blk_hi_a, /* [nblk_m] per row-block highest slice */
-  CONSTANT const int* restrict blk_hi_b, /* [nblk_n] per col-block highest slice */
-  int use_blk_hi) /* 1: apply per-block cutoff; 0: use compiled OZAKI_CUTOFF */
+  real_t alpha, int first_pair)
 {
   const int ib_idx = (int)get_group_id(0);
   const int jb_idx = (int)get_group_id(1);
@@ -562,16 +539,6 @@ kernel void gemm_fused(
   const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
   const long a_stride = (long)M_pad * K_pad;
   const long b_stride = (long)K_pad * N_pad;
-  /* Per-block occupancy cutoff (uniform over the work-group): the highest
-   * A-slice for this row-block plus the highest B-slice for this col-block
-   * bounds the useful slice-pair diagonals.  Clamped to the compile-time
-   * OZAKI_CUTOFF so kernel register sizing is unaffected.  NULL buffers
-   * (e.g. cache path without readback) fall back to OZAKI_CUTOFF. */
-  int blk_cut = OZAKI_CUTOFF;
-  if (0 != use_blk_hi) {
-    const int bc = blk_hi_a[ib_idx] + blk_hi_b[jb_idx];
-    blk_cut = bc < OZAKI_CUTOFF ? bc : OZAKI_CUTOFF;
-  }
   SINT sa;
 
   /* Pre-cache FP exponent scales in registers: avoid re-reading from
@@ -644,12 +611,12 @@ kernel void gemm_fused(
   }
 #endif
 
-    for (sa = 0; sa < (SINT)NSLICES && (int)sa <= blk_cut; ++sa) {
+    for (sa = 0; sa < (SINT)NSLICES && (int)sa <= OZAKI_CUTOFF; ++sa) {
       const int high_sa = MANT_BITS - (7 * (int)sa);
       const int low_bit_sa = MAX(0, high_sa - 6);
       CONSTANT const char* as_sa = as_base + (long)sa * a_stride;
       CONSTANT const char* bs_sa = bs_base + (long)sa * b_stride;
-      const int sb_end_raw = blk_cut + 1 - (int)sa;
+      const int sb_end_raw = OZAKI_CUTOFF + 1 - (int)sa;
       const SINT sb_end = (SINT)(sb_end_raw < NSLICES ? sb_end_raw : NSLICES);
       SINT sb;
 
