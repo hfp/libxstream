@@ -71,11 +71,12 @@ static size_t ozaki_emit_fraccrt(char* buf, size_t size, const uint16_t* modtab,
   off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "}");
   for (i = 0; i < nprimes; ++i) {
     const double p = (double)modtab[i];
-    const double ph = mh * p;
-    const double e = fma(mh, p, -ph) + ml * p;
-    const double s = ph + e;
-    ml = (ph - s) + e;
-    mh = s;
+    double perr;
+    const double ph = libxs_two_product(mh, p, &perr);
+    const double e = perr + ml * p;
+    double serr;
+    mh = libxs_two_sum(ph, e, &serr);
+    ml = serr;
   }
   off += (size_t)LIBXS_SNPRINTF(buf + off, size - off,
     " -DOZ2G_FRAC_MH=%.20e -DOZ2G_FRAC_ML=%.20e -DOZ2G_FRAC_HALFM=%.20e", mh, ml, 0.5 * mh);
