@@ -67,7 +67,8 @@ inline void dekker_split_bf16_private(real_t val, int ndigits,
 #endif
 
 
-/* BF16 DPAS: bf16 x bf16 -> f32, one 8x16x16 tile.
+/**
+ * BF16 DPAS: bf16 x bf16 -> f32, one 8x16x16 tile.
  * Intel XMX (SG=16):
  *   A: 8 rows x 16 bf16  (short8 per WI -- one bf16/WI * 16 WIs * 8 rows)
  *   B: 16 rows x 16 bf16 (VNNI-packed into int8 -- 2 bf16/uint)
@@ -77,7 +78,8 @@ inline void dekker_split_bf16_private(real_t val, int ndigits,
  *   A: intel_sub_group_2d_block_read_16b_8r16x1c
  *   B: intel_sub_group_2d_block_read_transform_16b_16r16x1c (VNNI pack)
  *
- * Surface constraints: width/pitch >= 64 bytes, pitch 16-byte aligned. */
+ * Surface constraints: width/pitch >= 64 bytes, pitch 16-byte aligned.
+ */
 #if defined(INTEL) && (2 <= INTEL)
 
 # define BF16_MAD_K16(A, B, ACC) \

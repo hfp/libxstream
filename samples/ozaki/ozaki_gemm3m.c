@@ -87,8 +87,10 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b_hat, sz_b_hat);
   if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint((void**)&d_c_hat, sz_c_hat, libxstream_opencl_mem_hint_atomics);
 
-  /* H2D: upload interleaved complex A, B.
-   * Skip C when beta == 0: finalize kernel will not read C_old. */
+  /**
+   * H2D: upload interleaved complex A, B.
+   * Skip C when beta == 0: finalize kernel will not read C_old.
+   */
   if (EXIT_SUCCESS == result) {
     result = libxstream_mem_copy_h2d(a, d_ag, sz_a_complex, stream);
   }
@@ -173,9 +175,11 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
     result = libxstream_mem_copy_d2h(d_cg, c, sz_c_complex, stream);
   }
 
-  /* Sync stream before freeing device buffers to ensure finalize kernel
+  /**
+   *  Sync stream before freeing device buffers to ensure finalize kernel
    * and D2H transfer have completed. Without this, freed buffers can be
-   * recycled by the pool while DMA is still reading them. */
+   * recycled by the pool while DMA is still reading them.
+   */
   if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
 
   /* Cleanup device buffers */

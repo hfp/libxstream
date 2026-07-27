@@ -17,8 +17,10 @@
 # define K_GRP_GPU 32768
 #endif
 
-/* Device memory allocation macros (shared by ozaki_opencl.c and ozaki_gemm.c).
- * Uses libxstream's internal device pool when available. */
+/**
+ * Device memory allocation macros (shared by ozaki_opencl.c and ozaki_gemm.c).
+ * Uses libxstream's internal device pool when available.
+ */
 #define OZAKI_DEV_ALLOC(PTR, SIZE) \
     ((NULL != libxstream_opencl_config.pool_dev) \
       ? ((*(PTR) = libxs_malloc(libxstream_opencl_config.pool_dev, SIZE, LIBXS_MALLOC_NATIVE)) != NULL \
@@ -51,14 +53,16 @@ LIBXS_API_INLINE int ozaki_count_pairs(int nslices, int co, int flags)
   return n;
 }
 
-/* Host-side preprocessing callback for A or B (GEMM single-shot model).
+/**
+ * Host-side preprocessing callback for A or B (GEMM single-shot model).
  * When non-NULL in the context, ozaki_gemm calls these instead of
  * the GPU preprocess kernels and skips the full-matrix H2D.
  *
  * matrix   : host pointer to source matrix (A or B)
  * ld       : leading dimension
  * Per-side preprocessing cache: check fields + cached device buffers.
- * dim is the outer dimension (M for A, N for B). */
+ * dim is the outer dimension (M for A, N for B).
+ */
 typedef struct ozaki_cache_side_t {
   const void* ptr;
   int dim, K, ld, trans;
@@ -68,9 +72,11 @@ typedef struct ozaki_cache_side_t {
   unsigned int fingerprint; /* content fingerprint to detect in-place modifications */
 } ozaki_cache_side_t;
 
-/* Compute a lightweight fingerprint by sampling matrix elements at
+/**
+ * Compute a lightweight fingerprint by sampling matrix elements at
  * deterministic positions. Catches in-place modifications that
- * pointer comparison alone cannot detect. */
+ * pointer comparison alone cannot detect.
+ */
 unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int dim, int K, int ld, int trans);
 
 typedef struct ozaki_cache_t {
@@ -81,8 +87,10 @@ typedef struct ozaki_cache_t {
   ozaki_cache_side_t a, b;
 } ozaki_cache_t;
 
-/* Ozaki-1 kernel specialization key: compile-time cutoff.
- * bounds: 0 = tile-aligned, 1 = bounds-checked variant. */
+/**
+ * Ozaki-1 kernel specialization key: compile-time cutoff.
+ * bounds: 0 = tile-aligned, 1 = bounds-checked variant.
+ */
 typedef struct ozaki_kernel_key_t {
   int cutoff;
   int bounds;
@@ -93,8 +101,10 @@ typedef struct ozaki_kernel_set_t {
   cl_kernel kern_fused;
 } ozaki_kernel_set_t;
 
-/* State for an Ozaki OpenCL session.
- * All tuning parameters are set by ozaki_init (0 = auto). */
+/**
+ * State for an Ozaki OpenCL session.
+ * All tuning parameters are set by ozaki_init (0 = auto).
+ */
 typedef struct ozaki_context_t {
   /* Ozaki-1: preprocessing + scale kernels (shared across specializations) */
   cl_kernel kern_preprocess_a;
@@ -124,9 +134,11 @@ typedef struct ozaki_context_t {
   int bm_pre, bn_pre, bk_pre;
   /* output tile size (compiled into kernel) */
   int tm, tn;
-  /* register tiling: sub-tiles per sub-group (compiled into kernel).
+  /**
+   *  register tiling: sub-tiles per sub-group (compiled into kernel).
    * crt_rtm may differ from rtm when adaptive (kind=3) uses HIER+GRF128
-   * for CRT while Scheme 1 uses GRF256. */
+   * for CRT while Scheme 1 uses GRF256.
+   */
   int rtm, rtn, crt_rtm;
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
@@ -152,39 +164,47 @@ typedef struct ozaki_context_t {
 } ozaki_context_t;
 
 
-/* Function prototypes (public API).
+/**
+ * Function prototypes (public API).
  * Pass 0 for tm/tn/ndecomp to use auto defaults.
  * Pass -1 for ozflags to use the default (TRIANGULAR | SYMMETRIZE);
  * 0 disables both flags.  Auto defaults choose XMX-friendly sizes
  * when hardware support is detected.
  * kind: 1 = ozaki1 int8 (default), 2 = ozaki2 int8 (CRT).
  * verbosity: 0 = quiet, 1 = info, 2+ = debug.
- * ozgroups (Scheme 2 only): K-grouping factor, 0/1 = disabled. */
+ * ozgroups (Scheme 2 only): K-grouping factor, 0/1 = disabled.
+ */
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
   int ozgroups, int maxk, int profiling);
 void ozaki_destroy(ozaki_context_t* ctx);
-/* ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
+/**
+ * ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
  * synchronizing — the caller must sync the stream before consuming the result.
  * Helper streams (ctx->stream_a/b) and events are kept persistent in the
  * context to avoid per-call creation overhead.  On the rare pool grow path
  * (larger problem size), the wrapped deallocator syncs all streams before
- * reallocating. */
+ * reallocating.
+ */
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K, double alpha,
   const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc, libxs_hist_t* hist, int profile, int dev);
 
-/* Complex GEMM via block embedding - GPU-native version.
+/**
+ * Complex GEMM via block embedding - GPU-native version.
  * All complex matrices are in standard BLAS interleaved format.
  * alpha and beta each point to 2 consecutive real values [real, imag].
  * All intermediate buffers remain on device - no round-trips through host.
- * Returns EXIT_SUCCESS or EXIT_FAILURE. */
+ * Returns EXIT_SUCCESS or EXIT_FAILURE.
+ */
 int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
   const double* alpha, const void* a, int lda, const void* b, int ldb, const double* beta, void* c, int ldc);
 
-/* Invalidate preprocessing cache entries for the given matrix pointers.
+/**
+ * Invalidate preprocessing cache entries for the given matrix pointers.
  * This function must be called when matrices are modified outside of
  * ozaki_gemm (e.g., by CPU-side BLAS operations) to prevent stale
  * cached data from being reused. Pass NULL for pointers that should
- * not be invalidated. Thread-safe. */
+ * not be invalidated. Thread-safe.
+ */
 void ozaki_invalidate_cache(ozaki_context_t* ctx, const void* a, const void* b);
 
 #endif /* OZAKI_OPENCL_H */

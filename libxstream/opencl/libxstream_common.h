@@ -47,9 +47,11 @@
 # define BCST_SG(V, I) sub_group_broadcast(V, I)
 #endif
 
-/* Sub-group lane and group ID: use sub-group builtins when available,
+/**
+ * Sub-group lane and group ID: use sub-group builtins when available,
  * fall back to local IDs for vendors without cl_khr_subgroups (e.g. NVIDIA).
- * Requires work-group layout (SG, num_sub_groups, 1). */
+ * Requires work-group layout (SG, num_sub_groups, 1).
+ */
 #if defined(INTEL) && (0 < INTEL)
 # define SGLID() get_sub_group_local_id()
 # define SGID()  get_sub_group_id()
@@ -75,8 +77,10 @@
 #define IDX(I, J, M, N) ((int)(I) * (N) + (J))
 #define IDT(I, J, M, N) IDX(J, I, N, M)
 
-/* Floating-point type and IEEE bit-manipulation utilities.
- * Controlled by USE_DOUBLE (define to 1 for fp64, 0 or undef for fp32). */
+/**
+ * Floating-point type and IEEE bit-manipulation utilities.
+ * Controlled by USE_DOUBLE (define to 1 for fp64, 0 or undef for fp32).
+ */
 #if (defined(USE_DOUBLE) && (1 == USE_DOUBLE)) || (defined(TAN) && (2 == TAN))
 # pragma OPENCL EXTENSION cl_khr_fp64 : enable
 typedef double real_t;
@@ -96,25 +100,31 @@ typedef uint uint_repr_t;
 # endif
 #endif
 
-/* BF16 conversion helpers. Controlled by USE_BF16_EXT/USE_BF16. */
-/* Integer power of two via bit manipulation: 2^N exactly.
- * Avoids FP transcendental -- one integer add, one shift, one bitcast. */
+/**
+ * Integer power of two via bit manipulation: 2^N exactly.
+ * Avoids FP transcendental -- one integer add, one shift, one bitcast.
+ */
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
 # define EXP2I(N) as_double((long)((N) + 1023) << 52)
 #else
 # define EXP2I(N) as_float(((N) + 127) << 23)
 #endif
 
+/* BF16 conversion helpers. Controlled by USE_BF16_EXT/USE_BF16. */
 #if defined(USE_BF16_EXT) && (0 < USE_BF16_EXT)
-/* Hardware round-to-nearest-even via cl_intel_bfloat16_conversions.
+/**
+ * Hardware round-to-nearest-even via cl_intel_bfloat16_conversions.
  * Extension pragmas trigger warnings on some drivers; availability
- * is checked at init time. */
+ * is checked at init time.
+ */
 /*# pragma OPENCL EXTENSION cl_intel_bfloat16_conversions : enable*/
 # define ROUND_TO_BF16(x) intel_convert_bfloat16_as_ushort(x)
 # define BF16_TO_F32(x) intel_convert_as_bfloat16_float(x)
 #elif !defined(ROUND_TO_BF16) && defined(USE_BF16) && (0 < USE_BF16)
-/** Round a float to BF16 (round-to-nearest-even).
- *  Portable uint32 bit-manipulation (no __bf16 intrinsic required). */
+/**
+ * Round a float to BF16 (round-to-nearest-even).
+ * Portable uint32 bit-manipulation (no __bf16 intrinsic required).
+ */
 inline ushort round_to_bf16(float f)
 {
   uint bits = as_uint(f);
@@ -130,9 +140,11 @@ inline float bf16_to_f32(ushort v)
 # define BF16_TO_F32(x) bf16_to_f32(x)
 #endif
 
-/* IEEE FP16 storage conversions via core OpenCL half built-ins.
+/**
+ * IEEE FP16 storage conversions via core OpenCL half built-ins.
  * vload_half/vstore_half_rte convert to/from float without requiring
- * cl_khr_fp16 or half arithmetic; the raw storage is uint16_t. */
+ * cl_khr_fp16 or half arithmetic; the raw storage is uint16_t.
+ */
 #if !defined(ROUND_TO_F16) && defined(USE_F16) && (0 < USE_F16)
 /** Round a float to FP16 (round-to-nearest-even) and return raw bits. */
 inline ushort round_to_f16(float f)
