@@ -800,10 +800,23 @@ inline int oz2g_garner_reconstruct(const uint* restrict dot_residues, uint* rest
 
   is_negative = (v[NPRIMES - 1] >= (uint)(oz2g_moduli[NPRIMES - 1] + 1) / 2) ? 1 : 0;
 
+  /**
+   * Two's-complement the mixed-radix digits and complete the negation with a
+   * +1 carry propagated in integer space. Adding the 1 to the reconstructed
+   * value in floating point instead would be inexact once the magnitude
+   * exceeds 2^MANT_BITS, so the Horner evaluation below already yields |x|.
+   */
   if (0 != is_negative) {
     UNROLL_FORCE(NPRIMES) for (i = 0; i < NPRIMES; ++i)
     {
       v[i] = oz2g_moduli[i] - 1 - v[i];
+    }
+    for (i = 0; i < NPRIMES; ++i) {
+      if (v[i] + 1 < oz2g_moduli[i]) {
+        v[i] += 1;
+        break;
+      }
+      v[i] = 0;
     }
   }
   return is_negative;
@@ -841,7 +854,7 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
       result = result * (double)gprod + (double)gval;
     }
 
-    result = (0 != is_negative) ? -(result + 1.0) : result;
+    result = (0 != is_negative) ? -result : result;
     if (0.0 != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
       const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
       *cval += (real_t)(result * (double)scale);
@@ -875,7 +888,7 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
     }
 
     {
-      const float fresult = (0 != is_negative) ? -(result + 1.0f) : result;
+      const float fresult = (0 != is_negative) ? -result : result;
       if (0.0f != fresult && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
         const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
         *cval += fresult * scale;
@@ -1036,9 +1049,22 @@ inline int oz2g_hier_l2_garner(const uint* restrict gval, uint* restrict d)
 
   is_negative = (d[HIER_NGROUPS - 1] >= (oz2g_hier_gprod_actual[HIER_NGROUPS - 1] + 1) / 2) ? 1 : 0;
 
+  /**
+   * Two's-complement the level-2 digits and complete the negation with a +1
+   * carry propagated in integer space, so the Horner evaluation already yields
+   * |x|. Adding the 1 to the reconstructed value in floating point instead
+   * would be inexact once the magnitude exceeds 2^MANT_BITS.
+   */
   if (0 != is_negative) {
     for (i = 0; i < HIER_NGROUPS; ++i) {
       d[i] = oz2g_hier_gprod_actual[i] - 1 - d[i];
+    }
+    for (i = 0; i < HIER_NGROUPS; ++i) {
+      if (d[i] + 1 < oz2g_hier_gprod_actual[i]) {
+        d[i] += 1;
+        break;
+      }
+      d[i] = 0;
     }
   }
   return is_negative;
@@ -1053,9 +1079,16 @@ inline int oz2g_hier_l2_garner(const uint* restrict gval, uint* restrict d)
  * Host precomputes: HIER_TREE_INV_a_b = gp[a]^{-1} mod gp[b] for each merge pair.
  * HIER_TREE_PROD_ab = gp[a] * gp[b] (uint64) for merged modulus. */
 
-/* Tree-merge L2 reconstruction.
+/**
+ * Tree-merge L2 reconstruction.
  * Returns combined integer value and sign. Result written to *out_val.
- * Uses host-precomputed merge inverses (HIER_TREE_INV_a_b defines). */
+ * Uses host-precomputed merge inverses (HIER_TREE_INV_a_b defines).
+ * Only 1 and 2 groups are implemented; without this guard a larger group count
+ * would compile with no branch taken, leaving the result unassigned.
+ */
+#if 2 < HIER_NGROUPS
+# error "OZAKI_HIER_L2 (tree-merge) supports at most 2 groups; use OZAKI_HIER_L2=0"
+#endif
 inline int oz2g_hier_l2_tree(const uint* restrict gval, ulong* out_val)
 {
   int is_negative;
@@ -1141,7 +1174,7 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
       result = result * (double)sgprod + (double)sgval;
     }
 
-    result = (0 != is_negative) ? -(result + 1.0) : result;
+    result = (0 != is_negative) ? -result : result;
     if (0.0 != result && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
       const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
       *cval += (real_t)(result * (double)scale);
@@ -1175,7 +1208,7 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
     }
 
     {
-      const float fresult = (0 != is_negative) ? -(result_s + 1.0f) : result_s;
+      const float fresult = (0 != is_negative) ? -result_s : result_s;
       if (0.0f != fresult && ZERO != alpha && base_sh >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) {
         const real_t scale = OZAKI_ALPHA_MUL(alpha, EXP2I(base_sh));
         *cval += fresult * scale;

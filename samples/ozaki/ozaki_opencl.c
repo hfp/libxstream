@@ -540,8 +540,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           gp[gi] = p;
           l2b[gi] = (uint64_t)(-1) / (uint64_t)p;
         }
+        /**
+         * Tree-merge level 2 is implemented for at most 2 groups; requesting it
+         * for more would build a kernel that leaves the result unassigned, so
+         * the request is clamped rather than honored.
+         */
         env = getenv("OZAKI_HIER_L2");
-        use_tree = (NULL != env) ? atoi(env) : (ngroups <= 2 ? 1 : 0);
+        use_tree = (NULL != env) ? (0 != atoi(env) ? 1 : 0) : (ngroups <= 2 ? 1 : 0);
+        if (0 != use_tree && 2 < ngroups) {
+          if (0 > verbosity || 2 < verbosity) {
+            fprintf(stderr, "INFO OZAKI: tree-merge level 2 needs <=2 groups (have %d), using Garner\n", ngroups);
+          }
+          use_tree = 0;
+        }
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
           " -DOZAKI_HIER=1 -DHIER_NGROUPS_ACTUAL=%d -DOZAKI_HIER_L2=%d", ngroups, use_tree);
         for (gi = 0; gi < ngroups; ++gi) {
