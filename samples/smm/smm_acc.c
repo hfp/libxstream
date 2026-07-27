@@ -58,7 +58,8 @@ int libsmm_acc_init(void) {
   /* multiple calls to libsmm_acc_init are not considered as an error */
   if (1 == opencl_libsmm_initialized) {
 #  if !defined(__DBCSR_ACC)
-    /* DBCSR shall call libxstream_init as well as libsmm_acc_init (since both interfaces are used).
+    /**
+     * DBCSR shall call libxstream_init as well as libsmm_acc_init (since both interfaces are used).
      * Also, libsmm_acc_init may privately call libxstream_init (as it depends on the ACC interface).
      * The implementation of libxstream_init should hence be safe against "over initialization".
      * However, DBCSR only calls libxstream_init (and expects an implicit libsmm_acc_init).
@@ -430,7 +431,8 @@ int libsmm_acc_init(void) {
 
 
 int libsmm_acc_finalize(void) {
-  /* Routine libsmm_acc_init is called in master thread inside of parallel region
+  /**
+   * Routine libsmm_acc_init is called in master thread inside of parallel region
    * However, libsmm_acc_finalize is indirectly called (libxstream_finalize)
    * inside of a parallel region (not just the master thread).
    */
@@ -475,7 +477,8 @@ int libsmm_acc_finalize(void) {
     opencl_libsmm_predict_model = NULL;
 #  endif
 #  if !defined(__DBCSR_ACC)
-    /* DBCSR shall call libxstream_init as well as libsmm_acc_init (since both interfaces are used).
+    /**
+     * DBCSR shall call libxstream_init as well as libsmm_acc_init (since both interfaces are used).
      * Also, libsmm_acc_init may privately call libxstream_init (as it depends on the ACC interface).
      * The implementation of libxstream_init should hence be safe against "over initialization".
      * However, DBCSR only calls libxstream_init (and expects an implicit libsmm_acc_init).

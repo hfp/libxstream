@@ -68,14 +68,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
   }
 
-  /* Scheme 2 signed i8 fallback: OZAKI_I8=1 uses moduli<=128 (legacy).
-   * Default (u8): moduli<=256, fewer primes for same cumulative product. */
+  /**
+   * Scheme 2 signed i8 fallback: OZAKI_I8=1 uses moduli<=128 (legacy).
+   * Default (u8): moduli<=256, fewer primes for same cumulative product.
+   */
   {
     const char *const env_i8 = getenv("OZAKI_I8");
     use_i8 = (NULL != env_i8 && 0 != atoi(env_i8));
   }
-  { /* Compute nslices (Scheme 1) and nprimes (Scheme 2) independently.
-     * Both are needed for adaptive scheme selection. */
+  /**
+   * Compute nslices (Scheme 1) and nprimes (Scheme 2) independently.
+   * Both are needed for adaptive scheme selection.
+   */
+  {
     const int u8_def = use_double ? 16 : 9;
     const int i8_def = use_double ? 19 : 10;
     nslices = use_double ? 8 : 4;
@@ -168,9 +173,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   ctx->kern_crt_preprocess_b = NULL;
   ctx->kern_crt_fused = NULL;
   ctx->kern_crt_scale_beta = NULL;
-  if (EXIT_SUCCESS == result) { /* output tile sizes: fit SG * NTM * NTN <= max_wgs.
-     * tm must be multiple of 8*RTM, tn must be multiple of 16*RTN.
-     * Large GRF halves effective max work-group size. */
+  /**
+   * output tile sizes: fit SG * NTM * NTN <= max_wgs.
+   * tm must be multiple of 8*RTM, tn must be multiple of 16*RTN.
+   * Large GRF halves effective max work-group size.
+   */
+  if (EXIT_SUCCESS == result) {
     const int bm_pre = 16, bn_pre = 16, bk_pre = 32;
     char build_params[2048];
     char build_options[128];
@@ -183,11 +191,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       const char *const env_hier = getenv("OZAKI_HIER");
       hier = (NULL != env_hier) ? (0 != atoi(env_hier) ? 1 : 0) : (2 == kind ? 1 : 0);
     }
-    /* Ozaki-local 256-GRF decision (per-kernel, not global).
+    /**
+     * Ozaki-local 256-GRF decision (per-kernel, not global).
      * LIBXSTREAM_BIGGRF: explicit user override for all kernels.
      * OZAKI_BIGGRF: Ozaki-specific override.
      * Default: auto-enable for Intel GPUs, but HIER prefers GRF128
-     * (halved private arrays make 2x occupancy the better trade-off). */
+     * (halved private arrays make 2x occupancy the better trade-off).
+     */
     env = getenv("OZAKI_BIGGRF");
     if (NULL != env) {
       biggrf = (0 != atoi(env));
@@ -206,10 +216,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     if (NULL != env && 0 < atoi(env)) rtm = atoi(env);
     env = getenv("OZAKI_RTN");
     if (NULL != env && 0 < atoi(env)) rtn = atoi(env);
-    /* Choose defaults when not explicitly set:
+    /**
+     * Choose defaults when not explicitly set:
      *  256-GRF: RTM=4 RTN=2 (8 accumulators, measured sweet spot)
      *  128-GRF: RTM=2 RTN=2 (4 accumulators)
-     *  Other vendors:  RTM=1 RTN=1 (conservative) */
+     *  Other vendors:  RTM=1 RTN=1 (conservative)
+     */
     env = getenv("OZAKI_KU");
     {
       int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : 2;
@@ -269,14 +281,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
     if (0 >= tm) tm = 256;
     if (0 >= tn) tn = 256;
-    /* Clamp tiling factors so at least one sub-tile remains per dimension.
-     * XMX_M=8, XMX_N=16 for dp4a/DPAS/scalar; XMX_M=16, XMX_N=8 for NV_MMA. */
+    /**
+     * Clamp tiling factors so at least one sub-tile remains per dimension.
+     * XMX_M=8, XMX_N=16 for dp4a/DPAS/scalar; XMX_M=16, XMX_N=8 for NV_MMA.
+     */
     { const int xmx_m = (0 != ctx->nv_mma) ? 16 : 8;
       const int xmx_n = (0 != ctx->nv_mma) ? 8 : 16;
       while (rtm > 1 && tm / (xmx_m * rtm) < 1) rtm >>= 1;
       while (rtn > 1 && tn / (xmx_n * rtn) < 1) rtn >>= 1;
-      /* Shrink tile to satisfy work-group size constraint.
-       * WGS = SG * NTM * NTN = SG * (BM/(XMX_M*RTM)) * (BN/(XMX_N*RTN)). */
+      /**
+       * Shrink tile to satisfy work-group size constraint.
+       * WGS = SG * NTM * NTN = SG * (BM/(XMX_M*RTM)) * (BN/(XMX_N*RTN)).
+       */
       { const size_t xmx_area = (size_t)(xmx_m * rtm) * (xmx_n * rtn);
         while ((size_t)sg * ((size_t)tm * tn / xmx_area) > max_wgs && (tm > xmx_m * rtm || tn > xmx_n * rtn)) {
           if (tm >= tn) tm /= 2;
@@ -554,11 +570,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   } /* end if (EXIT_SUCCESS == result) for kernel initialization */
 
 
-  /* OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, -1 or 3=both).
+  /**
+   * OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, -1 or 3=both).
    * Default off: cache assumes matrix content at a given pointer is unchanged
    * between calls. Applications that modify matrices in-place must either
    * disable cache (0) or ensure cached matrices are truly constant.
-   * The fingerprint check catches some modifications but is not exhaustive. */
+   * The fingerprint check catches some modifications but is not exhaustive.
+   */
   {
     const char *const env_cache = getenv("OZAKI_CACHE");
     const int cache = (NULL != env_cache ? atoi(env_cache) : 0);
@@ -667,8 +685,11 @@ void ozaki_destroy(ozaki_context_t* ctx)
       clReleaseKernel(ctx->kern_zgemm_block_finalize);
     }
 
-    { /* Quiesce cache: NULL pointers under lock (prevents new hits),
-       * then wait for in-flight gemm threads to finish using cached buffers. */
+    /**
+     * Quiesce cache: NULL pointers under lock (prevents new hits),
+     * then wait for in-flight gemm threads to finish using cached buffers.
+     */
+    {
       void *sa_sl, *sa_ex, *sb_sl, *sb_ex;
       LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->cache.lock);
       sa_sl = ctx->cache.a.d_slices;

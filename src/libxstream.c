@@ -772,8 +772,10 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) { /* destroy locks */
       LIBXS_LOCK_DESTROY(LIBXS_LOCK, (libxs_lock_t*)(libxstream_opencl_locks + LIBXS_CACHELINE * i));
     }
-    /* NOTE: registered streams/events are not individually released here;
-     * the OpenCL runtime reclaims resources at process exit (atexit context). */
+    /**
+     * NOTE: registered streams/events are not individually released here;
+     * the OpenCL runtime reclaims resources at process exit (atexit context).
+     */
     free(libxstream_opencl_config.memptrs);
     free(libxstream_opencl_config.memptr_data);
     free(libxstream_opencl_config.streams);
@@ -1308,12 +1310,14 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             const char* const env_biggrf = getenv("LIBXSTREAM_BIGGRF");
             devinfo->biggrf = (NULL != env_biggrf && 0 != atoi(env_biggrf));
           }
-          /* LIBXSTREAM_USM runtime levels:
+          /**
+           * LIBXSTREAM_USM runtime levels:
            *   not set: OpenCL 2.0 SVM coarse-grain with non-USM fallback
            *   0: disable all USM, force clCreateBuffer path
            *   1: Intel USM ext
            *   2: OpenCL 2.0 SVM coarse-grain only (skip Intel ext)
-           *   3: OpenCL 2.0 SVM with device-reported caps (skip Intel ext) */
+           *   3: OpenCL 2.0 SVM with device-reported caps (skip Intel ext)
+           */
           {
             const char* const env_usm = getenv("LIBXSTREAM_USM");
             const int usm_level = (0 <= libxstream_init_cfg.usm) ? libxstream_init_cfg.usm

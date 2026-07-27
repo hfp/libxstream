@@ -13,8 +13,10 @@
 #include <libxs/libxs_mem.h>
 
 
-/* Local helper functions (static) to manage kernel argument setup and launches.
- * These were kept local to avoid adding new translation units for the sample. */
+/**
+ * Local helper functions (static) to manage kernel argument setup and launches.
+ * These were kept local to avoid adding new translation units for the sample.
+ */
 static void ozaki_cache_check(ozaki_context_t* ctx, const void* a, const void* b, int M, int N, int K, int lda, int ldb, int ta,
   int tb, size_t as_size, size_t bs_size, size_t expa_size, size_t expb_size, void** d_as, void** d_bs, void** d_expa_g,
   void** d_expb_g, int* cache_hit_a, int* cache_hit_b);
@@ -54,7 +56,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     libxs_malloc_arg(libxstream_opencl_config.pool_dev, stream);
   }
 
-  /* Adaptive scheme selection (kind==3): stateless per-call comparison of the
+  /**
+   * Adaptive scheme selection (kind==3): stateless per-call comparison of the
    * two bottlenecks -- Scheme-1 pairs*K int8 MACs vs Scheme-2 P*K MACs plus
    * O(P^2) Garner reconstruction. Dividing by K:
    *   pairs < P + xover * P^2 / K
@@ -67,7 +70,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
    * faster than estimated, while Scheme 2 stays untrimmed (oztrim_crt forced to
    * 0 at init) and thus favored when accuracy matters. Trim is a Scheme-1-only
    * knob here; trimmed Scheme 2 needs explicit kind==2. kind==1 or kind==2
-   * force that scheme. */
+   * force that scheme.
+   */
   { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
     if (1 == ctx->kind) {
       use_scheme1 = 1;
@@ -83,9 +87,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
   }
 
-  /* GEMM path (Scheme 1): full-split-then-tiled-GEMM.
+  /**
+   * GEMM path (Scheme 1): full-split-then-tiled-GEMM.
    * Preprocesses entire K dimension up front into dense per-slice
-   * int8 matrices, then runs a proper tiled GEMM per slice pair. */
+   * int8 matrices, then runs a proper tiled GEMM per slice pair.
+   */
   if (0 != use_scheme1 && NULL != ctx->kernel_registry && 0 < K) {
     const int nslices_g = ctx->nslices;
     const int bk_pre = ctx->bk_pre;
@@ -98,8 +104,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int nblk_gn = LIBXS_UPDIV(N, tn);
     const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
     const int cutoff = 2 * (nslices_g - 1) - ctx->oztrim;
-    /* K-group: size buffers for min(K, maxk), not full K.
-     * maxk=0 means no grouping (full K in one pass). */
+    /**
+     * K-group: size buffers for min(K, maxk), not full K.
+     * maxk=0 means no grouping (full K in one pass).
+     */
     const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
     const int k_grp_max = K < k_grp_size ? K : k_grp_size;
     int k_grp_pad = LIBXS_UP(k_grp_max, bk_pre);
@@ -131,8 +139,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         &d_expb_g, &cache_hit_a, &cache_hit_b);
     }
 
-    /* Allocate device memory (skip cached sides and host-preprocessed sides).
-     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm_complex). */
+    /**
+     * Allocate device memory (skip cached sides and host-preprocessed sides).
+     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm_complex).
+     */
     if (0 != dev) {
       LIBXS_UNION_ASSIGN(void*, d_ag, const void*, a);
       LIBXS_UNION_ASSIGN(void*, d_bg, const void*, b);
@@ -162,9 +172,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_occ_a, occ_size);
     if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_occ_b, occ_size);
 
-    /* H2D transfers: full source matrices (once).
+    /**
+     * H2D transfers: full source matrices (once).
      * Skip when dev != 0: a/b/c are already on device.
-     * Skip C when beta == 0: kernel does not read C_old (BLAS spec). */
+     * Skip C when beta == 0: kernel does not read C_old (BLAS spec).
+     */
     if (0 == dev) {
       if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
         result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
@@ -184,9 +196,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
 
-    /* Scale C by beta (once, before K-group loop).
+    /**
+     * Scale C by beta (once, before K-group loop).
      * When beta == 0, zero d_cg so the fused kernel's tile-by-tile
-     * read-modify-write (OZAKI_SCALE_FLUSH) starts from zero. */
+     * read-modify-write (OZAKI_SCALE_FLUSH) starts from zero.
+     */
     if (EXIT_SUCCESS == result && 1.0 != beta) {
       if (0.0 != beta) {
         result = ozaki_enqueue_scale_beta(ctx, stream, ctx->kern_scale_beta, d_cg, M, N, ldc, beta);
@@ -245,9 +259,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
       if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
 
-      /* Compute adaptive cutoff from occupancy data.
+      /**
+       * Compute adaptive cutoff from occupancy data.
        * On cache hit: reuse last_cutoff (no D2H readback, no sync bubble).
-       * On miss: read occupancy from GPU, compute eff_cutoff, save for next time. */
+       * On miss: read occupancy from GPU, compute eff_cutoff, save for next time.
+       */
       { int eff_cutoff = cutoff;
         if (0 != cache_hit_a && 0 != cache_hit_b && 0 != ctx->cache.last_cutoff) {
           eff_cutoff = ctx->cache.last_cutoff;
@@ -280,8 +296,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       first_pair = 0; /* subsequent groups accumulate */
     } /* end K-group loop */
 
-    /* Save preprocessed buffers to cache (only for single-group case).
-     * Skip when dev != 0: device pointers are not valid cache keys. */
+    /**
+     * Save preprocessed buffers to cache (only for single-group case).
+     * Skip when dev != 0: device pointers are not valid cache keys.
+     */
     if (0 == dev && n_kgroups <= 1) {
       const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
       ozaki_cache_update(ctx, result, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, d_as, d_bs, d_expa_g,
@@ -306,18 +324,22 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       }
       free(evt_prof);
     }
-    /* D2H result and cleanup.
-     * Skip when dev != 0: result is already in caller's device buffer. */
+    /**
+     * D2H result and cleanup.
+     * Skip when dev != 0: result is already in caller's device buffer.
+     */
     if (0 == dev) {
       if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
     }
 
-    /* Sync ALL streams before freeing device buffers to ensure transfers completed.
+    /**
+     * Sync ALL streams before freeing device buffers to ensure transfers completed.
      * Device pool deallocator only syncs on grow path, not regular frees.
      * - Main stream uses d_cg (for D2H)
      * - stream_a uses d_ag (for preprocessing)
      * - stream_b uses d_bg (for preprocessing)
-     * Without sync, freed buffers can be reallocated while DMA is still reading. */
+     * Without sync, freed buffers can be reallocated while DMA is still reading.
+     */
     if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
     if (EXIT_SUCCESS == result && NULL != stream_a && 0 == cache_hit_a) {
       result = libxstream_stream_sync(stream_a);
@@ -345,10 +367,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       LIBXS_ATOMIC_SUB_FETCH(&ctx->cache.nusers, 1, LIBXS_ATOMIC_LOCKORDER);
     }
   }
-  /* CRT GEMM path (Scheme 2): full-split-then-single-fused-GEMM.
+  /**
+   * CRT GEMM path (Scheme 2): full-split-then-single-fused-GEMM.
    * Preprocesses entire K into dense per-prime CRT residue matrices,
    * then runs a single kernel per tile that loops over all primes
-   * internally (full-K DPAS + Garner + Horner in one launch). */
+   * internally (full-K DPAS + Garner + Horner in one launch).
+   */
   else if (NULL != ctx->kern_crt_fused && 0 < K) {
     const int nprimes_g = ctx->nprimes;
     const int bk_pre = ctx->bk_pre;
@@ -360,8 +384,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int nblk_gm = LIBXS_UPDIV(M, tm);
     const int nblk_gn = LIBXS_UPDIV(N, tn);
     const int ntm = tm / (8 * ctx->crt_rtm), ntn = tn / (16 * ctx->rtn);
-    /* K-group: size buffers for min(K, maxk), not full K.
-     * maxk=0 means no grouping (full K in one pass). */
+    /**
+     * K-group: size buffers for min(K, maxk), not full K.
+     * maxk=0 means no grouping (full K in one pass).
+     */
     const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
     const int k_grp_max = K < k_grp_size ? K : k_grp_size;
     const int ku_bk = ctx->ku * bk_pre;
@@ -392,8 +418,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         &d_expb_g, &cache_hit_a, &cache_hit_b);
     }
 
-    /* Allocate device memory (skip cached sides and host-preprocessed sides).
-     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm_complex). */
+    /**
+     * Allocate device memory (skip cached sides and host-preprocessed sides).
+     * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm_complex).
+     */
     if (0 != dev) {
       LIBXS_UNION_ASSIGN(void*, d_ag, const void*, a);
       LIBXS_UNION_ASSIGN(void*, d_bg, const void*, b);
@@ -421,9 +449,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
     }
 
-    /* H2D transfers: full source matrices (once).
+    /**
+     * H2D transfers: full source matrices (once).
      * Skip when dev != 0: a/b/c are already on device.
-     * Skip C when beta == 0: kernel does not read C_old (BLAS spec). */
+     * Skip C when beta == 0: kernel does not read C_old (BLAS spec).
+     */
     if (0 == dev) {
       if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
         result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
@@ -507,8 +537,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       first_tile = 0; /* subsequent groups accumulate */
     } /* end K-group loop */
 
-    /* Save preprocessed buffers to cache (only for single-group case).
-     * Skip when dev != 0: device pointers are not valid cache keys. */
+    /**
+     * Save preprocessed buffers to cache (only for single-group case).
+     * Skip when dev != 0: device pointers are not valid cache keys.
+     */
     if (0 == dev && n_kgroups <= 1) {
       const int prev_owned = (0 != cache_hit_a || 0 != cache_hit_b);
       ozaki_cache_update(ctx, result, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, d_as, d_bs, d_expa_g,
@@ -538,12 +570,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
     }
 
-    /* Sync ALL streams before freeing device buffers to ensure transfers completed.
+    /**
+     * Sync ALL streams before freeing device buffers to ensure transfers completed.
      * Device pool deallocator only syncs on grow path, not regular frees.
      * - Main stream uses d_cg (for D2H)
      * - stream_a uses d_ag (for preprocessing)
      * - stream_b uses d_bg (for preprocessing)
-     * Without sync, freed buffers can be reallocated while DMA is still reading. */
+     * Without sync, freed buffers can be reallocated while DMA is still reading.
+     */
     if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
     if (EXIT_SUCCESS == result && NULL != stream_a && 0 == cache_hit_a) {
       result = libxstream_stream_sync(stream_a);
@@ -570,9 +604,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
   }
 
-  /* Invalidate cache entries whose pointer matches the output matrix C.
+  /**
+   * Invalidate cache entries whose pointer matches the output matrix C.
    * C was just written; if C's address is later passed as A or B,
-   * stale preprocessed data from before the write would be used. */
+   * stale preprocessed data from before the write would be used.
+   */
   if (0 != ctx->cache.flags) {
     ozaki_invalidate_cache(ctx, c, c);
   }

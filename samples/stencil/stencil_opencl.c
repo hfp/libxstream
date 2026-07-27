@@ -25,9 +25,11 @@
 #define STENCIL_KEY_FP32_WGX(KEY) ((int)((unsigned int)(KEY).fp32_wg >> 16))
 #define STENCIL_KEY_FP32_WGY(KEY) ((int)((KEY).fp32_wg & 65535))
 
-/* The JIT cache key is matched by memcmp; the registry silently rejects
+/**
+ * The JIT cache key is matched by memcmp; the registry silently rejects
  * (returns NULL) keys larger than LIBXS_REGKEY_MAXSIZE. Fail at compile time
- * if the key ever outgrows that limit. */
+ * if the key ever outgrows that limit.
+ */
 typedef char stencil_key_size_assert_t[
   (sizeof(stencil_opencl_key_t) <= LIBXS_REGKEY_MAXSIZE) ? 1 : -1];
 
@@ -315,8 +317,10 @@ static void stencil_store_bf16_digits(cl_ushort* dst, int stride,
 }
 
 
-/* ndigits selects the storage format: 0 = single IEEE FP16 value,
- * 1 or 2 = that many Dekker BF16 limbs (limb k at idx + k * stride). */
+/**
+ * ndigits selects the storage format: 0 = single IEEE FP16 value,
+ * 1 or 2 = that many Dekker BF16 limbs (limb k at idx + k * stride).
+ */
 static void stencil_store_bf16s_value(cl_ushort* dst, size_t idx,
                                       size_t stride, int ndigits, float value)
 {

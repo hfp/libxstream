@@ -188,8 +188,10 @@ int main(int argc, char* argv[])
   /* Reference BLAS GEMM */
   if (EXIT_SUCCESS == result) {
     int i;
-    /* save original C (still in c_ref) into c_oz; the Ozaki result will
-     * be recomputed below for comparison after BLAS timing is done */
+    /**
+     * save original C (still in c_ref) into c_oz; the Ozaki result will
+     * be recomputed below for comparison after BLAS timing is done
+     */
     memcpy(c_oz, c_ref, (size_t)ldc * N * elem_size);
     t0 = libxs_timer_tick();
     for (i = 0; i < nrepeat; ++i) {
