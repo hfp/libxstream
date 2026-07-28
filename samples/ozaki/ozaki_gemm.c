@@ -32,7 +32,8 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
   int ntn, double alpha, int first_pair, int use_double,
   cl_event* evt_prof, int prof_a, int prof_b, int* n_profiled, int profile);
-static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds);
+static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds, int tm, int tn);
+static cl_kernel ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn);
 
 
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K, double alpha,
@@ -97,7 +98,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
-    const int tm = ctx->tm, tn = ctx->tn;
+    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, ctx->rtm);
+    const int tm = tile.m, tn = tile.n;
     const int m_pad = LIBXS_UP(M, bm_pre);
     int n_pad = LIBXS_UP(N, bn_pre);
     const int nblk_gm = LIBXS_UPDIV(M, tm);
@@ -290,7 +292,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
         const int bounds = (0 != M % tm || 0 != N % tn);
         total_pairs += ozaki_count_pairs(nslices_g, eff_cutoff, sq);
-        { cl_kernel kern_g = ozaki_get_fused_kernel(ctx, eff_cutoff, bounds);
+        { cl_kernel kern_g = ozaki_get_fused_kernel(ctx, eff_cutoff, bounds, tm, tn);
           if (NULL != kern_g) {
             result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
               tn, ntm, ntn, alpha, first_pair, ctx->use_double, evt_prof, 1, 2, &n_profiled, profile);
@@ -379,12 +381,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
    * then runs a single kernel per tile that loops over all primes
    * internally (full-K DPAS + Garner + Horner in one launch).
    */
-  else if (NULL != ctx->kern_crt_fused && 0 < K) {
+  else if (NULL != ctx->crt_registry && 0 < K) {
     const int nprimes_g = ctx->nprimes;
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
-    const int tm = ctx->tm, tn = ctx->tn;
+    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, ctx->crt_rtm);
+    const int tm = tile.m, tn = tile.n;
     const int m_pad = LIBXS_UP(M, bm_pre);
     int n_pad = LIBXS_UP(N, bn_pre);
     const int nblk_gm = LIBXS_UPDIV(M, tm);
@@ -539,12 +542,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 
       /* Launch CRT GEMM for this K-group */
       if (EXIT_SUCCESS == result) {
-        const int crt_aligned = (0 == M % tm && 0 == N % tn);
-        cl_kernel crt_kern = (0 != crt_aligned && NULL != ctx->kern_crt_fused_fast)
-          ? ctx->kern_crt_fused_fast : ctx->kern_crt_fused;
-        result = ozaki_launch_fused(ctx, stream, crt_kern, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc,
-          m_pad, tm, tn, ntm, ntn, alpha, first_tile,
-          ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
+        const int bounds = (0 != M % tm || 0 != N % tn);
+        cl_kernel crt_kern = ozaki_get_crt_kernel(ctx, bounds, tm, tn);
+        if (NULL != crt_kern) {
+          result = ozaki_launch_fused(ctx, stream, crt_kern, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc,
+            m_pad, tm, tn, ntm, ntn, alpha, first_tile,
+            ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
+        }
+        else result = EXIT_FAILURE;
       }
       first_tile = 0; /* subsequent groups accumulate */
     } /* end K-group loop */
@@ -696,13 +701,15 @@ static int ozaki_enqueue_scale_beta(
 }
 
 
-static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds)
+static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds, int tm, int tn)
 {
   ozaki_kernel_key_t key;
   ozaki_kernel_set_t* kset;
   memset(&key, 0, sizeof(key));
   key.cutoff = cutoff;
   key.bounds = bounds;
+  key.tm = tm;
+  key.tn = tn;
   kset = (ozaki_kernel_set_t*)libxs_registry_get(ctx->kernel_registry, &key,
     sizeof(key), libxs_registry_lock(ctx->kernel_registry));
   if (NULL == kset || NULL == kset->kern_fused) {
@@ -710,15 +717,15 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
     kset = (ozaki_kernel_set_t*)libxs_registry_get(ctx->kernel_registry, &key,
       sizeof(key), libxs_registry_lock(ctx->kernel_registry));
     if (NULL == kset || NULL == kset->kern_fused) {
-      char flags[1280];
+      char flags[1408];
       ozaki_kernel_set_t newset;
       cl_program program = NULL;
       int n;
       memset(&newset, 0, sizeof(newset));
-      { char pname[32];
-        LIBXS_SNPRINTF(pname, sizeof(pname), "oz1_c%d%s", cutoff, 0 != bounds ? "b" : "");
-        n = LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DOZAKI_CUTOFF=%d%s",
-          ctx->base_flags, cutoff, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
+      { char pname[64];
+        LIBXS_SNPRINTF(pname, sizeof(pname), "oz1_c%d_%dx%d%s", cutoff, tm, tn, 0 != bounds ? "b" : "");
+        n = LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DOZAKI_CUTOFF=%d%s",
+          ctx->base_flags, tm, tn, cutoff, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
         LIBXS_UNUSED(n);
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, pname, flags,
@@ -732,8 +739,53 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
           sizeof(key), &newset, sizeof(newset), libxs_registry_lock(ctx->kernel_registry));
       }
       if (0 > ctx->verbosity || 2 < ctx->verbosity) {
-        fprintf(stderr, "INFO OZAKI: JIT cutoff=%d bounds=%d -> %s\n",
-          cutoff, bounds, NULL != newset.kern_fused ? "OK" : "FAILED");
+        fprintf(stderr, "INFO OZAKI: JIT cutoff=%d bounds=%d tile=%dx%d -> %s\n",
+          cutoff, bounds, tm, tn, NULL != newset.kern_fused ? "OK" : "FAILED");
+      }
+    }
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->kernel_lock);
+  }
+  return (NULL != kset) ? kset->kern_fused : NULL;
+}
+
+
+static cl_kernel ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn)
+{
+  ozaki_crt_kernel_key_t key;
+  ozaki_crt_kernel_set_t* kset;
+  memset(&key, 0, sizeof(key));
+  key.bounds = bounds;
+  key.tm = tm;
+  key.tn = tn;
+  kset = (ozaki_crt_kernel_set_t*)libxs_registry_get(ctx->crt_registry, &key,
+    sizeof(key), libxs_registry_lock(ctx->crt_registry));
+  if (NULL == kset || NULL == kset->kern_fused) {
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->kernel_lock);
+    kset = (ozaki_crt_kernel_set_t*)libxs_registry_get(ctx->crt_registry, &key,
+      sizeof(key), libxs_registry_lock(ctx->crt_registry));
+    if (NULL == kset || NULL == kset->kern_fused) {
+      char flags[sizeof(ctx->crt_flags) + 64];
+      ozaki_crt_kernel_set_t newset;
+      cl_program program = NULL;
+      memset(&newset, 0, sizeof(newset));
+      { char pname[64];
+        LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d%s", tm, tn, 0 != bounds ? "b" : "");
+        LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d%s",
+          ctx->crt_flags, tm, tn, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
+        if (EXIT_SUCCESS == libxstream_opencl_program(
+              0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags,
+              ctx->crt_options, NULL, NULL, NULL, 0, &program)) {
+          libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
+        }
+      }
+      if (NULL != program) clReleaseProgram(program);
+      if (NULL != newset.kern_fused) {
+        kset = (ozaki_crt_kernel_set_t*)libxs_registry_set(ctx->crt_registry, &key,
+          sizeof(key), &newset, sizeof(newset), libxs_registry_lock(ctx->crt_registry));
+      }
+      if (0 > ctx->verbosity || 2 < ctx->verbosity) {
+        fprintf(stderr, "INFO OZAKI: JIT crt bounds=%d tile=%dx%d -> %s\n",
+          bounds, tm, tn, NULL != newset.kern_fused ? "OK" : "FAILED");
       }
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->kernel_lock);

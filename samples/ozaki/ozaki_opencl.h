@@ -92,16 +92,32 @@ typedef struct ozaki_cache_t {
 /**
  * Ozaki-1 kernel specialization key: compile-time cutoff.
  * bounds: 0 = tile-aligned, 1 = bounds-checked variant.
+ * tm/tn: output tile baked into the kernel (size-aware selection).
  */
 typedef struct ozaki_kernel_key_t {
   int cutoff;
   int bounds;
+  int tm, tn;
 } ozaki_kernel_key_t;
 
 /* Ozaki-1 kernel set: one entry per registry specialization. */
 typedef struct ozaki_kernel_set_t {
   cl_kernel kern_fused;
 } ozaki_kernel_set_t;
+
+/**
+ * Ozaki-2 kernel specialization key: output tile plus bounds variant.
+ * Scheme 2 has no cutoff, so its registry is keyed by tile only.
+ */
+typedef struct ozaki_crt_kernel_key_t {
+  int bounds;
+  int tm, tn;
+} ozaki_crt_kernel_key_t;
+
+/* Ozaki-2 kernel set: one entry per registry specialization. */
+typedef struct ozaki_crt_kernel_set_t {
+  cl_kernel kern_fused;
+} ozaki_crt_kernel_set_t;
 
 /**
  * State for an Ozaki OpenCL session.
@@ -120,9 +136,11 @@ typedef struct ozaki_context_t {
   /* CRT GEMM-mode kernels (Scheme-2 tiled path) */
   cl_kernel kern_crt_preprocess_a;
   cl_kernel kern_crt_preprocess_b;
-  cl_kernel kern_crt_fused;       /* bounds-checked (safe for any M/N) */
-  cl_kernel kern_crt_fused_fast;  /* no bounds checks (tile-aligned M/N only) */
   cl_kernel kern_crt_scale_beta;
+  /* Ozaki-2: registry of tile-specialized fused kernels */
+  libxs_registry_t* crt_registry;
+  char crt_flags[2048]; /* base compile flags (without BM/BN) */
+  char crt_options[128]; /* build options for CRT kernels */
   int use_double; /* 1: fp64, 0: fp32 */
   int sg; /* sub-group size used for compilation */
   int ndecomp; /* number of decomposition components (slices or primes, per active kind) */
@@ -134,8 +152,16 @@ typedef struct ozaki_context_t {
   int verbosity; /* 0: quiet, 1: info, 2+: debug */
   /* block sizes for preprocessing WGs */
   int bm_pre, bn_pre, bk_pre;
-  /* output tile size (compiled into kernel) */
+  /**
+   * Output tile size. tm/tn hold the largest legal tile (the upper bound for
+   * selection); tm_req/tn_req are explicit user overrides (0 = auto), in which
+   * case selection is bypassed and tm/tn are used verbatim.
+   */
   int tm, tn;
+  int tm_req, tn_req;
+  /* Device compute units: saturation target for size-aware tile selection. */
+  int nunits;
+  size_t max_wgs; /* work-group size bound (halved under 256-GRF) */
   /**
    *  register tiling: sub-tiles per sub-group (compiled into kernel).
    * crt_rtm may differ from rtm when adaptive (kind=3) uses HIER+GRF128
@@ -179,6 +205,19 @@ typedef struct ozaki_context_t {
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
   int ozgroups, int maxk, int profiling);
 void ozaki_destroy(ozaki_context_t* ctx);
+/* Selected output tile (BM x BN) for one GEMM call. */
+typedef struct ozaki_tile_t {
+  int m, n;
+} ozaki_tile_t;
+
+/**
+ * Size-aware output tile selection: pick the largest legal tile that still
+ * saturates the device, breaking ties on least padding waste. rtm is passed
+ * explicitly because Scheme 1 and Scheme 2 may use different register tiling
+ * (rtm vs crt_rtm), which changes both the tile granularity and the resulting
+ * work-group size.
+ */
+ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm);
 /**
  * ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
  * synchronizing — the caller must sync the stream before consuming the result.

@@ -95,11 +95,9 @@ int main(int argc, char* argv[])
     const char* env;
     int ozflags = -1 /*auto*/, oztrim = 0, ndecomp = 0 /*auto*/;
     int ozgroups = 0, kind = 1 /*int8*/, verbosity = 0;
-    int tm = 0, tn = 0, use_double = 1;
-    env = getenv("OZAKI_TM");
-    if (NULL != env) tm = atoi(env);
-    env = getenv("OZAKI_TN");
-    if (NULL != env) tn = atoi(env);
+    /* tm/tn stay 0: ozaki_init reads OZAKI_TM/OZAKI_TN and selects per call. */
+    const int tm = 0, tn = 0;
+    int use_double = 1;
     env = getenv("OZAKI_FLAGS");
     if (NULL != env) ozflags = atoi(env);
     env = getenv("OZAKI_TRIM");

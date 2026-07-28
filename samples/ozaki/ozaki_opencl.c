@@ -23,6 +23,15 @@
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_GEMM3M)"
 #endif
 
+/**
+ * Work-groups per compute unit required to consider the device saturated
+ * during tile selection. Measured on PVC: below this the largest tile starves
+ * the device, above it the extra parallelism no longer pays for the lost reuse.
+ */
+#if !defined(OZAKI_TILE_SAT)
+# define OZAKI_TILE_SAT 16
+#endif
+
 
 /* Internal helpers */
 static const uint16_t ozaki_u8_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
@@ -133,6 +142,61 @@ static size_t ozaki_emit_fraccrt2(char* buf, size_t size, const uint16_t* modtab
   }
   off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "}");
   return off;
+}
+
+
+ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm)
+{
+  const int xmx_m = (0 != ctx->nv_mma) ? 16 : 8;
+  const int xmx_n = (0 != ctx->nv_mma) ? 8 : 16;
+  const int gm = xmx_m * LIBXS_MAX(rtm, 1); /* tm granularity */
+  const int gn = xmx_n * LIBXS_MAX(ctx->rtn, 1); /* tn granularity */
+  /**
+   * Total work-items are invariant to the tile size: every sub-group computes
+   * gm x gn outputs regardless. The tile only controls (a) how many
+   * work-groups the problem splits into and (b) how far M/N are padded up to
+   * a tile multiple. Large tiles win on operand reuse but produce too few
+   * work-groups to fill the device at small M/N, and waste work on padding
+   * when M/N are not tile multiples. Candidates must therefore fit the
+   * work-group size bound and still saturate the compute units; among those,
+   * the best reuse per unit of padded work wins.
+   */
+  const int nwg_min = (0 < ctx->nunits) ? (ctx->nunits / OZAKI_TILE_SAT) : 32;
+  ozaki_tile_t tile;
+  tile.m = gm;
+  tile.n = gn;
+  if (0 != ctx->tm_req && 0 != ctx->tn_req) {
+    tile.m = ctx->tm;
+    tile.n = ctx->tn;
+  }
+  else {
+    double best_score = -1.0;
+    int cm;
+    for (cm = gm; cm <= ctx->tm; cm += gm) {
+      int cn;
+      for (cn = gn; cn <= ctx->tn; cn += gn) {
+        const size_t wgs = (size_t)ctx->sg * ((size_t)(cm / gm) * (cn / gn));
+        const int nwg = LIBXS_UPDIV(M, cm) * LIBXS_UPDIV(N, cn);
+        if (wgs <= ctx->max_wgs && nwg >= nwg_min) {
+          /**
+           * A tile performs cm*cn*K MACs while loading (cm+cn)*K operand
+           * elements, so cm*cn/(cm+cn) is its arithmetic intensity -- maximal
+           * for square tiles, which is why an area-only objective would pick
+           * degenerate aspect ratios. Divided by the padded work, this favors
+           * the largest tile that both stays square and divides M and N.
+           */
+          const double padded = (double)LIBXS_UP(M, cm) * LIBXS_UP(N, cn);
+          const double score = ((double)cm * cn / (cm + cn)) / padded;
+          if (score > best_score) {
+            tile.m = cm;
+            tile.n = cn;
+            best_score = score;
+          }
+        }
+      }
+    }
+  }
+  return tile;
 }
 
 
@@ -283,7 +347,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   ctx->kern_scale_beta = NULL;
   ctx->kern_crt_preprocess_a = NULL;
   ctx->kern_crt_preprocess_b = NULL;
-  ctx->kern_crt_fused = NULL;
+  ctx->crt_registry = NULL;
   ctx->kern_crt_scale_beta = NULL;
   /**
    * output tile sizes: fit SG * NTM * NTN <= max_wgs.
@@ -391,6 +455,23 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       v >>= 1;
       rtn <<= 1;
     }
+    /**
+     * Explicit tm/tn bypass size-aware selection. Caller-supplied values (0 =
+     * auto) take precedence; OZAKI_TM/OZAKI_TN are read here so that every
+     * driver shares one authoritative override path. Otherwise tm/tn below are
+     * the largest legal tile, i.e. the upper bound that ozaki_tile_select()
+     * shrinks per call based on M and N.
+     */
+    if (0 >= tm) {
+      env = getenv("OZAKI_TM");
+      if (NULL != env) tm = atoi(env);
+    }
+    if (0 >= tn) {
+      env = getenv("OZAKI_TN");
+      if (NULL != env) tn = atoi(env);
+    }
+    ctx->tm_req = (0 < tm) ? tm : 0;
+    ctx->tn_req = (0 < tn) ? tn : 0;
     if (0 >= tm) tm = 256;
     if (0 >= tn) tn = 256;
     /**
@@ -404,6 +485,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       /**
        * Shrink tile to satisfy work-group size constraint.
        * WGS = SG * NTM * NTN = SG * (BM/(XMX_M*RTM)) * (BN/(XMX_N*RTN)).
+       * Scheme 2 may dispatch with crt_rtm < rtm, which raises WGS for the
+       * same tile; ozaki_tile_select() re-checks the bound with the actual
+       * register tiling, so this clamp only establishes the Scheme-1 maximum.
        */
       { const size_t xmx_area = (size_t)(xmx_m * rtm) * (xmx_n * rtn);
         while ((size_t)sg * ((size_t)tm * tn / xmx_area) > max_wgs && (tm > xmx_m * rtm || tn > xmx_n * rtn)) {
@@ -412,18 +496,26 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
       }
     }
+    ctx->max_wgs = max_wgs;
+    { /* Compute units: saturation target for size-aware tile selection. */
+      cl_uint nunits = 0;
+      if (EXIT_SUCCESS != clGetDeviceInfo(device, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint), &nunits, NULL)) {
+        nunits = 0;
+      }
+      ctx->nunits = (int)nunits;
+    }
     { /* Scheme 1: always compile preprocessing + create registry (for adaptive) */
       const int sq_jit = ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
       const int cutoff_jit = 2 * (nslices - 1) - oztrim;
       size_t goff = 0;
       goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
-        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
+        "-DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DRTM=%d -DRTN=%d"
         " -DOZAKI_SQ=%d -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
+        bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
         nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn, sq_jit);
       if (0 != ctx->nv_mma) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DNV_MMA=1");
@@ -446,10 +538,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
-      { /* Compile preprocessing + scale_beta (shared, cutoff-independent) */
-        char pp_flags[sizeof(build_params) + 32];
+      { /* Compile preprocessing + scale_beta (shared, tile/cutoff-independent) */
+        char pp_flags[sizeof(build_params) + 64];
         cl_program program = NULL;
-        LIBXS_SNPRINTF(pp_flags, sizeof(pp_flags), "%s -DOZAKI_CUTOFF=%d", build_params, cutoff_jit);
+        LIBXS_SNPRINTF(pp_flags, sizeof(pp_flags), "%s -DBM=%d -DBN=%d -DOZAKI_CUTOFF=%d", build_params, tm, tn, cutoff_jit);
         result = libxstream_opencl_program(
           0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, "ozaki1", pp_flags, build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
@@ -516,13 +608,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         LIBXS_SNPRINTF(crt_build_options, sizeof(crt_build_options), "%s", build_options);
       }
       coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-        "-DBM=%d -DBN=%d -DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
+        "-DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DKGROUPS=%d -DRTM=%d -DRTN=%d -DPB=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
+        bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
         nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
         (1 < ozgroups) ? ozgroups : 0, crt_rtm, rtn, ctx->pb);
       if (0 == use_i8) {
@@ -604,10 +696,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
+      /**
+       * Base flags for the tile-specialized CRT registry: BM/BN and
+       * OZAKI_BOUNDS are appended per specialization by ozaki_get_crt_kernel.
+       */
+      memcpy(ctx->crt_flags, build_params, sizeof(ctx->crt_flags));
+      LIBXS_SNPRINTF(ctx->crt_options, sizeof(ctx->crt_options), "%s", crt_build_options);
+      ctx->crt_registry = libxs_registry_create();
       {
-        char base_flags[sizeof(build_params) + 32];
+        char base_flags[sizeof(build_params) + 64];
         cl_program program = NULL;
-        LIBXS_SNPRINTF(base_flags, sizeof(base_flags), "%s -DOZAKI_BOUNDS=1", build_params);
+        LIBXS_SNPRINTF(base_flags, sizeof(base_flags), "%s -DBM=%d -DBN=%d -DOZAKI_BOUNDS=1", build_params, tm, tn);
         result = libxstream_opencl_program(
           0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2", base_flags, crt_build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
@@ -617,21 +716,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           result = libxstream_opencl_kernel_query(program, "preprocess_b_crt_dense", &ctx->kern_crt_preprocess_b);
         }
         if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(program, "gemm_crt_fused", &ctx->kern_crt_fused);
-        }
-        if (EXIT_SUCCESS == result) {
           result = libxstream_opencl_kernel_query(program, "scale_beta", &ctx->kern_crt_scale_beta);
         }
         if (NULL != program) clReleaseProgram(program);
-      }
-      if (EXIT_SUCCESS == result) {
-        cl_program program_f = NULL;
-        int fast_ok = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2f", build_params, crt_build_options, NULL, NULL, NULL, 0, &program_f);
-        if (EXIT_SUCCESS == fast_ok) {
-          fast_ok = libxstream_opencl_kernel_query(program_f, "gemm_crt_fused", &ctx->kern_crt_fused_fast);
-        }
-        if (NULL != program_f) clReleaseProgram(program_f);
       }
       ctx->crt_rtm = crt_rtm;
       if (EXIT_SUCCESS != result) {
@@ -642,14 +729,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         if (NULL != ctx->kern_crt_preprocess_b) {
           clReleaseKernel(ctx->kern_crt_preprocess_b);
           ctx->kern_crt_preprocess_b = NULL;
-        }
-        if (NULL != ctx->kern_crt_fused) {
-          clReleaseKernel(ctx->kern_crt_fused);
-          ctx->kern_crt_fused = NULL;
-        }
-        if (NULL != ctx->kern_crt_fused_fast) {
-          clReleaseKernel(ctx->kern_crt_fused_fast);
-          ctx->kern_crt_fused_fast = NULL;
         }
         if (NULL != ctx->kern_crt_scale_beta) {
           clReleaseKernel(ctx->kern_crt_scale_beta);
@@ -823,11 +902,17 @@ void ozaki_destroy(ozaki_context_t* ctx)
     if (NULL != ctx->kern_crt_preprocess_b) {
       clReleaseKernel(ctx->kern_crt_preprocess_b);
     }
-    if (NULL != ctx->kern_crt_fused) {
-      clReleaseKernel(ctx->kern_crt_fused);
-    }
-    if (NULL != ctx->kern_crt_fused_fast) {
-      clReleaseKernel(ctx->kern_crt_fused_fast);
+    if (NULL != ctx->crt_registry) {
+      const void* rkey = NULL;
+      size_t cursor = 0;
+      ozaki_crt_kernel_set_t* kset = (ozaki_crt_kernel_set_t*)libxs_registry_begin(
+        ctx->crt_registry, &rkey, &cursor);
+      while (NULL != kset) {
+        if (NULL != kset->kern_fused) clReleaseKernel(kset->kern_fused);
+        kset = (ozaki_crt_kernel_set_t*)libxs_registry_next(
+          ctx->crt_registry, &rkey, &cursor);
+      }
+      libxs_registry_destroy(ctx->crt_registry);
     }
     if (NULL != ctx->kern_crt_scale_beta) {
       clReleaseKernel(ctx->kern_crt_scale_beta);
