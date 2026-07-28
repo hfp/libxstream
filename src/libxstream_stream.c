@@ -173,9 +173,13 @@ LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream)
   if (NULL != stream) {
     const libxstream_opencl_stream_t* const str = stream;
     const cl_command_queue queue = str->queue;
-# if !defined(NDEBUG)
+    /**
+     * Clear unconditionally, not just when asserts are on: a cleared queue is
+     * how a destroyed stream is recognized later. Device buffers record the
+     * stream they were allocated against and are released when the pool is
+     * drained at finalization, which happens after the streams are gone.
+     */
     LIBXS_MEMZERO((libxstream_opencl_stream_t*)stream);
-# endif
     if (NULL != libxstream_opencl_config.streams) {
       libxs_pfree_lock(
         stream, (void**)libxstream_opencl_config.streams, &libxstream_opencl_config.nstreams, libxstream_opencl_config.lock_stream);

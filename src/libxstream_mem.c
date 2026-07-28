@@ -292,9 +292,16 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_dev_xmalloc(size_t size, const void* 
 LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void* pointer, const void* extra)
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+  /**
+   * The stream recorded at allocation time need not outlive the buffer: the
+   * pool is drained at finalization, after the application destroyed its
+   * streams. A destroyed stream has no queue and nothing left to wait for,
+   * so syncing it is both unnecessary and invalid.
+   */
   if (NULL != extra) {
     const uintptr_t addr = (uintptr_t)extra;
-    libxstream_stream_sync((libxstream_stream_t*)addr);
+    const libxstream_opencl_stream_t* const str = (const libxstream_opencl_stream_t*)addr;
+    if (NULL != str->queue) libxstream_stream_sync((libxstream_stream_t*)addr);
   }
 # if (1 >= LIBXSTREAM_USM)
   if (NULL != devinfo->clMemFreeINTEL) {
