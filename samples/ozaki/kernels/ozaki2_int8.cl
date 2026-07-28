@@ -185,13 +185,19 @@
  * u8: sign via modular additive inverse (p - r), stored as uchar [0, p-1].
  * i8: sign via negation (-r), stored as char [-(p-1), p-1]. */
 #define OZAKI_EXTRACT_CRT(ALIGNED, SIGN, DST, SS, RS, ROW, COL) \
+  OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, (long)(ROW) * (RS) + (COL))
+/* Store B via the (possibly VNNI-packed) index so producer and consumer agree. */
+#define OZAKI_EXTRACT_CRT_B(ALIGNED, SIGN, DST, SS, N_PAD, ROW, COL) \
+  OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OZAKI_IDX_BS(ROW, COL, N_PAD))
+#define OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OFF) \
   do { \
+    const long off_ = (OFF); \
     SINT p_; \
     UNROLL_FORCE(NPRIMES) for (p_ = 0; p_ < NPRIMES; ++p_) \
     { \
       uint r_ = oz2g_mod64((ulong)(ALIGNED), p_); \
       if ((SIGN) && 0 != r_) OZAKI_SIGN_FOLD_(r_, p_); \
-      (DST)[(long)(p_) * (SS) + (long)(ROW) * (RS) + (COL)] = (char)r_; \
+      (DST)[(long)(p_) * (SS) + off_] = (char)r_; \
     } \
   } while (0)
 #if defined(OZAKI_U8) && (OZAKI_U8)
@@ -1338,7 +1344,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb,
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
         const uint_repr_t aligned = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
-        OZAKI_EXTRACT_CRT(aligned, s1, bs, K_pad * N_pad, N_pad, row, col);
+        OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, row, col);
       }
     }
   }

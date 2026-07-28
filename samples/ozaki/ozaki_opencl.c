@@ -400,7 +400,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      */
     env = getenv("OZAKI_KU");
     {
-      int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : 2;
+      /* dp4a benefits from a deeper K-unroll (measured +4..7% at KU=4). */
+      const int ku_default = (0 == devinfo->intel && 0 == ctx->nv_mma && 2 <= nv && 0 != gpu && 2 == kind) ? 4 : 2;
+      int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : ku_default;
       if (0 != ctx->nv_mma && ku > 1) ku = 1;
       ctx->ku = ku;
     }
@@ -425,10 +427,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       else if (0 != ctx->nv_mma && 0 != gpu) {
         rtm = 2;
       }
-      else if (2 <= nv && 0 != gpu && 2 == kind) {
-        rtm = 2;
-      }
-      else rtm = 1;
+      else rtm = 1; /* NV dp4a: RTM>1 replicates the A-load 16x, measured 4x slower */
     }
     if (0 == rtn) {
       if (0 != devinfo->intel && 0 != gpu) {
@@ -494,6 +493,24 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           if (tm >= tn) tm /= 2;
           else tn /= 2;
         }
+      }
+    }
+    /**
+     * dp4a register budget: OZAKI_DPAS_TILED keeps 8*RTN B-words, 64*RTM
+     * A-words and 8*PB*RTM*RTN accumulator words live per work-item. NVIDIA
+     * caps a thread at 255 registers and spills beyond that, which costs far
+     * more than the tiling gains. Shrink RTN then RTM until the estimate fits.
+     */
+    if (0 == devinfo->intel && 0 == ctx->nv_mma && 2 <= nv && 0 != gpu) {
+      const int budget = 224; /* leave headroom for addressing and the epilogue */
+      int nreg = 64 * rtm + 8 * rtn + 8 * ctx->pb * rtm * rtn;
+      while (budget < nreg && (1 < rtn || 1 < rtm)) {
+        if (1 < rtn) rtn >>= 1;
+        else rtm >>= 1;
+        nreg = 64 * rtm + 8 * rtn + 8 * ctx->pb * rtm * rtn;
+      }
+      if (0 > verbosity || 2 < verbosity) {
+        fprintf(stderr, "INFO OZAKI: dp4a register estimate %d (RTM=%d RTN=%d PB=%d)\n", nreg, rtm, rtn, ctx->pb);
       }
     }
     ctx->max_wgs = max_wgs;
@@ -619,6 +636,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         (1 < ozgroups) ? ozgroups : 0, crt_rtm, rtn, ctx->pb);
       if (0 == use_i8) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
+      }
+      /**
+       * Pre-interleave B for the dp4a path so each operand is one aligned uint
+       * (8 loads per column instead of 32 strided byte gathers). Intel keeps
+       * the plain layout because DPAS transforms on read; OZAKI_BVNNI=0 opts out.
+       */
+      env = getenv("OZAKI_BVNNI");
+      if (0 == devinfo->intel && 0 == ctx->nv_mma && 2 <= nv && 0 != gpu &&
+          (NULL == env || 0 != atoi(env)))
+      {
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BVNNI=1");
       }
       if (1 == fraccrt) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=1");

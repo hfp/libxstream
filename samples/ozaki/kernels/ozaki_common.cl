@@ -29,6 +29,27 @@
 # define CONSTANT global
 #endif
 
+/**
+ * B storage layout for the preprocessed residue/slice matrices.
+ *
+ * Default (Intel DPAS, scalar): plain K-major [K_pad][N_pad]. The DPAS path
+ * relies on this because the VNNI interleave is applied by the hardware on
+ * read (2d_block_read_transform).
+ *
+ * OZAKI_BVNNI (NVIDIA dp4a): pre-interleaved so the 4 K-values a single dp4a
+ * consumes are adjacent in memory. A column's 4-value group becomes one
+ * aligned uint, turning the 4-way strided gather into a single load.
+ * Layout: [K_pad/4][N_pad][4], i.e. quad-of-K major, then column, then the
+ * K-phase within the quad. Producer and consumer must agree, so both go
+ * through OZAKI_IDX_BS().
+ */
+#if defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
+# define OZAKI_IDX_BS(ROW, COL, N_PAD) \
+    ((((long)(ROW) >> 2) * (N_PAD) + (COL)) * 4 + ((ROW) & 3))
+#else
+# define OZAKI_IDX_BS(ROW, COL, N_PAD) ((long)(ROW) * (N_PAD) + (COL))
+#endif
+
 /* Small integer type for loop counters (states value range) */
 #if !defined(SINT)
 # define SINT signed char
@@ -518,6 +539,20 @@
     } while (0)
 
 /* Load one B column (8 packed uints covering K=32) into BDST. */
+# if defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
+/* VNNI-packed: each dp4a operand is one aligned uint at [k/4][col][0..3].
+ * 8 loads instead of 32 scalar byte gathers, and lanes stay coalesced
+ * because consecutive COL are 4 bytes apart. */
+# define NV_LOAD_BCOL(BS, N_PAD, KOFF, COL, BDST) \
+    do { \
+      CONSTANT const uint* bcp_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(BS) \
+        + OZAKI_IDX_BS((KOFF), (COL), (N_PAD))); \
+      int kb_; \
+      UNROLL_FORCE(8) for (kb_ = 0; kb_ < 8; ++kb_) { \
+        (BDST)[kb_] = bcp_[kb_ * (N_PAD)]; \
+      } \
+    } while (0)
+# else
 # define NV_LOAD_BCOL(BS, N_PAD, KOFF, COL, BDST) \
     do { \
       CONSTANT const OZAKI_BYTE_T* bcp_ = \
@@ -528,16 +563,19 @@
         bcp_ += 4 * (N_PAD); \
       } \
     } while (0)
+# endif
 
-/* Load one A row (8 packed uints covering K=32) into ADST. */
+/* Load one A row (8 packed uints covering K=32) into ADST.
+ * A is K-contiguous and K_PAD is a multiple of BK (32), so the 32 bytes are
+ * contiguous and 16B-aligned: fetch them as 2 uint4 instead of 8 scalar
+ * loads. Cuts A load messages per row from 8 to 2. */
 # define NV_LOAD_AROW(AS, K_PAD, ROW, KOFF, ADST) \
     do { \
-      CONSTANT const OZAKI_BYTE_T* arp_ = \
-        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)(ROW) * (K_PAD) + (KOFF); \
-      int ka_; \
-      for (ka_ = 0; ka_ < 8; ++ka_) { \
-        (ADST)[ka_] = as_uint(vload4(ka_, (CONSTANT const OZAKI_BYTE_T*)arp_)); \
-      } \
+      CONSTANT const uint* arp_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(AS) \
+        + (long)(ROW) * (K_PAD) + (KOFF)); \
+      const uint4 alo_ = vload4(0, arp_), ahi_ = vload4(1, arp_); \
+      (ADST)[0] = alo_.s0; (ADST)[1] = alo_.s1; (ADST)[2] = alo_.s2; (ADST)[3] = alo_.s3; \
+      (ADST)[4] = ahi_.s0; (ADST)[5] = ahi_.s1; (ADST)[6] = ahi_.s2; (ADST)[7] = ahi_.s3; \
     } while (0)
 
 /* Tiled dp4a with register reuse: pre-load all RTM A-strips and RTN B-columns
