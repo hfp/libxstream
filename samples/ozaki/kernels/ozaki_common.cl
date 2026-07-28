@@ -618,6 +618,12 @@
  * into registers, then compute RTM*RTN dot products from registers.
  * B reuse: each B column is loaded once, used by all RTM row-tiles.
  * A reuse: each A row-set is loaded once, used by all RTN column-tiles.
+ *
+ * A is loaded row-identically by every lane of the sub-group (the row index
+ * carries no SGLID term) and the hardware serves that from one broadcast, so
+ * the buffering costs registers without saving traffic. Streaming A per row
+ * instead (footprint 8 rather than 64*RTM) was measured slower at every
+ * RTM/RTN/KU combination, so the pre-loaded form is kept deliberately.
  */
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \

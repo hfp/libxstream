@@ -360,7 +360,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     char build_options[128];
     const int mant_bits = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
-    int rtm = 0, rtn = 0, biggrf, hier;
+    int rtm = 0, rtn = 0, ku_req, biggrf, hier;
     size_t max_wgs;
     int v;
     {
@@ -399,10 +399,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      *  Other vendors:  RTM=1 RTN=1 (conservative)
      */
     env = getenv("OZAKI_KU");
+    ku_req = (NULL != env && 0 < atoi(env)) ? atoi(env) : 0;
     {
-      /* dp4a benefits from a deeper K-unroll (measured +4..7% at KU=4). */
+      /* dp4a benefits from a deeper K-unroll, but only at RTN>1 (see below). */
       const int ku_default = (0 == devinfo->intel && 0 == ctx->nv_mma && 2 <= nv && 0 != gpu && 2 == kind) ? 4 : 2;
-      int ku = (NULL != env && 0 < atoi(env)) ? atoi(env) : ku_default;
+      int ku = (0 != ku_req) ? ku_req : ku_default;
       if (0 != ctx->nv_mma && ku > 1) ku = 1;
       ctx->ku = ku;
     }
@@ -509,8 +510,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         else rtm >>= 1;
         nreg = 64 * rtm + 8 * rtn + 8 * ctx->pb * rtm * rtn;
       }
+      /**
+       * The deeper K-unroll only pays when RTN>1 amortizes it over two B
+       * columns; at RTN==1 it measured 21% slower than KU=2. RTN may have just
+       * been reduced above, so re-derive KU here unless it was requested.
+       */
+      if (0 == ku_req && 2 > rtn && 2 < ctx->ku) ctx->ku = 2;
       if (0 > verbosity || 2 < verbosity) {
-        fprintf(stderr, "INFO OZAKI: dp4a register estimate %d (RTM=%d RTN=%d PB=%d)\n", nreg, rtm, rtn, ctx->pb);
+        fprintf(stderr, "INFO OZAKI: dp4a register estimate %d (RTM=%d RTN=%d PB=%d KU=%d)\n",
+          nreg, rtm, rtn, ctx->pb, ctx->ku);
       }
     }
     ctx->max_wgs = max_wgs;
