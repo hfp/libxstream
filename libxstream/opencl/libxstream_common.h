@@ -10,6 +10,15 @@
 #ifndef LIBXSTREAM_OPENCL_COMMON_H
 #define LIBXSTREAM_OPENCL_COMMON_H
 
+/**
+ * Token concatenation. CAT expands its arguments before pasting, which the
+ * bare ## operator does not: it suppresses expansion of its operands, so
+ * CAT_(PREFIX_, MACRO) pastes the macro's *name* instead of its value.
+ * Needed to branch on a build-time -D token such as -DCONSTANT=global.
+ */
+#define CAT_(A, B) A##B
+#define CAT(A, B) CAT_(A, B)
+
 #if !defined(LIBXSTREAM_OCLVER_C)
 # define LIBXSTREAM_OCLVER_C __OPENCL_C_VERSION__
 #endif
