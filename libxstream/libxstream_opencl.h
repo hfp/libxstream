@@ -15,6 +15,8 @@
 # define __OPENCL
 #endif
 
+LIBXS_PRAGMA_DIAG_PUSH()
+LIBXS_PRAGMA_DIAG_OFF_PEDANTIC()
 #if defined(__OPENCL)
 # if !defined(CL_TARGET_OPENCL_VERSION)
 #   define CL_TARGET_OPENCL_VERSION 220
@@ -27,7 +29,6 @@
 #else
 # error Definition of __OPENCL preprocessor symbol is missing!
 #endif
-
 #if !defined(LIBXSTREAM_NOEXT)
 # if defined(__APPLE__)
 #   include <OpenCL/cl_ext.h>
@@ -35,6 +36,7 @@
 #   include <CL/cl_ext.h>
 # endif
 #endif
+LIBXS_PRAGMA_DIAG_POP()
 
 #if defined(__LIBXS) && !defined(LIBXS_SOURCE)
 # include <libxs/libxs_malloc.h>
