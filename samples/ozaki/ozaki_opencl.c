@@ -478,9 +478,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * below 2^53, so leaf reconstruction is exact for all group values) and
        * keeps the exact hierarchical level-2 combine, so it is exact
        * everywhere. Tables are generated per active moduli set.
+       * Mode 2 is the default because it is exact over the whole CRT range
+       * like Garner, keeps the same group-at-a-time storage (and hence
+       * occupancy), and is faster; OZAKI_FRACCRT=0 selects Garner.
        */
-      const int fraccrt_env = (NULL != getenv("OZAKI_FRACCRT")) ? atoi(getenv("OZAKI_FRACCRT")) : 0;
-      const int fraccrt = (1 == fraccrt_env || 2 == fraccrt_env) ? fraccrt_env : 0;
+      const char *const env_fraccrt = getenv("OZAKI_FRACCRT");
+      const char *const env_skip = getenv("OZAKI_SKIP_GARNER");
+      const int fraccrt_req = (NULL != env_fraccrt) ? atoi(env_fraccrt) : 2;
+      const int fraccrt = (1 == fraccrt_req || 2 == fraccrt_req) ? fraccrt_req : 0;
       const int crt_hier = (1 == fraccrt) ? 0 : (0 != ctx->hier || 3 == kind || 2 == fraccrt);
       const int crt_rtm = (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm / 2, 1) : rtm;
       char crt_build_options[128];
@@ -523,7 +528,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         coff += ozaki_emit_fraccrt2(build_params + coff, sizeof(build_params) - coff,
           (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 11, 4);
       }
-      if (NULL != getenv("OZAKI_SKIP_GARNER") && 0 != atoi(getenv("OZAKI_SKIP_GARNER"))) {
+      if (NULL != env_skip && 0 != atoi(env_skip)) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1");
       }
       if (0 != crt_hier) {
