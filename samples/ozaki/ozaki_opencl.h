@@ -161,13 +161,22 @@ typedef struct ozaki_context_t {
   int tm_req, tn_req;
   /* Device compute units: saturation target for size-aware tile selection. */
   int nunits;
+  int tile_sat; /* divisor for nwg_min: nunits / tile_sat work-groups */
+  /**
+   * Preferred work-group size ceiling for tile selection (0 = use max_wgs).
+   * Occupancy-driven and below the hardware bound; see ozaki_tile_select.
+   */
+  int wgs_max;
   size_t max_wgs; /* work-group size bound (halved under 256-GRF) */
   /**
    *  register tiling: sub-tiles per sub-group (compiled into kernel).
    * crt_rtm may differ from rtm when adaptive (kind=3) uses HIER+GRF128
    * for CRT while Scheme 1 uses GRF256.
+   * crt_rtn likewise: the two schemes prefer opposite aspect ratios under MMA
+   * (Scheme 1 peaks at RTN=2 and loses 26% at RTN=4; Scheme 2 gains 36% at
+   * RTN=4), so the column tiling is per-scheme rather than shared.
    */
-  int rtm, rtn, crt_rtm;
+  int rtm, rtn, crt_rtm, crt_rtn;
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int nv_mma; /* NV MMA path enabled (m16n8k32, SG=32) */
@@ -222,12 +231,12 @@ typedef struct ozaki_tile_t {
 
 /**
  * Size-aware output tile selection: pick the largest legal tile that still
- * saturates the device, breaking ties on least padding waste. rtm is passed
- * explicitly because Scheme 1 and Scheme 2 may use different register tiling
- * (rtm vs crt_rtm), which changes both the tile granularity and the resulting
- * work-group size.
+ * saturates the device, breaking ties on least padding waste. rtm/rtn are
+ * passed explicitly because Scheme 1 and Scheme 2 may use different register
+ * tiling (rtm vs crt_rtm, rtn vs crt_rtn), which changes both the tile
+ * granularity and the resulting work-group size.
  */
-ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm);
+ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm, int rtn);
 /**
  * ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
  * synchronizing -- the caller must sync the stream before consuming the result.

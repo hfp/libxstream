@@ -100,7 +100,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
-    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, ctx->rtm);
+    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, ctx->rtm, ctx->rtn);
     const int tm = tile.m, tn = tile.n;
     int m_pad = LIBXS_UP(M, bm_pre);
     int n_pad = LIBXS_UP(N, bn_pre);
@@ -391,13 +391,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
-    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, ctx->crt_rtm);
+    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, ctx->crt_rtm, ctx->crt_rtn);
     const int tm = tile.m, tn = tile.n;
     int m_pad = LIBXS_UP(M, bm_pre);
     int n_pad = LIBXS_UP(N, bn_pre);
     const int nblk_gm = LIBXS_UPDIV(M, tm);
     const int nblk_gn = LIBXS_UPDIV(N, tn);
-    const int ntm = tm / (OZAKI_XMX_M(ctx) * ctx->crt_rtm), ntn = tn / (OZAKI_XMX_N(ctx) * ctx->rtn);
+    const int ntm = tm / (OZAKI_XMX_M(ctx) * ctx->crt_rtm), ntn = tn / (OZAKI_XMX_N(ctx) * ctx->crt_rtn);
     /**
      * K-group: size buffers for min(K, maxk), not full K.
      * maxk=0 means no grouping (full K in one pass).

@@ -24,12 +24,34 @@
 #endif
 
 /**
- * Work-groups per compute unit required to consider the device saturated
- * during tile selection. Measured on PVC: below this the largest tile starves
- * the device, above it the extra parallelism no longer pays for the lost reuse.
+ * Compute units per work-group required to consider the device saturated during
+ * tile selection, i.e. the divisor in nwg_min = nunits / OZAKI_TILE_SAT.
+ * Measured on PVC: below this the largest tile starves the device, above it the
+ * extra parallelism no longer pays for the lost reuse.
+ *
+ * A divisor only transfers across devices that report comparable compute-unit
+ * granularity. PVC exposes many lean units (~448), so nunits/16 still demands
+ * ~28 work-groups; an H100 exposes 114 fat SMs and the same divisor accepts 7,
+ * i.e. 0.06 work-groups per SM -- the heuristic then picks the largest tile for
+ * its reuse and leaves most of the device idle. NVIDIA therefore uses a floor of
+ * one work-group per SM (OZAKI_TILE_SAT_NV), which measured 13-81% faster than
+ * the tile the divisor selected; PVC keeps the divisor it was tuned with.
  */
 #if !defined(OZAKI_TILE_SAT)
 # define OZAKI_TILE_SAT 16
+#endif
+#if !defined(OZAKI_TILE_SAT_NV)
+# define OZAKI_TILE_SAT_NV 1
+#endif
+/**
+ * Sub-groups (warps) per work-group that NVIDIA tile selection aims for. At a
+ * fixed tile area on H100/n=4096 the measurement is monotone in work-group
+ * size: 4 warps 6158-6529 GFLOPS, 8 warps 6145-6275, 16 warps 5103. A fat
+ * work-group holds its SM for its whole lifetime, so smaller ones give the
+ * scheduler more independent blocks to overlap.
+ */
+#if !defined(OZAKI_WGS_MAX_NV)
+# define OZAKI_WGS_MAX_NV 4
 #endif
 
 
@@ -145,12 +167,12 @@ static size_t ozaki_emit_fraccrt2(char* buf, size_t size, const uint16_t* modtab
 }
 
 
-ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm)
+ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm, int rtn)
 {
   const int xmx_m = OZAKI_XMX_M(ctx);
   const int xmx_n = OZAKI_XMX_N(ctx);
   const int gm = xmx_m * LIBXS_MAX(rtm, 1); /* tm granularity */
-  const int gn = xmx_n * LIBXS_MAX(ctx->rtn, 1); /* tn granularity */
+  const int gn = xmx_n * LIBXS_MAX(rtn, 1); /* tn granularity */
   /**
    * Total work-items are invariant to the tile size: every sub-group computes
    * gm x gn outputs regardless. The tile only controls (a) how many
@@ -161,7 +183,17 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
    * work-group size bound and still saturate the compute units; among those,
    * the best reuse per unit of padded work wins.
    */
-  const int nwg_min = (0 < ctx->nunits) ? (ctx->nunits / OZAKI_TILE_SAT) : 32;
+  const int nwg_min = (0 < ctx->nunits) ? (ctx->nunits / ctx->tile_sat) : 32;
+  /**
+   * Work-group size ceiling, distinct from the hardware bound in max_wgs.
+   * Occupancy is per work-group: a fat work-group occupies an SM/slice for its
+   * whole life, so fewer, larger ones leave less for the scheduler to overlap.
+   * Measured on H100 at n=4096, holding the tile area fixed: WGS=128 reached
+   * 6158-6529 GFLOPS, WGS=256 6145-6275, WGS=512 only 5103 -- monotone in WGS,
+   * independent of aspect ratio. The reuse objective below cannot see this (it
+   * scores tile shape, not residency), hence an explicit cap.
+   */
+  const size_t wgs_max = (0 < ctx->wgs_max) ? (size_t)ctx->wgs_max : ctx->max_wgs;
   ozaki_tile_t tile;
   tile.m = gm;
   tile.n = gn;
@@ -183,7 +215,7 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
       for (cn = gn; cn <= ctx->tn; cn += gn) {
         const size_t wgs = (size_t)ctx->sg * ((size_t)(cm / gm) * (cn / gn));
         const int nwg = LIBXS_UPDIV(M, cm) * LIBXS_UPDIV(N, cn);
-        if (wgs <= ctx->max_wgs && nwg >= nwg_min) {
+        if (wgs <= ctx->max_wgs && wgs <= wgs_max && nwg >= nwg_min) {
           /**
            * A tile performs cm*cn*K MACs while loading (cm+cn)*K operand
            * elements, so cm*cn/(cm+cn) is its arithmetic intensity -- maximal
@@ -376,7 +408,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     char build_options[128];
     const int mant_bits = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
-    int rtm = 0, rtn = 0, ku_req, biggrf, hier;
+    int rtm = 0, rtn = 0, rtn_req = 0, ku_req, biggrf, hier;
     size_t max_wgs;
     int v;
     {
@@ -407,7 +439,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     env = getenv("OZAKI_RTM");
     if (NULL != env && 0 < atoi(env)) rtm = atoi(env);
     env = getenv("OZAKI_RTN");
-    if (NULL != env && 0 < atoi(env)) rtn = atoi(env);
+    if (NULL != env && 0 < atoi(env)) {
+      rtn = atoi(env);
+      rtn_req = rtn; /* explicit request applies to both schemes */
+    }
     /**
      * Choose defaults when not explicitly set:
      *  256-GRF: RTM=4 RTN=2 (8 accumulators, measured sweet spot)
@@ -556,6 +591,25 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       ctx->nunits = (int)nunits;
     }
+    /**
+     * Saturation floor for tile selection. See OZAKI_TILE_SAT: the divisor is
+     * only portable between devices of similar compute-unit granularity, so
+     * NVIDIA asks for one work-group per SM instead of nunits/16.
+     */
+    ctx->tile_sat = (0 == devinfo->intel && 0 != gpu) ? OZAKI_TILE_SAT_NV : OZAKI_TILE_SAT;
+    { const char *const env_sat = getenv("OZAKI_TILE_SAT");
+      if (NULL != env_sat && 0 < atoi(env_sat)) ctx->tile_sat = atoi(env_sat);
+    }
+    /**
+     * Occupancy cap on the work-group size (0 = hardware bound only). NVIDIA
+     * measured monotonically better with smaller work-groups at fixed tile
+     * area, so cap at OZAKI_WGS_MAX_NV warps' worth; PVC is left on max_wgs
+     * because its tile selection was tuned against that bound.
+     */
+    ctx->wgs_max = (0 == devinfo->intel && 0 != gpu) ? (sg * OZAKI_WGS_MAX_NV) : 0;
+    { const char *const env_wgs = getenv("OZAKI_WGS_MAX");
+      if (NULL != env_wgs && 0 <= atoi(env_wgs)) ctx->wgs_max = atoi(env_wgs);
+    }
     { /* Scheme 1: always compile preprocessing + create registry (for adaptive) */
       const int sq_jit = ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
       const int cutoff_jit = 2 * (nslices - 1) - oztrim;
@@ -649,6 +703,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       const int fraccrt = (1 == fraccrt_req || 2 == fraccrt_req) ? fraccrt_req : 0;
       const int crt_hier = (1 == fraccrt) ? 0 : (0 != ctx->hier || 3 == kind || 2 == fraccrt);
       const int crt_rtm = (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm / 2, 1) : rtm;
+      /**
+       * MMA gives a sub-tile 16 rows but only 8 columns, so reaching a square
+       * register tile needs twice the column tiling. Scheme 2 measured +36% at
+       * RTN=4 (n=4096: 4300 -> 5828), while Scheme 1 measured -26% there and
+       * peaks at RTN=2 -- it runs a pair loop over slices and is bound by the
+       * per-pair epilogue rather than by column reuse. Hence per-scheme.
+       */
+      const int crt_rtn = (0 != ctx->nv_mma && 0 != gpu && 0 == rtn_req) ? 4 : rtn;
       char crt_build_options[128];
       size_t coff = 0;
       if (0 != fraccrt) {
@@ -675,7 +737,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DCONSTANT=global",
         bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
         nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
-        (1 < ozgroups) ? ozgroups : 0, crt_rtm, rtn, ctx->pb);
+        (1 < ozgroups) ? ozgroups : 0, crt_rtm, crt_rtn, ctx->pb);
       if (0 != ctx->nv_mma) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DNV_MMA=1");
       }
@@ -795,6 +857,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         if (NULL != program) clReleaseProgram(program);
       }
       ctx->crt_rtm = crt_rtm;
+      ctx->crt_rtn = crt_rtn;
       if (EXIT_SUCCESS != result) {
         if (NULL != ctx->kern_crt_preprocess_a) {
           clReleaseKernel(ctx->kern_crt_preprocess_a);
@@ -910,6 +973,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ozaki_print_opt(stderr, "rtm", ctx->rtm);
     if (ctx->crt_rtm != ctx->rtm) ozaki_print_opt(stderr, "crt_rtm", ctx->crt_rtm);
     ozaki_print_opt(stderr, "rtn", ctx->rtn);
+    if (ctx->crt_rtn != ctx->rtn) ozaki_print_opt(stderr, "crt_rtn", ctx->crt_rtn);
     if (0 != devinfo->intel) {
       const int crt_grf128 = (0 != ctx->crt_rtm && ctx->crt_rtm < ctx->rtm);
       ozaki_print_opt(stderr, "grf", ctx->biggrf ? 256 : 128);
