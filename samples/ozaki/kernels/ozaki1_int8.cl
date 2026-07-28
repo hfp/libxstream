@@ -10,7 +10,8 @@
 #include "../../../libxstream/opencl/libxstream_common.h"
 #include "ozaki_common.cl"
 
-/* Ozaki Scheme 1 -- GEMM-based XMX path.
+/**
+ * Ozaki Scheme 1 -- GEMM-based XMX path.
  *
  * Unlike the panel-batched dotprod path, this approach:
  *   1. Preprocesses the FULL K dimension of A and B into dense int8 slices
@@ -77,10 +78,12 @@
 # define OZAKI_USE_OCL_KLOOP
 #endif
 
-/* Bounds checks are OFF by default for performance.
+/**
+ * Bounds checks are OFF by default for performance.
  * Set -DOZAKI_BOUNDS=1 to enable per-element M/N guards
  * in gemm_fused (exponent caching, C load/store, scaling).
- * OFF requires host-side C buffer padded to tile boundaries. */
+ * OFF requires host-side C buffer padded to tile boundaries.
+ */
 #if defined(OZAKI_BOUNDS) && (OZAKI_BOUNDS)
 # define OZAKI_IN_BOUNDS(R, M, COL, N) ((R) < (M) && (COL) < (N))
 #else
@@ -111,11 +114,15 @@
 #endif
 
 
-/* Composable macros (DBM-style factoring).
- * Each is a do{...}while(0) block for use in kernel functions. */
+/**
+ * Composable macros (DBM-style factoring).
+ * Each is a do{...}while(0) block for use in kernel functions.
+ */
 
-/* Extract NSLICES int8 digits from an aligned mantissa into DST buffer.
- * DST[s * SS + ROW * RS + COL] = digit(s). */
+/**
+ * Extract NSLICES int8 digits from an aligned mantissa into DST buffer.
+ * DST[s * SS + ROW * RS + COL] = digit(s).
+ */
 #define OZAKI_EXTRACT_SLICES(ALIGNED, SIGN, DST, SS, RS, ROW, COL) \
   do { \
     SINT s_; \
@@ -135,9 +142,11 @@
     } \
   } while (0)
 
-/* Scalar accumulator DPAS: individual int8 variables instead of an array.
+/**
+ * Scalar accumulator DPAS: individual int8 variables instead of an array.
  * Helps IGC keep accumulators in GRFs instead of lowering to stack.
- * Only for RTM=4 RTN=2 (the hot path). */
+ * Only for RTM=4 RTN=2 (the hot path).
+ */
 #if defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2) && defined(OZAKI_USE_OCL_KLOOP)
 # define OZAKI_SC_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, C00, C01, C10, C11, C20, C21, C30, C31) \
     do { \
@@ -173,8 +182,10 @@
     } while (0)
 #endif /* OZAKI_SCALAR_ACC */
 
-/* No-prefetch K-loop: simple DPAS_TILED loop without prefetch messages.
- * Mirrors the asm K-loop structure but in pure OpenCL C builtins. */
+/**
+ * No-prefetch K-loop: simple DPAS_TILED loop without prefetch messages.
+ * Mirrors the asm K-loop structure but in pure OpenCL C builtins.
+ */
 #if defined(OZAKI_USE_OCL_KLOOP)
 # define OZAKI_KLOOP_OCL(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
     do { \
@@ -199,10 +210,12 @@
 # define OZAKI_KLOOP_PREFETCH(AS, BS, K, N, M, KOFF, MI, NJ)
 #endif
 
-/* Full tiled K-loop: KU-unrolled DPAS with optional prefetch, then remainder.
+/**
+ * Full tiled K-loop: KU-unrolled DPAS with optional prefetch, then remainder.
  * AS, BS: slice pointers for this pair.
  * ACC: int8[RTM*RTN] accumulator array (must be pre-zeroed by caller).
- * OZAKI_PREFETCH: opt-in prefetch (default off -- hurts PVC perf). */
+ * OZAKI_PREFETCH: opt-in prefetch (default off -- hurts PVC perf).
+ */
 #define OZAKI_KLOOP(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
   do { \
     int k_l_; \
@@ -220,7 +233,8 @@
   } while (0)
 
 #if defined(NV_MMA) && (NV_MMA)
-/* MMA scale+flush: accumulator is int4[RTM*RTN], fragment layout per tile.
+/**
+ * MMA scale+flush: accumulator is int4[RTM*RTN], fragment layout per tile.
  * Each thread holds 4 int32 values at positions determined by lane ID:
  *   D[0] -> (row=lane/4,     col=(lane%4)*2)
  *   D[1] -> (row=lane/4,     col=(lane%4)*2+1)
@@ -281,12 +295,14 @@
 
 #else /* non-MMA paths: dp4a / Intel DPAS / scalar */
 
-/* Scale i32 accumulator + accumulate into register-resident fp C with
+/**
+ * Scale i32 accumulator + accumulate into register-resident fp C with
  * pre-cached FP exponent scales in registers.
  * EA is a real_t array[XMX_M], EB is a real_t scalar (FP scale factors).
  * PAIR_SCALE = alpha * EXP2I(low_sa + low_sb - 2*MANT_BITS), safe from
  * underflow because preprocessing stores 2^(exp-BIAS) not 2^exp.
- * Avoids re-reading expa/expb from global memory for every pair. */
+ * Avoids re-reading expa/expb from global memory for every pair.
+ */
 #define OZAKI_GEMM_ACCUM_CACHED(DOT, EA, EB, C, M, N, MI, COL, PAIR_SCALE) \
   do { \
     union { \
@@ -305,8 +321,10 @@
     } \
   } while (0)
 
-/* Tile-by-tile scale+flush: read C tile, accumulate scaled i32 result,
- * write C tile back.  ACC is an int8 array indexed by [rm*RTN+rn]. */
+/**
+ * Tile-by-tile scale+flush: read C tile, accumulate scaled i32 result,
+ * write C tile back.  ACC is an int8 array indexed by [rm*RTN+rn].
+ */
 #define OZAKI_SCALE_FLUSH(ACC, C_PTR, LDC, EA_CACHE, EB_CACHE, MI_BASE, NJ_BASE, SG_LID, M, N, PAIR_SCALE) \
   do { \
     int rm_sf_, rn_sf_; \
@@ -385,8 +403,10 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /* Write global max exponent as FP scale: 2^(max_exp - BIAS).
-     * EXP2I arg range: [-(BPM-MANT)..BPM-MANT] i.e. [-1022..1023] for f64. */
+  /**
+   * Write global max exponent as FP scale: 2^(max_exp - BIAS).
+   * EXP2I arg range: [-(BPM-MANT)..BPM-MANT] i.e. [-1022..1023] for f64.
+   */
   if (0 == kk && row < M) {
     expa[row] = EXP2I(row_max_exp[mi] - (BIAS_PLUS_MANT - MANT_BITS));
   }
@@ -541,8 +561,10 @@ kernel void gemm_fused(
   const long b_stride = (long)K_pad * N_pad;
   SINT sa;
 
-  /* Pre-cache FP exponent scales in registers: avoid re-reading from
-   * global memory per pair.  Preprocessing stores 2^(max_exp - BIAS). */
+  /**
+   * Pre-cache FP exponent scales in registers: avoid re-reading from
+   * global memory per pair.  Preprocessing stores 2^(max_exp - BIAS).
+   */
   real_t ea_cache[RTM * XMX_M];
 #if defined(NV_MMA) && (NV_MMA)
   real_t eb_cache[RTN * 2];

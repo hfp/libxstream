@@ -354,8 +354,10 @@ kernel void stencil_apply_int8(
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /* Steady state: overlap gather[iter+1]->buf[next] with DPAS[iter]<-buf[cur].
-   * Global loads issued by gather fly while DPAS uses the systolic array. */
+  /**
+   * Steady state: overlap gather[iter+1]->buf[next] with DPAS[iter]<-buf[cur].
+   * Global loads issued by gather fly while DPAS uses the systolic array.
+   */
   buf_cur = 0;
   buf_next = I8_SLM_INTS;
 
@@ -474,10 +476,12 @@ kernel void stencil_apply_int8(
               const float phi_val = phi[iv];
               const float p_cur = STENCIL_LOAD_P(p_grid, i);
               const float p_old_val = STENCIL_LOAD_P(p_old, i);
-              /* PML boundary blocks use the direct symmetric FD Laplacian
+              /**
+               * PML boundary blocks use the direct symmetric FD Laplacian
                * (matches the stable FP32 kernel).  The DPAS operator result
                * u.a[m] carries a small boundary asymmetry that the phi
-               * feedback amplifies over time. */
+               * feedback amplifies over time.
+               */
               CONSTANT const float* c_fast = coeff + 2 * STENCIL_WIDTH;
               CONSTANT const float* c_med = coeff + STENCIL_WIDTH;
               CONSTANT const float* c_slow = coeff;

@@ -37,9 +37,11 @@
 # define FP32_USE_BLOCK_IO 1
 #endif
 
-/* Logical-to-physical axis mapping:
+/**
+ * Logical-to-physical axis mapping:
  * XYZ: fast=X, medium=Y, slow=Z (Z-sliding window).
- * ZYX: fast=Z, medium=Y, slow=X (X-sliding window). */
+ * ZYX: fast=Z, medium=Y, slow=X (X-sliding window).
+ */
 #if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
 # define FP32_NFAST nz
 # define FP32_NMED STENCIL_NY

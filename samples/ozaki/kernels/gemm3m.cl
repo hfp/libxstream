@@ -7,7 +7,8 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-/* OpenCL kernels for complex GEMM via block embedding.
+/**
+ * OpenCL kernels for complex GEMM via block embedding.
  * These kernels handle the pre/post-processing phases, keeping
  * all intermediate buffers on device to avoid unnecessary PCIe transfers.
  *

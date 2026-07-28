@@ -10,7 +10,8 @@
 #include "../../../libxstream/opencl/libxstream_common.h"
 #include "ozaki_common.cl"
 
-/* Ozaki Scheme 2 -- GEMM-based XMX path (CRT).
+/**
+ * Ozaki Scheme 2 -- GEMM-based XMX path (CRT).
  *
  * Unlike the panel-batched dotprod path, this approach:
  *   1. Preprocesses the FULL K dimension of A and B into dense per-prime
@@ -75,9 +76,11 @@
 # define SG 16
 #endif
 #if !defined(OZ2_HORNER_GROUP)
-/* Max primes per Horner group that fit ulong accumulation:
-   * u8 (moduli<=256): product of 8 largest < 2^64 (group=8)
-   * i8 (moduli<=128): product of 9 largest < 2^64 (group=9) */
+/**
+ * Max primes per Horner group that fit ulong accumulation:
+ * u8 (moduli<=256): product of 8 largest < 2^64 (group=8)
+ * i8 (moduli<=128): product of 9 largest < 2^64 (group=9)
+ */
 # if defined(OZAKI_U8) && (OZAKI_U8)
 # define OZ2_HORNER_GROUP 8
 # else
@@ -89,10 +92,12 @@
 # define PB 1
 #endif
 
-/* Hierarchical CRT: two-level Garner reconstruction.
+/**
+ * Hierarchical CRT: two-level Garner reconstruction.
  * Level 1: HIER_GS primes per group (small Garner, 32-bit).
  * Level 2: Garner over HIER_NGROUPS group-moduli (32-bit, ulong intermediate).
- * Reduces peak live registers from ~NPRIMES to ~max(HIER_GS, HIER_NGROUPS). */
+ * Reduces peak live registers from ~NPRIMES to ~max(HIER_GS, HIER_NGROUPS).
+ */
 /**
  * Fractional-CRT mode 1 replaces the whole reconstruction and needs the raw
  * per-prime residues, so it forces the flat (non-hierarchical) path. Mode 2
@@ -147,25 +152,31 @@
 # define OZAKI_IN_BOUNDS(R, M, COL, N) (1)
 #endif
 
-/* OZAKI_FIRST: compile-time specialization for first-tile (C = 0 + result)
+/**
+ * OZAKI_FIRST: compile-time specialization for first-tile (C = 0 + result)
  * vs accumulate (C = C_old + result).  When defined, the kernel ignores
- * the `first` runtime argument and uses this value instead. */
+ * the `first` runtime argument and uses this value instead.
+ */
 #if defined(OZAKI_FIRST)
 # define OZAKI_IS_FIRST(ARG) (OZAKI_FIRST)
 #else
 # define OZAKI_IS_FIRST(ARG) (ARG)
 #endif
 
-/* OZAKI_ALPHA_ONE: compile-time specialization for alpha==1.0.
- * Eliminates the multiply when alpha is known to be unity. */
+/**
+ * OZAKI_ALPHA_ONE: compile-time specialization for alpha==1.0.
+ * Eliminates the multiply when alpha is known to be unity.
+ */
 #if defined(OZAKI_ALPHA_ONE) && (OZAKI_ALPHA_ONE)
 # define OZAKI_ALPHA_MUL(A, X) (X)
 #else
 # define OZAKI_ALPHA_MUL(A, X) ((A) * (X))
 #endif
 
-/* Transpose specialization: when OZAKI_TRANSA / OZAKI_TRANSB are defined
- * at compile time, the ternary index computation becomes straight-line. */
+/**
+ * Transpose specialization: when OZAKI_TRANSA / OZAKI_TRANSB are defined
+ * at compile time, the ternary index computation becomes straight-line.
+ */
 #if defined(OZAKI_TRANSA)
 # define OZAKI_IDX_A(ROW, COL, LD) ((OZAKI_TRANSA) ? ((ROW) * (LD) + (COL)) : ((COL) * (LD) + (ROW)))
 #else
@@ -180,10 +191,12 @@
 /* Alias the shared DPAS primitive from ozaki_common.cl */
 #define OZAKI_CRT_DPAS OZAKI_DPAS
 
-/* Extract NPRIMES CRT residues from aligned mantissa into DST buffer.
+/**
+ * Extract NPRIMES CRT residues from aligned mantissa into DST buffer.
  * DST[p * SS + ROW * RS + COL] = (aligned mod m_p), sign-folded.
  * u8: sign via modular additive inverse (p - r), stored as uchar [0, p-1].
- * i8: sign via negation (-r), stored as char [-(p-1), p-1]. */
+ * i8: sign via negation (-r), stored as char [-(p-1), p-1].
+ */
 #define OZAKI_EXTRACT_CRT(ALIGNED, SIGN, DST, SS, RS, ROW, COL) \
   OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, (long)(ROW) * (RS) + (COL))
 /* Store B via the (possibly VNNI-packed) index so producer and consumer agree. */
@@ -216,10 +229,12 @@
     } \
   } while (0)
 
-/* Mod-reduce DPAS accumulator into uint residue array.
+/**
+ * Mod-reduce DPAS accumulator into uint residue array.
  * RESIDUES[pidx * XMX_M + m] accumulates the unsigned residue.
  * u8: accumulator is always non-negative (unsigned products) -- branchless.
- * i8: accumulator can be negative -- requires sign-aware reduction. */
+ * i8: accumulator can be negative -- requires sign-aware reduction.
+ */
 #define OZAKI_CRT_MOD_REDUCE(ACC, PIDX, RESIDUES) \
   do { \
     union { \
@@ -416,11 +431,13 @@
 #endif /* OZAKI_HIER_L2 */
 #endif /* OZAKI_HIER */
 
-/* K-loop inner body: prefetch + DPAS for PB batched primes.
+/**
+ * K-loop inner body: prefetch + DPAS for PB batched primes.
  * AS_BASE, BS_BASE: base pointers for all prime planes.
  * A_PLANE, B_PLANE: per-prime plane offsets.
  * PIDX_BASE: first prime in current batch.
- * ACC: int8 array of PB*RTM*RTN accumulators. */
+ * ACC: int8 array of PB*RTM*RTN accumulators.
+ */
 #define OZAKI_CRT_KSTEP(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, M_, MI, NJ, KOFF, PIDX_BASE, ACC) \
   do { \
     SINT bi_k_; \
@@ -436,8 +453,10 @@
   } while (0)
 
 #if OZAKI_HIER
-/* Mod-reduce with separate global prime index (for moduli lookup)
- * and local storage index (for residue array offset). */
+/**
+ * Mod-reduce with separate global prime index (for moduli lookup)
+ * and local storage index (for residue array offset).
+ */
 #define OZAKI_CRT_MOD_REDUCE_LOCAL(ACC, PIDX, LOCAL_IDX, RESIDUES) \
   do { \
     union { \
@@ -458,8 +477,10 @@
     } \
   } while (0)
 
-/* HIER variant: mod-reduce into group-local residues (stride HIER_GS * XMX_M).
- * PIDX_BASE: global prime index.  GROUP_LO: first prime in group. */
+/**
+ * HIER variant: mod-reduce into group-local residues (stride HIER_GS * XMX_M).
+ * PIDX_BASE: global prime index.  GROUP_LO: first prime in group.
+ */
 #define OZAKI_CRT_REDUCE_BATCH_GROUP(ACC, PIDX_BASE, GROUP_LO, GROUP_RES, ZERO_ACC) \
   do { \
     SINT bi_rg_; \
@@ -484,8 +505,10 @@
   } while (0)
 #endif
 
-/* Mod-reduce all PB batched primes' accumulators into residues.
- * If ZERO_ACC is non-zero, also zero the accumulators after reduction. */
+/**
+ * Mod-reduce all PB batched primes' accumulators into residues.
+ * If ZERO_ACC is non-zero, also zero the accumulators after reduction.
+ */
 #define OZAKI_CRT_REDUCE_BATCH(ACC, PIDX_BASE, RESIDUES, ZERO_ACC) \
   do { \
     SINT bi_r_; \
@@ -509,7 +532,8 @@
   } while (0)
 
 
-/* CRT moduli, Barrett constants, pow32_mod, and Garner inverse table.
+/**
+ * CRT moduli, Barrett constants, pow32_mod, and Garner inverse table.
  *
  * Snake-draft interleaving balances HIER group products.
  * Power-of-2 modulus at POW2_PIDX (last in group 0) for bitmask fast path.
@@ -520,7 +544,8 @@
  *
  * i8 (OZAKI_U8=0): 20 pairwise coprime integers <= 128.
  *   Prime powers: 128=2^7, 125=5^3, 121=11^2, 81=3^4.  119=7*17.
- *   Safe K without KGROUPS: ~133K (127^2 * 32 per DPAS step). */
+ *   Safe K without KGROUPS: ~133K (127^2 * 32 per DPAS step).
+ */
 
 #if defined(OZAKI_U8) && (OZAKI_U8)
 
@@ -610,9 +635,11 @@ constant uint oz2g_hier_l2_garner_inv[][5] = {
 
 #define OZ2G_BARRETT_SHIFT 32
 
-/* Barrett modular reduction: x mod oz2g_moduli[pidx].
+/**
+ * Barrett modular reduction: x mod oz2g_moduli[pidx].
  * POW2_PIDX is the power-of-2 modulus (bitmask fast path).
- * u8: 256 = 2^8 -> mask 0xFF.  i8: 128 = 2^7 -> mask 0x7F. */
+ * u8: 256 = 2^8 -> mask 0xFF.  i8: 128 = 2^7 -> mask 0x7F.
+ */
 #if defined(OZAKI_U8) && (OZAKI_U8)
 # define OZ2G_POW2_MASK 0xFFu
 # define OZ2G_POW2_MASK64 0xFFul
@@ -630,9 +657,11 @@ inline uint oz2g_mod(uint x, SINT pidx)
   }
 }
 
-/* Modular reduction for aligned mantissa (up to 53 bits for FP64, 24 for FP32).
+/**
+ * Modular reduction for aligned mantissa (up to 53 bits for FP64, 24 for FP32).
  * Decomposes x = hi*2^32 + lo, reduces each part via 32-bit Barrett,
- * then combines.  Avoids expensive 64-bit integer division. */
+ * then combines.  Avoids expensive 64-bit integer division.
+ */
 inline uint oz2g_mod64(ulong x, SINT pidx)
 {
   if (POW2_PIDX == pidx) return (uint)(x & OZ2G_POW2_MASK64);
@@ -907,10 +936,12 @@ inline void oz2g_horner_accumulate(const uint* restrict v, int is_negative, real
 
 #if OZAKI_HIER
 
-/* Host-precomputed HIER L2 tables (passed as -D defines).
+/**
+ * Host-precomputed HIER L2 tables (passed as -D defines).
  * HIER_GPROD_g: actual group product for group g.
  * HIER_L2B_g: Barrett constant floor(2^64/gprod_g).
- * HIER_L2INV_j_i: gprod_j^{-1} mod gprod_i. */
+ * HIER_L2INV_j_i: gprod_j^{-1} mod gprod_i.
+ */
 #if defined(HIER_GPROD_0)
 constant uint oz2g_hier_gprod_actual[] = {
   HIER_GPROD_0,
@@ -957,9 +988,11 @@ inline uint oz2g_mod_l2(ulong x, int gidx)
 }
 
 
-/* Level-1 Garner: reconstruct HIER_GS residues for group g -> uint group value.
+/**
+ * Level-1 Garner: reconstruct HIER_GS residues for group g -> uint group value.
  * group_residues[0..gsz-1] are the per-prime residues within this group.
- * g: group index (for moduli/garner_inv offset = g * HIER_GS). */
+ * g: group index (for moduli/garner_inv offset = g * HIER_GS).
+ */
 inline uint oz2g_hier_l1_garner(const uint* restrict group_residues, int g)
 {
   const int lo = g * HIER_GS;
@@ -992,11 +1025,15 @@ inline uint oz2g_hier_l1_garner(const uint* restrict group_residues, int g)
 }
 
 #if !defined(OZAKI_HIER_L2) || (0 == OZAKI_HIER_L2)
-/* Level-2 Garner: reconstruct HIER_NGROUPS group values -> mixed-radix digits + sign.
+/**
+ * Level-2 Garner: reconstruct HIER_NGROUPS group values -> mixed-radix digits + sign.
  * Uses host-precomputed tables (oz2g_hier_gprod_actual, oz2g_hier_l2inv) to handle
- * partial last group without runtime modular-inverse computation. */
-/* L2 Garner inverse lookup: use host-precomputed defines when available,
- * fall back to hardcoded table otherwise. */
+ * partial last group without runtime modular-inverse computation.
+ */
+/**
+ * L2 Garner inverse lookup: use host-precomputed defines when available,
+ * fall back to hardcoded table otherwise.
+ */
 #if defined(HIER_L2INV_0_1)
 inline uint oz2g_hier_l2inv(int j, int i)
 {
@@ -1079,11 +1116,13 @@ inline int oz2g_hier_l2_garner(const uint* restrict gval, uint* restrict d)
 
 
 #if defined(OZAKI_HIER_L2) && (1 == OZAKI_HIER_L2)
-/* Tree-merge CRT: binary tree of pairwise merges over group values.
+/**
+ * Tree-merge CRT: binary tree of pairwise merges over group values.
  * Depth = ceil(log2(HIER_NGROUPS)) instead of HIER_NGROUPS-1 (sequential Garner).
  * Each merge: val = gval[a] + gp[a] * ((gval[b] - gval[a]) * inv_a_b % gp[b])
  * Host precomputes: HIER_TREE_INV_a_b = gp[a]^{-1} mod gp[b] for each merge pair.
- * HIER_TREE_PROD_ab = gp[a] * gp[b] (uint64) for merged modulus. */
+ * HIER_TREE_PROD_ab = gp[a] * gp[b] (uint64) for merged modulus.
+ */
 
 /**
  * Tree-merge L2 reconstruction.
@@ -1119,9 +1158,11 @@ inline int oz2g_hier_l2_tree(const uint* restrict gval, ulong* out_val)
   return is_negative;
 }
 
-/* Tree-merge accumulate: direct FP conversion from combined ulong value.
+/**
+ * Tree-merge accumulate: direct FP conversion from combined ulong value.
  * Unlike Horner over complemented digits, the tree merge returns the
- * absolute value directly (M - combined), so negation is -(val). */
+ * absolute value directly (M - combined), so negation is -(val).
+ */
 inline void oz2g_hier_tree_accumulate(ulong val, int is_negative,
                                       real_t alpha, int base_sh, real_t* cval)
 {
@@ -1398,8 +1439,10 @@ kernel void gemm_crt_fused(
   uint group_res[GRP_RES_STRIDE];
   uint gval_all[GVAL_ALL_STRIDE];
 
-  /* Group-at-a-time: for each group, accumulate HIER_GS primes into
-   * group_res (reused), then level-1 Garner into gval_all (persistent). */
+  /**
+   * Group-at-a-time: for each group, accumulate HIER_GS primes into
+   * group_res (reused), then level-1 Garner into gval_all (persistent).
+   */
   {
     SINT gidx;
     for (gidx = 0; gidx < HIER_NGROUPS; ++gidx) {
@@ -1497,12 +1540,14 @@ kernel void gemm_crt_fused(
   uint dot_r_[NPRIMES];
   uint vg_[NPRIMES];
 
-  /* Per-prime residue accumulators (private, per work-item).
+  /**
+   * Per-prime residue accumulators (private, per work-item).
    * Each SIMD lane accumulates a different output column, so this
    * cannot be shared across lanes in SLM without a lane dimension --
    * but NTM*NTN*SG*RES_STRIDE exceeds SLM capacity.  Private lets
    * the compiler spill to scratch with liveness-aware scheduling
-   * (residues are cold during the DPAS K-loop, hot during reduce/store). */
+   * (residues are cold during the DPAS K-loop, hot during reduce/store).
+   */
 #define RES_STRIDE (RTM * RTN * NPRIMES * XMX_M)
   uint residues[RES_STRIDE];
 
@@ -1513,10 +1558,12 @@ kernel void gemm_crt_fused(
     }
   }
 
-  /* Loop over primes in batches of PB for improved ILP.
+  /**
+   * Loop over primes in batches of PB for improved ILP.
    * PB=1 reproduces the original per-prime loop.
    * PB=2 interleaves two primes in the K-loop, hiding memory
-   * latency behind independent DPAS chains. */
+   * latency behind independent DPAS chains.
+   */
   {
     SINT pidx_base;
     UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NPRIMES; pidx_base += PB)

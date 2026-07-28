@@ -54,17 +54,21 @@
 # define SG 16
 #endif
 
-/* N-strip width: DPAS produces 8x16 tiles, we tile N=BLK*BLK
- * in strips of XMX_N=16 columns. */
+/**
+ * N-strip width: DPAS produces 8x16 tiles, we tile N=BLK*BLK
+ * in strips of XMX_N=16 columns.
+ */
 #define XMX_M 8
 #define XMX_N 16
 #define N_TOTAL (BLK * BLK)
 #define N_STRIPS (N_TOTAL / XMX_N)
 #define M_TILES (BLK / XMX_M)
 
-/* Padded K dimension for the operator surface.
+/**
+ * Padded K dimension for the operator surface.
  * D is BLK rows over a haloed K dimension. K_PAD is rounded to a
- * multiple of 16 because each DPAS step consumes 16 K entries. */
+ * multiple of 16 because each DPAS step consumes 16 K entries.
+ */
 #define STENCIL_ALIGN16(VALUE) (((VALUE) + 15) & ~15)
 #define K_BASE (BLK + 2 * RADIUS)
 #define K_PAD STENCIL_ALIGN16(K_BASE)
@@ -195,8 +199,10 @@
 #define STENCIL_GRID_IDX(GZ, GY, GX, NY, NX) \
   ((long)(GZ) * STENCIL_NY * STENCIL_NX + (long)(GY) * STENCIL_NX + (GX))
 
-/* Z-innermost with per-array halo: [gx+lx][gy+ly][gz+lz], stride-z=1.
- * Per-array strides (P=wavefield, V=velocity, E=eta) passed via -D flags. */
+/**
+ * Z-innermost with per-array halo: [gx+lx][gy+ly][gz+lz], stride-z=1.
+ * Per-array strides (P=wavefield, V=velocity, E=eta) passed via -D flags.
+ */
 #if !defined(STENCIL_P_SX)
 # define STENCIL_P_SX 1
 #endif
@@ -256,8 +262,10 @@
    + (long)((GY) + STENCIL_E_LY) * STENCIL_E_SY \
    + ((GZ) + STENCIL_E_LZ))
 
-/* Blocked (tiled) grid index: data stored as [bz][by][bx][lz][ly][lx].
- * BLK must be a power of 2. All dims require nbx, nby as runtime params. */
+/**
+ * Blocked (tiled) grid index: data stored as [bz][by][bx][lz][ly][lx].
+ * BLK must be a power of 2. All dims require nbx, nby as runtime params.
+ */
 #define K_PAD_I8 64
 
 #define STENCIL_BLK_SHIFT 5
@@ -293,9 +301,11 @@
     STENCIL_GRID_IDX(GZ, GY, GX, NY, NX)
 #endif
 
-/* Dim iteration order: gather the memory-sequential axis first.
+/**
+ * Dim iteration order: gather the memory-sequential axis first.
  * XYZ/BLK: dim 0 (X) is fastest -> order {0,1,2}.
- * ZYX: dim 2 (Z) is fastest -> order {2,1,0}. */
+ * ZYX: dim 2 (Z) is fastest -> order {2,1,0}.
+ */
 #if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
 # define STENCIL_DIM(ITER) (NTERMS - 1 - (ITER))
 #else
@@ -310,15 +320,19 @@
   ((uint)(X_DIGIT)[((KS) + 2 * (BK)) * XMX_N + (LID)] \
    | ((uint)(X_DIGIT)[((KS) + 2 * (BK) + 1) * XMX_N + (LID)] << 16))
 
-/* INT8 K-step range: k32-aligned (8 int-quads per DPAS step).
+/**
+ * INT8 K-step range: k32-aligned (8 int-quads per DPAS step).
  * Non-zero band of operator row MI: columns [MI .. MI+XMX_M-1+2*RADIUS].
- * DPAS k32 step starts at a multiple of 8 int-quads (32 bytes). */
+ * DPAS k32 step starts at a multiple of 8 int-quads (32 bytes).
+ */
 #define KSTEP_I8_LO(MI) (((MI) >> 2) & ~7)
 #define KSTEP_I8_HI(MI) ((((MI) + XMX_M - 1 + 2 * RADIUS) >> 2) & ~7)
 #define KSTEP_I8_MAX_COUNT ((((XMX_M - 1 + 2 * RADIUS + 31) >> 5) + 1))
 
-/* DPAS accumulation from SLM strip: iterates (sa, sb, kstep).
- * B tiles are preloaded from SLM into registers before DPAS. */
+/**
+ * DPAS accumulation from SLM strip: iterates (sa, sb, kstep).
+ * B tiles are preloaded from SLM into registers before DPAS.
+ */
 #define STENCIL_DPAS_ACC_ROWS(DK, NDIGITS_EFF, X_SLM, D_WB, A_ROWS, MI, ACC) \
   do { \
     const int ks_lo_ = KSTEP_LO(MI); \
@@ -350,9 +364,11 @@
 #define STENCIL_DPAS_ACC(DK, NDIGITS_EFF, X_SLM, D_WB, MI, ACC) \
   STENCIL_DPAS_ACC_ROWS(DK, NDIGITS_EFF, X_SLM, D_WB, BLK, MI, ACC)
 
-/* FP32 accumulation: D[row,col] * X[col,sg_lid] via banded FMA.
+/**
+ * FP32 accumulation: D[row,col] * X[col,sg_lid] via banded FMA.
  * D is stored as float[BLK][STENCIL_D_BAND], X in SLM as float[K_PAD][XMX_N].
- * Each WI accumulates 8 rows (MI..MI+7), reading one X column (sg_lid). */
+ * Each WI accumulates 8 rows (MI..MI+7), reading one X column (sg_lid).
+ */
 #if defined(STENCIL_BF16) && (2 <= STENCIL_BF16)
 #define STENCIL_FP32_ACC(DK, X_SLM, MI, ACC) \
   do { \

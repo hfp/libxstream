@@ -10,7 +10,8 @@
 #ifndef OZAKI_COMMON_CL
 #define OZAKI_COMMON_CL
 
-/* Shared primitives for all Ozaki kernel files.
+/**
+ * Shared primitives for all Ozaki kernel files.
  *
  * Provides:
  *   CONSTANT            - address-space qualifier (global or __constant)
@@ -55,12 +56,14 @@
 # define SINT signed char
 #endif
 
-/* Register tiling: RTM x RTN sub-tiles per sub-group.
+/**
+ * Register tiling: RTM x RTN sub-tiles per sub-group.
  * Each sub-group computes (RTM*XMX_M) x (RTN*XMX_N) output elements,
  * issuing RTM*RTN DPAS instructions per K-step.
  * RTM=1, RTN=1 reproduces the non-tiled baseline (1 DPAS per K-step).
  * Higher values (e.g. RTM=4,RTN=4) saturate the systolic pipeline and
- * require 256-GRF mode (LIBXSTREAM_BIGGRF=1). */
+ * require 256-GRF mode (LIBXSTREAM_BIGGRF=1).
+ */
 #if !defined(RTM)
 # define RTM 1
 #endif
@@ -73,11 +76,13 @@
 # define RC 8
 #endif
 
-/* Hardware sub-tile dimensions.
+/**
+ * Hardware sub-tile dimensions.
  * Intel DPAS (PVC XMX):  8 rows x 16 cols, K=32  (SG=16)
  * NVIDIA dp4a:           8 rows x 16 cols, K=32  (SG=16)
  * NVIDIA MMA m16n8k32:  16 rows x  8 cols, K=32  (SG=32)
- * Scalar fallback:       8 rows x 16 cols, K=32  (SG=16) */
+ * Scalar fallback:       8 rows x 16 cols, K=32  (SG=16)
+ */
 #if defined(NV_MMA) && (NV_MMA)
 # define XMX_M 16
 # define XMX_N 8
@@ -88,7 +93,8 @@
 #endif
 
 
-/* One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
+/**
+ * One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
  * Each work-item holds 8 rows; the column is get_sub_group_local_id().
  *
  * XMX path (OZAKI_U8=1 -- unsigned, default for CRT):
@@ -102,12 +108,15 @@
  *
  * Scalar path (INTEL < 2):
  *   Same 8x32x16 tile contract via explicit loops.
- *   Allows the GEMM kernels to run on hardware without DPAS/2D block I/O. */
+ *   Allows the GEMM kernels to run on hardware without DPAS/2D block I/O.
+ */
 #if defined(INTEL) && (2 <= INTEL)
 
-/* Prefetch next K-step's A and B tiles into cache.
+/**
+ * Prefetch next K-step's A and B tiles into cache.
  * 2D block prefetch with .ca.ca hints -- writes to null, no register cost.
- * OOB prefetches are silently clamped by the hardware. */
+ * OOB prefetches are silently clamped by the hardware.
+ */
 # define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI) \
     intel_sub_group_2d_block_prefetch_8b_8r32x1c((global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)))
 # define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ) \
@@ -150,8 +159,10 @@
       } while (0)
 # endif
 
-/* Single-tile DPAS from pre-loaded A (ushort8) and B (uint8).
- * RC=8: one MAD(8rows). RC=4: split into two MAD(4rows). */
+/**
+ * Single-tile DPAS from pre-loaded A (ushort8) and B (uint8).
+ * RC=8: one MAD(8rows). RC=4: split into two MAD(4rows).
+ */
 # if (8 == RC)
 # define OZAKI_DPAS_ONE(A, B, ACC) (ACC) = OZAKI_MAD_K32_8(A, B, (ACC))
 # elif (4 == RC)
@@ -164,7 +175,8 @@
       } while (0)
 # endif
 
-/* Tiled DPAS: RTM x RTN sub-tiles per sub-group.
+/**
+ * Tiled DPAS: RTM x RTN sub-tiles per sub-group.
  * Loads RTM A-strips and RTN B-strips, then issues RTM*RTN DPAS.
  * ACC is an int8 array of size RTM*RTN, indexed [rm * RTN + rn].
  *
@@ -172,7 +184,8 @@
  * the number of load messages per K-step:
  *   A: _8b_{RTM*8}r32x1c loads all RTM subtiles in one message.
  *   B: _transform_8b_32r16x{RTN}c loads all RTN subtiles in one message.
- * Fallback: per-subtile loops (generic for any RTM/RTN). */
+ * Fallback: per-subtile loops (generic for any RTM/RTN).
+ */
 # if (RTM == 4) && (RTN == 2)
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
       do { \
@@ -257,9 +270,11 @@
       } while (0)
 # endif
 
-/* Split load/compute for software pipelining.
+/**
+ * Split load/compute for software pipelining.
  * OZAKI_LOAD_TILED: load A/B tiles into caller-supplied arrays.
- * OZAKI_COMPUTE_TILED: issue DPAS from pre-loaded tiles. */
+ * OZAKI_COMPUTE_TILED: issue DPAS from pre-loaded tiles.
+ */
 # if (RTM == 4)
 # define OZAKI_LOAD_A_TILED(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
       intel_sub_group_2d_block_read_8b_32r32x1c( \
@@ -316,8 +331,10 @@
       } \
     } while (0)
 
-/* Tiled prefetch: prefetch next K-step for all RTM A and RTN B tiles.
- * Coalesced variants match the wider loads above. */
+/**
+ * Tiled prefetch: prefetch next K-step for all RTM A and RTN B tiles.
+ * Coalesced variants match the wider loads above.
+ */
 # if (RTM == 4)
 # define OZAKI_PREFETCH_A_TILED(AS, K_PAD, M_HT, KOFF, MI) \
       intel_sub_group_2d_block_prefetch_8b_32r32x1c((global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)))
@@ -355,11 +372,13 @@
       OZAKI_PREFETCH_A_TILED(AS, K_PAD, M_HT, KOFF, MI); \
       OZAKI_PREFETCH_B_TILED(BS, N_PAD, K_PAD, KOFF, NJ); \
     } while (0)
-/* NVIDIA MMA path (NV_MMA: warp-cooperative m16n8k32, SM>=8.0, SG=32).
+/**
+ * NVIDIA MMA path (NV_MMA: warp-cooperative m16n8k32, SM>=8.0, SG=32).
  * Tile: 16 rows x 8 cols, K=32. Accumulator: 4 int32 per thread (fragment).
  * A layout in global: row-major [M_pad x K_pad] -- same as dp4a/Intel path.
  * B layout in global: K-major  [K_pad x N_pad] -- same as dp4a/Intel path.
- * Shared memory staging + ldmatrix for fragment generation. */
+ * Shared memory staging + ldmatrix for fragment generation.
+ */
 #elif defined(NV_MMA) && (NV_MMA)
 
 # define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
@@ -386,7 +405,8 @@
           "r"(D0), "r"(D1), "r"(D2), "r"(D3))
 # endif
 
-/* m16n8k32 C/D fragment layout (per-thread in a 32-thread warp):
+/**
+ * m16n8k32 C/D fragment layout (per-thread in a 32-thread warp):
  *   lane = threadIdx.x % 32
  *   groupID   = lane / 4           (0..7)
  *   threadID  = lane % 4           (0..3)
@@ -395,13 +415,15 @@
  *   D[2] -> row = groupID + 8, col = threadID * 2
  *   D[3] -> row = groupID + 8, col = threadID * 2 + 1
  *
- * Accumulator type: int4 (4 int32 values) per MMA tile. */
+ * Accumulator type: int4 (4 int32 values) per MMA tile.
+ */
 # define NV_MMA_FRAG_ROW0(LANE) ((LANE) / 4)
 # define NV_MMA_FRAG_ROW2(LANE) ((LANE) / 4 + 8)
 # define NV_MMA_FRAG_COL0(LANE) (((LANE) % 4) * 2)
 # define NV_MMA_FRAG_COL1(LANE) (((LANE) % 4) * 2 + 1)
 
-/* Load A fragment from global memory into 4 registers for m16n8k32.
+/**
+ * Load A fragment from global memory into 4 registers for m16n8k32.
  * A is row-major [M_pad x K_pad]. Thread cooperation:
  * Each of 32 threads loads 4 bytes at specific (row, k) positions.
  * A-fragment register layout for m16n8k32:
@@ -409,7 +431,8 @@
  *   a[1] = row[lane/4],         k[16 + lane%4 * 4 .. +3]         (bytes 4-7)
  *   a[2] = row[lane/4 + 8],     k[lane%4 * 4 .. +3]              (bytes 8-11)
  *   a[3] = row[lane/4 + 8],     k[16 + lane%4 * 4 .. +3]         (bytes 12-15)
- * Each register holds 4 packed int8 values (one uint). */
+ * Each register holds 4 packed int8 values (one uint).
+ */
 # define NV_MMA_LOAD_A(AS, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
     do { \
       const int grp_ = (LANE) / 4; \
@@ -424,14 +447,16 @@
       (A3) = *(CONSTANT const uint*)(ap1_ + 16); \
     } while (0)
 
-/* Load B fragment from global memory into 2 registers for m16n8k32.
+/**
+ * Load B fragment from global memory into 2 registers for m16n8k32.
  * B is K-major [K_pad x N_pad]. MMA .col operand.
  * PTX ISA fragment layout (Table "mma.m16n8k32", .col B, .s8/.u8):
  *   groupID = lane/4 (0..7) -> selects column n
  *   threadID = lane%4 (0..3) -> selects K-group
  *   b[reg] byte j = B[k = threadID*4 + j + reg*16, n = groupID]
  * Coverage: 4 tids * 4 bytes = 16 K per reg, 2 regs = 32 K; 8 grps = 8 cols.
- * B[k][n] = BS[(KOFF+k) * N_PAD + NJ + n]. */
+ * B[k][n] = BS[(KOFF+k) * N_PAD + NJ + n].
+ */
 # define NV_MMA_LOAD_B(BS, N_PAD, NJ, KOFF, LANE, B0, B1) \
     do { \
       const int grp_ = (LANE) / 4; \
@@ -451,11 +476,13 @@
         b_base_[(long)(k0_ + 19) * (N_PAD) + grp_])); \
     } while (0)
 
-/* One MMA step: 16x8x32 tile, accumulates into int4 fragment (D0..D3).
+/**
+ * One MMA step: 16x8x32 tile, accumulates into int4 fragment (D0..D3).
  * PTX ISA fragment: b[reg] byte j = B[k=threadID*4+j+reg*16, n=groupID]
  *                   a[reg] byte j = A[m=groupID+(reg/2)*8, k=threadID*4+j+(reg%2)*16]
  * Host must set KU=1: NVIDIA OpenCL compiler evaluates all asm inputs upfront
- * when unrolling, so iteration N+1 reads stale C (not iteration N's D output). */
+ * when unrolling, so iteration N+1 reads stale C (not iteration N's D output).
+ */
 # define NV_MMA_STEP(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, LANE, D0, D1, D2, D3) \
     do { \
       const int grp_ = (LANE) / 4; \
@@ -484,9 +511,11 @@
       NV_MMA_16x8x32(D0, D1, D2, D3, a0_, a1_, a2_, a3_, b0_, b1_); \
     } while (0)
 
-/* Tiled MMA: RTM x RTN sub-tiles of m16n8k32 each.
+/**
+ * Tiled MMA: RTM x RTN sub-tiles of m16n8k32 each.
  * ACC is int4[RTM*RTN] -- each int4 is one MMA fragment (4 int32 values).
- * XMX_M=16 rows, XMX_N=8 cols per MMA tile. */
+ * XMX_M=16 rows, XMX_N=8 cols per MMA tile.
+ */
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
       const int lane_ = (int)SGLID(); \
@@ -527,9 +556,11 @@
 #   define OZAKI_BYTE4_T  char4
 # endif
 
-/* dp4a single-tile DPAS: 8 rows x 16 cols, K=32.
+/**
+ * dp4a single-tile DPAS: 8 rows x 16 cols, K=32.
  * Processes 4 K-elements per dp4a (8 dp4a calls per row).
- * A row data (8 uints) and B column data (8 uints) are pre-loaded by caller. */
+ * A row data (8 uints) and B column data (8 uints) are pre-loaded by caller.
+ */
 # define NV_DP4A_8x1(AROW, BCOL, ACC) \
     do { \
       int k4d_; \
@@ -540,9 +571,11 @@
 
 /* Load one B column (8 packed uints covering K=32) into BDST. */
 # if defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
-/* VNNI-packed: each dp4a operand is one aligned uint at [k/4][col][0..3].
+/**
+ * VNNI-packed: each dp4a operand is one aligned uint at [k/4][col][0..3].
  * 8 loads instead of 32 scalar byte gathers, and lanes stay coalesced
- * because consecutive COL are 4 bytes apart. */
+ * because consecutive COL are 4 bytes apart.
+ */
 # define NV_LOAD_BCOL(BS, N_PAD, KOFF, COL, BDST) \
     do { \
       CONSTANT const uint* bcp_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(BS) \
@@ -565,10 +598,12 @@
     } while (0)
 # endif
 
-/* Load one A row (8 packed uints covering K=32) into ADST.
+/**
+ * Load one A row (8 packed uints covering K=32) into ADST.
  * A is K-contiguous and K_PAD is a multiple of BK (32), so the 32 bytes are
  * contiguous and 16B-aligned: fetch them as 2 uint4 instead of 8 scalar
- * loads. Cuts A load messages per row from 8 to 2. */
+ * loads. Cuts A load messages per row from 8 to 2.
+ */
 # define NV_LOAD_AROW(AS, K_PAD, ROW, KOFF, ADST) \
     do { \
       CONSTANT const uint* arp_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(AS) \
@@ -578,10 +613,12 @@
       (ADST)[4] = ahi_.s0; (ADST)[5] = ahi_.s1; (ADST)[6] = ahi_.s2; (ADST)[7] = ahi_.s3; \
     } while (0)
 
-/* Tiled dp4a with register reuse: pre-load all RTM A-strips and RTN B-columns
+/**
+ * Tiled dp4a with register reuse: pre-load all RTM A-strips and RTN B-columns
  * into registers, then compute RTM*RTN dot products from registers.
  * B reuse: each B column is loaded once, used by all RTM row-tiles.
- * A reuse: each A row-set is loaded once, used by all RTN column-tiles. */
+ * A reuse: each A row-set is loaded once, used by all RTN column-tiles.
+ */
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
       const int col0_ = (NJ) + (int)SGLID(); \
@@ -672,9 +709,11 @@
 #endif
 
 
-/* Decompose an IEEE-754 value into sign, biased exponent, and implicit-1 mantissa.
+/**
+ * Decompose an IEEE-754 value into sign, biased exponent, and implicit-1 mantissa.
  * Zero, subnormal, Inf, and NaN inputs yield exp=0, mant=0.
- * real_t, uint_repr_t, EXP_MASK, and AS_UINT come from libxstream_common.h. */
+ * real_t, uint_repr_t, EXP_MASK, and AS_UINT come from libxstream_common.h.
+ */
 inline void ieee_decompose(real_t val, int* sign, short* exp, uint_repr_t* mant)
 {
   const uint_repr_t bits = AS_UINT(val);
@@ -693,10 +732,12 @@ inline void ieee_decompose(real_t val, int* sign, short* exp, uint_repr_t* mant)
   }
 }
 
-/* Extract a 7-bit signed digit from an aligned mantissa for slice index S.
+/**
+ * Extract a 7-bit signed digit from an aligned mantissa for slice index S.
  * The mantissa ALIGNED is already right-shifted by (max_exp - elem_exp).
  * Returns a signed char: the digit with sign applied if SIGN != 0.
- * MANT_BITS must be defined by the including file. */
+ * MANT_BITS must be defined by the including file.
+ */
 #if defined(MANT_BITS)
 inline char ozaki_slice_digit(uint_repr_t aligned, int sign, int s)
 {
