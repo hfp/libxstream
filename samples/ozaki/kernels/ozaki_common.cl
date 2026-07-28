@@ -426,10 +426,11 @@
  * Load A fragment from global memory into 4 registers for m16n8k32.
  * A is row-major [M_pad x K_pad]. Thread cooperation:
  * Each of 32 threads loads 4 bytes at specific (row, k) positions.
- * A-fragment register layout for m16n8k32:
+ * A-fragment register layout for m16n8k32 (m alternates, k advances every
+ * second register -- not the other way round):
  *   a[0] = row[lane/4],         k[lane%4 * 4 .. lane%4 * 4 + 3]  (bytes 0-3)
- *   a[1] = row[lane/4],         k[16 + lane%4 * 4 .. +3]         (bytes 4-7)
- *   a[2] = row[lane/4 + 8],     k[lane%4 * 4 .. +3]              (bytes 8-11)
+ *   a[1] = row[lane/4 + 8],     k[lane%4 * 4 .. +3]              (bytes 4-7)
+ *   a[2] = row[lane/4],         k[16 + lane%4 * 4 .. +3]         (bytes 8-11)
  *   a[3] = row[lane/4 + 8],     k[16 + lane%4 * 4 .. +3]         (bytes 12-15)
  * Each register holds 4 packed int8 values (one uint).
  */
@@ -442,8 +443,8 @@
       CONSTANT const OZAKI_BYTE_T* ap1_ = \
         (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_ + 8) * (K_PAD) + (KOFF) + tid_ * 4; \
       (A0) = *(CONSTANT const uint*)ap0_; \
-      (A1) = *(CONSTANT const uint*)(ap0_ + 16); \
-      (A2) = *(CONSTANT const uint*)ap1_; \
+      (A1) = *(CONSTANT const uint*)ap1_; \
+      (A2) = *(CONSTANT const uint*)(ap0_ + 16); \
       (A3) = *(CONSTANT const uint*)(ap1_ + 16); \
     } while (0)
 
@@ -479,7 +480,11 @@
 /**
  * One MMA step: 16x8x32 tile, accumulates into int4 fragment (D0..D3).
  * PTX ISA fragment: b[reg] byte j = B[k=threadID*4+j+reg*16, n=groupID]
- *                   a[reg] byte j = A[m=groupID+(reg/2)*8, k=threadID*4+j+(reg%2)*16]
+ *                   a[reg] byte j = A[m=groupID+(reg%2)*8, k=threadID*4+j+(reg/2)*16]
+ * The A registers alternate in m first and advance k only every second
+ * register: a0=(m,k), a1=(m+8,k), a2=(m,k+16), a3=(m+8,k+16). Getting this
+ * order wrong (advancing k first) still compiles and runs, but silently
+ * computes a wrong product for any operand needing more than one k-half.
  * Host must set KU=1: NVIDIA OpenCL compiler evaluates all asm inputs upfront
  * when unrolling, so iteration N+1 reads stale C (not iteration N's D output).
  */
@@ -494,8 +499,8 @@
       CONSTANT const OZAKI_BYTE_T* b_base_ = \
         (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ); \
       uint a0_ = as_uint((OZAKI_BYTE4_T)(ap0_[0], ap0_[1], ap0_[2], ap0_[3])); \
-      uint a1_ = as_uint((OZAKI_BYTE4_T)(ap0_[16], ap0_[17], ap0_[18], ap0_[19])); \
-      uint a2_ = as_uint((OZAKI_BYTE4_T)(ap1_[0], ap1_[1], ap1_[2], ap1_[3])); \
+      uint a1_ = as_uint((OZAKI_BYTE4_T)(ap1_[0], ap1_[1], ap1_[2], ap1_[3])); \
+      uint a2_ = as_uint((OZAKI_BYTE4_T)(ap0_[16], ap0_[17], ap0_[18], ap0_[19])); \
       uint a3_ = as_uint((OZAKI_BYTE4_T)(ap1_[16], ap1_[17], ap1_[18], ap1_[19])); \
       const int k0_ = tid_ * 4; \
       uint b0_ = as_uint((OZAKI_BYTE4_T)( \

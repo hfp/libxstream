@@ -104,7 +104,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     int n_pad = LIBXS_UP(N, bn_pre);
     const int nblk_gm = LIBXS_UPDIV(M, tm);
     const int nblk_gn = LIBXS_UPDIV(N, tn);
-    const int ntm = tm / (8 * ctx->rtm), ntn = tn / (16 * ctx->rtn);
+    const int ntm = tm / (OZAKI_XMX_M(ctx) * ctx->rtm), ntn = tn / (OZAKI_XMX_N(ctx) * ctx->rtn);
     const int cutoff = 2 * (nslices_g - 1) - ctx->oztrim;
     /**
      * K-group: size buffers for min(K, maxk), not full K.
@@ -392,7 +392,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     int n_pad = LIBXS_UP(N, bn_pre);
     const int nblk_gm = LIBXS_UPDIV(M, tm);
     const int nblk_gn = LIBXS_UPDIV(N, tn);
-    const int ntm = tm / (8 * ctx->crt_rtm), ntn = tn / (16 * ctx->rtn);
+    const int ntm = tm / (OZAKI_XMX_M(ctx) * ctx->crt_rtm), ntn = tn / (OZAKI_XMX_N(ctx) * ctx->rtn);
     /**
      * K-group: size buffers for min(K, maxk), not full K.
      * maxk=0 means no grouping (full K in one pass).

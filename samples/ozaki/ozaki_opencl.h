@@ -211,6 +211,16 @@ typedef struct ozaki_tile_t {
 } ozaki_tile_t;
 
 /**
+ * Hardware sub-tile dimensions, mirroring XMX_M/XMX_N in ozaki_common.cl.
+ * The MMA path transposes them (16x8 instead of 8x16), so any host-side
+ * NTM/NTN arithmetic must derive from these rather than hard-code 8 and 16:
+ * the kernel's reqd_work_group_size is SG x (NTM*NTN), and a mismatch means
+ * sub-groups that never launch, i.e. silently unwritten parts of C.
+ */
+#define OZAKI_XMX_M(CTX) ((0 != (CTX)->nv_mma) ? 16 : 8)
+#define OZAKI_XMX_N(CTX) ((0 != (CTX)->nv_mma) ? 8 : 16)
+
+/**
  * Size-aware output tile selection: pick the largest legal tile that still
  * saturates the device, breaking ties on least padding waste. rtm is passed
  * explicitly because Scheme 1 and Scheme 2 may use different register tiling
