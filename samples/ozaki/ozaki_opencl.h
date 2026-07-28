@@ -220,7 +220,7 @@ typedef struct ozaki_tile_t {
 ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm);
 /**
  * ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
- * synchronizing — the caller must sync the stream before consuming the result.
+ * synchronizing -- the caller must sync the stream before consuming the result.
  * Helper streams (ctx->stream_a/b) and events are kept persistent in the
  * context to avoid per-call creation overhead.  On the rare pool grow path
  * (larger problem size), the wrapped deallocator syncs all streams before

@@ -53,9 +53,9 @@
 #define LIBXSTREAM_APIVAR_PRIVATE(DECL) LIBXS_APIVAR_DECL_PRIVATE(DECL, LIBXSTREAM_BUILD_KIND)
 
 /**
- * Variable definition helper — expands alignment + visibility without
+ * Variable definition helper -- expands alignment + visibility without
  * an extern linkage specifier.  Avoids the empty macro argument that
- * LIBXS_APIVAR_DECL_ALIGNED passes to LIBXS_APIVAR_DECL (C90 §6.8.3).
+ * LIBXS_APIVAR_DECL_ALIGNED passes to LIBXS_APIVAR_DECL (C90 sect. 6.8.3).
  */
 #define LIBXSTREAM_APIVAR_DEF(DECL, VIS, KIND) \
   LIBXS_ALIGNED(LIBXS_APIKIND_COMMON(KIND) LIBXS_APIKIND_VIS(VIS, KIND) DECL, LIBXS_ALIGNMENT)

@@ -67,6 +67,8 @@ host readback.
 
 | Variable         | Default | Description                                                      |
 |------------------|---------|------------------------------------------------------------------|
+| OZAKI_TM         | (auto)  | Output tile M (BM). Overrides size-aware selection                |
+| OZAKI_TN         | (auto)  | Output tile N (BN). Overrides size-aware selection                |
 | OZAKI_RTM        | (auto)  | Register tiling M (power of two). Auto: 2 (HIER), 4 (256-GRF)    |
 | OZAKI_RTN        | (auto)  | Register tiling N (power of two). Auto: 2 (Intel GPU), 1 (other) |
 | OZAKI_WG         | 0       | Work-group size hint (0=no hint)                                 |
@@ -103,15 +105,34 @@ OZAKI_RSQ, OZAKI_EXIT, OZAKI_COMPLEX) are handled by the LIBXS Ozaki
 sample ([LIBXS](https://github.com/hfp/libxs)), which owns the GEMM
 interceptor. See its README for details.
 
+## Output Tile Selection
+
+The output tile per work-group (BM x BN) is chosen per call from M and
+N, because the best tile depends strongly on problem size: the total
+work-item count is invariant to the tile, so the tile only controls how
+many work-groups the problem splits into and how far M and N are padded
+to a tile multiple. A large tile maximizes operand reuse but produces
+too few work-groups to fill the device at small sizes; on a GPU Max
+1550 the fixed 128x256 tile costs up to 1.7x at M=N=256..640 while
+being optimal from ~1024 upward.
+
+Selection maximizes arithmetic intensity `BM*BN/(BM+BN)` per unit of
+padded work, subject to two constraints: the work-group size bound
+`SG * (BM/(XMX_M*RTM)) * (BN/(XMX_N*RTN)) <= max_wgs`, and enough
+work-groups to saturate the compute units (OZAKI_TILE_SAT). The
+intensity term is maximal for square tiles, which keeps the split
+balanced rather than degenerate. Set OZAKI_TM/OZAKI_TN to bypass
+selection and pin a tile.
+
 ## Kernel Registry
 
-Scheme 1 fused GEMM kernels are compiled on demand via a JIT registry.
-The compile-time cutoff (OZAKI_CUTOFF) is baked into each kernel
-specialization, allowing the compiler to eliminate dead slice-pair
-iterations and reduce register pressure. The first call with a given
-cutoff value triggers JIT compilation (~100 ms); subsequent calls hit
-the registry cache. Typical workloads produce 2-3 specializations
-(full cutoff, reduced cutoff, each with/without bounds checking).
+Both schemes compile fused GEMM kernels on demand via a JIT registry
+keyed by the output tile plus the bounds-checking variant; Scheme 1
+additionally keys on the compile-time cutoff (OZAKI_CUTOFF), which lets
+the compiler eliminate dead slice-pair iterations and reduce register
+pressure. The first call with a given key triggers JIT compilation
+(~100 ms); subsequent calls hit the registry cache. A workload with a
+single matrix shape produces one specialization per scheme.
 
 ## Example
 

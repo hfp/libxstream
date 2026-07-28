@@ -294,8 +294,8 @@
 #endif
 
 /* Dim iteration order: gather the memory-sequential axis first.
- * XYZ/BLK: dim 0 (X) is fastest → order {0,1,2}.
- * ZYX: dim 2 (Z) is fastest → order {2,1,0}. */
+ * XYZ/BLK: dim 0 (X) is fastest -> order {0,1,2}.
+ * ZYX: dim 2 (Z) is fastest -> order {2,1,0}. */
 #if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
 # define STENCIL_DIM(ITER) (NTERMS - 1 - (ITER))
 #else

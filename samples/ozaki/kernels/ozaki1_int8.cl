@@ -10,14 +10,14 @@
 #include "../../../libxstream/opencl/libxstream_common.h"
 #include "ozaki_common.cl"
 
-/* Ozaki Scheme 1 — GEMM-based XMX path.
+/* Ozaki Scheme 1 -- GEMM-based XMX path.
  *
  * Unlike the panel-batched dotprod path, this approach:
  *   1. Preprocesses the FULL K dimension of A and B into dense int8 slices
  *      (one M x K_pad or K_pad x N matrix per slice)
  *   2. For each slice pair (sa, sb), runs a tiled int8 GEMM with full K-loop,
  *      cooperative matrix accumulation in i32 registers, and 2D block I/O
- *   3. Fuses the i32→fp scaling + exponent accumulation into the same kernel
+ *   3. Fuses the i32->fp scaling + exponent accumulation into the same kernel
  *
  * Compile-time parameters (-D):
  *   BM, BN          - output tile dimensions per work-group (256x256 default)
@@ -202,7 +202,7 @@
 /* Full tiled K-loop: KU-unrolled DPAS with optional prefetch, then remainder.
  * AS, BS: slice pointers for this pair.
  * ACC: int8[RTM*RTN] accumulator array (must be pre-zeroed by caller).
- * OZAKI_PREFETCH: opt-in prefetch (default off — hurts PVC perf). */
+ * OZAKI_PREFETCH: opt-in prefetch (default off -- hurts PVC perf). */
 #define OZAKI_KLOOP(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
   do { \
     int k_l_; \
@@ -346,7 +346,7 @@
  * K_pad must be >= 64 for 2D block I/O alignment.
  *
  * Work-group: (BM_PRE, BK_PRE, 1).
- * Dispatch: global_a[1] = BK_PRE (single WG in K) — the kernel loops
+ * Dispatch: global_a[1] = BK_PRE (single WG in K) -- the kernel loops
  * over K internally so that the local max exponent IS the global max.
  */
 __attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
@@ -423,7 +423,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
 /**
  * preprocess_b_dense: decompose B into dense per-slice int8 matrices.
  *
- * Output layout: Bs[s][K_pad][N_pad] — K_pad rows, N_pad columns per slice.
+ * Output layout: Bs[s][K_pad][N_pad] -- K_pad rows, N_pad columns per slice.
  *   N_pad must be >= 64 for 2D block I/O.
  *   Stored row-major (K-major): Bs_s[k * N_pad + n].
  *   Full: Bs[s * K_pad * N_pad + k * N_pad + n].
@@ -432,7 +432,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int
  * height = K_pad rows.  N_pad >= 64 required.
  *
  * Work-group: (BN_PRE, BK_PRE, 1).
- * Dispatch: global_b[1] = BK_PRE (single WG in K) — loops internally.
+ * Dispatch: global_b[1] = BK_PRE (single WG in K) -- loops internally.
  */
 __attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
@@ -506,7 +506,7 @@ preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int
 /**
  * gemm_fused: Single-launch GEMM over ALL slice pairs.
  *
- * C is kept in fp registers across all pairs — only one global C read
+ * C is kept in fp registers across all pairs -- only one global C read
  * (or zero) at the start, and one global C write at the end.
  *
  * Triangular iteration (default): sa in [0..nslices), sb in [sa..nslices)

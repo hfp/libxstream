@@ -70,13 +70,13 @@
 /* One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
  * Each work-item holds 8 rows; the column is get_sub_group_local_id().
  *
- * XMX path (OZAKI_U8=1 — unsigned, default for CRT):
+ * XMX path (OZAKI_U8=1 -- unsigned, default for CRT):
  *   int8 intel_sub_group_u8_u8_matrix_mad_k32(ushort8 a, uint8 b, int8 acc)
- * XMX path (OZAKI_U8=0 — signed, default for slicing):
+ * XMX path (OZAKI_U8=0 -- signed, default for slicing):
  *   int8 intel_sub_group_i8_i8_matrix_mad_k32(short8 a, int8 b, int8 acc)
  *   A tile: 8 rows x 32 cols  (read as ushort8 via 2D block read)
  *   B tile: 32 rows x 16 cols (read with VNNI transform via 2D block read)
- *   C tile: 8 x 16 int32      (int8 per WI — 8 rows, sg_lid selects column)
+ *   C tile: 8 x 16 int32      (int8 per WI -- 8 rows, sg_lid selects column)
  *   2D block I/O requires SG=16 and surface pitch >= 64 bytes.
  *
  * Scalar path (INTEL < 2):
@@ -85,7 +85,7 @@
 #if defined(INTEL) && (2 <= INTEL)
 
 /* Prefetch next K-step's A and B tiles into cache.
- * 2D block prefetch with .ca.ca hints — writes to null, no register cost.
+ * 2D block prefetch with .ca.ca hints -- writes to null, no register cost.
  * OOB prefetches are silently clamped by the hardware. */
 # define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI) \
     intel_sub_group_2d_block_prefetch_8b_8r32x1c((global void*)(AS), (K_PAD), (M_HT), (K_PAD), (int2)((KOFF), (MI)))

@@ -10,7 +10,7 @@
 #include "../../../libxstream/opencl/libxstream_common.h"
 #include "ozaki_common.cl"
 
-/* Ozaki Scheme 2 — GEMM-based XMX path (CRT).
+/* Ozaki Scheme 2 -- GEMM-based XMX path (CRT).
  *
  * Unlike the panel-batched dotprod path, this approach:
  *   1. Preprocesses the FULL K dimension of A and B into dense per-prime
@@ -22,11 +22,11 @@
  * OZAKI_U8 (default 1 for Scheme 2):
  *   Uses unsigned u8 DPAS with moduli up to 256 (vs 128 for signed i8).
  *   Larger moduli reduce the number of primes: fp64 16 (vs 19), fp32 9 (vs 10).
- *   Sign is encoded via modular additive inverse: (p - r) ≡ -r (mod p).
+ *   Sign is encoded via modular additive inverse: (p - r) == -r (mod p).
  *   Trade-off: safe K without KGROUPS drops from ~133K to ~33K.
  *
  * The KGROUPS tunable controls intermediate int32 mod reductions within
- * the K-loop.  When 0 (default), no intermediate reductions — the int32
+ * the K-loop.  When 0 (default), no intermediate reductions -- the int32
  * accumulator covers the full K.  When > 0, a Barrett mod reduction fires
  * every KGROUPS * BK steps, preventing int32 overflow for large K.
  * Garner reconstruction always runs once per C element regardless.
@@ -212,8 +212,8 @@
 
 /* Mod-reduce DPAS accumulator into uint residue array.
  * RESIDUES[pidx * XMX_M + m] accumulates the unsigned residue.
- * u8: accumulator is always non-negative (unsigned products) — branchless.
- * i8: accumulator can be negative — requires sign-aware reduction. */
+ * u8: accumulator is always non-negative (unsigned products) -- branchless.
+ * i8: accumulator can be negative -- requires sign-aware reduction. */
 #define OZAKI_CRT_MOD_REDUCE(ACC, PIDX, RESIDUES) \
   do { \
     union { \
@@ -1225,11 +1225,11 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
 /**
  * preprocess_a_crt_dense: decompose A into dense per-prime CRT residue matrices.
  *
- * Output layout: As[pidx][M_pad][K_pad] — one dense M_pad x K_pad int8 matrix
+ * Output layout: As[pidx][M_pad][K_pad] -- one dense M_pad x K_pad int8 matrix
  * per prime, with residues in [0, m_pidx-1] and sign folded in.
  *
  * Work-group: (BM_PRE, BK_PRE, 1).
- * Dispatch: global[1] = BK_PRE (single WG in K) — loops internally.
+ * Dispatch: global[1] = BK_PRE (single WG in K) -- loops internally.
  */
 __attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
@@ -1287,10 +1287,10 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a, int M, int K, int lda,
 /**
  * preprocess_b_crt_dense: decompose B into dense per-prime CRT residue matrices.
  *
- * Output layout: Bs[pidx][K_pad][N_pad] — K-major, N_pad >= 64 for 2D block I/O.
+ * Output layout: Bs[pidx][K_pad][N_pad] -- K-major, N_pad >= 64 for 2D block I/O.
  *
  * Work-group: (BN_PRE, BK_PRE, 1).
- * Dispatch: global[1] = BK_PRE (single WG in K) — loops internally.
+ * Dispatch: global[1] = BK_PRE (single WG in K) -- loops internally.
  */
 __attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
@@ -1493,7 +1493,7 @@ kernel void gemm_crt_fused(
 
   /* Per-prime residue accumulators (private, per work-item).
    * Each SIMD lane accumulates a different output column, so this
-   * cannot be shared across lanes in SLM without a lane dimension —
+   * cannot be shared across lanes in SLM without a lane dimension --
    * but NTM*NTN*SG*RES_STRIDE exceeds SLM capacity.  Private lets
    * the compiler spill to scratch with liveness-aware scheduling
    * (residues are cold during the DPAS K-loop, hot during reduce/store). */
