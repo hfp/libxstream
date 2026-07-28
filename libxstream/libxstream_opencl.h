@@ -15,6 +15,22 @@
 # define __OPENCL
 #endif
 
+#if defined(__LIBXS) && !defined(LIBXS_SOURCE)
+# include <libxs/libxs_malloc.h>
+# include <libxs/libxs_hist.h>
+# include <libxs/libxs_mem.h>
+#else /* code depends on LIBXS */
+# include <libxs/libxs_source.h>
+# if !defined(__LIBXS)
+#   define __LIBXS
+# endif
+#endif
+/* signal header-only mode before libxstream_macros.h selects build-kind */
+#if !defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_BUILD) && !defined(__LIBXSTREAM)
+# define LIBXSTREAM_SOURCE
+#endif
+#include "libxstream.h"
+
 LIBXS_PRAGMA_DIAG_PUSH()
 LIBXS_PRAGMA_DIAG_OFF_PEDANTIC()
 #if defined(__OPENCL)
@@ -37,22 +53,6 @@ LIBXS_PRAGMA_DIAG_OFF_PEDANTIC()
 # endif
 #endif
 LIBXS_PRAGMA_DIAG_POP()
-
-#if defined(__LIBXS) && !defined(LIBXS_SOURCE)
-# include <libxs/libxs_malloc.h>
-# include <libxs/libxs_hist.h>
-# include <libxs/libxs_mem.h>
-#else /* code depends on LIBXS */
-# include <libxs/libxs_source.h>
-# if !defined(__LIBXS)
-#   define __LIBXS
-# endif
-#endif
-/* signal header-only mode before libxstream_macros.h selects build-kind */
-#if !defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_BUILD) && !defined(__LIBXSTREAM)
-# define LIBXSTREAM_SOURCE
-#endif
-#include "libxstream.h"
 
 #if !defined(LIBXSTREAM_MAXALIGN)
 # define LIBXSTREAM_MAXALIGN (2 << 20 /*2MB*/)
