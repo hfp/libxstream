@@ -75,9 +75,11 @@ typedef struct ozaki_cache_side_t {
 /**
  * Compute a lightweight fingerprint by sampling matrix elements at
  * deterministic positions. Catches in-place modifications that
- * pointer comparison alone cannot detect.
+ * pointer comparison alone cannot detect. The extents are passed
+ * per layout rather than as a transpose flag, since the flag implies
+ * opposite extents for A and B.
  */
-unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int dim, int K, int ld, int trans);
+unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int ncontig, int nld, int ld);
 
 typedef struct ozaki_cache_t {
   libxs_lock_t lock;

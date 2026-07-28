@@ -143,6 +143,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
   int result = EXIT_SUCCESS;
+  int nv;
   int wg, sg, use_i8;
   int nslices, nprimes, oztrim_crt;
   const char* env;
@@ -241,6 +242,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   ctx->ndecomp = ndecomp;
   ctx->verbosity = verbosity;
 
+  /**
+   * Vendor level, clamped to 2: level 3 selects the mma.m16n8k32 path, which
+   * is known to produce wrong results (verified on H100/SM90).
+   * TODO: fix that kernel, then drop the clamp. OZAKI_NV_MMA=1 opts back in.
+   */
+  env = getenv("OZAKI_NV_MMA");
+  nv = (int)devinfo->nv;
+  if (2 < nv && (NULL == env || 0 == atoi(env))) nv = 2;
+
   /* Environment-driven tuning */
   env = getenv("OZAKI_WG");
   wg = (NULL != env ? atoi(env) : 0);
@@ -249,7 +259,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   if (0 >= sg) sg = (int)devinfo->wgsize[1]; /* fallback: preferred WG multiple */
   if (0 >= sg) sg = 16; /* last resort */
   { /* NV MMA: enabled when NV>=3 (SM>=80 Ampere+, set via LIBXSTREAM_NV). */
-    const int nv_mma = (3 <= devinfo->nv && 0 != gpu) ? 1 : 0;
+    const int nv_mma = (3 <= nv && 0 != gpu) ? 1 : 0;
     if (0 != nv_mma) {
       sg = 32;
       if (0 > verbosity || 2 < verbosity) {
@@ -351,7 +361,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       else if (0 != ctx->nv_mma && 0 != gpu) {
         rtm = 2;
       }
-      else if (2 <= devinfo->nv && 0 != gpu && 2 == kind) {
+      else if (2 <= nv && 0 != gpu && 2 == kind) {
         rtm = 2;
       }
       else rtm = 1;
@@ -363,7 +373,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       else if (0 != ctx->nv_mma && 0 != gpu) {
         rtn = 2;
       }
-      else if (2 <= devinfo->nv && 0 != gpu && 2 == kind) {
+      else if (2 <= nv && 0 != gpu && 2 == kind) {
         rtn = 2;
       }
       else rtn = 1;
@@ -413,7 +423,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DRTM=%d -DRTN=%d"
         " -DOZAKI_SQ=%d -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
+        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
         nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn, sq_jit);
       if (0 != ctx->nv_mma) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DNV_MMA=1");
@@ -512,7 +522,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DKGROUPS=%d -DRTM=%d -DRTN=%d -DPB=%d"
         " -DCONSTANT=global",
-        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, (int)devinfo->nv,
+        tm, tn, bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
         nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
         (1 < ozgroups) ? ozgroups : 0, crt_rtm, rtn, ctx->pb);
       if (0 == use_i8) {
@@ -739,7 +749,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ozaki_print_opt(stderr, "kind", kind);
     ozaki_print_opt(stderr, "fp", use_double ? 64 : 32);
     ozaki_print_opt(stderr, "intel", (int)devinfo->intel);
-    ozaki_print_opt(stderr, "nv", (int)devinfo->nv);
+    ozaki_print_opt(stderr, "nv", nv);
     ozaki_print_opt(stderr, "wg", wg);
     ozaki_print_opt(stderr, "sg", sg);
     ozaki_print_opt(stderr, "tm", ctx->tm);

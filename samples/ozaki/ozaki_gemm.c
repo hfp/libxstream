@@ -220,8 +220,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);
       if (k_pad < 64) k_pad = 64;
 
-      /* Ensure previous GEMM finished before helper streams zero/preprocess */
-      if (kg > 0) {
+      /**
+       * Ensure previous GEMM finished before helper streams zero/preprocess.
+       * When dev != 0, a/b are device buffers produced by the caller on
+       * stream (e.g. the 3M construct kernels), so the very first group must
+       * wait too: the preprocess kernels below read them from stream_a and
+       * stream_b, for which nothing else establishes the dependency.
+       */
+      if (kg > 0 || 0 != dev) {
         if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream);
         if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_a, evt_prep_a);
         if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_prep_a);
@@ -488,8 +494,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);
       if (k_pad < 64) k_pad = 64;
 
-      /* Ensure previous GEMM finished before helper streams zero/preprocess */
-      if (kg > 0) {
+      /**
+       * Ensure previous GEMM finished before helper streams zero/preprocess.
+       * When dev != 0, a/b are device buffers produced by the caller on
+       * stream (e.g. the 3M construct kernels), so the very first group must
+       * wait too: the preprocess kernels below read them from stream_a and
+       * stream_b, for which nothing else establishes the dependency.
+       */
+      if (kg > 0 || 0 != dev) {
         if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream);
         if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_a, evt_prep_a);
         if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_prep_a);
@@ -779,32 +791,32 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
 }
 
 
-unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int dim, int K, int ld, int trans)
+unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int ncontig, int nld, int ld)
 {
   const unsigned char* p = (const unsigned char*)ptr;
   const size_t stride = (size_t)ld * elem_size;
-  const int rows = trans ? K : dim;
-  const int cols = trans ? dim : K;
+  const int rows = 0 < ncontig ? ncontig : 1;
+  const int cols = 0 < nld ? nld : 1;
   unsigned int fp = 0;
   int pr[8], pc[8], i;
   pr[0] = 0;
   pc[0] = 0;
   pr[1] = 0;
-  pc[1] = cols > 0 ? cols - 1 : 0;
-  pr[2] = rows > 0 ? rows - 1 : 0;
+  pc[1] = cols - 1;
+  pr[2] = rows - 1;
   pc[2] = 0;
-  pr[3] = rows > 0 ? rows - 1 : 0;
-  pc[3] = cols > 0 ? cols - 1 : 0;
+  pr[3] = rows - 1;
+  pc[3] = cols - 1;
   pr[4] = rows / 2;
   pc[4] = cols / 2;
   pr[5] = rows / 3;
   pc[5] = cols / 3;
-  pr[6] = rows > 0 ? rows - 1 : 0;
+  pr[6] = rows - 1;
   pc[6] = cols / 2;
   pr[7] = 0;
   pc[7] = cols / 2;
   for (i = 0; i < 8; ++i) {
-    const size_t offset = (size_t)pr[i] * stride + (size_t)pc[i] * elem_size;
+    const size_t offset = (size_t)pc[i] * stride + (size_t)pr[i] * elem_size;
     fp = libxs_hash(p + offset, (unsigned int)elem_size, fp);
   }
   return fp;
@@ -820,7 +832,7 @@ static void ozaki_cache_check(ozaki_context_t* ctx, const void* a, const void* b
   if (0 != (ctx->cache.flags & 1) && a == ctx->cache.a.ptr && M == ctx->cache.a.dim && K == ctx->cache.a.K &&
       lda == ctx->cache.a.ld && ta == ctx->cache.a.trans && as_size == ctx->cache.a.slices_size &&
       expa_size == ctx->cache.a.exp_size && NULL != ctx->cache.a.d_slices && NULL != ctx->cache.a.d_exp &&
-      ctx->cache.a.fingerprint == ozaki_cache_fingerprint(a, elem_size, M, K, lda, ta))
+      ctx->cache.a.fingerprint == ozaki_cache_fingerprint(a, elem_size, ta ? K : M, ta ? M : K, lda))
   {
     *d_as = ctx->cache.a.d_slices;
     *d_expa_g = ctx->cache.a.d_exp;
@@ -829,7 +841,7 @@ static void ozaki_cache_check(ozaki_context_t* ctx, const void* a, const void* b
   if (0 != (ctx->cache.flags & 2) && b == ctx->cache.b.ptr && N == ctx->cache.b.dim && K == ctx->cache.b.K &&
       ldb == ctx->cache.b.ld && tb == ctx->cache.b.trans && bs_size == ctx->cache.b.slices_size &&
       expb_size == ctx->cache.b.exp_size && NULL != ctx->cache.b.d_slices && NULL != ctx->cache.b.d_exp &&
-      ctx->cache.b.fingerprint == ozaki_cache_fingerprint(b, elem_size, N, K, ldb, tb))
+      ctx->cache.b.fingerprint == ozaki_cache_fingerprint(b, elem_size, tb ? N : K, tb ? K : N, ldb))
   {
     *d_bs = ctx->cache.b.d_slices;
     *d_expb_g = ctx->cache.b.d_exp;
@@ -867,7 +879,7 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result, const void* a, 
     ctx->cache.a.d_exp = d_expa_g;
     ctx->cache.a.slices_size = as_size;
     ctx->cache.a.exp_size = expa_size;
-    ctx->cache.a.fingerprint = ozaki_cache_fingerprint(a, elem_size, M, K, lda, ta);
+    ctx->cache.a.fingerprint = ozaki_cache_fingerprint(a, elem_size, ta ? K : M, ta ? M : K, lda);
     *cache_hit_a = 1; /* ownership transferred; suppress cleanup free */
   }
   if (0 == *cache_hit_b && 0 != (ctx->cache.flags & 2) && EXIT_SUCCESS == result) {
@@ -888,7 +900,7 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result, const void* a, 
     ctx->cache.b.d_exp = d_expb_g;
     ctx->cache.b.slices_size = bs_size;
     ctx->cache.b.exp_size = expb_size;
-    ctx->cache.b.fingerprint = ozaki_cache_fingerprint(b, elem_size, N, K, ldb, tb);
+    ctx->cache.b.fingerprint = ozaki_cache_fingerprint(b, elem_size, tb ? N : K, tb ? K : N, ldb);
     *cache_hit_b = 1; /* ownership transferred; suppress cleanup free */
   }
   if (0 == prev_owned && (0 != *cache_hit_a || 0 != *cache_hit_b)) ++ctx->cache.nusers;
