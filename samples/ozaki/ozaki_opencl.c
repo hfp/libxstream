@@ -646,12 +646,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
       }
       /**
-       * Pre-interleave B for the dp4a path so each operand is one aligned uint
-       * (8 loads per column instead of 32 strided byte gathers). Intel keeps
-       * the plain layout because DPAS transforms on read; OZAKI_BVNNI=0 opts out.
+       * Pre-interleave B for the NVIDIA paths so each operand is one aligned
+       * uint: dp4a gets 8 loads per column instead of 32 strided byte gathers,
+       * and the MMA b-fragment becomes 2 loads instead of 8. Intel keeps the
+       * plain layout because DPAS transforms on read; OZAKI_BVNNI=0 opts out.
        */
       env = getenv("OZAKI_BVNNI");
-      if (0 == devinfo->intel && 0 == ctx->nv_mma && 2 <= nv && 0 != gpu &&
+      if (0 == devinfo->intel && 2 <= nv && 0 != gpu &&
           (NULL == env || 0 != atoi(env)))
       {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BVNNI=1");

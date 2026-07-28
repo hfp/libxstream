@@ -10,6 +10,8 @@
 #ifndef OZAKI_COMMON_CL
 #define OZAKI_COMMON_CL
 
+#include "../../../libxstream/opencl/libxstream_common.h"
+
 /**
  * Shared primitives for all Ozaki kernel files.
  *
@@ -28,6 +30,22 @@
 
 #if !defined(CONSTANT)
 # define CONSTANT global
+#endif
+
+/**
+ * PTX state space matching CONSTANT, for inline asm that dereferences a
+ * CONSTANT-qualified pointer. CONSTANT is supplied by the host (-DCONSTANT=)
+ * and is "constant" when the operand fits constant memory (see
+ * libxstream_opencl_use_cmem_size), otherwise "global". Inline asm must not
+ * hard-code .global: the mismatch compiles silently and reads the wrong state
+ * space. The .nc (non-coherent) qualifier is only valid on .global.
+ */
+#define OZAKI_CONSTANT_IS_global 1
+#define OZAKI_CONSTANT_IS_constant 0
+#if CAT(OZAKI_CONSTANT_IS_, CONSTANT)
+# define OZAKI_PTX_LD_V4 "ld.global.nc.v4.u32"
+#else
+# define OZAKI_PTX_LD_V4 "ld.const.v4.u32"
 #endif
 
 /**
@@ -478,6 +496,36 @@
     } while (0)
 
 /**
+ * Load the 2-register b-fragment: b[reg] byte j = B[k = K0 + j + reg*16, COL].
+ *
+ * With OZAKI_BVNNI the 4 K-values of one fragment register are already adjacent
+ * (layout [K_pad/4][N_pad][4]) and K0 is a multiple of 4, so each register is a
+ * single aligned uint -- 2 loads instead of 8 strided byte gathers. Plain
+ * K-major layout keeps the gather.
+ */
+#if defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
+# define NV_MMA_LOAD_BFRAG(BS, N_PAD, NJ, KOFF, K0, COL, B0, B1) \
+    do { \
+      CONSTANT const uint* bq_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(BS) \
+        + OZAKI_IDX_BS((KOFF) + (K0), (NJ) + (COL), (N_PAD))); \
+      (B0) = bq_[0]; \
+      (B1) = bq_[4 * (N_PAD)]; \
+    } while (0)
+#else
+# define NV_MMA_LOAD_BFRAG(BS, N_PAD, NJ, KOFF, K0, COL, B0, B1) \
+    do { \
+      CONSTANT const OZAKI_BYTE_T* bb_ = \
+        (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ) + (COL); \
+      (B0) = as_uint((OZAKI_BYTE4_T)( \
+        bb_[(long)((K0) + 0) * (N_PAD)], bb_[(long)((K0) + 1) * (N_PAD)], \
+        bb_[(long)((K0) + 2) * (N_PAD)], bb_[(long)((K0) + 3) * (N_PAD)])); \
+      (B1) = as_uint((OZAKI_BYTE4_T)( \
+        bb_[(long)((K0) + 16) * (N_PAD)], bb_[(long)((K0) + 17) * (N_PAD)], \
+        bb_[(long)((K0) + 18) * (N_PAD)], bb_[(long)((K0) + 19) * (N_PAD)])); \
+    } while (0)
+#endif
+
+/**
  * One MMA step: 16x8x32 tile, accumulates into int4 fragment (D0..D3).
  * PTX ISA fragment: b[reg] byte j = B[k=threadID*4+j+reg*16, n=groupID]
  *                   a[reg] byte j = A[m=groupID+(reg%2)*8, k=threadID*4+j+(reg/2)*16]
@@ -496,23 +544,13 @@
         (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_) * (K_PAD) + (KOFF) + tid_ * 4; \
       CONSTANT const OZAKI_BYTE_T* ap1_ = \
         (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_ + 8) * (K_PAD) + (KOFF) + tid_ * 4; \
-      CONSTANT const OZAKI_BYTE_T* b_base_ = \
-        (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ); \
-      uint a0_ = as_uint((OZAKI_BYTE4_T)(ap0_[0], ap0_[1], ap0_[2], ap0_[3])); \
-      uint a1_ = as_uint((OZAKI_BYTE4_T)(ap1_[0], ap1_[1], ap1_[2], ap1_[3])); \
-      uint a2_ = as_uint((OZAKI_BYTE4_T)(ap0_[16], ap0_[17], ap0_[18], ap0_[19])); \
-      uint a3_ = as_uint((OZAKI_BYTE4_T)(ap1_[16], ap1_[17], ap1_[18], ap1_[19])); \
+      uint a0_ = *(CONSTANT const uint*)ap0_; \
+      uint a1_ = *(CONSTANT const uint*)ap1_; \
+      uint a2_ = *(CONSTANT const uint*)(ap0_ + 16); \
+      uint a3_ = *(CONSTANT const uint*)(ap1_ + 16); \
       const int k0_ = tid_ * 4; \
-      uint b0_ = as_uint((OZAKI_BYTE4_T)( \
-        b_base_[(long)(k0_) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 1) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 2) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 3) * (N_PAD) + grp_])); \
-      uint b1_ = as_uint((OZAKI_BYTE4_T)( \
-        b_base_[(long)(k0_ + 16) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 17) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 18) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 19) * (N_PAD) + grp_])); \
+      uint b0_, b1_; \
+      NV_MMA_LOAD_BFRAG(BS, N_PAD, NJ, KOFF, k0_, grp_, b0_, b1_); \
       NV_MMA_16x8x32(D0, D1, D2, D3, a0_, a1_, a2_, a3_, b0_, b1_); \
     } while (0)
 
@@ -609,6 +647,20 @@
  * contiguous and 16B-aligned: fetch them as 2 uint4 instead of 8 scalar
  * loads. Cuts A load messages per row from 8 to 2.
  */
+# if defined(NV) && (2 <= NV)
+/* Force real 128-bit loads: assigning a uint4 into a scalar array lets the
+ * compiler scalarize it back into 4 separate loads (verified in PTX).
+ * The state space follows CONSTANT via OZAKI_PTX_LD_V4. */
+# define NV_LOAD_AROW(AS, K_PAD, ROW, KOFF, ADST) \
+    do { \
+      CONSTANT const uint* arp_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(AS) \
+        + (long)(ROW) * (K_PAD) + (KOFF)); \
+      asm(OZAKI_PTX_LD_V4 " {%0,%1,%2,%3}, [%4];" \
+        : "=r"((ADST)[0]), "=r"((ADST)[1]), "=r"((ADST)[2]), "=r"((ADST)[3]) : "l"(arp_)); \
+      asm(OZAKI_PTX_LD_V4 " {%0,%1,%2,%3}, [%4];" \
+        : "=r"((ADST)[4]), "=r"((ADST)[5]), "=r"((ADST)[6]), "=r"((ADST)[7]) : "l"(arp_ + 4)); \
+    } while (0)
+# else
 # define NV_LOAD_AROW(AS, K_PAD, ROW, KOFF, ADST) \
     do { \
       CONSTANT const uint* arp_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(AS) \
@@ -617,6 +669,7 @@
       (ADST)[0] = alo_.s0; (ADST)[1] = alo_.s1; (ADST)[2] = alo_.s2; (ADST)[3] = alo_.s3; \
       (ADST)[4] = ahi_.s0; (ADST)[5] = ahi_.s1; (ADST)[6] = ahi_.s2; (ADST)[7] = ahi_.s3; \
     } while (0)
+# endif
 
 /**
  * Tiled dp4a with register reuse: pre-load all RTM A-strips and RTN B-columns
