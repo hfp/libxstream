@@ -147,8 +147,8 @@ static size_t ozaki_emit_fraccrt2(char* buf, size_t size, const uint16_t* modtab
 
 ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm)
 {
-  const int xmx_m = (0 != ctx->nv_mma) ? 16 : 8;
-  const int xmx_n = (0 != ctx->nv_mma) ? 8 : 16;
+  const int xmx_m = OZAKI_XMX_M(ctx);
+  const int xmx_n = OZAKI_XMX_N(ctx);
   const int gm = xmx_m * LIBXS_MAX(rtm, 1); /* tm granularity */
   const int gn = xmx_n * LIBXS_MAX(ctx->rtn, 1); /* tn granularity */
   /**
@@ -207,7 +207,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
   int result = EXIT_SUCCESS;
-  int nv;
+  int nv, has_fp64;
   int wg, sg, use_i8;
   int nslices, nprimes, oztrim_crt;
   const char* env;
@@ -215,7 +215,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
 
   if (0 >= kind) kind = 2;
 
-  /* CRT (kind=2): no XMX support (scalar only), no triangular/symmetrize */
+  /* CRT (kind=2): no triangular/symmetrize (no cross-prime products) */
   if (2 == kind) {
     if (0 > ozflags) ozflags = 0; /* CRT does not use triangular/symmetrize */
   }
@@ -226,12 +226,29 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     printf("Device: %s%s\n", name, gpu ? " (GPU)" : "");
   }
 
-  /* If double requested, verify fp64 support */
-  if (use_double) {
-    const char *const fp64_ext[] = {"cl_khr_fp64"};
-    result = libxstream_opencl_device_ext(device, fp64_ext, 1);
-    if (EXIT_SUCCESS != result) {
-      fprintf(stderr, "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
+  /**
+   * FP64 is needed for the fp64 interface, and independently by Scheme 2 even
+   * in fp32: Garner/Horner and the fractional reconstruction accumulate CRT
+   * values far beyond 2^24, so their intermediates cannot be demoted to float
+   * without losing the exactness the scheme exists to provide. Scheme 1 uses
+   * no double at all, hence a device without cl_khr_fp64 can still run fp32
+   * Scheme 1 -- kind 2 (and the adaptive kind 3, which may select it) cannot.
+   */
+  { const char *const fp64_ext[] = {"cl_khr_fp64"};
+    has_fp64 = (EXIT_SUCCESS == libxstream_opencl_device_ext(device, fp64_ext, 1));
+    if (0 == has_fp64) {
+      if (0 != use_double) {
+        fprintf(stderr, "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
+        result = EXIT_FAILURE;
+      }
+      else if (2 == kind) {
+        fprintf(stderr, "ERROR OZAKI: Scheme 2 needs cl_khr_fp64 for CRT reconstruction"
+                        " (device lacks it); use OZAKI=1\n");
+        result = EXIT_FAILURE;
+      }
+      else if (3 == kind && (0 > verbosity || 0 < verbosity)) {
+        fprintf(stderr, "INFO OZAKI: no cl_khr_fp64, adaptive selection restricted to Scheme 1\n");
+      }
     }
   }
 
@@ -306,14 +323,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   ctx->ndecomp = ndecomp;
   ctx->verbosity = verbosity;
 
-  /**
-   * Vendor level, clamped to 2: level 3 selects the mma.m16n8k32 path, which
-   * is known to produce wrong results (verified on H100/SM90).
-   * TODO: fix that kernel, then drop the clamp. OZAKI_NV_MMA=1 opts back in.
-   */
-  env = getenv("OZAKI_NV_MMA");
   nv = (int)devinfo->nv;
-  if (2 < nv && (NULL == env || 0 == atoi(env))) nv = 2;
 
   /* Environment-driven tuning */
   env = getenv("OZAKI_WG");
@@ -478,8 +488,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      * Clamp tiling factors so at least one sub-tile remains per dimension.
      * XMX_M=8, XMX_N=16 for dp4a/DPAS/scalar; XMX_M=16, XMX_N=8 for NV_MMA.
      */
-    { const int xmx_m = (0 != ctx->nv_mma) ? 16 : 8;
-      const int xmx_n = (0 != ctx->nv_mma) ? 8 : 16;
+    { const int xmx_m = OZAKI_XMX_M(ctx);
+      const int xmx_n = OZAKI_XMX_N(ctx);
       while (rtm > 1 && tm / (xmx_m * rtm) < 1) rtm >>= 1;
       while (rtn > 1 && tn / (xmx_n * rtn) < 1) rtn >>= 1;
       /**
@@ -596,7 +606,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
       }
     }
-    { /* Scheme 2: always compile CRT kernels (for adaptive) */
+    /**
+     * Scheme 2: compile the CRT kernels even when Scheme 1 was requested, so
+     * adaptive dispatch can reach them. Skipped without fp64 -- the
+     * reconstruction is double-only, so the build would fail and take the
+     * usable Scheme-1 path down with it. ozaki_gemm falls back on a NULL
+     * crt_registry, and kind 2 already failed above.
+     */
+    if (0 != has_fp64) {
       /**
        * Fractional-CRT: mode 1 replaces the whole reconstruction with a flat
        * fractional sum (needs raw per-prime residues, so the flat path;
@@ -642,6 +659,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
         nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
         (1 < ozgroups) ? ozgroups : 0, crt_rtm, rtn, ctx->pb);
+      if (0 != ctx->nv_mma) {
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DNV_MMA=1");
+      }
       if (0 == use_i8) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
       }

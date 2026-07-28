@@ -224,11 +224,18 @@ int main(int argc, char* argv[])
   }
 
   if (0 != initialized) {
-    if (NULL != a) libxstream_mem_host_deallocate(a, stream);
-    if (NULL != b) libxstream_mem_host_deallocate(b, stream);
-    if (NULL != c_oz) libxstream_mem_host_deallocate(c_oz, stream);
-    if (NULL != c_ref) libxstream_mem_host_deallocate(c_ref, stream);
-    if (NULL != stream) libxstream_stream_destroy(stream);
+    /**
+     * The host buffers are allocated against the stream, so they can only be
+     * released while it exists. An early failure (no device, kernel build)
+     * leaves stream NULL with nothing allocated yet.
+     */
+    if (NULL != stream) {
+      if (NULL != a) libxstream_mem_host_deallocate(a, stream);
+      if (NULL != b) libxstream_mem_host_deallocate(b, stream);
+      if (NULL != c_oz) libxstream_mem_host_deallocate(c_oz, stream);
+      if (NULL != c_ref) libxstream_mem_host_deallocate(c_ref, stream);
+      libxstream_stream_destroy(stream);
+    }
     ozaki_destroy(&ctx);
     libxstream_finalize();
   }

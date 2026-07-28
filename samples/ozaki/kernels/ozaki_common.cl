@@ -110,6 +110,45 @@
 # define XMX_N 16
 #endif
 
+/**
+ * Accumulator fragment: the XMX_M * XMX_N / SG outputs of one sub-tile that a
+ * single work-item owns, and where each of them lands.
+ *
+ * DPAS, dp4a and the scalar fallback give a lane one whole column: XMX_FRAG
+ * equals XMX_M, element f is row f, and the column is the lane itself. MMA
+ * splits the tile differently -- a lane holds 2 rows x 2 cols at (lane/4,
+ * (lane%4)*2), the second row +8 and the second column +1 -- so element f is
+ * row (f/2)*8 and column (f%2), both offset by the lane.
+ *
+ * Everything after the K-loop (mod-reduce, residue strides, exponent caching,
+ * C store) is expressed in XMX_FRAG and this mapping, so one body serves both
+ * layouts and the layout is stated exactly once.
+ */
+#if defined(NV_MMA) && (NV_MMA)
+# define XMX_FRAG 4
+# define OZAKI_ACC_T int4
+# define OZAKI_ACC_ZERO ((int4)(0))
+# define OZAKI_FRAG_ROW(F, LANE) (((F) / 2) * 8 + (int)(LANE) / 4)
+# define OZAKI_FRAG_NCOL 2
+# define OZAKI_FRAG_COLIDX(F) ((F) & 1)
+# define OZAKI_FRAG_COL(CI, LANE) (((int)(LANE) % 4) * 2 + (CI))
+#else
+# define XMX_FRAG 8
+# define OZAKI_ACC_T int8
+# define OZAKI_ACC_ZERO ((int8)(0))
+# define OZAKI_FRAG_ROW(F, LANE) (F)
+# define OZAKI_FRAG_NCOL 1
+# define OZAKI_FRAG_COLIDX(F) 0
+# define OZAKI_FRAG_COL(CI, LANE) ((int)(LANE))
+#endif
+
+/* Reinterpret an accumulator fragment as XMX_FRAG scalars. */
+#define OZAKI_ACC_UNION(NAME) \
+  union { \
+    OZAKI_ACC_T v_; \
+    int a_[XMX_FRAG]; \
+  } NAME
+
 
 /**
  * One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
@@ -422,78 +461,6 @@
         : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
           "r"(D0), "r"(D1), "r"(D2), "r"(D3))
 # endif
-
-/**
- * m16n8k32 C/D fragment layout (per-thread in a 32-thread warp):
- *   lane = threadIdx.x % 32
- *   groupID   = lane / 4           (0..7)
- *   threadID  = lane % 4           (0..3)
- *   D[0] -> row = groupID,     col = threadID * 2
- *   D[1] -> row = groupID,     col = threadID * 2 + 1
- *   D[2] -> row = groupID + 8, col = threadID * 2
- *   D[3] -> row = groupID + 8, col = threadID * 2 + 1
- *
- * Accumulator type: int4 (4 int32 values) per MMA tile.
- */
-# define NV_MMA_FRAG_ROW0(LANE) ((LANE) / 4)
-# define NV_MMA_FRAG_ROW2(LANE) ((LANE) / 4 + 8)
-# define NV_MMA_FRAG_COL0(LANE) (((LANE) % 4) * 2)
-# define NV_MMA_FRAG_COL1(LANE) (((LANE) % 4) * 2 + 1)
-
-/**
- * Load A fragment from global memory into 4 registers for m16n8k32.
- * A is row-major [M_pad x K_pad]. Thread cooperation:
- * Each of 32 threads loads 4 bytes at specific (row, k) positions.
- * A-fragment register layout for m16n8k32 (m alternates, k advances every
- * second register -- not the other way round):
- *   a[0] = row[lane/4],         k[lane%4 * 4 .. lane%4 * 4 + 3]  (bytes 0-3)
- *   a[1] = row[lane/4 + 8],     k[lane%4 * 4 .. +3]              (bytes 4-7)
- *   a[2] = row[lane/4],         k[16 + lane%4 * 4 .. +3]         (bytes 8-11)
- *   a[3] = row[lane/4 + 8],     k[16 + lane%4 * 4 .. +3]         (bytes 12-15)
- * Each register holds 4 packed int8 values (one uint).
- */
-# define NV_MMA_LOAD_A(AS, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
-    do { \
-      const int grp_ = (LANE) / 4; \
-      const int tid_ = (LANE) % 4; \
-      CONSTANT const OZAKI_BYTE_T* ap0_ = \
-        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_) * (K_PAD) + (KOFF) + tid_ * 4; \
-      CONSTANT const OZAKI_BYTE_T* ap1_ = \
-        (CONSTANT const OZAKI_BYTE_T*)(AS) + (long)((MI) + grp_ + 8) * (K_PAD) + (KOFF) + tid_ * 4; \
-      (A0) = *(CONSTANT const uint*)ap0_; \
-      (A1) = *(CONSTANT const uint*)ap1_; \
-      (A2) = *(CONSTANT const uint*)(ap0_ + 16); \
-      (A3) = *(CONSTANT const uint*)(ap1_ + 16); \
-    } while (0)
-
-/**
- * Load B fragment from global memory into 2 registers for m16n8k32.
- * B is K-major [K_pad x N_pad]. MMA .col operand.
- * PTX ISA fragment layout (Table "mma.m16n8k32", .col B, .s8/.u8):
- *   groupID = lane/4 (0..7) -> selects column n
- *   threadID = lane%4 (0..3) -> selects K-group
- *   b[reg] byte j = B[k = threadID*4 + j + reg*16, n = groupID]
- * Coverage: 4 tids * 4 bytes = 16 K per reg, 2 regs = 32 K; 8 grps = 8 cols.
- * B[k][n] = BS[(KOFF+k) * N_PAD + NJ + n].
- */
-# define NV_MMA_LOAD_B(BS, N_PAD, NJ, KOFF, LANE, B0, B1) \
-    do { \
-      const int grp_ = (LANE) / 4; \
-      const int tid_ = (LANE) % 4; \
-      CONSTANT const OZAKI_BYTE_T* b_base_ = \
-        (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ); \
-      const int k0_ = tid_ * 4; \
-      (B0) = as_uint((OZAKI_BYTE4_T)( \
-        b_base_[(long)(k0_) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 1) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 2) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 3) * (N_PAD) + grp_])); \
-      (B1) = as_uint((OZAKI_BYTE4_T)( \
-        b_base_[(long)(k0_ + 16) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 17) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 18) * (N_PAD) + grp_], \
-        b_base_[(long)(k0_ + 19) * (N_PAD) + grp_])); \
-    } while (0)
 
 /**
  * Load the 2-register b-fragment: b[reg] byte j = B[k = K0 + j + reg*16, COL].

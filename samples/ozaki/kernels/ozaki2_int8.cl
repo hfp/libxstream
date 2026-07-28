@@ -132,7 +132,7 @@
 # endif
 #endif
 
-/* DPAS tile dimensions are in ozaki_common.cl (XMX_M=8, XMX_N=16) */
+/* DPAS tile dimensions and the accumulator fragment layout are in ozaki_common.cl */
 
 /* Sub-tiles per work-group dimension, accounting for register tiling */
 #define NTM (BM / (XMX_M * RTM))
@@ -231,26 +231,24 @@
 
 /**
  * Mod-reduce DPAS accumulator into uint residue array.
- * RESIDUES[pidx * XMX_M + m] accumulates the unsigned residue.
+ * RESIDUES[pidx * XMX_FRAG + f] accumulates the unsigned residue of the
+ * fragment element f this work-item owns (XMX_FRAG per sub-tile).
  * u8: accumulator is always non-negative (unsigned products) -- branchless.
  * i8: accumulator can be negative -- requires sign-aware reduction.
  */
 #define OZAKI_CRT_MOD_REDUCE(ACC, PIDX, RESIDUES) \
   do { \
-    union { \
-      int8 v_; \
-      int a_[8]; \
-    } du_; \
+    OZAKI_ACC_UNION(du_); \
     int mr_; \
     du_.v_ = (ACC); \
-    UNROLL_FORCE(XMX_M) for (mr_ = 0; mr_ < XMX_M; ++mr_) \
+    UNROLL_FORCE(XMX_FRAG) for (mr_ = 0; mr_ < XMX_FRAG; ++mr_) \
     { \
       uint r_; \
       OZAKI_MOD_REDUCE_ELEM_(du_.a_[mr_], (PIDX), r_); \
       { \
-        const uint prev_ = (RESIDUES)[(int)(PIDX) * XMX_M + mr_]; \
+        const uint prev_ = (RESIDUES)[(int)(PIDX) * XMX_FRAG + mr_]; \
         const uint sum_ = prev_ + r_; \
-        (RESIDUES)[(int)(PIDX) * XMX_M + mr_] = (sum_ >= oz2g_moduli[(PIDX)]) ? (sum_ - oz2g_moduli[(PIDX)]) : sum_; \
+        (RESIDUES)[(int)(PIDX) * XMX_FRAG + mr_] = (sum_ >= oz2g_moduli[(PIDX)]) ? (sum_ - oz2g_moduli[(PIDX)]) : sum_; \
       } \
     } \
   } while (0)
@@ -267,68 +265,81 @@
     }
 #endif
 
+/**
+ * Cache the exponent scales a work-item needs for one sub-tile: XMX_FRAG row
+ * exponents (one per fragment element) and OZAKI_FRAG_NCOL column exponents
+ * (one per distinct column the fragment touches -- 1 for DPAS/dp4a, 2 for MMA).
+ */
+#define OZAKI_CRT_EXP_CACHE(EXPA, EXPB, N, MI, NJ, LANE, EA_C, EB_C) \
+  do { \
+    int fe_; \
+    UNROLL_FORCE(XMX_FRAG) for (fe_ = 0; fe_ < XMX_FRAG; ++fe_) \
+    { \
+      (EA_C)[fe_] = (EXPA)[(MI) + OZAKI_FRAG_ROW(fe_, (LANE))]; \
+    } \
+    UNROLL_FORCE(OZAKI_FRAG_NCOL) for (fe_ = 0; fe_ < OZAKI_FRAG_NCOL; ++fe_) \
+    { \
+      const int cc_ = (NJ) + OZAKI_FRAG_COL(fe_, (LANE)); \
+      (EB_C)[fe_] = (cc_ < (N)) ? (EXPB)[cc_] : 0; \
+    } \
+  } while (0)
+
 #if !OZAKI_HIER
 #if defined(OZAKI_FRACCRT) && (OZAKI_FRACCRT)
 /* Fractional-CRT store (experiment): reconstruct signed value, scale, write C */
-#define OZAKI_CRT_STORE(RESIDUES, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
+#define OZAKI_CRT_STORE(RESIDUES, EXPA, EXPB, C_PTR, M, N, MI, NJ, LANE, LDC, ALPHA, FIRST) \
   do { \
-    short ea_c_[XMX_M]; \
-    const short eb_c_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
+    short ea_c_[XMX_FRAG], eb_c_[OZAKI_FRAG_NCOL]; \
     int ms_; \
-    UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) \
+    OZAKI_CRT_EXP_CACHE(EXPA, EXPB, N, MI, NJ, LANE, ea_c_, eb_c_); \
+    UNROLL_FORCE(XMX_FRAG) for (ms_ = 0; ms_ < XMX_FRAG; ++ms_) \
     { \
-      ea_c_[ms_] = (EXPA)[(MI) + ms_]; \
-    } \
-    UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) \
-    { \
-      const int rm_ = (MI) + ms_; \
-      if (OZAKI_IN_BOUNDS(rm_, (M), (COL), (N))) { \
+      const int rm_ = (MI) + OZAKI_FRAG_ROW(ms_, (LANE)); \
+      const int col_ = (NJ) + OZAKI_FRAG_COL(OZAKI_FRAG_COLIDX(ms_), (LANE)); \
+      if (OZAKI_IN_BOUNDS(rm_, (M), col_, (N))) { \
         SINT pg_; \
         double val_; \
         UNROLL_FORCE(NPRIMES) for (pg_ = 0; pg_ < NPRIMES; ++pg_) \
         { \
-          dot_r_[pg_] = (RESIDUES)[(int)pg_ * XMX_M + ms_]; \
+          dot_r_[pg_] = (RESIDUES)[(int)pg_ * XMX_FRAG + ms_]; \
         } \
         val_ = oz2g_frac_reconstruct(dot_r_); \
         { \
-          const int sh_ = (int)ea_c_[ms_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
-          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+          const int sh_ = (int)ea_c_[ms_] + (int)eb_c_[OZAKI_FRAG_COLIDX(ms_)] - (2 * BIAS_PLUS_MANT); \
+          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(long)col_ * (LDC) + rm_]; \
           if (0.0 != val_ && ZERO != (ALPHA) && sh_ >= -(BIAS_PLUS_MANT - MANT_BITS - 1)) { \
             const real_t scale_ = OZAKI_ALPHA_MUL((ALPHA), EXP2I(sh_)); \
             cv_ += (real_t)(val_ * (double)scale_); \
           } \
-          (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
+          (C_PTR)[(long)col_ * (LDC) + rm_] = cv_; \
         } \
       } \
     } \
   } while (0)
 #else
 /* Garner + Horner store: reconstruct from per-prime residues, scale, write C */
-#define OZAKI_CRT_STORE(RESIDUES, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
+#define OZAKI_CRT_STORE(RESIDUES, EXPA, EXPB, C_PTR, M, N, MI, NJ, LANE, LDC, ALPHA, FIRST) \
   do { \
-    short ea_c_[XMX_M]; \
-    const short eb_c_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
+    short ea_c_[XMX_FRAG], eb_c_[OZAKI_FRAG_NCOL]; \
     int ms_; \
-    UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) \
+    OZAKI_CRT_EXP_CACHE(EXPA, EXPB, N, MI, NJ, LANE, ea_c_, eb_c_); \
+    UNROLL_FORCE(XMX_FRAG) for (ms_ = 0; ms_ < XMX_FRAG; ++ms_) \
     { \
-      ea_c_[ms_] = (EXPA)[(MI) + ms_]; \
-    } \
-    UNROLL_FORCE(XMX_M) for (ms_ = 0; ms_ < XMX_M; ++ms_) \
-    { \
-      const int rm_ = (MI) + ms_; \
-      if (OZAKI_IN_BOUNDS(rm_, (M), (COL), (N))) { \
+      const int rm_ = (MI) + OZAKI_FRAG_ROW(ms_, (LANE)); \
+      const int col_ = (NJ) + OZAKI_FRAG_COL(OZAKI_FRAG_COLIDX(ms_), (LANE)); \
+      if (OZAKI_IN_BOUNDS(rm_, (M), col_, (N))) { \
         int is_neg_; \
         SINT pg_; \
         UNROLL_FORCE(NPRIMES) for (pg_ = 0; pg_ < NPRIMES; ++pg_) \
         { \
-          dot_r_[pg_] = (RESIDUES)[(int)pg_ * XMX_M + ms_]; \
+          dot_r_[pg_] = (RESIDUES)[(int)pg_ * XMX_FRAG + ms_]; \
         } \
         is_neg_ = oz2g_garner_reconstruct(dot_r_, vg_); \
         { \
-          const int sh_ = (int)ea_c_[ms_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
-          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+          const int sh_ = (int)ea_c_[ms_] + (int)eb_c_[OZAKI_FRAG_COLIDX(ms_)] - (2 * BIAS_PLUS_MANT); \
+          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(long)col_ * (LDC) + rm_]; \
           oz2g_horner_accumulate(vg_, is_neg_, (ALPHA), sh_, &cv_); \
-          (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
+          (C_PTR)[(long)col_ * (LDC) + rm_] = cv_; \
         } \
       } \
     } \
@@ -348,82 +359,76 @@
 
 /**
  * Level-1 reconstruction from group-local residues -> gval_all.
- * GROUP_RES: base of group-local residues for this tile [HIER_GS * XMX_M].
- * GVAL_ALL: base of gval_all for this tile [HIER_NGROUPS * XMX_M].
+ * GROUP_RES: base of group-local residues for this tile [HIER_GS * XMX_FRAG].
+ * GVAL_ALL: base of gval_all for this tile [HIER_NGROUPS * XMX_FRAG].
  * GIDX: group index.
  */
 #define OZAKI_CRT_L1_STORE(GROUP_RES, GVAL_ALL, GIDX) \
   do { \
     int ms_l1_; \
-    UNROLL_FORCE(XMX_M) for (ms_l1_ = 0; ms_l1_ < XMX_M; ++ms_l1_) \
+    UNROLL_FORCE(XMX_FRAG) for (ms_l1_ = 0; ms_l1_ < XMX_FRAG; ++ms_l1_) \
     { \
       SINT pg_l1_; \
       UNROLL_FORCE(HIER_GS) for (pg_l1_ = 0; pg_l1_ < HIER_GS; ++pg_l1_) \
       { \
-        dot_r_[pg_l1_] = (GROUP_RES)[(int)pg_l1_ * XMX_M + ms_l1_]; \
+        dot_r_[pg_l1_] = (GROUP_RES)[(int)pg_l1_ * XMX_FRAG + ms_l1_]; \
       } \
-      (GVAL_ALL)[(GIDX) * XMX_M + ms_l1_] = OZAKI_L1_RECONSTRUCT(dot_r_, (GIDX)); \
+      (GVAL_ALL)[(GIDX) * XMX_FRAG + ms_l1_] = OZAKI_L1_RECONSTRUCT(dot_r_, (GIDX)); \
     } \
   } while (0)
 
 /* Level-2 Garner + Horner + store C from gval_all. */
 #if !defined(OZAKI_HIER_L2) || (0 == OZAKI_HIER_L2)
-#define OZAKI_CRT_L2_STORE(GVAL_ALL, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
+#define OZAKI_CRT_L2_STORE(GVAL_ALL, EXPA, EXPB, C_PTR, M, N, MI, NJ, LANE, LDC, ALPHA, FIRST) \
   do { \
-    short ea_c_[XMX_M]; \
-    const short eb_c_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
+    short ea_c_[XMX_FRAG], eb_c_[OZAKI_FRAG_NCOL]; \
     int ms_l2_; \
-    UNROLL_FORCE(XMX_M) for (ms_l2_ = 0; ms_l2_ < XMX_M; ++ms_l2_) \
+    OZAKI_CRT_EXP_CACHE(EXPA, EXPB, N, MI, NJ, LANE, ea_c_, eb_c_); \
+    UNROLL_FORCE(XMX_FRAG) for (ms_l2_ = 0; ms_l2_ < XMX_FRAG; ++ms_l2_) \
     { \
-      ea_c_[ms_l2_] = (EXPA)[(MI) + ms_l2_]; \
-    } \
-    UNROLL_FORCE(XMX_M) for (ms_l2_ = 0; ms_l2_ < XMX_M; ++ms_l2_) \
-    { \
-      const int rm_ = (MI) + ms_l2_; \
-      if (OZAKI_IN_BOUNDS(rm_, (M), (COL), (N))) { \
+      const int rm_ = (MI) + OZAKI_FRAG_ROW(ms_l2_, (LANE)); \
+      const int col_ = (NJ) + OZAKI_FRAG_COL(OZAKI_FRAG_COLIDX(ms_l2_), (LANE)); \
+      if (OZAKI_IN_BOUNDS(rm_, (M), col_, (N))) { \
         int is_neg_; \
         SINT pg_l2_; \
         UNROLL_FORCE(HIER_NGROUPS) for (pg_l2_ = 0; pg_l2_ < HIER_NGROUPS; ++pg_l2_) \
         { \
-          gval_[pg_l2_] = (GVAL_ALL)[(int)pg_l2_ * XMX_M + ms_l2_]; \
+          gval_[pg_l2_] = (GVAL_ALL)[(int)pg_l2_ * XMX_FRAG + ms_l2_]; \
         } \
         is_neg_ = oz2g_hier_l2_garner(gval_, vg_); \
         { \
-          const int sh_ = (int)ea_c_[ms_l2_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
-          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+          const int sh_ = (int)ea_c_[ms_l2_] + (int)eb_c_[OZAKI_FRAG_COLIDX(ms_l2_)] - (2 * BIAS_PLUS_MANT); \
+          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(long)col_ * (LDC) + rm_]; \
           oz2g_hier_horner_accumulate(vg_, is_neg_, (ALPHA), sh_, &cv_); \
-          (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
+          (C_PTR)[(long)col_ * (LDC) + rm_] = cv_; \
         } \
       } \
     } \
   } while (0)
 #else /* OZAKI_HIER_L2 == 1: tree-merge */
-#define OZAKI_CRT_L2_STORE(GVAL_ALL, EXPA, EXPB, C_PTR, M, N, MI, COL, LDC, ALPHA, FIRST) \
+#define OZAKI_CRT_L2_STORE(GVAL_ALL, EXPA, EXPB, C_PTR, M, N, MI, NJ, LANE, LDC, ALPHA, FIRST) \
   do { \
-    short ea_c_[XMX_M]; \
-    const short eb_c_ = ((COL) < (N)) ? (EXPB)[(COL)] : 0; \
+    short ea_c_[XMX_FRAG], eb_c_[OZAKI_FRAG_NCOL]; \
     int ms_l2_; \
-    UNROLL_FORCE(XMX_M) for (ms_l2_ = 0; ms_l2_ < XMX_M; ++ms_l2_) \
+    OZAKI_CRT_EXP_CACHE(EXPA, EXPB, N, MI, NJ, LANE, ea_c_, eb_c_); \
+    UNROLL_FORCE(XMX_FRAG) for (ms_l2_ = 0; ms_l2_ < XMX_FRAG; ++ms_l2_) \
     { \
-      ea_c_[ms_l2_] = (EXPA)[(MI) + ms_l2_]; \
-    } \
-    UNROLL_FORCE(XMX_M) for (ms_l2_ = 0; ms_l2_ < XMX_M; ++ms_l2_) \
-    { \
-      const int rm_ = (MI) + ms_l2_; \
-      if (OZAKI_IN_BOUNDS(rm_, (M), (COL), (N))) { \
+      const int rm_ = (MI) + OZAKI_FRAG_ROW(ms_l2_, (LANE)); \
+      const int col_ = (NJ) + OZAKI_FRAG_COL(OZAKI_FRAG_COLIDX(ms_l2_), (LANE)); \
+      if (OZAKI_IN_BOUNDS(rm_, (M), col_, (N))) { \
         ulong tree_val_; \
         int is_neg_; \
         SINT pg_l2_; \
         UNROLL_FORCE(HIER_NGROUPS) for (pg_l2_ = 0; pg_l2_ < HIER_NGROUPS; ++pg_l2_) \
         { \
-          gval_[pg_l2_] = (GVAL_ALL)[(int)pg_l2_ * XMX_M + ms_l2_]; \
+          gval_[pg_l2_] = (GVAL_ALL)[(int)pg_l2_ * XMX_FRAG + ms_l2_]; \
         } \
         is_neg_ = oz2g_hier_l2_tree(gval_, &tree_val_); \
         { \
-          const int sh_ = (int)ea_c_[ms_l2_] + (int)eb_c_ - (2 * BIAS_PLUS_MANT); \
-          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(COL) * (LDC) + rm_]; \
+          const int sh_ = (int)ea_c_[ms_l2_] + (int)eb_c_[OZAKI_FRAG_COLIDX(ms_l2_)] - (2 * BIAS_PLUS_MANT); \
+          real_t cv_ = OZAKI_IS_FIRST(FIRST) ? ZERO : (C_PTR)[(long)col_ * (LDC) + rm_]; \
           oz2g_hier_tree_accumulate(tree_val_, is_neg_, (ALPHA), sh_, &cv_); \
-          (C_PTR)[(COL) * (LDC) + rm_] = cv_; \
+          (C_PTR)[(long)col_ * (LDC) + rm_] = cv_; \
         } \
       } \
     } \
@@ -436,7 +441,7 @@
  * AS_BASE, BS_BASE: base pointers for all prime planes.
  * A_PLANE, B_PLANE: per-prime plane offsets.
  * PIDX_BASE: first prime in current batch.
- * ACC: int8 array of PB*RTM*RTN accumulators.
+ * ACC: OZAKI_ACC_T array of PB*RTM*RTN accumulators.
  */
 #define OZAKI_CRT_KSTEP(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, M_, MI, NJ, KOFF, PIDX_BASE, ACC) \
   do { \
@@ -459,26 +464,23 @@
  */
 #define OZAKI_CRT_MOD_REDUCE_LOCAL(ACC, PIDX, LOCAL_IDX, RESIDUES) \
   do { \
-    union { \
-      int8 v_; \
-      int a_[8]; \
-    } dul_; \
+    OZAKI_ACC_UNION(dul_); \
     int mrl_; \
     dul_.v_ = (ACC); \
-    UNROLL_FORCE(XMX_M) for (mrl_ = 0; mrl_ < XMX_M; ++mrl_) \
+    UNROLL_FORCE(XMX_FRAG) for (mrl_ = 0; mrl_ < XMX_FRAG; ++mrl_) \
     { \
       uint rl_; \
       OZAKI_MOD_REDUCE_ELEM_(dul_.a_[mrl_], (PIDX), rl_); \
       { \
-        const uint prevl_ = (RESIDUES)[(int)(LOCAL_IDX) * XMX_M + mrl_]; \
+        const uint prevl_ = (RESIDUES)[(int)(LOCAL_IDX) * XMX_FRAG + mrl_]; \
         const uint suml_ = prevl_ + rl_; \
-        (RESIDUES)[(int)(LOCAL_IDX) * XMX_M + mrl_] = (suml_ >= oz2g_moduli[(PIDX)]) ? (suml_ - oz2g_moduli[(PIDX)]) : suml_; \
+        (RESIDUES)[(int)(LOCAL_IDX) * XMX_FRAG + mrl_] = (suml_ >= oz2g_moduli[(PIDX)]) ? (suml_ - oz2g_moduli[(PIDX)]) : suml_; \
       } \
     } \
   } while (0)
 
 /**
- * HIER variant: mod-reduce into group-local residues (stride HIER_GS * XMX_M).
+ * HIER variant: mod-reduce into group-local residues (stride HIER_GS * XMX_FRAG).
  * PIDX_BASE: global prime index.  GROUP_LO: first prime in group.
  */
 #define OZAKI_CRT_REDUCE_BATCH_GROUP(ACC, PIDX_BASE, GROUP_LO, GROUP_RES, ZERO_ACC) \
@@ -494,9 +496,9 @@
           UNROLL_FORCE(RTN) for (rn_rg_ = 0; rn_rg_ < RTN; ++rn_rg_) \
           { \
             OZAKI_CRT_MOD_REDUCE_LOCAL((ACC)[bi_rg_ * RTM * RTN + rm_rg_ * RTN + rn_rg_], (PIDX_BASE) + bi_rg_, lpidx_, \
-              (GROUP_RES) + (rm_rg_ * RTN + rn_rg_) * HIER_GS * XMX_M); \
+              (GROUP_RES) + (rm_rg_ * RTN + rn_rg_) * HIER_GS * XMX_FRAG); \
             if (ZERO_ACC) { \
-              (ACC)[bi_rg_ * RTM * RTN + rm_rg_ * RTN + rn_rg_] = (int8)(0); \
+              (ACC)[bi_rg_ * RTM * RTN + rm_rg_ * RTN + rn_rg_] = OZAKI_ACC_ZERO; \
             } \
           } \
         } \
@@ -521,9 +523,9 @@
           UNROLL_FORCE(RTN) for (rn_r_ = 0; rn_r_ < RTN; ++rn_r_) \
           { \
             OZAKI_CRT_MOD_REDUCE((ACC)[bi_r_ * RTM * RTN + rm_r_ * RTN + rn_r_], (PIDX_BASE) + bi_r_, \
-              (RESIDUES) + (rm_r_ * RTN + rn_r_) * NPRIMES * XMX_M); \
+              (RESIDUES) + (rm_r_ * RTN + rn_r_) * NPRIMES * XMX_FRAG); \
             if (ZERO_ACC) { \
-              (ACC)[bi_r_ * RTM * RTN + rm_r_ * RTN + rn_r_] = (int8)(0); \
+              (ACC)[bi_r_ * RTM * RTN + rm_r_ * RTN + rn_r_] = OZAKI_ACC_ZERO; \
             } \
           } \
         } \
@@ -1434,8 +1436,8 @@ kernel void gemm_crt_fused(
   uint vg_[HIER_NGROUPS];
   uint gval_[HIER_NGROUPS];
 
-#define GRP_RES_STRIDE (RTM * RTN * HIER_GS * XMX_M)
-#define GVAL_ALL_STRIDE (RTM * RTN * HIER_NGROUPS * XMX_M)
+#define GRP_RES_STRIDE (RTM * RTN * HIER_GS * XMX_FRAG)
+#define GVAL_ALL_STRIDE (RTM * RTN * HIER_NGROUPS * XMX_FRAG)
   uint group_res[GRP_RES_STRIDE];
   uint gval_all[GVAL_ALL_STRIDE];
 
@@ -1458,12 +1460,12 @@ kernel void gemm_crt_fused(
         SINT pidx_base;
         UNROLL_OUTER(1) for (pidx_base = group_lo; pidx_base < group_lo + HIER_GS && pidx_base < NPRIMES; pidx_base += PB)
         {
-          int8 acc[PB * RTM * RTN];
+          OZAKI_ACC_T acc[PB * RTM * RTN];
           {
             int ai;
             UNROLL_FORCE(PB * RTM * RTN)
             for (ai = 0; ai < PB * RTM * RTN; ++ai) {
-              acc[ai] = (int8)(0);
+              acc[ai] = OZAKI_ACC_ZERO;
             }
           }
 
@@ -1511,8 +1513,8 @@ kernel void gemm_crt_fused(
           UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
           {
             OZAKI_CRT_L1_STORE(
-              group_res + (rm * RTN + rn) * HIER_GS * XMX_M,
-              gval_all + (rm * RTN + rn) * HIER_NGROUPS * XMX_M, gidx);
+              group_res + (rm * RTN + rn) * HIER_GS * XMX_FRAG,
+              gval_all + (rm * RTN + rn) * HIER_NGROUPS * XMX_FRAG, gidx);
           }
         }
       }
@@ -1528,9 +1530,8 @@ kernel void gemm_crt_fused(
     {
       UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
       {
-        const int col = nj_base + rn * XMX_N + sg_lid;
-        OZAKI_CRT_L2_STORE(
-          gval_all + (rm * RTN + rn) * HIER_NGROUPS * XMX_M, expa, expb, c, M, N, mi_base + rm * XMX_M, col, ldc, alpha, first);
+        OZAKI_CRT_L2_STORE(gval_all + (rm * RTN + rn) * HIER_NGROUPS * XMX_FRAG, expa, expb, c, M, N,
+          mi_base + rm * XMX_M, nj_base + rn * XMX_N, sg_lid, ldc, alpha, first);
       }
     }
   }
@@ -1548,7 +1549,7 @@ kernel void gemm_crt_fused(
    * the compiler spill to scratch with liveness-aware scheduling
    * (residues are cold during the DPAS K-loop, hot during reduce/store).
    */
-#define RES_STRIDE (RTM * RTN * NPRIMES * XMX_M)
+#define RES_STRIDE (RTM * RTN * NPRIMES * XMX_FRAG)
   uint residues[RES_STRIDE];
 
   {
@@ -1568,12 +1569,12 @@ kernel void gemm_crt_fused(
     SINT pidx_base;
     UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NPRIMES; pidx_base += PB)
     {
-      int8 acc[PB * RTM * RTN];
+      OZAKI_ACC_T acc[PB * RTM * RTN];
       {
         int ai;
         UNROLL_FORCE(PB * RTM * RTN)
         for (ai = 0; ai < PB * RTM * RTN; ++ai) {
-          acc[ai] = (int8)(0);
+          acc[ai] = OZAKI_ACC_ZERO;
         }
       }
 
@@ -1620,9 +1621,8 @@ kernel void gemm_crt_fused(
     {
       UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
       {
-        const int col = nj_base + rn * XMX_N + sg_lid;
-        OZAKI_CRT_STORE(
-          residues + (rm * RTN + rn) * NPRIMES * XMX_M, expa, expb, c, M, N, mi_base + rm * XMX_M, col, ldc, alpha, first);
+        OZAKI_CRT_STORE(residues + (rm * RTN + rn) * NPRIMES * XMX_FRAG, expa, expb, c, M, N,
+          mi_base + rm * XMX_M, nj_base + rn * XMX_N, sg_lid, ldc, alpha, first);
       }
     }
   }
