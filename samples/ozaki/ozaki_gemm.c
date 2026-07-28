@@ -102,7 +102,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bn_pre = ctx->bn_pre;
     const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, ctx->rtm);
     const int tm = tile.m, tn = tile.n;
-    const int m_pad = LIBXS_UP(M, bm_pre);
+    int m_pad = LIBXS_UP(M, bm_pre);
     int n_pad = LIBXS_UP(N, bn_pre);
     const int nblk_gm = LIBXS_UPDIV(M, tm);
     const int nblk_gn = LIBXS_UPDIV(N, tn);
@@ -130,6 +130,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 
     if (k_grp_pad < 64) k_grp_pad = 64;
     if (n_pad < 64) n_pad = 64;
+    /* Cover the whole tile grid: see the CRT path below for why. */
+    if (n_pad < nblk_gn * tn) n_pad = nblk_gn * tn;
+    if (m_pad < nblk_gm * tm) m_pad = nblk_gm * tm;
 
     as_size = (size_t)nslices_g * m_pad * k_grp_pad;
     bs_size = (size_t)nslices_g * k_grp_pad * n_pad;
@@ -390,7 +393,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bn_pre = ctx->bn_pre;
     const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, ctx->crt_rtm);
     const int tm = tile.m, tn = tile.n;
-    const int m_pad = LIBXS_UP(M, bm_pre);
+    int m_pad = LIBXS_UP(M, bm_pre);
     int n_pad = LIBXS_UP(N, bn_pre);
     const int nblk_gm = LIBXS_UPDIV(M, tm);
     const int nblk_gn = LIBXS_UPDIV(N, tn);
@@ -416,6 +419,15 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 
     if (k_grp_pad < 64) k_grp_pad = 64;
     if (n_pad < 64) n_pad = 64;
+    /**
+     * The tile grid spans nblk_gn * tn columns, which exceeds N rounded to
+     * bn_pre whenever tn does not divide it (e.g. N=1024, tn=96 reaches 1056).
+     * Bs planes are strided by k_pad * n_pad, so a last-tile column past n_pad
+     * reads the next prime's plane and accumulates a foreign residue instead of
+     * the zero the padding is meant to supply. Cover the whole grid.
+     */
+    if (n_pad < nblk_gn * tn) n_pad = nblk_gn * tn;
+    if (m_pad < nblk_gm * tm) m_pad = nblk_gm * tm;
 
     as_size = (size_t)nprimes_g * m_pad * k_grp_pad;
     bs_size = (size_t)nprimes_g * k_grp_pad * n_pad;

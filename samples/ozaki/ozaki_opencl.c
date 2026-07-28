@@ -166,8 +166,14 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
   tile.m = gm;
   tile.n = gn;
   if (0 != ctx->tm_req && 0 != ctx->tn_req) {
-    tile.m = ctx->tm;
-    tile.n = ctx->tn;
+    /**
+     * Round to the sub-tile granularity: NTM/NTN truncate, so a non-multiple
+     * would leave the tail of the tile uncovered and part of C unwritten.
+     */
+    tile.m = (ctx->tm / gm) * gm;
+    tile.n = (ctx->tn / gn) * gn;
+    if (tile.m < gm) tile.m = gm;
+    if (tile.n < gn) tile.n = gn;
   }
   else {
     double best_score = -1.0;
@@ -499,10 +505,21 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * same tile; ozaki_tile_select() re-checks the bound with the actual
        * register tiling, so this clamp only establishes the Scheme-1 maximum.
        */
-      { const size_t xmx_area = (size_t)(xmx_m * rtm) * (xmx_n * rtn);
-        while ((size_t)sg * ((size_t)tm * tn / xmx_area) > max_wgs && (tm > xmx_m * rtm || tn > xmx_n * rtn)) {
-          if (tm >= tn) tm /= 2;
-          else tn /= 2;
+      /**
+       * Halving must not break sub-tile granularity: NTM/NTN are integer
+       * divisions, so a tm that is a multiple of xmx_m*rtm before the shift
+       * need not be one after (MMA, rtm=2: 160 -> 80, NTM truncates 80/32 to
+       * 2 and 16 rows of the tile are never covered -- silently missing part
+       * of C). Round the halved extent down to the granularity and stop when
+       * it can no longer shrink.
+       */
+      { const int gm = xmx_m * rtm, gn = xmx_n * rtn;
+        while ((size_t)sg * ((size_t)(tm / gm) * (tn / gn)) > max_wgs && (tm > gm || tn > gn)) {
+          if (tm >= tn && tm > gm) tm = (tm / 2 / gm) * gm;
+          else if (tn > gn) tn = (tn / 2 / gn) * gn;
+          else break;
+          if (tm < gm) tm = gm;
+          if (tn < gn) tn = gn;
         }
       }
     }
