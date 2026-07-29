@@ -735,33 +735,55 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
   LIBXS_UNUSED(event_status);
   assert(CL_COMPLETE == event_status && NULL != data && 8 == sizeof(data));
   if (EXIT_SUCCESS == result && EXIT_SUCCESS == clGetEventInfo(event, CL_EVENT_COMMAND_TYPE, sizeof(type), &type, NULL)) {
-    const size_t size = 0x3FFFFFFFFFFFFFFF & (size_t)data;
-    const int kind = LIBXS_CAST_INT(((size_t)data) >> 62);
+    const size_t size = LIBXSTREAM_EVENT_SIZE(data);
+    const int kind = LIBXSTREAM_EVENT_KIND(data);
+    libxs_hist_t* hist = NULL;
+    const char* name = NULL;
+    /**
+     * The kind recorded at enqueue selects the histogram, but the command type
+     * must corroborate it: a stale or foreign event carrying a plausible data
+     * word would otherwise be attributed to a real transfer. The buffer command
+     * types are checked explicitly; the SVM and Intel-USM paths raise types that
+     * match no buffer command (SVM_MEMCPY, SVM_MEMFILL, or vendor-specific), and
+     * keying on those alone is what silently dropped every sample on such
+     * stacks -- so an unrecognized type is accepted, a contradicting one is not.
+     */
+    int agrees = 1;
+    switch (type) {
+      case CL_COMMAND_WRITE_BUFFER: agrees = (libxstream_event_kind_h2d == kind); break;
+      case CL_COMMAND_READ_BUFFER: agrees = (libxstream_event_kind_d2h == kind); break;
+      case CL_COMMAND_COPY_BUFFER: agrees = (libxstream_event_kind_d2d == kind); break;
+      case CL_COMMAND_FILL_BUFFER: agrees = (libxstream_event_kind_zero == kind); break;
+      default: agrees = 1; /* not a buffer command: kind is the only source */
+    }
     vals[0] = 1E-6 * size; /* Megabyte */
-    if (CL_COMMAND_WRITE_BUFFER != type && CL_COMMAND_READ_BUFFER != type && CL_COMMAND_COPY_BUFFER != type) {
+    if (0 != agrees) {
       switch (kind) {
-        case libxstream_event_kind_h2d: type = CL_COMMAND_WRITE_BUFFER; break;
-        case libxstream_event_kind_d2h: type = CL_COMMAND_READ_BUFFER; break;
-        case libxstream_event_kind_d2d: type = CL_COMMAND_COPY_BUFFER; break;
+        case libxstream_event_kind_h2d: {
+          hist = libxstream_opencl_config.hist_h2d;
+          name = "H2D";
+        } break;
+        case libxstream_event_kind_d2h: {
+          hist = libxstream_opencl_config.hist_d2h;
+          name = "D2H";
+        } break;
+        case libxstream_event_kind_d2d: {
+          hist = libxstream_opencl_config.hist_d2d;
+          name = "D2D";
+        } break;
+        case libxstream_event_kind_zero: {
+          hist = libxstream_opencl_config.hist_zero;
+          name = "ZERO";
+        } break;
         default: assert(libxstream_event_kind_none == kind); /* should not happen */
       }
     }
-    switch (type) {
-      case CL_COMMAND_WRITE_BUFFER: {
-        assert(NULL != libxstream_opencl_config.hist_h2d && libxstream_event_kind_h2d == kind);
-        libxs_hist_push(libxstream_opencl_config.lock_memory, libxstream_opencl_config.hist_h2d, vals);
-        if (0 > libxstream_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: H2D mb=%.1f us=%.0f\n", vals[0], vals[1]);
-      } break;
-      case CL_COMMAND_READ_BUFFER: {
-        assert(NULL != libxstream_opencl_config.hist_d2h && libxstream_event_kind_d2h == kind);
-        libxs_hist_push(libxstream_opencl_config.lock_memory, libxstream_opencl_config.hist_d2h, vals);
-        if (0 > libxstream_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2H mb=%.1f us=%.0f\n", vals[0], vals[1]);
-      } break;
-      case CL_COMMAND_COPY_BUFFER: {
-        assert(NULL != libxstream_opencl_config.hist_d2d && libxstream_event_kind_d2d == kind);
-        libxs_hist_push(libxstream_opencl_config.lock_memory, libxstream_opencl_config.hist_d2d, vals);
-        if (0 > libxstream_opencl_config.profile) fprintf(stderr, "PROF ACC/OpenCL: D2D mb=%.1f us=%.0f\n", vals[0], vals[1]);
-      } break;
+    else assert(0 == "event kind contradicts command type");
+    if (NULL != hist) {
+      libxs_hist_push(libxstream_opencl_config.lock_memory, hist, vals);
+      if (0 > libxstream_opencl_config.profile) {
+        fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f\n", name, vals[0], vals[1]);
+      }
     }
   }
   if (NULL != event) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(event));
@@ -948,7 +970,7 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
       if (EXIT_SUCCESS == result) {
-        void* const data = (void*)(nbytes | ((size_t)libxstream_event_kind_h2d) << 62);
+        void* const data = LIBXSTREAM_EVENT_DATA(nbytes, libxstream_event_kind_h2d);
         assert(NULL != libxstream_opencl_config.hist_h2d);
         if (!finish) { /* asynchronous */
           result = clSetEventCallback(event, CL_COMPLETE, libxstream_mem_copy_notify, data);
@@ -1115,7 +1137,7 @@ LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, 
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
       if (EXIT_SUCCESS == result) {
-        void* const data = (void*)(nbytes | ((size_t)libxstream_event_kind_d2h) << 62);
+        void* const data = LIBXSTREAM_EVENT_DATA(nbytes, libxstream_event_kind_d2h);
         assert(NULL != libxstream_opencl_config.hist_d2h);
         if (!finish) { /* asynchronous */
           result = clSetEventCallback(event, CL_COMPLETE, libxstream_mem_copy_notify, data);
@@ -1180,7 +1202,7 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
       if (EXIT_SUCCESS == result) {
-        void* const data = (void*)(nbytes | ((size_t)libxstream_event_kind_d2d) << 62);
+        void* const data = LIBXSTREAM_EVENT_DATA(nbytes, libxstream_event_kind_d2d);
         if (NULL == pevent) { /* asynchronous */
           assert(NULL != libxstream_opencl_config.hist_d2d);
           result = clSetEventCallback(event, CL_COMPLETE, libxstream_mem_copy_notify, data);
@@ -1209,10 +1231,17 @@ LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t off
   assert(NULL != dev_mem || 0 == nbytes);
   if (0 != nbytes) {
 # if defined(LIBXSTREAM_ASYNC)
-    cl_event event = NULL, *const pevent = (0 == (8 & libxstream_opencl_config.async) || NULL == stream) ? &event : NULL;
+    const cl_bool wait = (0 == (8 & libxstream_opencl_config.async) || NULL == stream);
 # else
-    cl_event event = NULL, *const pevent = NULL;
+    const cl_bool wait = CL_TRUE;
 # endif
+    /**
+     * An event is needed either to wait on the fill, or to time it for the ZERO
+     * histogram. Timing must not force a wait: that would serialize the fill
+     * against the enqueuing thread and change what is being measured.
+     */
+    const int measure = (0 == value && NULL != libxstream_opencl_config.hist_zero);
+    cl_event event = NULL, *const pevent = (0 != wait || 0 != measure) ? &event : NULL;
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     const libxstream_opencl_stream_t* str;
     size_t base = 0, vsize = 1;
@@ -1249,10 +1278,27 @@ LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t off
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != event) {
-      int result_release;
-      CL_CHECK(result, clWaitForEvents(1, &event));
-      result_release = clReleaseEvent(event);
-      if (EXIT_SUCCESS == result) result = result_release;
+      if (0 != wait) {
+        int result_release;
+        CL_CHECK(result, clWaitForEvents(1, &event));
+        if (0 != measure && EXIT_SUCCESS == result) {
+          /* Completed already: account for it directly (callback would never fire later). */
+          libxstream_mem_copy_notify(event, CL_COMPLETE, LIBXSTREAM_EVENT_DATA(nbytes, libxstream_event_kind_zero));
+          event = NULL; /* notify released the event */
+        }
+        if (NULL != event) {
+          result_release = clReleaseEvent(event);
+          if (EXIT_SUCCESS == result) result = result_release;
+        }
+      }
+      else { /* asynchronous: notify releases the event when the fill completes */
+        assert(0 != measure);
+        if (EXIT_SUCCESS == result) {
+          result = clSetEventCallback(event, CL_COMPLETE, libxstream_mem_copy_notify,
+            LIBXSTREAM_EVENT_DATA(nbytes, libxstream_event_kind_zero));
+        }
+        else LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(event));
+      }
     }
   }
   CL_RETURN(result, "");

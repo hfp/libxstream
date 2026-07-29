@@ -106,7 +106,8 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
   if (NULL != devinfo->context) {
     const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
     if (0 != (LIBXSTREAM_STREAM_PROFILING & flags) || NULL != libxstream_opencl_config.hist_h2d ||
-        NULL != libxstream_opencl_config.hist_d2h || NULL != libxstream_opencl_config.hist_d2d)
+        NULL != libxstream_opencl_config.hist_d2h || NULL != libxstream_opencl_config.hist_d2d ||
+        NULL != libxstream_opencl_config.hist_zero)
     {
       properties[1] |= CL_QUEUE_PROFILING_ENABLE;
     }

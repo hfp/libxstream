@@ -641,11 +641,13 @@ LIBXSTREAM_API int libxstream_init(void)
           libxstream_opencl_config.hist_h2d = libxs_hist_create(profile + 1, 2, update);
           libxstream_opencl_config.hist_d2h = libxs_hist_create(profile + 1, 2, update);
           libxstream_opencl_config.hist_d2d = libxs_hist_create(profile + 1, 2, update);
+          libxstream_opencl_config.hist_zero = libxs_hist_create(profile + 1, 2, update);
         }
         else {
           assert(NULL == libxstream_opencl_config.hist_h2d);
           assert(NULL == libxstream_opencl_config.hist_d2h);
           assert(NULL == libxstream_opencl_config.hist_d2d);
+          assert(NULL == libxstream_opencl_config.hist_zero);
         }
         if (EXIT_SUCCESS == result) { /* lastly, print list of devices and actived device */
           const unsigned int nrank = libxs_nrank();
@@ -714,18 +716,20 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
 {
   assert(libxstream_opencl_config.ndevices < LIBXSTREAM_MAXNDEVS);
   if (0 != libxstream_opencl_config.ndevices) {
-    const char *const kind[] = { "H2D", "D2H", "D2D" };
-    const libxs_hist_t* hist[] = { NULL, NULL, NULL };
+    const char *const kind[] = { "H2D", "D2H", "D2D", "ZERO" };
+    const libxs_hist_t* hist[] = { NULL, NULL, NULL, NULL };
     const char *const env_slurm = getenv("SLURM_JOBID");
     const int slurm = (NULL == env_slurm ? -1 : atoi(env_slurm));
     const int precision[] = {1, 1};
+    const int nhist = (int)(sizeof(hist) / sizeof(*hist));
     double vals[2], rate = 0;
     int i;
     hist[0] = libxstream_opencl_config.hist_h2d;
     hist[1] = libxstream_opencl_config.hist_d2h;
     hist[2] = libxstream_opencl_config.hist_d2d;
+    hist[3] = libxstream_opencl_config.hist_zero;
     LIBXS_STDIO_ACQUIRE();
-    for (i = 0; i < 3; ++i) if (NULL != hist[i]) {
+    for (i = 0; i < nhist; ++i) if (NULL != hist[i]) {
       libxs_hist_query_median(NULL /*lock*/, hist[i], vals);
       rate = (0 < vals[1] ? (1E6 * vals[0] / vals[1]) : -1);
       if (0 <= rate) {
@@ -748,6 +752,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     libxs_hist_destroy(libxstream_opencl_config.hist_h2d);
     libxs_hist_destroy(libxstream_opencl_config.hist_d2h);
     libxs_hist_destroy(libxstream_opencl_config.hist_d2d);
+    libxs_hist_destroy(libxstream_opencl_config.hist_zero);
     libxs_free_pool(libxstream_opencl_config.pool_dev);
     libxs_free_pool(libxstream_opencl_config.pool_hst);
     if (NULL != libxstream_opencl_config.pool_hst_queue) {
