@@ -1,6 +1,6 @@
 # BSD 3-Clause License
 
-Copyright (c) 2009-2026 Hans Pabst
+Copyright (c) 2009-2026 Hans Pabst  
 Copyright (c) 2009-2026 Intel Corporation
 
 Redistribution and use in source and binary forms, with or without
