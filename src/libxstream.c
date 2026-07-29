@@ -784,9 +784,17 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
       }
     }
     else if (0 < vals[0]) { /* kernels: {ms, gflop, mb}, time always, rates if stated */
-      /* 3 decimals: kernels span microseconds to hundreds of milliseconds, and a
-         coarser format would print every short kernel as 0.000 */
-      const int precision[] = {3, 1, 1};
+      /**
+       * 3 decimals: kernels span microseconds to hundreds of milliseconds, and a
+       * coarser format would print every short kernel as 0.000. A negative
+       * precision suppresses a column, which is how the work amounts a caller
+       * did not state are kept out of the per-bucket detail rather than shown
+       * as a column of zeros.
+       */
+      int precision[3];
+      precision[0] = 3;
+      precision[1] = (0 < vals[1] ? 1 : -1);
+      precision[2] = (0 < vals[2] ? 1 : -1);
       libxstream_opencl_print_id(ostream, name);
       fprintf(ostream, "=%.3f %s", vals[0], unit);
       if (0 < vals[1]) fprintf(ostream, " %.1f GFLOPS/s", 1E3 * vals[1] / vals[0]);
