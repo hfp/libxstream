@@ -21,8 +21,8 @@ libraries:
 git clone https://github.com/hfp/libxs.git
 git clone https://github.com/hfp/libxstream.git
 
-cd libxs && make GNU=1 -j $(nproc)
-cd ../libxstream && make GNU=1 -j $(nproc)
+cd libxs && make -j $(nproc)
+cd ../libxstream && make -j $(nproc)
 ```
 
 This produces `lib/libxstream.a` and `lib/libxstream.so`.
@@ -47,7 +47,7 @@ Use `SSE=0` to compile natively for the build host.
 
 | Variable   | Default   | Description                                     |
 |------------|-----------|-------------------------------------------------|
-| GNU        | 0         | Use GNU GCC-compatible compiler                 |
+| GNU        | 1         | GNU GCC-compatible compiler (0: Intel)          |
 | DBG        | 0         | Debug build                                     |
 | SYM        | 0         | Include debug symbols (-g)                      |
 | SSE        | 1         | x86 baseline: 0=native, 1=SSE4.2 (portable)     |
@@ -59,7 +59,7 @@ pkg-config support: `lib/libxstream.pc`.
 Install into a chosen prefix (LIBXS must be built first):
 
 ```bash
-make GNU=1 -j $(nproc) install PREFIX=$HOME/libxstream
+make -j $(nproc) install PREFIX=$HOME/libxstream
 ```
 
 This installs headers and the static and shared libraries under `PREFIX`.
@@ -172,8 +172,8 @@ operations (memory, streams, events, synchronization).
 Each sample has its own Makefile under `samples/`:
 
 ```bash
-cd samples/smm && make GNU=1
-cd samples/ozaki && make GNU=1
+cd samples/smm && make
+cd samples/ozaki && make
 ```
 
 ### SMM — Small Matrix Multiplication

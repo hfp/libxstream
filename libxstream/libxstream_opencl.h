@@ -221,8 +221,22 @@ typedef enum libxstream_event_kind_t {
   libxstream_event_kind_none,
   libxstream_event_kind_h2d,
   libxstream_event_kind_d2h,
-  libxstream_event_kind_d2d
+  libxstream_event_kind_d2d,
+  libxstream_event_kind_zero
 } libxstream_event_kind_t;
+
+/**
+ * Pack a transfer size and its kind into the single void* the OpenCL event
+ * callback carries. Three bits hold the kind, leaving 2^61-1 bytes (2 EiB) for
+ * the size, i.e. no practical restriction.
+ */
+#define LIBXSTREAM_EVENT_KIND_BITS 3
+#define LIBXSTREAM_EVENT_KIND_SHIFT ((8 * sizeof(size_t)) - LIBXSTREAM_EVENT_KIND_BITS)
+#define LIBXSTREAM_EVENT_SIZE_MASK ((((size_t)1) << LIBXSTREAM_EVENT_KIND_SHIFT) - 1)
+#define LIBXSTREAM_EVENT_DATA(SIZE, KIND) \
+  ((void*)(((size_t)(SIZE) & LIBXSTREAM_EVENT_SIZE_MASK) | (((size_t)(KIND)) << LIBXSTREAM_EVENT_KIND_SHIFT)))
+#define LIBXSTREAM_EVENT_SIZE(DATA) (LIBXSTREAM_EVENT_SIZE_MASK & (size_t)(DATA))
+#define LIBXSTREAM_EVENT_KIND(DATA) LIBXS_CAST_INT(((size_t)(DATA)) >> LIBXSTREAM_EVENT_KIND_SHIFT)
 
 /** Information about host/device-memory pointer. */
 typedef struct libxstream_opencl_info_memptr_t {
@@ -304,7 +318,7 @@ typedef struct libxstream_opencl_config_t {
   /** Runtime-enable LIBXSTREAM_PROFILE_DBCSR. */
   cl_int profile;
   /** Detailed/optional insight. */
-  libxs_hist_t *hist_h2d, *hist_d2h, *hist_d2d;
+  libxs_hist_t *hist_h2d, *hist_d2h, *hist_d2d, *hist_zero;
   /** Configuration and execution-hints. */
   cl_int xhints;
   /** Asynchronous memory operations. */

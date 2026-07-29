@@ -418,7 +418,7 @@ git clone https://github.com/hfp/libxs.git
 git clone https://github.com/hfp/libxstream.git
 cd libxstream/samples/stencil
 echo "Make OpenCL runtime available"
-make GNU=1
+make
 ```
 
 Run the code:

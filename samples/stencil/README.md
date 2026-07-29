@@ -83,7 +83,7 @@ loop (no separate preprocess kernel).
 
 ## Build
 
-    make GNU=1 DBG=1 PEDANTIC=2
+    make DBG=1 PEDANTIC=2
 
 Requires LIBXS (sibling directory ../../../libxs) and an OpenCL 2.0
 runtime with cl_intel_subgroup_2d_block_io and DPAS support.

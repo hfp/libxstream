@@ -10,7 +10,7 @@ in [LIBXS](https://github.com/hfp/libxs).
 
 ```bash
 cd samples/ozaki
-make [GNU=1] [DBG=1]
+make [DBG=1]
 ```
 
 Requires an OpenCL runtime and headers. BLAS is linked via `BLAS=2`
