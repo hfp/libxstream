@@ -29,7 +29,7 @@ static int ozaki_enqueue_scale_beta(
   ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta);
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
   void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
-  int ntn, double alpha, int first_pair, int use_double);
+  int ntn, double alpha, int first_pair, int use_double, int npairs);
 static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds, int tm, int tn);
 static cl_kernel ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn);
 
@@ -286,11 +286,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       /* Launch GEMM for this K-group */
       { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
         const int bounds = (0 != M % tm || 0 != N % tn);
-        total_pairs += ozaki_count_pairs(nslices_g, eff_cutoff, sq);
+        const int npairs = ozaki_count_pairs(nslices_g, eff_cutoff, sq);
+        total_pairs += npairs;
         { cl_kernel kern_g = ozaki_get_fused_kernel(ctx, eff_cutoff, bounds, tm, tn);
           if (NULL != kern_g) {
             result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
-              tn, ntm, ntn, alpha, first_pair, ctx->use_double);
+              tn, ntm, ntn, alpha, first_pair, ctx->use_double, npairs);
           }
           else result = EXIT_FAILURE;
         }
@@ -602,7 +603,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           if (NULL != crt_kern) {
             result = ozaki_launch_fused(ctx, stream, crt_kern, d_as, d_bs_s, d_expa_g, d_expb_s, (char*)d_cg + cp_off, M, N_len,
               k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn, alpha, first_tile,
-              ctx->use_double);
+              ctx->use_double, nprimes_g /*one INT8 product per prime*/);
           }
           else result = EXIT_FAILURE;
         }
@@ -844,7 +845,7 @@ static cl_kernel ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, 
 
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
   void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
-  int ntn, double alpha, int first_pair, int use_double)
+  int ntn, double alpha, int first_pair, int use_double, int npairs)
 {
   int result = EXIT_SUCCESS;
   size_t local_g[2], global_g[2];
@@ -879,7 +880,14 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
     }
     CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &first_pair));
   }
-  CL_CHECK(result, libxstream_opencl_launch(stream, kern_g, 2, NULL, global_g, local_g, 0, NULL, NULL));
+  /**
+   * The kernel's own work, not the caller's DGEMM: it performs npairs INT8
+   * products of M x k_pad by k_pad x N, so this reports achieved INT8 rate. The
+   * equivalent FP64 rate is that divided by npairs -- deriving it here instead
+   * would credit the kernel with work it did not do.
+   */
+  CL_CHECK(result, libxstream_opencl_launch_work(stream, kern_g, 2, NULL, global_g, local_g, 0, NULL, NULL,
+                     2 * (size_t)M * (size_t)N * (size_t)k_pad * (size_t)LIBXS_MAX(npairs, 1), 0 /*nbytes*/));
   return result;
 }
 

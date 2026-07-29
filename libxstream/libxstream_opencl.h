@@ -79,6 +79,32 @@ LIBXS_PRAGMA_DIAG_POP()
 #if !defined(LIBXSTREAM_MAXNKERNELS)
 # define LIBXSTREAM_MAXNKERNELS 32
 #endif
+/**
+ * Accuracy target for profiled samples, expressed as a multiple of the device
+ * timer granularity (CL_DEVICE_PROFILING_TIMER_RESOLUTION, queried per device
+ * into timer_ns -- this macro is not that granularity, it is how many of its
+ * ticks a sample must span to be believed). A measurement covering n ticks has
+ * a quantization error of about 1/n, so the default bounds the per-sample error
+ * at roughly 10%: on a 1ns-resolution device the resulting floor is 10ns and
+ * discards nothing, while at 1000ns it is 10us. Shorter operations are counted
+ * (nprofile_short) rather than pushed, because a rate derived from one or two
+ * ticks is noise presented as data. Set to 0 or 1 to record everything.
+ */
+#if !defined(LIBXSTREAM_PROFILE_TICKS)
+# define LIBXSTREAM_PROFILE_TICKS 10
+#endif
+/**
+ * Pack a transfer size and its kind into the single void* the OpenCL event
+ * callback carries. Three bits hold the kind, leaving 2^61-1 bytes (2 EiB) for
+ * the size, i.e. no practical restriction.
+ */
+#define LIBXSTREAM_EVENT_KIND_BITS 3
+#define LIBXSTREAM_EVENT_KIND_SHIFT ((8 * sizeof(size_t)) - LIBXSTREAM_EVENT_KIND_BITS)
+#define LIBXSTREAM_EVENT_SIZE_MASK ((((size_t)1) << LIBXSTREAM_EVENT_KIND_SHIFT) - 1)
+#define LIBXSTREAM_EVENT_DATA(SIZE, KIND) \
+  ((void*)(((size_t)(SIZE) & LIBXSTREAM_EVENT_SIZE_MASK) | (((size_t)(KIND)) << LIBXSTREAM_EVENT_KIND_SHIFT)))
+#define LIBXSTREAM_EVENT_SIZE(DATA) (LIBXSTREAM_EVENT_SIZE_MASK & (size_t)(DATA))
+#define LIBXSTREAM_EVENT_KIND(DATA) LIBXS_CAST_INT(((size_t)(DATA)) >> LIBXSTREAM_EVENT_KIND_SHIFT)
 #if !defined(LIBXSTREAM_CMEM) && 1
 # define LIBXSTREAM_CMEM
 #endif
@@ -242,39 +268,21 @@ typedef enum libxstream_event_kind_t {
   libxstream_event_kind_h2d,
   libxstream_event_kind_d2h,
   libxstream_event_kind_d2d,
-  libxstream_event_kind_zero,
-  /** Kernel launch: the payload is a hist_kernel index, not a byte count. */
-  libxstream_event_kind_kernel
+  libxstream_event_kind_zero
 } libxstream_event_kind_t;
 
 /**
- * Accuracy target for profiled samples, expressed as a multiple of the device
- * timer granularity (CL_DEVICE_PROFILING_TIMER_RESOLUTION, queried per device
- * into timer_ns -- this macro is not that granularity, it is how many of its
- * ticks a sample must span to be believed). A measurement covering n ticks has
- * a quantization error of about 1/n, so the default bounds the per-sample error
- * at roughly 10%: on a 1ns-resolution device the resulting floor is 10ns and
- * discards nothing, while at 1000ns it is 10us. Shorter operations are counted
- * (nprofile_short) rather than pushed, because a rate derived from one or two
- * ticks is noise presented as data. Set to 0 or 1 to record everything.
+ * Callback data for a profiled kernel launch. Kernels carry per-launch work
+ * amounts rather than a single packed value, so the record is taken from a pool
+ * at enqueue and returned by the callback: one record per launch, hence no race
+ * when the same kernel is enqueued again before the first launch completes.
  */
-#if !defined(LIBXSTREAM_PROFILE_TICKS)
-# define LIBXSTREAM_PROFILE_TICKS 10
-#endif
-
-/**
- * Pack a payload and its kind into the single void* the OpenCL event callback
- * carries. Three bits hold the kind, leaving 2^61-1 for the payload: a byte
- * count for the transfer kinds (2 EiB, no practical restriction) or a
- * hist_kernel index for libxstream_event_kind_kernel.
- */
-#define LIBXSTREAM_EVENT_KIND_BITS 3
-#define LIBXSTREAM_EVENT_KIND_SHIFT ((8 * sizeof(size_t)) - LIBXSTREAM_EVENT_KIND_BITS)
-#define LIBXSTREAM_EVENT_SIZE_MASK ((((size_t)1) << LIBXSTREAM_EVENT_KIND_SHIFT) - 1)
-#define LIBXSTREAM_EVENT_DATA(SIZE, KIND) \
-  ((void*)(((size_t)(SIZE) & LIBXSTREAM_EVENT_SIZE_MASK) | (((size_t)(KIND)) << LIBXSTREAM_EVENT_KIND_SHIFT)))
-#define LIBXSTREAM_EVENT_SIZE(DATA) (LIBXSTREAM_EVENT_SIZE_MASK & (size_t)(DATA))
-#define LIBXSTREAM_EVENT_KIND(DATA) LIBXS_CAST_INT(((size_t)(DATA)) >> LIBXSTREAM_EVENT_KIND_SHIFT)
+typedef struct libxstream_opencl_launch_info_t {
+  /** Index into hist_kernel. */
+  size_t slot;
+  /** Work performed by this launch (0 if the caller did not state it). */
+  double gflop, mb;
+} libxstream_opencl_launch_info_t;
 
 /** Information about host/device-memory pointer. */
 typedef struct libxstream_opencl_info_memptr_t {
@@ -365,21 +373,34 @@ typedef struct libxstream_opencl_config_t {
   /** Detailed/optional insight (LIBXSTREAM_PROFILE_MEM). */
   libxs_hist_t *hist_h2d, *hist_d2h, *hist_d2d, *hist_zero;
   /**
-   * Per-kernel duration histograms (LIBXSTREAM_PROFILE), keyed by the cl_kernel
-   * handle observed at launch. The name is not supplied by the caller: it is
-   * read from the handle via CL_KERNEL_FUNCTION_NAME once, when a kernel is
-   * first seen, so a launch site needs no identifier argument and the library
-   * needs no table of known kernel names.
+   * Per-kernel histograms (LIBXSTREAM_PROFILE), keyed by the cl_kernel handle
+   * observed at launch. The name is not supplied by the caller: it is read from
+   * the handle via CL_KERNEL_FUNCTION_NAME once, when a kernel is first seen, so
+   * a launch site needs no identifier argument and the library needs no table of
+   * known kernel names.
    *
-   * Fixed capacity, because the completion callback must not allocate: it
-   * receives an index into this table packed into the event data word and only
-   * ever reads. Overflow is counted rather than growing the table (see
-   * nprofile_kernel_lost).
+   * Each sample is {ms, gflop, mb}: the measured duration plus whatever work the
+   * caller stated for that launch (zero if unstated). Rates are derived per
+   * sample, so numerator and denominator always describe the same launch --
+   * unlike a facility that sums durations over a phase and divides one total by
+   * another, which can report a faster time for strictly more work.
+   *
+   * Fixed capacity, because the callback must not grow the table. Overflow is
+   * counted rather than silently dropped (see nprofile_kernel_lost).
    */
   libxs_hist_t* hist_kernel[LIBXSTREAM_MAXNKERNELS];
   const char* name_kernel[LIBXSTREAM_MAXNKERNELS];
   cl_kernel kernels[LIBXSTREAM_MAXNKERNELS];
   size_t nkernels;
+  /**
+   * Pool of per-launch records (libxs_pmalloc), sized like the other handle
+   * pools: one record is held only while its launch is in flight, so the pool
+   * bounds concurrent profiled launches rather than total launches. Pooled
+   * rather than malloc'ed per launch because the callback runs on a runtime
+   * thread where allocator contention is worth avoiding.
+   */
+  libxstream_opencl_launch_info_t **launch_infos, *launch_info_data;
+  size_t nlaunch_infos;
   /** Launches not profiled because hist_kernel is full (distinct kernels). */
   size_t nprofile_kernel_lost;
   /**
@@ -515,6 +536,17 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
 LIBXSTREAM_API int libxstream_opencl_launch(libxstream_stream_t* stream, cl_kernel kernel, cl_uint work_dim,
   const size_t* global_work_offset, const size_t* global_work_size, const size_t* local_work_size,
   cl_uint num_events_in_wait_list, const cl_event* event_wait_list, cl_event* event);
+
+/**
+ * As libxstream_opencl_launch, but stating the work this launch performs so that
+ * the profile can report rates instead of only time: nflops yields GFLOPS/s and
+ * nbytes yields GB/s. Either may be 0 when unknown, and supplying both reports
+ * both -- which places a kernel on the roofline rather than merely timing it.
+ * The counts are per launch, not per call to the surrounding routine.
+ */
+LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl_kernel kernel, cl_uint work_dim,
+  const size_t* global_work_offset, const size_t* global_work_size, const size_t* local_work_size,
+  cl_uint num_events_in_wait_list, const cl_event* event_wait_list, cl_event* event, size_t nflops, size_t nbytes);
 
 /** Measure time in seconds for the given event. */
 LIBXSTREAM_API double libxstream_opencl_duration(cl_event event, int* result_code);

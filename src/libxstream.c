@@ -630,6 +630,25 @@ LIBXSTREAM_API int libxstream_init(void)
           libxstream_opencl_config.nevents = 0;
           result = EXIT_FAILURE;
         }
+        /* allocate and initialize per-launch profile records (only if profiling) */
+        if (EXIT_SUCCESS == result && 0 != libxstream_opencl_config.profile) {
+          libxstream_opencl_config.nlaunch_infos = nhandles;
+          libxstream_opencl_config.launch_infos = (libxstream_opencl_launch_info_t**)malloc(
+            sizeof(libxstream_opencl_launch_info_t*) * nhandles);
+          libxstream_opencl_config.launch_info_data = (libxstream_opencl_launch_info_t*)malloc(
+            sizeof(libxstream_opencl_launch_info_t) * nhandles);
+          if (NULL != libxstream_opencl_config.launch_infos && NULL != libxstream_opencl_config.launch_info_data) {
+            libxs_pmalloc_init(sizeof(libxstream_opencl_launch_info_t), &libxstream_opencl_config.nlaunch_infos,
+              (void**)libxstream_opencl_config.launch_infos, libxstream_opencl_config.launch_info_data);
+          }
+          else { /* profiling is optional: proceed without it rather than failing */
+            free(libxstream_opencl_config.launch_infos);
+            free(libxstream_opencl_config.launch_info_data);
+            libxstream_opencl_config.launch_info_data = NULL;
+            libxstream_opencl_config.launch_infos = NULL;
+            libxstream_opencl_config.nlaunch_infos = 0;
+          }
+        }
         /* create host memory pool (USM/SVM-aware custom allocator) */
         if (EXIT_SUCCESS == result) {
           libxstream_opencl_config.pool_hst = libxs_malloc_xpool(
@@ -714,73 +733,95 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_CTOR void libxstream_opencl_init(void)
 
 
 /**
- * Print the transfer histograms as rate rows (MB/s from the median of the
- * {MB, us} pair each sample carries). Returns the number of rows printed, which
- * is what tells the caller whether anything was attributed at all. Caller holds
- * the stdio lock.
+ * Print the identifying prefix shared by every PROF row. Under Slurm the job-ID
+ * is included so rows from concurrent jobs remain attributable.
  */
+LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char name[]);
+LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char name[])
+{
+  const char* const env_slurm = getenv("SLURM_JOBID");
+  const int slurm = (NULL == env_slurm ? -1 : atoi(env_slurm));
+  if (0 > slurm) fprintf(ostream, "\nPROF ACC/OpenCL: ID=%i %s", libxs_rid(), name);
+  else fprintf(ostream, "\nPROF ACC/OpenCL: ID=%i.%i %s", slurm, libxs_rid(), name);
+}
+
+
+/**
+ * Print one histogram whose samples are {amount, ms} (transfers, amount_first
+ * non-zero) or {ms, gflop, mb} (kernels). Both are the same measurement -- an
+ * amount of work over the time it took -- so both are reported here rather than
+ * in separate routines: a transfer yields a rate in the caller's unit, a kernel
+ * yields its duration plus whatever rates the stated work supports.
+ *
+ * A rate is always derived from a single sample's amount and that same sample's
+ * duration, never from independently aggregated totals. Returns 1 if a row was
+ * printed, 0 if the histogram held no usable sample.
+ */
+LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
+  FILE* ostream, const libxs_hist_t* hist, const char name[], int amount_first, const char unit[], double scale);
+LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
+  FILE* ostream, const libxs_hist_t* hist, const char name[], int amount_first, const char unit[], double scale)
+{
+  int result = 0;
+  if (NULL != hist) {
+    /**
+     * An empty histogram leaves vals untouched, so it must be cleared: reading
+     * it uninitialized (or inheriting a previous kind's median) reported a bogus
+     * rate for kinds that never recorded a sample.
+     */
+    double vals[3];
+    vals[0] = 0;
+    vals[1] = 0;
+    vals[2] = 0;
+    libxs_hist_query_median(NULL /*lock*/, hist, vals);
+    if (0 != amount_first) { /* transfers: {amount, ms}, report amount per time */
+      if (0 < vals[1]) {
+        const int precision[] = {1, 1};
+        libxstream_opencl_print_id(ostream, name);
+        fprintf(ostream, "=%.0f %s", scale * vals[0] / vals[1], unit);
+        libxs_hist_print(ostream, hist, precision, "\n");
+        result = 1;
+      }
+    }
+    else if (0 < vals[0]) { /* kernels: {ms, gflop, mb}, time always, rates if stated */
+      /* 3 decimals: kernels span microseconds to hundreds of milliseconds, and a
+         coarser format would print every short kernel as 0.000 */
+      const int precision[] = {3, 1, 1};
+      libxstream_opencl_print_id(ostream, name);
+      fprintf(ostream, "=%.3f %s", vals[0], unit);
+      if (0 < vals[1]) fprintf(ostream, " %.1f GFLOPS/s", 1E3 * vals[1] / vals[0]);
+      if (0 < vals[2]) fprintf(ostream, " %.1f GB/s", vals[2] / vals[0]);
+      libxs_hist_print(ostream, hist, precision, "\n");
+      result = 1;
+    }
+  }
+  return result;
+}
+
+
+/** Print the transfer histograms. Caller holds the stdio lock. */
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_transfers(FILE* ostream, const libxs_hist_t* hist[], int nhist);
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_transfers(FILE* ostream, const libxs_hist_t* hist[], int nhist)
 {
   const char *const kind[] = { "H2D", "D2H", "D2D", "ZERO" };
-  const char *const env_slurm = getenv("SLURM_JOBID");
-  const int slurm = (NULL == env_slurm ? -1 : atoi(env_slurm));
-  const int precision[] = {1, 1};
   int nrows = 0, i;
   assert(nhist <= (int)(sizeof(kind) / sizeof(*kind)));
-  for (i = 0; i < nhist; ++i) if (NULL != hist[i]) {
-    /**
-     * An empty histogram leaves vals untouched, so it must be cleared per
-     * iteration: otherwise the first kind reads uninitialized stack and every
-     * later one inherits the previous kind's median, which reported a bogus
-     * rate for kinds that never recorded a sample.
-     */
-    double vals[2];
-    vals[0] = 0;
-    vals[1] = 0;
-    libxs_hist_query_median(NULL /*lock*/, hist[i], vals);
-    /* a non-positive duration means the histogram holds no sample: skip the kind
-       rather than deriving a rate from it */
-    if (0 < vals[1]) {
-      const double rate = 1E6 * vals[0] / vals[1];
-      if (0 > slurm) fprintf(ostream, "\nPROF ACC/OpenCL: ID=%i %s=%.0f MB/s", libxs_rid(), kind[i], rate);
-      else fprintf(ostream, "\nPROF ACC/OpenCL: ID=%i.%i %s=%.0f MB/s", slurm, libxs_rid(), kind[i], rate);
-      libxs_hist_print(ostream, hist[i], precision, "\n");
-      ++nrows;
-    }
+  for (i = 0; i < nhist; ++i) {
+    nrows += libxstream_opencl_print_hist(ostream, hist[i], kind[i], 1 /*amount_first*/, "MB/s", 1E6);
   }
   return nrows;
 }
 
 
-/**
- * Print the per-kernel duration histograms. Deliberately not folded into the
- * transfer routine: a kernel has no byte count, so there is no rate to report
- * and the rows carry a different unit. Returns the number of rows printed.
- * Caller holds the stdio lock.
- */
+/** Print the per-kernel histograms. Caller holds the stdio lock. */
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_kernels(FILE* ostream);
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_kernels(FILE* ostream)
 {
-  const char* const env_slurm = getenv("SLURM_JOBID");
-  const int slurm = (NULL == env_slurm ? -1 : atoi(env_slurm));
-  const int precision[] = {1};
   int nrows = 0;
   size_t i;
   for (i = 0; i < libxstream_opencl_config.nkernels; ++i) {
-    const libxs_hist_t* const hist = libxstream_opencl_config.hist_kernel[i];
-    if (NULL != hist) {
-      double vals[1];
-      vals[0] = 0; /* an empty histogram leaves vals untouched */
-      libxs_hist_query_median(NULL /*lock*/, hist, vals);
-      if (0 < vals[0]) {
-        const char* const name = libxstream_opencl_config.name_kernel[i];
-        if (0 > slurm) fprintf(ostream, "\nPROF ACC/OpenCL: ID=%i %s=%.1f us", libxs_rid(), name, vals[0]);
-        else fprintf(ostream, "\nPROF ACC/OpenCL: ID=%i.%i %s=%.1f us", slurm, libxs_rid(), name, vals[0]);
-        libxs_hist_print(ostream, hist, precision, "\n");
-        ++nrows;
-      }
-    }
+    nrows += libxstream_opencl_print_hist(ostream, libxstream_opencl_config.hist_kernel[i],
+      libxstream_opencl_config.name_kernel[i], 0 /*amount_first*/, "ms", 1.0);
   }
   if (0 != libxstream_opencl_config.nprofile_kernel_lost) {
     /* a silent cap would read as "these are all the kernels" */
@@ -876,6 +917,11 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       libxstream_opencl_config.name_kernel[i] = NULL;
     }
     libxstream_opencl_config.nkernels = 0;
+    free(libxstream_opencl_config.launch_infos);
+    free(libxstream_opencl_config.launch_info_data);
+    libxstream_opencl_config.launch_info_data = NULL;
+    libxstream_opencl_config.launch_infos = NULL;
+    libxstream_opencl_config.nlaunch_infos = 0;
     libxs_free_pool(libxstream_opencl_config.pool_dev);
     libxs_free_pool(libxstream_opencl_config.pool_hst);
     if (NULL != libxstream_opencl_config.pool_hst_queue) {
@@ -2181,46 +2227,62 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
 }
 
 
+/** Return a per-launch record to the pool. */
+LIBXSTREAM_API_INTERN void libxstream_launch_info_free(libxstream_opencl_launch_info_t* info);
+LIBXSTREAM_API_INTERN void libxstream_launch_info_free(libxstream_opencl_launch_info_t* info)
+{
+  if (NULL != info) {
+    libxs_pfree_lock(info, (void**)libxstream_opencl_config.launch_infos, &libxstream_opencl_config.nlaunch_infos,
+      libxstream_opencl_config.lock_event);
+  }
+}
+
+
 /**
- * Record the duration of a completed kernel launch. The data word carries the
- * hist_kernel index chosen at enqueue: the callback resolves no names and takes
- * no lock, because the table is append-only and the entry it refers to was
- * published before the launch.
+ * Record a completed kernel launch as {ms, gflop, mb}. The work amounts come from
+ * the per-launch record rather than from the table, so two launches of the same
+ * kernel in flight at once cannot overwrite each other's counts. The callback
+ * resolves no names and takes no lock beyond the histogram's and the pool's.
  */
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event /*event*/, cl_int /*event_status*/, void* /*data*/);
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, cl_int event_status, void* data)
 {
+  libxstream_opencl_launch_info_t* const info = (libxstream_opencl_launch_info_t*)data;
   cl_command_type type = 0;
   int result = EXIT_SUCCESS;
-  double vals[1];
-  vals[0] = libxstream_opencl_duration(event, &result) * 1E6; /* Microseconds */
+  double vals[3];
+  vals[0] = libxstream_opencl_duration(event, &result) * 1E3; /* Milliseconds */
   LIBXS_UNUSED(event_status);
-  assert(CL_COMPLETE == event_status);
-  if (EXIT_SUCCESS == result && EXIT_SUCCESS == clGetEventInfo(event, CL_EVENT_COMMAND_TYPE, sizeof(type), &type, NULL)
-    && CL_COMMAND_NDRANGE_KERNEL == type && libxstream_event_kind_kernel == LIBXSTREAM_EVENT_KIND(data))
+  assert(CL_COMPLETE == event_status && NULL != info);
+  if (EXIT_SUCCESS == result && NULL != info
+    && EXIT_SUCCESS == clGetEventInfo(event, CL_EVENT_COMMAND_TYPE, sizeof(type), &type, NULL)
+    && CL_COMMAND_NDRANGE_KERNEL == type)
   {
-    const size_t i = LIBXSTREAM_EVENT_SIZE(data);
+    const size_t i = info->slot;
     libxs_hist_t* const hist = (i < libxstream_opencl_config.nkernels ? libxstream_opencl_config.hist_kernel[i] : NULL);
     if (NULL != hist) {
       /* same floor as the transfer path: a duration spanning too few ticks of the
          device timer is quantization noise rather than a measurement */
-      const double floor_us = 1E-3 * (double)(LIBXSTREAM_PROFILE_TICKS * libxstream_opencl_config.device.timer_ns);
-      if (vals[0] >= floor_us) {
+      const double floor_ms = 1E-6 * (double)(LIBXSTREAM_PROFILE_TICKS * libxstream_opencl_config.device.timer_ns);
+      vals[1] = info->gflop;
+      vals[2] = info->mb;
+      if (vals[0] >= floor_ms) {
         libxs_hist_push(libxstream_opencl_config.lock_event, hist, vals);
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile) {
-          fprintf(stderr, "PROF ACC/OpenCL: %s us=%.0f\n", libxstream_opencl_config.name_kernel[i], vals[0]);
+          fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f\n", libxstream_opencl_config.name_kernel[i], vals[0]);
         }
       }
       else {
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_short, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile) {
-          fprintf(stderr, "PROF ACC/OpenCL: %s us=%.0f (below %.0f us, discarded)\n",
-            libxstream_opencl_config.name_kernel[i], vals[0], floor_us);
+          fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f (below %.3f ms, discarded)\n",
+            libxstream_opencl_config.name_kernel[i], vals[0], floor_ms);
         }
       }
     }
   }
+  libxstream_launch_info_free(info);
   if (NULL != event) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(event));
 }
 
@@ -2250,8 +2312,15 @@ LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel)
       if (NULL != name) {
         if (EXIT_SUCCESS == clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, LIBXSTREAM_MAXSTRLEN, name, NULL)) {
           const int nbuckets = LIBXS_MAX(LIBXS_ABS(libxstream_opencl_config.profile), 2) + 1;
-          const libxs_hist_update_t update[] = {libxs_hist_update_avg};
-          libxs_hist_t* const hist = libxs_hist_create(nbuckets, 1, update);
+          /**
+           * All three averaged, not accumulated: libxs_hist_query_percentile
+           * reports vals[0] as an interpolated per-sample duration, so the work
+           * amounts must be per-sample too. Summing them would divide a bucket
+           * total by a single-sample time -- the same numerator/denominator
+           * mismatch that let the old facility report more work in less time.
+           */
+          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
+          libxs_hist_t* const hist = libxs_hist_create(nbuckets, 3, update);
           if (NULL != hist) {
             libxstream_opencl_config.hist_kernel[i] = hist;
             libxstream_opencl_config.name_kernel[i] = name;
@@ -2273,36 +2342,70 @@ LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel)
 }
 
 
-LIBXSTREAM_API int libxstream_opencl_launch(libxstream_stream_t* stream, cl_kernel kernel, cl_uint work_dim,
+LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl_kernel kernel, cl_uint work_dim,
   const size_t* global_work_offset, const size_t* global_work_size, const size_t* local_work_size,
-  cl_uint num_events_in_wait_list, const cl_event* event_wait_list, cl_event* event)
+  cl_uint num_events_in_wait_list, const cl_event* event_wait_list, cl_event* event, size_t nflops, size_t nbytes)
 {
   libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)stream;
   int result = EXIT_SUCCESS;
   if (NULL != str && NULL != kernel) {
-    /* profile only if requested, and only where an event can carry the timing:
-       a caller-owned event is reused rather than adding a second one */
-    const size_t slot = (0 != libxstream_opencl_config.profile ? libxstream_kernel_slot(kernel) : LIBXSTREAM_MAXNKERNELS);
-    const int profile = (slot < LIBXSTREAM_MAXNKERNELS);
+    /**
+     * Profile only if requested. The record is taken from the pool before the
+     * launch and returned by the callback, so an exhausted pool skips profiling
+     * rather than the launch. The pool bounds launches *in flight*, not total
+     * launches: a record lives only until its completion callback runs.
+     */
+    libxstream_opencl_launch_info_t* info = NULL;
     cl_event evt = NULL;
-    result = clEnqueueNDRangeKernel(str->queue, kernel, work_dim, global_work_offset, global_work_size, local_work_size,
-      num_events_in_wait_list, event_wait_list, (0 != profile || NULL != event) ? &evt : NULL);
-    if (EXIT_SUCCESS == result && 0 != profile) {
-      /* retain when the caller keeps the event: the callback releases its own
-         reference, and the caller releases theirs */
-      if (NULL == event || EXIT_SUCCESS == clRetainEvent(evt)) {
-        if (EXIT_SUCCESS != clSetEventCallback(evt, CL_COMPLETE, libxstream_kernel_notify,
-                              LIBXSTREAM_EVENT_DATA(slot, libxstream_event_kind_kernel)))
-        { /* the launch succeeded: a profile that cannot be taken is not an error */
-          if (NULL != event) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(evt));
+    if (0 != libxstream_opencl_config.profile && NULL != libxstream_opencl_config.launch_infos) {
+      const size_t slot = libxstream_kernel_slot(kernel);
+      if (slot < LIBXSTREAM_MAXNKERNELS) {
+        info = (libxstream_opencl_launch_info_t*)libxs_pmalloc_lock(
+          (void**)libxstream_opencl_config.launch_infos, &libxstream_opencl_config.nlaunch_infos,
+          libxstream_opencl_config.lock_event);
+        if (NULL != info) {
+          info->slot = slot;
+          info->gflop = 1E-9 * (double)nflops;
+          info->mb = 1E-6 * (double)nbytes;
         }
       }
     }
+    result = clEnqueueNDRangeKernel(str->queue, kernel, work_dim, global_work_offset, global_work_size, local_work_size,
+      num_events_in_wait_list, event_wait_list, (NULL != info || NULL != event) ? &evt : NULL);
+    if (EXIT_SUCCESS == result && NULL != info) {
+      /* retain when the caller keeps the event: the callback releases its own
+         reference, and the caller releases theirs */
+      if (NULL == event || EXIT_SUCCESS == clRetainEvent(evt)) {
+        if (EXIT_SUCCESS != clSetEventCallback(evt, CL_COMPLETE, libxstream_kernel_notify, info)) {
+          /* the launch succeeded: a profile that cannot be taken is not an error */
+          if (NULL != event) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(evt));
+          libxstream_launch_info_free(info);
+          info = NULL;
+        }
+      }
+      else {
+        libxstream_launch_info_free(info);
+        info = NULL;
+      }
+    }
+    else if (NULL != info) { /* launch failed: no callback will run */
+      libxstream_launch_info_free(info);
+      info = NULL;
+    }
     if (NULL != event) *event = evt;
-    else if (NULL != evt && 0 == profile) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(evt));
+    else if (NULL != evt && NULL == info) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(evt));
   }
   else result = EXIT_FAILURE;
   CL_RETURN(result, "");
+}
+
+
+LIBXSTREAM_API int libxstream_opencl_launch(libxstream_stream_t* stream, cl_kernel kernel, cl_uint work_dim,
+  const size_t* global_work_offset, const size_t* global_work_size, const size_t* local_work_size,
+  cl_uint num_events_in_wait_list, const cl_event* event_wait_list, cl_event* event)
+{
+  return libxstream_opencl_launch_work(stream, kernel, work_dim, global_work_offset, global_work_size, local_work_size,
+    num_events_in_wait_list, event_wait_list, event, 0 /*nflops*/, 0 /*nbytes*/);
 }
 
 
