@@ -62,6 +62,17 @@
 #define NBN DIVUP(SN, BN)
 #define WRK (NBM * NBN)
 
+/**
+ * The work-group can be larger than the WRK work-items that own a result-tile
+ * (the host rounds the WG-size up to a subgroup multiple or a power of two).
+ * Those surplus items must not compute or store but reach every BARRIER.
+ */
+#if (WRK < WG)
+#  define ACTIVE (idx < WRK)
+#else
+#  define ACTIVE 1
+#endif
+
 #define UM (SM / BK)
 #define VM (SM % UM)
 
@@ -170,9 +181,6 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #  if defined(BARRIER) && (MAX(1, SG) < WG) && (defined(SLM_C) || defined(SLM_P))
   BARRIER(CLK_LOCAL_MEM_FENCE);
 #  endif
-#  if (WRK < WG)
-  if (WRK <= idx) return; /* WRK <= idx */
-#  endif
 #  if defined(SLM_P)
   c0 = params[2];
 #  else
@@ -199,15 +207,17 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
     const int c1 = ((i + 1) < batchsize ? (params[idxstride * i + idxstride + 2] - idxbase)
                                         : -1);
 #else
-#  if (WRK < WG)
-  if (WRK > idx) /* WRK > idx */
-#  endif
+  /**
+   * Not guarded here: the regions below carry their own ACTIVE guards so that
+   * every BARRIER inside remains collective. The indices are read by all items
+   * (params is per-group, not per-item) and are only dereferenced where guarded.
+   */
   {
     const int a0 = params[0] - pzero, b0 = params[1] - pzero, c0 = params[2] - pzero;
 #endif
 
 #if defined(SLM_A) && (1 != BK || BM < SM || 1 != BN)
-    { /* copy or transpose A-matrix into SLM */
+    if (ACTIVE) { /* copy or transpose A-matrix into SLM */
       int m = idx;
 #  if (WRK != SM)
       UNROLL_AUTO for (; m < SM; m += WRK)
@@ -219,7 +229,7 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #endif
 
 #if defined(SLM_B)
-    { /* copy or transpose B-matrix into SLM */
+    if (ACTIVE) { /* copy or transpose B-matrix into SLM */
       int n = idx;
 #  if (WRK != SN)
       UNROLL_AUTO for (; n < SN; n += WRK)
@@ -230,10 +240,10 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
     }
 #elif defined(REG_B)
 #  if defined(TRACK_B) && (1 < BS)
-    if (b0 != b1) {
+    if (ACTIVE && b0 != b1) {
       b1 = b0;
 #  else
-    { /* copy or transpose B-matrix into registers */
+    if (ACTIVE) { /* copy or transpose B-matrix into registers */
 #  endif
       UNROLL(SK) for (SINT k = 0; k < SK; ++k)
       {
@@ -265,7 +275,8 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #endif
 
 #if (BM < SM || 1 != BN)
-    { /* calculate result-tile using general tiles */
+    /* no BARRIER within this branch: the guard may wrap it entirely */
+    if (ACTIVE) { /* calculate result-tile using general tiles */
 #  if defined(REG_A) && !defined(SLM_A) && (1 != BK)
 #    if (1 == BS)
       T cnm[BN]; /* row */
@@ -461,15 +472,20 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #  if (1 == BK)
       UNROLL_OUTER(SK) for (SINT k = 0; k < SK; ++k)
       {
-        const T b = BNK(idx, k);
+        const T b = ACTIVE ? BNK(idx, k) : ZERO;
 #    if defined(SLM_A)
+        /* guarded separately from the BARRIER below, which stays collective */
+        if (ACTIVE) {
 #      if (WRK != SM)
-        UNROLL_AUTO for (SINT m = (SINT)idx; m < SM; m += WRK) amk[m] = ADX(m, k);
+          UNROLL_AUTO for (SINT m = (SINT)idx; m < SM; m += WRK) amk[m] = ADX(m, k);
 #      else
-        amk[idx] = ADX(idx, k);
+          amk[idx] = ADX(idx, k);
 #      endif
+        }
 #    elif defined(REG_A)
-        UNROLL_FORCE(SM) for (SINT m = 0; m < SM; ++m) amk[m] = ADX(m, k);
+        if (ACTIVE) {
+          UNROLL_FORCE(SM) for (SINT m = 0; m < SM; ++m) amk[m] = ADX(m, k);
+        }
 #    endif
 #    if defined(BARRIER) && (MAX(1, SG) < WG) && defined(SLM_A)
         BARRIER(CLK_LOCAL_MEM_FENCE);
@@ -477,6 +493,8 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #    if defined(ACC_OPENCL_VERSION) && (200 /*2.0*/ <= ACC_OPENCL_VERSION) && \
       (!defined(GPU) || (0 != GPU)) && !defined(SLM_A) && !defined(REG_A) && (WRK == SM) && \
       (SM <= SG || SM <= WG) /* use ACC_OPENCL_VERSION rather than ACC_OPENCL_C_VERSION */
+        /* reached only for WRK == SM, where every item is ACTIVE: the
+           broadcasts below are themselves work-group collectives */
         const T a = AMK(idx, k);
         UNROLL_FORCE(SM) for (SINT m = 0; m < SM; ++m)
         {
@@ -489,27 +507,33 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #      endif
         }
 #    else
-        UNROLL_FORCE(SM)
-        for (SINT m = 0; m < SM; ++m)
-          CNM(idx, m) = MAD(AMK(m, k), b, CNM(idx, m)); /* fallback */
+        if (ACTIVE) {
+          UNROLL_FORCE(SM)
+          for (SINT m = 0; m < SM; ++m)
+            CNM(idx, m) = MAD(AMK(m, k), b, CNM(idx, m)); /* fallback */
+        }
 #    endif
 #    if defined(BARRIER) && (MAX(1, SG) < WG) && defined(SLM_A)
         BARRIER(CLK_LOCAL_MEM_FENCE);
 #    endif
       }
 #    if (1 == BS)
-      UNROLL(SM) for (SINT m = 0; m < SM; ++m)
-      {
-#      if defined(ATOMIC_INC_NZ)
-        if (ZERO != CNM(idx, m))
-#      endif
+      if (ACTIVE) {
+        UNROLL(SM) for (SINT m = 0; m < SM; ++m)
         {
-          ACCUMULATE(&CDX(m, idx), CNM(idx, m));
-          CNM(idx, m) = ZERO; /* reset */
+#      if defined(ATOMIC_INC_NZ)
+          if (ZERO != CNM(idx, m))
+#      endif
+          {
+            ACCUMULATE(&CDX(m, idx), CNM(idx, m));
+            CNM(idx, m) = ZERO; /* reset */
+          }
         }
       }
 #    endif
 #  else
+      /* no BARRIER in this sub-branch: one guard covers it */
+      if (ACTIVE) {
       SINT m = 0, u;
 #    if (1 == UM)
       UNROLL_OUTER(SM)
@@ -589,13 +613,16 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
         }
 #      endif
 #    endif
+      } /* ACTIVE */
 #  endif
     }
 #endif
 
 #if (1 < BS)
 #  if defined(TRACK_C)
-    if (c0 != c1)
+    if (ACTIVE && c0 != c1)
+#  else
+    if (ACTIVE)
 #  endif
 #  if (BM < SM || 1 != BN)
     { /* atomically commit C-tile to global memory */
