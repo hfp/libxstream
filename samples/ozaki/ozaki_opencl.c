@@ -295,12 +295,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   }
 
   /**
-   * FP64 is needed for the fp64 interface, and independently by Scheme 2 even
-   * in fp32: Garner/Horner and the fractional reconstruction accumulate CRT
-   * values far beyond 2^24, so their intermediates cannot be demoted to float
-   * without losing the exactness the scheme exists to provide. Scheme 1 uses
-   * no double at all, hence a device without cl_khr_fp64 can still run fp32
-   * Scheme 1 -- kind 2 (and the adaptive kind 3, which may select it) cannot.
+   * FP64 is needed for the fp64 interface only. CRT values exceed 2^24, but
+   * Garner/Horner keep them in ulong and convert to real_t once, so fp32
+   * Scheme 2 is exact without double; only the fractional variants use
+   * double unconditionally (error-free transformations), and they fall back
+   * to Garner when fp64 is absent. Scheme 1 uses no double at all.
    */
   { const char *const fp64_ext[] = {"cl_khr_fp64"};
     has_fp64 = (EXIT_SUCCESS == libxstream_opencl_device_ext(device, fp64_ext, 1));
@@ -309,13 +308,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         fprintf(stderr, "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
         result = EXIT_FAILURE;
       }
-      else if (2 == kind) {
-        fprintf(stderr, "ERROR OZAKI: Scheme 2 needs cl_khr_fp64 for CRT reconstruction"
-                        " (device lacks it); use OZAKI=1\n");
-        result = EXIT_FAILURE;
-      }
-      else if (3 == kind && (0 > verbosity || 0 < verbosity)) {
-        fprintf(stderr, "INFO OZAKI: no cl_khr_fp64, adaptive selection restricted to Scheme 1\n");
+      else if ((2 == kind || 3 == kind) && (0 > verbosity || 0 < verbosity)) {
+        fprintf(stderr, "INFO OZAKI: no cl_khr_fp64, Scheme 2 uses Garner reconstruction\n");
       }
     }
   }
@@ -716,12 +710,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
     /**
      * Scheme 2: compile the CRT kernels even when Scheme 1 was requested, so
-     * adaptive dispatch can reach them. Skipped without fp64 -- the
-     * reconstruction is double-only, so the build would fail and take the
-     * usable Scheme-1 path down with it. ozaki_gemm falls back on a NULL
-     * crt_registry, and kind 2 already failed above.
+     * adaptive dispatch can reach them. Without fp64 this needs fp32 operands
+     * and Garner reconstruction: only the fractional variants carry
+     * unconditional double (the error-free transformations and the leaf
+     * fractional sum), whereas Garner/Horner accumulate in ulong and convert
+     * to float. An fp64 device is therefore required only for the fp64
+     * interface, not for fp32 Scheme 2. ozaki_gemm falls back on a NULL
+     * crt_registry when the build is skipped.
      */
-    if (0 != has_fp64) {
+    if (0 != has_fp64 || 0 == use_double) {
       /**
        * Fractional-CRT: mode 1 replaces the whole reconstruction with a flat
        * fractional sum (needs raw per-prime residues, so the flat path;
@@ -737,7 +734,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       const char *const env_fraccrt = getenv("OZAKI_FRACCRT");
       const char *const env_skip = getenv("OZAKI_SKIP_GARNER");
       const int fraccrt_req = (NULL != env_fraccrt) ? atoi(env_fraccrt) : 2;
-      const int fraccrt = (1 == fraccrt_req || 2 == fraccrt_req) ? fraccrt_req : 0;
+      /* Fractional CRT is double-only: without fp64 fall back to Garner. */
+      const int fraccrt = (0 == has_fp64) ? 0 : ((1 == fraccrt_req || 2 == fraccrt_req) ? fraccrt_req : 0);
       const int crt_hier = (1 == fraccrt) ? 0 : (0 != ctx->hier || 3 == kind || 2 == fraccrt);
       const int crt_rtm = (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm / 2, 1) : rtm;
       /**
