@@ -788,13 +788,14 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
       const double floor_us = 1E-3 * (double)(LIBXSTREAM_PROFILE_TICKS * libxstream_opencl_config.device.timer_ns);
       if (vals[1] >= floor_us) {
         libxs_hist_push(libxstream_opencl_config.lock_memory, hist, vals);
-        if (0 > libxstream_opencl_config.profile) {
+        LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
+        if (0 > libxstream_opencl_config.profile_mem) {
           fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f\n", name, vals[0], vals[1]);
         }
       }
       else {
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_short, 1, LIBXS_ATOMIC_RELAXED);
-        if (0 > libxstream_opencl_config.profile) {
+        if (0 > libxstream_opencl_config.profile_mem) {
           fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f (below %.0f us, discarded)\n",
             name, vals[0], vals[1], floor_us);
         }

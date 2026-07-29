@@ -278,7 +278,7 @@ int ozaki_npanel(const ozaki_context_t* ctx, int M, int N, int tm, int tn);
  * reallocating.
  */
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K, double alpha,
-  const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc, libxs_hist_t* hist, int profile, int dev);
+  const void* a, int lda, const void* b, int ldb, double beta, void* c, int ldc, int dev);
 
 /**
  * Complex GEMM via block embedding - GPU-native version.

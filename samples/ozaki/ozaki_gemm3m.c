@@ -41,7 +41,6 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   const int b_cols = tb ? K : N;
   const double ar_d = alpha[0], ai_d = alpha[1];
   const double br_d = beta[0], bi_d = beta[1];
-  const libxstream_opencl_stream_t* str = stream;
   void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
   void *d_a_hat = NULL, *d_b_hat = NULL, *d_c_hat = NULL;
   size_t sz_a_complex, sz_b_complex, sz_c_complex;
@@ -114,7 +113,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &a_cols));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &lda));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ta_sign));
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
+    CL_CHECK(result, libxstream_opencl_launch(stream, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
   /* Phase 1: Construct B_hat from interleaved B */
@@ -130,14 +129,14 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &b_cols));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ldb));
     CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &cb));
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
+    CL_CHECK(result, libxstream_opencl_launch(stream, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
   /* Phase 2: Single real GEMM via Ozaki: C_hat = op(A_hat) * op(B_hat) */
   if (EXIT_SUCCESS == result) {
     const double one = 1.0, zero = 0.0;
     result = ozaki_gemm(ctx, stream, transa, transb, m_hat, N, k_hat, one,
-      d_a_hat, lda_hat, d_b_hat, ldb_hat, zero, d_c_hat, ldc_hat, NULL, 0, 1);
+      d_a_hat, lda_hat, d_b_hat, ldb_hat, zero, d_c_hat, ldc_hat, 1);
   }
 
   /* Phase 3: Finalize - extract Re/Im from C_hat, apply alpha/beta */
@@ -167,7 +166,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
       CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(float), &br_f));
       CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(float), &bi_f));
     }
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, kern, 2, NULL, global, NULL, 0, NULL, NULL));
+    CL_CHECK(result, libxstream_opencl_launch(stream, kern, 2, NULL, global, NULL, 0, NULL, NULL));
   }
 
   /* D2H: download result C */

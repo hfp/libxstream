@@ -1456,8 +1456,6 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
   int result = EXIT_SUCCESS;
   const stencil_kernels_t* knl = stencil_get_kernels(ctx);
   const int total_blocks = ctx->nblocks[0] * ctx->nblocks[1] * ctx->nblocks[2];
-  const libxstream_opencl_stream_t* str =
-    (const libxstream_opencl_stream_t*)ctx->stream;
   const int nx = ctx->grid_size[0];
   const int ny = ctx->grid_size[1];
   const int nz = ctx->grid_size[2];
@@ -1504,7 +1502,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &nx));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &ny));
     CL_CHECK(result, clSetKernelArg(knl->stencil_apply_direct, i++, sizeof(int), &nz));
-    CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply_direct,
+    CL_CHECK(result, libxstream_opencl_launch(ctx->stream, knl->stencil_apply_direct,
       3, NULL, global_direct, local_direct, 0, NULL, NULL));
   }
   else if (EXIT_SUCCESS == result) {
@@ -1560,7 +1558,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
       CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nbx));
       CL_CHECK(result, clSetKernelArg(knl->stencil_apply, i++, sizeof(int), &nby));
 
-      CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply,
+      CL_CHECK(result, libxstream_opencl_launch(ctx->stream, knl->stencil_apply,
         3, NULL, global_apply, local_apply, 0, NULL, NULL));
     }
 
@@ -1594,7 +1592,7 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
         CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &nbx));
         CL_CHECK(result, clSetKernelArg(knl->stencil_apply_tti, i++, sizeof(int), &nby));
 
-        CL_CHECK(result, clEnqueueNDRangeKernel(str->queue, knl->stencil_apply_tti,
+        CL_CHECK(result, libxstream_opencl_launch(ctx->stream, knl->stencil_apply_tti,
           3, NULL, global_tti, local_tti, 0, NULL, NULL));
       }
     }

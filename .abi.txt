@@ -69,6 +69,7 @@ libxstream_opencl_info_hostptr
 libxstream_opencl_kernel
 libxstream_opencl_kernel_flags
 libxstream_opencl_kernel_query
+libxstream_opencl_launch
 libxstream_opencl_memset
 libxstream_opencl_program
 libxstream_opencl_set_active_device

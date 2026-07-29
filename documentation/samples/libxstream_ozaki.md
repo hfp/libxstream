@@ -100,11 +100,18 @@ without device-to-host readback, eliminating the sync bubble.
 | NREPEAT       | 1       | Number of benchmark repetitions                   |
 | OZAKI_VERBOSE | 0       | 0=silent, 1=errors, 2=warnings, 3+=all. Neg.=all  |
 
-Additional variables for profiling, accuracy monitoring, and complex
-GEMM dispatch (OZAKI_PROFILE, OZAKI_THRESHOLD, OZAKI_STAT, OZAKI_EPS,
-OZAKI_RSQ, OZAKI_EXIT, OZAKI_COMPLEX) are handled by the LIBXS Ozaki
-sample ([LIBXS](https://github.com/hfp/libxs)), which owns the GEMM
+Additional variables for accuracy monitoring and complex GEMM dispatch
+(OZAKI_THRESHOLD, OZAKI_STAT, OZAKI_EPS, OZAKI_RSQ, OZAKI_EXIT,
+OZAKI_COMPLEX) are handled by the LIBXS Ozaki sample
+([LIBXS](https://github.com/hfp/libxs)), which owns the GEMM
 interceptor. See its README for details.
+
+Kernel timings come from LIBXSTREAM rather than from a sample-specific
+facility: `LIBXSTREAM_PROFILE=1` reports one row per kernel
+(preprocess A, preprocess B, the fused GEMM, and so on), and
+`LIBXSTREAM_PROFILE_MEM=1` reports transfer rates. Neither needs a
+phase to be selected up front -- every kernel is recorded and the
+interesting rows are read from the report.
 
 ## Output Tile Selection
 

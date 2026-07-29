@@ -70,6 +70,15 @@ LIBXS_PRAGMA_DIAG_POP()
 #if !defined(LIBXSTREAM_MAXNITEMS)
 # define LIBXSTREAM_MAXNITEMS 1024
 #endif
+/**
+ * Number of distinct kernels that can be profiled (LIBXSTREAM_PROFILE). Fixed,
+ * because the event callback indexes this table and must not allocate; the index
+ * is packed into the event data word, so raising this beyond the bits reserved
+ * by LIBXSTREAM_EVENT_KIND_BITS is a compile-time error.
+ */
+#if !defined(LIBXSTREAM_MAXNKERNELS)
+# define LIBXSTREAM_MAXNKERNELS 32
+#endif
 #if !defined(LIBXSTREAM_CMEM) && 1
 # define LIBXSTREAM_CMEM
 #endif
@@ -199,6 +208,10 @@ typedef struct libxstream_opencl_device_t {
    * CL_PROFILING_COMMAND_* is nanoseconds by specification, but the resolution
    * is not: a device reporting 1000 quantizes every measurement to 1us, so a
    * duration shorter than a few ticks carries an error of order 100%.
+   *
+   * Per device, hence part of devinfo: the enumeration flattens all platforms
+   * into one array, so a set-wide value would mix vendors and device types and
+   * could apply a CPU's coarse tick as the floor for a fine-grained GPU.
    */
   size_t timer_ns;
   /** Kind of device (GPU, CPU, or other). */
@@ -229,14 +242,11 @@ typedef enum libxstream_event_kind_t {
   libxstream_event_kind_h2d,
   libxstream_event_kind_d2h,
   libxstream_event_kind_d2d,
-  libxstream_event_kind_zero
+  libxstream_event_kind_zero,
+  /** Kernel launch: the payload is a hist_kernel index, not a byte count. */
+  libxstream_event_kind_kernel
 } libxstream_event_kind_t;
 
-/**
- * Pack a transfer size and its kind into the single void* the OpenCL event
- * callback carries. Three bits hold the kind, leaving 2^61-1 bytes (2 EiB) for
- * the size, i.e. no practical restriction.
- */
 /**
  * Accuracy target for profiled samples, expressed as a multiple of the device
  * timer granularity (CL_DEVICE_PROFILING_TIMER_RESOLUTION, queried per device
@@ -252,6 +262,12 @@ typedef enum libxstream_event_kind_t {
 # define LIBXSTREAM_PROFILE_TICKS 10
 #endif
 
+/**
+ * Pack a payload and its kind into the single void* the OpenCL event callback
+ * carries. Three bits hold the kind, leaving 2^61-1 for the payload: a byte
+ * count for the transfer kinds (2 EiB, no practical restriction) or a
+ * hist_kernel index for libxstream_event_kind_kernel.
+ */
 #define LIBXSTREAM_EVENT_KIND_BITS 3
 #define LIBXSTREAM_EVENT_KIND_SHIFT ((8 * sizeof(size_t)) - LIBXSTREAM_EVENT_KIND_BITS)
 #define LIBXSTREAM_EVENT_SIZE_MASK ((((size_t)1) << LIBXSTREAM_EVENT_KIND_SHIFT) - 1)
@@ -337,16 +353,44 @@ typedef struct libxstream_opencl_config_t {
   /** Runtime-adjust LIBXSTREAM_STREAM_PRIORITIES. */
   cl_int priority;
 #endif
-  /** Runtime-enable LIBXSTREAM_PROFILE_DBCSR. */
-  cl_int profile;
-  /** Detailed/optional insight. */
+  /**
+   * LIBXSTREAM_PROFILE: per-kernel durations (also runtime-enables
+   * LIBXSTREAM_PROFILE_DBCSR). LIBXSTREAM_PROFILE_MEM: transfer rates.
+   * Separate because the two report different quantities in different units:
+   * kernels have no byte count and hence no rate, so mixing the rows would
+   * invite reading one as the other. Both may be requested at once, which is
+   * the only case in which both appear.
+   */
+  cl_int profile, profile_mem;
+  /** Detailed/optional insight (LIBXSTREAM_PROFILE_MEM). */
   libxs_hist_t *hist_h2d, *hist_d2h, *hist_d2d, *hist_zero;
   /**
-   * Samples discarded because their duration was too close to the device timer
-   * resolution to carry a meaningful rate (see LIBXSTREAM_PROFILE_TICKS).
-   * Counted so that a sparse histogram is never mistaken for a complete one.
+   * Per-kernel duration histograms (LIBXSTREAM_PROFILE), keyed by the cl_kernel
+   * handle observed at launch. The name is not supplied by the caller: it is
+   * read from the handle via CL_KERNEL_FUNCTION_NAME once, when a kernel is
+   * first seen, so a launch site needs no identifier argument and the library
+   * needs no table of known kernel names.
+   *
+   * Fixed capacity, because the completion callback must not allocate: it
+   * receives an index into this table packed into the event data word and only
+   * ever reads. Overflow is counted rather than growing the table (see
+   * nprofile_kernel_lost).
    */
-  size_t nprofile_short;
+  libxs_hist_t* hist_kernel[LIBXSTREAM_MAXNKERNELS];
+  const char* name_kernel[LIBXSTREAM_MAXNKERNELS];
+  cl_kernel kernels[LIBXSTREAM_MAXNKERNELS];
+  size_t nkernels;
+  /** Launches not profiled because hist_kernel is full (distinct kernels). */
+  size_t nprofile_kernel_lost;
+  /**
+   * Samples pushed into a histogram, and samples discarded because their
+   * duration was too close to the device timer resolution to carry a meaningful
+   * rate (see LIBXSTREAM_PROFILE_TICKS). Counted so that a sparse histogram is
+   * never mistaken for a complete one, and so that a profile which attributed
+   * nothing at all is distinguishable from a run that transferred nothing --
+   * the failure mode of keying attribution on the command type was exactly that.
+   */
+  size_t nprofile, nprofile_short;
   /** Configuration and execution-hints. */
   cl_int xhints;
   /** Asynchronous memory operations. */
@@ -459,6 +503,18 @@ LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char sourc
 LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id);
 /** To support USM, call this function for pointer arguments instead of clSetKernelArg. */
 LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value);
+
+/**
+ * Launch a kernel on the given stream: a drop-in for clEnqueueNDRangeKernel that
+ * records the duration per kernel when LIBXSTREAM_PROFILE is set. The kernel is
+ * identified by CL_KERNEL_FUNCTION_NAME, read once per distinct handle, so no
+ * identifier argument is needed and callers keep the signature they already use.
+ * If event is NULL, any event needed for profiling is created and released
+ * internally; otherwise the caller owns the returned event as usual.
+ */
+LIBXSTREAM_API int libxstream_opencl_launch(libxstream_stream_t* stream, cl_kernel kernel, cl_uint work_dim,
+  const size_t* global_work_offset, const size_t* global_work_size, const size_t* local_work_size,
+  cl_uint num_events_in_wait_list, const cl_event* event_wait_list, cl_event* event);
 
 /** Measure time in seconds for the given event. */
 LIBXSTREAM_API double libxstream_opencl_duration(cl_event event, int* result_code);

@@ -105,9 +105,10 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
 # endif
   if (NULL != devinfo->context) {
     const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-    if (0 != (LIBXSTREAM_STREAM_PROFILING & flags) || NULL != libxstream_opencl_config.hist_h2d ||
-        NULL != libxstream_opencl_config.hist_d2h || NULL != libxstream_opencl_config.hist_d2d ||
-        NULL != libxstream_opencl_config.hist_zero)
+    /* any profile needs timestamps on this queue: kernel durations come from the
+       launch events, transfer rates from the copy events */
+    if (0 != (LIBXSTREAM_STREAM_PROFILING & flags) || 0 != libxstream_opencl_config.profile ||
+        0 != libxstream_opencl_config.profile_mem)
     {
       properties[1] |= CL_QUEUE_PROFILING_ENABLE;
     }

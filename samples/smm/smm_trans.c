@@ -69,7 +69,6 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
   {
     static libxs_lock_t locks[OPENCL_LIBSMM_NLOCKS_TRANS];
     const libxs_timer_tick_t start = libxs_timer_tick();
-    const libxstream_opencl_stream_t* const str = (const libxstream_opencl_stream_t*)stream;
     opencl_libsmm_trans_t* config;
     libxs_lock_t* lock = locks;
     opencl_libsmm_transkey_t key;
@@ -205,8 +204,8 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
           result, clSetKernelArg(config->kernel, 4, sizeof(int), &config->bs), "set minibatch argument of transpose kernel");
       }
       LIBXSTREAM_CHECK(result,
-        clEnqueueNDRangeKernel(
-          str->queue, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size, &config->wgsize, 0, NULL, NULL),
+        libxstream_opencl_launch((libxstream_stream_t*)stream, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size,
+          &config->wgsize, 0, NULL, NULL),
         "launch transpose kernel");
       /* eventually update performance counters inside of locked region */
       if ((3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) && EXIT_SUCCESS == result) {

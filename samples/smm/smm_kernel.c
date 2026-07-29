@@ -91,7 +91,6 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
     static libxs_lock_t locks[OPENCL_LIBSMM_NLOCKS_SMM];
     const libxs_timer_tick_t start = libxs_timer_tick();
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-    const libxstream_opencl_stream_t* const str = (const libxstream_opencl_stream_t*)stream;
     const char *const env_s = OPENCL_LIBSMM_SMMENV("S"), *const env_bs = OPENCL_LIBSMM_SMMENV("BS");
     const int s = ((NULL == env_s || '\0' == *env_s) ? OPENCL_LIBSMM_SMM_S : atoi(env_s));
     int kernel_idx = 0, bs = ((NULL == env_bs || '\0' == *env_bs) ? 0 : atoi(env_bs));
@@ -117,9 +116,9 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
     if (NULL == config && NULL != opencl_libsmm_predict_model) {
       libxs_predict_info_t pinfo;
-      LIBXS_MEMZERO(&pinfo);
       double inputs[3], outputs[16];
       const double thr = 0.9;
+      LIBXS_MEMZERO(&pinfo);
       inputs[0] = (double)key.m;
       inputs[1] = (double)key.n;
       inputs[2] = (double)key.k;
@@ -493,8 +492,8 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
           result, clSetKernelArg(config->kernel[kernel_idx], 6, sizeof(int), &bs), "set minibatch argument of SMM-kernel");
       }
       LIBXSTREAM_CHECK(result,
-        clEnqueueNDRangeKernel(str->queue, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/, &work_size,
-          config->wgsize + kernel_idx, 0, NULL, event),
+        libxstream_opencl_launch((libxstream_stream_t*)stream, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/,
+          &work_size, config->wgsize + kernel_idx, 0, NULL, event),
         "launch SMM-kernel");
       /* eventually update performance counters inside of locked region */
       if ((3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) && 0 == param_format &&
