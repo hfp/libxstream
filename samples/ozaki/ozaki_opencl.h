@@ -18,6 +18,15 @@
 #endif
 
 /**
+ * Slots in the N-panel pipeline. Two suffice to cover one GEMM's worth of
+ * upload+preprocess latency; more only helps if panel preprocessing time
+ * varies enough to stall, at a proportional cost in B-slice memory.
+ */
+#if !defined(OZAKI_NSLOTS)
+# define OZAKI_NSLOTS 2
+#endif
+
+/**
  * Device memory allocation macros (shared by ozaki_opencl.c and ozaki_gemm.c).
  * Uses libxstream's internal device pool when available.
  */
@@ -184,6 +193,13 @@ typedef struct ozaki_context_t {
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   double xover; /* Scheme-1/2 crossover weight: reconstruction cost per Garner op vs int8 MAC */
   int maxk; /* max K per preprocessing pass (0 = no grouping) */
+  /**
+   * N-panel width for the pipelined Scheme-2 path (0 = auto, 1 = disabled).
+   * Panels split the columns of B and C, so each panel owns a disjoint block
+   * of C: unlike a K-split it adds no repeated read-modify-write of C, and
+   * panel GEMMs are mutually independent. See ozaki_npanel.
+   */
+  int npanel;
   int biggrf; /* Ozaki-local 256-GRF decision */
   /* Main stream (set per ozaki_gemm call for pool realloc sync) */
   libxstream_stream_t* stream;
@@ -191,6 +207,13 @@ typedef struct ozaki_context_t {
   libxstream_stream_t *stream_a, *stream_b;
   /* Persistent synchronization events */
   libxstream_event_t *evt_prep_a, *evt_prep_b;
+  /**
+   * Per-slot events for the N-panel pipeline: evt_slot[i] is recorded after
+   * the GEMM consuming slot i, so a later panel reusing that slot can wait on
+   * it without serializing against the immediately preceding panel.
+   */
+  libxstream_event_t* evt_slot[OZAKI_NSLOTS];
+  libxstream_event_t* evt_panel; /* GEMM completion, gates the panel D2H */
   /* Preprocessing cache (OZAKI_CACHE env, bitmask: 1=A, 2=B, 3=both). */
   ozaki_cache_t cache;
   /* Complex GEMM block-embedding kernels (construct A_hat, B_hat, finalize) */
@@ -237,6 +260,15 @@ typedef struct ozaki_tile_t {
  * granularity and the resulting work-group size.
  */
 ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm, int rtn);
+
+/**
+ * N-panel width for the pipelined path, or N itself when panelling does not
+ * apply (small N, too few tiles to keep the device busy, or npanel == 1).
+ * Chosen jointly with the tile: the panel must stay a multiple of tn so tiles
+ * never straddle a panel boundary, and the per-panel tile count must still
+ * saturate the device, otherwise pipelining trades throughput for latency.
+ */
+int ozaki_npanel(const ozaki_context_t* ctx, int M, int N, int tm, int tn);
 /**
  * ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
  * synchronizing -- the caller must sync the stream before consuming the result.

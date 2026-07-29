@@ -394,9 +394,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, ctx->crt_rtm, ctx->crt_rtn);
     const int tm = tile.m, tn = tile.n;
     int m_pad = LIBXS_UP(M, bm_pre);
-    int n_pad = LIBXS_UP(N, bn_pre);
+    int n_pad;
     const int nblk_gm = LIBXS_UPDIV(M, tm);
-    const int nblk_gn = LIBXS_UPDIV(N, tn);
     const int ntm = tm / (OZAKI_XMX_M(ctx) * ctx->crt_rtm), ntn = tn / (OZAKI_XMX_N(ctx) * ctx->crt_rtn);
     /**
      * K-group: size buffers for min(K, maxk), not full K.
@@ -407,7 +406,30 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int ku_bk = ctx->ku * bk_pre;
     int k_grp_pad = LIBXS_UP(k_grp_max, ku_bk);
     const int n_kgroups = LIBXS_UPDIV(K, k_grp_size);
-    size_t as_size, bs_size, expa_size, expb_size;
+    /**
+     * N-panel pipeline. Each panel owns a disjoint column block of B and C, so
+     * C is read and written exactly once regardless of the panel count (a
+     * K-split would instead re-read and re-write all of C per group), and panel
+     * GEMMs are independent rather than chained through C accumulation.
+     * Panelling is bypassed when it would not pay: n_panel == N gives one
+     * panel and the code below degenerates to the original single-shot flow.
+     * A is preprocessed once as a prologue; only B and C are panelled.
+     *
+     * Caching B is the one thing panelling cannot coexist with: a cached slice
+     * buffer must hold all of B, whereas panels materialize one column block
+     * per slot. The two are alternative ways to avoid the same work -- reuse
+     * across calls versus overlap within a call. Caching keeps precedence
+     * (an explicit OZAKI_CACHE request is honored unchanged); it is the
+     * absence of a B-cache request -- the default -- that enables panelling.
+     */
+    const int cacheable_b = (0 != (ctx->cache.flags & 2));
+    const int n_panel = (0 == dev && n_kgroups <= 1 && 0 == cacheable_b) ? ozaki_npanel(ctx, M, N, tm, tn) : N;
+    const int npanels = LIBXS_UPDIV(N, n_panel);
+    /* Per-panel B upload: only when a panel is a contiguous column block. */
+    const int b_panel_h2d = (0 == dev && 1 < npanels && 0 == tb) ? 1 : 0;
+    const int nslots = (1 < npanels) ? OZAKI_NSLOTS : 1;
+    const int nblk_pn = LIBXS_UPDIV(n_panel, tn); /* tiles per panel (n_panel is a tn multiple) */
+    size_t as_size, bs_size, expa_size, expb_size, bs_slot, expb_slot;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
     void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
@@ -418,24 +440,32 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     int kg;
 
     if (k_grp_pad < 64) k_grp_pad = 64;
-    if (n_pad < 64) n_pad = 64;
     /**
-     * The tile grid spans nblk_gn * tn columns, which exceeds N rounded to
-     * bn_pre whenever tn does not divide it (e.g. N=1024, tn=96 reaches 1056).
-     * Bs planes are strided by k_pad * n_pad, so a last-tile column past n_pad
-     * reads the next prime's plane and accumulates a foreign residue instead of
-     * the zero the padding is meant to supply. Cover the whole grid.
+     * Column extent of one panel's Bs plane. The tile grid spans nblk_pn * tn
+     * columns, which exceeds the panel rounded to bn_pre whenever tn does not
+     * divide it (e.g. panel 1024, tn=96 reaches 1056). Bs planes are strided by
+     * k_pad * n_pad, so a last-tile column past n_pad reads the next prime's
+     * plane and accumulates a foreign residue instead of the zero the padding
+     * is meant to supply. Cover the whole grid.
      */
-    if (n_pad < nblk_gn * tn) n_pad = nblk_gn * tn;
+    n_pad = LIBXS_UP(n_panel, bn_pre);
+    if (n_pad < 64) n_pad = 64;
+    if (n_pad < nblk_pn * tn) n_pad = nblk_pn * tn;
     if (m_pad < nblk_gm * tm) m_pad = nblk_gm * tm;
 
     as_size = (size_t)nprimes_g * m_pad * k_grp_pad;
-    bs_size = (size_t)nprimes_g * k_grp_pad * n_pad;
+    bs_slot = (size_t)nprimes_g * k_grp_pad * n_pad;
+    bs_size = bs_slot * nslots;
     expa_size = (size_t)nblk_gm * tm * sizeof(cl_int); /* pad to tile boundary */
-    expb_size = (size_t)nblk_gn * tn * sizeof(cl_int);
+    expb_slot = (size_t)nblk_pn * tn * sizeof(cl_int);
+    expb_size = expb_slot * nslots;
     c_nbytes = (size_t)ldc * (size_t)N * elem_size;
 
-    /* Preprocessing cache: skip when K-grouping is active or a/b/c are device pointers */
+    /**
+     * Preprocessing cache: skip when K-grouping is active or a/b/c are device
+     * pointers. Caching B excludes panelling (see cacheable_b), so the two
+     * never both apply and no masking is needed here.
+     */
     if (0 == dev && n_kgroups <= 1) {
       ozaki_cache_check(ctx, a, b, M, N, K, lda, ldb, ta, tb, as_size, bs_size, expa_size, expb_size, &d_as, &d_bs, &d_expa_g,
         &d_expb_g, &cache_hit_a, &cache_hit_b);
@@ -476,12 +506,18 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * H2D transfers: full source matrices (once).
      * Skip when dev != 0: a/b/c are already on device.
      * Skip C when beta == 0: kernel does not read C_old (BLAS spec).
+     *
+     * B is uploaded per panel inside the loop when its columns are contiguous
+     * (b_panel_h2d), so each upload overlaps the previous panel's GEMM instead
+     * of stalling panel 0 behind all of B. With transb a panel is a row block
+     * of a K-column matrix, i.e. strided, which one linear copy cannot express,
+     * so it is uploaded whole up front in that case.
      */
     if (0 == dev) {
       if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
         result = libxstream_mem_copy_h2d(a, d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, stream_a);
       }
-      if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+      if (EXIT_SUCCESS == result && 0 == cache_hit_b && 0 == b_panel_h2d) {
         result = libxstream_mem_copy_h2d(b, d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, stream_b);
       }
       if (EXIT_SUCCESS == result && 0.0 != beta) {
@@ -489,10 +525,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       }
     }
 
-    /* Profiling: allocate event array (scaled for K-groups) */
+    /**
+     * Profiling: allocate event array. Per K-group there is one A preprocess
+     * plus, per panel, a B preprocess and a GEMM.
+     */
     LIBXS_ASSERT(0 == profile || NULL != hist);
     if (NULL != hist) {
-      evt_prof_c = (cl_event*)calloc((size_t)n_kgroups * 3, sizeof(cl_event));
+      evt_prof_c = (cl_event*)calloc((size_t)n_kgroups * (1 + 2 * (size_t)npanels), sizeof(cl_event));
       if (EXIT_SUCCESS == result) result = libxstream_stream_set_profiling(stream);
     }
 
@@ -509,6 +548,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       int k_pad = LIBXS_UP(K_len, ku_bk);
       const size_t a_off = ta ? ((size_t)kb_grp * elem_size) : ((size_t)kb_grp * lda * elem_size);
       const size_t b_off = tb ? ((size_t)kb_grp * ldb * elem_size) : ((size_t)kb_grp * elem_size);
+      int pj;
       if (k_pad < 64) k_pad = 64;
 
       /**
@@ -524,47 +564,104 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_prep_a);
       }
 
-      /* Zero slice/exp buffers */
+      /* Prologue: zero and preprocess A once for the whole K-group. */
       if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
         result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
         if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
-      }
-      if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
-        result = libxstream_mem_zero(d_expb_g, 0, expb_size, stream_b);
-        if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs, 0, bs_size, stream_b);
-      }
-
-      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
-      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
-
-      /* Preprocess A for this K-group */
-      if (0 == cache_hit_a && EXIT_SUCCESS == result) {
-        result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g, M, K_len,
-          lda, ta, k_pad, m_pad, bm_pre, bk_pre, NULL /*no occ for CRT*/, evt_prof_c, 1, 3, &n_profiled_c, profile);
-      }
-      /* Preprocess B for this K-group */
-      if (0 == cache_hit_b && EXIT_SUCCESS == result) {
-        result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b, (char*)d_bg + b_off, d_bs, d_expb_g, N, K_len,
-          ldb, tb, k_pad, n_pad, bn_pre, bk_pre, NULL /*no occ for CRT*/, evt_prof_c, 1, 4, &n_profiled_c, profile);
-      }
-
-      /* Wait for preprocessing to complete */
-      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
-      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
-      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
-      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
-
-      /* Launch CRT GEMM for this K-group */
-      if (EXIT_SUCCESS == result) {
-        const int bounds = (0 != M % tm || 0 != N % tn);
-        cl_kernel crt_kern = ozaki_get_crt_kernel(ctx, bounds, tm, tn);
-        if (NULL != crt_kern) {
-          result = ozaki_launch_fused(ctx, stream, crt_kern, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc,
-            m_pad, tm, tn, ntm, ntn, alpha, first_tile,
-            ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
+        if (EXIT_SUCCESS == result) {
+          result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g, M, K_len,
+            lda, ta, k_pad, m_pad, bm_pre, bk_pre, NULL /*no occ for CRT*/, evt_prof_c, 1, 3, &n_profiled_c, profile);
         }
-        else result = EXIT_FAILURE;
       }
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_a);
+
+      /**
+       * Panel loop over N. Steady state overlaps three things: panel pj+1's
+       * B preprocessing on stream_b, panel pj's GEMM on stream, and panel
+       * pj-1's C download on stream_a. The slot events are what decouple them:
+       * a panel reusing slot s waits only on the GEMM that consumed slot s
+       * (OZAKI_NSLOTS panels back), not on the immediately preceding one.
+       */
+      for (pj = 0; pj < npanels && EXIT_SUCCESS == result; ++pj) {
+        const int nb = pj * n_panel;
+        const int N_len = ((N - nb) < n_panel) ? (N - nb) : n_panel;
+        const int slot = (1 < nslots) ? (pj % nslots) : 0;
+        void *const d_bs_s = (char*)d_bs + (size_t)slot * bs_slot;
+        void *const d_expb_s = (char*)d_expb_g + (size_t)slot * expb_slot;
+        /* B column block: N-major operand, so the panel offset depends on tb. */
+        const size_t bp_off = tb ? ((size_t)nb * elem_size) : ((size_t)nb * ldb * elem_size);
+        /* C column block: column-major, always ldc-strided. */
+        const size_t cp_off = (size_t)nb * ldc * elem_size;
+
+        /**
+         * Reuse of this slot must wait for the GEMM that last read it. With
+         * nslots slots that GEMM is nslots panels back, so the wait is a no-op
+         * until the pipeline is full -- which is precisely the overlap.
+         */
+        if (pj >= nslots && EXIT_SUCCESS == result) {
+          result = libxstream_stream_wait_event(stream_b, ctx->evt_slot[slot]);
+        }
+
+        /**
+         * Upload this panel's B columns. Contiguous for the whole K extent, so
+         * one copy covers the panel: column nb starts at nb*ldb and the panel
+         * spans N_len columns. Enqueued on stream_b ahead of the preprocess
+         * that consumes it, hence overlapped with the previous panel's GEMM.
+         */
+        if (EXIT_SUCCESS == result && 0 != b_panel_h2d) {
+          result = libxstream_mem_copy_h2d((const char*)b + bp_off, (char*)d_bg + bp_off,
+            (size_t)ldb * N_len * elem_size, stream_b);
+        }
+
+        /**
+         * Zero and preprocess this panel's B slice into its slot. cache_hit_b
+         * implies a single panel spanning all of B (panelling and a cached B
+         * are mutually exclusive), so the hit skips the work as before.
+         */
+        if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+          result = libxstream_mem_zero(d_expb_s, 0, expb_slot, stream_b);
+          if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs_s, 0, bs_slot, stream_b);
+          if (EXIT_SUCCESS == result) {
+            result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b, (char*)d_bg + b_off + bp_off, d_bs_s,
+              d_expb_s, N_len, K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre, NULL /*no occ for CRT*/, evt_prof_c, 1, 4,
+              &n_profiled_c, profile);
+          }
+        }
+        if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
+        if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, evt_prep_b);
+
+        /**
+         * GEMM for this panel. The kernel sees a standalone M x N_len problem:
+         * C is offset to the panel's first column, and the exponent/slice
+         * buffers are the panel's own, so no index translation is needed.
+         * Bounds checking follows N_len, the extent this launch actually spans.
+         */
+        if (EXIT_SUCCESS == result) {
+          const int bounds = (0 != M % tm || 0 != N_len % tn);
+          cl_kernel crt_kern = ozaki_get_crt_kernel(ctx, bounds, tm, tn);
+          if (NULL != crt_kern) {
+            result = ozaki_launch_fused(ctx, stream, crt_kern, d_as, d_bs_s, d_expa_g, d_expb_s, (char*)d_cg + cp_off, M, N_len,
+              k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn, alpha, first_tile,
+              ctx->use_double, evt_prof_c, 1, 2, &n_profiled_c, profile);
+          }
+          else result = EXIT_FAILURE;
+        }
+        /* Release the slot for a later panel, and gate this panel's D2H. */
+        if (EXIT_SUCCESS == result) result = libxstream_event_record(ctx->evt_slot[slot], stream);
+        /**
+         * Download this panel's C block on stream_a so it overlaps the next
+         * panel's GEMM. Only for the last K-group: earlier groups still have
+         * pending accumulation into the same C columns.
+         */
+        if (EXIT_SUCCESS == result && 0 == dev && 1 < npanels && kg + 1 == n_kgroups) {
+          result = libxstream_event_record(ctx->evt_panel, stream);
+          if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_a, ctx->evt_panel);
+          if (EXIT_SUCCESS == result) {
+            result = libxstream_mem_copy_d2h((char*)d_cg + cp_off, (char*)c + cp_off, (size_t)ldc * N_len * elem_size, stream_a);
+          }
+        }
+      } /* end panel loop */
       first_tile = 0; /* subsequent groups accumulate */
     } /* end K-group loop */
 
@@ -596,8 +693,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       }
       free(evt_prof_c);
     }
-    /* D2H result. Skip when dev != 0: result is already in caller's device buffer. */
-    if (0 == dev) {
+    /**
+     * D2H result. Skip when dev != 0: result is already in caller's device
+     * buffer. While panelling, each panel already downloaded its own column
+     * block overlapped with the following panel's GEMM.
+     */
+    if (0 == dev && 1 >= npanels) {
       if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_cg, c, c_nbytes, stream);
     }
 
@@ -605,12 +706,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * Sync ALL streams before freeing device buffers to ensure transfers completed.
      * Device pool deallocator only syncs on grow path, not regular frees.
      * - Main stream uses d_cg (for D2H)
-     * - stream_a uses d_ag (for preprocessing)
+     * - stream_a uses d_ag (for preprocessing) and the panelled C download
      * - stream_b uses d_bg (for preprocessing)
      * Without sync, freed buffers can be reallocated while DMA is still reading.
      */
     if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
-    if (EXIT_SUCCESS == result && NULL != stream_a && 0 == cache_hit_a) {
+    if (EXIT_SUCCESS == result && NULL != stream_a && (0 == cache_hit_a || 1 < npanels)) {
       result = libxstream_stream_sync(stream_a);
     }
     if (EXIT_SUCCESS == result && NULL != stream_b && 0 == cache_hit_b) {

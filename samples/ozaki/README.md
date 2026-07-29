@@ -87,6 +87,7 @@ host readback.
 |---------------|---------|---------------------------------------------------------------------|
 | OZAKI_DEVPOOL | 0       | Device memory pool via USM/SVM (eliminates per-call alloc overhead) |
 | OZAKI_CACHE   | 0       | Preprocessing cache bitmask: 1=A, 2=B, 3=both. Skips on match       |
+| OZAKI_NPANEL  | 0       | Sch.2: N-panel width (0=auto, 1=disable). See Panel Pipeline        |
 
 The preprocessing cache also stores the last effective cutoff from
 Scheme 1 occupancy detection. On cache hits the cutoff is reused
@@ -123,6 +124,37 @@ work-groups to saturate the compute units (OZAKI_TILE_SAT). The
 intensity term is maximal for square tiles, which keeps the split
 balanced rather than degenerate. Set OZAKI_TM/OZAKI_TN to bypass
 selection and pin a tile.
+
+## Panel Pipeline (Scheme 2)
+
+Only ~30% of a Scheme-2 call is the GEMM kernel; the rest is uploading
+A/B, preprocessing them into CRT residues, and downloading C. Scheme 2
+therefore splits **N** into panels and pipelines them: while panel *j*
+runs its GEMM, panel *j+1* uploads and preprocesses its B columns and
+panel *j-1* downloads its C block. A is uploaded and preprocessed once
+as a prologue.
+
+N is the right axis because each panel then owns a disjoint column block
+of B and C. C is read and written exactly once no matter how many panels
+there are, and panel GEMMs are mutually independent. Splitting K instead
+would re-read and re-write all of C per group -- measured at several ms
+per pass at n=4096, which is most of what the pipeline is trying to hide
+-- and would serialize the panel GEMMs through that accumulation.
+
+Panel B-slices are double-buffered across `OZAKI_NSLOTS` slots (2 by
+default; 3 and 4 measured slower). A panel reusing a slot waits only on
+the GEMM that last read it, which is what decouples consecutive panels.
+Because a panel is a slice of B rather than all of B, panelling also
+lowers peak memory relative to the unpanelled path.
+
+Panelling is skipped when it cannot pay: too few tiles per panel to
+saturate the device, `N <= tn`, K-grouping active, device-resident
+operands, or `OZAKI_NPANEL=1`. Requesting a B cache (`OZAKI_CACHE=2` or
+`3`) takes precedence -- a cached slice buffer must hold all of B, so
+caching and panelling are alternative ways to avoid the same work
+(reuse across calls versus overlap within one). With `transb` a panel is
+a strided row block, so B is uploaded whole and only the preprocessing
+and download overlap.
 
 ## Kernel Registry
 

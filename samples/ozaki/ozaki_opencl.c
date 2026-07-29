@@ -238,6 +238,36 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
 }
 
 
+int ozaki_npanel(const ozaki_context_t* ctx, int M, int N, int tm, int tn)
+{
+  const int nblk_m = LIBXS_UPDIV(M, tm);
+  const int nwg_min = (0 < ctx->nunits) ? (ctx->nunits / ctx->tile_sat) : 32;
+  /**
+   * Tiles per panel needed to keep the device busy: a panel is one GEMM
+   * launch, so if its tile count falls below the saturation floor the pipeline
+   * wins latency but loses more throughput than it hides.
+   */
+  const int ntile_min = LIBXS_UPDIV(nwg_min, nblk_m);
+  int width = N;
+  if (1 != ctx->npanel && tn < N) {
+    if (0 < ctx->npanel) { /* explicit request: honor, but keep tiles whole */
+      width = LIBXS_UP(ctx->npanel, tn);
+    }
+    else {
+      /**
+       * Aim for OZAKI_NSLOTS panels so every slot is used once and the
+       * pipeline reaches steady state, but never below the saturation floor.
+       */
+      const int ntile_n = LIBXS_UPDIV(LIBXS_UPDIV(N, tn), OZAKI_NSLOTS);
+      width = (ntile_n < ntile_min ? ntile_min : ntile_n) * tn;
+    }
+    if (width > N) width = N;
+    if (width < tn) width = tn;
+  }
+  return width;
+}
+
+
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
   int ozgroups, int maxk, int profiling)
 {
@@ -472,6 +502,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ctx->xover = (NULL != env && 0 < atof(env)) ? atof(env) : 128.0;
     ctx->hier = hier;
     ctx->maxk = maxk;
+    /**
+     * N-panel width (0 = auto, 1 = disabled). Independent of maxk, which sizes
+     * the K pass and feeds the bounded-K prime reduction above: a pipelining
+     * granularity must not silently change nprimes, so the two stay separate.
+     */
+    env = getenv("OZAKI_NPANEL");
+    ctx->npanel = (NULL != env) ? atoi(env) : 0;
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
         rtm = (0 != biggrf) ? 4 : 2;
@@ -1005,6 +1042,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   }
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_b);
+  { int si;
+    for (si = 0; si < OZAKI_NSLOTS && EXIT_SUCCESS == result; ++si) {
+      result = libxstream_event_create(&ctx->evt_slot[si]);
+    }
+  }
+  if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_panel);
 
   return result;
 }
@@ -1106,6 +1149,12 @@ void ozaki_destroy(ozaki_context_t* ctx)
     /* Destroy persistent synchronization events */
     if (NULL != ctx->evt_prep_a) libxstream_event_destroy(ctx->evt_prep_a);
     if (NULL != ctx->evt_prep_b) libxstream_event_destroy(ctx->evt_prep_b);
+    { int si;
+      for (si = 0; si < OZAKI_NSLOTS; ++si) {
+        if (NULL != ctx->evt_slot[si]) libxstream_event_destroy(ctx->evt_slot[si]);
+      }
+    }
+    if (NULL != ctx->evt_panel) libxstream_event_destroy(ctx->evt_panel);
     /* Destroy persistent helper streams */
     if (NULL != ctx->stream_a) libxstream_stream_destroy(ctx->stream_a);
     if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
