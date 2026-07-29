@@ -70,13 +70,21 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
    * 0 at init) and thus favored when accuracy matters. Trim is a Scheme-1-only
    * knob here; trimmed Scheme 2 needs explicit kind==2. kind==1 or kind==2
    * force that scheme.
+   *
+   * In fp32 the comparison does not apply: four slices yield at most 16 pairs
+   * against nine moduli, a ratio of 1.8 rather than the 4 seen in fp64 (64 vs
+   * 16), and Scheme 1 recovers that from its shorter K-loop and cheaper
+   * epilogue. Measured on Xe DPAS, Scheme 1 leads for every shape tried, from
+   * n=512 up to K=16384 where Scheme 2 comes closest (12135 vs 11350
+   * GFLOPS/s), so counting GEMMs mispredicts here and Scheme 1 is selected
+   * outright; fp32 CRT stays reachable through kind==2.
    */
   { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
-    if (1 == ctx->kind) {
-      use_scheme1 = 1;
-    }
-    else if (2 == ctx->kind) {
+    if (2 == ctx->kind) {
       use_scheme1 = 0;
+    }
+    else if (1 == ctx->kind || 0 == ctx->use_double) {
+      use_scheme1 = 1;
     }
     else {
       const int co = 2 * (ctx->nslices - 1) - ctx->oztrim;
