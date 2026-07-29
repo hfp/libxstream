@@ -780,9 +780,24 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
     }
     else assert(0 == "event kind contradicts command type");
     if (NULL != hist) {
-      libxs_hist_push(libxstream_opencl_config.lock_memory, hist, vals);
-      if (0 > libxstream_opencl_config.profile) {
-        fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f\n", name, vals[0], vals[1]);
+      /**
+       * Discard durations too close to the timer resolution to be meaningful:
+       * the rate they imply is dominated by quantization, and a handful of such
+       * samples would otherwise set the histogram range for the useful ones.
+       */
+      const double floor_us = 1E-3 * (double)(LIBXSTREAM_PROFILE_TICKS * libxstream_opencl_config.device.timer_ns);
+      if (vals[1] >= floor_us) {
+        libxs_hist_push(libxstream_opencl_config.lock_memory, hist, vals);
+        if (0 > libxstream_opencl_config.profile) {
+          fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f\n", name, vals[0], vals[1]);
+        }
+      }
+      else {
+        LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_short, 1, LIBXS_ATOMIC_RELAXED);
+        if (0 > libxstream_opencl_config.profile) {
+          fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f (below %.0f us, discarded)\n",
+            name, vals[0], vals[1], floor_us);
+        }
       }
     }
   }

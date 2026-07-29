@@ -194,6 +194,13 @@ typedef struct libxstream_opencl_device_t {
   size_t wgsize[3];
   /** Maximum size of memory allocations and constant buffer. */
   cl_ulong size_maxalloc, size_maxcmem;
+  /**
+   * Granularity of event timestamps in nanoseconds (0 if unknown). The unit of
+   * CL_PROFILING_COMMAND_* is nanoseconds by specification, but the resolution
+   * is not: a device reporting 1000 quantizes every measurement to 1us, so a
+   * duration shorter than a few ticks carries an error of order 100%.
+   */
+  size_t timer_ns;
   /** Kind of device (GPU, CPU, or other). */
   cl_device_type type;
   /** Whether host memory is unified, and SVM/USM capabilities. */
@@ -230,6 +237,21 @@ typedef enum libxstream_event_kind_t {
  * callback carries. Three bits hold the kind, leaving 2^61-1 bytes (2 EiB) for
  * the size, i.e. no practical restriction.
  */
+/**
+ * Accuracy target for profiled samples, expressed as a multiple of the device
+ * timer granularity (CL_DEVICE_PROFILING_TIMER_RESOLUTION, queried per device
+ * into timer_ns -- this macro is not that granularity, it is how many of its
+ * ticks a sample must span to be believed). A measurement covering n ticks has
+ * a quantization error of about 1/n, so the default bounds the per-sample error
+ * at roughly 10%: on a 1ns-resolution device the resulting floor is 10ns and
+ * discards nothing, while at 1000ns it is 10us. Shorter operations are counted
+ * (nprofile_short) rather than pushed, because a rate derived from one or two
+ * ticks is noise presented as data. Set to 0 or 1 to record everything.
+ */
+#if !defined(LIBXSTREAM_PROFILE_TICKS)
+# define LIBXSTREAM_PROFILE_TICKS 10
+#endif
+
 #define LIBXSTREAM_EVENT_KIND_BITS 3
 #define LIBXSTREAM_EVENT_KIND_SHIFT ((8 * sizeof(size_t)) - LIBXSTREAM_EVENT_KIND_BITS)
 #define LIBXSTREAM_EVENT_SIZE_MASK ((((size_t)1) << LIBXSTREAM_EVENT_KIND_SHIFT) - 1)
@@ -319,6 +341,12 @@ typedef struct libxstream_opencl_config_t {
   cl_int profile;
   /** Detailed/optional insight. */
   libxs_hist_t *hist_h2d, *hist_d2h, *hist_d2d, *hist_zero;
+  /**
+   * Samples discarded because their duration was too close to the device timer
+   * resolution to carry a meaningful rate (see LIBXSTREAM_PROFILE_TICKS).
+   * Counted so that a sparse histogram is never mistaken for a complete one.
+   */
+  size_t nprofile_short;
   /** Configuration and execution-hints. */
   cl_int xhints;
   /** Asynchronous memory operations. */

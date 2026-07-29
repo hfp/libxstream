@@ -730,6 +730,14 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     hist[3] = libxstream_opencl_config.hist_zero;
     LIBXS_STDIO_ACQUIRE();
     for (i = 0; i < nhist; ++i) if (NULL != hist[i]) {
+      /**
+       * An empty histogram leaves vals untouched, so it must be cleared per
+       * iteration: otherwise the first kind reads uninitialized stack and every
+       * later one inherits the previous kind's median, which reported a bogus
+       * rate for kinds that never recorded a sample.
+       */
+      vals[0] = 0;
+      vals[1] = 0;
       libxs_hist_query_median(NULL /*lock*/, hist[i], vals);
       rate = (0 < vals[1] ? (1E6 * vals[0] / vals[1]) : -1);
       if (0 <= rate) {
@@ -737,6 +745,20 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
         else fprintf(stderr, "\nPROF ACC/OpenCL: ID=%i.%i %s=%.0f MB/s", slurm, libxs_rid(), kind[i], rate);
       }
       if (0 < rate) libxs_hist_print(stderr, hist[i], precision, "\n");
+    }
+    /**
+     * State the timer granularity and what it cost: a rate is only as good as
+     * the clock behind it, and a reader cannot judge one without the other.
+     */
+    if (0 != libxstream_opencl_config.device.timer_ns) {
+      const unsigned long timer_ns = (unsigned long)libxstream_opencl_config.device.timer_ns;
+      fprintf(stderr, "\nPROF ACC/OpenCL: timer=%luns", timer_ns);
+      if (1 < (LIBXSTREAM_PROFILE_TICKS)) { /* floor is device-derived: ticks x granularity */
+        fprintf(stderr, " floor=%luns", (unsigned long)(LIBXSTREAM_PROFILE_TICKS) * timer_ns);
+      }
+      if (0 != libxstream_opencl_config.nprofile_short) {
+        fprintf(stderr, " discarded=%lu", (unsigned long)libxstream_opencl_config.nprofile_short);
+      }
     }
     fprintf(stderr, "\n\n");
     LIBXS_STDIO_RELEASE();
@@ -1285,6 +1307,11 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
               clGetDeviceInfo(active_id, CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE, sizeof(cl_ulong), &devinfo->size_maxcmem, NULL))
           {
             devinfo->size_maxcmem = 0;
+          }
+          if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_PROFILING_TIMER_RESOLUTION, sizeof(size_t),
+                                &devinfo->timer_ns, NULL))
+          {
+            devinfo->timer_ns = 0; /* unknown: no sample is rejected */
           }
           if (EXIT_SUCCESS != clGetDeviceInfo(active_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(size_t), devinfo->wgsize, NULL)) {
             devinfo->wgsize[0] = 1;
