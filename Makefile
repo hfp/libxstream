@@ -570,6 +570,13 @@ endif
 ALIAS_INCDIR := $(subst $$$$,$(if $(findstring $$$$/,$$$$$(PINCDIR)),,\$${prefix}/),$(subst $$$$$(ALIAS_PREFIX),\$${prefix},$$$$$(PINCDIR)))
 ALIAS_LIBDIR := $(subst $$$$,$(if $(findstring $$$$/,$$$$$(POUTDIR)),,\$${prefix}/),$(subst $$$$$(ALIAS_PREFIX),\$${prefix},$$$$$(POUTDIR)))
 
+# Consumers linking statically must resolve the OpenMP runtime themselves.
+# OMP is already resolved to 0 here if no OpenMP flag was detected. Drop any
+# include path OMPFLAG_FORCE carries: it belongs to compiling, not linking.
+ifneq (,$(filter-out 0,$(OMP)))
+  ALIAS_PRIVLIBS := $(filter-out -I%,$(OMPFLAG_FORCE))
+endif
+
 PCTEMPLATE := $(ROOTSCR)/$(PROJECT).pc.in
 PCSUBST_BASE = $(SED) \
   -e 's|@PROJECT@|$(PROJECT)|g' \
@@ -579,7 +586,8 @@ PCSUBST_BASE = $(SED) \
   -e 's|@PREFIX@|$(ALIAS_PREFIX)|g' \
   -e 's|@INCLUDEDIR@|$(ALIAS_INCDIR)|g' \
   -e 's|@LIBDIR@|$(ALIAS_LIBDIR)|g' \
-  -e 's|@LIBS_PRIVATE@||g'
+  $(if $(ALIAS_PRIVLIBS),-e 's|@LIBS_PRIVATE@|Libs.private: $(ALIAS_PRIVLIBS)|g', \
+    -e 's|@LIBS_PRIVATE@||g')
 
 ifeq (,$(filter-out 0 2,$(BUILD)))
 $(PPKGDIR)/$(PROJECT)-static.pc: $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(PPKGDIR)/.make $(PCTEMPLATE)

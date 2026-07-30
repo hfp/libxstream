@@ -24,6 +24,16 @@ option(LIBXSTREAM_INSTALL_HEADER_ONLY "Install the header-only implementation so
 # Matches the Makefile default (OMP=1). OpenMP is not an optimization here: it
 # sizes per-thread resources (streams, memory pointers) for threaded consumers
 # such as DBCSR. Without it the library assumes a single thread.
+# An explicit request is an error if unavailable, whereas the default degrades
+# (AppleClang ships no OpenMP); this matches how the Makefile treats OMP.
+# Latched on the first configure: afterwards the cache entry always exists.
+if(NOT DEFINED LIBXSTREAM_OMP_EXPLICIT)
+  if(DEFINED LIBXSTREAM_OMP)
+    set(LIBXSTREAM_OMP_EXPLICIT ON CACHE INTERNAL "LIBXSTREAM_OMP was requested")
+  else()
+    set(LIBXSTREAM_OMP_EXPLICIT OFF CACHE INTERNAL "LIBXSTREAM_OMP was requested")
+  endif()
+endif()
 option(LIBXSTREAM_OMP "Use OpenMP for per-thread resource sizing" ON)
 
 set(LIBXS_GIT_REPOSITORY "https://github.com/hfp/libxs.git")
@@ -45,13 +55,46 @@ endif()
 
 find_package(OpenCL REQUIRED)
 if(LIBXSTREAM_OMP)
-  find_package(OpenMP REQUIRED COMPONENTS C)
+  # AppleClang needs a separate libomp. FindOpenMP knows the flag but searches
+  # only the implicit link directories, which exclude Homebrew; seed its search
+  # with the brew prefix like the Makefile build does.
+  if(APPLE AND NOT OpenMP_libomp_LIBRARY)
+    find_program(LIBXSTREAM_BREW NAMES brew)
+    if(LIBXSTREAM_BREW)
+      execute_process(COMMAND "${LIBXSTREAM_BREW}" --prefix libomp
+        OUTPUT_VARIABLE LIBXSTREAM_BREW_LIBOMP
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+      if(NOT LIBXSTREAM_BREW_LIBOMP OR NOT IS_DIRECTORY "${LIBXSTREAM_BREW_LIBOMP}")
+        execute_process(COMMAND "${LIBXSTREAM_BREW}" --prefix
+          OUTPUT_VARIABLE LIBXSTREAM_BREW_LIBOMP
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+          ERROR_QUIET)
+      endif()
+      if(IS_DIRECTORY "${LIBXSTREAM_BREW_LIBOMP}")
+        message(STATUS "Looking for libomp below ${LIBXSTREAM_BREW_LIBOMP}")
+        list(APPEND CMAKE_PREFIX_PATH "${LIBXSTREAM_BREW_LIBOMP}")
+      endif()
+    endif()
+  endif()
+  find_package(OpenMP COMPONENTS C)
+  if(NOT OpenMP_C_FOUND)
+    if(LIBXSTREAM_OMP_EXPLICIT)
+      message(FATAL_ERROR
+        "LIBXSTREAM_OMP was requested but no OpenMP C support was found")
+    endif()
+    message(WARNING
+      "No OpenMP C support found; per-thread resources are sized for a single "
+      "thread. Threaded consumers (e.g. DBCSR) require an OpenMP-capable "
+      "compiler.")
+    set(LIBXSTREAM_OMP OFF)
+  endif()
 endif()
 
 set(LIBXSTREAM_LINK_LIBRARIES
   OpenCL::OpenCL
   libxs::libxs)
-if(OpenMP_C_FOUND)
+if(LIBXSTREAM_OMP)
   list(APPEND LIBXSTREAM_LINK_LIBRARIES OpenMP::OpenMP_C)
 endif()
 
@@ -132,13 +175,22 @@ set(DESCRIPTION "Specialized tensor operations")
 set(URL "https://github.com/hfp/libxstream/")
 set(VERSION "${PROJECT_VERSION}")
 set(REQUIRES_PRIVATE "Requires.private: libxs")
+# Consumers linking statically must resolve the OpenMP runtime themselves.
+set(PRIVLIBS "")
+if(LIBXSTREAM_OMP)
+  set(PRIVLIBS "${OpenMP_C_FLAGS}")
+endif()
 if(BUILD_SHARED_LIBS)
   set(LIBS "-L\${libdir} -lxstream")
-  set(LIBS_PRIVATE "")
 else()
   set(LIBS "\${libdir}/libxstream.a")
-  set(LIBS_PRIVATE "Libs.private: -lpthread -ldl")
+  string(STRIP "${PRIVLIBS} -lpthread -ldl" PRIVLIBS)
   string(REPLACE "libxs" "libxs-static" REQUIRES_PRIVATE "${REQUIRES_PRIVATE}")
+endif()
+if(PRIVLIBS)
+  set(LIBS_PRIVATE "Libs.private: ${PRIVLIBS}")
+else()
+  set(LIBS_PRIVATE "")
 endif()
 
 configure_file(
