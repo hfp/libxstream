@@ -740,8 +740,15 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
   cl_command_type type = 0;
 #endif
   int result = EXIT_SUCCESS;
-  double vals[2];
-  vals[1] = libxstream_opencl_duration(event, &result) * 1E6; /* Microseconds */
+  /**
+   * {size, size, duration}: vals[0] is the binning key, which
+   * libxs_hist_query_percentile reconstructs from the bucket's position on the
+   * axis rather than from the stored samples. A rate must therefore not use it
+   * -- the amount is carried a second time in vals[1], which is stored and
+   * averaged like the duration, so amount and duration describe the same sample.
+   */
+  double vals[3];
+  vals[2] = libxstream_opencl_duration(event, &result) * 1E6; /* Microseconds */
   LIBXS_UNUSED(event_status);
   assert(CL_COMPLETE == event_status && NULL != data && 8 == sizeof(data));
   if (EXIT_SUCCESS == result && EXIT_SUCCESS == clGetEventInfo(event, CL_EVENT_COMMAND_TYPE, sizeof(type), &type, NULL)) {
@@ -766,7 +773,7 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
       case CL_COMMAND_FILL_BUFFER: agrees = (libxstream_event_kind_zero == kind); break;
       default: agrees = 1; /* not a buffer command: kind is the only source */
     }
-    vals[0] = 1E-6 * size; /* Megabyte */
+    vals[0] = vals[1] = 1E-6 * size; /* Megabyte (key and stored amount) */
     if (0 != agrees) {
       switch (kind) {
         case libxstream_event_kind_h2d: {
@@ -796,18 +803,18 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
        * samples would otherwise set the histogram range for the useful ones.
        */
       const double floor_us = 1E-3 * (double)(LIBXSTREAM_PROFILE_TICKS * libxstream_opencl_config.device.timer_ns);
-      if (vals[1] >= floor_us) {
+      if (vals[2] >= floor_us) {
         libxs_hist_push(libxstream_opencl_config.lock_memory, hist, vals);
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile_mem) {
-          fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f\n", name, vals[0], vals[1]);
+          fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f\n", name, vals[1], vals[2]);
         }
       }
       else {
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_short, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile_mem) {
           fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f (below %.0f us, discarded)\n",
-            name, vals[0], vals[1], floor_us);
+            name, vals[1], vals[2], floor_us);
         }
       }
     }

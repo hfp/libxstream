@@ -659,19 +659,24 @@ LIBXSTREAM_API int libxstream_init(void)
         if (0 != libxstream_opencl_config.profile_mem) {
           const int profile = LIBXS_MAX(LIBXS_ABS(libxstream_opencl_config.profile_mem), 2);
           /**
-           * Both averaged, for the reason spelled out at the kernel histogram:
-           * the reported rate divides vals[0] by vals[1], and query_percentile
-           * interpolates vals[1] as a per-sample duration. Accumulating the
-           * duration divided a per-sample amount by a bucket total, understating
-           * the rate by roughly the number of samples sharing a bucket -- equally
-           * sized transfers all land in one, so a 41.5 GB/s H2D was reported as
-           * 1729 MB/s across 24 samples.
+           * {size, size, duration}, all averaged. Averaged rather than
+           * accumulated for the reason spelled out at the kernel histogram: a
+           * summed duration divided a per-sample amount by a bucket total, which
+           * understated the rate by roughly the number of samples sharing a
+           * bucket. Three values rather than two because the rate must not use
+           * vals[0]: that is the binning key, which query_percentile derives from
+           * the bucket's axis position instead of from the samples, so it equals
+           * the transferred amount only while every sample has the same size.
+           * Mixed sizes (a panelled upload, or zero-fills covering both a small
+           * exponent array and a large slice plane) otherwise paired an
+           * interpolated size with an unrelated duration, making the reported
+           * rate depend on the bucket count.
            */
-          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg};
-          libxstream_opencl_config.hist_h2d = libxs_hist_create(profile + 1, 2, update);
-          libxstream_opencl_config.hist_d2h = libxs_hist_create(profile + 1, 2, update);
-          libxstream_opencl_config.hist_d2d = libxs_hist_create(profile + 1, 2, update);
-          libxstream_opencl_config.hist_zero = libxs_hist_create(profile + 1, 2, update);
+          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
+          libxstream_opencl_config.hist_h2d = libxs_hist_create(profile + 1, 3, update);
+          libxstream_opencl_config.hist_d2h = libxs_hist_create(profile + 1, 3, update);
+          libxstream_opencl_config.hist_d2d = libxs_hist_create(profile + 1, 3, update);
+          libxstream_opencl_config.hist_zero = libxs_hist_create(profile + 1, 3, update);
         }
         else {
           assert(NULL == libxstream_opencl_config.hist_h2d);
@@ -756,14 +761,17 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char 
 
 
 /**
- * Print one histogram whose samples are {amount, ms} (transfers, amount_first
- * non-zero) or {ms, gflop, mb} (kernels). Both are the same measurement -- an
- * amount of work over the time it took -- so both are reported here rather than
- * in separate routines: a transfer yields a rate in the caller's unit, a kernel
- * yields its duration plus whatever rates the stated work supports.
+ * Print one histogram whose samples are {amount, amount, us} (transfers,
+ * amount_first non-zero) or {ms, gflop, mb} (kernels). Both are the same
+ * measurement -- an amount of work over the time it took -- so both are reported
+ * here rather than in separate routines: a transfer yields a rate in the caller's
+ * unit, a kernel yields its duration plus whatever rates the stated work
+ * supports.
  *
  * A rate is always derived from a single sample's amount and that same sample's
- * duration, never from independently aggregated totals. Returns 1 if a row was
+ * duration, never from independently aggregated totals, and never from vals[0]
+ * of a transfer: that slot is the binning key, reconstructed from the bucket's
+ * axis position rather than from the samples it holds. Returns 1 if a row was
  * printed, 0 if the histogram held no usable sample.
  */
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
@@ -783,12 +791,26 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
     vals[1] = 0;
     vals[2] = 0;
     libxs_hist_query_median(NULL /*lock*/, hist, vals);
-    if (0 != amount_first) { /* transfers: {amount, ms}, report amount per time */
-      if (0 < vals[1]) {
-        const int precision[] = {1, 1};
+    if (0 != amount_first) { /* transfers: {amount, amount, us}, amount per time */
+      /**
+       * The mode rather than the median: transfer sizes are commonly multi-modal
+       * (a whole operand alongside per-panel blocks, or a zero-fill covering both
+       * a small exponent array and a large slice plane), and a median can fall
+       * between the clusters and describe no observed transfer. The mode always
+       * names a bucket that samples landed in. For a single-sized workload the two
+       * agree, so nothing is lost where the median was already right.
+       */
+      libxs_hist_query_mode(NULL /*lock*/, hist, vals);
+      if (0 < vals[2]) {
+        /**
+         * prec[0] also formats the bucket bound itself and a negative value
+         * suppresses the whole line, so the key column stays enabled; it repeats
+         * the amount, which is what the bound already conveys.
+         */
+        const int precision[] = {1, 1, 1};
         libxstream_opencl_print_id(ostream, name);
         /* one decimal: a whole-number GB/s would quantize slow transfers away */
-        fprintf(ostream, "=%.1f %s", scale * vals[0] / vals[1], unit);
+        fprintf(ostream, "=%.1f %s", scale * vals[1] / vals[2], unit);
         libxs_hist_print(ostream, hist, precision, "\n");
         result = 1;
       }
