@@ -15,7 +15,13 @@ The header is guarded by `__OPENCL` (set automatically when `__OFFLOAD_OPENCL` i
 | `LIBXSTREAM_MAXNITEMS` | 1024 | Per-thread maximum item count |
 | `LIBXSTREAM_MAXNKERNELS` | 32 | Maximum number of distinct kernels that can be profiled |
 | `LIBXSTREAM_PROFILE_TICKS` | 10 | Device-timer ticks a sample must span to be recorded |
-| `LIBXSTREAM_USM` | SVM coarse-grain | Runtime Unified Shared Memory level (unset = OpenCL 2.0 SVM coarse-grain with non-USM fallback, 0 = off, 1 = Intel USM, 2 = OpenCL 2.0 SVM coarse-grain, 3 = OpenCL 2.0 SVM reported caps) |
+| `LIBXSTREAM_USM` | SVM coarse-grain | Runtime Unified Shared Memory level (unset = OpenCL 2.0 SVM coarse-grain, same as 2; 0 = off, 1 = Intel USM, 2 = OpenCL 2.0 SVM coarse-grain, 3 = OpenCL 2.0 SVM reported caps) |
+
+Levels 1 and 3 are opt-in and never reached by the default, even though both are faster in a microbenchmark. Level 1 (`cl_intel_unified_shared_memory`) is the only path with a genuinely asynchronous transfer -- `clEnqueueMemcpyINTEL` measured 45.3 GB/s against 9.1 GB/s for a 128 MB H2D on a GPU Max 1550, where every SVM path instead ends in a host `memcpy` that runs single-threaded inside the enqueue and cannot overlap a kernel. It stays opt-in regardless, because the default must behave predictably across drivers rather than peak on one; request it explicitly where it is known good. A warning is emitted at verbosity 2+ if an explicit level 1 cannot load the extensions, since the only symptom is a slower run.
+
+Level 3 is excluded from the default for a different reason. It adopts whatever `CL_DEVICE_SVM_CAPABILITIES` reports, and that varies by kernel driver: on i915 a GPU Max 1550 offers only coarse-grain buffers, whereas Xe also reports fine-grain, including fine-grain *system* allocations. That is a substantially broader contract than coarse-grain buffers and not something to acquire implicitly from a capability bit, so levels below 3 mask the capabilities down to `CL_DEVICE_SVM_COARSE_GRAIN_BUFFER`.
+
+Nothing is lost by that: the grain is not a performance lever. Coarse-grain adds a `clEnqueueSVMMap`/`clEnqueueSVMUnmap` pair that fine-grain omits, but that is bookkeeping rather than data movement and the `memcpy` both paths end in dominates. Measured on a Xeon Platinum 8480+ (the device here reporting both grains), 64 MB H2D: 15.2 GB/s forced coarse against 15.1 GB/s with fine-grain.
 
 ## Data Types
 
