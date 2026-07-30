@@ -57,7 +57,9 @@ find_package(OpenCL REQUIRED)
 if(LIBXSTREAM_OMP)
   # AppleClang needs a separate libomp. FindOpenMP knows the flag but searches
   # only the implicit link directories, which exclude Homebrew; seed its search
-  # with the brew prefix like the Makefile build does.
+  # with the brew prefix like the Makefile build does. Homebrew keeps libomp
+  # keg-only (never symlinked into the main prefix), so the keg path is the one
+  # that matters and the plain prefix is only a fallback for other layouts.
   if(APPLE AND NOT OpenMP_libomp_LIBRARY)
     find_program(LIBXSTREAM_BREW NAMES brew)
     if(LIBXSTREAM_BREW)
@@ -65,28 +67,35 @@ if(LIBXSTREAM_OMP)
         OUTPUT_VARIABLE LIBXSTREAM_BREW_LIBOMP
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
-      if(NOT LIBXSTREAM_BREW_LIBOMP OR NOT IS_DIRECTORY "${LIBXSTREAM_BREW_LIBOMP}")
+      if(NOT IS_DIRECTORY "${LIBXSTREAM_BREW_LIBOMP}")
         execute_process(COMMAND "${LIBXSTREAM_BREW}" --prefix
           OUTPUT_VARIABLE LIBXSTREAM_BREW_LIBOMP
           OUTPUT_STRIP_TRAILING_WHITESPACE
           ERROR_QUIET)
       endif()
       if(IS_DIRECTORY "${LIBXSTREAM_BREW_LIBOMP}")
-        message(STATUS "Looking for libomp below ${LIBXSTREAM_BREW_LIBOMP}")
         list(APPEND CMAKE_PREFIX_PATH "${LIBXSTREAM_BREW_LIBOMP}")
       endif()
     endif()
   endif()
   find_package(OpenMP COMPONENTS C)
+  if(OpenMP_libomp_LIBRARY)
+    message(STATUS "Using libomp: ${OpenMP_libomp_LIBRARY}")
+  endif()
   if(NOT OpenMP_C_FOUND)
+    if(APPLE)
+      set(LIBXSTREAM_OMP_HINT
+        " AppleClang needs a separate libomp (brew install libomp).")
+    endif()
     if(LIBXSTREAM_OMP_EXPLICIT)
       message(FATAL_ERROR
-        "LIBXSTREAM_OMP was requested but no OpenMP C support was found")
+        "LIBXSTREAM_OMP was requested but no OpenMP C support was found."
+        "${LIBXSTREAM_OMP_HINT}")
     endif()
     message(WARNING
       "No OpenMP C support found; per-thread resources are sized for a single "
       "thread. Threaded consumers (e.g. DBCSR) require an OpenMP-capable "
-      "compiler.")
+      "compiler.${LIBXSTREAM_OMP_HINT}")
     set(LIBXSTREAM_OMP OFF)
   endif()
 endif()

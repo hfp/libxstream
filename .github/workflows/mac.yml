@@ -70,12 +70,13 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install dependencies
-        run: brew install cmake
+        run: brew install cmake libomp
 
       - name: Configure
         run: |
           cmake -B build \
                 -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+                -DLIBXSTREAM_OMP=ON \
                 -DBUILD_SHARED_LIBS=$( [ "${{ matrix.shared }}" = "shared" ] && echo ON || echo OFF )
 
       - name: Build

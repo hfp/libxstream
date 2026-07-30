@@ -178,6 +178,7 @@ jobs:
           -DCMAKE_BUILD_TYPE=Debug \
           -DCMAKE_INSTALL_PREFIX=$HOME/libxstream-install \
           -DLIBXSTREAM_INSTALL_HEADER_ONLY=ON \
+          -DLIBXSTREAM_OMP=ON \
           -DBUILD_SHARED_LIBS=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }}
 
     - name: Build
@@ -198,6 +199,17 @@ jobs:
         test -f $HOME/libxstream-install/share/libxstream/scripts/tool_opencl.sh
         test -f $HOME/libxstream-install/share/libxstream/samples/smm/smm_acc.c
         test -f $HOME/libxstream-install/share/libxstream/samples/smm/kernels/multiply.cl
+
+    - name: Verify OpenMP is recorded for consumers
+      run: |
+        # libxstream.pc has Requires.private: libxs, so libxs.pc must resolve
+        # too; the LIBXS clone is built in-tree rather than installed.
+        export PKG_CONFIG_PATH=$HOME/libxstream-install/lib/pkgconfig
+        export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:${{ github.workspace }}/../libxs/lib/pkgconfig
+        pkg-config --validate libxstream
+        pkg-config --static --libs libxstream | grep -q -- -fopenmp
+        grep -q "LIBXSTREAM_OMP ON" \
+          $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
 
     - name: Verify find_package
       run: |
