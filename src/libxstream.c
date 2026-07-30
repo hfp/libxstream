@@ -1499,19 +1499,27 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           }
           /**
            * LIBXSTREAM_USM runtime levels:
-           *   not set: OpenCL 2.0 SVM coarse-grain with non-USM fallback
+           *   not set: auto-detect (Intel ext preferred, SVM coarse-grain fallback)
            *   0: disable all USM, force clCreateBuffer path
            *   1: Intel USM ext
            *   2: OpenCL 2.0 SVM coarse-grain only (skip Intel ext)
            *   3: OpenCL 2.0 SVM with device-reported caps (skip Intel ext)
+           *
+           * Auto-detect must prefer the Intel extensions rather than settling for
+           * SVM: a device reporting only CL_DEVICE_SVM_COARSE_GRAIN_BUFFER routes
+           * every transfer through the clEnqueueSVMMap/memcpy/unmap path in
+           * libxstream_mem_copy_h2d, i.e. a blocking single-threaded host copy.
+           * Measured on a GPU Max 1550, 128 MB H2D: 9.1 GB/s that way against
+           * 45.3 GB/s via clEnqueueMemcpyINTEL, with 82% of the time spent inside
+           * the enqueue instead of overlapping as an asynchronous transfer.
            */
           {
             const char* const env_usm = getenv("LIBXSTREAM_USM");
             const int usm_level = (0 <= libxstream_init_cfg.usm) ? libxstream_init_cfg.usm
-              : (NULL != env_usm ? atoi(env_usm) : -1 /*default*/);
+              : (NULL != env_usm ? atoi(env_usm) : -1 /*auto*/);
 # if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
-            /* Intel USM extensions: enabled only by explicit level 1 */
-            if (1 == usm_level && 2 <= *devinfo->std_level && 0 != devinfo->intel &&
+            /* Intel USM extensions: enabled for auto-detect or level 1 */
+            if ((0 > usm_level || 1 == usm_level) && 2 <= *devinfo->std_level && 0 != devinfo->intel &&
                 (0 == devinfo->unified || NULL != (LIBXSTREAM_XHINTS)))
             {
               cl_platform_id platform = NULL;
@@ -1550,8 +1558,13 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             }
 # endif
 # if (0 != LIBXSTREAM_USM)
-            /* OpenCL 2.0 SVM: default to coarse-grain when available. */
-            if (0 > usm_level || 2 <= usm_level)
+            /**
+             * OpenCL 2.0 SVM: for levels 2-3, or as the fallback when the Intel
+             * extensions were not loaded above. Auto-detect only reaches here
+             * when they are absent, so a device offering both keeps the faster
+             * path instead of being downgraded to coarse-grain SVM.
+             */
+            if (2 <= usm_level || ((0 > usm_level || 1 == usm_level) && NULL == devinfo->clMemFreeINTEL))
             {
               cl_device_svm_capabilities svmcaps = 0;
               cl_int query_result = EXIT_SUCCESS;
@@ -1564,6 +1577,19 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
                 svmcaps &= CL_DEVICE_SVM_COARSE_GRAIN_BUFFER;
               }
               if (EXIT_SUCCESS == query_result) devinfo->usm = (cl_int)svmcaps;
+            }
+# endif
+# if (0 != LIBXSTREAM_USM)
+            /**
+             * Coarse-grain-only SVM means every transfer is a blocking host copy
+             * (map/memcpy/unmap), which is easily 5x slower than an asynchronous
+             * one and otherwise indistinguishable from a slow device.
+             */
+            if (NULL == devinfo->clMemFreeINTEL && 0 != devinfo->usm &&
+                0 == ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm) &&
+                (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+            {
+              fprintf(stderr, "WARN ACC/OpenCL: coarse-grain SVM, transfers are synchronous host copies.\n");
             }
 # endif
           }

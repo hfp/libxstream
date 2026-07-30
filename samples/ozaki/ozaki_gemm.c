@@ -24,7 +24,7 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result, const void* a, 
   int ldb, int ta, int tb, size_t as_size, size_t bs_size, size_t expa_size, size_t expb_size, void* d_as, void* d_bs,
   void* d_expa_g, void* d_expb_g, int prev_owned, int* cache_hit_a, int* cache_hit_b);
 static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern, void* d_src, void* d_slices,
-  void* d_exp, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ);
+  void* d_exp, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ, int kmajor);
 static int ozaki_enqueue_scale_beta(
   ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta);
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
@@ -256,12 +256,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       /* Preprocess A for this K-group */
       if (0 == cache_hit_a && EXIT_SUCCESS == result) {
         result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g, M, K_len,
-          lda, ta, k_pad, m_pad, bm_pre, bk_pre, d_occ_a);
+          lda, ta, k_pad, m_pad, bm_pre, bk_pre, d_occ_a, 0 /*kmajor*/);
       }
       /* Preprocess B for this K-group */
       if (0 == cache_hit_b && EXIT_SUCCESS == result) {
         result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_preprocess_b, (char*)d_bg + b_off, d_bs, d_expb_g, N, K_len,
-          ldb, tb, k_pad, n_pad, bn_pre, bk_pre, d_occ_b);
+          ldb, tb, k_pad, n_pad, bn_pre, bk_pre, d_occ_b, 0 /*kmajor*/);
       }
 
       /* Wait for preprocessing to complete */
@@ -538,7 +538,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
         if (EXIT_SUCCESS == result) {
           result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g, M, K_len,
-            lda, ta, k_pad, m_pad, bm_pre, bk_pre, NULL /*no occ for CRT*/);
+            lda, ta, k_pad, m_pad, bm_pre, bk_pre, NULL /*no occ for CRT*/, 1 /*kmajor*/);
         }
       }
       if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
@@ -592,7 +592,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs_s, 0, bs_slot, stream_b);
           if (EXIT_SUCCESS == result) {
             result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b, (char*)d_bg + b_off + bp_off, d_bs_s,
-              d_expb_s, N_len, K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre, NULL /*no occ for CRT*/);
+              d_expb_s, N_len, K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre, NULL /*no occ for CRT*/, 0 /*kmajor*/);
           }
         }
         if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
@@ -698,16 +698,31 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 }
 
 
+/**
+ * kmajor selects the work-group shape: 0 maps the M/N extent to dim 0 (the
+ * layout-following mapping every preprocessor started with), 1 puts K there so
+ * a sub-group's lanes walk the contiguous axis of the slice buffer. Only
+ * preprocess_a_crt_dense wants the latter, and the shape is declared per kernel
+ * via reqd_work_group_size, so the two must agree.
+ */
 static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern, void* d_src, void* d_slices,
-  void* d_exp, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ)
+  void* d_exp, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ, int kmajor)
 {
   int result = EXIT_SUCCESS;
   size_t global[2], local[2];
   const int nblk_m_pre = LIBXS_UPDIV(M, bm_pre);
-  local[0] = bm_pre;
-  local[1] = bk_pre;
-  global[0] = (size_t)nblk_m_pre * bm_pre;
-  global[1] = bk_pre; /* single WG in K: kernel loops internally */
+  if (0 == kmajor) {
+    local[0] = bm_pre;
+    local[1] = bk_pre;
+    global[0] = (size_t)nblk_m_pre * bm_pre;
+    global[1] = bk_pre; /* single WG in K: kernel loops internally */
+  }
+  else {
+    local[0] = bk_pre;
+    local[1] = bm_pre;
+    global[0] = bk_pre; /* single WG in K: kernel loops internally */
+    global[1] = (size_t)nblk_m_pre * bm_pre;
+  }
   {
     cl_int i = 0;
     CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_src));

@@ -1277,10 +1277,18 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
  * Output layout: As[pidx][M_pad][K_pad] -- one dense M_pad x K_pad int8 matrix
  * per prime, with residues in [0, m_pidx-1] and sign folded in.
  *
- * Work-group: (BM_PRE, BK_PRE, 1).
- * Dispatch: global[1] = BK_PRE (single WG in K) -- loops internally.
+ * Work-group: (BK_PRE, BM_PRE, 1) -- K on dim 0, so the lanes of a sub-group
+ * walk col and the NPRIMES stores per element land on consecutive bytes of
+ * As[p][row][col]. Every element is loaded once but stored NPRIMES times, so
+ * coalescing the store outweighs coalescing the load: mapping lanes to row
+ * instead (as the operand layout would suggest) measured 7.5 ms against 1.6 ms
+ * for preprocess_b on the same element count at m=n=k=4096, purely from the
+ * 16-way store scatter. The load becomes stride-lda for transa=0, which is what
+ * preprocess_b already pays.
+ *
+ * Dispatch: global[0] = BK_PRE (single WG in K) -- loops internally.
  */
-__attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
+__attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
@@ -1290,16 +1298,20 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a, int M, int K, int lda,
   global int* restrict expa, /* [M] per-row max exponent (int for atomic_max) */
   int K_pad, int M_pad)
 {
-  const int mi = (int)get_local_id(0);
-  const int kk = (int)get_local_id(1);
-  const int row = (int)get_group_id(0) * BM_PRE + mi;
-  int col;
+  const int kk = (int)get_local_id(0);
+  const int mi = (int)get_local_id(1);
+  const int row = (int)get_group_id(1) * BM_PRE + mi;
+  int col, emax = 0;
 
   local int row_max_exp[BM_PRE];
   if (0 == kk) row_max_exp[mi] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /* Pass 1: find max exponent across ALL of K for this row */
+  /**
+   * Pass 1: max exponent across ALL of K for this row. A sub-group now shares
+   * one row, so a per-element atomic_max would serialize all its lanes on the
+   * same SLM address; accumulate privately and contribute once instead.
+   */
   for (col = kk; col < K; col += BK_PRE) {
     if (row < M) {
       int s0;
@@ -1307,9 +1319,10 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a, int M, int K, int lda,
       uint_repr_t m0;
       const int idx = OZAKI_IDX_A(row, col, lda);
       ieee_decompose(a[idx], &s0, &e0, &m0);
-      if (e0 > 0) atomic_max(&row_max_exp[mi], (int)e0);
+      if (e0 > emax) emax = (int)e0;
     }
   }
+  if (row < M && 0 < emax) atomic_max(&row_max_exp[mi], emax);
   barrier(CLK_LOCAL_MEM_FENCE);
 
   if (0 == kk && row < M) expa[row] = row_max_exp[mi];
