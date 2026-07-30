@@ -187,6 +187,7 @@ typedef struct ozaki_context_t {
    */
   int rtm, rtn, crt_rtm, crt_rtn;
   int ku; /* K-loop unroll factor (compiled into kernel) */
+  int sb; /* Scheme-1 slice-block width for the pair loop (1 = unblocked) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int nv_mma; /* NV MMA path enabled (m16n8k32, SG=32) */
   int pb; /* CRT prime batching factor (compiled into kernel) */

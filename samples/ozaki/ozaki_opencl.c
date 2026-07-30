@@ -432,7 +432,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     char build_options[128];
     const int mant_bits = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
-    int rtm = 0, rtn = 0, rtn_req = 0, ku_req, biggrf, hier;
+    int rtm = 0, rtn = 0, rtm_req = 0, rtn_req = 0, ku_req, biggrf, hier;
     size_t max_wgs;
     int v;
     {
@@ -461,7 +461,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     max_wgs = (0 != biggrf) ? devinfo->wgsize[0] / 2 : devinfo->wgsize[0];
     /* Read optional user overrides for register tiling factors. */
     env = getenv("OZAKI_RTM");
-    if (NULL != env && 0 < atoi(env)) rtm = atoi(env);
+    if (NULL != env && 0 < atoi(env)) {
+      rtm = atoi(env);
+      rtm_req = rtm; /* explicit request applies to both schemes */
+    }
     env = getenv("OZAKI_RTN");
     if (NULL != env && 0 < atoi(env)) {
       rtn = atoi(env);
@@ -503,9 +506,31 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      */
     env = getenv("OZAKI_NPANEL");
     ctx->npanel = (NULL != env) ? atoi(env) : 0;
+    /**
+     * Scheme-1 slice blocking (1 = unblocked).  The kernel shares each loaded
+     * A/B fragment across all pairs of an OZAKI_SB-wide slice block, trading
+     * OZAKI_SB^2 concurrent accumulator sets for an OZAKI_SB-fold cut in load
+     * messages.
+     *
+     * Opt-in: blocking only pays where registers are spare, which on PVC means
+     * 256-GRF.  There it is decisive -- at a fixed RTM=2 and 128x128 tile the
+     * gemm_fused kernel goes 1676 -> 3018 GFLOPS at n=6144 (1.8x) -- but under
+     * the default GRF128 the row tiling is already 2, so the SB^2 accumulator
+     * sets spill and the same kernel drops 2203 -> 547 GFLOPS.  fp32 gains
+     * nothing either way: nslices=4 leaves too little pair redundancy.
+     */
+    env = getenv("OZAKI_SB");
+    { const int sb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
+      /* The kernel indexes whole blocks, so OZAKI_SB must divide NSLICES. */
+      ctx->sb = (1 < sb && sb <= nslices && 0 == (nslices % sb)) ? sb : 1;
+      if (1 < sb && ctx->sb != sb && 0 != verbosity) {
+        fprintf(stderr, "INFO OZAKI: OZAKI_SB=%d does not divide nslices=%d -- ignored\n", sb, nslices);
+      }
+    }
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
-        rtm = (0 != biggrf) ? 4 : 2;
+        /* Slice blocking holds SB^2 accumulator sets, so it halves RTM. */
+        rtm = (0 != biggrf) ? (1 < ctx->sb ? 2 : 4) : 2;
       }
       else if (0 != ctx->nv_mma && 0 != gpu) {
         rtm = 2;
@@ -650,10 +675,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
-        " -DRTM=%d -DRTN=%d"
+        " -DRTM=%d -DRTN=%d -DOZAKI_SB=%d"
         " -DOZAKI_SQ=%d -DCONSTANT=global",
         bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
-        nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn, sq_jit);
+        nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn, ctx->sb, sq_jit);
       if (0 != ctx->nv_mma) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DNV_MMA=1");
       }
@@ -737,7 +762,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       /* Fractional CRT is double-only: without fp64 fall back to Garner. */
       const int fraccrt = (0 == has_fp64) ? 0 : ((1 == fraccrt_req || 2 == fraccrt_req) ? fraccrt_req : 0);
       const int crt_hier = (1 == fraccrt) ? 0 : (0 != ctx->hier || 3 == kind || 2 == fraccrt);
-      const int crt_rtm = (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm / 2, 1) : rtm;
+      /**
+       * Scheme 2 has no pair loop, so slice blocking never applies to it and it
+       * must not inherit the halved RTM that blocking imposes on Scheme 1.
+       * rtm_crt_base is the row tiling Scheme 1 would have used unblocked.
+       */
+      const int rtm_crt_base = (1 < ctx->sb && 0 == rtm_req) ? rtm * 2 : rtm;
+      const int crt_rtm =
+        (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm_crt_base / 2, 1) : rtm_crt_base;
       /**
        * MMA gives a sub-tile 16 rows but only 8 columns, so reaching a square
        * register tile needs twice the column tiling. Scheme 2 measured +36% at
@@ -1009,6 +1041,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     if (ctx->crt_rtm != ctx->rtm) ozaki_print_opt(stderr, "crt_rtm", ctx->crt_rtm);
     ozaki_print_opt(stderr, "rtn", ctx->rtn);
     if (ctx->crt_rtn != ctx->rtn) ozaki_print_opt(stderr, "crt_rtn", ctx->crt_rtn);
+    if (1 < ctx->sb) ozaki_print_opt(stderr, "sb", ctx->sb);
     if (0 != devinfo->intel) {
       const int crt_grf128 = (0 != ctx->crt_rtm && ctx->crt_rtm < ctx->rtm);
       ozaki_print_opt(stderr, "grf", ctx->biggrf ? 256 : 128);

@@ -27,6 +27,7 @@
  *   BK              - K-unroll factor for DPAS (32 for int8)
  *   KU              - K-loop unroll depth (2)
  *   NSLICES         - number of mantissa slices
+ *   OZAKI_SB        - slice-block width for the pair loop (1 = unblocked)
  *   MANT_BITS       - mantissa bit count (52 for fp64, 23 for fp32)
  *   BIAS_PLUS_MANT  - exponent bias + mantissa bits
  *   USE_DOUBLE      - if 1, fp64 accumulation; otherwise fp32
@@ -47,6 +48,17 @@
 #endif
 #if !defined(NSLICES)
 # define NSLICES 8
+#endif
+/**
+ * Slice blocking for the pair loop.  The unblocked nest re-streams slice sa's
+ * A panel once per sb, so p slices cost p*p panel loads where p distinct
+ * panels exist.  Blocking sa and sb by OZAKI_SB hoists the fragment loads out
+ * of the pair dimension: loads drop by OZAKI_SB at the cost of OZAKI_SB^2
+ * accumulator sets held concurrently.  Requires the split load/compute macros,
+ * so it is Intel-only; other paths keep the unblocked nest.
+ */
+#if !defined(OZAKI_SB)
+# define OZAKI_SB 1
 #endif
 #if !defined(MANT_BITS)
 # define MANT_BITS 52
@@ -76,6 +88,19 @@
 # define OZAKI_USE_OCL_KLOOP
 #elif defined(NV_MMA) && (NV_MMA)
 # define OZAKI_USE_OCL_KLOOP
+#endif
+
+/**
+ * Slice blocking needs the split load/compute macros (Intel DPAS path) and the
+ * square traversal: under OZAKI_SQ every ordered pair is its own block entry,
+ * whereas the triangular nest folds a transposed product into each off-diagonal
+ * pair, which a shared-fragment block cannot express.
+ */
+#if (1 < OZAKI_SB) && defined(INTEL) && (2 <= INTEL) && (RTM >= 2) && (RTN >= 2) && OZAKI_SQ
+# if 0 != (NSLICES % OZAKI_SB)
+#   error OZAKI_SB must divide NSLICES
+# endif
+# define OZAKI_SLICE_BLOCKED
 #endif
 
 /**
@@ -202,6 +227,49 @@
       } \
     } while (0)
 #endif
+
+#if defined(OZAKI_SLICE_BLOCKED)
+/**
+ * Slice-blocked K-loop: one K-step loads the A fragments of NA slices and the
+ * B fragments of NB slices, then issues every (ia, ib) sub-tile product from
+ * registers.  Load messages per K-step drop from 2*NA*NB (unblocked, one pair
+ * at a time) to NA+NB.
+ *
+ * AS_BASE/BS_BASE are the slice-0 panels, A_STRIDE/B_STRIDE the per-slice
+ * strides, SA0/SB0 the first slice of each block.  ACC holds NA*NB
+ * accumulator groups of RTM*RTN each, indexed (ia * NB + ib).
+ */
+# define OZAKI_KSTEP_BLOCKED(AS_BASE, BS_BASE, A_STRIDE, B_STRIDE, SA0, SB0, K_PAD_, N_PAD_, M_, MI, NJ, KOFF, ACC) \
+    do { \
+      ushort8 a_bk_[OZAKI_SB][RTM]; \
+      uint8 b_bk_[OZAKI_SB][RTN]; \
+      int ia_bk_, ib_bk_; \
+      UNROLL_FORCE(OZAKI_SB) for (ia_bk_ = 0; ia_bk_ < OZAKI_SB; ++ia_bk_) \
+      { \
+        OZAKI_LOAD_A_TILED((AS_BASE) + (long)((SA0) + ia_bk_) * (A_STRIDE), K_PAD_, M_, MI, KOFF, a_bk_[ia_bk_]); \
+      } \
+      UNROLL_FORCE(OZAKI_SB) for (ib_bk_ = 0; ib_bk_ < OZAKI_SB; ++ib_bk_) \
+      { \
+        OZAKI_LOAD_B_TILED((BS_BASE) + (long)((SB0) + ib_bk_) * (B_STRIDE), N_PAD_, K_PAD_, NJ, KOFF, b_bk_[ib_bk_]); \
+      } \
+      UNROLL_FORCE(OZAKI_SB) for (ia_bk_ = 0; ia_bk_ < OZAKI_SB; ++ia_bk_) \
+      { \
+        UNROLL_FORCE(OZAKI_SB) for (ib_bk_ = 0; ib_bk_ < OZAKI_SB; ++ib_bk_) \
+        { \
+          OZAKI_COMPUTE_TILED(a_bk_[ia_bk_], b_bk_[ib_bk_], (ACC) + (ia_bk_ * OZAKI_SB + ib_bk_) * RTM * RTN); \
+        } \
+      } \
+    } while (0)
+
+# define OZAKI_KLOOP_BLOCKED(AS_BASE, BS_BASE, A_STRIDE, B_STRIDE, SA0, SB0, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
+    do { \
+      int k_b_; \
+      for (k_b_ = 0; k_b_ < (K_PAD_); k_b_ += BK) { \
+        OZAKI_KSTEP_BLOCKED(AS_BASE, BS_BASE, A_STRIDE, B_STRIDE, SA0, SB0, \
+          K_PAD_, N_PAD_, M_, MI, NJ, k_b_, ACC); \
+      } \
+    } while (0)
+#endif /* OZAKI_SLICE_BLOCKED */
 
 /* K-loop prefetch: opt-in via OZAKI_PREFETCH=1 (default off on PVC). */
 #if defined(OZAKI_PREFETCH) && (0 < OZAKI_PREFETCH)
@@ -599,6 +667,49 @@ kernel void gemm_fused(
   }
 #endif
 
+#if defined(OZAKI_SLICE_BLOCKED)
+  /**
+   * Slice-blocked pair loop.  Each (sa0, sb0) block covers up to OZAKI_SB
+   * consecutive slices per side and shares the loaded fragments across all
+   * pairs inside it.  The block bounds are compile-time constants, so the
+   * cutoff predication below folds away entirely; only the tail blocks (where
+   * NSLICES or the cutoff truncates the block) retain a narrower extent.
+   *
+   * Square traversal only: with OZAKI_SQ the mirror pair is a separate (sa, sb)
+   * block entry, so no in-block transpose term is needed.
+   */
+  for (sa = 0; sa < (SINT)NSLICES && (int)sa <= OZAKI_CUTOFF; sa += OZAKI_SB) {
+    SINT sb0;
+    for (sb0 = 0; sb0 < (SINT)NSLICES; sb0 += OZAKI_SB) {
+      OZAKI_ACC_T c_blk[OZAKI_SB * OZAKI_SB * RTM * RTN];
+      int ia, ib;
+      UNROLL_FORCE(OZAKI_SB * OZAKI_SB * RTM * RTN)
+      for (ia = 0; ia < OZAKI_SB * OZAKI_SB * RTM * RTN; ++ia) c_blk[ia] = OZAKI_ACC_ZERO;
+      OZAKI_KLOOP_BLOCKED(as_base, bs_base, a_stride, b_stride, sa, sb0, K_pad, N_pad, M, mi_base, nj_base, c_blk);
+      /**
+       * Every slice of the block is loaded and multiplied unconditionally --
+       * OZAKI_SB divides NSLICES, so the indices stay in range -- and pairs
+       * past the cutoff are simply not flushed.  Their products are dead work
+       * on the tail blocks only, which is why OZAKI_SB stays small.
+       */
+      UNROLL_FORCE(OZAKI_SB) for (ia = 0; ia < OZAKI_SB; ++ia)
+      {
+        const int high_a = MANT_BITS - (7 * ((int)sa + ia));
+        const int low_a = MAX(0, high_a - 6);
+        UNROLL_FORCE(OZAKI_SB) for (ib = 0; ib < OZAKI_SB; ++ib)
+        {
+          const int high_b = MANT_BITS - (7 * ((int)sb0 + ib));
+          const int low_b = MAX(0, high_b - 6);
+          if ((int)sa + ia + (int)sb0 + ib <= OZAKI_CUTOFF) {
+            const real_t pscale = OZAKI_ALPHA_MUL(alpha, EXP2I(low_a + low_b - 2 * MANT_BITS));
+            OZAKI_SCALE_FLUSH(c_blk + (ia * OZAKI_SB + ib) * RTM * RTN, c, ldc, ea_cache, eb_cache, mi_base, nj_base, sg_lid,
+              M, N, pscale);
+          }
+        }
+      }
+    }
+  }
+#else
     for (sa = 0; sa < (SINT)NSLICES && (int)sa <= OZAKI_CUTOFF; ++sa) {
       const int high_sa = MANT_BITS - (7 * (int)sa);
       const int low_bit_sa = MAX(0, high_sa - 6);
@@ -760,6 +871,7 @@ kernel void gemm_fused(
 #endif
       }
     }
+#endif /* OZAKI_SLICE_BLOCKED */
 
 #if !defined(OZAKI_USE_OCL_KLOOP) && !(defined(NV_MMA) && (NV_MMA))
   /* Final write: register C -> global C */
