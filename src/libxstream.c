@@ -658,7 +658,16 @@ LIBXSTREAM_API int libxstream_init(void)
         }
         if (0 != libxstream_opencl_config.profile_mem) {
           const int profile = LIBXS_MAX(LIBXS_ABS(libxstream_opencl_config.profile_mem), 2);
-          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_add};
+          /**
+           * Both averaged, for the reason spelled out at the kernel histogram:
+           * the reported rate divides vals[0] by vals[1], and query_percentile
+           * interpolates vals[1] as a per-sample duration. Accumulating the
+           * duration divided a per-sample amount by a bucket total, understating
+           * the rate by roughly the number of samples sharing a bucket -- equally
+           * sized transfers all land in one, so a 41.5 GB/s H2D was reported as
+           * 1729 MB/s across 24 samples.
+           */
+          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg};
           libxstream_opencl_config.hist_h2d = libxs_hist_create(profile + 1, 2, update);
           libxstream_opencl_config.hist_d2h = libxs_hist_create(profile + 1, 2, update);
           libxstream_opencl_config.hist_d2d = libxs_hist_create(profile + 1, 2, update);
@@ -778,7 +787,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
       if (0 < vals[1]) {
         const int precision[] = {1, 1};
         libxstream_opencl_print_id(ostream, name);
-        fprintf(ostream, "=%.0f %s", scale * vals[0] / vals[1], unit);
+        /* one decimal: a whole-number GB/s would quantize slow transfers away */
+        fprintf(ostream, "=%.1f %s", scale * vals[0] / vals[1], unit);
         libxs_hist_print(ostream, hist, precision, "\n");
         result = 1;
       }
@@ -815,7 +825,13 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_transfers(FILE* ostream, const
   int nrows = 0, i;
   assert(nhist <= (int)(sizeof(kind) / sizeof(*kind)));
   for (i = 0; i < nhist; ++i) {
-    nrows += libxstream_opencl_print_hist(ostream, hist[i], kind[i], 1 /*amount_first*/, "MB/s", 1E6);
+    /**
+     * GB/s: samples carry megabytes over microseconds, so the ratio is MB/us and
+     * 1E3 converts it. Matches the unit the kernel rows already report, and
+     * device-attached memory reaches five digits of MB/s where GB/s stays
+     * legible. The per-bucket columns keep their own units (MB, microseconds).
+     */
+    nrows += libxstream_opencl_print_hist(ostream, hist[i], kind[i], 1 /*amount_first*/, "GB/s", 1E3);
   }
   return nrows;
 }

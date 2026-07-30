@@ -116,13 +116,15 @@ Two independent facilities, reported at exit on `stderr` and silent unless reque
 | Variable | Reports |
 |---|---|
 | `LIBXSTREAM_PROFILE` | Per-kernel durations (microseconds), one row per distinct kernel |
-| `LIBXSTREAM_PROFILE_MEM` | Transfer rates (MB/s) for H2D, D2H, D2D, and zero-fill |
+| `LIBXSTREAM_PROFILE_MEM` | Transfer rates (GB/s) for H2D, D2H, D2D, and zero-fill |
 
 A positive value sets the histogram resolution; a negative value additionally traces every individual sample as it is recorded. Setting either variable enables `CL_QUEUE_PROFILING_ENABLE` on all streams, so profiling is not meant for production runs.
 
 Kernels are identified by `CL_KERNEL_FUNCTION_NAME`, read once per distinct `cl_kernel` handle. Call sites therefore pass no identifier: replacing `clEnqueueNDRangeKernel` with `libxstream_opencl_launch` is sufficient to make a kernel appear in the report.
 
 Samples whose duration spans fewer than `LIBXSTREAM_PROFILE_TICKS` ticks of the device timer (`CL_DEVICE_PROFILING_TIMER_RESOLUTION`) are counted as discarded rather than recorded, because a rate derived from one or two ticks is quantization noise. The report states the timer resolution and the resulting floor only when samples were actually dropped, and reports `no samples recorded` when a requested profile collected nothing at all — silence there would be indistinguishable from a run that performed no work.
+
+Every value a histogram carries is averaged per sample, never accumulated, so that a bucket's amount and its duration refer to the same single transfer and their ratio is a rate. Accumulating the duration instead divides a per-sample amount by a bucket total, which understates the rate by roughly the number of samples that share the bucket — and equally sized transfers all share one, so the error is largest exactly where the report is most useful.
 
 ## See Also
 
