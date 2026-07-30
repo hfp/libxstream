@@ -1,5 +1,12 @@
 get_filename_component(_libxstream_prefix "${CMAKE_CURRENT_LIST_DIR}/../../.." ABSOLUTE)
 
+# Substituted by the Makefile to match the OMP setting of this build; the
+# unsubstituted default matches the Makefile default (OMP=1).
+set(LIBXSTREAM_OMP @LIBXSTREAM_OMP@)
+if(NOT LIBXSTREAM_OMP MATCHES "^(ON|OFF)$")
+  set(LIBXSTREAM_OMP ON)
+endif()
+
 set(_libxstream_suffixes_save "${CMAKE_FIND_LIBRARY_SUFFIXES}")
 if(DEFINED BUILD_SHARED_LIBS AND NOT BUILD_SHARED_LIBS)
   set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
@@ -18,7 +25,9 @@ if(LIBXSTREAM_LIBRARY AND LIBXSTREAM_INCLUDE_DIR)
     find_package(libxs CONFIG QUIET
       HINTS "${_libxstream_prefix}")
     find_package(OpenCL QUIET)
-    find_package(OpenMP QUIET COMPONENTS C)
+    if(LIBXSTREAM_OMP)
+      find_package(OpenMP REQUIRED COMPONENTS C)
+    endif()
     add_library(libxstream::libxstream UNKNOWN IMPORTED)
     set_target_properties(libxstream::libxstream PROPERTIES
       IMPORTED_LOCATION "${LIBXSTREAM_LIBRARY}"

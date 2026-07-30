@@ -21,6 +21,11 @@ include(CMakePackageConfigHelpers)
 
 option(LIBXSTREAM_INSTALL_HEADER_ONLY "Install the header-only implementation sources" OFF)
 
+# Matches the Makefile default (OMP=1). OpenMP is not an optimization here: it
+# sizes per-thread resources (streams, memory pointers) for threaded consumers
+# such as DBCSR. Without it the library assumes a single thread.
+option(LIBXSTREAM_OMP "Use OpenMP for per-thread resource sizing" ON)
+
 set(LIBXS_GIT_REPOSITORY "https://github.com/hfp/libxs.git")
 set(LIBXS_GIT_TAG "main")
 
@@ -39,7 +44,9 @@ if(NOT TARGET libxs::libxs)
 endif()
 
 find_package(OpenCL REQUIRED)
-find_package(OpenMP COMPONENTS C)
+if(LIBXSTREAM_OMP)
+  find_package(OpenMP REQUIRED COMPONENTS C)
+endif()
 
 set(LIBXSTREAM_LINK_LIBRARIES
   OpenCL::OpenCL
@@ -53,6 +60,7 @@ message(STATUS "  CMake version         : ${CMAKE_VERSION}")
 message(STATUS "  System                : ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  libxs target          : libxs::libxs")
 message(STATUS "  OpenCL                : ${OpenCL_VERSION_STRING}")
+message(STATUS "  OpenMP                : ${OpenMP_C_VERSION}")
 
 set(LIBXSTREAM_ROOT_DIR "${PROJECT_SOURCE_DIR}")
 set(LIBXSTREAM_INCLUDE_DIR "${LIBXSTREAM_ROOT_DIR}/libxstream")

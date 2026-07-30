@@ -606,7 +606,7 @@ else
 endif
 
 $(PCMKDIR)/$(PROJECT)Config.cmake: $(ROOTSCR)/$(PROJECT)Config.cmake $(PCMKDIR)/.make
-	@$(CP) $< $@
+	@$(SED) -e 's|@LIBXSTREAM_OMP@|$(if $(filter-out 0,$(OMP)),ON,OFF)|g' <$< >$@
 	@$(SED) -e 's|@VERSION@|$(VERSION_STRING)|g' \
 		<$(ROOTSCR)/$(PROJECT)ConfigVersion.cmake.in >$(PCMKDIR)/$(PROJECT)ConfigVersion.cmake
 
