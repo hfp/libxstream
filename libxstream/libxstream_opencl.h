@@ -285,9 +285,23 @@ typedef struct libxstream_opencl_launch_info_t {
 } libxstream_opencl_launch_info_t;
 
 /** Information about host/device-memory pointer. */
+/**
+ * Sub-buffers handed to clSetKernelArg for pointers into this buffer. They are
+ * cached rather than created per launch because clSetKernelArg does not retain
+ * the cl_mem: releasing right after setting the argument leaves the kernel with
+ * a dangling handle, which the Intel driver aborts on. Keyed by offset and
+ * released together with the parent, so the lifetime is the parent's.
+ */
+typedef struct libxstream_opencl_info_sub_t {
+  cl_mem memory;
+  size_t offset;
+} libxstream_opencl_info_sub_t;
+
 typedef struct libxstream_opencl_info_memptr_t {
   cl_mem memory; /* first item! */
   void* memptr;
+  libxstream_opencl_info_sub_t* subs;
+  size_t nsubs;
 } libxstream_opencl_info_memptr_t;
 
 /** Enumeration of FP-atomic kinds. */

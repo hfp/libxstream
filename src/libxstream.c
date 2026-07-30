@@ -2218,6 +2218,63 @@ LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char sourc
 }
 
 
+/**
+ * Sub-buffer covering info->memory from offset onward, recorded so that the
+ * parent's deallocation releases it.
+ *
+ * Releasing right after clSetKernelArg is what this replaces: that call does not
+ * retain the cl_mem, so dropping the last reference left the pending launch with
+ * a freed handle and the Intel driver aborted inside clEnqueueNDRangeKernel (no
+ * error code, SIGABRT from within the driver).
+ *
+ * A fresh sub-buffer per argument rather than one cached per offset, even though
+ * the offset determines the region: reusing one handle across launches computed
+ * wrong results (Ozaki-2 panelled GEMM, rsq 0.71 against 1.0 for fresh handles),
+ * while the region, size and parent of the reused handle all verified correct.
+ * The reason is not established -- suspected aliasing of a region written by one
+ * kernel and read by the next through the same sub-buffer -- so correctness wins
+ * over economy here. Consequently the list grows per launch, and the release at
+ * deallocation is what bounds it: buffers whose lifetime spans very many
+ * launches will hold correspondingly many handles.
+ *
+ * The caller must hold lock_memory: the list is shared with the deallocator.
+ */
+LIBXSTREAM_API_INTERN cl_mem libxstream_opencl_subbuffer(
+  libxstream_opencl_info_memptr_t* /*info*/, size_t /*offset*/, int* /*result*/);
+LIBXSTREAM_API_INTERN cl_mem libxstream_opencl_subbuffer(
+  libxstream_opencl_info_memptr_t* info, size_t offset, int* result)
+{
+  cl_mem sub = NULL;
+  size_t total = 0;
+  assert(NULL != info && NULL != result && 0 != offset);
+  *result = clGetMemObjectInfo(info->memory, CL_MEM_SIZE, sizeof(size_t), &total, NULL);
+  if (EXIT_SUCCESS == *result && offset < total) {
+    cl_buffer_region region;
+    region.origin = offset;
+    region.size = total - offset;
+    sub = clCreateSubBuffer(info->memory, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region, result);
+    if (EXIT_SUCCESS == *result && NULL != sub) {
+      libxstream_opencl_info_sub_t* const subs = (libxstream_opencl_info_sub_t*)realloc(
+        info->subs, sizeof(libxstream_opencl_info_sub_t) * (info->nsubs + 1));
+      if (NULL != subs) {
+        subs[info->nsubs].memory = sub;
+        subs[info->nsubs].offset = offset;
+        info->subs = subs;
+        ++info->nsubs;
+      }
+      else { /* cannot track it, hence cannot keep it alive */
+        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(sub));
+        sub = NULL;
+        *result = EXIT_FAILURE;
+      }
+    }
+    else sub = NULL;
+  }
+  else if (EXIT_SUCCESS == *result) *result = EXIT_FAILURE;
+  return sub;
+}
+
+
 LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint arg_index, const void* arg_value)
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
@@ -2243,30 +2300,30 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
     void* nc;
     libxstream_opencl_info_memptr_t* info;
     LIBXS_UNION_ASSIGN(void*, nc, const void*, arg_value);
+    /**
+     * The lock spans the sub-buffer cache as well, not just the lookup: the
+     * cache is per-buffer state shared with the deallocator, so releasing
+     * earlier would let a concurrent free tear it down mid-use.
+     */
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     info = libxstream_opencl_info_devptr_modify(NULL, nc, 1 /*elsize*/, NULL /*amount*/, &offset);
-    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != info) {
       if (0 == offset) {
         result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &info->memory);
       }
-      else { /* sub-pointer within a cl_mem buffer: create sub-buffer */
-        size_t total = 0;
-        result = clGetMemObjectInfo(info->memory, CL_MEM_SIZE, sizeof(size_t), &total, NULL);
-        if (EXIT_SUCCESS == result && offset < total) {
-          cl_buffer_region region;
-          cl_mem sub;
-          region.origin = offset;
-          region.size = total - offset;
-          sub = clCreateSubBuffer(info->memory, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region, &result);
-          if (EXIT_SUCCESS == result) {
-            result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &sub);
-            LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(sub));
-          }
+      else { /* sub-pointer within a cl_mem buffer: sub-buffer, cached per offset */
+        cl_mem sub = libxstream_opencl_subbuffer(info, offset, &result);
+        if (EXIT_SUCCESS == result) {
+          /**
+           * No release here: clSetKernelArg does not retain the cl_mem, so
+           * dropping the last reference would enqueue the kernel with a dangling
+           * handle. The cache owns it until the parent buffer is deallocated.
+           */
+          result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &sub);
         }
-        else if (EXIT_SUCCESS == result) result = EXIT_FAILURE;
       }
     }
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
   }
   CL_RETURN(result, "");
 }

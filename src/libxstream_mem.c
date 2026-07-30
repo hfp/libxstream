@@ -96,6 +96,8 @@ LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem memory, void** mempt
     if (NULL != info) {
       info->memory = memory;
       info->memptr = memptr;
+      info->subs = NULL; /* sub-buffers are created on demand */
+      info->nsubs = 0;
     }
     else result = EXIT_FAILURE;
   }
@@ -432,6 +434,14 @@ LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem)
       info = libxstream_opencl_info_devptr_modify(NULL, dev_mem, 1, NULL, NULL);
       if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
         libxstream_opencl_info_memptr_t* const pfree = libxstream_opencl_config.memptrs[libxstream_opencl_config.nmemptrs];
+        /* cached sub-buffers are owned here (see libxstream_opencl_subbuffer) */
+        size_t isub;
+        for (isub = 0; isub < info->nsubs; ++isub) {
+          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->subs[isub].memory));
+        }
+        free(info->subs);
+        info->subs = NULL;
+        info->nsubs = 0;
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->memory));
         libxs_pfree(pfree, (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
         *info = *pfree;
@@ -883,6 +893,14 @@ LIBXSTREAM_API int libxstream_mem_deallocate(void* dev_mem)
       info = libxstream_opencl_info_devptr_modify(NULL, dev_mem, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
       if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
         libxstream_opencl_info_memptr_t* const pfree = libxstream_opencl_config.memptrs[libxstream_opencl_config.nmemptrs];
+        /* cached sub-buffers are owned here (see libxstream_opencl_subbuffer) */
+        size_t isub;
+        for (isub = 0; isub < info->nsubs; ++isub) {
+          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->subs[isub].memory));
+        }
+        free(info->subs);
+        info->subs = NULL;
+        info->nsubs = 0;
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->memory));
         libxs_pfree(pfree, (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
         *info = *pfree;
