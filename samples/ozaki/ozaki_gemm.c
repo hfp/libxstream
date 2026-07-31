@@ -23,6 +23,7 @@ static void ozaki_cache_check(ozaki_context_t* ctx, const void* a, const void* b
 static void ozaki_cache_update(ozaki_context_t* ctx, int result, const void* a, const void* b, int M, int N, int K, int lda,
   int ldb, int ta, int tb, size_t as_size, size_t bs_size, size_t expa_size, size_t expb_size, void* d_as, void* d_bs,
   void* d_expa_g, void* d_expb_g, int prev_owned, int* cache_hit_a, int* cache_hit_b);
+static int ozaki_set_ptr_base(cl_kernel kern, cl_int* i, const void* ptr, size_t elsize, int wide);
 static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern, void* d_src, void* d_slices,
   void* d_exp, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ, int kmajor);
 static int ozaki_enqueue_scale_beta(
@@ -699,6 +700,47 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 
 
 /**
+ * Set a buffer argument as a (pointer, index) pair. Emitting both from one place
+ * is what keeps them consistent: a call site that offsets the pointer but forgets
+ * the index would read the panel from the wrong place, silently.
+ *
+ * With USM the offset travels in the pointer and the index is zero. Without USM
+ * clSetKernelArg takes a cl_mem that cannot express an offset, so the pointer is
+ * resolved to its registered base and the index carries the remainder -- which is
+ * what lets panelling work with neither USM nor sub-buffers. The kernel applies
+ * base unconditionally, so the two cases share one code path on the device.
+ *
+ * wide selects a long index for the slice buffers, whose element count exceeds
+ * INT_MAX at a large K_pad/N_pad (nprimes * k_pad * n_pad), while the matrices
+ * stay within int.
+ */
+static int ozaki_set_ptr_base(cl_kernel kern, cl_int* i, const void* ptr, size_t elsize, int wide)
+{
+  libxstream_opencl_info_memptr_t info;
+  size_t offset = 0;
+  int result = EXIT_SUCCESS;
+  void* nc;
+  LIBXS_UNION_ASSIGN(void*, nc, const void*, ptr);
+  if (NULL != ptr) {
+    result = libxstream_opencl_info_devptr(&info, ptr, elsize, NULL /*amount*/, &offset);
+    /* info.memory is the base under registration, or the pointer itself under USM */
+    if (EXIT_SUCCESS == result) LIBXS_ASSIGN(&nc, &info.memory);
+  }
+  CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, (*i)++, nc));
+  if (0 == wide) {
+    const cl_int base = (cl_int)offset;
+    assert((size_t)base == offset); /* matrices stay within int */
+    CL_CHECK(result, clSetKernelArg(kern, (*i)++, sizeof(cl_int), &base));
+  }
+  else {
+    const cl_long base = (cl_long)offset;
+    CL_CHECK(result, clSetKernelArg(kern, (*i)++, sizeof(cl_long), &base));
+  }
+  return result;
+}
+
+
+/**
  * kmajor selects the work-group shape: 0 maps the M/N extent to dim 0 (the
  * layout-following mapping every preprocessor started with), 1 puts K there so
  * a sub-group's lanes walk the contiguous axis of the slice buffer. Only
@@ -724,18 +766,19 @@ static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* s
     global[1] = (size_t)nblk_m_pre * bm_pre;
   }
   {
+    const size_t elsize = ctx->use_double ? sizeof(double) : sizeof(float);
     cl_int i = 0;
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_src));
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &i, d_src, elsize, 0 /*int*/);
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &M));
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &K));
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &ld));
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &trans));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_slices));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_exp));
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &i, d_slices, 1 /*char*/, 1 /*long*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &i, d_exp, sizeof(cl_int), 0 /*int*/);
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &k_pad));
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &pad));
     if (NULL != d_occ) {
-      CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, i++, d_occ));
+      if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &i, d_occ, sizeof(cl_int), 0 /*int*/);
     }
   }
   CL_CHECK(result, libxstream_opencl_launch(stream, kern, 2, NULL, global, local, 0, NULL, NULL));
@@ -753,8 +796,9 @@ static int ozaki_enqueue_scale_beta(
   global_s[0] = (size_t)LIBXS_UP(M, ctx->bm_pre);
   global_s[1] = (size_t)N;
   {
+    const size_t elsize = ctx->use_double ? sizeof(double) : sizeof(float);
     cl_int i = 0;
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_scale, i++, d_cg));
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_scale, &i, d_cg, elsize, 0 /*int*/);
     CL_CHECK(result, clSetKernelArg(kern_scale, i++, sizeof(int), &M));
     CL_CHECK(result, clSetKernelArg(kern_scale, i++, sizeof(int), &N));
     CL_CHECK(result, clSetKernelArg(kern_scale, i++, sizeof(int), &ldc));
@@ -880,12 +924,13 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
     global_g[1] = (size_t)nblk_gn * local_g[1];
   }
   {
+    const size_t elsize = use_double ? sizeof(double) : sizeof(float);
     cl_int i = 0;
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_as));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_bs));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expa_g));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_expb_g));
-    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern_g, i++, d_cg));
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_as, 1 /*char*/, 1 /*long*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_bs, 1 /*char*/, 1 /*long*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_expa_g, sizeof(cl_int), 0 /*int*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_expb_g, sizeof(cl_int), 0 /*int*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_cg, elsize, 0 /*int*/);
     CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &M));
     CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &N));
     CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &k_pad));

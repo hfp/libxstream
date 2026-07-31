@@ -1293,11 +1293,14 @@ __attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
-preprocess_a_crt_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int transa,
-  global char* restrict as, /* [NPRIMES * M_pad * K_pad] */
-  global int* restrict expa, /* [M] per-row max exponent (int for atomic_max) */
+preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int M, int K, int lda, int transa,
+  global char* restrict as_base, /* [NPRIMES * M_pad * K_pad] */ long as_index,
+  global int* restrict expa_base, /* [M] per-row max exponent (int for atomic_max) */ int expa_index,
   int K_pad, int M_pad)
 {
+  CONSTANT const real_t* restrict a = a_base + a_index;
+  global char* restrict as = as_base + as_index;
+  global int* restrict expa = expa_base + expa_index;
   const int kk = (int)get_local_id(0);
   const int mi = (int)get_local_id(1);
   const int row = (int)get_group_id(1) * BM_PRE + mi;
@@ -1359,11 +1362,14 @@ __attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
-preprocess_b_crt_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int transb,
-  global char* restrict bs, /* [NPRIMES * K_pad * N_pad] */
-  global int* restrict expb, /* [N] per-column max exponent (int for atomic_max) */
+preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int N, int K, int ldb, int transb,
+  global char* restrict bs_base, /* [NPRIMES * K_pad * N_pad] */ long bs_index,
+  global int* restrict expb_base, /* [N] per-column max exponent (int for atomic_max) */ int expb_index,
   int K_pad, int N_pad)
 {
+  CONSTANT const real_t* restrict b = b_base + b_index;
+  global char* restrict bs = bs_base + bs_index;
+  global int* restrict expb = expb_base + expb_index;
   const int nj = (int)get_local_id(0);
   const int kk = (int)get_local_id(1);
   const int col = (int)get_group_id(0) * BN_PRE + nj;
@@ -1427,13 +1433,18 @@ __attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void gemm_crt_fused(
-  CONSTANT const char* restrict as_base, /* As: [NPRIMES * M_pad * K_pad] */
-  CONSTANT const char* restrict bs_base, /* Bs: [NPRIMES * K_pad * N_pad] */
-  CONSTANT const int* restrict expa, /* [M] per-row max exponent */
-  CONSTANT const int* restrict expb, /* [N] per-col max exponent */
-  global real_t* restrict c, int M, int N, int K_pad, int N_pad, int ldc, int M_pad, real_t alpha,
+  CONSTANT const char* restrict as_base, /* As: [NPRIMES * M_pad * K_pad] */ long as_index,
+  CONSTANT const char* restrict bs_base, /* Bs: [NPRIMES * K_pad * N_pad] */ long bs_index,
+  CONSTANT const int* restrict expa_base, /* [M] per-row max exponent */ int expa_index,
+  CONSTANT const int* restrict expb_base, /* [N] per-col max exponent */ int expb_index,
+  global real_t* restrict c_base, int c_index, int M, int N, int K_pad, int N_pad, int ldc, int M_pad, real_t alpha,
   int first)
 {
+  CONSTANT const char* restrict as = as_base + as_index;
+  CONSTANT const char* restrict bs = bs_base + bs_index;
+  CONSTANT const int* restrict expa = expa_base + expa_index;
+  CONSTANT const int* restrict expb = expb_base + expb_index;
+  global real_t* restrict c = c_base + c_index;
   const int ib_idx = (int)get_group_id(0);
   const int jb_idx = (int)get_group_id(1);
   const int sg_lid = (int)SGLID();
@@ -1489,7 +1500,7 @@ kernel void gemm_crt_fused(
               int ku;
               UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
               {
-                OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+                OZAKI_CRT_KSTEP(as, bs, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
               }
               steps += KU;
               if (steps >= KGROUPS) {
@@ -1508,7 +1519,7 @@ kernel void gemm_crt_fused(
               int ku;
               UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
               {
-                OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+                OZAKI_CRT_KSTEP(as, bs, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
               }
             }
             OZAKI_CRT_REDUCE_BATCH_GROUP(acc, pidx_base, group_lo, group_res, 0);
@@ -1598,7 +1609,7 @@ kernel void gemm_crt_fused(
           int ku;
           UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
           {
-            OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+            OZAKI_CRT_KSTEP(as, bs, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
           }
           steps += KU;
           if (steps >= KGROUPS) {
@@ -1617,7 +1628,7 @@ kernel void gemm_crt_fused(
           int ku;
           UNROLL_FORCE(KU) for (ku = 0; ku < KU; ++ku)
           {
-            OZAKI_CRT_KSTEP(as_base, bs_base, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
+            OZAKI_CRT_KSTEP(as, bs, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
           }
         }
         OZAKI_CRT_REDUCE_BATCH(acc, pidx_base, residues, 0);

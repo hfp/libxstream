@@ -416,13 +416,17 @@ __attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
-preprocess_a_dense(CONSTANT const real_t* restrict a, int M, int K, int lda, int transa,
-  global char* restrict as, /* [NSLICES * M_pad * K_pad] */
-  global real_t* restrict expa, /* [M] per-row FP scale factor = 2^max_exp */
+preprocess_a_dense(CONSTANT const real_t* restrict a_base, int a_index, int M, int K, int lda, int transa,
+  global char* restrict as_base, /* [NSLICES * M_pad * K_pad] */ long as_index,
+  global real_t* restrict expa_base, /* [M] per-row FP scale factor = 2^max_exp */ int expa_index,
   int K_pad, /* padded K stride (>= 64) */
   int M_pad, /* padded M = nblk_m * BM_PRE */
-  global int* restrict slice_occ) /* [NSLICES] per-slice nonzero flag (or NULL) */
+  global int* restrict occ_base, /* [NSLICES] per-slice nonzero flag (or NULL) */ int occ_index)
 {
+  CONSTANT const real_t* restrict a = a_base + a_index;
+  global char* restrict as = as_base + as_index;
+  global real_t* restrict expa = expa_base + expa_index;
+  global int* restrict slice_occ = occ_base + occ_index;
   const int mi = (int)get_local_id(0);
   const int kk = (int)get_local_id(1);
   const int row = (int)get_group_id(0) * BM_PRE + mi;
@@ -503,12 +507,16 @@ __attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
-preprocess_b_dense(CONSTANT const real_t* restrict b, int N, int K, int ldb, int transb,
-  global char* restrict bs, /* [NSLICES * K_pad * N_pad] */
-  global real_t* restrict expb, /* [N] per-column FP scale factor = 2^max_exp */
+preprocess_b_dense(CONSTANT const real_t* restrict b_base, int b_index, int N, int K, int ldb, int transb,
+  global char* restrict bs_base, /* [NSLICES * K_pad * N_pad] */ long bs_index,
+  global real_t* restrict expb_base, /* [N] per-column FP scale factor = 2^max_exp */ int expb_index,
   int K_pad, int N_pad,
-  global int* restrict slice_occ) /* [NSLICES] per-slice nonzero flag */
+  global int* restrict occ_base, /* [NSLICES] per-slice nonzero flag */ int occ_index)
 {
+  CONSTANT const real_t* restrict b = b_base + b_index;
+  global char* restrict bs = bs_base + bs_index;
+  global real_t* restrict expb = expb_base + expb_index;
+  global int* restrict slice_occ = occ_base + occ_index;
   const int nj = (int)get_local_id(0);
   const int kk = (int)get_local_id(1);
   const int col = (int)get_group_id(0) * BN_PRE + nj;
@@ -585,14 +593,19 @@ __attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void gemm_fused(
-  CONSTANT const char* restrict as_base, /* all slices: [nslices][M_pad][K_pad] */
-  CONSTANT const char* restrict bs_base, /* all slices: [nslices][K_pad][N_pad] */
-  CONSTANT const real_t* restrict expa, /* [M] per-row FP scale = 2^exp */
-  CONSTANT const real_t* restrict expb, /* [N] per-col FP scale = 2^exp */
-  global real_t* restrict c, /* [M x N] column-major, ldc */
+  CONSTANT const char* restrict as_base, /* all slices: [nslices][M_pad][K_pad] */ long as_index,
+  CONSTANT const char* restrict bs_base, /* all slices: [nslices][K_pad][N_pad] */ long bs_index,
+  CONSTANT const real_t* restrict expa_base, /* [M] per-row FP scale = 2^exp */ int expa_index,
+  CONSTANT const real_t* restrict expb_base, /* [N] per-col FP scale = 2^exp */ int expb_index,
+  global real_t* restrict c_base, /* [M x N] column-major, ldc */ int c_index,
   int M, int N, int K_pad, int N_pad, int ldc, int M_pad, /* padded M dimension = slice row stride */
   real_t alpha, int first_pair)
 {
+  CONSTANT const char* restrict as = as_base + as_index;
+  CONSTANT const char* restrict bs = bs_base + bs_index;
+  CONSTANT const real_t* restrict expa = expa_base + expa_index;
+  CONSTANT const real_t* restrict expb = expb_base + expb_index;
+  global real_t* restrict c = c_base + c_index;
   const int ib_idx = (int)get_group_id(0);
   const int jb_idx = (int)get_group_id(1);
   const int sg_lid = (int)SGLID();
@@ -685,7 +698,7 @@ kernel void gemm_fused(
       int ia, ib;
       UNROLL_FORCE(OZAKI_SB * OZAKI_SB * RTM * RTN)
       for (ia = 0; ia < OZAKI_SB * OZAKI_SB * RTM * RTN; ++ia) c_blk[ia] = OZAKI_ACC_ZERO;
-      OZAKI_KLOOP_BLOCKED(as_base, bs_base, a_stride, b_stride, sa, sb0, K_pad, N_pad, M, mi_base, nj_base, c_blk);
+      OZAKI_KLOOP_BLOCKED(as, bs, a_stride, b_stride, sa, sb0, K_pad, N_pad, M, mi_base, nj_base, c_blk);
       /**
        * Every slice of the block is loaded and multiplied unconditionally --
        * OZAKI_SB divides NSLICES, so the indices stay in range -- and pairs
@@ -713,8 +726,8 @@ kernel void gemm_fused(
     for (sa = 0; sa < (SINT)NSLICES && (int)sa <= OZAKI_CUTOFF; ++sa) {
       const int high_sa = MANT_BITS - (7 * (int)sa);
       const int low_bit_sa = MAX(0, high_sa - 6);
-      CONSTANT const char* as_sa = as_base + (long)sa * a_stride;
-      CONSTANT const char* bs_sa = bs_base + (long)sa * b_stride;
+      CONSTANT const char* as_sa = as + (long)sa * a_stride;
+      CONSTANT const char* bs_sa = bs + (long)sa * b_stride;
       const int sb_end_raw = OZAKI_CUTOFF + 1 - (int)sa;
       const SINT sb_end = (SINT)(sb_end_raw < NSLICES ? sb_end_raw : NSLICES);
       SINT sb;
@@ -723,8 +736,8 @@ kernel void gemm_fused(
         const int high_sb = MANT_BITS - (7 * (int)sb);
         const int low_bit_sb = MAX(0, high_sb - 6);
         const real_t pair_scale = OZAKI_ALPHA_MUL(alpha, EXP2I(low_bit_sa + low_bit_sb - 2 * MANT_BITS));
-        CONSTANT const char* as_sb = as_base + (long)sb * a_stride;
-        CONSTANT const char* bs_sb = bs_base + (long)sb * b_stride;
+        CONSTANT const char* as_sb = as + (long)sb * a_stride;
+        CONSTANT const char* bs_sb = bs + (long)sb * b_stride;
 
         /* (sa, sb) K-loop - unrolled by KU */
 #if defined(NV_MMA) && (NV_MMA)

@@ -790,11 +790,20 @@ inline char ozaki_slice_digit(uint_repr_t aligned, int sign, int s)
  *
  * Work-group: (BM_PRE, 1, 1).
  * Dispatch: global = (ceil(M, BM_PRE) * BM_PRE, N, 1).
+ *
+ * Every kernel here takes each buffer as a (base, index) pair and opens by
+ * declaring the usable pointer as base + index: with USM the offset already
+ * travels in the pointer and the index is zero, but clSetKernelArg takes a
+ * cl_mem that cannot express an offset, so without USM the host passes the
+ * registered base and the index carries the remainder. Resolving it on entry
+ * makes both cases one code path and leaves each body addressing its operand
+ * from zero, which is why panelling needs neither USM nor sub-buffers.
  */
 #if defined(BM_PRE)
 __attribute__((reqd_work_group_size(BM_PRE, 1, 1))) kernel void scale_beta(
-  global real_t* restrict c, int M, int N, int ldc, real_t beta)
+  global real_t* restrict c_base, int c_index, int M, int N, int ldc, real_t beta)
 {
+  global real_t* restrict c = c_base + c_index;
   const int row = (int)get_global_id(0);
   const int col = (int)get_global_id(1);
   if (row < M && col < N) {
