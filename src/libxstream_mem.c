@@ -96,8 +96,6 @@ LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem memory, void** mempt
     if (NULL != info) {
       info->memory = memory;
       info->memptr = memptr;
-      info->subs = NULL; /* sub-buffers are created on demand */
-      info->nsubs = 0;
     }
     else result = EXIT_FAILURE;
   }
@@ -324,6 +322,25 @@ LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void* pointer, const void* e
 }
 
 
+/**
+ * Release the sub-buffers created for pointers into the given parent buffer.
+ * Called when the parent is deallocated; the caller holds lock_memory.
+ */
+LIBXSTREAM_API_INTERN void libxstream_opencl_subbuffer_release(cl_mem parent);
+LIBXSTREAM_API_INTERN void libxstream_opencl_subbuffer_release(cl_mem parent)
+{
+  size_t i = 0;
+  assert(NULL != parent);
+  for (; i < libxstream_opencl_config.nsubs; ++i) {
+    if (parent == libxstream_opencl_config.subs[i].parent) {
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(libxstream_opencl_config.subs[i].memory));
+      libxstream_opencl_config.subs[i].memory = NULL;
+      libxstream_opencl_config.subs[i].parent = NULL;
+    }
+  }
+}
+
+
 LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbytes, libxstream_opencl_mem_hint_t hint)
 {
   libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
@@ -434,14 +451,8 @@ LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem)
       info = libxstream_opencl_info_devptr_modify(NULL, dev_mem, 1, NULL, NULL);
       if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
         libxstream_opencl_info_memptr_t* const pfree = libxstream_opencl_config.memptrs[libxstream_opencl_config.nmemptrs];
-        /* cached sub-buffers are owned here (see libxstream_opencl_subbuffer) */
-        size_t isub;
-        for (isub = 0; isub < info->nsubs; ++isub) {
-          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->subs[isub].memory));
-        }
-        free(info->subs);
-        info->subs = NULL;
-        info->nsubs = 0;
+        /* sub-buffers of this buffer are owned here (see libxstream_opencl_subbuffer) */
+        libxstream_opencl_subbuffer_release(info->memory);
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->memory));
         libxs_pfree(pfree, (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
         *info = *pfree;
@@ -900,14 +911,8 @@ LIBXSTREAM_API int libxstream_mem_deallocate(void* dev_mem)
       info = libxstream_opencl_info_devptr_modify(NULL, dev_mem, 1 /*elsize*/, NULL /*amount*/, NULL /*offset*/);
       if (NULL != info && info->memptr == dev_mem && NULL != info->memory) {
         libxstream_opencl_info_memptr_t* const pfree = libxstream_opencl_config.memptrs[libxstream_opencl_config.nmemptrs];
-        /* cached sub-buffers are owned here (see libxstream_opencl_subbuffer) */
-        size_t isub;
-        for (isub = 0; isub < info->nsubs; ++isub) {
-          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->subs[isub].memory));
-        }
-        free(info->subs);
-        info->subs = NULL;
-        info->nsubs = 0;
+        /* sub-buffers of this buffer are owned here (see libxstream_opencl_subbuffer) */
+        libxstream_opencl_subbuffer_release(info->memory);
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(info->memory));
         libxs_pfree(pfree, (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
         *info = *pfree;

@@ -285,24 +285,27 @@ typedef struct libxstream_opencl_launch_info_t {
 } libxstream_opencl_launch_info_t;
 
 /** Information about host/device-memory pointer. */
-/**
- * Sub-buffers handed to clSetKernelArg for pointers into this buffer. They are
- * cached rather than created per launch because clSetKernelArg does not retain
- * the cl_mem: releasing right after setting the argument leaves the kernel with
- * a dangling handle, which the Intel driver aborts on. Keyed by offset and
- * released together with the parent, so the lifetime is the parent's.
- */
-typedef struct libxstream_opencl_info_sub_t {
-  cl_mem memory;
-  size_t offset;
-} libxstream_opencl_info_sub_t;
-
 typedef struct libxstream_opencl_info_memptr_t {
   cl_mem memory; /* first item! */
   void* memptr;
-  libxstream_opencl_info_sub_t* subs;
-  size_t nsubs;
 } libxstream_opencl_info_memptr_t;
+
+/**
+ * Sub-buffer handed to clSetKernelArg for a pointer into a registered buffer,
+ * tracked so it can be released when its parent is deallocated. Only used when
+ * sub-buffers are requested explicitly (LIBXSTREAM_SUBBUFFER): a kernel that
+ * accepts a separate index argument needs none, since the offset is already
+ * carried by the pointer and can be applied inside the kernel.
+ *
+ * Kept out of libxstream_opencl_info_memptr_t deliberately: that struct is
+ * copied by value (libxstream_opencl_info_devptr hands callers a copy) and its
+ * registry slots are recycled from uninitialized storage, so an owned pointer
+ * inside it would alias or hold garbage. The parent cl_mem survives both.
+ */
+typedef struct libxstream_opencl_info_sub_t {
+  cl_mem memory; /* the sub-buffer */
+  cl_mem parent; /* NULL marks a free entry */
+} libxstream_opencl_info_sub_t;
 
 /** Enumeration of FP-atomic kinds. */
 typedef enum libxstream_opencl_atomic_fp_t {
@@ -340,6 +343,9 @@ typedef struct libxstream_opencl_config_t {
   /** All memptrs and related storage/counter. */
   libxstream_opencl_info_memptr_t **memptrs, *memptr_data;
   size_t nmemptrs; /* counter */
+  /** Sub-buffers per parent cl_mem (see libxstream_opencl_info_sub_t). */
+  libxstream_opencl_info_sub_t* subs;
+  size_t nsubs; /* capacity, entries with parent == NULL are free */
   /** Host memory pool (3-arg libxs_malloc, LIBXS_MALLOC_NATIVE). */
   libxs_malloc_pool_t* pool_hst;
   cl_context pool_hst_context;
@@ -430,6 +436,14 @@ typedef struct libxstream_opencl_config_t {
   cl_int xhints;
   /** Asynchronous memory operations. */
   cl_int async;
+  /**
+   * Sub-buffers for offset kernel-arguments (LIBXSTREAM_SUBBUFFER, default off).
+   * Only meaningful without USM: with USM the offset travels in the pointer. A
+   * kernel taking a separate index argument needs no sub-buffer, which is the
+   * preferred route -- creating one costs a driver object per distinct offset and
+   * its lifetime must outlive the launch (clSetKernelArg does not retain it).
+   */
+  cl_int subbuffer;
   /** Debug (output/symbols, etc.). */
   cl_int debug;
   /** Dump level. */

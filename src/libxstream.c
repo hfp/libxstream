@@ -229,6 +229,10 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   libxstream_opencl_config.profile_mem = (NULL == env_profile_mem ? /*default*/ 0 : atoi(env_profile_mem));
   libxstream_opencl_config.xhints = (NULL == env_xhints ? xhints_default : atoi(env_xhints));
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
+  { /* opt-in: sub-buffers for offset kernel-arguments (see the config field) */
+    const char* const env_subbuffer = getenv("LIBXSTREAM_SUBBUFFER");
+    libxstream_opencl_config.subbuffer = (NULL == env_subbuffer ? /*default*/ 0 : atoi(env_subbuffer));
+  }
   libxstream_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
   libxstream_opencl_config.debug = (NULL == env_debug ? libxstream_opencl_config.dump : atoi(env_debug));
   libxstream_opencl_config.wa = (NULL == env_wa ? ((1 != libxstream_opencl_config.devsplit ? 0 : 1) + wa_default) : atoi(env_wa)) * neo;
@@ -998,6 +1002,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
      */
     free(libxstream_opencl_config.memptrs);
     free(libxstream_opencl_config.memptr_data);
+    free(libxstream_opencl_config.subs);
     free(libxstream_opencl_config.streams);
     free(libxstream_opencl_config.stream_data);
     free(libxstream_opencl_config.events);
@@ -2277,28 +2282,37 @@ LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char sourc
  *
  * The caller must hold lock_memory: the list is shared with the deallocator.
  */
-LIBXSTREAM_API_INTERN cl_mem libxstream_opencl_subbuffer(
-  libxstream_opencl_info_memptr_t* /*info*/, size_t /*offset*/, int* /*result*/);
-LIBXSTREAM_API_INTERN cl_mem libxstream_opencl_subbuffer(
-  libxstream_opencl_info_memptr_t* info, size_t offset, int* result)
+LIBXSTREAM_API_INTERN cl_mem libxstream_opencl_subbuffer(cl_mem /*parent*/, size_t /*offset*/, int* /*result*/);
+LIBXSTREAM_API_INTERN cl_mem libxstream_opencl_subbuffer(cl_mem parent, size_t offset, int* result)
 {
   cl_mem sub = NULL;
   size_t total = 0;
-  assert(NULL != info && NULL != result && 0 != offset);
-  *result = clGetMemObjectInfo(info->memory, CL_MEM_SIZE, sizeof(size_t), &total, NULL);
+  assert(NULL != parent && NULL != result && 0 != offset);
+  *result = clGetMemObjectInfo(parent, CL_MEM_SIZE, sizeof(size_t), &total, NULL);
   if (EXIT_SUCCESS == *result && offset < total) {
     cl_buffer_region region;
     region.origin = offset;
     region.size = total - offset;
-    sub = clCreateSubBuffer(info->memory, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region, result);
+    sub = clCreateSubBuffer(parent, CL_MEM_READ_WRITE, CL_BUFFER_CREATE_TYPE_REGION, &region, result);
     if (EXIT_SUCCESS == *result && NULL != sub) {
-      libxstream_opencl_info_sub_t* const subs = (libxstream_opencl_info_sub_t*)realloc(
-        info->subs, sizeof(libxstream_opencl_info_sub_t) * (info->nsubs + 1));
-      if (NULL != subs) {
-        subs[info->nsubs].memory = sub;
-        subs[info->nsubs].offset = offset;
-        info->subs = subs;
-        ++info->nsubs;
+      size_t i = 0;
+      for (; i < libxstream_opencl_config.nsubs; ++i) { /* reuse a free entry */
+        if (NULL == libxstream_opencl_config.subs[i].parent) break;
+      }
+      if (i == libxstream_opencl_config.nsubs) { /* grow */
+        const size_t n = (0 != libxstream_opencl_config.nsubs ? (2 * libxstream_opencl_config.nsubs) : 32);
+        libxstream_opencl_info_sub_t* const subs = (libxstream_opencl_info_sub_t*)realloc(
+          libxstream_opencl_config.subs, sizeof(libxstream_opencl_info_sub_t) * n);
+        if (NULL != subs) {
+          memset(subs + libxstream_opencl_config.nsubs, 0,
+            sizeof(libxstream_opencl_info_sub_t) * (n - libxstream_opencl_config.nsubs));
+          libxstream_opencl_config.subs = subs;
+          libxstream_opencl_config.nsubs = n;
+        }
+      }
+      if (i < libxstream_opencl_config.nsubs) {
+        libxstream_opencl_config.subs[i].memory = sub;
+        libxstream_opencl_config.subs[i].parent = parent;
       }
       else { /* cannot track it, hence cannot keep it alive */
         LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseMemObject(sub));
@@ -2339,9 +2353,9 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
     libxstream_opencl_info_memptr_t* info;
     LIBXS_UNION_ASSIGN(void*, nc, const void*, arg_value);
     /**
-     * The lock spans the sub-buffer cache as well, not just the lookup: the
-     * cache is per-buffer state shared with the deallocator, so releasing
-     * earlier would let a concurrent free tear it down mid-use.
+     * The lock spans the sub-buffer table as well, not just the lookup: the
+     * table is state shared with the deallocator, so releasing earlier would let
+     * a concurrent free tear it down mid-use.
      */
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     info = libxstream_opencl_info_devptr_modify(NULL, nc, 1 /*elsize*/, NULL /*amount*/, &offset);
@@ -2349,16 +2363,31 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
       if (0 == offset) {
         result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &info->memory);
       }
-      else { /* sub-pointer within a cl_mem buffer: sub-buffer, cached per offset */
-        cl_mem sub = libxstream_opencl_subbuffer(info, offset, &result);
+      /**
+       * A non-zero offset needs a sub-buffer, because clSetKernelArg takes a
+       * cl_mem and cannot express one. Off by default: the kernel is the better
+       * place to apply the offset, so a caller that can pass it as a separate
+       * index argument should do that instead. Opting in costs a driver object
+       * per distinct offset whose lifetime must outlive the launch, and releasing
+       * such an object was observed to fault inside the NVIDIA driver even for a
+       * handle that clRetainMemObject and clGetMemObjectInfo both accept.
+       */
+      else if (0 != libxstream_opencl_config.subbuffer) {
+        cl_mem sub = libxstream_opencl_subbuffer(info->memory, offset, &result);
         if (EXIT_SUCCESS == result) {
           /**
            * No release here: clSetKernelArg does not retain the cl_mem, so
            * dropping the last reference would enqueue the kernel with a dangling
-           * handle. The cache owns it until the parent buffer is deallocated.
+           * handle. The table owns it until the parent buffer is deallocated.
            */
           result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &sub);
         }
+      }
+      else { /* the caller must offset inside the kernel (or set LIBXSTREAM_SUBBUFFER=1) */
+        if (0 != libxstream_opencl_config.verbosity) {
+          fprintf(stderr, "ERROR ACC/OpenCL: offset kernel-argument requires LIBXSTREAM_SUBBUFFER=1.\n");
+        }
+        result = EXIT_FAILURE;
       }
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
