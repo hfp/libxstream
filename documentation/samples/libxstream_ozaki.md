@@ -163,6 +163,10 @@ caching and panelling are alternative ways to avoid the same work
 a strided row block, so B is uploaded whole and only the preprocessing
 and download overlap.
 
+The automatic width does not account for shape: measured on PVC (fp64)
+it costs up to 12% on square shapes and gains up to 7% where `N` is much
+larger than `M`. Set `OZAKI_NPANEL=1` for square shapes.
+
 ## Kernel Registry
 
 Both schemes compile fused GEMM kernels on demand via a JIT registry

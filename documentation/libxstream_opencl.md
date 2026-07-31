@@ -126,6 +126,8 @@ Samples whose duration spans fewer than `LIBXSTREAM_PROFILE_TICKS` ticks of the 
 
 Every value a histogram carries is averaged per sample, never accumulated, so that a bucket's amount and its duration refer to the same single transfer and their ratio is a rate. Accumulating the duration instead divides a per-sample amount by a bucket total, which understates the rate by roughly the number of samples that share the bucket — and equally sized transfers all share one, so the error is largest exactly where the report is most useful.
 
+The headline rate on a transfer row is the histogram's **mode**, not its median. Transfer sizes are commonly multi-modal — a whole operand alongside per-panel blocks, or a zero-fill covering both a small exponent array and a large slice plane — and a median can fall between the clusters and thus describe no observed transfer, whereas the mode always names a bucket that samples landed in. Where a workload issues transfers of one size the two agree, so nothing is lost where the median was already right. Kernel rows report the median duration.
+
 ## See Also
 
 * LIBXSTREAM API (`libxstream/libxstream.h`) — public API built on top of this layer
