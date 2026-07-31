@@ -22,6 +22,7 @@ typedef struct libxstream_init_config_t {
   int usm;        /* -1: env/default, 0: disable, 1: Intel USM ext, 2: SVM coarse, 3: SVM caps */
   int device;     /* -1: env/default (first), >=0: device index */
   int verbosity;  /* -1: env/default, >=0: explicit level */
+  int subbuffer;  /* -1: env/default (off), 0: disable, 1: enable; no effect if USM is active */
 } libxstream_init_config_t;
 
 /** Fill config with sentinel values (all -1: no opinion, use env/defaults). */

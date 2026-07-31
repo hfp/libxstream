@@ -88,7 +88,7 @@ int libxstream_finalize(void);
 
 `libxstream_init()` initializes with environment/defaults.
 `libxstream_init_config()` allows explicit control over USM level,
-device selection, and verbosity before the runtime starts:
+device selection, verbosity, and sub-buffers before the runtime starts:
 
 ```c
 libxstream_init_config_t cfg;
@@ -96,8 +96,15 @@ libxstream_init_config_default(&cfg);  /* -1 = use env/default */
 cfg.usm = 1;      /* 0:off, 1:Intel USM, 2:SVM coarse, 3:SVM caps */
 cfg.device = 0;   /* device index (-1: env/first) */
 cfg.verbosity = 2;
+cfg.subbuffer = 1;  /* offset kernel-arguments (only used if USM is off) */
 libxstream_init_config(&cfg);
 ```
+
+A field left at `-1` takes the environment variable or the default;
+anything else overrides it. `cfg.subbuffer` corresponds to
+`LIBXSTREAM_SUBBUFFER` and only takes effect where a pointer argument
+cannot carry its own offset, i.e. with USM disabled — setting it
+alongside `cfg.usm = 0` is the case it exists for.
 
 Passing NULL to `libxstream_init_config` is equivalent to calling
 `libxstream_init`.

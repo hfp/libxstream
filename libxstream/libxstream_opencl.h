@@ -437,7 +437,9 @@ typedef struct libxstream_opencl_config_t {
   /** Asynchronous memory operations. */
   cl_int async;
   /**
-   * Sub-buffers for offset kernel-arguments (LIBXSTREAM_SUBBUFFER, default off).
+   * Sub-buffers for offset kernel-arguments (default off), requested either by
+   * LIBXSTREAM_SUBBUFFER or by libxstream_init_config_t::subbuffer, the latter
+   * taking precedence like the other explicit settings.
    * Only meaningful without USM: with USM the offset travels in the pointer. A
    * kernel taking a separate index argument needs no sub-buffer, which is the
    * preferred route -- creating one costs a driver object per distinct offset and

@@ -62,12 +62,20 @@
 # endif
 
 
-LIBXSTREAM_APIVAR_DEFINE(char libxstream_opencl_locks[LIBXS_CACHELINE * LIBXSTREAM_NLOCKS]);
+LIBXSTREAM_APIVAR_DEFINE(char internal_libxstream_opencl_locks[LIBXS_CACHELINE * LIBXSTREAM_NLOCKS]);
 /* global configuration discovered during initialization */
 LIBXSTREAM_APIVAR_PUBLIC_DEF(libxstream_opencl_config_t libxstream_opencl_config);
+/**
+ * Explicit configuration requested by libxstream_init_config. Zero-initialized
+ * like any APIVAR, which is why the sentinel cannot be the -1 the API documents:
+ * zero is a meaningful request (explicitly disable). The companion flag states
+ * whether the struct carries a request at all.
+ */
+LIBXSTREAM_APIVAR_DEFINE(libxstream_init_config_t internal_libxstream_init_cfg);
+LIBXSTREAM_APIVAR_DEFINE(int internal_libxstream_init_cfg_valid);
 
 # if defined(LIBXSTREAM_CACHE_DID)
-LIBXSTREAM_APIVAR_DEFINE(int libxstream_opencl_active_id);
+LIBXSTREAM_APIVAR_DEFINE(int internal_libxstream_opencl_active_id);
 # endif
 
 
@@ -157,12 +165,36 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, con
 }
 
 
+/**
+ * Resolve the settings a caller can state explicitly: the request wins over the
+ * environment, which wins over the default. Separate from libxstream_opencl_setup
+ * and idempotent because that setup is one-shot and a constructor
+ * (libxstream_opencl_init) may run it at load time, i.e. before any caller could
+ * state a request -- re-resolving here is what lets a later libxstream_init_config
+ * still take effect. Settings read lazily at their point of use (usm, device) need
+ * no equivalent.
+ */
+LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void);
+LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
+{
+  const char* const env_verbose = getenv("LIBXSTREAM_VERBOSE");
+  const char* const env_subbuffer = getenv("LIBXSTREAM_SUBBUFFER");
+  const int verbosity = (0 != internal_libxstream_init_cfg_valid ? internal_libxstream_init_cfg.verbosity : -1);
+  const int subbuffer = (0 != internal_libxstream_init_cfg_valid ? internal_libxstream_init_cfg.subbuffer : -1);
+  libxstream_opencl_config.verbosity = (0 <= verbosity ? verbosity
+    : (NULL == env_verbose ? /*default*/ 0 : atoi(env_verbose)));
+  /* opt-in: sub-buffers for offset kernel-arguments (see the config field) */
+  libxstream_opencl_config.subbuffer = (0 <= subbuffer ? subbuffer
+    : (NULL == env_subbuffer ? /*default*/ 0 : atoi(env_subbuffer)));
+}
+
+
 /** Setup to run prior to touching OpenCL runtime. */
 LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void);
 LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
 {
   const char *const env_devsplit = getenv("LIBXSTREAM_DEVSPLIT"), *const env_nlocks = getenv("LIBXSTREAM_NLOCKS");
-  const char *const env_verbose = getenv("LIBXSTREAM_VERBOSE"), *const env_dump_acc = getenv("LIBXSTREAM_DUMP");
+  const char* const env_dump_acc = getenv("LIBXSTREAM_DUMP");
   const char *const env_debug = getenv("LIBXSTREAM_DEBUG"), *const env_profile = getenv("LIBXSTREAM_PROFILE");
   const char* const env_profile_mem = getenv("LIBXSTREAM_PROFILE_MEM");
   const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
@@ -207,20 +239,20 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) {
     LIBXS_LOCK_ATTR_TYPE(LIBXS_LOCK) acc_opencl_attr_;
     LIBXS_LOCK_ATTR_INIT(LIBXS_LOCK, &acc_opencl_attr_);
-    LIBXS_LOCK_INIT(LIBXS_LOCK, (libxs_lock_t*)(libxstream_opencl_locks + LIBXS_CACHELINE * i), &acc_opencl_attr_);
+    LIBXS_LOCK_INIT(LIBXS_LOCK, (libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * i), &acc_opencl_attr_);
     LIBXS_LOCK_ATTR_DESTROY(LIBXS_LOCK, &acc_opencl_attr_);
   }
-  libxstream_opencl_config.lock_main = (libxs_lock_t*)libxstream_opencl_locks;
+  libxstream_opencl_config.lock_main = (libxs_lock_t*)internal_libxstream_opencl_locks;
   libxstream_opencl_config.lock_memory = /* 2nd lock-domain */
-    (1 < LIBXS_MIN(nlocks, LIBXSTREAM_NLOCKS) ? ((libxs_lock_t*)(libxstream_opencl_locks + LIBXS_CACHELINE * 1))
+    (1 < LIBXS_MIN(nlocks, LIBXSTREAM_NLOCKS) ? ((libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * 1))
                                               : libxstream_opencl_config.lock_main);
   libxstream_opencl_config.lock_stream = /* 3rd lock-domain */
-    (2 < LIBXS_MIN(nlocks, LIBXSTREAM_NLOCKS) ? ((libxs_lock_t*)(libxstream_opencl_locks + LIBXS_CACHELINE * 2))
+    (2 < LIBXS_MIN(nlocks, LIBXSTREAM_NLOCKS) ? ((libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * 2))
                                               : libxstream_opencl_config.lock_main);
   libxstream_opencl_config.lock_event = /* 4th lock-domain */
-    (3 < LIBXS_MIN(nlocks, LIBXSTREAM_NLOCKS) ? ((libxs_lock_t*)(libxstream_opencl_locks + LIBXS_CACHELINE * 3))
+    (3 < LIBXS_MIN(nlocks, LIBXSTREAM_NLOCKS) ? ((libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * 3))
                                               : libxstream_opencl_config.lock_main);
-  libxstream_opencl_config.verbosity = (NULL == env_verbose ? 0 : atoi(env_verbose));
+  libxstream_opencl_configure(); /* verbosity is used below */
   libxstream_opencl_config.devsplit = (NULL == env_devsplit ? (/*1 < libxs_nranks() ? -1 :*/ 0) : atoi(env_devsplit));
 # if defined(LIBXSTREAM_STREAM_PRIORITIES)
   libxstream_opencl_config.priority = (NULL == env_priority ? /*default*/ 3 : atoi(env_priority));
@@ -229,10 +261,6 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   libxstream_opencl_config.profile_mem = (NULL == env_profile_mem ? /*default*/ 0 : atoi(env_profile_mem));
   libxstream_opencl_config.xhints = (NULL == env_xhints ? xhints_default : atoi(env_xhints));
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
-  { /* opt-in: sub-buffers for offset kernel-arguments (see the config field) */
-    const char* const env_subbuffer = getenv("LIBXSTREAM_SUBBUFFER");
-    libxstream_opencl_config.subbuffer = (NULL == env_subbuffer ? /*default*/ 0 : atoi(env_subbuffer));
-  }
   libxstream_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
   libxstream_opencl_config.debug = (NULL == env_debug ? libxstream_opencl_config.dump : atoi(env_debug));
   libxstream_opencl_config.wa = (NULL == env_wa ? ((1 != libxstream_opencl_config.devsplit ? 0 : 1) + wa_default) : atoi(env_wa)) * neo;
@@ -325,29 +353,23 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
 }
 
 
-static libxstream_init_config_t libxstream_init_cfg = {-1, -1, -1};
-
-
 LIBXSTREAM_API void libxstream_init_config_default(libxstream_init_config_t* cfg)
 {
   if (NULL != cfg) {
     cfg->usm = -1;
     cfg->device = -1;
     cfg->verbosity = -1;
+    cfg->subbuffer = -1;
   }
 }
 
 
 LIBXSTREAM_API int libxstream_init_config(const libxstream_init_config_t* cfg)
 {
-  if (NULL != cfg) {
-    libxstream_init_cfg = *cfg;
-  }
-  else {
-    libxstream_init_cfg.usm = -1;
-    libxstream_init_cfg.device = -1;
-    libxstream_init_cfg.verbosity = -1;
-  }
+  /* NULL resets to sentinels rather than keeping a prior call's request */
+  if (NULL != cfg) internal_libxstream_init_cfg = *cfg;
+  else libxstream_init_config_default(&internal_libxstream_init_cfg);
+  internal_libxstream_init_cfg_valid = 1;
   return libxstream_init();
 }
 
@@ -362,9 +384,9 @@ LIBXSTREAM_API int libxstream_init(void)
 # endif
   if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
     libxstream_opencl_setup();
-    if (0 <= libxstream_init_cfg.verbosity) {
-      libxstream_opencl_config.verbosity = libxstream_init_cfg.verbosity;
-    }
+  }
+  else { /* setup already ran (constructor): pick up an explicit configuration */
+    libxstream_opencl_configure();
   }
   /* eventually touch OpenCL/compute runtime after configure */
   if (0 == libxstream_opencl_config.ndevices && EXIT_SUCCESS == result) { /* avoid to initialize multiple times */
@@ -378,10 +400,10 @@ LIBXSTREAM_API int libxstream_init(void)
     const char* const env_devtype = getenv("LIBXSTREAM_DEVTYPE");
     const char* const env_device = getenv("LIBXSTREAM_DEVICE");
     char* const env_devids = getenv("LIBXSTREAM_DEVIDS");
-    int device_id = (0 <= libxstream_init_cfg.device) ? libxstream_init_cfg.device
-      : (NULL == env_device ? 0 : atoi(env_device));
+    const int cfg_device = (0 != internal_libxstream_init_cfg_valid ? internal_libxstream_init_cfg.device : -1);
+    int device_id = (0 <= cfg_device) ? cfg_device : (NULL == env_device ? 0 : atoi(env_device));
 # if defined(LIBXSTREAM_CACHE_DID)
-    assert(0 == libxstream_opencl_active_id);
+    assert(0 == internal_libxstream_opencl_active_id);
 # endif
     if (EXIT_SUCCESS != libxstream_opencl_device_uid(NULL /*device*/, env_devmatch, &libxstream_opencl_config.devmatch)) {
       libxstream_opencl_config.devmatch = 1;
@@ -994,7 +1016,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       clReleaseContext(context); /* ignore return code */
     }
     for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) { /* destroy locks */
-      LIBXS_LOCK_DESTROY(LIBXS_LOCK, (libxs_lock_t*)(libxstream_opencl_locks + LIBXS_CACHELINE * i));
+      LIBXS_LOCK_DESTROY(LIBXS_LOCK, (libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * i));
     }
     /**
      * NOTE: registered streams/events are not individually released here;
@@ -1010,7 +1032,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     /* clear entire configuration structure */
     memset(&libxstream_opencl_config, 0, sizeof(libxstream_opencl_config));
 # if defined(LIBXSTREAM_CACHE_DID)
-    libxstream_opencl_active_id = 0; /* reset cached active device-ID */
+    internal_libxstream_opencl_active_id = 0; /* reset cached active device-ID */
 # endif
     libxs_finalize();
   }
@@ -1566,7 +1588,8 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
            */
           {
             const char* const env_usm = getenv("LIBXSTREAM_USM");
-            const int usm_level = (0 <= libxstream_init_cfg.usm) ? libxstream_init_cfg.usm
+            const int cfg_usm = (0 != internal_libxstream_init_cfg_valid ? internal_libxstream_init_cfg.usm : -1);
+            const int usm_level = (0 <= cfg_usm) ? cfg_usm
               : (NULL != env_usm ? atoi(env_usm) : -1 /*default: as level 2*/);
 # if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
             /* Intel USM extensions: enabled only by explicit level 1 */
@@ -1692,12 +1715,12 @@ LIBXSTREAM_API int libxstream_device_set_active(int device_id)
   if (EXIT_SUCCESS == result) {
     if (device_id < libxstream_opencl_config.ndevices) {
 # if defined(LIBXSTREAM_CACHE_DID)
-      if (libxstream_opencl_active_id != (device_id + 1))
+      if (internal_libxstream_opencl_active_id != (device_id + 1))
 # endif
       {
         result = libxstream_opencl_set_active_device(libxstream_opencl_config.lock_main, device_id);
 # if defined(LIBXSTREAM_CACHE_DID)
-        if (EXIT_SUCCESS == result) libxstream_opencl_active_id = device_id + 1;
+        if (EXIT_SUCCESS == result) internal_libxstream_opencl_active_id = device_id + 1;
 # endif
       }
     }
@@ -2383,9 +2406,10 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
           result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &sub);
         }
       }
-      else { /* the caller must offset inside the kernel (or set LIBXSTREAM_SUBBUFFER=1) */
+      else { /* the caller must offset inside the kernel, or opt into sub-buffers */
         if (0 != libxstream_opencl_config.verbosity) {
-          fprintf(stderr, "ERROR ACC/OpenCL: offset kernel-argument requires LIBXSTREAM_SUBBUFFER=1.\n");
+          fprintf(stderr, "ERROR ACC/OpenCL: offset kernel-argument requires LIBXSTREAM_SUBBUFFER=1"
+                          " or libxstream_init_config_t::subbuffer=1.\n");
         }
         result = EXIT_FAILURE;
       }
