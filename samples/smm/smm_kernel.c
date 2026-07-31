@@ -491,9 +491,19 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
         LIBXSTREAM_CHECK(
           result, clSetKernelArg(config->kernel[kernel_idx], 6, sizeof(int), &bs), "set minibatch argument of SMM-kernel");
       }
+      /**
+       * State this launch's work so the profile reports rates rather than only
+       * time: stack_size multiplications of m x k by k x n, and the operands
+       * each of them touches (A, B, and C read-modify-written). Both are given
+       * because an SMM of this shape can be bound by either -- the pair places
+       * the kernel on the roofline instead of merely timing it.
+       */
       LIBXSTREAM_CHECK(result,
-        libxstream_opencl_launch((libxstream_stream_t*)stream, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/,
-          &work_size, config->wgsize + kernel_idx, 0, NULL, event),
+        libxstream_opencl_launch_work((libxstream_stream_t*)stream, config->kernel[kernel_idx], 1 /*work_dim*/, NULL /*offset*/,
+          &work_size, config->wgsize + kernel_idx, 0, NULL, event,
+          (size_t)2 * stack_size * m_max * n_max * k_max /*nflops*/,
+          (size_t)stack_size * OPENCL_LIBSMM_TYPESIZE(datatype) *
+            ((size_t)m_max * k_max + (size_t)k_max * n_max + 2 * (size_t)m_max * n_max) /*nbytes*/),
         "launch SMM-kernel");
       /* eventually update performance counters inside of locked region */
       if ((3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) && 0 == param_format &&

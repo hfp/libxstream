@@ -203,9 +203,12 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
         LIBXSTREAM_CHECK(
           result, clSetKernelArg(config->kernel, 4, sizeof(int), &config->bs), "set minibatch argument of transpose kernel");
       }
+      /* transposing performs no arithmetic: each of the stack_size matrices is
+         read once and written once, so only a byte count is stated */
       LIBXSTREAM_CHECK(result,
-        libxstream_opencl_launch((libxstream_stream_t*)stream, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size,
-          &config->wgsize, 0, NULL, NULL),
+        libxstream_opencl_launch_work((libxstream_stream_t*)stream, config->kernel, 1 /*work_dim*/, NULL /*offset*/, &work_size,
+          &config->wgsize, 0, NULL, NULL, 0 /*nflops*/,
+          (size_t)stack_size * OPENCL_LIBSMM_TYPESIZE(datatype) * 2 * mn /*nbytes*/),
         "launch transpose kernel");
       /* eventually update performance counters inside of locked region */
       if ((3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) && EXIT_SUCCESS == result) {
