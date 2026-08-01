@@ -87,7 +87,7 @@ host readback.
 |---------------|---------|---------------------------------------------------------------------|
 | OZAKI_DEVPOOL | 0       | Device memory pool via USM/SVM (eliminates per-call alloc overhead) |
 | OZAKI_CACHE   | 0       | Preprocessing cache bitmask: 1=A, 2=B, 3=both. Skips on match       |
-| OZAKI_NPANEL  | 0       | Sch.2: N-panel width (0=auto, 1=disable). See Panel Pipeline        |
+| OZAKI_NPANEL  | 1       | Sch.2: N-panel width (0=auto, 1=disable). See Panel Pipeline        |
 
 The preprocessing cache also stores the last effective cutoff from
 Scheme 1 occupancy detection. On cache hits the cutoff is reused
@@ -163,9 +163,10 @@ caching and panelling are alternative ways to avoid the same work
 a strided row block, so B is uploaded whole and only the preprocessing
 and download overlap.
 
-The automatic width does not account for shape: measured on PVC (fp64)
-it costs up to 12% on square shapes and gains up to 7% where `N` is much
-larger than `M`. Set `OZAKI_NPANEL=1` for square shapes.
+Disabled by default because the automatic width does not account for
+shape: measured on PVC (fp64) it costs up to 12% on square shapes and
+gains up to 7% where `N` is much larger than `M`. Set `OZAKI_NPANEL=0`
+to enable it where `N` is the dominant dimension.
 
 ## Kernel Registry
 

@@ -503,9 +503,16 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      * N-panel width (0 = auto, 1 = disabled). Independent of maxk, which sizes
      * the K pass and feeds the bounded-K prime reduction above: a pipelining
      * granularity must not silently change nprimes, so the two stay separate.
+     *
+     * Disabled by default: whether pipelining pays is shape-dependent (measured
+     * on PVC, up to 12% slower on square shapes and up to 7% faster where N is
+     * much larger than M), and the automatic width does not account for shape.
+     * Enabling it by default would trade one set of shapes for another rather
+     * than improve the default, so the choice is left to the caller until the
+     * width can be selected per shape.
      */
     env = getenv("OZAKI_NPANEL");
-    ctx->npanel = (NULL != env) ? atoi(env) : 0;
+    ctx->npanel = (NULL != env) ? atoi(env) : 1;
     /**
      * Scheme-1 slice blocking (1 = unblocked).  The kernel shares each loaded
      * A/B fragment across all pairs of an OZAKI_SB-wide slice block, trading
