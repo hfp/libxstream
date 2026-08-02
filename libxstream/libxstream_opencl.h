@@ -134,6 +134,14 @@ LIBXS_PRAGMA_DIAG_POP()
 #if !defined(LIBXSTREAM_ACTIVATE)
 # define LIBXSTREAM_ACTIVATE -1
 #endif
+/**
+ * Whether WA-16 applies to the given device, i.e. a unified-memory Intel GPU
+ * (iGPU). Both of the workaround's effects share this predicate: no USM, and
+ * synchronous transfers (see libxstream_opencl_config_t::wa).
+ */
+#define LIBXSTREAM_WA_UNIFIED(DEVINFO) \
+  (0 != (16 & libxstream_opencl_config.wa) && 0 != (DEVINFO)->intel && 0 != (DEVINFO)->unified && \
+    CL_DEVICE_TYPE_GPU == (DEVINFO)->type)
 
 #if defined(CL_VERSION_2_0)
 # define LIBXSTREAM_STREAM_PROPERTIES_TYPE cl_queue_properties

@@ -263,7 +263,15 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
   libxstream_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
   libxstream_opencl_config.debug = (NULL == env_debug ? libxstream_opencl_config.dump : atoi(env_debug));
-  libxstream_opencl_config.wa = (NULL == env_wa ? ((1 != libxstream_opencl_config.devsplit ? 0 : 1) + wa_default) : atoi(env_wa)) * neo;
+  { /**
+     * NEOReadDebugKeys gates only the bits that populate a NEO debug key (1-8).
+     * The higher bits select library-side behavior with no such dependency, and
+     * bit 16 disables USM to work around unified-memory stacks: losing a
+     * correctness workaround by unsetting an unrelated variable is a trap.
+     */
+    const int wa = (NULL == env_wa ? ((1 != libxstream_opencl_config.devsplit ? 0 : 1) + wa_default) : atoi(env_wa));
+    libxstream_opencl_config.wa = (0 != neo ? wa : (wa & ~0xF));
+  }
 # if defined(LIBXSTREAM_CACHE_DIR)
   { /* environment is populated before touching the compute runtime */
     const char *const env_cache = getenv("LIBXSTREAM_CACHE"), *env_cachedir = getenv("NEO_CACHE_DIR");
@@ -1589,8 +1597,32 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           {
             const char* const env_usm = getenv("LIBXSTREAM_USM");
             const int cfg_usm = (0 != internal_libxstream_init_cfg_valid ? internal_libxstream_init_cfg.usm : -1);
-            const int usm_level = (0 <= cfg_usm) ? cfg_usm
-              : (NULL != env_usm ? atoi(env_usm) : -1 /*default: as level 2*/);
+# if (0 != LIBXSTREAM_USM)
+            /**
+             * WA-16 disables USM on unified-memory Intel GPUs (iGPU), where some
+             * software stacks are not correct with SVM allocations or transfers.
+             * It only supplies the default level, i.e. an explicit request still
+             * wins, or level 2 would be unreachable on such a device without also
+             * clearing the bit. Restricted to a GPU: an Intel CPU device reports
+             * unified memory as well but is correct, and the buffer-based path
+             * would cost it a real copy where coarse-grain SVM costs nothing.
+             * The same bit additionally forces synchronous transfers, because the
+             * buffer-based path is not correct asynchronously there either.
+             */
+            const int usm_default = (LIBXSTREAM_WA_UNIFIED(devinfo) ? 0 : -1 /*as level 2*/);
+# else
+            const int usm_default = -1;
+# endif
+            const int usm_level = (0 <= cfg_usm) ? cfg_usm : (NULL != env_usm ? atoi(env_usm) : usm_default);
+# if (0 != LIBXSTREAM_USM)
+            /* the only symptom is a different transfer path, hence worth stating */
+            if (0 == usm_default && NULL == env_usm && 0 > cfg_usm &&
+                (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+            {
+              fprintf(stderr, "WARN ACC/OpenCL: USM disabled on unified memory (LIBXSTREAM_WA=%i).\n",
+                libxstream_opencl_config.wa);
+            }
+# endif
 # if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
             /* Intel USM extensions: enabled only by explicit level 1 */
             if (1 == usm_level && 2 <= *devinfo->std_level && 0 != devinfo->intel &&

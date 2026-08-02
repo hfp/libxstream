@@ -940,33 +940,62 @@ LIBXSTREAM_API int libxstream_mem_offset(void** dev_mem, void* other, size_t off
 }
 
 
-LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream)
+/* like libxstream_mem_copy_h2d, but apply some async workaround. */
+LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(const void* /*host_mem*/, void* /*dev_mem*/, size_t /*nbytes*/,
+  cl_command_queue /*queue*/, int /*blocking*/, cl_event* /*event*/);
+LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
+  const void* host_mem, void* dev_mem, size_t nbytes, cl_command_queue queue, int blocking, cl_event* event)
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-  int result = EXIT_SUCCESS;
-  assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
-  assert(NULL != devinfo->context);
-  if (
-# if (0 != LIBXSTREAM_USM)
-    host_mem != dev_mem && /* fast-path only sensible without offsets */
-# endif
-    NULL != host_mem && NULL != dev_mem && 0 != nbytes)
-  {
 # if defined(LIBXSTREAM_ASYNC)
-    const cl_bool finish = (0 == (1 & libxstream_opencl_config.async) || NULL == stream ||
-                            (0 != (16 & libxstream_opencl_config.wa) && 0 != devinfo->intel && 0 != devinfo->unified));
+  const cl_bool finish = (0 != blocking || 0 == (1 & libxstream_opencl_config.async) || LIBXSTREAM_WA_UNIFIED(devinfo));
 # else
-    const cl_bool finish = CL_TRUE;
+  const cl_bool finish = CL_TRUE;
 # endif
-    const libxstream_opencl_stream_t* str;
-    cl_event event = NULL;
-    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
-    assert(NULL != str);
+  int result = EXIT_SUCCESS;
+  assert(NULL != host_mem && NULL != dev_mem);
+# if (1 >= LIBXSTREAM_USM)
+  if (NULL != devinfo->clEnqueueMemcpyINTEL) {
+    result = devinfo->clEnqueueMemcpyINTEL(queue, finish, dev_mem, host_mem, nbytes, 0, NULL, event);
+  }
+  else
+# endif
+# if (0 != LIBXSTREAM_USM)
+    if (0 != devinfo->usm)
+  {
+#   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
+    /**
+     * Enqueue the copy rather than mapping and copying on the host. Mapping is
+     * what coarse-grain SVM requires for *host* access to the buffer, but a
+     * transfer needs no host access at all: clEnqueueSVMMemcpy is a queued
+     * command, so the runtime can use its copy engine and the call can be
+     * asynchronous. The map/memcpy/unmap it replaces ran single-threaded inside
+     * the enqueue at host store-to-device speed -- 8.9 GB/s against 46.0 GB/s
+     * for a 128 MB H2D on a GPU Max 1550, where the enqueued copy also
+     * overlapped a concurrent kernel completely. libxstream_mem_copy_d2d
+     * already took this route for the very same allocations.
+     */
+    result = clEnqueueSVMMemcpy(queue, finish, dev_mem, host_mem, nbytes, 0, NULL, event);
+#   else
+    memcpy(dev_mem, host_mem, nbytes);
+#   endif
+  }
+  else
+# endif
+  {
+    size_t offset = 0;
+    libxstream_opencl_info_memptr_t* const info = libxstream_opencl_info_devptr_modify(
+      NULL, dev_mem, 1 /*elsize*/, &nbytes, &offset);
+    if (NULL != info) {
+      result = clEnqueueWriteBuffer(queue, info->memory, finish, offset, nbytes, host_mem, 0, NULL, event);
+    }
+    else result = EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS != result && !finish) { /* retry synchronously */
+    int result_sync = EXIT_FAILURE;
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
-      result = devinfo->clEnqueueMemcpyINTEL(
-        str->queue, finish, dev_mem, host_mem, nbytes, 0, NULL, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
+      result_sync = devinfo->clEnqueueMemcpyINTEL(queue, CL_TRUE, dev_mem, host_mem, nbytes, 0, NULL, event);
     }
     else
 # endif
@@ -974,21 +1003,11 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
       if (0 != devinfo->usm)
     {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
-      /**
-       * Enqueue the copy rather than mapping and copying on the host. Mapping is
-       * what coarse-grain SVM requires for *host* access to the buffer, but a
-       * transfer needs no host access at all: clEnqueueSVMMemcpy is a queued
-       * command, so the runtime can use its copy engine and the call can be
-       * asynchronous. The map/memcpy/unmap it replaces ran single-threaded inside
-       * the enqueue at host store-to-device speed -- 8.9 GB/s against 46.0 GB/s
-       * for a 128 MB H2D on a GPU Max 1550, where the enqueued copy also
-       * overlapped a concurrent kernel completely. libxstream_mem_copy_d2d
-       * already took this route for the very same allocations.
-       */
-      result = clEnqueueSVMMemcpy(str->queue, finish, dev_mem, host_mem, nbytes, 0, NULL,
-        NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
+      /* blocking form of the enqueued copy (see above) */
+      result_sync = clEnqueueSVMMemcpy(queue, CL_TRUE, dev_mem, host_mem, nbytes, 0, NULL, event);
 #   else
       memcpy(dev_mem, host_mem, nbytes);
+      result_sync = EXIT_SUCCESS;
 #   endif
     }
     else
@@ -998,11 +1017,40 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
       libxstream_opencl_info_memptr_t* const info = libxstream_opencl_info_devptr_modify(
         NULL, dev_mem, 1 /*elsize*/, &nbytes, &offset);
       if (NULL != info) {
-        result = clEnqueueWriteBuffer(str->queue, info->memory, finish, offset, nbytes, host_mem, 0, NULL,
-          NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
+        result_sync = clEnqueueWriteBuffer(queue, info->memory, CL_TRUE, offset, nbytes, host_mem, 0, NULL, event);
       }
-      else result = EXIT_FAILURE;
     }
+    if (EXIT_SUCCESS == result_sync) {
+      libxstream_opencl_config.async &= ~1; /* retract async feature */
+      if (0 != libxstream_opencl_config.verbosity) {
+        fprintf(stderr, "WARN ACC/OpenCL: falling back to synchronous upload (code=%i).\n", result);
+      }
+      result = EXIT_SUCCESS;
+    }
+  }
+  return result;
+}
+
+
+LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream)
+{
+  int result = EXIT_SUCCESS;
+  assert((NULL != host_mem && NULL != dev_mem) || 0 == nbytes);
+  assert(NULL != libxstream_opencl_config.device.context);
+  if (
+# if (0 != LIBXSTREAM_USM)
+    host_mem != dev_mem && /* fast-path only sensible without offsets */
+# endif
+    NULL != host_mem && NULL != dev_mem && 0 != nbytes)
+  {
+    const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
+    const libxstream_opencl_stream_t* str;
+    cl_event event = NULL;
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
+    assert(NULL != str);
+    result = libxstream_opencl_mem_copy_h2d(
+      host_mem, dev_mem, nbytes, str->queue, finish, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
       if (EXIT_SUCCESS == result) {
@@ -1028,8 +1076,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
 # if defined(LIBXSTREAM_ASYNC)
-  const cl_bool finish = (0 != blocking || 0 == (2 & libxstream_opencl_config.async) ||
-                          (0 != (16 & libxstream_opencl_config.wa) && 0 != devinfo->intel && 0 != devinfo->unified));
+  const cl_bool finish = (0 != blocking || 0 == (2 & libxstream_opencl_config.async) || LIBXSTREAM_WA_UNIFIED(devinfo));
 # else
   const cl_bool finish = CL_TRUE;
 # endif
