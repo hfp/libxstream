@@ -21,14 +21,22 @@ jobs:
   - &copr_build
     job: copr_build
     trigger: release
+    owner: growl
+    project: release
     additional_repos:
-      - copr://packit/hfp-libxs-main
+      - copr://growl/release
   - <<: *copr_build
     trigger: commit
     branch: main
+    project: devpkgs
+    additional_repos:
+      - copr://growl/devpkgs
   - <<: *copr_build
     trigger: pull_request
     manual_trigger: true
+    project: devpkgs
+    additional_repos:
+      - copr://growl/devpkgs
     allowed_pr_authors:
       - hfp
       - Growl1234
