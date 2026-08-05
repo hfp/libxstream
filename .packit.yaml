@@ -31,10 +31,9 @@ jobs:
     project: devpkgs
     additional_repos:
       - copr://growl/devpkgs
-  - <<: *copr_build
+  - job: copr_build
     trigger: pull_request
     manual_trigger: true
-    project: devpkgs
     additional_repos:
       - copr://growl/devpkgs
     allowed_pr_authors:
