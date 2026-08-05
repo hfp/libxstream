@@ -23,14 +23,10 @@ jobs:
     trigger: release
     owner: growl
     project: release
-    additional_repos:
-      - copr://growl/release
   - <<: *copr_build
     trigger: commit
     branch: main
     project: devpkgs
-    additional_repos:
-      - copr://growl/devpkgs
   - job: copr_build
     trigger: pull_request
     manual_trigger: true
