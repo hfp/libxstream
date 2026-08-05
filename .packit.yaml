@@ -31,7 +31,7 @@ jobs:
     trigger: pull_request
     manual_trigger: true
     additional_repos:
-      - copr://growl/devpkgs
+      - "copr://growl/devpkgs?priority=1"
     allowed_pr_authors:
       - hfp
       - Growl1234
