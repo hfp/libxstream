@@ -1,3 +1,7 @@
+%bcond tests 1
+
+%global soversion 1
+
 Name:           libxstream
 Version:        1.0.0
 Release:        %autorelease
@@ -5,13 +9,17 @@ Summary:        OpenCL-accelerated tensor operations built on LIBXS
 
 License:        BSD-3-Clause
 URL:            https://github.com/hfp/libxstream
-Source0:        %{name}-%{version}.tar.gz
+Source0:        https://github.com/hfp/libxstream/releases/download/%{version}/%{name}-%{version}.tar.gz
 
 BuildRequires:  gcc
-BuildRequires:  make
+BuildRequires:  cmake
+BuildRequires:  libxs-devel
 BuildRequires:  ocl-icd-devel
 BuildRequires:  opencl-headers
-BuildRequires:  libxs-devel
+%if %{with tests}
+# Clang is required to compile the kernels in testing
+BuildRequires:  clang
+%endif
 
 %description
 LIBXSTREAM is a library for OpenCL-accelerated tensor operations (batched small
@@ -37,27 +45,28 @@ BuildArch:      noarch
 This package contains the API and usage documentation for LIBXSTREAM.
 
 %prep
-%autosetup
+%autosetup -p1
+
+%conf
+%cmake \
+    -DBUILD_TESTING:BOOL=%{with tests} \
+    -DLIBXSTREAM_OMP:BOOL=ON \
+    -DLIBXSTREAM_INSTALL_HEADER_ONLY:BOOL=OFF
 
 %build
-# SYM=1 retains debuginfo for the debug packages without enabling assertions,
-# and E*FLAGS carry the distribution build flags into the Makefile build.
-%make_build GNU=1 STATIC=0 SYM=1 \
-    ECFLAGS="%{build_cflags}" ELDFLAGS="%{build_ldflags}" \
-    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name}
+%cmake_build
 
 %install
-%make_install PREFIX=%{_prefix} CLEAN=0 STATIC=0 SYM=1 \
-    ECFLAGS="%{build_cflags}" ELDFLAGS="%{build_ldflags}" \
-    POUTDIR=%{_lib} PPKGDIR=%{_lib}/pkgconfig PCMKDIR=%{_lib}/cmake/%{name}
+%cmake_install
 
-# The license is packaged via %%license from the source tree; drop the
-# redundant copy below %%{_docdir} rather than listing the file twice.
-rm -f %{buildroot}%{_docdir}/%{name}/LICENSE.md
+%check
+%if %{with tests}
+%ctest --output-on-failure
+%endif
 
 %files
 %license LICENSE.md
-%{_libdir}/libxstream.so.*
+%{_libdir}/libxstream.so.%{soversion}{,.*}
 
 %files devel
 %{_datadir}/%{name}/
@@ -67,7 +76,6 @@ rm -f %{buildroot}%{_docdir}/%{name}/LICENSE.md
 %{_libdir}/cmake/libxstream/
 
 %files doc
-%license LICENSE.md
 %doc %{_docdir}/%{name}/
 
 %changelog

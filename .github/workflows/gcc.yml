@@ -198,15 +198,14 @@ jobs:
 
     - name: Install dependencies
       run: |
-        dnf install -y rpm-build gcc gcc-gfortran make bash git \
+        dnf install -y rpm-build gcc gcc-gfortran cmake ninja-build bash git \
           ocl-icd-devel opencl-headers
 
     - name: Install LIBXS
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ../libxs
-        cd ../libxs && make -j $(nproc) GNU=1 STATIC=0
-        cd ../libxs && make install PREFIX=/usr STATIC=0 \
-          POUTDIR=lib64 PPKGDIR=lib64/pkgconfig PCMKDIR=lib64/cmake/libxs
+        cd ../libxs && mkdir build && cd build
+        cmake .. -GNinja && ninja install -j $(nproc)
         ldconfig
 
     - name: Build RPM package
@@ -238,8 +237,8 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
-    - name: Install GCC ${{ matrix.gcc }}
-      run: sudo apt install -y gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }}
+    - name: Install GCC ${{ matrix.gcc }} and Ninja
+      run: sudo apt install -y gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }} ninja-build
 
     - name: Install OpenCL
       run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
@@ -249,18 +248,17 @@ jobs:
     - name: Install Clang
       run: sudo apt install -y clang
 
-    - name: Setup LIBXS
+    - name: Build LIBXS
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
-        cd ${{ github.workspace }}/../libxs && make -j $(nproc)
-
-    - name: Install LIBXS
-      run: cd ${{ github.workspace }}/../libxs && make -j $(nproc) install PREFIX=$HOME/libxs-install
+        cd ${{ github.workspace }}/../libxs
+        cmake -B build -G Ninja -DCMAKE_INSTALL_PREFIX=$HOME/libxs-install
+        cmake --build build --target install -j $(nproc)
 
     - name: Configure LIBXSTREAM
       run: |
-        cmake -B build \
-          -DCMAKE_BUILD_TYPE=Debug \
+        cmake -B build -G Ninja \
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo \
           -DCMAKE_PREFIX_PATH=$HOME/libxs-install \
           -DCMAKE_INSTALL_PREFIX=$HOME/libxstream-install \
           -DLIBXSTREAM_INSTALL_HEADER_ONLY=ON \
@@ -269,7 +267,7 @@ jobs:
           -DBUILD_SHARED_LIBS=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }}
 
     - name: Build
-      run: cmake --build build -j $(nproc)
+      run: cmake --build build --verbose -j $(nproc)
 
     - name: Test
       run: ctest --test-dir build --output-on-failure -j $(nproc)
