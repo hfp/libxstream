@@ -15,12 +15,6 @@
 #  include <libxs/libxs_predict.h>
 #  include <libxs/libxs_str.h>
 
-#  if !defined(OPENCL_LIBSMM_KERNELNAME_TRANS)
-#    define OPENCL_LIBSMM_KERNELNAME_TRANS "trans"
-#  endif
-#  if !defined(OPENCL_LIBSMM_KERNELNAME_SMM)
-#    define OPENCL_LIBSMM_KERNELNAME_SMM "smm"
-#  endif
 #  define OPENCL_LIBSMM_SMMENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_SMM", KEY)
 
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
@@ -446,28 +440,23 @@ int libsmm_acc_finalize(void) {
   --opencl_libsmm_initialized;
   /* multiple calls to libsmm_acc_finalize are not considered as an error */
   if (0 == opencl_libsmm_initialized) {
-    char fname[LIBXSTREAM_MAXSTRLEN];
-    size_t cursor = 0;
-    const void* regentry = libxs_registry_begin(opencl_libsmm_registry, NULL /*key*/, &cursor);
-    for (; NULL != regentry; regentry = libxs_registry_next(opencl_libsmm_registry, NULL /*key*/, &cursor)) {
+    size_t cursor = 0, key_size = 0;
+    const void* regentry = libxs_registry_begin_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor);
+    for (; NULL != regentry;
+         regentry = libxs_registry_next_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor)) {
+      /* trans- and SMM-entries share this registry and are told apart by the
+         size of their key (opencl_libsmm_transkey_t vs opencl_libsmm_smmkey_t) */
+      const int is_smm = (sizeof(opencl_libsmm_smmkey_t) == key_size);
       /* opencl_libsmm_trans_t/opencl_libsmm_smm_t carry cl_kernel as 1st data member */
       cl_kernel kernel = *(const cl_kernel*)regentry;
-      if (NULL == kernel) kernel = ((const opencl_libsmm_smm_t*)regentry)->kernel[1];
-      if (NULL != kernel) { /* only consider user-entry if clGetKernelInfo succeeded */
-        int result_entry = clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, sizeof(fname), fname, NULL);
-        if (EXIT_SUCCESS == result_entry) {
-          if (NULL != strstr(fname, OPENCL_LIBSMM_KERNELNAME_TRANS)) { /* trans-kernel */
-            result_entry = clReleaseKernel(kernel);
-          }
-          else if (NULL != strstr(fname, OPENCL_LIBSMM_KERNELNAME_SMM)) { /* SMM-kernel */
-            result_entry = clReleaseKernel(kernel);
-            if (EXIT_SUCCESS == result_entry && kernel != ((const opencl_libsmm_smm_t*)regentry)->kernel[1]) {
-              kernel = ((const opencl_libsmm_smm_t*)regentry)->kernel[1]; /* release 2nd kernel */
-              if (NULL != kernel) result_entry = clReleaseKernel(kernel);
-            }
-          }
-          if (EXIT_SUCCESS != result_entry) result = result_entry;
+      if (NULL == kernel && 0 != is_smm) kernel = ((const opencl_libsmm_smm_t*)regentry)->kernel[1];
+      if (NULL != kernel) {
+        int result_entry = clReleaseKernel(kernel);
+        if (0 != is_smm && EXIT_SUCCESS == result_entry && kernel != ((const opencl_libsmm_smm_t*)regentry)->kernel[1]) {
+          kernel = ((const opencl_libsmm_smm_t*)regentry)->kernel[1]; /* release 2nd kernel */
+          if (NULL != kernel) result_entry = clReleaseKernel(kernel);
         }
+        if (EXIT_SUCCESS != result_entry) result = result_entry;
       }
     }
     libxs_registry_destroy(opencl_libsmm_registry);
