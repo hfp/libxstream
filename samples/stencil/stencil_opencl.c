@@ -194,9 +194,8 @@ static double stencil_gss_maxerr_r3(double alpha, const void* data)
 static void stencil_fit_coeffs(int radius, double ppw, int fit_method,
                                double* coeffs)
 {
-  const double pi = 3.14159265358979323846;
-  const double tmax = 2.0 * pi / ppw;
-  const double tpeak = 2.0 * pi / (ppw * 0.6);
+  const double tmax = 2.0 * M_PI / ppw;
+  const double tpeak = 2.0 * M_PI / (ppw * 0.6);
   const int nq = 1024;
   const double dt = tmax / nq;
   int q;

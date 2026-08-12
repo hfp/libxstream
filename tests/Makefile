@@ -37,7 +37,9 @@ ifneq (,$(LIBXSROOT))
 endif
 
 # header-only when library is not (yet) built
-XLIB := $(wildcard $(DEPDIR)/lib/$(PROJECT).$(SLIBEXT) $(DEPDIR)/lib/$(PROJECT).$(DLIBEXT))
+XLIB_SL := $(wildcard $(DEPDIR)/lib/$(PROJECT).$(SLIBEXT))
+XLIB_DL := $(wildcard $(DEPDIR)/lib/$(PROJECT).$(DLIBEXT))
+XLIB := $(strip $(if $(XLIB_SL),$(XLIB_SL),$(XLIB_DL)))
 ifeq (,$(XLIB))
 ifneq (,$(wildcard $(DEPDIR)/libxstream/libxstream_source.h))
   DFLAGS += -DLIBXSTREAM_SOURCE

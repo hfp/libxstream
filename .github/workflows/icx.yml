@@ -1,0 +1,85 @@
+name: Intel
+
+permissions:
+  contents: read
+  pull-requests: write
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest
+
+    # Single "reasonable configuration": release build (-ansi-alias and the
+    # vectorizer are only exercised here), strict warnings, and MKL such that
+    # the JIT-based GEMM backend is covered (no other workflow provides MKL).
+    env:
+      CC: icx
+      CXX: icpx
+      FC: ifx
+      FLAGS: DBG=0 PEDANTIC=2 MKL=1
+
+    steps:
+    - uses: actions/checkout@v5
+
+    # Drop intel-oneapi-compiler-fortran to save time and disk space (GNU
+    # Fortran is then combined with the Intel C/C++ compiler).
+    - name: Install Intel oneAPI
+      run: |
+        wget -qO- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+          | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg >/dev/null
+        echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" \
+          | sudo tee /etc/apt/sources.list.d/oneAPI.list
+        sudo apt update -y
+        sudo apt install -y intel-oneapi-compiler-dpcpp-cpp \
+          intel-oneapi-compiler-fortran intel-oneapi-mkl-devel
+
+    - name: Setup Intel oneAPI environment
+      run: |
+        source /opt/intel/oneapi/setvars.sh >/dev/null
+        printenv | grep -E \
+          '^(PATH|CPATH|LIBRARY_PATH|LD_LIBRARY_PATH|PKG_CONFIG_PATH|ONEAPI_ROOT|CMPLR_ROOT|MKLROOT|TBBROOT)=' \
+          >> "${GITHUB_ENV}"
+
+    - name: Install OpenCL
+      run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
+
+    - name: Setup LIBXS
+      run: |
+        git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
+        echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> ${GITHUB_ENV}
+
+    - name: Build LIBXS
+      run: cd ${LIBXSROOT} && make -j $(nproc) ${FLAGS}
+
+    - name: Build LIBXSTREAM
+      run: make -j $(nproc) ${FLAGS}
+
+    - name: Test
+      run: make -j $(nproc) ${FLAGS} test
+
+    # SMM covers the MKL-JIT consumer (acc_bench); samples/ozaki is left out
+    # since an Intel Compiler spends hours optimizing the INT8 kernels.
+    - name: Build SMM sample
+      run: make -j $(nproc) ${FLAGS} PARAMS= -C samples/smm
+
+    - name: Install (PREFIX)
+      run: make -j $(nproc) ${FLAGS} HEADER_ONLY=1 install PREFIX=$HOME/libxstream-install
+
+    - name: Verify install (PREFIX)
+      run: |
+        test -f $HOME/libxstream-install/include/libxstream/libxstream.h
+        test -f $HOME/libxstream-install/include/libxstream/libxstream_source.h
+        test -d $HOME/libxstream-install/include/libxstream/src
+        ls $HOME/libxstream-install/lib/libxstream.* >/dev/null
+        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
+
+    - name: Out-of-tree build and test
+      run: |
+        mkdir $HOME/libxstream-oot && cd $HOME/libxstream-oot
+        make -j $(nproc) -f ${{ github.workspace }}/Makefile ${FLAGS} test
