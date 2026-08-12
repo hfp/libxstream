@@ -360,7 +360,7 @@ int main(int argc, char* argv[]) {
           const ELEM_TYPE alpha = 1, beta = 1;
           const char transa = 'N', transb = 'N';
           libxs_registry_t* const host_registry = libxs_registry_create();
-          const libxs_gemm_config_t* const host_config = libxs_gemm_dispatch(
+          libxs_gemm_config_t* const host_config = libxs_gemm_dispatch(
             LIBXS_DATATYPE(ELEM_TYPE), transa, transb, m, n, k, m, k, m, &alpha, &beta, host_registry);
           memset(gold_hst, 0, sizeof(ELEM_TYPE) * mn * nc);
           for (r = 0; r < warmup; ++r) {
@@ -388,6 +388,7 @@ int main(int argc, char* argv[]) {
 #endif
           }
           duration = libxs_timer_duration(start, libxs_timer_tick());
+          libxs_gemm_release(host_config); /* release JIT kernel (this TU) */
           libxs_gemm_release_registry(host_registry);
           perf_hst = 1E-9 * ((size_t)2 * m * n * k * stack_size * nrepeat * nrepeat_smm) / duration;
           PRINTF("host: %.2g ms %.1f GFLOPS/s\n", 1000.0 * duration / (nrepeat * nrepeat_smm), perf_hst);
