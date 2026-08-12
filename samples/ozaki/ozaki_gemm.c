@@ -129,7 +129,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
     void *d_occ_a = NULL, *d_occ_b = NULL;
     int first_pair;
-    int total_pairs = 0;
     int cache_hit_a = 0, cache_hit_b = 0;
     const size_t occ_size = (size_t)nslices_g * sizeof(cl_int);
     int kg;
@@ -293,9 +292,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           ctx->cache.last_cutoff = eff_cutoff;
         }
       /* Launch GEMM for this K-group */
-      { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
-        const int bounds = (0 != M % tm || 0 != N % tn);
-        total_pairs += ozaki_count_pairs(nslices_g, eff_cutoff, sq);
+      { const int bounds = (0 != M % tm || 0 != N % tn);
         { cl_kernel kern_g = ozaki_get_fused_kernel(ctx, eff_cutoff, bounds, tm, tn);
           if (NULL != kern_g) {
             result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
