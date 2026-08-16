@@ -179,10 +179,14 @@ jobs:
           -DCMAKE_INSTALL_PREFIX=$HOME/libxstream-install \
           -DLIBXSTREAM_INSTALL_HEADER_ONLY=ON \
           -DLIBXSTREAM_OMP=ON \
+          -DBUILD_TESTING=ON \
           -DBUILD_SHARED_LIBS=${{ matrix.shared == 'shared' && 'ON' || 'OFF' }}
 
     - name: Build
       run: cmake --build build -j $(nproc)
+
+    - name: Test
+      run: ctest --test-dir build --output-on-failure -j $(nproc)
 
     - name: Install
       run: cmake --install build

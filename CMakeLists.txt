@@ -19,7 +19,16 @@ project(libxstream
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
+# Set default build type (multi-config generators select at build time)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE "RelWithDebInfo" CACHE STRING "Build type" FORCE)
+  # Set the possible values of build type for cmake-gui
+  set_property(CACHE CMAKE_BUILD_TYPE
+               PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+endif()
+
 option(LIBXSTREAM_INSTALL_HEADER_ONLY "Install the header-only implementation sources" OFF)
+option(BUILD_TESTING "Build unit tests" OFF)
 
 # Matches the Makefile default (OMP=1). OpenMP is not an optimization here: it
 # sizes per-thread resources (streams, memory pointers) for threaded consumers
@@ -119,8 +128,11 @@ set(LIBXSTREAM_INCLUDE_DIR "${LIBXSTREAM_ROOT_DIR}/libxstream")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Generate include/libxstream_version.h
-set(LIBXSTREAM_VERSION_HEADER "${LIBXSTREAM_INCLUDE_DIR}/libxstream_version.h")
+set(CMAKE_SKIP_TEST_ALL_DEPENDENCY FALSE)
+include(CTest)
+
+# Generate libxstream_version.h in the build tree.
+set(LIBXSTREAM_VERSION_HEADER "${PROJECT_BINARY_DIR}/libxstream_version.h")
 set(LIBXSTREAM_VERSION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_version.sh")
 
 if(NOT EXISTS "${LIBXSTREAM_VERSION_SCRIPT}")
@@ -140,6 +152,13 @@ if(NOT LIBXSTREAM_VERSION_RC EQUAL 0)
   message(FATAL_ERROR "tool_version.sh failed with code ${LIBXSTREAM_VERSION_RC}")
 endif()
 
+# libxstream.h includes "libxstream_version.h", i.e. a header left in the
+# source tree by a GNU Make build takes precedence over the generated header.
+if(EXISTS "${LIBXSTREAM_INCLUDE_DIR}/libxstream_version.h")
+  message(WARNING "${LIBXSTREAM_INCLUDE_DIR}/libxstream_version.h shadows the "
+    "generated header (run \"make realclean\" to build a consistent version).")
+endif()
+
 # Re-run on reconfigure whenever version metadata changes.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
   "${LIBXSTREAM_VERSION_FILE}"
@@ -148,6 +167,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 set(LIBXSTREAM_PUBLIC_INCLUDE_DIRS
   $<BUILD_INTERFACE:${LIBXSTREAM_ROOT_DIR}>
   $<BUILD_INTERFACE:${LIBXSTREAM_INCLUDE_DIR}>
+  $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/libxstream>)
 
@@ -175,6 +195,10 @@ target_include_directories(libxstream
 
 target_link_libraries(libxstream PUBLIC ${LIBXSTREAM_LINK_LIBRARIES})
 
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
+
 # Pkg-config file
 set(PREFIX "${CMAKE_INSTALL_PREFIX}")
 set(INCLUDEDIR "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
@@ -193,7 +217,6 @@ if(BUILD_SHARED_LIBS)
   set(LIBS "-L\${libdir} -lxstream")
 else()
   set(LIBS "\${libdir}/libxstream.a")
-  string(STRIP "${PRIVLIBS} -lpthread -ldl" PRIVLIBS)
   string(REPLACE "libxs" "libxs-static" REQUIRES_PRIVATE "${REQUIRES_PRIVATE}")
 endif()
 if(PRIVLIBS)
@@ -231,6 +254,8 @@ install(DIRECTORY "${LIBXSTREAM_INCLUDE_DIR}/"
   FILES_MATCHING
     PATTERN "*.h"
     PATTERN "libxstream_source.h" EXCLUDE)
+install(FILES "${LIBXSTREAM_VERSION_HEADER}"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/libxstream")
 
 # Install the optional header-only implementation.
 if(LIBXSTREAM_INSTALL_HEADER_ONLY)
