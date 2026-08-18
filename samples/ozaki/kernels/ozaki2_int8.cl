@@ -11,7 +11,7 @@
 #include "ozaki_common.cl"
 
 /**
- * Ozaki Scheme 2 -- GEMM-based XMX path (CRT).
+ * Ozaki Scheme 2 - GEMM-based XMX path (CRT).
  *
  * Unlike the panel-batched dotprod path, this approach:
  *   1. Preprocesses the FULL K dimension of A and B into dense per-prime
@@ -27,7 +27,7 @@
  *   Trade-off: safe K without KGROUPS drops from ~133K to ~33K.
  *
  * The KGROUPS tunable controls intermediate int32 mod reductions within
- * the K-loop.  When 0 (default), no intermediate reductions -- the int32
+ * the K-loop.  When 0 (default), no intermediate reductions - the int32
  * accumulator covers the full K.  When > 0, a Barrett mod reduction fires
  * every KGROUPS * BK steps, preventing int32 overflow for large K.
  * Garner reconstruction always runs once per C element regardless.
@@ -200,8 +200,8 @@
 #define OZAKI_EXTRACT_CRT(ALIGNED, SIGN, DST, SS, RS, ROW, COL) \
   OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, (long)(ROW) * (RS) + (COL))
 /* Store B via the (possibly VNNI-packed) index so producer and consumer agree. */
-#define OZAKI_EXTRACT_CRT_B(ALIGNED, SIGN, DST, SS, N_PAD, ROW, COL) \
-  OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OZAKI_IDX_BS(ROW, COL, N_PAD))
+#define OZAKI_EXTRACT_CRT_B(ALIGNED, SIGN, DST, SS, N_PAD, K_PAD, ROW, COL) \
+  OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD))
 #define OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OFF) \
   do { \
     const long off_ = (OFF); \
@@ -209,14 +209,14 @@
     UNROLL_FORCE(NPRIMES) for (p_ = 0; p_ < NPRIMES; ++p_) \
     { \
       uint r_ = oz2g_mod64((ulong)(ALIGNED), p_); \
-      if ((SIGN) && 0 != r_) OZAKI_SIGN_FOLD_(r_, p_); \
+      if ((SIGN) && 0 != r_) OZAKI_SIGN_FOLD(r_, p_); \
       (DST)[(long)(p_) * (SS) + off_] = (char)r_; \
     } \
   } while (0)
 #if defined(OZAKI_U8) && (OZAKI_U8)
-# define OZAKI_SIGN_FOLD_(R, P) (R) = oz2g_moduli[(P)] - (R)
+# define OZAKI_SIGN_FOLD(R, P) (R) = oz2g_moduli[(P)] - (R)
 #else
-# define OZAKI_SIGN_FOLD_(R, P) (R) = -(R)
+# define OZAKI_SIGN_FOLD(R, P) (R) = -(R)
 #endif
 
 /* Zero NPRIMES entries at the given position. */
@@ -233,8 +233,8 @@
  * Mod-reduce DPAS accumulator into uint residue array.
  * RESIDUES[pidx * XMX_FRAG + f] accumulates the unsigned residue of the
  * fragment element f this work-item owns (XMX_FRAG per sub-tile).
- * u8: accumulator is always non-negative (unsigned products) -- branchless.
- * i8: accumulator can be negative -- requires sign-aware reduction.
+ * u8: accumulator is always non-negative (unsigned products) - branchless.
+ * i8: accumulator can be negative - requires sign-aware reduction.
  */
 #define OZAKI_CRT_MOD_REDUCE(ACC, PIDX, RESIDUES) \
   do { \
@@ -244,7 +244,7 @@
     UNROLL_FORCE(XMX_FRAG) for (mr_ = 0; mr_ < XMX_FRAG; ++mr_) \
     { \
       uint r_; \
-      OZAKI_MOD_REDUCE_ELEM_(du_.a_[mr_], (PIDX), r_); \
+      OZAKI_MOD_REDUCE_ELEM(du_.a_[mr_], (PIDX), r_); \
       { \
         const uint prev_ = (RESIDUES)[(int)(PIDX) * XMX_FRAG + mr_]; \
         const uint sum_ = prev_ + r_; \
@@ -253,9 +253,9 @@
     } \
   } while (0)
 #if defined(OZAKI_U8) && (OZAKI_U8)
-# define OZAKI_MOD_REDUCE_ELEM_(VAL, PIDX, R) (R) = oz2g_mod((uint)(VAL), (PIDX))
+# define OZAKI_MOD_REDUCE_ELEM(VAL, PIDX, R) (R) = oz2g_mod((uint)(VAL), (PIDX))
 #else
-# define OZAKI_MOD_REDUCE_ELEM_(VAL, PIDX, R) \
+# define OZAKI_MOD_REDUCE_ELEM(VAL, PIDX, R) \
     if ((VAL) >= 0) { \
       (R) = oz2g_mod((uint)(VAL), (PIDX)); \
     } \
@@ -268,7 +268,7 @@
 /**
  * Cache the exponent scales a work-item needs for one sub-tile: XMX_FRAG row
  * exponents (one per fragment element) and OZAKI_FRAG_NCOL column exponents
- * (one per distinct column the fragment touches -- 1 for DPAS/dp4a, 2 for MMA).
+ * (one per distinct column the fragment touches - 1 for DPAS/dp4a, 2 for MMA).
  */
 #define OZAKI_CRT_EXP_CACHE(EXPA, EXPB, N, MI, NJ, LANE, EA_C, EB_C) \
   do { \
@@ -437,6 +437,56 @@
 #endif /* OZAKI_HIER */
 
 /**
+ * Unfused reconstruction (OZAKI_UNFUSE): the GEMM writes one residue byte per
+ * prime and output, a second kernel reconstructs. The point is not the extra
+ * kernel but what it removes - with the prime loop outermost the fused kernel
+ * has to keep every output's group values live across it, which is 2 KB per
+ * work-item of dynamically indexed arrays, 512 KB per work-group against a 256 KB
+ * L1. A separate pass can put the output loop outermost instead and keeps only
+ * HIER_NGROUPS group values live, i.e. registers. Measured cost of the epilogue
+ * inside the fused kernel: 4.44 ms of 13.06 at n=4096.
+ *
+ * Residues are bytes because a reduced residue is below its modulus (<=256), so
+ * the round trip is nprimes*M*N bytes each way - 536 MB at n=4096, ~0.27 ms.
+ *
+ * The plane layout is tile-blocked and lane-contiguous rather than row/column
+ * major: consecutive lanes hold columns two apart within a row of the MMA
+ * fragment, so a C-layout store would scatter a warp over 32 sectors. Blocking by
+ * (tile, sub-group, fragment, lane) makes both the store here and the read in
+ * gemm_crt_reduce fully coalesced, and the two kernels agree on it by construction
+ * - same launch geometry, same compile-time tile.
+ */
+#define OZAKI_RES_UPDIV(X, Y) (((X) + (Y) - 1) / (Y))
+#define OZAKI_RES_TILE (BM * BN)
+#define OZAKI_RES_PLANE(M_, N_) \
+  ((long)OZAKI_RES_UPDIV(M_, BM) * OZAKI_RES_UPDIV(N_, BN) * OZAKI_RES_TILE)
+#define OZAKI_RES_BASE(IB, JB, N_, SGI, LANE) \
+  ((long)((IB) * OZAKI_RES_UPDIV(N_, BN) + (JB)) * OZAKI_RES_TILE \
+    + (long)(SGI) * (RTM * RTN) * XMX_FRAG * SG + (LANE))
+#define OZAKI_RES_OFF(RM, RN, MS) ((long)(((RM) * RTN + (RN)) * XMX_FRAG + (MS)) * SG)
+
+/* Mod-reduce the whole register tile for one prime and store it as bytes. */
+#define OZAKI_CRT_STORE_RESIDUES(ACC, PIDX, RES) \
+  do { \
+    int rm_sr_, rn_sr_; \
+    UNROLL_FORCE(RTM) for (rm_sr_ = 0; rm_sr_ < RTM; ++rm_sr_) \
+    { \
+      UNROLL_FORCE(RTN) for (rn_sr_ = 0; rn_sr_ < RTN; ++rn_sr_) \
+      { \
+        OZAKI_ACC_UNION(dsr_); \
+        int ms_sr_; \
+        dsr_.v_ = (ACC)[rm_sr_ * RTN + rn_sr_]; \
+        UNROLL_FORCE(XMX_FRAG) for (ms_sr_ = 0; ms_sr_ < XMX_FRAG; ++ms_sr_) \
+        { \
+          uint rsr_; \
+          OZAKI_MOD_REDUCE_ELEM(dsr_.a_[ms_sr_], (PIDX), rsr_); \
+          (RES)[OZAKI_RES_OFF(rm_sr_, rn_sr_, ms_sr_)] = (uchar)rsr_; \
+        } \
+      } \
+    } \
+  } while (0)
+
+/**
  * K-loop inner body: prefetch + DPAS for PB batched primes.
  * AS_BASE, BS_BASE: base pointers for all prime planes.
  * A_PLANE, B_PLANE: per-prime plane offsets.
@@ -457,6 +507,259 @@
     } \
   } while (0)
 
+#if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
+
+/**
+ * Warp-group MMA path (Hopper). A warp group is four warps computing 64 rows:
+ * warp w owns rows w*16..w*16+15 across all BN columns, which is exactly what
+ * NTM=BM/16, NTN=1, RTM=1, RTN=BN/8 make the shared mi_base/nj_base indexing
+ * produce. The accumulator fragments therefore land where the existing epilogue
+ * expects them and everything after the K-loop - mod-reduce, hierarchical
+ * Garner, Horner, store - is reused unchanged.
+ *
+ * BM selects how many warp groups a work-group runs (WG_NGROUPS = BM/64). Two of
+ * them (BM=128, 256 work-items) halve the residue-plane traffic per output
+ * because both read the same staged B tile, at no cost in accumulators per
+ * thread: the rows are added by adding warps, not registers. Warp-group rank in
+ * the CTA is warp rank / 4, and SGID() is the warp rank here (get_local_id(1)
+ * with a work-group of (32, NTM*NTN, 1)), so sub-groups 0-3 form the first warp
+ * group and 4-7 the second, each issuing its own wgmma over its own A tile half.
+ *
+ * wgmma cannot be written in OpenCL C: the front-end emits .target sm_90 while
+ * the instruction needs sm_90a. OZAKI_WGMMA_ISSUE is therefore a comment-only asm
+ * carrying the real operands, so the compiler allocates and names the registers,
+ * and the host splices the instruction into the PTX by those names (see
+ * ozaki_wgmma_splice in ozaki_gemm.c). Operands: the 32 accumulators as "+r",
+ * then the two shared-memory tile pointers. The descriptor's layout fields are
+ * compile-time constants and are baked into the spliced text by the host.
+ */
+# if (1 != RTM) || ((8 != RTN) && (16 != RTN))
+#   error OZAKI_WGMMA implies RTM=1 and RTN=8 or 16 (m64n64k32 / m64n128k32).
+# endif
+# if (64 != BM) && (128 != BM)
+#   error OZAKI_WGMMA implies BM=64 or BM=128 (one or two warp groups).
+# endif
+# if (1 != PB) || (KGROUPS > 0) || (0 == OZAKI_HIER)
+#   error OZAKI_WGMMA implies PB=1, no K-grouping and hierarchical CRT.
+# endif
+# if (32 != SG)
+#   error OZAKI_WGMMA implies SG=32 (one warp per sub-group).
+# endif
+
+/* Bytes of K staged per round, work-items per work-group, warp groups per CTA. */
+# define WBK (KU * BK)
+# define WGS (SG * (BM / (XMX_M * RTM)) * (BN / (XMX_N * RTN)))
+# define WG_NGROUPS (BM / 64)
+# define WG_NSUB (64 / (XMX_M * RTM))
+
+/* One issue per K-chunk; the marker names the shape so the host need not assume it. */
+# if (16 == RTN)
+# define OZAKI_WGMMA_ISSUE(ACCS, PA, PB_) \
+    asm volatile("// WGMMA_SLOT n128 d={%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,"\
+      "%23,%24,%25,%26,%27,%28,%29,%30,%31,%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,"\
+      "%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63} pa=%64 pb=%65" \
+      : "+r"((ACCS)[0]), "+r"((ACCS)[1]), "+r"((ACCS)[2]), "+r"((ACCS)[3]), \
+      "+r"((ACCS)[4]), "+r"((ACCS)[5]), "+r"((ACCS)[6]), "+r"((ACCS)[7]), \
+      "+r"((ACCS)[8]), "+r"((ACCS)[9]), "+r"((ACCS)[10]), "+r"((ACCS)[11]), \
+      "+r"((ACCS)[12]), "+r"((ACCS)[13]), "+r"((ACCS)[14]), "+r"((ACCS)[15]), \
+      "+r"((ACCS)[16]), "+r"((ACCS)[17]), "+r"((ACCS)[18]), "+r"((ACCS)[19]), \
+      "+r"((ACCS)[20]), "+r"((ACCS)[21]), "+r"((ACCS)[22]), "+r"((ACCS)[23]), \
+      "+r"((ACCS)[24]), "+r"((ACCS)[25]), "+r"((ACCS)[26]), "+r"((ACCS)[27]), \
+      "+r"((ACCS)[28]), "+r"((ACCS)[29]), "+r"((ACCS)[30]), "+r"((ACCS)[31]), \
+      "+r"((ACCS)[32]), "+r"((ACCS)[33]), "+r"((ACCS)[34]), "+r"((ACCS)[35]), \
+      "+r"((ACCS)[36]), "+r"((ACCS)[37]), "+r"((ACCS)[38]), "+r"((ACCS)[39]), \
+      "+r"((ACCS)[40]), "+r"((ACCS)[41]), "+r"((ACCS)[42]), "+r"((ACCS)[43]), \
+      "+r"((ACCS)[44]), "+r"((ACCS)[45]), "+r"((ACCS)[46]), "+r"((ACCS)[47]), \
+      "+r"((ACCS)[48]), "+r"((ACCS)[49]), "+r"((ACCS)[50]), "+r"((ACCS)[51]), \
+      "+r"((ACCS)[52]), "+r"((ACCS)[53]), "+r"((ACCS)[54]), "+r"((ACCS)[55]), \
+      "+r"((ACCS)[56]), "+r"((ACCS)[57]), "+r"((ACCS)[58]), "+r"((ACCS)[59]), \
+      "+r"((ACCS)[60]), "+r"((ACCS)[61]), "+r"((ACCS)[62]), "+r"((ACCS)[63]) \
+      : "l"(PA), "l"(PB_))
+# else
+# define OZAKI_WGMMA_ISSUE(ACCS, PA, PB_) \
+    asm volatile("// WGMMA_SLOT n64 d={%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,"\
+      "%23,%24,%25,%26,%27,%28,%29,%30,%31} pa=%32 pb=%33" \
+      : "+r"((ACCS)[0]), "+r"((ACCS)[1]), "+r"((ACCS)[2]), "+r"((ACCS)[3]), \
+      "+r"((ACCS)[4]), "+r"((ACCS)[5]), "+r"((ACCS)[6]), "+r"((ACCS)[7]), \
+      "+r"((ACCS)[8]), "+r"((ACCS)[9]), "+r"((ACCS)[10]), "+r"((ACCS)[11]), \
+      "+r"((ACCS)[12]), "+r"((ACCS)[13]), "+r"((ACCS)[14]), "+r"((ACCS)[15]), \
+      "+r"((ACCS)[16]), "+r"((ACCS)[17]), "+r"((ACCS)[18]), "+r"((ACCS)[19]), \
+      "+r"((ACCS)[20]), "+r"((ACCS)[21]), "+r"((ACCS)[22]), "+r"((ACCS)[23]), \
+      "+r"((ACCS)[24]), "+r"((ACCS)[25]), "+r"((ACCS)[26]), "+r"((ACCS)[27]), \
+      "+r"((ACCS)[28]), "+r"((ACCS)[29]), "+r"((ACCS)[30]), "+r"((ACCS)[31]) \
+      : "l"(PA), "l"(PB_))
+# endif
+
+/**
+ * Asynchronous staging. cp.async copies global to shared directly, without the
+ * register round-trip that an ordinary load/store pair pays, and its completion is
+ * tracked per group so the copies for the next K-round overlap the current round's
+ * MMAs. It assembles on the plain target, unlike wgmma, so it needs no splice.
+ */
+# define OZAKI_WGMMA_COPY16(DST, SRC) \
+    asm volatile("cp.async.ca.shared.global [%0], [%1], 16;" ::"l"(DST), "l"(SRC) : "memory")
+# define OZAKI_WGMMA_COPY4(DST, SRC) \
+    asm volatile("cp.async.ca.shared.global [%0], [%1], 4;" ::"l"(DST), "l"(SRC) : "memory")
+# define OZAKI_WGMMA_COMMIT() asm volatile("cp.async.commit_group;" ::: "memory")
+/**
+ * The MMA group wait, hoisted out of the chunk loop: the issues of one round are
+ * committed back to back and awaited once, so the MMA pipeline stays fed instead of
+ * draining per instruction. Spliced like the issue marker (see ozaki_wgmma_splice).
+ */
+# define OZAKI_WGMMA_MMAWAIT() asm volatile("// WGMMA_WAIT" ::: "memory")
+# define OZAKI_WGMMA_WAIT() asm volatile("cp.async.wait_group 0;" ::: "memory")
+
+/**
+ * Stage one K-round of A into shared memory in wgmma's core-matrix layout: 8x16
+ * byte core matrices stored contiguously, blocks ordered (m_block, k_block)
+ * row-major. Global A is [M_pad][K_pad], so rows of the tile are contiguous in K:
+ * one work-item moves 16 bytes and consecutive work-items cover consecutive
+ * chunks of a row. With two warp groups the m-blocks of the second are simply the
+ * upper half of the same array, which is why staging needs no notion of them.
+ */
+# define OZAKI_WGMMA_ASTAGE(AS_K, K_PAD_, MB, KOFF, SA, WT) \
+    do { \
+      int ia_; \
+      for (ia_ = (WT); ia_ < (BM * WBK) / 16; ia_ += WGS) { \
+        const int m_ = ia_ / (WBK / 16); \
+        const int j_ = ia_ % (WBK / 16); \
+        OZAKI_WGMMA_COPY16((SA) + (((m_ >> 3) * (WBK / 16) + j_) * 8) + (m_ & 7), \
+          (AS_K) + (long)((MB) + m_) * (K_PAD_) + (KOFF) + j_ * 16); \
+      } \
+    } while (0)
+
+# if defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
+/* B transposed: a column's K is contiguous, so B stages exactly like A. */
+# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) \
+    do { \
+      int ib_; \
+      for (ib_ = (WT); ib_ < (BN * WBK) / 16; ib_ += WGS) { \
+        const int c_ = ib_ / (WBK / 16); \
+        const int j_ = ib_ % (WBK / 16); \
+        OZAKI_WGMMA_COPY16((SB) + (((c_ >> 3) * (WBK / 16) + j_) * 8) + (c_ & 7), \
+          (BS_K) + (long)((NB) + c_) * (K_PAD_) + (KOFF) + j_ * 16); \
+      } \
+    } while (0)
+# else
+/**
+ * B interleaved (OZAKI_BVNNI): a K-quad of one column is one aligned uint, so the
+ * global side is coalesced across columns but the copies are 4 bytes wide - four
+ * times the instructions of the transposed layout, which is the trade OZAKI_BKMAJOR
+ * exists to make.
+ */
+# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) \
+    do { \
+      int ib_; \
+      for (ib_ = (WT); ib_ < (BN * WBK) / 4; ib_ += WGS) { \
+        const int c_ = ib_ % BN; \
+        const int q_ = ib_ / BN; \
+        OZAKI_WGMMA_COPY4(((local uint*)(SB)) \
+            + ((((c_ >> 3) * (WBK / 16)) + (q_ >> 2)) * 8 + (c_ & 7)) * 4 + (q_ & 3), \
+          ((CONSTANT const uint*)(BS_K)) + (long)(((KOFF) >> 2) + q_) * (N_PAD_) + (NB) + c_); \
+      } \
+    } while (0)
+# endif
+
+/**
+ * The whole K-loop for one prime, double-buffered: wait for the round staged last
+ * time, publish it with one barrier (which also proves every warp has finished
+ * reading the other buffer), start the next round's copies, then issue this
+ * round's MMAs so the copies overlap them. One barrier per round instead of two,
+ * and the global-to-shared latency is hidden rather than waited on.
+ *
+ * WG is the warp-group rank. Staging is over the whole work-group, so the barrier
+ * publishes both A halves and the single B tile at once; only the issue is
+ * per-warp-group, reading its own 64 rows of A (WG * nawg_) and the shared B.
+ */
+# define OZAKI_CRT_KLOOP_W(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, MB, NB, PIDX, ACCS, SA, SB, WT, WG) \
+    do { \
+      CONSTANT const char* asw_ = (AS_BASE) + (long)(PIDX) * (A_PLANE); \
+      CONSTANT const char* bsw_ = (BS_BASE) + (long)(PIDX) * (B_PLANE); \
+      const int nasz_ = (BM * WBK) / 16; \
+      const int nbsz_ = (BN * WBK) / 16; \
+      const int nawg_ = nasz_ / WG_NGROUPS; \
+      int kw_, buf_ = 0; \
+      OZAKI_WGMMA_ASTAGE(asw_, K_PAD_, MB, 0, SA, WT); \
+      OZAKI_WGMMA_BSTAGE(bsw_, N_PAD_, K_PAD_, NB, 0, SB, WT); \
+      OZAKI_WGMMA_COMMIT(); \
+      for (kw_ = 0; kw_ < (K_PAD_); kw_ += WBK) { \
+        const int next_ = kw_ + WBK; \
+        int cw_; \
+        OZAKI_WGMMA_WAIT(); \
+        barrier(CLK_LOCAL_MEM_FENCE); \
+        if (next_ < (K_PAD_)) { \
+          OZAKI_WGMMA_ASTAGE(asw_, K_PAD_, MB, next_, (SA) + (1 - buf_) * nasz_, WT); \
+          OZAKI_WGMMA_BSTAGE(bsw_, N_PAD_, K_PAD_, NB, next_, (SB) + (1 - buf_) * nbsz_, WT); \
+          OZAKI_WGMMA_COMMIT(); \
+        } \
+        UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
+          OZAKI_WGMMA_ISSUE(ACCS, (SA) + buf_ * nasz_ + (WG) * nawg_ + cw_ * 16, \
+            (SB) + buf_ * nbsz_ + cw_ * 16); \
+        } \
+        OZAKI_WGMMA_MMAWAIT(); \
+        buf_ = 1 - buf_; \
+      } \
+    } while (0)
+
+#endif /* OZAKI_WGMMA */
+
+/**
+ * The full K-loop for one prime batch, whichever matrix engine is in use. Named
+ * once so the fused and unfused prime loops below cannot drift apart; it reads the
+ * kernel's own operands (as, bs, the padded extents, the tile bases) the way the
+ * reconstruction macros read dot_r_ and gval_.
+ */
+#if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
+# define OZAKI_CRT_KLOOP_RUN(ACC, PIDX) \
+    OZAKI_CRT_KLOOP_W(as, bs, a_plane, b_plane, K_pad, N_pad, mb_base, nb_base, PIDX, \
+      (ACC).s_, wg_sa, wg_sb, wt, wg_id)
+#else
+# define OZAKI_CRT_KLOOP_RUN(ACC, PIDX) \
+    do { \
+      int kr_; \
+      for (kr_ = 0; kr_ < K_pad; kr_ += KU * BK) { \
+        int kur_; \
+        UNROLL_FORCE(KU) for (kur_ = 0; kur_ < KU; ++kur_) \
+        { \
+          OZAKI_CRT_KSTEP(as, bs, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, kr_ + kur_ * BK, PIDX, ACC); \
+        } \
+      } \
+    } while (0)
+#endif
+
+/**
+ * Accumulator storage. The wgmma path needs the same registers addressable both
+ * as a flat int array (the instruction takes one register vector) and as XMX_FRAG
+ * fragments (what the epilogue consumes); a union provides that at no cost.
+ */
+#if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
+# define OZAKI_ACC_DECL(NAME) \
+  union { \
+    OZAKI_ACC_T v_[PB * RTM * RTN]; \
+    int s_[PB * RTM * RTN * XMX_FRAG]; \
+  } NAME
+# define OZAKI_ACC_FRAGS(NAME) ((NAME).v_)
+# define OZAKI_ACC_ZERO_ALL(NAME) \
+  do { \
+    int az_; \
+    UNROLL_FORCE(PB * RTM * RTN * XMX_FRAG) \
+    for (az_ = 0; az_ < PB * RTM * RTN * XMX_FRAG; ++az_) { \
+      (NAME).s_[az_] = 0; \
+    } \
+  } while (0)
+#else
+# define OZAKI_ACC_DECL(NAME) OZAKI_ACC_T NAME[PB * RTM * RTN]
+# define OZAKI_ACC_FRAGS(NAME) (NAME)
+# define OZAKI_ACC_ZERO_ALL(NAME) \
+  do { \
+    int az_; \
+    UNROLL_FORCE(PB * RTM * RTN) \
+    for (az_ = 0; az_ < PB * RTM * RTN; ++az_) { \
+      (NAME)[az_] = OZAKI_ACC_ZERO; \
+    } \
+  } while (0)
+#endif
+
 #if OZAKI_HIER
 /**
  * Mod-reduce with separate global prime index (for moduli lookup)
@@ -470,7 +773,7 @@
     UNROLL_FORCE(XMX_FRAG) for (mrl_ = 0; mrl_ < XMX_FRAG; ++mrl_) \
     { \
       uint rl_; \
-      OZAKI_MOD_REDUCE_ELEM_(dul_.a_[mrl_], (PIDX), rl_); \
+      OZAKI_MOD_REDUCE_ELEM(dul_.a_[mrl_], (PIDX), rl_); \
       { \
         const uint prevl_ = (RESIDUES)[(int)(LOCAL_IDX) * XMX_FRAG + mrl_]; \
         const uint suml_ = prevl_ + rl_; \
@@ -1274,10 +1577,10 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
 /**
  * preprocess_a_crt_dense: decompose A into dense per-prime CRT residue matrices.
  *
- * Output layout: As[pidx][M_pad][K_pad] -- one dense M_pad x K_pad int8 matrix
+ * Output layout: As[pidx][M_pad][K_pad] - one dense M_pad x K_pad int8 matrix
  * per prime, with residues in [0, m_pidx-1] and sign folded in.
  *
- * Work-group: (BK_PRE, BM_PRE, 1) -- K on dim 0, so the lanes of a sub-group
+ * Work-group: (BK_PRE, BM_PRE, 1) - K on dim 0, so the lanes of a sub-group
  * walk col and the NPRIMES stores per element land on consecutive bytes of
  * As[p][row][col]. Every element is loaded once but stored NPRIMES times, so
  * coalescing the store outweighs coalescing the load: mapping lanes to row
@@ -1286,7 +1589,7 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
  * 16-way store scatter. The load becomes stride-lda for transa=0, which is what
  * preprocess_b already pays.
  *
- * Dispatch: global[0] = BK_PRE (single WG in K) -- loops internally.
+ * Dispatch: global[0] = BK_PRE (single WG in K) - loops internally.
  */
 __attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
@@ -1352,10 +1655,10 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
 /**
  * preprocess_b_crt_dense: decompose B into dense per-prime CRT residue matrices.
  *
- * Output layout: Bs[pidx][K_pad][N_pad] -- K-major, N_pad >= 64 for 2D block I/O.
+ * Output layout: Bs[pidx][K_pad][N_pad] - K-major, N_pad >= 64 for 2D block I/O.
  *
  * Work-group: (BN_PRE, BK_PRE, 1).
- * Dispatch: global[1] = BK_PRE (single WG in K) -- loops internally.
+ * Dispatch: global[1] = BK_PRE (single WG in K) - loops internally.
  */
 __attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
@@ -1406,7 +1709,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
       if (m1 != 0) {
         const int shift = (int)(max_exp - e1);
         const uint_repr_t aligned = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
-        OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, row, col);
+        OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, K_pad, row, col);
       }
     }
   }
@@ -1438,7 +1741,12 @@ kernel void gemm_crt_fused(
   CONSTANT const int* restrict expa_base, /* [M] per-row max exponent */ int expa_index,
   CONSTANT const int* restrict expb_base, /* [N] per-col max exponent */ int expb_index,
   global real_t* restrict c_base, int c_index, int M, int N, int K_pad, int N_pad, int ldc, int M_pad, real_t alpha,
-  int first)
+  int first
+#if defined(OZAKI_UNFUSE) && (OZAKI_UNFUSE)
+  /* Residue planes, last so the preceding arguments keep their indices. */
+  , global uchar* restrict res_base, long res_index
+#endif
+)
 {
   CONSTANT const char* restrict as = as_base + as_index;
   CONSTANT const char* restrict bs = bs_base + bs_index;
@@ -1455,7 +1763,32 @@ kernel void gemm_crt_fused(
   const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
   const long a_plane = (long)M_pad * K_pad;
   const long b_plane = (long)K_pad * N_pad;
-#if OZAKI_HIER
+#if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
+  /* Work-group tile base (staging is cooperative, unlike the per-sub-group MI/NJ). */
+  const int mb_base = ib_idx * BM;
+  const int nb_base = jb_idx * BN;
+  const int wt = sg_id * SG + sg_lid;
+  const int wg_id = sg_id / WG_NSUB;
+  local uint4 wg_sa[2 * ((BM * WBK) / 16)]; /* double-buffered */
+  local uint4 wg_sb[2 * ((BN * WBK) / 16)];
+#endif
+#if defined(OZAKI_UNFUSE) && (OZAKI_UNFUSE)
+  /**
+   * Unfused: accumulate one prime, reduce it to a byte per output, store, move on.
+   * No group values are kept, so the 2 KB per-work-item frame the fused epilogue
+   * needs never exists - which is the whole reason for the second kernel.
+   */
+  { SINT pidx_base;
+    global uchar* const res = res_base + res_index + OZAKI_RES_BASE(ib_idx, jb_idx, N, sg_id, sg_lid);
+    const long rplane = OZAKI_RES_PLANE(M, N);
+    UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NPRIMES; ++pidx_base) {
+      OZAKI_ACC_DECL(acc);
+      OZAKI_ACC_ZERO_ALL(acc);
+      OZAKI_CRT_KLOOP_RUN(acc, pidx_base);
+      OZAKI_CRT_STORE_RESIDUES(OZAKI_ACC_FRAGS(acc), pidx_base, res + (long)pidx_base * rplane);
+    }
+  }
+#elif OZAKI_HIER
   uint dot_r_[HIER_GS];
   uint vg_[HIER_NGROUPS];
   uint gval_[HIER_NGROUPS];
@@ -1484,14 +1817,8 @@ kernel void gemm_crt_fused(
         SINT pidx_base;
         UNROLL_OUTER(1) for (pidx_base = group_lo; pidx_base < group_lo + HIER_GS && pidx_base < NPRIMES; pidx_base += PB)
         {
-          OZAKI_ACC_T acc[PB * RTM * RTN];
-          {
-            int ai;
-            UNROLL_FORCE(PB * RTM * RTN)
-            for (ai = 0; ai < PB * RTM * RTN; ++ai) {
-              acc[ai] = OZAKI_ACC_ZERO;
-            }
-          }
+          OZAKI_ACC_DECL(acc);
+          OZAKI_ACC_ZERO_ALL(acc);
 
 #if KGROUPS > 0
           {
@@ -1504,16 +1831,20 @@ kernel void gemm_crt_fused(
               }
               steps += KU;
               if (steps >= KGROUPS) {
-                OZAKI_CRT_REDUCE_BATCH_GROUP(acc, pidx_base, group_lo, group_res, 1);
+                OZAKI_CRT_REDUCE_BATCH_GROUP(OZAKI_ACC_FRAGS(acc), pidx_base, group_lo, group_res, 1);
                 steps = 0;
               }
             }
             if (0 != steps) {
-              OZAKI_CRT_REDUCE_BATCH_GROUP(acc, pidx_base, group_lo, group_res, 0);
+              OZAKI_CRT_REDUCE_BATCH_GROUP(OZAKI_ACC_FRAGS(acc), pidx_base, group_lo, group_res, 0);
             }
           }
 #else
           {
+#if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
+            OZAKI_CRT_KLOOP_W(as, bs, a_plane, b_plane, K_pad, N_pad, mb_base, nb_base, pidx_base,
+              acc.s_, wg_sa, wg_sb, wt, wg_id);
+#else
             int k;
             for (k = 0; k < K_pad; k += KU * BK) {
               int ku;
@@ -1522,7 +1853,8 @@ kernel void gemm_crt_fused(
                 OZAKI_CRT_KSTEP(as, bs, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
               }
             }
-            OZAKI_CRT_REDUCE_BATCH_GROUP(acc, pidx_base, group_lo, group_res, 0);
+#endif
+            OZAKI_CRT_REDUCE_BATCH_GROUP(OZAKI_ACC_FRAGS(acc), pidx_base, group_lo, group_res, 0);
           }
 #endif
         }
@@ -1593,14 +1925,8 @@ kernel void gemm_crt_fused(
     SINT pidx_base;
     UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NPRIMES; pidx_base += PB)
     {
-      OZAKI_ACC_T acc[PB * RTM * RTN];
-      {
-        int ai;
-        UNROLL_FORCE(PB * RTM * RTN)
-        for (ai = 0; ai < PB * RTM * RTN; ++ai) {
-          acc[ai] = OZAKI_ACC_ZERO;
-        }
-      }
+      OZAKI_ACC_DECL(acc);
+      OZAKI_ACC_ZERO_ALL(acc);
 
 #if KGROUPS > 0
       {
@@ -1613,12 +1939,12 @@ kernel void gemm_crt_fused(
           }
           steps += KU;
           if (steps >= KGROUPS) {
-            OZAKI_CRT_REDUCE_BATCH(acc, pidx_base, residues, 1);
+            OZAKI_CRT_REDUCE_BATCH(OZAKI_ACC_FRAGS(acc), pidx_base, residues, 1);
             steps = 0;
           }
         }
         if (0 != steps) {
-          OZAKI_CRT_REDUCE_BATCH(acc, pidx_base, residues, 0);
+          OZAKI_CRT_REDUCE_BATCH(OZAKI_ACC_FRAGS(acc), pidx_base, residues, 0);
         }
       }
 #else
@@ -1631,7 +1957,7 @@ kernel void gemm_crt_fused(
             OZAKI_CRT_KSTEP(as, bs, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, k + ku * BK, pidx_base, acc);
           }
         }
-        OZAKI_CRT_REDUCE_BATCH(acc, pidx_base, residues, 0);
+        OZAKI_CRT_REDUCE_BATCH(OZAKI_ACC_FRAGS(acc), pidx_base, residues, 0);
       }
 #endif
     }
@@ -1653,3 +1979,71 @@ kernel void gemm_crt_fused(
 #endif
 #endif /* OZAKI_HIER */
 }
+
+
+#if defined(OZAKI_UNFUSE) && (OZAKI_UNFUSE) && OZAKI_HIER
+/**
+ * Reconstruct C from the residue planes gemm_crt_fused wrote. Launched with the
+ * identical geometry, so a work-item reconstructs exactly the outputs it
+ * accumulated and the blocked residue layout needs no index translation.
+ *
+ * The loop order is the whole point: outputs outside, primes inside, so only
+ * HIER_NGROUPS group values are ever live and the reconstruction stays in
+ * registers. What remains is memory-bound by construction - NPRIMES bytes read
+ * and one element written per output.
+ *
+ * Primes past NPRIMES in a partial group contribute zero, exactly as the fused
+ * path's cleared group_res does, which is what keeps the two bit-identical (and
+ * what keeps this from reading past the last plane at NPRIMES=9 in fp32).
+ */
+__attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
+#if defined(INTEL) && (0 != INTEL)
+__attribute__((intel_reqd_sub_group_size(SG)))
+#endif
+kernel void gemm_crt_reduce(CONSTANT const uchar* restrict res_base, /* [NPRIMES * tiles * BM * BN] */ long res_index,
+  CONSTANT const int* restrict expa_base, int expa_index, CONSTANT const int* restrict expb_base, int expb_index,
+  global real_t* restrict c_base, int c_index, int M, int N, int ldc, real_t alpha, int first)
+{
+  CONSTANT const uchar* restrict res = res_base + res_index;
+  CONSTANT const int* restrict expa = expa_base + expa_index;
+  CONSTANT const int* restrict expb = expb_base + expb_index;
+  global real_t* restrict c = c_base + c_index;
+  const int ib_idx = (int)get_group_id(0);
+  const int jb_idx = (int)get_group_id(1);
+  const int sg_lid = (int)SGLID();
+  const int sg_id = (int)SGID();
+  const int tile_m = sg_id / NTN;
+  const int tile_n = sg_id % NTN;
+  const int mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
+  const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
+  const long rbase = OZAKI_RES_BASE(ib_idx, jb_idx, N, sg_id, sg_lid);
+  const long rplane = OZAKI_RES_PLANE(M, N);
+  uint dot_r_[HIER_GS];
+  uint vg_[HIER_NGROUPS];
+  uint gval_[HIER_NGROUPS];
+  int rm, rn;
+  for (rm = 0; rm < RTM; ++rm) {
+    for (rn = 0; rn < RTN; ++rn) {
+      uint gval_all[HIER_NGROUPS * XMX_FRAG];
+      int gidx;
+      UNROLL_FORCE(HIER_NGROUPS) for (gidx = 0; gidx < HIER_NGROUPS; ++gidx)
+      {
+        int ms;
+        UNROLL_FORCE(XMX_FRAG) for (ms = 0; ms < XMX_FRAG; ++ms)
+        {
+          const long off = rbase + OZAKI_RES_OFF(rm, rn, ms);
+          int pg;
+          UNROLL_FORCE(HIER_GS) for (pg = 0; pg < HIER_GS; ++pg)
+          {
+            const int pidx = gidx * HIER_GS + pg;
+            dot_r_[pg] = (pidx < NPRIMES) ? (uint)res[off + (long)pidx * rplane] : 0u;
+          }
+          gval_all[gidx * XMX_FRAG + ms] = OZAKI_L1_RECONSTRUCT(dot_r_, gidx);
+        }
+      }
+      OZAKI_CRT_L2_STORE(
+        gval_all, expa, expb, c, M, N, mi_base + rm * XMX_M, nj_base + rn * XMX_N, sg_lid, ldc, alpha, first);
+    }
+  }
+}
+#endif /* OZAKI_UNFUSE */

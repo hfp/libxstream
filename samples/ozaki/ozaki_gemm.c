@@ -28,11 +28,269 @@ static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* s
   void* d_exp, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ, int kmajor);
 static int ozaki_enqueue_scale_beta(
   ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta);
-static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
-  void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
-  int ntn, double alpha, int first_pair, int use_double);
+static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, cl_kernel kern_r,
+  void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g, void* d_cg, void* d_res, int M, int N, int k_pad, int n_pad, int ldc,
+  int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double);
 static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds, int tm, int tn);
-static cl_kernel ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn);
+/**
+ * Splice real warp-group MMA instructions into the fused CRT kernel's PTX.
+ *
+ * OpenCL C cannot express wgmma: the front-end emits .target sm_90 while the
+ * instruction requires sm_90a. The kernel therefore carries comment-only asm
+ * markers with the real operands, so the compiler performs register allocation
+ * and names them, and this pass rewrites the target and replaces every marker by
+ * the instruction sequence using those names. The descriptor layout fields are
+ * constants here because the staged tile layout is fixed by the kernel: rows of a
+ * core matrix 16 bytes apart, the two K-halves of a row 128 bytes apart, and
+ * m-blocks (WBK/16) core matrices apart.
+ *
+ * fence.proxy.async.shared::cta is not optional: the tiles are written with
+ * ordinary shared-memory stores, and wgmma reads them through the async proxy,
+ * which the work-group barrier does not order against (wgmma.fence orders
+ * register access, not memory). Without it the kernel is correct only while at
+ * most one work-group per SM is resident - measured exact up to 114 work-groups
+ * on a 114-SM part and wrong beyond, which is the kind of bug that looks like a
+ * size threshold.
+ *
+ * Returns the patched text (libxs_free by the caller) or NULL, in which case the
+ * kernel must be refused rather than run: markers alone accumulate nothing.
+ */
+static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, int wbk, int u8)
+{
+  static const char marker[] = "// WGMMA_SLOT n";
+  static const char marker_wait[] = "// WGMMA_WAIT";
+  char entry[128];
+  const char* const etype = (0 != u8) ? "u8" : "s8";
+  const unsigned int desc_hi = (unsigned int)((wbk / 16) * 8); /* m-block stride / 16 */
+  const unsigned int desc_lo = 8u << 16; /* K-half stride / 16, at bit 16 */
+  char* retargeted = NULL;
+  size_t size_rt = 0, cap = 0;
+  char* out = NULL;
+  LIBXS_SNPRINTF(entry, sizeof(entry), ".entry %s", entry_name);
+  if (EXIT_SUCCESS == libxstream_opencl_ptx_retarget(ptx, size, &retargeted, &size_rt)) {
+    const char* scan = retargeted;
+    size_t nmarker = 0;
+    while (NULL != (scan = strstr(scan, marker))) {
+      ++nmarker;
+      ++scan;
+    }
+    scan = retargeted;
+    while (NULL != (scan = strstr(scan, marker_wait))) {
+      ++nmarker;
+      ++scan;
+    }
+    if (0 != nmarker) {
+      cap = size_rt + nmarker * 768 + 256;
+      out = (char*)libxs_malloc(NULL, cap, 0 /*auto-align*/);
+    }
+    if (NULL != out) {
+      const char* src = retargeted;
+      const char* found = strstr(retargeted, entry);
+      const char* brace = (NULL != found) ? strchr(found, '{') : NULL;
+      size_t off = 0;
+      int ok = (NULL != brace) ? EXIT_SUCCESS : EXIT_FAILURE;
+      if (EXIT_SUCCESS == ok) { /* two descriptor temporaries, declared once */
+        const size_t prefix = (size_t)(brace - retargeted) + 1;
+        memcpy(out, retargeted, prefix);
+        off = prefix;
+        off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\n\t.reg .b64 %%wgda;\n\t.reg .b64 %%wgdb;\n");
+        src = brace + 1;
+      }
+      while (EXIT_SUCCESS == ok) {
+        const char* const w = strstr(src, marker_wait);
+        const char* const m = strstr(src, marker);
+        const char* const first = (NULL == m || (NULL != w && w < m)) ? w : m;
+        const char* dlist;
+        const char* dend;
+        const char* line;
+        const char* eol;
+        size_t head;
+        char pa[32], pb[32];
+        int width = 0;
+        if (NULL == first) break;
+        line = first;
+        while (line > retargeted && '\n' != line[-1]) --line;
+        eol = strchr(first, '\n');
+        head = (size_t)(line - src);
+        if (NULL == eol || cap <= (off + head + 768)) {
+          ok = EXIT_FAILURE;
+        }
+        else if (first == w) { /* the group wait, hoisted out of the chunk loop */
+          memcpy(out + off, src, head);
+          off += head;
+          off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\twgmma.wait_group.sync.aligned 0;\n");
+          src = eol + 1;
+        }
+        else {
+          dlist = strstr(m, " d={");
+          dend = (NULL != dlist) ? strchr(dlist, '}') : NULL;
+          if (NULL != dlist) dlist += 4; /* past " d={" */
+          if (NULL == dend || 1 != sscanf(m + sizeof(marker) - 1, "%i", &width) ||
+              (64 != width && 128 != width) || 2 != sscanf(dend, "} pa=%31s pb=%31s", pa, pb))
+          {
+            ok = EXIT_FAILURE;
+          }
+          else {
+            const size_t ndig = (size_t)(dend - dlist);
+            memcpy(out + off, src, head);
+            off += head;
+            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
+              "\tshr.u64 %%wgda, %s, 4;\n\tshr.u64 %%wgdb, %s, 4;\n"
+              "\tand.b64 %%wgda, %%wgda, 16383;\n\tand.b64 %%wgdb, %%wgdb, 16383;\n"
+              "\tor.b64 %%wgda, %%wgda, 0x%x%08x;\n\tor.b64 %%wgdb, %%wgdb, 0x%x%08x;\n"
+              "\tfence.proxy.async.shared::cta;\n"
+              "\twgmma.fence.sync.aligned;\n"
+              "\twgmma.mma_async.sync.aligned.m64n%ik32.s32.%s.%s {",
+              pa, pb, desc_hi, desc_lo, desc_hi, desc_lo, width, etype, etype);
+            memcpy(out + off, dlist, ndig);
+            off += ndig;
+            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
+              "}, %%wgda, %%wgdb, 1;\n"
+              "\twgmma.commit_group.sync.aligned;\n");
+            src = eol + 1;
+          }
+        }
+      }
+      if (EXIT_SUCCESS == ok) {
+        const size_t tail = strlen(src);
+        if (cap > (off + tail)) {
+          memcpy(out + off, src, tail);
+          out[off + tail] = '\0';
+        }
+        else ok = EXIT_FAILURE;
+      }
+      if (EXIT_SUCCESS != ok) {
+        libxs_free(out);
+        out = NULL;
+      }
+    }
+    libxs_free(retargeted);
+  }
+  return out;
+}
+
+
+/**
+ * Replace a source-built program by its spliced, sm_90a counterpart. On any
+ * failure the program is released and NULL is returned through it, so the caller
+ * refuses the kernel: an unspliced marker kernel would compute zeros silently.
+ */
+static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, cl_program* program)
+{
+  char* binary = NULL;
+  char* patched = NULL;
+  size_t size = 0;
+  cl_program spliced = NULL;
+  int result = libxstream_opencl_program_binary(*program, &binary, &size);
+  if (EXIT_SUCCESS == result) {
+    patched = ozaki_wgmma_splice(binary, size, "gemm_crt_fused", ctx->ku * ctx->bk_pre, ctx->u8);
+    result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_program(strlen(patched), patched, name, "" /*build_params*/, "" /*build_options*/,
+      NULL /*try_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &spliced);
+  }
+  clReleaseProgram(*program);
+  if (EXIT_SUCCESS == result && NULL != spliced) {
+    *program = spliced;
+  }
+  else {
+    if (0 != ctx->verbosity) {
+      fprintf(stderr, "WARN OZAKI: wgmma splice failed for %s - kernel refused\n", name);
+    }
+    *program = NULL;
+  }
+  if (NULL != patched) libxs_free(patched);
+  if (NULL != binary) libxs_free(binary);
+}
+
+
+/**
+ * Decide at initialization whether the warp-group path is actually reachable, by
+ * splicing a throwaway kernel that carries the same marker, the same descriptor
+ * geometry and the same amount of shared memory as the real one.
+ *
+ * Needed because none of it can be inferred: CL_DEVICE_LOCAL_MEM_SIZE reports
+ * 48 KB on an H100 while the driver accepts and correctly runs the 128 KB this
+ * path asks for, compute capability 9.0 covers parts where sm_90a assembles and
+ * (Blackwell) parts where wgmma no longer exists, and the splice itself depends on
+ * the shape of the PTX the front-end happens to emit. A build is the only oracle.
+ *
+ * It is build-only on purpose - program, splice, program, clCreateKernel, release
+ * - so it needs nothing but the context that initialization already compiles in:
+ * no stream, no device memory, no launch. The alternative, letting the first real
+ * GEMM find out, would have to undo a geometry decision that the work-group clamp
+ * and the tile request have already consumed, and would leave the fallback at
+ * RTN=16, where the mma.sync kernel measured 21.5 against 15.4 ms.
+ */
+int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes)
+{
+  const int nacc = width / 2; /* RTN * XMX_FRAG accumulators per work-item */
+  const unsigned int nvec = (unsigned int)(lbytes / 16);
+  const size_t cap = 4096 + (size_t)nacc * 32;
+  char* source = (char*)libxs_malloc(NULL, cap, 0 /*auto-align*/);
+  char* binary = NULL;
+  char* patched = NULL;
+  cl_program program = NULL;
+  cl_program spliced = NULL;
+  cl_kernel kernel = NULL;
+  size_t size = 0, off = 0;
+  int result = (NULL != source && 0 < nacc && 64 >= nacc && 0 < nvec) ? EXIT_SUCCESS : EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) {
+    int i;
+    off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
+      "kernel void ozaki_wgmma_probe(global int* restrict c, int n)\n{\n"
+      "  local uint4 s[%u];\n"
+      "  int d[%i];\n"
+      "  int i;\n"
+      "  for (i = 0; i < %i; ++i) d[i] = n;\n"
+      "  for (i = (int)get_local_id(0); i < %u; i += (int)get_local_size(0)) s[i] = (uint4)(0);\n"
+      "  barrier(CLK_LOCAL_MEM_FENCE);\n"
+      "  asm volatile(\"// WGMMA_SLOT n%i d={",
+      nvec, nacc, nacc, nvec, width);
+    for (i = 0; i < nacc; ++i) {
+      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "%s%%%i", (0 != i) ? "," : "", i);
+    }
+    off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "} pa=%%%i pb=%%%i\"\n    : ", nacc, nacc + 1);
+    for (i = 0; i < nacc; ++i) {
+      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "%s\"+r\"(d[%i])", (0 != i) ? ", " : "", i);
+    }
+    off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
+      " : \"l\"(s), \"l\"(s + %u));\n"
+      "  asm volatile(\"// WGMMA_WAIT\" ::: \"memory\");\n"
+      "  for (i = 0; i < %i; ++i) c[i] = d[i];\n}\n",
+      nvec / 2, nacc);
+    result = (cap > off) ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_program(0 /*source*/, source, "oz2_wgmma_probe", "" /*build_params*/, "" /*build_options*/,
+      NULL /*try_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &program);
+  }
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_program_binary(program, &binary, &size);
+  }
+  if (EXIT_SUCCESS == result) {
+    patched = ozaki_wgmma_splice(binary, size, "ozaki_wgmma_probe", wbk, ctx->u8);
+    result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_program(strlen(patched), patched, "oz2_wgmma_probe", "" /*build_params*/, "" /*build_options*/,
+      NULL /*try_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &spliced);
+  }
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_kernel_query(spliced, "ozaki_wgmma_probe", &kernel);
+  }
+  if (NULL != kernel) clReleaseKernel(kernel);
+  if (NULL != spliced) clReleaseProgram(spliced);
+  if (NULL != program) clReleaseProgram(program);
+  if (NULL != patched) libxs_free(patched);
+  if (NULL != binary) libxs_free(binary);
+  if (NULL != source) libxs_free(source);
+  return result;
+}
+
+
+static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn);
 
 
 int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K, double alpha,
@@ -58,13 +316,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 
   /**
    * Adaptive scheme selection (kind==3): stateless per-call comparison of the
-   * two bottlenecks -- Scheme-1 pairs*K int8 MACs vs Scheme-2 P*K MACs plus
+   * two bottlenecks - Scheme-1 pairs*K int8 MACs vs Scheme-2 P*K MACs plus
    * O(P^2) Garner reconstruction. Dividing by K:
    *   pairs < P + xover * P^2 / K
    * The reconstruction term vanishes as K grows (amortized) and dominates at
    * small K. The pair count uses the static cutoff 2*(nslices-1)-oztrim, which
    * depends only on (nslices, oztrim) and is knowable on every call with no
-   * cross-call state -- required for correctness under LD_PRELOAD with mixed
+   * cross-call state - required for correctness under LD_PRELOAD with mixed
    * matrix sizes. This is deliberately pessimistic for Scheme 1: occupancy may
    * trim further at run time (dynamic cutoff), so a chosen Scheme 1 can only be
    * faster than estimated, while Scheme 2 stays untrimmed (oztrim_crt forced to
@@ -295,7 +553,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       { const int bounds = (0 != M % tm || 0 != N % tn);
         { cl_kernel kern_g = ozaki_get_fused_kernel(ctx, eff_cutoff, bounds, tm, tn);
           if (NULL != kern_g) {
-            result = ozaki_launch_fused(ctx, stream, kern_g, d_as, d_bs, d_expa_g, d_expb_g, d_cg, M, N, k_pad, n_pad, ldc, m_pad, tm,
+            result = ozaki_launch_fused(ctx, stream, kern_g, NULL /*kern_r*/, d_as, d_bs, d_expa_g, d_expb_g, d_cg,
+              NULL /*d_res*/, M, N, k_pad, n_pad, ldc, m_pad, tm,
               tn, ntm, ntn, alpha, first_pair, ctx->use_double);
           }
           else result = EXIT_FAILURE;
@@ -395,10 +654,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      *
      * Caching B is the one thing panelling cannot coexist with: a cached slice
      * buffer must hold all of B, whereas panels materialize one column block
-     * per slot. The two are alternative ways to avoid the same work -- reuse
+     * per slot. The two are alternative ways to avoid the same work - reuse
      * across calls versus overlap within a call. Caching keeps precedence
      * (an explicit OZAKI_CACHE request is honored unchanged); it is the
-     * absence of a B-cache request -- the default -- that enables panelling.
+     * absence of a B-cache request - the default - that enables panelling.
      */
     const int cacheable_b = (0 != (ctx->cache.flags & 2));
     const int n_panel = (0 == dev && n_kgroups <= 1 && 0 == cacheable_b) ? ozaki_npanel(ctx, M, N, tm, tn) : N;
@@ -410,7 +669,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     size_t as_size, bs_size, expa_size, expb_size, bs_slot, expb_slot;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
-    void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL;
+    void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL, *d_res = NULL;
     int first_tile;
     int cache_hit_a = 0, cache_hit_b = 0;
     int kg;
@@ -476,6 +735,16 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
       result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
+    }
+    /**
+     * Residue planes for the unfused reconstruction: one byte per prime and per
+     * output of the tile grid, which the GEMM writes and gemm_crt_reduce reads.
+     * Padded to whole tiles so every work-item stores unconditionally, and sized
+     * per panel because the reduce kernel derives the plane stride from the extent
+     * it is launched with. Never cached: it is scratch between two kernels.
+     */
+    if (EXIT_SUCCESS == result && 0 != ctx->unfuse) {
+      result = OZAKI_DEV_ALLOC(&d_res, (size_t)nprimes_g * nblk_gm * tm * nblk_pn * tn);
     }
 
     /**
@@ -563,7 +832,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         /**
          * Reuse of this slot must wait for the GEMM that last read it. With
          * nslots slots that GEMM is nslots panels back, so the wait is a no-op
-         * until the pipeline is full -- which is precisely the overlap.
+         * until the pipeline is full - which is precisely the overlap.
          */
         if (pj >= nslots && EXIT_SUCCESS == result) {
           result = libxstream_stream_wait_event(stream_b, ctx->evt_slot[slot]);
@@ -604,10 +873,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
          */
         if (EXIT_SUCCESS == result) {
           const int bounds = (0 != M % tm || 0 != N_len % tn);
-          cl_kernel crt_kern = ozaki_get_crt_kernel(ctx, bounds, tm, tn);
-          if (NULL != crt_kern) {
-            result = ozaki_launch_fused(ctx, stream, crt_kern, d_as, d_bs_s, d_expa_g, d_expb_s, (char*)d_cg + cp_off, M, N_len,
-              k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn, alpha, first_tile,
+          const ozaki_crt_kernel_set_t* const kset = ozaki_get_crt_kernel(ctx, bounds, tm, tn);
+          if (NULL != kset) {
+            result = ozaki_launch_fused(ctx, stream, kset->kern_fused, kset->kern_reduce, d_as, d_bs_s, d_expa_g, d_expb_s,
+              (char*)d_cg + cp_off, d_res, M, N_len, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn, alpha, first_tile,
               ctx->use_double);
           }
           else result = EXIT_FAILURE;
@@ -670,6 +939,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       OZAKI_DEV_FREE(d_bg);
       if (NULL != d_cg) libxstream_mem_dev_deallocate_hint(d_cg);
     }
+    OZAKI_DEV_FREE(d_res); /* scratch, never cached */
     if (0 == cache_hit_a) {
       OZAKI_DEV_FREE(d_as);
       OZAKI_DEV_FREE(d_expa_g);
@@ -703,7 +973,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
  *
  * With USM the offset travels in the pointer and the index is zero. Without USM
  * clSetKernelArg takes a cl_mem that cannot express an offset, so the pointer is
- * resolved to its registered base and the index carries the remainder -- which is
+ * resolved to its registered base and the index carries the remainder - which is
  * what lets panelling work with neither USM nor sub-buffers. The kernel applies
  * base unconditionally, so the two cases share one code path on the device.
  *
@@ -861,7 +1131,7 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
 }
 
 
-static cl_kernel ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn)
+static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn)
 {
   ozaki_crt_kernel_key_t key;
   ozaki_crt_kernel_set_t* kset;
@@ -887,7 +1157,16 @@ static cl_kernel ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, 
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags,
               ctx->crt_options, NULL, NULL, NULL, 0, &program)) {
-          libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
+          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, &program);
+          if (NULL != program) {
+            libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
+            if (0 != ctx->unfuse) {
+              /* Both or neither: a GEMM that only wrote residues would leave C stale. */
+              if (EXIT_SUCCESS != libxstream_opencl_kernel_query(program, "gemm_crt_reduce", &newset.kern_reduce)) {
+                newset.kern_fused = NULL;
+              }
+            }
+          }
         }
       }
       if (NULL != program) clReleaseProgram(program);
@@ -902,13 +1181,13 @@ static cl_kernel ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, 
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->kernel_lock);
   }
-  return (NULL != kset) ? kset->kern_fused : NULL;
+  return (NULL != kset && NULL != kset->kern_fused) ? kset : NULL;
 }
 
 
-static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, void* d_as, void* d_bs,
-  void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int k_pad, int n_pad, int ldc, int m_pad, int tm, int tn, int ntm,
-  int ntn, double alpha, int first_pair, int use_double)
+static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, cl_kernel kern_r,
+  void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g, void* d_cg, void* d_res, int M, int N, int k_pad, int n_pad, int ldc,
+  int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double)
 {
   int result = EXIT_SUCCESS;
   size_t local_g[2], global_g[2];
@@ -943,6 +1222,10 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
       CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(float), &falpha));
     }
     CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &first_pair));
+    /* Residue planes: present only in the unfused build, hence set only there. */
+    if (NULL != kern_r) {
+      if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_res, 1 /*char*/, 1 /*long*/);
+    }
   }
   /**
    * Report the GEMM this launch realizes in the caller's precision, i.e. without
@@ -953,6 +1236,33 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
    */
   CL_CHECK(result, libxstream_opencl_launch_work(stream, kern_g, 2, NULL, global_g, local_g, 0, NULL, NULL,
                      2 * (size_t)M * (size_t)N * (size_t)k_pad, 0 /*nbytes*/));
+  /**
+   * Reconstruction pass, same geometry so a work-item recovers the outputs it
+   * accumulated. Enqueued on the same stream, which is what orders it after the
+   * GEMM; it carries no flop count of its own because the work above already
+   * accounts for the GEMM this pair of launches realizes.
+   */
+  if (NULL != kern_r) {
+    const size_t elsize = use_double ? sizeof(double) : sizeof(float);
+    cl_int i = 0;
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_r, &i, d_res, 1 /*char*/, 1 /*long*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_r, &i, d_expa_g, sizeof(cl_int), 0 /*int*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_r, &i, d_expb_g, sizeof(cl_int), 0 /*int*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_r, &i, d_cg, elsize, 0 /*int*/);
+    CL_CHECK(result, clSetKernelArg(kern_r, i++, sizeof(int), &M));
+    CL_CHECK(result, clSetKernelArg(kern_r, i++, sizeof(int), &N));
+    CL_CHECK(result, clSetKernelArg(kern_r, i++, sizeof(int), &ldc));
+    if (use_double) {
+      double dalpha = alpha;
+      CL_CHECK(result, clSetKernelArg(kern_r, i++, sizeof(double), &dalpha));
+    }
+    else {
+      float falpha = (float)alpha;
+      CL_CHECK(result, clSetKernelArg(kern_r, i++, sizeof(float), &falpha));
+    }
+    CL_CHECK(result, clSetKernelArg(kern_r, i++, sizeof(int), &first_pair));
+    CL_CHECK(result, libxstream_opencl_launch(stream, kern_r, 2, NULL, global_g, local_g, 0, NULL, NULL));
+  }
   return result;
 }
 

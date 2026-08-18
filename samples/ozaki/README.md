@@ -1,4 +1,4 @@
-# Ozaki Scheme -- OpenCL
+# Ozaki Scheme — OpenCL
 
 High-precision GEMM on OpenCL devices via mantissa slicing (Scheme 1)
 or Chinese Remainder Theorem (Scheme 2). Both schemes decompose FP
@@ -79,17 +79,90 @@ speed, which is why the default is per-vendor.
 | OZAKI_WG         | 0       | Work-group size hint (0=no hint)                                 |
 | OZAKI_SG         | (auto)  | Sub-group size (forced to 16 with XMX)                           |
 | OZAKI_BIGGRF     | (auto)  | Override 256-GRF detection (0=off, 1=on). HIER defaults to 128   |
-| OZAKI_KU         | 2       | K-loop unroll factor                                             |
+| OZAKI_KU         | 2       | K-loop unroll factor (8 with OZAKI_WGMMA)                        |
 | OZAKI_RC         | 8       | DPAS repeat count (8 or 4)                                       |
 | OZAKI_PB         | 1       | Sch.2: CRT prime batching factor                                 |
 | OZAKI_HIER       | (auto)  | Sch.2: hierarchical CRT (default on). Two-level Garner reconstr. |
 | OZAKI_PREFETCH   | 0       | Sch.1: enable prefetching                                        |
 | OZAKI_SCALAR_ACC | 0       | Sch.1: force scalar accumulation                                 |
+| OZAKI_BVNNI      | 1       | NVIDIA: pre-interleave B so each operand is one aligned uint     |
+| OZAKI_BKMAJOR    | 0       | NVIDIA, Sch.2: transpose B to [N][K] instead (see below)         |
+| OZAKI_WGMMA      | (auto)  | Sch.2: warp-group MMA. On where reachable (see below)            |
+| OZAKI_WGMMA_N    | 128     | Warp-group tile width, 64 or 128                                 |
+| OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
+| OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for NVIDIA (see below)     |
 
 On NVIDIA GPUs the Scheme-2 default RTN=8 is tuned for large K: it
 doubles the output tile per work-group, which needs a long K-loop to
 pay for itself (+38% at n=4096). Below K of about 1024 it costs 6%
-(K=512) to 21% (K=256) instead -- set `OZAKI_RTN=4` there.
+(K=512) to 21% (K=256) instead — set `OZAKI_RTN=4` there.
+
+Warp-group MMA runs the Scheme-2 GEMM on Hopper's `wgmma` instead of
+`mma.sync`. It is the default wherever it is reachable, and
+`OZAKI_WGMMA=0` selects `mma.sync`. Measured on an H100 PCIe it is
+faster at every size and bit-identical: n=512 +6%, n=1024 +18%,
+n=2048 +19%, n=4096 +20% (15.7 -> 13.1 ms, 10504 GFLOPS), n=8192 +24%
+(108.6 -> 87.8 ms, 12519 GFLOPS), fp32 n=4096 +8%; `transa`, `transb`,
+rectangular and non-tile-multiple shapes all gain the same and match
+digit for digit. It needs hierarchical CRT, no K-grouping and
+`OZAKI_PB=1`, and it fixes the tile to
+`OZAKI_WGMMA_M`x`OZAKI_WGMMA_N` regardless of `OZAKI_TM`/`OZAKI_TN`.
+
+"Reachable" is established by building a throwaway kernel during
+initialization rather than by inspecting the device, because nothing the
+device reports settles it: the advertised local-memory size is 48 KB on
+a part that accepts the 128 KB this path uses, and compute capability
+9.0 covers hardware where the instruction no longer exists. If that
+build fails, initialization says so under `OZAKI_VERBOSE=1` and the
+`mma.sync` path is used with its own tuning, at no cost in speed.
+
+Two knobs matter for it. `OZAKI_KU` sets how much K is staged per round
+and defaults to 8 here rather than 2: at 2 the barrier is not amortized
+and the path is slower than `mma.sync`. `OZAKI_WGMMA_M=128` runs two
+warp groups per work-group, which share one staged B tile and so read
+the residue planes once for twice the rows; the gain grows with the
+problem (+4% at n=2048, +18% at n=8192) and turns into a small loss
+below the point where the work-groups still fill the device, where the
+tile drops back to 64 rows automatically. Both cost shared memory:
+2 x (M + N) x KU x 32 bytes, i.e. 128 KB at the defaults, which holds
+an SM to one work-group. Lower `OZAKI_KU` if a device refuses that.
+
+Two implications worth knowing. The kernel is built twice — once from
+OpenCL C, then again from patched PTX — because warp-group MMA cannot
+be expressed in OpenCL C, so the first JIT of a shape costs about
+double. And if that patching fails the kernel is refused rather than
+run, since an unpatched kernel would silently compute zeros;
+`OZAKI_VERBOSE=1` reports it.
+
+`OZAKI_UNFUSE=1` moves the CRT reconstruction out of the GEMM into a
+second kernel: the GEMM stores one residue byte per prime and output,
+`gemm_crt_reduce` reads them back and reconstructs C. It is the default
+on NVIDIA GPUs, `OZAKI_UNFUSE=0` selects the fused epilogue, and both
+produce identical results.
+
+This is faster because of what it removes rather than what it adds. With
+the prime loop outermost, the fused kernel must keep every output's
+group values live across it, which is 2 KB per work-item of dynamically
+indexed arrays — more than the L1 can hold for a work-group, so the
+epilogue runs at memory speed. A separate pass puts the output loop
+outermost and needs only four group values, i.e. registers. Measured at
+n=4096: 13.08 ms fused against 7.87 + 0.66 unfused (+53%), and the GEMM
+alone beats even its own loop-only time, because the frame was slowing
+the K-loop too. The gain is largest where the epilogue dominated: +158%
+at n=257, +80% at n=2048, +76% in fp32. It is not warp-group specific
+and helps `mma.sync` by 11%.
+
+Two things to know. Reading the profile, the two kernel rows have to be
+added for a total; the FLOP rate is attributed to the GEMM row alone.
+And it needs scratch memory of `OZAKI_N` bytes per output element, twice
+the size of C in fp64, which is freed per call.
+
+`OZAKI_BKMAJOR=1` selects the transposed B layout, which exists for
+warp-group MMA (both operands K-major) and is exact like the default
+but slower for the kernels shipping today: at n=4096 it costs the fused
+GEMM 15.4 -> 21.0 ms and B preprocessing 0.5 -> 3.5 ms, because
+consecutive lanes then read `K_pad` apart instead of 4 bytes apart.
+Enabling it only pays for a consumer that stages B cooperatively.
 
 ### Memory and Caching
 
@@ -120,7 +193,7 @@ Kernel timings come from LIBXSTREAM rather than from a sample-specific
 facility: `LIBXSTREAM_PROFILE=1` reports one row per kernel
 (preprocess A, preprocess B, the fused GEMM, and so on), and
 `LIBXSTREAM_PROFILE_MEM=1` reports transfer rates. Neither needs a
-phase to be selected up front -- every kernel is recorded and the
+phase to be selected up front — every kernel is recorded and the
 interesting rows are read from the report.
 
 ### cuBLAS Reference
@@ -156,7 +229,7 @@ A non-zero `OZAKI_CUBLAS_BITS` fixes the number of int8 slices
 (`slices = ceil((bits + 1) / 8)`) instead of letting cuBLAS pick the
 precision per call. A negative value matches the component count of
 this sample, which is a slice count for OZAKI=1 but a prime count for
-OZAKI=2 -- only the former is comparable.
+OZAKI=2 — only the former is comparable.
 
 `OZAKI_CUBLAS_XPTR=1` is an experiment and expected to fail: the
 device-side pointers of LIBXSTREAM are not addresses of the CUDA
@@ -173,7 +246,7 @@ registers its host allocations with the CUDA runtime whenever the
 application links it, so no action is needed here;
 `LIBXSTREAM_VERBOSE=2` reports how many were accepted.
 `LIBXSTREAM_CUDA_PIN=0` leaves them unregistered, which makes the
-cuBLAS transfers pageable -- several times slower, and no longer
+cuBLAS transfers pageable — several times slower, and no longer
 comparable to the Ozaki row.
 
 Two properties to keep in mind when reading the numbers. The mode
@@ -215,7 +288,7 @@ as a prologue.
 N is the right axis because each panel then owns a disjoint column block
 of B and C. C is read and written exactly once no matter how many panels
 there are, and panel GEMMs are mutually independent. Splitting K instead
-would re-read and re-write all of C per group -- measured at several ms
+would re-read and re-write all of C per group — measured at several ms
 per pass at n=4096, which is most of what the pipeline is trying to hide
 -- and would serialize the panel GEMMs through that accumulation.
 
@@ -228,7 +301,7 @@ lowers peak memory relative to the unpanelled path.
 Panelling is skipped when it cannot pay: too few tiles per panel to
 saturate the device, `N <= tn`, K-grouping active, device-resident
 operands, or `OZAKI_NPANEL=1`. Requesting a B cache (`OZAKI_CACHE=2` or
-`3`) takes precedence -- a cached slice buffer must hold all of B, so
+`3`) takes precedence — a cached slice buffer must hold all of B, so
 caching and panelling are alternative ways to avoid the same work
 (reuse across calls versus overlap within one). With `transb` a panel is
 a strided row block, so B is uploaded whole and only the preprocessing

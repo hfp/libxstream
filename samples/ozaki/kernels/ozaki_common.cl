@@ -61,12 +61,22 @@
  * Layout: [K_pad/4][N_pad][4], i.e. quad-of-K major, then column, then the
  * K-phase within the quad. Producer and consumer must agree, so both go
  * through OZAKI_IDX_BS().
+ *
+ * OZAKI_BKMAJOR (NVIDIA warp-group MMA): fully transposed [N_pad][K_pad], i.e.
+ * a column's K-values are contiguous. Required by wgmma, which sources both
+ * operands from shared memory and wants them K-major, so a staging thread can
+ * move 16 bytes of one column with a single load. It also serves the older
+ * paths better than the interleave does: a b-fragment's two registers land 16
+ * bytes apart in one segment instead of 4*N_pad apart in two, and a dp4a
+ * column becomes 8 consecutive uints.
  */
-#if defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
-# define OZAKI_IDX_BS(ROW, COL, N_PAD) \
+#if defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
+# define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) ((long)(COL) * (K_PAD) + (ROW))
+#elif defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
+# define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) \
     ((((long)(ROW) >> 2) * (N_PAD) + (COL)) * 4 + ((ROW) & 3))
 #else
-# define OZAKI_IDX_BS(ROW, COL, N_PAD) ((long)(ROW) * (N_PAD) + (COL))
+# define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) ((long)(ROW) * (N_PAD) + (COL))
 #endif
 
 /* Small integer type for loop counters (states value range) */
@@ -116,8 +126,8 @@
  *
  * DPAS, dp4a and the scalar fallback give a lane one whole column: XMX_FRAG
  * equals XMX_M, element f is row f, and the column is the lane itself. MMA
- * splits the tile differently -- a lane holds 2 rows x 2 cols at (lane/4,
- * (lane%4)*2), the second row +8 and the second column +1 -- so element f is
+ * splits the tile differently - a lane holds 2 rows x 2 cols at (lane/4,
+ * (lane%4)*2), the second row +8 and the second column +1 - so element f is
  * row (f/2)*8 and column (f%2), both offset by the lane.
  *
  * Everything after the K-loop (mod-reduce, residue strides, exponent caching,
@@ -154,13 +164,13 @@
  * One DPAS step: 8x32 A tile * 32x16 B tile -> 8x16 int32 accumulator.
  * Each work-item holds 8 rows; the column is get_sub_group_local_id().
  *
- * XMX path (OZAKI_U8=1 -- unsigned, default for CRT):
+ * XMX path (OZAKI_U8=1 - unsigned, default for CRT):
  *   int8 intel_sub_group_u8_u8_matrix_mad_k32(ushort8 a, uint8 b, int8 acc)
- * XMX path (OZAKI_U8=0 -- signed, default for slicing):
+ * XMX path (OZAKI_U8=0 - signed, default for slicing):
  *   int8 intel_sub_group_i8_i8_matrix_mad_k32(short8 a, int8 b, int8 acc)
  *   A tile: 8 rows x 32 cols  (read as ushort8 via 2D block read)
  *   B tile: 32 rows x 16 cols (read with VNNI transform via 2D block read)
- *   C tile: 8 x 16 int32      (int8 per WI -- 8 rows, sg_lid selects column)
+ *   C tile: 8 x 16 int32      (int8 per WI - 8 rows, sg_lid selects column)
  *   2D block I/O requires SG=16 and surface pitch >= 64 bytes.
  *
  * Scalar path (INTEL < 2):
@@ -171,7 +181,7 @@
 
 /**
  * Prefetch next K-step's A and B tiles into cache.
- * 2D block prefetch with .ca.ca hints -- writes to null, no register cost.
+ * 2D block prefetch with .ca.ca hints - writes to null, no register cost.
  * OOB prefetches are silently clamped by the hardware.
  */
 # define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI) \
@@ -432,8 +442,8 @@
 /**
  * NVIDIA MMA path (NV_MMA: warp-cooperative m16n8k32, SM>=8.0, SG=32).
  * Tile: 16 rows x 8 cols, K=32. Accumulator: 4 int32 per thread (fragment).
- * A layout in global: row-major [M_pad x K_pad] -- same as dp4a/Intel path.
- * B layout in global: K-major  [K_pad x N_pad] -- same as dp4a/Intel path.
+ * A layout in global: row-major [M_pad x K_pad] - same as dp4a/Intel path.
+ * B layout in global: K-major  [K_pad x N_pad] - same as dp4a/Intel path.
  * Shared memory staging + ldmatrix for fragment generation.
  */
 #elif defined(NV_MMA) && (NV_MMA)
@@ -467,19 +477,28 @@
  *
  * With OZAKI_BVNNI the 4 K-values of one fragment register are already adjacent
  * (layout [K_pad/4][N_pad][4]) and K0 is a multiple of 4, so each register is a
- * single aligned uint -- 2 loads instead of 8 strided byte gathers. Plain
+ * single aligned uint - 2 loads instead of 8 strided byte gathers. Plain
  * K-major layout keeps the gather.
  */
-#if defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
-# define NV_MMA_LOAD_BFRAG(BS, N_PAD, NJ, KOFF, K0, COL, B0, B1) \
+#if defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
+/* K-major: both registers are aligned uints 16 bytes apart in one segment. */
+# define NV_MMA_LOAD_BFRAG(BS, N_PAD, K_PAD, NJ, KOFF, K0, COL, B0, B1) \
+    do { \
+      CONSTANT const OZAKI_BYTE_T* bk_ = (CONSTANT const OZAKI_BYTE_T*)(BS) \
+        + OZAKI_IDX_BS((KOFF) + (K0), (NJ) + (COL), (N_PAD), (K_PAD)); \
+      (B0) = *(CONSTANT const uint*)bk_; \
+      (B1) = *(CONSTANT const uint*)(bk_ + 16); \
+    } while (0)
+#elif defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
+# define NV_MMA_LOAD_BFRAG(BS, N_PAD, K_PAD, NJ, KOFF, K0, COL, B0, B1) \
     do { \
       CONSTANT const uint* bq_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(BS) \
-        + OZAKI_IDX_BS((KOFF) + (K0), (NJ) + (COL), (N_PAD))); \
+        + OZAKI_IDX_BS((KOFF) + (K0), (NJ) + (COL), (N_PAD), (K_PAD))); \
       (B0) = bq_[0]; \
       (B1) = bq_[4 * (N_PAD)]; \
     } while (0)
 #else
-# define NV_MMA_LOAD_BFRAG(BS, N_PAD, NJ, KOFF, K0, COL, B0, B1) \
+# define NV_MMA_LOAD_BFRAG(BS, N_PAD, K_PAD, NJ, KOFF, K0, COL, B0, B1) \
     do { \
       CONSTANT const OZAKI_BYTE_T* bb_ = \
         (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (NJ) + (COL); \
@@ -517,13 +536,13 @@
       uint a3_ = *(CONSTANT const uint*)(ap1_ + 16); \
       const int k0_ = tid_ * 4; \
       uint b0_, b1_; \
-      NV_MMA_LOAD_BFRAG(BS, N_PAD, NJ, KOFF, k0_, grp_, b0_, b1_); \
+      NV_MMA_LOAD_BFRAG(BS, N_PAD, K_PAD, NJ, KOFF, k0_, grp_, b0_, b1_); \
       NV_MMA_16x8x32(D0, D1, D2, D3, a0_, a1_, a2_, a3_, b0_, b1_); \
     } while (0)
 
 /**
  * Tiled MMA: RTM x RTN sub-tiles of m16n8k32 each.
- * ACC is int4[RTM*RTN] -- each int4 is one MMA fragment (4 int32 values).
+ * ACC is int4[RTM*RTN] - each int4 is one MMA fragment (4 int32 values).
  * XMX_M=16 rows, XMX_N=8 cols per MMA tile.
  */
 # define OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
@@ -580,23 +599,34 @@
     } while (0)
 
 /* Load one B column (8 packed uints covering K=32) into BDST. */
-# if defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
+# if defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
+/* K-major: the whole column-slice is 8 consecutive uints. */
+# define NV_LOAD_BCOL(BS, N_PAD, K_PAD, KOFF, COL, BDST) \
+    do { \
+      CONSTANT const uint* bcp_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(BS) \
+        + OZAKI_IDX_BS((KOFF), (COL), (N_PAD), (K_PAD))); \
+      int kb_; \
+      UNROLL_FORCE(8) for (kb_ = 0; kb_ < 8; ++kb_) { \
+        (BDST)[kb_] = bcp_[kb_]; \
+      } \
+    } while (0)
+# elif defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
 /**
  * VNNI-packed: each dp4a operand is one aligned uint at [k/4][col][0..3].
  * 8 loads instead of 32 scalar byte gathers, and lanes stay coalesced
  * because consecutive COL are 4 bytes apart.
  */
-# define NV_LOAD_BCOL(BS, N_PAD, KOFF, COL, BDST) \
+# define NV_LOAD_BCOL(BS, N_PAD, K_PAD, KOFF, COL, BDST) \
     do { \
       CONSTANT const uint* bcp_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(BS) \
-        + OZAKI_IDX_BS((KOFF), (COL), (N_PAD))); \
+        + OZAKI_IDX_BS((KOFF), (COL), (N_PAD), (K_PAD))); \
       int kb_; \
       UNROLL_FORCE(8) for (kb_ = 0; kb_ < 8; ++kb_) { \
         (BDST)[kb_] = bcp_[kb_ * (N_PAD)]; \
       } \
     } while (0)
 # else
-# define NV_LOAD_BCOL(BS, N_PAD, KOFF, COL, BDST) \
+# define NV_LOAD_BCOL(BS, N_PAD, K_PAD, KOFF, COL, BDST) \
     do { \
       CONSTANT const OZAKI_BYTE_T* bcp_ = \
         (CONSTANT const OZAKI_BYTE_T*)(BS) + (long)(KOFF) * (N_PAD) + (COL); \
@@ -658,7 +688,7 @@
       int rn_l_, rm_l_; \
       /* Load all B columns (one per RTN tile, this thread's column) */ \
       for (rn_l_ = 0; rn_l_ < RTN; ++rn_l_) { \
-        NV_LOAD_BCOL(BS, N_PAD, KOFF, col0_ + rn_l_ * XMX_N, b_reg_[rn_l_]); \
+        NV_LOAD_BCOL(BS, N_PAD, K_PAD, KOFF, col0_ + rn_l_ * XMX_N, b_reg_[rn_l_]); \
       } \
       /* Load all A rows (8 rows per RTM tile) */ \
       for (rm_l_ = 0; rm_l_ < RTM; ++rm_l_) { \
@@ -688,7 +718,7 @@
       uint b_s_[8]; \
       union { int8 v_; int a_[8]; } u_s_; \
       int m_s_; \
-      NV_LOAD_BCOL(BS, N_PAD, KOFF, col_, b_s_); \
+      NV_LOAD_BCOL(BS, N_PAD, K_PAD, KOFF, col_, b_s_); \
       u_s_.v_ = (ACC); \
       for (m_s_ = 0; m_s_ < 8; ++m_s_) { \
         uint a_s_[8]; \

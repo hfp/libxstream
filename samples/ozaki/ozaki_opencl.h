@@ -123,9 +123,15 @@ typedef struct ozaki_crt_kernel_key_t {
   int tm, tn;
 } ozaki_crt_kernel_key_t;
 
-/* Ozaki-2 kernel set: one entry per registry specialization. */
+/**
+ * Ozaki-2 kernel set: one entry per registry specialization. kern_reduce is the
+ * separate reconstruction pass (OZAKI_UNFUSE) and NULL when the epilogue is fused;
+ * it shares the specialization because it must agree with the GEMM on the tile,
+ * the register tiling and hence the blocked residue layout.
+ */
 typedef struct ozaki_crt_kernel_set_t {
   cl_kernel kern_fused;
+  cl_kernel kern_reduce;
 } ozaki_crt_kernel_set_t;
 
 /**
@@ -190,6 +196,21 @@ typedef struct ozaki_context_t {
   int sb; /* Scheme-1 slice-block width for the pair loop (1 = unblocked) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int nv_mma; /* NV MMA path enabled (m16n8k32, SG=32) */
+  int u8; /* Sch.2: unsigned residues (moduli<=256) rather than signed i8 */
+  /**
+   * Warp-group MMA (Hopper): the fused CRT kernel carries markers that the host
+   * splices into real wgmma instructions, since OpenCL C cannot express them.
+   * A marker-only kernel accumulates nothing, so a failed splice must never be
+   * used - ozaki_get_crt_kernel refuses the kernel instead.
+   */
+  int wgmma;
+  /**
+   * Unfused reconstruction: the GEMM stores residue bytes and a second kernel
+   * reconstructs C. Trades one round trip through global memory for the
+   * per-work-item group-value frame the fused epilogue has to keep live across
+   * the prime loop, which is what makes that epilogue memory-bound.
+   */
+  int unfuse;
   int pb; /* CRT prime batching factor (compiled into kernel) */
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   double xover; /* Scheme-1/2 crossover weight: reconstruction cost per Garner op vs int8 MAC */
@@ -263,6 +284,15 @@ typedef struct ozaki_tile_t {
 ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm, int rtn);
 
 /**
+ * Whether warp-group MMA is reachable on this device, answered by splicing and
+ * building a throwaway kernel with the same marker, descriptor geometry (wbk) and
+ * shared-memory footprint (lbytes) as the real one. width is the instruction's N
+ * (64 or 128). Build-only, hence no stream: see the definition for why nothing
+ * cheaper is conclusive. EXIT_SUCCESS means the path may be enabled.
+ */
+int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes);
+
+/**
  * N-panel width for the pipelined path, or N itself when panelling does not
  * apply (small N, too few tiles to keep the device busy, or npanel == 1).
  * Chosen jointly with the tile: the panel must stay a multiple of tn so tiles
@@ -272,7 +302,7 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
 int ozaki_npanel(const ozaki_context_t* ctx, int M, int N, int tm, int tn);
 /**
  * ozaki_gemm enqueues the entire GEMM pipeline on stream and returns without
- * synchronizing -- the caller must sync the stream before consuming the result.
+ * synchronizing - the caller must sync the stream before consuming the result.
  * Helper streams (ctx->stream_a/b) and events are kept persistent in the
  * context to avoid per-call creation overhead.  On the rare pool grow path
  * (larger problem size), the wrapped deallocator syncs all streams before
