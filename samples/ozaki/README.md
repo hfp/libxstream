@@ -113,6 +113,60 @@ facility: `LIBXSTREAM_PROFILE=1` reports one row per kernel
 phase to be selected up front -- every kernel is recorded and the
 interesting rows are read from the report.
 
+### cuBLAS Reference
+
+When the OpenCL headers are taken from a CUDA installation, the sample
+additionally links cuBLAS and reports a device-side reference GEMM
+(`cuBLAS GEMM` and `cuBLAS DIFF`). Build with `make CUBLAS=0` to opt
+out. The host BLAS stays the accuracy reference for both the Ozaki and
+the cuBLAS result, and a failing cuBLAS run is not fatal.
+
+By default the sample requests FP64 emulation without the built-in
+fallback to native FP64 (CUDA 13.0u2 and later, compute capability 8.0
+and later). The variables below are populated before cuBLAS is
+entered, hence any of them that is already set wins:
+
+| Variable                                        | Sample default |
+|-------------------------------------------------|----------------|
+| CUBLAS_EMULATE_DOUBLE_PRECISION                 | 1              |
+| CUBLAS_EMULATION_STRATEGY                       | eager          |
+| CUBLAS_EMULATION_SPECIAL_VALUES_SUPPORT_MASK    | 0              |
+
+Setting `CUBLAS_EMULATE_DOUBLE_PRECISION=0` yields the native device
+GEMM, which is the baseline to compare against. For `OZAKI_FP=32` the
+counterpart is `CUBLAS_EMULATE_SINGLE_PRECISION`, which requires
+compute capability 10.0 and later.
+
+| Variable          | Default | Description                                              |
+|-------------------|---------|----------------------------------------------------------|
+| OZAKI_CUBLAS_BITS | 0       | Mantissa bits: 0=default, <0=match the OZAKI_N slices    |
+| OZAKI_CUBLAS_PIN  | 0       | 1=register the host buffers with CUDA (pinned transfers) |
+| OZAKI_CUBLAS_XPTR | 0       | 1=pass LIBXSTREAM device pointers to cuBLAS (experiment) |
+
+A non-zero `OZAKI_CUBLAS_BITS` fixes the number of int8 slices
+(`slices = ceil((bits + 1) / 8)`) instead of letting cuBLAS pick the
+precision per call. A negative value matches the component count of
+this sample, which is a slice count for OZAKI=1 but a prime count for
+OZAKI=2 -- only the former is comparable.
+
+`OZAKI_CUBLAS_XPTR=1` is an experiment and expected to fail: the
+device-side pointers of LIBXSTREAM are not addresses of the CUDA
+context that cuBLAS runs in.
+
+Like the Ozaki timing, the cuBLAS timing covers the transfers, i.e. A,
+B and C are uploaded and C is read back per iteration; CUDA events
+report the device-side split (`gemm`, `h2d`, `d2h`) separately. With
+`OZAKI_CUBLAS_XPTR=1` the transfers are not on the CUDA timeline and
+read as zero.
+
+Two properties to keep in mind when reading the numbers. The mode
+printed alongside the timing is the one that was requested: whether a
+call was emulated cannot be queried, and `nsys profile ./ozaki.x` is
+the way to confirm it. And emulation needs a workspace, which the
+sample supplies (`-DOZAKI_CUBLAS_WORKSPACE=<bytes>`, 2 GB by default,
+0 to disable) because a workspace that is too small does not fail the
+call but silently falls back to non-emulated kernels.
+
 ## Output Tile Selection
 
 The output tile per work-group (BM x BN) is chosen per call from M and

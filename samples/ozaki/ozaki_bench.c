@@ -18,10 +18,26 @@
 #include "ozaki_opencl.h"
 #include <libxs/libxs_timer.h>
 #include <libxs/libxs_rng.h>
+#if defined(__CUBLAS)
+# include <cuda_runtime_api.h>
+# include <cublas_v2.h>
+#endif
 
 /* BLAS GEMM symbols and prototypes (Fortran calling convention) */
 #define DGEMM LIBXS_FSYMBOL(dgemm)
 #define SGEMM LIBXS_FSYMBOL(sgemm)
+
+#if defined(__CUBLAS)
+/**
+ * Workspace handed to cuBLAS (bytes, 0: do not call cublasSetWorkspace).
+ * The FP64 emulation takes its workspace from cudaMallocAsync, which is
+ * released on every stream synchronization, i.e. once per timed iteration.
+ * A failing allocation is a soft error but silently disables emulation.
+ */
+# if !defined(OZAKI_CUBLAS_WORKSPACE)
+#   define OZAKI_CUBLAS_WORKSPACE (2048UL * 1024 * 1024)
+# endif
+#endif
 
 
 LIBXS_EXTERN void DGEMM(const char* transa, const char* transb, const int* m, const int* n, const int* k, const double* alpha, const double* a,
@@ -30,7 +46,14 @@ LIBXS_EXTERN void SGEMM(const char* transa, const char* transb, const int* m, co
   const int* lda, const float* b, const int* ldb, const float* beta, float* c, const int* ldc);
 
 /* Function prototypes */
-static void print_diff(FILE* ostream, const libxs_matdiff_t* diff);
+static void print_diff(FILE* ostream, const char* label, const libxs_matdiff_t* diff);
+#if defined(__CUBLAS)
+static void cublas_putenv(int use_double, int nslices);
+static const char* cublas_mode(int use_double);
+static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa, char transb, int M, int N, int K, double alpha,
+  const void* a, int lda, const void* b, int ldb, double beta, const void* c_in, void* c_out, int ldc, int nrepeat, int nslices,
+  double* duration, double* devtime);
+#endif
 
 
 int main(int argc, char* argv[])
@@ -51,6 +74,10 @@ int main(int argc, char* argv[])
   const char transa = (0 == ta ? 'N' : 'T');
   const char transb = (0 == tb ? 'N' : 'T');
   void *a = NULL, *b = NULL, *c_oz = NULL, *c_ref = NULL;
+#if defined(__CUBLAS)
+  void* c_cu = NULL;
+  int cublas_result = EXIT_FAILURE;
+#endif
   libxstream_stream_t* stream = NULL;
   libxs_matdiff_t diff;
   libxs_timer_tick_t t0, t1;
@@ -143,6 +170,9 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&b, (size_t)ldb * b_cols * elem_size, stream);
     if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_oz, (size_t)ldc * N * elem_size, stream);
     if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_ref, (size_t)ldc * N * elem_size, stream);
+#if defined(__CUBLAS)
+    if (EXIT_SUCCESS == result) result = libxstream_mem_host_allocate((void**)&c_cu, (size_t)ldc * N * elem_size, stream);
+#endif
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "ERROR: out of memory\n");
       result = EXIT_FAILURE;
@@ -207,6 +237,27 @@ int main(int argc, char* argv[])
     printf("BLAS  GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1) / nrepeat);
   }
 
+#if defined(__CUBLAS)
+  /**
+   * Reference cuBLAS GEMM (device-side). Failure is soft: the host BLAS
+   * result above remains the accuracy reference. c_oz holds the original
+   * C at this point, hence it is the input of every timed iteration.
+   */
+  if (EXIT_SUCCESS == result) {
+    double devtime[3] = {0, 0, 0}, duration = 0;
+    cublas_result = cublas_gemm(stream, ctx.use_double, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, c_cu, ldc,
+      nrepeat, ctx.ndecomp, &duration, devtime);
+    if (EXIT_SUCCESS == cublas_result) {
+      printf("cuBLAS GEMM: %.1f ms (%s)\n", 1E3 * duration / nrepeat, cublas_mode(ctx.use_double));
+      if (0 < devtime[0]) { /* device-side split as measured with CUDA events */
+        printf("cuBLAS: gemm %.1f ms, h2d %.1f ms, d2h %.1f ms\n", devtime[0] / nrepeat, devtime[1] / nrepeat,
+          devtime[2] / nrepeat);
+      }
+    }
+    else fprintf(stderr, "cuBLAS GEMM failed\n");
+  }
+#endif
+
   /* Recompute Ozaki GEMM once for accuracy comparison (c_oz holds original C) */
   if (EXIT_SUCCESS == result) {
     result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, 0);
@@ -219,8 +270,17 @@ int main(int argc, char* argv[])
     result = libxs_matdiff(&diff, dtype, M, N, c_ref, c_oz, &ldc, &ldc);
     if (EXIT_SUCCESS == result) {
       diff.r = nrepeat;
-      print_diff(stdout, &diff);
+      print_diff(stdout, "", &diff);
     }
+#if defined(__CUBLAS)
+    if (EXIT_SUCCESS == result && EXIT_SUCCESS == cublas_result) {
+      libxs_matdiff_t diff_cu;
+      if (EXIT_SUCCESS == libxs_matdiff(&diff_cu, dtype, M, N, c_ref, c_cu, &ldc, &ldc)) {
+        diff_cu.r = nrepeat;
+        print_diff(stdout, "cuBLAS ", &diff_cu);
+      }
+    }
+#endif
   }
 
   if (0 != initialized) {
@@ -234,6 +294,9 @@ int main(int argc, char* argv[])
       if (NULL != b) libxstream_mem_host_deallocate(b, stream);
       if (NULL != c_oz) libxstream_mem_host_deallocate(c_oz, stream);
       if (NULL != c_ref) libxstream_mem_host_deallocate(c_ref, stream);
+#if defined(__CUBLAS)
+      if (NULL != c_cu) libxstream_mem_host_deallocate(c_cu, stream);
+#endif
       libxstream_stream_destroy(stream);
     }
     ozaki_destroy(&ctx);
@@ -243,15 +306,233 @@ int main(int argc, char* argv[])
 }
 
 
-static void print_diff(FILE* ostream, const libxs_matdiff_t* diff)
+static void print_diff(FILE* ostream, const char* label, const libxs_matdiff_t* diff)
 {
   const double epsilon = libxs_matdiff_epsilon(diff);
   if (1E-6 <= epsilon) {
-    fprintf(ostream, "DIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f -> %g != %g\n", diff->r, diff->linf_abs,
-      diff->linf_rel, diff->l2_rel, epsilon, diff->rsq, diff->v_ref, diff->v_tst);
+    fprintf(ostream, "%sDIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f -> %g != %g\n", label, diff->r,
+      diff->linf_abs, diff->linf_rel, diff->l2_rel, epsilon, diff->rsq, diff->v_ref, diff->v_tst);
   }
   else {
-    fprintf(ostream, "DIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f\n", diff->r, diff->linf_abs,
+    fprintf(ostream, "%sDIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f\n", label, diff->r, diff->linf_abs,
       diff->linf_rel, diff->l2_rel, epsilon, diff->rsq);
   }
 }
+
+
+#if defined(__CUBLAS)
+/**
+ * Request pure emulation, i.e. without the built-in fallback to native
+ * FP64: "eager" emulates whenever possible rather than only when it is
+ * profitable, and an explicit mantissa bit count switches the library
+ * from dynamic control (which dispatches to native FP64 as soon as the
+ * required precision exceeds the maximum) to fixed control. A variable
+ * already present in the environment always wins. The values are read
+ * when the cuBLAS runtime is entered, hence populated before that.
+ */
+static void cublas_putenv(int use_double, int nslices)
+{
+  static char emu_double[] = "CUBLAS_EMULATE_DOUBLE_PRECISION=1";
+  static char emu_single[] = "CUBLAS_EMULATE_SINGLE_PRECISION=1";
+  static char strategy[] = "CUBLAS_EMULATION_STRATEGY=eager";
+  static char special[] = "CUBLAS_EMULATION_SPECIAL_VALUES_SUPPORT_MASK=0";
+  static char mantissa[64] = "";
+  const char* const env_bits = getenv("OZAKI_CUBLAS_BITS");
+  const int bits = (NULL != env_bits ? atoi(env_bits) : 0);
+  const char* const key = (0 != use_double ? "CUBLAS_EMULATE_DOUBLE_PRECISION" : "CUBLAS_EMULATE_SINGLE_PRECISION");
+  if (NULL == getenv(key)) {
+    LIBXS_EXPECT(0 == LIBXS_PUTENV(0 != use_double ? emu_double : emu_single));
+  }
+  if (NULL == getenv("CUBLAS_EMULATION_STRATEGY")) {
+    LIBXS_EXPECT(0 == LIBXS_PUTENV(strategy));
+  }
+  if (NULL == getenv("CUBLAS_EMULATION_SPECIAL_VALUES_SUPPORT_MASK")) {
+    LIBXS_EXPECT(0 == LIBXS_PUTENV(special));
+  }
+  /* negative: match the slice count of this sample (int8 slices carry 8 bits including the sign) */
+  if (0 != bits && NULL == getenv("CUBLAS_FIXEDPOINT_EMULATION_MANTISSA_BIT_COUNT")) {
+    const int n = (0 < bits ? bits : (8 * nslices - 1));
+    if (0 < n && 0 < LIBXS_SNPRINTF(mantissa, sizeof(mantissa), "CUBLAS_FIXEDPOINT_EMULATION_MANTISSA_BIT_COUNT=%i", n)) {
+      LIBXS_EXPECT(0 == LIBXS_PUTENV(mantissa));
+    }
+  }
+}
+
+
+/**
+ * Reports the emulation that was requested, not the one that was taken:
+ * cuBLAS offers no way to query whether a particular call was emulated.
+ */
+static const char* cublas_mode(int use_double)
+{
+  const char* const env = getenv(0 != use_double ? "CUBLAS_EMULATE_DOUBLE_PRECISION" : "CUBLAS_EMULATE_SINGLE_PRECISION");
+  const char* result = "native";
+# if defined(CUBLAS_VER_MAJOR) && (13 <= CUBLAS_VER_MAJOR)
+  if (NULL != env && 0 != atoi(env)) result = (0 != use_double ? "fixed-point emulation" : "bf16x9 emulation");
+# else
+  LIBXS_UNUSED(env);
+# endif
+  return result;
+}
+
+
+static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa, char transb, int M, int N, int K, double alpha,
+  const void* a, int lda, const void* b, int ldb, double beta, const void* c_in, void* c_out, int ldc, int nrepeat, int nslices,
+  double* duration, double* devtime)
+{
+  const char *const env_xptr = getenv("OZAKI_CUBLAS_XPTR"), *const env_pin = getenv("OZAKI_CUBLAS_PIN");
+  const int xptr = (NULL != env_xptr ? atoi(env_xptr) : 0);
+  const int pin = (0 == xptr && NULL != env_pin ? atoi(env_pin) : 0);
+  const size_t elem_size = (0 != use_double ? sizeof(double) : sizeof(float));
+  const size_t size_a = (size_t)lda * ('N' == transa ? K : M) * elem_size;
+  const size_t size_b = (size_t)ldb * ('N' == transb ? N : K) * elem_size;
+  const size_t size_c = (size_t)ldc * N * elem_size;
+  const cublasOperation_t opa = ('N' == transa ? CUBLAS_OP_N : CUBLAS_OP_T);
+  const cublasOperation_t opb = ('N' == transb ? CUBLAS_OP_N : CUBLAS_OP_T);
+  const float falpha = (float)alpha, fbeta = (float)beta;
+  void *da = NULL, *db = NULL, *dc = NULL;
+  void *host_a = NULL, *host_b = NULL, *host_c = NULL;
+  cudaEvent_t event[4] = {NULL, NULL, NULL, NULL};
+  cublasHandle_t handle = NULL;
+  libxs_timer_tick_t t0 = 0, t1 = 0;
+  int nevents = 0;
+# if (0 != OZAKI_CUBLAS_WORKSPACE)
+  void* ws = NULL;
+# endif
+  int result = EXIT_SUCCESS, i;
+  cublas_putenv(use_double, nslices);
+  if (CUBLAS_STATUS_SUCCESS != cublasCreate(&handle)) result = EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) {
+    struct cudaDeviceProp prop;
+    int device = 0;
+    if (cudaSuccess == cudaGetDevice(&device) && cudaSuccess == cudaGetDeviceProperties(&prop, device)) {
+      printf("cuBLAS: device %i \"%s\" (compute capability %i.%i)\n", device, prop.name, prop.major, prop.minor);
+    }
+  }
+# if (0 != OZAKI_CUBLAS_WORKSPACE)
+  if (EXIT_SUCCESS == result && cudaSuccess == cudaMalloc(&ws, OZAKI_CUBLAS_WORKSPACE)) {
+    LIBXS_EXPECT(CUBLAS_STATUS_SUCCESS == cublasSetWorkspace(handle, ws, OZAKI_CUBLAS_WORKSPACE));
+  }
+# endif
+  /**
+   * Experiment (xptr): LIBXSTREAM hands out device-side pointers even for
+   * LIBXSTREAM_USM=0, where they are tokens resolved to a cl_mem plus an
+   * offset rather than addresses. Passing them to cuBLAS is expected to
+   * fault; a USM-backed allocation may be an actual address, but it still
+   * belongs to the address space of the OpenCL context.
+   */
+  if (EXIT_SUCCESS == result) {
+    if (0 == xptr) {
+      if (cudaSuccess != cudaMalloc(&da, size_a) || cudaSuccess != cudaMalloc(&db, size_b) ||
+          cudaSuccess != cudaMalloc(&dc, size_c))
+      {
+        result = EXIT_FAILURE;
+      }
+    }
+    else if (EXIT_SUCCESS != libxstream_mem_allocate(&da, size_a) || EXIT_SUCCESS != libxstream_mem_allocate(&db, size_b) ||
+             EXIT_SUCCESS != libxstream_mem_allocate(&dc, size_c))
+    {
+      result = EXIT_FAILURE;
+    }
+  }
+  /**
+   * The host buffers are pinned by OpenCL, hence the CUDA runtime sees
+   * unregistered memory. Registering them is an interop probe as well:
+   * memory that is already pinned may be rejected. Registration takes a
+   * mutable pointer, which the union assignment yields without a cast.
+   */
+  if (EXIT_SUCCESS == result && 0 != pin) {
+    int n;
+    LIBXS_UNION_ASSIGN(void*, host_a, const void*, a);
+    LIBXS_UNION_ASSIGN(void*, host_b, const void*, b);
+    LIBXS_UNION_ASSIGN(void*, host_c, const void*, c_in);
+    n = (cudaSuccess == cudaHostRegister(host_a, size_a, cudaHostRegisterDefault)) +
+        (cudaSuccess == cudaHostRegister(host_b, size_b, cudaHostRegisterDefault)) +
+        (cudaSuccess == cudaHostRegister(host_c, size_c, cudaHostRegisterDefault)) +
+        (cudaSuccess == cudaHostRegister(c_out, size_c, cudaHostRegisterDefault));
+    printf("cuBLAS: %i of 4 host buffers registered with the CUDA runtime\n", n);
+  }
+  /**
+   * CUDA events are the counterpart of LIBXSTREAM_PROFILE: they separate the
+   * GEMM from the transfers on the device timeline. Insight per kernel (and
+   * thereby evidence of emulation) requires an external profiler.
+   */
+  if (EXIT_SUCCESS == result) {
+    for (nevents = 0; nevents < 4 && cudaSuccess == cudaEventCreate(event + nevents); ++nevents);
+  }
+  /* the first iteration is the warmup (kernel setup, emulation workspace) and stays untimed */
+  for (i = -1; i < nrepeat && EXIT_SUCCESS == result; ++i) {
+    if (0 == i) t0 = libxs_timer_tick();
+    if (4 == nevents) LIBXS_ELIDE_RESULT(int, cudaEventRecord(event[0], 0));
+    if (0 == xptr) {
+      if (cudaSuccess != cudaMemcpy(da, a, size_a, cudaMemcpyHostToDevice) ||
+          cudaSuccess != cudaMemcpy(db, b, size_b, cudaMemcpyHostToDevice) ||
+          cudaSuccess != cudaMemcpy(dc, c_in, size_c, cudaMemcpyHostToDevice))
+      {
+        result = EXIT_FAILURE;
+      }
+    }
+    else if (EXIT_SUCCESS != libxstream_mem_copy_h2d(a, da, size_a, stream) ||
+             EXIT_SUCCESS != libxstream_mem_copy_h2d(b, db, size_b, stream) ||
+             EXIT_SUCCESS != libxstream_mem_copy_h2d(c_in, dc, size_c, stream) ||
+             EXIT_SUCCESS != libxstream_stream_sync(stream))
+    { /* the two runtimes are unordered, hence the synchronization */
+      result = EXIT_FAILURE;
+    }
+    if (4 == nevents) LIBXS_ELIDE_RESULT(int, cudaEventRecord(event[1], 0));
+    if (EXIT_SUCCESS == result) {
+      const cublasStatus_t status =
+        (0 != use_double ? cublasDgemm(handle, opa, opb, M, N, K, &alpha, (const double*)da, lda, (const double*)db, ldb, &beta,
+                             (double*)dc, ldc)
+                         : cublasSgemm(handle, opa, opb, M, N, K, &falpha, (const float*)da, lda, (const float*)db, ldb, &fbeta,
+                             (float*)dc, ldc));
+      if (CUBLAS_STATUS_SUCCESS != status) result = EXIT_FAILURE;
+    }
+    if (4 == nevents) LIBXS_ELIDE_RESULT(int, cudaEventRecord(event[2], 0));
+    if (EXIT_SUCCESS == result) {
+      if (0 == xptr) { /* ordered against the GEMM by the default stream */
+        if (cudaSuccess != cudaMemcpy(c_out, dc, size_c, cudaMemcpyDeviceToHost)) result = EXIT_FAILURE;
+      }
+      else if (cudaSuccess != cudaDeviceSynchronize() || EXIT_SUCCESS != libxstream_mem_copy_d2h(dc, c_out, size_c, stream) ||
+               EXIT_SUCCESS != libxstream_stream_sync(stream))
+      {
+        result = EXIT_FAILURE;
+      }
+    }
+    if (4 == nevents) LIBXS_ELIDE_RESULT(int, cudaEventRecord(event[3], 0));
+    /* the transfers of the xptr experiment are not on the CUDA timeline, hence they read as zero */
+    if (0 <= i && 4 == nevents && EXIT_SUCCESS == result && cudaSuccess == cudaEventSynchronize(event[3])) {
+      float ms = 0;
+      if (cudaSuccess == cudaEventElapsedTime(&ms, event[1], event[2])) devtime[0] += ms;
+      if (cudaSuccess == cudaEventElapsedTime(&ms, event[0], event[1])) devtime[1] += ms;
+      if (cudaSuccess == cudaEventElapsedTime(&ms, event[2], event[3])) devtime[2] += ms;
+    }
+  }
+  if (EXIT_SUCCESS == result && cudaSuccess != cudaDeviceSynchronize()) result = EXIT_FAILURE;
+  t1 = libxs_timer_tick();
+  if (NULL != host_a) { /* buffers that were not registered are unregistered in vain */
+    LIBXS_ELIDE_RESULT(int, cudaHostUnregister(host_a));
+    LIBXS_ELIDE_RESULT(int, cudaHostUnregister(host_b));
+    LIBXS_ELIDE_RESULT(int, cudaHostUnregister(host_c));
+    LIBXS_ELIDE_RESULT(int, cudaHostUnregister(c_out));
+  }
+  /* an error is not reported: a faulting GEMM makes the CUDA runtime fail persistently */
+  for (i = 0; i < nevents; ++i) LIBXS_ELIDE_RESULT(int, cudaEventDestroy(event[i]));
+  if (0 == xptr) {
+    if (NULL != da) LIBXS_ELIDE_RESULT(int, cudaFree(da));
+    if (NULL != db) LIBXS_ELIDE_RESULT(int, cudaFree(db));
+    if (NULL != dc) LIBXS_ELIDE_RESULT(int, cudaFree(dc));
+  }
+  else {
+    if (NULL != da) LIBXS_ELIDE_RESULT(int, libxstream_mem_deallocate(da));
+    if (NULL != db) LIBXS_ELIDE_RESULT(int, libxstream_mem_deallocate(db));
+    if (NULL != dc) LIBXS_ELIDE_RESULT(int, libxstream_mem_deallocate(dc));
+  }
+  if (NULL != handle) LIBXS_ELIDE_RESULT(int, cublasDestroy(handle));
+# if (0 != OZAKI_CUBLAS_WORKSPACE)
+  if (NULL != ws) LIBXS_ELIDE_RESULT(int, cudaFree(ws));
+# endif
+  if (EXIT_SUCCESS == result) *duration = libxs_timer_duration(t0, t1);
+  return result;
+}
+#endif

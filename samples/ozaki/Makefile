@@ -51,6 +51,18 @@ else
   endif
 endif
 
+# setup cuBLAS as an additional device-side reference GEMM (CUDA_PATH is
+# derived by Makefile.inc, also when the OpenCL headers are taken from CUDA)
+CUBLAS ?= 1
+ifneq (0,$(CUBLAS))
+ifneq (,$(wildcard $(CUDA_PATH)/include/cublas_v2.h))
+ifneq (,$(wildcard $(CUDA_PATH)/$(CUDA_LDIR)/libcublas.$(DLIBEXT)*))
+  DFLAGS += -D__CUBLAS
+  LDFLAGS += -L$(CUDA_PATH)/$(CUDA_LDIR) -lcublas -lcudart
+endif
+endif
+endif
+
 # include directories
 IFLAGS += -I$(call quote,$(DEPDIR))
 IFLAGS += -I$(call quote,$(INCDIR))
