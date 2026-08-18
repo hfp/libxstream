@@ -382,7 +382,11 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
 {
   const char *const env_xptr = getenv("OZAKI_CUBLAS_XPTR"), *const env_pin = getenv("OZAKI_CUBLAS_PIN");
   const int xptr = (NULL != env_xptr ? atoi(env_xptr) : 0);
-  const int pin = (0 == xptr && NULL != env_pin ? atoi(env_pin) : 0);
+  /**
+   * registered by default: unregistered memory makes the transfers pageable,
+   * i.e. it compares two transports rather than two GEMMs
+   */
+  const int pin = (0 != xptr ? 0 : (NULL != env_pin ? atoi(env_pin) : 1));
   const size_t elem_size = (0 != use_double ? sizeof(double) : sizeof(float));
   const size_t size_a = (size_t)lda * ('N' == transa ? K : M) * elem_size;
   const size_t size_b = (size_t)ldb * ('N' == transb ? N : K) * elem_size;

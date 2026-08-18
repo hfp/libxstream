@@ -140,7 +140,7 @@ compute capability 10.0 and later.
 | Variable          | Default | Description                                              |
 |-------------------|---------|----------------------------------------------------------|
 | OZAKI_CUBLAS_BITS | 0       | Mantissa bits: 0=default, <0=match the OZAKI_N slices    |
-| OZAKI_CUBLAS_PIN  | 0       | 1=register the host buffers with CUDA (pinned transfers) |
+| OZAKI_CUBLAS_PIN  | 1       | 0=leave the host buffers unregistered with CUDA          |
 | OZAKI_CUBLAS_XPTR | 0       | 1=pass LIBXSTREAM device pointers to cuBLAS (experiment) |
 
 A non-zero `OZAKI_CUBLAS_BITS` fixes the number of int8 slices
@@ -158,6 +158,12 @@ B and C are uploaded and C is read back per iteration; CUDA events
 report the device-side split (`gemm`, `h2d`, `d2h`) separately. With
 `OZAKI_CUBLAS_XPTR=1` the transfers are not on the CUDA timeline and
 read as zero.
+
+The host buffers are pinned by OpenCL rather than by CUDA, so the
+sample registers them with CUDA as well and reports how many of the
+four were accepted. `OZAKI_CUBLAS_PIN=0` leaves them unregistered,
+which makes the cuBLAS transfers pageable -- several times slower, and
+no longer comparable to the Ozaki row.
 
 Two properties to keep in mind when reading the numbers. The mode
 printed alongside the timing is the one that was requested: whether a
