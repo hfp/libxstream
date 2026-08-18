@@ -365,6 +365,24 @@ typedef struct libxstream_opencl_config_t {
   cl_int pool_hst_usm;
   /** Device memory pool (3-arg libxs_malloc, LIBXS_MALLOC_NATIVE). */
   libxs_malloc_pool_t* pool_dev;
+  /**
+   * CUDA host-memory registration, resolved at setup and NULL unless the
+   * application links the CUDA runtime. Host memory handed out by this library
+   * is pinned by OpenCL, which a CUDA context cannot see: a transfer issued by
+   * CUDA from such a buffer is pageable and several times slower. Registering
+   * the same pages with CUDA restores the transport, which matters as soon as
+   * one process drives both runtimes (e.g. a cuBLAS reference GEMM).
+   *
+   * The presence of the symbols is the criterion, hence no setting: a process
+   * without CUDA resolves nothing and pays nothing, and a process that links
+   * CUDA is one that intends to use it. Declared here rather than taken from a
+   * CUDA header so that neither the header nor the library is a dependency
+   * (cudaError_t is an enum, i.e. int, and success is zero).
+   */
+  int (*cudaHostRegister)(void*, size_t, unsigned int);
+  int (*cudaHostUnregister)(void*);
+  /** Host allocations offered to cudaHostRegister, and those it accepted. */
+  size_t nhostreg, nhostreg_ok;
   /** Handle-counter. */
   size_t nstreams, nevents;
   /** All streams and related storage. */

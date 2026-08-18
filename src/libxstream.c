@@ -200,6 +200,9 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
   const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("LIBXSTREAM_WA");
   static char neo_enable_debug_keys[] = "NEOReadDebugKeys=1";
+# if defined(LIBXS_INTERCEPT_DYNAMIC)
+  const char* const env_cuda_pin = getenv("LIBXSTREAM_CUDA_PIN");
+# endif
 # if defined(LIBXSTREAM_STREAM_PRIORITIES)
   const char* const env_priority = getenv("LIBXSTREAM_PRIORITY");
 # endif
@@ -358,6 +361,25 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
       LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[4]));
     }
   }
+# if defined(LIBXS_INTERCEPT_DYNAMIC)
+  /**
+   * Host memory is registered with CUDA if the application linked its runtime.
+   * LIBXSTREAM_CUDA_PIN=0 leaves it unregistered, which is what measures the
+   * pageable transport (nothing else about the library changes).
+   */
+  if (NULL == env_cuda_pin || 0 != atoi(env_cuda_pin)) {
+    union { const void* dlsym; int (*ptr)(void*, size_t, unsigned int); } reg;
+    union { const void* dlsym; int (*ptr)(void*); } unreg;
+    dlerror(); /* clear an eventual error status */
+    reg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostRegister");
+    unreg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostUnregister");
+    /* both or neither: a registration that cannot be undone outlives the mapping */
+    if (NULL != reg.dlsym && NULL != unreg.dlsym) {
+      libxstream_opencl_config.cudaHostRegister = reg.ptr;
+      libxstream_opencl_config.cudaHostUnregister = unreg.ptr;
+    }
+  }
+# endif
 }
 
 
@@ -974,6 +996,17 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       nrows += libxstream_opencl_print_floor(stderr);
       if (0 != nrows) fprintf(stderr, "\n\n");
       LIBXS_STDIO_RELEASE();
+    }
+    /**
+     * Both counts, because the interesting outcome is a partial one: memory the
+     * CUDA runtime refused stays pageable for its transfers, which reads as a
+     * slow GEMM rather than as a slow copy.
+     */
+    if (0 != libxstream_opencl_config.nhostreg &&
+        (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+    {
+      fprintf(stderr, "INFO ACC/OpenCL: %lu of %lu host allocations registered with the CUDA runtime\n",
+        (unsigned long)libxstream_opencl_config.nhostreg_ok, (unsigned long)libxstream_opencl_config.nhostreg);
     }
     for (i = 0; i < LIBXSTREAM_MAXNDEVS; ++i) {
       const cl_device_id device_id = libxstream_opencl_config.devices[i];

@@ -380,13 +380,8 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
   const void* a, int lda, const void* b, int ldb, double beta, const void* c_in, void* c_out, int ldc, int nrepeat, int nslices,
   double* duration, double* devtime)
 {
-  const char *const env_xptr = getenv("OZAKI_CUBLAS_XPTR"), *const env_pin = getenv("OZAKI_CUBLAS_PIN");
+  const char* const env_xptr = getenv("OZAKI_CUBLAS_XPTR");
   const int xptr = (NULL != env_xptr ? atoi(env_xptr) : 0);
-  /**
-   * registered by default: unregistered memory makes the transfers pageable,
-   * i.e. it compares two transports rather than two GEMMs
-   */
-  const int pin = (0 != xptr ? 0 : (NULL != env_pin ? atoi(env_pin) : 1));
   const size_t elem_size = (0 != use_double ? sizeof(double) : sizeof(float));
   const size_t size_a = (size_t)lda * ('N' == transa ? K : M) * elem_size;
   const size_t size_b = (size_t)ldb * ('N' == transb ? N : K) * elem_size;
@@ -395,7 +390,6 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
   const cublasOperation_t opb = ('N' == transb ? CUBLAS_OP_N : CUBLAS_OP_T);
   const float falpha = (float)alpha, fbeta = (float)beta;
   void *da = NULL, *db = NULL, *dc = NULL;
-  void *host_a = NULL, *host_b = NULL, *host_c = NULL;
   cudaEvent_t event[4] = {NULL, NULL, NULL, NULL};
   cublasHandle_t handle = NULL;
   libxs_timer_tick_t t0 = 0, t1 = 0;
@@ -438,23 +432,6 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
     {
       result = EXIT_FAILURE;
     }
-  }
-  /**
-   * The host buffers are pinned by OpenCL, hence the CUDA runtime sees
-   * unregistered memory. Registering them is an interop probe as well:
-   * memory that is already pinned may be rejected. Registration takes a
-   * mutable pointer, which the union assignment yields without a cast.
-   */
-  if (EXIT_SUCCESS == result && 0 != pin) {
-    int n;
-    LIBXS_UNION_ASSIGN(void*, host_a, const void*, a);
-    LIBXS_UNION_ASSIGN(void*, host_b, const void*, b);
-    LIBXS_UNION_ASSIGN(void*, host_c, const void*, c_in);
-    n = (cudaSuccess == cudaHostRegister(host_a, size_a, cudaHostRegisterDefault)) +
-        (cudaSuccess == cudaHostRegister(host_b, size_b, cudaHostRegisterDefault)) +
-        (cudaSuccess == cudaHostRegister(host_c, size_c, cudaHostRegisterDefault)) +
-        (cudaSuccess == cudaHostRegister(c_out, size_c, cudaHostRegisterDefault));
-    printf("cuBLAS: %i of 4 host buffers registered with the CUDA runtime\n", n);
   }
   /**
    * CUDA events are the counterpart of LIBXSTREAM_PROFILE: they separate the
@@ -514,12 +491,6 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
   }
   if (EXIT_SUCCESS == result && cudaSuccess != cudaDeviceSynchronize()) result = EXIT_FAILURE;
   t1 = libxs_timer_tick();
-  if (NULL != host_a) { /* buffers that were not registered are unregistered in vain */
-    LIBXS_ELIDE_RESULT(int, cudaHostUnregister(host_a));
-    LIBXS_ELIDE_RESULT(int, cudaHostUnregister(host_b));
-    LIBXS_ELIDE_RESULT(int, cudaHostUnregister(host_c));
-    LIBXS_ELIDE_RESULT(int, cudaHostUnregister(c_out));
-  }
   /* an error is not reported: a faulting GEMM makes the CUDA runtime fail persistently */
   for (i = 0; i < nevents; ++i) LIBXS_ELIDE_RESULT(int, cudaEventDestroy(event[i]));
   if (0 == xptr) {

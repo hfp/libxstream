@@ -106,6 +106,49 @@ LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem memory, void** mempt
 }
 
 
+/**
+ * Registers the pages of a host allocation with the CUDA runtime (no-op unless
+ * the application linked it). Takes the base of the allocation and its padded
+ * size rather than the aligned pointer handed to the caller: registration is
+ * page-granular and cudaHostUnregister accepts only the very pointer that was
+ * registered. Failure is not an error -- memory the CUDA runtime rejects merely
+ * stays pageable for its own transfers.
+ */
+LIBXSTREAM_API_INTERN void libxstream_mem_host_register(void* /*memptr*/, size_t /*nbytes*/);
+LIBXSTREAM_API_INTERN void libxstream_mem_host_register(void* memptr, size_t nbytes)
+{
+  if (NULL != libxstream_opencl_config.cudaHostRegister && NULL != memptr) {
+    /* cudaHostRegisterPortable: pinned in every context, i.e. also after cudaSetDevice */
+    const int status = libxstream_opencl_config.cudaHostRegister(memptr, nbytes, 0x01);
+    LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nhostreg, 1, LIBXS_ATOMIC_RELAXED);
+    if (EXIT_SUCCESS == status) {
+      LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nhostreg_ok, 1, LIBXS_ATOMIC_RELAXED);
+    }
+  }
+}
+
+
+/**
+ * Counterpart of libxstream_mem_host_register, to be called before the memory is
+ * given back: CUDA holding a mapping of pages the OpenCL runtime has released is
+ * a use-after-free inside the CUDA driver.
+ *
+ * Whether this particular allocation was accepted is not tracked, so one that
+ * was rejected is unregistered in vain. That is cheaper than a per-allocation
+ * flag, and the case is confined to a process where registration failed at least
+ * once (nhostreg_ok reports it).
+ */
+LIBXSTREAM_API_INTERN void libxstream_mem_host_unregister(void* /*memptr*/);
+LIBXSTREAM_API_INTERN void libxstream_mem_host_unregister(void* memptr)
+{
+  if (NULL != libxstream_opencl_config.cudaHostUnregister && NULL != memptr &&
+      0 != libxstream_opencl_config.nhostreg_ok)
+  {
+    LIBXS_ELIDE_RESULT(int, libxstream_opencl_config.cudaHostUnregister(memptr));
+  }
+}
+
+
 LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* extra)
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
@@ -199,13 +242,27 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* 
       result = malloc(size);
     } break;
   }
-  return (EXIT_SUCCESS == status) ? result : NULL;
+  if (EXIT_SUCCESS != status) result = NULL;
+  /**
+   * Registered here rather than per libxs_malloc, because the pool hands out
+   * pointers into these blocks: registration is page-granular, so two
+   * sub-allocations sharing a page would collide and freeing one would unpin the
+   * other. Only driver-provided memory qualifies -- a malloc'ed block can share
+   * a page with unrelated heap data, and that case has no OpenCL device anyway.
+   */
+  if (libxstream_opencl_mem_hst_malloc != libxstream_opencl_config.mem_hst) {
+    libxstream_mem_host_register(result, size);
+  }
+  return result;
 }
 
 
 LIBXSTREAM_API_INTERN void libxstream_mem_hst_xfree(void* pointer, const void* extra)
 {
   LIBXS_UNUSED(extra);
+  if (libxstream_opencl_mem_hst_malloc != libxstream_opencl_config.mem_hst) {
+    libxstream_mem_host_unregister(pointer);
+  }
   switch (libxstream_opencl_config.mem_hst) {
     case libxstream_opencl_mem_hst_shared_intel:
     case libxstream_opencl_mem_hst_host_intel: {
@@ -701,6 +758,7 @@ LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, 
           meminfo->memptr = mapped;
           result_ptr = (void*)aligned;
           assert(meminfo == libxstream_opencl_info_hostptr(result_ptr));
+          libxstream_mem_host_register(mapped, nbytes);
         }
       }
       if (NULL == result_ptr) {
@@ -728,6 +786,7 @@ LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem, libxstream_str
       int result_release = EXIT_SUCCESS;
       void* host_ptr = NULL;
       assert(NULL != str);
+      libxstream_mem_host_unregister(info.memptr);
       if (EXIT_SUCCESS == clGetMemObjectInfo(info.memory, CL_MEM_HOST_PTR, sizeof(void*), &host_ptr, NULL) && NULL != host_ptr) {
         LIBXSTREAM_MEM_FREE(host_ptr);
       }

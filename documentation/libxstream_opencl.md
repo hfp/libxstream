@@ -82,6 +82,14 @@ Enumerates floating-point atomics support: none, 32-bit, or 64-bit.
 | `libxstream_opencl_use_cmem_size` | Whether OpenCL constant-memory hints apply |
 | `libxstream_opencl_set_kernel_ptr` | Set a pointer kernel argument (USM-aware) |
 
+#### CUDA Host Registration
+
+Host memory from `libxstream_mem_host_allocate` is pinned by OpenCL, which a CUDA context cannot see: a transfer issued by CUDA from such a buffer is pageable and several times slower. Where the application links the CUDA runtime, `cudaHostRegister`/`cudaHostUnregister` are resolved at startup (global scope, i.e. no CUDA header and no link dependency) and such memory is registered when it is created and unregistered before it is given back. Registration is portable, so it also covers a context created later by `cudaSetDevice`.
+
+Registration follows whichever path supplied the pages: a mapped buffer is registered individually, whereas USM/SVM memory is registered per pool block rather than per `libxs_malloc`, because the pool hands out pointers into a block and registration is page-granular. Blocks that came from plain `malloc` are excluded -- those can share a page with unrelated heap data, and that configuration has no OpenCL device to begin with.
+
+There is nothing to enable: a process without CUDA resolves nothing and pays nothing, and a process that links CUDA is one that intends to use it. `LIBXSTREAM_CUDA_PIN=0` leaves the memory unregistered, which is how the pageable transport is measured. `LIBXSTREAM_VERBOSE=2` reports how many allocations were offered and how many the CUDA runtime accepted; the partial case is the interesting one, since memory it refused stays pageable and reads as a slow kernel rather than as a slow copy.
+
 ### Kernel Build
 
 | Function | Description |
