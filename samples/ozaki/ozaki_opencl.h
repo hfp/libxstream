@@ -182,8 +182,8 @@ typedef struct ozaki_context_t {
    * crt_rtm may differ from rtm when adaptive (kind=3) uses HIER+GRF128
    * for CRT while Scheme 1 uses GRF256.
    * crt_rtn likewise: the two schemes prefer opposite aspect ratios under MMA
-   * (Scheme 1 peaks at RTN=2 and loses 26% at RTN=4; Scheme 2 gains 36% at
-   * RTN=4), so the column tiling is per-scheme rather than shared.
+   * (Scheme 1 peaks at RTN=2 and loses 26% at RTN=4; Scheme 2 keeps gaining up
+   * to RTN=8), so the column tiling is per-scheme rather than shared.
    */
   int rtm, rtn, crt_rtm, crt_rtn;
   int ku; /* K-loop unroll factor (compiled into kernel) */

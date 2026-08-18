@@ -56,12 +56,17 @@ host readback.
 
 ### Accuracy
 
-| Variable     | Default | Description                                                          |
-|--------------|---------|----------------------------------------------------------------------|
-| OZAKI_FLAGS  | 3       | Sch.1 bitmask: 1=Triangular, 2=Symmetrize, 0=full S^2. No Sch.2      |
-| OZAKI_TRIM   | 0       | Precision levels to trim (0=exact). ~7 bits (Sch.1), ~4 bits (Sch.2) |
-| OZAKI_I8     | 0       | Sch.2: use signed i8 residues (moduli<=128) instead of u8            |
-| OZAKI_GROUPS | 0       | Sch.2: K-grouping factor, consecutive K panels share reconstr.       |
+| Variable      | Default | Description                                                          |
+|---------------|---------|----------------------------------------------------------------------|
+| OZAKI_FLAGS   | 3       | Sch.1 bitmask: 1=Triangular, 2=Symmetrize, 0=full S^2. No Sch.2      |
+| OZAKI_TRIM    | 0       | Precision levels to trim (0=exact). ~7 bits (Sch.1), ~4 bits (Sch.2) |
+| OZAKI_I8      | 0       | Sch.2: use signed i8 residues (moduli<=128) instead of u8            |
+| OZAKI_GROUPS  | 0       | Sch.2: K-grouping factor, consecutive K panels share reconstr.       |
+| OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 (NV MMA), 2 (other)       |
+
+`OZAKI_FRACCRT=1` trades exactness for speed (flat fractional sum,
+magnitude-bounded); modes 0 and 2 are both exact and differ only in
+speed, which is why the default is per-vendor.
 
 ### Hardware Control
 
@@ -70,7 +75,7 @@ host readback.
 | OZAKI_TM         | (auto)  | Output tile M (BM). Overrides size-aware selection                |
 | OZAKI_TN         | (auto)  | Output tile N (BN). Overrides size-aware selection                |
 | OZAKI_RTM        | (auto)  | Register tiling M (power of two). Auto: 2 (HIER), 4 (256-GRF)    |
-| OZAKI_RTN        | (auto)  | Register tiling N (power of two). Auto: 2 (Intel GPU), 1 (other) |
+| OZAKI_RTN        | (auto)  | Register tiling N. Auto: 8 (NV MMA Sch.2), 2 (Intel), 1 (other)  |
 | OZAKI_WG         | 0       | Work-group size hint (0=no hint)                                 |
 | OZAKI_SG         | (auto)  | Sub-group size (forced to 16 with XMX)                           |
 | OZAKI_BIGGRF     | (auto)  | Override 256-GRF detection (0=off, 1=on). HIER defaults to 128   |
@@ -80,6 +85,11 @@ host readback.
 | OZAKI_HIER       | (auto)  | Sch.2: hierarchical CRT (default on). Two-level Garner reconstr. |
 | OZAKI_PREFETCH   | 0       | Sch.1: enable prefetching                                        |
 | OZAKI_SCALAR_ACC | 0       | Sch.1: force scalar accumulation                                 |
+
+On NVIDIA GPUs the Scheme-2 default RTN=8 is tuned for large K: it
+doubles the output tile per work-group, which needs a long K-loop to
+pay for itself (+38% at n=4096). Below K of about 1024 it costs 6%
+(K=512) to 21% (K=256) instead -- set `OZAKI_RTN=4` there.
 
 ### Memory and Caching
 

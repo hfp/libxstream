@@ -762,10 +762,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * Mode 2 is the default because it is exact over the whole CRT range
        * like Garner, keeps the same group-at-a-time storage (and hence
        * occupancy), and is faster; OZAKI_FRACCRT=0 selects Garner.
+       *
+       * Except under NV MMA, where the ranking inverts: the fractional
+       * reconstruction spends fp64 registers per accumulator, and the MMA path
+       * holds twice as many accumulators per thread (crt_rtn=8 below), so
+       * Garner's integer epilogue wins -- measured n=4096 20.9 vs 24.6 ms
+       * (+18%), K=1024 8.3 vs 11.2 (+35%), and still +4% at n=12288 where the
+       * kernel is loop-bound. Same result to the last bit either way.
        */
       const char *const env_fraccrt = getenv("OZAKI_FRACCRT");
       const char *const env_skip = getenv("OZAKI_SKIP_GARNER");
-      const int fraccrt_req = (NULL != env_fraccrt) ? atoi(env_fraccrt) : 2;
+      const int fraccrt_dfl = (0 != ctx->nv_mma && 0 != gpu) ? 0 : 2;
+      const int fraccrt_req = (NULL != env_fraccrt) ? atoi(env_fraccrt) : fraccrt_dfl;
       /* Fractional CRT is double-only: without fp64 fall back to Garner. */
       const int fraccrt = (0 == has_fp64) ? 0 : ((1 == fraccrt_req || 2 == fraccrt_req) ? fraccrt_req : 0);
       const int crt_hier = (1 == fraccrt) ? 0 : (0 != ctx->hier || 3 == kind || 2 == fraccrt);
@@ -779,12 +787,24 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         (0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm_crt_base / 2, 1) : rtm_crt_base;
       /**
        * MMA gives a sub-tile 16 rows but only 8 columns, so reaching a square
-       * register tile needs twice the column tiling. Scheme 2 measured +36% at
-       * RTN=4 (n=4096: 4300 -> 5828), while Scheme 1 measured -26% there and
-       * peaks at RTN=2 -- it runs a pair loop over slices and is bound by the
-       * per-pair epilogue rather than by column reuse. Hence per-scheme.
+       * register tile needs twice the column tiling. Scheme 1 measured -26% at
+       * RTN=4 and peaks at RTN=2 -- it runs a pair loop over slices and is bound
+       * by the per-pair epilogue rather than by column reuse. Hence per-scheme.
+       *
+       * Scheme 2 wants 8: OZAKI_WGS_MAX_NV holds NVIDIA to 4 warps, which fixes
+       * NTM*NTN <= 4 sub-tiles per work-group, so the column tiling is the only
+       * way to spend that budget on a larger tile (RTN=4 selects 64x64, RTN=8
+       * selects 64x128 at the same 128 threads). Measured against RTN=4 with the
+       * same (Garner) epilogue: +38% at n=4096 (28.9 -> 20.9 ms) and +9% at
+       * K=1024, bit-identical since int32 accumulation is exact. The gain is
+       * bounded by K, which has to amortize the doubled per-thread prologue and
+       * epilogue, so short K pays: -6% at K=512 and -21% at K=256. RTN is a JIT
+       * constant while K is per-call, so trading the short-K case for the long
+       * one is the only choice available without keying the CRT registry on the
+       * register tiling as well. Both together (this and the Garner default
+       * above) beat the previous defaults at every measured shape.
        */
-      const int crt_rtn = (0 != ctx->nv_mma && 0 != gpu && 0 == rtn_req) ? 4 : rtn;
+      const int crt_rtn = (0 != ctx->nv_mma && 0 != gpu && 0 == rtn_req) ? 8 : rtn;
       char crt_build_options[128];
       size_t coff = 0;
       if (0 != fraccrt) {
