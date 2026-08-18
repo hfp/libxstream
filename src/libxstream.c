@@ -2002,6 +2002,61 @@ LIBXSTREAM_API int libxstream_opencl_kernel_flags(const char build_params[], con
 }
 
 
+LIBXSTREAM_API int libxstream_opencl_program_binary(cl_program program, char** binary, size_t* size)
+{
+  int result = (NULL != program && NULL != binary && NULL != size) ? EXIT_SUCCESS : EXIT_FAILURE;
+  size_t nbytes = 0;
+  char* data = NULL;
+  if (EXIT_SUCCESS == result) {
+    result = clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &nbytes, NULL);
+    if (EXIT_SUCCESS == result && 0 == nbytes) result = EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result) {
+    data = (char*)libxs_malloc(NULL, nbytes + 1 /*terminator*/, 0 /*auto-align*/);
+    result = (NULL != data) ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result) {
+    result = clGetProgramInfo(program, CL_PROGRAM_BINARIES, sizeof(char*), &data, NULL);
+  }
+  if (EXIT_SUCCESS == result) {
+    data[nbytes] = '\0'; /* text representations (NVIDIA emits PTX) stay usable as C strings */
+    *binary = data;
+    *size = nbytes;
+  }
+  else if (NULL != data) {
+    libxs_free(data);
+  }
+  return result;
+}
+
+
+LIBXSTREAM_API int libxstream_opencl_ptx_retarget(const char text[], size_t size, char** result_text, size_t* result_size)
+{
+  static const char needle[] = ".target sm_";
+  const char* const target = (NULL != text && NULL != result_text) ? strstr(text, needle) : NULL;
+  int result = EXIT_FAILURE;
+  if (NULL != target) {
+    const char* digit = target + sizeof(needle) - 1;
+    while ('0' <= *digit && '9' >= *digit) ++digit;
+    /* only rewrite a plain numeric target, never an already accelerated one */
+    if (digit > target + sizeof(needle) - 1 && 'a' != *digit) {
+      char* const out = (char*)libxs_malloc(NULL, size + 2 /*suffix and terminator*/, 0 /*auto-align*/);
+      if (NULL != out) {
+        const size_t prefix = (size_t)(digit - text);
+        memcpy(out, text, prefix);
+        out[prefix] = 'a';
+        memcpy(out + prefix + 1, text + prefix, size - prefix);
+        out[size + 1] = '\0';
+        *result_text = out;
+        if (NULL != result_size) *result_size = size + 1;
+        result = EXIT_SUCCESS;
+      }
+    }
+  }
+  return result;
+}
+
+
 LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char source[], const char name[], const char build_params[],
   const char build_options[], const char try_options[], int* try_ok, const char* const extnames[], size_t num_exts,
   cl_program* program)
@@ -2216,26 +2271,20 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
       }
       buffer[0] = '\0'; /* reset to empty */
       if (EXIT_SUCCESS == result && NULL == file_src && (2 <= libxstream_opencl_config.dump || 0 > libxstream_opencl_config.dump)) {
-        unsigned char* binary = NULL;
-        binary = (unsigned char*)(EXIT_SUCCESS == clGetProgramInfo(*program, CL_PROGRAM_BINARY_SIZES, sizeof(size_t), &size, NULL)
-                                    ? libxs_malloc(NULL, size, 0 /*auto-align*/)
-                                    : NULL);
-        if (NULL != binary) {
-          result = clGetProgramInfo(*program, CL_PROGRAM_BINARIES, sizeof(unsigned char*), &binary, NULL);
-          if (EXIT_SUCCESS == result) { /* successfully queried program binary */
-            FILE* file;
-            nchar = LIBXS_SNPRINTF(buffer, LIBXSTREAM_BUFFERSIZE, "%s.dump", name);
-            file = ((0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar) ? fopen(buffer, "wb") : NULL);
-            buffer[0] = '\0'; /* reset to empty */
-            if (NULL != file) {
-              if (size != fwrite(binary, 1, size, file)) result = EXIT_FAILURE;
-              fclose(file);
-            }
-            else result = EXIT_FAILURE;
+        char* binary = NULL;
+        result = libxstream_opencl_program_binary(*program, &binary, &size);
+        if (EXIT_SUCCESS == result) { /* successfully queried program binary */
+          FILE* file;
+          nchar = LIBXS_SNPRINTF(buffer, LIBXSTREAM_BUFFERSIZE, "%s.dump", name);
+          file = ((0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar) ? fopen(buffer, "wb") : NULL);
+          buffer[0] = '\0'; /* reset to empty */
+          if (NULL != file) {
+            if (size != fwrite(binary, 1, size, file)) result = EXIT_FAILURE;
+            fclose(file);
           }
+          else result = EXIT_FAILURE;
           libxs_free(binary);
         }
-        else result = EXIT_FAILURE;
       }
     }
     else if (source != ext_source) { /* error: creating program */
@@ -2245,12 +2294,21 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
     }
   }
   else if (EXIT_SUCCESS == result) { /* binary representation */
+    /**
+     * Intermediate language or device binary, decided by the blob itself rather
+     * than by a switch: SPIR-V starts with a magic number, whereas a device
+     * binary can be anything (NVIDIA hands out PTX text, which must not be taken
+     * for IL just because dumping happens to be enabled).
+     */
+    const int is_il = (4 <= size_src && 0 == memcmp(source, "\x03\x02\x23\x07", 4)) ||
+                      (4 <= size_src && 0 == memcmp(source, "\x07\x23\x02\x03", 4));
     assert(1 < size_src || 0 == size_src);
 # if defined(CL_VERSION_2_1)
-    if (0 != libxstream_opencl_config.dump) *program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
+    if (0 != is_il) *program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
     else
 # endif
     {
+      LIBXS_UNUSED(is_il);
       *program = clCreateProgramWithBinary(
         devinfo->context, 1, &device_id, &size_src, (const unsigned char**)&source, NULL /*binary_status*/, &result);
     }
@@ -2259,7 +2317,7 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
       ok = libxstream_opencl_kernel_flags(build_params, build_options, try_options, *program, buffer, LIBXSTREAM_BUFFERSIZE);
       if (EXIT_SUCCESS != ok) {
 # if defined(CL_VERSION_2_1)
-        if (0 != libxstream_opencl_config.dump) *program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
+        if (0 != is_il) *program = clCreateProgramWithIL(devinfo->context, source, size_src, &result);
         else
 # endif
         {

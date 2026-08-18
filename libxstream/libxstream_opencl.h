@@ -570,6 +570,28 @@ LIBXSTREAM_API int libxstream_opencl_kernel_flags(const char build_params[], con
 LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char source[], const char name[], const char build_params[],
   const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], size_t num_exts,
   cl_program* program);
+/**
+ * Retrieve the device binary of a built program, NUL-terminated so that text
+ * representations stay usable as C strings (NVIDIA emits PTX text, which is what
+ * makes the transform below possible). The caller frees with libxs_free.
+ * Together with libxstream_opencl_program's binary form (source_kind denoting the
+ * size), this expresses build-from-source, transform, rebuild-from-binary.
+ */
+LIBXSTREAM_API int libxstream_opencl_program_binary(cl_program program, char** binary, size_t* size);
+/**
+ * Rewrite ".target sm_NN" to ".target sm_NNa", i.e. select NVIDIA's accelerated
+ * target, and return the result (libxs_malloc'ed, caller frees with libxs_free).
+ * The size is the text length without the terminator; result_size (if non-NULL)
+ * receives the new length. Returns EXIT_FAILURE and leaves result_text untouched
+ * when the text carries no plain numeric target, hence also when it already
+ * names an accelerated one.
+ *
+ * This exists because instructions such as Hopper's warp-group MMA are rejected
+ * on the plain target that the OpenCL front-end emits, and no build option
+ * changes it: -cl-nv-arch is parsed but unusable (it reports the same error for
+ * every value including none at all).
+ */
+LIBXSTREAM_API int libxstream_opencl_ptx_retarget(const char text[], size_t size, char** result_text, size_t* result_size);
 /** Extract a kernel from a built program. */
 LIBXSTREAM_API int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[], cl_kernel* kernel);
 /** Convenience: build program, extract kernel, release program. */
