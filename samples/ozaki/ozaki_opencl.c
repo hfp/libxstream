@@ -522,8 +522,32 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       int pb = (NULL != env && 0 < atoi(env)) ? atoi(env) : 1;
       ctx->pb = pb;
     }
+    /**
+     * Scheme-1/2 crossover weight: the reconstruction cost expressed in units of
+     * one prime's int8 GEMM pass, so that `xover * P^2 / K` is comparable to a pair
+     * count (see ozaki_gemm). It is reached only for fp64 on a non-NVIDIA device -
+     * every other case decides the scheme without it - so this default is the Intel
+     * fp64 tuning and nothing else.
+     *
+     * Calibrated rather than fitted, because the term has a measurable meaning: on
+     * PVC at n=4096, K=4096 the unfused Garner reconstruction is 2.11 ms against a
+     * 19.95 ms GEMM of 16 passes, i.e. 1.69 passes, and xover = 1.69 * K / P^2 = 27.
+     * One point suffices because the ratio is independent of M and N (both terms
+     * scale with M*N) and the passes are equal - measured, 16 primes to 8 halves the
+     * GEMM exactly. The previous 128 dated from before the unfused epilogue halved
+     * the reconstruction, and it put the switch at K<683, which mispredicted the one
+     * shape that could show it: at K=256 it chose Scheme 1 and paid 1.4x.
+     *
+     * Two limits worth knowing. The rule assumes a Scheme-1 pass costs the same as a
+     * Scheme-2 pass, and it does not - fitting the K-slope of Scheme 1 at n=4096
+     * gives about 0.57 of a Scheme-2 pass, whose operands are residue planes and
+     * which mod-reduces per prime - so the rule leans toward Scheme 2 at small K,
+     * which is the side every direct comparison on PVC supports. And nothing below
+     * K=256 has been measured, so the resulting boundary (K<144) is derived, not
+     * observed.
+     */
     env = getenv("OZAKI_XOVER");
-    ctx->xover = (NULL != env && 0 < atof(env)) ? atof(env) : 128.0;
+    ctx->xover = (NULL != env && 0 < atof(env)) ? atof(env) : 27.0;
     ctx->hier = hier;
     ctx->maxk = maxk;
     /**

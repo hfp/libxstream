@@ -46,13 +46,15 @@ All arguments are positional and optional:
 | OZAKI    | 3       | 1=mantissa slicing, 2=CRT, 3=adaptive (default when unset)        |
 | OZAKI_FP | 64      | 64=fp64 (double), 32=fp32 (float)                                 |
 | OZAKI_N  | (auto)  | Slices (Sch.1: fp64=8, fp32=4) or primes (Sch.2: fp64=16, fp32=9) |
+| OZAKI_XOVER | 27   | Sch.1/2 crossover weight used by OZAKI=3 (fp64, non-NVIDIA)       |
 
-OZAKI=3 (adaptive) starts with Scheme 1 on the first call to learn
-the effective cutoff from preprocessing occupancy data. Subsequent
-calls compare the Scheme-1 pair count against the Scheme-2 prime
-count and pick the cheaper path. The cutoff is cached alongside the
-preprocessed buffers and reused on cache hits without any device-to-
-host readback.
+OZAKI=3 (adaptive) compares the two costs per call and picks the
+cheaper path: the Scheme-1 pair count against the Scheme-2 prime count
+plus its reconstruction, weighted by `OZAKI_XOVER` and amortized over K.
+The comparison is stateless — it uses the static slice cutoff, not a
+measured one — so mixed matrix sizes in one process cannot influence
+each other. On NVIDIA it selects Scheme 2 outright, and in fp32 on
+other devices Scheme 1, both because counting GEMMs mispredicts there.
 
 ### Accuracy
 

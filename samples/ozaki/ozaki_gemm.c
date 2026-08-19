@@ -388,7 +388,15 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
    * O(P^2) Garner reconstruction. Dividing by K:
    *   pairs < P + xover * P^2 / K
    * The reconstruction term vanishes as K grows (amortized) and dominates at
-   * small K. The pair count uses the static cutoff 2*(nslices-1)-oztrim, which
+   * small K, so the rule is a threshold in K alone: xover * P^2 / (pairs - P).
+   *
+   * Mind what `pairs` is: with the default flags it is 64 and not the 36 of the
+   * triangle, because SYMMETRIZE counts each off-diagonal pair twice (both operand
+   * orders are needed), which for 8 slices is the full square. Reading it as 36
+   * understates the fp64 threshold by 2.4x - the boundary at the previous
+   * xover=128 was K<683, not the K<1638 recorded elsewhere.
+   *
+   * The pair count uses the static cutoff 2*(nslices-1)-oztrim, which
    * depends only on (nslices, oztrim) and is knowable on every call with no
    * cross-call state - required for correctness under LD_PRELOAD with mixed
    * matrix sizes. This is deliberately pessimistic for Scheme 1: occupancy may
@@ -424,7 +432,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
        * K=256, 12x at n=1024, 2.3x at n=256, and 13.9x in fp32 (4.8 vs 66) - so
        * Scheme 2 wins at every shape and both precisions, with comparable accuracy
        * (fp32 linf_rel ~1e-06 either way). Counting GEMMs would pick Scheme 1 below
-       * K of about 1638 and always in fp32, which costs up to 14x.
+       * K of about 683 (see the pair count above) and always in fp32, which costs up
+       * to 14x.
        *
        * The gate is the vendor and not the matrix engine, which is measured rather
        * than assumed: forcing the level with LIBXSTREAM_NV at m=n=2048 gives Scheme
