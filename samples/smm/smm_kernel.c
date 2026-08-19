@@ -181,7 +181,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
           if (EXIT_SUCCESS !=
               libxstream_opencl_device_ext(libxstream_opencl_config.devices[libxstream_opencl_config.device_id], fp64ext, 1))
           {
-            fprintf(stderr, "ERROR ACC/LIBSMM: device does not support FP64 (cl_khr_fp64) -- build with ELEM_TYPE=float\n");
+            fprintf(stderr, "ERROR ACC/LIBSMM: device does not support FP64 (cl_khr_fp64) - build with ELEM_TYPE=float\n");
             result = EXIT_FAILURE;
             tname = NULL;
           }
@@ -495,7 +495,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
        * State this launch's work so the profile reports rates rather than only
        * time: stack_size multiplications of m x k by k x n, and the operands
        * each of them touches (A, B, and C read-modify-written). Both are given
-       * because an SMM of this shape can be bound by either -- the pair places
+       * because an SMM of this shape can be bound by either - the pair places
        * the kernel on the roofline instead of merely timing it.
        */
       LIBXSTREAM_CHECK(result,

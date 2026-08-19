@@ -82,7 +82,7 @@ LIBXS_PRAGMA_DIAG_POP()
 /**
  * Accuracy target for profiled samples, expressed as a multiple of the device
  * timer granularity (CL_DEVICE_PROFILING_TIMER_RESOLUTION, queried per device
- * into timer_ns -- this macro is not that granularity, it is how many of its
+ * into timer_ns - this macro is not that granularity, it is how many of its
  * ticks a sample must span to be believed). A measurement covering n ticks has
  * a quantization error of about 1/n, so the default bounds the per-sample error
  * at roughly 10%: on a 1ns-resolution device the resulting floor is 10ns and
@@ -468,7 +468,7 @@ typedef struct libxstream_opencl_config_t {
    * taking precedence like the other explicit settings.
    * Only meaningful without USM: with USM the offset travels in the pointer. A
    * kernel taking a separate index argument needs no sub-buffer, which is the
-   * preferred route -- creating one costs a driver object per distinct offset and
+   * preferred route - creating one costs a driver object per distinct offset and
    * its lifetime must outlive the launch (clSetKernelArg does not retain it).
    */
   cl_int subbuffer;
@@ -619,7 +619,7 @@ LIBXSTREAM_API int libxstream_opencl_launch(libxstream_stream_t* stream, cl_kern
  * As libxstream_opencl_launch, but stating the work this launch performs so that
  * the profile can report rates instead of only time: nflops yields GFLOPS/s and
  * nbytes yields GB/s. Either may be 0 when unknown, and supplying both reports
- * both -- which places a kernel on the roofline rather than merely timing it.
+ * both - which places a kernel on the roofline rather than merely timing it.
  * The counts are per launch, not per call to the surrounding routine.
  */
 LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl_kernel kernel, cl_uint work_dim,

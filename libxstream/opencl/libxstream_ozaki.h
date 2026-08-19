@@ -14,7 +14,7 @@
 
 /**
  * Dekker splitting: iterative residual subtraction into BF16 digits.
- * Each digit carries its own sign and exponent -- no shared exponent
+ * Each digit carries its own sign and exponent - no shared exponent
  * panel required.  The sum of all digits exactly reconstructs the
  * input (up to the trailing residual below BF16 precision^NDIGITS).
  *
@@ -71,9 +71,9 @@ inline void dekker_split_bf16_private(real_t val, int ndigits,
 /**
  * BF16 DPAS: bf16 x bf16 -> f32, one 8x16x16 tile.
  * Intel XMX (SG=16):
- *   A: 8 rows x 16 bf16  (short8 per WI -- one bf16/WI * 16 WIs * 8 rows)
- *   B: 16 rows x 16 bf16 (VNNI-packed into int8 -- 2 bf16/uint)
- *   C: 8 x 16 float      (float8 per WI -- 8 rows, sg_lid selects column)
+ *   A: 8 rows x 16 bf16  (short8 per WI - one bf16/WI * 16 WIs * 8 rows)
+ *   B: 16 rows x 16 bf16 (VNNI-packed into int8 - 2 bf16/uint)
+ *   C: 8 x 16 float      (float8 per WI - 8 rows, sg_lid selects column)
  *
  * 2D block I/O for 16-bit elements:
  *   A: intel_sub_group_2d_block_read_16b_8r16x1c

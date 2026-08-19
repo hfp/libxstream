@@ -111,7 +111,7 @@ LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem memory, void** mempt
  * the application linked it). Takes the base of the allocation and its padded
  * size rather than the aligned pointer handed to the caller: registration is
  * page-granular and cudaHostUnregister accepts only the very pointer that was
- * registered. Failure is not an error -- memory the CUDA runtime rejects merely
+ * registered. Failure is not an error - memory the CUDA runtime rejects merely
  * stays pageable for its own transfers.
  */
 LIBXSTREAM_API_INTERN void libxstream_mem_host_register(void* /*memptr*/, size_t /*nbytes*/);
@@ -247,7 +247,7 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* 
    * Registered here rather than per libxs_malloc, because the pool hands out
    * pointers into these blocks: registration is page-granular, so two
    * sub-allocations sharing a page would collide and freeing one would unpin the
-   * other. Only driver-provided memory qualifies -- a malloc'ed block can share
+   * other. Only driver-provided memory qualifies - a malloc'ed block can share
    * a page with unrelated heap data, and that case has no OpenCL device anyway.
    */
   if (libxstream_opencl_mem_hst_malloc != libxstream_opencl_config.mem_hst) {
@@ -814,7 +814,7 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
    * {size, size, duration}: vals[0] is the binning key, which
    * libxs_hist_query_percentile reconstructs from the bucket's position on the
    * axis rather than from the stored samples. A rate must therefore not use it
-   * -- the amount is carried a second time in vals[1], which is stored and
+   * - the amount is carried a second time in vals[1], which is stored and
    * averaged like the duration, so amount and duration describe the same sample.
    */
   double vals[3];
@@ -833,7 +833,7 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
      * types are checked explicitly; the SVM and Intel-USM paths raise types that
      * match no buffer command (SVM_MEMCPY, SVM_MEMFILL, or vendor-specific), and
      * keying on those alone is what silently dropped every sample on such
-     * stacks -- so an unrecognized type is accepted, a contradicting one is not.
+     * stacks - so an unrecognized type is accepted, a contradicting one is not.
      */
     int agrees = 1;
     switch (type) {
@@ -1029,7 +1029,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
      * transfer needs no host access at all: clEnqueueSVMMemcpy is a queued
      * command, so the runtime can use its copy engine and the call can be
      * asynchronous. The map/memcpy/unmap it replaces ran single-threaded inside
-     * the enqueue at host store-to-device speed -- 8.9 GB/s against 46.0 GB/s
+     * the enqueue at host store-to-device speed - 8.9 GB/s against 46.0 GB/s
      * for a 128 MB H2D on a GPU Max 1550, where the enqueued copy also
      * overlapped a concurrent kernel completely. libxstream_mem_copy_d2d
      * already took this route for the very same allocations.

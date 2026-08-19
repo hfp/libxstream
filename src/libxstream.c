@@ -170,7 +170,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, con
  * environment, which wins over the default. Separate from libxstream_opencl_setup
  * and idempotent because that setup is one-shot and a constructor
  * (libxstream_opencl_init) may run it at load time, i.e. before any caller could
- * state a request -- re-resolving here is what lets a later libxstream_init_config
+ * state a request - re-resolving here is what lets a later libxstream_init_config
  * still take effect. Settings read lazily at their point of use (usm, device) need
  * no equivalent.
  */
@@ -819,7 +819,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char 
 /**
  * Print one histogram whose samples are {amount, amount, us} (transfers,
  * amount_first non-zero) or {ms, gflop, mb} (kernels). Both are the same
- * measurement -- an amount of work over the time it took -- so both are reported
+ * measurement - an amount of work over the time it took - so both are reported
  * here rather than in separate routines: a transfer yields a rate in the caller's
  * unit, a kernel yields its duration plus whatever rates the stated work
  * supports.
@@ -938,7 +938,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_kernels(FILE* ostream)
 /**
  * Print the sample floor and what it cost. Kept apart from the rate rows: this
  * describes the clock rather than a transfer, carries no byte count, and is only
- * meaningful where samples were actually dropped -- alongside complete figures
+ * meaningful where samples were actually dropped - alongside complete figures
  * it is noise. Returns the number of rows printed. Caller holds the stdio lock.
  */
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_floor(FILE* ostream);
@@ -1612,9 +1612,9 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
            *   3: OpenCL 2.0 SVM with device-reported caps (skip Intel ext)
            *
            * Levels 1 and 3 are opt-in, never reached by the default. Both are
-           * faster in a microbenchmark -- the Intel extension gives an actual
+           * faster in a microbenchmark - the Intel extension gives an actual
            * asynchronous transfer (45.3 vs 9.1 GB/s for a 128 MB H2D on a GPU
-           * Max 1550) -- and both are nevertheless excluded here, because the
+           * Max 1550) - and both are nevertheless excluded here, because the
            * default has to stay predictable across drivers rather than fastest
            * on one. The extension path carries the known issues that motivated
            * gating it behind an explicit request, and level 3 takes whatever the
@@ -1624,7 +1624,7 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
            *
            * Coarse-grain costs nothing against fine-grain anyway: it adds a
            * SVMMap/SVMUnmap pair that fine-grain omits, but that is bookkeeping
-           * and the host memcpy both paths end in dominates -- 15.2 vs 15.1 GB/s
+           * and the host memcpy both paths end in dominates - 15.2 vs 15.1 GB/s
            * on a Xeon 8480+, the device here offering both grains.
            */
           {
@@ -2420,8 +2420,8 @@ LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char sourc
  * the offset determines the region: reusing one handle across launches computed
  * wrong results (Ozaki-2 panelled GEMM, rsq 0.71 against 1.0 for fresh handles),
  * while the region, size and parent of the reused handle all verified correct.
- * The reason is not established -- suspected aliasing of a region written by one
- * kernel and read by the next through the same sub-buffer -- so correctness wins
+ * The reason is not established - suspected aliasing of a region written by one
+ * kernel and read by the next through the same sub-buffer - so correctness wins
  * over economy here. Consequently the list grows per launch, and the release at
  * deallocation is what bounds it: buffers whose lifetime spans very many
  * launches will hold correspondingly many handles.
@@ -2632,7 +2632,7 @@ LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel)
            * All three averaged, not accumulated: libxs_hist_query_percentile
            * reports vals[0] as an interpolated per-sample duration, so the work
            * amounts must be per-sample too. Summing them would divide a bucket
-           * total by a single-sample time -- the same numerator/denominator
+           * total by a single-sample time - the same numerator/denominator
            * mismatch that let the old facility report more work in less time.
            */
           const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};

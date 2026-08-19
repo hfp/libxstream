@@ -11,7 +11,7 @@
 #include "ozaki_common.cl"
 
 /**
- * Ozaki Scheme 1 -- GEMM-based XMX path.
+ * Ozaki Scheme 1 - GEMM-based XMX path.
  *
  * Unlike the panel-batched dotprod path, this approach:
  *   1. Preprocesses the FULL K dimension of A and B into dense int8 slices
@@ -282,7 +282,7 @@
  * Full tiled K-loop: KU-unrolled DPAS with optional prefetch, then remainder.
  * AS, BS: slice pointers for this pair.
  * ACC: int8[RTM*RTN] accumulator array (must be pre-zeroed by caller).
- * OZAKI_PREFETCH: opt-in prefetch (default off -- hurts PVC perf).
+ * OZAKI_PREFETCH: opt-in prefetch (default off - hurts PVC perf).
  */
 #define OZAKI_KLOOP(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
   do { \
@@ -304,7 +304,7 @@
 /**
  * MMA scale+flush: accumulator is int4[RTM*RTN], one fragment per sub-tile.
  * The (row, col) each fragment element lands on comes from OZAKI_FRAG_ROW /
- * OZAKI_FRAG_COL in ozaki_common.cl -- the same mapping Scheme 2 stores
+ * OZAKI_FRAG_COL in ozaki_common.cl - the same mapping Scheme 2 stores
  * through, so the layout is stated in exactly one place.
  *
  * EA_CACHE is indexed by the fragment's row within the sub-tile; EB_CACHE has
@@ -408,7 +408,7 @@
  * K_pad must be >= 64 for 2D block I/O alignment.
  *
  * Work-group: (BM_PRE, BK_PRE, 1).
- * Dispatch: global_a[1] = BK_PRE (single WG in K) -- the kernel loops
+ * Dispatch: global_a[1] = BK_PRE (single WG in K) - the kernel loops
  * over K internally so that the local max exponent IS the global max.
  */
 __attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
@@ -491,7 +491,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a_base, int a_index, int M, i
 /**
  * preprocess_b_dense: decompose B into dense per-slice int8 matrices.
  *
- * Output layout: Bs[s][K_pad][N_pad] -- K_pad rows, N_pad columns per slice.
+ * Output layout: Bs[s][K_pad][N_pad] - K_pad rows, N_pad columns per slice.
  *   N_pad must be >= 64 for 2D block I/O.
  *   Stored row-major (K-major): Bs_s[k * N_pad + n].
  *   Full: Bs[s * K_pad * N_pad + k * N_pad + n].
@@ -500,7 +500,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a_base, int a_index, int M, i
  * height = K_pad rows.  N_pad >= 64 required.
  *
  * Work-group: (BN_PRE, BK_PRE, 1).
- * Dispatch: global_b[1] = BK_PRE (single WG in K) -- loops internally.
+ * Dispatch: global_b[1] = BK_PRE (single WG in K) - loops internally.
  */
 __attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
@@ -578,7 +578,7 @@ preprocess_b_dense(CONSTANT const real_t* restrict b_base, int b_index, int N, i
 /**
  * gemm_fused: Single-launch GEMM over ALL slice pairs.
  *
- * C is kept in fp registers across all pairs -- only one global C read
+ * C is kept in fp registers across all pairs - only one global C read
  * (or zero) at the start, and one global C write at the end.
  *
  * Triangular iteration (default): sa in [0..nslices), sb in [sa..nslices)
@@ -701,7 +701,7 @@ kernel void gemm_fused(
       OZAKI_KLOOP_BLOCKED(as, bs, a_stride, b_stride, sa, sb0, K_pad, N_pad, M, mi_base, nj_base, c_blk);
       /**
        * Every slice of the block is loaded and multiplied unconditionally --
-       * OZAKI_SB divides NSLICES, so the indices stay in range -- and pairs
+       * OZAKI_SB divides NSLICES, so the indices stay in range - and pairs
        * past the cutoff are simply not flushed.  Their products are dead work
        * on the tail blocks only, which is why OZAKI_SB stays small.
        */

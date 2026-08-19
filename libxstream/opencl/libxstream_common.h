@@ -111,7 +111,7 @@ typedef uint uint_repr_t;
 
 /**
  * Integer power of two via bit manipulation: 2^N exactly.
- * Avoids FP transcendental -- one integer add, one shift, one bitcast.
+ * Avoids FP transcendental - one integer add, one shift, one bitcast.
  */
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
 # define EXP2I(N) as_double((long)((N) + 1023) << 52)
