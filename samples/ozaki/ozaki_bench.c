@@ -74,6 +74,7 @@ int main(int argc, char* argv[])
   const char transa = (0 == ta ? 'N' : 'T');
   const char transb = (0 == tb ? 'N' : 'T');
   void *a = NULL, *b = NULL, *c_oz = NULL, *c_ref = NULL;
+  void* scratch = NULL; /* caller-owned device scratch (OZAKI_SCRATCH) */
 #if defined(__CUBLAS)
   void* c_cu = NULL;
   int cublas_result = EXIT_FAILURE;
@@ -192,6 +193,24 @@ int main(int argc, char* argv[])
     }
   }
 
+  /**
+   * Caller-owned device scratch (OZAKI_SCRATCH=1), the counterpart of
+   * OZAKI_CUBLAS_WORKSPACE on the reference side: the context would otherwise
+   * grow its own arena, which is what a BLAS interceptor relies on, so this only
+   * exercises the path where the application owns the memory. Failure is soft -
+   * the internal arena remains.
+   */
+  if (EXIT_SUCCESS == result && NULL != getenv("OZAKI_SCRATCH") && 0 != atoi(getenv("OZAKI_SCRATCH"))) {
+    const size_t nbytes = ozaki_scratch_size(&ctx, transa, transb, M, N, K, lda, ldb, ldc);
+    if (EXIT_SUCCESS == libxstream_mem_dev_allocate_hint(&scratch, nbytes, libxstream_opencl_mem_hint_atomics)) {
+      if (EXIT_SUCCESS != ozaki_scratch_set(&ctx, scratch, nbytes)) {
+        libxstream_mem_dev_deallocate_hint(scratch);
+        scratch = NULL;
+      }
+      else if (0 != ctx.verbosity) fprintf(stderr, "INFO OZAKI: %u MB of caller-owned scratch\n", (unsigned int)(nbytes >> 20));
+    }
+  }
+
   /* Run Ozaki OpenCL GEMM */
   if (EXIT_SUCCESS == result) {
     int i;
@@ -300,6 +319,8 @@ int main(int argc, char* argv[])
       libxstream_stream_destroy(stream);
     }
     ozaki_destroy(&ctx);
+    /* after the context, which never frees caller-owned scratch */
+    if (NULL != scratch) libxstream_mem_dev_deallocate_hint(scratch);
     libxstream_finalize();
   }
   return result;

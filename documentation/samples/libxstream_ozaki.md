@@ -99,6 +99,7 @@ follows that knob.
 | OZAKI_WGMMA_RS   | 1       | Warp-group MMA takes A from registers instead of shared memory   |
 | OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for GPUs (see below)      |
 | OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
+| OZAKI_ARENA      | (auto)  | Sch.2: device scratch arena in MB (0=off). Auto: on if no pool   |
 
 On NVIDIA GPUs the Scheme-2 default RTN=8 is tuned for large K: it
 doubles the output tile per work-group, which needs a long K-loop to
@@ -157,6 +158,19 @@ at n=257, +80% at n=2048, +76% in fp32. It is not warp-group specific
 and helps `mma.sync` by 11%. Nor is it NVIDIA-specific: on a PVC (DPAS)
 the same figures are 0.66 -> 0.28 ms at n=257, 26.5 -> 22.0 at n=4096
 and 15.8 -> 12.6 in fp32, also bit-identical.
+
+The residue planes it needs are the bulk of the per-call device scratch,
+which is why `OZAKI_ARENA` matters: without it every call creates and
+destroys them (402 MB at n=4096), and on a device where libxstream has
+no memory pool that cost dominates - 34 ms per call against 6 ms on a
+GH200 at n=4096. The arena carves that scratch from one allocation kept
+for the life of the context, so it is enabled by default exactly where
+there is no pool. `OZAKI_ARENA=0` restores per-call allocation and a
+positive value caps the arena in MB, falling back per buffer when a call
+needs more. A caller that owns device memory can supply it instead with
+`ozaki_scratch_size`/`ozaki_scratch_set` (the benchmark does so under
+`OZAKI_SCRATCH=1`); the interceptor in LIBXS relies on the default,
+since a BLAS call cannot be handed a workspace.
 
 Two things to know. Reading the profile, the two kernel rows have to be
 added for a total; the FLOP rate is attributed to the GEMM row alone.

@@ -1316,6 +1316,48 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     const int cache = (NULL != env_cache ? atoi(env_cache) : 0);
     ctx->cache.flags = (0 == cache ? 0 : (0 > cache ? 3 : cache));
   }
+  /**
+   * Scratch arena budget in MB (see ozaki_scratch_t): OZAKI_ARENA=0 disables it
+   * and restores per-call allocation, a positive value caps it - a call needing
+   * more than the cap falls back per buffer rather than failing - and unset
+   * enables it only where libxstream has no device pool of its own.
+   *
+   * That default is deliberate rather than cautious. Where the pool exists
+   * (it is gated on USM, so in practice Intel) per-call allocation is already
+   * cheap, so the arena would buy nothing while holding a large block - roughly
+   * three times the size of C with the unfused epilogue - for the life of the
+   * context, memory the pool would otherwise recycle for its other consumers.
+   * Where the pool does not exist (NVIDIA) the same per-call allocation is what
+   * dominates the wall clock, so the arena is the difference between 34 ms and
+   * 6 ms per call at n=4096. A positive OZAKI_ARENA enables it either way, which
+   * is also how the path stays testable on a device that has a pool.
+   *
+   * The pool is a proxy for "allocation is already cheap", not a coincidence: it
+   * can never exist on NVIDIA, because the SVM capability query is skipped there
+   * by an explicit vendor workaround and the Intel USM entry points are absent,
+   * which is why the churn this arena removes was only ever measured on NVIDIA.
+   * The proxy is imperfect in one direction - an Intel device whose USM entry
+   * points do not resolve gets an arena it does not need, since that runtime
+   * pools internally anyway - which costs footprint rather than speed, and
+   * OZAKI_ARENA=0 settles it. It is preferred over testing the vendor because a
+   * mechanism outlives a vendor list.
+   *
+   * Requesting the arena does not switch the pool off, and must not: the pool is
+   * created by libxstream and used by libxstream_mem_* itself, so it belongs to
+   * every consumer in the process rather than to this sample. Nothing is paid
+   * twice for having both - the arena bypasses the pool for the buffers it
+   * carves, and what still goes through the pool here (the cached operand
+   * planes) persists across calls instead of churning. What both do cost is
+   * footprint, and the cap above is the lever for that.
+   */
+  { const char *const env_arena = getenv("OZAKI_ARENA");
+    const int arena = (NULL != env_arena) ? atoi(env_arena) : -1;
+    if (0 > arena) {
+      ctx->scratch.limit = (NULL != libxstream_opencl_config.pool_dev) ? 0 : ((size_t)-1);
+    }
+    else ctx->scratch.limit = (size_t)arena << 20;
+    ctx->scratch.owned = 1;
+  }
 
   /* Report compiled kernel info */
   if (EXIT_SUCCESS == result && (0 > verbosity || 2 < verbosity)) {
@@ -1351,6 +1393,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ozaki_print_opt(stderr, "unfuse", ctx->unfuse);
     }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);
+    if (0 == ctx->scratch.limit) fprintf(stderr, " arena=off");
+    else if (((size_t)-1) == ctx->scratch.limit) fprintf(stderr, " arena=on");
+    else fprintf(stderr, " arena=%uMB", (unsigned int)(ctx->scratch.limit >> 20));
     if (3 == kind) fprintf(stderr, " xover=%g", ctx->xover);
     fprintf(stderr, "\n");
   }
@@ -1381,6 +1426,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
 void ozaki_destroy(ozaki_context_t* ctx)
 {
   if (NULL != ctx) {
+    if (0 != ctx->scratch.owned && NULL != ctx->scratch.ptr) {
+      libxstream_mem_dev_deallocate_hint(ctx->scratch.ptr);
+      ctx->scratch.ptr = NULL;
+    }
     if (NULL != ctx->kern_preprocess_a) {
       clReleaseKernel(ctx->kern_preprocess_a);
     }

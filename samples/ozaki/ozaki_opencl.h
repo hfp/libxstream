@@ -99,6 +99,34 @@ typedef struct ozaki_cache_t {
 } ozaki_cache_t;
 
 /**
+ * Device scratch arena for the transient buffers of one call: the residue
+ * planes, the device copy of C, and the operand uploads. They are carved from
+ * one allocation that outlives the call instead of being created and destroyed
+ * per call, which on a device without a memory pool is what dominates the wall
+ * clock - 402 MB of create/destroy per call at n=4096, measured as 29 of 34 ms
+ * on a GH200, where libxstream's pool does not exist because it is gated on USM.
+ *
+ * Per context, because that is what a BLAS interceptor can use: it holds one
+ * context for the process and has no way to be handed memory by the
+ * application. A caller that does own device memory can install it instead
+ * (ozaki_scratch_set), in which case the arena is never grown or freed here.
+ *
+ * The arena is claimed for the duration of a call, so a second call on the same
+ * context does not wait for it - it falls back to per-call allocation. That is
+ * the same property a cuBLAS handle's workspace has, and it keeps the footprint
+ * one arena rather than one per thread; a caller that wants concurrency without
+ * the fallback should use a context per thread.
+ */
+typedef struct ozaki_scratch_t {
+  void* ptr; /* arena base, NULL until first use */
+  size_t size; /* capacity of ptr */
+  size_t used; /* bump offset, meaningful only while claimed */
+  size_t limit; /* upper bound for growth (OZAKI_ARENA), 0 disables the arena */
+  int owned; /* 1: allocated here, grown on demand, freed at destroy; 0: caller's */
+  volatile LIBXS_ATOMIC_LOCKTYPE busy;
+} ozaki_scratch_t;
+
+/**
  * Ozaki-1 kernel specialization key: compile-time cutoff.
  * bounds: 0 = tile-aligned, 1 = bounds-checked variant.
  * tm/tn: output tile baked into the kernel (size-aware selection).
@@ -251,6 +279,7 @@ typedef struct ozaki_context_t {
   libxstream_event_t* evt_panel; /* GEMM completion, gates the panel D2H */
   /* Preprocessing cache (OZAKI_CACHE env, bitmask: 1=A, 2=B, 3=both). */
   ozaki_cache_t cache;
+  ozaki_scratch_t scratch;
   /* Complex GEMM block-embedding kernels (construct A_hat, B_hat, finalize) */
   cl_kernel kern_zgemm_block_construct_a;
   cl_kernel kern_zgemm_block_construct_b_n;
@@ -275,6 +304,34 @@ typedef struct ozaki_context_t {
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
   int ozgroups, int maxk, int profiling);
 void ozaki_destroy(ozaki_context_t* ctx);
+
+/**
+ * Device scratch (Scheme 2) - see ozaki_scratch_t. Both are optional: without
+ * them the context grows its own arena on first use, which is what a BLAS
+ * interceptor relies on.
+ *
+ * ozaki_scratch_size reports the bytes one call of the given shape can need. It
+ * is an upper bound (no cached operand, unpanelled), so it never under-sizes;
+ * the internal arena instead grows to the exact requirement of the call.
+ *
+ * ozaki_scratch_set installs caller-owned memory, or reverts to the internal
+ * arena and releases it when dev_mem is NULL. Allocate it with
+ * libxstream_mem_dev_allocate_hint(..., libxstream_opencl_mem_hint_atomics):
+ * the device copy of C is carved from it and that is the hint it would
+ * otherwise be allocated with. An arena too small for a given call is not an
+ * error - that call falls back to allocating per buffer.
+ */
+size_t ozaki_scratch_size(const ozaki_context_t* ctx, char transa, char transb, int M, int N, int K, int lda, int ldb, int ldc);
+int ozaki_scratch_set(ozaki_context_t* ctx, void* dev_mem, size_t nbytes);
+/**
+ * The arena as it currently stands (NULL when there is none yet), so a caller
+ * can see what it is holding or reuse it. Reuse is limited by what the pointer
+ * is: without USM it is a token resolved to a cl_mem plus an offset rather than
+ * an address, and it belongs to the OpenCL context either way - handing it to
+ * another runtime is the OZAKI_CUBLAS_XPTR experiment in ozaki_bench.c, which
+ * faults by design. It is a device pointer for libxstream and for nothing else.
+ */
+void* ozaki_scratch_get(const ozaki_context_t* ctx, size_t* nbytes);
 /* Selected output tile (BM x BN) for one GEMM call. */
 typedef struct ozaki_tile_t {
   int m, n;
