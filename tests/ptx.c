@@ -32,7 +32,7 @@ static int check(const char text[], const char expected[])
   const size_t size = strlen(text);
   char* out = NULL;
   size_t size_new = 0;
-  int result = libxstream_opencl_ptx_retarget(text, size, &out, &size_new);
+  int result = libxstream_opencl_retarget_ptx(text, size, &out, &size_new);
   if (NULL == expected) { /* rewrite must be refused */
     if (EXIT_SUCCESS == result || NULL != out) {
       fprintf(stderr, "ERROR: expected refusal for \"%s\"\n", text);

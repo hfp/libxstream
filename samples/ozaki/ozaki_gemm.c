@@ -73,7 +73,7 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
   size_t size_rt = 0, cap = 0;
   char* out = NULL;
   LIBXS_SNPRINTF(entry, sizeof(entry), ".entry %s", entry_name);
-  if (EXIT_SUCCESS == libxstream_opencl_ptx_retarget(ptx, size, &retargeted, &size_rt)) {
+  if (EXIT_SUCCESS == libxstream_opencl_retarget_ptx(ptx, size, &retargeted, &size_rt)) {
     const char* scan = retargeted;
     size_t nmarker = 0;
     while (NULL != (scan = strstr(scan, marker))) {

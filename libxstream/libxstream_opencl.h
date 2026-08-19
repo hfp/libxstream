@@ -591,7 +591,7 @@ LIBXSTREAM_API int libxstream_opencl_program_binary(cl_program program, char** b
  * changes it: -cl-nv-arch is parsed but unusable (it reports the same error for
  * every value including none at all).
  */
-LIBXSTREAM_API int libxstream_opencl_ptx_retarget(const char text[], size_t size, char** result_text, size_t* result_size);
+LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size, char** result_text, size_t* result_size);
 /** Extract a kernel from a built program. */
 LIBXSTREAM_API int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[], cl_kernel* kernel);
 /** Convenience: build program, extract kernel, release program. */

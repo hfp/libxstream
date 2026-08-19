@@ -2030,7 +2030,7 @@ LIBXSTREAM_API int libxstream_opencl_program_binary(cl_program program, char** b
 }
 
 
-LIBXSTREAM_API int libxstream_opencl_ptx_retarget(const char text[], size_t size, char** result_text, size_t* result_size)
+LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size, char** result_text, size_t* result_size)
 {
   static const char needle[] = ".target sm_";
   const char* const target = (NULL != text && NULL != result_text) ? strstr(text, needle) : NULL;
