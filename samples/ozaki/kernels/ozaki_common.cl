@@ -70,7 +70,18 @@
  * bytes apart in one segment instead of 4*N_pad apart in two, and a dp4a
  * column becomes 8 consecutive uints.
  */
-#if defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
+/**
+ * OZAKI_BBLOCK is the interleave one step coarser: 16 consecutive K-values of one
+ * column are contiguous, columns are 16 bytes apart. That is the only layout where
+ * BOTH sides are coalesced and the consumer can move 16 bytes per copy - K-major
+ * gives the consumer its 16 bytes but scatters the producer, the 4-byte interleave
+ * coalesces both but forces four times the copies, and copy count is what the
+ * warp-group loop is bound by (splitting A's copies four ways cost 107%).
+ */
+#if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
+# define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) \
+    ((((long)(ROW) >> 4) * (N_PAD) + (COL)) * 16 + ((ROW) & 15))
+#elif defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
 # define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) ((long)(COL) * (K_PAD) + (ROW))
 #elif defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
 # define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) \

@@ -663,7 +663,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          * +5.5% at n=4096, +4.3% at n=2048, bit-identical throughout.
          */
         const char *const env_wm = getenv("OZAKI_WGMMA_M");
-        const int wm = (NULL != env_wm && 64 == atoi(env_wm)) ? 64 : 128;
+        const int wm_req = (NULL != env_wm) ? atoi(env_wm) : 0;
+        const int wm = (64 == wm_req || 256 == wm_req) ? wm_req : 128;
         /**
          * Staging depth: WBK = KU * BK bytes of K per round, hence KU wgmma issues
          * between one barrier and the next. KU=2 is the minimum (64 bytes of K) and
@@ -898,7 +899,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       const int crt_rtn = (0 != wgmma) ? (ctx->tn_req / 8) : ((0 != ctx->nv_mma && 0 != gpu && 0 == rtn_req) ? 8 : rtn);
       char crt_build_options[128];
       size_t coff = 0;
-      int bkmajor;
+      int bkmajor, bblock;
       if (0 != fraccrt) {
         /**
          * Fractional CRT relies on error-free transformations (two_sum,
@@ -935,6 +936,20 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       ctx->wgmma = wgmma;
       /**
+       * Work-group rasterization width (0 = the launch order). The resident
+       * work-groups otherwise form a column strip of the tile grid and share one B
+       * panel while each reads its own A panel, which is why only the A-term of the
+       * residue traffic measures. Walking the grid in strips makes a wave cover a
+       * block instead.
+       */
+      { const char *const env_swizzle = getenv("OZAKI_SWIZZLE");
+        const int swizzle = (NULL != env_swizzle && 0 < atoi(env_swizzle)) ? atoi(env_swizzle) : 0;
+        if (0 != swizzle) {
+          coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+            " -DOZAKI_SWIZZLE=%i", swizzle);
+        }
+      }
+      /**
        * Unfused reconstruction: the default on NVIDIA, where it is measured, and
        * OZAKI_UNFUSE=0 opts out. It requires the hierarchical epilogue (the reduce
        * kernel implements only that one), PB=1 and no K-grouping, because the
@@ -967,8 +982,16 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
       }
       /**
-       * B layout for the NVIDIA paths, two mutually exclusive variants (Intel
+       * B layout for the NVIDIA paths, three mutually exclusive variants (Intel
        * keeps the plain layout because DPAS transforms on read):
+       *
+       * OZAKI_BBLOCK blocks 16 consecutive K-values of a column, which is the only
+       * layout that lets the warp-group staging move 16 bytes per copy while both
+       * producer and consumer stay coalesced. That removes three quarters of the
+       * copies, and copy count is what the loop is bound by: the GEMM measures 8.03
+       * -> 6.89 ms at n=4096 while B preprocessing pays 0.53 -> 0.73, so +11% net.
+       * The default wherever warp-group MMA runs, and warp-group only: the older
+       * paths have no branch for it. See ozaki_common.cl.
        *
        * OZAKI_BKMAJOR transposes B to [N_pad][K_pad]. Warp-group MMA requires it
        * (both operands K-major, staged through shared memory), and it also suits
@@ -978,9 +1001,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * gets 8 loads per column instead of 32 strided byte gathers, and the MMA
        * b-fragment becomes 2 loads instead of 8. OZAKI_BVNNI=0 opts out.
        */
+      env = getenv("OZAKI_BBLOCK");
+      bblock = (0 != wgmma && (NULL == env || 0 != atoi(env)));
       env = getenv("OZAKI_BKMAJOR");
-      bkmajor = (0 == devinfo->intel && 2 <= nv && 0 != gpu && NULL != env && 0 != atoi(env));
-      if (0 != bkmajor) {
+      bkmajor = (0 == bblock && 0 == devinfo->intel && 2 <= nv && 0 != gpu && NULL != env && 0 != atoi(env));
+      if (0 != bblock) {
+        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BBLOCK=1");
+      }
+      else if (0 != bkmajor) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BKMAJOR=1");
       }
       else {
@@ -997,16 +1025,25 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       else if (2 == fraccrt) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=2");
         coff += ozaki_emit_fraccrt2(build_params + coff, sizeof(build_params) - coff,
-          (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 11, 4);
+          (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 11,
+          (1 != (nprimes % 4)) ? 4 : ((1 != (nprimes % 3)) ? 3 : ((1 != (nprimes % 2)) ? 2 : 4)));
       }
       if (NULL != env_skip && 0 != atoi(env_skip)) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1");
       }
       if (0 != crt_hier) {
         const uint16_t* modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
-        const int hier_gs = 4, ngroups = LIBXS_UPDIV(nprimes, hier_gs);
-        uint32_t gp[5];
-        uint64_t l2b[5];
+        /**
+         * Leaf group size: 4 is the maximum the 32-bit level-2 datapath allows, but
+         * a group left holding one prime is pathological - at nprimes=9 the 4,4,1
+         * split costs the reconstruction 1.21 ms where three full groups of 3 are
+         * comparable to the 12-prime case at 0.58. Take the largest divisor of
+         * nprimes that still fits, so fp64 keeps 4 (16 primes) and fp32 gets 3 (9).
+         */
+        const int hier_gs = (1 != (nprimes % 4)) ? 4 : ((1 != (nprimes % 3)) ? 3 : ((1 != (nprimes % 2)) ? 2 : 4));
+        const int ngroups = LIBXS_UPDIV(nprimes, hier_gs);
+        uint32_t gp[8];
+        uint64_t l2b[8];
         int gi, use_tree;
         for (gi = 0; gi < ngroups; ++gi) {
           const int lo = gi * hier_gs, hi = (lo + hier_gs <= nprimes) ? lo + hier_gs : nprimes;
@@ -1030,7 +1067,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           use_tree = 0;
         }
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-          " -DOZAKI_HIER=1 -DHIER_NGROUPS_ACTUAL=%d -DOZAKI_HIER_L2=%d", ngroups, use_tree);
+          " -DOZAKI_HIER=1 -DHIER_GS=%d -DHIER_NGROUPS_ACTUAL=%d -DOZAKI_HIER_L2=%d", hier_gs, ngroups, use_tree);
         for (gi = 0; gi < ngroups; ++gi) {
           coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
             " -DHIER_GPROD_%d=%uu -DHIER_L2B_%d=%luul", gi, (unsigned)gp[gi], gi, (unsigned long)l2b[gi]);

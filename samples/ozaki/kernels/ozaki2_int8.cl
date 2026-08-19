@@ -117,13 +117,18 @@
 #define POW2_PIDX 3
 #if OZAKI_HIER
 /**
- * Leaf group size, fixed at 4: the level-2 datapath is 32-bit, so group
- * products and group values must fit uint32 (Barrett tables, gval_all).
+ * Leaf group size, at most 4: the level-2 datapath is 32-bit, so group products
+ * and group values must fit uint32 (Barrett tables, gval_all). The host lowers it
+ * to the largest divisor of NPRIMES that still fits, because a group holding a
+ * single prime is pathological - at NPRIMES=9 the 4,4,1 split costs the
+ * reconstruction 1.21 ms against 0.58 for a 12-prime run of three full groups.
  * Fractional-CRT leaves could reconstruct up to 6 primes per group (group
  * product below 2^53 rather than 2^32), which would shorten level 2, but that
  * requires widening the whole level-2 datapath to 64-bit.
  */
-# define HIER_GS 4
+# if !defined(HIER_GS)
+#   define HIER_GS 4
+# endif
 # define HIER_NGROUPS ((NPRIMES + HIER_GS - 1) / HIER_GS)
 # define HIER_L2_HORNER_GROUP 2
 # define HIER_L2_HORNER_NGROUPS ((HIER_NGROUPS + HIER_L2_HORNER_GROUP - 1) / HIER_L2_HORNER_GROUP)
@@ -437,6 +442,41 @@
 #endif /* OZAKI_HIER */
 
 /**
+ * Work-group rasterization. The launch order runs group_id(0) fastest, so the
+ * work-groups resident at any moment form a column strip of the tile grid: they
+ * share one B panel, which L2 then serves, and each reads its own A panel from
+ * DRAM. That is why the A-term of the residue traffic is the only one that
+ * measures - halving it (BN 64 -> 128) is worth 44% while halving the B-term
+ * (BM 128 -> 256) is worth nothing.
+ *
+ * OZAKI_SWIZZLE walks the grid in strips OZAKI_SWIZZLE tiles wide instead, so a
+ * wave covers a block rather than a column and re-reads both panels a factor
+ * fewer times. Both kernels derive it from the same ids, which is what keeps the
+ * blocked residue layout consistent between them.
+ */
+#if defined(OZAKI_SWIZZLE) && (0 < OZAKI_SWIZZLE)
+# define OZAKI_TILES_M(M_) (((M_) + BM - 1) / BM)
+# define OZAKI_TILES_N(N_) (((N_) + BN - 1) / BN)
+# define OZAKI_SWIZZLE_IDX(M_, N_, IB, JB) \
+    do { \
+      const int tm_sw_ = OZAKI_TILES_M(M_); \
+      const int lin_sw_ = (int)get_group_id(0) + tm_sw_ * (int)get_group_id(1); \
+      const int gid_sw_ = lin_sw_ / (OZAKI_SWIZZLE * OZAKI_TILES_N(N_)); \
+      const int rem_sw_ = lin_sw_ % (OZAKI_SWIZZLE * OZAKI_TILES_N(N_)); \
+      const int lo_sw_ = gid_sw_ * (OZAKI_SWIZZLE); \
+      const int wid_sw_ = ((tm_sw_ - lo_sw_) < (OZAKI_SWIZZLE)) ? (tm_sw_ - lo_sw_) : (OZAKI_SWIZZLE); \
+      (IB) = lo_sw_ + rem_sw_ % wid_sw_; \
+      (JB) = rem_sw_ / wid_sw_; \
+    } while (0)
+#else
+# define OZAKI_SWIZZLE_IDX(M_, N_, IB, JB) \
+    do { \
+      (IB) = (int)get_group_id(0); \
+      (JB) = (int)get_group_id(1); \
+    } while (0)
+#endif
+
+/**
  * Unfused reconstruction (OZAKI_UNFUSE): the GEMM writes one residue byte per
  * prime and output, a second kernel reconstructs. The point is not the extra
  * kernel but what it removes - with the prime loop outermost the fused kernel
@@ -536,8 +576,8 @@
 # if (1 != RTM) || ((8 != RTN) && (16 != RTN))
 #   error OZAKI_WGMMA implies RTM=1 and RTN=8 or 16 (m64n64k32 / m64n128k32).
 # endif
-# if (64 != BM) && (128 != BM)
-#   error OZAKI_WGMMA implies BM=64 or BM=128 (one or two warp groups).
+# if (64 != BM) && (128 != BM) && (256 != BM)
+#   error OZAKI_WGMMA implies BM=64, 128 or 256 (one, two or four warp groups).
 # endif
 # if (1 != PB) || (KGROUPS > 0) || (0 == OZAKI_HIER)
 #   error OZAKI_WGMMA implies PB=1, no K-grouping and hierarchical CRT.
@@ -628,7 +668,28 @@
       } \
     } while (0)
 
-# if defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
+# if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
+/**
+ * B blocked: 16 consecutive K-values of a column are contiguous, so one work-item
+ * moves 16 bytes like it does for A, and consecutive work-items read consecutive
+ * columns 16 bytes apart - a warp covers 512 contiguous bytes. This is the variant
+ * that removes three quarters of the copies without giving up coalescing.
+ *
+ * The lane must walk columns, not k-blocks: it is the column index that the global
+ * layout makes contiguous here, the opposite of OZAKI_BKMAJOR. Mapping lanes to
+ * k-blocks instead reads 64 KB apart and measured 9.5 against 8.1 ms.
+ */
+# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) \
+    do { \
+      int ib_; \
+      for (ib_ = (WT); ib_ < (BN * WBK) / 16; ib_ += WGS) { \
+        const int c_ = ib_ % BN; \
+        const int j_ = ib_ / BN; \
+        OZAKI_WGMMA_COPY16((SB) + (((c_ >> 3) * (WBK / 16) + j_) * 8) + (c_ & 7), \
+          (BS_K) + ((long)(((KOFF) >> 4) + j_) * (N_PAD_) + (NB) + c_) * 16); \
+      } \
+    } while (0)
+# elif defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
 /* B transposed: a column's K is contiguous, so B stages exactly like A. */
 # define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) \
     do { \
@@ -1698,6 +1759,55 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
   if (0 == kk && col < N) expb[col] = col_max_exp[nj];
 
   /* Pass 2: compute and store CRT residues using the true max exponent */
+#if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
+  /**
+   * Blocked layout: a work-item owns whole 16-K blocks of its column, so the
+   * NPRIMES stores per block are one 16-byte store each instead of 16 scattered
+   * bytes, and consecutive work-items still write consecutive columns. Emitting the
+   * padding as zeros is what the tail of a partial block needs anyway.
+   */
+  if (col < N) {
+    const short max_exp = (short)col_max_exp[nj];
+    int kb;
+    for (kb = kk; kb < (K_pad >> 4); kb += BK_PRE) {
+      ulong aligned[16];
+      int sign[16];
+      int i;
+      SINT p;
+      UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
+      {
+        const int krow = (kb << 4) + i;
+        aligned[i] = 0;
+        sign[i] = 0;
+        if (krow < K) {
+          int s1;
+          short e1;
+          uint_repr_t m1;
+          const int idx = OZAKI_IDX_B(krow, col, ldb);
+          ieee_decompose(b[idx], &s1, &e1, &m1);
+          if (m1 != 0) {
+            const int shift = (int)(max_exp - e1);
+            aligned[i] = (shift + MANT_TRUNC <= MANT_BITS) ? (ulong)(m1 >> (shift + MANT_TRUNC)) : 0;
+            sign[i] = s1;
+          }
+        }
+      }
+      UNROLL_FORCE(NPRIMES) for (p = 0; p < NPRIMES; ++p)
+      {
+        union {
+          uchar b[16];
+          uint4 v;
+        } blk;
+        UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
+        {
+          uint r = oz2g_mod64(aligned[i], p);
+          if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
+          blk.b[i] = (uchar)r;
+        }
+        *(global uint4*)(bs + (long)p * K_pad * N_pad + ((long)kb * N_pad + col) * 16) = blk.v;
+      }
+    }
+#else
   if (col < N) {
     const short max_exp = (short)col_max_exp[nj];
     for (row = kk; row < K; row += BK_PRE) {
@@ -1712,6 +1822,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
         OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, K_pad, row, col);
       }
     }
+#endif
   }
 }
 
@@ -1753,15 +1864,15 @@ kernel void gemm_crt_fused(
   CONSTANT const int* restrict expa = expa_base + expa_index;
   CONSTANT const int* restrict expb = expb_base + expb_index;
   global real_t* restrict c = c_base + c_index;
-  const int ib_idx = (int)get_group_id(0);
-  const int jb_idx = (int)get_group_id(1);
   const int sg_lid = (int)SGLID();
   const int sg_id = (int)SGID();
   const int tile_m = sg_id / NTN;
   const int tile_n = sg_id % NTN;
-  const int mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
-  const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
   const long a_plane = (long)M_pad * K_pad;
+  int ib_idx, jb_idx, mi_base, nj_base;
+  OZAKI_SWIZZLE_IDX(M, N, ib_idx, jb_idx);
+  mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
+  nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
   const long b_plane = (long)K_pad * N_pad;
 #if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
   /* Work-group tile base (staging is cooperative, unlike the per-sub-group MI/NJ). */
@@ -2008,16 +2119,17 @@ kernel void gemm_crt_reduce(CONSTANT const uchar* restrict res_base, /* [NPRIMES
   CONSTANT const int* restrict expa = expa_base + expa_index;
   CONSTANT const int* restrict expb = expb_base + expb_index;
   global real_t* restrict c = c_base + c_index;
-  const int ib_idx = (int)get_group_id(0);
-  const int jb_idx = (int)get_group_id(1);
   const int sg_lid = (int)SGLID();
   const int sg_id = (int)SGID();
   const int tile_m = sg_id / NTN;
   const int tile_n = sg_id % NTN;
-  const int mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
-  const int nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
-  const long rbase = OZAKI_RES_BASE(ib_idx, jb_idx, N, sg_id, sg_lid);
+  int ib_idx, jb_idx, mi_base, nj_base;
+  long rbase;
   const long rplane = OZAKI_RES_PLANE(M, N);
+  OZAKI_SWIZZLE_IDX(M, N, ib_idx, jb_idx);
+  mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
+  nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
+  rbase = OZAKI_RES_BASE(ib_idx, jb_idx, N, sg_id, sg_lid);
   uint dot_r_[HIER_GS];
   uint vg_[HIER_NGROUPS];
   uint gval_[HIER_NGROUPS];

@@ -87,10 +87,12 @@ speed, which is why the default is per-vendor.
 | OZAKI_SCALAR_ACC | 0       | Sch.1: force scalar accumulation                                 |
 | OZAKI_BVNNI      | 1       | NVIDIA: pre-interleave B so each operand is one aligned uint     |
 | OZAKI_BKMAJOR    | 0       | NVIDIA, Sch.2: transpose B to [N][K] instead (see below)         |
+| OZAKI_BBLOCK     | (auto)  | Sch.2: block 16 K-values of a B column. On with wgmma (below)     |
 | OZAKI_WGMMA      | (auto)  | Sch.2: warp-group MMA. On where reachable (see below)            |
 | OZAKI_WGMMA_N    | 128     | Warp-group tile width, 64 or 128                                 |
 | OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
 | OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for NVIDIA (see below)     |
+| OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
 
 On NVIDIA GPUs the Scheme-2 default RTN=8 is tuned for large K: it
 doubles the output tile per work-group, which needs a long K-loop to
@@ -157,12 +159,55 @@ added for a total; the FLOP rate is attributed to the GEMM row alone.
 And it needs scratch memory of `OZAKI_N` bytes per output element, twice
 the size of C in fp64, which is freed per call.
 
+`OZAKI_BBLOCK` stores B so that 16 consecutive K-values of one column
+are contiguous, with columns 16 bytes apart. It is the default wherever
+warp-group MMA runs, and `OZAKI_BBLOCK=0` selects the 4-byte interleave.
+
+The reason is copy count. The warp-group loop is bound by how many
+`cp.async` instructions the staging needs, not by bandwidth: splitting
+A's 16-byte copies into 4-byte ones costs 107% for the same bytes. B
+staged from the interleave needs four times the copies of A, and this
+layout removes three quarters of them while keeping both sides
+coalesced - the transposed layout gives the consumer its 16 bytes but
+scatters the producer, and the interleave coalesces both but forces the
+4-byte copies. Measured: the GEMM gains 18% at n=4096 (8.03 -> 6.89 ms),
+14% at n=8192, 55% at n=1024 and 40% at n=257, while B preprocessing
+pays 0.53 -> 0.73 ms, so about 11% net at n=4096 and more below it.
+Bit-identical, and the lane must walk columns rather than K-blocks -
+mapping it the other way reads 64 KB apart and loses 17% instead.
+
+`OZAKI_SWIZZLE=W` walks the tile grid in strips W tiles wide instead of
+in the launch order, so the work-groups resident at one time cover a
+block rather than a column of the grid and re-read the residue planes
+fewer times. It is off by default because it barely pays: measured at
+n=8192 it gains 4% on the GEMM (68.9 -> 66.1 ms at W=8) and costs the
+reconstruction pass 13% (2.51 -> 2.57), for about 4% net, and at n=4096
+it is a wash. Worth trying only for large square problems.
+
 `OZAKI_BKMAJOR=1` selects the transposed B layout, which exists for
 warp-group MMA (both operands K-major) and is exact like the default
 but slower for the kernels shipping today: at n=4096 it costs the fused
 GEMM 15.4 -> 21.0 ms and B preprocessing 0.5 -> 3.5 ms, because
 consecutive lanes then read `K_pad` apart instead of 4 bytes apart.
-Enabling it only pays for a consumer that stages B cooperatively.
+It does not pay for the warp-group path either, although that one stages
+B cooperatively and could use 16-byte copies from a K-major layout: it
+measured 8.1 -> 9.5 ms at n=4096, because the loss in global-side
+coalescing outweighs the cheaper staging.
+
+The hierarchical CRT groups primes for the two-level reconstruction, and
+the group size is derived from the prime count rather than fixed: 4 is
+the maximum the 32-bit level-2 datapath allows, but a group left holding
+a single prime is pathological. At the fp32 count of 9 primes, groups of
+4 leave a 4,4,1 split whose reconstruction costs 1.21 ms at n=4096 -
+twice what a 12-prime run of three full groups costs - so fp32 uses
+groups of 3 and measures 0.83 ms. fp64 (16 primes) keeps groups of 4 and
+is unaffected. Regrouping changes the order of the final Horner
+summation, so an fp32 result can differ in the last bits from an earlier
+release, at the same accuracy (`linf_rel` around 1e-06 either way);
+integer CRT reconstruction is exact regardless of grouping.
+
+No other setting differs by precision: the tile, staging depth, B layout
+and warp-group geometry were swept for fp32 and rank exactly as in fp64.
 
 ### Memory and Caching
 
