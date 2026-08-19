@@ -178,7 +178,7 @@ publicly available for benchmarking.
   SEG wiki page (registration may be required):
     https://wiki.seg.org/wiki/2004_BP_Velocity_Estimation_Benchmark_Model
 
-### Valhall 2D (VTI -- anisotropic)
+### Valhall 2D (VTI — anisotropic)
 
     Grid:    641 x 209           (n1=209 depth, n2=641 lateral)
     Spacing: 25 m
@@ -195,7 +195,7 @@ publicly available for benchmarking.
     https://www.geoazur.fr/WIND/pub/nfs/FWI-DATA/GEOMODELS/Valhall2D/eta_true.bin
     https://www.geoazur.fr/WIND/pub/nfs/FWI-DATA/GEOMODELS/Valhall2D/rho_true.bin
 
-### BP 2007 TTI (2D -- tilted anisotropy)
+### BP 2007 TTI (2D — tilted anisotropy)
 
     Grid:    ~1911 x 12480
     Spacing: 6.25 m
@@ -254,8 +254,8 @@ The standard metric for stencil codes is GPoints/s:
 This measures throughput independent of the internal algorithm (direct
 FD, GEMM-based, FFT, etc.) and is directly comparable across:
 
-    - Devito (Imperial College) -- symbolic PDE -> optimized C/OpenCL
-    - minimod (TotalEnergies) -- open-source GPU stencil mini-app
+    - Devito (Imperial College) — symbolic PDE -> optimized C/OpenCL
+    - minimod (TotalEnergies) — open-source GPU stencil mini-app
     - Published results on PVC, A770, H100, MI300X
 
 For reference, a memory-bandwidth-bound 8th-order stencil on PVC
@@ -340,7 +340,7 @@ per-block dispatch logic and is not yet implemented.
 
 The stencil API (stencil_opencl.h) accepts device pointers for all
 buffer arguments (wavefield, output, velocity).  No host-device
-transfers happen inside the dispatch path -- data stays on-device
+transfers happen inside the dispatch path — data stays on-device
 across the full time-stepping loop.
 
 ### Initialization and USM control
@@ -398,7 +398,7 @@ argument-setting path.
 The kernels include a scalar fallback that runs on any OpenCL 1.2+
 device without DPAS/XMX hardware.  This enables functional testing
 and correctness verification on iGPUs, CPUs, and other devices.
-Performance is not representative -- the proxy exists purely for
+Performance is not representative — the proxy exists purely for
 development and validation.
 
 ## File Layout

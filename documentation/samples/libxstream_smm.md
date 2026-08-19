@@ -1,4 +1,4 @@
-# Small Matrix Multiplication (SMM) -- OpenCL
+# Small Matrix Multiplication (SMM) — OpenCL
 
 Batched small matrix multiplications (SMM) on OpenCL devices via the
 ACC LIBSMM interface. Originated from the DBCSR OpenCL backend,
