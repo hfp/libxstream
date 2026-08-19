@@ -196,6 +196,12 @@ typedef struct ozaki_context_t {
   int sb; /* Scheme-1 slice-block width for the pair loop (1 = unblocked) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
   int nv_mma; /* NV MMA path enabled (m16n8k32, SG=32) */
+  /**
+   * NVIDIA GPU (devinfo->nv level, 0 = not NVIDIA). Kept because scheme selection
+   * needs it: every Scheme-2 improvement of this port is NVIDIA-side, so the
+   * crossover model no longer describes that device.
+   */
+  int nv;
   int u8; /* Sch.2: unsigned residues (moduli<=256) rather than signed i8 */
   /**
    * Warp-group MMA (Hopper): the fused CRT kernel carries markers that the host

@@ -421,6 +421,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       sg = 16;
     }
     ctx->nv_mma = nv_mma;
+    ctx->nv = (0 != gpu) ? nv : 0;
   }
   ctx->sg = sg;
 

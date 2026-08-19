@@ -330,19 +330,50 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
    * knob here; trimmed Scheme 2 needs explicit kind==2. kind==1 or kind==2
    * force that scheme.
    *
-   * In fp32 the comparison does not apply: four slices yield at most 16 pairs
-   * against nine moduli, a ratio of 1.8 rather than the 4 seen in fp64 (64 vs
-   * 16), and Scheme 1 recovers that from its shorter K-loop and cheaper
+   * In fp32 the comparison does not apply on Intel: four slices yield at most 16
+   * pairs against nine moduli, a ratio of 1.8 rather than the 4 seen in fp64 (64
+   * vs 16), and Scheme 1 recovers that from its shorter K-loop and cheaper
    * epilogue. Measured on Xe DPAS, Scheme 1 leads for every shape tried, from
-   * n=512 up to K=16384 where Scheme 2 comes closest (12135 vs 11350
-   * GFLOPS/s), so counting GEMMs mispredicts here and Scheme 1 is selected
-   * outright; fp32 CRT stays reachable through kind==2.
+   * n=512 up to K=16384 where Scheme 2 comes closest (12135 vs 11350 GFLOPS/s),
+   * so counting GEMMs mispredicts there and Scheme 1 is selected outright; fp32
+   * CRT stays reachable through kind==2. NVIDIA is handled separately below, and
+   * for the opposite reason.
    */
   { const int sq = ctx->ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
     if (2 == ctx->kind) {
       use_scheme1 = 0;
     }
-    else if (1 == ctx->kind || 0 == ctx->use_double) {
+    else if (1 == ctx->kind) {
+      use_scheme1 = 1;
+    }
+    else if (0 != ctx->nv) {
+      /**
+       * On NVIDIA the comparison no longer describes the device: every Scheme-2
+       * improvement of the warp-group work (wgmma, the unfused reconstruction, the
+       * blocked B layout) landed on that path and none of it on Scheme 1, whose
+       * pair loop still carries a per-pair epilogue. Measured on an H100 at
+       * m=n=4096, Scheme 2 against Scheme 1: 36x at K=4096 (7.6 vs 270 ms), 16x at
+       * K=256, 12x at n=1024, 2.3x at n=256, and 13.9x in fp32 (4.8 vs 66) - so
+       * Scheme 2 wins at every shape and both precisions, with comparable accuracy
+       * (fp32 linf_rel ~1e-06 either way). Counting GEMMs would pick Scheme 1 below
+       * K of about 1638 and always in fp32, which costs up to 14x.
+       *
+       * The gate is the vendor and not the matrix engine, which is measured rather
+       * than assumed: forcing the level with LIBXSTREAM_NV at m=n=2048 gives Scheme
+       * 2 ahead by 5.8x on dp4a (7.9 vs 46.0 ms), 14.6x on mma.sync and 23.7x with
+       * warp-group MMA, and 3.8x/9.8x at K=256. So wgmma is not the cause - the
+       * unfused reconstruction applies at every level.
+       *
+       * What these ratios measure is the state of the two implementations, not the
+       * merit of the two schemes: Scheme 1 on NVIDIA is simply untuned, with no
+       * warp-group path, no unfused epilogue and tile defaults inherited from Intel,
+       * which is also why it is insensitive to the engine (34.3 ms at nv=3 against
+       * 34.1 at nv=4). Deliberately out of scope. Revisit the selection if Scheme 1
+       * ever gets the same treatment.
+       */
+      use_scheme1 = 0;
+    }
+    else if (0 == ctx->use_double) {
       use_scheme1 = 1;
     }
     else {
