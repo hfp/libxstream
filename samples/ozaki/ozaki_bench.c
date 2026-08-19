@@ -121,7 +121,7 @@ int main(int argc, char* argv[])
   if (EXIT_SUCCESS == result) {
     const char* env;
     int ozflags = -1 /*auto*/, oztrim = 0, ndecomp = 0 /*auto*/;
-    int ozgroups = 0, kind = 1 /*int8*/, verbosity = 0;
+    int ozgroups = 0, kind = 0 /*auto: ozaki_init decides*/, verbosity = 0;
     /* tm/tn stay 0: ozaki_init reads OZAKI_TM/OZAKI_TN and selects per call. */
     const int tm = 0, tn = 0;
     int use_double = 1;

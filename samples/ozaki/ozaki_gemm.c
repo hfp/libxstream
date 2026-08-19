@@ -44,6 +44,12 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
  * core matrix 16 bytes apart, the two K-halves of a row 128 bytes apart, and
  * m-blocks (WBK/16) core matrices apart.
  *
+ * The marker states which operand form it wants, so this pass needs no flag from
+ * the caller: "pa=" is the SS form, both operands described out of shared memory,
+ * and "a={" is the RS form, where A arrives in registers and only B keeps a
+ * descriptor (%wgda is then declared and unused, which is legal and cheaper than
+ * scanning for the form before the prologue is written).
+ *
  * fence.proxy.async.shared::cta is not optional: the tiles are written with
  * ordinary shared-memory stores, and wgmma reads them through the async proxy,
  * which the work-group barrier does not order against (wgmma.fence orders
@@ -80,7 +86,7 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
       ++scan;
     }
     if (0 != nmarker) {
-      cap = size_rt + nmarker * 768 + 256;
+      cap = size_rt + nmarker * 1024 + 256;
       out = (char*)libxs_malloc(NULL, cap, 0 /*auto-align*/);
     }
     if (NULL != out) {
@@ -112,7 +118,7 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
         while (line > retargeted && '\n' != line[-1]) --line;
         eol = strchr(first, '\n');
         head = (size_t)(line - src);
-        if (NULL == eol || cap <= (off + head + 768)) {
+        if (NULL == eol || cap <= (off + head + 1024)) {
           ok = EXIT_FAILURE;
         }
         else if (first == w) { /* the group wait, hoisted out of the chunk loop */
@@ -122,11 +128,19 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
           src = eol + 1;
         }
         else {
+          const char* alist = NULL;
+          const char* aend = NULL;
           dlist = strstr(m, " d={");
           dend = (NULL != dlist) ? strchr(dlist, '}') : NULL;
           if (NULL != dlist) dlist += 4; /* past " d={" */
+          if (NULL != dend && 0 == strncmp(dend, "} a={", 5)) { /* A from registers */
+            alist = dend + 5;
+            aend = strchr(alist, '}');
+          }
           if (NULL == dend || 1 != sscanf(m + sizeof(marker) - 1, "%i", &width) ||
-              (64 != width && 128 != width) || 2 != sscanf(dend, "} pa=%31s pb=%31s", pa, pb))
+              (64 != width && 128 != width) ||
+              (NULL == alist ? (2 != sscanf(dend, "} pa=%31s pb=%31s", pa, pb))
+                             : (NULL == aend || 1 != sscanf(aend, "} pb=%31s", pb))))
           {
             ok = EXIT_FAILURE;
           }
@@ -134,18 +148,32 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
             const size_t ndig = (size_t)(dend - dlist);
             memcpy(out + off, src, head);
             off += head;
+            if (NULL == alist) {
+              off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
+                "\tshr.u64 %%wgda, %s, 4;\n\tand.b64 %%wgda, %%wgda, 16383;\n"
+                "\tor.b64 %%wgda, %%wgda, 0x%x%08x;\n",
+                pa, desc_hi, desc_lo);
+            }
             off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
-              "\tshr.u64 %%wgda, %s, 4;\n\tshr.u64 %%wgdb, %s, 4;\n"
-              "\tand.b64 %%wgda, %%wgda, 16383;\n\tand.b64 %%wgdb, %%wgdb, 16383;\n"
-              "\tor.b64 %%wgda, %%wgda, 0x%x%08x;\n\tor.b64 %%wgdb, %%wgdb, 0x%x%08x;\n"
+              "\tshr.u64 %%wgdb, %s, 4;\n\tand.b64 %%wgdb, %%wgdb, 16383;\n"
+              "\tor.b64 %%wgdb, %%wgdb, 0x%x%08x;\n"
               "\tfence.proxy.async.shared::cta;\n"
               "\twgmma.fence.sync.aligned;\n"
               "\twgmma.mma_async.sync.aligned.m64n%ik32.s32.%s.%s {",
-              pa, pb, desc_hi, desc_lo, desc_hi, desc_lo, width, etype, etype);
+              pb, desc_hi, desc_lo, width, etype, etype);
             memcpy(out + off, dlist, ndig);
             off += ndig;
+            if (NULL == alist) {
+              off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, %%wgda, ");
+            }
+            else {
+              off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, {");
+              memcpy(out + off, alist, (size_t)(aend - alist));
+              off += (size_t)(aend - alist);
+              off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, ");
+            }
             off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
-              "}, %%wgda, %%wgdb, 1;\n"
+              "%%wgdb, 1;\n"
               "\twgmma.commit_group.sync.aligned;\n");
             src = eol + 1;
           }
@@ -175,7 +203,7 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
  * failure the program is released and NULL is returned through it, so the caller
  * refuses the kernel: an unspliced marker kernel would compute zeros silently.
  */
-static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, cl_program* program)
+static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, int wku, cl_program* program)
 {
   char* binary = NULL;
   char* patched = NULL;
@@ -183,8 +211,30 @@ static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, cl
   cl_program spliced = NULL;
   int result = libxstream_opencl_program_binary(*program, &binary, &size);
   if (EXIT_SUCCESS == result) {
-    patched = ozaki_wgmma_splice(binary, size, "gemm_crt_fused", ctx->ku * ctx->bk_pre, ctx->u8);
+    patched = ozaki_wgmma_splice(binary, size, "gemm_crt_fused", wku * ctx->bk_pre, ctx->u8);
     result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
+  /**
+   * Complete the dump trio: the library writes <name>.cl (the OpenCL source) and
+   * <name>.dump (the binary it retrieved, PTX carrying markers), neither of which
+   * is what the device ends up running. Without <name>.ptx the ISA-level checks
+   * (ptxas -arch=sm_90a --verbose) cannot be performed at all, and the marker PTX
+   * is not a substitute: a comment-only asm lets ptxas fold the accumulator
+   * operands away, so it reports register pressure the real kernel never has.
+   */
+  if (EXIT_SUCCESS == result) {
+    const char *const env_dump = getenv("LIBXSTREAM_DUMP");
+    const int dump = (NULL != env_dump) ? atoi(env_dump) : 0;
+    if (2 <= dump || 0 > dump) {
+      char filename[256];
+      if (0 < LIBXS_SNPRINTF(filename, sizeof(filename), "%s.ptx", name)) {
+        FILE* const file = fopen(filename, "w");
+        if (NULL != file) {
+          fputs(patched, file);
+          fclose(file);
+        }
+      }
+    }
   }
   if (EXIT_SUCCESS == result) {
     result = libxstream_opencl_program(strlen(patched), patched, name, "" /*build_params*/, "" /*build_options*/,
@@ -223,7 +273,7 @@ static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, cl
  * and the tile request have already consumed, and would leave the fallback at
  * RTN=16, where the mma.sync kernel measured 21.5 against 15.4 ms.
  */
-int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes)
+int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes, int rs)
 {
   const int nacc = width / 2; /* RTN * XMX_FRAG accumulators per work-item */
   const unsigned int nvec = (unsigned int)(lbytes / 16);
@@ -242,24 +292,42 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lby
       "kernel void ozaki_wgmma_probe(global int* restrict c, int n)\n{\n"
       "  local uint4 s[%u];\n"
       "  int d[%i];\n"
-      "  int i;\n"
+      "  int i;\n",
+      nvec, nacc);
+    if (0 != rs) {
+      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
+        "  const uint a0 = (uint)n, a1 = a0, a2 = a0, a3 = a0;\n");
+    }
+    off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
       "  for (i = 0; i < %i; ++i) d[i] = n;\n"
       "  for (i = (int)get_local_id(0); i < %u; i += (int)get_local_size(0)) s[i] = (uint4)(0);\n"
       "  barrier(CLK_LOCAL_MEM_FENCE);\n"
       "  asm volatile(\"// WGMMA_SLOT n%i d={",
-      nvec, nacc, nacc, nvec, width);
+      nacc, nvec, width);
     for (i = 0; i < nacc; ++i) {
       off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "%s%%%i", (0 != i) ? "," : "", i);
     }
-    off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "} pa=%%%i pb=%%%i\"\n    : ", nacc, nacc + 1);
+    if (0 != rs) {
+      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "} a={%%%i,%%%i,%%%i,%%%i} pb=%%%i\"\n    : ",
+        nacc, nacc + 1, nacc + 2, nacc + 3, nacc + 4);
+    }
+    else {
+      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "} pa=%%%i pb=%%%i\"\n    : ", nacc, nacc + 1);
+    }
     for (i = 0; i < nacc; ++i) {
       off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "%s\"+r\"(d[%i])", (0 != i) ? ", " : "", i);
     }
+    if (0 != rs) {
+      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
+        " : \"r\"(a0), \"r\"(a1), \"r\"(a2), \"r\"(a3), \"l\"(s));\n");
+    }
+    else {
+      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, " : \"l\"(s), \"l\"(s + %u));\n", nvec / 2);
+    }
     off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
-      " : \"l\"(s), \"l\"(s + %u));\n"
       "  asm volatile(\"// WGMMA_WAIT\" ::: \"memory\");\n"
       "  for (i = 0; i < %i; ++i) c[i] = d[i];\n}\n",
-      nvec / 2, nacc);
+      nacc);
     result = (cap > off) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   if (EXIT_SUCCESS == result) {
@@ -1182,13 +1250,29 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
       cl_program program = NULL;
       memset(&newset, 0, sizeof(newset));
       { char pname[64];
+        /**
+         * Staging depth belongs to the specialization, not to the context: a deeper
+         * round buys instruction amortization at the price of shared memory, and
+         * shared memory is what decides whether a second work-group stays resident.
+         * Where the tile grid fills the device that trade is worth taking, and where
+         * ozaki_tile_select had to shrink the tile to keep the device busy it is not
+         * - measured with A in registers at 1024x1024x4096, 0.68 ms at half depth
+         * against 0.78 at full, while at M=N=4096 full depth leads even at K=1024.
+         */
+        const int wku = (0 != ctx->wgmma_rs && tm < ctx->tm_req && 4 <= ctx->ku) ? (ctx->ku / 2) : ctx->ku;
         LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d%s", tm, tn, 0 != bounds ? "b" : "");
-        LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d%s",
-          ctx->crt_flags, tm, tn, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
+        if (0 != ctx->wgmma) {
+          LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DOZAKI_WGMMA_KU=%d%s",
+            ctx->crt_flags, tm, tn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
+        }
+        else {
+          LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d%s",
+            ctx->crt_flags, tm, tn, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
+        }
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags,
               ctx->crt_options, NULL, NULL, NULL, 0, &program)) {
-          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, &program);
+          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, wku, &program);
           if (NULL != program) {
             libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
             if (0 != ctx->unfuse) {

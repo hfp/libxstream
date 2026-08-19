@@ -161,7 +161,7 @@ typedef struct ozaki_context_t {
   int ndecomp; /* number of decomposition components (slices or primes, per active kind) */
   int nslices; /* Ozaki-1: number of mantissa slices (compiled into Scheme-1 kernels) */
   int nprimes; /* Ozaki-2: number of CRT primes (compiled into Scheme-2 kernels) */
-  int kind; /* 1: ozaki1 int8, 2: ozaki2 int8 (CRT), 0: adaptive */
+  int kind; /* resolved: 1 = ozaki1 int8, 2 = ozaki2 int8 (CRT), 3 = adaptive */
   int ozflags; /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim; /* Precision levels to trim (~2 bits each). */
   int verbosity; /* 0: quiet, 1: info, 2+: debug */
@@ -211,6 +211,13 @@ typedef struct ozaki_context_t {
    */
   int wgmma;
   /**
+   * Warp-group MMA with A in registers (RS form) rather than both operands staged
+   * in shared memory. Halves the tile's shared footprint and drops the A staging
+   * and its share of the barrier; B keeps its descriptor because only A may come
+   * from registers.
+   */
+  int wgmma_rs;
+  /**
    * Unfused reconstruction: the GEMM stores residue bytes and a second kernel
    * reconstructs C. Trades one round trip through global memory for the
    * per-work-item group-value frame the fused epilogue has to keep live across
@@ -258,7 +265,10 @@ typedef struct ozaki_context_t {
  * Pass -1 for ozflags to use the default (TRIANGULAR | SYMMETRIZE);
  * 0 disables both flags.  Auto defaults choose XMX-friendly sizes
  * when hardware support is detected.
- * kind: 1 = ozaki1 int8 (default), 2 = ozaki2 int8 (CRT).
+ * kind: 1 = ozaki1 int8, 2 = ozaki2 int8 (CRT), anything else (pass 0) = no
+ * request, i.e. adaptive per call. The default for an unspecified kind is
+ * resolved here and not by the caller, so that two drivers cannot disagree
+ * about what "unspecified" means; forcing a scheme stays the caller's right.
  * verbosity: 0 = quiet, 1 = info, 2+ = debug.
  * ozgroups (Scheme 2 only): K-grouping factor, 0/1 = disabled.
  */
@@ -293,10 +303,11 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
  * Whether warp-group MMA is reachable on this device, answered by splicing and
  * building a throwaway kernel with the same marker, descriptor geometry (wbk) and
  * shared-memory footprint (lbytes) as the real one. width is the instruction's N
- * (64 or 128). Build-only, hence no stream: see the definition for why nothing
- * cheaper is conclusive. EXIT_SUCCESS means the path may be enabled.
+ * (64 or 128) and rs selects the operand form the real kernel will use, since the
+ * two do not assemble alike. Build-only, hence no stream: see the definition for
+ * why nothing cheaper is conclusive. EXIT_SUCCESS means the path may be enabled.
  */
-int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes);
+int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes, int rs);
 
 /**
  * N-panel width for the pipelined path, or N itself when panelling does not

@@ -43,7 +43,7 @@ All arguments are positional and optional:
 
 | Variable | Default | Description                                                       |
 |----------|---------|-------------------------------------------------------------------|
-| OZAKI    | 2       | 1=mantissa slicing, 2=CRT (default), 3=adaptive, 0=bypass BLAS    |
+| OZAKI    | 3       | 1=mantissa slicing, 2=CRT, 3=adaptive (default when unset)        |
 | OZAKI_FP | 64      | 64=fp64 (double), 32=fp32 (float)                                 |
 | OZAKI_N  | (auto)  | Slices (Sch.1: fp64=8, fp32=4) or primes (Sch.2: fp64=16, fp32=9) |
 
@@ -62,11 +62,14 @@ host readback.
 | OZAKI_TRIM    | 0       | Precision levels to trim (0=exact). ~7 bits (Sch.1), ~4 bits (Sch.2) |
 | OZAKI_I8      | 0       | Sch.2: use signed i8 residues (moduli<=128) instead of u8            |
 | OZAKI_GROUPS  | 0       | Sch.2: K-grouping factor, consecutive K panels share reconstr.       |
-| OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 (NV MMA), 2 (other)       |
+| OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 if unfused, else 2        |
 
 `OZAKI_FRACCRT=1` trades exactness for speed (flat fractional sum,
 magnitude-bounded); modes 0 and 2 are both exact and differ only in
-speed, which is why the default is per-vendor.
+speed. Which one is faster depends on the epilogue rather than on the
+device: with `OZAKI_UNFUSE` the reconstruction is a separate pass and
+Garner wins, without it the fractional variant does, so the default
+follows that knob.
 
 ### Hardware Control
 
@@ -79,7 +82,7 @@ speed, which is why the default is per-vendor.
 | OZAKI_WG         | 0       | Work-group size hint (0=no hint)                                 |
 | OZAKI_SG         | (auto)  | Sub-group size (forced to 16 with XMX)                           |
 | OZAKI_BIGGRF     | (auto)  | Override 256-GRF detection (0=off, 1=on). HIER defaults to 128   |
-| OZAKI_KU         | 2       | K-loop unroll factor (8 with OZAKI_WGMMA)                        |
+| OZAKI_KU         | 2       | K-loop unroll factor (16 with OZAKI_WGMMA, 8 if RS is off)       |
 | OZAKI_RC         | 8       | DPAS repeat count (8 or 4)                                       |
 | OZAKI_PB         | 1       | Sch.2: CRT prime batching factor                                 |
 | OZAKI_HIER       | (auto)  | Sch.2: hierarchical CRT (default on). Two-level Garner reconstr. |
@@ -87,11 +90,12 @@ speed, which is why the default is per-vendor.
 | OZAKI_SCALAR_ACC | 0       | Sch.1: force scalar accumulation                                 |
 | OZAKI_BVNNI      | 1       | NVIDIA: pre-interleave B so each operand is one aligned uint     |
 | OZAKI_BKMAJOR    | 0       | NVIDIA, Sch.2: transpose B to [N][K] instead (see below)         |
-| OZAKI_BBLOCK     | (auto)  | Sch.2: block 16 K-values of a B column. On with wgmma (below)     |
+| OZAKI_BBLOCK     | (auto)  | Sch.2: block 16 K-values of a B column. On with wgmma (below)    |
 | OZAKI_WGMMA      | (auto)  | Sch.2: warp-group MMA. On where reachable (see below)            |
 | OZAKI_WGMMA_N    | 128     | Warp-group tile width, 64 or 128                                 |
 | OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
-| OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for NVIDIA (see below)     |
+| OZAKI_WGMMA_RS   | 1       | Warp-group MMA takes A from registers instead of shared memory   |
+| OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for GPUs (see below)      |
 | OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
 
 On NVIDIA GPUs the Scheme-2 default RTN=8 is tuned for large K: it
@@ -101,13 +105,12 @@ pay for itself (+38% at n=4096). Below K of about 1024 it costs 6%
 
 Warp-group MMA runs the Scheme-2 GEMM on Hopper's `wgmma` instead of
 `mma.sync`. It is the default wherever it is reachable, and
-`OZAKI_WGMMA=0` selects `mma.sync`. Measured on an H100 PCIe it is
-faster at every size and bit-identical: n=512 +6%, n=1024 +18%,
-n=2048 +19%, n=4096 +20% (15.7 -> 13.1 ms, 10504 GFLOPS), n=8192 +24%
-(108.6 -> 87.8 ms, 12519 GFLOPS), fp32 n=4096 +8%; `transa`, `transb`,
-rectangular and non-tile-multiple shapes all gain the same and match
-digit for digit. It needs hierarchical CRT, no K-grouping and
-`OZAKI_PB=1`, and it fixes the tile to
+`OZAKI_WGMMA=0` selects `mma.sync`. On an H100 PCIe it is faster at
+every size and bit-identical: the GEMM and reconstruction rows together
+are 13.66 -> 6.12 ms at n=4096 and 101.8 -> 45.8 at n=8192 against
+`mma.sync` at its own defaults, and `transa`, `transb`, rectangular and
+non-tile-multiple shapes gain the same. It needs hierarchical CRT, no
+K-grouping and `OZAKI_PB=1`, and it fixes the tile to
 `OZAKI_WGMMA_M`x`OZAKI_WGMMA_N` regardless of `OZAKI_TM`/`OZAKI_TN`.
 
 "Reachable" is established by building a throwaway kernel during
@@ -118,16 +121,13 @@ a part that accepts the 128 KB this path uses, and compute capability
 build fails, initialization says so under `OZAKI_VERBOSE=1` and the
 `mma.sync` path is used with its own tuning, at no cost in speed.
 
-Two knobs matter for it. `OZAKI_KU` sets how much K is staged per round
-and defaults to 8 here rather than 2: at 2 the barrier is not amortized
-and the path is slower than `mma.sync`. `OZAKI_WGMMA_M=128` runs two
-warp groups per work-group, which share one staged B tile and so read
-the residue planes once for twice the rows; the gain grows with the
-problem (+4% at n=2048, +18% at n=8192) and turns into a small loss
-below the point where the work-groups still fill the device, where the
-tile drops back to 64 rows automatically. Both cost shared memory:
-2 x (M + N) x KU x 32 bytes, i.e. 128 KB at the defaults, which holds
-an SM to one work-group. Lower `OZAKI_KU` if a device refuses that.
+Three knobs tune it, all set to the fastest measured value by default.
+`OZAKI_WGMMA_RS=0` stages A in shared memory instead of loading it into
+registers, and costs 10% (n=1024) to 40% (n=8192). `OZAKI_KU` sets how
+much K is staged per round (16 here, or 8 without RS); it is what the
+path spends shared memory on, 128 KB at the defaults, so lower it if a
+device refuses that. `OZAKI_WGMMA_M=128` runs two warp groups per
+work-group instead of one, worth +4% at n=2048 and +18% at n=8192.
 
 Two implications worth knowing. The kernel is built twice — once from
 OpenCL C, then again from patched PTX — because warp-group MMA cannot
@@ -139,8 +139,8 @@ run, since an unpatched kernel would silently compute zeros;
 `OZAKI_UNFUSE=1` moves the CRT reconstruction out of the GEMM into a
 second kernel: the GEMM stores one residue byte per prime and output,
 `gemm_crt_reduce` reads them back and reconstructs C. It is the default
-on NVIDIA GPUs, `OZAKI_UNFUSE=0` selects the fused epilogue, and both
-produce identical results.
+on GPUs, `OZAKI_UNFUSE=0` selects the fused epilogue, and both produce
+identical results.
 
 This is faster because of what it removes rather than what it adds. With
 the prime loop outermost, the fused kernel must keep every output's
@@ -152,7 +152,9 @@ n=4096: 13.08 ms fused against 7.87 + 0.66 unfused (+53%), and the GEMM
 alone beats even its own loop-only time, because the frame was slowing
 the K-loop too. The gain is largest where the epilogue dominated: +158%
 at n=257, +80% at n=2048, +76% in fp32. It is not warp-group specific
-and helps `mma.sync` by 11%.
+and helps `mma.sync` by 11%. Nor is it NVIDIA-specific: on a PVC (DPAS)
+the same figures are 0.66 -> 0.28 ms at n=257, 26.5 -> 22.0 at n=4096
+and 15.8 -> 12.6 in fp32, also bit-identical.
 
 Two things to know. Reading the profile, the two kernel rows have to be
 added for a total; the FLOP rate is attributed to the GEMM row alone.

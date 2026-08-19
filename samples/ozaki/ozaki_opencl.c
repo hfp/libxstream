@@ -287,17 +287,30 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
   int result = EXIT_SUCCESS;
-  int nv, has_fp64;
+  int nv, has_fp64, crt;
   int wg, sg, use_i8;
   int nslices, nprimes, oztrim_crt;
   const char* env;
   memset(ctx, 0, sizeof(*ctx));
 
-  if (0 >= kind) kind = 2;
+  /**
+   * Scheme request: 1 or 2 force that scheme, anything else asks for adaptive.
+   * The default for a caller that expresses no preference lives HERE and nowhere
+   * else, because a driver-side default is not a default but silent policy: two
+   * drivers over the same library disagreed on it (one passed 1, the other 2)
+   * while a third opinion sat in this function, so the same shape on the same
+   * device ran a different scheme depending on which binary asked. A driver may
+   * still force a scheme; what it may not do is decide what "unspecified" means.
+   * The per-call choice under adaptive is ozaki_gemm's, which is where the
+   * device-side knowledge is; the CPU-side equivalent belongs to the caller.
+   */
+  if (0 >= kind || 3 < kind) kind = 3;
+  crt = (1 != kind); /* CRT participates: forced (2) or possible (3) */
 
-  /* CRT (kind=2): no triangular/symmetrize (no cross-prime products) */
+  /* CRT: no triangular/symmetrize (no cross-prime products). Not under adaptive,
+   * where Scheme 1 may still run and the crossover counts its pairs. */
   if (2 == kind) {
-    if (0 > ozflags) ozflags = 0; /* CRT does not use triangular/symmetrize */
+    if (0 > ozflags) ozflags = 0;
   }
 
   if (0 > verbosity || 2 < verbosity) {
@@ -320,7 +333,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         fprintf(stderr, "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
         result = EXIT_FAILURE;
       }
-      else if ((2 == kind || 3 == kind) && (0 > verbosity || 0 < verbosity)) {
+      else if (0 != crt && (0 > verbosity || 0 < verbosity)) {
         fprintf(stderr, "INFO OZAKI: no cl_khr_fp64, Scheme 2 uses Garner reconstruction\n");
       }
     }
@@ -361,7 +374,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         nprimes = (np < 20) ? np + 1 : 20;
       }
     }
-    if (0 < maxk && 2 == kind) {
+    if (0 < maxk && 0 != crt) {
       static const int cumbits_u8[20] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
       static const int cumbits_i8[20] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
       const int* cumbits = (0 != use_i8) ? cumbits_i8 : cumbits_u8;
@@ -385,9 +398,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
     ctx->nslices = nslices;
     ctx->nprimes = nprimes;
-    ndecomp = (2 == kind) ? nprimes : nslices;
+    ndecomp = (0 != crt) ? nprimes : nslices;
   } /* ndecomp_auto */
-  if (2 == kind && 20 < ndecomp) ndecomp = 20;
+  if (0 != crt && 20 < ndecomp) ndecomp = 20;
   if (0 > ozflags) ozflags = OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE;
 
   ctx->use_double = use_double;
@@ -445,12 +458,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     char build_options[128];
     const int mant_bits = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
-    int rtm = 0, rtn = 0, rtm_req = 0, rtn_req = 0, ku_req, biggrf, hier, wgmma, fraccrt, crt_hier;
+    int rtm = 0, rtn = 0, rtm_req = 0, rtn_req = 0, ku_req, biggrf, hier, wgmma, wgmma_rs = 0;
+    int fraccrt, crt_hier, unfuse_pre;
     size_t max_wgs;
     int v;
     {
       const char *const env_hier = getenv("OZAKI_HIER");
-      hier = (NULL != env_hier) ? (0 != atoi(env_hier) ? 1 : 0) : (2 == kind ? 1 : 0);
+      hier = (NULL != env_hier) ? (0 != atoi(env_hier) ? 1 : 0) : (0 != crt ? 1 : 0);
     }
     /**
      * Ozaki-local 256-GRF decision (per-kernel, not global).
@@ -493,7 +507,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ku_req = (NULL != env && 0 < atoi(env)) ? atoi(env) : 0;
     {
       /* dp4a benefits from a deeper K-unroll, but only at RTN>1 (see below). */
-      const int ku_default = (0 == devinfo->intel && 0 == ctx->nv_mma && 2 <= nv && 0 != gpu && 2 == kind) ? 4 : 2;
+      const int ku_default = (0 == devinfo->intel && 0 == ctx->nv_mma && 2 <= nv && 0 != gpu && 0 != crt) ? 4 : 2;
       int ku = (0 != ku_req) ? ku_req : ku_default;
       if (0 != ctx->nv_mma && ku > 1) ku = 1;
       ctx->ku = ku;
@@ -564,7 +578,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       else if (0 != ctx->nv_mma && 0 != gpu) {
         rtn = 2;
       }
-      else if (2 <= nv && 0 != gpu && 2 == kind) {
+      else if (2 <= nv && 0 != gpu && 0 != crt) {
         rtn = 2;
       }
       else rtn = 1;
@@ -617,8 +631,26 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      * still +4% at n=12288 where the kernel is loop-bound. Same result to the last
      * bit either way.
      */
+    /**
+     * The same inversion happens for a second, device-independent reason, which is
+     * why the unfused epilogue has to be decided before this and not after: once
+     * reconstruction is a separate pass, only HIER_NGROUPS group values are live
+     * and the fp64 registers the fractional variant spends buy nothing, while its
+     * double-double arithmetic still has to be paid per output. Measured on PVC at
+     * n=4096, reconstruction alone is 2.09 ms with Garner against 3.50 fractional
+     * for an identical GEMM, i.e. the Intel default inverts with the epilogue:
+     * fused prefers fractional (26.5 vs 31.8 ms) and unfused prefers Garner
+     * (22.0 vs 23.4). Same result to the last bit either way.
+     */
+    { const char *const env_unfuse = getenv("OZAKI_UNFUSE");
+      const int unfuse_dfl = (0 != gpu) ? 1 : 0;
+      const int unfuse_req = (NULL != env_unfuse) ? (0 != atoi(env_unfuse)) : unfuse_dfl;
+      /* Hierarchical CRT is required, but crt_hier below needs fraccrt first, so
+       * this mirrors the part of its condition that does not depend on fraccrt. */
+      unfuse_pre = (0 != unfuse_req && 1 == ctx->pb && 2 > ozgroups && (0 != ctx->hier || 3 == kind)) ? 1 : 0;
+    }
     { const char *const env_fraccrt = getenv("OZAKI_FRACCRT");
-      const int fraccrt_dfl = (0 != ctx->nv_mma && 0 != gpu) ? 0 : 2;
+      const int fraccrt_dfl = (0 != unfuse_pre || (0 != ctx->nv_mma && 0 != gpu)) ? 0 : 2;
       const int fraccrt_req = (NULL != env_fraccrt) ? atoi(env_fraccrt) : fraccrt_dfl;
       /* Fractional CRT is double-only: without fp64 fall back to Garner. */
       fraccrt = (0 == has_fp64) ? 0 : ((1 == fraccrt_req || 2 == fraccrt_req) ? fraccrt_req : 0);
@@ -667,17 +699,37 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         const int wm_req = (NULL != env_wm) ? atoi(env_wm) : 0;
         const int wm = (64 == wm_req || 256 == wm_req) ? wm_req : 128;
         /**
+         * Operand form, the default being RS: A goes straight from global memory
+         * into registers in the fragment layout the instruction expects (mma.sync's,
+         * repeated per warp - see OZAKI_WGMMA_ALOAD), so it is neither copied nor
+         * staged, the tile's shared memory halves and the round loses half its
+         * copies. Measured against the SS form at the shipped defaults, n=4096
+         * 6.92 -> 5.45 ms and n=8192 60.3 -> 44.0 (+27% and +37%), bit-identical.
+         * OZAKI_WGMMA_RS=0 selects SS, which stages both operands.
+         */
+        const char *const env_rs = getenv("OZAKI_WGMMA_RS");
+        const int wrs = (NULL != env_rs) ? (0 != atoi(env_rs)) : 1;
+        /**
          * Staging depth: WBK = KU * BK bytes of K per round, hence KU wgmma issues
          * between one barrier and the next. KU=2 is the minimum (64 bytes of K) and
          * it is also the worst - at n=4096 the barrier is not amortized and the
-         * whole port loses to mma.sync (16.3 against 15.4 ms), where KU=8 wins
-         * (13.0). Depth is not free: shared memory is 2*(BM + BN)*KU*BK bytes
-         * double-buffered, 128 KB at BM=BN=128 and KU=8, which holds the SM to one
-         * work-group - profitable here but the reason OZAKI_KU stays tunable.
+         * whole port loses to mma.sync (16.3 against 15.4 ms). Depth is not free:
+         * shared memory is 2*(BM + BN)*KU*BK bytes double-buffered, or 2*BN*KU*BK
+         * with A in registers, and once that exceeds half of the SM's share only one
+         * work-group stays resident.
+         *
+         * That is what sets the two defaults: SS peaks at KU=8 (128 KB at BM=BN=128,
+         * already one work-group per SM), while RS pays only for B and can afford
+         * KU=16 for the same footprint - measured 5.93 -> 5.45 ms at n=4096 and
+         * 47.8 -> 44.0 at n=8192. The deeper default costs where the tile grid no
+         * longer fills the device, because there the second resident work-group is
+         * worth more than the depth (1024x1024x4096: 0.68 at KU=8 against 0.78), and
+         * the cost tracks M*N rather than K - at M=N=4096 KU=16 leads even at
+         * K=1024. OZAKI_KU remains the knob for that regime.
          */
-        const int wku = (2 <= ku_req) ? ku_req : 8;
-        const size_t lbytes = (size_t)2 * (wm + wn) * wku * bk_pre;
-        wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wn, wku * bk_pre, lbytes)) ? 1 : 0;
+        const int wku = (2 <= ku_req) ? ku_req : ((0 != wrs) ? 16 : 8);
+        const size_t lbytes = (size_t)2 * ((0 != wrs) ? wn : (wm + wn)) * wku * bk_pre;
+        wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wn, wku * bk_pre, lbytes, wrs)) ? 1 : 0;
         if (0 == wgmma) {
           if (0 != verbosity) {
             fprintf(stderr, "INFO OZAKI: warp-group MMA not reachable on this device - using mma.sync\n");
@@ -690,6 +742,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           tm = wm;
           tn = wn;
           ctx->ku = wku;
+          wgmma_rs = wrs;
         }
       }
     }
@@ -934,8 +987,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       if (0 != wgmma) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA=1");
+        if (0 != wgmma_rs) {
+          coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA_RS=1");
+        }
       }
       ctx->wgmma = wgmma;
+      ctx->wgmma_rs = (0 != wgmma) ? wgmma_rs : 0;
       /**
        * Work-group rasterization width (0 = the launch order). The resident
        * work-groups otherwise form a column strip of the tile grid and share one B
@@ -951,11 +1008,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
       }
       /**
-       * Unfused reconstruction: the default on NVIDIA, where it is measured, and
-       * OZAKI_UNFUSE=0 opts out. It requires the hierarchical epilogue (the reduce
-       * kernel implements only that one), PB=1 and no K-grouping, because the
-       * unfused prime loop stores one prime per pass and has nowhere to accumulate
-       * a partial K-group.
+       * Unfused reconstruction: the default on any GPU and OZAKI_UNFUSE=0 opts out.
+       * It requires the hierarchical epilogue (the reduce kernel implements only
+       * that one), PB=1 and no K-grouping, because the unfused prime loop stores one
+       * prime per pass and has nowhere to accumulate a partial K-group. Those
+       * conditions were already settled above, where the fractional-CRT default
+       * needs to know whether the epilogue will be a separate pass.
        *
        * The fused epilogue has to keep every output's group values live across the
        * prime loop, which is 2 KB per work-item of dynamically indexed arrays and
@@ -968,17 +1026,22 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * gains most where the epilogue floor dominated: +158% at n=257, +76% in
        * fp32. It also helps the mma.sync path (+11%), so it is not wgmma-specific.
        *
+       * It is not NVIDIA-specific either, which is what makes "any GPU" the right
+       * default rather than a vendor list: the frame exists because the prime loop
+       * is outermost, which every backend shares, and the reduce kernel reads the
+       * fragment mapping each one already defines. Measured on PVC (DPAS, fp64,
+       * with the Garner epilogue it selects above): n=257 0.66 -> 0.15 + 0.13 ms,
+       * n=512 0.73 -> 0.30, n=1024 1.23 -> 0.93, n=2048 4.05 -> 3.64, n=4096
+       * 26.5 -> 22.0, fp32 n=4096 15.8 -> 12.6, bit-identical throughout.
+       *
        * The price is scratch memory, NPRIMES bytes per output element, which is
        * twice the size of C in fp64.
        */
-      { const char *const env_unfuse = getenv("OZAKI_UNFUSE");
-        const int unfuse_dfl = (0 != nv && 0 != gpu) ? 1 : 0;
-        const int unfuse_req = (NULL != env_unfuse) ? (0 != atoi(env_unfuse)) : unfuse_dfl;
-        ctx->unfuse = (0 != unfuse_req && 0 != crt_hier && 1 == ctx->pb && 2 > ozgroups) ? 1 : 0;
+      { ctx->unfuse = (0 != unfuse_pre && 0 != crt_hier) ? 1 : 0;
         if (0 != ctx->unfuse) {
           coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_UNFUSE=1");
         }
-        else if (0 != unfuse_req && NULL != env_unfuse && 0 != verbosity) {
+        else if (0 != unfuse_pre && 0 != verbosity) {
           fprintf(stderr, "INFO OZAKI: OZAKI_UNFUSE needs hierarchical CRT, PB=1 and no K-grouping - disabled\n");
         }
       }
@@ -1253,13 +1316,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     ozaki_print_opt(stderr, "trim", oztrim);
-    if (2 == kind) {
+    if (0 != crt) {
       const char *const e_i8 = getenv("OZAKI_I8");
       fprintf(stderr, " u8=%d", (NULL == e_i8 || 0 == atoi(e_i8)) ? 1 : 0);
       ozaki_print_opt(stderr, "kgroups", ozgroups);
       ozaki_print_opt(stderr, "pb", ctx->pb);
       ozaki_print_opt(stderr, "hier", ctx->hier);
       ozaki_print_opt(stderr, "wgmma", ctx->wgmma);
+      ozaki_print_opt(stderr, "wgmma_rs", ctx->wgmma_rs);
       ozaki_print_opt(stderr, "unfuse", ctx->unfuse);
     }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);
