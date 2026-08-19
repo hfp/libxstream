@@ -18,6 +18,14 @@ OCL = 2
 # root directory of LIBXS
 LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
 
+# setup cuBLAS as an additional device-side reference GEMM (CUDA_PATH is
+# derived by Makefile.inc, also when the OpenCL headers are taken from CUDA)
+CUBLAS ?= 1
+ifneq (0,$(CUBLAS))
+  # must be set before including Makefile.inc
+  override PEDANTIC := 0
+endif
+
 # include common Makefile artifacts
 include $(LIBXSROOT)/Makefile.inc
 
