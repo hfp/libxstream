@@ -35,14 +35,16 @@ def _build_slides(docs_dir, site_dir):
         try:
             result = subprocess.run(
                 ["mkslides", "build", slides_src, "-d", slides_dst],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             if result.returncode == 0:
                 log.info("Slides built successfully")
             else:
                 log.warning(
                     "mkslides exited with %d: %s",
-                    result.returncode, result.stderr.strip(),
+                    result.returncode,
+                    result.stderr.strip(),
                 )
         except Exception:
             log.exception("mkslides build failed")
