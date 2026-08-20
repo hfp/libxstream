@@ -115,7 +115,7 @@ follows that knob.
 | OZAKI_WGMMA_RS   | 1       | Warp-group MMA takes A from registers instead of shared memory   |
 | OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for GPUs (see below)      |
 | OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
-| OZAKI_ARENA      | (auto)  | Sch.2: device scratch arena in MB (0=off). Auto: on if no pool   |
+| OZAKI_ARENA      | (auto)  | Device scratch arena in MB (0=off). Auto: on if no pool          |
 
 On NVIDIA GPUs the Scheme-2 default RTN=8 is tuned for large K: it
 doubles the output tile per work-group, which needs a long K-loop to
@@ -175,18 +175,27 @@ and helps `mma.sync` by 11%. Nor is it NVIDIA-specific: on a PVC (DPAS)
 the same figures are 0.66 -> 0.28 ms at n=257, 26.5 -> 22.0 at n=4096
 and 15.8 -> 12.6 in fp32, also bit-identical.
 
-The residue planes it needs are the bulk of the per-call device scratch,
-which is why `OZAKI_ARENA` matters: without it every call creates and
-destroys them (402 MB at n=4096), and on a device where libxstream has
-no memory pool that cost dominates - 34 ms per call against 6 ms on a
-GH200 at n=4096. The arena carves that scratch from one allocation kept
-for the life of the context, so it is enabled by default exactly where
-there is no pool. `OZAKI_ARENA=0` restores per-call allocation and a
-positive value caps the arena in MB, falling back per buffer when a call
-needs more. A caller that owns device memory can supply it instead with
-`ozaki_scratch_size`/`ozaki_scratch_set` (the benchmark does so under
-`OZAKI_SCRATCH=1`); the interceptor in LIBXS relies on the default,
-since a BLAS call cannot be handed a workspace.
+The residue planes it needs are part of the per-call device scratch,
+together with the operand planes and the device copy of C. `OZAKI_ARENA`
+carves all of it from one allocation kept for the life of the context
+instead of creating and destroying it per call, which is worth a factor
+of 6.7 at n=4096 on a GH200 and 18% on an H100 PCIe. It is enabled by
+default wherever libxstream has no memory pool, so on NVIDIA nothing
+needs setting.
+
+`OZAKI_ARENA=0` restores per-call allocation. A positive value caps the
+arena in MB, and sizing it wrong is worse than not capping: a call
+needing more than the cap falls back per buffer, and a first call that
+exceeds it gets no arena at all. The requirement is roughly 1.2 GB at
+n=4096 in FP64 and scales with n^2, or call `ozaki_scratch_size`.
+
+Set a positive value explicitly on a device that does have a pool but
+still wants the arena - `LIBXSTREAM_USM` on NVIDIA is that case, since
+the pool alone turns the arena off. Planes kept by `OZAKI_CACHE` are
+never carved, so the two knobs are independent. A caller that owns device
+memory can supply it instead with `ozaki_scratch_size`/`ozaki_scratch_set`
+(the benchmark does so under `OZAKI_SCRATCH=1`); the interceptor in LIBXS
+relies on the default, since a BLAS call cannot be handed a workspace.
 
 Two things to know. Reading the profile, the two kernel rows have to be
 added for a total; the FLOP rate is attributed to the GEMM row alone.

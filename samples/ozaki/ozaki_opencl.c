@@ -1455,13 +1455,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
    *
    * That default is deliberate rather than cautious. Where the pool exists
    * (it is gated on USM, so in practice Intel) per-call allocation is already
-   * cheap, so the arena would buy nothing while holding a large block - roughly
-   * three times the size of C with the unfused epilogue - for the life of the
-   * context, memory the pool would otherwise recycle for its other consumers.
-   * Where the pool does not exist (NVIDIA) the same per-call allocation is what
-   * dominates the wall clock, so the arena is the difference between 34 ms and
-   * 6 ms per call at n=4096. A positive OZAKI_ARENA enables it either way, which
-   * is also how the path stays testable on a device that has a pool.
+   * cheap, so the arena would buy nothing while holding a large block - the
+   * operand planes, the residue planes and the device copy of C - for the life
+   * of the context, memory the pool would otherwise recycle for its other
+   * consumers. Where the pool does not exist (NVIDIA) the same per-call
+   * allocation is what dominates the wall clock, so the arena is the difference
+   * between 93 ms and 6.7 ms per call at n=4096 on a GH200, and 18% on an H100.
+   *
+   * The two parts charge for it differently - the first write to a fresh buffer
+   * on one, the release on the other - so what the arena removes is the create
+   * and destroy itself rather than any one slow call. A positive OZAKI_ARENA
+   * enables it either way, which is how the path stays testable on a device that
+   * has a pool, and what such a device needs if its allocation is not in fact
+   * cheap: a pool proves that allocations are recycled, nothing more.
    *
    * The pool is a proxy for "allocation is already cheap", not a coincidence: it
    * can never exist on NVIDIA, because the SVM capability query is skipped there

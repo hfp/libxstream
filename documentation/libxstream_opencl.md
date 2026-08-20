@@ -24,6 +24,8 @@ Level 3 is excluded from the default for a different reason. It adopts whatever 
 
 Nothing is lost by that: the grain is not a performance lever. Coarse-grain adds a `clEnqueueSVMMap`/`clEnqueueSVMUnmap` pair that fine-grain omits, but that is bookkeeping rather than data movement and the `memcpy` both paths end in dominates. Measured on a Xeon Platinum 8480+ (the device here reporting both grains), 64 MB H2D: 15.2 GB/s forced coarse against 15.1 GB/s with fine-grain.
 
+On NVIDIA the capability is not queried by default, so the default level leaves USM off and no device memory pool is created. An explicitly requested level is honoured there, to exercise the path rather than to speed one up: results are correct and an H100 PCIe runs 6.7x slower that way. Leave it unset on that vendor.
+
 ## Data Types
 
 ### `libxstream_opencl_config_t`

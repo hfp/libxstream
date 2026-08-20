@@ -1709,7 +1709,15 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             {
               cl_device_svm_capabilities svmcaps = 0;
               cl_int query_result = EXIT_SUCCESS;
-              if (0 == devinfo->nv) { /* vendor workaround */
+              /**
+               * The capability is not queried on NVIDIA by default (vendor
+               * workaround), but an explicitly requested level is honoured, so
+               * the path can be exercised there rather than only inferred. It is
+               * not a shortcut: the capability is real (coarse-grain buffers) and
+               * correct, and 6.7x slower than the default on an H100, which is
+               * why the query stays off unless asked for.
+               */
+              if (0 == devinfo->nv || 0 < usm_level) {
                 query_result = clGetDeviceInfo(active_id, CL_DEVICE_SVM_CAPABILITIES, sizeof(cl_device_svm_capabilities), &svmcaps, NULL);
                 assert(EXIT_SUCCESS == query_result || 0 == svmcaps);
                 if (EXIT_SUCCESS != query_result && 0 <= usm_level) result = query_result;

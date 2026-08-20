@@ -25,12 +25,13 @@ static void ozaki_cache_update(ozaki_context_t* ctx, int result, const void* a, 
   void* d_expa_g, void* d_expb_g, int prev_owned, int* cache_hit_a, int* cache_hit_b);
 static int ozaki_set_ptr_base(cl_kernel kern, cl_int* i, const void* ptr, size_t elsize, int wide);
 static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern, void* d_src, void* d_slices,
-  void* d_exp, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ, int kmajor);
+  void* d_exp, size_t expsize, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ,
+  int kmajor);
 static int ozaki_enqueue_scale_beta(
   ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta);
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, cl_kernel kern_r,
-  void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g, void* d_cg, void* d_res, int M, int N, int k_pad, int n_pad, int ldc,
-  int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double);
+  void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g, size_t expsize, void* d_cg, void* d_res, int M, int N, int k_pad,
+  int n_pad, int ldc, int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double);
 static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds, int tm, int tn, int rtm, int rtn);
 /**
  * Splice real warp-group MMA instructions into the fused CRT kernel's PTX.
@@ -452,16 +453,20 @@ size_t ozaki_scratch_size(const ozaki_context_t* ctx, char transa, char transb, 
   const int tb = ('N' != transb && 'n' != transb);
   /**
    * Upper bound, so a caller sizing from it is never short: the operands are
-   * counted as uploaded (a cache hit skips them), and the residue planes are
-   * padded by a whole tile in each direction rather than by the tile the call
-   * will actually select. Panelling only ever makes the planes smaller.
+   * counted as uploaded (a cache hit skips them), their residue planes as
+   * carved (a cacheable side is allocated outside the arena instead), and the
+   * planes are padded by a whole tile in each direction rather than by the tile
+   * the call will actually select. Panelling only ever makes them smaller.
    */
+  const size_t tm = (0 < ctx->tm) ? (size_t)ctx->tm : 256;
+  const size_t tn = (0 < ctx->tn) ? (size_t)ctx->tn : 256;
   size_t result = LIBXS_UP2((size_t)ldc * N * elem_size, OZAKI_SCRATCH_ALIGN);
   result += LIBXS_UP2((size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, OZAKI_SCRATCH_ALIGN);
   result += LIBXS_UP2((size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, OZAKI_SCRATCH_ALIGN);
+  result += LIBXS_UP2((size_t)ctx->nprimes * (M + tm) * (K + tm), OZAKI_SCRATCH_ALIGN);
+  result += LIBXS_UP2((size_t)ctx->nprimes * (K + tm) * (N + tn), OZAKI_SCRATCH_ALIGN);
+  result += LIBXS_UP2(((size_t)(M + tm) + (N + tn)) * sizeof(cl_int), OZAKI_SCRATCH_ALIGN);
   if (0 != ctx->unfuse) {
-    const size_t tm = (0 < ctx->tm) ? (size_t)ctx->tm : 256;
-    const size_t tn = (0 < ctx->tn) ? (size_t)ctx->tn : 256;
     result += LIBXS_UP2((size_t)ctx->nprimes * (M + tm) * (N + tn), OZAKI_SCRATCH_ALIGN);
   }
   return result;
@@ -627,7 +632,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     void *d_occ_a = NULL, *d_occ_b = NULL;
     int first_pair;
     int cache_hit_a = 0, cache_hit_b = 0;
+    const int cacheable_a = (0 != (ctx->cache.flags & 1));
+    const int cacheable_b = (0 != (ctx->cache.flags & 2));
     const size_t occ_size = (size_t)nslices_g * sizeof(cl_int);
+    int claimed = 0;
     int kg;
 
     if (k_grp_pad < 64) k_grp_pad = 64;
@@ -648,9 +656,27 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         &d_expb_g, &cache_hit_a, &cache_hit_b);
     }
 
+    /* Claim the arena for this call: see the CRT path below for what it removes. */
+    { size_t need = 0;
+      if (0 == dev) {
+        need += LIBXS_UP2(c_nbytes, OZAKI_SCRATCH_ALIGN);
+        if (0 == cache_hit_a) need += LIBXS_UP2((size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, OZAKI_SCRATCH_ALIGN);
+        if (0 == cache_hit_b) need += LIBXS_UP2((size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, OZAKI_SCRATCH_ALIGN);
+      }
+      if (0 == cache_hit_a && 0 == cacheable_a) {
+        need += LIBXS_UP2(as_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expa_size, OZAKI_SCRATCH_ALIGN);
+      }
+      if (0 == cache_hit_b && 0 == cacheable_b) {
+        need += LIBXS_UP2(bs_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expb_size, OZAKI_SCRATCH_ALIGN);
+      }
+      need += 2 * LIBXS_UP2(occ_size, OZAKI_SCRATCH_ALIGN);
+      if (0 != need) claimed = ozaki_scratch_claim(ctx, need);
+    }
+
     /**
      * Allocate device memory (skip cached sides and host-preprocessed sides).
      * When dev != 0, a/b/c are already device pointers (e.g. from ozaki_gemm_complex).
+     * A cacheable side bypasses the arena (claimed=0): see the CRT path below.
      */
     if (0 != dev) {
       LIBXS_UNION_ASSIGN(void*, d_ag, const void*, a);
@@ -659,27 +685,27 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
     else {
       if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
-        result = OZAKI_DEV_ALLOC(&d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size);
+        result = ozaki_scratch_alloc(ctx, claimed, &d_ag, (size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, 0);
       }
       if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
-        result = OZAKI_DEV_ALLOC(&d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size);
+        result = ozaki_scratch_alloc(ctx, claimed, &d_bg, (size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, 0);
       }
-      if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint((void**)&d_cg, c_nbytes, libxstream_opencl_mem_hint_atomics);
+      if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_cg, c_nbytes, 1 /*atomics*/);
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
-      result = OZAKI_DEV_ALLOC(&d_as, as_size);
+      result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_as, as_size, 0);
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
-      result = OZAKI_DEV_ALLOC(&d_bs, bs_size);
+      result = ozaki_scratch_alloc(ctx, cacheable_b ? 0 : claimed, &d_bs, bs_size, 0);
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
-      result = OZAKI_DEV_ALLOC(&d_expa_g, expa_size);
+      result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_expa_g, expa_size, 0);
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
-      result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
+      result = ozaki_scratch_alloc(ctx, cacheable_b ? 0 : claimed, &d_expb_g, expb_size, 0);
     }
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_occ_a, occ_size);
-    if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_occ_b, occ_size);
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_occ_a, occ_size, 0);
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_occ_b, occ_size, 0);
 
     /**
      * H2D transfers: full source matrices (once).
@@ -752,13 +778,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
 
       /* Preprocess A for this K-group */
       if (0 == cache_hit_a && EXIT_SUCCESS == result) {
-        result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g, M, K_len,
-          lda, ta, k_pad, m_pad, bm_pre, bk_pre, d_occ_a, 0 /*kmajor*/);
+        result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g, elem_size, M,
+          K_len, lda, ta, k_pad, m_pad, bm_pre, bk_pre, d_occ_a, 0 /*kmajor*/);
       }
       /* Preprocess B for this K-group */
       if (0 == cache_hit_b && EXIT_SUCCESS == result) {
-        result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_preprocess_b, (char*)d_bg + b_off, d_bs, d_expb_g, N, K_len,
-          ldb, tb, k_pad, n_pad, bn_pre, bk_pre, d_occ_b, 0 /*kmajor*/);
+        result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_preprocess_b, (char*)d_bg + b_off, d_bs, d_expb_g, elem_size, N,
+          K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre, d_occ_b, 0 /*kmajor*/);
       }
 
       /* Wait for preprocessing to complete */
@@ -792,7 +818,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       { const int bounds = (0 != M % tm || 0 != N % tn);
         { cl_kernel kern_g = ozaki_get_fused_kernel(ctx, eff_cutoff, bounds, tm, tn, rt.m, rt.n);
           if (NULL != kern_g) {
-            result = ozaki_launch_fused(ctx, stream, kern_g, NULL /*kern_r*/, d_as, d_bs, d_expa_g, d_expb_g, d_cg,
+            result = ozaki_launch_fused(ctx, stream, kern_g, NULL /*kern_r*/, d_as, d_bs, d_expa_g, d_expb_g, elem_size, d_cg,
               NULL /*d_res*/, M, N, k_pad, n_pad, ldc, m_pad, tm,
               tn, ntm, ntn, alpha, first_pair, ctx->use_double);
           }
@@ -838,20 +864,21 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
 
     if (0 == dev) {
-      OZAKI_DEV_FREE(d_ag);
-      OZAKI_DEV_FREE(d_bg);
-      if (NULL != d_cg) libxstream_mem_dev_deallocate_hint(d_cg);
+      ozaki_scratch_free(ctx, d_ag, 0);
+      ozaki_scratch_free(ctx, d_bg, 0);
+      ozaki_scratch_free(ctx, d_cg, 1 /*atomics*/);
     }
-    OZAKI_DEV_FREE(d_occ_a);
-    OZAKI_DEV_FREE(d_occ_b);
-    if (0 == cache_hit_a) {
-      OZAKI_DEV_FREE(d_as);
-      OZAKI_DEV_FREE(d_expa_g);
+    ozaki_scratch_free(ctx, d_occ_a, 0);
+    ozaki_scratch_free(ctx, d_occ_b, 0);
+    if (0 == cache_hit_a) { /* a carved plane is recognized and left to the arena */
+      ozaki_scratch_free(ctx, d_as, 0);
+      ozaki_scratch_free(ctx, d_expa_g, 0);
     }
     if (0 == cache_hit_b) {
-      OZAKI_DEV_FREE(d_bs);
-      OZAKI_DEV_FREE(d_expb_g);
+      ozaki_scratch_free(ctx, d_bs, 0);
+      ozaki_scratch_free(ctx, d_expb_g, 0);
     }
+    ozaki_scratch_release(ctx, claimed);
     if (0 != cache_hit_a || 0 != cache_hit_b) {
       LIBXS_ATOMIC_SUB_FETCH(&ctx->cache.nusers, 1, LIBXS_ATOMIC_LOCKORDER);
     }
@@ -899,6 +926,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * (an explicit OZAKI_CACHE request is honored unchanged); it is the
      * absence of a B-cache request - the default - that enables panelling.
      */
+    const int cacheable_a = (0 != (ctx->cache.flags & 1));
     const int cacheable_b = (0 != (ctx->cache.flags & 2));
     const int n_panel = (0 == dev && n_kgroups <= 1 && 0 == cacheable_b) ? ozaki_npanel(ctx, M, N, tm, tn) : N;
     const int npanels = LIBXS_UPDIV(N, n_panel);
@@ -949,15 +977,26 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     /**
      * Claim the scratch arena for this call, sized to what this call carves and
      * not to the upper bound ozaki_scratch_size reports: a cache hit removes an
-     * operand upload and panelling shrinks the residue planes. The cached planes
-     * are deliberately not carved - they outlive the call, which is the one thing
-     * an arena reset per call cannot express.
+     * operand upload and panelling shrinks the residue planes.
+     *
+     * The residue planes of the operands are carved too, but only where caching
+     * them is not requested: a cached plane outlives the call, which is the one
+     * thing an arena reset per call cannot express. They are the largest pieces
+     * of the call - nprimes bytes per operand element, 536 MB of 1.19 GB at
+     * n=4096 with 16 primes - so leaving them out is what kept a GH200 at 45 ms
+     * per call against 5.6 ms of kernel time.
      */
     { size_t need = 0;
       if (0 == dev) { /* a/b/c are host matrices, hence staged on the device */
         need += LIBXS_UP2(c_nbytes, OZAKI_SCRATCH_ALIGN);
         if (0 == cache_hit_a) need += LIBXS_UP2((size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, OZAKI_SCRATCH_ALIGN);
         if (0 == cache_hit_b) need += LIBXS_UP2((size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, OZAKI_SCRATCH_ALIGN);
+      }
+      if (0 == cache_hit_a && 0 == cacheable_a) {
+        need += LIBXS_UP2(as_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expa_size, OZAKI_SCRATCH_ALIGN);
+      }
+      if (0 == cache_hit_b && 0 == cacheable_b) {
+        need += LIBXS_UP2(bs_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expb_size, OZAKI_SCRATCH_ALIGN);
       }
       if (0 != ctx->unfuse) need += LIBXS_UP2((size_t)nprimes_g * nblk_gm * tm * nblk_pn * tn, OZAKI_SCRATCH_ALIGN);
       if (0 != need) claimed = ozaki_scratch_claim(ctx, need);
@@ -981,17 +1020,22 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       }
       if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_cg, c_nbytes, 1 /*atomics*/);
     }
+    /**
+     * A plane that will be handed to the cache must not come from the arena:
+     * passing claimed=0 for a cacheable side selects the allocator that can
+     * outlive the call, which is what ozaki_cache_update takes ownership of.
+     */
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
-      result = OZAKI_DEV_ALLOC(&d_as, as_size);
+      result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_as, as_size, 0);
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
-      result = OZAKI_DEV_ALLOC(&d_bs, bs_size);
+      result = ozaki_scratch_alloc(ctx, cacheable_b ? 0 : claimed, &d_bs, bs_size, 0);
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
-      result = OZAKI_DEV_ALLOC(&d_expa_g, expa_size);
+      result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_expa_g, expa_size, 0);
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
-      result = OZAKI_DEV_ALLOC(&d_expb_g, expb_size);
+      result = ozaki_scratch_alloc(ctx, cacheable_b ? 0 : claimed, &d_expb_g, expb_size, 0);
     }
     /**
      * Residue planes for the unfused reconstruction: one byte per prime and per
@@ -1061,8 +1105,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
         if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
         if (EXIT_SUCCESS == result) {
-          result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g, M, K_len,
-            lda, ta, k_pad, m_pad, bm_pre, bk_pre, NULL /*no occ for CRT*/, 1 /*kmajor*/);
+          result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g,
+            sizeof(cl_int), M, K_len, lda, ta, k_pad, m_pad, bm_pre, bk_pre, NULL /*no occ for CRT*/, 1 /*kmajor*/);
         }
       }
       if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
@@ -1116,7 +1160,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs_s, 0, bs_slot, stream_b);
           if (EXIT_SUCCESS == result) {
             result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b, (char*)d_bg + b_off + bp_off, d_bs_s,
-              d_expb_s, N_len, K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre, NULL /*no occ for CRT*/, 0 /*kmajor*/);
+              d_expb_s, sizeof(cl_int), N_len, K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre, NULL /*no occ for CRT*/,
+              0 /*kmajor*/);
           }
         }
         if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
@@ -1133,8 +1178,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           const ozaki_crt_kernel_set_t* const kset = ozaki_get_crt_kernel(ctx, bounds, tm, tn, rt.m, rt.n);
           if (NULL != kset) {
             result = ozaki_launch_fused(ctx, stream, kset->kern_fused, kset->kern_reduce, d_as, d_bs_s, d_expa_g, d_expb_s,
-              (char*)d_cg + cp_off, d_res, M, N_len, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn, alpha, first_tile,
-              ctx->use_double);
+              sizeof(cl_int), (char*)d_cg + cp_off, d_res, M, N_len, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn, alpha,
+              first_tile, ctx->use_double);
           }
           else result = EXIT_FAILURE;
         }
@@ -1197,13 +1242,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       ozaki_scratch_free(ctx, d_cg, 1 /*atomics*/);
     }
     ozaki_scratch_free(ctx, d_res, 0); /* scratch, never cached */
-    if (0 == cache_hit_a) {
-      OZAKI_DEV_FREE(d_as);
-      OZAKI_DEV_FREE(d_expa_g);
+    if (0 == cache_hit_a) { /* a carved plane is recognized and left to the arena */
+      ozaki_scratch_free(ctx, d_as, 0);
+      ozaki_scratch_free(ctx, d_expa_g, 0);
     }
     if (0 == cache_hit_b) {
-      OZAKI_DEV_FREE(d_bs);
-      OZAKI_DEV_FREE(d_expb_g);
+      ozaki_scratch_free(ctx, d_bs, 0);
+      ozaki_scratch_free(ctx, d_expb_g, 0);
     }
     ozaki_scratch_release(ctx, claimed);
     if (0 != cache_hit_a || 0 != cache_hit_b) {
@@ -1273,7 +1318,8 @@ static int ozaki_set_ptr_base(cl_kernel kern, cl_int* i, const void* ptr, size_t
  * via reqd_work_group_size, so the two must agree.
  */
 static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern, void* d_src, void* d_slices,
-  void* d_exp, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ, int kmajor)
+  void* d_exp, size_t expsize, int M, int K, int ld, int trans, int k_pad, int pad, int bm_pre, int bk_pre, void* d_occ,
+  int kmajor)
 {
   int result = EXIT_SUCCESS;
   size_t global[2], local[2];
@@ -1299,7 +1345,7 @@ static int ozaki_enqueue_preprocess(ozaki_context_t* ctx, libxstream_stream_t* s
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &ld));
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &trans));
     if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &i, d_slices, 1 /*char*/, 1 /*long*/);
-    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &i, d_exp, sizeof(cl_int), 0 /*int*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &i, d_exp, expsize, 0 /*int*/);
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &k_pad));
     CL_CHECK(result, clSetKernelArg(kern, i++, sizeof(int), &pad));
     if (NULL != d_occ) {
@@ -1464,8 +1510,8 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
 
 
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, cl_kernel kern_r,
-  void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g, void* d_cg, void* d_res, int M, int N, int k_pad, int n_pad, int ldc,
-  int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double)
+  void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g, size_t expsize, void* d_cg, void* d_res, int M, int N, int k_pad,
+  int n_pad, int ldc, int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double)
 {
   int result = EXIT_SUCCESS;
   size_t local_g[2], global_g[2];
@@ -1482,8 +1528,8 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
     cl_int i = 0;
     if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_as, 1 /*char*/, 1 /*long*/);
     if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_bs, 1 /*char*/, 1 /*long*/);
-    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_expa_g, sizeof(cl_int), 0 /*int*/);
-    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_expb_g, sizeof(cl_int), 0 /*int*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_expa_g, expsize, 0 /*int*/);
+    if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_expb_g, expsize, 0 /*int*/);
     if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_g, &i, d_cg, elsize, 0 /*int*/);
     CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &M));
     CL_CHECK(result, clSetKernelArg(kern_g, i++, sizeof(int), &N));
