@@ -47,6 +47,7 @@ LIBXS_EXTERN void SGEMM(const char* transa, const char* transb, const int* m, co
 
 /* Function prototypes */
 static void print_diff(FILE* ostream, const char* label, const libxs_matdiff_t* diff);
+static double ozaki_duration(double* times, int nrepeat, double total);
 #if defined(__CUBLAS)
 static void cublas_putenv(int use_double, int nslices);
 static const char* cublas_mode(int use_double);
@@ -82,6 +83,8 @@ int main(int argc, char* argv[])
   libxstream_stream_t* stream = NULL;
   libxs_matdiff_t diff;
   libxs_timer_tick_t t0, t1;
+  /* Per-call durations, one buffer for every timed loop; see ozaki_duration. */
+  double* const times = (double*)malloc((size_t)nrepeat * sizeof(double));
   size_t elem_size = 0;
   int result = EXIT_SUCCESS;
   int initialized = 0;
@@ -219,15 +222,29 @@ int main(int argc, char* argv[])
     libxstream_stream_sync(stream);
     /* restore C for the timed run (beta may be non-zero) */
     if (EXIT_SUCCESS == result) memcpy(c_oz, c_ref, (size_t)ldc * N * elem_size);
+    /**
+     * Synchronized per call, not once for the whole loop: both references below
+     * are synchronous per call (the host BLAS by nature, cuBLAS through its
+     * blocking D2H), so leaving consecutive Ozaki calls to overlap would credit
+     * this side with a pipelining the comparison does not offer the other two.
+     * The per-kernel figures are unaffected either way.
+     */
     t0 = libxs_timer_tick();
     for (i = 0; i < nrepeat; ++i) {
+      const libxs_timer_tick_t tick = libxs_timer_tick();
       result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, 0);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
       if (EXIT_SUCCESS != result) break;
+      if (NULL != times) times[i] = libxs_timer_duration(tick, libxs_timer_tick());
     }
-    libxstream_stream_sync(stream);
     t1 = libxs_timer_tick();
     if (EXIT_SUCCESS == result) {
-      printf("Ozaki GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1) / nrepeat);
+      const double duration = ozaki_duration(times, nrepeat, libxs_timer_duration(t0, t1));
+      printf("Ozaki GEMM: %.3f ms", 1E3 * duration);
+      if (NULL != times && 1 < nrepeat) {
+        printf(" [%i calls %.3f-%.3f ms]", nrepeat, 1E3 * times[0], 1E3 * times[nrepeat-1]);
+      }
+      printf("\n");
     }
     else fprintf(stderr, "Ozaki GEMM failed (%s)\n", libxstream_opencl_strerror(result));
   }
@@ -242,6 +259,7 @@ int main(int argc, char* argv[])
     memcpy(c_oz, c_ref, (size_t)ldc * N * elem_size);
     t0 = libxs_timer_tick();
     for (i = 0; i < nrepeat; ++i) {
+      const libxs_timer_tick_t tick = libxs_timer_tick();
       if (ctx.use_double) {
         DGEMM(&transa, &transb, &M, &N, &K, &alpha, (const double*)a, &lda, (const double*)b, &ldb, &beta, (double*)c_ref, &ldc);
       }
@@ -249,11 +267,19 @@ int main(int argc, char* argv[])
         const float falpha = (float)alpha, fbeta = (float)beta;
         SGEMM(&transa, &transb, &M, &N, &K, &falpha, (const float*)a, &lda, (const float*)b, &ldb, &fbeta, (float*)c_ref, &ldc);
       }
-      /* restore C before next iteration so beta does not accumulate */
+      if (NULL != times) times[i] = libxs_timer_duration(tick, libxs_timer_tick());
+      /* restore C before next iteration so beta does not accumulate - after the
+         sample is taken, since it is bookkeeping rather than part of the GEMM */
       if (i < nrepeat - 1) memcpy(c_ref, c_oz, (size_t)ldc * N * elem_size);
     }
     t1 = libxs_timer_tick();
-    printf("BLAS  GEMM: %.1f ms\n", 1E3 * libxs_timer_duration(t0, t1) / nrepeat);
+    { const double duration = ozaki_duration(times, nrepeat, libxs_timer_duration(t0, t1));
+      printf("BLAS  GEMM: %.3f ms", 1E3 * duration);
+      if (NULL != times && 1 < nrepeat) {
+        printf(" [%i calls %.3f-%.3f ms]", nrepeat, 1E3 * times[0], 1E3 * times[nrepeat-1]);
+      }
+      printf("\n");
+    }
   }
 
 #if defined(__CUBLAS)
@@ -267,9 +293,9 @@ int main(int argc, char* argv[])
     cublas_result = cublas_gemm(stream, ctx.use_double, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, c_cu, ldc,
       nrepeat, ctx.ndecomp, &duration, devtime);
     if (EXIT_SUCCESS == cublas_result) {
-      printf("cuBLAS GEMM: %.1f ms (%s)\n", 1E3 * duration / nrepeat, cublas_mode(ctx.use_double));
+      printf("cuBLAS GEMM: %.3f ms (%s)\n", 1E3 * duration, cublas_mode(ctx.use_double));
       if (0 < devtime[0]) { /* device-side split as measured with CUDA events */
-        printf("cuBLAS: gemm %.1f ms, h2d %.1f ms, d2h %.1f ms\n", devtime[0] / nrepeat, devtime[1] / nrepeat,
+        printf("cuBLAS: mean gemm %.3f ms, h2d %.3f ms, d2h %.3f ms\n", devtime[0] / nrepeat, devtime[1] / nrepeat,
           devtime[2] / nrepeat);
       }
     }
@@ -323,6 +349,7 @@ int main(int argc, char* argv[])
     if (NULL != scratch) libxstream_mem_dev_deallocate_hint(scratch);
     libxstream_finalize();
   }
+  free(times);
   return result;
 }
 
@@ -338,6 +365,32 @@ static void print_diff(FILE* ostream, const char* label, const libxs_matdiff_t* 
     fprintf(ostream, "%sDIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f\n", label, diff->r, diff->linf_abs,
       diff->linf_rel, diff->l2_rel, epsilon, diff->rsq);
   }
+}
+
+
+/**
+ * Time of one call out of nrepeat: the median of the per-call durations rather
+ * than the mean of their sum, so that one interrupted call cannot move a figure
+ * that is read as a rate, and so that the wall-clock line is the same kind of
+ * statistic as the per-kernel medians of LIBXSTREAM_PROFILE.  Sorts times in
+ * place - times[0] and times[nrepeat-1] are the extremes afterwards.  A NULL
+ * times (allocation failed) leaves the mean of total as the only figure.
+ */
+static double ozaki_duration(double* times, int nrepeat, double total)
+{
+  double result;
+  if (NULL != times && 0 < nrepeat) {
+    int i;
+    for (i = 1; i < nrepeat; ++i) { /* insertion sort: nrepeat is a repetition count, i.e. tens */
+      const double t = times[i];
+      int j = i;
+      for (; 0 < j && times[j-1] > t; --j) times[j] = times[j-1];
+      times[j] = t;
+    }
+    result = (0 == (nrepeat % 2)) ? (0.5 * (times[nrepeat/2-1] + times[nrepeat/2])) : times[nrepeat/2];
+  }
+  else result = total / (0 < nrepeat ? nrepeat : 1);
+  return result;
 }
 
 
@@ -414,6 +467,7 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
   cudaEvent_t event[4] = {NULL, NULL, NULL, NULL};
   cublasHandle_t handle = NULL;
   libxs_timer_tick_t t0 = 0, t1 = 0;
+  double* const times = (double*)malloc((size_t)nrepeat * sizeof(double));
   int nevents = 0;
 # if (0 != OZAKI_CUBLAS_WORKSPACE)
   void* ws = NULL;
@@ -464,7 +518,9 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
   }
   /* the first iteration is the warmup (kernel setup, emulation workspace) and stays untimed */
   for (i = -1; i < nrepeat && EXIT_SUCCESS == result; ++i) {
+    libxs_timer_tick_t tick;
     if (0 == i) t0 = libxs_timer_tick();
+    tick = libxs_timer_tick();
     if (4 == nevents) LIBXS_ELIDE_RESULT(int, cudaEventRecord(event[0], 0));
     if (0 == xptr) {
       if (cudaSuccess != cudaMemcpy(da, a, size_a, cudaMemcpyHostToDevice) ||
@@ -509,6 +565,7 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
       if (cudaSuccess == cudaEventElapsedTime(&ms, event[0], event[1])) devtime[1] += ms;
       if (cudaSuccess == cudaEventElapsedTime(&ms, event[2], event[3])) devtime[2] += ms;
     }
+    if (0 <= i && NULL != times) times[i] = libxs_timer_duration(tick, libxs_timer_tick());
   }
   if (EXIT_SUCCESS == result && cudaSuccess != cudaDeviceSynchronize()) result = EXIT_FAILURE;
   t1 = libxs_timer_tick();
@@ -528,7 +585,9 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
 # if (0 != OZAKI_CUBLAS_WORKSPACE)
   if (NULL != ws) LIBXS_ELIDE_RESULT(int, cudaFree(ws));
 # endif
-  if (EXIT_SUCCESS == result) *duration = libxs_timer_duration(t0, t1);
+  /* the median of one call, matching the Ozaki and host-BLAS figures */
+  if (EXIT_SUCCESS == result) *duration = ozaki_duration(times, nrepeat, libxs_timer_duration(t0, t1));
+  free(times);
   return result;
 }
 #endif
