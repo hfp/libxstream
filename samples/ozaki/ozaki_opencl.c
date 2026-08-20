@@ -66,6 +66,43 @@ static void ozaki_print_opt(FILE* stream, const char* name, int val)
 
 
 /**
+ * Leaf group size of the hierarchical CRT. At most 4, because the level-2
+ * datapath is 32-bit and a group product must fit uint32; below that, prefer a
+ * size that leaves no group holding a single prime - at nprimes=9 the 4,4,1
+ * split costs the reconstruction 1.21 ms where three full groups of 3 take 0.58.
+ *
+ * That preference is bounded by OZAKI_HIER_NGROUPS_MAX: nprimes=17 is the only
+ * fp64-legal count whose divisor rule asks for 3, and the resulting six groups
+ * indexed past the kernel's five-group tables, returning rsq=0 with exit code 0.
+ * A one-prime tail group is a performance defect; a sixth group is a wrong
+ * answer, so the bound wins.
+ */
+static int ozaki_hier_gs(int nprimes)
+{
+  const int gs_min = LIBXS_UPDIV(nprimes, OZAKI_HIER_NGROUPS_MAX);
+  int gs = (1 != (nprimes % 4)) ? 4 : ((1 != (nprimes % 3)) ? 3 : ((1 != (nprimes % 2)) ? 2 : 4));
+  if (gs < gs_min) gs = gs_min;
+  return gs;
+}
+
+
+/**
+ * One step of register-tile growth, rows before columns: a square register tile
+ * has the best reuse per accumulator, and both schemes measured their optimum at
+ * 4 rows - Scheme 1 then wants 4x4 where it has the registers for it (256-GRF),
+ * while Scheme 2 stays at 4x2 and loses 2.5x at 4x4. Growing rows first reaches
+ * both from their respective base without a per-scheme rule.
+ */
+static ozaki_tile_t ozaki_rtile_grow(int rtm, int rtn)
+{
+  ozaki_tile_t result;
+  result.m = (4 > rtm) ? (2 * rtm) : rtm;
+  result.n = (4 > rtm) ? rtn : (2 * rtn);
+  return result;
+}
+
+
+/**
  * Emit fractional-CRT (OZAKI_FRACCRT) reconstruction tables as -D flags for the
  * active moduli set (nprimes entries of modtab). Computes, without bignum:
  *   k_i     = (prod_{j!=i} m_j mod m_i)^{-1} mod m_i
@@ -250,6 +287,34 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
 }
 
 
+ozaki_tile_t ozaki_rtile_select(const ozaki_context_t* ctx, int M, int N, int crt)
+{
+  ozaki_tile_t result;
+  result.m = (0 != crt) ? ctx->crt_rtm : ctx->rtm;
+  result.n = (0 != crt) ? ctx->crt_rtn : ctx->rtn;
+  { const int big_m = (0 != crt) ? ctx->crt_rtm_big : ctx->rtm_big;
+    const int big_n = (0 != crt) ? ctx->crt_rtn_big : ctx->rtn_big;
+    if ((big_m != result.m || big_n != result.n) && 0 < ctx->nunits) {
+      /**
+       * The promoted pair covers twice the output per sub-group, so the tile grid
+       * it can form is half as fine and the smallest useful problem twice as
+       * large. Require one tile per compute unit at that granularity - a stricter
+       * floor than ozaki_tile_select's nunits/tile_sat, which only has to keep a
+       * tile grid busy rather than justify making the grid coarser. Calibrated on
+       * PVC (448 units): it promotes from n=1024, where fp64 Scheme 2 gains 14%,
+       * and holds off at n=512, where promoting costs 1.5x.
+       */
+      const int gm = OZAKI_XMX_M(ctx) * big_m, gn = OZAKI_XMX_N(ctx) * big_n;
+      if ((LIBXS_UPDIV(M, gm) * LIBXS_UPDIV(N, gn)) >= ctx->nunits) {
+        result.m = big_m;
+        result.n = big_n;
+      }
+    }
+  }
+  return result;
+}
+
+
 int ozaki_npanel(const ozaki_context_t* ctx, int M, int N, int tm, int tn)
 {
   const int nblk_m = LIBXS_UPDIV(M, tm);
@@ -281,7 +346,7 @@ int ozaki_npanel(const ozaki_context_t* ctx, int M, int N, int tm, int tn)
 
 
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
-  int ozgroups, int maxk, int profiling)
+  int ozgroups, int maxk)
 {
   const libxstream_opencl_device_t* devinfo = &libxstream_opencl_config.device;
   cl_device_id device = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
@@ -672,6 +737,16 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       /* Hierarchical CRT is required, but crt_hier below needs fraccrt first, so
        * this mirrors the part of its condition that does not depend on fraccrt. */
       unfuse_pre = (0 != unfuse_req && 1 == ctx->pb && 2 > ozgroups && (0 != ctx->hier || 3 == kind)) ? 1 : 0;
+      /**
+       * K-grouping is the one of those conditions a caller is likely to request
+       * without knowing what it costs: it forfeits the unfused epilogue, and that
+       * epilogue is worth more than the grouping ever was. Measured on PVC at
+       * n=2048, fp64: 2.99 ms against 6.45 with OZAKI_GROUPS=4, and the gap widens
+       * with K (18.7 vs 45.0 ms at K=16384) rather than closing.
+       */
+      if (0 != unfuse_req && 1 < ozgroups && 0 != crt && 0 != verbosity) {
+        fprintf(stderr, "WARN OZAKI: OZAKI_GROUPS=%d disables the unfused epilogue - expect ~2x\n", ozgroups);
+      }
     }
     { const char *const env_fraccrt = getenv("OZAKI_FRACCRT");
       const int fraccrt_dfl = (0 != unfuse_pre || (0 != ctx->nv_mma && 0 != gpu)) ? 0 : 2;
@@ -679,6 +754,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       /* Fractional CRT is double-only: without fp64 fall back to Garner. */
       fraccrt = (0 == has_fp64) ? 0 : ((1 == fraccrt_req || 2 == fraccrt_req) ? fraccrt_req : 0);
       crt_hier = (1 == fraccrt) ? 0 : (0 != ctx->hier || 3 == kind || 2 == fraccrt);
+      /**
+       * OZAKI_HIER=0 asks for flat reconstruction, which the per-group fractional
+       * CRT and the adaptive kind both require the hierarchy for - and turning the
+       * hierarchy off also drops the unfused epilogue, whose default in turn flips
+       * the fractional-CRT default. Three changes from one knob, none of them the
+       * one it names, so say so instead of silently doing something else. Flat
+       * Garner needs OZAKI_HIER=0 with OZAKI_FRACCRT=0 and kind 1 or 2.
+       */
+      if (NULL != getenv("OZAKI_HIER") && 0 == ctx->hier && 0 != crt_hier && 0 != verbosity) {
+        fprintf(stderr, "WARN OZAKI: OZAKI_HIER=0 needs OZAKI_FRACCRT=0 and OZAKI=2 to select flat reconstruction\n");
+      }
     }
     /* Residue element type, needed this early because the wgmma splice names it. */
     ctx->u8 = (0 == use_i8) ? 1 : 0;
@@ -860,7 +946,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (NULL != env_wgs && 0 <= atoi(env_wgs)) ctx->wgs_max = atoi(env_wgs);
     }
     { /* Scheme 1: always compile preprocessing + create registry (for adaptive) */
-      const int sq_jit = ozflags & (OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE);
+      /**
+       * The two flag bits reach the kernel separately, because they name two
+       * independent properties of the pair loop and the host implements them that
+       * way (ozaki1_int8.c: sb_start, do_mirror). A single combined value, used as
+       * a boolean, made the device read every non-zero OZAKI_FLAGS as the full S^2
+       * loop and OZAKI_FLAGS=0 as triangular+symmetrize - the documented meaning
+       * inverted, so a host-versus-device comparison of the pair loop compared
+       * opposite configurations and the default ran the loop the flag disclaims.
+       */
+      const int tri_jit = (0 != (ozflags & OZAKI_TRIANGULAR)) ? 1 : 0;
+      const int sym_jit = (0 != (ozflags & OZAKI_SYMMETRIZE)) ? 1 : 0;
       const int cutoff_jit = 2 * (nslices - 1) - oztrim;
       size_t goff = 0;
       goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
@@ -868,10 +964,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
-        " -DRTM=%d -DRTN=%d -DOZAKI_SB=%d"
-        " -DOZAKI_SQ=%d -DCONSTANT=global",
+        " -DOZAKI_SB=%d"
+        " -DOZAKI_TRI=%d -DOZAKI_SYM=%d -DCONSTANT=global",
         bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
-        nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, rtm, rtn, ctx->sb, sq_jit);
+        nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, ctx->sb, tri_jit, sym_jit);
       if (0 != ctx->nv_mma) {
         goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DNV_MMA=1");
       }
@@ -896,7 +992,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       { /* Compile preprocessing + scale_beta (shared, tile/cutoff-independent) */
         char pp_flags[sizeof(build_params) + 64];
         cl_program program = NULL;
-        LIBXS_SNPRINTF(pp_flags, sizeof(pp_flags), "%s -DBM=%d -DBN=%d -DOZAKI_CUTOFF=%d", build_params, tm, tn, cutoff_jit);
+        LIBXS_SNPRINTF(pp_flags, sizeof(pp_flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_CUTOFF=%d",
+          build_params, tm, tn, rtm, rtn, cutoff_jit);
         result = libxstream_opencl_program(
           0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, "ozaki1", pp_flags, build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
@@ -998,11 +1095,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
-        " -DKGROUPS=%d -DRTM=%d -DRTN=%d -DPB=%d"
+        " -DKGROUPS=%d -DPB=%d"
         " -DCONSTANT=global",
         bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
         nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
-        (1 < ozgroups) ? ozgroups : 0, crt_rtm, crt_rtn, ctx->pb);
+        (1 < ozgroups) ? ozgroups : 0, ctx->pb);
       if (0 != ctx->nv_mma) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DNV_MMA=1");
       }
@@ -1113,25 +1210,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       else if (2 == fraccrt) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=2");
         coff += ozaki_emit_fraccrt2(build_params + coff, sizeof(build_params) - coff,
-          (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 11,
-          (1 != (nprimes % 4)) ? 4 : ((1 != (nprimes % 3)) ? 3 : ((1 != (nprimes % 2)) ? 2 : 4)));
+          (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 11, ozaki_hier_gs(nprimes));
       }
       if (NULL != env_skip && 0 != atoi(env_skip)) {
         coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1");
       }
       if (0 != crt_hier) {
         const uint16_t* modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
-        /**
-         * Leaf group size: 4 is the maximum the 32-bit level-2 datapath allows, but
-         * a group left holding one prime is pathological - at nprimes=9 the 4,4,1
-         * split costs the reconstruction 1.21 ms where three full groups of 3 are
-         * comparable to the 12-prime case at 0.58. Take the largest divisor of
-         * nprimes that still fits, so fp64 keeps 4 (16 primes) and fp32 gets 3 (9).
-         */
-        const int hier_gs = (1 != (nprimes % 4)) ? 4 : ((1 != (nprimes % 3)) ? 3 : ((1 != (nprimes % 2)) ? 2 : 4));
+        /* Leaf group size and the group count the kernel is compiled for; see ozaki_hier_gs. */
+        const int hier_gs = ozaki_hier_gs(nprimes);
         const int ngroups = LIBXS_UPDIV(nprimes, hier_gs);
-        uint32_t gp[8];
-        uint64_t l2b[8];
+        uint32_t gp[OZAKI_HIER_NGROUPS_MAX];
+        uint64_t l2b[OZAKI_HIER_NGROUPS_MAX];
         int gi, use_tree;
         for (gi = 0; gi < ngroups; ++gi) {
           const int lo = gi * hier_gs, hi = (lo + hier_gs <= nprimes) ? lo + hier_gs : nprimes;
@@ -1191,7 +1281,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
       /**
-       * Base flags for the tile-specialized CRT registry: BM/BN and
+       * Base flags for the tile-specialized CRT registry: BM/BN, RTM/RTN and
        * OZAKI_BOUNDS are appended per specialization by ozaki_get_crt_kernel.
        */
       memcpy(ctx->crt_flags, build_params, sizeof(ctx->crt_flags));
@@ -1200,7 +1290,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       {
         char base_flags[sizeof(build_params) + 64];
         cl_program program = NULL;
-        LIBXS_SNPRINTF(base_flags, sizeof(base_flags), "%s -DBM=%d -DBN=%d -DOZAKI_BOUNDS=1", build_params, tm, tn);
+        LIBXS_SNPRINTF(base_flags, sizeof(base_flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_BOUNDS=1",
+          build_params, tm, tn, crt_rtm, crt_rtn);
         result = libxstream_opencl_program(
           0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2", base_flags, crt_build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
@@ -1216,6 +1307,24 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       ctx->crt_rtm = crt_rtm;
       ctx->crt_rtn = crt_rtn;
+      /**
+       * Growable under the same conditions as Scheme 1, plus: not the wgmma
+       * geometry, and rows only. Scheme 2 loses 2.5x at a 4x4 register tile on
+       * DPAS - it keeps a group-value frame per work-item across the prime loop,
+       * so the columns it can afford are bounded by registers rather than by
+       * reuse - hence promote only while there are rows left to grow.
+       */
+      ctx->crt_rtm_big = crt_rtm;
+      ctx->crt_rtn_big = crt_rtn;
+      if (0 == rtm_req && 0 == rtn_req && 0 == wgmma && 4 > crt_rtm
+        && 0 != devinfo->intel && 0 != gpu && 0 == ctx->nv_mma)
+      {
+        const ozaki_tile_t big = ozaki_rtile_grow(crt_rtm, crt_rtn);
+        if (tm >= OZAKI_XMX_M(ctx) * big.m && tn >= OZAKI_XMX_N(ctx) * big.n) {
+          ctx->crt_rtm_big = big.m;
+          ctx->crt_rtn_big = big.n;
+        }
+      }
       if (EXIT_SUCCESS != result) {
         if (NULL != ctx->kern_crt_preprocess_a) {
           clReleaseKernel(ctx->kern_crt_preprocess_a);
@@ -1293,6 +1402,28 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ctx->tn = tn;
       ctx->rtm = rtm;
       ctx->rtn = rtn;
+      /**
+       * Growable only where it was measured: an Intel GPU, no explicit request,
+       * and no second accumulator set already claiming the registers it needs -
+       * which rules out slice blocking (OZAKI_SB^2 sets) and the symmetrized pair
+       * loop, where the mirror product accumulates alongside the pair. The latter
+       * is not a small effect: at 256-GRF fp64 n=4096 the mirror measures 46.5 ms
+       * at 4x2 against 99.1 at 4x4, while the square loop goes 50.1 -> 36.0.
+       * NVIDIA keeps its tuned pair until the same sweep has been run there. The
+       * ceiling tile must admit one sub-tile of the coarser granularity, otherwise
+       * the promoted pair has no legal tile at all.
+       */
+      ctx->rtm_big = rtm;
+      ctx->rtn_big = rtn;
+      if (0 == rtm_req && 0 == rtn_req && 1 == ctx->sb && 0 == (ozflags & OZAKI_SYMMETRIZE)
+        && 0 != devinfo->intel && 0 != gpu && 0 == ctx->nv_mma)
+      {
+        const ozaki_tile_t big = ozaki_rtile_grow(rtm, rtn);
+        if (tm >= OZAKI_XMX_M(ctx) * big.m && tn >= OZAKI_XMX_N(ctx) * big.n) {
+          ctx->rtm_big = big.m;
+          ctx->rtn_big = big.n;
+        }
+      }
       ctx->biggrf = biggrf;
       ctx->bm_pre = bm_pre;
       ctx->bn_pre = bn_pre;
@@ -1370,10 +1501,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ozaki_print_opt(stderr, "sg", sg);
     ozaki_print_opt(stderr, "tm", ctx->tm);
     ozaki_print_opt(stderr, "tn", ctx->tn);
+    /* rtm/rtn print as base..promoted where the promotion applies (per call). */
     ozaki_print_opt(stderr, "rtm", ctx->rtm);
-    if (ctx->crt_rtm != ctx->rtm) ozaki_print_opt(stderr, "crt_rtm", ctx->crt_rtm);
+    if (ctx->rtm_big != ctx->rtm) fprintf(stderr, "..%d", ctx->rtm_big);
+    if (ctx->crt_rtm != ctx->rtm || ctx->crt_rtm_big != ctx->rtm_big) {
+      ozaki_print_opt(stderr, "crt_rtm", ctx->crt_rtm);
+      if (ctx->crt_rtm_big != ctx->crt_rtm) fprintf(stderr, "..%d", ctx->crt_rtm_big);
+    }
     ozaki_print_opt(stderr, "rtn", ctx->rtn);
-    if (ctx->crt_rtn != ctx->rtn) ozaki_print_opt(stderr, "crt_rtn", ctx->crt_rtn);
+    if (ctx->rtn_big != ctx->rtn) fprintf(stderr, "..%d", ctx->rtn_big);
+    if (ctx->crt_rtn != ctx->rtn || ctx->crt_rtn_big != ctx->rtn_big) {
+      ozaki_print_opt(stderr, "crt_rtn", ctx->crt_rtn);
+      if (ctx->crt_rtn_big != ctx->crt_rtn) fprintf(stderr, "..%d", ctx->crt_rtn_big);
+    }
     if (1 < ctx->sb) ozaki_print_opt(stderr, "sb", ctx->sb);
     if (0 != devinfo->intel) {
       const int crt_grf128 = (0 != ctx->crt_rtm && ctx->crt_rtm < ctx->rtm);
@@ -1400,14 +1540,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     fprintf(stderr, "\n");
   }
 
-  /* Create persistent helper streams and synchronization events */
+  /**
+   * Create persistent helper streams and synchronization events. No profiling
+   * flag: LIBXSTREAM_PROFILE enables queue timestamps by itself, so asking for
+   * them here as well only offered a second, weaker switch for the same thing.
+   */
   {
-    const int sflags = (0 != profiling) ? LIBXSTREAM_STREAM_PROFILING : LIBXSTREAM_STREAM_DEFAULT;
     if (EXIT_SUCCESS == result) {
-      result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", sflags);
+      result = libxstream_stream_create(&ctx->stream_a, "ozaki_a", LIBXSTREAM_STREAM_DEFAULT);
     }
     if (EXIT_SUCCESS == result) {
-      result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", sflags);
+      result = libxstream_stream_create(&ctx->stream_b, "ozaki_b", LIBXSTREAM_STREAM_DEFAULT);
     }
   }
   if (EXIT_SUCCESS == result) result = libxstream_event_create(&ctx->evt_prep_a);

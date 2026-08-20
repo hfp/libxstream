@@ -18,6 +18,16 @@
 #endif
 
 /**
+ * Groups the hierarchical CRT's level-2 stage can reconstruct. The kernel writes
+ * its group-product, Barrett and inverse tables out for this many groups and
+ * restates the bound with #error, so the leaf group size must be chosen to keep
+ * ceil(nprimes / HIER_GS) within it - see ozaki_hier_gs.
+ */
+#if !defined(OZAKI_HIER_NGROUPS_MAX)
+# define OZAKI_HIER_NGROUPS_MAX 5
+#endif
+
+/**
  * Slots in the N-panel pipeline. Two suffice to cover one GEMM's worth of
  * upload+preprocess latency; more only helps if panel preprocessing time
  * varies enough to stall, at a proportional cost in B-slice memory.
@@ -130,11 +140,14 @@ typedef struct ozaki_scratch_t {
  * Ozaki-1 kernel specialization key: compile-time cutoff.
  * bounds: 0 = tile-aligned, 1 = bounds-checked variant.
  * tm/tn: output tile baked into the kernel (size-aware selection).
+ * rtm/rtn: register tiling, likewise size-aware - it decides both the
+ * work-group size and the tile granularity, so the two travel together.
  */
 typedef struct ozaki_kernel_key_t {
   int cutoff;
   int bounds;
   int tm, tn;
+  int rtm, rtn;
 } ozaki_kernel_key_t;
 
 /* Ozaki-1 kernel set: one entry per registry specialization. */
@@ -149,6 +162,7 @@ typedef struct ozaki_kernel_set_t {
 typedef struct ozaki_crt_kernel_key_t {
   int bounds;
   int tm, tn;
+  int rtm, rtn;
 } ozaki_crt_kernel_key_t;
 
 /**
@@ -220,6 +234,16 @@ typedef struct ozaki_context_t {
    * to RTN=8), so the column tiling is per-scheme rather than shared.
    */
   int rtm, rtn, crt_rtm, crt_rtn;
+  /**
+   * The next step of register tiling, or the same pair when there is none. More
+   * accumulators per work-item is the only way to spend a fixed work-group
+   * budget on more output per thread, and it pays by a third to a half once the
+   * problem is large enough to keep the device busy with the coarser tile
+   * granularity it implies - but costs up to 2x below that. So it is a per-call
+   * choice like the tile: see ozaki_rtile_select, which picks between this pair
+   * and the base one and hands the result to the registry key.
+   */
+  int rtm_big, rtn_big, crt_rtm_big, crt_rtn_big;
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int sb; /* Scheme-1 slice-block width for the pair loop (1 = unblocked) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
@@ -302,7 +326,7 @@ typedef struct ozaki_context_t {
  * ozgroups (Scheme 2 only): K-grouping factor, 0/1 = disabled.
  */
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
-  int ozgroups, int maxk, int profiling);
+  int ozgroups, int maxk);
 void ozaki_destroy(ozaki_context_t* ctx);
 
 /**
@@ -355,6 +379,17 @@ typedef struct ozaki_tile_t {
  * granularity and the resulting work-group size.
  */
 ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm, int rtn);
+
+/**
+ * Register tiling for one call (crt: 0 = Scheme 1, 1 = Scheme 2), as an (m, n)
+ * pair of sub-tiles per sub-group rather than an output tile. Takes the larger
+ * of the context's two pairs when the problem still yields one tile per compute
+ * unit at that granularity, since promoting halves the tile count; measured on
+ * PVC as +14 to +36% from n=1024 up and up to 2x slower below n=768. The result
+ * must be fed to ozaki_tile_select and to the kernel getter, which key their
+ * specializations on it.
+ */
+ozaki_tile_t ozaki_rtile_select(const ozaki_context_t* ctx, int M, int N, int crt);
 
 /**
  * Whether warp-group MMA is reachable on this device, answered by splicing and

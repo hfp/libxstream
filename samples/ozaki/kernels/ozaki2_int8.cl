@@ -130,6 +130,16 @@
 #   define HIER_GS 4
 # endif
 # define HIER_NGROUPS ((NPRIMES + HIER_GS - 1) / HIER_GS)
+/**
+ * The level-2 tables below are written out for five groups (HIER_GPROD_0..4 and
+ * the inverse pairs up to i==4), so a sixth group would index past them and
+ * reconstruct garbage without any diagnostic - which is what 17 primes at
+ * HIER_GS=3 did. The host raises HIER_GS to keep the count within this bound;
+ * refuse the build rather than trust it to.
+ */
+# if HIER_NGROUPS > 5
+#   error hierarchical CRT: level-2 tables hold at most 5 groups - raise HIER_GS
+# endif
 # define HIER_L2_HORNER_GROUP 2
 # define HIER_L2_HORNER_NGROUPS ((HIER_NGROUPS + HIER_L2_HORNER_GROUP - 1) / HIER_L2_HORNER_GROUP)
 # if !defined(OZAKI_HIER_L2)

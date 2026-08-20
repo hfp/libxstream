@@ -28,6 +28,8 @@
  *   KU              - K-loop unroll depth (2)
  *   NSLICES         - number of mantissa slices
  *   OZAKI_SB        - slice-block width for the pair loop (1 = unblocked)
+ *   OZAKI_TRI       - inner slice starts at sa (triangular pair loop)
+ *   OZAKI_SYM       - add the transposed product of off-diagonal pairs
  *   MANT_BITS       - mantissa bit count (52 for fp64, 23 for fp32)
  *   BIAS_PLUS_MANT  - exponent bias + mantissa bits
  *   USE_DOUBLE      - if 1, fp64 accumulation; otherwise fp32
@@ -39,6 +41,18 @@
 #endif
 #if !defined(BN)
 # define BN 256
+#endif
+/**
+ * The two bits of OZAKI_FLAGS, one define each rather than one combined value,
+ * so that the kernel names the same configurations as the host pair loop:
+ * OZAKI_TRI starts the inner slice at sa, OZAKI_SYM adds the transposed product
+ * of every off-diagonal pair. Both clear (the default) is the full S^2 loop.
+ */
+#if !defined(OZAKI_TRI)
+# define OZAKI_TRI 0
+#endif
+#if !defined(OZAKI_SYM)
+# define OZAKI_SYM 0
 #endif
 #if !defined(BK)
 # define BK 32
@@ -92,11 +106,11 @@
 
 /**
  * Slice blocking needs the split load/compute macros (Intel DPAS path) and the
- * square traversal: under OZAKI_SQ every ordered pair is its own block entry,
+ * square traversal: without OZAKI_TRI every ordered pair is its own block entry,
  * whereas the triangular nest folds a transposed product into each off-diagonal
  * pair, which a shared-fragment block cannot express.
  */
-#if (1 < OZAKI_SB) && defined(INTEL) && (2 <= INTEL) && (RTM >= 2) && (RTN >= 2) && OZAKI_SQ
+#if (1 < OZAKI_SB) && defined(INTEL) && (2 <= INTEL) && (RTM >= 2) && (RTN >= 2) && !OZAKI_TRI
 # if 0 != (NSLICES % OZAKI_SB)
 #   error OZAKI_SB must divide NSLICES
 # endif
@@ -688,8 +702,8 @@ kernel void gemm_fused(
    * cutoff predication below folds away entirely; only the tail blocks (where
    * NSLICES or the cutoff truncates the block) retain a narrower extent.
    *
-   * Square traversal only: with OZAKI_SQ the mirror pair is a separate (sa, sb)
-   * block entry, so no in-block transpose term is needed.
+   * Square traversal only: without OZAKI_TRI the mirror pair is a separate
+   * (sa, sb) block entry, so no in-block transpose term is needed.
    */
   for (sa = 0; sa < (SINT)NSLICES && (int)sa <= OZAKI_CUTOFF; sa += OZAKI_SB) {
     SINT sb0;
@@ -732,7 +746,7 @@ kernel void gemm_fused(
       const SINT sb_end = (SINT)(sb_end_raw < NSLICES ? sb_end_raw : NSLICES);
       SINT sb;
 
-      for (sb = OZAKI_SQ ? 0 : sa; sb < sb_end; ++sb) {
+      for (sb = OZAKI_TRI ? sa : 0; sb < sb_end; ++sb) {
         const int high_sb = MANT_BITS - (7 * (int)sb);
         const int low_bit_sb = MAX(0, high_sb - 6);
         const real_t pair_scale = OZAKI_ALPHA_MUL(alpha, EXP2I(low_bit_sa + low_bit_sb - 2 * MANT_BITS));
@@ -751,7 +765,7 @@ kernel void gemm_fused(
             }
           }
           OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-          if (0 == OZAKI_SQ && sa != sb) {
+          if (OZAKI_SYM && sa != sb) {
             OZAKI_ACC_T c_mir[RTM * RTN];
             {
               int ri;
@@ -780,7 +794,7 @@ kernel void gemm_fused(
           int8 sc30 = (int8)(0), sc31 = (int8)(0);
           int8 c_acc_sc[RTM * RTN];
           OZAKI_KLOOP_SC(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, sc00, sc01, sc10, sc11, sc20, sc21, sc30, sc31);
-          if (0 == OZAKI_SQ && sa != sb) {
+          if (OZAKI_SYM && sa != sb) {
             int8 sm00 = (int8)(0), sm01 = (int8)(0);
             int8 sm10 = (int8)(0), sm11 = (int8)(0);
             int8 sm20 = (int8)(0), sm21 = (int8)(0);
@@ -817,7 +831,7 @@ kernel void gemm_fused(
             }
           }
           OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-          if (0 == OZAKI_SQ && sa != sb) {
+          if (OZAKI_SYM && sa != sb) {
             int8 c_mir[RTM * RTN];
             {
               int ri;
@@ -848,7 +862,7 @@ kernel void gemm_fused(
             }
           }
           OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
-          if (0 == OZAKI_SQ && sa != sb) {
+          if (OZAKI_SYM && sa != sb) {
             int8 c_mir[RTM * RTN];
             {
               int ri;

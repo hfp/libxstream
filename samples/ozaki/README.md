@@ -66,6 +66,18 @@ other devices Scheme 1, both because counting GEMMs mispredicts there.
 | OZAKI_GROUPS  | 0       | Sch.2: K-grouping factor, consecutive K panels share reconstr.       |
 | OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 if unfused, else 2        |
 
+`OZAKI_FLAGS` selects how the slice-pair loop is traversed, and the two
+bits mean the same on the host and on the device: 1 starts the inner
+slice at the outer one, 2 adds the transposed product of every
+off-diagonal pair. Only 0 (the full square loop) and 3 (both bits)
+compute the whole sum -- 1 alone omits the transposed products and 2
+alone counts them twice, so both are for symmetric operands only.
+
+`OZAKI_GROUPS` splits K into panels to bound the preprocessing
+footprint, and it is a slowdown at every size measured because it is
+incompatible with the unfused epilogue (`OZAKI_UNFUSE`, on by default
+for GPUs) -- use it only when the per-pass buffers do not fit.
+
 `OZAKI_FRACCRT=1` trades exactness for speed (flat fractional sum,
 magnitude-bounded); modes 0 and 2 are both exact and differ only in
 speed. Which one is faster depends on the epilogue rather than on the
@@ -81,6 +93,10 @@ follows that knob.
 | OZAKI_TN         | (auto)  | Output tile N (BN). Overrides size-aware selection                |
 | OZAKI_RTM        | (auto)  | Register tiling M (power of two). Auto: 2 (HIER), 4 (256-GRF)    |
 | OZAKI_RTN        | (auto)  | Register tiling N. Auto: 8 (NV MMA Sch.2), 2 (Intel), 1 (other)  |
+| OZAKI_SB         | 1       | Sch.1: slice-block width for the pair loop (needs 256-GRF)       |
+| OZAKI_WGS_MAX    | (auto)  | Work-group size ceiling for tile selection (0=hardware bound)    |
+| OZAKI_LU         | 0       | Unroll hint for the K-loop (0=compiler default)                  |
+| OZAKI_SKIP_GARNER| 0       | Sch.2: skip reconstruction (timing only, result is not a GEMM)   |
 | OZAKI_WG         | 0       | Work-group size hint (0=no hint)                                 |
 | OZAKI_SG         | (auto)  | Sub-group size (forced to 16 with XMX)                           |
 | OZAKI_BIGGRF     | (auto)  | Override 256-GRF detection (0=off, 1=on). HIER defaults to 128   |
@@ -231,8 +247,7 @@ and warp-group geometry were swept for fp32 and rank exactly as in fp64.
 
 | Variable      | Default | Description                                                         |
 |---------------|---------|---------------------------------------------------------------------|
-| OZAKI_DEVPOOL | 0       | Device memory pool via USM/SVM (eliminates per-call alloc overhead) |
-| OZAKI_CACHE   | 0       | Preprocessing cache bitmask: 1=A, 2=B, 3=both. Skips on match       |
+| OZAKI_CACHE   | 0       | Preprocessing cache bitmask: 1=A, 2=B, 3=both (or any negative)     |
 | OZAKI_NPANEL  | 1       | Sch.2: N-panel width (0=auto, 1=disable). See Panel Pipeline        |
 
 The preprocessing cache also stores the last effective cutoff from
@@ -339,6 +354,14 @@ intensity term is maximal for square tiles, which keeps the split
 balanced rather than degenerate. Set OZAKI_TM/OZAKI_TN to bypass
 selection and pin a tile.
 
+The register tiling is selected per call as well, on Intel GPUs: the
+auto value in the table is the small-problem choice, and a larger one
+is taken once the problem still forms one tile per compute unit at the
+coarser granularity that implies. `OZAKI_VERBOSE=3` prints it as
+`rtm=2..4`, meaning either may be used, and the per-call value appears
+in the `JIT` line as `rt=`. Setting OZAKI_RTM or OZAKI_RTN pins both
+and bypasses this.
+
 ## Panel Pipeline (Scheme 2)
 
 Only ~30% of a Scheme-2 call is the GEMM kernel; the rest is uploading
@@ -410,6 +433,10 @@ hierarchical Garner reconstruction. Predictable performance regardless
 of data distribution. Use OZAKI_GROUPS for K-grouping at large sizes.
 The hierarchical CRT (OZAKI_HIER, on by default) halves private
 residue arrays and enables GRF128 for doubled thread occupancy.
+Selecting flat reconstruction takes `OZAKI_HIER=0 OZAKI_FRACCRT=0`
+with `OZAKI=1` or `OZAKI=2`, because the per-group fractional CRT and
+the adaptive scheme both need the hierarchy; the combination warns
+when it cannot be honoured.
 
 Scheme 1 (mantissa slicing, OZAKI=1): up to S\*(S+1)/2 integer GEMMs,
 but adaptive cutoff can reduce this substantially for narrow exponent
@@ -420,4 +447,5 @@ based on preprocessing occupancy. Best with OZAKI_CACHE=3 to avoid
 repeated occupancy readbacks.
 
 Enable OZAKI_CACHE=3 when A or B stays constant across calls.
-Enable OZAKI_DEVPOOL=1 for repeated calls with similar sizes.
+Note that only OZAKI_CACHE=0 disables the cache: a negative value is
+another spelling of 3.
