@@ -120,9 +120,9 @@ LIBXSTREAM_API_INTERN void libxstream_mem_host_register(void* memptr, size_t nby
   if (NULL != libxstream_opencl_config.cudaHostRegister && NULL != memptr) {
     /* cudaHostRegisterPortable: pinned in every context, i.e. also after cudaSetDevice */
     const int status = libxstream_opencl_config.cudaHostRegister(memptr, nbytes, 0x01);
-    LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nhostreg, 1, LIBXS_ATOMIC_RELAXED);
+    LIBXS_ATOMIC_SIZE(LIBXS_ATOMIC_ADD_FETCH)(&libxstream_opencl_config.nhostreg, 1, LIBXS_ATOMIC_RELAXED);
     if (EXIT_SUCCESS == status) {
-      LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nhostreg_ok, 1, LIBXS_ATOMIC_RELAXED);
+      LIBXS_ATOMIC_SIZE(LIBXS_ATOMIC_ADD_FETCH)(&libxstream_opencl_config.nhostreg_ok, 1, LIBXS_ATOMIC_RELAXED);
     }
   }
 }
