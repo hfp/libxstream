@@ -978,6 +978,15 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
   if (0 != libxstream_opencl_config.ndevices) {
     const libxs_hist_t* hist[] = { NULL, NULL, NULL, NULL };
     const int nhist = (int)(sizeof(hist) / sizeof(*hist));
+    /**
+     * A completion callback can still be delivered while this runs: completion of
+     * an event does not imply delivery of its callback, and the thread delivering
+     * it belongs to the OpenCL runtime rather than to the caller. Under profiling
+     * such a callback is outstanding, and then nothing it touches is released
+     * here. This function runs at process exit only (destructor or atexit), where
+     * the alternative to leaving the memory to the OS is a use-after-free.
+     */
+    const int keep = (0 != libxstream_opencl_config.profile || 0 != libxstream_opencl_config.profile_mem);
     int i;
     hist[0] = libxstream_opencl_config.hist_h2d;
     hist[1] = libxstream_opencl_config.hist_d2h;
@@ -988,7 +997,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
      * transfer rows for LIBXSTREAM_PROFILE_MEM. The two mix only when both are
      * given, which is what keeps a rate row from being read as a duration.
      */
-    if (0 != libxstream_opencl_config.profile || 0 != libxstream_opencl_config.profile_mem) {
+    if (0 != keep) {
       int nrows = 0;
       LIBXS_STDIO_ACQUIRE();
       if (0 != libxstream_opencl_config.profile) nrows += libxstream_opencl_print_kernels(stderr);
@@ -1008,70 +1017,74 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       fprintf(stderr, "INFO ACC/OpenCL: %lu of %lu host allocations registered with the CUDA runtime\n",
         (unsigned long)libxstream_opencl_config.nhostreg_ok, (unsigned long)libxstream_opencl_config.nhostreg);
     }
-    for (i = 0; i < LIBXSTREAM_MAXNDEVS; ++i) {
-      const cl_device_id device_id = libxstream_opencl_config.devices[i];
-      if (NULL != device_id) {
+    if (0 == keep) {
+      for (i = 0; i < LIBXSTREAM_MAXNDEVS; ++i) {
+        const cl_device_id device_id = libxstream_opencl_config.devices[i];
+        if (NULL != device_id) {
 # if defined(CL_VERSION_1_2) && 0 /* avoid potential segfault */
-        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseDevice(device_id));
+          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseDevice(device_id));
 # endif
+        }
       }
+      /* release/reset buffers */
+      libxs_hist_destroy(libxstream_opencl_config.hist_h2d);
+      libxs_hist_destroy(libxstream_opencl_config.hist_d2h);
+      libxs_hist_destroy(libxstream_opencl_config.hist_d2d);
+      libxs_hist_destroy(libxstream_opencl_config.hist_zero);
+      for (i = 0; i < LIBXS_CAST_INT(libxstream_opencl_config.nkernels); ++i) {
+        void* name;
+        libxs_hist_destroy(libxstream_opencl_config.hist_kernel[i]);
+        LIBXS_UNION_ASSIGN(void*, name, const char*, libxstream_opencl_config.name_kernel[i]);
+        free(name); /* strdup'ed from CL_KERNEL_FUNCTION_NAME */
+        libxstream_opencl_config.hist_kernel[i] = NULL;
+        libxstream_opencl_config.name_kernel[i] = NULL;
+      }
+      free(libxstream_opencl_config.launch_infos);
+      free(libxstream_opencl_config.launch_info_data);
+      libxstream_opencl_config.launch_info_data = NULL;
+      libxstream_opencl_config.launch_infos = NULL;
+      libxstream_opencl_config.nlaunch_infos = 0;
+      libxs_free_pool(libxstream_opencl_config.pool_dev);
+      libxs_free_pool(libxstream_opencl_config.pool_hst);
+      if (NULL != libxstream_opencl_config.pool_hst_queue) {
+        clReleaseCommandQueue(libxstream_opencl_config.pool_hst_queue); /* ignore return code */
+      }
+      if (NULL != libxstream_opencl_config.pool_hst_context) {
+        clReleaseContext(libxstream_opencl_config.pool_hst_context); /* ignore return code */
+      }
+      if (NULL != libxstream_opencl_config.device.stream.queue) { /* release private stream */
+        clReleaseCommandQueue(libxstream_opencl_config.device.stream.queue); /* ignore return code */
+      }
+      if (NULL != libxstream_opencl_config.device.memptr_kernel) {
+        clReleaseKernel(libxstream_opencl_config.device.memptr_kernel); /* ignore return code */
+        libxstream_opencl_config.device.memptr_kernel = NULL;
+        libxstream_opencl_config.device.memptr_context = NULL;
+      }
+      if (NULL != libxstream_opencl_config.device.context) {
+        const cl_context context = libxstream_opencl_config.device.context;
+        libxstream_opencl_config.device.context = NULL;
+        clReleaseContext(context); /* ignore return code */
+      }
+      for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) { /* destroy locks */
+        LIBXS_LOCK_DESTROY(LIBXS_LOCK, (libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * i));
+      }
+      /**
+       * NOTE: registered streams/events are not individually released here;
+       * the OpenCL runtime reclaims resources at process exit (atexit context).
+       */
+      free(libxstream_opencl_config.memptrs);
+      free(libxstream_opencl_config.memptr_data);
+      free(libxstream_opencl_config.subs);
+      free(libxstream_opencl_config.streams);
+      free(libxstream_opencl_config.stream_data);
+      free(libxstream_opencl_config.events);
+      free(libxstream_opencl_config.event_data);
+      /* clear entire configuration structure */
+      memset(&libxstream_opencl_config, 0, sizeof(libxstream_opencl_config));
     }
-    /* release/reset buffers */
-    libxs_hist_destroy(libxstream_opencl_config.hist_h2d);
-    libxs_hist_destroy(libxstream_opencl_config.hist_d2h);
-    libxs_hist_destroy(libxstream_opencl_config.hist_d2d);
-    libxs_hist_destroy(libxstream_opencl_config.hist_zero);
-    for (i = 0; i < LIBXS_CAST_INT(libxstream_opencl_config.nkernels); ++i) {
-      void* name;
-      libxs_hist_destroy(libxstream_opencl_config.hist_kernel[i]);
-      LIBXS_UNION_ASSIGN(void*, name, const char*, libxstream_opencl_config.name_kernel[i]);
-      free(name); /* strdup'ed from CL_KERNEL_FUNCTION_NAME */
-      libxstream_opencl_config.hist_kernel[i] = NULL;
-      libxstream_opencl_config.name_kernel[i] = NULL;
-    }
+    /* recording stops in either case: the histograms are printed by now */
     libxstream_opencl_config.nkernels = 0;
-    free(libxstream_opencl_config.launch_infos);
-    free(libxstream_opencl_config.launch_info_data);
-    libxstream_opencl_config.launch_info_data = NULL;
-    libxstream_opencl_config.launch_infos = NULL;
-    libxstream_opencl_config.nlaunch_infos = 0;
-    libxs_free_pool(libxstream_opencl_config.pool_dev);
-    libxs_free_pool(libxstream_opencl_config.pool_hst);
-    if (NULL != libxstream_opencl_config.pool_hst_queue) {
-      clReleaseCommandQueue(libxstream_opencl_config.pool_hst_queue); /* ignore return code */
-    }
-    if (NULL != libxstream_opencl_config.pool_hst_context) {
-      clReleaseContext(libxstream_opencl_config.pool_hst_context); /* ignore return code */
-    }
-    if (NULL != libxstream_opencl_config.device.stream.queue) { /* release private stream */
-      clReleaseCommandQueue(libxstream_opencl_config.device.stream.queue); /* ignore return code */
-    }
-    if (NULL != libxstream_opencl_config.device.memptr_kernel) {
-      clReleaseKernel(libxstream_opencl_config.device.memptr_kernel); /* ignore return code */
-      libxstream_opencl_config.device.memptr_kernel = NULL;
-      libxstream_opencl_config.device.memptr_context = NULL;
-    }
-    if (NULL != libxstream_opencl_config.device.context) {
-      const cl_context context = libxstream_opencl_config.device.context;
-      libxstream_opencl_config.device.context = NULL;
-      clReleaseContext(context); /* ignore return code */
-    }
-    for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) { /* destroy locks */
-      LIBXS_LOCK_DESTROY(LIBXS_LOCK, (libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * i));
-    }
-    /**
-     * NOTE: registered streams/events are not individually released here;
-     * the OpenCL runtime reclaims resources at process exit (atexit context).
-     */
-    free(libxstream_opencl_config.memptrs);
-    free(libxstream_opencl_config.memptr_data);
-    free(libxstream_opencl_config.subs);
-    free(libxstream_opencl_config.streams);
-    free(libxstream_opencl_config.stream_data);
-    free(libxstream_opencl_config.events);
-    free(libxstream_opencl_config.event_data);
-    /* clear entire configuration structure */
-    memset(&libxstream_opencl_config, 0, sizeof(libxstream_opencl_config));
+    libxstream_opencl_config.ndevices = 0;
 # if defined(LIBXSTREAM_CACHE_DID)
     internal_libxstream_opencl_active_id = 0; /* reset cached active device-ID */
 # endif
