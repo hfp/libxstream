@@ -201,7 +201,12 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("LIBXSTREAM_WA");
   static char neo_enable_debug_keys[] = "NEOReadDebugKeys=1";
 # if defined(LIBXS_INTERCEPT_DYNAMIC)
-  const char* const env_cuda_pin = getenv("LIBXSTREAM_CUDA_PIN");
+  /**
+   * Registering host memory with a vendor runtime so a transfer takes the
+   * pinned path is not a CUDA-specific idea -- Level Zero has the same need --
+   * so the knob is named for what it does rather than for who implements it.
+   */
+  const char* const env_pin = getenv("LIBXSTREAM_PIN");
 # endif
 # if defined(LIBXSTREAM_STREAM_PRIORITIES)
   const char* const env_priority = getenv("LIBXSTREAM_PRIORITY");
@@ -363,20 +368,59 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   }
 # if defined(LIBXS_INTERCEPT_DYNAMIC)
   /**
-   * Host memory is registered with CUDA if the application linked its runtime.
-   * LIBXSTREAM_CUDA_PIN=0 leaves it unregistered, which is what measures the
-   * pageable transport (nothing else about the library changes).
+   * Host memory is registered with CUDA when the runtime is reachable.
+   * LIBXSTREAM_PIN=0 leaves it unregistered, which is what measures the
+   * pageable transport (nothing else about the library changes). 1, the
+   * default, uses the runtime only when the application already linked it and
+   * therefore creates no dependency of its own. 2 loads it when absent.
+   *
+   * The distinction is not academic: a wrapper driver that intercepts BLAS
+   * links libOpenCL and no CUDA runtime, so under 1 the lookup finds nothing
+   * and registration silently never happens -- which is the configuration
+   * whose transfers are slowest and which most needs it. 2 is opt-in because
+   * loading a vendor runtime into a process that never asked for it is a side
+   * effect, not a detail: it initializes CUDA, can be slow or fail against a
+   * mismatched driver, and may collide with an application managing CUDA
+   * itself.
    */
-  if (NULL == env_cuda_pin || 0 != atoi(env_cuda_pin)) {
-    union { const void* dlsym; int (*ptr)(void*, size_t, unsigned int); } reg;
-    union { const void* dlsym; int (*ptr)(void*); } unreg;
-    dlerror(); /* clear an eventual error status */
-    reg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostRegister");
-    unreg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostUnregister");
-    /* both or neither: a registration that cannot be undone outlives the mapping */
-    if (NULL != reg.dlsym && NULL != unreg.dlsym) {
-      libxstream_opencl_config.cudaHostRegister = reg.ptr;
-      libxstream_opencl_config.cudaHostUnregister = unreg.ptr;
+  { const int cuda_pin = (NULL == env_pin ? 1 : atoi(env_pin));
+    if (0 != cuda_pin) {
+      union { const void* dlsym; int (*ptr)(void*, size_t, unsigned int); } reg;
+      union { const void* dlsym; int (*ptr)(void*); } unreg;
+      dlerror(); /* clear an eventual error status */
+      reg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostRegister");
+      unreg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostUnregister");
+      if (1 < cuda_pin && (NULL == reg.dlsym || NULL == unreg.dlsym)) {
+        /**
+         * The unversioned name exists only where the development package is
+         * installed, so the SONAMEs are tried after it. The handle is
+         * deliberately never released on success: a registration must outlive
+         * whatever made the entry point reachable.
+         */
+        static const char* const cudart[] = {
+          "libcudart.so", "libcudart.so.13", "libcudart.so.12"
+        };
+        const int ncudart = (int)(sizeof(cudart) / sizeof(*cudart));
+        int soname = 0;
+        while (soname < ncudart && (NULL == reg.dlsym || NULL == unreg.dlsym)) {
+          void* const handle = dlopen(cudart[soname], RTLD_LAZY | RTLD_LOCAL);
+          if (NULL != handle) {
+            reg.dlsym = dlsym(handle, "cudaHostRegister");
+            unreg.dlsym = dlsym(handle, "cudaHostUnregister");
+            if (NULL == reg.dlsym || NULL == unreg.dlsym) {
+              LIBXS_EXPECT(0 == dlclose(handle));
+              reg.dlsym = NULL;
+              unreg.dlsym = NULL;
+            }
+          }
+          ++soname;
+        }
+      }
+      /* both or neither: a registration that cannot be undone outlives the mapping */
+      if (NULL != reg.dlsym && NULL != unreg.dlsym) {
+        libxstream_opencl_config.cudaHostRegister = reg.ptr;
+        libxstream_opencl_config.cudaHostUnregister = unreg.ptr;
+      }
     }
   }
 # endif
