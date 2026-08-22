@@ -527,6 +527,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     int fraccrt, crt_hier, unfuse_pre;
     size_t max_wgs;
     int v;
+    /**
+     * Configurations where Scheme 2 cannot be dispatched, mirroring ozaki_gemm:
+     * kind==1 asks for Scheme 1, and under kind==3 fp32 on a non-NVIDIA device
+     * selects it outright. The Scheme-2 knobs must not shape the Scheme-1 build
+     * there - hier below picks the GRF mode, which fixes the register tiling and
+     * the work-group ceiling of every kernel, so an unreachable scheme would
+     * otherwise compile the one that runs at half its row tiling.
+     */
+    const int sch1_only = (1 == kind || (3 == kind && 0 == use_double && 0 == ctx->nv));
     {
       const char *const env_hier = getenv("OZAKI_HIER");
       hier = (NULL != env_hier) ? (0 != atoi(env_hier) ? 1 : 0) : (0 != crt ? 1 : 0);
@@ -537,6 +546,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      * OZAKI_BIGGRF: Ozaki-specific override.
      * Default: auto-enable for Intel GPUs, but HIER prefers GRF128
      * (halved private arrays make 2x occupancy the better trade-off).
+     *
+     * HIER is a Scheme-2 property, so it only speaks for a build Scheme 2 can
+     * reach: where the scheme is settled as 1 at init, GRF256 stands. Both
+     * schemes reachable per call (fp64 under kind==3) still resolve in Scheme
+     * 2's favor, which is one GRF mode serving two programs and wants the
+     * per-scheme split rather than a different tie-break.
      */
     env = getenv("OZAKI_BIGGRF");
     if (NULL != env) {
@@ -546,7 +561,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       biggrf = (0 != devinfo->biggrf);
     }
     else {
-      biggrf = (0 != hier && 0 != devinfo->intel && 0 != gpu) ? 0 : (0 != devinfo->intel && 0 != gpu);
+      biggrf = (0 != devinfo->intel && 0 != gpu && (0 == hier || 0 != sch1_only));
     }
     LIBXS_SNPRINTF(build_options, sizeof(build_options), "-cl-fast-relaxed-math -cl-denorms-are-zero%s",
       (0 != biggrf && 0 != devinfo->intel && 0 == devinfo->biggrf) ? " -cl-intel-256-GRF-per-thread" : "");
