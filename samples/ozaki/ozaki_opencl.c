@@ -303,9 +303,19 @@ ozaki_tile_t ozaki_rtile_select(const ozaki_context_t* ctx, int M, int N, int cr
        * tile grid busy rather than justify making the grid coarser. Calibrated on
        * PVC (448 units): it promotes from n=1024, where fp64 Scheme 2 gains 14%,
        * and holds off at n=512, where promoting costs 1.5x.
+       *
+       * The symmetrized pair loop needs a coarser floor than either scheme's
+       * plain tile grid, because the mirror product accumulates alongside the
+       * pair and the promoted tile therefore holds twice the live state. On PVC
+       * its crossover sits between n=1024, where the base pair leads by 1.30x in
+       * fp64 (1.23 against 1.59 ms) and 1.24x in fp32, and n=1280, where the
+       * promoted pair leads by 1.49x (2.05 against 3.07 ms). Three tiles per unit
+       * separates them; one tile per unit would promote from n=677 and lose at
+       * both measured sizes below the crossover.
        */
       const int gm = OZAKI_XMX_M(ctx) * big_m, gn = OZAKI_XMX_N(ctx) * big_n;
-      if ((LIBXS_UPDIV(M, gm) * LIBXS_UPDIV(N, gn)) >= ctx->nunits) {
+      const int units = (0 == crt && 0 != (ctx->ozflags & OZAKI_SYMMETRIZE)) ? 3 * ctx->nunits : ctx->nunits;
+      if ((LIBXS_UPDIV(M, gm) * LIBXS_UPDIV(N, gn)) >= units) {
         result.m = big_m;
         result.n = big_n;
       }
@@ -667,8 +677,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
     if (0 == rtm) {
       if (0 != devinfo->intel && 0 != gpu) {
-        /* Slice blocking holds SB^2 accumulator sets, so it halves RTM. */
-        rtm = (0 != biggrf) ? (1 < ctx->sb ? 2 : 4) : 2;
+        /**
+         * Slice blocking holds SB^2 accumulator sets, so it halves RTM. The
+         * symmetrized pair loop takes the same base and grows into 4x2 by
+         * problem size instead of standing on it: 4x2 is 1.45x (fp32) and 1.53x
+         * (fp64) off the base pair at n=256 on PVC, and pinning either value
+         * costs one end of the range. The square loop keeps 4x2 as its base
+         * because its promotion goes on to 4x4, which the mirror cannot afford.
+         */
+        rtm = (0 != biggrf && 1 == ctx->sb && 0 == (ozflags & OZAKI_SYMMETRIZE)) ? 4 : 2;
       }
       else if (0 != ctx->nv_mma && 0 != gpu) {
         rtm = 2;
@@ -898,7 +915,21 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * of C). Round the halved extent down to the granularity and stop when
        * it can no longer shrink.
        */
-      { const int gm = xmx_m * rtm, gn = xmx_n * rtn;
+      /**
+       * Size the ceiling for the coarsest register tiling Scheme 1 may dispatch,
+       * not for its base: a promoted pair needs fewer sub-tiles over the same
+       * extent, so a ceiling derived from the base caps the promoted call at a
+       * tile shaped for the finer pair. On PVC that is the whole regression -
+       * fp64 n=4096 measures 46.3 ms at 128x256 against 49.0 at the 128x128 the
+       * base-sized ceiling allows. Widening it is safe because ozaki_tile_select
+       * re-checks the work-group bound per call with the tiling actually in use.
+       * Only the symmetrized loop, whose base moved, is sized this way; the
+       * square loop keeps its ceiling until the same sweep has been run for it.
+       */
+      { const ozaki_tile_t rmax = ozaki_rtile_grow(rtm, rtn);
+        const int wide = (0 != (ozflags & OZAKI_SYMMETRIZE) && 0 == rtm_req && 0 == rtn_req
+          && 1 == ctx->sb && 0 != devinfo->intel && 0 != gpu && 0 == ctx->nv_mma);
+        const int gm = xmx_m * (0 != wide ? rmax.m : rtm), gn = xmx_n * (0 != wide ? rmax.n : rtn);
         while ((size_t)sg * ((size_t)(tm / gm) * (tn / gn)) > max_wgs && (tm > gm || tn > gn)) {
           if (tm >= tn && tm > gm) tm = (tm / 2 / gm) * gm;
           else if (tn > gn) tn = (tn / 2 / gn) * gn;
@@ -1420,17 +1451,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       /**
        * Growable only where it was measured: an Intel GPU, no explicit request,
        * and no second accumulator set already claiming the registers it needs -
-       * which rules out slice blocking (OZAKI_SB^2 sets) and the symmetrized pair
-       * loop, where the mirror product accumulates alongside the pair. The latter
-       * is not a small effect: at 256-GRF fp64 n=4096 the mirror measures 46.5 ms
-       * at 4x2 against 99.1 at 4x4, while the square loop goes 50.1 -> 36.0.
+       * which rules out slice blocking (OZAKI_SB^2 sets). The symmetrized pair
+       * loop grows too, but only one step, since its base is 2x2 and the ladder
+       * reaches 4x2 and stops there; what it must not reach is 4x4, where the
+       * mirror product accumulating alongside the pair measures 99.1 ms against
+       * 46.5 at 256-GRF fp64 n=4096, while the square loop goes 50.1 -> 36.0 on
+       * the same step - which is why the square loop bases at 4x2 instead.
        * NVIDIA keeps its tuned pair until the same sweep has been run there. The
        * ceiling tile must admit one sub-tile of the coarser granularity, otherwise
        * the promoted pair has no legal tile at all.
        */
       ctx->rtm_big = rtm;
       ctx->rtn_big = rtn;
-      if (0 == rtm_req && 0 == rtn_req && 1 == ctx->sb && 0 == (ozflags & OZAKI_SYMMETRIZE)
+      if (0 == rtm_req && 0 == rtn_req && 1 == ctx->sb
         && 0 != devinfo->intel && 0 != gpu && 0 == ctx->nv_mma)
       {
         const ozaki_tile_t big = ozaki_rtile_grow(rtm, rtn);
