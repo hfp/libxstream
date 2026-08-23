@@ -114,6 +114,24 @@ LIBXS_PRAGMA_DIAG_POP()
 # define LIBXSTREAM_MAXNKERNELS 32
 #endif
 /**
+ * Interval segments each profiled histogram keeps open while folding a batch
+ * into its union (libxs_hist_fold_union). Only the segments a later interval
+ * could still merge with are retained, so this bounds the reach-back tolerated
+ * across a fold rather than the number of intervals: completion callbacks
+ * arrive in near-completion order, where a handful is ample.
+ */
+#if !defined(LIBXSTREAM_PROFILE_NSEG)
+# define LIBXSTREAM_PROFILE_NSEG 8
+#endif
+/**
+ * Least ratio of summed duration to covered time that is reported as overlap.
+ * Anything closer to 1 is overlap the two decimals of the figure cannot show,
+ * and a reported "1.00" would state overlap while displaying none.
+ */
+#if !defined(LIBXSTREAM_PROFILE_INFLIGHT)
+# define LIBXSTREAM_PROFILE_INFLIGHT 1.005
+#endif
+/**
  * Accuracy target for profiled samples, expressed as a multiple of the device
  * timer granularity (CL_DEVICE_PROFILING_TIMER_RESOLUTION, queried per device
  * into timer_ns - this macro is not that granularity, it is how many of its
@@ -489,6 +507,19 @@ typedef struct libxstream_opencl_config_t {
    * Fixed capacity, because the callback must not grow the table. Overflow is
    * counted rather than silently dropped (see nprofile_kernel_lost).
    */
+  /**
+   * Union of every profiled interval, kernels and transfers together. Separate
+   * because a union cannot be combined from the per-kernel ones: two of them
+   * may cover the same instant, and their totals cannot say whether they do.
+   */
+  libxs_hist_t* hist_device;
+  /**
+   * Origin subtracted from every device timestamp before it is pushed. Device
+   * nanoseconds are far above 2^53, where a double no longer separates values
+   * a few hundred nanoseconds apart - enough to make adjacent intervals appear
+   * to touch, which would report overlap that never happened.
+   */
+  cl_ulong timer_epoch;
   libxs_hist_t* hist_kernel[LIBXSTREAM_MAXNKERNELS];
   const char* name_kernel[LIBXSTREAM_MAXNKERNELS];
   cl_kernel kernels[LIBXSTREAM_MAXNKERNELS];
@@ -681,8 +712,24 @@ LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl
   const size_t* global_work_offset, const size_t* global_work_size, const size_t* local_work_size,
   cl_uint num_events_in_wait_list, const cl_event* event_wait_list, cl_event* event, size_t nflops, size_t nbytes);
 
+/**
+ * Absolute begin and end of the given event on the device clock (nanoseconds).
+ * Timestamps from one device are directly comparable, which is what lets the
+ * intervals of different kernels and transfers be related to each other; a
+ * duration cannot express that. Either output may be NULL.
+ */
+LIBXSTREAM_API int libxstream_opencl_interval(cl_event event, cl_ulong* begin, cl_ulong* end);
+
 /** Measure time in seconds for the given event. */
 LIBXSTREAM_API double libxstream_opencl_duration(cl_event event, int* result_code);
+
+/**
+ * Device timestamp relative to the profiling epoch, which the first call
+ * establishes. Timestamps from one device share a clock, so relative values
+ * from different kernels and transfers remain directly comparable - which is
+ * what lets their intervals be unioned or intersected.
+ */
+LIBXSTREAM_API_INTERN double libxstream_opencl_reltime(cl_ulong timestamp);
 
 /** Map a raw cl_int error code to a human-readable string. */
 LIBXSTREAM_API const char* libxstream_opencl_strerror(cl_int err);

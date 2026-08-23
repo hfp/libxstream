@@ -45,6 +45,8 @@ libxstream_mem_dev_allocate_hint
 libxstream_mem_dev_deallocate_hint
 libxstream_mem_host_allocate
 libxstream_mem_host_deallocate
+libxstream_mem_host_pin
+libxstream_mem_host_unpin
 libxstream_mem_info
 libxstream_mem_offset
 libxstream_mem_zero
@@ -66,6 +68,7 @@ libxstream_opencl_info_devptr
 libxstream_opencl_info_devptr_lock
 libxstream_opencl_info_devptr_modify
 libxstream_opencl_info_hostptr
+libxstream_opencl_interval
 libxstream_opencl_kernel
 libxstream_opencl_kernel_flags
 libxstream_opencl_kernel_query

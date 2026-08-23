@@ -909,8 +909,10 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
    * - the amount is carried a second time in vals[1], which is stored and
    * averaged like the duration, so amount and duration describe the same sample.
    */
-  double vals[3];
-  vals[2] = libxstream_opencl_duration(event, &result) * 1E6; /* Microseconds */
+  double vals[5];
+  cl_ulong begin = 0, end = 0;
+  result = libxstream_opencl_interval(event, &begin, &end);
+  vals[2] = 1E-3 * LIBXS_DELTA(begin, end); /* Microseconds */
   LIBXS_UNUSED(event_status);
   assert(CL_COMPLETE == event_status && NULL != data && 8 == sizeof(data));
   if (EXIT_SUCCESS == result && EXIT_SUCCESS == clGetEventInfo(event, CL_EVENT_COMMAND_TYPE, sizeof(type), &type, NULL)) {
@@ -965,18 +967,30 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
        * samples would otherwise set the histogram range for the useful ones.
        */
       const double floor_us = 1E-3 * (double)(LIBXSTREAM_PROFILE_TICKS * libxstream_opencl_config.device.timer_ns);
+      vals[3] = libxstream_opencl_reltime(begin);
+      vals[4] = libxstream_opencl_reltime(end);
       if (vals[2] >= floor_us) {
         libxs_hist_push(libxstream_opencl_config.lock_memory, hist, vals);
+        /**
+         * The same interval device-wide, where a transfer can be seen to
+         * overlap a kernel rather than merely coexist with one. Under
+         * lock_event rather than lock_memory: the kernel callback pushes into
+         * the same histogram, and one histogram cannot be guarded by two locks.
+         * Not nested with the push above, so the pair cannot deadlock.
+         */
+        libxs_hist_push(libxstream_opencl_config.lock_event,
+          libxstream_opencl_config.hist_device, vals + 3);
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile_mem) {
-          fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f\n", name, vals[1], vals[2]);
+          fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f ns=%.0f-%.0f\n",
+            name, vals[1], vals[2], (double)begin, (double)end);
         }
       }
       else {
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_short, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile_mem) {
-          fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f (below %.0f us, discarded)\n",
-            name, vals[1], vals[2], floor_us);
+          fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f ns=%.0f-%.0f (below %.0f us, discarded)\n",
+            name, vals[1], vals[2], (double)begin, (double)end, floor_us);
         }
       }
     }

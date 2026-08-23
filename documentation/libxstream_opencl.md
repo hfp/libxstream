@@ -139,6 +139,27 @@ Every value a histogram carries is averaged per sample, never accumulated, so th
 
 The headline rate on a transfer row is the histogram's **mode**, not its median. Transfer sizes are commonly multi-modal — a whole operand alongside per-panel blocks, or a zero-fill covering both a small exponent array and a large slice plane — and a median can fall between the clusters and thus describe no observed transfer, whereas the mode always names a bucket that samples landed in. Where a workload issues transfers of one size the two agree, so nothing is lost where the median was already right. Kernel rows report the median duration.
 
+### Overlap
+
+A row gains one field, `inflight>=`, when its samples overlapped in time:
+
+```
+PROF ACC/OpenCL: ID=164984 ZERO=743.5 GB/s inflight>=1.08
+PROF ACC/OpenCL: ID=164984 device inflight>=1.04 (3 kernels, 3 transfer kinds)
+```
+
+It is the average number of these operations running at once. Intervals cannot sum to more than the time they cover unless some of them ran together, so a ratio above 1 is overlap and nothing else.
+
+The denominator is the **union** of the intervals — the time actually covered — not their extent, which would count the gaps between them. Each histogram folds its own intervals into that union as it goes (`libxs_hist_fold_union`), keeping only the segments a later interval could still merge with. An interval arriving after those have been retired is added whole, since its overlap with retired time can no longer be subtracted; such intervals are counted and the count is reported, and because that can only overstate the union, `inflight` stays a lower bound either way.
+
+The field is absent whenever no overlap is demonstrated, which is the answer in itself: the operations ran one at a time. It is also absent when the overlap is too small to show in the two decimals reported, rather than printing a self-contradictory `1.00`.
+
+A `device` row folds every kernel and every transfer into one union and states how many of each contributed. It reports what no single row can — one kernel overlapping another, or a transfer overlapping a kernel — because a union across them cannot be assembled from theirs: two rows may cover the same instant, and their totals cannot say whether they do.
+
+A kernel whose every sample was rejected by the accuracy floor still gets a row, saying so, since it was launched and silence would say otherwise.
+
+A negative value additionally traces every interval as `ns=<begin>-<end>` in device-clock nanoseconds, which is enough to reproduce any of this offline.
+
 ## See Also
 
 * LIBXSTREAM API (`libxstream/libxstream.h`) — public API built on top of this layer

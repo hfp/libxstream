@@ -281,6 +281,17 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
 # endif
   libxstream_opencl_config.profile = (NULL == env_profile ? /*default*/ 0 : atoi(env_profile));
   libxstream_opencl_config.profile_mem = (NULL == env_profile_mem ? /*default*/ 0 : atoi(env_profile_mem));
+  if (0 != libxstream_opencl_config.profile || 0 != libxstream_opencl_config.profile_mem) {
+    /**
+     * Two values, {begin, end}, because only the union is wanted from it: the
+     * buckets are a by-product. Every kernel and every transfer is pushed here
+     * as well as into its own histogram, since a union across them cannot be
+     * assembled from theirs.
+     */
+    const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg};
+    libxstream_opencl_config.hist_device = libxs_hist_create(2 /*nbuckets*/, 2 /*nvals*/,
+      update, libxs_hist_fold_union, LIBXS_HIST_UNION_NSTATE(LIBXSTREAM_PROFILE_NSEG));
+  }
   libxstream_opencl_config.xhints = (NULL == env_xhints ? xhints_default : atoi(env_xhints));
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
   libxstream_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
@@ -802,11 +813,15 @@ LIBXSTREAM_API int libxstream_init(void)
            * interpolated size with an unrelated duration, making the reported
            * rate depend on the bucket count.
            */
-          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
-          libxstream_opencl_config.hist_h2d = libxs_hist_create(profile + 1, 3, update);
-          libxstream_opencl_config.hist_d2h = libxs_hist_create(profile + 1, 3, update);
-          libxstream_opencl_config.hist_d2d = libxs_hist_create(profile + 1, 3, update);
-          libxstream_opencl_config.hist_zero = libxs_hist_create(profile + 1, 3, update);
+          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg,
+            libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
+          const int nstate = LIBXS_HIST_UNION_NSTATE(LIBXSTREAM_PROFILE_NSEG);
+          /* {MB, MB, us, begin, end}: the interval is carried for the union
+             fold, which reads the last two values of a sample */
+          libxstream_opencl_config.hist_h2d = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
+          libxstream_opencl_config.hist_d2h = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
+          libxstream_opencl_config.hist_d2d = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
+          libxstream_opencl_config.hist_zero = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
         }
         else {
           assert(NULL == libxstream_opencl_config.hist_h2d);
@@ -891,6 +906,45 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char 
 
 
 /**
+ * Samples a histogram holds and the total of their durations in milliseconds,
+ * taken from the running total the histogram accumulates on push rather than
+ * from its buckets: a bucket carries a mean, and reconstructing a total from one
+ * would depend on the update function the value was created with. Returns the
+ * number of samples, 0 if the histogram is empty or absent.
+ *
+ * The duration sits at a different index per kind - transfers carry {MB, MB, us}
+ * and kernels {ms, gflop, mb} - which is the same distinction amount_first draws
+ * for the rate. Both carry the interval as their last two values, which is
+ * where libxs_hist_fold_union reads it, and union_ms reports what it covered.
+ */
+LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist, int amount_first, double* total_ms, double* union_ms);
+LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist, int amount_first, double* total_ms, double* union_ms)
+{
+  double total = 0, covered = 0;
+  int result = 0;
+  if (NULL != hist) {
+    libxs_hist_info_t info;
+    libxs_hist_query(NULL /*lock*/, hist, &info);
+    if (NULL != info.sum && 0 < info.nsamples) {
+      if (0 == amount_first) {
+        total = info.sum[0];
+        result = info.nsamples;
+      }
+      else if (2 < info.nvals) {
+        total = 1E-3 * info.sum[2]; /* microseconds -> milliseconds */
+        result = info.nsamples;
+      }
+      /* pushed relative to the epoch, hence nanoseconds */
+      covered = 1E-6 * libxs_hist_union(&info, NULL /*inexact*/);
+    }
+  }
+  if (NULL != total_ms) *total_ms = total;
+  if (NULL != union_ms) *union_ms = covered;
+  return result;
+}
+
+
+/**
  * Print one histogram whose samples are {amount, amount, us} (transfers,
  * amount_first non-zero) or {ms, gflop, mb} (kernels). Both are the same
  * measurement - an amount of work over the time it took - so both are reported
@@ -900,26 +954,46 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char 
  *
  * A rate is always derived from a single sample's amount and that same sample's
  * duration, never from independently aggregated totals, and never from vals[0]
- * of a transfer: that slot is the binning key, reconstructed from the bucket's
- * axis position rather than from the samples it holds. Returns 1 if a row was
- * printed, 0 if the histogram held no usable sample.
+ * of a transfer: libxs_hist_query_mode puts the bucket's upper bound there, not
+ * an aggregate of what landed in it. Returns 1 if a row was printed, 0 if the
+ * histogram held no usable sample.
  */
-LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
-  FILE* ostream, const libxs_hist_t* hist, const char name[], int amount_first, const char unit[], double scale);
-LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
-  FILE* ostream, const libxs_hist_t* hist, const char name[], int amount_first, const char unit[], double scale)
+LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libxs_hist_t* hist, const char name[],
+  int amount_first, const char unit[], double scale);
+LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libxs_hist_t* hist, const char name[],
+  int amount_first, const char unit[], double scale)
 {
   int result = 0;
   if (NULL != hist) {
+    double total_ms = 0, union_ms = 0;
+    const int nsamples = libxstream_opencl_hist_total(hist, amount_first, &total_ms, &union_ms);
+    /**
+     * Reported only where it is demonstrated: intervals cannot sum to more than
+     * the time they cover unless some ran at once. At or below 1 the ratio
+     * describes the gaps between them rather than concurrency, which for
+     * disjoint intervals is exactly 1 whatever the gaps, so the absence of the
+     * field is the answer. The union is an upper bound wherever an interval
+     * reached back past what the fold had retired, which keeps the ratio a
+     * lower bound in either case.
+     *
+     * The margin keeps the field from appearing as "1.00", which would state
+     * overlap and display none: below it the overlap is smaller than the two
+     * decimals reported can express.
+     */
+    const double inflight = (1 < nsamples && 0 < union_ms
+      && total_ms > union_ms * LIBXSTREAM_PROFILE_INFLIGHT
+      ? (total_ms / union_ms) : 0);
     /**
      * An empty histogram leaves vals untouched, so it must be cleared: reading
      * it uninitialized (or inheriting a previous kind's median) reported a bogus
      * rate for kinds that never recorded a sample.
      */
-    double vals[3];
+    double vals[5];
     vals[0] = 0;
     vals[1] = 0;
     vals[2] = 0;
+    vals[3] = 0;
+    vals[4] = 0;
     libxs_hist_query_median(NULL /*lock*/, hist, vals);
     if (0 != amount_first) { /* transfers: {amount, amount, us}, amount per time */
       /**
@@ -937,10 +1011,12 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
          * suppresses the whole line, so the key column stays enabled; it repeats
          * the amount, which is what the bound already conveys.
          */
-        const int precision[] = {1, 1, 1};
+        /* the interval is there for the union alone and is not reported */
+        const int precision[] = {1, 1, 1, -1, -1};
         libxstream_opencl_print_id(ostream, name);
         /* one decimal: a whole-number GB/s would quantize slow transfers away */
         fprintf(ostream, "=%.1f %s", scale * vals[1] / vals[2], unit);
+        if (0 < inflight) fprintf(ostream, " inflight>=%.2f", inflight);
         libxs_hist_print(ostream, hist, precision, "\n");
         result = 1;
       }
@@ -953,14 +1029,17 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(
        * did not state are kept out of the per-bucket detail rather than shown
        * as a column of zeros.
        */
-      int precision[3];
+      int precision[5];
       precision[0] = 3;
       precision[1] = (0 < vals[1] ? 1 : -1);
       precision[2] = (0 < vals[2] ? 1 : -1);
+      precision[3] = -1; /* the interval, reported as the ratio instead */
+      precision[4] = -1;
       libxstream_opencl_print_id(ostream, name);
       fprintf(ostream, "=%.3f %s", vals[0], unit);
       if (0 < vals[1]) fprintf(ostream, " %.1f GFLOPS/s", 1E3 * vals[1] / vals[0]);
       if (0 < vals[2]) fprintf(ostream, " %.1f GB/s", vals[2] / vals[0]);
+      if (0 < inflight) fprintf(ostream, " inflight>=%.2f", inflight);
       libxs_hist_print(ostream, hist, precision, "\n");
       result = 1;
     }
@@ -996,8 +1075,20 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_kernels(FILE* ostream)
   int nrows = 0;
   size_t i;
   for (i = 0; i < libxstream_opencl_config.nkernels; ++i) {
-    nrows += libxstream_opencl_print_hist(ostream, libxstream_opencl_config.hist_kernel[i],
+    const int printed = libxstream_opencl_print_hist(ostream, libxstream_opencl_config.hist_kernel[i],
       libxstream_opencl_config.name_kernel[i], 0 /*amount_first*/, "ms", 1.0);
+    /**
+     * A kernel is registered when it is first launched, so an empty histogram
+     * means it ran and every sample was rejected by the accuracy floor. Saying
+     * nothing would read as "this kernel was never launched"; there is no time
+     * to report, which is exactly what the row states.
+     */
+    if (0 == printed) {
+      libxstream_opencl_print_id(ostream, libxstream_opencl_config.name_kernel[i]);
+      fprintf(ostream, " (no sample above the accuracy floor)\n");
+      ++nrows;
+    }
+    else nrows += printed;
   }
   if (0 != libxstream_opencl_config.nprofile_kernel_lost) {
     /* a silent cap would read as "these are all the kernels" */
@@ -1006,6 +1097,70 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_kernels(FILE* ostream)
     ++nrows;
   }
   return nrows;
+}
+
+
+/**
+ * Print the device-wide envelope: every kernel and every transfer folded into
+ * one begin and one end. The row is what a reader wants from a "pipeline total"
+ * and what a sum of per-kernel rows cannot supply, because those rows may
+ * describe overlapping intervals.
+ *
+ * The contributing slots are named rather than assumed: with only
+ * LIBXSTREAM_PROFILE set no transfer event is created at all, and an
+ * unqualified busy figure would then read as full device utilization while
+ * describing kernels alone. Returns the number of rows printed. Caller holds
+ * the stdio lock.
+ */
+LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream);
+LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream)
+{
+  const libxs_hist_t* transfer[4];
+  double total_ms = 0, union_ms = 0, ms;
+  int nsamples = 0, nkernels = 0, ntransfers = 0, inexact = 0, n, i;
+  int result = 0;
+  transfer[0] = libxstream_opencl_config.hist_h2d;
+  transfer[1] = libxstream_opencl_config.hist_d2h;
+  transfer[2] = libxstream_opencl_config.hist_d2d;
+  transfer[3] = libxstream_opencl_config.hist_zero;
+  for (i = 0; i < LIBXS_CAST_INT(libxstream_opencl_config.nkernels); ++i) {
+    n = libxstream_opencl_hist_total(libxstream_opencl_config.hist_kernel[i], 0 /*amount_first*/, &ms, NULL);
+    if (0 < n) {
+      total_ms += ms;
+      nsamples += n;
+      ++nkernels;
+    }
+  }
+  for (i = 0; i < (int)(sizeof(transfer) / sizeof(*transfer)); ++i) {
+    n = libxstream_opencl_hist_total(transfer[i], 1 /*amount_first*/, &ms, NULL);
+    if (0 < n) {
+      total_ms += ms;
+      nsamples += n;
+      ++ntransfers;
+    }
+  }
+  /**
+   * The union over every kernel and every transfer, which no per-kernel row can
+   * supply: two of them may cover the same instant, and their totals cannot say
+   * whether they do. Reported only where it shows an overlap the rows above do
+   * not - one kernel against another, or a transfer against a kernel.
+   */
+  if (NULL != libxstream_opencl_config.hist_device) {
+    libxs_hist_info_t info;
+    libxs_hist_query(NULL /*lock*/, libxstream_opencl_config.hist_device, &info);
+    union_ms = 1E-6 * libxs_hist_union(&info, &inexact);
+  }
+  if (1 < nsamples && 0 < union_ms && total_ms > union_ms * LIBXSTREAM_PROFILE_INFLIGHT) {
+    libxstream_opencl_print_id(ostream, "device");
+    fprintf(ostream, " inflight>=%.2f (%i kernels", total_ms / union_ms, nkernels);
+    if (0 != ntransfers) fprintf(ostream, ", %i transfer kinds", ntransfers);
+    fprintf(ostream, ")");
+    /* the union overstates where an interval reached back past what the fold
+       had retired, so the ratio is understated by however much that was */
+    if (0 != inexact) fprintf(ostream, " (%i not merged exactly)", inexact);
+    result = 1;
+  }
+  return result;
 }
 
 
@@ -1076,6 +1231,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       LIBXS_STDIO_ACQUIRE();
       if (0 != libxstream_opencl_config.profile) nrows += libxstream_opencl_print_kernels(stderr);
       if (0 != libxstream_opencl_config.profile_mem) nrows += libxstream_opencl_print_transfers(stderr, hist, nhist);
+      nrows += libxstream_opencl_print_device(stderr);
       nrows += libxstream_opencl_print_floor(stderr);
       if (0 != nrows) fprintf(stderr, "\n\n");
       LIBXS_STDIO_RELEASE();
@@ -1112,6 +1268,8 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       libxs_hist_destroy(libxstream_opencl_config.hist_d2h);
       libxs_hist_destroy(libxstream_opencl_config.hist_d2d);
       libxs_hist_destroy(libxstream_opencl_config.hist_zero);
+      libxs_hist_destroy(libxstream_opencl_config.hist_device);
+      libxstream_opencl_config.hist_device = NULL;
       for (i = 0; i < LIBXS_CAST_INT(libxstream_opencl_config.nkernels); ++i) {
         void* name;
         libxs_hist_destroy(libxstream_opencl_config.hist_kernel[i]);
@@ -2666,10 +2824,12 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event /*event
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, cl_int event_status, void* data)
 {
   libxstream_opencl_launch_info_t* const info = (libxstream_opencl_launch_info_t*)data;
+  cl_ulong begin = 0, end = 0;
   cl_command_type type = 0;
   int result = EXIT_SUCCESS;
-  double vals[3];
-  vals[0] = libxstream_opencl_duration(event, &result) * 1E3; /* Milliseconds */
+  double vals[5];
+  result = libxstream_opencl_interval(event, &begin, &end);
+  vals[0] = 1E-6 * LIBXS_DELTA(begin, end); /* Milliseconds */
   LIBXS_UNUSED(event_status);
   assert(CL_COMPLETE == event_status && NULL != info);
   if (EXIT_SUCCESS == result && NULL != info
@@ -2684,18 +2844,26 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, 
       const double floor_ms = 1E-6 * (double)(LIBXSTREAM_PROFILE_TICKS * libxstream_opencl_config.device.timer_ns);
       vals[1] = info->gflop;
       vals[2] = info->mb;
+      vals[3] = libxstream_opencl_reltime(begin);
+      vals[4] = libxstream_opencl_reltime(end);
       if (vals[0] >= floor_ms) {
         libxs_hist_push(libxstream_opencl_config.lock_event, hist, vals);
+        /* the same interval device-wide, where a union across kernels forms */
+        libxs_hist_push(libxstream_opencl_config.lock_event,
+          libxstream_opencl_config.hist_device, vals + 3);
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile) {
-          fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f\n", libxstream_opencl_config.name_kernel[i], vals[0]);
+          /* absolute device timestamps: an exact union of the intervals can be
+             assembled offline from a trace, which the envelope only bounds */
+          fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f ns=%.0f-%.0f\n",
+            libxstream_opencl_config.name_kernel[i], vals[0], (double)begin, (double)end);
         }
       }
       else {
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_short, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile) {
-          fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f (below %.3f ms, discarded)\n",
-            libxstream_opencl_config.name_kernel[i], vals[0], floor_ms);
+          fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f ns=%.0f-%.0f (below %.3f ms, discarded)\n",
+            libxstream_opencl_config.name_kernel[i], vals[0], (double)begin, (double)end, floor_ms);
         }
       }
     }
@@ -2737,8 +2905,11 @@ LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel)
            * total by a single-sample time - the same numerator/denominator
            * mismatch that let the old facility report more work in less time.
            */
-          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
-          libxs_hist_t* const hist = libxs_hist_create(nbuckets, 3, update);
+          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg,
+            libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
+          /* {ms, gflop, mb, begin, end}: the interval feeds the union fold */
+          libxs_hist_t* const hist = libxs_hist_create(nbuckets, 5, update,
+            libxs_hist_fold_union, LIBXS_HIST_UNION_NSTATE(LIBXSTREAM_PROFILE_NSEG));
           if (NULL != hist) {
             libxstream_opencl_config.hist_kernel[i] = hist;
             libxstream_opencl_config.name_kernel[i] = name;
@@ -2827,21 +2998,45 @@ LIBXSTREAM_API int libxstream_opencl_launch(libxstream_stream_t* stream, cl_kern
 }
 
 
+LIBXSTREAM_API int libxstream_opencl_interval(cl_event event, cl_ulong* begin, cl_ulong* end)
+{
+  cl_ulong b = 0, e = 0;
+  int result = EXIT_FAILURE;
+  if (NULL != event) {
+    result = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &b, NULL);
+    if (EXIT_SUCCESS == result) {
+      result = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &e, NULL);
+    }
+  }
+  if (EXIT_SUCCESS != result) b = e = 0;
+  if (NULL != begin) *begin = b;
+  if (NULL != end) *end = e;
+  return result;
+}
+
+
 LIBXSTREAM_API double libxstream_opencl_duration(cl_event event, int* result_code)
 {
   cl_ulong begin = 0, end = 0;
-  int r = EXIT_FAILURE;
-  double result = 0;
-  if (NULL != event) {
-    r = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &begin, NULL);
-    if (EXIT_SUCCESS == r) {
-      r = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end, NULL);
-      if (EXIT_SUCCESS == r) {
-        result = 1E-9 * LIBXS_DELTA(begin, end); /* Nanoseconds->seconds */
-      }
-    }
-  }
+  const int r = libxstream_opencl_interval(event, &begin, &end);
+  const double result = (EXIT_SUCCESS == r ? (1E-9 * LIBXS_DELTA(begin, end)) : 0); /* Nanoseconds->seconds */
   if (NULL != result_code) *result_code = r;
+  return result;
+}
+
+
+LIBXSTREAM_API_INTERN double libxstream_opencl_reltime(cl_ulong timestamp)
+{
+  cl_ulong epoch;
+  double result;
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
+  if (0 == libxstream_opencl_config.timer_epoch) libxstream_opencl_config.timer_epoch = timestamp;
+  epoch = libxstream_opencl_config.timer_epoch;
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
+  /* a completion can be delivered out of order, so the difference is signed and
+     must not be taken in unsigned arithmetic */
+  if (timestamp >= epoch) result = (double)(timestamp - epoch);
+  else result = -(double)(epoch - timestamp);
   return result;
 }
 
