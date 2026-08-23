@@ -66,6 +66,40 @@ LIBXS_PRAGMA_DIAG_POP()
 #if !defined(LIBXSTREAM_MAXNDEVS)
 # define LIBXSTREAM_MAXNDEVS 64
 #endif
+/**
+ * Default staging window per thread; LIBXSTREAM_STAGE overrides it in MB. The
+ * window is used as two halves, so this is also what bounds the chunk that a
+ * copy and a transfer overlap over. Measured on an H100 at n=4096 fp64, where
+ * the drop-in call takes 24.1 ms at 8 MB, 23.0 at 32, 20.1 at 64 and 21.1 at
+ * 128: too small and the parallel copy cannot amortize its fork, too large and
+ * the first copy has nothing to overlap with.
+ */
+#if !defined(LIBXSTREAM_MEM_STAGE)
+# define LIBXSTREAM_MEM_STAGE (64 << 20)
+#endif
+/** Default threads of the staging copy; LIBXSTREAM_STAGE_NT overrides it. */
+#if !defined(LIBXSTREAM_MEM_STAGE_NT)
+# define LIBXSTREAM_MEM_STAGE_NT 32
+#endif
+/**
+ * Block of the staging copy; LIBXSTREAM_STAGE_GRAIN overrides it in KB. Blocks
+ * are handed out round-robin, so a grain finer than one share per thread lets
+ * the fast threads absorb more of the copy. This is what the copy is actually
+ * sensitive to: on an H100 at n=4096 fp64 the drop-in call takes 20.0 ms at one
+ * block per thread and 18.7 ms at 16-32 KB, at both 16 and 32 threads, and the
+ * finer grain also removes most of the sensitivity to the thread count (64
+ * threads go 22.8 -> 19.4).
+ */
+#if !defined(LIBXSTREAM_MEM_STAGE_GRAIN)
+# define LIBXSTREAM_MEM_STAGE_GRAIN (32 << 10)
+#endif
+/**
+ * Host ranges libxstream_mem_host_pin can hold. Small on purpose: the list is
+ * scanned per transfer, and a caller pins operands rather than allocations.
+ */
+#if !defined(LIBXSTREAM_MAXNPINS)
+# define LIBXSTREAM_MAXNPINS 32
+#endif
 /* Counted on a per-thread basis! */
 #if !defined(LIBXSTREAM_MAXNITEMS)
 # define LIBXSTREAM_MAXNITEMS 1024
@@ -383,6 +417,27 @@ typedef struct libxstream_opencl_config_t {
   int (*cudaHostUnregister)(void*);
   /** Host allocations offered to cudaHostRegister, and those it accepted. */
   size_t nhostreg, nhostreg_ok;
+  /**
+   * LIBXSTREAM_PIN mode: 0 off, 1 stage foreign host memory through a
+   * runtime-owned buffer, 2 register it with a loaded vendor runtime, 3 load
+   * that runtime when the process has not. The modes are alternatives rather
+   * than levels: they address different consumers of the memory.
+   */
+  int pin;
+  /** Resolved LIBXSTREAM_PIN mode: the setting, or the vendor's default. */
+#define LIBXSTREAM_PIN_MODE() (0 <= libxstream_opencl_config.pin ? libxstream_opencl_config.pin \
+  : (0 != libxstream_opencl_config.device.nv ? 1 : 2))
+  /** Staging window per thread in Bytes (LIBXSTREAM_STAGE, in MB). */
+  size_t stage;
+  /** Threads of the staging copy, and the block each of them takes at a time. */
+  int stage_nt;
+  size_t stage_grain;
+  /** Host ranges declared by libxstream_mem_host_pin (base and extent). */
+  const char *pinptr[LIBXSTREAM_MAXNPINS];
+  size_t pinsize[LIBXSTREAM_MAXNPINS];
+  size_t npins;
+  /** Transfers routed through the staging window, and bytes they carried. */
+  size_t nstaged, nstaged_bytes;
   /** Handle-counter. */
   size_t nstreams, nevents;
   /** All streams and related storage. */

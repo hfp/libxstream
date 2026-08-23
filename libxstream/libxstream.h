@@ -69,6 +69,21 @@ LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes,
   libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
 LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem,
   libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
+/**
+ * Declare a host range the library did not allocate, so that transfers to and
+ * from it can take a faster route than the pageable one. What "faster" means is
+ * LIBXSTREAM_PIN's mode: staging through a runtime-owned buffer, or registration
+ * with a vendor runtime. Both are best-effort - a range that cannot be pinned
+ * still transfers, only slower - so a caller need not treat failure as fatal.
+ *
+ * The pointer must NOT come from libxstream_mem_host_allocate: that memory is
+ * already page-locked, and staging it would replace a fast transfer with a copy
+ * plus a fast transfer. The library does not check this, because no portable
+ * check exists that does not dereference memory it may not own.
+ */
+LIBXSTREAM_API int libxstream_mem_host_pin(void* host_mem, size_t nbytes);
+/** Counterpart of libxstream_mem_host_pin; unpinning what was never pinned is a no-op. */
+LIBXSTREAM_API int libxstream_mem_host_unpin(void* host_mem);
 LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes,
   libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
 LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, size_t nbytes,

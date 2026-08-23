@@ -32,6 +32,32 @@
 # if !defined(LIBXSTREAM_MEM_ALIGNSCALE)
 #   define LIBXSTREAM_MEM_ALIGNSCALE 8
 # endif
+/**
+ * Staging buffer per thread, and the smallest transfer worth staging. The
+ * buffer is a window rather than a mirror of the operand: a transfer larger
+ * than it is copied and enqueued in chunks, which bounds the extra host memory
+ * to this size per transferring thread however large the operands grow.
+ */
+# if !defined(LIBXSTREAM_MEM_STAGE_MIN)
+#   define LIBXSTREAM_MEM_STAGE_MIN (1 << 20)
+# endif
+/**
+ * Threads for the staging copy. Staging only pays if the copy outruns the
+ * pageable transport it replaces: on an H100 a serial copy reaches 12.8 GB/s
+ * against 10.9 GB/s direct, i.e. a loss, while 32 threads reach 32.8 GB/s
+ * end-to-end against 55.1 for memory the runtime owns. More threads do not
+ * help - 224 measured 29.6 - so the count is capped rather than taken from the
+ * team size.
+ */
+/**
+ * Staging needs both a parallel copy and a per-thread window: without OpenMP
+ * the copy is slower than the transport it would replace, and without TLS the
+ * window needs a lock in the transfer path, where a thread losing the race
+ * would fall back to that same transport silently.
+ */
+# if defined(_OPENMP) && !defined(LIBXS_NO_TLS)
+#   define LIBXSTREAM_MEM_STAGING
+# endif
 # if !defined(LIBXSTREAM_MEM_SVM_INTEL) && 0
 #   define LIBXSTREAM_MEM_SVM_INTEL
 # endif
@@ -46,6 +72,19 @@
 #     define LIBXSTREAM_MEM_DEBUG
 #   endif
 # endif
+
+
+#if defined(LIBXSTREAM_MEM_STAGING)
+/**
+ * Staging buffer of the calling thread. Thread-local rather than shared so that
+ * no transfer can lose a race for it and fall back to the transport this is
+ * meant to avoid - a silent slow path is the failure mode that makes pageable
+ * transfers hard to notice in the first place. Released with the context at
+ * finalize, along with every other host allocation.
+ */
+static LIBXS_TLS void* libxstream_mem_stage_ptr = NULL;
+static LIBXS_TLS size_t libxstream_mem_stage_nbytes = 0;
+#endif
 
 
 LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem /*memory*/, void** /*memptr_out*/);
@@ -801,6 +840,59 @@ LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem, libxstream_str
 }
 
 
+LIBXSTREAM_API int libxstream_mem_host_pin(void* host_mem, size_t nbytes)
+{
+  int result = EXIT_SUCCESS;
+  if (NULL != host_mem && 0 != nbytes) {
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+    if (1 == LIBXSTREAM_PIN_MODE()) {
+      if (libxstream_opencl_config.npins < (LIBXSTREAM_MAXNPINS)) {
+        libxstream_opencl_config.pinptr[libxstream_opencl_config.npins] = (const char*)host_mem;
+        libxstream_opencl_config.pinsize[libxstream_opencl_config.npins] = nbytes;
+        ++libxstream_opencl_config.npins;
+      }
+      else result = EXIT_FAILURE;
+    }
+    else if (2 <= LIBXSTREAM_PIN_MODE()) {
+      libxstream_mem_host_register(host_mem, nbytes);
+    }
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+    if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
+      fprintf(stderr, "INFO ACC/OpenCL: pin %p (%lu MB) mode=%i -> %s\n", host_mem,
+        (unsigned long)(nbytes >> 20), LIBXSTREAM_PIN_MODE(),
+        EXIT_SUCCESS == result ? "ok" : "rejected");
+    }
+  }
+  return result;
+}
+
+
+LIBXSTREAM_API int libxstream_mem_host_unpin(void* host_mem)
+{
+  int result = EXIT_SUCCESS;
+  if (NULL != host_mem) {
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+    if (1 == LIBXSTREAM_PIN_MODE()) {
+      size_t i;
+      for (i = 0; i < libxstream_opencl_config.npins; ++i) {
+        if (libxstream_opencl_config.pinptr[i] == (const char*)host_mem) {
+          const size_t last = libxstream_opencl_config.npins - 1;
+          libxstream_opencl_config.pinptr[i] = libxstream_opencl_config.pinptr[last];
+          libxstream_opencl_config.pinsize[i] = libxstream_opencl_config.pinsize[last];
+          libxstream_opencl_config.npins = last;
+          break;
+        }
+      }
+    }
+    else if (2 <= LIBXSTREAM_PIN_MODE()) {
+      libxstream_mem_host_unregister(host_mem);
+    }
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+  }
+  return result;
+}
+
+
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event /*event*/, cl_int /*event_status*/, void* /*data*/);
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event, cl_int event_status, void* data)
 {
@@ -999,6 +1091,125 @@ LIBXSTREAM_API int libxstream_mem_offset(void** dev_mem, void* other, size_t off
 }
 
 
+/**
+ * True when the range lies inside one the caller declared with
+ * libxstream_mem_host_pin. A miss is not an error: it only means the transfer
+ * takes the ordinary route, which is correct for memory the runtime allocated.
+ * The list is short by construction, so a scan costs less than the smallest
+ * transfer that reaches it.
+ */
+#if defined(LIBXSTREAM_MEM_STAGING)
+static int libxstream_mem_pinned(const void* host_mem, size_t nbytes)
+{
+  const char* const pointer = (const char*)host_mem;
+  int result = 0;
+  size_t i;
+  for (i = 0; i < libxstream_opencl_config.npins && 0 == result; ++i) {
+    const char* const lo = libxstream_opencl_config.pinptr[i];
+    if (NULL != lo && lo <= pointer && (size_t)(pointer - lo) + nbytes <= libxstream_opencl_config.pinsize[i]) {
+      result = 1;
+    }
+  }
+  return result;
+}
+#endif
+
+
+/**
+ * Staging buffer of this thread, grown on demand up to the window size. Returns
+ * NULL when staging is unavailable, which every caller treats as "transfer the
+ * ordinary way" rather than as a failure.
+ */
+static void* libxstream_mem_stage(size_t* nbytes)
+{
+  void* result = NULL;
+#if defined(LIBXSTREAM_MEM_STAGING)
+  /* rounded up to an even size: the window is used as two halves */
+  const size_t limit = libxstream_opencl_config.stage;
+  const size_t want = LIBXS_UP2((*nbytes < limit ? *nbytes : limit), 2);
+  if (libxstream_mem_stage_nbytes < want) {
+    void* buffer = NULL;
+    if (NULL != libxstream_mem_stage_ptr) {
+      LIBXS_EXPECT(EXIT_SUCCESS == libxstream_mem_host_deallocate(libxstream_mem_stage_ptr, NULL));
+      libxstream_mem_stage_ptr = NULL;
+      libxstream_mem_stage_nbytes = 0;
+    }
+    if (EXIT_SUCCESS == libxstream_mem_host_allocate(&buffer, want, NULL) && NULL != buffer) {
+      libxstream_mem_stage_ptr = buffer;
+      libxstream_mem_stage_nbytes = want;
+    }
+  }
+  result = libxstream_mem_stage_ptr;
+  *nbytes = libxstream_mem_stage_nbytes;
+#else
+  LIBXS_UNUSED(nbytes);
+#endif
+  return result;
+}
+
+
+/**
+ * Copy of the staging window. Parallel because a serial copy is slower than the
+ * transport it replaces (see LIBXSTREAM_MEM_STAGE_NT); a caller already inside a
+ * parallel region cannot open one, which is why libxstream_mem_stage_ready
+ * refuses to stage there at all.
+ */
+static void libxstream_mem_stage_copy(void* dst, const void* src, size_t nbytes)
+{
+#if defined(_OPENMP)
+  const int max_threads = omp_get_max_threads();
+  const int want = libxstream_opencl_config.stage_nt;
+  const int nthreads = (want < max_threads ? want : max_threads);
+  /**
+   * One block per iteration, handed out round-robin, so the grain alone decides
+   * the distribution: never coarser than one share per thread, and finer than
+   * that where the transfer is large enough to carry the extra iterations.
+   */
+  const size_t share = (nbytes + (size_t)nthreads - 1) / (size_t)nthreads;
+  const size_t grain = (libxstream_opencl_config.stage_grain < share
+    ? libxstream_opencl_config.stage_grain : share);
+  const int nblocks = (int)(0 != grain ? ((nbytes + grain - 1) / grain) : 0);
+  int i;
+# pragma omp parallel for num_threads(nthreads) schedule(static, 1)
+  for (i = 0; i < nblocks; ++i) {
+    const size_t offset = grain * (size_t)i;
+    if (offset < nbytes) {
+      const size_t n = ((nbytes - offset) < grain ? (nbytes - offset) : grain);
+      memcpy((char*)dst + offset, (const char*)src + offset, n);
+    }
+  }
+#else
+  memcpy(dst, src, nbytes);
+#endif
+}
+
+
+/**
+ * Whether this transfer should be staged: the mode asks for it, the range was
+ * declared, the transfer is large enough to amortize a copy, and a parallel
+ * copy is actually available here.
+ */
+static int libxstream_mem_stage_ready(const void* host_mem, size_t nbytes)
+{
+  int result = 0;
+#if defined(LIBXSTREAM_MEM_STAGING)
+  if (1 == LIBXSTREAM_PIN_MODE() && (LIBXSTREAM_MEM_STAGE_MIN) <= nbytes
+    && 0 == omp_in_parallel() && 0 != libxstream_opencl_config.npins)
+  {
+    result = libxstream_mem_pinned(host_mem, nbytes);
+    if (0 != result) {
+      LIBXS_ATOMIC_SIZE(LIBXS_ATOMIC_ADD_FETCH)(&libxstream_opencl_config.nstaged, 1, LIBXS_ATOMIC_RELAXED);
+      LIBXS_ATOMIC_SIZE(LIBXS_ATOMIC_ADD_FETCH)(&libxstream_opencl_config.nstaged_bytes, nbytes, LIBXS_ATOMIC_RELAXED);
+    }
+  }
+#else
+  LIBXS_UNUSED(host_mem);
+  LIBXS_UNUSED(nbytes);
+#endif
+  return result;
+}
+
+
 /* like libxstream_mem_copy_h2d, but apply some async workaround. */
 LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(const void* /*host_mem*/, void* /*dev_mem*/, size_t /*nbytes*/,
   cl_command_queue /*queue*/, int /*blocking*/, cl_event* /*event*/);
@@ -1091,6 +1302,59 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
 }
 
 
+/**
+ * Upload through the staging window, copy of one half overlapping the transfer
+ * of the other. The two must not be conflated: a half may only be refilled once
+ * the transfer reading it has completed, which is what the per-half event is
+ * for. Both halves are drained before returning, because the window belongs to
+ * the thread and the next call would otherwise overwrite memory still in
+ * flight - silent corruption rather than a visible stall.
+ */
+static int libxstream_mem_stage_h2d(const void* host_mem, void* dev_mem, size_t nbytes,
+  void* stage, size_t window, cl_command_queue queue, cl_event* event)
+{
+  const size_t half = window / 2;
+  cl_event pending[2];
+  size_t done = 0;
+  int slot = 0, i;
+  int result = (NULL != stage && 0 != half) ? EXIT_SUCCESS : EXIT_FAILURE;
+  pending[0] = NULL;
+  pending[1] = NULL;
+  while (done < nbytes && EXIT_SUCCESS == result) {
+    const size_t n = ((nbytes - done) < half ? (nbytes - done) : half);
+    const int last = (nbytes <= (done + n));
+    char* const buffer = (char*)stage + (size_t)slot * half;
+    if (NULL != pending[slot]) { /* this half is still being read by the device */
+      result = clWaitForEvents(1, pending + slot);
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(pending[slot]));
+      pending[slot] = NULL;
+    }
+    if (EXIT_SUCCESS == result) {
+      libxstream_mem_stage_copy(buffer, (const char*)host_mem + done, n);
+      result = libxstream_opencl_mem_copy_h2d(buffer, (char*)dev_mem + done, n, queue,
+        0 /*asynchronous*/, (0 != last && NULL != event) ? event : (pending + slot));
+    }
+    done += n;
+    slot ^= 1;
+  }
+  for (i = 0; i < 2; ++i) {
+    if (NULL != pending[i]) {
+      if (EXIT_SUCCESS == result) result = clWaitForEvents(1, pending + i);
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(pending[i]));
+      pending[i] = NULL;
+    }
+  }
+  /* the caller owns the event it asked for, so it is waited on but not released */
+  if (EXIT_SUCCESS == result && NULL != event && NULL != *event) {
+    result = clWaitForEvents(1, event);
+  }
+  if (EXIT_SUCCESS != result) { /* staging is best-effort: fall back to the direct transfer */
+    result = libxstream_opencl_mem_copy_h2d(host_mem, dev_mem, nbytes, queue, 1 /*blocking*/, event);
+  }
+  return result;
+}
+
+
 LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, size_t nbytes, libxstream_stream_t* stream)
 {
   int result = EXIT_SUCCESS;
@@ -1105,11 +1369,26 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
     const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
     const libxstream_opencl_stream_t* str;
     cl_event event = NULL;
+    /**
+     * The staging window is acquired before the lock and before any command of
+     * this transfer is enqueued. Allocating it later would map a buffer on the
+     * default queue from inside a locked region with work already in flight,
+     * which is a wait on the very pipeline the caller is still filling.
+     */
+    size_t window = nbytes;
+    void* const stage = (0 != libxstream_mem_stage_ready(host_mem, nbytes)
+      ? libxstream_mem_stage(&window) : NULL);
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str);
-    result = libxstream_opencl_mem_copy_h2d(
-      host_mem, dev_mem, nbytes, str->queue, finish, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
+    if (NULL == stage) {
+      result = libxstream_opencl_mem_copy_h2d(
+        host_mem, dev_mem, nbytes, str->queue, finish, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
+    }
+    else {
+      result = libxstream_mem_stage_h2d(host_mem, dev_mem, nbytes, stage, window,
+        str->queue, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
+    }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
       if (EXIT_SUCCESS == result) {
@@ -1197,6 +1476,64 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
 }
 
 
+/**
+ * Download through the staging window: the read of one half overlaps the copy
+ * of the other out to the caller. The order is the mirror of the upload - a
+ * half is copied out only after its read completed, and the read of the next
+ * half is already enqueued by then.
+ */
+static int libxstream_mem_stage_d2h(const void* dev_mem, void* host_mem, size_t offset, size_t nbytes,
+  void* stage, size_t window, cl_command_queue queue, cl_event* event)
+{
+  const size_t half = window / 2;
+  cl_event pending[2];
+  size_t done = 0, prev_off = 0, prev_n = 0;
+  int slot = 0, prev = -1, i;
+  int result = (NULL != stage && 0 != half) ? EXIT_SUCCESS : EXIT_FAILURE;
+  pending[0] = NULL;
+  pending[1] = NULL;
+  while (done < nbytes && EXIT_SUCCESS == result) {
+    const size_t n = ((nbytes - done) < half ? (nbytes - done) : half);
+    const int last = (nbytes <= (done + n));
+    result = libxstream_opencl_mem_copy_d2h(dev_mem, (char*)stage + (size_t)slot * half, offset + done, n,
+      queue, 0 /*asynchronous*/, (0 != last && NULL != event) ? event : (pending + slot));
+    if (EXIT_SUCCESS == result && 0 <= prev) { /* drain the half filled before this one */
+      if (NULL != pending[prev]) {
+        result = clWaitForEvents(1, pending + prev);
+        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(pending[prev]));
+        pending[prev] = NULL;
+      }
+      if (EXIT_SUCCESS == result) {
+        libxstream_mem_stage_copy((char*)host_mem + prev_off, (const char*)stage + (size_t)prev * half, prev_n);
+      }
+    }
+    prev = slot;
+    prev_off = done;
+    prev_n = n;
+    done += n;
+    slot ^= 1;
+  }
+  if (EXIT_SUCCESS == result && 0 <= prev) { /* the final half, whose event may be the caller's */
+    if (NULL != pending[prev]) result = clWaitForEvents(1, pending + prev);
+    else if (NULL != event && NULL != *event) result = clWaitForEvents(1, event);
+    if (EXIT_SUCCESS == result) {
+      libxstream_mem_stage_copy((char*)host_mem + prev_off, (const char*)stage + (size_t)prev * half, prev_n);
+    }
+  }
+  for (i = 0; i < 2; ++i) {
+    if (NULL != pending[i]) {
+      if (EXIT_SUCCESS == result) result = clWaitForEvents(1, pending + i);
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(pending[i]));
+      pending[i] = NULL;
+    }
+  }
+  if (EXIT_SUCCESS != result) { /* staging is best-effort: fall back to the direct transfer */
+    result = libxstream_opencl_mem_copy_d2h(dev_mem, host_mem, offset, nbytes, queue, 1 /*blocking*/, event);
+  }
+  return result;
+}
+
+
 LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, size_t nbytes, libxstream_stream_t* stream)
 {
   int result = EXIT_SUCCESS;
@@ -1210,21 +1547,26 @@ LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, 
     const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
     libxstream_opencl_info_memptr_t* info = NULL;
     cl_event event = NULL;
-    size_t offset = 0;
+    size_t offset = 0, window = nbytes;
     void* nconst;
     const libxstream_opencl_stream_t* str;
+    /* acquired before the lock, for the reason given in libxstream_mem_copy_h2d */
+    void* const stage = (0 != libxstream_mem_stage_ready(host_mem, nbytes)
+      ? libxstream_mem_stage(&window) : NULL);
     LIBXS_UNION_ASSIGN(void*, nconst, const void*, dev_mem);
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
     assert(NULL != str);
     info = libxstream_opencl_info_devptr_modify(NULL, nconst, 1 /*elsize*/, &nbytes, &offset);
-    if (NULL == info) { /* USM-pointer: info_devptr_modify returns NULL when USM is active */
-      result = libxstream_opencl_mem_copy_d2h(
-        dev_mem, host_mem, offset, nbytes, str->queue, finish, NULL == libxstream_opencl_config.hist_d2h ? NULL : &event);
-    }
-    else {
-      result = libxstream_opencl_mem_copy_d2h(
-        info->memory, host_mem, offset, nbytes, str->queue, finish, NULL == libxstream_opencl_config.hist_d2h ? NULL : &event);
+    { const void* const source = (NULL == info ? dev_mem : (const void*)info->memory);
+      cl_event* const hist = (NULL == libxstream_opencl_config.hist_d2h ? NULL : &event);
+      /* info_devptr_modify returns NULL for a USM-pointer, which is then its own source. */
+      if (NULL == stage) {
+        result = libxstream_opencl_mem_copy_d2h(source, host_mem, offset, nbytes, str->queue, finish, hist);
+      }
+      else {
+        result = libxstream_mem_stage_d2h(source, host_mem, offset, nbytes, stage, window, str->queue, hist);
+      }
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */

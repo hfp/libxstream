@@ -200,14 +200,28 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
   const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("LIBXSTREAM_WA");
   static char neo_enable_debug_keys[] = "NEOReadDebugKeys=1";
-# if defined(LIBXS_INTERCEPT_DYNAMIC)
   /**
-   * Registering host memory with a vendor runtime so a transfer takes the
-   * pinned path is not a CUDA-specific idea -- Level Zero has the same need --
-   * so the knob is named for what it does rather than for who implements it.
+   * Making host memory transfer at pinned speed is not one mechanism, so the
+   * knob is a level rather than a switch and is named for what it achieves:
+   *
+   *   0  off
+   *   1  stage a foreign host pointer through a runtime-owned buffer
+   *   2  and register our host allocations with a loaded vendor runtime
+   *   3  and load that runtime when the process has not
+   *
+   * The two mechanisms answer opposite questions and neither replaces the
+   * other. Staging is for memory the caller owns, which no registration can
+   * help: a malloc'd pointer registered with CUDA still transfers at 10.9 GB/s
+   * through OpenCL against 55.1 for a runtime-owned buffer on an H100, because
+   * the CUDA runtime and the OpenCL driver do not share the mapping. Level 2 is
+   * for the converse - our page-locked memory reaching a vendor runtime, which
+   * is what lets a cuBLAS call run well on it. Level 1 is the lower level
+   * because it needs nothing from a vendor runtime at all.
    */
   const char* const env_pin = getenv("LIBXSTREAM_PIN");
-# endif
+  const char* const env_stage = getenv("LIBXSTREAM_STAGE");
+  const char* const env_stage_nt = getenv("LIBXSTREAM_STAGE_NT");
+  const char* const env_stage_grain = getenv("LIBXSTREAM_STAGE_GRAIN");
 # if defined(LIBXSTREAM_STREAM_PRIORITIES)
   const char* const env_priority = getenv("LIBXSTREAM_PRIORITY");
 # endif
@@ -271,6 +285,23 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
   libxstream_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
   libxstream_opencl_config.debug = (NULL == env_debug ? libxstream_opencl_config.dump : atoi(env_debug));
+  /**
+   * Negative means "decide once the device is known": the mode that pays is a
+   * property of the vendor, and the device is selected further down. Staging
+   * earns its copy only where host memory the runtime did not allocate really
+   * does transfer slowly -- 10.9 against 55.1 GB/s on an H100 -- whereas a GPU
+   * Max 1550 reaches 46.7 against 48.3 and would pay the copy for 3%.
+   */
+  libxstream_opencl_config.pin = (NULL == env_pin ? -1 : atoi(env_pin));
+  { /* the window is halved for double buffering, so it wants room for two chunks */
+    const int stage = (NULL == env_stage ? 0 : atoi(env_stage));
+    const int stage_nt = (NULL == env_stage_nt ? 0 : atoi(env_stage_nt));
+    const int stage_grain = (NULL == env_stage_grain ? 0 : atoi(env_stage_grain));
+    libxstream_opencl_config.stage = (0 < stage ? ((size_t)stage << 20) : (size_t)(LIBXSTREAM_MEM_STAGE));
+    libxstream_opencl_config.stage_nt = (0 < stage_nt ? stage_nt : (LIBXSTREAM_MEM_STAGE_NT));
+    libxstream_opencl_config.stage_grain = (0 < stage_grain
+      ? ((size_t)stage_grain << 10) : (size_t)(LIBXSTREAM_MEM_STAGE_GRAIN));
+  }
   { /**
      * NEOReadDebugKeys gates only the bits that populate a NEO debug key (1-8).
      * The higher bits select library-side behavior with no such dependency, and
@@ -368,29 +399,28 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   }
 # if defined(LIBXS_INTERCEPT_DYNAMIC)
   /**
-   * Host memory is registered with CUDA when the runtime is reachable.
-   * LIBXSTREAM_PIN=0 leaves it unregistered, which is what measures the
-   * pageable transport (nothing else about the library changes). 1, the
-   * default, uses the runtime only when the application already linked it and
-   * therefore creates no dependency of its own. 2 loads it when absent.
+   * Host memory is registered with a vendor runtime when that runtime is
+   * already loaded, so that its own code (a cuBLAS call, say) transfers our
+   * page-locked allocations at pinned speed. This costs one dlsym and is
+   * attempted under every mode but 0, which exists to measure the pageable
+   * transport: a process that did not load CUDA resolves nothing and pays
+   * nothing, and one that did is a process intending to use it.
    *
-   * The distinction is not academic: a wrapper driver that intercepts BLAS
-   * links libOpenCL and no CUDA runtime, so under 1 the lookup finds nothing
-   * and registration silently never happens -- which is the configuration
-   * whose transfers are slowest and which most needs it. 2 is opt-in because
-   * loading a vendor runtime into a process that never asked for it is a side
-   * effect, not a detail: it initializes CUDA, can be slow or fail against a
+   * Mode 3 additionally loads that runtime. It is opt-in because loading a
+   * vendor runtime into a process that never asked for it is a side effect,
+   * not a detail: it initializes CUDA, can be slow or fail against a
    * mismatched driver, and may collide with an application managing CUDA
-   * itself.
+   * itself. The case it serves is real - a wrapper driver that intercepts BLAS
+   * links libOpenCL and no CUDA runtime, so the lookup alone finds nothing.
    */
-  { const int cuda_pin = (NULL == env_pin ? 1 : atoi(env_pin));
+  { const int cuda_pin = libxstream_opencl_config.pin;
     if (0 != cuda_pin) {
       union { const void* dlsym; int (*ptr)(void*, size_t, unsigned int); } reg;
       union { const void* dlsym; int (*ptr)(void*); } unreg;
       dlerror(); /* clear an eventual error status */
       reg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostRegister");
       unreg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostUnregister");
-      if (1 < cuda_pin && (NULL == reg.dlsym || NULL == unreg.dlsym)) {
+      if (2 < cuda_pin && (NULL == reg.dlsym || NULL == unreg.dlsym)) {
         /**
          * The unversioned name exists only where the development package is
          * installed, so the SONAMEs are tried after it. The handle is
@@ -1055,6 +1085,13 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
      * CUDA runtime refused stays pageable for its transfers, which reads as a
      * slow GEMM rather than as a slow copy.
      */
+    if (0 != libxstream_opencl_config.nstaged &&
+        (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+    {
+      fprintf(stderr, "INFO ACC/OpenCL: %lu transfers staged (%lu MB) through a page-locked window\n",
+        (unsigned long)libxstream_opencl_config.nstaged,
+        (unsigned long)(libxstream_opencl_config.nstaged_bytes >> 20));
+    }
     if (0 != libxstream_opencl_config.nhostreg &&
         (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
     {
