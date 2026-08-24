@@ -816,8 +816,10 @@ LIBXSTREAM_API int libxstream_init(void)
           const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg,
             libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
           const int nstate = LIBXS_HIST_UNION_NSTATE(LIBXSTREAM_PROFILE_NSEG);
-          /* {MB, MB, us, begin, end}: the interval is carried for the union
-             fold, which reads the last two values of a sample */
+          /**
+           * {MB, MB, us, begin, end}: the interval is carried for the union
+           * fold, which reads the last two values of a sample.
+           */
           libxstream_opencl_config.hist_h2d = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
           libxstream_opencl_config.hist_d2h = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
           libxstream_opencl_config.hist_d2d = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
@@ -1155,8 +1157,10 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream)
     fprintf(ostream, " inflight>=%.2f (%i kernels", total_ms / union_ms, nkernels);
     if (0 != ntransfers) fprintf(ostream, ", %i transfer kinds", ntransfers);
     fprintf(ostream, ")");
-    /* the union overstates where an interval reached back past what the fold
-       had retired, so the ratio is understated by however much that was */
+    /**
+     * The union overstates where an interval reached back past what the fold
+     * had retired, so the ratio is understated by however much that was.
+     */
     if (0 != inexact) fprintf(ostream, " (%i not merged exactly)", inexact);
     result = 1;
   }
@@ -2853,8 +2857,10 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, 
           libxstream_opencl_config.hist_device, vals + 3);
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile) {
-          /* absolute device timestamps: an exact union of the intervals can be
-             assembled offline from a trace, which the envelope only bounds */
+          /**
+           * Absolute device timestamps, so the intervals can be reassembled
+           * offline instead of only through the figures reported here.
+           */
           fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f ns=%.0f-%.0f\n",
             libxstream_opencl_config.name_kernel[i], vals[0], (double)begin, (double)end);
         }
@@ -3033,8 +3039,10 @@ LIBXSTREAM_API_INTERN double libxstream_opencl_reltime(cl_ulong timestamp)
   if (0 == libxstream_opencl_config.timer_epoch) libxstream_opencl_config.timer_epoch = timestamp;
   epoch = libxstream_opencl_config.timer_epoch;
   LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
-  /* a completion can be delivered out of order, so the difference is signed and
-     must not be taken in unsigned arithmetic */
+  /**
+   * A completion can be delivered out of order, so the difference is signed and
+   * must not be taken in unsigned arithmetic.
+   */
   if (timestamp >= epoch) result = (double)(timestamp - epoch);
   else result = -(double)(epoch - timestamp);
   return result;
