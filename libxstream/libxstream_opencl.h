@@ -492,6 +492,12 @@ typedef struct libxstream_opencl_config_t {
   /** Detailed/optional insight (LIBXSTREAM_PROFILE_MEM). */
   libxs_hist_t *hist_h2d, *hist_d2h, *hist_d2d, *hist_zero;
   /**
+   * Union of the intervals of each histogram above, and one across all of them.
+   * Owned here because a histogram only borrows the context it folds into, and
+   * it is what turns a sum of durations into the time actually covered.
+   */
+  libxs_span_t *span_h2d, *span_d2h, *span_d2d, *span_zero, *span_device;
+  /**
    * Per-kernel histograms (LIBXSTREAM_PROFILE), keyed by the cl_kernel handle
    * observed at launch. The name is not supplied by the caller: it is read from
    * the handle via CL_KERNEL_FUNCTION_NAME once, when a kernel is first seen, so
@@ -521,6 +527,7 @@ typedef struct libxstream_opencl_config_t {
    */
   cl_ulong timer_epoch;
   libxs_hist_t* hist_kernel[LIBXSTREAM_MAXNKERNELS];
+  libxs_span_t* span_kernel[LIBXSTREAM_MAXNKERNELS];
   const char* name_kernel[LIBXSTREAM_MAXNKERNELS];
   cl_kernel kernels[LIBXSTREAM_MAXNKERNELS];
   size_t nkernels;

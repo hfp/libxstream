@@ -289,8 +289,9 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
      * assembled from theirs.
      */
     const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg};
+    libxstream_opencl_config.span_device = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
     libxstream_opencl_config.hist_device = libxs_hist_create(2 /*nbuckets*/, 2 /*nvals*/,
-      update, libxs_hist_fold_union, LIBXS_HIST_UNION_NSTATE(LIBXSTREAM_PROFILE_NSEG));
+      update, libxs_hist_fold_union, libxstream_opencl_config.span_device);
   }
   libxstream_opencl_config.xhints = (NULL == env_xhints ? xhints_default : atoi(env_xhints));
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
@@ -815,15 +816,22 @@ LIBXSTREAM_API int libxstream_init(void)
            */
           const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg,
             libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
-          const int nstate = LIBXS_HIST_UNION_NSTATE(LIBXSTREAM_PROFILE_NSEG);
           /**
            * {MB, MB, us, begin, end}: the interval is carried for the union
            * fold, which reads the last two values of a sample.
            */
-          libxstream_opencl_config.hist_h2d = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
-          libxstream_opencl_config.hist_d2h = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
-          libxstream_opencl_config.hist_d2d = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
-          libxstream_opencl_config.hist_zero = libxs_hist_create(profile + 1, 5, update, libxs_hist_fold_union, nstate);
+          libxstream_opencl_config.span_h2d = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
+          libxstream_opencl_config.span_d2h = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
+          libxstream_opencl_config.span_d2d = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
+          libxstream_opencl_config.span_zero = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
+          libxstream_opencl_config.hist_h2d = libxs_hist_create(
+            profile + 1, 5, update, libxs_hist_fold_union, libxstream_opencl_config.span_h2d);
+          libxstream_opencl_config.hist_d2h = libxs_hist_create(
+            profile + 1, 5, update, libxs_hist_fold_union, libxstream_opencl_config.span_d2h);
+          libxstream_opencl_config.hist_d2d = libxs_hist_create(
+            profile + 1, 5, update, libxs_hist_fold_union, libxstream_opencl_config.span_d2d);
+          libxstream_opencl_config.hist_zero = libxs_hist_create(
+            profile + 1, 5, update, libxs_hist_fold_union, libxstream_opencl_config.span_zero);
         }
         else {
           assert(NULL == libxstream_opencl_config.hist_h2d);
@@ -919,8 +927,10 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char 
  * for the rate. Both carry the interval as their last two values, which is
  * where libxs_hist_fold_union reads it, and union_ms reports what it covered.
  */
-LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist, int amount_first, double* total_ms, double* union_ms);
-LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist, int amount_first, double* total_ms, double* union_ms)
+LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist,
+  const libxs_span_t* span, int amount_first, double* total_ms, double* union_ms);
+LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist,
+  const libxs_span_t* span, int amount_first, double* total_ms, double* union_ms)
 {
   double total = 0, covered = 0;
   int result = 0;
@@ -937,7 +947,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist,
         result = info.nsamples;
       }
       /* pushed relative to the epoch, hence nanoseconds */
-      covered = 1E-6 * libxs_hist_union(&info, NULL /*inexact*/);
+      covered = 1E-6 * libxs_span_total(span, NULL /*inexact*/);
     }
   }
   if (NULL != total_ms) *total_ms = total;
@@ -961,14 +971,14 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist,
  * histogram held no usable sample.
  */
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libxs_hist_t* hist, const char name[],
-  int amount_first, const char unit[], double scale);
+  const libxs_span_t* span, int amount_first, const char unit[], double scale);
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libxs_hist_t* hist, const char name[],
-  int amount_first, const char unit[], double scale)
+  const libxs_span_t* span, int amount_first, const char unit[], double scale)
 {
   int result = 0;
   if (NULL != hist) {
     double total_ms = 0, union_ms = 0;
-    const int nsamples = libxstream_opencl_hist_total(hist, amount_first, &total_ms, &union_ms);
+    const int nsamples = libxstream_opencl_hist_total(hist, span, amount_first, &total_ms, &union_ms);
     /**
      * Reported only where it is demonstrated: intervals cannot sum to more than
      * the time they cover unless some ran at once. At or below 1 the ratio
@@ -1051,8 +1061,10 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libx
 
 
 /** Print the transfer histograms. Caller holds the stdio lock. */
-LIBXSTREAM_API_INTERN int libxstream_opencl_print_transfers(FILE* ostream, const libxs_hist_t* hist[], int nhist);
-LIBXSTREAM_API_INTERN int libxstream_opencl_print_transfers(FILE* ostream, const libxs_hist_t* hist[], int nhist)
+LIBXSTREAM_API_INTERN int libxstream_opencl_print_transfers(
+  FILE* ostream, const libxs_hist_t* hist[], const libxs_span_t* span[], int nhist);
+LIBXSTREAM_API_INTERN int libxstream_opencl_print_transfers(
+  FILE* ostream, const libxs_hist_t* hist[], const libxs_span_t* span[], int nhist)
 {
   const char *const kind[] = { "H2D", "D2H", "D2D", "ZERO" };
   int nrows = 0, i;
@@ -1064,7 +1076,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_transfers(FILE* ostream, const
      * device-attached memory reaches five digits of MB/s where GB/s stays
      * legible. The per-bucket columns keep their own units (MB, microseconds).
      */
-    nrows += libxstream_opencl_print_hist(ostream, hist[i], kind[i], 1 /*amount_first*/, "GB/s", 1E3);
+    nrows += libxstream_opencl_print_hist(ostream, hist[i], kind[i], span[i], 1 /*amount_first*/, "GB/s", 1E3);
   }
   return nrows;
 }
@@ -1078,7 +1090,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_kernels(FILE* ostream)
   size_t i;
   for (i = 0; i < libxstream_opencl_config.nkernels; ++i) {
     const int printed = libxstream_opencl_print_hist(ostream, libxstream_opencl_config.hist_kernel[i],
-      libxstream_opencl_config.name_kernel[i], 0 /*amount_first*/, "ms", 1.0);
+      libxstream_opencl_config.name_kernel[i], libxstream_opencl_config.span_kernel[i],
+      0 /*amount_first*/, "ms", 1.0);
     /**
      * A kernel is registered when it is first launched, so an empty histogram
      * means it ran and every sample was rejected by the accuracy floor. Saying
@@ -1126,7 +1139,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream)
   transfer[2] = libxstream_opencl_config.hist_d2d;
   transfer[3] = libxstream_opencl_config.hist_zero;
   for (i = 0; i < LIBXS_CAST_INT(libxstream_opencl_config.nkernels); ++i) {
-    n = libxstream_opencl_hist_total(libxstream_opencl_config.hist_kernel[i], 0 /*amount_first*/, &ms, NULL);
+    n = libxstream_opencl_hist_total(libxstream_opencl_config.hist_kernel[i],
+      NULL /*the device union is folded separately*/, 0 /*amount_first*/, &ms, NULL);
     if (0 < n) {
       total_ms += ms;
       nsamples += n;
@@ -1134,7 +1148,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream)
     }
   }
   for (i = 0; i < (int)(sizeof(transfer) / sizeof(*transfer)); ++i) {
-    n = libxstream_opencl_hist_total(transfer[i], 1 /*amount_first*/, &ms, NULL);
+    n = libxstream_opencl_hist_total(transfer[i], NULL /*likewise*/, 1 /*amount_first*/, &ms, NULL);
     if (0 < n) {
       total_ms += ms;
       nsamples += n;
@@ -1148,9 +1162,9 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream)
    * not - one kernel against another, or a transfer against a kernel.
    */
   if (NULL != libxstream_opencl_config.hist_device) {
-    libxs_hist_info_t info;
+    libxs_hist_info_t info; /* the query folds whatever is still queued */
     libxs_hist_query(NULL /*lock*/, libxstream_opencl_config.hist_device, &info);
-    union_ms = 1E-6 * libxs_hist_union(&info, &inexact);
+    union_ms = 1E-6 * libxs_span_total(libxstream_opencl_config.span_device, &inexact);
   }
   if (1 < nsamples && 0 < union_ms && total_ms > union_ms * LIBXSTREAM_PROFILE_INFLIGHT) {
     libxstream_opencl_print_id(ostream, "device");
@@ -1210,6 +1224,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
   assert(libxstream_opencl_config.ndevices < LIBXSTREAM_MAXNDEVS);
   if (0 != libxstream_opencl_config.ndevices) {
     const libxs_hist_t* hist[] = { NULL, NULL, NULL, NULL };
+    const libxs_span_t* span[] = { NULL, NULL, NULL, NULL };
     const int nhist = (int)(sizeof(hist) / sizeof(*hist));
     /**
      * A completion callback can still be delivered while this runs: completion of
@@ -1225,6 +1240,10 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     hist[1] = libxstream_opencl_config.hist_d2h;
     hist[2] = libxstream_opencl_config.hist_d2d;
     hist[3] = libxstream_opencl_config.hist_zero;
+    span[0] = libxstream_opencl_config.span_h2d;
+    span[1] = libxstream_opencl_config.span_d2h;
+    span[2] = libxstream_opencl_config.span_d2d;
+    span[3] = libxstream_opencl_config.span_zero;
     /**
      * Print only what was requested: kernel rows for LIBXSTREAM_PROFILE and
      * transfer rows for LIBXSTREAM_PROFILE_MEM. The two mix only when both are
@@ -1234,7 +1253,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       int nrows = 0;
       LIBXS_STDIO_ACQUIRE();
       if (0 != libxstream_opencl_config.profile) nrows += libxstream_opencl_print_kernels(stderr);
-      if (0 != libxstream_opencl_config.profile_mem) nrows += libxstream_opencl_print_transfers(stderr, hist, nhist);
+      if (0 != libxstream_opencl_config.profile_mem) nrows += libxstream_opencl_print_transfers(stderr, hist, span, nhist);
       nrows += libxstream_opencl_print_device(stderr);
       nrows += libxstream_opencl_print_floor(stderr);
       if (0 != nrows) fprintf(stderr, "\n\n");
@@ -1274,9 +1293,18 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       libxs_hist_destroy(libxstream_opencl_config.hist_zero);
       libxs_hist_destroy(libxstream_opencl_config.hist_device);
       libxstream_opencl_config.hist_device = NULL;
+      /* after the histograms, which borrow them */
+      libxs_span_destroy(libxstream_opencl_config.span_h2d);
+      libxs_span_destroy(libxstream_opencl_config.span_d2h);
+      libxs_span_destroy(libxstream_opencl_config.span_d2d);
+      libxs_span_destroy(libxstream_opencl_config.span_zero);
+      libxs_span_destroy(libxstream_opencl_config.span_device);
+      libxstream_opencl_config.span_device = NULL;
       for (i = 0; i < LIBXS_CAST_INT(libxstream_opencl_config.nkernels); ++i) {
         void* name;
         libxs_hist_destroy(libxstream_opencl_config.hist_kernel[i]);
+        libxs_span_destroy(libxstream_opencl_config.span_kernel[i]);
+        libxstream_opencl_config.span_kernel[i] = NULL;
         LIBXS_UNION_ASSIGN(void*, name, const char*, libxstream_opencl_config.name_kernel[i]);
         free(name); /* strdup'ed from CL_KERNEL_FUNCTION_NAME */
         libxstream_opencl_config.hist_kernel[i] = NULL;
@@ -2914,10 +2942,12 @@ LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel)
           const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg,
             libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
           /* {ms, gflop, mb, begin, end}: the interval feeds the union fold */
+          libxs_span_t* const span = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
           libxs_hist_t* const hist = libxs_hist_create(nbuckets, 5, update,
-            libxs_hist_fold_union, LIBXS_HIST_UNION_NSTATE(LIBXSTREAM_PROFILE_NSEG));
+            libxs_hist_fold_union, span);
           if (NULL != hist) {
             libxstream_opencl_config.hist_kernel[i] = hist;
+            libxstream_opencl_config.span_kernel[i] = span;
             libxstream_opencl_config.name_kernel[i] = name;
             libxstream_opencl_config.kernels[i] = kernel;
             /* publish the entry only once it is complete: the callback reads it
@@ -3033,12 +3063,26 @@ LIBXSTREAM_API double libxstream_opencl_duration(cl_event event, int* result_cod
 
 LIBXSTREAM_API_INTERN double libxstream_opencl_reltime(cl_ulong timestamp)
 {
-  cl_ulong epoch;
+  /**
+   * Lock-free because the origin is written once and read on every sample: the
+   * first completion to arrive claims it, and a thread that loses the exchange
+   * adopts the winner's value rather than its own. A lock would serialize every
+   * sample to publish something that never changes again.
+   */
+  cl_ulong epoch = LIBXS_ATOMIC(LIBXS_ATOMIC_LOAD, 64)(
+    &libxstream_opencl_config.timer_epoch, LIBXS_ATOMIC_RELAXED);
   double result;
-  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
-  if (0 == libxstream_opencl_config.timer_epoch) libxstream_opencl_config.timer_epoch = timestamp;
-  epoch = libxstream_opencl_config.timer_epoch;
-  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
+  if (0 == epoch) {
+    if (LIBXS_ATOMIC(LIBXS_ATOMIC_CMPSWP, 64)(
+      &libxstream_opencl_config.timer_epoch, 0, timestamp, LIBXS_ATOMIC_SEQ_CST))
+    {
+      epoch = timestamp;
+    }
+    else {
+      epoch = LIBXS_ATOMIC(LIBXS_ATOMIC_LOAD, 64)(
+        &libxstream_opencl_config.timer_epoch, LIBXS_ATOMIC_RELAXED);
+    }
+  }
   /**
    * A completion can be delivered out of order, so the difference is signed and
    * must not be taken in unsigned arithmetic.
