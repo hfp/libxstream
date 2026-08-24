@@ -429,9 +429,11 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
     if (0 != cuda_pin) {
       union { const void* dlsym; int (*ptr)(void*, size_t, unsigned int); } reg;
       union { const void* dlsym; int (*ptr)(void*); } unreg;
+      union { const void* dlsym; int (*ptr)(int*, int, int); } attr;
       dlerror(); /* clear an eventual error status */
       reg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostRegister");
       unreg.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaHostUnregister");
+      attr.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaDeviceGetAttribute");
       if (2 < cuda_pin && (NULL == reg.dlsym || NULL == unreg.dlsym)) {
         /**
          * The unversioned name exists only where the development package is
@@ -449,6 +451,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
           if (NULL != handle) {
             reg.dlsym = dlsym(handle, "cudaHostRegister");
             unreg.dlsym = dlsym(handle, "cudaHostUnregister");
+            attr.dlsym = dlsym(handle, "cudaDeviceGetAttribute");
             if (NULL == reg.dlsym || NULL == unreg.dlsym) {
               LIBXS_EXPECT(0 == dlclose(handle));
               reg.dlsym = NULL;
@@ -458,6 +461,8 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
           ++soname;
         }
       }
+      /* the attribute query stands alone: it informs a decision, it owns nothing */
+      libxstream_opencl_config.cudaDeviceGetAttribute = attr.ptr;
       /* both or neither: a registration that cannot be undone outlives the mapping */
       if (NULL != reg.dlsym && NULL != unreg.dlsym) {
         libxstream_opencl_config.cudaHostRegister = reg.ptr;
@@ -1360,6 +1365,127 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     internal_libxstream_opencl_active_id = 0; /* reset cached active device-ID */
 # endif
     libxs_finalize();
+  }
+}
+
+
+/**
+ * CUDA ordinal of an OpenCL device, and the number of ordinals seen. The two
+ * runtimes enumerate independently - OpenCL by platform order, CUDA by its own
+ * rules and CUDA_VISIBLE_DEVICES - so an ordinal carries no meaning until it is
+ * matched. The PCI location is what both report and what identifies the part:
+ * verified against nvidia-smi on a GH200, where OpenCL answers bus=1 slot=0
+ * domain=9 and ordinal 0 answers the same for 00000009:01:00.0. The domain is
+ * not decoration there, so it is part of the match.
+ *
+ * The scan ends at the first ordinal the runtime rejects, which is how the count
+ * is learned without resolving a second entry point.
+ */
+static int libxstream_pin_cuda_device(cl_device_id device, int (*attr)(int*, int, int), int* ndevices)
+{
+  cl_uint bus = 0, slot = 0, domain = 0;
+  int result = -1, n = 0;
+  if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x4008 /*CL_DEVICE_PCI_BUS_ID_NV*/, sizeof(bus), &bus, NULL)
+    && EXIT_SUCCESS == clGetDeviceInfo(device, 0x4009 /*CL_DEVICE_PCI_SLOT_ID_NV*/, sizeof(slot), &slot, NULL))
+  {
+    int stop = 0;
+    if (EXIT_SUCCESS != clGetDeviceInfo(device, 0x400A /*CL_DEVICE_PCI_DOMAIN_ID_NV*/, sizeof(domain), &domain, NULL)) {
+      domain = 0;
+    }
+    while (0 == stop && n < LIBXSTREAM_MAXNDEVS) {
+      int b = -1, d = -1, m = 0;
+      if (EXIT_SUCCESS != attr(&b, 33 /*cudaDevAttrPciBusId*/, n)) {
+        stop = 1;
+      }
+      else {
+        if (EXIT_SUCCESS != attr(&d, 34 /*cudaDevAttrPciDeviceId*/, n)) d = -1;
+        if (EXIT_SUCCESS != attr(&m, 50 /*cudaDevAttrPciDomainId*/, n)) m = 0;
+        if (0 > result && (cl_uint)b == bus && (cl_uint)d == slot && (cl_uint)m == domain) result = n;
+        ++n;
+      }
+    }
+  }
+  if (NULL != ndevices) *ndevices = n;
+  return result;
+}
+
+
+/**
+ * Resolves an unset LIBXSTREAM_PIN against the device, which is where the answer
+ * lives: staging a foreign host pointer is worth 2.8x on an H100, where such a
+ * pointer transfers at 10.9 GB/s against 55.1 for memory the runtime owns, and
+ * costs 57% on a GH200, where it reaches 389.8 against 375.6 - already faster
+ * than ours over C2C, so the copy buys nothing and the transfer it replaces was
+ * never slow. Nothing OpenCL reports separates the two; both answer
+ * CL_DEVICE_HOST_UNIFIED_MEMORY=0. CUDA answers it directly.
+ *
+ * Called on the first libxstream_mem_host_pin rather than at startup because the
+ * query initializes the CUDA driver, measured at 178 ms on a GH200 - it creates
+ * no context and takes no device memory (cuDevicePrimaryCtxGetState reports no
+ * primary context, and the device lists no compute app), but it is not free, and
+ * only a caller that declares foreign memory needs the answer. A caller that set
+ * the knob resolves nothing and pays nothing.
+ *
+ * The ordinal is CUDA's and not OpenCL's; a node mixing device models would need
+ * them mapped, whereas the attribute is uniform across a node of one model.
+ */
+LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void);
+LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
+{
+  if (0 > libxstream_opencl_config.pin) {
+    const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+    int mode = 2, pageable = -1;
+    if (0 != devinfo->nv) {
+      int (*attr)(int*, int, int) = libxstream_opencl_config.cudaDeviceGetAttribute;
+# if defined(LIBXS_INTERCEPT_DYNAMIC)
+      if (NULL == attr) { /* the drop-in case: nothing linked the runtime */
+        static const char* const cudart[] = {"libcudart.so", "libcudart.so.13", "libcudart.so.12"};
+        const int ncudart = (int)(sizeof(cudart) / sizeof(*cudart));
+        union { const void* dlsym; int (*ptr)(int*, int, int); } sym;
+        int soname = 0;
+        sym.dlsym = NULL;
+        dlerror(); /* clear an eventual error status */
+        while (soname < ncudart && NULL == sym.dlsym) {
+          void* const handle = dlopen(cudart[soname], RTLD_LAZY | RTLD_LOCAL);
+          /* the handle is deliberately kept: the pointer must outlive this call */
+          if (NULL != handle) sym.dlsym = dlsym(handle, "cudaDeviceGetAttribute");
+          ++soname;
+        }
+        attr = sym.ptr;
+        libxstream_opencl_config.cudaDeviceGetAttribute = attr;
+      }
+# endif
+      if (NULL != attr) {
+        /**
+         * Only a matched ordinal is asked. Adopting the sole visible one instead
+         * would be wrong exactly where it is hard to notice: CUDA_VISIBLE_DEVICES
+         * renumbers what remains, which the PCI match follows correctly, but it
+         * can also hide the very device OpenCL selected, and then the one ordinal
+         * on offer describes a different part. On a node of one model that is
+         * harmless and on a mixed node it inverts the decision, so an unmatched
+         * device does not stage. No environment is parsed for this: a visible
+         * device matches whatever its ordinal became, and a hidden one cannot.
+         */
+        int ndevices = 0;
+        const int ordinal = libxstream_pin_cuda_device(
+          libxstream_opencl_config.devices[internal_libxstream_opencl_active_id], attr, &ndevices);
+        if (0 <= ordinal
+          && EXIT_SUCCESS == attr(&pageable, 88 /*cudaDevAttrPageableMemoryAccess*/, ordinal)
+          && 0 == pageable)
+        {
+          mode = 1;
+        }
+        if (0 > libxstream_opencl_config.verbosity || 2 < libxstream_opencl_config.verbosity) {
+          fprintf(stderr, "INFO ACC/OpenCL: OpenCL device %i maps to CUDA ordinal %i of %i\n",
+            internal_libxstream_opencl_active_id, ordinal, ndevices);
+        }
+      }
+    }
+    libxstream_opencl_config.pin = mode;
+    if (0 > libxstream_opencl_config.verbosity || 2 < libxstream_opencl_config.verbosity) {
+      fprintf(stderr, "INFO ACC/OpenCL: LIBXSTREAM_PIN=%i (pageable access %s)\n", mode,
+        0 > pageable ? "unknown" : (0 != pageable ? "yes" : "no"));
+    }
   }
 }
 

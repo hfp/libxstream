@@ -844,8 +844,9 @@ LIBXSTREAM_API int libxstream_mem_host_pin(void* host_mem, size_t nbytes)
 {
   int result = EXIT_SUCCESS;
   if (NULL != host_mem && 0 != nbytes) {
+    libxstream_pin_resolve(); /* outside the lock: it may load a vendor runtime */
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (1 == LIBXSTREAM_PIN_MODE()) {
+    if (1 == libxstream_opencl_config.pin) {
       if (libxstream_opencl_config.npins < (LIBXSTREAM_MAXNPINS)) {
         libxstream_opencl_config.pinptr[libxstream_opencl_config.npins] = (const char*)host_mem;
         libxstream_opencl_config.pinsize[libxstream_opencl_config.npins] = nbytes;
@@ -853,13 +854,13 @@ LIBXSTREAM_API int libxstream_mem_host_pin(void* host_mem, size_t nbytes)
       }
       else result = EXIT_FAILURE;
     }
-    else if (2 <= LIBXSTREAM_PIN_MODE()) {
+    else if (2 <= libxstream_opencl_config.pin) {
       libxstream_mem_host_register(host_mem, nbytes);
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
       fprintf(stderr, "INFO ACC/OpenCL: pin %p (%lu MB) mode=%i -> %s\n", host_mem,
-        (unsigned long)(nbytes >> 20), LIBXSTREAM_PIN_MODE(),
+        (unsigned long)(nbytes >> 20), libxstream_opencl_config.pin,
         EXIT_SUCCESS == result ? "ok" : "rejected");
     }
   }
@@ -872,7 +873,7 @@ LIBXSTREAM_API int libxstream_mem_host_unpin(void* host_mem)
   int result = EXIT_SUCCESS;
   if (NULL != host_mem) {
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (1 == LIBXSTREAM_PIN_MODE()) {
+    if (1 == libxstream_opencl_config.pin) {
       size_t i;
       for (i = 0; i < libxstream_opencl_config.npins; ++i) {
         if (libxstream_opencl_config.pinptr[i] == (const char*)host_mem) {
@@ -884,7 +885,7 @@ LIBXSTREAM_API int libxstream_mem_host_unpin(void* host_mem)
         }
       }
     }
-    else if (2 <= LIBXSTREAM_PIN_MODE()) {
+    else if (2 <= libxstream_opencl_config.pin) {
       libxstream_mem_host_unregister(host_mem);
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
@@ -1207,7 +1208,7 @@ static int libxstream_mem_stage_ready(const void* host_mem, size_t nbytes)
 {
   int result = 0;
 #if defined(LIBXSTREAM_MEM_STAGING)
-  if (1 == LIBXSTREAM_PIN_MODE() && (LIBXSTREAM_MEM_STAGE_MIN) <= nbytes
+  if (1 == libxstream_opencl_config.pin && (LIBXSTREAM_MEM_STAGE_MIN) <= nbytes
     && 0 == omp_in_parallel() && 0 != libxstream_opencl_config.npins)
   {
     result = libxstream_mem_pinned(host_mem, nbytes);

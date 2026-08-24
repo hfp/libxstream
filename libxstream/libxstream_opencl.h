@@ -433,18 +433,18 @@ typedef struct libxstream_opencl_config_t {
    */
   int (*cudaHostRegister)(void*, size_t, unsigned int);
   int (*cudaHostUnregister)(void*);
+  /** Device attributes, which is how the pin mode resolves itself (see libxstream_init). */
+  int (*cudaDeviceGetAttribute)(int*, int, int);
   /** Host allocations offered to cudaHostRegister, and those it accepted. */
   size_t nhostreg, nhostreg_ok;
   /**
    * LIBXSTREAM_PIN mode: 0 off, 1 stage foreign host memory through a
    * runtime-owned buffer, 2 register it with a loaded vendor runtime, 3 load
    * that runtime when the process has not. The modes are alternatives rather
-   * than levels: they address different consumers of the memory.
+   * than levels: they address different consumers of the memory. Negative until
+   * libxstream_init resolves an unset knob against the device.
    */
   int pin;
-  /** Resolved LIBXSTREAM_PIN mode: the setting, or the vendor's default. */
-#define LIBXSTREAM_PIN_MODE() (0 <= libxstream_opencl_config.pin ? libxstream_opencl_config.pin \
-  : (0 != libxstream_opencl_config.device.nv ? 1 : 2))
   /** Staging window per thread in Bytes (LIBXSTREAM_STAGE, in MB). */
   size_t stage;
   /** Threads of the staging copy, and the block each of them takes at a time. */
@@ -573,6 +573,7 @@ typedef struct libxstream_opencl_config_t {
   cl_int wa;
 } libxstream_opencl_config_t;
 
+LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void);
 LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t, const void*);
 LIBXSTREAM_API_INTERN void libxstream_mem_hst_xfree(void*, const void*);
 LIBXSTREAM_API_INTERN void* libxstream_mem_dev_xmalloc(size_t, const void*);
