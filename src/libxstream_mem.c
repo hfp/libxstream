@@ -983,15 +983,17 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
           libxstream_opencl_config.hist_device, vals + 3);
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile_mem) {
+          /* relative to the epoch: an absolute timestamp does not survive a
+             double, which is what the union depends on as well */
           fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f ns=%.0f-%.0f\n",
-            name, vals[1], vals[2], (double)begin, (double)end);
+            name, vals[1], vals[2], vals[3], vals[4]);
         }
       }
       else {
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_short, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile_mem) {
           fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f ns=%.0f-%.0f (below %.0f us, discarded)\n",
-            name, vals[1], vals[2], (double)begin, (double)end, floor_us);
+            name, vals[1], vals[2], vals[3], vals[4], floor_us);
         }
       }
     }

@@ -3012,18 +3012,21 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, 
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile) {
           /**
-           * Absolute device timestamps, so the intervals can be reassembled
-           * offline instead of only through the figures reported here.
+           * Relative to the profiling epoch, so the intervals can be
+           * reassembled offline instead of only through the figures reported
+           * here. Not the absolute timestamps: those are far above 2^53, where
+           * a double quantizes them to hundreds of nanoseconds and can make
+           * adjacent intervals appear to touch.
            */
           fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f ns=%.0f-%.0f\n",
-            libxstream_opencl_config.name_kernel[i], vals[0], (double)begin, (double)end);
+            libxstream_opencl_config.name_kernel[i], vals[0], vals[3], vals[4]);
         }
       }
       else {
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_short, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile) {
           fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f ns=%.0f-%.0f (below %.3f ms, discarded)\n",
-            libxstream_opencl_config.name_kernel[i], vals[0], (double)begin, (double)end, floor_ms);
+            libxstream_opencl_config.name_kernel[i], vals[0], vals[3], vals[4], floor_ms);
         }
       }
     }
