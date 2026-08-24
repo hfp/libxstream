@@ -68,14 +68,18 @@ LIBXS_PRAGMA_DIAG_POP()
 #endif
 /**
  * Default staging window per thread; LIBXSTREAM_STAGE overrides it in MB. The
- * window is used as two halves, so this is also what bounds the chunk that a
- * copy and a transfer overlap over. Measured on an H100 at n=4096 fp64, where
- * the drop-in call takes 24.1 ms at 8 MB, 23.0 at 32, 20.1 at 64 and 21.1 at
- * 128: too small and the parallel copy cannot amortize its fork, too large and
- * the first copy has nothing to overlap with.
+ * window is used as two halves, so this also bounds the chunk that a copy and a
+ * transfer overlap over, and it is what the extra host memory per transferring
+ * thread costs. Measured on an H100 with the fine-grained copy in place, where
+ * the drop-in call at n=4096 fp64 takes 18.09 ms at 16 MB, 18.00 at 32, 18.16 at
+ * 48 and 18.51 at 64, and at n=8192 takes 96.33, 93.36 and 96.86 at 16, 32 and
+ * 64: too small and there are more chunks than the overlap can hide, too large
+ * and the first copy has nothing to overlap with. A coarser copy preferred a
+ * larger window (64 MB won before the grain became a knob), so the two are not
+ * independent - retune them together.
  */
 #if !defined(LIBXSTREAM_MEM_STAGE)
-# define LIBXSTREAM_MEM_STAGE (64 << 20)
+# define LIBXSTREAM_MEM_STAGE (32 << 20)
 #endif
 /** Default threads of the staging copy; LIBXSTREAM_STAGE_NT overrides it. */
 #if !defined(LIBXSTREAM_MEM_STAGE_NT)
