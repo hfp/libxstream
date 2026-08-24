@@ -80,6 +80,7 @@ then
             then
               echo "${SYMBOL}" >>${ABINEW}
             elif [ ! "$(${SED} <<<"${SYMBOL}" -n "/^__${PROJECT}_MOD___/p")" ] && \
+                 [ ! "$(${SED} <<<"${SYMBOL}" -n "/^${PROJECT}\._/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^__wrap_..*/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^internal_/p")" ] && \
                  [ ! "$(${SED} <<<"${SYMBOL}" -n "/^_init/p")" ] && \
