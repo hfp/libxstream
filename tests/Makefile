@@ -13,6 +13,12 @@ DFLAGS = $(NULL)
 OMP = 1
 SYM = 1
 
+# Mirrors the top-level default so the OpenCL-facing tests are built with the
+# dialect the library uses.  Headers and the ICD loader are enough: no platform
+# and no device is opened. Without it they compile to a stub that reports
+# success, which is worse than not having the test.
+OCL ?= 2
+
 EXCLUDE_STATE := DESTDIR PREFIX CURDIR OUTDIR TEST VERSION_STRING ALIAS_% %ROOT
 
 # root directory of LIBXS

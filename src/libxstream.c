@@ -9,6 +9,7 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 # include <libxstream/libxstream_opencl.h>
+# include "libxstream_pinmap.h"
 # include <libxs/libxs_hash.h>
 # include <libxs/libxs_str.h>
 # if defined(_WIN32)
@@ -1388,22 +1389,12 @@ static int libxstream_pin_cuda_device(cl_device_id device, int (*attr)(int*, int
   if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x4008 /*CL_DEVICE_PCI_BUS_ID_NV*/, sizeof(bus), &bus, NULL)
     && EXIT_SUCCESS == clGetDeviceInfo(device, 0x4009 /*CL_DEVICE_PCI_SLOT_ID_NV*/, sizeof(slot), &slot, NULL))
   {
-    int stop = 0;
     if (EXIT_SUCCESS != clGetDeviceInfo(device, 0x400A /*CL_DEVICE_PCI_DOMAIN_ID_NV*/, sizeof(domain), &domain, NULL)) {
       domain = 0;
     }
-    while (0 == stop && n < LIBXSTREAM_MAXNDEVS) {
-      int b = -1, d = -1, m = 0;
-      if (EXIT_SUCCESS != attr(&b, 33 /*cudaDevAttrPciBusId*/, n)) {
-        stop = 1;
-      }
-      else {
-        if (EXIT_SUCCESS != attr(&d, 34 /*cudaDevAttrPciDeviceId*/, n)) d = -1;
-        if (EXIT_SUCCESS != attr(&m, 50 /*cudaDevAttrPciDomainId*/, n)) m = 0;
-        if (0 > result && (cl_uint)b == bus && (cl_uint)d == slot && (cl_uint)m == domain) result = n;
-        ++n;
-      }
-    }
+    result = libxstream_pin_match(bus, slot, domain, attr,
+      33 /*cudaDevAttrPciBusId*/, 34 /*cudaDevAttrPciDeviceId*/,
+      50 /*cudaDevAttrPciDomainId*/, LIBXSTREAM_MAXNDEVS, &n);
   }
   if (NULL != ndevices) *ndevices = n;
   return result;
@@ -2365,14 +2356,21 @@ LIBXSTREAM_API int libxstream_opencl_defines(const char defines[], char buffer[]
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = 0;
-  if (NULL != buffer && NULL != devinfo->context) {
-    const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
-    const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
-    result = LIBXS_SNPRINTF(buffer, buffer_size, " -DLIBXSTREAM_OCLVER=%u -DLIBXSTREAM_OCLVER_C=%u%s", std_level, std_clevel,
-      0 == libxstream_opencl_config.debug ? " -DNDEBUG" : "");
-    if (0 < result && LIBXS_CAST_INT(buffer_size) > result) {
-      const int n = LIBXS_SNPRINTF(
-        buffer + result, buffer_size - result, ' ' != buffer[result - 1] ? " %s" : "%s", NULL != defines ? defines : "");
+  if (NULL != buffer) {
+    /* no context is the deviceless dump: the caller states the level in defines */
+    if (NULL != devinfo->context) {
+      const int std_clevel = 100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1];
+      const int std_level = 100 * devinfo->std_level[0] + 10 * devinfo->std_level[1];
+      result = LIBXS_SNPRINTF(buffer, buffer_size, " -DLIBXSTREAM_OCLVER=%u -DLIBXSTREAM_OCLVER_C=%u%s", std_level,
+        std_clevel, 0 == libxstream_opencl_config.debug ? " -DNDEBUG" : "");
+    }
+    else {
+      buffer[0] = '\0';
+      result = 0;
+    }
+    if (0 <= result && LIBXS_CAST_INT(buffer_size) > result) {
+      const int n = LIBXS_SNPRINTF(buffer + result, buffer_size - result,
+        (0 != result && ' ' != buffer[result - 1]) ? " %s" : "%s", NULL != defines ? defines : "");
       if (0 <= n) {
         if (LIBXS_CAST_INT(buffer_size) > (result += n) && 0 != cleanup) {
           char* replace = strpbrk(buffer + result - n, "\""); /* more portable (system/cpp needs quotes to protect braces) */
@@ -2472,6 +2470,109 @@ LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size
     }
   }
   return result;
+}
+
+
+/**
+ * Instantiates a kernel template as <name>.cl: the build parameters are applied
+ * as preprocessor defines and the includes are fused, so the artifact compiles
+ * on its own.  Returns EXIT_SUCCESS when the file was written, and sets
+ * *instanced to the preprocessed text (caller frees) or to NULL.
+ *
+ * Separate from libxstream_opencl_program because the artifact is worth having
+ * where no program can be built: a runner with no GPU and no OpenCL platform, or
+ * a device that merely lacks an extension and stops the build before any dump
+ * (an iGPU without cl_khr_fp64 produces none).
+ */
+static int libxstream_opencl_instance(const char source[], size_t size_src, const char name[],
+  const char build_params[], int nv, const char std_flag[], int want_cpp, char** instanced)
+{
+  char dump_filename[LIBXSTREAM_MAXSTRLEN];
+  char buffer_name[LIBXSTREAM_MAXSTRLEN * 2];
+  int result = EXIT_FAILURE;
+  int nchar = LIBXS_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", name);
+  if (NULL != instanced) *instanced = NULL;
+  if (0 < nchar && (int)sizeof(dump_filename) > nchar && NULL != source && NULL != name) {
+    const int std_flag_len = (NULL != std_flag ? LIBXS_CAST_INT(strlen(std_flag)) : 0);
+    const char* const env_cpp = getenv("LIBXSTREAM_CPP");
+    const int cpp = (NULL == env_cpp ? want_cpp : atoi(env_cpp));
+# if defined(LIBXSTREAM_CPPBIN)
+    FILE* const file_cpp = (0 != cpp ? fopen(LIBXSTREAM_CPPBIN, "rb") : NULL);
+# else
+    FILE* const file_cpp = NULL;
+    LIBXSTREAM_UNUSED(cpp);
+# endif
+    int file_dmp = -1;
+    buffer_name[0] = '\0';
+    if (NULL != file_cpp) {
+      nchar = LIBXS_SNPRINTF(buffer_name, sizeof(buffer_name), LIBXSTREAM_TEMPDIR "/.%s.XXXXXX", name);
+      if (0 < nchar && (int)sizeof(buffer_name) > nchar) file_dmp = mkstemp(buffer_name);
+      fclose(file_cpp); /* existence-check */
+    }
+    else file_dmp = open(dump_filename, O_CREAT | O_TRUNC | O_RDWR, S_IREAD | S_IWRITE);
+    if (0 <= file_dmp) {
+      if ((0 != std_flag_len &&
+            (3 != write(file_dmp, "/*\n", 3) || std_flag_len != write(file_dmp, std_flag, std_flag_len) ||
+              4 != write(file_dmp, "\n*/\n", 4))) ||
+          size_src != (size_t)write(file_dmp, source, size_src))
+      {
+        file_dmp = -1;
+      }
+      else if (NULL == file_cpp) result = EXIT_SUCCESS; /* the raw dump IS the artifact */
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == close(file_dmp));
+    }
+# if defined(LIBXSTREAM_CPPBIN)
+    if (NULL != file_cpp && 0 <= file_dmp) { /* preprocess source-code */
+      char buffer[LIBXSTREAM_BUFFERSIZE];
+      const char* sed_pattern = "";
+#   if defined(LIBXSTREAM_SEDBIN)
+      FILE* const file_sed = fopen(LIBXSTREAM_SEDBIN, "rb");
+      if (NULL != file_sed) {
+        sed_pattern = "| " LIBXSTREAM_SEDBIN " '/^[[:space:]]*\\(\\/\\/.*\\)*$/d'";
+        fclose(file_sed); /* existence-check */
+      }
+#   endif
+      nchar = LIBXS_SNPRINTF(
+        buffer, LIBXSTREAM_BUFFERSIZE, LIBXSTREAM_CPPBIN " -P -C -nostdinc %s", 0 == nv ? "" : "-D__NV_CL_C_VERSION ");
+      if (0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar) {
+        int n = libxstream_opencl_defines(build_params, buffer + nchar, LIBXSTREAM_BUFFERSIZE - nchar, 0 /*cleanup*/);
+        if (0 <= n && LIBXSTREAM_BUFFERSIZE > (nchar += n)) {
+          n = LIBXS_SNPRINTF(buffer + nchar, LIBXSTREAM_BUFFERSIZE - nchar,
+            ' ' != buffer[nchar - 1] ? " %s %s >%s" : "%s %s >%s", buffer_name, sed_pattern, dump_filename);
+        }
+        nchar = (0 <= n ? nchar : 0) + n;
+      }
+      if (0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar && EXIT_SUCCESS == system(buffer)) {
+        FILE* const file = fopen(dump_filename, "r");
+        if (NULL != file) {
+          const long int size_file = (EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_END) ? ftell(file) : 0);
+          char* const src = (char*)(EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_SET)
+                                      ? libxs_malloc(NULL, size_file + 1 /*terminator*/, 0 /*auto-align*/)
+                                      : NULL);
+          result = EXIT_SUCCESS; /* the file exists whether or not it is read back */
+          if (NULL != src) {
+            if ((size_t)size_file == fread(src, 1 /*sizeof(char)*/, size_file /*count*/, file)) {
+              src[size_file] = '\0';
+              if (NULL != instanced) *instanced = src; else libxs_free(src);
+            }
+            else libxs_free(src);
+          }
+          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == fclose(file));
+        }
+      }
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == unlink(buffer_name)); /* remove temporary file */
+    }
+# endif
+  }
+  return result;
+}
+
+
+LIBXSTREAM_API int libxstream_opencl_dump(const char source[], size_t size_src, const char name[],
+  const char build_params[], int nv, const char std_flag[], char** instanced)
+{
+  const size_t nbytes = (0 != size_src ? size_src : (NULL != source ? strlen(source) : 0));
+  return libxstream_opencl_instance(source, nbytes, name, build_params, nv, std_flag, 1 /*cpp*/, instanced);
 }
 
 
@@ -2589,81 +2690,17 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
     }
     /* cpp: consider to preprocess kernel (failure does not impact result code) */
     if (0 != libxstream_opencl_config.dump && NULL == file_src) {
-      char dump_filename[LIBXSTREAM_MAXSTRLEN];
-      nchar = LIBXS_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", name);
-      if (0 < nchar && (int)sizeof(dump_filename) > nchar) {
-        const int std_flag_len = LIBXS_CAST_INT(strlen(devinfo->std_flag));
-        const char* const env_cpp = getenv("LIBXSTREAM_CPP");
-        const int cpp = (NULL == env_cpp ? (3 <= libxstream_opencl_config.dump) : atoi(env_cpp));
-# if defined(LIBXSTREAM_CPPBIN)
-        FILE* const file_cpp = (0 != cpp ? fopen(LIBXSTREAM_CPPBIN, "rb") : NULL);
-# else
-        FILE* const file_cpp = NULL;
-# endif
-        int file_dmp = -1;
-        if (NULL != file_cpp) {
-          nchar = LIBXS_SNPRINTF(buffer_name, sizeof(buffer_name), LIBXSTREAM_TEMPDIR "/.%s.XXXXXX", name);
-          if (0 < nchar && (int)sizeof(buffer_name) > nchar) file_dmp = mkstemp(buffer_name);
-          fclose(file_cpp); /* existence-check */
+      char* instanced = NULL;
+      if (EXIT_SUCCESS == libxstream_opencl_instance(ext_source, size_src, name, build_params,
+            devinfo->nv, devinfo->std_flag, 3 <= libxstream_opencl_config.dump, &instanced)
+        && NULL != instanced)
+      {
+        if (source != ext_source) {
+          void* p = NULL;
+          LIBXS_ASSIGN(&p, &ext_source);
+          libxs_free(p);
         }
-        else file_dmp = open(dump_filename, O_CREAT | O_TRUNC | O_RDWR, S_IREAD | S_IWRITE);
-        if (0 <= file_dmp) {
-          if ((0 != std_flag_len &&
-                (3 != write(file_dmp, "/*\n", 3) || std_flag_len != write(file_dmp, devinfo->std_flag, std_flag_len) ||
-                  4 != write(file_dmp, "\n*/\n", 4))) ||
-              size_src != (size_t)write(file_dmp, ext_source, size_src))
-          {
-            file_dmp = -1;
-          }
-          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == close(file_dmp));
-        }
-# if defined(LIBXSTREAM_CPPBIN)
-        if (NULL != file_cpp && 0 <= file_dmp) { /* preprocess source-code */
-          const char* sed_pattern = "";
-#   if defined(LIBXSTREAM_SEDBIN)
-          FILE* const file_sed = fopen(LIBXSTREAM_SEDBIN, "rb");
-          if (NULL != file_sed) {
-            sed_pattern = "| " LIBXSTREAM_SEDBIN " '/^[[:space:]]*\\(\\/\\/.*\\)*$/d'";
-            fclose(file_sed); /* existence-check */
-          }
-#   endif
-          nchar = LIBXS_SNPRINTF(
-            buffer, LIBXSTREAM_BUFFERSIZE, LIBXSTREAM_CPPBIN " -P -C -nostdinc %s", 0 == devinfo->nv ? "" : "-D__NV_CL_C_VERSION ");
-          if (0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar) {
-            int n = libxstream_opencl_defines(build_params, buffer + nchar, LIBXSTREAM_BUFFERSIZE - nchar, 0 /*cleanup*/);
-            if (0 <= n && LIBXSTREAM_BUFFERSIZE > (nchar += n)) {
-              n = LIBXS_SNPRINTF(buffer + nchar, LIBXSTREAM_BUFFERSIZE - nchar,
-                ' ' != buffer[nchar - 1] ? " %s %s >%s" : "%s %s >%s", buffer_name, sed_pattern, dump_filename);
-            }
-            nchar = (0 <= n ? nchar : 0) + n;
-          }
-          if (0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar && EXIT_SUCCESS == system(buffer)) {
-            FILE* const file = fopen(dump_filename, "r");
-            if (NULL != file) {
-              const long int size_file = (EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_END) ? ftell(file) : 0);
-              char* const src = (char*)(EXIT_SUCCESS == fseek(file, 0 /*offset*/, SEEK_SET)
-                                          ? libxs_malloc(
-                                              NULL, size_file + 1 /*terminator*/, 0 /*auto-align*/)
-                                          : NULL);
-              if (NULL != src) {
-                if ((size_t)size_file == fread(src, 1 /*sizeof(char)*/, size_file /*count*/, file)) {
-                  if (source != ext_source) {
-                    void* p = NULL;
-                    LIBXS_ASSIGN(&p, &ext_source);
-                    libxs_free(p);
-                  }
-                  src[size_file] = '\0';
-                  ext_source = src;
-                }
-                else libxs_free(src);
-              }
-              LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == fclose(file));
-            }
-          }
-          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == unlink(buffer_name)); /* remove temporary file */
-          buffer[0] = '\0'; /* reset to empty */
-        }
-# endif
+        ext_source = instanced;
       }
     }
     *program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &ext_source, NULL, &result);

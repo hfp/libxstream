@@ -26,7 +26,8 @@
 # define LIBXSTREAM_OCLVER __OPENCL_VERSION__
 #endif
 
-#if (200 /*CL_VERSION_2_0*/ <= LIBXSTREAM_OCLVER) || defined(__NV_CL_C_VERSION)
+/* a language attribute, so the C version decides it and not the platform one */
+#if (200 /*CL_VERSION_2_0*/ <= LIBXSTREAM_OCLVER_C) || defined(__NV_CL_C_VERSION)
 # define UNROLL_FORCE(N) __attribute__((opencl_unroll_hint(N)))
 # define UNROLL_AUTO __attribute__((opencl_unroll_hint))
 #else
@@ -49,10 +50,15 @@
 #endif
 
 #define BCST_NO(V, I) (V)
-#if defined(WG) && (0 < WG) && defined(GPU) && (200 <= LIBXSTREAM_OCLVER)
+/* optional in 3.0: 300 clears "200 <=" yet may provide neither */
+#if defined(WG) && (0 < WG) && defined(GPU) && \
+  (defined(__opencl_c_work_group_collective_functions) || \
+    (200 <= LIBXSTREAM_OCLVER_C && 300 > LIBXSTREAM_OCLVER_C))
 # define BCST_WG(V, I) work_group_broadcast(V, I)
 #endif
-#if defined(SG) && (0 < SG) && defined(GPU) && (200 <= LIBXSTREAM_OCLVER)
+#if defined(SG) && (0 < SG) && defined(GPU) && \
+  (defined(__opencl_c_subgroups) || defined(cl_khr_subgroups) || \
+    (200 <= LIBXSTREAM_OCLVER_C && 300 > LIBXSTREAM_OCLVER_C))
 # define BCST_SG(V, I) sub_group_broadcast(V, I)
 #endif
 

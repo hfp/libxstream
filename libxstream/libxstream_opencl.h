@@ -669,6 +669,31 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
   const char build_options[], const char try_build_options[], int* try_ok, const char* const extnames[], size_t num_exts,
   cl_program* program);
 /**
+ * Instantiates a kernel template as <name>.cl without building a program: the
+ * build_params are applied as preprocessor defines and the includes are fused, so
+ * the artifact compiles on its own and can be checked by a plain OpenCL C
+ * compiler. Requires no context, no device, and no platform.
+ *
+ * This is what makes the kernels testable where they otherwise are not. CI has no
+ * GPU and no OpenCL platform, so the kernels are never compiled at all; and a
+ * device that merely lacks an extension stops the build before any dump is
+ * written, which is why the artifact cannot be a side effect of building.
+ *
+ * nv selects the NVIDIA dialect (__NV_CL_C_VERSION) and std_flag is recorded in a
+ * leading comment, both as libxstream_opencl_program would pass them, so a caller
+ * naming a vendor obtains the same text that vendor's driver would receive.
+ * instanced (if non-NULL) receives the preprocessed text, which the caller owns
+ * and frees with libxs_free; it is not const for that reason. Returns EXIT_SUCCESS when the file was written.
+ *
+ * Because there is no device, build_params must carry what a device would
+ * otherwise supply: LIBXSTREAM_OCLVER and LIBXSTREAM_OCLVER_C above all, which
+ * libxstream/opencl/libxstream_common.h branches on and would otherwise default
+ * to an undefined __OPENCL_VERSION__, i.e. zero. Stating them is the point rather
+ * than a chore: it is what makes the configuration a named combination.
+ */
+LIBXSTREAM_API int libxstream_opencl_dump(const char source[], size_t size_src, const char name[],
+  const char build_params[], int nv, const char std_flag[], char** instanced);
+/**
  * Retrieve the device binary of a built program, NUL-terminated so that text
  * representations stay usable as C strings (NVIDIA emits PTX text, which is what
  * makes the transform below possible). The caller frees with libxs_free.
