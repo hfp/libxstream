@@ -2503,7 +2503,10 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
     const char* const env_cpp = getenv("LIBXSTREAM_CPP");
     const int cpp = (NULL == env_cpp ? want_cpp : atoi(env_cpp));
 # if defined(LIBXSTREAM_CPPBIN)
-    FILE* const file_cpp = (0 != cpp ? fopen(LIBXSTREAM_CPPBIN, "rb") : NULL);
+    const char* const env_cppbin = getenv("LIBXSTREAM_CPPBIN");
+    const char* const cppbin = (NULL != env_cppbin && '\0' != *env_cppbin)
+                                 ? env_cppbin : LIBXSTREAM_CPPBIN;
+    FILE* const file_cpp = (0 != cpp ? fopen(cppbin, "rb") : NULL);
 # else
     FILE* const file_cpp = NULL;
     LIBXSTREAM_UNUSED(cpp);
@@ -2530,6 +2533,7 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
 # if defined(LIBXSTREAM_CPPBIN)
     if (NULL != file_cpp && 0 <= file_dmp) { /* preprocess source-code */
       char buffer[LIBXSTREAM_BUFFERSIZE];
+      const char* const env_cppflags = getenv("LIBXSTREAM_CPPFLAGS");
       const char* sed_pattern = "";
 #   if defined(LIBXSTREAM_SEDBIN)
       FILE* const file_sed = fopen(LIBXSTREAM_SEDBIN, "rb");
@@ -2538,8 +2542,14 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
         fclose(file_sed); /* existence-check */
       }
 #   endif
-      nchar = LIBXS_SNPRINTF(
-        buffer, LIBXSTREAM_BUFFERSIZE, LIBXSTREAM_CPPBIN " -P -C -nostdinc %s", 0 == nv ? "" : "-D__NV_CL_C_VERSION ");
+      /* Preprocessor and its flags are both nameable: the default is a generic C
+         preprocessor, whereas a clang driver must be told the language ("-E -x cl")
+         because it otherwise infers it from a temporary file that carries no
+         extension.  The two spellings are not interchangeable -- GNU cpp rejects
+         "-x cl" outright -- so the flags travel with the binary that accepts them. */
+      nchar = LIBXS_SNPRINTF(buffer, LIBXSTREAM_BUFFERSIZE, "%s %s -P -C -nostdinc %s",
+        cppbin, (NULL != env_cppflags ? env_cppflags : ""),
+        0 == nv ? "" : "-D__NV_CL_C_VERSION ");
       if (0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar) {
         int n = libxstream_opencl_defines(build_params, buffer + nchar, LIBXSTREAM_BUFFERSIZE - nchar, 0 /*cleanup*/);
         if (0 <= n && LIBXSTREAM_BUFFERSIZE > (nchar += n)) {

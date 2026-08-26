@@ -21,9 +21,9 @@
 #if defined(__OPENCL)
 
 /**
- * Root of the source tree, which the tests read kernels and headers from.  Not a
+ * Root of the source tree, which the tests read kernels and headers from. Not a
  * relative path: CTest runs from the build directory, where "../samples" does not
- * exist, whereas the Makefile runs from the source directory, where it does.  The
+ * exist, whereas the Makefile runs from the source directory, where it does. The
  * build systems state it; the default keeps the in-source case working.
  */
 #if !defined(LIBXSTREAM_SRCDIR)

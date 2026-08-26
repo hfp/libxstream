@@ -22,52 +22,10 @@ static int table_bus[8], table_slot[8], table_domain[8];
 static int table_no_slot = 0, table_no_domain = 0;
 
 
-static int fake_attr(int* value, int attribute, int ordinal)
-{
-  int result = EXIT_FAILURE;
-  if (NULL != value && 0 <= ordinal && ordinal < table_ndevs) {
-    if (ATTR_BUS == attribute) {
-      *value = table_bus[ordinal];
-      result = EXIT_SUCCESS;
-    }
-    else if (ATTR_SLOT == attribute && 0 == table_no_slot) {
-      *value = table_slot[ordinal];
-      result = EXIT_SUCCESS;
-    }
-    else if (ATTR_DOMAIN == attribute && 0 == table_no_domain) {
-      *value = table_domain[ordinal];
-      result = EXIT_SUCCESS;
-    }
-  }
-  return result;
-}
-
-
-static int endless_attr(int* value, int attribute, int ordinal)
-{
-  if (NULL != value) *value = (ATTR_BUS == attribute ? ordinal : 0);
-  return EXIT_SUCCESS;
-}
-
-
-static int match(unsigned int bus, unsigned int slot, unsigned int domain, int* ndevices)
-{
-  return libxstream_pin_match(bus, slot, domain, fake_attr,
-    ATTR_BUS, ATTR_SLOT, ATTR_DOMAIN, MAXDEVS, ndevices);
-}
-
-
-static void setup(int ndevs)
-{
-  int i;
-  table_ndevs = ndevs;
-  table_no_slot = table_no_domain = 0;
-  for (i = 0; i < ndevs; ++i) {
-    table_bus[i] = 0x10 + i;
-    table_slot[i] = i;
-    table_domain[i] = 0;
-  }
-}
+static int fake_attr(int* value, int attribute, int ordinal);
+static int endless_attr(int* value, int attribute, int ordinal);
+static int match(unsigned int bus, unsigned int slot, unsigned int domain, int* ndevices);
+static void setup(int ndevs);
 
 
 int main(void)
@@ -149,4 +107,52 @@ int main(void)
 
   if (EXIT_SUCCESS != result) fprintf(stderr, "pin: device mapping is wrong\n");
   return result;
+}
+
+
+static int fake_attr(int* value, int attribute, int ordinal)
+{
+  int result = EXIT_FAILURE;
+  if (NULL != value && 0 <= ordinal && ordinal < table_ndevs) {
+    if (ATTR_BUS == attribute) {
+      *value = table_bus[ordinal];
+      result = EXIT_SUCCESS;
+    }
+    else if (ATTR_SLOT == attribute && 0 == table_no_slot) {
+      *value = table_slot[ordinal];
+      result = EXIT_SUCCESS;
+    }
+    else if (ATTR_DOMAIN == attribute && 0 == table_no_domain) {
+      *value = table_domain[ordinal];
+      result = EXIT_SUCCESS;
+    }
+  }
+  return result;
+}
+
+
+static int endless_attr(int* value, int attribute, int ordinal)
+{
+  if (NULL != value) *value = (ATTR_BUS == attribute ? ordinal : 0);
+  return EXIT_SUCCESS;
+}
+
+
+static int match(unsigned int bus, unsigned int slot, unsigned int domain, int* ndevices)
+{
+  return libxstream_pin_match(bus, slot, domain, fake_attr,
+    ATTR_BUS, ATTR_SLOT, ATTR_DOMAIN, MAXDEVS, ndevices);
+}
+
+
+static void setup(int ndevs)
+{
+  int i;
+  table_ndevs = ndevs;
+  table_no_slot = table_no_domain = 0;
+  for (i = 0; i < ndevs; ++i) {
+    table_bus[i] = 0x10 + i;
+    table_slot[i] = i;
+    table_domain[i] = 0;
+  }
 }

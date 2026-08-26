@@ -30,9 +30,9 @@
 #if defined(__OPENCL)
 
 /**
- * Root of the source tree, which the tests read kernels and headers from.  Not a
+ * Root of the source tree, which the tests read kernels and headers from. Not a
  * relative path: CTest runs from the build directory, where "../samples" does not
- * exist, whereas the Makefile runs from the source directory, where it does.  The
+ * exist, whereas the Makefile runs from the source directory, where it does. The
  * build systems state it; the default keeps the in-source case working.
  */
 #if !defined(LIBXSTREAM_SRCDIR)
@@ -47,7 +47,7 @@
 /**
  * Root kernels with the parameters their host supplies: shape and configuration
  * are mandatory and have no defaults, so every level must provide them, and the
- * levels below vary only the language version and the optional features.  Taken
+ * levels below vary only the language version and the optional features. Taken
  * from the build strings in samples/ozaki/ozaki_opencl.c rather than invented.
  *
  * INTEL and NV are held at 0 throughout: the vendor paths need DPAS builtins and
@@ -123,8 +123,23 @@ int main(void)
   const int nfiles = (int)(sizeof(kernel_files) / sizeof(*kernel_files));
   const int nlevels = (int)(sizeof(kernel_levels) / sizeof(*kernel_levels));
   int result = EXIT_SUCCESS, i, j, n = 0;
-  /* Required, not optional: a lint that skips itself reports success on every
-     machine that cannot run it, which is indistinguishable from passing. */
+#if defined(__APPLE__)
+  /**
+   * Apple's clang does not support the OpenCL C extensions these kernels need,
+   * so a failure here would report the platform and not the kernels. Stated
+   * rather than skipped, and overridden by naming a compiler that can: e.g.
+   * KERNELS_CC=$(brew --prefix llvm)/bin/clang.
+   */
+  if (NULL == getenv("KERNELS_CC")) {
+    printf("kernels: NOT ATTEMPTED on this platform"
+      " (set KERNELS_CC to an OpenCL C compiler)\n");
+    return EXIT_SUCCESS;
+  }
+#endif
+  /**
+   * Required, not optional: a lint that skips itself reports success on every
+   * machine that cannot run it, which is indistinguishable from passing.
+   */
   {
     char probe[512];
     if (0 >= LIBXS_SNPRINTF(probe, sizeof(probe), "%s --version >/dev/null 2>&1", kernels_cc())
@@ -204,6 +219,9 @@ static int compiles(const char artifact[], const char std[])
          * signature is fixed by the host argument list, so an unused parameter
          * is a interface constraint and not a defect. */
         " -Wall -Wextra -pedantic -Wno-unused-parameter -Werror"
+        /* the fp64 flavors need the extension whether or not the host target
+         * advertises it; harmless where it is already available */
+        " -Xclang -cl-ext=+cl_khr_fp64"
         " -Xclang -finclude-default-header %s", kernels_cc(), std, artifact))
   {
     result = (EXIT_SUCCESS == system(command) ? EXIT_SUCCESS : EXIT_FAILURE);

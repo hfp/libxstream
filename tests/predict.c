@@ -20,8 +20,8 @@ enum { NINPUTS = 3, NOUTPUTS = 16, NQUERY = 64 };
 
 /**
  * Models saved by LIBXS 1.0.0 (format version 1), which the current loader must
- * keep reading (see predict_v1_README.md).  A round-trip test cannot cover this
- * because it only ever exercises the current writer.  All carry 3 inputs and 16
+ * keep reading (see predict_v1_README.md). A round-trip test cannot cover this
+ * because it only ever exercises the current writer. All carry 3 inputs and 16
  * outputs, hence share NINPUTS/NOUTPUTS with the model built below.
  */
 static const char *const internal_predict_fixtures[] = {
@@ -41,153 +41,9 @@ static const char *const internal_predict_fixtures[] = {
 static const char *const internal_predict_dirs[] = { "", "tests/", "../tests/" };
 
 
-static void* internal_predict_read(const char* dir, const char* name,
-  size_t* size)
-{
-  void* result = NULL;
-  const size_t nd = strlen(dir), nn = strlen(name);
-  char path[1024];
-  *size = 0;
-  if (sizeof(path) > (nd + nn)) {
-    FILE* file;
-    memcpy(path, dir, nd);
-    memcpy(path + nd, name, nn + 1);
-    file = fopen(path, "rb");
-    if (NULL != file) {
-      long len = 0;
-      if (0 == fseek(file, 0, SEEK_END)) len = ftell(file);
-      if (0 < len && 0 == fseek(file, 0, SEEK_SET)) {
-        void* buffer = malloc((size_t)len);
-        if (NULL != buffer) {
-          if (1 == fread(buffer, (size_t)len, 1, file)) {
-            result = buffer;
-            *size = (size_t)len;
-          }
-          else free(buffer);
-        }
-      }
-      fclose(file);
-    }
-  }
-  return result;
-}
-
-
-/**
- * A fixture must load, must predict the same as the model written when it is
- * re-saved in the current format, and its re-saved form must be rejected when
- * damaged (the checksum introduced with format version 2).
- */
-static int internal_predict_check(const void* buffer, size_t size,
-  const char* name)
-{
-  int result = EXIT_SUCCESS;
-  libxs_predict_t* model = libxs_predict_load(buffer, size);
-  if (NULL == model) {
-    FPRINTF(stderr, "ERROR: %s failed to load\n", name);
-    result = EXIT_FAILURE;
-  }
-  else {
-    libxs_predict_query_t qinfo;
-    unsigned short version = 0;
-    size_t rsize = 0;
-    /**
-     * These fixtures exist to cover an older format, so the declared version is
-     * asserted: regenerating one with a current LIBXS would still load, and the
-     * coverage would disappear without any test failing.  Both containers begin
-     * with a 4-byte magic followed by the version, written host-endian.
-     */
-    if (sizeof(version) + 4 <= size) {
-      memcpy(&version, (const unsigned char*)buffer + 4, sizeof(version));
-    }
-    if (1 != version) {
-      FPRINTF(stderr, "ERROR: %s declares format version %u, expected 1\n",
-        name, (unsigned int)version);
-      result = EXIT_FAILURE;
-    }
-    libxs_predict_query(model, &qinfo);
-    if (EXIT_SUCCESS == result && (0 >= qinfo.nentries || 0 >= qinfo.nclusters)) {
-      FPRINTF(stderr, "ERROR: %s reports %d entries in %d clusters\n",
-        name, qinfo.nentries, qinfo.nclusters);
-      result = EXIT_FAILURE;
-    }
-    if (EXIT_SUCCESS == result
-      && (EXIT_SUCCESS != libxs_predict_save(model, NULL, &rsize) || 0 == rsize))
-    {
-      FPRINTF(stderr, "ERROR: %s save size query failed\n", name);
-      result = EXIT_FAILURE;
-    }
-    if (EXIT_SUCCESS == result) {
-      void* rbuf = malloc(rsize);
-      if (NULL != rbuf) {
-        libxs_predict_t* again = NULL;
-        if (EXIT_SUCCESS == libxs_predict_save(model, rbuf, &rsize)) {
-          again = libxs_predict_load(rbuf, rsize);
-        }
-        if (NULL != again) {
-          int i, j;
-          for (i = 1; i <= NQUERY && EXIT_SUCCESS == result; ++i) {
-            double inputs[NINPUTS], out1[NOUTPUTS], out2[NOUTPUTS];
-            inputs[0] = inputs[1] = inputs[2] = (double)i;
-            libxs_predict_eval(NULL, model, inputs, out1, NULL, 1);
-            libxs_predict_eval(NULL, again, inputs, out2, NULL, 1);
-            for (j = 0; j < NOUTPUTS; ++j) {
-              const double delta = out1[j] - out2[j];
-              if (delta > 1e-10 || delta < -1e-10) {
-                FPRINTF(stderr, "ERROR: %s migration mismatch at query %d"
-                  " output %d (%.6f vs %.6f)\n", name, i, j, out1[j], out2[j]);
-                result = EXIT_FAILURE;
-              }
-            }
-          }
-          libxs_predict_destroy(again);
-        }
-        else {
-          FPRINTF(stderr, "ERROR: %s failed to reload after save\n", name);
-          result = EXIT_FAILURE;
-        }
-        if (EXIT_SUCCESS == result) {
-          libxs_predict_t* damaged;
-          ((unsigned char*)rbuf)[rsize / 2] ^= 0xFF;
-          damaged = libxs_predict_load(rbuf, rsize);
-          if (NULL != damaged) {
-            FPRINTF(stderr, "ERROR: %s loaded despite a damaged payload\n", name);
-            libxs_predict_destroy(damaged);
-            result = EXIT_FAILURE;
-          }
-        }
-        free(rbuf);
-      }
-      else result = EXIT_FAILURE;
-    }
-    libxs_predict_destroy(model);
-  }
-  return result;
-}
-
-
-/**
- * Directory of the test binary, including the trailing separator, which is where
- * the fixtures sit for an in-tree build.
- */
-static void internal_predict_bindir(const char* argv0, char* dir, size_t size)
-{
-  const char* sep = NULL;
-  dir[0] = '\0';
-  if (NULL != argv0) {
-    const char* c = argv0;
-    for (; '\0' != *c; ++c) {
-      if ('/' == *c || '\\' == *c) sep = c;
-    }
-  }
-  if (NULL != sep) {
-    const size_t n = (size_t)(sep - argv0) + 1;
-    if (size > n) {
-      memcpy(dir, argv0, n);
-      dir[n] = '\0';
-    }
-  }
-}
+static void* internal_predict_read(const char* dir, const char* name, size_t* size);
+static int internal_predict_check(const void* buffer, size_t size, const char* name);
+static void internal_predict_bindir(const char* argv0, char* dir, size_t size);
 
 
 int main(int argc, char* argv[])
@@ -354,6 +210,156 @@ int main(int argc, char* argv[])
       }
     }
     FPRINTF(stderr, "Fixtures: %d of %d checked\n", nchecked, nfixtures);
+    LIBXS_UNUSED(nchecked);
   }
   return result;
+}
+
+
+static void* internal_predict_read(const char* dir, const char* name,
+  size_t* size)
+{
+  void* result = NULL;
+  const size_t nd = strlen(dir), nn = strlen(name);
+  char path[1024];
+  *size = 0;
+  if (sizeof(path) > (nd + nn)) {
+    FILE* file;
+    memcpy(path, dir, nd);
+    memcpy(path + nd, name, nn + 1);
+    file = fopen(path, "rb");
+    if (NULL != file) {
+      long len = 0;
+      if (0 == fseek(file, 0, SEEK_END)) len = ftell(file);
+      if (0 < len && 0 == fseek(file, 0, SEEK_SET)) {
+        void* buffer = malloc((size_t)len);
+        if (NULL != buffer) {
+          if (1 == fread(buffer, (size_t)len, 1, file)) {
+            result = buffer;
+            *size = (size_t)len;
+          }
+          else free(buffer);
+        }
+      }
+      fclose(file);
+    }
+  }
+  return result;
+}
+
+
+/**
+ * A fixture must load, must predict the same as the model written when it is
+ * re-saved in the current format, and its re-saved form must be rejected when
+ * damaged (the checksum introduced with format version 2).
+ */
+static int internal_predict_check(const void* buffer, size_t size,
+  const char* name)
+{
+  int result = EXIT_SUCCESS;
+  libxs_predict_t* model = libxs_predict_load(buffer, size);
+  if (NULL == model) {
+    FPRINTF(stderr, "ERROR: %s failed to load\n", name);
+    result = EXIT_FAILURE;
+  }
+  else {
+    libxs_predict_query_t qinfo;
+    unsigned short version = 0;
+    size_t rsize = 0;
+    /**
+     * These fixtures exist to cover an older format, so the declared version is
+     * asserted: regenerating one with a current LIBXS would still load, and the
+     * coverage would disappear without any test failing. Both containers begin
+     * with a 4-byte magic followed by the version, written host-endian.
+     */
+    if (sizeof(version) + 4 <= size) {
+      memcpy(&version, (const unsigned char*)buffer + 4, sizeof(version));
+    }
+    if (1 != version) {
+      FPRINTF(stderr, "ERROR: %s declares format version %u, expected 1\n",
+        name, (unsigned int)version);
+      result = EXIT_FAILURE;
+    }
+    libxs_predict_query(model, &qinfo);
+    if (EXIT_SUCCESS == result && (0 >= qinfo.nentries || 0 >= qinfo.nclusters)) {
+      FPRINTF(stderr, "ERROR: %s reports %d entries in %d clusters\n",
+        name, qinfo.nentries, qinfo.nclusters);
+      result = EXIT_FAILURE;
+    }
+    if (EXIT_SUCCESS == result
+      && (EXIT_SUCCESS != libxs_predict_save(model, NULL, &rsize) || 0 == rsize))
+    {
+      FPRINTF(stderr, "ERROR: %s save size query failed\n", name);
+      result = EXIT_FAILURE;
+    }
+    if (EXIT_SUCCESS == result) {
+      void* rbuf = malloc(rsize);
+      if (NULL != rbuf) {
+        libxs_predict_t* again = NULL;
+        if (EXIT_SUCCESS == libxs_predict_save(model, rbuf, &rsize)) {
+          again = libxs_predict_load(rbuf, rsize);
+        }
+        if (NULL != again) {
+          int i, j;
+          for (i = 1; i <= NQUERY && EXIT_SUCCESS == result; ++i) {
+            double inputs[NINPUTS], out1[NOUTPUTS], out2[NOUTPUTS];
+            inputs[0] = inputs[1] = inputs[2] = (double)i;
+            libxs_predict_eval(NULL, model, inputs, out1, NULL, 1);
+            libxs_predict_eval(NULL, again, inputs, out2, NULL, 1);
+            for (j = 0; j < NOUTPUTS; ++j) {
+              const double delta = out1[j] - out2[j];
+              if (delta > 1e-10 || delta < -1e-10) {
+                FPRINTF(stderr, "ERROR: %s migration mismatch at query %d"
+                  " output %d (%.6f vs %.6f)\n", name, i, j, out1[j], out2[j]);
+                result = EXIT_FAILURE;
+              }
+            }
+          }
+          libxs_predict_destroy(again);
+        }
+        else {
+          FPRINTF(stderr, "ERROR: %s failed to reload after save\n", name);
+          result = EXIT_FAILURE;
+        }
+        if (EXIT_SUCCESS == result) {
+          libxs_predict_t* damaged;
+          ((unsigned char*)rbuf)[rsize / 2] ^= 0xFF;
+          damaged = libxs_predict_load(rbuf, rsize);
+          if (NULL != damaged) {
+            FPRINTF(stderr, "ERROR: %s loaded despite a damaged payload\n", name);
+            libxs_predict_destroy(damaged);
+            result = EXIT_FAILURE;
+          }
+        }
+        free(rbuf);
+      }
+      else result = EXIT_FAILURE;
+    }
+    libxs_predict_destroy(model);
+  }
+  return result;
+}
+
+
+/**
+ * Directory of the test binary, including the trailing separator, which is where
+ * the fixtures sit for an in-tree build.
+ */
+static void internal_predict_bindir(const char* argv0, char* dir, size_t size)
+{
+  const char* sep = NULL;
+  dir[0] = '\0';
+  if (NULL != argv0) {
+    const char* c = argv0;
+    for (; '\0' != *c; ++c) {
+      if ('/' == *c || '\\' == *c) sep = c;
+    }
+  }
+  if (NULL != sep) {
+    const size_t n = (size_t)(sep - argv0) + 1;
+    if (size > n) {
+      memcpy(dir, argv0, n);
+      dir[n] = '\0';
+    }
+  }
 }
