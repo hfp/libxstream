@@ -19,6 +19,11 @@
 #define CAT_(A, B) A##B
 #define CAT(A, B) CAT_(A, B)
 
+/* address space of read-only kernel arguments; hosts pass it explicitly */
+#if !defined(CONSTANT)
+# define CONSTANT global
+#endif
+
 #if !defined(LIBXSTREAM_OCLVER_C)
 # define LIBXSTREAM_OCLVER_C __OPENCL_C_VERSION__
 #endif
@@ -26,8 +31,12 @@
 # define LIBXSTREAM_OCLVER __OPENCL_VERSION__
 #endif
 
-/* a language attribute, so the C version decides it and not the platform one */
-#if (200 /*CL_VERSION_2_0*/ <= LIBXSTREAM_OCLVER_C) || defined(__NV_CL_C_VERSION)
+/**
+ * Either version admits it: a 3.0 device may report OpenCL C 1.2 and still take
+ * the attribute, so requiring the C version alone silently drops every hint.
+ */
+#if (200 /*CL_VERSION_2_0*/ <= LIBXSTREAM_OCLVER_C) || (200 <= LIBXSTREAM_OCLVER) || \
+  defined(__NV_CL_C_VERSION)
 # define UNROLL_FORCE(N) __attribute__((opencl_unroll_hint(N)))
 # define UNROLL_AUTO __attribute__((opencl_unroll_hint))
 #else

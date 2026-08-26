@@ -2487,12 +2487,18 @@ LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size
 static int libxstream_opencl_instance(const char source[], size_t size_src, const char name[],
   const char build_params[], int nv, const char std_flag[], int want_cpp, char** instanced)
 {
-  char dump_filename[LIBXSTREAM_MAXSTRLEN];
-  char buffer_name[LIBXSTREAM_MAXSTRLEN * 2];
-  int result = EXIT_FAILURE;
-  int nchar = LIBXS_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", name);
+  char nm[LIBXSTREAM_MAXSTRLEN * 4];
+  char dump_filename[sizeof(nm) + 8];
+  char buffer_name[sizeof(nm) + 32];
+  int result = EXIT_FAILURE, nchar = 0;
   if (NULL != instanced) *instanced = NULL;
-  if (0 < nchar && (int)sizeof(dump_filename) > nchar && NULL != source && NULL != name) {
+  /* Bounded before use: LIBXS_SNPRINTF is sprintf, so a name the buffers cannot
+     hold would overflow rather than truncate. */
+  if (NULL != source && NULL != name && sizeof(nm) > strlen(name)) {
+    strcpy(nm, name);
+    nchar = LIBXS_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", nm);
+  }
+  if (0 < nchar && (int)sizeof(dump_filename) > nchar) {
     const int std_flag_len = (NULL != std_flag ? LIBXS_CAST_INT(strlen(std_flag)) : 0);
     const char* const env_cpp = getenv("LIBXSTREAM_CPP");
     const int cpp = (NULL == env_cpp ? want_cpp : atoi(env_cpp));
@@ -2505,7 +2511,7 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
     int file_dmp = -1;
     buffer_name[0] = '\0';
     if (NULL != file_cpp) {
-      nchar = LIBXS_SNPRINTF(buffer_name, sizeof(buffer_name), LIBXSTREAM_TEMPDIR "/.%s.XXXXXX", name);
+      nchar = LIBXS_SNPRINTF(buffer_name, sizeof(buffer_name), LIBXSTREAM_TEMPDIR "/.%s.XXXXXX", nm);
       if (0 < nchar && (int)sizeof(buffer_name) > nchar) file_dmp = mkstemp(buffer_name);
       fclose(file_cpp); /* existence-check */
     }

@@ -31,6 +31,11 @@ jobs:
     - name: Install OpenCL
       run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
 
+    # tests/kernels.c compiles the OpenCL kernels, which a runner otherwise never
+    # does: it has no GPU and no platform, so the kernel sources go unchecked.
+    - name: Install Clang
+      run: sudo apt install -y clang
+
     - name: Setup LIBXS
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
@@ -166,6 +171,11 @@ jobs:
 
     - name: Install OpenCL
       run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
+
+    # tests/kernels.c compiles the OpenCL kernels, which a runner otherwise never
+    # does: it has no GPU and no platform, so the kernel sources go unchecked.
+    - name: Install Clang
+      run: sudo apt install -y clang
 
     - name: Setup LIBXS
       run: |

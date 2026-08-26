@@ -28,10 +28,6 @@
  *   Scheme 1 (slicing) always uses i8 (signed slice digits).
  */
 
-#if !defined(CONSTANT)
-# define CONSTANT global
-#endif
-
 /**
  * PTX state space matching CONSTANT, for inline asm that dereferences a
  * CONSTANT-qualified pointer. CONSTANT is supplied by the host (-DCONSTANT=)

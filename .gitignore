@@ -17,3 +17,9 @@ build
 site
 bin
 obj
+
+# Instantiated kernels the tests write: generated per run, and kept only when a
+# compile fails so the failing artifact can be read.
+/tests/k_*.cl
+/tests/dump_*.cl
+/tests/lvl_*.cl

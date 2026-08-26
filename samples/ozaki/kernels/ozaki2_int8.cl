@@ -164,7 +164,8 @@
 #if defined(OZAKI_BOUNDS) && (OZAKI_BOUNDS)
 # define OZAKI_IN_BOUNDS(R, M, COL, N) ((R) < (M) && (COL) < (N))
 #else
-# define OZAKI_IN_BOUNDS(R, M, COL, N) (1)
+/* consumes its arguments so a caller's index is not "unused" here */
+# define OZAKI_IN_BOUNDS(R, M, COL, N) ((void)(R), (void)(M), (void)(COL), (void)(N), 1)
 #endif
 
 /**
