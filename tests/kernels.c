@@ -26,11 +26,18 @@
 #   include <libxstream/libxstream_opencl.h>
 # endif
 #endif
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #if defined(__OPENCL)
+
+/**
+ * Root of the source tree, which the tests read kernels and headers from.  Not a
+ * relative path: CTest runs from the build directory, where "../samples" does not
+ * exist, whereas the Makefile runs from the source directory, where it does.  The
+ * build systems state it; the default keeps the in-source case working.
+ */
+#if !defined(LIBXSTREAM_SRCDIR)
+# define LIBXSTREAM_SRCDIR ".."
+#endif
 
 #if !defined(KERNELS_CC)
 # define KERNELS_CC "clang"
@@ -70,17 +77,17 @@
  */
 typedef struct { const char* path; const char* flavor; const char* params; } kernels_file_t;
 static const kernels_file_t kernel_files[] = {
-  { "../samples/ozaki/kernels/gemm3m.cl", "", "" },
-  { "../samples/ozaki/kernels/ozaki1_int8.cl", "fp64", KERNELS_OZAKI_FP64 },
-  { "../samples/ozaki/kernels/ozaki1_int8.cl", "fp32", KERNELS_OZAKI_FP32 },
-  { "../samples/ozaki/kernels/ozaki1_int8.cl", "sym", KERNELS_OZAKI_SYM },
-  { "../samples/ozaki/kernels/ozaki2_int8.cl", "fp64", KERNELS_OZAKI_FP64 },
-  { "../samples/ozaki/kernels/ozaki2_int8.cl", "fp32", KERNELS_OZAKI_FP32 },
-  { "../samples/ozaki/kernels/ozaki2_int8.cl", "flat", KERNELS_OZAKI_FLAT },
-  { "../samples/smm/kernels/transpose.cl", "",
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/gemm3m.cl", "", "" },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1_int8.cl", "fp64", KERNELS_OZAKI_FP64 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1_int8.cl", "fp32", KERNELS_OZAKI_FP32 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1_int8.cl", "sym", KERNELS_OZAKI_SYM },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "fp64", KERNELS_OZAKI_FP64 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "fp32", KERNELS_OZAKI_FP32 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "flat", KERNELS_OZAKI_FLAT },
+  { LIBXSTREAM_SRCDIR "/samples/smm/kernels/transpose.cl", "",
     "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */ },
-  { "../samples/stencil/kernels/stencil_int8.cl", "", "" },
-  { "../samples/stencil/kernels/stencil_fp32.cl", "", "" }
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "", "" },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_fp32.cl", "", "" }
 };
 
 /**
@@ -90,7 +97,7 @@ static const kernels_file_t kernel_files[] = {
  * risks reporting a fault that is the test's rather than the kernel's.
  */
 static const char* const kernel_pending[] = {
-  "../samples/smm/kernels/multiply.cl", "../samples/stencil/kernels/stencil_bf16.cl"
+  LIBXSTREAM_SRCDIR "/samples/smm/kernels/multiply.cl", LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_bf16.cl"
 };
 
 /* A level names what it selects, and states the language its artifact is in. */

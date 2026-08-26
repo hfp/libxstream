@@ -25,6 +25,10 @@ foreach(test_source IN LISTS LIBXSTREAM_TEST_SOURCES)
     add_executable(${test_target} "${test_source}")
     # libxstream links libxs publicly, i.e. tests including <libxs/...> as well
     target_link_libraries(${test_target} PRIVATE libxstream)
+    # Tests that read kernels or headers from the source tree need to be told
+    # where it is: CTest runs them from the build directory.
+    target_compile_definitions(${test_target}
+      PRIVATE LIBXSTREAM_SRCDIR="${PROJECT_SOURCE_DIR}")
     set_target_properties(${test_target} PROPERTIES
       RUNTIME_OUTPUT_DIRECTORY "${LIBXSTREAM_TEST_DIR}"
       OUTPUT_NAME "${test_name}"

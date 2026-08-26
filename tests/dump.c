@@ -20,6 +20,17 @@
 
 #if defined(__OPENCL)
 
+/**
+ * Root of the source tree, which the tests read kernels and headers from.  Not a
+ * relative path: CTest runs from the build directory, where "../samples" does not
+ * exist, whereas the Makefile runs from the source directory, where it does.  The
+ * build systems state it; the default keeps the in-source case working.
+ */
+#if !defined(LIBXSTREAM_SRCDIR)
+# define LIBXSTREAM_SRCDIR ".."
+#endif
+
+
 /* A template standing in for a kernel: vendor branch, a parameter, an #if. */
 static const char template_source[] =
   "#if defined(INTEL) && (0 != INTEL)\n"
@@ -31,52 +42,6 @@ static const char template_source[] =
   "#endif\n"
   "kernel void WHICH_VENDOR(global float* c) { c[0] = (float)BM; }\n";
 
-
-static int reads(const char path[], char buffer[], size_t size)
-{
-  int result = EXIT_FAILURE;
-  FILE* const file = fopen(path, "r");
-  buffer[0] = '\0';
-  if (NULL != file) {
-    const size_t n = fread(buffer, 1, size - 1, file);
-    buffer[n] = '\0';
-    if (0 != n) result = EXIT_SUCCESS;
-    fclose(file);
-  }
-  return result;
-}
-
-
-/* One configuration: the artifact must name the expected path and no other. */
-static int check(const char name[], const char params[], int nv, const char expect[], const char reject[])
-{
-  char path[256], text[4096];
-  char* instanced = NULL;
-  int result = libxstream_opencl_dump(template_source, 0 /*strlen*/, name, params, nv, "-cl-std=CL2.0", &instanced);
-  if (EXIT_SUCCESS == result) {
-    if (0 >= LIBXS_SNPRINTF(path, sizeof(path), "%s.cl", name)) result = EXIT_FAILURE;
-  }
-  if (EXIT_SUCCESS == result) result = reads(path, text, sizeof(text));
-  if (EXIT_SUCCESS == result) {
-    /* the selected branch survived and the other did not */
-    if (NULL == strstr(text, expect) || NULL != strstr(text, reject)) result = EXIT_FAILURE;
-    /* the template was instanced: no directive and no parameter name remains */
-    if (NULL != strstr(text, "#if") || NULL != strstr(text, "WHICH_VENDOR")
-      || NULL != strstr(text, "BM"))
-    {
-      result = EXIT_FAILURE;
-    }
-    /* the std flag is recorded, and the returned text matches the file */
-    if (NULL == strstr(text, "-cl-std=CL2.0")) result = EXIT_FAILURE;
-    if (NULL == instanced || 0 != strcmp(instanced, text)) result = EXIT_FAILURE;
-  }
-  if (NULL != instanced) libxs_free(instanced);
-  if (EXIT_SUCCESS != result) fprintf(stderr, "dump: %s [%s] is wrong\n", name, params);
-  else remove(path);
-  return result;
-}
-
-
 /* Includes the shipped header, so the levels check its guards and not a copy. */
 static const char header_probe[] =
   "#include \"libxstream_common.h\"\n"
@@ -87,24 +52,9 @@ static const char header_probe[] =
   "#endif\n";
 
 
-/* One named level: the artifact must select the branch the level implies. */
-static int level(const char name[], const char params[], const char expect[], const char reject[])
-{
-  char path[256], text[8192];
-  char defines[512];
-  int result;
-  if (0 >= LIBXS_SNPRINTF(defines, sizeof(defines), "-I../libxstream/opencl %s", params)) return EXIT_FAILURE;
-  result = libxstream_opencl_dump(header_probe, 0, name, defines, 0, "", NULL);
-  if (EXIT_SUCCESS == result && 0 >= LIBXS_SNPRINTF(path, sizeof(path), "%s.cl", name)) result = EXIT_FAILURE;
-  if (EXIT_SUCCESS == result) result = reads(path, text, sizeof(text));
-  if (EXIT_SUCCESS == result) {
-    if (NULL == strstr(text, expect) || NULL != strstr(text, reject)) result = EXIT_FAILURE;
-    if (NULL != strstr(text, "#include")) result = EXIT_FAILURE; /* fused */
-  }
-  if (EXIT_SUCCESS != result) fprintf(stderr, "dump: level %s [%s] is wrong\n", name, params);
-  else remove(path);
-  return result;
-}
+static int reads(const char path[], char buffer[], size_t size);
+static int check(const char name[], const char params[], int nv, const char expect[], const char reject[]);
+static int level(const char name[], const char params[], const char expect[], const char reject[]);
 
 
 int main(void)
@@ -158,6 +108,71 @@ int main(void)
       result = EXIT_FAILURE;
     }
   }
+  return result;
+}
+
+
+static int reads(const char path[], char buffer[], size_t size)
+{
+  int result = EXIT_FAILURE;
+  FILE* const file = fopen(path, "r");
+  buffer[0] = '\0';
+  if (NULL != file) {
+    const size_t n = fread(buffer, 1, size - 1, file);
+    buffer[n] = '\0';
+    if (0 != n) result = EXIT_SUCCESS;
+    fclose(file);
+  }
+  return result;
+}
+
+
+/* One configuration: the artifact must name the expected path and no other. */
+static int check(const char name[], const char params[], int nv, const char expect[], const char reject[])
+{
+  char path[256], text[4096];
+  char* instanced = NULL;
+  int result = libxstream_opencl_dump(template_source, 0 /*strlen*/, name, params, nv, "-cl-std=CL2.0", &instanced);
+  if (EXIT_SUCCESS == result) {
+    if (0 >= LIBXS_SNPRINTF(path, sizeof(path), "%s.cl", name)) result = EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result) result = reads(path, text, sizeof(text));
+  if (EXIT_SUCCESS == result) {
+    /* the selected branch survived and the other did not */
+    if (NULL == strstr(text, expect) || NULL != strstr(text, reject)) result = EXIT_FAILURE;
+    /* the template was instanced: no directive and no parameter name remains */
+    if (NULL != strstr(text, "#if") || NULL != strstr(text, "WHICH_VENDOR")
+      || NULL != strstr(text, "BM"))
+    {
+      result = EXIT_FAILURE;
+    }
+    /* the std flag is recorded, and the returned text matches the file */
+    if (NULL == strstr(text, "-cl-std=CL2.0")) result = EXIT_FAILURE;
+    if (NULL == instanced || 0 != strcmp(instanced, text)) result = EXIT_FAILURE;
+  }
+  if (NULL != instanced) libxs_free(instanced);
+  if (EXIT_SUCCESS != result) fprintf(stderr, "dump: %s [%s] is wrong\n", name, params);
+  else remove(path);
+  return result;
+}
+
+
+/* One named level: the artifact must select the branch the level implies. */
+static int level(const char name[], const char params[], const char expect[], const char reject[])
+{
+  char path[256], text[8192];
+  char defines[512];
+  int result;
+  if (0 >= LIBXS_SNPRINTF(defines, sizeof(defines), "-I" LIBXSTREAM_SRCDIR "/libxstream/opencl %s", params)) return EXIT_FAILURE;
+  result = libxstream_opencl_dump(header_probe, 0, name, defines, 0, "", NULL);
+  if (EXIT_SUCCESS == result && 0 >= LIBXS_SNPRINTF(path, sizeof(path), "%s.cl", name)) result = EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) result = reads(path, text, sizeof(text));
+  if (EXIT_SUCCESS == result) {
+    if (NULL == strstr(text, expect) || NULL != strstr(text, reject)) result = EXIT_FAILURE;
+    if (NULL != strstr(text, "#include")) result = EXIT_FAILURE; /* fused */
+  }
+  if (EXIT_SUCCESS != result) fprintf(stderr, "dump: level %s [%s] is wrong\n", name, params);
+  else remove(path);
   return result;
 }
 
