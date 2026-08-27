@@ -119,6 +119,18 @@ static size_t ozaki_append(size_t off, size_t size, int written)
 }
 
 
+/* saturated offset means truncation, which would build a kernel other than the requested one */
+static int ozaki_append_check(size_t off, size_t size, const char* what)
+{
+  int result = EXIT_SUCCESS;
+  if (size <= off) {
+    fprintf(stderr, "ERROR OZAKI: %s build parameters exceed %i characters\n", what, (int)size);
+    result = EXIT_FAILURE;
+  }
+  return result;
+}
+
+
 /**
  * Emit fractional-CRT (OZAKI_FRACCRT) reconstruction tables as -D flags for the
  * active moduli set (nprimes entries of modtab). Computes, without bignum:
@@ -1055,13 +1067,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       { const int lu = (NULL != env) ? atoi(env) : 0;
         goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DLU=%d", lu));
       }
-      LIBXS_UNUSED(goff);
+      result = ozaki_append_check(goff, sizeof(build_params), "Ozaki-1");
       memcpy(ctx->base_flags, build_params, sizeof(ctx->base_flags));
       LIBXS_SNPRINTF(ctx->base_options, sizeof(ctx->base_options), "%s", build_options);
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
-      { /* Compile preprocessing + scale_beta (shared, tile/cutoff-independent) */
+      if (EXIT_SUCCESS == result) { /* Compile preprocessing + scale_beta (shared, tile/cutoff-independent) */
         char pp_flags[sizeof(build_params) + 64];
         cl_program program = NULL;
         LIBXS_SNPRINTF(pp_flags, sizeof(pp_flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_CUTOFF=%d",
@@ -1348,7 +1360,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       { const int lu = (NULL != env) ? atoi(env) : 0;
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DLU=%d", lu));
       }
-      LIBXS_UNUSED(coff);
+      result = ozaki_append_check(coff, sizeof(build_params), "Ozaki-2");
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
       }
@@ -1359,7 +1371,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       memcpy(ctx->crt_flags, build_params, sizeof(ctx->crt_flags));
       LIBXS_SNPRINTF(ctx->crt_options, sizeof(ctx->crt_options), "%s", crt_build_options);
       ctx->crt_registry = libxs_registry_create();
-      {
+      if (EXIT_SUCCESS == result) {
         char base_flags[sizeof(build_params) + 64];
         cl_program program = NULL;
         LIBXS_SNPRINTF(base_flags, sizeof(base_flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_BOUNDS=1",
