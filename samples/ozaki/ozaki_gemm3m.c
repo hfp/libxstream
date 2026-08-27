@@ -46,6 +46,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   size_t sz_a_complex, sz_b_complex, sz_c_complex;
   size_t sz_a_hat, sz_b_hat, sz_c_hat;
   int m_hat, k_hat, lda_hat, ldb_hat, ldc_hat;
+  int claimed = 0;
   int result = EXIT_SUCCESS;
   ctx->stream = (libxstream_stream_t*)stream;
   if (NULL != libxstream_opencl_config.pool_dev) {
@@ -78,13 +79,29 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   sz_b_hat = (tb ? (size_t)b_rows * (size_t)(2 * b_cols) : (size_t)(2 * b_rows) * (size_t)b_cols) * elem_size;
   sz_c_hat = (size_t)(2 * M) * (size_t)N * elem_size;
 
+  /**
+   * Claim the arena for the whole call, sized for these six buffers and for the
+   * embedded product that ozaki_gemm will carve after them. Without it each call
+   * creates and destroys them, which is what dominates on a device whose
+   * runtime has no memory pool: 268 MB per call at N = 2048 in double
+   * precision, measured as 35 of 38.7 ms on a GH200 whose kernel was the
+   * fastest of the parts tried.
+   */
+  if (EXIT_SUCCESS == result) {
+    size_t need = LIBXS_UP2(sz_a_complex, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(sz_b_complex, OZAKI_SCRATCH_ALIGN)
+                + LIBXS_UP2(sz_c_complex, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(sz_a_hat, OZAKI_SCRATCH_ALIGN)
+                + LIBXS_UP2(sz_b_hat, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(sz_c_hat, OZAKI_SCRATCH_ALIGN);
+    need += ozaki_scratch_size(ctx, transa, transb, m_hat, N, k_hat, lda_hat, ldb_hat, ldc_hat);
+    claimed = ozaki_scratch_claim(ctx, need);
+  }
+
   /* Allocate device memory */
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_ag, sz_a_complex);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_bg, sz_b_complex);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_cg, sz_c_complex);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_a_hat, sz_a_hat);
-  if (EXIT_SUCCESS == result) result = OZAKI_DEV_ALLOC(&d_b_hat, sz_b_hat);
-  if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint((void**)&d_c_hat, sz_c_hat, libxstream_opencl_mem_hint_atomics);
+  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_ag, sz_a_complex, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_bg, sz_b_complex, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_cg, sz_c_complex, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_a_hat, sz_a_hat, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_b_hat, sz_b_hat, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, (void**)&d_c_hat, sz_c_hat, 1);
 
   /**
    * H2D: upload interleaved complex A, B.
@@ -182,12 +199,13 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
 
   /* Cleanup device buffers */
-  OZAKI_DEV_FREE(d_ag);
-  OZAKI_DEV_FREE(d_bg);
-  OZAKI_DEV_FREE(d_cg);
-  OZAKI_DEV_FREE(d_a_hat);
-  OZAKI_DEV_FREE(d_b_hat);
-  if (NULL != d_c_hat) libxstream_mem_dev_deallocate_hint(d_c_hat);
+  ozaki_scratch_free(ctx, d_ag, 0);
+  ozaki_scratch_free(ctx, d_bg, 0);
+  ozaki_scratch_free(ctx, d_cg, 0);
+  ozaki_scratch_free(ctx, d_a_hat, 0);
+  ozaki_scratch_free(ctx, d_b_hat, 0);
+  ozaki_scratch_free(ctx, d_c_hat, 1);
+  ozaki_scratch_release(ctx, claimed);
 
   return result;
 }

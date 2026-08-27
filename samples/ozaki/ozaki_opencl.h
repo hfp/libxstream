@@ -133,6 +133,15 @@ typedef struct ozaki_scratch_t {
   size_t used; /* bump offset, meaningful only while claimed */
   size_t limit; /* upper bound for growth (OZAKI_ARENA), 0 disables the arena */
   int owned; /* 1: allocated here, grown on demand, freed at destroy; 0: caller's */
+  /**
+   * Claim nesting for one thread. The complex path carves its own buffers and
+   * then calls ozaki_gemm for the embedded product, which claims again; without
+   * this the inner claim would fail against the outer thread's own lock and fall
+   * back to per-buffer allocation for the residue planes, which are the larger
+   * half. Only the outermost claim resets the bump offset or grows the arena, so
+   * a nested claim cannot dangle the pieces already handed out.
+   */
+  int depth;
   volatile LIBXS_ATOMIC_LOCKTYPE busy;
 } ozaki_scratch_t;
 
@@ -347,6 +356,17 @@ void ozaki_destroy(ozaki_context_t* ctx);
  */
 size_t ozaki_scratch_size(const ozaki_context_t* ctx, char transa, char transb, int M, int N, int K, int lda, int ldb, int ldc);
 int ozaki_scratch_set(ozaki_context_t* ctx, void* dev_mem, size_t nbytes);
+
+/**
+ * Arena carving, shared with the complex path rather than private to the real
+ * one. Alignment is exposed because a caller sizing a claim has to round every
+ * piece the same way ozaki_scratch_alloc will.
+ */
+#define OZAKI_SCRATCH_ALIGN 4096
+int ozaki_scratch_claim(ozaki_context_t* ctx, size_t nbytes);
+void ozaki_scratch_release(ozaki_context_t* ctx, int claimed);
+int ozaki_scratch_alloc(ozaki_context_t* ctx, int claimed, void** ptr, size_t nbytes, int atomics);
+void ozaki_scratch_free(const ozaki_context_t* ctx, void* ptr, int atomics);
 /**
  * The arena as it currently stands (NULL when there is none yet), so a caller
  * can see what it is holding or reuse it. Reuse is limited by what the pointer
