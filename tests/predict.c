@@ -16,6 +16,7 @@
 # define FPRINTF(STREAM, ...) do {} while(0)
 #endif
 
+
 enum { NINPUTS = 3, NOUTPUTS = 16, NQUERY = 64 };
 
 /**

@@ -14,9 +14,6 @@
 #   include <libxstream/libxstream_opencl.h>
 # endif
 #endif
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #if defined(__OPENCL)
 
