@@ -1,0 +1,32 @@
+# Maintained in LIBXS and copied into dependent projects by "make policies".
+# Edit it in LIBXS: a change made in a copy is overwritten.
+name: Lint
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: {}
+
+jobs:
+  Normalize:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    # The shellcheck hook uses the installed binary (runners ship it).
+    - name: Install ShellCheck
+      run: |
+        command -v shellcheck || { sudo apt-get update && \
+          sudo apt-get install -y shellcheck; }
+
+    # Same configuration as "scripts/tool_normalize.sh" runs locally.
+    - uses: pre-commit/action@v3.0.1

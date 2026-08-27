@@ -23,4 +23,3 @@ if [ "${FLOCK}" ]; then
 else
   eval "$*"
 fi
-

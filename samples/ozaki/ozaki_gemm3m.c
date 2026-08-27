@@ -26,6 +26,35 @@
  * same complex row/column share a common Ozaki exponent base, eliminating
  * the catastrophic cancellation that plagued the 3M (Karatsuba) method.
  */
+/**
+ * One workspace slot, grown when a larger call arrives and never shrunk: a sweep
+ * visits sizes in both directions, and freeing on the way down would pay the
+ * allocation again on the way back up. atomics selects the allocator so a slot
+ * keeps the properties it would have had without the workspace.
+ */
+static int ozaki_zwork_get(ozaki_context_t* ctx, int slot, void** ptr, size_t nbytes, int atomics)
+{
+  int result = EXIT_SUCCESS;
+  if (ctx->zwork.size[slot] < nbytes) {
+    void* fresh = NULL;
+    if (0 != atomics) {
+      result = libxstream_mem_dev_allocate_hint(&fresh, nbytes, libxstream_opencl_mem_hint_atomics);
+    }
+    else result = OZAKI_DEV_ALLOC(&fresh, nbytes);
+    if (EXIT_SUCCESS == result) {
+      if (NULL != ctx->zwork.ptr[slot]) {
+        if (0 != atomics) libxstream_mem_dev_deallocate_hint(ctx->zwork.ptr[slot]);
+        else OZAKI_DEV_FREE(ctx->zwork.ptr[slot]);
+      }
+      ctx->zwork.ptr[slot] = fresh;
+      ctx->zwork.size[slot] = nbytes;
+    }
+  }
+  *ptr = ctx->zwork.ptr[slot];
+  return result;
+}
+
+
 int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
   const double* alpha, const void* a, int lda, const void* b, int ldb, const double* beta, void* c, int ldc)
 {
@@ -46,7 +75,6 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   size_t sz_a_complex, sz_b_complex, sz_c_complex;
   size_t sz_a_hat, sz_b_hat, sz_c_hat;
   int m_hat, k_hat, lda_hat, ldb_hat, ldc_hat;
-  int claimed = 0;
   int result = EXIT_SUCCESS;
   ctx->stream = (libxstream_stream_t*)stream;
   if (NULL != libxstream_opencl_config.pool_dev) {
@@ -80,28 +108,17 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   sz_c_hat = (size_t)(2 * M) * (size_t)N * elem_size;
 
   /**
-   * Claim the arena for the whole call, sized for these six buffers and for the
-   * embedded product that ozaki_gemm will carve after them. Without it each call
-   * creates and destroys them, which is what dominates on a device whose
-   * runtime has no memory pool: 268 MB per call at N = 2048 in double
-   * precision, measured as 35 of 38.7 ms on a GH200 whose kernel was the
-   * fastest of the parts tried.
+   * Take the workspace rather than allocate it: these six buffers are the whole
+   * transient footprint of the call, and creating and destroying them per call
+   * is what dominates on a runtime without a memory pool. Each stays a
+   * standalone allocation, so the kernels keep taking plain pointers.
    */
-  if (EXIT_SUCCESS == result) {
-    size_t need = LIBXS_UP2(sz_a_complex, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(sz_b_complex, OZAKI_SCRATCH_ALIGN)
-                + LIBXS_UP2(sz_c_complex, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(sz_a_hat, OZAKI_SCRATCH_ALIGN)
-                + LIBXS_UP2(sz_b_hat, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(sz_c_hat, OZAKI_SCRATCH_ALIGN);
-    need += ozaki_scratch_size(ctx, transa, transb, m_hat, N, k_hat, lda_hat, ldb_hat, ldc_hat);
-    claimed = ozaki_scratch_claim(ctx, need);
-  }
-
-  /* Allocate device memory */
-  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_ag, sz_a_complex, 0);
-  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_bg, sz_b_complex, 0);
-  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_cg, sz_c_complex, 0);
-  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_a_hat, sz_a_hat, 0);
-  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_b_hat, sz_b_hat, 0);
-  if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, (void**)&d_c_hat, sz_c_hat, 1);
+  if (EXIT_SUCCESS == result) result = ozaki_zwork_get(ctx, 0, &d_ag, sz_a_complex, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_zwork_get(ctx, 1, &d_bg, sz_b_complex, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_zwork_get(ctx, 2, &d_cg, sz_c_complex, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_zwork_get(ctx, 3, &d_a_hat, sz_a_hat, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_zwork_get(ctx, 4, &d_b_hat, sz_b_hat, 0);
+  if (EXIT_SUCCESS == result) result = ozaki_zwork_get(ctx, 5, (void**)&d_c_hat, sz_c_hat, 1);
 
   /**
    * H2D: upload interleaved complex A, B.
@@ -199,13 +216,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
 
   /* Cleanup device buffers */
-  ozaki_scratch_free(ctx, d_ag, 0);
-  ozaki_scratch_free(ctx, d_bg, 0);
-  ozaki_scratch_free(ctx, d_cg, 0);
-  ozaki_scratch_free(ctx, d_a_hat, 0);
-  ozaki_scratch_free(ctx, d_b_hat, 0);
-  ozaki_scratch_free(ctx, d_c_hat, 1);
-  ozaki_scratch_release(ctx, claimed);
+  /* the workspace outlives the call; ozaki_destroy releases it */
 
   return result;
 }

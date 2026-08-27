@@ -362,6 +362,15 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lby
 static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn, int rtm, int rtn);
 
 
+/**
+ * Device scratch arena (see ozaki_scratch_t). Sub-allocations are aligned well
+ * past what the kernels need, because the arena's whole purpose is to be handed
+ * out in a few large pieces: the residue planes are read as 16-byte vectors and
+ * the operand planes as uint4, so anything coarser than 16 is free, and a page
+ * keeps a piece from sharing a cache line with its neighbour.
+ */
+#define OZAKI_SCRATCH_ALIGN 4096
+
 static int ozaki_scratch_owns(const ozaki_context_t* ctx, const void* ptr)
 {
   return (NULL != ctx->scratch.ptr && NULL != ptr && (const char*)ptr >= (const char*)ctx->scratch.ptr &&
@@ -376,14 +385,10 @@ static int ozaki_scratch_owns(const ozaki_context_t* ctx, const void* ptr)
  * out. Returns 0 when the arena is unavailable (busy, disabled, or too small to
  * grow into), which is not an error - the call then allocates per buffer.
  */
-int ozaki_scratch_claim(ozaki_context_t* ctx, size_t nbytes)
+static int ozaki_scratch_claim(ozaki_context_t* ctx, size_t nbytes)
 {
   int result = 0;
-  if (0 != ctx->scratch.depth) { /* nested: already ours, so neither reset nor grow */
-    ++ctx->scratch.depth;
-    result = 1;
-  }
-  else if (0 != ctx->scratch.limit && 0 != LIBXS_ATOMIC_TRYLOCK(&ctx->scratch.busy, LIBXS_ATOMIC_LOCKORDER)) {
+  if (0 != ctx->scratch.limit && 0 != LIBXS_ATOMIC_TRYLOCK(&ctx->scratch.busy, LIBXS_ATOMIC_LOCKORDER)) {
     ctx->scratch.used = 0;
     if (0 != ctx->scratch.owned && ctx->scratch.size < nbytes && nbytes <= ctx->scratch.limit) {
       void* ptr = NULL;
@@ -393,19 +398,16 @@ int ozaki_scratch_claim(ozaki_context_t* ctx, size_t nbytes)
         ctx->scratch.size = nbytes;
       }
     }
-    if (NULL != ctx->scratch.ptr) {
-      ctx->scratch.depth = 1;
-      result = 1;
-    }
+    if (NULL != ctx->scratch.ptr) result = 1;
     else LIBXS_ATOMIC_RELEASE(&ctx->scratch.busy, LIBXS_ATOMIC_LOCKORDER);
   }
   return result;
 }
 
 
-void ozaki_scratch_release(ozaki_context_t* ctx, int claimed)
+static void ozaki_scratch_release(ozaki_context_t* ctx, int claimed)
 {
-  if (0 != claimed && 0 != ctx->scratch.depth && 0 == --ctx->scratch.depth) {
+  if (0 != claimed) {
     ctx->scratch.used = 0;
     LIBXS_ATOMIC_RELEASE(&ctx->scratch.busy, LIBXS_ATOMIC_LOCKORDER);
   }
@@ -418,7 +420,7 @@ void ozaki_scratch_release(ozaki_context_t* ctx, int claimed)
  * arena: only the device copy of C asks for the atomics hint, the rest goes
  * through the pooled path.
  */
-int ozaki_scratch_alloc(ozaki_context_t* ctx, int claimed, void** ptr, size_t nbytes, int atomics)
+static int ozaki_scratch_alloc(ozaki_context_t* ctx, int claimed, void** ptr, size_t nbytes, int atomics)
 {
   const size_t need = LIBXS_UP2(nbytes, OZAKI_SCRATCH_ALIGN);
   int result;
@@ -435,7 +437,7 @@ int ozaki_scratch_alloc(ozaki_context_t* ctx, int claimed, void** ptr, size_t nb
 }
 
 
-void ozaki_scratch_free(const ozaki_context_t* ctx, void* ptr, int atomics)
+static void ozaki_scratch_free(const ozaki_context_t* ctx, void* ptr, int atomics)
 {
   if (NULL != ptr && 0 == ozaki_scratch_owns(ctx, ptr)) {
     if (0 != atomics) libxstream_mem_dev_deallocate_hint(ptr);

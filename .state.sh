@@ -61,4 +61,3 @@ else
   >&2 echo "ERROR: missing prerequisites!"
   exit 1
 fi
-

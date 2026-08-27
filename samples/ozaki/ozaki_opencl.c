@@ -1623,6 +1623,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
 void ozaki_destroy(ozaki_context_t* ctx)
 {
   if (NULL != ctx) {
+    { /* the complex path's workspace outlives its calls, so it is released here */
+      int slot;
+      for (slot = 0; slot < (int)(sizeof(ctx->zwork.ptr) / sizeof(*ctx->zwork.ptr)); ++slot) {
+        if (NULL != ctx->zwork.ptr[slot]) {
+          /* slot 5 is the only one asking for the atomics hint (see ozaki_zwork_get) */
+          if (5 == slot) libxstream_mem_dev_deallocate_hint(ctx->zwork.ptr[slot]);
+          else OZAKI_DEV_FREE(ctx->zwork.ptr[slot]);
+          ctx->zwork.ptr[slot] = NULL;
+          ctx->zwork.size[slot] = 0;
+        }
+      }
+    }
     if (0 != ctx->scratch.owned && NULL != ctx->scratch.ptr) {
       libxstream_mem_dev_deallocate_hint(ctx->scratch.ptr);
       ctx->scratch.ptr = NULL;

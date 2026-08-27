@@ -63,7 +63,7 @@ static int stencil_method_params(stencil_method_t method, int* k_steps, int* r_p
     case STENCIL_COMPACT_R2:
       *k_steps = 2; *r_per_step = (STENCIL_RADIUS + 1) / 2;
       break;
-    case STENCIL_COMPACT_FIT: { 
+    case STENCIL_COMPACT_FIT: {
       const char* rfit_env = getenv("STENCIL_RADIUS_FIT");
       const int rfit = (NULL != rfit_env) ? atoi(rfit_env) : 3;
       *r_per_step = (rfit >= 1 && rfit <= STENCIL_RADIUS) ? rfit : 3;

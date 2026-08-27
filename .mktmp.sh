@@ -23,4 +23,3 @@ if [ "${MKTEMP}" ] && [ "${MV}" ]; then
 else
   touch "$1"
 fi
-

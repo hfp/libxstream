@@ -127,21 +127,32 @@ typedef struct ozaki_cache_t {
  * one arena rather than one per thread; a caller that wants concurrency without
  * the fallback should use a context per thread.
  */
+/**
+ * Persistent workspace for the complex path, kept per context and grown on
+ * demand rather than created and destroyed per call: on a device whose runtime
+ * has no memory pool that churn dominated the wall clock, 35 of 38.7 ms at
+ * N = 2048 on a GH200 whose kernel was only 3.8.
+ *
+ * Separate allocations rather than pieces carved from the scratch arena, which
+ * was tried and does not work: a carved pointer is an offset into one
+ * allocation, and clSetKernelArg cannot express an offset. The real path's
+ * kernels take a (base, index) pair for exactly that reason
+ * (ozaki_set_ptr_base), but the block-embedding kernels take plain pointers, so
+ * carving made every launch fail and the call fell back to host embedding
+ * without saying so. Reuse gets the same saving and needs no kernel change.
+ */
+typedef struct ozaki_zwork_t {
+  void* ptr[6];
+  size_t size[6];
+} ozaki_zwork_t;
+
+
 typedef struct ozaki_scratch_t {
   void* ptr; /* arena base, NULL until first use */
   size_t size; /* capacity of ptr */
   size_t used; /* bump offset, meaningful only while claimed */
   size_t limit; /* upper bound for growth (OZAKI_ARENA), 0 disables the arena */
   int owned; /* 1: allocated here, grown on demand, freed at destroy; 0: caller's */
-  /**
-   * Claim nesting for one thread. The complex path carves its own buffers and
-   * then calls ozaki_gemm for the embedded product, which claims again; without
-   * this the inner claim would fail against the outer thread's own lock and fall
-   * back to per-buffer allocation for the residue planes, which are the larger
-   * half. Only the outermost claim resets the bump offset or grows the arena, so
-   * a nested claim cannot dangle the pieces already handed out.
-   */
-  int depth;
   volatile LIBXS_ATOMIC_LOCKTYPE busy;
 } ozaki_scratch_t;
 
@@ -313,6 +324,7 @@ typedef struct ozaki_context_t {
   /* Preprocessing cache (OZAKI_CACHE env, bitmask: 1=A, 2=B, 3=both). */
   ozaki_cache_t cache;
   ozaki_scratch_t scratch;
+  ozaki_zwork_t zwork;
   /* Complex GEMM block-embedding kernels (construct A_hat, B_hat, finalize) */
   cl_kernel kern_zgemm_block_construct_a;
   cl_kernel kern_zgemm_block_construct_b_n;
@@ -357,16 +369,6 @@ void ozaki_destroy(ozaki_context_t* ctx);
 size_t ozaki_scratch_size(const ozaki_context_t* ctx, char transa, char transb, int M, int N, int K, int lda, int ldb, int ldc);
 int ozaki_scratch_set(ozaki_context_t* ctx, void* dev_mem, size_t nbytes);
 
-/**
- * Arena carving, shared with the complex path rather than private to the real
- * one. Alignment is exposed because a caller sizing a claim has to round every
- * piece the same way ozaki_scratch_alloc will.
- */
-#define OZAKI_SCRATCH_ALIGN 4096
-int ozaki_scratch_claim(ozaki_context_t* ctx, size_t nbytes);
-void ozaki_scratch_release(ozaki_context_t* ctx, int claimed);
-int ozaki_scratch_alloc(ozaki_context_t* ctx, int claimed, void** ptr, size_t nbytes, int atomics);
-void ozaki_scratch_free(const ozaki_context_t* ctx, void* ptr, int atomics);
 /**
  * The arena as it currently stands (NULL when there is none yet), so a caller
  * can see what it is holding or reuse it. Reuse is limited by what the pointer

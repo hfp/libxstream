@@ -18,7 +18,9 @@ repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v5.0.0
   hooks:
+  # Preserves the two trailing spaces that mean a hard line break in Markdown.
   - id: trailing-whitespace
+    args: [--markdown-linebreak-ext=md]
   - id: end-of-file-fixer
   - id: mixed-line-ending
     args: [--fix=lf]
@@ -33,21 +35,21 @@ repos:
   - id: check-yaml
     args: [--unsafe]
 
-- repo: https://github.com/shellcheck-py/shellcheck-py
-  rev: v0.10.0.1
-  hooks:
-  - id: shellcheck
-
 - repo: https://github.com/psf/black-pre-commit-mirror
   rev: 24.10.0
   hooks:
   - id: black
     args: [-l79]
 
+# black -l79 owns line length: E501 only ever fires on what a formatter cannot
+# split (a long string literal), so flake8 does not second-guess it. E203
+# contradicts black by design. E741 is one open finding in scripts/md2pptx.py:
+# drop that exclusion once the variable is renamed.
 - repo: https://github.com/PyCQA/flake8
   rev: 7.1.1
   hooks:
   - id: flake8
+    args: ["--extend-ignore=E203,E501,E741"]
 
 # Type-checking is scoped to the tooling, not to sample code.
 - repo: https://github.com/pre-commit/mirrors-mypy
@@ -61,6 +63,17 @@ repos:
 # files and would bury the change under review. Run it deliberately instead.
 - repo: local
   hooks:
+  # Uses the installed shellcheck (apt, brew, and preinstalled on GitHub
+  # runners) rather than a build-from-source mirror.
+  # Exclusions are an open backlog, not a policy: 23 SC2086 (unquoted
+  # expansion) across 7 scripts, one SC2034 in tests/test.sh (dead LDD), and
+  # one SC2124 in samples/predict/predict_params.sh. Drop them once fixed.
+  - id: shellcheck
+    name: shellcheck
+    entry: shellcheck
+    language: system
+    types: [shell]
+    args: ["--exclude=SC2086,SC2034,SC2124"]
   # md2pptx.py is exempt: its payload is a LaTeX-to-Unicode mapping table.
   - id: ascii-only
     name: US-ASCII outside Markdown

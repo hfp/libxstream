@@ -98,7 +98,9 @@ BANDWIDTH_RE = re.compile(r"Bandwidth:\s+([0-9.]+)\s+GB/s")
 CHECK_LINF_RE = re.compile(r"Linf abs:\s+([0-9.eE+\-]+)")
 CHECK_LINF_REL_RE = re.compile(r"Linf rel:\s+([0-9.eE+\-]+)")
 CHECK_L2_REL_RE = re.compile(r"L2 rel:\s+([0-9.eE+\-]+)")
-CHECK_REF_RANGE_RE = re.compile(r"Ref min/max:\s+([0-9.eE+\-]+)\s+([0-9.eE+\-]+)")
+CHECK_REF_RANGE_RE = re.compile(
+    r"Ref min/max:\s+([0-9.eE+\-]+)\s+([0-9.eE+\-]+)"
+)
 OUTPUT_RANGE_RE = re.compile(
     r"(?:Tst|Output) min/max:\s+([0-9.eE+\-]+)\s+([0-9.eE+\-]+)"
 )
@@ -160,7 +162,15 @@ def run_case(args, n, case, kernel_env):
     else:
         env["STENCIL_TRIM"] = str(trim)
 
-    command = [args.exe, "-m", str(case["method"]), "-n", str(n), "-d", str(args.dims)]
+    command = [
+        args.exe,
+        "-m",
+        str(case["method"]),
+        "-n",
+        str(n),
+        "-d",
+        str(args.dims),
+    ]
     if args.steps is not None:
         command.extend(["-t", str(args.steps)])
     if args.warmup is not None:
@@ -284,7 +294,9 @@ def run_case(args, n, case, kernel_env):
     if not args.quiet:
         if row["gpoints_s"]:
             print(
-                "{} GPoints/s, {} ms/step".format(row["gpoints_s"], row["ms_per_step"])
+                "{} GPoints/s, {} ms/step".format(
+                    row["gpoints_s"], row["ms_per_step"]
+                )
             )
         else:
             print(
@@ -308,7 +320,9 @@ def write_csv(path, rows):
             if key not in FIELDNAMES and key not in extra_fields:
                 extra_fields.append(key)
     with open(path, "w", newline="") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=list(FIELDNAMES) + extra_fields)
+        writer = csv.DictWriter(
+            csv_file, fieldnames=list(FIELDNAMES) + extra_fields
+        )
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
@@ -404,7 +418,9 @@ def plot_png(path, rows, metric, title, dpi, peak_bandwidth_gbs, dark=False):
         series.setdefault(case, []).append((int(n_value), value))
 
     if not series:
-        raise RuntimeError("no plottable rows found for metric '{}'".format(metric))
+        raise RuntimeError(
+            "no plottable rows found for metric '{}'".format(metric)
+        )
 
     roof_gpoints_s, bytes_per_point = (None, None)
     roof_value = None
@@ -524,10 +540,15 @@ def main(argv):
         help="Kernel path to benchmark: fp32, bf16, int8, int8-split, fp32-split (default: fp32).",
     )
     parser.add_argument(
-        "--dims", type=int, default=3, help="Stencil term count passed with -d."
+        "--dims",
+        type=int,
+        default=3,
+        help="Stencil term count passed with -d.",
     )
     parser.add_argument("--steps", type=int, help="Time steps passed with -t.")
-    parser.add_argument("--warmup", type=int, help="Warmup steps passed with -w.")
+    parser.add_argument(
+        "--warmup", type=int, help="Warmup steps passed with -w."
+    )
     parser.add_argument(
         "--init",
         choices=("rand", "zero", "gauss"),
@@ -543,12 +564,20 @@ def main(argv):
     parser.add_argument("--plot", help="Optional PNG output path.")
     parser.add_argument(
         "--plot-metric",
-        choices=("gpoints_s", "gflops_s", "ms_per_step", "bandwidth_gbs", "time_s"),
+        choices=(
+            "gpoints_s",
+            "gflops_s",
+            "ms_per_step",
+            "bandwidth_gbs",
+            "time_s",
+        ),
         default="gpoints_s",
         help="CSV metric to plot (default: gpoints_s).",
     )
     parser.add_argument("--plot-title", help="Optional plot title.")
-    parser.add_argument("--plot-dpi", type=int, default=300, help="PNG dots per inch.")
+    parser.add_argument(
+        "--plot-dpi", type=int, default=300, help="PNG dots per inch."
+    )
     parser.add_argument(
         "--peak-bandwidth-gbs",
         type=float,
@@ -557,13 +586,21 @@ def main(argv):
     parser.add_argument(
         "--log-dir", help="Optional directory for raw stencil.x output logs."
     )
-    parser.add_argument("--timeout", type=float, help="Timeout per case in seconds.")
     parser.add_argument(
-        "--dry-run", action="store_true", help="Print commands without running them."
+        "--timeout", type=float, help="Timeout per case in seconds."
     )
-    parser.add_argument("--quiet", action="store_true", help="Reduce progress output.")
     parser.add_argument(
-        "--keep-going", action="store_true", help="Continue after failed cases."
+        "--dry-run",
+        action="store_true",
+        help="Print commands without running them.",
+    )
+    parser.add_argument(
+        "--quiet", action="store_true", help="Reduce progress output."
+    )
+    parser.add_argument(
+        "--keep-going",
+        action="store_true",
+        help="Continue after failed cases.",
     )
     parser.add_argument(
         "--layout",
@@ -632,7 +669,9 @@ def main(argv):
             if row.get("gpoints_s") and not row.get("gflops_s"):
                 dims = int(row.get("dims", 3) or 3)
                 fpp = flops_per_point(STENCIL_RADIUS, dims)
-                row["gflops_s"] = "{:.1f}".format(float(row["gpoints_s"]) * fpp)
+                row["gflops_s"] = "{:.1f}".format(
+                    float(row["gpoints_s"]) * fpp
+                )
     else:
         cases = KERNEL_CASES[args.kernel]
         kernel_env = KERNEL_ENV[args.kernel]

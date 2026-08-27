@@ -155,17 +155,18 @@ version of the tool.
 
 **Do not bulk-reformat as part of a change.** Recent clang-format versions
 reflow entire files, which buries a small change in hundreds of unrelated lines
-and makes review impossible. This is why `tool_normalize.sh` has its reformat
-step deliberately disabled. Format new and edited code by hand to match the file
-around it; the formatter is a maintenance tool, run deliberately and committed
-on its own.
+and makes review impossible. This is why clang-format is deliberately absent
+from the hook set. Format new and edited code by hand to match the file around
+it; the formatter is a maintenance tool, run deliberately and committed on its
+own.
 
 Do not mix reformatting, renaming, and behavioural change in one commit.
 
 ## Library Code
 
-- Library code does not terminate the process: no `exit(...)` in `src/`. Return
-  a status and let the caller decide.
+- Library code does not terminate the process: no direct `exit(...)` in `src/`.
+  Return a status and let the caller decide. The macro that wraps the one
+  unavoidable case is the single exception.
 - Environment variables carry the project's own prefix (`LIBXS_*` or
   `LIBXSTREAM_*`). `scripts/tool_getenvars.sh` lists what the source reads.
 - **Header-only mode must keep working.** The amalgamated header
@@ -184,8 +185,11 @@ please do not propose converting them.
 ## Scripts
 
 - POSIX-portable shell. `sed -i` is rejected: it is not portable (macOS).
-- Shell scripts pass `shellcheck`.
-- Python is formatted with `black -l79` and passes `flake8` and `mypy`.
+- Shell scripts pass `shellcheck`, which the hooks run.
+- Python is formatted with `black -l79` and passes `flake8`; `mypy` covers the
+  tooling under `scripts/` and `.theme/`, not sample code.
+- Where a hook carries an exclusion, it names the open findings it defers. An
+  exclusion is a backlog item, not a permission.
 
 ## Documentation
 
@@ -204,6 +208,12 @@ person who wrote it.
 - Document every new environment variable. A variable that `tool_getenvars.sh`
   reports but the documentation does not mention is a defect.
 - A new page under `documentation/` needs a `nav` entry in `mkdocs.yml`.
+
+Markdown may use any UTF-8, but the PDF is produced through LaTeX, which cannot
+render an arbitrary glyph. `PDF_UTF8_SED` in `Makefile.inc` transliterates a
+known set (Greek letters, arrows, comparison and set operators, ceiling and
+floor brackets). If `make documentation` fails on a character, add it there
+rather than removing it from the text.
 
 Parts of `documentation/` are **generated**, and editing the output is lost
 work: the landing page comes from `README.md`, the development page from
@@ -250,8 +260,9 @@ make -j $(nproc) test                # test suite
 make -j $(nproc) DBG=1 PEDANTIC=2    # correctness check before submitting
 ```
 
-`PEDANTIC=2` enables strict warnings, `ANALYZE=1` runs the compiler's static
-analyzer, and `scripts/tool_analyze.sh` runs cppcheck. A change is expected to
+`PEDANTIC=2` enables strict warnings and `ANALYZE=1` runs the compiler's static
+analyzer; where a project ships `scripts/tool_analyze.sh`, that runs cppcheck on
+top. A change is expected to
 be warning-free under `DBG=1 PEDANTIC=2`, because that is what continuous
 integration builds: GCC, Intel oneAPI, and macOS, covering release and strict
 debug configurations as well as a header-only build compiled as C++. See
@@ -282,6 +293,7 @@ A symbol name outside the project's namespace is an error, not a warning.
 Before submitting:
 
 ```bash
+scripts/tool_normalize.sh --install       # once per clone, then automatic
 scripts/tool_normalize.sh                 # whitespace, encoding, lint
 make -j $(nproc) DBG=1 PEDANTIC=2 test    # strict build and tests
 scripts/tool_checkabi.sh                  # only if public symbols changed
@@ -294,6 +306,12 @@ If an AI assistant is used, the same policies apply, plus two more:
 - Discuss design options and trade-offs before implementing.
 - Present options as inline text, not as interactive choice widgets.
 
-`CLAUDE.md` at the repository root is the machine-readable form of the coding
-conventions on this page, and is shared between the projects the same way. The
-two must agree; when a policy changes, change both — in LIBXS.
+`CLAUDE.md` at the repository root deliberately holds no policy of its own: it
+points here and adds only the working agreements that are specific to an
+assistant. One policy, one place — a second copy drifts, and the drift is
+invisible.
+
+`CLAUDE.md`, `.editorconfig`, `.pre-commit-config.yaml`, the lint workflow, and
+`scripts/tool_normalize.sh` travel the same one-directional route as this page:
+maintained in LIBXS, copied by `make policies`. In a dependent project they are
+generated files — edit them in LIBXS.
