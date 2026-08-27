@@ -103,6 +103,23 @@ static ozaki_tile_t ozaki_rtile_grow(int rtm, int rtn)
 
 
 /**
+ * Advance a bounded append. snprintf reports what it WOULD have written, so
+ * adding its return to the offset unclamped makes the next call compute
+ * size - off as a huge size_t and write past the end: truncation has to stop
+ * the accumulation rather than accelerate it. Saturating at size leaves every
+ * later call with a room of zero, which snprintf handles by writing nothing.
+ */
+static size_t ozaki_append(size_t off, size_t size, int written)
+{
+  size_t result = size; /* truncated, or snprintf failed: stop here */
+  if (0 <= written && off <= size && (size_t)written < (size - off)) {
+    result = off + (size_t)written;
+  }
+  return result;
+}
+
+
+/**
  * Emit fractional-CRT (OZAKI_FRACCRT) reconstruction tables as -D flags for the
  * active moduli set (nprimes entries of modtab). Computes, without bignum:
  *   k_i     = (prod_{j!=i} m_j mod m_i)^{-1} mod m_i
@@ -116,27 +133,27 @@ static size_t ozaki_emit_fraccrt(char* buf, size_t size, const uint16_t* modtab,
   size_t off = 0;
   double mh = 1.0, ml = 0.0;
   int i, l;
-  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, " -DOZ2G_FRAC_L=%d -DOZ2G_FRAC_K={", frac_l);
+  off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZ2G_FRAC_L=%d -DOZ2G_FRAC_K={", frac_l));
   for (i = 0; i < nprimes; ++i) {
     uint32_t prod_mod = 1;
     int j;
     for (j = 0; j < nprimes; ++j) {
       if (j != i) prod_mod = (uint32_t)(((uint64_t)prod_mod * (uint32_t)modtab[j]) % (uint32_t)modtab[i]);
     }
-    off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%u", (0 != i) ? "," : "",
-      (unsigned)libxs_mod_inverse_u32(prod_mod, (uint32_t)modtab[i]));
+    off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "%s%u", (0 != i) ? "," : "",
+      (unsigned)libxs_mod_inverse_u32(prod_mod, (uint32_t)modtab[i])));
   }
-  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "} -DOZ2G_FRAC_CLIMB={");
+  off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "} -DOZ2G_FRAC_CLIMB={"));
   for (i = 0; i < nprimes; ++i) {
     uint32_t rem = 1;
     for (l = 0; l < frac_l; ++l) {
       rem <<= 8;
-      off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%u",
-        (0 != i || 0 != l) ? "," : "", (unsigned)(rem / (uint32_t)modtab[i]));
+      off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "%s%u",
+        (0 != i || 0 != l) ? "," : "", (unsigned)(rem / (uint32_t)modtab[i])));
       rem %= (uint32_t)modtab[i];
     }
   }
-  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "}");
+  off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "}"));
   for (i = 0; i < nprimes; ++i) {
     const double p = (double)modtab[i];
     double perr;
@@ -146,8 +163,8 @@ static size_t ozaki_emit_fraccrt(char* buf, size_t size, const uint16_t* modtab,
     mh = libxs_two_sum(ph, e, &serr);
     ml = serr;
   }
-  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off,
-    " -DOZ2G_FRAC_MH=%.20e -DOZ2G_FRAC_ML=%.20e", mh, ml);
+  off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off,
+    " -DOZ2G_FRAC_MH=%.20e -DOZ2G_FRAC_ML=%.20e", mh, ml));
   return off;
 }
 
@@ -167,17 +184,17 @@ static size_t ozaki_emit_fraccrt2(char* buf, size_t size, const uint16_t* modtab
   const int ngroups = (nprimes + hier_gs - 1) / hier_gs;
   size_t off = 0;
   int i, l, g;
-  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, " -DOZ2G_FRAC_L=%d -DOZ2G_FRAC_CLIMB={", frac_l);
+  off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZ2G_FRAC_L=%d -DOZ2G_FRAC_CLIMB={", frac_l));
   for (i = 0; i < nprimes; ++i) {
     uint32_t rem = 1;
     for (l = 0; l < frac_l; ++l) {
       rem <<= 8;
-      off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%u",
-        (0 != i || 0 != l) ? "," : "", (unsigned)(rem / (uint32_t)modtab[i]));
+      off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "%s%u",
+        (0 != i || 0 != l) ? "," : "", (unsigned)(rem / (uint32_t)modtab[i])));
       rem %= (uint32_t)modtab[i];
     }
   }
-  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "} -DOZ2G_FRAC_KG={");
+  off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "} -DOZ2G_FRAC_KG={"));
   for (g = 0; g < ngroups; ++g) {
     const int lo = g * hier_gs;
     const int hi = (lo + hier_gs <= nprimes) ? (lo + hier_gs) : nprimes;
@@ -187,19 +204,19 @@ static size_t ozaki_emit_fraccrt2(char* buf, size_t size, const uint16_t* modtab
       for (j = lo; j < hi; ++j) {
         if (j != i) prod_mod = (uint32_t)(((uint64_t)prod_mod * (uint32_t)modtab[j]) % (uint32_t)modtab[i]);
       }
-      off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%u", (0 != i) ? "," : "",
-        (unsigned)libxs_mod_inverse_u32(prod_mod, (uint32_t)modtab[i]));
+      off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "%s%u", (0 != i) ? "," : "",
+        (unsigned)libxs_mod_inverse_u32(prod_mod, (uint32_t)modtab[i])));
     }
   }
-  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "} -DOZ2G_FRAC_GMH={");
+  off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "} -DOZ2G_FRAC_GMH={"));
   for (g = 0; g < ngroups; ++g) {
     const int lo = g * hier_gs;
     const int hi = (lo + hier_gs <= nprimes) ? (lo + hier_gs) : nprimes;
     double mh = 1.0;
     for (i = lo; i < hi; ++i) mh *= (double)modtab[i];
-    off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "%s%.20e", (0 != g) ? "," : "", mh);
+    off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "%s%.20e", (0 != g) ? "," : "", mh));
   }
-  off += (size_t)LIBXS_SNPRINTF(buf + off, size - off, "}");
+  off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, "}"));
   return off;
 }
 
@@ -405,8 +422,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     has_fp64 = (EXIT_SUCCESS == libxstream_opencl_device_ext(device, fp64_ext, 1));
     if (0 == has_fp64) {
       if (0 != use_double) {
+        /**
+         * Refused rather than downgraded: the host would pass double arrays to
+         * kernels compiled for float. Recorded in the context as well, so its
+         * state says what the device can do and not what was asked for -- the
+         * caller reads it and refuses the handle for exactly this, which is a
+         * more accurate report than the generic setup failure this used to
+         * raise -- and it raised it while continuing to run the rest of this
+         * function, which is not what a failed result is supposed to mean.
+         */
         fprintf(stderr, "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
-        result = EXIT_FAILURE;
+        use_double = 0;
       }
       else if (0 != crt && (0 > verbosity || 0 < verbosity)) {
         fprintf(stderr, "INFO OZAKI: no cl_khr_fp64, Scheme 2 uses Garner reconstruction\n");
@@ -1005,7 +1031,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       const int sym_jit = (0 != (ozflags & OZAKI_SYMMETRIZE)) ? 1 : 0;
       const int cutoff_jit = 2 * (nslices - 1) - oztrim;
       size_t goff = 0;
-      goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
+      goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
         "-DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
         " -DNSLICES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d"
@@ -1013,21 +1039,21 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DOZAKI_SB=%d"
         " -DOZAKI_TRI=%d -DOZAKI_SYM=%d -DCONSTANT=global",
         bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
-        nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, ctx->sb, tri_jit, sym_jit);
+        nslices, use_double, mant_bits, bias_plus_mant, bm_pre, bn_pre, bk_pre, ctx->sb, tri_jit, sym_jit));
       if (0 != ctx->nv_mma) {
-        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DNV_MMA=1");
+        goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DNV_MMA=1"));
       }
       env = getenv("OZAKI_PREFETCH");
       if (NULL != env && '1' == *env) {
-        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_PREFETCH=1");
+        goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_PREFETCH=1"));
       }
       env = getenv("OZAKI_SCALAR_ACC");
       if (NULL != env && '1' == *env) {
-        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_SCALAR_ACC=1");
+        goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DOZAKI_SCALAR_ACC=1"));
       }
       env = getenv("OZAKI_LU");
       { const int lu = (NULL != env) ? atoi(env) : 0;
-        goff += (size_t)LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DLU=%d", lu);
+        goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DLU=%d", lu));
       }
       LIBXS_UNUSED(goff);
       memcpy(ctx->base_flags, build_params, sizeof(ctx->base_flags));
@@ -1136,7 +1162,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       else {
         LIBXS_SNPRINTF(crt_build_options, sizeof(crt_build_options), "%s", build_options);
       }
-      coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+      coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
         "-DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
         " -DNPRIMES=%d -DUSE_DOUBLE=%d"
         " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d"
@@ -1145,17 +1171,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         " -DCONSTANT=global",
         bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
         nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
-        (1 < ozgroups) ? ozgroups : 0, ctx->pb);
+        (1 < ozgroups) ? ozgroups : 0, ctx->pb));
       if (0 != ctx->nv_mma) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DNV_MMA=1");
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DNV_MMA=1"));
       }
       if (0 == use_i8) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1");
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1"));
       }
       if (0 != wgmma) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA=1");
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA=1"));
         if (0 != wgmma_rs) {
-          coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA_RS=1");
+          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA_RS=1"));
         }
       }
       ctx->wgmma = wgmma;
@@ -1170,8 +1196,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       { const char *const env_swizzle = getenv("OZAKI_SWIZZLE");
         const int swizzle = (NULL != env_swizzle && 0 < atoi(env_swizzle)) ? atoi(env_swizzle) : 0;
         if (0 != swizzle) {
-          coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-            " -DOZAKI_SWIZZLE=%i", swizzle);
+          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+            " -DOZAKI_SWIZZLE=%i", swizzle));
         }
       }
       /**
@@ -1206,7 +1232,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        */
       { ctx->unfuse = (0 != unfuse_pre && 0 != crt_hier) ? 1 : 0;
         if (0 != ctx->unfuse) {
-          coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_UNFUSE=1");
+          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_UNFUSE=1"));
         }
         else if (0 != unfuse_pre && 0 != verbosity) {
           fprintf(stderr, "INFO OZAKI: OZAKI_UNFUSE needs hierarchical CRT, PB=1 and no K-grouping - disabled\n");
@@ -1237,29 +1263,29 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       env = getenv("OZAKI_BKMAJOR");
       bkmajor = (0 == bblock && 0 == devinfo->intel && 2 <= nv && 0 != gpu && NULL != env && 0 != atoi(env));
       if (0 != bblock) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BBLOCK=1");
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BBLOCK=1"));
       }
       else if (0 != bkmajor) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BKMAJOR=1");
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BKMAJOR=1"));
       }
       else {
         env = getenv("OZAKI_BVNNI");
         if (0 == devinfo->intel && 2 <= nv && 0 != gpu && (NULL == env || 0 != atoi(env))) {
-          coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BVNNI=1");
+          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BVNNI=1"));
         }
       }
       if (1 == fraccrt) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=1");
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=1"));
         coff += ozaki_emit_fraccrt(build_params + coff, sizeof(build_params) - coff,
           (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 14);
       }
       else if (2 == fraccrt) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=2");
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_FRACCRT=2"));
         coff += ozaki_emit_fraccrt2(build_params + coff, sizeof(build_params) - coff,
           (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli, nprimes, 11, ozaki_hier_gs(nprimes));
       }
       if (NULL != env_skip && 0 != atoi(env_skip)) {
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1");
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1"));
       }
       if (0 != crt_hier) {
         const uint16_t* modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
@@ -1290,19 +1316,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           }
           use_tree = 0;
         }
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-          " -DOZAKI_HIER=1 -DHIER_GS=%d -DHIER_NGROUPS_ACTUAL=%d -DOZAKI_HIER_L2=%d", hier_gs, ngroups, use_tree);
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+          " -DOZAKI_HIER=1 -DHIER_GS=%d -DHIER_NGROUPS_ACTUAL=%d -DOZAKI_HIER_L2=%d", hier_gs, ngroups, use_tree));
         for (gi = 0; gi < ngroups; ++gi) {
-          coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-            " -DHIER_GPROD_%d=%uu -DHIER_L2B_%d=%luul", gi, (unsigned)gp[gi], gi, (unsigned long)l2b[gi]);
+          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+            " -DHIER_GPROD_%d=%uu -DHIER_L2B_%d=%luul", gi, (unsigned)gp[gi], gi, (unsigned long)l2b[gi]));
         }
         if (0 == use_tree) {
           int gj;
           for (gi = 0; gi < ngroups; ++gi) {
             for (gj = gi + 1; gj < ngroups; ++gj) {
-              coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+              coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
                 " -DHIER_L2INV_%d_%d=%uu", gi, gj,
-                (unsigned)libxs_mod_inverse_u32(gp[gi] % gp[gj], gp[gj]));
+                (unsigned)libxs_mod_inverse_u32(gp[gi] % gp[gj], gp[gj])));
             }
           }
         }
@@ -1310,17 +1336,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           uint64_t gprod[5];
           gprod[0] = (uint64_t)gp[0];
           if (ngroups >= 2) {
-            coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-              " -DHIER_TREE_INV_0_1=%uu", (unsigned)libxs_mod_inverse_u32(gp[0] % gp[1], gp[1]));
+            coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+              " -DHIER_TREE_INV_0_1=%uu", (unsigned)libxs_mod_inverse_u32(gp[0] % gp[1], gp[1])));
             gprod[0] = (uint64_t)gp[0] * (uint64_t)gp[1];
-            coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-              " -DHIER_TREE_PROD_01=%luul", (unsigned long)gprod[0]);
+            coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+              " -DHIER_TREE_PROD_01=%luul", (unsigned long)gprod[0]));
           }
         }
       }
       env = getenv("OZAKI_LU");
       { const int lu = (NULL != env) ? atoi(env) : 0;
-        coff += (size_t)LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DLU=%d", lu);
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DLU=%d", lu));
       }
       LIBXS_UNUSED(coff);
       if (0 > verbosity || 2 < verbosity) {
