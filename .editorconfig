@@ -1,0 +1,22 @@
+# Maintained in LIBXS and copied into dependent projects by "make policies".
+# Edit it in LIBXS: a change made in a copy is overwritten.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[{Makefile,Makefile.inc,*.mk,rules}]
+indent_style = tab
+
+[*.py]
+indent_size = 4
+
+# Tabs and line endings are part of the format of these files.
+[*.{csv,tsv,dat}]
+trim_trailing_whitespace = false
+insert_final_newline = false

@@ -56,5 +56,6 @@ nav:
 - Tests:
   - Predict: tests/predict.md
 - More:
+  - Contributing: libxstream_contrib.md
   - Development: libxstream_scripts.md
   - LIBXS: libxstream_libxs.md

@@ -278,7 +278,8 @@ SPLMDS := $(addprefix $(ABSDIR)/,$(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
 DOCMDS := $(addprefix $(ABSDIR)/,$(filter-out \
     $(DOCDIR)/$(PROJECT)_present.md \
     $(DOCDIR)/$(PROJECT)_samples.md \
-    $(DOCDIR)/$(PROJECT)_scripts.md, \
+    $(DOCDIR)/$(PROJECT)_scripts.md \
+    $(DOCDIR)/$(PROJECT)_contrib.md, \
   $(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
     $(DOCDIR)/$(PROJECT)_*.md 2>/dev/null)))
 INSTMDS := $(DOCMDS) $(addprefix $(ABSDIR)/,$(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
@@ -328,7 +329,7 @@ $(DOCDIR)/$(PROJECT)_samples.md: $(DOCDIR)/.make $(DOCDIR)/$(SPLDIR)/.make $(ROO
 		>$@
 
 MDAUTHOR := Hans\ Pabst
-$(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/Makefile $(DOCDIR)/index.md $(DOCDIR)/$(PROJECT)_scripts.md $(DOCMDS)
+$(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/Makefile $(DOCDIR)/index.md $(DOCDIR)/$(PROJECT)_scripts.md $(DOCDIR)/$(PROJECT)_contrib.md $(DOCMDS)
 	@cd $(ROOTDIR)/$(DOCDIR) && ( \
 		cat $(ABSDIR)/$(DOCDIR)/index.md && echo && \
 		echo "# $(PROJUPP) Domains" && \
@@ -337,7 +338,8 @@ $(DOCDIR)/$(PROJECT).$(DOCEXT): $(DOCDIR)/.make $(ROOTDIR)/Makefile $(DOCDIR)/in
 		done && \
 		echo "# Appendix" && \
 		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_present.md && echo && \
-		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_scripts.md && echo; ) \
+		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_scripts.md && echo && \
+		$(SED) "s/^\(##*\) /#\1 /" $(ABSDIR)/$(DOCDIR)/$(PROJECT)_contrib.md && echo; ) \
 	| $(SED) $(DOC_HTML_SED) \
 	| $(call md2pdf,$(PROJUPP) Documentation,$(MDAUTHOR),$(call qndir,$@))
 
@@ -349,10 +351,10 @@ $(DOCFILE): $(ROOTDIR)/Makefile $(MDFILE)
 		$(if $(filter file,$(origin MDFILE)),$(MDAUTHOR)),$@)
 
 .PHONY: documentation
-documentation: $(DOCDIR)/$(PROJECT).$(DOCEXT) $(DOCFILE)
+documentation: policies $(DOCDIR)/$(PROJECT).$(DOCEXT) $(DOCFILE)
 
 .PHONY: mkdocs
-mkdocs: mkdocs-tests $(ROOTDIR)/$(DOCDIR)/index.md
+mkdocs: policies mkdocs-tests $(ROOTDIR)/$(DOCDIR)/index.md
 #	@mkdocs build --clean
 	@mkdocs serve
 

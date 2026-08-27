@@ -1,0 +1,102 @@
+# Maintained in LIBXS and copied into dependent projects by "make policies".
+# Edit it in LIBXS: a change made in a copy is overwritten.
+#
+# scripts/tool_normalize.sh --install   install the Git hook (once per clone)
+# scripts/tool_normalize.sh             check and fix the whole tree
+#
+# Data files are excluded: tabs, encoding, and line endings are part of their
+# format. Generated sources are excluded because their producer owns them.
+exclude: |
+  (?x)^(
+    .*\.(csv|tsv|dat|pdf|png|jpe?g|gif)
+    |(libxs|libxstream)/\w+_(source|version|config)\.h
+    |samples/smm/kernels/opencl_kernels\.h
+    |site/.*
+  )$
+
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v5.0.0
+  hooks:
+  - id: trailing-whitespace
+  - id: end-of-file-fixer
+  - id: mixed-line-ending
+    args: [--fix=lf]
+  - id: fix-byte-order-marker
+  - id: check-executables-have-shebangs
+  - id: check-shebang-scripts-are-executable
+  - id: check-merge-conflict
+  - id: check-case-conflict
+  - id: check-added-large-files
+    args: [--maxkb=2048]
+  # --unsafe checks syntax only: MkDocs configurations carry custom tags.
+  - id: check-yaml
+    args: [--unsafe]
+
+- repo: https://github.com/shellcheck-py/shellcheck-py
+  rev: v0.10.0.1
+  hooks:
+  - id: shellcheck
+
+- repo: https://github.com/psf/black-pre-commit-mirror
+  rev: 24.10.0
+  hooks:
+  - id: black
+    args: [-l79]
+
+- repo: https://github.com/PyCQA/flake8
+  rev: 7.1.1
+  hooks:
+  - id: flake8
+
+# Type-checking is scoped to the tooling, not to sample code.
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v1.13.0
+  hooks:
+  - id: mypy
+    args: [--ignore-missing-imports]
+    files: ^(scripts|\.theme)/
+
+# Project-specific rules. clang-format is deliberately absent: it reflows whole
+# files and would bury the change under review. Run it deliberately instead.
+- repo: local
+  hooks:
+  # md2pptx.py is exempt: its payload is a LaTeX-to-Unicode mapping table.
+  - id: ascii-only
+    name: US-ASCII outside Markdown
+    entry: '[^\x00-\x7f]'
+    language: pygrep
+    types: [text]
+    exclude: '\.md$|^scripts/md2pptx\.py$'
+  - id: no-tabs
+    name: no tabs (Makefiles excepted)
+    entry: "\t"
+    language: pygrep
+    types: [text]
+    exclude: '(^|/)(Makefile|Makefile\.inc|rules)$'
+  - id: no-cpp-comments
+    name: no C++ comments in C sources
+    entry: '^\s*//'
+    language: pygrep
+    files: '\.(c|h)$'
+  - id: no-space-before-hash
+    name: no whitespace before a preprocessor directive
+    entry: '^[ \t]+#'
+    language: pygrep
+    files: '^src/.*\.(c|h)$'
+  - id: no-french-spacing
+    name: no space before a comma or semicolon
+    entry: '[\w)\]][ \t]+[,;]'
+    language: pygrep
+    files: '\.(c|h)$'
+  # Allows the macro definition that wraps it, and "exit (" in prose.
+  - id: no-exit-in-library
+    name: library code must not call exit() directly
+    entry: '^(?!\s*#\s*define).*\bexit\('
+    language: pygrep
+    files: '^src/.*\.(c|h)$'
+  - id: no-sed-in-place
+    name: sed -i is not portable
+    entry: 'sed\s+-i'
+    language: pygrep
+    types: [shell]
