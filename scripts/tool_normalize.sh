@@ -6,7 +6,7 @@
 # For information on the license, see the LICENSE file.                       #
 # SPDX-License-Identifier: BSD-3-Clause                                       #
 ###############################################################################
-# Maintained in LIBXS and copied into dependent projects by "make policies".
+# Maintained in LIBXS and copied into dependent projects by "make documentation".
 # Edit it in LIBXS: a change made in a copy is overwritten.
 #
 # Front-end for the rules in .pre-commit-config.yaml, which continuous

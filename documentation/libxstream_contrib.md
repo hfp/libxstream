@@ -3,7 +3,7 @@
 This is the contribution policy for LIBXS and LIBXSTREAM. Both projects follow
 the same policy, so the text is project-neutral: it is maintained in LIBXS
 (`documentation/libxs_contrib.md`) and copied into dependent projects by `make
-policies`, the same way `Makefile.inc` is shared. Please edit it in LIBXS — the
+documentation`, the same way `Makefile.inc` is shared. Please edit it in LIBXS — the
 copy is overwritten whenever the original changes.
 
 The code base is small, long-lived, and read far more often than it is written,
@@ -128,6 +128,10 @@ int example(const void* input, void** output) {
   obviously does — the code already says that. Document what it cannot say: why
   this way, what breaks otherwise, which assumption is being relied on.
 - Prefer no comment at all. Then prefer one line.
+- **Never stack consecutive single-line comments** as a substitute for a block.
+  Two or more `/* ... */` lines in a row are either one comment — make it one
+  line, or a block if it earns the size — or they describe different subjects,
+  and then the code each one describes belongs between them.
 - **Single-line comments by default.** A multi-line comment has to earn its
   size: it is reserved for what is absolutely necessary, i.e., a risk or a trap
   worth spelling out — typically something that has already been gotten wrong
@@ -135,11 +139,25 @@ int example(const void* input, void** output) {
   one line or nothing.
 - API documentation in public headers is the other place a multi-line block
   belongs.
+- A multi-line block opens on its own line and continues with ` * `.
 - `/* ... */` only. **C++ comments (`//`) are rejected** in `.c` and `.h`.
 - **No decorative or banner-style comment blocks.** No `/*==== Section ====*/`,
   no boxes, no ASCII rules. The license header is the sole exception.
 - Never write ` -- ` inside a comment (the ASCII rule keeps the em dash out, and
   a double hyphen reads as a typo); rephrase instead.
+- These rules govern the comments a change **writes**. Do not restyle existing
+  comments along the way: one that already earned its size keeps it, and
+  reflowing a file's comments buries the actual change exactly as a bulk
+  reformat does.
+
+```c
+/* one line is the default, and most comments need no more */
+
+/**
+ * A block earns its size by naming a trap: what was already gotten wrong once,
+ * and would be gotten wrong again without the warning.
+ */
+```
 
 ## Blank Lines
 
@@ -181,6 +199,13 @@ Do not mix reformatting, renaming, and behavioural change in one commit.
 
 Fortran sources are **fixed-form** (`.f`). Free-form (`.f90`) is not used;
 please do not propose converting them.
+
+- Statements occupy columns 7 to 72. Columns 73 and beyond are ignored, so text
+  reaching column 73 is **silently truncated** rather than diagnosed.
+- A continued line carries `&` in column 6. Sources additionally place a
+  trailing `&` in column 73, so the same file also reads as free-form; that
+  marker is the only thing allowed at column 73.
+- `.fi` files are included into fixed-form sources and follow the same rules.
 
 ## Scripts
 
@@ -305,13 +330,3 @@ If an AI assistant is used, the same policies apply, plus two more:
 
 - Discuss design options and trade-offs before implementing.
 - Present options as inline text, not as interactive choice widgets.
-
-`CLAUDE.md` at the repository root deliberately holds no policy of its own: it
-points here and adds only the working agreements that are specific to an
-assistant. One policy, one place — a second copy drifts, and the drift is
-invisible.
-
-`CLAUDE.md`, `.editorconfig`, `.pre-commit-config.yaml`, the lint workflow, and
-`scripts/tool_normalize.sh` travel the same one-directional route as this page:
-maintained in LIBXS, copied by `make policies`. In a dependent project they are
-generated files — edit them in LIBXS.

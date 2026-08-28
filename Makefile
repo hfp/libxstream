@@ -351,10 +351,10 @@ $(DOCFILE): $(ROOTDIR)/Makefile $(MDFILE)
 		$(if $(filter file,$(origin MDFILE)),$(MDAUTHOR)),$@)
 
 .PHONY: documentation
-documentation: policies $(DOCDIR)/$(PROJECT).$(DOCEXT) $(DOCFILE)
+documentation: $(POLICYMDS) $(DOCDIR)/$(PROJECT).$(DOCEXT) $(DOCFILE)
 
 .PHONY: mkdocs
-mkdocs: policies mkdocs-tests $(ROOTDIR)/$(DOCDIR)/index.md
+mkdocs: $(POLICYMDS) mkdocs-tests $(ROOTDIR)/$(DOCDIR)/index.md
 #	@mkdocs build --clean
 	@mkdocs serve
 
