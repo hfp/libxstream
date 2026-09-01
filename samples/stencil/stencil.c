@@ -45,8 +45,9 @@ static void fd_weights_2nd(double* w, int radius, double h);
 static int load_velocity_file(const char* path, float* vel, int nx, int ny, int nz);
 static void generate_velocity(float* vel, int nx, int ny, int nz,
                               vel_model_t model, float v_top, float v_bot);
-static void stencil_cpu_reference(float* p_new, const float* p_cur,
-                                  const float* p_old, const float* vel,
+/* p_old holds the previous time step on entry, the next one on exit. */
+static void stencil_cpu_reference(float* p_old, const float* p_cur,
+                                  const float* vel,
                                   const double* fd_w, int radius,
                                   int nx, int ny, int nz,
                                   int nterms, float dt2);
@@ -199,6 +200,11 @@ int main(int argc, char* argv[])
       result = EXIT_FAILURE;
     }
   }
+#if defined(STENCIL_CPU) && (0 < STENCIL_CPU)
+  if (EXIT_SUCCESS == result) {
+    printf("  Device:     host CPU (kernel translated by the C compiler)\n\n");
+  }
+#else
   if (EXIT_SUCCESS == result) {
     char devname[256] = "";
     libxstream_opencl_device_name(
@@ -206,6 +212,7 @@ int main(int argc, char* argv[])
       devname, sizeof(devname), NULL, 0, 1);
     printf("  Device:     %s\n\n", devname);
   }
+#endif
   if (EXIT_SUCCESS == result) {
     result = stencil_init(&ctx, 1, method_override);
   }
@@ -332,9 +339,29 @@ int main(int argc, char* argv[])
       }
     }
 
+#if defined(STENCIL_CPU) && (0 < STENCIL_CPU)
+    /**
+     * Host and device share one address space, so the inputs are already the
+     * device buffers and only the second wavefield needs storage of its own.
+     * The aliasing holds because the host path admits no packed or padded
+     * device layout; the sizes are checked rather than assumed.
+     */
+    if (EXIT_SUCCESS == result) {
+      if (grid_bytes == dev_bytes && grid_bytes == vel_dev_bytes) {
+        p_buf[0] = p_host;
+        vel_dev = vel_host;
+        result = libxstream_mem_dev_allocate_hint(&p_buf[1], dev_bytes,
+          libxstream_opencl_mem_hint_compress);
+      }
+      else {
+        result = EXIT_FAILURE;
+      }
+    }
+#else
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[0], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[1], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, vel_dev_bytes, libxstream_opencl_mem_hint_compress);
+#endif
 
     if (EXIT_SUCCESS == result) {
       if (0 != store_limbs) {
@@ -442,7 +469,7 @@ int main(int argc, char* argv[])
       }
       if (EXIT_SUCCESS == result) {
         result = stencil_apply_laplacian(&ctx,
-          p_buf[cur], p_buf[old], p_buf[old], vel_dev, dt2, dh, nterms);
+          p_buf[cur], p_buf[old], vel_dev, dt2, dh, nterms);
       }
       tmp = cur; cur = old; old = tmp;
     }
@@ -559,7 +586,7 @@ int main(int argc, char* argv[])
           for (ts = 0; ts < warmup + ntsteps; ++ts) {
             int tmp;
             stencil_cpu_reference(p_cpu[cpu_old], p_cpu[cpu_cur],
-              p_cpu[cpu_old], vel_host, fd_w, radius, nx, ny, nz, nterms, dt2);
+              vel_host, fd_w, radius, nx, ny, nz, nterms, dt2);
             tmp = cpu_cur; cpu_cur = cpu_old; cpu_old = tmp;
           }
         }
@@ -619,9 +646,14 @@ int main(int argc, char* argv[])
     }
 
     if (NULL != pack_buf) libxstream_mem_host_deallocate(pack_buf, ctx.stream);
+#if defined(STENCIL_CPU) && (0 < STENCIL_CPU)
+    /* p_buf[0] and vel_dev alias host buffers that are released below. */
+    if (NULL != p_buf[1]) libxstream_mem_dev_deallocate_hint(p_buf[1]);
+#else
     if (NULL != vel_dev) libxstream_mem_dev_deallocate_hint(vel_dev);
     if (NULL != p_buf[1]) libxstream_mem_dev_deallocate_hint(p_buf[1]);
     if (NULL != p_buf[0]) libxstream_mem_dev_deallocate_hint(p_buf[0]);
+#endif
     if (NULL != vel_host) libxstream_mem_host_deallocate(vel_host, ctx.stream);
     if (NULL != p_host_init) libxstream_mem_host_deallocate(p_host_init, ctx.stream);
     if (NULL != p_host) libxstream_mem_host_deallocate(p_host, ctx.stream);
@@ -767,8 +799,9 @@ static void generate_velocity(float* vel, int nx, int ny, int nz,
 }
 
 
-static void stencil_cpu_reference(float* p_new, const float* p_cur,
-                                  const float* p_old, const float* vel,
+/* p_old holds the previous time step on entry, the next one on exit. */
+static void stencil_cpu_reference(float* p_old, const float* p_cur,
+                                  const float* vel,
                                   const double* fd_w, int radius,
                                   int nx, int ny, int nz,
                                   int nterms, float dt2)
@@ -798,7 +831,7 @@ static void stencil_cpu_reference(float* p_new, const float* p_cur,
         lap += (float)fd_w[r + radius] * p_cur[j];
       }
     }
-    p_new[i] = 2.0f * p_cur[i] - p_old[i] + dt2 * vel[i] * lap;
+    p_old[i] = 2.0f * p_cur[i] - p_old[i] + dt2 * vel[i] * lap;
   }
 }
 

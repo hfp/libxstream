@@ -277,8 +277,8 @@ kernel void stencil_apply_int8(
   global const char* restrict dk_z,
   global const float* restrict dk_scale,
   global const float* restrict p_grid,
+  /* In/out: holds the previous time step on entry, the next one on exit. */
   global float* restrict p_old,
-  global float* restrict p_new,
   global const float* restrict vel,
   global const int* restrict exp_buf,
   global int* restrict exp_buf_out,
@@ -542,7 +542,7 @@ kernel void stencil_apply_int8(
                 + dt2 * vel[iv] * u.a[m];
 #endif
             { const int oe = (int)((as_uint(val) >> 23) & 0xFFu);
-              STENCIL_STORE_P(p_new, i, val);
+              STENCIL_STORE_P(p_old, i, val);
               if (oe > out_max_exp) out_max_exp = oe;
             }
           }

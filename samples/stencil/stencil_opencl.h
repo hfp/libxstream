@@ -10,7 +10,11 @@
 #ifndef STENCIL_OPENCL_H
 #define STENCIL_OPENCL_H
 
-#include <libxstream/libxstream_opencl.h>
+#if defined(STENCIL_CPU) && (0 < STENCIL_CPU)
+# include "stencil_hostmem.h"
+#else
+# include <libxstream/libxstream_opencl.h>
+#endif
 #include <libxs/libxs_reg.h>
 
 #define STENCIL_BLK 32
@@ -75,11 +79,13 @@ typedef struct {
   signed char ndigits_a;
 } stencil_opencl_key_t;
 
+#if !defined(STENCIL_CPU) || (0 >= STENCIL_CPU)
 typedef struct {
   cl_kernel stencil_apply;
   cl_kernel stencil_apply_tti;
   cl_kernel stencil_apply_direct;
 } stencil_kernels_t;
+#endif
 
 typedef struct {
   void* dk[3];
@@ -123,8 +129,13 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override);
 int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz);
 int stencil_precompute_operators(stencil_context_t* ctx,
                                  const double* fd_weights, int radius);
+/**
+ * Advances one time step. p_cur holds the current wavefield, p_old the previous
+ * one on entry and the next one on exit: the update is in-place, which is why
+ * the kernels take a single buffer for both roles.
+ */
 int stencil_apply_laplacian(stencil_context_t* ctx,
-                            void* p_cur, void* p_old, void* p_new,
+                            void* p_cur, void* p_old,
                             void* vel, float dt2, float dh, int nterms);
 void stencil_finalize(stencil_context_t* ctx);
 
@@ -145,5 +156,15 @@ void stencil_pack_bf16s_zyx(unsigned short* dst, const float* src,
                             int hx, int hy, int hz, int ndigits);
 void stencil_unpack_bf16s(float* dst, const unsigned short* src, size_t n,
                           int ndigits);
+
+/**
+ * Runs the FP32 device kernel on the host: stencil_cpu.c translates
+ * kernels/stencil_fp32.cl with the ordinary C compiler. The kernel is
+ * specialized at build time, so a grid or term count that disagrees with the
+ * compiled-in configuration returns EXIT_FAILURE rather than wrong results.
+ */
+int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
+                             const float* vel, const float* coeff, float dt2,
+                             int nx, int ny, int nz, int nterms);
 
 #endif /*STENCIL_OPENCL_H*/

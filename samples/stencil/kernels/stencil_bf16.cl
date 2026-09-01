@@ -33,8 +33,8 @@ kernel void stencil_apply(
   global const STENCIL_D_ELEM* restrict dk_y,
   global const STENCIL_D_ELEM* restrict dk_z,
   global const STENCIL_P_ELEM* restrict p_grid,
+  /* In/out: holds the previous time step on entry, the next one on exit. */
   global STENCIL_P_ELEM* restrict p_old,
-  global STENCIL_P_ELEM* restrict p_new,
   global const float* restrict vel,
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
   global const float* restrict eta,
@@ -188,7 +188,7 @@ kernel void stencil_apply(
             const long iv = STENCIL_V_IDX(gz, gy, gx, ny, nx);
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
             if (0 != blk_interior) {
-              STENCIL_STORE_P(p_new, i,
+              STENCIL_STORE_P(p_old, i,
                 2.0f * STENCIL_LOAD_P(p_grid_f, i) - STENCIL_LOAD_P(p_old, i)
                 + dt2 * vel[iv] * u.a[m]);
             }
@@ -203,7 +203,7 @@ kernel void stencil_apply(
                 + dt2 * vel[iv] * (u.a[m] + phi_val);
               const long stride_z = (long)ny * nx;
               float tmp = 0.0f;
-              STENCIL_STORE_P(p_new, i, numerator / (1.0f + 2.0f * eta1));
+              STENCIL_STORE_P(p_old, i, numerator / (1.0f + 2.0f * eta1));
               if (gx > 0 && gx < nx - 1) {
                 tmp += (eta[ie + 1] - eta[ie - 1])
                      * (STENCIL_LOAD_P(p_grid_f, i + 1) - STENCIL_LOAD_P(p_grid_f, i - 1)) * hdx_2;
@@ -223,10 +223,10 @@ kernel void stencil_apply(
               const float p_old_f = STENCIL_LOAD_P(p_old, i);
               const float new_val = 2.0f * p_cur_f - p_old_f
                                   + dt2 * vel[iv] * u.a[m];
-              STENCIL_STORE_P(p_new, i, new_val);
+              STENCIL_STORE_P(p_old, i, new_val);
             }
 #else
-            STENCIL_STORE_P(p_new, i,
+            STENCIL_STORE_P(p_old, i,
               2.0f * STENCIL_LOAD_P(p_grid, i) - STENCIL_LOAD_P(p_old, i)
               + dt2 * vel[iv] * u.a[m]);
 #endif
@@ -269,7 +269,8 @@ kernel void stencil_apply_tti(
   global const ushort* restrict dk_i,
   global const ushort* restrict dk_j,
   global const STENCIL_P_ELEM* restrict p_grid,
-  global STENCIL_P_ELEM* restrict p_new,
+  /* In/out: the wavefield stencil_apply produced, accumulated into here. */
+  global STENCIL_P_ELEM* restrict p_old,
   global const float* restrict c_ij,
   int y_stride,
   int dim_j, int nx, int ny, int nz,
@@ -407,7 +408,7 @@ kernel void stencil_apply_tti(
         const int gz = oz + (col / BLK);
         if (gx < nx && gy < ny && gz < nz) {
           const long i = STENCIL_P_IDX(gz, gy, gx, ny, nx, nbx, nby);
-          STENCIL_STORE_P(p_new, i, STENCIL_LOAD_P(p_new, i) + c_ij[i] * u.a[m]);
+          STENCIL_STORE_P(p_old, i, STENCIL_LOAD_P(p_old, i) + c_ij[i] * u.a[m]);
         }
       }
     }

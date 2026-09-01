@@ -38,6 +38,50 @@
 #endif
 
 /**
+ * Host build (STENCIL_CPU_LANES): the work-group's lanes become two nested
+ * loops inside the kernel instead of SIMT lanes, so an ordinary C compiler
+ * vectorizes each phase along the fast axis. The phases are already separated
+ * by barriers, hence running one lane loop per phase keeps the on-device order
+ * of operations and leaves barrier() nothing to do. The slow-axis window turns
+ * lane-major to keep its loads contiguous, and the staging loop walks the whole
+ * tile because a single work-item now stands for the entire work-group.
+ *
+ * SIMD_COLLAPSE pairs with the UNROLL_FORCE hints: unrolling the short
+ * constant-trip loops in the body first is what leaves the lane loop innermost
+ * with straight-line code, and it retires the loop counters that would
+ * otherwise be shared across the lanes of the vectorized region.
+ */
+#if defined(STENCIL_CPU_LANES) && (0 < STENCIL_CPU_LANES)
+# if (STENCIL_LAYOUT_XYZ != STENCIL_LAYOUT)
+#   error the host lane loop maps the XYZ layout only
+# endif
+# if defined(STENCIL_PML) && (0 < STENCIL_PML)
+#   error the host lane loop carries no per-lane PML window
+# endif
+# if (0 != (STENCIL_NX % WG_X)) || (0 != (STENCIL_NY % WG_Y))
+#   error the host lane loop needs WG_X and WG_Y to divide the grid extents
+# endif
+# define STENCIL_FOR_LANE \
+    SIMD_COLLAPSE(2) \
+    for (lane_m = 0; lane_m < WG_Y; ++lane_m) \
+    for (lane_f = 0; lane_f < WG_X; ++lane_f)
+# define STENCIL_LANE_F (lane_f)
+# define STENCIL_LANE_M (lane_m)
+# define STENCIL_I_F (i_f + lane_f)
+# define STENCIL_I_M (i_m + lane_m)
+# define STENCIL_S_WIN(W) s_win[W][lane_m][lane_f]
+# define STENCIL_FILL_STEP 1
+#else
+# define STENCIL_FOR_LANE
+# define STENCIL_LANE_F (lf)
+# define STENCIL_LANE_M (lm)
+# define STENCIL_I_F (i_f)
+# define STENCIL_I_M (i_m)
+# define STENCIL_S_WIN(W) s_win[W]
+# define STENCIL_FILL_STEP WG_SIZE
+#endif
+
+/**
  * Logical-to-physical axis mapping:
  * XYZ: fast=X, medium=Y, slow=Z (Z-sliding window).
  * ZYX: fast=Z, medium=Y, slow=X (X-sliding window).
@@ -90,10 +134,10 @@ __attribute__((intel_reqd_sub_group_size(16)))
 #endif
 kernel void stencil_apply_direct(
   global const float* restrict p_grid,
-  global const float* restrict p_old,
-  global float* restrict p_new,
+  /* In/out: holds the previous time step on entry, the next one on exit. */
+  global float* restrict p_old,
   global const float* restrict vel,
-  CONSTANT float* restrict coeff,
+  CONSTANT const float* restrict coeff,
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
   global const float* restrict eta,
   global float* restrict phi,
@@ -118,7 +162,12 @@ kernel void stencil_apply_direct(
 
   const int gf0 = (int)get_group_id(0) * WG_X - RADIUS;
   const int gm0 = (int)get_group_id(1) * WG_Y - RADIUS;
+#if defined(STENCIL_CPU_LANES) && (0 < STENCIL_CPU_LANES)
+  float s_win[S_WINDOW][WG_Y][WG_X];
+  int lane_f, lane_m;
+#else
   float s_win[S_WINDOW];
+#endif
   int i_s, r, idx, w, sb;
 
 #if !defined(NTERMS) || (2 < NTERMS)
@@ -128,7 +177,9 @@ kernel void stencil_apply_direct(
 #if !defined(STENCIL_PADDED) || (0 >= STENCIL_PADDED)
       if (cs < 0) cs = 0; else if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
 #endif
-      s_win[w] = STENCIL_LOAD_P(p_grid, FP32_P_FMS(i_f, i_m, cs));
+      STENCIL_FOR_LANE
+      STENCIL_S_WIN(w) = STENCIL_LOAD_P(p_grid,
+        FP32_P_FMS(STENCIL_I_F, STENCIL_I_M, cs));
     }
   }
 #endif
@@ -182,7 +233,7 @@ kernel void stencil_apply_direct(
           }
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
           if (0 == blk_interior) {
-            for (idx = lid; idx < SLM_TOTAL; idx += WG_SIZE) {
+            for (idx = lid; idx < SLM_TOTAL; idx += STENCIL_FILL_STEP) {
               const int sm = idx / SLM_F;
               const int sf = idx % SLM_F;
               eta_slm[slm_off + idx] = eta[FP32_E_FMS(gf0 + sf, gm0 + sm, cur_s)];
@@ -190,7 +241,7 @@ kernel void stencil_apply_direct(
           }
 #endif
 #else
-          for (idx = lid; idx < SLM_TOTAL; idx += WG_SIZE) {
+          for (idx = lid; idx < SLM_TOTAL; idx += STENCIL_FILL_STEP) {
             const int sm = idx / SLM_F;
             const int sf = idx % SLM_F;
             int gf = gf0 + sf;
@@ -213,6 +264,7 @@ kernel void stencil_apply_direct(
       UNROLL_FORCE(FP32_SBLOCK) for (sb = 0; sb < FP32_SBLOCK; ++sb) {
         const int cur_s = i_s + sb;
         const int slm_off = sb * SLM_TOTAL;
+        STENCIL_FOR_LANE
         if (cur_s < is_base + BLK && cur_s < FP32_NSLOW && valid_fm) {
           float lap, p_center;
 #if !defined(NTERMS) || (2 < NTERMS)
@@ -220,17 +272,19 @@ kernel void stencil_apply_direct(
 #if !defined(STENCIL_PADDED) || (0 >= STENCIL_PADDED)
             if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
 #endif
-            s_win[S_WINDOW - 1] = STENCIL_LOAD_P(p_grid, FP32_P_FMS(i_f, i_m, cs));
+            STENCIL_S_WIN(S_WINDOW - 1) = STENCIL_LOAD_P(p_grid,
+              FP32_P_FMS(STENCIL_I_F, STENCIL_I_M, cs));
           }
 #endif
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
           if (0 == blk_interior) {
             int cs = cur_s + 1;
             if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
-            eta_s[2] = eta[FP32_E_FMS(i_f, i_m, cs)];
+            eta_s[2] = eta[FP32_E_FMS(STENCIL_I_F, STENCIL_I_M, cs)];
           }
 #endif
-          { const int c = slm_off + (lm + RADIUS) * SLM_F + lf + RADIUS;
+          { const int c = slm_off
+              + (STENCIL_LANE_M + RADIUS) * SLM_F + STENCIL_LANE_F + RADIUS;
             CONSTANT const float* cf = FP32_COEFF_FAST;
             CONSTANT const float* cm = FP32_COEFF_MED;
             p_center = fm_slm[c];
@@ -247,34 +301,36 @@ kernel void stencil_apply_direct(
           }
 #if !defined(NTERMS) || (2 < NTERMS)
           { CONSTANT const float* cs = FP32_COEFF_SLOW;
-            lap += cs[RADIUS] * s_win[RADIUS];
+            lap += cs[RADIUS] * STENCIL_S_WIN(RADIUS);
             UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
-              lap += cs[RADIUS + r] * (s_win[RADIUS + r] + s_win[RADIUS - r]);
+              lap += cs[RADIUS + r]
+                * (STENCIL_S_WIN(RADIUS + r) + STENCIL_S_WIN(RADIUS - r));
             }
           }
 #endif
-          { const long ip = FP32_P_FMS(i_f, i_m, cur_s);
-            const long iv = FP32_V_FMS(i_f, i_m, cur_s);
+          { const long ip = FP32_P_FMS(STENCIL_I_F, STENCIL_I_M, cur_s);
+            const long iv = FP32_V_FMS(STENCIL_I_F, STENCIL_I_M, cur_s);
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
             if (0 != blk_interior) {
-              STENCIL_STORE_P(p_new, ip,
+              STENCIL_STORE_P(p_old, ip,
                 2.0f * p_center - STENCIL_LOAD_P(p_old, ip) + dt2 * vel[iv] * lap);
             }
             else {
-              const int c = slm_off + (lm + RADIUS) * SLM_F + lf + RADIUS;
+              const int c = slm_off
+                + (STENCIL_LANE_M + RADIUS) * SLM_F + STENCIL_LANE_F + RADIUS;
               const float eta1 = eta_slm[c];
               const float phi_val = phi[iv];
               const float p_old_val = STENCIL_LOAD_P(p_old, ip);
               const float numerator =
                 (2.0f - eta1 * eta1 + 2.0f * eta1) * p_center - p_old_val
                 + dt2 * vel[iv] * (lap + phi_val);
-              STENCIL_STORE_P(p_new, ip, numerator / (1.0f + 2.0f * eta1));
+              STENCIL_STORE_P(p_old, ip, numerator / (1.0f + 2.0f * eta1));
               { const float uf_p = fm_slm[c + 1];
                 const float uf_m = fm_slm[c - 1];
                 const float um_p = fm_slm[c + SLM_F];
                 const float um_m = fm_slm[c - SLM_F];
-                const float us_p = s_win[RADIUS + 1];
-                const float us_m = s_win[RADIUS - 1];
+                const float us_p = STENCIL_S_WIN(RADIUS + 1);
+                const float us_m = STENCIL_S_WIN(RADIUS - 1);
                 const float eta_fp = eta_slm[c + 1];
                 const float eta_fm = eta_slm[c - 1];
                 const float eta_mp = eta_slm[c + SLM_F];
@@ -287,14 +343,14 @@ kernel void stencil_apply_direct(
               }
             }
 #else
-            STENCIL_STORE_P(p_new, ip,
+            STENCIL_STORE_P(p_old, ip,
               2.0f * p_center - STENCIL_LOAD_P(p_old, ip) + dt2 * vel[iv] * lap);
 #endif
           }
 
 #if !defined(NTERMS) || (2 < NTERMS)
           UNROLL_FORCE(S_WINDOW - 1) for (w = 0; w < S_WINDOW - 1; ++w) {
-            s_win[w] = s_win[w + 1];
+            STENCIL_S_WIN(w) = STENCIL_S_WIN(w + 1);
           }
 #endif
 

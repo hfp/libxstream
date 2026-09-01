@@ -13,7 +13,20 @@ DFLAGS = $(NULL)
 BLAS = 0
 OMP = 1
 SYM = 0
-OCL = 2
+
+# CPU=1 runs the stencil on the host: the C compiler translates
+# kernels/stencil_fp32.cl and neither OpenCL nor LIBXSTREAM is needed.
+# The kernel is specialized at build time, so CPUDEF carries its
+# configuration, e.g. CPUDEF="-DSTENCIL_NX=512 -DSTENCIL_NY=512 -DSTENCIL_NZ=512".
+CPU ?= 0
+CPUDEF ?= $(NULL)
+ifeq (0,$(CPU))
+  OCL = 2
+  TESTARG ?= -n 32 -t 4 -d 3
+else
+  OCL = 0
+  TESTARG ?= -n 256 -t 4 -d 3
+endif
 
 # root directory of LIBXS
 LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
@@ -37,8 +50,11 @@ ifneq (,$(LIBXSROOT))
   endif
 endif
 
-# setup LIBXSTREAM (library or header-only)
-ifneq (,$(XLIB))
+# setup LIBXSTREAM (library or header-only), or select the host path
+ifneq (0,$(CPU))
+  DFLAGS += -DSTENCIL_CPU=1 $(CPUDEF)
+  XLIB := $(NULL)
+else ifneq (,$(XLIB))
 ifneq (,$(LIBXS))
   DFLAGS += -D__LIBXSTREAM
 else
@@ -72,12 +88,16 @@ ifneq (0,$(SYM))
 endif
 
 OUTNAME := $(shell basename "$(ROOTDIR)")
+# The host path includes the kernels directly instead of embedding them.
 HEADERS := $(wildcard $(INCDIR)/*.h) \
-           $(GENHDR) \
+           $(if $(filter 0,$(CPU)),$(GENHDR),$(KRNDEP)) \
            $(wildcard $(DEPDIR)/libxstream/*.h) \
            $(wildcard $(DEPDIR)/libxstream/opencl/*.h) \
            $(wildcard $(LIBXSROOT)/libxs/*.h)
 CSOURCS := $(wildcard $(SRCDIR)/*.c)
+ifneq (0,$(CPU))
+  CSOURCS := $(filter-out $(SRCDIR)/stencil_opencl.c,$(CSOURCS))
+endif
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 SOURCES := $(CSOURCS)
 OBJECTS := $(COBJCTS)
@@ -96,12 +116,16 @@ $(GENHDR): $(KRNDEP) $(wildcard $(DEPDIR)/libxstream/opencl/*.h) $(GENSCR) Makef
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 	$(LD) -o $@ $(OBJECTS) $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
 
+# The host build of the kernel keeps the device signature, which leaves the
+# runtime extents unused wherever the layout supplies them at compile time.
+$(BLDDIR)/stencil_cpu-c.o: CFLAGS += $(call ctest,$(CC),-Wno-unused-parameter)
+
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(LIBXSROOT)/Makefile.inc
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@
 
 .PHONY: test
 test: $(XFILES)
-	$(OUTDIR)/$(OUTNAME).x -n 32 -t 4 -d 3
+	$(OUTDIR)/$(OUTNAME).x $(TESTARG)
 
 .PHONY: clean
 clean:
