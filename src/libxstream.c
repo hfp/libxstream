@@ -12,6 +12,9 @@
 # include "libxstream_pinmap.h"
 # include <libxs/libxs_hash.h>
 # include <libxs/libxs_str.h>
+# if defined(_OPENMP)
+#   include <omp.h>
+# endif
 # if defined(_WIN32)
 #   include <windows.h>
 #   include <process.h>

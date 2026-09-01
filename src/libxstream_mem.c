@@ -10,6 +10,9 @@
 #if defined(__OPENCL)
 # include <libxstream/libxstream_opencl.h>
 # include <string.h>
+# if defined(_OPENMP)
+#   include <omp.h>
+# endif
 # if defined(_WIN32)
 #   include <Windows.h>
 # else

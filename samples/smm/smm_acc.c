@@ -14,6 +14,9 @@
 #  include "acc_bench.h"
 #  include <libxs/libxs_predict.h>
 #  include <libxs/libxs_str.h>
+#  if defined(_OPENMP)
+#    include <omp.h>
+#  endif
 
 #  define OPENCL_LIBSMM_SMMENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_SMM", KEY)
 

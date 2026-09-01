@@ -10,6 +10,9 @@
 #if defined(__OPENCL)
 # include <libxstream/libxstream_opencl.h>
 # include <string.h>
+# if defined(_OPENMP)
+#   include <omp.h>
+# endif
 
 
 LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, int thread_id)
