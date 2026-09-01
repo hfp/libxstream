@@ -58,6 +58,7 @@ IFLAGS += -I$(call quote,$(DEPDIR))
 
 OUTNAME := $(shell basename "$(ROOTDIR)")
 HEADERS := $(wildcard $(INCDIR)/*.h) $(wildcard $(SRCDIR)/*.h) \
+           $(wildcard $(DEPDIR)/$(PROJECT)/*.h) \
            $(wildcard $(LIBXSROOT)/libxs/*.h)
 CSOURCX := $(wildcard $(SRCDIR)/*.c)
 OBJECTS := $(NULL)

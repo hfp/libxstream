@@ -244,7 +244,7 @@ endef
 
 $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
   $(OBJ),$(patsubst %.o,$(ROOTSRC)/%.c,$(notdir $(OBJ))), \
-  $(HEADERS_MAIN) $(INCDIR)/$(PROJECT)_version.h $(LIBXS_SOURCE), \
+  $(HEADERS) $(INCDIR)/$(PROJECT)_version.h $(LIBXS_SOURCE), \
   $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS))))
 
 .PHONY: libs

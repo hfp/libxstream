@@ -91,7 +91,9 @@ endif
 OUTNAME := $(shell basename "$(ROOTDIR)")
 HEADERS := $(wildcard $(INCDIR)/*.h) \
            $(GENHDR) \
-           $(wildcard $(DEPDIR)/libxstream/opencl/*.h)
+           $(wildcard $(DEPDIR)/libxstream/*.h) \
+           $(wildcard $(DEPDIR)/libxstream/opencl/*.h) \
+           $(wildcard $(LIBXSROOT)/libxs/*.h)
 CSOURCS := $(wildcard $(SRCDIR)/*.c)
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 SOURCES := $(CSOURCS)

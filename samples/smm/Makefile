@@ -84,7 +84,8 @@ endif
 OUTNAME := acc_bench
 HEADERS := $(wildcard $(INCDIR)/*.h) $(GENHDR) \
            $(wildcard $(DEPDIR)/libxstream/*.h) \
-           $(wildcard $(DEPDIR)/libxstream/opencl/*.h)
+           $(wildcard $(DEPDIR)/libxstream/opencl/*.h) \
+           $(wildcard $(LIBXSROOT)/libxs/*.h)
 CSOURCS := $(SRCDIR)/acc_bench.c $(SRCDIR)/smm_acc.c $(SRCDIR)/smm_trans.c $(SRCDIR)/smm_params.c $(SRCDIR)/smm_kernel.c
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 OBJECTS := $(COBJCTS)
