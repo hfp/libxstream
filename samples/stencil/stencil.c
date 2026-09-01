@@ -297,7 +297,7 @@ int main(int argc, char* argv[])
         const float sigma2 = (float)(nx * nx) / 32.0f;
         int iz, iy, ix;
 #if defined(_OPENMP)
-#       pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
+#       pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3) private(iy, ix)
 #endif
         for (iz = 0; iz < nz; ++iz) {
           for (iy = 0; iy < ny; ++iy) {
@@ -371,7 +371,7 @@ int main(int argc, char* argv[])
 #endif
           for (idx = 0; idx < n_padded; ++idx) zyx_buf[idx] = 0.0f;
 #if defined(_OPENMP)
-#         pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
+#         pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3) private(iy, iz)
 #endif
           for (ix = 0; ix < nx; ++ix) {
             for (iy = 0; iy < ny; ++iy) {
@@ -405,7 +405,7 @@ int main(int argc, char* argv[])
         if (EXIT_SUCCESS == result) {
           int ix, iy, iz;
 #if defined(_OPENMP)
-#         pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
+#         pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3) private(iy, iz)
 #endif
           for (ix = 0; ix < nx; ++ix) {
             for (iy = 0; iy < ny; ++iy) {
@@ -728,7 +728,7 @@ static void generate_velocity(float* vel, int nx, int ny, int nz,
       int ix, iy, iz;
       const float dv = (v_bot - v_top) / (float)(nz > 1 ? nz - 1 : 1);
 #if defined(_OPENMP)
-#     pragma omp parallel for
+#     pragma omp parallel for private(iy, ix)
 #endif
       for (iz = 0; iz < nz; ++iz) {
         const float v = v_top + dv * (float)iz;
@@ -745,7 +745,7 @@ static void generate_velocity(float* vel, int nx, int ny, int nz,
       const float layer_v[] = {1500.0f, 2000.0f, 2500.0f, 3500.0f, 4500.0f};
       int ix, iy, iz;
 #if defined(_OPENMP)
-#     pragma omp parallel for
+#     pragma omp parallel for private(iy, ix)
 #endif
       for (iz = 0; iz < nz; ++iz) {
         const int li = (iz * nlayers) / nz;

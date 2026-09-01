@@ -358,7 +358,7 @@ void stencil_pack_bf16s_blocked(cl_ushort* dst, const float* src,
   int bz, by, bx, lz, ly, lx;
   memset(dst, 0, (size_t)nlimbs * stride * sizeof(cl_ushort));
 #if defined(_OPENMP)
-# pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
+# pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3) private(by, bx, lz, ly, lx)
 #endif
   for (bz = 0; bz < nbz; ++bz) {
     for (by = 0; by < nby; ++by) {
@@ -395,7 +395,7 @@ void stencil_pack_bf16s_zyx(cl_ushort* dst, const float* src,
   int ix, iy, iz;
   memset(dst, 0, (size_t)nlimbs * stride * sizeof(cl_ushort));
 #if defined(_OPENMP)
-# pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
+# pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3) private(iy, iz)
 #endif
   for (ix = 0; ix < nx; ++ix) {
     for (iy = 0; iy < ny; ++iy) {
@@ -449,7 +449,7 @@ int stencil_seed_exp_buf(stencil_context_t* ctx, const float* p_host,
 
   if (EXIT_SUCCESS == result && NULL != ctx->exp_buf[0]) {
 #if defined(_OPENMP)
-#   pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3) reduction(max:global_max_exp)
+#   pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3) private(iy, ix) reduction(max:global_max_exp)
 #endif
     for (iz = 0; iz < nz; ++iz) {
       for (iy = 0; iy < ny; ++iy) {
@@ -501,7 +501,7 @@ void stencil_pack_blocked(float* dst, const float* src,
   const int blk = STENCIL_BLK;
   int bz, by, bx, lz, ly, lx;
 #if defined(_OPENMP)
-# pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3)
+# pragma omp parallel for LIBXS_OPENMP_COLLAPSE(3) private(by, bx, lz, ly, lx)
 #endif
   for (bz = 0; bz < nbz; ++bz) {
     for (by = 0; by < nby; ++by) {
