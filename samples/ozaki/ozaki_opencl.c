@@ -1779,7 +1779,7 @@ void ozaki_destroy(ozaki_context_t* ctx)
     /* Destroy persistent helper streams */
     if (NULL != ctx->stream_a) libxstream_stream_destroy(ctx->stream_a);
     if (NULL != ctx->stream_b) libxstream_stream_destroy(ctx->stream_b);
-    LIBXS_MEMZERO(ctx);
+    memset(ctx, 0, sizeof(*ctx)); /* exceeds LIBXS_MEMZERO scope */
   }
 }
 

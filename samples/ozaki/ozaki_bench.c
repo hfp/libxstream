@@ -89,8 +89,7 @@ int main(int argc, char* argv[])
   int result = EXIT_SUCCESS;
   int initialized = 0;
 
-  LIBXS_MEMZERO(&ctx);
-
+  memset(&ctx, 0, sizeof(ctx)); /* exceeds LIBXS_MEMZERO scope */
   if (1 > M || 1 > N || 1 > K || lda < (0 == ta ? M : K) || ldb < (0 == tb ? K : N) || ldc < M) {
     fprintf(stderr, "Invalid dimensions: M=%d N=%d K=%d lda=%d ldb=%d ldc=%d\n", M, N, K, lda, ldb, ldc);
     result = EXIT_FAILURE;

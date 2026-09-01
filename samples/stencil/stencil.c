@@ -75,7 +75,7 @@ int main(int argc, char* argv[])
   int trace = 0;
   int argi;
 
-  LIBXS_MEMZERO(&ctx);
+  memset(&ctx, 0, sizeof(ctx)); /* exceeds LIBXS_MEMZERO scope */
   trace = (NULL != getenv("STENCIL_TRACE"));
 
   for (argi = 1; argi < argc; ++argi) {
@@ -571,7 +571,7 @@ int main(int argc, char* argv[])
           int fprint_ok = EXIT_SUCCESS;
           int have_fprint = 0;
           size_t fprint_pos;
-          LIBXS_MEMZERO(&fprint);
+          memset(&fprint, 0, sizeof(fprint)); /* exceeds LIBXS_MEMZERO scope */
           for (fprint_pos = 0; fprint_pos < n && EXIT_SUCCESS == fprint_ok;
                fprint_pos += (size_t)STENCIL_FPRINT_CHUNK) {
             const size_t fprint_rem = n - fprint_pos;

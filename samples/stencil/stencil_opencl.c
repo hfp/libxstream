@@ -831,7 +831,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   sg_env = getenv("STENCIL_SG");
   lu_env = getenv("STENCIL_LU");
 
-  LIBXS_MEMZERO(ctx);
+  memset(ctx, 0, sizeof(*ctx)); /* exceeds LIBXS_MEMZERO scope */
   ctx->verbosity = verbosity;
 
   if (0 <= method_override) {
@@ -1615,6 +1615,6 @@ void stencil_finalize(stencil_context_t* ctx)
     if (NULL != ctx->eta) libxstream_mem_dev_deallocate_hint(ctx->eta);
     if (NULL != ctx->phi) libxstream_mem_dev_deallocate_hint(ctx->phi);
     if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
-    LIBXS_MEMZERO(ctx);
+    memset(ctx, 0, sizeof(*ctx)); /* exceeds LIBXS_MEMZERO scope */
   }
 }
