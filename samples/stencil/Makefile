@@ -13,6 +13,7 @@ DFLAGS = $(NULL)
 BLAS = 0
 OMP = 1
 SYM = 0
+SSE = 0
 
 # CPU=1 runs the stencil on the host: the C compiler translates
 # kernels/stencil_fp32.cl and neither OpenCL nor LIBXSTREAM is needed.

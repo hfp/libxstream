@@ -264,102 +264,104 @@ kernel void stencil_apply_direct(
       UNROLL_FORCE(FP32_SBLOCK) for (sb = 0; sb < FP32_SBLOCK; ++sb) {
         const int cur_s = i_s + sb;
         const int slm_off = sb * SLM_TOTAL;
-        STENCIL_FOR_LANE
         if (cur_s < is_base + BLK && cur_s < FP32_NSLOW && valid_fm) {
-          float lap, p_center;
+          STENCIL_FOR_LANE
+          {
+            float lap, p_center;
 #if !defined(NTERMS) || (2 < NTERMS)
-          { int cs = cur_s + RADIUS;
+            { int cs = cur_s + RADIUS;
 #if !defined(STENCIL_PADDED) || (0 >= STENCIL_PADDED)
-            if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
+              if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
 #endif
-            STENCIL_S_WIN(S_WINDOW - 1) = STENCIL_LOAD_P(p_grid,
-              FP32_P_FMS(STENCIL_I_F, STENCIL_I_M, cs));
-          }
+              STENCIL_S_WIN(S_WINDOW - 1) = STENCIL_LOAD_P(p_grid,
+                FP32_P_FMS(STENCIL_I_F, STENCIL_I_M, cs));
+            }
 #endif
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
-          if (0 == blk_interior) {
-            int cs = cur_s + 1;
-            if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
-            eta_s[2] = eta[FP32_E_FMS(STENCIL_I_F, STENCIL_I_M, cs)];
-          }
-#endif
-          { const int c = slm_off
-              + (STENCIL_LANE_M + RADIUS) * SLM_F + STENCIL_LANE_F + RADIUS;
-            CONSTANT const float* cf = FP32_COEFF_FAST;
-            CONSTANT const float* cm = FP32_COEFF_MED;
-            p_center = fm_slm[c];
-            lap = cf[RADIUS] * p_center;
-            UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
-              lap += cf[RADIUS + r] * (fm_slm[c + r] + fm_slm[c - r]);
-            }
-#if !defined(NTERMS) || (1 < NTERMS)
-            lap += cm[RADIUS] * p_center;
-            UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
-              lap += cm[RADIUS + r] * (fm_slm[c + r * SLM_F] + fm_slm[c - r * SLM_F]);
+            if (0 == blk_interior) {
+              int cs = cur_s + 1;
+              if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
+              eta_s[2] = eta[FP32_E_FMS(STENCIL_I_F, STENCIL_I_M, cs)];
             }
 #endif
-          }
-#if !defined(NTERMS) || (2 < NTERMS)
-          { CONSTANT const float* cs = FP32_COEFF_SLOW;
-            lap += cs[RADIUS] * STENCIL_S_WIN(RADIUS);
-            UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
-              lap += cs[RADIUS + r]
-                * (STENCIL_S_WIN(RADIUS + r) + STENCIL_S_WIN(RADIUS - r));
-            }
-          }
-#endif
-          { const long ip = FP32_P_FMS(STENCIL_I_F, STENCIL_I_M, cur_s);
-            const long iv = FP32_V_FMS(STENCIL_I_F, STENCIL_I_M, cur_s);
-#if defined(STENCIL_PML) && (0 < STENCIL_PML)
-            if (0 != blk_interior) {
-              STENCIL_STORE_P(p_old, ip,
-                2.0f * p_center - STENCIL_LOAD_P(p_old, ip) + dt2 * vel[iv] * lap);
-            }
-            else {
-              const int c = slm_off
+            { const int c = slm_off
                 + (STENCIL_LANE_M + RADIUS) * SLM_F + STENCIL_LANE_F + RADIUS;
-              const float eta1 = eta_slm[c];
-              const float phi_val = phi[iv];
-              const float p_old_val = STENCIL_LOAD_P(p_old, ip);
-              const float numerator =
-                (2.0f - eta1 * eta1 + 2.0f * eta1) * p_center - p_old_val
-                + dt2 * vel[iv] * (lap + phi_val);
-              STENCIL_STORE_P(p_old, ip, numerator / (1.0f + 2.0f * eta1));
-              { const float uf_p = fm_slm[c + 1];
-                const float uf_m = fm_slm[c - 1];
-                const float um_p = fm_slm[c + SLM_F];
-                const float um_m = fm_slm[c - SLM_F];
-                const float us_p = STENCIL_S_WIN(RADIUS + 1);
-                const float us_m = STENCIL_S_WIN(RADIUS - 1);
-                const float eta_fp = eta_slm[c + 1];
-                const float eta_fm = eta_slm[c - 1];
-                const float eta_mp = eta_slm[c + SLM_F];
-                const float eta_mm = eta_slm[c - SLM_F];
-                const float tmp =
-                  (eta_fp - eta_fm) * (uf_p - uf_m) * FP32_HD_FAST
-                  + (eta_mp - eta_mm) * (um_p - um_m) * FP32_HD_MED
-                  + (eta_s[2] - eta_s[0]) * (us_p - us_m) * FP32_HD_SLOW;
-                phi[iv] = (phi_val - tmp) / (1.0f + eta1);
+              CONSTANT const float* cf = FP32_COEFF_FAST;
+              CONSTANT const float* cm = FP32_COEFF_MED;
+              p_center = fm_slm[c];
+              lap = cf[RADIUS] * p_center;
+              UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
+                lap += cf[RADIUS + r] * (fm_slm[c + r] + fm_slm[c - r]);
+              }
+#if !defined(NTERMS) || (1 < NTERMS)
+              lap += cm[RADIUS] * p_center;
+              UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
+                lap += cm[RADIUS + r] * (fm_slm[c + r * SLM_F] + fm_slm[c - r * SLM_F]);
+              }
+#endif
+            }
+#if !defined(NTERMS) || (2 < NTERMS)
+            { CONSTANT const float* cs = FP32_COEFF_SLOW;
+              lap += cs[RADIUS] * STENCIL_S_WIN(RADIUS);
+              UNROLL_FORCE(RADIUS) for (r = 1; r <= RADIUS; ++r) {
+                lap += cs[RADIUS + r]
+                  * (STENCIL_S_WIN(RADIUS + r) + STENCIL_S_WIN(RADIUS - r));
               }
             }
-#else
-            STENCIL_STORE_P(p_old, ip,
-              2.0f * p_center - STENCIL_LOAD_P(p_old, ip) + dt2 * vel[iv] * lap);
 #endif
-          }
+            { const long ip = FP32_P_FMS(STENCIL_I_F, STENCIL_I_M, cur_s);
+              const long iv = FP32_V_FMS(STENCIL_I_F, STENCIL_I_M, cur_s);
+#if defined(STENCIL_PML) && (0 < STENCIL_PML)
+              if (0 != blk_interior) {
+                STENCIL_STORE_P(p_old, ip,
+                  2.0f * p_center - STENCIL_LOAD_P(p_old, ip) + dt2 * vel[iv] * lap);
+              }
+              else {
+                const int c = slm_off
+                  + (STENCIL_LANE_M + RADIUS) * SLM_F + STENCIL_LANE_F + RADIUS;
+                const float eta1 = eta_slm[c];
+                const float phi_val = phi[iv];
+                const float p_old_val = STENCIL_LOAD_P(p_old, ip);
+                const float numerator =
+                  (2.0f - eta1 * eta1 + 2.0f * eta1) * p_center - p_old_val
+                  + dt2 * vel[iv] * (lap + phi_val);
+                STENCIL_STORE_P(p_old, ip, numerator / (1.0f + 2.0f * eta1));
+                { const float uf_p = fm_slm[c + 1];
+                  const float uf_m = fm_slm[c - 1];
+                  const float um_p = fm_slm[c + SLM_F];
+                  const float um_m = fm_slm[c - SLM_F];
+                  const float us_p = STENCIL_S_WIN(RADIUS + 1);
+                  const float us_m = STENCIL_S_WIN(RADIUS - 1);
+                  const float eta_fp = eta_slm[c + 1];
+                  const float eta_fm = eta_slm[c - 1];
+                  const float eta_mp = eta_slm[c + SLM_F];
+                  const float eta_mm = eta_slm[c - SLM_F];
+                  const float tmp =
+                    (eta_fp - eta_fm) * (uf_p - uf_m) * FP32_HD_FAST
+                    + (eta_mp - eta_mm) * (um_p - um_m) * FP32_HD_MED
+                    + (eta_s[2] - eta_s[0]) * (us_p - us_m) * FP32_HD_SLOW;
+                  phi[iv] = (phi_val - tmp) / (1.0f + eta1);
+                }
+              }
+#else
+              STENCIL_STORE_P(p_old, ip,
+                2.0f * p_center - STENCIL_LOAD_P(p_old, ip) + dt2 * vel[iv] * lap);
+#endif
+            }
 
 #if !defined(NTERMS) || (2 < NTERMS)
-          UNROLL_FORCE(S_WINDOW - 1) for (w = 0; w < S_WINDOW - 1; ++w) {
-            STENCIL_S_WIN(w) = STENCIL_S_WIN(w + 1);
-          }
+            UNROLL_FORCE(S_WINDOW - 1) for (w = 0; w < S_WINDOW - 1; ++w) {
+              STENCIL_S_WIN(w) = STENCIL_S_WIN(w + 1);
+            }
 #endif
 
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
-          if (0 == blk_interior) {
-            eta_s[0] = eta_s[1];
-            eta_s[1] = eta_s[2];
-          }
+            if (0 == blk_interior) {
+              eta_s[0] = eta_s[1];
+              eta_s[1] = eta_s[2];
+            }
 #endif
+          }
         }
       }
       barrier(CLK_LOCAL_MEM_FENCE);
