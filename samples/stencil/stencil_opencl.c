@@ -511,7 +511,8 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           " -DSG=%d -DINTEL=%d -DNV=%d -DMETHOD=%d -DTRIM=%d -DNTERMS=%d -DLU=%d"
           " -DNDIGITS_A=%d -DNSLICES_A=%d -DR_GATHER=%d -DNSLICES_X=%d"
           " -DSTENCIL_BF16=%d -DSTENCIL_INT8=%d -DSTENCIL_BF16S=%d -DSTENCIL_FP16S=%d"
-          " -DSTENCIL_BLOCKED=%d -DSTENCIL_LAYOUT=%d -DSTENCIL_PML=%d %s",
+          " -DSTENCIL_BLOCKED=%d -DSTENCIL_LAYOUT=%d -DSTENCIL_PML=%d"
+          " -DSTENCIL_PML_W=%d %s",
           base_flags, (0 == key.method) ? STENCIL_RADIUS : key.r_per_step,
           key.k_steps, key.r_per_step,
           key.strips_per_wg, key.sg, intel_level, nv_level, key.method,
@@ -519,7 +520,7 @@ static const stencil_kernels_t* stencil_get_kernels(stencil_context_t* ctx)
           key.ndigits_a, key.ndigits_a, key.r_gather, key.ndigits_x,
           key.bf16, key.int8,
           key.bf16s, key.fp16, key.blocked,
-          key.layout, key.pml,
+          key.layout, key.pml, STENCIL_PML_W,
           prec_flag);
       }
 
@@ -845,7 +846,7 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
     const size_t grid_bytes = grid_n * sizeof(float);
     const size_t eta_n = (size_t)(nx + 2) * (ny + 2) * (nz + 2);
     const size_t eta_bytes = eta_n * sizeof(float);
-    const int pml_width = 20;
+    const int pml_width = STENCIL_PML_W;
     const char *const eta_env = getenv("STENCIL_PML_ETA");
     const float eta_scale = (NULL != eta_env)
       ? (float)atof(eta_env) : (float)STENCIL_PML_ETA_PEAK;

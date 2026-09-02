@@ -38,6 +38,15 @@
 #define STENCIL_I8_EXP_MARGIN 1
 #define STENCIL_SG 16
 #define STENCIL_PML_ETA_PEAK 0.0199
+/**
+ * Width of the absorbing layer in cells: the kernels skip the PML term for a
+ * block that lies entirely inside, and the profile decays over it. A caller
+ * supplying its own eta must match its damping width here, or cells beyond
+ * STENCIL_PML_W carry a non-zero eta the kernel does not apply.
+ */
+#if !defined(STENCIL_PML_W)
+# define STENCIL_PML_W 20
+#endif
 
 
 typedef enum {

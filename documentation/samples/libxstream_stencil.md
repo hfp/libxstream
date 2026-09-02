@@ -88,6 +88,31 @@ loop (no separate preprocess kernel).
 Requires LIBXS (sibling directory ../../../libxs) and an OpenCL 2.0
 runtime with cl_intel_subgroup_2d_block_io and DPAS support.
 
+Build-time defines go into ECFLAGS, e.g.
+`make ECFLAGS="-DSTENCIL_PML_W=27"` (DFLAGS and CFLAGS are assembled by
+the build and a command line assignment would replace them):
+
+    STENCIL_PML_W    absorbing layer width in cells (default: 20).  A
+                     caller supplying its own eta sets its own damping
+                     width here; a larger value is safe, a smaller one
+                     leaves damped cells unattenuated.
+
+### Host build
+
+    make OCL=0
+
+Compiles the FP32 kernel (kernels/stencil_fp32.cl) with the C compiler
+and runs it on the CPU instead of the GPU.  Needs neither OpenCL nor the
+LIBXSTREAM library.  The kernel is specialized at build time, so the
+work-group shape and optionally the grid extent are pinned by CPUDEF:
+
+    make OCL=0 CPUDEF="-DWG_X=128 -DWG_Y=8"
+
+WG_X defaults to the full fast axis (capacity 1024) and WG_Y to 8.  Bind
+the threads, which is what `make OCL=0 test` does:
+
+    OMP_PROC_BIND=spread OMP_PLACES=cores ./stencil.x -n 512
+
 ## Usage
 
     ./stencil.x [options]

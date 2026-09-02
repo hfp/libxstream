@@ -24,6 +24,11 @@
 
 #define STENCIL_WIDTH (2 * RADIUS + 1)
 
+/* Width of the absorbing layer in cells; matches the profile eta was built with. */
+#if !defined(STENCIL_PML_W)
+# define STENCIL_PML_W 20
+#endif
+
 /* Cascade parameters: K sub-steps each with R_PER_STEP radius. */
 #if !defined(K_STEPS)
 # define K_STEPS 1

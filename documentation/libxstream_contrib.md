@@ -70,11 +70,25 @@ A translation unit is strictly grouped, in this order:
 2. Macros
 3. Types (typedefs, struct definitions)
 4. Translation-unit variables (file-scope statics and globals)
-5. Functions
+5. Prototypes, where forward declarations are needed
+6. Functions
 
 No interleaving. A macro used only by the last function still belongs in the
-macro section. This makes the shape of every file predictable: what it depends
-on, what it configures, what state it holds, and what it does — in that order.
+macro section, and a type or a table used only by the last function belongs in
+its own. This makes the shape of every file predictable: what it depends on,
+what it configures, what state it holds, and what it does — in that order.
+Grouping is also what keeps the sections reviewable: a macro parked next to its
+first use hides how many of them the file already has.
+
+Two exceptions, and no others:
+
+- A translation unit split into implementation fragments includes those
+  fragments where their code belongs, not at the top. Such an include is a piece
+  of the implementation rather than a dependency, and hoisting it would reorder
+  the definitions it contains.
+- A type may sit immediately above the one entry point it parameterizes, when
+  that is what makes the interface readable. This covers an argument or callback
+  type in a public header, not an internal type shared by several functions.
 
 Every file carries the SPDX license header (BSD-3-Clause) verbatim as found in
 existing files.

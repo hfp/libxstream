@@ -195,7 +195,7 @@ kernel void stencil_apply_direct(
 #endif
 
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
-  { const int pml_w = 20;
+  { const int pml_w = STENCIL_PML_W;
     const int blk_f0 = (int)get_group_id(0) * WG_X;
     const int blk_m0 = (int)get_group_id(1) * WG_Y;
     const int blk_interior =

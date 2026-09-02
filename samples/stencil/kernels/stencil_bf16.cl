@@ -164,7 +164,7 @@ kernel void stencil_apply(
   }
 
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
-  { const int pml_w = 20;
+  { const int pml_w = STENCIL_PML_W;
     const int blk_interior =
       (ox >= pml_w && ox + BLK <= nx - pml_w &&
        oy >= pml_w && oy + BLK <= ny - pml_w &&
