@@ -58,9 +58,13 @@
 #   define WG_Y 1
 # endif
 #elif (0 != STENCIL_CPU_LANES)
-/* Span the fast axis: no halo along it, contiguous staging. Capacity only. */
+/**
+ * Span the fast axis: no halo along it, contiguous staging. WG_X is a capacity,
+ * so it costs per-thread stack rather than generality, and a narrower grid gets
+ * a narrower tile.
+ */
 # if !defined(WG_X)
-#   define WG_X 256
+#   define WG_X 1024
 # endif
 # if !defined(WG_Y)
 #   define WG_Y 8
@@ -111,6 +115,10 @@
 #endif
 #if (STENCIL_RADIUS != RADIUS)
 # error RADIUS disagrees with STENCIL_RADIUS
+#endif
+
+#if !defined(STENCIL_CPU_PAGE)
+# define STENCIL_CPU_PAGE 4096
 #endif
 
 /* Publish the coordinates of one work-item, the way a launch would. */
@@ -188,7 +196,23 @@ int stencil_host_allocate(void** ptr, size_t nbytes)
   }
   else {
     *ptr = malloc(nbytes);
-    if (NULL == *ptr) result = EXIT_FAILURE;
+    if (NULL == *ptr) {
+      result = EXIT_FAILURE;
+    }
+    else {
+      /**
+       * First touch decides NUMA placement, and a serial one puts every page on
+       * one node. Touched here with the schedule the launcher walks the groups
+       * with, so a thread later works on the pages it placed.
+       */
+      char *const mem = (char*)*ptr;
+      const long npages = (long)(nbytes / STENCIL_CPU_PAGE);
+      long i;
+#if defined(_OPENMP)
+#     pragma omp parallel for
+#endif
+      for (i = 0; i < npages; ++i) mem[i * STENCIL_CPU_PAGE] = 0;
+    }
   }
   return result;
 }
