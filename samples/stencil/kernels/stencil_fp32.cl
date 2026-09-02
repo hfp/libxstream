@@ -58,9 +58,8 @@
 # if defined(STENCIL_PML) && (0 < STENCIL_PML)
 #   error the host lane loop carries no per-lane PML window
 # endif
-# if (0 != (STENCIL_NX % WG_X)) || (0 != (STENCIL_NY % WG_Y))
-#   error the host lane loop needs WG_X and WG_Y to divide the grid extents
-# endif
+/* WG_X and WG_Y must divide the fast and medium extents; the host launcher
+   checks that, because the extents need not be known at build time. */
 # define STENCIL_FOR_LANE \
     SIMD_COLLAPSE(2) \
     for (lane_m = 0; lane_m < WG_Y; ++lane_m) \

@@ -61,6 +61,24 @@
 
 /* STENCIL_PADDED stays off so the coordinate clamping remains live. */
 
+/**
+ * The kernel derives its indexing from STENCIL_NX/NY/NZ, which the JIT knows at
+ * build time and a host build does not. Bind them to the kernel's own runtime
+ * extents so that one host binary serves any grid. Pinning all three through
+ * CPUDEF trades that generality for constant-folded index arithmetic.
+ */
+#if defined(STENCIL_NX) || defined(STENCIL_NY) || defined(STENCIL_NZ)
+# if !defined(STENCIL_NX) || !defined(STENCIL_NY) || !defined(STENCIL_NZ)
+#   error pin all three grid extents or none of them
+# endif
+# define STENCIL_CPU_PINNED 1
+#else
+# define STENCIL_CPU_PINNED 0
+# define STENCIL_NX nx
+# define STENCIL_NY ny
+# define STENCIL_NZ nz
+#endif
+
 /* The kernel sources derive STENCIL_WIDTH from RADIUS, asserted equal below. */
 #undef STENCIL_WIDTH
 
@@ -107,8 +125,15 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
 {
   int result = EXIT_SUCCESS;
 
-  if (STENCIL_NX != nx || STENCIL_NY != ny || STENCIL_NZ != nz
-    || NTERMS != nterms)
+  if (NTERMS != nterms
+#if (0 != STENCIL_CPU_PINNED)
+    || STENCIL_NX != nx || STENCIL_NY != ny || STENCIL_NZ != nz
+#endif
+#if (0 != STENCIL_CPU_LANES)
+    /* The lane loop runs unguarded, so every lane has to be in range. */
+    || 0 != (nx % WG_X) || 0 != (ny % WG_Y)
+#endif
+    )
   {
     result = EXIT_FAILURE;
   }
@@ -240,13 +265,25 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
 {
   int result = EXIT_SUCCESS;
+#if (0 != STENCIL_CPU_PINNED)
   if (STENCIL_NX != nx || STENCIL_NY != ny || STENCIL_NZ != nz) {
-    fprintf(stderr, "ERROR: the host kernel was built for %dx%dx%d;"
-      " rebuild with CPUDEF=\"-DSTENCIL_NX=%d -DSTENCIL_NY=%d -DSTENCIL_NZ=%d\"\n",
+    fprintf(stderr, "ERROR: the host kernel was pinned to %dx%dx%d;"
+      " drop the extents from CPUDEF or set them to %dx%dx%d\n",
       STENCIL_NX, STENCIL_NY, STENCIL_NZ, nx, ny, nz);
     result = EXIT_FAILURE;
   }
-  else if (NTERMS != ctx->nterms) {
+  else
+#endif
+#if (0 != STENCIL_CPU_LANES)
+  if (0 != (nx % WG_X) || 0 != (ny % WG_Y)) {
+    fprintf(stderr, "ERROR: the host lane loop needs WG_X=%d and WG_Y=%d to"
+      " divide %dx%d; rebuild with CPUDEF=\"-DWG_X=... -DWG_Y=...\"\n",
+      WG_X, WG_Y, nx, ny);
+    result = EXIT_FAILURE;
+  }
+  else
+#endif
+  if (NTERMS != ctx->nterms) {
     fprintf(stderr, "ERROR: the host kernel was built for %d terms;"
       " rebuild with CPUDEF=\"-DNTERMS=%d\"\n", NTERMS, ctx->nterms);
     result = EXIT_FAILURE;
