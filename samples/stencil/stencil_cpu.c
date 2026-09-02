@@ -238,7 +238,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   for (i = 0; i < nunsupported; ++i) {
     const char *const value = getenv(unsupported[i]);
     if (NULL != value && 0 != atoi(value)) {
-      fprintf(stderr, "ERROR: %s is not available with CPU=1\n", unsupported[i]);
+      fprintf(stderr, "ERROR: %s is not available with OCL=0\n", unsupported[i]);
       result = EXIT_FAILURE;
     }
   }

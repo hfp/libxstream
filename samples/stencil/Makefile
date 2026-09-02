@@ -15,17 +15,18 @@ OMP = 1
 SYM = 0
 SSE = 0
 
-# CPU=1 runs the stencil on the host: the C compiler translates
+# OCL=0 runs the stencil on the host: the C compiler translates
 # kernels/stencil_fp32.cl and neither OpenCL nor LIBXSTREAM is needed.
-# The kernel is specialized at build time, so CPUDEF carries its
-# configuration, e.g. CPUDEF="-DSTENCIL_NX=512 -DSTENCIL_NY=512 -DSTENCIL_NZ=512".
-CPU ?= 0
+# CPUDEF carries what that kernel may pin at build time, e.g.
+# CPUDEF="-DWG_X=16 -DWG_Y=4" or "-DSTENCIL_NX=512 -DSTENCIL_NY=512 -DSTENCIL_NZ=512".
+# STENCIL_CPU is derived, never taken from the environment, and the host path
+# needs an exact OCL=0 so that an unexpected value cannot select it.
+OCL ?= 2
+STENCIL_CPU := $(if $(filter 0,$(OCL)),1,0)
 CPUDEF ?= $(NULL)
-ifeq (0,$(CPU))
-  OCL = 2
+ifeq (0,$(STENCIL_CPU))
   TESTARG ?= -n 32 -t 4 -d 3
 else
-  OCL = 0
   TESTARG ?= -n 256 -t 4 -d 3
 endif
 
@@ -52,7 +53,7 @@ ifneq (,$(LIBXSROOT))
 endif
 
 # setup LIBXSTREAM (library or header-only), or select the host path
-ifneq (0,$(CPU))
+ifneq (0,$(STENCIL_CPU))
   DFLAGS += -DSTENCIL_CPU=1 $(CPUDEF)
   XLIB := $(NULL)
 else ifneq (,$(XLIB))
@@ -91,12 +92,12 @@ endif
 OUTNAME := $(shell basename "$(ROOTDIR)")
 # The host path includes the kernels directly instead of embedding them.
 HEADERS := $(wildcard $(INCDIR)/*.h) \
-           $(if $(filter 0,$(CPU)),$(GENHDR),$(KRNDEP)) \
+           $(if $(filter 0,$(STENCIL_CPU)),$(GENHDR),$(KRNDEP)) \
            $(wildcard $(DEPDIR)/libxstream/*.h) \
            $(wildcard $(DEPDIR)/libxstream/opencl/*.h) \
            $(wildcard $(LIBXSROOT)/libxs/*.h)
 CSOURCS := $(wildcard $(SRCDIR)/*.c)
-ifneq (0,$(CPU))
+ifneq (0,$(STENCIL_CPU))
   CSOURCS := $(filter-out $(SRCDIR)/stencil_opencl.c,$(CSOURCS))
 endif
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
