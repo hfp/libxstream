@@ -127,7 +127,7 @@ $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(LIBX
 
 .PHONY: test
 test: $(XFILES)
-	$(OUTDIR)/$(OUTNAME).x $(TESTARG)
+	OMP_PROC_BIND=spread OMP_PLACES=cores $(OUTDIR)/$(OUTNAME).x $(TESTARG)
 
 .PHONY: clean
 clean:
