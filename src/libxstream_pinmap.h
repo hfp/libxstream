@@ -15,19 +15,17 @@
 /**
  * Matches an OpenCL device to a vendor-runtime ordinal by PCI address.
  *
- * Separated from the OpenCL and CUDA calls around it so that it can be tested
- * where CI has neither a GPU nor an OpenCL platform: the caller supplies the
- * address it read from the OpenCL device and a callback standing in for the
- * runtime's device query, and what remains here is integer comparison.
+ * Separated from the OpenCL and CUDA calls around it so that it can be
+ * tested where CI has neither a GPU nor an OpenCL platform; what remains
+ * here is integer comparison.
  *
- * The callback is the vendor query: it fills its first argument with the value
- * of attribute (second argument) for ordinal (third argument), returning
- * non-zero once the ordinal is out of range. Attribute codes are the caller's;
- * this file does not name them, so it stays free of vendor headers.
+ * The callback fills its first argument with the value of attribute (second
+ * argument) for ordinal (third argument), returning non-zero once the
+ * ordinal is out of range. Attribute codes are the caller's, so this file
+ * stays free of vendor headers.
  *
- * Returns the first matching ordinal, or -1. Writes the number of ordinals the
- * callback answered to ndevices when that is not NULL, which is how a caller
- * distinguishes "no such device" from "the runtime enumerated nothing".
+ * Returns the first matching ordinal, or -1, and writes the number of
+ * ordinals the callback answered to ndevices when that is not NULL.
  */
 static int libxstream_pin_match(unsigned int bus, unsigned int slot, unsigned int domain,
   int (*attr)(int*, int, int), int attr_bus, int attr_slot, int attr_domain, int maxdevs,

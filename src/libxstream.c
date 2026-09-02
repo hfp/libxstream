@@ -69,12 +69,7 @@
 LIBXSTREAM_APIVAR_DEFINE(char internal_libxstream_opencl_locks[LIBXS_CACHELINE * LIBXSTREAM_NLOCKS]);
 /* global configuration discovered during initialization */
 LIBXSTREAM_APIVAR_PUBLIC_DEF(libxstream_opencl_config_t libxstream_opencl_config);
-/**
- * Explicit configuration requested by libxstream_init_config. Zero-initialized
- * like any APIVAR, which is why the sentinel cannot be the -1 the API documents:
- * zero is a meaningful request (explicitly disable). The companion flag states
- * whether the struct carries a request at all.
- */
+/* Zero-initialized, so the sentinel cannot be -1: zero means "disable". */
 LIBXSTREAM_APIVAR_DEFINE(libxstream_init_config_t internal_libxstream_init_cfg);
 LIBXSTREAM_APIVAR_DEFINE(int internal_libxstream_init_cfg_valid);
 
@@ -94,11 +89,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_notify(const char errinfo[], const 
 }
 
 
-/**
- * Comparator used with qsort; stabilized by tail condition (a < b ? -1 : 1).
- * Brings GPUs with local memory in front, followed by (potentially) integrated GPUs,
- * and further orders by memory capacity.
- */
+/* Discrete GPUs first, then integrated, then by memory capacity. */
 LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* /*dev_a*/, const void* /*dev_b*/);
 LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, const void* dev_b)
 {
@@ -170,13 +161,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, con
 
 
 /**
- * Resolve the settings a caller can state explicitly: the request wins over the
- * environment, which wins over the default. Separate from libxstream_opencl_setup
- * and idempotent because that setup is one-shot and a constructor
- * (libxstream_opencl_init) may run it at load time, i.e. before any caller could
- * state a request - re-resolving here is what lets a later libxstream_init_config
- * still take effect. Settings read lazily at their point of use (usm, device) need
- * no equivalent.
+ * Idempotent and kept apart from the one-shot setup: a constructor may run
+ * that setup before any caller could state a request.
  */
 LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void);
 LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
@@ -205,22 +191,11 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("LIBXSTREAM_WA");
   static char neo_enable_debug_keys[] = "NEOReadDebugKeys=1";
   /**
-   * Making host memory transfer at pinned speed is not one mechanism, so the
-   * knob is a level rather than a switch and is named for what it achieves:
-   *
-   *   0  off
-   *   1  stage a foreign host pointer through a runtime-owned buffer
-   *   2  and register our host allocations with a loaded vendor runtime
-   *   3  and load that runtime when the process has not
-   *
-   * The two mechanisms answer opposite questions and neither replaces the
-   * other. Staging is for memory the caller owns, which no registration can
-   * help: a malloc'd pointer registered with CUDA still transfers at 10.9 GB/s
-   * through OpenCL against 55.1 for a runtime-owned buffer on an H100, because
-   * the CUDA runtime and the OpenCL driver do not share the mapping. Level 2 is
-   * for the converse - our page-locked memory reaching a vendor runtime, which
-   * is what lets a cuBLAS call run well on it. Level 1 is the lower level
-   * because it needs nothing from a vendor runtime at all.
+   * A level, not a switch: 1 stages a foreign host pointer through a
+   * runtime-owned buffer, 2 also registers our allocations with a loaded
+   * vendor runtime, 3 also loads that runtime. Staging serves memory the
+   * caller owns, registration serves ours reaching a vendor runtime;
+   * neither replaces the other.
    */
   const char* const env_pin = getenv("LIBXSTREAM_PIN");
   const char* const env_stage = getenv("LIBXSTREAM_STAGE");
@@ -287,10 +262,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   libxstream_opencl_config.profile_mem = (NULL == env_profile_mem ? /*default*/ 0 : atoi(env_profile_mem));
   if (0 != libxstream_opencl_config.profile || 0 != libxstream_opencl_config.profile_mem) {
     /**
-     * Two values, {begin, end}, because only the union is wanted from it: the
-     * buckets are a by-product. Every kernel and every transfer is pushed here
-     * as well as into its own histogram, since a union across them cannot be
-     * assembled from theirs.
+     * {begin, end}: a union across histograms cannot be assembled from theirs.
      */
     const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg};
     libxstream_opencl_config.span_device = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
@@ -301,13 +273,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
   libxstream_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
   libxstream_opencl_config.debug = (NULL == env_debug ? libxstream_opencl_config.dump : atoi(env_debug));
-  /**
-   * Negative means "decide once the device is known": the mode that pays is a
-   * property of the vendor, and the device is selected further down. Staging
-   * earns its copy only where host memory the runtime did not allocate really
-   * does transfer slowly -- 10.9 against 55.1 GB/s on an H100 -- whereas a GPU
-   * Max 1550 reaches 46.7 against 48.3 and would pay the copy for 3%.
-   */
+  /* Negative defers to device selection: the paying mode is a vendor trait. */
   libxstream_opencl_config.pin = (NULL == env_pin ? -1 : atoi(env_pin));
   { /* the window is halved for double buffering, so it wants room for two chunks */
     const int stage = (NULL == env_stage ? 0 : atoi(env_stage));
@@ -415,19 +381,10 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   }
 # if defined(LIBXS_INTERCEPT_DYNAMIC)
   /**
-   * Host memory is registered with a vendor runtime when that runtime is
-   * already loaded, so that its own code (a cuBLAS call, say) transfers our
-   * page-locked allocations at pinned speed. This costs one dlsym and is
-   * attempted under every mode but 0, which exists to measure the pageable
-   * transport: a process that did not load CUDA resolves nothing and pays
-   * nothing, and one that did is a process intending to use it.
-   *
-   * Mode 3 additionally loads that runtime. It is opt-in because loading a
-   * vendor runtime into a process that never asked for it is a side effect,
-   * not a detail: it initializes CUDA, can be slow or fail against a
-   * mismatched driver, and may collide with an application managing CUDA
-   * itself. The case it serves is real - a wrapper driver that intercepts BLAS
-   * links libOpenCL and no CUDA runtime, so the lookup alone finds nothing.
+   * Registration is attempted under every mode but 0; a process without CUDA
+   * resolves nothing. Mode 3 additionally loads the runtime and is opt-in:
+   * that initializes CUDA, can fail against a mismatched driver, and may
+   * collide with an application managing CUDA itself.
    */
   { const int cuda_pin = libxstream_opencl_config.pin;
     if (0 != cuda_pin) {
@@ -440,10 +397,8 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
       attr.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "cudaDeviceGetAttribute");
       if (2 < cuda_pin && (NULL == reg.dlsym || NULL == unreg.dlsym)) {
         /**
-         * The unversioned name exists only where the development package is
-         * installed, so the SONAMEs are tried after it. The handle is
-         * deliberately never released on success: a registration must outlive
-         * whatever made the entry point reachable.
+         * The handle is never released: a registration must outlive whatever made
+         * the entry point reachable.
          */
         static const char* const cudart[] = {
           "libcudart.so", "libcudart.so.13", "libcudart.so.12"
@@ -810,24 +765,13 @@ LIBXSTREAM_API int libxstream_init(void)
         if (0 != libxstream_opencl_config.profile_mem) {
           const int profile = LIBXS_MAX(LIBXS_ABS(libxstream_opencl_config.profile_mem), 2);
           /**
-           * {size, size, duration}, all averaged. Averaged rather than
-           * accumulated for the reason spelled out at the kernel histogram: a
-           * summed duration divided a per-sample amount by a bucket total, which
-           * understated the rate by roughly the number of samples sharing a
-           * bucket. Three values rather than two because the rate must not use
-           * vals[0]: that is the binning key, which query_percentile derives from
-           * the bucket's axis position instead of from the samples, so it equals
-           * the transferred amount only while every sample has the same size.
-           * Mixed sizes (a panelled upload, or zero-fills covering both a small
-           * exponent array and a large slice plane) otherwise paired an
-           * interpolated size with an unrelated duration, making the reported
-           * rate depend on the bucket count.
+           * Averaged, not accumulated, and the rate never uses vals[0]: that is the
+           * binning key, not an aggregate of what landed in the bucket.
            */
           const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg,
             libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
           /**
-           * {MB, MB, us, begin, end}: the interval is carried for the union
-           * fold, which reads the last two values of a sample.
+           * {MB, MB, us, begin, end}: the last two carry the interval for the fold.
            */
           libxstream_opencl_config.span_h2d = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
           libxstream_opencl_config.span_d2h = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
@@ -910,10 +854,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_CTOR void libxstream_opencl_init(void)
 }
 
 
-/**
- * Print the identifying prefix shared by every PROF row. Under Slurm the job-ID
- * is included so rows from concurrent jobs remain attributable.
- */
+/* Under Slurm the job-ID is included so concurrent jobs stay attributable. */
 LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char name[]);
 LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char name[])
 {
@@ -925,16 +866,9 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_print_id(FILE* ostream, const char 
 
 
 /**
- * Samples a histogram holds and the total of their durations in milliseconds,
- * taken from the running total the histogram accumulates on push rather than
- * from its buckets: a bucket carries a mean, and reconstructing a total from one
- * would depend on the update function the value was created with. Returns the
- * number of samples, 0 if the histogram is empty or absent.
- *
- * The duration sits at a different index per kind - transfers carry {MB, MB, us}
- * and kernels {ms, gflop, mb} - which is the same distinction amount_first draws
- * for the rate. Both carry the interval as their last two values, which is
- * where libxs_hist_fold_union reads it, and union_ms reports what it covered.
+ * Returns the sample count, 0 if the histogram is empty or absent. The
+ * duration sits at a different index per kind: transfers {MB, MB, us},
+ * kernels {ms, gflop, mb}.
  */
 LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist,
   const libxs_span_t* span, int amount_first, double* total_ms, double* union_ms);
@@ -966,18 +900,9 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_hist_total(const libxs_hist_t* hist,
 
 
 /**
- * Print one histogram whose samples are {amount, amount, us} (transfers,
- * amount_first non-zero) or {ms, gflop, mb} (kernels). Both are the same
- * measurement - an amount of work over the time it took - so both are reported
- * here rather than in separate routines: a transfer yields a rate in the caller's
- * unit, a kernel yields its duration plus whatever rates the stated work
- * supports.
- *
- * A rate is always derived from a single sample's amount and that same sample's
- * duration, never from independently aggregated totals, and never from vals[0]
- * of a transfer: libxs_hist_query_mode puts the bucket's upper bound there, not
- * an aggregate of what landed in it. Returns 1 if a row was printed, 0 if the
- * histogram held no usable sample.
+ * A rate is always one sample's amount over that same sample's duration,
+ * never an aggregate and never vals[0] of a transfer, which holds the
+ * bucket bound. Returns 1 if a row was printed.
  */
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libxs_hist_t* hist, const char name[],
   const libxs_span_t* span, int amount_first, const char unit[], double scale);
@@ -989,26 +914,14 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libx
     double total_ms = 0, union_ms = 0;
     const int nsamples = libxstream_opencl_hist_total(hist, span, amount_first, &total_ms, &union_ms);
     /**
-     * Reported only where it is demonstrated: intervals cannot sum to more than
-     * the time they cover unless some ran at once. At or below 1 the ratio
-     * describes the gaps between them rather than concurrency, which for
-     * disjoint intervals is exactly 1 whatever the gaps, so the absence of the
-     * field is the answer. The union is an upper bound wherever an interval
-     * reached back past what the fold had retired, which keeps the ratio a
-     * lower bound in either case.
-     *
-     * The margin keeps the field from appearing as "1.00", which would state
-     * overlap and display none: below it the overlap is smaller than the two
-     * decimals reported can express.
+     * Reported only above 1: at or below it the ratio describes the gaps
+     * between intervals, not concurrency. The margin keeps it from printing
+     * "1.00" while displaying no overlap.
      */
     const double inflight = (1 < nsamples && 0 < union_ms
       && total_ms > union_ms * LIBXSTREAM_PROFILE_INFLIGHT
       ? (total_ms / union_ms) : 0);
-    /**
-     * An empty histogram leaves vals untouched, so it must be cleared: reading
-     * it uninitialized (or inheriting a previous kind's median) reported a bogus
-     * rate for kinds that never recorded a sample.
-     */
+    /* An empty histogram leaves vals untouched, so clear it before reading. */
     double vals[5];
     vals[0] = 0;
     vals[1] = 0;
@@ -1018,19 +931,14 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libx
     libxs_hist_query_median(NULL /*lock*/, hist, vals);
     if (0 != amount_first) { /* transfers: {amount, amount, us}, amount per time */
       /**
-       * The mode rather than the median: transfer sizes are commonly multi-modal
-       * (a whole operand alongside per-panel blocks, or a zero-fill covering both
-       * a small exponent array and a large slice plane), and a median can fall
-       * between the clusters and describe no observed transfer. The mode always
-       * names a bucket that samples landed in. For a single-sized workload the two
-       * agree, so nothing is lost where the median was already right.
+       * The mode, not the median: transfer sizes are commonly multi-modal and a
+       * median can fall between the clusters and describe no observed transfer.
        */
       libxs_hist_query_mode(NULL /*lock*/, hist, vals);
       if (0 < vals[2]) {
         /**
-         * prec[0] also formats the bucket bound itself and a negative value
-         * suppresses the whole line, so the key column stays enabled; it repeats
-         * the amount, which is what the bound already conveys.
+         * prec[0] also formats the bucket bound, and a negative value suppresses
+         * the whole line.
          */
         /* the interval is there for the union alone and is not reported */
         const int precision[] = {1, 1, 1, -1, -1};
@@ -1044,11 +952,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libx
     }
     else if (0 < vals[0]) { /* kernels: {ms, gflop, mb}, time always, rates if stated */
       /**
-       * 3 decimals: kernels span microseconds to hundreds of milliseconds, and a
-       * coarser format would print every short kernel as 0.000. A negative
-       * precision suppresses a column, which is how the work amounts a caller
-       * did not state are kept out of the per-bucket detail rather than shown
-       * as a column of zeros.
+       * 3 decimals: kernels span microseconds to hundreds of milliseconds. A
+       * negative precision suppresses a column.
        */
       int precision[5];
       precision[0] = 3;
@@ -1079,12 +984,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_transfers(
   int nrows = 0, i;
   assert(nhist <= (int)(sizeof(kind) / sizeof(*kind)));
   for (i = 0; i < nhist; ++i) {
-    /**
-     * GB/s: samples carry megabytes over microseconds, so the ratio is MB/us and
-     * 1E3 converts it. Matches the unit the kernel rows already report, and
-     * device-attached memory reaches five digits of MB/s where GB/s stays
-     * legible. The per-bucket columns keep their own units (MB, microseconds).
-     */
+    /* GB/s: samples carry megabytes over microseconds, so 1E3 converts. */
     nrows += libxstream_opencl_print_hist(ostream, hist[i], kind[i], span[i], 1 /*amount_first*/, "GB/s", 1E3);
   }
   return nrows;
@@ -1102,10 +1002,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_kernels(FILE* ostream)
       libxstream_opencl_config.name_kernel[i], libxstream_opencl_config.span_kernel[i],
       0 /*amount_first*/, "ms", 1.0);
     /**
-     * A kernel is registered when it is first launched, so an empty histogram
-     * means it ran and every sample was rejected by the accuracy floor. Saying
-     * nothing would read as "this kernel was never launched"; there is no time
-     * to report, which is exactly what the row states.
+     * Empty means it ran and every sample was rejected by the accuracy floor;
+     * silence would read as "never launched".
      */
     if (0 == printed) {
       libxstream_opencl_print_id(ostream, libxstream_opencl_config.name_kernel[i]);
@@ -1125,16 +1023,10 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_kernels(FILE* ostream)
 
 
 /**
- * Print the device-wide envelope: every kernel and every transfer folded into
- * one begin and one end. The row is what a reader wants from a "pipeline total"
- * and what a sum of per-kernel rows cannot supply, because those rows may
- * describe overlapping intervals.
- *
- * The contributing slots are named rather than assumed: with only
- * LIBXSTREAM_PROFILE set no transfer event is created at all, and an
- * unqualified busy figure would then read as full device utilization while
- * describing kernels alone. Returns the number of rows printed. Caller holds
- * the stdio lock.
+ * Device-wide envelope, which a sum of per-kernel rows cannot supply. The
+ * contributing slots are named rather than assumed: with only
+ * LIBXSTREAM_PROFILE set no transfer event exists, and an unqualified
+ * busy figure would then read as full utilization.
  */
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream);
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream)
@@ -1164,12 +1056,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream)
       ++ntransfers;
     }
   }
-  /**
-   * The union over every kernel and every transfer, which no per-kernel row can
-   * supply: two of them may cover the same instant, and their totals cannot say
-   * whether they do. Reported only where it shows an overlap the rows above do
-   * not - one kernel against another, or a transfer against a kernel.
-   */
+  /* Reported only where it shows an overlap the rows above do not. */
   if (NULL != libxstream_opencl_config.hist_device) {
     libxs_hist_info_t info; /* the query folds whatever is still queued */
     libxs_hist_query(NULL /*lock*/, libxstream_opencl_config.hist_device, &info);
@@ -1181,8 +1068,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream)
     if (0 != ntransfers) fprintf(ostream, ", %i transfer kinds", ntransfers);
     fprintf(ostream, ")");
     /**
-     * The union overstates where an interval reached back past what the fold
-     * had retired, so the ratio is understated by however much that was.
+     * The union overstates where an interval reached past what the fold retired.
      */
     if (0 != inexact) fprintf(ostream, " (%i not merged exactly)", inexact);
     result = 1;
@@ -1192,10 +1078,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_device(FILE* ostream)
 
 
 /**
- * Print the sample floor and what it cost. Kept apart from the rate rows: this
- * describes the clock rather than a transfer, carries no byte count, and is only
- * meaningful where samples were actually dropped - alongside complete figures
- * it is noise. Returns the number of rows printed. Caller holds the stdio lock.
+ * Describes the clock rather than a transfer, and is only meaningful where
+ * samples were dropped: alongside complete figures it is noise.
  */
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_floor(FILE* ostream);
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_floor(FILE* ostream)
@@ -1214,10 +1098,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_floor(FILE* ostream)
     nrows = 1;
   }
   /**
-   * A profile that collected nothing whatsoever is reported, because silence
-   * there is indistinguishable from a run that simply transferred nothing. This
-   * is the shape the command-type attribution defect took: every sample dropped,
-   * no output, and no indication that anything had gone missing.
+   * A profile that collected nothing is still reported: silence there is
+   * indistinguishable from a run that transferred nothing.
    */
   else if (0 == libxstream_opencl_config.nprofile) {
     fprintf(ostream, "\nPROF ACC/OpenCL: no samples recorded");
@@ -1236,12 +1118,9 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     const libxs_span_t* span[] = { NULL, NULL, NULL, NULL };
     const int nhist = (int)(sizeof(hist) / sizeof(*hist));
     /**
-     * A completion callback can still be delivered while this runs: completion of
-     * an event does not imply delivery of its callback, and the thread delivering
-     * it belongs to the OpenCL runtime rather than to the caller. Under profiling
-     * such a callback is outstanding, and then nothing it touches is released
-     * here. This function runs at process exit only (destructor or atexit), where
-     * the alternative to leaving the memory to the OS is a use-after-free.
+     * A completion callback may still be delivered while this runs, from an
+     * OpenCL thread, so nothing it touches is released here. Runs at process
+     * exit only, where the alternative is a use-after-free.
      */
     const int keep = (0 != libxstream_opencl_config.profile || 0 != libxstream_opencl_config.profile_mem);
     int i;
@@ -1254,9 +1133,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     span[2] = libxstream_opencl_config.span_d2d;
     span[3] = libxstream_opencl_config.span_zero;
     /**
-     * Print only what was requested: kernel rows for LIBXSTREAM_PROFILE and
-     * transfer rows for LIBXSTREAM_PROFILE_MEM. The two mix only when both are
-     * given, which is what keeps a rate row from being read as a duration.
+     * Kernel rows for LIBXSTREAM_PROFILE, transfers for LIBXSTREAM_PROFILE_MEM.
      */
     if (0 != keep) {
       int nrows = 0;
@@ -1268,11 +1145,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       if (0 != nrows) fprintf(stderr, "\n\n");
       LIBXS_STDIO_RELEASE();
     }
-    /**
-     * Both counts, because the interesting outcome is a partial one: memory the
-     * CUDA runtime refused stays pageable for its transfers, which reads as a
-     * slow GEMM rather than as a slow copy.
-     */
+    /* Both counts: a partial refusal reads as a slow GEMM, not a slow copy. */
     if (0 != libxstream_opencl_config.nstaged &&
         (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
     {
@@ -1348,10 +1221,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) { /* destroy locks */
         LIBXS_LOCK_DESTROY(LIBXS_LOCK, (libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * i));
       }
-      /**
-       * NOTE: registered streams/events are not individually released here;
-       * the OpenCL runtime reclaims resources at process exit (atexit context).
-       */
+      /* Registered streams and events are reclaimed by the runtime at exit. */
       free(libxstream_opencl_config.memptrs);
       free(libxstream_opencl_config.memptr_data);
       free(libxstream_opencl_config.subs);
@@ -1374,16 +1244,10 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
 
 
 /**
- * CUDA ordinal of an OpenCL device, and the number of ordinals seen. The two
- * runtimes enumerate independently - OpenCL by platform order, CUDA by its own
- * rules and CUDA_VISIBLE_DEVICES - so an ordinal carries no meaning until it is
- * matched. The PCI location is what both report and what identifies the part:
- * verified against nvidia-smi on a GH200, where OpenCL answers bus=1 slot=0
- * domain=9 and ordinal 0 answers the same for 00000009:01:00.0. The domain is
- * not decoration there, so it is part of the match.
- *
- * The scan ends at the first ordinal the runtime rejects, which is how the count
- * is learned without resolving a second entry point.
+ * The two runtimes enumerate independently, so an ordinal means nothing
+ * until matched by PCI location; the domain is part of the match. The
+ * scan ends at the first rejected ordinal, which is how the count is
+ * learned without resolving a second entry point.
  */
 static int libxstream_pin_cuda_device(cl_device_id device, int (*attr)(int*, int, int), int* ndevices)
 {
@@ -1405,23 +1269,12 @@ static int libxstream_pin_cuda_device(cl_device_id device, int (*attr)(int*, int
 
 
 /**
- * Resolves an unset LIBXSTREAM_PIN against the device, which is where the answer
- * lives: staging a foreign host pointer is worth 2.8x on an H100, where such a
- * pointer transfers at 10.9 GB/s against 55.1 for memory the runtime owns, and
- * costs 57% on a GH200, where it reaches 389.8 against 375.6 - already faster
- * than ours over C2C, so the copy buys nothing and the transfer it replaces was
- * never slow. Nothing OpenCL reports separates the two; both answer
- * CL_DEVICE_HOST_UNIFIED_MEMORY=0. CUDA answers it directly.
- *
- * Called on the first libxstream_mem_host_pin rather than at startup because the
- * query initializes the CUDA driver, measured at 178 ms on a GH200 - it creates
- * no context and takes no device memory (cuDevicePrimaryCtxGetState reports no
- * primary context, and the device lists no compute app), but it is not free, and
- * only a caller that declares foreign memory needs the answer. A caller that set
- * the knob resolves nothing and pays nothing.
- *
- * The ordinal is CUDA's and not OpenCL's; a node mixing device models would need
- * them mapped, whereas the attribute is uniform across a node of one model.
+ * Resolves an unset LIBXSTREAM_PIN against the device: staging pays where a
+ * foreign host pointer transfers slowly and costs where it does not, and
+ * nothing OpenCL reports separates the two (both answer
+ * CL_DEVICE_HOST_UNIFIED_MEMORY=0). Deferred to the first
+ * libxstream_mem_host_pin because the CUDA query initializes the driver.
+ * The ordinal is CUDA's: a node mixing device models would need a map.
  */
 LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void);
 LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
@@ -1451,14 +1304,9 @@ LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
 # endif
       if (NULL != attr) {
         /**
-         * Only a matched ordinal is asked. Adopting the sole visible one instead
-         * would be wrong exactly where it is hard to notice: CUDA_VISIBLE_DEVICES
-         * renumbers what remains, which the PCI match follows correctly, but it
-         * can also hide the very device OpenCL selected, and then the one ordinal
-         * on offer describes a different part. On a node of one model that is
-         * harmless and on a mixed node it inverts the decision, so an unmatched
-         * device does not stage. No environment is parsed for this: a visible
-         * device matches whatever its ordinal became, and a hidden one cannot.
+         * Only a matched ordinal is asked. CUDA_VISIBLE_DEVICES can hide the very
+         * device OpenCL selected, and then the sole ordinal on offer describes a
+         * different part, so an unmatched device does not stage.
          */
         int ndevices = 0;
         const int ordinal = libxstream_pin_cuda_device(
@@ -2008,43 +1856,27 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             devinfo->biggrf = (NULL != env_biggrf && 0 != atoi(env_biggrf));
           }
           /**
-           * LIBXSTREAM_USM runtime levels:
+           * LIBXSTREAM_USM levels:
            *   not set: OpenCL 2.0 SVM coarse-grain (same as level 2)
            *   0: disable all USM, force clCreateBuffer path
            *   1: Intel USM ext
            *   2: OpenCL 2.0 SVM coarse-grain only (skip Intel ext)
            *   3: OpenCL 2.0 SVM with device-reported caps (skip Intel ext)
            *
-           * Levels 1 and 3 are opt-in, never reached by the default. Both are
-           * faster in a microbenchmark - the Intel extension gives an actual
-           * asynchronous transfer (45.3 vs 9.1 GB/s for a 128 MB H2D on a GPU
-           * Max 1550) - and both are nevertheless excluded here, because the
-           * default has to stay predictable across drivers rather than fastest
-           * on one. The extension path carries the known issues that motivated
-           * gating it behind an explicit request, and level 3 takes whatever the
-           * driver reports, which on Xe reaches fine-grain *system* allocations:
-           * a far broader contract than coarse-grain buffers, and not something
-           * to acquire implicitly from a capability bit.
-           *
-           * Coarse-grain costs nothing against fine-grain anyway: it adds a
-           * SVMMap/SVMUnmap pair that fine-grain omits, but that is bookkeeping
-           * and the host memcpy both paths end in dominates - 15.2 vs 15.1 GB/s
-           * on a Xeon 8480+, the device here offering both grains.
+           * 1 and 3 are opt-in: the default stays predictable across drivers rather
+           * than fastest on one, and level 3 takes whatever the driver reports,
+           * which can reach fine-grain system allocations.
            */
           {
             const char* const env_usm = getenv("LIBXSTREAM_USM");
             const int cfg_usm = (0 != internal_libxstream_init_cfg_valid ? internal_libxstream_init_cfg.usm : -1);
 # if (0 != LIBXSTREAM_USM)
             /**
-             * WA-16 disables USM on unified-memory Intel GPUs (iGPU), where some
-             * software stacks are not correct with SVM allocations or transfers.
-             * It only supplies the default level, i.e. an explicit request still
-             * wins, or level 2 would be unreachable on such a device without also
-             * clearing the bit. Restricted to a GPU: an Intel CPU device reports
-             * unified memory as well but is correct, and the buffer-based path
-             * would cost it a real copy where coarse-grain SVM costs nothing.
-             * The same bit additionally forces synchronous transfers, because the
-             * buffer-based path is not correct asynchronously there either.
+             * WA-16 disables USM on unified-memory Intel GPUs, where some stacks are
+             * not correct with SVM. It supplies the default level only, so an explicit
+             * request still wins. Restricted to a GPU: a CPU device reports unified
+             * memory as well but is correct. The same bit forces synchronous
+             * transfers.
              */
             const int usm_default = (LIBXSTREAM_WA_UNIFIED(devinfo) ? 0 : -1 /*as level 2*/);
 # else
@@ -2102,24 +1934,18 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
 # endif
 # if (0 != LIBXSTREAM_USM)
             /**
-             * OpenCL 2.0 SVM: the default and levels 2-3, or the fallback when an
-             * explicit level 1 could not load the Intel extensions. Only level 3
-             * keeps the reported capabilities (see the coarse-grain mask below);
-             * everything else is restricted to coarse-grain buffers, so a driver
-             * advertising fine-grain system allocations does not silently widen
-             * what the default relies on.
+             * Only level 3 keeps the reported capabilities; everything else is held to
+             * coarse-grain, so a driver advertising fine-grain system allocations does
+             * not silently widen what the default relies on.
              */
             if (0 > usm_level || 2 <= usm_level || (1 == usm_level && NULL == devinfo->clMemFreeINTEL))
             {
               cl_device_svm_capabilities svmcaps = 0;
               cl_int query_result = EXIT_SUCCESS;
               /**
-               * The capability is not queried on NVIDIA by default (vendor
-               * workaround), but an explicitly requested level is honoured, so
-               * the path can be exercised there rather than only inferred. It is
-               * not a shortcut: the capability is real (coarse-grain buffers) and
-               * correct, and 6.7x slower than the default on an H100, which is
-               * why the query stays off unless asked for.
+               * Not queried on NVIDIA by default (vendor workaround), but an explicit
+               * level is honoured. The capability is real and correct, merely slower
+               * than the default.
                */
               if (0 == devinfo->nv || 0 < usm_level) {
                 query_result = clGetDeviceInfo(active_id, CL_DEVICE_SVM_CAPABILITIES, sizeof(cl_device_svm_capabilities), &svmcaps, NULL);
@@ -2134,11 +1960,9 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
 # endif
 # if (0 != LIBXSTREAM_USM)
             /**
-             * Only an unsatisfied explicit request warrants a warning: SVM is the
-             * intended default, so reporting its synchronous transfers on every
-             * run would be noise. Level 1 asked for the asynchronous path and did
-             * not get it, which is worth stating because the symptom is merely a
-             * slower run.
+             * Only an unsatisfied explicit request warrants a warning: level 1 asked
+             * for the asynchronous path and did not get it, and the symptom is merely
+             * a slower run.
              */
             if (1 == usm_level && NULL == devinfo->clMemFreeINTEL &&
                 (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
@@ -2477,15 +2301,11 @@ LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size
 
 
 /**
- * Instantiates a kernel template as <name>.cl: the build parameters are applied
- * as preprocessor defines and the includes are fused, so the artifact compiles
- * on its own.  Returns EXIT_SUCCESS when the file was written, and sets
- * *instanced to the preprocessed text (caller frees) or to NULL.
- *
- * Separate from libxstream_opencl_program because the artifact is worth having
- * where no program can be built: a runner with no GPU and no OpenCL platform, or
- * a device that merely lacks an extension and stops the build before any dump
- * (an iGPU without cl_khr_fp64 produces none).
+ * Instantiates a kernel template as <name>.cl with the build parameters
+ * applied as defines and the includes fused. Sets *instanced to the
+ * preprocessed text (caller frees) or NULL. Separate from
+ * libxstream_opencl_program because the artifact is worth having where no
+ * program can be built at all.
  */
 static int libxstream_opencl_instance(const char source[], size_t size_src, const char name[],
   const char build_params[], int nv, const char std_flag[], int want_cpp, char** instanced)
@@ -2495,8 +2315,7 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
   char buffer_name[sizeof(nm) + 32];
   int result = EXIT_FAILURE, nchar = 0;
   if (NULL != instanced) *instanced = NULL;
-  /* Bounded before use: LIBXS_SNPRINTF is sprintf, so a name the buffers cannot
-     hold would overflow rather than truncate. */
+  /* LIBXS_SNPRINTF is sprintf: an oversized name would overflow, not truncate. */
   if (NULL != source && NULL != name && sizeof(nm) > strlen(name)) {
     strcpy(nm, name);
     nchar = LIBXS_SNPRINTF(dump_filename, sizeof(dump_filename), "%s.cl", nm);
@@ -2545,11 +2364,12 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
         fclose(file_sed); /* existence-check */
       }
 #   endif
-      /* Preprocessor and its flags are both nameable: the default is a generic C
-         preprocessor, whereas a clang driver must be told the language ("-E -x cl")
-         because it otherwise infers it from a temporary file that carries no
-         extension.  The two spellings are not interchangeable -- GNU cpp rejects
-         "-x cl" outright -- so the flags travel with the binary that accepts them. */
+      /**
+       * Preprocessor and flags are both nameable because the spellings are not
+       * interchangeable: a clang driver must be told the language ("-E -x cl"),
+       * inferring it otherwise from an extensionless temporary, while GNU cpp
+       * rejects "-x cl" outright. So the flags travel with the binary.
+       */
       nchar = LIBXS_SNPRINTF(buffer, LIBXSTREAM_BUFFERSIZE, "%s %s -P -C -nostdinc %s",
         cppbin, (NULL != env_cppflags ? env_cppflags : ""),
         0 == nv ? "" : "-D__NV_CL_C_VERSION ");
@@ -2769,10 +2589,8 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
   }
   else if (EXIT_SUCCESS == result) { /* binary representation */
     /**
-     * Intermediate language or device binary, decided by the blob itself rather
-     * than by a switch: SPIR-V starts with a magic number, whereas a device
-     * binary can be anything (NVIDIA hands out PTX text, which must not be taken
-     * for IL just because dumping happens to be enabled).
+     * Decided by the blob itself: SPIR-V starts with a magic number, whereas a
+     * device binary can be anything (PTX text must not be taken for IL).
      */
     const int is_il = (4 <= size_src && 0 == memcmp(source, "\x03\x02\x23\x07", 4)) ||
                       (4 <= size_src && 0 == memcmp(source, "\x07\x23\x02\x03", 4));
@@ -2883,24 +2701,13 @@ LIBXSTREAM_API int libxstream_opencl_kernel(size_t source_kind, const char sourc
 
 /**
  * Sub-buffer covering info->memory from offset onward, recorded so that the
- * parent's deallocation releases it.
+ * parent's deallocation releases it. Caller must hold lock_memory.
  *
- * Releasing right after clSetKernelArg is what this replaces: that call does not
- * retain the cl_mem, so dropping the last reference left the pending launch with
- * a freed handle and the Intel driver aborted inside clEnqueueNDRangeKernel (no
- * error code, SIGABRT from within the driver).
- *
- * A fresh sub-buffer per argument rather than one cached per offset, even though
- * the offset determines the region: reusing one handle across launches computed
- * wrong results (Ozaki-2 panelled GEMM, rsq 0.71 against 1.0 for fresh handles),
- * while the region, size and parent of the reused handle all verified correct.
- * The reason is not established - suspected aliasing of a region written by one
- * kernel and read by the next through the same sub-buffer - so correctness wins
- * over economy here. Consequently the list grows per launch, and the release at
- * deallocation is what bounds it: buffers whose lifetime spans very many
- * launches will hold correspondingly many handles.
- *
- * The caller must hold lock_memory: the list is shared with the deallocator.
+ * Never release after clSetKernelArg: it does not retain the cl_mem, and
+ * dropping the last reference left the pending launch with a freed handle.
+ * A fresh sub-buffer per argument rather than one cached per offset:
+ * reusing a handle across launches computed wrong results for reasons not
+ * established, so the list grows per launch and deallocation bounds it.
  */
 LIBXSTREAM_API_INTERN cl_mem libxstream_opencl_subbuffer(cl_mem /*parent*/, size_t /*offset*/, int* /*result*/);
 LIBXSTREAM_API_INTERN cl_mem libxstream_opencl_subbuffer(cl_mem parent, size_t offset, int* result)
@@ -2973,9 +2780,7 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
     libxstream_opencl_info_memptr_t* info;
     LIBXS_UNION_ASSIGN(void*, nc, const void*, arg_value);
     /**
-     * The lock spans the sub-buffer table as well, not just the lookup: the
-     * table is state shared with the deallocator, so releasing earlier would let
-     * a concurrent free tear it down mid-use.
+     * The lock spans the sub-buffer table too: it is shared with the free path.
      */
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     info = libxstream_opencl_info_devptr_modify(NULL, nc, 1 /*elsize*/, NULL /*amount*/, &offset);
@@ -2984,21 +2789,17 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
         result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &info->memory);
       }
       /**
-       * A non-zero offset needs a sub-buffer, because clSetKernelArg takes a
-       * cl_mem and cannot express one. Off by default: the kernel is the better
-       * place to apply the offset, so a caller that can pass it as a separate
-       * index argument should do that instead. Opting in costs a driver object
-       * per distinct offset whose lifetime must outlive the launch, and releasing
-       * such an object was observed to fault inside the NVIDIA driver even for a
-       * handle that clRetainMemObject and clGetMemObjectInfo both accept.
+       * Off by default: the kernel is the better place to apply an offset. Opting
+       * in costs a driver object per distinct offset that must outlive the
+       * launch, and releasing one was observed to fault inside the NVIDIA driver
+       * even for a handle the API otherwise accepts.
        */
       else if (0 != libxstream_opencl_config.subbuffer) {
         cl_mem sub = libxstream_opencl_subbuffer(info->memory, offset, &result);
         if (EXIT_SUCCESS == result) {
           /**
-           * No release here: clSetKernelArg does not retain the cl_mem, so
-           * dropping the last reference would enqueue the kernel with a dangling
-           * handle. The table owns it until the parent buffer is deallocated.
+           * No release: clSetKernelArg does not retain the cl_mem. The table owns it
+           * until the parent buffer is deallocated.
            */
           result = clSetKernelArg(kernel, arg_index, sizeof(cl_mem), &sub);
         }
@@ -3029,10 +2830,8 @@ LIBXSTREAM_API_INTERN void libxstream_launch_info_free(libxstream_opencl_launch_
 
 
 /**
- * Record a completed kernel launch as {ms, gflop, mb}. The work amounts come from
- * the per-launch record rather than from the table, so two launches of the same
- * kernel in flight at once cannot overwrite each other's counts. The callback
- * resolves no names and takes no lock beyond the histogram's and the pool's.
+ * Work amounts come from the per-launch record rather than the table, so two
+ * launches of the same kernel in flight cannot overwrite each other.
  */
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event /*event*/, cl_int /*event_status*/, void* /*data*/);
 LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, cl_int event_status, void* data)
@@ -3053,8 +2852,7 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, 
     const size_t i = info->slot;
     libxs_hist_t* const hist = (i < libxstream_opencl_config.nkernels ? libxstream_opencl_config.hist_kernel[i] : NULL);
     if (NULL != hist) {
-      /* same floor as the transfer path: a duration spanning too few ticks of the
-         device timer is quantization noise rather than a measurement */
+      /* Same floor as the transfer path: too few timer ticks is quantization. */
       const double floor_ms = 1E-6 * (double)(LIBXSTREAM_PROFILE_TICKS * libxstream_opencl_config.device.timer_ns);
       vals[1] = info->gflop;
       vals[2] = info->mb;
@@ -3068,11 +2866,8 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, 
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile) {
           /**
-           * Relative to the profiling epoch, so the intervals can be
-           * reassembled offline instead of only through the figures reported
-           * here. Not the absolute timestamps: those are far above 2^53, where
-           * a double quantizes them to hundreds of nanoseconds and can make
-           * adjacent intervals appear to touch.
+           * Relative to the profiling epoch, not absolute: those are above 2^53,
+           * where a double quantizes them and can make adjacent intervals touch.
            */
           fprintf(stderr, "PROF ACC/OpenCL: %s ms=%.3f ns=%.0f-%.0f\n",
             libxstream_opencl_config.name_kernel[i], vals[0], vals[3], vals[4]);
@@ -3093,11 +2888,9 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, 
 
 
 /**
- * Map a kernel handle to its hist_kernel slot, creating the entry on first sight.
- * The name comes from the handle (CL_KERNEL_FUNCTION_NAME) rather than from the
- * caller, so a launch site needs no identifier argument. Returns the number of
- * slots when the table is full or the kernel cannot be identified, which the
- * caller treats as "do not profile this launch".
+ * Maps a kernel handle to its slot, creating the entry on first sight.
+ * Returns the slot count when the table is full or the kernel cannot be
+ * identified, which the caller treats as "do not profile this launch".
  */
 LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel);
 LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel)
@@ -3118,11 +2911,8 @@ LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel)
         if (EXIT_SUCCESS == clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, LIBXSTREAM_MAXSTRLEN, name, NULL)) {
           const int nbuckets = LIBXS_MAX(LIBXS_ABS(libxstream_opencl_config.profile), 2) + 1;
           /**
-           * All three averaged, not accumulated: libxs_hist_query_percentile
-           * reports vals[0] as an interpolated per-sample duration, so the work
-           * amounts must be per-sample too. Summing them would divide a bucket
-           * total by a single-sample time - the same numerator/denominator
-           * mismatch that let the old facility report more work in less time.
+           * Averaged, not accumulated: query_percentile reports vals[0] as a
+           * per-sample duration, so the work amounts must be per-sample too.
            */
           const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg,
             libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
@@ -3135,8 +2925,7 @@ LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel)
             libxstream_opencl_config.span_kernel[i] = span;
             libxstream_opencl_config.name_kernel[i] = name;
             libxstream_opencl_config.kernels[i] = kernel;
-            /* publish the entry only once it is complete: the callback reads it
-               without the lock, bounded by nkernels */
+            /* Publish once complete: the callback reads it without the lock. */
             LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nkernels, 1, LIBXS_ATOMIC_SEQ_CST);
             result = i;
           }
@@ -3160,10 +2949,9 @@ LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl
   int result = EXIT_SUCCESS;
   if (NULL != str && NULL != kernel) {
     /**
-     * Profile only if requested. The record is taken from the pool before the
-     * launch and returned by the callback, so an exhausted pool skips profiling
-     * rather than the launch. The pool bounds launches *in flight*, not total
-     * launches: a record lives only until its completion callback runs.
+     * The record is taken before the launch and returned by the callback, so an
+     * exhausted pool skips profiling rather than the launch. The pool bounds
+     * launches in flight, not total launches.
      */
     libxstream_opencl_launch_info_t* info = NULL;
     cl_event evt = NULL;
@@ -3183,8 +2971,7 @@ LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl
     result = clEnqueueNDRangeKernel(str->queue, kernel, work_dim, global_work_offset, global_work_size, local_work_size,
       num_events_in_wait_list, event_wait_list, (NULL != info || NULL != event) ? &evt : NULL);
     if (EXIT_SUCCESS == result && NULL != info) {
-      /* retain when the caller keeps the event: the callback releases its own
-         reference, and the caller releases theirs */
+      /* Retain when the caller keeps the event: each side releases its own. */
       if (NULL == event || EXIT_SUCCESS == clRetainEvent(evt)) {
         if (EXIT_SUCCESS != clSetEventCallback(evt, CL_COMPLETE, libxstream_kernel_notify, info)) {
           /* the launch succeeded: a profile that cannot be taken is not an error */
@@ -3249,10 +3036,9 @@ LIBXSTREAM_API double libxstream_opencl_duration(cl_event event, int* result_cod
 LIBXSTREAM_API_INTERN double libxstream_opencl_reltime(cl_ulong timestamp)
 {
   /**
-   * Lock-free because the origin is written once and read on every sample: the
-   * first completion to arrive claims it, and a thread that loses the exchange
-   * adopts the winner's value rather than its own. A lock would serialize every
-   * sample to publish something that never changes again.
+   * Lock-free: the origin is written once, and a thread that loses the
+   * exchange adopts the winner's value. A lock would serialize every sample
+   * to publish something that never changes again.
    */
   cl_ulong epoch = LIBXS_ATOMIC(LIBXS_ATOMIC_LOAD, 64)(
     &libxstream_opencl_config.timer_epoch, LIBXS_ATOMIC_RELAXED);
@@ -3268,10 +3054,7 @@ LIBXSTREAM_API_INTERN double libxstream_opencl_reltime(cl_ulong timestamp)
         &libxstream_opencl_config.timer_epoch, LIBXS_ATOMIC_RELAXED);
     }
   }
-  /**
-   * A completion can be delivered out of order, so the difference is signed and
-   * must not be taken in unsigned arithmetic.
-   */
+  /* A completion can arrive out of order, so the difference stays signed. */
   if (timestamp >= epoch) result = (double)(timestamp - epoch);
   else result = -(double)(epoch - timestamp);
   return result;

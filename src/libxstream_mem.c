@@ -36,27 +36,21 @@
 #   define LIBXSTREAM_MEM_ALIGNSCALE 8
 # endif
 /**
- * Staging buffer per thread, and the smallest transfer worth staging. The
- * buffer is a window rather than a mirror of the operand: a transfer larger
- * than it is copied and enqueued in chunks, which bounds the extra host memory
- * to this size per transferring thread however large the operands grow.
+ * A window rather than a mirror of the operand: a larger transfer is chunked,
+ * which bounds the extra host memory per transferring thread.
  */
 # if !defined(LIBXSTREAM_MEM_STAGE_MIN)
 #   define LIBXSTREAM_MEM_STAGE_MIN (1 << 20)
 # endif
 /**
- * Threads for the staging copy. Staging only pays if the copy outruns the
- * pageable transport it replaces: on an H100 a serial copy reaches 12.8 GB/s
- * against 10.9 GB/s direct, i.e. a loss, while 32 threads reach 32.8 GB/s
- * end-to-end against 55.1 for memory the runtime owns. More threads do not
- * help - 224 measured 29.6 - so the count is capped rather than taken from the
- * team size.
+ * Staging pays only if the copy outruns the pageable transport it replaces,
+ * which a serial copy does not. More threads stop helping, so the count is
+ * capped rather than taken from the team size.
  */
 /**
  * Staging needs both a parallel copy and a per-thread window: without OpenMP
- * the copy is slower than the transport it would replace, and without TLS the
- * window needs a lock in the transfer path, where a thread losing the race
- * would fall back to that same transport silently.
+ * the copy is slower than the transport it replaces, and without TLS a
+ * thread losing the race for the window falls back to it silently.
  */
 # if defined(_OPENMP) && !defined(LIBXS_NO_TLS)
 #   define LIBXSTREAM_MEM_STAGING
@@ -79,11 +73,9 @@
 
 #if defined(LIBXSTREAM_MEM_STAGING)
 /**
- * Staging buffer of the calling thread. Thread-local rather than shared so that
- * no transfer can lose a race for it and fall back to the transport this is
- * meant to avoid - a silent slow path is the failure mode that makes pageable
- * transfers hard to notice in the first place. Released with the context at
- * finalize, along with every other host allocation.
+ * Thread-local rather than shared so that no transfer can lose a race for it
+ * and fall back silently to the transport this exists to avoid. Released
+ * with the context at finalize.
  */
 static LIBXS_TLS void* libxstream_mem_stage_ptr = NULL;
 static LIBXS_TLS size_t libxstream_mem_stage_nbytes = 0;
@@ -149,12 +141,10 @@ LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem memory, void** mempt
 
 
 /**
- * Registers the pages of a host allocation with the CUDA runtime (no-op unless
- * the application linked it). Takes the base of the allocation and its padded
- * size rather than the aligned pointer handed to the caller: registration is
- * page-granular and cudaHostUnregister accepts only the very pointer that was
- * registered. Failure is not an error - memory the CUDA runtime rejects merely
- * stays pageable for its own transfers.
+ * Takes the base of the allocation and its padded size rather than the
+ * aligned pointer handed to the caller: registration is page-granular and
+ * cudaHostUnregister accepts only the pointer that was registered. Failure
+ * is not an error; the memory merely stays pageable.
  */
 LIBXSTREAM_API_INTERN void libxstream_mem_host_register(void* /*memptr*/, size_t /*nbytes*/);
 LIBXSTREAM_API_INTERN void libxstream_mem_host_register(void* memptr, size_t nbytes)
@@ -171,14 +161,10 @@ LIBXSTREAM_API_INTERN void libxstream_mem_host_register(void* memptr, size_t nby
 
 
 /**
- * Counterpart of libxstream_mem_host_register, to be called before the memory is
- * given back: CUDA holding a mapping of pages the OpenCL runtime has released is
- * a use-after-free inside the CUDA driver.
- *
- * Whether this particular allocation was accepted is not tracked, so one that
- * was rejected is unregistered in vain. That is cheaper than a per-allocation
- * flag, and the case is confined to a process where registration failed at least
- * once (nhostreg_ok reports it).
+ * Must run before the memory is given back: CUDA holding a mapping of pages
+ * the OpenCL runtime released is a use-after-free inside the CUDA driver.
+ * Acceptance is not tracked, so a rejected allocation is unregistered in
+ * vain.
  */
 LIBXSTREAM_API_INTERN void libxstream_mem_host_unregister(void* /*memptr*/);
 LIBXSTREAM_API_INTERN void libxstream_mem_host_unregister(void* memptr)
@@ -286,11 +272,10 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* 
   }
   if (EXIT_SUCCESS != status) result = NULL;
   /**
-   * Registered here rather than per libxs_malloc, because the pool hands out
+   * Registered here rather than per libxs_malloc because the pool hands out
    * pointers into these blocks: registration is page-granular, so two
-   * sub-allocations sharing a page would collide and freeing one would unpin the
-   * other. Only driver-provided memory qualifies - a malloc'ed block can share
-   * a page with unrelated heap data, and that case has no OpenCL device anyway.
+   * sub-allocations sharing a page would collide and freeing one would unpin
+   * the other.
    */
   if (libxstream_opencl_mem_hst_malloc != libxstream_opencl_config.mem_hst) {
     libxstream_mem_host_register(result, size);
@@ -392,10 +377,9 @@ LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void* pointer, const void* e
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   /**
-   * The stream recorded at allocation time need not outlive the buffer: the
-   * pool is drained at finalization, after the application destroyed its
-   * streams. A destroyed stream has no queue and nothing left to wait for,
-   * so syncing it is both unnecessary and invalid.
+   * The stream recorded at allocation need not outlive the buffer: the pool is
+   * drained at finalization, after the application destroyed its streams, and
+   * a destroyed stream has nothing left to wait for.
    */
   if (NULL != extra) {
     const uintptr_t addr = (uintptr_t)extra;
@@ -423,7 +407,7 @@ LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void* pointer, const void* e
 
 /**
  * Release the sub-buffers created for pointers into the given parent buffer.
- * Called when the parent is deallocated; the caller holds lock_memory.
+ * Caller holds lock_memory.
  */
 LIBXSTREAM_API_INTERN void libxstream_opencl_subbuffer_release(cl_mem parent);
 LIBXSTREAM_API_INTERN void libxstream_opencl_subbuffer_release(cl_mem parent)
@@ -907,11 +891,9 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
 #endif
   int result = EXIT_SUCCESS;
   /**
-   * {size, size, duration}: vals[0] is the binning key, which
-   * libxs_hist_query_percentile reconstructs from the bucket's position on the
-   * axis rather than from the stored samples. A rate must therefore not use it
-   * - the amount is carried a second time in vals[1], which is stored and
-   * averaged like the duration, so amount and duration describe the same sample.
+   * vals[0] is the binning key, reconstructed from the bucket's axis position
+   * rather than from the samples, so a rate must not use it; the amount is
+   * carried again in vals[1], which is averaged like the duration.
    */
   double vals[5];
   cl_ulong begin = 0, end = 0;
@@ -926,12 +908,9 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
     const char* name = NULL;
     /**
      * The kind recorded at enqueue selects the histogram, but the command type
-     * must corroborate it: a stale or foreign event carrying a plausible data
-     * word would otherwise be attributed to a real transfer. The buffer command
-     * types are checked explicitly; the SVM and Intel-USM paths raise types that
-     * match no buffer command (SVM_MEMCPY, SVM_MEMFILL, or vendor-specific), and
-     * keying on those alone is what silently dropped every sample on such
-     * stacks - so an unrecognized type is accepted, a contradicting one is not.
+     * must corroborate it. An unrecognized type is accepted and a contradicting
+     * one is not: the SVM and Intel-USM paths raise types matching no buffer
+     * command, and keying on those alone dropped every sample on such stacks.
      */
     int agrees = 1;
     switch (type) {
@@ -966,9 +945,8 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
     else assert(0 == "event kind contradicts command type");
     if (NULL != hist) {
       /**
-       * Discard durations too close to the timer resolution to be meaningful:
-       * the rate they imply is dominated by quantization, and a handful of such
-       * samples would otherwise set the histogram range for the useful ones.
+       * Durations too close to the timer resolution would set the histogram range
+       * for the useful samples.
        */
       const double floor_us = 1E-3 * (double)(LIBXSTREAM_PROFILE_TICKS * libxstream_opencl_config.device.timer_ns);
       vals[3] = libxstream_opencl_reltime(begin);
@@ -976,9 +954,7 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
       if (vals[2] >= floor_us) {
         libxs_hist_push(libxstream_opencl_config.lock_memory, hist, vals);
         /**
-         * The same interval device-wide, where a transfer can be seen to
-         * overlap a kernel rather than merely coexist with one. Under
-         * lock_event rather than lock_memory: the kernel callback pushes into
+         * Under lock_event rather than lock_memory: the kernel callback pushes into
          * the same histogram, and one histogram cannot be guarded by two locks.
          * Not nested with the push above, so the pair cannot deadlock.
          */
@@ -986,8 +962,7 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
           libxstream_opencl_config.hist_device, vals + 3);
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile_mem) {
-          /* relative to the epoch: an absolute timestamp does not survive a
-             double, which is what the union depends on as well */
+          /* Relative to the epoch: an absolute timestamp does not survive a double. */
           fprintf(stderr, "PROF ACC/OpenCL: %s mb=%.1f us=%.0f ns=%.0f-%.0f\n",
             name, vals[1], vals[2], vals[3], vals[4]);
         }
@@ -1112,10 +1087,8 @@ LIBXSTREAM_API int libxstream_mem_offset(void** dev_mem, void* other, size_t off
 
 
 /**
- * True when the range lies inside one the caller declared with
- * libxstream_mem_host_pin. A miss is not an error: it only means the transfer
- * takes the ordinary route, which is correct for memory the runtime allocated.
- * The list is short by construction, so a scan costs less than the smallest
+ * A miss is not an error: the transfer then takes the ordinary route. The
+ * list is short by construction, so a scan costs less than the smallest
  * transfer that reaches it.
  */
 #if defined(LIBXSTREAM_MEM_STAGING)
@@ -1136,9 +1109,8 @@ static int libxstream_mem_pinned(const void* host_mem, size_t nbytes)
 
 
 /**
- * Staging buffer of this thread, grown on demand up to the window size. Returns
- * NULL when staging is unavailable, which every caller treats as "transfer the
- * ordinary way" rather than as a failure.
+ * Grown on demand up to the window size. NULL means "transfer the ordinary
+ * way" rather than failure.
  */
 static void* libxstream_mem_stage(size_t* nbytes)
 {
@@ -1169,10 +1141,9 @@ static void* libxstream_mem_stage(size_t* nbytes)
 
 
 /**
- * Copy of the staging window. Parallel because a serial copy is slower than the
- * transport it replaces (see LIBXSTREAM_MEM_STAGE_NT); a caller already inside a
- * parallel region cannot open one, which is why libxstream_mem_stage_ready
- * refuses to stage there at all.
+ * Parallel because a serial copy is slower than the transport it replaces. A
+ * caller already inside a parallel region cannot open one, which is why
+ * libxstream_mem_stage_ready refuses to stage there.
  */
 static void libxstream_mem_stage_copy(void* dst, const void* src, size_t nbytes)
 {
@@ -1181,9 +1152,8 @@ static void libxstream_mem_stage_copy(void* dst, const void* src, size_t nbytes)
   const int want = libxstream_opencl_config.stage_nt;
   const int nthreads = (want < max_threads ? want : max_threads);
   /**
-   * One block per iteration, handed out round-robin, so the grain alone decides
-   * the distribution: never coarser than one share per thread, and finer than
-   * that where the transfer is large enough to carry the extra iterations.
+   * One block per iteration, round-robin, so the grain alone decides the
+   * distribution: never coarser than one share per thread.
    */
   const size_t share = (nbytes + (size_t)nthreads - 1) / (size_t)nthreads;
   const size_t grain = (libxstream_opencl_config.stage_grain < share
@@ -1205,9 +1175,8 @@ static void libxstream_mem_stage_copy(void* dst, const void* src, size_t nbytes)
 
 
 /**
- * Whether this transfer should be staged: the mode asks for it, the range was
- * declared, the transfer is large enough to amortize a copy, and a parallel
- * copy is actually available here.
+ * The mode asks for it, the range was declared, the transfer is large enough
+ * to amortize a copy, and a parallel copy is available here.
  */
 static int libxstream_mem_stage_ready(const void* host_mem, size_t nbytes)
 {
@@ -1255,15 +1224,10 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
   {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
     /**
-     * Enqueue the copy rather than mapping and copying on the host. Mapping is
-     * what coarse-grain SVM requires for *host* access to the buffer, but a
-     * transfer needs no host access at all: clEnqueueSVMMemcpy is a queued
-     * command, so the runtime can use its copy engine and the call can be
-     * asynchronous. The map/memcpy/unmap it replaces ran single-threaded inside
-     * the enqueue at host store-to-device speed - 8.9 GB/s against 46.0 GB/s
-     * for a 128 MB H2D on a GPU Max 1550, where the enqueued copy also
-     * overlapped a concurrent kernel completely. libxstream_mem_copy_d2d
-     * already took this route for the very same allocations.
+     * Enqueue the copy rather than mapping and copying on the host: a transfer
+     * needs no host access, and a queued command lets the runtime use its copy
+     * engine asynchronously. The map/memcpy/unmap it replaces ran
+     * single-threaded inside the enqueue at host store-to-device speed.
      */
     result = clEnqueueSVMMemcpy(queue, finish, dev_mem, host_mem, nbytes, 0, NULL, event);
 #   else
@@ -1323,12 +1287,10 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
 
 
 /**
- * Upload through the staging window, copy of one half overlapping the transfer
- * of the other. The two must not be conflated: a half may only be refilled once
- * the transfer reading it has completed, which is what the per-half event is
- * for. Both halves are drained before returning, because the window belongs to
- * the thread and the next call would otherwise overwrite memory still in
- * flight - silent corruption rather than a visible stall.
+ * A half may only be refilled once the transfer reading it has completed,
+ * which is what the per-half event is for. Both halves are drained before
+ * returning: the window belongs to the thread, so the next call would
+ * otherwise overwrite memory still in flight.
  */
 static int libxstream_mem_stage_h2d(const void* host_mem, void* dev_mem, size_t nbytes,
   void* stage, size_t window, cl_command_queue queue, cl_event* event)
@@ -1390,10 +1352,9 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
     const libxstream_opencl_stream_t* str;
     cl_event event = NULL;
     /**
-     * The staging window is acquired before the lock and before any command of
-     * this transfer is enqueued. Allocating it later would map a buffer on the
-     * default queue from inside a locked region with work already in flight,
-     * which is a wait on the very pipeline the caller is still filling.
+     * Acquired before the lock and before any command of this transfer is
+     * enqueued: allocating it later would map a buffer on the default queue
+     * from inside a locked region with work already in flight.
      */
     size_t window = nbytes;
     void* const stage = (0 != libxstream_mem_stage_ready(host_mem, nbytes)
@@ -1497,10 +1458,8 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
 
 
 /**
- * Download through the staging window: the read of one half overlaps the copy
- * of the other out to the caller. The order is the mirror of the upload - a
- * half is copied out only after its read completed, and the read of the next
- * half is already enqueued by then.
+ * The mirror of the upload: a half is copied out only after its read
+ * completed, and the read of the next half is already enqueued by then.
  */
 static int libxstream_mem_stage_d2h(const void* dev_mem, void* host_mem, size_t offset, size_t nbytes,
   void* stage, size_t window, cl_command_queue queue, cl_event* event)
@@ -1690,9 +1649,8 @@ LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t off
     const cl_bool wait = CL_TRUE;
 # endif
     /**
-     * An event is needed either to wait on the fill, or to time it for the ZERO
-     * histogram. Timing must not force a wait: that would serialize the fill
-     * against the enqueuing thread and change what is being measured.
+     * Timing must not force a wait: that would serialize the fill against the
+     * enqueuing thread and change what is being measured.
      */
     const int measure = (0 == value && NULL != libxstream_opencl_config.hist_zero);
     cl_event event = NULL, *const pevent = (0 != wait || 0 != measure) ? &event : NULL;
