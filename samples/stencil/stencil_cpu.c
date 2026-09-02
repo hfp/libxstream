@@ -36,8 +36,6 @@
 #endif
 #if !defined(STENCIL_LAYOUT)
 # define STENCIL_LAYOUT 0
-#elif (0 != STENCIL_LAYOUT)
-# error the host launcher maps the XYZ layout only
 #endif
 #if !defined(STENCIL_PML)
 # define STENCIL_PML 0
@@ -116,6 +114,9 @@
 #if (STENCIL_RADIUS != RADIUS)
 # error RADIUS disagrees with STENCIL_RADIUS
 #endif
+#if (STENCIL_LAYOUT_BLK == STENCIL_LAYOUT)
+# error the host path has no blocked layout
+#endif
 
 #if !defined(STENCIL_CPU_PAGE)
 # define STENCIL_CPU_PAGE 4096
@@ -155,11 +156,16 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
      * group coordinates stay body-local, hence private without a clause.
      */
     /* Tile as wide as the fast axis allows, capped by the compile-time room. */
-    const int width_f = (nx < WG_X) ? nx : WG_X;
-    const int width_m = (ny < WG_Y) ? ny : WG_Y;
-    const int ng0 = DIVUP(nx, width_f);
-    const int ng1 = DIVUP(ny, width_m);
-    const int ngroups = ng0 * ng1 * DIVUP(nz, BLK);
+#if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
+    const int nfast = nz, nmed = ny, nslow = nx;
+#else
+    const int nfast = nx, nmed = ny, nslow = nz;
+#endif
+    const int width_f = (nfast < WG_X) ? nfast : WG_X;
+    const int width_m = (nmed < WG_Y) ? nmed : WG_Y;
+    const int ng0 = DIVUP(nfast, width_f);
+    const int ng1 = DIVUP(nmed, width_m);
+    const int ngroups = ng0 * ng1 * DIVUP(nslow, BLK);
     int g;
 #if (0 == STENCIL_CPU_TEAM)
 # if defined(_OPENMP)
@@ -312,12 +318,46 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
     result = EXIT_FAILURE;
   }
   else {
+    const int lx = ctx->halo[0], ly = ctx->halo[1], lz = ctx->halo[2];
     ctx->grid_size[0] = nx;
     ctx->grid_size[1] = ny;
     ctx->grid_size[2] = nz;
     ctx->nblocks[0] = DIVUP(nx, BLK);
     ctx->nblocks[1] = DIVUP(ny, BLK);
     ctx->nblocks[2] = DIVUP(nz, BLK);
+    /* Geometry the JIT would have supplied as -D; see stencil_cpu.h. */
+    stencil_cpu_halo[0] = lx;
+    stencil_cpu_halo[1] = ly;
+    stencil_cpu_halo[2] = lz;
+    stencil_cpu_stride[0] = (long)(nz + 2 * lz) * (ny + 2 * ly);
+    stencil_cpu_stride[1] = (long)(nz + 2 * lz);
+    stencil_cpu_stride[2] = (long)nz * ny;
+    stencil_cpu_stride[3] = (long)nz;
+#if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
+    /**
+     * The kernel is compiled either clamping or reading into the halo, and the
+     * two are not the same answer. Refuse the grid where a tile would gather
+     * past the halo the build assumed present.
+     */
+    { const int width_f = (nz < WG_X) ? nz : WG_X;
+      const int width_m = (ny < WG_Y) ? ny : WG_Y;
+      const int max_fast = DIVUP(nz, width_f) * width_f - 1 + RADIUS;
+      const int max_med = DIVUP(ny, width_m) * width_m - 1 + RADIUS;
+      const int padded = (max_fast < nz + lz && max_med < ny + ly) ? 1 : 0;
+#if defined(STENCIL_PADDED) && (0 < STENCIL_PADDED)
+      if (0 == padded) {
+        fprintf(stderr, "ERROR: the tile gathers past the halo;"
+          " rebuild without -DSTENCIL_PADDED\n");
+        result = EXIT_FAILURE;
+      }
+#else
+      if (0 != padded && 0 != ctx->verbosity) {
+        fprintf(stderr, "WARNING: clamping although the halo would cover the"
+          " gather; -DSTENCIL_PADDED=1 matches the device\n");
+      }
+#endif
+    }
+#endif
   }
   return result;
 }

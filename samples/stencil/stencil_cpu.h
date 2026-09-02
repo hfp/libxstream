@@ -122,6 +122,27 @@ static int stencil_cpu_lsz[3];
   ((size_t)(stencil_cpu_gid[D] * stencil_cpu_lsz[D] + stencil_cpu_lid[D]))
 
 /**
+ * Array geometry the JIT supplies as -D per launch and a host build cannot:
+ * {sx, sy} strides and {lx, ly, lz} halo of the wavefield. Uniform for the whole
+ * launch, hence not threadprivate. Bound below so that the layout macros in
+ * stencil_common.cl read them instead of compile-time constants.
+ */
+static long stencil_cpu_stride[4];
+static int stencil_cpu_halo[3];
+
+#define STENCIL_P_SX stencil_cpu_stride[0]
+#define STENCIL_P_SY stencil_cpu_stride[1]
+#define STENCIL_P_LX stencil_cpu_halo[0]
+#define STENCIL_P_LY stencil_cpu_halo[1]
+#define STENCIL_P_LZ stencil_cpu_halo[2]
+/* The velocity carries no halo, hence a stride of its own. */
+#define STENCIL_V_SX stencil_cpu_stride[2]
+#define STENCIL_V_SY stencil_cpu_stride[3]
+#define STENCIL_V_LX 0
+#define STENCIL_V_LY 0
+#define STENCIL_V_LZ 0
+
+/**
  * Work-group barrier. An orphaned OpenMP barrier binds to the team the
  * launcher opened for the work-group, which spells the barrier without the
  * _Pragma operator that C89 lacks.

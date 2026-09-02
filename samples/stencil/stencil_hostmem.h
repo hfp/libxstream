@@ -49,6 +49,13 @@ int stencil_host_zero(void* ptr, size_t offset, size_t nbytes);
   stencil_host_allocate(PTR, NBYTES)
 #define libxstream_mem_dev_deallocate_hint(PTR) \
   stencil_host_deallocate(PTR)
+#define libxstream_mem_allocate(PTR, NBYTES) \
+  stencil_host_allocate(PTR, NBYTES)
+#define libxstream_mem_deallocate(PTR) \
+  stencil_host_deallocate(PTR)
+/* One address space, so an offset is address arithmetic. */
+#define libxstream_mem_offset(PTR, OTHER, LB) \
+  (*(PTR) = (void*)((char*)(OTHER) + (LB)), EXIT_SUCCESS)
 #define libxstream_mem_copy_h2d(SRC, DST, NBYTES, STREAM) \
   stencil_host_copy(DST, SRC, NBYTES)
 #define libxstream_mem_copy_d2h(SRC, DST, NBYTES, STREAM) \
