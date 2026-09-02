@@ -28,11 +28,11 @@
 #if !defined(STENCIL_CPU_LANES)
 # define STENCIL_CPU_LANES 1
 #endif
-#if !defined(STENCIL_CPU_TEAM)
-# define STENCIL_CPU_TEAM 0
+#if !defined(LIBXSTREAM_CPU_TEAM)
+# define LIBXSTREAM_CPU_TEAM 0
 #endif
-#if (0 != STENCIL_CPU_LANES) && (0 != STENCIL_CPU_TEAM)
-# error STENCIL_CPU_LANES and STENCIL_CPU_TEAM are alternative work-group models
+#if (0 != STENCIL_CPU_LANES) && (0 != LIBXSTREAM_CPU_TEAM)
+# error STENCIL_CPU_LANES and LIBXSTREAM_CPU_TEAM are alternative work-group models
 #endif
 #if !defined(STENCIL_LAYOUT)
 # define STENCIL_LAYOUT 0
@@ -48,7 +48,7 @@
  * keeps the kernel correct: it removes the cross-lane dependency the barriers
  * stand for. The other two models keep the on-device work-group shape.
  */
-#if (0 == STENCIL_CPU_LANES) && (0 == STENCIL_CPU_TEAM)
+#if (0 == STENCIL_CPU_LANES) && (0 == LIBXSTREAM_CPU_TEAM)
 # if !defined(WG_X)
 #   define WG_X 1
 # endif
@@ -92,21 +92,30 @@
 /* The kernel sources derive STENCIL_WIDTH from RADIUS, asserted equal below. */
 #undef STENCIL_WIDTH
 
-#include "stencil_cpu.h"
-#include "kernels/stencil_fp32.cl"
+#include <libxstream/opencl/libxstream_cpu_begin.h>
 
 /**
- * The OpenCL keywords are meaningful only while the kernel source is being
- * translated, and some of them collide with OpenMP clause names. GCC expands
- * macros in a pragma line, so an empty "private" silently drops the clause
- * instead of failing. Retire them before the launcher, which is plain C.
+ * Array geometry the JIT supplies as -D per launch and a host build cannot:
+ * {sx, sy} strides and {lx, ly, lz} halo of the wavefield. Uniform for the whole
+ * launch, hence not threadprivate.
  */
-#undef global
-#undef local
-#undef private
-#undef constant
-#undef kernel
-#undef barrier
+static long stencil_cpu_stride[4];
+static int stencil_cpu_halo[3];
+
+#define STENCIL_P_SX stencil_cpu_stride[0]
+#define STENCIL_P_SY stencil_cpu_stride[1]
+#define STENCIL_P_LX stencil_cpu_halo[0]
+#define STENCIL_P_LY stencil_cpu_halo[1]
+#define STENCIL_P_LZ stencil_cpu_halo[2]
+/* The velocity carries no halo, hence a stride of its own. */
+#define STENCIL_V_SX stencil_cpu_stride[2]
+#define STENCIL_V_SY stencil_cpu_stride[3]
+#define STENCIL_V_LX 0
+#define STENCIL_V_LY 0
+#define STENCIL_V_LZ 0
+
+#include "kernels/stencil_fp32.cl"
+#include <libxstream/opencl/libxstream_cpu_end.h>
 
 #if (STENCIL_BLK != BLK)
 # error BLK disagrees with STENCIL_BLK
@@ -122,18 +131,7 @@
 # define STENCIL_CPU_PAGE 4096
 #endif
 
-/* Publish the coordinates of one work-item, the way a launch would. */
-#define STENCIL_CPU_COORD(G0, G1, G2, L0, L1, W0, W1) do { \
-  stencil_cpu_gid[0] = (G0); \
-  stencil_cpu_gid[1] = (G1); \
-  stencil_cpu_gid[2] = (G2); \
-  stencil_cpu_lid[0] = (L0); \
-  stencil_cpu_lid[1] = (L1); \
-  stencil_cpu_lid[2] = 0; \
-  stencil_cpu_lsz[0] = (W0); \
-  stencil_cpu_lsz[1] = (W1); \
-  stencil_cpu_lsz[2] = 1; \
-} while (0)
+#define STENCIL_CPU_COORD LIBXSTREAM_CPU_WORKITEM
 
 
 int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
@@ -167,7 +165,7 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
     const int ng1 = DIVUP(nmed, width_m);
     const int ngroups = ng0 * ng1 * DIVUP(nslow, BLK);
     int g;
-#if (0 == STENCIL_CPU_TEAM)
+#if (0 == LIBXSTREAM_CPU_TEAM)
 # if defined(_OPENMP)
 #   pragma omp parallel for
 # endif
