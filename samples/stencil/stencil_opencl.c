@@ -834,7 +834,13 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
     }
   }
 
-  if (EXIT_SUCCESS == result && 0 != ctx->pml) {
+  /**
+   * A caller that models its own absorbing boundary passes eta and phi in, and
+   * then owns them; the profile below is only built when it does not.
+   */
+  if (EXIT_SUCCESS == result && 0 != ctx->pml
+    && NULL == ctx->eta && NULL == ctx->phi)
+  {
     const size_t grid_n = (size_t)nx * ny * nz;
     const size_t grid_bytes = grid_n * sizeof(float);
     const size_t eta_n = (size_t)(nx + 2) * (ny + 2) * (nz + 2);
@@ -888,6 +894,7 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
         result = libxstream_mem_zero(ctx->phi, 0, grid_bytes, ctx->stream);
       }
     }
+    if (EXIT_SUCCESS == result) ctx->pml_owned = 1;
   }
 
   return result;
@@ -1451,8 +1458,10 @@ void stencil_finalize(stencil_context_t* ctx)
     if (NULL != ctx->exp_buf[0]) libxstream_mem_dev_deallocate_hint(ctx->exp_buf[0]);
     if (NULL != ctx->exp_buf[1]) libxstream_mem_dev_deallocate_hint(ctx->exp_buf[1]);
     if (NULL != ctx->coeff) libxstream_mem_dev_deallocate_hint(ctx->coeff);
-    if (NULL != ctx->eta) libxstream_mem_dev_deallocate_hint(ctx->eta);
-    if (NULL != ctx->phi) libxstream_mem_dev_deallocate_hint(ctx->phi);
+    if (0 != ctx->pml_owned) {
+      if (NULL != ctx->eta) libxstream_mem_dev_deallocate_hint(ctx->eta);
+      if (NULL != ctx->phi) libxstream_mem_dev_deallocate_hint(ctx->phi);
+    }
     if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
     memset(ctx, 0, sizeof(*ctx)); /* exceeds LIBXS_MEMZERO scope */
   }

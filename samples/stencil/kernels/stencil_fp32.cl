@@ -47,9 +47,6 @@
  * innermost and retires counters that would otherwise be shared across lanes.
  */
 #if defined(STENCIL_CPU_LANES) && (0 < STENCIL_CPU_LANES)
-# if defined(STENCIL_PML) && (0 < STENCIL_PML)
-#   error the host lane loop carries no per-lane PML window
-# endif
 /* WG_X/WG_Y are capacity; the launcher publishes the width via get_local_size. */
 # define STENCIL_WIDTH_F width_f
 # define STENCIL_WIDTH_M width_m
@@ -62,6 +59,7 @@
 # define STENCIL_I_F (i_f + lane_f)
 # define STENCIL_I_M (i_m + lane_m)
 # define STENCIL_S_WIN(W) s_win[W][lane_m][lane_f]
+# define STENCIL_ETA_S(I) eta_s[I][lane_m][lane_f]
 # define STENCIL_SLM_ROW SLM_F
 # define STENCIL_FILL_COUNT ((nlanes_m + 2 * RADIUS) * (nlanes_f + 2 * RADIUS))
 # define STENCIL_FILL_WIDTH (nlanes_f + 2 * RADIUS)
@@ -75,6 +73,7 @@
 # define STENCIL_I_F (i_f)
 # define STENCIL_I_M (i_m)
 # define STENCIL_S_WIN(W) s_win[W]
+# define STENCIL_ETA_S(I) eta_s[I]
 # define STENCIL_SLM_ROW SLM_F
 # define STENCIL_FILL_COUNT SLM_TOTAL
 # define STENCIL_FILL_WIDTH SLM_F
@@ -149,7 +148,11 @@ kernel void stencil_apply_direct(
   local float fm_slm[SLM_BLOCK_TOTAL];
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
   local float eta_slm[SLM_BLOCK_TOTAL];
+#if defined(STENCIL_CPU_LANES) && (0 < STENCIL_CPU_LANES)
+  float eta_s[3][WG_Y][WG_X];
+#else
   float eta_s[3];
+#endif
 #endif
 
   const int i_f = (int)get_global_id(0);
@@ -203,8 +206,10 @@ kernel void stencil_apply_direct(
     if (valid_fm && 0 == blk_interior) {
       int cs0 = (is_base > 0) ? is_base - 1 : 0;
       int cs1 = is_base;
-      eta_s[0] = eta[FP32_E_FMS(i_f, i_m, cs0)];
-      eta_s[1] = eta[FP32_E_FMS(i_f, i_m, cs1)];
+      STENCIL_FOR_LANE
+      { STENCIL_ETA_S(0) = eta[FP32_E_FMS(STENCIL_I_F, STENCIL_I_M, cs0)];
+        STENCIL_ETA_S(1) = eta[FP32_E_FMS(STENCIL_I_F, STENCIL_I_M, cs1)];
+      }
     }
 #endif
 
@@ -293,7 +298,7 @@ kernel void stencil_apply_direct(
             if (0 == blk_interior) {
               int cs = cur_s + 1;
               if (cs >= FP32_NSLOW) cs = FP32_NSLOW - 1;
-              eta_s[2] = eta[FP32_E_FMS(STENCIL_I_F, STENCIL_I_M, cs)];
+              STENCIL_ETA_S(2) = eta[FP32_E_FMS(STENCIL_I_F, STENCIL_I_M, cs)];
             }
 #endif
             { const int c = slm_off
@@ -351,7 +356,8 @@ kernel void stencil_apply_direct(
                   const float tmp =
                     (eta_fp - eta_fm) * (uf_p - uf_m) * FP32_HD_FAST
                     + (eta_mp - eta_mm) * (um_p - um_m) * FP32_HD_MED
-                    + (eta_s[2] - eta_s[0]) * (us_p - us_m) * FP32_HD_SLOW;
+                    + (STENCIL_ETA_S(2) - STENCIL_ETA_S(0))
+                      * (us_p - us_m) * FP32_HD_SLOW;
                   phi[iv] = (phi_val - tmp) / (1.0f + eta1);
                 }
               }
@@ -369,8 +375,8 @@ kernel void stencil_apply_direct(
 
 #if defined(STENCIL_PML) && (0 < STENCIL_PML)
             if (0 == blk_interior) {
-              eta_s[0] = eta_s[1];
-              eta_s[1] = eta_s[2];
+              STENCIL_ETA_S(0) = STENCIL_ETA_S(1);
+              STENCIL_ETA_S(1) = STENCIL_ETA_S(2);
             }
 #endif
           }

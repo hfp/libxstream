@@ -118,6 +118,8 @@ typedef struct {
   int layout;
   int halo[3];
   int pml;
+  /* Set when this library allocated eta and phi; a caller may supply its own. */
+  int pml_owned;
   int hint;
   void* eta;
   void* phi;
@@ -164,7 +166,9 @@ void stencil_unpack_bf16s(float* dst, const unsigned short* src, size_t n,
  * compiled-in configuration returns EXIT_FAILURE rather than wrong results.
  */
 int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
-                             const float* vel, const float* coeff, float dt2,
+                             const float* vel, const float* coeff,
+                             const float* eta, float* phi,
+                             float dt2, float dh,
                              int nx, int ny, int nz, int nterms);
 
 #endif /*STENCIL_OPENCL_H*/

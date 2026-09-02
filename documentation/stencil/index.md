@@ -61,19 +61,19 @@ The hot loop is repeated stencil evaluation over (many) grid points.
 
 The current sample is a GPU stencil benchmark and integration example.
 
-| Mode                          | CLI                      | Implemented path                              |
-|-------------------------------|--------------------------|-----------------------------------------------|
-| FP32 stencil (default)        |                          | SLM-tiled banded FMA, XYZ and ZYX layouts     |
-| Isotropic RTM-style Laplacian | `-d 3`                   | fused 3-axis DPAS apply                       |
-| TTI-style anisotropic terms   | `-d 9`                   | pure terms plus cross-derivative DPAS phases  |
-| Direct high-order stencil     | `-m 0`                   | radius-4 per axis                             |
-| Compact variants              | `-m 1`, `-m 2`           | radius-1/radius-2 compact runtime paths       |
-| Compact dispersion-fit        | `-m 3`                   | minimax-fitted coefficients (PPW=8 default)   |
-| INT8-DPAS Ozaki-1 (Intel)     | `STENCIL_INT8=1`         | signed 8-bit slicing with carried exponent    |
-| INT8 dp4a Ozaki-1 (NV>=2)     | `STENCIL_INT8=1`         | Ozaki-1 slicing, PTX dp4a on NVIDIA SM>=7.5   |
-| INT8 scalar fallback          | `STENCIL_INT8=2`         | Ozaki-1 slicing, scalar multiply-add          |
-| INT8 implicit operator (def.) | `STENCIL_I8_OP=implicit` | dense compact `A⁻¹ B`, radius-2 gather        |
-| INT8 banded operator          | `STENCIL_I8_OP=banded`   | explicit radius-4 FD weights                  |
+| Mode                          | CLI                      | Implemented path                             |
+|-------------------------------|--------------------------|----------------------------------------------|
+| FP32 stencil (default)        |                          | SLM-tiled banded FMA, XYZ and ZYX layouts    |
+| Isotropic RTM-style Laplacian | `-d 3`                   | fused 3-axis DPAS apply                      |
+| TTI-style anisotropic terms   | `-d 9`                   | pure terms plus cross-derivative DPAS phases |
+| Direct high-order stencil     | `-m 0`                   | radius-4 per axis                            |
+| Compact variants              | `-m 1`, `-m 2`           | radius-1/radius-2 compact runtime paths      |
+| Compact dispersion-fit        | `-m 3`                   | minimax-fitted coefficients (PPW=8 default)  |
+| INT8-DPAS Ozaki-1 (Intel)     | `STENCIL_INT8=1`         | signed 8-bit slicing with carried exponent   |
+| INT8 dp4a Ozaki-1 (NV>=2)     | `STENCIL_INT8=1`         | Ozaki-1 slicing, PTX dp4a on NVIDIA SM>=7.5  |
+| INT8 scalar fallback          | `STENCIL_INT8=2`         | Ozaki-1 slicing, scalar multiply-add         |
+| INT8 implicit operator (def.) | `STENCIL_I8_OP=implicit` | dense compact `A⁻¹ B`, radius-2 gather       |
+| INT8 banded operator          | `STENCIL_I8_OP=banded`   | explicit radius-4 FD weights                 |
 
 Note: the INT8 path defaults to the implicit-dense compact operator (see below).
 INT8 supports XYZ and ZYX; ZYX no longer forces an FP32 fallback.
@@ -245,9 +245,9 @@ B-side: K_PAD x 16 cols   wavefield (SLM block read)
 C:      8 x 16            FP32 accumulator
 ```
 
-|      | A load         | B load          | DPAS         |
-|------|----------------|-----------------|--------------|
-| INT8 | 2D 8b 8r32x1c  | block_read8 SLM | i8 mad k32   |
+|      | A load        | B load          | DPAS       |
+|------|---------------|-----------------|------------|
+| INT8 | 2D 8b 8r32x1c | block_read8 SLM | i8 mad k32 |
 
 ---
 
@@ -343,14 +343,14 @@ means the fitting band covers only well-resolved frequencies.
 
 ## What Is Implemented Today
 
-| Method     | CLI              | Radius | Status                              |
-|------------|------------------|--------|-------------------------------------|
-| Direct     | `-m 0`           | `r=4`  | baseline high-order path (default)  |
-| Compact r1 | `-m 1`           | `r=1`  | compact isotropic path              |
-| Compact r2 | `-m 2`           | `r=2`  | compact isotropic path              |
-| Compact fit| `-m 3`           | `r=2/3`| dispersion-fitted (minimax, PPW=8)  |
-| TTI        | `-d 9`           | direct | cross terms implemented             |
-| INT8       | `STENCIL_INT8=1` | all    | Ozaki-1 with exp_buf, XYZ and ZYX   |
+| Method     | CLI              | Radius  | Status                             |
+|------------|------------------|---------|------------------------------------|
+| Direct     | `-m 0`           | `r=4`   | baseline high-order path (default) |
+| Compact r1 | `-m 1`           | `r=1`   | compact isotropic path             |
+| Compact r2 | `-m 2`           | `r=2`   | compact isotropic path             |
+| Compact fit| `-m 3`           | `r=2/3` | dispersion-fitted (minimax, PPW=8) |
+| TTI        | `-d 9`           | direct  | cross terms implemented            |
+| INT8       | `STENCIL_INT8=1` | all     | Ozaki-1 with exp_buf, XYZ and ZYX  |
 
 Environment variables `STENCIL_PPW`, `STENCIL_FIT`, `STENCIL_RADIUS_FIT`
 control the target wavelength, fitting method, and fit radius.

@@ -39,8 +39,6 @@
 #endif
 #if !defined(STENCIL_PML)
 # define STENCIL_PML 0
-#elif (0 != STENCIL_PML)
-# error the host kernel has no PML path: it would change the launcher signature
 #endif
 
 /**
@@ -101,7 +99,7 @@
  * them, and STENCIL_LAYOUT_ZYX is not spelled out yet at this point.
  */
 #if (2 == STENCIL_LAYOUT)
-static long stencil_cpu_stride[4];
+static long stencil_cpu_stride[6];
 static int stencil_cpu_halo[3];
 
 #define STENCIL_P_SX stencil_cpu_stride[0]
@@ -115,6 +113,12 @@ static int stencil_cpu_halo[3];
 #define STENCIL_V_LX 0
 #define STENCIL_V_LY 0
 #define STENCIL_V_LZ 0
+/* eta carries a halo of exactly one. */
+#define STENCIL_E_SX stencil_cpu_stride[4]
+#define STENCIL_E_SY stencil_cpu_stride[5]
+#define STENCIL_E_LX 1
+#define STENCIL_E_LY 1
+#define STENCIL_E_LZ 1
 #endif
 
 #include "kernels/stencil_fp32.cl"
@@ -136,12 +140,27 @@ static int stencil_cpu_halo[3];
 
 #define STENCIL_CPU_COORD LIBXSTREAM_CPU_WORKITEM
 
+#if (0 != STENCIL_PML)
+# define STENCIL_CPU_LAUNCH() stencil_apply_direct(p_grid, p_old, vel, coeff, \
+    eta, phi, hd_2, hd_2, hd_2, dt2, nx, ny, nz)
+#else
+# define STENCIL_CPU_LAUNCH() stencil_apply_direct(p_grid, p_old, vel, coeff, \
+    dt2, nx, ny, nz)
+#endif
+
 
 int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
-                             const float* vel, const float* coeff, float dt2,
+                             const float* vel, const float* coeff,
+                             const float* eta, float* phi,
+                             float dt2, float dh,
                              int nx, int ny, int nz, int nterms)
 {
   int result = EXIT_SUCCESS;
+#if (0 != STENCIL_PML)
+  const float hd_2 = 0.25f / (dh * dh);
+#else
+  (void)eta; (void)phi; (void)dh;
+#endif
 
   if (NTERMS != nterms
 #if (0 != STENCIL_CPU_PINNED)
@@ -175,7 +194,7 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
     for (g = 0; g < ngroups; ++g) {
       STENCIL_CPU_COORD(g % ng0, (g / ng0) % ng1, g / (ng0 * ng1), 0, 0,
         width_f, width_m);
-      stencil_apply_direct(p_grid, p_old, vel, coeff, dt2, nx, ny, nz);
+      STENCIL_CPU_LAUNCH();
     }
 #else
     for (g = 0; g < ngroups; ++g) {
@@ -183,7 +202,7 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
       { const int tid = omp_get_thread_num();
         STENCIL_CPU_COORD(g % ng0, (g / ng0) % ng1, g / (ng0 * ng1),
           tid % width_f, tid / width_f, width_f, width_m);
-        stencil_apply_direct(p_grid, p_old, vel, coeff, dt2, nx, ny, nz);
+        STENCIL_CPU_LAUNCH();
       }
     }
 #endif
@@ -268,7 +287,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 {
   static const char *const unsupported[] = {
     "STENCIL_BF16", "STENCIL_BF16S", "STENCIL_FP16S", "STENCIL_INT8",
-    "STENCIL_BLOCKED", "STENCIL_LAYOUT", "STENCIL_METHOD", "STENCIL_PML"
+    "STENCIL_BLOCKED", "STENCIL_LAYOUT", "STENCIL_METHOD"
   };
   const int nunsupported = (int)(sizeof(unsupported) / sizeof(*unsupported));
   int result = EXIT_SUCCESS;
@@ -324,7 +343,13 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   }
   else
 #endif
-  if (NTERMS != ctx->nterms) {
+  if ((0 != ctx->pml) != (0 != STENCIL_PML)) {
+    /* Dropping the damping silently would look like a converging run. */
+    fprintf(stderr, "ERROR: PML is requested but the host kernel was built"
+      " without it; rebuild with CPUDEF=\"-DSTENCIL_PML=1\"\n");
+    result = EXIT_FAILURE;
+  }
+  else if (NTERMS != ctx->nterms) {
     fprintf(stderr, "ERROR: the host kernel was built for %d terms;"
       " rebuild with CPUDEF=\"-DNTERMS=%d\"\n", NTERMS, ctx->nterms);
     result = EXIT_FAILURE;
@@ -356,6 +381,8 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
       stencil_cpu_stride[1] = (long)(nz + 2 * lz);
       stencil_cpu_stride[2] = (long)nz * ny;
       stencil_cpu_stride[3] = (long)nz;
+      stencil_cpu_stride[4] = (long)(nz + 2) * (ny + 2);
+      stencil_cpu_stride[5] = (long)(nz + 2);
 #if defined(STENCIL_PADDED) && (0 < STENCIL_PADDED)
       if (0 == padded) {
         fprintf(stderr, "ERROR: the tile gathers past the halo;"
@@ -407,10 +434,9 @@ int stencil_apply_laplacian(stencil_context_t* ctx,
                             void* vel, float dt2, float dh, int nterms)
 {
   int result;
-  /* Spacing is folded into the operator weights; only PML reads it again. */
-  (void)dh;
   result = stencil_cpu_apply_direct((const float*)p_cur, (float*)p_old,
-    (const float*)vel, (const float*)ctx->coeff, dt2,
+    (const float*)vel, (const float*)ctx->coeff,
+    (const float*)ctx->eta, (float*)ctx->phi, dt2, dh,
     ctx->grid_size[0], ctx->grid_size[1], ctx->grid_size[2], nterms);
   return result;
 }
