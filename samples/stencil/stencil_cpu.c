@@ -57,6 +57,14 @@
 # if !defined(WG_Y)
 #   define WG_Y 1
 # endif
+#elif (0 != STENCIL_CPU_LANES)
+/* Span the fast axis: no halo along it, contiguous staging. Capacity only. */
+# if !defined(WG_X)
+#   define WG_X 256
+# endif
+# if !defined(WG_Y)
+#   define WG_Y 8
+# endif
 #endif
 
 /* STENCIL_PADDED stays off so the coordinate clamping remains live. */
@@ -106,15 +114,15 @@
 #endif
 
 /* Publish the coordinates of one work-item, the way a launch would. */
-#define STENCIL_CPU_COORD(G0, G1, G2, L0, L1) do { \
+#define STENCIL_CPU_COORD(G0, G1, G2, L0, L1, W0, W1) do { \
   stencil_cpu_gid[0] = (G0); \
   stencil_cpu_gid[1] = (G1); \
   stencil_cpu_gid[2] = (G2); \
   stencil_cpu_lid[0] = (L0); \
   stencil_cpu_lid[1] = (L1); \
   stencil_cpu_lid[2] = 0; \
-  stencil_cpu_lsz[0] = WG_X; \
-  stencil_cpu_lsz[1] = WG_Y; \
+  stencil_cpu_lsz[0] = (W0); \
+  stencil_cpu_lsz[1] = (W1); \
   stencil_cpu_lsz[2] = 1; \
 } while (0)
 
@@ -129,10 +137,6 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
 #if (0 != STENCIL_CPU_PINNED)
     || STENCIL_NX != nx || STENCIL_NY != ny || STENCIL_NZ != nz
 #endif
-#if (0 != STENCIL_CPU_LANES)
-    /* The lane loop runs unguarded, so every lane has to be in range. */
-    || 0 != (nx % WG_X) || 0 != (ny % WG_Y)
-#endif
     )
   {
     result = EXIT_FAILURE;
@@ -142,8 +146,11 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
      * One flat loop over the work-groups rather than a collapsed nest: the
      * group coordinates stay body-local, hence private without a clause.
      */
-    const int ng0 = DIVUP(nx, WG_X);
-    const int ng1 = DIVUP(ny, WG_Y);
+    /* Tile as wide as the fast axis allows, capped by the compile-time room. */
+    const int width_f = (nx < WG_X) ? nx : WG_X;
+    const int width_m = (ny < WG_Y) ? ny : WG_Y;
+    const int ng0 = DIVUP(nx, width_f);
+    const int ng1 = DIVUP(ny, width_m);
     const int ngroups = ng0 * ng1 * DIVUP(nz, BLK);
     int g;
 #if (0 == STENCIL_CPU_TEAM)
@@ -151,7 +158,8 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
 #   pragma omp parallel for
 # endif
     for (g = 0; g < ngroups; ++g) {
-      STENCIL_CPU_COORD(g % ng0, (g / ng0) % ng1, g / (ng0 * ng1), 0, 0);
+      STENCIL_CPU_COORD(g % ng0, (g / ng0) % ng1, g / (ng0 * ng1), 0, 0,
+        width_f, width_m);
       stencil_apply_direct(p_grid, p_old, vel, coeff, dt2, nx, ny, nz);
     }
 #else
@@ -159,7 +167,7 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
 #     pragma omp parallel num_threads(WG_X * WG_Y)
       { const int tid = omp_get_thread_num();
         STENCIL_CPU_COORD(g % ng0, (g / ng0) % ng1, g / (ng0 * ng1),
-          tid % WG_X, tid / WG_X);
+          tid % width_f, tid / width_f, width_f, width_m);
         stencil_apply_direct(p_grid, p_old, vel, coeff, dt2, nx, ny, nz);
       }
     }
@@ -270,15 +278,6 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
     fprintf(stderr, "ERROR: the host kernel was pinned to %dx%dx%d;"
       " drop the extents from CPUDEF or set them to %dx%dx%d\n",
       STENCIL_NX, STENCIL_NY, STENCIL_NZ, nx, ny, nz);
-    result = EXIT_FAILURE;
-  }
-  else
-#endif
-#if (0 != STENCIL_CPU_LANES)
-  if (0 != (nx % WG_X) || 0 != (ny % WG_Y)) {
-    fprintf(stderr, "ERROR: the host lane loop needs WG_X=%d and WG_Y=%d to"
-      " divide %dx%d; rebuild with CPUDEF=\"-DWG_X=... -DWG_Y=...\"\n",
-      WG_X, WG_Y, nx, ny);
     result = EXIT_FAILURE;
   }
   else

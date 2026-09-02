@@ -38,18 +38,13 @@
 #endif
 
 /**
- * Host build (STENCIL_CPU_LANES): the work-group's lanes become two nested
- * loops inside the kernel instead of SIMT lanes, so an ordinary C compiler
- * vectorizes each phase along the fast axis. The phases are already separated
- * by barriers, hence running one lane loop per phase keeps the on-device order
- * of operations and leaves barrier() nothing to do. The slow-axis window turns
- * lane-major to keep its loads contiguous, and the staging loop walks the whole
- * tile because a single work-item now stands for the entire work-group.
- *
- * SIMD_COLLAPSE pairs with the UNROLL_FORCE hints: unrolling the short
- * constant-trip loops in the body first is what leaves the lane loop innermost
- * with straight-line code, and it retires the loop counters that would
- * otherwise be shared across the lanes of the vectorized region.
+ * Host build (STENCIL_CPU_LANES): lanes become two loops inside the kernel
+ * rather than SIMT lanes, so a C compiler vectorizes each phase along the fast
+ * axis. The phases are barrier-separated already, so one lane loop per phase
+ * keeps the on-device order and leaves barrier() nothing to do. The slow-axis
+ * window turns lane-major to keep its loads contiguous. SIMD_COLLAPSE needs the
+ * UNROLL_FORCE hints: unrolling the short loops first leaves the lane loop
+ * innermost and retires counters that would otherwise be shared across lanes.
  */
 #if defined(STENCIL_CPU_LANES) && (0 < STENCIL_CPU_LANES)
 # if (STENCIL_LAYOUT_XYZ != STENCIL_LAYOUT)
@@ -58,12 +53,13 @@
 # if defined(STENCIL_PML) && (0 < STENCIL_PML)
 #   error the host lane loop carries no per-lane PML window
 # endif
-/* WG_X and WG_Y must divide the fast and medium extents; the host launcher
-   checks that, because the extents need not be known at build time. */
+/* WG_X/WG_Y are capacity; the launcher publishes the width via get_local_size. */
+# define STENCIL_WIDTH_F width_f
+# define STENCIL_WIDTH_M width_m
 # define STENCIL_FOR_LANE \
     SIMD_COLLAPSE(2) \
-    for (lane_m = 0; lane_m < WG_Y; ++lane_m) \
-    for (lane_f = 0; lane_f < WG_X; ++lane_f)
+    for (lane_m = 0; lane_m < nlanes_m; ++lane_m) \
+    for (lane_f = 0; lane_f < nlanes_f; ++lane_f)
 # define STENCIL_LANE_F (lane_f)
 # define STENCIL_LANE_M (lane_m)
 # define STENCIL_I_F (i_f + lane_f)
@@ -71,6 +67,8 @@
 # define STENCIL_S_WIN(W) s_win[W][lane_m][lane_f]
 # define STENCIL_FILL_STEP 1
 #else
+# define STENCIL_WIDTH_F WG_X
+# define STENCIL_WIDTH_M WG_Y
 # define STENCIL_FOR_LANE
 # define STENCIL_LANE_F (lf)
 # define STENCIL_LANE_M (lm)
@@ -159,9 +157,16 @@ kernel void stencil_apply_direct(
   const int lid = lm * WG_X + lf;
   const int valid_fm = (i_f < FP32_NFAST && i_m < FP32_NMED);
 
-  const int gf0 = (int)get_group_id(0) * WG_X - RADIUS;
-  const int gm0 = (int)get_group_id(1) * WG_Y - RADIUS;
 #if defined(STENCIL_CPU_LANES) && (0 < STENCIL_CPU_LANES)
+  const int width_f = (int)get_local_size(0);
+  const int width_m = (int)get_local_size(1);
+#endif
+  const int gf0 = (int)get_group_id(0) * STENCIL_WIDTH_F - RADIUS;
+  const int gm0 = (int)get_group_id(1) * STENCIL_WIDTH_M - RADIUS;
+#if defined(STENCIL_CPU_LANES) && (0 < STENCIL_CPU_LANES)
+  /* The tail group along an axis covers fewer lanes than the published width. */
+  const int nlanes_f = (i_f + width_f <= FP32_NFAST) ? width_f : (FP32_NFAST - i_f);
+  const int nlanes_m = (i_m + width_m <= FP32_NMED) ? width_m : (FP32_NMED - i_m);
   float s_win[S_WINDOW][WG_Y][WG_X];
   int lane_f, lane_m;
 #else
