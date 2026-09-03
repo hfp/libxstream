@@ -75,6 +75,12 @@ tests: test
 test: $(OUTDIR)/.make $(SRCDIR)/test.sh $(XFILES)
 	@BLDDIR=$(abspath $(OUTDIR)) $(SRCDIR)/test.sh
 
+# Separate from "test" because it builds the stencil sample rather than a test
+# here. SANITIZE and the usual flags reach it through the environment.
+.PHONY: stencil
+stencil: $(SRCDIR)/stencil.sh
+	@$(SRCDIR)/stencil.sh
+
 define DEFINE_LINK_RULE
 $(1).x: $(2) $(dir $(1))/.make Makefile $(XLIB) $(LIBXS)
 	$(LD) $(SLDFLAGS) -o $(1).x $(2) $(XLIB) $(LIBXS) \

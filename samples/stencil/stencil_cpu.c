@@ -8,6 +8,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "stencil_opencl.h"
+#include "stencil_pml.h"
 #include "stencil_weights.h"
 #include <libxs/libxs_macros.h>
 #if defined(_OPENMP)
@@ -370,6 +371,12 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
     ctx->ndigits_x = STENCIL_NDIGITS_X;
     ctx->sg = 1;
     ctx->fp32 = 1;
+    /* The layout is compiled in, and the caller stages the wavefield by it. */
+    ctx->layout = STENCIL_LAYOUT;
+    /* The build carries PML or not, hence it is also the default. */
+    { const char *const pml_env = getenv("STENCIL_PML");
+      ctx->pml = (NULL != pml_env) ? (0 != atoi(pml_env)) : (0 != STENCIL_PML);
+    }
     ctx->fp16 = (NULL != fp16s_env && 0 != atoi(fp16s_env)) ? 1 : 0;
     ctx->bf16s = (0 == ctx->fp16 && NULL != bf16s_env) ? atoi(bf16s_env) : 0;
     if (2 < ctx->bf16s) ctx->bf16s = 2;
@@ -434,9 +441,10 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
   else
 #endif
   if ((0 != ctx->pml) != (0 != STENCIL_PML)) {
-    /* Dropping the damping silently would look like a converging run. */
-    fprintf(stderr, "ERROR: PML is requested but the host kernel was built"
-      " without it; rebuild with CPUDEF=\"-DSTENCIL_PML=1\"\n");
+    /* Dropping or adding the damping silently would look like a converging run. */
+    fprintf(stderr, "ERROR: the host kernel was built with STENCIL_PML=%d;"
+      " rebuild with CPUDEF=\"-DSTENCIL_PML=%d\" or match it at run time\n",
+      STENCIL_PML, (0 != ctx->pml) ? 1 : 0);
     result = EXIT_FAILURE;
   }
   else if (NTERMS != ctx->nterms) {
@@ -493,6 +501,10 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
 #endif
     if (EXIT_SUCCESS == result) {
       result = stencil_cpu_select(ctx, padded);
+    }
+    if (EXIT_SUCCESS == result) {
+      result = stencil_pml_setup(ctx, nx, ny, nz,
+        libxstream_opencl_mem_hint_compress);
     }
   }
   return result;
@@ -570,6 +582,10 @@ int stencil_seed_exp_buf(stencil_context_t* ctx, const float* p_host,
 void stencil_finalize(stencil_context_t* ctx)
 {
   if (NULL != ctx) {
+    if (0 != ctx->pml_owned) {
+      if (NULL != ctx->phi) stencil_host_deallocate(ctx->phi);
+      if (NULL != ctx->eta) stencil_host_deallocate(ctx->eta);
+    }
     if (NULL != ctx->coeff) stencil_host_deallocate(ctx->coeff);
     memset(ctx, 0, sizeof(*ctx));
   }

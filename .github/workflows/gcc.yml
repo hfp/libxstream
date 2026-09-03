@@ -20,8 +20,29 @@ jobs:
         flags: [DBG=0, DBG=1 PEDANTIC=2]
         libxs: [prebuilt]
         include:
+          # Sanitizers on one combination rather than a job of its own. They
+          # ride the optimized one because -O0 hides what the optimizer does
+          # with undefined behaviour. SANITIZE implies SYM=1, so the reports
+          # carry file and line without DBG=1. AddressSanitizer earns its place
+          # next to UBSan: a heap overflow in the host stencil kernel (a padded
+          # grid staged as if unpadded) is what it found.
+          - flags: DBG=0
+            libxs: prebuilt
+            sanitize: address,undefined
           - flags: DBG=1 PEDANTIC=2 FORCE_CXX=1 FORTRAN=0
             libxs: header-only
+    env:
+      # picked up by Makefile.inc through "SANITIZE ?=", hence no step below
+      # needs to know about it; empty for every other combination
+      SANITIZE: ${{ matrix.sanitize }}
+      # a finding prints and continues by default, which would keep the job
+      # green; stop at the first one so it is the job that reports it
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      # LeakSanitizer rides along with AddressSanitizer and is off for now: the
+      # OpenCL loader the tests link holds allocations to exit, and a registry
+      # that outlives main is a design choice rather than a leak. Turn it on
+      # (detect_leaks=1) to see what a run actually reports.
+      ASAN_OPTIONS: detect_leaks=0
     steps:
     - uses: actions/checkout@v5
 
@@ -51,6 +72,13 @@ jobs:
 
     - name: Test
       run: make -j $(nproc) ${{ matrix.flags }} test
+
+    # The stencil sample can translate its OpenCL kernel with the C compiler
+    # (OCL=0), which is the only path here that runs kernel code: a runner has
+    # no GPU. The flags are the matrix ones as environment, which Makefile.inc
+    # picks up the same way it picks up SANITIZE.
+    - name: Test stencil (host kernel)
+      run: env ${{ matrix.flags }} tests/stencil.sh
 
     - name: Install (PREFIX)
       if: matrix.libxs != 'header-only'
