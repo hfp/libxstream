@@ -386,8 +386,8 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
      * There is no portable way to set the ICVs from inside the process.
      */
     if (0 != verbosity && omp_proc_bind_false == omp_get_proc_bind()) {
-      fprintf(stderr, "WARNING: threads are unbound;"
-        " set OMP_PROC_BIND=spread OMP_PLACES=cores\n");
+      fprintf(stderr, "WARNING: threads are unbound"
+        " - export OMP_PROC_BIND=spread OMP_PLACES=cores\n");
     }
 #endif
   }
