@@ -8,10 +8,13 @@
 ******************************************************************************/
 
 /**
- * The instance set, included twice by stencil_cpu.c: once to emit the kernels
- * and once (with STENCIL_CPU_TABLE) to emit the dispatch table, so the two
- * cannot drift. Written out rather than generated because the preprocessor
- * cannot include a file from within a macro expansion.
+ * The set of instances, included twice by stencil_cpu.c: once to emit the
+ * kernels and once (with STENCIL_CPU_TABLE) to emit the dispatch table, so the
+ * two cannot drift. stencil_cpu_instance.h carries the body of one of them and
+ * documents the encoding of the index.
+ *
+ * Written out rather than generated because the preprocessor cannot include a
+ * file from within a macro expansion.
  */
 #define STENCIL_CPU_IDX 0
 #include "stencil_cpu_instance.h"

@@ -72,7 +72,8 @@
 /**
  * The JIT specializes the device kernel per launch. A host build instead
  * compiles one instance per combination it may be asked for and selects between
- * them in stencil_configure; stencil_cpu_instance.h documents the encoding.
+ * them in stencil_configure; stencil_cpu_set.h lists them and
+ * stencil_cpu_instance.h documents the encoding of the index.
  *
  * Axes: the boundary treatment (a gather that leaves the grid is either clamped
  * or read out of the halo, which the grid decides, as on the device), the
@@ -167,11 +168,11 @@ typedef void (*stencil_cpu_kernel_t)(const float*, float*, const float*,
   const float*, float, int, int, int);
 #endif
 
-#include "stencil_cpu_instances.h"
+#include "stencil_cpu_set.h"
 
 static const stencil_cpu_kernel_t stencil_cpu_kernels[STENCIL_CPU_NINST] = {
 #define STENCIL_CPU_TABLE 1
-#include "stencil_cpu_instances.h"
+#include "stencil_cpu_set.h"
 #undef STENCIL_CPU_TABLE
 };
 
