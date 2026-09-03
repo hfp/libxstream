@@ -21,6 +21,14 @@
 #undef constant
 #undef local
 #undef kernel
+#undef inline
+/* Restore the spelling LIBXS establishes where the compiler lacks inline. */
+#if defined(LIBXS_INLINE_FIXUP)
+# define inline LIBXS_INLINE_KEYWORD
+#endif
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 #undef barrier
 #undef restrict
 #undef uchar

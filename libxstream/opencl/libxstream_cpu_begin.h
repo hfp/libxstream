@@ -10,6 +10,7 @@
 #include <stddef.h>
 #if defined(__LIBXS) || defined(LIBXS_SOURCE)
 # include <libxs/libxs_macros.h>
+# include <libxs/libxs_math.h>
 #endif
 
 /**
@@ -57,6 +58,23 @@
 /* Kernels become ordinary functions that the launcher calls directly. */
 #define kernel static
 
+/**
+ * A device-side helper becomes file-local, otherwise an external inline
+ * definition refers to the static conversion helpers below. LIBXS already spells
+ * "inline" for C89, hence the undef before the redefinition.
+ */
+#undef inline
+#define inline static
+/**
+ * A helper the kernel at hand does not call is expected here, and the shim
+ * neutralizes __attribute__ (the device spellings mean nothing to a host
+ * compiler), so the attribute route to silence it is not available.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
+
 /* Kernel attributes carry no meaning on the host. */
 #if !defined(__attribute__)
 # define __attribute__(A)
@@ -99,6 +117,27 @@
 # define SIMD_COLLAPSE(N) LIBXS_PRAGMA_SIMD_COLLAPSE(N)
 #else
 # define SIMD_COLLAPSE(N)
+#endif
+
+/**
+ * Storage conversions: OpenCL C reaches FP16 through the half built-ins and a
+ * device may convert BF16 in hardware, neither of which a host build has. LIBXS
+ * carries the host implementations, and a consumer that does not have LIBXS
+ * defines the four names before this header rather than growing the shim.
+ */
+#if defined(__LIBXS) || defined(LIBXS_SOURCE)
+# if !defined(ROUND_TO_BF16)
+#   define ROUND_TO_BF16(X) libxs_round_bf16_f32(X)
+# endif
+# if !defined(BF16_TO_F32)
+#   define BF16_TO_F32(X) libxs_bf16_to_f32(X)
+# endif
+# if !defined(ROUND_TO_F16)
+#   define ROUND_TO_F16(X) libxs_round_f16_f32(X)
+# endif
+# if !defined(F16_TO_F32)
+#   define F16_TO_F32(X) libxs_f16_to_f32(X)
+# endif
 #endif
 
 #define get_group_id(D) ((size_t)libxstream_cpu_gid[D])
@@ -152,4 +191,5 @@ static void libxstream_cpu_barrier(void)
 # pragma omp barrier
 #endif
 }
+
 #endif /*LIBXSTREAM_CPU_STATE*/

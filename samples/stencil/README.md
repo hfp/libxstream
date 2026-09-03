@@ -113,15 +113,28 @@ the threads, which is what `make OCL=0 test` does:
 
     OMP_PROC_BIND=spread OMP_PLACES=cores ./stencil.x -n 512
 
-With the ZYX layout the kernel is compiled twice, clamping a gather that
-leaves the grid and reading it out of the halo, and the grid selects
-between them exactly as the device does per launch.  `STENCIL_PADDED`
-forces one case and then compiles only that one:
+The kernel is compiled once per combination the run may ask for, and
+`stencil_configure` selects between them, which is how the environment
+variables below keep working without a JIT:
 
-    make OCL=0 CPUDEF="-DSTENCIL_LAYOUT=2 -DSTENCIL_PADDED=1"
+    STENCIL_BF16S    wavefield storage limbs (1 = single BF16, 2 = two)
+    STENCIL_FP16S    IEEE FP16 wavefield storage (0/1)
+    STENCIL_HALO     halo padding size per axis
+    STENCIL_METHOD   operator method (needs STENCIL_CPU_COMPACT below)
 
-A halo needs a caller that owns padded buffers (`ctx->halo`), because the
-sample aliases its host and device buffers; `STENCIL_HALO` is refused.
+Four storage formats times the two boundary treatments (clamp the gather,
+or read it out of the halo, which the grid decides as on the device) are
+built by default.  The compact operators add the three narrower radii:
+
+    make OCL=0 CPUDEF="-DSTENCIL_CPU_COMPACT=1"
+
+That is 32 instances instead of 8, about 260 KB of code.  Asking for a
+combination the build does not carry is an error naming the flag to
+rebuild with, never a silent substitution.  `STENCIL_PADDED` forces the
+boundary treatment and then compiles only that half.
+
+BF16S costs about 8% against FP32 and FP16S about 3x, because the FP16
+conversion does not vectorize in the C89 mode `PEDANTIC=2` selects.
 
 ## Usage
 

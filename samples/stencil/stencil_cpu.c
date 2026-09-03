@@ -8,6 +8,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "stencil_opencl.h"
+#include "stencil_weights.h"
 #include <libxs/libxs_macros.h>
 #if defined(_OPENMP)
 # include <omp.h>
@@ -68,17 +69,36 @@
 #endif
 
 /**
- * A gather that leaves the grid is either clamped or read out of the halo, and
- * the two are different answers at the boundary. The device decides per launch,
- * hence the host compiles the kernel twice and decides per grid. An explicit
- * -DSTENCIL_PADDED forces one case and compiles only that one. Restricted to the
- * Z-innermost layout, which is where the device emits the flag at all.
+ * The JIT specializes the device kernel per launch. A host build instead
+ * compiles one instance per combination it may be asked for and selects between
+ * them in stencil_configure; stencil_cpu_instance.h documents the encoding.
+ *
+ * Axes: the boundary treatment (a gather that leaves the grid is either clamped
+ * or read out of the halo, which the grid decides, as on the device), the
+ * wavefield storage format (STENCIL_BF16S, STENCIL_FP16S), and the operator
+ * radius (STENCIL_METHOD) once STENCIL_CPU_COMPACT is built in.
+ *
+ * An explicit -DSTENCIL_PADDED forces the boundary treatment, and then only that
+ * half of the set exists; the other half becomes a hole in the table.
  */
-#if !defined(STENCIL_PADDED) && (2 == STENCIL_LAYOUT)
-# define STENCIL_CPU_DUAL 1
-#else
-# define STENCIL_CPU_DUAL 0
+#if defined(STENCIL_PADDED)
+# if (0 < STENCIL_PADDED)
+#   define STENCIL_CPU_FORCE_PAD 1
+# else
+#   define STENCIL_CPU_FORCE_PAD 0
+# endif
+# undef STENCIL_PADDED
 #endif
+#if !defined(STENCIL_CPU_COMPACT)
+# define STENCIL_CPU_COMPACT 0
+#endif
+#if (0 != STENCIL_CPU_COMPACT)
+# define STENCIL_CPU_NINST 32
+#else
+# define STENCIL_CPU_NINST 8
+#endif
+#define STENCIL_CPU_CAT2(A, B) A##B
+#define STENCIL_CPU_CAT(A, B) STENCIL_CPU_CAT2(A, B)
 
 /**
  * The kernel derives its indexing from STENCIL_NX/NY/NZ, which the JIT knows at
@@ -98,10 +118,8 @@
 # define STENCIL_NZ nz
 #endif
 
-/* The kernel sources derive STENCIL_WIDTH from RADIUS, asserted equal below. */
+/* The kernel sources derive STENCIL_WIDTH from RADIUS, which varies per instance. */
 #undef STENCIL_WIDTH
-
-#include <libxstream/opencl/libxstream_cpu_begin.h>
 
 /**
  * Array geometry the JIT supplies as -D per launch and a host build cannot:
@@ -109,6 +127,10 @@
  * launch, hence not threadprivate. Only the Z-innermost layout indexes through
  * them, and STENCIL_LAYOUT_ZYX is not spelled out yet at this point.
  */
+/* Wavefield element count, which the BF16 two-limb format offsets the low limb by. */
+static long stencil_cpu_p_n;
+#define STENCIL_P_N stencil_cpu_p_n
+
 #if (2 == STENCIL_LAYOUT)
 static long stencil_cpu_stride[6];
 static int stencil_cpu_halo[3];
@@ -132,38 +154,31 @@ static int stencil_cpu_halo[3];
 #define STENCIL_E_LZ 1
 #endif
 
-#if (0 != STENCIL_CPU_DUAL)
-/* Which of the two instances the grid asks for, decided in stencil_configure. */
-static int stencil_cpu_padded;
-#endif
-
-#include "kernels/stencil_fp32.cl"
-#include <libxstream/opencl/libxstream_cpu_end.h>
-
-#if (0 != STENCIL_CPU_DUAL)
 /**
- * The same kernel again, reading into the halo rather than clamping. Everything
- * the two passes define is redefined identically, which is what keeps the second
- * pass legal; the exception is STENCIL_CLAMP_COORD, which stencil_common.cl
- * derives from STENCIL_PADDED, hence that file's include guard is dropped so it
- * derives the macro again.
+ * Signature shared by every instance: the storage format lives inside the load
+ * and store macros, so it does not reach the argument list.
  */
-# define stencil_apply_direct stencil_apply_direct_padded
-# define STENCIL_PADDED 1
-# undef STENCIL_COMMON_CL
-# undef STENCIL_CLAMP_COORD
-# include <libxstream/opencl/libxstream_cpu_begin.h>
-# include "kernels/stencil_fp32.cl"
-# include <libxstream/opencl/libxstream_cpu_end.h>
-# undef STENCIL_PADDED
-# undef stencil_apply_direct
+#if (0 != STENCIL_PML)
+typedef void (*stencil_cpu_kernel_t)(const float*, float*, const float*,
+  const float*, const float*, float*, float, float, float, float, int, int, int);
+#else
+typedef void (*stencil_cpu_kernel_t)(const float*, float*, const float*,
+  const float*, float, int, int, int);
 #endif
+
+#include "stencil_cpu_instances.h"
+
+static const stencil_cpu_kernel_t stencil_cpu_kernels[STENCIL_CPU_NINST] = {
+#define STENCIL_CPU_TABLE 1
+#include "stencil_cpu_instances.h"
+#undef STENCIL_CPU_TABLE
+};
+
+/* Selected in stencil_configure, hence uniform for the whole launch. */
+static stencil_cpu_kernel_t stencil_cpu_kernel;
 
 #if (STENCIL_BLK != BLK)
 # error BLK disagrees with STENCIL_BLK
-#endif
-#if (STENCIL_RADIUS != RADIUS)
-# error RADIUS disagrees with STENCIL_RADIUS
 #endif
 #if (STENCIL_LAYOUT_BLK == STENCIL_LAYOUT)
 # error the host path has no blocked layout
@@ -182,19 +197,8 @@ static int stencil_cpu_padded;
 # define STENCIL_CPU_APPLY(FN) FN(p_grid, p_old, vel, coeff, dt2, nx, ny, nz)
 #endif
 
-#if (0 != STENCIL_CPU_DUAL)
-/* Per work-group rather than per point, hence not worth splitting the loop. */
-# define STENCIL_CPU_LAUNCH() do { \
-    if (0 != stencil_cpu_padded) { \
-      STENCIL_CPU_APPLY(stencil_apply_direct_padded); \
-    } \
-    else { \
-      STENCIL_CPU_APPLY(stencil_apply_direct); \
-    } \
-  } while (0)
-#else
-# define STENCIL_CPU_LAUNCH() STENCIL_CPU_APPLY(stencil_apply_direct)
-#endif
+/* Indirect once per work-group, which is 200k points of work behind the call. */
+#define STENCIL_CPU_LAUNCH() STENCIL_CPU_APPLY(kernel)
 
 
 int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
@@ -203,6 +207,9 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
                              float dt2, float dh,
                              int nx, int ny, int nz, int nterms)
 {
+  /* The plain FP32 instance also serves a caller that skipped stencil_configure. */
+  const stencil_cpu_kernel_t kernel = (NULL != stencil_cpu_kernel)
+    ? stencil_cpu_kernel : stencil_cpu_kernels[0];
   int result = EXIT_SUCCESS;
 #if (0 != STENCIL_PML)
   const float hd_2 = 0.25f / (dh * dh);
@@ -210,7 +217,7 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
   (void)eta; (void)phi; (void)dh;
 #endif
 
-  if (NTERMS != nterms
+  if (NULL == kernel || NTERMS != nterms
 #if (0 != STENCIL_CPU_PINNED)
     || STENCIL_NX != nx || STENCIL_NY != ny || STENCIL_NZ != nz
 #endif
@@ -327,20 +334,15 @@ int stencil_host_zero(void* ptr, size_t offset, size_t nbytes)
 
 
 /**
- * The host path carries the FP32 direct kernel and nothing else, so every
- * request for another operator, precision or layout is refused here instead of
- * being ignored on the way to a kernel that cannot honor it.
+ * The host path carries the FP32 kernel and nothing else, so a request for a
+ * DPAS kernel or for a layout the build does not have is refused here rather
+ * than ignored on the way to a kernel that cannot honor it. The storage format
+ * and the operator radius are instances, hence taken from the environment.
  */
 int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 {
-  /**
-   * STENCIL_HALO belongs here because the sample aliases its host and device
-   * buffers, which admits no padded layout; a caller that owns padded buffers
-   * sets ctx->halo directly and then reaches the padded kernel instance.
-   */
   static const char *const unsupported[] = {
-    "STENCIL_BF16", "STENCIL_BF16S", "STENCIL_FP16S", "STENCIL_INT8",
-    "STENCIL_BLOCKED", "STENCIL_LAYOUT", "STENCIL_METHOD", "STENCIL_HALO"
+    "STENCIL_BF16", "STENCIL_INT8", "STENCIL_BLOCKED", "STENCIL_LAYOUT"
   };
   const int nunsupported = (int)(sizeof(unsupported) / sizeof(*unsupported));
   int result = EXIT_SUCCESS;
@@ -353,21 +355,30 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
       result = EXIT_FAILURE;
     }
   }
-  if (EXIT_SUCCESS == result && STENCIL_DIRECT < method_override) {
-    fprintf(stderr, "ERROR: the host kernel implements the direct method only\n");
-    result = EXIT_FAILURE;
-  }
   if (EXIT_SUCCESS == result) {
+    const char *const bf16s_env = getenv("STENCIL_BF16S");
+    const char *const fp16s_env = getenv("STENCIL_FP16S");
+    const char *const halo_env = getenv("STENCIL_HALO");
+    const char *const method_env = getenv("STENCIL_METHOD");
+    /* A negative override means the caller has no opinion. */
+    const int method_val = (0 <= method_override) ? method_override
+      : ((NULL != method_env) ? atoi(method_env) : STENCIL_DIRECT);
     memset(ctx, 0, sizeof(*ctx));
     ctx->verbosity = verbosity;
-    ctx->method = STENCIL_DIRECT;
-    ctx->k_steps = 1;
-    ctx->r_per_step = STENCIL_RADIUS;
     ctx->strips_per_wg = 1;
     ctx->ndigits_a = 1;
     ctx->ndigits_x = STENCIL_NDIGITS_X;
     ctx->sg = 1;
     ctx->fp32 = 1;
+    ctx->fp16 = (NULL != fp16s_env && 0 != atoi(fp16s_env)) ? 1 : 0;
+    ctx->bf16s = (0 == ctx->fp16 && NULL != bf16s_env) ? atoi(bf16s_env) : 0;
+    if (2 < ctx->bf16s) ctx->bf16s = 2;
+    { const int halo_val = (NULL != halo_env) ? atoi(halo_env) : 0;
+      ctx->halo[0] = ctx->halo[1] = ctx->halo[2] = halo_val;
+    }
+    ctx->method = (stencil_method_t)method_val;
+    result = stencil_method_params(ctx->method, &ctx->k_steps,
+      &ctx->r_per_step);
 #if defined(_OPENMP) && (201307 <= _OPENMP)
     /**
      * Unbound threads cost more than any parameter here, and they also undo the
@@ -379,6 +390,32 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
         " set OMP_PROC_BIND=spread OMP_PLACES=cores\n");
     }
 #endif
+  }
+  return result;
+}
+
+
+/**
+ * Bind the instance the grid and the environment ask for. Absent combinations
+ * are a hole in the table rather than a silent substitution, because a kernel
+ * built for another storage format would read the wavefield as the wrong type.
+ */
+static int stencil_cpu_select(const stencil_context_t* ctx, int padded)
+{
+  const int sto = (0 != ctx->fp16) ? 3
+    : ((2 <= ctx->bf16s) ? 2 : ((1 == ctx->bf16s) ? 1 : 0));
+  const int rad = (STENCIL_DIRECT == ctx->method) ? 0 : ctx->r_per_step;
+  const int idx = rad * 8 + sto * 2 + (0 != padded ? 1 : 0);
+  int result = EXIT_SUCCESS;
+  if (STENCIL_CPU_NINST <= idx || NULL == stencil_cpu_kernels[idx]) {
+    fprintf(stderr, "ERROR: the host kernel was not built for method %d with"
+      " bf16s=%d fp16s=%d; rebuild with CPUDEF=\"%s\"\n", (int)ctx->method,
+      ctx->bf16s, ctx->fp16, (0 != rad)
+        ? "-DSTENCIL_CPU_COMPACT=1" : "-USTENCIL_PADDED");
+    result = EXIT_FAILURE;
+  }
+  else {
+    stencil_cpu_kernel = stencil_cpu_kernels[idx];
   }
   return result;
 }
@@ -408,20 +445,23 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
     result = EXIT_FAILURE;
   }
   else {
+    int padded = 0;
     ctx->grid_size[0] = nx;
     ctx->grid_size[1] = ny;
     ctx->grid_size[2] = nz;
     ctx->nblocks[0] = DIVUP(nx, BLK);
     ctx->nblocks[1] = DIVUP(ny, BLK);
     ctx->nblocks[2] = DIVUP(nz, BLK);
+    stencil_cpu_p_n = (long)nx * ny * nz;
 #if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
     /* Same test the JIT applies to decide -DSTENCIL_PADDED for this grid. */
     { const int lx = ctx->halo[0], ly = ctx->halo[1], lz = ctx->halo[2];
+      const int radius = ctx->r_per_step;
       const int width_f = (nz < WG_X) ? nz : WG_X;
       const int width_m = (ny < WG_Y) ? ny : WG_Y;
-      const int max_fast = DIVUP(nz, width_f) * width_f - 1 + RADIUS;
-      const int max_med = DIVUP(ny, width_m) * width_m - 1 + RADIUS;
-      const int padded = (max_fast < nz + lz && max_med < ny + ly) ? 1 : 0;
+      const int max_fast = DIVUP(nz, width_f) * width_f - 1 + radius;
+      const int max_med = DIVUP(ny, width_m) * width_m - 1 + radius;
+      padded = (max_fast < nz + lz && max_med < ny + ly) ? 1 : 0;
       /* Geometry the JIT would have supplied as -D. */
       stencil_cpu_halo[0] = lx;
       stencil_cpu_halo[1] = ly;
@@ -432,26 +472,28 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
       stencil_cpu_stride[3] = (long)nz;
       stencil_cpu_stride[4] = (long)(nz + 2) * (ny + 2);
       stencil_cpu_stride[5] = (long)(nz + 2);
-#if (0 != STENCIL_CPU_DUAL)
-      stencil_cpu_padded = padded;
-#elif defined(STENCIL_PADDED) && (0 < STENCIL_PADDED)
-      /* Forced: the halo has to cover what the tile gathers. */
-      if (0 == padded) {
-        fprintf(stderr, "ERROR: %dx%dx%d with halo %dx%dx%d gathers past the"
-          " halo; drop -DSTENCIL_PADDED to let the grid decide\n",
-          nx, ny, nz, lx, ly, lz);
-        result = EXIT_FAILURE;
-      }
-#else
-      /* Forced the other way, which the device would not have chosen here. */
-      if (0 != padded && 0 != ctx->verbosity) {
-        fprintf(stderr, "WARNING: %dx%dx%d with halo %dx%dx%d clamps although"
-          " the halo covers the gather; drop -DSTENCIL_PADDED=0 to match the"
-          " device\n", nx, ny, nz, lx, ly, lz);
+      stencil_cpu_p_n = (long)(nx + 2 * lx) * (ny + 2 * ly) * (nz + 2 * lz);
+#if defined(STENCIL_CPU_FORCE_PAD)
+      if (STENCIL_CPU_FORCE_PAD != padded) {
+        if (0 != STENCIL_CPU_FORCE_PAD) { /* the halo has to cover the gather */
+          fprintf(stderr, "ERROR: %dx%dx%d with halo %dx%dx%d gathers past the"
+            " halo; drop -DSTENCIL_PADDED to let the grid decide\n",
+            nx, ny, nz, lx, ly, lz);
+          result = EXIT_FAILURE;
+        }
+        else if (0 != ctx->verbosity) { /* correct, but not what the device does */
+          fprintf(stderr, "WARNING: %dx%dx%d with halo %dx%dx%d clamps although"
+            " the halo covers the gather; drop -DSTENCIL_PADDED=0 to match the"
+            " device\n", nx, ny, nz, lx, ly, lz);
+        }
+        padded = STENCIL_CPU_FORCE_PAD;
       }
 #endif
     }
 #endif
+    if (EXIT_SUCCESS == result) {
+      result = stencil_cpu_select(ctx, padded);
+    }
   }
   return result;
 }
@@ -467,7 +509,16 @@ int stencil_precompute_operators(stencil_context_t* ctx,
     result = EXIT_FAILURE;
   }
   else {
-    const int width = 2 * radius + 1;
+    /* Same weights the device gets, hence the shared generators. */
+    const int r_step = ctx->r_per_step;
+    const int r_eff = (1 == ctx->k_steps) ? radius : r_step;
+    const int width = 2 * r_eff + 1;
+    const int use_fit = (STENCIL_COMPACT_FIT == ctx->method);
+    const char *const ppw_env = use_fit ? getenv("STENCIL_PPW") : NULL;
+    const char *const fit_env = use_fit ? getenv("STENCIL_FIT") : NULL;
+    const double ppw = (NULL != ppw_env) ? atof(ppw_env) : 8.0;
+    const int fit_method = (NULL != fit_env) ? atoi(fit_env) : 2;
+    const double inv_h2 = -72.0 * fd_weights[radius] / 205.0;
     result = stencil_host_allocate(&ctx->coeff,
       (size_t)3 * width * sizeof(float));
     if (EXIT_SUCCESS == result) {
@@ -475,7 +526,17 @@ int stencil_precompute_operators(stencil_context_t* ctx,
       int d, r;
       for (d = 0; d < 3; ++d) {
         for (r = 0; r < width; ++r) {
-          coeff[d * width + r] = (float)fd_weights[r];
+          if (1 == ctx->k_steps) {
+            coeff[d * width + r] = (float)fd_weights[r];
+          }
+          else if (0 != use_fit) {
+            coeff[d * width + r] = (float)stencil_fit_weight(r_step, r - r_eff,
+              inv_h2, ppw, fit_method);
+          }
+          else {
+            coeff[d * width + r] =
+              (float)stencil_compact_weight(r_step, r - r_eff, inv_h2);
+          }
         }
       }
     }

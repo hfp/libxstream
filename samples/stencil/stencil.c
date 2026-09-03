@@ -341,27 +341,27 @@ int main(int argc, char* argv[])
 
 #if defined(STENCIL_CPU) && (0 < STENCIL_CPU)
     /**
-     * Host and device share one address space, so the inputs are already the
-     * device buffers and only the second wavefield needs storage of its own.
-     * The aliasing holds because the host path admits no packed or padded
-     * device layout; the sizes are checked rather than assumed.
+     * Host and device share one address space, so the inputs already are the
+     * device buffers wherever the device layout matches the host layout, and
+     * only the second wavefield needs storage of its own. A packed or padded
+     * device layout does not match, and then the ordinary path below stages the
+     * wavefield exactly as it does for a device.
      */
-    if (EXIT_SUCCESS == result) {
-      if (grid_bytes == dev_bytes && grid_bytes == vel_dev_bytes) {
-        p_buf[0] = p_host;
-        vel_dev = vel_host;
-        result = libxstream_mem_dev_allocate_hint(&p_buf[1], dev_bytes,
-          libxstream_opencl_mem_hint_compress);
-      }
-      else {
-        result = EXIT_FAILURE;
-      }
+    if (EXIT_SUCCESS == result && grid_bytes == dev_bytes
+      && grid_bytes == vel_dev_bytes)
+    {
+      p_buf[0] = p_host;
+      vel_dev = vel_host;
+      result = libxstream_mem_dev_allocate_hint(&p_buf[1], dev_bytes,
+        libxstream_opencl_mem_hint_compress);
     }
-#else
+    else
+#endif
+    {
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[0], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&p_buf[1], dev_bytes, libxstream_opencl_mem_hint_compress);
     if (EXIT_SUCCESS == result) result = libxstream_mem_dev_allocate_hint(&vel_dev, vel_dev_bytes, libxstream_opencl_mem_hint_compress);
-#endif
+    }
 
     if (EXIT_SUCCESS == result) {
       if (0 != store_limbs) {
@@ -646,14 +646,10 @@ int main(int argc, char* argv[])
     }
 
     if (NULL != pack_buf) libxstream_mem_host_deallocate(pack_buf, ctx.stream);
-#if defined(STENCIL_CPU) && (0 < STENCIL_CPU)
-    /* p_buf[0] and vel_dev alias host buffers that are released below. */
+    /* An aliased buffer is released with the host buffer it names. */
+    if (NULL != vel_dev && vel_dev != vel_host) libxstream_mem_dev_deallocate_hint(vel_dev);
     if (NULL != p_buf[1]) libxstream_mem_dev_deallocate_hint(p_buf[1]);
-#else
-    if (NULL != vel_dev) libxstream_mem_dev_deallocate_hint(vel_dev);
-    if (NULL != p_buf[1]) libxstream_mem_dev_deallocate_hint(p_buf[1]);
-    if (NULL != p_buf[0]) libxstream_mem_dev_deallocate_hint(p_buf[0]);
-#endif
+    if (NULL != p_buf[0] && p_buf[0] != p_host) libxstream_mem_dev_deallocate_hint(p_buf[0]);
     if (NULL != vel_host) libxstream_mem_host_deallocate(vel_host, ctx.stream);
     if (NULL != p_host_init) libxstream_mem_host_deallocate(p_host_init, ctx.stream);
     if (NULL != p_host) libxstream_mem_host_deallocate(p_host, ctx.stream);
