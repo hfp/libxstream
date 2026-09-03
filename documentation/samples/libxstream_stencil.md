@@ -113,15 +113,38 @@ the threads, which is what `make OCL=0 test` does:
 
     OMP_PROC_BIND=spread OMP_PLACES=cores ./stencil.x -n 512
 
-With the ZYX layout the kernel is compiled twice, clamping a gather that
-leaves the grid and reading it out of the halo, and the grid selects
-between them exactly as the device does per launch.  `STENCIL_PADDED`
-forces one case and then compiles only that one:
+The kernel is compiled once per combination the run may ask for, and
+`stencil_configure` selects between them, which is how these environment
+variables keep working without a JIT:
 
-    make OCL=0 CPUDEF="-DSTENCIL_LAYOUT=2 -DSTENCIL_PADDED=1"
+    STENCIL_BF16S    wavefield storage limbs (1 = single BF16, 2 = two)
+    STENCIL_FP16S    IEEE FP16 wavefield storage (0/1)
+    STENCIL_HALO     halo padding size per axis
+    STENCIL_METHOD   operator method (0-3)
+    STENCIL_LAYOUT   accepted when it names the layout built in
+    STENCIL_PML      accepted when it matches the build
 
-A halo needs a caller that owns padded buffers (`ctx->halo`), because the
-sample aliases its host and device buffers; `STENCIL_HALO` is refused.
+Four storage formats times four operator radii times the two boundary
+treatments (clamp the gather, or read it out of the halo, which the grid
+decides as on the device) are 32 instances, about 260 KB of code.  Drop
+the compact radii for a build of eight:
+
+    make OCL=0 CPUDEF="-DSTENCIL_CPU_COMPACT=0"
+
+Asking for a combination the build does not carry is an error naming the
+flag to rebuild without, never a silent substitution.  `STENCIL_PADDED`
+forces the boundary treatment and then compiles only that half.
+
+The benchmark driver reaches the host build through `--exe`, which makes
+the CPU kernel sweepable like any device variant:
+
+    make OCL=0 BLDDIR=/tmp/b/obj OUTDIR=/tmp/b
+    ./stencil.py --exe /tmp/b/stencil.x --kernel bf16s --sizes 256,512
+
+BF16S costs about 8% against FP32 and FP16S about 3x, because the FP16
+conversion does not vectorize in the C89 mode `PEDANTIC=2` selects.
+BF16S=2 (`--kernel bf16s-split`) holds two limbs and therefore moves as
+many bytes as FP32: it buys precision, not bandwidth.
 
 ## Usage
 

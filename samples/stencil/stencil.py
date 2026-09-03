@@ -56,14 +56,24 @@ KERNEL_CASES = {
     "int8-split": CASES_INT8,
     "fp32": CASES_FP32,
     "fp32-split": CASES_FP32,
+    "bf16s": CASES_FP32,
+    "bf16s-split": CASES_FP32,
+    "fp16s": CASES_FP32,
 }
 
+# The storage variants run the FP32 kernel and only change how the wavefield is
+# held: bf16s and fp16s halve the traffic, whereas bf16s-split keeps two BF16
+# limbs and therefore moves as many bytes as FP32 (it buys precision, not
+# bandwidth). Selectable for the host build (OCL=0) as well as for a device.
 KERNEL_ENV = {
     "bf16": {"STENCIL_BF16": "1"},
     "int8": {"STENCIL_INT8": "1"},
     "int8-split": {"STENCIL_INT8": "2"},
     "fp32": {},
     "fp32-split": {"STENCIL_BF16": "2"},
+    "bf16s": {"STENCIL_BF16S": "1"},
+    "bf16s-split": {"STENCIL_BF16S": "2"},
+    "fp16s": {"STENCIL_FP16S": "1"},
 }
 
 FIELDNAMES = (
@@ -535,9 +545,11 @@ def main(argv):
     )
     parser.add_argument(
         "--kernel",
-        choices=("bf16", "int8", "int8-split", "fp32", "fp32-split"),
+        choices=tuple(KERNEL_ENV),
         default="fp32",
-        help="Kernel path to benchmark: fp32, bf16, int8, int8-split, fp32-split (default: fp32).",
+        help="Kernel path to benchmark: "
+        + ", ".join(KERNEL_ENV)
+        + " (default: fp32).",
     )
     parser.add_argument(
         "--dims",

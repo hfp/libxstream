@@ -81,7 +81,9 @@
  * radius (STENCIL_METHOD) once STENCIL_CPU_COMPACT is built in.
  *
  * An explicit -DSTENCIL_PADDED forces the boundary treatment, and then only that
- * half of the set exists; the other half becomes a hole in the table.
+ * half of the set exists; the other half becomes a hole in the table. Likewise
+ * STENCIL_CPU_COMPACT=0 drops the compact radii, which is the lean build: eight
+ * instances instead of thirty-two.
  */
 #if defined(STENCIL_PADDED)
 # if (0 < STENCIL_PADDED)
@@ -92,7 +94,7 @@
 # undef STENCIL_PADDED
 #endif
 #if !defined(STENCIL_CPU_COMPACT)
-# define STENCIL_CPU_COMPACT 0
+# define STENCIL_CPU_COMPACT 1
 #endif
 #if (0 != STENCIL_CPU_COMPACT)
 # define STENCIL_CPU_NINST 32
@@ -344,7 +346,7 @@ int stencil_host_zero(void* ptr, size_t offset, size_t nbytes)
 int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 {
   static const char *const unsupported[] = {
-    "STENCIL_BF16", "STENCIL_INT8", "STENCIL_BLOCKED", "STENCIL_LAYOUT"
+    "STENCIL_BF16", "STENCIL_INT8", "STENCIL_BLOCKED"
   };
   const int nunsupported = (int)(sizeof(unsupported) / sizeof(*unsupported));
   int result = EXIT_SUCCESS;
@@ -354,6 +356,18 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
     const char *const value = getenv(unsupported[i]);
     if (NULL != value && 0 != atoi(value)) {
       fprintf(stderr, "ERROR: %s is not available with OCL=0\n", unsupported[i]);
+      result = EXIT_FAILURE;
+    }
+  }
+  if (EXIT_SUCCESS == result) {
+    /* Naming the layout the build carries is allowed, which lets a driver pass
+       the same environment to a host build as to a device. */
+    const char *const layout_env = getenv("STENCIL_LAYOUT");
+    const int layout_val = (NULL != layout_env) ? atoi(layout_env) : STENCIL_LAYOUT;
+    if (layout_val != STENCIL_LAYOUT) {
+      fprintf(stderr, "ERROR: the host kernel was built for layout %d;"
+        " rebuild with CPUDEF=\"-DSTENCIL_LAYOUT=%d\" or match it at run time\n",
+        STENCIL_LAYOUT, layout_val);
       result = EXIT_FAILURE;
     }
   }
@@ -417,9 +431,9 @@ static int stencil_cpu_select(const stencil_context_t* ctx, int padded)
   int result = EXIT_SUCCESS;
   if (STENCIL_CPU_NINST <= idx || NULL == stencil_cpu_kernels[idx]) {
     fprintf(stderr, "ERROR: the host kernel was not built for method %d with"
-      " bf16s=%d fp16s=%d; rebuild with CPUDEF=\"%s\"\n", (int)ctx->method,
+      " bf16s=%d fp16s=%d; rebuild without %s\n", (int)ctx->method,
       ctx->bf16s, ctx->fp16, (0 != rad)
-        ? "-DSTENCIL_CPU_COMPACT=1" : "-USTENCIL_PADDED");
+        ? "-DSTENCIL_CPU_COMPACT=0" : "-DSTENCIL_PADDED");
     result = EXIT_FAILURE;
   }
   else {

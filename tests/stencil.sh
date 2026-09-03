@@ -61,18 +61,20 @@ CASES=(
   "fp16s|-DSTENCIL_LAYOUT=0|STENCIL_FP16S=1|-n 32 -t 2 -d 3|1.0"
   # ZYX needs a halo of at least one for the sample's staging to line up with
   # the reference, and a halo covering the gather selects the padded kernel.
-  "zyx-halo1|-DSTENCIL_LAYOUT=2 -DSTENCIL_CPU_COMPACT=1|STENCIL_HALO=1|-n 32 -t 2 -d 3|1e-5"
-  "zyx-halo4|-DSTENCIL_LAYOUT=2 -DSTENCIL_CPU_COMPACT=1|STENCIL_HALO=4|-n 32 -t 2 -d 3|1.0"
-  "zyx-bf16s|-DSTENCIL_LAYOUT=2 -DSTENCIL_CPU_COMPACT=1|STENCIL_HALO=1 STENCIL_BF16S=2|-n 32 -t 2 -d 3|1.0"
-  "compact-r1|-DSTENCIL_LAYOUT=2 -DSTENCIL_CPU_COMPACT=1|STENCIL_HALO=1 STENCIL_METHOD=1|-n 32 -t 2 -d 3|1.0"
-  "compact-r2|-DSTENCIL_LAYOUT=2 -DSTENCIL_CPU_COMPACT=1|STENCIL_HALO=1 STENCIL_METHOD=2|-n 32 -t 2 -d 3|1.0"
-  "compact-fit|-DSTENCIL_LAYOUT=2 -DSTENCIL_CPU_COMPACT=1|STENCIL_HALO=1 STENCIL_METHOD=3|-n 32 -t 2 -d 3|1.0"
+  "zyx-halo1|-DSTENCIL_LAYOUT=2|STENCIL_HALO=1|-n 32 -t 2 -d 3|1e-5"
+  "zyx-halo4|-DSTENCIL_LAYOUT=2|STENCIL_HALO=4|-n 32 -t 2 -d 3|1.0"
+  "zyx-bf16s|-DSTENCIL_LAYOUT=2|STENCIL_HALO=1 STENCIL_BF16S=2|-n 32 -t 2 -d 3|1.0"
+  "compact-r1|-DSTENCIL_LAYOUT=2|STENCIL_HALO=1 STENCIL_METHOD=1|-n 32 -t 2 -d 3|1.0"
+  "compact-r2|-DSTENCIL_LAYOUT=2|STENCIL_HALO=1 STENCIL_METHOD=2|-n 32 -t 2 -d 3|1.0"
+  "compact-fit|-DSTENCIL_LAYOUT=2|STENCIL_HALO=1 STENCIL_METHOD=3|-n 32 -t 2 -d 3|1.0"
   "pml|-DSTENCIL_LAYOUT=2 -DSTENCIL_PML=1|STENCIL_HALO=1|-n 32 -t 2 -d 3|1.0"
   "pml-fp16s|-DSTENCIL_LAYOUT=2 -DSTENCIL_PML=1|STENCIL_HALO=1 STENCIL_FP16S=1|-n 32 -t 2 -d 3|1.0"
   # The other two work-group models: a 1x1 group, and lanes as an OpenMP team
   # with real barriers. The team runs one work-group at a time, hence one step.
   "wg1x1|-DSTENCIL_LAYOUT=0 -DSTENCIL_CPU_LANES=0||-n 32 -t 2 -d 3|1e-5"
   "wgteam|-DSTENCIL_LAYOUT=0 -DSTENCIL_CPU_LANES=0 -DLIBXSTREAM_CPU_TEAM=1||-n 32 -t 1 -d 3|1e-5"
+  # The lean set, which drops the compact radii and hence the other 24 instances.
+  "lean|-DSTENCIL_LAYOUT=0 -DSTENCIL_CPU_COMPACT=0||-n 32 -t 2 -d 3|1e-5"
 )
 
 if [ "$*" ]; then
