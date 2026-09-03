@@ -113,6 +113,16 @@ the threads, which is what `make OCL=0 test` does:
 
     OMP_PROC_BIND=spread OMP_PLACES=cores ./stencil.x -n 512
 
+With the ZYX layout the kernel is compiled twice, clamping a gather that
+leaves the grid and reading it out of the halo, and the grid selects
+between them exactly as the device does per launch.  `STENCIL_PADDED`
+forces one case and then compiles only that one:
+
+    make OCL=0 CPUDEF="-DSTENCIL_LAYOUT=2 -DSTENCIL_PADDED=1"
+
+A halo needs a caller that owns padded buffers (`ctx->halo`), because the
+sample aliases its host and device buffers; `STENCIL_HALO` is refused.
+
 ## Usage
 
     ./stencil.x [options]

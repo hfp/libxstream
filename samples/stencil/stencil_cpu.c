@@ -67,7 +67,18 @@
 # endif
 #endif
 
-/* STENCIL_PADDED stays off so the coordinate clamping remains live. */
+/**
+ * A gather that leaves the grid is either clamped or read out of the halo, and
+ * the two are different answers at the boundary. The device decides per launch,
+ * hence the host compiles the kernel twice and decides per grid. An explicit
+ * -DSTENCIL_PADDED forces one case and compiles only that one. Restricted to the
+ * Z-innermost layout, which is where the device emits the flag at all.
+ */
+#if !defined(STENCIL_PADDED) && (2 == STENCIL_LAYOUT)
+# define STENCIL_CPU_DUAL 1
+#else
+# define STENCIL_CPU_DUAL 0
+#endif
 
 /**
  * The kernel derives its indexing from STENCIL_NX/NY/NZ, which the JIT knows at
@@ -121,8 +132,32 @@ static int stencil_cpu_halo[3];
 #define STENCIL_E_LZ 1
 #endif
 
+#if (0 != STENCIL_CPU_DUAL)
+/* Which of the two instances the grid asks for, decided in stencil_configure. */
+static int stencil_cpu_padded;
+#endif
+
 #include "kernels/stencil_fp32.cl"
 #include <libxstream/opencl/libxstream_cpu_end.h>
+
+#if (0 != STENCIL_CPU_DUAL)
+/**
+ * The same kernel again, reading into the halo rather than clamping. Everything
+ * the two passes define is redefined identically, which is what keeps the second
+ * pass legal; the exception is STENCIL_CLAMP_COORD, which stencil_common.cl
+ * derives from STENCIL_PADDED, hence that file's include guard is dropped so it
+ * derives the macro again.
+ */
+# define stencil_apply_direct stencil_apply_direct_padded
+# define STENCIL_PADDED 1
+# undef STENCIL_COMMON_CL
+# undef STENCIL_CLAMP_COORD
+# include <libxstream/opencl/libxstream_cpu_begin.h>
+# include "kernels/stencil_fp32.cl"
+# include <libxstream/opencl/libxstream_cpu_end.h>
+# undef STENCIL_PADDED
+# undef stencil_apply_direct
+#endif
 
 #if (STENCIL_BLK != BLK)
 # error BLK disagrees with STENCIL_BLK
@@ -141,11 +176,24 @@ static int stencil_cpu_halo[3];
 #define STENCIL_CPU_COORD LIBXSTREAM_CPU_WORKITEM
 
 #if (0 != STENCIL_PML)
-# define STENCIL_CPU_LAUNCH() stencil_apply_direct(p_grid, p_old, vel, coeff, \
+# define STENCIL_CPU_APPLY(FN) FN(p_grid, p_old, vel, coeff, \
     eta, phi, hd_2, hd_2, hd_2, dt2, nx, ny, nz)
 #else
-# define STENCIL_CPU_LAUNCH() stencil_apply_direct(p_grid, p_old, vel, coeff, \
-    dt2, nx, ny, nz)
+# define STENCIL_CPU_APPLY(FN) FN(p_grid, p_old, vel, coeff, dt2, nx, ny, nz)
+#endif
+
+#if (0 != STENCIL_CPU_DUAL)
+/* Per work-group rather than per point, hence not worth splitting the loop. */
+# define STENCIL_CPU_LAUNCH() do { \
+    if (0 != stencil_cpu_padded) { \
+      STENCIL_CPU_APPLY(stencil_apply_direct_padded); \
+    } \
+    else { \
+      STENCIL_CPU_APPLY(stencil_apply_direct); \
+    } \
+  } while (0)
+#else
+# define STENCIL_CPU_LAUNCH() STENCIL_CPU_APPLY(stencil_apply_direct)
 #endif
 
 
@@ -285,9 +333,14 @@ int stencil_host_zero(void* ptr, size_t offset, size_t nbytes)
  */
 int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 {
+  /**
+   * STENCIL_HALO belongs here because the sample aliases its host and device
+   * buffers, which admits no padded layout; a caller that owns padded buffers
+   * sets ctx->halo directly and then reaches the padded kernel instance.
+   */
   static const char *const unsupported[] = {
     "STENCIL_BF16", "STENCIL_BF16S", "STENCIL_FP16S", "STENCIL_INT8",
-    "STENCIL_BLOCKED", "STENCIL_LAYOUT", "STENCIL_METHOD"
+    "STENCIL_BLOCKED", "STENCIL_LAYOUT", "STENCIL_METHOD", "STENCIL_HALO"
   };
   const int nunsupported = (int)(sizeof(unsupported) / sizeof(*unsupported));
   int result = EXIT_SUCCESS;
@@ -362,11 +415,7 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
     ctx->nblocks[1] = DIVUP(ny, BLK);
     ctx->nblocks[2] = DIVUP(nz, BLK);
 #if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
-    /**
-     * The kernel is compiled either clamping or reading into the halo, and the
-     * two are not the same answer, hence the grid is checked against the halo
-     * the build assumed present.
-     */
+    /* Same test the JIT applies to decide -DSTENCIL_PADDED for this grid. */
     { const int lx = ctx->halo[0], ly = ctx->halo[1], lz = ctx->halo[2];
       const int width_f = (nz < WG_X) ? nz : WG_X;
       const int width_m = (ny < WG_Y) ? ny : WG_Y;
@@ -383,16 +432,22 @@ int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)
       stencil_cpu_stride[3] = (long)nz;
       stencil_cpu_stride[4] = (long)(nz + 2) * (ny + 2);
       stencil_cpu_stride[5] = (long)(nz + 2);
-#if defined(STENCIL_PADDED) && (0 < STENCIL_PADDED)
+#if (0 != STENCIL_CPU_DUAL)
+      stencil_cpu_padded = padded;
+#elif defined(STENCIL_PADDED) && (0 < STENCIL_PADDED)
+      /* Forced: the halo has to cover what the tile gathers. */
       if (0 == padded) {
-        fprintf(stderr, "ERROR: the tile gathers past the halo;"
-          " rebuild without -DSTENCIL_PADDED\n");
+        fprintf(stderr, "ERROR: %dx%dx%d with halo %dx%dx%d gathers past the"
+          " halo; drop -DSTENCIL_PADDED to let the grid decide\n",
+          nx, ny, nz, lx, ly, lz);
         result = EXIT_FAILURE;
       }
 #else
+      /* Forced the other way, which the device would not have chosen here. */
       if (0 != padded && 0 != ctx->verbosity) {
-        fprintf(stderr, "WARNING: clamping although the halo would cover the"
-          " gather; -DSTENCIL_PADDED=1 matches the device\n");
+        fprintf(stderr, "WARNING: %dx%dx%d with halo %dx%dx%d clamps although"
+          " the halo covers the gather; drop -DSTENCIL_PADDED=0 to match the"
+          " device\n", nx, ny, nz, lx, ly, lz);
       }
 #endif
     }
