@@ -23,9 +23,7 @@ jobs:
           # Sanitizers on one combination rather than a job of its own. They
           # ride the optimized one because -O0 hides what the optimizer does
           # with undefined behaviour. SANITIZE implies SYM=1, so the reports
-          # carry file and line without DBG=1. AddressSanitizer earns its place
-          # next to UBSan: a heap overflow in the host stencil kernel (a padded
-          # grid staged as if unpadded) is what it found.
+          # carry file and line without DBG=1.
           - flags: DBG=0
             libxs: prebuilt
             sanitize: address,undefined
