@@ -827,24 +827,49 @@ LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem, libxstream_str
 }
 
 
+LIBXSTREAM_API_INTERN void libxstream_mem_host_pin_apply(void)
+{
+  libxstream_pin_resolve(); /* outside the lock: it may load a vendor runtime */
+  if (2 <= libxstream_opencl_config.pin && 0 != libxstream_opencl_config.npins) {
+    size_t i;
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+    for (i = 0; i < libxstream_opencl_config.npins; ++i) {
+      if (0 == libxstream_opencl_config.pinreg[i]) {
+        void* range;
+        LIBXS_UNION_ASSIGN(void*, range, const void*, libxstream_opencl_config.pinptr[i]);
+        libxstream_mem_host_register(range, libxstream_opencl_config.pinsize[i]);
+        libxstream_opencl_config.pinreg[i] = 1;
+      }
+    }
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+  }
+}
+
+
 LIBXSTREAM_API int libxstream_mem_host_pin(void* host_mem, size_t nbytes)
 {
   int result = EXIT_SUCCESS;
   if (NULL != host_mem && 0 != nbytes) {
-    libxstream_pin_resolve(); /* outside the lock: it may load a vendor runtime */
-    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (1 == libxstream_opencl_config.pin) {
+    /* this can be the first call into the library, and the mode is read below */
+    if (NULL == libxstream_opencl_config.lock_main) libxstream_opencl_setup();
+    /**
+     * A declaration must not bring up a device: the mode is a device trait, so
+     * the range is recorded first and the mode applied to it afterwards, which
+     * is also what carries a range declared before any device existed.
+     */
+    if (0 != libxstream_opencl_config.pin) {
+      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
       if (libxstream_opencl_config.npins < (LIBXSTREAM_MAXNPINS)) {
-        libxstream_opencl_config.pinptr[libxstream_opencl_config.npins] = (const char*)host_mem;
-        libxstream_opencl_config.pinsize[libxstream_opencl_config.npins] = nbytes;
-        ++libxstream_opencl_config.npins;
+        const size_t i = libxstream_opencl_config.npins;
+        libxstream_opencl_config.pinptr[i] = (const char*)host_mem;
+        libxstream_opencl_config.pinsize[i] = nbytes;
+        libxstream_opencl_config.pinreg[i] = 0;
+        libxstream_opencl_config.npins = i + 1;
       }
       else result = EXIT_FAILURE;
+      LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+      if (EXIT_SUCCESS == result) libxstream_mem_host_pin_apply();
     }
-    else if (2 <= libxstream_opencl_config.pin) {
-      libxstream_mem_host_register(host_mem, nbytes);
-    }
-    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
       fprintf(stderr, "INFO ACC/OpenCL: pin %p (%lu MB) mode=%i -> %s\n", host_mem,
         (unsigned long)(nbytes >> 20), libxstream_opencl_config.pin,
@@ -859,22 +884,21 @@ LIBXSTREAM_API int libxstream_mem_host_unpin(void* host_mem)
 {
   int result = EXIT_SUCCESS;
   if (NULL != host_mem) {
+    int registered = 0;
+    size_t i;
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (1 == libxstream_opencl_config.pin) {
-      size_t i;
-      for (i = 0; i < libxstream_opencl_config.npins; ++i) {
-        if (libxstream_opencl_config.pinptr[i] == (const char*)host_mem) {
-          const size_t last = libxstream_opencl_config.npins - 1;
-          libxstream_opencl_config.pinptr[i] = libxstream_opencl_config.pinptr[last];
-          libxstream_opencl_config.pinsize[i] = libxstream_opencl_config.pinsize[last];
-          libxstream_opencl_config.npins = last;
-          break;
-        }
+    for (i = 0; i < libxstream_opencl_config.npins; ++i) {
+      if (libxstream_opencl_config.pinptr[i] == (const char*)host_mem) {
+        const size_t last = libxstream_opencl_config.npins - 1;
+        registered = libxstream_opencl_config.pinreg[i];
+        libxstream_opencl_config.pinptr[i] = libxstream_opencl_config.pinptr[last];
+        libxstream_opencl_config.pinsize[i] = libxstream_opencl_config.pinsize[last];
+        libxstream_opencl_config.pinreg[i] = libxstream_opencl_config.pinreg[last];
+        libxstream_opencl_config.npins = last;
+        break;
       }
     }
-    else if (2 <= libxstream_opencl_config.pin) {
-      libxstream_mem_host_unregister(host_mem);
-    }
+    if (0 != registered) libxstream_mem_host_unregister(host_mem);
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
   }
   return result;

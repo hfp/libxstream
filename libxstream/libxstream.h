@@ -80,6 +80,10 @@ LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem,
  * already page-locked, and staging it would replace a fast transfer with a copy
  * plus a fast transfer. The library does not check this, because no portable
  * check exists that does not dereference memory it may not own.
+ *
+ * A declaration neither requires an initialized library nor brings up a device:
+ * the range is recorded, and the mode is applied once a device is activated. A
+ * process that never touches a device therefore never creates a context.
  */
 LIBXSTREAM_API int libxstream_mem_host_pin(void* host_mem, size_t nbytes);
 /** Counterpart of libxstream_mem_host_pin; unpinning what was never pinned is a no-op. */

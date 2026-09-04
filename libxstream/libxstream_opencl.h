@@ -446,7 +446,7 @@ typedef struct libxstream_opencl_config_t {
    * runtime-owned buffer, 2 register it with a loaded vendor runtime, 3 load
    * that runtime when the process has not. The modes are alternatives rather
    * than levels: they address different consumers of the memory. Negative until
-   * libxstream_init resolves an unset knob against the device.
+   * an activated device resolves an unset knob (see libxstream_pin_resolve).
    */
   int pin;
   /** Staging window per thread in Bytes (LIBXSTREAM_STAGE, in MB). */
@@ -457,6 +457,13 @@ typedef struct libxstream_opencl_config_t {
   /** Host ranges declared by libxstream_mem_host_pin (base and extent). */
   const char *pinptr[LIBXSTREAM_MAXNPINS];
   size_t pinsize[LIBXSTREAM_MAXNPINS];
+  /**
+   * Whether the range at the same index was handed to the vendor runtime. A
+   * declaration is accepted before any device exists, so mode 2 registers what
+   * it finds recorded once the mode resolves; the flag is what keeps that pass
+   * from registering a range twice.
+   */
+  char pinreg[LIBXSTREAM_MAXNPINS];
   size_t npins;
   /** Transfers routed through the staging window, and bytes they carried. */
   size_t nstaged, nstaged_bytes;
@@ -577,7 +584,11 @@ typedef struct libxstream_opencl_config_t {
   cl_int wa;
 } libxstream_opencl_config_t;
 
+/** Configuration that precedes any use of the OpenCL runtime. */
+LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void);
 LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void);
+/** Resolves the pin mode and applies it to every range declared so far. */
+LIBXSTREAM_API_INTERN void libxstream_mem_host_pin_apply(void);
 LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t, const void*);
 LIBXSTREAM_API_INTERN void libxstream_mem_hst_xfree(void*, const void*);
 LIBXSTREAM_API_INTERN void* libxstream_mem_dev_xmalloc(size_t, const void*);

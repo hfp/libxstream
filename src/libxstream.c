@@ -191,11 +191,12 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   const char *const env_neo = getenv("NEOReadDebugKeys"), *const env_wa = getenv("LIBXSTREAM_WA");
   static char neo_enable_debug_keys[] = "NEOReadDebugKeys=1";
   /**
-   * A level, not a switch: 1 stages a foreign host pointer through a
-   * runtime-owned buffer, 2 also registers our allocations with a loaded
-   * vendor runtime, 3 also loads that runtime. Staging serves memory the
-   * caller owns, registration serves ours reaching a vendor runtime;
-   * neither replaces the other.
+   * A route, not a level: 1 stages a declared host range through a
+   * runtime-owned buffer, 2 registers such a range with a loaded vendor
+   * runtime, 3 also loads that runtime. Our own allocations are registered
+   * under any non-zero setting. Staging serves memory the caller owns,
+   * registration serves ours reaching a vendor runtime; neither replaces
+   * the other.
    */
   const char* const env_pin = getenv("LIBXSTREAM_PIN");
   const char* const env_stage = getenv("LIBXSTREAM_STAGE");
@@ -1272,14 +1273,15 @@ static int libxstream_pin_cuda_device(cl_device_id device, int (*attr)(int*, int
  * Resolves an unset LIBXSTREAM_PIN against the device: staging pays where a
  * foreign host pointer transfers slowly and costs where it does not, and
  * nothing OpenCL reports separates the two (both answer
- * CL_DEVICE_HOST_UNIFIED_MEMORY=0). Deferred to the first
- * libxstream_mem_host_pin because the CUDA query initializes the driver.
+ * CL_DEVICE_HOST_UNIFIED_MEMORY=0). Deferred until a device is activated
+ * because the CUDA query initializes the driver, and because a declaration
+ * (libxstream_mem_host_pin) must not bring up a device to be recorded.
  * The ordinal is CUDA's: a node mixing device models would need a map.
  */
 LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void);
 LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
 {
-  if (0 > libxstream_opencl_config.pin) {
+  if (0 > libxstream_opencl_config.pin && NULL != libxstream_opencl_config.device.context) {
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     int mode = 2, pageable = -1;
     if (0 != devinfo->nv) {
@@ -1310,7 +1312,7 @@ LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
          */
         int ndevices = 0;
         const int ordinal = libxstream_pin_cuda_device(
-          libxstream_opencl_config.devices[internal_libxstream_opencl_active_id], attr, &ndevices);
+          libxstream_opencl_config.devices[libxstream_opencl_config.device_id], attr, &ndevices);
         if (0 <= ordinal
           && EXIT_SUCCESS == attr(&pageable, 88 /*cudaDevAttrPageableMemoryAccess*/, ordinal)
           && 0 == pageable)
@@ -1319,7 +1321,7 @@ LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
         }
         if (0 > libxstream_opencl_config.verbosity || 2 < libxstream_opencl_config.verbosity) {
           fprintf(stderr, "INFO ACC/OpenCL: OpenCL device %i maps to CUDA ordinal %i of %i\n",
-            internal_libxstream_opencl_active_id, ordinal, ndevices);
+            libxstream_opencl_config.device_id, ordinal, ndevices);
         }
       }
     }
@@ -1999,6 +2001,10 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
     else result = EXIT_FAILURE;
   }
   else result = EXIT_FAILURE;
+  /* ranges declared before this device existed can be pinned now */
+  if (EXIT_SUCCESS == result && 0 != libxstream_opencl_config.npins) {
+    libxstream_mem_host_pin_apply();
+  }
   assert(EXIT_SUCCESS == result || NULL == devinfo->context);
   return result;
 }
