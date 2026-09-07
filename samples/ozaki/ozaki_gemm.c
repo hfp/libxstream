@@ -894,13 +894,18 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
-    const ozaki_tile_t rt = ozaki_rtile_select(ctx, M, N, 1 /*Scheme 2*/);
-    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, rt.m, rt.n);
+    const ozaki_tile_t rt0 = ozaki_rtile_select(ctx, M, N, 1 /*Scheme 2*/);
+    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, rt0.m, rt0.n);
     const int tm = tile.m, tn = tile.n;
+    /**
+     * wgmma covers the whole tile width in one instruction, so RTN is the width in
+     * sub-tiles: a tile the saturation floor narrowed narrows the tiling with it.
+     */
+    const int rtn_g = (0 != ctx->wgmma) ? (tn / OZAKI_XMX_N(ctx)) : rt0.n;
     int m_pad = LIBXS_UP(M, bm_pre);
     int n_pad;
     const int nblk_gm = LIBXS_UPDIV(M, tm);
-    const int ntm = tm / (OZAKI_XMX_M(ctx) * rt.m), ntn = tn / (OZAKI_XMX_N(ctx) * rt.n);
+    const int ntm = tm / (OZAKI_XMX_M(ctx) * rt0.m), ntn = tn / (OZAKI_XMX_N(ctx) * rtn_g);
     /**
      * K-group: size buffers for min(K, maxk), not full K.
      * maxk=0 means no grouping (full K in one pass).
@@ -1175,7 +1180,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
          */
         if (EXIT_SUCCESS == result) {
           const int bounds = (0 != M % tm || 0 != N_len % tn);
-          const ozaki_crt_kernel_set_t* const kset = ozaki_get_crt_kernel(ctx, bounds, tm, tn, rt.m, rt.n);
+          const ozaki_crt_kernel_set_t* const kset = ozaki_get_crt_kernel(ctx, bounds, tm, tn, rt0.m, rtn_g);
           if (NULL != kset) {
             result = ozaki_launch_fused(ctx, stream, kset->kern_fused, kset->kern_reduce, d_as, d_bs_s, d_expa_g, d_expb_s,
               sizeof(cl_int), (char*)d_cg + cp_off, d_res, M, N_len, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn, alpha,
@@ -1467,8 +1472,14 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
          * ozaki_tile_select had to shrink the tile to keep the device busy it is not
          * - measured with A in registers at 1024x1024x4096, 0.68 ms at half depth
          * against 0.78 at full, while at M=N=4096 full depth leads even at K=1024.
+         *
+         * A narrowed tile stages proportionally fewer bytes per round, so it affords
+         * the depth back and keeps the footprint the probe validated.
          */
-        const int wku = (0 != ctx->wgmma_rs && tm < ctx->tm_req && 4 <= ctx->ku) ? (ctx->ku / 2) : ctx->ku;
+        const int wku_n = (0 != ctx->wgmma_rs && 0 < tn && tn < ctx->tn_req)
+                            ? (ctx->ku * (ctx->tn_req / tn))
+                            : ctx->ku;
+        const int wku = (0 != ctx->wgmma_rs && tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
         LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d%s", tm, tn, rtm, rtn, 0 != bounds ? "b" : "");
         if (0 != ctx->wgmma) {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_WGMMA_KU=%d%s",

@@ -584,8 +584,19 @@
  * then the two shared-memory tile pointers. The descriptor's layout fields are
  * compile-time constants and are baked into the spliced text by the host.
  */
-# if (1 != RTM) || ((8 != RTN) && (16 != RTN))
-#   error OZAKI_WGMMA implies RTM=1 and RTN=8 or 16 (m64n64k32 / m64n128k32).
+# if (1 != RTM) || ((8 != RTN) && (16 != RTN) && (32 != RTN))
+#   error OZAKI_WGMMA implies RTM=1 and RTN=8, 16 or 32 (n64 / n128 / n128 twice).
+# endif
+/**
+ * RTN=32 is a 256-column tile issued as two n128 instructions over the same A
+ * fragments, not as m64n256k32: the second only shifts its B descriptor, so the
+ * splice keeps the width it already handles and 64 operands still cover one
+ * instruction's accumulators. It doubles the MMA work behind an A load, a barrier
+ * and a drain, which is why columns pay where warp groups (BM=256) do not. A must
+ * be in registers: the SS form would stage 2*(BM+BN)*WBK and not fit.
+ */
+# if (32 == RTN) && (!defined(OZAKI_WGMMA_RS) || (0 == OZAKI_WGMMA_RS))
+#   error RTN=32 implies OZAKI_WGMMA_RS (staging both operands does not fit).
 # endif
 # if (64 != BM) && (128 != BM) && (256 != BM)
 #   error OZAKI_WGMMA implies BM=64, 128 or 256 (one, two or four warp groups).
@@ -660,8 +671,8 @@
 # endif
 
 # if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
-# if (16 == RTN)
-# define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
+# if (16 == RTN) || (32 == RTN)
+# define OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_) \
     asm volatile("// WGMMA_SLOT n128 d={%0,%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18,%19,%20,%21,%22,"\
       "%23,%24,%25,%26,%27,%28,%29,%30,%31,%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43,"\
       "%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63}" \
@@ -696,6 +707,21 @@
       "+r"((ACCS)[24]), "+r"((ACCS)[25]), "+r"((ACCS)[26]), "+r"((ACCS)[27]), \
       "+r"((ACCS)[28]), "+r"((ACCS)[29]), "+r"((ACCS)[30]), "+r"((ACCS)[31]) \
       : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_))
+# endif
+/**
+ * Columns 128..255 begin halfway through the staged tile, which groups whole k-blocks
+ * by column-block (OZAKI_WGMMA_BSTAGE); sharing A registers is a read-read.
+ */
+# if (32 == RTN)
+# define OZAKI_WGMMA_BHALF (((BN) * WBK) / 32)
+# define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
+    do { \
+      OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_); \
+      OZAKI_WGMMA_ISSUE_RS_N128((ACCS) + 64, A0, A1, A2, A3, (PB_) + OZAKI_WGMMA_BHALF); \
+    } while (0)
+# elif (16 == RTN)
+# define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
+    OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_)
 # endif
 # endif
 
@@ -1886,23 +1912,32 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
   const int nj = (int)get_local_id(0);
   const int kk = (int)get_local_id(1);
   const int col = (int)get_group_id(0) * BN_PRE + nj;
-  int row;
+  int row, emax = 0;
 
   local int col_max_exp[BN_PRE];
   if (0 == kk) col_max_exp[nj] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /* Pass 1: find max exponent across ALL of K for this column */
-  for (row = kk; row < K; row += BK_PRE) {
-    if (col < N) {
-      int s0;
-      short e0;
-      uint_repr_t m0;
-      const int idx = OZAKI_IDX_B(row, col, ldb);
-      ieee_decompose(b[idx], &s0, &e0, &m0);
-      if (e0 > 0) atomic_max(&col_max_exp[nj], (int)e0);
+  /**
+   * Pass 1: max exponent over all of K, in the same 16-K blocks pass 2 stores, so a
+   * lane reads 128 contiguous bytes instead of one element per 32-byte sector.
+   */
+  for (row = kk << 4; row < K; row += BK_PRE << 4) {
+    int i;
+    UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
+    {
+      const int krow = row + i;
+      if (krow < K && col < N) {
+        int s0;
+        short e0;
+        uint_repr_t m0;
+        const int idx = OZAKI_IDX_B(krow, col, ldb);
+        ieee_decompose(b[idx], &s0, &e0, &m0);
+        if (e0 > emax) emax = (int)e0;
+      }
     }
   }
+  if (col < N && 0 < emax) atomic_max(&col_max_exp[nj], emax);
   barrier(CLK_LOCAL_MEM_FENCE);
 
   if (0 == kk && col < N) expb[col] = col_max_exp[nj];

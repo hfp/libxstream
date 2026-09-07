@@ -273,16 +273,23 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
     if (tile.m < gm) tile.m = gm;
     if (tile.n < gn) tile.n = gn;
     /**
-     * Two warp groups per work-group halve the residue-plane traffic but also
-     * halve the work-group count, and only the first of those scales with the
-     * problem: measured +17.8% at n=8192 and +5.5% at n=4096 against one warp
-     * group, but -1.6% at n=1024, where 64 work-groups no longer cover 114 SMs.
-     * Fall back to one warp group below the saturation floor. This is the only
-     * size-dependent choice the wgmma path makes, and it is free because the CRT
-     * registry is keyed on the tile, so both variants coexist per shape.
+     * A wider tile and two warp groups per work-group both cut operand traffic per
+     * output and both halve the work-group count, and only the traffic scales with
+     * the problem: at n=8192 the 256-wide tile is worth 28% and two warp groups
+     * 17.8%, while at n=512 the width costs 59% because 8 work-groups cannot cover
+     * 132 units. Give the tile back below the saturation floor, width first because
+     * it also doubles the reconstruction's work-groups (n=512: 0.118 -> 0.225 ms).
+     * Free because the CRT registry is keyed on the tile, so the variants coexist
+     * per shape; the register tiling and the staging depth follow the tile at the
+     * call site, since wgmma defines RTN as the width in sub-tiles.
      */
-    if (0 != ctx->wgmma && 64 < tile.m && nwg_min > (LIBXS_UPDIV(M, tile.m) * LIBXS_UPDIV(N, tile.n))) {
-      tile.m = 64;
+    if (0 != ctx->wgmma) {
+      if (128 < tile.n && nwg_min > (LIBXS_UPDIV(M, tile.m) * LIBXS_UPDIV(N, tile.n))) {
+        tile.n = 128;
+      }
+      if (64 < tile.m && nwg_min > (LIBXS_UPDIV(M, tile.m) * LIBXS_UPDIV(N, tile.n))) {
+        tile.m = 64;
+      }
     }
   }
   else {
@@ -861,9 +868,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          * because the same A tile feeds twice the columns. n64 stays selectable
          * for the register-pressure trade (64 accumulators per thread instead of
          * 32). OZAKI_WGMMA_N picks the width; anything else falls back to 128.
+         *
+         * 256 raises that ratio again, which is what the knobs point at: BN 128 -> 64
+         * costs 47% while BM 128 -> 256 gains nothing and rasterization is inert, so
+         * the cost is per-chunk overhead, not DRAM locality. Two n128 issues over the
+         * same A fragments, hence 128 accumulators per work-item.
          */
         const char *const env_wn = getenv("OZAKI_WGMMA_N");
-        const int wn = (NULL != env_wn && 64 == atoi(env_wn)) ? 64 : 128;
+        const int wn_req = (NULL != env_wn) ? atoi(env_wn) : 0;
+        const int wn = (64 == wn_req || 128 == wn_req) ? wn_req : 256;
         /**
          * Rows come from warp groups, not from registers: two warp groups per
          * work-group (BM=128, 256 work-items) share one staged B tile, which is
@@ -906,10 +919,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          * worth more than the depth (1024x1024x4096: 0.68 at KU=8 against 0.78), and
          * the cost tracks M*N rather than K - at M=N=4096 KU=16 leads even at
          * K=1024. OZAKI_KU remains the knob for that regime.
+         *
+         * The 256-wide tile stages twice the B bytes per round, so half the depth keeps
+         * the same footprint, and its columns already amortize the barrier.
          */
-        const int wku = (2 <= ku_req) ? ku_req : ((0 != wrs) ? 16 : 8);
+        const int wku = (2 <= ku_req) ? ku_req : ((0 == wrs) ? 8 : ((256 == wn) ? 8 : 16));
         const size_t lbytes = (size_t)2 * ((0 != wrs) ? wn : (wm + wn)) * wku * bk_pre;
-        wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wn, wku * bk_pre, lbytes, wrs)) ? 1 : 0;
+        /* Probed at the issue width: 256 columns are two n128, all the splice knows. */
+        const int wprobe = (256 == wn) ? 128 : wn;
+        wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, wku * bk_pre, lbytes, wrs)) ? 1 : 0;
         if (0 == wgmma) {
           if (0 != verbosity) {
             fprintf(stderr, "INFO OZAKI: warp-group MMA not reachable on this device - using mma.sync\n");
@@ -1374,8 +1392,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (EXIT_SUCCESS == result) {
         char base_flags[sizeof(build_params) + 64];
         cl_program program = NULL;
+        /**
+         * The wgmma tile, not the Scheme-1 ceiling that the work-group clamp shrank:
+         * crt_rtn derives from tn_req, and BN below it leaves NTN at zero.
+         */
+        const int tm_crt = (0 != wgmma) ? ctx->tm_req : tm;
+        const int tn_crt = (0 != wgmma) ? ctx->tn_req : tn;
         LIBXS_SNPRINTF(base_flags, sizeof(base_flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_BOUNDS=1",
-          build_params, tm, tn, crt_rtm, crt_rtn);
+          build_params, tm_crt, tn_crt, crt_rtm, crt_rtn);
         result = libxstream_opencl_program(
           0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2", base_flags, crt_build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
