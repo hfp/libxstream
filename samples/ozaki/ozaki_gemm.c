@@ -1105,10 +1105,20 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream_b, evt_prep_a);
       }
 
-      /* Prologue: zero and preprocess A once for the whole K-group. */
+      /**
+       * Prologue: zero and preprocess A once for the whole K-group.
+       *
+       * The residue planes only need zeroing where preprocess_a leaves them alone,
+       * which is the row padding: it writes every byte of every plane for rows below
+       * M, padding columns included. Where M is already a tile multiple there is no
+       * padding and the memset is pure cost - 268 MB and 0.166 ms on the critical
+       * path at n=4096, which no per-kernel accounting shows because a fill is not a
+       * kernel. Only the exponents always need it, being written for rows below M
+       * while the epilogue reads the whole tile.
+       */
       if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
         result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
-        if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
+        if (EXIT_SUCCESS == result && m_pad > M) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
         if (EXIT_SUCCESS == result) {
           result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g,
             sizeof(cl_int), M, K_len, lda, ta, k_pad, m_pad, bm_pre, bk_pre, NULL /*no occ for CRT*/, 1 /*kmajor*/);
@@ -1159,10 +1169,16 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
          * Zero and preprocess this panel's B slice into its slot. cache_hit_b
          * implies a single panel spanning all of B (panelling and a cached B
          * are mutually exclusive), so the hit skips the work as before.
+         *
+         * As on the A side, the slice needs zeroing only where preprocess_b leaves
+         * it alone: the blocked layout writes whole 16-K blocks for every column
+         * below N_len, so only the column padding is untouched.
          */
         if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
           result = libxstream_mem_zero(d_expb_s, 0, expb_slot, stream_b);
-          if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_bs_s, 0, bs_slot, stream_b);
+          if (EXIT_SUCCESS == result && (n_pad > N_len || 0 == ctx->bblock)) {
+            result = libxstream_mem_zero(d_bs_s, 0, bs_slot, stream_b);
+          }
           if (EXIT_SUCCESS == result) {
             result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b, (char*)d_bg + b_off + bp_off, d_bs_s,
               d_expb_s, sizeof(cl_int), N_len, K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre, NULL /*no occ for CRT*/,

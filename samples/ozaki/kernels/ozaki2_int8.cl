@@ -364,11 +364,14 @@
 #else /* OZAKI_HIER */
 
 /**
- * Level-1 reconstruction of a group value: exact per-group fractional CRT
- * (OZAKI_FRACCRT=2) or the sequential group Garner (default).
+ * Level-1 reconstruction of a group value: explicit CRT (the default, one dot
+ * product and one reduction), exact per-group fractional CRT (OZAKI_FRACCRT=2), or
+ * the sequential group Garner (OZAKI_L1_GARNER=1). All three are exact.
  */
 #if defined(OZAKI_FRACCRT) && (2 == OZAKI_FRACCRT)
 # define OZAKI_L1_RECONSTRUCT(DOT_R, GIDX) oz2g_frac_l1((DOT_R), (GIDX))
+#elif defined(HIER_L1W) && (!defined(OZAKI_L1_GARNER) || (0 == OZAKI_L1_GARNER))
+# define OZAKI_L1_RECONSTRUCT(DOT_R, GIDX) oz2g_hier_l1_crt((DOT_R), (GIDX))
 #else
 # define OZAKI_L1_RECONSTRUCT(DOT_R, GIDX) oz2g_hier_l1_garner((DOT_R), (GIDX))
 #endif
@@ -1529,6 +1532,29 @@ inline uint oz2g_mod_l2(ulong x, int gidx)
 }
 
 
+#if defined(HIER_L1W)
+constant uint oz2g_hier_l1w[] = HIER_L1W;
+/**
+ * Level-1 explicit CRT: the group value is (sum_i r_i * w_i) mod gprod, which is one
+ * dot product and the same Barrett level 2 already uses. Residues are below 256 and
+ * the weights below gprod, so HIER_GS terms stay under 2^10 * gprod and the sum fits
+ * a ulong for any group product that fits uint32 - which is exactly the leaf's
+ * property, and the reason Garner's chain of dependent reductions is only needed
+ * where the modulus is the full product.
+ */
+inline uint oz2g_hier_l1_crt(const uint* restrict group_residues, int g)
+{
+  ulong s = 0;
+  SINT li;
+  UNROLL_FORCE(HIER_GS) for (li = 0; li < HIER_GS; ++li)
+  {
+    s += (ulong)group_residues[li] * (ulong)oz2g_hier_l1w[g * HIER_GS + (int)li];
+  }
+  return oz2g_mod_l2(s, g);
+}
+#endif
+
+
 /**
  * Level-1 Garner: reconstruct HIER_GS residues for group g -> uint group value.
  * group_residues[0..gsz-1] are the per-prime residues within this group.
@@ -1816,17 +1842,28 @@ inline void oz2g_hier_horner_accumulate(const uint* restrict d, int is_negative,
  * Output layout: As[pidx][M_pad][K_pad] - one dense M_pad x K_pad int8 matrix
  * per prime, with residues in [0, m_pidx-1] and sign folded in.
  *
- * Work-group: (BK_PRE, BM_PRE, 1) - K on dim 0, so the lanes of a sub-group
- * walk col and the NPRIMES stores per element land on consecutive bytes of
- * As[p][row][col]. Every element is loaded once but stored NPRIMES times, so
- * coalescing the store outweighs coalescing the load: mapping lanes to row
- * instead (as the operand layout would suggest) measured 7.5 ms against 1.6 ms
- * for preprocess_b on the same element count at m=n=k=4096, purely from the
- * 16-way store scatter. The load becomes stride-lda for transa=0, which is what
- * preprocess_b already pays.
+ * Work-group: (BK_PRE, BM_PRE, 1) - K on dim 0, so the lanes of a sub-group walk col
+ * and the NPRIMES stores per element land on consecutive bytes of As[p][row][col].
+ * The read wants the opposite mapping, because A is contiguous along row for
+ * transa=0, so it uses a rank remapped to walk rows and hands the block over through
+ * shared memory. A work-item cannot have both directions dense, and neither can be
+ * given up: with lanes on col the read spends a 32-byte sector per element, twice
+ * over because the exponent pass re-reads the input, so the kernel moves 1.34 GB of
+ * sectors for 0.40 GB of data; with lanes on row the NPRIMES stores scatter instead.
+ *
+ * APRE_R columns per lane per block is what makes the exchange pay. At one column the
+ * two barriers per block land on every 32 columns of K and cost exactly what the
+ * dense read saves (measured 0.355 either way); at four they amortize over 128.
  *
  * Dispatch: global[0] = BK_PRE (single WG in K) - loops internally.
  */
+#if !defined(APRE_R)
+# define APRE_R 4
+#endif
+#define APRE_TC (BK_PRE * APRE_R)
+/* The sign rides the top bit of the aligned mantissa, which is below 2^MANT_BITS, so
+ * the exchange needs one tile rather than two. */
+#define OZAKI_APRE_SGN (1ul << 63)
 __attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
 __attribute__((intel_reqd_sub_group_size(SG)))
@@ -1842,46 +1879,78 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
   global int* restrict expa = expa_base + expa_index;
   const int kk = (int)get_local_id(0);
   const int mi = (int)get_local_id(1);
-  const int row = (int)get_group_id(1) * BM_PRE + mi;
-  int col, emax = 0;
+  const int row_base = (int)get_group_id(1) * BM_PRE;
+  const int row = row_base + mi;
+  /* Rank remapped so the read walks rows, the axis A is contiguous along. */
+  const int rt = kk + BK_PRE * mi;
+  const int rrow = rt % BM_PRE;
+  const int rcol = rt / BM_PRE;
+  const int rrow_ok = (row_base + rrow < M);
+  int cb, e, emax = 0;
 
   local int row_max_exp[BM_PRE];
+  local ulong tile[APRE_TC][BM_PRE + 1]; /* [col][row], padded against bank conflicts */
   if (0 == kk) row_max_exp[mi] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
 
   /**
-   * Pass 1: max exponent across ALL of K for this row. A sub-group now shares
-   * one row, so a per-element atomic_max would serialize all its lanes on the
-   * same SLM address; accumulate privately and contribute once instead.
+   * Pass 1: max exponent across ALL of K for this row, read with the same remapped
+   * rank. The lanes sharing a row would serialize on one SLM address, so the maximum
+   * accumulates privately and contributes once.
    */
-  for (col = kk; col < K; col += BK_PRE) {
-    if (row < M) {
+  for (cb = rcol; cb < K; cb += BK_PRE) {
+    if (rrow_ok) {
       int s0;
       short e0;
       uint_repr_t m0;
-      const int idx = OZAKI_IDX_A(row, col, lda);
-      ieee_decompose(a[idx], &s0, &e0, &m0);
+      ieee_decompose(a[OZAKI_IDX_A(row_base + rrow, cb, lda)], &s0, &e0, &m0);
       if (e0 > emax) emax = (int)e0;
     }
   }
-  if (row < M && 0 < emax) atomic_max(&row_max_exp[mi], emax);
+  if (rrow_ok && 0 < emax) atomic_max(&row_max_exp[rrow], emax);
   barrier(CLK_LOCAL_MEM_FENCE);
 
   if (0 == kk && row < M) expa[row] = row_max_exp[mi];
 
-  /* Pass 2: compute and store CRT residues using the true max exponent */
-  if (row < M) {
-    const short max_exp = (short)row_max_exp[mi];
-    for (col = kk; col < K; col += BK_PRE) {
-      int s1;
-      short e1;
-      uint_repr_t m1;
-      const int idx = OZAKI_IDX_A(row, col, lda);
-      ieee_decompose(a[idx], &s1, &e1, &m1);
-      if (m1 != 0) {
-        const int shift = (int)(max_exp - e1);
-        const uint_repr_t aligned = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
-        OZAKI_EXTRACT_CRT(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
+  /**
+   * Pass 2: align a block of APRE_TC columns, exchange it, then store its residues.
+   * Padding columns hold zero and are stored as such, which is what the GEMM needs.
+   */
+  for (cb = 0; cb < K_pad; cb += APRE_TC) {
+    barrier(CLK_LOCAL_MEM_FENCE);
+    UNROLL_FORCE(APRE_R) for (e = 0; e < APRE_R; ++e)
+    {
+      const int lcol = rcol + BK_PRE * e;
+      const int col = cb + lcol;
+      ulong v = 0;
+      if (rrow_ok && col < K) {
+        int s1;
+        short e1;
+        uint_repr_t m1;
+        ieee_decompose(a[OZAKI_IDX_A(row_base + rrow, col, lda)], &s1, &e1, &m1);
+        if (m1 != 0) {
+          const int shift = (int)(row_max_exp[rrow] - e1);
+          v = (shift + MANT_TRUNC <= MANT_BITS) ? (ulong)(m1 >> (shift + MANT_TRUNC)) : 0;
+          if (0 != s1 && 0 != v) v |= OZAKI_APRE_SGN;
+        }
+      }
+      tile[lcol][rrow] = v;
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (row < M) {
+      UNROLL_FORCE(APRE_R) for (e = 0; e < APRE_R; ++e)
+      {
+        const int lcol = kk + BK_PRE * e;
+        if (cb + lcol < K_pad) {
+          const ulong t = tile[lcol][mi];
+          SINT p;
+          UNROLL_FORCE(NPRIMES) for (p = 0; p < NPRIMES; ++p)
+          {
+            uint r = oz2g_mod64(t & ~OZAKI_APRE_SGN, p);
+            if (0 != (t & OZAKI_APRE_SGN) && 0 != r) OZAKI_SIGN_FOLD(r, p);
+            as[(long)p * M_pad * K_pad + (long)row * K_pad + cb + lcol] = (char)r;
+          }
+        }
       }
     }
   }

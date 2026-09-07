@@ -296,6 +296,12 @@ typedef struct ozaki_context_t {
    * the prime loop, which is what makes that epilogue memory-bound.
    */
   int unfuse;
+  /**
+   * B residues blocked by 16 K-values. Recorded because it decides whether the slice
+   * needs pre-zeroing: the blocked layout stores whole blocks and so covers every
+   * byte below N, while the plain layout skips zero elements.
+   */
+  int bblock;
   int pb; /* CRT prime batching factor (compiled into kernel) */
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   double xover; /* Scheme-1/2 crossover weight: reconstruction cost per Garner op vs int8 MAC */

@@ -1292,6 +1292,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       bblock = (0 != wgmma && (NULL == env || 0 != atoi(env)));
       env = getenv("OZAKI_BKMAJOR");
       bkmajor = (0 == bblock && 0 == devinfo->intel && 2 <= nv && 0 != gpu && NULL != env && 0 != atoi(env));
+      ctx->bblock = bblock;
       if (0 != bblock) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BBLOCK=1"));
       }
@@ -1351,6 +1352,38 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         for (gi = 0; gi < ngroups; ++gi) {
           coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
             " -DHIER_GPROD_%d=%uu -DHIER_L2B_%d=%luul", gi, (unsigned)gp[gi], gi, (unsigned long)l2b[gi]));
+        }
+        /**
+         * Level-1 explicit-CRT weights, w_i = (M/m_i) * inv(M/m_i mod m_i) mod M for
+         * the group's own modulus M. A group value is then one dot product and one
+         * reduction where Garner needs HIER_GS*(HIER_GS-1)/2 dependent ones, and only
+         * the leaf can afford it: M fits uint32 there, the full modulus never does.
+         * Slots past a partial group get weight zero, which pairs with the zero
+         * residues both callers already supply and keeps the kernel loop branch-free.
+         */
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+          " -DHIER_L1W={"));
+        for (gi = 0; gi < ngroups; ++gi) {
+          const int lo = gi * hier_gs, hi = (lo + hier_gs <= nprimes) ? lo + hier_gs : nprimes;
+          int k;
+          for (k = 0; k < hier_gs; ++k) {
+            uint32_t w = 0;
+            if (lo + k < hi) {
+              const uint32_t mk = (uint32_t)modtab[lo + k];
+              const uint32_t cof = gp[gi] / mk;
+              w = (uint32_t)(((uint64_t)cof * libxs_mod_inverse_u32(cof % mk, mk)) % gp[gi]);
+            }
+            coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+              "%s%uu", (0 != gi || 0 != k) ? "," : "", (unsigned)w));
+          }
+        }
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, "}"));
+        { /* Garner stays reachable so the two can be compared on the same build. */
+          const char *const env_l1g = getenv("OZAKI_L1_GARNER");
+          if (NULL != env_l1g && 0 != atoi(env_l1g)) {
+            coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+              " -DOZAKI_L1_GARNER=1"));
+          }
         }
         if (0 == use_tree) {
           int gj;
