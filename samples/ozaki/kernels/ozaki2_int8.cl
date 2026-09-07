@@ -218,6 +218,42 @@
 /* Store B via the (possibly VNNI-packed) index so producer and consumer agree. */
 #define OZAKI_EXTRACT_CRT_B(ALIGNED, SIGN, DST, SS, N_PAD, K_PAD, ROW, COL) \
   OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD))
+/**
+ * Hierarchical extraction, the dual of the hierarchical reconstruction: reduce the
+ * aligned mantissa once per leaf group modulo the group product (one mul_hi, the
+ * Barrett level 2 already uses), then take the group's residues from that 32-bit
+ * value with the cheap Barrett, since m_i divides M_g. Exact, and it replaces
+ * NPRIMES two-step 64-bit reductions by HIER_NGROUPS one-step ones plus NPRIMES
+ * 32-bit ones. fp32 mantissas already fit 32 bits, so there it would only add the
+ * group step. OZAKI_EXTRACT_FLAT=1 keeps the direct form for comparison.
+ */
+#if OZAKI_HIER && defined(USE_DOUBLE) && (1 == USE_DOUBLE) && defined(HIER_GPROD_0) \
+  && (!defined(OZAKI_EXTRACT_FLAT) || (0 == OZAKI_EXTRACT_FLAT))
+# define OZAKI_EXTRACT_HIER 1
+#else
+# define OZAKI_EXTRACT_HIER 0
+#endif
+#if OZAKI_EXTRACT_HIER
+#define OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OFF) \
+  do { \
+    const long off_ = (OFF); \
+    SINT g_; \
+    UNROLL_FORCE(HIER_NGROUPS) for (g_ = 0; g_ < HIER_NGROUPS; ++g_) \
+    { \
+      const uint gr_ = oz2g_mod_l2((ulong)(ALIGNED), (int)g_); \
+      SINT j_; \
+      UNROLL_FORCE(HIER_GS) for (j_ = 0; j_ < HIER_GS; ++j_) \
+      { \
+        const SINT p_ = g_ * HIER_GS + j_; \
+        if (p_ < NPRIMES) { \
+          uint r_ = oz2g_mod(gr_, p_); \
+          if ((SIGN) && 0 != r_) OZAKI_SIGN_FOLD(r_, p_); \
+          (DST)[(long)(p_) * (SS) + off_] = (char)r_; \
+        } \
+      } \
+    } \
+  } while (0)
+#else
 #define OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OFF) \
   do { \
     const long off_ = (OFF); \
@@ -229,6 +265,7 @@
       (DST)[(long)(p_) * (SS) + off_] = (char)r_; \
     } \
   } while (0)
+#endif
 #if defined(OZAKI_U8) && (OZAKI_U8)
 # define OZAKI_SIGN_FOLD(R, P) (R) = oz2g_moduli[(P)] - (R)
 #else
@@ -1943,13 +1980,8 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
         const int lcol = kk + BK_PRE * e;
         if (cb + lcol < K_pad) {
           const ulong t = tile[lcol][mi];
-          SINT p;
-          UNROLL_FORCE(NPRIMES) for (p = 0; p < NPRIMES; ++p)
-          {
-            uint r = oz2g_mod64(t & ~OZAKI_APRE_SGN, p);
-            if (0 != (t & OZAKI_APRE_SGN) && 0 != r) OZAKI_SIGN_FOLD(r, p);
-            as[(long)p * M_pad * K_pad + (long)row * K_pad + cb + lcol] = (char)r;
-          }
+          OZAKI_EXTRACT_CRT_AT(t & ~OZAKI_APRE_SGN, 0 != (t & OZAKI_APRE_SGN), as, M_pad * K_pad,
+            (long)row * K_pad + cb + lcol);
         }
       }
     }
@@ -2045,6 +2077,37 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
           }
         }
       }
+#if OZAKI_EXTRACT_HIER
+      /* Group-outer, so the 64-bit reduction runs once per group and block. */
+      { SINT g;
+        UNROLL_FORCE(HIER_NGROUPS) for (g = 0; g < HIER_NGROUPS; ++g)
+        {
+          uint gr[16];
+          SINT j;
+          UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
+          {
+            gr[i] = oz2g_mod_l2(aligned[i], (int)g);
+          }
+          UNROLL_FORCE(HIER_GS) for (j = 0; j < HIER_GS; ++j)
+          {
+            p = g * HIER_GS + j;
+            if (p < NPRIMES) {
+              union {
+                uchar b[16];
+                uint4 v;
+              } blk;
+              UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
+              {
+                uint r = oz2g_mod(gr[i], p);
+                if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
+                blk.b[i] = (uchar)r;
+              }
+              *(global uint4*)(bs + (long)p * K_pad * N_pad + ((long)kb * N_pad + col) * 16) = blk.v;
+            }
+          }
+        }
+      }
+#else
       UNROLL_FORCE(NPRIMES) for (p = 0; p < NPRIMES; ++p)
       {
         union {
@@ -2059,6 +2122,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
         }
         *(global uint4*)(bs + (long)p * K_pad * N_pad + ((long)kb * N_pad + col) * 16) = blk.v;
       }
+#endif
     }
 #else
   if (col < N) {

@@ -1378,11 +1378,16 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           }
         }
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, "}"));
-        { /* Garner stays reachable so the two can be compared on the same build. */
+        { /* Garner and the flat extraction stay reachable for comparison on one build. */
           const char *const env_l1g = getenv("OZAKI_L1_GARNER");
+          const char *const env_xf = getenv("OZAKI_EXTRACT_FLAT");
           if (NULL != env_l1g && 0 != atoi(env_l1g)) {
             coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
               " -DOZAKI_L1_GARNER=1"));
+          }
+          if (NULL != env_xf && 0 != atoi(env_xf)) {
+            coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+              " -DOZAKI_EXTRACT_FLAT=1"));
           }
         }
         if (0 == use_tree) {
