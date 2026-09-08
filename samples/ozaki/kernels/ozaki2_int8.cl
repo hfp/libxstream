@@ -1291,8 +1291,22 @@ inline void oz2g_garner_accumulate(const uint* restrict r, real_t alpha, int bas
  * A list shorter than the group count would be read past silently (17 primes at
  * HIER_GS=3 once did), so the sizes are checked at build time.
  */
-# if !defined(HIER_GPROD) || !defined(HIER_L2B) || !defined(HIER_L2INV)
-#   error hierarchical CRT needs the level-2 tables the host emits (HIER_GPROD, HIER_L2B, HIER_L2INV).
+# if !defined(HIER_GPROD)
+/* Standalone build (no host): the tables of the 20-prime, four-per-group layout above. */
+#   if defined(OZAKI_U8) && (OZAKI_U8)
+#     define HIER_GPROD {1752116992u, 1841455727u, 1799186337u, 1823610127u, 1804203113u}
+#     define HIER_L2B {10528260474ul, 10017478999ul, 10252825788ul, 10115508682ul, 10224316730ul}
+#     define HIER_L2INV {0u, 828768696u, 1255745875u, 96929798u, 430518282u, 0u, 0u, 1062200843u, 1479311133u, 742073819u, \
+        0u, 0u, 0u, 1583419479u, 1296690879u, 0u, 0u, 0u, 0u, 1036097590u, 0u, 0u, 0u, 0u, 0u}
+#   else
+#     define HIER_GPROD {73986944u, 71016749u, 74378375u, 75849939u, 77548849u}
+#     define HIER_L2B {249324314215ul, 259752020945ul, 248012195395ul, 243200512972ul, 237872570793ul}
+#     define HIER_L2INV {0u, 16740944u, 25622404u, 62222726u, 40198002u, 0u, 0u, 20777749u, 7009982u, 11759761u, \
+        0u, 0u, 0u, 1845215u, 15543578u, 0u, 0u, 0u, 0u, 54885903u, 0u, 0u, 0u, 0u, 0u}
+#   endif
+# endif
+# if !defined(HIER_L2B) || !defined(HIER_L2INV)
+#   error hierarchical CRT needs all three level-2 tables (HIER_GPROD, HIER_L2B, HIER_L2INV).
 # endif
 constant uint oz2g_hier_gprod[] = HIER_GPROD;
 constant ulong oz2g_hier_l2b[] = HIER_L2B;
