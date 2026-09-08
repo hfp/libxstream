@@ -344,11 +344,7 @@
       } while (0)
 # endif
 
-/**
- * Split load/compute for software pipelining.
- * OZAKI_LOAD_TILED: load A/B tiles into caller-supplied arrays.
- * OZAKI_COMPUTE_TILED: issue DPAS from pre-loaded tiles.
- */
+/* Split load and compute, so a caller can share loaded fragments (Scheme 1's slice blocking). */
 # if (RTM == 4)
 # define OZAKI_LOAD_A_TILED(AS, K_PAD, M_HT, MI, KOFF, A_BUF) \
       intel_sub_group_2d_block_read_8b_32r32x1c( \
@@ -387,12 +383,6 @@
         } \
       } while (0)
 # endif
-# define OZAKI_LOAD_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, A_BUF, B_BUF) \
-    do { \
-      OZAKI_LOAD_A_TILED(AS, K_PAD, M_HT, MI, KOFF, A_BUF); \
-      OZAKI_LOAD_B_TILED(BS, N_PAD, K_PAD, NJ, KOFF, B_BUF); \
-    } while (0)
-
 # define OZAKI_COMPUTE_TILED(A_BUF, B_BUF, ACC) \
     do { \
       int rc_m_, rc_n_; \

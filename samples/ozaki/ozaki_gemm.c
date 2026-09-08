@@ -365,6 +365,35 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
 
 
 /**
+ * Staging depth (KU) of the warp-group specialization for one tile, with the
+ * deferred wait and the stage count that go with it. Per specialization rather
+ * than per context because depth costs shared memory, which decides whether a
+ * second work-group stays resident: with A in registers at 1024x1024x4096, half
+ * depth measured 0.68 ms against 0.78 at full, while at M=N=4096 full depth leads
+ * even at K=1024. A narrowed tile stages proportionally fewer bytes per round, so
+ * it affords the depth back within the footprint the probe validated. The deferred
+ * wait pays only with two warp groups over 256 columns (without it: 128x128 +5%,
+ * 64x256 +11%, 64x128 +20%), structurally, since a forced-narrow request is still
+ * narrow. Three stages take half the depth to keep the two-stage footprint.
+ *
+ * ozaki_gemm pads K to this depth: the K-loop has no tail, so a K_pad that is not
+ * a multiple of KU * BK would read past the residue planes.
+ */
+static int ozaki_wgmma_depth(const ozaki_context_t* ctx, int tm, int tn, int* defer, int* stages)
+{
+  const int wku_n = (0 != ctx->wgmma_rs && 0 < tn && tn < ctx->tn_req) ? (ctx->ku * (ctx->tn_req / tn)) : ctx->ku;
+  const int wku = (0 != ctx->wgmma_rs && tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
+  const int wide = (128 == tm && 256 == tn);
+  const int dfr = (0 != ctx->wgmma_rs && (0 <= ctx->wgmma_defer ? ctx->wgmma_defer : wide)) ? 1 : 0;
+  const int stg = (0 != dfr && 3 == ctx->wgmma_stages) ? 3 : 2;
+  const int result = (3 == stg) ? LIBXS_MAX(wku / 2, 2) : wku;
+  if (NULL != defer) *defer = dfr;
+  if (NULL != stages) *stages = stg;
+  return result;
+}
+
+
+/**
  * Device scratch arena (see ozaki_scratch_t). Sub-allocations are aligned well
  * past what the kernels need, because the arena's whole purpose is to be handed
  * out in a few large pieces: the residue planes are read as 16-byte vectors and
@@ -914,7 +943,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      */
     const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
     const int k_grp_max = K < k_grp_size ? K : k_grp_size;
-    const int ku_bk = ctx->ku * bk_pre;
+    /* K padded to the depth the specialization stages, since its K-loop has no tail. */
+    const int ku_bk = ((0 != ctx->wgmma) ? ozaki_wgmma_depth(ctx, tm, tn, NULL, NULL) : ctx->ku) * bk_pre;
     int k_grp_pad = LIBXS_UP(k_grp_max, ku_bk);
     const int n_kgroups = LIBXS_UPDIV(K, k_grp_size);
     /**
@@ -1482,48 +1512,19 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
       cl_program program = NULL;
       memset(&newset, 0, sizeof(newset));
       { char pname[64];
-        /**
-         * Staging depth belongs to the specialization, not to the context: a deeper
-         * round buys instruction amortization at the price of shared memory, and
-         * shared memory is what decides whether a second work-group stays resident.
-         * Where the tile grid fills the device that trade is worth taking, and where
-         * ozaki_tile_select had to shrink the tile to keep the device busy it is not
-         * - measured with A in registers at 1024x1024x4096, 0.68 ms at half depth
-         * against 0.78 at full, while at M=N=4096 full depth leads even at K=1024.
-         *
-         * A narrowed tile stages proportionally fewer bytes per round, so it affords
-         * the depth back and keeps the footprint the probe validated.
-         */
-        const int wku_n = (0 != ctx->wgmma_rs && 0 < tn && tn < ctx->tn_req)
-                            ? (ctx->ku * (ctx->tn_req / tn))
-                            : ctx->ku;
-        const int wku = (0 != ctx->wgmma_rs && tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
-        int wku_used = wku; /* the depth the specialization compiles with, for the splice */
+        int defer = 0, stages = 2;
+        const int wku = ozaki_wgmma_depth(ctx, tm, tn, &defer, &stages);
         LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d%s", tm, tn, rtm, rtn, 0 != bounds ? "b" : "");
         if (0 != ctx->wgmma) {
-          /**
-           * The deferred MMA wait pays with two warp groups over 256 columns and loses
-           * everywhere else measured: 128x128 +5%, 64x256 +11%, 64x128 +20% (see the
-           * kernel). Structural, not "the requested tile": a narrow request is still narrow.
-           */
-          const int wide = (128 == tm && 256 == tn);
-          const int defer = (0 != ctx->wgmma_rs && (0 <= ctx->wgmma_defer ? ctx->wgmma_defer : wide));
-          /**
-           * Three stages at half depth keep the footprint below the two-stage one the
-           * probe validated, and a round's group count is what the wait keeps in flight.
-           */
-          const int stages = (0 != defer && 3 == ctx->wgmma_stages) ? 3 : 2;
-          const int wku_s = (3 == stages) ? LIBXS_MAX(wku / 2, 2) : wku;
-          const int groups = wku_s * ((32 == rtn) ? 2 : 1);
           char stage_flags[64];
-          if (3 == stages) {
-            LIBXS_SNPRINTF(stage_flags, sizeof(stage_flags), " -DOZAKI_WGMMA_STAGES=3 -DOZAKI_WGMMA_ROUND_GROUPS=%d", groups);
+          if (3 == stages) { /* the wait keeps one round's commit groups in flight */
+            LIBXS_SNPRINTF(stage_flags, sizeof(stage_flags), " -DOZAKI_WGMMA_STAGES=3 -DOZAKI_WGMMA_ROUND_GROUPS=%d",
+              wku * ((32 == rtn) ? 2 : 1));
           }
           else stage_flags[0] = '\0';
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_WGMMA_KU=%d%s%s%s",
-            ctx->crt_flags, tm, tn, rtm, rtn, wku_s, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
+            ctx->crt_flags, tm, tn, rtm, rtn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
             0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "", stage_flags);
-          wku_used = wku_s;
         }
         else {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d%s",
@@ -1532,7 +1533,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags,
               ctx->crt_options, NULL, NULL, NULL, 0, &program)) {
-          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, wku_used, &program);
+          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, wku, &program);
           if (NULL != program) {
             libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
             if (0 != ctx->unfuse) {
