@@ -169,14 +169,12 @@
 #endif
 
 /**
- * Extract NPRIMES CRT residues from aligned mantissa into DST buffer.
- * DST[p * SS + ROW * RS + COL] = (aligned mod m_p), sign-folded.
- * u8: sign via modular additive inverse (p - r), stored as uchar [0, p-1].
- * i8: sign via negation (-r), stored as char [-(p-1), p-1].
+ * Extract the NPRIMES residues of an aligned mantissa to DST[p * SS + index],
+ * sign folded in: u8 as the modular additive inverse (p - r), i8 as negation. A
+ * and B go through their own index so producer and consumer share one layout.
  */
-#define OZAKI_EXTRACT_CRT(ALIGNED, SIGN, DST, SS, RS, ROW, COL) \
-  OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, (long)(ROW) * (RS) + (COL))
-/* Store B via the (possibly VNNI-packed) index so producer and consumer agree. */
+#define OZAKI_EXTRACT_CRT_A(ALIGNED, SIGN, DST, SS, K_PAD, ROW, COL) \
+  OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OZAKI_IDX_AS(ROW, COL, K_PAD))
 #define OZAKI_EXTRACT_CRT_B(ALIGNED, SIGN, DST, SS, N_PAD, K_PAD, ROW, COL) \
   OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD))
 /**
@@ -660,6 +658,18 @@
  * copy-count slope that governs cp.async does not apply here - that one is paid per
  * asynchronous transaction, this one coalesces.
  */
+# if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK) && (!defined(OZAKI_WGMMA_RS) || (0 == OZAKI_WGMMA_RS))
+#   error OZAKI_ABLOCK is the RS form's fragment layout; the staged paths read A row-major.
+# endif
+# if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
+/* One 512-byte run per warp, the lane's four registers contiguous; see OZAKI_IDX_AS. */
+# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD_, MI, KOFF, LANE, A0, A1, A2, A3) \
+    do { \
+      const uint4 av_ = *(CONSTANT const uint4*)((AS_K) \
+        + (((long)((MI) >> 4) * ((K_PAD_) >> 5) + ((KOFF) >> 5)) << 9) + ((LANE) << 4)); \
+      (A0) = av_.x; (A1) = av_.y; (A2) = av_.z; (A3) = av_.w; \
+    } while (0)
+# else
 # define OZAKI_WGMMA_ALOAD(AS_K, K_PAD_, MI, KOFF, LANE, A0, A1, A2, A3) \
     do { \
       CONSTANT const char* ap_ = (AS_K) + (long)((MI) + ((LANE) >> 2)) * (K_PAD_) + (KOFF) + ((LANE) & 3) * 4; \
@@ -668,6 +678,7 @@
       (A2) = *(CONSTANT const uint*)(ap_ + 16); \
       (A3) = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD_) + 16); \
     } while (0)
+# endif
 # endif
 
 /**
@@ -792,18 +803,23 @@
  * round and are named, since a runtime index would put them in local memory. The
  * host selects it for the full tile only: -7% GEMM at n=4096 there, but every
  * narrowed tile measured a loss (4-20%, registers cost occupancy or spill).
- * OZAKI_WGMMA_STAGES=3 (third B buffer and A set, wait_group leaving one round
- * in flight) is refuted: 3.09 ms at half depth, 2.93 at KU=6, 9.67 at equal depth
- * (the SLM/L1 cliff, since RS fetches A through L1) against 2.86 for two stages.
+ *
+ * OZAKI_WGMMA_STAGES=3 exists for where the staging is issued, not for the extra
+ * buffer: with two buffers the round being staged is the one the previous round's
+ * MMAs are still reading, so the staging cannot start before the drain and its
+ * whole cost is exposed (0.48 of 2.86 ms at n=4096). A third buffer frees it, and
+ * the staging moves above the drain to run under those MMAs. The drain stays a
+ * full wait_group 0, which is what proves the third buffer has no reader left.
+ * Depth halves to keep the two-stage footprint; equal depth is the SLM/L1 cliff
+ * (9.67 ms at 192 KB, since the RS form fetches A through L1).
  */
+# if (3 != OZAKI_WGMMA_STAGES) && (2 != OZAKI_WGMMA_STAGES)
+#   error OZAKI_WGMMA_STAGES must be 2 or 3.
+# endif
 # if 3 == OZAKI_WGMMA_STAGES
-#   if !defined(OZAKI_WGMMA_DEFER) || (0 == OZAKI_WGMMA_DEFER) || !defined(OZAKI_WGMMA_ROUND_GROUPS)
-#     error OZAKI_WGMMA_STAGES=3 needs the deferred wait and OZAKI_WGMMA_ROUND_GROUPS (the host emits both).
+#   if !defined(OZAKI_WGMMA_DEFER) || (0 == OZAKI_WGMMA_DEFER)
+#     error OZAKI_WGMMA_STAGES=3 implies the deferred wait (the host emits both).
 #   endif
-#   define OZAKI_WGMMA_STR_(X) #X
-#   define OZAKI_WGMMA_STR(X) OZAKI_WGMMA_STR_(X)
-#   define OZAKI_WGMMA_MMAWAIT_ROUND() \
-      asm volatile("// WGMMA_WAIT " OZAKI_WGMMA_STR(OZAKI_WGMMA_ROUND_GROUPS) ::: "memory")
 #   define OZAKI_WGMMA_AF3 , af2_[(WBK / 32) * 4]
 #   define OZAKI_CRT_ROUND3_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, KW, NBSZ) \
       do { \
@@ -811,15 +827,16 @@
           OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, (KW) + 2 * WBK, af2_, 2, NBSZ); \
         } \
       } while (0)
-# elif 2 == OZAKI_WGMMA_STAGES
-#   define OZAKI_WGMMA_MMAWAIT_ROUND() OZAKI_WGMMA_MMAWAIT()
+#   define OZAKI_WGMMA_STAGE_EARLY OZAKI_WGMMA_STAGE
+#   define OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD_, K_PAD_, NB, NEXT, SB, WT, BUF, NBSZ) ((void)0)
+# else
 #   define OZAKI_WGMMA_AF3
 #   define OZAKI_CRT_ROUND3_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, KW, NBSZ) ((void)0)
-# else
-#   error OZAKI_WGMMA_STAGES must be 2 or 3.
+#   define OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD_, K_PAD_, NB, NEXT, SB, WT, BUF, NBSZ) ((void)0)
+#   define OZAKI_WGMMA_STAGE_LATE OZAKI_WGMMA_STAGE
 # endif
 # if defined(OZAKI_WGMMA_DEFER) && (OZAKI_WGMMA_DEFER)
-#   define OZAKI_WGMMA_WAIT_PRE() OZAKI_WGMMA_MMAWAIT_ROUND()
+#   define OZAKI_WGMMA_WAIT_PRE() OZAKI_WGMMA_MMAWAIT()
 #   define OZAKI_WGMMA_WAIT_POST()
 #   define OZAKI_WGMMA_DRAIN() OZAKI_WGMMA_MMAWAIT()
 # else
@@ -827,6 +844,13 @@
 #   define OZAKI_WGMMA_WAIT_POST() OZAKI_WGMMA_MMAWAIT()
 #   define OZAKI_WGMMA_DRAIN()
 # endif
+# define OZAKI_WGMMA_STAGE(BSW, N_PAD_, K_PAD_, NB, NEXT, SB, WT, BUF, NBSZ) \
+    do { \
+      if ((NEXT) < (K_PAD_)) { \
+        OZAKI_WGMMA_BSTAGE(BSW, N_PAD_, K_PAD_, NB, NEXT, (SB) + (((BUF) + 1) % OZAKI_WGMMA_STAGES) * (NBSZ), WT); \
+        OZAKI_WGMMA_COMMIT(); \
+      } \
+    } while (0)
 # define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, KW, AF, BUF, NBSZ) \
     do { \
       const int next_ = (KW) + WBK; \
@@ -836,12 +860,10 @@
           AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3]); \
       } \
       OZAKI_WGMMA_WAIT(); \
+      OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD_, K_PAD_, NB, next_, SB, WT, BUF, NBSZ); \
       OZAKI_WGMMA_WAIT_PRE(); \
       barrier(CLK_LOCAL_MEM_FENCE); \
-      if (next_ < (K_PAD_)) { \
-        OZAKI_WGMMA_BSTAGE(BSW, N_PAD_, K_PAD_, NB, next_, (SB) + (((BUF) + 1) % OZAKI_WGMMA_STAGES) * (NBSZ), WT); \
-        OZAKI_WGMMA_COMMIT(); \
-      } \
+      OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD_, K_PAD_, NB, next_, SB, WT, BUF, NBSZ); \
       UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
         OZAKI_WGMMA_ISSUE_RS(ACCS, AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3], \
           (SB) + (BUF) * (NBSZ) + cw_ * 16); \
@@ -1483,7 +1505,7 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
           aligned = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
         }
       }
-      OZAKI_EXTRACT_CRT(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
+      OZAKI_EXTRACT_CRT_A(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
     }
   }
 }

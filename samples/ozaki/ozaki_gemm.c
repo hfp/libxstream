@@ -1521,15 +1521,9 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
           options = options_grf;
         }
         if (0 != ctx->wgmma) {
-          char stage_flags[64];
-          if (3 == stages) { /* the wait keeps one round's commit groups in flight */
-            LIBXS_SNPRINTF(stage_flags, sizeof(stage_flags), " -DOZAKI_WGMMA_STAGES=3 -DOZAKI_WGMMA_ROUND_GROUPS=%d",
-              wku * ((32 == rtn) ? 2 : 1));
-          }
-          else stage_flags[0] = '\0';
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_WGMMA_KU=%d%s%s%s",
             ctx->crt_flags, tm, tn, rtm, rtn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
-            0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "", stage_flags);
+            0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "", (3 == stages) ? " -DOZAKI_WGMMA_STAGES=3" : "");
         }
         else {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d%s",

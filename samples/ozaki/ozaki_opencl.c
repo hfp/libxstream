@@ -1180,7 +1180,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (0 != wgmma) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA=1"));
         if (0 != wgmma_rs) {
-          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA_RS=1"));
+          /* A in the fragment layout: one vector load per lane instead of four scalar ones. */
+          const char *const env_ab = getenv("OZAKI_ABLOCK");
+          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+            " -DOZAKI_WGMMA_RS=1%s", (NULL == env_ab || 0 != atoi(env_ab)) ? " -DOZAKI_ABLOCK=1" : ""));
         }
       }
       ctx->wgmma = wgmma;
@@ -1355,6 +1358,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       env = getenv("OZAKI_LU");
       { const int lu = (NULL != env) ? atoi(env) : 0;
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DLU=%d", lu));
+      }
+      env = getenv("OZAKI_DEFINES"); /* extra -D flags, so a kernel knob needs no host change */
+      if (NULL != env) {
+        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " %s", env));
       }
       result = ozaki_append_check(coff, sizeof(build_params), "Ozaki-2");
       if (0 > verbosity || 2 < verbosity) {

@@ -74,6 +74,25 @@
  * coalesces both but forces four times the copies, and copy count is what the
  * warp-group loop is bound by (splitting A's copies four ways cost 107%).
  */
+/**
+ * OZAKI_ABLOCK (warp-group MMA with A in registers): A permuted into the fragment
+ * order the instruction wants, so the four registers one lane holds are 16
+ * contiguous bytes and the load is a single vector fetch of a 512-byte run per
+ * warp. Row-major A instead needs four 4-byte loads per lane, each touching eight
+ * 32-byte sectors at half efficiency, which measured 2.77 against 2.34 ms of GEMM
+ * at n=4096. A 16x32-byte block holds one k=32 fragment; within it the byte for
+ * (row, k) belongs to the lane and register that OZAKI_WGMMA_ALOAD reads it from.
+ */
+#if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
+# define OZAKI_IDX_AS(ROW, COL, K_PAD) \
+    (((((long)(ROW) >> 4) * ((K_PAD) >> 5) + ((COL) >> 5)) << 9) \
+      | ((long)((((ROW) & 7) << 2) | (((COL) & 15) >> 2)) << 4) \
+      | ((long)(((((ROW) >> 3) & 1) | ((((COL) >> 4) & 1) << 1))) << 2) \
+      | ((COL) & 3))
+#else
+# define OZAKI_IDX_AS(ROW, COL, K_PAD) ((long)(ROW) * (K_PAD) + (COL))
+#endif
+
 #if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
 # define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) \
     ((((long)(ROW) >> 4) * (N_PAD) + (COL)) * 16 + ((ROW) & 15))
