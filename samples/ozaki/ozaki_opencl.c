@@ -1266,7 +1266,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       bblock = (0 != wgmma && (NULL == env || 0 != atoi(env)));
       env = getenv("OZAKI_BKMAJOR");
       bkmajor = (0 == bblock && 0 == devinfo->intel && 2 <= nv && 0 != gpu && NULL != env && 0 != atoi(env));
-      ctx->bblock = bblock;
       if (0 != bblock) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BBLOCK=1"));
       }
@@ -1396,17 +1395,24 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ctx->crt_rtn = crt_rtn;
       /**
        * Growable under the same conditions as Scheme 1, plus: not the wgmma
-       * geometry, and rows only. Scheme 2 loses 2.5x at a 4x4 register tile on
-       * DPAS - it keeps a group-value frame per work-item across the prime loop,
-       * so the columns it can afford are bounded by registers rather than by
-       * reuse - hence promote only while there are rows left to grow.
+       * geometry. The fused epilogue keeps a group-value frame per work-item across
+       * the prime loop, which bounds the tile by registers (2.5x loss at 4x4), so it
+       * grows rows only. Unfused, the frame is gone and 4x4 pays, but only with 256
+       * GRF for that specialization alone: the same flag on every program costs the
+       * preprocessors and the reduce their occupancy, and 4x2 has no use for it.
        */
       ctx->crt_rtm_big = crt_rtm;
       ctx->crt_rtn_big = crt_rtn;
+      ctx->crt_grf256 = 0;
       if (0 == rtm_req && 0 == rtn_req && 0 == wgmma && 4 > crt_rtm
         && 0 != devinfo->intel && 0 != gpu && 0 == ctx->nv_mma)
       {
-        const ozaki_tile_t big = ozaki_rtile_grow(crt_rtm, crt_rtn);
+        ozaki_tile_t big = ozaki_rtile_grow(crt_rtm, crt_rtn);
+        if (0 != ctx->unfuse) {
+          big.m = 4;
+          big.n = 4;
+          ctx->crt_grf256 = (0 == devinfo->biggrf && NULL == strstr(crt_build_options, "256-GRF")) ? 1 : 0;
+        }
         if (tm >= OZAKI_XMX_M(ctx) * big.m && tn >= OZAKI_XMX_N(ctx) * big.n) {
           ctx->crt_rtm_big = big.m;
           ctx->crt_rtn_big = big.n;
@@ -1593,6 +1599,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       const int crt_grf128 = (0 != ctx->crt_rtm && ctx->crt_rtm < ctx->rtm);
       ozaki_print_opt(stderr, "grf", ctx->biggrf ? 256 : 128);
       if (0 != crt_grf128) ozaki_print_opt(stderr, "crt_grf", 128);
+      else if (0 != ctx->crt_grf256) ozaki_print_opt(stderr, "crt_grf", 256);
     }
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     ozaki_print_opt(stderr, "trim", oztrim);

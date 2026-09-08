@@ -1417,33 +1417,16 @@ inline void oz2g_hier_tree_accumulate(const uint* restrict gval, real_t alpha, i
 
 
 /**
- * preprocess_a_crt_dense: decompose A into dense per-prime CRT residue matrices.
+ * preprocess_a_crt_dense: A into dense per-prime residue planes As[p][M_pad][K_pad],
+ * sign folded in. Work-group (BK_PRE, BM_PRE, 1), one per row block, looping over K.
  *
- * Output layout: As[pidx][M_pad][K_pad] - one dense M_pad x K_pad int8 matrix
- * per prime, with residues in [0, m_pidx-1] and sign folded in.
- *
- * Work-group: (BK_PRE, BM_PRE, 1) - K on dim 0, so the lanes of a sub-group walk col
- * and the NPRIMES stores per element land on consecutive bytes of As[p][row][col].
- * The read wants the opposite mapping, because A is contiguous along row for
- * transa=0, so it uses a rank remapped to walk rows and hands the block over through
- * shared memory. A work-item cannot have both directions dense, and neither can be
- * given up: with lanes on col the read spends a 32-byte sector per element, twice
- * over because the exponent pass re-reads the input, so the kernel moves 1.34 GB of
- * sectors for 0.40 GB of data; with lanes on row the NPRIMES stores scatter instead.
- *
- * APRE_R columns per lane per block is what makes the exchange pay. At one column the
- * two barriers per block land on every 32 columns of K and cost exactly what the
- * dense read saves (measured 0.355 either way); at four they amortize over 128.
- *
- * Dispatch: global[0] = BK_PRE (single WG in K) - loops internally.
+ * Lanes walk columns in the store pass, which is the axis the NPRIMES stores are
+ * contiguous along, and rows in the exponent pass through a remapped rank, which
+ * is the axis A is contiguous along. Handing the block from one mapping to the
+ * other through shared memory measured neutral on one device and +18% on another
+ * and is gone; the direct read stays. Every column below K_pad is stored, zeros
+ * included, so the host zeroes only the row padding.
  */
-#if !defined(APRE_R)
-# define APRE_R 4
-#endif
-#define APRE_TC (BK_PRE * APRE_R)
-/* The sign rides the top bit of the aligned mantissa, which is below 2^MANT_BITS, so
- * the exchange needs one tile rather than two. */
-#define OZAKI_APRE_SGN (1ul << 63)
 __attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
 __attribute__((intel_reqd_sub_group_size(SG)))
@@ -1461,29 +1444,23 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
   const int mi = (int)get_local_id(1);
   const int row_base = (int)get_group_id(1) * BM_PRE;
   const int row = row_base + mi;
-  /* Rank remapped so the read walks rows, the axis A is contiguous along. */
   const int rt = kk + BK_PRE * mi;
   const int rrow = rt % BM_PRE;
   const int rcol = rt / BM_PRE;
   const int rrow_ok = (row_base + rrow < M);
-  int cb, e, emax = 0;
+  int col, emax = 0;
 
   local int row_max_exp[BM_PRE];
-  local ulong tile[APRE_TC][BM_PRE + 1]; /* [col][row], padded against bank conflicts */
   if (0 == kk) row_max_exp[mi] = 0;
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  /**
-   * Pass 1: max exponent across ALL of K for this row, read with the same remapped
-   * rank. The lanes sharing a row would serialize on one SLM address, so the maximum
-   * accumulates privately and contributes once.
-   */
-  for (cb = rcol; cb < K; cb += BK_PRE) {
+  /* The lanes sharing a row would serialize on one SLM address, so the maximum contributes once. */
+  for (col = rcol; col < K; col += BK_PRE) {
     if (rrow_ok) {
       int s0;
       short e0;
       uint_repr_t m0;
-      ieee_decompose(a[OZAKI_IDX_A(row_base + rrow, cb, lda)], &s0, &e0, &m0);
+      ieee_decompose(a[OZAKI_IDX_A(row_base + rrow, col, lda)], &s0, &e0, &m0);
       if (e0 > emax) emax = (int)e0;
     }
   }
@@ -1492,41 +1469,21 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
 
   if (0 == kk && row < M) expa[row] = row_max_exp[mi];
 
-  /**
-   * Pass 2: align a block of APRE_TC columns, exchange it, then store its residues.
-   * Padding columns hold zero and are stored as such, which is what the GEMM needs.
-   */
-  for (cb = 0; cb < K_pad; cb += APRE_TC) {
-    barrier(CLK_LOCAL_MEM_FENCE);
-    UNROLL_FORCE(APRE_R) for (e = 0; e < APRE_R; ++e)
-    {
-      const int lcol = rcol + BK_PRE * e;
-      const int col = cb + lcol;
-      ulong v = 0;
-      if (rrow_ok && col < K) {
-        int s1;
+  if (row < M) {
+    const short max_exp = (short)row_max_exp[mi];
+    for (col = kk; col < K_pad; col += BK_PRE) {
+      uint_repr_t aligned = 0;
+      int s1 = 0;
+      if (col < K) {
         short e1;
         uint_repr_t m1;
-        ieee_decompose(a[OZAKI_IDX_A(row_base + rrow, col, lda)], &s1, &e1, &m1);
+        ieee_decompose(a[OZAKI_IDX_A(row, col, lda)], &s1, &e1, &m1);
         if (m1 != 0) {
-          const int shift = (int)(row_max_exp[rrow] - e1);
-          v = (shift + MANT_TRUNC <= MANT_BITS) ? (ulong)(m1 >> (shift + MANT_TRUNC)) : 0;
-          if (0 != s1 && 0 != v) v |= OZAKI_APRE_SGN;
+          const int shift = (int)(max_exp - e1);
+          aligned = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
         }
       }
-      tile[lcol][rrow] = v;
-    }
-    barrier(CLK_LOCAL_MEM_FENCE);
-    if (row < M) {
-      UNROLL_FORCE(APRE_R) for (e = 0; e < APRE_R; ++e)
-      {
-        const int lcol = kk + BK_PRE * e;
-        if (cb + lcol < K_pad) {
-          const ulong t = tile[lcol][mi];
-          OZAKI_EXTRACT_CRT_AT(t & ~OZAKI_APRE_SGN, 0 != (t & OZAKI_APRE_SGN), as, M_pad * K_pad,
-            (long)row * K_pad + cb + lcol);
-        }
-      }
+      OZAKI_EXTRACT_CRT(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
     }
   }
 }
@@ -1668,19 +1625,22 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
 #endif
     }
 #else
+  /* Every row below K_pad is stored, zeros included, so the host zeroes only the column padding. */
   if (col < N) {
     const short max_exp = (short)col_max_exp[nj];
-    for (row = kk; row < K; row += BK_PRE) {
-      int s1;
-      short e1;
-      uint_repr_t m1;
-      const int idx = OZAKI_IDX_B(row, col, ldb);
-      ieee_decompose(b[idx], &s1, &e1, &m1);
-      if (m1 != 0) {
-        const int shift = (int)(max_exp - e1);
-        const uint_repr_t aligned = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
-        OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, K_pad, row, col);
+    for (row = kk; row < K_pad; row += BK_PRE) {
+      uint_repr_t aligned = 0;
+      int s1 = 0;
+      if (row < K) {
+        short e1;
+        uint_repr_t m1;
+        ieee_decompose(b[OZAKI_IDX_B(row, col, ldb)], &s1, &e1, &m1);
+        if (m1 != 0) {
+          const int shift = (int)(max_exp - e1);
+          aligned = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+        }
       }
+      OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, K_pad, row, col);
     }
 #endif
   }
@@ -1834,17 +1794,16 @@ kernel void gemm_crt_fused(
 #if defined(OZAKI_UNFUSE) && (OZAKI_UNFUSE) && OZAKI_HIER
 /**
  * Reconstruct C from the residue planes gemm_crt_fused wrote. Launched with the
- * identical geometry, so a work-item reconstructs exactly the outputs it
- * accumulated and the blocked residue layout needs no index translation.
+ * GEMM's geometry, so a work-item reconstructs the outputs it accumulated and the
+ * blocked residue layout needs no index translation. The register tile's sub-tiles
+ * are strided over a third dimension the host sizes to the tile count: a memory-bound
+ * pass wants the work-groups a 4x4 register tile takes from a small problem, while
+ * a large one already has them and pays per work-group (+30% when split fully).
  *
- * The loop order is the whole point: outputs outside, primes inside, so only
- * HIER_NGROUPS group values are ever live and the reconstruction stays in
- * registers. What remains is memory-bound by construction - NPRIMES bytes read
- * and one element written per output.
- *
- * Primes past NPRIMES in a partial group contribute zero, exactly as the fused
- * path's cleared group_res does, which is what keeps the two bit-identical (and
- * what keeps this from reading past the last plane at NPRIMES=9 in fp32).
+ * Outputs outside, primes inside, so only HIER_NGROUPS group values are live and
+ * the reconstruction stays in registers. Primes past NPRIMES in a partial group
+ * contribute zero, as the fused path's cleared group_res does, which keeps the two
+ * bit-identical and keeps this from reading past the last plane.
  */
 __attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
 #if defined(INTEL) && (0 != INTEL)
@@ -1862,37 +1821,33 @@ kernel void gemm_crt_reduce(CONSTANT const uchar* restrict res_base, /* [NPRIMES
   const int sg_id = (int)SGID();
   const int tile_m = sg_id / NTN;
   const int tile_n = sg_id % NTN;
-  int ib_idx, jb_idx, mi_base, nj_base;
-  long rbase;
+  const int nsplit = (int)get_global_size(2);
   const long rplane = OZAKI_RES_PLANE(M, N);
+  int ib_idx, jb_idx, s;
   OZAKI_SWIZZLE_IDX(M, N, ib_idx, jb_idx);
-  mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
-  nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
-  rbase = OZAKI_RES_BASE(ib_idx, jb_idx, N, sg_id, sg_lid);
-  { int rm, rn;
-    for (rm = 0; rm < RTM; ++rm) {
-      for (rn = 0; rn < RTN; ++rn) {
-        uint gval_all[HIER_NGROUPS * XMX_FRAG];
-        int gidx;
-        UNROLL_FORCE(HIER_NGROUPS) for (gidx = 0; gidx < HIER_NGROUPS; ++gidx)
+  for (s = (int)get_global_id(2); s < RTM * RTN; s += nsplit) {
+    const int rm = s / RTN, rn = s % RTN;
+    const long rbase = OZAKI_RES_BASE(ib_idx, jb_idx, N, sg_id, sg_lid) + OZAKI_RES_OFF(rm, rn, 0);
+    uint gval_all[HIER_NGROUPS * XMX_FRAG];
+    int gidx;
+    UNROLL_FORCE(HIER_NGROUPS) for (gidx = 0; gidx < HIER_NGROUPS; ++gidx)
+    {
+      int ms;
+      UNROLL_FORCE(XMX_FRAG) for (ms = 0; ms < XMX_FRAG; ++ms)
+      {
+        const long off = rbase + (long)ms * SG;
+        uint r[HIER_GS];
+        int pg;
+        UNROLL_FORCE(HIER_GS) for (pg = 0; pg < HIER_GS; ++pg)
         {
-          int ms;
-          UNROLL_FORCE(XMX_FRAG) for (ms = 0; ms < XMX_FRAG; ++ms)
-          {
-            const long off = rbase + OZAKI_RES_OFF(rm, rn, ms);
-            uint r[HIER_GS];
-            int pg;
-            UNROLL_FORCE(HIER_GS) for (pg = 0; pg < HIER_GS; ++pg)
-            {
-              const int pidx = gidx * HIER_GS + pg;
-              r[pg] = (pidx < NPRIMES) ? (uint)res[off + (long)pidx * rplane] : 0u;
-            }
-            gval_all[gidx * XMX_FRAG + ms] = OZAKI_L1_RECONSTRUCT(r, gidx);
-          }
+          const int pidx = gidx * HIER_GS + pg;
+          r[pg] = (pidx < NPRIMES) ? (uint)res[off + (long)pidx * rplane] : 0u;
         }
-        OZAKI_CRT_STORE(gval_all, expa, expb, c, M, N, mi_base + rm * XMX_M, nj_base + rn * XMX_N, sg_lid, ldc, alpha, first);
+        gval_all[gidx * XMX_FRAG + ms] = OZAKI_L1_RECONSTRUCT(r, gidx);
       }
     }
+    OZAKI_CRT_STORE(gval_all, expa, expb, c, M, N, ib_idx * BM + (tile_m * RTM + rm) * XMX_M,
+      jb_idx * BN + (tile_n * RTN + rn) * XMX_N, sg_lid, ldc, alpha, first);
   }
 }
 #endif /* OZAKI_UNFUSE */

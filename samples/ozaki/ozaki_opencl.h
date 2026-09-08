@@ -264,6 +264,7 @@ typedef struct ozaki_context_t {
    * and the base one and hands the result to the registry key.
    */
   int rtm_big, rtn_big, crt_rtm_big, crt_rtn_big;
+  int crt_grf256; /* the 4x4 CRT specialization alone builds with 256 GRF (see ozaki_init) */
   int ku; /* K-loop unroll factor (compiled into kernel) */
   int sb; /* Scheme-1 slice-block width for the pair loop (1 = unblocked) */
   int rc; /* DPAS repeat count: 8 (default) or 4 (split) */
@@ -303,12 +304,6 @@ typedef struct ozaki_context_t {
    * the prime loop, which is what makes that epilogue memory-bound.
    */
   int unfuse;
-  /**
-   * B residues blocked by 16 K-values. Recorded because it decides whether the slice
-   * needs pre-zeroing: the blocked layout stores whole blocks and so covers every
-   * byte below N, while the plain layout skips zero elements.
-   */
-  int bblock;
   int pb; /* CRT prime batching factor (compiled into kernel) */
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   double xover; /* Scheme-1/2 crossover weight: reconstruction cost per Garner op vs int8 MAC */

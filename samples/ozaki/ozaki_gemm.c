@@ -1203,12 +1203,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
          * are mutually exclusive), so the hit skips the work as before.
          *
          * As on the A side, the slice needs zeroing only where preprocess_b leaves
-         * it alone: the blocked layout writes whole 16-K blocks for every column
-         * below N_len, so only the column padding is untouched.
+         * it alone: every layout stores all K_pad rows of every column below N_len,
+         * so only the column padding is untouched.
          */
         if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
           result = libxstream_mem_zero(d_expb_s, 0, expb_slot, stream_b);
-          if (EXIT_SUCCESS == result && (n_pad > N_len || 0 == ctx->bblock)) {
+          if (EXIT_SUCCESS == result && n_pad > N_len) {
             result = libxstream_mem_zero(d_bs_s, 0, bs_slot, stream_b);
           }
           if (EXIT_SUCCESS == result) {
@@ -1511,10 +1511,15 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
       ozaki_crt_kernel_set_t newset;
       cl_program program = NULL;
       memset(&newset, 0, sizeof(newset));
-      { char pname[64];
+      { char pname[64], options_grf[sizeof(ctx->crt_options) + 32];
+        const char* options = ctx->crt_options;
         int defer = 0, stages = 2;
         const int wku = ozaki_wgmma_depth(ctx, tm, tn, &defer, &stages);
         LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d%s", tm, tn, rtm, rtn, 0 != bounds ? "b" : "");
+        if (0 != ctx->crt_grf256 && 16 <= rtm * rtn) { /* the registers the 4x4 tile spends; see ozaki_init */
+          LIBXS_SNPRINTF(options_grf, sizeof(options_grf), "%s -cl-intel-256-GRF-per-thread", ctx->crt_options);
+          options = options_grf;
+        }
         if (0 != ctx->wgmma) {
           char stage_flags[64];
           if (3 == stages) { /* the wait keeps one round's commit groups in flight */
@@ -1532,7 +1537,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         }
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags,
-              ctx->crt_options, NULL, NULL, NULL, 0, &program)) {
+              options, NULL, NULL, NULL, 0, &program)) {
           if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, wku, &program);
           if (NULL != program) {
             libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
@@ -1613,14 +1618,25 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   CL_CHECK(result, libxstream_opencl_launch_work(stream, kern_g, 2, NULL, global_g, local_g, 0, NULL, NULL,
                      2 * (size_t)M * (size_t)N * (size_t)k_pad, 0 /*nbytes*/));
   /**
-   * Reconstruction pass, same geometry so a work-item recovers the outputs it
-   * accumulated. Enqueued on the same stream, which is what orders it after the
-   * GEMM; it carries no flop count of its own because the work above already
-   * accounts for the GEMM this pair of launches realizes.
+   * Reconstruction pass: the GEMM's geometry, with the register tile's sub-tiles
+   * spread over a third dimension until the work-groups reach twice the compute
+   * units (the memory-bound pass wants them, and a large problem has them already).
+   * Enqueued on the same stream, which is what orders it after the GEMM; it carries
+   * no flop count because the work above already accounts for the GEMM.
    */
   if (NULL != kern_r) {
     const size_t elsize = use_double ? sizeof(double) : sizeof(float);
+    const int nsub = (tm / (ntm * OZAKI_XMX_M(ctx))) * (tn / (ntn * OZAKI_XMX_N(ctx)));
+    const int ntiles = LIBXS_UPDIV(M, tm) * LIBXS_UPDIV(N, tn);
+    const int nsplit = (0 < ctx->nunits) ? LIBXS_MIN(nsub, LIBXS_UPDIV(2 * ctx->nunits, ntiles)) : nsub;
+    size_t local_r[3], global_r[3];
     cl_int i = 0;
+    local_r[0] = local_g[0];
+    local_r[1] = local_g[1];
+    local_r[2] = 1;
+    global_r[0] = global_g[0];
+    global_r[1] = global_g[1];
+    global_r[2] = (size_t)LIBXS_MAX(nsplit, 1);
     if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_r, &i, d_res, 1 /*char*/, 1 /*long*/);
     if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_r, &i, d_expa_g, sizeof(cl_int), 0 /*int*/);
     if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_r, &i, d_expb_g, sizeof(cl_int), 0 /*int*/);
@@ -1637,7 +1653,7 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
       CL_CHECK(result, clSetKernelArg(kern_r, i++, sizeof(float), &falpha));
     }
     CL_CHECK(result, clSetKernelArg(kern_r, i++, sizeof(int), &first_pair));
-    CL_CHECK(result, libxstream_opencl_launch(stream, kern_r, 2, NULL, global_g, local_g, 0, NULL, NULL));
+    CL_CHECK(result, libxstream_opencl_launch(stream, kern_r, 3, NULL, global_r, local_r, 0, NULL, NULL));
   }
   return result;
 }
