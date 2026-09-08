@@ -42,7 +42,7 @@
  */
 #define OZAKI_DEV_ALLOC(PTR, SIZE) \
     ((NULL != libxstream_opencl_config.pool_dev) \
-      ? ((*(PTR) = libxs_malloc(libxstream_opencl_config.pool_dev, SIZE, LIBXS_MALLOC_NATIVE)) != NULL \
+      ? (NULL != (*(PTR) = libxs_malloc(libxstream_opencl_config.pool_dev, SIZE, LIBXS_MALLOC_NATIVE)) \
           ? EXIT_SUCCESS : EXIT_FAILURE) \
       : libxstream_mem_allocate((void**)(PTR), SIZE))
 #define OZAKI_DEV_FREE(PTR) \

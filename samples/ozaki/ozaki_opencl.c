@@ -1063,6 +1063,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       { const int lu = (NULL != env) ? atoi(env) : 0;
         goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " -DLU=%d", lu));
       }
+      env = getenv("OZAKI_DEFINES"); /* the preprocessing kernels live here, not in the CRT program */
+      if (NULL != env) {
+        goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " %s", env));
+      }
       result = ozaki_append_check(goff, sizeof(build_params), "Ozaki-1");
       memcpy(ctx->base_flags, build_params, sizeof(ctx->base_flags));
       LIBXS_SNPRINTF(ctx->base_options, sizeof(ctx->base_options), "%s", build_options);
