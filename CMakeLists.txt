@@ -394,3 +394,22 @@ install(
     PATTERN "libxstream_samples.md" EXCLUDE
     PATTERN "libxstream_scripts.md" EXCLUDE
 )
+
+# Install Makefile build support files, as LIBXS does. PROGRAMS rather than
+# FILES: Makefile.inc runs these by path (MKTEMP, FLOCK, and .state.sh in a
+# shell function), so a 644 copy breaks a consumer of the installed tree.
+install(
+  PROGRAMS
+    "${CMAKE_CURRENT_SOURCE_DIR}/.state.sh"
+    "${CMAKE_CURRENT_SOURCE_DIR}/.mktmp.sh"
+    "${CMAKE_CURRENT_SOURCE_DIR}/.flock.sh"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream"
+)
+
+# Makefile.inc belongs to LIBXS and is only here when a copy was made.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Makefile.inc")
+  install(
+    FILES "${CMAKE_CURRENT_SOURCE_DIR}/Makefile.inc"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream"
+  )
+endif()

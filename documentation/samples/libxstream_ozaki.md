@@ -334,7 +334,7 @@ application links it, so no action is needed here;
 `LIBXSTREAM_VERBOSE=2` reports how many were accepted.
 `LIBXSTREAM_PIN=0` leaves them unregistered, which makes the
 cuBLAS transfers pageable — several times slower, and no longer
-comparable to the Ozaki row. `LIBXSTREAM_PIN=2` loads the CUDA
+comparable to the Ozaki row. `LIBXSTREAM_PIN=3` loads the CUDA
 runtime when the application did not link it, which is what a wrapper
 driver needs: it links `libOpenCL` alone, so the default setting finds
 no entry point and registers nothing.

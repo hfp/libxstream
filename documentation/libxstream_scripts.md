@@ -12,12 +12,13 @@ scripts/tool_checkabi.sh
 
 **NOTE**: For full coverage the library must be built with `make STATIC=0 SYM=1` (or `DBG=1`) so that symbol information is present.
 
-## tool\_getenvars.sh
+## tool\_checkenvars.sh
 
-Scans the LIBXSTREAM source tree (`src/*.c`) for calls to `getenv` and prints a sorted, deduplicated list of every environment variable used at runtime, separated into LIBXSTREAM-specific (`LIBXSTREAM_*`) and other variables.
+Scans the LIBXSTREAM source tree (`src/*.c`) for calls to `getenv`. With `--list` it prints a sorted, deduplicated list of every environment variable used at runtime, separated into LIBXSTREAM-specific (`LIBXSTREAM_*`) and other variables. Without an argument it reports the `LIBXSTREAM_*` variables that no Markdown file documents, which is what the pre-commit hook of the same name runs; `--all` reports the deferred ones as well.
 
 ```bash
-scripts/tool_getenvars.sh
+scripts/tool_checkenvars.sh --list
+scripts/tool_checkenvars.sh
 ```
 
 ## tool\_opencl.sh

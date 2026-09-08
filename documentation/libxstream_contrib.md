@@ -46,9 +46,11 @@ These are enforced mechanically rather than by review. `.pre-commit-config.yaml`
 combines the standard [pre-commit](https://pre-commit.com/) hooks (trailing
 whitespace, line endings, byte-order marks, shebang and exec-bit consistency,
 YAML syntax) with the project-specific rules (US-ASCII, tabs, C++ comments,
-whitespace before `#`, `exit()` in library code, `sed -i` in scripts). Install
-the Git hook once per clone; the same configuration runs in continuous
-integration, so a violation fails the pull request:
+whitespace before `#`, `exit()` in library code, `sed -i` in scripts, `goto`,
+a declaration in a `for` initializer, banner comments, ` -- ` in a comment,
+three blank lines, and column 73 in fixed-form Fortran). Install the Git hook
+once per clone; the same configuration runs in continuous integration, so a
+violation fails the pull request:
 
 ```bash
 scripts/tool_normalize.sh --install   # once per clone
@@ -61,6 +63,18 @@ scripts/tool_normalize.sh src        # or one directory
 endings are part of their format, and their producer owns them. Of the rules
 above only the two spacing conventions are checked partially: a space before a
 comma or semicolon is caught in C sources, the rest is on the author.
+
+The rules that span more than one line are checked by
+`scripts/tool_checkstruct.py`: a single function exit, blank lines inside and
+between functions, stacked single-line comments, and a constant on the
+left-hand side. It works on the source text, with comments, literals, and
+preprocessor directives masked out, so a `return` in `#if` and another in
+`#else` count as one exit. A parser is not used on purpose: the declarations
+carry `LIBXS_API` and friends, which a preprocessor-less parser turns into an
+error node every few lines, and a preprocessed compiler dump no longer says
+which file a construct came from. `scripts/tool_checkenvars.sh` compares the
+prefixed variables the source reads against what the documentation mentions.
+Both are scoped to library code and carry the open backlog as an exclusion.
 
 ## C Source File Structure
 
@@ -104,12 +118,25 @@ else even when it compiles for you:
   initializer.
 - `/* ... */` comments only.
 - No variable-length arrays, compound literals, designated initializers,
-  `long long`, `restrict`, or `//`-style line continuation tricks.
+  `restrict`, or `//`-style line continuation tricks.
 - Newer facilities are reached through the macros and typedefs the public
   headers already provide, not by raising the dialect locally.
 
 Where a C99 (or later) construct is genuinely required, it is guarded and
 confined, in the same style as the existing guards.
+
+**A 64-bit integer is `uint64_t` or `int64_t`.** They are exactly 64 bits wide
+rather than merely at least that wide, they add no name of ours to the API, and
+they cost the user nothing: `libxs_macros.h` already includes `<stdint.h>` and
+`<inttypes.h>`, so every consumer of the public headers has them, and the API
+already returns `uint64_t` from `libxs_hilbert` and `libxs_morton`. `long long`
+is kept only where something outside the project spells it — the Intel
+intrinsics take `long long*` (`_mm256_i64gather_epi64`), the `__atomic_*_8`
+builtins take `long long`, and a value printed with `%llu` is cast to `unsigned
+long long`, which is portable without composing the format string out of
+`PRIu64`. Those are the reasons `-Wno-long-long` is set for a pedantic build,
+and they are the only ones: new code does not reach for `long long` to hold a
+number of its own.
 
 ## Functions
 
@@ -200,7 +227,8 @@ Do not mix reformatting, renaming, and behavioural change in one commit.
   Return a status and let the caller decide. The macro that wraps the one
   unavoidable case is the single exception.
 - Environment variables carry the project's own prefix (`LIBXS_*` or
-  `LIBXSTREAM_*`). `scripts/tool_getenvars.sh` lists what the source reads.
+  `LIBXSTREAM_*`). `scripts/tool_checkenvars.sh --list` lists what the source
+  reads, ours and foreign.
 - **Header-only mode must keep working.** The amalgamated header
   (`*_source.h`, or the corresponding `-D*_SOURCE`) has to be includable from
   multiple translation units, so a new file-scope symbol in `src/*.c` needs
@@ -244,8 +272,9 @@ person who wrote it.
   a mode that only works on one vendor). If it does not change how someone uses
   the code, it is not user documentation.
 - A short *why* belongs in the commit message.
-- Document every new environment variable. A variable that `tool_getenvars.sh`
-  reports but the documentation does not mention is a defect.
+- Document every new environment variable. A variable that
+  `tool_checkenvars.sh` reports but the documentation does not mention is a
+  defect, and the hook of the same name says so.
 - A new page under `documentation/` needs a `nav` entry in `mkdocs.yml`.
 
 Markdown may use any UTF-8, but the PDF is produced through LaTeX, which cannot

@@ -91,12 +91,12 @@ repos:
     name: no C++ comments in C sources
     entry: '^\s*//'
     language: pygrep
-    files: '\.(c|h)$'
+    files: '\.(c|h|cl)$'
   - id: no-space-before-hash
     name: no whitespace before a preprocessor directive
     entry: '^[ \t]+#'
     language: pygrep
-    files: '^src/.*\.(c|h)$'
+    files: '\.(c|h|cl)$'
   - id: no-french-spacing
     name: no space before a comma or semicolon
     entry: '[\w)\]][ \t]+[,;]'
@@ -108,8 +108,116 @@ repos:
     entry: '^(?!\s*#\s*define).*\bexit\('
     language: pygrep
     files: '^src/.*\.(c|h)$'
+  # This file names the rule, so it cannot be subject to it.
   - id: no-sed-in-place
     name: sed -i is not portable
     entry: 'sed\s+-i'
     language: pygrep
-    types: [shell]
+    types: [text]
+    files: '(^|/)(Makefile|Makefile\.inc|rules)$|\.(sh|bash|mk|py|ya?ml)$'
+    exclude: '^\.pre-commit-config\.yaml$'
+  - id: no-goto
+    name: no goto (a function has a single exit)
+    entry: '\bgoto\b'
+    language: pygrep
+    files: '\.(c|h)$'
+  # C89 keeps declarations at the beginning of a block, so a "for" initializer
+  # cannot declare. The compiler rejects it under PEDANTIC=2, but only for
+  # whoever builds that way, and only once the build gets that far.
+  - id: no-c99-for-declaration
+    name: no declaration in a for initializer
+    entry: 'for[ \t]*\((int|unsigned|signed|size_t|char|long|double|float|short|const|void)\b'
+    language: pygrep
+    files: '\.(c|h)$'
+  # The license header is the sole exception, and it rules with "*" rather
+  # than the characters below, so it needs no exemption here. The excluded
+  # files carry the upstream CP2K/DBCSR header, which stays as it came.
+  - id: no-banner-comments
+    name: no decorative or banner-style comments
+    entry: '/\*[=_~#-]{3,}|^\s*\*\s*[=_~#-]{3,}'
+    language: pygrep
+    files: '\.(c|h|cl)$'
+    exclude: |
+      (?x)^(
+        libxstream/libxstream_dbcsr\.h
+        |samples/smm/(acc|acc_bench|acc_libsmm|smm_acc_opencl)\.h
+        |samples/smm/acc_bench\.c
+      )$
+  # One open finding, in LIBXSTREAM: two occurrences in ozaki_opencl.c.
+  - id: no-double-hyphen
+    name: no " -- " in a comment
+    entry: '(/\*|^[ \t]*\*)[^*/]*[^-] -- '
+    language: pygrep
+    files: '\.(c|h)$'
+    exclude: '^samples/ozaki/ozaki_opencl\.c$'
+  # Negated: this hook fails where the pattern is absent. The exclusions are
+  # an open backlog of 31 files in LIBXS: the two Fortran interface files,
+  # four samples, and eleven implementation fragments. LIBXSTREAM has none.
+  - id: spdx-header
+    name: every source file carries the SPDX header
+    entry: 'SPDX-License-Identifier: BSD-3-Clause'
+    language: pygrep
+    args: [--negate]
+    files: '\.(c|h|f|fi|cl)$'
+    exclude: |
+      (?x)^(
+        libxs/libxs_(procs|spec)\.fi
+        |samples/converse/.*
+        |samples/(fprint/fprint|setdiff/setdiff|tokenizer/tokenizer)\.c
+        |src/libxs_math_(fprint|matdiff|setdiff)\.h
+        |src/libxs_perm_(hilbert|kdtree)\.h
+        |src/libxs_predict_(compress|csv|hknn|rf|select|serial)\.h
+      )$
+  - id: no-triple-blank
+    name: never three or more consecutive blank lines
+    entry: '\n{4}'
+    language: pygrep
+    args: [--multiline]
+    types: [text]
+    exclude: '(?x)^(samples/converse/summarize\.c|src/libxs_(math\.c|perm_kdtree\.h))$'
+  # Column 73 and beyond is ignored by a fixed-form compiler rather than
+  # diagnosed, so an overlong statement is lost silently. Comment lines and
+  # preprocessor lines are exempt; a trailing "&" at column 73 is the marker
+  # that lets the same file read as free-form.
+  - id: fortran-column-73
+    name: fixed-form Fortran stays within column 72
+    entry: '^(?![ \t]*[!*Cc]|[ \t]*#)(.{72}[^&\n]|.{73}.)'
+    language: pygrep
+    files: '\.(f|fi)$'
+  # The rules a pattern cannot express: they span lines and have to know
+  # where a function body starts and ends.
+  # Scoped to library code and public headers. Samples and tests are the
+  # larger backlog (164 multi-exit functions in LIBXS, dominated by
+  # samples/converse, and 3 in LIBXSTREAM), so they are deferred as a whole
+  # rather than by a file list that would need one entry per sample.
+  # The named exclusions are an open backlog: multi-exit functions, where
+  # libxs_textrule.c and libxs_mem.c hold half of them, the stacked comments
+  # of the CP2K/DBCSR-derived header, and the one-blank-line gap between
+  # functions, which 1381 places get right and 50 in library code do not.
+  - id: structure
+    name: structural rules (single exit, blank lines, comments)
+    entry: scripts/tool_checkstruct.py
+    language: script
+    files: '^(src|libxs|libxstream)/.*\.(c|h)$'
+    exclude: |
+      (?x)^(
+        src/libxs_(textrule|mem|math|ngram|str|mhd|malloc|rng|reg|perm|main)\.c
+        |src/libxs_cpuid_x86\.c
+        |src/libxs_(perm_spatial|math_fprint|math_setdiff)\.h
+        |src/libxs_(predict_rf|perm_kdtree|matdiff)\.h
+        |src/libxs_(cpuid_arm|token|rng)\.c
+        |src/libxstream\.c
+        |libxs/libxs_(math|gemm|token|perm|utils|timer)\.h
+        |libxstream/libxstream_dbcsr\.h
+        |libxstream/opencl/libxstream_(common|ozaki)\.h
+      )$
+  # Tree-global rather than per-file: it compares what the source reads
+  # against what the documentation mentions, so it takes no filenames. The
+  # deferred names live in the script, 9 in LIBXS and 23 in LIBXSTREAM;
+  # "--all" reports those too.
+  - id: envvars-documented
+    name: every prefixed environment variable is documented
+    entry: scripts/tool_checkenvars.sh
+    language: script
+    pass_filenames: false
+    always_run: true

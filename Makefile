@@ -547,15 +547,15 @@ ifneq ($(PREFIX),$(ABSDIR))
 	fi
 	@echo
 	@echo "$(PROJUPP) installing utilities..."
-	@$(MKDIR) -p $(PREFIX)
-	@$(CP) -v $(ROOTDIR)/Makefile.inc $(PREFIX) 2>/dev/null || true
-	@$(CP) -v $(ROOTDIR)/.mktmp.sh $(PREFIX) 2>/dev/null || true
-	@$(CP) -v $(ROOTDIR)/.flock.sh $(PREFIX) 2>/dev/null || true
-	@$(CP) -v $(ROOTDIR)/.state.sh $(PREFIX) 2>/dev/null || true
+	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)
+	@$(CP) -v $(ROOTDIR)/Makefile.inc $(PREFIX)/$(PSHRDIR) 2>/dev/null || true
+	@$(CP) -v $(ROOTDIR)/.mktmp.sh $(PREFIX)/$(PSHRDIR) 2>/dev/null || true
+	@$(CP) -v $(ROOTDIR)/.flock.sh $(PREFIX)/$(PSHRDIR) 2>/dev/null || true
+	@$(CP) -v $(ROOTDIR)/.state.sh $(PREFIX)/$(PSHRDIR) 2>/dev/null || true
 	@echo
 	@echo "$(PROJUPP) tool scripts..."
 	@$(MKDIR) -p $(PREFIX)/$(SCRDIR)
-	@$(CP) -v $(ROOTSCR)/tool_getenvars.sh $(PREFIX)/$(SCRDIR) 2>/dev/null || true
+	@$(CP) -v $(ROOTSCR)/tool_checkenvars.sh $(PREFIX)/$(SCRDIR) 2>/dev/null || true
 endif
 
 .PHONY: install-realall
