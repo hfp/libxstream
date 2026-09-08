@@ -93,16 +93,26 @@
 # define OZAKI_IDX_AS(ROW, COL, K_PAD) ((long)(ROW) * (K_PAD) + (COL))
 #endif
 
+/**
+ * OZAKI_BS_KRUN states which axis the layout makes contiguous, because the residue
+ * store walks a run of it: K for the transposed and interleaved forms, N for the
+ * plain one. Getting this wrong stores a run to unrelated addresses and only the
+ * paths that select the other layout come out wrong.
+ */
 #if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
 # define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) \
     ((((long)(ROW) >> 4) * (N_PAD) + (COL)) * 16 + ((ROW) & 15))
+# define OZAKI_BS_KRUN 1
 #elif defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
 # define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) ((long)(COL) * (K_PAD) + (ROW))
+# define OZAKI_BS_KRUN 1
 #elif defined(OZAKI_BVNNI) && (OZAKI_BVNNI)
 # define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) \
     ((((long)(ROW) >> 2) * (N_PAD) + (COL)) * 4 + ((ROW) & 3))
+# define OZAKI_BS_KRUN 1
 #else
 # define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) ((long)(ROW) * (N_PAD) + (COL))
+# define OZAKI_BS_KRUN 0
 #endif
 
 /* Small integer type for loop counters (states value range) */

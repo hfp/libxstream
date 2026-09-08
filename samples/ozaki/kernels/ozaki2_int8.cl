@@ -172,7 +172,36 @@
  * Extract the NPRIMES residues of an aligned mantissa to DST[p * SS + index],
  * sign folded in: u8 as the modular additive inverse (p - r), i8 as negation. A
  * and B go through their own index so producer and consumer share one layout.
+ *
+ * A run of OZAKI_CRT_RUN elements is extracted together and stored as one aligned
+ * vector where the per-lane byte store is what this pass costs: on DPAS devices the
+ * stores were 87% of the kernel at a fourteenth of peak write bandwidth, and a probe
+ * that widened them to a dword while writing FOUR times the bytes still ran 1.9x
+ * faster. A warp's byte stores already coalesce elsewhere, where the run only adds
+ * registers (measured +14% on one fp32 case), hence the width follows the device.
+ * The run walks the axis the plane makes contiguous and every plane stride is a
+ * multiple of 32, so the vector is always aligned.
+ *
+ * The run index is taken modulo the width so that one pair of extraction macros
+ * serves both: at width 1 the three extra sources collapse onto the first and the
+ * store drops them unevaluated, which reproduces the scalar form exactly.
  */
+#if defined(INTEL) && (0 != INTEL)
+# define OZAKI_CRT_RUN 4
+#else
+# define OZAKI_CRT_RUN 1
+#endif
+#if 1 < OZAKI_CRT_RUN
+# define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
+    *(global uchar4*)((DST) + (OFF)) = \
+      (uchar4)((uchar)(R0), (uchar)(R1), (uchar)(R2), (uchar)(R3))
+#else
+# define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) (DST)[(OFF)] = (char)(R0)
+#endif
+#define OZAKI_CRT_RSRC(A, N) ((A)[(N) % OZAKI_CRT_RUN])
+#define OZAKI_CRT_RES(G, P, S, N) oz2g_res(G, P, OZAKI_CRT_RSRC(S, N))
+#define OZAKI_CRT_RES64(A, P, S, N) \
+  oz2g_res64((ulong)(OZAKI_CRT_RSRC(A, N)), P, OZAKI_CRT_RSRC(S, N))
 #define OZAKI_EXTRACT_CRT_A(ALIGNED, SIGN, DST, SS, K_PAD, ROW, COL) \
   OZAKI_EXTRACT_CRT_AT(ALIGNED, SIGN, DST, SS, OZAKI_IDX_AS(ROW, COL, K_PAD))
 #define OZAKI_EXTRACT_CRT_B(ALIGNED, SIGN, DST, SS, N_PAD, K_PAD, ROW, COL) \
@@ -199,15 +228,18 @@
     SINT g_; \
     UNROLL_FORCE(HIER_NGROUPS) for (g_ = 0; g_ < HIER_NGROUPS; ++g_) \
     { \
-      const uint gr_ = oz2g_mod_l2((ulong)(ALIGNED), (int)g_); \
+      const uint g0_ = oz2g_mod_l2((ulong)(OZAKI_CRT_RSRC(ALIGNED, 0)), (int)g_); \
+      const uint g1_ = oz2g_mod_l2((ulong)(OZAKI_CRT_RSRC(ALIGNED, 1)), (int)g_); \
+      const uint g2_ = oz2g_mod_l2((ulong)(OZAKI_CRT_RSRC(ALIGNED, 2)), (int)g_); \
+      const uint g3_ = oz2g_mod_l2((ulong)(OZAKI_CRT_RSRC(ALIGNED, 3)), (int)g_); \
       SINT j_; \
       UNROLL_FORCE(HIER_GS) for (j_ = 0; j_ < HIER_GS; ++j_) \
       { \
         const SINT p_ = g_ * HIER_GS + j_; \
         if (p_ < NPRIMES) { \
-          uint r_ = oz2g_mod(gr_, p_); \
-          if ((SIGN) && 0 != r_) OZAKI_SIGN_FOLD(r_, p_); \
-          (DST)[(long)(p_) * (SS) + off_] = (char)r_; \
+          OZAKI_CRT_STORE_RUN(DST, (long)(p_) * (SS) + off_, \
+            OZAKI_CRT_RES(g0_, p_, SIGN, 0), OZAKI_CRT_RES(g1_, p_, SIGN, 1), \
+            OZAKI_CRT_RES(g2_, p_, SIGN, 2), OZAKI_CRT_RES(g3_, p_, SIGN, 3)); \
         } \
       } \
     } \
@@ -219,9 +251,9 @@
     SINT p_; \
     UNROLL_FORCE(NPRIMES) for (p_ = 0; p_ < NPRIMES; ++p_) \
     { \
-      uint r_ = oz2g_mod64((ulong)(ALIGNED), p_); \
-      if ((SIGN) && 0 != r_) OZAKI_SIGN_FOLD(r_, p_); \
-      (DST)[(long)(p_) * (SS) + off_] = (char)r_; \
+      OZAKI_CRT_STORE_RUN(DST, (long)(p_) * (SS) + off_, \
+        OZAKI_CRT_RES64(ALIGNED, p_, SIGN, 0), OZAKI_CRT_RES64(ALIGNED, p_, SIGN, 1), \
+        OZAKI_CRT_RES64(ALIGNED, p_, SIGN, 2), OZAKI_CRT_RES64(ALIGNED, p_, SIGN, 3)); \
     } \
   } while (0)
 #endif
@@ -1112,6 +1144,23 @@ inline uint oz2g_mod64(ulong x, SINT pidx)
 }
 
 
+/* Sign folded in at the point of use, so OZAKI_CRT_STORE_RUN takes plain expressions. */
+inline uint oz2g_res(uint gr, SINT pidx, int sign)
+{
+  uint result = oz2g_mod(gr, pidx);
+  if (0 != sign && 0 != result) OZAKI_SIGN_FOLD(result, pidx);
+  return result;
+}
+
+
+inline uint oz2g_res64(ulong x, SINT pidx, int sign)
+{
+  uint result = oz2g_mod64(x, pidx);
+  if (0 != sign && 0 != result) OZAKI_SIGN_FOLD(result, pidx);
+  return result;
+}
+
+
 #if defined(OZAKI_FRACCRT) && (OZAKI_FRACCRT)
 /**
  * Fractional CRT: x/M = frac(sum_i alpha_i / m_i) with alpha_i = (r_i * k_i) mod
@@ -1491,18 +1540,25 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
 
   if (0 == kk && row < M) expa[row] = row_max_exp[mi];
 
+  /* K_pad is a multiple of BK, so a run never straddles the end of a row. */
   if (row < M) {
     const short max_exp = (short)row_max_exp[mi];
-    for (col = kk; col < K_pad; col += BK_PRE) {
-      uint_repr_t aligned = 0;
-      int s1 = 0;
-      if (col < K) {
-        short e1;
-        uint_repr_t m1;
-        ieee_decompose(a[OZAKI_IDX_A(row, col, lda)], &s1, &e1, &m1);
-        if (m1 != 0) {
-          const int shift = (int)(max_exp - e1);
-          aligned = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+    for (col = OZAKI_CRT_RUN * kk; col < K_pad; col += OZAKI_CRT_RUN * BK_PRE) {
+      uint_repr_t aligned[OZAKI_CRT_RUN];
+      int s1[OZAKI_CRT_RUN];
+      SINT t_;
+      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_)
+      {
+        aligned[t_] = 0;
+        s1[t_] = 0;
+        if (col + t_ < K) {
+          short e1;
+          uint_repr_t m1;
+          ieee_decompose(a[OZAKI_IDX_A(row, col + t_, lda)], &s1[t_], &e1, &m1);
+          if (m1 != 0) {
+            const int shift = (int)(max_exp - e1);
+            aligned[t_] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+          }
         }
       }
       OZAKI_EXTRACT_CRT_A(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
@@ -1646,23 +1702,64 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
       }
 #endif
     }
-#else
-  /* Every row below K_pad is stored, zeros included, so the host zeroes only the column padding. */
+#elif OZAKI_BS_KRUN
+  /* K is contiguous here and it is also the loop axis, so a run needs no remap. */
   if (col < N) {
     const short max_exp = (short)col_max_exp[nj];
-    for (row = kk; row < K_pad; row += BK_PRE) {
-      uint_repr_t aligned = 0;
-      int s1 = 0;
-      if (row < K) {
-        short e1;
-        uint_repr_t m1;
-        ieee_decompose(b[OZAKI_IDX_B(row, col, ldb)], &s1, &e1, &m1);
-        if (m1 != 0) {
-          const int shift = (int)(max_exp - e1);
-          aligned = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+    for (row = OZAKI_CRT_RUN * kk; row < K_pad; row += OZAKI_CRT_RUN * BK_PRE) {
+      uint_repr_t aligned[OZAKI_CRT_RUN];
+      int s1[OZAKI_CRT_RUN];
+      SINT t_;
+      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_)
+      {
+        aligned[t_] = 0;
+        s1[t_] = 0;
+        if (row + t_ < K) {
+          short e1;
+          uint_repr_t m1;
+          ieee_decompose(b[OZAKI_IDX_B(row + t_, col, ldb)], &s1[t_], &e1, &m1);
+          if (m1 != 0) {
+            const int shift = (int)(max_exp - e1);
+            aligned[t_] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+          }
         }
       }
       OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, K_pad, row, col);
+    }
+#else
+  /**
+   * Every row below K_pad is stored, zeros included, so the host zeroes only the
+   * column padding. N is the contiguous axis here but it is also a launch
+   * dimension, so a work-item cannot simply take four of it: the rank is remapped
+   * instead, as pass 1 does, and a lane quad then covers the group's whole row.
+   */
+# if 0 != (BN_PRE % OZAKI_CRT_RUN)
+#   error preprocess_b needs BN_PRE divisible by the residue store width.
+# endif
+  { const int nrun_ = BN_PRE / OZAKI_CRT_RUN;
+    const int rt_ = nj + BN_PRE * kk;
+    const int rn_ = (rt_ % nrun_) * OZAKI_CRT_RUN;
+    const int col0_ = (int)get_group_id(0) * BN_PRE + rn_;
+    for (row = rt_ / nrun_; row < K_pad; row += OZAKI_CRT_RUN * BK_PRE) {
+      uint_repr_t aligned[OZAKI_CRT_RUN];
+      int s1[OZAKI_CRT_RUN];
+      SINT t_;
+      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_)
+      {
+        aligned[t_] = 0;
+        s1[t_] = 0;
+        if (row < K && col0_ + t_ < N) {
+          const short max_exp = (short)col_max_exp[rn_ + t_];
+          short e1;
+          uint_repr_t m1;
+          ieee_decompose(b[OZAKI_IDX_B(row, col0_ + t_, ldb)], &s1[t_], &e1, &m1);
+          if (m1 != 0) {
+            const int shift = (int)(max_exp - e1);
+            aligned[t_] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+          }
+        }
+      }
+      OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, K_pad, row, col0_);
     }
 #endif
   }
