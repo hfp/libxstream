@@ -290,6 +290,11 @@ typedef struct ozaki_context_t {
    */
   int wgmma_rs;
   /**
+   * Deferred MMA wait in the RS K-loop: -1 selects it for the full tile only, where
+   * it measured a gain; 0 and 1 force it off or on for every specialization.
+   */
+  int wgmma_defer;
+  /**
    * Unfused reconstruction: the GEMM stores residue bytes and a second kernel
    * reconstructs C. Trades one round trip through global memory for the
    * per-work-item group-value frame the fused epilogue has to keep live across

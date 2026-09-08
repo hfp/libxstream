@@ -1498,8 +1498,16 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         const int wku = (0 != ctx->wgmma_rs && tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
         LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d%s", tm, tn, rtm, rtn, 0 != bounds ? "b" : "");
         if (0 != ctx->wgmma) {
-          LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_WGMMA_KU=%d%s",
-            ctx->crt_flags, tm, tn, rtm, rtn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
+          /**
+           * The deferred MMA wait pays with two warp groups over 256 columns and loses
+           * everywhere else measured: 128x128 +5%, 64x256 +11%, 64x128 +20% (see the
+           * kernel). Structural, not "the requested tile": a narrow request is still narrow.
+           */
+          const int wide = (128 == tm && 256 == tn);
+          const int defer = (0 != ctx->wgmma_rs && (0 <= ctx->wgmma_defer ? ctx->wgmma_defer : wide));
+          LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_WGMMA_KU=%d%s%s",
+            ctx->crt_flags, tm, tn, rtm, rtn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
+            0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "");
         }
         else {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d%s",

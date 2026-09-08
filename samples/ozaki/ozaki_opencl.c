@@ -1216,6 +1216,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       ctx->wgmma = wgmma;
       ctx->wgmma_rs = (0 != wgmma) ? wgmma_rs : 0;
+      { const char *const env_defer = getenv("OZAKI_WGMMA_DEFER");
+        ctx->wgmma_defer = (NULL != env_defer) ? (0 != atoi(env_defer) ? 1 : 0) : -1;
+      }
       /**
        * Work-group rasterization width (0 = the launch order). The resident
        * work-groups otherwise form a column strip of the tile grid and share one B

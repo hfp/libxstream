@@ -934,13 +934,62 @@
  * each warp for its own 16 rows (MI is the sub-group's row base, the very index the
  * epilogue and the residue store already use).
  *
- * The round's A fragments are loaded into distinct registers, one set per chunk,
- * and the loads are placed before the cp.async wait so their latency overlaps the
- * wait and the barrier. Distinct sets are not an optimization: the issues of a
- * round are committed back to back and awaited once, so a wgmma may still be
- * reading the registers of an earlier chunk, and reusing one set would be a
- * write-after-read race on an asynchronous instruction.
+ * OZAKI_WGMMA_DEFER moves the MMA wait to the top of the round, before the barrier,
+ * rather than after the issues: what it protects is the B buffer the round is about to restage (last read
+ * by the previous round) and the A registers it is about to reload, so waiting any
+ * earlier drains the pipeline for nothing. Placed here, a round's wgmmas execute
+ * under the next round's A loads and its cp.async wait. Two A register sets
+ * alternate by round for the same reason - the previous round's instructions may
+ * still be reading theirs - and within a round each chunk has its own registers,
+ * since the issues are committed back to back. The sets are named, not indexed,
+ * because a runtime index would put the array in local memory; hence the round
+ * pair below. The trailing wait is what the epilogue's accumulator reads need.
+ *
+ * The host selects it for the full tile only. There the 128 KB of staged B already
+ * hold the SM to one work-group, so the second register set is free and the
+ * overlap is pure gain (GEMM -7% at n=4096, -6% at 8192). Every narrowed tile
+ * measured a loss with it, 4% to 20%, where the registers cost occupancy or
+ * spill; those keep the drain after the issues.
  */
+# if defined(OZAKI_WGMMA_DEFER) && (OZAKI_WGMMA_DEFER)
+# define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, KW, AF, BUF, NBSZ) \
+    do { \
+      const int next_ = (KW) + WBK; \
+      int cw_; \
+      UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
+        OZAKI_WGMMA_ALOAD(ASW, K_PAD_, MI, (KW) + cw_ * 32, LANE, \
+          AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3]); \
+      } \
+      OZAKI_WGMMA_WAIT(); \
+      OZAKI_WGMMA_MMAWAIT(); \
+      barrier(CLK_LOCAL_MEM_FENCE); \
+      if (next_ < (K_PAD_)) { \
+        OZAKI_WGMMA_BSTAGE(BSW, N_PAD_, K_PAD_, NB, next_, (SB) + (1 - (BUF)) * (NBSZ), WT); \
+        OZAKI_WGMMA_COMMIT(); \
+      } \
+      UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
+        OZAKI_WGMMA_ISSUE_RS(ACCS, AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3], \
+          (SB) + (BUF) * (NBSZ) + cw_ * 16); \
+      } \
+    } while (0)
+# define OZAKI_CRT_KLOOP_WRS(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, MI, NB, PIDX, ACCS, SB, WT, LANE) \
+    do { \
+      CONSTANT const char* asw_ = (AS_BASE) + (long)(PIDX) * (A_PLANE); \
+      CONSTANT const char* bsw_ = (BS_BASE) + (long)(PIDX) * (B_PLANE); \
+      const int nbsz_ = (BN * WBK) / 16; \
+      uint af0_[(WBK / 32) * 4], af1_[(WBK / 32) * 4]; \
+      int kw_; \
+      OZAKI_WGMMA_BSTAGE(bsw_, N_PAD_, K_PAD_, NB, 0, SB, WT); \
+      OZAKI_WGMMA_COMMIT(); \
+      for (kw_ = 0; kw_ < (K_PAD_); kw_ += 2 * WBK) { \
+        OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, kw_, af0_, 0, nbsz_); \
+        if (kw_ + WBK < (K_PAD_)) { \
+          OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, kw_ + WBK, af1_, 1, nbsz_); \
+        } \
+      } \
+      OZAKI_WGMMA_MMAWAIT(); \
+    } while (0)
+# else
 # define OZAKI_CRT_KLOOP_WRS(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, MI, NB, PIDX, ACCS, SB, WT, LANE) \
     do { \
       CONSTANT const char* asw_ = (AS_BASE) + (long)(PIDX) * (A_PLANE); \
@@ -971,6 +1020,7 @@
         buf_ = 1 - buf_; \
       } \
     } while (0)
+# endif
 # endif
 
 #endif /* OZAKI_WGMMA */
