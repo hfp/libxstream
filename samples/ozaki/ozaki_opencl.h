@@ -294,6 +294,8 @@ typedef struct ozaki_context_t {
    * it measured a gain; 0 and 1 force it off or on for every specialization.
    */
   int wgmma_defer;
+  /* B staging depth of the deferred-wait loop, 2 or 3 (OZAKI_WGMMA_STAGES). */
+  int wgmma_stages;
   /**
    * Unfused reconstruction: the GEMM stores residue bytes and a second kernel
    * reconstructs C. Trades one round trip through global memory for the

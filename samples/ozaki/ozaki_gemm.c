@@ -122,10 +122,12 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
         if (NULL == eol || cap <= (off + head + 1024)) {
           ok = EXIT_FAILURE;
         }
-        else if (first == w) { /* the group wait, hoisted out of the chunk loop */
+        else if (first == w) { /* the group wait; an optional count keeps that many groups in flight */
+          int nwait = 0;
+          if (1 != sscanf(w + sizeof(marker_wait) - 1, "%i", &nwait) || 0 > nwait) nwait = 0;
           memcpy(out + off, src, head);
           off += head;
-          off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\twgmma.wait_group.sync.aligned 0;\n");
+          off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\twgmma.wait_group.sync.aligned %i;\n", nwait);
           src = eol + 1;
         }
         else {
@@ -1496,6 +1498,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
                             ? (ctx->ku * (ctx->tn_req / tn))
                             : ctx->ku;
         const int wku = (0 != ctx->wgmma_rs && tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
+        int wku_used = wku; /* the depth the specialization compiles with, for the splice */
         LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d%s", tm, tn, rtm, rtn, 0 != bounds ? "b" : "");
         if (0 != ctx->wgmma) {
           /**
@@ -1505,9 +1508,22 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
            */
           const int wide = (128 == tm && 256 == tn);
           const int defer = (0 != ctx->wgmma_rs && (0 <= ctx->wgmma_defer ? ctx->wgmma_defer : wide));
-          LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_WGMMA_KU=%d%s%s",
-            ctx->crt_flags, tm, tn, rtm, rtn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
-            0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "");
+          /**
+           * Three stages at half depth keep the footprint below the two-stage one the
+           * probe validated, and a round's group count is what the wait keeps in flight.
+           */
+          const int stages = (0 != defer && 3 == ctx->wgmma_stages) ? 3 : 2;
+          const int wku_s = (3 == stages) ? LIBXS_MAX(wku / 2, 2) : wku;
+          const int groups = wku_s * ((32 == rtn) ? 2 : 1);
+          char stage_flags[64];
+          if (3 == stages) {
+            LIBXS_SNPRINTF(stage_flags, sizeof(stage_flags), " -DOZAKI_WGMMA_STAGES=3 -DOZAKI_WGMMA_ROUND_GROUPS=%d", groups);
+          }
+          else stage_flags[0] = '\0';
+          LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_WGMMA_KU=%d%s%s%s",
+            ctx->crt_flags, tm, tn, rtm, rtn, wku_s, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
+            0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "", stage_flags);
+          wku_used = wku_s;
         }
         else {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d%s",
@@ -1516,7 +1532,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags,
               ctx->crt_options, NULL, NULL, NULL, 0, &program)) {
-          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, wku, &program);
+          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, wku_used, &program);
           if (NULL != program) {
             libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
             if (0 != ctx->unfuse) {

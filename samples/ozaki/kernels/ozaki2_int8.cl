@@ -782,6 +782,16 @@
  * draining per instruction. Spliced like the issue marker (see ozaki_wgmma_splice).
  */
 # define OZAKI_WGMMA_MMAWAIT() asm volatile("// WGMMA_WAIT" ::: "memory")
+# if !defined(OZAKI_WGMMA_STAGES)
+#   define OZAKI_WGMMA_STAGES 2
+# endif
+# if defined(OZAKI_WGMMA_ROUND_GROUPS)
+#   define OZAKI_WGMMA_STR_(X) #X
+#   define OZAKI_WGMMA_STR(X) OZAKI_WGMMA_STR_(X)
+/* Leaves one round in flight: the count is the groups a round commits (host-emitted). */
+#   define OZAKI_WGMMA_MMAWAIT_ROUND() \
+      asm volatile("// WGMMA_WAIT " OZAKI_WGMMA_STR(OZAKI_WGMMA_ROUND_GROUPS) ::: "memory")
+# endif
 # define OZAKI_WGMMA_WAIT() asm volatile("cp.async.wait_group 0;" ::: "memory")
 
 # if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
@@ -952,6 +962,66 @@
  * spill; those keep the drain after the issues.
  */
 # if defined(OZAKI_WGMMA_DEFER) && (OZAKI_WGMMA_DEFER)
+# if 3 == OZAKI_WGMMA_STAGES
+/**
+ * Three stages: three B buffers and three A register sets, rounds unrolled by three
+ * so every index is compile-time. The wait then leaves the previous round in flight
+ * (wait_group with a round's group count) and only the round before it must be
+ * complete - which is exactly what this round overwrites: buffer (r+1)%3 and set
+ * r%3 were both last read by round r-2. The copies for round r+1 are still issued
+ * one round ahead; the third buffer buys the overlap, not more prefetch. Half the
+ * depth keeps the footprint below the two-stage one (96 against 128 KB at BN=256).
+ *
+ * Measured and not selected: at n=4096 it is 3.09 ms against 2.86 for two stages at
+ * full depth, 2.93 at KU=6 (144 KB), and 9.67 at equal depth (192 KB) - the RS form
+ * fetches A through L1, and staged B beyond ~128 KB takes that L1 away. Round
+ * length matters more than a round in flight; the two-stage deferred wait already
+ * overlaps what there is. Kept for the record under OZAKI_WGMMA_STAGES=3.
+ */
+#   if !defined(OZAKI_WGMMA_ROUND_GROUPS)
+#     error OZAKI_WGMMA_STAGES=3 needs OZAKI_WGMMA_ROUND_GROUPS (the host emits it).
+#   endif
+# define OZAKI_CRT_ROUND_WRS3(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, KW, AF, BUF, NBSZ) \
+    do { \
+      const int next_ = (KW) + WBK; \
+      int cw_; \
+      UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
+        OZAKI_WGMMA_ALOAD(ASW, K_PAD_, MI, (KW) + cw_ * 32, LANE, \
+          AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3]); \
+      } \
+      OZAKI_WGMMA_WAIT(); \
+      OZAKI_WGMMA_MMAWAIT_ROUND(); \
+      barrier(CLK_LOCAL_MEM_FENCE); \
+      if (next_ < (K_PAD_)) { \
+        OZAKI_WGMMA_BSTAGE(BSW, N_PAD_, K_PAD_, NB, next_, (SB) + (((BUF) + 1) % 3) * (NBSZ), WT); \
+        OZAKI_WGMMA_COMMIT(); \
+      } \
+      UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
+        OZAKI_WGMMA_ISSUE_RS(ACCS, AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3], \
+          (SB) + (BUF) * (NBSZ) + cw_ * 16); \
+      } \
+    } while (0)
+# define OZAKI_CRT_KLOOP_WRS(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, MI, NB, PIDX, ACCS, SB, WT, LANE) \
+    do { \
+      CONSTANT const char* asw_ = (AS_BASE) + (long)(PIDX) * (A_PLANE); \
+      CONSTANT const char* bsw_ = (BS_BASE) + (long)(PIDX) * (B_PLANE); \
+      const int nbsz_ = (BN * WBK) / 16; \
+      uint af0_[(WBK / 32) * 4], af1_[(WBK / 32) * 4], af2_[(WBK / 32) * 4]; \
+      int kw_; \
+      OZAKI_WGMMA_BSTAGE(bsw_, N_PAD_, K_PAD_, NB, 0, SB, WT); \
+      OZAKI_WGMMA_COMMIT(); \
+      for (kw_ = 0; kw_ < (K_PAD_); kw_ += 3 * WBK) { \
+        OZAKI_CRT_ROUND_WRS3(asw_, bsw_, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, kw_, af0_, 0, nbsz_); \
+        if (kw_ + WBK < (K_PAD_)) { \
+          OZAKI_CRT_ROUND_WRS3(asw_, bsw_, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, kw_ + WBK, af1_, 1, nbsz_); \
+        } \
+        if (kw_ + 2 * WBK < (K_PAD_)) { \
+          OZAKI_CRT_ROUND_WRS3(asw_, bsw_, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, kw_ + 2 * WBK, af2_, 2, nbsz_); \
+        } \
+      } \
+      OZAKI_WGMMA_MMAWAIT(); \
+    } while (0)
+# else
 # define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, KW, AF, BUF, NBSZ) \
     do { \
       const int next_ = (KW) + WBK; \
@@ -989,6 +1059,7 @@
       } \
       OZAKI_WGMMA_MMAWAIT(); \
     } while (0)
+# endif
 # else
 # define OZAKI_CRT_KLOOP_WRS(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, MI, NB, PIDX, ACCS, SB, WT, LANE) \
     do { \
@@ -2246,7 +2317,7 @@ kernel void gemm_crt_fused(
   const int nb_base = jb_idx * BN;
   const int wt = sg_id * SG + sg_lid;
 # if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
-  local uint4 wg_sb[2 * ((BN * WBK) / 16)]; /* double-buffered; A needs none */
+  local uint4 wg_sb[OZAKI_WGMMA_STAGES * ((BN * WBK) / 16)]; /* staged B only; A needs none */
 # else
   const int mb_base = ib_idx * BM;
   const int wg_id = sg_id / WG_NSUB;
