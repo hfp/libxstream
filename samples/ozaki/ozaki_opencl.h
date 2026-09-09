@@ -422,7 +422,7 @@ ozaki_tile_t ozaki_rtile_select(const ozaki_context_t* ctx, int M, int N, int cr
  * two do not assemble alike. Build-only, hence no stream: see the definition for
  * why nothing cheaper is conclusive. EXIT_SUCCESS means the path may be enabled.
  */
-int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes);
+int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes);
 
 /**
  * N-panel width for the pipelined path, or N itself when panelling does not

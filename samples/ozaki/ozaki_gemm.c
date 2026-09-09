@@ -60,7 +60,18 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
  * Returns the patched text (libxs_free by the caller) or NULL, in which case the
  * kernel must be refused rather than run: markers alone accumulate nothing.
  */
-static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, int wbk, int u8)
+/**
+ * Descriptor strides of the staged B tile in 16-byte units, mirroring
+ * OZAKI_WGMMA_BSTAGE: a core matrix is 8 columns, hence 128 bytes contiguous, the next
+ * column octet follows it, and a k-block spans the tile's whole width. Both live here
+ * because the splice bakes them into the descriptor while the kernel writes the layout
+ * they describe - change one and the other has to move with it, or the GEMM reads B
+ * from the wrong addresses and only the results say so.
+ */
+#define OZAKI_WGMMA_SBO 8
+#define OZAKI_WGMMA_LBO(BN_) (BN_)
+
+static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, int sbo, int lbo, int u8)
 {
   static const char marker[] = "// WGMMA_SLOT n";
   static const char marker_wait[] = "// WGMMA_WAIT";
@@ -68,8 +79,8 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
   static const char marker_commit[] = "// WGMMA_COMMIT";
   char entry[128];
   const char* const etype = (0 != u8) ? "u8" : "s8";
-  const unsigned int desc_hi = (unsigned int)((wbk / 16) * 8); /* m-block stride / 16 */
-  const unsigned int desc_lo = 8u << 16; /* K-half stride / 16, at bit 16 */
+  const unsigned int desc_hi = (unsigned int)sbo; /* column-octet stride / 16 */
+  const unsigned int desc_lo = (unsigned int)lbo << 16; /* k-block stride / 16, at bit 16 */
   char* retargeted = NULL;
   size_t size_rt = 0, cap = 0;
   char* out = NULL;
@@ -218,7 +229,7 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
  * failure the program is released and NULL is returned through it, so the caller
  * refuses the kernel: an unspliced marker kernel would compute zeros silently.
  */
-static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, int wku, cl_program* program)
+static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, int bn, cl_program* program)
 {
   char* binary = NULL;
   char* patched = NULL;
@@ -226,7 +237,7 @@ static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, in
   cl_program spliced = NULL;
   int result = libxstream_opencl_program_binary(*program, &binary, &size);
   if (EXIT_SUCCESS == result) {
-    patched = ozaki_wgmma_splice(binary, size, "gemm_crt_fused", wku * ctx->bk_pre, ctx->u8);
+    patched = ozaki_wgmma_splice(binary, size, "gemm_crt_fused", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(bn), ctx->u8);
     result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   /**
@@ -288,7 +299,7 @@ static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, in
  * and the tile request have already consumed, and would leave the fallback at
  * RTN=16, where the mma.sync kernel measured 21.5 against 15.4 ms.
  */
-int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes)
+int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
 {
   const int nacc = width / 2; /* RTN * XMX_FRAG accumulators per work-item */
   const unsigned int nvec = (unsigned int)(lbytes / 16);
@@ -341,7 +352,7 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lby
     result = libxstream_opencl_program_binary(program, &binary, &size);
   }
   if (EXIT_SUCCESS == result) {
-    patched = ozaki_wgmma_splice(binary, size, "ozaki_wgmma_probe", wbk, ctx->u8);
+    patched = ozaki_wgmma_splice(binary, size, "ozaki_wgmma_probe", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(width), ctx->u8);
     result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   if (EXIT_SUCCESS == result) {
@@ -1534,7 +1545,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags,
               options, NULL, NULL, NULL, 0, &program)) {
-          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, wku, &program);
+          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, tn, &program);
           if (NULL != program) {
             libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
             if (0 != ctx->unfuse) {

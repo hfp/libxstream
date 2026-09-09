@@ -196,7 +196,9 @@
     *(global uchar4*)((DST) + (OFF)) = \
       (uchar4)((uchar)(R0), (uchar)(R1), (uchar)(R2), (uchar)(R3))
 #else
-# define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) (DST)[(OFF)] = (char)(R0)
+/* The dropped sources are still consumed, so a width of 1 leaves nothing unused. */
+# define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
+    ((void)(R1), (void)(R2), (void)(R3), (void)((DST)[(OFF)] = (char)(R0)))
 #endif
 #define OZAKI_CRT_RSRC(A, N) ((A)[(N) % OZAKI_CRT_RUN])
 #define OZAKI_CRT_RES(G, P, S, N) oz2g_res(G, P, OZAKI_CRT_RSRC(S, N))
@@ -597,7 +599,7 @@
  * instead of once per instruction. OZAKI_WGMMA_HFENCE=0 restores the per-issue
  * placement the port started with.
  */
-# define OZAKI_WGMMA_FENCE() asm volatile("// WGMMA_FENCE" ::: "memory")
+# define OZAKI_WGMMA_FENCE() __asm__ volatile("// WGMMA_FENCE" ::: "memory")
 # if !defined(OZAKI_WGMMA_HFENCE)
 #   define OZAKI_WGMMA_HFENCE 1
 # endif
@@ -619,7 +621,7 @@
  * the group still in flight is one round back. OZAKI_WGMMA_HCOMMIT=0 restores the
  * per-issue commit, where only NWAIT=0 is meaningful.
  */
-# define OZAKI_WGMMA_COMMIT_MARK() asm volatile("// WGMMA_COMMIT" ::: "memory")
+# define OZAKI_WGMMA_COMMIT_MARK() __asm__ volatile("// WGMMA_COMMIT" ::: "memory")
 # if !defined(OZAKI_WGMMA_HCOMMIT)
 #   define OZAKI_WGMMA_HCOMMIT 1
 # endif
@@ -658,7 +660,7 @@
 # define OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_) \
     do { \
       OZAKI_WGMMA_FENCE_ISSUE(); \
-      asm volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} a={%64,%65,%66,%67} pb=%68" \
+      __asm__ volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} a={%64,%65,%66,%67} pb=%68" \
         : OZAKI_WGMMA_ACC64(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_)); \
       OZAKI_WGMMA_COMMIT_ISSUE(); \
     } while (0)
@@ -666,7 +668,7 @@
 # define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
     do { \
       OZAKI_WGMMA_FENCE_ISSUE(); \
-      asm volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} a={%32,%33,%34,%35} pb=%36" \
+      __asm__ volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} a={%32,%33,%34,%35} pb=%36" \
         : OZAKI_WGMMA_ACC32(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_)); \
       OZAKI_WGMMA_COMMIT_ISSUE(); \
     } while (0)
@@ -676,7 +678,7 @@
  * by column-block (OZAKI_WGMMA_BSTAGE); sharing A registers is a read-read.
  */
 # if (32 == RTN)
-# define OZAKI_WGMMA_BHALF (((BN) * WBK) / 32)
+# define OZAKI_WGMMA_BHALF ((BN) / 2)
 # define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
     do { \
       OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_); \
@@ -694,10 +696,10 @@
  * MMAs. It assembles on the plain target, unlike wgmma, so it needs no splice.
  */
 # define OZAKI_WGMMA_COPY16(DST, SRC) \
-    asm volatile("cp.async.ca.shared.global [%0], [%1], 16;" ::"l"(DST), "l"(SRC) : "memory")
+    __asm__ volatile("cp.async.ca.shared.global [%0], [%1], 16;" ::"l"(DST), "l"(SRC) : "memory")
 # define OZAKI_WGMMA_COPY4(DST, SRC) \
-    asm volatile("cp.async.ca.shared.global [%0], [%1], 4;" ::"l"(DST), "l"(SRC) : "memory")
-# define OZAKI_WGMMA_COMMIT() asm volatile("cp.async.commit_group;" ::: "memory")
+    __asm__ volatile("cp.async.ca.shared.global [%0], [%1], 4;" ::"l"(DST), "l"(SRC) : "memory")
+# define OZAKI_WGMMA_COMMIT() __asm__ volatile("cp.async.commit_group;" ::: "memory")
 /**
  * The MMA group wait, hoisted out of the chunk loop: the issues of one round are
  * committed back to back and awaited once, so the MMA pipeline stays fed instead of
@@ -706,9 +708,9 @@
 /* Two levels, so the count reaches the marker as a number and not as its own name. */
 # define OZAKI_WGMMA_STR_(X) #X
 # define OZAKI_WGMMA_STR(X) OZAKI_WGMMA_STR_(X)
-# define OZAKI_WGMMA_MMAWAIT_N(N) asm volatile("// WGMMA_WAIT " OZAKI_WGMMA_STR(N) ::: "memory")
+# define OZAKI_WGMMA_MMAWAIT_N(N) __asm__ volatile("// WGMMA_WAIT " OZAKI_WGMMA_STR(N) ::: "memory")
 # define OZAKI_WGMMA_MMAWAIT() OZAKI_WGMMA_MMAWAIT_N(OZAKI_WGMMA_NWAIT)
-# define OZAKI_WGMMA_WAIT() asm volatile("cp.async.wait_group 0;" ::: "memory")
+# define OZAKI_WGMMA_WAIT() __asm__ volatile("cp.async.wait_group 0;" ::: "memory")
 # if !defined(OZAKI_WGMMA_STAGES)
 #   define OZAKI_WGMMA_STAGES 2
 # endif
@@ -778,15 +780,19 @@
  * The lane must walk columns, not k-blocks: it is the column index that the global
  * layout makes contiguous here, the opposite of OZAKI_BKMAJOR. Mapping lanes to
  * k-blocks instead reads 64 KB apart and measured 9.5 against 8.1 ms.
+ *
+ * The shared tile is k-block major, which makes the destination index the loop
+ * counter itself and a whole k-block one contiguous run on both sides - the source
+ * because the global layout already is, the destination because nothing reorders it.
+ * The descriptor follows (OZAKI_WGMMA_SBO/LBO in ozaki_gemm.c) and a run that big is
+ * what a single bulk copy would need.
  */
 # define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) \
     do { \
       int ib_; \
       for (ib_ = (WT); ib_ < (BN * WBK) / 16; ib_ += WGS) { \
-        const int c_ = ib_ % BN; \
-        const int j_ = ib_ / BN; \
-        OZAKI_WGMMA_COPY16((SB) + (((c_ >> 3) * (WBK / 16) + j_) * 8) + (c_ & 7), \
-          (BS_K) + ((long)(((KOFF) >> 4) + j_) * (N_PAD_) + (NB) + c_) * 16); \
+        OZAKI_WGMMA_COPY16((SB) + ib_, \
+          (BS_K) + ((long)(((KOFF) >> 4) + ib_ / BN) * (N_PAD_) + (NB) + ib_ % BN) * 16); \
       } \
     } while (0)
 # elif defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
@@ -820,8 +826,6 @@
       } \
     } while (0)
 # endif
-
-    } while (0)
 
 /**
  * A in registers: only B is staged, so a round costs one cp.async group and one
@@ -895,7 +899,7 @@
       OZAKI_WGMMA_FENCE_ROUND(); \
       UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
         OZAKI_WGMMA_ISSUE_RS(ACCS, AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3], \
-          (SB) + (BUF) * (NBSZ) + cw_ * 16); \
+          (SB) + (BUF) * (NBSZ) + cw_ * 2 * BN); \
       } \
       OZAKI_WGMMA_COMMIT_ROUND(); \
       OZAKI_WGMMA_WAIT_POST(); \
@@ -1795,6 +1799,15 @@ kernel void gemm_crt_fused(
   OZAKI_SWIZZLE_IDX(M, N, ib_idx, jb_idx);
   mi_base = ib_idx * BM + tile_m * XMX_M * RTM;
   nj_base = jb_idx * BN + tile_n * XMX_N * RTN;
+#if defined(OZAKI_UNFUSE) && (OZAKI_UNFUSE)
+  /* The residue store needs none of these; gemm_crt_reduce reads them instead. */
+  (void)expa;
+  (void)expb;
+  (void)c;
+#endif
+#if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
+  (void)nj_base; /* the staging tile base is nb_base, per work-group rather than sub-group */
+#endif
   const long b_plane = (long)K_pad * N_pad;
 #if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
   /* Work-group tile base (staging is cooperative, unlike the per-sub-group MI/NJ). */

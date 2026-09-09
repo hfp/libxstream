@@ -892,7 +892,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         const size_t lbytes = (size_t)2 * wn * wku * bk_pre;
         /* Probed at the issue width: 256 columns are two n128, all the splice knows. */
         const int wprobe = (256 == wn) ? 128 : wn;
-        wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, wku * bk_pre, lbytes)) ? 1 : 0;
+        wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, lbytes)) ? 1 : 0;
         if (0 == wgmma) {
           if (0 != verbosity) {
             fprintf(stderr, "INFO OZAKI: warp-group MMA not reachable on this device - using mma.sync\n");
