@@ -66,8 +66,9 @@ comma or semicolon is caught in C sources, the rest is on the author.
 
 The rules that span more than one line are checked by
 `scripts/tool_checkstruct.py`: a single function exit, blank lines inside and
-between functions, stacked single-line comments, and a constant on the
-left-hand side. It works on the source text, with comments, literals, and
+between functions, stacked single-line comments, where an opening brace goes,
+whether a multi-line `if` or loop is braced, and a constant on the left-hand
+side. It works on the source text, with comments, literals, and
 preprocessor directives masked out, so a `return` in `#if` and another in
 `#else` count as one exit. A parser is not used on purpose: the declarations
 carry `LIBXS_API` and friends, which a preprocessor-less parser turns into an
@@ -172,6 +173,12 @@ number of its own.
 
 - **A function has a single exit.** No early `return`, no multiple return
   paths, no `goto`.
+- **No trailing underscore on a parameter or a local**, in a definition or a
+  declaration. That mark is reserved for a variable a *macro* declares, so that
+  such a name cannot collide with one the caller already has in scope; a
+  function wearing it anywhere takes the mark away from the one thing it is
+  for. Passing an underscored name *to* a function is a different matter and
+  fine: inside a macro body that is exactly what the macro's own local is for.
 - Use a `result` variable, gate subsequent work on `EXIT_SUCCESS == result`, and
   return `result` at the single exit point.
 - Constants go on the left-hand side of a comparison (`EXIT_SUCCESS == result`,
@@ -180,7 +187,8 @@ number of its own.
 - At most one blank line inside a function body.
 
 ```c
-int example(const void* input, void** output) {
+int example(const void* input, void** output)
+{
   int result = EXIT_SUCCESS;
   if (NULL == input || NULL == output) result = EXIT_FAILURE;
   if (EXIT_SUCCESS == result) {
@@ -199,7 +207,9 @@ int example(const void* input, void** output) {
 ALIGNMENT)`, not `LIBXS_ALIGN(pointer, alignment)`. The parameters are the part
 that is easy to forget, and they are the part that matters at the point of use:
 a capitalized argument is what tells the reader that the expression may be
-evaluated more than once.
+evaluated more than once. **A parameter carries no trailing underscore**: that
+marks a variable the macro declares itself, and the two must stay apart, since
+the whole point of the underscore is to say "this name is mine, not yours".
 
 **A variable a macro declares is the other way round**: lowercase, with a
 trailing underscore, and ideally prefixed by the macro's own name.
@@ -275,7 +285,8 @@ Two kinds of macro name are lowercase on purpose, and both are exempt:
   `libxs_token.h` use one throughout, `libxs_math.h` for sixteen of its
   twenty-one. One or two, but not a mixture within a file, which is the
   surrounding code a change there has to match.
-- At most one blank line separates logical blocks inside a function.
+- At most one blank line separates logical blocks inside a function. Two is what
+  separates the functions themselves, so two never appear inside one.
 
 ## Formatting
 
@@ -291,6 +302,70 @@ it; the formatter is a maintenance tool, run deliberately and committed on its
 own.
 
 Do not mix reformatting, renaming, and behavioural change in one commit.
+
+**Where the opening brace goes.** It stays on the line of the construct it
+belongs to — `if (0 < n) {`, `for (...) {`, `} else {` — with two exceptions,
+and both are checked:
+
+- **A function body opens on its own line in an implementation unit**, a `.c` or
+  a `.cl` file: 1971 definitions do it and 78 do not.
+- **A brace whose parentheses were broken across lines opens on its own line**,
+  because the brace is then what tells the reader the condition has ended:
+
+```c
+if (0 == first &&
+    0 != second)
+{
+  ...
+}
+```
+
+**In a header the brace may trail the signature**, and it usually should. What
+rules a header is a readable API: the declarations are read as a list, and an
+inline definition sits in that list. It is also outside the ABI and meant to
+stay a small tool, so a body long enough to want the brace on a line of its own
+needs a reason — `libxs_gemm.h` has one. Both forms are accepted there, which is
+the difference from an implementation unit; a broken parameter list still takes
+the brace onto its own line.
+
+A bare block has no construct line to sit on, so nothing is required of it:
+`{ int scope_ = n;` and a brace alone on the line are both in use and both fine.
+A struct, a union and an initializer are left alone as well.
+
+**Whatever an `if`, an `else` or a loop controls stays on the keyword's line, or
+it is braced.** Once the construct reaches a second line the braces are what say
+where it ends, and that includes the case where only the condition wrapped:
+
+```c
+while (npos < (int)ctx->text_size
+  && 0 != isspace(ctx->text[npos]))
+{
+  ++npos;
+}
+```
+
+Each keyword is judged on its own, so an `if` with a braced body and a one-line
+`else` is two decisions rather than one. An `else if` is the inner `if` and is
+judged there.
+
+Two more places keep the brace on its own line, and the check knows both. One is
+a construct whose line is followed by a preprocessor directive: the line above
+the brace is then `#endif`, and moving the brace up would carry it into the
+branch. The other is a header that is included inside a function body, where the
+file's own control flow sits at brace depth zero and is not a definition.
+
+```c
+#if defined(LIBXS_CPUID_ARM_MODEL_FALLBACK)
+  if (NULL != info)
+#endif
+  {
+    ...
+  }
+```
+
+A directive in that position also excuses the braces themselves: the keyword and
+what it controls then belong to different configurations, and one pair of braces
+cannot serve both.
 
 Indentation is not reformatted by a hook, but one thing about it is checked:
 **two closing braces in a row must step left.** Sharing a column means they

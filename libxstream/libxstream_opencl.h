@@ -509,6 +509,19 @@ typedef struct libxstream_opencl_config_t {
    */
   libxs_span_t *span_h2d, *span_d2h, *span_d2d, *span_zero, *span_device;
   /**
+   * Union of every profiled interval, kernels and transfers together. Separate
+   * because a union cannot be combined from the per-kernel ones: two of them
+   * may cover the same instant, and their totals cannot say whether they do.
+   */
+  libxs_hist_t* hist_device;
+  /**
+   * Origin subtracted from every device timestamp before it is pushed. Device
+   * nanoseconds are far above 2^53, where a double no longer separates values
+   * a few hundred nanoseconds apart - enough to make adjacent intervals appear
+   * to touch, which would report overlap that never happened.
+   */
+  cl_ulong timer_epoch;
+  /**
    * Per-kernel histograms (LIBXSTREAM_PROFILE), keyed by the cl_kernel handle
    * observed at launch. The name is not supplied by the caller: it is read from
    * the handle via CL_KERNEL_FUNCTION_NAME once, when a kernel is first seen, so
@@ -524,19 +537,6 @@ typedef struct libxstream_opencl_config_t {
    * Fixed capacity, because the callback must not grow the table. Overflow is
    * counted rather than silently dropped (see nprofile_kernel_lost).
    */
-  /**
-   * Union of every profiled interval, kernels and transfers together. Separate
-   * because a union cannot be combined from the per-kernel ones: two of them
-   * may cover the same instant, and their totals cannot say whether they do.
-   */
-  libxs_hist_t* hist_device;
-  /**
-   * Origin subtracted from every device timestamp before it is pushed. Device
-   * nanoseconds are far above 2^53, where a double no longer separates values
-   * a few hundred nanoseconds apart - enough to make adjacent intervals appear
-   * to touch, which would report overlap that never happened.
-   */
-  cl_ulong timer_epoch;
   libxs_hist_t* hist_kernel[LIBXSTREAM_MAXNKERNELS];
   libxs_span_t* span_kernel[LIBXSTREAM_MAXNKERNELS];
   const char* name_kernel[LIBXSTREAM_MAXNKERNELS];

@@ -96,26 +96,31 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, con
   const cl_device_id* const a = (const cl_device_id*)dev_a;
   const cl_device_id* const b = (const cl_device_id*)dev_b;
   cl_device_type type_a = 0, type_b = 0;
+  int result;
   assert(NULL != a && NULL != b && a != b);
   LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clGetDeviceInfo(*a, CL_DEVICE_TYPE, sizeof(cl_device_type), &type_a, NULL));
   LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clGetDeviceInfo(*b, CL_DEVICE_TYPE, sizeof(cl_device_type), &type_b, NULL));
   if (CL_DEVICE_TYPE_DEFAULT & type_a) {
-    return -1;
+    result = -1;
   }
   else if (CL_DEVICE_TYPE_DEFAULT & type_b) {
-    return 1;
+    result = 1;
   }
-  else {
-    if (CL_DEVICE_TYPE_GPU & type_a) {
-      if (CL_DEVICE_TYPE_GPU & type_b) {
-        int unified_a, unified_b;
-        size_t size_a, size_b;
-        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*a, NULL, &size_a, NULL, &unified_a));
-        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*b, NULL, &size_b, NULL, &unified_b));
-        if ((0 == unified_a && 0 == unified_b) || (0 != unified_a && 0 != unified_b)) {
-          if (size_a != size_b) return (size_a < size_b ? 1 : -1);
+  else if (CL_DEVICE_TYPE_GPU & type_a) {
+    if (CL_DEVICE_TYPE_GPU & type_b) {
+      int unified_a, unified_b;
+      size_t size_a, size_b;
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*a, NULL, &size_a, NULL, &unified_a));
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*b, NULL, &size_b, NULL, &unified_b));
+      if ((0 == unified_a && 0 == unified_b) || (0 != unified_a && 0 != unified_b)) {
+        if (size_a != size_b) {
+          result = (size_a < size_b ? 1 : -1);
+        }
+        else {
+          /* zero for both where the hint is off, which falls through to the
+             pointer order below rather than reordering the equal sizes */
+          cl_uint bus_a = 0, bus_b = 0;
           if (0 != (64 & libxstream_opencl_config.xhints)) {
-            cl_uint bus_a = 0, bus_b = 0;
             struct { cl_uint domain, bus, device, function; } pci_a, pci_b;
             if (EXIT_SUCCESS == clGetDeviceInfo(*a, 0x420F /*CL_DEVICE_PCI_BUS_INFO_INTEL*/, sizeof(pci_a), &pci_a, NULL) &&
                 EXIT_SUCCESS == clGetDeviceInfo(*b, 0x420F /*CL_DEVICE_PCI_BUS_INFO_INTEL*/, sizeof(pci_b), &pci_b, NULL))
@@ -123,40 +128,38 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, con
               bus_a = pci_a.bus;
               bus_b = pci_b.bus;
             }
-            if (bus_a != bus_b) return (bus_a < bus_b ? -1 : 1);
           }
-          return (a < b ? -1 : 1);
+          result = (bus_a != bus_b) ? (bus_a < bus_b ? -1 : 1) : (a < b ? -1 : 1);
         }
-        /* discrete GPU goes in front */
-        else if (0 == unified_b) return 1;
-        else return -1;
       }
-      else return -1;
+      /* discrete GPU goes in front */
+      else if (0 == unified_b) result = 1;
+      else result = -1;
     }
-    else if (CL_DEVICE_TYPE_GPU & type_b) {
-      return 1;
-    }
-    else {
-      if (CL_DEVICE_TYPE_CPU & type_a) {
-        if (CL_DEVICE_TYPE_CPU & type_b) {
-          size_t size_a, size_b;
-          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*a, NULL, &size_a, NULL, NULL));
-          LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*b, NULL, &size_b, NULL, NULL));
-          return (size_a < size_b ? 1 : (size_a != size_b ? -1 : (a < b ? -1 : 1)));
-        }
-        else return -1;
-      }
-      else if (CL_DEVICE_TYPE_CPU & type_b) {
-        return 1;
-      }
-      else {
-        size_t size_a = 0, size_b = 0;
-        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*a, NULL, &size_a, NULL, NULL));
-        LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*b, NULL, &size_b, NULL, NULL));
-        return (size_a < size_b ? 1 : (size_a != size_b ? -1 : (a < b ? -1 : 1)));
-      }
-    }
+    else result = -1;
   }
+  else if (CL_DEVICE_TYPE_GPU & type_b) {
+    result = 1;
+  }
+  else if (CL_DEVICE_TYPE_CPU & type_a) {
+    if (CL_DEVICE_TYPE_CPU & type_b) {
+      size_t size_a, size_b;
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*a, NULL, &size_a, NULL, NULL));
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*b, NULL, &size_b, NULL, NULL));
+      result = (size_a < size_b ? 1 : (size_a != size_b ? -1 : (a < b ? -1 : 1)));
+    }
+    else result = -1;
+  }
+  else if (CL_DEVICE_TYPE_CPU & type_b) {
+    result = 1;
+  }
+  else {
+    size_t size_a = 0, size_b = 0;
+    LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*a, NULL, &size_a, NULL, NULL));
+    LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_opencl_info_devmem(*b, NULL, &size_b, NULL, NULL));
+    result = (size_a < size_b ? 1 : (size_a != size_b ? -1 : (a < b ? -1 : 1)));
+  }
+  return result;
 }
 
 
@@ -939,9 +942,9 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_hist(FILE* ostream, const libx
       if (0 < vals[2]) {
         /**
          * prec[0] also formats the bucket bound, and a negative value suppresses
-         * the whole line.
+         * the whole line. The interval is there for the union alone and is not
+         * reported.
          */
-        /* the interval is there for the union alone and is not reported */
         const int precision[] = {1, 1, 1, -1, -1};
         libxstream_opencl_print_id(ostream, name);
         /* one decimal: a whole-number GB/s would quantize slow transfers away */
@@ -1374,8 +1377,7 @@ LIBXSTREAM_API int libxstream_device_count(int* ndevices)
 {
   int result;
   result = libxstream_init();
-  if (EXIT_SUCCESS == result)
-  {
+  if (EXIT_SUCCESS == result) {
     if (NULL != ndevices) {
       *ndevices = (0 < libxstream_opencl_config.ndevices ? libxstream_opencl_config.ndevices : 0);
       result = EXIT_SUCCESS;
@@ -1644,11 +1646,12 @@ LIBXSTREAM_API int libxstream_opencl_device_ext(cl_device_id device, const char*
         ext = strtok(buffer, LIBXS_DELIMS " \t");
         for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), LIBXS_DELIMS " \t") : NULL)) {
           if (NULL == strstr(extensions, ext)) {
-            return EXIT_FAILURE;
+            result = EXIT_FAILURE;
+            break;
           }
         }
       }
-    } while (0 < num_exts);
+    } while (0 < num_exts && EXIT_SUCCESS == result);
   }
   return result;
 }
@@ -1940,8 +1943,7 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
              * coarse-grain, so a driver advertising fine-grain system allocations does
              * not silently widen what the default relies on.
              */
-            if (0 > usm_level || 2 <= usm_level || (1 == usm_level && NULL == devinfo->clMemFreeINTEL))
-            {
+            if (0 > usm_level || 2 <= usm_level || (1 == usm_level && NULL == devinfo->clMemFreeINTEL)) {
               cl_device_svm_capabilities svmcaps = 0;
               cl_int query_result = EXIT_SUCCESS;
               /**
@@ -2491,8 +2493,7 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
               for (; NULL != ext; ext = ((ext + 1) < end ? strtok((ext + 1) + strlen(ext), LIBXS_DELIMS " \t") : NULL)) {
                 const char* line = source;
                 for (;;) {
-                  if (2 != sscanf(line, "#pragma OPENCL EXTENSION %[^: ]%*[: ]%[^\n]", buffer, buffer + LIBXSTREAM_BUFFERSIZE / 2))
-                  {
+                  if (2 != sscanf(line, "#pragma OPENCL EXTENSION %[^: ]%*[: ]%[^\n]", buffer, buffer + LIBXSTREAM_BUFFERSIZE / 2)) {
                     line = NULL;
                     break;
                   }
@@ -2772,8 +2773,7 @@ LIBXSTREAM_API int libxstream_opencl_set_kernel_ptr(cl_kernel kernel, cl_uint ar
   else
 # endif
 # if (0 != LIBXSTREAM_USM)
-    if (0 != devinfo->usm)
-  {
+    if (0 != devinfo->usm) {
     result = clSetKernelArgSVMPointer(kernel, arg_index, arg_value);
   }
   else
@@ -3078,70 +3078,72 @@ LIBXSTREAM_API int libxstream_opencl_error_consume(void)
 
 LIBXSTREAM_API const char* libxstream_opencl_strerror(cl_int err)
 {
+  const char* result;
   switch (err) {
-    case 0: return "CL_SUCCESS";
-    case -1: return "CL_DEVICE_NOT_FOUND";
-    case -2: return "CL_DEVICE_NOT_AVAILABLE";
-    case -3: return "CL_COMPILER_NOT_AVAILABLE";
-    case -4: return "CL_MEM_OBJECT_ALLOCATION_FAILURE";
-    case -5: return "CL_OUT_OF_RESOURCES";
-    case -6: return "CL_OUT_OF_HOST_MEMORY";
-    case -7: return "CL_PROFILING_INFO_NOT_AVAILABLE";
-    case -8: return "CL_MEM_COPY_OVERLAP";
-    case -9: return "CL_IMAGE_FORMAT_MISMATCH";
-    case -10: return "CL_IMAGE_FORMAT_NOT_SUPPORTED";
-    case -11: return "CL_BUILD_PROGRAM_FAILURE";
-    case -12: return "CL_MAP_FAILURE";
-    case -13: return "CL_MISALIGNED_SUB_BUFFER_OFFSET";
-    case -14: return "CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST";
-    case -15: return "CL_COMPILE_PROGRAM_FAILURE";
-    case -16: return "CL_LINKER_NOT_AVAILABLE";
-    case -17: return "CL_LINK_PROGRAM_FAILURE";
-    case -18: return "CL_DEVICE_PARTITION_FAILED";
-    case -19: return "CL_KERNEL_ARG_INFO_NOT_AVAILABLE";
-    case -30: return "CL_INVALID_VALUE";
-    case -31: return "CL_INVALID_DEVICE_TYPE";
-    case -32: return "CL_INVALID_PLATFORM";
-    case -33: return "CL_INVALID_DEVICE";
-    case -34: return "CL_INVALID_CONTEXT";
-    case -35: return "CL_INVALID_QUEUE_PROPERTIES";
-    case -36: return "CL_INVALID_COMMAND_QUEUE";
-    case -37: return "CL_INVALID_HOST_PTR";
-    case -38: return "CL_INVALID_MEM_OBJECT";
-    case -39: return "CL_INVALID_IMAGE_FORMAT_DESCRIPTOR";
-    case -40: return "CL_INVALID_IMAGE_SIZE";
-    case -41: return "CL_INVALID_SAMPLER";
-    case -42: return "CL_INVALID_BINARY";
-    case -43: return "CL_INVALID_BUILD_OPTIONS";
-    case -44: return "CL_INVALID_PROGRAM";
-    case -45: return "CL_INVALID_PROGRAM_EXECUTABLE";
-    case -46: return "CL_INVALID_KERNEL_NAME";
-    case -47: return "CL_INVALID_KERNEL_DEFINITION";
-    case -48: return "CL_INVALID_KERNEL";
-    case -49: return "CL_INVALID_ARG_INDEX";
-    case -50: return "CL_INVALID_ARG_VALUE";
-    case -51: return "CL_INVALID_ARG_SIZE";
-    case -52: return "CL_INVALID_KERNEL_ARGS";
-    case -53: return "CL_INVALID_WORK_DIMENSION";
-    case -54: return "CL_INVALID_WORK_GROUP_SIZE";
-    case -55: return "CL_INVALID_WORK_ITEM_SIZE";
-    case -56: return "CL_INVALID_GLOBAL_OFFSET";
-    case -57: return "CL_INVALID_EVENT_WAIT_LIST";
-    case -58: return "CL_INVALID_EVENT";
-    case -59: return "CL_INVALID_OPERATION";
-    case -60: return "CL_INVALID_GL_OBJECT";
-    case -61: return "CL_INVALID_BUFFER_SIZE";
-    case -62: return "CL_INVALID_MIP_LEVEL";
-    case -63: return "CL_INVALID_GLOBAL_WORK_SIZE";
-    case -64: return "CL_INVALID_PROPERTY";
-    case -65: return "CL_INVALID_IMAGE_DESCRIPTOR";
-    case -66: return "CL_INVALID_COMPILER_OPTIONS";
-    case -67: return "CL_INVALID_LINKER_OPTIONS";
-    case -68: return "CL_INVALID_DEVICE_PARTITION_COUNT";
-    case -69: return "CL_INVALID_PIPE_SIZE";
-    case -70: return "CL_INVALID_DEVICE_QUEUE";
-    default: return "CL_UNKNOWN_ERROR";
+    case 0: result = "CL_SUCCESS"; break;
+    case -1: result = "CL_DEVICE_NOT_FOUND"; break;
+    case -2: result = "CL_DEVICE_NOT_AVAILABLE"; break;
+    case -3: result = "CL_COMPILER_NOT_AVAILABLE"; break;
+    case -4: result = "CL_MEM_OBJECT_ALLOCATION_FAILURE"; break;
+    case -5: result = "CL_OUT_OF_RESOURCES"; break;
+    case -6: result = "CL_OUT_OF_HOST_MEMORY"; break;
+    case -7: result = "CL_PROFILING_INFO_NOT_AVAILABLE"; break;
+    case -8: result = "CL_MEM_COPY_OVERLAP"; break;
+    case -9: result = "CL_IMAGE_FORMAT_MISMATCH"; break;
+    case -10: result = "CL_IMAGE_FORMAT_NOT_SUPPORTED"; break;
+    case -11: result = "CL_BUILD_PROGRAM_FAILURE"; break;
+    case -12: result = "CL_MAP_FAILURE"; break;
+    case -13: result = "CL_MISALIGNED_SUB_BUFFER_OFFSET"; break;
+    case -14: result = "CL_EXEC_STATUS_ERROR_FOR_EVENTS_IN_WAIT_LIST"; break;
+    case -15: result = "CL_COMPILE_PROGRAM_FAILURE"; break;
+    case -16: result = "CL_LINKER_NOT_AVAILABLE"; break;
+    case -17: result = "CL_LINK_PROGRAM_FAILURE"; break;
+    case -18: result = "CL_DEVICE_PARTITION_FAILED"; break;
+    case -19: result = "CL_KERNEL_ARG_INFO_NOT_AVAILABLE"; break;
+    case -30: result = "CL_INVALID_VALUE"; break;
+    case -31: result = "CL_INVALID_DEVICE_TYPE"; break;
+    case -32: result = "CL_INVALID_PLATFORM"; break;
+    case -33: result = "CL_INVALID_DEVICE"; break;
+    case -34: result = "CL_INVALID_CONTEXT"; break;
+    case -35: result = "CL_INVALID_QUEUE_PROPERTIES"; break;
+    case -36: result = "CL_INVALID_COMMAND_QUEUE"; break;
+    case -37: result = "CL_INVALID_HOST_PTR"; break;
+    case -38: result = "CL_INVALID_MEM_OBJECT"; break;
+    case -39: result = "CL_INVALID_IMAGE_FORMAT_DESCRIPTOR"; break;
+    case -40: result = "CL_INVALID_IMAGE_SIZE"; break;
+    case -41: result = "CL_INVALID_SAMPLER"; break;
+    case -42: result = "CL_INVALID_BINARY"; break;
+    case -43: result = "CL_INVALID_BUILD_OPTIONS"; break;
+    case -44: result = "CL_INVALID_PROGRAM"; break;
+    case -45: result = "CL_INVALID_PROGRAM_EXECUTABLE"; break;
+    case -46: result = "CL_INVALID_KERNEL_NAME"; break;
+    case -47: result = "CL_INVALID_KERNEL_DEFINITION"; break;
+    case -48: result = "CL_INVALID_KERNEL"; break;
+    case -49: result = "CL_INVALID_ARG_INDEX"; break;
+    case -50: result = "CL_INVALID_ARG_VALUE"; break;
+    case -51: result = "CL_INVALID_ARG_SIZE"; break;
+    case -52: result = "CL_INVALID_KERNEL_ARGS"; break;
+    case -53: result = "CL_INVALID_WORK_DIMENSION"; break;
+    case -54: result = "CL_INVALID_WORK_GROUP_SIZE"; break;
+    case -55: result = "CL_INVALID_WORK_ITEM_SIZE"; break;
+    case -56: result = "CL_INVALID_GLOBAL_OFFSET"; break;
+    case -57: result = "CL_INVALID_EVENT_WAIT_LIST"; break;
+    case -58: result = "CL_INVALID_EVENT"; break;
+    case -59: result = "CL_INVALID_OPERATION"; break;
+    case -60: result = "CL_INVALID_GL_OBJECT"; break;
+    case -61: result = "CL_INVALID_BUFFER_SIZE"; break;
+    case -62: result = "CL_INVALID_MIP_LEVEL"; break;
+    case -63: result = "CL_INVALID_GLOBAL_WORK_SIZE"; break;
+    case -64: result = "CL_INVALID_PROPERTY"; break;
+    case -65: result = "CL_INVALID_IMAGE_DESCRIPTOR"; break;
+    case -66: result = "CL_INVALID_COMPILER_OPTIONS"; break;
+    case -67: result = "CL_INVALID_LINKER_OPTIONS"; break;
+    case -68: result = "CL_INVALID_DEVICE_PARTITION_COUNT"; break;
+    case -69: result = "CL_INVALID_PIPE_SIZE"; break;
+    case -70: result = "CL_INVALID_DEVICE_QUEUE"; break;
+    default: result = "CL_UNKNOWN_ERROR";
   }
+  return result;
 }
 
 #endif /*__OPENCL*/

@@ -113,7 +113,7 @@
 typedef double real_t;
 typedef ulong uint_repr_t;
 # define EXP_MASK 2047U
-# define AS_UINT(x) as_ulong(x)
+# define AS_UINT(X) as_ulong(X)
 # if !defined(ZERO)
 #   define ZERO 0.0
 # endif
@@ -121,7 +121,7 @@ typedef ulong uint_repr_t;
 typedef float real_t;
 typedef uint uint_repr_t;
 # define EXP_MASK 255U
-# define AS_UINT(x) as_uint(x)
+# define AS_UINT(X) as_uint(X)
 # if !defined(ZERO)
 #   define ZERO 0.f
 # endif
@@ -141,12 +141,12 @@ typedef uint uint_repr_t;
 #if defined(USE_BF16_EXT) && (0 < USE_BF16_EXT)
 /**
  * Hardware round-to-nearest-even via cl_intel_bfloat16_conversions.
- * Extension pragmas trigger warnings on some drivers; availability
- * is checked at init time.
+ * Extension pragmas trigger warnings on some drivers, so the pragma
+ * "cl_intel_bfloat16_conversions : enable" stays out and availability
+ * is checked at init time instead.
  */
-/*# pragma OPENCL EXTENSION cl_intel_bfloat16_conversions : enable*/
-# define ROUND_TO_BF16(x) intel_convert_bfloat16_as_ushort(x)
-# define BF16_TO_F32(x) intel_convert_as_bfloat16_float(x)
+# define ROUND_TO_BF16(X) intel_convert_bfloat16_as_ushort(X)
+# define BF16_TO_F32(X) intel_convert_as_bfloat16_float(X)
 #elif !defined(ROUND_TO_BF16) && defined(USE_BF16) && (0 < USE_BF16)
 /**
  * Round a float to BF16 (round-to-nearest-even).
@@ -158,13 +158,14 @@ inline ushort round_to_bf16(float f)
   bits = (bits + 0x7FFFU + ((bits >> 16) & 1U)) & 0xFFFF0000U;
   return (ushort)(bits >> 16);
 }
+
 /** Expand a BF16 encoding to float32 (exact). */
 inline float bf16_to_f32(ushort v)
 {
   return as_float((uint)v << 16);
 }
-# define ROUND_TO_BF16(x) round_to_bf16(x)
-# define BF16_TO_F32(x) bf16_to_f32(x)
+# define ROUND_TO_BF16(X) round_to_bf16(X)
+# define BF16_TO_F32(X) bf16_to_f32(X)
 #endif
 
 /**
@@ -180,13 +181,14 @@ inline ushort round_to_f16(float f)
   vstore_half_rte(f, 0, (half*)&v);
   return v;
 }
+
 /** Expand an FP16 encoding to float32 (exact). */
 inline float f16_to_f32(ushort v)
 {
   return vload_half(0, (const half*)&v);
 }
-# define ROUND_TO_F16(x) round_to_f16(x)
-# define F16_TO_F32(x) f16_to_f32(x)
+# define ROUND_TO_F16(X) round_to_f16(X)
+# define F16_TO_F32(X) f16_to_f32(X)
 #endif
 
 #endif /*LIBXSTREAM_OPENCL_COMMON_H*/

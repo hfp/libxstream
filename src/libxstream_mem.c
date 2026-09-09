@@ -46,11 +46,10 @@
  * Staging pays only if the copy outruns the pageable transport it replaces,
  * which a serial copy does not. More threads stop helping, so the count is
  * capped rather than taken from the team size.
- */
-/**
- * Staging needs both a parallel copy and a per-thread window: without OpenMP
- * the copy is slower than the transport it replaces, and without TLS a
- * thread losing the race for the window falls back to it silently.
+ *
+ * It needs both a parallel copy and a per-thread window: without OpenMP the
+ * copy is slower than the transport it replaces, and without TLS a thread
+ * losing the race for the window falls back to it silently.
  */
 # if defined(_OPENMP) && !defined(LIBXS_NO_TLS)
 #   define LIBXSTREAM_MEM_STAGING
@@ -201,7 +200,8 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* 
 # endif
 # if (0 != LIBXSTREAM_USM)
       if (libxstream_opencl_mem_hst_malloc == libxstream_opencl_config.mem_hst &&
-          0 != devinfo->usm && 0 != devinfo->unified) {
+          0 != devinfo->usm && 0 != devinfo->unified)
+      {
         libxstream_opencl_config.mem_hst = libxstream_opencl_mem_hst_svm;
       }
 # endif
@@ -212,7 +212,8 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* 
         libxstream_opencl_config.pool_hst_usm = devinfo->usm;
 # endif
         if (NULL != libxstream_opencl_config.pool_hst_context &&
-            EXIT_SUCCESS != clRetainContext(libxstream_opencl_config.pool_hst_context)) {
+            EXIT_SUCCESS != clRetainContext(libxstream_opencl_config.pool_hst_context))
+        {
           libxstream_opencl_config.pool_hst_context = NULL;
           libxstream_opencl_config.mem_hst = libxstream_opencl_mem_hst_malloc;
         }
@@ -223,7 +224,8 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* 
         if ((0 == ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) &
                    libxstream_opencl_config.pool_hst_usm) && NULL == libxstream_opencl_config.pool_hst_queue) ||
             (NULL != libxstream_opencl_config.pool_hst_queue &&
-             EXIT_SUCCESS != clRetainCommandQueue(libxstream_opencl_config.pool_hst_queue))) {
+             EXIT_SUCCESS != clRetainCommandQueue(libxstream_opencl_config.pool_hst_queue)))
+        {
           libxstream_opencl_config.pool_hst_queue = NULL;
           if (NULL != libxstream_opencl_config.pool_hst_context) {
             LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseContext(libxstream_opencl_config.pool_hst_context));
@@ -706,8 +708,7 @@ LIBXSTREAM_API_INTERN int libxstream_mem_host_deallocate_internal(void* host_ptr
   else
 # endif
 # if (0 != LIBXSTREAM_USM) && ((1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM))
-    if (0 != devinfo->usm && 0 != devinfo->unified)
-  {
+  if (0 != devinfo->usm && 0 != devinfo->unified) {
     if (0 == ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) & devinfo->usm)) {
       result = clEnqueueSVMUnmap(queue, host_ptr, 0, NULL, NULL); /* clSVMFree below synchronizes */
     }
@@ -1244,8 +1245,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
   else
 # endif
 # if (0 != LIBXSTREAM_USM)
-    if (0 != devinfo->usm)
-  {
+  if (0 != devinfo->usm) {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
     /**
      * Enqueue the copy rather than mapping and copying on the host: a transfer
@@ -1278,8 +1278,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
     else
 # endif
 # if (0 != LIBXSTREAM_USM)
-      if (0 != devinfo->usm)
-    {
+    if (0 != devinfo->usm) {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       /* blocking form of the enqueued copy (see above) */
       result_sync = clEnqueueSVMMemcpy(queue, CL_TRUE, dev_mem, host_mem, nbytes, 0, NULL, event);
@@ -1432,8 +1431,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
   else
 # endif
 # if (0 != LIBXSTREAM_USM)
-    if (0 != devinfo->usm)
-  {
+  if (0 != devinfo->usm) {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
     /* enqueued copy instead of map/memcpy/unmap: see libxstream_mem_copy_h2d */
     result = clEnqueueSVMMemcpy(queue, finish, host_mem, (const char*)dev_mem + offset, nbytes, 0, NULL, event);
@@ -1455,8 +1453,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_d2h(
     else
 # endif
 # if (0 != LIBXSTREAM_USM)
-      if (0 != devinfo->usm)
-    {
+    if (0 != devinfo->usm) {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       /* blocking form of the enqueued copy (see libxstream_mem_copy_h2d) */
       result_sync = clEnqueueSVMMemcpy(queue, CL_TRUE, host_mem, (const char*)dev_mem + offset, nbytes, 0, NULL, event);
@@ -1613,8 +1610,7 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
     else
 # endif
 # if (0 != LIBXSTREAM_USM)
-      if (0 != devinfo->usm)
-    {
+    if (0 != devinfo->usm) {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       result = clEnqueueSVMMemcpy(str->queue, CL_FALSE /*blocking*/, devmem_dst, devmem_src, nbytes, 0, NULL,
         NULL == libxstream_opencl_config.hist_d2d ? pevent : &event);
@@ -1693,8 +1689,7 @@ LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t off
     else
 # endif
 # if (0 != LIBXSTREAM_USM)
-      if (0 != devinfo->usm)
-    {
+    if (0 != devinfo->usm) {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       result = clEnqueueSVMMemFill(str->queue, (char*)dev_mem + offset, &value, vsize, nbytes, 0, NULL, pevent);
 #   else

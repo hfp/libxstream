@@ -238,8 +238,9 @@ kernel void stencil_apply_direct(
               for (c = 0; c < 8; ++c) {
                 const int sf = col_base + sglid;
                 const int sm = row_base + c;
-                if (sf < SLM_F && sm < SLM_M)
+                if (sf < SLM_F && sm < SLM_M) {
                   fm_slm[slm_off + sm * SLM_F + sf] = ((float*)&blk_data)[c];
+                }
               }
             }
           }
