@@ -57,7 +57,8 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
  * register access, not memory). Without it the kernel is correct only while at
  * most one work-group per SM is resident - measured exact up to 114 work-groups
  * on a 114-SM part and wrong beyond, which is the kind of bug that looks like a
- * size threshold.
+ * size threshold. It comes from its own marker because both fences order a whole
+ * round's issues, so the kernel decides how often to pay for them.
  *
  * Returns the patched text (libxs_free by the caller) or NULL, in which case the
  * kernel must be refused rather than run: markers alone accumulate nothing.
@@ -66,6 +67,8 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
 {
   static const char marker[] = "// WGMMA_SLOT n";
   static const char marker_wait[] = "// WGMMA_WAIT";
+  static const char marker_fence[] = "// WGMMA_FENCE";
+  static const char marker_commit[] = "// WGMMA_COMMIT";
   char entry[128];
   const char* const etype = (0 != u8) ? "u8" : "s8";
   const unsigned int desc_hi = (unsigned int)((wbk / 16) * 8); /* m-block stride / 16 */
@@ -83,6 +86,16 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
     }
     scan = retargeted;
     while (NULL != (scan = strstr(scan, marker_wait))) {
+      ++nmarker;
+      ++scan;
+    }
+    scan = retargeted;
+    while (NULL != (scan = strstr(scan, marker_fence))) {
+      ++nmarker;
+      ++scan;
+    }
+    scan = retargeted;
+    while (NULL != (scan = strstr(scan, marker_commit))) {
       ++nmarker;
       ++scan;
     }
@@ -105,8 +118,10 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
       }
       while (EXIT_SUCCESS == ok) {
         const char* const w = strstr(src, marker_wait);
+        const char* const f = strstr(src, marker_fence);
+        const char* const c = strstr(src, marker_commit);
         const char* const m = strstr(src, marker);
-        const char* const first = (NULL == m || (NULL != w && w < m)) ? w : m;
+        const char* first = w;
         const char* dlist;
         const char* dend;
         const char* line;
@@ -114,6 +129,9 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
         size_t head;
         char pa[32], pb[32];
         int width = 0;
+        if (NULL == first || (NULL != f && f < first)) first = f;
+        if (NULL == first || (NULL != c && c < first)) first = c;
+        if (NULL == first || (NULL != m && m < first)) first = m;
         if (NULL == first) break;
         line = first;
         while (line > retargeted && '\n' != line[-1]) --line;
@@ -128,6 +146,20 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
           memcpy(out + off, src, head);
           off += head;
           off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\twgmma.wait_group.sync.aligned %i;\n", nwait);
+          src = eol + 1;
+        }
+        else if (first == c) { /* closes a group, which is what a wait can then leave in flight */
+          memcpy(out + off, src, head);
+          off += head;
+          off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\twgmma.commit_group.sync.aligned;\n");
+          src = eol + 1;
+        }
+        else if (first == f) { /* the fence pair, once per round rather than per issue */
+          memcpy(out + off, src, head);
+          off += head;
+          off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
+            "\tfence.proxy.async.shared::cta;\n"
+            "\twgmma.fence.sync.aligned;\n");
           src = eol + 1;
         }
         else {
@@ -160,8 +192,6 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
             off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
               "\tshr.u64 %%wgdb, %s, 4;\n\tand.b64 %%wgdb, %%wgdb, 16383;\n"
               "\tor.b64 %%wgdb, %%wgdb, 0x%x%08x;\n"
-              "\tfence.proxy.async.shared::cta;\n"
-              "\twgmma.fence.sync.aligned;\n"
               "\twgmma.mma_async.sync.aligned.m64n%ik32.s32.%s.%s {",
               pb, desc_hi, desc_lo, width, etype, etype);
             memcpy(out + off, dlist, ndig);
@@ -175,9 +205,7 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
               off += (size_t)(aend - alist);
               off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, ");
             }
-            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
-              "%%wgdb, 1;\n"
-              "\twgmma.commit_group.sync.aligned;\n");
+            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "%%wgdb, 1;\n");
             src = eol + 1;
           }
         }
@@ -1523,7 +1551,9 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         if (0 != ctx->wgmma) {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_WGMMA_KU=%d%s%s%s",
             ctx->crt_flags, tm, tn, rtm, rtn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
-            0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "", (3 == stages) ? " -DOZAKI_WGMMA_STAGES=3" : "");
+            0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "",
+            /* The depth travels with the buffer count: a round stays in flight only if a buffer covers it. */
+            (3 == stages) ? " -DOZAKI_WGMMA_STAGES=3 -DOZAKI_WGMMA_NWAIT=1" : "");
         }
         else {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d%s",

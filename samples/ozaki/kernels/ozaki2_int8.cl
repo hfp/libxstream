@@ -596,6 +596,55 @@
 # define WG_NSUB (64 / (XMX_M * RTM))
 
 /**
+ * The fence pair every issue needs: one orders the shared stores against the async
+ * proxy the instruction reads them through, the other orders the accumulators against
+ * the warp group. Both hold for a whole round, so they are issued once per round
+ * instead of once per instruction. OZAKI_WGMMA_HFENCE=0 restores the per-issue
+ * placement the port started with.
+ */
+# define OZAKI_WGMMA_FENCE() asm volatile("// WGMMA_FENCE" ::: "memory")
+# if !defined(OZAKI_WGMMA_HFENCE)
+#   define OZAKI_WGMMA_HFENCE 1
+# endif
+# if (OZAKI_WGMMA_HFENCE)
+#   define OZAKI_WGMMA_FENCE_ROUND() OZAKI_WGMMA_FENCE()
+#   define OZAKI_WGMMA_FENCE_ISSUE() ((void)0)
+# else
+#   define OZAKI_WGMMA_FENCE_ROUND() ((void)0)
+#   define OZAKI_WGMMA_FENCE_ISSUE() OZAKI_WGMMA_FENCE()
+# endif
+
+/**
+ * Commit granularity, which is what decides whether a wait can keep anything in
+ * flight: committing per instruction makes every issue its own group, so waiting for
+ * "one group" leaves one instruction running and the MMAs cannot overlap the next
+ * round's copies at all. One commit per round makes a round the unit, and then
+ * OZAKI_WGMMA_NWAIT=1 keeps the previous round's MMAs running while this round stages.
+ * Safe with two buffers: the buffer being written belongs to two rounds back, while
+ * the group still in flight is one round back. OZAKI_WGMMA_HCOMMIT=0 restores the
+ * per-issue commit, where only NWAIT=0 is meaningful.
+ */
+# define OZAKI_WGMMA_COMMIT_MARK() asm volatile("// WGMMA_COMMIT" ::: "memory")
+# if !defined(OZAKI_WGMMA_HCOMMIT)
+#   define OZAKI_WGMMA_HCOMMIT 1
+# endif
+# if !defined(OZAKI_WGMMA_NWAIT)
+#   define OZAKI_WGMMA_NWAIT 0
+# endif
+# if (OZAKI_WGMMA_HCOMMIT)
+#   define OZAKI_WGMMA_COMMIT_ROUND() OZAKI_WGMMA_COMMIT_MARK()
+#   define OZAKI_WGMMA_COMMIT_ISSUE() ((void)0)
+# else
+#   define OZAKI_WGMMA_COMMIT_ROUND() ((void)0)
+#   define OZAKI_WGMMA_COMMIT_ISSUE() OZAKI_WGMMA_COMMIT_MARK()
+/* Clamped for the same reason as the depth below: a per-issue group holds no round. */
+#   if (0 != OZAKI_WGMMA_NWAIT)
+#     undef OZAKI_WGMMA_NWAIT
+#     define OZAKI_WGMMA_NWAIT 0
+#   endif
+# endif
+
+/**
  * One issue per K-chunk; the marker names the shape so the host need not assume it.
  * Two forms, distinguished by the marker itself so the splice needs no flag: SS
  * takes both operands from shared memory through descriptors, RS takes A from
@@ -613,23 +662,35 @@
     "%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63"
 # if (16 == RTN)
 # define OZAKI_WGMMA_ISSUE(ACCS, PA, PB_) \
-    asm volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} pa=%64 pb=%65" \
-      : OZAKI_WGMMA_ACC64(ACCS) : "l"(PA), "l"(PB_))
+    do { \
+      OZAKI_WGMMA_FENCE_ISSUE(); \
+      asm volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} pa=%64 pb=%65" \
+        : OZAKI_WGMMA_ACC64(ACCS) : "l"(PA), "l"(PB_)); \
+    } while (0)
 # else
 # define OZAKI_WGMMA_ISSUE(ACCS, PA, PB_) \
-    asm volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} pa=%32 pb=%33" \
-      : OZAKI_WGMMA_ACC32(ACCS) : "l"(PA), "l"(PB_))
+    do { \
+      OZAKI_WGMMA_FENCE_ISSUE(); \
+      asm volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} pa=%32 pb=%33" \
+        : OZAKI_WGMMA_ACC32(ACCS) : "l"(PA), "l"(PB_)); \
+    } while (0)
 # endif
 
 # if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
 # if (16 == RTN) || (32 == RTN)
 # define OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_) \
-    asm volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} a={%64,%65,%66,%67} pb=%68" \
-      : OZAKI_WGMMA_ACC64(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_))
+    do { \
+      OZAKI_WGMMA_FENCE_ISSUE(); \
+      asm volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} a={%64,%65,%66,%67} pb=%68" \
+        : OZAKI_WGMMA_ACC64(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_)); \
+    } while (0)
 # else
 # define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
-    asm volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} a={%32,%33,%34,%35} pb=%36" \
-      : OZAKI_WGMMA_ACC32(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_))
+    do { \
+      OZAKI_WGMMA_FENCE_ISSUE(); \
+      asm volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} a={%32,%33,%34,%35} pb=%36" \
+        : OZAKI_WGMMA_ACC32(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_)); \
+    } while (0)
 # endif
 /**
  * Columns 128..255 begin halfway through the staged tile, which groups whole k-blocks
@@ -664,10 +725,29 @@
  * committed back to back and awaited once, so the MMA pipeline stays fed instead of
  * draining per instruction. Spliced like the issue marker (see ozaki_wgmma_splice).
  */
-# define OZAKI_WGMMA_MMAWAIT() asm volatile("// WGMMA_WAIT" ::: "memory")
+/* Two levels, so the count reaches the marker as a number and not as its own name. */
+# define OZAKI_WGMMA_STR_(X) #X
+# define OZAKI_WGMMA_STR(X) OZAKI_WGMMA_STR_(X)
+# define OZAKI_WGMMA_MMAWAIT_N(N) asm volatile("// WGMMA_WAIT " OZAKI_WGMMA_STR(N) ::: "memory")
+# define OZAKI_WGMMA_MMAWAIT() OZAKI_WGMMA_MMAWAIT_N(OZAKI_WGMMA_NWAIT)
 # define OZAKI_WGMMA_WAIT() asm volatile("cp.async.wait_group 0;" ::: "memory")
 # if !defined(OZAKI_WGMMA_STAGES)
 #   define OZAKI_WGMMA_STAGES 2
+# endif
+/**
+ * A group left in flight must not be reading the buffer this round is about to
+ * stage into: round b stages into (b+1) and its own MMAs read b, so the buffer
+ * overwritten two rounds later is the one a wait of depth STAGES-2 has drained.
+ * Two buffers therefore admit no depth at all, which is why keeping MMAs in flight
+ * is what the third buffer is for.
+ *
+ * Clamped rather than refused, because the depth arrives as one build flag while
+ * OZAKI_WGMMA_STAGES is chosen per tile specialization: a flag that suits the deep
+ * specialization must not break the programs compiled shallow.
+ */
+# if (OZAKI_WGMMA_NWAIT) > ((OZAKI_WGMMA_STAGES) - 2)
+#   undef OZAKI_WGMMA_NWAIT
+#   define OZAKI_WGMMA_NWAIT ((OZAKI_WGMMA_STAGES) - 2)
 # endif
 
 # if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
@@ -817,10 +897,12 @@
           OZAKI_WGMMA_BSTAGE(bsw_, N_PAD_, K_PAD_, NB, next_, (SB) + (1 - buf_) * nbsz_, WT); \
           OZAKI_WGMMA_COMMIT(); \
         } \
+        OZAKI_WGMMA_FENCE_ROUND(); \
         UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
           OZAKI_WGMMA_ISSUE(ACCS, (SA) + buf_ * nasz_ + (WG) * nawg_ + cw_ * 16, \
             (SB) + buf_ * nbsz_ + cw_ * 16); \
         } \
+        OZAKI_WGMMA_COMMIT_ROUND(); \
         OZAKI_WGMMA_MMAWAIT(); \
         buf_ = 1 - buf_; \
       } \
@@ -870,12 +952,12 @@
 # if defined(OZAKI_WGMMA_DEFER) && (OZAKI_WGMMA_DEFER)
 #   define OZAKI_WGMMA_WAIT_PRE() OZAKI_WGMMA_MMAWAIT()
 #   define OZAKI_WGMMA_WAIT_POST()
-#   define OZAKI_WGMMA_DRAIN() OZAKI_WGMMA_MMAWAIT()
 # else
 #   define OZAKI_WGMMA_WAIT_PRE()
 #   define OZAKI_WGMMA_WAIT_POST() OZAKI_WGMMA_MMAWAIT()
-#   define OZAKI_WGMMA_DRAIN()
 # endif
+/* The epilogue reads the accumulators, so the tail drains whatever NWAIT kept alive. */
+# define OZAKI_WGMMA_DRAIN() OZAKI_WGMMA_MMAWAIT_N(0)
 # define OZAKI_WGMMA_STAGE(BSW, N_PAD_, K_PAD_, NB, NEXT, SB, WT, BUF, NBSZ) \
     do { \
       if ((NEXT) < (K_PAD_)) { \
@@ -896,10 +978,12 @@
       OZAKI_WGMMA_WAIT_PRE(); \
       barrier(CLK_LOCAL_MEM_FENCE); \
       OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD_, K_PAD_, NB, next_, SB, WT, BUF, NBSZ); \
+      OZAKI_WGMMA_FENCE_ROUND(); \
       UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
         OZAKI_WGMMA_ISSUE_RS(ACCS, AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3], \
           (SB) + (BUF) * (NBSZ) + cw_ * 16); \
       } \
+      OZAKI_WGMMA_COMMIT_ROUND(); \
       OZAKI_WGMMA_WAIT_POST(); \
     } while (0)
 # define OZAKI_CRT_KLOOP_WRS(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, MI, NB, PIDX, ACCS, SB, WT, LANE) \

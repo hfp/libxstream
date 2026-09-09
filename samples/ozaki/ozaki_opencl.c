@@ -1195,7 +1195,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       { const char *const env_defer = getenv("OZAKI_WGMMA_DEFER");
         const char *const env_stages = getenv("OZAKI_WGMMA_STAGES");
         ctx->wgmma_defer = (NULL != env_defer) ? (0 != atoi(env_defer) ? 1 : 0) : -1;
-        ctx->wgmma_stages = (NULL != env_stages && 3 == atoi(env_stages)) ? 3 : 2;
+        /**
+         * Three buffers by default: with the fence and the group commit paid once per
+         * round rather than per issue, the third buffer is what lets a wait keep the
+         * previous round's MMAs running (see OZAKI_WGMMA_NWAIT), which measured a gain
+         * at every shape and a loss at none. OZAKI_WGMMA_STAGES=2 opts out.
+         */
+        ctx->wgmma_stages = (NULL != env_stages && 2 == atoi(env_stages)) ? 2 : 3;
       }
       /**
        * Work-group rasterization width (0 = the launch order). The resident

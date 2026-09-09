@@ -819,6 +819,7 @@ inline void ieee_decompose(real_t val, int* sign, short* exp, uint_repr_t* mant)
   }
 }
 
+
 /**
  * Extract a 7-bit signed digit from an aligned mantissa for slice index S.
  * The mantissa ALIGNED is already right-shifted by (max_exp - elem_exp).
