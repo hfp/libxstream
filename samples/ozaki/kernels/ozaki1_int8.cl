@@ -84,9 +84,8 @@
 # define SG 16
 #endif
 
-/* DPAS tile dimensions are in ozaki_common.cl (XMX_M=8, XMX_N=16) */
-
-/* Sub-tiles per work-group dimension, accounting for register tiling */
+/* DPAS tile dimensions are in ozaki_common.cl (XMX_M=8, XMX_N=16); the
+   sub-tiles per work-group dimension account for register tiling */
 #define NTM (BM / (XMX_M * RTM))
 #define NTN (BN / (XMX_N * RTN))
 
@@ -155,12 +154,10 @@
 
 
 /**
- * Composable macros (DBM-style factoring).
- * Each is a do{...}while(0) block for use in kernel functions.
- */
-
-/**
- * Extract NSLICES int8 digits from an aligned mantissa into DST buffer.
+ * Composable macros (DBM-style factoring). Each is a do{...}while(0) block for
+ * use in kernel functions.
+ *
+ * This one extracts NSLICES int8 digits from an aligned mantissa into DST:
  * DST[s * SS + ROW * RS + COL] = digit(s).
  */
 #define OZAKI_EXTRACT_SLICES(ALIGNED, SIGN, DST, SS, RS, ROW, COL) \
@@ -206,18 +203,18 @@
       OZAKI_DPAS_ONE(a_sc_[3], b_sc_[1], C31); \
     } while (0)
 
-# define OZAKI_KLOOP_SC(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, C00, C01, C10, C11, C20, C21, C30, C31) \
+# define OZAKI_KLOOP_SC(AS, BS, K_PAD, N_PAD, M, MI, NJ, C00, C01, C10, C11, C20, C21, C30, C31) \
     do { \
       int k_l_; \
-      for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
+      for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD); k_l_ += KU * BK) { \
         int ku_l_; \
         UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) \
         { \
-          OZAKI_SC_DPAS(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_ + ku_l_ * BK, M_, C00, C01, C10, C11, C20, C21, C30, C31); \
+          OZAKI_SC_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, k_l_ + ku_l_ * BK, M, C00, C01, C10, C11, C20, C21, C30, C31); \
         } \
       } \
-      for (; k_l_ < (K_PAD_); k_l_ += BK) { \
-        OZAKI_SC_DPAS(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_, M_, C00, C01, C10, C11, C20, C21, C30, C31); \
+      for (; k_l_ < (K_PAD); k_l_ += BK) { \
+        OZAKI_SC_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, k_l_, M, C00, C01, C10, C11, C20, C21, C30, C31); \
       } \
     } while (0)
 #endif /* OZAKI_SCALAR_ACC */
@@ -227,18 +224,18 @@
  * Mirrors the asm K-loop structure but in pure OpenCL C builtins.
  */
 #if defined(OZAKI_USE_OCL_KLOOP)
-# define OZAKI_KLOOP_OCL(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
+# define OZAKI_KLOOP_OCL(AS, BS, K_PAD, N_PAD, M, MI, NJ, ACC) \
     do { \
       int k_l_; \
-      for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
+      for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD); k_l_ += KU * BK) { \
         int ku_l_; \
         UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) \
         { \
-          OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_ + ku_l_ * BK, M_, ACC); \
+          OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, k_l_ + ku_l_ * BK, M, ACC); \
         } \
       } \
-      for (; k_l_ < (K_PAD_); k_l_ += BK) { \
-        OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_, M_, ACC); \
+      for (; k_l_ < (K_PAD); k_l_ += BK) { \
+        OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, k_l_, M, ACC); \
       } \
     } while (0)
 #endif
@@ -254,18 +251,18 @@
  * strides, SA0/SB0 the first slice of each block.  ACC holds NA*NB
  * accumulator groups of RTM*RTN each, indexed (ia * NB + ib).
  */
-# define OZAKI_KSTEP_BLOCKED(AS_BASE, BS_BASE, A_STRIDE, B_STRIDE, SA0, SB0, K_PAD_, N_PAD_, M_, MI, NJ, KOFF, ACC) \
+# define OZAKI_KSTEP_BLOCKED(AS_BASE, BS_BASE, A_STRIDE, B_STRIDE, SA0, SB0, K_PAD, N_PAD, M, MI, NJ, KOFF, ACC) \
     do { \
       ushort8 a_bk_[OZAKI_SB][RTM]; \
       uint8 b_bk_[OZAKI_SB][RTN]; \
       int ia_bk_, ib_bk_; \
       UNROLL_FORCE(OZAKI_SB) for (ia_bk_ = 0; ia_bk_ < OZAKI_SB; ++ia_bk_) \
       { \
-        OZAKI_LOAD_A_TILED((AS_BASE) + (long)((SA0) + ia_bk_) * (A_STRIDE), K_PAD_, M_, MI, KOFF, a_bk_[ia_bk_]); \
+        OZAKI_LOAD_A_TILED((AS_BASE) + (long)((SA0) + ia_bk_) * (A_STRIDE), K_PAD, M, MI, KOFF, a_bk_[ia_bk_]); \
       } \
       UNROLL_FORCE(OZAKI_SB) for (ib_bk_ = 0; ib_bk_ < OZAKI_SB; ++ib_bk_) \
       { \
-        OZAKI_LOAD_B_TILED((BS_BASE) + (long)((SB0) + ib_bk_) * (B_STRIDE), N_PAD_, K_PAD_, NJ, KOFF, b_bk_[ib_bk_]); \
+        OZAKI_LOAD_B_TILED((BS_BASE) + (long)((SB0) + ib_bk_) * (B_STRIDE), N_PAD, K_PAD, NJ, KOFF, b_bk_[ib_bk_]); \
       } \
       UNROLL_FORCE(OZAKI_SB) for (ia_bk_ = 0; ia_bk_ < OZAKI_SB; ++ia_bk_) \
       { \
@@ -276,12 +273,12 @@
       } \
     } while (0)
 
-# define OZAKI_KLOOP_BLOCKED(AS_BASE, BS_BASE, A_STRIDE, B_STRIDE, SA0, SB0, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
+# define OZAKI_KLOOP_BLOCKED(AS_BASE, BS_BASE, A_STRIDE, B_STRIDE, SA0, SB0, K_PAD, N_PAD, M, MI, NJ, ACC) \
     do { \
       int k_b_; \
-      for (k_b_ = 0; k_b_ < (K_PAD_); k_b_ += BK) { \
+      for (k_b_ = 0; k_b_ < (K_PAD); k_b_ += BK) { \
         OZAKI_KSTEP_BLOCKED(AS_BASE, BS_BASE, A_STRIDE, B_STRIDE, SA0, SB0, \
-          K_PAD_, N_PAD_, M_, MI, NJ, k_b_, ACC); \
+          K_PAD, N_PAD, M, MI, NJ, k_b_, ACC); \
       } \
     } while (0)
 #endif /* OZAKI_SLICE_BLOCKED */
@@ -299,19 +296,19 @@
  * ACC: int8[RTM*RTN] accumulator array (must be pre-zeroed by caller).
  * OZAKI_PREFETCH: opt-in prefetch (default off - hurts PVC perf).
  */
-#define OZAKI_KLOOP(AS, BS, K_PAD_, N_PAD_, M_, MI, NJ, ACC) \
+#define OZAKI_KLOOP(AS, BS, K_PAD, N_PAD, M, MI, NJ, ACC) \
   do { \
     int k_l_; \
-    for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD_); k_l_ += KU * BK) { \
+    for (k_l_ = 0; k_l_ + (KU - 1) * BK < (K_PAD); k_l_ += KU * BK) { \
       int ku_l_; \
-      OZAKI_KLOOP_PREFETCH(AS, BS, K_PAD_, N_PAD_, M_, k_l_ + KU * BK, MI, NJ); \
+      OZAKI_KLOOP_PREFETCH(AS, BS, K_PAD, N_PAD, M, k_l_ + KU * BK, MI, NJ); \
       UNROLL_FORCE(KU) for (ku_l_ = 0; ku_l_ < KU; ++ku_l_) \
       { \
-        OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_ + ku_l_ * BK, M_, ACC); \
+        OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, k_l_ + ku_l_ * BK, M, ACC); \
       } \
     } \
-    for (; k_l_ < (K_PAD_); k_l_ += BK) { \
-      OZAKI_DPAS_TILED(AS, BS, K_PAD_, N_PAD_, MI, NJ, k_l_, M_, ACC); \
+    for (; k_l_ < (K_PAD); k_l_ += BK) { \
+      OZAKI_DPAS_TILED(AS, BS, K_PAD, N_PAD, MI, NJ, k_l_, M, ACC); \
     } \
   } while (0)
 
@@ -641,23 +638,19 @@ kernel void gemm_fused(
   real_t eb_cache[RTN * OZAKI_FRAG_NCOL];
   {
     int rm;
-    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
-    {
-      int m_;
-      UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_)
-      {
-        const int r_ = mi_base + rm * XMX_M + m_;
-        ea_cache[rm * XMX_M + m_] = OZAKI_IN_BOUNDS(r_, M, 0, 1) ? expa[r_] : ZERO;
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+      int m;
+      UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+        const int row = mi_base + rm * XMX_M + m;
+        ea_cache[rm * XMX_M + m] = OZAKI_IN_BOUNDS(row, M, 0, 1) ? expa[row] : ZERO;
       }
     }
   }
   {
     int rn;
-    UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
-    {
+    UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
       int ci;
-      UNROLL_FORCE(OZAKI_FRAG_NCOL) for (ci = 0; ci < OZAKI_FRAG_NCOL; ++ci)
-      {
+      UNROLL_FORCE(OZAKI_FRAG_NCOL) for (ci = 0; ci < OZAKI_FRAG_NCOL; ++ci) {
         const int col = nj_base + rn * XMX_N + OZAKI_FRAG_COL(ci, sg_lid);
         eb_cache[rn * OZAKI_FRAG_NCOL + ci] = OZAKI_IN_BOUNDS(0, 1, col, N) ? expb[col] : ZERO;
       }
@@ -676,17 +669,14 @@ kernel void gemm_fused(
     else {
       int rm, rn;
       for (ci = 0; ci < RTM * RTN * XMX_M; ++ci) c_fp[ci] = ZERO;
-      UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
-      {
-        UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
-        {
+      UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+        UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
           const int col = nj_base + rn * XMX_N + sg_lid;
-          int m_;
-          UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_)
-          {
-            const int r_ = mi_base + rm * XMX_M + m_;
-            if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
-              c_fp[(rm * RTN + rn) * XMX_M + m_] = c[(long)col * ldc + r_];
+          int m;
+          UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+            const int row = mi_base + rm * XMX_M + m;
+            if (OZAKI_IN_BOUNDS(row, M, col, N)) {
+              c_fp[(rm * RTN + rn) * XMX_M + m] = c[(long)col * ldc + row];
             }
           }
         }
@@ -720,12 +710,10 @@ kernel void gemm_fused(
        * past the cutoff are simply not flushed.  Their products are dead work
        * on the tail blocks only, which is why OZAKI_SB stays small.
        */
-      UNROLL_FORCE(OZAKI_SB) for (ia = 0; ia < OZAKI_SB; ++ia)
-      {
+      UNROLL_FORCE(OZAKI_SB) for (ia = 0; ia < OZAKI_SB; ++ia) {
         const int high_a = MANT_BITS - (7 * ((int)sa + ia));
         const int low_a = MAX(0, high_a - 6);
-        UNROLL_FORCE(OZAKI_SB) for (ib = 0; ib < OZAKI_SB; ++ib)
-        {
+        UNROLL_FORCE(OZAKI_SB) for (ib = 0; ib < OZAKI_SB; ++ib) {
           const int high_b = MANT_BITS - (7 * ((int)sb0 + ib));
           const int low_b = MAX(0, high_b - 6);
           if ((int)sa + ia + (int)sb0 + ib <= OZAKI_CUTOFF) {
@@ -760,8 +748,7 @@ kernel void gemm_fused(
           OZAKI_ACC_T c_acc[RTM * RTN];
           {
             int ri;
-            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-            {
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
               c_acc[ri] = OZAKI_ACC_ZERO;
             }
           }
@@ -770,16 +757,14 @@ kernel void gemm_fused(
             OZAKI_ACC_T c_mir[RTM * RTN];
             {
               int ri;
-              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-              {
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
                 c_mir[ri] = OZAKI_ACC_ZERO;
               }
             }
             OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
             {
               int ri;
-              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-              {
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
                 c_acc[ri] = c_acc[ri] + c_mir[ri];
               }
             }
@@ -826,8 +811,7 @@ kernel void gemm_fused(
           int8 c_acc[RTM * RTN];
           {
             int ri;
-            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-            {
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
               c_acc[ri] = (int8)(0);
             }
           }
@@ -836,16 +820,14 @@ kernel void gemm_fused(
             int8 c_mir[RTM * RTN];
             {
               int ri;
-              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-              {
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
                 c_mir[ri] = (int8)(0);
               }
             }
             OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
             {
               int ri;
-              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-              {
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
                 c_acc[ri] = c_acc[ri] + c_mir[ri];
               }
             }
@@ -857,8 +839,7 @@ kernel void gemm_fused(
           int8 c_acc[RTM * RTN];
           {
             int ri;
-            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-            {
+            UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
               c_acc[ri] = (int8)(0);
             }
           }
@@ -867,16 +848,14 @@ kernel void gemm_fused(
             int8 c_mir[RTM * RTN];
             {
               int ri;
-              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-              {
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
                 c_mir[ri] = (int8)(0);
               }
             }
             OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
             {
               int ri;
-              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri)
-              {
+              UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
                 c_acc[ri] = c_acc[ri] + c_mir[ri];
               }
             }
@@ -884,10 +863,8 @@ kernel void gemm_fused(
           /* Scale and accumulate into register C (cached exponents) */
           {
             int rm, rn;
-            UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
-            {
-              UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
-              {
+            UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+              UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
                 const int idx = rm * RTN + rn;
                 const int col = nj_base + rn * XMX_N + sg_lid;
                 OZAKI_GEMM_ACCUM_CACHED(
@@ -905,17 +882,14 @@ kernel void gemm_fused(
   /* Final write: register C -> global C */
   {
     int rm, rn;
-    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
-    {
-      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
-      {
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
         const int col = nj_base + rn * XMX_N + sg_lid;
-        int m_;
-        UNROLL_FORCE(XMX_M) for (m_ = 0; m_ < XMX_M; ++m_)
-        {
-          const int r_ = mi_base + rm * XMX_M + m_;
-          if (OZAKI_IN_BOUNDS(r_, M, col, N)) {
-            c[(long)col * ldc + r_] = c_fp[(rm * RTN + rn) * XMX_M + m_];
+        int m;
+        UNROLL_FORCE(XMX_M) for (m = 0; m < XMX_M; ++m) {
+          const int row = mi_base + rm * XMX_M + m;
+          if (OZAKI_IN_BOUNDS(row, M, col, N)) {
+            c[(long)col * ldc + row] = c_fp[(rm * RTN + rn) * XMX_M + m];
           }
         }
       }

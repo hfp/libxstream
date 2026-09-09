@@ -111,9 +111,9 @@
 # endif
 #endif
 
-/* DPAS tile dimensions and the accumulator fragment layout are in ozaki_common.cl */
-
-/* Sub-tiles per work-group dimension, accounting for register tiling */
+/* DPAS tile dimensions and the accumulator fragment layout are in
+   ozaki_common.cl; the sub-tiles per work-group dimension account for
+   register tiling */
 #define NTM (BM / (XMX_M * RTM))
 #define NTN (BN / (XMX_N * RTN))
 
@@ -436,21 +436,21 @@
  * blocked residue layout consistent between them.
  */
 #if defined(OZAKI_SWIZZLE) && (0 < OZAKI_SWIZZLE)
-# define OZAKI_TILES_M(M_) (((M_) + BM - 1) / BM)
-# define OZAKI_TILES_N(N_) (((N_) + BN - 1) / BN)
-# define OZAKI_SWIZZLE_IDX(M_, N_, IB, JB) \
+# define OZAKI_TILES_M(M) (((M) + BM - 1) / BM)
+# define OZAKI_TILES_N(N) (((N) + BN - 1) / BN)
+# define OZAKI_SWIZZLE_IDX(M, N, IB, JB) \
     do { \
-      const int tm_sw_ = OZAKI_TILES_M(M_); \
+      const int tm_sw_ = OZAKI_TILES_M(M); \
       const int lin_sw_ = (int)get_group_id(0) + tm_sw_ * (int)get_group_id(1); \
-      const int gid_sw_ = lin_sw_ / (OZAKI_SWIZZLE * OZAKI_TILES_N(N_)); \
-      const int rem_sw_ = lin_sw_ % (OZAKI_SWIZZLE * OZAKI_TILES_N(N_)); \
+      const int gid_sw_ = lin_sw_ / (OZAKI_SWIZZLE * OZAKI_TILES_N(N)); \
+      const int rem_sw_ = lin_sw_ % (OZAKI_SWIZZLE * OZAKI_TILES_N(N)); \
       const int lo_sw_ = gid_sw_ * (OZAKI_SWIZZLE); \
       const int wid_sw_ = ((tm_sw_ - lo_sw_) < (OZAKI_SWIZZLE)) ? (tm_sw_ - lo_sw_) : (OZAKI_SWIZZLE); \
       (IB) = lo_sw_ + rem_sw_ % wid_sw_; \
       (JB) = rem_sw_ / wid_sw_; \
     } while (0)
 #else
-# define OZAKI_SWIZZLE_IDX(M_, N_, IB, JB) \
+# define OZAKI_SWIZZLE_IDX(M, N, IB, JB) \
     do { \
       (IB) = (int)get_group_id(0); \
       (JB) = (int)get_group_id(1); \
@@ -479,10 +479,10 @@
  */
 #define OZAKI_RES_UPDIV(X, Y) (((X) + (Y) - 1) / (Y))
 #define OZAKI_RES_TILE (BM * BN)
-#define OZAKI_RES_PLANE(M_, N_) \
-  ((long)OZAKI_RES_UPDIV(M_, BM) * OZAKI_RES_UPDIV(N_, BN) * OZAKI_RES_TILE)
-#define OZAKI_RES_BASE(IB, JB, N_, SGI, LANE) \
-  ((long)((IB) * OZAKI_RES_UPDIV(N_, BN) + (JB)) * OZAKI_RES_TILE \
+#define OZAKI_RES_PLANE(M, N) \
+  ((long)OZAKI_RES_UPDIV(M, BM) * OZAKI_RES_UPDIV(N, BN) * OZAKI_RES_TILE)
+#define OZAKI_RES_BASE(IB, JB, N, SGI, LANE) \
+  ((long)((IB) * OZAKI_RES_UPDIV(N, BN) + (JB)) * OZAKI_RES_TILE \
     + (long)(SGI) * (RTM * RTN) * XMX_FRAG * SG + (LANE))
 #define OZAKI_RES_OFF(RM, RN, MS) ((long)(((RM) * RTN + (RN)) * XMX_FRAG + (MS)) * SG)
 
@@ -514,7 +514,7 @@
  * PIDX_BASE: first prime in current batch.
  * ACC: OZAKI_ACC_T array of PB*RTM*RTN accumulators.
  */
-#define OZAKI_CRT_KSTEP(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, M_, MI, NJ, KOFF, PIDX_BASE, ACC) \
+#define OZAKI_CRT_KSTEP(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD, N_PAD, M, MI, NJ, KOFF, PIDX_BASE, ACC) \
   do { \
     SINT bi_k_; \
     UNROLL_FORCE(PB) for (bi_k_ = 0; bi_k_ < PB; ++bi_k_) \
@@ -522,8 +522,8 @@
       if ((PIDX_BASE) + bi_k_ < NPRIMES) { \
         CONSTANT const char* as_k_ = (AS_BASE) + (long)((PIDX_BASE) + bi_k_) * (A_PLANE); \
         CONSTANT const char* bs_k_ = (BS_BASE) + (long)((PIDX_BASE) + bi_k_) * (B_PLANE); \
-        OZAKI_PREFETCH_TILED(as_k_, bs_k_, K_PAD_, N_PAD_, M_, (KOFF) + BK, MI, NJ); \
-        OZAKI_DPAS_TILED(as_k_, bs_k_, K_PAD_, N_PAD_, MI, NJ, KOFF, M_, (ACC) + bi_k_ * RTM * RTN); \
+        OZAKI_PREFETCH_TILED(as_k_, bs_k_, K_PAD, N_PAD, M, (KOFF) + BK, MI, NJ); \
+        OZAKI_DPAS_TILED(as_k_, bs_k_, K_PAD, N_PAD, MI, NJ, KOFF, M, (ACC) + bi_k_ * RTM * RTN); \
       } \
     } \
   } while (0)
@@ -657,19 +657,19 @@
 # define OZAKI_WGMMA_D64 OZAKI_WGMMA_D32 ",%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43," \
     "%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63"
 # if (16 == RTN) || (32 == RTN)
-# define OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_) \
+# define OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, BPTR) \
     do { \
       OZAKI_WGMMA_FENCE_ISSUE(); \
       __asm__ volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} a={%64,%65,%66,%67} pb=%68" \
-        : OZAKI_WGMMA_ACC64(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_)); \
+        : OZAKI_WGMMA_ACC64(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(BPTR)); \
       OZAKI_WGMMA_COMMIT_ISSUE(); \
     } while (0)
 # else
-# define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
+# define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, BPTR) \
     do { \
       OZAKI_WGMMA_FENCE_ISSUE(); \
       __asm__ volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} a={%32,%33,%34,%35} pb=%36" \
-        : OZAKI_WGMMA_ACC32(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_)); \
+        : OZAKI_WGMMA_ACC32(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(BPTR)); \
       OZAKI_WGMMA_COMMIT_ISSUE(); \
     } while (0)
 # endif
@@ -679,14 +679,14 @@
  */
 # if (32 == RTN)
 # define OZAKI_WGMMA_BHALF ((BN) / 2)
-# define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
+# define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, BPTR) \
     do { \
-      OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_); \
-      OZAKI_WGMMA_ISSUE_RS_N128((ACCS) + 64, A0, A1, A2, A3, (PB_) + OZAKI_WGMMA_BHALF); \
+      OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, BPTR); \
+      OZAKI_WGMMA_ISSUE_RS_N128((ACCS) + 64, A0, A1, A2, A3, (BPTR) + OZAKI_WGMMA_BHALF); \
     } while (0)
 # elif (16 == RTN)
-# define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
-    OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_)
+# define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, BPTR) \
+    OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, BPTR)
 # endif
 
 /**
@@ -704,8 +704,10 @@
  * The MMA group wait, hoisted out of the chunk loop: the issues of one round are
  * committed back to back and awaited once, so the MMA pipeline stays fed instead of
  * draining per instruction. Spliced like the issue marker (see ozaki_wgmma_splice).
+ *
+ * Two levels of stringification, so the count reaches the marker as a number
+ * and not as its own name.
  */
-/* Two levels, so the count reaches the marker as a number and not as its own name. */
 # define OZAKI_WGMMA_STR_(X) #X
 # define OZAKI_WGMMA_STR(X) OZAKI_WGMMA_STR_(X)
 # define OZAKI_WGMMA_MMAWAIT_N(N) __asm__ volatile("// WGMMA_WAIT " OZAKI_WGMMA_STR(N) ::: "memory")
@@ -754,20 +756,20 @@
  */
 # if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
 /* One 512-byte run per warp, the lane's four registers contiguous; see OZAKI_IDX_AS. */
-# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD_, MI, KOFF, LANE, A0, A1, A2, A3) \
+# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
     do { \
       const uint4 av_ = *(CONSTANT const uint4*)((AS_K) \
-        + (((long)((MI) >> 4) * ((K_PAD_) >> 5) + ((KOFF) >> 5)) << 9) + ((LANE) << 4)); \
+        + (((long)((MI) >> 4) * ((K_PAD) >> 5) + ((KOFF) >> 5)) << 9) + ((LANE) << 4)); \
       (A0) = av_.x; (A1) = av_.y; (A2) = av_.z; (A3) = av_.w; \
     } while (0)
 # else
-# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD_, MI, KOFF, LANE, A0, A1, A2, A3) \
+# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
     do { \
-      CONSTANT const char* ap_ = (AS_K) + (long)((MI) + ((LANE) >> 2)) * (K_PAD_) + (KOFF) + ((LANE) & 3) * 4; \
+      CONSTANT const char* ap_ = (AS_K) + (long)((MI) + ((LANE) >> 2)) * (K_PAD) + (KOFF) + ((LANE) & 3) * 4; \
       (A0) = *(CONSTANT const uint*)ap_; \
-      (A1) = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD_)); \
+      (A1) = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD)); \
       (A2) = *(CONSTANT const uint*)(ap_ + 16); \
-      (A3) = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD_) + 16); \
+      (A3) = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD) + 16); \
     } while (0)
 # endif
 
@@ -789,24 +791,24 @@
  * The descriptor follows (OZAKI_WGMMA_SBO/LBO in ozaki_gemm.c) and a run that big is
  * what a single bulk copy would need.
  */
-# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) \
+# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD, K_PAD, NB, KOFF, SB, WT) \
     do { \
       int ib_; \
       for (ib_ = (WT); ib_ < (BN * WBK) / 16; ib_ += WGS) { \
         OZAKI_WGMMA_COPY16((SB) + ib_, \
-          (BS_K) + ((long)(((KOFF) >> 4) + ib_ / BN) * (N_PAD_) + (NB) + ib_ % BN) * 16); \
+          (BS_K) + ((long)(((KOFF) >> 4) + ib_ / BN) * (N_PAD) + (NB) + ib_ % BN) * 16); \
       } \
     } while (0)
 # elif defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
 /* B transposed: a column's K is contiguous, so B stages exactly like A. */
-# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) \
+# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD, K_PAD, NB, KOFF, SB, WT) \
     do { \
       int ib_; \
       for (ib_ = (WT); ib_ < (BN * WBK) / 16; ib_ += WGS) { \
         const int c_ = ib_ / (WBK / 16); \
         const int j_ = ib_ % (WBK / 16); \
         OZAKI_WGMMA_COPY16((SB) + (((c_ >> 3) * (WBK / 16) + j_) * 8) + (c_ & 7), \
-          (BS_K) + (long)((NB) + c_) * (K_PAD_) + (KOFF) + j_ * 16); \
+          (BS_K) + (long)((NB) + c_) * (K_PAD) + (KOFF) + j_ * 16); \
       } \
     } while (0)
 # else
@@ -816,7 +818,7 @@
  * times the instructions of the transposed layout, which is the trade OZAKI_BKMAJOR
  * exists to make.
  */
-# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) \
+# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD, K_PAD, NB, KOFF, SB, WT) \
     do { \
       int ib_; \
       for (ib_ = (WT); ib_ < (BN * WBK) / 4; ib_ += WGS) { \
@@ -824,7 +826,7 @@
         const int q_ = ib_ / BN; \
         OZAKI_WGMMA_COPY4(((local uint*)(SB)) \
             + ((((c_ >> 3) * (WBK / 16)) + (q_ >> 2)) * 8 + (c_ & 7)) * 4 + (q_ & 3), \
-          ((CONSTANT const uint*)(BS_K)) + (long)(((KOFF) >> 2) + q_) * (N_PAD_) + (NB) + c_); \
+          ((CONSTANT const uint*)(BS_K)) + (long)(((KOFF) >> 2) + q_) * (N_PAD) + (NB) + c_); \
       } \
     } while (0)
 # endif
@@ -847,11 +849,11 @@
  */
 # if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 1))
 #   undef OZAKI_WGMMA_BSTAGE
-#   define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) ((void)(BS_K))
+#   define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD, K_PAD, NB, KOFF, SB, WT) ((void)(BS_K))
 # endif
 # if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 2))
 #   undef OZAKI_WGMMA_ALOAD
-#   define OZAKI_WGMMA_ALOAD(AS_K, K_PAD_, MI, KOFF, LANE, A0, A1, A2, A3) \
+#   define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
     do { \
       const uint4 av_ = *(CONSTANT const uint4*)((AS_K) + ((((KOFF) >> 5) & 3) << 9) + ((LANE) << 4)); \
       (A0) = av_.x; (A1) = av_.y; (A2) = av_.z; (A3) = av_.w; \
@@ -868,8 +870,8 @@
 # if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 16))
 #   undef OZAKI_WGMMA_ISSUE_RS
 /* The fold is what keeps the A loads and the accumulators from dying with the MMA. */
-#   define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
-    ((void)(PB_), (ACCS)[0] ^= (int)((A0) ^ (A1) ^ (A2) ^ (A3)))
+#   define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, BPTR) \
+    ((void)(BPTR), (ACCS)[0] ^= (int)((A0) ^ (A1) ^ (A2) ^ (A3)))
 # endif
 
 /**
@@ -898,18 +900,18 @@
 #     error OZAKI_WGMMA_STAGES=3 implies the deferred wait (the host emits both).
 #   endif
 #   define OZAKI_WGMMA_AF3 , af2_[(WBK / 32) * 4]
-#   define OZAKI_CRT_ROUND3_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, KW, NBSZ) \
+#   define OZAKI_CRT_ROUND3_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, KW, NBSZ) \
       do { \
-        if ((KW) + 2 * WBK < (K_PAD_)) { \
-          OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, (KW) + 2 * WBK, af2_, 2, NBSZ); \
+        if ((KW) + 2 * WBK < (K_PAD)) { \
+          OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, (KW) + 2 * WBK, af2_, 2, NBSZ); \
         } \
       } while (0)
 #   define OZAKI_WGMMA_STAGE_EARLY OZAKI_WGMMA_STAGE
-#   define OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD_, K_PAD_, NB, NEXT, SB, WT, BUF, NBSZ) ((void)0)
+#   define OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, BUF, NBSZ) ((void)0)
 # else
 #   define OZAKI_WGMMA_AF3
-#   define OZAKI_CRT_ROUND3_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, KW, NBSZ) ((void)0)
-#   define OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD_, K_PAD_, NB, NEXT, SB, WT, BUF, NBSZ) ((void)0)
+#   define OZAKI_CRT_ROUND3_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, KW, NBSZ) ((void)0)
+#   define OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, BUF, NBSZ) ((void)0)
 #   define OZAKI_WGMMA_STAGE_LATE OZAKI_WGMMA_STAGE
 # endif
 # if defined(OZAKI_WGMMA_DEFER) && (OZAKI_WGMMA_DEFER)
@@ -921,26 +923,26 @@
 # endif
 /* The epilogue reads the accumulators, so the tail drains whatever NWAIT kept alive. */
 # define OZAKI_WGMMA_DRAIN() OZAKI_WGMMA_MMAWAIT_N(0)
-# define OZAKI_WGMMA_STAGE(BSW, N_PAD_, K_PAD_, NB, NEXT, SB, WT, BUF, NBSZ) \
+# define OZAKI_WGMMA_STAGE(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, BUF, NBSZ) \
     do { \
-      if ((NEXT) < (K_PAD_)) { \
-        OZAKI_WGMMA_BSTAGE(BSW, N_PAD_, K_PAD_, NB, NEXT, (SB) + (((BUF) + 1) % OZAKI_WGMMA_STAGES) * (NBSZ), WT); \
+      if ((NEXT) < (K_PAD)) { \
+        OZAKI_WGMMA_BSTAGE(BSW, N_PAD, K_PAD, NB, NEXT, (SB) + (((BUF) + 1) % OZAKI_WGMMA_STAGES) * (NBSZ), WT); \
         OZAKI_WGMMA_COMMIT(); \
       } \
     } while (0)
-# define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, KW, AF, BUF, NBSZ) \
+# define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, KW, AF, BUF, NBSZ) \
     do { \
       const int next_ = (KW) + WBK; \
       int cw_; \
       UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
-        OZAKI_WGMMA_ALOAD(ASW, K_PAD_, MI, (KW) + cw_ * 32, LANE, \
+        OZAKI_WGMMA_ALOAD(ASW, K_PAD, MI, (KW) + cw_ * 32, LANE, \
           AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3]); \
       } \
       OZAKI_WGMMA_WAIT(); \
-      OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD_, K_PAD_, NB, next_, SB, WT, BUF, NBSZ); \
+      OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD, K_PAD, NB, next_, SB, WT, BUF, NBSZ); \
       OZAKI_WGMMA_WAIT_PRE(); \
       OZAKI_WGMMA_BARRIER(); \
-      OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD_, K_PAD_, NB, next_, SB, WT, BUF, NBSZ); \
+      OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD, K_PAD, NB, next_, SB, WT, BUF, NBSZ); \
       OZAKI_WGMMA_FENCE_ROUND(); \
       UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
         OZAKI_WGMMA_ISSUE_RS(ACCS, AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3], \
@@ -949,21 +951,21 @@
       OZAKI_WGMMA_COMMIT_ROUND(); \
       OZAKI_WGMMA_WAIT_POST(); \
     } while (0)
-# define OZAKI_CRT_KLOOP_WRS(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, MI, NB, PIDX, ACCS, SB, WT, LANE) \
+# define OZAKI_CRT_KLOOP_WRS(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD, N_PAD, MI, NB, PIDX, ACCS, SB, WT, LANE) \
     do { \
       CONSTANT const char* asw_ = (AS_BASE) + (long)(PIDX) * (A_PLANE); \
       CONSTANT const char* bsw_ = (BS_BASE) + (long)(PIDX) * (B_PLANE); \
       const int nbsz_ = (BN * WBK) / 16; \
       uint af0_[(WBK / 32) * 4], af1_[(WBK / 32) * 4] OZAKI_WGMMA_AF3; \
       int kw_; \
-      OZAKI_WGMMA_BSTAGE(bsw_, N_PAD_, K_PAD_, NB, 0, SB, WT); \
+      OZAKI_WGMMA_BSTAGE(bsw_, N_PAD, K_PAD, NB, 0, SB, WT); \
       OZAKI_WGMMA_COMMIT(); \
-      for (kw_ = 0; kw_ < (K_PAD_); kw_ += OZAKI_WGMMA_STAGES * WBK) { \
-        OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, kw_, af0_, 0, nbsz_); \
-        if (kw_ + WBK < (K_PAD_)) { \
-          OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, kw_ + WBK, af1_, 1, nbsz_); \
+      for (kw_ = 0; kw_ < (K_PAD); kw_ += OZAKI_WGMMA_STAGES * WBK) { \
+        OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_, af0_, 0, nbsz_); \
+        if (kw_ + WBK < (K_PAD)) { \
+          OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_ + WBK, af1_, 1, nbsz_); \
         } \
-        OZAKI_CRT_ROUND3_WRS(asw_, bsw_, K_PAD_, N_PAD_, MI, NB, ACCS, SB, WT, LANE, kw_, nbsz_); \
+        OZAKI_CRT_ROUND3_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_, nbsz_); \
       } \
       OZAKI_WGMMA_DRAIN(); \
     } while (0)
@@ -1156,13 +1158,16 @@ constant uint oz2g_garner_inv[][20] = {
 #endif
 inline uint oz2g_mod(uint x, SINT pidx)
 {
-  if (POW2_PIDX == pidx) return x & OZ2G_POW2_MASK;
-  {
+  uint result;
+  if (POW2_PIDX == pidx) result = x & OZ2G_POW2_MASK;
+  else {
     const uint q = (uint)(((ulong)x * oz2g_barrett_inv[pidx]) >> OZ2G_BARRETT_SHIFT);
-    uint r = x - q * oz2g_moduli[pidx];
-    return (r >= oz2g_moduli[pidx]) ? (r - oz2g_moduli[pidx]) : r;
+    const uint r = x - q * oz2g_moduli[pidx];
+    result = (r >= oz2g_moduli[pidx]) ? (r - oz2g_moduli[pidx]) : r;
   }
+  return result;
 }
+
 
 /**
  * Modular reduction for aligned mantissa (up to 53 bits for FP64, 24 for FP32).
@@ -1171,18 +1176,20 @@ inline uint oz2g_mod(uint x, SINT pidx)
  */
 inline uint oz2g_mod64(ulong x, SINT pidx)
 {
-  if (POW2_PIDX == pidx) return (uint)(x & OZ2G_POW2_MASK64);
+  uint result;
+  if (POW2_PIDX == pidx) result = (uint)(x & OZ2G_POW2_MASK64);
+  else {
 #if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
-  {
     const uint hi = (uint)(x >> 32);
     const uint lo = (uint)x;
     const uint partial = hi * oz2g_pow32_mod[pidx] + oz2g_mod(lo, pidx);
-    return oz2g_mod(partial, pidx);
-  }
+    result = oz2g_mod(partial, pidx);
 #else
-  /* FP32: aligned mantissa <= 24 bits, direct 32-bit Barrett. */
-  return oz2g_mod((uint)x, pidx);
+    /* FP32: aligned mantissa <= 24 bits, direct 32-bit Barrett. */
+    result = oz2g_mod((uint)x, pidx);
 #endif
+  }
+  return result;
 }
 
 
@@ -1231,6 +1238,7 @@ inline double oz2g_two_prod(double a, double b, double* err)
   *err = fma(a, b, -p);
   return p;
 }
+
 
 /* Fractional part of the sum over COUNT primes from LO with residues R, as the double-double (FRH, FRL). */
 #define OZAKI_FRAC_SUM(R, LO, COUNT, FRH, FRL) \
@@ -1452,8 +1460,7 @@ inline uint oz2g_hier_l1_crt(const uint* restrict group_residues, int g)
 {
   ulong s = 0;
   SINT li;
-  UNROLL_FORCE(HIER_GS) for (li = 0; li < HIER_GS; ++li)
-  {
+  UNROLL_FORCE(HIER_GS) for (li = 0; li < HIER_GS; ++li) {
     s += (ulong)group_residues[li] * (ulong)oz2g_hier_l1w[g * HIER_GS + (int)li];
   }
   return oz2g_mod_l2(s, g);
@@ -1589,8 +1596,7 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
       uint_repr_t aligned[OZAKI_CRT_RUN];
       int s1[OZAKI_CRT_RUN];
       SINT t_;
-      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_)
-      {
+      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_) {
         aligned[t_] = 0;
         s1[t_] = 0;
         if (col + t_ < K) {
@@ -1645,8 +1651,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
    */
   for (row = kk << 4; row < K; row += BK_PRE << 4) {
     int i;
-    UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
-    {
+    UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
       const int krow = row + i;
       if (krow < K && col < N) {
         int s0;
@@ -1679,8 +1684,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
       int sign[16];
       int i;
       SINT p;
-      UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
-      {
+      UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
         const int krow = (kb << 4) + i;
         aligned[i] = 0;
         sign[i] = 0;
@@ -1700,24 +1704,20 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
 #if OZAKI_EXTRACT_HIER
       /* Group-outer, so the 64-bit reduction runs once per group and block. */
       { SINT g;
-        UNROLL_FORCE(HIER_NGROUPS) for (g = 0; g < HIER_NGROUPS; ++g)
-        {
+        UNROLL_FORCE(HIER_NGROUPS) for (g = 0; g < HIER_NGROUPS; ++g) {
           uint gr[16];
           SINT j;
-          UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
-          {
+          UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
             gr[i] = oz2g_mod_l2(aligned[i], (int)g);
           }
-          UNROLL_FORCE(HIER_GS) for (j = 0; j < HIER_GS; ++j)
-          {
+          UNROLL_FORCE(HIER_GS) for (j = 0; j < HIER_GS; ++j) {
             p = g * HIER_GS + j;
             if (p < NPRIMES) {
               union {
                 uchar b[16];
                 uint4 v;
               } blk;
-              UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
-              {
+              UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
                 uint r = oz2g_mod(gr[i], p);
                 if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
                 blk.b[i] = (uchar)r;
@@ -1728,14 +1728,12 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
         }
       }
 #else
-      UNROLL_FORCE(NPRIMES) for (p = 0; p < NPRIMES; ++p)
-      {
+      UNROLL_FORCE(NPRIMES) for (p = 0; p < NPRIMES; ++p) {
         union {
           uchar b[16];
           uint4 v;
         } blk;
-        UNROLL_FORCE(16) for (i = 0; i < 16; ++i)
-        {
+        UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
           uint r = oz2g_mod64(aligned[i], p);
           if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
           blk.b[i] = (uchar)r;
@@ -1752,8 +1750,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
       uint_repr_t aligned[OZAKI_CRT_RUN];
       int s1[OZAKI_CRT_RUN];
       SINT t_;
-      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_)
-      {
+      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_) {
         aligned[t_] = 0;
         s1[t_] = 0;
         if (row + t_ < K) {
@@ -1786,8 +1783,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
       uint_repr_t aligned[OZAKI_CRT_RUN];
       int s1[OZAKI_CRT_RUN];
       SINT t_;
-      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_)
-      {
+      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_) {
         aligned[t_] = 0;
         s1[t_] = 0;
         if (row < K && col0_ + t_ < N) {
@@ -1888,18 +1884,15 @@ kernel void gemm_crt_fused(
       SINT pidx_base;
       int ri;
       for (ri = 0; ri < GRP_RES_STRIDE; ++ri) group_res[ri] = 0;
-      UNROLL_OUTER(1) for (pidx_base = group_lo; pidx_base < group_lo + HIER_GS && pidx_base < NPRIMES; pidx_base += PB)
-      {
+      UNROLL_OUTER(1) for (pidx_base = group_lo; pidx_base < group_lo + HIER_GS && pidx_base < NPRIMES; pidx_base += PB) {
         OZAKI_ACC_DECL(acc);
         OZAKI_ACC_ZERO_ALL(acc);
         OZAKI_CRT_KLOOP_REDUCE(acc, pidx_base, group_lo, HIER_GS, group_res);
       }
 #if !defined(SKIP_GARNER) || (0 == SKIP_GARNER)
       { int rm, rn;
-        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
-        {
-          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
-          {
+        UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+          UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
             OZAKI_CRT_L1_STORE(group_res + (rm * RTN + rn) * HIER_GS * XMX_FRAG,
               gval_all + (rm * RTN + rn) * HIER_NGROUPS * XMX_FRAG, gidx);
           }
@@ -1910,10 +1903,8 @@ kernel void gemm_crt_fused(
   }
 #if !defined(SKIP_GARNER) || (0 == SKIP_GARNER)
   { int rm, rn;
-    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
-    {
-      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
-      {
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
         OZAKI_CRT_STORE(gval_all + (rm * RTN + rn) * HIER_NGROUPS * XMX_FRAG, expa, expb, c, M, N,
           mi_base + rm * XMX_M, nj_base + rn * XMX_N, sg_lid, ldc, alpha, first);
       }
@@ -1931,8 +1922,7 @@ kernel void gemm_crt_fused(
   { SINT pidx_base;
     int ri;
     for (ri = 0; ri < RES_STRIDE; ++ri) residues[ri] = 0;
-    UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NPRIMES; pidx_base += PB)
-    {
+    UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NPRIMES; pidx_base += PB) {
       OZAKI_ACC_DECL(acc);
       OZAKI_ACC_ZERO_ALL(acc);
       OZAKI_CRT_KLOOP_REDUCE(acc, pidx_base, 0, NPRIMES, residues);
@@ -1940,10 +1930,8 @@ kernel void gemm_crt_fused(
   }
 #if !defined(SKIP_GARNER) || (0 == SKIP_GARNER)
   { int rm, rn;
-    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm)
-    {
-      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn)
-      {
+    UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
+      UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
         OZAKI_CRT_STORE(residues + (rm * RTN + rn) * NPRIMES * XMX_FRAG, expa, expb, c, M, N,
           mi_base + rm * XMX_M, nj_base + rn * XMX_N, sg_lid, ldc, alpha, first);
       }
@@ -1993,16 +1981,13 @@ kernel void gemm_crt_reduce(CONSTANT const uchar* restrict res_base, /* [NPRIMES
     const long rbase = OZAKI_RES_BASE(ib_idx, jb_idx, N, sg_id, sg_lid) + OZAKI_RES_OFF(rm, rn, 0);
     uint gval_all[HIER_NGROUPS * XMX_FRAG];
     int gidx;
-    UNROLL_FORCE(HIER_NGROUPS) for (gidx = 0; gidx < HIER_NGROUPS; ++gidx)
-    {
+    UNROLL_FORCE(HIER_NGROUPS) for (gidx = 0; gidx < HIER_NGROUPS; ++gidx) {
       int ms;
-      UNROLL_FORCE(XMX_FRAG) for (ms = 0; ms < XMX_FRAG; ++ms)
-      {
+      UNROLL_FORCE(XMX_FRAG) for (ms = 0; ms < XMX_FRAG; ++ms) {
         const long off = rbase + (long)ms * SG;
         uint r[HIER_GS];
         int pg;
-        UNROLL_FORCE(HIER_GS) for (pg = 0; pg < HIER_GS; ++pg)
-        {
+        UNROLL_FORCE(HIER_GS) for (pg = 0; pg < HIER_GS; ++pg) {
           const int pidx = gidx * HIER_GS + pg;
           r[pg] = (pidx < NPRIMES) ? (uint)res[off + (long)pidx * rplane] : 0u;
         }

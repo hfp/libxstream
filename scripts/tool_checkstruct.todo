@@ -7,13 +7,3 @@
 # Per project, and deliberately not a policy file: "make documentation" copies
 # tool_checkstruct.py from LIBXS and would revert a count lowered here.
 # Regenerate with: scripts/tool_checkstruct.py --counts $(git ls-files)
-brace-placement    23  samples/ozaki/kernels/ozaki1_int8.cl
-brace-placement    23  samples/ozaki/kernels/ozaki2_int8.cl
-function-gap        2  samples/ozaki/kernels/ozaki2_int8.cl
-function-local      6  samples/ozaki/kernels/ozaki1_int8.cl
-macro-parameter    15  samples/ozaki/kernels/ozaki1_int8.cl
-macro-parameter    38  samples/ozaki/kernels/ozaki2_int8.cl
-single-exit         2  samples/ozaki/kernels/ozaki2_int8.cl
-stacked-comments    2  samples/ozaki/kernels/ozaki1_int8.cl
-stacked-comments    2  samples/ozaki/kernels/ozaki2_int8.cl
-stacked-comments    3  samples/ozaki/kernels/ozaki_common.cl

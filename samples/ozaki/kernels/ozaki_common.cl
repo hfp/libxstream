@@ -10,8 +10,6 @@
 #ifndef OZAKI_COMMON_CL
 #define OZAKI_COMMON_CL
 
-#include "../../../libxstream/opencl/libxstream_common.h"
-
 /**
  * Shared primitives for all Ozaki kernel files.
  *
@@ -27,6 +25,9 @@
  *   Scheme 2 (CRT) defaults to u8 for larger moduli (<=256 vs <=128).
  *   Scheme 1 (slicing) always uses i8 (signed slice digits).
  */
+
+#include "../../../libxstream/opencl/libxstream_common.h"
+
 
 /**
  * PTX state space matching CONSTANT, for inline asm that dereferences a
@@ -65,16 +66,14 @@
  * paths better than the interleave does: a b-fragment's two registers land 16
  * bytes apart in one segment instead of 4*N_pad apart in two, and a dp4a
  * column becomes 8 consecutive uints.
- */
-/**
+ *
  * OZAKI_BBLOCK is the interleave one step coarser: 16 consecutive K-values of one
  * column are contiguous, columns are 16 bytes apart. That is the only layout where
  * BOTH sides are coalesced and the consumer can move 16 bytes per copy - K-major
  * gives the consumer its 16 bytes but scatters the producer, the 4-byte interleave
  * coalesces both but forces four times the copies, and copy count is what the
  * warp-group loop is bound by (splitting A's copies four ways cost 107%).
- */
-/**
+ *
  * OZAKI_ABLOCK (warp-group MMA with A in registers): A permuted into the fragment
  * order the instruction wants, so the four registers one lane holds are 16
  * contiguous bytes and the load is a single vector fetch of a 512-byte run per
