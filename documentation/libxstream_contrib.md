@@ -74,7 +74,24 @@ carry `LIBXS_API` and friends, which a preprocessor-less parser turns into an
 error node every few lines, and a preprocessed compiler dump no longer says
 which file a construct came from. `scripts/tool_checkenvars.sh` compares the
 prefixed variables the source reads against what the documentation mentions.
-Both are scoped to library code and carry the open backlog as an exclusion.
+
+Both keep their open findings in a to-do file beside them,
+`scripts/tool_checkstruct.todo` and `scripts/tool_checkenvars.todo`, rather
+than in a file-level exclusion. Three properties follow, and each is the point:
+
+- The list is **per rule and per file**, so a file listed for one rule is still
+  checked by the others.
+- The list is **per project and not propagated**. The two scripts are policy
+  files that `make documentation` copies from LIBXS; a count lowered in a copy
+  would be reverted, so the state cannot live inside them.
+- The list is a **to-do, not a permission**. Each entry carries what it defers,
+  and going the other way fails as well: one finding more than listed is a
+  regression, one less means the entry outlived its findings, and an entry
+  naming a file that no longer exists is reported too. An exclusion that
+  outlives its cause is how a list starts lying.
+
+Regenerate either with `tool_checkstruct.py --counts` or
+`tool_checkenvars.sh --all`.
 
 ## C Source File Structure
 
@@ -125,6 +142,13 @@ else even when it compiles for you:
 Where a C99 (or later) construct is genuinely required, it is guarded and
 confined, in the same style as the existing guards.
 
+**OpenCL kernels (`*.cl`) follow every rule above except the dialect.** They
+are compiled as OpenCL C, which is C99, so a declaration in a `for` initializer
+is correct there and the hooks exempt kernels from that one rule. Everything
+else holds unchanged: US-ASCII, no tabs, `/* ... */` comments only, a single
+function exit, two blank lines between functions, capitalized macros, and the
+SPDX header. A kernel is source, not data.
+
 **A 64-bit integer is `uint64_t` or `int64_t`.** They are exactly 64 bits wide
 rather than merely at least that wide, they add no name of ours to the API, and
 they cost the user nothing: `libxs_macros.h` already includes `<stdint.h>` and
@@ -162,6 +186,40 @@ int example(const void* input, void** output) {
   return result;
 }
 ```
+
+## Macros
+
+**A macro is capitalized, and so are its parameters**: `LIBXS_ALIGN(POINTER,
+ALIGNMENT)`, not `LIBXS_ALIGN(pointer, alignment)`. The parameters are the part
+that is easy to forget, and they are the part that matters at the point of use:
+a capitalized argument is what tells the reader that the expression may be
+evaluated more than once.
+
+**A variable a macro declares is the other way round**: lowercase, with a
+trailing underscore, and ideally prefixed by the macro's own name.
+
+```c
+#define MACRO() { int macro_i_ = 0; }
+```
+
+The capitalization tells the reader which names come from the call site and
+which the macro invented; the trailing underscore and the prefix are what keep
+the invented one from colliding with a variable the caller already has in
+scope. A macro that declares plain `i`, `s`, or `p` is a trap for whoever
+expands it next to their own `i`. The members of an aggregate the macro
+declares are not locals — in `union { float v; float a[8]; } u_` it is `u_`
+that carries the underscore — and a `*_DECL(A)` macro that declares a variable
+named by its own parameter keeps the caller's spelling.
+
+Two kinds of macro name are lowercase on purpose, and both are exempt:
+
+- A trailing lowercase segment is a token pasted onto the name — a type
+  (`LIBXS_TYPECHAR_double`), a lock kind (`LIBXS_LOCK_ACQUIRE_spin`), an
+  address space. It has to match the spelling of what it names.
+- A macro standing in for something that is not ours keeps that spelling: a
+  compiler builtin (`__builtin_nan`), a language keyword the OpenCL-on-CPU
+  path defines away (`kernel`, `restrict`), a foreign API (`offloadSuccess`),
+  or the lowercase alias a paste target needs (`libxs_crc32_b8`).
 
 ## Comments
 

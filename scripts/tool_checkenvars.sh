@@ -6,7 +6,7 @@
 # For information on the license, see the LICENSE file.                       #
 # SPDX-License-Identifier: BSD-3-Clause                                       #
 ###############################################################################
-# Maintained in LIBXS and copied into dependent projects by "make policies".
+# Maintained in LIBXS and copied into dependent projects by "make documentation".
 # Edit it in LIBXS: a change made in a copy is overwritten.
 #
 # Lists the environment variables the source reads, and checks that the ones
@@ -19,21 +19,12 @@
 #   tool_checkenvars.sh          report undocumented prefixed variables
 #   tool_checkenvars.sh --all    report the deferred ones as well
 #
-# DEFER carries the open findings, not a permission: a name is removed from
-# it as soon as the documentation mentions the variable. LIBXS owns the
-# LIBXS_* entries, LIBXSTREAM the LIBXSTREAM_* ones; the list is shared
-# because the script is.
-DEFER="
-LIBXS_DUMP_BUILD LIBXS_DUMP_FILE LIBXS_DUMP_FILES LIBXS_MALLOC_LIMIT
-LIBXS_PREDICT_DECOMPOSE_FOLDS LIBXS_PREDICT_REFINE LIBXS_PREDICT_TANGENT
-LIBXS_PREDICT_WINDOW_FOLDS LIBXS_SIGNAL
-LIBXSTREAM_ATOMICS LIBXSTREAM_BARRIER LIBXSTREAM_BIGGRF LIBXSTREAM_CACHE
-LIBXSTREAM_CPP LIBXSTREAM_CPPBIN LIBXSTREAM_CPPFLAGS LIBXSTREAM_DEBUG
-LIBXSTREAM_DEVIDS LIBXSTREAM_DEVMATCH LIBXSTREAM_DEVSPLIT LIBXSTREAM_DEVTYPE
-LIBXSTREAM_DUMP LIBXSTREAM_INTEL LIBXSTREAM_NCCS LIBXSTREAM_NLOCKS
-LIBXSTREAM_NV LIBXSTREAM_PRIORITY LIBXSTREAM_STAGE LIBXSTREAM_STAGE_GRAIN
-LIBXSTREAM_STAGE_NT LIBXSTREAM_VENDOR LIBXSTREAM_WA
-"
+# The deferred names are not here but in tool_checkenvars.todo next to this
+# script: they are per-project state, and "make documentation" copies this
+# script from LIBXS, which would revert a name removed from a copy. The list
+# is a to-do, not a permission, so a name that is documented by now fails the
+# check as well, asking to be dropped.
+TODO="tool_checkenvars.todo"
 
 FIND=$(command -v find)
 SORT=$(command -v sort)
@@ -92,22 +83,31 @@ else
     RESULT=1
   else
     MISSING=""
-    # DEFER is written one group per line, so fold it into a single line.
-    DEFERRED=" $(echo "${DEFER}" | tr '\n' ' ' | tr -s ' ') "
+    STALE=""
+    UNDOC=""
+    DEFERRED=" $(${SED} "s/#.*//" "${HERE}/${TODO}" 2>/dev/null | tr '\n' ' ' \
+      | tr -s ' ') "
     for VAR in ${PREFIXED}; do
       if ! ${GIT} grep -qwF "${VAR}" -- "*.md"; then
-        if [ "--all" = "$1" ]; then
-          MISSING="${MISSING} ${VAR}"
-        else
-          case "${DEFERRED}" in
-          *" ${VAR} "*) ;;
-          *) MISSING="${MISSING} ${VAR}" ;;
-          esac
-        fi
+        UNDOC="${UNDOC} ${VAR} "
+        case "${DEFERRED}" in
+        *" ${VAR} "*) [ "--all" = "$1" ] && MISSING="${MISSING} ${VAR}" ;;
+        *) MISSING="${MISSING} ${VAR}" ;;
+        esac
       fi
+    done
+    for VAR in ${DEFERRED}; do
+      case " ${UNDOC}" in
+      *" ${VAR} "*) ;;
+      *) STALE="${STALE} ${VAR}" ;;
+      esac
     done
     if [ "${MISSING}" ]; then
       >&2 echo "ERROR: undocumented environment variables:${MISSING}"
+      RESULT=1
+    fi
+    if [ "${STALE}" ]; then
+      >&2 echo "ERROR: documented by now, drop from ${TODO}:${STALE}"
       RESULT=1
     fi
   fi

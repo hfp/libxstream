@@ -1,0 +1,31 @@
+# Environment variables the source reads that no Markdown file documents.
+#
+# A to-do list, not a permission: a name that is documented by now fails the
+# check too, asking to be dropped from here.
+#
+# Per project, and deliberately not a policy file: "make documentation" copies
+# tool_checkenvars.sh from LIBXS and would revert a name removed here.
+# Regenerate with: scripts/tool_checkenvars.sh --all
+LIBXSTREAM_ATOMICS
+LIBXSTREAM_BARRIER
+LIBXSTREAM_BIGGRF
+LIBXSTREAM_CACHE
+LIBXSTREAM_CPP
+LIBXSTREAM_CPPBIN
+LIBXSTREAM_CPPFLAGS
+LIBXSTREAM_DEBUG
+LIBXSTREAM_DEVIDS
+LIBXSTREAM_DEVMATCH
+LIBXSTREAM_DEVSPLIT
+LIBXSTREAM_DEVTYPE
+LIBXSTREAM_DUMP
+LIBXSTREAM_INTEL
+LIBXSTREAM_NCCS
+LIBXSTREAM_NLOCKS
+LIBXSTREAM_NV
+LIBXSTREAM_PRIORITY
+LIBXSTREAM_STAGE
+LIBXSTREAM_STAGE_GRAIN
+LIBXSTREAM_STAGE_NT
+LIBXSTREAM_VENDOR
+LIBXSTREAM_WA

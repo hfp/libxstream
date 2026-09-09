@@ -1,4 +1,4 @@
-# Maintained in LIBXS and copied into dependent projects by "make policies".
+# Maintained in LIBXS and copied into dependent projects by "make documentation".
 # Edit it in LIBXS: a change made in a copy is overwritten.
 name: Lint
 

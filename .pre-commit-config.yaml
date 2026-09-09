@@ -1,4 +1,4 @@
-# Maintained in LIBXS and copied into dependent projects by "make policies".
+# Maintained in LIBXS and copied into dependent projects by "make documentation".
 # Edit it in LIBXS: a change made in a copy is overwritten.
 #
 # scripts/tool_normalize.sh --install   install the Git hook (once per clone)
@@ -97,11 +97,14 @@ repos:
     entry: '^[ \t]+#'
     language: pygrep
     files: '\.(c|h|cl)$'
+  # A macro whose body begins with a comma needs the space that separates the
+  # body from the name, so that one shape is exempt. A comma inside the
+  # parameter list is not: there the name is followed by "(".
   - id: no-french-spacing
     name: no space before a comma or semicolon
-    entry: '[\w)\]][ \t]+[,;]'
+    entry: '^(?![ \t]*#[ \t]*define[ \t]+[A-Za-z_]\w*[ \t]+[,;]).*[\w)\]][ \t]+[,;]'
     language: pygrep
-    files: '\.(c|h)$'
+    files: '\.(c|h|cl)$'
   # Allows the macro definition that wraps it, and "exit (" in prose.
   - id: no-exit-in-library
     name: library code must not call exit() directly
@@ -120,10 +123,12 @@ repos:
     name: no goto (a function has a single exit)
     entry: '\bgoto\b'
     language: pygrep
-    files: '\.(c|h)$'
+    files: '\.(c|h|cl)$'
   # C89 keeps declarations at the beginning of a block, so a "for" initializer
   # cannot declare. The compiler rejects it under PEDANTIC=2, but only for
   # whoever builds that way, and only once the build gets that far.
+  # Kernels are exempt because OpenCL C is C99: multiply.cl declares in a
+  # "for" initializer legitimately.
   - id: no-c99-for-declaration
     name: no declaration in a for initializer
     entry: 'for[ \t]*\((int|unsigned|signed|size_t|char|long|double|float|short|const|void)\b'
@@ -148,7 +153,7 @@ repos:
     name: no " -- " in a comment
     entry: '(/\*|^[ \t]*\*)[^*/]*[^-] -- '
     language: pygrep
-    files: '\.(c|h)$'
+    files: '\.(c|h|cl)$'
     exclude: '^samples/ozaki/ozaki_opencl\.c$'
   # Negated: this hook fails where the pattern is absent. The exclusions are
   # an open backlog of 31 files in LIBXS: the two Fortran interface files,
@@ -190,27 +195,34 @@ repos:
   # larger backlog (164 multi-exit functions in LIBXS, dominated by
   # samples/converse, and 3 in LIBXSTREAM), so they are deferred as a whole
   # rather than by a file list that would need one entry per sample.
-  # The named exclusions are an open backlog: multi-exit functions, where
-  # libxs_textrule.c and libxs_mem.c hold half of them, the stacked comments
-  # of the CP2K/DBCSR-derived header, and the one-blank-line gap between
-  # functions, which 1381 places get right and 50 in library code do not.
+  # Suppression lives in the script, per rule and per file, so a file listed
+  # for one rule is still checked by the others: the file-level exclusion this
+  # replaces switched off 140 rule/file pairs that were already clean.
   - id: structure
     name: structural rules (single exit, blank lines, comments)
     entry: scripts/tool_checkstruct.py
+    args: [--no-macro-name, --no-macro-parameter]
     language: script
-    files: '^(src|libxs|libxstream)/.*\.(c|h)$'
-    exclude: |
-      (?x)^(
-        src/libxs_(textrule|mem|math|ngram|str|mhd|malloc|rng|reg|perm|main)\.c
-        |src/libxs_cpuid_x86\.c
-        |src/libxs_(perm_spatial|math_fprint|math_setdiff)\.h
-        |src/libxs_(predict_rf|perm_kdtree|matdiff)\.h
-        |src/libxs_(cpuid_arm|token|rng)\.c
-        |src/libxstream\.c
-        |libxs/libxs_(math|gemm|token|perm|utils|timer)\.h
-        |libxstream/libxstream_dbcsr\.h
-        |libxstream/opencl/libxstream_(common|ozaki)\.h
-      )$
+    files: '^(src|libxs|libxstream)/.*\.(c|h)$|\.cl$'
+  # A macro is capitalized, parameters included, and a local it declares is
+  # lowercase with a trailing underscore so it cannot collide with a name at
+  # the call site. 1294 function-like macros capitalize correctly and 13 do
+  # not; 315 macro locals carry the underscore and 28 do not, all in LIBXS.
+  # A separate hook so that --only names one group of rules; the suppression
+  # lists themselves live in the script.
+  # The first five files define names that are not ours, which is why they
+  # are lowercase and stay so: compiler builtins and keywords (libxs_macros.h,
+  # libxstream_cpu_begin.h, libxstream_cpu_end.h), a CP2K name
+  # (libxstream_cp2k.h), and the lowercase aliases LIBXS_CRC32(N) pastes onto
+  # (libxs_crc32.h). The last two are an open backlog: one parameter in the
+  # DBCSR-derived header and eight in the OpenCL helpers. The last two lines
+  # are the macro-local backlog: 28 locals across four LIBXS files.
+  - id: structure-macros
+    name: macro naming (name, parameters, locals)
+    entry: scripts/tool_checkstruct.py
+    args: ["--only=macro-name,macro-parameter,macro-local"]
+    language: script
+    files: '^(src|libxs|libxstream)/.*\.(c|h)$|\.cl$'
   # Tree-global rather than per-file: it compares what the source reads
   # against what the documentation mentions, so it takes no filenames. The
   # deferred names live in the script, 9 in LIBXS and 23 in LIBXSTREAM;
