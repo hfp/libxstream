@@ -105,6 +105,7 @@ CHECKS = (
     "macro-name",
     "macro-parameter",
     "macro-local",
+    "closer-nesting",
 )
 
 
@@ -271,23 +272,23 @@ def check(path: str, enabled: Sequence[str]) -> List[Finding]:
                 gap += 1
                 at += 1
             if at < len(lines) and not lines[at].lstrip().startswith("#"):
-                if 2 != gap:
+                # A header carries small inline definitions and the files that
+                # hold them are uniform about one blank line, which is the
+                # surrounding code a change there has to match.
+                want = (1, 2) if path.endswith(".h") else (2,)
+                if gap not in want:
                     report.append(
                         (
                             "function-gap",
                             last,
-                            "%i blank lines, expected 2" % gap,
+                            "%i blank lines, expected %s"
+                            % (gap, " or ".join(str(w) for w in want)),
                         )
                     )
     if "stacked-comments" in enabled:
-        previous = ""
-        for number, line in enumerate(lines, 1):
-            match = COMMENT.match(line)
-            if match and previous == match.group(1):
-                report.append(
-                    ("stacked-comments", number, "merge or separate them")
-                )
-            previous = match.group(1) if match else "\n"
+        report += stacked(text, lines)
+    if "closer-nesting" in enabled:
+        report += nesting(text, masked)
     if "constant-left" in enabled:
         visible, _ = mask(text, True)
         for number, line in enumerate(visible.split("\n"), 1):
@@ -297,6 +298,89 @@ def check(path: str, enabled: Sequence[str]) -> List[Finding]:
                 )
     if [name for name in enabled if name.startswith("macro-")]:
         report += macros(lines, enabled)
+    return report
+
+
+def stacked(text: str, lines: Sequence[str]) -> List[Finding]:
+    """Report comments that follow one another with no code between them.
+
+    Blank lines do not separate them: two comments with only whitespace in
+    between are one comment split in two, or they describe different things
+    and the code each describes belongs between them. The license header is
+    the file's leading comment and is exempt by construction.
+    """
+    report: List[Finding] = []
+    visible, _ = mask(text, True)
+    first = 1
+    for number, line in enumerate(visible.split("\n"), 1):
+        if line.strip():
+            first = number
+            break
+    previous = None
+    at, size = 0, len(text)
+    while at < size:
+        opened = text.find("/*", at)
+        if 0 > opened:
+            break
+        closed = text.find("*/", opened + 2)
+        if 0 > closed:
+            break
+        start = text.count("\n", 0, opened) + 1
+        end = text.count("\n", 0, closed) + 1
+        head = text.rfind("\n", 0, opened) + 1
+        tail = text.find("\n", closed)
+        tail = size if 0 > tail else tail
+        alone = (
+            not text[head:opened].strip()
+            and not text[closed + 2 : tail].strip()
+        )
+        if alone and previous is not None and start > first:
+            between = lines[previous : start - 1]
+            if not [line for line in between if line.strip()]:
+                report.append(
+                    (
+                        "stacked-comments",
+                        start,
+                        "follows the comment at line %i" % previous,
+                    )
+                )
+        previous = end if alone else None
+        at = closed + 2
+    return report
+
+
+def nesting(text: str, masked: str) -> List[Finding]:
+    """Report a closing brace that does not step left from the one above it.
+
+    Two closers on the same column close blocks that are nested, so one of
+    the two levels is missing from the indentation. The line shape is taken
+    from the source and the braces from the masked text, or a line whose
+    only code is the "};" of an initializer looks like a closer. A directive
+    resets the comparison: which brace belongs to which block then depends
+    on the configuration.
+    """
+    report: List[Finding] = []
+    previous = None
+    for number, line in enumerate(text.split("\n"), 1):
+        if line.lstrip().startswith("#"):
+            previous = None
+            continue
+        strip = line.strip()
+        if not strip:
+            continue
+        indent = len(line) - len(line.lstrip())
+        if strip.startswith("}") and previous is not None:
+            if indent >= previous[1]:
+                report.append(
+                    (
+                        "closer-nesting",
+                        number,
+                        "shares column %i with the closer at line %i"
+                        % (indent, previous[0]),
+                    )
+                )
+        alone = strip.startswith("}") and "{" not in strip
+        previous = (number, indent) if alone else None
     return report
 
 
@@ -378,15 +462,6 @@ def backlog() -> Dict[Tuple[str, str], int]:
     return listed
 
 
-def stale(listed: Dict[Tuple[str, str], int]) -> List[str]:
-    """Report backlog entries whose file is gone: renamed, or deleted."""
-    return [
-        "%s: %s: %s names no such file, drop the entry" % (path, rule, TODO)
-        for rule, path in sorted(listed)
-        if not os.path.exists(os.path.join(ROOT, path))
-    ]
-
-
 def suppress(
     path: str,
     enabled: Sequence[str],
@@ -423,15 +498,61 @@ def suppress(
                 "%s: %s: %i findings, the list allows %i"
                 % (path, rule, len(found), allowed)
             )
-    for (rule, where), allowed in sorted(listed.items()):
-        if where != path or rule not in enabled:
-            continue
-        if len(seen.get(rule, [])) < allowed:
-            complaints.append(
-                "%s: %s: down to %i, lower the count in %s (was %i)"
-                % (path, rule, len(seen.get(rule, [])), TODO, allowed)
-            )
     return violations, complaints
+
+
+def lower(
+    listed: Dict[Tuple[str, str], int],
+    observed: Dict[Tuple[str, str], int],
+    examined: Sequence[str],
+    enabled: Sequence[str],
+) -> List[str]:
+    """Bring the to-do file down to what is left, and say what changed.
+
+    Only downwards: a count that shrank is rewritten and an entry that ran
+    out is deleted, because lowering the list is always correct. A count
+    that grew is never touched here, or a regression would legalize itself.
+    An entry whose file is gone goes too.
+    """
+    said: List[str] = []
+    change: Dict[Tuple[str, str], int] = {}
+    for (rule, path), allowed in sorted(listed.items()):
+        if not os.path.exists(os.path.join(ROOT, path)):
+            change[(rule, path)] = 0
+            said.append(
+                "%s: %s: file is gone, dropped from %s" % (path, rule, TODO)
+            )
+        elif path in examined and rule in enabled:
+            count = observed.get((rule, path), 0)
+            if count < allowed:
+                change[(rule, path)] = count
+                said.append(
+                    "%s: %s: down to %i, %s in %s"
+                    % (
+                        path,
+                        rule,
+                        count,
+                        "dropped" if 0 == count else "lowered",
+                        TODO,
+                    )
+                )
+    if change:
+        name = os.path.join(ROOT, "scripts", TODO)
+        with open(name, encoding="utf-8") as handle:
+            lines = handle.readlines()
+        out = []
+        for line in lines:
+            field = line.split("#", 1)[0].split()
+            if 3 == len(field) and field[1].isdigit():
+                left = change.get((field[0], field[2]))
+                if left is not None:
+                    if 0 == left:
+                        continue
+                    line = "%-17s %3i  %s\n" % (field[0], left, field[2])
+            out.append(line)
+        with open(name, "w", encoding="utf-8") as handle:
+            handle.writelines(out)
+    return said
 
 
 def main(argv: Sequence[str]) -> int:
@@ -460,18 +581,19 @@ def main(argv: Sequence[str]) -> int:
         observed: Dict[Tuple[str, str], int] = {}
         for path in names:
             report = check(path, enabled)
+            for rule, _, _ in report:
+                key = (rule, path)
+                observed[key] = observed.get(key, 0) + 1
             if counts:
-                for rule, _, _ in report:
-                    key = (rule, path)
-                    observed[key] = observed.get(key, 0) + 1
                 continue
             violations, complaints = suppress(path, enabled, report, listed)
             if violations or complaints:
                 print("\n".join(violations + complaints))
                 result = 1
-        for complaint in stale(listed):
-            print(complaint)
-            result = 1
+        if not counts:
+            for said in lower(listed, observed, names, enabled):
+                print(said)
+                result = 1
         if counts:
             # Ready for tool_checkstruct.todo, minus what EXEMPT covers.
             for (rule, path), count in sorted(observed.items()):

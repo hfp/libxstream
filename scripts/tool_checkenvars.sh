@@ -107,7 +107,20 @@ else
       RESULT=1
     fi
     if [ "${STALE}" ]; then
-      >&2 echo "ERROR: documented by now, drop from ${TODO}:${STALE}"
+      # Lowering the list is always correct, so it happens here rather than
+      # being asked for. Adding never does: a new undocumented variable has
+      # to fail. The run fails either way, to be reviewed and repeated.
+      SCRIPT=""
+      for VAR in ${STALE}; do
+        SCRIPT="${SCRIPT}/^[[:space:]]*${VAR}[[:space:]]*\$/d;"
+      done
+      if ${SED} "${SCRIPT}" "${HERE}/${TODO}" >"${HERE}/${TODO}.tmp"; then
+        mv "${HERE}/${TODO}.tmp" "${HERE}/${TODO}"
+        >&2 echo "ERROR: documented by now, dropped from ${TODO}:${STALE}"
+      else
+        rm -f "${HERE}/${TODO}.tmp"
+        >&2 echo "ERROR: documented by now, drop from ${TODO}:${STALE}"
+      fi
       RESULT=1
     fi
   fi
