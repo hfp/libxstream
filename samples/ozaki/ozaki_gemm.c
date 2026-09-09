@@ -376,6 +376,9 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
 static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn, int rtm, int rtn);
 
 
+/* Bytes of staged B a work-group may hold, which is what ozaki_wgmma_probe validates. */
+#define OZAKI_WGMMA_RING_MAX 131072
+
 /**
  * Staging depth (KU) of the warp-group specialization for one tile, with the
  * deferred wait and the stage count that go with it. Per specialization rather
@@ -400,11 +403,16 @@ static int ozaki_wgmma_depth(const ozaki_context_t* ctx, int tm, int tn, int* de
   const int wku = (tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
   const int wide = (128 == tm && 256 == tn);
   const int dfr = (0 <= ctx->wgmma_defer ? ctx->wgmma_defer : wide) ? 1 : 0;
-  const int stg = (0 != dfr && 3 == ctx->wgmma_stages) ? 3 : 2;
-  const int result = (3 == stg) ? LIBXS_MAX(wku / 2, 2) : wku;
+  const int stg = (0 != dfr) ? ctx->wgmma_stages : 2;
+  /* Halved once for any spare buffer, which holds the two-buffer footprint per buffer. */
+  const int result = (2 == stg) ? wku : LIBXS_MAX(wku / 2, 2);
   if (NULL != defer) *defer = dfr;
   if (NULL != stages) *stages = stg;
-  return (0 != ku_pin) ? ku_pin : result;
+  { /* The ring is static local memory; the kernel refuses more than the probe validates. */
+    int wku_r = (0 != ku_pin) ? ku_pin : result;
+    while (2 < wku_r && OZAKI_WGMMA_RING_MAX < (size_t)stg * tn * wku_r * ctx->bk_pre) wku_r >>= 1;
+    return wku_r;
+  }
 }
 
 
@@ -1530,7 +1538,11 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         const char* options = ctx->crt_options;
         int defer = 0, stages = 2;
         const int wku = ozaki_wgmma_depth(ctx, tm, tn, &defer, &stages);
+        char spec[64];
         LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d%s", tm, tn, rtm, rtn, 0 != bounds ? "b" : "");
+        /* NWAIT is what the buffers buy, and the kernel clamps it to STAGES-3 either way. */
+        LIBXS_SNPRINTF(spec, sizeof(spec), " -DOZAKI_WGMMA_STAGES=%i -DOZAKI_WGMMA_NWAIT=%i",
+          stages, LIBXS_MAX(stages - 3, 0));
         if (0 != ctx->crt_grf256 && 16 <= rtm * rtn) { /* the registers the 4x4 tile spends; see ozaki_init */
           LIBXS_SNPRINTF(options_grf, sizeof(options_grf), "%s -cl-intel-256-GRF-per-thread", ctx->crt_options);
           options = options_grf;
@@ -1540,7 +1552,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
             ctx->crt_flags, tm, tn, rtm, rtn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
             0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "",
             /* The depth travels with the buffer count: a round stays in flight only if a buffer covers it. */
-            (3 == stages) ? " -DOZAKI_WGMMA_STAGES=3 -DOZAKI_WGMMA_NWAIT=1" : "");
+            (2 < stages) ? spec : "");
         }
         else {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d%s",

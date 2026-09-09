@@ -729,9 +729,13 @@
  * OZAKI_WGMMA_STAGES is chosen per tile specialization: a flag that suits the deep
  * specialization must not break the programs compiled shallow.
  */
-# if (OZAKI_WGMMA_NWAIT) > ((OZAKI_WGMMA_STAGES) - 2)
+# if (OZAKI_WGMMA_NWAIT) > ((OZAKI_WGMMA_STAGES) - 3)
 #   undef OZAKI_WGMMA_NWAIT
-#   define OZAKI_WGMMA_NWAIT ((OZAKI_WGMMA_STAGES) - 2)
+#   if 3 > (OZAKI_WGMMA_STAGES)
+#     define OZAKI_WGMMA_NWAIT 0
+#   else
+#     define OZAKI_WGMMA_NWAIT ((OZAKI_WGMMA_STAGES) - 3)
+#   endif
 # endif
 
 /**
@@ -867,6 +871,17 @@
 #   undef OZAKI_WGMMA_WAIT
 #   define OZAKI_WGMMA_WAIT() ((void)0)
 # endif
+# if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 64))
+/* Bit 6 drops the mod-reduce epilogue and keeps one store, so ptxas attributes the
+ * register peak: the accumulators stay live, the reduction and its tables do not. */
+#   undef OZAKI_CRT_STORE_RESIDUES
+#   define OZAKI_CRT_STORE_RESIDUES(ACC, PIDX, RES) \
+    do { \
+      OZAKI_ACC_UNION(dsr_); \
+      dsr_.v_ = (ACC)[0]; \
+      (RES)[0] = (uchar)dsr_.a_[0]; \
+    } while (0)
+# endif
 # if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 16))
 #   undef OZAKI_WGMMA_ISSUE_RS
 /* The fold is what keeps the A loads and the accumulators from dying with the MMA. */
@@ -883,35 +898,58 @@
  * host selects it for the full tile only: -7% GEMM at n=4096 there, but every
  * narrowed tile measured a loss (4-20%, registers cost occupancy or spill).
  *
- * OZAKI_WGMMA_STAGES=3 exists for where the staging is issued, not for the extra
- * buffer: with two buffers the round being staged is the one the previous round's
- * MMAs are still reading, so the staging cannot start before the drain and its
- * whole cost is exposed (0.48 of 2.86 ms at n=4096). A third buffer frees it, and
- * the staging moves above the drain to run under those MMAs. The drain stays a
- * full wait_group 0, which is what proves the third buffer has no reader left.
- * Depth halves to keep the two-stage footprint; equal depth is the SLM/L1 cliff
- * (9.67 ms at 192 KB, since A is fetched through L1).
+ * More than two buffers exist for where the staging is issued, not for the memory:
+ * with two, the round being staged is the one the previous round's MMAs are still
+ * reading, so the staging cannot start before the drain and its whole cost is exposed
+ * (0.48 of 2.86 ms at n=4096). A spare buffer frees it, and the staging moves above
+ * the drain to run under those MMAs.
+ *
+ * How many are needed is an ordering question, not a preference, once the staging is
+ * early - two buffers stage below the MMA wait, where the drain orders it anyway:
+ *
+ *   OZAKI_WGMMA_STAGES >= 1 + OZAKI_WGMMA_NWAIT + 2
+ *
+ * because round r stages the buffer round r+1 will read, that buffer was last read by
+ * round r+1-STAGES, and the newest MMA group drained when round r stages is the one from
+ * round r-2-NWAIT (round r-1's wait left NWAIT alive, then round r-1 issued its own). With
+ * NWAIT=1 that is four, and three buffers satisfy it only by timing: a two-round-old
+ * wgmma has long consumed its operands before cp.async data lands, so the window is
+ * empty in practice and every run is bit-identical, but nothing orders the write against
+ * the read. Four buffers make the edge real, and the drain stays a full wait_group 0,
+ * which is what proves the buffer being staged has no reader left.
+ *
+ * The buffer index is therefore carried at runtime and the loop unrolls by NWAIT+1, the
+ * number of A register sets actually needed, rather than by the buffer count. That is
+ * what makes the fourth buffer affordable: it costs shared memory, not registers, and it
+ * retires one A set (16 registers per work-item) against unrolling by three. Depth is
+ * halved once, at three buffers or more, to hold the two-buffer footprint at 96 KB; the
+ * fourth takes it to 128 KB, which measured no worse, unlike the 192 KB that equal depth
+ * would ask for (9.67 against 5.45 ms, since A is fetched through L1).
  */
-# if (3 != OZAKI_WGMMA_STAGES) && (2 != OZAKI_WGMMA_STAGES)
-#   error OZAKI_WGMMA_STAGES must be 2 or 3.
+# if (2 > OZAKI_WGMMA_STAGES) || (4 < OZAKI_WGMMA_STAGES)
+#   error OZAKI_WGMMA_STAGES must be 2, 3 or 4.
 # endif
-# if 3 == OZAKI_WGMMA_STAGES
+/**
+ * The ring is static local memory, so its size is a build-time property and has to be
+ * refused here rather than discovered: at 256 KB it still built and then computed
+ * garbage, which is the one outcome worse than not building. 128 KB is what the
+ * reachability probe validates (ozaki_wgmma_probe), so that is the bound.
+ */
+# if ((OZAKI_WGMMA_STAGES) * (BN) * (WBK)) > 131072
+#   error the staged ring exceeds the shared memory the reachability probe validates.
+# endif
+# if 2 < OZAKI_WGMMA_STAGES
 #   if !defined(OZAKI_WGMMA_DEFER) || (0 == OZAKI_WGMMA_DEFER)
-#     error OZAKI_WGMMA_STAGES=3 implies the deferred wait (the host emits both).
+#     error a spare buffer implies the deferred wait (the host emits both).
 #   endif
-#   define OZAKI_WGMMA_AF3 , af2_[(WBK / 32) * 4]
-#   define OZAKI_CRT_ROUND3_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, KW, NBSZ) \
-      do { \
-        if ((KW) + 2 * WBK < (K_PAD)) { \
-          OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, (KW) + 2 * WBK, af2_, 2, NBSZ); \
-        } \
-      } while (0)
+/* Only the early placement needs it; two buffers stage below the wait, where it holds. */
+#   if (OZAKI_WGMMA_STAGES) < (1 + (OZAKI_WGMMA_NWAIT) + 2)
+#     error OZAKI_WGMMA_STAGES does not order the staged buffer against the MMAs reading it.
+#   endif
 #   define OZAKI_WGMMA_STAGE_EARLY OZAKI_WGMMA_STAGE
-#   define OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, BUF, NBSZ) ((void)0)
+#   define OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, NBUF, NBSZ) ((void)0)
 # else
-#   define OZAKI_WGMMA_AF3
-#   define OZAKI_CRT_ROUND3_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, KW, NBSZ) ((void)0)
-#   define OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, BUF, NBSZ) ((void)0)
+#   define OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, NBUF, NBSZ) ((void)0)
 #   define OZAKI_WGMMA_STAGE_LATE OZAKI_WGMMA_STAGE
 # endif
 # if defined(OZAKI_WGMMA_DEFER) && (OZAKI_WGMMA_DEFER)
@@ -923,14 +961,15 @@
 # endif
 /* The epilogue reads the accumulators, so the tail drains whatever NWAIT kept alive. */
 # define OZAKI_WGMMA_DRAIN() OZAKI_WGMMA_MMAWAIT_N(0)
-# define OZAKI_WGMMA_STAGE(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, BUF, NBSZ) \
+# define OZAKI_WGMMA_NEXTBUF(B) (((OZAKI_WGMMA_STAGES) - 1) > (B) ? ((B) + 1) : 0)
+# define OZAKI_WGMMA_STAGE(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, NBUF, NBSZ) \
     do { \
       if ((NEXT) < (K_PAD)) { \
-        OZAKI_WGMMA_BSTAGE(BSW, N_PAD, K_PAD, NB, NEXT, (SB) + (((BUF) + 1) % OZAKI_WGMMA_STAGES) * (NBSZ), WT); \
+        OZAKI_WGMMA_BSTAGE(BSW, N_PAD, K_PAD, NB, NEXT, (SB) + (NBUF) * (NBSZ), WT); \
         OZAKI_WGMMA_COMMIT(); \
       } \
     } while (0)
-# define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, KW, AF, BUF, NBSZ) \
+# define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, KW, AF, BUF, NBUF, NBSZ) \
     do { \
       const int next_ = (KW) + WBK; \
       int cw_; \
@@ -939,10 +978,10 @@
           AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3]); \
       } \
       OZAKI_WGMMA_WAIT(); \
-      OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD, K_PAD, NB, next_, SB, WT, BUF, NBSZ); \
+      OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD, K_PAD, NB, next_, SB, WT, NBUF, NBSZ); \
       OZAKI_WGMMA_WAIT_PRE(); \
       OZAKI_WGMMA_BARRIER(); \
-      OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD, K_PAD, NB, next_, SB, WT, BUF, NBSZ); \
+      OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD, K_PAD, NB, next_, SB, WT, NBUF, NBSZ); \
       OZAKI_WGMMA_FENCE_ROUND(); \
       UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
         OZAKI_WGMMA_ISSUE_RS(ACCS, AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3], \
@@ -951,21 +990,35 @@
       OZAKI_WGMMA_COMMIT_ROUND(); \
       OZAKI_WGMMA_WAIT_POST(); \
     } while (0)
+/**
+ * The barrier before a prime batch stages its first buffer is not optional: the drain
+ * that ends the batch before is wgmma.wait_group.sync.aligned, which is warp-aligned, so
+ * one warp can reach this store while another still has MMAs reading the same buffer. It
+ * costs one barrier per batch, which does not measure.
+ *
+ * Hoisting this staging above the previous batch's epilogue, to cover the fill that
+ * round 0 has no earlier MMAs to hide, was measured and buys nothing at any shape: the
+ * epilogue is fire-and-forget global stores, so it offers no dependency to hide behind.
+ */
 # define OZAKI_CRT_KLOOP_WRS(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD, N_PAD, MI, NB, PIDX, ACCS, SB, WT, LANE) \
     do { \
       CONSTANT const char* asw_ = (AS_BASE) + (long)(PIDX) * (A_PLANE); \
       CONSTANT const char* bsw_ = (BS_BASE) + (long)(PIDX) * (B_PLANE); \
       const int nbsz_ = (BN * WBK) / 16; \
-      uint af0_[(WBK / 32) * 4], af1_[(WBK / 32) * 4] OZAKI_WGMMA_AF3; \
-      int kw_; \
+      uint af0_[(WBK / 32) * 4], af1_[(WBK / 32) * 4]; \
+      int kw_, buf_ = 0; \
+      barrier(CLK_LOCAL_MEM_FENCE); \
       OZAKI_WGMMA_BSTAGE(bsw_, N_PAD, K_PAD, NB, 0, SB, WT); \
       OZAKI_WGMMA_COMMIT(); \
-      for (kw_ = 0; kw_ < (K_PAD); kw_ += OZAKI_WGMMA_STAGES * WBK) { \
-        OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_, af0_, 0, nbsz_); \
+      for (kw_ = 0; kw_ < (K_PAD); kw_ += 2 * WBK) { \
+        const int nb1_ = OZAKI_WGMMA_NEXTBUF(buf_); \
+        OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_, af0_, buf_, nb1_, nbsz_); \
+        buf_ = nb1_; \
         if (kw_ + WBK < (K_PAD)) { \
-          OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_ + WBK, af1_, 1, nbsz_); \
+          const int nb2_ = OZAKI_WGMMA_NEXTBUF(buf_); \
+          OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_ + WBK, af1_, buf_, nb2_, nbsz_); \
+          buf_ = nb2_; \
         } \
-        OZAKI_CRT_ROUND3_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_, nbsz_); \
       } \
       OZAKI_WGMMA_DRAIN(); \
     } while (0)

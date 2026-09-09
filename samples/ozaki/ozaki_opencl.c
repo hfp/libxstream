@@ -1220,12 +1220,18 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         const char *const env_stages = getenv("OZAKI_WGMMA_STAGES");
         ctx->wgmma_defer = (NULL != env_defer) ? (0 != atoi(env_defer) ? 1 : 0) : -1;
         /**
-         * Three buffers by default: with the fence and the group commit paid once per
-         * round rather than per issue, the third buffer is what lets a wait keep the
-         * previous round's MMAs running (see OZAKI_WGMMA_NWAIT), which measured a gain
-         * at every shape and a loss at none. OZAKI_WGMMA_STAGES=2 opts out.
+         * Four buffers by default. Three is what the overlap needs - with the fence and
+         * the group commit paid once per round rather than per issue, a spare buffer lets
+         * a wait keep the previous round's MMAs running (see OZAKI_WGMMA_NWAIT), which
+         * measured a gain at every shape and a loss at none - but three does not order
+         * the buffer being staged against the MMAs still reading it, and only holds by
+         * timing. The fourth makes that edge real and costs shared memory rather than
+         * registers, since the loop unrolls by the A sets and not by the buffers.
+         * OZAKI_WGMMA_STAGES=2 opts out of the overlap, 3 keeps it without the ordering.
          */
-        ctx->wgmma_stages = (NULL != env_stages && 2 == atoi(env_stages)) ? 2 : 3;
+        { const int stg_req = (NULL != env_stages) ? atoi(env_stages) : 0;
+          ctx->wgmma_stages = (2 <= stg_req && 4 >= stg_req) ? stg_req : 4;
+        }
       }
       /**
        * Work-group rasterization width (0 = the launch order). The resident
