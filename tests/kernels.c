@@ -50,8 +50,13 @@
  * levels below vary only the language version and the optional features. Taken
  * from the build strings in samples/ozaki/ozaki_opencl.c rather than invented.
  *
- * INTEL and NV are held at 0 throughout: the vendor paths need DPAS builtins and
- * inline PTX that no compiler but the vendor's own accepts.
+ * INTEL is held at 0 throughout: the DPAS path needs 2D-block-read builtins that no
+ * compiler but the vendor's own accepts. NV is not - the warp-group MMA path carries
+ * its PTX in comment-only asm markers a host pass splices, so it compiles anywhere
+ * once the inline asm is spelled __asm__ (plain asm is a GNU extension clang rejects
+ * in OpenCL C). That path is the largest and most intricate part of ozaki2_int8.cl and
+ * went uncovered until a stray brace in it reached hardware, where a failed kernel
+ * build merely downgrades to mma.sync and every correctness check still passes.
  */
 #define KERNELS_OZAKI_BASE \
   "-DBK=32 -DKU=2 -DRC=8 -DSG=16 -DINTEL=0 -DNV=0 -DBM_PRE=16 -DBN_PRE=16" \
@@ -69,6 +74,19 @@
 #define KERNELS_OZAKI_SYM \
   KERNELS_OZAKI_BASE " -DNSLICES=8 -DUSE_DOUBLE=1 -DMANT_BITS=53" \
   " -DBIAS_PLUS_MANT=1075 -DOZAKI_HIER=1 -DOZAKI_TRI=1 -DOZAKI_SYM=1"
+/**
+ * Warp-group MMA as the host emits it, shape included: SG=32, RTM=1 and RTN=BN/8 are
+ * not choices here but what the instruction fixes, so this flavor cannot share
+ * KERNELS_OZAKI_BASE.
+ */
+#define KERNELS_OZAKI_WGMMA \
+  "-DBK=32 -DKU=8 -DRC=8 -DSG=32 -DINTEL=0 -DNV=4 -DNV_MMA=1 -DBM_PRE=16" \
+  " -DBN_PRE=16 -DBK_PRE=32 -DOZAKI_SB=1 -DCONSTANT=global -DLU=0 -DKGROUPS=0 -DPB=1" \
+  " -DNSLICES=8 -DUSE_DOUBLE=1 -DMANT_BITS=53 -DBIAS_PLUS_MANT=1075 -DOZAKI_HIER=1" \
+  " -DOZAKI_TRI=0 -DOZAKI_SYM=0 -DOZAKI_CUTOFF=14 -DOZAKI_U8=1 -DOZAKI_UNFUSE=1" \
+  " -DOZAKI_WGMMA=1 -DOZAKI_ABLOCK=1 -DOZAKI_BBLOCK=1 -DBM=128 -DBN=256 -DRTM=1" \
+  " -DRTN=32 -DOZAKI_WGMMA_KU=16 -DOZAKI_WGMMA_DEFER=1 -DOZAKI_WGMMA_STAGES=3" \
+  " -DOZAKI_WGMMA_NWAIT=1"
 
 
 /**
@@ -84,6 +102,7 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "fp64", KERNELS_OZAKI_FP64 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "fp32", KERNELS_OZAKI_FP32 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "flat", KERNELS_OZAKI_FLAT },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "wgmma", KERNELS_OZAKI_WGMMA },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/transpose.cl", "",
     "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */ },
   { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "", "" },

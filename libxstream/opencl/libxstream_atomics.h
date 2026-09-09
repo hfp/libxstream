@@ -120,9 +120,9 @@ __attribute__((always_inline)) inline void atomic_add_global_xchg(GLOBAL_VOLATIL
 {
 #   if !defined(ATOMIC32_ADD64)
 #     if (defined(__NV_CL_C_VERSION) && !defined(XCHG)) && (1 == TAN /*libxstream_opencl_atomic_fp_32*/)
-  asm("{ .reg .f32 t; atom.global.add.f32 t, [%0], %1; }" ::"l"(dst), "f"(inc));
+  __asm__("{ .reg .f32 t; atom.global.add.f32 t, [%0], %1; }" ::"l"(dst), "f"(inc));
 #     elif (defined(__NV_CL_C_VERSION) && !defined(XCHG)) && (2 == TAN /*libxstream_opencl_atomic_fp_64*/)
-  asm("{ .reg .f64 t; atom.global.add.f64 t, [%0], %1; }" ::"l"(dst), "d"(inc));
+  __asm__("{ .reg .f64 t; atom.global.add.f64 t, [%0], %1; }" ::"l"(dst), "d"(inc));
 #     else
   union {
     T f;

@@ -482,7 +482,7 @@
 #   define OZAKI_BYTE_T uchar
 #   define OZAKI_BYTE4_T uchar4
 #   define NV_MMA_16x8x32(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1) \
-      asm("mma.sync.aligned.m16n8k32.row.col.s32.u8.u8.s32 " \
+      __asm__("mma.sync.aligned.m16n8k32.row.col.s32.u8.u8.s32 " \
         "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
         : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
         : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
@@ -491,7 +491,7 @@
 #   define OZAKI_BYTE_T char
 #   define OZAKI_BYTE4_T char4
 #   define NV_MMA_16x8x32(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1) \
-      asm("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 " \
+      __asm__("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 " \
         "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%8,%9}, {%10,%11,%12,%13};" \
         : "=r"(D0), "=r"(D1), "=r"(D2), "=r"(D3) \
         : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
@@ -602,11 +602,11 @@
 
 /* PTX dp4a: 4-element dot product of packed bytes with int32 accumulator. */
 # if defined(OZAKI_U8) && (OZAKI_U8)
-#   define NV_DP4A(D, A, B, C) asm("dp4a.u32.u32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
+#   define NV_DP4A(D, A, B, C) __asm__("dp4a.u32.u32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
 #   define OZAKI_BYTE_T uchar
 #   define OZAKI_BYTE4_T  uchar4
 # else
-#   define NV_DP4A(D, A, B, C) asm("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
+#   define NV_DP4A(D, A, B, C) __asm__("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
 #   define OZAKI_BYTE_T char
 #   define OZAKI_BYTE4_T  char4
 # endif
@@ -678,9 +678,9 @@
     do { \
       CONSTANT const uint* arp_ = (CONSTANT const uint*)((CONSTANT const OZAKI_BYTE_T*)(AS) \
         + (long)(ROW) * (K_PAD) + (KOFF)); \
-      asm(OZAKI_PTX_LD_V4 " {%0,%1,%2,%3}, [%4];" \
+      __asm__(OZAKI_PTX_LD_V4 " {%0,%1,%2,%3}, [%4];" \
         : "=r"((ADST)[0]), "=r"((ADST)[1]), "=r"((ADST)[2]), "=r"((ADST)[3]) : "l"(arp_)); \
-      asm(OZAKI_PTX_LD_V4 " {%0,%1,%2,%3}, [%4];" \
+      __asm__(OZAKI_PTX_LD_V4 " {%0,%1,%2,%3}, [%4];" \
         : "=r"((ADST)[4]), "=r"((ADST)[5]), "=r"((ADST)[6]), "=r"((ADST)[7]) : "l"(arp_ + 4)); \
     } while (0)
 # else

@@ -86,7 +86,7 @@
   } while (0)
 #elif defined(NV) && (2 <= NV) && defined(STENCIL_INT8) && (1 == STENCIL_INT8)
 #define STENCIL_I8_DP4A(D, A, B, C) \
-  asm("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
+  __asm__("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
 #define STENCIL_I8_ACC(CUR_DK, BUF_CUR, CUR_NSLICES_EFF, CUR_ASSUMED_EXP, MI, ACC_SLOT) \
   do { int sa_, sb_; \
     const int sg_lid_i8_ = (int)SGLID(); \
