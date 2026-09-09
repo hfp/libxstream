@@ -125,16 +125,16 @@
 /* The kernel sources derive STENCIL_WIDTH from RADIUS, which varies per instance. */
 #undef STENCIL_WIDTH
 
+/* Wavefield element count, which the BF16 two-limb format offsets the low limb by. */
+static long stencil_cpu_p_n;
+#define STENCIL_P_N stencil_cpu_p_n
+
 /**
  * Array geometry the JIT supplies as -D per launch and a host build cannot:
  * {sx, sy} strides and {lx, ly, lz} halo of the wavefield. Uniform for the whole
  * launch, hence not threadprivate. Only the Z-innermost layout indexes through
  * them, and STENCIL_LAYOUT_ZYX is not spelled out yet at this point.
  */
-/* Wavefield element count, which the BF16 two-limb format offsets the low limb by. */
-static long stencil_cpu_p_n;
-#define STENCIL_P_N stencil_cpu_p_n
-
 #if (2 == STENCIL_LAYOUT)
 static long stencil_cpu_stride[6];
 static int stencil_cpu_halo[3];
@@ -232,9 +232,9 @@ int stencil_cpu_apply_direct(const float* p_grid, float* p_old,
   else {
     /**
      * One flat loop over the work-groups rather than a collapsed nest: the
-     * group coordinates stay body-local, hence private without a clause.
+     * group coordinates stay body-local, hence private without a clause. The
+     * tile is as wide as the fast axis allows, capped by the compile-time room.
      */
-    /* Tile as wide as the fast axis allows, capped by the compile-time room. */
 #if (STENCIL_LAYOUT_ZYX == STENCIL_LAYOUT)
     const int nfast = nz, nmed = ny, nslow = nx;
 #else

@@ -7,9 +7,6 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#include "ozaki_opencl.h"
-
-
 /**
  * GPU-native complex GEMM via block embedding.
  * All intermediate buffers remain on device to minimize PCIe transfers.
@@ -26,6 +23,10 @@
  * same complex row/column share a common Ozaki exponent base, eliminating
  * the catastrophic cancellation that plagued the 3M (Karatsuba) method.
  */
+
+#include "ozaki_opencl.h"
+
+
 /**
  * One workspace slot, grown when a larger call arrives and never shrunk: a sweep
  * visits sizes in both directions, and freeing on the way down would pay the
@@ -215,8 +216,10 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
    */
   if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
 
-  /* Cleanup device buffers */
-  /* the workspace outlives the call; ozaki_destroy releases it */
+  /**
+   * no device buffers to clean up: the workspace outlives the call and
+   * ozaki_destroy releases it
+   */
 
   return result;
 }

@@ -54,6 +54,24 @@
 # define OZAKI_WGS_MAX_NV 4
 #endif
 
+/**
+ * Accumulator budget of a warp-group tile, in registers per work-group, which works
+ * out to exactly BM*BN: a work-item holds BN/2 accumulators (RTN=BN/8 sub-tiles of
+ * XMX_FRAG) and a work-group runs 2*BM of them. A 64K register file therefore admits
+ * BM*BN=32768 with room for the A fragments and addressing, and nothing beyond it.
+ *
+ * That is what bounds operand reuse, since staged bytes go as 1/BM + 1/BN. Measured on
+ * GH200 at n=4096, staging alone against the whole kernel: 128x256 stages 1.182 ms of
+ * 2.114, and 256x256 stages 0.834 - the 29% fewer bytes the model predicts, and 39% at
+ * n=8192 - but its 65536 leaves nothing for anything else and the MMA goes 1.575 -> 34.2
+ * on spills. Under the bound only 128x256 and 256x128 remain, they tie on bytes, and the
+ * wide-B orientation wins (2.114 against 3.057) because A is fetched per warp through L1
+ * while B is staged cooperatively. The default is the optimum, not a starting point.
+ */
+#if !defined(OZAKI_WGMMA_ACCMAX)
+# define OZAKI_WGMMA_ACCMAX 32768
+#endif
+
 
 /* Internal helpers */
 static const uint16_t ozaki_u8_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
@@ -847,10 +865,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          * for the register-pressure trade (64 accumulators per thread instead of
          * 32). OZAKI_WGMMA_N picks the width; anything else falls back to 128.
          *
-         * 256 raises that ratio again, which is what the knobs point at: BN 128 -> 64
-         * costs 47% while BM 128 -> 256 gains nothing and rasterization is inert, so
-         * the cost is per-chunk overhead, not DRAM locality. Two n128 issues over the
-         * same A fragments, hence 128 accumulators per work-item.
+         * 256 raises that ratio again: BN 128 -> 64 costs 47%, and rasterization is
+         * inert, so the cost is per-chunk overhead rather than DRAM locality. Two n128
+         * issues over the same A fragments, hence 128 accumulators per work-item, and
+         * that count is what closes the width here - see OZAKI_WGMMA_ACCMAX, which also
+         * retires the earlier reading that BM 128 -> 256 gained nothing: the ceiling
+         * refused it for any BN >= 128, so it had never been compiled to gain anything.
          */
         const char *const env_wn = getenv("OZAKI_WGMMA_N");
         const int wn_req = (NULL != env_wn) ? atoi(env_wn) : 0;
@@ -946,7 +966,25 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * Only the symmetrized loop, whose base moved, is sized this way; the
        * square loop keeps its ceiling until the same sweep has been run for it.
        */
-      { const ozaki_tile_t rmax = ozaki_rtile_grow(rtm, rtn);
+      /**
+       * The warp-group path has its own geometry and must be sized on it: it
+       * dispatches RTM=1 and RTN=BN/8, so NTN is 1 by construction and the
+       * work-group is SG * BM/XMX_M sub-groups, never a function of BN. Sized from
+       * the base pair instead, a 256x256 request estimates SG*8*16 = 4096 against a
+       * 1024 bound and BM is clamped back to 128 - so the 256-row tile was never
+       * compiled for any BN >= 128, and the request then cost twice over, because
+       * ozaki_wgmma_depth reads tm < tm_req and halves the staging depth. The
+       * default (BM=128) is unaffected either way; only the wider request was lost.
+       */
+      if (0 != wgmma) {
+        while ((size_t)sg * (size_t)(tm / xmx_m) > max_wgs && tm > xmx_m) tm >>= 1;
+        /* Rows go first: BN is what the accumulators pay for and what B's reuse buys. */
+        while (OZAKI_WGMMA_ACCMAX < tm * tn && tm > xmx_m) tm >>= 1;
+        /* The depth rule reads tm against this, so a ceiling refusal must not look
+         * like a narrowed call - that halved the staging depth as well (KU/2). */
+        ctx->tm_req = tm;
+      }
+      else { const ozaki_tile_t rmax = ozaki_rtile_grow(rtm, rtn);
         const int wide = (0 != (ozflags & OZAKI_SYMMETRIZE) && 0 == rtm_req && 0 == rtn_req
           && 1 == ctx->sb && 0 != devinfo->intel && 0 != gpu && 0 == ctx->nv_mma);
         const int gm = xmx_m * (0 != wide ? rmax.m : rtm), gn = xmx_n * (0 != wide ? rmax.n : rtn);

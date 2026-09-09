@@ -12,6 +12,17 @@
 #include <libxs/libxs_hash.h>
 #include <libxs/libxs_mem.h>
 
+/**
+ * Descriptor strides of the staged B tile in 16-byte units, mirroring
+ * OZAKI_WGMMA_BSTAGE: a core matrix is 8 columns, hence 128 bytes contiguous, the next
+ * column octet follows it, and a k-block spans the tile's whole width. Both live here
+ * because the splice bakes them into the descriptor while the kernel writes the layout
+ * they describe - change one and the other has to move with it, or the GEMM reads B
+ * from the wrong addresses and only the results say so.
+ */
+#define OZAKI_WGMMA_SBO 8
+#define OZAKI_WGMMA_LBO(BN_) (BN_)
+
 
 /**
  * Local helper functions (static) to manage kernel argument setup and launches.
@@ -60,16 +71,6 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
  * Returns the patched text (libxs_free by the caller) or NULL, in which case the
  * kernel must be refused rather than run: markers alone accumulate nothing.
  */
-/**
- * Descriptor strides of the staged B tile in 16-byte units, mirroring
- * OZAKI_WGMMA_BSTAGE: a core matrix is 8 columns, hence 128 bytes contiguous, the next
- * column octet follows it, and a k-block spans the tile's whole width. Both live here
- * because the splice bakes them into the descriptor while the kernel writes the layout
- * they describe - change one and the other has to move with it, or the GEMM reads B
- * from the wrong addresses and only the results say so.
- */
-#define OZAKI_WGMMA_SBO 8
-#define OZAKI_WGMMA_LBO(BN_) (BN_)
 
 static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, int sbo, int lbo, int u8)
 {
@@ -859,17 +860,17 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           else eff_cutoff = -1;
           ctx->cache.last_cutoff = eff_cutoff;
         }
-      /* Launch GEMM for this K-group */
-      { const int bounds = (0 != M % tm || 0 != N % tn);
-        { cl_kernel kern_g = ozaki_get_fused_kernel(ctx, eff_cutoff, bounds, tm, tn, rt.m, rt.n);
-          if (NULL != kern_g) {
-            result = ozaki_launch_fused(ctx, stream, kern_g, NULL /*kern_r*/, d_as, d_bs, d_expa_g, d_expb_g, elem_size, d_cg,
-              NULL /*d_res*/, M, N, k_pad, n_pad, ldc, m_pad, tm,
-              tn, ntm, ntn, alpha, first_pair, ctx->use_double);
+        /* Launch GEMM for this K-group */
+        { const int bounds = (0 != M % tm || 0 != N % tn);
+          { cl_kernel kern_g = ozaki_get_fused_kernel(ctx, eff_cutoff, bounds, tm, tn, rt.m, rt.n);
+            if (NULL != kern_g) {
+              result = ozaki_launch_fused(ctx, stream, kern_g, NULL /*kern_r*/, d_as, d_bs, d_expa_g, d_expb_g, elem_size, d_cg,
+                NULL /*d_res*/, M, N, k_pad, n_pad, ldc, m_pad, tm,
+                tn, ntm, ntn, alpha, first_pair, ctx->use_double);
+            }
+            else result = EXIT_FAILURE;
           }
-          else result = EXIT_FAILURE;
         }
-      }
       } /* end adaptive cutoff scope */
       first_pair = 0; /* subsequent groups accumulate */
     } /* end K-group loop */

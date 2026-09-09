@@ -7,3 +7,7 @@
 # Per project, and deliberately not a policy file: "make documentation" copies
 # tool_checkstruct.py from LIBXS and would revert a count lowered here.
 # Regenerate with: scripts/tool_checkstruct.py --counts $(git ls-files)
+# ozaki_opencl.c is being edited right now, so the two tree-wide rules that
+# reach it are deferred rather than scrubbed under a live change.
+blank-in-function   1  samples/ozaki/ozaki_opencl.c
+stacked-comments    5  samples/ozaki/ozaki_opencl.c

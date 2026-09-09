@@ -10,8 +10,6 @@
 #ifndef STENCIL_HOSTMEM_H
 #define STENCIL_HOSTMEM_H
 
-#include <stddef.h>
-
 /**
  * Stands in for the parts of LIBXSTREAM the sample uses when the kernel runs
  * on the host (make CPU=1). Host and device share one address space there, so
@@ -22,6 +20,9 @@
  * sample must not define symbols that belong to LIBXSTREAM, and the call sites
  * stay recognizable as the host path.
  */
+
+#include <stddef.h>
+
 
 /* Opaque stream handle: nothing on the host is asynchronous. */
 typedef struct libxstream_stream_t libxstream_stream_t;

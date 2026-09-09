@@ -109,25 +109,6 @@ typedef struct ozaki_cache_t {
 } ozaki_cache_t;
 
 /**
- * Device scratch arena for the transient buffers of one call: the residue
- * planes, the device copy of C, and the operand uploads. They are carved from
- * one allocation that outlives the call instead of being created and destroyed
- * per call, which on a device without a memory pool is what dominates the wall
- * clock - 402 MB of create/destroy per call at n=4096, measured as 29 of 34 ms
- * on a GH200, where libxstream's pool does not exist because it is gated on USM.
- *
- * Per context, because that is what a BLAS interceptor can use: it holds one
- * context for the process and has no way to be handed memory by the
- * application. A caller that does own device memory can install it instead
- * (ozaki_scratch_set), in which case the arena is never grown or freed here.
- *
- * The arena is claimed for the duration of a call, so a second call on the same
- * context does not wait for it - it falls back to per-call allocation. That is
- * the same property a cuBLAS handle's workspace has, and it keeps the footprint
- * one arena rather than one per thread; a caller that wants concurrency without
- * the fallback should use a context per thread.
- */
-/**
  * Persistent workspace for the complex path, kept per context and grown on
  * demand rather than created and destroyed per call: on a device whose runtime
  * has no memory pool that churn dominated the wall clock, 35 of 38.7 ms at
@@ -147,6 +128,25 @@ typedef struct ozaki_zwork_t {
 } ozaki_zwork_t;
 
 
+/**
+ * Device scratch arena for the transient buffers of one call: the residue
+ * planes, the device copy of C, and the operand uploads. They are carved from
+ * one allocation that outlives the call instead of being created and destroyed
+ * per call, which on a device without a memory pool is what dominates the wall
+ * clock - 402 MB of create/destroy per call at n=4096, measured as 29 of 34 ms
+ * on a GH200, where libxstream's pool does not exist because it is gated on USM.
+ *
+ * Per context, because that is what a BLAS interceptor can use: it holds one
+ * context for the process and has no way to be handed memory by the
+ * application. A caller that does own device memory can install it instead
+ * (ozaki_scratch_set), in which case the arena is never grown or freed here.
+ *
+ * The arena is claimed for the duration of a call, so a second call on the same
+ * context does not wait for it - it falls back to per-call allocation. That is
+ * the same property a cuBLAS handle's workspace has, and it keeps the footprint
+ * one arena rather than one per thread; a caller that wants concurrency without
+ * the fallback should use a context per thread.
+ */
 typedef struct ozaki_scratch_t {
   void* ptr; /* arena base, NULL until first use */
   size_t size; /* capacity of ptr */

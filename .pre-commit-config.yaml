@@ -223,6 +223,21 @@ repos:
     args: ["--only=macro-name,macro-parameter,macro-local"]
     language: script
     files: '^(src|libxs|libxstream)/.*\.(c|h)$|\.cl$'
+  # Three of the rules hold wherever code is read, so this hook takes the whole
+  # tree: a comment that has come loose from what it documents, two closers
+  # sharing a column, and a second blank line inside a body all mislead a
+  # reader of a sample exactly as they do in the library. The rest stay scoped
+  # above, because a sample that bails out of main() early is not the same
+  # defect. Measured before widening: 8 findings in LIBXS and 15 in LIBXSTREAM,
+  # against 616 and 55 for the full rule set. The library files are covered
+  # twice, here and by "structure"; both reach the same verdict, so the overlap
+  # costs a second pass and nothing else.
+  - id: structure-anywhere
+    name: structural rules that hold outside the library too
+    entry: scripts/tool_checkstruct.py
+    args: ["--only=stacked-comments,closer-nesting,blank-in-function"]
+    language: script
+    files: '\.(c|h|cl)$'
   # Tree-global rather than per-file: it compares what the source reads
   # against what the documentation mentions, so it takes no filenames. The
   # deferred names live in the script, 9 in LIBXS and 23 in LIBXSTREAM;

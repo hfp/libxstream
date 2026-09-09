@@ -10,12 +10,13 @@
 #ifndef STENCIL_WEIGHTS_H
 #define STENCIL_WEIGHTS_H
 
-#include "stencil_opencl.h"
-
 /**
  * Operator weights, shared by the device and the host backend: the method
  * decides the radius the kernel is built for, and the weights that go with it.
  */
+
+#include "stencil_opencl.h"
+
 
 /* Sub-steps and per-step radius of a method; STENCIL_RADIUS_FIT tunes the fit. */
 int stencil_method_params(stencil_method_t method, int* k_steps, int* r_per_step);
