@@ -536,7 +536,7 @@
  * expects them and everything after the K-loop - mod-reduce, hierarchical
  * Garner, Horner, store - is reused unchanged.
  *
- * BM selects how many warp groups a work-group runs (WG_NGROUPS = BM/64). Two of
+ * BM selects how many warp groups a work-group runs, BM/64 of them. Two of
  * them (BM=128, 256 work-items) halve the residue-plane traffic per output
  * because both read the same staged B tile, at no cost in accumulators per
  * thread: the rows are added by adding warps, not registers. Warp-group rank in
@@ -561,11 +561,8 @@
  * splice keeps the width it already handles and 64 operands still cover one
  * instruction's accumulators. It doubles the MMA work behind an A load, a barrier
  * and a drain, which is why columns pay where warp groups (BM=256) do not. A must
- * be in registers: the SS form would stage 2*(BM+BN)*WBK and not fit.
+ * be in registers: staging it too would want 2*(BM+BN)*WBK and not fit.
  */
-# if (32 == RTN) && (!defined(OZAKI_WGMMA_RS) || (0 == OZAKI_WGMMA_RS))
-#   error RTN=32 implies OZAKI_WGMMA_RS (staging both operands does not fit).
-# endif
 # if (64 != BM) && (128 != BM) && (256 != BM)
 #   error OZAKI_WGMMA implies BM=64, 128 or 256 (one, two or four warp groups).
 # endif
@@ -592,8 +589,6 @@
 # endif
 # define WBK (WKU * BK)
 # define WGS (SG * (BM / (XMX_M * RTM)) * (BN / (XMX_N * RTN)))
-# define WG_NGROUPS (BM / 64)
-# define WG_NSUB (64 / (XMX_M * RTM))
 
 /**
  * The fence pair every issue needs: one orders the shared stores against the async
@@ -646,10 +641,9 @@
 
 /**
  * One issue per K-chunk; the marker names the shape so the host need not assume it.
- * Two forms, distinguished by the marker itself so the splice needs no flag: SS
- * takes both operands from shared memory through descriptors, RS takes A from
- * registers (OZAKI_WGMMA_RS) and only B keeps a descriptor. The operand lists are
- * built here once; the marker text they produce is what the splice parses.
+ * A arrives in registers and only B keeps a descriptor, so the marker always carries
+ * "a={". The operand lists are built here once; the marker text they produce is what
+ * the splice parses.
  */
 # define OZAKI_WGMMA_ACC4(A, I) "+r"((A)[(I)]), "+r"((A)[(I) + 1]), "+r"((A)[(I) + 2]), "+r"((A)[(I) + 3])
 # define OZAKI_WGMMA_ACC16(A, I) \
@@ -660,29 +654,13 @@
     "%23,%24,%25,%26,%27,%28,%29,%30,%31"
 # define OZAKI_WGMMA_D64 OZAKI_WGMMA_D32 ",%32,%33,%34,%35,%36,%37,%38,%39,%40,%41,%42,%43," \
     "%44,%45,%46,%47,%48,%49,%50,%51,%52,%53,%54,%55,%56,%57,%58,%59,%60,%61,%62,%63"
-# if (16 == RTN)
-# define OZAKI_WGMMA_ISSUE(ACCS, PA, PB_) \
-    do { \
-      OZAKI_WGMMA_FENCE_ISSUE(); \
-      asm volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} pa=%64 pb=%65" \
-        : OZAKI_WGMMA_ACC64(ACCS) : "l"(PA), "l"(PB_)); \
-    } while (0)
-# else
-# define OZAKI_WGMMA_ISSUE(ACCS, PA, PB_) \
-    do { \
-      OZAKI_WGMMA_FENCE_ISSUE(); \
-      asm volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} pa=%32 pb=%33" \
-        : OZAKI_WGMMA_ACC32(ACCS) : "l"(PA), "l"(PB_)); \
-    } while (0)
-# endif
-
-# if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
 # if (16 == RTN) || (32 == RTN)
 # define OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_) \
     do { \
       OZAKI_WGMMA_FENCE_ISSUE(); \
       asm volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} a={%64,%65,%66,%67} pb=%68" \
         : OZAKI_WGMMA_ACC64(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_)); \
+      OZAKI_WGMMA_COMMIT_ISSUE(); \
     } while (0)
 # else
 # define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
@@ -690,6 +668,7 @@
       OZAKI_WGMMA_FENCE_ISSUE(); \
       asm volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} a={%32,%33,%34,%35} pb=%36" \
         : OZAKI_WGMMA_ACC32(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(PB_)); \
+      OZAKI_WGMMA_COMMIT_ISSUE(); \
     } while (0)
 # endif
 /**
@@ -706,7 +685,6 @@
 # elif (16 == RTN)
 # define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
     OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, PB_)
-# endif
 # endif
 
 /**
@@ -750,11 +728,11 @@
 #   define OZAKI_WGMMA_NWAIT ((OZAKI_WGMMA_STAGES) - 2)
 # endif
 
-# if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
 /**
- * A straight from global memory into registers, which is what the RS form exists
- * for: no staging, no shared memory and no barrier on the A side, so the tile's
- * shared footprint and its copy count both halve.
+ * A goes straight from global memory into registers: no staging, no shared memory and
+ * no barrier on the A side, so the tile's shared footprint and its copy count halve
+ * against staging both operands (which measured 6.92 -> 5.45 ms at n=4096 and
+ * 60.3 -> 44.0 at 8192, bit-identical, and could not hold a 256-column tile at all).
  *
  * The layout the instruction expects is mma.sync's m16n8k32 A fragment repeated
  * per warp - a0=(r,k), a1=(r+8,k), a2=(r,k+16), a3=(r+8,k+16) with r = MI + lane/4
@@ -770,9 +748,6 @@
  * copy-count slope that governs cp.async does not apply here - that one is paid per
  * asynchronous transaction, this one coalesces.
  */
-# if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK) && (!defined(OZAKI_WGMMA_RS) || (0 == OZAKI_WGMMA_RS))
-#   error OZAKI_ABLOCK is the RS form's fragment layout; the staged paths read A row-major.
-# endif
 # if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
 /* One 512-byte run per warp, the lane's four registers contiguous; see OZAKI_IDX_AS. */
 # define OZAKI_WGMMA_ALOAD(AS_K, K_PAD_, MI, KOFF, LANE, A0, A1, A2, A3) \
@@ -791,26 +766,7 @@
       (A3) = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD_) + 16); \
     } while (0)
 # endif
-# endif
 
-/**
- * Stage one K-round of A into shared memory in wgmma's core-matrix layout: 8x16
- * byte core matrices stored contiguously, blocks ordered (m_block, k_block)
- * row-major. Global A is [M_pad][K_pad], so rows of the tile are contiguous in K:
- * one work-item moves 16 bytes and consecutive work-items cover consecutive
- * chunks of a row. With two warp groups the m-blocks of the second are simply the
- * upper half of the same array, which is why staging needs no notion of them.
- */
-# define OZAKI_WGMMA_ASTAGE(AS_K, K_PAD_, MB, KOFF, SA, WT) \
-    do { \
-      int ia_; \
-      for (ia_ = (WT); ia_ < (BM * WBK) / 16; ia_ += WGS) { \
-        const int m_ = ia_ / (WBK / 16); \
-        const int j_ = ia_ % (WBK / 16); \
-        OZAKI_WGMMA_COPY16((SA) + (((m_ >> 3) * (WBK / 16) + j_) * 8) + (m_ & 7), \
-          (AS_K) + (long)((MB) + m_) * (K_PAD_) + (KOFF) + j_ * 16); \
-      } \
-    } while (0)
 
 # if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
 /**
@@ -865,50 +821,8 @@
     } while (0)
 # endif
 
-/**
- * The whole K-loop for one prime, double-buffered: wait for the round staged last
- * time, publish it with one barrier (which also proves every warp has finished
- * reading the other buffer), start the next round's copies, then issue this
- * round's MMAs so the copies overlap them. One barrier per round instead of two,
- * and the global-to-shared latency is hidden rather than waited on.
- *
- * WG is the warp-group rank. Staging is over the whole work-group, so the barrier
- * publishes both A halves and the single B tile at once; only the issue is
- * per-warp-group, reading its own 64 rows of A (WG * nawg_) and the shared B.
- */
-# define OZAKI_CRT_KLOOP_W(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD_, N_PAD_, MB, NB, PIDX, ACCS, SA, SB, WT, WG) \
-    do { \
-      CONSTANT const char* asw_ = (AS_BASE) + (long)(PIDX) * (A_PLANE); \
-      CONSTANT const char* bsw_ = (BS_BASE) + (long)(PIDX) * (B_PLANE); \
-      const int nasz_ = (BM * WBK) / 16; \
-      const int nbsz_ = (BN * WBK) / 16; \
-      const int nawg_ = nasz_ / WG_NGROUPS; \
-      int kw_, buf_ = 0; \
-      OZAKI_WGMMA_ASTAGE(asw_, K_PAD_, MB, 0, SA, WT); \
-      OZAKI_WGMMA_BSTAGE(bsw_, N_PAD_, K_PAD_, NB, 0, SB, WT); \
-      OZAKI_WGMMA_COMMIT(); \
-      for (kw_ = 0; kw_ < (K_PAD_); kw_ += WBK) { \
-        const int next_ = kw_ + WBK; \
-        int cw_; \
-        OZAKI_WGMMA_WAIT(); \
-        barrier(CLK_LOCAL_MEM_FENCE); \
-        if (next_ < (K_PAD_)) { \
-          OZAKI_WGMMA_ASTAGE(asw_, K_PAD_, MB, next_, (SA) + (1 - buf_) * nasz_, WT); \
-          OZAKI_WGMMA_BSTAGE(bsw_, N_PAD_, K_PAD_, NB, next_, (SB) + (1 - buf_) * nbsz_, WT); \
-          OZAKI_WGMMA_COMMIT(); \
-        } \
-        OZAKI_WGMMA_FENCE_ROUND(); \
-        UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
-          OZAKI_WGMMA_ISSUE(ACCS, (SA) + buf_ * nasz_ + (WG) * nawg_ + cw_ * 16, \
-            (SB) + buf_ * nbsz_ + cw_ * 16); \
-        } \
-        OZAKI_WGMMA_COMMIT_ROUND(); \
-        OZAKI_WGMMA_MMAWAIT(); \
-        buf_ = 1 - buf_; \
-      } \
     } while (0)
 
-# if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
 /**
  * A in registers: only B is staged, so a round costs one cp.async group and one
  * barrier for half the shared memory. OZAKI_WGMMA_DEFER moves the MMA wait from
@@ -925,7 +839,7 @@
  * the staging moves above the drain to run under those MMAs. The drain stays a
  * full wait_group 0, which is what proves the third buffer has no reader left.
  * Depth halves to keep the two-stage footprint; equal depth is the SLM/L1 cliff
- * (9.67 ms at 192 KB, since the RS form fetches A through L1).
+ * (9.67 ms at 192 KB, since A is fetched through L1).
  */
 # if (3 != OZAKI_WGMMA_STAGES) && (2 != OZAKI_WGMMA_STAGES)
 #   error OZAKI_WGMMA_STAGES must be 2 or 3.
@@ -1004,7 +918,6 @@
       } \
       OZAKI_WGMMA_DRAIN(); \
     } while (0)
-# endif
 
 #endif /* OZAKI_WGMMA */
 
@@ -1013,14 +926,10 @@
  * once so the fused and unfused prime loops below cannot drift apart; it reads the
  * kernel's own operands (as, bs, the padded extents, the tile bases) by name.
  */
-#if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
+#if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
 # define OZAKI_CRT_KLOOP_RUN(ACC, PIDX) \
     OZAKI_CRT_KLOOP_WRS(as, bs, a_plane, b_plane, K_pad, N_pad, mi_base, nb_base, PIDX, \
       (ACC).s_, wg_sb, wt, sg_lid)
-#elif defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
-# define OZAKI_CRT_KLOOP_RUN(ACC, PIDX) \
-    OZAKI_CRT_KLOOP_W(as, bs, a_plane, b_plane, K_pad, N_pad, mb_base, nb_base, PIDX, \
-      (ACC).s_, wg_sa, wg_sb, wt, wg_id)
 #else
 # define OZAKI_CRT_KLOOP_RUN(ACC, PIDX) \
     do { \
@@ -1891,14 +1800,7 @@ kernel void gemm_crt_fused(
   /* Work-group tile base (staging is cooperative, unlike the per-sub-group MI/NJ). */
   const int nb_base = jb_idx * BN;
   const int wt = sg_id * SG + sg_lid;
-# if defined(OZAKI_WGMMA_RS) && (OZAKI_WGMMA_RS)
   local uint4 wg_sb[OZAKI_WGMMA_STAGES * ((BN * WBK) / 16)]; /* staged B only; A needs none */
-# else
-  const int mb_base = ib_idx * BM;
-  const int wg_id = sg_id / WG_NSUB;
-  local uint4 wg_sa[2 * ((BM * WBK) / 16)]; /* double-buffered */
-  local uint4 wg_sb[2 * ((BN * WBK) / 16)];
-# endif
 #endif
 #if defined(OZAKI_UNFUSE) && (OZAKI_UNFUSE)
   /**

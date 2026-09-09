@@ -45,11 +45,8 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
  * core matrix 16 bytes apart, the two K-halves of a row 128 bytes apart, and
  * m-blocks (WBK/16) core matrices apart.
  *
- * The marker states which operand form it wants, so this pass needs no flag from
- * the caller: "pa=" is the SS form, both operands described out of shared memory,
- * and "a={" is the RS form, where A arrives in registers and only B keeps a
- * descriptor (%wgda is then declared and unused, which is legal and cheaper than
- * scanning for the form before the prologue is written).
+ * A arrives in registers and only B is described out of shared memory, so every
+ * marker carries "a={" and a marker without it is refused rather than guessed at.
  *
  * fence.proxy.async.shared::cta is not optional: the tiles are written with
  * ordinary shared-memory stores, and wgmma reads them through the async proxy,
@@ -109,11 +106,11 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
       const char* brace = (NULL != found) ? strchr(found, '{') : NULL;
       size_t off = 0;
       int ok = (NULL != brace) ? EXIT_SUCCESS : EXIT_FAILURE;
-      if (EXIT_SUCCESS == ok) { /* two descriptor temporaries, declared once */
+      if (EXIT_SUCCESS == ok) { /* the B descriptor temporary, declared once */
         const size_t prefix = (size_t)(brace - retargeted) + 1;
         memcpy(out, retargeted, prefix);
         off = prefix;
-        off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\n\t.reg .b64 %%wgda;\n\t.reg .b64 %%wgdb;\n");
+        off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\n\t.reg .b64 %%wgdb;\n");
         src = brace + 1;
       }
       while (EXIT_SUCCESS == ok) {
@@ -127,7 +124,7 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
         const char* line;
         const char* eol;
         size_t head;
-        char pa[32], pb[32];
+        char pb[32];
         int width = 0;
         if (NULL == first || (NULL != f && f < first)) first = f;
         if (NULL == first || (NULL != c && c < first)) first = c;
@@ -168,14 +165,13 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
           dlist = strstr(m, " d={");
           dend = (NULL != dlist) ? strchr(dlist, '}') : NULL;
           if (NULL != dlist) dlist += 4; /* past " d={" */
-          if (NULL != dend && 0 == strncmp(dend, "} a={", 5)) { /* A from registers */
+          if (NULL != dend && 0 == strncmp(dend, "} a={", 5)) {
             alist = dend + 5;
             aend = strchr(alist, '}');
           }
-          if (NULL == dend || 1 != sscanf(m + sizeof(marker) - 1, "%i", &width) ||
-              (64 != width && 128 != width) ||
-              (NULL == alist ? (2 != sscanf(dend, "} pa=%31s pb=%31s", pa, pb))
-                             : (NULL == aend || 1 != sscanf(aend, "} pb=%31s", pb))))
+          if (NULL == dend || NULL == alist || NULL == aend ||
+              1 != sscanf(m + sizeof(marker) - 1, "%i", &width) || (64 != width && 128 != width) ||
+              1 != sscanf(aend, "} pb=%31s", pb))
           {
             ok = EXIT_FAILURE;
           }
@@ -183,12 +179,6 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
             const size_t ndig = (size_t)(dend - dlist);
             memcpy(out + off, src, head);
             off += head;
-            if (NULL == alist) {
-              off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
-                "\tshr.u64 %%wgda, %s, 4;\n\tand.b64 %%wgda, %%wgda, 16383;\n"
-                "\tor.b64 %%wgda, %%wgda, 0x%x%08x;\n",
-                pa, desc_hi, desc_lo);
-            }
             off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
               "\tshr.u64 %%wgdb, %s, 4;\n\tand.b64 %%wgdb, %%wgdb, 16383;\n"
               "\tor.b64 %%wgdb, %%wgdb, 0x%x%08x;\n"
@@ -196,16 +186,10 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
               pb, desc_hi, desc_lo, width, etype, etype);
             memcpy(out + off, dlist, ndig);
             off += ndig;
-            if (NULL == alist) {
-              off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, %%wgda, ");
-            }
-            else {
-              off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, {");
-              memcpy(out + off, alist, (size_t)(aend - alist));
-              off += (size_t)(aend - alist);
-              off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, ");
-            }
-            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "%%wgdb, 1;\n");
+            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, {");
+            memcpy(out + off, alist, (size_t)(aend - alist));
+            off += (size_t)(aend - alist);
+            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, %%wgdb, 1;\n");
             src = eol + 1;
           }
         }
@@ -304,7 +288,7 @@ static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, in
  * and the tile request have already consumed, and would leave the fallback at
  * RTN=16, where the mma.sync kernel measured 21.5 against 15.4 ms.
  */
-int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes, int rs)
+int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lbytes)
 {
   const int nacc = width / 2; /* RTN * XMX_FRAG accumulators per work-item */
   const unsigned int nvec = (unsigned int)(lbytes / 16);
@@ -325,10 +309,8 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lby
       "  int d[%i];\n"
       "  int i;\n",
       nvec, nacc);
-    if (0 != rs) {
-      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
-        "  const uint a0 = (uint)n, a1 = a0, a2 = a0, a3 = a0;\n");
-    }
+    off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
+      "  const uint a0 = (uint)n, a1 = a0, a2 = a0, a3 = a0;\n");
     off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
       "  for (i = 0; i < %i; ++i) d[i] = n;\n"
       "  for (i = (int)get_local_id(0); i < %u; i += (int)get_local_size(0)) s[i] = (uint4)(0);\n"
@@ -338,25 +320,15 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, int wbk, size_t lby
     for (i = 0; i < nacc; ++i) {
       off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "%s%%%i", (0 != i) ? "," : "", i);
     }
-    if (0 != rs) {
-      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "} a={%%%i,%%%i,%%%i,%%%i} pb=%%%i\"\n    : ",
-        nacc, nacc + 1, nacc + 2, nacc + 3, nacc + 4);
-    }
-    else {
-      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "} pa=%%%i pb=%%%i\"\n    : ", nacc, nacc + 1);
-    }
+    off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "} a={%%%i,%%%i,%%%i,%%%i} pb=%%%i\"\n    : ",
+      nacc, nacc + 1, nacc + 2, nacc + 3, nacc + 4);
     for (i = 0; i < nacc; ++i) {
       off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "%s\"+r\"(d[%i])", (0 != i) ? ", " : "", i);
     }
-    if (0 != rs) {
-      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
-        " : \"r\"(a0), \"r\"(a1), \"r\"(a2), \"r\"(a3), \"l\"(s));\n");
-    }
-    else {
-      off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, " : \"l\"(s), \"l\"(s + %u));\n", nvec / 2);
-    }
     off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
-      "  asm volatile(\"// WGMMA_WAIT\" ::: \"memory\");\n"
+      " : \"r\"(a0), \"r\"(a1), \"r\"(a2), \"r\"(a3), \"l\"(s));\n");
+    off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
+      "  asm volatile(\"// WGMMA_WAIT 0\" ::: \"memory\");\n"
       "  for (i = 0; i < %i; ++i) c[i] = d[i];\n}\n",
       nacc);
     result = (cap > off) ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -409,10 +381,10 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
  */
 static int ozaki_wgmma_depth(const ozaki_context_t* ctx, int tm, int tn, int* defer, int* stages)
 {
-  const int wku_n = (0 != ctx->wgmma_rs && 0 < tn && tn < ctx->tn_req) ? (ctx->ku * (ctx->tn_req / tn)) : ctx->ku;
-  const int wku = (0 != ctx->wgmma_rs && tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
+  const int wku_n = (0 < tn && tn < ctx->tn_req) ? (ctx->ku * (ctx->tn_req / tn)) : ctx->ku;
+  const int wku = (tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
   const int wide = (128 == tm && 256 == tn);
-  const int dfr = (0 != ctx->wgmma_rs && (0 <= ctx->wgmma_defer ? ctx->wgmma_defer : wide)) ? 1 : 0;
+  const int dfr = (0 <= ctx->wgmma_defer ? ctx->wgmma_defer : wide) ? 1 : 0;
   const int stg = (0 != dfr && 3 == ctx->wgmma_stages) ? 3 : 2;
   const int result = (3 == stg) ? LIBXS_MAX(wku / 2, 2) : wku;
   if (NULL != defer) *defer = dfr;
@@ -1535,7 +1507,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
     kset = (ozaki_crt_kernel_set_t*)libxs_registry_get(ctx->crt_registry, &key,
       sizeof(key), libxs_registry_lock(ctx->crt_registry));
     if (NULL == kset || NULL == kset->kern_fused) {
-      char flags[sizeof(ctx->crt_flags) + 128];
+      char flags[sizeof(ctx->crt_flags) + 256]; /* headroom for every specialization suffix below */
       ozaki_crt_kernel_set_t newset;
       cl_program program = NULL;
       memset(&newset, 0, sizeof(newset));

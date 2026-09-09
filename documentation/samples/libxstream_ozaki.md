@@ -112,7 +112,6 @@ follows that knob.
 | OZAKI_WGMMA      | (auto)  | Sch.2: warp-group MMA. On where reachable (see below)            |
 | OZAKI_WGMMA_N    | 128     | Warp-group tile width, 64 or 128                                 |
 | OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
-| OZAKI_WGMMA_RS   | 1       | Warp-group MMA takes A from registers instead of shared memory   |
 | OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for GPUs (see below)      |
 | OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
 | OZAKI_ARENA      | (auto)  | Device scratch arena in MB (0=off). Auto: on if no pool          |
@@ -140,10 +139,8 @@ a part that accepts the 128 KB this path uses, and compute capability
 build fails, initialization says so under `OZAKI_VERBOSE=1` and the
 `mma.sync` path is used with its own tuning, at no cost in speed.
 
-Three knobs tune it, all set to the fastest measured value by default.
-`OZAKI_WGMMA_RS=0` stages A in shared memory instead of loading it into
-registers, and costs 10% (n=1024) to 40% (n=8192). `OZAKI_KU` sets how
-much K is staged per round (16 here, or 8 without RS); it is what the
+Two knobs tune it, both set to the fastest measured value by default.
+`OZAKI_KU` sets how much K is staged per round (16 here); it is what the
 path spends shared memory on, 128 KB at the defaults, so lower it if a
 device refuses that. `OZAKI_WGMMA_M=128` runs two warp groups per
 work-group instead of one, worth +4% at n=2048 and +18% at n=8192.

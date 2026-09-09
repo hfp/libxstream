@@ -556,7 +556,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     char build_options[128];
     const int mant_bits = use_double ? 52 : 23;
     const int bias_plus_mant = use_double ? 1075 : 150;
-    int rtm = 0, rtn = 0, rtm_req = 0, rtn_req = 0, ku_req, biggrf, hier, wgmma, wgmma_rs = 0;
+    int rtm = 0, rtn = 0, rtm_req = 0, rtn_req = 0, ku_req, biggrf, hier, wgmma;
     int fraccrt, crt_hier, unfuse_pre;
     size_t max_wgs;
     int v;
@@ -870,28 +870,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         const int wm_req = (NULL != env_wm) ? atoi(env_wm) : 0;
         const int wm = (64 == wm_req || 256 == wm_req) ? wm_req : 128;
         /**
-         * Operand form, the default being RS: A goes straight from global memory
-         * into registers in the fragment layout the instruction expects (mma.sync's,
-         * repeated per warp - see OZAKI_WGMMA_ALOAD), so it is neither copied nor
-         * staged, the tile's shared memory halves and the round loses half its
-         * copies. Measured against the SS form at the shipped defaults, n=4096
-         * 6.92 -> 5.45 ms and n=8192 60.3 -> 44.0 (+27% and +37%), bit-identical.
-         * OZAKI_WGMMA_RS=0 selects SS, which stages both operands.
-         */
-        const char *const env_rs = getenv("OZAKI_WGMMA_RS");
-        const int wrs = (NULL != env_rs) ? (0 != atoi(env_rs)) : 1;
-        /**
          * Staging depth: WBK = KU * BK bytes of K per round, hence KU wgmma issues
          * between one barrier and the next. KU=2 is the minimum (64 bytes of K) and
          * it is also the worst - at n=4096 the barrier is not amortized and the
          * whole port loses to mma.sync (16.3 against 15.4 ms). Depth is not free:
-         * shared memory is 2*(BM + BN)*KU*BK bytes double-buffered, or 2*BN*KU*BK
-         * with A in registers, and once that exceeds half of the SM's share only one
-         * work-group stays resident.
+         * shared memory is 2*BN*KU*BK bytes, since only B is staged, and once that
+         * exceeds half of the SM's share only one work-group stays resident.
          *
-         * That is what sets the two defaults: SS peaks at KU=8 (128 KB at BM=BN=128,
-         * already one work-group per SM), while RS pays only for B and can afford
-         * KU=16 for the same footprint - measured 5.93 -> 5.45 ms at n=4096 and
+         * That is what sets the default: paying for B alone affords KU=16 - measured
+         * 5.93 -> 5.45 ms at n=4096 and
          * 47.8 -> 44.0 at n=8192. The deeper default costs where the tile grid no
          * longer fills the device, because there the second resident work-group is
          * worth more than the depth (1024x1024x4096: 0.68 at KU=8 against 0.78), and
@@ -901,11 +888,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          * The 256-wide tile stages twice the B bytes per round, so half the depth keeps
          * the same footprint, and its columns already amortize the barrier.
          */
-        const int wku = (2 <= ku_req) ? ku_req : ((0 == wrs) ? 8 : ((256 == wn) ? 8 : 16));
-        const size_t lbytes = (size_t)2 * ((0 != wrs) ? wn : (wm + wn)) * wku * bk_pre;
+        const int wku = (2 <= ku_req) ? ku_req : ((256 == wn) ? 8 : 16);
+        const size_t lbytes = (size_t)2 * wn * wku * bk_pre;
         /* Probed at the issue width: 256 columns are two n128, all the splice knows. */
         const int wprobe = (256 == wn) ? 128 : wn;
-        wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, wku * bk_pre, lbytes, wrs)) ? 1 : 0;
+        wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, wku * bk_pre, lbytes)) ? 1 : 0;
         if (0 == wgmma) {
           if (0 != verbosity) {
             fprintf(stderr, "INFO OZAKI: warp-group MMA not reachable on this device - using mma.sync\n");
@@ -918,7 +905,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           tm = wm;
           tn = wn;
           ctx->ku = wku;
-          wgmma_rs = wrs;
         }
       }
     }
@@ -1183,15 +1169,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       if (0 != wgmma) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA=1"));
-        if (0 != wgmma_rs) {
-          /* A in the fragment layout: one vector load per lane instead of four scalar ones. */
-          const char *const env_ab = getenv("OZAKI_ABLOCK");
-          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-            " -DOZAKI_WGMMA_RS=1%s", (NULL == env_ab || 0 != atoi(env_ab)) ? " -DOZAKI_ABLOCK=1" : ""));
+        /* A in the fragment layout: one vector load per lane instead of four scalar ones. */
+        { const char *const env_ab = getenv("OZAKI_ABLOCK");
+          if (NULL == env_ab || 0 != atoi(env_ab)) {
+            coff = ozaki_append(coff, sizeof(build_params),
+              LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_ABLOCK=1"));
+          }
         }
       }
       ctx->wgmma = wgmma;
-      ctx->wgmma_rs = (0 != wgmma) ? wgmma_rs : 0;
       { const char *const env_defer = getenv("OZAKI_WGMMA_DEFER");
         const char *const env_stages = getenv("OZAKI_WGMMA_STAGES");
         ctx->wgmma_defer = (NULL != env_defer) ? (0 != atoi(env_defer) ? 1 : 0) : -1;
@@ -1627,7 +1613,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ozaki_print_opt(stderr, "pb", ctx->pb);
       ozaki_print_opt(stderr, "hier", ctx->hier);
       ozaki_print_opt(stderr, "wgmma", ctx->wgmma);
-      ozaki_print_opt(stderr, "wgmma_rs", ctx->wgmma_rs);
       ozaki_print_opt(stderr, "unfuse", ctx->unfuse);
     }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);
