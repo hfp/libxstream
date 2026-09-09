@@ -711,6 +711,8 @@
 # define OZAKI_WGMMA_MMAWAIT_N(N) __asm__ volatile("// WGMMA_WAIT " OZAKI_WGMMA_STR(N) ::: "memory")
 # define OZAKI_WGMMA_MMAWAIT() OZAKI_WGMMA_MMAWAIT_N(OZAKI_WGMMA_NWAIT)
 # define OZAKI_WGMMA_WAIT() __asm__ volatile("cp.async.wait_group 0;" ::: "memory")
+/* Named so a probe can drop the rendezvous without touching the wait beside it. */
+# define OZAKI_WGMMA_BARRIER() barrier(CLK_LOCAL_MEM_FENCE)
 # if !defined(OZAKI_WGMMA_STAGES)
 #   define OZAKI_WGMMA_STAGES 2
 # endif
@@ -828,6 +830,49 @@
 # endif
 
 /**
+ * Operand-traffic probe, not a build option: each bit removes one part of a staging
+ * round so the part's cost can be read off the kernel time, which is the only thing
+ * these builds report - every one of them is wrong by construction.
+ *
+ * Bit 0 drops the B copies and leaves the staged tile stale. Bit 1 pins A to a 2 KB
+ * window that stays in L1 while the loads keep issuing. Bits 2 and 3 keep all the
+ * traffic and drop only what serializes it, the rendezvous and the copy wait, which
+ * separates staging B from publishing it. Bit 4 drops the MMA instead, timing the
+ * staging side alone.
+ *
+ * Measured on GH200 at n=4096 / n=8192: copies -25.6% / -13.1%, A pinned -2.2% / -2.6%,
+ * rendezvous alone -5.0% / -2.2%, copy wait alone -1.5% / -2.9%, the two together
+ * -14.1% / -13.6%. At n=8192 the pair accounts for the whole cost of staging B, so
+ * there the serialization is the cost and the copies are not.
+ */
+# if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 1))
+#   undef OZAKI_WGMMA_BSTAGE
+#   define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD_, K_PAD_, NB, KOFF, SB, WT) ((void)(BS_K))
+# endif
+# if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 2))
+#   undef OZAKI_WGMMA_ALOAD
+#   define OZAKI_WGMMA_ALOAD(AS_K, K_PAD_, MI, KOFF, LANE, A0, A1, A2, A3) \
+    do { \
+      const uint4 av_ = *(CONSTANT const uint4*)((AS_K) + ((((KOFF) >> 5) & 3) << 9) + ((LANE) << 4)); \
+      (A0) = av_.x; (A1) = av_.y; (A2) = av_.z; (A3) = av_.w; \
+    } while (0)
+# endif
+# if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 4))
+#   undef OZAKI_WGMMA_BARRIER
+#   define OZAKI_WGMMA_BARRIER() ((void)0)
+# endif
+# if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 8))
+#   undef OZAKI_WGMMA_WAIT
+#   define OZAKI_WGMMA_WAIT() ((void)0)
+# endif
+# if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 16))
+#   undef OZAKI_WGMMA_ISSUE_RS
+/* The fold is what keeps the A loads and the accumulators from dying with the MMA. */
+#   define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, PB_) \
+    ((void)(PB_), (ACCS)[0] ^= (int)((A0) ^ (A1) ^ (A2) ^ (A3)))
+# endif
+
+/**
  * A in registers: only B is staged, so a round costs one cp.async group and one
  * barrier for half the shared memory. OZAKI_WGMMA_DEFER moves the MMA wait from
  * after the issues to before the next round's barrier, which is where the B buffer
@@ -894,7 +939,7 @@
       OZAKI_WGMMA_WAIT(); \
       OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD_, K_PAD_, NB, next_, SB, WT, BUF, NBSZ); \
       OZAKI_WGMMA_WAIT_PRE(); \
-      barrier(CLK_LOCAL_MEM_FENCE); \
+      OZAKI_WGMMA_BARRIER(); \
       OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD_, K_PAD_, NB, next_, SB, WT, BUF, NBSZ); \
       OZAKI_WGMMA_FENCE_ROUND(); \
       UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \

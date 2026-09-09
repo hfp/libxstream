@@ -392,6 +392,9 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
  */
 static int ozaki_wgmma_depth(const ozaki_context_t* ctx, int tm, int tn, int* defer, int* stages)
 {
+  /* Pins the depth against the rule below, which is what lets a probe hold the round length. */
+  const char *const env_ku = getenv("OZAKI_WGMMA_KU");
+  const int ku_pin = (NULL != env_ku && 0 < atoi(env_ku)) ? atoi(env_ku) : 0;
   const int wku_n = (0 < tn && tn < ctx->tn_req) ? (ctx->ku * (ctx->tn_req / tn)) : ctx->ku;
   const int wku = (tm < ctx->tm_req && 4 <= wku_n) ? (wku_n / 2) : wku_n;
   const int wide = (128 == tm && 256 == tn);
@@ -400,7 +403,7 @@ static int ozaki_wgmma_depth(const ozaki_context_t* ctx, int tm, int tn, int* de
   const int result = (3 == stg) ? LIBXS_MAX(wku / 2, 2) : wku;
   if (NULL != defer) *defer = dfr;
   if (NULL != stages) *stages = stg;
-  return result;
+  return (0 != ku_pin) ? ku_pin : result;
 }
 
 
