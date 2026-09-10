@@ -1277,7 +1277,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * The price is scratch memory, NPRIMES bytes per output element, which is
        * twice the size of C in fp64.
        */
-      { ctx->unfuse = (0 != unfuse_pre && 0 != crt_hier) ? 1 : 0;
+      { const char *const env_tz = getenv("OZAKI_TZDETECT");
+        ctx->tzdetect = (NULL != env_tz && 0 != atoi(env_tz)) ? 1 : 0;
+        if (0 != ctx->tzdetect) {
+          coff = ozaki_append(coff, sizeof(build_params),
+            LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_TZDETECT=1"));
+        }
+        ctx->unfuse = (0 != unfuse_pre && 0 != crt_hier) ? 1 : 0;
         if (0 != ctx->unfuse) {
           coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_UNFUSE=1"));
         }

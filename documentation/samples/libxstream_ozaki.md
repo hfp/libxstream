@@ -114,7 +114,18 @@ follows that knob.
 | OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
 | OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for GPUs (see below)      |
 | OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
+| OZAKI_TZDETECT   | 0       | Sch.2: report the lossless `OZAKI_TRIM` the data allows (below)   |
 | OZAKI_ARENA      | (auto)  | Device scratch arena in MB (0=off). Auto: on if no pool          |
+
+`OZAKI_TZDETECT=1` reports how many low mantissa bits the operands
+actually have to spare, which is the largest `OZAKI_TRIM` that stays
+exact for that data. Operands holding integers, dyadic fractions or
+values promoted from a narrower type have bits to spare; a wide exponent
+range within a row spends them, because aligning the small elements
+shifts their spare bits out. The reported level is conservative, so
+`OZAKI_TRIM` up to it costs nothing in accuracy while every phase gets
+cheaper in proportion to the primes it saves. Reporting only: acting on
+it per call is not implemented.
 
 On NVIDIA GPUs the Scheme-2 default RTN=8 is tuned for large K: it
 doubles the output tile per work-group, which needs a long K-loop to

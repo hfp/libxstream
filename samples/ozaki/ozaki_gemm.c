@@ -376,6 +376,9 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
 static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn, int rtm, int rtn);
 
 
+/* Mirrors OZAKI_TZ_BIAS in ozaki2_int8.cl: the complement the kernels report. */
+#define OZAKI_TZ_BIAS_HOST 64
+
 /* Bytes of staged B a work-group may hold, which is what ozaki_wgmma_probe validates. */
 #define OZAKI_WGMMA_RING_MAX 131072
 
@@ -997,7 +1000,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     size_t as_size, bs_size, expa_size, expb_size, bs_slot, expb_slot;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
-    void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL, *d_res = NULL;
+    void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL, *d_res = NULL, *d_tz = NULL;
     int first_tile;
     int cache_hit_a = 0, cache_hit_b = 0;
     int claimed = 0;
@@ -1059,6 +1062,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         need += LIBXS_UP2(bs_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expb_size, OZAKI_SCRATCH_ALIGN);
       }
       if (0 != ctx->unfuse) need += LIBXS_UP2((size_t)nprimes_g * nblk_gm * tm * nblk_pn * tn, OZAKI_SCRATCH_ALIGN);
+      if (0 != ctx->tzdetect) need += LIBXS_UP2(2 * sizeof(cl_int), OZAKI_SCRATCH_ALIGN);
       if (0 != need) claimed = ozaki_scratch_claim(ctx, need);
     }
 
@@ -1096,6 +1100,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
     if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
       result = ozaki_scratch_alloc(ctx, cacheable_b ? 0 : claimed, &d_expb_g, expb_size, 0);
+    }
+    /* Two counters: the trimmable low bits of A and of B, minimised over the operand. */
+    if (EXIT_SUCCESS == result && 0 != ctx->tzdetect) {
+      result = ozaki_scratch_alloc(ctx, claimed, &d_tz, 2 * sizeof(cl_int), 0);
+      if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_tz, 0, 2 * sizeof(cl_int), stream);
     }
     /**
      * Residue planes for the unfused reconstruction: one byte per prime and per
@@ -1176,7 +1185,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         if (EXIT_SUCCESS == result && m_pad > M) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
         if (EXIT_SUCCESS == result) {
           result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g,
-            sizeof(cl_int), M, K_len, lda, ta, k_pad, m_pad, bm_pre, bk_pre, NULL /*no occ for CRT*/, 1 /*kmajor*/);
+            sizeof(cl_int), M, K_len, lda, ta, k_pad, m_pad, bm_pre, bk_pre, d_tz, 1 /*kmajor*/);
         }
       }
       if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_a, stream_a);
@@ -1236,8 +1245,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           }
           if (EXIT_SUCCESS == result) {
             result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b, (char*)d_bg + b_off + bp_off, d_bs_s,
-              d_expb_s, sizeof(cl_int), N_len, K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre, NULL /*no occ for CRT*/,
-              0 /*kmajor*/);
+              d_expb_s, sizeof(cl_int), N_len, K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre,
+              (NULL != d_tz) ? ((char*)d_tz + sizeof(cl_int)) : NULL, 0 /*kmajor*/);
           }
         }
         if (EXIT_SUCCESS == result) result = libxstream_event_record(evt_prep_b, stream_b);
@@ -1316,6 +1325,28 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       ozaki_scratch_free(ctx, d_ag, 0);
       ozaki_scratch_free(ctx, d_bg, 0);
       ozaki_scratch_free(ctx, d_cg, 1 /*atomics*/);
+    }
+    /**
+     * What the data's precision actually was. The kernels report the complement so a
+     * zeroed buffer and atomic_max give a minimum (see OZAKI_TZ_BIAS in ozaki2_int8.cl),
+     * and a zero means nothing was reported at all. MANT_TRUNC applies to both operands
+     * alike, so the level that is lossless for the pair is the smaller of the two, and
+     * OZAKI_TRIM counts in steps of two mantissa bits.
+     */
+    if (NULL != d_tz) {
+      cl_int tz[2] = {0, 0};
+      if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_tz, tz, sizeof(tz), stream);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
+      if (EXIT_SUCCESS == result) {
+        const int mant = ctx->use_double ? 52 : 23;
+        const int tza = (0 < tz[0]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[0], mant) : 0;
+        const int tzb = (0 < tz[1]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[1], mant) : 0;
+        const int uniform = LIBXS_MIN(tza, tzb);
+        fprintf(stderr, "INFO OZAKI: trimmable low bits A=%i B=%i -> lossless OZAKI_TRIM=%i"
+                        " (of %i mantissa bits, %i primes now)\n",
+          tza, tzb, uniform / 2, mant + 1, ctx->nprimes);
+      }
+      ozaki_scratch_free(ctx, d_tz, 0);
     }
     ozaki_scratch_free(ctx, d_res, 0); /* scratch, never cached */
     if (0 == cache_hit_a) { /* a carved plane is recognized and left to the arena */

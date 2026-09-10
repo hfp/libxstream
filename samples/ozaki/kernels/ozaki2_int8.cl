@@ -266,6 +266,48 @@
 #endif
 
 /**
+ * Trimmable low bits of an operand: how many low bits every aligned mantissa has to
+ * spare, hence how far MANT_TRUNC could shift losslessly and, through the host's
+ * cumulative-bits table, how many primes the data actually needs.
+ *
+ * Counted on the aligned mantissas the extraction above forms, not derived from
+ * (e + ctz(m)) - E: alignment shifts a small element's trailing zeros out, and an
+ * element that aligns to zero constrains nothing, which the derived form cannot tell
+ * apart. The minimum over the whole operand bounds the minimum over any one output's
+ * K-sum from below, hence is safe. Reported as its complement, so a zeroed buffer and
+ * atomic_max give a minimum without an initialization pass of its own.
+ */
+#if defined(USE_DOUBLE) && (1 == USE_DOUBLE)
+# define OZAKI_TZ_WIDTH 64
+#else
+# define OZAKI_TZ_WIDTH 32
+#endif
+#define OZAKI_TZ_BIAS 64
+#define OZAKI_TZ_NONE 0x7FFFFFFF
+#define OZAKI_TZ_COUNT(VAL) \
+  ((int)(OZAKI_TZ_WIDTH - 1 - (int)clz((uint_repr_t)((VAL) & (~(VAL) + (uint_repr_t)1)))))
+#define OZAKI_TZ_TRACK(LMIN, ALIGNED) \
+  do { \
+    if (0 != (ALIGNED)) { \
+      const int tzc_ = OZAKI_TZ_COUNT(ALIGNED); \
+      if (tzc_ < (LMIN)) (LMIN) = tzc_; \
+    } \
+  } while (0)
+#if defined(OZAKI_TZDETECT) && (OZAKI_TZDETECT)
+# define OZAKI_TZ_ARG , global int* restrict tzmin_base, int tzmin_index
+/* One arrival per work-item, once its share of the operand is aligned. */
+# define OZAKI_TZ_EMIT(LMIN) \
+    do { \
+      if (OZAKI_TZ_NONE != (LMIN)) { \
+        atomic_max(tzmin_base + tzmin_index, OZAKI_TZ_BIAS - (LMIN)); \
+      } \
+    } while (0)
+#else
+# define OZAKI_TZ_ARG
+# define OZAKI_TZ_EMIT(LMIN) ((void)(LMIN))
+#endif
+
+/**
  * Mod-reduce one accumulator fragment into the uint residues of prime PIDX,
  * stored at slot LIDX (the prime's index within the array, which is the global
  * index for the flat path and the index within the group for the hierarchical
@@ -1608,7 +1650,7 @@ kernel void
 preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int M, int K, int lda, int transa,
   global char* restrict as_base, /* [NPRIMES * M_pad * K_pad] */ long as_index,
   global int* restrict expa_base, /* [M] per-row max exponent (int for atomic_max) */ int expa_index,
-  int K_pad, int M_pad)
+  int K_pad, int M_pad OZAKI_TZ_ARG)
 {
   CONSTANT const real_t* restrict a = a_base + a_index;
   global char* restrict as = as_base + as_index;
@@ -1621,7 +1663,7 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
   const int rrow = rt % BM_PRE;
   const int rcol = rt / BM_PRE;
   const int rrow_ok = (row_base + rrow < M);
-  int col, emax = 0;
+  int col, emax = 0, lmin = OZAKI_TZ_NONE;
 
   local int row_max_exp[BM_PRE];
   if (0 == kk) row_max_exp[mi] = 0;
@@ -1659,12 +1701,14 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
           if (m1 != 0) {
             const int shift = (int)(max_exp - e1);
             aligned[t_] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+            OZAKI_TZ_TRACK(lmin, aligned[t_]);
           }
         }
       }
       OZAKI_EXTRACT_CRT_A(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
     }
   }
+  OZAKI_TZ_EMIT(lmin);
 }
 
 
@@ -1684,7 +1728,7 @@ kernel void
 preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int N, int K, int ldb, int transb,
   global char* restrict bs_base, /* [NPRIMES * K_pad * N_pad] */ long bs_index,
   global int* restrict expb_base, /* [N] per-column max exponent (int for atomic_max) */ int expb_index,
-  int K_pad, int N_pad)
+  int K_pad, int N_pad OZAKI_TZ_ARG)
 {
   CONSTANT const real_t* restrict b = b_base + b_index;
   global char* restrict bs = bs_base + bs_index;
@@ -1692,7 +1736,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
   const int nj = (int)get_local_id(0);
   const int kk = (int)get_local_id(1);
   const int col = (int)get_group_id(0) * BN_PRE + nj;
-  int row, emax = 0;
+  int row, emax = 0, lmin = OZAKI_TZ_NONE;
 
   local int col_max_exp[BN_PRE];
   if (0 == kk) col_max_exp[nj] = 0;
@@ -1750,6 +1794,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
           if (m1 != 0) {
             const int shift = (int)(max_exp - e1);
             aligned[i] = (shift + MANT_TRUNC <= MANT_BITS) ? (ulong)(m1 >> (shift + MANT_TRUNC)) : 0;
+            OZAKI_TZ_TRACK(lmin, aligned[i]);
             sign[i] = s1;
           }
         }
@@ -1813,6 +1858,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
           if (m1 != 0) {
             const int shift = (int)(max_exp - e1);
             aligned[t_] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+            OZAKI_TZ_TRACK(lmin, aligned[t_]);
           }
         }
       }
@@ -1847,6 +1893,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
           if (m1 != 0) {
             const int shift = (int)(max_exp - e1);
             aligned[t_] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+            OZAKI_TZ_TRACK(lmin, aligned[t_]);
           }
         }
       }
@@ -1854,6 +1901,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
     }
 #endif
   }
+  OZAKI_TZ_EMIT(lmin);
 }
 
 

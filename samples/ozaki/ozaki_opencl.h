@@ -297,6 +297,14 @@ typedef struct ozaki_context_t {
    * the prime loop, which is what makes that epilogue memory-bound.
    */
   int unfuse;
+  /**
+   * Precision detection (OZAKI_TZDETECT): the preprocessing reports how many low bits of
+   * the aligned mantissas are provably zero, which is how far MANT_TRUNC could shift
+   * losslessly and hence how many primes the data actually needs. Reporting only for now;
+   * acting on it needs a kernel variant per prime count, since the reconstruction tables
+   * are emitted per NPRIMES.
+   */
+  int tzdetect;
   int pb; /* CRT prime batching factor (compiled into kernel) */
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   double xover; /* Scheme-1/2 crossover weight: reconstruction cost per Garner op vs int8 MAC */

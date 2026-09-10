@@ -191,6 +191,35 @@ int main(int argc, char* argv[])
         LIBXS_MATRNG(int, float, 0, b, b_rows, b_cols, ldb, 1.0);
         LIBXS_MATRNG(int, float, 0, c_oz, M, N, ldc, 1.0);
       }
+      /**
+       * TAME keeps that many mantissa bits and clears the rest, matching the harness knob
+       * of the same name (libxs samples/ozaki/gemm.c, where it is EVIL's sibling on the
+       * significand axis). It exercises the precision detection against a known answer: the
+       * trimmable low bits reported must come out at 53 - TAME.
+       */
+      { const char *const env_mbits = getenv("TAME");
+        const int mbits = (NULL != env_mbits) ? atoi(env_mbits) : 0;
+        if (0 < mbits) {
+          const int mant = ctx.use_double ? 53 : 24;
+          const int drop = (mbits < mant) ? (mant - mbits) : 0;
+          if (0 < drop) {
+            const size_t na = (size_t)lda * a_cols, nb = (size_t)ldb * b_cols;
+            size_t i;
+            if (ctx.use_double) {
+              const unsigned long long mask = ~((1ULL << drop) - 1ULL);
+              union { double d; unsigned long long u; } v;
+              for (i = 0; i < na; ++i) { v.d = ((double*)a)[i]; v.u &= mask; ((double*)a)[i] = v.d; }
+              for (i = 0; i < nb; ++i) { v.d = ((double*)b)[i]; v.u &= mask; ((double*)b)[i] = v.d; }
+            }
+            else {
+              const unsigned int mask = ~((1U << drop) - 1U);
+              union { float f; unsigned int u; } v;
+              for (i = 0; i < na; ++i) { v.f = ((float*)a)[i]; v.u &= mask; ((float*)a)[i] = v.f; }
+              for (i = 0; i < nb; ++i) { v.f = ((float*)b)[i]; v.u &= mask; ((float*)b)[i] = v.f; }
+            }
+          }
+        }
+      }
       memcpy(c_ref, c_oz, (size_t)ldc * N * elem_size);
     }
   }
