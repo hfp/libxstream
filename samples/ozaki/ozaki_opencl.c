@@ -269,6 +269,23 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
     if (tile.m < gm) tile.m = gm;
     if (tile.n < gn) tile.n = gn;
     /**
+     * A request still has to be launchable, and the bound is per scheme: the same
+     * tile is divided by whatever register tiling the caller dispatches, so 128x256
+     * is 256 work-items under wgmma (RTM=1, RTN=BN/8) and 8192 under Scheme 1's
+     * 2x2. Only the auto branch below used to check this, which made a tile sized
+     * for one scheme reach the other as CL_INVALID_WORK_GROUP_SIZE at launch, and
+     * the failed launch leaves C untouched rather than reporting a wrong tile.
+     */
+    while (((size_t)ctx->sg * ((size_t)(tile.m / gm) * (tile.n / gn))) > ctx->max_wgs
+      && (tile.m > gm || tile.n > gn))
+    {
+      if (tile.m >= tile.n && tile.m > gm) tile.m = (tile.m / 2 / gm) * gm;
+      else if (tile.n > gn) tile.n = (tile.n / 2 / gn) * gn;
+      else tile.m = (tile.m / 2 / gm) * gm;
+      if (tile.m < gm) tile.m = gm;
+      if (tile.n < gn) tile.n = gn;
+    }
+    /**
      * A wider tile and two warp groups per work-group both cut operand traffic per
      * output and both halve the work-group count, and only the traffic scales with
      * the problem: at n=8192 the 256-wide tile is worth 28% and two warp groups
