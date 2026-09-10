@@ -540,7 +540,7 @@ void* ozaki_scratch_get(const ozaki_context_t* ctx, size_t* nbytes)
 int ozaki_scratch_set(ozaki_context_t* ctx, void* dev_mem, size_t nbytes)
 {
   int result = EXIT_SUCCESS;
-  LIBXS_ATOMIC_ACQUIRE(&ctx->scratch.busy, LIBXS_SYNC_NPAUSE, LIBXS_ATOMIC_LOCKORDER);
+  LIBXS_ATOMIC_ACQUIRE(&ctx->scratch.busy, LIBXS_NPAUSE_LOCK, LIBXS_ATOMIC_LOCKORDER);
   if (0 != ctx->scratch.owned && NULL != ctx->scratch.ptr) {
     libxstream_mem_dev_deallocate_hint(ctx->scratch.ptr);
   }
