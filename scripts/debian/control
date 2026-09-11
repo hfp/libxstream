@@ -1,7 +1,7 @@
 Source: libxstream
 Section: libs
 Priority: optional
-Maintainer: Hans Pabst <hans.pabst@intel.com>
+Maintainer: Hans Pabst <hf.pabst@gmail.com>
 Build-Depends:
  debhelper-compat (= 13),
  libxs-dev,
