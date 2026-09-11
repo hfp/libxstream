@@ -1634,8 +1634,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (NULL != env) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " %s", env));
       }
-      coff = ozaki_crt_prime_flags(build_params, sizeof(build_params), coff, nprimes, oztrim_crt,
-        use_double, use_i8, fraccrt, crt_hier, verbosity);
+      /**
+       * What the prime count adds is NOT appended here: crt_flags is the invariant
+       * base, and every Scheme-2 program adds the prime part itself through
+       * ozaki_crt_base_flags. Emitting it twice compiles (the definitions agree) but
+       * doubles the reconstruction tables, and fraccrt=2 with the hierarchy then
+       * overruns the buffer and the build fails into a silent host fallback.
+       */
       result = ozaki_append_check(coff, sizeof(build_params), "Ozaki-2");
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
