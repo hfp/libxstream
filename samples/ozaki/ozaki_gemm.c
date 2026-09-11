@@ -520,11 +520,11 @@ size_t ozaki_scratch_size(const ozaki_context_t* ctx, char transa, char transb, 
   size_t result = LIBXS_UP2((size_t)ldc * N * elem_size, OZAKI_SCRATCH_ALIGN);
   result += LIBXS_UP2((size_t)lda * (ta ? (size_t)M : (size_t)K) * elem_size, OZAKI_SCRATCH_ALIGN);
   result += LIBXS_UP2((size_t)ldb * (tb ? (size_t)K : (size_t)N) * elem_size, OZAKI_SCRATCH_ALIGN);
-  result += LIBXS_UP2((size_t)ctx->nprimes * (M + tm) * (K + tm), OZAKI_SCRATCH_ALIGN);
-  result += LIBXS_UP2((size_t)ctx->nprimes * (K + tm) * (N + tn), OZAKI_SCRATCH_ALIGN);
+  result += LIBXS_UP2((size_t)ctx->nmoduli * (M + tm) * (K + tm), OZAKI_SCRATCH_ALIGN);
+  result += LIBXS_UP2((size_t)ctx->nmoduli * (K + tm) * (N + tn), OZAKI_SCRATCH_ALIGN);
   result += LIBXS_UP2(((size_t)(M + tm) + (N + tn)) * sizeof(cl_int), OZAKI_SCRATCH_ALIGN);
   if (0 != ctx->unfuse) {
-    result += LIBXS_UP2((size_t)ctx->nprimes * (M + tm) * (N + tn), OZAKI_SCRATCH_ALIGN);
+    result += LIBXS_UP2((size_t)ctx->nmoduli * (M + tm) * (N + tn), OZAKI_SCRATCH_ALIGN);
   }
   return result;
 }
@@ -648,7 +648,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     else {
       const int co = ctx->cutoff_base - ctx->oztrim;
       const int pairs = ozaki_count_pairs(ctx->nslices, co, sq);
-      const double p = ctx->nprimes;
+      const double p = ctx->nmoduli;
       use_scheme1 = (0 < K && pairs < p + ctx->xover * p * p / K);
     }
     /* Scheme 2 is absent when its kernels were not built (no fp64). */
@@ -942,14 +942,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
   }
   /**
    * CRT GEMM path (Scheme 2): full-split-then-single-fused-GEMM.
-   * Preprocesses entire K into dense per-prime CRT residue matrices,
-   * then runs a single kernel per tile that loops over all primes
+   * Preprocesses entire K into dense per-modulus CRT residue matrices,
+   * then runs a single kernel per tile that loops over all moduli
    * internally (full-K DPAS + Garner + Horner in one launch).
    */
   else if (NULL != ctx->crt_registry && 0 < K) {
-    const ozaki_crt_variant_t* const crt_var = ozaki_crt_variant(ctx, ctx->nprimes);
-    const int nprimes_g = ctx->nprimes;
-    const int nprimes_max = ctx->nprimes_max;
+    const ozaki_crt_variant_t* const crt_var = ozaki_crt_variant(ctx, ctx->nmoduli);
+    const int nmoduli_g = ctx->nmoduli;
+    const int nmoduli_max = ctx->nmoduli_max;
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
@@ -1013,7 +1013,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * Column extent of one panel's Bs plane. The tile grid spans nblk_pn * tn
      * columns, which exceeds the panel rounded to bn_pre whenever tn does not
      * divide it (e.g. panel 1024, tn=96 reaches 1056). Bs planes are strided by
-     * k_pad * n_pad, so a last-tile column past n_pad reads the next prime's
+     * k_pad * n_pad, so a last-tile column past n_pad reads the next modulus's
      * plane and accumulates a foreign residue instead of the zero the padding
      * is meant to supply. Cover the whole grid.
      */
@@ -1025,13 +1025,13 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     /**
      * Residue planes are sized by the count the context may rise to, not by the one
      * in use: the plane stride is M_pad*K_pad either way, so a smaller count simply
-     * leaves the upper planes unwritten and unread. That is what lets the prime count
+     * leaves the upper planes unwritten and unread. That is what lets the modulus count
      * change between calls without reallocating, and it keeps the arena one size.
      */
-    as_size = (size_t)nprimes_max * m_pad * k_grp_pad;
-    bs_slot = (size_t)nprimes_max * k_grp_pad * n_pad;
+    as_size = (size_t)nmoduli_max * m_pad * k_grp_pad;
+    bs_slot = (size_t)nmoduli_max * k_grp_pad * n_pad;
     bs_size = bs_slot * nslots;
-    bs_used = (size_t)nprimes_g * k_grp_pad * n_pad;
+    bs_used = (size_t)nmoduli_g * k_grp_pad * n_pad;
     expa_size = (size_t)nblk_gm * tm * sizeof(cl_int); /* pad to tile boundary */
     expb_slot = (size_t)nblk_pn * tn * sizeof(cl_int);
     expb_size = expb_slot * nslots;
@@ -1054,8 +1054,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * The residue planes of the operands are carved too, but only where caching
      * them is not requested: a cached plane outlives the call, which is the one
      * thing an arena reset per call cannot express. They are the largest pieces
-     * of the call - nprimes bytes per operand element, 536 MB of 1.19 GB at
-     * n=4096 with 16 primes - so leaving them out is what kept a GH200 at 45 ms
+     * of the call - nmoduli bytes per operand element, 536 MB of 1.19 GB at
+     * n=4096 with 16 moduli - so leaving them out is what kept a GH200 at 45 ms
      * per call against 5.6 ms of kernel time.
      */
     { size_t need = 0;
@@ -1070,7 +1070,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (0 == cache_hit_b && 0 == cacheable_b) {
         need += LIBXS_UP2(bs_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expb_size, OZAKI_SCRATCH_ALIGN);
       }
-      if (0 != ctx->unfuse) need += LIBXS_UP2((size_t)nprimes_max * nblk_gm * tm * nblk_pn * tn, OZAKI_SCRATCH_ALIGN);
+      if (0 != ctx->unfuse) need += LIBXS_UP2((size_t)nmoduli_max * nblk_gm * tm * nblk_pn * tn, OZAKI_SCRATCH_ALIGN);
       if (0 != ctx->tzdetect) need += LIBXS_UP2(2 * sizeof(cl_int), OZAKI_SCRATCH_ALIGN);
       if (0 != need) claimed = ozaki_scratch_claim(ctx, need);
     }
@@ -1116,14 +1116,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_tz, 0, 2 * sizeof(cl_int), stream);
     }
     /**
-     * Residue planes for the unfused reconstruction: one byte per prime and per
+     * Residue planes for the unfused reconstruction: one byte per modulus and per
      * output of the tile grid, which the GEMM writes and gemm_crt_reduce reads.
      * Padded to whole tiles so every work-item stores unconditionally, and sized
      * per panel because the reduce kernel derives the plane stride from the extent
      * it is launched with. Never cached: it is scratch between two kernels.
      */
     if (EXIT_SUCCESS == result && 0 != ctx->unfuse) {
-      result = ozaki_scratch_alloc(ctx, claimed, &d_res, (size_t)nprimes_max * nblk_gm * tm * nblk_pn * tn, 0);
+      result = ozaki_scratch_alloc(ctx, claimed, &d_res, (size_t)nmoduli_max * nblk_gm * tm * nblk_pn * tn, 0);
     }
 
     /**
@@ -1351,10 +1351,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         const int tza = (0 < tz[0]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[0], sig - 1) : 0;
         const int tzb = (0 < tz[1]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[1], sig - 1) : 0;
         const int uniform = LIBXS_MIN(tza, tzb);
-        const int np_min = ozaki_crt_primes(sig - uniform, 0 == ctx->u8, ctx->crt_lgk);
+        const int np_min = ozaki_crt_moduli(sig - uniform, 0 == ctx->u8, ctx->crt_lgk);
         fprintf(stderr, "INFO OZAKI: data carries %i of %i significand bits (spare A=%i B=%i)"
-                        " -> %i primes suffice, %i in use (OZAKI_TRIM=%i)\n",
-          sig - uniform, sig, tza, tzb, np_min, ctx->nprimes, ctx->nprimes - np_min);
+                        " -> %i moduli suffice, %i in use (OZAKI_TRIM=%i)\n",
+          sig - uniform, sig, tza, tzb, np_min, ctx->nmoduli, ctx->nmoduli - np_min);
       }
       ozaki_scratch_free(ctx, d_tz, 0);
     }
@@ -1398,7 +1398,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
  * base unconditionally, so the two cases share one code path on the device.
  *
  * wide selects a long index for the slice buffers, whose element count exceeds
- * INT_MAX at a large K_pad/N_pad (nprimes * k_pad * n_pad), while the matrices
+ * INT_MAX at a large K_pad/N_pad (nmoduli * k_pad * n_pad), while the matrices
  * stay within int.
  */
 static int ozaki_set_ptr_base(cl_kernel kern, cl_int* i, const void* ptr, size_t elsize, int wide)
@@ -1564,7 +1564,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
   key.tn = tn;
   key.rtm = rtm;
   key.rtn = rtn;
-  key.nprimes = ctx->nprimes;
+  key.nmoduli = ctx->nmoduli;
   kset = (ozaki_crt_kernel_set_t*)libxs_registry_get(ctx->crt_registry, &key,
     sizeof(key), libxs_registry_lock(ctx->crt_registry));
   if (NULL == kset || NULL == kset->kern_fused) {
@@ -1572,7 +1572,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
     kset = (ozaki_crt_kernel_set_t*)libxs_registry_get(ctx->crt_registry, &key,
       sizeof(key), libxs_registry_lock(ctx->crt_registry));
     if (NULL == kset || NULL == kset->kern_fused) {
-      char base[sizeof(ctx->crt_flags) + 1024]; /* context flags plus the prime tables */
+      char base[sizeof(ctx->crt_flags) + 1024]; /* context flags plus the modulus tables */
       char flags[sizeof(base) + 256]; /* and every specialization suffix below */
       ozaki_crt_kernel_set_t newset;
       cl_program program = NULL;
@@ -1582,9 +1582,9 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         int defer = 0, stages = 2;
         const int wku = ozaki_wgmma_depth(ctx, tm, tn, &defer, &stages);
         char spec[64];
-        /* The prime count sizes the reconstruction tables, so it belongs in the base and in the name. */
+        /* The modulus count sizes the reconstruction tables, so it belongs in the base and in the name. */
         ozaki_crt_base_flags(ctx, base, sizeof(base));
-        LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d_p%d%s", tm, tn, rtm, rtn, ctx->nprimes,
+        LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d_p%d%s", tm, tn, rtm, rtn, ctx->nmoduli,
           0 != bounds ? "b" : "");
         /* NWAIT is what the buffers buy, and the kernel clamps it to STAGES-3 either way. */
         LIBXS_SNPRINTF(spec, sizeof(spec), " -DOZAKI_WGMMA_STAGES=%i -DOZAKI_WGMMA_NWAIT=%i",
@@ -1625,8 +1625,8 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
           sizeof(key), &newset, sizeof(newset), libxs_registry_lock(ctx->crt_registry));
       }
       if (0 > ctx->verbosity || 2 < ctx->verbosity) {
-        fprintf(stderr, "INFO OZAKI: JIT crt primes=%d bounds=%d tile=%dx%d rt=%dx%d -> %s\n",
-          ctx->nprimes, bounds, tm, tn, rtm, rtn, NULL != newset.kern_fused ? "OK" : "FAILED");
+        fprintf(stderr, "INFO OZAKI: JIT crt moduli=%d bounds=%d tile=%dx%d rt=%dx%d -> %s\n",
+          ctx->nmoduli, bounds, tm, tn, rtm, rtn, NULL != newset.kern_fused ? "OK" : "FAILED");
       }
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->kernel_lock);
@@ -1679,7 +1679,7 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   }
   /**
    * Report the GEMM this launch realizes in the caller's precision, i.e. without
-   * the npairs (or nprimes) INT8 products the decomposition needs to reach it.
+   * the npairs (or nmoduli) INT8 products the decomposition needs to reach it.
    * Multiplying by that factor would state INT8 operation throughput instead --
    * a hardware-utilization figure that reads as impossible next to an FP peak,
    * and not the rate a caller of DGEMM is asking about.

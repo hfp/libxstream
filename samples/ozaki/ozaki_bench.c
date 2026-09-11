@@ -272,7 +272,7 @@ int main(int argc, char* argv[])
     result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, 0);
     libxstream_stream_sync(stream);
     /**
-     * Switch the prime count between calls, which is what the precision detection
+     * Switch the modulus count between calls, which is what the precision detection
      * does once it has seen the data. Here it is explicit so that the switch can be
      * compared against starting at the same count, which must give the same result.
      */

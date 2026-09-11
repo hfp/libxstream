@@ -13,21 +13,21 @@
 /**
  * Ozaki Scheme 2: CRT residue GEMM.
  *
- * A and B are decomposed once over the full K into dense per-prime residue
- * planes (preprocess_*_crt_dense), then one tiled GEMM accumulates every prime
+ * A and B are decomposed once over the full K into dense per-modulus residue
+ * planes (preprocess_*_crt_dense), then one tiled GEMM accumulates every modulus
  * with full-K int8 MMA passes. Reconstruction is hierarchical: leaf groups of
- * HIER_GS primes combine by explicit CRT (or Garner), the group values by
+ * HIER_GS moduli combine by explicit CRT (or Garner), the group values by
  * level-2 Garner, then Horner, scaling and the C update. It runs either fused
  * into the GEMM's epilogue or, the default on GPUs (OZAKI_UNFUSE), as a second
  * kernel over the residue bytes the GEMM stores.
  *
- * OZAKI_U8 (default): unsigned residues with moduli up to 256 (fp64 16 primes,
+ * OZAKI_U8 (default): unsigned residues with moduli up to 256 (fp64 16 moduli,
  * fp32 9), sign folded as the modular additive inverse; OZAKI_U8=0 keeps signed
  * i8 with moduli up to 128. KGROUPS > 0 inserts a Barrett reduction every
  * KGROUPS * BK steps for a K the int32 accumulator cannot cover.
  *
  * Compile-time parameters (-D): BM, BN (output tile), BK (K per MMA step),
- * RTM, RTN (register tiling), KU, SG, NPRIMES, MANT_BITS, BIAS_PLUS_MANT,
+ * RTM, RTN (register tiling), KU, SG, NMODULI, MANT_BITS, BIAS_PLUS_MANT,
  * USE_DOUBLE, BM_PRE, BN_PRE, BK_PRE, and the hierarchical tables the host
  * emits (HIER_*).
  */
@@ -41,8 +41,8 @@
 #if !defined(BK)
 # define BK 32
 #endif
-#if !defined(NPRIMES)
-# define NPRIMES 20
+#if !defined(NMODULI)
+# define NMODULI 20
 #endif
 #if !defined(MANT_BITS)
 # define MANT_BITS 52
@@ -75,10 +75,10 @@
 #endif
 
 /**
- * Hierarchical CRT: leaf groups of HIER_GS primes reconstruct to a group value
+ * Hierarchical CRT: leaf groups of HIER_GS moduli reconstruct to a group value
  * (explicit CRT, or Garner), and level 2 combines the HIER_NGROUPS group values
  * by Garner, so the peak live state is max(HIER_GS, HIER_NGROUPS) rather than
- * NPRIMES. Fractional-CRT mode 1 replaces the whole reconstruction and needs the
+ * NMODULI. Fractional-CRT mode 1 replaces the whole reconstruction and needs the
  * flat path; mode 2 reconstructs per group and keeps the hierarchy.
  */
 #if defined(OZAKI_FRACCRT) && (1 == OZAKI_FRACCRT)
@@ -98,15 +98,15 @@
 /**
  * Leaf group size, at most 4: the level-2 datapath is 32-bit, so group products
  * and group values must fit uint32. The host lowers it to the largest divisor of
- * NPRIMES that still fits, since a group holding a single prime is pathological
- * (NPRIMES=9: the 4,4,1 split costs 1.21 ms against 0.58 for three full groups).
+ * NMODULI that still fits, since a group holding a single modulus is pathological
+ * (NMODULI=9: the 4,4,1 split costs 1.21 ms against 0.58 for three full groups).
  * The level-2 tables arrive from the host as brace lists sized to the group
  * count, which the build checks (see oz2g_hier_tables_check).
  */
 # if !defined(HIER_GS)
 #   define HIER_GS 4
 # endif
-# define HIER_NGROUPS ((NPRIMES + HIER_GS - 1) / HIER_GS)
+# define HIER_NGROUPS ((NMODULI + HIER_GS - 1) / HIER_GS)
 # define HIER_L2_HORNER_GROUP 2
 # if !defined(OZAKI_HIER_L2)
 #   define OZAKI_HIER_L2 0
@@ -171,7 +171,7 @@
 #endif
 
 /**
- * Extract the NPRIMES residues of an aligned mantissa to DST[p * SS + index],
+ * Extract the NMODULI residues of an aligned mantissa to DST[p * SS + index],
  * sign folded in: u8 as the modular additive inverse (p - r), i8 as negation. A
  * and B go through their own index so producer and consumer share one layout.
  *
@@ -215,7 +215,7 @@
  * aligned mantissa once per leaf group modulo the group product (one mul_hi, the
  * Barrett level 2 already uses), then take the group's residues from that 32-bit
  * value with the cheap Barrett, since m_i divides M_g. Exact, and it replaces
- * NPRIMES two-step 64-bit reductions by HIER_NGROUPS one-step ones plus NPRIMES
+ * NMODULI two-step 64-bit reductions by HIER_NGROUPS one-step ones plus NMODULI
  * 32-bit ones. fp32 mantissas already fit 32 bits, so there it would only add the
  * group step. OZAKI_EXTRACT_FLAT=1 keeps the direct form for comparison.
  */
@@ -240,7 +240,7 @@
       UNROLL_FORCE(HIER_GS) for (j_ = 0; j_ < HIER_GS; ++j_) \
       { \
         const SINT p_ = g_ * HIER_GS + j_; \
-        if (p_ < NPRIMES) { \
+        if (p_ < NMODULI) { \
           OZAKI_CRT_STORE_RUN(DST, (long)(p_) * (SS) + off_, \
             OZAKI_CRT_RES(g0_, p_, SIGN, 0), OZAKI_CRT_RES(g1_, p_, SIGN, 1), \
             OZAKI_CRT_RES(g2_, p_, SIGN, 2), OZAKI_CRT_RES(g3_, p_, SIGN, 3)); \
@@ -253,7 +253,7 @@
   do { \
     const long off_ = (OFF); \
     SINT p_; \
-    UNROLL_FORCE(NPRIMES) for (p_ = 0; p_ < NPRIMES; ++p_) \
+    UNROLL_FORCE(NMODULI) for (p_ = 0; p_ < NMODULI; ++p_) \
     { \
       OZAKI_CRT_STORE_RUN(DST, (long)(p_) * (SS) + off_, \
         OZAKI_CRT_RES64(ALIGNED, p_, SIGN, 0), OZAKI_CRT_RES64(ALIGNED, p_, SIGN, 1), \
@@ -270,7 +270,7 @@
 /**
  * Trimmable low bits of an operand: how many low bits every aligned mantissa has to
  * spare, hence how far MANT_TRUNC could shift losslessly and, through the host's
- * cumulative-bits table, how many primes the data actually needs.
+ * cumulative-bits table, how many moduli the data actually needs.
  *
  * Counted on the aligned mantissas the extraction above forms, not derived from
  * (e + ctz(m)) - E: alignment shifts a small element's trailing zeros out, and an
@@ -310,8 +310,8 @@
 #endif
 
 /**
- * Mod-reduce one accumulator fragment into the uint residues of prime PIDX,
- * stored at slot LIDX (the prime's index within the array, which is the global
+ * Mod-reduce one accumulator fragment into the uint residues of modulus PIDX,
+ * stored at slot LIDX (the modulus's index within the array, which is the global
  * index for the flat path and the index within the group for the hierarchical
  * one). u8 accumulators are non-negative, so the reduction is branchless; i8
  * accumulators need the sign-aware form.
@@ -346,16 +346,16 @@
 #endif
 
 /**
- * Mod-reduce the PB batched accumulators into RESIDUES, which holds NRES primes
- * per sub-tile starting at prime LO (0/NPRIMES for the flat path, the group's
- * first prime/HIER_GS for the hierarchical one). ZERO_ACC clears them afterwards.
+ * Mod-reduce the PB batched accumulators into RESIDUES, which holds NRES moduli
+ * per sub-tile starting at modulus LO (0/NMODULI for the flat path, the group's
+ * first modulus/HIER_GS for the hierarchical one). ZERO_ACC clears them afterwards.
  */
 #define OZAKI_CRT_REDUCE_BATCH(ACC, PIDX_BASE, LO, NRES, RESIDUES, ZERO_ACC) \
   do { \
     SINT bi_r_; \
     UNROLL_FORCE(PB) for (bi_r_ = 0; bi_r_ < PB; ++bi_r_) \
     { \
-      if ((PIDX_BASE) + bi_r_ < NPRIMES) { \
+      if ((PIDX_BASE) + bi_r_ < NMODULI) { \
         int rm_r_, rn_r_; \
         UNROLL_FORCE(RTM) for (rm_r_ = 0; rm_r_ < RTM; ++rm_r_) \
         { \
@@ -393,13 +393,13 @@
 
 /**
  * The final reconstruction, one function per variant with one signature: from
- * OZAKI_CRT_NSRC values (per-prime residues on the flat path, group values on the
+ * OZAKI_CRT_NSRC values (per-modulus residues on the flat path, group values on the
  * hierarchical one) to the scaled update of a C element. Flat: Garner over all
- * primes, or the fractional CRT of mode 1. Hierarchical: level-2 Garner, or the
+ * moduli, or the fractional CRT of mode 1. Hierarchical: level-2 Garner, or the
  * tree merge (OZAKI_HIER_L2=1). All are exact except mode 1.
  */
 #if !OZAKI_HIER
-# define OZAKI_CRT_NSRC NPRIMES
+# define OZAKI_CRT_NSRC NMODULI
 # if defined(OZAKI_FRACCRT) && (1 == OZAKI_FRACCRT)
 #   define OZAKI_CRT_EPILOGUE oz2g_frac_accumulate
 # else
@@ -503,8 +503,8 @@
 
 /**
  * Unfused reconstruction (OZAKI_UNFUSE): the GEMM writes one residue byte per
- * prime and output, a second kernel reconstructs. The point is not the extra
- * kernel but what it removes - with the prime loop outermost the fused kernel
+ * modulus and output, a second kernel reconstructs. The point is not the extra
+ * kernel but what it removes - with the modulus loop outermost the fused kernel
  * has to keep every output's group values live across it, which is 2 KB per
  * work-item of dynamically indexed arrays, 512 KB per work-group against a 256 KB
  * L1. A separate pass can put the output loop outermost instead and keeps only
@@ -512,7 +512,7 @@
  * inside the fused kernel: 4.44 ms of 13.06 at n=4096.
  *
  * Residues are bytes because a reduced residue is below its modulus (<=256), so
- * the round trip is nprimes*M*N bytes each way - 536 MB at n=4096, ~0.27 ms.
+ * the round trip is nmoduli*M*N bytes each way - 536 MB at n=4096, ~0.27 ms.
  *
  * The plane layout is tile-blocked and lane-contiguous rather than row/column
  * major: consecutive lanes hold columns two apart within a row of the MMA
@@ -530,7 +530,7 @@
     + (long)(SGI) * (RTM * RTN) * XMX_FRAG * SG + (LANE))
 #define OZAKI_RES_OFF(RM, RN, MS) ((long)(((RM) * RTN + (RN)) * XMX_FRAG + (MS)) * SG)
 
-/* Mod-reduce the whole register tile for one prime and store it as bytes. */
+/* Mod-reduce the whole register tile for one modulus and store it as bytes. */
 #define OZAKI_CRT_STORE_RESIDUES(ACC, PIDX, RES) \
   do { \
     int rm_sr_, rn_sr_; \
@@ -552,10 +552,10 @@
   } while (0)
 
 /**
- * K-loop inner body: prefetch + DPAS for PB batched primes.
- * AS_BASE, BS_BASE: base pointers for all prime planes.
- * A_PLANE, B_PLANE: per-prime plane offsets.
- * PIDX_BASE: first prime in current batch.
+ * K-loop inner body: prefetch + DPAS for PB batched moduli.
+ * AS_BASE, BS_BASE: base pointers for all modulus planes.
+ * A_PLANE, B_PLANE: per-modulus plane offsets.
+ * PIDX_BASE: first modulus in current batch.
  * ACC: OZAKI_ACC_T array of PB*RTM*RTN accumulators.
  */
 #define OZAKI_CRT_KSTEP(AS_BASE, BS_BASE, A_PLANE, B_PLANE, K_PAD, N_PAD, M, MI, NJ, KOFF, PIDX_BASE, ACC) \
@@ -563,7 +563,7 @@
     SINT bi_k_; \
     UNROLL_FORCE(PB) for (bi_k_ = 0; bi_k_ < PB; ++bi_k_) \
     { \
-      if ((PIDX_BASE) + bi_k_ < NPRIMES) { \
+      if ((PIDX_BASE) + bi_k_ < NMODULI) { \
         CONSTANT const char* as_k_ = (AS_BASE) + (long)((PIDX_BASE) + bi_k_) * (A_PLANE); \
         CONSTANT const char* bs_k_ = (BS_BASE) + (long)((PIDX_BASE) + bi_k_) * (B_PLANE); \
         OZAKI_PREFETCH_TILED(as_k_, bs_k_, K_PAD, N_PAD, M, (KOFF) + BK, MI, NJ); \
@@ -1035,7 +1035,7 @@
       OZAKI_WGMMA_WAIT_POST(); \
     } while (0)
 /**
- * The barrier before a prime batch stages its first buffer is not optional: the drain
+ * The barrier before a modulus batch stages its first buffer is not optional: the drain
  * that ends the batch before is wgmma.wait_group.sync.aligned, which is warp-aligned, so
  * one warp can reach this store while another still has MMAs reading the same buffer. It
  * costs one barrier per batch, which does not measure.
@@ -1070,8 +1070,8 @@
 #endif /* OZAKI_WGMMA */
 
 /**
- * The full K-loop for one prime batch, whichever matrix engine is in use. Named
- * once so the fused and unfused prime loops below cannot drift apart; it reads the
+ * The full K-loop for one modulus batch, whichever matrix engine is in use. Named
+ * once so the fused and unfused modulus loops below cannot drift apart; it reads the
  * kernel's own operands (as, bs, the padded extents, the tile bases) by name.
  */
 #if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
@@ -1126,7 +1126,7 @@
 #endif
 
 /**
- * One prime batch of the fused kernel: the K-loop, then the mod-reduce into
+ * One modulus batch of the fused kernel: the K-loop, then the mod-reduce into
  * RESIDUES (see OZAKI_CRT_REDUCE_BATCH for LO/NRES). With KGROUPS the reduction
  * also fires every KGROUPS steps, which is what keeps a long K inside int32.
  */
@@ -1317,8 +1317,8 @@ inline uint oz2g_res64(ulong x, SINT pidx, int sign)
  * keeps it exact. Both need the error-free transformations intact, hence no
  * fast-relaxed-math on these builds. Tables come from ozaki_emit_fraccrt.
  */
-constant uint oz2g_frac_k[NPRIMES] = OZ2G_FRAC_K;
-constant uchar oz2g_frac_climb[NPRIMES][OZ2G_FRAC_L] = OZ2G_FRAC_CLIMB;
+constant uint oz2g_frac_k[NMODULI] = OZ2G_FRAC_K;
+constant uchar oz2g_frac_climb[NMODULI][OZ2G_FRAC_L] = OZ2G_FRAC_CLIMB;
 
 inline double oz2g_two_sum(double a, double b, double* err)
 {
@@ -1337,7 +1337,7 @@ inline double oz2g_two_prod(double a, double b, double* err)
 }
 
 
-/* Fractional part of the sum over COUNT primes from LO with residues R, as the double-double (FRH, FRL). */
+/* Fractional part of the sum over COUNT moduli from LO with residues R, as the double-double (FRH, FRL). */
 #define OZAKI_FRAC_SUM(R, LO, COUNT, FRH, FRL) \
   do { \
     double sl_[OZ2G_FRAC_L], fh_ = 0.0, fl_ = 0.0, e_, s_; \
@@ -1345,7 +1345,7 @@ inline double oz2g_two_prod(double a, double b, double* err)
     UNROLL_FORCE(OZ2G_FRAC_L) for (l_ = 0; l_ < OZ2G_FRAC_L; ++l_) sl_[l_] = 0.0; \
     UNROLL_FORCE(COUNT) for (li_ = 0; li_ < (COUNT); ++li_) { \
       const int p_ = (LO) + (int)li_; \
-      if (p_ < NPRIMES) { \
+      if (p_ < NMODULI) { \
         const uint a_ = oz2g_mod((R)[li_] * oz2g_frac_k[p_], p_); \
         UNROLL_FORCE(OZ2G_FRAC_L) for (l_ = 0; l_ < OZ2G_FRAC_L; ++l_) { \
           sl_[l_] += (double)(a_ * (uint)oz2g_frac_climb[p_][l_]); \
@@ -1370,7 +1370,7 @@ inline double oz2g_two_prod(double a, double b, double* err)
 inline void oz2g_frac_accumulate(const uint* restrict r, real_t alpha, int base_sh, real_t* cval)
 {
   double frh, frl, e, eh, vh, vl;
-  OZAKI_FRAC_SUM(r, 0, NPRIMES, frh, frl);
+  OZAKI_FRAC_SUM(r, 0, NMODULI, frh, frl);
   /* frac lies in [0,1) and the negative half above 1/2, so floor(frac + 0.5) folds the sign in. */
   vh = floor(frh + 0.5);
   frh = oz2g_two_sum(frh, -vh, &e);
@@ -1488,15 +1488,15 @@ inline void oz2g_accumulate(real_t result, int is_negative, real_t alpha, int ba
 }
 
 
-/* Flat reconstruction: Garner over all NPRIMES residues, Horner in groups that fit a ulong. */
+/* Flat reconstruction: Garner over all NMODULI residues, Horner in groups that fit a ulong. */
 inline void oz2g_garner_accumulate(const uint* restrict r, real_t alpha, int base_sh, real_t* cval)
 {
-  uint v[NPRIMES];
+  uint v[NMODULI];
   real_t result;
   int is_negative;
-  OZAKI_GARNER_CHAIN(r, v, NPRIMES, 0, OZ2G_FLAT_MOD, OZ2G_FLAT_DIGIT, OZ2G_FLAT_PROD, OZ2G_FLAT_INV);
-  OZAKI_GARNER_SIGN(v, NPRIMES, OZ2G_FLAT_MOD, is_negative);
-  OZAKI_HORNER(v, NPRIMES, OZ2_HORNER_GROUP, OZ2G_FLAT_MOD, result);
+  OZAKI_GARNER_CHAIN(r, v, NMODULI, 0, OZ2G_FLAT_MOD, OZ2G_FLAT_DIGIT, OZ2G_FLAT_PROD, OZ2G_FLAT_INV);
+  OZAKI_GARNER_SIGN(v, NMODULI, OZ2G_FLAT_MOD, is_negative);
+  OZAKI_HORNER(v, NMODULI, OZ2_HORNER_GROUP, OZ2G_FLAT_MOD, result);
   oz2g_accumulate(result, is_negative, alpha, base_sh, cval);
 }
 
@@ -1506,11 +1506,11 @@ inline void oz2g_garner_accumulate(const uint* restrict r, real_t alpha, int bas
 /**
  * Level-2 tables from the host: group products, their Barrett constants
  * floor(2^64 / gprod), and gprod_j^-1 mod gprod_i at [j][i] above the diagonal.
- * A list shorter than the group count would be read past silently (17 primes at
+ * A list shorter than the group count would be read past silently (17 moduli at
  * HIER_GS=3 once did), so the sizes are checked at build time.
  */
 # if !defined(HIER_GPROD)
-/* Standalone build (no host): the tables of the 20-prime, four-per-group layout above. */
+/* Standalone build (no host): the tables of the 20-modulus, four-per-group layout above. */
 #   if defined(OZAKI_U8) && (OZAKI_U8)
 #     define HIER_GPROD {1752116992u, 1841455727u, 1799186337u, 1823610127u, 1804203113u}
 #     define HIER_L2B {10528260474ul, 10017478999ul, 10252825788ul, 10115508682ul, 10224316730ul}
@@ -1569,7 +1569,7 @@ inline uint oz2g_hier_l1_crt(const uint* restrict group_residues, int g)
 inline uint oz2g_hier_l1_garner(const uint* restrict group_residues, int g)
 {
   const int lo = g * HIER_GS;
-  const int gsz = ((lo + HIER_GS <= NPRIMES) ? (lo + HIER_GS) : NPRIMES) - lo;
+  const int gsz = ((lo + HIER_GS <= NMODULI) ? (lo + HIER_GS) : NMODULI) - lo;
   uint v[HIER_GS];
   ulong hval;
   SINT li;
@@ -1634,10 +1634,10 @@ inline void oz2g_hier_tree_accumulate(const uint* restrict gval, real_t alpha, i
 
 
 /**
- * preprocess_a_crt_dense: A into dense per-prime residue planes As[p][M_pad][K_pad],
+ * preprocess_a_crt_dense: A into dense per-modulus residue planes As[p][M_pad][K_pad],
  * sign folded in. Work-group (BK_PRE, BM_PRE, 1), one per row block, looping over K.
  *
- * Lanes walk columns in the store pass, which is the axis the NPRIMES stores are
+ * Lanes walk columns in the store pass, which is the axis the NMODULI stores are
  * contiguous along, and rows in the exponent pass through a remapped rank, which
  * is the axis A is contiguous along. Handing the block from one mapping to the
  * other through shared memory measured neutral on one device and +18% on another
@@ -1650,7 +1650,7 @@ __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
 preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int M, int K, int lda, int transa,
-  global char* restrict as_base, /* [NPRIMES * M_pad * K_pad] */ long as_index,
+  global char* restrict as_base, /* [NMODULI * M_pad * K_pad] */ long as_index,
   global int* restrict expa_base, /* [M] per-row max exponent (int for atomic_max) */ int expa_index,
   int K_pad, int M_pad OZAKI_TZ_ARG)
 {
@@ -1715,7 +1715,7 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
 
 
 /**
- * preprocess_b_crt_dense: decompose B into dense per-prime CRT residue matrices.
+ * preprocess_b_crt_dense: decompose B into dense per-modulus CRT residue matrices.
  *
  * Output layout: Bs[pidx][K_pad][N_pad] - K-major, N_pad >= 64 for 2D block I/O.
  *
@@ -1728,7 +1728,7 @@ __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
 preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int N, int K, int ldb, int transb,
-  global char* restrict bs_base, /* [NPRIMES * K_pad * N_pad] */ long bs_index,
+  global char* restrict bs_base, /* [NMODULI * K_pad * N_pad] */ long bs_index,
   global int* restrict expb_base, /* [N] per-column max exponent (int for atomic_max) */ int expb_index,
   int K_pad, int N_pad OZAKI_TZ_ARG)
 {
@@ -1771,7 +1771,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
 #if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
   /**
    * Blocked layout: a work-item owns whole 16-K blocks of its column, so the
-   * NPRIMES stores per block are one 16-byte store each instead of 16 scattered
+   * NMODULI stores per block are one 16-byte store each instead of 16 scattered
    * bytes, and consecutive work-items still write consecutive columns. Emitting the
    * padding as zeros is what the tail of a partial block needs anyway.
    */
@@ -1812,7 +1812,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
           }
           UNROLL_FORCE(HIER_GS) for (j = 0; j < HIER_GS; ++j) {
             p = g * HIER_GS + j;
-            if (p < NPRIMES) {
+            if (p < NMODULI) {
               union {
                 uchar b[16];
                 uint4 v;
@@ -1828,7 +1828,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
         }
       }
 #else
-      UNROLL_FORCE(NPRIMES) for (p = 0; p < NPRIMES; ++p) {
+      UNROLL_FORCE(NMODULI) for (p = 0; p < NMODULI; ++p) {
         union {
           uchar b[16];
           uint4 v;
@@ -1908,7 +1908,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
 
 
 /**
- * gemm_crt_fused: one launch over all primes, full-K accumulation per prime, then
+ * gemm_crt_fused: one launch over all moduli, full-K accumulation per modulus, then
  * either the residue store (OZAKI_UNFUSE, reconstructed by gemm_crt_reduce) or the
  * fused reconstruction. Work-group (SG, NTM * NTN, 1), one per output tile.
  */
@@ -1917,8 +1917,8 @@ __attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void gemm_crt_fused(
-  CONSTANT const char* restrict as_base, /* As: [NPRIMES * M_pad * K_pad] */ long as_index,
-  CONSTANT const char* restrict bs_base, /* Bs: [NPRIMES * K_pad * N_pad] */ long bs_index,
+  CONSTANT const char* restrict as_base, /* As: [NMODULI * M_pad * K_pad] */ long as_index,
+  CONSTANT const char* restrict bs_base, /* Bs: [NMODULI * K_pad * N_pad] */ long bs_index,
   CONSTANT const int* restrict expa_base, /* [M] per-row max exponent */ int expa_index,
   CONSTANT const int* restrict expb_base, /* [N] per-col max exponent */ int expb_index,
   global real_t* restrict c_base, int c_index, int M, int N, int K_pad, int N_pad, int ldc, int M_pad, real_t alpha,
@@ -1961,14 +1961,14 @@ kernel void gemm_crt_fused(
 #endif
 #if defined(OZAKI_UNFUSE) && (OZAKI_UNFUSE)
   /**
-   * Unfused: accumulate one prime, reduce it to a byte per output, store, move on.
+   * Unfused: accumulate one modulus, reduce it to a byte per output, store, move on.
    * No group values are kept, so the 2 KB per-work-item frame the fused epilogue
    * needs never exists - which is the whole reason for the second kernel.
    */
   { SINT pidx_base;
     global uchar* const res = res_base + res_index + OZAKI_RES_BASE(ib_idx, jb_idx, N, sg_id, sg_lid);
     const long rplane = OZAKI_RES_PLANE(M, N);
-    UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NPRIMES; ++pidx_base) {
+    UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NMODULI; ++pidx_base) {
       OZAKI_ACC_DECL(acc);
       OZAKI_ACC_ZERO_ALL(acc);
       OZAKI_CRT_KLOOP_RUN(acc, pidx_base);
@@ -1976,7 +1976,7 @@ kernel void gemm_crt_fused(
     }
   }
 #elif OZAKI_HIER
-  /* One group of HIER_GS primes at a time into group_res; level 1 folds each into gval_all. */
+  /* One group of HIER_GS moduli at a time into group_res; level 1 folds each into gval_all. */
 #define GRP_RES_STRIDE (RTM * RTN * HIER_GS * XMX_FRAG)
 #define GVAL_ALL_STRIDE (RTM * RTN * HIER_NGROUPS * XMX_FRAG)
   uint group_res[GRP_RES_STRIDE];
@@ -1987,7 +1987,7 @@ kernel void gemm_crt_fused(
       SINT pidx_base;
       int ri;
       for (ri = 0; ri < GRP_RES_STRIDE; ++ri) group_res[ri] = 0;
-      UNROLL_OUTER(1) for (pidx_base = group_lo; pidx_base < group_lo + HIER_GS && pidx_base < NPRIMES; pidx_base += PB) {
+      UNROLL_OUTER(1) for (pidx_base = group_lo; pidx_base < group_lo + HIER_GS && pidx_base < NMODULI; pidx_base += PB) {
         OZAKI_ACC_DECL(acc);
         OZAKI_ACC_ZERO_ALL(acc);
         OZAKI_CRT_KLOOP_REDUCE(acc, pidx_base, group_lo, HIER_GS, group_res);
@@ -2016,26 +2016,26 @@ kernel void gemm_crt_fused(
 #endif
 #else /* !OZAKI_HIER */
   /**
-   * Per-prime residues stay private: lanes accumulate different columns, so SLM
+   * Per-modulus residues stay private: lanes accumulate different columns, so SLM
    * would need a lane dimension and NTM*NTN*SG*RES_STRIDE exceeds it. Private lets
    * the compiler spill by liveness (cold in the K-loop, hot in the epilogue).
    */
-#define RES_STRIDE (RTM * RTN * NPRIMES * XMX_FRAG)
+#define RES_STRIDE (RTM * RTN * NMODULI * XMX_FRAG)
   uint residues[RES_STRIDE];
   { SINT pidx_base;
     int ri;
     for (ri = 0; ri < RES_STRIDE; ++ri) residues[ri] = 0;
-    UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NPRIMES; pidx_base += PB) {
+    UNROLL_OUTER(1) for (pidx_base = 0; pidx_base < NMODULI; pidx_base += PB) {
       OZAKI_ACC_DECL(acc);
       OZAKI_ACC_ZERO_ALL(acc);
-      OZAKI_CRT_KLOOP_REDUCE(acc, pidx_base, 0, NPRIMES, residues);
+      OZAKI_CRT_KLOOP_REDUCE(acc, pidx_base, 0, NMODULI, residues);
     }
   }
 #if !defined(SKIP_GARNER) || (0 == SKIP_GARNER)
   { int rm, rn;
     UNROLL_FORCE(RTM) for (rm = 0; rm < RTM; ++rm) {
       UNROLL_FORCE(RTN) for (rn = 0; rn < RTN; ++rn) {
-        OZAKI_CRT_STORE(residues + (rm * RTN + rn) * NPRIMES * XMX_FRAG, expa, expb, c, M, N,
+        OZAKI_CRT_STORE(residues + (rm * RTN + rn) * NMODULI * XMX_FRAG, expa, expb, c, M, N,
           mi_base + rm * XMX_M, nj_base + rn * XMX_N, sg_lid, ldc, alpha, first);
       }
     }
@@ -2054,8 +2054,8 @@ kernel void gemm_crt_fused(
  * pass wants the work-groups a 4x4 register tile takes from a small problem, while
  * a large one already has them and pays per work-group (+30% when split fully).
  *
- * Outputs outside, primes inside, so only HIER_NGROUPS group values are live and
- * the reconstruction stays in registers. Primes past NPRIMES in a partial group
+ * Outputs outside, moduli inside, so only HIER_NGROUPS group values are live and
+ * the reconstruction stays in registers. Primes past NMODULI in a partial group
  * contribute zero, as the fused path's cleared group_res does, which keeps the two
  * bit-identical and keeps this from reading past the last plane.
  */
@@ -2063,7 +2063,7 @@ __attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
 #if defined(INTEL) && (0 != INTEL)
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
-kernel void gemm_crt_reduce(CONSTANT const uchar* restrict res_base, /* [NPRIMES * tiles * BM * BN] */ long res_index,
+kernel void gemm_crt_reduce(CONSTANT const uchar* restrict res_base, /* [NMODULI * tiles * BM * BN] */ long res_index,
   CONSTANT const int* restrict expa_base, int expa_index, CONSTANT const int* restrict expb_base, int expb_index,
   global real_t* restrict c_base, int c_index, int M, int N, int ldc, real_t alpha, int first)
 {
@@ -2092,7 +2092,7 @@ kernel void gemm_crt_reduce(CONSTANT const uchar* restrict res_base, /* [NPRIMES
         int pg;
         UNROLL_FORCE(HIER_GS) for (pg = 0; pg < HIER_GS; ++pg) {
           const int pidx = gidx * HIER_GS + pg;
-          r[pg] = (pidx < NPRIMES) ? (uint)res[off + (long)pidx * rplane] : 0u;
+          r[pg] = (pidx < NMODULI) ? (uint)res[off + (long)pidx * rplane] : 0u;
         }
         gval_all[gidx * XMX_FRAG + ms] = OZAKI_L1_RECONSTRUCT(r, gidx);
       }

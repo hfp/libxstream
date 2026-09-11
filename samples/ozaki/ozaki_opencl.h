@@ -21,7 +21,7 @@
  * Groups the hierarchical CRT's level-2 stage can reconstruct. The kernel writes
  * its group-product, Barrett and inverse tables out for this many groups and
  * restates the bound with #error, so the leaf group size must be chosen to keep
- * ceil(nprimes / HIER_GS) within it - see ozaki_hier_gs.
+ * ceil(nmoduli / HIER_GS) within it - see ozaki_hier_gs.
  */
 #if !defined(OZAKI_HIER_NGROUPS_MAX)
 # define OZAKI_HIER_NGROUPS_MAX 5
@@ -193,18 +193,18 @@ typedef struct ozaki_crt_kernel_key_t {
   int bounds;
   int tm, tn;
   int rtm, rtn;
-  int nprimes; /* the reconstruction tables are sized by it, so it specializes too */
+  int nmoduli; /* the reconstruction tables are sized by it, so it specializes too */
 } ozaki_crt_kernel_key_t;
 
 /**
- * Ozaki-2 preprocessing per prime count: both kernels write one residue plane per
- * prime and truncate the significand to what those primes carry, so a context that
- * serves more than one prime count needs one of these per count. scale_beta is not
+ * Ozaki-2 preprocessing per modulus count: both kernels write one residue plane per
+ * modulus and truncate the significand to what those moduli carry, so a context that
+ * serves more than one modulus count needs one of these per count. scale_beta is not
  * here because it touches neither.
  */
 typedef struct ozaki_crt_variant_t {
   cl_kernel kern_preprocess_a, kern_preprocess_b;
-  int nprimes, trunc;
+  int nmoduli, trunc;
 } ozaki_crt_variant_t;
 
 /**
@@ -236,19 +236,19 @@ typedef struct ozaki_context_t {
   cl_kernel kern_crt_scale_beta;
   /* Ozaki-2: registry of tile-specialized fused kernels */
   libxs_registry_t* crt_registry;
-  /* Ozaki-2: registry of preprocessing kernels, keyed by prime count */
+  /* Ozaki-2: registry of preprocessing kernels, keyed by modulus count */
   libxs_registry_t* crt_variants;
-  char crt_flags[2048]; /* base compile flags (without BM/BN and without the prime count) */
+  char crt_flags[2048]; /* base compile flags (without BM/BN and without the modulus count) */
   char crt_pp_tile[96]; /* tile flags the preprocessing program compiles with */
   char crt_options[128]; /* build options for CRT kernels */
   int use_double; /* 1: fp64, 0: fp32 */
   int sg; /* sub-group size used for compilation */
-  int ndecomp; /* number of decomposition components (slices or primes, per active kind) */
+  int ndecomp; /* number of decomposition components (slices or moduli, per active kind) */
   int nslices; /* Ozaki-1: number of mantissa slices (compiled into Scheme-1 kernels) */
-  int nprimes; /* Ozaki-2: number of CRT primes (compiled into Scheme-2 kernels) */
+  int nmoduli; /* Ozaki-2: number of CRT moduli (compiled into Scheme-2 kernels) */
   int crt_lgk; /* Ozaki-2: accumulation headroom in bits (see ozaki_crt_lgk). */
-  int nprimes_max; /* Ozaki-2: prime count the residue planes are sized for. */
-  int crt_trunc; /* Ozaki-2: significand bits dropped at the active prime count. */
+  int nmoduli_max; /* Ozaki-2: modulus count the residue planes are sized for. */
+  int crt_trunc; /* Ozaki-2: significand bits dropped at the active modulus count. */
   int kind; /* resolved: 1 = ozaki1 int8, 2 = ozaki2 int8 (CRT), 3 = adaptive */
   int ozflags; /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
   int oztrim; /* Precision levels to trim (~2 bits each); negative buys precision back. */
@@ -321,18 +321,18 @@ typedef struct ozaki_context_t {
    * Unfused reconstruction: the GEMM stores residue bytes and a second kernel
    * reconstructs C. Trades one round trip through global memory for the
    * per-work-item group-value frame the fused epilogue has to keep live across
-   * the prime loop, which is what makes that epilogue memory-bound.
+   * the modulus loop, which is what makes that epilogue memory-bound.
    */
   int unfuse;
   /**
    * Precision detection (OZAKI_TZDETECT): the preprocessing reports how many low bits of
    * the aligned mantissas are provably zero, which is how far MANT_TRUNC could shift
-   * losslessly and hence how many primes the data actually needs. Reporting only for now;
-   * acting on it needs a kernel variant per prime count, since the reconstruction tables
-   * are emitted per NPRIMES.
+   * losslessly and hence how many moduli the data actually needs. Reporting only for now;
+   * acting on it needs a kernel variant per modulus count, since the reconstruction tables
+   * are emitted per NMODULI.
    */
   int tzdetect;
-  int pb; /* CRT prime batching factor (compiled into kernel) */
+  int pb; /* CRT modulus batching factor (compiled into kernel) */
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   int crt_hier; /* resolved hierarchical reconstruction, as compiled */
   int fraccrt; /* resolved fractional-CRT mode (0 = exact reconstruction) */
@@ -391,22 +391,22 @@ void ozaki_destroy(ozaki_context_t* ctx);
 
 /**
  * The CRT bit budget, shared with the callers that report or re-select against it.
- * ozaki_crt_bits: significand bits nprimes moduli carry with lgk bits of accumulation
- * headroom. ozaki_crt_primes: the fewest moduli carrying that many. ozaki_crt_lgk:
+ * ozaki_crt_bits: significand bits nmoduli moduli carry with lgk bits of accumulation
+ * headroom. ozaki_crt_moduli: the fewest moduli carrying that many. ozaki_crt_lgk:
  * the headroom a declared K needs. See the definitions for the accounting.
  */
-int ozaki_crt_bits(int nprimes, int use_i8, int lgk);
-int ozaki_crt_primes(int bits, int use_i8, int lgk);
+int ozaki_crt_bits(int nmoduli, int use_i8, int lgk);
+int ozaki_crt_moduli(int bits, int use_i8, int lgk);
 int ozaki_crt_lgk(int maxk);
 
-/** Preprocessing kernels for one prime count, compiled on first use. */
-const ozaki_crt_variant_t* ozaki_crt_variant(ozaki_context_t* ctx, int nprimes);
+/** Preprocessing kernels for one modulus count, compiled on first use. */
+const ozaki_crt_variant_t* ozaki_crt_variant(ozaki_context_t* ctx, int nmoduli);
 
-/** Scheme-2 flags for the active prime count, before the tile specialization. */
+/** Scheme-2 flags for the active modulus count, before the tile specialization. */
 int ozaki_crt_base_flags(const ozaki_context_t* ctx, char* buf, size_t size);
 
-/** Make nprimes the active prime count, dropping operand planes that predate it. */
-int ozaki_crt_select(ozaki_context_t* ctx, int nprimes);
+/** Make nmoduli the active modulus count, dropping operand planes that predate it. */
+int ozaki_crt_select(ozaki_context_t* ctx, int nmoduli);
 
 /**
  * Device scratch (Scheme 2) - see ozaki_scratch_t. Both are optional: without
