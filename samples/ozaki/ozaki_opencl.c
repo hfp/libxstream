@@ -73,7 +73,15 @@
 #endif
 
 
-/* Internal helpers */
+/**
+ * The CRT moduli, and the twin of oz2g_moduli in kernels/ozaki2_int8.cl: the host
+ * derives the Garner and hierarchical tables from this copy while the device reduces
+ * against that one, so the two orders must agree. The order is not free. Snake-draft
+ * interleaving keeps every HIER group's product near 43% of uint32, which is what the
+ * 32-bit level-2 datapath has to hold; plain descending order maximizes the product of
+ * any prefix instead (1 to 2 more bits at nearly every count) but puts 88% of uint32 in
+ * group 0. The CPU path in LIBXS runs descending because it has no such group datapath.
+ */
 static const uint16_t ozaki_u8_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
 static const uint16_t ozaki_i8_moduli[] = {101, 97, 59, 128, 127, 103, 89, 61, 125, 107, 83, 67, 121, 109, 81, 71, 119, 113, 79, 73};
 /* floor(log2(prod of the first p moduli)), indexed p-1. */
@@ -288,6 +296,18 @@ static size_t ozaki_crt_prime_flags(char* buf, size_t size, size_t off, int npri
     " -DNPRIMES=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d", nprimes, bias_plus_mant - trunc, trunc));
   if (0 == use_i8) {
     off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_U8=1"));
+  }
+  /**
+   * Position of the power-of-two modulus, which the kernel reduces by a bitmask
+   * instead of Barrett. It is an index, so it tracks the table rather than being
+   * assumed: moving 256 and leaving the index behind masks the wrong modulus and
+   * the result is wrong everywhere, with nothing to see at build time.
+   */
+  { const uint16_t* const modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
+    const uint16_t pow2 = (0 == use_i8) ? 256 : 128;
+    int pi = 0;
+    while (20 > pi && pow2 != modtab[pi]) ++pi;
+    off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DPOW2_PIDX=%d", pi));
   }
   if (0 != fraccrt) { /* mode 1 spans all primes with 14 limbs, mode 2 one group with 11 */
     off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_FRACCRT=%d", fraccrt));

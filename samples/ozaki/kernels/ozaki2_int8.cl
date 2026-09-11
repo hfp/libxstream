@@ -91,7 +91,9 @@
 #if !defined(OZAKI_HIER)
 # define OZAKI_HIER 0
 #endif
-#define POW2_PIDX 3
+#if !defined(POW2_PIDX) /* the host emits it; this is the shipped table's position */
+# define POW2_PIDX 3
+#endif
 #if OZAKI_HIER
 /**
  * Leaf group size, at most 4: the level-2 datapath is 32-bit, so group products
