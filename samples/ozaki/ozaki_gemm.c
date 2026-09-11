@@ -646,7 +646,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       use_scheme1 = 1;
     }
     else {
-      const int co = 2 * (ctx->nslices - 1) - ctx->oztrim;
+      const int co = ctx->cutoff_base - ctx->oztrim;
       const int pairs = ozaki_count_pairs(ctx->nslices, co, sq);
       const double p = ctx->nprimes;
       use_scheme1 = (0 < K && pairs < p + ctx->xover * p * p / K);
@@ -673,7 +673,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int nblk_gm = LIBXS_UPDIV(M, tm);
     const int nblk_gn = LIBXS_UPDIV(N, tn);
     const int ntm = tm / (OZAKI_XMX_M(ctx) * rt.m), ntn = tn / (OZAKI_XMX_N(ctx) * rt.n);
-    const int cutoff = 2 * (nslices_g - 1) - ctx->oztrim;
+    const int cutoff = ctx->cutoff_base - ctx->oztrim;
     /**
      * K-group: size buffers for min(K, maxk), not full K.
      * maxk=0 means no grouping (full K in one pass).

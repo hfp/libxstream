@@ -61,7 +61,7 @@ other devices Scheme 1, both because counting GEMMs mispredicts there.
 | Variable      | Default | Description                                                          |
 |---------------|---------|----------------------------------------------------------------------|
 | OZAKI_FLAGS   | 3       | Sch.1 bitmask: 1=Triangular, 2=Symmetrize, 0=full S^2. No Sch.2      |
-| OZAKI_TRIM    | 0       | Precision levels to trim (0=exact). ~7 bits (Sch.1), ~4 bits (Sch.2) |
+| OZAKI_TRIM    | 0       | Levels to trim (0=default). ~7 bits (Sch.1), ~4 bits (Sch.2); negative buys precision back |
 | OZAKI_I8      | 0       | Sch.2: use signed i8 residues (moduli<=128) instead of u8            |
 | OZAKI_GROUPS  | 0       | Sch.2: K-grouping factor, consecutive K panels share reconstr.       |
 | OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 if unfused, else 2        |

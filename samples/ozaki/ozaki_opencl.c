@@ -496,7 +496,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     { /* Scheme 2: Convert trim levels to input mantissa bits. */
       const int mant = use_double ? 52 : 23;
       const int max_levels = mant / 2;
-      oztrim_crt = (3 == kind) ? 0 : LIBXS_MIN(oztrim, max_levels) * 2;
+      /* A negative trim asks for headroom rather than truncation, which here is moduli. */
+      if (0 > oztrim && 1 != kind) nprimes = LIBXS_MIN(nprimes - oztrim, 20);
+      oztrim_crt = (3 == kind) ? 0 : LIBXS_MIN(LIBXS_MAX(oztrim, 0), max_levels) * 2;
       if (0 < oztrim_crt) {
         static const int cumbits_u8[20] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
         static const int cumbits_i8[20] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
@@ -525,9 +527,22 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         nprimes = np_k;
       }
     }
-    { /* Scheme 1: cutoff = 2*(nslices-1) - oztrim must stay >= 0 */
-      const int max_trim = 2 * (nslices - 1);
-      if (oztrim > max_trim) oztrim = max_trim;
+    /**
+     * Scheme 1 pair cutoff. The complete product needs 2*(nslices-1), but a pair (i,j)
+     * contributes about 2^-((i+j)*w) of the result, so pairs past the slices the significand
+     * itself needs land below its last bit. That count is the default nslices (8 for fp64,
+     * 4 for fp32), not the requested one: measured at OZAKI_N=12 the result is bit-identical
+     * down to cutoff 8, while at the default nslices=8 cutoff 6 is where it breaks. Measured
+     * exact at every K from 512 to 8192, on the host path as well, and under EVIL=0/1/52,
+     * transposes, rectangular shapes, alpha/beta and operand scale. Trimming counts from
+     * here, so OZAKI_TRIM=1 gives up precision at once rather than spending slack first;
+     * a negative OZAKI_TRIM buys the slack back, up to the complete product.
+     */
+    { const int full = 2 * (nslices - 1);
+      const int need = (0 != use_double ? 8 : 4);
+      ctx->cutoff_base = LIBXS_MIN(need, full);
+      if (oztrim > ctx->cutoff_base) oztrim = ctx->cutoff_base;
+      if (oztrim < ctx->cutoff_base - full) oztrim = ctx->cutoff_base - full;
     }
     ctx->nslices = nslices;
     ctx->nprimes = nprimes;
@@ -1078,7 +1093,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        */
       const int tri_jit = (0 != (ozflags & OZAKI_TRIANGULAR)) ? 1 : 0;
       const int sym_jit = (0 != (ozflags & OZAKI_SYMMETRIZE)) ? 1 : 0;
-      const int cutoff_jit = 2 * (nslices - 1) - oztrim;
+      const int cutoff_jit = ctx->cutoff_base - oztrim;
       size_t goff = 0;
       goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff,
         "-DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"

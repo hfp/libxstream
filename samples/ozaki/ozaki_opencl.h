@@ -225,7 +225,8 @@ typedef struct ozaki_context_t {
   int nprimes; /* Ozaki-2: number of CRT primes (compiled into Scheme-2 kernels) */
   int kind; /* resolved: 1 = ozaki1 int8, 2 = ozaki2 int8 (CRT), 3 = adaptive */
   int ozflags; /* bitmask: OZAKI_TRIANGULAR | OZAKI_SYMMETRIZE */
-  int oztrim; /* Precision levels to trim (~2 bits each). */
+  int oztrim; /* Precision levels to trim (~2 bits each); negative buys precision back. */
+  int cutoff_base; /* Scheme-1 pair cutoff before trim (the slices the significand needs). */
   int verbosity; /* 0: quiet, 1: info, 2+: debug */
   /* block sizes for preprocessing WGs */
   int bm_pre, bn_pre, bk_pre;
