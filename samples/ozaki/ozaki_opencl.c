@@ -76,6 +76,9 @@
 /* Internal helpers */
 static const uint16_t ozaki_u8_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
 static const uint16_t ozaki_i8_moduli[] = {101, 97, 59, 128, 127, 103, 89, 61, 125, 107, 83, 67, 121, 109, 81, 71, 119, 113, 79, 73};
+/* floor(log2(prod of the first p moduli)), indexed p-1. */
+static const uint32_t ozaki_u8_cumbits[] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
+static const uint32_t ozaki_i8_cumbits[] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
 
 static void ozaki_print_opt(FILE* stream, const char* name, int val)
 {
@@ -89,6 +92,47 @@ static void ozaki_release_kernel(cl_kernel* kernel)
     clReleaseKernel(*kernel);
     *kernel = NULL;
   }
+}
+
+
+/**
+ * Bit budget of the CRT. A product of two aligned significands of b bits, summed
+ * over K terms, occupies 2*b + ceil(log2(K)) + 1 bits, and the moduli must carry
+ * all of them or the residues wrap. ozaki_crt_bits inverts that for a given prime
+ * count and ozaki_crt_primes solves it for a given significand width; the two
+ * together replace an independent truncation request, which could only ask for
+ * fewer bits than the moduli already carry.
+ *
+ * The accumulation headroom is OZAKI_CRT_LGK unless the caller declares a bound
+ * (OZAKI_MAXK). The default covers K up to 32768 and is not a new assumption: it
+ * is the one the untrimmed defaults already embodied, and reproduces all four of
+ * them exactly (fp64/fp32 times u8/i8 -> 16/9 and 19/10 primes).
+ */
+int ozaki_crt_bits(int nprimes, int use_i8, int lgk)
+{
+  const uint32_t* const cumbits = (0 != use_i8) ? ozaki_i8_cumbits : ozaki_u8_cumbits;
+  const int avail = (int)cumbits[LIBXS_CLMP(nprimes, 1, 20) - 1] - lgk;
+  return (0 < avail) ? (avail / 2) : 0;
+}
+
+
+int ozaki_crt_primes(int bits, int use_i8, int lgk)
+{
+  const uint32_t* const cumbits = (0 != use_i8) ? ozaki_i8_cumbits : ozaki_u8_cumbits;
+  const int req = 2 * bits + lgk;
+  int np = 0;
+  while (19 > np && (int)cumbits[np] < req) ++np;
+  return np + 1;
+}
+
+
+/* Accumulation headroom of a declared K: the term count plus one bit of carry. */
+int ozaki_crt_lgk(int maxk)
+{
+  uint64_t kk = (uint64_t)LIBXS_MAX(maxk, 1) - 1;
+  int lgk = 0;
+  while (0 < kk) { ++lgk; kk >>= 1; }
+  return lgk + 1;
 }
 
 
@@ -224,6 +268,96 @@ static size_t ozaki_emit_fraccrt(char* buf, size_t size, size_t off, const uint1
     }
     off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off,
       " -DOZ2G_FRAC_MH=%.20e -DOZ2G_FRAC_ML=%.20e", mh, ml));
+  }
+  return off;
+}
+
+
+/**
+ * The Ozaki-2 build flags that depend on the prime count: the count itself, the
+ * truncation it implies, and the reconstruction tables sized by it. Separate from
+ * the rest so one context can compile more than one prime count, which is what
+ * lets a detected precision be applied without rebuilding the context.
+ */
+static size_t ozaki_crt_prime_flags(char* buf, size_t size, size_t off, int nprimes, int trunc,
+  int use_double, int use_i8, int fraccrt, int crt_hier, int verbosity)
+{
+  const int bias_plus_mant = use_double ? 1075 : 150;
+  const char* env;
+  off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off,
+    " -DNPRIMES=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d", nprimes, bias_plus_mant - trunc, trunc));
+  if (0 == use_i8) {
+    off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_U8=1"));
+  }
+  if (0 != fraccrt) { /* mode 1 spans all primes with 14 limbs, mode 2 one group with 11 */
+    off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_FRACCRT=%d", fraccrt));
+    off = ozaki_emit_fraccrt(buf, size, off, (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli,
+      nprimes, (1 == fraccrt) ? 14 : 11, (1 == fraccrt) ? 0 : ozaki_hier_gs(nprimes));
+  }
+  if (0 != crt_hier) {
+    const uint16_t* modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
+    const int hier_gs = ozaki_hier_gs(nprimes);
+    const int ngroups = LIBXS_UPDIV(nprimes, hier_gs);
+    uint64_t gp[OZAKI_HIER_NGROUPS_MAX], l2b[OZAKI_HIER_NGROUPS_MAX];
+    uint64_t l2inv[OZAKI_HIER_NGROUPS_MAX * OZAKI_HIER_NGROUPS_MAX], l1w[OZAKI_HIER_NGROUPS_MAX * 4];
+    int gi, gj, k, use_tree;
+    for (gi = 0; gi < ngroups; ++gi) {
+      const int lo = gi * hier_gs, hi = (lo + hier_gs <= nprimes) ? lo + hier_gs : nprimes;
+      uint32_t p = 1;
+      for (k = lo; k < hi; ++k) p *= (uint32_t)modtab[k];
+      gp[gi] = p;
+      l2b[gi] = (uint64_t)(-1) / (uint64_t)p;
+      /**
+       * Level-1 explicit-CRT weights w_i = (M/m_i) * inv(M/m_i mod m_i) mod M for
+       * the group's own modulus M: one dot product and one reduction where Garner
+       * needs HIER_GS*(HIER_GS-1)/2 dependent ones, affordable only at the leaf
+       * where M fits uint32. Slots past a partial group weigh zero, pairing with
+       * the zero residues both callers supply.
+       */
+      for (k = 0; k < hier_gs; ++k) {
+        uint32_t w = 0;
+        if (lo + k < hi) {
+          const uint32_t mk = (uint32_t)modtab[lo + k];
+          const uint32_t cof = p / mk;
+          w = (uint32_t)(((uint64_t)cof * libxs_mod_inverse_u32(cof % mk, mk)) % p);
+        }
+        l1w[gi * hier_gs + k] = w;
+      }
+    }
+    /* gprod_j^-1 mod gprod_i at [j][i] above the diagonal; the tree merge reads [0][1] */
+    for (gi = 0; gi < ngroups; ++gi) {
+      for (gj = 0; gj < ngroups; ++gj) {
+        l2inv[gi * ngroups + gj] = (gi < gj)
+          ? libxs_mod_inverse_u32((uint32_t)(gp[gi] % gp[gj]), (uint32_t)gp[gj]) : 0;
+      }
+    }
+    /* Tree-merge level 2 exists for at most 2 groups; clamp rather than build an unassigned result. */
+    env = getenv("OZAKI_HIER_L2");
+    use_tree = (NULL != env) ? (0 != atoi(env) ? 1 : 0) : (ngroups <= 2 ? 1 : 0);
+    if (0 != use_tree && 2 < ngroups) {
+      if (0 > verbosity || 2 < verbosity) {
+        fprintf(stderr, "INFO OZAKI: tree-merge level 2 needs <=2 groups (have %d), using Garner\n", ngroups);
+      }
+      use_tree = 0;
+    }
+    off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off,
+      " -DOZAKI_HIER=1 -DHIER_GS=%d -DOZAKI_HIER_L2=%d", hier_gs, use_tree));
+    off = ozaki_emit_list(buf, size, off, "HIER_GPROD", gp, ngroups, "u");
+    off = ozaki_emit_list(buf, size, off, "HIER_L2B", l2b, ngroups, "ul");
+    off = ozaki_emit_list(buf, size, off, "HIER_L2INV", l2inv, ngroups * ngroups, "u");
+    off = ozaki_emit_list(buf, size, off, "HIER_L1W", l1w, ngroups * hier_gs, "u");
+    { /* Garner and the flat extraction stay reachable for comparison on one build. */
+      const char *const env_l1g = getenv("OZAKI_L1_GARNER");
+      const char *const env_xf = getenv("OZAKI_EXTRACT_FLAT");
+      if (NULL != env_l1g && 0 != atoi(env_l1g)) {
+        off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off,
+          " -DOZAKI_L1_GARNER=1"));
+      }
+      if (NULL != env_xf && 0 != atoi(env_xf)) {
+        off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off,
+          " -DOZAKI_EXTRACT_FLAT=1"));
+      }
+    }
   }
   return off;
 }
@@ -404,6 +538,113 @@ int ozaki_npanel(const ozaki_context_t* ctx, int M, int N, int tm, int tn)
 }
 
 
+/**
+ * The Ozaki-2 flags every Scheme-2 program shares: the context's invariant part
+ * followed by what the active prime count adds. Kernels are specialized on the
+ * tile beyond this, which their own call sites append.
+ */
+int ozaki_crt_base_flags(const ozaki_context_t* ctx, char* buf, size_t size)
+{
+  size_t off = ozaki_append(0, size, LIBXS_SNPRINTF(buf, size, "%s", ctx->crt_flags));
+  off = ozaki_crt_prime_flags(buf, size, off, ctx->nprimes, ctx->crt_trunc,
+    ctx->use_double, ctx->use_i8, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
+  return ozaki_append_check(off, size, "Ozaki-2 primes");
+}
+
+
+/**
+ * Switch the active prime count. The residue planes in the operand cache belong to
+ * the count that wrote them, so they are dropped rather than reinterpreted; the
+ * kernels need no such care because both registries are keyed by the count. The
+ * truncation moves with it: the moduli carry what they carry.
+ */
+int ozaki_crt_select(ozaki_context_t* ctx, int nprimes)
+{
+  const int np = LIBXS_CLMP(nprimes, 2, ctx->nprimes_max);
+  int result = EXIT_SUCCESS;
+  if (np != ctx->nprimes) {
+    if (NULL == ozaki_crt_variant(ctx, np)) result = EXIT_FAILURE;
+    else {
+      const int sig = ctx->use_double ? 53 : 24;
+      ozaki_invalidate_cache(ctx, ctx->cache.a.ptr, ctx->cache.b.ptr);
+      ctx->crt_trunc = LIBXS_CLMP(sig - ozaki_crt_bits(np, ctx->use_i8, ctx->crt_lgk), 0, sig - 1);
+      ctx->nprimes = np;
+      if (1 != ctx->kind) ctx->ndecomp = np;
+      if (0 > ctx->verbosity || 2 < ctx->verbosity) {
+        fprintf(stderr, "INFO OZAKI: %d primes now, carrying %d of %d significand bits\n",
+          np, sig - ctx->crt_trunc, sig);
+      }
+    }
+  }
+  return result;
+}
+
+
+/**
+ * The preprocessing kernels for a prime count, compiled on first use and kept in
+ * ctx->crt_variants. Both kernels write one residue plane per prime and truncate to
+ * what those primes carry, so they cannot be shared across counts the way scale_beta
+ * is. Returns NULL if the program does not build, which leaves Scheme 2 unavailable
+ * at that count rather than silently reading planes that were never written.
+ */
+const ozaki_crt_variant_t* ozaki_crt_variant(ozaki_context_t* ctx, int nprimes)
+{
+  ozaki_crt_variant_t* var = NULL;
+  if (NULL != ctx->crt_variants) {
+    var = (ozaki_crt_variant_t*)libxs_registry_get(ctx->crt_variants, &nprimes,
+      sizeof(nprimes), libxs_registry_lock(ctx->crt_variants));
+    if (NULL == var || NULL == var->kern_preprocess_a) {
+      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &ctx->kernel_lock);
+      var = (ozaki_crt_variant_t*)libxs_registry_get(ctx->crt_variants, &nprimes,
+        sizeof(nprimes), libxs_registry_lock(ctx->crt_variants));
+      if (NULL == var || NULL == var->kern_preprocess_a) {
+        const int trunc = LIBXS_CLMP((ctx->use_double ? 53 : 24)
+          - ozaki_crt_bits(nprimes, ctx->use_i8, ctx->crt_lgk), 0, ctx->use_double ? 52 : 23);
+        char flags[sizeof(ctx->crt_flags) + 1024];
+        ozaki_crt_variant_t newvar;
+        cl_program program = NULL;
+        char pname[64];
+        size_t off = ozaki_append(0, sizeof(flags), LIBXS_SNPRINTF(flags, sizeof(flags), "%s", ctx->crt_flags));
+        memset(&newvar, 0, sizeof(newvar));
+        newvar.nprimes = nprimes;
+        newvar.trunc = trunc;
+        off = ozaki_crt_prime_flags(flags, sizeof(flags), off, nprimes, trunc,
+          ctx->use_double, ctx->use_i8, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
+        off = ozaki_append(off, sizeof(flags), LIBXS_SNPRINTF(flags + off, sizeof(flags) - off, "%s", ctx->crt_pp_tile));
+        /* One program per prime count, so the name has to separate them in the JIT cache. */
+        LIBXS_SNPRINTF(pname, sizeof(pname), "ozaki2_pp%d", nprimes);
+        if (EXIT_SUCCESS == ozaki_append_check(off, sizeof(flags), "Ozaki-2 primes")
+          && EXIT_SUCCESS == libxstream_opencl_program(
+               0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags, ctx->crt_options, NULL, NULL, NULL, 0, &program))
+        {
+          if (EXIT_SUCCESS != libxstream_opencl_kernel_query(program, "preprocess_a_crt_dense", &newvar.kern_preprocess_a)
+            || EXIT_SUCCESS != libxstream_opencl_kernel_query(program, "preprocess_b_crt_dense", &newvar.kern_preprocess_b))
+          {
+            ozaki_release_kernel(&newvar.kern_preprocess_a);
+            ozaki_release_kernel(&newvar.kern_preprocess_b);
+          }
+          else if (NULL == ctx->kern_crt_scale_beta) { /* prime-independent, so the first variant supplies it */
+            libxstream_opencl_kernel_query(program, "scale_beta", &ctx->kern_crt_scale_beta);
+          }
+        }
+        if (NULL != program) clReleaseProgram(program);
+        if (NULL != newvar.kern_preprocess_a) {
+          var = (ozaki_crt_variant_t*)libxs_registry_set(ctx->crt_variants, &nprimes,
+            sizeof(nprimes), &newvar, sizeof(newvar), libxs_registry_lock(ctx->crt_variants));
+        }
+        else var = NULL;
+        if (0 > ctx->verbosity || 2 < ctx->verbosity) {
+          fprintf(stderr, "INFO OZAKI: JIT crt primes=%d trunc=%d -> %s\n",
+            nprimes, trunc, NULL != var ? "OK" : "FAILED");
+        }
+      }
+      LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->kernel_lock);
+    }
+  }
+  return (NULL != var && NULL != var->kern_preprocess_a) ? var : NULL;
+}
+
+
 int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, int verbosity, int ndecomp, int ozflags, int oztrim,
   int ozgroups, int maxk)
 {
@@ -430,6 +671,23 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
    */
   if (0 >= kind || 3 < kind) kind = 3;
   crt = (1 != kind); /* CRT participates: forced (2) or possible (3) */
+
+  /**
+   * The same rule for the other parameters a caller may leave unspecified: zero
+   * asks for the default, and the default is resolved here rather than in each
+   * driver. OZAKI_MAXK is the one that matters beyond tidiness, because it bounds
+   * the CRT bit budget as well as the grouping, so two drivers disagreeing about
+   * what "unset" means is two different prime counts for the same call.
+   */
+  if (0 >= maxk) {
+    env = getenv("OZAKI_MAXK");
+    maxk = (NULL != env) ? atoi(env) : OZAKI_MAXK_DEFAULT;
+    if (0 >= maxk) maxk = OZAKI_MAXK_DEFAULT;
+  }
+  if (0 >= ndecomp) {
+    env = getenv("OZAKI_N");
+    if (NULL != env) ndecomp = atoi(env);
+  }
 
   /* CRT: no triangular/symmetrize (no cross-prime products). Not under adaptive,
    * where Scheme 1 may still run and the crossover counts its pairs. */
@@ -485,47 +743,32 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
    * Both are needed for adaptive scheme selection.
    */
   {
-    const int u8_def = use_double ? 16 : 9;
-    const int i8_def = use_double ? 19 : 10;
+    /* Significand width, the implicit bit included. */
+    const int sig = use_double ? 53 : 24;
+    const int lgk = ozaki_crt_lgk(maxk);
     nslices = use_double ? 8 : 4;
-    nprimes = (0 != use_i8) ? i8_def : u8_def;
+    /* The untrimmed default is the fewest primes that carry the exact product. */
+    nprimes = ozaki_crt_primes(sig, use_i8, lgk);
     if (0 < ndecomp) {
       if (1 == kind) nslices = ndecomp;
-      else if (ndecomp != u8_def && ndecomp != i8_def) nprimes = ndecomp;
+      else nprimes = ndecomp;
     }
-    { /* Scheme 2: Convert trim levels to input mantissa bits. */
-      const int mant = use_double ? 52 : 23;
-      const int max_levels = mant / 2;
-      /* A negative trim asks for headroom rather than truncation, which here is moduli. */
-      if (0 > oztrim && 1 != kind) nprimes = LIBXS_MIN(nprimes - oztrim, 20);
-      oztrim_crt = (3 == kind) ? 0 : LIBXS_MIN(LIBXS_MAX(oztrim, 0), max_levels) * 2;
-      if (0 < oztrim_crt) {
-        static const int cumbits_u8[20] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
-        static const int cumbits_i8[20] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
-        const int* cumbits = (0 != use_i8) ? cumbits_i8 : cumbits_u8;
-        const int req = 2 * (mant - oztrim_crt) + 23;
-        int np;
-        for (np = 0; np < 20 && cumbits[np] < req; ++np);
-        nprimes = (np < 20) ? np + 1 : 20;
-      }
+    /**
+     * Scheme 2 spends trim on primes, the unit of work, as Scheme 1 spends it on
+     * pair levels; negative buys precision back in the same unit. The truncation
+     * follows from the prime count rather than the other way round: the moduli
+     * carry what they carry, and asking for fewer bits than that only loses
+     * accuracy at no saving. Adaptive selection (kind 3) has to stay comparable
+     * across schemes, so only the precision-buying direction applies there.
+     */
+    if (1 != kind) {
+      const int trim = (3 == kind) ? LIBXS_MIN(oztrim, 0) : oztrim;
+      nprimes = LIBXS_CLMP(nprimes - trim, 2, 20);
     }
-    if (0 < maxk && 0 != crt) {
-      static const int cumbits_u8[20] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
-      static const int cumbits_i8[20] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
-      const int* cumbits = (0 != use_i8) ? cumbits_i8 : cumbits_u8;
-      const int mant = use_double ? 52 : 23;
-      int lgk = 0, req_bits, np_k;
-      uint64_t kk = (uint64_t)maxk - 1;
-      while (kk > 0) { ++lgk; kk >>= 1; }
-      req_bits = 2 * (mant - oztrim_crt + 1) + lgk + 1;
-      for (np_k = 0; np_k < 20 && cumbits[np_k] < req_bits; ++np_k);
-      np_k = (np_k < 20) ? np_k + 1 : 20;
-      if (np_k < nprimes) {
-        if (0 > verbosity || 2 < verbosity) {
-          fprintf(stderr, "INFO OZAKI: bounded-K=%d reduces primes %d -> %d\n", maxk, nprimes, np_k);
-        }
-        nprimes = np_k;
-      }
+    oztrim_crt = LIBXS_CLMP(sig - ozaki_crt_bits(nprimes, use_i8, lgk), 0, sig - 1);
+    if (0 != crt && (0 > verbosity || 2 < verbosity)) {
+      fprintf(stderr, "INFO OZAKI: %d primes carry %d of %d significand bits (K<=%d)\n",
+        nprimes, sig - oztrim_crt, sig, 1 << (lgk - 1));
     }
     /**
      * Scheme 1 pair cutoff. The complete product needs 2*(nslices-1), but a pair (i,j)
@@ -546,6 +789,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     }
     ctx->nslices = nslices;
     ctx->nprimes = nprimes;
+    /* Planes are sized for this, so the count may fall below it later but not rise above. */
+    ctx->nprimes_max = nprimes;
+    ctx->crt_lgk = lgk;
+    ctx->crt_trunc = oztrim_crt;
+    ctx->use_i8 = use_i8;
     ndecomp = (0 != crt) ? nprimes : nslices;
   } /* ndecomp_auto */
   if (0 != crt && 20 < ndecomp) ndecomp = 20;
@@ -591,8 +839,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   ctx->kern_preprocess_b = NULL;
   ctx->kernel_registry = NULL;
   ctx->kern_scale_beta = NULL;
-  ctx->kern_crt_preprocess_a = NULL;
-  ctx->kern_crt_preprocess_b = NULL;
   ctx->crt_registry = NULL;
   ctx->kern_crt_scale_beta = NULL;
   /**
@@ -859,6 +1105,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       /* Fractional CRT is double-only: without fp64 fall back to Garner. */
       fraccrt = (0 == has_fp64) ? 0 : ((1 == fraccrt_req || 2 == fraccrt_req) ? fraccrt_req : 0);
       crt_hier = (1 == fraccrt) ? 0 : (0 != ctx->hier || 3 == kind || 2 == fraccrt);
+      ctx->crt_hier = crt_hier;
+      ctx->fraccrt = fraccrt;
       /**
        * OZAKI_HIER=0 asks for flat reconstruction, which the per-group fractional
        * CRT and the adaptive kind both require the hierarchy for - and turning the
@@ -1223,19 +1471,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
         "-DBK=%d -DKU=%d -DRC=%d -DSG=%d -DINTEL=%d -DNV=%d"
-        " -DNPRIMES=%d -DUSE_DOUBLE=%d"
-        " -DMANT_BITS=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d"
+        " -DUSE_DOUBLE=%d -DMANT_BITS=%d"
         " -DBM_PRE=%d -DBN_PRE=%d -DBK_PRE=%d"
         " -DKGROUPS=%d -DPB=%d"
         " -DCONSTANT=global",
         bk_pre, ctx->ku, ctx->rc, sg, (int)devinfo->intel, nv,
-        nprimes, use_double, mant_bits, bias_plus_mant - oztrim_crt, oztrim_crt, bm_pre, bn_pre, bk_pre,
+        use_double, mant_bits, bm_pre, bn_pre, bk_pre,
         (1 < ozgroups) ? ozgroups : 0, ctx->pb));
       if (0 != ctx->nv_mma) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DNV_MMA=1"));
-      }
-      if (0 == use_i8) {
-        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_U8=1"));
       }
       if (0 != wgmma) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA=1"));
@@ -1359,79 +1603,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BVNNI=1"));
         }
       }
-      if (0 != fraccrt) { /* mode 1 spans all primes with 14 limbs, mode 2 one group with 11 */
-        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-          " -DOZAKI_FRACCRT=%d", fraccrt));
-        coff = ozaki_emit_fraccrt(build_params, sizeof(build_params), coff, (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli,
-          nprimes, (1 == fraccrt) ? 14 : 11, (1 == fraccrt) ? 0 : ozaki_hier_gs(nprimes));
-      }
       if (NULL != env_skip && 0 != atoi(env_skip)) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1"));
-      }
-      if (0 != crt_hier) {
-        const uint16_t* modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
-        const int hier_gs = ozaki_hier_gs(nprimes);
-        const int ngroups = LIBXS_UPDIV(nprimes, hier_gs);
-        uint64_t gp[OZAKI_HIER_NGROUPS_MAX], l2b[OZAKI_HIER_NGROUPS_MAX];
-        uint64_t l2inv[OZAKI_HIER_NGROUPS_MAX * OZAKI_HIER_NGROUPS_MAX], l1w[OZAKI_HIER_NGROUPS_MAX * 4];
-        int gi, gj, k, use_tree;
-        for (gi = 0; gi < ngroups; ++gi) {
-          const int lo = gi * hier_gs, hi = (lo + hier_gs <= nprimes) ? lo + hier_gs : nprimes;
-          uint32_t p = 1;
-          for (k = lo; k < hi; ++k) p *= (uint32_t)modtab[k];
-          gp[gi] = p;
-          l2b[gi] = (uint64_t)(-1) / (uint64_t)p;
-          /**
-           * Level-1 explicit-CRT weights w_i = (M/m_i) * inv(M/m_i mod m_i) mod M for
-           * the group's own modulus M: one dot product and one reduction where Garner
-           * needs HIER_GS*(HIER_GS-1)/2 dependent ones, affordable only at the leaf
-           * where M fits uint32. Slots past a partial group weigh zero, pairing with
-           * the zero residues both callers supply.
-           */
-          for (k = 0; k < hier_gs; ++k) {
-            uint32_t w = 0;
-            if (lo + k < hi) {
-              const uint32_t mk = (uint32_t)modtab[lo + k];
-              const uint32_t cof = p / mk;
-              w = (uint32_t)(((uint64_t)cof * libxs_mod_inverse_u32(cof % mk, mk)) % p);
-            }
-            l1w[gi * hier_gs + k] = w;
-          }
-        }
-        /* gprod_j^-1 mod gprod_i at [j][i] above the diagonal; the tree merge reads [0][1] */
-        for (gi = 0; gi < ngroups; ++gi) {
-          for (gj = 0; gj < ngroups; ++gj) {
-            l2inv[gi * ngroups + gj] = (gi < gj)
-              ? libxs_mod_inverse_u32((uint32_t)(gp[gi] % gp[gj]), (uint32_t)gp[gj]) : 0;
-          }
-        }
-        /* Tree-merge level 2 exists for at most 2 groups; clamp rather than build an unassigned result. */
-        env = getenv("OZAKI_HIER_L2");
-        use_tree = (NULL != env) ? (0 != atoi(env) ? 1 : 0) : (ngroups <= 2 ? 1 : 0);
-        if (0 != use_tree && 2 < ngroups) {
-          if (0 > verbosity || 2 < verbosity) {
-            fprintf(stderr, "INFO OZAKI: tree-merge level 2 needs <=2 groups (have %d), using Garner\n", ngroups);
-          }
-          use_tree = 0;
-        }
-        coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-          " -DOZAKI_HIER=1 -DHIER_GS=%d -DOZAKI_HIER_L2=%d", hier_gs, use_tree));
-        coff = ozaki_emit_list(build_params, sizeof(build_params), coff, "HIER_GPROD", gp, ngroups, "u");
-        coff = ozaki_emit_list(build_params, sizeof(build_params), coff, "HIER_L2B", l2b, ngroups, "ul");
-        coff = ozaki_emit_list(build_params, sizeof(build_params), coff, "HIER_L2INV", l2inv, ngroups * ngroups, "u");
-        coff = ozaki_emit_list(build_params, sizeof(build_params), coff, "HIER_L1W", l1w, ngroups * hier_gs, "u");
-        { /* Garner and the flat extraction stay reachable for comparison on one build. */
-          const char *const env_l1g = getenv("OZAKI_L1_GARNER");
-          const char *const env_xf = getenv("OZAKI_EXTRACT_FLAT");
-          if (NULL != env_l1g && 0 != atoi(env_l1g)) {
-            coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-              " -DOZAKI_L1_GARNER=1"));
-          }
-          if (NULL != env_xf && 0 != atoi(env_xf)) {
-            coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
-              " -DOZAKI_EXTRACT_FLAT=1"));
-          }
-        }
       }
       env = getenv("OZAKI_LU");
       { const int lu = (NULL != env) ? atoi(env) : 0;
@@ -1441,6 +1614,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (NULL != env) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " %s", env));
       }
+      coff = ozaki_crt_prime_flags(build_params, sizeof(build_params), coff, nprimes, oztrim_crt,
+        use_double, use_i8, fraccrt, crt_hier, verbosity);
       result = ozaki_append_check(coff, sizeof(build_params), "Ozaki-2");
       if (0 > verbosity || 2 < verbosity) {
         fprintf(stderr, "INFO OZAKI: %s\n", build_params);
@@ -1452,30 +1627,20 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       memcpy(ctx->crt_flags, build_params, sizeof(ctx->crt_flags));
       LIBXS_SNPRINTF(ctx->crt_options, sizeof(ctx->crt_options), "%s", crt_build_options);
       ctx->crt_registry = libxs_registry_create();
-      if (EXIT_SUCCESS == result) {
-        char base_flags[sizeof(build_params) + 64];
-        cl_program program = NULL;
-        /**
-         * The wgmma tile, not the Scheme-1 ceiling that the work-group clamp shrank:
-         * crt_rtn derives from tn_req, and BN below it leaves NTN at zero.
-         */
-        const int tm_crt = (0 != wgmma) ? ctx->tm_req : tm;
+      ctx->crt_variants = libxs_registry_create();
+      /**
+       * The wgmma tile, not the Scheme-1 ceiling that the work-group clamp shrank:
+       * crt_rtn derives from tn_req, and BN below it leaves NTN at zero. The
+       * preprocessing kernels read none of it, but they share the program with the
+       * GEMM, which does.
+       */
+      { const int tm_crt = (0 != wgmma) ? ctx->tm_req : tm;
         const int tn_crt = (0 != wgmma) ? ctx->tn_req : tn;
-        LIBXS_SNPRINTF(base_flags, sizeof(base_flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_BOUNDS=1",
-          build_params, tm_crt, tn_crt, crt_rtm, crt_rtn);
-        result = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, "ozaki2", base_flags, crt_build_options, NULL, NULL, NULL, 0, &program);
-        if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(program, "preprocess_a_crt_dense", &ctx->kern_crt_preprocess_a);
-        }
-        if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(program, "preprocess_b_crt_dense", &ctx->kern_crt_preprocess_b);
-        }
-        if (EXIT_SUCCESS == result) {
-          result = libxstream_opencl_kernel_query(program, "scale_beta", &ctx->kern_crt_scale_beta);
-        }
-        if (NULL != program) clReleaseProgram(program);
+        LIBXS_SNPRINTF(ctx->crt_pp_tile, sizeof(ctx->crt_pp_tile), " -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_BOUNDS=1",
+          tm_crt, tn_crt, crt_rtm, crt_rtn);
       }
+      /* Built here rather than on demand so that a failing build still disables Scheme 2 at init. */
+      if (EXIT_SUCCESS == result && NULL == ozaki_crt_variant(ctx, nprimes)) result = EXIT_FAILURE;
       ctx->crt_rtm = crt_rtm;
       ctx->crt_rtn = crt_rtn;
       /**
@@ -1503,11 +1668,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           ctx->crt_rtn_big = big.n;
         }
       }
-      if (EXIT_SUCCESS != result) {
-        ozaki_release_kernel(&ctx->kern_crt_preprocess_a);
-        ozaki_release_kernel(&ctx->kern_crt_preprocess_b);
-        ozaki_release_kernel(&ctx->kern_crt_scale_beta);
-      }
+      if (EXIT_SUCCESS != result) ozaki_release_kernel(&ctx->kern_crt_scale_beta);
     }
 
     /* Initialize complex GEMM block-embedding kernels (precision-agnostic, always compiled) */
@@ -1763,9 +1924,18 @@ void ozaki_destroy(ozaki_context_t* ctx)
       }
       libxs_registry_destroy(ctx->kernel_registry);
     }
-    ozaki_release_kernel(&ctx->kern_crt_preprocess_a);
-    ozaki_release_kernel(&ctx->kern_crt_preprocess_b);
     ozaki_release_kernel(&ctx->kern_crt_scale_beta);
+    if (NULL != ctx->crt_variants) {
+      const void* rkey = NULL;
+      size_t cursor = 0;
+      ozaki_crt_variant_t* var = (ozaki_crt_variant_t*)libxs_registry_begin(ctx->crt_variants, &rkey, &cursor);
+      while (NULL != var) {
+        ozaki_release_kernel(&var->kern_preprocess_a);
+        ozaki_release_kernel(&var->kern_preprocess_b);
+        var = (ozaki_crt_variant_t*)libxs_registry_next(ctx->crt_variants, &rkey, &cursor);
+      }
+      libxs_registry_destroy(ctx->crt_variants);
+    }
     if (NULL != ctx->crt_registry) {
       const void* rkey = NULL;
       size_t cursor = 0;

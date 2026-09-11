@@ -136,8 +136,6 @@ int main(int argc, char* argv[])
     if (NULL != env) ozflags = atoi(env);
     env = getenv("OZAKI_TRIM");
     if (NULL != env) oztrim = atoi(env);
-    env = getenv("OZAKI_N");
-    if (NULL != env) ndecomp = atoi(env);
     env = getenv("OZAKI");
     if (NULL != env) kind = atoi(env);
     env = getenv("OZAKI_GROUPS");
@@ -146,7 +144,8 @@ int main(int argc, char* argv[])
     if (NULL != env) verbosity = atoi(env);
     env = getenv("OZAKI_FP");
     if (NULL != env) use_double = (32 != atoi(env));
-    result = ozaki_init(&ctx, tm, tn, use_double, kind, verbosity, ndecomp, ozflags, oztrim, ozgroups, 0 /*maxk: no grouping*/);
+    /* Zero leaves OZAKI_N and OZAKI_MAXK to ozaki_init, which is where they are resolved. */
+    result = ozaki_init(&ctx, tm, tn, use_double, kind, verbosity, ndecomp, ozflags, oztrim, ozgroups, 0 /*maxk*/);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "Failed to initialize Ozaki OpenCL context\n");
     }
@@ -272,6 +271,14 @@ int main(int argc, char* argv[])
     /* warmup (not timed) */
     result = ozaki_gemm(&ctx, stream, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_oz, ldc, 0);
     libxstream_stream_sync(stream);
+    /**
+     * Switch the prime count between calls, which is what the precision detection
+     * does once it has seen the data. Here it is explicit so that the switch can be
+     * compared against starting at the same count, which must give the same result.
+     */
+    if (EXIT_SUCCESS == result && NULL != getenv("OZAKI_SWITCH")) {
+      result = ozaki_crt_select(&ctx, atoi(getenv("OZAKI_SWITCH")));
+    }
     /* restore C for the timed run (beta may be non-zero) */
     if (EXIT_SUCCESS == result) memcpy(c_oz, c_ref, (size_t)ldc * N * elem_size);
     /**

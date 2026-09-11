@@ -947,7 +947,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
    * internally (full-K DPAS + Garner + Horner in one launch).
    */
   else if (NULL != ctx->crt_registry && 0 < K) {
+    const ozaki_crt_variant_t* const crt_var = ozaki_crt_variant(ctx, ctx->nprimes);
     const int nprimes_g = ctx->nprimes;
+    const int nprimes_max = ctx->nprimes_max;
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
@@ -997,7 +999,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int b_panel_h2d = (0 == dev && 1 < npanels && 0 == tb) ? 1 : 0;
     const int nslots = (1 < npanels) ? OZAKI_NSLOTS : 1;
     const int nblk_pn = LIBXS_UPDIV(n_panel, tn); /* tiles per panel (n_panel is a tn multiple) */
-    size_t as_size, bs_size, expa_size, expb_size, bs_slot, expb_slot;
+    size_t as_size, bs_size, expa_size, expb_size, bs_slot, bs_used, expb_slot;
     void *d_as = NULL, *d_bs = NULL;
     void *d_expa_g = NULL, *d_expb_g = NULL;
     void *d_ag = NULL, *d_bg = NULL, *d_cg = NULL, *d_res = NULL, *d_tz = NULL;
@@ -1020,9 +1022,16 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     if (n_pad < nblk_pn * tn) n_pad = nblk_pn * tn;
     if (m_pad < nblk_gm * tm) m_pad = nblk_gm * tm;
 
-    as_size = (size_t)nprimes_g * m_pad * k_grp_pad;
-    bs_slot = (size_t)nprimes_g * k_grp_pad * n_pad;
+    /**
+     * Residue planes are sized by the count the context may rise to, not by the one
+     * in use: the plane stride is M_pad*K_pad either way, so a smaller count simply
+     * leaves the upper planes unwritten and unread. That is what lets the prime count
+     * change between calls without reallocating, and it keeps the arena one size.
+     */
+    as_size = (size_t)nprimes_max * m_pad * k_grp_pad;
+    bs_slot = (size_t)nprimes_max * k_grp_pad * n_pad;
     bs_size = bs_slot * nslots;
+    bs_used = (size_t)nprimes_g * k_grp_pad * n_pad;
     expa_size = (size_t)nblk_gm * tm * sizeof(cl_int); /* pad to tile boundary */
     expb_slot = (size_t)nblk_pn * tn * sizeof(cl_int);
     expb_size = expb_slot * nslots;
@@ -1061,7 +1070,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       if (0 == cache_hit_b && 0 == cacheable_b) {
         need += LIBXS_UP2(bs_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expb_size, OZAKI_SCRATCH_ALIGN);
       }
-      if (0 != ctx->unfuse) need += LIBXS_UP2((size_t)nprimes_g * nblk_gm * tm * nblk_pn * tn, OZAKI_SCRATCH_ALIGN);
+      if (0 != ctx->unfuse) need += LIBXS_UP2((size_t)nprimes_max * nblk_gm * tm * nblk_pn * tn, OZAKI_SCRATCH_ALIGN);
       if (0 != ctx->tzdetect) need += LIBXS_UP2(2 * sizeof(cl_int), OZAKI_SCRATCH_ALIGN);
       if (0 != need) claimed = ozaki_scratch_claim(ctx, need);
     }
@@ -1114,7 +1123,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * it is launched with. Never cached: it is scratch between two kernels.
      */
     if (EXIT_SUCCESS == result && 0 != ctx->unfuse) {
-      result = ozaki_scratch_alloc(ctx, claimed, &d_res, (size_t)nprimes_g * nblk_gm * tm * nblk_pn * tn, 0);
+      result = ozaki_scratch_alloc(ctx, claimed, &d_res, (size_t)nprimes_max * nblk_gm * tm * nblk_pn * tn, 0);
     }
 
     /**
@@ -1184,7 +1193,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         result = libxstream_mem_zero(d_expa_g, 0, expa_size, stream_a);
         if (EXIT_SUCCESS == result && m_pad > M) result = libxstream_mem_zero(d_as, 0, as_size, stream_a);
         if (EXIT_SUCCESS == result) {
-          result = ozaki_enqueue_preprocess(ctx, stream_a, ctx->kern_crt_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g,
+          result = ozaki_enqueue_preprocess(ctx, stream_a, crt_var->kern_preprocess_a, (char*)d_ag + a_off, d_as, d_expa_g,
             sizeof(cl_int), M, K_len, lda, ta, k_pad, m_pad, bm_pre, bk_pre, d_tz, 1 /*kmajor*/);
         }
       }
@@ -1241,10 +1250,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
           result = libxstream_mem_zero(d_expb_s, 0, expb_slot, stream_b);
           if (EXIT_SUCCESS == result && n_pad > N_len) {
-            result = libxstream_mem_zero(d_bs_s, 0, bs_slot, stream_b);
+            result = libxstream_mem_zero(d_bs_s, 0, bs_used, stream_b);
           }
           if (EXIT_SUCCESS == result) {
-            result = ozaki_enqueue_preprocess(ctx, stream_b, ctx->kern_crt_preprocess_b, (char*)d_bg + b_off + bp_off, d_bs_s,
+            result = ozaki_enqueue_preprocess(ctx, stream_b, crt_var->kern_preprocess_b, (char*)d_bg + b_off + bp_off, d_bs_s,
               d_expb_s, sizeof(cl_int), N_len, K_len, ldb, tb, k_pad, n_pad, bn_pre, bk_pre,
               (NULL != d_tz) ? ((char*)d_tz + sizeof(cl_int)) : NULL, 0 /*kmajor*/);
           }
@@ -1329,22 +1338,23 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     /**
      * What the data's precision actually was. The kernels report the complement so a
      * zeroed buffer and atomic_max give a minimum (see OZAKI_TZ_BIAS in ozaki2_int8.cl),
-     * and a zero means nothing was reported at all. MANT_TRUNC applies to both operands
-     * alike, so the level that is lossless for the pair is the smaller of the two, and
-     * OZAKI_TRIM counts in steps of two mantissa bits.
+     * and a zero means nothing was reported at all. The truncation applies to both
+     * operands alike, so the width that is lossless for the pair is the smaller of the
+     * two, and the moduli only have to carry that width rather than the full one.
      */
     if (NULL != d_tz) {
       cl_int tz[2] = {0, 0};
       if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(d_tz, tz, sizeof(tz), stream);
       if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
       if (EXIT_SUCCESS == result) {
-        const int mant = ctx->use_double ? 52 : 23;
-        const int tza = (0 < tz[0]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[0], mant) : 0;
-        const int tzb = (0 < tz[1]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[1], mant) : 0;
+        const int sig = ctx->use_double ? 53 : 24;
+        const int tza = (0 < tz[0]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[0], sig - 1) : 0;
+        const int tzb = (0 < tz[1]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[1], sig - 1) : 0;
         const int uniform = LIBXS_MIN(tza, tzb);
-        fprintf(stderr, "INFO OZAKI: trimmable low bits A=%i B=%i -> lossless OZAKI_TRIM=%i"
-                        " (of %i mantissa bits, %i primes now)\n",
-          tza, tzb, uniform / 2, mant + 1, ctx->nprimes);
+        const int np_min = ozaki_crt_primes(sig - uniform, 0 == ctx->u8, ctx->crt_lgk);
+        fprintf(stderr, "INFO OZAKI: data carries %i of %i significand bits (spare A=%i B=%i)"
+                        " -> %i primes suffice, %i in use (OZAKI_TRIM=%i)\n",
+          sig - uniform, sig, tza, tzb, np_min, ctx->nprimes, ctx->nprimes - np_min);
       }
       ozaki_scratch_free(ctx, d_tz, 0);
     }
@@ -1554,6 +1564,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
   key.tn = tn;
   key.rtm = rtm;
   key.rtn = rtn;
+  key.nprimes = ctx->nprimes;
   kset = (ozaki_crt_kernel_set_t*)libxs_registry_get(ctx->crt_registry, &key,
     sizeof(key), libxs_registry_lock(ctx->crt_registry));
   if (NULL == kset || NULL == kset->kern_fused) {
@@ -1561,7 +1572,8 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
     kset = (ozaki_crt_kernel_set_t*)libxs_registry_get(ctx->crt_registry, &key,
       sizeof(key), libxs_registry_lock(ctx->crt_registry));
     if (NULL == kset || NULL == kset->kern_fused) {
-      char flags[sizeof(ctx->crt_flags) + 256]; /* headroom for every specialization suffix below */
+      char base[sizeof(ctx->crt_flags) + 1024]; /* context flags plus the prime tables */
+      char flags[sizeof(base) + 256]; /* and every specialization suffix below */
       ozaki_crt_kernel_set_t newset;
       cl_program program = NULL;
       memset(&newset, 0, sizeof(newset));
@@ -1570,7 +1582,10 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         int defer = 0, stages = 2;
         const int wku = ozaki_wgmma_depth(ctx, tm, tn, &defer, &stages);
         char spec[64];
-        LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d%s", tm, tn, rtm, rtn, 0 != bounds ? "b" : "");
+        /* The prime count sizes the reconstruction tables, so it belongs in the base and in the name. */
+        ozaki_crt_base_flags(ctx, base, sizeof(base));
+        LIBXS_SNPRINTF(pname, sizeof(pname), "oz2_%dx%d_r%dx%d_p%d%s", tm, tn, rtm, rtn, ctx->nprimes,
+          0 != bounds ? "b" : "");
         /* NWAIT is what the buffers buy, and the kernel clamps it to STAGES-3 either way. */
         LIBXS_SNPRINTF(spec, sizeof(spec), " -DOZAKI_WGMMA_STAGES=%i -DOZAKI_WGMMA_NWAIT=%i",
           stages, LIBXS_MAX(stages - 3, 0));
@@ -1580,14 +1595,14 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         }
         if (0 != ctx->wgmma) {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_WGMMA_KU=%d%s%s%s",
-            ctx->crt_flags, tm, tn, rtm, rtn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
+            base, tm, tn, rtm, rtn, wku, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "",
             0 != defer ? " -DOZAKI_WGMMA_DEFER=1" : "",
             /* The depth travels with the buffer count: a round stays in flight only if a buffer covers it. */
             (2 < stages) ? spec : "");
         }
         else {
           LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d%s",
-            ctx->crt_flags, tm, tn, rtm, rtn, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
+            base, tm, tn, rtm, rtn, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
         }
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags,
@@ -1610,8 +1625,8 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
           sizeof(key), &newset, sizeof(newset), libxs_registry_lock(ctx->crt_registry));
       }
       if (0 > ctx->verbosity || 2 < ctx->verbosity) {
-        fprintf(stderr, "INFO OZAKI: JIT crt bounds=%d tile=%dx%d rt=%dx%d -> %s\n",
-          bounds, tm, tn, rtm, rtn, NULL != newset.kern_fused ? "OK" : "FAILED");
+        fprintf(stderr, "INFO OZAKI: JIT crt primes=%d bounds=%d tile=%dx%d rt=%dx%d -> %s\n",
+          ctx->nprimes, bounds, tm, tn, rtm, rtn, NULL != newset.kern_fused ? "OK" : "FAILED");
       }
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->kernel_lock);
