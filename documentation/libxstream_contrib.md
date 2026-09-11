@@ -67,14 +67,15 @@ comma or semicolon is caught in C sources, the rest is on the author.
 The rules that span more than one line are checked by
 `scripts/tool_checkstruct.py`: a single function exit, blank lines inside and
 between functions, stacked single-line comments, where an opening brace goes,
-whether a multi-line `if` or loop is braced, and a constant on the left-hand
-side. It works on the source text, with comments, literals, and
-preprocessor directives masked out, so a `return` in `#if` and another in
-`#else` count as one exit. A parser is not used on purpose: the declarations
-carry `LIBXS_API` and friends, which a preprocessor-less parser turns into an
-error node every few lines, and a preprocessed compiler dump no longer says
-which file a construct came from. `scripts/tool_checkenvars.sh` compares the
-prefixed variables the source reads against what the documentation mentions.
+whether a multi-line `if` or loop is braced, whether the sections of a file
+come in order, and a constant on the left-hand side. It works on the source
+text, with comments, literals, and preprocessor directives masked out, so a
+`return` in `#if` and another in `#else` count as one exit. A parser is not
+used on purpose: the declarations carry `LIBXS_API` and friends, which a
+preprocessor-less parser turns into an error node every few lines, and a
+preprocessed compiler dump no longer says which file a construct came from.
+`scripts/tool_checkenvars.sh` compares the prefixed variables the source reads
+against what the documentation mentions.
 
 **The policy holds everywhere; the hooks enforce most of it on library code and
 public headers.** A sample or a test that bails out of `main()` early is not the
@@ -136,6 +137,22 @@ Two exceptions, and no others:
 - A type may sit immediately above the one entry point it parameterizes, when
   that is what makes the interface readable. This covers an argument or callback
   type in a public header, not an internal type shared by several functions.
+
+The `section-order` check reads the file as a sequence of top-level constructs
+and reports where their kind steps back to a section the file has already left.
+It is approximate by design: it ranks what it recognizes and stays quiet about
+the rest, so it misses cases rather than inventing them. One backward step is
+reported once and not once per construct below it, because a single misplaced
+typedef does not make every macro under it a separate defect.
+
+Three shapes are ranked out of the ordering, since the text that looks like a
+section member is not one: the include guard, whose `#define` is the file's own
+name; an include or a define inside an `#if`, which is a feature test and
+belongs where the test is; and a prototype immediately above the definition it
+repeats, which is how a static definition answers `-Wmissing-prototypes`. The
+two exceptions above are not detected. They are judged, one file at a time, and
+a judged case belongs in the to-do list where it is visible, not in a rule that
+guesses at intent.
 
 Every file carries the SPDX license header (BSD-3-Clause) verbatim as found in
 existing files.

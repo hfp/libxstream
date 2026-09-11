@@ -69,6 +69,27 @@ DIRECTIVE = re.compile(r"[ \t]*#")
 # The same keywords where they start a statement, to find what they control.
 CONTROLLED = re.compile(r"\b(if|for|while|switch|else|do)\b")
 ELSEIF = re.compile(r"if\b")
+# The include guard, whose "#define" is the file's own name rather than a
+# member of the macro section.
+GUARD = re.compile(
+    r"^[ \t]*#[ \t]*ifndef[ \t]+(\w+)[ \t]*\n[ \t]*#[ \t]*define[ \t]+\1\b",
+    re.M,
+)
+KEYWORD = re.compile(r"[ \t]*#[ \t]*(\w+)")
+NAMED = re.compile(r"(\w+)[ \t]*\(")
+# The declarator that trails the closing brace of a type definition, as in
+# "} libxs_gemm_shape_t;": the construct ends at the semicolon, not at the
+# brace. Kept to one line, or the next construct would be swallowed too.
+DECLARATOR = re.compile(r"[ \t*,\[\]\w]*;")
+# The sections of the policy, in their order, as the report words them.
+SECTIONS = (
+    "an include",
+    "a macro",
+    "a type",
+    "a translation-unit variable",
+    "a prototype",
+    "a function",
+)
 KEYWORDS = (
     "long",
     "short",
@@ -118,6 +139,7 @@ CHECKS = (
     "function-local",
     "brace-placement",
     "multiline-block",
+    "section-order",
 )
 
 
@@ -320,6 +342,8 @@ def check(path: str, enabled: Sequence[str]) -> List[Finding]:
         report += braces(path, text, masked)
     if "multiline-block" in enabled:
         report += blocks(text, masked)
+    if "section-order" in enabled:
+        report += sections(text)
     if "function-local" in enabled:
         for opened, closed, isfunc in regions:
             if not isfunc:
@@ -603,6 +627,156 @@ def blocks(text: str, masked: str) -> List[Finding]:
                     '"%s" spans lines, so it wants braces' % keyword,
                 )
             )
+    return report
+
+
+def kind(text: str) -> int:
+    """Rank one top-level construct by what it defines."""
+    flat = " ".join(text.split())
+    head = flat.split("{")[0]
+    if flat.startswith("typedef"):
+        return 3
+    if "{" in flat:
+        # An initializer carries braces of its own, so what decides is the
+        # text ahead of them: an "=" makes the braces a value, and a ")"
+        # makes them a body.
+        if re.search(r"=[^=]*$", head):
+            return 4
+        return 6 if head.rstrip().endswith(")") else 3
+    if "=" not in flat and NAMED.search(flat) and flat.rstrip().endswith(")"):
+        return 5
+    return 4
+
+
+def named(text: str) -> str:
+    """Name the entity a declaration declares, or "" where there is none.
+
+    The name is the identifier ahead of the outermost parameter list, which
+    is neither the first nor the last in the text: a decoration such as
+    LIBXS_INTRINSICS(...) brings its own parentheses ahead of the name, and
+    a function parameter brings its own behind it.
+    """
+    result = ""
+    depth = 0
+    for match in re.finditer(r"(\w+)?[ \t\n]*([()])", text.split("{")[0]):
+        if "(" == match.group(2):
+            if 0 == depth and match.group(1):
+                result = match.group(1)
+            depth += 1
+        else:
+            depth -= 1
+    return result
+
+
+def constructs(visible: str) -> List[Tuple[int, int, str, int]]:
+    """Rank the top-level constructs as (offset, rank, text, conditional).
+
+    The rank is the position in the section order, from 1 for an include to
+    6 for a function definition, and 0 for what has no section of its own,
+    which is every directive that is neither an include nor a define. The
+    conditional depth rides along because an include or a define inside an
+    "#if" is a feature test rather than a member of a section.
+    """
+    found: List[Tuple[int, int, str, int]] = []
+    depth, cond, start = 0, 0, -1
+    i, n = 0, len(visible)
+    while i < n:
+        char = visible[i]
+        if (
+            "#" == char
+            and 0 == depth
+            and not visible[:i].rsplit("\n", 1)[-1].strip()
+        ):
+            end = visible.find("\n", i)
+            while -1 != end and "\\" == visible[end - 1 : end]:
+                end = visible.find("\n", end + 1)
+            end = n if -1 == end else end
+            match = KEYWORD.match(visible, i)
+            name = match.group(1) if match else ""
+            if name in ("if", "ifdef", "ifndef"):
+                cond += 1
+            elif "endif" == name:
+                cond = max(cond - 1, 0)
+            rank = {"include": 1, "define": 2}.get(name, 0)
+            if 0 != rank:
+                found.append((i, rank, visible[i:end], cond))
+            i, start = end, -1
+            continue
+        if 0 > start:
+            if char in " \t\n":
+                i += 1
+                continue
+            start = i
+        if "{" == char:
+            depth += 1
+        elif "}" == char:
+            depth -= 1
+            if 0 >= depth:
+                depth = 0
+                match = DECLARATOR.match(visible, i + 1)
+                stop = match.end() if match else i + 1
+                entry = visible[start:stop]
+                found.append((start, kind(entry), entry, cond))
+                i, start = stop, -1
+                continue
+        elif ";" == char and 0 == depth:
+            entry = visible[start:i]
+            found.append((start, kind(entry), entry, cond))
+            start = -1
+        i += 1
+    return found
+
+
+def sections(text: str) -> List[Finding]:
+    """Report a construct that reopens a section the file already left.
+
+    The sections are strictly ordered, so the rank of the constructs never
+    decreases: where it does, something was parked next to its first use
+    instead of grouped with its kind. The report names both sections, which
+    is the direction of the fix, and one backward step is reported once
+    rather than once per construct: after a misplaced typedef, every macro
+    below it is out of order too, and that is one defect, not a hundred.
+
+    Three things are ranked out of the ordering, because in each the text
+    that looks like a section member is not one: the include guard, whose
+    "#define" is the file's own name; an include or a define inside an
+    "#if", which is a feature test and belongs where the test is; and a
+    prototype immediately above the definition it repeats, which is how a
+    static definition answers -Wmissing-prototypes.
+    """
+    report: List[Finding] = []
+    visible, _ = mask(text, True)
+    match = GUARD.search(visible)
+    guard = match.group(1) if match else ""
+    found = constructs(visible)
+    top, again = 0, 0
+    for at, (offset, rank, entry, cond) in enumerate(found):
+        if 0 == rank:
+            continue
+        if guard and 2 == rank:
+            if re.match(r"[ \t]*#[ \t]*define[ \t]+%s\b" % guard, entry):
+                continue
+        if 0 < cond and rank in (1, 2):
+            continue
+        if 5 == rank and at + 1 < len(found):
+            below = found[at + 1]
+            name = named(entry)
+            if name and 6 == below[1] and name == named(below[2]):
+                continue
+        if rank < top:
+            if again != rank:
+                report.append(
+                    (
+                        "section-order",
+                        visible.count("\n", 0, offset) + 1,
+                        "%s after %s"
+                        % (SECTIONS[rank - 1], SECTIONS[top - 1]),
+                    )
+                )
+            again = rank
+        else:
+            again = 0
+        top = max(top, rank)
     return report
 
 
