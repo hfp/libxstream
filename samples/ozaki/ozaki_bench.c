@@ -47,6 +47,8 @@ LIBXS_EXTERN void SGEMM(const char* transa, const char* transb, const int* m, co
 
 /* Function prototypes */
 static void print_diff(FILE* ostream, const char* label, const libxs_matdiff_t* diff);
+static void gemm_bound(int use_double, char transa, char transb, int M, int N, int K, double alpha,
+  void* a, int lda, void* b, int ldb, double beta, void* c_bnd, int ldc);
 static double ozaki_duration(double* times, int nrepeat, double total);
 #if defined(__CUBLAS)
 static void cublas_putenv(int use_double, int nslices);
@@ -75,6 +77,8 @@ int main(int argc, char* argv[])
   const char transa = (0 == ta ? 'N' : 'T');
   const char transb = (0 == tb ? 'N' : 'T');
   void *a = NULL, *b = NULL, *c_oz = NULL, *c_ref = NULL;
+  /* Componentwise bound |alpha||A||B| + |beta||C| (GRADE), host-only. */
+  void* c_bnd = NULL;
   void* scratch = NULL; /* caller-owned device scratch (OZAKI_SCRATCH) */
 #if defined(__CUBLAS)
   void* c_cu = NULL;
@@ -221,6 +225,26 @@ int main(int argc, char* argv[])
         }
       }
       memcpy(c_ref, c_oz, (size_t)ldc * N * elem_size);
+      /**
+       * GRADE reports the componentwise criterion of the graded BLAS accuracy tests,
+       * |fl(AB) - AB| <= f(K) * u * (|alpha||A||B| + |beta||C|), which is the figure
+       * that compares across implementations - unlike l2_rel, whose per-element
+       * quotient is dominated by the near-zero entries of C. |C| has to be captured
+       * here because every reference below overwrites C.
+       */
+      if (NULL != getenv("GRADE") && 0 != atoi(getenv("GRADE"))) {
+        c_bnd = malloc((size_t)ldc * N * elem_size);
+        if (NULL != c_bnd) {
+          const size_t nc = (size_t)ldc * N;
+          size_t i;
+          if (ctx.use_double) {
+            for (i = 0; i < nc; ++i) ((double*)c_bnd)[i] = fabs(((const double*)c_oz)[i]);
+          }
+          else {
+            for (i = 0; i < nc; ++i) ((float*)c_bnd)[i] = (float)fabs(((const float*)c_oz)[i]);
+          }
+        }
+      }
     }
   }
 
@@ -337,10 +361,22 @@ int main(int argc, char* argv[])
     libxstream_stream_sync(stream);
   }
 
+  /**
+   * A and B are dead once every result is computed, so |A| and |B| are formed
+   * in place to bound the exact product. One driver or the other, never both:
+   * libxs_matdiff_grade fills what libxs_matdiff fills.
+   */
+  if (EXIT_SUCCESS == result && NULL != c_bnd) {
+    gemm_bound(ctx.use_double, transa, transb, M, N, K, alpha, a, lda, b, ldb, beta, c_bnd, ldc);
+  }
+
   /* Compare */
   if (EXIT_SUCCESS == result) {
     const libxs_data_t dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
-    result = libxs_matdiff(&diff, dtype, M, N, c_ref, c_oz, &ldc, &ldc);
+    if (NULL != c_bnd) {
+      result = libxs_matdiff_grade(&diff, dtype, M, N, c_ref, c_oz, c_bnd, &ldc, &ldc, &ldc);
+    }
+    else result = libxs_matdiff(&diff, dtype, M, N, c_ref, c_oz, &ldc, &ldc);
     if (EXIT_SUCCESS == result) {
       diff.r = nrepeat;
       print_diff(stdout, "", &diff);
@@ -348,9 +384,26 @@ int main(int argc, char* argv[])
 #if defined(__CUBLAS)
     if (EXIT_SUCCESS == result && EXIT_SUCCESS == cublas_result) {
       libxs_matdiff_t diff_cu;
-      if (EXIT_SUCCESS == libxs_matdiff(&diff_cu, dtype, M, N, c_ref, c_cu, &ldc, &ldc)) {
+      int diff_result;
+      if (NULL != c_bnd) {
+        diff_result = libxs_matdiff_grade(&diff_cu, dtype, M, N, c_ref, c_cu, c_bnd, &ldc, &ldc, &ldc);
+      }
+      else diff_result = libxs_matdiff(&diff_cu, dtype, M, N, c_ref, c_cu, &ldc, &ldc);
+      if (EXIT_SUCCESS == diff_result) {
         diff_cu.r = nrepeat;
         print_diff(stdout, "cuBLAS ", &diff_cu);
+      }
+      /**
+       * The same grade against the device reference instead of the host BLAS.
+       * Emulators that publish an accuracy figure are measured this way, and the
+       * difference to the line above is what the choice of reference is worth.
+       */
+      if (NULL != c_bnd) {
+        libxs_matdiff_t diff_dev;
+        if (EXIT_SUCCESS == libxs_matdiff_grade(&diff_dev, dtype, M, N, c_cu, c_oz, c_bnd, &ldc, &ldc, &ldc)) {
+          diff_dev.r = nrepeat;
+          print_diff(stdout, "vs-cuBLAS ", &diff_dev);
+        }
       }
     }
 #endif
@@ -377,6 +430,7 @@ int main(int argc, char* argv[])
     if (NULL != scratch) libxstream_mem_dev_deallocate_hint(scratch);
     libxstream_finalize();
   }
+  free(c_bnd);
   free(times);
   return result;
 }
@@ -392,6 +446,29 @@ static void print_diff(FILE* ostream, const char* label, const libxs_matdiff_t* 
   else {
     fprintf(ostream, "%sDIFF: ncalls=%i linf=%.17g linf_rel=%.17g l2_rel=%.17g eps=%f rsq=%f\n", label, diff->r, diff->linf_abs,
       diff->linf_rel, diff->l2_rel, epsilon, diff->rsq);
+  }
+  if (0 != diff->grade) fprintf(ostream, "%sGRADE: %g\n", label, diff->grade);
+}
+
+
+/* Bound of the exact result, |alpha||A||B| + |beta||C|, with |C| already in c_bnd. */
+static void gemm_bound(int use_double, char transa, char transb, int M, int N, int K, double alpha,
+  void* a, int lda, void* b, int ldb, double beta, void* c_bnd, int ldc)
+{
+  const int a_cols = ('N' == transa ? K : M), b_cols = ('N' == transb ? N : K);
+  const size_t na = (size_t)lda * a_cols, nb = (size_t)ldb * b_cols;
+  size_t i;
+  if (0 != use_double) {
+    const double absa = fabs(alpha), absb = fabs(beta);
+    for (i = 0; i < na; ++i) ((double*)a)[i] = fabs(((const double*)a)[i]);
+    for (i = 0; i < nb; ++i) ((double*)b)[i] = fabs(((const double*)b)[i]);
+    DGEMM(&transa, &transb, &M, &N, &K, &absa, (const double*)a, &lda, (const double*)b, &ldb, &absb, (double*)c_bnd, &ldc);
+  }
+  else {
+    const float absa = (float)fabs(alpha), absb = (float)fabs(beta);
+    for (i = 0; i < na; ++i) ((float*)a)[i] = (float)fabs(((const float*)a)[i]);
+    for (i = 0; i < nb; ++i) ((float*)b)[i] = (float)fabs(((const float*)b)[i]);
+    SGEMM(&transa, &transb, &M, &N, &K, &absa, (const float*)a, &lda, (const float*)b, &ldb, &absb, (float*)c_bnd, &ldc);
   }
 }
 
