@@ -113,6 +113,7 @@ follows that knob.
 | OZAKI_WGMMA_N    | 128     | Warp-group tile width, 64 or 128                                 |
 | OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
 | OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for GPUs (see below)      |
+| OZAKI_BF16       | 0       | Sch.2: carry the residues in bf16 rather than int8 (see below)   |
 | OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
 | OZAKI_TZDETECT   | 0       | Sch.2: report the lossless `OZAKI_TRIM` the data allows (below)   |
 | OZAKI_ARENA      | (auto)  | Device scratch arena in MB (0=off). Auto: on if no pool          |
@@ -226,6 +227,15 @@ scatters the producer, and the interleave coalesces both but forces the
 pays 0.53 -> 0.73 ms, so about 11% net at n=4096 and more below it.
 Bit-identical, and the lane must walk columns rather than K-blocks -
 mapping it the other way reads 64 KB apart and loses 17% instead.
+
+`OZAKI_BF16=1` carries the CRT residues in bf16 instead of int8, so that
+Scheme 2 runs on a floating-point matrix engine. It needs warp-group MMA
+with the default A and B layouts, and it disables itself with a message
+otherwise. The moduli, the accuracy and the results are unchanged - the
+output is bit-identical to the int8 path - so it is a choice of engine
+and nothing else. Off by default: where an integer engine is available it
+is the faster one, by about 3x on the GEMM. Enable it on a device whose
+integer matrix throughput is much lower than its bf16 throughput.
 
 `OZAKI_SWIZZLE=W` walks the tile grid in strips W tiles wide instead of
 in the launch order, so the work-groups resident at one time cover a

@@ -72,14 +72,27 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
  * kernel must be refused rather than run: markers alone accumulate nothing.
  */
 
-static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, int sbo, int lbo, int u8)
+static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, int sbo, int lbo,
+  int u8, int bf16)
 {
   static const char marker[] = "// WGMMA_SLOT n";
   static const char marker_wait[] = "// WGMMA_WAIT";
   static const char marker_fence[] = "// WGMMA_FENCE";
   static const char marker_commit[] = "// WGMMA_COMMIT";
   char entry[128];
-  const char* const etype = (0 != u8) ? "u8" : "s8";
+  /**
+   * The floating-point form of wgmma is not the integer form with a different
+   * type suffix: it takes four more trailing immediates (imm-scale-a,
+   * imm-scale-b, imm-trans-a, imm-trans-b) after scale-d, and ptxas rejects the
+   * integer argument list with "Arguments mismatch for instruction
+   * 'wgmma.mma_async'" rather than anything that points at the cause. Verified
+   * against the hardware with a standalone probe before it went in here.
+   */
+  const char* const etype = (0 != bf16) ? "bf16" : ((0 != u8) ? "u8" : "s8");
+  const char* const atype = (0 != bf16) ? "f32" : "s32";
+  /* RS form (A from registers) takes no imm-trans-a, unlike SS: seven args, not eight. */
+  const char* const dtail = (0 != bf16) ? ", 1, 1, 1, 0" : ", 1";
+  const int kdim = (0 != bf16) ? 16 : 32;
   const unsigned int desc_hi = (unsigned int)sbo; /* column-octet stride / 16 */
   const unsigned int desc_lo = (unsigned int)lbo << 16; /* k-block stride / 16, at bit 16 */
   char* retargeted = NULL;
@@ -194,14 +207,14 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
             off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
               "\tshr.u64 %%wgdb, %s, 4;\n\tand.b64 %%wgdb, %%wgdb, 16383;\n"
               "\tor.b64 %%wgdb, %%wgdb, 0x%x%08x;\n"
-              "\twgmma.mma_async.sync.aligned.m64n%ik32.s32.%s.%s {",
-              pb, desc_hi, desc_lo, width, etype, etype);
+              "\twgmma.mma_async.sync.aligned.m64n%ik%i.%s.%s.%s {",
+              pb, desc_hi, desc_lo, width, kdim, atype, etype, etype);
             memcpy(out + off, dlist, ndig);
             off += ndig;
             off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, {");
             memcpy(out + off, alist, (size_t)(aend - alist));
             off += (size_t)(aend - alist);
-            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, %%wgdb, 1;\n");
+            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, %%wgdb%s;\n", dtail);
             src = eol + 1;
           }
         }
@@ -238,7 +251,7 @@ static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, in
   cl_program spliced = NULL;
   int result = libxstream_opencl_program_binary(*program, &binary, &size);
   if (EXIT_SUCCESS == result) {
-    patched = ozaki_wgmma_splice(binary, size, "gemm_crt_fused", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(bn), ctx->u8);
+    patched = ozaki_wgmma_splice(binary, size, "gemm_crt_fused", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(bn), ctx->u8, ctx->use_bf16);
     result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   /**
@@ -353,7 +366,7 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
     result = libxstream_opencl_program_binary(program, &binary, &size);
   }
   if (EXIT_SUCCESS == result) {
-    patched = ozaki_wgmma_splice(binary, size, "ozaki_wgmma_probe", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(width), ctx->u8);
+    patched = ozaki_wgmma_splice(binary, size, "ozaki_wgmma_probe", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(width), ctx->u8, ctx->use_bf16);
     result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   if (EXIT_SUCCESS == result) {
@@ -1007,6 +1020,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     int cache_hit_a = 0, cache_hit_b = 0;
     int claimed = 0;
     int kg;
+    const size_t bs_esz = (0 != ctx->use_bf16) ? 2 : 1;
 
     if (k_grp_pad < 64) k_grp_pad = 64;
     /**
@@ -1029,9 +1043,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * change between calls without reallocating, and it keeps the arena one size.
      */
     as_size = (size_t)nmoduli_max * m_pad * k_grp_pad;
-    bs_slot = (size_t)nmoduli_max * k_grp_pad * n_pad;
+    /**
+     * B carries two bytes per residue under bf16 and A one, because A is widened in
+     * registers on its way into the fragment while B is read from shared memory by an
+     * instruction that needs it in the fragment's own format (see ozaki_common.cl).
+     */
+    bs_slot = (size_t)nmoduli_max * k_grp_pad * n_pad * bs_esz;
     bs_size = bs_slot * nslots;
-    bs_used = (size_t)nmoduli_g * k_grp_pad * n_pad;
+    bs_used = (size_t)nmoduli_g * k_grp_pad * n_pad * bs_esz;
     expa_size = (size_t)nblk_gm * tm * sizeof(cl_int); /* pad to tile boundary */
     expb_slot = (size_t)nblk_pn * tn * sizeof(cl_int);
     expb_size = expb_slot * nslots;

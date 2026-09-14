@@ -202,6 +202,29 @@
 # define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
     ((void)(R1), (void)(R2), (void)(R3), (void)((DST)[(OFF)] = (char)(R0)))
 #endif
+/**
+ * One K-block of sixteen residues, collected in registers and written as 16-byte
+ * blocks: int8 fits the whole block in one, bf16 needs two because a block stays 16
+ * BYTES in either layout (OZAKI_BS_BLOG). The destination goes through OZAKI_IDX_BS
+ * so that the producer cannot disagree with the staging about where a block lives.
+ */
+#if defined(OZAKI_BF16) && (OZAKI_BF16)
+# define OZAKI_CRT_BLK_DECL(BLK) union { ushort b[16]; uint4 v[2]; } BLK
+# define OZAKI_CRT_BLK_SET(BLK, I, R) ((BLK).b[I] = OZAKI_BF16_OF(R))
+# define OZAKI_CRT_BLK_STORE(BLK, DST, ROW, COL, N_PAD, K_PAD) \
+    do { \
+      SINT hb_; \
+      UNROLL_FORCE(2) for (hb_ = 0; hb_ < 2; ++hb_) { \
+        *(global uint4*)((DST) + OZAKI_IDX_BS((ROW) + hb_ * OZAKI_BS_BLK, COL, N_PAD, K_PAD) \
+          * OZAKI_BS_ESZ) = (BLK).v[hb_]; \
+      } \
+    } while (0)
+#else
+# define OZAKI_CRT_BLK_DECL(BLK) union { uchar b[16]; uint4 v; } BLK
+# define OZAKI_CRT_BLK_SET(BLK, I, R) ((BLK).b[I] = (uchar)(R))
+# define OZAKI_CRT_BLK_STORE(BLK, DST, ROW, COL, N_PAD, K_PAD) \
+    (*(global uint4*)((DST) + OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD)) = (BLK).v)
+#endif
 #define OZAKI_CRT_RSRC(A, N) ((A)[(N) % OZAKI_CRT_RUN])
 #define OZAKI_CRT_RES(G, P, S, N) oz2g_res(G, P, OZAKI_CRT_RSRC(S, N))
 #define OZAKI_CRT_RES64(A, P, S, N) \
@@ -265,6 +288,24 @@
 # define OZAKI_SIGN_FOLD(R, P) (R) = oz2g_moduli[(P)] - (R)
 #else
 # define OZAKI_SIGN_FOLD(R, P) (R) = -(R)
+#endif
+/**
+ * Symmetric residues carry |r| <= m/2 rather than r < m. The representation is
+ * what the accumulator sees, so the product magnitude drops fourfold and the exact
+ * accumulation window grows by the same factor, which is the point of it on a
+ * 24-bit accumulator where the unsigned form only reaches K = 258 (see
+ * OZAKI_ACC_KMAX). It costs nothing in storage: every value still lands in one
+ * byte, read back as two's complement. Below the epilogue nothing changes, because
+ * the signed branch of OZAKI_MOD_REDUCE_ELEM maps the accumulator back to [0, m)
+ * before the residues are stored.
+ */
+#if defined(OZAKI_SYM) && (OZAKI_SYM)
+# define OZAKI_SYM_FOLD(R, P) \
+    do { const uint sm_ = oz2g_moduli[(P)]; \
+      if ((R) > (sm_ >> 1)) (R) -= sm_; \
+    } while (0)
+#else
+# define OZAKI_SYM_FOLD(R, P) ((void)(P))
 #endif
 
 /**
@@ -332,16 +373,54 @@
       } \
     } \
   } while (0)
+/**
+ * The accumulator as an integer, and back. A floating-point matrix engine accumulates
+ * in fp32, where every partial sum this kernel forms is an exact integer as long as it
+ * stays below 2^24 - which is what the periodic drain is for (OZAKI_ACC_KMAX) - so
+ * both directions are a reinterpretation plus an exact conversion, never a rounding.
+ * An integer engine needs neither and the macros vanish.
+ */
+#if defined(OZAKI_BF16) && (OZAKI_BF16)
+# define OZAKI_ACC_INT(VAL) ((int)as_float((int)(VAL)))
+# define OZAKI_ACC_OF(R) as_int((float)(R))
+#else
+# define OZAKI_ACC_INT(VAL) (VAL)
+# define OZAKI_ACC_OF(R) ((int)(R))
+#endif
+
+/**
+ * K the accumulator can absorb before it stops being exact: the largest residue
+ * squared is the largest product one K contributes, and the accumulator holds
+ * integers exactly up to its significand. Symmetric residues halve the residue and
+ * so quadruple the budget for the very same moduli, the sign bit costing no
+ * significand at all, which is why they matter more to a floating-point accumulator
+ * than to an integer one.
+ */
+#if defined(OZAKI_SYM) && (OZAKI_SYM)
+# define OZAKI_ACC_RMAX 128
+#elif defined(OZAKI_U8) && (OZAKI_U8)
+# define OZAKI_ACC_RMAX 255
+#else
+# define OZAKI_ACC_RMAX 127
+#endif
+#if defined(OZAKI_BF16) && (OZAKI_BF16)
+# define OZAKI_ACC_BITS 24 /* fp32 significand */
+#else
+# define OZAKI_ACC_BITS 31 /* int32 without the sign */
+#endif
+#define OZAKI_ACC_KMAX ((1L << OZAKI_ACC_BITS) / (OZAKI_ACC_RMAX * OZAKI_ACC_RMAX))
 #if defined(OZAKI_U8) && (OZAKI_U8)
-# define OZAKI_MOD_REDUCE_ELEM(VAL, PIDX, R) (R) = oz2g_mod((uint)(VAL), (PIDX))
+# define OZAKI_MOD_REDUCE_ELEM(VAL, PIDX, R) (R) = oz2g_mod((uint)OZAKI_ACC_INT(VAL), (PIDX))
 #else
 # define OZAKI_MOD_REDUCE_ELEM(VAL, PIDX, R) \
-    if ((VAL) >= 0) { \
-      (R) = oz2g_mod((uint)(VAL), (PIDX)); \
-    } \
-    else { \
-      const uint nr_ = oz2g_mod((uint)(-(VAL)), (PIDX)); \
-      (R) = (0 != nr_) ? (oz2g_moduli[(PIDX)] - nr_) : 0; \
+    { const int av_ = OZAKI_ACC_INT(VAL); \
+      if (av_ >= 0) { \
+        (R) = oz2g_mod((uint)av_, (PIDX)); \
+      } \
+      else { \
+        const uint nr_ = oz2g_mod((uint)(-av_), (PIDX)); \
+        (R) = (0 != nr_) ? (oz2g_moduli[(PIDX)] - nr_) : 0; \
+      } \
     }
 #endif
 
@@ -620,20 +699,28 @@
 # endif
 
 /**
- * Bytes of K staged per round, work-items per work-group, warp groups per CTA.
+ * K staged per round, work-items per work-group, warp groups per CTA.
  *
  * The staging depth is tile-specialized rather than global (OZAKI_WGMMA_KU, set per
  * specialization like BM and BN): depth costs shared memory, and shared memory is
  * what decides how many work-groups stay resident, so the right depth depends on
  * whether the tile grid fills the device. KU is the fallback for a build that does
  * not specialize it.
+ *
+ * WBK counts ELEMENTS of K and WBSZ the 16-byte blocks a stage buffer holds, so a
+ * two-byte carrier halves the former and leaves the latter - and with it the ring,
+ * the copy count and the shared footprint - exactly where the one-byte carrier put
+ * it. WBI is the K one instruction consumes, which is also halved, so a round issues
+ * the same number of instructions over half the K.
  */
 # if defined(OZAKI_WGMMA_KU) && (0 < OZAKI_WGMMA_KU)
 #   define WKU OZAKI_WGMMA_KU
 # else
 #   define WKU KU
 # endif
-# define WBK (WKU * BK)
+# define WBK ((WKU * BK) / OZAKI_BS_ESZ)
+# define WBSZ ((BN * WBK * OZAKI_BS_ESZ) / 16)
+# define WBI (BK / OZAKI_BS_ESZ)
 # define WGS (SG * (BM / (XMX_M * RTM)) * (BN / (XMX_N * RTN)))
 
 /**
@@ -803,6 +890,23 @@
  * asynchronous transaction, this one coalesces.
  */
 # if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
+# if defined(OZAKI_BF16) && (OZAKI_BF16)
+/**
+ * A 256-byte run per warp and eight bytes per lane, the residues still one byte each:
+ * the widening to the fragment's carrier happens here, between the load and the
+ * instruction, which is why A costs no more memory traffic in bf16 than in int8. It
+ * is also exact, so nothing about the CRT changes - see OZAKI_BF16_OF.
+ */
+# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
+    do { \
+      const uint2 av_ = *(CONSTANT const uint2*)((AS_K) \
+        + (((long)((MI) >> 4) * ((K_PAD) >> 4) + ((KOFF) >> 4)) << 8) + ((LANE) << 3)); \
+      (A0) = OZAKI_BF16X2(av_.x, av_.x >> 8); \
+      (A1) = OZAKI_BF16X2(av_.x >> 16, av_.x >> 24); \
+      (A2) = OZAKI_BF16X2(av_.y, av_.y >> 8); \
+      (A3) = OZAKI_BF16X2(av_.y >> 16, av_.y >> 24); \
+    } while (0)
+# else
 /* One 512-byte run per warp, the lane's four registers contiguous; see OZAKI_IDX_AS. */
 # define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
     do { \
@@ -810,6 +914,7 @@
         + (((long)((MI) >> 4) * ((K_PAD) >> 5) + ((KOFF) >> 5)) << 9) + ((LANE) << 4)); \
       (A0) = av_.x; (A1) = av_.y; (A2) = av_.z; (A3) = av_.w; \
     } while (0)
+# endif
 # else
 # define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
     do { \
@@ -842,9 +947,9 @@
 # define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD, K_PAD, NB, KOFF, SB, WT) \
     do { \
       int ib_; \
-      for (ib_ = (WT); ib_ < (BN * WBK) / 16; ib_ += WGS) { \
+      for (ib_ = (WT); ib_ < WBSZ; ib_ += WGS) { \
         OZAKI_WGMMA_COPY16((SB) + ib_, \
-          (BS_K) + ((long)(((KOFF) >> 4) + ib_ / BN) * (N_PAD) + (NB) + ib_ % BN) * 16); \
+          (BS_K) + ((long)(((KOFF) >> OZAKI_BS_BLOG) + ib_ / BN) * (N_PAD) + (NB) + ib_ % BN) * 16); \
       } \
     } while (0)
 # elif defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
@@ -852,7 +957,7 @@
 # define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD, K_PAD, NB, KOFF, SB, WT) \
     do { \
       int ib_; \
-      for (ib_ = (WT); ib_ < (BN * WBK) / 16; ib_ += WGS) { \
+      for (ib_ = (WT); ib_ < WBSZ; ib_ += WGS) { \
         const int c_ = ib_ / (WBK / 16); \
         const int j_ = ib_ % (WBK / 16); \
         OZAKI_WGMMA_COPY16((SB) + (((c_ >> 3) * (WBK / 16) + j_) * 8) + (c_ & 7), \
@@ -979,7 +1084,7 @@
  * garbage, which is the one outcome worse than not building. 128 KB is what the
  * reachability probe validates (ozaki_wgmma_probe), so that is the bound.
  */
-# if ((OZAKI_WGMMA_STAGES) * (BN) * (WBK)) > 131072
+# if ((OZAKI_WGMMA_STAGES) * (WBSZ) * 16) > 131072
 #   error the staged ring exceeds the shared memory the reachability probe validates.
 # endif
 # if 2 < OZAKI_WGMMA_STAGES
@@ -1005,6 +1110,63 @@
 # endif
 /* The epilogue reads the accumulators, so the tail drains whatever NWAIT kept alive. */
 # define OZAKI_WGMMA_DRAIN() OZAKI_WGMMA_MMAWAIT_N(0)
+
+/**
+ * Fold the accumulators back into residues mid-K, in place, so accumulation continues
+ * in the same registers: only the sum modulo the modulus is ever wanted, so replacing
+ * a partial sum by its residue changes nothing and keeps the next OZAKI_ACC_KMAX of K
+ * inside the accumulator's exact range. In place is what makes it affordable - a
+ * separate residue array would want a second copy of every accumulator, and the tile
+ * is register-bound already - but it is not free: it needs a full wait_group 0 first,
+ * because the accumulators it rewrites are the ones the MMAs still in flight are
+ * adding to, so the cost is issue slots rather than a bubble something else can fill,
+ * and it falls as 1/OZAKI_ACC_KMAX.
+ *
+ * An integer accumulator reaches K in the tens of thousands (see the moduli table), so
+ * the bounded-K budget already keeps it exact and the periodic form is bf16's alone.
+ */
+# if defined(OZAKI_BF16) && (OZAKI_BF16)
+/**
+ * The cadence is counted in INSTRUCTIONS rather than rounds, because the staging depth
+ * is tuned for the ring and not for the accumulator: a round can be shorter than the
+ * budget or longer than it, and counting the one unit both cases are made of removes
+ * the distinction instead of branching on it. The count carries across rounds for the
+ * same reason. Where the budget divides the round the compiler resolves the test
+ * statically (the issue loop is fully unrolled and the bound is compile-time), and
+ * where it does not, one integer compare per instruction is nothing beside the
+ * instruction it guards.
+ */
+#   define OZAKI_ACC_NISSUE ((OZAKI_ACC_KMAX) / (WBI))
+#   if 0 == (OZAKI_ACC_NISSUE)
+#     error a single instruction overruns the accumulator: no fold cadence can help.
+#   endif
+#   define OZAKI_WGMMA_ACC_STEP(ACCS, PIDX, CNT) \
+      do { \
+        if ((OZAKI_ACC_NISSUE) <= ++(CNT)) { \
+          OZAKI_WGMMA_ACC_FOLD(ACCS, PIDX); \
+          (CNT) = 0; \
+        } \
+      } while (0)
+/**
+ * The wait is what lets the fold touch the accumulators at all, and the fence at the
+ * end is what lets the next instruction accumulate into them again: they have just been
+ * written by something other than wgmma, which is exactly the case the fence orders.
+ * A round boundary would get one from the round itself, mid-round there is none.
+ */
+#   define OZAKI_WGMMA_ACC_FOLD(ACCS, PIDX) \
+      do { \
+        int ad_; \
+        OZAKI_WGMMA_DRAIN(); \
+        UNROLL_FORCE(RTM * RTN * XMX_FRAG) for (ad_ = 0; ad_ < RTM * RTN * XMX_FRAG; ++ad_) { \
+          uint rd_; \
+          OZAKI_MOD_REDUCE_ELEM((ACCS)[ad_], (PIDX), rd_); \
+          (ACCS)[ad_] = OZAKI_ACC_OF(rd_); \
+        } \
+        OZAKI_WGMMA_FENCE(); \
+      } while (0)
+# else
+#   define OZAKI_WGMMA_ACC_STEP(ACCS, PIDX, CNT) ((void)(CNT))
+# endif
 # define OZAKI_WGMMA_NEXTBUF(B) (((OZAKI_WGMMA_STAGES) - 1) > (B) ? ((B) + 1) : 0)
 # define OZAKI_WGMMA_STAGE(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, NBUF, NBSZ) \
     do { \
@@ -1013,12 +1175,12 @@
         OZAKI_WGMMA_COMMIT(); \
       } \
     } while (0)
-# define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, KW, AF, BUF, NBUF, NBSZ) \
+# define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, PIDX, ACCS, SB, WT, LANE, KW, AF, BUF, NBUF, NBSZ, NI) \
     do { \
       const int next_ = (KW) + WBK; \
       int cw_; \
-      UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
-        OZAKI_WGMMA_ALOAD(ASW, K_PAD, MI, (KW) + cw_ * 32, LANE, \
+      UNROLL_FORCE(WBK / WBI) for (cw_ = 0; cw_ < WBK / WBI; ++cw_) { \
+        OZAKI_WGMMA_ALOAD(ASW, K_PAD, MI, (KW) + cw_ * WBI, LANE, \
           AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3]); \
       } \
       OZAKI_WGMMA_WAIT(); \
@@ -1027,9 +1189,10 @@
       OZAKI_WGMMA_BARRIER(); \
       OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD, K_PAD, NB, next_, SB, WT, NBUF, NBSZ); \
       OZAKI_WGMMA_FENCE_ROUND(); \
-      UNROLL_FORCE(WBK / 32) for (cw_ = 0; cw_ < WBK / 32; ++cw_) { \
+      UNROLL_FORCE(WBK / WBI) for (cw_ = 0; cw_ < WBK / WBI; ++cw_) { \
         OZAKI_WGMMA_ISSUE_RS(ACCS, AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3], \
           (SB) + (BUF) * (NBSZ) + cw_ * 2 * BN); \
+        OZAKI_WGMMA_ACC_STEP(ACCS, PIDX, NI); \
       } \
       OZAKI_WGMMA_COMMIT_ROUND(); \
       OZAKI_WGMMA_WAIT_POST(); \
@@ -1048,19 +1211,19 @@
     do { \
       CONSTANT const char* asw_ = (AS_BASE) + (long)(PIDX) * (A_PLANE); \
       CONSTANT const char* bsw_ = (BS_BASE) + (long)(PIDX) * (B_PLANE); \
-      const int nbsz_ = (BN * WBK) / 16; \
-      uint af0_[(WBK / 32) * 4], af1_[(WBK / 32) * 4]; \
-      int kw_, buf_ = 0; \
+      const int nbsz_ = WBSZ; \
+      uint af0_[(WBK / WBI) * 4], af1_[(WBK / WBI) * 4]; \
+      int kw_, buf_ = 0, ni_ = 0; \
       barrier(CLK_LOCAL_MEM_FENCE); \
       OZAKI_WGMMA_BSTAGE(bsw_, N_PAD, K_PAD, NB, 0, SB, WT); \
       OZAKI_WGMMA_COMMIT(); \
       for (kw_ = 0; kw_ < (K_PAD); kw_ += 2 * WBK) { \
         const int nb1_ = OZAKI_WGMMA_NEXTBUF(buf_); \
-        OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_, af0_, buf_, nb1_, nbsz_); \
+        OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, PIDX, ACCS, SB, WT, LANE, kw_, af0_, buf_, nb1_, nbsz_, ni_); \
         buf_ = nb1_; \
         if (kw_ + WBK < (K_PAD)) { \
           const int nb2_ = OZAKI_WGMMA_NEXTBUF(buf_); \
-          OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, ACCS, SB, WT, LANE, kw_ + WBK, af1_, buf_, nb2_, nbsz_); \
+          OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, PIDX, ACCS, SB, WT, LANE, kw_ + WBK, af1_, buf_, nb2_, nbsz_, ni_); \
           buf_ = nb2_; \
         } \
       } \
@@ -1294,6 +1457,7 @@ inline uint oz2g_mod64(ulong x, SINT pidx)
 inline uint oz2g_res(uint gr, SINT pidx, int sign)
 {
   uint result = oz2g_mod(gr, pidx);
+  OZAKI_SYM_FOLD(result, pidx);
   if (0 != sign && 0 != result) OZAKI_SIGN_FOLD(result, pidx);
   return result;
 }
@@ -1302,6 +1466,7 @@ inline uint oz2g_res(uint gr, SINT pidx, int sign)
 inline uint oz2g_res64(ulong x, SINT pidx, int sign)
 {
   uint result = oz2g_mod64(x, pidx);
+  OZAKI_SYM_FOLD(result, pidx);
   if (0 != sign && 0 != result) OZAKI_SIGN_FOLD(result, pidx);
   return result;
 }
@@ -1813,32 +1978,28 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
           UNROLL_FORCE(HIER_GS) for (j = 0; j < HIER_GS; ++j) {
             p = g * HIER_GS + j;
             if (p < NMODULI) {
-              union {
-                uchar b[16];
-                uint4 v;
-              } blk;
+              OZAKI_CRT_BLK_DECL(blk);
               UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
                 uint r = oz2g_mod(gr[i], p);
+                OZAKI_SYM_FOLD(r, p);
                 if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
-                blk.b[i] = (uchar)r;
+                OZAKI_CRT_BLK_SET(blk, i, r);
               }
-              *(global uint4*)(bs + (long)p * K_pad * N_pad + ((long)kb * N_pad + col) * 16) = blk.v;
+              OZAKI_CRT_BLK_STORE(blk, bs + (long)p * K_pad * N_pad * OZAKI_BS_ESZ, kb << 4, col, N_pad, K_pad);
             }
           }
         }
       }
 #else
       UNROLL_FORCE(NMODULI) for (p = 0; p < NMODULI; ++p) {
-        union {
-          uchar b[16];
-          uint4 v;
-        } blk;
+        OZAKI_CRT_BLK_DECL(blk);
         UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
           uint r = oz2g_mod64(aligned[i], p);
+          OZAKI_SYM_FOLD(r, p);
           if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
-          blk.b[i] = (uchar)r;
+          OZAKI_CRT_BLK_SET(blk, i, r);
         }
-        *(global uint4*)(bs + (long)p * K_pad * N_pad + ((long)kb * N_pad + col) * 16) = blk.v;
+        OZAKI_CRT_BLK_STORE(blk, bs + (long)p * K_pad * N_pad * OZAKI_BS_ESZ, kb << 4, col, N_pad, K_pad);
       }
 #endif
     }
@@ -1952,12 +2113,13 @@ kernel void gemm_crt_fused(
 #if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
   (void)nj_base; /* the staging tile base is nb_base, per work-group rather than sub-group */
 #endif
-  const long b_plane = (long)K_pad * N_pad;
+  /* Bytes, so the carrier's width is in the stride rather than in every use of it. */
+  const long b_plane = (long)K_pad * N_pad * OZAKI_BS_ESZ;
 #if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
   /* Work-group tile base (staging is cooperative, unlike the per-sub-group MI/NJ). */
   const int nb_base = jb_idx * BN;
   const int wt = sg_id * SG + sg_lid;
-  local uint4 wg_sb[OZAKI_WGMMA_STAGES * ((BN * WBK) / 16)]; /* staged B only; A needs none */
+  local uint4 wg_sb[OZAKI_WGMMA_STAGES * WBSZ]; /* staged B only; A needs none */
 #endif
 #if defined(OZAKI_UNFUSE) && (OZAKI_UNFUSE)
   /**

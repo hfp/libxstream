@@ -107,7 +107,8 @@ all: $(XFILES)
 compile: $(OBJECTS)
 
 # Generate embedded kernel header from .cl sources (resolves #include directives)
-$(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/libxstream/opencl/*.h) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
+# The included kernels are prerequisites too, or editing one leaves the header stale
+$(GENHDR): $(wildcard $(SRCDIR)/kernels/*.cl) $(KRNELS) $(wildcard $(DEPDIR)/libxstream/opencl/*.h) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
 	$(GENSCR) $(GENARG) $(KRNELS) $@
 
 $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)

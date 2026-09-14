@@ -288,13 +288,22 @@ static size_t ozaki_emit_fraccrt(char* buf, size_t size, size_t off, const uint1
  * lets a detected precision be applied without rebuilding the context.
  */
 static size_t ozaki_crt_moduli_flags(char* buf, size_t size, size_t off, int nmoduli, int trunc,
-  int use_double, int use_i8, int fraccrt, int crt_hier, int verbosity)
+  int use_double, int use_i8, int use_sym, int fraccrt, int crt_hier, int verbosity)
 {
   const int bias_plus_mant = use_double ? 1075 : 150;
   const char* env;
   off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off,
     " -DNMODULI=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d", nmoduli, bias_plus_mant - trunc, trunc));
-  if (0 == use_i8) {
+  /**
+   * Residue representation, independent of which modulus table is in use. The
+   * symmetric form keeps |r| <= m/2, which quarters the product magnitude and so
+   * quadruples the exact accumulation window; it needs the signed datapath, so it
+   * leaves OZAKI_U8 off and reuses the signed accumulator reduction already there.
+   */
+  if (0 != use_sym) {
+    off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_SYM=1"));
+  }
+  else if (0 == use_i8) {
     off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_U8=1"));
   }
   /**
@@ -567,7 +576,7 @@ int ozaki_crt_base_flags(const ozaki_context_t* ctx, char* buf, size_t size)
 {
   size_t off = ozaki_append(0, size, LIBXS_SNPRINTF(buf, size, "%s", ctx->crt_flags));
   off = ozaki_crt_moduli_flags(buf, size, off, ctx->nmoduli, ctx->crt_trunc,
-    ctx->use_double, ctx->use_i8, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
+    ctx->use_double, ctx->use_i8, ctx->use_sym, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
   return ozaki_append_check(off, size, "Ozaki-2 moduli");
 }
 
@@ -629,7 +638,7 @@ const ozaki_crt_variant_t* ozaki_crt_variant(ozaki_context_t* ctx, int nmoduli)
         newvar.nmoduli = nmoduli;
         newvar.trunc = trunc;
         off = ozaki_crt_moduli_flags(flags, sizeof(flags), off, nmoduli, trunc,
-          ctx->use_double, ctx->use_i8, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
+          ctx->use_double, ctx->use_i8, ctx->use_sym, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
         off = ozaki_append(off, sizeof(flags), LIBXS_SNPRINTF(flags + off, sizeof(flags) - off, "%s", ctx->crt_pp_tile));
         /* One program per modulus count, so the name has to separate them in the JIT cache. */
         LIBXS_SNPRINTF(pname, sizeof(pname), "ozaki2_pp%d", nmoduli);
@@ -673,7 +682,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
   int result = EXIT_SUCCESS;
   int nv, has_fp64, crt;
-  int wg, sg, use_i8;
+  int wg, sg, use_i8, use_sym;
   int nslices, nmoduli, oztrim_crt;
   const char* env;
   memset(ctx, 0, sizeof(*ctx));
@@ -757,6 +766,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   {
     const char *const env_i8 = getenv("OZAKI_I8");
     use_i8 = (NULL != env_i8 && 0 != atoi(env_i8));
+    { /* symmetric residues need the u8 table's range to be worth anything */
+      const char *const env_sym = getenv("OZAKI_SYM");
+      use_sym = (0 == use_i8 && NULL != env_sym && 0 != atoi(env_sym));
+    }
   }
   /**
    * Compute nslices (Scheme 1) and nmoduli (Scheme 2) independently.
@@ -814,6 +827,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ctx->crt_lgk = lgk;
     ctx->crt_trunc = oztrim_crt;
     ctx->use_i8 = use_i8;
+    ctx->use_sym = use_sym;
+    { const char *const env_bf16 = getenv("OZAKI_BF16");
+      ctx->use_bf16 = (NULL != env_bf16 && 0 != atoi(env_bf16));
+    }
     ndecomp = (0 != crt) ? nmoduli : nslices;
   } /* ndecomp_auto */
   if (0 != crt && 20 < ndecomp) ndecomp = 20;
@@ -1139,8 +1156,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         fprintf(stderr, "WARN OZAKI: OZAKI_HIER=0 needs OZAKI_FRACCRT=0 and OZAKI=2 to select flat reconstruction\n");
       }
     }
-    /* Residue element type, needed this early because the wgmma splice names it. */
-    ctx->u8 = (0 == use_i8) ? 1 : 0;
+    /* Residue element type, resolved this early because the wgmma splice names it:
+     * symmetric residues are signed, so the spliced MMA has to read s8, and the flag
+     * feeds ozaki_wgmma_splice and must agree with OZAKI_U8 in the kernel build. */
+    ctx->u8 = (0 == use_i8 && 0 == ctx->use_sym) ? 1 : 0;
     /**
      * Warp-group MMA: the default on Hopper (NV>=4), off elsewhere, and
      * OZAKI_WGMMA=0 opts out. A warp group computes m64 x OZAKI_WGMMA_N, which
@@ -1473,7 +1492,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       const int crt_rtn = (0 != wgmma) ? (ctx->tn_req / 8) : ((0 != ctx->nv_mma && 0 != gpu && 0 == rtn_req) ? 8 : rtn);
       char crt_build_options[128];
       size_t coff = 0;
-      int bkmajor, bblock;
+      int bkmajor, bblock, ablock = 0;
       if (0 != fraccrt) {
         /**
          * Fractional CRT relies on error-free transformations (two_sum,
@@ -1505,7 +1524,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA=1"));
         /* A in the fragment layout: one vector load per lane instead of four scalar ones. */
         { const char *const env_ab = getenv("OZAKI_ABLOCK");
-          if (NULL == env_ab || 0 != atoi(env_ab)) {
+          ablock = (NULL == env_ab || 0 != atoi(env_ab));
+          if (0 != ablock) {
             coff = ozaki_append(coff, sizeof(build_params),
               LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_ABLOCK=1"));
           }
@@ -1621,6 +1641,25 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         env = getenv("OZAKI_BVNNI");
         if (0 == devinfo->intel && 2 <= nv && 0 != gpu && (NULL == env || 0 != atoi(env))) {
           coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BVNNI=1"));
+        }
+      }
+      /**
+       * bf16 carrier for the residues, which only the warp-group path can consume and
+       * only through the blocked layouts. Resolved after them rather than beside the
+       * other warp-group flags so that a build cannot end up with the flag and without
+       * what it implies - and cleared rather than forced, because the same field also
+       * selects the spliced instruction and the two must agree.
+       */
+      if (0 != ctx->use_bf16) {
+        if (0 != wgmma && 0 != bblock && 0 != ablock) {
+          coff = ozaki_append(coff, sizeof(build_params),
+            LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BF16=1"));
+        }
+        else {
+          if (0 != verbosity) {
+            fprintf(stderr, "INFO OZAKI: OZAKI_BF16 needs warp-group MMA with the blocked A and B layouts - disabled\n");
+          }
+          ctx->use_bf16 = 0;
         }
       }
       if (NULL != env_skip && 0 != atoi(env_skip)) {

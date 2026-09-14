@@ -46,6 +46,55 @@
 #endif
 
 /**
+ * Element format of the preprocessed operands. The residues are the same integers
+ * either way and the moduli table does not move: only the carrier changes, and
+ * OZAKI_BF16 makes it bf16 so a floating-point matrix engine can consume them,
+ * which is the only option left on a device without an integer one.
+ *
+ * A stays one byte per element even then, because it is converted in registers on
+ * its way into the fragment (OZAKI_WGMMA_ALOAD) and never staged. Only B pays the
+ * second byte, in its plane and in the staged tile alike, since wgmma reads B from
+ * shared memory and cp.async cannot convert what it copies.
+ *
+ * OZAKI_BS_BLOG is the log2 length of a contiguous K-block in ELEMENTS, chosen so a
+ * block stays 16 BYTES either way: that is the unit one copy moves and the unit the
+ * descriptor counts in, so both formats share one staging loop, one descriptor and
+ * one set of tile constants, and a bf16 stage simply spans half the K.
+ */
+#if defined(OZAKI_BF16) && (OZAKI_BF16)
+# define OZAKI_BS_ESZ 2
+# define OZAKI_BS_BLOG 3
+# if !defined(OZAKI_WGMMA) || (0 == OZAKI_WGMMA)
+#   error OZAKI_BF16 is a warp-group MMA format: no other path reads a two-byte residue.
+# endif
+# if !defined(OZAKI_BBLOCK) || (0 == OZAKI_BBLOCK) || !defined(OZAKI_ABLOCK) || (0 == OZAKI_ABLOCK)
+#   error OZAKI_BF16 needs the blocked B layout and the fragment-ordered A.
+# endif
+#else
+# define OZAKI_BS_ESZ 1
+# define OZAKI_BS_BLOG 4
+#endif
+#define OZAKI_BS_BLK (1 << OZAKI_BS_BLOG)
+
+/**
+ * Residue to bf16, exact and by truncation rather than rounding: an integer through
+ * 256 needs eight significand bits, which is what bf16 carries, so the low half of
+ * the fp32 form is zero and dropping it loses nothing. Every residue reaches the
+ * matrix engine through this one macro, which is what keeps the producer and the
+ * register-side conversion from disagreeing about the sign of a byte - and what lets
+ * symmetric residues, whose sign bit costs no significand, reuse the format with
+ * nothing else moved. The sign extension is written out rather than left to a cast
+ * to a signed char, whose result on overflow C99 leaves to the implementation.
+ */
+#if defined(OZAKI_U8) && (OZAKI_U8)
+# define OZAKI_BF16_VAL(B) ((float)(uint)((B) & 0xFF))
+#else
+# define OZAKI_BF16_VAL(B) ((float)(((int)((B) & 0xFF) ^ 0x80) - 0x80))
+#endif
+#define OZAKI_BF16_OF(B) ((ushort)(as_uint(OZAKI_BF16_VAL(B)) >> 16))
+#define OZAKI_BF16X2(LO, HI) (((uint)OZAKI_BF16_OF(LO)) | ((uint)OZAKI_BF16_OF(HI) << 16))
+
+/**
  * B storage layout for the preprocessed residue/slice matrices.
  *
  * Default (Intel DPAS, scalar): plain K-major [K_pad][N_pad]. The DPAS path
@@ -83,11 +132,27 @@
  * (row, k) belongs to the lane and register that OZAKI_WGMMA_ALOAD reads it from.
  */
 #if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
-# define OZAKI_IDX_AS(ROW, COL, K_PAD) \
+# if defined(OZAKI_BF16) && (OZAKI_BF16)
+/**
+ * The same permutation one k narrower: a bf16 fragment covers k=16 rather than k=32
+ * and packs two elements per register, so a warp's block is 16x16 elements (256
+ * bytes, A being one byte per element still) and a lane's four registers are eight
+ * contiguous ones. The three bits below the lane select the element the way the
+ * fragment orders it - the k-phase within a register, then the row half, then the k
+ * half - exactly as the k=32 form does with one more bit of each.
+ */
+#  define OZAKI_IDX_AS(ROW, COL, K_PAD) \
+    (((((long)(ROW) >> 4) * ((K_PAD) >> 4) + ((COL) >> 4)) << 8) \
+      | ((long)((((ROW) & 7) << 2) | (((COL) & 7) >> 1)) << 3) \
+      | ((long)(((((ROW) >> 3) & 1) << 1) | ((((COL) >> 3) & 1) << 2))) \
+      | ((COL) & 1))
+# else
+#  define OZAKI_IDX_AS(ROW, COL, K_PAD) \
     (((((long)(ROW) >> 4) * ((K_PAD) >> 5) + ((COL) >> 5)) << 9) \
       | ((long)((((ROW) & 7) << 2) | (((COL) & 15) >> 2)) << 4) \
       | ((long)(((((ROW) >> 3) & 1) | ((((COL) >> 4) & 1) << 1))) << 2) \
       | ((COL) & 3))
+# endif
 #else
 # define OZAKI_IDX_AS(ROW, COL, K_PAD) ((long)(ROW) * (K_PAD) + (COL))
 #endif
@@ -99,8 +164,10 @@
  * paths that select the other layout come out wrong.
  */
 #if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
+/* Element index, not a byte one: the block length follows the carrier (OZAKI_BS_BLK). */
 # define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) \
-    ((((long)(ROW) >> 4) * (N_PAD) + (COL)) * 16 + ((ROW) & 15))
+    ((((long)(ROW) >> OZAKI_BS_BLOG) * (N_PAD) + (COL)) * OZAKI_BS_BLK \
+      + ((ROW) & (OZAKI_BS_BLK - 1)))
 # define OZAKI_BS_KRUN 1
 #elif defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
 # define OZAKI_IDX_BS(ROW, COL, N_PAD, K_PAD) ((long)(COL) * (K_PAD) + (ROW))

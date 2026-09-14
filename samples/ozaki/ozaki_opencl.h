@@ -337,6 +337,8 @@ typedef struct ozaki_context_t {
   int crt_hier; /* resolved hierarchical reconstruction, as compiled */
   int fraccrt; /* resolved fractional-CRT mode (0 = exact reconstruction) */
   int use_i8; /* resolved signed-i8 moduli (0 = u8) */
+  int use_sym; /* symmetric residues |r| <= m/2 (needs the u8 table) */
+  int use_bf16; /* Sch.2 carrier is bf16 rather than int8 (WIP: splice only) */
   double xover; /* Scheme-1/2 crossover weight: reconstruction cost per Garner op vs int8 MAC */
   int maxk; /* max K per preprocessing pass (0 = no grouping) */
   /**
