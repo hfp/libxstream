@@ -8,6 +8,17 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "../../../libxstream/opencl/libxstream_common.h"
+
+/**
+ * Resolved before the include, because ozaki_common.cl reads OZAKI_U8 to pick the
+ * signed or unsigned datapath and that has to agree with the fold applied here. The
+ * host always emits one of the two; the default keeps a build without one valid rather
+ * than silently signed with residues that were never folded to fit.
+ */
+#if !defined(OZAKI_U8) && (!defined(OZAKI_SYMRES) || (0 == OZAKI_SYMRES))
+# define OZAKI_U8 1
+#endif
+
 #include "ozaki_common.cl"
 
 /**
@@ -21,10 +32,13 @@
  * into the GEMM's epilogue or, the default on GPUs (OZAKI_UNFUSE), as a second
  * kernel over the residue bytes the GEMM stores.
  *
- * OZAKI_U8 (default): unsigned residues with moduli up to 256 (fp64 16 moduli,
- * fp32 9), sign folded as the modular additive inverse; OZAKI_U8=0 keeps signed
- * i8 with moduli up to 128. KGROUPS > 0 inserts a Barrett reduction every
- * KGROUPS * BK steps for a K the int32 accumulator cannot cover.
+ * TWO residue representations over ONE moduli table (up to 256, fp64 16 moduli and
+ * fp32 9). OZAKI_U8, the default, keeps them unsigned and folds a negative element
+ * to the modular additive inverse. OZAKI_SYMRES folds them symmetrically instead, to
+ * |r| <= m/2, which quarters the product magnitude and quadruples the exact
+ * accumulation window; being signed it leaves OZAKI_U8 off, and the two are the only
+ * valid states. KGROUPS > 0 inserts a Barrett reduction every KGROUPS * BK steps for
+ * a K the accumulator cannot cover.
  *
  * Compile-time parameters (-D): BM, BN (output tile), BK (K per MMA step),
  * RTM, RTN (register tiling), KU, SG, NMODULI, MANT_BITS, BIAS_PLUS_MANT,
@@ -63,12 +77,8 @@
 # define SG 16
 #endif
 #if !defined(OZ2_HORNER_GROUP)
-/* Primes per Horner group whose product fits a ulong: the 8 (u8) or 9 (i8) largest. */
-# if defined(OZAKI_U8) && (OZAKI_U8)
+/* Moduli per Horner group whose product fits a ulong: the 8 largest. */
 # define OZ2_HORNER_GROUP 8
-# else
-# define OZ2_HORNER_GROUP 9
-# endif
 #endif
 #if !defined(PB)
 # define PB 1
@@ -299,13 +309,13 @@
  * the signed branch of OZAKI_MOD_REDUCE_ELEM maps the accumulator back to [0, m)
  * before the residues are stored.
  */
-#if defined(OZAKI_SYM) && (OZAKI_SYM)
-# define OZAKI_SYM_FOLD(R, P) \
+#if defined(OZAKI_SYMRES) && (OZAKI_SYMRES)
+# define OZAKI_SYMRES_FOLD(R, P) \
     do { const uint sm_ = oz2g_moduli[(P)]; \
       if ((R) > (sm_ >> 1)) (R) -= sm_; \
     } while (0)
 #else
-# define OZAKI_SYM_FOLD(R, P) ((void)(P))
+# define OZAKI_SYMRES_FOLD(R, P) ((void)(P))
 #endif
 
 /**
@@ -396,7 +406,7 @@
  * significand at all, which is why they matter more to a floating-point accumulator
  * than to an integer one.
  */
-#if defined(OZAKI_SYM) && (OZAKI_SYM)
+#if defined(OZAKI_SYMRES) && (OZAKI_SYMRES)
 # define OZAKI_ACC_RMAX 128
 #elif defined(OZAKI_U8) && (OZAKI_U8)
 # define OZAKI_ACC_RMAX 255
@@ -409,18 +419,22 @@
 # define OZAKI_ACC_BITS 31 /* int32 without the sign */
 #endif
 #define OZAKI_ACC_KMAX ((1L << OZAKI_ACC_BITS) / (OZAKI_ACC_RMAX * OZAKI_ACC_RMAX))
+/**
+ * A signed accumulator reduces through the MAGNITUDE and then corrects, rather than
+ * through one Barrett per sign behind a branch: the two-branch form costs a second
+ * Barrett and, because the sign varies per element of a fragment, it diverges, so a
+ * warp pays both paths anyway. Reducing abs() once and selecting afterwards is one
+ * Barrett and no branch at all, and it is what makes the signed representation
+ * affordable enough for symmetric residues to pay for themselves. The select on zero
+ * is not optional: m - 0 is m, which is not a residue.
+ */
 #if defined(OZAKI_U8) && (OZAKI_U8)
 # define OZAKI_MOD_REDUCE_ELEM(VAL, PIDX, R) (R) = oz2g_mod((uint)OZAKI_ACC_INT(VAL), (PIDX))
 #else
 # define OZAKI_MOD_REDUCE_ELEM(VAL, PIDX, R) \
     { const int av_ = OZAKI_ACC_INT(VAL); \
-      if (av_ >= 0) { \
-        (R) = oz2g_mod((uint)av_, (PIDX)); \
-      } \
-      else { \
-        const uint nr_ = oz2g_mod((uint)(-av_), (PIDX)); \
-        (R) = (0 != nr_) ? (oz2g_moduli[(PIDX)] - nr_) : 0; \
-      } \
+      const uint ar_ = oz2g_mod(abs(av_), (PIDX)); \
+      (R) = (0 != ar_ && 0 > av_) ? (oz2g_moduli[(PIDX)] - ar_) : ar_; \
     }
 #endif
 
@@ -1329,16 +1343,16 @@
  * Snake-draft interleaving balances HIER group products.
  * Power-of-2 modulus at POW2_PIDX (last in group 0) for bitmask fast path.
  *
- * u8 (OZAKI_U8=1, default): 20 pairwise coprime integers <= 256.
- *   Prime powers: 256=2^8, 243=3^5, 169=13^2.  Rest are primes.
- *   Safe K without KGROUPS: ~33K (255^2 * 32 per DPAS step).
+ * ONE table, whatever the representation: 20 pairwise coprime integers <= 256, with
+ * 256=2^8, 243=3^5 and 169=13^2 the prime powers among them. Safe K without KGROUPS is
+ * ~33K (255^2 * 32 per DPAS step). Symmetric residues sign these same moduli rather
+ * than moving to smaller ones, which is what retired the second table: signing the
+ * larger moduli carries the same bit budget in three fewer of them.
  *
- * i8 (OZAKI_U8=0): 20 pairwise coprime integers <= 128.
- *   Prime powers: 128=2^7, 125=5^3, 121=11^2, 81=3^4.  119=7*17.
- *   Safe K without KGROUPS: ~133K (127^2 * 32 per DPAS step).
+ * The host keeps its own copy and derives the truncation, POW2_PIDX and the
+ * reconstruction tables from it, so the two must agree and nothing checks that they do.
  */
 
-#if defined(OZAKI_U8) && (OZAKI_U8)
 
 constant ushort oz2g_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
 
@@ -1369,53 +1383,15 @@ constant uint oz2g_garner_inv[][20] = {
   /* m18=181 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 90},
   /* m19=179 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
 
-#else /* i8 fallback */
-
-constant ushort oz2g_moduli[] = {101, 97, 59, 128, 127, 103, 89, 61, 125, 107, 83, 67, 121, 109, 81, 71, 119, 113, 79, 73};
-
-constant uint oz2g_barrett_inv[] = {42524428, 44278013, 72796055, 33554432, 33818640, 41698711, 48258059, 70409299, 34359738, 40139881,
-  51746593, 64103989, 35495597, 39403369, 53024287, 60492497, 36092162, 38008560, 54366674, 58835168};
-
-constant ushort oz2g_pow32_mod[] = {68, 35, 51, 0, 16, 63, 45, 57, 46, 29, 77, 33, 59, 75, 49, 9, 18, 16, 50, 32};
-
-constant uint oz2g_garner_inv[][20] = {
-  /* m 0=101 */ {0, 73, 52, 109, 83, 51, 52, 29, 26, 89, 60, 2, 6, 68, 77, 45, 33, 47, 18, 60},
-  /* m 1= 97 */ {0, 0, 14, 33, 55, 17, 78, 39, 58, 32, 6, 38, 5, 9, 76, 41, 27, 7, 22, 70},
-  /* m 2= 59 */ {0, 0, 0, 115, 28, 7, 86, 30, 89, 78, 38, 25, 80, 85, 11, 65, 117, 23, 75, 26},
-  /* m 3=128 */ {0, 0, 0, 0, 1, 33, 16, 51, 42, 51, 24, 11, 52, 23, 50, 5, 53, 98, 50, 4},
-  /* m 4=127 */ {0, 0, 0, 0, 0, 73, 82, 49, 63, 91, 17, 19, 101, 103, 37, 52, 15, 105, 28, 23},
-  /* m 5=103 */ {0, 0, 0, 0, 0, 0, 70, 16, 17, 80, 54, 54, 47, 18, 70, 20, 52, 79, 56, 56},
-  /* m 6= 89 */ {0, 0, 0, 0, 0, 0, 0, 24, 59, 101, 14, 64, 34, 49, 71, 4, 115, 80, 8, 32},
-  /* m 7= 61 */ {0, 0, 0, 0, 0, 0, 0, 0, 41, 100, 49, 11, 2, 84, 4, 7, 80, 63, 57, 6},
-  /* m 8=125 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 2, 52, 91, 75, 35, 25, 20, 66, 67, 66},
-  /* m 9=107 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 45, 62, 95, 54, 53, 2, 109, 94, 48, 58},
-  /* m10= 83 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 21, 35, 88, 41, 6, 76, 64, 20, 22},
-  /* m11= 67 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 56, 96, 52, 53, 16, 27, 46, 12},
-  /* m12=121 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100, 79, 27, 60, 99, 32, 35},
-  /* m13=109 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 55, 43, 107, 28, 29, 71},
-  /* m14= 81 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 72, 60, 40, 64},
-  /* m15= 71 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 57, 78, 69, 36},
-  /* m16=119 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 2, 27},
-  /* m17=113 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 42},
-  /* m18= 79 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 61},
-  /* m19= 73 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
-
-#endif /* OZAKI_U8 */
 
 #define OZ2G_BARRETT_SHIFT 32
 
 /**
- * Barrett modular reduction: x mod oz2g_moduli[pidx].
- * POW2_PIDX is the power-of-2 modulus (bitmask fast path).
- * u8: 256 = 2^8 -> mask 0xFF.  i8: 128 = 2^7 -> mask 0x7F.
+ * Barrett modular reduction: x mod oz2g_moduli[pidx]. POW2_PIDX is the power-of-two
+ * modulus, 256 = 2^8, which reduces by a bitmask instead.
  */
-#if defined(OZAKI_U8) && (OZAKI_U8)
-# define OZ2G_POW2_MASK 0xFFu
-# define OZ2G_POW2_MASK64 0xFFul
-#else
-# define OZ2G_POW2_MASK 0x7Fu
-# define OZ2G_POW2_MASK64 0x7Ful
-#endif
+#define OZ2G_POW2_MASK 0xFFu
+#define OZ2G_POW2_MASK64 0xFFul
 inline uint oz2g_mod(uint x, SINT pidx)
 {
   uint result;
@@ -1457,7 +1433,7 @@ inline uint oz2g_mod64(ulong x, SINT pidx)
 inline uint oz2g_res(uint gr, SINT pidx, int sign)
 {
   uint result = oz2g_mod(gr, pidx);
-  OZAKI_SYM_FOLD(result, pidx);
+  OZAKI_SYMRES_FOLD(result, pidx);
   if (0 != sign && 0 != result) OZAKI_SIGN_FOLD(result, pidx);
   return result;
 }
@@ -1466,7 +1442,7 @@ inline uint oz2g_res(uint gr, SINT pidx, int sign)
 inline uint oz2g_res64(ulong x, SINT pidx, int sign)
 {
   uint result = oz2g_mod64(x, pidx);
-  OZAKI_SYM_FOLD(result, pidx);
+  OZAKI_SYMRES_FOLD(result, pidx);
   if (0 != sign && 0 != result) OZAKI_SIGN_FOLD(result, pidx);
   return result;
 }
@@ -1676,17 +1652,10 @@ inline void oz2g_garner_accumulate(const uint* restrict r, real_t alpha, int bas
  */
 # if !defined(HIER_GPROD)
 /* Standalone build (no host): the tables of the 20-modulus, four-per-group layout above. */
-#   if defined(OZAKI_U8) && (OZAKI_U8)
-#     define HIER_GPROD {1752116992u, 1841455727u, 1799186337u, 1823610127u, 1804203113u}
-#     define HIER_L2B {10528260474ul, 10017478999ul, 10252825788ul, 10115508682ul, 10224316730ul}
-#     define HIER_L2INV {0u, 828768696u, 1255745875u, 96929798u, 430518282u, 0u, 0u, 1062200843u, 1479311133u, 742073819u, \
-        0u, 0u, 0u, 1583419479u, 1296690879u, 0u, 0u, 0u, 0u, 1036097590u, 0u, 0u, 0u, 0u, 0u}
-#   else
-#     define HIER_GPROD {73986944u, 71016749u, 74378375u, 75849939u, 77548849u}
-#     define HIER_L2B {249324314215ul, 259752020945ul, 248012195395ul, 243200512972ul, 237872570793ul}
-#     define HIER_L2INV {0u, 16740944u, 25622404u, 62222726u, 40198002u, 0u, 0u, 20777749u, 7009982u, 11759761u, \
-        0u, 0u, 0u, 1845215u, 15543578u, 0u, 0u, 0u, 0u, 54885903u, 0u, 0u, 0u, 0u, 0u}
-#   endif
+#   define HIER_GPROD {1752116992u, 1841455727u, 1799186337u, 1823610127u, 1804203113u}
+#   define HIER_L2B {10528260474ul, 10017478999ul, 10252825788ul, 10115508682ul, 10224316730ul}
+#   define HIER_L2INV {0u, 828768696u, 1255745875u, 96929798u, 430518282u, 0u, 0u, 1062200843u, 1479311133u, 742073819u, \
+      0u, 0u, 0u, 1583419479u, 1296690879u, 0u, 0u, 0u, 0u, 1036097590u, 0u, 0u, 0u, 0u, 0u}
 # endif
 # if !defined(HIER_L2B) || !defined(HIER_L2INV)
 #   error hierarchical CRT needs all three level-2 tables (HIER_GPROD, HIER_L2B, HIER_L2INV).
@@ -1981,7 +1950,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
               OZAKI_CRT_BLK_DECL(blk);
               UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
                 uint r = oz2g_mod(gr[i], p);
-                OZAKI_SYM_FOLD(r, p);
+                OZAKI_SYMRES_FOLD(r, p);
                 if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
                 OZAKI_CRT_BLK_SET(blk, i, r);
               }
@@ -1995,7 +1964,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
         OZAKI_CRT_BLK_DECL(blk);
         UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
           uint r = oz2g_mod64(aligned[i], p);
-          OZAKI_SYM_FOLD(r, p);
+          OZAKI_SYMRES_FOLD(r, p);
           if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
           OZAKI_CRT_BLK_SET(blk, i, r);
         }

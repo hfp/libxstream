@@ -16,4 +16,4 @@ stacked-comments    5  samples/ozaki/ozaki_opencl.c
 # the CRT kernel interleaves its constant tables and a compile-time assertion
 # with the functions that read them.
 section-order       1  libxstream/libxstream.h
-section-order       7  samples/ozaki/kernels/ozaki2_int8.cl
+section-order       7  samples/ozaki/kernels/ozaki2.cl

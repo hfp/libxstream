@@ -13,11 +13,11 @@
 /* Embedded kernel source (generated at build time via tool_opencl.sh) */
 #include "ozaki_kernels.h"
 
-#if !defined(OPENCL_KERNELS_SOURCE_OZAKI1_INT8)
-# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1_INT8)"
+#if !defined(OPENCL_KERNELS_SOURCE_OZAKI1)
+# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1)"
 #endif
-#if !defined(OPENCL_KERNELS_SOURCE_OZAKI2_INT8)
-# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2_INT8)"
+#if !defined(OPENCL_KERNELS_SOURCE_OZAKI2)
+# error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI2)"
 #endif
 #if !defined(OPENCL_KERNELS_SOURCE_GEMM3M)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_GEMM3M)"
@@ -74,7 +74,7 @@
 
 
 /**
- * The CRT moduli, and the twin of oz2g_moduli in kernels/ozaki2_int8.cl: the host
+ * The CRT moduli, and the twin of oz2g_moduli in kernels/ozaki2.cl: the host
  * derives the Garner and hierarchical tables from this copy while the device reduces
  * against that one, so the two orders must agree. The order is not free. Snake-draft
  * interleaving keeps every HIER group's product near 43% of uint32, which is what the
@@ -83,10 +83,8 @@
  * group 0. The CPU path in LIBXS runs descending because it has no such group datapath.
  */
 static const uint16_t ozaki_u8_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
-static const uint16_t ozaki_i8_moduli[] = {101, 97, 59, 128, 127, 103, 89, 61, 125, 107, 83, 67, 121, 109, 81, 71, 119, 113, 79, 73};
 /* floor(log2(prod of the first p moduli)), indexed p-1. */
 static const uint32_t ozaki_u8_cumbits[] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
-static const uint32_t ozaki_i8_cumbits[] = {6, 13, 19, 26, 33, 39, 46, 52, 59, 65, 72, 78, 85, 92, 98, 104, 111, 118, 124, 130};
 
 static void ozaki_print_opt(FILE* stream, const char* name, int val)
 {
@@ -113,20 +111,20 @@ static void ozaki_release_kernel(cl_kernel* kernel)
  *
  * The accumulation headroom is OZAKI_CRT_LGK unless the caller declares a bound
  * (OZAKI_MAXK). The default covers K up to 32768 and is not a new assumption: it
- * is the one the untrimmed defaults already embodied, and reproduces all four of
- * them exactly (fp64/fp32 times u8/i8 -> 16/9 and 19/10 moduli).
+ * is the one the untrimmed defaults already embodied, and reproduces both of them
+ * exactly (fp64 -> 16 moduli, fp32 -> 9).
  */
-int ozaki_crt_bits(int nmoduli, int use_i8, int lgk)
+int ozaki_crt_bits(int nmoduli, int lgk)
 {
-  const uint32_t* const cumbits = (0 != use_i8) ? ozaki_i8_cumbits : ozaki_u8_cumbits;
+  const uint32_t* const cumbits = ozaki_u8_cumbits;
   const int avail = (int)cumbits[LIBXS_CLMP(nmoduli, 1, 20) - 1] - lgk;
   return (0 < avail) ? (avail / 2) : 0;
 }
 
 
-int ozaki_crt_moduli(int bits, int use_i8, int lgk)
+int ozaki_crt_moduli(int bits, int lgk)
 {
-  const uint32_t* const cumbits = (0 != use_i8) ? ozaki_i8_cumbits : ozaki_u8_cumbits;
+  const uint32_t* const cumbits = ozaki_u8_cumbits;
   const int req = 2 * bits + lgk;
   int np = 0;
   while (19 > np && (int)cumbits[np] < req) ++np;
@@ -225,6 +223,36 @@ static size_t ozaki_emit_list(char* buf, size_t size, size_t off, const char* na
 
 
 /**
+ * Base-256 limbs of 1/m_i the fractional sum needs. Truncating at L limbs leaves each
+ * term short by less than m_i * 2^-8L, so a group of gs of them is off by less than
+ * gs * 256 * 2^-8L and the integer recovered from it by that times the group product.
+ * L is the fewest limbs keeping the latter below half a unit, which is what rounds back
+ * to the right integer, taken over the worst group rather than the first.
+ *
+ * Mode 1 spans every modulus at once and cannot reach that bound at all: it would need
+ * 17 limbs, and even then the double-double it sums into carries 106 bits against the
+ * product's 123, so its error is a dynamic-range limit rather than a truncation one.
+ * That is the domain bound which keeps it opt-in, and no limb count removes it.
+ */
+static int ozaki_frac_limbs(const uint16_t* modtab, int nmoduli, int hier_gs)
+{
+  const int gs = (0 < hier_gs) ? hier_gs : nmoduli;
+  int lo, result = 1;
+  for (lo = 0; lo < nmoduli; lo += gs) {
+    const int hi = LIBXS_MIN(lo + gs, nmoduli);
+    uint64_t prod = 1;
+    int bits = 9, n = hi - lo, i, l; /* 9 = the 2 * 256 the per-term bound carries */
+    for (i = lo; i < hi; ++i) prod *= (uint64_t)modtab[i];
+    while (0 != n) { ++bits; n >>= 1; }
+    while (0 != prod) { ++bits; prod >>= 1; }
+    l = (bits + 7) / 8;
+    if (result < l) result = l;
+  }
+  return result;
+}
+
+
+/**
  * Fractional-CRT tables (OZAKI_FRACCRT): k_i = (M_i/m_i)^-1 mod m_i with M_i the
  * product of the moduli i shares its group with (the whole set when hier_gs is
  * 0, i.e. mode 1), the base-256 limbs of 1/m_i, and the divisor: M as a
@@ -288,22 +316,23 @@ static size_t ozaki_emit_fraccrt(char* buf, size_t size, size_t off, const uint1
  * lets a detected precision be applied without rebuilding the context.
  */
 static size_t ozaki_crt_moduli_flags(char* buf, size_t size, size_t off, int nmoduli, int trunc,
-  int use_double, int use_i8, int use_sym, int fraccrt, int crt_hier, int verbosity)
+  int use_double, int use_sym, int fraccrt, int crt_hier, int verbosity)
 {
   const int bias_plus_mant = use_double ? 1075 : 150;
   const char* env;
   off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off,
     " -DNMODULI=%d -DBIAS_PLUS_MANT=%d -DMANT_TRUNC=%d", nmoduli, bias_plus_mant - trunc, trunc));
   /**
-   * Residue representation, independent of which modulus table is in use. The
-   * symmetric form keeps |r| <= m/2, which quarters the product magnitude and so
-   * quadruples the exact accumulation window; it needs the signed datapath, so it
-   * leaves OZAKI_U8 off and reuses the signed accumulator reduction already there.
+   * Residue representation, and the only choice left here now that one moduli table
+   * serves both: unsigned residues, or symmetric ones keeping |r| <= m/2, which
+   * quarters the product magnitude and so quadruples the exact accumulation window.
+   * The symmetric form needs the signed datapath, so it leaves OZAKI_U8 off and reuses
+   * the signed accumulator reduction already there.
    */
   if (0 != use_sym) {
-    off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_SYM=1"));
+    off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_SYMRES=1"));
   }
-  else if (0 == use_i8) {
+  else {
     off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_U8=1"));
   }
   /**
@@ -312,19 +341,22 @@ static size_t ozaki_crt_moduli_flags(char* buf, size_t size, size_t off, int nmo
    * assumed: moving 256 and leaving the index behind masks the wrong modulus and
    * the result is wrong everywhere, with nothing to see at build time.
    */
-  { const uint16_t* const modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
-    const uint16_t pow2 = (0 == use_i8) ? 256 : 128;
+  { const uint16_t* const modtab = ozaki_u8_moduli;
+    const uint16_t pow2 = 256;
     int pi = 0;
     while (20 > pi && pow2 != modtab[pi]) ++pi;
     off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DPOW2_PIDX=%d", pi));
   }
   if (0 != fraccrt) { /* mode 1 spans all moduli with 14 limbs, mode 2 one group with 11 */
     off = ozaki_append(off, size, LIBXS_SNPRINTF(buf + off, size - off, " -DOZAKI_FRACCRT=%d", fraccrt));
-    off = ozaki_emit_fraccrt(buf, size, off, (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli,
-      nmoduli, (1 == fraccrt) ? 14 : 11, (1 == fraccrt) ? 0 : ozaki_hier_gs(nmoduli));
+    { const int hier_gs = (1 == fraccrt) ? 0 : ozaki_hier_gs(nmoduli);
+      /* Mode 1 keeps its documented count: the bound is out of its reach either way. */
+      const int frac_l = (1 == fraccrt) ? 14 : ozaki_frac_limbs(ozaki_u8_moduli, nmoduli, hier_gs);
+      off = ozaki_emit_fraccrt(buf, size, off, ozaki_u8_moduli, nmoduli, frac_l, hier_gs);
+    }
   }
   if (0 != crt_hier) {
-    const uint16_t* modtab = (0 == use_i8) ? ozaki_u8_moduli : ozaki_i8_moduli;
+    const uint16_t* modtab = ozaki_u8_moduli;
     const int hier_gs = ozaki_hier_gs(nmoduli);
     const int ngroups = LIBXS_UPDIV(nmoduli, hier_gs);
     uint64_t gp[OZAKI_HIER_NGROUPS_MAX], l2b[OZAKI_HIER_NGROUPS_MAX];
@@ -576,7 +608,7 @@ int ozaki_crt_base_flags(const ozaki_context_t* ctx, char* buf, size_t size)
 {
   size_t off = ozaki_append(0, size, LIBXS_SNPRINTF(buf, size, "%s", ctx->crt_flags));
   off = ozaki_crt_moduli_flags(buf, size, off, ctx->nmoduli, ctx->crt_trunc,
-    ctx->use_double, ctx->use_i8, ctx->use_sym, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
+    ctx->use_double, ctx->use_sym, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
   return ozaki_append_check(off, size, "Ozaki-2 moduli");
 }
 
@@ -596,7 +628,7 @@ int ozaki_crt_select(ozaki_context_t* ctx, int nmoduli)
     else {
       const int sig = ctx->use_double ? 53 : 24;
       ozaki_invalidate_cache(ctx, ctx->cache.a.ptr, ctx->cache.b.ptr);
-      ctx->crt_trunc = LIBXS_CLMP(sig - ozaki_crt_bits(np, ctx->use_i8, ctx->crt_lgk), 0, sig - 1);
+      ctx->crt_trunc = LIBXS_CLMP(sig - ozaki_crt_bits(np, ctx->crt_lgk), 0, sig - 1);
       ctx->nmoduli = np;
       if (1 != ctx->kind) ctx->ndecomp = np;
       if (0 > ctx->verbosity || 2 < ctx->verbosity) {
@@ -628,7 +660,7 @@ const ozaki_crt_variant_t* ozaki_crt_variant(ozaki_context_t* ctx, int nmoduli)
         sizeof(nmoduli), libxs_registry_lock(ctx->crt_variants));
       if (NULL == var || NULL == var->kern_preprocess_a) {
         const int trunc = LIBXS_CLMP((ctx->use_double ? 53 : 24)
-          - ozaki_crt_bits(nmoduli, ctx->use_i8, ctx->crt_lgk), 0, ctx->use_double ? 52 : 23);
+          - ozaki_crt_bits(nmoduli, ctx->crt_lgk), 0, ctx->use_double ? 52 : 23);
         char flags[sizeof(ctx->crt_flags) + 1024];
         ozaki_crt_variant_t newvar;
         cl_program program = NULL;
@@ -638,13 +670,13 @@ const ozaki_crt_variant_t* ozaki_crt_variant(ozaki_context_t* ctx, int nmoduli)
         newvar.nmoduli = nmoduli;
         newvar.trunc = trunc;
         off = ozaki_crt_moduli_flags(flags, sizeof(flags), off, nmoduli, trunc,
-          ctx->use_double, ctx->use_i8, ctx->use_sym, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
+          ctx->use_double, ctx->use_sym, ctx->fraccrt, ctx->crt_hier, ctx->verbosity);
         off = ozaki_append(off, sizeof(flags), LIBXS_SNPRINTF(flags + off, sizeof(flags) - off, "%s", ctx->crt_pp_tile));
         /* One program per modulus count, so the name has to separate them in the JIT cache. */
         LIBXS_SNPRINTF(pname, sizeof(pname), "ozaki2_pp%d", nmoduli);
         if (EXIT_SUCCESS == ozaki_append_check(off, sizeof(flags), "Ozaki-2 moduli")
           && EXIT_SUCCESS == libxstream_opencl_program(
-               0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags, ctx->crt_options, NULL, NULL, NULL, 0, &program))
+               0, OPENCL_KERNELS_SOURCE_OZAKI2, pname, flags, ctx->crt_options, NULL, NULL, NULL, 0, &program))
         {
           if (EXIT_SUCCESS != libxstream_opencl_kernel_query(program, "preprocess_a_crt_dense", &newvar.kern_preprocess_a)
             || EXIT_SUCCESS != libxstream_opencl_kernel_query(program, "preprocess_b_crt_dense", &newvar.kern_preprocess_b))
@@ -682,7 +714,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
   int result = EXIT_SUCCESS;
   int nv, has_fp64, crt;
-  int wg, sg, use_i8, use_sym;
+  int wg, sg, use_sym;
   int nslices, nmoduli, oztrim_crt;
   const char* env;
   memset(ctx, 0, sizeof(*ctx));
@@ -760,16 +792,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   }
 
   /**
-   * Scheme 2 signed i8 fallback: OZAKI_I8=1 uses moduli<=128 (legacy).
-   * Default (u8): moduli<=256, fewer moduli for same cumulative product.
+   * Symmetric residues (|r| <= m/2) rather than unsigned ones. Both fold the one
+   * moduli table: the signed representation used to come with a table of its own, up
+   * to 128, and that is what this retires - signing the larger moduli carries the same
+   * bit budget in three fewer of them, so the smaller table was strictly dominated.
    */
-  {
-    const char *const env_i8 = getenv("OZAKI_I8");
-    use_i8 = (NULL != env_i8 && 0 != atoi(env_i8));
-    { /* symmetric residues need the u8 table's range to be worth anything */
-      const char *const env_sym = getenv("OZAKI_SYM");
-      use_sym = (0 == use_i8 && NULL != env_sym && 0 != atoi(env_sym));
-    }
+  { const char *const env_sym = getenv("OZAKI_SYMRES");
+    use_sym = (NULL != env_sym && 0 != atoi(env_sym));
   }
   /**
    * Compute nslices (Scheme 1) and nmoduli (Scheme 2) independently.
@@ -781,7 +810,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     const int lgk = ozaki_crt_lgk(maxk);
     nslices = use_double ? 8 : 4;
     /* The untrimmed default is the fewest moduli that carry the exact product. */
-    nmoduli = ozaki_crt_moduli(sig, use_i8, lgk);
+    nmoduli = ozaki_crt_moduli(sig, lgk);
     if (0 < ndecomp) {
       if (1 == kind) nslices = ndecomp;
       else nmoduli = ndecomp;
@@ -798,7 +827,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       const int trim = (3 == kind) ? LIBXS_MIN(oztrim, 0) : oztrim;
       nmoduli = LIBXS_CLMP(nmoduli - trim, 2, 20);
     }
-    oztrim_crt = LIBXS_CLMP(sig - ozaki_crt_bits(nmoduli, use_i8, lgk), 0, sig - 1);
+    oztrim_crt = LIBXS_CLMP(sig - ozaki_crt_bits(nmoduli, lgk), 0, sig - 1);
     if (0 != crt && (0 > verbosity || 2 < verbosity)) {
       fprintf(stderr, "INFO OZAKI: %d moduli carry %d of %d significand bits (K<=%d)\n",
         nmoduli, sig - oztrim_crt, sig, 1 << (lgk - 1));
@@ -826,7 +855,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ctx->nmoduli_max = nmoduli;
     ctx->crt_lgk = lgk;
     ctx->crt_trunc = oztrim_crt;
-    ctx->use_i8 = use_i8;
     ctx->use_sym = use_sym;
     { const char *const env_bf16 = getenv("OZAKI_BF16");
       ctx->use_bf16 = (NULL != env_bf16 && 0 != atoi(env_bf16));
@@ -1159,7 +1187,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     /* Residue element type, resolved this early because the wgmma splice names it:
      * symmetric residues are signed, so the spliced MMA has to read s8, and the flag
      * feeds ozaki_wgmma_splice and must agree with OZAKI_U8 in the kernel build. */
-    ctx->u8 = (0 == use_i8 && 0 == ctx->use_sym) ? 1 : 0;
+    ctx->u8 = (0 == ctx->use_sym) ? 1 : 0;
     /**
      * Warp-group MMA: the default on Hopper (NV>=4), off elsewhere, and
      * OZAKI_WGMMA=0 opts out. A warp group computes m64 x OZAKI_WGMMA_N, which
@@ -1372,7 +1400,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       /**
        * The two flag bits reach the kernel separately, because they name two
        * independent properties of the pair loop and the host implements them that
-       * way (ozaki1_int8.c: sb_start, do_mirror). A single combined value, used as
+       * way (ozaki1.cl: sb_start, do_mirror). A single combined value, used as
        * a boolean, made the device read every non-zero OZAKI_FLAGS as the full S^2
        * loop and OZAKI_FLAGS=0 as triangular+symmetrize - the documented meaning
        * inverted, so a host-versus-device comparison of the pair loop compared
@@ -1422,7 +1450,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         LIBXS_SNPRINTF(pp_flags, sizeof(pp_flags), "%s -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_CUTOFF=%d",
           build_params, tm, tn, rtm, rtn, cutoff_jit);
         result = libxstream_opencl_program(
-          0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, "ozaki1", pp_flags, build_options, NULL, NULL, NULL, 0, &program);
+          0, OPENCL_KERNELS_SOURCE_OZAKI1, "ozaki1", pp_flags, build_options, NULL, NULL, NULL, 0, &program);
         if (EXIT_SUCCESS == result) {
           result = libxstream_opencl_kernel_query(program, "preprocess_a_dense", &ctx->kern_preprocess_a);
         }
@@ -1914,8 +1942,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ozaki_print_opt(stderr, "ndecomp", ndecomp);
     ozaki_print_opt(stderr, "trim", oztrim);
     if (0 != crt) {
-      const char *const e_i8 = getenv("OZAKI_I8");
-      fprintf(stderr, " u8=%d", (NULL == e_i8 || 0 == atoi(e_i8)) ? 1 : 0);
+      ozaki_print_opt(stderr, "symres", ctx->use_sym);
+      ozaki_print_opt(stderr, "bf16", ctx->use_bf16);
       ozaki_print_opt(stderr, "kgroups", ozgroups);
       ozaki_print_opt(stderr, "pb", ctx->pb);
       ozaki_print_opt(stderr, "hier", ctx->hier);

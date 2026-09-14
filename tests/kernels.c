@@ -54,7 +54,7 @@
  * compiler but the vendor's own accepts. NV is not - the warp-group MMA path carries
  * its PTX in comment-only asm markers a host pass splices, so it compiles anywhere
  * once the inline asm is spelled __asm__ (plain asm is a GNU extension clang rejects
- * in OpenCL C). That path is the largest and most intricate part of ozaki2_int8.cl and
+ * in OpenCL C). That path is the largest and most intricate part of ozaki2.cl and
  * went uncovered until a stray brace in it reached hardware, where a failed kernel
  * build merely downgrades to mma.sync and every correctness check still passes.
  */
@@ -79,14 +79,24 @@
  * not choices here but what the instruction fixes, so this flavor cannot share
  * KERNELS_OZAKI_BASE.
  */
-#define KERNELS_OZAKI_WGMMA \
+#define KERNELS_OZAKI_WGMMA_BASE \
   "-DBK=32 -DKU=8 -DRC=8 -DSG=32 -DINTEL=0 -DNV=4 -DNV_MMA=1 -DBM_PRE=16" \
   " -DBN_PRE=16 -DBK_PRE=32 -DOZAKI_SB=1 -DCONSTANT=global -DLU=0 -DKGROUPS=0 -DPB=1" \
   " -DNSLICES=8 -DUSE_DOUBLE=1 -DMANT_BITS=53 -DBIAS_PLUS_MANT=1075 -DOZAKI_HIER=1" \
-  " -DOZAKI_TRI=0 -DOZAKI_SYM=0 -DOZAKI_CUTOFF=14 -DOZAKI_U8=1 -DOZAKI_UNFUSE=1" \
+  " -DOZAKI_TRI=0 -DOZAKI_SYM=0 -DOZAKI_CUTOFF=14 -DOZAKI_UNFUSE=1" \
   " -DOZAKI_WGMMA=1 -DOZAKI_ABLOCK=1 -DOZAKI_BBLOCK=1 -DBM=128 -DBN=256 -DRTM=1" \
   " -DRTN=32 -DOZAKI_WGMMA_KU=16 -DOZAKI_WGMMA_DEFER=1 -DOZAKI_WGMMA_STAGES=3" \
   " -DOZAKI_WGMMA_NWAIT=1"
+#define KERNELS_OZAKI_WGMMA KERNELS_OZAKI_WGMMA_BASE " -DOZAKI_U8=1"
+/**
+ * The two residue representations and the two carriers, because each one selects a
+ * different datapath through the same kernel and a build failure in any of them would
+ * only show up as a silent fallback at run time. OZAKI_SYMRES is signed, so it leaves
+ * OZAKI_U8 off; OZAKI_BF16 exercises the fp32 accumulator and its periodic fold.
+ */
+#define KERNELS_OZAKI_SYMRES KERNELS_OZAKI_WGMMA_BASE " -DOZAKI_SYMRES=1"
+#define KERNELS_OZAKI_BF16 KERNELS_OZAKI_WGMMA_BASE " -DOZAKI_U8=1 -DOZAKI_BF16=1"
+#define KERNELS_OZAKI_BF16_SYMRES KERNELS_OZAKI_WGMMA_BASE " -DOZAKI_SYMRES=1 -DOZAKI_BF16=1"
 
 
 /**
@@ -96,13 +106,16 @@
 typedef struct { const char* path; const char* flavor; const char* params; } kernels_file_t;
 static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/gemm3m.cl", "", "" },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1_int8.cl", "fp64", KERNELS_OZAKI_FP64 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1_int8.cl", "fp32", KERNELS_OZAKI_FP32 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1_int8.cl", "sym", KERNELS_OZAKI_SYM },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "fp64", KERNELS_OZAKI_FP64 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "fp32", KERNELS_OZAKI_FP32 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "flat", KERNELS_OZAKI_FLAT },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2_int8.cl", "wgmma", KERNELS_OZAKI_WGMMA },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp64", KERNELS_OZAKI_FP64 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp32", KERNELS_OZAKI_FP32 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "sym", KERNELS_OZAKI_SYM },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp64", KERNELS_OZAKI_FP64 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp32", KERNELS_OZAKI_FP32 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "flat", KERNELS_OZAKI_FLAT },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma", KERNELS_OZAKI_WGMMA },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "symres", KERNELS_OZAKI_SYMRES },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16", KERNELS_OZAKI_BF16 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16sym", KERNELS_OZAKI_BF16_SYMRES },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/transpose.cl", "",
     "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */ },
   { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "", "" },

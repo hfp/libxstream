@@ -389,7 +389,7 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
 static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn, int rtm, int rtn);
 
 
-/* Mirrors OZAKI_TZ_BIAS in ozaki2_int8.cl: the complement the kernels report. */
+/* Mirrors OZAKI_TZ_BIAS in ozaki2.cl: the complement the kernels report. */
 #define OZAKI_TZ_BIAS_HOST 64
 
 /* Bytes of staged B a work-group may hold, which is what ozaki_wgmma_probe validates. */
@@ -1356,7 +1356,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
     /**
      * What the data's precision actually was. The kernels report the complement so a
-     * zeroed buffer and atomic_max give a minimum (see OZAKI_TZ_BIAS in ozaki2_int8.cl),
+     * zeroed buffer and atomic_max give a minimum (see OZAKI_TZ_BIAS in ozaki2.cl),
      * and a zero means nothing was reported at all. The truncation applies to both
      * operands alike, so the width that is lossless for the pair is the smaller of the
      * two, and the moduli only have to carry that width rather than the full one.
@@ -1370,7 +1370,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
         const int tza = (0 < tz[0]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[0], sig - 1) : 0;
         const int tzb = (0 < tz[1]) ? LIBXS_MIN(OZAKI_TZ_BIAS_HOST - tz[1], sig - 1) : 0;
         const int uniform = LIBXS_MIN(tza, tzb);
-        const int np_min = ozaki_crt_moduli(sig - uniform, 0 == ctx->u8, ctx->crt_lgk);
+        const int np_min = ozaki_crt_moduli(sig - uniform, ctx->crt_lgk);
         fprintf(stderr, "INFO OZAKI: data carries %i of %i significand bits (spare A=%i B=%i)"
                         " -> %i moduli suffice, %i in use (OZAKI_TRIM=%i)\n",
           sig - uniform, sig, tza, tzb, np_min, ctx->nmoduli, ctx->nmoduli - np_min);
@@ -1552,7 +1552,7 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
           ctx->base_flags, tm, tn, rtm, rtn, cutoff, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
         LIBXS_UNUSED(n);
         if (EXIT_SUCCESS == libxstream_opencl_program(
-              0, OPENCL_KERNELS_SOURCE_OZAKI1_INT8, pname, flags,
+              0, OPENCL_KERNELS_SOURCE_OZAKI1, pname, flags,
               ctx->base_options, NULL, NULL, NULL, 0, &program)) {
           libxstream_opencl_kernel_query(program, "gemm_fused", &newset.kern_fused);
         }
@@ -1624,7 +1624,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
             base, tm, tn, rtm, rtn, 0 != bounds ? " -DOZAKI_BOUNDS=1" : "");
         }
         if (EXIT_SUCCESS == libxstream_opencl_program(
-              0, OPENCL_KERNELS_SOURCE_OZAKI2_INT8, pname, flags,
+              0, OPENCL_KERNELS_SOURCE_OZAKI2, pname, flags,
               options, NULL, NULL, NULL, 0, &program)) {
           if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, tn, &program);
           if (NULL != program) {

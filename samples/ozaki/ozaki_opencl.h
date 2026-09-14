@@ -336,7 +336,6 @@ typedef struct ozaki_context_t {
   int hier; /* Hierarchical CRT: two-level Garner (compiled into kernel) */
   int crt_hier; /* resolved hierarchical reconstruction, as compiled */
   int fraccrt; /* resolved fractional-CRT mode (0 = exact reconstruction) */
-  int use_i8; /* resolved signed-i8 moduli (0 = u8) */
   int use_sym; /* symmetric residues |r| <= m/2 (needs the u8 table) */
   int use_bf16; /* Sch.2 carrier is bf16 rather than int8 (WIP: splice only) */
   double xover; /* Scheme-1/2 crossover weight: reconstruction cost per Garner op vs int8 MAC */
@@ -397,8 +396,8 @@ void ozaki_destroy(ozaki_context_t* ctx);
  * headroom. ozaki_crt_moduli: the fewest moduli carrying that many. ozaki_crt_lgk:
  * the headroom a declared K needs. See the definitions for the accounting.
  */
-int ozaki_crt_bits(int nmoduli, int use_i8, int lgk);
-int ozaki_crt_moduli(int bits, int use_i8, int lgk);
+int ozaki_crt_bits(int nmoduli, int lgk);
+int ozaki_crt_moduli(int bits, int lgk);
 int ozaki_crt_lgk(int maxk);
 
 /** Preprocessing kernels for one modulus count, compiled on first use. */
