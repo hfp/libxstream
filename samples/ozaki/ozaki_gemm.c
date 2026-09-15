@@ -1020,7 +1020,8 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     int cache_hit_a = 0, cache_hit_b = 0;
     int claimed = 0;
     int kg;
-    const size_t bs_esz = (0 != ctx->use_bf16) ? 2 : 1;
+    /* Both residue planes carry the fragment's own element under bf16 (ozaki_common.cl). */
+    const size_t bs_esz = (0 != ctx->use_bf16) ? 2 : 1, as_esz = bs_esz;
 
     if (k_grp_pad < 64) k_grp_pad = 64;
     /**
@@ -1042,12 +1043,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * leaves the upper planes unwritten and unread. That is what lets the modulus count
      * change between calls without reallocating, and it keeps the arena one size.
      */
-    as_size = (size_t)nmoduli_max * m_pad * k_grp_pad;
-    /**
-     * B carries two bytes per residue under bf16 and A one, because A is widened in
-     * registers on its way into the fragment while B is read from shared memory by an
-     * instruction that needs it in the fragment's own format (see ozaki_common.cl).
-     */
+    as_size = (size_t)nmoduli_max * m_pad * k_grp_pad * as_esz;
     bs_slot = (size_t)nmoduli_max * k_grp_pad * n_pad * bs_esz;
     bs_size = bs_slot * nslots;
     bs_used = (size_t)nmoduli_g * k_grp_pad * n_pad * bs_esz;

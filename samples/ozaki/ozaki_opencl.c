@@ -1658,7 +1658,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       env = getenv("OZAKI_BBLOCK");
       bblock = (0 != wgmma && (NULL == env || 0 != atoi(env)));
       env = getenv("OZAKI_BKMAJOR");
-      bkmajor = (0 == bblock && 0 == devinfo->intel && 2 <= nv && 0 != gpu && NULL != env && 0 != atoi(env));
+      /* bf16 off the warp-group path needs it, so the request can come from there too. */
+      bkmajor = (0 == bblock && 0 == devinfo->intel && 2 <= nv && 0 != gpu
+        && ((NULL != env && 0 != atoi(env)) || (0 != ctx->use_bf16 && 0 == wgmma)));
       if (0 != bblock) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BBLOCK=1"));
       }
@@ -1679,13 +1681,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * selects the spliced instruction and the two must agree.
        */
       if (0 != ctx->use_bf16) {
-        if (0 != wgmma && 0 != bblock && 0 != ablock) {
+        if ((0 != wgmma && 0 != bblock && 0 != ablock) || (0 != ctx->nv_mma && 0 != bkmajor)) {
           coff = ozaki_append(coff, sizeof(build_params),
             LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BF16=1"));
         }
         else {
           if (0 != verbosity) {
-            fprintf(stderr, "INFO OZAKI: OZAKI_BF16 needs warp-group MMA with the blocked A and B layouts - disabled\n");
+            fprintf(stderr, "INFO OZAKI: OZAKI_BF16 needs warp-group MMA with the blocked A and B"
+                            " layouts, or warp-level MMA with the transposed B - disabled\n");
           }
           ctx->use_bf16 = 0;
         }

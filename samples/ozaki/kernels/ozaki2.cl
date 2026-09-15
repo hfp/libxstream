@@ -207,6 +207,11 @@
 # define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
     *(global uchar4*)((DST) + (OFF)) = \
       (uchar4)((uchar)(R0), (uchar)(R1), (uchar)(R2), (uchar)(R3))
+#elif defined(OZAKI_BF16) && (OZAKI_BF16)
+/* A carries the fragment's own format, so its store widens where B's blocks do. */
+# define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
+    ((void)(R1), (void)(R2), (void)(R3), \
+      (void)(((global ushort*)(DST))[(OFF)] = OZAKI_BF16_OF(R0)))
 #else
 /* The dropped sources are still consumed, so a width of 1 leaves nothing unused. */
 # define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
@@ -904,39 +909,27 @@
  * asynchronous transaction, this one coalesces.
  */
 # if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
-# if defined(OZAKI_BF16) && (OZAKI_BF16)
 /**
- * A 256-byte run per warp and eight bytes per lane, the residues still one byte each:
- * the widening to the fragment's carrier happens here, between the load and the
- * instruction, which is why A costs no more memory traffic in bf16 than in int8. It
- * is also exact, so nothing about the CRT changes - see OZAKI_BF16_OF.
+ * One 512-byte run per warp, the lane's four registers contiguous, for either carrier:
+ * a bf16 fragment holds half the K of an int8 one but two bytes per element, so the
+ * lane's share is sixteen bytes and one vector load per instruction both ways. Which is
+ * the point of storing A in the fragment's own format - see OZAKI_IDX_AS.
  */
-# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
-    do { \
-      const uint2 av_ = *(CONSTANT const uint2*)((AS_K) \
-        + (((long)((MI) >> 4) * ((K_PAD) >> 4) + ((KOFF) >> 4)) << 8) + ((LANE) << 3)); \
-      (A0) = OZAKI_BF16X2(av_.x, av_.x >> 8); \
-      (A1) = OZAKI_BF16X2(av_.x >> 16, av_.x >> 24); \
-      (A2) = OZAKI_BF16X2(av_.y, av_.y >> 8); \
-      (A3) = OZAKI_BF16X2(av_.y >> 16, av_.y >> 24); \
-    } while (0)
-# else
-/* One 512-byte run per warp, the lane's four registers contiguous; see OZAKI_IDX_AS. */
-# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
+# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, AF) \
     do { \
       const uint4 av_ = *(CONSTANT const uint4*)((AS_K) \
-        + (((long)((MI) >> 4) * ((K_PAD) >> 5) + ((KOFF) >> 5)) << 9) + ((LANE) << 4)); \
-      (A0) = av_.x; (A1) = av_.y; (A2) = av_.z; (A3) = av_.w; \
+        + (((long)((MI) >> 4) * ((K_PAD) / (32 / OZAKI_AS_ESZ)) \
+          + ((KOFF) / (32 / OZAKI_AS_ESZ))) << 9) + ((LANE) << 4)); \
+      (AF)[0] = av_.x; (AF)[1] = av_.y; (AF)[2] = av_.z; (AF)[3] = av_.w; \
     } while (0)
-# endif
 # else
-# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
+# define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, AF) \
     do { \
       CONSTANT const char* ap_ = (AS_K) + (long)((MI) + ((LANE) >> 2)) * (K_PAD) + (KOFF) + ((LANE) & 3) * 4; \
-      (A0) = *(CONSTANT const uint*)ap_; \
-      (A1) = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD)); \
-      (A2) = *(CONSTANT const uint*)(ap_ + 16); \
-      (A3) = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD) + 16); \
+      (AF)[0] = *(CONSTANT const uint*)ap_; \
+      (AF)[1] = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD)); \
+      (AF)[2] = *(CONSTANT const uint*)(ap_ + 16); \
+      (AF)[3] = *(CONSTANT const uint*)(ap_ + (long)8 * (K_PAD) + 16); \
     } while (0)
 # endif
 
@@ -1020,10 +1013,10 @@
 # endif
 # if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 2))
 #   undef OZAKI_WGMMA_ALOAD
-#   define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, A0, A1, A2, A3) \
+#   define OZAKI_WGMMA_ALOAD(AS_K, K_PAD, MI, KOFF, LANE, AF) \
     do { \
       const uint4 av_ = *(CONSTANT const uint4*)((AS_K) + ((((KOFF) >> 5) & 3) << 9) + ((LANE) << 4)); \
-      (A0) = av_.x; (A1) = av_.y; (A2) = av_.z; (A3) = av_.w; \
+      (AF)[0] = av_.x; (AF)[1] = av_.y; (AF)[2] = av_.z; (AF)[3] = av_.w; \
     } while (0)
 # endif
 # if defined(OZAKI_WGMMA_BPROBE) && (0 != ((OZAKI_WGMMA_BPROBE) & 4))
@@ -1149,8 +1142,13 @@
  * statically (the issue loop is fully unrolled and the bound is compile-time), and
  * where it does not, one integer compare per instruction is nothing beside the
  * instruction it guards.
+ *
+ * Overridable, so a probe can widen or retire the cadence and price the fold directly
+ * rather than inferring it from two configurations that differ in more than the fold.
  */
-#   define OZAKI_ACC_NISSUE ((OZAKI_ACC_KMAX) / (WBI))
+#   if !defined(OZAKI_ACC_NISSUE)
+#     define OZAKI_ACC_NISSUE ((OZAKI_ACC_KMAX) / (WBI))
+#   endif
 #   if 0 == (OZAKI_ACC_NISSUE)
 #     error a single instruction overruns the accumulator: no fold cadence can help.
 #   endif
@@ -1194,8 +1192,7 @@
       const int next_ = (KW) + WBK; \
       int cw_; \
       UNROLL_FORCE(WBK / WBI) for (cw_ = 0; cw_ < WBK / WBI; ++cw_) { \
-        OZAKI_WGMMA_ALOAD(ASW, K_PAD, MI, (KW) + cw_ * WBI, LANE, \
-          AF[cw_ * 4], AF[cw_ * 4 + 1], AF[cw_ * 4 + 2], AF[cw_ * 4 + 3]); \
+        OZAKI_WGMMA_ALOAD(ASW, K_PAD, MI, (KW) + cw_ * WBI, LANE, (AF) + cw_ * 4); \
       } \
       OZAKI_WGMMA_WAIT(); \
       OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD, K_PAD, NB, next_, SB, WT, NBUF, NBSZ); \
@@ -1256,15 +1253,59 @@
     OZAKI_CRT_KLOOP_WRS(as, bs, a_plane, b_plane, K_pad, N_pad, mi_base, nb_base, PIDX, \
       (ACC).s_, wg_sb, wt, sg_lid)
 #else
+/**
+ * The same in-place fold the warp-group path needs, and simpler here: mma.sync is
+ * synchronous, so there is nothing in flight to wait for and no fence to re-establish -
+ * the accumulators are plain registers between two instructions. An integer accumulator
+ * still never reaches the cadence, so the counter and the test fold away.
+ */
+# if defined(OZAKI_BF16) && (OZAKI_BF16)
+#   if !defined(OZAKI_ACC_NKSTEP)
+#     define OZAKI_ACC_NKSTEP ((OZAKI_ACC_KMAX) / (KU * BK))
+#   endif
+#   if 0 == (OZAKI_ACC_NKSTEP)
+#     error one K-loop step overruns the accumulator; lower KU.
+#   endif
+#   define OZAKI_MMA_ACC_FOLD(ACC, PIDX_BASE) \
+      do { \
+        SINT bf_; \
+        UNROLL_FORCE(PB) for (bf_ = 0; bf_ < PB; ++bf_) { \
+          if ((PIDX_BASE) + bf_ < NMODULI) { \
+            int rf_; \
+            UNROLL_FORCE(RTM * RTN) for (rf_ = 0; rf_ < RTM * RTN; ++rf_) { \
+              OZAKI_ACC_UNION(df_); \
+              int mf_; \
+              df_.v_ = (ACC)[bf_ * RTM * RTN + rf_]; \
+              UNROLL_FORCE(XMX_FRAG) for (mf_ = 0; mf_ < XMX_FRAG; ++mf_) { \
+                uint rr_; \
+                OZAKI_MOD_REDUCE_ELEM(df_.a_[mf_], (PIDX_BASE) + bf_, rr_); \
+                df_.a_[mf_] = OZAKI_ACC_OF(rr_); \
+              } \
+              (ACC)[bf_ * RTM * RTN + rf_] = df_.v_; \
+            } \
+          } \
+        } \
+      } while (0)
+#   define OZAKI_MMA_ACC_KEEP(ACC, PIDX, CNT) \
+      do { \
+        if ((OZAKI_ACC_NKSTEP) <= ++(CNT)) { \
+          OZAKI_MMA_ACC_FOLD(ACC, PIDX); \
+          (CNT) = 0; \
+        } \
+      } while (0)
+# else
+#   define OZAKI_MMA_ACC_KEEP(ACC, PIDX, CNT) ((void)(CNT))
+# endif
 # define OZAKI_CRT_KLOOP_RUN(ACC, PIDX) \
     do { \
-      int kr_; \
+      int kr_, nk_ = 0; \
       for (kr_ = 0; kr_ < K_pad; kr_ += KU * BK) { \
         int kur_; \
         UNROLL_FORCE(KU) for (kur_ = 0; kur_ < KU; ++kur_) \
         { \
           OZAKI_CRT_KSTEP(as, bs, a_plane, b_plane, K_pad, N_pad, M, mi_base, nj_base, kr_ + kur_ * BK, PIDX, ACC); \
         } \
+        OZAKI_MMA_ACC_KEEP(OZAKI_ACC_FRAGS(ACC), PIDX, nk_); \
       } \
     } while (0)
 #endif
@@ -2068,7 +2109,7 @@ kernel void gemm_crt_fused(
   const int sg_id = (int)SGID();
   const int tile_m = sg_id / NTN;
   const int tile_n = sg_id % NTN;
-  const long a_plane = (long)M_pad * K_pad;
+  const long a_plane = (long)M_pad * K_pad * OZAKI_AS_ESZ;
   int ib_idx, jb_idx, mi_base, nj_base;
   OZAKI_SWIZZLE_IDX(M, N, ib_idx, jb_idx);
   mi_base = ib_idx * BM + tile_m * XMX_M * RTM;

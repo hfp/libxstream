@@ -51,10 +51,11 @@
  * OZAKI_BF16 makes it bf16 so a floating-point matrix engine can consume them,
  * which is the only option left on a device without an integer one.
  *
- * A stays one byte per element even then, because it is converted in registers on
- * its way into the fragment (OZAKI_WGMMA_ALOAD) and never staged. Only B pays the
- * second byte, in its plane and in the staged tile alike, since wgmma reads B from
- * shared memory and cp.async cannot convert what it copies.
+ * BOTH operands pay the second byte, for different reasons. B has to: wgmma reads it
+ * from shared memory and cp.async cannot convert what it copies. A does not have to,
+ * since it goes from global straight into registers and could be widened there, and it
+ * was built that way first - but the widening measured at 35% of the kernel against a
+ * fraction of that for the traffic, so it carries the fragment's own format too.
  *
  * OZAKI_BS_BLOG is the log2 length of a contiguous K-block in ELEMENTS, chosen so a
  * block stays 16 BYTES either way: that is the unit one copy moves and the unit the
@@ -62,15 +63,28 @@
  * one set of tile constants, and a bf16 stage simply spans half the K.
  */
 #if defined(OZAKI_BF16) && (OZAKI_BF16)
+# define OZAKI_AS_ESZ 2
 # define OZAKI_BS_ESZ 2
 # define OZAKI_BS_BLOG 3
-# if !defined(OZAKI_WGMMA) || (0 == OZAKI_WGMMA)
-#   error OZAKI_BF16 is a warp-group MMA format: no other path reads a two-byte residue.
-# endif
-# if !defined(OZAKI_BBLOCK) || (0 == OZAKI_BBLOCK) || !defined(OZAKI_ABLOCK) || (0 == OZAKI_ABLOCK)
-#   error OZAKI_BF16 needs the blocked B layout and the fragment-ordered A.
+/**
+ * Two engines read a two-byte residue, and each wants its own operand layout: the
+ * warp-group MMA needs the blocked B and the fragment-ordered A, the warp-level one needs
+ * B transposed so a fragment register is two adjacent K of a column. Nothing else does,
+ * so the combination is checked here rather than discovered as a wrong result.
+ */
+# if defined(OZAKI_WGMMA) && (OZAKI_WGMMA)
+#   if !defined(OZAKI_BBLOCK) || (0 == OZAKI_BBLOCK) || !defined(OZAKI_ABLOCK) || (0 == OZAKI_ABLOCK)
+#     error OZAKI_BF16 on warp-group MMA needs the blocked B layout and the fragment-ordered A.
+#   endif
+# elif defined(NV_MMA) && (NV_MMA)
+#   if !defined(OZAKI_BKMAJOR) || (0 == OZAKI_BKMAJOR)
+#     error OZAKI_BF16 on warp-level MMA needs the transposed B layout (OZAKI_BKMAJOR).
+#   endif
+# else
+#   error OZAKI_BF16 needs a matrix engine that reads it: warp-group or warp-level MMA.
 # endif
 #else
+# define OZAKI_AS_ESZ 1
 # define OZAKI_BS_ESZ 1
 # define OZAKI_BS_BLOG 4
 #endif
@@ -134,12 +148,18 @@
 #if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
 # if defined(OZAKI_BF16) && (OZAKI_BF16)
 /**
- * The same permutation one k narrower: a bf16 fragment covers k=16 rather than k=32
- * and packs two elements per register, so a warp's block is 16x16 elements (256
- * bytes, A being one byte per element still) and a lane's four registers are eight
- * contiguous ones. The three bits below the lane select the element the way the
- * fragment orders it - the k-phase within a register, then the row half, then the k
- * half - exactly as the k=32 form does with one more bit of each.
+ * An ELEMENT index, A being two bytes per element here: 16 rows x 16 K per warp, so a
+ * lane's eight elements are sixteen contiguous bytes and one vector load per
+ * instruction, the same request the int8 path makes.
+ *
+ * A is the one operand stored in the fragment's own carrier rather than widened on the
+ * way in. Widening it in registers keeps A's traffic at int8's, which is why it was
+ * built that way first, but the widening MEASURED at 35% of the kernel while the extra
+ * traffic costs a fraction of that: the residues are bytes, so the conversion is one
+ * cvt per element and there are eight per lane per instruction, against one load.
+ *
+ * The three bits below the lane select the element the way the fragment orders it: the
+ * k-phase within a register, then the row half, then the k half.
  */
 #  define OZAKI_IDX_AS(ROW, COL, K_PAD) \
     (((((long)(ROW) >> 4) * ((K_PAD) >> 4) + ((COL) >> 4)) << 8) \
@@ -603,6 +623,52 @@
     } while (0)
 #endif
 
+# if defined(OZAKI_BF16) && (OZAKI_BF16)
+/**
+ * bf16 on the warp-level MMA, which needs no splice: m16n8k16 is not an
+ * architecture-specific shape the way wgmma is, so plain inline asm reaches it and the
+ * path stays forward compatible instead of ending with one generation.
+ *
+ * The register counts match the integer form exactly - four A, two B, four D - because a
+ * bf16 fragment holds half the K at two bytes per element, so only the k stride and the
+ * types move. One BK step therefore issues TWO instructions, and they go in ONE asm
+ * block: the second accumulates onto the first's result, and the compiler hoists all asm
+ * inputs when it unrolls, so two separate blocks would let the second read a stale
+ * accumulator. That is the same hazard KU=1 exists for on the integer path.
+ */
+#   define NV_MMA_16x8x16_2(D0,D1,D2,D3, A0,A1,A2,A3, A4,A5,A6,A7, B0,B1,B2,B3) \
+      __asm__("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 " \
+        "{%0,%1,%2,%3}, {%4,%5,%6,%7}, {%12,%13}, {%0,%1,%2,%3};\n\t" \
+        "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 " \
+        "{%0,%1,%2,%3}, {%8,%9,%10,%11}, {%14,%15}, {%0,%1,%2,%3};" \
+        : "+r"(D0), "+r"(D1), "+r"(D2), "+r"(D3) \
+        : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(A4), "r"(A5), "r"(A6), "r"(A7), \
+          "r"(B0), "r"(B1), "r"(B2), "r"(B3))
+
+/**
+ * A is row-major and B K-major here, both in the fragment's carrier, so every operand
+ * register is two adjacent K of one row or column: four bytes, one aligned load. The k
+ * halves the fragment wants sit 8 elements apart and the second instruction 16, which is
+ * 16 and 32 bytes at two bytes per element.
+ */
+#   define NV_MMA_STEP(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, LANE, D0, D1, D2, D3) \
+    do { \
+      const int grp_ = (LANE) / 4; \
+      const int tid_ = (LANE) % 4; \
+      CONSTANT const char* ap0_ = (CONSTANT const char*)(AS) \
+        + ((long)((MI) + grp_) * (K_PAD) + (KOFF) + tid_ * 2) * OZAKI_AS_ESZ; \
+      CONSTANT const char* ap1_ = ap0_ + (long)8 * (K_PAD) * OZAKI_AS_ESZ; \
+      CONSTANT const char* bk_ = (CONSTANT const char*)(BS) \
+        + OZAKI_IDX_BS((KOFF) + tid_ * 2, (NJ) + grp_, (N_PAD), (K_PAD)) * OZAKI_BS_ESZ; \
+      NV_MMA_16x8x16_2(D0, D1, D2, D3, \
+        *(CONSTANT const uint*)ap0_, *(CONSTANT const uint*)ap1_, \
+        *(CONSTANT const uint*)(ap0_ + 16), *(CONSTANT const uint*)(ap1_ + 16), \
+        *(CONSTANT const uint*)(ap0_ + 32), *(CONSTANT const uint*)(ap1_ + 32), \
+        *(CONSTANT const uint*)(ap0_ + 48), *(CONSTANT const uint*)(ap1_ + 48), \
+        *(CONSTANT const uint*)bk_, *(CONSTANT const uint*)(bk_ + 16), \
+        *(CONSTANT const uint*)(bk_ + 32), *(CONSTANT const uint*)(bk_ + 48)); \
+    } while (0)
+# else
 /**
  * One MMA step: 16x8x32 tile, accumulates into int4 fragment (D0..D3).
  * PTX ISA fragment: b[reg] byte j = B[k=threadID*4+j+reg*16, n=groupID]
@@ -631,6 +697,7 @@
       NV_MMA_LOAD_BFRAG(BS, N_PAD, K_PAD, NJ, KOFF, k0_, grp_, b0_, b1_); \
       NV_MMA_16x8x32(D0, D1, D2, D3, a0_, a1_, a2_, a3_, b0_, b1_); \
     } while (0)
+# endif
 
 /**
  * Tiled MMA: RTM x RTN sub-tiles of m16n8k32 each.
