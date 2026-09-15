@@ -714,7 +714,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type ? 1 : 0);
   int result = EXIT_SUCCESS;
   int nv, has_fp64, crt;
-  int wg, sg, use_sym;
+  int wg, sg, use_sym, use_bf16;
   int nslices, nmoduli, oztrim_crt;
   const char* env;
   memset(ctx, 0, sizeof(*ctx));
@@ -792,13 +792,21 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
   }
 
   /**
-   * Symmetric residues (|r| <= m/2) rather than unsigned ones. Both fold the one
-   * moduli table: the signed representation used to come with a table of its own, up
-   * to 128, and that is what this retires - signing the larger moduli carries the same
-   * bit budget in three fewer of them, so the smaller table was strictly dominated.
+   * Symmetric residues (|r| <= m/2) rather than unsigned ones. Both fold the one moduli
+   * table: the signed representation used to come with a table of its own, up to 128, and
+   * that is what this retires - signing the larger moduli carries the same bit budget in
+   * three fewer of them, so the smaller table was strictly dominated.
+   *
+   * The default follows the CARRIER, which is why the two are resolved together. A 24-bit
+   * accumulator exhausts its exact window after 258 K and symmetric residues quadruple
+   * that, worth -14 to -25% of the GEMM once A carries the fragment's own format; an
+   * integer accumulator has budget to spare either way and would only pay for the signed
+   * reduction. Set OZAKI_SYMRES explicitly to override in either direction.
    */
-  { const char *const env_sym = getenv("OZAKI_SYMRES");
-    use_sym = (NULL != env_sym && 0 != atoi(env_sym));
+  { const char *const env_bf16 = getenv("OZAKI_BF16");
+    const char *const env_sym = getenv("OZAKI_SYMRES");
+    use_bf16 = (NULL != env_bf16 && 0 != atoi(env_bf16));
+    use_sym = (NULL != env_sym) ? (0 != atoi(env_sym)) : use_bf16;
   }
   /**
    * Compute nslices (Scheme 1) and nmoduli (Scheme 2) independently.
@@ -856,9 +864,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
     ctx->crt_lgk = lgk;
     ctx->crt_trunc = oztrim_crt;
     ctx->use_sym = use_sym;
-    { const char *const env_bf16 = getenv("OZAKI_BF16");
-      ctx->use_bf16 = (NULL != env_bf16 && 0 != atoi(env_bf16));
-    }
+    ctx->use_bf16 = use_bf16;
     ndecomp = (0 != crt) ? nmoduli : nslices;
   } /* ndecomp_auto */
   if (0 != crt && 20 < ndecomp) ndecomp = 20;

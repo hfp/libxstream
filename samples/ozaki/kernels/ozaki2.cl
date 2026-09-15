@@ -200,18 +200,26 @@
  */
 #if defined(INTEL) && (0 != INTEL)
 # define OZAKI_CRT_RUN 4
+#elif defined(OZAKI_BF16) && (OZAKI_BF16)
+/**
+ * A PAIR is what the bf16 layouts make contiguous, and the whole run there: the fragment
+ * order puts two adjacent K next to each other and the following pair eight elements
+ * away, so two residues are one aligned dword and four would not be one store at all.
+ * The run starts even and steps by an even stride, so the dword is always aligned.
+ */
+# define OZAKI_CRT_RUN 2
 #else
 # define OZAKI_CRT_RUN 1
 #endif
-#if 1 < OZAKI_CRT_RUN
+#if defined(OZAKI_BF16) && (OZAKI_BF16)
+/* A carries the fragment's own format, so its store widens where B's blocks do. */
+# define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
+    ((void)(R2), (void)(R3), \
+      (void)(*(global uint*)(((global ushort*)(DST)) + (OFF)) = OZAKI_BF16X2(R0, R1)))
+#elif 1 < OZAKI_CRT_RUN
 # define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
     *(global uchar4*)((DST) + (OFF)) = \
       (uchar4)((uchar)(R0), (uchar)(R1), (uchar)(R2), (uchar)(R3))
-#elif defined(OZAKI_BF16) && (OZAKI_BF16)
-/* A carries the fragment's own format, so its store widens where B's blocks do. */
-# define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
-    ((void)(R1), (void)(R2), (void)(R3), \
-      (void)(((global ushort*)(DST))[(OFF)] = OZAKI_BF16_OF(R0)))
 #else
 /* The dropped sources are still consumed, so a width of 1 leaves nothing unused. */
 # define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
