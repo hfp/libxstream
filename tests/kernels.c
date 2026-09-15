@@ -78,6 +78,13 @@
  * Warp-group MMA as the host emits it, shape included: SG=32, RTM=1 and RTN=BN/8 are
  * not choices here but what the instruction fixes, so this flavor cannot share
  * KERNELS_OZAKI_BASE.
+ *
+ * The staging depth is not free either, and is not part of the base: the ring is static
+ * local memory, the kernel refuses more of it than the reachability probe validates, and
+ * a value over that bound only compiled here because a host C compiler has no
+ * local-memory budget to exceed. Each depth below is what ozaki_wgmma_depth resolves for
+ * this shape at that buffer count, NWAIT included - appending an override instead would
+ * redefine the macro, which is an error at the warning level this test compiles with.
  */
 #define KERNELS_OZAKI_WGMMA_BASE \
   "-DBK=32 -DKU=8 -DRC=8 -DSG=32 -DINTEL=0 -DNV=4 -DNV_MMA=1 -DBM_PRE=16" \
@@ -85,18 +92,30 @@
   " -DNSLICES=8 -DUSE_DOUBLE=1 -DMANT_BITS=53 -DBIAS_PLUS_MANT=1075 -DOZAKI_HIER=1" \
   " -DOZAKI_TRI=0 -DOZAKI_SYM=0 -DOZAKI_CUTOFF=14 -DOZAKI_UNFUSE=1" \
   " -DOZAKI_WGMMA=1 -DOZAKI_ABLOCK=1 -DOZAKI_BBLOCK=1 -DBM=128 -DBN=256 -DRTM=1" \
-  " -DRTN=32 -DOZAKI_WGMMA_KU=16 -DOZAKI_WGMMA_DEFER=1 -DOZAKI_WGMMA_STAGES=3" \
-  " -DOZAKI_WGMMA_NWAIT=1"
-#define KERNELS_OZAKI_WGMMA KERNELS_OZAKI_WGMMA_BASE " -DOZAKI_U8=1"
+  " -DRTN=32 -DOZAKI_WGMMA_DEFER=1"
+/**
+ * Both realizable buffer counts, because the ring is sized in the preprocessor and the
+ * four-buffer case sits exactly ON the bound: an off-by-one in that arithmetic passes at
+ * three buffers and fails only here. Three halves the depth to 96 KB, four holds 128 KB.
+ */
+#define KERNELS_OZAKI_WGMMA_D3 \
+  " -DOZAKI_WGMMA_KU=4 -DOZAKI_WGMMA_STAGES=3 -DOZAKI_WGMMA_NWAIT=0"
+#define KERNELS_OZAKI_WGMMA_D4 \
+  " -DOZAKI_WGMMA_KU=4 -DOZAKI_WGMMA_STAGES=4 -DOZAKI_WGMMA_NWAIT=1"
+#define KERNELS_OZAKI_WGMMA KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_U8=1"
+#define KERNELS_OZAKI_WGMMA4 KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_U8=1"
 /**
  * The two residue representations and the two carriers, because each one selects a
  * different datapath through the same kernel and a build failure in any of them would
  * only show up as a silent fallback at run time. OZAKI_SYMRES is signed, so it leaves
  * OZAKI_U8 off; OZAKI_BF16 exercises the fp32 accumulator and its periodic fold.
  */
-#define KERNELS_OZAKI_SYMRES KERNELS_OZAKI_WGMMA_BASE " -DOZAKI_SYMRES=1"
-#define KERNELS_OZAKI_BF16 KERNELS_OZAKI_WGMMA_BASE " -DOZAKI_U8=1 -DOZAKI_BF16=1"
-#define KERNELS_OZAKI_BF16_SYMRES KERNELS_OZAKI_WGMMA_BASE " -DOZAKI_SYMRES=1 -DOZAKI_BF16=1"
+#define KERNELS_OZAKI_SYMRES \
+  KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_SYMRES=1"
+#define KERNELS_OZAKI_BF16 \
+  KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_U8=1 -DOZAKI_BF16=1"
+#define KERNELS_OZAKI_BF16_SYMRES \
+  KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_SYMRES=1 -DOZAKI_BF16=1"
 
 
 /**
@@ -113,6 +132,7 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp32", KERNELS_OZAKI_FP32 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "flat", KERNELS_OZAKI_FLAT },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma", KERNELS_OZAKI_WGMMA },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma4", KERNELS_OZAKI_WGMMA4 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "symres", KERNELS_OZAKI_SYMRES },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16", KERNELS_OZAKI_BF16 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16sym", KERNELS_OZAKI_BF16_SYMRES },
