@@ -137,19 +137,29 @@ Two exceptions, and no others:
 - A type may sit immediately above the one entry point it parameterizes, when
   that is what makes the interface readable. This covers an argument or callback
   type in a public header, not an internal type shared by several functions.
+- **In a header the last two sections are one.** A header is read as a list of
+  declarations, and an inline definition sits in that list: `LIBXS_API_INLINE`
+  interleaved with `LIBXS_API` is the feature group the reader wants, not an
+  interleaving to fix. The reason is the same one that lets a header open a
+  function body on the right. It applies to the two sections only: a macro, a
+  type or a file-scope variable below either of them is still out of order.
 
 The `section-order` check reads the file as a sequence of top-level constructs
 and reports where their kind steps back to a section the file has already left.
 It is approximate by design: it ranks what it recognizes and stays quiet about
-the rest, so it misses cases rather than inventing them. One backward step is
+the rest, so it misses cases rather than inventing them. A construct that is
+nothing but a macro invocation is left unranked, since what it expands to is
+not in the text, and so are the statements of an included body fragment, whose
+control flow sits at brace depth zero without being a definition. One backward step is
 reported once and not once per construct below it, because a single misplaced
 typedef does not make every macro under it a separate defect.
 
 Three shapes are ranked out of the ordering, since the text that looks like a
 section member is not one: the include guard, whose `#define` is the file's own
-name; an include or a define inside an `#if`, which is a feature test and
-belongs where the test is; and a prototype immediately above the definition it
-repeats, which is how a static definition answers `-Wmissing-prototypes`. The
+name and whose `#if` wraps the file rather than testing anything; an include or
+a define inside an `#if`, which is a feature test and belongs where the test is;
+and a prototype immediately above the definition it repeats, which is how a
+static definition answers `-Wmissing-prototypes`. The
 two exceptions above are not detected. They are judged, one file at a time, and
 a judged case belongs in the to-do list where it is visible, not in a rule that
 guesses at intent.

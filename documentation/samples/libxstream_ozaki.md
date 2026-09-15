@@ -62,7 +62,7 @@ other devices Scheme 1, both because counting GEMMs mispredicts there.
 |---------------|---------|----------------------------------------------------------------------|
 | OZAKI_FLAGS   | 3       | Sch.1 bitmask: 1=Triangular, 2=Symmetrize, 0=full S^2. No Sch.2      |
 | OZAKI_TRIM    | 0       | Levels to trim (0=default). ~7 bits (Sch.1), ~4 bits (Sch.2); negative buys precision back |
-| OZAKI_I8      | 0       | Sch.2: use signed i8 residues (moduli<=128) instead of u8            |
+| OZAKI_SYMRES  | (auto)  | Sch.2: symmetric residues (magnitude m/2 at most). On with bf16      |
 | OZAKI_GROUPS  | 0       | Sch.2: K-grouping factor, consecutive K panels share reconstr.       |
 | OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 if unfused, else 2        |
 
@@ -89,8 +89,8 @@ follows that knob.
 
 | Variable         | Default | Description                                                      |
 |------------------|---------|------------------------------------------------------------------|
-| OZAKI_TM         | (auto)  | Output tile M (BM). Overrides size-aware selection                |
-| OZAKI_TN         | (auto)  | Output tile N (BN). Overrides size-aware selection                |
+| OZAKI_TM         | (auto)  | Output tile M (BM), with OZAKI_TN. Not under wgmma (below)        |
+| OZAKI_TN         | (auto)  | Output tile N (BN), with OZAKI_TM. Not under wgmma (below)        |
 | OZAKI_RTM        | (auto)  | Register tiling M (power of two). Auto: 2 (HIER), 4 (256-GRF)    |
 | OZAKI_RTN        | (auto)  | Register tiling N. Auto: 8 (NV MMA Sch.2), 2 (Intel), 1 (other)  |
 | OZAKI_SB         | 1       | Sch.1: slice-block width for the pair loop (needs 256-GRF)       |
@@ -113,6 +113,7 @@ follows that knob.
 | OZAKI_WGMMA_N    | 128     | Warp-group tile width, 64 or 128                                 |
 | OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
 | OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for GPUs (see below)      |
+| OZAKI_BF16       | 0       | Sch.2: carry the residues in bf16 rather than int8 (see below)   |
 | OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
 | OZAKI_TZDETECT   | 0       | Sch.2: report the lossless `OZAKI_TRIM` the data allows (below)   |
 | OZAKI_ARENA      | (auto)  | Device scratch arena in MB (0=off). Auto: on if no pool          |
@@ -226,6 +227,28 @@ scatters the producer, and the interleave coalesces both but forces the
 pays 0.53 -> 0.73 ms, so about 11% net at n=4096 and more below it.
 Bit-identical, and the lane must walk columns rather than K-blocks -
 mapping it the other way reads 64 KB apart and loses 17% instead.
+
+`OZAKI_SYMRES` keeps each residue in `[-m/2, m/2]` rather than
+`[0, m)`, which quarters the product magnitude and so quadruples the K a
+floating-point accumulator can hold exactly. It is therefore on by
+default with `OZAKI_BF16` and off without it: an integer accumulator has
+that headroom anyway and would only pay for the signed reduction. Either
+default can be overridden explicitly.
+
+`OZAKI_BF16=1` carries the CRT residues in bf16 instead of int8, so that
+Scheme 2 runs on a floating-point matrix engine. It needs warp-group MMA
+with the default A and B layouts, and it disables itself with a message
+otherwise. The moduli, the accuracy and the results are unchanged - the
+output is bit-identical to the int8 path - so it is a choice of engine
+and nothing else. Off by default: where an integer engine is available it
+is the faster one, by about 3x on the GEMM. Enable it on a device whose
+integer matrix throughput is much lower than its bf16 throughput.
+
+`OZAKI_TM` and `OZAKI_TN` take effect only together -- either one alone
+leaves the size-aware selection in charge -- and neither applies where
+warp-group MMA runs, because that path's tile follows the geometry the
+instruction fixes and says so at `OZAKI_VERBOSE=1`. Within it the tile is
+still chosen per call from M and N.
 
 `OZAKI_SWIZZLE=W` walks the tile grid in strips W tiles wide instead of
 in the launch order, so the work-groups resident at one time cover a

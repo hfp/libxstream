@@ -77,6 +77,10 @@ GUARD = re.compile(
 )
 KEYWORD = re.compile(r"[ \t]*#[ \t]*(\w+)")
 NAMED = re.compile(r"(\w+)[ \t]*\(")
+TYPEDEF = re.compile(r"\btypedef\b")
+# A construct that is nothing but a macro invocation: what it expands to is
+# not in the text, so it is not ranked.
+INVOKED = re.compile(r"^[A-Z_][A-Z0-9_]*[ \t]*\(")
 # The declarator that trails the closing brace of a type definition, as in
 # "} libxs_gemm_shape_t;": the construct ends at the semicolon, not at the
 # brace. Kept to one line, or the next construct would be swallowed too.
@@ -343,7 +347,7 @@ def check(path: str, enabled: Sequence[str]) -> List[Finding]:
     if "multiline-block" in enabled:
         report += blocks(text, masked)
     if "section-order" in enabled:
-        report += sections(text)
+        report += sections(path, text)
     if "function-local" in enabled:
         for opened, closed, isfunc in regions:
             if not isfunc:
@@ -630,24 +634,6 @@ def blocks(text: str, masked: str) -> List[Finding]:
     return report
 
 
-def kind(text: str) -> int:
-    """Rank one top-level construct by what it defines."""
-    flat = " ".join(text.split())
-    head = flat.split("{")[0]
-    if flat.startswith("typedef"):
-        return 3
-    if "{" in flat:
-        # An initializer carries braces of its own, so what decides is the
-        # text ahead of them: an "=" makes the braces a value, and a ")"
-        # makes them a body.
-        if re.search(r"=[^=]*$", head):
-            return 4
-        return 6 if head.rstrip().endswith(")") else 3
-    if "=" not in flat and NAMED.search(flat) and flat.rstrip().endswith(")"):
-        return 5
-    return 4
-
-
 def named(text: str) -> str:
     """Name the entity a declaration declares, or "" where there is none.
 
@@ -668,7 +654,37 @@ def named(text: str) -> str:
     return result
 
 
-def constructs(visible: str) -> List[Tuple[int, int, str, int]]:
+def kind(text: str) -> int:
+    """Rank one top-level construct by what it defines."""
+    flat = " ".join(text.split())
+    head = flat.split("{")[0]
+    # Anywhere in the head rather than at the start: a linkage or visibility
+    # macro comes ahead of the keyword (LIBXS_EXTERN_C typedef ...), and
+    # without a brace to go by that reads as a variable or, where the type is
+    # a function pointer, as a prototype.
+    if TYPEDEF.search(head):
+        return 3
+    # Control flow at depth zero belongs to an included body fragment, whose
+    # statements are not sections of a file at all.
+    if CONTROLLED.search(head) or INVOKED.match(flat):
+        return 0
+    if "{" in flat:
+        # An initializer carries braces of its own, so what decides is the
+        # text ahead of them: an "=" makes the braces a value, and a ")"
+        # makes them a body.
+        if re.search(r"=[^=]*$", head):
+            return 4
+        return 6 if head.rstrip().endswith(")") else 3
+    # A parameter list makes it a declaration, whether or not the list is the
+    # end of it: an attribute macro may trail it (int putenv(char*) NOTHROW).
+    if "=" not in flat and named(flat):
+        return 5
+    return 4
+
+
+def constructs(
+    visible: str, guard: str = ""
+) -> List[Tuple[int, int, str, int]]:
     """Rank the top-level constructs as (offset, rank, text, conditional).
 
     The rank is the position in the section order, from 1 for an include to
@@ -676,6 +692,11 @@ def constructs(visible: str) -> List[Tuple[int, int, str, int]]:
     which is every directive that is neither an include nor a define. The
     conditional depth rides along because an include or a define inside an
     "#if" is a feature test rather than a member of a section.
+
+    The include guard is not such a conditional: it wraps the whole file, so
+    counting it would put every include and every macro of a header one level
+    deep and exempt the lot. Its "#endif" needs no matching case, because the
+    depth is clamped at zero anyway.
     """
     found: List[Tuple[int, int, str, int]] = []
     depth, cond, start = 0, 0, -1
@@ -694,7 +715,11 @@ def constructs(visible: str) -> List[Tuple[int, int, str, int]]:
             match = KEYWORD.match(visible, i)
             name = match.group(1) if match else ""
             if name in ("if", "ifdef", "ifndef"):
-                cond += 1
+                once = "ifndef" == name and 0 == cond
+                if not (
+                    once and guard and guard == visible[i:end].split()[-1]
+                ):
+                    cond += 1
             elif "endif" == name:
                 cond = max(cond - 1, 0)
             rank = {"include": 1, "define": 2}.get(name, 0)
@@ -727,7 +752,7 @@ def constructs(visible: str) -> List[Tuple[int, int, str, int]]:
     return found
 
 
-def sections(text: str) -> List[Finding]:
+def sections(path: str, text: str) -> List[Finding]:
     """Report a construct that reopens a section the file already left.
 
     The sections are strictly ordered, so the rank of the constructs never
@@ -743,16 +768,28 @@ def sections(text: str) -> List[Finding]:
     "#if", which is a feature test and belongs where the test is; and a
     prototype immediately above the definition it repeats, which is how a
     static definition answers -Wmissing-prototypes.
+
+    In a header the last two sections are one: a header is read as a list of
+    declarations and an inline definition sits in that list, so an out-of-line
+    entry point below an inline one is the feature group the reader wants,
+    not an interleaving.
     """
     report: List[Finding] = []
     visible, _ = mask(text, True)
     match = GUARD.search(visible)
     guard = match.group(1) if match else ""
-    found = constructs(visible)
+    found = constructs(visible, guard)
+    listed = header(path)
     top, again = 0, 0
     for at, (offset, rank, entry, cond) in enumerate(found):
         if 0 == rank:
             continue
+        # A header ranks a definition with the declarations: it is read as a
+        # list of declarations and an inline definition sits in that list, so
+        # an out-of-line entry point below an inline one is the feature group
+        # the reader wants rather than an interleaving. Merged for the
+        # ordering alone, or the report would name the wrong section.
+        order = 5 if listed and 6 == rank else rank
         if guard and 2 == rank:
             if re.match(r"[ \t]*#[ \t]*define[ \t]+%s\b" % guard, entry):
                 continue
@@ -763,8 +800,8 @@ def sections(text: str) -> List[Finding]:
             name = named(entry)
             if name and 6 == below[1] and name == named(below[2]):
                 continue
-        if rank < top:
-            if again != rank:
+        if order < top:
+            if again != order:
                 report.append(
                     (
                         "section-order",
@@ -773,10 +810,10 @@ def sections(text: str) -> List[Finding]:
                         % (SECTIONS[rank - 1], SECTIONS[top - 1]),
                     )
                 )
-            again = rank
+            again = order
         else:
             again = 0
-        top = max(top, rank)
+        top = max(top, order)
     return report
 
 
