@@ -78,6 +78,20 @@ GUARD = re.compile(
 KEYWORD = re.compile(r"[ \t]*#[ \t]*(\w+)")
 NAMED = re.compile(r"(\w+)[ \t]*\(")
 TYPEDEF = re.compile(r"\btypedef\b")
+# Conditionals at a line start, to pair the openers with their "#endif".
+NESTING = re.compile(r"^[ \t]*#[ \t]*(if|ifdef|ifndef|endif)\b", re.M)
+# A closing line as a whole, comment included: directive text survives the
+# mask, so "#endif /*__OPENCL*/" would otherwise read as something following.
+CLOSING = re.compile(r"^[ \t]*#[ \t]*endif\b.*$", re.M)
+# An opening line, continuations included, and an include line: what may
+# precede a conditional without making it something other than the file's wrap.
+OPENING = re.compile(
+    r"^[ \t]*#[ \t]*(?:if|ifdef|ifndef)\b(?:.*\\\n)*.*$", re.M
+)
+INCLUDED = re.compile(r"^[ \t]*#[ \t]*include\b.*$", re.M)
+# A quoted include, which resolves next to the file that includes it.
+QUOTED = re.compile(r"[ \t]*#[ \t]*include[ \t]*\"([^\"]+)\"")
+UNDEF = re.compile(r"^[ \t]*#[ \t]*undef[ \t]+(\w+)", re.M)
 # A construct that is nothing but a macro invocation: what it expands to is
 # not in the text, so it is not ranked.
 INVOKED = re.compile(r"^[A-Z_][A-Z0-9_]*[ \t]*\(")
@@ -110,10 +124,22 @@ Finding = Tuple[str, int, str]
 # Suppression is per rule and per file, not per file: a file that is listed
 # for one rule is still checked by the others.
 #
-# EXEMPT is permanent. These files define names that are not ours, so the
-# names keep the spelling they have elsewhere: compiler builtins and language
-# keywords, a CP2K name, the lowercase aliases LIBXS_CRC32(N) pastes onto, and
-# the comment style of the DBCSR-derived header.
+# EXEMPT is permanent, and it has no count: it belongs to a rule and a file
+# where the shape it accepts is the only shape that rule can find there, so
+# nothing is given up. A finding that is permanent in a file the rule still has
+# work in belongs in the to-do list instead, where the count keeps watching.
+#
+# Most of these files define names that are not ours, so the names keep the
+# spelling they have elsewhere: compiler builtins and language keywords, a CP2K
+# name, the lowercase aliases LIBXS_CRC32(N) pastes onto, and the comment style
+# of the DBCSR-derived header. The last entry is a different category: the
+# standard includes of libxs_macros.h sit below the feature-test macros that
+# have to precede them (_GNU_SOURCE, _DEFAULT_SOURCE, _XOPEN_SOURCE,
+# __STDC_FORMAT_MACROS, the _CRT_* switches, _USE_MATH_DEFINES, _REENTRANT).
+# Hoisting them changes which libc and CRT surface the whole library compiles
+# against, and it does so silently, because it still builds. At brace depth
+# zero that file holds macros and those includes and nothing else, which is
+# what makes the exemption free.
 EXEMPT = (
     ("macro-name", "libxs/libxs_macros.h"),
     ("macro-name", "src/libxs_crc32.h"),
@@ -122,6 +148,7 @@ EXEMPT = (
     ("macro-name", "libxstream/opencl/libxstream_cpu_end.h"),
     ("macro-parameter", "libxstream/libxstream_dbcsr.h"),
     ("stacked-comments", "libxstream/libxstream_dbcsr.h"),
+    ("section-order", "libxs/libxs_macros.h"),
 )
 # The backlog is not here: it is per-project state, and this script is a
 # policy file that "make documentation" copies into dependent projects, which
@@ -144,6 +171,7 @@ CHECKS = (
     "brace-placement",
     "multiline-block",
     "section-order",
+    "comment-shape",
 )
 
 
@@ -348,6 +376,8 @@ def check(path: str, enabled: Sequence[str]) -> List[Finding]:
         report += blocks(text, masked)
     if "section-order" in enabled:
         report += sections(path, text)
+    if "comment-shape" in enabled:
+        report += shapes(path, text)
     if "function-local" in enabled:
         for opened, closed, isfunc in regions:
             if not isfunc:
@@ -427,6 +457,114 @@ def stacked(text: str, lines: Sequence[str]) -> List[Finding]:
                 )
         previous = end if alone else None
         at = closed + 2
+    return report
+
+
+def comments(text: str) -> List[Tuple[int, int]]:
+    """Locate every "/* ... */" as (open, close-after).
+
+    A scanner of its own rather than mask(), which returns text and not the
+    spans, and rather than a search for "/*", which would find one inside a
+    string literal.
+    """
+    found: List[Tuple[int, int]] = []
+    state, start, quote = "code", 0, ""
+    i, n = 0, len(text)
+    while i < n:
+        char = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        if "code" == state:
+            if "/" == char and "*" == nxt:
+                state, start = "block", i
+                i += 2
+                continue
+            if "/" == char and "/" == nxt:
+                state = "line"
+            elif char in "\"'":
+                state, quote = "literal", char
+        elif "block" == state:
+            if "*" == char and "/" == nxt:
+                found.append((start, i + 2))
+                state = "code"
+                i += 2
+                continue
+        elif "line" == state:
+            if "\n" == char:
+                state = "code"
+        elif "literal" == state:
+            if "\\" == char:
+                i += 2
+                continue
+            if quote == char or "\n" == char:
+                state = "code"
+        i += 1
+    return found
+
+
+def shapes(path: str, text: str) -> List[Finding]:
+    """Report a multi-line comment that is not shaped like the others.
+
+    Every line of a block after the first carries a "*" under the one in the
+    opening "/*", the closing line included. Both accepted styles satisfy
+    that, the block whose text starts on the opening line as much as the one
+    that opens on a line of its own; what it rules out is the third shape, a
+    hanging indent with no stars at all, where nothing marks the lines as
+    comment and a reader scanning the left edge loses them.
+
+    A header goes further: at brace depth zero its blocks open and close on
+    their own lines. The reason is the API rather than the comment, and it is
+    the reason a header may open a function body on the right as well: the
+    declarations are read as a list, and a block that starts and ends mid-line
+    breaks the rhythm of that list. Inside a body, and in an implementation
+    unit, either style is fine.
+
+    The file's leading comment is the license header and is exempt, as it is
+    for stacked comments: it is carried verbatim and its stars sit in column
+    zero.
+    """
+    report: List[Finding] = []
+    lines = text.split("\n")
+    starts, offset = [0], 0
+    for line in lines:
+        offset += len(line) + 1
+        starts.append(offset)
+    masked, _ = mask(text)
+    lead = len(text) - len(text.lstrip())
+    depth, previous = 0, 0
+    for begin, end in comments(text):
+        depth += masked.count("{", previous, begin)
+        depth -= masked.count("}", previous, begin)
+        previous = end
+        first = text.count("\n", 0, begin)
+        last = text.count("\n", 0, end)
+        if first == last or begin == lead:
+            continue
+        column = begin - starts[first]
+        for number in range(first + 1, last + 1):
+            body = lines[number]
+            strip = body.lstrip()
+            if not strip.startswith("*") or column + 1 != len(body) - len(
+                strip
+            ):
+                report.append(
+                    (
+                        "comment-shape",
+                        number + 1,
+                        'continue with a "*" under the one in "/*"',
+                    )
+                )
+                break
+        if header(path) and 0 == depth:
+            head = text[begin + 2 : starts[first + 1] - 1].lstrip("*")
+            tail = lines[last][: end - starts[last] - 2].lstrip("*")
+            if head.strip() or tail.strip():
+                report.append(
+                    (
+                        "comment-shape",
+                        first + 1,
+                        "a header's block opens and closes on its own line",
+                    )
+                )
     return report
 
 
@@ -634,6 +772,72 @@ def blocks(text: str, masked: str) -> List[Finding]:
     return report
 
 
+def fragment(path: str, entry: str) -> bool:
+    """True for an include of an implementation fragment.
+
+    A quoted include resolves next to the file that includes it, and a file
+    with no include guard cannot be a dependency: two of them in one
+    translation unit would define everything twice, which is why it carries
+    none. Such an include is a piece of the implementation and belongs where
+    its code belongs, so it is not a member of the include section. A
+    dependency is quoted too where it is a sibling, which is why the guard and
+    not the quotes is what decides.
+    """
+    match = QUOTED.match(entry)
+    if not match:
+        return False
+    try:
+        with open(
+            os.path.join(os.path.dirname(path), match.group(1)),
+            encoding="utf-8",
+            errors="replace",
+        ) as handle:
+            included, _ = mask(handle.read(), True)
+    except OSError:
+        return False
+    return not GUARD.search(included)
+
+
+def wrapping(visible: str) -> List[int]:
+    """Offsets of the conditionals that enclose the whole rest of the file.
+
+    An include guard is one of these, and so is the "#if defined(__OPENCL)"
+    that a translation unit may put around everything it contains. Such a
+    conditional says nothing about the code below it, so counting it would put
+    every construct of the file one level deep and exempt the lot.
+
+    The test is symmetric, and it has to be: a header ends with a conditional
+    include of its own implementation, which also has nothing after it. So
+    nothing that belongs to a section may precede the opener either -- only
+    blank space, an include, another opener, and the guard's own define, all of
+    which are blanked before the two ends are compared.
+    """
+    found: List[int] = []
+    stack: List[int] = []
+    blanks = lambda m: " " * len(m.group(0))  # noqa: E731
+    tail = CLOSING.sub(blanks, visible)
+    head = INCLUDED.sub(blanks, OPENING.sub(blanks, visible))
+    guard = GUARD.search(visible)
+    if guard:
+        head = re.sub(
+            r"^[ \t]*#[ \t]*define[ \t]+%s\b.*$" % guard.group(1),
+            blanks,
+            head,
+            count=1,
+            flags=re.M,
+        )
+    for match in NESTING.finditer(visible):
+        if "endif" != match.group(1):
+            stack.append(match.start())
+        elif stack:
+            opener = stack.pop()
+            end = visible.find("\n", match.end())
+            after = -1 == end or not tail[end:].strip()
+            if after and not head[:opener].strip():
+                found.append(opener)
+    return found
+
+
 def named(text: str) -> str:
     """Name the entity a declaration declares, or "" where there is none.
 
@@ -682,9 +886,7 @@ def kind(text: str) -> int:
     return 4
 
 
-def constructs(
-    visible: str, guard: str = ""
-) -> List[Tuple[int, int, str, int]]:
+def constructs(visible: str) -> List[Tuple[int, int, str, int]]:
     """Rank the top-level constructs as (offset, rank, text, conditional).
 
     The rank is the position in the section order, from 1 for an include to
@@ -693,12 +895,12 @@ def constructs(
     conditional depth rides along because an include or a define inside an
     "#if" is a feature test rather than a member of a section.
 
-    The include guard is not such a conditional: it wraps the whole file, so
-    counting it would put every include and every macro of a header one level
-    deep and exempt the lot. Its "#endif" needs no matching case, because the
+    A conditional that wraps the whole file is not such a test and does not
+    count: see wrapping(). Its "#endif" needs no matching case, because the
     depth is clamped at zero anyway.
     """
     found: List[Tuple[int, int, str, int]] = []
+    around = wrapping(visible)
     depth, cond, start = 0, 0, -1
     i, n = 0, len(visible)
     while i < n:
@@ -715,10 +917,7 @@ def constructs(
             match = KEYWORD.match(visible, i)
             name = match.group(1) if match else ""
             if name in ("if", "ifdef", "ifndef"):
-                once = "ifndef" == name and 0 == cond
-                if not (
-                    once and guard and guard == visible[i:end].split()[-1]
-                ):
+                if i not in around:
                     cond += 1
             elif "endif" == name:
                 cond = max(cond - 1, 0)
@@ -778,7 +977,10 @@ def sections(path: str, text: str) -> List[Finding]:
     visible, _ = mask(text, True)
     match = GUARD.search(visible)
     guard = match.group(1) if match else ""
-    found = constructs(visible, guard)
+    # A macro that is undefined again is scoped to what lies between, so it is
+    # local to that code the way a variable is, not a member of the section.
+    undone = {m.group(1): m.start() for m in UNDEF.finditer(visible)}
+    found = constructs(visible)
     listed = header(path)
     top, again = 0, 0
     for at, (offset, rank, entry, cond) in enumerate(found):
@@ -793,8 +995,19 @@ def sections(path: str, text: str) -> List[Finding]:
         if guard and 2 == rank:
             if re.match(r"[ \t]*#[ \t]*define[ \t]+%s\b" % guard, entry):
                 continue
-        if 0 < cond and rank in (1, 2):
+        # Inside a conditional only real code is ranked. An include, a define,
+        # a declaration or a type there is a feature test: the platform header
+        # that may be missing, the macro that records it, the function the
+        # platform failed to declare, the type it failed to provide. Hoisting
+        # any of them means writing the condition a second time.
+        if 0 < cond and 6 != rank:
             continue
+        if 1 == rank and fragment(path, entry):
+            continue
+        if 2 == rank:
+            macro = DEFINE.match(entry)
+            if macro and offset < undone.get(macro.group(1), -1):
+                continue
         if 5 == rank and at + 1 < len(found):
             below = found[at + 1]
             name = named(entry)

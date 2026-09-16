@@ -124,8 +124,8 @@
 #endif
 
 /* DPAS tile dimensions and the accumulator fragment layout are in
-   ozaki_common.cl; the sub-tiles per work-group dimension account for
-   register tiling */
+ * ozaki_common.cl; the sub-tiles per work-group dimension account for
+ * register tiling */
 #define NTM (BM / (XMX_M * RTM))
 #define NTN (BN / (XMX_N * RTN))
 

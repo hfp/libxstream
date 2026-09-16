@@ -361,7 +361,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   }
   if (EXIT_SUCCESS == result) {
     /* Naming the layout the build carries is allowed, which lets a driver pass
-       the same environment to a host build as to a device. */
+     * the same environment to a host build as to a device. */
     const char *const layout_env = getenv("STENCIL_LAYOUT");
     const int layout_val = (NULL != layout_env) ? atoi(layout_env) : STENCIL_LAYOUT;
     if (layout_val != STENCIL_LAYOUT) {

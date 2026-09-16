@@ -66,7 +66,8 @@ comma or semicolon is caught in C sources, the rest is on the author.
 
 The rules that span more than one line are checked by
 `scripts/tool_checkstruct.py`: a single function exit, blank lines inside and
-between functions, stacked single-line comments, where an opening brace goes,
+between functions, stacked single-line comments, the shape of a multi-line
+comment, where an opening brace goes,
 whether a multi-line `if` or loop is braced, whether the sections of a file
 come in order, and a constant on the left-hand side. It works on the source
 text, with comments, literals, and preprocessor directives masked out, so a
@@ -80,11 +81,13 @@ against what the documentation mentions.
 **The policy holds everywhere; the hooks enforce most of it on library code and
 public headers.** A sample or a test that bails out of `main()` early is not the
 defect a multi-exit library function is, so `single-exit`, `function-gap` and
-the rest are scoped to `src`, the public headers and the kernels. Three of them
+the rest are scoped to `src`, the public headers and the kernels. Four of them
 are not, because they mislead whoever reads the code wherever it sits: a comment
-that has come loose from what it documents, two closing braces sharing a column
-while their blocks are nested, and a second blank line inside a function body.
-Those run over the whole tree.
+that has come loose from what it documents, a comment whose lines do not carry
+the `*` that marks them, two closing braces sharing a column while their blocks
+are nested, and a second blank line inside a function body. Those run over the
+whole tree, samples and tests included: a contribution is held to the policy
+wherever it lands, and what that surfaces is listed rather than waived.
 
 Both keep their open findings in a to-do file beside them,
 `scripts/tool_checkstruct.todo` and `scripts/tool_checkenvars.todo`, rather
@@ -128,41 +131,76 @@ what it configures, what state it holds, and what it does — in that order.
 Grouping is also what keeps the sections reviewable: a macro parked next to its
 first use hides how many of them the file already has.
 
-Two exceptions, and no others:
+Three exceptions, and no others:
 
 - A translation unit split into implementation fragments includes those
   fragments where their code belongs, not at the top. Such an include is a piece
   of the implementation rather than a dependency, and hoisting it would reorder
-  the definitions it contains.
+  the definitions it contains. This one is detected rather than judged, by the
+  one property that separates the two: a fragment carries no include guard,
+  because two of them in one translation unit would define everything twice. A
+  dependency is quoted as well where it is a sibling, so the quotes decide
+  nothing.
 - A type may sit immediately above the one entry point it parameterizes, when
   that is what makes the interface readable. This covers an argument or callback
   type in a public header, not an internal type shared by several functions.
-- **In a header the last two sections are one.** A header is read as a list of
+- In a header the last two sections are one. A header is read as a list of
   declarations, and an inline definition sits in that list: `LIBXS_API_INLINE`
   interleaved with `LIBXS_API` is the feature group the reader wants, not an
   interleaving to fix. The reason is the same one that lets a header open a
-  function body on the right. It applies to the two sections only: a macro, a
+  function body on the right. It applies to those two sections only: a macro, a
   type or a file-scope variable below either of them is still out of order.
+
+A macro that is undefined again is local to the code between the two, the way a
+variable is local to a block, so it is not a member of the macro section either.
+`LIBXS_FPRINT_LOAD` in `libxs_math_fprint.h` is defined above the one function
+that expands it and undefined below, and moving it into the macro section would
+separate it from its only use and leave the `#undef` reading as noise. The
+`#undef` has to follow the definition to mean this: the other order is the
+defensive one, dropping what a platform header may have set, and those macros
+(`__STRICT_ANSI__`, `_WIN32_WINNT`) are ordinary members of the section.
+
+**What sits inside a conditional is a feature test, and a declaration is no
+exception.** A platform header may not declare what it should, so the
+declaration goes next to the `#define` that calls it and inside the same
+condition; a type the platform does not provide is defined next to the `#define`
+that records its availability. `LIBXS_EXTERN void flockfile(FILE*)` in
+`libxs_sync.h` and the `__int128` typedef in `libxs_macros.h` are both this, and
+hoisting either one means writing its condition a second time. So inside an
+`#if`, only a definition is ranked.
+
+That has a prerequisite: a conditional that **wraps the whole file** must not
+count, or a translation unit that puts `#if defined(__OPENCL)` around everything
+it contains would have no rules left inside. The test for it is symmetric, since
+a header ends with a conditional include of its own implementation, which also
+has nothing after it: nothing that belongs to a section may precede the opener
+either, and the include guard is the same shape.
 
 The `section-order` check reads the file as a sequence of top-level constructs
 and reports where their kind steps back to a section the file has already left.
 It is approximate by design: it ranks what it recognizes and stays quiet about
 the rest, so it misses cases rather than inventing them. A construct that is
-nothing but a macro invocation is left unranked, since what it expands to is
-not in the text, and so are the statements of an included body fragment, whose
-control flow sits at brace depth zero without being a definition. One backward step is
-reported once and not once per construct below it, because a single misplaced
-typedef does not make every macro under it a separate defect.
+nothing but a macro invocation is left unranked, since what it expands to is not
+in the text, and so are the statements of an included body fragment, whose
+control flow sits at brace depth zero without being a definition. One backward
+step is reported once and not once per construct below it, because a single
+misplaced typedef does not make every macro under it a separate defect.
 
-Three shapes are ranked out of the ordering, since the text that looks like a
-section member is not one: the include guard, whose `#define` is the file's own
-name and whose `#if` wraps the file rather than testing anything; an include or
-a define inside an `#if`, which is a feature test and belongs where the test is;
-and a prototype immediately above the definition it repeats, which is how a
-static definition answers `-Wmissing-prototypes`. The
-two exceptions above are not detected. They are judged, one file at a time, and
-a judged case belongs in the to-do list where it is visible, not in a rule that
-guesses at intent.
+The shapes ranked out of the ordering are the ones where the text that looks
+like a section member is not one: the include guard, whose `#define` is the
+file's own name; anything but a definition inside an `#if`; a prototype
+immediately above the definition it repeats, which is how a static definition
+answers `-Wmissing-prototypes`; an include of a guardless implementation
+fragment; and a macro that is undefined again.
+
+What is left over is judged, one file at a time, rather than guessed at by a
+rule reading intent -- a type above the one entry point it parameterizes has no
+signal a checker could read. The judgement is recorded where it stays visible:
+in the to-do list while the file has structure the rule must keep watching, and
+in the script's permanent list only where the accepted shape is the one thing
+that rule could report in that file. `libxs_macros.h` is the second kind, since
+its standard includes must follow the feature-test macros that configure them,
+and macros and those includes are all it holds.
 
 Every file carries the SPDX license header (BSD-3-Clause) verbatim as found in
 existing files.
@@ -292,7 +330,20 @@ Two kinds of macro name are lowercase on purpose, and both are exempt:
   one line or nothing.
 - API documentation in public headers is the other place a multi-line block
   belongs.
-- A multi-line block opens on its own line and continues with ` * `.
+- **A multi-line block carries a `*` on every line**, under the one in the
+  opening `/*`, the closing line included. Two shapes satisfy that and both are
+  accepted outside a header: the block that opens on its own line, and the
+  compact one whose text starts on the opening line and ends on the closing
+  one. What it rules out is a third shape, a hanging indent with no stars,
+  where nothing marks the lines as comment and a reader scanning the left edge
+  loses them.
+- **In a header, a block at file scope opens and closes on its own line.** The
+  reason is the API rather than the comment, and it is the one that lets a
+  header open a function body on the right: the declarations are read as a
+  list, and a block starting and ending mid-line breaks the rhythm of that
+  list. Inside a function body, and in an implementation unit, either shape is
+  fine. Measured before requiring it: 452 blocks at header file scope already
+  open on their own line and 15 do not.
 - `/* ... */` only. **C++ comments (`//`) are rejected** in `.c` and `.h`.
 - **No decorative or banner-style comment blocks.** No `/*==== Section ====*/`,
   no boxes, no ASCII rules. The license header is the sole exception.

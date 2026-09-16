@@ -485,7 +485,7 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
       (!defined(GPU) || (0 != GPU)) && !defined(SLM_A) && !defined(REG_A) && (WRK == SM) && \
       (SM <= SG || SM <= WG) /* use ACC_OPENCL_VERSION rather than ACC_OPENCL_C_VERSION */
         /* reached only for WRK == SM, where every item is ACTIVE: the
-           broadcasts below are themselves work-group collectives */
+         * broadcasts below are themselves work-group collectives */
         const T a = AMK(idx, k);
         UNROLL_FORCE(SM) for (SINT m = 0; m < SM; ++m) {
 #      if (SM <= SG)

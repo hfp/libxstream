@@ -11,11 +11,8 @@
 # reach it are deferred rather than scrubbed under a live change.
 blank-in-function   1  samples/ozaki/ozaki_opencl.c
 stacked-comments    5  samples/ozaki/ozaki_opencl.c
-# section-order is new, and all three entries predate it. libxstream.h puts a
-# callback type above the entry point that takes it, which the policy allows;
-# libxstream_atomics.h keeps a macro with the declaration it wraps; the CRT
-# kernel interleaves its constant tables and a compile-time assertion with the
-# functions that read them.
+# section-order: libxstream.h puts a callback type above the entry point that
+# takes it, which the policy allows; the CRT kernel parks two macro blocks
+# below the functions that use them.
 section-order       1  libxstream/libxstream.h
-section-order       1  libxstream/opencl/libxstream_atomics.h
-section-order       7  samples/ozaki/kernels/ozaki2.cl
+section-order       2  samples/ozaki/kernels/ozaki2.cl

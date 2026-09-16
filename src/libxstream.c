@@ -118,7 +118,7 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, con
         }
         else {
           /* zero for both where the hint is off, which falls through to the
-             pointer order below rather than reordering the equal sizes */
+           * pointer order below rather than reordering the equal sizes */
           cl_uint bus_a = 0, bus_b = 0;
           if (0 != (64 & libxstream_opencl_config.xhints)) {
             struct { cl_uint domain, bus, device, function; } pci_a, pci_b;

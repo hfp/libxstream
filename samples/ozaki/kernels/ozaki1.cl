@@ -85,7 +85,7 @@
 #endif
 
 /* DPAS tile dimensions are in ozaki_common.cl (XMX_M=8, XMX_N=16); the
-   sub-tiles per work-group dimension account for register tiling */
+ * sub-tiles per work-group dimension account for register tiling */
 #define NTM (BM / (XMX_M * RTM))
 #define NTN (BN / (XMX_N * RTN))
 

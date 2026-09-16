@@ -328,7 +328,7 @@ int main(int argc, char* argv[])
       }
       if (NULL != times) times[i] = libxs_timer_duration(tick, libxs_timer_tick());
       /* restore C before next iteration so beta does not accumulate - after the
-         sample is taken, since it is bookkeeping rather than part of the GEMM */
+       * sample is taken, since it is bookkeeping rather than part of the GEMM */
       if (i < nrepeat - 1) memcpy(c_ref, c_oz, (size_t)ldc * N * elem_size);
     }
     t1 = libxs_timer_tick();

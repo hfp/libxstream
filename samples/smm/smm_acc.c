@@ -448,7 +448,7 @@ int libsmm_acc_finalize(void) {
     for (; NULL != regentry;
          regentry = libxs_registry_next_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor)) {
       /* trans- and SMM-entries share this registry and are told apart by the
-         size of their key (opencl_libsmm_transkey_t vs opencl_libsmm_smmkey_t) */
+       * size of their key (opencl_libsmm_transkey_t vs opencl_libsmm_smmkey_t) */
       const int is_smm = (sizeof(opencl_libsmm_smmkey_t) == key_size);
       /* opencl_libsmm_trans_t/opencl_libsmm_smm_t carry cl_kernel as 1st data member */
       cl_kernel kernel = *(const cl_kernel*)regentry;
