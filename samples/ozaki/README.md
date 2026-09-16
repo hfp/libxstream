@@ -62,8 +62,8 @@ other devices Scheme 1, both because counting GEMMs mispredicts there.
 |---------------|---------|----------------------------------------------------------------------|
 | OZAKI_FLAGS   | 3       | Sch.1 bitmask: 1=Triangular, 2=Symmetrize, 0=full S^2. No Sch.2      |
 | OZAKI_TRIM    | 0       | Levels to trim (0=default). ~7 bits (Sch.1), ~4 bits (Sch.2); negative buys precision back |
-| OZAKI_SYMRES  | (auto)  | Sch.2: symmetric residues (magnitude m/2 at most). On with bf16      |
-| OZAKI_GROUPS  | 0       | Sch.2: K-grouping factor, consecutive K panels share reconstr.       |
+| OZAKI_SYMRES  | (auto)  | Sch.2: symmetric residues (magnitude m/2 at most). On with bf16, or K past 32768 |
+| OZAKI_GROUPS  | (auto)  | Sch.2: K-grouping factor, consecutive K panels share reconstr.       |
 | OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 if unfused, else 2        |
 
 `OZAKI_FLAGS` selects how the slice-pair loop is traversed, and the two
@@ -76,7 +76,13 @@ alone counts them twice, so both are for symmetric operands only.
 `OZAKI_GROUPS` splits K into panels to bound the preprocessing
 footprint, and it is a slowdown at every size measured because it is
 incompatible with the unfused epilogue (`OZAKI_UNFUSE`, on by default
-for GPUs) -- use it only when the per-pass buffers do not fit.
+for GPUs) -- set it only when the per-pass buffers do not fit. Left
+unset it is derived instead, and only where it is needed for a correct
+result: a `OZAKI_MAXK` past what the residue representation can
+accumulate exactly (32768 unsigned, 131072 symmetric, and far less on a
+floating-point carrier) gets the largest panel that stays inside the
+accumulator. Raising `OZAKI_MAXK` is what turns it on, so expect the 2x
+there and set `OZAKI_SYMRES=1` first if the K is within 131072.
 
 `OZAKI_FRACCRT=1` trades exactness for speed (flat fractional sum,
 magnitude-bounded); modes 0 and 2 are both exact and differ only in
@@ -229,11 +235,14 @@ Bit-identical, and the lane must walk columns rather than K-blocks -
 mapping it the other way reads 64 KB apart and loses 17% instead.
 
 `OZAKI_SYMRES` keeps each residue in `[-m/2, m/2]` rather than
-`[0, m)`, which quarters the product magnitude and so quadruples the K a
-floating-point accumulator can hold exactly. It is therefore on by
-default with `OZAKI_BF16` and off without it: an integer accumulator has
-that headroom anyway and would only pay for the signed reduction. Either
-default can be overridden explicitly.
+`[0, m)`, which quarters the product magnitude and so quadruples the K
+an accumulator can hold exactly: 32768 to 131072 on int8, 256 to 1024 on
+bf16. It is therefore on by default with `OZAKI_BF16`, whose window is
+too small either way to spend, and on without it once `OZAKI_MAXK`
+exceeds 32768, where the signed reduction it costs is the cheaper of the
+two ways to stay exact -- the other being `OZAKI_GROUPS`. Below that K an
+integer accumulator has the headroom anyway and the default stays
+unsigned. Either default can be overridden explicitly.
 
 `OZAKI_BF16=1` carries the CRT residues in bf16 instead of int8, so that
 Scheme 2 runs on a floating-point matrix engine. It needs warp-group MMA

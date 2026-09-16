@@ -395,10 +395,16 @@ void ozaki_destroy(ozaki_context_t* ctx);
  * ozaki_crt_bits: significand bits nmoduli moduli carry with lgk bits of accumulation
  * headroom. ozaki_crt_moduli: the fewest moduli carrying that many. ozaki_crt_lgk:
  * the headroom a declared K needs. See the definitions for the accounting.
+ *
+ * ozaki_crt_window is a SEPARATE constraint on the same K and not part of that
+ * budget: the moduli decide whether the reconstructed value wraps, the window
+ * whether one accumulator overflows before reconstruction ever runs. More moduli
+ * do not widen it.
  */
 int ozaki_crt_bits(int nmoduli, int lgk);
 int ozaki_crt_moduli(int bits, int lgk);
 int ozaki_crt_lgk(int maxk);
+int ozaki_crt_window(int use_bf16, int use_sym);
 
 /** Preprocessing kernels for one modulus count, compiled on first use. */
 const ozaki_crt_variant_t* ozaki_crt_variant(ozaki_context_t* ctx, int nmoduli);

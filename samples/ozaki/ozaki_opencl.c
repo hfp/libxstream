@@ -143,6 +143,34 @@ int ozaki_crt_lgk(int maxk)
 
 
 /**
+ * Largest K one pass accumulates exactly, which is the accumulator width divided by
+ * the square of the widest residue. It is not the bit budget above and no modulus
+ * count widens it: the budget says the reconstructed value does not wrap, this says
+ * no single accumulator overflows on the way there. The two agreed numerically at
+ * the unsigned default (both 32768), which is why one constant used to stand for
+ * both and raising OZAKI_MAXK grew the modulus count while leaving the accumulator
+ * to wrap.
+ *
+ * Symmetric residues quadruple every entry, |r| <= m/2 against r < m, and that is
+ * the whole of their advantage here. The unsigned bounds round down to a power of
+ * two (2^31/255^2 = 33025 and 2^24/255^2 = 258); the symmetric ones are exact
+ * because the only modulus whose fold reaches 128 is 256, and a residue mod 2^8
+ * survives wraparound of an integer accumulator.
+ */
+int ozaki_crt_window(int use_bf16, int use_sym)
+{
+  int result;
+  if (0 != use_bf16) { /* fp32 accumulator, exact to 2^24 */
+    result = (0 != use_sym) ? 1024 : 256;
+  }
+  else { /* int32 accumulator */
+    result = (0 != use_sym) ? 131072 : 32768;
+  }
+  return result;
+}
+
+
+/**
  * Leaf group size of the hierarchical CRT. At most 4, because the level-2
  * datapath is 32-bit and a group product must fit uint32; below that, prefer a
  * size that leaves no group holding a single modulus - at nmoduli=9 the 4,4,1
@@ -797,16 +825,20 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
    * that is what this retires - signing the larger moduli carries the same bit budget in
    * three fewer of them, so the smaller table was strictly dominated.
    *
-   * The default follows the CARRIER, which is why the two are resolved together. A 24-bit
-   * accumulator exhausts its exact window after 258 K and symmetric residues quadruple
-   * that, worth -14 to -25% of the GEMM once A carries the fragment's own format; an
-   * integer accumulator has budget to spare either way and would only pay for the signed
-   * reduction. Set OZAKI_SYMRES explicitly to override in either direction.
+   * The default follows the CARRIER and the declared K, which is why all three are
+   * resolved together. A 24-bit accumulator exhausts its exact window after 258 K and
+   * symmetric residues quadruple that, worth -14 to -25% of the GEMM once A carries the
+   * fragment's own format, so bf16 takes them unconditionally. An integer accumulator
+   * has budget to spare at the default K and would only pay for the signed reduction,
+   * but its window quadruples the same way, and spending the fold is cheaper than the
+   * grouped reduction a K past 32768 needs otherwise. Set OZAKI_SYMRES explicitly to
+   * override in either direction.
    */
   { const char *const env_bf16 = getenv("OZAKI_BF16");
     const char *const env_sym = getenv("OZAKI_SYMRES");
     use_bf16 = (NULL != env_bf16 && 0 != atoi(env_bf16));
-    use_sym = (NULL != env_sym) ? (0 != atoi(env_sym)) : use_bf16;
+    use_sym = (NULL != env_sym) ? (0 != atoi(env_sym))
+      : (use_bf16 || maxk > ozaki_crt_window(use_bf16, 0 /*unsigned*/));
   }
   /**
    * Compute nslices (Scheme 1) and nmoduli (Scheme 2) independently.
@@ -935,7 +967,26 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      * the work-group ceiling of every kernel, so an unreachable scheme would
      * otherwise compile the one that runs at half its row tiling.
      */
-    const int sch1_only = (1 == kind || (3 == kind && 0 == use_double && 0 == ctx->nv));
+    const int scheme1_only = (1 == kind || (3 == kind && 0 == use_double && 0 == ctx->nv));
+    /**
+     * Grouped reduction is the backstop for a K the chosen representation cannot
+     * accumulate: symmetric residues already bought a factor of four above, and past
+     * that only a Barrett reduction inside the GEMM keeps the accumulator exact. It
+     * costs about 2x because it is incompatible with the unfused epilogue, which is
+     * why it is the second choice and not the first, but the alternative it replaces
+     * is a wrong result rather than a slower one. An explicit OZAKI_GROUPS still wins;
+     * what it may no longer do is leave a long K unreduced by saying nothing.
+     */
+    if (0 != crt && 2 > ozgroups) {
+      const int window = ozaki_crt_window(use_bf16, use_sym);
+      if (maxk > window) {
+        ozgroups = window / bk_pre;
+        if (0 != verbosity) {
+          fprintf(stderr, "INFO OZAKI: K=%d exceeds the %s window of %d, kgroups=%d\n",
+            maxk, use_sym ? "symmetric" : "unsigned", window, ozgroups);
+        }
+      }
+    }
     {
       const char *const env_hier = getenv("OZAKI_HIER");
       hier = (NULL != env_hier) ? (0 != atoi(env_hier) ? 1 : 0) : (0 != crt ? 1 : 0);
@@ -961,7 +1012,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       biggrf = (0 != devinfo->biggrf);
     }
     else {
-      biggrf = (0 != devinfo->intel && 0 != gpu && (0 == hier || 0 != sch1_only));
+      biggrf = (0 != devinfo->intel && 0 != gpu && (0 == hier || 0 != scheme1_only));
     }
     LIBXS_SNPRINTF(build_options, sizeof(build_options), "-cl-fast-relaxed-math -cl-denorms-are-zero%s",
       (0 != biggrf && 0 != devinfo->intel && 0 == devinfo->biggrf) ? " -cl-intel-256-GRF-per-thread" : "");
@@ -1164,10 +1215,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * without knowing what it costs: it forfeits the unfused epilogue, and that
        * epilogue is worth more than the grouping ever was. Measured on PVC at
        * n=2048, fp64: 2.99 ms against 6.45 with OZAKI_GROUPS=4, and the gap widens
-       * with K (18.7 vs 45.0 ms at K=16384) rather than closing.
+       * with K (18.7 vs 45.0 ms at K=16384) rather than closing. It is worth the
+       * warning even when derived above, because a declared K is the one input that
+       * turns it on without anybody asking for it.
        */
       if (0 != unfuse_req && 1 < ozgroups && 0 != crt && 0 != verbosity) {
-        fprintf(stderr, "WARN OZAKI: OZAKI_GROUPS=%d disables the unfused epilogue - expect ~2x\n", ozgroups);
+        fprintf(stderr, "WARN OZAKI: kgroups=%d disables the unfused epilogue - expect ~2x\n", ozgroups);
       }
     }
     { const char *const env_fraccrt = getenv("OZAKI_FRACCRT");
