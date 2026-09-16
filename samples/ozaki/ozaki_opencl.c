@@ -13,6 +13,7 @@
 /* Embedded kernel source (generated at build time via tool_opencl.sh) */
 #include "ozaki_kernels.h"
 
+
 #if !defined(OPENCL_KERNELS_SOURCE_OZAKI1)
 # error "OpenCL kernel source not found (ozaki_kernels.h must define OPENCL_KERNELS_SOURCE_OZAKI1)"
 #endif
@@ -85,6 +86,7 @@
 static const uint16_t ozaki_u8_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
 /* floor(log2(prod of the first p moduli)), indexed p-1. */
 static const uint32_t ozaki_u8_cumbits[] = {7, 15, 22, 30, 38, 46, 54, 61, 69, 77, 84, 92, 100, 107, 115, 122, 130, 138, 146, 153};
+
 
 static void ozaki_print_opt(FILE* stream, const char* name, int val)
 {
@@ -1173,37 +1175,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       env = getenv("OZAKI_TN");
       if (NULL != env) tn = atoi(env);
     }
-    /**
-     * Reconstruction choice, settled here rather than next to the CRT build below
-     * because warp-group MMA requires the hierarchical variant and its geometry has
-     * to be decided before the work-group clamp. Fractional CRT: mode 1 replaces
-     * the whole reconstruction with a flat fractional sum (needs raw per-modulus
-     * residues, so the flat path; opt-in due to a magnitude domain bound). Mode 2
-     * applies fractional reconstruction only per hierarchical group (each group
-     * product is below 2^53, so leaf reconstruction is exact for all group values)
-     * and keeps the exact hierarchical level-2 combine, so it is exact everywhere.
-     * Mode 2 is the default because it is exact over the whole CRT range like
-     * Garner, keeps the same group-at-a-time storage (and hence occupancy), and is
-     * faster; OZAKI_FRACCRT=0 selects Garner.
-     *
-     * Except under NV MMA, where the ranking inverts: the fractional reconstruction
-     * spends fp64 registers per accumulator, and the MMA path holds twice as many
-     * accumulators per thread (crt_rtn=8 below), so Garner's integer epilogue wins
-     * - measured n=4096 20.9 vs 24.6 ms (+18%), K=1024 8.3 vs 11.2 (+35%), and
-     * still +4% at n=12288 where the kernel is loop-bound. Same result to the last
-     * bit either way.
-     */
-    /**
-     * The same inversion happens for a second, device-independent reason, which is
-     * why the unfused epilogue has to be decided before this and not after: once
-     * reconstruction is a separate pass, only HIER_NGROUPS group values are live
-     * and the fp64 registers the fractional variant spends buy nothing, while its
-     * double-double arithmetic still has to be paid per output. Measured on PVC at
-     * n=4096, reconstruction alone is 2.09 ms with Garner against 3.50 fractional
-     * for an identical GEMM, i.e. the Intel default inverts with the epilogue:
-     * fused prefers fractional (26.5 vs 31.8 ms) and unfused prefers Garner
-     * (22.0 vs 23.4). Same result to the last bit either way.
-     */
     { const char *const env_unfuse = getenv("OZAKI_UNFUSE");
       const int unfuse_dfl = (0 != gpu) ? 1 : 0;
       const int unfuse_req = (NULL != env_unfuse) ? (0 != atoi(env_unfuse)) : unfuse_dfl;
@@ -1223,6 +1194,36 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         fprintf(stderr, "WARN OZAKI: kgroups=%d disables the unfused epilogue - expect ~2x\n", ozgroups);
       }
     }
+    /**
+     * Reconstruction choice, settled here rather than next to the CRT build below
+     * because warp-group MMA requires the hierarchical variant and its geometry has
+     * to be decided before the work-group clamp. Fractional CRT: mode 1 replaces
+     * the whole reconstruction with a flat fractional sum (needs raw per-modulus
+     * residues, so the flat path; opt-in due to a magnitude domain bound). Mode 2
+     * applies fractional reconstruction only per hierarchical group (each group
+     * product is below 2^53, so leaf reconstruction is exact for all group values)
+     * and keeps the exact hierarchical level-2 combine, so it is exact everywhere.
+     * Mode 2 is the default because it is exact over the whole CRT range like
+     * Garner, keeps the same group-at-a-time storage (and hence occupancy), and is
+     * faster; OZAKI_FRACCRT=0 selects Garner.
+     *
+     * Except under NV MMA, where the ranking inverts: the fractional reconstruction
+     * spends fp64 registers per accumulator, and the MMA path holds twice as many
+     * accumulators per thread (crt_rtn=8 below), so Garner's integer epilogue wins
+     * - measured n=4096 20.9 vs 24.6 ms (+18%), K=1024 8.3 vs 11.2 (+35%), and
+     * still +4% at n=12288 where the kernel is loop-bound. Same result to the last
+     * bit either way.
+     *
+     * The same inversion happens for a second, device-independent reason, which is
+     * why the unfused epilogue has to be decided before this and not after: once
+     * reconstruction is a separate pass, only HIER_NGROUPS group values are live
+     * and the fp64 registers the fractional variant spends buy nothing, while its
+     * double-double arithmetic still has to be paid per output. Measured on PVC at
+     * n=4096, reconstruction alone is 2.09 ms with Garner against 3.50 fractional
+     * for an identical GEMM, i.e. the Intel default inverts with the epilogue:
+     * fused prefers fractional (26.5 vs 31.8 ms) and unfused prefers Garner
+     * (22.0 vs 23.4). Same result to the last bit either way.
+     */
     { const char *const env_fraccrt = getenv("OZAKI_FRACCRT");
       const int fraccrt_dfl = (0 != unfuse_pre || (0 != ctx->nv_mma && 0 != gpu)) ? 0 : 2;
       const int fraccrt_req = (NULL != env_fraccrt) ? atoi(env_fraccrt) : fraccrt_dfl;
@@ -1353,36 +1354,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * same tile; ozaki_tile_select() re-checks the bound with the actual
        * register tiling, so this clamp only establishes the Scheme-1 maximum.
        */
-      /**
-       * Halving must not break sub-tile granularity: NTM/NTN are integer
-       * divisions, so a tm that is a multiple of xmx_m*rtm before the shift
-       * need not be one after (MMA, rtm=2: 160 -> 80, NTM truncates 80/32 to
-       * 2 and 16 rows of the tile are never covered - silently missing part
-       * of C). Round the halved extent down to the granularity and stop when
-       * it can no longer shrink.
-       */
-      /**
-       * Size the ceiling for the coarsest register tiling Scheme 1 may dispatch,
-       * not for its base: a promoted pair needs fewer sub-tiles over the same
-       * extent, so a ceiling derived from the base caps the promoted call at a
-       * tile shaped for the finer pair. On PVC that is the whole regression -
-       * fp64 n=4096 measures 46.3 ms at 128x256 against 49.0 at the 128x128 the
-       * base-sized ceiling allows. Widening it is safe because ozaki_tile_select
-       * re-checks the work-group bound per call with the tiling actually in use.
-       * Only the symmetrized loop, whose base moved, is sized this way; the
-       * square loop keeps its ceiling until the same sweep has been run for it.
-       */
-      /**
-       * The warp-group path has its own geometry and must be sized on it: it
-       * dispatches RTM=1 and RTN=BN/8, so NTN is 1 by construction and the
-       * work-group is SG * BM/XMX_M sub-groups, never a function of BN. Sized from
-       * the base pair instead, a 256x256 request estimates SG*8*16 = 4096 against a
-       * 1024 bound and BM is clamped back to 128 - so the 256-row tile was never
-       * compiled for any BN >= 128, and the request then cost twice over, because
-       * ozaki_wgmma_depth reads tm < tm_req and halves the staging depth. The
-       * default (BM=128) is unaffected either way; only the wider request was lost.
-       */
       if (0 != wgmma) {
+        /**
+         * The warp-group path has its own geometry and must be sized on it: it
+         * dispatches RTM=1 and RTN=BN/8, so NTN is 1 by construction and the
+         * work-group is SG * BM/XMX_M sub-groups, never a function of BN. Sized from
+         * the base pair instead, a 256x256 request estimates SG*8*16 = 4096 against a
+         * 1024 bound and BM is clamped back to 128 - so the 256-row tile was never
+         * compiled for any BN >= 128, and the request then cost twice over, because
+         * ozaki_wgmma_depth reads tm < tm_req and halves the staging depth. The
+         * default (BM=128) is unaffected either way; only the wider request was lost.
+         */
         while ((size_t)sg * (size_t)(tm / xmx_m) > max_wgs && tm > xmx_m) tm >>= 1;
         /* Rows go first: BN is what the accumulators pay for and what B's reuse buys. */
         while (OZAKI_WGMMA_ACCMAX < tm * tn && tm > xmx_m) tm >>= 1;
@@ -1390,10 +1372,30 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          * like a narrowed call - that halved the staging depth as well (KU/2). */
         ctx->tm_req = tm;
       }
-      else { const ozaki_tile_t rmax = ozaki_rtile_grow(rtm, rtn);
+      else {
+        /**
+         * Size the ceiling for the coarsest register tiling Scheme 1 may dispatch,
+         * not for its base: a promoted pair needs fewer sub-tiles over the same
+         * extent, so a ceiling derived from the base caps the promoted call at a
+         * tile shaped for the finer pair. On PVC that is the whole regression -
+         * fp64 n=4096 measures 46.3 ms at 128x256 against 49.0 at the 128x128 the
+         * base-sized ceiling allows. Widening it is safe because ozaki_tile_select
+         * re-checks the work-group bound per call with the tiling actually in use.
+         * Only the symmetrized loop, whose base moved, is sized this way; the
+         * square loop keeps its ceiling until the same sweep has been run for it.
+         */
+        const ozaki_tile_t rmax = ozaki_rtile_grow(rtm, rtn);
         const int wide = (0 != (ozflags & OZAKI_SYMMETRIZE) && 0 == rtm_req && 0 == rtn_req
           && 1 == ctx->sb && 0 != devinfo->intel && 0 != gpu && 0 == ctx->nv_mma);
         const int gm = xmx_m * (0 != wide ? rmax.m : rtm), gn = xmx_n * (0 != wide ? rmax.n : rtn);
+        /**
+         * Halving must not break sub-tile granularity: NTM/NTN are integer
+         * divisions, so a tm that is a multiple of xmx_m*rtm before the shift
+         * need not be one after (MMA, rtm=2: 160 -> 80, NTM truncates 80/32 to
+         * 2 and 16 rows of the tile are never covered - silently missing part
+         * of C). Round the halved extent down to the granularity and stop when
+         * it can no longer shrink.
+         */
         while ((size_t)sg * ((size_t)(tm / gm) * (tn / gn)) > max_wgs && (tm > gm || tn > gn)) {
           if (tm >= tn && tm > gm) tm = (tm / 2 / gm) * gm;
           else if (tn > gn) tn = (tn / 2 / gn) * gn;
@@ -1546,13 +1548,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * must not inherit the halved RTM that blocking imposes on Scheme 1.
        * rtm_crt_base is the row tiling Scheme 1 would have used unblocked.
        */
+      const int rtm_crt_base = (1 < ctx->sb && 0 == rtm_req) ? rtm * 2 : rtm;
       /**
        * Warp-group MMA: RTM=1 and RTN = BN/8, because a warp group covers 64 rows
        * and the whole tile width in one instruction. Only the default configuration
        * is supported - hierarchical CRT, no K-grouping, PB=1 - which the gate
        * above enforces and the kernel restates with #error.
        */
-      const int rtm_crt_base = (1 < ctx->sb && 0 == rtm_req) ? rtm * 2 : rtm;
       const int crt_rtm = (0 != wgmma)
                             ? 1
                             : ((0 != crt_hier && 0 != biggrf && 0 == ctx->hier) ? LIBXS_MAX(rtm_crt_base / 2, 1)
@@ -1907,7 +1909,6 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       fprintf(stderr, "ERROR OZAKI: kernel build failed\n");
     }
   } /* end if (EXIT_SUCCESS == result) for kernel initialization */
-
 
   /**
    * OZAKI_CACHE: preprocessing cache bitmask (1=A, 2=B, -1 or 3=both).

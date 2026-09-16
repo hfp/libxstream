@@ -12,6 +12,7 @@
 
 #include "libxstream_macros.h"
 
+
 /** types */
 typedef int libxstream_bool_t;
 typedef struct libxstream_stream_t libxstream_stream_t;
@@ -24,6 +25,14 @@ typedef struct libxstream_init_config_t {
   int verbosity;  /* -1: env/default, >=0: explicit level */
   int subbuffer;  /* -1: env/default (off), 0: disable, 1: enable; no effect if USM is active */
 } libxstream_init_config_t;
+
+typedef enum libxstream_stream_flags_t {
+  LIBXSTREAM_STREAM_DEFAULT = 0,
+  LIBXSTREAM_STREAM_LOW = 1,
+  LIBXSTREAM_STREAM_HIGH = 2,
+  LIBXSTREAM_STREAM_PROFILING = 4
+} libxstream_stream_flags_t;
+
 
 /** Fill config with sentinel values (all -1: no opinion, use env/defaults). */
 LIBXSTREAM_API void libxstream_init_config_default(libxstream_init_config_t* cfg);
@@ -39,12 +48,6 @@ LIBXSTREAM_API int libxstream_device_set_active(int device_id);
 LIBXSTREAM_API int libxstream_device_sync(void);
 
 /** streams */
-typedef enum libxstream_stream_flags_t {
-  LIBXSTREAM_STREAM_DEFAULT = 0,
-  LIBXSTREAM_STREAM_LOW = 1,
-  LIBXSTREAM_STREAM_HIGH = 2,
-  LIBXSTREAM_STREAM_PROFILING = 4
-} libxstream_stream_flags_t;
 LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p,
   const char* LIBXS_ARGDEF(name, NULL), int LIBXS_ARGDEF(flags, LIBXSTREAM_STREAM_DEFAULT));
 LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream);

@@ -941,7 +941,6 @@
     } while (0)
 # endif
 
-
 # if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
 /**
  * B blocked: 16 consecutive K-values of a column are contiguous, so one work-item
@@ -1385,6 +1384,125 @@
     } while (0)
 #endif
 
+/* Fractional part of the sum over COUNT moduli from LO with residues R, as the double-double (FRH, FRL). */
+#define OZAKI_FRAC_SUM(R, LO, COUNT, FRH, FRL) \
+  do { \
+    double sl_[OZ2G_FRAC_L], fh_ = 0.0, fl_ = 0.0, e_, s_; \
+    SINT li_, l_; \
+    UNROLL_FORCE(OZ2G_FRAC_L) for (l_ = 0; l_ < OZ2G_FRAC_L; ++l_) sl_[l_] = 0.0; \
+    UNROLL_FORCE(COUNT) for (li_ = 0; li_ < (COUNT); ++li_) { \
+      const int p_ = (LO) + (int)li_; \
+      if (p_ < NMODULI) { \
+        const uint a_ = oz2g_mod((R)[li_] * oz2g_frac_k[p_], p_); \
+        UNROLL_FORCE(OZ2G_FRAC_L) for (l_ = 0; l_ < OZ2G_FRAC_L; ++l_) { \
+          sl_[l_] += (double)(a_ * (uint)oz2g_frac_climb[p_][l_]); \
+        } \
+      } \
+    } \
+    UNROLL_FORCE(OZ2G_FRAC_L) for (l_ = 0; l_ < OZ2G_FRAC_L; ++l_) { \
+      const double term_ = sl_[l_] * EXP2I(-8 * (l_ + 1)); \
+      s_ = oz2g_two_sum(fh_, term_, &e_); \
+      fh_ = oz2g_two_sum(s_, e_ + fl_, &e_); \
+      fl_ = e_; \
+    } \
+    s_ = floor(fh_); \
+    (FRH) = oz2g_two_sum(fh_, -s_, &e_); \
+    (FRL) = e_ + fl_; \
+    s_ = oz2g_two_sum((FRH), (FRL), &e_); \
+    (FRH) = s_; \
+    (FRL) = e_; \
+  } while (0)
+
+/**
+ * Garner chain: mixed-radix digits V from N residues R at index offset OFF. The
+ * flat, leaf and level-2 chains differ only in the modulus table, the reduction
+ * of a digit to the current modulus and the product reduction, which the hooks
+ * supply (OZ2G_FLAT_*, OZ2G_L2_*).
+ */
+#define OZAKI_GARNER_CHAIN(R, V, N, OFF, MODULUS, REDUCE_DIGIT, REDUCE_PROD, INV) \
+  do { \
+    SINT i_, j_; \
+    for (i_ = 0; i_ < (N); ++i_) { \
+      uint u_ = (R)[i_]; \
+      const uint m_ = MODULUS((OFF) + i_); \
+      for (j_ = 0; j_ < i_; ++j_) { \
+        uint vj_ = (V)[j_]; \
+        REDUCE_DIGIT(vj_, m_, (OFF) + i_); \
+        { \
+          const uint diff_ = (u_ >= vj_) ? (u_ - vj_) : (m_ + u_ - vj_); \
+          u_ = REDUCE_PROD(diff_, INV((OFF) + j_, (OFF) + i_), (OFF) + i_); \
+        } \
+      } \
+      (V)[i_] = u_; \
+    } \
+  } while (0)
+
+/**
+ * Sign from the top digit, then two's complement with the +1 carry propagated in
+ * integer space: added after the float conversion it would be inexact beyond
+ * 2^MANT_BITS, so Horner already yields |x|.
+ */
+#define OZAKI_GARNER_SIGN(V, N, MODULUS, IS_NEG) \
+  do { \
+    SINT i_; \
+    (IS_NEG) = ((V)[(N) - 1] >= ((uint)MODULUS((N) - 1) + 1u) / 2u) ? 1 : 0; \
+    if (0 != (IS_NEG)) { \
+      UNROLL_FORCE(N) for (i_ = 0; i_ < (N); ++i_) \
+      { \
+        (V)[i_] = (uint)MODULUS(i_) - 1u - (V)[i_]; \
+      } \
+      for (i_ = 0; i_ < (N); ++i_) { \
+        if ((V)[i_] + 1u < (uint)MODULUS(i_)) { \
+          (V)[i_] += 1u; \
+          break; \
+        } \
+        (V)[i_] = 0; \
+      } \
+    } \
+  } while (0)
+
+/* Horner over N mixed-radix digits D, GROUP moduli at a time in ulong, into the real_t RESULT. */
+#define OZAKI_HORNER(D, N, GROUP, MODULUS, RESULT) \
+  do { \
+    const int ngroups_ = ((N) + (GROUP) - 1) / (GROUP); \
+    int g_, i_; \
+    { \
+      const int lo_ = (ngroups_ - 1) * (GROUP); \
+      ulong r_ = (ulong)(D)[(N) - 1]; \
+      for (i_ = (N) - 2; i_ >= lo_; --i_) r_ = r_ * (ulong)MODULUS(i_) + (ulong)(D)[i_]; \
+      (RESULT) = (real_t)r_; \
+    } \
+    for (g_ = ngroups_ - 2; g_ >= 0; --g_) { \
+      const int lo_ = g_ * (GROUP), hi_ = lo_ + (GROUP) - 1; \
+      ulong gval_ = (ulong)(D)[hi_], gprod_ = 1; \
+      for (i_ = lo_; i_ <= hi_; ++i_) gprod_ *= (ulong)MODULUS(i_); \
+      for (i_ = hi_ - 1; i_ >= lo_; --i_) gval_ = gval_ * (ulong)MODULUS(i_) + (ulong)(D)[i_]; \
+      (RESULT) = (RESULT) * (real_t)gprod_ + (real_t)gval_; \
+    } \
+  } while (0)
+
+#define OZ2G_FLAT_MOD(I) oz2g_moduli[(I)]
+#define OZ2G_FLAT_DIGIT(V, M, I) \
+  do { \
+    if ((V) >= (M)) (V) -= (M); \
+    if ((V) >= (M)) (V) -= (M); \
+  } while (0)
+#define OZ2G_FLAT_PROD(D, INV, I) oz2g_mod((D) * (INV), (I))
+#define OZ2G_FLAT_INV(J, I) oz2g_garner_inv[(J)][(I)]
+
+#define OZ2G_L2_MOD(I) oz2g_hier_gprod[(I)]
+#define OZ2G_L2_DIGIT(V, M, I) \
+  do { \
+    if ((V) >= (M)) (V) = oz2g_mod_l2((ulong)(V), (I)); \
+  } while (0)
+#define OZ2G_L2_PROD(D, INV, I) oz2g_mod_l2((ulong)(D) * (ulong)(INV), (I))
+#define OZ2G_L2_INV(J, I) oz2g_hier_l2inv[(J) * HIER_NGROUPS + (I)]
+
+/* The mask reduces by the power-of-two modulus at POW2_PIDX, 256 = 2^8. */
+#define OZ2G_BARRETT_SHIFT 32
+#define OZ2G_POW2_MASK 0xFFu
+#define OZ2G_POW2_MASK64 0xFFul
+
 
 /**
  * CRT moduli, Barrett constants, pow32_mod, and Garner inverse table.
@@ -1401,8 +1519,6 @@
  * The host keeps its own copy and derives the truncation, POW2_PIDX and the
  * reconstruction tables from it, so the two must agree and nothing checks that they do.
  */
-
-
 constant ushort oz2g_moduli[] = {211, 199, 163, 256, 251, 223, 197, 167, 243, 227, 193, 169, 241, 229, 191, 173, 239, 233, 181, 179};
 
 constant uint oz2g_barrett_inv[] = {20355295, 21582750, 26349492, 16777216, 17111423, 19259943, 21801864, 25718367, 17674762, 18920560,
@@ -1433,14 +1549,10 @@ constant uint oz2g_garner_inv[][20] = {
   /* m19=179 */ {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
 
 
-#define OZ2G_BARRETT_SHIFT 32
-
 /**
  * Barrett modular reduction: x mod oz2g_moduli[pidx]. POW2_PIDX is the power-of-two
  * modulus, 256 = 2^8, which reduces by a bitmask instead.
  */
-#define OZ2G_POW2_MASK 0xFFu
-#define OZ2G_POW2_MASK64 0xFFul
 inline uint oz2g_mod(uint x, SINT pidx)
 {
   uint result;
@@ -1527,35 +1639,6 @@ inline double oz2g_two_prod(double a, double b, double* err)
 }
 
 
-/* Fractional part of the sum over COUNT moduli from LO with residues R, as the double-double (FRH, FRL). */
-#define OZAKI_FRAC_SUM(R, LO, COUNT, FRH, FRL) \
-  do { \
-    double sl_[OZ2G_FRAC_L], fh_ = 0.0, fl_ = 0.0, e_, s_; \
-    SINT li_, l_; \
-    UNROLL_FORCE(OZ2G_FRAC_L) for (l_ = 0; l_ < OZ2G_FRAC_L; ++l_) sl_[l_] = 0.0; \
-    UNROLL_FORCE(COUNT) for (li_ = 0; li_ < (COUNT); ++li_) { \
-      const int p_ = (LO) + (int)li_; \
-      if (p_ < NMODULI) { \
-        const uint a_ = oz2g_mod((R)[li_] * oz2g_frac_k[p_], p_); \
-        UNROLL_FORCE(OZ2G_FRAC_L) for (l_ = 0; l_ < OZ2G_FRAC_L; ++l_) { \
-          sl_[l_] += (double)(a_ * (uint)oz2g_frac_climb[p_][l_]); \
-        } \
-      } \
-    } \
-    UNROLL_FORCE(OZ2G_FRAC_L) for (l_ = 0; l_ < OZ2G_FRAC_L; ++l_) { \
-      const double term_ = sl_[l_] * EXP2I(-8 * (l_ + 1)); \
-      s_ = oz2g_two_sum(fh_, term_, &e_); \
-      fh_ = oz2g_two_sum(s_, e_ + fl_, &e_); \
-      fl_ = e_; \
-    } \
-    s_ = floor(fh_); \
-    (FRH) = oz2g_two_sum(fh_, -s_, &e_); \
-    (FRL) = e_ + fl_; \
-    s_ = oz2g_two_sum((FRH), (FRL), &e_); \
-    (FRH) = s_; \
-    (FRL) = e_; \
-  } while (0)
-
 # if 1 == OZAKI_FRACCRT
 inline void oz2g_frac_accumulate(const uint* restrict r, real_t alpha, int base_sh, real_t* cval)
 {
@@ -1592,80 +1675,6 @@ inline uint oz2g_frac_l1(const uint* restrict group_residues, int g)
 # endif
 #endif /* OZAKI_FRACCRT */
 
-
-/**
- * Garner chain: mixed-radix digits V from N residues R at index offset OFF. The
- * flat, leaf and level-2 chains differ only in the modulus table, the reduction
- * of a digit to the current modulus and the product reduction, which the hooks
- * supply (OZ2G_FLAT_*, OZ2G_L2_*).
- */
-#define OZAKI_GARNER_CHAIN(R, V, N, OFF, MODULUS, REDUCE_DIGIT, REDUCE_PROD, INV) \
-  do { \
-    SINT i_, j_; \
-    for (i_ = 0; i_ < (N); ++i_) { \
-      uint u_ = (R)[i_]; \
-      const uint m_ = MODULUS((OFF) + i_); \
-      for (j_ = 0; j_ < i_; ++j_) { \
-        uint vj_ = (V)[j_]; \
-        REDUCE_DIGIT(vj_, m_, (OFF) + i_); \
-        { \
-          const uint diff_ = (u_ >= vj_) ? (u_ - vj_) : (m_ + u_ - vj_); \
-          u_ = REDUCE_PROD(diff_, INV((OFF) + j_, (OFF) + i_), (OFF) + i_); \
-        } \
-      } \
-      (V)[i_] = u_; \
-    } \
-  } while (0)
-/**
- * Sign from the top digit, then two's complement with the +1 carry propagated in
- * integer space: added after the float conversion it would be inexact beyond
- * 2^MANT_BITS, so Horner already yields |x|.
- */
-#define OZAKI_GARNER_SIGN(V, N, MODULUS, IS_NEG) \
-  do { \
-    SINT i_; \
-    (IS_NEG) = ((V)[(N) - 1] >= ((uint)MODULUS((N) - 1) + 1u) / 2u) ? 1 : 0; \
-    if (0 != (IS_NEG)) { \
-      UNROLL_FORCE(N) for (i_ = 0; i_ < (N); ++i_) \
-      { \
-        (V)[i_] = (uint)MODULUS(i_) - 1u - (V)[i_]; \
-      } \
-      for (i_ = 0; i_ < (N); ++i_) { \
-        if ((V)[i_] + 1u < (uint)MODULUS(i_)) { \
-          (V)[i_] += 1u; \
-          break; \
-        } \
-        (V)[i_] = 0; \
-      } \
-    } \
-  } while (0)
-/* Horner over N mixed-radix digits D, GROUP moduli at a time in ulong, into the real_t RESULT. */
-#define OZAKI_HORNER(D, N, GROUP, MODULUS, RESULT) \
-  do { \
-    const int ngroups_ = ((N) + (GROUP) - 1) / (GROUP); \
-    int g_, i_; \
-    { \
-      const int lo_ = (ngroups_ - 1) * (GROUP); \
-      ulong r_ = (ulong)(D)[(N) - 1]; \
-      for (i_ = (N) - 2; i_ >= lo_; --i_) r_ = r_ * (ulong)MODULUS(i_) + (ulong)(D)[i_]; \
-      (RESULT) = (real_t)r_; \
-    } \
-    for (g_ = ngroups_ - 2; g_ >= 0; --g_) { \
-      const int lo_ = g_ * (GROUP), hi_ = lo_ + (GROUP) - 1; \
-      ulong gval_ = (ulong)(D)[hi_], gprod_ = 1; \
-      for (i_ = lo_; i_ <= hi_; ++i_) gprod_ *= (ulong)MODULUS(i_); \
-      for (i_ = hi_ - 1; i_ >= lo_; --i_) gval_ = gval_ * (ulong)MODULUS(i_) + (ulong)(D)[i_]; \
-      (RESULT) = (RESULT) * (real_t)gprod_ + (real_t)gval_; \
-    } \
-  } while (0)
-#define OZ2G_FLAT_MOD(I) oz2g_moduli[(I)]
-#define OZ2G_FLAT_DIGIT(V, M, I) \
-  do { \
-    if ((V) >= (M)) (V) -= (M); \
-    if ((V) >= (M)) (V) -= (M); \
-  } while (0)
-#define OZ2G_FLAT_PROD(D, INV, I) oz2g_mod((D) * (INV), (I))
-#define OZ2G_FLAT_INV(J, I) oz2g_garner_inv[(J)][(I)]
 
 /* Scale the reconstructed |x| by alpha * 2^base_sh, sign it and add it to C. */
 inline void oz2g_accumulate(real_t result, int is_negative, real_t alpha, int base_sh, real_t* cval)
@@ -1762,13 +1771,6 @@ inline uint oz2g_hier_l1_garner(const uint* restrict group_residues, int g)
   return (uint)hval;
 }
 
-#define OZ2G_L2_MOD(I) oz2g_hier_gprod[(I)]
-#define OZ2G_L2_DIGIT(V, M, I) \
-  do { \
-    if ((V) >= (M)) (V) = oz2g_mod_l2((ulong)(V), (I)); \
-  } while (0)
-#define OZ2G_L2_PROD(D, INV, I) oz2g_mod_l2((ulong)(D) * (ulong)(INV), (I))
-#define OZ2G_L2_INV(J, I) oz2g_hier_l2inv[(J) * HIER_NGROUPS + (I)]
 
 #if !defined(OZAKI_HIER_L2) || (0 == OZAKI_HIER_L2)
 /* Level 2: Garner over the group values, Horner over its digits two groups at a time. */
@@ -1811,7 +1813,6 @@ inline void oz2g_hier_tree_accumulate(const uint* restrict gval, real_t alpha, i
   }
 }
 #endif /* OZAKI_HIER_L2 == 1 */
-
 
 #endif /* OZAKI_HIER */
 
