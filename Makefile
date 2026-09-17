@@ -572,11 +572,12 @@ endif
 ALIAS_INCDIR := $(subst $$$$,$(if $(findstring $$$$/,$$$$$(PINCDIR)),,\$${prefix}/),$(subst $$$$$(ALIAS_PREFIX),\$${prefix},$$$$$(PINCDIR)))
 ALIAS_LIBDIR := $(subst $$$$,$(if $(findstring $$$$/,$$$$$(POUTDIR)),,\$${prefix}/),$(subst $$$$$(ALIAS_PREFIX),\$${prefix},$$$$$(POUTDIR)))
 
-# Consumers linking statically must resolve the OpenMP runtime themselves.
+# Consumers linking statically must resolve the OpenCL and OpenMP runtimes.
 # OMP is already resolved to 0 here if no OpenMP flag was detected. Drop any
 # include path OMPFLAG_FORCE carries: it belongs to compiling, not linking.
+ALIAS_PRIVLIBS := $(shell pkg-config --libs OpenCL)
 ifneq (,$(filter-out 0,$(OMP)))
-  ALIAS_PRIVLIBS := $(filter-out -I%,$(OMPFLAG_FORCE))
+	ALIAS_PRIVLIBS += $(filter-out -I%,$(OMPFLAG_FORCE))
 endif
 
 PCTEMPLATE := $(ROOTSCR)/$(PROJECT).pc.in
@@ -588,6 +589,7 @@ PCSUBST_BASE = $(SED) \
   -e 's|@PREFIX@|$(ALIAS_PREFIX)|g' \
   -e 's|@INCLUDEDIR@|$(ALIAS_INCDIR)|g' \
   -e 's|@LIBDIR@|$(ALIAS_LIBDIR)|g' \
+	$(if $(LIBXS),-e 's|@PC_CFLAGS@|-D__LIBXS|g',-e 's|@PC_CFLAGS@||g') \
   $(if $(ALIAS_PRIVLIBS),-e 's|@LIBS_PRIVATE@|Libs.private: $(ALIAS_PRIVLIBS)|g', \
     -e 's|@LIBS_PRIVATE@||g')
 
@@ -595,7 +597,7 @@ ifeq (,$(filter-out 0 2,$(BUILD)))
 $(PPKGDIR)/$(PROJECT)-static.pc: $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(PPKGDIR)/.make $(PCTEMPLATE)
 	@$(PCSUBST_BASE) \
 	  -e 's|@LIBS@|$${libdir}/$(PROJECT).$(SLIBEXT)|g' \
-    $(if $(LIBXS),-e 's|@REQUIRES_PRIVATE@|Requires.private: libxs-static|g') <$(PCTEMPLATE) >$@
+    $(if $(LIBXS),-e 's|@REQUIRES@|Requires: libxs-static|g',-e 's|@REQUIRES@||g') <$(PCTEMPLATE) >$@
   ifeq (,$(filter-out 0 2,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc
   endif
@@ -607,7 +609,7 @@ ifeq (,$(filter-out 1 2,$(BUILD)))
 $(PPKGDIR)/$(PROJECT)-shared.pc: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(PPKGDIR)/.make $(PCTEMPLATE)
 	@$(PCSUBST_BASE) \
 	  -e 's|@LIBS@|-L$${libdir} -l$(patsubst lib%,%,$(PROJECT))|g' \
-    $(if $(LIBXS),-e 's|@REQUIRES_PRIVATE@|Requires.private: libxs|g') <$(PCTEMPLATE) >$@
+    $(if $(LIBXS),-e 's|@REQUIRES@|Requires: libxs|g',-e 's|@REQUIRES@||g') <$(PCTEMPLATE) >$@
   ifeq (,$(filter-out 1,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc
   endif
@@ -615,7 +617,12 @@ else
 .PHONY: $(PPKGDIR)/$(PROJECT)-shared.pc
 endif
 
-$(PCMKDIR)/$(PROJECT)Config.cmake: $(ROOTSCR)/$(PROJECT)Config.cmake $(PCMKDIR)/.make
+.PHONY: FORCE
+FORCE:
+
+$(PPKGDIR)/$(PROJECT)-static.pc: FORCE
+$(PPKGDIR)/$(PROJECT)-shared.pc: FORCE
+$(PCMKDIR)/$(PROJECT)Config.cmake: $(ROOTSCR)/$(PROJECT)Config.cmake $(PCMKDIR)/.make FORCE
 	@$(SED) -e 's|@LIBXSTREAM_OMP@|$(if $(filter-out 0,$(OMP)),ON,OFF)|g' <$< >$@
 	@$(SED) -e 's|@VERSION@|$(VERSION_STRING)|g' \
 		<$(ROOTSCR)/$(PROJECT)ConfigVersion.cmake.in >$(PCMKDIR)/$(PROJECT)ConfigVersion.cmake

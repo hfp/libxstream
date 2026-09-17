@@ -64,6 +64,10 @@ jobs:
       if: matrix.libxs == 'prebuilt'
       run: cd ${LIBXSROOT} && make -j $(nproc) ${{ matrix.flags }}
 
+    - name: Install LIBXS
+      if: matrix.libxs == 'prebuilt' && matrix.sanitize == ''
+      run: cd ${LIBXSROOT} && make -j $(nproc) ${{ matrix.flags }} install PREFIX=$HOME/libxs-install
+
     - name: Build LIBXSTREAM
       if: matrix.libxs != 'header-only'
       run: make -j $(nproc) ${{ matrix.flags }}
@@ -92,6 +96,48 @@ jobs:
         ls $HOME/libxstream-install/lib/libxstream.* >/dev/null
         test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
         test -f $HOME/libxstream-install/share/libxstream/scripts/tool_opencl.sh
+
+    - name: Verify GNU Make install with CMake consumer
+      if: matrix.libxs != 'header-only' && matrix.sanitize == ''
+      run: |
+        mkdir -p /tmp/test_find
+        cat > /tmp/test_find/CMakeLists.txt <<'EOF'
+        cmake_minimum_required(VERSION 3.13)
+        project(test_find C)
+        find_package(libxstream CONFIG REQUIRED)
+        add_executable(test_find test_find.c)
+        target_link_libraries(test_find libxstream::libxstream)
+        EOF
+        cat > /tmp/test_find/test_find.c <<'EOF'
+        #include <libxstream/libxstream.h>
+        int main(void) { return libxstream_init() || libxstream_finalize(); }
+        EOF
+        cmake -B /tmp/test_find/build -S /tmp/test_find \
+          -DCMAKE_PREFIX_PATH="$HOME/libxstream-install;$HOME/libxs-install"
+        cmake --build /tmp/test_find/build
+        LD_LIBRARY_PATH=$HOME/libxstream-install/lib:$HOME/libxs-install/lib \
+          /tmp/test_find/build/test_find
+
+    - name: Verify GNU Make install with GNU Make consumer
+      if: matrix.libxs != 'header-only' && matrix.sanitize == ''
+      run: |
+        mkdir -p /tmp/test_make
+        cat > /tmp/test_make/Makefile <<'EOF'
+        CC ?= cc
+        .RECIPEPREFIX := >
+        CPPFLAGS += $(shell pkg-config --cflags libxstream)
+        LDLIBS += $(shell pkg-config --static --libs libxstream)
+        test_make: test_make.c
+        >$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
+        EOF
+        cat > /tmp/test_make/test_make.c <<'EOF'
+        #include <libxstream.h>
+        int main(void) { return libxstream_init() || libxstream_finalize(); }
+        EOF
+        PKG_CONFIG_PATH=$HOME/libxstream-install/lib/pkgconfig:$HOME/libxs-install/lib/pkgconfig \
+          make -C /tmp/test_make
+        LD_LIBRARY_PATH=$HOME/libxstream-install/lib:$HOME/libxs-install/lib \
+          /tmp/test_make/test_make
 
     - name: Out-of-tree build and test
       run: |
@@ -208,10 +254,14 @@ jobs:
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
         cd ${{ github.workspace }}/../libxs && make -j $(nproc)
 
+    - name: Install LIBXS
+      run: cd ${{ github.workspace }}/../libxs && make -j $(nproc) install PREFIX=$HOME/libxs-install
+
     - name: Configure LIBXSTREAM
       run: |
         cmake -B build \
           -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_PREFIX_PATH=$HOME/libxs-install \
           -DCMAKE_INSTALL_PREFIX=$HOME/libxstream-install \
           -DLIBXSTREAM_INSTALL_HEADER_ONLY=ON \
           -DLIBXSTREAM_OMP=ON \
@@ -242,10 +292,10 @@ jobs:
 
     - name: Verify OpenMP is recorded for consumers
       run: |
-        # libxstream.pc has Requires.private: libxs, so libxs.pc must resolve
-        # too; the LIBXS clone is built in-tree rather than installed.
+        # libxstream.pc has a public LIBXS dependency, so libxs.pc must resolve
+        # too; LIBXS is installed to the consumer-visible prefix.
         export PKG_CONFIG_PATH=$HOME/libxstream-install/lib/pkgconfig
-        export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:${{ github.workspace }}/../libxs/lib/pkgconfig
+        export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$HOME/libxs-install/lib/pkgconfig
         pkg-config --validate libxstream
         pkg-config --static --libs libxstream | grep -q -- -fopenmp
         grep -q "LIBXSTREAM_OMP ON" \
@@ -263,11 +313,33 @@ jobs:
         EOF
         cat > /tmp/test_find/test_find.c <<'EOF'
         #include <libxstream/libxstream.h>
-        int main(void) { return 0; }
+        int main(void) { return libxstream_init() || libxstream_finalize(); }
         EOF
         cmake -B /tmp/test_find/build -S /tmp/test_find \
-          -DCMAKE_PREFIX_PATH="$HOME/libxstream-install;${{ github.workspace }}/../libxs"
+          -DCMAKE_PREFIX_PATH="$HOME/libxstream-install;$HOME/libxs-install"
         cmake --build /tmp/test_find/build
+        LD_LIBRARY_PATH=$HOME/libxstream-install/lib:$HOME/libxs-install/lib \
+          /tmp/test_find/build/test_find
+
+    - name: Verify CMake install with GNU Make consumer
+      run: |
+        mkdir -p /tmp/test_make
+        cat > /tmp/test_make/Makefile <<'EOF'
+        CC ?= cc
+        .RECIPEPREFIX := >
+        CPPFLAGS += $(shell pkg-config --cflags libxstream)
+        LDLIBS += $(shell pkg-config --static --libs libxstream)
+        test_make: test_make.c
+        >$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LDLIBS)
+        EOF
+        cat > /tmp/test_make/test_make.c <<'EOF'
+        #include <libxstream/libxstream.h>
+        int main(void) { return libxstream_init() || libxstream_finalize(); }
+        EOF
+        PKG_CONFIG_PATH=$HOME/libxstream-install/lib/pkgconfig:$HOME/libxs-install/lib/pkgconfig \
+          make -C /tmp/test_make
+        LD_LIBRARY_PATH=$HOME/libxstream-install/lib:$HOME/libxs-install/lib \
+          /tmp/test_make/test_make
 
   Dispatch:
     needs: Test

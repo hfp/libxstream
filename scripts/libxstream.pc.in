@@ -7,7 +7,7 @@ prefix=@PREFIX@
 includedir=@INCLUDEDIR@
 libdir=@LIBDIR@
 
-Cflags: -I${includedir}
+Cflags: @PC_CFLAGS@ -I${includedir}
 Libs: @LIBS@
 @LIBS_PRIVATE@
-@REQUIRES_PRIVATE@
+@REQUIRES@
