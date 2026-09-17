@@ -976,16 +976,33 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      * that only a Barrett reduction inside the GEMM keeps the accumulator exact. It
      * costs about 2x because it is incompatible with the unfused epilogue, which is
      * why it is the second choice and not the first, but the alternative it replaces
-     * is a wrong result rather than a slower one. An explicit OZAKI_GROUPS still wins;
-     * what it may no longer do is leave a long K unreduced by saying nothing.
+     * is a wrong result rather than a slower one. An explicit OZAKI_GROUPS wins, and
+     * that includes OZAKI_GROUPS=1 declining the backstop: zero cannot say it, because
+     * zero is what an unset knob reads as, and conflating the two left no way to ask
+     * for an ungrouped kernel and be obeyed. Declining warns, since what it leaves is
+     * the wrong result and not the slower one.
+     *
+     * It is the backstop for an INTEGER carrier only. A bf16 carrier folds its
+     * accumulators back to residues in place inside the K-loop, on both matrix engines,
+     * so there the window is a fold cadence and not a grouping decision - and deriving
+     * the grouping from it made the kernel pay twice, because grouping is also what the
+     * warp-group specialization cannot compile, so the fold went unused and the tile
+     * dropped to the synchronous engine. Measured at K=4096: the fold costs 16% of the
+     * GEMM, the grouping it was standing in for cost 5x.
      */
-    if (0 != crt && 2 > ozgroups) {
+    if (0 != crt && 0 == use_bf16) {
       const int window = ozaki_crt_window(use_bf16, use_sym);
       if (maxk > window) {
-        ozgroups = window / bk_pre;
-        if (0 != verbosity) {
-          fprintf(stderr, "INFO OZAKI: K=%d exceeds the %s window of %d, kgroups=%d\n",
-            maxk, use_sym ? "symmetric" : "unsigned", window, ozgroups);
+        if (0 >= ozgroups) {
+          ozgroups = window / bk_pre;
+          if (0 != verbosity) {
+            fprintf(stderr, "INFO OZAKI: K=%d exceeds the %s window of %d, kgroups=%d\n",
+              maxk, use_sym ? "symmetric" : "unsigned", window, ozgroups);
+          }
+        }
+        else if (1 == ozgroups && 0 != verbosity) {
+          fprintf(stderr, "WARN OZAKI: OZAKI_GROUPS=1 leaves K=%d past the %s window of %d unreduced\n",
+            maxk, use_sym ? "symmetric" : "unsigned", window);
         }
       }
     }
