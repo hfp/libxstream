@@ -93,9 +93,9 @@ include $(LIBXSINC)
 
 # setup LIBXS (source-tree layout)
 ifneq (,$(LIBXSROOT))
-  LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
-  LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
-  LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
+  LIBXS_SL := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT)))
+  LIBXS_DL := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT)))
+  LIBXS := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT)))
   LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
     $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
   IFLAGS += -I$(call quote,$(LIBXSROOT))
@@ -250,7 +250,7 @@ $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
 .PHONY: libs
 libs: $(PPKGDIR)/$(PROJECT)-static.pc $(PPKGDIR)/$(PROJECT)-shared.pc $(PCMKDIR)/$(PROJECT)Config.cmake
 ifeq (,$(filter-out 0 2,$(BUILD)))
-$(OUTDIR)/$(PROJECT).$(SLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS)
+$(OUTDIR)/$(PROJECT).$(SLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS) $(LNKSTATE)
 ifneq (,$(LIBXS_SL))
 	$(MAKE_AR) $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(OBJFILES) $(FTNOBJS)
 	@TMPDIR=$$(mktemp -d) && cd $${TMPDIR} && \
@@ -264,7 +264,7 @@ else
 .PHONY: $(OUTDIR)/$(PROJECT).$(SLIBEXT)
 endif
 ifeq (0,$(filter-out 1 2,$(BUILD))$(ANALYZE))
-$(OUTDIR)/$(PROJECT).$(DLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS)
+$(OUTDIR)/$(PROJECT).$(DLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS) $(LNKSTATE)
 	$(LIB_SOLD) $(call solink_version,$(OUTDIR)/$(PROJECT).$(DLIBEXT)) \
 		$(OBJFILES) $(FTNOBJS) $(LIBXS_LINK) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 else

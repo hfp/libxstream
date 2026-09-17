@@ -19,13 +19,21 @@ if [ "${MKDIR}" ] && [ "${SED}" ] && [ "${TR}" ] && [ "${DIFF}" ] && [ "${UNIQ}"
     UMASK_CMD="umask ${UMASK};"
     eval "${UMASK_CMD}"
   fi
+  # STATENAME selects which state this invocation maintains, so a second scope
+  # (e.g. link-only flags) can be tracked beside the default without the two
+  # invalidating each other.
+  if [ -z "${STATENAME}" ]; then STATENAME=.state; fi
   if [ "$1" ]; then
-    STATEFILE=$1/.state
+    STATEFILE=$1/${STATENAME}
     ${MKDIR} -p "$1"
     shift
   else
-    STATEFILE=.state
+    STATEFILE=${STATENAME}
   fi
+  # The trigger the make rule depends on. Touching this script instead would be
+  # one trigger shared by every scope, so a link-only change would still
+  # invalidate every object -- which is the whole point of having two.
+  TRIGGER=${STATEFILE}.trigger
 
   STATE=$(${TR} '?' '\n' | ${TR} '"' \' | ${SED} -e 's/^ */\"/' -e 's/   */ /g' -e 's/ *$/\\n\"/')
   TOUCH=$(command -v touch)
@@ -42,17 +50,17 @@ if [ "${MKDIR}" ] && [ "${SED}" ] && [ "${TR}" ] && [ "${DIFF}" ] && [ "${UNIQ}"
       if [ "" = "${NOSTATE}" ] || [ "0" = "${NOSTATE}" ]; then
         printf "%s\n" "${STATE}" >"${STATEFILE}"
       fi
-      echo "$0 ${STATE_DIFF}"
+      echo "${TRIGGER} ${STATE_DIFF}"
       # only needed to execute body of .state-rule
-      if [ "${TOUCH}" ]; then ${TOUCH} "$0"; fi
+      if [ "${TOUCH}" ]; then ${TOUCH} "${TRIGGER}"; fi
     fi
   else # difference must not be determined
     if [ "" = "${NOSTATE}" ] || [ "0" = "${NOSTATE}" ]; then
       printf "%s\n" "${STATE}" >"${STATEFILE}"
     fi
-    echo "$0"
+    echo "${TRIGGER}"
     # only needed to execute body of .state-rule
-    if [ "${TOUCH}" ]; then ${TOUCH} "$0"; fi
+    if [ "${TOUCH}" ]; then ${TOUCH} "${TRIGGER}"; fi
   fi
 elif [ ! "${DIFF}" ]; then
   >&2 echo "ERROR: please install diffutils - diff command is missing!"

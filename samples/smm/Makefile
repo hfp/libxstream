@@ -23,9 +23,9 @@ include $(LIBXSROOT)/Makefile.inc
 
 # setup LIBXS (library or header-only)
 ifneq (,$(LIBXSROOT))
-  LIBXS_SL := $(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT))
-  LIBXS_DL := $(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT))
-  LIBXS := $(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT))
+  LIBXS_SL := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT)))
+  LIBXS_DL := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT)))
+  LIBXS := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT)))
   LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
     $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
   IFLAGS += -I$(call quote,$(LIBXSROOT))
@@ -147,3 +147,8 @@ reformat: $(wildcard $(SRCDIR)/acc_.c) $(wildcard $(INCDIR)/acc_*.h)
 .PHONY: deepclean
 deepclean: realclean
 	@-rm -f .make .state
+
+# Relink when only the link flags changed: those are tracked apart from .state so
+# that a link-only change no longer recompiles every object, which leaves the link
+# as the one step that still has to see them.
+$(XFILES): $(LNKSTATE)

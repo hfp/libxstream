@@ -5,6 +5,8 @@ __pycache__
 .libxs*.tex
 .abi.log
 .state
+.state-link
+.state*.trigger
 .make
 *.json
 *.pptx
