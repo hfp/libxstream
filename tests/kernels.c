@@ -52,11 +52,13 @@
  *
  * INTEL is held at 0 throughout: the DPAS path needs 2D-block-read builtins that no
  * compiler but the vendor's own accepts. NV is not - the warp-group MMA path carries
- * its PTX in comment-only asm markers a host pass splices, so it compiles anywhere
- * once the inline asm is spelled __asm__ (plain asm is a GNU extension clang rejects
- * in OpenCL C). That path is the largest and most intricate part of ozaki2.cl and
- * went uncovered until a stray brace in it reached hardware, where a failed kernel
- * build merely downgrades to mma.sync and every correctness check still passes.
+ * its PTX in comment-only asm markers a host pass splices, so clang compiles it once
+ * the inline asm is spelled __asm__ (plain asm is a GNU extension clang rejects in
+ * OpenCL C) and the target is nvptx, whose operand constraints the asm uses and a
+ * host target need not have. That path is the largest and most intricate part of
+ * ozaki2.cl and went uncovered until a stray brace in it reached hardware, where a
+ * failed kernel build merely downgrades to mma.sync and every correctness check
+ * still passes.
  */
 #define KERNELS_OZAKI_BASE \
   "-DBK=32 -DKU=2 -DRC=8 -DSG=16 -DINTEL=0 -DNV=0 -DBM_PRE=16 -DBN_PRE=16" \
@@ -121,25 +123,33 @@
 /**
  * A flavor is a variant of one kernel's parameters, not of the level: the level
  * says what the language provides, the flavor what the host asked to emit.
+ *
+ * nv states the vendor a flavor is emitted for, which decides two things at once:
+ * the dialect it is instantiated in (__NV_CL_C_VERSION, which turns on the unroll
+ * hints below OpenCL C 2.0, so without it the lint checks a text no driver
+ * receives), and the target it is checked against. Inline PTX is validated by
+ * the target clang compiles for, and the host is the wrong one: an asm operand
+ * constraint that PTX defines and the host target does not fails on that host
+ * and passes on another, so the verdict would depend on where the test ran.
  */
-typedef struct { const char* path; const char* flavor; const char* params; } kernels_file_t;
+typedef struct { const char* path; const char* flavor; const char* params; int nv; } kernels_file_t;
 static const kernels_file_t kernel_files[] = {
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/gemm3m.cl", "", "" },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp64", KERNELS_OZAKI_FP64 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp32", KERNELS_OZAKI_FP32 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "sym", KERNELS_OZAKI_SYM },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp64", KERNELS_OZAKI_FP64 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp32", KERNELS_OZAKI_FP32 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "flat", KERNELS_OZAKI_FLAT },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma", KERNELS_OZAKI_WGMMA },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma4", KERNELS_OZAKI_WGMMA4 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "symres", KERNELS_OZAKI_SYMRES },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16", KERNELS_OZAKI_BF16 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16sym", KERNELS_OZAKI_BF16_SYMRES },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/gemm3m.cl", "", "", 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp64", KERNELS_OZAKI_FP64, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp32", KERNELS_OZAKI_FP32, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "sym", KERNELS_OZAKI_SYM, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp64", KERNELS_OZAKI_FP64, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp32", KERNELS_OZAKI_FP32, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "flat", KERNELS_OZAKI_FLAT, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma", KERNELS_OZAKI_WGMMA, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma4", KERNELS_OZAKI_WGMMA4, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "symres", KERNELS_OZAKI_SYMRES, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16", KERNELS_OZAKI_BF16, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16sym", KERNELS_OZAKI_BF16_SYMRES, 1 },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/transpose.cl", "",
-    "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */ },
-  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "", "" },
-  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_fp32.cl", "", "" }
+    "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "", "", 0 },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_fp32.cl", "", "", 0 }
 };
 
 /**
@@ -152,21 +162,28 @@ static const char* const kernel_pending[] = {
   LIBXSTREAM_SRCDIR "/samples/smm/kernels/multiply.cl", LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_bf16.cl"
 };
 
-/* A level names what it selects, and states the language its artifact is in. */
-typedef struct { const char* name; const char* defines; const char* std; } kernels_level_t;
+/**
+ * A level names what it selects, and states the language its artifact is in and
+ * what that language provides. The fp64 flavors need the extension whether or not
+ * the host target advertises it, and from OpenCL C 3.0 on the extension and the
+ * feature are one fact stated twice: a compiler that checks the pair refuses a
+ * build that names only one of them, and the feature does not exist before 3.0.
+ */
+typedef struct { const char* name; const char* defines; const char* std; const char* ext; } kernels_level_t;
 static const kernels_level_t kernel_levels[] = {
-  { "floor", "-DLIBXSTREAM_OCLVER_C=120 -DLIBXSTREAM_OCLVER=120", "CL1.2" },
-  { "cl3_bare", "-DLIBXSTREAM_OCLVER_C=300 -DLIBXSTREAM_OCLVER=300 -DGPU=1", "CL3.0" },
+  { "floor", "-DLIBXSTREAM_OCLVER_C=120 -DLIBXSTREAM_OCLVER=120", "CL1.2", "+cl_khr_fp64" },
+  { "cl3_bare", "-DLIBXSTREAM_OCLVER_C=300 -DLIBXSTREAM_OCLVER=300 -DGPU=1", "CL3.0",
+    "+cl_khr_fp64,+__opencl_c_fp64" },
   { "cl3_subgroups",
     "-DLIBXSTREAM_OCLVER_C=300 -DLIBXSTREAM_OCLVER=300 -DGPU=1 -D__opencl_c_subgroups",
-    "CL3.0" }
+    "CL3.0", "+cl_khr_fp64,+__opencl_c_fp64,+__opencl_c_subgroups" }
 };
 
 
 static const char* kernels_cc(void);
 static char* loads(const char path[]);
 static void dirname_of(const char path[], char buffer[], size_t size);
-static int compiles(const char artifact[], const char std[]);
+static int compiles(const char artifact[], const kernels_level_t* level, int nv);
 static int one(const kernels_file_t* file, const kernels_level_t* level);
 
 
@@ -261,20 +278,18 @@ static void dirname_of(const char path[], char buffer[], size_t size)
 }
 
 
-static int compiles(const char artifact[], const char std[])
+static int compiles(const char artifact[], const kernels_level_t* level, int nv)
 {
   char command[1024];
   int result = EXIT_FAILURE;
   if (0 < LIBXS_SNPRINTF(command, sizeof(command),
-        "%s -x cl -cl-std=%s -fsyntax-only"
+        "%s -x cl -cl-std=%s -fsyntax-only%s"
         /* -Wno-unused-parameter as the library's own C build does: a kernel
          * signature is fixed by the host argument list, so an unused parameter
          * is a interface constraint and not a defect. */
         " -Wall -Wextra -pedantic -Wno-unused-parameter -Werror"
-        /* the fp64 flavors need the extension whether or not the host target
-         * advertises it; harmless where it is already available */
-        " -Xclang -cl-ext=+cl_khr_fp64"
-        " -Xclang -finclude-default-header %s", kernels_cc(), std, artifact))
+        " -Xclang -cl-ext=%s -Xclang -finclude-default-header %s",
+        kernels_cc(), level->std, 0 != nv ? " --target=nvptx64-nvidia-cuda" : "", level->ext, artifact))
   {
     result = (EXIT_SUCCESS == system(command) ? EXIT_SUCCESS : EXIT_FAILURE);
   }
@@ -311,13 +326,13 @@ static int one(const kernels_file_t* file, const kernels_level_t* level)
     result = EXIT_FAILURE;
   }
   if (EXIT_SUCCESS == result) {
-    result = libxstream_opencl_dump(source, 0 /*strlen*/, name, defines, 0 /*nv*/, "", NULL);
+    result = libxstream_opencl_dump(source, 0 /*strlen*/, name, defines, file->nv, "", NULL);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "kernels: %s did not instantiate [%s %s]\n", path, level->name, file->flavor);
     }
   }
   if (EXIT_SUCCESS == result) {
-    result = compiles(artifact, level->std);
+    result = compiles(artifact, level, file->nv);
     if (EXIT_SUCCESS != result) {
       fprintf(stderr, "kernels: %s failed to compile [%s %s]\n", path, level->name, file->flavor);
     }
