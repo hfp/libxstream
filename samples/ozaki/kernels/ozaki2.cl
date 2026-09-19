@@ -1426,7 +1426,7 @@
 #define OZAKI_GARNER_CHAIN(R, V, N, OFF, MODULUS, REDUCE_DIGIT, REDUCE_PROD, INV) \
   do { \
     SINT i_, j_; \
-    for (i_ = 0; i_ < (N); ++i_) { \
+    for (i_ = 0; i_ < (SINT)(N); ++i_) { \
       uint u_ = (R)[i_]; \
       const uint m_ = MODULUS((OFF) + i_); \
       for (j_ = 0; j_ < i_; ++j_) { \
@@ -2169,8 +2169,7 @@ kernel void gemm_crt_fused(
   { SINT gidx;
     for (gidx = 0; gidx < HIER_NGROUPS; ++gidx) {
       const int group_lo = gidx * HIER_GS;
-      SINT pidx_base;
-      int ri;
+      int pidx_base, ri;
       for (ri = 0; ri < GRP_RES_STRIDE; ++ri) group_res[ri] = 0;
       UNROLL_OUTER(1) for (pidx_base = group_lo; pidx_base < group_lo + HIER_GS && pidx_base < NMODULI; pidx_base += PB) {
         OZAKI_ACC_DECL(acc);
