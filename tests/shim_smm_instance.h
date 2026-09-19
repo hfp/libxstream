@@ -56,6 +56,7 @@ static const shim_smm_desc_t CAT(FN, _desc) = { LIBXS_STRINGIFY(FN), SM, SN, SK,
 #undef UM
 #undef VM
 #undef WRK
+#undef TILE_M
 #undef T
 #undef FN
 #undef LU

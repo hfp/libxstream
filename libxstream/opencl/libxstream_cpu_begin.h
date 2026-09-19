@@ -7,14 +7,7 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__LIBXS) || defined(LIBXS_SOURCE)
-# include <libxs/libxs_macros.h>
-# include <libxs/libxs_math.h>
-#else
-# include <stddef.h>
-# include <stdlib.h>
-# include <math.h>
-#endif
+#include <libxs/libxs_math.h>
 
 /**
  * OpenCL C to host C shim: lets an ordinary C compiler translate a kernel that
@@ -33,13 +26,11 @@
  * the host has under another name or not at all: the as_* reinterpretations,
  * the integer atomics and compare-exchange, clz, mul_hi, min, fma, and the
  * work-item queries. A built-in the host already spells the same way (abs,
- * floor) is left to stdlib.h and math.h, which is why they are included here
- * rather than by whoever brackets a kernel. With LIBXS they come from
- * libxs_macros.h, which places them after its feature-test macros; a system
- * header ahead of those would have glibc settle on a surface without them. The
- * vector types are not here but in libxstream_vectors.h, which the kernel
- * reaches through libxstream_common.h, and which a kernel using them therefore
- * includes.
+ * floor) is left to stdlib.h and math.h, which libxs_macros.h includes after its
+ * feature-test macros; a system header ahead of those would have glibc settle on
+ * a surface without them. The vector types are in libxstream_vectors.h, which
+ * the kernel reaches through libxstream_common.h and this header includes first
+ * (see below).
  *
  * Work-group model, selected by LIBXSTREAM_CPU_TEAM:
  * 0 (default) A work-item runs to completion, hence barrier() is a no-op and
@@ -75,6 +66,35 @@
  */
 #define LIBXSTREAM_CPU 1
 
+/**
+ * The vector types, made before __attribute__ is neutralized below: their
+ * may_alias is spelled through it, and a kernel reaching the header first would
+ * have the types made without the attribute and nothing reported. The guard
+ * makes the kernel's own include a no-op.
+ */
+#include "libxstream_vectors.h"
+
+/**
+ * What the bracket admits that the host dialect would reject: a helper the kernel
+ * at hand does not call (the shim neutralizes __attribute__, so the attribute
+ * route to silence it is not available), a directive only an OpenCL compiler
+ * knows ("#pragma OPENCL EXTENSION"), a declaration after a statement, which
+ * OpenCL C has from C99 and a C89 host build does not, and a nested array given
+ * a flat initializer, as a host emits its tables and an OpenCL compiler takes
+ * them. A C99 for-declaration is an error rather than a warning there and stays
+ * out of reach of any pragma. Ahead of the keywords below, because redefining a
+ * keyword is what the shim is for and a host compiling C++ counts private and
+ * inline among them (a clang warning, which an older GCC does not know, hence
+ * unknown options are silenced first).
+ */
+LIBXS_PRAGMA_DIAG_PUSH()
+LIBXS_PRAGMA_DIAG_OFF_WUNKNOWN()
+LIBXS_PRAGMA_DIAG_OFF("-Wkeyword-macro")
+LIBXS_PRAGMA_DIAG_OFF("-Wunused-function")
+LIBXS_PRAGMA_DIAG_OFF("-Wunknown-pragmas")
+LIBXS_PRAGMA_DIAG_OFF("-Wdeclaration-after-statement")
+LIBXS_PRAGMA_DIAG_OFF("-Wmissing-braces")
+
 /* Address spaces: a host build has only the one. */
 #define global
 #define private
@@ -95,36 +115,15 @@
  */
 #undef inline
 #define inline static
-/**
- * What the bracket admits that the host dialect would reject: a helper the kernel
- * at hand does not call (the shim neutralizes __attribute__, so the attribute
- * route to silence it is not available), a directive only an OpenCL compiler
- * knows ("#pragma OPENCL EXTENSION"), a declaration after a statement, which
- * OpenCL C has from C99 and a C89 host build does not, and a nested array given
- * a flat initializer, as a host emits its tables and an OpenCL compiler takes
- * them. A C99 for-declaration is an error rather than a warning there and stays
- * out of reach of any pragma.
- */
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
-#pragma GCC diagnostic ignored "-Wunknown-pragmas"
-#pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
-#pragma GCC diagnostic ignored "-Wmissing-braces"
-#endif
 
 /* Kernel attributes carry no meaning on the host. */
 #if !defined(__attribute__)
 # define __attribute__(A)
 #endif
 
-/* C89 has no restrict, yet GNU compilers still honor the alias promise. */
+/* C89 and C++ have no restrict, yet the compiler may still honor the promise. */
 #if !defined(__STDC_VERSION__) || (199901L > __STDC_VERSION__)
-# if defined(__GNUC__) || defined(__clang__)
-#   define restrict __restrict__
-# else
-#   define restrict
-# endif
+# define restrict LIBXS_RESTRICT
 #endif
 
 /**
@@ -149,40 +148,28 @@
  * constant-trip loops matters more on the host, because it is what leaves a
  * lane loop innermost with a straight-line body for the vectorizer.
  */
-#if defined(LIBXS_PRAGMA_UNROLL_N)
-# define UNROLL_FORCE(N) LIBXS_PRAGMA_UNROLL_N(N)
-# define UNROLL_AUTO LIBXS_PRAGMA_UNROLL
-#else
-# define UNROLL_FORCE(N)
-# define UNROLL_AUTO
-#endif
+#define UNROLL_FORCE(N) LIBXS_PRAGMA_UNROLL_N(N)
+#define UNROLL_AUTO LIBXS_PRAGMA_UNROLL
 
 /* Vectorize a lane loop nest of N levels. */
-#if defined(LIBXS_PRAGMA_SIMD_COLLAPSE)
-# define SIMD_COLLAPSE(N) LIBXS_PRAGMA_SIMD_COLLAPSE(N)
-#else
-# define SIMD_COLLAPSE(N)
-#endif
+#define SIMD_COLLAPSE(N) LIBXS_PRAGMA_SIMD_COLLAPSE(N)
 
 /**
  * Storage conversions: OpenCL C reaches FP16 through the half built-ins and a
  * device may convert BF16 in hardware, neither of which a host build has. LIBXS
- * carries the host implementations, and a consumer that does not have LIBXS
- * defines the four names before this header rather than growing the shim.
+ * carries the host implementations; a name defined ahead of this header wins.
  */
-#if defined(__LIBXS) || defined(LIBXS_SOURCE)
-# if !defined(ROUND_TO_BF16)
-#   define ROUND_TO_BF16(X) libxs_round_bf16_f32(X)
-# endif
-# if !defined(BF16_TO_F32)
-#   define BF16_TO_F32(X) libxs_bf16_to_f32(X)
-# endif
-# if !defined(ROUND_TO_F16)
-#   define ROUND_TO_F16(X) libxs_round_f16_f32(X)
-# endif
-# if !defined(F16_TO_F32)
-#   define F16_TO_F32(X) libxs_f16_to_f32(X)
-# endif
+#if !defined(ROUND_TO_BF16)
+# define ROUND_TO_BF16(X) libxs_round_bf16_f32(X)
+#endif
+#if !defined(BF16_TO_F32)
+# define BF16_TO_F32(X) libxs_bf16_to_f32(X)
+#endif
+#if !defined(ROUND_TO_F16)
+# define ROUND_TO_F16(X) libxs_round_f16_f32(X)
+#endif
+#if !defined(F16_TO_F32)
+# define F16_TO_F32(X) libxs_f16_to_f32(X)
 #endif
 
 /**
@@ -246,7 +233,7 @@
 #define atom_cmpxchg(A, E, V) libxstream_cpu_cmpxchg64((volatile long*)(A), E, V)
 
 /* The integer built-in, over the type its operands have in common. */
-#define min(A, B) ((A) < (B) ? (A) : (B))
+#define min(A, B) LIBXS_MIN(A, B)
 
 #define get_group_id(D) ((size_t)libxstream_cpu_gid[D])
 #define get_local_id(D) ((size_t)libxstream_cpu_lid[D])
@@ -290,16 +277,8 @@
  */
 #if !defined(LIBXSTREAM_CPU_STATE)
 #define LIBXSTREAM_CPU_STATE
-/**
- * OpenCL's 64-bit ulong. LIBXS has already settled which spelling the target
- * has; without it the host's own is taken, and a kernel that reinterprets a
- * double then needs a target where it is 64 bits wide.
- */
-#if defined(__LIBXS) || defined(LIBXS_SOURCE)
+/* OpenCL's 64-bit ulong, whichever host spelling that is. */
 typedef uint64_t libxstream_cpu_ulong_t;
-#else
-typedef unsigned long libxstream_cpu_ulong_t;
-#endif
 
 static int libxstream_cpu_gid[3];
 static int libxstream_cpu_lid[3];

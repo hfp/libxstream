@@ -53,24 +53,15 @@
  * is how a 16-byte block leaves a byte buffer in one instruction. That promise
  * is the one strict aliasing does not make, and the attribute belongs to the
  * type rather than to the cast, hence it is attached where the type is made.
- */
-#if !defined(LIBXSTREAM_VEC_MAY_ALIAS)
-# if defined(LIBXS_MAY_ALIAS)
-#   define LIBXSTREAM_VEC_MAY_ALIAS LIBXS_MAY_ALIAS
-# elif defined(__GNUC__) || defined(__clang__)
-#   define LIBXSTREAM_VEC_MAY_ALIAS __attribute__((__may_alias__))
-# else
-#   define LIBXSTREAM_VEC_MAY_ALIAS
-# endif
-#endif
-
-/**
+ * The host branch runs only under libxstream_cpu_begin.h, which has included
+ * LIBXS and includes this header before it neutralizes __attribute__.
+ *
  * The host spelling of one vector type: TYPE is the OpenCL name, SCALAR the
  * component type, and N the width. The scalar array is named "s" so that a
  * union with an array of SCALAR sees the components either way.
  */
 #define LIBXSTREAM_VEC_TYPE(TYPE, SCALAR, N) \
-  typedef struct { SCALAR s[N]; } TYPE LIBXSTREAM_VEC_MAY_ALIAS; \
+  typedef struct { SCALAR s[N]; } TYPE LIBXS_MAY_ALIAS; \
   static TYPE libxstream_vec_zero_##TYPE(void) { \
     TYPE zero_; \
     int i_; \
@@ -112,16 +103,13 @@
 #define VEC_SET4_(TYPE, A, B, C, D) libxstream_vec_set4_##TYPE(A, B, C, D)
 
 /* A type the kernel at hand does not use brings its helpers along. */
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-function"
-#endif
+LIBXS_PRAGMA_DIAG_PUSH()
+LIBXS_PRAGMA_DIAG_OFF("-Wunused-function")
 
 /**
- * The widths the kernels ask for. The scalars are spelled in full rather than
- * through the uchar/ushort/uint names libxstream_cpu_begin.h establishes, so
- * that this header also stands on its own outside the bracket, where a host
- * launcher may need to build the same data.
+ * The widths the kernels ask for. The scalars are spelled in full: the header
+ * precedes the uchar/ushort/uint names libxstream_cpu_begin.h establishes, and
+ * the types stay after the bracket, where a host launcher builds the same data.
  */
 LIBXSTREAM_VEC_TYPE(char8, signed char, 8)
 LIBXSTREAM_VEC_TYPE(uchar4, unsigned char, 4)
@@ -138,9 +126,7 @@ LIBXSTREAM_VEC_SET4(int4, int)
 LIBXSTREAM_VEC_SET4(uint4, unsigned int)
 LIBXSTREAM_VEC_SET4(float4, float)
 
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
+LIBXS_PRAGMA_DIAG_POP()
 
 #endif
 

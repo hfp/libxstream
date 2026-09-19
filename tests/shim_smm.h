@@ -63,6 +63,8 @@ typedef struct {
 } shim_trans_desc_t;
 
 
+/* the runner exists where the flavors do, which is where OpenMP provides the team */
+#if defined(_OPENMP)
 static unsigned int shim_smm_next(unsigned int* seed);
 static void shim_smm_stack(int stack[], int stack_size, int mk, int kn, int mn, unsigned int* seed);
 static int shim_smm_multiply(const shim_smm_desc_t* desc, unsigned int seed);
@@ -204,5 +206,6 @@ static int shim_smm(const shim_smm_desc_t* const smm[], int nsmm, const shim_tra
   }
   return result;
 }
+#endif /*defined(_OPENMP)*/
 
 #endif /*SHIM_SMM_H*/

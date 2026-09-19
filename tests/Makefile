@@ -97,7 +97,7 @@ $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile
 # time, so the kernels and the shim are sources of those objects: without them an
 # edited kernel leaves a test running the previous one, and passing.
 $(call objname,$(wildcard $(SRCDIR)/shim*.c)): $(wildcard $(DEPDIR)/$(PROJECT)/opencl/*.h) \
-  $(wildcard $(DEPDIR)/samples/ozaki/kernels/*.cl)
+  $(wildcard $(DEPDIR)/samples/*/kernels/*.cl)
 
 .PHONY: clean
 clean:

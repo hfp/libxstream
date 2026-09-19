@@ -139,7 +139,10 @@ Finding = Tuple[str, int, str]
 # Hoisting them changes which libc and CRT surface the whole library compiles
 # against, and it does so silently, because it still builds. At brace depth
 # zero that file holds macros and those includes and nothing else, which is
-# what makes the exemption free.
+# what makes the exemption free. libxstream_cpu_begin.h is the same case at a
+# smaller scale: LIBXSTREAM_CPU has to be defined before libxstream_vectors.h,
+# which selects the host mapping by it, and 36 macros and 2 includes are all
+# the file holds at depth zero.
 EXEMPT = (
     ("macro-name", "libxs/libxs_macros.h"),
     ("macro-name", "src/libxs_crc32.h"),
@@ -149,6 +152,7 @@ EXEMPT = (
     ("macro-parameter", "libxstream/libxstream_dbcsr.h"),
     ("stacked-comments", "libxstream/libxstream_dbcsr.h"),
     ("section-order", "libxs/libxs_macros.h"),
+    ("section-order", "libxstream/opencl/libxstream_cpu_begin.h"),
 )
 # The backlog is not here: it is per-project state, and this script is a
 # policy file that "make documentation" copies into dependent projects, which
