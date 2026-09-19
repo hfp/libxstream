@@ -123,6 +123,7 @@
  * that this header also stands on its own outside the bracket, where a host
  * launcher may need to build the same data.
  */
+LIBXSTREAM_VEC_TYPE(char8, signed char, 8)
 LIBXSTREAM_VEC_TYPE(uchar4, unsigned char, 4)
 LIBXSTREAM_VEC_TYPE(ushort8, unsigned short, 8)
 LIBXSTREAM_VEC_TYPE(int2, int, 2)

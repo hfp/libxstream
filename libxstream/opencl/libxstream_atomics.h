@@ -67,7 +67,8 @@ __attribute__((always_inline)) inline void atomic_add_global_cmpxchg(GLOBAL_VOLA
   union {
     T f;
     TA a;
-  } exp_val, try_val, cur_val = {.f = *dst};
+  } exp_val, try_val, cur_val;
+  cur_val.f = *dst;
   do {
     exp_val.a = cur_val.a;
     try_val.f = exp_val.f + inc;
@@ -96,7 +97,8 @@ __attribute__((always_inline)) inline void atomic_add_global_cmpxchg2(GLOBAL_VOL
   union {
     float2 f;
     long a;
-  } exp_val, try_val, cur_val = {.f = (float2)(dst[0], dst[1])};
+  } exp_val, try_val, cur_val;
+  cur_val.f = (float2)(dst[0], dst[1]);
   do {
     exp_val.a = cur_val.a;
     try_val.f = exp_val.f + inc;
@@ -128,7 +130,9 @@ __attribute__((always_inline)) inline void atomic_add_global_xchg(GLOBAL_VOLATIL
   union {
     T f;
     TA a;
-  } exp_val = {.f = inc}, try_val, cur_val = {/*.f = ZERO*/ .a = 0};
+  } exp_val, try_val, cur_val;
+  exp_val.f = inc;
+  cur_val.a = 0; /* rather than f = ZERO: every bit of the union cleared */
   do {
 #       if defined(TA2)
     try_val.a = atomic_exchange_explicit((GLOBAL_VOLATILE(TA2)*)dst, cur_val.a, memory_order_relaxed, memory_scope_work_group);

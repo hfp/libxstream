@@ -30,15 +30,16 @@
  * translation unit as the kernel it launches.
  *
  * Besides the keywords, the shim covers the built-ins a kernel reaches for that
- * the host has under another name or not at all: the as_* reinterpretations, the
- * integer atomics, clz and mul_hi, fma, and the work-item queries. A built-in the
- * host already spells the same way (abs, floor) is left to stdlib.h and math.h,
- * which is why they are included here rather than by whoever brackets a kernel.
- * With LIBXS they come from libxs_macros.h, which places them after its
- * feature-test macros; a system header ahead of those would have glibc settle on
- * a surface without them. The vector types are not here but in
- * libxstream_vectors.h, which the kernel reaches through libxstream_common.h, and
- * which a kernel using them therefore includes.
+ * the host has under another name or not at all: the as_* reinterpretations,
+ * the integer atomics and compare-exchange, clz, mul_hi, min, fma, and the
+ * work-item queries. A built-in the host already spells the same way (abs,
+ * floor) is left to stdlib.h and math.h, which is why they are included here
+ * rather than by whoever brackets a kernel. With LIBXS they come from
+ * libxs_macros.h, which places them after its feature-test macros; a system
+ * header ahead of those would have glibc settle on a surface without them. The
+ * vector types are not here but in libxstream_vectors.h, which the kernel
+ * reaches through libxstream_common.h, and which a kernel using them therefore
+ * includes.
  *
  * Work-group model, selected by LIBXSTREAM_CPU_TEAM:
  * 0 (default) A work-item runs to completion, hence barrier() is a no-op and
@@ -235,6 +236,17 @@
  */
 #define atomic_max(A, B) libxstream_cpu_atomic_max(A, B)
 #define atomic_or(A, B) libxstream_cpu_atomic_or(A, B)
+/**
+ * Compare-exchange, from which a device without float atomics builds its atomic
+ * add (libxstream_atomics.h, CMPXCHG): 32-bit under the core name, 64-bit under
+ * the spelling of the atom extension. A team runs lanes at the same time, so these
+ * exclude each other like the ones above rather than merely reading and writing.
+ */
+#define atomic_cmpxchg(A, E, V) libxstream_cpu_cmpxchg32((volatile int*)(A), E, V)
+#define atom_cmpxchg(A, E, V) libxstream_cpu_cmpxchg64((volatile long*)(A), E, V)
+
+/* The integer built-in, over the type its operands have in common. */
+#define min(A, B) ((A) < (B) ? (A) : (B))
 
 #define get_group_id(D) ((size_t)libxstream_cpu_gid[D])
 #define get_local_id(D) ((size_t)libxstream_cpu_lid[D])
@@ -421,6 +433,34 @@ static int libxstream_cpu_atomic_or(int* address, int value)
   {
     result = *address;
     *address = result | value;
+  }
+  return result;
+}
+
+
+static int libxstream_cpu_cmpxchg32(volatile int* address, int expected, int desired)
+{
+  int result;
+#if defined(_OPENMP)
+# pragma omp critical(libxstream_cpu_atomic)
+#endif
+  {
+    result = *address;
+    if (result == expected) *address = desired;
+  }
+  return result;
+}
+
+
+static long libxstream_cpu_cmpxchg64(volatile long* address, long expected, long desired)
+{
+  long result;
+#if defined(_OPENMP)
+# pragma omp critical(libxstream_cpu_atomic)
+#endif
+  {
+    result = *address;
+    if (result == expected) *address = desired;
   }
   return result;
 }

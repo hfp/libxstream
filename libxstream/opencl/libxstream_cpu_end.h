@@ -49,6 +49,9 @@
 #undef fma
 #undef atomic_max
 #undef atomic_or
+#undef atomic_cmpxchg
+#undef atom_cmpxchg
+#undef min
 #undef CLK_LOCAL_MEM_FENCE
 #undef CLK_GLOBAL_MEM_FENCE
 #undef get_group_id
