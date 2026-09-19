@@ -10,13 +10,9 @@
 #include "stencil_opencl.h"
 #include "stencil_pml.h"
 #include "stencil_weights.h"
-#include <libxs/libxs_macros.h>
 #if defined(_OPENMP)
 # include <omp.h>
 #endif
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 /**
  * Build-time configuration of the host kernel. The JIT specializes the device

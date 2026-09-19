@@ -8,11 +8,7 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include "stencil_opencl.h"
-#include <libxs/libxs_macros.h>
 #include <libxs/libxs_math.h>
-
-#include <stdlib.h>
-#include <string.h>
 
 
 /**

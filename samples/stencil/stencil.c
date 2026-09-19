@@ -13,11 +13,6 @@
 #include <libxs/libxs_mem.h>
 #include <libxs/libxs_rng.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-
 #if !defined(STENCIL_FPRINT_ORDER)
 # define STENCIL_FPRINT_ORDER 4
 #endif

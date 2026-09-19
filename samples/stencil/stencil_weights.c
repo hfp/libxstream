@@ -10,9 +10,6 @@
 #include "stencil_weights.h"
 #include <libxs/libxs_math.h>
 
-#include <math.h>
-#include <stdlib.h>
-
 
 typedef struct {
   double tmax;

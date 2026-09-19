@@ -13,11 +13,6 @@
 #include <libxs/libxs_mem.h>
 #include <libxs/libxs_timer.h>
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
 #define STENCIL_FP32_WG_X_DEFAULT 32
 #define STENCIL_FP32_WG_Y_DEFAULT 8
 #define STENCIL_FP32_SBLOCK_DEFAULT 2

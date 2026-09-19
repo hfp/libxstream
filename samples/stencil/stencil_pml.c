@@ -9,10 +9,6 @@
 ******************************************************************************/
 #include "stencil_pml.h"
 
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
-
 
 static void stencil_pml_profile(float* profile, int n, int ndamp, float scale)
 {

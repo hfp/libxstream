@@ -9,8 +9,6 @@
 ******************************************************************************/
 #include <libxstream/libxstream_opencl.h>
 #include <libxs/libxs_str.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 
 int main(int argc, char* argv[])
