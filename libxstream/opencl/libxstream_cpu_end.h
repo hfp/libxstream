@@ -11,7 +11,11 @@
 /**
  * Closes libxstream_cpu_begin.h: retires the OpenCL spellings so that the rest
  * of the translation unit is ordinary C. Keeps the work-item state and
- * LIBXSTREAM_CPU_WORKITEM, which the launcher needs.
+ * LIBXSTREAM_CPU_WORKITEM and LIBXSTREAM_CPU_GRID, which the launcher needs.
+ *
+ * What is ours is kept as well: the vector types and VEC_ZERO and VEC_ADD come
+ * from a guarded header, so retiring them would leave the next bracket in the
+ * translation unit without them and no way to get them back.
  *
  * No include guard: a translation unit may bracket more than one kernel.
  */
@@ -34,12 +38,25 @@
 #undef uchar
 #undef ushort
 #undef uint
+#undef ulong
+#undef as_uint
+#undef as_int
+#undef as_float
+#undef as_ulong
+#undef as_double
+#undef clz
+#undef mul_hi
+#undef fma
+#undef atomic_max
+#undef atomic_or
 #undef CLK_LOCAL_MEM_FENCE
 #undef CLK_GLOBAL_MEM_FENCE
 #undef get_group_id
 #undef get_local_id
 #undef get_local_size
 #undef get_global_id
+#undef get_num_groups
+#undef get_global_size
 #undef UNROLL_FORCE
 #undef UNROLL_AUTO
 #undef SIMD_COLLAPSE

@@ -10,6 +10,8 @@
 #ifndef LIBXSTREAM_OPENCL_COMMON_H
 #define LIBXSTREAM_OPENCL_COMMON_H
 
+#include "libxstream_vectors.h"
+
 /**
  * Token concatenation. CAT expands its arguments before pasting, which the
  * bare ## operator does not: it suppresses expansion of its operands, so

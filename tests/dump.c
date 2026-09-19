@@ -48,9 +48,31 @@ static const char header_probe[] =
   "kernel void no_sg_broadcast(void) {}\n"
   "#endif\n";
 
+/**
+ * Asks for the predefine rather than for the library's own spelling of it: the
+ * preprocessor that instantiates a kernel is a host one and has no OpenCL
+ * predefine, so the level has to reach it from the device or from the caller.
+ */
+static const char predef_probe[] =
+  "#if (300 <= __OPENCL_C_VERSION__)\n"
+  "kernel void saw_clver(void) {}\n"
+  "#else\n"
+  "kernel void no_clver(void) {}\n"
+  "#endif\n";
+
+/**
+ * The host mapping of the vector types must not reach a device artifact: it is
+ * selected by LIBXSTREAM_CPU, which nothing defines here, and a probe on the
+ * absence of an OpenCL predefine would have selected it.
+ */
+static const char vector_probe[] =
+  "#include \"libxstream_common.h\"\n"
+  "kernel void vzero(global int* c) { int8 v = VEC_ZERO(int8); c[0] = v.s0; }\n";
+
 
 static int reads(const char path[], char buffer[], size_t size);
 static int check(const char name[], const char params[], int nv, const char expect[], const char reject[]);
+static int probe(const char name[], const char source[], const char params[], const char expect[], const char reject[]);
 static int level(const char name[], const char params[], const char expect[], const char reject[]);
 
 
@@ -96,6 +118,19 @@ int main(void)
   if (EXIT_SUCCESS == result) { /* a 2.0 device, where the version is the answer */
     result = level("lvl_cl2", "-DGPU=1 -DSG=32 -DLIBXSTREAM_OCLVER_C=200",
       "has_sg_broadcast", "no_sg_broadcast");
+  }
+
+  /* the level reaches the predefine the kernel asks for, both ways */
+  if (EXIT_SUCCESS == result) {
+    result = probe("predef_cl3", predef_probe, "-DLIBXSTREAM_OCLVER_C=300", "saw_clver", "no_clver");
+  }
+  if (EXIT_SUCCESS == result) {
+    result = probe("predef_cl12", predef_probe, "-DLIBXSTREAM_OCLVER_C=120", "no_clver", "saw_clver");
+  }
+  /* a device artifact keeps the device's vectors, never the host mapping */
+  if (EXIT_SUCCESS == result) {
+    result = probe("vec_device", vector_probe, "-DLIBXSTREAM_OCLVER_C=300",
+      "(int8)(0)", "libxstream_vec_zero");
   }
 
   /* refuses what it cannot write rather than reporting success */
@@ -157,18 +192,25 @@ static int check(const char name[], const char params[], int nv, const char expe
 /* One named level: the artifact must select the branch the level implies. */
 static int level(const char name[], const char params[], const char expect[], const char reject[])
 {
+  return probe(name, header_probe, params, expect, reject);
+}
+
+
+/* One source under one set of parameters, reading the branch it selected. */
+static int probe(const char name[], const char source[], const char params[], const char expect[], const char reject[])
+{
   char path[256], text[8192];
   char defines[512];
   int result;
   if (0 >= LIBXS_SNPRINTF(defines, sizeof(defines), "-I" LIBXSTREAM_SRCDIR "/libxstream/opencl %s", params)) return EXIT_FAILURE;
-  result = libxstream_opencl_dump(header_probe, 0, name, defines, 0, "", NULL);
+  result = libxstream_opencl_dump(source, 0, name, defines, 0, "", NULL);
   if (EXIT_SUCCESS == result && 0 >= LIBXS_SNPRINTF(path, sizeof(path), "%s.cl", name)) result = EXIT_FAILURE;
   if (EXIT_SUCCESS == result) result = reads(path, text, sizeof(text));
   if (EXIT_SUCCESS == result) {
     if (NULL == strstr(text, expect) || NULL != strstr(text, reject)) result = EXIT_FAILURE;
     if (NULL != strstr(text, "#include")) result = EXIT_FAILURE; /* fused */
   }
-  if (EXIT_SUCCESS != result) fprintf(stderr, "dump: level %s [%s] is wrong\n", name, params);
+  if (EXIT_SUCCESS != result) fprintf(stderr, "dump: %s [%s] is wrong\n", name, params);
   else remove(path);
   return result;
 }

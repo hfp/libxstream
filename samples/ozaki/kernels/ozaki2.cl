@@ -219,7 +219,7 @@
 #elif 1 < OZAKI_CRT_RUN
 # define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
     *(global uchar4*)((DST) + (OFF)) = \
-      (uchar4)((uchar)(R0), (uchar)(R1), (uchar)(R2), (uchar)(R3))
+      VEC_SET4(uchar4, (uchar)(R0), (uchar)(R1), (uchar)(R2), (uchar)(R3))
 #else
 /* The dropped sources are still consumed, so a width of 1 leaves nothing unused. */
 # define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \

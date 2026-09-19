@@ -700,7 +700,11 @@ LIBXSTREAM_API int libxstream_opencl_program(size_t source_kind, const char sour
  * otherwise supply: LIBXSTREAM_OCLVER and LIBXSTREAM_OCLVER_C above all, which
  * libxstream/opencl/libxstream_common.h branches on and would otherwise default
  * to an undefined __OPENCL_VERSION__, i.e. zero. Stating them is the point rather
- * than a chore: it is what makes the configuration a named combination.
+ * than a chore: it is what makes the configuration a named combination. The two
+ * are also what the level the predefines carry is taken from here, so a kernel
+ * asking __OPENCL_VERSION__ itself is instanced for the same level; with a device
+ * that level, the extensions, and the optional features come from the device.
+ * What no one states stays undefined, as it is on a device that lacks it.
  */
 LIBXSTREAM_API int libxstream_opencl_dump(const char source[], size_t size_src, const char name[],
   const char build_params[], int nv, const char std_flag[], char** instanced);

@@ -8,6 +8,8 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include <stddef.h>
+#include <stdlib.h>
+#include <math.h>
 #if defined(__LIBXS) || defined(LIBXS_SOURCE)
 # include <libxs/libxs_macros.h>
 # include <libxs/libxs_math.h>
@@ -25,6 +27,14 @@
  *
  * The work-item state is file-static, so the launcher belongs to the same
  * translation unit as the kernel it launches.
+ *
+ * Besides the keywords, the shim covers the built-ins a kernel reaches for that
+ * the host has under another name or not at all: the as_* reinterpretations, the
+ * integer atomics, clz and mul_hi, fma, and the work-item queries. A built-in the
+ * host already spells the same way (abs, floor) is left to stdlib.h and math.h,
+ * which is why they are included here rather than by whoever brackets a kernel. The
+ * vector types are not here but in libxstream_vectors.h, which the kernel reaches
+ * through libxstream_common.h, and which a kernel using them therefore includes.
  *
  * Work-group model, selected by LIBXSTREAM_CPU_TEAM:
  * 0 (default) A work-item runs to completion, hence barrier() is a no-op and
@@ -44,6 +54,15 @@
 #if defined(LIBXSTREAM_CPU_TEAM) && (0 != LIBXSTREAM_CPU_TEAM) && !defined(_OPENMP)
 # error LIBXSTREAM_CPU_TEAM needs OpenMP to implement barrier()
 #endif
+
+/**
+ * Says that the host translates what follows, which libxstream_vectors.h needs
+ * to know before libxstream_common.h reaches it: the alternative, an absent
+ * OpenCL predefine, also describes the host preprocessor a kernel passes through
+ * on its way to a device, and would map the vectors for the wrong translator.
+ * Survives libxstream_cpu_end.h, because the types it selected do.
+ */
+#define LIBXSTREAM_CPU 1
 
 /* Address spaces: a host build has only the one. */
 #define global
@@ -89,10 +108,17 @@
 # endif
 #endif
 
-/* Scalar type names that OpenCL C provides as built-ins. */
+/**
+ * Scalar type names that OpenCL C provides as built-ins. ulong is the one that
+ * cannot be spelled as the host's own: OpenCL's is 64-bit, and a kernel reaches
+ * it to hold the bit pattern of a double, where 32 bits would not be a smaller
+ * range but a different number. Hence the typedef below rather than "unsigned
+ * long", which is 32-bit on LLP64 targets.
+ */
 #define uchar unsigned char
 #define ushort unsigned short
 #define uint unsigned int
+#define ulong libxstream_cpu_ulong_t
 
 /* Fence flags: barrier() has nothing to order on a host build. */
 #define CLK_LOCAL_MEM_FENCE 1
@@ -140,11 +166,68 @@
 # endif
 #endif
 
+/**
+ * Reinterpretation. OpenCL selects on the type of the argument and C cannot, so
+ * each name takes the one type the kernels pass it, and a caller that passes
+ * another gets a conversion instead of a reinterpretation: as_uint(D) on a
+ * double yields the bits of a float. The cast at the call site is what keeps
+ * them apart, which is why AS_UINT in libxstream_common.h picks the name by
+ * real_t rather than leaving it to overloading that is not there.
+ */
+#define as_uint(X) libxstream_cpu_as_uint(X)
+#define as_int(X) libxstream_cpu_as_int(X)
+#define as_float(X) libxstream_cpu_as_float(X)
+#define as_ulong(X) libxstream_cpu_as_ulong(X)
+#define as_double(X) libxstream_cpu_as_double(X)
+
+/**
+ * Integer built-ins. clz takes the width from the argument, hence one host
+ * implementation serves the 32-bit and the 64-bit kernel alike; mul_hi is the
+ * 64-bit form, and a 32-bit argument would widen and answer zero rather than
+ * its own high half.
+ */
+#define clz(X) libxstream_cpu_clz(X, (int)(8 * sizeof(X)))
+#define mul_hi(A, B) libxstream_cpu_mul_hi(A, B)
+
+/**
+ * fma is exactness and not convenience: an error-free transformation takes the
+ * error of a product from it, and a rounded-twice a*b+c would answer a wrong
+ * error rather than a less precise one, which is also why fast-math invalidates
+ * the kernel that asks for it. The builtin is taken where there is one, because
+ * a strict-C89 host has no declaration for fma in math.h and would reach for an
+ * implicit one that returns int.
+ */
+#if defined(__GNUC__) || defined(__clang__)
+# define fma(A, B, C) __builtin_fma(A, B, C)
+#endif
+
+/**
+ * Atomics return the value they replaced, as the device ones do. The launcher
+ * may run work-groups in parallel, hence they are atomic against each other
+ * and not merely read-modify-write.
+ */
+#define atomic_max(A, B) libxstream_cpu_atomic_max(A, B)
+#define atomic_or(A, B) libxstream_cpu_atomic_or(A, B)
+
 #define get_group_id(D) ((size_t)libxstream_cpu_gid[D])
 #define get_local_id(D) ((size_t)libxstream_cpu_lid[D])
 #define get_local_size(D) ((size_t)libxstream_cpu_lsz[D])
 #define get_global_id(D) \
   ((size_t)(libxstream_cpu_gid[D] * libxstream_cpu_lsz[D] + libxstream_cpu_lid[D]))
+/**
+ * The grid is not part of the work-item state, so a kernel that asks for it
+ * needs LIBXSTREAM_CPU_GRID as well, and answers zero until it gets it: a grid
+ * the launcher never stated is better read as no work than as one work-group.
+ */
+#define get_num_groups(D) ((size_t)libxstream_cpu_nwg[D])
+#define get_global_size(D) ((size_t)(libxstream_cpu_nwg[D] * libxstream_cpu_lsz[D]))
+
+/* Publish the work-group count once per launch; the work-items follow. */
+#define LIBXSTREAM_CPU_GRID(N0, N1, N2) do { \
+  libxstream_cpu_nwg[0] = (N0); \
+  libxstream_cpu_nwg[1] = (N1); \
+  libxstream_cpu_nwg[2] = (N2); \
+} while (0)
 
 /* Publish one work-item; the third dimension is degenerate. Survives _end.h. */
 #define LIBXSTREAM_CPU_WORKITEM(G0, G1, G2, L0, L1, S0, S1) do { \
@@ -172,12 +255,25 @@
  */
 #if !defined(LIBXSTREAM_CPU_STATE)
 #define LIBXSTREAM_CPU_STATE
+/**
+ * OpenCL's 64-bit ulong. LIBXS has already settled which spelling the target
+ * has; without it the host's own is taken, and a kernel that reinterprets a
+ * double then needs a target where it is 64 bits wide.
+ */
+#if defined(__LIBXS) || defined(LIBXS_SOURCE)
+typedef uint64_t libxstream_cpu_ulong_t;
+#else
+typedef unsigned long libxstream_cpu_ulong_t;
+#endif
+
 static int libxstream_cpu_gid[3];
 static int libxstream_cpu_lid[3];
 static int libxstream_cpu_lsz[3];
 #if defined(_OPENMP)
 # pragma omp threadprivate(libxstream_cpu_gid, libxstream_cpu_lid, libxstream_cpu_lsz)
 #endif
+/* The grid is one per launch rather than per work-item, hence shared. */
+static int libxstream_cpu_nwg[3];
 
 
 /**
@@ -190,6 +286,106 @@ static void libxstream_cpu_barrier(void)
 #if defined(LIBXSTREAM_CPU_TEAM) && (0 != LIBXSTREAM_CPU_TEAM)
 # pragma omp barrier
 #endif
+}
+
+
+/**
+ * The as_* family. A union rather than a pointer cast: the cast would promise
+ * the compiler two types never alias, which is exactly what is being done here.
+ */
+static unsigned int libxstream_cpu_as_uint(float value)
+{
+  union { float f; unsigned int u; } pun;
+  pun.f = value;
+  return pun.u;
+}
+
+
+static int libxstream_cpu_as_int(float value)
+{
+  union { float f; int i; } pun;
+  pun.f = value;
+  return pun.i;
+}
+
+
+static float libxstream_cpu_as_float(int value)
+{
+  union { float f; int i; } pun;
+  pun.i = value;
+  return pun.f;
+}
+
+
+static libxstream_cpu_ulong_t libxstream_cpu_as_ulong(double value)
+{
+  union { double d; libxstream_cpu_ulong_t u; } pun;
+  pun.d = value;
+  return pun.u;
+}
+
+
+static double libxstream_cpu_as_double(libxstream_cpu_ulong_t value)
+{
+  union { double d; libxstream_cpu_ulong_t u; } pun;
+  pun.u = value;
+  return pun.d;
+}
+
+
+/* Leading zeros within BITS, which the macro takes from the argument. */
+static int libxstream_cpu_clz(libxstream_cpu_ulong_t value, int bits)
+{
+  int result = 0;
+  while (result < bits && 0 == (value >> (bits - 1 - result))) ++result;
+  return result;
+}
+
+
+/**
+ * High half of a 64x64 product, assembled from 32-bit partials: the host may
+ * have no wider integer, and the one it does have is not spelled portably.
+ */
+static libxstream_cpu_ulong_t libxstream_cpu_mul_hi(
+  libxstream_cpu_ulong_t a, libxstream_cpu_ulong_t b)
+{
+  const libxstream_cpu_ulong_t mask = (libxstream_cpu_ulong_t)0xFFFFFFFF;
+  const libxstream_cpu_ulong_t alo = a & mask, ahi = a >> 32;
+  const libxstream_cpu_ulong_t blo = b & mask, bhi = b >> 32;
+  const libxstream_cpu_ulong_t ll = alo * blo;
+  const libxstream_cpu_ulong_t lh = alo * bhi;
+  const libxstream_cpu_ulong_t hl = ahi * blo;
+  /* The carry out of the low half is what the two cross terms contribute. */
+  const libxstream_cpu_ulong_t carry = (ll >> 32) + (lh & mask) + (hl & mask);
+  return ahi * bhi + (lh >> 32) + (hl >> 32) + (carry >> 32);
+}
+
+
+static int libxstream_cpu_atomic_max(int* address, int value)
+{
+  int result;
+#if defined(_OPENMP)
+# pragma omp critical(libxstream_cpu_atomic)
+#endif
+  {
+    result = *address;
+    if (result < value) *address = value;
+  }
+  return result;
+}
+
+
+static int libxstream_cpu_atomic_or(int* address, int value)
+{
+  int result;
+#if defined(_OPENMP)
+# pragma omp critical(libxstream_cpu_atomic)
+#endif
+  {
+    result = *address;
+    *address = result | value;
+  }
+  return result;
 }
 
 #endif /*LIBXSTREAM_CPU_STATE*/

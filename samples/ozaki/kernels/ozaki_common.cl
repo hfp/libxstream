@@ -259,7 +259,7 @@
 #if defined(NV_MMA) && (NV_MMA)
 # define XMX_FRAG 4
 # define OZAKI_ACC_T int4
-# define OZAKI_ACC_ZERO ((int4)(0))
+# define OZAKI_ACC_ZERO VEC_ZERO(int4)
 # define OZAKI_FRAG_ROW(F, LANE) (((F) / 2) * 8 + (int)(LANE) / 4)
 # define OZAKI_FRAG_NCOL 2
 # define OZAKI_FRAG_COLIDX(F) ((F) & 1)
@@ -267,7 +267,7 @@
 #else
 # define XMX_FRAG 8
 # define OZAKI_ACC_T int8
-# define OZAKI_ACC_ZERO ((int8)(0))
+# define OZAKI_ACC_ZERO VEC_ZERO(int8)
 # define OZAKI_FRAG_ROW(F, LANE) (F)
 # define OZAKI_FRAG_NCOL 1
 # define OZAKI_FRAG_COLIDX(F) 0

@@ -765,7 +765,7 @@ kernel void gemm_fused(
             {
               int ri;
               UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-                c_acc[ri] = c_acc[ri] + c_mir[ri];
+                c_acc[ri] = VEC_ADD(OZAKI_ACC_T, c_acc[ri], c_mir[ri]);
               }
             }
           }
@@ -774,26 +774,26 @@ kernel void gemm_fused(
 #elif defined(OZAKI_SCALAR_ACC) && (OZAKI_SCALAR_ACC) && (RTM == 4) && (RTN == 2) && defined(OZAKI_USE_OCL_KLOOP)
         /* Scalar accumulator K-loop. */
         {
-          int8 sc00 = (int8)(0), sc01 = (int8)(0);
-          int8 sc10 = (int8)(0), sc11 = (int8)(0);
-          int8 sc20 = (int8)(0), sc21 = (int8)(0);
-          int8 sc30 = (int8)(0), sc31 = (int8)(0);
-          int8 c_acc_sc[RTM * RTN];
+          OZAKI_ACC_T sc00 = OZAKI_ACC_ZERO, sc01 = OZAKI_ACC_ZERO;
+          OZAKI_ACC_T sc10 = OZAKI_ACC_ZERO, sc11 = OZAKI_ACC_ZERO;
+          OZAKI_ACC_T sc20 = OZAKI_ACC_ZERO, sc21 = OZAKI_ACC_ZERO;
+          OZAKI_ACC_T sc30 = OZAKI_ACC_ZERO, sc31 = OZAKI_ACC_ZERO;
+          OZAKI_ACC_T c_acc_sc[RTM * RTN];
           OZAKI_KLOOP_SC(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, sc00, sc01, sc10, sc11, sc20, sc21, sc30, sc31);
           if (OZAKI_SYM && sa != sb) {
-            int8 sm00 = (int8)(0), sm01 = (int8)(0);
-            int8 sm10 = (int8)(0), sm11 = (int8)(0);
-            int8 sm20 = (int8)(0), sm21 = (int8)(0);
-            int8 sm30 = (int8)(0), sm31 = (int8)(0);
+            OZAKI_ACC_T sm00 = OZAKI_ACC_ZERO, sm01 = OZAKI_ACC_ZERO;
+            OZAKI_ACC_T sm10 = OZAKI_ACC_ZERO, sm11 = OZAKI_ACC_ZERO;
+            OZAKI_ACC_T sm20 = OZAKI_ACC_ZERO, sm21 = OZAKI_ACC_ZERO;
+            OZAKI_ACC_T sm30 = OZAKI_ACC_ZERO, sm31 = OZAKI_ACC_ZERO;
             OZAKI_KLOOP_SC(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, sm00, sm01, sm10, sm11, sm20, sm21, sm30, sm31);
-            sc00 = sc00 + sm00;
-            sc01 = sc01 + sm01;
-            sc10 = sc10 + sm10;
-            sc11 = sc11 + sm11;
-            sc20 = sc20 + sm20;
-            sc21 = sc21 + sm21;
-            sc30 = sc30 + sm30;
-            sc31 = sc31 + sm31;
+            sc00 = VEC_ADD(OZAKI_ACC_T, sc00, sm00);
+            sc01 = VEC_ADD(OZAKI_ACC_T, sc01, sm01);
+            sc10 = VEC_ADD(OZAKI_ACC_T, sc10, sm10);
+            sc11 = VEC_ADD(OZAKI_ACC_T, sc11, sm11);
+            sc20 = VEC_ADD(OZAKI_ACC_T, sc20, sm20);
+            sc21 = VEC_ADD(OZAKI_ACC_T, sc21, sm21);
+            sc30 = VEC_ADD(OZAKI_ACC_T, sc30, sm30);
+            sc31 = VEC_ADD(OZAKI_ACC_T, sc31, sm31);
           }
           c_acc_sc[0] = sc00;
           c_acc_sc[1] = sc01;
@@ -808,27 +808,27 @@ kernel void gemm_fused(
 #elif defined(OZAKI_USE_OCL_KLOOP)
         /* OCL K-loop: per-pair compute + scale+flush. */
         {
-          int8 c_acc[RTM * RTN];
+          OZAKI_ACC_T c_acc[RTM * RTN];
           {
             int ri;
             UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-              c_acc[ri] = (int8)(0);
+              c_acc[ri] = OZAKI_ACC_ZERO;
             }
           }
           OZAKI_KLOOP_OCL(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
           if (OZAKI_SYM && sa != sb) {
-            int8 c_mir[RTM * RTN];
+            OZAKI_ACC_T c_mir[RTM * RTN];
             {
               int ri;
               UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-                c_mir[ri] = (int8)(0);
+                c_mir[ri] = OZAKI_ACC_ZERO;
               }
             }
             OZAKI_KLOOP_OCL(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
             {
               int ri;
               UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-                c_acc[ri] = c_acc[ri] + c_mir[ri];
+                c_acc[ri] = VEC_ADD(OZAKI_ACC_T, c_acc[ri], c_mir[ri]);
               }
             }
           }
@@ -836,27 +836,27 @@ kernel void gemm_fused(
         }
 #else
         {
-          int8 c_acc[RTM * RTN];
+          OZAKI_ACC_T c_acc[RTM * RTN];
           {
             int ri;
             UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-              c_acc[ri] = (int8)(0);
+              c_acc[ri] = OZAKI_ACC_ZERO;
             }
           }
           OZAKI_KLOOP(as_sa, bs_sb, K_pad, N_pad, M, mi_base, nj_base, c_acc);
           if (OZAKI_SYM && sa != sb) {
-            int8 c_mir[RTM * RTN];
+            OZAKI_ACC_T c_mir[RTM * RTN];
             {
               int ri;
               UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-                c_mir[ri] = (int8)(0);
+                c_mir[ri] = OZAKI_ACC_ZERO;
               }
             }
             OZAKI_KLOOP(as_sb, bs_sa, K_pad, N_pad, M, mi_base, nj_base, c_mir);
             {
               int ri;
               UNROLL_FORCE(RTM * RTN) for (ri = 0; ri < RTM * RTN; ++ri) {
-                c_acc[ri] = c_acc[ri] + c_mir[ri];
+                c_acc[ri] = VEC_ADD(OZAKI_ACC_T, c_acc[ri], c_mir[ri]);
               }
             }
           }

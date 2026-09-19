@@ -2308,6 +2308,98 @@ LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size
 }
 
 
+/* Value of a define the caller stated, or zero where it did not state it. */
+static int libxstream_opencl_stated(const char defines[], const char name[])
+{
+  const char* const found = (NULL != defines ? strstr(defines, name) : NULL);
+  return (NULL != found ? atoi(found + strlen(name)) : 0);
+}
+
+
+/* Appends one definition, or reports that it does not fit (LIBXS_SNPRINTF is sprintf). */
+static int libxstream_opencl_predefine(char buffer[], size_t buffer_size, int at, const char name[], size_t nname, int value)
+{
+  int result = -1;
+  if (0 <= at && buffer_size > ((size_t)at + nname + sizeof("#define  1\n") + 8 /*value*/)) {
+    const int n = LIBXS_SNPRINTF(buffer + at, buffer_size - at, "#define %.*s %i\n", (int)nname, name, value);
+    if (0 <= n) result = at + n;
+  }
+  return result;
+}
+
+
+/**
+ * What the device compiler predefines and the host preprocessor does not: the
+ * language version, the extensions, and the optional features of OpenCL 3.0.
+ * Without them a kernel preprocessed on its way to the device (LIBXSTREAM_DUMP=3
+ * replaces the source with what came out) takes the branch of a device that has
+ * nothing, and is then built from that: one inverted test is enough for a dump to
+ * ship a different kernel than the run it was meant to explain.
+ *
+ * They are emitted as directives for the preprocessor's input rather than as
+ * options on its command line. The line has no room for an extension list next
+ * to the caller's own defines, and running out of it would leave the pass
+ * resolving only half of them, which is worse than not resolving at all. They
+ * also must not reach the build options, where naming a predefine is the device
+ * compiler's to refuse.
+ *
+ * Nothing is emitted where nothing is known: a deviceless dump has only what the
+ * caller stated, and a version nobody states stays absent rather than zero.
+ */
+static int libxstream_opencl_predefines(const char defines[], char buffer[], size_t buffer_size)
+{
+  const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+  /* no context is the deviceless dump: the caller states the level in defines */
+  const int ver = (NULL != devinfo->context)
+                    ? (100 * devinfo->std_level[0] + 10 * devinfo->std_level[1])
+                    : libxstream_opencl_stated(defines, "-DLIBXSTREAM_OCLVER=");
+  const int cver = (NULL != devinfo->context)
+                     ? (100 * devinfo->std_clevel[0] + 10 * devinfo->std_clevel[1])
+                     : libxstream_opencl_stated(defines, "-DLIBXSTREAM_OCLVER_C=");
+  int result = 0;
+  buffer[0] = '\0';
+  if (0 < ver) {
+    result = libxstream_opencl_predefine(
+      buffer, buffer_size, result, "__OPENCL_VERSION__", sizeof("__OPENCL_VERSION__") - 1, ver);
+  }
+  if (0 < cver) {
+    result = libxstream_opencl_predefine(
+      buffer, buffer_size, result, "__OPENCL_C_VERSION__", sizeof("__OPENCL_C_VERSION__") - 1, cver);
+  }
+  if (0 <= result && NULL != devinfo->context) {
+    const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
+    char extensions[LIBXSTREAM_BUFFERSIZE];
+    extensions[0] = '\0';
+    if (CL_SUCCESS == clGetDeviceInfo(device_id, CL_DEVICE_EXTENSIONS, sizeof(extensions), extensions, NULL)) {
+      const char* ext = extensions;
+      while (0 <= result && '\0' != *ext) {
+        const size_t n = strcspn(ext, " \t\r\n");
+        if (0 != n) result = libxstream_opencl_predefine(buffer, buffer_size, result, ext, n, 1);
+        ext += n + (('\0' != ext[n]) ? 1 : 0);
+      }
+    }
+#   if defined(CL_DEVICE_OPENCL_C_FEATURES)
+    /* A feature is not an extension: the 3.0 collectives have no extension name. */
+    if (0 <= result && 300 <= cver) {
+      cl_name_version features[64];
+      size_t nbytes = 0;
+      if (CL_SUCCESS == clGetDeviceInfo(device_id, CL_DEVICE_OPENCL_C_FEATURES, sizeof(features), features, &nbytes)
+        && 0 != nbytes && sizeof(features) >= nbytes)
+      {
+        const size_t nfeatures = nbytes / sizeof(cl_name_version);
+        size_t i = 0;
+        for (; i < nfeatures && 0 <= result; ++i) {
+          result = libxstream_opencl_predefine(
+            buffer, buffer_size, result, features[i].name, strlen(features[i].name), 1);
+        }
+      }
+    }
+#   endif
+  }
+  return result;
+}
+
+
 /**
  * Instantiates a kernel template as <name>.cl with the build parameters
  * applied as defines and the includes fused. Sets *instanced to the
@@ -2332,6 +2424,8 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
     const int std_flag_len = (NULL != std_flag ? LIBXS_CAST_INT(strlen(std_flag)) : 0);
     const char* const env_cpp = getenv("LIBXSTREAM_CPP");
     const int cpp = (NULL == env_cpp ? want_cpp : atoi(env_cpp));
+    char predefines[LIBXSTREAM_BUFFERSIZE];
+    int npredefines = 0;
 # if defined(LIBXSTREAM_CPPBIN)
     const char* const env_cppbin = getenv("LIBXSTREAM_CPPBIN");
     const char* const cppbin = (NULL != env_cppbin && '\0' != *env_cppbin)
@@ -2347,12 +2441,16 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
       nchar = LIBXS_SNPRINTF(buffer_name, sizeof(buffer_name), LIBXSTREAM_TEMPDIR "/.%s.XXXXXX", nm);
       if (0 < nchar && (int)sizeof(buffer_name) > nchar) file_dmp = mkstemp(buffer_name);
       fclose(file_cpp); /* existence-check */
+      /* only what is preprocessed needs them, and a raw dump stays the source */
+      npredefines = libxstream_opencl_predefines(build_params, predefines, sizeof(predefines));
+      if (0 > npredefines) npredefines = 0;
     }
     else file_dmp = open(dump_filename, O_CREAT | O_TRUNC | O_RDWR, S_IREAD | S_IWRITE);
     if (0 <= file_dmp) {
       if ((0 != std_flag_len &&
             (3 != write(file_dmp, "/*\n", 3) || std_flag_len != write(file_dmp, std_flag, std_flag_len) ||
               4 != write(file_dmp, "\n*/\n", 4))) ||
+          (0 != npredefines && npredefines != write(file_dmp, predefines, npredefines)) ||
           size_src != (size_t)write(file_dmp, source, size_src))
       {
         file_dmp = -1;
