@@ -36,13 +36,19 @@
  * libxstream_opencl_use_cmem_size), otherwise "global". Inline asm must not
  * hard-code .global: the mismatch compiles silently and reads the wrong state
  * space. The .nc (non-coherent) qualifier is only valid on .global.
+ *
+ * Resolved only where that asm exists: the paste reads the spelling of the
+ * address space, which a host translation (libxstream_cpu_begin.h) defines away,
+ * so elsewhere it would select a state space for nothing on an empty argument.
  */
-#define OZAKI_CONSTANT_IS_global 1
-#define OZAKI_CONSTANT_IS_constant 0
-#if CAT(OZAKI_CONSTANT_IS_, CONSTANT)
-# define OZAKI_PTX_LD_V4 "ld.global.nc.v4.u32"
-#else
-# define OZAKI_PTX_LD_V4 "ld.const.v4.u32"
+#if defined(NV) && (2 <= NV)
+# define OZAKI_CONSTANT_IS_global 1
+# define OZAKI_CONSTANT_IS_constant 0
+# if CAT(OZAKI_CONSTANT_IS_, CONSTANT)
+#   define OZAKI_PTX_LD_V4 "ld.global.nc.v4.u32"
+# else
+#   define OZAKI_PTX_LD_V4 "ld.const.v4.u32"
+# endif
 #endif
 
 /**
@@ -574,7 +580,7 @@
         : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "r"(B0), "r"(B1), \
           "r"(D0), "r"(D1), "r"(D2), "r"(D3))
 # else
-#   define OZAKI_BYTE_T char
+#   define OZAKI_BYTE_T signed char
 #   define OZAKI_BYTE4_T char4
 #   define NV_MMA_16x8x32(D0,D1,D2,D3, A0,A1,A2,A3, B0,B1) \
       __asm__("mma.sync.aligned.m16n8k32.row.col.s32.s8.s8.s32 " \
@@ -740,7 +746,7 @@
 #   define OZAKI_BYTE4_T  uchar4
 # else
 #   define NV_DP4A(D, A, B, C) __asm__("dp4a.s32.s32 %0, %1, %2, %3;" : "=r"(D) : "r"(A), "r"(B), "r"(C))
-#   define OZAKI_BYTE_T char
+#   define OZAKI_BYTE_T signed char
 #   define OZAKI_BYTE4_T  char4
 # endif
 
@@ -892,28 +898,35 @@
 # define OZAKI_PREFETCH_A(AS, K_PAD, M_HT, KOFF, MI)
 # define OZAKI_PREFETCH_B(BS, N_PAD, K_PAD, KOFF, NJ)
 # define OZAKI_PREFETCH_TILED(AS, BS, K_PAD, N_PAD, M_HT, KOFF, MI, NJ)
+/* Spelled out: only OpenCL defines plain char as signed, and a host translation reads it too. */
 # if defined(OZAKI_U8) && (OZAKI_U8)
 # define OZAKI_BYTE_T uchar
 # else
-# define OZAKI_BYTE_T char
+# define OZAKI_BYTE_T signed char
 # endif
+/**
+ * The locals carry the macro's name because KOFF arrives as an expression over
+ * the caller's own: the K-grouped loop passes "k_ + ku_ * BK", which a local k_
+ * here captured, so every product read A and B at twice the offset.
+ */
 # define OZAKI_DPAS(AS, BS, K_PAD, N_PAD, MI, NJ, KOFF, M_HT, ACC) \
     do { \
-      const int col_ = (NJ) + (int)SGLID(); \
+      const int dpas_col_ = (NJ) + (int)SGLID(); \
       union { \
         int8 v_; \
         int a_[8]; \
-      } u_; \
-      int m_; \
-      u_.v_ = (ACC); \
-      for (m_ = 0; m_ < 8; ++m_) { \
-        int k_; \
-        for (k_ = 0; k_ < 32; ++k_) { \
-          u_.a_[m_] += (int)((CONSTANT const OZAKI_BYTE_T*)(AS))[(long)((MI) + m_) * (K_PAD) + (KOFF) + k_] * \
-                       (int)((CONSTANT const OZAKI_BYTE_T*)(BS))[(long)((KOFF) + k_) * (N_PAD) + col_]; \
+      } dpas_u_; \
+      int dpas_m_; \
+      dpas_u_.v_ = (ACC); \
+      for (dpas_m_ = 0; dpas_m_ < 8; ++dpas_m_) { \
+        int dpas_k_; \
+        for (dpas_k_ = 0; dpas_k_ < 32; ++dpas_k_) { \
+          dpas_u_.a_[dpas_m_] += \
+            (int)((CONSTANT const OZAKI_BYTE_T*)(AS))[(long)((MI) + dpas_m_) * (K_PAD) + (KOFF) + dpas_k_] * \
+            (int)((CONSTANT const OZAKI_BYTE_T*)(BS))[(long)((KOFF) + dpas_k_) * (N_PAD) + dpas_col_]; \
         } \
       } \
-      (ACC) = u_.v_; \
+      (ACC) = dpas_u_.v_; \
     } while (0)
 
 /* Scalar DPAS_TILED: loop over RTM x RTN sub-tiles using scalar DPAS. */
@@ -960,14 +973,14 @@ inline void ieee_decompose(real_t val, int* sign, short* exp, uint_repr_t* mant)
  * MANT_BITS must be defined by the including file.
  */
 #if defined(MANT_BITS)
-inline char ozaki_slice_digit(uint_repr_t aligned, int sign, int s)
+inline signed char ozaki_slice_digit(uint_repr_t aligned, int sign, int s)
 {
   const int high = MANT_BITS - (7 * s);
   const int low = MAX(0, high - 6);
   const int width = high - low + 1;
-  char digit = 0;
+  signed char digit = 0;
   if (width > 0 && high >= 0) {
-    digit = (char)((aligned >> low) & ((1U << width) - 1U));
+    digit = (signed char)((aligned >> low) & ((1U << width) - 1U));
   }
   if (sign) digit = -digit;
   return digit;

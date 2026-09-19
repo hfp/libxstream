@@ -3,3 +3,5 @@
 /k_*.cl
 /dump_*.cl
 /lvl_*.cl
+/predef_*.cl
+/vec_*.cl

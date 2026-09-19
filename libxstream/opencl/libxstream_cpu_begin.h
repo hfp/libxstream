@@ -7,12 +7,13 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#include <stddef.h>
-#include <stdlib.h>
-#include <math.h>
 #if defined(__LIBXS) || defined(LIBXS_SOURCE)
 # include <libxs/libxs_macros.h>
 # include <libxs/libxs_math.h>
+#else
+# include <stddef.h>
+# include <stdlib.h>
+# include <math.h>
 #endif
 
 /**
@@ -32,9 +33,12 @@
  * the host has under another name or not at all: the as_* reinterpretations, the
  * integer atomics, clz and mul_hi, fma, and the work-item queries. A built-in the
  * host already spells the same way (abs, floor) is left to stdlib.h and math.h,
- * which is why they are included here rather than by whoever brackets a kernel. The
- * vector types are not here but in libxstream_vectors.h, which the kernel reaches
- * through libxstream_common.h, and which a kernel using them therefore includes.
+ * which is why they are included here rather than by whoever brackets a kernel.
+ * With LIBXS they come from libxs_macros.h, which places them after its
+ * feature-test macros; a system header ahead of those would have glibc settle on
+ * a surface without them. The vector types are not here but in
+ * libxstream_vectors.h, which the kernel reaches through libxstream_common.h, and
+ * which a kernel using them therefore includes.
  *
  * Work-group model, selected by LIBXSTREAM_CPU_TEAM:
  * 0 (default) A work-item runs to completion, hence barrier() is a no-op and
@@ -49,6 +53,12 @@
  *
  * Host long is 32-bit on LLP64 targets whereas OpenCL long is 64-bit, so a host
  * build indexes smaller buffers there than the device does.
+ *
+ * Plain char is the one type the shim cannot carry over: OpenCL defines it as
+ * signed, a host ABI may not, and redefining it would rewrite "unsigned char" as
+ * well. A kernel therefore spells signed char wherever the sign of a byte is read
+ * (plain char stays fine for addressing bytes); otherwise the host reads other
+ * numbers and nothing fails.
  */
 
 #if defined(LIBXSTREAM_CPU_TEAM) && (0 != LIBXSTREAM_CPU_TEAM) && !defined(_OPENMP)
@@ -85,13 +95,21 @@
 #undef inline
 #define inline static
 /**
- * A helper the kernel at hand does not call is expected here, and the shim
- * neutralizes __attribute__ (the device spellings mean nothing to a host
- * compiler), so the attribute route to silence it is not available.
+ * What the bracket admits that the host dialect would reject: a helper the kernel
+ * at hand does not call (the shim neutralizes __attribute__, so the attribute
+ * route to silence it is not available), a directive only an OpenCL compiler
+ * knows ("#pragma OPENCL EXTENSION"), a declaration after a statement, which
+ * OpenCL C has from C99 and a C89 host build does not, and a nested array given
+ * a flat initializer, as a host emits its tables and an OpenCL compiler takes
+ * them. A C99 for-declaration is an error rather than a warning there and stays
+ * out of reach of any pragma.
  */
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunknown-pragmas"
+#pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+#pragma GCC diagnostic ignored "-Wmissing-braces"
 #endif
 
 /* Kernel attributes carry no meaning on the host. */
@@ -196,9 +214,18 @@
  * the kernel that asks for it. The builtin is taken where there is one, because
  * a strict-C89 host has no declaration for fma in math.h and would reach for an
  * implicit one that returns int.
+ *
+ * OpenCL overloads fma on its argument type and C cannot, so the width is taken
+ * from the type the three arguments have in common: a float fma formed in double
+ * rounds its sum once in double and again to float, which is a different number.
+ * The result is double either way, and holds the float one exactly; assigning it
+ * or combining it in one more operation rounds as the device does, whereas a
+ * chain of several operations on it would be evaluated in double first.
  */
 #if defined(__GNUC__) || defined(__clang__)
-# define fma(A, B, C) __builtin_fma(A, B, C)
+# define fma(A, B, C) (sizeof(float) == sizeof((A) + (B) + (C)) \
+    ? (double)__builtin_fmaf((float)(A), (float)(B), (float)(C)) \
+    : __builtin_fma(A, B, C))
 #endif
 
 /**
@@ -223,11 +250,7 @@
 #define get_global_size(D) ((size_t)(libxstream_cpu_nwg[D] * libxstream_cpu_lsz[D]))
 
 /* Publish the work-group count once per launch; the work-items follow. */
-#define LIBXSTREAM_CPU_GRID(N0, N1, N2) do { \
-  libxstream_cpu_nwg[0] = (N0); \
-  libxstream_cpu_nwg[1] = (N1); \
-  libxstream_cpu_nwg[2] = (N2); \
-} while (0)
+#define LIBXSTREAM_CPU_GRID(N0, N1, N2) libxstream_cpu_grid(N0, N1, N2)
 
 /* Publish one work-item; the third dimension is degenerate. Survives _end.h. */
 #define LIBXSTREAM_CPU_WORKITEM(G0, G1, G2, L0, L1, S0, S1) do { \
@@ -274,6 +297,20 @@ static int libxstream_cpu_lsz[3];
 #endif
 /* The grid is one per launch rather than per work-item, hence shared. */
 static int libxstream_cpu_nwg[3];
+
+
+/**
+ * A function rather than the assignments in the macro, because a launcher that
+ * never asks for the grid would leave the state above unreferenced: the variable
+ * would then draw an unused warning that a function does not, the bracket
+ * exempting unused functions and the shim having neutralized __attribute__.
+ */
+static void libxstream_cpu_grid(int n0, int n1, int n2)
+{
+  libxstream_cpu_nwg[0] = n0;
+  libxstream_cpu_nwg[1] = n1;
+  libxstream_cpu_nwg[2] = n2;
+}
 
 
 /**

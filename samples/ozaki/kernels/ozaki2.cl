@@ -221,9 +221,13 @@
     *(global uchar4*)((DST) + (OFF)) = \
       VEC_SET4(uchar4, (uchar)(R0), (uchar)(R1), (uchar)(R2), (uchar)(R3))
 #else
-/* The dropped sources are still consumed, so a width of 1 leaves nothing unused. */
+/**
+ * The dropped sources are still consumed, so a width of 1 leaves nothing unused. The
+ * byte goes out as uchar like the wider run's, whose conversion is defined for every
+ * residue, where a signed char takes one above 127 only by the implementation's leave.
+ */
 # define OZAKI_CRT_STORE_RUN(DST, OFF, R0, R1, R2, R3) \
-    ((void)(R1), (void)(R2), (void)(R3), (void)((DST)[(OFF)] = (char)(R0)))
+    ((void)(R1), (void)(R2), (void)(R3), (void)(((global uchar*)(DST))[(OFF)] = (uchar)(R0)))
 #endif
 /**
  * One K-block of sixteen residues, collected in registers and written as 16-byte

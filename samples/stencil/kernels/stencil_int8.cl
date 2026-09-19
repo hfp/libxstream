@@ -56,7 +56,7 @@
     const int ks_lo_ = KSTEP_I8_LO(MI); \
     const int ks_hi_ = KSTEP_I8_HI(MI); \
     UNROLL_FORCE(NSLICES_A) for (sa_ = 0; sa_ < NSLICES_A; ++sa_) { \
-      global const char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
+      global const signed char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
       UNROLL_AUTO for (sb_ = 0; sb_ < (CUR_NSLICES_EFF); ++sb_) { \
         int8 pair_acc_ = (int8)(0); \
         const float pair_scale_ = dk_scale[sa_ * BLK + (MI)] \
@@ -92,7 +92,7 @@
     const int sg_lid_i8_ = (int)SGLID(); \
     if (sg_lid_i8_ < XMX_N) { \
       UNROLL_FORCE(NSLICES_A) for (sa_ = 0; sa_ < NSLICES_A; ++sa_) { \
-        global const char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
+        global const signed char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
         UNROLL_AUTO for (sb_ = 0; sb_ < (CUR_NSLICES_EFF); ++sb_) { \
           const float pair_scale_ = dk_scale[sa_ * BLK + (MI)] \
             * EXP2I((CUR_ASSUMED_EXP) - BIAS - MANT_BITS + 7 * sb_); \
@@ -121,7 +121,7 @@
     const int sg_lid_i8_ = (int)SGLID(); \
     if (sg_lid_i8_ < XMX_N) { \
       UNROLL_FORCE(NSLICES_A) for (sa_ = 0; sa_ < NSLICES_A; ++sa_) { \
-        global const char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
+        global const signed char* d_digit_ = (CUR_DK) + (long)sa_ * BLK * K_PAD_I8; \
         UNROLL_AUTO for (sb_ = 0; sb_ < (CUR_NSLICES_EFF); ++sb_) { \
           const float pair_scale_ = dk_scale[sa_ * BLK + (MI)] \
             * EXP2I((CUR_ASSUMED_EXP) - BIAS - MANT_BITS + 7 * sb_); \
@@ -131,16 +131,17 @@
             const int row_ = (MI) + m_; \
             const int k4_lo_ = row_ >> 2; \
             const int k4_hi_ = (row_ + 2 * RADIUS) >> 2; \
-            global const char* d_row_ = d_digit_ + (long)row_ * K_PAD_I8; \
+            global const signed char* d_row_ = d_digit_ + (long)row_ * K_PAD_I8; \
             local const int* x_col_ = x_slm + (BUF_CUR) \
               + sb_ * I8_K4_PAD * XMX_N + sg_lid_i8_; \
             int dot_ = 0, k4_; \
             for (k4_ = k4_lo_; k4_ <= k4_hi_; ++k4_) { \
               const int xpacked_ = x_col_[k4_ * XMX_N]; \
-              dot_ += (int)d_row_[k4_ * 4 + 0] * (int)(char)(xpacked_ & 0xFF); \
-              dot_ += (int)d_row_[k4_ * 4 + 1] * (int)(char)((xpacked_ >> 8) & 0xFF); \
-              dot_ += (int)d_row_[k4_ * 4 + 2] * (int)(char)((xpacked_ >> 16) & 0xFF); \
-              dot_ += (int)d_row_[k4_ * 4 + 3] * (int)(char)((xpacked_ >> 24) & 0xFF); \
+              /* sign extension written out: a cast to char is signed only in OpenCL */ \
+              dot_ += (int)d_row_[k4_ * 4 + 0] * (((xpacked_ & 0xFF) ^ 0x80) - 0x80); \
+              dot_ += (int)d_row_[k4_ * 4 + 1] * ((((xpacked_ >> 8) & 0xFF) ^ 0x80) - 0x80); \
+              dot_ += (int)d_row_[k4_ * 4 + 2] * ((((xpacked_ >> 16) & 0xFF) ^ 0x80) - 0x80); \
+              dot_ += (int)d_row_[k4_ * 4 + 3] * ((((xpacked_ >> 24) & 0xFF) ^ 0x80) - 0x80); \
             } \
             ((float*)&(ACC_SLOT))[m_] += (float)dot_ * pair_scale_; \
           } \
@@ -173,8 +174,8 @@
 
 #define I8_PACK_BYTE(MANT, SIGN, SHIFT) \
   ((uchar)((0 != (SIGN)) \
-    ? (char)(-((char)(((MANT) >> (SHIFT)) & 0x7Fu))) \
-    : (char)(((MANT) >> (SHIFT)) & 0x7Fu)))
+    ? (signed char)(-((signed char)(((MANT) >> (SHIFT)) & 0x7Fu))) \
+    : (signed char)(((MANT) >> (SHIFT)) & 0x7Fu)))
 
 #define I8_GATHER_PACK4(PACK, MANT0, S0, MANT1, S1, MANT2, S2, MANT3, S3) \
   do { \
@@ -272,9 +273,9 @@ __attribute__((reqd_work_group_size(SG, WG_M_TILES, 1)))
 __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void stencil_apply_int8(
-  global const char* restrict dk_x,
-  global const char* restrict dk_y,
-  global const char* restrict dk_z,
+  global const signed char* restrict dk_x,
+  global const signed char* restrict dk_y,
+  global const signed char* restrict dk_z,
   global const float* restrict dk_scale,
   global const float* restrict p_grid,
   /* In/out: holds the previous time step on entry, the next one on exit. */
@@ -379,7 +380,7 @@ kernel void stencil_apply_int8(
 
     { const int cur_dim_l = STENCIL_DIM(cur_dim);
       const int next_dim_l = STENCIL_DIM(next_dim);
-      global const char* cur_dk = (0 == cur_dim_l) ? dk_x : ((1 == cur_dim_l) ? dk_y : dk_z);
+      global const signed char* cur_dk = (0 == cur_dim_l) ? dk_x : ((1 == cur_dim_l) ? dk_y : dk_z);
 
       STENCIL_I8_ACC(cur_dk, buf_cur, cur_nslices_eff, cur_assumed_exp, mi, acc[cur_strip]);
 
@@ -431,7 +432,7 @@ kernel void stencil_apply_int8(
       : ((cur_assumed_exp <= 7) ? 1 : ((cur_assumed_exp <= 14) ? 2 : NSLICES_X));
 
     { const int cur_dim_l = STENCIL_DIM(cur_dim);
-      global const char* cur_dk = (0 == cur_dim_l) ? dk_x : ((1 == cur_dim_l) ? dk_y : dk_z);
+      global const signed char* cur_dk = (0 == cur_dim_l) ? dk_x : ((1 == cur_dim_l) ? dk_y : dk_z);
       STENCIL_I8_ACC(cur_dk, buf_cur, cur_nslices_eff, cur_assumed_exp, mi, acc[cur_strip]);
     }
   }

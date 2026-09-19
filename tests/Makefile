@@ -93,6 +93,12 @@ $(foreach SRC, $(CSOURCX), \
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@
 
+# The shim tests compile kernels into themselves rather than reading them at run
+# time, so the kernels and the shim are sources of those objects: without them an
+# edited kernel leaves a test running the previous one, and passing.
+$(call objname,$(wildcard $(SRCDIR)/shim*.c)): $(wildcard $(DEPDIR)/$(PROJECT)/opencl/*.h) \
+  $(wildcard $(DEPDIR)/samples/ozaki/kernels/*.cl)
+
 .PHONY: clean
 clean:
 ifneq ($(call qapath,$(BLDDIR)),$(ROOTDIR))

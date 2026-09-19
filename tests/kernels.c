@@ -77,6 +77,12 @@
   KERNELS_OZAKI_BASE " -DNSLICES=8 -DUSE_DOUBLE=1 -DMANT_BITS=53" \
   " -DBIAS_PLUS_MANT=1075 -DOZAKI_HIER=1 -DOZAKI_TRI=1 -DOZAKI_SYM=1"
 /**
+ * K-grouping, a loop of its own around the residue GEMM, whose K offset the scalar
+ * fallback once captured with a local of the same name. The base states KGROUPS=0,
+ * so the override undefines it first rather than redefining it.
+ */
+#define KERNELS_OZAKI_KGROUPS KERNELS_OZAKI_FP64 " -UKGROUPS -DKGROUPS=2"
+/**
  * Warp-group MMA as the host emits it, shape included: SG=32, RTM=1 and RTN=BN/8 are
  * not choices here but what the instruction fixes, so this flavor cannot share
  * KERNELS_OZAKI_BASE.
@@ -141,6 +147,7 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp64", KERNELS_OZAKI_FP64, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp32", KERNELS_OZAKI_FP32, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "flat", KERNELS_OZAKI_FLAT, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "kgroups", KERNELS_OZAKI_KGROUPS, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma", KERNELS_OZAKI_WGMMA, 1 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma4", KERNELS_OZAKI_WGMMA4, 1 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "symres", KERNELS_OZAKI_SYMRES, 1 },
@@ -226,7 +233,7 @@ int main(void)
   }
   if (EXIT_SUCCESS == result) {
     const int npending = (int)(sizeof(kernel_pending) / sizeof(*kernel_pending));
-    printf("kernels: %d compiled at -Wall -Wextra -pedantic -Werror\n", n);
+    printf("kernels: %d compiled at -Wall -Wextra -pedantic -Wshadow -Werror\n", n);
     for (i = 0; i < npending; ++i) printf("kernels: NOT COVERED %s\n", kernel_pending[i]);
   }
   return result;
@@ -286,8 +293,10 @@ static int compiles(const char artifact[], const kernels_level_t* level, int nv)
         "%s -x cl -cl-std=%s -fsyntax-only%s"
         /* -Wno-unused-parameter as the library's own C build does: a kernel
          * signature is fixed by the host argument list, so an unused parameter
-         * is a interface constraint and not a defect. */
-        " -Wall -Wextra -pedantic -Wno-unused-parameter -Werror"
+         * is a interface constraint and not a defect. -Wshadow because a macro
+         * local that shadows the caller's captures every argument spelled with
+         * that name, which compiles clean and computes something else. */
+        " -Wall -Wextra -pedantic -Wshadow -Wno-unused-parameter -Werror"
         " -Xclang -cl-ext=%s -Xclang -finclude-default-header %s",
         kernels_cc(), level->std, 0 != nv ? " --target=nvptx64-nvidia-cuda" : "", level->ext, artifact))
   {
