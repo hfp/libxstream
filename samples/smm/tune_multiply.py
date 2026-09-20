@@ -622,7 +622,7 @@ class SmmTuner(MeasurementInterface):
             return
         self.gflogs = self.gfscnt = 0
         merged, retain, delete, skipcnt = self.merge_collect(filenames)
-        if self.args.prefer_new:
+        if "new" == self.args.prefer:
             losslog, losscnt = 0, 0
             for key, value in retain.items():
                 if key in merged:
@@ -649,24 +649,24 @@ class SmmTuner(MeasurementInterface):
             if 0 < losscnt:
                 gmn = math.exp(losslog / losscnt)
                 print(
-                    "Prefer newer: {:.2f}x (geometric mean over {} kernels)".format(
+                    "Prefer new: {:.2f}x (geometric mean over {} kernels)".format(
                         gmn, losscnt
                     )
                 )
-        if self.args.delete:
-            rfiles = [v[-1] for v in retain.values()]
-            delete = delete + rfiles
+        delete = delete + [v[-1] for v in retain.values()]
         if bool(delete):
-            num, lst, msg = len(delete), " ".join(delete), "Remove"
-            if self.args.delete and not self.args.dry_run:
+            num, lst = len(delete), " ".join(delete)
+            if self.args.delete:
                 for filename in delete:
                     try:
                         os.remove(filename)
                     except Exception:
                         pass
-                msg = "Removed"
+                msg = "Removed {}".format(num)
                 skipcnt = skipcnt + num
-            print("{} {}: {}".format(msg, num, lst))
+            else:  # the merge reports what -d would have removed
+                msg = "Remove {} (use -d)".format(num)
+            print("{}: {}".format(msg, lst))
             print("")
         self.merge_write_csv(merged, len(filenames), skipcnt)
 
@@ -868,21 +868,15 @@ if __name__ == "__main__":
         "--delete",
         action="store_true",
         default=False,
-        help="Delete outperformed duplicates during merge",
+        help="Delete losing duplicates during merge (see --prefer)",
     )
     argparser.add_argument(
-        "--prefer-new",
-        action="store_true",
-        default=False,
-        dest="prefer_new",
-        help="Swap older-best with newer entries (implies --delete)",
-    )
-    argparser.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        dest="dry_run",
-        help="Print what would be deleted without deleting",
+        "--prefer",
+        type=str,
+        default="fast",
+        choices=["fast", "new"],
+        dest="prefer",
+        help="Winner among duplicates: fastest or newest entry",
     )
     argparser.add_argument(
         "-v",
@@ -898,7 +892,7 @@ if __name__ == "__main__":
         default=-1,
         nargs="?",
         dest="tlevel",
-        help="Tunables: (0) all, (1) most, (2) some, (3) least",
+        help="Tunables: (0) all, (1) most, (2) some, (3) few, (4) least",
     )
     argparser.add_argument(
         "-q",
@@ -1060,8 +1054,6 @@ if __name__ == "__main__":
         help="Per-kernel timeout in seconds (0:unlimited)",
     )
     args, argd = argparser.parse_args(), argparser.parse_args([])
-    if args.prefer_new:
-        args.delete = True
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in default_enable_tune:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)

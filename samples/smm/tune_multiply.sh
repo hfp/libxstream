@@ -9,12 +9,15 @@
 ###############################################################################
 XARGS=$(command -v xargs)
 SORT=$(command -v sort)
+TAIL=$(command -v tail)
 HEAD=$(command -v head)
 SED=$(command -v gsed)
+TAC=$(command -v tac)
 CUT=$(command -v cut)
 LS=$(command -v ls)
 RM=$(command -v rm)
 WC=$(command -v wc)
+TR=$(command -v tr)
 
 # initial delay before auto-tuning (interactive)
 WAIT_DEFAULT=12
@@ -29,6 +32,10 @@ fi
 # GNU sed is desired (macOS)
 if [ ! "${SED}" ]; then
   SED=$(command -v sed)
+fi
+# BSD/macOS has no tac, and GNU tail has no -r
+if [ ! "${TAC}" ] && [ "${TAIL}" ] && ${TAIL} -r </dev/null 2>/dev/null; then
+  TAC="${TAIL} -r"
 fi
 
 if [ "${XARGS}" ] && [ "${SORT}" ] && [ "${HEAD}" ] && [ "${SED}" ] && \
@@ -52,6 +59,9 @@ then
     -d|--delete)
       DELETE=1
       shift 1;;
+    --prefer)
+      PREFER=$2
+      shift 2;;
     -a|--tuning-level)
       TLEVEL=$2
       shift 2;;
@@ -119,6 +129,14 @@ then
     >&2 echo "ERROR: part-number must be 1-based!"
     exit 1
   fi
+  if [ "${PREFER}" ]; then
+    case "${PREFER}" in
+    fast|new) PREFER=" --prefer=${PREFER}";;
+    *)
+      >&2 echo "ERROR: --prefer takes fast or new!"
+      exit 1;;
+    esac
+  fi
   if [ "${SPECID}" ] && [ "$1" ]; then
     >&2 echo "ERROR: --specid and <triplet-spec> are mutual exclusive!"
     exit 1
@@ -157,13 +175,18 @@ then
   if [ ! "${WAIT}" ] || [[ ("${HELP}" && "0" != "${HELP}") ]]; then
     eval "${ECHO} \"Usage: $0 [options] [<triplet-spec>]\""
     eval "${ECHO} \"       Options must precede triplet specification\""
+    eval "${ECHO} \"       Other options go to tune_multiply.py (--opt=value)\""
     eval "${ECHO} \"       -w|--wait N: initial delay before auto-tuning (default: ${WAIT_DEFAULT} s)\""
     eval "${ECHO} \"       -c|--continue: proceed with plan if tuning is interrupted\""
     eval "${ECHO} \"       -u|--update: retune all JSONs found in directory (see -p)\""
     eval "${ECHO} \"       -f|--file F: read MxNxK list from file (one per line, # comments)\""
     eval "${ECHO} \"       -s|--batchsize N: Number of batched SMMs (a.k.a. stacksize)\""
-    eval "${ECHO} \"       -a|--tuning-level N=0..3: all, most, some, least tunables\""
+    eval "${ECHO} \"       -a|--tuning-level N=0..4: all, most, some, few, least\""
+    eval "${ECHO} \"        tunables, where the default (-1) matches level 2\""
     eval "${ECHO} \"       -b|--backwards: tune in descending order of triplets\""
+    eval "${ECHO} \"        (reverses before -n limits and before parts are cut)\""
+    eval "${ECHO} \"       -d|--delete: delete losing duplicates when merging JSONs\""
+    eval "${ECHO} \"       --prefer fast|new: duplicate winner (default: fast)\""
     eval "${ECHO} \"       -t|--maxtime N: number of seconds spent per kernel\""
     eval "${ECHO} \"       -p|--jsondir P: path to JSON-files (tuned params)\""
     eval "${ECHO} \"       -i|--part N (1-based): Nth session out of nparts\""
@@ -207,10 +230,12 @@ then
       done
       MNKS=${TMP}
     fi
-    if [ "${REVERSE}" ] && [ "0" != "${REVERSE}" ] && \
-       [ "$(command -v tr)" ] && [ "$(command -v tac)" ];
-    then
-      MNKS=$(tr ' ' '\n' <<<"${MNKS}" | tac | tr '\n' ' '; echo)
+    if [ "${REVERSE}" ] && [ "0" != "${REVERSE}" ]; then
+      if [ "${TR}" ] && [ "${TAC}" ]; then
+        MNKS=$(${TR} ' ' '\n' <<<"${MNKS}" | ${TAC} | ${TR} '\n' ' '; echo)
+      else # tuning ascending without a word would mislabel the session
+        >&2 echo "WARNING: ascending order (reversal needs tr and tac/tail)!"
+      fi
     fi
     if [ "${MNKS}" ] && [ "${MAXNUM}" ] && [ "0" != "$((0<MAXNUM))" ]; then
       MNKS=$(${XARGS} -n1 <<<"${MNKS}" | ${HEAD} -n"${MAXNUM}" | ${XARGS})
@@ -285,7 +310,7 @@ then
       echo "[$((N+1))/${PARTSIZE}]${STEP}: auto-tuning ${MNK}-kernel..."
       # avoid mixing database of previous results into new session
       ${RM} -rf ./opentuner.db
-      eval "${HERE}/tune_multiply.py ${MNK} ${DELETE} -p ${JSONDIR} -s ${BATCHSIZE} -a ${TLEVEL} ${MAXTIME}${EXTRA}"
+      eval "${HERE}/tune_multiply.py ${MNK} ${DELETE}${PREFER} -p ${JSONDIR} -s ${BATCHSIZE} -a ${TLEVEL} ${MAXTIME}${EXTRA}"
       RESULT=$?
       # environment var. CONTINUE allows to proceed with next kernel
       # even if tune_multiply.py returned non-zero exit code
