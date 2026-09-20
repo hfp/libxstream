@@ -131,6 +131,13 @@ make realclean
 make WITH_GPU=PVC
 ```
 
+Show which embedded parameter set a device name selects:
+
+```bash
+make match
+./acc_match.x "NVIDIA H200"
+```
+
 ## Auto Tuning
 
 Uses OpenTuner to explore the parameter space per (M, N, K) kernel.
@@ -173,11 +180,21 @@ printf '%s\n' 13x5x7 23x23x23 32x32x32 > kernels.txt
 ./tune_multiply.py kernels.txt --stop-after=180 -p params/local
 ```
 
-Merge JSON files into a CSV file:
+Merge JSON files into a CSV file (without a shape, `-p` or `--prefer`
+alone merges as well):
 
 ```bash
 ./tune_multiply.py -m -p params/local -o tune_multiply_local.csv
 ```
+
+A JSON file is named after its kernel and a hash of its parameters, for
+example `tune_multiply-double-23x23x23-1a2b3c4d.json`, with `-s<N>` after
+the shape if the batch size is not the default 30000. Tuning that finds
+the same parameters again keeps one file with the higher GFLOPS/s. A
+merge renames files of earlier forms and keeps their modification time,
+which `--prefer new` relies on. Keep one
+directory per device: a same-named file from another device is reported
+and left alone.
 
 Update stored device names after rebuilding for a different target:
 
@@ -191,19 +208,38 @@ Check existing JSONs without re-tuning:
 ./tune_multiply.py -c -p params/local
 ```
 
+When two JSON files describe the same kernel on the same device,
+`--prefer` decides which one wins the CSV: `fast` (default) keeps the
+higher GFLOPS/s, and `new` keeps the more recent measurement, which is
+what a driver or hardware change calls for. A merge lists the losing
+files, and `-d` removes them:
+
+```bash
+./tune_multiply.py -p params/local --prefer new
+./tune_multiply.py -p params/local --prefer new -d
+```
+
+The first command prints `Remove N (use -d)` followed by the files the
+second one deletes, so a merge is also the preview.
+
+Neither direction is inherently safer. Deleting the older file
+discards a configuration that was faster and may be faster again,
+while deleting the newer one discards the evidence of a regression.
+
 Useful options:
 
 | Option              | Meaning                                      |
 |---------------------|----------------------------------------------|
 | --stop-after N      | Stop the search after N seconds              |
-| -p path             | Directory for JSON input and output          |
+| -p path             | JSON directory; without a shape, merge it    |
 | -s size             | Benchmark batch size, also called stack size |
-| -a level            | Tuning level: 0=all, 1=most, 2=some, 3=least |
+| -a level            | Tuning level: 0=all ... 4=least tunables     |
 | -m                  | Merge JSON files into a CSV file             |
 | -o file             | CSV output file                              |
 | -u [device]         | Update JSON device names                     |
 | -c [epsilon]        | Validate JSON entries                        |
-| -d                  | Delete outperformed duplicates during merge  |
+| --prefer fast\|new  | Duplicate winner; without a shape, merge     |
+| -d                  | Delete losing duplicates during merge        |
 
 The tuner can run under MPI. It detects local MPI rank variables and
 uses them to select `LIBXSTREAM_DEVICE`, so ranks on the same node can
@@ -252,6 +288,20 @@ Split the same work into four parts and run the second part:
 ./tune_multiply.sh -t 300 -j 4 -i 2 4 10 15, 6 7 8, 23
 ```
 
+Parts also split a long job into sessions on a single device. The
+split points depend only on the triplet list and `-j`, so each session
+repeats the same command and only the part number changes:
+
+```bash
+PART=1  # next session: 2, then 3 and 4
+./tune_multiply.sh -t 300 -j 4 -i ${PART} -p params/local 4 10 15, 6 7 8, 23
+```
+
+Keep the options that shape the list unchanged between sessions (`-r`,
+`-m`, `-n`, `-b`, `-f`, `-k`), since any change moves the split points.
+With `-u`, the list comes from the JSON directory, which stays the same
+as long as no new shapes are added to it between sessions.
+
 Retune every JSON file found in a directory:
 
 ```bash
@@ -272,18 +322,30 @@ Useful options:
 | -t seconds      | Time limit per kernel                             |
 | -p path         | Directory for JSON files                          |
 | -s size         | Benchmark batch size, also called stack size      |
-| -a level        | Tuning level: 0=all, 1=most, 2=some, 3=least      |
+| -a level        | Tuning level: 0=all ... 4=least tunables          |
 | -u              | Retune JSON files found under `-p`                |
-| -d              | Ask the merge step to delete outperformed JSONs   |
+| -d              | Ask the merge step to delete losing JSONs         |
+| --prefer new    | Prefer newest duplicate (default: fastest)        |
 | -c              | Continue with the next kernel after an error      |
-| -b              | Tune triplets in reverse order                    |
+| -b              | Reverse triplets, before `-n` and before parts    |
 | -j parts        | Total number of tuning parts                      |
 | -i index        | Part to run, using 1-based numbering              |
 | -r low high     | Keep kernels with low**3 < M*N*K <= high**3       |
 | -m extent       | Keep kernels with M, N, and K no larger than this |
-| -n count        | Keep only the first count kernels                 |
+| -n count        | Keep only the first count kernels (see `-b`)      |
 | -f file         | Read MxNxK list from a file (one per line)        |
 | -k id           | Use a predefined triplet set                      |
+
+Options the wrapper does not know are passed to `tune_multiply.py`.
+Such an option must carry its value as `--opt=value`, since a separate
+value would be read as the start of the triplet specification:
+
+```bash
+./tune_multiply.sh -t 300 --check=0 23x23x23
+```
+
+The tuning level defaults to `-1`, which fixes the same tunables as
+level 2. Levels 3 and 4 fix successively more of them.
 
 ### Tuning from a File
 

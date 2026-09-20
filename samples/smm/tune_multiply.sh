@@ -147,11 +147,11 @@ then
   fi
   # how to print standard vs error messages
   if [ ! "${HELP}" ] || [ "0" = "${HELP}" ]; then
-    JSONS=$(${LS} -1 "${JSONDIR}"/tune_multiply-*-*x*x*-*gflops.json 2>/dev/null)
+    JSONS=$(${LS} -1 "${JSONDIR}"/tune_multiply-*-*x*x*-*.json 2>/dev/null)
     HERE=$(cd "$(dirname "$0")" && pwd -P)
     ECHO=">&2 echo"
     if [ "${UPDATE}" ] && [ "0" != "${UPDATE}" ]; then
-      MNKS=$(${SED} -n "s/.*tune_multiply-..*-\(..*x..*x.[^-]*\)-..*gflops\.json/\1/p" <<<"${JSONS}" \
+      MNKS=$(${SED} -n "s/.*tune_multiply-[^-]*-\([0-9]*x[0-9]*x[0-9]*\)-.*\.json$/\1/p" <<<"${JSONS}" \
          | ${SORT} -u -n -tx -k1,1 -k2,2 -k3,3)
     elif [ "${MNKFILE}" ]; then
       if [ ! -f "${MNKFILE}" ]; then

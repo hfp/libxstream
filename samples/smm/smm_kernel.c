@@ -116,34 +116,48 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
     if (NULL == config && NULL != opencl_libsmm_predict_model) {
       libxs_predict_info_t pinfo;
-      double inputs[3], outputs[16];
+      libxs_predict_query_t pquery;
+      /**
+       * The model decides how many outputs it writes, and a model carrying one
+       * more than this reads would write past the end of a buffer sized from
+       * what this reads - a corrupted stack rather than a wrong parameter.  So
+       * the buffer holds more than the parameters below, and the model's own
+       * count decides whether it is used at all: too few outputs and the reads
+       * would be out of range, too many and the write would be.
+       */
+      double inputs[3], outputs[32];
+      const int nparam = 16, ncap = (int)(sizeof(outputs) / sizeof(*outputs));
       const double thr = 0.9;
       LIBXS_MEMZERO(&pinfo);
+      LIBXS_MEMZERO(&pquery);
+      libxs_predict_query(opencl_libsmm_predict_model, &pquery);
       inputs[0] = (double)key.m;
       inputs[1] = (double)key.n;
       inputs[2] = (double)key.k;
-      libxs_predict_eval(NULL, opencl_libsmm_predict_model, inputs, outputs, &pinfo, 0);
-      if (pinfo.distance <= 2.0 && NULL != pinfo.confidence) {
-        opencl_libsmm_smm_t predicted;
-        LIBXS_MEMZERO(&predicted);
-        if (pinfo.confidence[0] >= thr) predicted.bs = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[0]), 1);
-        if (pinfo.confidence[1] >= thr) predicted.bm = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[1]), 1, key.m);
-        if (pinfo.confidence[2] >= thr) predicted.bn = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[2]), 1, key.n);
-        if (pinfo.confidence[3] >= thr) predicted.bk = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[3]), 1, key.m);
-        if (pinfo.confidence[4] >= thr) predicted.ws = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[4]), 1, key.m * key.n);
-        if (pinfo.confidence[5] >= thr) predicted.wg = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[5]), -2, 1);
-        if (pinfo.confidence[6] >= thr) predicted.lu = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[6]), -2);
-        if (pinfo.confidence[7] >= thr) predicted.nz = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[7]), 0, 1);
-        if (pinfo.confidence[8] >= thr) predicted.al = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[8]), 0, 1);
-        if (pinfo.confidence[9] >= thr) predicted.tb = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[9]), 0, 1);
-        if (pinfo.confidence[10] >= thr) predicted.tc = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[10]), 0, 1);
-        if (pinfo.confidence[11] >= thr) predicted.ap = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[11]), 0, 1);
-        if (pinfo.confidence[12] >= thr) predicted.aa = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[12]), 0, 2);
-        if (pinfo.confidence[13] >= thr) predicted.ab = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[13]), 0, 2);
-        if (pinfo.confidence[14] >= thr) predicted.ac = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[14]), 0, 1);
-        if (pinfo.confidence[15] >= thr) predicted.flags = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[15]), 0, 1);
-        config = (opencl_libsmm_smm_t*)libxs_registry_set(
-          opencl_libsmm_registry, &key, sizeof(key), &predicted, sizeof(predicted), libxs_registry_lock(opencl_libsmm_registry));
+      if (nparam <= pquery.noutputs && pquery.noutputs <= ncap) {
+        libxs_predict_eval(NULL, opencl_libsmm_predict_model, inputs, outputs, &pinfo, 0);
+        if (pinfo.distance <= 2.0 && NULL != pinfo.confidence) {
+          opencl_libsmm_smm_t predicted;
+          LIBXS_MEMZERO(&predicted);
+          if (pinfo.confidence[0] >= thr) predicted.bs = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[0]), 1);
+          if (pinfo.confidence[1] >= thr) predicted.bm = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[1]), 1, key.m);
+          if (pinfo.confidence[2] >= thr) predicted.bn = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[2]), 1, key.n);
+          if (pinfo.confidence[3] >= thr) predicted.bk = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[3]), 1, key.m);
+          if (pinfo.confidence[4] >= thr) predicted.ws = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[4]), 1, key.m * key.n);
+          if (pinfo.confidence[5] >= thr) predicted.wg = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[5]), -2, 1);
+          if (pinfo.confidence[6] >= thr) predicted.lu = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[6]), -2);
+          if (pinfo.confidence[7] >= thr) predicted.nz = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[7]), 0, 1);
+          if (pinfo.confidence[8] >= thr) predicted.al = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[8]), 0, 1);
+          if (pinfo.confidence[9] >= thr) predicted.tb = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[9]), 0, 1);
+          if (pinfo.confidence[10] >= thr) predicted.tc = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[10]), 0, 1);
+          if (pinfo.confidence[11] >= thr) predicted.ap = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[11]), 0, 1);
+          if (pinfo.confidence[12] >= thr) predicted.aa = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[12]), 0, 2);
+          if (pinfo.confidence[13] >= thr) predicted.ab = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[13]), 0, 2);
+          if (pinfo.confidence[14] >= thr) predicted.ac = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[14]), 0, 1);
+          if (pinfo.confidence[15] >= thr) predicted.flags = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[15]), 0, 1);
+          config = (opencl_libsmm_smm_t*)libxs_registry_set(
+            opencl_libsmm_registry, &key, sizeof(key), &predicted, sizeof(predicted), libxs_registry_lock(opencl_libsmm_registry));
+        }
       }
     }
 #  endif

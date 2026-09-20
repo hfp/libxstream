@@ -15,6 +15,7 @@ from opentuner import MeasurementInterface
 from opentuner import Result
 from signal import signal, SIGINT
 import tempfile
+import hashlib
 import copy
 import json
 import glob
@@ -26,8 +27,28 @@ import os
 default_enable_tune = {"tune", "enabled", "on"}
 default_basename = "tune_multiply"
 default_mnk = "23x23x23"
+default_size = 30000  # batch size (S) the benchmark driver assumes
 default_dbg = False
 default_vlen = 8
+
+# value of a tunable absent from a JSON-file (BS, BM, and BN are required)
+default_params = {
+    "BK": 0,
+    "WS": 0,
+    "WG": 0,
+    "LU": 0,
+    "NZ": 0,
+    "AL": 0,
+    "TB": 0,
+    "TC": 1,
+    "AP": 0,
+    "AA": 0,
+    "AB": 0,
+    "AC": 0,
+    "XF": 0,
+}
+# JSON entries that identify or measure a kernel rather than configure it
+json_nonparams = {"DEVICE", "TYPEID", "M", "N", "K", "S", "GFLOPS"}
 
 type_dp = 3  # TYPEID for double-precision
 type_sp = 1  # TYPEID for single-precision
@@ -57,6 +78,64 @@ def env_intvalue(env, default, lookup=True):
         return int(value)
     except ValueError:
         return int(default)
+
+
+def json_label(filename):
+    """Kernel part of a JSON-file's name: type and shape"""
+    match = re.match(
+        r"\.?({}-[^-]+-\d+x\d+x\d+)".format(default_basename),
+        os.path.basename(filename),
+    )
+    return match.group(1) if match else None
+
+
+def json_name(label, data):
+    """Name of a JSON-file: kernel, batch unless default, parameter hash"""
+    size = data.get("S", default_size)
+    batch = "-s{}".format(ilog2(size)) if size != default_size else ""
+    params = {
+        k: v
+        for k, v in data.items()
+        if k not in json_nonparams
+        and (k not in default_params or default_params[k] != v)
+    }
+    text = json.dumps(params, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
+    return "{}{}-{}.json".format(label, batch, digest)
+
+
+def json_place(source, data):
+    """Move a JSON-file to its name, joining a file of equal parameters"""
+    result = source
+    label = json_label(source)
+    if label:
+        target = os.path.normpath(
+            os.path.join(os.path.dirname(source), json_name(label, data))
+        )
+        try:
+            if target == os.path.normpath(source):
+                result = target
+            elif not os.path.exists(target):
+                os.rename(source, target)  # keeps the file's age
+                result = target
+            else:  # same parameters: the higher GFLOPS stays
+                with open(target, "r") as file:
+                    other = json.load(file)
+                if other.get("DEVICE") != data.get("DEVICE"):
+                    print(
+                        "WARNING: {} and {} are from different devices.".format(
+                            source, target
+                        )
+                    )
+                elif other.get("GFLOPS", 0) < data.get("GFLOPS", 0):
+                    os.replace(source, target)
+                    result = target
+                else:
+                    os.remove(source)
+                    result = target
+        except Exception:
+            pass
+    return result
 
 
 def ilog2(n):
@@ -224,7 +303,7 @@ class SmmTuner(MeasurementInterface):
                     gmn = math.exp(self.gflogs / self.gfscnt)
                     print("Geometric mean of {} GFLOPS/s".format(round(gmn)))
             elif do_merge:
-                self.merge_jsons(filenames)
+                self.merge_jsons(self.migrate_jsons(filenames))
             exit(0)
         elif (
             (self.typename and "" != self.typename)
@@ -484,21 +563,8 @@ class SmmTuner(MeasurementInterface):
             data["BS"],
             data["BM"],
             data["BN"],
-            data["BK"] if "BK" in data else 0,
-            data["WS"] if "WS" in data else 0,
-            data["WG"] if "WG" in data else 0,
-            data["LU"] if "LU" in data else 0,
-            data["NZ"] if "NZ" in data else 0,
-            data["AL"] if "AL" in data else 0,
-            data["TB"] if "TB" in data else 0,
-            data["TC"] if "TC" in data else 1,
-            data["AP"] if "AP" in data else 0,
-            data["AA"] if "AA" in data else 0,
-            data["AB"] if "AB" in data else 0,
-            data["AC"] if "AC" in data else 0,
-            data["XF"] if "XF" in data else 0,
-            filename,  # last entry
-        )
+        ) + tuple(data.get(k, v) for k, v in default_params.items())
+        value = value + (filename,)  # last entry
         return (device, data["TYPEID"], data["M"], data["N"], data["K"]), value
 
     def merge_collect(self, filenames):
@@ -614,6 +680,23 @@ class SmmTuner(MeasurementInterface):
             print("")
         print(msg)
 
+    def migrate_jsons(self, filenames):
+        """Rename JSON-files to their name (parameter hash), keeping age"""
+        result, renamed = [], 0
+        for filename in filenames:
+            placed = filename
+            try:
+                with open(filename, "r") as file:
+                    placed = json_place(filename, json.load(file))
+            except Exception:
+                pass
+            renamed = renamed + (1 if placed != filename else 0)
+            if placed not in result and os.path.exists(placed):
+                result.append(placed)
+        if 0 < renamed:
+            print("Renamed {} JSON-files.".format(renamed))
+        return result
+
     def merge_jsons(self, filenames):
         """Merge all JSONs into a single CSV-file"""
         if not self.args.csvfile or (
@@ -677,11 +760,7 @@ class SmmTuner(MeasurementInterface):
                 data = json.load(file)
             gflops = data["GFLOPS"] if data and "GFLOPS" in data else 0
             if 0 < gflops:
-                filemain = "-".join(os.path.basename(dotfile).split("-")[1:4])
-                filename = "{}-{}-{}gflops.json".format(
-                    default_basename, filemain, round(gflops)
-                )
-                os.rename(dotfile, os.path.join(self.args.jsondir, filename))
+                json_place(dotfile, data)
         except Exception:
             pass
 
@@ -746,17 +825,13 @@ class SmmTuner(MeasurementInterface):
             if not filenames and glob.glob(self.args.csvfile):
                 msg = "WARNING: no JSON-file found but {} will be overwritten."
                 print(msg.format(self.args.csvfile))
-            fileonly = "{}-{}gflops.json".format(
-                self.args.label, round(self.gflops)
-            )
-            filename = os.path.normpath(
-                os.path.join(self.args.jsondir, fileonly)
-            )
+            filename = filedot
             try:
-                os.rename(filedot, filename)
+                with open(filedot, "r") as file:
+                    filename = json_place(filedot, json.load(file))
             except Exception:
                 pass
-            if filename not in filenames:  # rebuild CSV-file
+            if filename != filedot and filename not in filenames:
                 filenames.append(filename)
                 self.merge_jsons(filenames)
             speedup = round(
@@ -788,9 +863,9 @@ if __name__ == "__main__":
     argparser.add_argument(
         "mnk",
         type=str,
-        default=default_mnk,
+        default=None,
         nargs="?",
-        help="Shape of SMM-kernel (MxNxK)",
+        help="Shape (MxNxK), file of shapes, or JSON-directory (merge)",
     )
     argparser.add_argument(
         "-r",
@@ -841,10 +916,10 @@ if __name__ == "__main__":
         "-p",
         "--jsons-dir",
         type=str,
-        default=".",
+        default=None,
         nargs="?",
         dest="jsondir",
-        help="Directory to read/write JSONs",
+        help="Directory to read/write JSONs (without shape: merge)",
     )
     argparser.add_argument(
         "-u",
@@ -873,10 +948,10 @@ if __name__ == "__main__":
     argparser.add_argument(
         "--prefer",
         type=str,
-        default="fast",
+        default=None,
         choices=["fast", "new"],
         dest="prefer",
-        help="Winner among duplicates: fastest or newest entry",
+        help="Duplicate winner: fast (default) or new (without shape: merge)",
     )
     argparser.add_argument(
         "-v",
@@ -1054,6 +1129,18 @@ if __name__ == "__main__":
         help="Per-kernel timeout in seconds (0:unlimited)",
     )
     args, argd = argparser.parse_args(), argparser.parse_args([])
+    # without a shape, a given JSON-directory or preference asks for a merge
+    if args.mnk is None or os.path.isdir(args.mnk):
+        if args.mnk is not None:
+            args.jsondir = args.mnk
+        given = args.jsondir is not None or args.prefer is not None
+        if given and args.merge is None:
+            args.merge = -1
+        args.mnk = default_mnk
+    if args.jsondir is None:
+        args.jsondir = "."
+    if args.prefer is None:
+        args.prefer = "fast"
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in default_enable_tune:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)
@@ -1087,18 +1174,12 @@ if __name__ == "__main__":
                     start(args)
                     print("")
     else:
-        if os.path.isdir(args.mnk):
-            args.jsondir = args.mnk
-            args.mnk = default_mnk
-            if args.merge is None:
-                args.merge = -1
-        else:
-            try:
-                mnk = tuple(max(int(i), 1) for i in args.mnk.split("x"))
-            except Exception:
-                mnk = None
-                pass
-            if not mnk:
-                sys.tracebacklimit = 0
-                raise RuntimeError("Cannot parse MxNxK triplet or filename.")
+        try:
+            mnk = tuple(max(int(i), 1) for i in args.mnk.split("x"))
+        except Exception:
+            mnk = None
+            pass
+        if not mnk:
+            sys.tracebacklimit = 0
+            raise RuntimeError("Cannot parse MxNxK triplet or filename.")
         start(args)
