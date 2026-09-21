@@ -71,6 +71,7 @@ Enumerates floating-point atomics support: none, 32-bit, or 64-bit.
 | `libxstream_opencl_device_vendor` | Confirm a device's vendor string |
 | `libxstream_opencl_device_ext` | Check for required OpenCL extensions |
 | `libxstream_opencl_device_uid` | Capture or compute a unique device identifier |
+| `libxstream_opencl_device_match` | Select the entry of a list of device names a device matches |
 | `libxstream_opencl_info_devmem` | Query free/total/local device memory |
 
 ### Memory

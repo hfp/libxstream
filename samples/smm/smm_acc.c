@@ -43,6 +43,31 @@ static int opencl_libsmm_predict_mode; /* -1=disabled, 0=fallback(default), 1=fo
 #  endif
 
 
+#  if defined(OPENCL_KERNELS_DEVICES) && (defined(OPENCL_KERNELS_PARAMS_SMM) || defined(OPENCL_KERNELS_PREDICT_MODELS))
+/**
+ * Index of the built-in device entry the active device matches (-1 if none), and the
+ * UID it is matched by: the SMM_DEVID override, or else the device's own. Parameters
+ * and prediction models select through here, hence they cannot disagree on the entry.
+ */
+static int opencl_libsmm_device_match(unsigned int* uid)
+{
+  const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
+  const int ndevices = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
+  char name[LIBXSTREAM_BUFFERSIZE];
+  *uid = (0 != opencl_libsmm_devuid) ? opencl_libsmm_devuid : libxstream_opencl_config.device.uid;
+  if (EXIT_SUCCESS != libxstream_opencl_device_name(device_id, name, LIBXSTREAM_BUFFERSIZE, NULL /*platform*/,
+                        0 /*platform_maxlen*/, /*cleanup*/ 1))
+  {
+    *name = '\0';
+  }
+  else if (0 == opencl_libsmm_devuid && 1 >= libxstream_opencl_config.devmatch) {
+    libxstream_opencl_device_uid(device_id, name, uid);
+  }
+  return libxstream_opencl_device_match(name, *uid, OPENCL_KERNELS_DEVICES, ndevices);
+}
+#  endif
+
+
 int libsmm_acc_init(void) {
 #  if defined(_OPENMP)
   /* initialization/finalization is not meant to be thread-safe */
@@ -157,42 +182,8 @@ int libsmm_acc_init(void) {
         if (EXIT_SUCCESS == result && (0 == ntuned || 0 != key_direct_skip)) {
           const char *line = OPENCL_KERNELS_PARAMS_SMM, *next;
           const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
-          unsigned int default_uid = (0 != opencl_libsmm_devuid)
-            ? opencl_libsmm_devuid : libxstream_opencl_config.device.uid;
-          int active_match = -1;
-          if (EXIT_SUCCESS == libxstream_opencl_device_name(device_id, bufname, LIBXSTREAM_BUFFERSIZE, NULL /*platform*/,
-                                0 /*platform_maxlen*/,
-                                /*cleanup*/ 1))
-          {
-            char devclean[LIBXSTREAM_BUFFERSIZE], parclean[LIBXSTREAM_BUFFERSIZE];
-            int i = 0, count = 0, best_dist = INT_MAX;
-            double best = 0;
-            if (0 == opencl_libsmm_devuid && 1 >= libxstream_opencl_config.devmatch) {
-              libxstream_opencl_device_uid(device_id, bufname, &default_uid);
-            }
-            LIBXS_SNPRINTF(devclean, sizeof(devclean), "%s", bufname);
-            libxstream_opencl_device_name_cleanup(devclean);
-            for (; i < ndevices_params; ++i) {
-              unsigned int uid;
-              LIBXS_SNPRINTF(parclean, sizeof(parclean), "%s", OPENCL_KERNELS_DEVICES[i]);
-              libxstream_opencl_device_name_cleanup(parclean);
-              count = 0;
-              { const int n = libxs_strimatch(devclean, parclean, NULL, &count);
-                if (0 != n && 0 != count) {
-                  const double score = (double)n / count;
-                  const int dist = libxs_strisimilar(devclean, parclean, NULL, LIBXS_STRISIMILAR_DEFAULT, NULL);
-                  if (best < score || (best == score && dist < best_dist) ||
-                      (EXIT_SUCCESS == libxstream_opencl_device_uid(NULL /*device*/, OPENCL_KERNELS_DEVICES[i], &uid) &&
-                        uid == default_uid))
-                  {
-                    active_match = i;
-                    best = score;
-                    best_dist = dist;
-                  }
-                }
-              }
-            }
-          }
+          unsigned int default_uid;
+          const int active_match = opencl_libsmm_device_match(&default_uid);
           do {
             next = strchr(line, '\n');
             if (NULL != next && next < (line + LIBXSTREAM_BUFFERSIZE)) {
@@ -284,49 +275,10 @@ int libsmm_acc_init(void) {
       }
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS) && defined(OPENCL_KERNELS_DEVICES)
       if (EXIT_SUCCESS == result && NULL == opencl_libsmm_predict_model && 0 <= opencl_libsmm_predict_mode) {
-        char bufname[LIBXSTREAM_BUFFERSIZE];
         const opencl_kernels_predict_entry_t* entry;
         const opencl_kernels_predict_entry_t* best = NULL;
-        const int ndevices_predict = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
-        int predict_match = -1;
-        if (0 != opencl_libsmm_devuid) {
-          char uidstr[16];
-          int i = 0;
-          LIBXS_SNPRINTF(uidstr, sizeof(uidstr), "0x%04x", opencl_libsmm_devuid);
-          for (; i < ndevices_predict; ++i) {
-            if (NULL != strstr(OPENCL_KERNELS_DEVICES[i], uidstr)) {
-              predict_match = i;
-              break;
-            }
-          }
-        }
-        if (0 > predict_match
-          && EXIT_SUCCESS == libxstream_opencl_device_name(
-            libxstream_opencl_config.devices[libxstream_opencl_config.device_id],
-            bufname, LIBXSTREAM_BUFFERSIZE, NULL, 0, 1))
-        {
-          char devclean[LIBXSTREAM_BUFFERSIZE], parclean[LIBXSTREAM_BUFFERSIZE];
-          int i = 0, count = 0, best_dist = INT_MAX;
-          double best_score = 0;
-          LIBXS_SNPRINTF(devclean, sizeof(devclean), "%s", bufname);
-          libxstream_opencl_device_name_cleanup(devclean);
-          for (; i < ndevices_predict; ++i) {
-            LIBXS_SNPRINTF(parclean, sizeof(parclean), "%s", OPENCL_KERNELS_DEVICES[i]);
-            libxstream_opencl_device_name_cleanup(parclean);
-            count = 0;
-            { const int n = libxs_strimatch(devclean, parclean, NULL, &count);
-              if (0 != n && 0 != count) {
-                const double score = (double)n / count;
-                const int dist = libxs_strisimilar(devclean, parclean, NULL, LIBXS_STRISIMILAR_DEFAULT, NULL);
-                if (best_score < score || (best_score == score && dist < best_dist)) {
-                  predict_match = i;
-                  best_score = score;
-                  best_dist = dist;
-                }
-              }
-            }
-          }
-        }
+        unsigned int uid;
+        const int predict_match = opencl_libsmm_device_match(&uid);
         if (0 <= predict_match) {
           for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
             if (entry->device_id == predict_match) {

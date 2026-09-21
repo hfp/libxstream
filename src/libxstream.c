@@ -1568,6 +1568,45 @@ LIBXSTREAM_API void libxstream_opencl_device_name_cleanup(char name[])
   }
 }
 
+LIBXSTREAM_API int libxstream_opencl_device_match(
+  const char device[], unsigned int uid, const char* const names[], int nnames)
+{
+  int result = -1;
+  if (NULL != device && NULL != names) {
+    char devclean[LIBXSTREAM_BUFFERSIZE], clean[LIBXSTREAM_BUFFERSIZE];
+    int i = 0, best_dist = 0, found = 0;
+    double best = 0;
+    LIBXS_SNPRINTF(devclean, sizeof(devclean), "%s", device);
+    libxstream_opencl_device_name_cleanup(devclean);
+    for (; i < nnames && 0 == found; ++i) {
+      unsigned int id = 0;
+      /* the ID identifies the device, whereas a better score from a later name would only resemble it */
+      if (NULL != names[i] && 0 != uid && EXIT_SUCCESS == libxstream_opencl_device_uid(NULL /*device*/, names[i], &id) &&
+          uid == id)
+      {
+        result = i;
+        found = 1;
+      }
+      else if (NULL != names[i]) {
+        int count = 0, n;
+        LIBXS_SNPRINTF(clean, sizeof(clean), "%s", names[i]);
+        libxstream_opencl_device_name_cleanup(clean);
+        n = libxs_strimatch(devclean, clean, NULL, &count);
+        if (0 < n && 0 < count) {
+          const double score = (double)n / count;
+          const int dist = libxs_strisimilar(devclean, clean, NULL, LIBXS_STRISIMILAR_DEFAULT, NULL);
+          if (best < score || (best == score && dist < best_dist)) {
+            result = i;
+            best = score;
+            best_dist = dist;
+          }
+        }
+      }
+    }
+  }
+  return result;
+}
+
 
 LIBXSTREAM_API int libxstream_opencl_device_level(
   cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[32], cl_device_type* type)

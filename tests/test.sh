@@ -26,8 +26,21 @@ else
   EXE=.x
 fi
 
+# Tests left out unless named: stencil runs long and has its own CI step.
+TESTS_DISABLED=${TESTS_DISABLED-stencil}
+
+# A translation unit with a main function is a test, and so is every script but
+# this one; a script is picked up by existing rather than by being listed.
 if [ ! "$*" ]; then
   TESTS=$(cd "${HERE}" && ${GREP} -l "main[[:space:]]*(.*)" ./*.c 2>/dev/null)
+  for SCRIPT in "${HERE}"/*.sh; do
+    NAME=$(${SED} <<<"${SCRIPT}" 's/.*\///;s/\(.*\)\..*/\1/')
+    if [ "test" != "${NAME}" ] && [ -e "${SCRIPT}" ] && \
+       ! ${GREP} -qw "${NAME}" <<<"${TESTS_DISABLED}";
+    then
+      TESTS="${TESTS} ./${NAME}.sh"
+    fi
+  done
 else
   TESTS="$*"
 fi
@@ -41,8 +54,12 @@ NMAX=$(${WC} <<<"${TESTS}" -w | ${TR} -d " ")
 for TEST in ${TESTS}; do
   NAME=$(${SED} <<<"${TEST}" 's/.*\///;s/\(.*\)\..*/\1/')
   printf "%02d of %02d: %-16s " "${NTEST}" "${NMAX}" "${NAME}"
-  if [ -e "${BLDDIR}/${NAME}${EXE}" ]; then
+  if [[ "${TEST}" == *.sh ]]; then
+    TESTX="${HERE}/${NAME}.sh"
+  elif [ -e "${BLDDIR}/${NAME}${EXE}" ]; then
     TESTX="${BLDDIR}/${NAME}${EXE}"
+  elif [ -e "${HERE}/${NAME}.sh" ]; then
+    TESTX="${HERE}/${NAME}.sh"
   else
     TESTX="${HERE}/${NAME}${EXE}"
   fi

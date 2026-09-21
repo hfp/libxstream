@@ -644,6 +644,15 @@ LIBXSTREAM_API int libxstream_opencl_device_name(
   cl_device_id device, char name[], size_t name_maxlen, char platform[], size_t platform_maxlen, int cleanup);
 /** Strip noise tokens from device name (UID brackets, decorators, memory sizes) for fuzzy matching. */
 LIBXSTREAM_API void libxstream_opencl_device_name_cleanup(char name[]);
+/**
+ * Index of the name in NAMES (NNAMES entries) the given device matches, or -1 if no
+ * name shares a word with it. A name carrying the device's UID (non-zero, see
+ * libxstream_opencl_device_uid) wins outright. Otherwise the most words in common
+ * win (libxs_strimatch over cleaned names), a tie goes to the smaller edit distance
+ * (libxs_strisimilar), and then to the earlier name.
+ */
+LIBXSTREAM_API int libxstream_opencl_device_match(
+  const char device[], unsigned int uid, const char* const names[], int nnames);
 /** Return the OpenCL support-level for the given device. */
 LIBXSTREAM_API int libxstream_opencl_device_level(
   cl_device_id device, int std_clevel[2], int std_level[2], char std_flag[32], cl_device_type* type);
