@@ -9,6 +9,7 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 # include <libxstream/libxstream_opencl.h>
+# include <libxs/libxs_mem.h>
 # include <string.h>
 # if defined(_OPENMP)
 #   include <omp.h>
@@ -1750,45 +1751,12 @@ LIBXSTREAM_API int libxstream_opencl_info_devmem(
   cl_device_local_mem_type cl_local_type = CL_GLOBAL;
   cl_ulong cl_size_total = 0, cl_size_local = 0;
   cl_bool cl_unified = CL_FALSE;
-# if !defined(_WIN32)
-#   if defined(_SC_PAGE_SIZE)
-  const long page_size = sysconf(_SC_PAGE_SIZE);
-#   else
-  const long page_size = 4096;
-#   endif
-  long pages_free = 0, pages_total = 0;
-#   if defined(__linux__)
-#     if defined(_SC_PHYS_PAGES)
-  pages_total = sysconf(_SC_PHYS_PAGES);
-#     else
-  pages_total = 0;
-#     endif
-#     if defined(_SC_AVPHYS_PAGES)
-  pages_free = sysconf(_SC_AVPHYS_PAGES);
-#     else
-  pages_free = pages_total;
-#     endif
-#   elif defined(__APPLE__) && defined(__MACH__)
-  /*const*/ size_t size_pages_free = sizeof(const long), size_pages_total = sizeof(const long);
-  LIBXS_EXPECT(0 == sysctlbyname("hw.memsize", &pages_total, &size_pages_total, NULL, 0));
-  if (0 < page_size) pages_total /= page_size;
-  if (0 != sysctlbyname("vm.page_free_count", &pages_free, &size_pages_free, NULL, 0)) {
-    pages_free = pages_total;
+  /* Host memory is libxs_mem_info's, including any cgroup limit; the clamp by
+   * device memory below stays here, because which of the two bounds an
+   * allocation depends on where it lands and that is this function's business. */
+  if (EXIT_SUCCESS != libxs_mem_info(&size_free, &size_total)) {
+    size_free = size_total = 0; /* unknown, as it read before */
   }
-#   endif
-  if (0 < page_size && 0 <= pages_free && 0 <= pages_total) {
-    const size_t size_page = (size_t)page_size;
-    size_total = size_page * (size_t)pages_total;
-    size_free = size_page * (size_t)pages_free;
-  }
-# else
-  MEMORYSTATUSEX mem_status;
-  mem_status.dwLength = sizeof(mem_status);
-  if (GlobalMemoryStatusEx(&mem_status)) {
-    size_total = (size_t)mem_status.ullTotalPhys;
-    size_free = (size_t)mem_status.ullAvailPhys;
-  }
-# endif
   CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &cl_size_total, NULL));
   CL_CHECK(result, clGetDeviceInfo(device, CL_DEVICE_LOCAL_MEM_TYPE, sizeof(cl_device_local_mem_type), &cl_local_type, NULL));
   if (CL_LOCAL == cl_local_type) {
