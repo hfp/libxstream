@@ -55,10 +55,10 @@ echo "========================"
 echo "Running device selection"
 echo "========================"
 
-# acc_match.x uses neither BLAS nor OpenMP, which the sample otherwise wants:
-# without them, this test needs nothing the rest of the suite does not.
+# acc_match.x uses no BLAS, which the sample otherwise wants. OpenMP stays as
+# the sample has it: a prebuilt LIBXSTREAM brings OpenMP references to the link.
 ERROR=$(${MAKE} -C "${SAMPLE}" -j "$(nproc 2>/dev/null || echo 2)" \
-  BLAS=0 OMP=0 BLDDIR="${BLDDIR}/obj" OUTDIR="${BLDDIR}" match 2>&1) || {
+  BLAS=0 BLDDIR="${BLDDIR}/obj" OUTDIR="${BLDDIR}" match 2>&1) || {
     >&2 echo "ERROR: failed to build acc_match.x"; >&2 echo "${ERROR}"; exit 1; }
 MATCH=${BLDDIR}/acc_match.x
 

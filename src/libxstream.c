@@ -1568,6 +1568,7 @@ LIBXSTREAM_API void libxstream_opencl_device_name_cleanup(char name[])
   }
 }
 
+
 LIBXSTREAM_API int libxstream_opencl_device_match(
   const char device[], unsigned int uid, const char* const names[], int nnames)
 {
