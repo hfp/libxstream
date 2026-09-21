@@ -63,7 +63,7 @@ other devices Scheme 1, both because counting GEMMs mispredicts there.
 | OZAKI_FLAGS   | 3       | Sch.1 bitmask: 1=Triangular, 2=Symmetrize, 0=full S^2. No Sch.2      |
 | OZAKI_TRIM    | 0       | Levels to trim (0=default). ~7 bits (Sch.1), ~4 bits (Sch.2); negative buys precision back |
 | OZAKI_SYMRES  | (auto)  | Sch.2: symmetric residues (magnitude m/2 at most). On with bf16, or K past 32768 |
-| OZAKI_GROUPS  | (auto)  | Sch.2: K-grouping factor, consecutive K panels share reconstr.       |
+| OZAKI_GROUPS  | (auto)  | Sch.2: K-grouping factor (1=off). Consecutive K panels share reconstr. |
 | OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 if unfused, else 2        |
 
 `OZAKI_FLAGS` selects how the slice-pair loop is traversed, and the two
@@ -78,11 +78,16 @@ footprint, and it is a slowdown at every size measured because it is
 incompatible with the unfused epilogue (`OZAKI_UNFUSE`, on by default
 for GPUs) -- set it only when the per-pass buffers do not fit. Left
 unset it is derived instead, and only where it is needed for a correct
-result: a `OZAKI_MAXK` past what the residue representation can
-accumulate exactly (32768 unsigned, 131072 symmetric, and far less on a
-floating-point carrier) gets the largest panel that stays inside the
-accumulator. Raising `OZAKI_MAXK` is what turns it on, so expect the 2x
-there and set `OZAKI_SYMRES=1` first if the K is within 131072.
+result: an `OZAKI_MAXK` past what an integer accumulator holds exactly
+(32768 unsigned, 131072 symmetric) gets the largest panel that stays
+inside it. Raising `OZAKI_MAXK` is what turns it on, so expect the 2x
+there and set `OZAKI_SYMRES=1` first if the K is within 131072. The
+bf16 carrier never needs it, narrower accumulator notwithstanding: the
+kernel folds that accumulator back to residues in place as it goes,
+which costs 16% of the GEMM and nothing end-to-end. `OZAKI_GROUPS=1`
+declines the derived grouping and warns where that leaves K unreduced;
+`OZAKI_GROUPS=0` is not that request, because it is what an unset knob
+reads as.
 
 `OZAKI_FRACCRT=1` trades exactness for speed (flat fractional sum,
 magnitude-bounded); modes 0 and 2 are both exact and differ only in
@@ -250,7 +255,7 @@ with the default A and B layouts, and it disables itself with a message
 otherwise. The moduli, the accuracy and the results are unchanged - the
 output is bit-identical to the int8 path - so it is a choice of engine
 and nothing else. Off by default: where an integer engine is available it
-is the faster one, by about 3x on the GEMM. Enable it on a device whose
+is the faster one, by about 2.3x on the GEMM. Enable it on a device whose
 integer matrix throughput is much lower than its bf16 throughput.
 
 `OZAKI_TM` and `OZAKI_TN` take effect only together -- either one alone
