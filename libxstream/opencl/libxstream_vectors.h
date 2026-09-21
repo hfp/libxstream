@@ -52,16 +52,18 @@
  * A kernel stores a whole vector through a pointer to a narrower element, which
  * is how a 16-byte block leaves a byte buffer in one instruction. That promise
  * is the one strict aliasing does not make, and the attribute belongs to the
- * type rather than to the cast, hence it is attached where the type is made.
- * The host branch runs only under libxstream_cpu_begin.h, which has included
- * LIBXS and includes this header before it neutralizes __attribute__.
+ * type rather than to the cast, hence it is attached where the type is made:
+ * to the struct itself, as GCC ignores it after the name of a typedef whose
+ * struct is defined in place. The host branch runs only under
+ * libxstream_cpu_begin.h, which has included LIBXS and includes this header
+ * before it neutralizes __attribute__.
  *
  * The host spelling of one vector type: TYPE is the OpenCL name, SCALAR the
  * component type, and N the width. The scalar array is named "s" so that a
  * union with an array of SCALAR sees the components either way.
  */
 #define LIBXSTREAM_VEC_TYPE(TYPE, SCALAR, N) \
-  typedef struct { SCALAR s[N]; } TYPE LIBXS_MAY_ALIAS; \
+  typedef struct LIBXS_MAY_ALIAS { SCALAR s[N]; } TYPE; \
   static TYPE libxstream_vec_zero_##TYPE(void) { \
     TYPE zero_; \
     int i_; \
