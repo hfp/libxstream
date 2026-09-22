@@ -197,11 +197,27 @@ which `--prefer new` relies on. Keep one
 directory per device: a same-named file from another device is reported
 and left alone.
 
-Update stored device names after rebuilding for a different target:
+Update the device name stored in every JSON file of a directory. Given a
+name, the tuner writes it as-is and runs nowhere in particular. Given no
+name, it asks the device how it identifies itself, which requires
+running on the target machine:
 
 ```bash
+./tune_multiply.py -u "Some Device [0x1234]" -p params/local
 ./tune_multiply.py -u -p params/local
 ```
+
+Write the JSON files a CSV file was merged from (the inverse of `-m`),
+which needs neither a device nor the benchmark:
+
+```bash
+./tune_multiply.py -M params/tune_multiply_PVC.csv -p tmp/PVC
+```
+
+The names are reproduced as a tuning session would have written them,
+because a JSON file is named after a hash of its parameters. A file that
+exists is kept rather than rewritten, so an existing directory does not
+lose the file dates that `--plan` orders by.
 
 Check existing JSONs without re-tuning:
 
@@ -236,8 +252,9 @@ Useful options:
 | -s size             | Benchmark batch size, also called stack size |
 | -a level            | Tuning level: 0=all ... 4=least tunables     |
 | -m                  | Merge JSON files into a CSV file             |
+| -M file             | Write the JSON files of a CSV file (see -p)  |
 | -o file             | CSV output file                              |
-| -u [device]         | Update JSON device names                     |
+| -u [device]         | Update JSON device names (see above)         |
 | -c [epsilon]        | Validate JSON entries                        |
 | --prefer fast\|new  | Duplicate winner; without a shape, merge     |
 | -d                  | Delete losing duplicates during merge        |
@@ -458,16 +475,67 @@ mpirun -np 8 ./tune_multiply.sh -u -p params/local -t 300
 
 ### Managing Tuned Parameters
 
-JSON files are the working format. CSV files are the deployable format.
+JSON files are the working format and stay on the machine that tuned
+them, since `params/*/` is not tracked. CSV files are the deployable
+format. `smm_params.sh` converts between the two for every device at
+once, pairing a directory `params/<device>-0x<id>` with the CSV file
+`params/tune_multiply_<device>.csv`:
+
+```bash
+./smm_params.sh            # merge every device
+./smm_params.sh "H100*"    # merge matching devices only
+./smm_params.sh -e         # the reverse: write JSONs to tmp/
+```
+
+The device id in the directory name is what tells two variants of the
+same GPU apart. A merge compares it against the id of the parameters it
+merged and against the CSV file it is about to replace, and reports both
+ids rather than overwriting the wrong file. A device without a CSV file
+needs `-f`, which is how a new device gets its first one.
+
 A typical retune flow is:
 
 ```bash
 make realclean
 make WITH_GPU=P100
-mkdir -p params/p100
-./tune_multiply.sh -u -p params/p100 -t 300
-./tune_multiply.py -m -p params/p100 -o params/tune_multiply_P100.csv
+./tune_multiply.sh --plan retune.txt -p params/P100-0x2f6c
+./tune_multiply.sh -f retune.txt -p params/P100-0x2f6c -t 300
+./smm_params.sh P100
 ```
 
 Keep GPU driver state persistent during tuning (e.g.,
 `nvidia-smi -pm ENABLED` on headless NVIDIA systems).
+
+### Starting a New Device
+
+Tuning from scratch starts from the benchmark's own defaults. Starting
+from parameters that already work on a similar GPU is usually better, so
+`-e` expands a CSV file back into JSON files and any published device
+can seed a new one. Pick the closest relative, e.g. the previous
+generation of the same vendor:
+
+```bash
+./smm_params.sh -e P100
+mv tmp/P100-0x2f6c params/NEW-0x0000
+```
+
+`-e` writes below `tmp/` and never into a corpus, so it cannot reset the
+file dates of parameters that are already tuned. The expanded files
+still name the device they came from. On the target machine, let the
+tuner ask the device instead:
+
+```bash
+./tune_multiply.py -u -p params/NEW-0x0000
+./smm_params.sh -f NEW
+```
+
+The merge reports the id it actually found, which is the id to put into
+the directory name. Rename accordingly and the pair is consistent:
+
+```bash
+mv params/NEW-0x0000 params/NEW-0x1234
+./smm_params.sh -f NEW
+```
+
+From there, retuning is the normal flow: the seeded parameters are what
+the search starts from, and `--plan` keeps a record of what was retuned.

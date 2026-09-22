@@ -53,6 +53,8 @@ json_nonparams = {"DEVICE", "TYPEID", "M", "N", "K", "S", "GFLOPS"}
 type_dp = 3  # TYPEID for double-precision
 type_sp = 1  # TYPEID for single-precision
 sp_dp_ratio = 0.5  # assumed SP:DP throughput ratio for normalization
+# typename the benchmark reports for a TYPEID, i.e. the JSON-file's name
+type_names = {type_dp: "double", type_sp: "float"}
 
 
 def start(args):
@@ -136,6 +138,71 @@ def json_place(source, data):
         except Exception:
             pass
     return result
+
+
+def csv_expand(filename, jsondir, separator=";"):
+    """Write the JSON-files a CSV-file was merged from (inverse of --merge)"""
+    nwritten = nexists = nerror = 0
+    with open(filename, "r") as csvfile:
+        header = csvfile.readline().strip().split(separator)
+        nhead = len(header)
+        for line in csvfile:
+            record = line.strip()
+            if not record:
+                continue
+            fields = record.split(separator)
+            if nhead != len(fields) and (nhead + 1) != len(fields):
+                print("Failed to read {} of {}.".format(record, filename))
+                nerror = nerror + 1
+                continue
+            entry = dict(zip(header, fields))
+            # XF is vendor-specific and hence unnamed by the header
+            if nhead < len(fields):
+                entry["XF"] = fields[nhead]
+            try:
+                data = {"DEVICE": entry["DEVICE"]}  # identify the kernel
+                for key in ("TYPEID", "M", "N", "K"):
+                    data[key] = int(entry[key])
+                # a merge writes zero for a measurement the JSON-file lacked,
+                # and an absent S is what keeps the name free of a suffix
+                gflops, size = float(entry["GFLOPS"]), int(entry["S"])
+                if 0 < gflops:
+                    data["GFLOPS"] = gflops
+                if 0 < size:
+                    data["S"] = size
+                for key in entry:  # configure the kernel
+                    if key not in json_nonparams:
+                        data[key] = int(entry[key])
+                typename = type_names.get(data["TYPEID"])
+                if typename is None:
+                    raise KeyError("TYPEID")
+                label = "{}-{}-{}x{}x{}".format(
+                    default_basename,
+                    typename,
+                    data["M"],
+                    data["N"],
+                    data["K"],
+                )
+                # a default XF is absent from a tuned JSON-file
+                if 0 == data.get("XF", 0):
+                    data.pop("XF", None)
+            except (KeyError, ValueError):
+                print("Failed to read {} of {}.".format(record, filename))
+                nerror = nerror + 1
+                continue
+            target = os.path.join(jsondir, json_name(label, data))
+            if os.path.exists(target):  # never reset a JSON-file's age
+                nexists = nexists + 1
+                continue
+            with open(target, "w") as jsonfile:
+                json.dump(data, jsonfile, sort_keys=True)
+                jsonfile.write("\n")
+            nwritten = nwritten + 1
+    msg = "Wrote {} JSON-file(s) to {}".format(nwritten, jsondir)
+    if 0 != nexists:
+        msg = "{} ({} already existed)".format(msg, nexists)
+    print(msg)
+    return 1 if 0 != nerror else 0
 
 
 def ilog2(n):
@@ -905,6 +972,15 @@ if __name__ == "__main__":
         help="Merge JSONs into CSV (-1: auto, 0: all, 1: SP, 2: DP, 3: hidden)",
     )
     argparser.add_argument(
+        "-M",
+        "--csv-expand-jsons",
+        type=str,
+        default=None,
+        nargs="?",
+        dest="expand",
+        help="Write JSONs of a CSV-file (destination: see -p)",
+    )
+    argparser.add_argument(
         "-x",
         "--csv-nogflops",
         action="store_true",
@@ -1141,6 +1217,13 @@ if __name__ == "__main__":
         args.jsondir = "."
     if args.prefer is None:
         args.prefer = "fast"
+    # expanding a CSV-file needs neither a device nor the benchmark
+    if args.expand is not None and "" != args.expand:
+        if not os.path.isfile(args.expand):
+            sys.tracebacklimit = 0
+            raise RuntimeError("Cannot read {}.".format(args.expand))
+        os.makedirs(args.jsondir, exist_ok=True)
+        exit(csv_expand(args.expand, args.jsondir, args.csvsep))
     # OPENCL_LIBSMM_SMM_xx=tune|enabled|on must be given to permit tuning)
     if os.getenv("OPENCL_LIBSMM_SMM_WS") not in default_enable_tune:
         os.environ["OPENCL_LIBSMM_SMM_WS"] = "{}".format(args.ws)

@@ -578,6 +578,34 @@ integration builds: GCC, Intel oneAPI, and macOS, covering release and strict
 debug configurations as well as a header-only build compiled as C++. See
 `.github/workflows/` for the exact matrix.
 
+`SANITIZE=<kind>` passes `-fsanitize=<kind>` to both the compiler and the
+linker. ThreadSanitizer needs no options file: `__tsan_default_options` and
+`__tsan_default_suppressions` in `libxs_main.c` carry what a run of the library
+needs, and the environment is parsed after them, so `TSAN_OPTIONS` still
+overrides either one. They are inert in a shared-library build, where the
+runtime's own weak definition is found first, and that build needs the
+environment instead.
+
+```bash
+make SANITIZE=thread
+setarch -R ./sample.x   # ASLR off, or the runtime aborts before main()
+```
+
+Some kernels abort with `unexpected memory mapping` unless ASLR is off, hence
+the `setarch`. Exit code 66 means races were reported, not that the program
+failed.
+
+**GNU libgomp is not instrumented**, so a race whose two accesses sit on
+opposite sides of an `omp parallel` region is reported even though the region's
+own barrier separates them; a fifteen-line correct program reproduces it. The
+compiled-in `ignore_noninstrumented_modules=1` cuts the volume about fivefold
+but not the class. **Triage by region position, not by thread**: a report is that
+artifact unless *both* stacks carry an `_omp_fn` frame. Thread identity is not
+the test, since the main thread is a member of the team and takes part in the
+rendezvous. Suppressing the class is not possible, because those stacks run
+through the code under test; building with Clang against a libomp that has TSan
+support (it ships `libarcher.so`) is what makes the region boundaries visible.
+
 ## ABI and Versioning
 
 The version derives from Git tags and `version.txt`; the shared library carries

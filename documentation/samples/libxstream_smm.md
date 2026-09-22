@@ -173,7 +173,8 @@ mkdir -p params/local
 ./tune_multiply.py 13x5x7 --stop-after=300 -p params/local -s 30000
 ```
 
-Tune several explicit kernels from a file, one `MxNxK` per line:
+Tune several explicit kernels from a file, one `MxNxK` per line. A `#`
+starts a comment, so a line can be annotated or taken out of the list:
 
 ```bash
 printf '%s\n' 13x5x7 23x23x23 32x32x32 > kernels.txt
@@ -196,11 +197,27 @@ which `--prefer new` relies on. Keep one
 directory per device: a same-named file from another device is reported
 and left alone.
 
-Update stored device names after rebuilding for a different target:
+Update the device name stored in every JSON file of a directory. Given a
+name, the tuner writes it as-is and runs nowhere in particular. Given no
+name, it asks the device how it identifies itself, which requires
+running on the target machine:
 
 ```bash
+./tune_multiply.py -u "Some Device [0x1234]" -p params/local
 ./tune_multiply.py -u -p params/local
 ```
+
+Write the JSON files a CSV file was merged from (the inverse of `-m`),
+which needs neither a device nor the benchmark:
+
+```bash
+./tune_multiply.py -M params/tune_multiply_PVC.csv -p tmp/PVC
+```
+
+The names are reproduced as a tuning session would have written them,
+because a JSON file is named after a hash of its parameters. A file that
+exists is kept rather than rewritten, so an existing directory does not
+lose the file dates that `--plan` orders by.
 
 Check existing JSONs without re-tuning:
 
@@ -235,8 +252,9 @@ Useful options:
 | -s size             | Benchmark batch size, also called stack size |
 | -a level            | Tuning level: 0=all ... 4=least tunables     |
 | -m                  | Merge JSON files into a CSV file             |
+| -M file             | Write the JSON files of a CSV file (see -p)  |
 | -o file             | CSV output file                              |
-| -u [device]         | Update JSON device names                     |
+| -u [device]         | Update JSON device names (see above)         |
 | -c [epsilon]        | Validate JSON entries                        |
 | --prefer fast\|new  | Duplicate winner; without a shape, merge     |
 | -d                  | Delete losing duplicates during merge        |
@@ -308,6 +326,61 @@ Retune every JSON file found in a directory:
 ./tune_multiply.sh -u -p params/local -t 300
 ```
 
+#### Retuning by age
+
+`--plan` lists the kernels of a JSON directory oldest first and writes
+that list as a file of triplets, or to standard output if no file is
+given. A kernel is dated by its youngest JSON file, so a kernel counts
+as old only once all of its files are:
+
+```bash
+./tune_multiply.sh --plan retune.txt -p params/local -n 40
+./tune_multiply.sh -f retune.txt -p params/local -t 300
+```
+
+The first command takes the 40 kernels that were tuned least recently
+(`-b` takes the most recent ones instead, and `-r`, `-m`, and `-n` limit
+the plan as they limit any other list). The second command works the
+plan. Tuning does not necessarily rewrite a JSON file: finding the same
+parameters again with a lower GFLOPS/s keeps the file and its date, so
+an order taken from the directory a second time can repeat the kernels
+it just tuned. The plan avoids this by holding the order still, which is
+also what makes a plan the list to keep between sessions of a split job.
+
+A plan records its own progress: each kernel that tuned successfully is
+marked `#done` and is skipped when the plan is used again, so an
+interrupted session resumes where it stopped and a kernel that failed
+stays in the plan. Marking rewrites the plan, which is why it is limited
+to the generated file (a handwritten list is left alone) and to a single
+session (`-j 1`). Delete the marks to tune the plan again:
+
+```bash
+sed "s/^#done //" retune.txt > retune.tmp && mv retune.tmp retune.txt
+```
+
+There is no minimum age: a plan lists every kernel of the directory, and
+`-n` decides how much of it to take. Taken with `--plan`, it fixes a
+smaller campaign, and taken with `-f`, it sizes a single session, so the
+same command repeated works down the plan by the same budget each time:
+
+```bash
+./tune_multiply.sh --plan retune.txt -p params/local
+./tune_multiply.sh -f retune.txt -p params/local -n 2 -t 300
+```
+
+A complete plan has no unmarked line left, which is the point to
+generate the next one:
+
+```bash
+grep -qv "^#" retune.txt || ./tune_multiply.sh --plan retune.txt -p params/local
+./tune_multiply.sh -f retune.txt -p params/local -n 2 -t 300
+```
+
+A date tells when a kernel was last improved, not when it was last
+tuned, and `#done` is the only record of an attempt. A kernel that
+retuning never improves therefore keeps its date and heads the next
+generated plan again.
+
 Limit the generated work before splitting it:
 
 ```bash
@@ -324,6 +397,7 @@ Useful options:
 | -s size         | Benchmark batch size, also called stack size      |
 | -a level        | Tuning level: 0=all ... 4=least tunables          |
 | -u              | Retune JSON files found under `-p`                |
+| --plan [file]   | Write kernels of `-p` by age, oldest first        |
 | -d              | Ask the merge step to delete losing JSONs         |
 | --prefer new    | Prefer newest duplicate (default: fastest)        |
 | -c              | Continue with the next kernel after an error      |
@@ -333,7 +407,7 @@ Useful options:
 | -r low high     | Keep kernels with low**3 < M*N*K <= high**3       |
 | -m extent       | Keep kernels with M, N, and K no larger than this |
 | -n count        | Keep only the first count kernels (see `-b`)      |
-| -f file         | Read MxNxK list from a file (one per line)        |
+| -f file         | Read MxNxK list from a file, resuming a plan      |
 | -k id           | Use a predefined triplet set                      |
 
 Options the wrapper does not know are passed to `tune_multiply.py`.
@@ -401,16 +475,67 @@ mpirun -np 8 ./tune_multiply.sh -u -p params/local -t 300
 
 ### Managing Tuned Parameters
 
-JSON files are the working format. CSV files are the deployable format.
+JSON files are the working format and stay on the machine that tuned
+them, since `params/*/` is not tracked. CSV files are the deployable
+format. `smm_params.sh` converts between the two for every device at
+once, pairing a directory `params/<device>-0x<id>` with the CSV file
+`params/tune_multiply_<device>.csv`:
+
+```bash
+./smm_params.sh            # merge every device
+./smm_params.sh "H100*"    # merge matching devices only
+./smm_params.sh -e         # the reverse: write JSONs to tmp/
+```
+
+The device id in the directory name is what tells two variants of the
+same GPU apart. A merge compares it against the id of the parameters it
+merged and against the CSV file it is about to replace, and reports both
+ids rather than overwriting the wrong file. A device without a CSV file
+needs `-f`, which is how a new device gets its first one.
+
 A typical retune flow is:
 
 ```bash
 make realclean
 make WITH_GPU=P100
-mkdir -p params/p100
-./tune_multiply.sh -u -p params/p100 -t 300
-./tune_multiply.py -m -p params/p100 -o params/tune_multiply_P100.csv
+./tune_multiply.sh --plan retune.txt -p params/P100-0x2f6c
+./tune_multiply.sh -f retune.txt -p params/P100-0x2f6c -t 300
+./smm_params.sh P100
 ```
 
 Keep GPU driver state persistent during tuning (e.g.,
 `nvidia-smi -pm ENABLED` on headless NVIDIA systems).
+
+### Starting a New Device
+
+Tuning from scratch starts from the benchmark's own defaults. Starting
+from parameters that already work on a similar GPU is usually better, so
+`-e` expands a CSV file back into JSON files and any published device
+can seed a new one. Pick the closest relative, e.g. the previous
+generation of the same vendor:
+
+```bash
+./smm_params.sh -e P100
+mv tmp/P100-0x2f6c params/NEW-0x0000
+```
+
+`-e` writes below `tmp/` and never into a corpus, so it cannot reset the
+file dates of parameters that are already tuned. The expanded files
+still name the device they came from. On the target machine, let the
+tuner ask the device instead:
+
+```bash
+./tune_multiply.py -u -p params/NEW-0x0000
+./smm_params.sh -f NEW
+```
+
+The merge reports the id it actually found, which is the id to put into
+the directory name. Rename accordingly and the pair is consistent:
+
+```bash
+mv params/NEW-0x0000 params/NEW-0x1234
+./smm_params.sh -f NEW
+```
+
+From there, retuning is the normal flow: the seeded parameters are what
+the search starts from, and `--plan` keeps a record of what was retuned.
