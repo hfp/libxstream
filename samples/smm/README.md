@@ -173,7 +173,8 @@ mkdir -p params/local
 ./tune_multiply.py 13x5x7 --stop-after=300 -p params/local -s 30000
 ```
 
-Tune several explicit kernels from a file, one `MxNxK` per line:
+Tune several explicit kernels from a file, one `MxNxK` per line. A `#`
+starts a comment, so a line can be annotated or taken out of the list:
 
 ```bash
 printf '%s\n' 13x5x7 23x23x23 32x32x32 > kernels.txt
@@ -308,6 +309,61 @@ Retune every JSON file found in a directory:
 ./tune_multiply.sh -u -p params/local -t 300
 ```
 
+#### Retuning by age
+
+`--plan` lists the kernels of a JSON directory oldest first and writes
+that list as a file of triplets, or to standard output if no file is
+given. A kernel is dated by its youngest JSON file, so a kernel counts
+as old only once all of its files are:
+
+```bash
+./tune_multiply.sh --plan retune.txt -p params/local -n 40
+./tune_multiply.sh -f retune.txt -p params/local -t 300
+```
+
+The first command takes the 40 kernels that were tuned least recently
+(`-b` takes the most recent ones instead, and `-r`, `-m`, and `-n` limit
+the plan as they limit any other list). The second command works the
+plan. Tuning does not necessarily rewrite a JSON file: finding the same
+parameters again with a lower GFLOPS/s keeps the file and its date, so
+an order taken from the directory a second time can repeat the kernels
+it just tuned. The plan avoids this by holding the order still, which is
+also what makes a plan the list to keep between sessions of a split job.
+
+A plan records its own progress: each kernel that tuned successfully is
+marked `#done` and is skipped when the plan is used again, so an
+interrupted session resumes where it stopped and a kernel that failed
+stays in the plan. Marking rewrites the plan, which is why it is limited
+to the generated file (a handwritten list is left alone) and to a single
+session (`-j 1`). Delete the marks to tune the plan again:
+
+```bash
+sed "s/^#done //" retune.txt > retune.tmp && mv retune.tmp retune.txt
+```
+
+There is no minimum age: a plan lists every kernel of the directory, and
+`-n` decides how much of it to take. Taken with `--plan`, it fixes a
+smaller campaign, and taken with `-f`, it sizes a single session, so the
+same command repeated works down the plan by the same budget each time:
+
+```bash
+./tune_multiply.sh --plan retune.txt -p params/local
+./tune_multiply.sh -f retune.txt -p params/local -n 2 -t 300
+```
+
+A complete plan has no unmarked line left, which is the point to
+generate the next one:
+
+```bash
+grep -qv "^#" retune.txt || ./tune_multiply.sh --plan retune.txt -p params/local
+./tune_multiply.sh -f retune.txt -p params/local -n 2 -t 300
+```
+
+A date tells when a kernel was last improved, not when it was last
+tuned, and `#done` is the only record of an attempt. A kernel that
+retuning never improves therefore keeps its date and heads the next
+generated plan again.
+
 Limit the generated work before splitting it:
 
 ```bash
@@ -324,6 +380,7 @@ Useful options:
 | -s size         | Benchmark batch size, also called stack size      |
 | -a level        | Tuning level: 0=all ... 4=least tunables          |
 | -u              | Retune JSON files found under `-p`                |
+| --plan [file]   | Write kernels of `-p` by age, oldest first        |
 | -d              | Ask the merge step to delete losing JSONs         |
 | --prefer new    | Prefer newest duplicate (default: fastest)        |
 | -c              | Continue with the next kernel after an error      |
@@ -333,7 +390,7 @@ Useful options:
 | -r low high     | Keep kernels with low**3 < M*N*K <= high**3       |
 | -m extent       | Keep kernels with M, N, and K no larger than this |
 | -n count        | Keep only the first count kernels (see `-b`)      |
-| -f file         | Read MxNxK list from a file (one per line)        |
+| -f file         | Read MxNxK list from a file, resuming a plan      |
 | -k id           | Use a predefined triplet set                      |
 
 Options the wrapper does not know are passed to `tune_multiply.py`.

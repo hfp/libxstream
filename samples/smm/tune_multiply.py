@@ -1169,7 +1169,9 @@ if __name__ == "__main__":
                 line = file.readline()
                 if not line:
                     break
-                args.mnk, args.label = line.strip(), ""
+                # comments carry a plan's annotations and its progress
+                args.mnk = re.sub(r"\s+", "", line.split("#")[0])
+                args.label = ""
                 if args.mnk:
                     start(args)
                     print("")

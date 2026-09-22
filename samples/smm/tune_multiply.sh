@@ -10,17 +10,19 @@
 XARGS=$(command -v xargs)
 SORT=$(command -v sort)
 TAIL=$(command -v tail)
-HEAD=$(command -v head)
 SED=$(command -v gsed)
 TAC=$(command -v tac)
 CUT=$(command -v cut)
 LS=$(command -v ls)
+MV=$(command -v mv)
 RM=$(command -v rm)
 WC=$(command -v wc)
 TR=$(command -v tr)
 
 # initial delay before auto-tuning (interactive)
 WAIT_DEFAULT=12
+# first line of a generated plan, which marks it as resumable
+PLANTAG="tune_multiply plan"
 
 MPI_SIZE=${PMI_SIZE:-${OMPI_COMM_WORLD_SIZE:-${PMIX_SIZE:-${SLURM_NTASKS:-1}}}}
 MPI_RANK=${PMI_RANK:-${OMPI_COMM_WORLD_RANK:-${PMIX_RANK:-${SLURM_PROCID:-0}}}}
@@ -38,7 +40,17 @@ if [ ! "${TAC}" ] && [ "${TAIL}" ] && ${TAIL} -r </dev/null 2>/dev/null; then
   TAC="${TAIL} -r"
 fi
 
-if [ "${XARGS}" ] && [ "${SORT}" ] && [ "${HEAD}" ] && [ "${SED}" ] && \
+plan_print() {
+  echo "# ${PLANTAG} of ${JSONDIR}: ${NTRIPLETS} kernel(s), ${PLANORD}"
+  echo "# tuning marks a line \"#done\" and resuming skips it (see -f)"
+  for MNK in ${MNKS}; do
+    # the JSON that dated this line, i.e. the youngest of the kernel
+    JSON=$(${LS} -1t "${JSONDIR}"/tune_multiply-*-"${MNK}"-*.json 2>/dev/null | ${SED} -n "1p")
+    echo "${MNK} # ${JSON##*/}"
+  done
+}
+
+if [ "${XARGS}" ] && [ "${SORT}" ] && [ "${SED}" ] && \
    [ "${LS}" ] && [ "${RM}" ] && [ "${WC}" ];
 then
   EXTRA=""
@@ -55,6 +67,13 @@ then
       shift 2;;
     -u|--update)
       UPDATE=1
+      shift 1;;
+    --plan)
+      PLAN=1
+      case "$2" in
+      ""|-*) ;;
+      *) PLANFILE=$2; shift 1;;
+      esac
       shift 1;;
     -d|--delete)
       DELETE=1
@@ -112,6 +131,7 @@ then
   if [ ! "${BATCHSIZE}" ]; then BATCHSIZE=0; fi
   if [ ! "${JSONDIR}" ]; then JSONDIR=.; fi
   if [ ! "${TLEVEL}" ]; then TLEVEL=-1; fi
+  if [ ! "${PLANORD}" ]; then PLANORD="oldest first"; fi
   if [ ! "${NPARTS}" ]; then NPARTS=${MPI_SIZE}; fi
   if [ "0" != "$((1>NPARTS))" ]; then
     >&2 echo "ERROR: number of parts must be positive!"
@@ -121,6 +141,8 @@ then
     PART=$((MPI_RANK%NPARTS+1))
   fi
   if [ ! "${WAIT}" ] && [ "1" != "${NPARTS}" ]; then WAIT=0; fi
+  # writing a plan is not a tuning session
+  if [ ! "${WAIT}" ] && [ "${PLAN}" ]; then WAIT=0; fi
   # sanity checks
   if [ "0" != "$((NPARTS<PART))" ]; then
     >&2 echo "ERROR: part-number ${PART} is larger than the requested ${NPARTS} parts!"
@@ -141,17 +163,34 @@ then
     >&2 echo "ERROR: --specid and <triplet-spec> are mutual exclusive!"
     exit 1
   fi
+  if [ "${PLAN}" ] && { [ "${UPDATE}" ] || [ "${MNKFILE}" ] || \
+     [ "${SPECID}" ] || [ "$1" ]; };
+  then
+    >&2 echo "ERROR: --plan takes its kernels from the JSON-directory (see -p)!"
+    exit 1
+  fi
   if [ "${MNKFILE}" ] && [ "${SPECID}" ]; then
     >&2 echo "ERROR: --file and --specid are mutual exclusive!"
     exit 1
   fi
   # how to print standard vs error messages
   if [ ! "${HELP}" ] || [ "0" = "${HELP}" ]; then
-    JSONS=$(${LS} -1 "${JSONDIR}"/tune_multiply-*-*x*x*-*.json 2>/dev/null)
+    JSONS=$(${LS} -1t "${JSONDIR}"/tune_multiply-*-*x*x*-*.json 2>/dev/null)
     HERE=$(cd "$(dirname "$0")" && pwd -P)
     ECHO=">&2 echo"
-    if [ "${UPDATE}" ] && [ "0" != "${UPDATE}" ]; then
-      MNKS=$(${SED} -n "s/.*tune_multiply-[^-]*-\([0-9]*x[0-9]*x[0-9]*\)-.*\.json$/\1/p" <<<"${JSONS}" \
+    # acc_triplets.sh is a sibling here, but two levels up in dependent projects
+    TRIPLETS="${HERE}/acc_triplets.sh"
+    if [ ! -e "${TRIPLETS}" ]; then TRIPLETS="${HERE}/../../acc_triplets.sh"; fi
+    MNKPAT="s/.*tune_multiply-[^-]*-\([0-9]*x[0-9]*x[0-9]*\)-.*\.json$/\1/p"
+    if [ "${PLAN}" ]; then
+      # JSONS is youngest first, hence prepending dates a kernel by its
+      # youngest JSON and orders the kernels by that date (oldest first)
+      for MNK in $(${SED} -n "${MNKPAT}" <<<"${JSONS}"); do
+        case " ${MNKS} " in *" ${MNK} "*) continue;; esac
+        MNKS="${MNK} ${MNKS}"
+      done
+    elif [ "${UPDATE}" ] && [ "0" != "${UPDATE}" ]; then
+      MNKS=$(${SED} -n "${MNKPAT}" <<<"${JSONS}" \
          | ${SORT} -u -n -tx -k1,1 -k2,2 -k3,3)
     elif [ "${MNKFILE}" ]; then
       if [ ! -f "${MNKFILE}" ]; then
@@ -160,11 +199,26 @@ then
       fi
       MNKS=$(${SED} -e "s/#.*//" -e "s/[[:space:]]//g" "${MNKFILE}" \
            | ${SED} -n "/[0-9].*x.*[0-9]/p" | ${XARGS})
+      # progress is recorded in a generated plan, never in a handwritten list
+      if [ "${MV}" ] && [ "1" = "${NPARTS}" ] && \
+         [ "$(${SED} -n "1s/^#[[:space:]]*${PLANTAG}.*/1/p" "${MNKFILE}")" ];
+      then
+        NDONE=$(${SED} -n "/^#done/p" "${MNKFILE}" | ${WC} -l)
+        RESUME=1
+      fi
     elif [ "${SPECID}" ]; then
-      MNKS=$(eval "${HERE}/../../acc_triplets.sh -k ${SPECID} 2>/dev/null")
+      if [ ! -e "${TRIPLETS}" ]; then
+        >&2 echo "ERROR: file not found: ${TRIPLETS}"
+        exit 1
+      fi
+      MNKS=$(eval "${TRIPLETS} -k ${SPECID} 2>/dev/null")
     else
       if [[ "$*" != *"x"* ]]; then
-        MNKS=$(eval "${HERE}/../../acc_triplets.sh $* 2>/dev/null")
+        if [ ! -e "${TRIPLETS}" ]; then
+          >&2 echo "ERROR: file not found: ${TRIPLETS}"
+          exit 1
+        fi
+        MNKS=$(eval "${TRIPLETS} $* 2>/dev/null")
       else
         MNKS="$*"
       fi
@@ -179,7 +233,10 @@ then
     eval "${ECHO} \"       -w|--wait N: initial delay before auto-tuning (default: ${WAIT_DEFAULT} s)\""
     eval "${ECHO} \"       -c|--continue: proceed with plan if tuning is interrupted\""
     eval "${ECHO} \"       -u|--update: retune all JSONs found in directory (see -p)\""
+    eval "${ECHO} \"       --plan F: write plan of JSONs by age to F or stdout,\""
+    eval "${ECHO} \"        oldest kernel first (see -p, -b, and -n)\""
     eval "${ECHO} \"       -f|--file F: read MxNxK list from file (one per line, # comments)\""
+    eval "${ECHO} \"        a plan is resumed, i.e. tuned kernels are skipped\""
     eval "${ECHO} \"       -s|--batchsize N: Number of batched SMMs (a.k.a. stacksize)\""
     eval "${ECHO} \"       -a|--tuning-level N=0..4: all, most, some, few, least\""
     eval "${ECHO} \"        tunables, where the default (-1) matches level 2\""
@@ -233,21 +290,43 @@ then
     if [ "${REVERSE}" ] && [ "0" != "${REVERSE}" ]; then
       if [ "${TR}" ] && [ "${TAC}" ]; then
         MNKS=$(${TR} ' ' '\n' <<<"${MNKS}" | ${TAC} | ${TR} '\n' ' '; echo)
+        PLANORD="newest first"
       else # tuning ascending without a word would mislabel the session
         >&2 echo "WARNING: ascending order (reversal needs tr and tac/tail)!"
       fi
     fi
     if [ "${MNKS}" ] && [ "${MAXNUM}" ] && [ "0" != "$((0<MAXNUM))" ]; then
-      MNKS=$(${XARGS} -n1 <<<"${MNKS}" | ${HEAD} -n"${MAXNUM}" | ${XARGS})
+      # a reader that quits early makes xargs report SIGPIPE, hence sed
+      MNKS=$(${XARGS} -n1 <<<"${MNKS}" | ${SED} -n "1,${MAXNUM}p" | ${XARGS})
     else
       MNKS=$(${XARGS} <<<"${MNKS}")
     fi
   fi
   NTRIPLETS=$(${WC} -w <<<"${MNKS}")
   if [ "0" != "$((0==NTRIPLETS))" ]; then
+    if [ "${RESUME}" ]; then
+      echo "Plan ${MNKFILE} is complete (${NDONE} kernel(s) tuned)."
+      exit 0
+    fi
     if [ "${HELP}" ] || [ "0" = "${HELP}" ]; then exit 0; fi
     >&2 echo "ERROR: invalid or no <triplet-spec> given!"
     exit 1
+  fi
+  if [ "${PLAN}" ]; then
+    if [ "${PLANFILE}" ]; then
+      if plan_print >"${PLANFILE}"; then
+        echo "Wrote plan of ${NTRIPLETS} kernel(s) to ${PLANFILE}."
+      else
+        >&2 echo "ERROR: cannot write plan to ${PLANFILE}!"
+        exit 1
+      fi
+    else
+      plan_print
+    fi
+    exit 0
+  fi
+  if [ "${RESUME}" ] && [ "0" != "${NDONE}" ]; then
+    echo "Resuming ${MNKFILE} with ${NDONE} kernel(s) already tuned."
   fi
   if [ ! "${WAIT}" ] || [ "0" != "${WAIT}" ]; then
     if [ "0" = "$((NPARTS<=NTRIPLETS))" ]; then
@@ -283,7 +362,8 @@ then
     echo "Tuning ${PARTSIZE} kernels will take an unknown time (no limit given)."
   fi
   if [ "${DELETE}" ] && [ "0" != "${DELETE}" ]; then DELETE=-d; fi
-  NJSONS=$(${WC} -l <<<"${JSONS}")
+  # a here-string of an empty list still counts as one line
+  if [ "${JSONS}" ]; then NJSONS=$(${WC} -l <<<"${JSONS}"); else NJSONS=0; fi
   if [ "0" != "${NJSONS}" ]; then
     if [ ! "${UPDATE}" ] || [ "0" = "${UPDATE}" ]; then
       >&2 echo "Already found ${NJSONS} (unrelated?) JSON-files."
@@ -312,6 +392,16 @@ then
       ${RM} -rf ./opentuner.db
       eval "${HERE}/tune_multiply.py ${MNK} ${DELETE}${PREFER} -p ${JSONDIR} -s ${BATCHSIZE} -a ${TLEVEL} ${MAXTIME}${EXTRA}"
       RESULT=$?
+      # an interrupted or failed kernel stays in the plan
+      if [ "${RESUME}" ] && [ "0" = "${RESULT}" ]; then
+        if ${SED} "s/^\(${MNK}\([[:space:]].*\)*\)$/#done \1/" \
+             "${MNKFILE}" >"${MNKFILE}.tmp";
+        then
+          ${MV} -f "${MNKFILE}.tmp" "${MNKFILE}"
+        else
+          ${RM} -f "${MNKFILE}.tmp"
+        fi
+      fi
       # environment var. CONTINUE allows to proceed with next kernel
       # even if tune_multiply.py returned non-zero exit code
       if [[ ("0" != "${RESULT}") && \
