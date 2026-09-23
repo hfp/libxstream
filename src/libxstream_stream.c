@@ -252,18 +252,39 @@ LIBXSTREAM_API int libxstream_stream_sync(libxstream_stream_t* stream)
 
 LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id)
 {
-  int result = EXIT_SUCCESS;
+  /**
+   * The queues are collected in one pass under the lock and finished without it:
+   * a clFinish under the stream table's lock stalls every stream lookup behind
+   * someone else's device work. One pass, because the table is a pool that a
+   * concurrent destroy reorders, so a walk resumed after releasing the lock can
+   * skip a live stream. Each queue is retained, so a destroy meanwhile cannot
+   * free it under the finish.
+   */
+  cl_command_queue local[64], *queues = local;
   const size_t n = LIBXSTREAM_MAXNITEMS * libxstream_opencl_config.nthreads;
-  size_t i;
+  size_t i, nqueues = 0, capacity = sizeof(local) / sizeof(*local);
+  int result = EXIT_SUCCESS;
   assert(thread_id < libxstream_opencl_config.nthreads);
   assert(NULL != libxstream_opencl_config.streams);
   if (NULL != lock) LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
-  for (i = libxstream_opencl_config.nstreams; i < n; ++i) {
+  for (i = libxstream_opencl_config.nstreams; i < n && EXIT_SUCCESS == result; ++i) {
     const libxstream_opencl_stream_t* const str = libxstream_opencl_config.streams[i];
     if (NULL != str && NULL != str->queue) {
       if (0 > thread_id || str->tid == thread_id) { /* hit */
-        result = clFinish(str->queue);
-        if (EXIT_SUCCESS != result) break;
+        if (capacity == nqueues) { /* rare: more matching streams than the local buffer holds */
+          cl_command_queue* const grown = (cl_command_queue*)malloc(2 * capacity * sizeof(*queues));
+          if (NULL != grown) {
+            memcpy(grown, queues, nqueues * sizeof(*queues));
+            if (local != queues) free(queues);
+            queues = grown;
+            capacity *= 2;
+          }
+          else result = EXIT_FAILURE;
+        }
+        if (EXIT_SUCCESS == result) {
+          result = clRetainCommandQueue(str->queue);
+          if (EXIT_SUCCESS == result) queues[nqueues++] = str->queue;
+        }
       }
     }
     else { /* end of registered streams */
@@ -271,6 +292,11 @@ LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int 
     }
   }
   if (NULL != lock) LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
+  for (i = 0; i < nqueues; ++i) {
+    if (EXIT_SUCCESS == result) result = clFinish(queues[i]);
+    LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseCommandQueue(queues[i]));
+  }
+  if (local != queues) free(queues);
   return result;
 }
 
@@ -313,10 +339,10 @@ LIBXSTREAM_API int libxstream_device_sync(void)
     result = libxstream_opencl_device_synchronize(libxstream_opencl_config.lock_stream, -1 /*all*/);
   }
   else {
-    result = libxstream_opencl_device_synchronize(NULL /*lock*/, omp_get_thread_num());
+    result = libxstream_opencl_device_synchronize(libxstream_opencl_config.lock_stream, omp_get_thread_num());
   }
 # else
-  result = libxstream_opencl_device_synchronize(NULL /*lock*/, /*main*/ 0);
+  result = libxstream_opencl_device_synchronize(libxstream_opencl_config.lock_stream, /*main*/ 0);
 # endif
   CL_RETURN(result, "");
 }

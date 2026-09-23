@@ -402,7 +402,15 @@ typedef struct libxstream_opencl_config_t {
   cl_device_id devices[LIBXSTREAM_MAXNDEVS];
   /** Active device (per process). */
   libxstream_opencl_device_t device;
-  /** Locks used by domain. */
+  /**
+   * Locks used by domain, each owning its tables: lock_stream the streams,
+   * lock_memory the device pointers, sub-buffers and pins, lock_event the events
+   * and the profiled kernels. LIBXSTREAM_NLOCKS decides whether the domains are
+   * distinct or all aliases of lock_main (the default), and both are safe only
+   * while two rules hold: no path holds one domain while acquiring another, which
+   * under aliasing is a re-acquire of one spin lock, and every access to a table
+   * is under its owner, which only splitting the domains can expose.
+   */
   libxs_lock_t *lock_main, *lock_stream, *lock_event, *lock_memory;
   /**
    * The only lock a completion callback takes, and a leaf: nothing that can wait
@@ -624,6 +632,9 @@ LIBXSTREAM_API libxstream_opencl_info_memptr_t* libxstream_opencl_info_hostptr(c
 /**
  * Determines device-pointer registration (for modification; internal). The offset is measured in elsize.
  * Returns NULL if memory is SVM/USM (offset is zero in this case).
+ * The result is valid only while the caller holds lock_memory: freeing any buffer moves the table's
+ * last entry into the freed slot. A lock passed here is released before returning, so it only suits
+ * a caller that reads nothing through the result.
  */
 LIBXSTREAM_API libxstream_opencl_info_memptr_t* libxstream_opencl_info_devptr_modify(
   libxs_lock_t* lock, void* memory, size_t elsize, const size_t* amount, size_t* offset);

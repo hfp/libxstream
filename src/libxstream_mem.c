@@ -119,12 +119,15 @@ LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem memory, void** mempt
     result = clEnqueueNDRangeKernel(devinfo->stream.queue, devinfo->memptr_kernel,
       1, NULL, &size, NULL, 0, NULL, NULL);
   }
+  /* The shared kernel needed the lock up to here; the argument was captured at enqueue. */
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
   if (EXIT_SUCCESS == result) {
     result = clEnqueueReadBuffer(devinfo->stream.queue, memory, CL_TRUE,
       0, sizeof(void*), &memptr, 0, NULL, NULL);
   }
   assert(EXIT_SUCCESS != result || NULL != memptr);
-  if (EXIT_SUCCESS == result) {
+  if (EXIT_SUCCESS == result) { /* published under the lock the lookups scan with */
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     info = (libxstream_opencl_info_memptr_t*)libxs_pmalloc(
       (void**)libxstream_opencl_config.memptrs, &libxstream_opencl_config.nmemptrs);
     if (NULL != info) {
@@ -132,8 +135,8 @@ LIBXSTREAM_API_INTERN int libxstream_memptr_register(cl_mem memory, void** mempt
       info->memptr = memptr;
     }
     else result = EXIT_FAILURE;
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
   }
-  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
 
   *memptr_out = memptr;
   return result;
@@ -654,7 +657,9 @@ LIBXSTREAM_API int libxstream_opencl_info_devptr_lock(libxstream_opencl_info_mem
   int result = EXIT_SUCCESS;
   void* non_const;
   LIBXS_UNION_ASSIGN(void*, non_const, const void*, memory);
-  meminfo = libxstream_opencl_info_devptr_modify(lock, non_const, elsize, amount, offset);
+  /* Held until the entry is copied: the lookup's result does not outlive the lock. */
+  if (NULL != lock) LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
+  meminfo = libxstream_opencl_info_devptr_modify(NULL, non_const, elsize, amount, offset);
   assert(NULL != info);
   if (NULL == meminfo) { /* USM-pointer */
     if (
@@ -674,6 +679,7 @@ LIBXSTREAM_API int libxstream_opencl_info_devptr_lock(libxstream_opencl_info_mem
     LIBXS_ASSIGN(info, meminfo);
     info->memory = (cl_mem)meminfo->memptr;
   }
+  if (NULL != lock) LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
   return result;
 }
 
@@ -689,6 +695,29 @@ LIBXSTREAM_API int libxstream_opencl_info_devptr(
                                        ? NULL /* no lock required */
                                        : libxstream_opencl_config.lock_memory);
   return libxstream_opencl_info_devptr_lock(info, lock_memory, memory, elsize, amount, offset);
+}
+
+
+/**
+ * Buffer and offset of a device pointer, read out under lock_memory, or NULL for
+ * a USM-pointer. Values rather than the entry: freeing any buffer moves the
+ * table's last entry into the freed slot, so an entry pointer held past the lock
+ * is relocated or zeroed by the deallocation of an unrelated buffer.
+ */
+static cl_mem libxstream_mem_devbuf(const void* dev_mem, size_t* nbytes, size_t* offset, void** memptr)
+{
+  const libxstream_opencl_info_memptr_t* info;
+  cl_mem result = NULL;
+  void* nconst;
+  LIBXS_UNION_ASSIGN(void*, nconst, const void*, dev_mem);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+  info = libxstream_opencl_info_devptr_modify(NULL, nconst, 1 /*elsize*/, nbytes, offset);
+  if (NULL != info) {
+    result = info->memory;
+    if (NULL != memptr) *memptr = info->memptr;
+  }
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+  return result;
 }
 
 
@@ -1109,7 +1138,8 @@ LIBXSTREAM_API int libxstream_mem_offset(void** dev_mem, void* other, size_t off
 /**
  * A miss is not an error: the transfer then takes the ordinary route. The
  * list is short by construction, so a scan costs less than the smallest
- * transfer that reaches it.
+ * transfer that reaches it. Under lock_memory, which owns the table; no caller
+ * holds it, since the transfers that ask take no lock around the copy.
  */
 #if defined(LIBXSTREAM_MEM_STAGING)
 static int libxstream_mem_pinned(const void* host_mem, size_t nbytes)
@@ -1117,12 +1147,14 @@ static int libxstream_mem_pinned(const void* host_mem, size_t nbytes)
   const char* const pointer = (const char*)host_mem;
   int result = 0;
   size_t i;
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
   for (i = 0; i < libxstream_opencl_config.npins && 0 == result; ++i) {
     const char* const lo = libxstream_opencl_config.pinptr[i];
     if (NULL != lo && lo <= pointer && (size_t)(pointer - lo) + nbytes <= libxstream_opencl_config.pinsize[i]) {
       result = 1;
     }
   }
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
   return result;
 }
 #endif
@@ -1257,10 +1289,9 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
 # endif
   {
     size_t offset = 0;
-    libxstream_opencl_info_memptr_t* const info = libxstream_opencl_info_devptr_modify(
-      NULL, dev_mem, 1 /*elsize*/, &nbytes, &offset);
-    if (NULL != info) {
-      result = clEnqueueWriteBuffer(queue, info->memory, finish, offset, nbytes, host_mem, 0, NULL, event);
+    const cl_mem memory = libxstream_mem_devbuf(dev_mem, &nbytes, &offset, NULL);
+    if (NULL != memory) {
+      result = clEnqueueWriteBuffer(queue, memory, finish, offset, nbytes, host_mem, 0, NULL, event);
     }
     else result = EXIT_FAILURE;
   }
@@ -1286,10 +1317,9 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_mem_copy_h2d(
 # endif
     {
       size_t offset = 0;
-      libxstream_opencl_info_memptr_t* const info = libxstream_opencl_info_devptr_modify(
-        NULL, dev_mem, 1 /*elsize*/, &nbytes, &offset);
-      if (NULL != info) {
-        result_sync = clEnqueueWriteBuffer(queue, info->memory, CL_TRUE, offset, nbytes, host_mem, 0, NULL, event);
+      const cl_mem memory = libxstream_mem_devbuf(dev_mem, &nbytes, &offset, NULL);
+      if (NULL != memory) {
+        result_sync = clEnqueueWriteBuffer(queue, memory, CL_TRUE, offset, nbytes, host_mem, 0, NULL, event);
       }
     }
     if (EXIT_SUCCESS == result_sync) {
@@ -1370,15 +1400,18 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
     const libxstream_opencl_stream_t* str;
     cl_event event = NULL;
     /**
-     * Acquired before the lock and before any command of this transfer is
-     * enqueued: allocating it later would map a buffer on the default queue
-     * from inside a locked region with work already in flight.
+     * Acquired before any command of this transfer is enqueued: allocating it
+     * later would map a buffer on the default queue with work already in flight.
+     *
+     * No lock is held across the copy. The stream and the device pointer are
+     * looked up under the locks of their own tables, and a completion callback
+     * that fires meanwhile takes only lock_profile, so nothing here can hold a
+     * lock while waiting for an event whose completion needs it.
      */
     size_t window = nbytes;
     void* const stage = (0 != libxstream_mem_stage_ready(host_mem, nbytes)
       ? libxstream_mem_stage(&window) : NULL);
-    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(libxstream_opencl_config.lock_stream, libxs_tid()));
     assert(NULL != str);
     if (NULL == stage) {
       result = libxstream_opencl_mem_copy_h2d(
@@ -1388,8 +1421,7 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
       result = libxstream_mem_stage_h2d(host_mem, dev_mem, nbytes, stage, window,
         str->queue, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
     }
-    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
+    if (NULL != event) {
       if (EXIT_SUCCESS == result) {
         void* const data = LIBXSTREAM_EVENT_DATA(nbytes, libxstream_event_kind_h2d);
         assert(NULL != libxstream_opencl_config.hist_h2d);
@@ -1540,22 +1572,19 @@ LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, 
     NULL != host_mem && NULL != dev_mem && 0 != nbytes)
   {
     const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
-    libxstream_opencl_info_memptr_t* info = NULL;
+    cl_mem memory = NULL;
     cl_event event = NULL;
     size_t offset = 0, window = nbytes;
-    void* nconst;
     const libxstream_opencl_stream_t* str;
-    /* acquired before the lock, for the reason given in libxstream_mem_copy_h2d */
+    /* acquired first, and no lock is held across the copy: see libxstream_mem_copy_h2d */
     void* const stage = (0 != libxstream_mem_stage_ready(host_mem, nbytes)
       ? libxstream_mem_stage(&window) : NULL);
-    LIBXS_UNION_ASSIGN(void*, nconst, const void*, dev_mem);
-    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(libxstream_opencl_config.lock_stream, libxs_tid()));
     assert(NULL != str);
-    info = libxstream_opencl_info_devptr_modify(NULL, nconst, 1 /*elsize*/, &nbytes, &offset);
-    { const void* const source = (NULL == info ? dev_mem : (const void*)info->memory);
+    memory = libxstream_mem_devbuf(dev_mem, &nbytes, &offset, NULL);
+    { const void* const source = (NULL == memory ? dev_mem : (const void*)memory);
       cl_event* const hist = (NULL == libxstream_opencl_config.hist_d2h ? NULL : &event);
-      /* info_devptr_modify returns NULL for a USM-pointer, which is then its own source. */
+      /* A USM-pointer has no buffer, and is then its own source. */
       if (NULL == stage) {
         result = libxstream_opencl_mem_copy_d2h(source, host_mem, offset, nbytes, str->queue, finish, hist);
       }
@@ -1563,8 +1592,7 @@ LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, 
         result = libxstream_mem_stage_d2h(source, host_mem, offset, nbytes, stage, window, str->queue, hist);
       }
     }
-    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
+    if (NULL != event) {
       if (EXIT_SUCCESS == result) {
         void* const data = LIBXSTREAM_EVENT_DATA(nbytes, libxstream_event_kind_d2h);
         assert(NULL != libxstream_opencl_config.hist_d2h);
@@ -1594,8 +1622,7 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
     void* nconst;
     const libxstream_opencl_stream_t* str;
     LIBXS_UNION_ASSIGN(void*, nconst, const void*, devmem_src);
-    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(libxstream_opencl_config.lock_stream, libxs_tid()));
     assert(NULL != str && NULL != devinfo->context);
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
@@ -1617,18 +1644,15 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
 # endif
     {
       size_t offset_src = 0, offset_dst = 0;
-      libxstream_opencl_info_memptr_t* const info_src = libxstream_opencl_info_devptr_modify(
-        NULL, nconst, 1 /*elsize*/, &nbytes, &offset_src);
-      libxstream_opencl_info_memptr_t* const info_dst = libxstream_opencl_info_devptr_modify(
-        NULL, devmem_dst, 1 /*elsize*/, &nbytes, &offset_dst);
-      if (NULL != info_src && NULL != info_dst) {
-        result = clEnqueueCopyBuffer(str->queue, info_src->memory, info_dst->memory, offset_src, offset_dst, nbytes, 0, NULL,
+      const cl_mem memory_src = libxstream_mem_devbuf(nconst, &nbytes, &offset_src, NULL);
+      const cl_mem memory_dst = libxstream_mem_devbuf(devmem_dst, &nbytes, &offset_dst, NULL);
+      if (NULL != memory_src && NULL != memory_dst) {
+        result = clEnqueueCopyBuffer(str->queue, memory_src, memory_dst, offset_src, offset_dst, nbytes, 0, NULL,
           NULL == libxstream_opencl_config.hist_d2d ? pevent : &event);
       }
       else result = EXIT_FAILURE;
     }
-    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    if (NULL != event) { /* libxstream_mem_copy_notify must be outside of locked region */
+    if (NULL != event) {
       if (EXIT_SUCCESS == result) {
         void* const data = LIBXSTREAM_EVENT_DATA(nbytes, libxstream_event_kind_d2d);
         if (NULL == pevent) { /* asynchronous */
@@ -1674,8 +1698,7 @@ LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t off
     size_t base = 0, vsize = 1;
     if (0 == LIBXS_MOD2(nbytes, 4)) vsize = 4;
     else if (0 == LIBXS_MOD2(nbytes, 2)) vsize = 2;
-    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
-    str = (NULL != stream ? stream : libxstream_opencl_stream(NULL, libxs_tid()));
+    str = (NULL != stream ? stream : libxstream_opencl_stream(libxstream_opencl_config.lock_stream, libxs_tid()));
     assert(NULL != str && NULL != devinfo->context);
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemFillINTEL) {
@@ -1694,15 +1717,14 @@ LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t off
     else
 # endif
     {
-      const libxstream_opencl_info_memptr_t* const info = libxstream_opencl_info_devptr_modify(
-        NULL, dev_mem, 1 /*elsize*/, &nbytes, &base);
-      if (NULL != info) {
-        result = clEnqueueFillBuffer(str->queue, info->memory, &value, vsize, base + offset, nbytes, 0, NULL, pevent);
-        dev_mem = info->memptr;
+      void* memptr = NULL;
+      const cl_mem memory = libxstream_mem_devbuf(dev_mem, &nbytes, &base, &memptr);
+      if (NULL != memory) {
+        result = clEnqueueFillBuffer(str->queue, memory, &value, vsize, base + offset, nbytes, 0, NULL, pevent);
+        dev_mem = memptr;
       }
       else result = EXIT_FAILURE;
     }
-    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (NULL != event) {
       if (0 != wait) {
         int result_release;
