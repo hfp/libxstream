@@ -3,9 +3,9 @@ name: CP2K
 permissions:
   contents: read
 
-# CP2K moves independently of this repository: weekly catches drift in either
-# direction without failing unrelated pull requests. A manual run can point to
-# a fork or branch, e.g., to try a CP2K change before it reaches master.
+# CP2K and DBCSR move independently of this repository: weekly catches drift
+# in either direction without failing unrelated pull requests. A manual run can
+# point to a fork or branch, e.g., to try a change before it is upstream.
 on:
   schedule:
     - cron: "0 4 * * 1"
@@ -17,6 +17,12 @@ on:
       cp2k_ref:
         description: "CP2K branch or tag"
         default: "master"
+      dbcsr_owner:
+        description: "Owner of the DBCSR repository"
+        default: "cp2k"
+      dbcsr_ref:
+        description: "DBCSR branch or tag"
+        default: "develop"
 
 jobs:
   DBM:
@@ -77,3 +83,81 @@ jobs:
         ./dbm_miniapp.x 23x23x23 2>&1 | tee miniapp.log
         ./dbm_miniapp.x 5x13x7 2>&1 | tee -a miniapp.log
         grep -q "DBM-kernel" miniapp.log || { echo "ERROR: the DBM kernel did not run"; exit 1; }
+
+  DBCSR:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # the scheduled run has no inputs, hence the defaults again
+      DBCSR_OWNER: ${{ github.event.inputs.dbcsr_owner || 'cp2k' }}
+      DBCSR_REF: ${{ github.event.inputs.dbcsr_ref || 'develop' }}
+      LIBXSTREAM_DEVTYPE: cpu
+      OMP_NUM_THREADS: 2
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install OpenBLAS, GNU Fortran, and OpenCL
+      run: |
+        sudo apt update -y
+        sudo apt install -y libopenblas-openmp-dev gfortran \
+          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev pocl-opencl-icd
+
+    - name: Setup LIBXS
+      run: |
+        git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
+        echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> $GITHUB_ENV
+
+    - name: Setup DBCSR
+      run: |
+        DBCSR_REPO="https://github.com/${DBCSR_OWNER}/dbcsr.git"
+        git clone --depth 1 --recursive --shallow-submodules --branch "${DBCSR_REF}" \
+          "${DBCSR_REPO}" ${{ github.workspace }}/../dbcsr
+        echo "DBCSR_ROOT=${{ github.workspace }}/../dbcsr" >> $GITHUB_ENV
+        git -C ${{ github.workspace }}/../dbcsr log -1 --format="DBCSR %H %cs"
+
+    # The Makefiles also write the CMake package configuration DBCSR consumes.
+    - name: Build LIBXS
+      run: cd ${LIBXSROOT} && make -j $(nproc)
+
+    - name: Build LIBXSTREAM
+      run: make -j $(nproc)
+
+    - name: Test SMM sample
+      run: |
+        make -j $(nproc) -C samples/smm
+        cd samples/smm && ./acc_bench.x 3 3000 13x5x7
+
+    - name: Build DBCSR
+      run: |
+        cmake -S "${DBCSR_ROOT}" -B "${DBCSR_ROOT}/build" \
+          -DUSE_ACCEL=opencl -DUSE_LIBXS=ON -DUSE_LIBXSMM=OFF -DUSE_MPI=OFF \
+          -DBUILD_TESTING=ON -DCMAKE_PREFIX_PATH="${LIBXSROOT};${{ github.workspace }}"
+        cmake --build "${DBCSR_ROOT}/build" -j $(nproc)
+
+    - name: Test DBCSR backend
+      run: |
+        cd "${DBCSR_ROOT}/build/tests"
+        ./dbcsr_acc_test
+        ./acc_bench 3 3000 13x5x7
+
+    # DBCSR's own test suite is not repeated here: this is an integration build.
+    # dbcsr_perf reports checksums without comparing them, hence the reference
+    # values (deterministic input, refresh if DBCSR changes the input), and the
+    # accelerator must have taken the flops since a CPU fallback passes as well.
+    - name: Benchmark DBCSR
+      shell: bash # pipefail, or tee hides a failure
+      env:
+        CHECKSUM_C_OUT: 0.610128079932045E+12
+        CHECKSUM_C_POS: 0.230554708055126E+11
+      run: |
+        cd "${DBCSR_ROOT}/build/tests"
+        ./dbcsr_perf "${DBCSR_ROOT}/tests/inputs/test_H2O.perf" 2>&1 | tee perf.log
+        awk -v out="${CHECKSUM_C_OUT}" -v pos="${CHECKSUM_C_POS}" '
+          function off(x, r) { return (x > r ? x - r : r - x) / (0 > r ? -r : r) }
+          /checksum\(C_out\) =/ { nout++; if (1e-10 < off($NF + 0, out + 0)) bad = 1 }
+          /checksum\(C_out\) POS =/ { npos++; if (1e-10 < off($NF + 0, pos + 0)) bad = 1 }
+          END { exit !(1 == nout && 1 == npos && !bad) }' perf.log \
+          || { echo "ERROR: checksum of C differs from the reference"; exit 1; }
+        awk '/^ flops total/ { found = 1; if ("0.0%" == $NF) acc = 0; else acc = 1 }
+          END { exit !(found && acc) }' perf.log \
+          || { echo "ERROR: the accelerator did not run the multiplications"; exit 1; }
