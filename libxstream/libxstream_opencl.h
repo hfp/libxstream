@@ -308,6 +308,8 @@ typedef struct libxstream_opencl_device_t {
   cl_device_type type;
   /** Whether host memory is unified, and SVM/USM capabilities. */
   cl_int unified, usm;
+  /** See libxstream_opencl_device_pageable; -2 until it was asked. */
+  int pageable;
   /** Device-UID. */
   cl_uint uid;
   /** Main vendor? */
@@ -745,6 +747,14 @@ LIBXSTREAM_API int libxstream_opencl_dump(const char source[], size_t size_src, 
  * size), this expresses build-from-source, transform, rebuild-from-binary.
  */
 LIBXSTREAM_API int libxstream_opencl_program_binary(cl_program program, char** binary, size_t* size);
+/**
+ * Whether the active device reads pageable host memory directly, i.e. sits on a
+ * coherent link rather than being a discrete part: 1 or 0, or -1 where it cannot be
+ * told. It asks the CUDA runtime (loading it where the application did not), since
+ * OpenCL reports no such property, and the answer is kept per activated device.
+ * A property of the device and not of LIBXSTREAM_PIN, whose default it decides.
+ */
+LIBXSTREAM_API int libxstream_opencl_device_pageable(void);
 /**
  * Rewrite ".target sm_NN" to ".target sm_NNa", i.e. select NVIDIA's accelerated
  * target, and return the result (libxs_malloc'ed, caller frees with libxs_free).

@@ -1288,12 +1288,12 @@ static int libxstream_pin_cuda_device(cl_device_id device, int (*attr)(int*, int
  * (libxstream_mem_host_pin) must not bring up a device to be recorded.
  * The ordinal is CUDA's: a node mixing device models would need a map.
  */
-LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void);
-LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
+LIBXSTREAM_API int libxstream_opencl_device_pageable(void)
 {
-  if (0 > libxstream_opencl_config.pin && NULL != libxstream_opencl_config.device.context) {
-    const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-    int mode = 2, pageable = -1;
+  libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+  int pageable = -1;
+  if (NULL != devinfo->context && -2 != devinfo->pageable) pageable = devinfo->pageable;
+  else if (NULL != devinfo->context) {
     if (0 != devinfo->nv) {
       int (*attr)(int*, int, int) = libxstream_opencl_config.cudaDeviceGetAttribute;
 # if defined(LIBXS_INTERCEPT_DYNAMIC)
@@ -1323,11 +1323,8 @@ LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
         int ndevices = 0;
         const int ordinal = libxstream_pin_cuda_device(
           libxstream_opencl_config.devices[libxstream_opencl_config.device_id], attr, &ndevices);
-        if (0 <= ordinal
-          && EXIT_SUCCESS == attr(&pageable, 88 /*cudaDevAttrPageableMemoryAccess*/, ordinal)
-          && 0 == pageable)
-        {
-          mode = 1;
+        if (0 > ordinal || EXIT_SUCCESS != attr(&pageable, 88 /*cudaDevAttrPageableMemoryAccess*/, ordinal)) {
+          pageable = -1;
         }
         if (0 > libxstream_opencl_config.verbosity || 2 < libxstream_opencl_config.verbosity) {
           fprintf(stderr, "INFO ACC/OpenCL: OpenCL device %i maps to CUDA ordinal %i of %i\n",
@@ -1335,6 +1332,20 @@ LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
         }
       }
     }
+    devinfo->pageable = (0 > pageable ? -1 : (0 != pageable ? 1 : 0));
+    pageable = devinfo->pageable;
+  }
+  return pageable;
+}
+
+
+LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void);
+LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void)
+{
+  if (0 > libxstream_opencl_config.pin && NULL != libxstream_opencl_config.device.context) {
+    /* Staging pays only where the device cannot read pageable memory itself. */
+    const int pageable = libxstream_opencl_device_pageable();
+    const int mode = (0 == pageable ? 1 : 2);
     libxstream_opencl_config.pin = mode;
     if (0 > libxstream_opencl_config.verbosity || 2 < libxstream_opencl_config.verbosity) {
       fprintf(stderr, "INFO ACC/OpenCL: LIBXSTREAM_PIN=%i (pageable access %s)\n", mode,
@@ -1929,6 +1940,7 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           {
             devinfo->unified = CL_FALSE;
           }
+          devinfo->pageable = -2; /* asked on first use: it may load a vendor runtime */
           if (EXIT_SUCCESS !=
               clGetDeviceInfo(active_id, CL_DEVICE_MAX_MEM_ALLOC_SIZE, sizeof(cl_ulong), &devinfo->size_maxalloc, NULL))
           {

@@ -48,13 +48,20 @@
  * Tiles of 128x256 per compute unit below which the resident 128x128 tile wins
  * (OZAKI_WGMMA_RESIDE). The second resident work-group hides latency while the
  * narrower tile doubles the A-plane reads per output, so the crossover is where
- * the kernel turns bandwidth-bound: the resident tile leads by 1..12% of the wall
- * from 3.9 to 7.8 tiles per unit, square and rectangular alike, is level at 8.0 and
- * trails by 5% at 8.7 and 15% at 15.5. Counting tiles rather than elements is what
- * lets one threshold serve both aspect ratios and both SM counts.
+ * the kernel turns bandwidth-bound, and that depends on the memory as much as on
+ * the tile count. Counting tiles lets one threshold serve both aspect ratios, but
+ * not both kinds of part: on a coherent part the resident tile leads by 1..12% of
+ * the wall from 3.9 to 7.8 tiles per unit and is level at 8.0, while on a discrete
+ * one, with about half the memory bandwidth, it leads by 20% at 1.1 tiles per unit,
+ * is level at 1.8 and trails by 12..16% at 5.7..7.0. Which kind of part it is comes
+ * from libxstream_opencl_device_pageable; an unknown answer takes the discrete value,
+ * since a threshold set too low forgoes a gain while one set too high costs one.
  */
 #if !defined(OZAKI_WGMMA_RESIDE)
 # define OZAKI_WGMMA_RESIDE 8
+#endif
+#if !defined(OZAKI_WGMMA_RESIDE_DISCRETE)
+# define OZAKI_WGMMA_RESIDE_DISCRETE 2
 #endif
 /**
  * Sub-groups (warps) per work-group that NVIDIA tile selection aims for. At a
@@ -1702,7 +1709,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
       }
       { const char *const env_reside = getenv("OZAKI_WGMMA_RESIDE");
-        ctx->wgmma_reside = (NULL != env_reside && 0 <= atoi(env_reside)) ? atoi(env_reside) : OZAKI_WGMMA_RESIDE;
+        ctx->wgmma_reside = (NULL != env_reside && 0 <= atoi(env_reside))
+                              ? atoi(env_reside)
+                              : (1 == libxstream_opencl_device_pageable() ? OZAKI_WGMMA_RESIDE : OZAKI_WGMMA_RESIDE_DISCRETE);
       }
       /* Off by default, all four: measured neutral or worse here (see ozaki_opencl.h). */
       { const char *const env_maxnreg = getenv("OZAKI_MAXNREG");
@@ -2088,6 +2097,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ozaki_print_opt(stderr, "pb", ctx->pb);
       ozaki_print_opt(stderr, "hier", ctx->hier);
       ozaki_print_opt(stderr, "wgmma", ctx->wgmma);
+      if (0 != ozaki_wgmma_resident(ctx, 128, 128)) ozaki_print_opt(stderr, "reside", ctx->wgmma_reside);
       ozaki_print_opt(stderr, "unfuse", ctx->unfuse);
     }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);

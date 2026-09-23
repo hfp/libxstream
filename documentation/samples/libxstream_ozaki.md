@@ -123,7 +123,7 @@ follows that knob.
 | OZAKI_WGMMA      | (auto)  | Sch.2: warp-group MMA. On where reachable (see below)            |
 | OZAKI_WGMMA_N    | 256     | Warp-group tile width, 64, 128 or 256                            |
 | OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
-| OZAKI_WGMMA_RESIDE| 8      | Sch.2: tiles per SM below which 128x128 runs two per SM (0=off)  |
+| OZAKI_WGMMA_RESIDE| (auto) | Sch.2: tiles per SM below which 128x128 runs two per SM (0=off)  |
 | OZAKI_MAXNREG    | 0       | Sch.2 wgmma: registers per thread of the GEMM (0=derived)        |
 | OZAKI_NOBOUNDS   | 0       | Sch.2: drop output range checks (whole-tile shapes only)         |
 | OZAKI_ALPHA_ONE  | 0       | Sch.2: specialize the GEMM for alpha=1                           |
@@ -173,9 +173,10 @@ path spends shared memory on, 128 KB at the defaults, so lower it if a
 device refuses that. `OZAKI_WGMMA_M=128` runs two warp groups per
 work-group instead of one, worth +4% at n=2048 and +18% at n=8192.
 Below `OZAKI_WGMMA_RESIDE` tiles per SM the tile narrows to 128x128 and
-two work-groups share an SM, which is faster there (-3 to -12% wall
-from n=2048 to 5632) and slower above; `OZAKI_WGMMA_RESIDE=0`
-keeps the wide tile.
+two work-groups share an SM, which is faster there and slower above.
+The default is 8 on a part with a coherent host link and 2 on a
+discrete one, whose lower memory bandwidth moves the crossover down;
+`OZAKI_WGMMA_RESIDE=0` keeps the wide tile.
 
 Two implications worth knowing. The kernel is built twice — once from
 OpenCL C, then again from patched PTX — because warp-group MMA cannot
