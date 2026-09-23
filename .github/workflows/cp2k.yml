@@ -1,0 +1,79 @@
+name: CP2K
+
+permissions:
+  contents: read
+
+# CP2K moves independently of this repository: weekly catches drift in either
+# direction without failing unrelated pull requests. A manual run can point to
+# a fork or branch, e.g., to try a CP2K change before it reaches master.
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      cp2k_owner:
+        description: "Owner of the CP2K repository (hfp until upstreamed)"
+        default: "hfp"
+      cp2k_ref:
+        description: "CP2K branch or tag"
+        default: "master"
+
+jobs:
+  DBM:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # the scheduled run has no inputs, hence the default of cp2k_owner again
+      CP2K_OWNER: ${{ github.event.inputs.cp2k_owner || 'hfp' }}
+      CP2K_REF: ${{ github.event.inputs.cp2k_ref || 'master' }}
+      # PoCL's CPU device is the only OpenCL device of a runner, and it has FP64
+      LIBXSTREAM_DEVTYPE: cpu
+      OMP_NUM_THREADS: 2
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install OpenBLAS, GNU Fortran, and OpenCL
+      run: |
+        sudo apt update -y
+        sudo apt install -y libopenblas-openmp-dev gfortran \
+          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev pocl-opencl-icd
+
+    - name: Setup LIBXS
+      run: |
+        git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
+        echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> $GITHUB_ENV
+
+    - name: Setup CP2K
+      run: |
+        CP2K_REPO="https://github.com/${CP2K_OWNER}/cp2k.git"
+        git clone --depth 1 --branch "${CP2K_REF}" "${CP2K_REPO}" ${{ github.workspace }}/../cp2k
+        echo "CP2K_ROOT=${{ github.workspace }}/../cp2k" >> $GITHUB_ENV
+        git -C ${{ github.workspace }}/../cp2k log -1 --format="CP2K %H %cs"
+
+    # Libraries rather than header-only: CP2K's src/dbm/Makefile predating
+    # samples/dbm links lib/libxs.a and lib/libxstream.a.
+    - name: Build LIBXS
+      run: cd ${LIBXSROOT} && make -j $(nproc)
+
+    - name: Build LIBXSTREAM
+      run: make -j $(nproc)
+
+    - name: Test DBM sample
+      run: make -j $(nproc) -C samples/dbm test TESTARG="3 3000 13x5x7"
+
+    - name: Build DBM miniapp
+      run: make -C samples/dbm miniapp
+
+    # Mixed block sizes up to the given shape; DBM_MULTIPLY_VERIFY=2 fails the
+    # run if the device result differs from the host by more than MAXEPS.
+    - name: Test DBM miniapp
+      shell: bash # pipefail, or tee hides a failure
+      env:
+        DBM_MULTIPLY_VERIFY: 2
+        DBM_MULTIPLY_MAXEPS: 1e-12
+        LIBXSTREAM_VERBOSE: 2
+      run: |
+        cd "${CP2K_ROOT}/src/dbm"
+        ./dbm_miniapp.x 23x23x23 2>&1 | tee miniapp.log
+        ./dbm_miniapp.x 5x13x7 2>&1 | tee -a miniapp.log
+        grep -q "DBM-kernel" miniapp.log || { echo "ERROR: the DBM kernel did not run"; exit 1; }

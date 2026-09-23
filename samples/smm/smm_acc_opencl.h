@@ -114,7 +114,7 @@ libxstream_bool_t libsmm_acc_process_suitable(
 #if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
 typedef int (*opencl_libsmm_acc_dbm_launch_fn_t)(void* stream, double alpha, int ntasks, int param_format, const int* params_host,
   const int* params, const double* pack_a_data, const double* pack_b_data, double* shard_c_data);
-/** Enables DBM-kernel for LIBSMM (revsere reuse). */
+/** Enables DBM-kernel for LIBSMM (reverse reuse), which libsmm_acc_init otherwise pulls from samples/dbm if linked. */
 void opencl_libsmm_acc_set_dbm_launch_fn(opencl_libsmm_acc_dbm_launch_fn_t launch_fn);
 
 /** Backend-specific variant of libsmm_acc_process, which allows to easier reuse LIBSMM kernels. */

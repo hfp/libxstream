@@ -51,37 +51,26 @@ typedef struct {
 } dbm_multiply_gpu_launch_info_t;
 
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
-typedef int (*opencl_libsmm_acc_dbm_launch_fn_t)(void* stream, double alpha, int ntasks,
-  int param_format, const int* params_host, const int* params, const double* pack_a_data,
-  const double* pack_b_data, double* shard_c_data);
-#endif
-
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
 static int dbm_multiply_opencl_initialized /*= 0*/;
 static int dbm_multiply_opencl_smm /*= 0*/;
 #endif
 
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
-void opencl_libsmm_acc_set_dbm_launch_fn(opencl_libsmm_acc_dbm_launch_fn_t launch_fn);
 int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack,
   int stack_size, int datatype, const void* dev_a_data, const void* dev_b_data,
   void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim, int def_mnk,
   void* stream, void* c_stream, int param_format, void* event);
-LIBXS_PRAGMA_WEAK(opencl_libsmm_acc_set_dbm_launch_fn)
 LIBXS_PRAGMA_WEAK(opencl_libsmm_acc_process)
 #endif
 
 
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
-LIBXS_ATTRIBUTE_CTOR static void dbm_multiply_opencl_initialize(void)
+static void dbm_multiply_opencl_initialize(void)
 {
   const char* const smm_env = getenv("DBM_MULTIPLY_SMM");
   const int smm = (NULL == smm_env ? 0 /*default*/ : atoi(smm_env));
   dbm_multiply_opencl_smm = LIBXS_MIN(
     1 != smm ? smm : 64, (1 << (DBM_OPENCL_LIBSMM_PFORMAT - 1)) - 1);
-  if (0 > dbm_multiply_opencl_smm && NULL != opencl_libsmm_acc_set_dbm_launch_fn) {
-    opencl_libsmm_acc_set_dbm_launch_fn(dbm_multiply_opencl_launch_kernel);
-  }
   LIBXS_ATOMIC_STORE(&dbm_multiply_opencl_initialized, 1, LIBXS_ATOMIC_SEQ_CST);
 }
 #endif
@@ -503,5 +492,18 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         kind, task.max_m, task.max_n, task.max_k, pure, ntasks, 1E+3 * dtotl);
     }
   }
+  return result;
+}
+
+
+dbm_multiply_opencl_launch_fn_t dbm_multiply_opencl_smm_launch_fn(void)
+{
+  dbm_multiply_opencl_launch_fn_t result = NULL;
+#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+  if (0 == LIBXS_ATOMIC_LOAD(&dbm_multiply_opencl_initialized, LIBXS_ATOMIC_SEQ_CST)) {
+    dbm_multiply_opencl_initialize();
+  }
+  if (0 > dbm_multiply_opencl_smm) result = dbm_multiply_opencl_launch_kernel;
+#endif
   return result;
 }

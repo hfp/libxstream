@@ -42,6 +42,12 @@ libxs_predict_t* opencl_libsmm_predict_model;
 static int opencl_libsmm_predict_mode; /* -1=disabled, 0=fallback(default), 1=force */
 #  endif
 
+#  if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
+/* samples/dbm when linked: pulled rather than pushed since a constructor is not available below C99 */
+opencl_libsmm_acc_dbm_launch_fn_t dbm_multiply_opencl_smm_launch_fn(void);
+LIBXS_PRAGMA_WEAK(dbm_multiply_opencl_smm_launch_fn)
+#  endif
+
 
 #  if defined(OPENCL_KERNELS_DEVICES) && (defined(OPENCL_KERNELS_PARAMS_SMM) || defined(OPENCL_KERNELS_PREDICT_MODELS))
 /**
@@ -93,6 +99,11 @@ int libsmm_acc_init(void) {
       opencl_libsmm_registry = libxs_registry_create();
       if (NULL == opencl_libsmm_registry) result = EXIT_FAILURE;
     }
+#  if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
+    if (EXIT_SUCCESS == result && NULL == opencl_libsmm_acc_dbm_launch_fn && NULL != dbm_multiply_opencl_smm_launch_fn) {
+      opencl_libsmm_acc_dbm_launch_fn = dbm_multiply_opencl_smm_launch_fn();
+    }
+#  endif
     if (EXIT_SUCCESS == result) {
       opencl_libsmm_perfest_t perfest;
       char* const env_params = getenv("OPENCL_LIBSMM_SMM_PARAMS"); /* !opencl_libsmm_getenv */

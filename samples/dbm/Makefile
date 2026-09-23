@@ -15,6 +15,9 @@ OMP = 1
 SYM = 0
 OCL = 2
 
+# arguments of dbm_bench.x (acc_bench.x) for the test target
+TESTARG ?= $(NULL)
+
 # root directory of LIBXS
 LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
 # CP2K source tree (miniapp target only)
@@ -103,10 +106,16 @@ $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(SMMOBJ) $(XLIB) $(LIBXS)
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(LIBXSROOT)/Makefile.inc
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@
 
-# a negative DBM_MULTIPLY_SMM routes the homogeneous LIBSMM stacks into the DBM kernel
+# A negative DBM_MULTIPLY_SMM routes the homogeneous LIBSMM stacks into the DBM kernel. The
+# verbose output is what proves it ran: otherwise LIBSMM's own kernel passes the same check.
 .PHONY: test
 test: $(XFILES)
-	DBM_MULTIPLY_SMM=-1 $(OUTDIR)/$(OUTNAME).x
+	@OUTPUT=$$(DBM_MULTIPLY_SMM=-1 LIBXSTREAM_VERBOSE=2 $(OUTDIR)/$(OUTNAME).x $(TESTARG) 2>&1); \
+	RESULT=$$?; echo "$${OUTPUT}"; \
+	if [ "0" != "$${RESULT}" ]; then exit $${RESULT}; fi; \
+	if ! echo "$${OUTPUT}" | grep -q "DBM-kernel"; then \
+		echo "ERROR: the DBM kernel did not run"; exit 1; \
+	fi
 
 # CP2K builds dbm_miniapp.x, taking the DBM backend from this directory
 .PHONY: miniapp

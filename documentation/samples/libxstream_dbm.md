@@ -40,8 +40,9 @@ make test
 ```
 
 Runs `dbm_bench.x` with `DBM_MULTIPLY_SMM=-1`, which routes the homogeneous
-LIBSMM batches into the DBM kernel and validates the result. The arguments of
-`dbm_bench.x` are those of `acc_bench.x`.
+LIBSMM batches into the DBM kernel and validates the result. The test fails if
+the DBM kernel did not run. The arguments of `dbm_bench.x` are those of
+`acc_bench.x` and can be given as `make test TESTARG="5 3000 13x5x7"`.
 
 ## CP2K
 
@@ -63,7 +64,8 @@ miniapp also exercises heterogeneous batches.
 | Variable            | Default | Description                                                        |
 |---------------------|---------|--------------------------------------------------------------------|
 | DBM_MULTIPLY_SMM    | 0       | Positive: homogeneous batches up to this size use LIBSMM (1 = 64)  |
-|                     |         | Negative: LIBSMM uses the DBM kernel for its homogeneous batches   |
+|                     |         | Negative: LIBSMM (DBCSR) uses the DBM kernel for homogeneous       |
+|                     |         | batches (backward usage, experimental)                             |
 | DBM_MULTIPLY_KERNEL | -       | Path to a `.cl` file that replaces the embedded kernel             |
 | DBM_MULTIPLY_FP     | 0       | 1: compute in single precision (data remains double precision)     |
 | DBM_MULTIPLY_BN     | auto    | Column tile (1–32), 8 or 2 on NVIDIA                               |

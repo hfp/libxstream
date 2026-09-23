@@ -14,6 +14,12 @@
 #define DBM_OPENCL_TASK_SIZE 6
 
 
+/** Signature of dbm_multiply_opencl_launch_kernel. */
+typedef int (*dbm_multiply_opencl_launch_fn_t)(void* stream, double alpha, int ntasks,
+  int param_format, const int* params_host, const int* params, const double* pack_a_data,
+  const double* pack_b_data, double* shard_c_data);
+
+
 /**
  * Enqueues C += alpha * A * B for a batch of small matrix products on the given
  * stream (libxstream_opencl_stream_t). A zero param_format selects the native
@@ -25,5 +31,12 @@
 int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, int param_format,
   const int* params_host, const int* params, const double* pack_a_data,
   const double* pack_b_data, double* shard_c_data);
+
+/**
+ * Returns dbm_multiply_opencl_launch_kernel if LIBSMM shall use the DBM kernel for
+ * its homogeneous batches (backward usage, DBM_MULTIPLY_SMM < 0), or NULL otherwise.
+ * LIBSMM pulls the function at initialization if it is linked.
+ */
+dbm_multiply_opencl_launch_fn_t dbm_multiply_opencl_smm_launch_fn(void);
 
 #endif /*DBM_OPENCL_H*/
