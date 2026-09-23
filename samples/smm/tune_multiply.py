@@ -327,6 +327,13 @@ class LibxsSurrogate(ot_technique.SearchTechnique):
     candidate with the best predicted throughput times probability of being
     valid, plus an exploration bonus of LIBXS_SURROGATE_KAPPA standard
     deviations. The bandit around it decides whether that earns trials.
+
+    The standard deviation is the spread among a candidate's nearest measured
+    neighbours, so it is local: a region nobody has sampled does not look
+    uncertain, it looks like its slow neighbours, and such a surrogate exploits
+    well and discovers at chance. LIBXS_SURROGATE_NOVELTY therefore adds a
+    bonus for distance from everything measured, in units of the best
+    throughput so far; zero leaves the exploitation-only proposer.
     """
 
     libxs = None
@@ -336,6 +343,7 @@ class LibxsSurrogate(ot_technique.SearchTechnique):
         self.kappa = float(os.getenv("LIBXS_SURROGATE_KAPPA", "1.0"))
         self.ncand = int(os.getenv("LIBXS_SURROGATE_CANDIDATES", "512"))
         self.warmup = int(os.getenv("LIBXS_SURROGATE_WARMUP", "8"))
+        self.novelty = float(os.getenv("LIBXS_SURROGATE_NOVELTY", "1.0"))
         self.params, self.rows, self.seen = None, [], set()
         self.model, self.dirty, self.best = None, False, None
 
@@ -381,6 +389,19 @@ class LibxsSurrogate(ot_technique.SearchTechnique):
                 )
                 self.dirty = False
             if self.model:
+                # each parameter scaled to its range, so none dominates distance
+                span = [
+                    (p.min_value, max(1, p.max_value - p.min_value))
+                    for p in self.params
+                ]
+
+                def unit(x):
+                    return [(v - lo) / w for v, (lo, w) in zip(x, span)]
+
+                seen = (
+                    [unit(x) for x, _ in self.rows] if 0 < self.novelty else []
+                )
+                scale = max(1.0, self.best[0]) if self.best else 1.0
                 pool = [
                     self.manipulator.random() for _ in range(self.ncand // 2)
                 ]
@@ -400,6 +421,13 @@ class LibxsSurrogate(ot_technique.SearchTechnique):
                     score = max(0.0, val[0]) * pvalid + self.kappa * math.sqrt(
                         max(0.0, var[0])
                     )
+                    if seen:
+                        u = unit(xin)
+                        near = min(
+                            sum((a - b) * (a - b) for a, b in zip(u, v))
+                            for v in seen
+                        )
+                        score += self.novelty * scale * math.sqrt(near)
                     if bestscore is None or bestscore < score:
                         bestscore, choice = score, cand
                 if choice is not None:
