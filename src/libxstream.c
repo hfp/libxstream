@@ -22,6 +22,9 @@
 #   include <unistd.h>
 #   include <errno.h>
 #   include <glob.h>
+#   if defined(__linux__)
+#     include <sys/syscall.h>
+#   endif
 # endif
 # include <fcntl.h>
 # include <sys/stat.h>
@@ -1701,6 +1704,68 @@ LIBXSTREAM_API int libxstream_opencl_device_ext(cl_device_id device, const char*
 }
 
 
+#if defined(__linux__) && defined(SYS_sched_getaffinity) && defined(SYS_sched_setaffinity) && defined(_OPENMP) && \
+  (201511 <= _OPENMP)
+/**
+ * A driver's threads inherit the CPU mask of the thread that creates the context, and
+ * OpenMP binding (OMP_PROC_BIND) confines that thread to one CPU before any parallel
+ * region. Every thread NVIDIA's driver starts then shares that CPU, where its locking
+ * deadlocks: a blocking read-back waits for a completion the event thread cannot
+ * deliver while it waits on a lock of the driver's own. So the creating thread is
+ * widened to the CPUs OpenMP may use, i.e. what the process was granted, and restored
+ * afterwards, which keeps both the caller's binding and a taskset's limits.
+ *
+ * A raw syscall and a plain mask rather than cpu_set_t: in a header-only build the
+ * caller's translation unit may include the system headers without _GNU_SOURCE.
+ */
+# define LIBXSTREAM_AFFINITY_WORDS 64
+LIBXSTREAM_API_INTERN int libxstream_opencl_affinity_widen(unsigned long /*saved*/[LIBXSTREAM_AFFINITY_WORDS]);
+LIBXSTREAM_API_INTERN int libxstream_opencl_affinity_widen(unsigned long saved[LIBXSTREAM_AFFINITY_WORDS])
+{
+  const size_t nbits = 8 * sizeof(*saved);
+  unsigned long wide[LIBXSTREAM_AFFINITY_WORDS];
+  int result = 0, nsaved = 0, nwide = 0, place, i;
+  memset(saved, 0, LIBXSTREAM_AFFINITY_WORDS * sizeof(*saved));
+  memset(wide, 0, sizeof(wide));
+  if (omp_proc_bind_false != omp_get_proc_bind()
+    && 0 < syscall(SYS_sched_getaffinity, 0, LIBXSTREAM_AFFINITY_WORDS * sizeof(*saved), saved))
+  {
+    for (place = 0; place < omp_get_num_places(); ++place) {
+      const int n = omp_get_place_num_procs(place);
+      int* const ids = (0 < n ? (int*)malloc((size_t)n * sizeof(int)) : NULL);
+      if (NULL != ids) {
+        omp_get_place_proc_ids(place, ids);
+        for (i = 0; i < n; ++i) {
+          if (0 <= ids[i] && (size_t)ids[i] < LIBXSTREAM_AFFINITY_WORDS * nbits) {
+            wide[(size_t)ids[i] / nbits] |= 1UL << ((size_t)ids[i] % nbits);
+          }
+        }
+        free(ids);
+      }
+    }
+    for (i = 0; i < (int)(LIBXSTREAM_AFFINITY_WORDS * nbits); ++i) {
+      nsaved += (0 != (saved[(size_t)i / nbits] & (1UL << ((size_t)i % nbits))));
+      nwide += (0 != (wide[(size_t)i / nbits] & (1UL << ((size_t)i % nbits))));
+    }
+    if (nsaved < nwide && 0 == syscall(SYS_sched_setaffinity, 0, sizeof(wide), wide)) {
+      if (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
+        fprintf(stderr, "INFO ACC/OpenCL: driver threads started on %i CPUs rather than the caller's %i\n", nwide, nsaved);
+      }
+      result = 1;
+    }
+  }
+  return result;
+}
+# define LIBXSTREAM_AFFINITY_WIDEN(SAVED) libxstream_opencl_affinity_widen(SAVED)
+# define LIBXSTREAM_AFFINITY_RESTORE(SAVED) \
+    LIBXS_EXPECT(0 == syscall(SYS_sched_setaffinity, 0, LIBXSTREAM_AFFINITY_WORDS * sizeof(*(SAVED)), SAVED))
+#else
+# define LIBXSTREAM_AFFINITY_WORDS 1
+# define LIBXSTREAM_AFFINITY_WIDEN(SAVED) ((void)(SAVED), 0)
+# define LIBXSTREAM_AFFINITY_RESTORE(SAVED) LIBXS_UNUSED(SAVED)
+#endif
+
+
 LIBXSTREAM_API int libxstream_opencl_create_context(cl_device_id active_id, cl_context* context)
 {
   cl_platform_id platform = NULL;
@@ -1716,11 +1781,15 @@ LIBXSTREAM_API int libxstream_opencl_create_context(cl_device_id active_id, cl_c
       CL_CONTEXT_PLATFORM, 0 /*placeholder*/, 0 /* end of properties */
     };
     cl_context ctx = NULL;
+    unsigned long affinity[LIBXSTREAM_AFFINITY_WORDS];
+    /* the driver starts its threads here, and they keep the mask they inherit */
+    const int widened = LIBXSTREAM_AFFINITY_WIDEN(affinity);
     properties[1] = (cl_context_properties)platform;
     ctx = clCreateContext(properties, 1 /*num_devices*/, &active_id, notify, NULL /* user_data*/, &result);
     if (EXIT_SUCCESS != result && CL_INVALID_DEVICE != result) { /* retry */
       ctx = clCreateContext(NULL /*properties*/, 1 /*num_devices*/, &active_id, notify, NULL /* user_data*/, &result);
     }
+    if (0 != widened) LIBXSTREAM_AFFINITY_RESTORE(affinity);
     if (EXIT_SUCCESS == result) {
       assert(NULL != ctx);
       *context = ctx;
