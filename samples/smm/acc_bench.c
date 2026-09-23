@@ -415,7 +415,7 @@ int main(int argc, char* argv[]) {
                 else {
                   PRINTF("\n");
                 }
-                if (0 < check && check < epsilon) result = EXIT_FAILURE;
+                if (0 != check && (0 < check ? check : ACC_BENCH_SMM_EPSILON(ELEM_TYPE)) < epsilon) result = EXIT_FAILURE;
               }
               else {
                 fprintf(stderr, "ERROR: failed to validate!\n");

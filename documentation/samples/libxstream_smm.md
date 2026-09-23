@@ -50,7 +50,7 @@ The batchsize argument accepts K/M/G suffixes for memory-budget mode.
 
 | Variable      | Default | Description                                               |
 |---------------|---------|-----------------------------------------------------------|
-| CHECK         | -1      | Accuracy: negative=auto-threshold, 0=off, positive=custom |
+| CHECK         | -1      | Accuracy: negative=1E-3 (float: 2E-3), 0=off, >0 scales   |
 | CHECK_H2D     | -       | Minimum H2D bandwidth (GB/s); fail if below               |
 | CHECK_DEV     | -       | Minimum device GFLOPS/s; fail if below                    |
 | CHECK_HST     | -       | Minimum host GFLOPS/s; fail if below                      |
