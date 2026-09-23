@@ -13,6 +13,11 @@ from opentuner.tuningrunmain import TuningRunMain
 from opentuner import ConfigurationManipulator
 from opentuner import MeasurementInterface
 from opentuner import Result
+from opentuner.search import technique as ot_technique
+from opentuner.search import bandittechniques as ot_bandit
+from opentuner.search import differentialevolution as ot_de
+from opentuner.search import evolutionarytechniques as ot_evo
+from opentuner.search import simplextechniques as ot_simplex
 from signal import signal, SIGINT
 import tempfile
 import hashlib
@@ -23,6 +28,9 @@ import math
 import sys
 import re
 import os
+import ctypes
+import ctypes.util
+import random
 
 default_enable_tune = {"tune", "enabled", "on"}
 default_basename = "tune_multiply"
@@ -211,6 +219,214 @@ def ilog2(n):
         t <<= 1
         i += 1
     return i
+
+
+class Libxs(object):
+    """Thin ctypes binding to the libxs prediction API (flat entry points)."""
+
+    def __init__(self):
+        self.lib = None
+        name = "libxs.dylib" if "Darwin" == os.uname()[0] else "libxs.so"
+        here = os.path.dirname(os.path.realpath(__file__))
+        candidates = []
+        env = os.getenv("LIBXS_LIB")
+        if env:
+            candidates.append(
+                env if os.path.isfile(env) else os.path.join(env, name)
+            )
+        root = os.getenv("LIBXSROOT")
+        if root:
+            candidates.append(os.path.join(root, "lib", name))
+        # the sibling checkout, as the Makefiles find it
+        candidates.append(
+            os.path.join(here, "..", "..", "..", "libxs", "lib", name)
+        )
+        found = ctypes.util.find_library("xs")
+        if found:
+            candidates.append(found)
+        for path in candidates:
+            if path and (os.path.isfile(path) or path == found):
+                try:
+                    self.lib = ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+                    self.path = path
+                    break
+                except OSError:
+                    self.lib = None
+        if self.lib is not None:
+            try:
+                self._bind()
+            except AttributeError:  # an older library without the flat API
+                self.lib = None
+
+    def _bind(self):
+        vp, dp, ci = (
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int,
+        )
+        lib = self.lib
+        lib.libxs_init.argtypes, lib.libxs_init.restype = [], None
+        lib.libxs_predict_create.argtypes = [ci, ci]
+        lib.libxs_predict_create.restype = vp
+        (
+            lib.libxs_predict_destroy.argtypes,
+            lib.libxs_predict_destroy.restype,
+        ) = ([vp], None)
+        lib.libxs_predict_push.argtypes = [vp, vp, dp, dp]
+        lib.libxs_predict_push.restype = ci
+        lib.libxs_predict_build.argtypes = [vp, ci, ci, ctypes.c_double]
+        lib.libxs_predict_build.restype = ci
+        lib.libxs_predict_eval_flat.argtypes = [vp, dp, dp, dp, dp, dp, dp]
+        lib.libxs_predict_eval_flat.restype = None
+        lib.libxs_init()
+
+    def available(self):
+        return self.lib is not None
+
+    def build(self, rows, ninputs, noutputs):
+        """A model built from (inputs, outputs) rows, or None."""
+        lib, model = self.lib, None
+        handle = lib.libxs_predict_create(ninputs, noutputs)
+        if handle:
+            ain, aout = ctypes.c_double * ninputs, ctypes.c_double * noutputs
+            for xin, yout in rows:
+                lib.libxs_predict_push(None, handle, ain(*xin), aout(*yout))
+            # order 1: the outputs are measurements, not a smooth series
+            if 0 == lib.libxs_predict_build(handle, 0, 1, 0.0):
+                model = handle
+            else:
+                lib.libxs_predict_destroy(handle)
+        return model
+
+    def evaluate(self, model, xin, noutputs):
+        """(values, confidence, variance) for one input row."""
+        arr = ctypes.c_double * noutputs
+        out, conf, var = arr(), arr(), arr()
+        self.lib.libxs_predict_eval_flat(
+            model,
+            (ctypes.c_double * len(xin))(*xin),
+            out,
+            conf,
+            var,
+            None,
+            None,
+        )
+        return list(out), list(conf), list(var)
+
+    def destroy(self, model):
+        if model:
+            self.lib.libxs_predict_destroy(model)
+
+
+class LibxsSurrogate(ot_technique.SearchTechnique):
+    """
+    Model-based proposals for one tuning run. Every trial, whoever requested it,
+    trains a surrogate of two outputs: the throughput reached and whether the
+    configuration built and validated at all (failures are common, and a
+    proposer that cannot learn them keeps proposing them). A proposal is the
+    candidate with the best predicted throughput times probability of being
+    valid, plus an exploration bonus of LIBXS_SURROGATE_KAPPA standard
+    deviations. The bandit around it decides whether that earns trials.
+    """
+
+    libxs = None
+
+    def __init__(self, *pargs, **kwargs):
+        super(LibxsSurrogate, self).__init__(*pargs, **kwargs)
+        self.kappa = float(os.getenv("LIBXS_SURROGATE_KAPPA", "1.0"))
+        self.ncand = int(os.getenv("LIBXS_SURROGATE_CANDIDATES", "512"))
+        self.warmup = int(os.getenv("LIBXS_SURROGATE_WARMUP", "8"))
+        self.params, self.rows, self.seen = None, [], set()
+        self.model, self.dirty, self.best = None, False, None
+
+    def tunables(self, cfg):
+        if self.params is None:  # the fixed parameters carry no signal
+            self.params = [
+                p
+                for p in self.manipulator.parameters(cfg)
+                if hasattr(p, "min_value") and p.min_value != p.max_value
+            ]
+        return self.params
+
+    def key(self, cfg):
+        return tuple(p.get_value(cfg) for p in self.tunables(cfg))
+
+    def on_result(self, result):
+        cfg = result.configuration.data
+        xin = [float(v) for v in self.key(cfg)]
+        gflops = float(result.accuracy or 0.0)
+        valid = 1.0 if 0 < gflops else 0.0
+        self.rows.append((xin, [gflops, valid]))
+        self.seen.add(tuple(xin))
+        if self.best is None or self.best[0] < gflops:
+            self.best = (gflops, dict(cfg))
+        self.dirty = True
+
+    def mutate(self, cfg):
+        out = dict(cfg)
+        for p in random.sample(self.params, max(1, len(self.params) // 3)):
+            lo, hi = p.min_value, p.max_value
+            step = max(1, (hi - lo) // 8)
+            v = p.get_value(out) + random.randint(-step, step)
+            p.set_value(out, min(hi, max(lo, v)))
+        return out
+
+    def desired_configuration(self):
+        cfg = self.manipulator.random()
+        if len(self.rows) >= self.warmup and self.libxs.available():
+            if self.dirty:
+                self.libxs.destroy(self.model)
+                self.model = self.libxs.build(
+                    self.rows, len(self.tunables(cfg)), 2
+                )
+                self.dirty = False
+            if self.model:
+                pool = [
+                    self.manipulator.random() for _ in range(self.ncand // 2)
+                ]
+                if self.best is not None:
+                    pool += [
+                        self.mutate(self.best[1])
+                        for _ in range(self.ncand - len(pool))
+                    ]
+                bestscore, choice = None, None
+                for cand in pool:
+                    xin = [float(v) for v in self.key(cand)]
+                    if tuple(xin) in self.seen:
+                        continue
+                    val, conf, var = self.libxs.evaluate(self.model, xin, 2)
+                    # a 0/1 output answers a class with a share behind it
+                    pvalid = conf[1] if 0.5 <= val[1] else 1.0 - conf[1]
+                    score = max(0.0, val[0]) * pvalid + self.kappa * math.sqrt(
+                        max(0.0, var[0])
+                    )
+                    if bestscore is None or bestscore < score:
+                        bestscore, choice = score, cand
+                if choice is not None:
+                    cfg = choice
+        return cfg
+
+
+LibxsSurrogate.libxs = Libxs()
+if LibxsSurrogate.libxs.available():
+    # the default bandit's members, and the same members plus the surrogate: the
+    # pair is the comparison, so nothing else about the ensemble may differ
+    ot_technique.register(
+        ot_bandit.AUCBanditMetaTechnique(
+            [
+                ot_de.DifferentialEvolutionAlt(),
+                ot_evo.UniformGreedyMutation(),
+                ot_evo.NormalGreedyMutation(mutation_rate=0.3),
+                ot_simplex.RandomNelderMead(),
+                LibxsSurrogate(),
+            ],
+            name="LibxsBanditA",
+        )
+    )
+else:
+    sys.stderr.write(
+        "WARNING: libxs not loadable (set LIBXS_LIB), LibxsBanditA is absent.\n"
+    )
 
 
 class SmmTuner(MeasurementInterface):
