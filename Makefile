@@ -494,6 +494,15 @@ endif
 		$(ROOTDIR)/$(SPLDIR)/smm/params/*.csv \
 		$(PREFIX)/$(PSHRDIR)/$(SPLDIR)/smm/smm_kernels.h
 	@echo
+	@echo "$(PROJUPP) installing OpenCL DBM support files..."
+	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm/kernels
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/dbm/dbm_opencl.c $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/dbm/dbm_opencl.h $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/dbm/kernels/*.cl $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm/kernels
+	@$(ROOTSCR)/tool_opencl.sh -p "" -I $(ROOTDIR)/libxstream \
+		$(ROOTDIR)/$(SPLDIR)/dbm/kernels/dbm_multiply.cl \
+		$(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm/dbm_kernels.h
+	@echo
 	@echo "$(PROJUPP) installing OpenCL stencil support files..."
 	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/stencil/kernels
 	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/stencil/stencil_opencl.c $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/stencil

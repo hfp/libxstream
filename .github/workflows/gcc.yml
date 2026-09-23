@@ -289,6 +289,8 @@ jobs:
         test -f $HOME/libxstream-install/share/libxstream/scripts/tool_opencl.sh
         test -f $HOME/libxstream-install/share/libxstream/samples/smm/smm_acc.c
         test -f $HOME/libxstream-install/share/libxstream/samples/smm/kernels/multiply.cl
+        test -f $HOME/libxstream-install/share/libxstream/samples/dbm/dbm_opencl.c
+        test -f $HOME/libxstream-install/share/libxstream/samples/dbm/kernels/dbm_multiply.cl
 
     - name: Verify OpenMP is recorded for consumers
       run: |

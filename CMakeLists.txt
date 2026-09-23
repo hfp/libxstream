@@ -333,6 +333,35 @@ add_custom_target(smm_kernels_h ALL DEPENDS "${LIBXSTREAM_SMM_KERNELS_H}")
 install(FILES "${LIBXSTREAM_SMM_KERNELS_H}"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/smm")
 
+# DBM sample: generate dbm_kernels.h at build time and install sources
+set(LIBXSTREAM_DBM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/samples/dbm")
+set(LIBXSTREAM_DBM_KERNELS_H "${CMAKE_CURRENT_BINARY_DIR}/dbm_kernels.h")
+set(LIBXSTREAM_DBM_CL "${LIBXSTREAM_DBM_DIR}/kernels/dbm_multiply.cl")
+file(GLOB LIBXSTREAM_DBM_OCL_H LIST_DIRECTORIES false CONFIGURE_DEPENDS
+  "${LIBXSTREAM_ROOT_DIR}/libxstream/opencl/*.h")
+
+add_custom_command(
+  OUTPUT "${LIBXSTREAM_DBM_KERNELS_H}"
+  COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
+    -p "" -I "${LIBXSTREAM_ROOT_DIR}/libxstream"
+    "${LIBXSTREAM_DBM_CL}" "${LIBXSTREAM_DBM_KERNELS_H}"
+  DEPENDS "${LIBXSTREAM_DBM_CL}" ${LIBXSTREAM_DBM_OCL_H}
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/tool_opencl.sh"
+  WORKING_DIRECTORY "${LIBXSTREAM_DBM_DIR}/kernels"
+  COMMENT "Generating dbm_kernels.h from .cl sources"
+  VERBATIM)
+
+add_custom_target(dbm_kernels_h ALL DEPENDS "${LIBXSTREAM_DBM_KERNELS_H}")
+
+install(FILES
+  "${LIBXSTREAM_DBM_DIR}/dbm_opencl.c"
+  "${LIBXSTREAM_DBM_DIR}/dbm_opencl.h"
+  "${LIBXSTREAM_DBM_KERNELS_H}"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/dbm")
+
+install(FILES "${LIBXSTREAM_DBM_CL}"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/dbm/kernels")
+
 # Stencil sample: generate stencil_kernels.h at build time and install sources
 set(LIBXSTREAM_STENCIL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/samples/stencil")
 set(LIBXSTREAM_STENCIL_KERNELS_H "${CMAKE_CURRENT_BINARY_DIR}/stencil_kernels.h")

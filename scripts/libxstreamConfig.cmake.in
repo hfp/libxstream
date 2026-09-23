@@ -25,5 +25,7 @@ set_and_check(LIBXSTREAM_SMM_DIR
   "@PACKAGE_CMAKE_INSTALL_DATADIR@/libxstream/samples/smm")
 set_and_check(LIBXSTREAM_SMM_ACC_SOURCE
   "@PACKAGE_CMAKE_INSTALL_DATADIR@/libxstream/samples/smm/smm_acc.c")
+set_and_check(LIBXSTREAM_DBM_DIR
+  "@PACKAGE_CMAKE_INSTALL_DATADIR@/libxstream/samples/dbm")
 
 check_required_components(libxstream)

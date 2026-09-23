@@ -53,6 +53,7 @@ nav:
   - Stencil: samples/libxstream_stencil.md
   - Ozaki: samples/libxstream_ozaki.md
   - SMM: samples/libxstream_smm.md
+  - DBM: samples/libxstream_dbm.md
 - Tests:
   - Predict: tests/predict.md
 - More:
