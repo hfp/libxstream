@@ -24,19 +24,28 @@
 
 #define GLOBAL_VOLATILE(A) global volatile A
 
+/**
+ * Work-groups accumulate into the same global memory, which strictly asks for
+ * memory_scope_device. The host passes that for anything but a GPU: a CPU runtime
+ * may lower a work-group scoped atomic to a plain update (lost updates).
+ */
+#if !defined(ATOMIC_SCOPE)
+# define ATOMIC_SCOPE memory_scope_work_group
+#endif
+
 #if defined(ATOMIC_PROTOTYPES) || defined(__opencl_c_ext_fp64_global_atomic_add)
 # if defined(__opencl_c_ext_fp64_global_atomic_add)
 #   undef ATOMIC_ADD_GLOBAL
 #   if defined(TF)
 #     define ATOMIC_ADD_GLOBAL(A, B) \
-        atomic_fetch_add_explicit((GLOBAL_VOLATILE(TF)*)A, B, memory_order_relaxed, memory_scope_work_group)
+        atomic_fetch_add_explicit((GLOBAL_VOLATILE(TF)*)A, B, memory_order_relaxed, ATOMIC_SCOPE)
 #   else
 #     define ATOMIC_ADD_GLOBAL(A, B) atomic_add(A, B)
 #   endif
 # elif (2 < ATOMIC_PROTOTYPES) && defined(TF)
 #   undef ATOMIC_ADD_GLOBAL
 #   define ATOMIC_ADD_GLOBAL(A, B) \
-      __opencl_atomic_fetch_add((GLOBAL_VOLATILE(TF)*)A, B, memory_order_relaxed, memory_scope_work_group)
+      __opencl_atomic_fetch_add((GLOBAL_VOLATILE(TF)*)A, B, memory_order_relaxed, ATOMIC_SCOPE)
 # else
 #   if defined(TF) && (!defined(ATOMIC_PROTOTYPES) || 1 < ATOMIC_PROTOTYPES)
 __attribute__((overloadable)) T atomic_fetch_add_explicit(GLOBAL_VOLATILE(TF) *, T, memory_order, memory_scope);
@@ -74,7 +83,7 @@ __attribute__((always_inline)) inline void atomic_add_global_cmpxchg(GLOBAL_VOLA
     try_val.f = exp_val.f + inc;
 #     if defined(TA2)
     if (0 == atomic_compare_exchange_weak_explicit((GLOBAL_VOLATILE(TA2)*)dst, &cur_val.a, try_val.a, memory_order_relaxed,
-               memory_order_relaxed, memory_scope_work_group))
+               memory_order_relaxed, ATOMIC_SCOPE))
     {
       continue;
     }
@@ -104,7 +113,7 @@ __attribute__((always_inline)) inline void atomic_add_global_cmpxchg2(GLOBAL_VOL
     try_val.f = exp_val.f + inc;
 #   if defined(TA2)
     if (0 == atomic_compare_exchange_weak_explicit((GLOBAL_VOLATILE(atomic_long)*)dst, &cur_val.a, try_val.a, memory_order_relaxed,
-               memory_order_relaxed, memory_scope_work_group))
+               memory_order_relaxed, ATOMIC_SCOPE))
     {
       continue;
     }
@@ -135,13 +144,13 @@ __attribute__((always_inline)) inline void atomic_add_global_xchg(GLOBAL_VOLATIL
   cur_val.a = 0; /* rather than f = ZERO: every bit of the union cleared */
   do {
 #       if defined(TA2)
-    try_val.a = atomic_exchange_explicit((GLOBAL_VOLATILE(TA2)*)dst, cur_val.a, memory_order_relaxed, memory_scope_work_group);
+    try_val.a = atomic_exchange_explicit((GLOBAL_VOLATILE(TA2)*)dst, cur_val.a, memory_order_relaxed, ATOMIC_SCOPE);
 #       else
     try_val.a = XCHG((GLOBAL_VOLATILE(TA)*)dst, cur_val.a);
 #       endif
     try_val.f += exp_val.f;
 #       if defined(TA2)
-    exp_val.a = atomic_exchange_explicit((GLOBAL_VOLATILE(TA2)*)dst, try_val.a, memory_order_relaxed, memory_scope_work_group);
+    exp_val.a = atomic_exchange_explicit((GLOBAL_VOLATILE(TA2)*)dst, try_val.a, memory_order_relaxed, ATOMIC_SCOPE);
 #       else
     exp_val.a = XCHG((GLOBAL_VOLATILE(TA)*)dst, try_val.a);
 #       endif

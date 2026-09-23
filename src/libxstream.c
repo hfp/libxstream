@@ -2165,9 +2165,9 @@ LIBXSTREAM_API int libxstream_opencl_flags_atomics(const libxstream_opencl_devic
             *exts_maxlen = ext2; /* quietly report extension by reducing exts_maxlen */
 # endif
             atomic_exp = (libxstream_opencl_atomic_fp_64 == kind ? "atomic_fetch_add_explicit((GLOBAL_VOLATILE(atomic_double)*)A,B,"
-                                                                   "memory_order_relaxed,memory_scope_work_group)"
+                                                                   "memory_order_relaxed,ATOMIC_SCOPE)"
                                                                  : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(atomic_float)*)A,B,"
-                                                                   "memory_order_relaxed,memory_scope_work_group)");
+                                                                   "memory_order_relaxed,ATOMIC_SCOPE)");
           }
           else if (0 != force_atomics || (0 != devinfo->intel && ((0x4905 != devinfo->uid && 0 == devinfo->unified)))) {
             if ((((0 != force_atomics || (0 != devinfo->intel && ((0x0bd0 <= devinfo->uid && 0x0bdb >= devinfo->uid) ||
@@ -2184,7 +2184,7 @@ LIBXSTREAM_API int libxstream_opencl_flags_atomics(const libxstream_opencl_devic
               }
               atomic_exp = ((2 > *devinfo->std_level && 2 > force_atomics) ? "atomic_add(A,B)"
                                                                            : "atomic_fetch_add_explicit((GLOBAL_VOLATILE(TF)*)A,B,"
-                                                                             "memory_order_relaxed,memory_scope_work_group)");
+                                                                             "memory_order_relaxed,ATOMIC_SCOPE)");
             }
             else {
               atomic_exp = "atomic_add_global_cmpxchg(A,B)";
@@ -2223,8 +2223,10 @@ LIBXSTREAM_API int libxstream_opencl_flags_atomics(const libxstream_opencl_devic
       }
       assert(NULL != atomic_exp);
       /* compose build parameters and flags */
-      result = LIBXS_SNPRINTF(flags, flags_maxlen, " -DTAN=%i %s %s -D\"ATOMIC_ADD_GLOBAL(A,B)=%s\" %s", kind, atomic_type,
-        atomic_ops, atomic_exp, barrier_expr);
+      result = LIBXS_SNPRINTF(flags, flags_maxlen, " -DTAN=%i %s %s -D\"ATOMIC_ADD_GLOBAL(A,B)=%s\" -DATOMIC_SCOPE=%s %s", kind,
+        atomic_type, atomic_ops, atomic_exp,
+        /* GPUs keep the scope they were tuned with (see libxstream_atomics.h) */
+        CL_DEVICE_TYPE_GPU == devinfo->type ? "memory_scope_work_group" : "memory_scope_device", barrier_expr);
     }
   }
   return result;
