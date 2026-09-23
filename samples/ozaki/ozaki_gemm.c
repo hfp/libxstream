@@ -413,6 +413,14 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
  * 64x256 +11%, 64x128 +20%), structurally, since a forced-narrow request is still
  * narrow. Three stages take half the depth to keep the two-stage footprint.
  *
+ * The resident tile (ozaki_wgmma_resident) keeps two stages, no deferred wait and
+ * half the ring, and all three were measured there rather than inherited from the
+ * rule above, which was calibrated at one work-group per unit: with the second
+ * work-group hiding latency, depth is what pays. Three stages lose 4..12% whether
+ * they cost depth (KU 4) or a larger ring (KU 8 in 96 KB), and KU 4 at two stages
+ * loses 7..10%. Enabling the deferred wait for 128x128 would change the resident
+ * tile too, so it needs that measurement again.
+ *
  * ozaki_gemm pads K to this depth: the K-loop has no tail, so a K_pad that is not
  * a multiple of KU * BK would read past the residue planes.
  */

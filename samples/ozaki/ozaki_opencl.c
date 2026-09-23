@@ -586,7 +586,9 @@ int ozaki_wgmma_resident(const ozaki_context_t* ctx, int tm, int tn)
    * Only 128x128 is measured to pay. It fits two work-groups at 128 registers
    * without spilling, because its accumulators take 64 of them; 128x256 needs 128
    * for the accumulators alone, and one warp group at 64 rows already holds three
-   * work-groups uncapped, where the cap measured neutral.
+   * work-groups uncapped, where the cap measured neutral. Two is also the ceiling
+   * here: ptxas refuses the instruction below 94 registers, and three work-groups
+   * would leave 85.
    */
   if (0 != ctx->wgmma && 0 < ctx->nv_regs && 0 < ctx->wgmma_reside && 128 == tm && 128 == tn) {
     const int nthreads = (tm / 64) * 128; /* a warp group computes 64 rows */
