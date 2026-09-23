@@ -72,8 +72,8 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
  * kernel must be refused rather than run: markers alone accumulate nothing.
  */
 
-static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, int sbo, int lbo,
-  int u8, int bf16)
+static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name,
+  int sbo, int lbo, int u8, int bf16, int maxnreg)
 {
   static const char marker[] = "// WGMMA_SLOT n";
   static const char marker_wait[] = "// WGMMA_WAIT";
@@ -99,7 +99,9 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
   size_t size_rt = 0, cap = 0;
   char* out = NULL;
   LIBXS_SNPRINTF(entry, sizeof(entry), ".entry %s", entry_name);
-  if (EXIT_SUCCESS == libxstream_opencl_retarget_ptx(ptx, size, &retargeted, &size_rt)) {
+  if (EXIT_SUCCESS == libxstream_opencl_retarget_ptx(ptx, size,
+    maxnreg, entry_name, &retargeted, &size_rt))
+  {
     const char* scan = retargeted;
     size_t nmarker = 0;
     while (NULL != (scan = strstr(scan, marker))) {
@@ -243,7 +245,8 @@ static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_
  * failure the program is released and NULL is returned through it, so the caller
  * refuses the kernel: an unspliced marker kernel would compute zeros silently.
  */
-static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, int bn, cl_program* program)
+static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name,
+  int bn, int maxnreg, cl_program* program)
 {
   char* binary = NULL;
   char* patched = NULL;
@@ -251,7 +254,9 @@ static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name, in
   cl_program spliced = NULL;
   int result = libxstream_opencl_program_binary(*program, &binary, &size);
   if (EXIT_SUCCESS == result) {
-    patched = ozaki_wgmma_splice(binary, size, "gemm_crt_fused", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(bn), ctx->u8, ctx->use_bf16);
+    patched = ozaki_wgmma_splice(
+      binary, size, "gemm_crt_fused", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(bn),
+      ctx->u8, ctx->use_bf16, maxnreg);
     result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   /**
@@ -366,7 +371,8 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
     result = libxstream_opencl_program_binary(program, &binary, &size);
   }
   if (EXIT_SUCCESS == result) {
-    patched = ozaki_wgmma_splice(binary, size, "ozaki_wgmma_probe", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(width), ctx->u8, ctx->use_bf16);
+    patched = ozaki_wgmma_splice(binary, size, "ozaki_wgmma_probe", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(width),
+      ctx->u8, ctx->use_bf16, 0 /*the probe measures the issue rate, so it keeps the default budget*/);
     result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   if (EXIT_SUCCESS == result) {
@@ -425,8 +431,10 @@ static int ozaki_wgmma_depth(const ozaki_context_t* ctx, int tm, int tn, int* de
   if (NULL != defer) *defer = dfr;
   if (NULL != stages) *stages = stg;
   { /* The ring is static local memory; the kernel refuses more than the probe validates. */
+    /* Two resident work-groups share what the probe validated for one. */
+    const size_t ring_max = (0 != ozaki_wgmma_resident(ctx, tm, tn)) ? (OZAKI_WGMMA_RING_MAX / 2) : OZAKI_WGMMA_RING_MAX;
     int wku_r = (0 != ku_pin) ? ku_pin : result;
-    while (2 < wku_r && OZAKI_WGMMA_RING_MAX < (size_t)stg * tn * wku_r * ctx->bk_pre) wku_r >>= 1;
+    while (2 < wku_r && ring_max < (size_t)stg * tn * wku_r * ctx->bk_pre) wku_r >>= 1;
     return wku_r;
   }
 }
@@ -1587,6 +1595,8 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
     kset = (ozaki_crt_kernel_set_t*)libxs_registry_get(ctx->crt_registry, &key,
       sizeof(key), libxs_registry_lock(ctx->crt_registry));
     if (NULL == kset || NULL == kset->kern_fused) {
+      /* An explicit cap wins over the one the resident tile derives. */
+      const int maxnreg = (0 != ctx->maxnreg) ? ctx->maxnreg : ozaki_wgmma_resident(ctx, tm, tn);
       char base[sizeof(ctx->crt_flags) + 1024]; /* context flags plus the modulus tables */
       char flags[sizeof(base) + 256]; /* and every specialization suffix below */
       ozaki_crt_kernel_set_t newset;
@@ -1622,7 +1632,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI2, pname, flags,
               options, NULL, NULL, NULL, 0, &program)) {
-          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, tn, &program);
+          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, tn, maxnreg, &program);
           if (NULL != program) {
             libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
             if (0 != ctx->unfuse) {
@@ -1640,8 +1650,8 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
           sizeof(key), &newset, sizeof(newset), libxs_registry_lock(ctx->crt_registry));
       }
       if (0 > ctx->verbosity || 2 < ctx->verbosity) {
-        fprintf(stderr, "INFO OZAKI: JIT crt moduli=%d bounds=%d tile=%dx%d rt=%dx%d -> %s\n",
-          ctx->nmoduli, bounds, tm, tn, rtm, rtn, NULL != newset.kern_fused ? "OK" : "FAILED");
+        fprintf(stderr, "INFO OZAKI: JIT crt moduli=%d bounds=%d tile=%dx%d rt=%dx%d maxnreg=%d -> %s\n",
+          ctx->nmoduli, bounds, tm, tn, rtm, rtn, maxnreg, NULL != newset.kern_fused ? "OK" : "FAILED");
       }
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, &ctx->kernel_lock);

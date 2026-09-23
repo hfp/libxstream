@@ -338,6 +338,30 @@ typedef struct ozaki_context_t {
   int fraccrt; /* resolved fractional-CRT mode (0 = exact reconstruction) */
   int use_sym; /* symmetric residues |r| <= m/2 (needs the u8 table) */
   int use_bf16; /* Sch.2 carrier is bf16 rather than int8 (WIP: splice only) */
+  /**
+   * Registers per thread the spliced fused GEMM is capped to, 0 for the default,
+   * overriding the cap the resident tile derives (see ozaki_wgmma_resident). As a
+   * blanket setting it loses: on the 128x256 tile the registers ARE the
+   * accumulators, so 168 cost 63% and 128 cost 17 times the runtime.
+   */
+  int maxnreg;
+  /**
+   * Registers per work-group (CL_DEVICE_REGISTERS_PER_BLOCK_NV), 0 where unknown,
+   * and the tile count per compute unit below which the 128x256 tile yields to the
+   * resident 128x128 one (OZAKI_WGMMA_RESIDE, 0 disables). The resident form is
+   * never selected without the register count, because its cap derives from it and
+   * uncapped the same tile loses at every size.
+   */
+  int nv_regs, wgmma_reside;
+  /**
+   * Compile-time specializations of the CRT GEMM, each 0 for the kernel's own
+   * default. bounds=0 drops the output-range tests, which is valid only where the
+   * shape is a whole number of tiles; alpha_one and first assert the epilogue's two
+   * common arguments. All three measured neutral on Hopper, where the kernel is
+   * bandwidth- and issue-bound rather than instruction-bound, so they are opt-in
+   * for a part or a shape where that balance differs.
+   */
+  int nobounds, alpha_one, first_only;
   double xover; /* Scheme-1/2 crossover weight: reconstruction cost per Garner op vs int8 MAC */
   int maxk; /* max K per preprocessing pass (0 = no grouping) */
   /**
@@ -466,6 +490,13 @@ typedef struct ozaki_tile_t {
  * granularity and the resulting work-group size.
  */
 ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm, int rtn);
+
+/**
+ * Register cap under which a warp-group tile keeps two work-groups resident per
+ * compute unit, or 0 where the tile has no resident form. Derived from the tile,
+ * like the depth and the register tiling: the tile is the one decision per call.
+ */
+int ozaki_wgmma_resident(const ozaki_context_t* ctx, int tm, int tn);
 
 /**
  * Register tiling for one call (crt: 0 = Scheme 1, 1 = Scheme 2), as an (m, n)

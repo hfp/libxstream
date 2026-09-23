@@ -737,8 +737,23 @@ LIBXSTREAM_API int libxstream_opencl_program_binary(cl_program program, char** b
  * on the plain target that the OpenCL front-end emits, and no build option
  * changes it: -cl-nv-arch is parsed but unusable (it reports the same error for
  * every value including none at all).
+ *
+ * maxnreg, when positive, additionally emits ".maxnreg <n>" on the entry named by
+ * entry (every entry when entry is NULL), which caps registers per thread and so
+ * raises the work-groups resident per unit. Zero emits nothing.
+ *
+ * It is expressed here rather than as a build option because both routes that
+ * look easier do not work: -cl-nv-maxrregcount is accepted and then ignored,
+ * since rebuilding from this text puts register allocation beyond the reach of
+ * any option on the source build, and inline asm cannot carry it either because
+ * .maxnreg is a directive on the entry rather than an instruction.
+ *
+ * Measure before using it. Capping a kernel whose registers ARE its accumulator
+ * tile spills into the innermost loop: on one part 64 bytes of spill cost 63% and
+ * the cap that doubled residency cost 17 times the runtime.
  */
-LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size, char** result_text, size_t* result_size);
+LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size,
+  int maxnreg, const char entry[], char** result_text, size_t* result_size);
 /** Extract a kernel from a built program. */
 LIBXSTREAM_API int libxstream_opencl_kernel_query(cl_program program, const char kernel_name[], cl_kernel* kernel);
 /** Convenience: build program, extract kernel, release program. */

@@ -1831,6 +1831,14 @@ inline void oz2g_hier_tree_accumulate(const uint* restrict gval, real_t alpha, i
  * other through shared memory measured neutral on one device and +18% on another
  * and is gone; the direct read stays. Every column below K_pad is stored, zeros
  * included, so the host zeroes only the row padding.
+ *
+ * OZAKI_APROBE (and OZAKI_BPROBE for preprocess_b_crt_dense) price the phases by
+ * compiling one out: 1 the exponent pass, i.e. the first read of the operand, 2 the
+ * extraction and the NMODULI plane stores, 4 the store pass's own read. EVERY BIT
+ * MAKES THE RESULT WRONG, deliberately: a probe that leaves rsq at 1 did not reach
+ * the kernel. Under bit 2 the reads fold into one store per work-item rather than
+ * being deleted, and under bit 4 the aligned value is seeded from the indices, so
+ * the modular chain is not constant folded and charged to the reads instead.
  */
 __attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1)))
 #if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
@@ -1856,9 +1864,14 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
   int col, emax = 0, lmin = OZAKI_TZ_NONE;
 
   local int row_max_exp[BM_PRE];
+#if defined(OZAKI_APROBE) && (0 != ((OZAKI_APROBE) & 1))
+  if (0 == kk) row_max_exp[mi] = MANT_BITS;
+#else
   if (0 == kk) row_max_exp[mi] = 0;
+#endif
   barrier(CLK_LOCAL_MEM_FENCE);
 
+#if !defined(OZAKI_APROBE) || (0 == ((OZAKI_APROBE) & 1))
   /* The lanes sharing a row would serialize on one SLM address, so the maximum contributes once. */
   for (col = rcol; col < K; col += BK_PRE) {
     if (rrow_ok) {
@@ -1870,6 +1883,12 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
     }
   }
   if (rrow_ok && 0 < emax) atomic_max(&row_max_exp[rrow], emax);
+#else
+  (void)rcol;
+  (void)rrow;
+  (void)rrow_ok;
+  (void)emax;
+#endif
   barrier(CLK_LOCAL_MEM_FENCE);
 
   if (0 == kk && row < M) expa[row] = row_max_exp[mi];
@@ -1877,11 +1896,19 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
   /* K_pad is a multiple of BK, so a run never straddles the end of a row. */
   if (row < M) {
     const short max_exp = (short)row_max_exp[mi];
+#if defined(OZAKI_APROBE) && (0 != ((OZAKI_APROBE) & 2))
+    uint_repr_t sink = 0;
+#endif
     for (col = OZAKI_CRT_RUN * kk; col < K_pad; col += OZAKI_CRT_RUN * BK_PRE) {
       uint_repr_t aligned[OZAKI_CRT_RUN];
       int s1[OZAKI_CRT_RUN];
       SINT t_;
       UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_) {
+#if defined(OZAKI_APROBE) && (0 != ((OZAKI_APROBE) & 4))
+        aligned[t_] = (uint_repr_t)(col + t_ + row + 1);
+        s1[t_] = 0;
+        (void)max_exp;
+#else
         aligned[t_] = 0;
         s1[t_] = 0;
         if (col + t_ < K) {
@@ -1894,9 +1921,19 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
             OZAKI_TZ_TRACK(lmin, aligned[t_]);
           }
         }
+#endif
       }
+#if defined(OZAKI_APROBE) && (0 != ((OZAKI_APROBE) & 2))
+      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_) {
+        sink ^= aligned[t_] + (uint_repr_t)s1[t_];
+      }
+#else
       OZAKI_EXTRACT_CRT_A(aligned, s1, as, M_pad * K_pad, K_pad, row, col);
+#endif
     }
+#if defined(OZAKI_APROBE) && (0 != ((OZAKI_APROBE) & 2))
+    if (0 != sink) as[(long)row * K_pad] = (char)sink;
+#endif
   }
   OZAKI_TZ_EMIT(lmin);
 }
@@ -1929,13 +1966,18 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
   int row, emax = 0, lmin = OZAKI_TZ_NONE;
 
   local int col_max_exp[BN_PRE];
+#if defined(OZAKI_BPROBE) && (0 != ((OZAKI_BPROBE) & 1))
+  if (0 == kk) col_max_exp[nj] = MANT_BITS;
+#else
   if (0 == kk) col_max_exp[nj] = 0;
+#endif
   barrier(CLK_LOCAL_MEM_FENCE);
 
   /**
    * Pass 1: max exponent over all of K, in the same 16-K blocks pass 2 stores, so a
    * lane reads 128 contiguous bytes instead of one element per 32-byte sector.
    */
+#if !defined(OZAKI_BPROBE) || (0 == ((OZAKI_BPROBE) & 1))
   for (row = kk << 4; row < K; row += BK_PRE << 4) {
     int i;
     UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
@@ -1951,6 +1993,9 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
     }
   }
   if (col < N && 0 < emax) atomic_max(&col_max_exp[nj], emax);
+#else
+  (void)emax;
+#endif
   barrier(CLK_LOCAL_MEM_FENCE);
 
   if (0 == kk && col < N) expb[col] = col_max_exp[nj];
@@ -1966,12 +2011,20 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
   if (col < N) {
     const short max_exp = (short)col_max_exp[nj];
     int kb;
+#if defined(OZAKI_BPROBE) && (0 != ((OZAKI_BPROBE) & 2))
+    ulong bsink = 0;
+#endif
     for (kb = kk; kb < (K_pad >> 4); kb += BK_PRE) {
       ulong aligned[16];
       int sign[16];
       int i;
       SINT p;
       UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
+#if defined(OZAKI_BPROBE) && (0 != ((OZAKI_BPROBE) & 4))
+        aligned[i] = (ulong)((kb << 4) + i + col + 1);
+        sign[i] = 0;
+        (void)max_exp;
+#else
         const int krow = (kb << 4) + i;
         aligned[i] = 0;
         sign[i] = 0;
@@ -1988,8 +2041,14 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
             sign[i] = s1;
           }
         }
+#endif
       }
-#if OZAKI_EXTRACT_HIER
+#if defined(OZAKI_BPROBE) && (0 != ((OZAKI_BPROBE) & 2))
+      UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
+        bsink ^= aligned[i] + (ulong)sign[i];
+      }
+      (void)p;
+#elif OZAKI_EXTRACT_HIER
       /* Group-outer, so the 64-bit reduction runs once per group and block. */
       { SINT g;
         UNROLL_FORCE(HIER_NGROUPS) for (g = 0; g < HIER_NGROUPS; ++g) {
@@ -2026,6 +2085,9 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
       }
 #endif
     }
+#if defined(OZAKI_BPROBE) && (0 != ((OZAKI_BPROBE) & 2))
+    if (0 != bsink) bs[(long)col] = (char)bsink;
+#endif
 #elif OZAKI_BS_KRUN
   /* K is contiguous here and it is also the loop axis, so a run needs no remap. */
   if (col < N) {

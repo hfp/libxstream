@@ -45,6 +45,18 @@
 # define OZAKI_TILE_SAT_NV 1
 #endif
 /**
+ * Tiles of 128x256 per compute unit below which the resident 128x128 tile wins
+ * (OZAKI_WGMMA_RESIDE). The second resident work-group hides latency while the
+ * narrower tile doubles the A-plane reads per output, so the crossover is where
+ * the kernel turns bandwidth-bound: the resident tile leads by 1..12% of the wall
+ * from 3.9 to 7.8 tiles per unit, square and rectangular alike, is level at 8.0 and
+ * trails by 5% at 8.7 and 15% at 15.5. Counting tiles rather than elements is what
+ * lets one threshold serve both aspect ratios and both SM counts.
+ */
+#if !defined(OZAKI_WGMMA_RESIDE)
+# define OZAKI_WGMMA_RESIDE 8
+#endif
+/**
  * Sub-groups (warps) per work-group that NVIDIA tile selection aims for. At a
  * fixed tile area on H100/n=4096 the measurement is monotone in work-group
  * size: 4 warps 6158-6529 GFLOPS, 8 warps 6145-6275, 16 warps 5103. A fat
@@ -522,6 +534,12 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
      * call site, since wgmma defines RTN as the width in sub-tiles.
      */
     if (0 != ctx->wgmma) {
+      /* Coarser than the saturation floor below, which it therefore precedes. */
+      if (128 == tile.m && 256 == tile.n && 0 != ozaki_wgmma_resident(ctx, 128, 128) && 0 < ctx->nunits &&
+          (LIBXS_UPDIV(M, 128) * LIBXS_UPDIV(N, 256)) < ctx->wgmma_reside * ctx->nunits)
+      {
+        tile.n = 128;
+      }
       if (128 < tile.n && nwg_min > (LIBXS_UPDIV(M, tile.m) * LIBXS_UPDIV(N, tile.n))) {
         tile.n = 128;
       }
@@ -558,6 +576,23 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
     }
   }
   return tile;
+}
+
+
+int ozaki_wgmma_resident(const ozaki_context_t* ctx, int tm, int tn)
+{
+  int result = 0;
+  /**
+   * Only 128x128 is measured to pay. It fits two work-groups at 128 registers
+   * without spilling, because its accumulators take 64 of them; 128x256 needs 128
+   * for the accumulators alone, and one warp group at 64 rows already holds three
+   * work-groups uncapped, where the cap measured neutral.
+   */
+  if (0 != ctx->wgmma && 0 < ctx->nv_regs && 0 < ctx->wgmma_reside && 128 == tm && 128 == tn) {
+    const int nthreads = (tm / 64) * 128; /* a warp group computes 64 rows */
+    result = ctx->nv_regs / (2 * nthreads);
+  }
+  return result;
 }
 
 
@@ -1455,6 +1490,15 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       ctx->nunits = (int)nunits;
     }
+    { /* cl_nv_device_attribute_query: the register file the resident tile's cap derives from */
+      cl_uint nregs = 0;
+      if (0 == devinfo->nv || 0 == gpu ||
+          EXIT_SUCCESS != clGetDeviceInfo(device, 0x4002 /*CL_DEVICE_REGISTERS_PER_BLOCK_NV*/, sizeof(cl_uint), &nregs, NULL))
+      {
+        nregs = 0;
+      }
+      ctx->nv_regs = (int)nregs;
+    }
     /**
      * Saturation floor for tile selection. See OZAKI_TILE_SAT: the divisor is
      * only portable between devices of similar compute-unit granularity, so
@@ -1655,6 +1699,19 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           ctx->wgmma_stages = (2 <= stg_req && 4 >= stg_req) ? stg_req : 4;
         }
       }
+      { const char *const env_reside = getenv("OZAKI_WGMMA_RESIDE");
+        ctx->wgmma_reside = (NULL != env_reside && 0 <= atoi(env_reside)) ? atoi(env_reside) : OZAKI_WGMMA_RESIDE;
+      }
+      /* Off by default, all four: measured neutral or worse here (see ozaki_opencl.h). */
+      { const char *const env_maxnreg = getenv("OZAKI_MAXNREG");
+        const char *const env_nobounds = getenv("OZAKI_NOBOUNDS");
+        const char *const env_alpha_one = getenv("OZAKI_ALPHA_ONE");
+        const char *const env_first = getenv("OZAKI_FIRST");
+        ctx->maxnreg = (NULL != env_maxnreg && 0 < atoi(env_maxnreg)) ? atoi(env_maxnreg) : 0;
+        ctx->nobounds = (NULL != env_nobounds && 0 != atoi(env_nobounds)) ? 1 : 0;
+        ctx->alpha_one = (NULL != env_alpha_one && 0 != atoi(env_alpha_one)) ? 1 : 0;
+        ctx->first_only = (NULL != env_first && 0 != atoi(env_first)) ? 1 : 0;
+      }
       /**
        * Work-group rasterization width (0 = the launch order). The resident
        * work-groups otherwise form a column strip of the tile grid and share one B
@@ -1809,8 +1866,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        */
       { const int tm_crt = (0 != wgmma) ? ctx->tm_req : tm;
         const int tn_crt = (0 != wgmma) ? ctx->tn_req : tn;
-        LIBXS_SNPRINTF(ctx->crt_pp_tile, sizeof(ctx->crt_pp_tile), " -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_BOUNDS=1",
-          tm_crt, tn_crt, crt_rtm, crt_rtn);
+        LIBXS_SNPRINTF(ctx->crt_pp_tile, sizeof(ctx->crt_pp_tile), " -DBM=%d -DBN=%d -DRTM=%d -DRTN=%d -DOZAKI_BOUNDS=%d%s%s",
+          tm_crt, tn_crt, crt_rtm, crt_rtn, (0 != ctx->nobounds) ? 0 : 1,
+          (0 != ctx->alpha_one) ? " -DOZAKI_ALPHA_ONE=1" : "", (0 != ctx->first_only) ? " -DOZAKI_FIRST=1" : "");
       }
       /* Built here rather than on demand so that a failing build still disables Scheme 2 at init. */
       if (EXIT_SUCCESS == result && NULL == ozaki_crt_variant(ctx, nmoduli)) result = EXIT_FAILURE;

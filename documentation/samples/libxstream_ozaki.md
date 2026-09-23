@@ -58,13 +58,13 @@ other devices Scheme 1, both because counting GEMMs mispredicts there.
 
 ### Accuracy
 
-| Variable      | Default | Description                                                          |
-|---------------|---------|----------------------------------------------------------------------|
-| OZAKI_FLAGS   | 3       | Sch.1 bitmask: 1=Triangular, 2=Symmetrize, 0=full S^2. No Sch.2      |
+| Variable      | Default | Description                                                                                |
+|---------------|---------|--------------------------------------------------------------------------------------------|
+| OZAKI_FLAGS   | 3       | Sch.1 bitmask: 1=Triangular, 2=Symmetrize, 0=full S^2. No Sch.2                            |
 | OZAKI_TRIM    | 0       | Levels to trim (0=default). ~7 bits (Sch.1), ~4 bits (Sch.2); negative buys precision back |
-| OZAKI_SYMRES  | (auto)  | Sch.2: symmetric residues (magnitude m/2 at most). On with bf16, or K past 32768 |
-| OZAKI_GROUPS  | (auto)  | Sch.2: K-grouping factor (1=off). Consecutive K panels share reconstr. |
-| OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 if unfused, else 2        |
+| OZAKI_SYMRES  | (auto)  | Sch.2: symmetric residues (magnitude m/2 at most). On with bf16, or K past 32768           |
+| OZAKI_GROUPS  | (auto)  | Sch.2: K-grouping factor (1=off). Consecutive K panels share reconstr.                     |
+| OZAKI_FRACCRT | (auto)  | Sch.2: 0=Garner, 2=fractional CRT. Auto: 0 if unfused, else 2                              |
 
 `OZAKI_FLAGS` selects how the slice-pair loop is traversed, and the two
 bits mean the same on the host and on the device: 1 starts the inner
@@ -100,8 +100,8 @@ follows that knob.
 
 | Variable         | Default | Description                                                      |
 |------------------|---------|------------------------------------------------------------------|
-| OZAKI_TM         | (auto)  | Output tile M (BM), with OZAKI_TN. Not under wgmma (below)        |
-| OZAKI_TN         | (auto)  | Output tile N (BN), with OZAKI_TM. Not under wgmma (below)        |
+| OZAKI_TM         | (auto)  | Output tile M (BM), with OZAKI_TN. Not under wgmma (below)       |
+| OZAKI_TN         | (auto)  | Output tile N (BN), with OZAKI_TM. Not under wgmma (below)       |
 | OZAKI_RTM        | (auto)  | Register tiling M (power of two). Auto: 2 (HIER), 4 (256-GRF)    |
 | OZAKI_RTN        | (auto)  | Register tiling N. Auto: 8 (NV MMA Sch.2), 2 (Intel), 1 (other)  |
 | OZAKI_SB         | 1       | Sch.1: slice-block width for the pair loop (needs 256-GRF)       |
@@ -121,12 +121,17 @@ follows that knob.
 | OZAKI_BKMAJOR    | 0       | NVIDIA, Sch.2: transpose B to [N][K] instead (see below)         |
 | OZAKI_BBLOCK     | (auto)  | Sch.2: block 16 K-values of a B column. On with wgmma (below)    |
 | OZAKI_WGMMA      | (auto)  | Sch.2: warp-group MMA. On where reachable (see below)            |
-| OZAKI_WGMMA_N    | 128     | Warp-group tile width, 64 or 128                                 |
+| OZAKI_WGMMA_N    | 256     | Warp-group tile width, 64, 128 or 256                            |
 | OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
+| OZAKI_WGMMA_RESIDE| 8      | Sch.2: tiles per SM below which 128x128 runs two per SM (0=off)  |
+| OZAKI_MAXNREG    | 0       | Sch.2 wgmma: registers per thread of the GEMM (0=derived)        |
+| OZAKI_NOBOUNDS   | 0       | Sch.2: drop output range checks (whole-tile shapes only)         |
+| OZAKI_ALPHA_ONE  | 0       | Sch.2: specialize the GEMM for alpha=1                           |
+| OZAKI_FIRST      | 0       | Sch.2: specialize the GEMM for C=0+AB (first accumulation)       |
 | OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for GPUs (see below)      |
 | OZAKI_BF16       | 0       | Sch.2: carry the residues in bf16 rather than int8 (see below)   |
 | OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
-| OZAKI_TZDETECT   | 0       | Sch.2: report the lossless `OZAKI_TRIM` the data allows (below)   |
+| OZAKI_TZDETECT   | 0       | Sch.2: report the lossless `OZAKI_TRIM` the data allows (below)  |
 | OZAKI_ARENA      | (auto)  | Device scratch arena in MB (0=off). Auto: on if no pool          |
 
 `OZAKI_TZDETECT=1` reports how many low mantissa bits the operands
@@ -167,6 +172,10 @@ Two knobs tune it, both set to the fastest measured value by default.
 path spends shared memory on, 128 KB at the defaults, so lower it if a
 device refuses that. `OZAKI_WGMMA_M=128` runs two warp groups per
 work-group instead of one, worth +4% at n=2048 and +18% at n=8192.
+Below `OZAKI_WGMMA_RESIDE` tiles per SM the tile narrows to 128x128 and
+two work-groups share an SM, which is faster there (-3 to -12% wall
+from n=2048 to 5632) and slower above; `OZAKI_WGMMA_RESIDE=0`
+keeps the wide tile.
 
 Two implications worth knowing. The kernel is built twice — once from
 OpenCL C, then again from patched PTX — because warp-group MMA cannot

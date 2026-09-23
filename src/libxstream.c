@@ -2321,7 +2321,8 @@ LIBXSTREAM_API int libxstream_opencl_program_binary(cl_program program, char** b
 }
 
 
-LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size, char** result_text, size_t* result_size)
+LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size,
+  int maxnreg, const char entry[], char** result_text, size_t* result_size)
 {
   static const char needle[] = ".target sm_";
   const char* const target = (NULL != text && NULL != result_text) ? strstr(text, needle) : NULL;
@@ -2331,16 +2332,55 @@ LIBXSTREAM_API int libxstream_opencl_retarget_ptx(const char text[], size_t size
     while ('0' <= *digit && '9' >= *digit) ++digit;
     /* only rewrite a plain numeric target, never an already accelerated one */
     if (digit > target + sizeof(needle) - 1 && 'a' != *digit) {
-      char* const out = (char*)libxs_malloc(NULL, size + 2 /*suffix and terminator*/, 0 /*auto-align*/);
-      if (NULL != out) {
-        const size_t prefix = (size_t)(digit - text);
-        memcpy(out, text, prefix);
-        out[prefix] = 'a';
-        memcpy(out + prefix + 1, text + prefix, size - prefix);
-        out[size + 1] = '\0';
-        *result_text = out;
-        if (NULL != result_size) *result_size = size + 1;
-        result = EXIT_SUCCESS;
+      char directive[32];
+      size_t ndirective = 0;
+      if (0 < maxnreg) {
+        /* Terminated, since the insertion point is the brace that opens the body. */
+        const int n = LIBXS_SNPRINTF(directive, sizeof(directive), ".maxnreg %i\n", maxnreg);
+        if (0 < n) ndirective = (size_t)n;
+      }
+      /* Worst case is every entry, which is what a NULL name asks for. */
+      { size_t nentry = 0;
+        if (0 != ndirective) {
+          const char* scan = text;
+          while (NULL != (scan = strstr(scan, ".entry "))) {
+            ++nentry;
+            ++scan;
+          }
+        }
+        { char* const out =
+            (char*)libxs_malloc(NULL, size + 2 /*suffix and terminator*/ + nentry * ndirective, 0 /*auto-align*/);
+        if (NULL != out) {
+          const size_t prefix = (size_t)(digit - text);
+          size_t at = size + 1;
+          memcpy(out, text, prefix);
+          out[prefix] = 'a';
+          memcpy(out + prefix + 1, text + prefix, size - prefix);
+          out[size + 1] = '\0';
+          if (0 != ndirective) {
+            /**
+             * A performance-tuning directive belongs between the entry's parameter
+             * list and its body, so the insertion point is the brace and not the
+             * name: an entry whose parameters span lines has text between the two,
+             * and inserting at the name emits the directive inside the list.
+             */
+            char* scan = out;
+            while (NULL != (scan = strstr(scan, ".entry "))) {
+              char* const brace = strchr(scan, '{');
+              if (NULL == brace) break;
+              if (NULL == entry || 0 == strncmp(scan + 7, entry, strlen(entry))) {
+                memmove(brace + ndirective, brace, (size_t)(out + at - brace) + 1);
+                memcpy(brace, directive, ndirective);
+                at += ndirective;
+                scan = brace + ndirective;
+              }
+              else scan = brace;
+            }
+          }
+          *result_text = out;
+          if (NULL != result_size) *result_size = at;
+          result = EXIT_SUCCESS;
+        } }
       }
     }
   }
