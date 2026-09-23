@@ -404,6 +404,15 @@ typedef struct libxstream_opencl_config_t {
   libxstream_opencl_device_t device;
   /** Locks used by domain. */
   libxs_lock_t *lock_main, *lock_stream, *lock_event, *lock_memory;
+  /**
+   * The only lock a completion callback takes, and a leaf: nothing that can wait
+   * on the device or call into the driver runs while it is held. A driver may run
+   * callbacks on the thread that also completes events, so a callback blocked on
+   * a lock whose holder waits for an event never lets that event complete. The
+   * domains above are aliases of lock_main unless LIBXSTREAM_NLOCKS says otherwise
+   * and are held across such waits, hence a lock of its own outside that table.
+   */
+  libxs_lock_t* lock_profile;
   /** All memptrs and related storage/counter. */
   libxstream_opencl_info_memptr_t **memptrs, *memptr_data;
   size_t nmemptrs; /* counter */

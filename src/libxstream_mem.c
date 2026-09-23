@@ -978,14 +978,8 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_mem_copy_notify(cl_event event
       vals[3] = libxstream_opencl_reltime(begin);
       vals[4] = libxstream_opencl_reltime(end);
       if (vals[2] >= floor_us) {
-        libxs_hist_push(libxstream_opencl_config.lock_memory, hist, vals);
-        /**
-         * Under lock_event rather than lock_memory: the kernel callback pushes into
-         * the same histogram, and one histogram cannot be guarded by two locks.
-         * Not nested with the push above, so the pair cannot deadlock.
-         */
-        libxs_hist_push(libxstream_opencl_config.lock_event,
-          libxstream_opencl_config.hist_device, vals + 3);
+        libxs_hist_push(libxstream_opencl_config.lock_profile, hist, vals);
+        libxs_hist_push(libxstream_opencl_config.lock_profile, libxstream_opencl_config.hist_device, vals + 3);
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile_mem) {
           /* Relative to the epoch: an absolute timestamp does not survive a double. */

@@ -66,7 +66,8 @@
 # endif
 
 
-LIBXSTREAM_APIVAR_DEFINE(char internal_libxstream_opencl_locks[LIBXS_CACHELINE * LIBXSTREAM_NLOCKS]);
+/* The domains, then lock_profile: past the table, so no LIBXSTREAM_NLOCKS aliases it. */
+LIBXSTREAM_APIVAR_DEFINE(char internal_libxstream_opencl_locks[LIBXS_CACHELINE * (LIBXSTREAM_NLOCKS + 1)]);
 /* global configuration discovered during initialization */
 LIBXSTREAM_APIVAR_PUBLIC_DEF(libxstream_opencl_config_t libxstream_opencl_config);
 /* Zero-initialized, so the sentinel cannot be -1: zero means "disable". */
@@ -241,7 +242,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   assert(NULL == libxstream_opencl_config.lock_main); /* test condition to avoid initializing multiple times */
   libxs_init(); /* before using LIBXSMM's functionality */
   assert(sizeof(libxs_lock_t) <= LIBXS_CACHELINE);
-  for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) {
+  for (i = 0; i <= LIBXSTREAM_NLOCKS; ++i) {
     LIBXS_LOCK_ATTR_TYPE(LIBXS_LOCK) acc_opencl_attr_;
     LIBXS_LOCK_ATTR_INIT(LIBXS_LOCK, &acc_opencl_attr_);
     LIBXS_LOCK_INIT(LIBXS_LOCK, (libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * i), &acc_opencl_attr_);
@@ -257,6 +258,8 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   libxstream_opencl_config.lock_event = /* 4th lock-domain */
     (3 < LIBXS_MIN(nlocks, LIBXSTREAM_NLOCKS) ? ((libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * 3))
                                               : libxstream_opencl_config.lock_main);
+  libxstream_opencl_config.lock_profile =
+    (libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * LIBXSTREAM_NLOCKS);
   libxstream_opencl_configure(); /* verbosity is used below */
   libxstream_opencl_config.devsplit = (NULL == env_devsplit ? (/*1 < libxs_nranks() ? -1 :*/ 0) : atoi(env_devsplit));
 # if defined(LIBXSTREAM_STREAM_PRIORITIES)
@@ -1222,6 +1225,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
         libxstream_opencl_config.device.context = NULL;
         clReleaseContext(context); /* ignore return code */
       }
+      /* Not lock_profile: a completion callback may still be delivered and take it. */
       for (i = 0; i < LIBXSTREAM_NLOCKS; ++i) { /* destroy locks */
         LIBXS_LOCK_DESTROY(LIBXS_LOCK, (libxs_lock_t*)(internal_libxstream_opencl_locks + LIBXS_CACHELINE * i));
       }
@@ -3008,7 +3012,7 @@ LIBXSTREAM_API_INTERN void libxstream_launch_info_free(libxstream_opencl_launch_
 {
   if (NULL != info) {
     libxs_pfree_lock(info, (void**)libxstream_opencl_config.launch_infos, &libxstream_opencl_config.nlaunch_infos,
-      libxstream_opencl_config.lock_event);
+      libxstream_opencl_config.lock_profile);
   }
 }
 
@@ -3043,9 +3047,9 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, 
       vals[3] = libxstream_opencl_reltime(begin);
       vals[4] = libxstream_opencl_reltime(end);
       if (vals[0] >= floor_ms) {
-        libxs_hist_push(libxstream_opencl_config.lock_event, hist, vals);
+        libxs_hist_push(libxstream_opencl_config.lock_profile, hist, vals);
         /* the same interval device-wide, where a union across kernels forms */
-        libxs_hist_push(libxstream_opencl_config.lock_event,
+        libxs_hist_push(libxstream_opencl_config.lock_profile,
           libxstream_opencl_config.hist_device, vals + 3);
         LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile, 1, LIBXS_ATOMIC_RELAXED);
         if (0 > libxstream_opencl_config.profile) {
@@ -3144,7 +3148,7 @@ LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl
       if (slot < LIBXSTREAM_MAXNKERNELS) {
         info = (libxstream_opencl_launch_info_t*)libxs_pmalloc_lock(
           (void**)libxstream_opencl_config.launch_infos, &libxstream_opencl_config.nlaunch_infos,
-          libxstream_opencl_config.lock_event);
+          libxstream_opencl_config.lock_profile);
         if (NULL != info) {
           info->slot = slot;
           info->gflop = 1E-9 * (double)nflops;
