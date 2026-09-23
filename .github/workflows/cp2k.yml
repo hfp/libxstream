@@ -23,6 +23,9 @@ on:
       dbcsr_ref:
         description: "DBCSR branch or tag"
         default: "develop"
+      env:
+        description: "Environment for all steps, e.g., LIBXSTREAM_VERBOSE=2 LIBXSTREAM_ATOMICS=cmpxchg"
+        default: ""
 
 jobs:
   DBM:
@@ -37,6 +40,21 @@ jobs:
       OMP_NUM_THREADS: 2
     steps:
     - uses: actions/checkout@v5
+
+    # Space-separated NAME=VALUE pairs given when launching manually. They come
+    # in through the environment rather than the script, so no value is executed.
+    - name: Setup environment
+      if: github.event.inputs.env != ''
+      env:
+        INPUT_ENV: ${{ github.event.inputs.env }}
+      run: |
+        for NAME_VALUE in ${INPUT_ENV}; do
+          if ! echo "${NAME_VALUE}" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*$'; then
+            echo "ERROR: \"${NAME_VALUE}\" is not NAME=VALUE"; exit 1
+          fi
+          echo "${NAME_VALUE}" >> $GITHUB_ENV
+          echo "${NAME_VALUE}"
+        done
 
     - name: Install OpenBLAS, GNU Fortran, and OpenCL
       run: |
@@ -93,8 +111,23 @@ jobs:
       DBCSR_REF: ${{ github.event.inputs.dbcsr_ref || 'develop' }}
       LIBXSTREAM_DEVTYPE: cpu
       OMP_NUM_THREADS: 2
+      # DBCSR's copy of acc_bench fails on a wrong result only if CHECK is positive
+      CHECK: 1
     steps:
     - uses: actions/checkout@v5
+
+    - name: Setup environment
+      if: github.event.inputs.env != ''
+      env:
+        INPUT_ENV: ${{ github.event.inputs.env }}
+      run: |
+        for NAME_VALUE in ${INPUT_ENV}; do
+          if ! echo "${NAME_VALUE}" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*$'; then
+            echo "ERROR: \"${NAME_VALUE}\" is not NAME=VALUE"; exit 1
+          fi
+          echo "${NAME_VALUE}" >> $GITHUB_ENV
+          echo "${NAME_VALUE}"
+        done
 
     - name: Install OpenBLAS, GNU Fortran, and OpenCL
       run: |
