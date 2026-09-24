@@ -54,12 +54,15 @@ LIBXS_PRAGMA_WEAK(dbm_multiply_opencl_smm_launch_fn)
  * Index of the built-in device entry the active device matches (-1 if none), and the
  * UID it is matched by: the SMM_DEVID override, or else the device's own. Parameters
  * and prediction models select through here, hence they cannot disagree on the entry.
+ * A CPU adopts only an exact match (UID or name): the entries nearest to a CPU are
+ * tuned for GPUs, which the defaults serve a CPU better than.
  */
 static int opencl_libsmm_device_match(unsigned int* uid)
 {
   const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const int ndevices = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
   char name[LIBXSTREAM_BUFFERSIZE];
+  int result;
   *uid = (0 != opencl_libsmm_devuid) ? opencl_libsmm_devuid : libxstream_opencl_config.device.uid;
   if (EXIT_SUCCESS != libxstream_opencl_device_name(device_id, name, LIBXSTREAM_BUFFERSIZE, NULL /*platform*/,
                         0 /*platform_maxlen*/, /*cleanup*/ 1))
@@ -69,7 +72,19 @@ static int opencl_libsmm_device_match(unsigned int* uid)
   else if (0 == opencl_libsmm_devuid && 1 >= libxstream_opencl_config.devmatch) {
     libxstream_opencl_device_uid(device_id, name, uid);
   }
-  return libxstream_opencl_device_match(name, *uid, OPENCL_KERNELS_DEVICES, ndevices);
+  result = libxstream_opencl_device_match(name, *uid, OPENCL_KERNELS_DEVICES, ndevices);
+  if (0 <= result && CL_DEVICE_TYPE_CPU == libxstream_opencl_config.device.type) {
+    char entry[LIBXSTREAM_BUFFERSIZE];
+    unsigned int id = 0;
+    LIBXS_SNPRINTF(entry, sizeof(entry), "%s", OPENCL_KERNELS_DEVICES[result]);
+    libxstream_opencl_device_name_cleanup(entry);
+    if ((0 == *uid || EXIT_SUCCESS != libxstream_opencl_device_uid(NULL /*device*/, OPENCL_KERNELS_DEVICES[result], &id) ||
+          *uid != id) && 0 != strcmp(entry, name))
+    {
+      result = -1;
+    }
+  }
+  return result;
 }
 #  endif
 
@@ -298,7 +313,7 @@ int libsmm_acc_init(void) {
             }
           }
         }
-        if (NULL == best) {
+        if (NULL == best && CL_DEVICE_TYPE_CPU != libxstream_opencl_config.device.type) { /* CPU: exact match only */
           for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
             if (0 <= entry->device_id) {
               best = entry;

@@ -1465,7 +1465,9 @@ LIBXSTREAM_API int libxstream_opencl_device_uid(cl_device_id device, const char 
 {
   int result;
   if (NULL != uid) {
-    if (NULL != device && EXIT_SUCCESS == libxstream_opencl_device_vendor(device, "intel", 0 /*use_platform_name*/)) {
+    if (NULL != device && EXIT_SUCCESS == libxstream_opencl_device_vendor(device, "intel", 0 /*use_platform_name*/) &&
+        EXIT_SUCCESS == libxstream_opencl_device_vendor(device, "intel", 2 /*platform vendor*/))
+    {
       result = clGetDeviceInfo(device, 0x4251 /*CL_DEVICE_ID_INTEL*/, sizeof(unsigned int), uid, NULL);
     }
     else result = EXIT_FAILURE;
@@ -1889,7 +1891,9 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           LIBXSTREAM_STREAM_PROPERTIES_TYPE properties[4] = {
             CL_QUEUE_PROPERTIES, CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE, 0 /* terminator */
           };
-          devinfo->intel = (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/));
+          /* PoCL reports the vendor of the CPU it runs on, hence the platform must be Intel's as well */
+          devinfo->intel = (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "intel", 0 /*use_platform_name*/) &&
+                            EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "intel", 2 /*platform vendor*/));
           if (0 != devinfo->intel) { /* intel: 1=GPU, 2=GPU with XMX (DPAS + 2D block I/O) */
             const char* const xmx_exts[] = {
               "cl_intel_subgroup_matrix_multiply_accumulate", "cl_intel_subgroup_2d_block_io"

@@ -443,7 +443,7 @@ int main(int argc, char* argv[]) {
         if (NULL != file) PRINTF("\n");
         ++nok;
       }
-      if (0 == result) {
+      if (0 <= result) { /* a wrong result is reported as well */
         LIBXS_STDIO_ACQUIRE();
         fputs(print_buffer, stdout);
         LIBXS_STDIO_RELEASE();
