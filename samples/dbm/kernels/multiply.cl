@@ -210,6 +210,13 @@
     } while (0)
 #endif
 
+/* Bits per shape field of a packed param_format (host: DBM_OPENCL_LIBSMM_PFORMAT) */
+#if !defined(PFORMAT) || (0 >= PFORMAT)
+#  undef PFORMAT
+#  define PFORMAT 8
+#endif
+#define PSHAPE(PFMT, I) (((1 << PFORMAT) - 1) & ((PFMT) >> (PFORMAT * (I))))
+
 /* Decode task parameters: shape, ibase, params offset */
 #define DBM_TASK_DECODE(ITASK, TID, PFMT, PARAMS, SHAPE, IBASE) \
   do { \
@@ -221,32 +228,24 @@
       (PARAMS) += dbm_task_decode_i_ + 3; \
     } \
     else { \
-      (SHAPE)[0] = (SINT)(0xFF & (PFMT)); \
-      (SHAPE)[1] = 0xFF & ((PFMT) >> 8); \
-      (SHAPE)[2] = 0xFF & ((PFMT) >> 16); \
+      (SHAPE)[0] = (SINT)PSHAPE(PFMT, 0); \
+      (SHAPE)[1] = (SINT)PSHAPE(PFMT, 1); \
+      (SHAPE)[2] = (SINT)PSHAPE(PFMT, 2); \
       (PARAMS) += ((ITASK) + (TID)) * 3; \
       (IBASE) = 1; \
     } \
   } while (0)
 
 /* Override shape with compile-time constants (homogeneous batches).
- * Applied after DBM_TASK_DECODE to enable constant folding. */
+ * Applied after DBM_TASK_DECODE to enable constant folding. The order is the
+ * decoded one: XM and XN already swap the roles of M and N for CLINEAR. */
 #if defined(DBM_M) && defined(DBM_N) && defined(DBM_K)
-#  if !defined(CLINEAR)
-#    define DBM_SHAPE_OVERRIDE(SHAPE) \
-      do { \
-        (SHAPE)[0] = DBM_M; \
-        (SHAPE)[1] = DBM_N; \
-        (SHAPE)[2] = DBM_K; \
-      } while (0)
-#  else
-#    define DBM_SHAPE_OVERRIDE(SHAPE) \
-      do { \
-        (SHAPE)[0] = DBM_N; \
-        (SHAPE)[1] = DBM_M; \
-        (SHAPE)[2] = DBM_K; \
-      } while (0)
-#  endif
+#  define DBM_SHAPE_OVERRIDE(SHAPE) \
+    do { \
+      (SHAPE)[0] = DBM_M; \
+      (SHAPE)[1] = DBM_N; \
+      (SHAPE)[2] = DBM_K; \
+    } while (0)
 #else
 #  define DBM_SHAPE_OVERRIDE(SHAPE) \
     do { \
@@ -273,7 +272,7 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
 #endif
   global double* restrict c)
 {
-#if defined(SM) && (0 < SM)
+#if defined(SM) && (0 < SM) && defined(WG) && (0 < WG) /* tls needs a fixed work-group size */
   local TYPE tls[WG][BN + SM - 1];
   local TYPE* restrict const cvec = &tls[get_local_id(0)][0];
 #else
@@ -284,7 +283,7 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
    * Each lane holds one M-row (via block read). N is tiled by BN
    * with sub_group_broadcast fanning B out to BN columns per K-step. */
   const int tid = (int)get_group_id(0);
-  const SINT sid = (SINT)get_sub_group_local_id();
+  const SINT sid = (SINT)SGLID();
   SINT shape[3], ibase = 0;
   DBM_TASK_DECODE(itask, tid, param_format, params, shape, ibase);
   DBM_SHAPE_OVERRIDE(shape);
@@ -345,6 +344,8 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
   /* per-task dispatch: broadcast shares A */
   const int tid = (int)get_group_id(0);
   const SINT sid = (SINT)get_local_id(0);
+  /* rows are broadcast within a sub-group, which is narrower than WG if WG > SG */
+  const SINT lane = (SINT)SGLID();
   SINT shape[3], ibase = 0;
   DBM_TASK_DECODE(itask, tid, param_format, params, shape, ibase);
   DBM_SHAPE_OVERRIDE(shape);
@@ -352,7 +353,7 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
   UNROLL_AUTO for (SINT nb0 = 0; nb0 < XN(shape); nb0 += WG) { /* all lanes */
     const SINT nb = nb0 + sid;
     const int active = (nb < XN(shape));
-    DBM_BCST(alpha, ibase, params, shape, a, b, c, cvec, sid, active ? nb : 0, active, BM);
+    DBM_BCST(alpha, ibase, params, shape, a, b, c, cvec, lane, active ? nb : 0, active, BM);
   }
 #else
   /* flat dispatch: global work-item maps to (task, row) */
@@ -361,21 +362,21 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
   if (i < size)
 #  endif
   {
-    SINT shape[3], ibase = 0, m;
-    int tid = i;
-#  if defined(DBM_M) && defined(DBM_N) && defined(DBM_K)
-    shape[0] = DBM_M;
-    shape[1] = DBM_N;
-    shape[2] = DBM_K;
+    /* rows per task as the host counted them: N instead of M for CLINEAR */
+#  if defined(DBM_M) && defined(DBM_N) && !defined(CLINEAR)
+    const SINT rows = DBM_M;
+#  elif defined(DBM_M) && defined(DBM_N)
+    const SINT rows = DBM_N;
 #  elif defined(MAX_M)
-    shape[0] = MAX_M;
+    const SINT rows = MAX_M;
+#  elif !defined(CLINEAR)
+    const SINT rows = (0 != param_format ? (SINT)PSHAPE(param_format, 0) : (SINT)(size / ntasks));
 #  else
-    shape[0] = (0 != param_format ? (SINT)(0xFF & param_format) : (SINT)(size / ntasks));
-    shape[1] = 0xFF & (param_format >> 8);
-    shape[2] = 0xFF & (param_format >> 16);
+    const SINT rows = (0 != param_format ? (SINT)PSHAPE(param_format, 1) : (SINT)(size / ntasks));
 #  endif
-    tid /= shape[0];
-    m = i - tid * shape[0];
+    SINT shape[3], ibase = 0, m;
+    const int tid = i / rows;
+    m = i - tid * rows;
     DBM_TASK_DECODE(itask, tid, param_format, params, shape, ibase);
     DBM_SHAPE_OVERRIDE(shape);
     if (m < XM(shape)) {

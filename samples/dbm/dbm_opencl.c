@@ -14,7 +14,7 @@
 #include <libxs/libxs_timer.h>
 #include <libxstream/libxstream_opencl.h>
 
-#if !defined(OPENCL_KERNELS_SOURCE_DBM_MULTIPLY)
+#if !defined(OPENCL_KERNELS_SOURCE_MULTIPLY)
 #  error "OpenCL kernel source code not found!"
 #endif
 
@@ -225,7 +225,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           int lu = LIBXS_CLMP(NULL == lu_env ? 0 : atoi(lu_env), -2, 1);
           size_t sgsize = devinfo->wgsize[2];
           size_t offset;
-          const char *source = OPENCL_KERNELS_SOURCE_DBM_MULTIPLY, *cmem = NULL;
+          const char *source = OPENCL_KERNELS_SOURCE_MULTIPLY, *cmem = NULL;
           LIBXS_MEMZERO(base_flags);
           LIBXS_SNPRINTF(
             base_flags, sizeof(base_flags), "-cl-fast-relaxed-math -cl-denorms-are-zero");
@@ -281,9 +281,9 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           }
           offset += (size_t)LIBXS_SNPRINTF(base_flags + offset, sizeof(base_flags) - offset,
             " %s %s -DCONSTANT=%s"
-            " -DBN=%i -DSM=%i -DLU=%i -DSG=%i -DINTEL=%i",
+            " -DBN=%i -DSM=%i -DLU=%i -DSG=%i -DINTEL=%i -DPFORMAT=%i",
             0 != gpu ? "-DGPU" : "", 0 == clinear ? "" : "-DCLINEAR", cmem, bn, sm, lu,
-            (int)sgsize, (int)(0 != devinfo->intel));
+            (int)sgsize, (int)(0 != devinfo->intel), DBM_OPENCL_LIBSMM_PFORMAT);
           if (0 != precision) {
             offset += (size_t)LIBXS_SNPRINTF(
               base_flags + offset, sizeof(base_flags) - offset, " -DPRECISION=%i", precision);

@@ -61,7 +61,7 @@ IFLAGS += -I$(call quote,$(INCDIR))
 
 # kernel source and generated header
 SCRDIR := $(DEPDIR)/scripts
-KRNELS := $(SRCDIR)/kernels/dbm_multiply.cl
+KRNELS := $(SRCDIR)/kernels/multiply.cl
 GENHDR := $(SRCDIR)/dbm_kernels.h
 GENSCR := $(SCRDIR)/tool_opencl.sh
 GENARG := -p "" -I $(call quote,$(DEPDIR)/libxstream)

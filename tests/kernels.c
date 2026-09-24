@@ -162,13 +162,13 @@ static const kernels_file_t kernel_files[] = {
 /**
  * Not covered yet, and named so that the gap is visible rather than implied:
  * these need values this test would have to invent (multiply.cl wants a
- * param_format type, stencil_bf16.cl the conversion pair, dbm_multiply.cl the
+ * param_format type, stencil_bf16.cl the conversion pair, dbm/kernels/multiply.cl the
  * atomics the host derives from the device), and inventing them risks reporting
  * a fault that is the test's rather than the kernel's.
  */
 static const char* const kernel_pending[] = {
   LIBXSTREAM_SRCDIR "/samples/smm/kernels/multiply.cl", LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_bf16.cl",
-  LIBXSTREAM_SRCDIR "/samples/dbm/kernels/dbm_multiply.cl"
+  LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl"
 };
 
 /**

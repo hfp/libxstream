@@ -336,7 +336,7 @@ install(FILES "${LIBXSTREAM_SMM_KERNELS_H}"
 # DBM sample: generate dbm_kernels.h at build time and install sources
 set(LIBXSTREAM_DBM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/samples/dbm")
 set(LIBXSTREAM_DBM_KERNELS_H "${CMAKE_CURRENT_BINARY_DIR}/dbm_kernels.h")
-set(LIBXSTREAM_DBM_CL "${LIBXSTREAM_DBM_DIR}/kernels/dbm_multiply.cl")
+set(LIBXSTREAM_DBM_CL "${LIBXSTREAM_DBM_DIR}/kernels/multiply.cl")
 file(GLOB LIBXSTREAM_DBM_OCL_H LIST_DIRECTORIES false CONFIGURE_DEPENDS
   "${LIBXSTREAM_ROOT_DIR}/libxstream/opencl/*.h")
 
@@ -356,6 +356,7 @@ add_custom_target(dbm_kernels_h ALL DEPENDS "${LIBXSTREAM_DBM_KERNELS_H}")
 install(FILES
   "${LIBXSTREAM_DBM_DIR}/dbm_opencl.c"
   "${LIBXSTREAM_DBM_DIR}/dbm_opencl.h"
+  "${LIBXSTREAM_DBM_DIR}/dbm.mk"
   "${LIBXSTREAM_DBM_KERNELS_H}"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/dbm")
 
@@ -407,6 +408,7 @@ install(EXPORT libxstreamTargets
 install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfig.cmake"
   "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfigVersion.cmake"
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstreamSamples.cmake"
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/libxstream")
 
 # Install documentation.

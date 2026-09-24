@@ -9,7 +9,8 @@
 ******************************************************************************/
 #if defined(__OPENCL)
 #  include "smm_acc_opencl.h"
-#  include "smm_kernels.h"
+/* angle brackets: a header generated on the include path wins over the installed one */
+#  include <smm_kernels.h>
 #  include "acc_bench.h"
 #  include <libxs/libxs_predict.h>
 #  include <libxs/libxs_timer.h>

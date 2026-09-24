@@ -498,9 +498,10 @@ endif
 	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm/kernels
 	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/dbm/dbm_opencl.c $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm
 	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/dbm/dbm_opencl.h $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm
+	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/dbm/dbm.mk $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm
 	@$(CP) -v $(ROOTDIR)/$(SPLDIR)/dbm/kernels/*.cl $(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm/kernels
 	@$(ROOTSCR)/tool_opencl.sh -p "" -I $(ROOTDIR)/libxstream \
-		$(ROOTDIR)/$(SPLDIR)/dbm/kernels/dbm_multiply.cl \
+		$(ROOTDIR)/$(SPLDIR)/dbm/kernels/multiply.cl \
 		$(PREFIX)/$(PSHRDIR)/$(SPLDIR)/dbm/dbm_kernels.h
 	@echo
 	@echo "$(PROJUPP) installing OpenCL stencil support files..."
@@ -633,6 +634,7 @@ $(PPKGDIR)/$(PROJECT)-static.pc: FORCE
 $(PPKGDIR)/$(PROJECT)-shared.pc: FORCE
 $(PCMKDIR)/$(PROJECT)Config.cmake: $(ROOTSCR)/$(PROJECT)Config.cmake $(PCMKDIR)/.make FORCE
 	@$(SED) -e 's|@LIBXSTREAM_OMP@|$(if $(filter-out 0,$(OMP)),ON,OFF)|g' <$< >$@
+	@$(CP) $(ROOTSCR)/$(PROJECT)Samples.cmake $(PCMKDIR)
 	@$(SED) -e 's|@VERSION@|$(VERSION_STRING)|g' \
 		<$(ROOTSCR)/$(PROJECT)ConfigVersion.cmake.in >$(PCMKDIR)/$(PROJECT)ConfigVersion.cmake
 

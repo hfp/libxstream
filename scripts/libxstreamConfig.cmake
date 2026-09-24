@@ -29,9 +29,11 @@ if(LIBXSTREAM_LIBRARY AND LIBXSTREAM_INCLUDE_DIR)
       find_package(OpenMP REQUIRED COMPONENTS C)
     endif()
     add_library(libxstream::libxstream UNKNOWN IMPORTED)
+    # the same PUBLIC definitions as the target a CMake build exports
     set_target_properties(libxstream::libxstream PROPERTIES
       IMPORTED_LOCATION "${LIBXSTREAM_LIBRARY}"
-      INTERFACE_INCLUDE_DIRECTORIES "${LIBXSTREAM_INCLUDE_DIR}")
+      INTERFACE_INCLUDE_DIRECTORIES "${LIBXSTREAM_INCLUDE_DIR}"
+      INTERFACE_COMPILE_DEFINITIONS "__OPENCL;__ACC;__LIBXS")
     if(TARGET libxs::libxs)
       set_property(TARGET libxstream::libxstream APPEND PROPERTY
         INTERFACE_LINK_LIBRARIES libxs::libxs)
@@ -74,3 +76,4 @@ endif()
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(libxstream DEFAULT_MSG LIBXSTREAM_LIBRARY)
 unset(_libxstream_prefix)
+include("${CMAKE_CURRENT_LIST_DIR}/libxstreamSamples.cmake")
