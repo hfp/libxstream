@@ -11,16 +11,16 @@ on:
     - cron: "0 4 * * 1"
   workflow_dispatch:
     inputs:
-      cp2k_owner:
+      owner_cp2k:
         description: "Owner of the CP2K repository (hfp until upstreamed)"
         default: "hfp"
-      cp2k_ref:
+      ref_cp2k:
         description: "CP2K branch or tag"
         default: "master"
-      dbcsr_owner:
-        description: "Owner of the DBCSR repository"
-        default: "cp2k"
-      dbcsr_ref:
+      owner_dbcsr:
+        description: "Owner of the DBCSR repository (hfp until upstreamed)"
+        default: "hfp"
+      ref_dbcsr:
         description: "DBCSR branch or tag"
         default: "develop"
       env:
@@ -32,9 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      # the scheduled run has no inputs, hence the default of cp2k_owner again
-      CP2K_OWNER: ${{ github.event.inputs.cp2k_owner || 'hfp' }}
-      CP2K_REF: ${{ github.event.inputs.cp2k_ref || 'master' }}
+      # the scheduled run has no inputs, hence the defaults of the inputs again
+      OWNER_CP2K: ${{ github.event.inputs.owner_cp2k || 'hfp' }}
+      REF_CP2K: ${{ github.event.inputs.ref_cp2k || 'master' }}
       # PoCL's CPU device is the only OpenCL device of a runner, and it has FP64
       LIBXSTREAM_DEVTYPE: cpu
       OMP_NUM_THREADS: 2
@@ -69,8 +69,8 @@ jobs:
 
     - name: Setup CP2K
       run: |
-        CP2K_REPO="https://github.com/${CP2K_OWNER}/cp2k.git"
-        git clone --depth 1 --branch "${CP2K_REF}" "${CP2K_REPO}" ${{ github.workspace }}/../cp2k
+        CP2K_REPO="https://github.com/${OWNER_CP2K}/cp2k.git"
+        git clone --depth 1 --branch "${REF_CP2K}" "${CP2K_REPO}" ${{ github.workspace }}/../cp2k
         echo "CP2K_ROOT=${{ github.workspace }}/../cp2k" >> $GITHUB_ENV
         git -C ${{ github.workspace }}/../cp2k log -1 --format="CP2K %H %cs"
 
@@ -106,9 +106,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      # the scheduled run has no inputs, hence the defaults again
-      DBCSR_OWNER: ${{ github.event.inputs.dbcsr_owner || 'cp2k' }}
-      DBCSR_REF: ${{ github.event.inputs.dbcsr_ref || 'develop' }}
+      # the scheduled run has no inputs, hence the defaults of the inputs again
+      OWNER_DBCSR: ${{ github.event.inputs.owner_dbcsr || 'hfp' }}
+      REF_DBCSR: ${{ github.event.inputs.ref_dbcsr || 'develop' }}
       LIBXSTREAM_DEVTYPE: cpu
       OMP_NUM_THREADS: 2
       # DBCSR's copy of acc_bench fails on a wrong result only if CHECK is positive
@@ -142,8 +142,8 @@ jobs:
 
     - name: Setup DBCSR
       run: |
-        DBCSR_REPO="https://github.com/${DBCSR_OWNER}/dbcsr.git"
-        git clone --depth 1 --recursive --shallow-submodules --branch "${DBCSR_REF}" \
+        DBCSR_REPO="https://github.com/${OWNER_DBCSR}/dbcsr.git"
+        git clone --depth 1 --recursive --shallow-submodules --branch "${REF_DBCSR}" \
           "${DBCSR_REPO}" ${{ github.workspace }}/../dbcsr
         echo "DBCSR_ROOT=${{ github.workspace }}/../dbcsr" >> $GITHUB_ENV
         git -C ${{ github.workspace }}/../dbcsr log -1 --format="DBCSR %H %cs"

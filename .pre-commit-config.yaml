@@ -86,7 +86,8 @@ repos:
     entry: "\t"
     language: pygrep
     types: [text]
-    exclude: '(^|/)(Makefile|Makefile\.inc|rules)$'
+    # The same set .editorconfig indents with tabs; a recipe line requires one.
+    exclude: '(^|/)(Makefile|Makefile\.inc|rules)$|\.mk$'
   - id: no-cpp-comments
     name: no C++ comments in C sources
     entry: '^\s*//'
