@@ -46,10 +46,11 @@ the DBM kernel did not run. The arguments of `dbm_bench.x` are those of
 
 ## CP2K
 
-CP2K compiles `dbm_opencl.c` and generates `dbm_kernels.h` from
-`kernels/dbm_multiply.cl`: CMake finds this directory as `LIBXSTREAM_DBM_DIR`
-(`find_package(libxstream)`), and the Makefile in CP2K's `src/dbm` finds it
-under `LIBXSTREAMROOT`. To build CP2K's DBM miniapp against this directory:
+CP2K builds the backend into its own targets without naming its files: CMake
+calls `libxstream_add_dbm(<target>)` after `find_package(libxstream)`, and the
+Makefile in CP2K's `src/dbm` includes `dbm.mk` from this directory. Both
+generate `dbm_kernels.h` into the consumer's build tree. To build CP2K's DBM
+miniapp against this directory:
 
 ```bash
 make miniapp [CP2K_ROOT=/path/to/cp2k]

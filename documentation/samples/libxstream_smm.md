@@ -20,6 +20,10 @@ and LIBXS built from a sibling directory.
 | ELEM_TYPE     | `double` | Element precision: `double` or `float`                           |
 | WITH_GPU      | auto     | Device for tuned parameters (PVC, A100, ...). Fallback: all CSVs |
 
+A CMake project (e.g., DBCSR) builds LIBSMM into its own target with
+`libxstream_add_smm(<target>)` after `find_package(libxstream)`, which also
+generates `smm_kernels.h` into the target's build tree.
+
 ## Benchmark Driver
 
 ```bash
