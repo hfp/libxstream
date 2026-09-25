@@ -354,8 +354,7 @@ int main(int argc, char* argv[])
     if (EXIT_SUCCESS == cublas_result) {
       printf("cuBLAS GEMM: %.3f ms (%s)\n", 1E3 * duration, cublas_mode(ctx.use_double));
       if (0 < devtime[0]) { /* device-side split as measured with CUDA events */
-        printf("cuBLAS: mean gemm %.3f ms, h2d %.3f ms, d2h %.3f ms\n", devtime[0] / nrepeat, devtime[1] / nrepeat,
-          devtime[2] / nrepeat);
+        printf("cuBLAS: median gemm %.3f ms, h2d %.3f ms, d2h %.3f ms\n", devtime[0], devtime[1], devtime[2]);
       }
     }
     else fprintf(stderr, "cuBLAS GEMM failed\n");
@@ -580,7 +579,9 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
   cublasHandle_t handle = NULL;
   libxs_timer_tick_t t0 = 0, t1 = 0;
   double* const times = (double*)malloc((size_t)nrepeat * sizeof(double));
-  int nevents = 0;
+  /* per-call device phases, reported as medians like the call itself: means next to a median total broke their sum */
+  double* const phases = (double*)malloc((size_t)3 * nrepeat * sizeof(double));
+  int nevents = 0, nphases = 0;
 # if (0 != OZAKI_CUBLAS_WORKSPACE)
   void* ws = NULL;
 # endif
@@ -672,10 +673,18 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
     if (4 == nevents) LIBXS_ELIDE_RESULT(int, cudaEventRecord(event[3], 0));
     /* the transfers of the xptr experiment are not on the CUDA timeline, hence they read as zero */
     if (0 <= i && 4 == nevents && EXIT_SUCCESS == result && cudaSuccess == cudaEventSynchronize(event[3])) {
-      float ms = 0;
-      if (cudaSuccess == cudaEventElapsedTime(&ms, event[1], event[2])) devtime[0] += ms;
-      if (cudaSuccess == cudaEventElapsedTime(&ms, event[0], event[1])) devtime[1] += ms;
-      if (cudaSuccess == cudaEventElapsedTime(&ms, event[2], event[3])) devtime[2] += ms;
+      float ms[3] = {0, 0, 0};
+      if (cudaSuccess == cudaEventElapsedTime(ms + 0, event[1], event[2]) &&
+          cudaSuccess == cudaEventElapsedTime(ms + 1, event[0], event[1]) &&
+          cudaSuccess == cudaEventElapsedTime(ms + 2, event[2], event[3]))
+      {
+        int j;
+        for (j = 0; j < 3; ++j) {
+          if (NULL != phases) phases[j * nrepeat + nphases] = ms[j];
+          devtime[j] += ms[j];
+        }
+        ++nphases;
+      }
     }
     if (0 <= i && NULL != times) times[i] = libxs_timer_duration(tick, libxs_timer_tick());
   }
@@ -699,6 +708,13 @@ static int cublas_gemm(libxstream_stream_t* stream, int use_double, char transa,
 # endif
   /* the median of one call, matching the Ozaki and host-BLAS figures */
   if (EXIT_SUCCESS == result) *duration = ozaki_duration(times, nrepeat, libxs_timer_duration(t0, t1));
+  if (0 < nphases) {
+    int j;
+    for (j = 0; j < 3; ++j) { /* the mean of the sum where the per-call record could not be kept */
+      devtime[j] = (NULL != phases) ? ozaki_duration(phases + j * nrepeat, nphases, 0) : (devtime[j] / nphases);
+    }
+  }
+  free(phases);
   free(times);
   return result;
 }
