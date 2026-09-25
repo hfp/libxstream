@@ -64,6 +64,17 @@
 # define OZAKI_WGMMA_RESIDE_DISCRETE 2
 #endif
 /**
+ * The tile count alone misjudges long K: at 3.9 tiles per unit the resident tile leads a
+ * 4096^2 x 8192 GEMM by 6% and trails an 8192 x 2048 x 8192 one by 4%, and at 7.8 it
+ * trails by 13 to 21% from K = 8192. What separates the two is one modulus's A plane
+ * (M * K bytes) times the tiles per unit: the resident tile reads A twice as often, and
+ * once that plane stops fitting across a wave the extra reads go to memory. It led in all
+ * of 34 shapes below the bound and trailed in all shapes clearly above it.
+ */
+#if !defined(OZAKI_WGMMA_RESIDE_MKT)
+# define OZAKI_WGMMA_RESIDE_MKT 2.5E8
+#endif
+/**
  * Sub-groups (warps) per work-group that NVIDIA tile selection aims for. At a
  * fixed tile area on H100/n=4096 the measurement is monotone in work-group
  * size: 4 warps 6158-6529 GFLOPS, 8 warps 6145-6275, 16 warps 5103. A fat
@@ -473,7 +484,7 @@ static size_t ozaki_crt_moduli_flags(char* buf, size_t size, size_t off, int nmo
 }
 
 
-ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm, int rtn)
+ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int K, int rtm, int rtn)
 {
   const int xmx_m = OZAKI_XMX_M(ctx);
   const int xmx_n = OZAKI_XMX_N(ctx);
@@ -542,8 +553,10 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm
      */
     if (0 != ctx->wgmma) {
       /* Coarser than the saturation floor below, which it therefore precedes. */
+      const int nwide = LIBXS_UPDIV(M, 128) * LIBXS_UPDIV(N, 256);
       if (128 == tile.m && 256 == tile.n && 0 != ozaki_wgmma_resident(ctx, 128, 128) && 0 < ctx->nunits &&
-          (LIBXS_UPDIV(M, 128) * LIBXS_UPDIV(N, 256)) < ctx->wgmma_reside * ctx->nunits)
+          nwide < ctx->wgmma_reside * ctx->nunits &&
+          (0 >= ctx->wgmma_reside_mkt || (double)M * K * nwide <= ctx->wgmma_reside_mkt * ctx->nunits))
       {
         tile.n = 128;
       }
@@ -1721,9 +1734,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
       }
       { const char *const env_reside = getenv("OZAKI_WGMMA_RESIDE");
+        const char *const env_mkt = getenv("OZAKI_WGMMA_RESIDE_MKT");
         ctx->wgmma_reside = (NULL != env_reside && 0 <= atoi(env_reside))
                               ? atoi(env_reside)
                               : (1 == libxstream_opencl_device_pageable() ? OZAKI_WGMMA_RESIDE : OZAKI_WGMMA_RESIDE_DISCRETE);
+        ctx->wgmma_reside_mkt = (NULL != env_mkt && 0 <= atof(env_mkt)) ? atof(env_mkt) : OZAKI_WGMMA_RESIDE_MKT;
       }
       /* Off by default, all four: measured neutral or worse here (see ozaki_opencl.h). */
       { const char *const env_maxnreg = getenv("OZAKI_MAXNREG");

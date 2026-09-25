@@ -48,6 +48,7 @@ static int ozaki_launch_reduce(ozaki_context_t* ctx, libxstream_stream_t* stream
   int first_pair, int use_double);
 static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds, int tm, int tn, int rtm, int rtn);
 static int ozaki_npanel_memory(const ozaki_context_t* ctx, int N, int nblk_m, int tn);
+static int ozaki_crt_npanel(const ozaki_context_t* ctx, int M, int N, int K, int dev, int n_kgroups, int cacheable_b);
 /**
  * Splice real warp-group MMA instructions into the fused CRT kernel's PTX.
  *
@@ -699,7 +700,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
     const ozaki_tile_t rt = ozaki_rtile_select(ctx, M, N, 0 /*Scheme 1*/);
-    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, rt.m, rt.n);
+    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, K, rt.m, rt.n);
     const int tm = tile.m, tn = tile.n;
     int m_pad = LIBXS_UP(M, bm_pre);
     int n_pad = LIBXS_UP(N, bn_pre);
@@ -987,8 +988,14 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     const int bk_pre = ctx->bk_pre;
     const int bm_pre = ctx->bm_pre;
     const int bn_pre = ctx->bn_pre;
-    const ozaki_tile_t rt0 = ozaki_rtile_select(ctx, M, N, 1 /*Scheme 2*/);
-    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, rt0.m, rt0.n);
+    const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
+    const int n_kgroups = LIBXS_UPDIV(K, k_grp_size);
+    const int cacheable_a = (0 != (ctx->cache.flags & 1));
+    const int cacheable_b = (0 != (ctx->cache.flags & 2));
+    const int n_panel = ozaki_crt_npanel(ctx, M, N, LIBXS_MIN(K, k_grp_size), dev, n_kgroups, cacheable_b);
+    /* Selected for the panel, the extent each launch has: residency and saturation count its tiles. */
+    const ozaki_tile_t rt0 = ozaki_rtile_select(ctx, M, n_panel, 1 /*Scheme 2*/);
+    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, n_panel, LIBXS_MIN(K, k_grp_size), rt0.m, rt0.n);
     const int tm = tile.m, tn = tile.n;
     /**
      * wgmma covers the whole tile width in one instruction, so RTN is the width in
@@ -1003,12 +1010,10 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * K-group: size buffers for min(K, maxk), not full K.
      * maxk=0 means no grouping (full K in one pass).
      */
-    const int k_grp_size = (0 < ctx->maxk ? ctx->maxk : K);
     const int k_grp_max = K < k_grp_size ? K : k_grp_size;
     /* K padded to the depth the specialization stages, since its K-loop has no tail. */
     const int ku_bk = ((0 != ctx->wgmma) ? ozaki_wgmma_depth(ctx, tm, tn, NULL, NULL) : ctx->ku) * bk_pre;
     int k_grp_pad = LIBXS_UP(k_grp_max, ku_bk);
-    const int n_kgroups = LIBXS_UPDIV(K, k_grp_size);
     /**
      * N-panel pipeline. Each panel owns a disjoint column block of B and C, so
      * C is read and written exactly once regardless of the panel count (a
@@ -1025,11 +1030,6 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      * (an explicit OZAKI_CACHE request is honored unchanged); it is the
      * absence of a B-cache request - the default - that enables panelling.
      */
-    const int cacheable_a = (0 != (ctx->cache.flags & 1));
-    const int cacheable_b = (0 != (ctx->cache.flags & 2));
-    /* Device operands (the complex embedding) are panelled to bound memory, host ones for the upload overlap. */
-    const int n_panel = (n_kgroups <= 1 && 0 == cacheable_b)
-      ? (0 == dev ? ozaki_npanel(ctx, M, N, tm, tn) : ozaki_npanel_memory(ctx, N, nblk_gm, tn)) : N;
     const int npanels = LIBXS_UPDIV(N, n_panel);
     /* Per-panel B upload: only when a panel is a contiguous column block. */
     const int b_panel_h2d = (0 == dev && 1 < npanels && 0 == tb) ? 1 : 0;
@@ -1805,6 +1805,25 @@ static int ozaki_npanel_memory(const ozaki_context_t* ctx, int N, int nblk_m, in
 }
 
 
+/**
+ * Ozaki-2 N-panel width, chosen with the tile the whole problem would take: device
+ * operands (the complex embedding) are panelled to bound memory, host ones for the
+ * upload overlap. The caller then selects the tile for the panel, which is what each
+ * launch is.
+ */
+static int ozaki_crt_npanel(const ozaki_context_t* ctx, int M, int N, int K, int dev, int n_kgroups, int cacheable_b)
+{
+  int result = N;
+  if (n_kgroups <= 1 && 0 == cacheable_b) {
+    const ozaki_tile_t rt = ozaki_rtile_select(ctx, M, N, 1 /*Scheme 2*/);
+    const ozaki_tile_t tile = ozaki_tile_select(ctx, M, N, K, rt.m, rt.n);
+    result = (0 == dev) ? ozaki_npanel(ctx, M, N, tile.m, tile.n)
+                        : ozaki_npanel_memory(ctx, N, LIBXS_UPDIV(M, tile.m), tile.n);
+  }
+  return result;
+}
+
+
 /* Residues of re+im into the third set from the first two (zgemm3m_sum), plane bytes per modulus. */
 static int ozaki_crt3m_sum(cl_kernel kern, libxstream_stream_t* stream, void* d_x3, size_t set_stride, size_t plane)
 {
@@ -1862,12 +1881,16 @@ static int ozaki_crt3m_preprocess(ozaki_context_t* ctx, libxstream_stream_t* str
 }
 
 
-/* Tile, register tiling and K staging depth of an Ozaki-2 GEMM of M x N, as ozaki_gemm selects them. */
-static void ozaki_crt3m_geometry(
-  const ozaki_context_t* ctx, int M, int N, ozaki_tile_t* rt0, ozaki_tile_t* tile, int* rtn_g, int* ku_bk)
+/* Panel width, then the tile, register tiling and K staging depth of one M x panel launch. */
+static void ozaki_crt3m_geometry(const ozaki_context_t* ctx, int M, int N, int K, int* n_panel, ozaki_tile_t* rt0,
+  ozaki_tile_t* tile, int* rtn_g, int* ku_bk)
 {
-  *rt0 = ozaki_rtile_select(ctx, M, N, 1 /*Scheme 2*/);
-  *tile = ozaki_tile_select(ctx, M, N, rt0->m, rt0->n);
+  { const ozaki_tile_t rt = ozaki_rtile_select(ctx, M, N, 1 /*Scheme 2*/);
+    const ozaki_tile_t whole = ozaki_tile_select(ctx, M, N, K, rt.m, rt.n);
+    *n_panel = ozaki_npanel_memory(ctx, N, LIBXS_UPDIV(M, whole.m), whole.n);
+  }
+  *rt0 = ozaki_rtile_select(ctx, M, *n_panel, 1 /*Scheme 2*/);
+  *tile = ozaki_tile_select(ctx, M, *n_panel, K, rt0->m, rt0->n);
   *rtn_g = (0 != ctx->wgmma) ? (tile->n / OZAKI_XMX_N(ctx)) : rt0->n;
   *ku_bk = ((0 != ctx->wgmma) ? ozaki_wgmma_depth(ctx, tile->m, tile->n, NULL, NULL) : ctx->ku) * ctx->bk_pre;
 }
@@ -1885,8 +1908,8 @@ int ozaki_gemm_crt3m_kpad(ozaki_context_t* ctx, int M, int N, int K)
       && NULL != var->kern_combine3)
     {
       ozaki_tile_t rt0, tile;
-      int rtn_g, ku_bk, kh;
-      ozaki_crt3m_geometry(ctx, M, N, &rt0, &tile, &rtn_g, &ku_bk);
+      int n_panel, rtn_g, ku_bk, kh;
+      ozaki_crt3m_geometry(ctx, M, N, K, &n_panel, &rt0, &tile, &rtn_g, &ku_bk);
       kh = LIBXS_UP(LIBXS_MAX(K, 64), ku_bk);
       /* One K-group: the bit budget then covers Re = T1 - T2, a sum over 2*KH terms. */
       if (0 >= ctx->maxk || 2 * kh <= ctx->maxk) result = kh;
@@ -1914,14 +1937,13 @@ int ozaki_gemm_crt3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char tra
     libxstream_stream_t* const sa = (NULL != ctx->stream_a) ? ctx->stream_a : stream;
     libxstream_stream_t* const sb = (NULL != ctx->stream_b) ? ctx->stream_b : stream;
     int claimed = 0;
-    ozaki_crt3m_geometry(ctx, M, N, &rt0, &tile, &rtn_g, &ku_bk);
+    ozaki_crt3m_geometry(ctx, M, N, K, &n_panel, &rt0, &tile, &rtn_g, &ku_bk);
     tm = tile.m;
     tn = tile.n;
     ntm = tm / (OZAKI_XMX_M(ctx) * rt0.m);
     ntn = tn / (OZAKI_XMX_N(ctx) * rtn_g);
     nblk_gm = LIBXS_UPDIV(M, tm);
     m_pad = LIBXS_MAX(LIBXS_UP(M, ctx->bm_pre), nblk_gm * tm);
-    n_panel = ozaki_npanel_memory(ctx, N, nblk_gm, tn);
     npanels = LIBXS_UPDIV(N, n_panel);
     nslots = (1 < npanels) ? OZAKI_NSLOTS : 1;
     nblk_pn = LIBXS_UPDIV(n_panel, tn);

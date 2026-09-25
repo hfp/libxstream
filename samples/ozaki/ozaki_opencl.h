@@ -361,6 +361,12 @@ typedef struct ozaki_context_t {
    */
   int nv_regs, wgmma_reside;
   /**
+   * Bound on M * K * (wide tiles per compute unit) for the resident tile
+   * (OZAKI_WGMMA_RESIDE_MKT, 0 disables the bound). Past it the resident tile's doubled
+   * A traffic outweighs the epilogue it hides behind a second work-group.
+   */
+  double wgmma_reside_mkt;
+  /**
    * Compile-time specializations of the CRT GEMM, each 0 for the kernel's own
    * default. bounds=0 drops the output-range tests, which is valid only where the
    * shape is a whole number of tiles; alpha_one and first assert the epilogue's two
@@ -496,7 +502,7 @@ typedef struct ozaki_tile_t {
  * tiling (rtm vs crt_rtm, rtn vs crt_rtn), which changes both the tile
  * granularity and the resulting work-group size.
  */
-ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int rtm, int rtn);
+ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int K, int rtm, int rtn);
 
 /**
  * Register cap under which a warp-group tile keeps two work-groups resident per

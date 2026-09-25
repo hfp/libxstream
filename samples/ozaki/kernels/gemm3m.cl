@@ -147,4 +147,3 @@ kernel void zgemm_block_finalize(global real_t* restrict c,
     }
   }
 }
-
