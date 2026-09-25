@@ -205,7 +205,7 @@ typedef struct ozaki_crt_kernel_key_t {
 typedef struct ozaki_crt_variant_t {
   cl_kernel kern_preprocess_a, kern_preprocess_b;
   /* Complex 3M on residues (OZAKI_COMPLEX_3M): NULL where the program lacks them. */
-  cl_kernel kern_split3, kern_combine3;
+  cl_kernel kern_pre3m_a, kern_pre3m_b, kern_sum3, kern_combine3;
   int nmoduli, trunc;
 } ozaki_crt_variant_t;
 
@@ -401,8 +401,6 @@ typedef struct ozaki_context_t {
   cl_kernel kern_zgemm_block_construct_b_n;
   cl_kernel kern_zgemm_block_construct_b_t;
   cl_kernel kern_zgemm_block_finalize;
-  cl_kernel kern_zgemm3m_construct_a;
-  cl_kernel kern_zgemm3m_construct_b;
 } ozaki_context_t;
 
 
@@ -558,14 +556,14 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   const double* alpha, const void* a, int lda, const void* b, int ldb, const double* beta, void* c, int ldc);
 
 /**
- * Complex product C2 = [Re; Im] (2M x N, ld 2M) of device operands A2 = [Re | Im]
- * (M x 2*KH, ld M) and B2 = [Re; Im] (2*KH x N, ld 2*KH) by the 3M method on residues.
- * Enqueues nothing and returns EXIT_FAILURE where it does not apply (no unfused
- * reconstruction, bf16 carrier, more than one K-group, kernels missing), so the caller
- * can run the embedded product instead.
+ * Complex product C2 = [Re; Im] (2M x N, ld 2M) of op(A) (M x K) and op(B) (K x N), both
+ * interleaved complex device operands and op one of 'N', 'T', 'C', by the 3M method on
+ * residues; KH comes from ozaki_gemm_crt3m_kpad. Enqueues nothing and returns EXIT_FAILURE
+ * where it does not apply (no unfused reconstruction, bf16 carrier, more than one K-group,
+ * kernels missing), so the caller can run the embedded product instead.
  */
-int ozaki_gemm_crt3m(ozaki_context_t* ctx, libxstream_stream_t* stream, int M, int N, int KH,
-  const void* a2, const void* b2, void* c2);
+int ozaki_gemm_crt3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
+  int KH, const void* a, int lda, const void* b, int ldb, void* c2);
 /* Half width KH of the 3M operands for a K-term product, or 0 where the method does not apply. */
 int ozaki_gemm_crt3m_kpad(ozaki_context_t* ctx, int M, int N, int K);
 

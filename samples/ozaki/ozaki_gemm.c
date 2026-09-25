@@ -47,6 +47,7 @@ static int ozaki_launch_reduce(ozaki_context_t* ctx, libxstream_stream_t* stream
   void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int ldc, int tm, int tn, int ntm, int ntn, double alpha,
   int first_pair, int use_double);
 static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds, int tm, int tn, int rtm, int rtn);
+static int ozaki_npanel_memory(const ozaki_context_t* ctx, int N, int nblk_m, int tn);
 /**
  * Splice real warp-group MMA instructions into the fused CRT kernel's PTX.
  *
@@ -1026,7 +1027,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
      */
     const int cacheable_a = (0 != (ctx->cache.flags & 1));
     const int cacheable_b = (0 != (ctx->cache.flags & 2));
-    const int n_panel = (0 == dev && n_kgroups <= 1 && 0 == cacheable_b) ? ozaki_npanel(ctx, M, N, tm, tn) : N;
+    /* Device operands (the complex embedding) are panelled to bound memory, host ones for the upload overlap. */
+    const int n_panel = (n_kgroups <= 1 && 0 == cacheable_b)
+      ? (0 == dev ? ozaki_npanel(ctx, M, N, tm, tn) : ozaki_npanel_memory(ctx, N, nblk_gm, tn)) : N;
     const int npanels = LIBXS_UPDIV(N, n_panel);
     /* Per-panel B upload: only when a panel is a contiguous column block. */
     const int b_panel_h2d = (0 == dev && 1 < npanels && 0 == tb) ? 1 : 0;
@@ -1783,20 +1786,78 @@ static int ozaki_launch_reduce(ozaki_context_t* ctx, libxstream_stream_t* stream
 }
 
 
-/* Split one operand's [re | im] residue planes into the re, im and re+im sets (zgemm3m_split). */
-static int ozaki_crt3m_split(cl_kernel kern, libxstream_stream_t* stream, void* d_x2, void* d_x3, int side, int extent, int KH,
-  size_t set_stride)
+/**
+ * N-panel width that bounds what scales with N - B's residue planes and the product
+ * residues - by the panel rather than N: a memory policy, unlike the upload overlap
+ * ozaki_npanel serves. Aims for twice OZAKI_NSLOTS equal panels, never below the tiles
+ * that saturate the device; an explicit OZAKI_NPANEL width is honored.
+ */
+static int ozaki_npanel_memory(const ozaki_context_t* ctx, int N, int nblk_m, int tn)
 {
-  const cl_long set = (cl_long)set_stride;
-  size_t global = (size_t)LIBXS_UPDIV((size_t)KH * extent, 16);
+  const int nwg_min = (0 < ctx->nunits) ? (ctx->nunits / ctx->tile_sat) : 32;
+  const int ntile_min = LIBXS_UPDIV(nwg_min, nblk_m);
+  const int ntile_n = LIBXS_UPDIV(LIBXS_UPDIV(N, tn), 2 * OZAKI_NSLOTS);
+  int width = (1 < ctx->npanel) ? LIBXS_UP(ctx->npanel, tn) : (LIBXS_MAX(ntile_n, ntile_min) * tn);
+  width = LIBXS_MAX(LIBXS_MIN(width, N), 1);
+  /* Equal panels for that count: a remainder panel of a tile or two falls below the floor. */
+  if (1 >= ctx->npanel) width = LIBXS_MIN(LIBXS_UP(LIBXS_UPDIV(N, LIBXS_UPDIV(N, width)), tn), N);
+  return width;
+}
+
+
+/* Residues of re+im into the third set from the first two (zgemm3m_sum), plane bytes per modulus. */
+static int ozaki_crt3m_sum(cl_kernel kern, libxstream_stream_t* stream, void* d_x3, size_t set_stride, size_t plane)
+{
+  const cl_long set = (cl_long)set_stride, pl = (cl_long)plane;
+  size_t global = LIBXS_UPDIV(plane, 16);
   cl_int iarg = 0;
-  int result = ozaki_set_ptr_base(kern, &iarg, d_x2, 1 /*char*/, 1 /*long*/);
-  if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &iarg, d_x3, 1 /*char*/, 1 /*long*/);
-  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &side));
-  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &extent));
-  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &KH));
+  int result = ozaki_set_ptr_base(kern, &iarg, d_x3, 1 /*char*/, 1 /*long*/);
   CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(cl_long), &set));
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(cl_long), &pl));
   CL_CHECK(result, libxstream_opencl_launch(stream, kern, 1, NULL, &global, NULL, 0, NULL, NULL));
+  return result;
+}
+
+
+/**
+ * Preprocess op(X) from its interleaved complex form into the re and im residue sets
+ * (preprocess_a_crt3m/preprocess_b_crt3m), in the geometry ozaki_enqueue_preprocess uses:
+ * one work-group per BM_PRE rows (A) or BN_PRE columns (B), looping over K itself.
+ */
+static int ozaki_crt3m_preprocess(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern, int side,
+  const void* d_z, int extent, int K, int ld, int trans, int conj, void* d_x3, size_t set_stride, void* d_exp, int K_pad,
+  int pad)
+{
+  const size_t elsize = ctx->use_double ? sizeof(double) : sizeof(float);
+  const int bx = (0 == side) ? ctx->bm_pre : ctx->bn_pre;
+  const cl_long set = (cl_long)set_stride;
+  size_t global[2], local[2];
+  cl_int iarg = 0;
+  int result;
+  if (0 == side) {
+    local[0] = (size_t)ctx->bk_pre;
+    local[1] = (size_t)bx;
+    global[0] = local[0];
+    global[1] = (size_t)LIBXS_UPDIV(extent, bx) * bx;
+  }
+  else {
+    local[0] = (size_t)bx;
+    local[1] = (size_t)ctx->bk_pre;
+    global[0] = (size_t)LIBXS_UPDIV(extent, bx) * bx;
+    global[1] = local[1];
+  }
+  result = ozaki_set_ptr_base(kern, &iarg, d_z, elsize, 0 /*int*/);
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &extent));
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &K));
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ld));
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &trans));
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &conj));
+  if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &iarg, d_x3, 1 /*char*/, 1 /*long*/);
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(cl_long), &set));
+  if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &iarg, d_exp, sizeof(cl_int), 0 /*int*/);
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &K_pad));
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &pad));
+  CL_CHECK(result, libxstream_opencl_launch(stream, kern, 2, NULL, global, local, 0, NULL, NULL));
   return result;
 }
 
@@ -1817,10 +1878,12 @@ int ozaki_gemm_crt3m_kpad(ozaki_context_t* ctx, int M, int N, int K)
   int result = 0;
   if (0 != ctx->complex3m && 1 != ctx->kind && 0 != ctx->unfuse && 0 == ctx->use_bf16 && 0 == ctx->tzdetect
     && NULL != ctx->crt_registry
-    && 0 < K && NULL != ctx->kern_zgemm3m_construct_a && NULL != ctx->kern_zgemm3m_construct_b)
+    && 0 < K)
   {
     const ozaki_crt_variant_t* const var = ozaki_crt_variant(ctx, ctx->nmoduli);
-    if (NULL != var && NULL != var->kern_split3 && NULL != var->kern_combine3) {
+    if (NULL != var && NULL != var->kern_pre3m_a && NULL != var->kern_pre3m_b && NULL != var->kern_sum3
+      && NULL != var->kern_combine3)
+    {
       ozaki_tile_t rt0, tile;
       int rtn_g, ku_bk, kh;
       ozaki_crt3m_geometry(ctx, M, N, &rt0, &tile, &rtn_g, &ku_bk);
@@ -1833,120 +1896,127 @@ int ozaki_gemm_crt3m_kpad(ozaki_context_t* ctx, int M, int N, int K)
 }
 
 
-int ozaki_gemm_crt3m(ozaki_context_t* ctx, libxstream_stream_t* stream, int M, int N, int KH,
-  const void* a2, const void* b2, void* c2)
+int ozaki_gemm_crt3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, char transb, int M, int N, int K,
+  int KH, const void* a, int lda, const void* b, int ldb, void* c2)
 {
-  const ozaki_crt_variant_t* const var = (0 < KH && KH == ozaki_gemm_crt3m_kpad(ctx, M, N, KH))
+  const ozaki_crt_variant_t* const var = (0 < KH && KH == ozaki_gemm_crt3m_kpad(ctx, M, N, K))
     ? ozaki_crt_variant(ctx, ctx->nmoduli) : NULL;
   int result = (NULL != var) ? EXIT_SUCCESS : EXIT_FAILURE;
   if (EXIT_SUCCESS == result) {
     const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
-    const int nmoduli_max = ctx->nmoduli_max, K2 = 2 * KH;
+    const int ta = ('N' != transa && 'n' != transa), ca = ('C' == transa || 'c' == transa);
+    const int tb = ('N' != transb && 'n' != transb), cb = ('C' == transb || 'c' == transb);
+    const int nmoduli_max = ctx->nmoduli_max;
     ozaki_tile_t rt0, tile;
-    int rtn_g, ku_bk, tm, tn, ntm, ntn, nblk_gm, nblk_gn, m_pad, n_pad, i;
-    size_t as2_size, bs2_size, as3_set, bs3_set, res_set, expa_size, expb_size, need = 0;
-    void *d_as2 = NULL, *d_bs2 = NULL, *d_as3 = NULL, *d_bs3 = NULL, *d_expa = NULL, *d_expb = NULL, *d_res = NULL;
-    void *d_a2 = NULL, *d_b2 = NULL;
-    const ozaki_crt_kernel_set_t* kset;
+    int rtn_g, ku_bk, tm, tn, ntm, ntn, nblk_gm, nblk_pn, m_pad, n_pad, n_panel, npanels, nslots, pj, i;
+    size_t as3_set, bs3_set, res_set, expa_size, expb_size, need = 0;
+    void *d_as3 = NULL, *d_bs3 = NULL, *d_res = NULL, *d_expa = NULL, *d_expb = NULL;
     libxstream_stream_t* const sa = (NULL != ctx->stream_a) ? ctx->stream_a : stream;
     libxstream_stream_t* const sb = (NULL != ctx->stream_b) ? ctx->stream_b : stream;
     int claimed = 0;
-    LIBXS_UNION_ASSIGN(void*, d_a2, const void*, a2);
-    LIBXS_UNION_ASSIGN(void*, d_b2, const void*, b2);
     ozaki_crt3m_geometry(ctx, M, N, &rt0, &tile, &rtn_g, &ku_bk);
     tm = tile.m;
     tn = tile.n;
     ntm = tm / (OZAKI_XMX_M(ctx) * rt0.m);
     ntn = tn / (OZAKI_XMX_N(ctx) * rtn_g);
     nblk_gm = LIBXS_UPDIV(M, tm);
-    nblk_gn = LIBXS_UPDIV(N, tn);
     m_pad = LIBXS_MAX(LIBXS_UP(M, ctx->bm_pre), nblk_gm * tm);
-    n_pad = LIBXS_MAX(LIBXS_MAX(LIBXS_UP(N, ctx->bn_pre), 64), nblk_gn * tn);
-    as2_size = (size_t)nmoduli_max * m_pad * K2;
-    bs2_size = (size_t)nmoduli_max * K2 * n_pad;
+    n_panel = ozaki_npanel_memory(ctx, N, nblk_gm, tn);
+    npanels = LIBXS_UPDIV(N, n_panel);
+    nslots = (1 < npanels) ? OZAKI_NSLOTS : 1;
+    nblk_pn = LIBXS_UPDIV(n_panel, tn);
+    n_pad = LIBXS_MAX(LIBXS_MAX(LIBXS_UP(n_panel, ctx->bn_pre), 64), nblk_pn * tn);
+    /* Three sets per operand (re, im, re+im), each laid out like a real operand of K = KH. */
     as3_set = (size_t)nmoduli_max * m_pad * KH;
     bs3_set = (size_t)nmoduli_max * KH * n_pad;
-    res_set = (size_t)nmoduli_max * nblk_gm * tm * nblk_gn * tn;
+    res_set = (size_t)nmoduli_max * nblk_gm * tm * nblk_pn * tn;
     expa_size = (size_t)nblk_gm * tm * sizeof(cl_int);
-    expb_size = (size_t)nblk_gn * tn * sizeof(cl_int);
-    kset = ozaki_get_crt_kernel(ctx, (0 != M % tm || 0 != N % tn), tm, tn, rt0.m, rtn_g);
-    if (NULL == kset || NULL == kset->kern_reduce) result = EXIT_FAILURE;
-    if (EXIT_SUCCESS == result) {
-      need += LIBXS_UP2(as2_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(bs2_size, OZAKI_SCRATCH_ALIGN);
-      need += LIBXS_UP2(3 * as3_set, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(3 * bs3_set, OZAKI_SCRATCH_ALIGN);
-      need += LIBXS_UP2(3 * res_set, OZAKI_SCRATCH_ALIGN);
-      need += LIBXS_UP2(expa_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expb_size, OZAKI_SCRATCH_ALIGN);
-      claimed = ozaki_scratch_claim(ctx, need);
-      /* The exponents first: kernels index them with an int, the residue planes with a long. */
-      result = ozaki_scratch_alloc(ctx, claimed, &d_expa, expa_size, 0);
-    }
+    expb_size = (size_t)npanels * nblk_pn * tn * sizeof(cl_int);
+    need += LIBXS_UP2(expa_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expb_size, OZAKI_SCRATCH_ALIGN);
+    need += LIBXS_UP2(3 * as3_set, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(nslots * 3 * bs3_set, OZAKI_SCRATCH_ALIGN);
+    need += LIBXS_UP2(3 * res_set, OZAKI_SCRATCH_ALIGN);
+    claimed = ozaki_scratch_claim(ctx, need);
+    /* The exponents first: kernels index them with an int, the residue planes with a long. */
+    result = ozaki_scratch_alloc(ctx, claimed, &d_expa, expa_size, 0);
     if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_expb, expb_size, 0);
-    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_as2, as2_size, 0);
-    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_bs2, bs2_size, 0);
     if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_as3, 3 * as3_set, 0);
-    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_bs3, 3 * bs3_set, 0);
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_bs3, nslots * 3 * bs3_set, 0);
     if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_res, 3 * res_set, 0);
 
     /**
-     * One preprocessing pass per operand, so both parts share the row (A) or column (B)
-     * exponent, then the split into re, im and re+im planes. The A chain runs on stream_a
-     * and the B chain on stream_b, overlapped as in ozaki_gemm, and the products wait on both.
+     * A once on stream_a, straight from its interleaved form into the re and im sets, then
+     * their sum. B per panel on stream_b, into one of nslots slots, overlapped with the
+     * previous panel's products.
      */
     if (EXIT_SUCCESS == result) result = libxstream_event_record(ctx->evt_prep_a, stream);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(sa, ctx->evt_prep_a);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(sb, ctx->evt_prep_a);
     if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expa, 0, expa_size, sa);
-    if (EXIT_SUCCESS == result && m_pad > M) result = libxstream_mem_zero(d_as2, 0, as2_size, sa);
+    if (EXIT_SUCCESS == result && m_pad > M) result = libxstream_mem_zero(d_as3, 0, 2 * as3_set, sa);
     if (EXIT_SUCCESS == result) {
-      result = ozaki_enqueue_preprocess(ctx, sa, var->kern_preprocess_a, d_a2, d_as2, d_expa, sizeof(cl_int), M, K2,
-        M /*lda*/, 0 /*trans*/, K2, m_pad, ctx->bm_pre, ctx->bk_pre, NULL, 1 /*kmajor*/);
+      result = ozaki_crt3m_preprocess(ctx, sa, var->kern_pre3m_a, 0 /*A*/, a, M, K, lda, ta, ca, d_as3, as3_set, d_expa, KH,
+        m_pad);
     }
-    if (EXIT_SUCCESS == result) result = ozaki_crt3m_split(var->kern_split3, sa, d_as2, d_as3, 0 /*A*/, m_pad, KH, as3_set);
-    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expb, 0, expb_size, sb);
-    if (EXIT_SUCCESS == result && n_pad > N) result = libxstream_mem_zero(d_bs2, 0, bs2_size, sb);
-    if (EXIT_SUCCESS == result) {
-      result = ozaki_enqueue_preprocess(ctx, sb, var->kern_preprocess_b, d_b2, d_bs2, d_expb, sizeof(cl_int), N, K2,
-        K2 /*ldb*/, 0 /*trans*/, K2, n_pad, ctx->bn_pre, ctx->bk_pre, NULL, 0 /*kmajor*/);
-    }
-    if (EXIT_SUCCESS == result) result = ozaki_crt3m_split(var->kern_split3, sb, d_bs2, d_bs3, 1 /*B*/, n_pad, KH, bs3_set);
+    if (EXIT_SUCCESS == result) result = ozaki_crt3m_sum(var->kern_sum3, sa, d_as3, as3_set, (size_t)m_pad * KH);
     if (EXIT_SUCCESS == result) result = libxstream_event_record(ctx->evt_prep_a, sa);
     if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, ctx->evt_prep_a);
-    if (EXIT_SUCCESS == result) result = libxstream_event_record(ctx->evt_prep_b, sb);
-    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, ctx->evt_prep_b);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expb, 0, expb_size, sb);
 
-    /* T1 = re*re, T2 = im*im, T3 = sum*sum, each an M x N x KH product stored as residues. */
-    for (i = 0; i < 3 && EXIT_SUCCESS == result; ++i) {
-      result = ozaki_launch_fused(ctx, stream, kset->kern_fused, kset->kern_reduce, (char*)d_as3 + i * as3_set,
-        (char*)d_bs3 + i * bs3_set, d_expa, d_expb, sizeof(cl_int), c2, (char*)d_res + i * res_set, M, N, KH, n_pad, 2 * M,
-        m_pad, tm, tn, ntm, ntn, 1.0, 1, ctx->use_double, 0 /*reduce*/);
-    }
-    /**
-     * Re = T1 - T2 into T1's planes and Im = T3 - T1 - T2 into T3's, then both reconstructed
-     * into the rows C2 holds them in. Combining inside the reduce instead measured slower:
-     * this pass is bandwidth-bound where the reduce is bound by the reconstruction.
-     */
-    if (EXIT_SUCCESS == result) {
-      const cl_long set = (cl_long)res_set, rplane = (cl_long)nblk_gm * tm * nblk_gn * tn;
-      size_t global = (size_t)LIBXS_UPDIV(rplane, 16);
-      cl_int iarg = 0;
-      if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(var->kern_combine3, &iarg, d_res, 1 /*char*/, 1 /*long*/);
-      CL_CHECK(result, clSetKernelArg(var->kern_combine3, iarg++, sizeof(cl_long), &set));
-      CL_CHECK(result, clSetKernelArg(var->kern_combine3, iarg++, sizeof(cl_long), &rplane));
-      CL_CHECK(result, libxstream_opencl_launch(stream, var->kern_combine3, 1, NULL, &global, NULL, 0, NULL, NULL));
-    }
-    if (EXIT_SUCCESS == result) {
-      result = ozaki_launch_reduce(ctx, stream, kset->kern_reduce, d_res, d_expa, d_expb, c2, M, N, 2 * M, tm, tn, ntm, ntn,
-        1.0, 1, ctx->use_double);
-    }
-    if (EXIT_SUCCESS == result) {
-      result = ozaki_launch_reduce(ctx, stream, kset->kern_reduce, (char*)d_res + 2 * res_set, d_expa, d_expb,
-        (char*)c2 + (size_t)M * elem_size, M, N, 2 * M, tm, tn, ntm, ntn, 1.0, 1, ctx->use_double);
+    for (pj = 0; pj < npanels && EXIT_SUCCESS == result; ++pj) {
+      const int nb = pj * n_panel, N_len = LIBXS_MIN(n_panel, N - nb);
+      const int slot = (1 < nslots) ? (pj % nslots) : 0;
+      char* const d_bs3_s = (char*)d_bs3 + (size_t)slot * 3 * bs3_set;
+      char* const d_expb_p = (char*)d_expb + (size_t)nb * sizeof(cl_int);
+      char* const c2_p = (char*)c2 + (size_t)nb * 2 * M * elem_size;
+      /* op(B) column nb is complex element nb of a row of B when transposed, else column nb. */
+      const char* const b_p = (const char*)b + (size_t)nb * (0 != tb ? 1 : ldb) * 2 * elem_size;
+      const ozaki_crt_kernel_set_t* const kset = ozaki_get_crt_kernel(ctx, (0 != M % tm || 0 != N_len % tn), tm, tn,
+        rt0.m, rtn_g);
+      if (NULL == kset || NULL == kset->kern_reduce) result = EXIT_FAILURE;
+      /* A slot is reused once the products that read it, nslots panels back, are done. */
+      if (EXIT_SUCCESS == result && pj >= nslots) result = libxstream_stream_wait_event(sb, ctx->evt_slot[slot]);
+      if (EXIT_SUCCESS == result && n_pad > N_len) result = libxstream_mem_zero(d_bs3_s, 0, 2 * bs3_set, sb);
+      if (EXIT_SUCCESS == result) {
+        result = ozaki_crt3m_preprocess(ctx, sb, var->kern_pre3m_b, 1 /*B*/, b_p, N_len, K, ldb, tb, cb, d_bs3_s, bs3_set,
+          d_expb_p, KH, n_pad);
+      }
+      if (EXIT_SUCCESS == result) result = ozaki_crt3m_sum(var->kern_sum3, sb, d_bs3_s, bs3_set, (size_t)KH * n_pad);
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(ctx->evt_prep_b, sb);
+      if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, ctx->evt_prep_b);
+
+      /* T1 = re*re, T2 = im*im, T3 = sum*sum, each an M x N_len x KH product stored as residues. */
+      for (i = 0; i < 3 && EXIT_SUCCESS == result; ++i) {
+        result = ozaki_launch_fused(ctx, stream, kset->kern_fused, kset->kern_reduce, (char*)d_as3 + i * as3_set,
+          d_bs3_s + i * bs3_set, d_expa, d_expb_p, sizeof(cl_int), c2_p, (char*)d_res + i * res_set, M, N_len, KH, n_pad,
+          2 * M, m_pad, tm, tn, ntm, ntn, 1.0, 1, ctx->use_double, 0 /*reduce*/);
+      }
+      /**
+       * Re = T1 - T2 into T1's planes and Im = T3 - T1 - T2 into T3's, then both reconstructed
+       * into the rows C2 holds them in. Combining inside the reduce instead measured slower:
+       * this pass is bandwidth-bound where the reduce is bound by the reconstruction.
+       */
+      if (EXIT_SUCCESS == result) {
+        const cl_long set = (cl_long)res_set, rplane = (cl_long)nblk_gm * tm * LIBXS_UPDIV(N_len, tn) * tn;
+        size_t global = (size_t)LIBXS_UPDIV(rplane, 16);
+        cl_int iarg = 0;
+        if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(var->kern_combine3, &iarg, d_res, 1 /*char*/, 1 /*long*/);
+        CL_CHECK(result, clSetKernelArg(var->kern_combine3, iarg++, sizeof(cl_long), &set));
+        CL_CHECK(result, clSetKernelArg(var->kern_combine3, iarg++, sizeof(cl_long), &rplane));
+        CL_CHECK(result, libxstream_opencl_launch(stream, var->kern_combine3, 1, NULL, &global, NULL, 0, NULL, NULL));
+      }
+      if (EXIT_SUCCESS == result) {
+        result = ozaki_launch_reduce(ctx, stream, kset->kern_reduce, d_res, d_expa, d_expb_p, c2_p, M, N_len, 2 * M, tm, tn,
+          ntm, ntn, 1.0, 1, ctx->use_double);
+      }
+      if (EXIT_SUCCESS == result) {
+        result = ozaki_launch_reduce(ctx, stream, kset->kern_reduce, (char*)d_res + 2 * res_set, d_expa, d_expb_p,
+          c2_p + (size_t)M * elem_size, M, N_len, 2 * M, tm, tn, ntm, ntn, 1.0, 1, ctx->use_double);
+      }
+      if (EXIT_SUCCESS == result) result = libxstream_event_record(ctx->evt_slot[slot], stream);
     }
     if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
     if (EXIT_SUCCESS == result && sa != stream) result = libxstream_stream_sync(sa);
     if (EXIT_SUCCESS == result && sb != stream) result = libxstream_stream_sync(sb);
-    ozaki_scratch_free(ctx, d_as2, 0);
-    ozaki_scratch_free(ctx, d_bs2, 0);
     ozaki_scratch_free(ctx, d_as3, 0);
     ozaki_scratch_free(ctx, d_bs3, 0);
     ozaki_scratch_free(ctx, d_res, 0);

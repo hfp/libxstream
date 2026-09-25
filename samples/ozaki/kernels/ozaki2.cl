@@ -2156,46 +2156,262 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
 
 
 /**
- * Complex 3M on residues (OZAKI_COMPLEX_3M): the operand planes of [Xre | Xim] split into
- * re, im and re+im planes at half the K extent. The sum is taken mod p on the residues,
- * so it is exact where a sum of the floating-point parts would be rounded; the shared
- * exponent comes from preprocessing both parts as one row (A) or one column (B).
- *
- * Every layout keeps the two halves as equal contiguous runs within a unit of the plane,
- * so the split is a vector copy that needs no layout index: A's unit is a row, or the 16
- * rows of a fragment block (OZAKI_ABLOCK); B's unit is a column under OZAKI_BKMAJOR and
- * the whole plane otherwise. Runs are KH times the unit's rows or columns, 16-byte multiples.
+ * Complex 3M on residues (OZAKI_COMPLEX_3M): the preprocessing reads op(X) from the
+ * interleaved complex operand, conjugated where asked, and writes the residues of its real
+ * and imaginary parts as two sets, set_stride apart, each laid out like a real operand of
+ * the same K. One exponent pass over both parts gives them one exponent per row (A) or
+ * column (B), which is what makes the residues of their sum the residues of an exact
+ * integer sum. The sum set is a separate pass (zgemm3m_sum): taking it from the aligned
+ * mantissas would widen them by a bit the extraction's reductions are not sized for.
  */
-#if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
-# define OZAKI_3M_AROWS 16
-#else
-# define OZAKI_3M_AROWS 1
+__attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1)))
+#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
+__attribute__((intel_reqd_sub_group_size(SG)))
 #endif
-#if defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR) && !(defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK))
-# define OZAKI_3M_BCOLS 1
-#else
-# define OZAKI_3M_BCOLS 0 /* the whole plane is one unit */
-#endif
-
-kernel void zgemm3m_split(global const uchar* restrict x2_base, long x2_index, /* [NMODULI][units][2 * run] */
-  global uchar* restrict x3_base, long x3_index, /* 3 sets of [NMODULI][units][run], set_stride apart */
-  int side, int extent, int KH, long set_stride)
+kernel void preprocess_a_crt3m(CONSTANT const real_t* restrict z_base, int z_index, int M, int K, int lda, int transa,
+  int conj, global char* restrict as_base, /* 2 sets of [NMODULI * M_pad * K_pad] */ long as_index, long set_stride,
+  global int* restrict expa_base, int expa_index, int K_pad, int M_pad)
 {
-  global const uchar* restrict x2 = x2_base + x2_index;
-  global uchar* restrict x3 = x3_base + x3_index;
-  /* side 0 is A with extent M_pad, side 1 is B with extent N_pad */
-  const long run = (0 == side) ? (long)KH * OZAKI_3M_AROWS : (0 != OZAKI_3M_BCOLS ? (long)KH : (long)KH * extent);
-  const long plane = (long)KH * extent, v = (long)get_global_id(0) * 16;
+  CONSTANT const real_t* restrict z = z_base + z_index;
+  global char* restrict as = as_base + as_index;
+  global int* restrict expa = expa_base + expa_index;
+  const int kk = (int)get_local_id(0);
+  const int mi = (int)get_local_id(1);
+  const int row_base = (int)get_group_id(1) * BM_PRE;
+  const int row = row_base + mi;
+  const int rt = kk + BK_PRE * mi;
+  const int rrow = rt % BM_PRE;
+  const int rcol = rt / BM_PRE;
+  const int rrow_ok = (row_base + rrow < M);
+  int col, part, emax = 0;
+
+  local int row_max_exp[BM_PRE];
+  if (0 == kk) row_max_exp[mi] = 0;
+  barrier(CLK_LOCAL_MEM_FENCE);
+  for (col = rcol; col < K; col += BK_PRE) {
+    if (rrow_ok) {
+      for (part = 0; part < 2; ++part) {
+        int s0;
+        short e0;
+        uint_repr_t m0;
+        ieee_decompose(z[2 * (long)OZAKI_IDX_A(row_base + rrow, col, lda) + part], &s0, &e0, &m0);
+        if (e0 > emax) emax = (int)e0;
+      }
+    }
+  }
+  if (rrow_ok && 0 < emax) atomic_max(&row_max_exp[rrow], emax);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (0 == kk && row < M) expa[row] = row_max_exp[mi];
+
+  if (row < M) {
+    const short max_exp = (short)row_max_exp[mi];
+    for (part = 0; part < 2; ++part) {
+      global char* const dst = as + part * set_stride;
+      for (col = OZAKI_CRT_RUN * kk; col < K_pad; col += OZAKI_CRT_RUN * BK_PRE) {
+        uint_repr_t aligned[OZAKI_CRT_RUN];
+        int s1[OZAKI_CRT_RUN];
+        SINT t_;
+        UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_) {
+          aligned[t_] = 0;
+          s1[t_] = 0;
+          if (col + t_ < K) {
+            short e1;
+            uint_repr_t m1;
+            ieee_decompose(z[2 * (long)OZAKI_IDX_A(row, col + t_, lda) + part], &s1[t_], &e1, &m1);
+            if (m1 != 0) {
+              const int shift = (int)(max_exp - e1);
+              aligned[t_] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+              s1[t_] ^= (part & conj);
+            }
+          }
+        }
+        OZAKI_EXTRACT_CRT_A(aligned, s1, dst, M_pad * K_pad, K_pad, row, col);
+      }
+    }
+  }
+}
+
+
+/* The B side of preprocess_a_crt3m, over the same three residue layouts preprocess_b_crt_dense stores. */
+__attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
+#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
+__attribute__((intel_reqd_sub_group_size(SG)))
+#endif
+kernel void preprocess_b_crt3m(CONSTANT const real_t* restrict z_base, int z_index, int N, int K, int ldb, int transb,
+  int conj, global char* restrict bs_base, /* 2 sets of [NMODULI * K_pad * N_pad] */ long bs_index, long set_stride,
+  global int* restrict expb_base, int expb_index, int K_pad, int N_pad)
+{
+  CONSTANT const real_t* restrict z = z_base + z_index;
+  global char* restrict bs = bs_base + bs_index;
+  global int* restrict expb = expb_base + expb_index;
+  const int nj = (int)get_local_id(0);
+  const int kk = (int)get_local_id(1);
+  const int col = (int)get_group_id(0) * BN_PRE + nj;
+  int row, part, emax = 0;
+
+  local int col_max_exp[BN_PRE];
+  if (0 == kk) col_max_exp[nj] = 0;
+  barrier(CLK_LOCAL_MEM_FENCE);
+  for (row = kk << 4; row < K; row += BK_PRE << 4) {
+    int i;
+    UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
+      const int krow = row + i;
+      if (krow < K && col < N) {
+        for (part = 0; part < 2; ++part) {
+          int s0;
+          short e0;
+          uint_repr_t m0;
+          ieee_decompose(z[2 * (long)OZAKI_IDX_B(krow, col, ldb) + part], &s0, &e0, &m0);
+          if (e0 > emax) emax = (int)e0;
+        }
+      }
+    }
+  }
+  if (col < N && 0 < emax) atomic_max(&col_max_exp[nj], emax);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  if (0 == kk && col < N) expb[col] = col_max_exp[nj];
+
+#if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
+  if (col < N) {
+    const short max_exp = (short)col_max_exp[nj];
+    for (part = 0; part < 2; ++part) {
+      global char* const dst = bs + part * set_stride;
+      int kb;
+      for (kb = kk; kb < (K_pad >> 4); kb += BK_PRE) {
+        ulong aligned[16];
+        int sign[16];
+        int i;
+        SINT p;
+        UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
+          const int krow = (kb << 4) + i;
+          aligned[i] = 0;
+          sign[i] = 0;
+          if (krow < K) {
+            int s1;
+            short e1;
+            uint_repr_t m1;
+            ieee_decompose(z[2 * (long)OZAKI_IDX_B(krow, col, ldb) + part], &s1, &e1, &m1);
+            if (m1 != 0) {
+              const int shift = (int)(max_exp - e1);
+              aligned[i] = (shift + MANT_TRUNC <= MANT_BITS) ? (ulong)(m1 >> (shift + MANT_TRUNC)) : 0;
+              sign[i] = s1 ^ (part & conj);
+            }
+          }
+        }
+#if OZAKI_EXTRACT_HIER
+        { SINT g;
+          UNROLL_FORCE(HIER_NGROUPS) for (g = 0; g < HIER_NGROUPS; ++g) {
+            uint gr[16];
+            SINT j;
+            UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
+              gr[i] = oz2g_mod_l2(aligned[i], (int)g);
+            }
+            UNROLL_FORCE(HIER_GS) for (j = 0; j < HIER_GS; ++j) {
+              p = g * HIER_GS + j;
+              if (p < NMODULI) {
+                OZAKI_CRT_BLK_DECL(blk);
+                UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
+                  uint r = oz2g_mod(gr[i], p);
+                  OZAKI_SYMRES_FOLD(r, p);
+                  if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
+                  OZAKI_CRT_BLK_SET(blk, i, r);
+                }
+                OZAKI_CRT_BLK_STORE(blk, dst + (long)p * K_pad * N_pad * OZAKI_BS_ESZ, kb << 4, col, N_pad, K_pad);
+              }
+            }
+          }
+        }
+#else
+        UNROLL_FORCE(NMODULI) for (p = 0; p < NMODULI; ++p) {
+          OZAKI_CRT_BLK_DECL(blk);
+          UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
+            uint r = oz2g_mod64(aligned[i], p);
+            OZAKI_SYMRES_FOLD(r, p);
+            if (sign[i] && 0 != r) OZAKI_SIGN_FOLD(r, p);
+            OZAKI_CRT_BLK_SET(blk, i, r);
+          }
+          OZAKI_CRT_BLK_STORE(blk, dst + (long)p * K_pad * N_pad * OZAKI_BS_ESZ, kb << 4, col, N_pad, K_pad);
+        }
+#endif
+      }
+    }
+  }
+#elif OZAKI_BS_KRUN
+  if (col < N) {
+    const short max_exp = (short)col_max_exp[nj];
+    for (part = 0; part < 2; ++part) {
+      global char* const dst = bs + part * set_stride;
+      for (row = OZAKI_CRT_RUN * kk; row < K_pad; row += OZAKI_CRT_RUN * BK_PRE) {
+        uint_repr_t aligned[OZAKI_CRT_RUN];
+        int s1[OZAKI_CRT_RUN];
+        SINT t;
+        UNROLL_FORCE(OZAKI_CRT_RUN) for (t = 0; t < OZAKI_CRT_RUN; ++t) {
+          aligned[t] = 0;
+          s1[t] = 0;
+          if (row + t < K) {
+            short e1;
+            uint_repr_t m1;
+            ieee_decompose(z[2 * (long)OZAKI_IDX_B(row + t, col, ldb) + part], &s1[t], &e1, &m1);
+            if (m1 != 0) {
+              const int shift = (int)(max_exp - e1);
+              aligned[t] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+              s1[t] ^= (part & conj);
+            }
+          }
+        }
+        OZAKI_EXTRACT_CRT_B(aligned, s1, dst, K_pad * N_pad, N_pad, K_pad, row, col);
+      }
+    }
+  }
+#else
+  { const int nrun = BN_PRE / OZAKI_CRT_RUN;
+    const int rt = nj + BN_PRE * kk;
+    const int rn = (rt % nrun) * OZAKI_CRT_RUN;
+    const int col0 = (int)get_group_id(0) * BN_PRE + rn;
+    for (part = 0; part < 2; ++part) {
+      global char* const dst = bs + part * set_stride;
+      for (row = rt / nrun; row < K_pad; row += OZAKI_CRT_RUN * BK_PRE) {
+        uint_repr_t aligned[OZAKI_CRT_RUN];
+        int s1[OZAKI_CRT_RUN];
+        SINT t;
+        UNROLL_FORCE(OZAKI_CRT_RUN) for (t = 0; t < OZAKI_CRT_RUN; ++t) {
+          aligned[t] = 0;
+          s1[t] = 0;
+          if (row < K && col0 + t < N) {
+            const short max_exp = (short)col_max_exp[rn + t];
+            short e1;
+            uint_repr_t m1;
+            ieee_decompose(z[2 * (long)OZAKI_IDX_B(row, col0 + t, ldb) + part], &s1[t], &e1, &m1);
+            if (m1 != 0) {
+              const int shift = (int)(max_exp - e1);
+              aligned[t] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+              s1[t] ^= (part & conj);
+            }
+          }
+        }
+        OZAKI_EXTRACT_CRT_B(aligned, s1, dst, K_pad * N_pad, N_pad, K_pad, row, col0);
+      }
+    }
+  }
+#endif
+}
+
+
+/* Set 2 = set 0 + set 1 mod p, element by element over NMODULI planes of plane bytes each. */
+kernel void zgemm3m_sum(global uchar* restrict x_base, long x_index, long set_stride, long plane)
+{
+  global uchar* restrict x = x_base + x_index;
+  const long v = (long)get_global_id(0) * 16;
   if (v < plane) {
-    const long u = v / run, w = v - u * run, src = u * 2 * run + w;
     int p;
     for (p = 0; p < NMODULI; ++p) {
       const int m = (int)oz2g_moduli[p];
-      /* one 16-byte access per operand: a vload16 of bytes may be split into byte loads */
+      const long o = (long)p * plane + v;
+      /* one 16-byte access per set: a vload16 of bytes may be split into byte loads */
       union { uchar b[16]; uint4 v; } re, im, sum;
       int i;
-      re.v = *(global const uint4*)(x2 + 2 * p * plane + src);
-      im.v = *(global const uint4*)(x2 + 2 * p * plane + src + run);
+      re.v = *(global const uint4*)(x + o);
+      im.v = *(global const uint4*)(x + set_stride + o);
       UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
 #if defined(OZAKI_SYMRES) && (OZAKI_SYMRES)
         int s = (int)(signed char)re.b[i] + (int)(signed char)im.b[i];
@@ -2210,9 +2426,7 @@ kernel void zgemm3m_split(global const uchar* restrict x2_base, long x2_index, /
         sum.b[i] = (uchar)s;
 #endif
       }
-      *(global uint4*)(x3 + p * plane + v) = re.v;
-      *(global uint4*)(x3 + set_stride + p * plane + v) = im.v;
-      *(global uint4*)(x3 + 2 * set_stride + p * plane + v) = sum.v;
+      *(global uint4*)(x + 2 * set_stride + o) = sum.v;
     }
   }
 }
