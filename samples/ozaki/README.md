@@ -129,6 +129,7 @@ follows that knob.
 | OZAKI_ALPHA_ONE  | 0       | Sch.2: specialize the GEMM for alpha=1                           |
 | OZAKI_FIRST      | 0       | Sch.2: specialize the GEMM for C=0+AB (first accumulation)       |
 | OZAKI_UNFUSE     | (auto)  | Sch.2: reconstruct in a 2nd kernel. On for GPUs (see below)      |
+| OZAKI_COMPLEX_3M | 0       | Sch.2 complex: 3 real products on residues (3M) instead of 4M    |
 | OZAKI_BF16       | 0       | Sch.2: carry the residues in bf16 rather than int8 (see below)   |
 | OZAKI_SWIZZLE    | 0       | Sch.2: work-group rasterization width (0=launch order)           |
 | OZAKI_TZDETECT   | 0       | Sch.2: report the lossless `OZAKI_TRIM` the data allows (below)  |

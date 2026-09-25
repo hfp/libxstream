@@ -761,6 +761,14 @@ const ozaki_crt_variant_t* ozaki_crt_variant(ozaki_context_t* ctx, int nmoduli)
           else if (NULL == ctx->kern_crt_scale_beta) { /* modulus-independent, so the first variant supplies it */
             libxstream_opencl_kernel_query(program, "scale_beta", &ctx->kern_crt_scale_beta);
           }
+          /* Optional: without them complex GEMM keeps the embedded product. */
+          if (NULL != newvar.kern_preprocess_a && 0 != ctx->complex3m
+            && (EXIT_SUCCESS != libxstream_opencl_kernel_query(program, "zgemm3m_split", &newvar.kern_split3)
+              || EXIT_SUCCESS != libxstream_opencl_kernel_query(program, "zgemm3m_combine", &newvar.kern_combine3)))
+          {
+            ozaki_release_kernel(&newvar.kern_split3);
+            ozaki_release_kernel(&newvar.kern_combine3);
+          }
         }
         if (NULL != program) clReleaseProgram(program);
         if (NULL != newvar.kern_preprocess_a) {
@@ -1774,6 +1782,9 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
             LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_TZDETECT=1"));
         }
         ctx->unfuse = (0 != unfuse_pre && 0 != crt_hier) ? 1 : 0;
+        { const char *const env_3m = getenv("OZAKI_COMPLEX_3M");
+          ctx->complex3m = (NULL != env_3m && 0 != atoi(env_3m)) ? 1 : 0;
+        }
         if (0 != ctx->unfuse) {
           coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_UNFUSE=1"));
         }
@@ -1935,6 +1946,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (NULL != program_3m && EXIT_SUCCESS == result) {
         result = libxstream_opencl_kernel_query(program_3m, "zgemm_block_finalize", &ctx->kern_zgemm_block_finalize);
       }
+      /* Optional: without them complex GEMM keeps the embedded product. */
+      if (NULL != program_3m && EXIT_SUCCESS == result && 0 != ctx->complex3m
+        && (EXIT_SUCCESS != libxstream_opencl_kernel_query(program_3m, "zgemm3m_construct_a", &ctx->kern_zgemm3m_construct_a)
+          || EXIT_SUCCESS != libxstream_opencl_kernel_query(program_3m, "zgemm3m_construct_b", &ctx->kern_zgemm3m_construct_b)))
+      {
+        ozaki_release_kernel(&ctx->kern_zgemm3m_construct_a);
+        ozaki_release_kernel(&ctx->kern_zgemm3m_construct_b);
+      }
       if (NULL != program_3m) clReleaseProgram(program_3m);
 
       /* Block-embedding kernel failure is non-fatal - just disables complex GEMM */
@@ -1953,6 +1972,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         ozaki_release_kernel(&ctx->kern_zgemm_block_construct_b_n);
         ozaki_release_kernel(&ctx->kern_zgemm_block_construct_b_t);
         ozaki_release_kernel(&ctx->kern_zgemm_block_finalize);
+        ozaki_release_kernel(&ctx->kern_zgemm3m_construct_a);
+        ozaki_release_kernel(&ctx->kern_zgemm3m_construct_b);
         result = EXIT_SUCCESS; /* non-fatal */
       }
     }
@@ -2174,6 +2195,8 @@ void ozaki_destroy(ozaki_context_t* ctx)
       while (NULL != var) {
         ozaki_release_kernel(&var->kern_preprocess_a);
         ozaki_release_kernel(&var->kern_preprocess_b);
+        ozaki_release_kernel(&var->kern_split3);
+        ozaki_release_kernel(&var->kern_combine3);
         var = (ozaki_crt_variant_t*)libxs_registry_next(ctx->crt_variants, &rkey, &cursor);
       }
       libxs_registry_destroy(ctx->crt_variants);
@@ -2193,6 +2216,8 @@ void ozaki_destroy(ozaki_context_t* ctx)
     ozaki_release_kernel(&ctx->kern_zgemm_block_construct_b_n);
     ozaki_release_kernel(&ctx->kern_zgemm_block_construct_b_t);
     ozaki_release_kernel(&ctx->kern_zgemm_block_finalize);
+    ozaki_release_kernel(&ctx->kern_zgemm3m_construct_a);
+    ozaki_release_kernel(&ctx->kern_zgemm3m_construct_b);
 
     /**
      * Quiesce cache: NULL pointers under lock (prevents new hits),

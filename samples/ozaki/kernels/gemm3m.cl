@@ -147,3 +147,46 @@ kernel void zgemm_block_finalize(global real_t* restrict c,
     }
   }
 }
+
+
+/**
+ * 3M operands (OZAKI_COMPLEX_3M): op(A) as A2 = [Re | Im] (M x 2*KH, ld = M) and op(B) as
+ * B2 = [Re; Im] (2*KH x N, ld = 2*KH), each half padded with zeros from K to KH. One
+ * preprocessing pass over the pair then gives both parts one exponent per row of A and
+ * per column of B, which is what lets the residues of their sum be taken exactly.
+ */
+kernel void zgemm3m_construct_a(global const real_t* restrict z, global real_t* restrict a2,
+  int M, int K, int KH, int ldz, int trans, int conj)
+{
+  const int i = get_global_id(0);
+  const int k = get_global_id(1);
+  if (i < M && k < KH) {
+    real_t re = ZERO, im = ZERO;
+    if (k < K) {
+      const size_t z_base = 2 * (trans ? (k + (size_t)i * ldz) : (i + (size_t)k * ldz));
+      re = z[z_base];
+      im = conj ? -z[z_base + 1] : z[z_base + 1];
+    }
+    a2[i + (size_t)k * M] = re;
+    a2[i + (size_t)(KH + k) * M] = im;
+  }
+}
+
+
+kernel void zgemm3m_construct_b(global const real_t* restrict z, global real_t* restrict b2,
+  int N, int K, int KH, int ldz, int trans, int conj)
+{
+  const int k = get_global_id(0);
+  const int j = get_global_id(1);
+  if (k < KH && j < N) {
+    const size_t out = k + (size_t)j * 2 * KH;
+    real_t re = ZERO, im = ZERO;
+    if (k < K) {
+      const size_t z_base = 2 * (trans ? (j + (size_t)k * ldz) : (k + (size_t)j * ldz));
+      re = z[z_base];
+      im = conj ? -z[z_base + 1] : z[z_base + 1];
+    }
+    b2[out] = re;
+    b2[out + KH] = im;
+  }
+}

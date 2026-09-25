@@ -42,7 +42,10 @@ static int ozaki_enqueue_scale_beta(
   ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_scale, void* d_cg, int M, int N, int ldc, double beta);
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, cl_kernel kern_r,
   void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g, size_t expsize, void* d_cg, void* d_res, int M, int N, int k_pad,
-  int n_pad, int ldc, int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double);
+  int n_pad, int ldc, int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double, int reduce);
+static int ozaki_launch_reduce(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_r, void* d_res,
+  void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int ldc, int tm, int tn, int ntm, int ntn, double alpha,
+  int first_pair, int use_double);
 static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds, int tm, int tn, int rtm, int rtn);
 /**
  * Splice real warp-group MMA instructions into the fused CRT kernel's PTX.
@@ -906,7 +909,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
             if (NULL != kern_g) {
               result = ozaki_launch_fused(ctx, stream, kern_g, NULL /*kern_r*/, d_as, d_bs, d_expa_g, d_expb_g, elem_size, d_cg,
                 NULL /*d_res*/, M, N, k_pad, n_pad, ldc, m_pad, tm,
-                tn, ntm, ntn, alpha, first_pair, ctx->use_double);
+                tn, ntm, ntn, alpha, first_pair, ctx->use_double, 1 /*reduce*/);
             }
             else result = EXIT_FAILURE;
           }
@@ -1304,7 +1307,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
           if (NULL != kset) {
             result = ozaki_launch_fused(ctx, stream, kset->kern_fused, kset->kern_reduce, d_as, d_bs_s, d_expa_g, d_expb_s,
               sizeof(cl_int), (char*)d_cg + cp_off, d_res, M, N_len, k_pad, n_pad, ldc, m_pad, tm, tn, ntm, ntn, alpha,
-              first_tile, ctx->use_double);
+              first_tile, ctx->use_double, 1 /*reduce*/);
           }
           else result = EXIT_FAILURE;
         }
@@ -1670,7 +1673,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
 
 static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_g, cl_kernel kern_r,
   void* d_as, void* d_bs, void* d_expa_g, void* d_expb_g, size_t expsize, void* d_cg, void* d_res, int M, int N, int k_pad,
-  int n_pad, int ldc, int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double)
+  int n_pad, int ldc, int m_pad, int tm, int tn, int ntm, int ntn, double alpha, int first_pair, int use_double, int reduce)
 {
   int result = EXIT_SUCCESS;
   size_t local_g[2], global_g[2];
@@ -1719,25 +1722,38 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
    */
   CL_CHECK(result, libxstream_opencl_launch_work(stream, kern_g, 2, NULL, global_g, local_g, 0, NULL, NULL,
                      2 * (size_t)M * (size_t)N * (size_t)k_pad, 0 /*nbytes*/));
+  if (EXIT_SUCCESS == result && NULL != kern_r && 0 != reduce) {
+    result = ozaki_launch_reduce(ctx, stream, kern_r, d_res, d_expa_g, d_expb_g, d_cg, M, N, ldc, tm, tn, ntm, ntn, alpha,
+      first_pair, use_double);
+  }
+  return result;
+}
+
+
+static int ozaki_launch_reduce(ozaki_context_t* ctx, libxstream_stream_t* stream, cl_kernel kern_r, void* d_res,
+  void* d_expa_g, void* d_expb_g, void* d_cg, int M, int N, int ldc, int tm, int tn, int ntm, int ntn, double alpha,
+  int first_pair, int use_double)
+{
+  int result = EXIT_SUCCESS;
   /**
    * Reconstruction pass: the GEMM's geometry, with the register tile's sub-tiles
    * spread over a third dimension until the work-groups reach twice the compute
    * units (the memory-bound pass wants them, and a large problem has them already).
    * Enqueued on the same stream, which is what orders it after the GEMM; it carries
-   * no flop count because the work above already accounts for the GEMM.
+   * no flop count because the GEMM launch accounts for it.
    */
-  if (NULL != kern_r) {
+  {
     const size_t elsize = use_double ? sizeof(double) : sizeof(float);
     const int nsub = (tm / (ntm * OZAKI_XMX_M(ctx))) * (tn / (ntn * OZAKI_XMX_N(ctx)));
     const int ntiles = LIBXS_UPDIV(M, tm) * LIBXS_UPDIV(N, tn);
     const int nsplit = (0 < ctx->nunits) ? LIBXS_MIN(nsub, LIBXS_UPDIV(2 * ctx->nunits, ntiles)) : nsub;
     size_t local_r[3], global_r[3];
     cl_int i = 0;
-    local_r[0] = local_g[0];
-    local_r[1] = local_g[1];
+    local_r[0] = (size_t)ctx->sg;
+    local_r[1] = (size_t)(ntm * ntn);
     local_r[2] = 1;
-    global_r[0] = global_g[0];
-    global_r[1] = global_g[1];
+    global_r[0] = (size_t)LIBXS_UPDIV(M, tm) * local_r[0];
+    global_r[1] = (size_t)LIBXS_UPDIV(N, tn) * local_r[1];
     global_r[2] = (size_t)LIBXS_MAX(nsplit, 1);
     if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_r, &i, d_res, 1 /*char*/, 1 /*long*/);
     if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern_r, &i, d_expa_g, sizeof(cl_int), 0 /*int*/);
@@ -1760,6 +1776,179 @@ static int ozaki_launch_fused(ozaki_context_t* ctx, libxstream_stream_t* stream,
   return result;
 }
 
+
+/* Split one operand's [re | im] residue planes into the re, im and re+im sets (zgemm3m_split). */
+static int ozaki_crt3m_split(cl_kernel kern, libxstream_stream_t* stream, void* d_x2, void* d_x3, int side, int extent, int KH,
+  size_t set_stride)
+{
+  const cl_long set = (cl_long)set_stride;
+  size_t global = (size_t)LIBXS_UPDIV((size_t)KH * extent, 16);
+  cl_int iarg = 0;
+  int result = ozaki_set_ptr_base(kern, &iarg, d_x2, 1 /*char*/, 1 /*long*/);
+  if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(kern, &iarg, d_x3, 1 /*char*/, 1 /*long*/);
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &side));
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &extent));
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &KH));
+  CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(cl_long), &set));
+  CL_CHECK(result, libxstream_opencl_launch(stream, kern, 1, NULL, &global, NULL, 0, NULL, NULL));
+  return result;
+}
+
+
+/* Tile, register tiling and K staging depth of an Ozaki-2 GEMM of M x N, as ozaki_gemm selects them. */
+static void ozaki_crt3m_geometry(
+  const ozaki_context_t* ctx, int M, int N, ozaki_tile_t* rt0, ozaki_tile_t* tile, int* rtn_g, int* ku_bk)
+{
+  *rt0 = ozaki_rtile_select(ctx, M, N, 1 /*Scheme 2*/);
+  *tile = ozaki_tile_select(ctx, M, N, rt0->m, rt0->n);
+  *rtn_g = (0 != ctx->wgmma) ? (tile->n / OZAKI_XMX_N(ctx)) : rt0->n;
+  *ku_bk = ((0 != ctx->wgmma) ? ozaki_wgmma_depth(ctx, tile->m, tile->n, NULL, NULL) : ctx->ku) * ctx->bk_pre;
+}
+
+
+int ozaki_gemm_crt3m_kpad(ozaki_context_t* ctx, int M, int N, int K)
+{
+  int result = 0;
+  if (0 != ctx->complex3m && 1 != ctx->kind && 0 != ctx->unfuse && 0 == ctx->use_bf16 && 0 == ctx->tzdetect
+    && NULL != ctx->crt_registry
+    && 0 < K && NULL != ctx->kern_zgemm3m_construct_a && NULL != ctx->kern_zgemm3m_construct_b)
+  {
+    const ozaki_crt_variant_t* const var = ozaki_crt_variant(ctx, ctx->nmoduli);
+    if (NULL != var && NULL != var->kern_split3 && NULL != var->kern_combine3) {
+      ozaki_tile_t rt0, tile;
+      int rtn_g, ku_bk, kh;
+      ozaki_crt3m_geometry(ctx, M, N, &rt0, &tile, &rtn_g, &ku_bk);
+      kh = LIBXS_UP(LIBXS_MAX(K, 64), ku_bk);
+      /* One K-group: the bit budget then covers Re = T1 - T2, a sum over 2*KH terms. */
+      if (0 >= ctx->maxk || 2 * kh <= ctx->maxk) result = kh;
+    }
+  }
+  return result;
+}
+
+
+int ozaki_gemm_crt3m(ozaki_context_t* ctx, libxstream_stream_t* stream, int M, int N, int KH,
+  const void* a2, const void* b2, void* c2)
+{
+  const ozaki_crt_variant_t* const var = (0 < KH && KH == ozaki_gemm_crt3m_kpad(ctx, M, N, KH))
+    ? ozaki_crt_variant(ctx, ctx->nmoduli) : NULL;
+  int result = (NULL != var) ? EXIT_SUCCESS : EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) {
+    const size_t elem_size = ctx->use_double ? sizeof(double) : sizeof(float);
+    const int nmoduli_max = ctx->nmoduli_max, K2 = 2 * KH;
+    ozaki_tile_t rt0, tile;
+    int rtn_g, ku_bk, tm, tn, ntm, ntn, nblk_gm, nblk_gn, m_pad, n_pad, i;
+    size_t as2_size, bs2_size, as3_set, bs3_set, res_set, expa_size, expb_size, need = 0;
+    void *d_as2 = NULL, *d_bs2 = NULL, *d_as3 = NULL, *d_bs3 = NULL, *d_expa = NULL, *d_expb = NULL, *d_res = NULL;
+    void *d_a2 = NULL, *d_b2 = NULL;
+    const ozaki_crt_kernel_set_t* kset;
+    libxstream_stream_t* const sa = (NULL != ctx->stream_a) ? ctx->stream_a : stream;
+    libxstream_stream_t* const sb = (NULL != ctx->stream_b) ? ctx->stream_b : stream;
+    int claimed = 0;
+    LIBXS_UNION_ASSIGN(void*, d_a2, const void*, a2);
+    LIBXS_UNION_ASSIGN(void*, d_b2, const void*, b2);
+    ozaki_crt3m_geometry(ctx, M, N, &rt0, &tile, &rtn_g, &ku_bk);
+    tm = tile.m;
+    tn = tile.n;
+    ntm = tm / (OZAKI_XMX_M(ctx) * rt0.m);
+    ntn = tn / (OZAKI_XMX_N(ctx) * rtn_g);
+    nblk_gm = LIBXS_UPDIV(M, tm);
+    nblk_gn = LIBXS_UPDIV(N, tn);
+    m_pad = LIBXS_MAX(LIBXS_UP(M, ctx->bm_pre), nblk_gm * tm);
+    n_pad = LIBXS_MAX(LIBXS_MAX(LIBXS_UP(N, ctx->bn_pre), 64), nblk_gn * tn);
+    as2_size = (size_t)nmoduli_max * m_pad * K2;
+    bs2_size = (size_t)nmoduli_max * K2 * n_pad;
+    as3_set = (size_t)nmoduli_max * m_pad * KH;
+    bs3_set = (size_t)nmoduli_max * KH * n_pad;
+    res_set = (size_t)nmoduli_max * nblk_gm * tm * nblk_gn * tn;
+    expa_size = (size_t)nblk_gm * tm * sizeof(cl_int);
+    expb_size = (size_t)nblk_gn * tn * sizeof(cl_int);
+    kset = ozaki_get_crt_kernel(ctx, (0 != M % tm || 0 != N % tn), tm, tn, rt0.m, rtn_g);
+    if (NULL == kset || NULL == kset->kern_reduce) result = EXIT_FAILURE;
+    if (EXIT_SUCCESS == result) {
+      need += LIBXS_UP2(as2_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(bs2_size, OZAKI_SCRATCH_ALIGN);
+      need += LIBXS_UP2(3 * as3_set, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(3 * bs3_set, OZAKI_SCRATCH_ALIGN);
+      need += LIBXS_UP2(3 * res_set, OZAKI_SCRATCH_ALIGN);
+      need += LIBXS_UP2(expa_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expb_size, OZAKI_SCRATCH_ALIGN);
+      claimed = ozaki_scratch_claim(ctx, need);
+      result = ozaki_scratch_alloc(ctx, claimed, &d_as2, as2_size, 0);
+    }
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_bs2, bs2_size, 0);
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_as3, 3 * as3_set, 0);
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_bs3, 3 * bs3_set, 0);
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_res, 3 * res_set, 0);
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_expa, expa_size, 0);
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_expb, expb_size, 0);
+
+    /**
+     * One preprocessing pass per operand, so both parts share the row (A) or column (B)
+     * exponent, then the split into re, im and re+im planes. The A chain runs on stream_a
+     * and the B chain on stream_b, overlapped as in ozaki_gemm, and the products wait on both.
+     */
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(ctx->evt_prep_a, stream);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(sa, ctx->evt_prep_a);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(sb, ctx->evt_prep_a);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expa, 0, expa_size, sa);
+    if (EXIT_SUCCESS == result && m_pad > M) result = libxstream_mem_zero(d_as2, 0, as2_size, sa);
+    if (EXIT_SUCCESS == result) {
+      result = ozaki_enqueue_preprocess(ctx, sa, var->kern_preprocess_a, d_a2, d_as2, d_expa, sizeof(cl_int), M, K2,
+        M /*lda*/, 0 /*trans*/, K2, m_pad, ctx->bm_pre, ctx->bk_pre, NULL, 1 /*kmajor*/);
+    }
+    if (EXIT_SUCCESS == result) result = ozaki_crt3m_split(var->kern_split3, sa, d_as2, d_as3, 0 /*A*/, m_pad, KH, as3_set);
+    if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_expb, 0, expb_size, sb);
+    if (EXIT_SUCCESS == result && n_pad > N) result = libxstream_mem_zero(d_bs2, 0, bs2_size, sb);
+    if (EXIT_SUCCESS == result) {
+      result = ozaki_enqueue_preprocess(ctx, sb, var->kern_preprocess_b, d_b2, d_bs2, d_expb, sizeof(cl_int), N, K2,
+        K2 /*ldb*/, 0 /*trans*/, K2, n_pad, ctx->bn_pre, ctx->bk_pre, NULL, 0 /*kmajor*/);
+    }
+    if (EXIT_SUCCESS == result) result = ozaki_crt3m_split(var->kern_split3, sb, d_bs2, d_bs3, 1 /*B*/, n_pad, KH, bs3_set);
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(ctx->evt_prep_a, sa);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, ctx->evt_prep_a);
+    if (EXIT_SUCCESS == result) result = libxstream_event_record(ctx->evt_prep_b, sb);
+    if (EXIT_SUCCESS == result) result = libxstream_stream_wait_event(stream, ctx->evt_prep_b);
+
+    /* T1 = re*re, T2 = im*im, T3 = sum*sum, each an M x N x KH product stored as residues. */
+    for (i = 0; i < 3 && EXIT_SUCCESS == result; ++i) {
+      result = ozaki_launch_fused(ctx, stream, kset->kern_fused, kset->kern_reduce, (char*)d_as3 + i * as3_set,
+        (char*)d_bs3 + i * bs3_set, d_expa, d_expb, sizeof(cl_int), c2, (char*)d_res + i * res_set, M, N, KH, n_pad, 2 * M,
+        m_pad, tm, tn, ntm, ntn, 1.0, 1, ctx->use_double, 0 /*reduce*/);
+    }
+    /**
+     * Re = T1 - T2 into T1's planes and Im = T3 - T1 - T2 into T3's, then both reconstructed
+     * into the rows C2 holds them in. Combining inside the reduce instead measured slower:
+     * this pass is bandwidth-bound where the reduce is bound by the reconstruction.
+     */
+    if (EXIT_SUCCESS == result) {
+      const cl_long set = (cl_long)res_set, rplane = (cl_long)nblk_gm * tm * nblk_gn * tn;
+      size_t global = (size_t)LIBXS_UPDIV(rplane, 16);
+      cl_int iarg = 0;
+      if (EXIT_SUCCESS == result) result = ozaki_set_ptr_base(var->kern_combine3, &iarg, d_res, 1 /*char*/, 1 /*long*/);
+      CL_CHECK(result, clSetKernelArg(var->kern_combine3, iarg++, sizeof(cl_long), &set));
+      CL_CHECK(result, clSetKernelArg(var->kern_combine3, iarg++, sizeof(cl_long), &rplane));
+      CL_CHECK(result, libxstream_opencl_launch(stream, var->kern_combine3, 1, NULL, &global, NULL, 0, NULL, NULL));
+    }
+    if (EXIT_SUCCESS == result) {
+      result = ozaki_launch_reduce(ctx, stream, kset->kern_reduce, d_res, d_expa, d_expb, c2, M, N, 2 * M, tm, tn, ntm, ntn,
+        1.0, 1, ctx->use_double);
+    }
+    if (EXIT_SUCCESS == result) {
+      result = ozaki_launch_reduce(ctx, stream, kset->kern_reduce, (char*)d_res + 2 * res_set, d_expa, d_expb,
+        (char*)c2 + (size_t)M * elem_size, M, N, 2 * M, tm, tn, ntm, ntn, 1.0, 1, ctx->use_double);
+    }
+    if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
+    if (EXIT_SUCCESS == result && sa != stream) result = libxstream_stream_sync(sa);
+    if (EXIT_SUCCESS == result && sb != stream) result = libxstream_stream_sync(sb);
+    ozaki_scratch_free(ctx, d_as2, 0);
+    ozaki_scratch_free(ctx, d_bs2, 0);
+    ozaki_scratch_free(ctx, d_as3, 0);
+    ozaki_scratch_free(ctx, d_bs3, 0);
+    ozaki_scratch_free(ctx, d_res, 0);
+    ozaki_scratch_free(ctx, d_expa, 0);
+    ozaki_scratch_free(ctx, d_expb, 0);
+    ozaki_scratch_release(ctx, claimed);
+  }
+  return result;
+}
 
 unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int ncontig, int nld, int ld)
 {

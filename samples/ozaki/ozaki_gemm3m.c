@@ -76,6 +76,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   size_t sz_a_complex, sz_b_complex, sz_c_complex;
   size_t sz_a_hat, sz_b_hat, sz_c_hat;
   int m_hat, k_hat, lda_hat, ldb_hat, ldc_hat;
+  int kh = 0; /* half width of the 3M operands, zero for the embedded product */
   int result = EXIT_SUCCESS;
   ctx->stream = (libxstream_stream_t*)stream;
   if (NULL != libxstream_opencl_config.pool_dev) {
@@ -91,6 +92,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
 
   if (EXIT_SUCCESS == result) {
     ctx->stream = stream; /* expose to deallocate wrapper */
+    kh = ozaki_gemm_crt3m_kpad(ctx, M, N, K);
   }
 
   /* Buffer sizes */
@@ -107,6 +109,10 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   sz_a_hat = (size_t)(2 * a_rows) * (size_t)(2 * a_cols) * elem_size;
   sz_b_hat = (tb ? (size_t)b_rows * (size_t)(2 * b_cols) : (size_t)(2 * b_rows) * (size_t)b_cols) * elem_size;
   sz_c_hat = (size_t)(2 * M) * (size_t)N * elem_size;
+  if (0 < kh) { /* [Re | Im] and [Re; Im] instead of the embedded operands */
+    sz_a_hat = (size_t)M * (size_t)(2 * kh) * elem_size;
+    sz_b_hat = (size_t)(2 * kh) * (size_t)N * elem_size;
+  }
 
   /**
    * Take the workspace rather than allocate it: these six buffers are the whole
@@ -135,8 +141,46 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
     result = libxstream_mem_copy_h2d(c, d_cg, sz_c_complex, stream);
   }
 
+  /* Phase 1 (3M): op(A) as [Re | Im] and op(B) as [Re; Im], conjugation applied */
+  if (EXIT_SUCCESS == result && 0 < kh) {
+    size_t global[2];
+    cl_kernel kern = ctx->kern_zgemm3m_construct_a;
+    cl_int iarg = 0;
+    global[0] = (size_t)M;
+    global[1] = (size_t)kh;
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_ag));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_a_hat));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &M));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &K));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &kh));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &lda));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ta));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ca));
+    CL_CHECK(result, libxstream_opencl_launch(stream, kern, 2, NULL, global, NULL, 0, NULL, NULL));
+  }
+  if (EXIT_SUCCESS == result && 0 < kh) {
+    size_t global[2];
+    cl_kernel kern = ctx->kern_zgemm3m_construct_b;
+    cl_int iarg = 0;
+    global[0] = (size_t)kh;
+    global[1] = (size_t)N;
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_bg));
+    CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, iarg++, d_b_hat));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &N));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &K));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &kh));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &ldb));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &tb));
+    CL_CHECK(result, clSetKernelArg(kern, iarg++, sizeof(int), &cb));
+    CL_CHECK(result, libxstream_opencl_launch(stream, kern, 2, NULL, global, NULL, 0, NULL, NULL));
+  }
+  /* Phase 2 (3M): three products on the residues */
+  if (EXIT_SUCCESS == result && 0 < kh) {
+    result = ozaki_gemm_crt3m(ctx, stream, M, N, kh, d_a_hat, d_b_hat, d_c_hat);
+  }
+
   /* Phase 1: Construct A_hat from interleaved A */
-  if (EXIT_SUCCESS == result) {
+  if (EXIT_SUCCESS == result && 0 == kh) {
     size_t global[2];
     cl_kernel kern = ctx->kern_zgemm_block_construct_a;
     cl_int iarg = 0;
@@ -152,7 +196,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   }
 
   /* Phase 1: Construct B_hat from interleaved B */
-  if (EXIT_SUCCESS == result) {
+  if (EXIT_SUCCESS == result && 0 == kh) {
     size_t global[2];
     cl_kernel kern = tb ? ctx->kern_zgemm_block_construct_b_t : ctx->kern_zgemm_block_construct_b_n;
     cl_int iarg = 0;
@@ -168,7 +212,7 @@ int ozaki_gemm_complex(ozaki_context_t* ctx, libxstream_stream_t* stream, char t
   }
 
   /* Phase 2: Single real GEMM via Ozaki: C_hat = op(A_hat) * op(B_hat) */
-  if (EXIT_SUCCESS == result) {
+  if (EXIT_SUCCESS == result && 0 == kh) {
     const double one = 1.0, zero = 0.0;
     result = ozaki_gemm(ctx, stream, transa, transb, m_hat, N, k_hat, one,
       d_a_hat, lda_hat, d_b_hat, ldb_hat, zero, d_c_hat, ldc_hat, 1);

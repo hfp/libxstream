@@ -2088,6 +2088,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
 #if defined(OZAKI_BPROBE) && (0 != ((OZAKI_BPROBE) & 2))
     if (0 != bsink) bs[(long)col] = (char)bsink;
 #endif
+  }
 #elif OZAKI_BS_KRUN
   /* K is contiguous here and it is also the loop axis, so a run needs no remap. */
   if (col < N) {
@@ -2095,23 +2096,24 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
     for (row = OZAKI_CRT_RUN * kk; row < K_pad; row += OZAKI_CRT_RUN * BK_PRE) {
       uint_repr_t aligned[OZAKI_CRT_RUN];
       int s1[OZAKI_CRT_RUN];
-      SINT t_;
-      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_) {
-        aligned[t_] = 0;
-        s1[t_] = 0;
-        if (row + t_ < K) {
+      SINT t;
+      UNROLL_FORCE(OZAKI_CRT_RUN) for (t = 0; t < OZAKI_CRT_RUN; ++t) {
+        aligned[t] = 0;
+        s1[t] = 0;
+        if (row + t < K) {
           short e1;
           uint_repr_t m1;
-          ieee_decompose(b[OZAKI_IDX_B(row + t_, col, ldb)], &s1[t_], &e1, &m1);
+          ieee_decompose(b[OZAKI_IDX_B(row + t, col, ldb)], &s1[t], &e1, &m1);
           if (m1 != 0) {
             const int shift = (int)(max_exp - e1);
-            aligned[t_] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
-            OZAKI_TZ_TRACK(lmin, aligned[t_]);
+            aligned[t] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+            OZAKI_TZ_TRACK(lmin, aligned[t]);
           }
         }
       }
       OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, K_pad, row, col);
     }
+  }
 #else
   /**
    * Every row below K_pad is stored, zeros included, so the host zeroes only the
@@ -2122,34 +2124,129 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
 # if 0 != (BN_PRE % OZAKI_CRT_RUN)
 #   error preprocess_b needs BN_PRE divisible by the residue store width.
 # endif
-  { const int nrun_ = BN_PRE / OZAKI_CRT_RUN;
-    const int rt_ = nj + BN_PRE * kk;
-    const int rn_ = (rt_ % nrun_) * OZAKI_CRT_RUN;
-    const int col0_ = (int)get_group_id(0) * BN_PRE + rn_;
-    for (row = rt_ / nrun_; row < K_pad; row += OZAKI_CRT_RUN * BK_PRE) {
+  { const int nrun = BN_PRE / OZAKI_CRT_RUN;
+    const int rt = nj + BN_PRE * kk;
+    const int rn = (rt % nrun) * OZAKI_CRT_RUN;
+    const int col0 = (int)get_group_id(0) * BN_PRE + rn;
+    for (row = rt / nrun; row < K_pad; row += OZAKI_CRT_RUN * BK_PRE) {
       uint_repr_t aligned[OZAKI_CRT_RUN];
       int s1[OZAKI_CRT_RUN];
-      SINT t_;
-      UNROLL_FORCE(OZAKI_CRT_RUN) for (t_ = 0; t_ < OZAKI_CRT_RUN; ++t_) {
-        aligned[t_] = 0;
-        s1[t_] = 0;
-        if (row < K && col0_ + t_ < N) {
-          const short max_exp = (short)col_max_exp[rn_ + t_];
+      SINT t;
+      UNROLL_FORCE(OZAKI_CRT_RUN) for (t = 0; t < OZAKI_CRT_RUN; ++t) {
+        aligned[t] = 0;
+        s1[t] = 0;
+        if (row < K && col0 + t < N) {
+          const short max_exp = (short)col_max_exp[rn + t];
           short e1;
           uint_repr_t m1;
-          ieee_decompose(b[OZAKI_IDX_B(row, col0_ + t_, ldb)], &s1[t_], &e1, &m1);
+          ieee_decompose(b[OZAKI_IDX_B(row, col0 + t, ldb)], &s1[t], &e1, &m1);
           if (m1 != 0) {
             const int shift = (int)(max_exp - e1);
-            aligned[t_] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
-            OZAKI_TZ_TRACK(lmin, aligned[t_]);
+            aligned[t] = (shift + MANT_TRUNC <= MANT_BITS) ? (m1 >> (shift + MANT_TRUNC)) : 0;
+            OZAKI_TZ_TRACK(lmin, aligned[t]);
           }
         }
       }
-      OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, K_pad, row, col0_);
+      OZAKI_EXTRACT_CRT_B(aligned, s1, bs, K_pad * N_pad, N_pad, K_pad, row, col0);
     }
-#endif
   }
+#endif
   OZAKI_TZ_EMIT(lmin);
+}
+
+
+/**
+ * Complex 3M on residues (OZAKI_COMPLEX_3M): the operand planes of [Xre | Xim] split into
+ * re, im and re+im planes at half the K extent. The sum is taken mod p on the residues,
+ * so it is exact where a sum of the floating-point parts would be rounded; the shared
+ * exponent comes from preprocessing both parts as one row (A) or one column (B).
+ *
+ * Every layout keeps the two halves as equal contiguous runs within a unit of the plane,
+ * so the split is a vector copy that needs no layout index: A's unit is a row, or the 16
+ * rows of a fragment block (OZAKI_ABLOCK); B's unit is a column under OZAKI_BKMAJOR and
+ * the whole plane otherwise. Runs are KH times the unit's rows or columns, 16-byte multiples.
+ */
+#if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
+# define OZAKI_3M_AROWS 16
+#else
+# define OZAKI_3M_AROWS 1
+#endif
+#if defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR) && !(defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK))
+# define OZAKI_3M_BCOLS 1
+#else
+# define OZAKI_3M_BCOLS 0 /* the whole plane is one unit */
+#endif
+
+kernel void zgemm3m_split(global const uchar* restrict x2_base, long x2_index, /* [NMODULI][units][2 * run] */
+  global uchar* restrict x3_base, long x3_index, /* 3 sets of [NMODULI][units][run], set_stride apart */
+  int side, int extent, int KH, long set_stride)
+{
+  global const uchar* restrict x2 = x2_base + x2_index;
+  global uchar* restrict x3 = x3_base + x3_index;
+  /* side 0 is A with extent M_pad, side 1 is B with extent N_pad */
+  const long run = (0 == side) ? (long)KH * OZAKI_3M_AROWS : (0 != OZAKI_3M_BCOLS ? (long)KH : (long)KH * extent);
+  const long plane = (long)KH * extent, v = (long)get_global_id(0) * 16;
+  if (v < plane) {
+    const long u = v / run, w = v - u * run, src = u * 2 * run + w;
+    int p;
+    for (p = 0; p < NMODULI; ++p) {
+      const int m = (int)oz2g_moduli[p];
+      /* one 16-byte access per operand: a vload16 of bytes may be split into byte loads */
+      union { uchar b[16]; uint4 v; } re, im, sum;
+      int i;
+      re.v = *(global const uint4*)(x2 + 2 * p * plane + src);
+      im.v = *(global const uint4*)(x2 + 2 * p * plane + src + run);
+      UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
+#if defined(OZAKI_SYMRES) && (OZAKI_SYMRES)
+        int s = (int)(signed char)re.b[i] + (int)(signed char)im.b[i];
+        if (s > (m >> 1)) s -= m;
+        if (s < -(m >> 1)) s += m;
+        sum.b[i] = (uchar)(signed char)s;
+#else
+        /* A stored residue may equal m (the sign fold of a zero), so the sum reaches 2m. */
+        int s = (int)re.b[i] + (int)im.b[i];
+        if (s >= m) s -= m;
+        if (s >= m) s -= m;
+        sum.b[i] = (uchar)s;
+#endif
+      }
+      *(global uint4*)(x3 + p * plane + v) = re.v;
+      *(global uint4*)(x3 + set_stride + p * plane + v) = im.v;
+      *(global uint4*)(x3 + 2 * set_stride + p * plane + v) = sum.v;
+    }
+  }
+}
+
+
+/* Product residues T1 = re*re, T2 = im*im, T3 = sum*sum into Re = T1-T2 (in T1) and Im = T3-T1-T2 (in T3). */
+kernel void zgemm3m_combine(global uchar* restrict res_base, long res_index, long set_stride, long rplane)
+{
+  global uchar* restrict t1 = res_base + res_index;
+  global const uchar* restrict t2 = t1 + set_stride;
+  global uchar* restrict t3 = t1 + 2 * set_stride;
+  const long v = (long)get_global_id(0) * 16;
+  if (v < rplane) {
+    int p;
+    for (p = 0; p < NMODULI; ++p) {
+      const int m = (int)oz2g_moduli[p];
+      const long o = (long)p * rplane + v;
+      union { uchar b[16]; uint4 v; } r1, r2, r3;
+      int i;
+      r1.v = *(global const uint4*)(t1 + o);
+      r2.v = *(global const uint4*)(t2 + o);
+      r3.v = *(global const uint4*)(t3 + o);
+      UNROLL_FORCE(16) for (i = 0; i < 16; ++i) {
+        int re = (int)r1.b[i] + m - (int)r2.b[i], im = (int)r3.b[i] + 2 * m - (int)r1.b[i] - (int)r2.b[i];
+        if (re >= m) re -= m;
+        if (im >= m) im -= m;
+        if (im >= m) im -= m;
+        r1.b[i] = (uchar)re;
+        r3.b[i] = (uchar)im;
+      }
+      *(global uint4*)(t1 + o) = r1.v;
+      *(global uint4*)(t3 + o) = r3.v;
+    }
+  }
 }
 
 
