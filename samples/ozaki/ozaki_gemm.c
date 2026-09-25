@@ -781,12 +781,7 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       }
       if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_cg, c_nbytes, 1 /*atomics*/);
     }
-    if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
-      result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_as, as_size, 0);
-    }
-    if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
-      result = ozaki_scratch_alloc(ctx, cacheable_b ? 0 : claimed, &d_bs, bs_size, 0);
-    }
+    /* Int-indexed buffers ahead of the residue planes, which are indexed with a long. */
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
       result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_expa_g, expa_size, 0);
     }
@@ -795,6 +790,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     }
     if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_occ_a, occ_size, 0);
     if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_occ_b, occ_size, 0);
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
+      result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_as, as_size, 0);
+    }
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+      result = ozaki_scratch_alloc(ctx, cacheable_b ? 0 : claimed, &d_bs, bs_size, 0);
+    }
 
     /**
      * H2D transfers: full source matrices (once).
@@ -1130,14 +1131,9 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     /**
      * A plane that will be handed to the cache must not come from the arena:
      * passing claimed=0 for a cacheable side selects the allocator that can
-     * outlive the call, which is what ozaki_cache_update takes ownership of.
+     * outlive the call, which is what ozaki_cache_update takes ownership of. The
+     * int-indexed buffers come first, ahead of the planes a long indexes.
      */
-    if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
-      result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_as, as_size, 0);
-    }
-    if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
-      result = ozaki_scratch_alloc(ctx, cacheable_b ? 0 : claimed, &d_bs, bs_size, 0);
-    }
     if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
       result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_expa_g, expa_size, 0);
     }
@@ -1148,6 +1144,12 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
     if (EXIT_SUCCESS == result && 0 != ctx->tzdetect) {
       result = ozaki_scratch_alloc(ctx, claimed, &d_tz, 2 * sizeof(cl_int), 0);
       if (EXIT_SUCCESS == result) result = libxstream_mem_zero(d_tz, 0, 2 * sizeof(cl_int), stream);
+    }
+    if (EXIT_SUCCESS == result && 0 == cache_hit_a) {
+      result = ozaki_scratch_alloc(ctx, cacheable_a ? 0 : claimed, &d_as, as_size, 0);
+    }
+    if (EXIT_SUCCESS == result && 0 == cache_hit_b) {
+      result = ozaki_scratch_alloc(ctx, cacheable_b ? 0 : claimed, &d_bs, bs_size, 0);
     }
     /**
      * Residue planes for the unfused reconstruction: one byte per modulus and per
@@ -1450,7 +1452,11 @@ static int ozaki_set_ptr_base(cl_kernel kern, cl_int* i, const void* ptr, size_t
   CL_CHECK(result, libxstream_opencl_set_kernel_ptr(kern, (*i)++, nc));
   if (0 == wide) {
     const cl_int base = (cl_int)offset;
-    assert((size_t)base == offset); /* matrices stay within int */
+    /* Refused rather than truncated: a buffer carved deep into the arena read another's data. */
+    if (EXIT_SUCCESS == result && (size_t)base != offset) {
+      fprintf(stderr, "ERROR OZAKI: buffer offset %llu exceeds an int kernel index\n", (unsigned long long)offset);
+      result = EXIT_FAILURE;
+    }
     CL_CHECK(result, clSetKernelArg(kern, (*i)++, sizeof(cl_int), &base));
   }
   else {
@@ -1871,14 +1877,15 @@ int ozaki_gemm_crt3m(ozaki_context_t* ctx, libxstream_stream_t* stream, int M, i
       need += LIBXS_UP2(3 * res_set, OZAKI_SCRATCH_ALIGN);
       need += LIBXS_UP2(expa_size, OZAKI_SCRATCH_ALIGN) + LIBXS_UP2(expb_size, OZAKI_SCRATCH_ALIGN);
       claimed = ozaki_scratch_claim(ctx, need);
-      result = ozaki_scratch_alloc(ctx, claimed, &d_as2, as2_size, 0);
+      /* The exponents first: kernels index them with an int, the residue planes with a long. */
+      result = ozaki_scratch_alloc(ctx, claimed, &d_expa, expa_size, 0);
     }
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_expb, expb_size, 0);
+    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_as2, as2_size, 0);
     if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_bs2, bs2_size, 0);
     if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_as3, 3 * as3_set, 0);
     if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_bs3, 3 * bs3_set, 0);
     if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_res, 3 * res_set, 0);
-    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_expa, expa_size, 0);
-    if (EXIT_SUCCESS == result) result = ozaki_scratch_alloc(ctx, claimed, &d_expb, expb_size, 0);
 
     /**
      * One preprocessing pass per operand, so both parts share the row (A) or column (B)
