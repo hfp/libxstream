@@ -64,6 +64,19 @@
 # define OZAKI_WGMMA_RESIDE_DISCRETE 2
 #endif
 /**
+ * Problem size (cube root of M*N*K) from which the complex product runs as 3M on the
+ * residues instead of the embedded 4M. Measured on three parts: 3M wins from 1024 where
+ * the host link is coherent and from 4096 on the discrete parts, both an Intel and an
+ * NVIDIA one, whose smaller GEMMs cannot hide the extra passes 3M adds. An unknown part
+ * takes the discrete value, which forgoes a gain rather than risking a loss.
+ */
+#if !defined(OZAKI_COMPLEX_3M_COHERENT)
+# define OZAKI_COMPLEX_3M_COHERENT 1024
+#endif
+#if !defined(OZAKI_COMPLEX_3M_DISCRETE)
+# define OZAKI_COMPLEX_3M_DISCRETE 4096
+#endif
+/**
  * The tile count alone misjudges long K: at 3.9 tiles per unit the resident tile leads a
  * 4096^2 x 8192 GEMM by 6% and trails an 8192 x 2048 x 8192 one by 4%, and at 7.8 it
  * trails by 13 to 21% from K = 8192. What separates the two is one modulus's A plane
@@ -1802,7 +1815,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         }
         ctx->unfuse = (0 != unfuse_pre && 0 != crt_hier) ? 1 : 0;
         { const char *const env_3m = getenv("OZAKI_COMPLEX_3M");
-          ctx->complex3m = (NULL != env_3m && 0 != atoi(env_3m)) ? 1 : 0;
+          const char *const env_3m_min = getenv("OZAKI_COMPLEX_3M_MIN");
+          ctx->complex3m = (NULL == env_3m || '\0' == *env_3m) ? -1 : (0 != atoi(env_3m) ? 1 : 0);
+          ctx->complex3m_min = (NULL != env_3m_min && 0 < atoi(env_3m_min)) ? atoi(env_3m_min)
+                             : (1 == libxstream_opencl_device_pageable() ? OZAKI_COMPLEX_3M_COHERENT : OZAKI_COMPLEX_3M_DISCRETE);
         }
         if (0 != ctx->unfuse) {
           coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_UNFUSE=1"));
@@ -2129,6 +2145,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ozaki_print_opt(stderr, "wgmma", ctx->wgmma);
       if (0 != ozaki_wgmma_resident(ctx, 128, 128)) ozaki_print_opt(stderr, "reside", ctx->wgmma_reside);
       ozaki_print_opt(stderr, "unfuse", ctx->unfuse);
+      /* The size from which complex calls take 3M, or 0 where they never do. */
+      if (0 != ctx->unfuse) ozaki_print_opt(stderr, "3m", 0 < ctx->complex3m ? 1 : (0 == ctx->complex3m ? 0 : ctx->complex3m_min));
     }
     ozaki_print_opt(stderr, "cache", ctx->cache.flags);
     if (0 == ctx->scratch.limit) fprintf(stderr, " arena=off");

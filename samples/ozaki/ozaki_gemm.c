@@ -1899,9 +1899,10 @@ static void ozaki_crt3m_geometry(const ozaki_context_t* ctx, int M, int N, int K
 int ozaki_gemm_crt3m_kpad(ozaki_context_t* ctx, int M, int N, int K)
 {
   int result = 0;
+  const double min3m = (double)ctx->complex3m_min;
   if (0 != ctx->complex3m && 1 != ctx->kind && 0 != ctx->unfuse && 0 == ctx->use_bf16 && 0 == ctx->tzdetect
-    && NULL != ctx->crt_registry
-    && 0 < K)
+    && NULL != ctx->crt_registry && 0 < K
+    && (0 < ctx->complex3m || min3m * min3m * min3m <= (double)M * N * K))
   {
     const ozaki_crt_variant_t* const var = ozaki_crt_variant(ctx, ctx->nmoduli);
     if (NULL != var && NULL != var->kern_pre3m_a && NULL != var->kern_pre3m_b && NULL != var->kern_sum3

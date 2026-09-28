@@ -328,9 +328,11 @@ typedef struct ozaki_context_t {
   int unfuse;
   /**
    * Complex GEMM as three real products on the residues (OZAKI_COMPLEX_3M) rather than
-   * one embedded product (4M). Applies where ozaki_gemm_crt3m does, else 4M runs.
+   * one embedded product (4M): 1 always, 0 never, -1 (unset) from complex3m_min on, the
+   * cube root of M*N*K (OZAKI_COMPLEX_3M_MIN). Applies where ozaki_gemm_crt3m does, else
+   * 4M runs.
    */
-  int complex3m;
+  int complex3m, complex3m_min;
   /**
    * Precision detection (OZAKI_TZDETECT): the preprocessing reports how many low bits of
    * the aligned mantissas are provably zero, which is how far MANT_TRUNC could shift
