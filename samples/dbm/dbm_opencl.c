@@ -456,8 +456,10 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         result |= libxstream_opencl_set_kernel_ptr(kernel, 6, adata.memory);
         result |= libxstream_opencl_set_kernel_ptr(kernel, 7, bdata.memory);
         result |= libxstream_opencl_set_kernel_ptr(kernel, 8, cdata.memory);
+        /* without WG, size is not rounded up (not every device takes a non-uniform WG) */
         result |= clEnqueueNDRangeKernel(str->queue, kernel, 1, NULL, work_size,
-          0 < wgsize[0] ? wgsize : NULL, 0 /*num_wait*/, NULL /*wait_list*/, NULL);
+          (0 != use_wg && 0 < wgsize[0]) ? wgsize : NULL, 0 /*num_wait*/, NULL /*wait_list*/,
+          NULL);
       }
       LIBXS_LOCK_RELEASE(LIBXS_LOCK, &kernel_lock);
     }
