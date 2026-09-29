@@ -311,6 +311,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
             dbm_multiply_opencl_print(stderr, "lu", lu);
             dbm_multiply_opencl_print(stderr, "nz", nz);
             dbm_multiply_opencl_print(stderr, "blk", blkrd);
+            dbm_multiply_opencl_print(stderr, "sort", dbm_multiply_opencl_task_order());
             fprintf(stderr, " -> %.1f ms\n", 1E3 * DBM_TIMER_DIFF(start, DBM_TIMER_TICK()));
           }
           LIBXS_ATOMIC_STORE(&base_ready, 1, LIBXS_ATOMIC_SEQ_CST);
@@ -437,7 +438,18 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         const int per_task = (0 != sgbcst && 0 == use_blkrd) ||
                              (0 != blkrd && 0 != task.mnk_changes);
         const int use_wg = (0 != task.mnk_changes || 0 != use_blkrd || 0 != sgbcst);
+        size_t nflops = 0, nbytes = 0;
         size = (cl_int)(work_tasks * (0 == clinear ? task.max_m : task.max_n));
+        if (0 != config->profile) { /* the profile reports rates only if it knows the work */
+          int i;
+          for (i = 0; i < ntasks; ++i) {
+            const size_t m = (0 == param_format ? params_host[stride * i + 0] : task.max_m);
+            const size_t n = (0 == param_format ? params_host[stride * i + 1] : task.max_n);
+            const size_t k = (0 == param_format ? params_host[stride * i + 2] : task.max_k);
+            nflops += 2 * m * n * k;
+            nbytes += sizeof(double) * (m * k + k * n + 2 * m * n);
+          }
+        }
         if (per_task) {
           work_size[0] = work_tasks * wgsize[0];
         }
@@ -457,9 +469,9 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         result |= libxstream_opencl_set_kernel_ptr(kernel, 7, bdata.memory);
         result |= libxstream_opencl_set_kernel_ptr(kernel, 8, cdata.memory);
         /* without WG, size is not rounded up (not every device takes a non-uniform WG) */
-        result |= clEnqueueNDRangeKernel(str->queue, kernel, 1, NULL, work_size,
-          (0 != use_wg && 0 < wgsize[0]) ? wgsize : NULL, 0 /*num_wait*/, NULL /*wait_list*/,
-          NULL);
+        result |= libxstream_opencl_launch_work((libxstream_stream_t*)stream, kernel, 1, NULL,
+          work_size, (0 != use_wg && 0 < wgsize[0]) ? wgsize : NULL, 0 /*num_wait*/,
+          NULL /*wait_list*/, NULL /*event*/, nflops, nbytes);
       }
       LIBXS_LOCK_RELEASE(LIBXS_LOCK, &kernel_lock);
     }
@@ -508,4 +520,15 @@ dbm_multiply_opencl_launch_fn_t dbm_multiply_opencl_smm_launch_fn(void)
   if (0 > dbm_multiply_opencl_smm) result = dbm_multiply_opencl_launch_kernel;
 #endif
   return result;
+}
+
+
+int dbm_multiply_opencl_task_order(void)
+{
+  static int order = -1;
+  if (0 > order) { /* racing initializers store the same value */
+    const char* const env = getenv("DBM_MULTIPLY_SORT");
+    order = LIBXS_CLMP(NULL == env ? 0 /*default*/ : atoi(env), 0, 2);
+  }
+  return order;
 }

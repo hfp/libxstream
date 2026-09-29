@@ -67,6 +67,7 @@ miniapp also exercises heterogeneous batches.
 | DBM_MULTIPLY_SMM    | 0       | Positive: homogeneous batches up to this size use LIBSMM (1 = 64)  |
 |                     |         | Negative: LIBSMM (DBCSR) uses the DBM kernel for homogeneous       |
 |                     |         | batches (backward usage, experimental)                             |
+| DBM_MULTIPLY_SORT   | 0       | Order of tasks in a batch: 0 as generated, 1 by shape, 2 by C      |
 | DBM_MULTIPLY_KERNEL | -       | Path to a `.cl` file that replaces the embedded kernel             |
 | DBM_MULTIPLY_FP     | 0       | 1: compute in single precision (data remains double precision)     |
 | DBM_MULTIPLY_BN     | auto    | Column tile (1–32), 8 or 2 on NVIDIA                               |

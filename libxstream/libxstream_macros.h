@@ -10,6 +10,11 @@
 #ifndef LIBXSTREAM_MACROS_H
 #define LIBXSTREAM_MACROS_H
 
+/* CP2K's DBM/DBT, before any header: a header-only build otherwise compiles its sources out */
+#if defined(__OFFLOAD_OPENCL) && !defined(__OPENCL)
+# define __OPENCL
+#endif
+
 /* LIBXSTREAM header-only implies LIBXS header-only (unless prebuilt) */
 #if defined(LIBXSTREAM_SOURCE) && !defined(LIBXS_SOURCE) \
  && !defined(__LIBXS) && !defined(LIBXS_BUILD)

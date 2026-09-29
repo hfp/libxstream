@@ -10,11 +10,6 @@
 #ifndef LIBXSTREAM_OPENCL_H
 #define LIBXSTREAM_OPENCL_H
 
-/* Support for other libraries, e.g., CP2K's DBM/DBT */
-#if defined(__OFFLOAD_OPENCL) && !defined(__OPENCL)
-# define __OPENCL
-#endif
-
 #if defined(__LIBXS) && !defined(LIBXS_SOURCE)
 # include <libxs/libxs_malloc.h>
 # include <libxs/libxs_hist.h>
