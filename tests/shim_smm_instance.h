@@ -32,9 +32,9 @@ static void CAT(FN, _launch)(SHIM_SMM_ELEM* c, const SHIM_SMM_ELEM* a, const SHI
     {
       LIBXSTREAM_CPU_WORKITEM(g, 0, 0, omp_get_thread_num(), 0, WG, 1);
 #if (1 < BS)
-      FN(c, a, b, stack, 0 /*param_format*/, stack_size, BS);
+      FN(c, a, b, stack, 0 /*param_offset*/, 0 /*param_format*/, stack_size, BS);
 #else
-      FN(c, a, b, stack, 0 /*param_format*/);
+      FN(c, a, b, stack, 0 /*param_offset*/, 0 /*param_format*/);
 #endif
     }
   }
