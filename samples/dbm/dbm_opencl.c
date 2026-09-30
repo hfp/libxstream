@@ -39,11 +39,13 @@
  * For homogeneous batches: m,n,k hold the exact shape (bk=k).
  * For heterogeneous batches: m=n=k=0, bk holds the unroll threshold,
  * max_m enables compile-time division in the flat dispatch mapping.
+ * A zero tid denotes the compiled kernel, otherwise a thread's own kernel.
  */
 typedef struct {
   int bk;
   int m, n, k;
   int max_m;
+  unsigned int tid;
 } dbm_multiply_opencl_key_t;
 
 typedef struct {
@@ -180,8 +182,6 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
       static libxs_registry_t* kernel_registry /*= NULL*/;
       /* serializes kernel compilation (get-compile-set) */
       static libxs_lock_t compile_lock /*= LIBXS_LOCK_INITIALIZER*/;
-      /* serializes kernel arg setting + enqueue (no TLS clones needed) */
-      static libxs_lock_t kernel_lock /*= LIBXS_LOCK_INITIALIZER*/;
       const libxstream_opencl_stream_t* const str = (const libxstream_opencl_stream_t*)(stream);
       const libxstream_opencl_device_t* const devinfo = &config->device;
       libxs_lock_t* const lock_memory =
@@ -348,74 +348,93 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         }
         use_blkrd = (0 != blkrd && 0 != key.m && 16 <= key.m && key.m <= (int)sgsize_s &&
                      0 == (key.m & (key.m - 1)));
+        key.tid = libxs_tid() + 1;
         kptr = (cl_kernel*)libxs_registry_get(
           kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
-        if (NULL == kptr || NULL == *kptr) { /* compile specialization */
-          LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &compile_lock);
+        if (NULL == kptr || NULL == *kptr) { /* thread's first launch of this specialization */
+          const unsigned int tid = key.tid;
+          key.tid = 0;
           kptr = (cl_kernel*)libxs_registry_get(
             kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
-          if (NULL == kptr || NULL == *kptr) {
-            char flags[LIBXSTREAM_BUFFERSIZE];
-            const cl_device_id device_id = config->devices[config->device_id];
-            cl_kernel kernel_new = NULL;
-            size_t wgs[3];
-            if (0 != key.m) { /* homogeneous: add shape defines */
-              const int use_wg = (0 != use_blkrd || 0 != sgbcst);
-              const int n = LIBXS_SNPRINTF(flags, sizeof(flags),
-                "%s -DWG=%i -DBK=%i -DDBM_M=%i -DDBM_N=%i -DDBM_K=%i%s%s", base_flags,
-                use_wg ? (int)wgsize[0] : 0, key.bk, key.m, key.n, key.k,
-                0 != use_blkrd ? " -DBLKRD_A" : "",
-                (0 != sgbcst && 0 == use_blkrd) ? " -DSGBCST" : "");
-              LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
-              LIBXS_UNUSED(n);
-            }
-            else if (0 < key.max_m) { /* heterogeneous with known max_m */
-              const int n = LIBXS_SNPRINTF(flags, sizeof(flags),
-                "%s -DWG=%i -DBK=%i -DMAX_M=%i%s%s", base_flags, (int)wgsize[0], bk, key.max_m,
-                0 != blkrd ? " -DBLKRD_P" : "", (0 != sgbcst && 0 == blkrd) ? " -DSGBCST" : "");
-              LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
-              LIBXS_UNUSED(n);
-            }
-            else { /* heterogeneous: BK only */
-              const int n = LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DWG=%i -DBK=%i%s%s",
-                base_flags, (int)wgsize[0], bk, 0 != blkrd ? " -DBLKRD_P" : "",
-                (0 != sgbcst && 0 == blkrd) ? " -DSGBCST" : "");
-              LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
-              LIBXS_UNUSED(n);
-            }
-            result |= libxstream_opencl_kernel(base_source_kind, base_source, "dbm_multiply",
-              flags, base_options, NULL /*try*/, NULL /*try_ok*/, base_exts, base_nexts,
-              &kernel_new);
-            if (EXIT_SUCCESS == result &&
-                EXIT_SUCCESS == clGetKernelWorkGroupInfo(kernel_new, device_id,
-                                  CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL) &&
-                0 != wgs[0] && 0 != wgs[1])
-            {
-              wgsize[0] = wgs[0];
-              wgsize[1] = wgs[1];
-            }
-            kptr = (cl_kernel*)libxs_registry_set(kernel_registry, &key, sizeof(key),
-              &kernel_new, sizeof(kernel_new), libxs_registry_lock(kernel_registry));
-            if (2 <= verbosity || 0 > verbosity || EXIT_SUCCESS != result) {
-              const char* const kind = (EXIT_SUCCESS == result ? "INFO" : "ERROR");
-              fprintf(stderr, "%s ACC/LIBDBM: DBM-kernel bk=%i", kind, key.bk);
-              if (0 != key.m) {
-                fprintf(stderr, " mnk=%ix%ix%i", key.m, key.n, key.k);
+          if (NULL == kptr || NULL == *kptr) { /* compile specialization */
+            LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &compile_lock);
+            kptr = (cl_kernel*)libxs_registry_get(
+              kernel_registry, &key, sizeof(key), libxs_registry_lock(kernel_registry));
+            if (NULL == kptr || NULL == *kptr) {
+              char flags[LIBXSTREAM_BUFFERSIZE];
+              const cl_device_id device_id = config->devices[config->device_id];
+              cl_kernel kernel_new = NULL;
+              size_t wgs[3];
+              if (0 != key.m) { /* homogeneous: add shape defines */
+                const int use_wg = (0 != use_blkrd || 0 != sgbcst);
+                const int n = LIBXS_SNPRINTF(flags, sizeof(flags),
+                  "%s -DWG=%i -DBK=%i -DDBM_M=%i -DDBM_N=%i -DDBM_K=%i%s%s", base_flags,
+                  use_wg ? (int)wgsize[0] : 0, key.bk, key.m, key.n, key.k,
+                  0 != use_blkrd ? " -DBLKRD_A" : "",
+                  (0 != sgbcst && 0 == use_blkrd) ? " -DSGBCST" : "");
+                LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
+                LIBXS_UNUSED(n);
               }
-              fprintf(stderr, " -> ");
-              if (EXIT_SUCCESS == result) {
-                fprintf(stderr, "%.1f ms\n", 1E3 * DBM_TIMER_DIFF(start, DBM_TIMER_TICK()));
+              else if (0 < key.max_m) { /* heterogeneous with known max_m */
+                const int n = LIBXS_SNPRINTF(flags, sizeof(flags),
+                  "%s -DWG=%i -DBK=%i -DMAX_M=%i%s%s", base_flags, (int)wgsize[0], bk, key.max_m,
+                  0 != blkrd ? " -DBLKRD_P" : "", (0 != sgbcst && 0 == blkrd) ? " -DSGBCST" : "");
+                LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
+                LIBXS_UNUSED(n);
               }
-              else {
-                fprintf(stderr, "FAILED!\n");
+              else { /* heterogeneous: BK only */
+                const int n = LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DWG=%i -DBK=%i%s%s",
+                  base_flags, (int)wgsize[0], bk, 0 != blkrd ? " -DBLKRD_P" : "",
+                  (0 != sgbcst && 0 == blkrd) ? " -DSGBCST" : "");
+                LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
+                LIBXS_UNUSED(n);
+              }
+              result |= libxstream_opencl_kernel(base_source_kind, base_source, "dbm_multiply",
+                flags, base_options, NULL /*try*/, NULL /*try_ok*/, base_exts, base_nexts,
+                &kernel_new);
+              if (EXIT_SUCCESS == result &&
+                  EXIT_SUCCESS == clGetKernelWorkGroupInfo(kernel_new, device_id,
+                                    CL_KERNEL_COMPILE_WORK_GROUP_SIZE, sizeof(wgs), wgs, NULL) &&
+                  0 != wgs[0] && 0 != wgs[1])
+              {
+                wgsize[0] = wgs[0];
+                wgsize[1] = wgs[1];
+              }
+              kptr = (cl_kernel*)libxs_registry_set(kernel_registry, &key, sizeof(key),
+                &kernel_new, sizeof(kernel_new), libxs_registry_lock(kernel_registry));
+              if (2 <= verbosity || 0 > verbosity || EXIT_SUCCESS != result) {
+                const char* const kind = (EXIT_SUCCESS == result ? "INFO" : "ERROR");
+                fprintf(stderr, "%s ACC/LIBDBM: DBM-kernel bk=%i", kind, key.bk);
+                if (0 != key.m) {
+                  fprintf(stderr, " mnk=%ix%ix%i", key.m, key.n, key.k);
+                }
+                fprintf(stderr, " -> ");
+                if (EXIT_SUCCESS == result) {
+                  fprintf(stderr, "%.1f ms\n", 1E3 * DBM_TIMER_DIFF(start, DBM_TIMER_TICK()));
+                }
+                else {
+                  fprintf(stderr, "FAILED!\n");
+                }
               }
             }
+            LIBXS_LOCK_RELEASE(LIBXS_LOCK, &compile_lock);
           }
-          LIBXS_LOCK_RELEASE(LIBXS_LOCK, &compile_lock);
+          if (NULL != kptr && NULL != *kptr) { /* own kernel: arguments are set without a lock */
+            cl_program program = NULL;
+            cl_kernel kernel_new = NULL;
+            char name[64];
+            result |= clGetKernelInfo(*kptr, CL_KERNEL_PROGRAM, sizeof(program), &program, NULL);
+            result |= clGetKernelInfo(*kptr, CL_KERNEL_FUNCTION_NAME, sizeof(name), name, NULL);
+            if (EXIT_SUCCESS == result) kernel_new = clCreateKernel(program, name, &result);
+            key.tid = tid;
+            kptr = (EXIT_SUCCESS == result ? (cl_kernel*)libxs_registry_set(kernel_registry, &key,
+                                               sizeof(key), &kernel_new, sizeof(kernel_new),
+                                               libxs_registry_lock(kernel_registry))
+                                           : NULL);
+          }
         }
         kernel = (NULL != kptr) ? *kptr : NULL;
       }
-      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &kernel_lock);
       if (NULL != lock_memory) {
         LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock_memory);
       }
@@ -473,7 +492,6 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           work_size, (0 != use_wg && 0 < wgsize[0]) ? wgsize : NULL, 0 /*num_wait*/,
           NULL /*wait_list*/, NULL /*event*/, nflops, nbytes);
       }
-      LIBXS_LOCK_RELEASE(LIBXS_LOCK, &kernel_lock);
     }
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
     else { /* homogeneous */
