@@ -140,7 +140,7 @@ static int dbm_multiply_opencl_bk(int max_k)
 
 
 int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, int param_format,
-  const int* params_host, const int* params, const double* pack_a_data,
+  const int* shape, const int* params_host, const int* params, const double* pack_a_data,
   const double* pack_b_data, double* shard_c_data)
 {
   const DBM_TIMER_TICKINT start = DBM_TIMER_TICK();
@@ -156,11 +156,18 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
   LIBXS_ASSERT(NULL != params_host || 0 == ntasks);
   LIBXS_ASSERT(NULL != params || 0 == ntasks);
   if (0 < ntasks) {
+    if (NULL != shape) {
+      task.max_m = shape[0];
+      task.max_n = shape[1];
+      task.max_k = shape[2];
+      task.mnk_changes = (0 == shape[3]);
+      task_complete = 1;
+    }
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
     if (0 == LIBXS_ATOMIC_LOAD(&dbm_multiply_opencl_initialized, LIBXS_ATOMIC_SEQ_CST)) {
       dbm_multiply_opencl_initialize();
     }
-    if (0 != dbm_multiply_opencl_smm || 0 != trace) {
+    if (0 == task_complete && (0 != dbm_multiply_opencl_smm || 0 != trace)) {
       task_complete = dbm_multiply_gpu_launch_info(
         &task, params_host, ntasks, param_format, 0 == trace);
     }
@@ -318,11 +325,8 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         }
         LIBXS_LOCK_RELEASE(LIBXS_LOCK, config->lock_main);
       }
-      /* per-launch: compute task info and dispatch key */
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
-      if (0 == task_complete)
-#endif
-      {
+      /* per-launch: compute task info (unless given) and dispatch key */
+      if (0 == task_complete) {
         task_complete = dbm_multiply_gpu_launch_info(
           &task, params_host, ntasks, param_format, 0);
       }

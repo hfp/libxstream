@@ -112,8 +112,8 @@ libxstream_bool_t libsmm_acc_process_suitable(
   libxstream_bool_t def_mnk, libsmm_acc_data_t datatype, int stack_size, int m_max, int n_max, int k_max, int max_kernel_dim);
 
 #if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
-typedef int (*opencl_libsmm_acc_dbm_launch_fn_t)(void* stream, double alpha, int ntasks, int param_format, const int* params_host,
-  const int* params, const double* pack_a_data, const double* pack_b_data, double* shard_c_data);
+typedef int (*opencl_libsmm_acc_dbm_launch_fn_t)(void* stream, double alpha, int ntasks, int param_format, const int* shape,
+  const int* params_host, const int* params, const double* pack_a_data, const double* pack_b_data, double* shard_c_data);
 /** Enables DBM-kernel for LIBSMM (reverse reuse), which libsmm_acc_init otherwise pulls from samples/dbm if linked. */
 void opencl_libsmm_acc_set_dbm_launch_fn(opencl_libsmm_acc_dbm_launch_fn_t launch_fn);
 
