@@ -7,7 +7,7 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL)
+#if defined(__OPENCL) || defined(__OFFLOAD_OPENCL)
 #  include "smm_acc_opencl.h"
 /* angle brackets: a header generated on the include path wins over the installed one */
 #  include <smm_kernels.h>
@@ -495,16 +495,26 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
         result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 1, dev_a_data), "set A-matrix argument of SMM-kernel");
       LIBXSTREAM_CHECK(
         result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 2, dev_b_data), "set B-matrix argument of SMM-kernel");
-      LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 3, dev_param_stack),
-        "set batch-list argument of SMM-kernel");
-      LIBXSTREAM_CHECK(result, clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &param_format),
+      { /* a stack inside of a larger buffer is passed as base and offset (no sub-buffer) */
+        libxstream_opencl_info_memptr_t pinfo;
+        size_t poffset = 0;
+        int param_offset;
+        LIBXSTREAM_CHECK(result, libxstream_opencl_info_devptr(&pinfo, dev_param_stack, sizeof(int), NULL, &poffset),
+          "resolve batch-list of SMM-kernel");
+        param_offset = (int)poffset;
+        LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel[kernel_idx], 3, pinfo.memory),
+          "set batch-list argument of SMM-kernel");
+        LIBXSTREAM_CHECK(result, clSetKernelArg(config->kernel[kernel_idx], 4, sizeof(int), &param_offset),
+          "set batch-offset argument of SMM-kernel");
+      }
+      LIBXSTREAM_CHECK(result, clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &param_format),
         "set batch-format argument of SMM-kernel");
       if (0 == kernel_idx) {
         LIBXS_ASSERT(bs <= config->bs);
         LIBXSTREAM_CHECK(
-          result, clSetKernelArg(config->kernel[kernel_idx], 5, sizeof(int), &stack_size), "set stacksize argument of SMM-kernel");
+          result, clSetKernelArg(config->kernel[kernel_idx], 6, sizeof(int), &stack_size), "set stacksize argument of SMM-kernel");
         LIBXSTREAM_CHECK(
-          result, clSetKernelArg(config->kernel[kernel_idx], 6, sizeof(int), &bs), "set minibatch argument of SMM-kernel");
+          result, clSetKernelArg(config->kernel[kernel_idx], 7, sizeof(int), &bs), "set minibatch argument of SMM-kernel");
       }
       /**
        * State this launch's work so the profile reports rates rather than only

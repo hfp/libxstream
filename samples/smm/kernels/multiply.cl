@@ -103,7 +103,7 @@ __attribute__((intel_reqd_sub_group_size(SG)))
 #endif
 kernel void
 FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T* restrict bdata,
-  CONSTANT const int* restrict param_stack,
+  CONSTANT const int* restrict param_stack, int param_offset,
 #if (1 < BS)
   int param_format, int stack_size, int bs)
 {
@@ -115,7 +115,7 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #endif
   const SINT pzero = (0 == param_format ? 1 : 0), pnext = (0 == param_format ? 3 : 6);
   /* param_stack/indexes can be one-based (Fortran) depending on param_format */
-  CONSTANT const int* restrict param_base = param_stack + gid * (pnext * bs) +
+  CONSTANT const int* restrict param_base = param_stack + param_offset + gid * (pnext * bs) +
                                             (0 == param_format ? 0 : 3);
 #if defined(SLM_P) && (1 < BS)
   local int params[3 * BS]; /* bs <= BS */

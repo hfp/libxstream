@@ -22,6 +22,8 @@ TESTARG ?= $(NULL)
 LIBXSROOT := $(wildcard $(DEPDIR)/../libxs)
 # CP2K source tree (miniapp target only)
 CP2K_ROOT ?= $(wildcard $(DEPDIR)/../cp2k)
+# miniapp: non-zero links LIBSMM (../smm) for DBM_MULTIPLY_SMM
+SMM ?= 0
 
 # include common Makefile artifacts
 include $(LIBXSROOT)/Makefile.inc
@@ -121,7 +123,7 @@ test: $(XFILES)
 .PHONY: miniapp
 miniapp:
 	$(if $(CP2K_ROOT),,$(error CP2K_ROOT is not set))
-	@$(MAKE) -C $(CP2K_ROOT)/src/dbm OPENCL=1 \
+	@$(MAKE) -C $(CP2K_ROOT)/src/dbm OPENCL=1 SMM=$(SMM) \
 		LIBXSTREAMROOT=$(call quote,$(abspath $(DEPDIR))) \
 		LIBXSROOT=$(call quote,$(abspath $(LIBXSROOT)))
 

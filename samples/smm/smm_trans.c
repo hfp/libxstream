@@ -7,7 +7,7 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL)
+#if defined(__OPENCL) || defined(__OFFLOAD_OPENCL)
 #  include "smm_acc_opencl.h"
 /* angle brackets: a header generated on the include path wins over the installed one */
 #  include <smm_kernels.h>
@@ -193,9 +193,16 @@ int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, v
     LIBXS_ASSERT((NULL != config && NULL != config->kernel && 0 < config->wgsize && 1 <= config->bs) || EXIT_SUCCESS != result);
     if (EXIT_SUCCESS == result) {
       const size_t work_size = config->wgsize * LIBXS_UPDIV(stack_size, config->bs);
-      LIBXSTREAM_CHECK(result, clSetKernelArg(config->kernel, 0, sizeof(int), &offset), "set offset argument of transpose kernel");
+      libxstream_opencl_info_memptr_t tinfo; /* stack inside of a larger buffer: base and offset */
+      size_t toffset = 0;
+      int trs_offset;
+      LIBXSTREAM_CHECK(result, libxstream_opencl_info_devptr(&tinfo, dev_trs_stack, sizeof(int), NULL, &toffset),
+        "resolve batch-list of transpose kernel");
+      trs_offset = offset + (int)toffset;
       LIBXSTREAM_CHECK(
-        result, libxstream_opencl_set_kernel_ptr(config->kernel, 1, dev_trs_stack), "set batch-list argument of transpose kernel");
+        result, clSetKernelArg(config->kernel, 0, sizeof(int), &trs_offset), "set offset argument of transpose kernel");
+      LIBXSTREAM_CHECK(
+        result, libxstream_opencl_set_kernel_ptr(config->kernel, 1, tinfo.memory), "set batch-list argument of transpose kernel");
       LIBXSTREAM_CHECK(
         result, libxstream_opencl_set_kernel_ptr(config->kernel, 2, dev_data), "set matrix-data argument of transpose kernel");
       if (1 < config->bs) {

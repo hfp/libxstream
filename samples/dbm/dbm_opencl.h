@@ -27,8 +27,10 @@ typedef int (*dbm_multiply_opencl_launch_fn_t)(void* stream, double alpha, int n
  * A non-zero param_format packs one shape for the whole batch (8 bits each for
  * m, n, and k) and params then holds three one-based offsets per task. The
  * shape is derived from params_host, whereas params is read by the device.
- * Unless NULL, shape describes the batch as {max_m, max_n, max_k, homogeneous}
- * and saves a pass over params_host (native format).
+ * Unless NULL, shape describes the batch as {max_m, max_n, max_k, fill} and
+ * saves a pass over params_host (native format). The fill is the percentage
+ * (rounded down) of FLOPs a kernel padded to the maxima would do, i.e., 100
+ * only for a homogeneous batch.
  */
 int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, int param_format,
   const int* shape, const int* params_host, const int* params, const double* pack_a_data,

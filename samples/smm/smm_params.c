@@ -7,7 +7,7 @@
 * Further information: https://github.com/hfp/libxstream/                     *
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
-#if defined(__OPENCL)
+#if defined(__OPENCL) || defined(__OFFLOAD_OPENCL)
 #  include "smm_acc_opencl.h"
 #  include <libxs/libxs_math.h>
 

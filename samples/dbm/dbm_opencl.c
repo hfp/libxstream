@@ -13,6 +13,9 @@
 #include <libxs/libxs_reg.h>
 #include <libxs/libxs_timer.h>
 #include <libxstream/libxstream_opencl.h>
+#if defined(_OPENMP)
+#  include <omp.h>
+#endif
 
 #if !defined(OPENCL_KERNELS_SOURCE_MULTIPLY)
 #  error "OpenCL kernel source code not found!"
@@ -48,12 +51,16 @@ typedef struct {
   unsigned int tid;
 } dbm_multiply_opencl_key_t;
 
+/** Fill is the percentage of FLOPs a kernel padded to the maxima would do (100: homogeneous). */
 typedef struct {
-  int max_m, max_n, max_k, mnk_changes;
+  int max_m, max_n, max_k, mnk_changes, fill;
 } dbm_multiply_gpu_launch_info_t;
 
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
 static int dbm_multiply_opencl_initialized /*= 0*/;
+/* FLOPs per fill quartile and of pure batches (last), FLOPs if padded, and launches */
+static size_t dbm_multiply_opencl_fill_flops[5], dbm_multiply_opencl_fill_padded;
+static size_t dbm_multiply_opencl_fill_nlaunch;
+#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
 static int dbm_multiply_opencl_smm /*= 0*/;
 #endif
 
@@ -63,19 +70,83 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
   void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim, int def_mnk,
   void* stream, void* c_stream, int param_format, void* event);
 LIBXS_PRAGMA_WEAK(opencl_libsmm_acc_process)
+/* the miniapp links LIBSMM without DBCSR, which otherwise initializes it */
+extern int opencl_libsmm_initialized;
+LIBXS_PRAGMA_WEAK(opencl_libsmm_initialized)
+int libsmm_acc_init(void);
+LIBXS_PRAGMA_WEAK(libsmm_acc_init)
 #endif
+
+
+static void dbm_multiply_opencl_report(void)
+{
+  size_t total = 0;
+  int i;
+  for (i = 0; i < 5; ++i) total += dbm_multiply_opencl_fill_flops[i];
+  if (0 < total) {
+    fprintf(stderr, "INFO ACC/LIBDBM: fill=%i%% launches=%lu FLOPs:",
+      (int)(100 * total / dbm_multiply_opencl_fill_padded),
+      (unsigned long)dbm_multiply_opencl_fill_nlaunch);
+    for (i = 0; i < 4; ++i) {
+      fprintf(stderr, " <%i%%=%i%%", 25 * (i + 1),
+        (int)(100 * dbm_multiply_opencl_fill_flops[i] / total));
+    }
+    fprintf(stderr, " pure=%i%%\n", (int)(100 * dbm_multiply_opencl_fill_flops[4] / total));
+  }
+}
+
+
+static void dbm_multiply_opencl_initialize(void)
+{
+  const libxstream_opencl_config_t* const config = &libxstream_opencl_config;
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, config->lock_main);
+  if (0 == dbm_multiply_opencl_initialized) {
+#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
+    const char* const smm_env = getenv("DBM_MULTIPLY_SMM");
+    const int smm = (NULL == smm_env ? 0 /*default*/ : atoi(smm_env));
+    dbm_multiply_opencl_smm = LIBXS_MIN(
+      1 != smm ? smm : 64, (1 << (DBM_OPENCL_LIBSMM_PFORMAT - 1)) - 1);
+#endif
+    if (2 <= config->verbosity || 0 > config->verbosity) {
+      atexit(dbm_multiply_opencl_report);
+    }
+    LIBXS_ATOMIC_STORE(&dbm_multiply_opencl_initialized, 1, LIBXS_ATOMIC_SEQ_CST);
+  }
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, config->lock_main);
+}
 
 
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
-static void dbm_multiply_opencl_initialize(void)
+/* Whether LIBSMM is linked and initialized, which is pulled if needed. */
+static int dbm_multiply_opencl_smm_ready(void)
 {
-  const char* const smm_env = getenv("DBM_MULTIPLY_SMM");
-  const int smm = (NULL == smm_env ? 0 /*default*/ : atoi(smm_env));
-  dbm_multiply_opencl_smm = LIBXS_MIN(
-    1 != smm ? smm : 64, (1 << (DBM_OPENCL_LIBSMM_PFORMAT - 1)) - 1);
-  LIBXS_ATOMIC_STORE(&dbm_multiply_opencl_initialized, 1, LIBXS_ATOMIC_SEQ_CST);
+  int result = 0;
+  if (NULL != &opencl_libsmm_initialized && NULL != libsmm_acc_init) {
+    result = (0 < LIBXS_ATOMIC_LOAD(&opencl_libsmm_initialized, LIBXS_ATOMIC_SEQ_CST));
+#  if defined(_OPENMP)
+    if (0 == result && 0 == omp_get_thread_num()) /* LIBSMM accepts the main thread only */
+#  else
+    if (0 == result)
+#  endif
+    {
+      result = (EXIT_SUCCESS == libsmm_acc_init());
+    }
+  }
+  return result;
 }
 #endif
+
+
+/* Accounts the fill of a launch (dbm_multiply_opencl_report). */
+static void dbm_multiply_opencl_fill_add(const dbm_multiply_gpu_launch_info_t* task, int ntasks)
+{
+  const size_t padded = (size_t)2 * ntasks * task->max_m * task->max_n * task->max_k;
+  const int bucket = (100 <= task->fill ? 4 : (task->fill / 25));
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_fill_flops[bucket], padded * task->fill / 100,
+    LIBXS_ATOMIC_RELAXED);
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_fill_padded, padded, LIBXS_ATOMIC_RELAXED);
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_fill_nlaunch, 1, LIBXS_ATOMIC_RELAXED);
+}
 
 static int dbm_multiply_gpu_launch_info(dbm_multiply_gpu_launch_info_t* info, const int* params,
   int ntasks, int param_format, int stop_at_impure)
@@ -85,6 +156,7 @@ static int dbm_multiply_gpu_launch_info(dbm_multiply_gpu_launch_info_t* info, co
   if (0 == param_format) { /* native */
     const int stride = DBM_OPENCL_TASK_SIZE;
     const int first_m = params[0], first_n = params[1], first_k = params[2];
+    size_t mnk = (size_t)first_m * first_n * first_k;
     int i = stride;
     info->max_m = first_m;
     info->max_n = first_n;
@@ -94,11 +166,13 @@ static int dbm_multiply_gpu_launch_info(dbm_multiply_gpu_launch_info_t* info, co
       info->max_m = LIBXS_MAX(info->max_m, m);
       info->max_n = LIBXS_MAX(info->max_n, n);
       info->max_k = LIBXS_MAX(info->max_k, k);
+      mnk += (size_t)m * n * k;
       if (m != first_m || n != first_n || k != first_k) {
         info->mnk_changes = 1;
         if (0 != stop_at_impure) result = 0;
       }
     }
+    info->fill = (int)(100 * mnk / ((size_t)ntasks * info->max_m * info->max_n * info->max_k));
   }
   else {
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
@@ -107,6 +181,7 @@ static int dbm_multiply_gpu_launch_info(dbm_multiply_gpu_launch_info_t* info, co
     info->max_n = mask & (param_format >> (DBM_OPENCL_LIBSMM_PFORMAT));
     info->max_k = mask & (param_format >> (DBM_OPENCL_LIBSMM_PFORMAT * 2));
     info->mnk_changes = 0; /* homogeneous */
+    info->fill = 100;
 #else
     LIBXS_ASSERT(0);
 #endif
@@ -160,21 +235,22 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
       task.max_m = shape[0];
       task.max_n = shape[1];
       task.max_k = shape[2];
-      task.mnk_changes = (0 == shape[3]);
+      task.fill = shape[3];
+      task.mnk_changes = (100 != task.fill);
       task_complete = 1;
     }
-#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
     if (0 == LIBXS_ATOMIC_LOAD(&dbm_multiply_opencl_initialized, LIBXS_ATOMIC_SEQ_CST)) {
       dbm_multiply_opencl_initialize();
     }
+#if 0 < DBM_OPENCL_LIBSMM_PFORMAT
     if (0 == task_complete && (0 != dbm_multiply_opencl_smm || 0 != trace)) {
       task_complete = dbm_multiply_gpu_launch_info(
         &task, params_host, ntasks, param_format, 0 == trace);
     }
-    if (NULL == opencl_libsmm_acc_process || 0 > dbm_multiply_opencl_smm ||
+    if (NULL == opencl_libsmm_acc_process || 0 >= dbm_multiply_opencl_smm ||
         0 != task.mnk_changes || dbm_multiply_opencl_smm < task.max_m ||
         dbm_multiply_opencl_smm < task.max_n || dbm_multiply_opencl_smm < task.max_k ||
-        0 == task.max_k || 1 != alpha)
+        0 == task.max_k || 1 != alpha || 0 == dbm_multiply_opencl_smm_ready())
 #endif
     { /* base init state: computed once, shared across all specializations */
       static int clinear = 0, sgbcst = 0, bk_max = 0;
@@ -509,6 +585,9 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
       dbcsr = 1;
     }
 #endif
+    if ((2 <= verbosity || 0 > verbosity) && EXIT_SUCCESS == result) {
+      dbm_multiply_opencl_fill_add(&task, ntasks);
+    }
     if (0 != trace && EXIT_SUCCESS == result) {
       static LIBXS_TLS DBM_TIMER_TICKINT start2 = 0;
       const DBM_TIMER_TICKINT stop = DBM_TIMER_TICK();
@@ -519,13 +598,12 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
 #else
       const char* const kind = "DBM";
 #endif
-      const int pure = (0 == task.mnk_changes ? 100 : 0);
       const double dtotl = LIBXS_MAX(diter, dhost);
       start2 = stop;
       fprintf(stderr,
         "INFO ACC/LIBDBM: %s-kernel mnk=%ix%ix%i "
-        "pure=%i%% ntasks=%i ms=%.1f\n",
-        kind, task.max_m, task.max_n, task.max_k, pure, ntasks, 1E+3 * dtotl);
+        "fill=%i%% ntasks=%i ms=%.1f\n",
+        kind, task.max_m, task.max_n, task.max_k, task.fill, ntasks, 1E+3 * dtotl);
     }
   }
   return result;
