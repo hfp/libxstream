@@ -423,10 +423,7 @@
  * Dispatch: global_a[1] = BK_PRE (single WG in K) - the kernel loops
  * over K internally so that the local max exponent IS the global max.
  */
-__attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1)))
-#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(BM_PRE, BK_PRE, 1))) REQD_SG
 kernel void
 preprocess_a_dense(CONSTANT const real_t* restrict a_base, int a_index, int M, int K, int lda, int transa,
   global char* restrict as_base, /* [NSLICES * M_pad * K_pad] */ long as_index,
@@ -514,10 +511,7 @@ preprocess_a_dense(CONSTANT const real_t* restrict a_base, int a_index, int M, i
  * Work-group: (BN_PRE, BK_PRE, 1).
  * Dispatch: global_b[1] = BK_PRE (single WG in K) - loops internally.
  */
-__attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
-#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1))) REQD_SG
 kernel void
 preprocess_b_dense(CONSTANT const real_t* restrict b_base, int b_index, int N, int K, int ldb, int transb,
   global char* restrict bs_base, /* [NSLICES * K_pad * N_pad] */ long bs_index,
@@ -600,10 +594,7 @@ preprocess_b_dense(CONSTANT const real_t* restrict b_base, int b_index, int N, i
  * Square iteration (sq=1): sa in [0..nslices), sb in [0..nslices)
  * subject to sa + sb <= cutoff.  Each pair computed individually.
  */
-__attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
-#if defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(SG, NTM* NTN, 1))) REQD_SG
 kernel void gemm_fused(
   CONSTANT const char* restrict as_base, /* all slices: [nslices][M_pad][K_pad] */ long as_index,
   CONSTANT const char* restrict bs_base, /* all slices: [nslices][K_pad][N_pad] */ long bs_index,

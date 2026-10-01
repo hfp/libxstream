@@ -50,8 +50,10 @@
  * levels below vary only the language version and the optional features. Taken
  * from the build strings in samples/ozaki/ozaki_opencl.c rather than invented.
  *
- * INTEL is held at 0 throughout: the DPAS path needs 2D-block-read builtins that no
- * compiler but the vendor's own accepts. NV is not - the warp-group MMA path carries
+ * INTEL stays below 2: the DPAS path needs 2D-block-read builtins that no compiler
+ * but the vendor's own accepts, whereas INTEL=1 reaches only the sub-group builtins
+ * clang declares, and below cl3_subgroups the same text takes the layout fallback.
+ * NV is not - the warp-group MMA path carries
  * its PTX in comment-only asm markers a host pass splices, so clang compiles it once
  * the inline asm is spelled __asm__ (plain asm is a GNU extension clang rejects in
  * OpenCL C) and the target is nvptx, whose operand constraints the asm uses and a
@@ -124,6 +126,33 @@
   KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_U8=1 -DOZAKI_BF16=1"
 #define KERNELS_OZAKI_BF16_SYMRES \
   KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_SYMRES=1 -DOZAKI_BF16=1"
+/**
+ * DBM as dbm_opencl.c composes it, atomics included: the prototype form the host
+ * emits for an Intel device below OpenCL 2.0, and the inline-PTX add it emits for
+ * NVIDIA. The per-task flavors are the sub-group broadcast, which the kernel
+ * refuses without SG_EXACT, so the Intel one is compiled only where the level
+ * provides sub-groups and NVIDIA's at every level. Block reads are vendor builtins.
+ * The kernel names its header as <opencl/...>, which resolves against libxstream/.
+ */
+#define KERNELS_DBM_BASE "-I" LIBXSTREAM_SRCDIR "/libxstream -DGPU -DCONSTANT=global -DSM=0 -DLU=0 -DPFORMAT=8 -DBK=8 -DTAN=2"
+#define KERNELS_DBM_ATOMICS " -DATOMIC_PROTOTYPES=1 -D\"ATOMIC_ADD_GLOBAL(A,B)=atomic_add(A,B)\""
+#define KERNELS_DBM_ATOMICS_NV " -DTA=long -D\"ATOMIC_ADD_GLOBAL(A,B)=atomic_add_global_xchg(A,B)\""
+#define KERNELS_DBM_FLAT KERNELS_DBM_BASE KERNELS_DBM_ATOMICS \
+  " -DBN=8 -DSG=0 -DINTEL=0 -DNV=0 -DWG=0 -DDBM_M=23 -DDBM_N=23 -DDBM_K=23"
+#define KERNELS_DBM_SGB KERNELS_DBM_BASE KERNELS_DBM_ATOMICS \
+  " -DBN=8 -DSG=16 -DINTEL=1 -DNV=0 -DWG=64 -DMAX_M=23 -DSGBCST"
+#define KERNELS_DBM_SGB_NV KERNELS_DBM_BASE KERNELS_DBM_ATOMICS_NV \
+  " -DBN=2 -DSG=32 -DINTEL=0 -DNV=1 -DWG=64 -DMAX_M=23 -DSGBCST"
+/**
+ * SMM in the shape that broadcasts A to its columns (BM == SM, BN == BK == 1, so
+ * WRK == SM), with the host's Intel atomics below OpenCL 2.0. The work-group
+ * broadcast needs the 2.x collectives, which no level states.
+ */
+#define KERNELS_SMM_BCST \
+  "-DT=float -DGPU=1 -DCONSTANT=global -DWG=16 -DSG=16 -DINTEL=1 -DFN=smm -DREPEAT=1" \
+  " -DLU=0 -DSM=16 -DSN=16 -DSK=16 -DBS=1 -DVL=4 -DBM=16 -DBN=1 -DBK=1 -DTAN=1" \
+  " -DATOMIC_PROTOTYPES=1 -D\"ATOMIC_ADD_GLOBAL(A,B)=atomic_add(A,B)\"" \
+  " -D\"BARRIER(A)=barrier(A)\""
 
 
 /**
@@ -137,38 +166,38 @@
  * the target clang compiles for, and the host is the wrong one: an asm operand
  * constraint that PTX defines and the host target does not fails on that host
  * and passes on another, so the verdict would depend on where the test ran.
+ *
+ * sg marks a flavor the host emits only for a device with sub-groups, which is
+ * then compiled at the levels that provide them (kernels_level_t.sg).
  */
-typedef struct { const char* path; const char* flavor; const char* params; int nv; } kernels_file_t;
+typedef struct { const char* path; const char* flavor; const char* params; int nv; int sg; } kernels_file_t;
 static const kernels_file_t kernel_files[] = {
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/gemm3m.cl", "", "", 0 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp64", KERNELS_OZAKI_FP64, 0 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp32", KERNELS_OZAKI_FP32, 0 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "sym", KERNELS_OZAKI_SYM, 0 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp64", KERNELS_OZAKI_FP64, 0 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp32", KERNELS_OZAKI_FP32, 0 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "flat", KERNELS_OZAKI_FLAT, 0 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "kgroups", KERNELS_OZAKI_KGROUPS, 0 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma", KERNELS_OZAKI_WGMMA, 1 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma4", KERNELS_OZAKI_WGMMA4, 1 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "symres", KERNELS_OZAKI_SYMRES, 1 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16", KERNELS_OZAKI_BF16, 1 },
-  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16sym", KERNELS_OZAKI_BF16_SYMRES, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/gemm3m.cl", "", "", 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp64", KERNELS_OZAKI_FP64, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "fp32", KERNELS_OZAKI_FP32, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki1.cl", "sym", KERNELS_OZAKI_SYM, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp64", KERNELS_OZAKI_FP64, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "fp32", KERNELS_OZAKI_FP32, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "flat", KERNELS_OZAKI_FLAT, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "kgroups", KERNELS_OZAKI_KGROUPS, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma", KERNELS_OZAKI_WGMMA, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmma4", KERNELS_OZAKI_WGMMA4, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "symres", KERNELS_OZAKI_SYMRES, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16", KERNELS_OZAKI_BF16, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16sym", KERNELS_OZAKI_BF16_SYMRES, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/transpose.cl", "",
-    "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */, 0 },
-  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "", "", 0 },
-  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_fp32.cl", "", "", 0 }
-};
-
-/**
- * Not covered yet, and named so that the gap is visible rather than implied:
- * these need values this test would have to invent (multiply.cl wants a
- * param_format type, stencil_bf16.cl the conversion pair, dbm/kernels/multiply.cl the
- * atomics the host derives from the device), and inventing them risks reporting
- * a fault that is the test's rather than the kernel's.
- */
-static const char* const kernel_pending[] = {
-  LIBXSTREAM_SRCDIR "/samples/smm/kernels/multiply.cl", LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_bf16.cl",
-  LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl"
+    "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "", "", 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "intel", "-DINTEL=1 -DSG=16", 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "nv", "-DNV=1 -DSG=32", 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_bf16.cl", "", "-DUSE_BF16=1", 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_bf16.cl", "intel", "-DUSE_BF16=1 -DINTEL=1 -DSG=16", 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_bf16.cl", "nv", "-DUSE_BF16=1 -DNV=1 -DSG=32", 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_fp32.cl", "", "", 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/smm/kernels/multiply.cl", "bcst", KERNELS_SMM_BCST, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl", "flat", KERNELS_DBM_FLAT, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl", "sgb", KERNELS_DBM_SGB, 0, 1 },
+  { LIBXSTREAM_SRCDIR "/samples/dbm/kernels/multiply.cl", "sgbnv", KERNELS_DBM_SGB_NV, 1, 0 }
 };
 
 /**
@@ -178,14 +207,14 @@ static const char* const kernel_pending[] = {
  * feature are one fact stated twice: a compiler that checks the pair refuses a
  * build that names only one of them, and the feature does not exist before 3.0.
  */
-typedef struct { const char* name; const char* defines; const char* std; const char* ext; } kernels_level_t;
+typedef struct { const char* name; const char* defines; const char* std; const char* ext; int sg; } kernels_level_t;
 static const kernels_level_t kernel_levels[] = {
-  { "floor", "-DLIBXSTREAM_OCLVER_C=120 -DLIBXSTREAM_OCLVER=120", "CL1.2", "+cl_khr_fp64" },
+  { "floor", "-DLIBXSTREAM_OCLVER_C=120 -DLIBXSTREAM_OCLVER=120", "CL1.2", "+cl_khr_fp64", 0 },
   { "cl3_bare", "-DLIBXSTREAM_OCLVER_C=300 -DLIBXSTREAM_OCLVER=300 -DGPU=1", "CL3.0",
-    "+cl_khr_fp64,+__opencl_c_fp64" },
+    "+cl_khr_fp64,+__opencl_c_fp64", 0 },
   { "cl3_subgroups",
     "-DLIBXSTREAM_OCLVER_C=300 -DLIBXSTREAM_OCLVER=300 -DGPU=1 -D__opencl_c_subgroups",
-    "CL3.0", "+cl_khr_fp64,+__opencl_c_fp64,+__opencl_c_subgroups" }
+    "CL3.0", "+cl_khr_fp64,+__opencl_c_fp64,+__opencl_c_subgroups", 1 }
 };
 
 
@@ -229,14 +258,13 @@ int main(void)
   }
   for (i = 0; i < nlevels && EXIT_SUCCESS == result; ++i) {
     for (j = 0; j < nfiles && EXIT_SUCCESS == result; ++j) {
+      if (0 != kernel_files[j].sg && 0 == kernel_levels[i].sg) continue;
       result = one(kernel_files + j, kernel_levels + i);
       if (EXIT_SUCCESS == result) ++n;
     }
   }
   if (EXIT_SUCCESS == result) {
-    const int npending = (int)(sizeof(kernel_pending) / sizeof(*kernel_pending));
     printf("kernels: %d compiled at -Wall -Wextra -pedantic -Wshadow -Werror\n", n);
-    for (i = 0; i < npending; ++i) printf("kernels: NOT COVERED %s\n", kernel_pending[i]);
   }
   return result;
 }

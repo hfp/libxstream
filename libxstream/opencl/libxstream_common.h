@@ -64,29 +64,55 @@
 #endif
 
 #define BCST_NO(V, I) (V)
-/* optional in 3.0: 300 clears "200 <=" yet may provide neither */
-#if defined(WG) && (0 < WG) && defined(GPU) && \
+/* optional in 3.0: 300 clears "200 <=" yet may provide neither; hosts pass GPU=0 */
+#if defined(WG) && (0 < WG) && defined(GPU) && (0 != GPU) && \
   (defined(__opencl_c_work_group_collective_functions) || \
     (200 <= LIBXSTREAM_OCLVER_C && 300 > LIBXSTREAM_OCLVER_C))
 # define BCST_WG(V, I) work_group_broadcast(V, I)
 #endif
-#if defined(SG) && (0 < SG) && defined(GPU) && \
-  (defined(__opencl_c_subgroups) || defined(cl_khr_subgroups) || \
-    (200 <= LIBXSTREAM_OCLVER_C && 300 > LIBXSTREAM_OCLVER_C))
-# define BCST_SG(V, I) sub_group_broadcast(V, I)
-#endif
 
 /**
- * Sub-group lane and group ID: use sub-group builtins when available,
- * fall back to local IDs for vendors without cl_khr_subgroups (e.g. NVIDIA).
- * Requires work-group layout (SG, num_sub_groups, 1).
+ * Sub-group primitives exist only where the hardware sub-group is exactly SG lanes
+ * (SG_EXACT): Intel pins it with REQD_SG, and an NVIDIA warp is 32 lanes. A KHR
+ * sub-group elsewhere has whatever size the runtime picks, and a broadcast paired
+ * with a lane computed for SG lanes then reads another row; there, SGLID/SGID/NSG
+ * are positions in a (SG, NSG, 1) work-group and the collectives are undefined.
+ * Under SG_EXACT on Intel the IDs are the hardware's for any layout if the kernel
+ * carries REQD_SG. On NVIDIA, SGLID needs an x-size that is a multiple of 32 and
+ * SGID/NSG a (32, NSG, 1) work-group: get_local_size is not folded from the
+ * required size there, so a general warp rank costs registers in every kernel.
+ * NVIDIA has BCST_SG but no RMAX_SG/RMIN_SG, whose shuffles lose to the fallback.
  */
-#if defined(INTEL) && (0 < INTEL)
+#if defined(INTEL) && (0 != INTEL) && defined(SG) && (0 < SG)
+# define REQD_SG __attribute__((intel_reqd_sub_group_size(SG)))
+/* XMX implies cl_intel_subgroups: a missing predefine must not drop the builtins */
+# if (2 <= INTEL) || defined(cl_intel_subgroups) || defined(cl_khr_subgroups) || \
+    defined(__opencl_c_subgroups) || (200 <= LIBXSTREAM_OCLVER_C && 300 > LIBXSTREAM_OCLVER_C)
+#   define SG_EXACT
+# endif
+#elif defined(NV) && (0 < NV) && defined(SG) && (32 == SG)
+# define SG_EXACT
+#endif
+#if !defined(REQD_SG)
+# define REQD_SG
+#endif
+
+#if defined(SG_EXACT) && defined(INTEL) && (0 != INTEL)
 # define SGLID() get_sub_group_local_id()
-# define SGID()  get_sub_group_id()
+# define SGID() get_sub_group_id()
+# define NSG() get_num_sub_groups()
+# define BCST_SG(V, I) sub_group_broadcast(V, I)
+# define RMAX_SG(V) sub_group_reduce_max(V)
+# define RMIN_SG(V) sub_group_reduce_min(V)
+#elif defined(SG_EXACT)
+# define SGLID() ((uint)get_local_id(0) & 31)
+# define SGID() get_local_id(1)
+# define NSG() get_local_size(1)
+# define BCST_SG(V, I) bcst_sg_nv(V, (uint)(I))
 #else
 # define SGLID() get_local_id(0)
-# define SGID()  get_local_id(1)
+# define SGID() get_local_id(1)
+# define NSG() get_local_size(1)
 #endif
 
 #if !defined(MIN)
@@ -168,6 +194,32 @@ inline float bf16_to_f32(ushort v)
 }
 # define ROUND_TO_BF16(X) round_to_bf16(X)
 # define BF16_TO_F32(X) bf16_to_f32(X)
+#endif
+
+#if defined(SG_EXACT) && !(defined(INTEL) && (0 != INTEL))
+/* volatile: a shuffle moved into a branch is reached by fewer than the 32 lanes it names */
+inline __attribute__((overloadable)) uint bcst_sg_nv(uint v, uint i)
+{
+  uint r;
+  __asm__ volatile("shfl.sync.idx.b32 %0, %1, %2, 0x1f, 0xffffffff;" : "=r"(r) : "r"(v), "r"(i));
+  return r;
+}
+
+inline __attribute__((overloadable)) int bcst_sg_nv(int v, uint i)
+{
+  return as_int(bcst_sg_nv(as_uint(v), i));
+}
+
+inline __attribute__((overloadable)) float bcst_sg_nv(float v, uint i)
+{
+  return as_float(bcst_sg_nv(as_uint(v), i));
+}
+
+inline __attribute__((overloadable)) double bcst_sg_nv(double v, uint i)
+{
+  const uint2 u = as_uint2(v);
+  return as_double((uint2)(bcst_sg_nv(u.x, i), bcst_sg_nv(u.y, i)));
+}
 #endif
 
 /**

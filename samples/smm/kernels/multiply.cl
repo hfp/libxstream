@@ -97,10 +97,7 @@
 #endif
 
 
-__attribute__((reqd_work_group_size(WG, 1, 1)))
-#if (0 < SG) && defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(WG, 1, 1))) REQD_SG
 kernel void
 FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T* restrict bdata,
   CONSTANT const int* restrict param_stack, int param_offset,
@@ -538,19 +535,18 @@ FN(global T* restrict cdata, CONSTANT const T* restrict adata, CONSTANT const T*
 #    if defined(BARRIER) && defined(SYNC_WG) && defined(SLM_A)
           BARRIER(CLK_LOCAL_MEM_FENCE);
 #    endif
-#    if defined(ACC_OPENCL_VERSION) && (200 /*2.0*/ <= ACC_OPENCL_VERSION) && \
-        (!defined(GPU) || (0 != GPU)) && !defined(SLM_A) && !defined(REG_A) && (WRK == SM) && \
-        (SM <= SG || SM <= WG) /* use ACC_OPENCL_VERSION rather than ACC_OPENCL_C_VERSION */
-          /* reached only for WRK == SM, where every item is ACTIVE: the
-           * broadcasts below are themselves work-group collectives */
-          const T a = AMK(idx, k);
+#    if (!defined(GPU) || (0 != GPU)) && !defined(SLM_A) && !defined(REG_A) && (WRK == SM) && \
+        ((defined(BCST_SG) && (SM <= SG)) || defined(BCST_WG))
+          /**
+           * Every item reaches the broadcasts, which are collectives, but only the
+           * WRK == SM leading items own a row of A: a surplus item reads past it.
+           */
+          const T a = ACTIVE ? AMK(idx, k) : ZERO;
           UNROLL_FORCE(SM) for (m = 0; m < SM; ++m) {
-#      if (SM <= SG)
-            CNM(idx, m) = MAD(
-              sub_group_broadcast(a, m), b, CNM(idx, m)); /* size of subgroup is sufficient */
+#      if defined(BCST_SG) && (SM <= SG)
+            CNM(idx, m) = MAD(BCST_SG(a, m), b, CNM(idx, m));
 #      else
-            CNM(idx, m) = MAD(
-              work_group_broadcast(a, m), b, CNM(idx, m)); /* size of workgroup is sufficient */
+            CNM(idx, m) = MAD(BCST_WG(a, m), b, CNM(idx, m));
 #      endif
           }
 #    else

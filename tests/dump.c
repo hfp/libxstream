@@ -48,6 +48,15 @@ static const char header_probe[] =
   "kernel void no_sg_broadcast(void) {}\n"
   "#endif\n";
 
+/* The work-group broadcast, which a host that says GPU=0 must not receive. */
+static const char wg_probe[] =
+  "#include \"libxstream_common.h\"\n"
+  "#if defined(BCST_WG)\n"
+  "kernel void has_wg_broadcast(void) {}\n"
+  "#else\n"
+  "kernel void no_wg_broadcast(void) {}\n"
+  "#endif\n";
+
 /**
  * Asks for the predefine rather than for the library's own spelling of it: the
  * preprocessor that instantiates a kernel is a host one and has no OpenCL
@@ -108,16 +117,44 @@ int main(void)
     result = level("lvl_floor", "", "no_sg_broadcast", "has_sg_broadcast");
   }
   if (EXIT_SUCCESS == result) { /* a 3.0 device without the optional feature */
-    result = level("lvl_cl3_bare", "-DGPU=1 -DSG=32 -DLIBXSTREAM_OCLVER_C=300",
+    result = level("lvl_cl3_bare", "-DINTEL=1 -DSG=32 -DLIBXSTREAM_OCLVER_C=300",
       "no_sg_broadcast", "has_sg_broadcast");
   }
   if (EXIT_SUCCESS == result) { /* the same device that does advertise it */
-    result = level("lvl_cl3_subgroups", "-DGPU=1 -DSG=32 -DLIBXSTREAM_OCLVER_C=300 -D__opencl_c_subgroups",
+    result = level("lvl_cl3_subgroups", "-DINTEL=1 -DSG=32 -DLIBXSTREAM_OCLVER_C=300 -D__opencl_c_subgroups",
       "has_sg_broadcast", "no_sg_broadcast");
   }
   if (EXIT_SUCCESS == result) { /* a 2.0 device, where the version is the answer */
-    result = level("lvl_cl2", "-DGPU=1 -DSG=32 -DLIBXSTREAM_OCLVER_C=200",
+    result = level("lvl_cl2", "-DINTEL=1 -DSG=32 -DLIBXSTREAM_OCLVER_C=200",
       "has_sg_broadcast", "no_sg_broadcast");
+  }
+  /**
+   * The feature alone is not enough: without a vendor that fixes the sub-group at
+   * SG lanes, a broadcast would pair with a lane computed for another width.
+   */
+  if (EXIT_SUCCESS == result) {
+    result = level("lvl_khr_only", "-DGPU=1 -DSG=32 -DLIBXSTREAM_OCLVER_C=300 -D__opencl_c_subgroups",
+      "no_sg_broadcast", "has_sg_broadcast");
+  }
+  if (EXIT_SUCCESS == result) { /* XMX implies the Intel sub-groups, predefined or not */
+    result = level("lvl_xmx", "-DINTEL=2 -DSG=16 -DLIBXSTREAM_OCLVER_C=120",
+      "has_sg_broadcast", "no_sg_broadcast");
+  }
+  if (EXIT_SUCCESS == result) { /* a warp is 32 lanes and needs no feature */
+    result = level("lvl_nv_warp", "-DNV=1 -DSG=32 -DLIBXSTREAM_OCLVER_C=300",
+      "has_sg_broadcast", "no_sg_broadcast");
+  }
+  if (EXIT_SUCCESS == result) { /* half a warp is not a sub-group */
+    result = level("lvl_nv_half", "-DNV=1 -DSG=16 -DLIBXSTREAM_OCLVER_C=300",
+      "no_sg_broadcast", "has_sg_broadcast");
+  }
+  if (EXIT_SUCCESS == result) { /* GPU=0 is how a host says CPU, not an unset GPU */
+    result = probe("wg_cpu", wg_probe, "-DWG=64 -DGPU=0 -DLIBXSTREAM_OCLVER_C=200",
+      "no_wg_broadcast", "has_wg_broadcast");
+  }
+  if (EXIT_SUCCESS == result) {
+    result = probe("wg_gpu", wg_probe, "-DWG=64 -DGPU=1 -DLIBXSTREAM_OCLVER_C=200",
+      "has_wg_broadcast", "no_wg_broadcast");
   }
 
   /* the level reaches the predefine the kernel asks for, both ways */

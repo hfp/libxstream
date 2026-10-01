@@ -1840,10 +1840,7 @@ inline void oz2g_hier_tree_accumulate(const uint* restrict gval, real_t alpha, i
  * being deleted, and under bit 4 the aligned value is seeded from the indices, so
  * the modular chain is not constant folded and charged to the reads instead.
  */
-__attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1)))
-#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1))) REQD_SG
 kernel void
 preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int M, int K, int lda, int transa,
   global char* restrict as_base, /* [NMODULI * M_pad * K_pad] */ long as_index,
@@ -1947,10 +1944,7 @@ preprocess_a_crt_dense(CONSTANT const real_t* restrict a_base, int a_index, int 
  * Work-group: (BN_PRE, BK_PRE, 1).
  * Dispatch: global[1] = BK_PRE (single WG in K) - loops internally.
  */
-__attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
-#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1))) REQD_SG
 kernel void
 preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int N, int K, int ldb, int transb,
   global char* restrict bs_base, /* [NMODULI * K_pad * N_pad] */ long bs_index,
@@ -2164,10 +2158,7 @@ preprocess_b_crt_dense(CONSTANT const real_t* restrict b_base, int b_index, int 
  * integer sum. The sum set is a separate pass (zgemm3m_sum): taking it from the aligned
  * mantissas would widen them by a bit the extraction's reductions are not sized for.
  */
-__attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1)))
-#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(BK_PRE, BM_PRE, 1))) REQD_SG
 kernel void preprocess_a_crt3m(CONSTANT const real_t* restrict z_base, int z_index, int M, int K, int lda, int transa,
   int conj, global char* restrict as_base, /* 2 sets of [NMODULI * M_pad * K_pad] */ long as_index, long set_stride,
   global int* restrict expa_base, int expa_index, int K_pad, int M_pad)
@@ -2233,10 +2224,7 @@ kernel void preprocess_a_crt3m(CONSTANT const real_t* restrict z_base, int z_ind
 
 
 /* The B side of preprocess_a_crt3m, over the same three residue layouts preprocess_b_crt_dense stores. */
-__attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1)))
-#if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(BN_PRE, BK_PRE, 1))) REQD_SG
 kernel void preprocess_b_crt3m(CONSTANT const real_t* restrict z_base, int z_index, int N, int K, int ldb, int transb,
   int conj, global char* restrict bs_base, /* 2 sets of [NMODULI * K_pad * N_pad] */ long bs_index, long set_stride,
   global int* restrict expb_base, int expb_index, int K_pad, int N_pad)
@@ -2469,10 +2457,7 @@ kernel void zgemm3m_combine(global uchar* restrict res_base, long res_index, lon
  * either the residue store (OZAKI_UNFUSE, reconstructed by gemm_crt_reduce) or the
  * fused reconstruction. Work-group (SG, NTM * NTN, 1), one per output tile.
  */
-__attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
-#if defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(SG, NTM* NTN, 1))) REQD_SG
 kernel void gemm_crt_fused(
   CONSTANT const char* restrict as_base, /* As: [NMODULI * M_pad * K_pad] */ long as_index,
   CONSTANT const char* restrict bs_base, /* Bs: [NMODULI * K_pad * N_pad] */ long bs_index,
@@ -2616,10 +2601,7 @@ kernel void gemm_crt_fused(
  * contribute zero, as the fused path's cleared group_res does, which keeps the two
  * bit-identical and keeps this from reading past the last plane.
  */
-__attribute__((reqd_work_group_size(SG, NTM* NTN, 1)))
-#if defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#endif
+__attribute__((reqd_work_group_size(SG, NTM* NTN, 1))) REQD_SG
 kernel void gemm_crt_reduce(CONSTANT const uchar* restrict res_base, /* [NMODULI * tiles * BM * BN] */ long res_index,
   CONSTANT const int* restrict expa_base, int expa_index, CONSTANT const int* restrict expb_base, int expb_index,
   global real_t* restrict c_base, int c_index, int M, int N, int ldc, real_t alpha, int first)

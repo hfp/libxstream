@@ -90,7 +90,8 @@
 
 /* Sub-group block read for A: each lane loads one row-element from a
  * contiguous column of A. Requires DBM_M == SG (flat dispatch). */
-#if (defined(BLKRD_A) || defined(BLKRD_P)) && defined(SG) && (0 < SG)
+#if (defined(BLKRD_A) || defined(BLKRD_P)) && defined(SG) && (0 < SG) && defined(INTEL) && \
+  (0 != INTEL)
 #  if defined(PRECISION) && (1 == PRECISION)
 #    define A_BLOCK_READ(PTR) as_float(intel_sub_group_block_read((const global uint*)(PTR)))
 #  else
@@ -210,6 +211,12 @@
     } while (0)
 #endif
 
+/* the host launches one work-group per task for these, which the flat path below misreads */
+#if (defined(SGBCST) && !defined(BCST_SG)) || \
+  (defined(BLKRD_P) && !(defined(A_BLOCK_READ) && defined(BCST_SG)))
+#  error "SGBCST and BLKRD_P need sub-group broadcast (SG_EXACT)"
+#endif
+
 /* Bits per shape field of a packed param_format (host: DBM_OPENCL_LIBSMM_PFORMAT) */
 #if !defined(PFORMAT) || (0 >= PFORMAT)
 #  undef PFORMAT
@@ -254,10 +261,7 @@
 #endif
 
 #if defined(WG) && (0 < WG)
-__attribute__((reqd_work_group_size(WG, 1, 1)))
-#  if defined(SG) && (0 < SG) && defined(INTEL) && (0 != INTEL)
-__attribute__((intel_reqd_sub_group_size(SG)))
-#  endif
+__attribute__((reqd_work_group_size(WG, 1, 1))) REQD_SG
 #endif
 kernel void
 dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
@@ -292,11 +296,11 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
     CONSTANT const double* restrict bl = b + XB(params, ibase);
     const int c0 = XC(params, ibase);
     const SINT xm = XM(shape), xn = XN(shape), xk = XK(shape);
-    const SINT nsg = (SINT)get_num_sub_groups();
+    const SINT nsg = (SINT)NSG();
     TYPE c_acc[SG];
     /* M-tiling: each sub-group handles SG consecutive rows */
     UNROLL_OUTER(1)
-    for (SINT mb = (SINT)get_sub_group_id() * SG; mb < xm; mb += nsg * SG) {
+    for (SINT mb = (SINT)SGID() * SG; mb < xm; mb += nsg * SG) {
       const SINT m = mb + sid;
       /* N-tiling by SG columns: lane sid holds B-column sid+n0 */
       UNROLL_AUTO for (SINT n0 = 0; n0 < xn; n0 += SG) {

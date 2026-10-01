@@ -26,9 +26,8 @@
  */
 #if defined(INTEL) && (2 <= INTEL)
 __attribute__((reqd_work_group_size(SG, WG_M_TILES, 1)))
-__attribute__((intel_reqd_sub_group_size(SG)))
 #endif
-kernel void stencil_apply(
+REQD_SG kernel void stencil_apply(
   global const STENCIL_D_ELEM* restrict dk_x,
   global const STENCIL_D_ELEM* restrict dk_y,
   global const STENCIL_D_ELEM* restrict dk_z,
@@ -60,6 +59,9 @@ kernel void stencil_apply(
   local STENCIL_X_ELEM x_slm[STENCIL_X_SLM_COUNT];
 #if (!defined(STENCIL_BF16) || (2 > STENCIL_BF16)) && (!defined(STENCIL_BF16S) || (0 >= STENCIL_BF16S))
   local int exp_sg[WG_M_TILES * 2];
+# if !defined(RMAX_SG)
+  local int red_slm[WG_M_TILES * SG * 2];
+# endif
 #endif
 #if !defined(STENCIL_BF16) || (2 > STENCIL_BF16)
   const int d_wb = K_PAD * 2;
@@ -134,13 +136,31 @@ kernel void stencil_apply(
       barrier(CLK_LOCAL_MEM_FENCE);
       STENCIL_DPAS_ACC(dk, STENCIL_BF16S_NDIGITS, x_slm, d_wb, mi, acc[strip_local]);
 #else
-      { const int sg_max = sub_group_reduce_max(local_max_exp);
-        const int sg_min = sub_group_reduce_min(local_min_exp);
+# if defined(RMAX_SG)
+      { const int sg_max = RMAX_SG(local_max_exp);
+        const int sg_min = RMIN_SG(local_min_exp);
         if (0 == sg_lid) {
           exp_sg[sg_id * 2 + 0] = sg_max;
           exp_sg[sg_id * 2 + 1] = sg_min;
         }
       }
+# else
+      { red_slm[(sg_id * SG + sg_lid) * 2 + 0] = local_max_exp;
+        red_slm[(sg_id * SG + sg_lid) * 2 + 1] = local_min_exp;
+        barrier(CLK_LOCAL_MEM_FENCE);
+        if (0 == sg_lid) {
+          int lane, sg_max = local_max_exp, sg_min = local_min_exp;
+          for (lane = 1; lane < SG; ++lane) {
+            const int mx = red_slm[(sg_id * SG + lane) * 2 + 0];
+            const int mn = red_slm[(sg_id * SG + lane) * 2 + 1];
+            if (mx > sg_max) sg_max = mx;
+            if (mn < sg_min) sg_min = mn;
+          }
+          exp_sg[sg_id * 2 + 0] = sg_max;
+          exp_sg[sg_id * 2 + 1] = sg_min;
+        }
+      }
+# endif
       barrier(CLK_LOCAL_MEM_FENCE);
 
       { int wg_max = 0, wg_min = 255, ti;
@@ -263,9 +283,8 @@ kernel void stencil_apply(
  */
 #if defined(INTEL) && (2 <= INTEL)
 __attribute__((reqd_work_group_size(SG, M_TILES, 1)))
-__attribute__((intel_reqd_sub_group_size(SG)))
 #endif
-kernel void stencil_apply_tti(
+REQD_SG kernel void stencil_apply_tti(
   global const ushort* restrict dk_i,
   global const ushort* restrict dk_j,
   global const STENCIL_P_ELEM* restrict p_grid,

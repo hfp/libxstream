@@ -46,7 +46,7 @@
 
 #define I8_TOTAL_ITERS (NTERMS * STRIPS_PER_WG)
 
-#if !defined(INTEL) || (INTEL < 2)
+#if !defined(RMAX_SG)
 # define I8_RED_SLM_SIZE (WG_M_TILES * SG)
 #endif
 
@@ -270,9 +270,8 @@
 
 #if defined(INTEL) && (2 <= INTEL)
 __attribute__((reqd_work_group_size(SG, WG_M_TILES, 1)))
-__attribute__((intel_reqd_sub_group_size(SG)))
 #endif
-kernel void stencil_apply_int8(
+REQD_SG kernel void stencil_apply_int8(
   global const signed char* restrict dk_x,
   global const signed char* restrict dk_y,
   global const signed char* restrict dk_z,
@@ -306,7 +305,7 @@ kernel void stencil_apply_int8(
 
   local int x_slm[2 * I8_SLM_INTS];
   local int exp_sg[WG_M_TILES];
-#if !defined(INTEL) || (INTEL < 2)
+#if defined(I8_RED_SLM_SIZE)
   local int red_slm[I8_RED_SLM_SIZE];
 #endif
 
@@ -549,8 +548,8 @@ kernel void stencil_apply_int8(
           }
         }
       }
-#if defined(INTEL) && (0 < INTEL)
-      { const int sg_out = sub_group_reduce_max(out_max_exp);
+#if defined(RMAX_SG)
+      { const int sg_out = RMAX_SG(out_max_exp);
         if (0 == sg_lid) exp_sg[sg_id] = sg_out;
       }
 #else

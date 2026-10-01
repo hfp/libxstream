@@ -306,7 +306,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           const int precision = (NULL == fp_env ? 0 /*default*/ : atoi(fp_env));
           int bn = LIBXS_CLMP(NULL == bn_env ? bn1 : atoi(bn_env), 1, 32);
           int lu = LIBXS_CLMP(NULL == lu_env ? 0 : atoi(lu_env), -2, 1);
-          size_t sgsize = devinfo->wgsize[2];
+          size_t sgsize = (0 == devinfo->nv ? devinfo->wgsize[2] : 32 /*warp*/);
           size_t offset;
           const char *source = OPENCL_KERNELS_SOURCE_MULTIPLY, *cmem = NULL;
           LIBXS_MEMZERO(base_flags);
@@ -348,8 +348,10 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           }
           sm = ((0 != sm && 0 != wgsize[0]) ? (LIBXS_ISPOT(bn * sizeof(double)) + 1) : 0);
           clinear = (NULL == lin_env ? 0 /*default*/ : atoi(lin_env));
+          /* mirrors SG_EXACT (libxstream_common.h): the kernel refuses SGBCST elsewhere */
           sgbcst = (0 != gpu && 0 < sgsize && 0 < wgsize[0] && 2 <= devinfo->std_level[0] &&
-                    (NULL == sgb_env ? 1 /*default*/ : (0 != atoi(sgb_env))));
+                    (0 != devinfo->intel || (0 != devinfo->nv && 32 == sgsize)) &&
+                    (NULL == sgb_env ? (0 == devinfo->nv) /*default*/ : (0 != atoi(sgb_env))));
           cmem =
 #if defined(DBM_OPENCL_CMEM)
             (0 > ro && EXIT_SUCCESS == libxstream_opencl_use_cmem(devinfo))
@@ -364,9 +366,10 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           }
           offset += (size_t)LIBXS_SNPRINTF(base_flags + offset, sizeof(base_flags) - offset,
             " %s %s -DCONSTANT=%s"
-            " -DBN=%i -DSM=%i -DLU=%i -DSG=%i -DINTEL=%i -DPFORMAT=%i",
+            " -DBN=%i -DSM=%i -DLU=%i -DSG=%i -DINTEL=%i -DNV=%i -DPFORMAT=%i",
             0 != gpu ? "-DGPU" : "", 0 == clinear ? "" : "-DCLINEAR", cmem, bn, sm, lu,
-            (int)sgsize, (int)(0 != devinfo->intel), DBM_OPENCL_LIBSMM_PFORMAT);
+            (int)sgsize, (int)(0 != devinfo->intel), (int)(0 != devinfo->nv),
+            DBM_OPENCL_LIBSMM_PFORMAT);
           if (0 != precision) {
             offset += (size_t)LIBXS_SNPRINTF(
               base_flags + offset, sizeof(base_flags) - offset, " -DPRECISION=%i", precision);
