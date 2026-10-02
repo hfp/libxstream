@@ -859,8 +859,6 @@
  */
 # define OZAKI_WGMMA_COPY16(DST, SRC) \
     __asm__ volatile("cp.async.ca.shared.global [%0], [%1], 16;" ::"l"(DST), "l"(SRC) : "memory")
-# define OZAKI_WGMMA_COPY4(DST, SRC) \
-    __asm__ volatile("cp.async.ca.shared.global [%0], [%1], 4;" ::"l"(DST), "l"(SRC) : "memory")
 # define OZAKI_WGMMA_COMMIT() __asm__ volatile("cp.async.commit_group;" ::: "memory")
 /**
  * The MMA group wait, hoisted out of the chunk loop: the issues of one round are
@@ -945,7 +943,12 @@
     } while (0)
 # endif
 
-# if defined(OZAKI_BBLOCK) && (OZAKI_BBLOCK)
+# if !defined(OZAKI_BBLOCK) || (0 == OZAKI_BBLOCK)
+#   error warp-group MMA stages B from the blocked layout only (OZAKI_BBLOCK).
+# endif
+# if (0 != (WGS % BN)) && (0 != (BN % WGS))
+#   error the B staging needs one of WGS and BN to divide the other.
+# endif
 /**
  * B blocked: 16 consecutive K-values of a column are contiguous, so one work-item
  * moves 16 bytes like it does for A, and consecutive work-items read consecutive
@@ -961,46 +964,25 @@
  * because the global layout already is, the destination because nothing reorders it.
  * The descriptor follows (OZAKI_WGMMA_SBO/LBO in ozaki_gemm.c) and a run that big is
  * what a single bulk copy would need.
+ *
+ * The loop counts from zero and WT is split by BN once: strided from WT, nothing
+ * proves WT < WGS, so the copies became a runtime loop that redid the 64-bit address
+ * per copy, and counting from zero alone still divides WT + i * WGS per copy. In series
+ * with the MMAs that was a sixth of the kernel at n=8192.
  */
 # define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD, K_PAD, NB, KOFF, SB, WT) \
     do { \
+      const int wt_ = (WT); \
+      CONSTANT const char* bsrc_ = (BS_K) \
+        + ((long)(((KOFF) >> OZAKI_BS_BLOG) + wt_ / BN) * (N_PAD) + (NB) + wt_ % BN) * 16; \
       int ib_; \
-      for (ib_ = (WT); ib_ < WBSZ; ib_ += WGS) { \
-        OZAKI_WGMMA_COPY16((SB) + ib_, \
-          (BS_K) + ((long)(((KOFF) >> OZAKI_BS_BLOG) + ib_ / BN) * (N_PAD) + (NB) + ib_ % BN) * 16); \
+      UNROLL_AUTO for (ib_ = 0; ib_ < DIVUP(WBSZ, WGS); ++ib_) { \
+        if (0 == (WBSZ % WGS) || wt_ + ib_ * WGS < WBSZ) { \
+          OZAKI_WGMMA_COPY16((SB) + wt_ + ib_ * WGS, \
+            bsrc_ + ((long)((ib_ * WGS) / BN) * (N_PAD) + (ib_ * WGS) % BN) * 16); \
+        } \
       } \
     } while (0)
-# elif defined(OZAKI_BKMAJOR) && (OZAKI_BKMAJOR)
-/* B transposed: a column's K is contiguous, so B stages exactly like A. */
-# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD, K_PAD, NB, KOFF, SB, WT) \
-    do { \
-      int ib_; \
-      for (ib_ = (WT); ib_ < WBSZ; ib_ += WGS) { \
-        const int c_ = ib_ / (WBK / 16); \
-        const int j_ = ib_ % (WBK / 16); \
-        OZAKI_WGMMA_COPY16((SB) + (((c_ >> 3) * (WBK / 16) + j_) * 8) + (c_ & 7), \
-          (BS_K) + (long)((NB) + c_) * (K_PAD) + (KOFF) + j_ * 16); \
-      } \
-    } while (0)
-# else
-/**
- * B interleaved (OZAKI_BVNNI): a K-quad of one column is one aligned uint, so the
- * global side is coalesced across columns but the copies are 4 bytes wide - four
- * times the instructions of the transposed layout, which is the trade OZAKI_BKMAJOR
- * exists to make.
- */
-# define OZAKI_WGMMA_BSTAGE(BS_K, N_PAD, K_PAD, NB, KOFF, SB, WT) \
-    do { \
-      int ib_; \
-      for (ib_ = (WT); ib_ < (BN * WBK) / 4; ib_ += WGS) { \
-        const int c_ = ib_ % BN; \
-        const int q_ = ib_ / BN; \
-        OZAKI_WGMMA_COPY4(((local uint*)(SB)) \
-            + ((((c_ >> 3) * (WBK / 16)) + (q_ >> 2)) * 8 + (c_ & 7)) * 4 + (q_ & 3), \
-          ((CONSTANT const uint*)(BS_K)) + (long)(((KOFF) >> 2) + q_) * (N_PAD) + (NB) + c_); \
-      } \
-    } while (0)
-# endif
 
 /**
  * Operand-traffic probe, not a build option: each bit removes one part of a staging

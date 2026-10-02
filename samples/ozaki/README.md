@@ -119,7 +119,6 @@ follows that knob.
 | OZAKI_SCALAR_ACC | 0       | Sch.1: force scalar accumulation                                 |
 | OZAKI_BVNNI      | 1       | NVIDIA: pre-interleave B so each operand is one aligned uint     |
 | OZAKI_BKMAJOR    | 0       | NVIDIA, Sch.2: transpose B to [N][K] instead (see below)         |
-| OZAKI_BBLOCK     | (auto)  | Sch.2: block 16 K-values of a B column. On with wgmma (below)    |
 | OZAKI_WGMMA      | (auto)  | Sch.2: warp-group MMA. On where reachable (see below)            |
 | OZAKI_WGMMA_N    | 256     | Warp-group tile width, 64, 128 or 256                            |
 | OZAKI_WGMMA_M    | 128     | Warp-group tile rows: 128 = two warp groups, 64 = one            |
@@ -236,23 +235,6 @@ Two things to know. Reading the profile, the two kernel rows have to be
 added for a total; the FLOP rate is attributed to the GEMM row alone.
 And it needs scratch memory of `OZAKI_N` bytes per output element, twice
 the size of C in fp64, which is freed per call.
-
-`OZAKI_BBLOCK` stores B so that 16 consecutive K-values of one column
-are contiguous, with columns 16 bytes apart. It is the default wherever
-warp-group MMA runs, and `OZAKI_BBLOCK=0` selects the 4-byte interleave.
-
-The reason is copy count. The warp-group loop is bound by how many
-`cp.async` instructions the staging needs, not by bandwidth: splitting
-A's 16-byte copies into 4-byte ones costs 107% for the same bytes. B
-staged from the interleave needs four times the copies of A, and this
-layout removes three quarters of them while keeping both sides
-coalesced - the transposed layout gives the consumer its 16 bytes but
-scatters the producer, and the interleave coalesces both but forces the
-4-byte copies. Measured: the GEMM gains 18% at n=4096 (8.03 -> 6.89 ms),
-14% at n=8192, 55% at n=1024 and 40% at n=257, while B preprocessing
-pays 0.53 -> 0.73 ms, so about 11% net at n=4096 and more below it.
-Bit-identical, and the lane must walk columns rather than K-blocks -
-mapping it the other way reads 64 KB apart and loses 17% instead.
 
 `OZAKI_SYMRES` keeps each residue in `[-m/2, m/2]` rather than
 `[0, m)`, which quarters the product magnitude and so quadruples the K

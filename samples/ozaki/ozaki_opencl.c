@@ -1836,19 +1836,17 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * producer and consumer stay coalesced. That removes three quarters of the
        * copies, and copy count is what the loop is bound by: the GEMM measures 8.03
        * -> 6.89 ms at n=4096 while B preprocessing pays 0.53 -> 0.73, so +11% net.
-       * The default wherever warp-group MMA runs, and warp-group only: the older
-       * paths have no branch for it. See ozaki_common.cl.
+       * Warp-group MMA stages from no other layout (the interleave and the transpose
+       * lost to it there and were removed), and the older paths have no branch for it.
        *
-       * OZAKI_BKMAJOR transposes B to [N_pad][K_pad]. Warp-group MMA requires it
-       * (both operands K-major, staged through shared memory), and it also suits
-       * the older paths better than the interleave - see ozaki_common.cl.
+       * OZAKI_BKMAJOR transposes B to [N_pad][K_pad], which suits the warp-level MMA
+       * better than the interleave and is what its bf16 needs - see ozaki_common.cl.
        *
        * OZAKI_BVNNI pre-interleaves so each operand is one aligned uint: dp4a
        * gets 8 loads per column instead of 32 strided byte gathers, and the MMA
        * b-fragment becomes 2 loads instead of 8. OZAKI_BVNNI=0 opts out.
        */
-      env = getenv("OZAKI_BBLOCK");
-      bblock = (0 != wgmma && (NULL == env || 0 != atoi(env)));
+      bblock = (0 != wgmma);
       env = getenv("OZAKI_BKMAJOR");
       /* bf16 off the warp-group path needs it, so the request can come from there too. */
       bkmajor = (0 == bblock && 0 == devinfo->intel && 2 <= nv && 0 != gpu
