@@ -585,7 +585,11 @@ ALIAS_LIBDIR := $(subst $$$$,$(if $(findstring $$$$/,$$$$$(POUTDIR)),,\$${prefix
 # Consumers linking statically must resolve the OpenCL and OpenMP runtimes.
 # OMP is already resolved to 0 here if no OpenMP flag was detected. Drop any
 # include path OMPFLAG_FORCE carries: it belongs to compiling, not linking.
-ALIAS_PRIVLIBS := $(shell pkg-config --libs OpenCL)
+ALIAS_PRIVLIBS :=
+ifneq (0,$(OCL))
+	# Not OCL_ICD_LINK: it names the build host's loader by absolute path.
+	ALIAS_PRIVLIBS += $(shell pkg-config --libs OpenCL 2>/dev/null || echo "-lOpenCL")
+endif
 ifneq (,$(filter-out 0,$(OMP)))
 	ALIAS_PRIVLIBS += $(filter-out -I%,$(OMPFLAG_FORCE))
 endif
