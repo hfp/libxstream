@@ -113,6 +113,15 @@ LIBXS_PRAGMA_DIAG_POP()
 # define LIBXSTREAM_MAXNKERNELS 32
 #endif
 /**
+ * Number of kernel handles the profiler remembers (LIBXSTREAM_PROFILE). A kernel
+ * is identified by its program and name, hence copies of one kernel (e.g., one
+ * per thread) share an entry; the handles map to that entry without a driver
+ * query. Beyond this, a launch costs a query rather than its profile.
+ */
+#if !defined(LIBXSTREAM_MAXNHANDLES)
+# define LIBXSTREAM_MAXNHANDLES (8 * (LIBXSTREAM_MAXNKERNELS))
+#endif
+/**
  * Interval segments each profiled histogram keeps open while folding a batch
  * into its union (libxs_hist_fold_union). Only the segments a later interval
  * could still merge with are retained, so this bounds the reach-back tolerated
@@ -554,8 +563,12 @@ typedef struct libxstream_opencl_config_t {
   libxs_hist_t* hist_kernel[LIBXSTREAM_MAXNKERNELS];
   libxs_span_t* span_kernel[LIBXSTREAM_MAXNKERNELS];
   const char* name_kernel[LIBXSTREAM_MAXNKERNELS];
-  cl_kernel kernels[LIBXSTREAM_MAXNKERNELS];
+  cl_program program_kernel[LIBXSTREAM_MAXNKERNELS];
   size_t nkernels;
+  /** Kernel handles seen and their entry (LIBXSTREAM_MAXNKERNELS if not profiled). */
+  cl_kernel handle_kernel[LIBXSTREAM_MAXNHANDLES];
+  size_t slot_handle[LIBXSTREAM_MAXNHANDLES];
+  size_t nhandles;
   /**
    * Pool of per-launch records (libxs_pmalloc), sized like the other handle
    * pools: one record is held only while its launch is in flight, so the pool
@@ -565,7 +578,7 @@ typedef struct libxstream_opencl_config_t {
    */
   libxstream_opencl_launch_info_t **launch_infos, *launch_info_data;
   size_t nlaunch_infos;
-  /** Launches not profiled because hist_kernel is full (distinct kernels). */
+  /** Launches not profiled because hist_kernel is full (distinct programs and names). */
   size_t nprofile_kernel_lost;
   /**
    * Samples pushed into a histogram, and samples discarded because their

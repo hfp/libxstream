@@ -1245,6 +1245,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
     }
     /* recording stops in either case: the histograms are printed by now */
     libxstream_opencl_config.nkernels = 0;
+    libxstream_opencl_config.nhandles = 0;
     libxstream_opencl_config.ndevices = 0;
 # if defined(LIBXSTREAM_CACHE_DID)
     internal_libxstream_opencl_active_id = 0; /* reset cached active device-ID */
@@ -3163,53 +3164,80 @@ LIBXSTREAM_API_INTERN void CL_CALLBACK libxstream_kernel_notify(cl_event event, 
 
 
 /**
- * Maps a kernel handle to its slot, creating the entry on first sight.
- * Returns the slot count when the table is full or the kernel cannot be
- * identified, which the caller treats as "do not profile this launch".
+ * Maps a kernel handle to its slot, creating the entry on first sight. Handles of
+ * the same program and name share a slot. Returns the slot count when the table
+ * is full or the kernel cannot be identified, which the caller treats as "do not
+ * profile this launch".
  */
 LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel);
 LIBXSTREAM_API_INTERN size_t libxstream_kernel_slot(cl_kernel kernel)
 {
-  size_t result = LIBXSTREAM_MAXNKERNELS, i;
+  size_t result = LIBXSTREAM_MAXNKERNELS, nhandles, i;
+  int known = 0;
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
-  for (i = 0; i < libxstream_opencl_config.nkernels; ++i) {
-    if (kernel == libxstream_opencl_config.kernels[i]) {
-      result = i;
+  nhandles = libxstream_opencl_config.nhandles;
+  for (i = 0; i < nhandles; ++i) {
+    if (kernel == libxstream_opencl_config.handle_kernel[i]) {
+      result = libxstream_opencl_config.slot_handle[i];
+      known = 1;
       break;
     }
   }
-  if (LIBXSTREAM_MAXNKERNELS == result) {
-    i = libxstream_opencl_config.nkernels;
-    if (i < LIBXSTREAM_MAXNKERNELS) {
-      char* const name = (char*)malloc(LIBXSTREAM_MAXSTRLEN);
-      if (NULL != name) {
-        if (EXIT_SUCCESS == clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, LIBXSTREAM_MAXSTRLEN, name, NULL)) {
-          const int nbuckets = LIBXS_MAX(LIBXS_ABS(libxstream_opencl_config.profile), 2) + 1;
-          /**
-           * Averaged, not accumulated: query_percentile reports vals[0] as a
-           * per-sample duration, so the work amounts must be per-sample too.
-           */
-          const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg,
-            libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
-          /* {ms, gflop, mb, begin, end}: the interval feeds the union fold */
-          libxs_span_t* const span = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
-          libxs_hist_t* const hist = libxs_hist_create(nbuckets, 5, update,
-            libxs_hist_fold_union, span);
-          if (NULL != hist) {
-            libxstream_opencl_config.hist_kernel[i] = hist;
-            libxstream_opencl_config.span_kernel[i] = span;
-            libxstream_opencl_config.name_kernel[i] = name;
-            libxstream_opencl_config.kernels[i] = kernel;
-            /* Publish once complete: the callback reads it without the lock. */
-            LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nkernels, 1, LIBXS_ATOMIC_SEQ_CST);
-            result = i;
-          }
-          else free(name);
+  if (0 == known) { /* first sight of this handle */
+    char* name = (char*)malloc(LIBXSTREAM_MAXSTRLEN);
+    cl_program program = NULL;
+    if (NULL != name
+      && EXIT_SUCCESS == clGetKernelInfo(kernel, CL_KERNEL_PROGRAM, sizeof(program), &program, NULL)
+      && EXIT_SUCCESS == clGetKernelInfo(kernel, CL_KERNEL_FUNCTION_NAME, LIBXSTREAM_MAXSTRLEN, name, NULL))
+    {
+      for (i = 0; i < libxstream_opencl_config.nkernels; ++i) {
+        if (program == libxstream_opencl_config.program_kernel[i]
+          && 0 == strcmp(name, libxstream_opencl_config.name_kernel[i]))
+        {
+          result = i;
+          break;
         }
-        else free(name);
+      }
+      i = libxstream_opencl_config.nkernels;
+      if (LIBXSTREAM_MAXNKERNELS == result && i < LIBXSTREAM_MAXNKERNELS) {
+        const int nbuckets = LIBXS_MAX(LIBXS_ABS(libxstream_opencl_config.profile), 2) + 1;
+        /**
+         * Averaged, not accumulated: query_percentile reports vals[0] as a
+         * per-sample duration, so the work amounts must be per-sample too.
+         */
+        const libxs_hist_update_t update[] = {libxs_hist_update_avg, libxs_hist_update_avg,
+          libxs_hist_update_avg, libxs_hist_update_avg, libxs_hist_update_avg};
+        /* {ms, gflop, mb, begin, end}: the interval feeds the union fold */
+        libxs_span_t* const span = libxs_span_create(LIBXSTREAM_PROFILE_NSEG);
+        libxs_hist_t* const hist = libxs_hist_create(nbuckets, 5, update,
+          libxs_hist_fold_union, span);
+        if (NULL != hist) {
+          libxstream_opencl_config.hist_kernel[i] = hist;
+          libxstream_opencl_config.span_kernel[i] = span;
+          libxstream_opencl_config.name_kernel[i] = name;
+          libxstream_opencl_config.program_kernel[i] = program;
+          name = NULL; /* owned by the table */
+          /* Publish once complete: the callback reads it without the lock. */
+          LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nkernels, 1, LIBXS_ATOMIC_SEQ_CST);
+          result = i;
+        }
+      }
+      /* a full table is remembered as well, which spares the queries next time */
+      if (nhandles < LIBXSTREAM_MAXNHANDLES
+        && (LIBXSTREAM_MAXNKERNELS != result || LIBXSTREAM_MAXNKERNELS <= libxstream_opencl_config.nkernels))
+      {
+        libxstream_opencl_config.handle_kernel[nhandles] = kernel;
+        libxstream_opencl_config.slot_handle[nhandles] = result;
+        libxstream_opencl_config.nhandles = nhandles + 1;
+      }
+      if (LIBXSTREAM_MAXNKERNELS == result && LIBXSTREAM_MAXNKERNELS <= libxstream_opencl_config.nkernels) {
+        LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_kernel_lost, 1, LIBXS_ATOMIC_RELAXED);
       }
     }
-    else LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_kernel_lost, 1, LIBXS_ATOMIC_RELAXED);
+    free(name);
+  }
+  else if (LIBXSTREAM_MAXNKERNELS == result) {
+    LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_kernel_lost, 1, LIBXS_ATOMIC_RELAXED);
   }
   LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   return result;
