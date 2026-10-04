@@ -1153,6 +1153,13 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       nrows += libxstream_opencl_print_device(stderr);
       nrows += libxstream_opencl_print_floor(stderr);
       if (0 != nrows) fprintf(stderr, "\n\n");
+      { /* the pools are kept as well, hence their statistics would not appear on release */
+        const int verbosity = libxs_get_verbosity();
+        if (3 <= verbosity || 0 > verbosity) { /* as libxs_free_pool */
+          libxs_malloc_pool_print(stderr, "INFO LIBXS: xpool ", libxstream_opencl_config.pool_hst);
+          libxs_malloc_pool_print(stderr, "INFO LIBXS: xpool ", libxstream_opencl_config.pool_dev);
+        }
+      }
       LIBXS_STDIO_RELEASE();
     }
     /* Both counts: a partial refusal reads as a slow GEMM, not a slow copy. */
