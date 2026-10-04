@@ -1095,10 +1095,12 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_print_floor(FILE* ostream);
 LIBXSTREAM_API_INTERN int libxstream_opencl_print_floor(FILE* ostream)
 {
   const unsigned long ndiscarded = (unsigned long)libxstream_opencl_config.nprofile_short;
+  const unsigned long ninvalid = (unsigned long)libxstream_opencl_config.nprofile_invalid;
   int nrows = 0;
-  if (0 != ndiscarded) {
+  if (0 != ndiscarded || 0 != ninvalid) {
     const unsigned long timer_ns = (unsigned long)libxstream_opencl_config.device.timer_ns;
     fprintf(ostream, "\nPROF ACC/OpenCL: discarded=%lu", ndiscarded);
+    if (0 != ninvalid) fprintf(ostream, " invalid=%lu", ninvalid);
     if (0 != timer_ns) { /* floor is device-derived: ticks x granularity */
       fprintf(ostream, " timer=%luns", timer_ns);
       if (1 < (LIBXSTREAM_PROFILE_TICKS)) {
@@ -3324,6 +3326,11 @@ LIBXSTREAM_API int libxstream_opencl_interval(cl_event event, cl_ulong* begin, c
     result = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &b, NULL);
     if (EXIT_SUCCESS == result) {
       result = clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &e, NULL);
+    }
+    /* taken as absolute difference, an unset begin read as the device clock itself */
+    if (EXIT_SUCCESS == result && (0 == b || e < b)) {
+      LIBXS_ATOMIC_ADD_FETCH(&libxstream_opencl_config.nprofile_invalid, 1, LIBXS_ATOMIC_RELAXED);
+      result = EXIT_FAILURE;
     }
   }
   if (EXIT_SUCCESS != result) b = e = 0;

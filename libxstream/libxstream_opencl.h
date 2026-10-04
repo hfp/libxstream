@@ -587,8 +587,9 @@ typedef struct libxstream_opencl_config_t {
    * never mistaken for a complete one, and so that a profile which attributed
    * nothing at all is distinguishable from a run that transferred nothing --
    * the failure mode of keying attribution on the command type was exactly that.
+   * Invalid samples carry timestamps that are no measurement (see interval).
    */
-  size_t nprofile, nprofile_short;
+  size_t nprofile, nprofile_short, nprofile_invalid;
   /** Configuration and execution-hints. */
   cl_int xhints;
   /** Asynchronous memory operations. */
@@ -830,7 +831,8 @@ LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl
  * Absolute begin and end of the given event on the device clock (nanoseconds).
  * Timestamps from one device are directly comparable, which is what lets the
  * intervals of different kernels and transfers be related to each other; a
- * duration cannot express that. Either output may be NULL.
+ * duration cannot express that. Either output may be NULL. An unset (zero)
+ * timestamp or an end before the begin fails, i.e., is not a measurement.
  */
 LIBXSTREAM_API int libxstream_opencl_interval(cl_event event, cl_ulong* begin, cl_ulong* end);
 
