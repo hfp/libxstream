@@ -37,6 +37,14 @@
 #   define LIBXSTREAM_MEM_ALIGNSCALE 8
 # endif
 /**
+ * Intel USM: the host pool prefers host memory over shared memory. Host memory is
+ * pinned and read by the device in place, whereas shared memory may migrate, and
+ * as a copy source it measured about a third slower.
+ */
+# if !defined(LIBXSTREAM_MEM_UNIFIED_SHARED) && 0
+#   define LIBXSTREAM_MEM_UNIFIED_SHARED
+# endif
+/**
  * A window rather than a mirror of the operand: a larger transfer is chunked,
  * which bounds the extra host memory per transferring thread.
  */
@@ -206,15 +214,22 @@ LIBXSTREAM_API_INTERN void libxstream_mem_hst_resolve(void)
     if (libxstream_opencl_mem_hst_unknown == libxstream_opencl_config.mem_hst) {
       libxstream_opencl_config.mem_hst = libxstream_opencl_mem_hst_malloc;
 # if (1 >= LIBXSTREAM_USM)
-      if (NULL != devinfo->clSharedMemAllocINTEL && NULL != devinfo->clMemFreeINTEL) {
-        libxstream_opencl_config.mem_hst = libxstream_opencl_mem_hst_shared_intel;
-        libxstream_opencl_config.pool_hst_clSharedMemAllocINTEL = devinfo->clSharedMemAllocINTEL;
-        libxstream_opencl_config.pool_hst_clMemFreeINTEL = devinfo->clMemFreeINTEL;
-      }
-      else if (NULL != devinfo->clHostMemAllocINTEL && NULL != devinfo->clMemFreeINTEL) {
-        libxstream_opencl_config.mem_hst = libxstream_opencl_mem_hst_host_intel;
-        libxstream_opencl_config.pool_hst_clHostMemAllocINTEL = devinfo->clHostMemAllocINTEL;
-        libxstream_opencl_config.pool_hst_clMemFreeINTEL = devinfo->clMemFreeINTEL;
+      if (NULL != devinfo->clMemFreeINTEL) {
+#   if defined(LIBXSTREAM_MEM_UNIFIED_SHARED)
+        const int host = (NULL == devinfo->clSharedMemAllocINTEL);
+#   else
+        const int host = (NULL != devinfo->clHostMemAllocINTEL);
+#   endif
+        if (0 != host && NULL != devinfo->clHostMemAllocINTEL) {
+          libxstream_opencl_config.mem_hst = libxstream_opencl_mem_hst_host_intel;
+          libxstream_opencl_config.pool_hst_clHostMemAllocINTEL = devinfo->clHostMemAllocINTEL;
+          libxstream_opencl_config.pool_hst_clMemFreeINTEL = devinfo->clMemFreeINTEL;
+        }
+        else if (NULL != devinfo->clSharedMemAllocINTEL) {
+          libxstream_opencl_config.mem_hst = libxstream_opencl_mem_hst_shared_intel;
+          libxstream_opencl_config.pool_hst_clSharedMemAllocINTEL = devinfo->clSharedMemAllocINTEL;
+          libxstream_opencl_config.pool_hst_clMemFreeINTEL = devinfo->clMemFreeINTEL;
+        }
       }
 # endif
 # if (0 != LIBXSTREAM_USM)
