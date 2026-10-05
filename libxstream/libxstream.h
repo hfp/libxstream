@@ -73,6 +73,12 @@ LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes,
 LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem,
   libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
 /**
+ * Whether the device reads memory from libxstream_mem_host_allocate directly and
+ * coherently, i.e., such a pointer may be given to a kernel instead of a copy
+ * (Intel USM, or fine-grain SVM). Requires an active device; zero otherwise.
+ */
+LIBXSTREAM_API int libxstream_mem_host_device_accessible(void);
+/**
  * Declare a host range the library did not allocate, so that transfers to and
  * from it can take a faster route than the pageable one. What "faster" means is
  * LIBXSTREAM_PIN's mode: staging through a runtime-owned buffer, or registration

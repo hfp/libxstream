@@ -180,12 +180,27 @@ LIBXSTREAM_API_INTERN void libxstream_mem_host_unregister(void* memptr)
 }
 
 
-LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* extra)
+/** Whether libxstream_mem_host_allocate serves from the host pool (libxstream_mem_hst_xmalloc). */
+LIBXSTREAM_API_INTERN int libxstream_mem_hst_pooled(void);
+LIBXSTREAM_API_INTERN int libxstream_mem_hst_pooled(void)
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-  void* result = NULL;
-  int status = EXIT_SUCCESS;
-  LIBXS_UNUSED(extra);
+  return (NULL != libxstream_opencl_config.pool_hst && (
+# if (1 >= LIBXSTREAM_USM)
+    NULL != devinfo->clMemFreeINTEL ||
+# endif
+# if (0 != LIBXSTREAM_USM)
+    0 != devinfo->usm ||
+# endif
+    NULL == devinfo->context)) ? 1 : 0;
+}
+
+
+/** Decides once which kind of memory the host pool allocates (libxstream_opencl_mem_hst_t). */
+LIBXSTREAM_API_INTERN void libxstream_mem_hst_resolve(void);
+LIBXSTREAM_API_INTERN void libxstream_mem_hst_resolve(void)
+{
+  const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   if (libxstream_opencl_mem_hst_unknown == libxstream_opencl_config.mem_hst) {
     LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     if (libxstream_opencl_mem_hst_unknown == libxstream_opencl_config.mem_hst) {
@@ -242,6 +257,15 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* 
     }
     LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
   }
+}
+
+
+LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t size, const void* extra)
+{
+  void* result = NULL;
+  int status = EXIT_SUCCESS;
+  LIBXS_UNUSED(extra);
+  libxstream_mem_hst_resolve();
   switch (libxstream_opencl_config.mem_hst) {
     case libxstream_opencl_mem_hst_shared_intel: {
 # if (1 >= LIBXSTREAM_USM)
@@ -762,15 +786,7 @@ LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, 
   assert(NULL != host_mem);
   if (0 != nbytes) {
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
-    if (NULL != libxstream_opencl_config.pool_hst && (
-# if (1 >= LIBXSTREAM_USM)
-        NULL != devinfo->clMemFreeINTEL ||
-# endif
-# if (0 != LIBXSTREAM_USM)
-        0 != devinfo->usm ||
-# endif
-        NULL == devinfo->context))
-    {
+    if (0 != libxstream_mem_hst_pooled()) {
       result_ptr = libxs_malloc(libxstream_opencl_config.pool_hst, nbytes, LIBXS_MALLOC_NATIVE);
     }
     else if (NULL != devinfo->context) {
@@ -826,6 +842,27 @@ LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, 
   }
   *host_mem = result_ptr;
   return (NULL != result_ptr || 0 == nbytes) ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+
+LIBXSTREAM_API int libxstream_mem_host_device_accessible(void)
+{
+  int result = 0;
+  if (0 != libxstream_mem_hst_pooled() && NULL != libxstream_opencl_config.device.context) {
+    libxstream_mem_hst_resolve();
+    switch (libxstream_opencl_config.mem_hst) {
+      case libxstream_opencl_mem_hst_shared_intel:
+      case libxstream_opencl_mem_hst_host_intel: result = 1; break;
+# if (0 != LIBXSTREAM_USM)
+      case libxstream_opencl_mem_hst_svm: { /* coarse-grain stays mapped, hence is not coherent */
+        result = (0 != ((CL_DEVICE_SVM_FINE_GRAIN_BUFFER | CL_DEVICE_SVM_FINE_GRAIN_SYSTEM) &
+                        libxstream_opencl_config.pool_hst_usm));
+      } break;
+# endif
+      default: break;
+    }
+  }
+  return result;
 }
 
 

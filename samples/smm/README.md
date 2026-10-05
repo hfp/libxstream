@@ -62,6 +62,7 @@ The batchsize argument accepts K/M/G suffixes for memory-budget mode.
 | NREPEAT_H2D   | 1       | H2D copy repetitions for bandwidth measurement            |
 | NREPEAT_SMM   | 1       | SMM kernel launches per timed iteration (for profiling)   |
 | BATCHSIZE_SMM | -       | Override batchsize (and optionally nrepeat: `bs,nrep`)    |
+| UNIFIED       | 0       | 1: kernels read the stack from host memory if possible    |
 
 ## LIBSMM Kernel Parameters
 

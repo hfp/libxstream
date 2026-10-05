@@ -159,6 +159,12 @@ LIBXSTREAM_API void offloadMallocHost(void** ptr, size_t size)
 }
 
 
+LIBXSTREAM_API bool offloadHostMemoryDeviceAccessible(void)
+{
+  return 0 != libxstream_mem_host_device_accessible();
+}
+
+
 LIBXSTREAM_API void offloadMalloc(void** ptr, size_t size)
 {
   const int result = libxstream_mem_allocate(ptr, size);

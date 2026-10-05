@@ -61,6 +61,8 @@ LIBXSTREAM_API void offloadStreamSynchronize(offloadStream_t stream);
 LIBXSTREAM_API void offloadStreamWaitEvent(offloadStream_t stream, offloadEvent_t event);
 
 LIBXSTREAM_API void offloadMallocHost(void** ptr, size_t size);
+/** Whether a kernel may read memory from offloadMallocHost directly (zero-copy). */
+LIBXSTREAM_API bool offloadHostMemoryDeviceAccessible(void);
 LIBXSTREAM_API void offloadMalloc(void** ptr, size_t size);
 LIBXSTREAM_API void offloadFree(void* ptr);
 LIBXSTREAM_API void offloadFreeHost(void* ptr);

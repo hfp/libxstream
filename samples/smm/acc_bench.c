@@ -22,6 +22,9 @@
 #if defined(_OPENMP)
 #  include <omp.h>
 #endif
+#if defined(__OPENCL)
+#  include <libxstream/libxstream.h>
+#endif
 
 #define PRINTF(...) \
   do { \
@@ -116,6 +119,9 @@ int main(int argc, char* argv[]) {
 #if defined(__OPENCL)
   const char* const env_nrepeat_smm = getenv("NREPEAT_SMM");
   const int nrepeat_smm = (NULL == env_nrepeat_smm ? 1 : MAX(atoi(env_nrepeat_smm), 1));
+  /* kernels read the stack from host memory if the device can (zero-copy) */
+  const char* const env_unified = getenv("UNIFIED");
+  const int unified = (NULL != env_unified && 0 != atoi(env_unified));
 #else
   const int nrepeat_smm = 1;
 #endif
@@ -182,6 +188,7 @@ int main(int argc, char* argv[]) {
 #endif
       const int max_kernel_dim = ceil(sqrt(m * n));
       int *stack_hst = NULL, *stack_dev = NULL, *trans_hst = NULL, *trans_dev = NULL;
+      const int* stack_kernel = NULL; /* stack given to the kernel */
       ELEM_TYPE *amat_hst = NULL, *bmat_hst = NULL, *cmat_hst = NULL;
       ELEM_TYPE *amat_dev = NULL, *bmat_dev = NULL, *cmat_dev = NULL;
       void* stream = NULL;
@@ -313,6 +320,16 @@ int main(int argc, char* argv[]) {
       trans_dev = trans_hst;
       CHECK(c_dbcsr_acc_memset_zero(cmat_dev, 0 /*offset*/, sizeof(ELEM_TYPE) * mn * nc, stream), &result, check);
 #endif
+      stack_kernel = stack_dev;
+#if defined(__OPENCL)
+      if (0 != unified) {
+        if (0 != libxstream_mem_host_device_accessible()) {
+          stack_kernel = stack_hst;
+          PRINTF("stack: read by the kernel from host memory\n");
+        }
+        else PRINTF("stack: host memory is not device-accessible, hence uploaded\n");
+      }
+#endif
       /* warmup execution and prebuild transpose-kernel */
       for (r = 0; r < warmup / 2; ++r) {
         CHECK(libsmm_acc_transpose(trans_dev, 0 /*offset*/, nb, bmat_dev, DBCSR_TYPE(ELEM_TYPE), k, n, MAX_KERNEL_DIM, stream),
@@ -328,7 +345,7 @@ int main(int argc, char* argv[]) {
       transpose = libxs_timer_duration(start, libxs_timer_tick());
       /* warmup execution and prebuild SMM-kernel */
       for (r = 0; r < warmup; ++r) {
-        CHECK(libsmm_acc_process(stack_hst, stack_dev, stack_size, DBCSR_TYPE(ELEM_TYPE), amat_dev, bmat_dev, cmat_dev, m, n, k,
+        CHECK(libsmm_acc_process(stack_hst, stack_kernel, stack_size, DBCSR_TYPE(ELEM_TYPE), amat_dev, bmat_dev, cmat_dev, m, n, k,
                 MAX_KERNEL_DIM, 1 /*homogeneous*/, stream, stream),
           &result, check);
       }
@@ -336,7 +353,7 @@ int main(int argc, char* argv[]) {
       CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
       start = libxs_timer_tick();
       for (r = 0; r < nrepeat; ++r) {
-        CHECK(libsmm_acc_process(stack_hst, stack_dev, stack_size, DBCSR_TYPE(ELEM_TYPE), amat_dev, bmat_dev, cmat_dev, m, n, k,
+        CHECK(libsmm_acc_process(stack_hst, stack_kernel, stack_size, DBCSR_TYPE(ELEM_TYPE), amat_dev, bmat_dev, cmat_dev, m, n, k,
                 MAX_KERNEL_DIM, 1 /*homogeneous*/, stream, stream),
           &result, check);
       }
