@@ -60,6 +60,11 @@ static int dbm_multiply_opencl_initialized /*= 0*/;
 /* FLOPs per fill quartile and of pure batches (last), FLOPs if padded, and launches */
 static size_t dbm_multiply_opencl_fill_flops[5], dbm_multiply_opencl_fill_padded;
 static size_t dbm_multiply_opencl_fill_nlaunch;
+/* Runs of consecutive tasks sharing A (fusion candidates): tasks, runs, sum of N, FLOPs,
+ * FLOPs in runs of two or more tasks, and FLOPs weighted by the length of their run */
+static size_t dbm_multiply_opencl_run_ntasks, dbm_multiply_opencl_run_nruns;
+static size_t dbm_multiply_opencl_run_sumn, dbm_multiply_opencl_run_flops;
+static size_t dbm_multiply_opencl_run_multi, dbm_multiply_opencl_run_wflops;
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
 static int dbm_multiply_opencl_smm /*= 0*/;
 #endif
@@ -92,6 +97,16 @@ static void dbm_multiply_opencl_report(void)
         (int)(100 * dbm_multiply_opencl_fill_flops[i] / total));
     }
     fprintf(stderr, " pure=%i%%\n", (int)(100 * dbm_multiply_opencl_fill_flops[4] / total));
+  }
+  if (0 < dbm_multiply_opencl_run_nruns && 0 < dbm_multiply_opencl_run_flops) {
+    fprintf(stderr,
+      "INFO ACC/LIBDBM: A-runs tasks/run=%.1f (FLOP-weighted %.1f) FLOPs in runs>=2: %i%% "
+      "n/task=%.1f n/run=%.1f\n",
+      (double)dbm_multiply_opencl_run_ntasks / dbm_multiply_opencl_run_nruns,
+      (double)dbm_multiply_opencl_run_wflops / dbm_multiply_opencl_run_flops,
+      (int)(100 * dbm_multiply_opencl_run_multi / dbm_multiply_opencl_run_flops),
+      (double)dbm_multiply_opencl_run_sumn / dbm_multiply_opencl_run_ntasks,
+      (double)dbm_multiply_opencl_run_sumn / dbm_multiply_opencl_run_nruns);
   }
 }
 
@@ -146,6 +161,36 @@ static void dbm_multiply_opencl_fill_add(const dbm_multiply_gpu_launch_info_t* t
     LIBXS_ATOMIC_RELAXED);
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_fill_padded, padded, LIBXS_ATOMIC_RELAXED);
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_fill_nlaunch, 1, LIBXS_ATOMIC_RELAXED);
+}
+
+/* Accounts runs of consecutive tasks sharing A (native format), see dbm_multiply_opencl_report. */
+static void dbm_multiply_opencl_runs_add(const int* params, int ntasks)
+{
+  const int stride = DBM_OPENCL_TASK_SIZE;
+  size_t nruns = 0, sumn = 0, flops = 0, multi = 0, wflops = 0;
+  int i = 0;
+  while (i < ntasks) { /* a run shares offset_a, hence m and k */
+    const int* const first = params + (size_t)i * stride;
+    size_t run_flops = 0, run_n = 0;
+    int j = i;
+    for (; j < ntasks && params[(size_t)j * stride + 3] == first[3]; ++j) {
+      const int* const task = params + (size_t)j * stride;
+      run_flops += (size_t)2 * task[0] * task[1] * task[2];
+      run_n += (size_t)task[1];
+    }
+    ++nruns;
+    sumn += run_n;
+    flops += run_flops;
+    wflops += run_flops * (size_t)(j - i);
+    if (1 < j - i) multi += run_flops;
+    i = j;
+  }
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_ntasks, (size_t)ntasks, LIBXS_ATOMIC_RELAXED);
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_nruns, nruns, LIBXS_ATOMIC_RELAXED);
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_sumn, sumn, LIBXS_ATOMIC_RELAXED);
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_flops, flops, LIBXS_ATOMIC_RELAXED);
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_multi, multi, LIBXS_ATOMIC_RELAXED);
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_wflops, wflops, LIBXS_ATOMIC_RELAXED);
 }
 
 static int dbm_multiply_gpu_launch_info(dbm_multiply_gpu_launch_info_t* info, const int* params,
@@ -590,6 +635,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
 #endif
     if ((2 <= verbosity || 0 > verbosity) && EXIT_SUCCESS == result) {
       dbm_multiply_opencl_fill_add(&task, ntasks);
+      if (0 == param_format) dbm_multiply_opencl_runs_add(params_host, ntasks);
     }
     if (0 != trace && EXIT_SUCCESS == result) {
       static LIBXS_TLS DBM_TIMER_TICKINT start2 = 0;
