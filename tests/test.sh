@@ -53,7 +53,7 @@ NTEST=1
 NMAX=$(${WC} <<<"${TESTS}" -w | ${TR} -d " ")
 for TEST in ${TESTS}; do
   NAME=$(${SED} <<<"${TEST}" 's/.*\///;s/\(.*\)\..*/\1/')
-  printf "%02d of %02d: %-16s " "${NTEST}" "${NMAX}" "${NAME}"
+  printf "%02d of %02d: %-18s " "${NTEST}" "${NMAX}" "${NAME}"
   if [[ "${TEST}" == *.sh ]]; then
     TESTX="${HERE}/${NAME}.sh"
   elif [ -e "${BLDDIR}/${NAME}${EXE}" ]; then
