@@ -394,7 +394,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           }
           sm = ((0 != sm && 0 != wgsize[0]) ? (LIBXS_ISPOT(bn * sizeof(double)) + 1) : 0);
           clinear = (NULL == lin_env ? 0 /*default*/ : atoi(lin_env));
-          { /* mirrors SG_EXACT (libxstream_common.h): the kernel refuses SGBCST/BLKRD_P else */
+          { /* mirrors SG_EXACT (libxstream_common.h): the kernel refuses SGBCST/ROWLANE else */
             const int sgexact = (0 != gpu && 0 < sgsize && 0 < wgsize[0] &&
                                  2 <= devinfo->std_level[0] &&
                                  (0 != devinfo->intel || (0 != devinfo->nv && 32 == sgsize)));
@@ -425,8 +425,10 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
             offset += (size_t)LIBXS_SNPRINTF(
               base_flags + offset, sizeof(base_flags) - offset, " -DPRECISION=%i", precision);
           }
-          /* tasks per work-group of the per-task dispatch, which fuses runs sharing A */
-          fuse = LIBXS_MAX(NULL == fuse_env ? 1 /*default*/ : atoi(fuse_env), 1);
+          /* tasks per work-group of the per-task dispatch, which fuses runs sharing A:
+           * 16 paid off for ROWLANE at all measured shapes but slowed SGBCST down */
+          fuse = ((NULL == fuse_env || 0 >= atoi(fuse_env)) ? (0 != blkrd ? 16 : 1)
+                                                            : atoi(fuse_env));
           if (1 < fuse) {
             offset += (size_t)LIBXS_SNPRINTF(
               base_flags + offset, sizeof(base_flags) - offset, " -DFUSE=%i", fuse);
@@ -481,7 +483,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           key.bk = task.max_k; /* exact K for full unrolling */
         }
         else { /* heterogeneous: max_m for compile-time division.
-                * With BLKRD_P (per-task dispatch), max_m is unused
+                * With ROWLANE (per-task dispatch), max_m is unused
                 * so omit it to consolidate into fewer kernels. */
           if (0 == blkrd) {
             key.max_m = (0 == clinear ? task.max_m : task.max_n);
@@ -509,7 +511,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
               if (0 != key.m) { /* homogeneous: add shape defines */
                 const int use_wg = (0 != use_blkrd || 0 != blkrd || 0 != sgbcst);
                 const char* const kind = (0 != use_blkrd ? " -DBLKRD_A"
-                                          : (0 != blkrd ? " -DBLKRD_P"
+                                          : (0 != blkrd ? " -DROWLANE"
                                                         : (0 != sgbcst ? " -DSGBCST" : "")));
                 const int n = LIBXS_SNPRINTF(flags, sizeof(flags),
                   "%s -DWG=%i -DBK=%i -DDBM_M=%i -DDBM_N=%i -DDBM_K=%i%s", base_flags,
@@ -520,13 +522,14 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
               else if (0 < key.max_m) { /* heterogeneous with known max_m */
                 const int n = LIBXS_SNPRINTF(flags, sizeof(flags),
                   "%s -DWG=%i -DBK=%i -DMAX_M=%i%s%s", base_flags, (int)wgsize[0], bk, key.max_m,
-                  0 != blkrd ? " -DBLKRD_P" : "", (0 != sgbcst && 0 == blkrd) ? " -DSGBCST" : "");
+                  0 != blkrd ? " -DROWLANE" : "",
+                  (0 != sgbcst && 0 == blkrd) ? " -DSGBCST" : "");
                 LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
                 LIBXS_UNUSED(n);
               }
               else { /* heterogeneous: BK only */
                 const int n = LIBXS_SNPRINTF(flags, sizeof(flags), "%s -DWG=%i -DBK=%i%s%s",
-                  base_flags, (int)wgsize[0], bk, 0 != blkrd ? " -DBLKRD_P" : "",
+                  base_flags, (int)wgsize[0], bk, 0 != blkrd ? " -DROWLANE" : "",
                   (0 != sgbcst && 0 == blkrd) ? " -DSGBCST" : "");
                 LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
                 LIBXS_UNUSED(n);

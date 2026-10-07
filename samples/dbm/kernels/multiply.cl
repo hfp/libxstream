@@ -48,7 +48,7 @@
 #  define BK 1
 #endif
 
-/* K-block for BLKRD_P: cap at 8 to limit register pressure
+/* K-block for ROWLANE: cap at 8 to limit register pressure
  * (a_reg[BKP] + c_acc[SG] must fit in available GRF). */
 #if (BK <= 8)
 #  define BKP BK
@@ -79,11 +79,11 @@
 
 /* Override SG for optimal tile geometry.
  * For BLKRD_A (homogeneous): SG = DBM_M so each sub-group = one task.
- * For BLKRD_P (row per lane): SG = 16 for efficient sub-group ops (Intel). */
+ * For ROWLANE (row per lane): SG = 16 for efficient sub-group ops (Intel). */
 #if defined(BLKRD_A) && defined(DBM_M) && defined(SG) && (DBM_M != SG)
 #  undef SG
 #  define SG DBM_M
-#elif defined(BLKRD_P) && defined(SG) && (16 < SG) && defined(INTEL) && (0 != INTEL)
+#elif defined(ROWLANE) && defined(SG) && (16 < SG) && defined(INTEL) && (0 != INTEL)
 #  undef SG
 #  define SG 16
 #endif
@@ -212,11 +212,11 @@
 #endif
 
 /* the host launches a work-group per FUSE tasks for these, which the flat path misreads */
-#if (defined(SGBCST) || defined(BLKRD_P)) && !defined(BCST_SG)
-#  error "SGBCST and BLKRD_P need sub-group broadcast (SG_EXACT)"
+#if (defined(SGBCST) || defined(ROWLANE)) && !defined(BCST_SG)
+#  error "SGBCST and ROWLANE need sub-group broadcast (SG_EXACT)"
 #endif
-#if defined(BLKRD_P) && defined(CLINEAR)
-#  error "BLKRD_P stores C column-major (no CLINEAR)"
+#if defined(ROWLANE) && defined(CLINEAR)
+#  error "ROWLANE stores C column-major (no CLINEAR)"
 #endif
 
 /* Bits per shape field of a packed param_format (host: DBM_OPENCL_LIBSMM_PFORMAT) */
@@ -325,7 +325,7 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
 #else
   TYPE cvec[BN];
 #endif
-#if defined(BLKRD_P) && defined(BCST_SG)
+#if defined(ROWLANE) && defined(BCST_SG)
   /* per-task dispatch, row per lane: N is tiled by SG columns, which
    * sub_group_broadcast fans out per K-step (block-reading A gave wrong
    * results at some offsets and was slower than plain loads) */
