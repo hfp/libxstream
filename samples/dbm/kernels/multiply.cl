@@ -79,11 +79,11 @@
 
 /* When block reads are enabled, override SG for optimal tile geometry.
  * For BLKRD_A (homogeneous): SG = DBM_M so each sub-group = one task.
- * For BLKRD_P (heterogeneous): SG = 16 for efficient sub-group ops. */
+ * For BLKRD_P (heterogeneous): SG = 16 for efficient sub-group ops (Intel). */
 #if defined(BLKRD_A) && defined(DBM_M) && defined(SG) && (DBM_M != SG)
 #  undef SG
 #  define SG DBM_M
-#elif defined(BLKRD_P) && defined(SG) && (16 < SG)
+#elif defined(BLKRD_P) && defined(SG) && (16 < SG) && defined(INTEL) && (0 != INTEL)
 #  undef SG
 #  define SG 16
 #endif
@@ -211,10 +211,12 @@
     } while (0)
 #endif
 
-/* the host launches one work-group per task for these, which the flat path below misreads */
-#if (defined(SGBCST) && !defined(BCST_SG)) || \
-  (defined(BLKRD_P) && !(defined(A_BLOCK_READ) && defined(BCST_SG)))
+/* the host launches a work-group per FUSE tasks for these, which the flat path misreads */
+#if (defined(SGBCST) || defined(BLKRD_P)) && !defined(BCST_SG)
 #  error "SGBCST and BLKRD_P need sub-group broadcast (SG_EXACT)"
+#endif
+#if defined(BLKRD_P) && defined(CLINEAR)
+#  error "BLKRD_P stores C column-major (no CLINEAR)"
 #endif
 
 /* Bits per shape field of a packed param_format (host: DBM_OPENCL_LIBSMM_PFORMAT) */
@@ -260,6 +262,54 @@
     } while (0)
 #endif
 
+/* Tasks per work-group of the per-task dispatch: a run of consecutive tasks sharing A
+ * (hence M and K) is one product over the run's concatenated columns */
+#if !defined(FUSE) || (1 > FUSE)
+#  undef FUSE
+#  define FUSE 1
+#endif
+
+/* Run of tasks sharing A from T0 up to T (before T1), with task T0's SHIFT/SHAPE/IBASE */
+#define DBM_RUN(ITASK, T0, T1, PFMT, PARAMS, SHIFT, SHAPE, IBASE, T, NCOL) \
+  do { \
+    (SHIFT) = (PARAMS); \
+    DBM_TASK_DECODE(ITASK, T0, PFMT, SHIFT, SHAPE, IBASE); \
+    DBM_SHAPE_OVERRIDE(SHAPE); \
+    (NCOL) = XN(SHAPE); \
+    for ((T) = (T0) + 1; (T) < (T1); ++(T)) { \
+      CONSTANT const int* restrict dbm_run_shift_ = (PARAMS); \
+      SINT dbm_run_shape_[3], dbm_run_ibase_ = 0; \
+      DBM_TASK_DECODE(ITASK, T, PFMT, dbm_run_shift_, dbm_run_shape_, dbm_run_ibase_); \
+      DBM_SHAPE_OVERRIDE(dbm_run_shape_); \
+      if (XA(dbm_run_shift_, dbm_run_ibase_) != XA(SHIFT, IBASE) || \
+          XM(dbm_run_shape_) != XM(SHAPE) || XK(dbm_run_shape_) != XK(SHAPE)) \
+      { \
+        break; \
+      } \
+      (NCOL) += XN(dbm_run_shape_); \
+    } \
+  } while (0)
+
+/* Advances a lane's task J (run ends before T, J's columns start at JCOL0) to cover COL */
+#define DBM_RUN_SEEK(ITASK, T, PFMT, PARAMS, J, JSHIFT, JSHAPE, JBASE, JCOL0, COL) \
+  do { \
+    while ((JCOL0) + XN(JSHAPE) <= (COL) && (J) + 1 < (T)) { \
+      (JCOL0) += XN(JSHAPE); \
+      ++(J); \
+      (JSHIFT) = (PARAMS); \
+      (JBASE) = 0; \
+      DBM_TASK_DECODE(ITASK, J, PFMT, JSHIFT, JSHAPE, JBASE); \
+      DBM_SHAPE_OVERRIDE(JSHAPE); \
+    } \
+  } while (0)
+
+/* Row MB + lane of A's column K, which the sub-group reads at once (rows MB..MB+SG-1 exist) */
+#if defined(A_BLOCK_READ)
+#  define DBM_ROW_A(AL, K, XM, MB, M) CVT(A_BLOCK_READ((AL) + (K) * (XM) + (MB)))
+#else
+#  define DBM_ROW_A(AL, K, XM, MB, M) CVT((AL)[(K) * (XM) + (M)])
+#endif
+
 #if defined(WG) && (0 < WG)
 __attribute__((reqd_work_group_size(WG, 1, 1))) REQD_SG
 #endif
@@ -282,82 +332,105 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
 #else
   TYPE cvec[BN];
 #endif
-#if defined(BLKRD_P) && defined(A_BLOCK_READ) && defined(BCST_SG)
-  /* per-task dispatch: block-read A, B distributed across lanes.
-   * Each lane holds one M-row (via block read). N is tiled by BN
-   * with sub_group_broadcast fanning B out to BN columns per K-step. */
-  const int tid = (int)get_group_id(0);
+#if defined(BLKRD_P) && defined(BCST_SG)
+  /* per-task dispatch, row per lane: N is tiled by SG columns, which
+   * sub_group_broadcast fans out per K-step (block-read A on Intel) */
+  const int t1 = MIN((int)get_group_id(0) * FUSE + FUSE, ntasks);
   const SINT sid = (SINT)SGLID();
-  SINT shape[3], ibase = 0;
-  DBM_TASK_DECODE(itask, tid, param_format, params, shape, ibase);
-  DBM_SHAPE_OVERRIDE(shape);
-  {
-    CONSTANT const double* restrict al = a + XA(params, ibase);
-    CONSTANT const double* restrict bl = b + XB(params, ibase);
-    const int c0 = XC(params, ibase);
-    const SINT xm = XM(shape), xn = XN(shape), xk = XK(shape);
-    const SINT nsg = (SINT)NSG();
-    TYPE c_acc[SG];
-    /* M-tiling: each sub-group handles SG consecutive rows */
-    UNROLL_OUTER(1)
-    for (SINT mb = (SINT)SGID() * SG; mb < xm; mb += nsg * SG) {
-      const SINT m = mb + sid;
-      /* N-tiling by SG columns: lane sid holds B-column sid+n0 */
-      UNROLL_AUTO for (SINT n0 = 0; n0 < xn; n0 += SG) {
-        SINT k = 0;
-        UNROLL_FORCE(SG) for (SINT i = 0; i < SG; ++i) c_acc[i] = ZERO;
-        UNROLL_AUTO for (; k + BKP <= xk; k += BKP) {
-          TYPE a_reg[BKP];
-          if (mb + SG <= xm) {
+  int t0 = (int)get_group_id(0) * FUSE;
+  while (t0 < t1) {
+    CONSTANT const int* restrict shift;
+    SINT shape[3], ibase = 0;
+    int t, ncol;
+    DBM_RUN(itask, t0, t1, param_format, params, shift, shape, ibase, t, ncol);
+    {
+      CONSTANT const double* restrict al = a + XA(shift, ibase);
+      const SINT xm = XM(shape), xk = XK(shape);
+      TYPE c_acc[SG];
+      /* M-tiling: each sub-group handles SG consecutive rows */
+      UNROLL_OUTER(1)
+      for (SINT mb = (SINT)(get_local_id(0) / SG * SG); mb < xm; mb += (SINT)get_local_size(0))
+      {
+        const SINT m = mb + sid;
+        CONSTANT const int* restrict jshift = shift;
+        SINT jshape[3] = {shape[0], shape[1], shape[2]}, jbase = ibase;
+        int j = t0, jcol0 = 0;
+        UNROLL_AUTO for (int n0 = 0; n0 < ncol; n0 += SG) {
+          const int col = n0 + sid;
+          SINT k = 0, jcol;
+          int boff, coff;
+          DBM_RUN_SEEK(itask, t, param_format, params, j, jshift, jshape, jbase, jcol0, col);
+          jcol = (SINT)(col < ncol ? (col - jcol0) : 0);
+          boff = XB(jshift, jbase);
+          coff = XC(jshift, jbase);
+          UNROLL_FORCE(SG) for (SINT i = 0; i < SG; ++i) c_acc[i] = ZERO;
+          UNROLL_AUTO for (; k + BKP <= xk; k += BKP) {
+            TYPE a_reg[BKP];
+            if (mb + SG <= xm) {
+              UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) {
+                a_reg[kb] = DBM_ROW_A(al, k + kb, xm, mb, m);
+              }
+            }
+            else {
+              UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) {
+                a_reg[kb] = (m < xm) ? CVT(al[IDT(m, k + kb, xm, xk)]) : ZERO;
+              }
+            }
             UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) {
-              a_reg[kb] = CVT(A_BLOCK_READ(al + (k + kb) * xm + mb));
+              const TYPE bv =
+                (col < ncol) ? CVT(b[boff + IDX(k + kb, jcol, xk, XN(jshape))]) : ZERO;
+              UNROLL_FORCE(SG) for (SINT n = 0; n < SG; ++n) {
+                c_acc[n] = MAD(a_reg[kb], BCST_SG(bv, (uint)n), c_acc[n]);
+              }
             }
           }
-          else {
-            UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) {
-              a_reg[kb] = (m < xm) ? CVT(al[IDT(m, k + kb, xm, xk)]) : ZERO;
-            }
-          }
-          UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) {
-            const TYPE bv = (sid + n0 < xn) ? CVT(bl[IDX(k + kb, sid + n0, xk, xn)]) : ZERO;
+          /* K remainder */
+          UNROLL_AUTO for (; k < xk; ++k) {
+            const TYPE ak = (mb + SG <= xm) ? DBM_ROW_A(al, k, xm, mb, m)
+                                            : ((m < xm) ? CVT(al[IDT(m, k, xm, xk)]) : ZERO);
+            const TYPE bv = (col < ncol) ? CVT(b[boff + IDX(k, jcol, xk, XN(jshape))]) : ZERO;
             UNROLL_FORCE(SG) for (SINT n = 0; n < SG; ++n) {
-              c_acc[n] = MAD(a_reg[kb], BCST_SG(bv, (uint)n), c_acc[n]);
+              c_acc[n] = MAD(ak, BCST_SG(bv, (uint)n), c_acc[n]);
             }
           }
-        }
-        /* K remainder */
-        UNROLL_AUTO for (; k < xk; ++k) {
-          const TYPE ak = (mb + SG <= xm) ? CVT(A_BLOCK_READ(al + k * xm + mb))
-                                          : ((m < xm) ? CVT(al[IDT(m, k, xm, xk)]) : ZERO);
-          const TYPE bv = (sid + n0 < xn) ? CVT(bl[IDX(k, sid + n0, xk, xn)]) : ZERO;
-          UNROLL_FORCE(SG) for (SINT n = 0; n < SG; ++n) {
-            c_acc[n] = MAD(ak, BCST_SG(bv, (uint)n), c_acc[n]);
-          }
-        }
-        /* store: only active M-rows and valid N-columns */
-        if (m < xm) {
-          const SINT ncols = MIN((SINT)SG, xn - n0);
-          UNROLL_AUTO for (SINT n = 0; n < ncols; ++n) {
-            DBM_ACCUMULATE(c + c0 + XI(m, n0 + n, xm, xn), alpha * c_acc[n]);
+          { /* store: column n belongs to the task of lane n (broadcast by all lanes) */
+            const int ncols = MIN(SG, ncol - n0);
+            UNROLL_AUTO for (int n = 0; n < ncols; ++n) {
+              const int cn = BCST_SG(coff, (uint)n), jn = BCST_SG((int)jcol, (uint)n);
+              if (m < xm) {
+                DBM_ACCUMULATE(c + cn + XI(m, jn, xm, 0), alpha * c_acc[n]);
+              }
+            }
           }
         }
       }
     }
+    t0 = t;
   }
 #elif defined(SGBCST) && defined(BCST_SG) && !defined(BLKRD_A)
-  /* per-task dispatch: broadcast shares A */
-  const int tid = (int)get_group_id(0);
+  /* per-task dispatch, column per lane: broadcast shares A */
+  const int t1 = MIN((int)get_group_id(0) * FUSE + FUSE, ntasks);
   const SINT sid = (SINT)get_local_id(0);
   /* rows are broadcast within a sub-group, which is narrower than WG if WG > SG */
   const SINT lane = (SINT)SGLID();
-  SINT shape[3], ibase = 0;
-  DBM_TASK_DECODE(itask, tid, param_format, params, shape, ibase);
-  DBM_SHAPE_OVERRIDE(shape);
-  b += XB(params, ibase);
-  UNROLL_AUTO for (SINT nb0 = 0; nb0 < XN(shape); nb0 += WG) { /* all lanes */
-    const SINT nb = nb0 + sid;
-    const int active = (nb < XN(shape));
-    DBM_BCST(alpha, ibase, params, shape, a, b, c, cvec, lane, active ? nb : 0, active, BM);
+  int t0 = (int)get_group_id(0) * FUSE;
+  while (t0 < t1) {
+    CONSTANT const int* restrict shift;
+    SINT shape[3], ibase = 0;
+    int t, ncol;
+    DBM_RUN(itask, t0, t1, param_format, params, shift, shape, ibase, t, ncol);
+    {
+      CONSTANT const int* restrict jshift = shift;
+      SINT jshape[3] = {shape[0], shape[1], shape[2]}, jbase = ibase;
+      int j = t0, jcol0 = 0;
+      UNROLL_AUTO for (int nb0 = 0; nb0 < ncol; nb0 += WG) { /* all lanes */
+        const int col = nb0 + sid, active = (col < ncol);
+        DBM_RUN_SEEK(itask, t, param_format, params, j, jshift, jshape, jbase, jcol0, col);
+        DBM_BCST(alpha, jbase, jshift, jshape, a, b + XB(jshift, jbase), c, cvec, lane,
+          active ? (col - jcol0) : 0, active, BM);
+      }
+    }
+    t0 = t;
   }
 #else
   /* flat dispatch: global work-item maps to (task, row) */
