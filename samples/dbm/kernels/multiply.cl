@@ -349,8 +349,7 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
       TYPE c_acc[SG];
       /* M-tiling: each sub-group handles SG consecutive rows */
       UNROLL_OUTER(1)
-      for (SINT mb = (SINT)(get_local_id(0) / SG * SG); mb < xm; mb += (SINT)get_local_size(0))
-      {
+      for (SINT mb = (SINT)(get_local_id(0) / SG * SG); mb < xm; mb += (SINT)get_local_size(0)) {
         const SINT m = mb + sid;
         CONSTANT const int* restrict jshift = shift;
         SINT jshape[3] = {shape[0], shape[1], shape[2]}, jbase = ibase;
