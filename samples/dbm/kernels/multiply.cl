@@ -77,9 +77,9 @@
 #  define DBM_ACCUMULATE(PTR, VAL) ACCUMULATE(PTR, VAL)
 #endif
 
-/* When block reads are enabled, override SG for optimal tile geometry.
+/* Override SG for optimal tile geometry.
  * For BLKRD_A (homogeneous): SG = DBM_M so each sub-group = one task.
- * For BLKRD_P (heterogeneous): SG = 16 for efficient sub-group ops (Intel). */
+ * For BLKRD_P (row per lane): SG = 16 for efficient sub-group ops (Intel). */
 #if defined(BLKRD_A) && defined(DBM_M) && defined(SG) && (DBM_M != SG)
 #  undef SG
 #  define SG DBM_M
@@ -90,7 +90,7 @@
 
 /* Sub-group block read for A: each lane loads one row-element from a
  * contiguous column of A. Requires DBM_M == SG (flat dispatch). */
-#if (defined(BLKRD_A) || defined(BLKRD_P)) && defined(SG) && (0 < SG) && defined(INTEL) && \
+#if defined(BLKRD_A) && defined(SG) && (0 < SG) && defined(INTEL) && \
   (0 != INTEL)
 #  if defined(PRECISION) && (1 == PRECISION)
 #    define A_BLOCK_READ(PTR) as_float(intel_sub_group_block_read((const global uint*)(PTR)))
@@ -303,13 +303,6 @@
     } \
   } while (0)
 
-/* Row MB + lane of A's column K, which the sub-group reads at once (rows MB..MB+SG-1 exist) */
-#if defined(A_BLOCK_READ)
-#  define DBM_ROW_A(AL, K, XM, MB, M) CVT(A_BLOCK_READ((AL) + (K) * (XM) + (MB)))
-#else
-#  define DBM_ROW_A(AL, K, XM, MB, M) CVT((AL)[(K) * (XM) + (M)])
-#endif
-
 #if defined(WG) && (0 < WG)
 __attribute__((reqd_work_group_size(WG, 1, 1))) REQD_SG
 #endif
@@ -334,7 +327,8 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
 #endif
 #if defined(BLKRD_P) && defined(BCST_SG)
   /* per-task dispatch, row per lane: N is tiled by SG columns, which
-   * sub_group_broadcast fans out per K-step (block-read A on Intel) */
+   * sub_group_broadcast fans out per K-step (block-reading A gave wrong
+   * results at some offsets and was slower than plain loads) */
   const int t1 = MIN((int)get_group_id(0) * FUSE + FUSE, ntasks);
   const SINT sid = (SINT)SGLID();
   int t0 = (int)get_group_id(0) * FUSE;
@@ -365,9 +359,9 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
           UNROLL_FORCE(SG) for (SINT i = 0; i < SG; ++i) c_acc[i] = ZERO;
           UNROLL_AUTO for (; k + BKP <= xk; k += BKP) {
             TYPE a_reg[BKP];
-            if (mb + SG <= xm) {
+            if (mb + SG <= xm) { /* no row of the sub-group is out of range */
               UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) {
-                a_reg[kb] = DBM_ROW_A(al, k + kb, xm, mb, m);
+                a_reg[kb] = CVT(al[IDT(m, k + kb, xm, xk)]);
               }
             }
             else {
@@ -385,8 +379,7 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
           }
           /* K remainder */
           UNROLL_AUTO for (; k < xk; ++k) {
-            const TYPE ak = (mb + SG <= xm) ? DBM_ROW_A(al, k, xm, mb, m)
-                                            : ((m < xm) ? CVT(al[IDT(m, k, xm, xk)]) : ZERO);
+            const TYPE ak = (mb + SG <= xm || m < xm) ? CVT(al[IDT(m, k, xm, xk)]) : ZERO;
             const TYPE bv = (col < ncol) ? CVT(b[boff + IDX(k, jcol, xk, XN(jshape))]) : ZERO;
             UNROLL_FORCE(SG) for (SINT n = 0; n < SG; ++n) {
               c_acc[n] = MAD(ak, BCST_SG(bv, (uint)n), c_acc[n]);

@@ -400,7 +400,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
                                  (0 != devinfo->intel || (0 != devinfo->nv && 32 == sgsize)));
             sgbcst = (0 != sgexact && (NULL == sgb_env ? (0 == devinfo->nv) /*default*/
                                                         : (0 != atoi(sgb_env))));
-            /* row per lane for mixed shapes, with block reads on Intel (opt-in on NVIDIA) */
+            /* row per lane (per-task dispatch), default on Intel and opt-in on NVIDIA */
             blkrd = (0 != sgexact && 0 == clinear &&
                      (NULL == blk_env ? (0 != devinfo->intel) /*default*/
                                       : (0 != atoi(blk_env))));
@@ -507,12 +507,13 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
               cl_kernel kernel_new = NULL;
               size_t wgs[3];
               if (0 != key.m) { /* homogeneous: add shape defines */
-                const int use_wg = (0 != use_blkrd || 0 != sgbcst);
+                const int use_wg = (0 != use_blkrd || 0 != blkrd || 0 != sgbcst);
+                const char* const kind = (0 != use_blkrd ? " -DBLKRD_A"
+                                          : (0 != blkrd ? " -DBLKRD_P"
+                                                        : (0 != sgbcst ? " -DSGBCST" : "")));
                 const int n = LIBXS_SNPRINTF(flags, sizeof(flags),
-                  "%s -DWG=%i -DBK=%i -DDBM_M=%i -DDBM_N=%i -DDBM_K=%i%s%s", base_flags,
-                  use_wg ? (int)wgsize[0] : 0, key.bk, key.m, key.n, key.k,
-                  0 != use_blkrd ? " -DBLKRD_A" : "",
-                  (0 != sgbcst && 0 == use_blkrd) ? " -DSGBCST" : "");
+                  "%s -DWG=%i -DBK=%i -DDBM_M=%i -DDBM_N=%i -DDBM_K=%i%s", base_flags,
+                  use_wg ? (int)wgsize[0] : 0, key.bk, key.m, key.n, key.k, kind);
                 LIBXS_ASSERT(0 < n && (size_t)n < sizeof(flags));
                 LIBXS_UNUSED(n);
               }
@@ -595,9 +596,9 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock_memory);
       }
       if (EXIT_SUCCESS == result) { /* determine dispatch mode: per-task vs flat */
-        const int per_task = (0 != sgbcst && 0 == use_blkrd) ||
-                             (0 != blkrd && 0 != task.mnk_changes);
-        const int use_wg = (0 != task.mnk_changes || 0 != use_blkrd || 0 != sgbcst);
+        const int per_task = (0 == use_blkrd && (0 != sgbcst || 0 != blkrd));
+        const int use_wg = (0 != task.mnk_changes || 0 != use_blkrd || 0 != blkrd ||
+                            0 != sgbcst);
         size_t nflops = 0, nbytes = 0;
         size = (cl_int)(work_tasks * (0 == clinear ? task.max_m : task.max_n));
         if (0 != config->profile) { /* the profile reports rates only if it knows the work */

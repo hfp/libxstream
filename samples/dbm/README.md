@@ -80,7 +80,7 @@ miniapp also exercises heterogeneous batches.
 | DBM_MULTIPLY_NZ     | 0       | Non-zero: skip zero contributions when accumulating into C         |
 | DBM_MULTIPLY_LIN    | 0       | Non-zero: swap the access pattern of A and B                       |
 | DBM_MULTIPLY_SGB    | 1       | Sub-group broadcast on Intel GPUs (0 = off), opt-in on NVIDIA (1)  |
-| DBM_MULTIPLY_BLK    | auto    | Row per lane for mixed shapes: 1 on Intel (block reads), 0 else    |
+| DBM_MULTIPLY_BLK    | auto    | Row per lane per task: 1 on Intel, 0 elsewhere (opt-in)            |
 | DBM_MULTIPLY_FUSE   | 1       | Tasks per work-group (per-task kernels), fusing those sharing A    |
 
 `LIBXSTREAM_VERBOSE=2` (or higher) prints the kernel configuration and the
