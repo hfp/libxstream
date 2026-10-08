@@ -67,7 +67,8 @@ type_names = {type_dp: "double", type_sp: "float"}
 
 def start(args):
     """Construct and start tuner instance"""
-    instance = SmmTuner(args)
+    instance = SmmTuner(args)  # exits unless tuning
+    register_libxs()
     if not default_dbg:
         try:
             TuningRunMain(instance, args).main()
@@ -435,26 +436,31 @@ class LibxsSurrogate(ot_technique.SearchTechnique):
         return cfg
 
 
-LibxsSurrogate.libxs = Libxs()
-if LibxsSurrogate.libxs.available():
-    # the default bandit's members, and the same members plus the surrogate: the
-    # pair is the comparison, so nothing else about the ensemble may differ
-    ot_technique.register(
-        ot_bandit.AUCBanditMetaTechnique(
-            [
-                ot_de.DifferentialEvolutionAlt(),
-                ot_evo.UniformGreedyMutation(),
-                ot_evo.NormalGreedyMutation(mutation_rate=0.3),
-                ot_simplex.RandomNelderMead(),
-                LibxsSurrogate(),
-            ],
-            name="LibxsBanditA",
-        )
-    )
-else:
-    sys.stderr.write(
-        "WARNING: libxs not loadable (set LIBXS_LIB), LibxsBanditA is absent.\n"
-    )
+def register_libxs():
+    """Register LibxsBanditA once, and only when tuning (not to merge etc.)"""
+    if LibxsSurrogate.libxs is None:
+        LibxsSurrogate.libxs = Libxs()
+        if LibxsSurrogate.libxs.available():
+            # the default bandit's members, and the same members plus the
+            # surrogate: the pair is the comparison, so nothing else about
+            # the ensemble may differ
+            ot_technique.register(
+                ot_bandit.AUCBanditMetaTechnique(
+                    [
+                        ot_de.DifferentialEvolutionAlt(),
+                        ot_evo.UniformGreedyMutation(),
+                        ot_evo.NormalGreedyMutation(mutation_rate=0.3),
+                        ot_simplex.RandomNelderMead(),
+                        LibxsSurrogate(),
+                    ],
+                    name="LibxsBanditA",
+                )
+            )
+        else:
+            sys.stderr.write(
+                "WARNING: libxs not loadable (set LIBXS_LIB), "
+                "LibxsBanditA is absent.\n"
+            )
 
 
 class SmmTuner(MeasurementInterface):
