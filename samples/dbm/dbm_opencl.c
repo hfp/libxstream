@@ -65,6 +65,8 @@ static size_t dbm_multiply_opencl_fill_nlaunch;
 static size_t dbm_multiply_opencl_run_ntasks, dbm_multiply_opencl_run_nruns;
 static size_t dbm_multiply_opencl_run_sumn, dbm_multiply_opencl_run_flops;
 static size_t dbm_multiply_opencl_run_multi, dbm_multiply_opencl_run_wflops;
+/* Distinct C-blocks per launch (reuse of C within a launch) */
+static size_t dbm_multiply_opencl_run_ncdist;
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
 static int dbm_multiply_opencl_smm /*= 0*/;
 #endif
@@ -107,6 +109,8 @@ static void dbm_multiply_opencl_report(void)
       (int)(100 * dbm_multiply_opencl_run_multi / dbm_multiply_opencl_run_flops),
       (double)dbm_multiply_opencl_run_sumn / dbm_multiply_opencl_run_ntasks,
       (double)dbm_multiply_opencl_run_sumn / dbm_multiply_opencl_run_nruns);
+    fprintf(stderr, "INFO ACC/LIBDBM: C-reuse tasks per distinct C=%.1f\n",
+      (double)dbm_multiply_opencl_run_ntasks / LIBXS_MAX(dbm_multiply_opencl_run_ncdist, 1));
   }
 }
 
@@ -163,12 +167,26 @@ static void dbm_multiply_opencl_fill_add(const dbm_multiply_gpu_launch_info_t* t
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_fill_nlaunch, 1, LIBXS_ATOMIC_RELAXED);
 }
 
+static int dbm_multiply_opencl_cmp_int(const void* a, const void* b)
+{
+  const int ia = *(const int*)a, ib = *(const int*)b;
+  return (ia > ib) - (ia < ib);
+}
+
 /* Accounts runs of consecutive tasks sharing A (native format), see dbm_multiply_opencl_report. */
 static void dbm_multiply_opencl_runs_add(const int* params, int ntasks)
 {
   const int stride = DBM_OPENCL_TASK_SIZE;
-  size_t nruns = 0, sumn = 0, flops = 0, multi = 0, wflops = 0;
+  size_t nruns = 0, sumn = 0, flops = 0, multi = 0, wflops = 0, ncdist = 0;
+  int* const offset_c = (int*)malloc(sizeof(int) * ntasks);
   int i = 0;
+  if (NULL != offset_c) {
+    for (; i < ntasks; ++i) offset_c[i] = params[(size_t)i * stride + 5];
+    qsort(offset_c, ntasks, sizeof(int), dbm_multiply_opencl_cmp_int);
+    for (i = 0; i < ntasks; ++i) ncdist += (0 == i || offset_c[i] != offset_c[i - 1]);
+    free(offset_c);
+  }
+  i = 0;
   while (i < ntasks) { /* a run shares offset_a, hence m and k */
     const int* const first = params + (size_t)i * stride;
     size_t run_flops = 0, run_n = 0;
@@ -191,6 +209,7 @@ static void dbm_multiply_opencl_runs_add(const int* params, int ntasks)
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_flops, flops, LIBXS_ATOMIC_RELAXED);
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_multi, multi, LIBXS_ATOMIC_RELAXED);
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_wflops, wflops, LIBXS_ATOMIC_RELAXED);
+  LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_ncdist, ncdist, LIBXS_ATOMIC_RELAXED);
 }
 
 static int dbm_multiply_gpu_launch_info(dbm_multiply_gpu_launch_info_t* info, const int* params,
@@ -299,7 +318,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
 #endif
     { /* base init state: computed once, shared across all specializations */
       static int clinear = 0, sgbcst = 0, bk_max = 0;
-      static int nz = 0, blkrd = 0, fuse = 0, base_ready = 0;
+      static int nz = 0, blkrd = 0, blkrd_homogeneous = 0, fuse = 0, base_ready = 0;
       static size_t wgsize[] = {1, 1, 1}, sgsize_s = 0;
       static char base_flags[LIBXSTREAM_BUFFERSIZE];
       static const char* base_options /*= NULL*/;
@@ -400,10 +419,12 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
                                  (0 != devinfo->intel || (0 != devinfo->nv && 32 == sgsize)));
             sgbcst = (0 != sgexact && (NULL == sgb_env ? (0 == devinfo->nv) /*default*/
                                                         : (0 != atoi(sgb_env))));
-            /* row per lane (per-task dispatch), default on Intel and opt-in on NVIDIA */
+            /* row per lane (per-task dispatch): mixed shapes paid off on Intel and NVIDIA,
+             * homogeneous batches only on Intel (the flat kernel led on NVIDIA) */
             blkrd = (0 != sgexact && 0 == clinear &&
-                     (NULL == blk_env ? (0 != devinfo->intel) /*default*/
-                                      : (0 != atoi(blk_env))));
+                     (NULL == blk_env ? 1 /*default*/ : (0 != atoi(blk_env))));
+            blkrd_homogeneous = (0 != blkrd && (0 != devinfo->intel ||
+                                                (NULL != blk_env && 1 < atoi(blk_env))));
           }
           cmem =
 #if defined(DBM_OPENCL_CMEM)
@@ -433,7 +454,11 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
             offset += (size_t)LIBXS_SNPRINTF(
               base_flags + offset, sizeof(base_flags) - offset, " -DFUSE=%i", fuse);
           }
-          bk_max = (NULL == bk_env ? 0 /*default*/ : atoi(bk_env));
+          if (0 != blkrd && 2 == dbm_multiply_opencl_task_order()) { /* runs share C */
+            offset += (size_t)LIBXS_SNPRINTF(
+              base_flags + offset, sizeof(base_flags) - offset, " -DFUSEC");
+          }
+          bk_max =(NULL == bk_env ? 0 /*default*/ : atoi(bk_env));
           nz = (NULL == nz_env ? 0 /*default*/ : atoi(nz_env));
           if (0 != nz) {
             offset += (size_t)LIBXS_SNPRINTF(
@@ -509,10 +534,11 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
               cl_kernel kernel_new = NULL;
               size_t wgs[3];
               if (0 != key.m) { /* homogeneous: add shape defines */
-                const int use_wg = (0 != use_blkrd || 0 != blkrd || 0 != sgbcst);
-                const char* const kind = (0 != use_blkrd ? " -DBLKRD_A"
-                                          : (0 != blkrd ? " -DROWLANE"
-                                                        : (0 != sgbcst ? " -DSGBCST" : "")));
+                const int use_wg = (0 != use_blkrd || 0 != blkrd_homogeneous || 0 != sgbcst);
+                const char* const kind_bcst = (0 != sgbcst ? " -DSGBCST" : "");
+                const char* const kind =
+                  (0 != use_blkrd ? " -DBLKRD_A"
+                                  : (0 != blkrd_homogeneous ? " -DROWLANE" : kind_bcst));
                 const int n = LIBXS_SNPRINTF(flags, sizeof(flags),
                   "%s -DWG=%i -DBK=%i -DDBM_M=%i -DDBM_N=%i -DDBM_K=%i%s", base_flags,
                   use_wg ? (int)wgsize[0] : 0, key.bk, key.m, key.n, key.k, kind);
@@ -599,8 +625,9 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock_memory);
       }
       if (EXIT_SUCCESS == result) { /* determine dispatch mode: per-task vs flat */
-        const int per_task = (0 == use_blkrd && (0 != sgbcst || 0 != blkrd));
-        const int use_wg = (0 != task.mnk_changes || 0 != use_blkrd || 0 != blkrd ||
+        const int rowlane = (0 != blkrd && (0 != task.mnk_changes || 0 != blkrd_homogeneous));
+        const int per_task = (0 == use_blkrd && (0 != sgbcst || 0 != rowlane));
+        const int use_wg = (0 != task.mnk_changes || 0 != use_blkrd || 0 != rowlane ||
                             0 != sgbcst);
         size_t nflops = 0, nbytes = 0;
         size = (cl_int)(work_tasks * (0 == clinear ? task.max_m : task.max_n));

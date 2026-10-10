@@ -303,6 +303,41 @@
     } \
   } while (0)
 
+/* Row M of A (XM x XK at AL, the sub-group's rows start at MB) times column BCOL of B
+ * (BIDX columns at offset BOFF): accumulates SG columns into CACC by SG-broadcast */
+#define DBM_ROW_MAD(AL, XM, XK, MB, M, B, BOFF, BCOL, BIDX, VALID, CACC) \
+  do { \
+    SINT dbm_row_k_ = 0; \
+    UNROLL_AUTO for (; dbm_row_k_ + BKP <= (XK); dbm_row_k_ += BKP) { \
+      TYPE dbm_row_a_[BKP]; \
+      if ((MB) + SG <= (XM)) { /* no row of the sub-group is out of range */ \
+        UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) { \
+          dbm_row_a_[kb] = CVT((AL)[IDT(M, dbm_row_k_ + kb, XM, XK)]); \
+        } \
+      } \
+      else { \
+        UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) { \
+          dbm_row_a_[kb] = ((M) < (XM)) ? CVT((AL)[IDT(M, dbm_row_k_ + kb, XM, XK)]) : ZERO; \
+        } \
+      } \
+      UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) { \
+        const TYPE dbm_row_b_ = \
+          (VALID) ? CVT((B)[(BOFF) + IDX(dbm_row_k_ + kb, BCOL, XK, BIDX)]) : ZERO; \
+        UNROLL_FORCE(SG) for (SINT n = 0; n < SG; ++n) { \
+          (CACC)[n] = MAD(dbm_row_a_[kb], BCST_SG(dbm_row_b_, (uint)n), (CACC)[n]); \
+        } \
+      } \
+    } \
+    UNROLL_AUTO for (; dbm_row_k_ < (XK); ++dbm_row_k_) { /* K remainder */ \
+      const TYPE dbm_row_a_ = \
+        ((MB) + SG <= (XM) || (M) < (XM)) ? CVT((AL)[IDT(M, dbm_row_k_, XM, XK)]) : ZERO; \
+      const TYPE dbm_row_b_ = (VALID) ? CVT((B)[(BOFF) + IDX(dbm_row_k_, BCOL, XK, BIDX)]) : ZERO; \
+      UNROLL_FORCE(SG) for (SINT n = 0; n < SG; ++n) { \
+        (CACC)[n] = MAD(dbm_row_a_, BCST_SG(dbm_row_b_, (uint)n), (CACC)[n]); \
+      } \
+    } \
+  } while (0)
+
 #if defined(WG) && (0 < WG)
 __attribute__((reqd_work_group_size(WG, 1, 1))) REQD_SG
 #endif
@@ -325,7 +360,54 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
 #else
   TYPE cvec[BN];
 #endif
-#if defined(ROWLANE) && defined(BCST_SG)
+#if defined(ROWLANE) && defined(BCST_SG) && defined(FUSEC)
+  /* per-task dispatch, row per lane, tasks grouped by C: a run of tasks sharing C
+   * (hence M and N) accumulates in registers, and C is written once per run */
+  const int t1 = MIN((int)get_group_id(0) * FUSE + FUSE, ntasks);
+  const SINT sid = (SINT)SGLID();
+  int t0 = (int)get_group_id(0) * FUSE;
+  while (t0 < t1) {
+    CONSTANT const int* restrict shift = params;
+    SINT shape[3], ibase = 0;
+    int t = t0 + 1;
+    DBM_TASK_DECODE(itask, t0, param_format, shift, shape, ibase);
+    DBM_SHAPE_OVERRIDE(shape);
+    for (; t < t1; ++t) { /* extend the run */
+      CONSTANT const int* restrict tshift = params;
+      SINT tshape[3], tbase = 0;
+      DBM_TASK_DECODE(itask, t, param_format, tshift, tshape, tbase);
+      if (XC(tshift, tbase) != XC(shift, ibase)) break;
+    }
+    {
+      const SINT xm = XM(shape), xn = XN(shape);
+      const int coff = XC(shift, ibase);
+      TYPE c_acc[SG];
+      UNROLL_OUTER(1)
+      for (SINT mb = (SINT)(get_local_id(0) / SG * SG); mb < xm; mb += (SINT)get_local_size(0)) {
+        const SINT m = mb + sid;
+        UNROLL_AUTO for (SINT n0 = 0; n0 < xn; n0 += SG) {
+          const SINT col = n0 + sid;
+          UNROLL_FORCE(SG) for (SINT i = 0; i < SG; ++i) c_acc[i] = ZERO;
+          for (int j = t0; j < t; ++j) {
+            CONSTANT const int* restrict jshift = params;
+            SINT jshape[3], jbase = 0;
+            DBM_TASK_DECODE(itask, j, param_format, jshift, jshape, jbase);
+            DBM_SHAPE_OVERRIDE(jshape);
+            DBM_ROW_MAD(a + XA(jshift, jbase), xm, XK(jshape), mb, m, b, XB(jshift, jbase), col, xn,
+              col < xn, c_acc);
+          }
+          if (m < xm) {
+            const SINT ncols = MIN((SINT)SG, xn - n0);
+            UNROLL_AUTO for (SINT n = 0; n < ncols; ++n) {
+              DBM_ACCUMULATE(c + coff + XI(m, n0 + n, xm, xn), alpha * c_acc[n]);
+            }
+          }
+        }
+      }
+    }
+    t0 = t;
+  }
+#elif defined(ROWLANE) && defined(BCST_SG)
   /* per-task dispatch, row per lane: N is tiled by SG columns, which
    * sub_group_broadcast fans out per K-step (block-reading A gave wrong
    * results at some offsets and was slower than plain loads) */
@@ -350,41 +432,14 @@ dbm_multiply(double alpha, int itask, int ntasks, int size, int param_format,
         int j = t0, jcol0 = 0;
         UNROLL_AUTO for (int n0 = 0; n0 < ncol; n0 += SG) {
           const int col = n0 + sid;
-          SINT k = 0, jcol;
+          SINT jcol;
           int boff, coff;
           DBM_RUN_SEEK(itask, t, param_format, params, j, jshift, jshape, jbase, jcol0, col);
           jcol = (SINT)(col < ncol ? (col - jcol0) : 0);
           boff = XB(jshift, jbase);
           coff = XC(jshift, jbase);
           UNROLL_FORCE(SG) for (SINT i = 0; i < SG; ++i) c_acc[i] = ZERO;
-          UNROLL_AUTO for (; k + BKP <= xk; k += BKP) {
-            TYPE a_reg[BKP];
-            if (mb + SG <= xm) { /* no row of the sub-group is out of range */
-              UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) {
-                a_reg[kb] = CVT(al[IDT(m, k + kb, xm, xk)]);
-              }
-            }
-            else {
-              UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) {
-                a_reg[kb] = (m < xm) ? CVT(al[IDT(m, k + kb, xm, xk)]) : ZERO;
-              }
-            }
-            UNROLL_FORCE(BKP) for (SINT kb = 0; kb < BKP; ++kb) {
-              const TYPE bv =
-                (col < ncol) ? CVT(b[boff + IDX(k + kb, jcol, xk, XN(jshape))]) : ZERO;
-              UNROLL_FORCE(SG) for (SINT n = 0; n < SG; ++n) {
-                c_acc[n] = MAD(a_reg[kb], BCST_SG(bv, (uint)n), c_acc[n]);
-              }
-            }
-          }
-          /* K remainder */
-          UNROLL_AUTO for (; k < xk; ++k) {
-            const TYPE ak = (mb + SG <= xm || m < xm) ? CVT(al[IDT(m, k, xm, xk)]) : ZERO;
-            const TYPE bv = (col < ncol) ? CVT(b[boff + IDX(k, jcol, xk, XN(jshape))]) : ZERO;
-            UNROLL_FORCE(SG) for (SINT n = 0; n < SG; ++n) {
-              c_acc[n] = MAD(ak, BCST_SG(bv, (uint)n), c_acc[n]);
-            }
-          }
+          DBM_ROW_MAD(al, xm, xk, mb, m, b, boff, jcol, XN(jshape), col < ncol, c_acc);
           { /* store: column n belongs to the task of lane n (broadcast by all lanes) */
             const int ncols = MIN(SG, ncol - n0);
             UNROLL_AUTO for (int n = 0; n < ncols; ++n) {
