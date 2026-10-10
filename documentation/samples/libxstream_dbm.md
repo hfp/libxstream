@@ -67,7 +67,7 @@ miniapp also exercises heterogeneous batches.
 | DBM_MULTIPLY_SMM    | 0       | Positive: homogeneous batches up to this size use LIBSMM (1 = 64)  |
 |                     |         | Negative: LIBSMM (DBCSR) uses the DBM kernel for homogeneous       |
 |                     |         | batches (backward usage, experimental)                             |
-| DBM_MULTIPLY_SORT   | 0       | Order of tasks in a batch: 0 as generated, 1 by shape, 2 by C      |
+| DBM_MULTIPLY_SORT   | 0       | Order of tasks in a batch: 0 as generated, 1 by shape              |
 | DBM_MULTIPLY_KERNEL | -       | Path to a `.cl` file that replaces the embedded kernel             |
 | DBM_MULTIPLY_FP     | 0       | 1: compute in single precision (data remains double precision)     |
 | DBM_MULTIPLY_BN     | auto    | Column tile (1–32), 8 or 2 on NVIDIA                               |
@@ -80,7 +80,8 @@ miniapp also exercises heterogeneous batches.
 | DBM_MULTIPLY_NZ     | 0       | Non-zero: skip zero contributions when accumulating into C         |
 | DBM_MULTIPLY_LIN    | 0       | Non-zero: swap the access pattern of A and B                       |
 | DBM_MULTIPLY_SGB    | 1       | Sub-group broadcast on Intel GPUs (0 = off), opt-in on NVIDIA (1)  |
-| DBM_MULTIPLY_BLK    | 1       | Sub-group block reads on Intel GPUs (0 = off)                      |
+| DBM_MULTIPLY_BLK    | auto    | Row per lane for mixed shapes (1), also homogeneous (2), off (0)   |
+| DBM_MULTIPLY_FUSE   | auto    | Tasks per work-group fusing those sharing A: 16 with BLK, else 1   |
 
 `LIBXSTREAM_VERBOSE=2` (or higher) prints the kernel configuration and the
 compilation of each specialization, and values above 2 trace every launch.

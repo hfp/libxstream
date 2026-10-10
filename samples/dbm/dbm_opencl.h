@@ -45,7 +45,7 @@ dbm_multiply_opencl_launch_fn_t dbm_multiply_opencl_smm_launch_fn(void);
 
 /**
  * Order in which the tasks of a batch shall arrive (DBM_MULTIPLY_SORT): 0 as
- * generated, 1 approximately by shape, 2 approximately by address of the C-block.
+ * generated, or 1 approximately by shape.
  */
 int dbm_multiply_opencl_task_order(void);
 

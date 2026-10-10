@@ -454,10 +454,6 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
             offset += (size_t)LIBXS_SNPRINTF(
               base_flags + offset, sizeof(base_flags) - offset, " -DFUSE=%i", fuse);
           }
-          if (0 != blkrd && 2 == dbm_multiply_opencl_task_order()) { /* runs share C */
-            offset += (size_t)LIBXS_SNPRINTF(
-              base_flags + offset, sizeof(base_flags) - offset, " -DFUSEC");
-          }
           bk_max =(NULL == bk_env ? 0 /*default*/ : atoi(bk_env));
           nz = (NULL == nz_env ? 0 /*default*/ : atoi(nz_env));
           if (0 != nz) {
@@ -721,7 +717,7 @@ int dbm_multiply_opencl_task_order(void)
   static int order = -1;
   if (0 > order) { /* racing initializers store the same value */
     const char* const env = getenv("DBM_MULTIPLY_SORT");
-    order = LIBXS_CLMP(NULL == env ? 0 /*default*/ : atoi(env), 0, 2);
+    order = LIBXS_CLMP(NULL == env ? 0 /*default*/ : atoi(env), 0, 1);
   }
   return order;
 }
