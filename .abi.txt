@@ -45,6 +45,7 @@ libxstream_mem_dev_allocate_hint
 libxstream_mem_dev_deallocate_hint
 libxstream_mem_host_allocate
 libxstream_mem_host_deallocate
+libxstream_mem_host_device_accessible
 libxstream_mem_host_pin
 libxstream_mem_host_unpin
 libxstream_mem_info
@@ -105,6 +106,7 @@ offloadFree
 offloadFreeHost
 offloadGetErrorName
 offloadGetLastError
+offloadHostMemoryDeviceAccessible
 offloadMalloc
 offloadMallocHost
 offloadMemcpyAsyncDtoD
