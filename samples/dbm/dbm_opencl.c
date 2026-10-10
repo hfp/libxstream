@@ -57,9 +57,9 @@ typedef struct {
 } dbm_multiply_gpu_launch_info_t;
 
 static int dbm_multiply_opencl_initialized /*= 0*/;
-/* FLOPs per fill quartile and of pure batches (last), FLOPs if padded, and launches */
+/* FLOPs per fill quartile and of pure batches (last), FLOPs if padded, launches, and tasks */
 static size_t dbm_multiply_opencl_fill_flops[5], dbm_multiply_opencl_fill_padded;
-static size_t dbm_multiply_opencl_fill_nlaunch;
+static size_t dbm_multiply_opencl_fill_nlaunch, dbm_multiply_opencl_fill_ntasks;
 /* Runs of consecutive tasks sharing A (fusion candidates): tasks, runs, sum of N, FLOPs,
  * FLOPs in runs of two or more tasks, and FLOPs weighted by the length of their run */
 static size_t dbm_multiply_opencl_run_ntasks, dbm_multiply_opencl_run_nruns;
@@ -91,9 +91,10 @@ static void dbm_multiply_opencl_report(void)
   int i;
   for (i = 0; i < 5; ++i) total += dbm_multiply_opencl_fill_flops[i];
   if (0 < total) {
-    fprintf(stderr, "INFO ACC/LIBDBM: fill=%i%% launches=%lu FLOPs:",
+    fprintf(stderr, "INFO ACC/LIBDBM: fill=%i%% launches=%lu tasks/launch=%.0f FLOPs:",
       (int)(100 * total / dbm_multiply_opencl_fill_padded),
-      (unsigned long)dbm_multiply_opencl_fill_nlaunch);
+      (unsigned long)dbm_multiply_opencl_fill_nlaunch,
+      (double)dbm_multiply_opencl_fill_ntasks / LIBXS_MAX(dbm_multiply_opencl_fill_nlaunch, 1));
     for (i = 0; i < 4; ++i) {
       fprintf(stderr, " <%i%%=%i%%", 25 * (i + 1),
         (int)(100 * dbm_multiply_opencl_fill_flops[i] / total));
@@ -165,6 +166,8 @@ static void dbm_multiply_opencl_fill_add(const dbm_multiply_gpu_launch_info_t* t
     LIBXS_ATOMIC_RELAXED);
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_fill_padded, padded, LIBXS_ATOMIC_RELAXED);
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_fill_nlaunch, 1, LIBXS_ATOMIC_RELAXED);
+  LIBXS_ATOMIC_ADD_FETCH(
+    &dbm_multiply_opencl_fill_ntasks, (size_t)ntasks, LIBXS_ATOMIC_RELAXED);
 }
 
 static int dbm_multiply_opencl_cmp_int(const void* a, const void* b)
