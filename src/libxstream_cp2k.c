@@ -11,10 +11,13 @@
 # include <libxstream/libxstream_cp2k.h>
 # include <libxstream/libxstream_opencl.h>
 
+/* reports the failing code regardless of verbosity, e.g., event waits do not record it */
 # define OFFLOAD_EXPECT(RESULT, NAME) \
     do { \
-      if (EXIT_SUCCESS != (RESULT)) { \
-        CL_ERROR_REPORT(NAME); \
+      const int offload_expect_result_ = (RESULT); \
+      if (EXIT_SUCCESS != offload_expect_result_) { \
+        fprintf(stderr, "ERROR ACC/OpenCL: %s: %s (code=%i)\n", NAME, \
+          libxstream_opencl_strerror(offload_expect_result_), offload_expect_result_); \
         abort(); \
       } \
     } while (0)
