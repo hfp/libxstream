@@ -10,8 +10,13 @@
 #ifndef LIBXSTREAM_CP2K_H
 #define LIBXSTREAM_CP2K_H
 
-#include "libxstream_macros.h"
+#include "libxstream.h"
 #include <stdbool.h>
+
+/** Allocation hint for memory that CP2K pools on its own (offload_mempool.c): no second pool. */
+#if !defined(LIBXSTREAM_MALLOC_CP2K)
+# define LIBXSTREAM_MALLOC_CP2K LIBXSTREAM_MEM_UNPOOLED
+#endif
 
 #if !defined(OFFLOAD_CHECK)
 # define OFFLOAD_CHECK(CMD) \

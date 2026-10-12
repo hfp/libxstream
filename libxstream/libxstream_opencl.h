@@ -384,7 +384,7 @@ typedef enum libxstream_opencl_atomic_fp_t {
   libxstream_opencl_atomic_fp_64 = 2
 } libxstream_opencl_atomic_fp_t;
 
-/** Hints for device memory allocation (Pro-API). */
+/** Hints for device memory allocation (Pro-API), combinable with libxstream_mem_pool_t. */
 typedef enum libxstream_opencl_mem_hint_t {
   libxstream_opencl_mem_hint_default = 0,
   libxstream_opencl_mem_hint_atomics = 1,
@@ -621,11 +621,6 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t, const void*);
 LIBXSTREAM_API_INTERN void libxstream_mem_hst_xfree(void*, const void*);
 LIBXSTREAM_API_INTERN void* libxstream_mem_dev_xmalloc(size_t, const void*);
 LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void*, const void*);
-
-/** Allocate device memory with explicit hint (bypasses pool). */
-LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbytes, libxstream_opencl_mem_hint_t hint);
-/** Deallocate device memory that was allocated with libxstream_mem_dev_allocate_hint. */
-LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem);
 
 LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest);
 

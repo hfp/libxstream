@@ -258,7 +258,7 @@ int main(int argc, char* argv[])
     const size_t nbytes = ozaki_scratch_size(&ctx, transa, transb, M, N, K, lda, ldb, ldc);
     if (EXIT_SUCCESS == libxstream_mem_dev_allocate_hint(&scratch, nbytes, libxstream_opencl_mem_hint_atomics)) {
       if (EXIT_SUCCESS != ozaki_scratch_set(&ctx, scratch, nbytes)) {
-        libxstream_mem_dev_deallocate_hint(scratch);
+        libxstream_mem_dev_deallocate_hint(scratch, libxstream_opencl_mem_hint_atomics);
         scratch = NULL;
       }
       else if (0 != ctx.verbosity) fprintf(stderr, "INFO OZAKI: %u MB of caller-owned scratch\n", (unsigned int)(nbytes >> 20));
@@ -433,7 +433,7 @@ int main(int argc, char* argv[])
     }
     ozaki_destroy(&ctx);
     /* after the context, which never frees caller-owned scratch */
-    if (NULL != scratch) libxstream_mem_dev_deallocate_hint(scratch);
+    if (NULL != scratch) libxstream_mem_dev_deallocate_hint(scratch, libxstream_opencl_mem_hint_atomics);
     libxstream_finalize();
   }
   free(c_bnd);

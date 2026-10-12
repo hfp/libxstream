@@ -15,7 +15,7 @@ The DBCSR adapter ([`src/libxstream_dbcsr.c`](https://github.com/hfp/libxstream/
 
 ## API
 
-The header is self-contained (C99, no LIBXSTREAM headers required) and provides opaque handle types, an error-checking macro, and functions covering five domains.
+The header requires only `libxstream.h` (C99, no OpenCL headers) and provides opaque handle types, an error-checking macro, and functions covering five domains.
 
 ### Types and Constants
 
@@ -39,8 +39,10 @@ offloadError_t offloadGetLastError(void);
 The `OFFLOAD_CHECK` macro aborts on failure after printing the error name and source location:
 
 ```C
-OFFLOAD_CHECK(offloadMalloc(&ptr, nbytes));
+OFFLOAD_CHECK(offloadGetLastError());
 ```
+
+The `offload*` functions return nothing; one that fails prints the OpenCL error name and code to stderr and aborts.
 
 ### Streams
 
@@ -71,6 +73,8 @@ void offloadFree(void* ptr);
 void offloadMallocHost(void** ptr, size_t size);
 void offloadFreeHost(void* ptr);
 ```
+
+These allocate from LIBXSTREAM's memory pools. CP2K's own pool (`offload_mempool.c`) allocates through the hinted functions with `LIBXSTREAM_MALLOC_CP2K` instead (default `LIBXSTREAM_MEM_UNPOOLED`), so that its pool is not stacked on LIBXSTREAM's.
 
 ### Transfers
 

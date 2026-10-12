@@ -469,16 +469,18 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_subbuffer_release(cl_mem parent)
 }
 
 
-LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbytes, libxstream_opencl_mem_hint_t hint)
+LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbytes, int hint)
 {
   libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
   void* memptr = NULL;
+  LIBXS_STATIC_ASSERT(0 == (LIBXSTREAM_MEM_POOLED &
+    (libxstream_opencl_mem_hint_atomics | libxstream_opencl_mem_hint_compress)));
   assert(NULL != dev_mem && NULL != devinfo->context);
-# if !defined(LIBXSTREAM_XHINTS)
-  LIBXS_UNUSED(hint);
-# endif
-  if (0 != nbytes) {
+  if (0 != (LIBXSTREAM_MEM_POOLED & hint)) {
+    result = libxstream_mem_allocate(&memptr, nbytes);
+  }
+  else if (0 != nbytes) {
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clDeviceMemAllocINTEL) {
       const cl_device_id did = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
@@ -556,11 +558,17 @@ LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbyte
 }
 
 
-LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem)
+LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem, int hint)
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
-  if (NULL != dev_mem) {
+  if (0 != (LIBXSTREAM_MEM_POOLED & hint)) {
+    result = libxstream_mem_deallocate(dev_mem);
+  }
+  else if (NULL != dev_mem) { /* like cudaFree: no command may use the memory anymore */
+    result = libxstream_device_sync();
+  }
+  if (0 == (LIBXSTREAM_MEM_POOLED & hint) && NULL != dev_mem && EXIT_SUCCESS == result) {
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clMemFreeINTEL) {
       result = devinfo->clMemFreeINTEL(devinfo->context, dev_mem);
@@ -590,6 +598,37 @@ LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem)
     }
   }
   CL_RETURN(result, "");
+}
+
+
+LIBXSTREAM_API int libxstream_mem_host_allocate_hint(void** host_mem, size_t nbytes, int hint)
+{
+  int result = EXIT_SUCCESS;
+  assert(NULL != host_mem);
+  if (0 == (LIBXSTREAM_MEM_POOLED & hint) && 0 != libxstream_mem_hst_pooled()) {
+    *host_mem = (0 != nbytes ? libxstream_mem_hst_xmalloc(nbytes, NULL) : NULL);
+    if (0 != nbytes && NULL == *host_mem) result = EXIT_FAILURE;
+  }
+  else { /* pooled, or host memory that is not pooled anyway */
+    result = libxstream_mem_host_allocate(host_mem, nbytes, NULL);
+  }
+  return result;
+}
+
+
+LIBXSTREAM_API int libxstream_mem_host_deallocate_hint(void* host_mem, int hint)
+{
+  int result = EXIT_SUCCESS;
+  if (0 == (LIBXSTREAM_MEM_POOLED & hint) && 0 != libxstream_mem_hst_pooled()) {
+    if (NULL != host_mem) { /* like cudaFreeHost: no command may use the memory anymore */
+      result = libxstream_device_sync();
+      if (EXIT_SUCCESS == result) libxstream_mem_hst_xfree(host_mem, NULL);
+    }
+  }
+  else {
+    result = libxstream_mem_host_deallocate(host_mem, NULL);
+  }
+  return result;
 }
 
 

@@ -484,7 +484,7 @@ static int ozaki_scratch_claim(ozaki_context_t* ctx, size_t nbytes)
     if (0 != ctx->scratch.owned && ctx->scratch.size < nbytes && nbytes <= ctx->scratch.limit) {
       void* ptr = NULL;
       if (EXIT_SUCCESS == libxstream_mem_dev_allocate_hint(&ptr, nbytes, libxstream_opencl_mem_hint_atomics)) {
-        if (NULL != ctx->scratch.ptr) libxstream_mem_dev_deallocate_hint(ctx->scratch.ptr);
+        if (NULL != ctx->scratch.ptr) libxstream_mem_dev_deallocate_hint(ctx->scratch.ptr, libxstream_opencl_mem_hint_atomics);
         ctx->scratch.ptr = ptr;
         ctx->scratch.size = nbytes;
       }
@@ -531,7 +531,7 @@ static int ozaki_scratch_alloc(ozaki_context_t* ctx, int claimed, void** ptr, si
 static void ozaki_scratch_free(const ozaki_context_t* ctx, void* ptr, int atomics)
 {
   if (NULL != ptr && 0 == ozaki_scratch_owns(ctx, ptr)) {
-    if (0 != atomics) libxstream_mem_dev_deallocate_hint(ptr);
+    if (0 != atomics) libxstream_mem_dev_deallocate_hint(ptr, libxstream_opencl_mem_hint_atomics);
     else OZAKI_DEV_FREE(ptr);
   }
 }
@@ -576,7 +576,7 @@ int ozaki_scratch_set(ozaki_context_t* ctx, void* dev_mem, size_t nbytes)
   int result = EXIT_SUCCESS;
   LIBXS_ATOMIC_ACQUIRE(&ctx->scratch.busy, LIBXS_NPAUSE_LOCK, LIBXS_ATOMIC_LOCKORDER);
   if (0 != ctx->scratch.owned && NULL != ctx->scratch.ptr) {
-    libxstream_mem_dev_deallocate_hint(ctx->scratch.ptr);
+    libxstream_mem_dev_deallocate_hint(ctx->scratch.ptr, libxstream_opencl_mem_hint_atomics);
   }
   ctx->scratch.ptr = dev_mem;
   ctx->scratch.size = (NULL != dev_mem) ? nbytes : 0;

@@ -155,6 +155,19 @@ int libxstream_mem_zero(void* dev_mem, size_t offset, size_t nbytes,
                         libxstream_stream_t* stream);
 ```
 
+The `_hint` variants take `LIBXSTREAM_MEM_POOLED` or `LIBXSTREAM_MEM_UNPOOLED`
+(`libxstream_mem_pool_t`), optionally combined with a
+`libxstream_opencl_mem_hint_t`. Unpooled memory suits a caller that pools on
+its own; releasing it synchronizes the device first. Deallocation takes the
+hint given at allocation:
+
+```c
+int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbytes, int hint);
+int libxstream_mem_dev_deallocate_hint(void* dev_mem, int hint);
+int libxstream_mem_host_allocate_hint(void** host_mem, size_t nbytes, int hint);
+int libxstream_mem_host_deallocate_hint(void* host_mem, int hint);
+```
+
 ### DBCSR Compatibility
 
 The header `libxstream/libxstream_dbcsr.h` provides the `c_dbcsr_acc_*`

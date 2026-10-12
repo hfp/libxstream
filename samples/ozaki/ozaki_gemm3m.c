@@ -44,7 +44,7 @@ static int ozaki_zwork_get(ozaki_context_t* ctx, int slot, void** ptr, size_t nb
     else result = OZAKI_DEV_ALLOC(&fresh, nbytes);
     if (EXIT_SUCCESS == result) {
       if (NULL != ctx->zwork.ptr[slot]) {
-        if (0 != atomics) libxstream_mem_dev_deallocate_hint(ctx->zwork.ptr[slot]);
+        if (0 != atomics) libxstream_mem_dev_deallocate_hint(ctx->zwork.ptr[slot], libxstream_opencl_mem_hint_atomics);
         else OZAKI_DEV_FREE(ctx->zwork.ptr[slot]);
       }
       ctx->zwork.ptr[slot] = fresh;

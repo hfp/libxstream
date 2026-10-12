@@ -1121,16 +1121,18 @@ void stencil_finalize(stencil_context_t* ctx)
 {
   int dim;
   if (NULL != ctx) {
+    const libxstream_opencl_mem_hint_t mem_hint = (0 != ctx->hint)
+      ? libxstream_opencl_mem_hint_atomics : libxstream_opencl_mem_hint_compress;
     for (dim = 0; dim < 3; ++dim) {
-      if (NULL != ctx->dk[dim]) libxstream_mem_dev_deallocate_hint(ctx->dk[dim]);
+      if (NULL != ctx->dk[dim]) libxstream_mem_dev_deallocate_hint(ctx->dk[dim], mem_hint);
     }
-    if (NULL != ctx->dk_scale) libxstream_mem_dev_deallocate_hint(ctx->dk_scale);
-    if (NULL != ctx->exp_buf[0]) libxstream_mem_dev_deallocate_hint(ctx->exp_buf[0]);
-    if (NULL != ctx->exp_buf[1]) libxstream_mem_dev_deallocate_hint(ctx->exp_buf[1]);
-    if (NULL != ctx->coeff) libxstream_mem_dev_deallocate_hint(ctx->coeff);
+    if (NULL != ctx->dk_scale) libxstream_mem_dev_deallocate_hint(ctx->dk_scale, mem_hint);
+    if (NULL != ctx->exp_buf[0]) libxstream_mem_dev_deallocate_hint(ctx->exp_buf[0], mem_hint);
+    if (NULL != ctx->exp_buf[1]) libxstream_mem_dev_deallocate_hint(ctx->exp_buf[1], mem_hint);
+    if (NULL != ctx->coeff) libxstream_mem_dev_deallocate_hint(ctx->coeff, mem_hint);
     if (0 != ctx->pml_owned) {
-      if (NULL != ctx->eta) libxstream_mem_dev_deallocate_hint(ctx->eta);
-      if (NULL != ctx->phi) libxstream_mem_dev_deallocate_hint(ctx->phi);
+      if (NULL != ctx->eta) libxstream_mem_dev_deallocate_hint(ctx->eta, mem_hint);
+      if (NULL != ctx->phi) libxstream_mem_dev_deallocate_hint(ctx->phi, mem_hint);
     }
     if (NULL != ctx->stream) libxstream_stream_destroy(ctx->stream);
     memset(ctx, 0, sizeof(*ctx)); /* exceeds LIBXS_MEMZERO scope */

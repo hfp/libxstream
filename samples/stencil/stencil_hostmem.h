@@ -48,7 +48,7 @@ int stencil_host_zero(void* ptr, size_t offset, size_t nbytes);
   stencil_host_deallocate(PTR)
 #define libxstream_mem_dev_allocate_hint(PTR, NBYTES, HINT) \
   stencil_host_allocate(PTR, NBYTES)
-#define libxstream_mem_dev_deallocate_hint(PTR) \
+#define libxstream_mem_dev_deallocate_hint(PTR, HINT) \
   stencil_host_deallocate(PTR)
 #define libxstream_mem_allocate(PTR, NBYTES) \
   stencil_host_allocate(PTR, NBYTES)

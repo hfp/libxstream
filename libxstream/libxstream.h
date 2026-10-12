@@ -33,6 +33,17 @@ typedef enum libxstream_stream_flags_t {
   LIBXSTREAM_STREAM_PROFILING = 4
 } libxstream_stream_flags_t;
 
+/**
+ * Pool control of hinted allocations (libxstream_mem_*_allocate_hint), combinable
+ * with libxstream_opencl_mem_hint_t (Pro-API), whose bits it does not overlap.
+ * Unpooled memory is allocated and released directly, and releasing it
+ * synchronizes the device first (like cudaFree): it suits callers that pool.
+ */
+typedef enum libxstream_mem_pool_t {
+  LIBXSTREAM_MEM_UNPOOLED = 0,
+  LIBXSTREAM_MEM_POOLED = 4
+} libxstream_mem_pool_t;
+
 
 /** Fill config with sentinel values (all -1: no opinion, use env/defaults). */
 LIBXSTREAM_API void libxstream_init_config_default(libxstream_init_config_t* cfg);
@@ -72,6 +83,11 @@ LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes,
   libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
 LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem,
   libxstream_stream_t* LIBXS_ARGDEF(stream, NULL));
+/** Allocation with hint (libxstream_mem_pool_t); deallocation takes the same hint. */
+LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbytes, int hint);
+LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem, int hint);
+LIBXSTREAM_API int libxstream_mem_host_allocate_hint(void** host_mem, size_t nbytes, int hint);
+LIBXSTREAM_API int libxstream_mem_host_deallocate_hint(void* host_mem, int hint);
 /**
  * Whether the device reads memory from libxstream_mem_host_allocate directly and
  * coherently, i.e., such a pointer may be given to a kernel instead of a copy

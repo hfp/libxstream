@@ -642,9 +642,9 @@ int main(int argc, char* argv[])
 
     if (NULL != pack_buf) libxstream_mem_host_deallocate(pack_buf, ctx.stream);
     /* An aliased buffer is released with the host buffer it names. */
-    if (NULL != vel_dev && vel_dev != vel_host) libxstream_mem_dev_deallocate_hint(vel_dev);
-    if (NULL != p_buf[1]) libxstream_mem_dev_deallocate_hint(p_buf[1]);
-    if (NULL != p_buf[0] && p_buf[0] != p_host) libxstream_mem_dev_deallocate_hint(p_buf[0]);
+    if (NULL != vel_dev && vel_dev != vel_host) libxstream_mem_dev_deallocate_hint(vel_dev, libxstream_opencl_mem_hint_compress);
+    if (NULL != p_buf[1]) libxstream_mem_dev_deallocate_hint(p_buf[1], libxstream_opencl_mem_hint_compress);
+    if (NULL != p_buf[0] && p_buf[0] != p_host) libxstream_mem_dev_deallocate_hint(p_buf[0], libxstream_opencl_mem_hint_compress);
     if (NULL != vel_host) libxstream_mem_host_deallocate(vel_host, ctx.stream);
     if (NULL != p_host_init) libxstream_mem_host_deallocate(p_host_init, ctx.stream);
     if (NULL != p_host) libxstream_mem_host_deallocate(p_host, ctx.stream);

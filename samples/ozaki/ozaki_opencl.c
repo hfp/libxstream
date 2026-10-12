@@ -2188,7 +2188,7 @@ void ozaki_destroy(ozaki_context_t* ctx)
       for (slot = 0; slot < (int)(sizeof(ctx->zwork.ptr) / sizeof(*ctx->zwork.ptr)); ++slot) {
         if (NULL != ctx->zwork.ptr[slot]) {
           /* slot 5 is the only one asking for the atomics hint (see ozaki_zwork_get) */
-          if (5 == slot) libxstream_mem_dev_deallocate_hint(ctx->zwork.ptr[slot]);
+          if (5 == slot) libxstream_mem_dev_deallocate_hint(ctx->zwork.ptr[slot], libxstream_opencl_mem_hint_atomics);
           else OZAKI_DEV_FREE(ctx->zwork.ptr[slot]);
           ctx->zwork.ptr[slot] = NULL;
           ctx->zwork.size[slot] = 0;
@@ -2196,7 +2196,7 @@ void ozaki_destroy(ozaki_context_t* ctx)
       }
     }
     if (0 != ctx->scratch.owned && NULL != ctx->scratch.ptr) {
-      libxstream_mem_dev_deallocate_hint(ctx->scratch.ptr);
+      libxstream_mem_dev_deallocate_hint(ctx->scratch.ptr, libxstream_opencl_mem_hint_atomics);
       ctx->scratch.ptr = NULL;
     }
     ozaki_release_kernel(&ctx->kern_preprocess_a);
