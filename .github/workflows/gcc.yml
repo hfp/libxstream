@@ -40,7 +40,10 @@ jobs:
       # OpenCL loader the tests link holds allocations to exit, and a registry
       # that outlives main is a design choice rather than a leak. Turn it on
       # (detect_leaks=1) to see what a run actually reports.
-      ASAN_OPTIONS: detect_leaks=0
+      # The fake stack behind use-after-return detection does not honor the 64-byte
+      # alignment GCC gives locals that 512-bit code loads, so an AVX-512 path
+      # faults on an aligned access (reported as SEGV without an address).
+      ASAN_OPTIONS: detect_leaks=0:detect_stack_use_after_return=0
     steps:
     - uses: actions/checkout@v5
 
