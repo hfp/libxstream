@@ -19,10 +19,10 @@ DOCDIR := documentation
 # subdirectories (relative) to PREFIX (install targets)
 PINCDIR ?= include/$(PROJECT)
 PSRCDIR ?= src
-POUTDIR ?= $(OUTDIR)
-PPKGDIR ?= $(OUTDIR)/pkgconfig
-PCMKDIR ?= $(OUTDIR)/cmake/$(PROJECT)
-PMODDIR ?= $(OUTDIR)
+POUTDIR ?= lib
+PPKGDIR ?= lib/pkgconfig
+PCMKDIR ?= lib/cmake/$(PROJECT)
+PMODDIR ?= lib
 PBINDIR ?= $(BINDIR)
 PTSTDIR ?= $(TSTDIR)
 PSHRDIR ?= share/$(PROJECT)
@@ -61,8 +61,8 @@ FORTRAN ?= 0
 # Timeout when downloading documentation parts
 TIMEOUT := 30
 
-# fixed .state file directory (included by source)
-DIRSTATE := $(OUTDIR)/..
+# fixed .state file directory (included by source), one per target
+DIRSTATE = lib/$(LIBARCH)
 
 # avoid to link with C++ standard library
 FORCE_CXX := 0
@@ -91,16 +91,24 @@ ifeq (,$(LIBXSINC))
 endif
 include $(LIBXSINC)
 
-# setup LIBXS (source-tree layout)
+# build per target (lib/<target>), lib/ refers to the latest build
+OUTTOP := $(OUTDIR)
+OUTDIR := $(OUTTOP)/$(LIBARCH)
+BLDDIR := $(BLDDIR)/$(LIBARCH)
+
+# setup LIBXS (source-tree layout): lib/<target>, lib/<machine>, then lib/
 ifneq (,$(LIBXSROOT))
-  LIBXS_SL := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT)))
-  LIBXS_DL := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT)))
-  LIBXS := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT)))
+  LIBXS_LIBDIR := $(firstword $(foreach D,$(LIBARCH) $(MNAME),$(if $(realpath $(wildcard \
+    $(LIBXSROOT)/lib/$(D)/libxs.$(SLIBEXT) $(LIBXSROOT)/lib/$(D)/libxs.$(DLIBEXT))),$(LIBXSROOT)/lib/$(D))) \
+    $(LIBXSROOT)/lib)
+  LIBXS_SL := $(call libexists,$(wildcard $(LIBXS_LIBDIR)/libxs.$(SLIBEXT)))
+  LIBXS_DL := $(call libexists,$(wildcard $(LIBXS_LIBDIR)/libxs.$(DLIBEXT)))
+  LIBXS := $(call libexists,$(wildcard $(LIBXS_LIBDIR)/libxs.$(LIBEXT)))
   LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
     $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
   IFLAGS += -I$(call quote,$(LIBXSROOT))
   ifneq (,$(LIBXS_DL))
-    LIBXS_LINK := -L$(LIBXSROOT)/lib -lxs
+    LIBXS_LINK := -L$(LIBXS_LIBDIR) -lxs
   else ifneq (,$(LIBXS))
     LIBXS_LINK := $(LIBXS)
   endif
@@ -249,6 +257,10 @@ $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
 
 .PHONY: libs
 libs: $(PPKGDIR)/$(PROJECT)-static.pc $(PPKGDIR)/$(PROJECT)-shared.pc $(PCMKDIR)/$(PROJECT)Config.cmake
+	@-rm -f $(OUTTOP)/$(PROJECT)*.$(SLIBEXT) $(OUTTOP)/$(PROJECT)*.$(DLIBEXT)*
+	@if [ -d $(OUTTOP) ]; then cd $(OUTTOP) && for LIB in $(LIBARCH)/$(PROJECT)*.$(SLIBEXT) $(LIBARCH)/$(PROJECT)*.$(DLIBEXT)*; do \
+		if [ -e "$${LIB}" ]; then ln -fs "$${LIB}" .; fi; \
+	done; fi
 ifeq (,$(filter-out 0 2,$(BUILD)))
 $(OUTDIR)/$(PROJECT).$(SLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS) $(LNKSTATE)
 ifneq (,$(LIBXS_SL))
@@ -394,13 +406,13 @@ endif
 
 .PHONY: realclean
 realclean: clean
-ifneq ($(call qapath,$(OUTDIR)),$(ROOTDIR))
-ifneq ($(call qapath,$(OUTDIR)),$(HEREDIR))
-	@-rm -rf $(OUTDIR)
+ifneq ($(call qapath,$(OUTTOP)),$(ROOTDIR))
+ifneq ($(call qapath,$(OUTTOP)),$(HEREDIR))
+	@-rm -rf $(OUTTOP)
 endif
 endif
-ifneq (,$(wildcard $(OUTDIR))) # still exists
-	@-rm -f $(OUTDIR)/$(PROJECT)*.$(SLIBEXT) $(OUTDIR)/$(PROJECT)*.$(DLIBEXT)*
+ifneq (,$(wildcard $(OUTTOP))) # still exists
+	@-rm -f $(OUTTOP)/$(PROJECT)*.$(SLIBEXT) $(OUTTOP)/$(PROJECT)*.$(DLIBEXT)*
 	@-rm -rf $(PPKGDIR) $(PCMKDIR)
 endif
 ifneq ($(call qapath,$(BINDIR)),$(ROOTDIR))
@@ -612,8 +624,10 @@ $(PPKGDIR)/$(PROJECT)-static.pc: $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(PPKGDIR)/.mak
 	@$(PCSUBST_BASE) \
 	  -e 's|@LIBS@|$${libdir}/$(PROJECT).$(SLIBEXT)|g' \
     $(if $(LIBXS),-e 's|@REQUIRES@|Requires: libxs-static|g',-e 's|@REQUIRES@||g') <$(PCTEMPLATE) >$@
+	@$(MKDIR) -p $(OUTDIR)/pkgconfig && $(SED) -e 's|^libdir=\(..*\)$$|libdir=\1/$(LIBARCH)|' <$@ >$(OUTDIR)/pkgconfig/$(notdir $@)
   ifeq (,$(filter-out 0 2,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc
+	@ln -fs $(notdir $@) $(OUTDIR)/pkgconfig/$(PROJECT).pc
   endif
 else
 .PHONY: $(PPKGDIR)/$(PROJECT)-static.pc
@@ -624,8 +638,10 @@ $(PPKGDIR)/$(PROJECT)-shared.pc: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(PPKGDIR)/.mak
 	@$(PCSUBST_BASE) \
 	  -e 's|@LIBS@|-L$${libdir} -l$(patsubst lib%,%,$(PROJECT))|g' \
     $(if $(LIBXS),-e 's|@REQUIRES@|Requires: libxs|g',-e 's|@REQUIRES@||g') <$(PCTEMPLATE) >$@
+	@$(MKDIR) -p $(OUTDIR)/pkgconfig && $(SED) -e 's|^libdir=\(..*\)$$|libdir=\1/$(LIBARCH)|' <$@ >$(OUTDIR)/pkgconfig/$(notdir $@)
   ifeq (,$(filter-out 1,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc
+	@ln -fs $(notdir $@) $(OUTDIR)/pkgconfig/$(PROJECT).pc
   endif
 else
 .PHONY: $(PPKGDIR)/$(PROJECT)-shared.pc
@@ -641,6 +657,7 @@ $(PCMKDIR)/$(PROJECT)Config.cmake: $(ROOTSCR)/$(PROJECT)Config.cmake $(PCMKDIR)/
 	@$(CP) $(ROOTSCR)/$(PROJECT)Samples.cmake $(PCMKDIR)
 	@$(SED) -e 's|@VERSION@|$(VERSION_STRING)|g' \
 		<$(ROOTSCR)/$(PROJECT)ConfigVersion.cmake.in >$(PCMKDIR)/$(PROJECT)ConfigVersion.cmake
+	@$(MKDIR) -p $(OUTDIR)/cmake/$(PROJECT) && $(CP) $(PCMKDIR)/$(PROJECT)*.cmake $(OUTDIR)/cmake/$(PROJECT)
 
 $(OUTDIR)/$(PROJECT).env: $(OUTDIR)/.make $(INCDIR)/$(PROJECT).h
 	@echo "#%Module1.0" >$@
