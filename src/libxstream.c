@@ -1837,11 +1837,15 @@ LIBXSTREAM_API int libxstream_opencl_create_context(cl_device_id active_id, cl_c
       }
     }
     else {
-      if (CL_INVALID_DEVICE == result &&
-          EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/))
-      {
-        fprintf(stderr, "WARN ACC/OpenCL: if MPI-ranks target the same device in exclusive mode,\n"
-                        "                    SMI must be used to enable sharing the device.\n");
+      if (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "nvidia", 0 /*use_platform_name*/)) {
+        if (CL_INVALID_DEVICE == result) {
+          fprintf(stderr, "WARN ACC/OpenCL: if MPI-ranks target the same device in exclusive mode,\n"
+                          "                    SMI must be used to enable sharing the device.\n");
+        }
+        else if (-9999 == result) { /* an MPS client fails here rather than at enumeration */
+          fprintf(stderr, "WARN ACC/OpenCL: if MPS is active, OpenCL cannot create a context,\n"
+                          "                    stop the MPS daemon or unset CUDA_MPS_PIPE_DIRECTORY.\n");
+        }
       }
       *context = NULL;
     }
@@ -3452,6 +3456,7 @@ LIBXSTREAM_API const char* libxstream_opencl_strerror(cl_int err)
     case -68: result = "CL_INVALID_DEVICE_PARTITION_COUNT"; break;
     case -69: result = "CL_INVALID_PIPE_SIZE"; break;
     case -70: result = "CL_INVALID_DEVICE_QUEUE"; break;
+    case -9999: result = "CL_NV_UNSPECIFIED"; break; /* NVIDIA, not a Khronos code */
     default: result = "CL_UNKNOWN_ERROR";
   }
   return result;
