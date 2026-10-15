@@ -231,6 +231,11 @@ typedef struct libxstream_mpsd_client_t {
   struct libxstream_mpsd_client_t* next;
   void** handles;
   libxstream_mpsd_kernel_t** kernels; /* per kernel slot */
+  cl_command_queue* lazy; /* per event slot without a driver event yet: its queue (libxstream_mpsd_event) */
+  unsigned char* used; /* per event slot: 1 waited for, 2 polled (LIBXSTREAM_VERBOSE=2) */
+  uint64_t nevents, nused[4]; /* events released, by how they were used (LIBXSTREAM_VERBOSE=2) */
+  unsigned char* evop; /* per event slot: the command that made it (LIBXSTREAM_VERBOSE=2) */
+  uint64_t op_events[LIBXSTREAM_MPS_NOPS], op_needed[LIBXSTREAM_MPS_NOPS]; /* released, waited for or polled (VERBOSE=2) */
   unsigned int* gens; /* of the events in handles, written before them */
   unsigned char* kinds;
   unsigned char* done; /* executed commands at or beyond low, by sequence number modulo the window */
@@ -244,7 +249,7 @@ typedef struct libxstream_mpsd_client_t {
   uint64_t wait_n[LIBXSTREAM_MPS_NWAITS], wait_by[LIBXSTREAM_MPS_NWAITS]; /* by what blocked last (LIBXSTREAM_VERBOSE=2) */
   libxs_hist_t* hist; /* execution time per command: log2(ns) buckets with {us, wait us} (LIBXSTREAM_VERBOSE=2) */
   libxs_lock_t hist_lock;
-  int nconn, connids, dead, pid, nerrors;
+  int nconn, connids, dead, pid, nerrors, ordinal;
 } libxstream_mpsd_client_t;
 
 /* What a command leaves to do once the next command may run: build, wait, answer. */
@@ -268,11 +273,12 @@ typedef struct libxstream_mpsd_t {
   cl_device_id devices[LIBXSTREAM_MAXNDEVS];
   cl_context contexts[LIBXSTREAM_MAXNDEVS];
   uint64_t masks[LIBXSTREAM_MAXNDEVS];
+  int slots[LIBXSTREAM_MAXNDEVS]; /* which of the contexts per set of devices (LIBXSTREAM_MPS_CONTEXTS) */
   libxstream_mpsd_client_t* clients;
   sem_t gate; /* bounds the commands executing at once (LIBXSTREAM_MPS_ISSUERS) */
   cl_uint ndevices, ncontexts;
   int issuers; /* zero: unbounded */
-  int nthreads, nserved, verbosity;
+  int nthreads, nserved, verbosity, ncontexts_per; /* contexts per set of devices */
 } libxstream_mpsd_t;
 # endif
 
@@ -957,6 +963,7 @@ static cl_int libxstream_mps_retain(void* handle, int kind)
  * A kernel holds its program and a sub-buffer its buffer, as the OpenCL objects do: code may
  * release a program once it has the kernel, and later create further kernels from the program
  * the kernel answers (CL_KERNEL_PROGRAM). The slot of a released object is reused otherwise.
+ * An event holds its queue, on which the server may still enqueue its marker (lazy events).
  */
 static cl_int libxstream_mps_release(void* handle, int kind)
 {
@@ -984,6 +991,7 @@ static cl_int libxstream_mps_release(void* handle, int kind)
       libxstream_mps_delete(c, obj, 0);
       if (LIBXSTREAM_MPS_KIND_KERNEL == kind && NULL != owner) libxstream_mps_release(owner, LIBXSTREAM_MPS_KIND_PROGRAM);
       else if (LIBXSTREAM_MPS_KIND_MEM == kind && NULL != owner) libxstream_mps_release(owner, LIBXSTREAM_MPS_KIND_MEM);
+      else if (LIBXSTREAM_MPS_KIND_EVENT == kind && NULL != owner) libxstream_mps_release(owner, LIBXSTREAM_MPS_KIND_QUEUE);
     }
   }
   else result = libxstream_mps_invalid(kind);
@@ -1052,6 +1060,7 @@ static cl_int libxstream_mps_prepare(libxstream_mps_msg_t* msg, uint64_t op, cl_
       if (NULL != obj) {
         obj->owner = LIBXSTREAM_MPS_OBJ(queue);
         obj->ogen = LIBXSTREAM_MPS_OBJ(queue)->gen;
+        LIBXS_ATOMIC_ADD_FETCH(&obj->owner->refs, 1, LIBXS_ATOMIC_SEQ_CST); /* see libxstream_mps_release */
         obj->flags = type;
         msg->arg[7] = LIBXSTREAM_MPS_ID(c, obj);
         msg->arg[LIBXSTREAM_MPS_GEN] = obj->gen;
@@ -2491,6 +2500,51 @@ static void libxstream_mpsd_set(libxstream_mpsd_client_t* cl, uint64_t id, void*
 
 
 /**
+ * A command's event costs a driver event and its release, while most events are never
+ * waited for or polled. Hence the command is enqueued without one, and an event that is
+ * needed later becomes a marker on its queue: it completes no earlier than the command
+ * (in-order, or after everything enqueued before), and nothing enqueued before the marker
+ * depends on what needs the event, since dependencies follow the order of issue.
+ */
+static void libxstream_mpsd_lazy(libxstream_mpsd_client_t* cl, const libxstream_mps_msg_t* msg, cl_command_queue queue)
+{
+  const uint64_t id = msg->arg[7];
+  if (0 != id && id <= cl->capacity) {
+    if (NULL != cl->evop) cl->evop[id - 1] = (unsigned char)msg->op;
+    __atomic_store_n(cl->lazy + id - 1, queue, __ATOMIC_RELEASE);
+    __atomic_store_n(cl->gens + id - 1, (unsigned int)msg->arg[LIBXSTREAM_MPS_GEN], __ATOMIC_RELEASE);
+    cl->kinds[id - 1] = LIBXSTREAM_MPS_KIND_EVENT;
+    __atomic_store_n(cl->handles + id - 1, NULL, __ATOMIC_RELEASE);
+  }
+}
+
+
+/* The driver event of an event, created as a marker if the command was enqueued without one. */
+static cl_event libxstream_mpsd_event(libxstream_mpsd_client_t* cl, uint64_t id)
+{
+  cl_event result = NULL;
+  if (0 != id && id <= cl->capacity) {
+    result = (cl_event)__atomic_load_n(cl->handles + id - 1, __ATOMIC_ACQUIRE);
+    if (NULL == result) {
+      const cl_command_queue queue = __atomic_load_n(cl->lazy + id - 1, __ATOMIC_ACQUIRE);
+      cl_event marker = NULL;
+      if (NULL != queue && CL_SUCCESS == clEnqueueMarkerWithWaitList(queue, 0, NULL, &marker)) {
+        void* expected = NULL;
+        if (__atomic_compare_exchange_n(cl->handles + id - 1, &expected, marker, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+          result = marker;
+        }
+        else { /* another thread was first */
+          clReleaseEvent(marker);
+          result = (cl_event)expected;
+        }
+      }
+    }
+  }
+  return result;
+}
+
+
+/**
  * Answered without waiting for the commands issued before: an event the server has
  * not created yet, or a slot holding an earlier event, cannot be complete. Reading
  * the generation around the handle rules out the slot changing in between.
@@ -2500,8 +2554,10 @@ static cl_int libxstream_mpsd_status(libxstream_mpsd_client_t* cl, uint64_t id, 
   cl_int status = CL_QUEUED;
   if (0 != id && id <= cl->capacity) {
     const unsigned int g0 = __atomic_load_n(cl->gens + id - 1, __ATOMIC_ACQUIRE);
-    const cl_event event = (cl_event)__atomic_load_n(cl->handles + id - 1, __ATOMIC_ACQUIRE);
+    cl_event event = (cl_event)__atomic_load_n(cl->handles + id - 1, __ATOMIC_ACQUIRE);
     const unsigned int g1 = __atomic_load_n(cl->gens + id - 1, __ATOMIC_ACQUIRE);
+    if (NULL != cl->used) cl->used[id - 1] |= 2;
+    if (NULL == event && g0 == gen && g1 == gen) event = libxstream_mpsd_event(cl, id);
     if (NULL != event && g0 == gen && g1 == gen
       && CL_SUCCESS != clGetEventInfo(event, CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(status), &status, NULL))
     {
@@ -2632,6 +2688,20 @@ static cl_int libxstream_mpsd_kernel_arg(libxstream_mpsd_client_t* cl, libxstrea
 static cl_int libxstream_mpsd_dispose(libxstream_mpsd_client_t* cl, uint64_t id, int kind)
 {
   const cl_int result = libxstream_mpsd_release(libxstream_mpsd_handle(cl, id), kind);
+  if (LIBXSTREAM_MPS_KIND_EVENT == kind && 0 != id && id <= cl->capacity) {
+    __atomic_store_n(cl->lazy + id - 1, NULL, __ATOMIC_RELEASE);
+  }
+  if (LIBXSTREAM_MPS_KIND_EVENT == kind && NULL != cl->used && 0 != id && id <= cl->capacity) {
+    pthread_mutex_lock(&cl->lock);
+    ++cl->nevents;
+    ++cl->nused[cl->used[id - 1] & 3];
+    if (NULL != cl->evop && cl->evop[id - 1] < LIBXSTREAM_MPS_NOPS) {
+      ++cl->op_events[cl->evop[id - 1]];
+      if (0 != cl->used[id - 1]) ++cl->op_needed[cl->evop[id - 1]];
+    }
+    cl->used[id - 1] = 0;
+    pthread_mutex_unlock(&cl->lock);
+  }
   if (LIBXSTREAM_MPS_KIND_KERNEL == kind && 0 != id && id <= cl->capacity) {
     libxstream_mpsd_kernel_t* entry;
     pthread_mutex_lock(&cl->lock);
@@ -2655,13 +2725,19 @@ static void libxstream_mpsd_error(libxstream_mpsd_client_t* cl, uint64_t op, cl_
 }
 
 
-/* One context per set of devices, shared by every client: contexts are what the device time-slices. */
-static cl_context libxstream_mpsd_context(uint64_t mask, cl_int* result)
+/**
+ * One context per set of devices, shared by every client: contexts are what the device
+ * time-slices. LIBXSTREAM_MPS_CONTEXTS spreads the clients over several contexts per set,
+ * since the driver serializes the calls into one context.
+ */
+static cl_context libxstream_mpsd_context(uint64_t mask, int slot, cl_int* result)
 {
   cl_context context = NULL;
   cl_uint i;
   pthread_mutex_lock(&libxstream_mpsd_lock);
-  for (i = 0; i < libxstream_mpsd.ncontexts && mask != libxstream_mpsd.masks[i]; ++i);
+  for (i = 0; i < libxstream_mpsd.ncontexts; ++i) {
+    if (mask == libxstream_mpsd.masks[i] && slot == libxstream_mpsd.slots[i]) break;
+  }
   if (i < libxstream_mpsd.ncontexts) {
     context = libxstream_mpsd.contexts[i];
     *result = CL_SUCCESS;
@@ -2679,6 +2755,7 @@ static cl_context libxstream_mpsd_context(uint64_t mask, cl_int* result)
     context = (0 != n ? clCreateContext(properties, n, devices, NULL, NULL, result) : NULL);
     if (NULL != context) {
       libxstream_mpsd.masks[libxstream_mpsd.ncontexts] = mask;
+      libxstream_mpsd.slots[libxstream_mpsd.ncontexts] = slot;
       libxstream_mpsd.contexts[libxstream_mpsd.ncontexts++] = context;
     }
     else if (0 == n) *result = CL_INVALID_DEVICE;
@@ -2707,6 +2784,7 @@ static void libxstream_mpsd_track(libxstream_mpsd_client_t* cl, const libxstream
     for (i = 1; i < nuse; ++i) clRetainEvent(event);
     if (0 == nuse) clReleaseEvent(event);
     if (0 != msg->arg[7] && msg->arg[7] <= cl->capacity) {
+      if (NULL != cl->evop) cl->evop[msg->arg[7] - 1] = (unsigned char)msg->op;
       __atomic_store_n(cl->gens + msg->arg[7] - 1, (unsigned int)msg->arg[LIBXSTREAM_MPS_GEN], __ATOMIC_RELEASE);
       libxstream_mpsd_set(cl, msg->arg[7], event, LIBXSTREAM_MPS_KIND_EVENT);
     }
@@ -2743,7 +2821,9 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
     if (NULL == waits) result = CL_OUT_OF_HOST_MEMORY;
   }
   for (i = 0; i < nwait && CL_SUCCESS == result; ++i) {
-    waits[i] = (cl_event)libxstream_mpsd_handle(cl, ((const uint64_t*)*payload)[i]);
+    const uint64_t id = ((const uint64_t*)*payload)[i];
+    waits[i] = libxstream_mpsd_event(cl, id);
+    if (NULL != cl->used && 0 != id && id <= cl->capacity) cl->used[id - 1] |= 1;
   }
   if (0 != info_size && CL_SUCCESS == result) {
     post->data = malloc(info_size);
@@ -2779,7 +2859,8 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
           info_size, post->data, &size_ret) : CL_INVALID_DEVICE);
       } break;
       case LIBXSTREAM_MPS_CONTEXT: {
-        const cl_context context = libxstream_mpsd_context(a[1], &result);
+        const int slot = cl->ordinal % libxstream_mpsd.ncontexts_per;
+        const cl_context context = libxstream_mpsd_context(a[1], slot, &result);
         if (NULL != context && CL_SUCCESS == clRetainContext(context)) {
           libxstream_mpsd_set(cl, a[0], context, LIBXSTREAM_MPS_KIND_CONTEXT);
         }
@@ -2941,21 +3022,23 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
         const cl_command_queue queue = (cl_command_queue)libxstream_mpsd_handle(cl, a[0]);
         const cl_mem buffer = (cl_mem)libxstream_mpsd_handle(cl, a[1]);
         const int inline_write = (LIBXSTREAM_MPS_WRITE == msg->op && NULL == arena);
+        cl_event* const need = ((0 != a[2] || 0 != inline_write) ? pevent : NULL); /* waited for, or frees the payload */
         char* const host = (NULL != arena ? arena
           : (LIBXSTREAM_MPS_WRITE == msg->op ? (*payload + sizeof(uint64_t) * nwait) : (char*)malloc((size_t)a[4])));
         if (NULL != host) {
           if (LIBXSTREAM_MPS_WRITE == msg->op) {
             result = clEnqueueWriteBuffer(queue, buffer, CL_FALSE, (size_t)a[3], (size_t)a[4], host, nwait,
-              0 != nwait ? waits : NULL, pevent);
+              0 != nwait ? waits : NULL, need);
           }
           else {
             result = clEnqueueReadBuffer(queue, buffer, CL_FALSE, (size_t)a[3], (size_t)a[4], host, nwait,
-              0 != nwait ? waits : NULL, pevent);
+              0 != nwait ? waits : NULL, need);
           }
         }
         else result = CL_OUT_OF_HOST_MEMORY;
         if (CL_SUCCESS == result) {
-          libxstream_mpsd_track(cl, msg, event, 0 != a[2], 0 != inline_write ? payload : NULL, post);
+          if (NULL != need) libxstream_mpsd_track(cl, msg, event, 0 != a[2], 0 != inline_write ? payload : NULL, post);
+          else libxstream_mpsd_lazy(cl, msg, queue);
           if (NULL == arena && LIBXSTREAM_MPS_READ == msg->op) {
             post->data = host;
             post->nbytes = (size_t)a[4];
@@ -2964,16 +3047,16 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
         else if (NULL == arena && LIBXSTREAM_MPS_READ == msg->op) free(host);
       } break;
       case LIBXSTREAM_MPS_COPY: {
-        result = clEnqueueCopyBuffer((cl_command_queue)libxstream_mpsd_handle(cl, a[0]),
-          (cl_mem)libxstream_mpsd_handle(cl, a[1]), (cl_mem)libxstream_mpsd_handle(cl, a[2]), (size_t)a[3], (size_t)a[4],
-          (size_t)a[8], nwait, 0 != nwait ? waits : NULL, 0 != a[7] ? pevent : NULL);
-        if (CL_SUCCESS == result) libxstream_mpsd_track(cl, msg, event, 0, NULL, post);
+        const cl_command_queue queue = (cl_command_queue)libxstream_mpsd_handle(cl, a[0]);
+        result = clEnqueueCopyBuffer(queue, (cl_mem)libxstream_mpsd_handle(cl, a[1]), (cl_mem)libxstream_mpsd_handle(cl, a[2]),
+          (size_t)a[3], (size_t)a[4], (size_t)a[8], nwait, 0 != nwait ? waits : NULL, NULL);
+        if (CL_SUCCESS == result) libxstream_mpsd_lazy(cl, msg, queue);
       } break;
       case LIBXSTREAM_MPS_FILL: {
-        result = clEnqueueFillBuffer((cl_command_queue)libxstream_mpsd_handle(cl, a[0]),
-          (cl_mem)libxstream_mpsd_handle(cl, a[1]), data, (size_t)a[2], (size_t)a[3], (size_t)a[4], nwait,
-          0 != nwait ? waits : NULL, 0 != a[7] ? pevent : NULL);
-        if (CL_SUCCESS == result) libxstream_mpsd_track(cl, msg, event, 0, NULL, post);
+        const cl_command_queue queue = (cl_command_queue)libxstream_mpsd_handle(cl, a[0]);
+        result = clEnqueueFillBuffer(queue, (cl_mem)libxstream_mpsd_handle(cl, a[1]), data, (size_t)a[2], (size_t)a[3],
+          (size_t)a[4], nwait, 0 != nwait ? waits : NULL, NULL);
+        if (CL_SUCCESS == result) libxstream_mpsd_lazy(cl, msg, queue);
       } break;
       case LIBXSTREAM_MPS_NDRANGE: {
         const cl_uint dims = (cl_uint)LIBXS_MIN(a[2], 3);
@@ -2994,15 +3077,21 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
         if (CL_SUCCESS == result) {
           result = clEnqueueNDRangeKernel((cl_command_queue)libxstream_mpsd_handle(cl, a[0]), instance->kernel, dims,
             0 != (a[3] & 1) ? offsets : NULL, global, 0 != (a[3] & 2) ? local_size : NULL, nwait,
-            0 != nwait ? waits : NULL, 0 != a[7] ? pevent : NULL);
+            0 != nwait ? waits : NULL, NULL);
         }
-        if (CL_SUCCESS == result) libxstream_mpsd_track(cl, msg, event, 0, NULL, post);
+        if (CL_SUCCESS == result) libxstream_mpsd_lazy(cl, msg, (cl_command_queue)libxstream_mpsd_handle(cl, a[0]));
       } break;
       case LIBXSTREAM_MPS_MARKER: {
         const cl_command_queue queue = (cl_command_queue)libxstream_mpsd_handle(cl, a[0]);
-        result = (0 != a[1] ? clEnqueueBarrierWithWaitList(queue, nwait, 0 != nwait ? waits : NULL, 0 != a[7] ? pevent : NULL)
-          : clEnqueueMarkerWithWaitList(queue, nwait, 0 != nwait ? waits : NULL, 0 != a[7] ? pevent : NULL));
-        if (CL_SUCCESS == result) libxstream_mpsd_track(cl, msg, event, 0, NULL, post);
+        if (0 != a[1]) { /* a barrier orders the queue, its event is made when needed */
+          result = clEnqueueBarrierWithWaitList(queue, nwait, 0 != nwait ? waits : NULL, NULL);
+          if (CL_SUCCESS == result) libxstream_mpsd_lazy(cl, msg, queue);
+        }
+        else if (0 != nwait) { /* waits for the list rather than for the queue */
+          result = clEnqueueMarkerWithWaitList(queue, nwait, waits, 0 != a[7] ? pevent : NULL);
+          if (CL_SUCCESS == result) libxstream_mpsd_track(cl, msg, event, 0, NULL, post);
+        }
+        else libxstream_mpsd_lazy(cl, msg, queue); /* a marker made when needed is the same marker */
       } break;
       case LIBXSTREAM_MPS_MAP: { /* a shadow is mapped where it lives, a temporary buffer is read into */
         const cl_command_queue queue = (cl_command_queue)libxstream_mpsd_handle(cl, a[0]);
@@ -3055,7 +3144,7 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
       } break;
       case LIBXSTREAM_MPS_EVENT_STATUS: {
         cl_int status = CL_COMPLETE;
-        result = clGetEventInfo((cl_event)libxstream_mpsd_handle(cl, a[0]), CL_EVENT_COMMAND_EXECUTION_STATUS,
+        result = clGetEventInfo(libxstream_mpsd_event(cl, a[0]), CL_EVENT_COMMAND_EXECUTION_STATUS,
           sizeof(status), &status, NULL);
         post->arg0 = (uint64_t)(int64_t)status;
       } break;
@@ -3205,15 +3294,18 @@ static libxstream_mpsd_client_t* libxstream_mpsd_hello(int fd)
         result->arena = (char*)mmap(NULL, (size_t)msg.arg[2], PROT_READ | PROT_WRITE, MAP_SHARED, memfd, 0);
         result->handles = (void**)calloc((size_t)msg.arg[3], sizeof(void*));
         result->kernels = (libxstream_mpsd_kernel_t**)calloc((size_t)msg.arg[3], sizeof(libxstream_mpsd_kernel_t*));
+        result->lazy = (cl_command_queue*)calloc((size_t)msg.arg[3], sizeof(cl_command_queue));
         result->gens = (unsigned int*)calloc((size_t)msg.arg[3], sizeof(unsigned int));
         result->kinds = (unsigned char*)calloc((size_t)msg.arg[3], 1);
         result->done = (unsigned char*)calloc(LIBXSTREAM_MPS_WINDOW, 1);
         if (MAP_FAILED != result->arena && NULL != result->handles && NULL != result->gens && NULL != result->kinds
-          && NULL != result->done && NULL != result->kernels)
+          && NULL != result->done && NULL != result->kernels && NULL != result->lazy)
         {
           pthread_mutex_init(&result->lock, NULL);
           pthread_cond_init(&result->cond, NULL);
           if (2 <= libxstream_mpsd.verbosity || 0 > libxstream_mpsd.verbosity) {
+            result->used = (unsigned char*)calloc((size_t)msg.arg[3], 1);
+            result->evop = (unsigned char*)calloc((size_t)msg.arg[3], 1);
             result->hist = libxs_hist_create(24 /*nbuckets*/, 3 /*nvals*/, NULL, NULL, NULL);
             if (NULL != result->hist) {
               LIBXS_LOCK_ATTR_TYPE(LIBXS_LOCK) attr;
@@ -3229,7 +3321,7 @@ static libxstream_mpsd_client_t* libxstream_mpsd_hello(int fd)
           pthread_mutex_lock(&libxstream_mpsd_lock);
           result->next = libxstream_mpsd.clients;
           libxstream_mpsd.clients = result;
-          ++libxstream_mpsd.nserved;
+          result->ordinal = libxstream_mpsd.nserved++;
           pthread_mutex_unlock(&libxstream_mpsd_lock);
           if (0 != libxstream_mpsd.verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i attached\n", result->pid);
         }
@@ -3237,6 +3329,9 @@ static libxstream_mpsd_client_t* libxstream_mpsd_hello(int fd)
           if (MAP_FAILED != result->arena) munmap(result->arena, (size_t)msg.arg[2]);
           free(result->handles);
           free(result->kernels);
+          free(result->lazy);
+          free(result->used);
+          free(result->evop);
           free(result->gens);
           free(result->kinds);
           free(result->done);
@@ -3310,6 +3405,16 @@ static void libxstream_mpsd_leave(libxstream_mpsd_client_t* cl)
           }
         }
         fprintf(stderr, "\n");
+        fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i events=%lu unused=%lu waited=%lu polled=%lu both=%lu\n", cl->pid,
+          (unsigned long)cl->nevents, (unsigned long)cl->nused[0], (unsigned long)cl->nused[1], (unsigned long)cl->nused[2],
+          (unsigned long)cl->nused[3]);
+        fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i events per op (needed):", cl->pid);
+        for (op = 0; op < LIBXSTREAM_MPS_NOPS; ++op) {
+          if (0 != cl->op_events[op]) {
+            fprintf(stderr, " %i=%lu(%lu)", op, (unsigned long)cl->op_events[op], (unsigned long)cl->op_needed[op]);
+          }
+        }
+        fprintf(stderr, "\n");
         fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i exec per op:", cl->pid);
         for (op = 0; op < LIBXSTREAM_MPS_NOPS; ++op) {
           if (0 != cl->op_n[op]) {
@@ -3327,6 +3432,9 @@ static void libxstream_mpsd_leave(libxstream_mpsd_client_t* cl)
     pthread_mutex_destroy(&cl->lock);
     free(cl->handles);
     free(cl->kernels);
+    free(cl->lazy);
+    free(cl->used);
+    free(cl->evop);
     free(cl->gens);
     free(cl->kinds);
     free(cl->done);
@@ -3470,6 +3578,8 @@ LIBXSTREAM_API_INTERN void libxstream_mps_presetup(int verbosity)
       if (EXIT_SUCCESS == libxstream_mps_beside("libxstream_icd.so", path, sizeof(path))
         && 0 == setenv("OCL_ICD_FILENAMES", path, 1) && 0 == setenv("OCL_ICD_VENDORS", path, 1))
       {
+        /* the driver serializes calls per context, while contexts time-slice: a few contexts for many ranks */
+        if (NULL == getenv("LIBXSTREAM_MPS_CONTEXTS")) setenv("LIBXSTREAM_MPS_CONTEXTS", 4 <= libxs_nranks() ? "2" : "1", 0);
         if (0 != verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: forwarding through %s\n", path);
       }
       else fprintf(stderr, "ERROR LIBXSTREAM-MPS: libxstream_icd.so not found beside the library\n");
@@ -3501,6 +3611,7 @@ LIBXSTREAM_API int libxstream_mps_server(void)
 {
   const char *const env_icd = getenv("LIBXSTREAM_MPS_ICD"), *const env_verbose = getenv("LIBXSTREAM_VERBOSE");
   const char *const env_idle = getenv("LIBXSTREAM_MPS_TIMEOUT"), *const env_issuers = getenv("LIBXSTREAM_MPS_ISSUERS");
+  const char* const env_contexts = getenv("LIBXSTREAM_MPS_CONTEXTS");
   const int idle_limit = (NULL != env_idle ? atoi(env_idle) : LIBXSTREAM_MPS_IDLE);
   char name[64], path[sizeof(((struct sockaddr_un*)NULL)->sun_path)];
   unsigned long cpus[64];
@@ -3520,6 +3631,7 @@ LIBXSTREAM_API int libxstream_mps_server(void)
   signal(SIGPIPE, SIG_IGN);
   libxstream_mpsd.verbosity = (NULL != env_verbose ? atoi(env_verbose) : 0);
   libxstream_mpsd.issuers = LIBXS_MAX(NULL != env_issuers ? atoi(env_issuers) : 0, 0);
+  libxstream_mpsd.ncontexts_per = LIBXS_MAX(NULL != env_contexts ? atoi(env_contexts) : 1, 1);
   if (0 != libxstream_mpsd.issuers && 0 != sem_init(&libxstream_mpsd.gate, 0, (unsigned int)libxstream_mpsd.issuers)) {
     libxstream_mpsd.issuers = 0;
   }
