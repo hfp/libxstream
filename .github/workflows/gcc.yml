@@ -151,6 +151,58 @@ jobs:
       if: matrix.libxs == 'header-only'
       run: make -j $(nproc) ${{ matrix.flags }} PARAMS= samples
 
+  # OpenCL-MPS end to end: the samples run once directly and once forwarded to
+  # the server, which PoCL's CPU device serves. A run that falls back to direct
+  # OpenCL passes the checks as well, hence the log has to show the connection.
+  MPS:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LIBXSTREAM_DEVTYPE: cpu
+      OMP_NUM_THREADS: 2
+      # acc_bench fails on a wrong result only if CHECK is positive
+      CHECK: 1
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Install OpenBLAS and OpenCL
+      run: |
+        sudo apt update -y
+        sudo apt install -y libopenblas-openmp-dev \
+          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev pocl-opencl-icd
+
+    - name: Setup LIBXS
+      run: |
+        git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
+        echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> $GITHUB_ENV
+
+    # Shared libraries: the OpenCL loader loads the forwarding ICD, which loads
+    # libxstream.so, and the server is the executable beside it.
+    - name: Build LIBXS
+      run: cd ${LIBXSROOT} && make -j $(nproc) STATIC=0
+
+    - name: Build LIBXSTREAM
+      run: |
+        make -j $(nproc) STATIC=0
+        test -x lib/libxstream_mpsd && test -f lib/libxstream_icd.so
+        echo "LD_LIBRARY_PATH=${{ github.workspace }}/lib:${LIBXSROOT}/lib" >> $GITHUB_ENV
+
+    - name: Test SMM sample
+      shell: bash # pipefail, or tee hides a failure
+      run: |
+        make -j $(nproc) STATIC=0 -C samples/smm
+        cd samples/smm
+        ./acc_bench.x 3 3000 13x5x7
+        LIBXSTREAM_MPS=1 LIBXSTREAM_VERBOSE=1 ./acc_bench.x 3 3000 13x5x7 2>&1 | tee mps.log
+        grep -q "LIBXSTREAM-MPS: connected" mps.log || { echo "ERROR: the run did not use OpenCL-MPS"; exit 1; }
+
+    - name: Test DBM sample
+      shell: bash
+      run: |
+        make -j $(nproc) STATIC=0 -C samples/dbm test TESTARG="3 3000 13x5x7"
+        LIBXSTREAM_MPS=1 make STATIC=0 -C samples/dbm test TESTARG="3 3000 13x5x7" 2>&1 | tee mps.log
+        grep -q "LIBXSTREAM-MPS: connected" mps.log || { echo "ERROR: the run did not use OpenCL-MPS"; exit 1; }
+
   Debian:
     runs-on: ubuntu-latest
     steps:
