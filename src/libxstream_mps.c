@@ -29,6 +29,7 @@
 #   include <errno.h>
 #   include <poll.h>
 #   include <pthread.h>
+#   include <semaphore.h>
 #   include <signal.h>
 #   include <spawn.h>
 #   include <time.h>
@@ -246,7 +247,9 @@ typedef struct libxstream_mpsd_t {
   cl_context contexts[LIBXSTREAM_MAXNDEVS];
   uint64_t masks[LIBXSTREAM_MAXNDEVS];
   libxstream_mpsd_client_t* clients;
+  sem_t gate; /* bounds the commands executing at once (LIBXSTREAM_MPS_ISSUERS) */
   cl_uint ndevices, ncontexts;
+  int issuers; /* zero: unbounded */
   int nthreads, nserved, verbosity;
 } libxstream_mpsd_t;
 # endif
@@ -3196,10 +3199,13 @@ static void* libxstream_mpsd_connection(void* arg)
         LIBXSTREAM_MPS_COUNT(&cl->status_ns, libxstream_mpsd_ns(t0, libxs_timer_tick()));
       }
       else if (EXIT_SUCCESS == libxstream_mpsd_ready(cl, msg.seq, deps, msg.ndeps)) {
-        const libxs_timer_tick_t t1 = libxs_timer_tick();
+        libxs_timer_tick_t t1;
         uint64_t wait_ns, exec_ns;
+        if (0 != libxstream_mpsd.issuers) while (0 != sem_wait(&libxstream_mpsd.gate) && EINTR == errno);
+        t1 = libxs_timer_tick();
         libxstream_mpsd_execute(cl, &msg, &payload, &post);
         libxstream_mpsd_executed(cl, msg.seq);
+        if (0 != libxstream_mpsd.issuers) sem_post(&libxstream_mpsd.gate);
         wait_ns = libxstream_mpsd_ns(t0, t1);
         exec_ns = libxstream_mpsd_ns(t1, libxs_timer_tick());
         LIBXSTREAM_MPS_COUNT(&cl->ncmds, 1);
@@ -3322,7 +3328,7 @@ LIBXSTREAM_API cl_int libxstream_mps_icd_platforms(cl_uint num_entries, cl_platf
 LIBXSTREAM_API int libxstream_mps_server(void)
 {
   const char *const env_icd = getenv("LIBXSTREAM_MPS_ICD"), *const env_verbose = getenv("LIBXSTREAM_VERBOSE");
-  const char* const env_idle = getenv("LIBXSTREAM_MPS_TIMEOUT");
+  const char *const env_idle = getenv("LIBXSTREAM_MPS_TIMEOUT"), *const env_issuers = getenv("LIBXSTREAM_MPS_ISSUERS");
   const int idle_limit = (NULL != env_idle ? atoi(env_idle) : LIBXSTREAM_MPS_IDLE);
   char name[64], path[sizeof(((struct sockaddr_un*)NULL)->sun_path)];
   unsigned long cpus[64];
@@ -3341,6 +3347,10 @@ LIBXSTREAM_API int libxstream_mps_server(void)
   }
   signal(SIGPIPE, SIG_IGN);
   libxstream_mpsd.verbosity = (NULL != env_verbose ? atoi(env_verbose) : 0);
+  libxstream_mpsd.issuers = LIBXS_MAX(NULL != env_issuers ? atoi(env_issuers) : 0, 0);
+  if (0 != libxstream_mpsd.issuers && 0 != sem_init(&libxstream_mpsd.gate, 0, (unsigned int)libxstream_mpsd.issuers)) {
+    libxstream_mpsd.issuers = 0;
+  }
   libxstream_mps_paths(name, sizeof(name), path, sizeof(path));
   handle = libxs_singleton_acquire(name);
   if (0 <= handle) { /* otherwise another server runs */
