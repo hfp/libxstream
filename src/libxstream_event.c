@@ -17,7 +17,12 @@ LIBXSTREAM_API int libxstream_event_create(libxstream_event_t** event_p)
   assert(NULL != libxstream_opencl_config.events && NULL != event_p);
   *event_p = (libxstream_event_t*)libxs_pmalloc_lock(
     (void**)libxstream_opencl_config.events, &libxstream_opencl_config.nevents, libxstream_opencl_config.lock_event);
-  if (NULL != *event_p) (*event_p)->cl_evt = NULL;
+  if (NULL != *event_p) {
+    libxstream_event_tracked_t* const tracked = (libxstream_event_tracked_t*)*event_p;
+    tracked->event.cl_evt = NULL;
+    tracked->stream = NULL;
+    tracked->serial = 0;
+  }
   else result = EXIT_FAILURE;
   CL_RETURN(result, "");
 }
@@ -45,16 +50,20 @@ LIBXSTREAM_API int libxstream_event_destroy(libxstream_event_t* event)
 
 LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, libxstream_event_t* event)
 { /* wait for an event (device-side) */
-  int result = EXIT_SUCCESS;
+  int result = EXIT_SUCCESS, same = 0;
   const libxstream_opencl_stream_t* str = NULL;
   cl_event clevent = NULL;
   str = (NULL != stream ? stream : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue && NULL != event);
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   clevent = event->cl_evt;
-  if (NULL != clevent) clRetainEvent(clevent);
+  if (NULL != clevent && LIBXSTREAM_STREAM_TRACK(stream)) { /* recorded on the same in-order stream: nothing to wait for */
+    const libxstream_event_tracked_t* const tracked = (const libxstream_event_tracked_t*)event;
+    same = (stream == tracked->stream && ((const libxstream_stream_tracked_t*)stream)->serial == tracked->serial);
+  }
+  if (NULL != clevent && 0 == same) clRetainEvent(clevent);
   LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
-  if (NULL != clevent) {
+  if (NULL != clevent && 0 == same) {
 # if defined(CL_VERSION_1_2)
     const int track = (LIBXSTREAM_STREAM_TRACK(stream) ? libxstream_stream_enter(stream) : 0);
     cl_event barrier = NULL;
@@ -78,7 +87,7 @@ LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, lib
     }
     clReleaseEvent(clevent);
   }
-  else if (3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity) {
+  else if (NULL == clevent && (3 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity)) {
     fprintf(stderr, "WARN ACC/OpenCL: libxstream_stream_wait_event discovered an empty event.\n");
   }
   CL_RETURN(result, "");
@@ -104,8 +113,12 @@ LIBXSTREAM_API int libxstream_event_record(libxstream_event_t* event, libxstream
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   clevent = event->cl_evt;
   if (EXIT_SUCCESS == result) {
+    libxstream_event_tracked_t* const tracked = (libxstream_event_tracked_t*)event;
+    const int track = LIBXSTREAM_STREAM_TRACK(stream);
     assert(NULL != clevent_result);
     event->cl_evt = clevent_result;
+    tracked->stream = (0 != track ? stream : NULL);
+    tracked->serial = (0 != track ? ((const libxstream_stream_tracked_t*)stream)->serial : 0);
   }
   else {
     event->cl_evt = NULL;

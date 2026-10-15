@@ -263,19 +263,32 @@ typedef struct libxstream_opencl_error_t {
 /** Information about streams (libxstream_stream_create). */
 typedef struct libxstream_stream_t {
   cl_command_queue queue;
-  cl_event last; /* the last command's event, which an event record takes over (LIBXSTREAM_STREAM_TRACK) */
-  int entries, inflight; /* enqueue windows (libxstream_stream_enter) */
-  volatile LIBXS_ATOMIC_LOCKTYPE guard;
   int tid;
 #if defined(LIBXSTREAM_STREAM_PRIORITIES)
   int priority;
 #endif
 } libxstream_opencl_stream_t;
 
+/** A stream as libxstream_stream_create allocates it, followed by what only the library sees. */
+typedef struct libxstream_stream_tracked_t {
+  libxstream_opencl_stream_t stream;
+  cl_event last; /* the last command's event, which an event record takes over (LIBXSTREAM_STREAM_TRACK) */
+  int entries, inflight; /* enqueue windows (libxstream_stream_enter) */
+  int serial; /* tells the stream from earlier streams in the same slot */
+  volatile LIBXS_ATOMIC_LOCKTYPE guard;
+} libxstream_stream_tracked_t;
+
 /** Information about events (libxstream_event_create). */
 struct libxstream_event_t {
   cl_event cl_evt;
 };
+
+/** An event as libxstream_event_create allocates it, followed by what only the library sees. */
+typedef struct libxstream_event_tracked_t {
+  struct libxstream_event_t event;
+  const libxstream_stream_t* stream; /* recorded on (NULL: not tracked), see libxstream_stream_wait_event */
+  int serial; /* of the stream it was recorded on */
+} libxstream_event_tracked_t;
 
 /** Settings updated during libxstream_device_set_active. */
 typedef struct libxstream_opencl_device_t {
@@ -864,7 +877,8 @@ LIBXSTREAM_API cl_int libxstream_mps_icd_platforms(cl_uint num_entries, cl_platf
  * no other enqueue on the stream overlapped, else the stream forgets its last command.
  * LIBXSTREAM_XHINTS bit 128 disables tracking.
  */
-#define LIBXSTREAM_STREAM_TRACK(STREAM) (NULL != (STREAM) && 0 == (128 & libxstream_opencl_config.xhints))
+#define LIBXSTREAM_STREAM_TRACK(STREAM) (NULL != (STREAM) && 0 == (128 & libxstream_opencl_config.xhints) && \
+  (const void*)(STREAM) != (const void*)&libxstream_opencl_config.device.stream)
 /** Opens an enqueue window; returns a ticket (non-zero), negative if another window is open. */
 LIBXSTREAM_API_INTERN int libxstream_stream_enter(libxstream_stream_t* stream);
 /**

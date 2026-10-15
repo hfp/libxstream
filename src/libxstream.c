@@ -718,9 +718,9 @@ LIBXSTREAM_API int libxstream_init(void)
         /* allocate and initialize streams registry */
         libxstream_opencl_config.nstreams = nhandles;
         libxstream_opencl_config.streams = (libxstream_opencl_stream_t**)malloc(sizeof(libxstream_opencl_stream_t*) * nhandles);
-        libxstream_opencl_config.stream_data = (libxstream_opencl_stream_t*)malloc(sizeof(libxstream_opencl_stream_t) * nhandles);
+        libxstream_opencl_config.stream_data = (libxstream_opencl_stream_t*)malloc(sizeof(libxstream_stream_tracked_t) * nhandles);
         if (NULL != libxstream_opencl_config.streams && NULL != libxstream_opencl_config.stream_data) {
-          libxs_pmalloc_init(sizeof(libxstream_opencl_stream_t), &libxstream_opencl_config.nstreams,
+          libxs_pmalloc_init(sizeof(libxstream_stream_tracked_t), &libxstream_opencl_config.nstreams,
             (void**)libxstream_opencl_config.streams, libxstream_opencl_config.stream_data);
         }
         else {
@@ -734,9 +734,9 @@ LIBXSTREAM_API int libxstream_init(void)
         /* allocate and initialize events registry */
         libxstream_opencl_config.nevents = nhandles;
         libxstream_opencl_config.events = (cl_event**)malloc(sizeof(cl_event*) * nhandles);
-        libxstream_opencl_config.event_data = (cl_event*)malloc(sizeof(cl_event) * nhandles);
+        libxstream_opencl_config.event_data = (cl_event*)malloc(sizeof(libxstream_event_tracked_t) * nhandles);
         if (NULL != libxstream_opencl_config.events && NULL != libxstream_opencl_config.event_data) {
-          libxs_pmalloc_init(sizeof(cl_event*), &libxstream_opencl_config.nevents, (void**)libxstream_opencl_config.events,
+          libxs_pmalloc_init(sizeof(libxstream_event_tracked_t), &libxstream_opencl_config.nevents, (void**)libxstream_opencl_config.events,
             libxstream_opencl_config.event_data);
         }
         else {

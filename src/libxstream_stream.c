@@ -15,6 +15,10 @@
 # endif
 
 
+/* numbers the streams (libxstream_stream_tracked_t) */
+static int libxstream_stream_serial;
+
+
 LIBXSTREAM_API const libxstream_opencl_stream_t* libxstream_opencl_stream(libxs_lock_t* lock, int thread_id)
 {
   const libxstream_opencl_stream_t *result = NULL, *result_main = NULL;
@@ -154,11 +158,13 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
 # if !defined(NDEBUG)
       LIBXS_MEMZERO(str);
 # endif
+      libxstream_stream_tracked_t* const tracked = (libxstream_stream_tracked_t*)*stream_p;
       str->queue = queue;
-      str->last = NULL;
-      str->entries = str->inflight = 0;
-      str->guard = 0;
       str->tid = tid;
+      tracked->last = NULL;
+      tracked->entries = tracked->inflight = 0;
+      tracked->serial = LIBXS_ATOMIC_ADD_FETCH(&libxstream_stream_serial, 1, LIBXS_ATOMIC_RELAXED);
+      tracked->guard = 0;
 # if defined(LIBXSTREAM_STREAM_PRIORITIES)
       str->priority = priority;
 # endif
@@ -180,7 +186,8 @@ LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream)
   if (NULL != stream) {
     const libxstream_opencl_stream_t* const str = stream;
     const cl_command_queue queue = str->queue;
-    if (NULL != str->last) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(str->last));
+    const libxstream_stream_tracked_t* const tracked = (const libxstream_stream_tracked_t*)stream;
+    if (NULL != tracked->last) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(tracked->last));
     /**
      * Clear unconditionally, not just when asserts are on: a cleared queue is
      * how a destroyed stream is recognized later. Device buffers record the
@@ -202,7 +209,7 @@ LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream)
 
 LIBXSTREAM_API_INTERN int libxstream_stream_enter(libxstream_stream_t* stream)
 {
-  libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)stream;
+  libxstream_stream_tracked_t* const str = (libxstream_stream_tracked_t*)stream;
   int result;
   assert(NULL != str);
   LIBXS_ATOMIC_ACQUIRE(&str->guard, LIBXS_NPAUSE_LOCK, LIBXS_ATOMIC_LOCKORDER);
@@ -216,7 +223,7 @@ LIBXSTREAM_API_INTERN int libxstream_stream_enter(libxstream_stream_t* stream)
 
 LIBXSTREAM_API_INTERN cl_event libxstream_stream_leave(libxstream_stream_t* stream, int ticket, cl_event event, int shared)
 {
-  libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)stream;
+  libxstream_stream_tracked_t* const str = (libxstream_stream_tracked_t*)stream;
   cl_event result = NULL, keep = NULL, previous;
   assert(NULL != str && 0 != ticket);
   if (NULL != event) {
@@ -243,7 +250,7 @@ LIBXSTREAM_API_INTERN cl_event libxstream_stream_leave(libxstream_stream_t* stre
 
 LIBXSTREAM_API_INTERN cl_event libxstream_stream_take(libxstream_stream_t* stream)
 {
-  libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)stream;
+  libxstream_stream_tracked_t* const str = (libxstream_stream_tracked_t*)stream;
   cl_event result;
   assert(NULL != str);
   LIBXS_ATOMIC_ACQUIRE(&str->guard, LIBXS_NPAUSE_LOCK, LIBXS_ATOMIC_LOCKORDER);

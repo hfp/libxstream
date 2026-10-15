@@ -16,6 +16,9 @@
 # endif
 # if defined(LIBXSTREAM_MPS)
 #   include <CL/cl_icd.h>
+#   include <libxs/libxs_reg.h>
+#   include <libxs/libxs_timer.h>
+#   include <libxs/libxs_utils.h>
 #   include <sys/mman.h>
 #   include <sys/prctl.h>
 #   include <sys/socket.h>
@@ -101,6 +104,7 @@
 #   define LIBXSTREAM_MPS_FLUSH 29
 #   define LIBXSTREAM_MPS_WAIT 30
 #   define LIBXSTREAM_MPS_EVENT_STATUS 31
+#   define LIBXSTREAM_MPS_NOPS 32
 
 #   define LIBXSTREAM_MPS_KIND_DEVICE 1
 #   define LIBXSTREAM_MPS_KIND_CONTEXT 2
@@ -120,8 +124,7 @@
 #   define LIBXSTREAM_MPS_ID(CLIENT, HANDLE) \
       (NULL != (HANDLE) ? (uint64_t)(LIBXSTREAM_MPS_OBJ(HANDLE) - (CLIENT)->objects) + 1 : 0)
 #   define LIBXSTREAM_MPS_DEVID(CLIENT, HANDLE) ((uint64_t)(LIBXSTREAM_MPS_OBJ(HANDLE) - (CLIENT)->devices))
-#   define LIBXSTREAM_MPS_ATOMIC_ADD(DST_PTR, VALUE) __atomic_add_fetch(DST_PTR, VALUE, __ATOMIC_SEQ_CST)
-#   define LIBXSTREAM_MPS_ATOMIC_FETCH_ADD(DST_PTR, VALUE) __atomic_fetch_add(DST_PTR, VALUE, __ATOMIC_SEQ_CST)
+#   define LIBXSTREAM_MPS_COUNT(DST_PTR, VALUE) LIBXS_ATOMIC(LIBXS_ATOMIC_ADD_FETCH, 64)(DST_PTR, VALUE, LIBXS_ATOMIC_RELAXED)
 # endif
 
 
@@ -146,12 +149,14 @@ typedef struct libxstream_mps_obj_t {
   struct libxstream_mps_obj_t* device;
   char* host; /* what the application sees of a buffer: the shadow, or its own pointer (USE_HOST_PTR) */
   char* shadow; /* shared memory a buffer is created on */
-  size_t size, offset; /* of a buffer; a queue's commands enqueued and finished so far */
+  size_t size, offset; /* of a buffer */
   uint64_t flags; /* memory flags, queue properties, device mask of a context, or command type */
   uint64_t create, last; /* sequence numbers (plus one) of the object's creation and of its last use */
+  uint64_t done; /* a queue's commands up to this sequence number (plus one) are known to be complete */
   struct libxstream_mps_obj_t** args; /* a kernel's buffer arguments: a launch touches them */
   uint64_t* values; /* a kernel's arguments as last set (up to 8 bytes, and a buffer's generation) */
   unsigned int gen; /* tells the object from the slot's earlier objects */
+  unsigned int ogen; /* generation of the owner when the object was created (an event's queue) */
   unsigned int tid; /* thread of the last command that touched the object (LIBXSTREAM_VERBOSE=2) */
   int refs, kind;
 } libxstream_mps_obj_t;
@@ -163,23 +168,28 @@ typedef struct libxstream_mps_map_t {
   uint64_t flags;
 } libxstream_mps_map_t;
 
-typedef struct libxstream_mps_entry_t {
-  struct libxstream_mps_entry_t* next;
+/* A lock of its own cache line: per-thread connection locks sit side by side. */
+typedef union libxstream_mps_lock_t {
+  libxs_lock_t lock;
+  char pad[LIBXS_CACHELINE];
+} libxstream_mps_lock_t;
+
+/* Key of a cached platform or device query (libxstream_mps_cached). */
+typedef struct libxstream_mps_key_t {
+  int64_t device;
   uint64_t param;
-  size_t nbytes;
-  int device;
-} libxstream_mps_entry_t;
+} libxstream_mps_key_t;
 
 typedef struct libxstream_mps_client_t {
   libxstream_mps_obj_t devices[LIBXSTREAM_MAXNDEVS];
   libxstream_mps_map_t maps[LIBXSTREAM_MPS_MAXNMAPS];
-  pthread_mutex_t conn_lock[LIBXSTREAM_MPS_MAXNCONN];
+  libxstream_mps_lock_t conn_lock[LIBXSTREAM_MPS_MAXNCONN];
   int conn[LIBXSTREAM_MPS_MAXNCONN];
   char* arena_free[LIBXSTREAM_MPS_NCLASSES];
   char path[sizeof(((struct sockaddr_un*)NULL)->sun_path)];
-  pthread_mutex_t lock, order;
+  libxstream_mps_lock_t lock, order;
   libxstream_mps_obj_t *objects, *free_head, *free_tail; /* released slots, reused once the server released them */
-  libxstream_mps_entry_t* cache;
+  libxs_registry_t* cache; /* platform and device queries: answered once, never changing */
   uint32_t* released; /* per slot in shared memory: set by the server once the object is released */
   unsigned int* gens; /* per object slot, kept across reuse */
   char* arena;
@@ -208,6 +218,9 @@ typedef struct libxstream_mpsd_client_t {
   size_t arena_size, capacity;
   uint64_t token, low; /* every command below low was executed */
   uint64_t ncmds, nstatus, wait_ns, exec_ns, post_ns, status_ns; /* LIBXSTREAM_VERBOSE=2 */
+  uint64_t op_n[LIBXSTREAM_MPS_NOPS], op_ns[LIBXSTREAM_MPS_NOPS]; /* per command (LIBXSTREAM_VERBOSE=2) */
+  libxs_hist_t* hist; /* execution time per command: log2(ns) buckets with {us, wait us} (LIBXSTREAM_VERBOSE=2) */
+  libxs_lock_t hist_lock;
   int nconn, dead, pid, nerrors;
 } libxstream_mpsd_client_t;
 
@@ -327,7 +340,7 @@ static void libxstream_mps_paths(char name[], size_t name_size, char path[], siz
 
 static intptr_t libxstream_mps_unsupported(void)
 {
-  if (1 == LIBXSTREAM_MPS_ATOMIC_ADD(&libxstream_mps_unsupported_count, 1)) {
+  if (1 == LIBXS_ATOMIC_ADD_FETCH(&libxstream_mps_unsupported_count, 1, LIBXS_ATOMIC_SEQ_CST)) {
     fprintf(stderr, "ERROR LIBXSTREAM-MPS: unsupported OpenCL function called\n");
   }
   return (intptr_t)CL_INVALID_OPERATION;
@@ -378,14 +391,14 @@ static char* libxstream_mps_arena_alloc(libxstream_mps_client_t* c, size_t size)
   char* result = NULL;
   if (LIBXSTREAM_MPS_NCLASSES > k) {
     const size_t nbytes = (size_t)LIBXSTREAM_MPS_PAGE << k;
-    pthread_mutex_lock(&c->lock);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
     result = c->arena_free[k];
     if (NULL != result) memcpy(&c->arena_free[k], result, sizeof(char*));
     else if (c->arena_top + nbytes <= c->arena_size) {
       result = c->arena + c->arena_top;
       c->arena_top += nbytes;
     }
-    pthread_mutex_unlock(&c->lock);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
   }
   return result;
 }
@@ -395,10 +408,10 @@ static void libxstream_mps_arena_free(libxstream_mps_client_t* c, char* p, size_
 {
   if (NULL != p) {
     const size_t k = libxstream_mps_class(size);
-    pthread_mutex_lock(&c->lock);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
     memcpy(p, &c->arena_free[k], sizeof(char*));
     c->arena_free[k] = p;
-    pthread_mutex_unlock(&c->lock);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
   }
 }
 
@@ -414,7 +427,7 @@ static uint64_t libxstream_mps_arena_offset(const libxstream_mps_client_t* c, co
 static libxstream_mps_obj_t* libxstream_mps_new(libxstream_mps_client_t* c, int kind, libxstream_mps_obj_t* context)
 {
   libxstream_mps_obj_t* result;
-  pthread_mutex_lock(&c->lock);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
   result = c->free_head;
   if (NULL != result && 0 != __atomic_load_n(c->released + (result - c->objects), __ATOMIC_ACQUIRE)) {
     c->free_head = result->owner;
@@ -423,7 +436,7 @@ static libxstream_mps_obj_t* libxstream_mps_new(libxstream_mps_client_t* c, int 
   }
   else if (c->nobjects < c->capacity) result = c->objects + c->nobjects++;
   else result = NULL;
-  pthread_mutex_unlock(&c->lock);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
   if (NULL != result) { /* the slot's next generation tells the object from the slot's earlier ones */
     memset(result, 0, sizeof(*result));
     result->gen = ++c->gens[result - c->objects];
@@ -439,14 +452,14 @@ static libxstream_mps_obj_t* libxstream_mps_new(libxstream_mps_client_t* c, int 
 /* A slot is reused once released by the server (confirmed: there is nothing to release). */
 static void libxstream_mps_delete(libxstream_mps_client_t* c, libxstream_mps_obj_t* obj, int confirmed)
 {
-  pthread_mutex_lock(&c->lock);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
   obj->kind = 0;
   obj->owner = NULL;
   if (0 != confirmed) __atomic_store_n(c->released + (obj - c->objects), 1, __ATOMIC_RELAXED);
   if (NULL != c->free_tail) c->free_tail->owner = obj;
   else c->free_head = obj;
   c->free_tail = obj;
-  pthread_mutex_unlock(&c->lock);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
 }
 
 
@@ -585,12 +598,15 @@ static libxstream_mps_client_t* libxstream_mps_start(void)
     const int arena_gb = (NULL != env_arena ? atoi(env_arena) : LIBXSTREAM_MPS_ARENA);
     char name[64];
     int i, fd = -1;
-    pthread_mutex_init(&c->lock, NULL);
-    pthread_mutex_init(&c->order, NULL);
+    LIBXS_LOCK_ATTR_TYPE(LIBXS_LOCK) attr;
+    LIBXS_LOCK_ATTR_INIT(LIBXS_LOCK, &attr);
+    LIBXS_LOCK_INIT(LIBXS_LOCK, &c->lock.lock, &attr);
+    LIBXS_LOCK_INIT(LIBXS_LOCK, &c->order.lock, &attr);
     for (i = 0; i < LIBXSTREAM_MPS_MAXNCONN; ++i) {
-      pthread_mutex_init(c->conn_lock + i, NULL);
+      LIBXS_LOCK_INIT(LIBXS_LOCK, &c->conn_lock[i].lock, &attr);
       c->conn[i] = -1;
     }
+    LIBXS_LOCK_ATTR_DESTROY(LIBXS_LOCK, &attr);
     for (i = 0; i < LIBXSTREAM_MAXNDEVS; ++i) {
       c->devices[i].dispatch = &libxstream_mps_dispatch;
       c->devices[i].kind = LIBXSTREAM_MPS_KIND_DEVICE;
@@ -610,11 +626,12 @@ static libxstream_mps_client_t* libxstream_mps_start(void)
       PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (MAP_FAILED == c->objects) c->objects = NULL;
     c->gens = (unsigned int*)calloc(c->capacity, sizeof(unsigned int));
+    c->cache = libxs_registry_create();
     if (NULL != c->arena) { /* release confirmations first, the rest is allocated */
       c->released = (uint32_t*)(void*)c->arena;
       c->arena_top = LIBXS_UP2(sizeof(uint32_t) * c->capacity, LIBXSTREAM_MPS_PAGE);
     }
-    if (NULL != c->arena && NULL != c->objects && NULL != c->gens) fd = libxstream_mps_open(c, 1);
+    if (NULL != c->arena && NULL != c->objects && NULL != c->gens && NULL != c->cache) fd = libxstream_mps_open(c, 1);
     if (0 <= fd) {
       c->conn[libxs_tid() % LIBXSTREAM_MPS_MAXNCONN] = fd;
       if (0 != c->verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: connected to %s\n", c->path);
@@ -624,6 +641,7 @@ static libxstream_mps_client_t* libxstream_mps_start(void)
       if (NULL != c->objects) munmap(c->objects, c->capacity * sizeof(libxstream_mps_obj_t));
       if (NULL != c->arena) munmap(c->arena, c->arena_size);
       if (0 <= c->memfd) close(c->memfd);
+      libxs_registry_destroy(c->cache);
       free(c->gens);
       free(c);
       c = NULL;
@@ -697,7 +715,10 @@ static void libxstream_mps_use(libxstream_mps_obj_t* obj, uint64_t seq, uint64_t
 
 static void libxstream_mps_created(libxstream_mps_obj_t* obj, uint64_t seq)
 {
-  if (NULL != obj) obj->create = obj->last = seq + 1;
+  if (NULL != obj) {
+    __atomic_store_n(&obj->create, seq + 1, __ATOMIC_RELEASE);
+    obj->last = seq + 1;
+  }
 }
 
 
@@ -799,7 +820,7 @@ static cl_int libxstream_mps_call(libxstream_mps_client_t* c, libxstream_mps_msg
   const unsigned int tid = libxs_tid() % LIBXSTREAM_MPS_MAXNCONN;
   cl_int result = CL_SUCCESS;
   int fd;
-  pthread_mutex_lock(c->conn_lock + tid);
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->conn_lock[tid].lock);
   fd = c->conn[tid];
   if (0 > fd) {
     fd = libxstream_mps_open(c, 0);
@@ -813,10 +834,10 @@ static cl_int libxstream_mps_call(libxstream_mps_client_t* c, libxstream_mps_msg
     msg->nbytes = (uint64_t)(n1 + n2);
     msg->ndeps = 0;
     if (LIBXSTREAM_MPS_EVENT_STATUS != msg->op) { /* number and dependencies together, see libxstream_mps_order */
-      pthread_mutex_lock(&c->order);
+      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->order.lock);
       msg->seq = c->seq++;
       msg->ndeps = libxstream_mps_order(c, msg, p1, deps);
-      pthread_mutex_unlock(&c->order);
+      LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->order.lock);
     }
     else msg->seq = LIBXSTREAM_MPS_UNORDERED;
     iov[0].iov_base = msg;
@@ -853,7 +874,7 @@ static cl_int libxstream_mps_call(libxstream_mps_client_t* c, libxstream_mps_msg
     }
   }
   else result = CL_OUT_OF_RESOURCES;
-  pthread_mutex_unlock(c->conn_lock + tid);
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->conn_lock[tid].lock);
   if (CL_OUT_OF_RESOURCES == result && 0 > fd) {
     fprintf(stderr, "ERROR LIBXSTREAM-MPS: lost connection to %s\n", c->path);
   }
@@ -885,34 +906,29 @@ static cl_int libxstream_mps_query(libxstream_mps_client_t* c, libxstream_mps_ms
 static cl_int libxstream_mps_cached(libxstream_mps_client_t* c, int device, uint64_t op, uint64_t param,
   size_t size, void* value, size_t* size_ret)
 {
-  libxstream_mps_entry_t* entry;
+  libxs_lock_t* const lock = libxs_registry_lock(c->cache);
+  libxstream_mps_key_t key;
   cl_int result = CL_SUCCESS;
-  pthread_mutex_lock(&c->lock);
-  for (entry = c->cache; NULL != entry; entry = entry->next) {
-    if (device == entry->device && param == entry->param) break;
+  size_t nbytes;
+  key.device = device;
+  key.param = param;
+  nbytes = libxs_registry_value_size(c->cache, &key, sizeof(key), lock);
+  if (0 != nbytes) { /* entries are neither removed nor resized */
+    if (NULL != value) {
+      if (nbytes <= size) libxs_registry_get_copy(c->cache, &key, sizeof(key), value, nbytes, lock);
+      else result = CL_INVALID_VALUE;
+    }
+    if (NULL != size_ret) *size_ret = nbytes;
   }
-  pthread_mutex_unlock(&c->lock);
-  if (NULL != entry) result = libxstream_mps_answer(entry + 1, entry->nbytes, size, value, size_ret);
   else {
     libxstream_mps_msg_t msg;
-    size_t nbytes = 0;
     libxstream_mps_init(&msg, op);
     msg.arg[0] = (uint64_t)device;
     msg.arg[1] = param;
     result = libxstream_mps_query(c, &msg, size, value, &nbytes);
     if (NULL != size_ret) *size_ret = nbytes;
-    if (CL_SUCCESS == result && NULL != value && nbytes <= size) {
-      entry = (libxstream_mps_entry_t*)malloc(sizeof(libxstream_mps_entry_t) + nbytes);
-      if (NULL != entry) {
-        entry->device = device;
-        entry->param = param;
-        entry->nbytes = nbytes;
-        memcpy(entry + 1, value, nbytes);
-        pthread_mutex_lock(&c->lock);
-        entry->next = c->cache;
-        c->cache = entry;
-        pthread_mutex_unlock(&c->lock);
-      }
+    if (CL_SUCCESS == result && NULL != value && 0 != nbytes && nbytes <= size) {
+      libxs_registry_set(c->cache, &key, sizeof(key), value, nbytes, lock);
     }
   }
   return result;
@@ -922,7 +938,7 @@ static cl_int libxstream_mps_cached(libxstream_mps_client_t* c, int device, uint
 static cl_int libxstream_mps_retain(void* handle, int kind)
 {
   cl_int result = CL_SUCCESS;
-  if (LIBXSTREAM_MPS_IS(handle, kind)) LIBXSTREAM_MPS_ATOMIC_ADD(&LIBXSTREAM_MPS_OBJ(handle)->refs, 1);
+  if (LIBXSTREAM_MPS_IS(handle, kind)) LIBXS_ATOMIC_ADD_FETCH(&LIBXSTREAM_MPS_OBJ(handle)->refs, 1, LIBXS_ATOMIC_SEQ_CST);
   else result = libxstream_mps_invalid(kind);
   return result;
 }
@@ -934,7 +950,7 @@ static cl_int libxstream_mps_release(void* handle, int kind)
   libxstream_mps_obj_t* const obj = LIBXSTREAM_MPS_OBJ(handle);
   cl_int result = CL_SUCCESS;
   if (LIBXSTREAM_MPS_IS(handle, kind)) {
-    if (0 == LIBXSTREAM_MPS_ATOMIC_ADD(&obj->refs, -1)) {
+    if (0 == LIBXS_ATOMIC_SUB_FETCH(&obj->refs, 1, LIBXS_ATOMIC_SEQ_CST)) {
       libxstream_mps_client_t* const c = libxstream_mps_client;
       libxstream_mps_msg_t msg;
       libxstream_mps_init(&msg, LIBXSTREAM_MPS_RELEASE);
@@ -960,6 +976,37 @@ static cl_int libxstream_mps_release(void* handle, int kind)
  * Common part of an enqueue: the queue, the wait list as identifiers (ids is the
  * local buffer or one allocated here), and the event object if one is asked for.
  */
+/**
+ * On an in-order queue, a command known to be complete completes every command issued
+ * on the queue before it. Sequence numbers are issue order (libxstream_mps_order).
+ */
+static void libxstream_mps_complete(libxstream_mps_obj_t* queue, uint64_t upto)
+{
+  if (NULL != queue && 0 == (queue->flags & CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE)) {
+    uint64_t done = __atomic_load_n(&queue->done, __ATOMIC_ACQUIRE);
+    while (done < upto && !__atomic_compare_exchange_n(&queue->done, &done, upto, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE));
+  }
+}
+
+
+/* An event is complete without asking the server if a later command on its queue completed. */
+static int libxstream_mps_known(const libxstream_mps_obj_t* event)
+{
+  const libxstream_mps_obj_t* const queue = event->owner;
+  const uint64_t create = __atomic_load_n(&event->create, __ATOMIC_ACQUIRE);
+  return (NULL != queue && LIBXSTREAM_MPS_KIND_QUEUE == queue->kind && event->ogen == queue->gen && 0 != create
+          && create <= __atomic_load_n(&queue->done, __ATOMIC_ACQUIRE));
+}
+
+
+static void libxstream_mps_completed(libxstream_mps_obj_t* event)
+{
+  if (NULL != event->owner && event->ogen == event->owner->gen) {
+    libxstream_mps_complete(event->owner, __atomic_load_n(&event->create, __ATOMIC_ACQUIRE));
+  }
+}
+
+
 static cl_int libxstream_mps_prepare(libxstream_mps_msg_t* msg, uint64_t op, cl_command_queue queue,
   cl_uint nwait, const cl_event* wait, cl_event* event, cl_command_type type, uint64_t local[], uint64_t** ids)
 {
@@ -979,13 +1026,13 @@ static cl_int libxstream_mps_prepare(libxstream_mps_msg_t* msg, uint64_t op, cl_
     else result = CL_INVALID_EVENT_WAIT_LIST;
   }
   if (CL_SUCCESS == result) {
-    LIBXSTREAM_MPS_ATOMIC_ADD(&LIBXSTREAM_MPS_OBJ(queue)->size, 1);
     msg->arg[0] = LIBXSTREAM_MPS_ID(c, queue);
     msg->arg[6] = nwait;
     if (NULL != event) {
       libxstream_mps_obj_t* const obj = libxstream_mps_new(c, LIBXSTREAM_MPS_KIND_EVENT, LIBXSTREAM_MPS_OBJ(queue)->context);
       if (NULL != obj) {
         obj->owner = LIBXSTREAM_MPS_OBJ(queue);
+        obj->ogen = LIBXSTREAM_MPS_OBJ(queue)->gen;
         obj->flags = type;
         msg->arg[7] = LIBXSTREAM_MPS_ID(c, obj);
         msg->arg[LIBXSTREAM_MPS_GEN] = obj->gen;
@@ -1738,7 +1785,7 @@ static int libxstream_mps_kernel_arg_cached(libxstream_mps_client_t* c, libxstre
   if (NULL != value && 0 < size && sizeof(uint64_t) >= size && LIBXSTREAM_MPS_NKARGS > index) {
     uint64_t v = 0;
     memcpy(&v, value, size);
-    pthread_mutex_lock(&c->lock);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
     if (NULL == kernel->values) kernel->values = (uint64_t*)calloc(2 * LIBXSTREAM_MPS_NKARGS, sizeof(uint64_t));
     if (NULL != kernel->values) {
       const uint64_t key = ((uint64_t)gen << 8) | size; /* sizes and generations differ, values never compare equal */
@@ -1746,12 +1793,12 @@ static int libxstream_mps_kernel_arg_cached(libxstream_mps_client_t* c, libxstre
       kernel->values[2 * index] = v;
       kernel->values[2 * index + 1] = key;
     }
-    pthread_mutex_unlock(&c->lock);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
   }
   else if (NULL != kernel->values && LIBXSTREAM_MPS_NKARGS > index) {
-    pthread_mutex_lock(&c->lock);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
     kernel->values[2 * index + 1] = 0;
-    pthread_mutex_unlock(&c->lock);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
   }
   return result;
 }
@@ -1835,22 +1882,23 @@ static cl_int CL_API_CALL libxstream_mps_wait(cl_uint num_events, const cl_event
   libxstream_mps_client_t* const c = libxstream_mps_client;
   uint64_t local[LIBXSTREAM_MPS_NLOCAL], *ids = local;
   cl_int result = CL_SUCCESS;
-  cl_uint i;
+  cl_uint i, n = 0;
   if (0 == num_events || NULL == events) result = CL_INVALID_VALUE;
   else if (LIBXSTREAM_MPS_NLOCAL < num_events) {
     ids = (uint64_t*)malloc(sizeof(uint64_t) * num_events);
     if (NULL == ids) result = CL_OUT_OF_HOST_MEMORY;
   }
-  for (i = 0; i < num_events && CL_SUCCESS == result; ++i) {
-    if (LIBXSTREAM_MPS_IS(events[i], LIBXSTREAM_MPS_KIND_EVENT)) ids[i] = LIBXSTREAM_MPS_ID(c, events[i]);
-    else result = CL_INVALID_EVENT;
+  for (i = 0; i < num_events && CL_SUCCESS == result; ++i) { /* events known to be complete are not waited for */
+    if (!LIBXSTREAM_MPS_IS(events[i], LIBXSTREAM_MPS_KIND_EVENT)) result = CL_INVALID_EVENT;
+    else if (0 == libxstream_mps_known(LIBXSTREAM_MPS_OBJ(events[i]))) ids[n++] = LIBXSTREAM_MPS_ID(c, events[i]);
   }
-  if (CL_SUCCESS == result) {
+  if (CL_SUCCESS == result && 0 != n) {
     libxstream_mps_reply_t reply;
     libxstream_mps_msg_t msg;
     libxstream_mps_init(&msg, LIBXSTREAM_MPS_WAIT);
-    msg.arg[6] = num_events;
-    result = libxstream_mps_call(c, &msg, ids, sizeof(uint64_t) * num_events, NULL, 0, &reply, NULL, 0);
+    msg.arg[6] = n;
+    result = libxstream_mps_call(c, &msg, ids, sizeof(uint64_t) * n, NULL, 0, &reply, NULL, 0);
+    for (i = 0; i < num_events && CL_SUCCESS == result; ++i) libxstream_mps_completed(LIBXSTREAM_MPS_OBJ(events[i]));
   }
   libxstream_mps_done(local, ids);
   return result;
@@ -1875,17 +1923,21 @@ static cl_int CL_API_CALL libxstream_mps_event_info(cl_event event, cl_event_inf
       result = libxstream_mps_answer(&refs, sizeof(refs), size, value, size_ret);
     } break;
     case CL_EVENT_COMMAND_EXECUTION_STATUS: {
-      libxstream_mps_client_t* const c = libxstream_mps_client;
-      libxstream_mps_reply_t reply;
-      libxstream_mps_msg_t msg;
-      libxstream_mps_init(&msg, LIBXSTREAM_MPS_EVENT_STATUS);
-      msg.arg[0] = LIBXSTREAM_MPS_ID(c, event);
-      msg.arg[1] = obj->gen;
-      result = libxstream_mps_call(c, &msg, NULL, 0, NULL, 0, &reply, NULL, 0);
-      if (CL_SUCCESS == result) {
-        const cl_int status = (cl_int)reply.arg0;
-        result = libxstream_mps_answer(&status, sizeof(status), size, value, size_ret);
+      cl_int status = CL_COMPLETE;
+      if (0 == libxstream_mps_known(obj)) {
+        libxstream_mps_client_t* const c = libxstream_mps_client;
+        libxstream_mps_reply_t reply;
+        libxstream_mps_msg_t msg;
+        libxstream_mps_init(&msg, LIBXSTREAM_MPS_EVENT_STATUS);
+        msg.arg[0] = LIBXSTREAM_MPS_ID(c, event);
+        msg.arg[1] = obj->gen;
+        result = libxstream_mps_call(c, &msg, NULL, 0, NULL, 0, &reply, NULL, 0);
+        if (CL_SUCCESS == result) {
+          status = (cl_int)reply.arg0;
+          if (CL_COMPLETE == status) libxstream_mps_completed(LIBXSTREAM_MPS_OBJ(event));
+        }
       }
+      if (CL_SUCCESS == result) result = libxstream_mps_answer(&status, sizeof(status), size, value, size_ret);
     } break;
     default: result = CL_INVALID_VALUE;
   }
@@ -1935,18 +1987,14 @@ static cl_int libxstream_mps_queue_op(cl_command_queue queue, uint64_t op)
   libxstream_mps_obj_t* const obj = LIBXSTREAM_MPS_OBJ(queue);
   cl_int result = CL_SUCCESS;
   if (LIBXSTREAM_MPS_IS(queue, LIBXSTREAM_MPS_KIND_QUEUE)) {
-    const size_t enqueued = __atomic_load_n(&obj->size, __ATOMIC_ACQUIRE);
-    if (enqueued != __atomic_load_n(&obj->offset, __ATOMIC_ACQUIRE)) {
+    /* last is the queue's latest command, taken under the order lock: issued, not merely announced */
+    if (__atomic_load_n(&obj->done, __ATOMIC_ACQUIRE) < __atomic_load_n(&obj->last, __ATOMIC_ACQUIRE)) {
       libxstream_mps_reply_t reply;
       libxstream_mps_msg_t msg;
       libxstream_mps_init(&msg, op);
       msg.arg[0] = LIBXSTREAM_MPS_ID(c, queue);
       result = libxstream_mps_call(c, &msg, NULL, 0, NULL, 0, LIBXSTREAM_MPS_FINISH == op ? &reply : NULL, NULL, 0);
-      if (CL_SUCCESS == result && LIBXSTREAM_MPS_FINISH == op) { /* what was enqueued before is finished now */
-        size_t finished = __atomic_load_n(&obj->offset, __ATOMIC_ACQUIRE);
-        while (finished < enqueued
-          && !__atomic_compare_exchange_n(&obj->offset, &finished, enqueued, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE));
-      }
+      if (CL_SUCCESS == result && LIBXSTREAM_MPS_FINISH == op) libxstream_mps_complete(obj, msg.seq + 1);
     }
   }
   else result = CL_INVALID_COMMAND_QUEUE;
@@ -1991,6 +2039,7 @@ static cl_int libxstream_mps_transfer(uint64_t op, cl_command_queue queue, cl_me
       (0 == arena && LIBXSTREAM_MPS_WRITE == op) ? src : NULL, (0 == arena && LIBXSTREAM_MPS_WRITE == op) ? size : 0,
       0 != sync ? &reply : NULL, (0 == arena && LIBXSTREAM_MPS_READ == op) ? dst : NULL,
       (0 == arena && LIBXSTREAM_MPS_READ == op) ? size : 0);
+    if (CL_SUCCESS == result && 0 != sync) libxstream_mps_complete(LIBXSTREAM_MPS_OBJ(queue), msg.seq + 1);
   }
   libxstream_mps_done(local, ids);
   return result;
@@ -2161,7 +2210,7 @@ static void* CL_API_CALL libxstream_mps_map(cl_command_queue queue, cl_mem buffe
         int i;
         result_ptr = (NULL != obj->host ? (obj->host + offset) : view);
         if (result_ptr != view && 0 == (flags & CL_MAP_WRITE_INVALIDATE_REGION)) memcpy(result_ptr, view, size);
-        pthread_mutex_lock(&c->lock);
+        LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
         for (i = 0; i < LIBXSTREAM_MPS_MAXNMAPS && NULL != c->maps[i].buffer; ++i);
         if (LIBXSTREAM_MPS_MAXNMAPS > i) {
           c->maps[i].buffer = obj;
@@ -2172,7 +2221,7 @@ static void* CL_API_CALL libxstream_mps_map(cl_command_queue queue, cl_mem buffe
           c->maps[i].flags = flags;
         }
         else result = CL_OUT_OF_RESOURCES;
-        pthread_mutex_unlock(&c->lock);
+        LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
       }
       if (CL_SUCCESS != result) {
         libxstream_mps_arena_free(c, temp, size);
@@ -2200,7 +2249,7 @@ static cl_int CL_API_CALL libxstream_mps_unmap(cl_command_queue queue, cl_mem me
   if (CL_SUCCESS == result && !LIBXSTREAM_MPS_IS(memobj, LIBXSTREAM_MPS_KIND_MEM)) result = CL_INVALID_MEM_OBJECT;
   if (CL_SUCCESS == result) {
     int i;
-    pthread_mutex_lock(&c->lock);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
     for (i = 0; i < LIBXSTREAM_MPS_MAXNMAPS; ++i) {
       if (LIBXSTREAM_MPS_OBJ(memobj) == c->maps[i].buffer && (char*)ptr == c->maps[i].ptr) {
         map = c->maps[i];
@@ -2208,7 +2257,7 @@ static cl_int CL_API_CALL libxstream_mps_unmap(cl_command_queue queue, cl_mem me
         break;
       }
     }
-    pthread_mutex_unlock(&c->lock);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
     if (NULL == map.buffer) result = CL_INVALID_VALUE;
   }
   if (CL_SUCCESS == result) {
@@ -2891,11 +2940,9 @@ static int libxstream_mpsd_ready(libxstream_mpsd_client_t* cl, uint64_t seq, con
 }
 
 
-static uint64_t libxstream_mpsd_now(void)
+static uint64_t libxstream_mpsd_ns(libxs_timer_tick_t t0, libxs_timer_tick_t t1)
 {
-  struct timespec t;
-  clock_gettime(CLOCK_MONOTONIC, &t);
-  return (uint64_t)t.tv_sec * 1000000000ULL + (uint64_t)t.tv_nsec;
+  return (uint64_t)(1E9 * libxs_timer_duration(t0, t1));
 }
 
 
@@ -2964,6 +3011,15 @@ static libxstream_mpsd_client_t* libxstream_mpsd_hello(int fd)
         {
           pthread_mutex_init(&result->lock, NULL);
           pthread_cond_init(&result->cond, NULL);
+          if (2 <= libxstream_mpsd.verbosity || 0 > libxstream_mpsd.verbosity) {
+            result->hist = libxs_hist_create(24 /*nbuckets*/, 3 /*nvals*/, NULL, NULL, NULL);
+            if (NULL != result->hist) {
+              LIBXS_LOCK_ATTR_TYPE(LIBXS_LOCK) attr;
+              LIBXS_LOCK_ATTR_INIT(LIBXS_LOCK, &attr);
+              LIBXS_LOCK_INIT(LIBXS_LOCK, &result->hist_lock, &attr);
+              LIBXS_LOCK_ATTR_DESTROY(LIBXS_LOCK, &attr);
+            }
+          }
           result->arena_size = (size_t)msg.arg[2];
           result->capacity = (size_t)msg.arg[3];
           result->token = msg.arg[0];
@@ -3037,7 +3093,21 @@ static void libxstream_mpsd_leave(libxstream_mpsd_client_t* cl)
       fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i commands=%lu wait=%.2fs exec=%.2fs post=%.2fs status=%lu/%.2fs\n",
         cl->pid, (unsigned long)cl->ncmds, 1E-9 * cl->wait_ns, 1E-9 * cl->exec_ns, 1E-9 * cl->post_ns,
         (unsigned long)cl->nstatus, 1E-9 * cl->status_ns);
+      if (NULL != cl->hist) {
+        const int prec[] = {1, 1, 1};
+        int op;
+        fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i exec per op:", cl->pid);
+        for (op = 0; op < LIBXSTREAM_MPS_NOPS; ++op) {
+          if (0 != cl->op_n[op]) {
+            fprintf(stderr, " %i=%lu/%.2fs", op, (unsigned long)cl->op_n[op], 1E-9 * cl->op_ns[op]);
+          }
+        }
+        libxs_hist_print(stderr, cl->hist, prec, "\nINFO LIBXSTREAM-MPS: process %i exec log2(ns): count -> log2 us wait-us\n",
+          cl->pid);
+      }
     }
+    libxs_hist_destroy(cl->hist);
+    if (NULL != cl->hist) LIBXS_LOCK_DESTROY(LIBXS_LOCK, &cl->hist_lock);
     munmap(cl->arena, cl->arena_size);
     pthread_cond_destroy(&cl->cond);
     pthread_mutex_destroy(&cl->lock);
@@ -3057,7 +3127,8 @@ static void* libxstream_mpsd_connection(void* arg)
   libxstream_mpsd_client_t* const cl = libxstream_mpsd_hello(fd);
   if (NULL != cl) {
     for (;;) {
-      uint64_t deps[LIBXSTREAM_MPS_NDEPS], t0;
+      uint64_t deps[LIBXSTREAM_MPS_NDEPS];
+      libxs_timer_tick_t t0;
       libxstream_mpsd_post_t post;
       int status;
       libxstream_mps_msg_t msg;
@@ -3075,28 +3146,40 @@ static void* libxstream_mpsd_connection(void* arg)
         break;
       }
       memset(&post, 0, sizeof(post));
-      t0 = libxstream_mpsd_now();
+      t0 = libxs_timer_tick();
       if (LIBXSTREAM_MPS_UNORDERED == msg.seq) { /* takes no turn, hence waits for no other command */
         post.arg0 = (uint64_t)(int64_t)libxstream_mpsd_status(cl, msg.arg[0], msg.arg[1]);
         post.reply = 1;
-        LIBXSTREAM_MPS_ATOMIC_ADD(&cl->nstatus, 1);
-        LIBXSTREAM_MPS_ATOMIC_ADD(&cl->status_ns, libxstream_mpsd_now() - t0);
+        LIBXSTREAM_MPS_COUNT(&cl->nstatus, 1);
+        LIBXSTREAM_MPS_COUNT(&cl->status_ns, libxstream_mpsd_ns(t0, libxs_timer_tick()));
       }
       else if (EXIT_SUCCESS == libxstream_mpsd_ready(cl, msg.seq, deps, msg.ndeps)) {
-        const uint64_t t1 = libxstream_mpsd_now();
+        const libxs_timer_tick_t t1 = libxs_timer_tick();
+        uint64_t wait_ns, exec_ns;
         libxstream_mpsd_execute(cl, &msg, &payload, &post);
         libxstream_mpsd_executed(cl, msg.seq);
-        LIBXSTREAM_MPS_ATOMIC_ADD(&cl->ncmds, 1);
-        LIBXSTREAM_MPS_ATOMIC_ADD(&cl->wait_ns, t1 - t0);
-        LIBXSTREAM_MPS_ATOMIC_ADD(&cl->exec_ns, libxstream_mpsd_now() - t1);
+        wait_ns = libxstream_mpsd_ns(t0, t1);
+        exec_ns = libxstream_mpsd_ns(t1, libxs_timer_tick());
+        LIBXSTREAM_MPS_COUNT(&cl->ncmds, 1);
+        LIBXSTREAM_MPS_COUNT(&cl->wait_ns, wait_ns);
+        LIBXSTREAM_MPS_COUNT(&cl->exec_ns, exec_ns);
+        if (NULL != cl->hist && msg.op < LIBXSTREAM_MPS_NOPS) {
+          double vals[3];
+          vals[0] = (double)LIBXS_ILOG2(exec_ns);
+          vals[1] = 1E-3 * (double)exec_ns;
+          vals[2] = 1E-3 * (double)wait_ns;
+          libxs_hist_push(&cl->hist_lock, cl->hist, vals);
+          LIBXSTREAM_MPS_COUNT(cl->op_n + msg.op, 1);
+          LIBXSTREAM_MPS_COUNT(cl->op_ns + msg.op, exec_ns);
+        }
       }
       else {
         free(payload);
         break;
       }
-      t0 = libxstream_mpsd_now();
+      t0 = libxs_timer_tick();
       status = libxstream_mpsd_complete(cl, fd, &post);
-      LIBXSTREAM_MPS_ATOMIC_ADD(&cl->post_ns, libxstream_mpsd_now() - t0);
+      LIBXSTREAM_MPS_COUNT(&cl->post_ns, libxstream_mpsd_ns(t0, libxs_timer_tick()));
       if (EXIT_SUCCESS != status) {
         free(payload);
         break;
