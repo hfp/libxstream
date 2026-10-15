@@ -1,1 +1,3 @@
 usr/lib/*/libxstream.so.*
+usr/lib/*/libxstream_icd.so
+usr/lib/*/libxstream_mpsd
