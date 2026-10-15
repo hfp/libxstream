@@ -94,7 +94,8 @@ include $(LIBXSINC)
 # build per target (lib/<target>), lib/ refers to the latest build
 OUTTOP := $(OUTDIR)
 OUTDIR := $(OUTTOP)/$(LIBARCH)
-BLDDIR := $(BLDDIR)/$(LIBARCH)
+BLDTOP := $(BLDDIR)
+BLDDIR := $(BLDTOP)/$(LIBARCH)
 
 # setup LIBXS (source-tree layout): lib/<target>, lib/<machine>, then lib/
 ifneq (,$(LIBXSROOT))
@@ -170,7 +171,10 @@ HEADERS_MAIN := $(ROOTINC)/libxstream_cp2k.h $(ROOTINC)/libxstream_dbcsr.h $(ROO
 LIBXS_SOURCE := $(wildcard $(LIBXSROOT)/libxs/libxs_source.h)
 HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
-SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_stream.c)
+SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_mps.c libxstream_stream.c)
+# OpenCL-MPS server and the ICD given to the OpenCL loader, both beside the shared library
+MPSFILE := $(ROOTSRC)/libxstream_mpsd.c
+MPSTARGETS := $(if $(filter-out 1 2,$(BUILD))$(filter-out 0,$(ANALYZE)),,$(OUTDIR)/libxstream_icd.$(DLIBEXT) $(OUTDIR)/libxstream_mpsd)
 OBJFILES := $(patsubst %,$(BLDDIR)/intel64/%.o,$(basename $(notdir $(SRCFILES))))
 
 # no warning conversion for released versions
@@ -256,7 +260,7 @@ $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
   $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS))))
 
 .PHONY: libs
-libs: $(PPKGDIR)/$(PROJECT)-static.pc $(PPKGDIR)/$(PROJECT)-shared.pc $(PCMKDIR)/$(PROJECT)Config.cmake
+libs: $(PPKGDIR)/$(PROJECT)-static.pc $(PPKGDIR)/$(PROJECT)-shared.pc $(PCMKDIR)/$(PROJECT)Config.cmake $(MPSTARGETS)
 	@-rm -f $(OUTTOP)/$(PROJECT)*.$(SLIBEXT) $(OUTTOP)/$(PROJECT)*.$(DLIBEXT)*
 	@if [ -d $(OUTTOP) ]; then cd $(OUTTOP) && for LIB in $(LIBARCH)/$(PROJECT)*.$(SLIBEXT) $(LIBARCH)/$(PROJECT)*.$(DLIBEXT)*; do \
 		if [ -e "$${LIB}" ]; then ln -fs "$${LIB}" .; fi; \
@@ -278,10 +282,21 @@ endif
 ifeq (0,$(filter-out 1 2,$(BUILD))$(ANALYZE))
 $(OUTDIR)/$(PROJECT).$(DLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS) $(LNKSTATE)
 	$(LIB_SOLD) $(call solink_version,$(OUTDIR)/$(PROJECT).$(DLIBEXT)) \
-		$(OBJFILES) $(FTNOBJS) $(LIBXS_LINK) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
+		$(OBJFILES) $(FTNOBJS) $(LIBXS_LINK) $(if $(LIBXS_DL),$(call abslibrpath,$(LIBXS_LIBDIR))) \
+		$(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 else
 .PHONY: $(OUTDIR)/$(PROJECT).$(DLIBEXT)
 endif
+
+$(OUTDIR)/libxstream_icd.$(DLIBEXT): $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(MPSFILE) $(HEADERS) $(INCDIR)/$(PROJECT)_version.h
+	$(LIB_SOLD) $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS) -DLIBXSTREAM_MPS_ICD $(MPSFILE) -o $@ \
+		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) \
+		$(LIBXS_LINK) $(if $(LIBXS_DL),$(call abslibrpath,$(LIBXS_LIBDIR))) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
+
+$(OUTDIR)/libxstream_mpsd: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(MPSFILE) $(HEADERS) $(INCDIR)/$(PROJECT)_version.h
+	$(CC) $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS) $(MPSFILE) -o $@ \
+		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) \
+		$(LIBXS_LINK) $(if $(LIBXS_DL),$(call abslibrpath,$(LIBXS_LIBDIR))) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 
 # use dir not qdir to avoid quotes
 SAMPLES := $(dir $(shell $(if $(GIT),$(GIT) ls-files,ls -1) $(SPLDIR)/*/Makefile 2>/dev/null))
@@ -406,6 +421,11 @@ endif
 
 .PHONY: realclean
 realclean: clean
+ifneq ($(call qapath,$(BLDTOP)),$(ROOTDIR))
+ifneq ($(call qapath,$(BLDTOP)),$(HEREDIR))
+	@-rm -rf $(BLDTOP)
+endif
+endif
 ifneq ($(call qapath,$(OUTTOP)),$(ROOTDIR))
 ifneq ($(call qapath,$(OUTTOP)),$(HEREDIR))
 	@-rm -rf $(OUTTOP)
@@ -455,6 +475,7 @@ endif
 	@$(MKDIR) -p $(PREFIX)/$(POUTDIR)
 	@$(CP) -va $(OUTDIR)/$(PROJECT)*.$(DLIBEXT)* $(PREFIX)/$(POUTDIR) 2>/dev/null || true
 	@$(CP) -v  $(OUTDIR)/$(PROJECT).$(SLIBEXT)  $(PREFIX)/$(POUTDIR) 2>/dev/null || true
+	@$(CP) -v  $(OUTDIR)/libxstream_mpsd $(PREFIX)/$(POUTDIR) 2>/dev/null || true
 	@echo
 	@echo "$(PROJUPP) installing pkg-config and CMake config files..."
 	@$(MKDIR) -p $(PREFIX)/$(PPKGDIR)

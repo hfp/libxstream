@@ -56,9 +56,14 @@ LIBXSTREAM_API int libxstream_stream_wait_event(libxstream_stream_t* stream, lib
   LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   if (NULL != clevent) {
 # if defined(CL_VERSION_1_2)
-    result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, NULL);
+    const int track = (LIBXSTREAM_STREAM_TRACK(stream) ? libxstream_stream_enter(stream) : 0);
+    cl_event barrier = NULL;
+    result = clEnqueueBarrierWithWaitList(str->queue, 1, &clevent, 0 != track ? &barrier : NULL);
+    if (0 != track) libxstream_stream_leave(stream, track, EXIT_SUCCESS == result ? barrier : NULL, 0 /*shared*/);
 # else
+    const int track = (LIBXSTREAM_STREAM_TRACK(stream) ? libxstream_stream_enter(stream) : 0);
     result = clEnqueueWaitForEvents(str->queue, 1, &clevent);
+    if (0 != track) libxstream_stream_leave(stream, track, NULL, 0 /*shared*/);
 # endif
     if (EXIT_SUCCESS != result) {
       LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
@@ -87,11 +92,15 @@ LIBXSTREAM_API int libxstream_event_record(libxstream_event_t* event, libxstream
   cl_event clevent = NULL, clevent_result = NULL;
   str = (NULL != stream ? stream : libxstream_opencl_stream_default());
   assert(NULL != str && NULL != str->queue && NULL != event);
+  /* in-order: completing the last command is what a marker records */
+  if (LIBXSTREAM_STREAM_TRACK(stream)) clevent_result = libxstream_stream_take(stream);
+  if (NULL == clevent_result) {
 # if defined(CL_VERSION_1_2)
-  result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &clevent_result);
+    result = clEnqueueMarkerWithWaitList(str->queue, 0, NULL, &clevent_result);
 # else
-  result = clEnqueueMarker(str->queue, &clevent_result);
+    result = clEnqueueMarker(str->queue, &clevent_result);
 # endif
+  }
   LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_event);
   clevent = event->cl_evt;
   if (EXIT_SUCCESS == result) {

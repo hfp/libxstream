@@ -165,6 +165,33 @@ A kernel whose every sample was rejected by the accuracy floor still gets a row,
 
 A negative value additionally traces every interval as `ns=<begin>-<end>` in device-clock nanoseconds, which is enough to reproduce any of this offline.
 
+## OpenCL-MPS
+
+Several processes sharing one GPU are time-sliced by the device, one context at a time. OpenCL-MPS gives all processes of a node one context per device: each process forwards its OpenCL calls to a server process (`libxstream_mpsd`, beside the shared library), which exits once no process was attached for a while. MPI is not involved; one server runs per node and job. Either way of opting in requires the shared library:
+
+```bash
+libxstream_mpsd &              # a running server is the opt-in
+mpirun ...
+```
+
+```bash
+export LIBXSTREAM_MPS=1        # or: the first process starts the server
+mpirun ...
+```
+
+LIBXSTREAM then points the OpenCL loader to `libxstream_icd.so` before its first OpenCL call, which hides the installed ICDs. Any OpenCL application is served by setting both `OCL_ICD_VENDORS` (ocl-icd) and `OCL_ICD_FILENAMES` (Khronos loader) to that library. Host buffers are shared with the server only if they come from OpenCL (`LIBXSTREAM_XHINTS=75`); other host memory is copied through a socket.
+
+The forwarding platform reports the vendor's platform and devices, with ` (LIBXSTREAM-MPS)` appended to the platform name. Profiling (`LIBXSTREAM_PROFILE*`), event callbacks, SVM, sub-devices, and programs from IL are not supported. A context spanning several devices is shared only with processes using the same set of devices.
+
+| Variable | Description |
+|---|---|
+| `LIBXSTREAM_MPS` | 1: forward, and start the server if none runs; 0: never forward; default: forward if a server runs |
+| `LIBXSTREAM_MPS_TIMEOUT` | Seconds the server stays after the last process detached; negative: until killed; default: 2 |
+| `LIBXSTREAM_MPS_KEY` | Names the server to attach to; default: the job ID (`SLURM_JOB_ID`, `PBS_JOBID`, `LSB_JOBID`) |
+| `LIBXSTREAM_MPS_SERVER` | Server executable; default: `libxstream_mpsd` beside the shared library |
+| `LIBXSTREAM_MPS_ICD` | Vendor ICD the server loads; default: the installed ICDs |
+| `LIBXSTREAM_MPS_ARENA` | Host memory in GB a process may share with the server (reserved, not committed); default: 256 |
+
 ## See Also
 
 * LIBXSTREAM API (`libxstream/libxstream.h`) — public API built on top of this layer

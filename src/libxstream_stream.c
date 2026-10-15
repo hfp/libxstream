@@ -155,6 +155,9 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
       LIBXS_MEMZERO(str);
 # endif
       str->queue = queue;
+      str->last = NULL;
+      str->entries = str->inflight = 0;
+      str->guard = 0;
       str->tid = tid;
 # if defined(LIBXSTREAM_STREAM_PRIORITIES)
       str->priority = priority;
@@ -177,6 +180,7 @@ LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream)
   if (NULL != stream) {
     const libxstream_opencl_stream_t* const str = stream;
     const cl_command_queue queue = str->queue;
+    if (NULL != str->last) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(str->last));
     /**
      * Clear unconditionally, not just when asserts are on: a cleared queue is
      * how a destroyed stream is recognized later. Device buffers record the
@@ -193,6 +197,60 @@ LIBXSTREAM_API int libxstream_stream_destroy(libxstream_stream_t* stream)
     }
   }
   CL_RETURN(result, "");
+}
+
+
+LIBXSTREAM_API_INTERN int libxstream_stream_enter(libxstream_stream_t* stream)
+{
+  libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)stream;
+  int result;
+  assert(NULL != str);
+  LIBXS_ATOMIC_ACQUIRE(&str->guard, LIBXS_NPAUSE_LOCK, LIBXS_ATOMIC_LOCKORDER);
+  str->entries = (INT_MAX > str->entries ? (str->entries + 1) : 1);
+  result = (0 == str->inflight ? str->entries : -1);
+  ++str->inflight;
+  LIBXS_ATOMIC_RELEASE(&str->guard, LIBXS_ATOMIC_LOCKORDER);
+  return result;
+}
+
+
+LIBXSTREAM_API_INTERN cl_event libxstream_stream_leave(libxstream_stream_t* stream, int ticket, cl_event event, int shared)
+{
+  libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)stream;
+  cl_event result = NULL, keep = NULL, previous;
+  assert(NULL != str && 0 != ticket);
+  if (NULL != event) {
+    if (0 != shared) {
+      if (0 < ticket && EXIT_SUCCESS == clRetainEvent(event)) keep = event;
+      result = event;
+    }
+    else keep = event;
+  }
+  LIBXS_ATOMIC_ACQUIRE(&str->guard, LIBXS_NPAUSE_LOCK, LIBXS_ATOMIC_LOCKORDER);
+  --str->inflight;
+  previous = str->last;
+  if (ticket == str->entries) { /* no other window was open meanwhile */
+    str->last = keep;
+    keep = NULL;
+  }
+  else str->last = NULL;
+  LIBXS_ATOMIC_RELEASE(&str->guard, LIBXS_ATOMIC_LOCKORDER);
+  if (NULL != previous) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(previous));
+  if (NULL != keep) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(keep));
+  return result;
+}
+
+
+LIBXSTREAM_API_INTERN cl_event libxstream_stream_take(libxstream_stream_t* stream)
+{
+  libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)stream;
+  cl_event result;
+  assert(NULL != str);
+  LIBXS_ATOMIC_ACQUIRE(&str->guard, LIBXS_NPAUSE_LOCK, LIBXS_ATOMIC_LOCKORDER);
+  result = str->last;
+  str->last = NULL;
+  LIBXS_ATOMIC_RELEASE(&str->guard, LIBXS_ATOMIC_LOCKORDER);
+  return result;
 }
 
 

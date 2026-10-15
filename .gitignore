@@ -1,3 +1,6 @@
+/lib/*/pkgconfig
+/lib/*/cmake
+/lib/*/libxs*
 /lib/pkgconfig
 /lib/cmake
 /lib/libxs*

@@ -868,12 +868,14 @@ LIBXSTREAM_API int libxstream_mem_host_allocate(void** host_mem, size_t nbytes, 
       if (EXIT_SUCCESS == result) {
         void* mapped = host_ptr;
         if (NULL == host_ptr) {
+          const int track = (LIBXSTREAM_STREAM_TRACK(stream) ? libxstream_stream_enter(stream) : 0);
           mapped = clEnqueueMapBuffer(str->queue, memory, CL_TRUE /*always block*/,
 # if defined(LIBXSTREAM_XHINTS) && (defined(CL_VERSION_1_2) || defined(CL_MAP_WRITE_INVALIDATE_REGION))
             (16 & libxstream_opencl_config.xhints) ? CL_MAP_WRITE_INVALIDATE_REGION :
 # endif
                                                    (CL_MAP_READ | CL_MAP_WRITE),
             0 /*offset*/, nbytes, 0, NULL, NULL, &result);
+          if (0 != track) libxstream_stream_leave(stream, track, NULL, 0 /*shared*/); /* last command not known */
         }
         assert(EXIT_SUCCESS == result || NULL == mapped);
         if (EXIT_SUCCESS == result) {
@@ -939,7 +941,9 @@ LIBXSTREAM_API int libxstream_mem_host_deallocate(void* host_mem, libxstream_str
         LIBXSTREAM_MEM_FREE(host_ptr);
       }
       else {
+        const int track = (LIBXSTREAM_STREAM_TRACK(stream) ? libxstream_stream_enter(stream) : 0);
         result = clEnqueueUnmapMemObject(str->queue, info.memory, info.memptr, 0, NULL, NULL);
+        if (0 != track) libxstream_stream_leave(stream, track, NULL, 0 /*shared*/); /* last command not known */
       }
       result_release = clReleaseMemObject(info.memory);
       if (EXIT_SUCCESS == result) result = result_release;
@@ -1488,6 +1492,7 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
     NULL != host_mem && NULL != dev_mem && 0 != nbytes)
   {
     const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
+    int track = LIBXSTREAM_STREAM_TRACK(stream);
     const libxstream_opencl_stream_t* str;
     cl_event event = NULL;
     /**
@@ -1504,13 +1509,18 @@ LIBXSTREAM_API int libxstream_mem_copy_h2d(const void* host_mem, void* dev_mem, 
       ? libxstream_mem_stage(&window) : NULL);
     str = (NULL != stream ? stream : libxstream_opencl_stream(libxstream_opencl_config.lock_stream, libxs_tid()));
     assert(NULL != str);
+    if (0 != track) track = libxstream_stream_enter(stream);
     if (NULL == stage) {
-      result = libxstream_opencl_mem_copy_h2d(
-        host_mem, dev_mem, nbytes, str->queue, finish, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
+      result = libxstream_opencl_mem_copy_h2d(host_mem, dev_mem, nbytes, str->queue, finish,
+        (NULL != libxstream_opencl_config.hist_h2d || 0 != track) ? &event : NULL);
     }
     else {
       result = libxstream_mem_stage_h2d(host_mem, dev_mem, nbytes, stage, window,
-        str->queue, NULL == libxstream_opencl_config.hist_h2d ? NULL : &event);
+        str->queue, (NULL != libxstream_opencl_config.hist_h2d || 0 != track) ? &event : NULL);
+    }
+    if (0 != track) {
+      event = libxstream_stream_leave(stream, track, EXIT_SUCCESS == result ? event : NULL,
+        NULL != libxstream_opencl_config.hist_h2d);
     }
     if (NULL != event) {
       if (EXIT_SUCCESS == result) {
@@ -1663,6 +1673,7 @@ LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, 
     NULL != host_mem && NULL != dev_mem && 0 != nbytes)
   {
     const cl_bool finish = (NULL != stream ? CL_FALSE : CL_TRUE);
+    int track = LIBXSTREAM_STREAM_TRACK(stream);
     cl_mem memory = NULL;
     cl_event event = NULL;
     size_t offset = 0, window = nbytes;
@@ -1674,14 +1685,19 @@ LIBXSTREAM_API int libxstream_mem_copy_d2h(const void* dev_mem, void* host_mem, 
     assert(NULL != str);
     memory = libxstream_mem_devbuf(dev_mem, &nbytes, &offset, NULL);
     { const void* const source = (NULL == memory ? dev_mem : (const void*)memory);
-      cl_event* const hist = (NULL == libxstream_opencl_config.hist_d2h ? NULL : &event);
+      cl_event* const hist = ((NULL != libxstream_opencl_config.hist_d2h || 0 != track) ? &event : NULL);
       /* A USM-pointer has no buffer, and is then its own source. */
+      if (0 != track) track = libxstream_stream_enter(stream);
       if (NULL == stage) {
         result = libxstream_opencl_mem_copy_d2h(source, host_mem, offset, nbytes, str->queue, finish, hist);
       }
       else {
         result = libxstream_mem_stage_d2h(source, host_mem, offset, nbytes, stage, window, str->queue, hist);
       }
+    }
+    if (0 != track) {
+      event = libxstream_stream_leave(stream, track, EXIT_SUCCESS == result ? event : NULL,
+        NULL != libxstream_opencl_config.hist_d2h);
     }
     if (NULL != event) {
       if (EXIT_SUCCESS == result) {
@@ -1709,16 +1725,19 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
 # else
     cl_event event = NULL, *const pevent = NULL;
 # endif
+    int track = LIBXSTREAM_STREAM_TRACK(stream);
+    cl_event* const request = ((NULL != libxstream_opencl_config.hist_d2d || NULL != pevent || 0 != track) ? &event : NULL);
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     void* nconst;
     const libxstream_opencl_stream_t* str;
     LIBXS_UNION_ASSIGN(void*, nconst, const void*, devmem_src);
     str = (NULL != stream ? stream : libxstream_opencl_stream(libxstream_opencl_config.lock_stream, libxs_tid()));
     assert(NULL != str && NULL != devinfo->context);
+    if (0 != track) track = libxstream_stream_enter(stream);
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemcpyINTEL) {
       result = devinfo->clEnqueueMemcpyINTEL(str->queue, CL_FALSE /*blocking*/, devmem_dst, devmem_src, nbytes, 0, NULL,
-        NULL == libxstream_opencl_config.hist_d2d ? pevent : &event);
+        request);
     }
     else
 # endif
@@ -1726,7 +1745,7 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
     if (0 != devinfo->usm) {
 #   if (1 >= LIBXSTREAM_USM) || defined(LIBXSTREAM_MEM_SVM_USM)
       result = clEnqueueSVMMemcpy(str->queue, CL_FALSE /*blocking*/, devmem_dst, devmem_src, nbytes, 0, NULL,
-        NULL == libxstream_opencl_config.hist_d2d ? pevent : &event);
+        request);
 #   else
       memcpy(devmem_dst, devmem_src, nbytes);
 #   endif
@@ -1738,10 +1757,13 @@ LIBXSTREAM_API int libxstream_mem_copy_d2d(const void* devmem_src, void* devmem_
       const cl_mem memory_src = libxstream_mem_devbuf(nconst, &nbytes, &offset_src, NULL);
       const cl_mem memory_dst = libxstream_mem_devbuf(devmem_dst, &nbytes, &offset_dst, NULL);
       if (NULL != memory_src && NULL != memory_dst) {
-        result = clEnqueueCopyBuffer(str->queue, memory_src, memory_dst, offset_src, offset_dst, nbytes, 0, NULL,
-          NULL == libxstream_opencl_config.hist_d2d ? pevent : &event);
+        result = clEnqueueCopyBuffer(str->queue, memory_src, memory_dst, offset_src, offset_dst, nbytes, 0, NULL, request);
       }
       else result = EXIT_FAILURE;
+    }
+    if (0 != track) {
+      event = libxstream_stream_leave(stream, track, EXIT_SUCCESS == result ? event : NULL,
+        NULL != libxstream_opencl_config.hist_d2d || NULL != pevent);
     }
     if (NULL != event) {
       if (EXIT_SUCCESS == result) {
@@ -1783,7 +1805,8 @@ LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t off
      * enqueuing thread and change what is being measured.
      */
     const int measure = (0 == value && NULL != libxstream_opencl_config.hist_zero);
-    cl_event event = NULL, *const pevent = (0 != wait || 0 != measure) ? &event : NULL;
+    int track = LIBXSTREAM_STREAM_TRACK(stream);
+    cl_event event = NULL, *const pevent = (0 != wait || 0 != measure || 0 != track) ? &event : NULL;
     const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
     const libxstream_opencl_stream_t* str;
     size_t base = 0, vsize = 1;
@@ -1791,6 +1814,7 @@ LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t off
     else if (0 == LIBXS_MOD2(nbytes, 2)) vsize = 2;
     str = (NULL != stream ? stream : libxstream_opencl_stream(libxstream_opencl_config.lock_stream, libxs_tid()));
     assert(NULL != str && NULL != devinfo->context);
+    if (0 != track) track = libxstream_stream_enter(stream);
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clEnqueueMemFillINTEL) {
       result = devinfo->clEnqueueMemFillINTEL(str->queue, (char*)dev_mem + offset, &value, vsize, nbytes, 0, NULL, pevent);
@@ -1815,6 +1839,9 @@ LIBXSTREAM_API int libxstream_opencl_memset(void* dev_mem, int value, size_t off
         dev_mem = memptr;
       }
       else result = EXIT_FAILURE;
+    }
+    if (0 != track) {
+      event = libxstream_stream_leave(stream, track, EXIT_SUCCESS == result ? event : NULL, 0 != wait || 0 != measure);
     }
     if (NULL != event) {
       if (0 != wait) {

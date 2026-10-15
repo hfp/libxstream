@@ -53,6 +53,9 @@ libxstream_mem_host_unpin
 libxstream_mem_info
 libxstream_mem_offset
 libxstream_mem_zero
+libxstream_mps_icd_function
+libxstream_mps_icd_platforms
+libxstream_mps_server
 libxstream_opencl_create_context
 libxstream_opencl_defines
 libxstream_opencl_device_ext

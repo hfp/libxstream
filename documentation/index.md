@@ -44,6 +44,10 @@ be made header-only independently with `-DLIBXS_SOURCE`.
 The library is compiled for SSE4.2 by default but dynamically
 dispatches to the best ISA available at runtime (up to AVX-512).
 Use `SSE=0` to compile natively for the build host.
+The library is built into `lib/<target>`, e.g., `lib/x86_64` by default or
+`lib/sapphirerapids` with `SSE=0`, and `lib/` refers to the latest build.
+This lets a shared file system serve different systems.
+LIBXS is used from its matching `lib/<target>` if available.
 
 | Variable   | Default   | Description                                     |
 |------------|-----------|-------------------------------------------------|
@@ -51,6 +55,7 @@ Use `SSE=0` to compile natively for the build host.
 | DBG        | 0         | Debug build                                     |
 | SYM        | 0         | Include debug symbols (-g)                      |
 | SSE        | 1         | x86 baseline: 0=native, 1=SSE4.2 (portable)     |
+| LIBARCH    | (auto)    | Name of the build folder (`lib/<target>`)       |
 
 pkg-config support: `lib/libxstream.pc`.
 

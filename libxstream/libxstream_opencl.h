@@ -263,6 +263,9 @@ typedef struct libxstream_opencl_error_t {
 /** Information about streams (libxstream_stream_create). */
 typedef struct libxstream_stream_t {
   cl_command_queue queue;
+  cl_event last; /* the last command's event, which an event record takes over (LIBXSTREAM_STREAM_TRACK) */
+  int entries, inflight; /* enqueue windows (libxstream_stream_enter) */
+  volatile LIBXS_ATOMIC_LOCKTYPE guard;
   int tid;
 #if defined(LIBXSTREAM_STREAM_PRIORITIES)
   int priority;
@@ -846,6 +849,36 @@ LIBXSTREAM_API_INTERN double libxstream_opencl_reltime(cl_ulong timestamp);
 LIBXSTREAM_API const char* libxstream_opencl_strerror(cl_int err);
 /** Consume and clear the last error. */
 LIBXSTREAM_API int libxstream_opencl_error_consume(void);
+
+/**
+ * OpenCL-MPS: one context per device for all processes of a node, which forward
+ * their OpenCL calls to a server process (libxstream_mpsd). The two ICD entry points
+ * are what libxstream_icd exports to the OpenCL loader (OCL_ICD_FILENAMES).
+ */
+LIBXSTREAM_API void* libxstream_mps_icd_function(const char name[]);
+LIBXSTREAM_API cl_int libxstream_mps_icd_platforms(cl_uint num_entries, cl_platform_id platforms[], cl_uint* num_platforms);
+/**
+ * A stream keeps the event of its last command, which an event record takes over rather
+ * than enqueuing a marker: nearly every record follows a command. A command is enqueued
+ * between libxstream_stream_enter and libxstream_stream_leave. Its event is kept only if
+ * no other enqueue on the stream overlapped, else the stream forgets its last command.
+ * LIBXSTREAM_XHINTS bit 128 disables tracking.
+ */
+#define LIBXSTREAM_STREAM_TRACK(STREAM) (NULL != (STREAM) && 0 == (128 & libxstream_opencl_config.xhints))
+/** Opens an enqueue window; returns a ticket (non-zero), negative if another window is open. */
+LIBXSTREAM_API_INTERN int libxstream_stream_enter(libxstream_stream_t* stream);
+/**
+ * Closes the window of the given ticket with the command's event (NULL if failed or none).
+ * An event the caller consumes as well (shared) is retained by the stream and returned,
+ * otherwise the stream owns it and NULL is returned.
+ */
+LIBXSTREAM_API_INTERN cl_event libxstream_stream_leave(libxstream_stream_t* stream, int ticket, cl_event event, int shared);
+/** Takes over the stream's last command event (NULL if none or not known). */
+LIBXSTREAM_API_INTERN cl_event libxstream_stream_take(libxstream_stream_t* stream);
+/** Serves the node until no process was attached for a while; returns at once if another server runs. */
+LIBXSTREAM_API int libxstream_mps_server(void);
+/** Points the OpenCL loader to the forwarding ICD (LIBXSTREAM_MPS, or a running server), before any OpenCL call. */
+LIBXSTREAM_API_INTERN void libxstream_mps_presetup(int verbosity);
 
 /* header-only: include implementation (deferred from libxstream_macros.h) */
 #if defined(LIBXSTREAM_SOURCE) && !defined(LIBXSTREAM_SOURCE_H)

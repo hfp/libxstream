@@ -389,6 +389,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
       LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[4]));
     }
   }
+  libxstream_mps_presetup(libxstream_opencl_config.verbosity); /* before the loader reads it */
 # if defined(LIBXS_INTERCEPT_DYNAMIC)
   /**
    * Registration is attempted under every mode but 0; a process without CUDA
@@ -3270,6 +3271,7 @@ LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl
      * launches in flight, not total launches.
      */
     libxstream_opencl_launch_info_t* info = NULL;
+    int track = LIBXSTREAM_STREAM_TRACK(stream);
     cl_event evt = NULL;
     if (0 != libxstream_opencl_config.profile && NULL != libxstream_opencl_config.launch_infos) {
       const size_t slot = libxstream_kernel_slot(kernel);
@@ -3284,8 +3286,12 @@ LIBXSTREAM_API int libxstream_opencl_launch_work(libxstream_stream_t* stream, cl
         }
       }
     }
+    if (0 != track) track = libxstream_stream_enter(stream);
     result = clEnqueueNDRangeKernel(str->queue, kernel, work_dim, global_work_offset, global_work_size, local_work_size,
-      num_events_in_wait_list, event_wait_list, (NULL != info || NULL != event) ? &evt : NULL);
+      num_events_in_wait_list, event_wait_list, (NULL != info || NULL != event || 0 != track) ? &evt : NULL);
+    if (0 != track) {
+      evt = libxstream_stream_leave(stream, track, EXIT_SUCCESS == result ? evt : NULL, NULL != info || NULL != event);
+    }
     if (EXIT_SUCCESS == result && NULL != info) {
       /* Retain when the caller keeps the event: each side releases its own. */
       if (NULL == event || EXIT_SUCCESS == clRetainEvent(evt)) {

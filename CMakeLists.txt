@@ -175,6 +175,8 @@ set(LIBXSTREAM_PUBLIC_COMPILE_DEFINITIONS __OPENCL __ACC __LIBXS)
 
 file(GLOB LIBXSTREAM_SRCS LIST_DIRECTORIES false CONFIGURE_DEPENDS
   "${LIBXSTREAM_ROOT_DIR}/src/*.c")
+# the OpenCL-MPS server and ICD (below) are programs of their own
+list(FILTER LIBXSTREAM_SRCS EXCLUDE REGEX "/libxstream_mpsd\\.c$")
 
 add_library(libxstream ${LIBXSTREAM_SRCS})
 add_library(libxstream::libxstream ALIAS libxstream)
@@ -194,6 +196,21 @@ target_include_directories(libxstream
     "${LIBXSTREAM_ROOT_DIR}/src")
 
 target_link_libraries(libxstream PUBLIC ${LIBXSTREAM_LINK_LIBRARIES})
+
+# OpenCL-MPS server and the ICD given to the OpenCL loader, both beside the shared library
+if(BUILD_SHARED_LIBS)
+  add_executable(libxstream_mpsd "${LIBXSTREAM_ROOT_DIR}/src/libxstream_mpsd.c")
+  target_link_libraries(libxstream_mpsd PRIVATE libxstream)
+  set_target_properties(libxstream_mpsd PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>"
+    INSTALL_RPATH "$ORIGIN")
+  add_library(libxstream_icd SHARED "${LIBXSTREAM_ROOT_DIR}/src/libxstream_mpsd.c")
+  target_compile_definitions(libxstream_icd PRIVATE LIBXSTREAM_MPS_ICD)
+  target_link_libraries(libxstream_icd PRIVATE libxstream)
+  set_target_properties(libxstream_icd PROPERTIES
+    OUTPUT_NAME xstream_icd
+    INSTALL_RPATH "$ORIGIN")
+endif()
 
 if(BUILD_TESTING)
   add_subdirectory(tests)
@@ -248,6 +265,12 @@ install(TARGETS libxstream
   ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+
+if(BUILD_SHARED_LIBS)
+  install(TARGETS libxstream_mpsd libxstream_icd
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    RUNTIME DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+endif()
 
 install(DIRECTORY "${LIBXSTREAM_INCLUDE_DIR}/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/libxstream"
