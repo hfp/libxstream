@@ -38,9 +38,10 @@ include $(LIBXSROOT)/Makefile.inc
 
 # setup LIBXS (library or header-only)
 ifneq (,$(LIBXSROOT))
-  LIBXS_SL := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(SLIBEXT)))
-  LIBXS_DL := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(DLIBEXT)))
-  LIBXS := $(call libexists,$(wildcard $(LIBXSROOT)/lib/libxs.$(LIBEXT)))
+  LIBXS_LIBDIR := $(call archlibdir,$(LIBXSROOT),libxs)
+  LIBXS_SL := $(call libexists,$(wildcard $(LIBXS_LIBDIR)/libxs.$(SLIBEXT)))
+  LIBXS_DL := $(call libexists,$(wildcard $(LIBXS_LIBDIR)/libxs.$(DLIBEXT)))
+  LIBXS := $(call libexists,$(wildcard $(LIBXS_LIBDIR)/libxs.$(LIBEXT)))
   LIBXS := $(strip $(if $(LIBXS),$(LIBXS), \
     $(if $(LIBXS_SL),$(LIBXS_SL),$(LIBXS_DL))))
   IFLAGS += -I$(call quote,$(LIBXSROOT))

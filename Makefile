@@ -99,9 +99,7 @@ BLDDIR := $(BLDTOP)/$(LIBARCH)
 
 # setup LIBXS (source-tree layout): lib/<target>, lib/<machine>, then lib/
 ifneq (,$(LIBXSROOT))
-  LIBXS_LIBDIR := $(firstword $(foreach D,$(LIBARCH) $(MNAME),$(if $(realpath $(wildcard \
-    $(LIBXSROOT)/lib/$(D)/libxs.$(SLIBEXT) $(LIBXSROOT)/lib/$(D)/libxs.$(DLIBEXT))),$(LIBXSROOT)/lib/$(D))) \
-    $(LIBXSROOT)/lib)
+  LIBXS_LIBDIR := $(call archlibdir,$(LIBXSROOT),libxs)
   LIBXS_SL := $(call libexists,$(wildcard $(LIBXS_LIBDIR)/libxs.$(SLIBEXT)))
   LIBXS_DL := $(call libexists,$(wildcard $(LIBXS_LIBDIR)/libxs.$(DLIBEXT)))
   LIBXS := $(call libexists,$(wildcard $(LIBXS_LIBDIR)/libxs.$(LIBEXT)))
@@ -261,9 +259,12 @@ $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
 
 .PHONY: libs
 libs: $(PPKGDIR)/$(PROJECT)-static.pc $(PPKGDIR)/$(PROJECT)-shared.pc $(PCMKDIR)/$(PROJECT)Config.cmake $(MPSTARGETS)
-	@-rm -f $(OUTTOP)/$(PROJECT)*.$(SLIBEXT) $(OUTTOP)/$(PROJECT)*.$(DLIBEXT)*
-	@if [ -d $(OUTTOP) ]; then cd $(OUTTOP) && for LIB in $(LIBARCH)/$(PROJECT)*.$(SLIBEXT) $(LIBARCH)/$(PROJECT)*.$(DLIBEXT)*; do \
-		if [ -e "$${LIB}" ]; then ln -fs "$${LIB}" .; fi; \
+	@if [ -d $(OUTDIR) ]; then cd $(OUTTOP) && for LINK in *; do \
+		if [ -L "$${LINK}" ]; then case "$$(readlink "$${LINK}")" in \
+			/*) ;; */*) if [ -d "$$(dirname "$$(readlink "$${LINK}")")" ]; then rm -f "$${LINK}"; fi;; \
+		esac; fi; \
+	done && for FILE in $(LIBARCH)/*; do \
+		if [ -f "$${FILE}" ]; then ln -fs "$${FILE}" .; fi; \
 	done; fi
 ifeq (,$(filter-out 0 2,$(BUILD)))
 $(OUTDIR)/$(PROJECT).$(SLIBEXT): $(OUTDIR)/.make $(OBJFILES) $(FTNOBJS) $(LIBXS) $(LNKSTATE)
