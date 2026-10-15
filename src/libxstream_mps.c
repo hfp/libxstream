@@ -20,7 +20,6 @@
 #   include <libxs/libxs_timer.h>
 #   include <libxs/libxs_utils.h>
 #   include <sys/mman.h>
-#   include <sys/prctl.h>
 #   include <sys/socket.h>
 #   include <sys/syscall.h>
 #   include <sys/uio.h>
@@ -90,7 +89,6 @@
 #   define LIBXSTREAM_MPS_KERNEL 15
 #   define LIBXSTREAM_MPS_KERNEL_INFO 16
 #   define LIBXSTREAM_MPS_KERNEL_WGINFO 17
-#   define LIBXSTREAM_MPS_KERNEL_ARG 18
 #   define LIBXSTREAM_MPS_RELEASE 19
 #   define LIBXSTREAM_MPS_WRITE 20
 #   define LIBXSTREAM_MPS_READ 21
@@ -155,6 +153,8 @@ typedef struct libxstream_mps_obj_t {
   uint64_t done; /* a queue's commands up to this sequence number (plus one) are known to be complete */
   struct libxstream_mps_obj_t** args; /* a kernel's buffer arguments: a launch touches them */
   uint64_t* values; /* a kernel's arguments as last set (up to 8 bytes, and a buffer's generation) */
+  uint64_t* pargs; /* a kernel's arguments set since its last launch, sent with the next (libxstream_mps_kernel_arg) */
+  size_t npargs, maxpargs; /* words */
   unsigned int gen; /* tells the object from the slot's earlier objects */
   unsigned int ogen; /* generation of the owner when the object was created (an event's queue) */
   unsigned int tid; /* thread of the last command that touched the object (LIBXSTREAM_VERBOSE=2) */
@@ -755,23 +755,6 @@ static uint64_t libxstream_mps_order(libxstream_mps_client_t* c, libxstream_mps_
     case LIBXSTREAM_MPS_KERNEL_WGINFO:
     case LIBXSTREAM_MPS_FINISH:
     case LIBXSTREAM_MPS_FLUSH: LIBXSTREAM_MPS_USE(a[0]); break;
-    case LIBXSTREAM_MPS_KERNEL_ARG: {
-      libxstream_mps_obj_t* const kernel = LIBXSTREAM_MPS_OBJID(a[0]);
-      LIBXSTREAM_MPS_USE(a[0]);
-      if (LIBXSTREAM_MPS_ARG_MEM == a[3]) LIBXSTREAM_MPS_USE(a[4]);
-      if (NULL != kernel && a[1] < 1024) { /* remember the buffer set as argument */
-        if (kernel->size <= a[1] && LIBXSTREAM_MPS_ARG_MEM == a[3]) {
-          const size_t n = LIBXS_MAX((size_t)a[1] + 1, 2 * kernel->size);
-          libxstream_mps_obj_t** const args = (libxstream_mps_obj_t**)realloc(kernel->args, sizeof(void*) * n);
-          if (NULL != args) {
-            memset(args + kernel->size, 0, sizeof(void*) * (n - kernel->size));
-            kernel->args = args;
-            kernel->size = n;
-          }
-        }
-        if (a[1] < kernel->size) kernel->args[a[1]] = (LIBXSTREAM_MPS_ARG_MEM == a[3] ? LIBXSTREAM_MPS_OBJID(a[4]) : NULL);
-      }
-    } break;
     case LIBXSTREAM_MPS_RELEASE: { /* no dependency: deferred by the server until the object's last use ran */
       const libxstream_mps_obj_t* const obj = LIBXSTREAM_MPS_OBJID(a[1]);
       msg->arg[2] = (NULL != obj ? obj->last : 0);
@@ -963,6 +946,7 @@ static cl_int libxstream_mps_release(void* handle, int kind)
       if (LIBXSTREAM_MPS_KIND_KERNEL == kind) {
         free(obj->args);
         free(obj->values);
+        free(obj->pargs);
       }
       libxstream_mps_delete(c, obj, 0);
     }
@@ -972,10 +956,6 @@ static cl_int libxstream_mps_release(void* handle, int kind)
 }
 
 
-/**
- * Common part of an enqueue: the queue, the wait list as identifiers (ids is the
- * local buffer or one allocated here), and the event object if one is asked for.
- */
 /**
  * On an in-order queue, a command known to be complete completes every command issued
  * on the queue before it. Sequence numbers are issue order (libxstream_mps_order).
@@ -1007,6 +987,10 @@ static void libxstream_mps_completed(libxstream_mps_obj_t* event)
 }
 
 
+/**
+ * Common part of an enqueue: the queue, the wait list as identifiers (ids is the
+ * local buffer or one allocated here), and the event object if one is asked for.
+ */
 static cl_int libxstream_mps_prepare(libxstream_mps_msg_t* msg, uint64_t op, cl_command_queue queue,
   cl_uint nwait, const cl_event* wait, cl_event* event, cl_command_type type, uint64_t local[], uint64_t** ids)
 {
@@ -1772,7 +1756,6 @@ static cl_int CL_API_CALL libxstream_mps_kernel_release(cl_kernel kernel)
 }
 
 
-/* An argument set to the value it has already: the server's kernel holds it, nothing is sent. */
 /**
  * An argument set to the value it has already: the server's kernel holds it, nothing is
  * sent. A buffer's handle names another buffer once its slot is reused, hence the
@@ -1804,31 +1787,62 @@ static int libxstream_mps_kernel_arg_cached(libxstream_mps_client_t* c, libxstre
 }
 
 
+/**
+ * Kept with the kernel and sent with its next launch: a launch is what an argument is for.
+ * A record is the index and kind, the size, and the buffer or the value (in words).
+ * The buffers set as arguments are what a launch depends on (libxstream_mps_order).
+ */
 static cl_int CL_API_CALL libxstream_mps_kernel_arg(cl_kernel kernel, cl_uint index, size_t size, const void* value)
 {
   libxstream_mps_client_t* const c = libxstream_mps_client;
   cl_int result = CL_SUCCESS;
   if (!LIBXSTREAM_MPS_IS(kernel, LIBXSTREAM_MPS_KIND_KERNEL)) result = CL_INVALID_KERNEL;
+  else if (1024 <= index) result = CL_INVALID_ARG_INDEX;
   else {
-    libxstream_mps_obj_t* const mem = (NULL != value && sizeof(cl_mem) == size)
-      ? libxstream_mps_lookup(c, value) : NULL;
-    libxstream_mps_msg_t msg;
-    libxstream_mps_init(&msg, LIBXSTREAM_MPS_KERNEL_ARG);
-    msg.arg[0] = LIBXSTREAM_MPS_ID(c, kernel);
-    msg.arg[1] = index;
-    msg.arg[2] = size;
-    if (0 != libxstream_mps_kernel_arg_cached(c, LIBXSTREAM_MPS_OBJ(kernel), index, size, value, NULL != mem ? mem->gen : 0)) {
-      msg.op = 0; /* nothing to send */
+    libxstream_mps_obj_t* const obj = LIBXSTREAM_MPS_OBJ(kernel);
+    libxstream_mps_obj_t* const mem = (NULL != value && sizeof(cl_mem) == size) ? libxstream_mps_lookup(c, value) : NULL;
+    const uint64_t kind = (NULL == value ? LIBXSTREAM_MPS_ARG_LOCAL : (NULL != mem ? LIBXSTREAM_MPS_ARG_MEM : LIBXSTREAM_MPS_ARG_VALUE));
+    const size_t nvalue = (LIBXSTREAM_MPS_ARG_VALUE == kind ? LIBXS_UPDIV(size, sizeof(uint64_t)) : 0);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->order.lock); /* the launch reads the buffer arguments under the order lock */
+    if (obj->size <= index && LIBXSTREAM_MPS_ARG_MEM == kind) {
+      const size_t n = LIBXS_MAX((size_t)index + 1, 2 * obj->size);
+      libxstream_mps_obj_t** const args = (libxstream_mps_obj_t**)realloc(obj->args, sizeof(void*) * n);
+      if (NULL != args) {
+        memset(args + obj->size, 0, sizeof(void*) * (n - obj->size));
+        obj->args = args;
+        obj->size = n;
+      }
+      else result = CL_OUT_OF_HOST_MEMORY;
     }
-    if (NULL == value) msg.arg[3] = LIBXSTREAM_MPS_ARG_LOCAL;
-    else if (NULL != mem) {
-      msg.arg[3] = LIBXSTREAM_MPS_ARG_MEM;
-      msg.arg[4] = LIBXSTREAM_MPS_ID(c, mem);
+    if (index < obj->size) obj->args[index] = mem;
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->order.lock);
+    if (CL_SUCCESS == result
+      && 0 == libxstream_mps_kernel_arg_cached(c, obj, index, size, value, NULL != mem ? mem->gen : 0))
+    {
+      LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
+      if (obj->maxpargs < obj->npargs + 3 + nvalue) {
+        const size_t n = LIBXS_MAX(2 * obj->maxpargs, obj->npargs + 3 + nvalue + 32);
+        uint64_t* const pargs = (uint64_t*)realloc(obj->pargs, sizeof(uint64_t) * n);
+        if (NULL != pargs) {
+          obj->pargs = pargs;
+          obj->maxpargs = n;
+        }
+      }
+      if (obj->npargs + 3 + nvalue <= obj->maxpargs) {
+        uint64_t* const record = obj->pargs + obj->npargs;
+        record[0] = (uint64_t)index | (kind << 32);
+        record[1] = size;
+        record[2] = (NULL != mem ? LIBXSTREAM_MPS_ID(c, mem) : 0);
+        if (0 != nvalue) {
+          record[3 + nvalue - 1] = 0;
+          memcpy(record + 3, value, size);
+        }
+        obj->npargs += 3 + nvalue;
+      }
+      else result = CL_OUT_OF_HOST_MEMORY;
+      LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
     }
-    if (0 != msg.op) {
-      result = libxstream_mps_call(c, &msg, LIBXSTREAM_MPS_ARG_VALUE == msg.arg[3] ? value : NULL,
-        LIBXSTREAM_MPS_ARG_VALUE == msg.arg[3] ? size : 0, NULL, 0, NULL, NULL, 0);
-    }
+    if (CL_SUCCESS != result) libxstream_mps_kernel_arg_cached(c, obj, index, 0, NULL, 0); /* not set: forget it */
   }
   return result;
 }
@@ -2118,19 +2132,34 @@ static cl_int CL_API_CALL libxstream_mps_ndrange(cl_command_queue queue, cl_kern
   if (CL_SUCCESS == result && !LIBXSTREAM_MPS_IS(kernel, LIBXSTREAM_MPS_KIND_KERNEL)) result = CL_INVALID_KERNEL;
   else if (CL_SUCCESS == result && (0 == work_dim || 3 < work_dim)) result = CL_INVALID_WORK_DIMENSION;
   else if (CL_SUCCESS == result && NULL == global_size) result = CL_INVALID_GLOBAL_WORK_SIZE;
-  if (CL_SUCCESS == result) {
-    uint64_t sizes[9];
+  if (CL_SUCCESS == result) { /* sizes, followed by the arguments set since the last launch */
+    libxstream_mps_obj_t* const obj = LIBXSTREAM_MPS_OBJ(kernel);
+    uint64_t buffer[9 + 128], *sizes = buffer;
+    size_t nargs;
     cl_uint i;
-    for (i = 0; i < work_dim; ++i) {
-      sizes[i] = (NULL != global_offset ? global_offset[i] : 0);
-      sizes[work_dim + i] = global_size[i];
-      sizes[2 * work_dim + i] = (NULL != local_size ? local_size[i] : 0);
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &c->lock.lock);
+    nargs = obj->npargs;
+    if (sizeof(buffer) / sizeof(*buffer) < 9 + nargs) sizes = (uint64_t*)malloc(sizeof(uint64_t) * (9 + nargs));
+    if (NULL != sizes) {
+      if (0 != nargs) memcpy(sizes + 3 * work_dim, obj->pargs, sizeof(uint64_t) * nargs);
+      obj->npargs = 0;
     }
-    msg.arg[1] = LIBXSTREAM_MPS_ID(c, kernel);
-    msg.arg[2] = work_dim;
-    msg.arg[3] = (NULL != global_offset ? 1 : 0) | (NULL != local_size ? 2 : 0);
-    result = libxstream_mps_call(c, &msg, ids, sizeof(uint64_t) * nwait, sizes, sizeof(uint64_t) * 3 * work_dim,
-      NULL, NULL, 0);
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &c->lock.lock);
+    if (NULL != sizes) {
+      for (i = 0; i < work_dim; ++i) {
+        sizes[i] = (NULL != global_offset ? global_offset[i] : 0);
+        sizes[work_dim + i] = global_size[i];
+        sizes[2 * work_dim + i] = (NULL != local_size ? local_size[i] : 0);
+      }
+      msg.arg[1] = LIBXSTREAM_MPS_ID(c, kernel);
+      msg.arg[2] = work_dim;
+      msg.arg[3] = (NULL != global_offset ? 1 : 0) | (NULL != local_size ? 2 : 0);
+      msg.arg[4] = nargs;
+      result = libxstream_mps_call(c, &msg, ids, sizeof(uint64_t) * nwait, sizes,
+        sizeof(uint64_t) * (3 * work_dim + nargs), NULL, NULL, 0);
+      if (buffer != sizes) free(sizes);
+    }
+    else result = CL_OUT_OF_HOST_MEMORY;
   }
   libxstream_mps_done(local, ids);
   return result;
@@ -2394,7 +2423,6 @@ static int libxstream_mpsd_answered(const libxstream_mps_msg_t* msg)
 {
   int result;
   switch (msg->op) {
-    case LIBXSTREAM_MPS_KERNEL_ARG:
     case LIBXSTREAM_MPS_RELEASE:
     case LIBXSTREAM_MPS_COPY:
     case LIBXSTREAM_MPS_FILL:
@@ -2722,16 +2750,6 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
           libxstream_mpsd.devices[a[1]], (cl_kernel_work_group_info)a[2], info_size, post->data, &size_ret)
           : CL_INVALID_DEVICE);
       } break;
-      case LIBXSTREAM_MPS_KERNEL_ARG: {
-        const cl_kernel kernel = (cl_kernel)libxstream_mpsd_handle(cl, a[0]);
-        if (LIBXSTREAM_MPS_ARG_MEM == a[3]) {
-          const cl_mem memory = (cl_mem)libxstream_mpsd_handle(cl, a[4]);
-          result = clSetKernelArg(kernel, (cl_uint)a[1], sizeof(cl_mem), &memory);
-        }
-        else {
-          result = clSetKernelArg(kernel, (cl_uint)a[1], (size_t)a[2], LIBXSTREAM_MPS_ARG_LOCAL == a[3] ? NULL : *payload);
-        }
-      } break;
       case LIBXSTREAM_MPS_RELEASE: { /* deferred until the object's last use ran */
         int now = 1;
         pthread_mutex_lock(&cl->lock);
@@ -2798,15 +2816,39 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
       case LIBXSTREAM_MPS_NDRANGE: {
         const cl_uint dims = (cl_uint)LIBXS_MIN(a[2], 3);
         const uint64_t* const sizes = (const uint64_t*)data;
+        const uint64_t* const end = sizes + (msg->nbytes - sizeof(uint64_t) * nwait) / sizeof(uint64_t);
+        const uint64_t* record = sizes + 3 * dims;
+        const cl_kernel kernel = (cl_kernel)libxstream_mpsd_handle(cl, a[1]);
         size_t offsets[3], global[3], local_size[3];
         for (i = 0; i < dims; ++i) {
           offsets[i] = (size_t)sizes[i];
           global[i] = (size_t)sizes[dims + i];
           local_size[i] = (size_t)sizes[2 * dims + i];
         }
-        result = clEnqueueNDRangeKernel((cl_command_queue)libxstream_mpsd_handle(cl, a[0]),
-          (cl_kernel)libxstream_mpsd_handle(cl, a[1]), dims, 0 != (a[3] & 1) ? offsets : NULL, global,
-          0 != (a[3] & 2) ? local_size : NULL, nwait, 0 != nwait ? waits : NULL, 0 != a[7] ? pevent : NULL);
+        for (; record + 3 <= end && record < sizes + 3 * dims + a[4] && CL_SUCCESS == result;) { /* arguments first */
+          const cl_uint index = (cl_uint)(record[0] & 0xFFFFFFFF);
+          const uint64_t kind = record[0] >> 32;
+          const size_t size = (size_t)record[1];
+          if (LIBXSTREAM_MPS_ARG_MEM == kind) {
+            const cl_mem memory = (cl_mem)libxstream_mpsd_handle(cl, record[2]);
+            result = clSetKernelArg(kernel, index, sizeof(cl_mem), &memory);
+            record += 3;
+          }
+          else if (LIBXSTREAM_MPS_ARG_LOCAL == kind) {
+            result = clSetKernelArg(kernel, index, size, NULL);
+            record += 3;
+          }
+          else if (record + 3 + LIBXS_UPDIV(size, sizeof(uint64_t)) <= end) {
+            result = clSetKernelArg(kernel, index, size, record + 3);
+            record += 3 + LIBXS_UPDIV(size, sizeof(uint64_t));
+          }
+          else result = CL_INVALID_ARG_SIZE;
+        }
+        if (CL_SUCCESS == result) {
+          result = clEnqueueNDRangeKernel((cl_command_queue)libxstream_mpsd_handle(cl, a[0]), kernel, dims,
+            0 != (a[3] & 1) ? offsets : NULL, global, 0 != (a[3] & 2) ? local_size : NULL, nwait,
+            0 != nwait ? waits : NULL, 0 != a[7] ? pevent : NULL);
+        }
         if (CL_SUCCESS == result) libxstream_mpsd_track(cl, msg, event, 0, NULL, post);
       } break;
       case LIBXSTREAM_MPS_MARKER: {
@@ -3298,11 +3340,6 @@ LIBXSTREAM_API int libxstream_mps_server(void)
     unsetenv("OCL_ICD_VENDORS");
   }
   signal(SIGPIPE, SIG_IGN);
-#   if defined(PR_SET_PTRACER) && defined(PR_SET_PTRACER_ANY)
-  if (NULL != getenv("LIBXS_PTRACE") && 0 != atoi(getenv("LIBXS_PTRACE"))) { /* started by a process, not by a debugger's shell */
-    prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0);
-  }
-#   endif
   libxstream_mpsd.verbosity = (NULL != env_verbose ? atoi(env_verbose) : 0);
   libxstream_mps_paths(name, sizeof(name), path, sizeof(path));
   handle = libxs_singleton_acquire(name);

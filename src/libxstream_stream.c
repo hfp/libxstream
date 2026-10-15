@@ -155,10 +155,10 @@ LIBXSTREAM_API int libxstream_stream_create(libxstream_stream_t** stream_p, cons
     *stream_p = (libxstream_stream_t*)libxs_pmalloc((void**)libxstream_opencl_config.streams, &libxstream_opencl_config.nstreams);
     if (NULL != *stream_p) {
       libxstream_opencl_stream_t* const str = (libxstream_opencl_stream_t*)*stream_p;
+      libxstream_stream_tracked_t* const tracked = (libxstream_stream_tracked_t*)*stream_p;
 # if !defined(NDEBUG)
       LIBXS_MEMZERO(str);
 # endif
-      libxstream_stream_tracked_t* const tracked = (libxstream_stream_tracked_t*)*stream_p;
       str->queue = queue;
       str->tid = tid;
       tracked->last = NULL;

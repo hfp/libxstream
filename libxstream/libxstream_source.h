@@ -31,6 +31,7 @@
 #include "../src/libxstream_dbcsr.c"
 #include "../src/libxstream_event.c"
 #include "../src/libxstream_mem.c"
+#include "../src/libxstream_mps.c"
 #include "../src/libxstream_stream.c"
 
 #endif /*LIBXSTREAM_SOURCE_H*/

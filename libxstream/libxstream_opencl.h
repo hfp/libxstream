@@ -194,6 +194,9 @@ LIBXS_PRAGMA_DIAG_POP()
 #if !defined(LIBXSTREAM_ACTIVATE)
 # define LIBXSTREAM_ACTIVATE -1
 #endif
+/* Whether a stream keeps its last command's event (libxstream_stream_enter); LIBXSTREAM_XHINTS bit 128 disables it. */
+#define LIBXSTREAM_STREAM_TRACK(STREAM) (NULL != (STREAM) && 0 == (128 & libxstream_opencl_config.xhints) && \
+  (const void*)(STREAM) != (const void*)&libxstream_opencl_config.device.stream)
 /**
  * Whether WA-16 applies to the given device, i.e. a unified-memory Intel GPU
  * (iGPU). Both of the workaround's effects share this predicate: no USM, and
@@ -875,11 +878,8 @@ LIBXSTREAM_API cl_int libxstream_mps_icd_platforms(cl_uint num_entries, cl_platf
  * than enqueuing a marker: nearly every record follows a command. A command is enqueued
  * between libxstream_stream_enter and libxstream_stream_leave. Its event is kept only if
  * no other enqueue on the stream overlapped, else the stream forgets its last command.
- * LIBXSTREAM_XHINTS bit 128 disables tracking.
+ * Opens an enqueue window; returns a ticket (non-zero), negative if another window is open.
  */
-#define LIBXSTREAM_STREAM_TRACK(STREAM) (NULL != (STREAM) && 0 == (128 & libxstream_opencl_config.xhints) && \
-  (const void*)(STREAM) != (const void*)&libxstream_opencl_config.device.stream)
-/** Opens an enqueue window; returns a ticket (non-zero), negative if another window is open. */
 LIBXSTREAM_API_INTERN int libxstream_stream_enter(libxstream_stream_t* stream);
 /**
  * Closes the window of the given ticket with the command's event (NULL if failed or none).
