@@ -26,6 +26,23 @@ Nothing is lost by that: the grain is not a performance lever. Coarse-grain adds
 
 On NVIDIA the capability is not queried by default, so the default level leaves USM off and no device memory pool is created. An explicitly requested level is honoured there, to exercise the path rather than to speed one up: results are correct and an H100 PCIe runs 6.7x slower that way. Leave it unset on that vendor.
 
+## Runtime Configuration
+
+Environment variables are read once, when the library initializes. Devices are numbered in the order `LIBXSTREAM_VERBOSE` lists them.
+
+| Variable | Description |
+|---|---|
+| `LIBXSTREAM_DEVICE` | Device to activate, by number; default: 0 |
+| `LIBXSTREAM_DEVTYPE` | Kind of device: `gpu`, `cpu`, or `acc`; default: all |
+| `LIBXSTREAM_DEVIDS` | Devices to keep, by number (separated by comma, semicolon, colon, or space); default: all |
+| `LIBXSTREAM_VENDOR` | Devices to keep, by vendor name (case-insensitive substring, e.g., `intel`); default: all |
+| `LIBXSTREAM_DEVSPLIT` | Split each device into equal sub-devices: the number of sub-devices, or negative for one per compute unit; default: 0 (no split) |
+| `LIBXSTREAM_DEVMATCH` | Device whose tuned kernel parameters are taken: a device name or ID (e.g., `[0x0bd5]`) to use another device's parameters, 0 to accept parameters of any device; default: the active device |
+| `LIBXSTREAM_STAGE` | Staging window per thread in MB, for host memory staged through a runtime-owned buffer (`LIBXSTREAM_PIN=1`); default: 32 |
+| `LIBXSTREAM_STAGE_NT` | Threads of the staging copy; default: 32 |
+| `LIBXSTREAM_STAGE_GRAIN` | Block of the staging copy in KB, handed out round-robin; default: 32 |
+| `LIBXSTREAM_CACHE` | 0: no kernel cache, i.e., the vendor's compiled-kernel cache is off (`CUDA_CACHE_DISABLE=1` and `NEO_CACHE_PERSISTENT=0`, unless set); default: the vendor's cache |
+
 ## Data Types
 
 ### `libxstream_opencl_config_t`
@@ -179,9 +196,17 @@ export LIBXSTREAM_MPS=1        # or: the first process starts the server
 mpirun ...
 ```
 
-LIBXSTREAM then points the OpenCL loader to `libxstream_icd.so` before its first OpenCL call, which hides the installed ICDs. Any OpenCL application is served by setting both `OCL_ICD_VENDORS` (ocl-icd) and `OCL_ICD_FILENAMES` (Khronos loader) to that library. Host buffers are shared with the server only if they come from OpenCL (`LIBXSTREAM_XHINTS=75`); other host memory is copied through a socket.
+LIBXSTREAM then points the OpenCL loader to `libxstream_icd.so` when it is loaded, before any OpenCL call, which hides the installed ICDs. An OpenCL application that does not use LIBXSTREAM is served the same way, unchanged:
 
-The forwarding platform reports the vendor's platform and devices, with ` (LIBXSTREAM-MPS)` appended to the platform name. Profiling (`LIBXSTREAM_PROFILE*`), event callbacks, SVM, sub-devices, and programs from IL are not supported. A context spanning several devices is shared only with processes using the same set of devices.
+```bash
+LIBXSTREAM_MPS=1 LD_PRELOAD=libxstream.so ./app
+```
+
+This relies on the library's constructor, which a C89 build (`PEDANTIC=2`) does not have. Setting both `OCL_ICD_VENDORS` (ocl-icd) and `OCL_ICD_FILENAMES` (Khronos loader) to `libxstream_icd.so` works as well. If the OpenCL driver is only found through these variables (a driver outside the default location), forwarding stays off: give their value to the server instead (`LIBXSTREAM_MPS_ICD`), and unset both.
+
+Host buffers are shared with the server only if they come from OpenCL (`LIBXSTREAM_XHINTS=75`); other host memory is copied through a socket.
+
+The forwarding platform reports the vendor's platform and devices, with ` (LIBXSTREAM-MPS)` appended to the platform name. Of several platforms, the server serves one: that of the device type `LIBXSTREAM_DEVTYPE` asks for, otherwise GPUs first. Profiling (`LIBXSTREAM_PROFILE*`), event callbacks, SVM, sub-devices, and programs from IL are not supported. A context spanning several devices is shared only with processes using the same set of devices.
 
 | Variable | Description |
 |---|---|
@@ -189,7 +214,7 @@ The forwarding platform reports the vendor's platform and devices, with ` (LIBXS
 | `LIBXSTREAM_MPS_TIMEOUT` | Seconds the server stays after the last process detached; negative: until killed; default: 2 |
 | `LIBXSTREAM_MPS_KEY` | Names the server to attach to; default: the job ID (`SLURM_JOB_ID`, `PBS_JOBID`, `LSB_JOBID`) |
 | `LIBXSTREAM_MPS_SERVER` | Server executable; default: `libxstream_mpsd` beside the shared library |
-| `LIBXSTREAM_MPS_ICD` | Vendor ICD the server loads; default: the installed ICDs |
+| `LIBXSTREAM_MPS_ICD` | Vendor ICDs the server loads, as for `OCL_ICD_FILENAMES`; default: the installed ICDs |
 | `LIBXSTREAM_MPS_ARENA` | Host memory in GB a process may share with the server (reserved, not committed); default: 256 |
 | `LIBXSTREAM_MPS_CONTEXTS` | Contexts per device the server spreads the processes over (round robin); default: 2 with four or more ranks per node, otherwise 1 (1 if the loader variables are set by hand) |
 | `LIBXSTREAM_MPS_ISSUERS` | Commands the server passes to the driver at once, over all processes; default: 0 (unbounded) |
