@@ -31,12 +31,16 @@ LIBXS_EXTERN_C LIBXS_VISIBILITY_PUBLIC cl_int CL_API_CALL clIcdGetPlatformIDsKHR
  * The server process (libxstream_mpsd), started by the first process of a node that needs it.
  * With --detach, the server forks and its parent exits: the starting process collects that
  * parent at once, and the server is adopted, hence no exited server is left uncollected.
+ * The process ends without exit handlers: a driver release that did not return still runs
+ * on a thread, and a driver's handlers could wait for it.
  */
 int main(int argc, char* argv[])
 {
   int result = EXIT_SUCCESS;
   if (1 < argc && 0 == strcmp("--detach", argv[1]) && 0 < fork()) result = EXIT_SUCCESS; /* parent */
   else result = libxstream_mps_server();
+  fflush(NULL);
+  _exit(result);
   return result;
 }
 #endif

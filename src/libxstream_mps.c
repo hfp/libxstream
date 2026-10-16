@@ -120,6 +120,9 @@
 #   define LIBXSTREAM_MPS_KIND_KERNEL 6
 #   define LIBXSTREAM_MPS_KIND_EVENT 7
 #   define LIBXSTREAM_MPS_KIND_PLATFORM 8
+/* what else the reaper releases (libxstream_mpsd_reaper): a kernel's instances, a departed process */
+#   define LIBXSTREAM_MPS_REAP_KERNEL 16
+#   define LIBXSTREAM_MPS_REAP_CLIENT 17
 
 #   define LIBXSTREAM_MPS_ARG_VALUE 0
 #   define LIBXSTREAM_MPS_ARG_MEM 1
@@ -214,6 +217,12 @@ typedef struct libxstream_mpsd_mapping_t {
   void* ptr;
 } libxstream_mpsd_mapping_t;
 
+/* An object the reaper releases (libxstream_mpsd_reap). */
+typedef struct libxstream_mpsd_reap_t {
+  void* ptr;
+  int kind;
+} libxstream_mpsd_reap_t;
+
 typedef struct libxstream_mpsd_release_t {
   uint64_t after, id; /* released once every command before "after" ran */
   int kind;
@@ -304,6 +313,11 @@ static pthread_mutex_t libxstream_mps_lock = PTHREAD_MUTEX_INITIALIZER;
 static libxstream_mps_client_t* libxstream_mps_client;
 static int libxstream_mps_failed, libxstream_mps_unsupported_count;
 static pthread_mutex_t libxstream_mpsd_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t libxstream_mpsd_reaplock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t libxstream_mpsd_reapcond = PTHREAD_COND_INITIALIZER;
+static libxstream_mpsd_reap_t* libxstream_mpsd_reaps; /* queue of what the reaper releases, in order */
+static size_t libxstream_mpsd_nreaps, libxstream_mpsd_reaphead, libxstream_mpsd_maxreaps;
+static int libxstream_mpsd_reaping; /* 1: started, 2: releasing */
 static libxstream_mpsd_t libxstream_mpsd;
 # endif
 
@@ -2556,6 +2570,9 @@ static cl_event libxstream_mpsd_event(libxstream_mpsd_client_t* cl, uint64_t id)
       cl_event marker = NULL;
       if (NULL != queue && CL_SUCCESS == clEnqueueMarkerWithWaitList(queue, 0, NULL, &marker)) {
         void* expected = NULL;
+        /* the process does not know the marker, hence never flushes for it: waiting on an event from
+         * another queue requires its queue to be flushed, or a driver may never submit the command */
+        clFlush(queue);
         if (__atomic_compare_exchange_n(cl->handles + id - 1, &expected, marker, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
           result = marker;
         }
@@ -2666,6 +2683,167 @@ static void libxstream_mpsd_kernel_free(libxstream_mpsd_kernel_t* entry)
 }
 
 
+/* What a departed process leaves to the server: all its objects, its shared memory, its state. */
+static void libxstream_mpsd_teardown(libxstream_mpsd_client_t* cl)
+{
+  const libxs_timer_tick_t start = libxs_timer_tick();
+  size_t i;
+  int kind;
+  for (i = 0; i < cl->nmaps; ++i) { /* what the process left mapped, before its buffers are released */
+    clEnqueueUnmapMemObject(cl->maps[i].queue, cl->maps[i].buffer, cl->maps[i].ptr, 0, NULL, NULL);
+    clFinish(cl->maps[i].queue);
+    clReleaseCommandQueue(cl->maps[i].queue);
+  }
+  if (0 != cl->nmaps && 0 != libxstream_mpsd.verbosity) {
+    fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i left %lu buffers mapped\n", cl->pid, (unsigned long)cl->nmaps);
+  }
+  for (i = 0; i < cl->capacity; ++i) { /* nothing may still access the shared memory */
+    if (LIBXSTREAM_MPS_KIND_QUEUE == cl->kinds[i]) clFinish((cl_command_queue)cl->handles[i]);
+  }
+  for (i = 0; i < cl->capacity; ++i) libxstream_mpsd_kernel_free(cl->kernels[i]);
+  for (kind = LIBXSTREAM_MPS_KIND_EVENT; LIBXSTREAM_MPS_KIND_CONTEXT <= kind; --kind) {
+    for (i = 0; i < cl->capacity; ++i) {
+      if (kind == cl->kinds[i]) libxstream_mpsd_release(cl->handles[i], kind);
+    }
+  }
+  if (0 != libxstream_mpsd.verbosity) {
+    fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i released in %.2fs\n", cl->pid, libxs_timer_duration(start, libxs_timer_tick()));
+  }
+  if (0 != libxstream_mpsd.verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i detached\n", cl->pid);
+  if (2 <= libxstream_mpsd.verbosity || 0 > libxstream_mpsd.verbosity) {
+    fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i commands=%lu wait=%.2fs exec=%.2fs post=%.2fs status=%lu/%.2fs\n",
+      cl->pid, (unsigned long)cl->ncmds, 1E-9 * cl->wait_ns, 1E-9 * cl->exec_ns, 1E-9 * cl->post_ns,
+      (unsigned long)cl->nstatus, 1E-9 * cl->status_ns);
+    if (NULL != cl->hist) {
+      const char* const kinds[] = {"?", "device", "context", "queue", "mem", "program", "kernel", "event"};
+      const int prec[] = {1, 1, 1};
+      int op;
+      fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i waits by last blocker (* other thread):", cl->pid);
+      for (op = 0; op < LIBXSTREAM_MPS_NWAITS; ++op) {
+        if (0 != cl->wait_n[op]) {
+          fprintf(stderr, " %s%s=%lu/%.2fs", LIBXSTREAM_MPS_NWAITS - 1 == op ? "window" : kinds[op & 7],
+            (LIBXSTREAM_MPS_NWAITS - 1 != op && 0 != (op & 8)) ? "*" : "", (unsigned long)cl->wait_n[op],
+            1E-9 * cl->wait_by[op]);
+        }
+      }
+      fprintf(stderr, "\n");
+      fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i events=%lu unused=%lu waited=%lu polled=%lu both=%lu\n", cl->pid,
+        (unsigned long)cl->nevents, (unsigned long)cl->nused[0], (unsigned long)cl->nused[1], (unsigned long)cl->nused[2],
+        (unsigned long)cl->nused[3]);
+      fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i events per op (needed):", cl->pid);
+      for (op = 0; op < LIBXSTREAM_MPS_NOPS; ++op) {
+        if (0 != cl->op_events[op]) {
+          fprintf(stderr, " %i=%lu(%lu)", op, (unsigned long)cl->op_events[op], (unsigned long)cl->op_needed[op]);
+        }
+      }
+      fprintf(stderr, "\n");
+      fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i exec per op:", cl->pid);
+      for (op = 0; op < LIBXSTREAM_MPS_NOPS; ++op) {
+        if (0 != cl->op_n[op]) {
+          fprintf(stderr, " %i=%lu/%.2fs", op, (unsigned long)cl->op_n[op], 1E-9 * cl->op_ns[op]);
+        }
+      }
+      libxs_hist_print(stderr, cl->hist, prec, "\nINFO LIBXSTREAM-MPS: process %i exec log2(ns): count -> log2 us wait-us\n",
+        cl->pid);
+    }
+  }
+  libxs_hist_destroy(cl->hist);
+  if (NULL != cl->hist) LIBXS_LOCK_DESTROY(LIBXS_LOCK, &cl->hist_lock);
+  munmap(cl->arena, cl->arena_size);
+  pthread_cond_destroy(&cl->cond);
+  pthread_mutex_destroy(&cl->lock);
+  free(cl->handles);
+  free(cl->kernels);
+  free(cl->lazy);
+  free(cl->used);
+  free(cl->evop);
+  free(cl->gens);
+  free(cl->kinds);
+  free(cl->done);
+  free(cl->pending);
+  free(cl->maps);
+  free(cl);
+}
+
+
+/**
+ * Releases what the server let go of, one object at a time on a thread of its own. A driver
+ * may not return from a release, which then holds this thread only: never the commands of
+ * the processes still attached, nor the server's exit (libxstream_mps_server).
+ */
+static void* libxstream_mpsd_reaper(void* arg)
+{
+  LIBXS_UNUSED(arg);
+  pthread_mutex_lock(&libxstream_mpsd_reaplock);
+  for (;;) {
+    libxstream_mpsd_reap_t reap;
+    while (libxstream_mpsd_reaphead == libxstream_mpsd_nreaps) {
+      pthread_cond_wait(&libxstream_mpsd_reapcond, &libxstream_mpsd_reaplock);
+    }
+    reap = libxstream_mpsd_reaps[libxstream_mpsd_reaphead++];
+    if (libxstream_mpsd_reaphead == libxstream_mpsd_nreaps) libxstream_mpsd_reaphead = libxstream_mpsd_nreaps = 0;
+    libxstream_mpsd_reaping = 2;
+    pthread_mutex_unlock(&libxstream_mpsd_reaplock);
+    if (LIBXSTREAM_MPS_REAP_CLIENT == reap.kind) libxstream_mpsd_teardown((libxstream_mpsd_client_t*)reap.ptr);
+    else if (LIBXSTREAM_MPS_REAP_KERNEL == reap.kind) libxstream_mpsd_kernel_free((libxstream_mpsd_kernel_t*)reap.ptr);
+    else libxstream_mpsd_release(reap.ptr, reap.kind);
+    pthread_mutex_lock(&libxstream_mpsd_reaplock);
+    libxstream_mpsd_reaping = 1;
+  }
+  return NULL;
+}
+
+
+/* Hands an object to the reaper; released at once only if the reaper cannot be started. */
+static void libxstream_mpsd_reap(void* ptr, int kind)
+{
+  if (NULL != ptr) {
+    int queued = 0;
+    pthread_mutex_lock(&libxstream_mpsd_reaplock);
+    if (0 == libxstream_mpsd_reaping) {
+      pthread_attr_t attr;
+      pthread_t thread;
+      pthread_attr_init(&attr);
+      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+      if (0 == pthread_create(&thread, &attr, libxstream_mpsd_reaper, NULL)) libxstream_mpsd_reaping = 1;
+      pthread_attr_destroy(&attr);
+    }
+    if (0 != libxstream_mpsd_reaping && libxstream_mpsd_nreaps == libxstream_mpsd_maxreaps) {
+      const size_t n = LIBXS_MAX(2 * libxstream_mpsd_maxreaps, 1024);
+      libxstream_mpsd_reap_t* const reaps = (libxstream_mpsd_reap_t*)realloc(libxstream_mpsd_reaps, sizeof(*reaps) * n);
+      if (NULL != reaps) {
+        libxstream_mpsd_reaps = reaps;
+        libxstream_mpsd_maxreaps = n;
+      }
+    }
+    if (0 != libxstream_mpsd_reaping && libxstream_mpsd_nreaps < libxstream_mpsd_maxreaps) {
+      libxstream_mpsd_reaps[libxstream_mpsd_nreaps].ptr = ptr;
+      libxstream_mpsd_reaps[libxstream_mpsd_nreaps].kind = kind;
+      ++libxstream_mpsd_nreaps;
+      pthread_cond_signal(&libxstream_mpsd_reapcond);
+      queued = 1;
+    }
+    pthread_mutex_unlock(&libxstream_mpsd_reaplock);
+    if (0 == queued) {
+      if (LIBXSTREAM_MPS_REAP_CLIENT == kind) libxstream_mpsd_teardown((libxstream_mpsd_client_t*)ptr);
+      else if (LIBXSTREAM_MPS_REAP_KERNEL == kind) libxstream_mpsd_kernel_free((libxstream_mpsd_kernel_t*)ptr);
+      else libxstream_mpsd_release(ptr, kind);
+    }
+  }
+}
+
+
+/* Whether the reaper has nothing left to release. */
+static int libxstream_mpsd_reaped(void)
+{
+  int result;
+  pthread_mutex_lock(&libxstream_mpsd_reaplock);
+  result = (libxstream_mpsd_reaphead == libxstream_mpsd_nreaps && 2 != libxstream_mpsd_reaping);
+  pthread_mutex_unlock(&libxstream_mpsd_reaplock);
+  return result;
+}
+
+
 /**
  * The instance of a kernel for the given connection, created on first use. Only that
  * connection adds its instance, hence it is created without holding the lock.
@@ -2750,7 +2928,8 @@ static cl_int libxstream_mpsd_kernel_arg(libxstream_mpsd_client_t* cl, libxstrea
 /* Releases an object and confirms it to the client, which may reuse the slot from then on. */
 static cl_int libxstream_mpsd_dispose(libxstream_mpsd_client_t* cl, uint64_t id, int kind)
 {
-  const cl_int result = libxstream_mpsd_release(libxstream_mpsd_handle(cl, id), kind);
+  const cl_int result = CL_SUCCESS; /* the driver releases later, see libxstream_mpsd_reap */
+  libxstream_mpsd_reap(libxstream_mpsd_handle(cl, id), kind);
   if (LIBXSTREAM_MPS_KIND_EVENT == kind && 0 != id && id <= cl->capacity) {
     __atomic_store_n(cl->lazy + id - 1, NULL, __ATOMIC_RELEASE);
   }
@@ -2771,7 +2950,7 @@ static cl_int libxstream_mpsd_dispose(libxstream_mpsd_client_t* cl, uint64_t id,
     entry = cl->kernels[id - 1];
     cl->kernels[id - 1] = NULL;
     pthread_mutex_unlock(&cl->lock);
-    libxstream_mpsd_kernel_free(entry);
+    libxstream_mpsd_reap(entry, LIBXSTREAM_MPS_REAP_KERNEL);
   }
   libxstream_mpsd_set(cl, id, NULL, 0);
   if (0 != id && id <= cl->capacity) __atomic_store_n((uint32_t*)(void*)cl->arena + id - 1, 1, __ATOMIC_RELEASE);
@@ -3435,85 +3614,13 @@ static void libxstream_mpsd_leave(libxstream_mpsd_client_t* cl)
   last = (0 == --cl->nconn);
   pthread_cond_broadcast(&cl->cond);
   pthread_mutex_unlock(&cl->lock);
-  if (0 != last) {
+  if (0 != last) { /* the process is gone: what it leaves is the reaper's */
     libxstream_mpsd_client_t** link;
-    size_t i;
-    int kind;
-    for (i = 0; i < cl->nmaps; ++i) { /* what the process left mapped, before its buffers are released */
-      clEnqueueUnmapMemObject(cl->maps[i].queue, cl->maps[i].buffer, cl->maps[i].ptr, 0, NULL, NULL);
-      clFinish(cl->maps[i].queue);
-      clReleaseCommandQueue(cl->maps[i].queue);
-    }
-    if (0 != cl->nmaps && 0 != libxstream_mpsd.verbosity) {
-      fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i left %lu buffers mapped\n", cl->pid, (unsigned long)cl->nmaps);
-    }
-    for (i = 0; i < cl->capacity; ++i) { /* nothing may still access the shared memory */
-      if (LIBXSTREAM_MPS_KIND_QUEUE == cl->kinds[i]) clFinish((cl_command_queue)cl->handles[i]);
-    }
-    for (i = 0; i < cl->capacity; ++i) libxstream_mpsd_kernel_free(cl->kernels[i]);
-    for (kind = LIBXSTREAM_MPS_KIND_EVENT; LIBXSTREAM_MPS_KIND_CONTEXT <= kind; --kind) {
-      for (i = 0; i < cl->capacity; ++i) {
-        if (kind == cl->kinds[i]) libxstream_mpsd_release(cl->handles[i], kind);
-      }
-    }
     pthread_mutex_lock(&libxstream_mpsd_lock);
     for (link = &libxstream_mpsd.clients; NULL != *link && cl != *link; link = &(*link)->next);
     if (NULL != *link) *link = cl->next;
     pthread_mutex_unlock(&libxstream_mpsd_lock);
-    if (0 != libxstream_mpsd.verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i detached\n", cl->pid);
-    if (2 <= libxstream_mpsd.verbosity || 0 > libxstream_mpsd.verbosity) {
-      fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i commands=%lu wait=%.2fs exec=%.2fs post=%.2fs status=%lu/%.2fs\n",
-        cl->pid, (unsigned long)cl->ncmds, 1E-9 * cl->wait_ns, 1E-9 * cl->exec_ns, 1E-9 * cl->post_ns,
-        (unsigned long)cl->nstatus, 1E-9 * cl->status_ns);
-      if (NULL != cl->hist) {
-        const char* const kinds[] = {"?", "device", "context", "queue", "mem", "program", "kernel", "event"};
-        const int prec[] = {1, 1, 1};
-        int op;
-        fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i waits by last blocker (* other thread):", cl->pid);
-        for (op = 0; op < LIBXSTREAM_MPS_NWAITS; ++op) {
-          if (0 != cl->wait_n[op]) {
-            fprintf(stderr, " %s%s=%lu/%.2fs", LIBXSTREAM_MPS_NWAITS - 1 == op ? "window" : kinds[op & 7],
-              (LIBXSTREAM_MPS_NWAITS - 1 != op && 0 != (op & 8)) ? "*" : "", (unsigned long)cl->wait_n[op],
-              1E-9 * cl->wait_by[op]);
-          }
-        }
-        fprintf(stderr, "\n");
-        fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i events=%lu unused=%lu waited=%lu polled=%lu both=%lu\n", cl->pid,
-          (unsigned long)cl->nevents, (unsigned long)cl->nused[0], (unsigned long)cl->nused[1], (unsigned long)cl->nused[2],
-          (unsigned long)cl->nused[3]);
-        fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i events per op (needed):", cl->pid);
-        for (op = 0; op < LIBXSTREAM_MPS_NOPS; ++op) {
-          if (0 != cl->op_events[op]) {
-            fprintf(stderr, " %i=%lu(%lu)", op, (unsigned long)cl->op_events[op], (unsigned long)cl->op_needed[op]);
-          }
-        }
-        fprintf(stderr, "\n");
-        fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i exec per op:", cl->pid);
-        for (op = 0; op < LIBXSTREAM_MPS_NOPS; ++op) {
-          if (0 != cl->op_n[op]) {
-            fprintf(stderr, " %i=%lu/%.2fs", op, (unsigned long)cl->op_n[op], 1E-9 * cl->op_ns[op]);
-          }
-        }
-        libxs_hist_print(stderr, cl->hist, prec, "\nINFO LIBXSTREAM-MPS: process %i exec log2(ns): count -> log2 us wait-us\n",
-          cl->pid);
-      }
-    }
-    libxs_hist_destroy(cl->hist);
-    if (NULL != cl->hist) LIBXS_LOCK_DESTROY(LIBXS_LOCK, &cl->hist_lock);
-    munmap(cl->arena, cl->arena_size);
-    pthread_cond_destroy(&cl->cond);
-    pthread_mutex_destroy(&cl->lock);
-    free(cl->handles);
-    free(cl->kernels);
-    free(cl->lazy);
-    free(cl->used);
-    free(cl->evop);
-    free(cl->gens);
-    free(cl->kinds);
-    free(cl->done);
-    free(cl->pending);
-    free(cl->maps);
-    free(cl);
+    libxstream_mpsd_reap(cl, LIBXSTREAM_MPS_REAP_CLIENT);
   }
 }
 
@@ -3778,7 +3885,10 @@ LIBXSTREAM_API int libxstream_mps_server(void)
       unlink(path);
     }
     if (0 <= fd) close(fd);
-    while (0 != libxstream_mpsd.ncontexts) clReleaseContext(libxstream_mpsd.contexts[--libxstream_mpsd.ncontexts]);
+    if (0 != libxstream_mpsd_reaped()) { /* a release that did not return would hold the context too */
+      while (0 != libxstream_mpsd.ncontexts) clReleaseContext(libxstream_mpsd.contexts[--libxstream_mpsd.ncontexts]);
+    }
+    else if (0 != libxstream_mpsd.verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: exits with releases pending\n");
     libxs_singleton_release(handle);
   }
   return result;
