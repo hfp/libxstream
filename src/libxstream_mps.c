@@ -17,6 +17,7 @@
 # if defined(LIBXSTREAM_MPS)
 #   include <CL/cl_icd.h>
 #   include <libxs/libxs_reg.h>
+#   include <libxs/libxs_str.h>
 #   include <libxs/libxs_timer.h>
 #   include <libxs/libxs_utils.h>
 #   include <sys/mman.h>
@@ -3524,24 +3525,41 @@ static void* libxstream_mpsd_connection(void* arg)
 }
 
 
-/* The vendor's platform with devices; this one is skipped should the loader still list it. */
+/**
+ * One platform is served, chosen as LIBXSTREAM chooses devices: the type LIBXSTREAM_DEVTYPE
+ * asks for (inherited from the process starting the server), otherwise GPUs first. The
+ * forwarding platform is skipped should the loader still list it.
+ */
 static int libxstream_mpsd_discover(void)
 {
+  const char* const env_devtype = getenv("LIBXSTREAM_DEVTYPE");
+  cl_device_type types[3] = {CL_DEVICE_TYPE_GPU, CL_DEVICE_TYPE_ACCELERATOR, CL_DEVICE_TYPE_ALL};
   cl_platform_id platforms[LIBXSTREAM_MAXNDEVS];
-  cl_uint nplatforms = 0, i;
+  cl_uint nplatforms = 0, ntypes = 3, i, t;
   int result = EXIT_FAILURE;
+  if (NULL != env_devtype && '\0' != *env_devtype) {
+    ntypes = 1;
+    if (NULL != libxs_stristr(env_devtype, "gpu")) types[0] = CL_DEVICE_TYPE_GPU;
+    else if (NULL != libxs_stristr(env_devtype, "cpu")) types[0] = CL_DEVICE_TYPE_CPU;
+    else if (NULL != libxs_stristr(env_devtype, "acc") || NULL != libxs_stristr(env_devtype, "other")) {
+      types[0] = CL_DEVICE_TYPE_ACCELERATOR;
+    }
+    else types[0] = CL_DEVICE_TYPE_ALL;
+  }
   if (CL_SUCCESS == clGetPlatformIDs(LIBXSTREAM_MAXNDEVS, platforms, &nplatforms)) {
-    for (i = 0; i < nplatforms && EXIT_SUCCESS != result; ++i) {
-      char suffix[16] = "";
-      cl_uint ndevices = 0;
-      clGetPlatformInfo(platforms[i], CL_PLATFORM_ICD_SUFFIX_KHR, sizeof(suffix), suffix, NULL);
-      if (0 != strcmp(LIBXSTREAM_MPS_SUFFIX, suffix)
-        && CL_SUCCESS == clGetDeviceIDs(platforms[i], CL_DEVICE_TYPE_ALL, LIBXSTREAM_MAXNDEVS, libxstream_mpsd.devices, &ndevices)
-        && 0 != ndevices)
-      {
-        libxstream_mpsd.platform = platforms[i];
-        libxstream_mpsd.ndevices = LIBXS_MIN(ndevices, LIBXSTREAM_MAXNDEVS);
-        result = EXIT_SUCCESS;
+    for (t = 0; t < ntypes && EXIT_SUCCESS != result; ++t) {
+      for (i = 0; i < nplatforms && EXIT_SUCCESS != result; ++i) {
+        char suffix[16] = "";
+        cl_uint ndevices = 0;
+        clGetPlatformInfo(platforms[i], CL_PLATFORM_ICD_SUFFIX_KHR, sizeof(suffix), suffix, NULL);
+        if (0 != strcmp(LIBXSTREAM_MPS_SUFFIX, suffix)
+          && CL_SUCCESS == clGetDeviceIDs(platforms[i], types[t], LIBXSTREAM_MAXNDEVS, libxstream_mpsd.devices, &ndevices)
+          && 0 != ndevices)
+        {
+          libxstream_mpsd.platform = platforms[i];
+          libxstream_mpsd.ndevices = LIBXS_MIN(ndevices, LIBXSTREAM_MAXNDEVS);
+          result = EXIT_SUCCESS;
+        }
       }
     }
   }
