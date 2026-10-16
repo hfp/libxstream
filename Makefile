@@ -237,10 +237,6 @@ $(INCDIR)/$(PROJECT)_version.h: $(INCDIR)/.make $(DIRSTATE)/.state $(ROOTDIR)/ve
 	$(information)
 	$(info --- $(PROJUPP) build log)
 	@$(CP) -r $(ROOTSCR) . 2>/dev/null || true
-	@$(CP) $(ROOTDIR)/Makefile.inc . 2>/dev/null || true
-	@$(CP) $(ROOTDIR)/.mktmp.sh . 2>/dev/null || true
-	@$(CP) $(ROOTDIR)/.flock.sh . 2>/dev/null || true
-	@$(CP) $(ROOTDIR)/.state.sh . 2>/dev/null || true
 	@$(CP) $(HEADERS_MAIN) $(INCDIR) 2>/dev/null || true
 	@$(CP) $(SRCFILES) $(HEADERS_SRC) $(SRCDIR) 2>/dev/null || true
 	@$(ROOTSCR)/tool_version.sh $(PROJECT) -1 >$@
@@ -589,13 +585,6 @@ ifneq ($(PREFIX),$(ABSDIR))
 		echo "--------------------------------------------------------------------------------"; \
 		sleep $(WAIT); \
 	fi
-	@echo
-	@echo "$(PROJUPP) installing utilities..."
-	@$(MKDIR) -p $(PREFIX)/$(PSHRDIR)
-	@$(CP) -v $(ROOTDIR)/Makefile.inc $(PREFIX)/$(PSHRDIR) 2>/dev/null || true
-	@$(CP) -v $(ROOTDIR)/.mktmp.sh $(PREFIX)/$(PSHRDIR) 2>/dev/null || true
-	@$(CP) -v $(ROOTDIR)/.flock.sh $(PREFIX)/$(PSHRDIR) 2>/dev/null || true
-	@$(CP) -v $(ROOTDIR)/.state.sh $(PREFIX)/$(PSHRDIR) 2>/dev/null || true
 	@echo
 	@echo "$(PROJUPP) tool scripts..."
 	@$(MKDIR) -p $(PREFIX)/$(SCRDIR)
