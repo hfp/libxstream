@@ -29,6 +29,8 @@
 #   include <limits.h>
 #   include <errno.h>
 #   include <poll.h>
+#   include <sys/wait.h>
+#   include <dirent.h>
 #   include <pthread.h>
 #   include <semaphore.h>
 #   include <signal.h>
@@ -205,6 +207,13 @@ typedef struct libxstream_mps_client_t {
   int memfd, verbosity;
 } libxstream_mps_client_t;
 
+/* A mapping of a shared buffer not given back yet, undone when the client leaves (libxstream_mpsd_leave). */
+typedef struct libxstream_mpsd_mapping_t {
+  cl_command_queue queue; /* retained */
+  cl_mem buffer;
+  void* ptr;
+} libxstream_mpsd_mapping_t;
+
 typedef struct libxstream_mpsd_release_t {
   uint64_t after, id; /* released once every command before "after" ran */
   int kind;
@@ -242,6 +251,8 @@ typedef struct libxstream_mpsd_client_t {
   unsigned char* done; /* executed commands at or beyond low, by sequence number modulo the window */
   libxstream_mpsd_release_t* pending; /* deferred releases */
   size_t npending, maxpending;
+  libxstream_mpsd_mapping_t* maps; /* mappings not given back yet */
+  size_t nmaps, maxmaps;
   char* arena;
   size_t arena_size, capacity;
   uint64_t token, low; /* every command below low was executed */
@@ -551,20 +562,34 @@ static void libxstream_mps_spawn(int verbosity)
   if (NULL != server) {
     posix_spawn_file_actions_t actions;
     posix_spawnattr_t attr;
-    char* argv[2];
+    char detach[] = "--detach", *argv[3];
+    DIR* const fds = opendir("/proc/self/fd");
     pid_t pid;
     argv[0] = server;
-    argv[1] = NULL;
+    argv[1] = detach;
+    argv[2] = NULL;
     posix_spawn_file_actions_init(&actions);
     posix_spawnattr_init(&attr);
     posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
     if (0 == verbosity) posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    if (NULL != fds) { /* the launcher waits for its pipes to close, hence the server inherits none */
+      const struct dirent* entry;
+      while (NULL != (entry = readdir(fds))) {
+        const int fd = atoi(entry->d_name);
+        if (STDERR_FILENO < fd && fd != dirfd(fds)) posix_spawn_file_actions_addclose(&actions, fd);
+      }
+      closedir(fds);
+    }
 #   if defined(POSIX_SPAWN_SETSID)
     posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
 #   endif
     if (0 != posix_spawn(&pid, server, &actions, &attr, argv, environ)) {
       fprintf(stderr, "ERROR LIBXSTREAM-MPS: cannot start %s\n", server);
+    }
+    else { /* collect the parent of the detached server: no process is left behind (bounded, if it serves itself) */
+      int attempt = 0;
+      while (0 == waitpid(pid, NULL, WNOHANG) && 100 > attempt++) usleep(10000);
     }
     posix_spawnattr_destroy(&attr);
     posix_spawn_file_actions_destroy(&actions);
@@ -2587,6 +2612,43 @@ static cl_int libxstream_mpsd_release(void* handle, int kind)
 }
 
 
+/**
+ * Keeps the mappings of shared buffers (mapped is non-zero) until given back (mapped is
+ * zero). A process may end with buffers mapped, and a driver may wait forever for their
+ * unmapping when the buffer is released, which holds the server and hence the job.
+ */
+static void libxstream_mpsd_mapped(libxstream_mpsd_client_t* cl, cl_command_queue queue, cl_mem buffer, void* ptr,
+  int mapped)
+{
+  size_t i;
+  pthread_mutex_lock(&cl->lock);
+  if (0 != mapped) {
+    if (cl->nmaps == cl->maxmaps) {
+      const size_t n = LIBXS_MAX(2 * cl->maxmaps, 64);
+      libxstream_mpsd_mapping_t* const maps = (libxstream_mpsd_mapping_t*)realloc(cl->maps, sizeof(*maps) * n);
+      if (NULL != maps) {
+        cl->maps = maps;
+        cl->maxmaps = n;
+      }
+    }
+    if (cl->nmaps < cl->maxmaps && CL_SUCCESS == clRetainCommandQueue(queue)) {
+      cl->maps[cl->nmaps].queue = queue;
+      cl->maps[cl->nmaps].buffer = buffer;
+      cl->maps[cl->nmaps].ptr = ptr;
+      ++cl->nmaps;
+    }
+  }
+  else {
+    for (i = 0; i < cl->nmaps && (buffer != cl->maps[i].buffer || ptr != cl->maps[i].ptr); ++i);
+    if (i < cl->nmaps) {
+      clReleaseCommandQueue(cl->maps[i].queue);
+      cl->maps[i] = cl->maps[--cl->nmaps];
+    }
+  }
+  pthread_mutex_unlock(&cl->lock);
+}
+
+
 static void libxstream_mpsd_kernel_free(libxstream_mpsd_kernel_t* entry)
 {
   if (NULL != entry) {
@@ -3104,6 +3166,7 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
           if (CL_SUCCESS == result && p != (const void*)arena) {
             fprintf(stderr, "ERROR LIBXSTREAM-MPS: mapping did not return the host pointer\n");
           }
+          if (CL_SUCCESS == result) libxstream_mpsd_mapped(cl, queue, buffer, arena, 1);
         }
         else if (0 == (a[2] & CL_MAP_WRITE_INVALIDATE_REGION)) {
           result = clEnqueueReadBuffer(queue, buffer, CL_FALSE, (size_t)a[3], (size_t)a[4], arena, nwait,
@@ -3119,6 +3182,7 @@ static void libxstream_mpsd_execute(libxstream_mpsd_client_t* cl, const libxstre
         if (NULL == arena) result = CL_INVALID_VALUE;
         else if (0 == temp) {
           result = clEnqueueUnmapMemObject(queue, buffer, arena, nwait, 0 != nwait ? waits : NULL, 0 != a[7] ? pevent : NULL);
+          if (CL_SUCCESS == result) libxstream_mpsd_mapped(cl, queue, buffer, arena, 0);
         }
         else if (0 != (a[2] & (CL_MAP_WRITE | CL_MAP_WRITE_INVALIDATE_REGION))) {
           result = clEnqueueWriteBuffer(queue, buffer, CL_FALSE, (size_t)a[3], (size_t)a[4], arena, nwait,
@@ -3375,6 +3439,14 @@ static void libxstream_mpsd_leave(libxstream_mpsd_client_t* cl)
     libxstream_mpsd_client_t** link;
     size_t i;
     int kind;
+    for (i = 0; i < cl->nmaps; ++i) { /* what the process left mapped, before its buffers are released */
+      clEnqueueUnmapMemObject(cl->maps[i].queue, cl->maps[i].buffer, cl->maps[i].ptr, 0, NULL, NULL);
+      clFinish(cl->maps[i].queue);
+      clReleaseCommandQueue(cl->maps[i].queue);
+    }
+    if (0 != cl->nmaps && 0 != libxstream_mpsd.verbosity) {
+      fprintf(stderr, "INFO LIBXSTREAM-MPS: process %i left %lu buffers mapped\n", cl->pid, (unsigned long)cl->nmaps);
+    }
     for (i = 0; i < cl->capacity; ++i) { /* nothing may still access the shared memory */
       if (LIBXSTREAM_MPS_KIND_QUEUE == cl->kinds[i]) clFinish((cl_command_queue)cl->handles[i]);
     }
@@ -3440,6 +3512,7 @@ static void libxstream_mpsd_leave(libxstream_mpsd_client_t* cl)
     free(cl->kinds);
     free(cl->done);
     free(cl->pending);
+    free(cl->maps);
     free(cl);
   }
 }

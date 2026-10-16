@@ -8,6 +8,9 @@
 * SPDX-License-Identifier: BSD-3-Clause                                       *
 ******************************************************************************/
 #include <libxstream/libxstream_opencl.h>
+#if !defined(_WIN32)
+# include <unistd.h>
+#endif
 
 
 #if defined(LIBXSTREAM_MPS_ICD)
@@ -24,9 +27,16 @@ LIBXS_EXTERN_C LIBXS_VISIBILITY_PUBLIC cl_int CL_API_CALL clIcdGetPlatformIDsKHR
   return libxstream_mps_icd_platforms(num_entries, platforms, num_platforms);
 }
 #else
-/* The server process (libxstream_mpsd), started by the first process of a node that needs it. */
-int main(void)
+/**
+ * The server process (libxstream_mpsd), started by the first process of a node that needs it.
+ * With --detach, the server forks and its parent exits: the starting process collects that
+ * parent at once, and the server is adopted, hence no exited server is left uncollected.
+ */
+int main(int argc, char* argv[])
 {
-  return libxstream_mps_server();
+  int result = EXIT_SUCCESS;
+  if (1 < argc && 0 == strcmp("--detach", argv[1]) && 0 < fork()) result = EXIT_SUCCESS; /* parent */
+  else result = libxstream_mps_server();
+  return result;
 }
 #endif
