@@ -303,12 +303,20 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
     const int wa = (NULL == env_wa ? ((1 != libxstream_opencl_config.devsplit ? 0 : 1) + wa_default) : atoi(env_wa));
     libxstream_opencl_config.wa = (0 != neo ? wa : (wa & ~0xF));
   }
+  { /* LIBXSTREAM_CACHE=0: no kernel cache of any vendor, set before touching the compute runtime */
+    const char* const env_cache = getenv("LIBXSTREAM_CACHE");
+    if (NULL != env_cache && '\0' != *env_cache && 0 == atoi(env_cache)) {
+      static char cuda_nocache[] = "CUDA_CACHE_DISABLE=1", neo_nocache[] = "NEO_CACHE_PERSISTENT=0";
+      if (NULL == getenv("CUDA_CACHE_DISABLE")) LIBXS_EXPECT(0 == LIBXS_PUTENV(cuda_nocache));
+      if (NULL == getenv("NEO_CACHE_PERSISTENT")) LIBXS_EXPECT(0 == LIBXS_PUTENV(neo_nocache));
+    }
+  }
 # if defined(LIBXSTREAM_CACHE_DIR)
   { /* environment is populated before touching the compute runtime */
     const char *const env_cache = getenv("LIBXSTREAM_CACHE"), *env_cachedir = getenv("NEO_CACHE_DIR");
     int cache = (NULL == env_cache ? 0 : atoi(env_cache));
     struct stat cachedir;
-    if (0 == cache) {
+    if (0 == cache && NULL == env_cache) { /* an explicit 0 is no cache (above) */
       if (stat(LIBXSTREAM_CACHE_DIR, &cachedir) == 0 && S_ISDIR(cachedir.st_mode)) cache = 1;
       else if (stat(LIBXSTREAM_TEMPDIR "/" LIBXSTREAM_CACHE_DIR, &cachedir) == 0 && S_ISDIR(cachedir.st_mode)) cache = 2;
     }
