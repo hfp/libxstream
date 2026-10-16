@@ -191,6 +191,7 @@ The forwarding platform reports the vendor's platform and devices, with ` (LIBXS
 | `LIBXSTREAM_MPS_SERVER` | Server executable; default: `libxstream_mpsd` beside the shared library |
 | `LIBXSTREAM_MPS_ICD` | Vendor ICD the server loads; default: the installed ICDs |
 | `LIBXSTREAM_MPS_ARENA` | Host memory in GB a process may share with the server (reserved, not committed); default: 256 |
+| `LIBXSTREAM_MPS_CONTEXTS` | Contexts per device the server spreads the processes over (round robin); default: 2 with four or more ranks per node, otherwise 1 (1 if the loader variables are set by hand) |
 | `LIBXSTREAM_MPS_ISSUERS` | Commands the server passes to the driver at once, over all processes; default: 0 (unbounded) |
 
 ## See Also
