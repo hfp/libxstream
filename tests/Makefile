@@ -40,6 +40,7 @@ ifneq (,$(LIBXSROOT))
     DFLAGS += -D__LIBXS
   else ifneq (,$(wildcard $(LIBXSROOT)/libxs/libxs_source.h))
     DFLAGS += -D__LIBXS -DLIBXS_SOURCE
+    LIBXS_SRCDEP := $(wildcard $(LIBXSROOT)/src/*.c) $(wildcard $(LIBXSROOT)/src/*.h)
   endif
 endif
 
@@ -50,6 +51,7 @@ XLIB := $(strip $(if $(XLIB_SL),$(XLIB_SL),$(XLIB_DL)))
 ifeq (,$(XLIB))
 ifneq (,$(wildcard $(DEPDIR)/libxstream/libxstream_source.h))
   DFLAGS += -DLIBXSTREAM_SOURCE
+  XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(wildcard $(DEPDIR)/src/*.h)
   HEADERONLY = 1
 endif
 endif
@@ -58,9 +60,11 @@ endif
 IFLAGS += -I$(call quote,$(DEPDIR))
 
 OUTNAME := $(shell basename "$(ROOTDIR)")
+# header-only builds also depend on the sources libxs_source.h and libxstream_source.h include
 HEADERS := $(wildcard $(INCDIR)/*.h) $(wildcard $(SRCDIR)/*.h) \
            $(wildcard $(DEPDIR)/$(PROJECT)/*.h) \
-           $(wildcard $(LIBXSROOT)/libxs/*.h)
+           $(wildcard $(LIBXSROOT)/libxs/*.h) \
+           $(LIBXS_SRCDEP) $(XSTREAM_SRCDEP)
 CSOURCX := $(wildcard $(SRCDIR)/*.c)
 OBJECTS := $(NULL)
 OBJECTX := $(call objname,$(CSOURCX))

@@ -167,6 +167,9 @@ AVX_STATIC ?= $(AVX)
 
 HEADERS_MAIN := $(ROOTINC)/libxstream_cp2k.h $(ROOTINC)/libxstream_dbcsr.h $(ROOTINC)/libxstream_macros.h $(ROOTINC)/libxstream_opencl.h $(ROOTINC)/libxstream.h
 LIBXS_SOURCE := $(wildcard $(LIBXSROOT)/libxs/libxs_source.h)
+# without a LIBXS library, the objects embed the sources libxs_source.h includes
+LIBXS_SRCDEP := $(if $(LIBXS)$(LIBXS_PC),,$(if $(LIBXS_SOURCE), \
+  $(wildcard $(LIBXSROOT)/src/*.c) $(wildcard $(LIBXSROOT)/src/*.h)))
 HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
 SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_mps.c libxstream_stream.c)
@@ -250,7 +253,7 @@ endef
 
 $(foreach OBJ,$(OBJFILES),$(eval $(call DEFINE_COMPILE_RULE, \
   $(OBJ),$(patsubst %.o,$(ROOTSRC)/%.c,$(notdir $(OBJ))), \
-  $(HEADERS) $(INCDIR)/$(PROJECT)_version.h $(LIBXS_SOURCE), \
+  $(HEADERS) $(INCDIR)/$(PROJECT)_version.h $(LIBXS_SOURCE) $(LIBXS_SRCDEP), \
   $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS))))
 
 .PHONY: libs

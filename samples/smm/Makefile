@@ -34,6 +34,7 @@ ifneq (,$(LIBXSROOT))
     DFLAGS += -D__LIBXS
   else ifneq (,$(wildcard $(LIBXSROOT)/libxs/libxs_source.h))
     DFLAGS += -D__LIBXS -DLIBXS_SOURCE
+    LIBXS_SRCDEP := $(wildcard $(LIBXSROOT)/src/*.c) $(wildcard $(LIBXSROOT)/src/*.h)
   endif
 endif
 
@@ -43,11 +44,13 @@ ifneq (,$(LIBXS))
   DFLAGS += -D__LIBXSTREAM
 else
   DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
+  XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(wildcard $(DEPDIR)/src/*.h)
 endif
 else
   XSTREAM_SOURCE := $(wildcard $(DEPDIR)/libxstream/libxstream_source.h)
   ifneq (,$(XSTREAM_SOURCE))
     DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
+    XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(wildcard $(DEPDIR)/src/*.h)
   endif
 endif
 
@@ -83,10 +86,12 @@ ifneq (0,$(SYM))
 endif
 
 OUTNAME := acc_bench
+# header-only builds also depend on the sources libxs_source.h and libxstream_source.h include
 HEADERS := $(wildcard $(INCDIR)/*.h) $(GENHDR) \
            $(wildcard $(DEPDIR)/libxstream/*.h) \
            $(wildcard $(DEPDIR)/libxstream/opencl/*.h) \
-           $(wildcard $(LIBXSROOT)/libxs/*.h)
+           $(wildcard $(LIBXSROOT)/libxs/*.h) \
+           $(LIBXS_SRCDEP) $(XSTREAM_SRCDEP)
 CSOURCS := $(SRCDIR)/acc_bench.c $(SRCDIR)/smm_acc.c $(SRCDIR)/smm_trans.c $(SRCDIR)/smm_params.c $(SRCDIR)/smm_kernel.c
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 OBJECTS := $(COBJCTS)

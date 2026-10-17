@@ -50,6 +50,7 @@ ifneq (,$(LIBXSROOT))
     DFLAGS += -D__LIBXS
   else ifneq (,$(wildcard $(LIBXSROOT)/libxs/libxs_source.h))
     DFLAGS += -D__LIBXS -DLIBXS_SOURCE
+    LIBXS_SRCDEP := $(wildcard $(LIBXSROOT)/src/*.c) $(wildcard $(LIBXSROOT)/src/*.h)
   endif
 endif
 
@@ -62,11 +63,13 @@ ifneq (,$(LIBXS))
   DFLAGS += -D__LIBXSTREAM
 else
   DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
+  XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(wildcard $(DEPDIR)/src/*.h)
 endif
 else
   XSTREAM_SOURCE := $(wildcard $(DEPDIR)/libxstream/libxstream_source.h)
   ifneq (,$(XSTREAM_SOURCE))
     DFLAGS += -D__LIBXSTREAM -DLIBXSTREAM_SOURCE
+    XSTREAM_SRCDEP := $(wildcard $(DEPDIR)/src/*.c) $(wildcard $(DEPDIR)/src/*.h)
   endif
 endif
 
@@ -92,11 +95,13 @@ endif
 
 OUTNAME := $(shell basename "$(ROOTDIR)")
 # The host path includes the kernels directly instead of embedding them.
+# header-only builds also depend on the sources libxs_source.h and libxstream_source.h include
 HEADERS := $(wildcard $(INCDIR)/*.h) \
            $(if $(filter 0,$(STENCIL_CPU)),$(GENHDR),$(KRNDEP)) \
            $(wildcard $(DEPDIR)/libxstream/*.h) \
            $(wildcard $(DEPDIR)/libxstream/opencl/*.h) \
-           $(wildcard $(LIBXSROOT)/libxs/*.h)
+           $(wildcard $(LIBXSROOT)/libxs/*.h) \
+           $(LIBXS_SRCDEP) $(XSTREAM_SRCDEP)
 CSOURCS := $(wildcard $(SRCDIR)/*.c)
 ifneq (0,$(STENCIL_CPU))
   CSOURCS := $(filter-out $(SRCDIR)/stencil_opencl.c,$(CSOURCS))
