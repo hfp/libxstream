@@ -66,6 +66,7 @@ extern "C" {
 
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
 extern libxs_predict_t* opencl_libsmm_predict_model;
+extern double opencl_libsmm_predict_conf;
 #  endif
 extern unsigned int opencl_libsmm_devuid;
 
@@ -128,7 +129,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
        */
       double inputs[3], outputs[32];
       const int nparam = 16, ncap = (int)(sizeof(outputs) / sizeof(*outputs));
-      const double thr = 0.9;
+      const double thr = opencl_libsmm_predict_conf;
       LIBXS_MEMZERO(&pinfo);
       LIBXS_MEMZERO(&pquery);
       libxs_predict_query(opencl_libsmm_predict_model, &pquery);
@@ -137,9 +138,19 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       inputs[2] = (double)key.k;
       if (nparam <= pquery.noutputs && pquery.noutputs <= ncap) {
         libxs_predict_eval(NULL, opencl_libsmm_predict_model, inputs, outputs, &pinfo, 0);
-        if (pinfo.distance <= 2.0 && NULL != pinfo.confidence) {
+        /**
+         * Every shape is predicted, however far from the tuned ones: a parameter is
+         * used where its own confidence reaches the threshold, and otherwise marked
+         * unset, which gives it the default a shape without parameters would get.
+         * A zero cannot say so, since zero is a value of several of them.
+         */
+        if (NULL != pinfo.confidence) {
           opencl_libsmm_smm_t predicted;
+          int i;
           LIBXS_MEMZERO(&predicted);
+          for (i = 0; i < nparam; ++i) {
+            if (pinfo.confidence[i] < thr) predicted.unset |= 1 << i;
+          }
           if (pinfo.confidence[0] >= thr) predicted.bs = LIBXS_MAX(LIBXS_ROUNDX(int, outputs[0]), 1);
           if (pinfo.confidence[1] >= thr) predicted.bm = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[1]), 1, key.m);
           if (pinfo.confidence[2] >= thr) predicted.bn = LIBXS_CLMP(LIBXS_ROUNDX(int, outputs[2]), 1, key.n);
@@ -243,7 +254,7 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
             new_config.flags = atoi(env_xf);
           }
           defaults = ((NULL == config || 0 != kernel_idx || (NULL != config && new_config.flags != config->flags)) ? 1 : 0);
-          new_config.lu = LIBXS_MAX(-2, (NULL == env_lu || '\0' == *env_lu) ? (0 != defaults ? default_lu : config->lu)
+          new_config.lu = LIBXS_MAX(-2, (NULL == env_lu || '\0' == *env_lu) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 6) ? default_lu : config->lu)
                                                                             : atoi(env_lu)); /* populate only lower bound */
           blockm = ((NULL == env_bm || '\0' == *env_bm || 1 < new_config.lu) /* 1<LU ignores BM */
                       ? (1 >= new_config.lu ? 0 : LIBXS_UP(m_max / new_config.lu, OPENCL_LIBSMM_VMIN))
@@ -267,28 +278,29 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
                                                 : LIBXS_MAX(m_max, n_max))
                              : LIBXS_MIN(wgmin, n_max * m_max));
           new_config.wg = LIBXS_CLMP(
-            (NULL == env_wg || '\0' == *env_wg) ? (0 != defaults ? default_wg : config->wg) : atoi(env_wg), -2, 2);
+            (NULL == env_wg || '\0' == *env_wg) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 5) ? default_wg : config->wg) : atoi(env_wg), -2, 2);
           new_config.nz = LIBXS_CLMP(
-            (NULL == env_nz || '\0' == *env_nz) ? (0 != defaults ? /*default*/ 0 : config->nz) : atoi(env_nz), 0, 1);
+            (NULL == env_nz || '\0' == *env_nz) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 7) ? /*default*/ 0 : config->nz) : atoi(env_nz), 0, 1);
 #  if defined(OPENCL_LIBSMM_TODO)
           new_config.al = LIBXS_CLMP(/* bug with AL=1 and XF=1? */
-            (NULL == env_al || '\0' == *env_al) ? (0 != defaults ? /*default*/ 0 : config->al) : atoi(env_al), 0, 1);
+            (NULL == env_al || '\0' == *env_al) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 8) ? /*default*/ 0 : config->al) : atoi(env_al), 0, 1);
 #  else
           LIBXS_UNUSED(env_al);
           new_config.al = 0;
 #  endif
           new_config.tb = LIBXS_CLMP(
-            (NULL == env_tb || '\0' == *env_tb) ? (0 != defaults ? /*default*/ 0 : config->tb) : atoi(env_tb), 0, 1);
+            (NULL == env_tb || '\0' == *env_tb) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 9) ? /*default*/ 0 : config->tb) : atoi(env_tb), 0, 1);
           new_config.tc = LIBXS_CLMP(
-            (NULL == env_tc || '\0' == *env_tc) ? (0 != defaults ? /*default*/ 1 : config->tc) : atoi(env_tc), 0, 1);
+            (NULL == env_tc || '\0' == *env_tc) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 10) ? /*default*/ 1 : config->tc) : atoi(env_tc), 0, 1);
           new_config.ap = LIBXS_CLMP(
-            (NULL == env_ap || '\0' == *env_ap) ? (0 != defaults ? /*default*/ 0 : config->ap) : atoi(env_ap), 0, 1);
+            (NULL == env_ap || '\0' == *env_ap) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 11) ? /*default*/ 0 : config->ap) : atoi(env_ap), 0, 1);
           new_config.aa = LIBXS_CLMP(/* bug with AA=2 and XF=1? */
-            (NULL == env_aa || '\0' == *env_aa) ? (0 != defaults ? default_aa : config->aa) : atoi(env_aa), 0, 2);
+            (NULL == env_aa || '\0' == *env_aa) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 12) ? default_aa : config->aa) : atoi(env_aa), 0, 2);
           new_config.ab = LIBXS_CLMP(
-            (NULL == env_ab || '\0' == *env_ab) ? (0 != defaults ? default_ab : config->ab) : atoi(env_ab), 0, 2);
+            (NULL == env_ab || '\0' == *env_ab) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 13) ? default_ab : config->ab) : atoi(env_ab), 0, 2);
           new_config.ac = LIBXS_CLMP(
-            (NULL == env_ac || '\0' == *env_ac) ? (0 != defaults ? default_ac : config->ac) : atoi(env_ac), 0, 1);
+            (NULL == env_ac || '\0' == *env_ac) ? (0 != defaults || OPENCL_LIBSMM_UNSET(config, 14) ? default_ac : config->ac) : atoi(env_ac), 0, 1);
+          new_config.unset = 0; /* every parameter has its value now */
           if (0 >= new_config.s) new_config.s = stack_size;
           if (0 == kernel_idx || 1 >= new_config.bs) new_config.bs = bs;
           nbm = LIBXS_UPDIV(m_max, new_config.bm);

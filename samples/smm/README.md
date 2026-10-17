@@ -82,17 +82,18 @@ Transpose kernel:
 
 Multiply kernel:
 
-| Variable                    | Default | Description                              |
-|-----------------------------|---------|------------------------------------------|
-| OPENCL_LIBSMM_SMM_BUILDOPTS | -       | Extra OpenCL build options               |
-| OPENCL_LIBSMM_SMM_PARAMS    | auto    | Tuned parameters: 0=disable, or CSV path |
-| OPENCL_LIBSMM_SMM_BS        | auto    | Intra-kernel mini-batchsize              |
-| OPENCL_LIBSMM_SMM_BM        | auto    | Block size in M-direction (0 < BM <= M)  |
-| OPENCL_LIBSMM_SMM_BN        | auto    | Block size in N-direction (0 < BN <= N)  |
-| OPENCL_LIBSMM_SMM_AP        | auto    | Access pattern for parameter/stack array |
-| OPENCL_LIBSMM_SMM_AA        | auto    | Access pattern for A-matrix array        |
-| OPENCL_LIBSMM_SMM_AB        | auto    | Access pattern for B-matrix array        |
-| OPENCL_LIBSMM_SMM_AC        | auto    | Access pattern for C-matrix array        |
+| Variable                       | Default | Description                                                        |
+|--------------------------------|---------|--------------------------------------------------------------------|
+| OPENCL_LIBSMM_SMM_BUILDOPTS    | -       | Extra OpenCL build options                                         |
+| OPENCL_LIBSMM_SMM_PARAMS       | auto    | Tuned parameters: 0=disable, or CSV path                           |
+| OPENCL_LIBSMM_SMM_PREDICT_CONF | 0.5     | Confidence a predicted parameter needs; below, its default is used |
+| OPENCL_LIBSMM_SMM_BS           | auto    | Intra-kernel mini-batchsize                                        |
+| OPENCL_LIBSMM_SMM_BM           | auto    | Block size in M-direction (0 < BM <= M)                            |
+| OPENCL_LIBSMM_SMM_BN           | auto    | Block size in N-direction (0 < BN <= N)                            |
+| OPENCL_LIBSMM_SMM_AP           | auto    | Access pattern for parameter/stack array                           |
+| OPENCL_LIBSMM_SMM_AA           | auto    | Access pattern for A-matrix array                                  |
+| OPENCL_LIBSMM_SMM_AB           | auto    | Access pattern for B-matrix array                                  |
+| OPENCL_LIBSMM_SMM_AC           | auto    | Access pattern for C-matrix array                                  |
 
 The full list of tunable parameters is available via
 `tune_multiply.py --help`. Some parameters produce distinct code paths

@@ -19,6 +19,15 @@
 #  endif
 
 #  define OPENCL_LIBSMM_SMMENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_SMM", KEY)
+/**
+ * Confidence below which a predicted parameter is not used and receives its default
+ * instead. On the held-out shapes of the tuned tables, the parameters matched their
+ * tuned values 66.5% of the time at 0.5 (hKNN model; 65.3% with kNN, its best),
+ * 62.6% at 0.9, and 54.6% with the defaults alone.
+ */
+#  if !defined(OPENCL_LIBSMM_PREDICT_CONF)
+#    define OPENCL_LIBSMM_PREDICT_CONF 0.5
+#  endif
 
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
 OPENCL_KERNELS_PREDICT_INCBIN();
@@ -40,6 +49,8 @@ unsigned int opencl_libsmm_devuid;
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
 libxs_predict_t* opencl_libsmm_predict_model;
 static int opencl_libsmm_predict_mode; /* -1=disabled, 0=fallback(default), 1=force */
+/* confidence a predicted parameter needs to be used (OPENCL_LIBSMM_SMM_PREDICT_CONF) */
+double opencl_libsmm_predict_conf;
 #  endif
 
 #  if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
@@ -125,7 +136,10 @@ int libsmm_acc_init(void) {
       const char* const env_devid = OPENCL_LIBSMM_SMMENV("DEVID");
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
       const char* const env_predict = OPENCL_LIBSMM_SMMENV("PREDICT");
+      const char* const env_conf = OPENCL_LIBSMM_SMMENV("PREDICT_CONF");
       opencl_libsmm_predict_mode = (NULL == env_predict || '\0' == *env_predict) ? 0 : atoi(env_predict);
+      /* unset is the default; zero is a threshold too, and takes every prediction */
+      opencl_libsmm_predict_conf = (NULL == env_conf || '\0' == *env_conf) ? OPENCL_LIBSMM_PREDICT_CONF : atof(env_conf);
 #  endif
       opencl_libsmm_devuid = (NULL == env_devid || '\0' == *env_devid)
         ? 0 : LIBXS_CAST_UINT(strtoul(env_devid, NULL, 0));

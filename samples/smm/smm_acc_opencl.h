@@ -63,7 +63,16 @@ typedef struct opencl_libsmm_smm_t {
   double gflops;
   /* (pseudo-)parameters (either pretuned or determined) */
   int s, bs, bm, bn, bk, ws, wg, lu, nz, al, tb, tc, ap, aa, ab, ac, flags;
+  /**
+   * Parameters without a value, bit i for the i-th of bs..flags, each of which receives
+   * its default. Zero already says so for bs, bm, bn, bk, ws and flags; for the others
+   * zero is a value, so only the bit does.
+   */
+  int unset;
 } opencl_libsmm_smm_t;
+
+/** Whether parameter INDEX (0 for bs, ..., 15 for flags) of CONFIG has no value. */
+#define OPENCL_LIBSMM_UNSET(CONFIG, INDEX) (0 != ((CONFIG)->unset & (1 << (INDEX))))
 
 /** Type to collect statistics about tuned SMM-kernels */
 typedef struct opencl_libsmm_perfest_t {
