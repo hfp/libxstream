@@ -397,6 +397,17 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
       LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[4]));
     }
   }
+# if (1 >= LIBXSTREAM_USM)
+  { /* Intel MPI cannot read Intel USM host memory across processes without its offload support */
+    static char mpi_offload[] = "I_MPI_OFFLOAD=1";
+    const char* const env_usm = getenv("LIBXSTREAM_USM");
+    if (NULL != env_usm && 1 == atoi(env_usm) && NULL != getenv("I_MPI_ROOT") && NULL == getenv("I_MPI_OFFLOAD") &&
+        0 == LIBXS_PUTENV(mpi_offload) && (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+    {
+      fprintf(stderr, "INFO ACC/OpenCL: I_MPI_OFFLOAD=1 for LIBXSTREAM_USM=1\n");
+    }
+  }
+# endif
   libxstream_mps_presetup(libxstream_opencl_config.verbosity); /* before the loader reads it */
 # if defined(LIBXS_INTERCEPT_DYNAMIC)
   /**

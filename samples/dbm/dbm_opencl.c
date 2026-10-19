@@ -42,12 +42,14 @@
  * For homogeneous batches: m,n,k hold the exact shape (bk=k).
  * For heterogeneous batches: m=n=k=0, bk holds the unroll threshold,
  * max_m enables compile-time division in the flat dispatch mapping.
+ * The rowlane flag tells a homogeneous ROWLANE kernel from one of the same shape without.
  * A zero tid denotes the compiled kernel, otherwise a thread's own kernel.
  */
 typedef struct {
   int bk;
   int m, n, k;
   int max_m;
+  int rowlane;
   unsigned int tid;
 } dbm_multiply_opencl_key_t;
 
@@ -341,7 +343,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
       size_t work_size[] = {1, 1, 1}, ibatch = 0;
       const size_t work_tasks = ntasks;
       cl_kernel kernel = NULL;
-      int bk, bk0, use_blkrd = 0;
+      int bk, bk0, use_blkrd = 0, rowlane_homogeneous = 0;
       cl_int size;
       LIBXS_ASSERT(NULL != str && NULL != str->queue);
       /* base init (once): env vars, flags, source, extensions */
@@ -505,6 +507,9 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           key.n = task.max_n;
           key.k = task.max_k;
           key.bk = task.max_k; /* exact K for full unrolling */
+          /* LIBSMM's homogeneous batches gave wrong results with ROWLANE, unlike the native ones */
+          rowlane_homogeneous = (0 != blkrd_homogeneous && 0 == param_format);
+          key.rowlane = rowlane_homogeneous;
         }
         else { /* heterogeneous: max_m for compile-time division.
                 * With ROWLANE (per-task dispatch), max_m is unused
@@ -533,11 +538,11 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
               cl_kernel kernel_new = NULL;
               size_t wgs[3];
               if (0 != key.m) { /* homogeneous: add shape defines */
-                const int use_wg = (0 != use_blkrd || 0 != blkrd_homogeneous || 0 != sgbcst);
+                const int use_wg = (0 != use_blkrd || 0 != rowlane_homogeneous || 0 != sgbcst);
                 const char* const kind_bcst = (0 != sgbcst ? " -DSGBCST" : "");
                 const char* const kind =
                   (0 != use_blkrd ? " -DBLKRD_A"
-                                  : (0 != blkrd_homogeneous ? " -DROWLANE" : kind_bcst));
+                                  : (0 != rowlane_homogeneous ? " -DROWLANE" : kind_bcst));
                 const int n = LIBXS_SNPRINTF(flags, sizeof(flags),
                   "%s -DWG=%i -DBK=%i -DDBM_M=%i -DDBM_N=%i -DDBM_K=%i%s", base_flags,
                   use_wg ? (int)wgsize[0] : 0, key.bk, key.m, key.n, key.k, kind);
@@ -624,7 +629,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
         LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock_memory);
       }
       if (EXIT_SUCCESS == result) { /* determine dispatch mode: per-task vs flat */
-        const int rowlane = (0 != blkrd && (0 != task.mnk_changes || 0 != blkrd_homogeneous));
+        const int rowlane = (0 != blkrd && (0 != task.mnk_changes || 0 != rowlane_homogeneous));
         const int per_task = (0 == use_blkrd && (0 != sgbcst || 0 != rowlane));
         const int use_wg = (0 != task.mnk_changes || 0 != use_blkrd || 0 != rowlane ||
                             0 != sgbcst);
