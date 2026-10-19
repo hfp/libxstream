@@ -65,11 +65,11 @@ jobs:
 
     - name: Build LIBXS
       if: matrix.libxs == 'prebuilt'
-      run: cd ${LIBXSROOT} && make -j $(nproc) ${{ matrix.flags }}
+      run: cd ${LIBXSROOT} && make -j $(nproc) ${{ matrix.flags }} FORTRAN=0
 
     - name: Install LIBXS
       if: matrix.libxs == 'prebuilt' && matrix.sanitize == ''
-      run: cd ${LIBXSROOT} && make -j $(nproc) ${{ matrix.flags }} install PREFIX=$HOME/libxs-install
+      run: cd ${LIBXSROOT} && make -j $(nproc) ${{ matrix.flags }} FORTRAN=0 install PREFIX=$HOME/libxs-install
 
     - name: Build LIBXSTREAM
       if: matrix.libxs != 'header-only'
@@ -179,7 +179,7 @@ jobs:
     # Shared libraries: the OpenCL loader loads the forwarding ICD, which loads
     # libxstream.so, and the server is the executable beside it.
     - name: Build LIBXS
-      run: cd ${LIBXSROOT} && make -j $(nproc) STATIC=0
+      run: cd ${LIBXSROOT} && make -j $(nproc) STATIC=0 FORTRAN=0
 
     - name: Build LIBXSTREAM
       run: |
@@ -307,7 +307,7 @@ jobs:
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
         cd ${{ github.workspace }}/../libxs
-        cmake -B build -G Ninja -DCMAKE_INSTALL_PREFIX=$HOME/libxs-install
+        cmake -B build -G Ninja -DCMAKE_INSTALL_PREFIX=$HOME/libxs-install -DLIBXS_FORTRAN=OFF
         cmake --build build --target install -j $(nproc)
 
     - name: Configure LIBXSTREAM
