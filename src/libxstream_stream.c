@@ -212,6 +212,7 @@ LIBXSTREAM_API_INTERN int libxstream_stream_enter(libxstream_stream_t* stream)
   libxstream_stream_tracked_t* const str = (libxstream_stream_tracked_t*)stream;
   int result;
   assert(NULL != str);
+  LIBXS_ASSUME(NULL != str); /* NDEBUG: keeps GCC from cloning a NULL path (-Wstringop-overflow) */
   LIBXS_ATOMIC_ACQUIRE(&str->guard, LIBXS_NPAUSE_LOCK, LIBXS_ATOMIC_LOCKORDER);
   str->entries = (INT_MAX > str->entries ? (str->entries + 1) : 1);
   result = (0 == str->inflight ? str->entries : -1);
@@ -226,6 +227,7 @@ LIBXSTREAM_API_INTERN cl_event libxstream_stream_leave(libxstream_stream_t* stre
   libxstream_stream_tracked_t* const str = (libxstream_stream_tracked_t*)stream;
   cl_event result = NULL, keep = NULL, previous;
   assert(NULL != str && 0 != ticket);
+  LIBXS_ASSUME(NULL != str); /* NDEBUG: keeps GCC from cloning a NULL path (-Wstringop-overflow) */
   if (NULL != event) {
     if (0 != shared) {
       if (0 < ticket && EXIT_SUCCESS == clRetainEvent(event)) keep = event;
@@ -253,6 +255,7 @@ LIBXSTREAM_API_INTERN cl_event libxstream_stream_take(libxstream_stream_t* strea
   libxstream_stream_tracked_t* const str = (libxstream_stream_tracked_t*)stream;
   cl_event result;
   assert(NULL != str);
+  LIBXS_ASSUME(NULL != str); /* NDEBUG: keeps GCC from cloning a NULL path (-Wstringop-overflow) */
   LIBXS_ATOMIC_ACQUIRE(&str->guard, LIBXS_NPAUSE_LOCK, LIBXS_ATOMIC_LOCKORDER);
   result = str->last;
   str->last = NULL;
