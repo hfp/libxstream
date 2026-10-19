@@ -311,6 +311,18 @@ without device-to-host readback, eliminating the sync bubble.
 |---------------|---------|---------------------------------------------------|
 | NREPEAT       | 1       | Number of benchmark repetitions                   |
 | OZAKI_VERBOSE | 0       | 0=silent, 1=errors, 2=warnings, 3+=all. Neg.=all  |
+| GRADE         | 0       | Componentwise grade of every result (non-zero=on) |
+| EVIL          | 0       | Per-column exponent span of 2n binades (n>0 only) |
+| TAME          | 0       | Keep n mantissa bits of A and B, clear the rest   |
+| XREF          | 0       | Compensated reference on n rows (negative=all)    |
+
+`XREF=n` grades the Ozaki, the host BLAS and the cuBLAS result against
+a reference computed by `libxs_dot2_gemm` (as if in twice the double
+precision) on n rows spread over C, and prints one line
+`XREF: rows=n ozaki_linf_rel=.. blas_linf_rel=.. cublas_linf_rel=..`
+with `_l2_rel` and, under `GRADE`, `_grade` per result. The BLAS
+reference alone rounds as much as the results it grades, so it cannot
+show which of them is closer to the exact product.
 
 Additional variables for accuracy monitoring and complex GEMM dispatch
 (OZAKI_THRESHOLD, OZAKI_STAT, OZAKI_EPS, OZAKI_RSQ, OZAKI_EXIT,

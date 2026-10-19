@@ -50,6 +50,9 @@ static void print_diff(FILE* ostream, const char* label, const libxs_matdiff_t* 
 static void gemm_bound(int use_double, char transa, char transb, int M, int N, int K, double alpha,
   void* a, int lda, void* b, int ldb, double beta, void* c_bnd, int ldc);
 static double ozaki_duration(double* times, int nrepeat, double total);
+static int xref_row(int s, int xrows, int m);
+static void xref_gather(void* dst, const void* src, int xrows, int M, int N, int ldc, size_t elem_size);
+static void xref_print(const char* key, const libxs_matdiff_t* diff, int graded);
 #if defined(__CUBLAS)
 static void cublas_putenv(int use_double, int nslices);
 static const char* cublas_mode(int use_double);
@@ -80,6 +83,25 @@ int main(int argc, char* argv[])
   /* Componentwise bound |alpha||A||B| + |beta||C| (GRADE), host-only. */
   void* c_bnd = NULL;
   void* scratch = NULL; /* caller-owned device scratch (OZAKI_SCRATCH) */
+  /**
+   * XREF=r: compensated reference (libxs_dot2_gemm) on r rows spread over C, all rows if r
+   * is negative or at least M. The host BLAS rounds as much as the results it grades, so an
+   * error read off it is partly its own; this one grades Ozaki, BLAS and cuBLAS on one scale.
+   */
+  const char* const env_xref = getenv("XREF");
+  const int xref = (NULL != env_xref && 0 != *env_xref) ? atoi(env_xref) : 0;
+  /**
+   * EVIL=N (N>0) is the per-column exponent span of the libxs harness (samples/ozaki/gemm.c):
+   * column j of A scaled by a ramp over 2N binades, B by its inverse. The per-element mode
+   * (N<0) is not implemented here and is refused rather than ignored: a row labelled with a
+   * span it never had is indistinguishable from a measurement.
+   */
+  const char* const env_evil = getenv("EVIL");
+  const int evil = (NULL != env_evil && 0 != *env_evil) ? atoi(env_evil) : 0;
+  const char* const env_tame = getenv("TAME");
+  const int tame = (NULL != env_tame && 0 != *env_tame) ? atoi(env_tame) : 0;
+  void* x_ref = NULL;
+  int xrows = 0;
 #if defined(__CUBLAS)
   void* c_cu = NULL;
   int cublas_result = EXIT_FAILURE;
@@ -96,6 +118,10 @@ int main(int argc, char* argv[])
   memset(&ctx, 0, sizeof(ctx)); /* exceeds LIBXS_MEMZERO scope */
   if (1 > M || 1 > N || 1 > K || lda < (0 == ta ? M : K) || ldb < (0 == tb ? K : N) || ldc < M) {
     fprintf(stderr, "Invalid dimensions: M=%d N=%d K=%d lda=%d ldb=%d ldc=%d\n", M, N, K, lda, ldb, ldc);
+    result = EXIT_FAILURE;
+  }
+  if (0 > evil) {
+    fprintf(stderr, "ERROR: EVIL=%i (per-element) is not supported by this driver\n", evil);
     result = EXIT_FAILURE;
   }
 
@@ -185,23 +211,24 @@ int main(int argc, char* argv[])
     }
     else {
       if (ctx.use_double) {
-        LIBXS_MATRNG(int, double, 0, a, a_rows, a_cols, lda, 1.0);
-        LIBXS_MATRNG(int, double, 0, b, b_rows, b_cols, ldb, 1.0);
+        LIBXS_MATRNG(int, double, evil, a, a_rows, a_cols, lda, 1.0);
+        LIBXS_MATRNG(int, double, -evil, b, b_rows, b_cols, ldb, 1.0);
         LIBXS_MATRNG(int, double, 0, c_oz, M, N, ldc, 1.0);
       }
       else {
-        LIBXS_MATRNG(int, float, 0, a, a_rows, a_cols, lda, 1.0);
-        LIBXS_MATRNG(int, float, 0, b, b_rows, b_cols, ldb, 1.0);
+        LIBXS_MATRNG(int, float, evil, a, a_rows, a_cols, lda, 1.0);
+        LIBXS_MATRNG(int, float, -evil, b, b_rows, b_cols, ldb, 1.0);
         LIBXS_MATRNG(int, float, 0, c_oz, M, N, ldc, 1.0);
       }
+      /* stamped by the driver, so a row records the data it was given and not what was asked */
+      fprintf(stderr, "DATA: matrng=%i evil=%i tame=%i scale=0\n", LIBXS_MATRNG_VERSION, evil, tame);
       /**
        * TAME keeps that many mantissa bits and clears the rest, matching the harness knob
        * of the same name (libxs samples/ozaki/gemm.c, where it is EVIL's sibling on the
        * significand axis). It exercises the precision detection against a known answer: the
        * trimmable low bits reported must come out at 53 - TAME.
        */
-      { const char *const env_mbits = getenv("TAME");
-        const int mbits = (NULL != env_mbits) ? atoi(env_mbits) : 0;
+      { const int mbits = tame;
         if (0 < mbits) {
           const int mant = ctx.use_double ? 53 : 24;
           const int drop = (mbits < mant) ? (mant - mbits) : 0;
@@ -231,6 +258,12 @@ int main(int argc, char* argv[])
        * quotient is dominated by the near-zero entries of C. |C| has to be captured
        * here because every reference below overwrites C.
        */
+      if (0 != xref) { /* rows of the original C, where the single reference call starts */
+        xrows = (0 < xref && xref < M) ? xref : M;
+        x_ref = malloc((size_t)xrows * N * elem_size);
+        if (NULL != x_ref) xref_gather(x_ref, c_oz, xrows, M, N, ldc, elem_size);
+        else result = EXIT_FAILURE;
+      }
       if (NULL != getenv("GRADE") && 0 != atoi(getenv("GRADE"))) {
         c_bnd = malloc((size_t)ldc * N * elem_size);
         if (NULL != c_bnd) {
@@ -367,6 +400,31 @@ int main(int argc, char* argv[])
     libxstream_stream_sync(stream);
   }
 
+  /* Every result compared below is one call from the original C, so is the reference. */
+  if (EXIT_SUCCESS == result && NULL != x_ref) {
+    const libxs_data_t dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
+    const float falpha = (float)alpha, fbeta = (float)beta;
+    const void* const pa = ctx.use_double ? (const void*)&alpha : (const void*)&falpha;
+    const void* const pb = ctx.use_double ? (const void*)&beta : (const void*)&fbeta;
+    int s, nfail = 0;
+#if defined(_OPENMP)
+#   pragma omp parallel for reduction(+:nfail) schedule(dynamic)
+#endif
+    for (s = 0; s < xrows; ++s) {
+      const int row = xref_row(s, xrows, M);
+      const char* const arow = (const char*)a + elem_size * (0 == ta ? (size_t)row : ((size_t)row * lda));
+      if (EXIT_SUCCESS != libxs_dot2_gemm(dtype, transa, transb, 1, N, K, pa, arow, lda, b, ldb, pb,
+        (char*)x_ref + elem_size * s, xrows))
+      {
+        ++nfail;
+      }
+    }
+    if (0 != nfail) {
+      fprintf(stderr, "ERROR: XREF reference failed on %i row(s): arguments, or no compensation in this build\n", nfail);
+      result = EXIT_FAILURE;
+    }
+  }
+
   /**
    * A and B are dead once every result is computed, so |A| and |B| are formed
    * in place to bound the exact product. One driver or the other, never both:
@@ -415,6 +473,38 @@ int main(int argc, char* argv[])
 #endif
   }
 
+  /* The keys carry a prefix: a bare linf_rel= would be read as the BLAS-relative error. */
+  if (EXIT_SUCCESS == result && NULL != x_ref) {
+    const libxs_data_t dtype = ctx.use_double ? LIBXS_DATATYPE_F64 : LIBXS_DATATYPE_F32;
+    const size_t nx = (size_t)xrows * N * elem_size;
+    char* const x_tst = (char*)malloc(nx * (NULL != c_bnd ? 2 : 1));
+    if (NULL != x_tst) {
+      void* const x_bnd = (NULL != c_bnd ? (x_tst + nx) : NULL);
+      libxs_matdiff_t dx;
+      int i;
+      if (NULL != x_bnd) xref_gather(x_bnd, c_bnd, xrows, M, N, ldc, elem_size);
+      printf("XREF: rows=%i", xrows);
+      for (i = 0; i < 3 && EXIT_SUCCESS == result; ++i) {
+        const void* const src = (0 == i ? c_oz : (1 == i ? c_ref : NULL));
+        const char* const key = (0 == i ? "ozaki" : (1 == i ? "blas" : "cublas"));
+        const void* tst = src;
+#if defined(__CUBLAS)
+        if (2 == i && EXIT_SUCCESS == cublas_result) tst = c_cu;
+#endif
+        if (NULL != tst) {
+          xref_gather(x_tst, tst, xrows, M, N, ldc, elem_size);
+          libxs_matdiff_clear(&dx);
+          if (NULL != x_bnd) result = libxs_matdiff_grade(&dx, dtype, xrows, N, x_ref, x_tst, x_bnd, &xrows, &xrows, &xrows);
+          else result = libxs_matdiff(&dx, dtype, xrows, N, x_ref, x_tst, &xrows, &xrows);
+          if (EXIT_SUCCESS == result) xref_print(key, &dx, NULL != x_bnd);
+        }
+      }
+      printf("\n");
+      free(x_tst);
+    }
+    else result = EXIT_FAILURE;
+  }
+
   if (0 != initialized) {
     /**
      * The host buffers are allocated against the stream, so they can only be
@@ -436,6 +526,7 @@ int main(int argc, char* argv[])
     if (NULL != scratch) libxstream_mem_dev_deallocate_hint(scratch, libxstream_opencl_mem_hint_atomics);
     libxstream_finalize();
   }
+  free(x_ref);
   free(c_bnd);
   free(times);
   return result;
@@ -454,6 +545,33 @@ static void print_diff(FILE* ostream, const char* label, const libxs_matdiff_t* 
       diff->linf_rel, diff->l2_rel, epsilon, diff->rsq);
   }
   if (0 != diff->grade) fprintf(ostream, "%sGRADE: %g\n", label, diff->grade);
+}
+
+
+/* Row of C that the s-th of xrows samples grades: evenly spread, first row included. */
+static int xref_row(int s, int xrows, int m)
+{
+  return (int)(((size_t)s * (size_t)m) / (size_t)(0 < xrows ? xrows : 1));
+}
+
+
+/* Sampled rows of an M-by-N column-major matrix into a compact xrows-by-N one. */
+static void xref_gather(void* dst, const void* src, int xrows, int M, int N, int ldc, size_t elem_size)
+{
+  int j, s;
+  for (j = 0; j < N; ++j) {
+    for (s = 0; s < xrows; ++s) {
+      memcpy((char*)dst + elem_size * ((size_t)j * xrows + s),
+        (const char*)src + elem_size * ((size_t)j * ldc + xref_row(s, xrows, M)), elem_size);
+    }
+  }
+}
+
+
+static void xref_print(const char* key, const libxs_matdiff_t* diff, int graded)
+{
+  printf(" %s_linf_rel=%.17g %s_l2_rel=%.17g", key, diff->linf_rel, key, diff->l2_rel);
+  if (0 != graded) printf(" %s_grade=%g", key, diff->grade);
 }
 
 
