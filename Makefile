@@ -152,7 +152,7 @@ VERSION_UPDATE ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 3)
 VERSION_STRING ?= $(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_UPDATE)
 VERSION_ALL ?= $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 0)
 VERSION_API ?= $(VERSION_MAJOR)
-VERSION_RELEASED ?= $(if $(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 4),0,1)
+VERSION_RELEASED ?= $(if $(filter-out 0,$(shell $(ROOTSCR)/tool_version.sh $(PROJECT) 4)),0,1)
 VERSION_RELEASE ?= HEAD
 VERSION_PACKAGE ?= 1
 
