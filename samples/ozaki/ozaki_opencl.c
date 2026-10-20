@@ -1741,9 +1741,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          * timing. The fourth makes that edge real and costs shared memory rather than
          * registers, since the loop unrolls by the A sets and not by the buffers.
          * OZAKI_WGMMA_STAGES=2 opts out of the overlap, 3 keeps it without the ordering.
+         * Zero until the carrier is final, which is where the default is resolved.
          */
         { const int stg_req = (NULL != env_stages) ? atoi(env_stages) : 0;
-          ctx->wgmma_stages = (2 <= stg_req && 4 >= stg_req) ? stg_req : 4;
+          ctx->wgmma_stages = (2 <= stg_req && 4 >= stg_req) ? stg_req : 0;
         }
       }
       { const char *const env_reside = getenv("OZAKI_WGMMA_RESIDE");
@@ -1883,6 +1884,14 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           ctx->use_bf16 = 0;
         }
       }
+      /**
+       * Two ring stages for the bf16 carrier: its 16-byte block holds half the K of an int8
+       * block, and the spare buffers of four stages halve KU again, so a round covers a
+       * quarter of the int8 K and the per-round fence and wait dominate. Measured on the
+       * 128x256 tile, two stages are 1.4x faster for bf16 at n=6144 and 8192 and bit-identical,
+       * while int8 loses 4..5% with two and keeps four.
+       */
+      if (0 == ctx->wgmma_stages) ctx->wgmma_stages = (0 != ctx->use_bf16 ? 2 : 4);
       if (NULL != env_skip && 0 != atoi(env_skip)) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1"));
       }
