@@ -230,6 +230,11 @@ int main(int argc, char* argv[])
     result = stencil_configure(&ctx, nx, ny, nz);
     if (0 != trace) fprintf(stderr, "TRACE: configure done result=%d\n", result);
   }
+  /* after configure, which can fall back from BF16 to FP32; only BF16=1 builds the TTI kernel */
+  if (EXIT_SUCCESS == result && 3 < nterms && 1 != ctx.bf16) {
+    fprintf(stderr, "ERROR: TTI (-d %i) requires the BF16-DPAS path (STENCIL_BF16=1)\n", nterms);
+    result = EXIT_FAILURE;
+  }
   if (EXIT_SUCCESS == result) {
     if (0 != trace) fprintf(stderr, "TRACE: precompute operators\n");
     result = stencil_precompute_operators(&ctx, fd_w, radius);

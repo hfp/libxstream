@@ -454,12 +454,13 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
 
   { const int bf16_val = (NULL != bf16_env) ? atoi(bf16_env) : 0;
     const int has_dpas = (devinfo->intel >= 2) ? 1 : 0;
+    const int has_dp4a = (devinfo->nv >= 2) ? 1 : 0; /* INT8=1 kernel branch for NVIDIA */
     if (0 != bf16_val) {
       ctx->bf16 = has_dpas ? bf16_val : 2;
       ctx->fp32 = 0;
     }
     else if (0 != ctx->int8) {
-      if (!has_dpas) ctx->int8 = 2;
+      if (!has_dpas && (!has_dp4a || 1 != ctx->int8)) ctx->int8 = 2;
       ctx->bf16 = 0;
       ctx->fp32 = 0;
     }
@@ -502,6 +503,7 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   ctx->blocked = (NULL == blocked_env) ? 0 : atoi(blocked_env);
   ctx->layout = (NULL != layout_env) ? atoi(layout_env)
     : ((0 != ctx->blocked) ? 1 : 0);
+  ctx->blocked = (1 == ctx->layout); /* the kernel indexes by layout: pack accordingly */
   { const char *const halo_env = getenv("STENCIL_HALO");
     const int halo_val = (NULL != halo_env) ? atoi(halo_env) : 0;
     ctx->halo[0] = ctx->halo[1] = ctx->halo[2] = halo_val;
