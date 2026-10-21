@@ -21,7 +21,7 @@ enum { NINPUTS = 3, NOUTPUTS = 16, NQUERY = 64 };
 
 /**
  * Models saved by LIBXS 1.0.0 (format version 1), which the current loader must
- * keep reading (see predict_v1_README.md). A round-trip test cannot cover this
+ * keep reading (see predict.md). A round-trip test cannot cover this
  * because it only ever exercises the current writer. All carry 3 inputs and 16
  * outputs, hence share NINPUTS/NOUTPUTS with the model built below.
  */

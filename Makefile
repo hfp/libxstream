@@ -304,6 +304,7 @@ SPLMDS := $(addprefix $(ABSDIR)/,$(shell $(if $(GIT),$(GIT) ls-files,ls -1) \
   $(SPLDIR)/*/README.md 2>/dev/null))
 DOCMDS := $(addprefix $(ABSDIR)/,$(filter-out \
     $(DOCDIR)/$(PROJECT)_present.md \
+    $(DOCDIR)/$(PROJECT)_libxs.md \
     $(DOCDIR)/$(PROJECT)_samples.md \
     $(DOCDIR)/$(PROJECT)_scripts.md \
     $(DOCDIR)/$(PROJECT)_contrib.md, \
@@ -394,14 +395,23 @@ mkslides:
 .PHONY: mkdocs-tests
 mkdocs-tests: $(TSTMDS)
 
+# a test's own description (tests/NAME.md) opens its page in place of the generic one
+$(foreach MD,$(wildcard $(TSTDIR)/*.md),$(eval $(DOCDIR)/tests/$(notdir $(MD)): $(MD)))
 $(DOCDIR)/tests/%.md: $(TSTDIR)/%.c $(DOCDIR)/tests/.make
-	@TITLE=$$(printf '%s\n' "$*" | $(SED) \
-		-e 's/_/ /g' \
-		-e 's/-/ /g' \
-		-e 's/\<\(.\)/\u\1/g'); \
-	echo "# $${TITLE}" >$@; \
-	echo "" >>$@; \
-	echo "$${TITLE} test source." >>$@
+	@if [ -e $(TSTDIR)/$*.md ]; then \
+		cat $(TSTDIR)/$*.md >$@; \
+	else \
+		TITLE=$$(printf '%s\n' "$*" | $(SED) \
+			-e 's/_/ /g' \
+			-e 's/-/ /g' \
+			-e 's/\<\(.\)/\u\1/g' \
+			-e 's/\<Fp32\>/FP32/g' -e 's/\<Fp32f\>/FP32f/g' \
+			-e 's/\<Fp64\>/FP64/g' -e 's/\<Fp64f\>/FP64f/g' \
+			-e 's/\<Ozaki2\>/Ozaki-2/g' -e 's/\<Ptx\>/PTX/g' -e 's/\<Smm\>/SMM/g'); \
+		echo "# $${TITLE}" >$@; \
+		echo "" >>$@; \
+		echo "$${TITLE} test source." >>$@; \
+	fi
 	@echo "" >>$@
 	@echo '```c'  >>$@
 	@echo '--8<-- "tests/$*.c"' >>$@
@@ -623,13 +633,13 @@ endif
 PCTEMPLATE := $(ROOTSCR)/$(PROJECT).pc.in
 PCSUBST_BASE = $(SED) \
   -e 's|@PROJECT@|$(PROJECT)|g' \
-  -e 's|@DESCRIPTION@|Specialized tensor operations|g' \
+  -e 's|@DESCRIPTION@|OpenCL-based accelerator backend providing streams, events, and device memory management|g' \
   -e 's|@URL@|https://github.com/hfp/$(PROJECT)/|g' \
   -e 's|@VERSION@|$(VERSION_STRING)|g' \
   -e 's|@PREFIX@|$(ALIAS_PREFIX)|g' \
   -e 's|@INCLUDEDIR@|$(ALIAS_INCDIR)|g' \
   -e 's|@LIBDIR@|$(ALIAS_LIBDIR)|g' \
-	$(if $(LIBXS),-e 's|@PC_CFLAGS@|-D__LIBXS|g',-e 's|@PC_CFLAGS@||g') \
+	$(if $(LIBXS)$(LIBXS_PC),-e 's|@PC_CFLAGS@|-D__OPENCL -D__ACC -D__LIBXS|g',-e 's|@PC_CFLAGS@|-D__OPENCL -D__ACC|g') \
   $(if $(ALIAS_PRIVLIBS),-e 's|@LIBS_PRIVATE@|Libs.private: $(ALIAS_PRIVLIBS)|g', \
     -e 's|@LIBS_PRIVATE@||g')
 
@@ -637,7 +647,7 @@ ifeq (,$(filter-out 0 2,$(BUILD)))
 $(PPKGDIR)/$(PROJECT)-static.pc: $(OUTDIR)/$(PROJECT).$(SLIBEXT) $(PPKGDIR)/.make $(PCTEMPLATE)
 	@$(PCSUBST_BASE) \
 	  -e 's|@LIBS@|$${libdir}/$(PROJECT).$(SLIBEXT)|g' \
-    $(if $(LIBXS),-e 's|@REQUIRES@|Requires: libxs-static|g',-e 's|@REQUIRES@||g') <$(PCTEMPLATE) >$@
+    $(if $(LIBXS)$(LIBXS_PC),-e 's|@REQUIRES@|Requires: libxs-static|g',-e 's|@REQUIRES@||g') <$(PCTEMPLATE) >$@
 	@$(MKDIR) -p $(OUTDIR)/pkgconfig && $(SED) -e 's|^libdir=\(..*\)$$|libdir=\1/$(LIBARCH)|' <$@ >$(OUTDIR)/pkgconfig/$(notdir $@)
   ifeq (,$(filter-out 0 2,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc
@@ -651,7 +661,7 @@ ifeq (,$(filter-out 1 2,$(BUILD)))
 $(PPKGDIR)/$(PROJECT)-shared.pc: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(PPKGDIR)/.make $(PCTEMPLATE)
 	@$(PCSUBST_BASE) \
 	  -e 's|@LIBS@|-L$${libdir} -l$(patsubst lib%,%,$(PROJECT))|g' \
-    $(if $(LIBXS),-e 's|@REQUIRES@|Requires: libxs|g',-e 's|@REQUIRES@||g') <$(PCTEMPLATE) >$@
+    $(if $(LIBXS)$(LIBXS_PC),-e 's|@REQUIRES@|Requires: libxs|g',-e 's|@REQUIRES@||g') <$(PCTEMPLATE) >$@
 	@$(MKDIR) -p $(OUTDIR)/pkgconfig && $(SED) -e 's|^libdir=\(..*\)$$|libdir=\1/$(LIBARCH)|' <$@ >$(OUTDIR)/pkgconfig/$(notdir $@)
   ifeq (,$(filter-out 1,$(BUILD)))
 	@ln -fs $(notdir $@) $(PPKGDIR)/$(PROJECT).pc

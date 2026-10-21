@@ -194,7 +194,7 @@ answers `-Wmissing-prototypes`; an include of a guardless implementation
 fragment; and a macro that is undefined again.
 
 What is left over is judged, one file at a time, rather than guessed at by a
-rule reading intent -- a type above the one entry point it parameterizes has no
+rule reading intent — a type above the one entry point it parameterizes has no
 signal a checker could read. The judgement is recorded where it stays visible:
 in the to-do list while the file has structure the rule must keep watching, and
 in the script's permanent list only where the accepted shape is the one thing

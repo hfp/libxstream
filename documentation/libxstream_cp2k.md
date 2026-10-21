@@ -15,7 +15,7 @@ The DBCSR adapter ([`src/libxstream_dbcsr.c`](https://github.com/hfp/libxstream/
 
 ## API
 
-The header requires only `libxstream.h` (C99, no OpenCL headers) and provides opaque handle types, an error-checking macro, and functions covering five domains.
+The header requires only `libxstream.h` (C99, no OpenCL headers) and provides opaque handle types, an error-checking macro, and functions for error handling, streams, events, memory, transfers, and the device. The implementation is compiled only if `__OPENCL` is defined (`__OFFLOAD_OPENCL` implies it); the CMake target `libxstream::libxstream` and the pkg-config file both provide `-D__OPENCL`.
 
 ### Types and Constants
 
@@ -42,7 +42,7 @@ The `OFFLOAD_CHECK` macro aborts on failure after printing the error name and so
 OFFLOAD_CHECK(offloadGetLastError());
 ```
 
-The `offload*` functions return nothing; one that fails prints the OpenCL error name and code to stderr and aborts.
+The `offload*` functions without a return value print the OpenCL error name and code to stderr and abort when they fail.
 
 ### Streams
 
@@ -72,9 +72,10 @@ void offloadMalloc(void** ptr, size_t size);
 void offloadFree(void* ptr);
 void offloadMallocHost(void** ptr, size_t size);
 void offloadFreeHost(void* ptr);
+bool offloadHostMemoryDeviceAccessible(void);
 ```
 
-These allocate from LIBXSTREAM's memory pools. CP2K's own pool (`offload_mempool.c`) allocates through the hinted functions with `LIBXSTREAM_MALLOC_CP2K` instead (default `LIBXSTREAM_MEM_UNPOOLED`), so that its pool is not stacked on LIBXSTREAM's.
+These allocate from LIBXSTREAM's memory pools. `offloadHostMemoryDeviceAccessible` tells whether a kernel may read memory from `offloadMallocHost` directly (zero-copy). CP2K's own pool (`offload_mempool.c`) allocates through the hinted functions with `LIBXSTREAM_MALLOC_CP2K` instead (default `LIBXSTREAM_MEM_UNPOOLED`), so that its pool is not stacked on LIBXSTREAM's.
 
 ### Transfers
 
@@ -109,4 +110,5 @@ These are CUDA-specific operations (constant-memory writes and device-heap sizin
 
 * LIBXSTREAM API (`libxstream/libxstream.h`) — the underlying OpenCL backend API
 * [DBCSR ACC Interface](libxstream_dbcsr.md) — the DBCSR adapter layer
+* [DBM sample](https://github.com/hfp/libxstream/blob/main/samples/dbm/README.md) — OpenCL backend of CP2K's DBM
 * [CP2K offload_runtime.h](https://github.com/cp2k/cp2k/blob/master/src/offload/offload_runtime.h) — upstream interface definition

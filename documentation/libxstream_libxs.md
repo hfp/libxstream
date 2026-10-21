@@ -1,1 +1,3 @@
-<a href="https://libxs.readthedocs.io/" target="_blank">Visit LIBXS</a>
+# LIBXS
+
+LIBXSTREAM depends on LIBXS for utility infrastructure, documented at [libxs.readthedocs.io](https://libxs.readthedocs.io/).

@@ -27,7 +27,7 @@ Generated with LIBXS at tag `1.0.0` (2026-06-26), which predates every later
 format change, so these cannot be produced by the current tree:
 
 ```sh
-git -C libxs worktree add ../libxs-1.0.0 1.0.0
+git -C ../libxs worktree add ../libxs-1.0.0 1.0.0
 make -C ../libxs-1.0.0
 make -C ../libxs-1.0.0/samples/predict predict_params.x
 ../libxs-1.0.0/samples/predict/predict_params.x <mode> \

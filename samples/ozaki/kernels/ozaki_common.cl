@@ -128,13 +128,11 @@
  * K-phase within the quad. Producer and consumer must agree, so both go
  * through OZAKI_IDX_BS().
  *
- * OZAKI_BKMAJOR (NVIDIA warp-group MMA): fully transposed [N_pad][K_pad], i.e.
- * a column's K-values are contiguous. Required by wgmma, which sources both
- * operands from shared memory and wants them K-major, so a staging thread can
- * move 16 bytes of one column with a single load. It also serves the older
- * paths better than the interleave does: a b-fragment's two registers land 16
- * bytes apart in one segment instead of 4*N_pad apart in two, and a dp4a
- * column becomes 8 consecutive uints.
+ * OZAKI_BKMAJOR (NVIDIA warp-level MMA and dp4a): fully transposed [N_pad][K_pad],
+ * i.e. a column's K-values are contiguous; warp-group MMA uses OZAKI_BBLOCK instead.
+ * It serves these paths better than the interleave does: a b-fragment's two
+ * registers land 16 bytes apart in one segment instead of 4*N_pad apart in two,
+ * and a dp4a column becomes 8 consecutive uints.
  *
  * OZAKI_BBLOCK is the interleave one step coarser: 16 consecutive K-values of one
  * column are contiguous, columns are 16 bytes apart. That is the only layout where

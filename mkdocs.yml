@@ -55,7 +55,20 @@ nav:
   - SMM: samples/libxstream_smm.md
   - DBM: samples/libxstream_dbm.md
 - Tests:
+  - Dump: tests/dump.md
+  - Kernels: tests/kernels.md
+  - Pin: tests/pin.md
   - Predict: tests/predict.md
+  - PTX: tests/ptx.md
+  - Shim: tests/shim.md
+  - Shim Ozaki-2 FP32: tests/shim_ozaki2_fp32.md
+  - Shim Ozaki-2 FP32f: tests/shim_ozaki2_fp32f.md
+  - Shim Ozaki-2 FP64: tests/shim_ozaki2_fp64.md
+  - Shim Ozaki-2 FP64f: tests/shim_ozaki2_fp64f.md
+  - Shim Ozaki-2 Kgrp: tests/shim_ozaki2_kgrp.md
+  - Shim Ozaki-2 Sym: tests/shim_ozaki2_sym.md
+  - Shim SMM FP32: tests/shim_smm_fp32.md
+  - Shim SMM FP64: tests/shim_smm_fp64.md
 - More:
   - Contributing: libxstream_contrib.md
   - Development: libxstream_scripts.md

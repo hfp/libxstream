@@ -1369,7 +1369,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          * instruction ceiling, but it also halves the global traffic per output
          * because the same A tile feeds twice the columns. n64 stays selectable
          * for the register-pressure trade (64 accumulators per thread instead of
-         * 32). OZAKI_WGMMA_N picks the width; anything else falls back to 128.
+         * 32). OZAKI_WGMMA_N picks 64 or 128; anything else is 256.
          *
          * 256 raises that ratio again: BN 128 -> 64 costs 47%, and rasterization is
          * inert, so the cost is per-chunk overhead rather than DRAM locality. Two n128

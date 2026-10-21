@@ -13,16 +13,33 @@ make [WITH_GPU=<device>] [ELEM_TYPE=<type>]
 ```
 
 Produces `acc_bench.x`. Requires an OpenCL runtime, BLAS (`BLAS=2`),
-and LIBXS built from a sibling directory.
+and LIBXS in a sibling directory (header-only unless a LIBXS library
+is built).
 
-| Make variable | Default  | Description                                                      |
-|---------------|----------|------------------------------------------------------------------|
-| ELEM_TYPE     | `double` | Element precision: `double` or `float`                           |
-| WITH_GPU      | auto     | Device for tuned parameters (PVC, A100, ...). Fallback: all CSVs |
+| Make variable | Default  | Description                                                |
+|---------------|----------|------------------------------------------------------------|
+| ELEM_TYPE     | `double` | Element precision: `double` or `float`                     |
+| WITH_GPU      | `GPUVER` | Device for tuned parameters (PVC, A100, ...), see below    |
+| SYM           | 0        | Non-zero also keeps comments in the embedded kernel source |
+
+`make test` builds and runs `acc_bench.x` with its defaults.
+
+The build embeds `params/tune_multiply_<WITH_GPU>.csv`. Without such a
+file, it embeds `tune_multiply.csv` from this directory if present
+(the default output of a merge), and otherwise every `params/*.csv`
+unless `WITH_GPU` was given on the command line.
 
 A CMake project (e.g., DBCSR) builds LIBSMM into its own target with
 `libxstream_add_smm(<target>)` after `find_package(libxstream)`, which also
 generates `smm_kernels.h` into the target's build tree.
+
+A Makefile project (e.g., CP2K's DBM miniapp) includes `smm.mk` instead,
+optionally setting `LIBXSTREAM_SMM_GENDIR` (directory of the generated
+`smm_kernels.h`, default: current directory) and `LIBXSTREAM_SMM_GENARG`
+(e.g., `-d` to keep comments). It then adds `LIBXSTREAM_SMM_IFLAGS` to
+its compiler flags, `LIBXSTREAM_SMM_OBJS` to its objects, and builds them
+from `$(LIBXSTREAM_SMM_DIR)/%.c` with `$(LIBXSTREAM_SMM_HEADERS)` as
+prerequisites.
 
 ## Benchmark Driver
 
@@ -38,37 +55,42 @@ The kernel shape can also be given as `MxNxK`:
 
 The first argument can be a file with one set of parameters per line.
 The batchsize argument accepts K/M/G suffixes for memory-budget mode.
+A negative batchsize, e.g., -30000, draws a random multiple of 100 up to
+its magnitude (also via `BATCHSIZE_SMM`).
 
-| Argument  | Default      | Description                            |
-|-----------|--------------|----------------------------------------|
-| nrepeat   | 66 (3+CHECK) | Number of timed repetitions            |
-| batchsize | 30000        | Matrix products per batch (stack size) |
-| M         | 23           | Rows of A and C                        |
-| N         | M            | Columns of B and C                     |
-| K         | M            | Columns of A / rows of B               |
-| nc        | batchsize/16 | Number of unique C-matrices            |
-| na        | 10*nc        | Number of unique A-matrices            |
-| nb        | 10*nc        | Number of unique B-matrices            |
+| Argument  | Default         | Description                            |
+|-----------|-----------------|----------------------------------------|
+| nrepeat   | 3 (CHECK=0: 66) | Number of timed repetitions            |
+| batchsize | 30000           | Matrix products per batch (stack size) |
+| M         | 23              | Rows of A and C                        |
+| N         | M               | Columns of B and C                     |
+| K         | M               | Columns of A / rows of B               |
+| nc        | batchsize/16    | Number of unique C-matrices            |
+| na        | 10*nc           | Number of unique A-matrices            |
+| nb        | 10*nc           | Number of unique B-matrices            |
 
 ### Environment Variables (Benchmark)
 
-| Variable      | Default | Description                                               |
-|---------------|---------|-----------------------------------------------------------|
-| CHECK         | -1      | Accuracy: negative=1E-3 (float: 2E-3), 0=off, >0 scales   |
-| CHECK_H2D     | -       | Minimum H2D bandwidth (GB/s); fail if below               |
-| CHECK_DEV     | -       | Minimum device GFLOPS/s; fail if below                    |
-| CHECK_HST     | -       | Minimum host GFLOPS/s; fail if below                      |
-| DEVICE        | 0       | Device index (multi-rank: device = rank % ndevices)       |
-| NREPEAT_H2D   | 1       | H2D copy repetitions for bandwidth measurement            |
-| NREPEAT_SMM   | 1       | SMM kernel launches per timed iteration (for profiling)   |
-| BATCHSIZE_SMM | -       | Override batchsize (and optionally nrepeat: `bs,nrep`)    |
-| UNIFIED       | 0       | 1: kernels read the stack from host memory if possible    |
+| Variable      | Default | Description                                                |
+|---------------|---------|------------------------------------------------------------|
+| CHECK         | 1       | Tolerance: CHECK × 1E-3 (float: 2E-3), sign ignored, 0=off |
+| CHECK_H2D     | -       | Minimum H2D bandwidth (GB/s); fail if below                |
+| CHECK_DEV     | -       | Minimum device GFLOPS/s; fail if below                     |
+| CHECK_HST     | -       | Minimum host GFLOPS/s; fail if below                       |
+| DEVICE        | 0       | Device index (multi-rank: device = rank % ndevices)        |
+| NREPEAT_H2D   | 1       | H2D copy repetitions for bandwidth measurement             |
+| NREPEAT_SMM   | 1       | Repeats the batch inside each SMM kernel (for profiling)   |
+| BATCHSIZE_SMM | -       | Override batchsize (and optionally nrepeat: `bs,nrep`)     |
+| UNIFIED       | 0       | 1: kernels read the stack from host memory if possible     |
 
 ## LIBSMM Kernel Parameters
 
-OpenCL kernels are generated at runtime for any (M, N, K) shape
-within MAX_KERNEL_DIM. Tuned parameters can be embedded at build time
-or loaded at runtime for better performance.
+OpenCL kernels are generated at runtime for any (M, N, K) shape with
+M·N ≤ MAX_KERNEL_DIM² (the caller's limit; `acc_bench.x` uses 80).
+Tuned parameters can be embedded at build time or loaded at runtime for
+better performance. `LIBXSTREAM_DEVMATCH` (which device's parameters are
+taken) and `LIBXSTREAM_VERBOSE` (INFO output about loaded parameters and
+generated kernels) are described on the LIBXSTREAM OpenCL page.
 
 ### Environment Variables (LIBSMM)
 
@@ -77,45 +99,92 @@ Transpose kernel:
 | Variable                      | Default | Description                             |
 |-------------------------------|---------|-----------------------------------------|
 | OPENCL_LIBSMM_TRANS_BUILDOPTS | -       | Extra OpenCL build options              |
-| OPENCL_LIBSMM_TRANS_INPLACE   | 0       | Non-zero: in-place transpose (no LDS)   |
+| OPENCL_LIBSMM_TRANS_INPLACE   | 0       | Non-zero: in-place if square (no LDS)   |
 | OPENCL_LIBSMM_TRANS_BM        | auto    | Block size in M-direction (0 < BM <= M) |
+| OPENCL_LIBSMM_TRANS_BS        | 8       | Matrices per work-group                 |
+| OPENCL_LIBSMM_TRANS_PARAMS    | -       | 0: ignore TRANS_BM and TRANS_BS         |
+| OPENCL_LIBSMM_TRANS_PREDICT   | -       | Positive: ignore TRANS_BM and TRANS_BS  |
 
 Multiply kernel:
 
-| Variable                       | Default | Description                                                        |
-|--------------------------------|---------|--------------------------------------------------------------------|
-| OPENCL_LIBSMM_SMM_BUILDOPTS    | -       | Extra OpenCL build options                                         |
-| OPENCL_LIBSMM_SMM_PARAMS       | auto    | Tuned parameters: 0=disable, or CSV path                           |
-| OPENCL_LIBSMM_SMM_PREDICT_CONF | 0.5     | Confidence a predicted parameter needs; below, its default is used |
-| OPENCL_LIBSMM_SMM_BS           | auto    | Intra-kernel mini-batchsize                                        |
-| OPENCL_LIBSMM_SMM_BM           | auto    | Block size in M-direction (0 < BM <= M)                            |
-| OPENCL_LIBSMM_SMM_BN           | auto    | Block size in N-direction (0 < BN <= N)                            |
-| OPENCL_LIBSMM_SMM_AP           | auto    | Access pattern for parameter/stack array                           |
-| OPENCL_LIBSMM_SMM_AA           | auto    | Access pattern for A-matrix array                                  |
-| OPENCL_LIBSMM_SMM_AB           | auto    | Access pattern for B-matrix array                                  |
-| OPENCL_LIBSMM_SMM_AC           | auto    | Access pattern for C-matrix array                                  |
+| Variable                       | Default  | Description                                                          |
+|--------------------------------|----------|----------------------------------------------------------------------|
+| OPENCL_LIBSMM_SMM_BUILDOPTS    | -        | Extra OpenCL build options                                           |
+| OPENCL_LIBSMM_SMM_KERNEL       | -        | OpenCL source file replacing the embedded multiply kernel            |
+| OPENCL_LIBSMM_SMM_PARAMS       | auto     | CSV path, a parameter row, or 0 for plain defaults (see below)       |
+| OPENCL_LIBSMM_SMM_PREDICT      | 0        | Model: -1=off (default if PARAMS=0), 0=untuned shapes, 1=all shapes  |
+| OPENCL_LIBSMM_SMM_PREDICT_CONF | 0.5      | Confidence a predicted parameter needs; below, its default is used   |
+| OPENCL_LIBSMM_SMM_DEVID        | -        | Device ID whose parameters are used, e.g., `0x0bd5`                  |
+| OPENCL_LIBSMM_SMM_S            | 64       | BS > 1 needs a batch of at least BS×S; negative: always BS=1         |
+| OPENCL_LIBSMM_SMM_BS           | auto     | Intra-kernel mini-batchsize                                          |
+| OPENCL_LIBSMM_SMM_BM           | auto     | Block size in M-direction (0 < BM <= M), ignored if LU > 1           |
+| OPENCL_LIBSMM_SMM_BN           | auto     | Block size in N-direction (0 < BN <= N)                              |
+| OPENCL_LIBSMM_SMM_BK           | auto     | Block size BK (0 < BK <= M)                                          |
+| OPENCL_LIBSMM_SMM_WS           | max(M,N) | Minimum work-group size (WS <= M·N)                                  |
+| OPENCL_LIBSMM_SMM_WG           | auto     | Work-group size: 0=exact, non-zero=sub-group multiple, 2=power of 2  |
+| OPENCL_LIBSMM_SMM_LU           | auto     | Unrolling: -2=full, -1=no hints, 0=inner, 1=outer, >1=LU blocks of M |
+| OPENCL_LIBSMM_SMM_NZ           | 0        | 1: skip atomic updates of zero values                                |
+| OPENCL_LIBSMM_SMM_AL           | 0        | Ignored in this build                                                |
+| OPENCL_LIBSMM_SMM_TB           | 0        | 1: load B (AB=2) only when it changes within a mini-batch            |
+| OPENCL_LIBSMM_SMM_TC           | 1        | 1: write C back only when it changes                                 |
+| OPENCL_LIBSMM_SMM_AP           | 0        | Parameter stack: 0=global, 1=shared                                  |
+| OPENCL_LIBSMM_SMM_AA           | auto     | A-matrix: 0=global, 1=shared, 2=register                             |
+| OPENCL_LIBSMM_SMM_AB           | auto     | B-matrix: 0=global, 1=shared, 2=register                             |
+| OPENCL_LIBSMM_SMM_AC           | 0        | C-matrix: 0=register, 1=shared                                       |
+| OPENCL_LIBSMM_SMM_XF           | 0        | 1: 256 GRF per thread on Intel GPUs (see below)                      |
+
+Defaults apply where no tuned or predicted parameter exists.
+`OPENCL_LIBSMM_SMM_XF` defaults to 1 if `OPENCL_LIBSMM_SMM_BUILDOPTS`
+contains `-cl-intel-256-GRF-per-thread`. A value of
+`OPENCL_LIBSMM_SMM_PREDICT` above 1 also selects a LIBXS prediction mode.
+
+`OPENCL_LIBSMM_SMM_PARAMS=0` runs with plain defaults: no tuned table, no
+prediction (unless `OPENCL_LIBSMM_SMM_PREDICT` is set), and the two-letter
+variables above (`OPENCL_LIBSMM_SMM_BS` to `_XF`) are ignored, as they are
+with a positive `OPENCL_LIBSMM_SMM_PREDICT`. In the default build, whose
+tuned parameters come from the models, `OPENCL_LIBSMM_SMM_PREDICT=-1` alone
+already drops all tuned parameters.
+
+`OPENCL_LIBSMM_SMM_PARAMS` given a CSV file applies its parameters to any
+device (device matching is off). Instead of a file, it also takes one
+parameter row: the CSV columns without DEVICE, S, and GFLOPS, e.g.,
+`3;23;23;23;8;23;1;1;23;0;-1;0;0;0;1;0;2;0;0` (TYPEID;M;N;K;BS;...;AC).
 
 The full list of tunable parameters is available via
-`tune_multiply.py --help`. Some parameters produce distinct code paths
-(e.g., SMM_BS=1 vs SMM_BS=2), so the parameter space is non-smooth.
+`tune_multiply.py --help`.
 
 ## Tuned Parameters
 
 Pre-tuned parameter sets in `params/`:
 
-| File                    | Device                          |
-|-------------------------|---------------------------------|
-| tune_multiply_PVC.csv   | Intel Data Center GPU Max (PVC) |
-| tune_multiply_BMG.csv   | Intel Battlemage (BMG)          |
-| tune_multiply_A100.csv  | NVIDIA A100                     |
-| tune_multiply_H100.csv  | NVIDIA H100                     |
-| tune_multiply_GH200.csv | NVIDIA GH200                    |
-| tune_multiply_V100.csv  | NVIDIA V100                     |
-| tune_multiply_P100.csv  | NVIDIA P100                     |
-| tune_multiply_Mi250.csv | AMD MI250                       |
+| File                       | Device                          |
+|----------------------------|---------------------------------|
+| tune_multiply_PVC.csv      | Intel Data Center GPU Max (PVC) |
+| tune_multiply_BMG.csv      | Intel Battlemage (BMG)          |
+| tune_multiply_A100.csv     | NVIDIA A100                     |
+| tune_multiply_H100-PCI.csv | NVIDIA H100 PCIe                |
+| tune_multiply_H100-SXM.csv | NVIDIA H100 SXM                 |
+| tune_multiply_GH200.csv    | NVIDIA GH200                    |
+| tune_multiply_V100.csv     | NVIDIA V100                     |
+| tune_multiply_P100.csv     | NVIDIA P100                     |
+| tune_multiply_Mi250.csv    | AMD MI250                       |
 
 Parameters are matched by device ID at runtime with best-match
-fallback. Single and double precision coexist in the same CSV.
+fallback. The CSV format takes single and double precision in the same
+file, and the shipped files hold double precision only.
+
+Each CSV file comes with a prediction model of the same name (`.bin`),
+built from its double-precision entries; predictions apply to double
+precision only, other types use the defaults. If every CSV file of a build has a model, the models are
+embedded instead of the CSV rows. `smm_params.sh` rebuilds the model
+after each merge, using `predict_params.x` from LIBXS (`samples/predict`,
+built on demand) found via `LIBXSROOT`, a sibling `libxs`, or
+`$HOME/libxs`. Without LIBXS, the merge reports the model as stale. To
+rebuild a model by hand:
+
+```bash
+predict_params.x hknn params/tune_multiply_PVC.csv params/tune_multiply_PVC.bin
+```
 
 ### Loading Parameters
 
@@ -123,7 +192,7 @@ fallback. Single and double precision coexist in the same CSV.
 # Use embedded parameters (default)
 ./acc_bench.x 5 30000 13 5 7
 
-# Disable tuned parameters
+# Plain defaults
 OPENCL_LIBSMM_SMM_PARAMS=0 ./acc_bench.x 5 30000 13 5 7
 
 # Load from a specific CSV file
@@ -144,11 +213,15 @@ make match
 ./acc_match.x "NVIDIA H200"
 ```
 
+Names given after the device are compared instead of the embedded ones:
+
+```bash
+./acc_match.x "NVIDIA H200" "NVIDIA H100 PCIe" "NVIDIA GH200 480GB"
+```
+
 ## Auto Tuning
 
 Uses OpenTuner to explore the parameter space per (M, N, K) kernel.
-The tuner communicates with the benchmark driver through environment
-variables.
 
 ### Setup
 
@@ -194,19 +267,20 @@ alone merges as well):
 ./tune_multiply.py -m -p params/local -o tune_multiply_local.csv
 ```
 
+`-m` alone (or a merge without a shape) merges the precision that
+`acc_bench.x` was built for and runs it to find out, which needs a device.
+`-m2` (double), `-m1` (single), and `-m0` (all) merge without one.
+
 A JSON file is named after its kernel and a hash of its parameters, for
 example `tune_multiply-double-23x23x23-1a2b3c4d.json`, with `-s<N>` after
-the shape if the batch size is not the default 30000. Tuning that finds
-the same parameters again keeps one file with the higher GFLOPS/s. A
-merge renames files of earlier forms and keeps their modification time,
-which `--prefer new` relies on. Keep one
-directory per device: a same-named file from another device is reported
-and left alone.
+the shape if the batch size is not the default 30000 (`N` is the base-2
+logarithm of the batch size, rounded up). Keep one directory per
+device: a same-named file from another device is reported and left
+alone.
 
-Update the device name stored in every JSON file of a directory. Given a
-name, the tuner writes it as-is and runs nowhere in particular. Given no
-name, it asks the device how it identifies itself, which requires
-running on the target machine:
+Update the device name stored in every JSON file of a directory, either
+as given or, without a name, as the device reports it (which requires
+running on the target machine):
 
 ```bash
 ./tune_multiply.py -u "Some Device [0x1234]" -p params/local
@@ -220,10 +294,7 @@ which needs neither a device nor the benchmark:
 ./tune_multiply.py -M params/tune_multiply_PVC.csv -p tmp/PVC
 ```
 
-The names are reproduced as a tuning session would have written them,
-because a JSON file is named after a hash of its parameters. A file that
-exists is kept rather than rewritten, so an existing directory does not
-lose the file dates that `--plan` orders by.
+A file that exists already is left unchanged.
 
 Check existing JSONs without re-tuning:
 
@@ -233,21 +304,14 @@ Check existing JSONs without re-tuning:
 
 When two JSON files describe the same kernel on the same device,
 `--prefer` decides which one wins the CSV: `fast` (default) keeps the
-higher GFLOPS/s, and `new` keeps the more recent measurement, which is
-what a driver or hardware change calls for. A merge lists the losing
-files, and `-d` removes them:
+higher GFLOPS/s, and `new` keeps the more recent measurement (e.g., after
+a driver change). A merge lists the losing files (`Remove N (use -d)`),
+and `-d` removes them:
 
 ```bash
 ./tune_multiply.py -p params/local --prefer new
 ./tune_multiply.py -p params/local --prefer new -d
 ```
-
-The first command prints `Remove N (use -d)` followed by the files the
-second one deletes, so a merge is also the preview.
-
-Neither direction is inherently safer. Deleting the older file
-discards a configuration that was faster and may be faster again,
-while deleting the newer one discards the evidence of a regression.
 
 Useful options:
 
@@ -257,13 +321,32 @@ Useful options:
 | -p path             | JSON directory; without a shape, merge it    |
 | -s size             | Benchmark batch size, also called stack size |
 | -a level            | Tuning level: 0=all ... 4=least tunables     |
-| -m                  | Merge JSON files into a CSV file             |
+| -m [mode]           | Merge JSON files into a CSV file (see above) |
 | -M file             | Write the JSON files of a CSV file (see -p)  |
 | -o file             | CSV output file                              |
 | -u [device]         | Update JSON device names (see above)         |
 | -c [epsilon]        | Validate JSON entries                        |
 | --prefer fast\|new  | Duplicate winner; without a shape, merge     |
 | -d                  | Delete losing duplicates during merge        |
+| -x                  | Write GFLOPS as 0 into the CSV file          |
+| -e char             | CSV separator (default: `;`)                 |
+| -r count            | Repetitions per benchmark run (0: default)   |
+| -mb size            | Largest mini-batch size to try (default: 64) |
+| --timeout seconds   | Limit per benchmark run (0: none)            |
+| -q                  | Skip configurations with AA=1 or AB=1        |
+| -v                  | Print the settings of each run               |
+
+Setting `OPENCL_LIBSMM_SMM_<X>` (e.g., `OPENCL_LIBSMM_SMM_BS=8`) fixes
+that parameter during tuning. A value of `tune`, `enabled`, or `on`
+keeps it tunable unless the tuning level fixes it. `OPENCL_LIBSMM_SMM_WS`
+is fixed unless set to `tune`.
+
+If a shared LIBXS library loads (`LIBXS_LIB` names the file or its
+directory, otherwise `LIBXSROOT/lib`, a sibling `libxs/lib`, or the
+system path), the OpenTuner technique `LibxsBanditA` becomes available
+(`--technique=LibxsBanditA`). `LIBXS_SURROGATE_KAPPA` (1.0),
+`LIBXS_SURROGATE_CANDIDATES` (512), `LIBXS_SURROGATE_WARMUP` (8), and
+`LIBXS_SURROGATE_NOVELTY` (1.0) adjust it.
 
 The tuner can run under MPI. It detects local MPI rank variables and
 uses them to select `LIBXSTREAM_DEVICE`, so ranks on the same node can
@@ -276,15 +359,10 @@ mpirun \
   ./tune_multiply.py 23x23x23 --stop-after=300 -p params/local
 ```
 
-Interrupted tuning writes the best result seen so far. If you tune a
-different kernel with `tune_multiply.py` directly, remove any old
-OpenTuner database first:
-
-```bash
-rm -rf opentuner.db
-```
-
-The wrapper below does this cleanup automatically.
+Interrupted tuning writes the best result seen so far. Unless
+`--database` names one, the OpenTuner database is kept per process in
+the system's temporary directory (`opentuner/<pid>.db`, under MPI
+`opentuner<device>/<pid>.db`), so sessions do not share it.
 
 ### tune_multiply.sh
 
@@ -312,9 +390,8 @@ Split the same work into four parts and run the second part:
 ./tune_multiply.sh -t 300 -j 4 -i 2 4 10 15, 6 7 8, 23
 ```
 
-Parts also split a long job into sessions on a single device. The
-split points depend only on the triplet list and `-j`, so each session
-repeats the same command and only the part number changes:
+Parts also split a long job into sessions on a single device, where
+each session repeats the same command with the next part number:
 
 ```bash
 PART=1  # next session: 2, then 3 and 4
@@ -322,9 +399,8 @@ PART=1  # next session: 2, then 3 and 4
 ```
 
 Keep the options that shape the list unchanged between sessions (`-r`,
-`-m`, `-n`, `-b`, `-f`, `-k`), since any change moves the split points.
-With `-u`, the list comes from the JSON directory, which stays the same
-as long as no new shapes are added to it between sessions.
+`-m`, `-n`, `-b`, `-f`, `-k`). With `-u`, do not add new shapes to the
+JSON directory between sessions.
 
 Retune every JSON file found in a directory:
 
@@ -336,8 +412,7 @@ Retune every JSON file found in a directory:
 
 `--plan` lists the kernels of a JSON directory oldest first and writes
 that list as a file of triplets, or to standard output if no file is
-given. A kernel is dated by its youngest JSON file, so a kernel counts
-as old only once all of its files are:
+given. A kernel is dated by its youngest JSON file:
 
 ```bash
 ./tune_multiply.sh --plan retune.txt -p params/local -n 40
@@ -347,45 +422,34 @@ as old only once all of its files are:
 The first command takes the 40 kernels that were tuned least recently
 (`-b` takes the most recent ones instead, and `-r`, `-m`, and `-n` limit
 the plan as they limit any other list). The second command works the
-plan. Tuning does not necessarily rewrite a JSON file: finding the same
-parameters again with a lower GFLOPS/s keeps the file and its date, so
-an order taken from the directory a second time can repeat the kernels
-it just tuned. The plan avoids this by holding the order still, which is
-also what makes a plan the list to keep between sessions of a split job.
+plan. Keep the plan file between sessions rather than generating it
+again.
 
-A plan records its own progress: each kernel that tuned successfully is
-marked `#done` and is skipped when the plan is used again, so an
-interrupted session resumes where it stopped and a kernel that failed
-stays in the plan. Marking rewrites the plan, which is why it is limited
-to the generated file (a handwritten list is left alone) and to a single
-session (`-j 1`). Delete the marks to tune the plan again:
+Each kernel that tuned successfully is marked `#done` in the plan and is
+skipped when the plan is used again, so an interrupted session resumes
+where it stopped and a kernel that failed stays in the plan. Only a
+generated plan is marked (a handwritten list is left alone), and only in
+a single session (`-j 1`). Delete the marks to tune the plan again:
 
 ```bash
 sed "s/^#done //" retune.txt > retune.tmp && mv retune.tmp retune.txt
 ```
 
-There is no minimum age: a plan lists every kernel of the directory, and
-`-n` decides how much of it to take. Taken with `--plan`, it fixes a
-smaller campaign, and taken with `-f`, it sizes a single session, so the
-same command repeated works down the plan by the same budget each time:
+A plan lists every kernel of the directory. `-n` with `--plan` limits
+the plan, and `-n` with `-f` limits a single session, so repeating the
+same command works down the plan:
 
 ```bash
 ./tune_multiply.sh --plan retune.txt -p params/local
 ./tune_multiply.sh -f retune.txt -p params/local -n 2 -t 300
 ```
 
-A complete plan has no unmarked line left, which is the point to
-generate the next one:
+Once no unmarked line is left, generate the next plan:
 
 ```bash
 grep -qv "^#" retune.txt || ./tune_multiply.sh --plan retune.txt -p params/local
 ./tune_multiply.sh -f retune.txt -p params/local -n 2 -t 300
 ```
-
-A date tells when a kernel was last improved, not when it was last
-tuned, and `#done` is the only record of an attempt. A kernel that
-retuning never improves therefore keeps its date and heads the next
-generated plan again.
 
 Limit the generated work before splitting it:
 
@@ -396,25 +460,31 @@ Limit the generated work before splitting it:
 
 Useful options:
 
-| Option          | Meaning                                           |
-|-----------------|---------------------------------------------------|
-| -t seconds      | Time limit per kernel                             |
-| -p path         | Directory for JSON files                          |
-| -s size         | Benchmark batch size, also called stack size      |
-| -a level        | Tuning level: 0=all ... 4=least tunables          |
-| -u              | Retune JSON files found under `-p`                |
-| --plan [file]   | Write kernels of `-p` by age, oldest first        |
-| -d              | Ask the merge step to delete losing JSONs         |
-| --prefer new    | Prefer newest duplicate (default: fastest)        |
-| -c              | Continue with the next kernel after an error      |
-| -b              | Reverse triplets, before `-n` and before parts    |
-| -j parts        | Total number of tuning parts                      |
-| -i index        | Part to run, using 1-based numbering              |
-| -r low high     | Keep kernels with low**3 < M*N*K <= high**3       |
-| -m extent       | Keep kernels with M, N, and K no larger than this |
-| -n count        | Keep only the first count kernels (see `-b`)      |
-| -f file         | Read MxNxK list from a file, resuming a plan      |
-| -k id           | Use a predefined triplet set                      |
+| Option        | Meaning                                            |
+|---------------|----------------------------------------------------|
+| -t seconds    | Time limit per kernel (default: 160)               |
+| -p path       | Directory for JSON files                           |
+| -s size       | Benchmark batch size, also called stack size       |
+| -a level      | Tuning level: 0=all ... 4=least tunables           |
+| -u            | Retune JSON files found under `-p`                 |
+| --plan [file] | Write kernels of `-p` by age, oldest first         |
+| -d            | Ask the merge step to delete losing JSONs          |
+| --prefer new  | Prefer newest duplicate (default: fastest)         |
+| -c            | Continue with the next kernel after an error       |
+| -b            | Reverse triplets, before `-n` and before parts     |
+| -j parts      | Total number of tuning parts                       |
+| -i index      | Part to run, using 1-based numbering               |
+| -r low high   | Keep kernels with low**3 < M*N*K <= high**3        |
+| -m extent     | Keep kernels with M, N, and K no larger than this  |
+| -n count      | Keep only the first count kernels (see `-b`)       |
+| -f file       | Read MxNxK list from a file, resuming a plan       |
+| -k id         | Use a predefined triplet set                       |
+| -w seconds    | Delay before tuning starts (default: 12, parts: 0) |
+| -h            | Print usage                                        |
+
+With `-c` and without `-t`, there is no time limit per kernel. Option
+variables that are already set in the environment (e.g., `PART`,
+`NPARTS`, `JSONDIR`, `MAXTIME`, `CONTINUE`) act as if given.
 
 Options the wrapper does not know are passed to `tune_multiply.py`.
 Such an option must carry its value as `--opt=value`, since a separate
@@ -481,11 +551,10 @@ mpirun -np 8 ./tune_multiply.sh -u -p params/local -t 300
 
 ### Managing Tuned Parameters
 
-JSON files are the working format and stay on the machine that tuned
-them, since `params/*/` is not tracked. CSV files are the deployable
-format. `smm_params.sh` converts between the two for every device at
-once, pairing a directory `params/<device>-0x<id>` with the CSV file
-`params/tune_multiply_<device>.csv`:
+JSON files are the working format (`params/*/` is not tracked), and CSV
+files are the deployable format. `smm_params.sh` converts between the
+two for every device at once, pairing a directory `params/<device>-0x<id>` with the CSV file
+`params/tune_multiply_<device>.csv` (double precision only):
 
 ```bash
 ./smm_params.sh            # merge every device
@@ -493,11 +562,10 @@ once, pairing a directory `params/<device>-0x<id>` with the CSV file
 ./smm_params.sh -e         # the reverse: write JSONs to tmp/
 ```
 
-The device id in the directory name is what tells two variants of the
-same GPU apart. A merge compares it against the id of the parameters it
-merged and against the CSV file it is about to replace, and reports both
-ids rather than overwriting the wrong file. A device without a CSV file
-needs `-f`, which is how a new device gets its first one.
+The device id in the directory name must match the id of the merged
+parameters and that of the CSV file being replaced. Otherwise the merge
+reports both ids and writes nothing. A device without a CSV file needs
+`-f`.
 
 A typical retune flow is:
 
@@ -509,39 +577,35 @@ make WITH_GPU=P100
 ./smm_params.sh P100
 ```
 
+The last step also rebuilds the prediction model (see Tuned Parameters).
+
 Keep GPU driver state persistent during tuning (e.g.,
 `nvidia-smi -pm ENABLED` on headless NVIDIA systems).
 
 ### Starting a New Device
 
-Tuning from scratch starts from the benchmark's own defaults. Starting
-from parameters that already work on a similar GPU is usually better, so
-`-e` expands a CSV file back into JSON files and any published device
-can seed a new one. Pick the closest relative, e.g. the previous
-generation of the same vendor:
+A new device can be seeded with the parameters of a similar one (e.g.,
+the previous generation of the same vendor): `-e` expands its CSV file
+into JSON files:
 
 ```bash
 ./smm_params.sh -e P100
 mv tmp/P100-0x2f6c params/NEW-0x0000
 ```
 
-`-e` writes below `tmp/` and never into a corpus, so it cannot reset the
-file dates of parameters that are already tuned. The expanded files
-still name the device they came from. On the target machine, let the
-tuner ask the device instead:
+`-e` writes below `tmp/` only. The expanded files still name the device
+they came from. On the target machine, update the device name:
 
 ```bash
 ./tune_multiply.py -u -p params/NEW-0x0000
 ./smm_params.sh -f NEW
 ```
 
-The merge reports the id it actually found, which is the id to put into
-the directory name. Rename accordingly and the pair is consistent:
+The merge reports the id it found. Rename the directory accordingly:
 
 ```bash
 mv params/NEW-0x0000 params/NEW-0x1234
 ./smm_params.sh -f NEW
 ```
 
-From there, retuning is the normal flow: the seeded parameters are what
-the search starts from, and `--plan` keeps a record of what was retuned.
+From there, retune with the normal flow.

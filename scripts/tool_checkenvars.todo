@@ -6,18 +6,3 @@
 # Per project, and deliberately not a policy file: "make documentation" copies
 # tool_checkenvars.sh from LIBXS and would revert a name removed here.
 # Regenerate with: scripts/tool_checkenvars.sh --all
-LIBXSTREAM_ATOMICS
-LIBXSTREAM_ASYNC
-LIBXSTREAM_BARRIER
-LIBXSTREAM_BIGGRF
-LIBXSTREAM_CPP
-LIBXSTREAM_CPPBIN
-LIBXSTREAM_CPPFLAGS
-LIBXSTREAM_DEBUG
-LIBXSTREAM_DUMP
-LIBXSTREAM_INTEL
-LIBXSTREAM_NCCS
-LIBXSTREAM_NLOCKS
-LIBXSTREAM_NV
-LIBXSTREAM_PRIORITY
-LIBXSTREAM_WA
