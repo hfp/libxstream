@@ -65,7 +65,7 @@ LIBXS_PRAGMA_DIAG_POP()
  * Default staging window per thread; LIBXSTREAM_STAGE overrides it in MB. The
  * window is used as two halves, so this also bounds the chunk that a copy and a
  * transfer overlap over, and it is what the extra host memory per transferring
- * thread costs. Measured on an H100 with the fine-grained copy in place, where
+ * thread costs. Measured with the fine-grained copy in place, where
  * the drop-in call at n=4096 fp64 takes 18.09 ms at 16 MB, 18.00 at 32, 18.16 at
  * 48 and 18.51 at 64, and at n=8192 takes 96.33, 93.36 and 96.86 at 16, 32 and
  * 64: too small and there are more chunks than the overlap can hide, too large
@@ -84,7 +84,7 @@ LIBXS_PRAGMA_DIAG_POP()
  * Block of the staging copy; LIBXSTREAM_STAGE_GRAIN overrides it in KB. Blocks
  * are handed out round-robin, so a grain finer than one share per thread lets
  * the fast threads absorb more of the copy. This is what the copy is actually
- * sensitive to: on an H100 at n=4096 fp64 the drop-in call takes 20.0 ms at one
+ * sensitive to: at n=4096 fp64 the drop-in call takes 20.0 ms at one
  * block per thread and 18.7 ms at 16-32 KB, at both 16 and 32 threads, and the
  * finer grain also removes most of the sensitivity to the thread count (64
  * threads go 22.8 -> 19.4).
@@ -179,16 +179,18 @@ LIBXS_PRAGMA_DIAG_POP()
 #   define LIBXSTREAM_STREAM_PRIORITIES
 # endif
 #endif
-#if !defined(LIBXSTREAM_USM) && defined(CL_VERSION_2_0) && 1
-# if defined(__OFFLOAD_UNIFIED_MEMORY)
+#if !defined(LIBXSTREAM_USM)
+# if defined(CL_VERSION_2_0) && 1
+#   if defined(__OFFLOAD_UNIFIED_MEMORY)
 /* Do not rely on an Intel extension for pointer arithmetic */
-#   define LIBXSTREAM_USM 2
-# else
+#     define LIBXSTREAM_USM 2
+#   else
 /* Rely on OpenCL 2.0 (eventually mix-in an Intel ext.) */
-#   define LIBXSTREAM_USM 1
+#     define LIBXSTREAM_USM 1
+#   endif
+# else
+#   define LIBXSTREAM_USM 0
 # endif
-#else
-# define LIBXSTREAM_USM 0
 #endif
 /* Activate device by default */
 #if !defined(LIBXSTREAM_ACTIVATE)
