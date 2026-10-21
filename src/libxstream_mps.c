@@ -52,8 +52,9 @@
 #   if !defined(LIBXSTREAM_MPS_ARENA)
 #     define LIBXSTREAM_MPS_ARENA 256
 #   endif
-#   if !defined(LIBXSTREAM_MPS_TIMEOUT)
-#     define LIBXSTREAM_MPS_TIMEOUT 60
+/* seconds to wait for the server (client) or for the first client (server) */
+#   if !defined(LIBXSTREAM_MPS_CONNECT)
+#     define LIBXSTREAM_MPS_CONNECT 60
 #   endif
 #   if !defined(LIBXSTREAM_MPS_IDLE)
 #     define LIBXSTREAM_MPS_IDLE 2
@@ -637,7 +638,7 @@ static int libxstream_mps_hello(libxstream_mps_client_t* c, int fd, int main)
 /* The first connection starts the server if there is none, and waits for it to come up. */
 static int libxstream_mps_open(libxstream_mps_client_t* c, int main)
 {
-  const int nattempts = (0 != main ? LIBXSTREAM_MPS_TIMEOUT * 100 : 1);
+  const int nattempts = (0 != main ? LIBXSTREAM_MPS_CONNECT * 100 : 1);
   int result = -1, attempt = 0;
   for (; attempt < nattempts && 0 > result; ++attempt) {
     const int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -3849,7 +3850,7 @@ LIBXSTREAM_API int libxstream_mps_server(void)
     }
     else fprintf(stderr, "ERROR LIBXSTREAM-MPS: no OpenCL device found\n");
     if (EXIT_SUCCESS == result) {
-      int idle = 0, limit = 1000 * LIBXSTREAM_MPS_TIMEOUT;
+      int idle = 0, limit = 1000 * LIBXSTREAM_MPS_CONNECT;
       if (0 != libxstream_mpsd.verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: serving %s\n", path);
       while (0 > idle_limit || idle < limit) { /* until no client was seen for a while */
         struct pollfd pfd;
