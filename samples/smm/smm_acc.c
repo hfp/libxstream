@@ -137,7 +137,9 @@ int libsmm_acc_init(void) {
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
       const char* const env_predict = OPENCL_LIBSMM_SMMENV("PREDICT");
       const char* const env_conf = OPENCL_LIBSMM_SMMENV("PREDICT_CONF");
-      opencl_libsmm_predict_mode = (NULL == env_predict || '\0' == *env_predict) ? 0 : atoi(env_predict);
+      /* PARAMS=0 means plain defaults: no prediction either unless PREDICT asks for it */
+      opencl_libsmm_predict_mode = (NULL == env_predict || '\0' == *env_predict)
+        ? ((NULL != env_params && '0' == *env_params) ? -1 : 0) : atoi(env_predict);
       /* unset is the default; zero is a threshold too, and takes every prediction */
       opencl_libsmm_predict_conf = (NULL == env_conf || '\0' == *env_conf) ? OPENCL_LIBSMM_PREDICT_CONF : atof(env_conf);
 #  endif

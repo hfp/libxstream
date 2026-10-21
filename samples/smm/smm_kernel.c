@@ -116,7 +116,8 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
     config = (opencl_libsmm_smm_t*)libxs_registry_get(
       opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
-    if (NULL == config && NULL != opencl_libsmm_predict_model) {
+    /* the models are trained on FP64 parameters only, hence other types take the defaults */
+    if (NULL == config && NULL != opencl_libsmm_predict_model && dbcsr_type_real_8 == key.type) {
       libxs_predict_info_t pinfo;
       libxs_predict_query_t pquery;
       /**
