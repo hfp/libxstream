@@ -103,8 +103,15 @@ jobs:
         grep -q "DBM-kernel" miniapp.log || { echo "ERROR: the DBM kernel did not run"; exit 1; }
 
   DBCSR:
+    name: DBCSR${{ matrix.profile && ' (profile)' || '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # profile: LIBXSTREAM brackets each ACC call with DBCSR's timers, an
+        # optional debug aid (LIBXSTREAM_PROFILE_DBCSR) that only links with DBCSR
+        profile: [false, true]
     env:
       # the scheduled run has no inputs, hence the defaults of the inputs again
       OWNER_DBCSR: ${{ github.event.inputs.owner_dbcsr || 'hfp' }}
@@ -113,6 +120,8 @@ jobs:
       OMP_NUM_THREADS: 2
       # DBCSR's copy of acc_bench fails on a wrong result only if CHECK is positive
       CHECK: 1
+      # turns the bracketing on at runtime (and the per-kernel profile)
+      LIBXSTREAM_PROFILE: ${{ matrix.profile && '1' || '0' }}
     steps:
     - uses: actions/checkout@v5
 
@@ -153,9 +162,13 @@ jobs:
       run: cd ${LIBXSROOT} && make -j $(nproc)
 
     - name: Build LIBXSTREAM
-      run: make -j $(nproc)
+      env:
+        PROFILE_FLAGS: ${{ matrix.profile && '-DLIBXSTREAM_PROFILE_DBCSR=8' || '' }}
+      run: make -j $(nproc) ${PROFILE_FLAGS:+"ECFLAGS=${PROFILE_FLAGS}"}
 
+    # the standalone sample has no DBCSR to provide the timers of the profile
     - name: Test SMM sample
+      if: ${{ !matrix.profile }}
       run: |
         make -j $(nproc) -C samples/smm
         cd samples/smm && ./acc_bench.x 3 3000 13x5x7
