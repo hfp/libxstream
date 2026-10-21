@@ -214,7 +214,12 @@ LIBXSTREAM_API_INTERN void libxstream_mem_hst_resolve(void)
     if (libxstream_opencl_mem_hst_unknown == libxstream_opencl_config.mem_hst) {
       libxstream_opencl_config.mem_hst = libxstream_opencl_mem_hst_malloc;
 # if (1 >= LIBXSTREAM_USM)
-      if (NULL != devinfo->clMemFreeINTEL) {
+      /**
+       * Intel MPI without its offload support cannot read Intel USM host memory across
+       * processes. Only a gap is filled: an explicit I_MPI_OFFLOAD stays in effect, even
+       * where it fails.
+       */
+      if (NULL != devinfo->clMemFreeINTEL && (0 != libxstream_mpi_usm_host() || NULL != getenv("I_MPI_OFFLOAD"))) {
 #   if defined(LIBXSTREAM_MEM_UNIFIED_SHARED)
         const int host = (NULL == devinfo->clSharedMemAllocINTEL);
 #   else

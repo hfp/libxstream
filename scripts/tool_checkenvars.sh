@@ -45,25 +45,22 @@ banner() {
 }
 
 HERE="$(cd "$(dirname "$0")" && pwd -P)"
-SRC="${HERE}/../src"
-EXT="c"
+SRC=()
 
+# Sources and public headers, since a header can read a variable as well.
 # Amalgamated layout: the sources sit next to the headers.
-if [ ! -d "${SRC}" ]; then
-  for DIR in "${HERE}/../libxs" "${HERE}/../libxstream"; do
-    if [ -d "${DIR}" ]; then
-      SRC="${DIR}"
-      break
-    fi
-  done
-fi
+for DIR in "${HERE}/../src" "${HERE}/../libxs" "${HERE}/../libxstream"; do
+  if [ -d "${DIR}" ]; then
+    SRC+=("${DIR}")
+  fi
+done
 
-if [ ! "${FIND}" ] || [ ! "${SORT}" ] || [ ! "${SED}" ] || [ ! -d "${SRC}" ]; then
+if [ ! "${FIND}" ] || [ ! "${SORT}" ] || [ ! "${SED}" ] || [ 0 = "${#SRC[@]}" ]; then
   >&2 echo "ERROR: missing prerequisites!"
   RESULT=1
 else
   export LC_ALL=C
-  ENVARS="$(${FIND} "${SRC}" -type f -name "*.${EXT}" -exec \
+  ENVARS="$(${FIND} "${SRC[@]}" -type f \( -name "*.c" -o -name "*.h" \) -exec \
     "${SED}" "s/getenv[[:space:]]*([[:space:]]*\".[^\"]*/\n&/g" {} \; | \
      ${SED} -n "s/.*getenv[[:space:]]*([[:space:]]*\"\(.[^\"]*\)..*/\1/p" | \
      ${SORT} -u)"

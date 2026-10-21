@@ -634,6 +634,8 @@ typedef struct libxstream_opencl_config_t {
 /** Configuration that precedes any use of the OpenCL runtime. */
 LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void);
 LIBXSTREAM_API_INTERN void libxstream_pin_resolve(void);
+/** Whether Intel USM host memory can be exchanged: Intel MPI is absent, or runs with its offload support. */
+LIBXSTREAM_API_INTERN int libxstream_mpi_usm_host(void);
 /** Resolves the pin mode and applies it to every range declared so far. */
 LIBXSTREAM_API_INTERN void libxstream_mem_host_pin_apply(void);
 LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t, const void*);

@@ -24,6 +24,7 @@
 #   include <glob.h>
 #   if defined(__linux__)
 #     include <sys/syscall.h>
+#     include <dirent.h>
 #   endif
 # endif
 # include <fcntl.h>
@@ -183,6 +184,60 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
   /* opt-in: sub-buffers for offset kernel-arguments (see the config field) */
   libxstream_opencl_config.subbuffer = (0 <= subbuffer ? subbuffer
     : (NULL == env_subbuffer ? /*default*/ 0 : atoi(env_subbuffer)));
+}
+
+
+# if (1 >= LIBXSTREAM_USM)
+/**
+ * Whether the GPUs of the system are Intel's only (1), include AMD's or NVIDIA's (0),
+ * or cannot be told (-1). Reads the PCI devices rather than any runtime, as it is
+ * meant to run before a driver is loaded. A display controller of another vendor
+ * (e.g., a management controller) does not count.
+ */
+static int libxstream_pci_intel_only(void)
+{
+  int result = -1;
+# if defined(__linux__)
+  DIR* const dir = opendir("/sys/bus/pci/devices");
+  if (NULL != dir) {
+    const struct dirent* entry;
+    int nintel = 0, nother = 0;
+    while (NULL != (entry = readdir(dir))) {
+      if ('.' != entry->d_name[0]) {
+        char path[512];
+        unsigned int devclass = 0, vendor = 0;
+        FILE* file;
+        LIBXS_SNPRINTF(path, sizeof(path), "/sys/bus/pci/devices/%s/class", entry->d_name);
+        file = fopen(path, "r");
+        if (NULL != file) {
+          if (1 != fscanf(file, "%x", &devclass)) devclass = 0;
+          fclose(file);
+        }
+        if (0x03 == (devclass >> 16)) { /* display controller */
+          LIBXS_SNPRINTF(path, sizeof(path), "/sys/bus/pci/devices/%s/vendor", entry->d_name);
+          file = fopen(path, "r");
+          if (NULL != file) {
+            if (1 != fscanf(file, "%x", &vendor)) vendor = 0;
+            fclose(file);
+          }
+          if (0x8086 == vendor) ++nintel;
+          else if (0x1002 == vendor || 0x10de == vendor) ++nother;
+        }
+      }
+    }
+    closedir(dir);
+    result = ((0 != nintel && 0 == nother) ? 1 : 0);
+  }
+# endif
+  return result;
+}
+# endif
+
+
+LIBXSTREAM_API_INTERN int libxstream_mpi_usm_host(void)
+{
+  const char* const env_offload = getenv("I_MPI_OFFLOAD");
+  return (NULL == getenv("I_MPI_ROOT") || (NULL != env_offload && 0 != atoi(env_offload)));
 }
 
 
@@ -397,17 +452,6 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
       LIBXS_EXPECT(0 == LIBXS_PUTENV(apply[4]));
     }
   }
-# if (1 >= LIBXSTREAM_USM)
-  { /* Intel MPI cannot read Intel USM host memory across processes without its offload support */
-    static char mpi_offload[] = "I_MPI_OFFLOAD=1";
-    const char* const env_usm = getenv("LIBXSTREAM_USM");
-    if (NULL != env_usm && 1 == atoi(env_usm) && NULL != getenv("I_MPI_ROOT") && NULL == getenv("I_MPI_OFFLOAD") &&
-        0 == LIBXS_PUTENV(mpi_offload) && (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
-    {
-      fprintf(stderr, "INFO ACC/OpenCL: I_MPI_OFFLOAD=1 for LIBXSTREAM_USM=1\n");
-    }
-  }
-# endif
   libxstream_mps_presetup(libxstream_opencl_config.verbosity); /* before the loader reads it */
 # if defined(LIBXS_INTERCEPT_DYNAMIC)
   /**
@@ -878,6 +922,32 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_CTOR void libxstream_opencl_init(void)
   if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
     libxstream_opencl_setup();
   }
+# if (1 >= LIBXSTREAM_USM)
+  /**
+   * Intel MPI cannot read Intel USM host memory across processes without its offload
+   * support, which it reads at MPI_Init. Only where Intel GPUs are all there is: the
+   * setting broke runs on other GPUs. An MPS client never gets USM (no forwarded
+   * extensions), and an explicit setting is kept (see libxstream_mpi_usm_host). Here
+   * rather than in libxstream_opencl_setup, which may run after MPI_Init, and not at
+   * all if MPI is already initialized (a library loaded later).
+   */
+  {
+    static char mpi_offload[] = "I_MPI_OFFLOAD=1";
+    const char *const env_usm = getenv("LIBXSTREAM_USM"), *const env_icd = getenv("OCL_ICD_FILENAMES");
+    int mpi_ready = 0;
+#   if defined(LIBXS_INTERCEPT_DYNAMIC)
+    union { const void* dlsym; int (*ptr)(int*); } initialized;
+    initialized.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "MPI_Initialized");
+    if (NULL != initialized.dlsym && 0 != initialized.ptr(&mpi_ready)) mpi_ready = 0;
+#   endif
+    if ((NULL == env_usm || 1 == atoi(env_usm)) && NULL != getenv("I_MPI_ROOT") && NULL == getenv("I_MPI_OFFLOAD") &&
+        0 == mpi_ready && (NULL == env_icd || NULL == strstr(env_icd, "libxstream_icd")) && 1 == libxstream_pci_intel_only() &&
+        0 == LIBXS_PUTENV(mpi_offload) && (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+    {
+      fprintf(stderr, "INFO ACC/OpenCL: I_MPI_OFFLOAD=1 for Intel USM\n");
+    }
+  }
+# endif
 # if defined(LIBXSTREAM_PREINIT)
   LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_init());
 # endif
@@ -2025,15 +2095,17 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           }
           /**
            * LIBXSTREAM_USM levels:
-           *   not set: OpenCL 2.0 SVM coarse-grain (same as level 2)
+           *   not set: level 1 on an Intel discrete GPU unless Intel MPI runs
+           *            without its offload support, else as level 2
            *   0: disable all USM, force clCreateBuffer path
            *   1: Intel USM ext
            *   2: OpenCL 2.0 SVM coarse-grain only (skip Intel ext)
            *   3: OpenCL 2.0 SVM with device-reported caps (skip Intel ext)
            *
-           * 1 and 3 are opt-in: the default stays predictable across drivers rather
-           * than fastest on one, and level 3 takes whatever the driver reports,
-           * which can reach fine-grain system allocations.
+           * Level 1 transfers asynchronously from pinned host memory. Intel MPI was
+           * the reason to keep it opt-in, hence the default follows I_MPI_OFFLOAD
+           * (see libxstream_opencl_init). Level 3 is opt-in: it takes whatever the
+           * driver reports, which can reach fine-grain system allocations.
            */
           {
             const char* const env_usm = getenv("LIBXSTREAM_USM");
@@ -2046,7 +2118,14 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
              * memory as well but is correct. The same bit forces synchronous
              * transfers.
              */
-            const int usm_default = (LIBXSTREAM_WA_UNIFIED(devinfo) ? 0 : -1 /*as level 2*/);
+#   if (1 >= LIBXSTREAM_USM)
+            /* Intel USM on an Intel discrete GPU, unless Intel MPI could not exchange its host memory */
+            const int usm_intel = (CL_DEVICE_TYPE_GPU == devinfo->type && 0 != devinfo->intel && 0 == devinfo->unified &&
+                                   0 != libxstream_mpi_usm_host());
+#   else
+            const int usm_intel = 0;
+#   endif
+            const int usm_default = (LIBXSTREAM_WA_UNIFIED(devinfo) ? 0 : (0 != usm_intel ? 1 : -1 /*as level 2*/));
 # else
             const int usm_default = -1;
 # endif
@@ -2061,7 +2140,7 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             }
 # endif
 # if defined(LIBXSTREAM_XHINTS) && (1 >= LIBXSTREAM_USM)
-            /* Intel USM extensions: enabled only by explicit level 1 */
+            /* Intel USM extensions: level 1, explicit or by default */
             if (1 == usm_level && 2 <= *devinfo->std_level && 0 != devinfo->intel &&
                 (0 == devinfo->unified || NULL != (LIBXSTREAM_XHINTS)))
             {
@@ -2129,9 +2208,10 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
             /**
              * Only an unsatisfied explicit request warrants a warning: level 1 asked
              * for the asynchronous path and did not get it, and the symptom is merely
-             * a slower run.
+             * a slower run. A default that cannot be met (e.g., under MPS) falls back
+             * quietly.
              */
-            if (1 == usm_level && NULL == devinfo->clMemFreeINTEL &&
+            if (1 == usm_level && NULL == devinfo->clMemFreeINTEL && (0 <= cfg_usm || NULL != env_usm) &&
                 (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
             {
               fprintf(stderr, "WARN ACC/OpenCL: no Intel USM extensions, falling back to SVM.\n");

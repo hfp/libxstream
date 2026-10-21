@@ -7,6 +7,7 @@
 # tool_checkenvars.sh from LIBXS and would revert a name removed here.
 # Regenerate with: scripts/tool_checkenvars.sh --all
 LIBXSTREAM_ATOMICS
+LIBXSTREAM_ASYNC
 LIBXSTREAM_BARRIER
 LIBXSTREAM_BIGGRF
 LIBXSTREAM_CPP
