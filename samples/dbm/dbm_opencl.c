@@ -371,7 +371,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
           const int sm0 = (NULL == sm_env ? 0 : atoi(sm_env));
           int source_kind = 0, sm = LIBXS_ABS(sm0);
           const int bn0 = (0 == devinfo->nv ? 8 : 2);
-          const int bn1 = ((0 == sm && 0 == clinear) ? bn0 : (bn0 * sm * 2));
+          const int bn1 = (0 == sm ? bn0 : (bn0 * sm * 2));
           const int gpu = (CL_DEVICE_TYPE_GPU == devinfo->type);
           const int precision = (NULL == fp_env ? 0 /*default*/ : atoi(fp_env));
           int bn = LIBXS_CLMP(NULL == bn_env ? bn1 : atoi(bn_env), 1, 32);
