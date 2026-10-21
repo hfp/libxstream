@@ -559,7 +559,10 @@ LIBXSTREAM_API int libxstream_init(void)
 # if defined(LIBXSTREAM_CACHE_DID)
     assert(0 == internal_libxstream_opencl_active_id);
 # endif
-    if (EXIT_SUCCESS != libxstream_opencl_device_uid(NULL /*device*/, env_devmatch, &libxstream_opencl_config.devmatch)) {
+    if (NULL != env_devmatch && '0' == env_devmatch[0] && '\0' == env_devmatch[1]) {
+      libxstream_opencl_config.devmatch = 0; /* the UID parser would hash "0" into a non-zero UID */
+    }
+    else if (EXIT_SUCCESS != libxstream_opencl_device_uid(NULL /*device*/, env_devmatch, &libxstream_opencl_config.devmatch)) {
       libxstream_opencl_config.devmatch = 1;
     }
     if (EXIT_SUCCESS == clGetPlatformIDs(0, NULL, &nplatforms) && 0 < nplatforms) {
