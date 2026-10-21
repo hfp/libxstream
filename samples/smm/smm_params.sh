@@ -23,6 +23,21 @@ csvtag() {
   ${SED} -n "2s/^[^;]*\[\(0[xX][0-9a-fA-F]*\)\].*/\1/p" "$1" 2>/dev/null
 }
 
+# LIBXS's predict_params.x (built on demand) from LIBXSROOT, a sibling, or HOME
+predictx() {
+  for ROOT in "${LIBXSROOT}" "$1/../../../libxs" "${HOME}/libxs"; do
+    if [ "${ROOT}" ] && [ -d "${ROOT}/samples/predict" ]; then
+      if [ ! -x "${ROOT}/samples/predict/predict_params.x" ] && [ "$(command -v make)" ]; then
+        make -C "${ROOT}/samples/predict" predict_params.x >/dev/null 2>&1
+      fi
+      if [ -x "${ROOT}/samples/predict/predict_params.x" ]; then
+        echo "${ROOT}/samples/predict/predict_params.x"
+        break
+      fi
+    fi
+  done
+}
+
 if [ "${SED}" ] && [ "${LS}" ] && [ "${MV}" ] && [ "${RM}" ] && [ "${WC}" ]; then
   while test $# -gt 0; do
     case "$1" in
@@ -51,6 +66,8 @@ if [ "${SED}" ] && [ "${LS}" ] && [ "${MV}" ] && [ "${RM}" ] && [ "${WC}" ]; the
     echo "Usage: $0 [-f|--force] [-e|--expand] [pattern]"
     echo "       Merges each private params/<device>-0x<id> directory"
     echo "       into the published params/tune_multiply_<device>.csv"
+    echo "       and rebuilds its prediction model (.bin) using LIBXS"
+    echo "       (LIBXSROOT, a sibling libxs, or \$HOME/libxs)"
     echo "       -e|--expand: reverse, i.e. write the JSON-files of each"
     echo "        CSV-file to tmp/<device>-0x<id> (no corpus is touched)"
     echo "       -f|--force: write a CSV-file that does not exist yet,"
@@ -89,6 +106,7 @@ if [ "${SED}" ] && [ "${LS}" ] && [ "${MV}" ] && [ "${RM}" ] && [ "${WC}" ]; the
       fi
     done
   else
+    PREDICTX=$(predictx "${HERE}")
     # MATCH is a pattern rather than a name
     # shellcheck disable=SC2231
     for DIR in "${PARAMDIR}/"${MATCH}-0[xX]*/; do
@@ -130,6 +148,19 @@ if [ "${SED}" ] && [ "${LS}" ] && [ "${MV}" ] && [ "${RM}" ] && [ "${WC}" ]; the
       NKERNELS=$(($(${WC} -l <"${CSVFILE}")-1))
       ${MV} -f "${CSVFILE}" "${TARGET}"
       echo "Wrote ${NKERNELS} kernel(s) to ${TARGET##*/}."
+      # the build embeds the model in place of the CSV-file, hence it must follow
+      MODEL="${TARGET%.csv}.bin"
+      if [ "${PREDICTX}" ]; then
+        if "${PREDICTX}" hknn "${TARGET}" "${MODEL}" >/dev/null; then
+          echo "Wrote model ${MODEL##*/}."
+        else
+          >&2 echo "ERROR: failed to build ${MODEL##*/}!"
+          RESULT=1
+        fi
+      elif [ -e "${MODEL}" ]; then
+        >&2 echo "ERROR: ${MODEL##*/} is stale (LIBXS predict_params.x not found)!"
+        RESULT=1
+      fi
     done
     # a device that failed late leaves its merged CSV-file behind
     if [ "${CSVFILE}" -nt "${STAMP}" ]; then ${RM} -f "${CSVFILE}"; fi

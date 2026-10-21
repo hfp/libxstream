@@ -65,15 +65,14 @@ repos:
   hooks:
   # Uses the installed shellcheck (apt, brew, and preinstalled on GitHub
   # runners) rather than a build-from-source mirror.
-  # Exclusions are an open backlog, not a policy: 23 SC2086 (unquoted
-  # expansion) across 7 scripts, one SC2034 in tests/test.sh (dead LDD), and
-  # one SC2124 in samples/predict/predict_params.sh. Drop them once fixed.
+  # Exclusions are an open backlog, not a policy: SC2086 (unquoted expansion)
+  # and SC2034 (unused variable) still have findings. Drop them once fixed.
   - id: shellcheck
     name: shellcheck
     entry: shellcheck
     language: system
     types: [shell]
-    args: ["--exclude=SC2086,SC2034,SC2124"]
+    args: ["--exclude=SC2086,SC2034"]
   # md2pptx.py is exempt: its payload is a LaTeX-to-Unicode mapping table.
   - id: ascii-only
     name: US-ASCII outside Markdown

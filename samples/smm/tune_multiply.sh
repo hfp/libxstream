@@ -388,8 +388,6 @@ then
       fi
       echo
       echo "[$((N+1))/${PARTSIZE}]${STEP}: auto-tuning ${MNK}-kernel..."
-      # avoid mixing database of previous results into new session
-      ${RM} -rf ./opentuner.db
       eval "${HERE}/tune_multiply.py ${MNK} ${DELETE}${PREFER} -p ${JSONDIR} -s ${BATCHSIZE} -a ${TLEVEL} ${MAXTIME}${EXTRA}"
       RESULT=$?
       # an interrupted or failed kernel stays in the plan
@@ -417,9 +415,6 @@ then
     fi
     N=$((N+1))
   done
-  if [ "${RESULT}" ]; then
-    ${RM} -rf ./opentuner.db
-  fi
 else
   >&2 echo "ERROR: missing prerequisites!"
   exit 1
