@@ -59,6 +59,11 @@ repos:
     args: [--ignore-missing-imports]
     files: ^(scripts|\.theme)/
 
+- repo: https://github.com/cheshirekow/cmake-format-precommit
+  rev: v0.6.13
+  hooks:
+    - id: cmake-format
+
 # Project-specific rules. clang-format is deliberately absent: it reflows whole
 # files and would bury the change under review. Run it deliberately instead.
 - repo: local
