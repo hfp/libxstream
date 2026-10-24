@@ -245,40 +245,6 @@ jobs:
         name: libxstream-deb
         path: "*.deb"
 
-  RPM:
-    runs-on: ubuntu-latest
-    container: fedora:latest
-    steps:
-    - uses: actions/checkout@v5
-
-    - name: Install dependencies
-      run: |
-        dnf install -y rpm-build gcc gcc-gfortran cmake ninja-build bash git \
-          ocl-icd-devel opencl-headers
-
-    - name: Install LIBXS
-      run: |
-        git clone --depth 1 https://github.com/hfp/libxs.git ../libxs
-        cd ../libxs && mkdir build && cd build
-        cmake .. -GNinja && ninja install -j $(nproc)
-        ldconfig
-
-    - name: Build RPM package
-      run: |
-        mkdir -p $HOME/rpmbuild/{SOURCES,SPECS}
-        cp scripts/fedora/libxstream.spec $HOME/rpmbuild/SPECS/
-        VERSION=$(grep '^Version:' scripts/fedora/libxstream.spec | awk '{print $2}')
-        tar czf $HOME/rpmbuild/SOURCES/libxstream-${VERSION}.tar.gz \
-          --transform="s,^\.,libxstream-${VERSION}," .
-        rpmbuild -bb --nodeps --nocheck \
-          $HOME/rpmbuild/SPECS/libxstream.spec
-
-    - name: Upload packages
-      uses: actions/upload-artifact@v5
-      with:
-        name: libxstream-rpm
-        path: ~/rpmbuild/RPMS/
-
   CMake:
     runs-on: ubuntu-latest
     strategy:
