@@ -12,6 +12,13 @@ file(MAKE_DIRECTORY "${LIBXSTREAM_TEST_DIR}")
 file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/test.sh"
      DESTINATION "${LIBXSTREAM_TEST_DIR}")
 
+file(GLOB LIBXSTREAM_TEST_FIXTURES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/predict_v1*.bin")
+foreach(fixture IN LISTS LIBXSTREAM_TEST_FIXTURES)
+  get_filename_component(fixture_name "${fixture}" NAME)
+  configure_file("${fixture}" "${LIBXSTREAM_TEST_DIR}/${fixture_name}" COPYONLY)
+endforeach()
+
 # test.sh discovers its tests as the *.c files defining a main function, hence
 # the same discovery here: a new test needs no entry in this file.
 file(GLOB LIBXSTREAM_TEST_SOURCES CONFIGURE_DEPENDS
