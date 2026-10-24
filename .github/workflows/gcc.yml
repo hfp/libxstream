@@ -295,6 +295,9 @@ jobs:
     - name: Install GCC ${{ matrix.gcc }} and Ninja
       run: sudo apt install -y gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }} ninja-build
 
+    - name: Install OpenBLAS
+      run: sudo apt install -y libopenblas-openmp-dev
+
     - name: Install OpenCL
       run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
 
