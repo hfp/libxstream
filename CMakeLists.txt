@@ -68,7 +68,7 @@ if(NOT TARGET libxs::libxs)
   message(
     STATUS "Cannot find libxs locally; downloading through FetchContent...")
   include(FetchContent)
-  set(LIBXS_OMP "${LIBXSTREAM_OMP}")
+  set(LIBXS_SAMPLES_OMP "${LIBXSTREAM_OMP}")
   FetchContent_Declare(
     libxs
     GIT_REPOSITORY "https://github.com/hfp/libxs.git"

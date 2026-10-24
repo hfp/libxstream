@@ -114,7 +114,7 @@ cmake --build build -j $(nproc) && cmake --install build
 ```
 
 LIBXS is found with `find_package(libxs)` (also in `../libxs`), otherwise
-fetched from its repository (FetchContent), with `LIBXS_OMP` set to
+fetched from its repository (FetchContent), with `LIBXS_SAMPLES_OMP` set to
 `LIBXSTREAM_OMP`. OpenCL is required. OpenMP is required when `LIBXSTREAM_OMP`
 is ON. On macOS, Homebrew's `libomp` is detected via `brew --prefix libomp`;
 use `OpenMP_ROOT` for another installation.
