@@ -41,22 +41,26 @@ option(LIBXSTREAM_INSTALL_HEADER_ONLY
 option(LIBXSTREAM_BUILD_SAMPLES "Build samples; requires BLAS"
        "${BUILD_TESTING}")
 
-# Matches the Makefile default (OMP=1). OpenMP is not an optimization here: it
-# sizes per-thread resources (streams, memory pointers) for threaded consumers
-# such as DBCSR. Without it the library assumes a single thread. An explicit
-# request is an error if unavailable, whereas the default degrades (AppleClang
-# ships no OpenMP); this matches how the Makefile treats OMP. Latched on the
-# first configure: afterwards the cache entry always exists.
-if(NOT DEFINED LIBXSTREAM_OMP_EXPLICIT)
-  if(DEFINED LIBXSTREAM_OMP)
-    set(LIBXSTREAM_OMP_EXPLICIT
-        ON
-        CACHE INTERNAL "LIBXSTREAM_OMP was requested")
-  else()
-    set(LIBXSTREAM_OMP_EXPLICIT
-        OFF
-        CACHE INTERNAL "LIBXSTREAM_OMP was requested")
+if(LIBXSTREAM_OMP)
+  # Homebrew's libomp is keg-only. Supply a search hint, not compiler flags.
+  if(APPLE
+     AND CMAKE_C_COMPILER_ID MATCHES "^(AppleClang|Clang)$"
+     AND NOT DEFINED OpenMP_ROOT
+     AND NOT DEFINED ENV{OpenMP_ROOT})
+    find_program(LIBXSTREAM_BREW NAMES brew)
+    if(LIBXSTREAM_BREW)
+      execute_process(
+        COMMAND "${LIBXSTREAM_BREW}" --prefix libomp
+        OUTPUT_VARIABLE _libxstream_libomp_prefix
+        RESULT_VARIABLE _libxstream_libomp_result
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+      if(_libxstream_libomp_result EQUAL 0 AND IS_DIRECTORY
+                                               "${_libxstream_libomp_prefix}")
+        set(OpenMP_ROOT "${_libxstream_libomp_prefix}")
+      endif()
+    endif()
   endif()
+  find_package(OpenMP REQUIRED COMPONENTS C)
 endif()
 
 find_package(libxs CONFIG QUIET HINTS "${PROJECT_SOURCE_DIR}/../libxs")
@@ -64,6 +68,7 @@ if(NOT TARGET libxs::libxs)
   message(
     STATUS "Cannot find libxs locally; downloading through FetchContent...")
   include(FetchContent)
+  set(LIBXS_OMP "${LIBXSTREAM_OMP}")
   FetchContent_Declare(
     libxs
     GIT_REPOSITORY "https://github.com/hfp/libxs.git"
@@ -75,53 +80,6 @@ if(NOT TARGET libxs::libxs)
 endif()
 
 find_package(OpenCL REQUIRED)
-if(LIBXSTREAM_OMP)
-  # AppleClang needs a separate libomp. FindOpenMP knows the flag but searches
-  # only the implicit link directories, which exclude Homebrew; seed its search
-  # with the brew prefix like the Makefile build does. Homebrew keeps libomp
-  # keg-only (never symlinked into the main prefix), so the keg path is the one
-  # that matters and the plain prefix is only a fallback for other layouts.
-  if(APPLE AND NOT OpenMP_libomp_LIBRARY)
-    find_program(LIBXSTREAM_BREW NAMES brew)
-    if(LIBXSTREAM_BREW)
-      execute_process(
-        COMMAND "${LIBXSTREAM_BREW}" --prefix libomp
-        OUTPUT_VARIABLE LIBXSTREAM_BREW_LIBOMP
-        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-      if(NOT IS_DIRECTORY "${LIBXSTREAM_BREW_LIBOMP}")
-        execute_process(
-          COMMAND "${LIBXSTREAM_BREW}" --prefix
-          OUTPUT_VARIABLE LIBXSTREAM_BREW_LIBOMP
-          OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-      endif()
-      if(IS_DIRECTORY "${LIBXSTREAM_BREW_LIBOMP}")
-        list(APPEND CMAKE_PREFIX_PATH "${LIBXSTREAM_BREW_LIBOMP}")
-      endif()
-    endif()
-  endif()
-  find_package(OpenMP COMPONENTS C)
-  if(OpenMP_libomp_LIBRARY)
-    message(STATUS "Using libomp: ${OpenMP_libomp_LIBRARY}")
-  endif()
-  if(NOT OpenMP_C_FOUND)
-    if(APPLE)
-      set(LIBXSTREAM_OMP_HINT
-          " AppleClang needs a separate libomp (brew install libomp).")
-    endif()
-    if(LIBXSTREAM_OMP_EXPLICIT)
-      message(
-        FATAL_ERROR
-          "LIBXSTREAM_OMP was requested but no OpenMP C support was found."
-          "${LIBXSTREAM_OMP_HINT}")
-    endif()
-    message(
-      WARNING
-        "No OpenMP C support found; per-thread resources are sized for a single "
-        "thread. Threaded consumers (e.g. DBCSR) require an OpenMP-capable "
-        "compiler.${LIBXSTREAM_OMP_HINT}")
-    set(LIBXSTREAM_OMP OFF)
-  endif()
-endif()
 
 set(LIBXSTREAM_LINK_LIBRARIES OpenCL::OpenCL libxs::libxs)
 if(LIBXSTREAM_OMP)
@@ -133,7 +91,7 @@ message(STATUS "  CMake version         : ${CMAKE_VERSION}")
 message(STATUS "  System                : ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  libxs target          : libxs::libxs")
 message(STATUS "  OpenCL                : ${OpenCL_VERSION_STRING}")
-message(STATUS "  OpenMP                : ${OpenMP_C_VERSION}")
+message(STATUS "  OpenMP                : ${LIBXSTREAM_OMP}")
 
 set(LIBXSTREAM_ROOT_DIR "${PROJECT_SOURCE_DIR}")
 set(LIBXSTREAM_INCLUDE_DIR "${LIBXSTREAM_ROOT_DIR}/libxstream")

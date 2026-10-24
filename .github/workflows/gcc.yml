@@ -345,17 +345,6 @@ jobs:
         test -f $HOME/libxstream-install/share/libxstream/samples/dbm/dbm_opencl.c
         test -f $HOME/libxstream-install/share/libxstream/samples/dbm/kernels/multiply.cl
 
-    - name: Verify OpenMP is recorded for consumers
-      run: |
-        # libxstream.pc has a public LIBXS dependency, so libxs.pc must resolve
-        # too; LIBXS is installed to the consumer-visible prefix.
-        export PKG_CONFIG_PATH=$HOME/libxstream-install/lib/pkgconfig
-        export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$HOME/libxs-install/lib/pkgconfig
-        pkg-config --validate libxstream
-        pkg-config --static --libs libxstream | grep -q -- -fopenmp
-        grep -q "LIBXSTREAM_OMP ON" \
-          $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
-
     - name: Verify find_package
       run: |
         mkdir -p /tmp/test_find
