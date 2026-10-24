@@ -47,5 +47,25 @@ foreach(test_source IN LISTS LIBXSTREAM_TEST_SOURCES)
     set_tests_properties(
       "libxstream-${test_name}"
       PROPERTIES WORKING_DIRECTORY "${LIBXSTREAM_TEST_DIR}" LABELS libxstream)
+    if(test_name STREQUAL "kernels")
+      if(NOT "$ENV{KERNELS_CC}" STREQUAL "")
+        set_tests_properties(
+          "libxstream-${test_name}" PROPERTIES ENVIRONMENT
+                                               "KERNELS_CC=$ENV{KERNELS_CC}")
+      else()
+        find_program(LIBXSTREAM_TEST_CLANG NAMES clang)
+        if(LIBXSTREAM_TEST_CLANG)
+          target_compile_definitions(
+            ${test_target} PRIVATE KERNELS_CC="${LIBXSTREAM_TEST_CLANG}")
+        elseif(NOT APPLE)
+          message(
+            STATUS
+              "Disabling libxstream-kernels: Clang not found; set KERNELS_CC to an OpenCL C compiler"
+          )
+          set_tests_properties("libxstream-${test_name}" PROPERTIES DISABLED
+                                                                    TRUE)
+        endif()
+      endif()
+    endif()
   endif()
 endforeach()
