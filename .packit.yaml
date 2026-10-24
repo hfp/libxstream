@@ -29,23 +29,17 @@ jobs:
     project: devpkgs
   - job: copr_build
     trigger: pull_request
-    manual_trigger: true
     additional_repos:
       - "copr://growl/devpkgs?priority=1"
-    allowed_pr_authors:
-      - hfp
-      - Growl1234
 
   - job: propose_downstream
     trigger: release
     dist_git_branches:
       - fedora-rawhide
-
   - job: koji_build
     trigger: commit
     dist_git_branches:
       - fedora-all
-
   - job: bodhi_update
     trigger: commit
     dist_git_branches:
