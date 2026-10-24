@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
 
 set(LIBXSTREAM_VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/version.txt")
 if(NOT EXISTS "${LIBXSTREAM_VERSION_FILE}")
@@ -281,18 +281,11 @@ write_basic_package_version_file(
   COMPATIBILITY SameMajorVersion)
 
 # Installation rules
-install(
-  TARGETS libxstream
-  EXPORT libxstreamTargets
-  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-  LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(TARGETS libxstream EXPORT libxstreamTargets)
 
 if(BUILD_SHARED_LIBS)
-  install(
-    TARGETS libxstream_mpsd libxstream_icd
-    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-    RUNTIME DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+  install(TARGETS libxstream_mpsd libxstream_icd
+          RUNTIME DESTINATION "${CMAKE_INSTALL_LIBDIR}")
 endif()
 
 install(
