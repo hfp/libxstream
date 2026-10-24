@@ -32,9 +32,12 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
                                                "RelWithDebInfo" "MinSizeRel")
 endif()
 
+option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+option(BUILD_TESTING "Build unit tests" OFF)
+
+option(LIBXSTREAM_OMP "Use OpenMP for per-thread resource sizing" ON)
 option(LIBXSTREAM_INSTALL_HEADER_ONLY
        "Install the header-only implementation sources" OFF)
-option(BUILD_TESTING "Build unit tests" OFF)
 
 # Matches the Makefile default (OMP=1). OpenMP is not an optimization here: it
 # sizes per-thread resources (streams, memory pointers) for threaded consumers
@@ -53,7 +56,6 @@ if(NOT DEFINED LIBXSTREAM_OMP_EXPLICIT)
         CACHE INTERNAL "LIBXSTREAM_OMP was requested")
   endif()
 endif()
-option(LIBXSTREAM_OMP "Use OpenMP for per-thread resource sizing" ON)
 
 set(LIBXS_GIT_REPOSITORY "https://github.com/hfp/libxs.git")
 set(LIBXS_GIT_TAG "main")
