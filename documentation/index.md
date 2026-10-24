@@ -121,10 +121,15 @@ fetched from its repository (FetchContent). OpenCL is required.
 | `LIBXSTREAM_OMP`                 | ON      | OpenMP; an explicit ON fails without OpenMP, the default falls back  |
 | `LIBXSTREAM_INSTALL_HEADER_ONLY` | OFF     | Install the header-only sources                                      |
 | `BUILD_TESTING`                  | OFF     | Build the tests                                                      |
+| `LIBXSTREAM_BUILD_SAMPLES`       | `BUILD_TESTING` | Build the sample executables; requires BLAS                     |
 | `BUILD_SHARED_LIBS`              | OFF     | Shared library, and with it the OpenCL-MPS server and ICD            |
 
 A consumer uses `find_package(libxstream)` and links `libxstream::libxstream`,
 which also works for a tree built and installed with `make`.
+
+Enable `LIBXSTREAM_BUILD_SAMPLES` to build the SMM, DBM, Ozaki, and stencil
+benchmarks under `build/samples/`. With `BUILD_TESTING`, the device-selection
+test also runs using the CMake-built `acc_match.x`; it needs no GPU.
 
 ## API
 

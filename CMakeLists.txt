@@ -38,6 +38,8 @@ option(BUILD_TESTING "Build unit tests" OFF)
 option(LIBXSTREAM_OMP "Use OpenMP for per-thread resource sizing" ON)
 option(LIBXSTREAM_INSTALL_HEADER_ONLY
        "Install the header-only implementation sources" OFF)
+option(LIBXSTREAM_BUILD_SAMPLES "Build samples; requires BLAS"
+       "${BUILD_TESTING}")
 
 # Matches the Makefile default (OMP=1). OpenMP is not an optimization here: it
 # sizes per-thread resources (streams, memory pointers) for threaded consumers
@@ -458,6 +460,10 @@ install(
   DESTINATION "${CMAKE_INSTALL_DATADIR}/libxstream/samples/stencil/kernels"
   FILES_MATCHING
   PATTERN "*.cl")
+
+if(LIBXSTREAM_BUILD_SAMPLES)
+  add_subdirectory(samples)
+endif()
 
 install(
   EXPORT libxstream-targets

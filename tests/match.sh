@@ -23,15 +23,9 @@ HERE=$(cd "$(dirname "$0")" && pwd -P)
 SAMPLE=${HERE}/../samples/smm
 GREP=$(command -v grep)
 SED=$(command -v sed)
-MKTEMP=$(command -v mktemp)
-MAKE=${MAKE:-$(command -v make)}
 
-if [ ! "${GREP}" ] || [ ! "${SED}" ] || [ ! "${MKTEMP}" ] || [ ! "${MAKE}" ]; then
+if [ ! "${GREP}" ] || [ ! "${SED}" ]; then
   >&2 echo "ERROR: missing prerequisites!"
-  exit 1
-fi
-if [ ! -e "${SAMPLE}/acc_match.c" ]; then
-  >&2 echo "ERROR: ${SAMPLE} is not the SMM sample!"
   exit 1
 fi
 
@@ -48,19 +42,31 @@ CASES=(
   "Some Unknown Device|none"
 )
 
-BLDDIR=$(${MKTEMP} -d)
-trap 'rm -rf "${BLDDIR}"' EXIT
-
 echo "========================"
 echo "Running device selection"
 echo "========================"
 
 # acc_match.x uses no BLAS, which the sample otherwise wants. OpenMP stays as
 # the sample has it: a prebuilt LIBXSTREAM brings OpenMP references to the link.
-ERROR=$(${MAKE} -C "${SAMPLE}" -j "$(nproc 2>/dev/null || echo 2)" \
-  BLAS=0 BLDDIR="${BLDDIR}/obj" OUTDIR="${BLDDIR}" match 2>&1) || {
-    >&2 echo "ERROR: failed to build acc_match.x"; >&2 echo "${ERROR}"; exit 1; }
-MATCH=${BLDDIR}/acc_match.x
+MATCH=${LIBXSTREAM_ACC_MATCH:-}
+if [ ! "${MATCH}" ]; then
+  MKTEMP=$(command -v mktemp)
+  MAKE=${MAKE:-$(command -v make)}
+  if [ ! "${MKTEMP}" ] || [ ! "${MAKE}" ]; then
+    >&2 echo "ERROR: missing prerequisites!"
+    exit 1
+  fi
+  if [ ! -e "${SAMPLE}/acc_match.c" ]; then
+    >&2 echo "ERROR: ${SAMPLE} is not the SMM sample!"
+    exit 1
+  fi
+  BLDDIR=$(${MKTEMP} -d)
+  trap 'rm -rf "${BLDDIR}"' EXIT
+  ERROR=$(${MAKE} -C "${SAMPLE}" -j "$(nproc 2>/dev/null || echo 2)" \
+    BLAS=0 BLDDIR="${BLDDIR}/obj" OUTDIR="${BLDDIR}" match 2>&1) || {
+      >&2 echo "ERROR: failed to build acc_match.x"; >&2 echo "${ERROR}"; exit 1; }
+  MATCH=${BLDDIR}/acc_match.x
+fi
 
 # The selection of a device name, e.g., "[6] NVIDIA H100 PCIe [0xa32d]".
 select_entry() {
