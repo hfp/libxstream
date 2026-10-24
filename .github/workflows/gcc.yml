@@ -337,8 +337,8 @@ jobs:
         test -d $HOME/libxstream-install/include/libxstream/src
         ls $HOME/libxstream-install/lib/libxstream* >/dev/null
         ls $HOME/libxstream-install/lib/pkgconfig/libxstream.pc >/dev/null
-        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
-        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamTargets.cmake
+        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstream-config.cmake
+        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstream-targets.cmake
         test -f $HOME/libxstream-install/share/libxstream/scripts/tool_opencl.sh
         test -f $HOME/libxstream-install/share/libxstream/samples/smm/smm_acc.c
         test -f $HOME/libxstream-install/share/libxstream/samples/smm/kernels/multiply.cl

@@ -270,18 +270,18 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstream.pc.in"
                "${CMAKE_CURRENT_BINARY_DIR}/libxstream.pc" @ONLY)
 
 configure_package_config_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstreamConfig.cmake.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfig.cmake"
+  "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstream-config.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/libxstream-config.cmake"
   INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/libxstream"
   PATH_VARS CMAKE_INSTALL_INCLUDEDIR CMAKE_INSTALL_LIBDIR CMAKE_INSTALL_DATADIR)
 
 write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfigVersion.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/libxstream-config-version.cmake"
   VERSION ${PROJECT_VERSION}
   COMPATIBILITY SameMajorVersion)
 
 # Installation rules
-install(TARGETS libxstream EXPORT libxstreamTargets)
+install(TARGETS libxstream EXPORT libxstream-targets)
 
 if(BUILD_SHARED_LIBS)
   install(TARGETS libxstream_mpsd libxstream_icd
@@ -461,14 +461,14 @@ install(
   PATTERN "*.cl")
 
 install(
-  EXPORT libxstreamTargets
-  FILE libxstreamTargets.cmake
+  EXPORT libxstream-targets
+  FILE libxstream-targets.cmake
   NAMESPACE libxstream::
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/libxstream")
 
 install(
-  FILES "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfig.cmake"
-        "${CMAKE_CURRENT_BINARY_DIR}/libxstreamConfigVersion.cmake"
+  FILES "${CMAKE_CURRENT_BINARY_DIR}/libxstream-config.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/libxstream-config-version.cmake"
         "${CMAKE_CURRENT_SOURCE_DIR}/scripts/libxstreamSamples.cmake"
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/libxstream")
 
