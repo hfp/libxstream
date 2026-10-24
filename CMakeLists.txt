@@ -57,9 +57,6 @@ if(NOT DEFINED LIBXSTREAM_OMP_EXPLICIT)
   endif()
 endif()
 
-set(LIBXS_GIT_REPOSITORY "https://github.com/hfp/libxs.git")
-set(LIBXS_GIT_TAG "main")
-
 find_package(libxs CONFIG QUIET HINTS "${PROJECT_SOURCE_DIR}/../libxs")
 if(NOT TARGET libxs::libxs)
   message(
@@ -67,12 +64,12 @@ if(NOT TARGET libxs::libxs)
   include(FetchContent)
   FetchContent_Declare(
     libxs
-    GIT_REPOSITORY ${LIBXS_GIT_REPOSITORY}
-    GIT_TAG ${LIBXS_GIT_TAG})
+    GIT_REPOSITORY "https://github.com/hfp/libxs.git"
+    GIT_TAG "main")
   FetchContent_MakeAvailable(libxs)
-endif()
-if(NOT TARGET libxs::libxs)
-  message(FATAL_ERROR "libxs target libxs::libxs was not found or created")
+  if(NOT TARGET libxs::libxs)
+    message(FATAL_ERROR "libxs target libxs::libxs was not found or created")
+  endif()
 endif()
 
 find_package(OpenCL REQUIRED)
