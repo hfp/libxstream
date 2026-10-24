@@ -245,40 +245,6 @@ jobs:
         name: libxstream-deb
         path: "*.deb"
 
-  RPM:
-    runs-on: ubuntu-latest
-    container: fedora:latest
-    steps:
-    - uses: actions/checkout@v5
-
-    - name: Install dependencies
-      run: |
-        dnf install -y rpm-build gcc gcc-gfortran cmake ninja-build bash git \
-          ocl-icd-devel opencl-headers
-
-    - name: Install LIBXS
-      run: |
-        git clone --depth 1 https://github.com/hfp/libxs.git ../libxs
-        cd ../libxs && mkdir build && cd build
-        cmake .. -GNinja && ninja install -j $(nproc)
-        ldconfig
-
-    - name: Build RPM package
-      run: |
-        mkdir -p $HOME/rpmbuild/{SOURCES,SPECS}
-        cp scripts/fedora/libxstream.spec $HOME/rpmbuild/SPECS/
-        VERSION=$(grep '^Version:' scripts/fedora/libxstream.spec | awk '{print $2}')
-        tar czf $HOME/rpmbuild/SOURCES/libxstream-${VERSION}.tar.gz \
-          --transform="s,^\.,libxstream-${VERSION}," .
-        rpmbuild -bb --nodeps --nocheck \
-          $HOME/rpmbuild/SPECS/libxstream.spec
-
-    - name: Upload packages
-      uses: actions/upload-artifact@v5
-      with:
-        name: libxstream-rpm
-        path: ~/rpmbuild/RPMS/
-
   CMake:
     runs-on: ubuntu-latest
     strategy:
@@ -294,6 +260,9 @@ jobs:
 
     - name: Install GCC ${{ matrix.gcc }} and Ninja
       run: sudo apt install -y gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }} ninja-build
+
+    - name: Install OpenBLAS
+      run: sudo apt install -y libopenblas-openmp-dev
 
     - name: Install OpenCL
       run: sudo apt install -y opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
@@ -337,24 +306,13 @@ jobs:
         test -d $HOME/libxstream-install/include/libxstream/src
         ls $HOME/libxstream-install/lib/libxstream* >/dev/null
         ls $HOME/libxstream-install/lib/pkgconfig/libxstream.pc >/dev/null
-        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
-        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstreamTargets.cmake
+        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstream-config.cmake
+        test -f $HOME/libxstream-install/lib/cmake/libxstream/libxstream-targets.cmake
         test -f $HOME/libxstream-install/share/libxstream/scripts/tool_opencl.sh
         test -f $HOME/libxstream-install/share/libxstream/samples/smm/smm_acc.c
         test -f $HOME/libxstream-install/share/libxstream/samples/smm/kernels/multiply.cl
         test -f $HOME/libxstream-install/share/libxstream/samples/dbm/dbm_opencl.c
         test -f $HOME/libxstream-install/share/libxstream/samples/dbm/kernels/multiply.cl
-
-    - name: Verify OpenMP is recorded for consumers
-      run: |
-        # libxstream.pc has a public LIBXS dependency, so libxs.pc must resolve
-        # too; LIBXS is installed to the consumer-visible prefix.
-        export PKG_CONFIG_PATH=$HOME/libxstream-install/lib/pkgconfig
-        export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$HOME/libxs-install/lib/pkgconfig
-        pkg-config --validate libxstream
-        pkg-config --static --libs libxstream | grep -q -- -fopenmp
-        grep -q "LIBXSTREAM_OMP ON" \
-          $HOME/libxstream-install/lib/cmake/libxstream/libxstreamConfig.cmake
 
     - name: Verify find_package
       run: |

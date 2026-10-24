@@ -14,7 +14,7 @@ if(LIBXSTREAM_OMP)
 endif()
 
 set_and_check(LIBXSTREAM_TARGETS_FILE
-  "${CMAKE_CURRENT_LIST_DIR}/libxstreamTargets.cmake")
+  "${CMAKE_CURRENT_LIST_DIR}/libxstream-targets.cmake")
 include("${LIBXSTREAM_TARGETS_FILE}")
 
 set_and_check(LIBXSTREAM_INCLUDE_DIRS

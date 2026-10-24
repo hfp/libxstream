@@ -3,7 +3,7 @@
 %global soversion 1
 
 Name:           libxstream
-Version:        1.0.0
+Version:        0.0.0
 Release:        %autorelease
 Summary:        OpenCL-accelerated tensor operations built on LIBXS
 
@@ -17,8 +17,7 @@ BuildRequires:  libxs-devel
 BuildRequires:  ocl-icd-devel
 BuildRequires:  opencl-headers
 %if %{with tests}
-# Clang is required to compile the kernels in testing
-BuildRequires:  clang
+BuildRequires:  flexiblas-devel
 %endif
 
 %description
