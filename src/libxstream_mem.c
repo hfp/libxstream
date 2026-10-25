@@ -486,6 +486,7 @@ LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbyte
     result = libxstream_mem_allocate(&memptr, nbytes);
   }
   else if (0 != nbytes) {
+    libxstream_mem_release_poll(0 /*no wait*/);
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clDeviceMemAllocINTEL) {
       const cl_device_id did = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
@@ -563,17 +564,12 @@ LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbyte
 }
 
 
-LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem, int hint)
+/** Frees device memory that no command uses anymore (not pooled). */
+static int libxstream_mem_dev_free(void* dev_mem)
 {
   const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
   int result = EXIT_SUCCESS;
-  if (0 != (LIBXSTREAM_MEM_POOLED & hint)) {
-    result = libxstream_mem_deallocate(dev_mem);
-  }
-  else if (NULL != dev_mem) { /* like cudaFree: no command may use the memory anymore */
-    result = libxstream_device_sync();
-  }
-  if (0 == (LIBXSTREAM_MEM_POOLED & hint) && NULL != dev_mem && EXIT_SUCCESS == result) {
+  if (NULL != dev_mem) {
 # if (1 >= LIBXSTREAM_USM)
     if (NULL != devinfo->clMemFreeINTEL) {
       result = devinfo->clMemFreeINTEL(devinfo->context, dev_mem);
@@ -602,6 +598,124 @@ LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem, int hint)
       LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
     }
   }
+  return result;
+}
+
+
+/** Frees non-pooled host or device memory that no command uses anymore. */
+static int libxstream_mem_free(void* pointer, int device)
+{
+  int result = EXIT_SUCCESS;
+  if (0 != device) {
+    result = libxstream_mem_dev_free(pointer);
+  }
+  else if (NULL != pointer) {
+    libxstream_mem_hst_xfree(pointer, NULL);
+  }
+  return result;
+}
+
+
+LIBXSTREAM_API_INTERN void libxstream_mem_release_poll(int wait)
+{
+  libxstream_opencl_release_t *pending, *keep = NULL, *last = NULL;
+  LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+  pending = libxstream_opencl_config.releases;
+  libxstream_opencl_config.releases = NULL;
+  LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+  while (NULL != pending) { /* outside the lock: freeing device memory takes it */
+    libxstream_opencl_release_t* const release = pending;
+    int done = 1;
+    cl_uint i;
+    pending = release->next;
+    if (0 != wait) {
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clWaitForEvents(release->nevents, release->events));
+    }
+    else {
+      for (i = 0; i < release->nevents && 0 != done; ++i) { /* an erroneous status counts as completed */
+        cl_int status = CL_COMPLETE;
+        if (EXIT_SUCCESS == clGetEventInfo(release->events[i], CL_EVENT_COMMAND_EXECUTION_STATUS, sizeof(status), &status, NULL) &&
+            CL_COMPLETE < status)
+        {
+          done = 0;
+        }
+      }
+    }
+    if (0 != done) {
+      for (i = 0; i < release->nevents; ++i) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(release->events[i]));
+      LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_mem_free(release->pointer, release->device));
+      free(release->events);
+      free(release);
+    }
+    else {
+      if (NULL == keep) last = release;
+      release->next = keep;
+      keep = release;
+    }
+  }
+  if (NULL != keep) { /* releases deferred meanwhile stay in front */
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+    last->next = libxstream_opencl_config.releases;
+    libxstream_opencl_config.releases = keep;
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+  }
+}
+
+
+/**
+ * Like cudaFree/cudaFreeHost no command may use the memory anymore, but the
+ * release does not wait for that: it is deferred until a marker in every
+ * command queue completed (see libxstream_opencl_release_t).
+ */
+static int libxstream_mem_release(void* pointer, int device)
+{
+  int result = EXIT_SUCCESS;
+  if (NULL != pointer) {
+    cl_event* events = NULL;
+    cl_uint nevents = 0;
+    result = libxstream_opencl_device_markers(&events, &nevents);
+    if (EXIT_SUCCESS == result && 0 != nevents) {
+      libxstream_opencl_release_t* const release = (libxstream_opencl_release_t*)malloc(sizeof(libxstream_opencl_release_t));
+      if (NULL != release) {
+        release->pointer = pointer;
+        release->events = events;
+        release->nevents = nevents;
+        release->device = device;
+        LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+        release->next = libxstream_opencl_config.releases;
+        libxstream_opencl_config.releases = release;
+        LIBXS_LOCK_RELEASE(LIBXS_LOCK, libxstream_opencl_config.lock_memory);
+      }
+      else { /* no record: wait for the markers */
+        cl_uint i;
+        result = clWaitForEvents(nevents, events);
+        for (i = 0; i < nevents; ++i) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent(events[i]));
+        free(events);
+        if (EXIT_SUCCESS == result) result = libxstream_mem_free(pointer, device);
+      }
+    }
+    else if (EXIT_SUCCESS == result) { /* no command queue, hence no command */
+      result = libxstream_mem_free(pointer, device);
+    }
+    else { /* no markers: synchronize */
+      result = libxstream_device_sync();
+      if (EXIT_SUCCESS == result) result = libxstream_mem_free(pointer, device);
+    }
+    libxstream_mem_release_poll(0 /*no wait*/);
+  }
+  return result;
+}
+
+
+LIBXSTREAM_API int libxstream_mem_dev_deallocate_hint(void* dev_mem, int hint)
+{
+  int result = EXIT_SUCCESS;
+  if (0 != (LIBXSTREAM_MEM_POOLED & hint)) {
+    result = libxstream_mem_deallocate(dev_mem);
+  }
+  else {
+    result = libxstream_mem_release(dev_mem, 1 /*device*/);
+  }
   CL_RETURN(result, "");
 }
 
@@ -611,6 +725,7 @@ LIBXSTREAM_API int libxstream_mem_host_allocate_hint(void** host_mem, size_t nby
   int result = EXIT_SUCCESS;
   assert(NULL != host_mem);
   if (0 == (LIBXSTREAM_MEM_POOLED & hint) && 0 != libxstream_mem_hst_pooled()) {
+    libxstream_mem_release_poll(0 /*no wait*/);
     *host_mem = (0 != nbytes ? libxstream_mem_hst_xmalloc(nbytes, NULL) : NULL);
     if (0 != nbytes && NULL == *host_mem) result = EXIT_FAILURE;
   }
@@ -625,10 +740,7 @@ LIBXSTREAM_API int libxstream_mem_host_deallocate_hint(void* host_mem, int hint)
 {
   int result = EXIT_SUCCESS;
   if (0 == (LIBXSTREAM_MEM_POOLED & hint) && 0 != libxstream_mem_hst_pooled()) {
-    if (NULL != host_mem) { /* like cudaFreeHost: no command may use the memory anymore */
-      result = libxstream_device_sync();
-      if (EXIT_SUCCESS == result) libxstream_mem_hst_xfree(host_mem, NULL);
-    }
+    result = libxstream_mem_release(host_mem, 0 /*host*/);
   }
   else {
     result = libxstream_mem_host_deallocate(host_mem, NULL);

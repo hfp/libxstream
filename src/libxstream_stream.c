@@ -318,40 +318,44 @@ LIBXSTREAM_API int libxstream_stream_sync(libxstream_stream_t* stream)
 }
 
 
-LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id)
+/**
+ * Collects (and retains) the command queues of the given thread (all if negative).
+ * The queues are collected in one pass under the lock and used without it: a
+ * clFinish under the stream table's lock stalls every stream lookup behind
+ * someone else's device work. One pass, because the table is a pool that a
+ * concurrent destroy reorders, so a walk resumed after releasing the lock can
+ * skip a live stream. Each queue is retained, so a destroy meanwhile cannot
+ * free it under its use. The result is local[] or malloc'ed (caller frees).
+ */
+static int libxstream_opencl_device_queues(libxs_lock_t* lock, int thread_id,
+  cl_command_queue local[], size_t nlocal, cl_command_queue** queues, size_t* nqueues)
 {
-  /**
-   * The queues are collected in one pass under the lock and finished without it:
-   * a clFinish under the stream table's lock stalls every stream lookup behind
-   * someone else's device work. One pass, because the table is a pool that a
-   * concurrent destroy reorders, so a walk resumed after releasing the lock can
-   * skip a live stream. Each queue is retained, so a destroy meanwhile cannot
-   * free it under the finish.
-   */
-  cl_command_queue local[64], *queues = local;
   const size_t n = LIBXSTREAM_MAXNITEMS * libxstream_opencl_config.nthreads;
-  size_t i, nqueues = 0, capacity = sizeof(local) / sizeof(*local);
+  size_t i, capacity = nlocal;
   int result = EXIT_SUCCESS;
   assert(thread_id < libxstream_opencl_config.nthreads);
   assert(NULL != libxstream_opencl_config.streams);
+  assert(NULL != queues && NULL != nqueues);
+  *queues = local;
+  *nqueues = 0;
   if (NULL != lock) LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, lock);
   for (i = libxstream_opencl_config.nstreams; i < n && EXIT_SUCCESS == result; ++i) {
     const libxstream_opencl_stream_t* const str = libxstream_opencl_config.streams[i];
     if (NULL != str && NULL != str->queue) {
       if (0 > thread_id || str->tid == thread_id) { /* hit */
-        if (capacity == nqueues) { /* rare: more matching streams than the local buffer holds */
-          cl_command_queue* const grown = (cl_command_queue*)malloc(2 * capacity * sizeof(*queues));
+        if (capacity == *nqueues) { /* rare: more matching streams than the local buffer holds */
+          cl_command_queue* const grown = (cl_command_queue*)malloc(2 * capacity * sizeof(**queues));
           if (NULL != grown) {
-            memcpy(grown, queues, nqueues * sizeof(*queues));
-            if (local != queues) free(queues);
-            queues = grown;
+            memcpy(grown, *queues, *nqueues * sizeof(**queues));
+            if (local != *queues) free(*queues);
+            *queues = grown;
             capacity *= 2;
           }
           else result = EXIT_FAILURE;
         }
         if (EXIT_SUCCESS == result) {
           result = clRetainCommandQueue(str->queue);
-          if (EXIT_SUCCESS == result) queues[nqueues++] = str->queue;
+          if (EXIT_SUCCESS == result) (*queues)[(*nqueues)++] = str->queue;
         }
       }
     }
@@ -360,11 +364,54 @@ LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int 
     }
   }
   if (NULL != lock) LIBXS_LOCK_RELEASE(LIBXS_LOCK, lock);
+  return result;
+}
+
+
+LIBXSTREAM_API int libxstream_opencl_device_synchronize(libxs_lock_t* lock, int thread_id)
+{
+  cl_command_queue local[64], *queues = local;
+  size_t i, nqueues = 0;
+  int result = libxstream_opencl_device_queues(lock, thread_id, local, sizeof(local) / sizeof(*local), &queues, &nqueues);
   for (i = 0; i < nqueues; ++i) {
     if (EXIT_SUCCESS == result) result = clFinish(queues[i]);
     LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseCommandQueue(queues[i]));
   }
   if (local != queues) free(queues);
+  return result;
+}
+
+
+LIBXSTREAM_API_INTERN int libxstream_opencl_device_markers(cl_event** events, cl_uint* nevents)
+{
+  cl_command_queue local[64], *queues = local;
+  size_t i, nqueues = 0;
+  int result = libxstream_opencl_device_queues(
+    libxstream_opencl_config.lock_stream, -1 /*all*/, local, sizeof(local) / sizeof(*local), &queues, &nqueues);
+  assert(NULL != events && NULL != nevents);
+  *events = NULL;
+  *nevents = 0;
+  if (EXIT_SUCCESS == result && 0 != nqueues) {
+    *events = (cl_event*)malloc(nqueues * sizeof(cl_event));
+    if (NULL == *events) result = EXIT_FAILURE;
+  }
+  for (i = 0; i < nqueues; ++i) {
+    if (EXIT_SUCCESS == result) { /* flushed: the marker completes without anyone waiting for it */
+      result = clEnqueueMarkerWithWaitList(queues[i], 0, NULL, *events + *nevents);
+      if (EXIT_SUCCESS == result) {
+        ++*nevents;
+        result = clFlush(queues[i]);
+      }
+    }
+    LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseCommandQueue(queues[i]));
+  }
+  if (local != queues) free(queues);
+  if (EXIT_SUCCESS != result) {
+    for (i = 0; i < *nevents; ++i) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseEvent((*events)[i]));
+    free(*events);
+    *events = NULL;
+    *nevents = 0;
+  }
   return result;
 }
 
@@ -412,6 +459,7 @@ LIBXSTREAM_API int libxstream_device_sync(void)
 # else
   result = libxstream_opencl_device_synchronize(libxstream_opencl_config.lock_stream, /*main*/ 0);
 # endif
+  libxstream_mem_release_poll(0 /*no wait*/);
   CL_RETURN(result, "");
 }
 

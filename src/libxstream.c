@@ -1309,6 +1309,7 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_DTOR void libxstream_opencl_finalize(void)
       libxstream_opencl_config.launch_info_data = NULL;
       libxstream_opencl_config.launch_infos = NULL;
       libxstream_opencl_config.nlaunch_infos = 0;
+      libxstream_mem_release_poll(1 /*wait*/); /* deferred releases, before pools and context */
       libxs_free_pool(libxstream_opencl_config.pool_dev);
       libxs_free_pool(libxstream_opencl_config.pool_hst);
       if (NULL != libxstream_opencl_config.pool_hst_queue) {

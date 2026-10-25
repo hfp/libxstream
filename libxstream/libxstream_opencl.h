@@ -421,6 +421,21 @@ typedef enum libxstream_opencl_mem_hst_t {
 } libxstream_opencl_mem_hst_t;
 
 /**
+ * Memory release deferred until the commands enqueued before it completed, by
+ * one marker event per command queue at the time of the release (freed by
+ * libxstream_mem_release_poll). A release does not synchronize the device:
+ * waiting there can wait for work that only the releasing thread completes
+ * later, which inside a parallel region stalls the whole team.
+ */
+typedef struct libxstream_opencl_release_t {
+  struct libxstream_opencl_release_t* next;
+  void* pointer;
+  cl_event* events;
+  cl_uint nevents;
+  int device; /* non-zero: device memory */
+} libxstream_opencl_release_t;
+
+/**
  * Settings discovered/setup during libxstream_init (independent of the device)
  * and settings updated during libxstream_device_set_active (devinfo).
  */
@@ -465,6 +480,8 @@ typedef struct libxstream_opencl_config_t {
   cl_int pool_hst_usm;
   /** Device memory pool (3-arg libxs_malloc, LIBXS_MALLOC_NATIVE). */
   libxs_malloc_pool_t* pool_dev;
+  /** Deferred releases (libxstream_opencl_release_t), guarded by lock_memory. */
+  libxstream_opencl_release_t* releases;
   /**
    * CUDA host-memory registration, resolved at setup and NULL unless the
    * application links the CUDA runtime. Host memory handed out by this library
@@ -644,6 +661,10 @@ LIBXSTREAM_API_INTERN void* libxstream_mem_hst_xmalloc(size_t, const void*);
 LIBXSTREAM_API_INTERN void libxstream_mem_hst_xfree(void*, const void*);
 LIBXSTREAM_API_INTERN void* libxstream_mem_dev_xmalloc(size_t, const void*);
 LIBXSTREAM_API_INTERN void libxstream_mem_dev_xfree(void*, const void*);
+/** One marker event per command queue (the caller releases them), see libxstream_opencl_release_t. */
+LIBXSTREAM_API_INTERN int libxstream_opencl_device_markers(cl_event** events, cl_uint* nevents);
+/** Frees the deferred releases whose commands completed (all of them if wait is non-zero). */
+LIBXSTREAM_API_INTERN void libxstream_mem_release_poll(int wait);
 
 LIBXSTREAM_API int libxstream_stream_priority_range(int* least, int* greatest);
 
