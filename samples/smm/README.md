@@ -111,7 +111,7 @@ Multiply kernel:
 |--------------------------------|----------|----------------------------------------------------------------------|
 | OPENCL_LIBSMM_SMM_BUILDOPTS    | -        | Extra OpenCL build options                                           |
 | OPENCL_LIBSMM_SMM_KERNEL       | -        | OpenCL source file replacing the embedded multiply kernel            |
-| OPENCL_LIBSMM_SMM_PARAMS       | auto     | CSV path, a parameter row, or 0 for plain defaults (see below)       |
+| OPENCL_LIBSMM_SMM_PARAMS       | auto     | CSV/model file, a parameter row, or 0 for plain defaults (see below) |
 | OPENCL_LIBSMM_SMM_PREDICT      | 0        | Model: -1=off (default if PARAMS=0), 0=untuned shapes, 1=all shapes  |
 | OPENCL_LIBSMM_SMM_PREDICT_CONF | 0.5      | Confidence a predicted parameter needs; below, its default is used   |
 | OPENCL_LIBSMM_SMM_DEVID        | -        | Device ID whose parameters are used, e.g., `0x0bd5`                  |
@@ -149,6 +149,11 @@ already drops all tuned parameters.
 device (device matching is off). Instead of a file, it also takes one
 parameter row: the CSV columns without DEVICE, S, and GFLOPS, e.g.,
 `3;23;23;23;8;23;1;1;23;0;-1;0;0;0;1;0;2;0;0` (TYPEID;M;N;K;BS;...;AC).
+
+`OPENCL_LIBSMM_SMM_PARAMS` given a saved prediction model (a file written by
+`predict_params.x`, e.g., trained on part of a table) uses it in place of the
+embedded models. The embedded tuned parameters still apply unless
+`OPENCL_LIBSMM_SMM_PREDICT` is positive.
 
 The full list of tunable parameters is available via
 `tune_multiply.py --help`.

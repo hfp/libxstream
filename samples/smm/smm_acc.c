@@ -53,6 +53,30 @@ static int opencl_libsmm_predict_mode; /* -1=disabled, 0=fallback(default), 1=fo
 double opencl_libsmm_predict_conf;
 #  endif
 
+#  if defined(OPENCL_KERNELS_PREDICT_MODELS)
+/** A saved model read from a file (OPENCL_LIBSMM_SMM_PARAMS), or NULL (e.g., a CSV-file). */
+static libxs_predict_t* opencl_libsmm_predict_file(const char* filename)
+{
+  libxs_predict_t* result = NULL;
+  FILE* const file = fopen(filename, "rb");
+  if (NULL != file) {
+    long size = -1;
+    if (0 == fseek(file, 0, SEEK_END)) size = ftell(file);
+    if (0 < size && 0 == fseek(file, 0, SEEK_SET)) {
+      void* const buffer = malloc((size_t)size);
+      if (NULL != buffer) {
+        if ((size_t)size == fread(buffer, 1, (size_t)size, file)) {
+          result = libxs_predict_load(buffer, (size_t)size);
+        }
+        free(buffer);
+      }
+    }
+    fclose(file);
+  }
+  return result;
+}
+#  endif
+
 #  if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
 /* samples/dbm when linked: pulled rather than pushed since a constructor is not available below C99 */
 opencl_libsmm_acc_dbm_launch_fn_t dbm_multiply_opencl_smm_launch_fn(void);
@@ -134,6 +158,7 @@ int libsmm_acc_init(void) {
       opencl_libsmm_perfest_t perfest;
       char* const env_params = getenv("OPENCL_LIBSMM_SMM_PARAMS"); /* !opencl_libsmm_getenv */
       const char* const env_devid = OPENCL_LIBSMM_SMMENV("DEVID");
+      int params_model = 0;
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
       const char* const env_predict = OPENCL_LIBSMM_SMMENV("PREDICT");
       const char* const env_conf = OPENCL_LIBSMM_SMMENV("PREDICT_CONF");
@@ -142,6 +167,15 @@ int libsmm_acc_init(void) {
         ? ((NULL != env_params && '0' == *env_params) ? -1 : 0) : atoi(env_predict);
       /* unset is the default; zero is a threshold too, and takes every prediction */
       opencl_libsmm_predict_conf = (NULL == env_conf || '\0' == *env_conf) ? OPENCL_LIBSMM_PREDICT_CONF : atof(env_conf);
+      /* PARAMS may name a saved model rather than a CSV-file: it replaces the embedded models */
+      if (NULL != env_params && '\0' != *env_params && '0' != *env_params) {
+        libxs_predict_t* const model = opencl_libsmm_predict_file(env_params);
+        if (NULL != model) {
+          if (0 <= opencl_libsmm_predict_mode) opencl_libsmm_predict_model = model;
+          else libxs_predict_destroy(model);
+          params_model = 1;
+        }
+      }
 #  endif
       opencl_libsmm_devuid = (NULL == env_devid || '\0' == *env_devid)
         ? 0 : LIBXS_CAST_UINT(strtoul(env_devid, NULL, 0));
@@ -159,7 +193,7 @@ int libsmm_acc_init(void) {
         opencl_libsmm_smm_t config;
         opencl_libsmm_smmkey_t key, key_direct;
         int key_direct_skip = 0, ntuned = 0;
-        if (NULL != env_params && '\0' != *env_params) { /* filename */
+        if (0 == params_model && NULL != env_params && '\0' != *env_params) { /* filename */
           FILE* const file = fopen(env_params, "r");
           if (NULL != file) {
             /* consume first line, check for device entry, and skip CSV header */
@@ -316,11 +350,11 @@ int libsmm_acc_init(void) {
 #  endif
       }
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS) && defined(OPENCL_KERNELS_DEVICES)
-      if (EXIT_SUCCESS == result && NULL == opencl_libsmm_predict_model && 0 <= opencl_libsmm_predict_mode) {
+      if (EXIT_SUCCESS == result && 0 <= opencl_libsmm_predict_mode) {
         const opencl_kernels_predict_entry_t* entry;
         const opencl_kernels_predict_entry_t* best = NULL;
         unsigned int uid;
-        const int predict_match = opencl_libsmm_device_match(&uid);
+        const int predict_match = (0 == params_model) ? opencl_libsmm_device_match(&uid) : -1;
         if (0 <= predict_match) {
           for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
             if (entry->device_id == predict_match) {
@@ -329,7 +363,7 @@ int libsmm_acc_init(void) {
             }
           }
         }
-        if (NULL == best && CL_DEVICE_TYPE_CPU != libxstream_opencl_config.device.type) { /* CPU: exact match only */
+        if (0 == params_model && NULL == best && CL_DEVICE_TYPE_CPU != libxstream_opencl_config.device.type) { /* CPU: exact match only */
           for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
             if (0 <= entry->device_id) {
               best = entry;
@@ -339,7 +373,9 @@ int libsmm_acc_init(void) {
         }
         if (NULL != best) {
           opencl_libsmm_predict_model = libxs_predict_load(best->data, (size_t)(best->data_end - best->data));
-          if (NULL != opencl_libsmm_predict_model && opencl_libsmm_predict_mode > 1
+        }
+        if (NULL != opencl_libsmm_predict_model) {
+          if (opencl_libsmm_predict_mode > 1
             && 0 == ((opencl_libsmm_predict_mode - 1)
               & ~(LIBXS_PREDICT_INTERPOLATE | LIBXS_PREDICT_CLASSIFY | LIBXS_PREDICT_TEMPORAL)))
           {
@@ -352,7 +388,8 @@ int libsmm_acc_init(void) {
             LIBXS_MEMZERO(&qinfo);
             libxs_predict_query(opencl_libsmm_predict_model, &qinfo);
             fprintf(stderr, "INFO ACC/LIBSMM: PREDICT model loaded (%d entries, %d clusters, %.1fx) for \"%s\"\n",
-              qinfo.nentries, qinfo.nclusters, qinfo.compression, OPENCL_KERNELS_DEVICES[best->device_id]);
+              qinfo.nentries, qinfo.nclusters, qinfo.compression,
+              (NULL != best) ? OPENCL_KERNELS_DEVICES[best->device_id] : env_params);
           }
 #  if !defined(OPENCL_KERNELS_PARAMS_SMM)
           if (NULL != opencl_libsmm_predict_model && 0 >= opencl_libsmm_predict_mode
