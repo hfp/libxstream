@@ -21,12 +21,12 @@
 #  define OPENCL_LIBSMM_SMMENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_SMM", KEY)
 /**
  * Confidence below which a predicted parameter is not used and receives its default
- * instead. On the held-out shapes of the tuned tables, the parameters matched their
- * tuned values 66.5% of the time at 0.5 (hKNN model; 65.3% with kNN, its best),
- * 62.6% at 0.9, and 54.6% with the defaults alone.
+ * instead. Zero takes every prediction: on shapes held out of the tuned table, the
+ * forest's kernels ran 1.69x the defaults ungated and 1.29x at a threshold of 0.5,
+ * since a parameter it predicts wrongly is still faster than the default on average.
  */
 #  if !defined(OPENCL_LIBSMM_PREDICT_CONF)
-#    define OPENCL_LIBSMM_PREDICT_CONF 0.5
+#    define OPENCL_LIBSMM_PREDICT_CONF 0
 #  endif
 
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)

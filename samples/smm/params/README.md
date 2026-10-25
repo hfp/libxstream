@@ -12,7 +12,7 @@ embedded instead of the CSV rows. `smm_params.sh` rebuilds the model
 after each merge using LIBXS (`samples/predict`); by hand, e.g.:
 
 ```bash
-predict_params.x hknn tune_multiply_PVC.csv tune_multiply_PVC.bin
+predict_params.x rf trees8 tune_multiply_PVC.csv tune_multiply_PVC.bin
 ```
 
 At build time, the matching CSV (or its model) is embedded (selected

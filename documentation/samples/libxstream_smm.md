@@ -113,7 +113,7 @@ Multiply kernel:
 | OPENCL_LIBSMM_SMM_KERNEL       | -        | OpenCL source file replacing the embedded multiply kernel            |
 | OPENCL_LIBSMM_SMM_PARAMS       | auto     | CSV/model file, a parameter row, or 0 for plain defaults (see below) |
 | OPENCL_LIBSMM_SMM_PREDICT      | 0        | Model: -1=off (default if PARAMS=0), 0=untuned shapes, 1=all shapes  |
-| OPENCL_LIBSMM_SMM_PREDICT_CONF | 0.5      | Confidence a predicted parameter needs; below, its default is used   |
+| OPENCL_LIBSMM_SMM_PREDICT_CONF | 0        | Confidence a predicted parameter needs; below, its default is used   |
 | OPENCL_LIBSMM_SMM_DEVID        | -        | Device ID whose parameters are used, e.g., `0x0bd5`                  |
 | OPENCL_LIBSMM_SMM_S            | 64       | BS > 1 needs a batch of at least BS×S; negative: always BS=1         |
 | OPENCL_LIBSMM_SMM_BS           | auto     | Intra-kernel mini-batchsize                                          |
@@ -190,7 +190,7 @@ built on demand) found via `LIBXSROOT`, a sibling `libxs`, or
 rebuild a model by hand:
 
 ```bash
-predict_params.x hknn params/tune_multiply_PVC.csv params/tune_multiply_PVC.bin
+predict_params.x rf trees8 params/tune_multiply_PVC.csv params/tune_multiply_PVC.bin
 ```
 
 ### Loading Parameters

@@ -151,7 +151,7 @@ if [ "${SED}" ] && [ "${LS}" ] && [ "${MV}" ] && [ "${RM}" ] && [ "${WC}" ]; the
       # the build embeds the model in place of the CSV-file, hence it must follow
       MODEL="${TARGET%.csv}.bin"
       if [ "${PREDICTX}" ]; then
-        if "${PREDICTX}" hknn "${TARGET}" "${MODEL}" >/dev/null; then
+        if "${PREDICTX}" rf trees8 "${TARGET}" "${MODEL}" >/dev/null; then
           echo "Wrote model ${MODEL##*/}."
         else
           >&2 echo "ERROR: failed to build ${MODEL##*/}!"
