@@ -363,7 +363,8 @@ int libsmm_acc_init(void) {
             }
           }
         }
-        if (0 == params_model && NULL == best && CL_DEVICE_TYPE_CPU != libxstream_opencl_config.device.type) { /* CPU: exact match only */
+        /* CPU: exact match only */
+        if (0 == params_model && NULL == best && CL_DEVICE_TYPE_CPU != libxstream_opencl_config.device.type) {
           for (entry = OPENCL_KERNELS_PREDICT_MODELS; NULL != entry->data; ++entry) {
             if (0 <= entry->device_id) {
               best = entry;

@@ -154,6 +154,8 @@ parameter row: the CSV columns without DEVICE, S, and GFLOPS, e.g.,
 `predict_params.x`, e.g., trained on part of a table) uses it in place of the
 embedded models. The embedded tuned parameters still apply unless
 `OPENCL_LIBSMM_SMM_PREDICT` is positive.
+`OPENCL_LIBSMM_SMM_PREDICT_CONF` is compared with a forest model's
+calibrated probability, and with the confidence of any other model.
 
 The full list of tunable parameters is available via
 `tune_multiply.py --help`.
