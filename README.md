@@ -88,7 +88,7 @@ make -j $(nproc) install PREFIX=$HOME/libxstream
 ```
 
 This installs headers, the libraries, the OpenCL-MPS server (`bin/`) and
-its ICD (`lib/libxstream/`, versioned like the library),
+its ICD (`lib/`, versioned like the library),
 the pkg-config and CMake files, the sample support files
 (`share/libxstream/samples`), and the documentation (`share/doc/libxstream`)
 under `PREFIX`. The header-only source tree is optional; add `HEADER_ONLY=1`

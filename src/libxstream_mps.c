@@ -59,12 +59,9 @@
 #   if !defined(LIBXSTREAM_MPS_IDLE)
 #     define LIBXSTREAM_MPS_IDLE 2
 #   endif
-/* installed server and ICD, relative to the library's directory (build systems pass the actual path) */
+/* installed server, relative to the library's directory (build systems pass the actual path) */
 #   if !defined(LIBXSTREAM_MPS_BINDIR)
 #     define LIBXSTREAM_MPS_BINDIR "../bin"
-#   endif
-#   if !defined(LIBXSTREAM_MPS_PLUGINDIR)
-#     define LIBXSTREAM_MPS_PLUGINDIR "libxstream"
 #   endif
 #   define LIBXSTREAM_MPS_NARGS 11
 #   define LIBXSTREAM_MPS_UNORDERED (~(uint64_t)0)
@@ -3792,15 +3789,14 @@ LIBXSTREAM_API_INTERN void libxstream_mps_presetup(int verbosity)
        * installed ones), the Khronos loader adds OCL_ICD_FILENAMES and takes OCL_ICD_VENDORS
        * as a directory, hence the installed ICDs are hidden either way.
        */
-      if ((EXIT_SUCCESS == libxstream_mps_beside(LIBXSTREAM_MPS_PLUGINDIR "/libxstream_icd.so", path, sizeof(path))
-          || EXIT_SUCCESS == libxstream_mps_beside("libxstream_icd.so", path, sizeof(path)))
+      if (EXIT_SUCCESS == libxstream_mps_beside("libxstream_icd.so", path, sizeof(path))
         && 0 == setenv("OCL_ICD_FILENAMES", path, 1) && 0 == setenv("OCL_ICD_VENDORS", path, 1))
       {
         /* the driver serializes calls per context, while contexts time-slice: a few contexts for many ranks */
         if (NULL == getenv("LIBXSTREAM_MPS_CONTEXTS")) setenv("LIBXSTREAM_MPS_CONTEXTS", 4 <= libxs_nranks() ? "2" : "1", 0);
         if (0 != verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: forwarding through %s\n", path);
       }
-      else fprintf(stderr, "ERROR LIBXSTREAM-MPS: libxstream_icd.so not found (" LIBXSTREAM_MPS_PLUGINDIR "/)\n");
+      else fprintf(stderr, "ERROR LIBXSTREAM-MPS: libxstream_icd.so not found beside the library\n");
     }
   }
 }
