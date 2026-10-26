@@ -37,7 +37,7 @@
 #if defined(SLM_B)
 #  define BNK(N, K) bnk[N][K]
 #elif defined(REG_B)
-#  if (BM < SM && 1 != BN)
+#  if (1 != BN)
 #    define BNK(N, K) bnk[N][K]
 #  else
 #    define BNK(N, K) bnk[K]
@@ -45,7 +45,7 @@
 #else
 #  define BNK(N, K) BDX(K, N)
 #endif
-#if (1 < BS) && (defined(SLM_C) || (BM < SM && 1 != BN))
+#if (1 < BS) && (defined(SLM_C) || 1 != BN)
 #  define CNM(N, M) cnm[N][M]
 #else
 #  define CNM(N, M) cnm[M]
