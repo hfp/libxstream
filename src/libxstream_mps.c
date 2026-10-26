@@ -59,6 +59,13 @@
 #   if !defined(LIBXSTREAM_MPS_IDLE)
 #     define LIBXSTREAM_MPS_IDLE 2
 #   endif
+/* installed server and ICD, relative to the library's directory (build systems pass the actual path) */
+#   if !defined(LIBXSTREAM_MPS_BINDIR)
+#     define LIBXSTREAM_MPS_BINDIR "../bin"
+#   endif
+#   if !defined(LIBXSTREAM_MPS_PLUGINDIR)
+#     define LIBXSTREAM_MPS_PLUGINDIR "libxstream"
+#   endif
 #   define LIBXSTREAM_MPS_NARGS 11
 #   define LIBXSTREAM_MPS_UNORDERED (~(uint64_t)0)
 #   define LIBXSTREAM_MPS_FENCE (~(uint64_t)0)
@@ -537,7 +544,7 @@ static libxstream_mps_obj_t* libxstream_mps_lookup(const libxstream_mps_client_t
 }
 
 
-/* Path of a file beside the library's real location (lib/<arch>), symbolic links resolved. */
+/* Path of a file relative to the library's real directory, symbolic links resolved. */
 static int libxstream_mps_beside(const char file[], char path[], size_t size)
 {
   int result = EXIT_FAILURE;
@@ -570,10 +577,19 @@ static void libxstream_mps_spawn(int verbosity)
 {
   const char* const env_server = getenv("LIBXSTREAM_MPS_SERVER");
   char path[PATH_MAX], *server = NULL;
+  int search = 0;
   if (NULL != env_server) {
     if (0 < LIBXS_SNPRINTF(path, sizeof(path), "%s", env_server)) server = path;
   }
-  else if (EXIT_SUCCESS == libxstream_mps_beside("libxstream_mpsd", path, sizeof(path))) server = path;
+  else if (EXIT_SUCCESS == libxstream_mps_beside(LIBXSTREAM_MPS_BINDIR "/libxstream_mpsd", path, sizeof(path))
+    || EXIT_SUCCESS == libxstream_mps_beside("libxstream_mpsd", path, sizeof(path)))
+  {
+    server = path; /* installed, or beside the library in a build tree */
+  }
+  else if (0 < LIBXS_SNPRINTF(path, sizeof(path), "libxstream_mpsd")) {
+    server = path; /* a command found by PATH */
+    search = 1;
+  }
   if (NULL != server) {
     posix_spawn_file_actions_t actions;
     posix_spawnattr_t attr;
@@ -599,7 +615,9 @@ static void libxstream_mps_spawn(int verbosity)
 #   if defined(POSIX_SPAWN_SETSID)
     posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
 #   endif
-    if (0 != posix_spawn(&pid, server, &actions, &attr, argv, environ)) {
+    if (0 != (0 == search ? posix_spawn(&pid, server, &actions, &attr, argv, environ)
+                          : posix_spawnp(&pid, server, &actions, &attr, argv, environ)))
+    {
       fprintf(stderr, "ERROR LIBXSTREAM-MPS: cannot start %s\n", server);
     }
     else { /* collect the parent of the detached server: no process is left behind (bounded, if it serves itself) */
@@ -3774,14 +3792,15 @@ LIBXSTREAM_API_INTERN void libxstream_mps_presetup(int verbosity)
        * installed ones), the Khronos loader adds OCL_ICD_FILENAMES and takes OCL_ICD_VENDORS
        * as a directory, hence the installed ICDs are hidden either way.
        */
-      if (EXIT_SUCCESS == libxstream_mps_beside("libxstream_icd.so", path, sizeof(path))
+      if ((EXIT_SUCCESS == libxstream_mps_beside(LIBXSTREAM_MPS_PLUGINDIR "/libxstream_icd.so", path, sizeof(path))
+          || EXIT_SUCCESS == libxstream_mps_beside("libxstream_icd.so", path, sizeof(path)))
         && 0 == setenv("OCL_ICD_FILENAMES", path, 1) && 0 == setenv("OCL_ICD_VENDORS", path, 1))
       {
         /* the driver serializes calls per context, while contexts time-slice: a few contexts for many ranks */
         if (NULL == getenv("LIBXSTREAM_MPS_CONTEXTS")) setenv("LIBXSTREAM_MPS_CONTEXTS", 4 <= libxs_nranks() ? "2" : "1", 0);
         if (0 != verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: forwarding through %s\n", path);
       }
-      else fprintf(stderr, "ERROR LIBXSTREAM-MPS: libxstream_icd.so not found beside the library\n");
+      else fprintf(stderr, "ERROR LIBXSTREAM-MPS: libxstream_icd.so not found (" LIBXSTREAM_MPS_PLUGINDIR "/)\n");
     }
   }
 }

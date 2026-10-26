@@ -9,8 +9,9 @@ unexport CFLAGS CXXFLAGS CPPFLAGS DFLAGS FFLAGS FCFLAGS LDFLAGS
 %:
 	dh $@
 
+# POUTDIR at build time as well: the library locates the OpenCL-MPS server from it
 override_dh_auto_build:
-	$(MAKE) GNU=1 STATIC=0
+	$(MAKE) GNU=1 STATIC=0 POUTDIR=$(LIBDIR)
 
 override_dh_auto_install:
 	$(MAKE) install PREFIX=usr DESTDIR=$(CURDIR)/debian/tmp CLEAN=0 STATIC=0 \

@@ -127,6 +127,15 @@ endif
 # building the library (export symbols, suppress header-only fallback)
 DFLAGS += -DLIBXSTREAM_BUILD
 
+# OpenCL-MPS installs the server into PBINDIR and the ICD into POUTDIR/libxstream:
+# paths between the two directories (relative to PREFIX), e.g., lib/x86_64 -> ../../bin
+MPS_SPACE := $(NULL) $(NULL)
+MPS_LIBTOBIN := $(subst $(MPS_SPACE),/,$(patsubst %,..,$(subst /, ,$(POUTDIR))))/$(PBINDIR)
+MPS_BINTOLIB := $(subst $(MPS_SPACE),/,$(patsubst %,..,$(subst /, ,$(PBINDIR))))/$(POUTDIR)
+ifneq (../bin,$(MPS_LIBTOBIN))
+  DFLAGS += -DLIBXSTREAM_MPS_BINDIR=\"$(MPS_LIBTOBIN)\"
+endif
+
 # 0: static, 1: shared, 2: static and shared
 ifneq (,$(filter-out file,$(origin STATIC)))
   ifneq (0,$(STATIC))
@@ -174,6 +183,7 @@ HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
 SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_mps.c libxstream_stream.c)
 # OpenCL-MPS server and the ICD given to the OpenCL loader, both beside the shared library
+# in the build tree (installed into PBINDIR and POUTDIR/libxstream, the ICD versioned)
 MPSFILE := $(ROOTSRC)/libxstream_mpsd.c
 MPSTARGETS := $(if $(filter-out 1 2,$(BUILD))$(filter-out 0,$(ANALYZE)),,$(OUTDIR)/libxstream_icd.$(DLIBEXT) $(OUTDIR)/libxstream_mpsd)
 OBJFILES := $(patsubst %,$(BLDDIR)/intel64/%.o,$(basename $(notdir $(SRCFILES))))
@@ -289,13 +299,13 @@ else
 endif
 
 $(OUTDIR)/libxstream_icd.$(DLIBEXT): $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(MPSFILE) $(HEADERS) $(INCDIR)/$(PROJECT)_version.h
-	$(LIB_SOLD) $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS) -DLIBXSTREAM_MPS_ICD $(MPSFILE) -o $@ \
-		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) \
+	$(LIB_SOLD) $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS) -DLIBXSTREAM_MPS_ICD $(MPSFILE) $(call solink_version,$@) \
+		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) -Wl,-rpath,'$$ORIGIN:$$ORIGIN/..' \
 		$(LIBXS_LINK) $(if $(LIBXS_DL),$(call abslibrpath,$(LIBXS_LIBDIR))) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 
 $(OUTDIR)/libxstream_mpsd: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(MPSFILE) $(HEADERS) $(INCDIR)/$(PROJECT)_version.h
 	$(CC) $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS) $(MPSFILE) -o $@ \
-		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) \
+		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) -Wl,-rpath,'$$ORIGIN:$$ORIGIN/$(MPS_BINTOLIB)' \
 		$(LIBXS_LINK) $(if $(LIBXS_DL),$(call abslibrpath,$(LIBXS_LIBDIR))) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 
 # use dir not qdir to avoid quotes
@@ -483,9 +493,15 @@ ifneq (0,$(CLEAN))
 endif
 	@echo "$(PROJUPP) installing libraries..."
 	@$(MKDIR) -p $(PREFIX)/$(POUTDIR)
-	@$(CP) -va $(OUTDIR)/$(PROJECT)*.$(DLIBEXT)* $(PREFIX)/$(POUTDIR) 2>/dev/null || true
+	@$(CP) -va $(OUTDIR)/$(PROJECT).$(DLIBEXT)* $(PREFIX)/$(POUTDIR) 2>/dev/null || true
 	@$(CP) -v  $(OUTDIR)/$(PROJECT).$(SLIBEXT)  $(PREFIX)/$(POUTDIR) 2>/dev/null || true
-	@$(CP) -v  $(OUTDIR)/libxstream_mpsd $(PREFIX)/$(POUTDIR) 2>/dev/null || true
+	@if [ -e $(OUTDIR)/libxstream_icd.$(DLIBEXT) ]; then \
+		$(MKDIR) -p $(PREFIX)/$(POUTDIR)/libxstream && \
+		$(CP) -va $(OUTDIR)/libxstream_icd.$(DLIBEXT)* $(PREFIX)/$(POUTDIR)/libxstream; \
+	fi
+	@if [ -e $(OUTDIR)/libxstream_mpsd ]; then \
+		$(MKDIR) -p $(PREFIX)/$(PBINDIR) && $(CP) -v $(OUTDIR)/libxstream_mpsd $(PREFIX)/$(PBINDIR); \
+	fi
 	@echo
 	@echo "$(PROJUPP) installing pkg-config and CMake config files..."
 	@$(MKDIR) -p $(PREFIX)/$(PPKGDIR)
