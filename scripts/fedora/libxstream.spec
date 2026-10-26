@@ -66,12 +66,10 @@ This package contains the API and usage documentation for LIBXSTREAM.
 %files
 %license LICENSE.md
 %{_libdir}/libxstream.so.%{soversion}{,.*}
-# OpenCL-MPS: the server, and the ICD in a private directory (the library hands
-# its path to the OpenCL loader; the unversioned link is the name it looks up)
+# OpenCL-MPS: the server and its ICD (the unversioned link is used by the loader)
 %{_bindir}/libxstream_mpsd
-%dir %{_libdir}/libxstream
-%{_libdir}/libxstream/libxstream_icd.so
-%{_libdir}/libxstream/libxstream_icd.so.%{soversion}{,.*}
+%{_libdir}/libxstream_icd.so
+%{_libdir}/libxstream_icd.so.%{soversion}{,.*}
 
 %files devel
 %{_datadir}/%{name}/

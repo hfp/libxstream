@@ -127,7 +127,7 @@ endif
 # building the library (export symbols, suppress header-only fallback)
 DFLAGS += -DLIBXSTREAM_BUILD
 
-# OpenCL-MPS installs the server into PBINDIR and the ICD into POUTDIR/libxstream:
+# OpenCL-MPS installs the server into PBINDIR and the ICD into POUTDIR:
 # paths between the two directories (relative to PREFIX), e.g., lib/x86_64 -> ../../bin
 MPS_SPACE := $(NULL) $(NULL)
 MPS_LIBTOBIN := $(subst $(MPS_SPACE),/,$(patsubst %,..,$(subst /, ,$(POUTDIR))))/$(PBINDIR)
@@ -300,7 +300,7 @@ endif
 
 $(OUTDIR)/libxstream_icd.$(DLIBEXT): $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(MPSFILE) $(HEADERS) $(INCDIR)/$(PROJECT)_version.h
 	$(LIB_SOLD) $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS) -DLIBXSTREAM_MPS_ICD $(MPSFILE) $(call solink_version,$@) \
-		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) -Wl,-rpath,'$$ORIGIN:$$ORIGIN/..' \
+		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) -Wl,-rpath,'$$ORIGIN' \
 		$(LIBXS_LINK) $(if $(LIBXS_DL),$(call abslibrpath,$(LIBXS_LIBDIR))) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 
 $(OUTDIR)/libxstream_mpsd: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(MPSFILE) $(HEADERS) $(INCDIR)/$(PROJECT)_version.h
@@ -496,8 +496,7 @@ endif
 	@$(CP) -va $(OUTDIR)/$(PROJECT).$(DLIBEXT)* $(PREFIX)/$(POUTDIR) 2>/dev/null || true
 	@$(CP) -v  $(OUTDIR)/$(PROJECT).$(SLIBEXT)  $(PREFIX)/$(POUTDIR) 2>/dev/null || true
 	@if [ -e $(OUTDIR)/libxstream_icd.$(DLIBEXT) ]; then \
-		$(MKDIR) -p $(PREFIX)/$(POUTDIR)/libxstream && \
-		$(CP) -va $(OUTDIR)/libxstream_icd.$(DLIBEXT)* $(PREFIX)/$(POUTDIR)/libxstream; \
+		$(CP) -va $(OUTDIR)/libxstream_icd.$(DLIBEXT)* $(PREFIX)/$(POUTDIR); \
 	fi
 	@if [ -e $(OUTDIR)/libxstream_mpsd ]; then \
 		$(MKDIR) -p $(PREFIX)/$(PBINDIR) && $(CP) -v $(OUTDIR)/libxstream_mpsd $(PREFIX)/$(PBINDIR); \

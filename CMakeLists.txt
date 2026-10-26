@@ -177,8 +177,8 @@ target_include_directories(
 target_link_libraries(libxstream PUBLIC ${LIBXSTREAM_LINK_LIBRARIES})
 
 # OpenCL-MPS server and the ICD given to the OpenCL loader, both beside the
-# shared library in the build tree; installed into the bin directory and into
-# libxstream/ under the lib directory (the ICD versioned like the library)
+# shared library in the build tree; installed into the bin and lib directories
+# respectively (the ICD versioned like the library).
 if(BUILD_SHARED_LIBS)
   file(RELATIVE_PATH LIBXSTREAM_MPS_LIBTOBIN "${CMAKE_INSTALL_FULL_LIBDIR}"
        "${CMAKE_INSTALL_FULL_BINDIR}")
@@ -202,7 +202,7 @@ if(BUILD_SHARED_LIBS)
                VERSION ${PROJECT_VERSION}
                SOVERSION ${PROJECT_VERSION_MAJOR}
                LIBRARY_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>"
-               INSTALL_RPATH "$ORIGIN/..")
+               INSTALL_RPATH "$ORIGIN")
 endif()
 
 if(BUILD_TESTING)
@@ -256,8 +256,7 @@ install(TARGETS libxstream EXPORT libxstream-targets)
 
 if(BUILD_SHARED_LIBS)
   install(TARGETS libxstream_mpsd RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
-  install(TARGETS libxstream_icd
-          LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}/libxstream")
+  install(TARGETS libxstream_icd)
 endif()
 
 install(
