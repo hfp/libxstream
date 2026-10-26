@@ -111,4 +111,5 @@ These are CUDA-specific operations (constant-memory writes and device-heap sizin
 * LIBXSTREAM API (`libxstream/libxstream.h`) — the underlying OpenCL backend API
 * [DBCSR ACC Interface](libxstream_dbcsr.md) — the DBCSR adapter layer
 * [DBM sample](https://github.com/hfp/libxstream/blob/main/samples/dbm/README.md) — OpenCL backend of CP2K's DBM
+* [Building CP2K with XCONFIGURE](https://xconfigure.readthedocs.io/cp2k/) — end-to-end build of CP2K with OpenCL support (LIBXSTREAM, LIBXS, DBCSR) and its dependencies
 * [CP2K offload_runtime.h](https://github.com/cp2k/cp2k/blob/master/src/offload/offload_runtime.h) — upstream interface definition
