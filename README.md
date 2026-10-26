@@ -28,8 +28,8 @@ cd ../libxstream && make -j $(nproc)
 ```
 
 This produces `lib/libxstream.a` and `lib/libxstream.so`, and with the
-shared library the [OpenCL-MPS](documentation/libxstream_opencl.md#opencl-mps)
-server `lib/libxstream_mpsd` and its ICD `lib/libxstream_icd.so`.
+shared library the [OpenCL-MPS](documentation/libxstream_mps.md)
+server `libxstream_mpsd` and its ICD `libxstream_icd.so` beside it.
 
 **Header-only** (explicit) — include `libxstream_source.h` (no
 separate library needed for either LIBXSTREAM or LIBXS). Safe
@@ -87,7 +87,8 @@ Install into a chosen prefix (LIBXS must be built first):
 make -j $(nproc) install PREFIX=$HOME/libxstream
 ```
 
-This installs headers, the libraries, the OpenCL-MPS server and ICD,
+This installs headers, the libraries, the OpenCL-MPS server (`bin/`) and
+its ICD (`lib/libxstream/`, versioned like the library),
 the pkg-config and CMake files, the sample support files
 (`share/libxstream/samples`), and the documentation (`share/doc/libxstream`)
 under `PREFIX`. The header-only source tree is optional; add `HEADER_ONLY=1`

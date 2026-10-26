@@ -47,6 +47,7 @@ nav:
 - Presentations: libxstream_present.md
 - Domains:
   - "OpenCL": libxstream_opencl.md
+  - "MPS": libxstream_mps.md
   - "DBCSR": libxstream_dbcsr.md
   - "CP2K": libxstream_cp2k.md
 - Samples:

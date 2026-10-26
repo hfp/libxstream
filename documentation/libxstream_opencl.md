@@ -211,45 +211,7 @@ A `device` row combines every kernel and every transfer, states how many of each
 
 ## OpenCL-MPS
 
-Several processes sharing one GPU are time-sliced by the device, one context at a time. OpenCL-MPS gives all processes of a node one context per device: each process forwards its OpenCL calls to a server process (`libxstream_mpsd`, beside the shared library), which exits once no process was attached for a while. MPI is not involved; one server runs per node and job. OpenCL-MPS is available on Linux if `CL/cl_icd.h` is found at build time. Either way of opting in requires the shared library:
-
-```bash
-libxstream_mpsd &              # a running server is the opt-in
-mpirun ...
-```
-
-```bash
-export LIBXSTREAM_MPS=1        # or: the first process starts the server
-mpirun ...
-```
-
-LIBXSTREAM then points the OpenCL loader to `libxstream_icd.so` when it is loaded, before any OpenCL call, which hides the installed ICDs. An OpenCL application that does not use LIBXSTREAM is served the same way, unchanged:
-
-```bash
-LIBXSTREAM_MPS=1 LD_PRELOAD=libxstream.so ./app
-```
-
-This relies on the library's constructor, which a C89 build (`PEDANTIC=2`) does not have. Setting both `OCL_ICD_VENDORS` (ocl-icd) and `OCL_ICD_FILENAMES` (Khronos loader) to `libxstream_icd.so` works as well. If the OpenCL driver is only found through these variables (a driver outside the default location), forwarding stays off: give their value to the server instead (`LIBXSTREAM_MPS_ICD`), and unset both.
-
-Host buffers are shared with the server only if they come from OpenCL, i.e., with `LIBXSTREAM_XHINTS=75` (bit 4 cleared); other host memory is copied through a socket.
-
-The forwarding platform reports the vendor's platform and devices, with ` (LIBXSTREAM-MPS)` appended to the platform name. Of several platforms, the server serves one: that of the device type `LIBXSTREAM_DEVTYPE` asks for, otherwise GPUs first. Profiling (`LIBXSTREAM_PROFILE*`), event callbacks, SVM, sub-devices, and programs from IL are not supported. A context spanning several devices is shared only with processes using the same set of devices.
-
-| Variable | Description |
-|---|---|
-| `LIBXSTREAM_MPS` | 1: forward, and start the server if none runs; 0: never forward; default: forward if a server runs |
-| `LIBXSTREAM_MPS_TIMEOUT` | Seconds the server stays after the last process detached; negative: until killed; default: 2 |
-| `LIBXSTREAM_MPS_KEY` | Names the server to attach to; default: the job ID (`SLURM_JOB_ID`, `PBS_JOBID`, `LSB_JOBID`) |
-| `LIBXSTREAM_MPS_SERVER` | Server executable; default: `libxstream_mpsd` beside the shared library |
-| `LIBXSTREAM_MPS_ICD` | Vendor ICDs the server loads, as for `OCL_ICD_FILENAMES`; default: the installed ICDs |
-| `LIBXSTREAM_MPS_ARENA` | Host memory in GB a process may share with the server (reserved, not committed); default: 256 |
-| `LIBXSTREAM_MPS_CONTEXTS` | Contexts per device the server spreads the processes over (round robin); default: 2 with four or more ranks per node, otherwise 1 (1 if the loader variables are set by hand) |
-| `LIBXSTREAM_MPS_ISSUERS` | Commands the server passes to the driver at once, over all processes; default: 0 (unbounded) |
-
-| Function | Description |
-|---|---|
-| `libxstream_mps_server` | Serve the node (what `libxstream_mpsd` runs) |
-| `libxstream_mps_icd_function`, `libxstream_mps_icd_platforms` | ICD entry points exported by `libxstream_icd.so` |
+Several processes can share one context per device through a server process; see [OpenCL-MPS](libxstream_mps.md).
 
 ## See Also
 
