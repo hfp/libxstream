@@ -182,16 +182,13 @@ target_link_libraries(libxstream PUBLIC ${LIBXSTREAM_LINK_LIBRARIES})
 if(BUILD_SHARED_LIBS)
   file(RELATIVE_PATH LIBXSTREAM_MPS_LIBTOBIN "${CMAKE_INSTALL_FULL_LIBDIR}"
        "${CMAKE_INSTALL_FULL_BINDIR}")
-  file(RELATIVE_PATH LIBXSTREAM_MPS_BINTOLIB "${CMAKE_INSTALL_FULL_BINDIR}"
-       "${CMAKE_INSTALL_FULL_LIBDIR}")
   target_compile_definitions(
     libxstream PRIVATE LIBXSTREAM_MPS_BINDIR="${LIBXSTREAM_MPS_LIBTOBIN}")
   add_executable(libxstream_mpsd "${LIBXSTREAM_ROOT_DIR}/src/libxstream_mpsd.c")
   target_link_libraries(libxstream_mpsd PRIVATE libxstream)
   set_target_properties(
-    libxstream_mpsd
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>"
-               INSTALL_RPATH "$ORIGIN/${LIBXSTREAM_MPS_BINTOLIB}")
+    libxstream_mpsd PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                               "$<TARGET_FILE_DIR:libxstream>")
   add_library(libxstream_icd SHARED
               "${LIBXSTREAM_ROOT_DIR}/src/libxstream_mpsd.c")
   target_compile_definitions(libxstream_icd PRIVATE LIBXSTREAM_MPS_ICD)
@@ -201,8 +198,7 @@ if(BUILD_SHARED_LIBS)
     PROPERTIES OUTPUT_NAME xstream_icd
                VERSION ${PROJECT_VERSION}
                SOVERSION ${PROJECT_VERSION_MAJOR}
-               LIBRARY_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>"
-               INSTALL_RPATH "$ORIGIN")
+               LIBRARY_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>")
 endif()
 
 if(BUILD_TESTING)
