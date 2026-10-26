@@ -95,6 +95,12 @@ LIBXSTREAM_API int libxstream_mem_host_deallocate_hint(void* host_mem, int hint)
  */
 LIBXSTREAM_API int libxstream_mem_host_device_accessible(void);
 /**
+ * Whether memory is pooled by this library, so that a caller's own pool would
+ * hold it twice: bit 0 for libxstream_mem_host_allocate, bit 1 for
+ * libxstream_mem_allocate. Requires an active device for the latter.
+ */
+LIBXSTREAM_API int libxstream_mem_pooled(void);
+/**
  * Declare a host range the library did not allocate, so that transfers to and
  * from it can take a faster route than the pageable one. What "faster" means is
  * LIBXSTREAM_PIN's mode: staging through a runtime-owned buffer, or registration

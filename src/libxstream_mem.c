@@ -204,6 +204,28 @@ LIBXSTREAM_API_INTERN int libxstream_mem_hst_pooled(void)
 }
 
 
+/** Whether libxstream_mem_allocate serves from the device pool. */
+static int libxstream_mem_dev_pooled(void)
+{
+  const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+  return (NULL != libxstream_opencl_config.pool_dev && (
+# if (1 >= LIBXSTREAM_USM)
+    NULL != devinfo->clDeviceMemAllocINTEL ||
+    NULL != devinfo->clSharedMemAllocINTEL ||
+# endif
+# if (0 != LIBXSTREAM_USM)
+    0 != devinfo->usm ||
+# endif
+    0 /*sentinel*/)) ? 1 : 0;
+}
+
+
+LIBXSTREAM_API int libxstream_mem_pooled(void)
+{
+  return (0 != libxstream_mem_hst_pooled() ? 1 : 0) | (0 != libxstream_mem_dev_pooled() ? 2 : 0);
+}
+
+
 /** Decides once which kind of memory the host pool allocates (libxstream_opencl_mem_hst_t). */
 LIBXSTREAM_API_INTERN void libxstream_mem_hst_resolve(void);
 LIBXSTREAM_API_INTERN void libxstream_mem_hst_resolve(void)
@@ -1249,16 +1271,7 @@ LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
   void* memptr = NULL;
   assert(NULL != dev_mem && NULL != devinfo->context);
   if (0 != nbytes) {
-    if (NULL != libxstream_opencl_config.pool_dev && (
-# if (1 >= LIBXSTREAM_USM)
-        NULL != devinfo->clDeviceMemAllocINTEL ||
-        NULL != devinfo->clSharedMemAllocINTEL ||
-# endif
-# if (0 != LIBXSTREAM_USM)
-        0 != devinfo->usm ||
-# endif
-        0 /*sentinel*/))
-    {
+    if (0 != libxstream_mem_dev_pooled()) {
       memptr = libxs_malloc(libxstream_opencl_config.pool_dev, nbytes, LIBXS_MALLOC_NATIVE);
     }
     else {
