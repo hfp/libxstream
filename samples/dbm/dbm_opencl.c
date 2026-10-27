@@ -287,18 +287,18 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
   const int* shape, const int* params_host, const int* params, const double* pack_a_data,
   const double* pack_b_data, double* shard_c_data)
 {
+  dbm_multiply_gpu_launch_info_t task;
   const DBM_TIMER_TICKINT start = DBM_TIMER_TICK();
   const libxstream_opencl_config_t* const config = &libxstream_opencl_config;
   const int verbosity = config->verbosity, trace = (0 > verbosity || 2 < verbosity);
-  int result = EXIT_SUCCESS;
+  int result = EXIT_SUCCESS, task_complete = 0;
 #if 0 < DBM_OPENCL_LIBSMM_PFORMAT
   int dbcsr = 0;
 #endif
-  dbm_multiply_gpu_launch_info_t task = {0};
-  int task_complete = 0;
   LIBXS_ASSERT(NULL != pack_a_data && NULL != pack_b_data && NULL != shard_c_data);
   LIBXS_ASSERT(NULL != params_host || 0 == ntasks);
   LIBXS_ASSERT(NULL != params || 0 == ntasks);
+  LIBXS_MEMZERO(&task);
   if (0 < ntasks) {
     if (NULL != shape) {
       task.max_m = shape[0];
