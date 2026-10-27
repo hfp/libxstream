@@ -4,7 +4,7 @@
 
 ## Build and Installation
 
-OpenCL-MPS is available on Linux if `CL/cl_icd.h` is found at build time, and requires the shared library (`make STATIC=0`, or CMake with `BUILD_SHARED_LIBS=ON`). The build places the server `libxstream_mpsd` and the ICD `libxstream_icd.so` beside the shared library. Installed, the server is in `bin/` and the ICD, versioned like the library, in `lib/libxstream/`; the library locates both relative to its own directory.
+OpenCL-MPS is available on Linux if `CL/cl_icd.h` is found at build time, and requires the shared library (`make STATIC=0`, or CMake with `BUILD_SHARED_LIBS=ON`). The build places the server `libxstream_mpsd` and the ICD `libxstream_icd.so` beside the shared library. Installed, the server is in `bin/` and the ICD, versioned like the library, in `lib/`; the library locates both relative to its own directory.
 
 ## Usage
 
@@ -20,7 +20,7 @@ export LIBXSTREAM_MPS=1        # or: the first process starts the server
 mpirun ...
 ```
 
-LIBXSTREAM then points the OpenCL loader to `libxstream_icd.so` (installed into `lib/libxstream/`) when it is loaded, before any OpenCL call, which hides the installed ICDs. An OpenCL application that does not use LIBXSTREAM is served the same way, unchanged:
+LIBXSTREAM then points the OpenCL loader to `libxstream_icd.so` (installed into `lib/`) when it is loaded, before any OpenCL call, which hides the installed ICDs. An OpenCL application that does not use LIBXSTREAM is served the same way, unchanged:
 
 ```bash
 LIBXSTREAM_MPS=1 LD_PRELOAD=libxstream.so ./app

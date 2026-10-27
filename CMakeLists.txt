@@ -177,21 +177,18 @@ target_include_directories(
 target_link_libraries(libxstream PUBLIC ${LIBXSTREAM_LINK_LIBRARIES})
 
 # OpenCL-MPS server and the ICD given to the OpenCL loader, both beside the
-# shared library in the build tree; installed into the bin directory and into
-# libxstream/ under the lib directory (the ICD versioned like the library)
+# shared library in the build tree; installed into the bin and lib directories
+# respectively (the ICD versioned like the library).
 if(BUILD_SHARED_LIBS)
   file(RELATIVE_PATH LIBXSTREAM_MPS_LIBTOBIN "${CMAKE_INSTALL_FULL_LIBDIR}"
        "${CMAKE_INSTALL_FULL_BINDIR}")
-  file(RELATIVE_PATH LIBXSTREAM_MPS_BINTOLIB "${CMAKE_INSTALL_FULL_BINDIR}"
-       "${CMAKE_INSTALL_FULL_LIBDIR}")
   target_compile_definitions(
     libxstream PRIVATE LIBXSTREAM_MPS_BINDIR="${LIBXSTREAM_MPS_LIBTOBIN}")
   add_executable(libxstream_mpsd "${LIBXSTREAM_ROOT_DIR}/src/libxstream_mpsd.c")
   target_link_libraries(libxstream_mpsd PRIVATE libxstream)
   set_target_properties(
-    libxstream_mpsd
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>"
-               INSTALL_RPATH "$ORIGIN/${LIBXSTREAM_MPS_BINTOLIB}")
+    libxstream_mpsd PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+                               "$<TARGET_FILE_DIR:libxstream>")
   add_library(libxstream_icd SHARED
               "${LIBXSTREAM_ROOT_DIR}/src/libxstream_mpsd.c")
   target_compile_definitions(libxstream_icd PRIVATE LIBXSTREAM_MPS_ICD)
@@ -201,8 +198,7 @@ if(BUILD_SHARED_LIBS)
     PROPERTIES OUTPUT_NAME xstream_icd
                VERSION ${PROJECT_VERSION}
                SOVERSION ${PROJECT_VERSION_MAJOR}
-               LIBRARY_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>"
-               INSTALL_RPATH "$ORIGIN/..")
+               LIBRARY_OUTPUT_DIRECTORY "$<TARGET_FILE_DIR:libxstream>")
 endif()
 
 if(BUILD_TESTING)
@@ -256,8 +252,7 @@ install(TARGETS libxstream EXPORT libxstream-targets)
 
 if(BUILD_SHARED_LIBS)
   install(TARGETS libxstream_mpsd RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
-  install(TARGETS libxstream_icd
-          LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}/libxstream")
+  install(TARGETS libxstream_icd)
 endif()
 
 install(

@@ -18,6 +18,7 @@ BuildRequires:  ocl-icd-devel
 BuildRequires:  opencl-headers
 %if %{with tests}
 BuildRequires:  flexiblas-devel
+BuildRequires:  clang
 %endif
 
 %description
@@ -34,6 +35,15 @@ Requires:       ocl-icd-devel%{?_isa}
 %description devel
 This package contains headers, pkg-config metadata, CMake package files, and
 OpenCL kernels for developing applications that use LIBXSTREAM.
+
+%package mps
+Summary:        OpenCL multi-process service for %{name}
+Requires:       %{name}%{?_isa} = %{version}-%{release}
+
+%description mps
+This package provides the OpenCL-MPS server and ICD for LIBXSTREAM. It allows
+multiple processes on the same node to share OpenCL device contexts through a
+local server.
 
 %package doc
 Summary:        Documentation for %{name}
@@ -66,12 +76,6 @@ This package contains the API and usage documentation for LIBXSTREAM.
 %files
 %license LICENSE.md
 %{_libdir}/libxstream.so.%{soversion}{,.*}
-# OpenCL-MPS: the server, and the ICD in a private directory (the library hands
-# its path to the OpenCL loader; the unversioned link is the name it looks up)
-%{_bindir}/libxstream_mpsd
-%dir %{_libdir}/libxstream
-%{_libdir}/libxstream/libxstream_icd.so
-%{_libdir}/libxstream/libxstream_icd.so.%{soversion}{,.*}
 
 %files devel
 %{_datadir}/%{name}/
@@ -79,6 +83,12 @@ This package contains the API and usage documentation for LIBXSTREAM.
 %{_libdir}/libxstream.so
 %{_libdir}/pkgconfig/libxstream*.pc
 %{_libdir}/cmake/libxstream/
+
+%files mps
+%{_bindir}/libxstream_mpsd
+# The unversioned link is directly used by the loader
+%{_libdir}/libxstream_icd.so
+%{_libdir}/libxstream_icd.so.%{soversion}{,.*}
 
 %files doc
 %doc %{_docdir}/%{name}/
