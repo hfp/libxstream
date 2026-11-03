@@ -18,10 +18,14 @@
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 PRECOMMIT=$(command -v pre-commit)
 GIT=$(command -v git)
+SHELLCHECK=$(command -v shellcheck)
 RESULT=0
 
 if [ ! "${PRECOMMIT}" ] || [ ! "${GIT}" ]; then
   >&2 echo "ERROR: pre-commit is missing (pip install --user pre-commit)!"
+  RESULT=1
+elif [ ! "${SHELLCHECK}" ]; then
+  >&2 echo "ERROR: shellcheck is missing (apt install shellcheck, or brew install shellcheck)!"
   RESULT=1
 elif ! cd "${HERE}/.."; then
   >&2 echo "ERROR: cannot enter the repository!"
