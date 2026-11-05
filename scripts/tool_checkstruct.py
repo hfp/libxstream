@@ -23,6 +23,9 @@ per file, so a return in #if and another in #else are one exit, not two.
 
   tool_checkstruct.py FILE...   report violations, exit 1 if any
   tool_checkstruct.py --list    name the checks and exit
+  tool_checkstruct.py --strict FILE...
+                                ignore the to-do list, and add the checks
+                                that the pattern hooks otherwise own
 """
 
 import os
@@ -143,6 +146,12 @@ Finding = Tuple[str, int, str]
 # smaller scale: LIBXSTREAM_CPU has to be defined before libxstream_vectors.h,
 # which selects the host mapping by it, and 36 macros and 2 includes are all
 # the file holds at depth zero.
+#
+# The ozaki sample compiles one source twice, once per precision, and maps its
+# lowercase implementation names onto precision-specific symbols with object-like
+# macros (gemm_original -> dgemm_original or sgemm_original). The macro IS the
+# lowercase name at every use, and capitalizing it would rename hundreds of uses
+# for nothing, so every macro-name finding in those files is such an alias.
 EXEMPT = (
     ("macro-name", "libxs/libxs_macros.h"),
     ("macro-name", "src/libxs_crc32.h"),
@@ -153,6 +162,11 @@ EXEMPT = (
     ("stacked-comments", "libxstream/libxstream_dbcsr.h"),
     ("section-order", "libxs/libxs_macros.h"),
     ("section-order", "libxstream/opencl/libxstream_cpu_begin.h"),
+    ("macro-name", "samples/ozaki/ozaki.h"),
+    ("macro-name", "samples/ozaki/gemm.h"),
+    ("macro-name", "samples/ozaki/ozaki1_int8.c"),
+    ("macro-name", "samples/ozaki/ozaki2_int8.c"),
+    ("macro-name", "samples/ozaki/wrap3m.c"),
 )
 # The backlog is not here: it is per-project state, and this script is a
 # policy file that "make documentation" copies into dependent projects, which
@@ -177,6 +191,10 @@ CHECKS = (
     "section-order",
     "comment-shape",
 )
+# Only with --strict: the pre-commit hooks of the same names carry exclusions
+# (an open backlog), and this is the way to see past them.
+STRICT = ("spdx-header", "triple-blank", "double-hyphen")
+HYPHEN = re.compile(r"(/\*|^[ \t]*\*)[^*/]*[^-] -- ")
 
 
 def header(path: str) -> bool:
@@ -368,6 +386,21 @@ def check(path: str, enabled: Sequence[str]) -> List[Finding]:
                             % (gap, " or ".join(str(w) for w in want)),
                         )
                     )
+    if "spdx-header" in enabled and "SPDX-License-Identifier:" not in text:
+        report.append(("spdx-header", 1, "no SPDX-License-Identifier"))
+    if "triple-blank" in enabled:
+        for number in range(len(lines) - 3):
+            if not "".join(lines[number : number + 3]).strip():
+                report.append(
+                    ("triple-blank", number + 1, "three blank lines or more")
+                )
+                break
+    if "double-hyphen" in enabled:
+        for number, line in enumerate(lines, 1):
+            if HYPHEN.search(line):
+                report.append(
+                    ("double-hyphen", number, 'no " -- " in a comment')
+                )
     if "stacked-comments" in enabled:
         report += stacked(text, lines)
     if "closer-nesting" in enabled:
@@ -1271,6 +1304,7 @@ def main(argv: Sequence[str]) -> int:
         only: List[str] = []
         names = []
         counts = "--counts" in argv
+        strict = "--strict" in argv
         for argument in argv[1:]:
             if argument.startswith("--no-"):
                 skip[argument[5:]] = True
@@ -1280,10 +1314,10 @@ def main(argv: Sequence[str]) -> int:
                 names.append(argument)
         enabled = [
             check
-            for check in CHECKS
+            for check in CHECKS + (STRICT if strict else ())
             if check not in skip and (not only or check in only)
         ]
-        listed = backlog()
+        listed = {} if strict else backlog()
         observed: Dict[Tuple[str, str], int] = {}
         for path in names:
             report = check(path, enabled)
@@ -1296,7 +1330,7 @@ def main(argv: Sequence[str]) -> int:
             if violations or complaints:
                 print("\n".join(violations + complaints))
                 result = 1
-        if not counts:
+        if not counts and not strict:
             for said in lower(listed, observed, names, enabled):
                 print(said)
                 result = 1
