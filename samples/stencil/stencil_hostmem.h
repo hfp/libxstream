@@ -24,18 +24,6 @@
 #include <stddef.h>
 
 
-/* Opaque stream handle: nothing on the host is asynchronous. */
-typedef struct libxstream_stream_t libxstream_stream_t;
-
-typedef enum libxstream_opencl_mem_hint_t {
-  libxstream_opencl_mem_hint_compress = 0
-} libxstream_opencl_mem_hint_t;
-
-int stencil_host_allocate(void** ptr, size_t nbytes);
-int stencil_host_deallocate(void* ptr);
-int stencil_host_copy(void* dst, const void* src, size_t nbytes);
-int stencil_host_zero(void* ptr, size_t offset, size_t nbytes);
-
 #define libxstream_init() EXIT_SUCCESS
 #define libxstream_finalize() ((void)0)
 #define libxstream_device_count(NDEVICES) (*(NDEVICES) = 1, EXIT_SUCCESS)
@@ -63,5 +51,17 @@ int stencil_host_zero(void* ptr, size_t offset, size_t nbytes);
   stencil_host_copy(DST, SRC, NBYTES)
 #define libxstream_mem_zero(PTR, OFFSET, NBYTES, STREAM) \
   stencil_host_zero(PTR, OFFSET, NBYTES)
+
+/* Opaque stream handle: nothing on the host is asynchronous. */
+typedef struct libxstream_stream_t libxstream_stream_t;
+
+typedef enum libxstream_opencl_mem_hint_t {
+  libxstream_opencl_mem_hint_compress = 0
+} libxstream_opencl_mem_hint_t;
+
+int stencil_host_allocate(void** ptr, size_t nbytes);
+int stencil_host_deallocate(void* ptr);
+int stencil_host_copy(void* dst, const void* src, size_t nbytes);
+int stencil_host_zero(void* ptr, size_t offset, size_t nbytes);
 
 #endif /*STENCIL_HOSTMEM_H*/

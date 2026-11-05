@@ -21,7 +21,8 @@ extern "C" {
 
 
 int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_libsmm_transkey_t* key,
-  const opencl_libsmm_trans_t* config, const char* delim, const char* begin, const char* close) {
+  const opencl_libsmm_trans_t* config, const char* delim, const char* begin, const char* close)
+  {
   int result = 0;
   if (NULL != stream) {
     const char d = (NULL == delim ? *LIBXS_DELIMS : *delim);
@@ -49,7 +50,8 @@ int opencl_libsmm_write_trans_params(FILE* stream, int only_key, const opencl_li
 
 
 int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libsmm_smmkey_t* key, const opencl_libsmm_smm_t* config,
-  const char* delim, const char* begin, const char* close) {
+  const char* delim, const char* begin, const char* close)
+    {
   int result = 0;
   if (NULL != stream) {
     const char d = (NULL == delim ? *LIBXS_DELIMS : *delim);
@@ -87,7 +89,8 @@ int opencl_libsmm_write_smm_params(FILE* stream, int only_key, const opencl_libs
 
 
 int opencl_libsmm_read_smm_params(char* parambuf, opencl_libsmm_smmkey_t* key, opencl_libsmm_smm_t* value,
-  opencl_libsmm_perfest_t* perfest, char* device, int* key_ok) {
+  opencl_libsmm_perfest_t* perfest, char* device, int* key_ok)
+    {
   const char* const end = parambuf + strlen(parambuf); /* before strtok */
   char* s = strtok(parambuf, LIBXS_DELIMS);
   const int opt_consumed = (NULL != perfest ? 2 : 0) + (NULL != device ? 1 : 0);

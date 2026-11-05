@@ -21,7 +21,22 @@
  * from the wrong addresses and only the results say so.
  */
 #define OZAKI_WGMMA_SBO 8
-#define OZAKI_WGMMA_LBO(BN_) (BN_)
+#define OZAKI_WGMMA_LBO(BN) (BN)
+
+/* Mirrors OZAKI_TZ_BIAS in ozaki2.cl: the complement the kernels report. */
+#define OZAKI_TZ_BIAS_HOST 64
+
+/* Bytes of staged B a work-group may hold, which is what ozaki_wgmma_probe validates. */
+#define OZAKI_WGMMA_RING_MAX 131072
+
+/**
+ * Device scratch arena (see ozaki_scratch_t). Sub-allocations are aligned well
+ * past what the kernels need, because the arena's whole purpose is to be handed
+ * out in a few large pieces: the residue planes are read as 16-byte vectors and
+ * the operand planes as uint4, so anything coarser than 16 is free, and a page
+ * keeps a piece from sharing a cache line with its neighbour.
+ */
+#define OZAKI_SCRATCH_ALIGN 4096
 
 
 /**
@@ -49,6 +64,7 @@ static int ozaki_launch_reduce(ozaki_context_t* ctx, libxstream_stream_t* stream
 static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bounds, int tm, int tn, int rtm, int rtn);
 static int ozaki_npanel_memory(const ozaki_context_t* ctx, int N, int nblk_m, int tn);
 static int ozaki_crt_npanel(const ozaki_context_t* ctx, int M, int N, int K, int dev, int n_kgroups, int cacheable_b);
+static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn, int rtm, int rtn);
 /**
  * Splice real warp-group MMA instructions into the fused CRT kernel's PTX.
  *
@@ -397,15 +413,6 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
 }
 
 
-static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn, int rtm, int rtn);
-
-
-/* Mirrors OZAKI_TZ_BIAS in ozaki2.cl: the complement the kernels report. */
-#define OZAKI_TZ_BIAS_HOST 64
-
-/* Bytes of staged B a work-group may hold, which is what ozaki_wgmma_probe validates. */
-#define OZAKI_WGMMA_RING_MAX 131072
-
 /**
  * Staging depth (KU) of the warp-group specialization for one tile, with the
  * deferred wait and the stage count that go with it. Per specialization rather
@@ -452,15 +459,6 @@ static int ozaki_wgmma_depth(const ozaki_context_t* ctx, int tm, int tn, int* de
   }
 }
 
-
-/**
- * Device scratch arena (see ozaki_scratch_t). Sub-allocations are aligned well
- * past what the kernels need, because the arena's whole purpose is to be handed
- * out in a few large pieces: the residue planes are read as 16-byte vectors and
- * the operand planes as uint4, so anything coarser than 16 is free, and a page
- * keeps a piece from sharing a cache line with its neighbour.
- */
-#define OZAKI_SCRATCH_ALIGN 4096
 
 static int ozaki_scratch_owns(const ozaki_context_t* ctx, const void* ptr)
 {
@@ -1577,7 +1575,8 @@ static cl_kernel ozaki_get_fused_kernel(ozaki_context_t* ctx, int cutoff, int bo
         LIBXS_UNUSED(n);
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI1, pname, flags,
-              ctx->base_options, NULL, NULL, NULL, 0, &program)) {
+              ctx->base_options, NULL, NULL, NULL, 0, &program))
+        {
           libxstream_opencl_kernel_query(program, "gemm_fused", &newset.kern_fused);
         }
       }
@@ -1651,7 +1650,8 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
         }
         if (EXIT_SUCCESS == libxstream_opencl_program(
               0, OPENCL_KERNELS_SOURCE_OZAKI2, pname, flags,
-              options, NULL, NULL, NULL, 0, &program)) {
+              options, NULL, NULL, NULL, 0, &program))
+        {
           if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, tn, maxnreg, &program);
           if (NULL != program) {
             libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
@@ -2049,6 +2049,7 @@ int ozaki_gemm_crt3m(ozaki_context_t* ctx, libxstream_stream_t* stream, char tra
   }
   return result;
 }
+
 
 unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int ncontig, int nld, int ld)
 {

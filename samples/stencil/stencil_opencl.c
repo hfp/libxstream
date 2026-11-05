@@ -9,6 +9,8 @@
 ******************************************************************************/
 #include "stencil_opencl.h"
 #include "stencil_kernels.h"
+#include "stencil_pml.h"
+#include "stencil_weights.h"
 #include <libxs/libxs_math.h>
 #include <libxs/libxs_mem.h>
 #include <libxs/libxs_timer.h>
@@ -37,9 +39,6 @@ typedef char stencil_key_size_assert_t[
 #if !defined(OPENCL_KERNELS_SOURCE_STENCIL_INT8)
 # error "OpenCL kernel source not found (stencil_kernels.h must define OPENCL_KERNELS_SOURCE_STENCIL_INT8)"
 #endif
-
-
-#include "stencil_weights.h"
 
 
 static void stencil_store_bf16_digits(cl_ushort* dst, int stride,
@@ -522,9 +521,6 @@ int stencil_init(stencil_context_t* ctx, int verbosity, int method_override)
   }
   return result;
 }
-
-
-#include "stencil_pml.h"
 
 
 int stencil_configure(stencil_context_t* ctx, int nx, int ny, int nz)

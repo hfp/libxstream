@@ -47,7 +47,8 @@ extern "C" {
 
 
 int libsmm_acc_transpose(const int* dev_trs_stack, int offset, int stack_size, void* dev_data, libsmm_acc_data_t datatype, int m,
-  int n, int max_kernel_dim, void* stream) {
+  int n, int max_kernel_dim, void* stream)
+          {
   int result = EXIT_SUCCESS;
   const int mn = m * n;
   LIBXS_ASSERT((NULL != dev_trs_stack && NULL != stream && NULL != dev_data && 0 <= offset && 0 < stack_size) || 0 == stack_size);

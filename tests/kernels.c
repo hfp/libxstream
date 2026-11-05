@@ -229,7 +229,7 @@ int main(void)
 {
   const int nfiles = (int)(sizeof(kernel_files) / sizeof(*kernel_files));
   const int nlevels = (int)(sizeof(kernel_levels) / sizeof(*kernel_levels));
-  int result = EXIT_SUCCESS, i, j, n = 0;
+  int result = EXIT_SUCCESS, skip = 0, i, j, n = 0;
 #if defined(__APPLE__)
   /**
    * Apple's clang does not support the OpenCL C extensions these kernels need,
@@ -240,30 +240,30 @@ int main(void)
   if (NULL == getenv("KERNELS_CC")) {
     printf("kernels: NOT ATTEMPTED on this platform"
       " (set KERNELS_CC to an OpenCL C compiler)\n");
-    return EXIT_SUCCESS;
+    skip = 1;
   }
 #endif
   /**
    * Required, not optional: a lint that skips itself reports success on every
    * machine that cannot run it, which is indistinguishable from passing.
    */
-  {
+  if (0 == skip) {
     char probe[512];
     if (0 >= LIBXS_SNPRINTF(probe, sizeof(probe), "%s --version >/dev/null 2>&1", kernels_cc())
       || EXIT_SUCCESS != system(probe))
     {
       fprintf(stderr, "kernels: %s is required to compile the kernels\n", kernels_cc());
-      return EXIT_FAILURE;
+      result = EXIT_FAILURE;
     }
   }
-  for (i = 0; i < nlevels && EXIT_SUCCESS == result; ++i) {
+  for (i = 0; i < nlevels && 0 == skip && EXIT_SUCCESS == result; ++i) {
     for (j = 0; j < nfiles && EXIT_SUCCESS == result; ++j) {
       if (0 != kernel_files[j].sg && 0 == kernel_levels[i].sg) continue;
       result = one(kernel_files + j, kernel_levels + i);
       if (EXIT_SUCCESS == result) ++n;
     }
   }
-  if (EXIT_SUCCESS == result) {
+  if (0 == skip && EXIT_SUCCESS == result) {
     printf("kernels: %d compiled at -Wall -Wextra -pedantic -Wshadow -Werror\n", n);
   }
   return result;
@@ -345,37 +345,38 @@ static int one(const kernels_file_t* file, const kernels_level_t* level)
   const char* base;
   if (EXIT_SUCCESS != result) {
     fprintf(stderr, "kernels: cannot read %s\n", path);
-    return result;
   }
-  base = strrchr(path, '/');
-  base = (NULL != base ? base + 1 : path);
-  { /* strip the .cl so the artifact is not named twice over */
-    const char* const dot = strrchr(base, '.');
-    if (NULL != dot && 0 == strcmp(dot, ".cl")) {
-      LIBXS_EXPECT(0 < LIBXS_SNPRINTF(stem, sizeof(stem), "%.*s", (int)(dot - base), base));
-      base = stem;
+  else {
+    base = strrchr(path, '/');
+    base = (NULL != base ? base + 1 : path);
+    { /* strip the .cl so the artifact is not named twice over */
+      const char* const dot = strrchr(base, '.');
+      if (NULL != dot && 0 == strcmp(dot, ".cl")) {
+        LIBXS_EXPECT(0 < LIBXS_SNPRINTF(stem, sizeof(stem), "%.*s", (int)(dot - base), base));
+        base = stem;
+      }
     }
-  }
-  dirname_of(path, dir, sizeof(dir));
-  if (0 >= LIBXS_SNPRINTF(name, sizeof(name), "k_%s_%s%s%s", level->name, base,
-        ('\0' != *file->flavor) ? "_" : "", file->flavor)
-    || 0 >= LIBXS_SNPRINTF(defines, sizeof(defines), "-I%s %s %s", dir, level->defines, file->params)
-    || 0 >= LIBXS_SNPRINTF(artifact, sizeof(artifact), "%s.cl", name))
-  {
-    result = EXIT_FAILURE;
-  }
-  if (EXIT_SUCCESS == result) {
-    result = libxstream_opencl_dump(source, 0 /*strlen*/, name, defines, file->nv, "", NULL);
-    if (EXIT_SUCCESS != result) {
-      fprintf(stderr, "kernels: %s did not instantiate [%s %s]\n", path, level->name, file->flavor);
+    dirname_of(path, dir, sizeof(dir));
+    if (0 >= LIBXS_SNPRINTF(name, sizeof(name), "k_%s_%s%s%s", level->name, base,
+          ('\0' != *file->flavor) ? "_" : "", file->flavor)
+      || 0 >= LIBXS_SNPRINTF(defines, sizeof(defines), "-I%s %s %s", dir, level->defines, file->params)
+      || 0 >= LIBXS_SNPRINTF(artifact, sizeof(artifact), "%s.cl", name))
+    {
+      result = EXIT_FAILURE;
     }
-  }
-  if (EXIT_SUCCESS == result) {
-    result = compiles(artifact, level, file->nv);
-    if (EXIT_SUCCESS != result) {
-      fprintf(stderr, "kernels: %s failed to compile [%s %s]\n", path, level->name, file->flavor);
+    if (EXIT_SUCCESS == result) {
+      result = libxstream_opencl_dump(source, 0 /*strlen*/, name, defines, file->nv, "", NULL);
+      if (EXIT_SUCCESS != result) {
+        fprintf(stderr, "kernels: %s did not instantiate [%s %s]\n", path, level->name, file->flavor);
+      }
     }
-    else remove(artifact);
+    if (EXIT_SUCCESS == result) {
+      result = compiles(artifact, level, file->nv);
+      if (EXIT_SUCCESS != result) {
+        fprintf(stderr, "kernels: %s failed to compile [%s %s]\n", path, level->name, file->flavor);
+      }
+      else remove(artifact);
+    }
   }
   free(source);
   return result;

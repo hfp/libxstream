@@ -64,23 +64,19 @@
     } while (0)
 
 
+/**
+ * Hardware sub-tile dimensions, mirroring XMX_M/XMX_N in ozaki_common.cl.
+ * The MMA path transposes them (16x8 instead of 8x16), so any host-side
+ * NTM/NTN arithmetic must derive from these rather than hard-code 8 and 16:
+ * the kernel's reqd_work_group_size is SG x (NTM*NTN), and a mismatch means
+ * sub-groups that never launch, i.e. silently unwritten parts of C.
+ */
+#define OZAKI_XMX_M(CTX) ((0 != (CTX)->nv_mma) ? 16 : 8)
+#define OZAKI_XMX_N(CTX) ((0 != (CTX)->nv_mma) ? 8 : 16)
+
+
 /* Ozaki flags */
 typedef enum ozaki_flags_t { OZAKI_TRIANGULAR = 1, OZAKI_SYMMETRIZE = 2 } ozaki_flags_t;
-
-LIBXS_API_INLINE int ozaki_count_pairs(int nslices, int co, int flags)
-{
-  int sa, n = 0;
-  for (sa = 0; sa < nslices && sa <= co; ++sa) {
-    const int sb_start = (0 != (flags & OZAKI_TRIANGULAR)) ? sa : 0;
-    const int sb_end = nslices < (co + 1 - sa) ? nslices : (co + 1 - sa);
-    int sb;
-    for (sb = sb_start; sb < sb_end; ++sb) {
-      ++n;
-      if (0 != (flags & OZAKI_SYMMETRIZE) && sa != sb) ++n;
-    }
-  }
-  return n;
-}
 
 /**
  * Host-side preprocessing callback for A or B (GEMM single-shot model).
@@ -100,15 +96,6 @@ typedef struct ozaki_cache_side_t {
   size_t slices_size, exp_size;
   unsigned int fingerprint; /* content fingerprint to detect in-place modifications */
 } ozaki_cache_side_t;
-
-/**
- * Compute a lightweight fingerprint by sampling matrix elements at
- * deterministic positions. Catches in-place modifications that
- * pointer comparison alone cannot detect. The extents are passed
- * per layout rather than as a transpose flag, since the flag implies
- * opposite extents for A and B.
- */
-unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int ncontig, int nld, int ld);
 
 typedef struct ozaki_cache_t {
   libxs_lock_t lock;
@@ -411,6 +398,35 @@ typedef struct ozaki_context_t {
   cl_kernel kern_zgemm_block_finalize;
 } ozaki_context_t;
 
+/* Selected output tile (BM x BN) for one GEMM call. */
+typedef struct ozaki_tile_t {
+  int m, n;
+} ozaki_tile_t;
+
+/**
+ * Compute a lightweight fingerprint by sampling matrix elements at
+ * deterministic positions. Catches in-place modifications that
+ * pointer comparison alone cannot detect. The extents are passed
+ * per layout rather than as a transpose flag, since the flag implies
+ * opposite extents for A and B.
+ */
+unsigned int ozaki_cache_fingerprint(const void* ptr, size_t elem_size, int ncontig, int nld, int ld);
+
+LIBXS_API_INLINE int ozaki_count_pairs(int nslices, int co, int flags)
+{
+  int sa, n = 0;
+  for (sa = 0; sa < nslices && sa <= co; ++sa) {
+    const int sb_start = (0 != (flags & OZAKI_TRIANGULAR)) ? sa : 0;
+    const int sb_end = nslices < (co + 1 - sa) ? nslices : (co + 1 - sa);
+    int sb;
+    for (sb = sb_start; sb < sb_end; ++sb) {
+      ++n;
+      if (0 != (flags & OZAKI_SYMMETRIZE) && sa != sb) ++n;
+    }
+  }
+  return n;
+}
+
 
 /**
  * Function prototypes (public API).
@@ -482,21 +498,6 @@ int ozaki_scratch_set(ozaki_context_t* ctx, void* dev_mem, size_t nbytes);
  * faults by design. It is a device pointer for libxstream and for nothing else.
  */
 void* ozaki_scratch_get(const ozaki_context_t* ctx, size_t* nbytes);
-/* Selected output tile (BM x BN) for one GEMM call. */
-typedef struct ozaki_tile_t {
-  int m, n;
-} ozaki_tile_t;
-
-/**
- * Hardware sub-tile dimensions, mirroring XMX_M/XMX_N in ozaki_common.cl.
- * The MMA path transposes them (16x8 instead of 8x16), so any host-side
- * NTM/NTN arithmetic must derive from these rather than hard-code 8 and 16:
- * the kernel's reqd_work_group_size is SG x (NTM*NTN), and a mismatch means
- * sub-groups that never launch, i.e. silently unwritten parts of C.
- */
-#define OZAKI_XMX_M(CTX) ((0 != (CTX)->nv_mma) ? 16 : 8)
-#define OZAKI_XMX_N(CTX) ((0 != (CTX)->nv_mma) ? 8 : 16)
-
 /**
  * Size-aware output tile selection: pick the largest legal tile that still
  * saturates the device, breaking ties on least padding waste. rtm/rtn are

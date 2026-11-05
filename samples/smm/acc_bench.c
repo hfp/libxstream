@@ -28,10 +28,10 @@
 
 #define PRINTF(...) \
   do { \
-    const size_t print_buffer_size = sizeof(print_buffer) - print_offset; \
-    const int print_buffer_result = LIBXS_SNPRINTF(print_buffer + print_offset, print_buffer_size, __VA_ARGS__); \
-    assert(0 <= print_buffer_result && print_buffer_result < (int)print_buffer_size); \
-    print_offset += print_buffer_result; \
+    const size_t print_buffer_size_ = sizeof(print_buffer) - print_offset; \
+    const int print_buffer_result_ = LIBXS_SNPRINTF(print_buffer + print_offset, print_buffer_size_, __VA_ARGS__); \
+    assert(0 <= print_buffer_result_ && print_buffer_result_ < (int)print_buffer_size_); \
+    print_offset += print_buffer_result_; \
   } while (0)
 
 #if !defined(ALIGNMENT)
@@ -95,7 +95,8 @@ static void parse_params(int argc, char* argv[], FILE** file, const char** snr, 
 static size_t parse_nbytes(const char* nbytes, size_t* nelems);
 
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
   const char* const env_check = getenv("CHECK");
   const double check = (NULL == env_check ? -1 : fabs(atof(env_check) * ACC_BENCH_SMM_EPSILON(ELEM_TYPE)));
 #if defined(WARMUP) && (0 < WARMUP) && !defined(_DEBUG)
@@ -506,7 +507,8 @@ int main(int argc, char* argv[]) {
 
 
 static void parse_params(int argc, char* argv[], FILE** file, const char** snr, const char** sss, const char** ssm,
-  const char** ssn, const char** ssk, const char** snc, const char** sna, const char** snb) {
+  const char** ssn, const char** ssk, const char** snc, const char** sna, const char** snb)
+{
   char buffer[1024], *args[8];
   int i;
   assert(file && snr && sss && ssm && ssn && ssk && snc && sna && snb);
@@ -571,7 +573,8 @@ static void parse_params(int argc, char* argv[], FILE** file, const char** snr, 
 }
 
 
-static size_t parse_nbytes(const char* nbytes, size_t* nelems) {
+static size_t parse_nbytes(const char* nbytes, size_t* nelems)
+{
   size_t result = 0;
   if (NULL != nelems) *nelems = 0;
   if (NULL != nbytes && '\0' != *nbytes) {

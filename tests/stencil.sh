@@ -92,7 +92,7 @@ echo "Running stencil (OCL=0)"
 echo "======================="
 
 NTEST=1
-NMAX=$(echo ${SELECT} | ${WC} -w | ${TR} -d " ")
+NMAX=$(echo "${SELECT}" | ${WC} -w | ${TR} -d " ")
 BUILT=""
 for CASE in "${CASES[@]}"; do
   IFS='|' read -r LABEL CPUDEF ENVIRON ARGS MARGIN <<<"${CASE}"

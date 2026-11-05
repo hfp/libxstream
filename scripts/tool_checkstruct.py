@@ -152,6 +152,14 @@ Finding = Tuple[str, int, str]
 # macros (gemm_original -> dgemm_original or sgemm_original). The macro IS the
 # lowercase name at every use, and capitalizing it would rename hundreds of uses
 # for nothing, so every macro-name finding in those files is such an alias.
+#
+# The same holds for LIBXSTREAM: stencil_hostmem.h stands the lowercase libxstream
+# entry points in for a host-only build, and stencil_cpu_instance.h names a kernel.
+# Those two, the CPU stencil driver, and the kernel shims in tests/ are the
+# generate-by-include pattern: macros configure a kernel source or an instance
+# header, then it is included, so the macro has to precede the include and the
+# include follows code. An instance header is included once per instance and has
+# no guard on purpose. Ordering them by section would change what they generate.
 EXEMPT = (
     ("macro-name", "libxs/libxs_macros.h"),
     ("macro-name", "src/libxs_crc32.h"),
@@ -167,6 +175,20 @@ EXEMPT = (
     ("macro-name", "samples/ozaki/ozaki1_int8.c"),
     ("macro-name", "samples/ozaki/ozaki2_int8.c"),
     ("macro-name", "samples/ozaki/wrap3m.c"),
+    ("macro-name", "samples/stencil/stencil_hostmem.h"),
+    ("macro-name", "samples/stencil/stencil_cpu_instance.h"),
+    ("section-order", "samples/stencil/stencil_cpu.c"),
+    ("section-order", "tests/shim_ozaki2.h"),
+    ("section-order", "tests/shim_ozaki2_fp32.c"),
+    ("section-order", "tests/shim_ozaki2_fp32f.c"),
+    ("section-order", "tests/shim_ozaki2_fp64.c"),
+    ("section-order", "tests/shim_ozaki2_fp64f.c"),
+    ("section-order", "tests/shim_ozaki2_kgrp.c"),
+    ("section-order", "tests/shim_ozaki2_sym.c"),
+    ("section-order", "tests/shim_smm_fp32.c"),
+    ("section-order", "tests/shim_smm_fp64.c"),
+    ("section-order", "tests/shim_smm_instance.h"),
+    ("section-order", "tests/shim_smm_trans_instance.h"),
 )
 # The backlog is not here: it is per-project state, and this script is a
 # policy file that "make documentation" copies into dependent projects, which

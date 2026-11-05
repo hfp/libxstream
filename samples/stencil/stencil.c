@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
   for (argi = 1; argi < argc; ++argi) {
     if (0 == strcmp(argv[argi], "-h") || 0 == strcmp(argv[argi], "--help")) {
       usage(argv[0]);
-      return EXIT_SUCCESS;
+      exit(EXIT_SUCCESS); /* nothing to release yet */
     }
   }
 
@@ -101,7 +101,8 @@ int main(int argc, char* argv[])
       nterms = atoi(argv[++argi]);
     }
     else if ((0 == strcmp(argv[argi], "-s")
-           || 0 == strcmp(argv[argi], "--spacing")) && argi + 1 < argc) {
+           || 0 == strcmp(argv[argi], "--spacing")) && argi + 1 < argc)
+    {
       h = atof(argv[++argi]);
     }
     else if (0 == strcmp(argv[argi], "-v") && argi + 1 < argc) {
@@ -600,7 +601,8 @@ int main(int argc, char* argv[])
           size_t fprint_pos;
           memset(&fprint, 0, sizeof(fprint)); /* exceeds LIBXS_MEMZERO scope */
           for (fprint_pos = 0; fprint_pos < n && EXIT_SUCCESS == fprint_ok;
-               fprint_pos += (size_t)STENCIL_FPRINT_CHUNK) {
+               fprint_pos += (size_t)STENCIL_FPRINT_CHUNK)
+          {
             const size_t fprint_rem = n - fprint_pos;
             const int fprint_n = (int)(fprint_rem < (size_t)STENCIL_FPRINT_CHUNK
               ? fprint_rem : (size_t)STENCIL_FPRINT_CHUNK);

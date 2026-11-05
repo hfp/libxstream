@@ -172,11 +172,13 @@ static void dbm_multiply_opencl_fill_add(const dbm_multiply_gpu_launch_info_t* t
     &dbm_multiply_opencl_fill_ntasks, (size_t)ntasks, LIBXS_ATOMIC_RELAXED);
 }
 
+
 static int dbm_multiply_opencl_cmp_int(const void* a, const void* b)
 {
   const int ia = *(const int*)a, ib = *(const int*)b;
   return (ia > ib) - (ia < ib);
 }
+
 
 /* Accounts runs of consecutive tasks sharing A (native format), see dbm_multiply_opencl_report. */
 static void dbm_multiply_opencl_runs_add(const int* params, int ntasks)
@@ -216,6 +218,7 @@ static void dbm_multiply_opencl_runs_add(const int* params, int ntasks)
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_wflops, wflops, LIBXS_ATOMIC_RELAXED);
   LIBXS_ATOMIC_ADD_FETCH(&dbm_multiply_opencl_run_ncdist, ncdist, LIBXS_ATOMIC_RELAXED);
 }
+
 
 static int dbm_multiply_gpu_launch_info(dbm_multiply_gpu_launch_info_t* info, const int* params,
   int ntasks, int param_format, int stop_at_impure)

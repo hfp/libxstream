@@ -238,9 +238,9 @@ static int probe(const char name[], const char source[], const char params[], co
 {
   char path[256], text[8192];
   char defines[512];
-  int result;
-  if (0 >= LIBXS_SNPRINTF(defines, sizeof(defines), "-I" LIBXSTREAM_SRCDIR "/libxstream/opencl %s", params)) return EXIT_FAILURE;
-  result = libxstream_opencl_dump(source, 0, name, defines, 0, "", NULL);
+  int result = EXIT_SUCCESS;
+  if (0 >= LIBXS_SNPRINTF(defines, sizeof(defines), "-I" LIBXSTREAM_SRCDIR "/libxstream/opencl %s", params)) result = EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_dump(source, 0, name, defines, 0, "", NULL);
   if (EXIT_SUCCESS == result && 0 >= LIBXS_SNPRINTF(path, sizeof(path), "%s.cl", name)) result = EXIT_FAILURE;
   if (EXIT_SUCCESS == result) result = reads(path, text, sizeof(text));
   if (EXIT_SUCCESS == result) {

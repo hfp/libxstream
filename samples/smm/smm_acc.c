@@ -55,8 +55,7 @@ double opencl_libsmm_predict_conf;
 
 #  if defined(OPENCL_KERNELS_PREDICT_MODELS)
 /** A saved model read from a file (OPENCL_LIBSMM_SMM_PARAMS), or NULL (e.g., a CSV-file). */
-static libxs_predict_t* opencl_libsmm_predict_file(const char* filename)
-{
+static libxs_predict_t* opencl_libsmm_predict_file(const char* filename) {
   libxs_predict_t* result = NULL;
   FILE* const file = fopen(filename, "rb");
   if (NULL != file) {
@@ -92,8 +91,7 @@ LIBXS_PRAGMA_WEAK(dbm_multiply_opencl_smm_launch_fn)
  * A CPU adopts only an exact match (UID or name): the entries nearest to a CPU are
  * tuned for GPUs, which the defaults serve a CPU better than.
  */
-static int opencl_libsmm_device_match(unsigned int* uid)
-{
+static int opencl_libsmm_device_match(unsigned int* uid) {
   const cl_device_id device_id = libxstream_opencl_config.devices[libxstream_opencl_config.device_id];
   const int ndevices = (int)(sizeof(OPENCL_KERNELS_DEVICES) / sizeof(*OPENCL_KERNELS_DEVICES));
   char name[LIBXSTREAM_BUFFERSIZE];
@@ -282,7 +280,9 @@ int libsmm_acc_init(void) {
                   if (NULL == config_init) {
                     if (NULL != libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &config, sizeof(config),
                                   libxs_registry_lock(opencl_libsmm_registry)))
+                    {
                       ++ntuned;
+                    }
                     else { /* failed to register */
                       result = EXIT_FAILURE;
                       break;
@@ -478,7 +478,8 @@ int libsmm_acc_finalize(void) {
     size_t cursor = 0, key_size = 0;
     const void* regentry = libxs_registry_begin_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor);
     for (; NULL != regentry;
-         regentry = libxs_registry_next_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor)) {
+         regentry = libxs_registry_next_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor))
+    {
       /* trans- and SMM-entries share this registry and are told apart by the
        * size of their key (opencl_libsmm_transkey_t vs opencl_libsmm_smmkey_t) */
       const int is_smm = (sizeof(opencl_libsmm_smmkey_t) == key_size);
@@ -560,7 +561,8 @@ const char* opencl_libsmm_getenv(const char domain[], const char key[]) {
 
 
 libxstream_bool_t libsmm_acc_process_suitable(
-  libxstream_bool_t def_mnk, libsmm_acc_data_t datatype, int stack_size, int m_max, int n_max, int k_max, int max_kernel_dim) {
+  libxstream_bool_t def_mnk, libsmm_acc_data_t datatype, int stack_size, int m_max, int n_max, int k_max, int max_kernel_dim)
+    {
   libxstream_bool_t result = 0; /* false */
   const int mn = m_max * n_max;
   if (0 < mn && 0 < k_max && 0 < stack_size &&
@@ -609,7 +611,8 @@ libxstream_bool_t libsmm_acc_process_suitable(
 
 int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, int stack_size, libsmm_acc_data_t datatype,
   const void* dev_a_data, const void* dev_b_data, void* dev_c_data, int m_max, int n_max, int k_max, int max_kernel_dim,
-  libxstream_bool_t def_mnk, void* stream, void* c_stream) {
+  libxstream_bool_t def_mnk, void* stream, void* c_stream)
+    {
   int result = EXIT_SUCCESS;
 #  if defined(OPENCL_LIBSMM_PFORMAT) && (0 < OPENCL_LIBSMM_PFORMAT)
   LIBXS_ASSERT(LIBXS_MAX(LIBXS_MAX(m_max, n_max), k_max) < (1 << (OPENCL_LIBSMM_PFORMAT - 1)));

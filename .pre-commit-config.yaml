@@ -72,14 +72,11 @@ repos:
   hooks:
   # Uses the installed shellcheck (apt, brew, and preinstalled on GitHub
   # runners) rather than a build-from-source mirror.
-  # Exclusions are an open backlog, not a policy: SC2086 (unquoted expansion)
-  # and SC2034 (unused variable) still have findings. Drop them once fixed.
   - id: shellcheck
     name: shellcheck
     entry: shellcheck
     language: system
     types: [shell]
-    args: ["--exclude=SC2086,SC2034"]
   # md2pptx.py is exempt: its payload is a LaTeX-to-Unicode mapping table.
   - id: ascii-only
     name: US-ASCII outside Markdown
@@ -162,31 +159,19 @@ repos:
     language: pygrep
     files: '\.(c|h|cl)$'
     exclude: '^samples/ozaki/ozaki_opencl\.c$'
-  # Negated: this hook fails where the pattern is absent. The exclusions are
-  # an open backlog of 31 files in LIBXS: the two Fortran interface files,
-  # four samples, and eleven implementation fragments. LIBXSTREAM has none.
+  # Negated: this hook fails where the pattern is absent. No file is excluded.
   - id: spdx-header
     name: every source file carries the SPDX header
     entry: 'SPDX-License-Identifier: BSD-3-Clause'
     language: pygrep
     args: [--negate]
     files: '\.(c|h|f|fi|cl)$'
-    exclude: |
-      (?x)^(
-        libxs/libxs_(procs|spec)\.fi
-        |samples/converse/.*
-        |samples/(fprint/fprint|setdiff/setdiff|tokenizer/tokenizer)\.c
-        |src/libxs_math_(fprint|matdiff|setdiff)\.h
-        |src/libxs_perm_(hilbert|kdtree)\.h
-        |src/libxs_predict_(compress|csv|hknn|rf|select|serial)\.h
-      )$
   - id: no-triple-blank
     name: never three or more consecutive blank lines
     entry: '\n{4}'
     language: pygrep
     args: [--multiline]
     types: [text]
-    exclude: '(?x)^(samples/converse/summarize\.c|src/libxs_(math\.c|perm_kdtree\.h))$'
   # Column 73 and beyond is ignored by a fixed-form compiler rather than
   # diagnosed, so an overlong statement is lost silently. Comment lines and
   # preprocessor lines are exempt; a trailing "&" at column 73 is the marker

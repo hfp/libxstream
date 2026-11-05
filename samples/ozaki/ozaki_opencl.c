@@ -888,10 +888,10 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         /**
          * Refused rather than downgraded: the host would pass double arrays to
          * kernels compiled for float. Recorded in the context as well, so its
-         * state says what the device can do and not what was asked for -- the
+         * state says what the device can do and not what was asked for - the
          * caller reads it and refuses the handle for exactly this, which is a
          * more accurate report than the generic setup failure this used to
-         * raise -- and it raised it while continuing to run the rest of this
+         * raise - and it raised it while continuing to run the rest of this
          * function, which is not what a failed result is supposed to mean.
          */
         fprintf(stderr, "ERROR OZAKI: FP64 requested but device does not support cl_khr_fp64\n");
