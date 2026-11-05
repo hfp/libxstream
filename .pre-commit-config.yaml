@@ -182,54 +182,16 @@ repos:
     language: pygrep
     files: '\.(f|fi)$'
   # The rules a pattern cannot express: they span lines and have to know
-  # where a function body starts and ends.
-  # Scoped to library code and public headers. Samples and tests are the
-  # larger backlog (164 multi-exit functions in LIBXS, dominated by
-  # samples/converse, and 3 in LIBXSTREAM), so they are deferred as a whole
-  # rather than by a file list that would need one entry per sample.
-  # Suppression lives in the script, per rule and per file, so a file listed
-  # for one rule is still checked by the others: the file-level exclusion this
-  # replaces switched off 140 rule/file pairs that were already clean.
+  # where a function body starts and ends. They hold for every C source in the
+  # tree, samples and tests included: a contribution is held to the policy
+  # wherever it lands. What cannot be fixed is accepted in the script, per rule
+  # and per file (EXEMPT), or deferred with a count in tool_checkstruct.todo,
+  # so a file listed for one rule is still checked by the others.
+  # This covers function exits, blank lines, comments, brace placement, section
+  # order, and the naming of macros, their parameters, and their locals.
   - id: structure
-    name: structural rules (single exit, blank lines, comments)
+    name: structural rules (exits, layout, comments, macro naming)
     entry: scripts/tool_checkstruct.py
-    args: [--no-macro-name, --no-macro-parameter]
-    language: script
-    files: '^(src|libxs|libxstream)/.*\.(c|h)$|\.cl$'
-  # A macro is capitalized, parameters included, and a local it declares is
-  # lowercase with a trailing underscore so it cannot collide with a name at
-  # the call site. 1294 function-like macros capitalize correctly and 13 do
-  # not; 315 macro locals carry the underscore and 28 do not, all in LIBXS.
-  # A separate hook so that --only names one group of rules; the suppression
-  # lists themselves live in the script.
-  # The first five files define names that are not ours, which is why they
-  # are lowercase and stay so: compiler builtins and keywords (libxs_macros.h,
-  # libxstream_cpu_begin.h, libxstream_cpu_end.h), a CP2K name
-  # (libxstream_cp2k.h), and the lowercase aliases LIBXS_CRC32(N) pastes onto
-  # (libxs_crc32.h). The last two are an open backlog: one parameter in the
-  # DBCSR-derived header and eight in the OpenCL helpers. The last two lines
-  # are the macro-local backlog: 28 locals across four LIBXS files.
-  - id: structure-macros
-    name: macro naming (name, parameters, locals)
-    entry: scripts/tool_checkstruct.py
-    args: ["--only=macro-name,macro-parameter,macro-local"]
-    language: script
-    files: '^(src|libxs|libxstream)/.*\.(c|h)$|\.cl$'
-  # Four of the rules hold wherever code is read, so this hook takes the whole
-  # tree: a comment that has come loose from what it documents, a comment whose
-  # lines do not carry the "*" that marks them, two closers sharing a column,
-  # and a second blank line inside a body all mislead a reader of a sample
-  # exactly as they do in the library. The rest stay scoped above, because a
-  # sample that bails out of main() early is not the same defect. Measured
-  # before widening: 8 findings in LIBXS and 15 in LIBXSTREAM, against 616 and
-  # 55 for the full rule set. The library files are covered twice, here and by
-  # "structure"; both reach the same verdict, so the overlap costs a second
-  # pass and nothing else.
-  - id: structure-anywhere
-    name: structural rules that hold outside the library too
-    entry: scripts/tool_checkstruct.py
-    args:
-      - "--only=stacked-comments,closer-nesting,blank-in-function,comment-shape"
     language: script
     files: '\.(c|h|cl)$'
   # Tree-global rather than per-file: it compares what the source reads

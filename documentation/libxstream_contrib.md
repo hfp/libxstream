@@ -78,16 +78,13 @@ preprocessed compiler dump no longer says which file a construct came from.
 `scripts/tool_checkenvars.sh` compares the prefixed variables the source reads
 against what the documentation mentions.
 
-**The policy holds everywhere; the hooks enforce most of it on library code and
-public headers.** A sample or a test that bails out of `main()` early is not the
-defect a multi-exit library function is, so `single-exit`, `function-gap` and
-the rest are scoped to `src`, the public headers and the kernels. Four of them
-are not, because they mislead whoever reads the code wherever it sits: a comment
-that has come loose from what it documents, a comment whose lines do not carry
-the `*` that marks them, two closing braces sharing a column while their blocks
-are nested, and a second blank line inside a function body. Those run over the
-whole tree, samples and tests included: a contribution is held to the policy
-wherever it lands, and what that surfaces is listed rather than waived.
+**The policy holds everywhere, and so do the hooks.** Every rule that
+`tool_checkstruct.py` checks runs over each C source in the tree, samples and
+tests included: a contribution is held to the policy wherever it lands. What
+cannot reasonably be fixed is accepted in the script, per rule and per file,
+with the reason beside it (a macro that is a lowercase alias on purpose, or a
+file that configures a kernel by macros and then includes it), or deferred with
+a count in the to-do list below.
 
 Both keep their open findings in a to-do file beside them,
 `scripts/tool_checkstruct.todo` and `scripts/tool_checkenvars.todo`, rather

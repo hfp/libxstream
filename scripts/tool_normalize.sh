@@ -14,11 +14,6 @@
 #
 #   tool_normalize.sh --install   install the Git hook (once per clone)
 #   tool_normalize.sh [DIR]       check and fix the tree, or just DIR
-#   tool_normalize.sh --pedantic [DIR]
-#                                 as above, then apply the full rule set to DIR
-#                                 (default: samples and tests), which the hook
-#                                 relaxes there: no to-do list, no exclusions,
-#                                 and shellcheck without its backlog
 #
 HERE=$(cd "$(dirname "$0")" && pwd -P)
 PRECOMMIT=$(command -v pre-commit)
@@ -38,30 +33,6 @@ elif ! cd "${HERE}/.."; then
 elif [ "--install" = "$1" ]; then
   ${PRECOMMIT} install
   RESULT=$?
-elif [ "--pedantic" = "$1" ]; then
-  SCOPE=${2:-samples tests}
-  # shellcheck disable=SC2086,SC2046
-  FILES=$(${GIT} ls-files ${SCOPE})
-  if [ ! "${FILES}" ]; then
-    >&2 echo "ERROR: no files under ${SCOPE}!"
-    RESULT=1
-  else
-    # First the fixers and the relaxed rules, as for any other run.
-    # shellcheck disable=SC2086
-    ${PRECOMMIT} run --show-diff-on-failure --files ${FILES}
-    RESULT=$?
-    # Generated sources stay with their producer, as in the hook.
-    SOURCES=$(echo "${FILES}" | grep -E '\.(c|h|cl)$' | grep -v 'opencl_kernels\.h$')
-    SCRIPTS=$(echo "${FILES}" | grep -E '\.(sh|bash)$')
-    if [ "${SOURCES}" ]; then
-      # shellcheck disable=SC2086
-      "${HERE}/tool_checkstruct.py" --strict ${SOURCES} || RESULT=1
-    fi
-    if [ "${SCRIPTS}" ]; then
-      # shellcheck disable=SC2086
-      ${SHELLCHECK} ${SCRIPTS} || RESULT=1
-    fi
-  fi
 elif [ "$1" ]; then
   # shellcheck disable=SC2046
   ${PRECOMMIT} run --show-diff-on-failure --files $(${GIT} ls-files "$1")
