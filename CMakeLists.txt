@@ -252,7 +252,8 @@ install(TARGETS libxstream EXPORT libxstream-targets)
 
 if(BUILD_SHARED_LIBS)
   install(TARGETS libxstream_mpsd RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
-  install(TARGETS libxstream_icd)
+  # the library loads the ICD by soname, hence no development link
+  install(TARGETS libxstream_icd LIBRARY NAMELINK_SKIP)
 endif()
 
 install(

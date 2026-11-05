@@ -20,6 +20,7 @@ BuildRequires:  opencl-headers
 BuildRequires:  flexiblas-devel
 BuildRequires:  clang
 %endif
+Recommends:     %{name}-mps%{?_isa} = %{version}-%{release}
 
 %description
 LIBXSTREAM is a library for OpenCL-accelerated tensor operations (batched small
@@ -86,8 +87,7 @@ This package contains the API and usage documentation for LIBXSTREAM.
 
 %files mps
 %{_bindir}/libxstream_mpsd
-# The unversioned link is directly used by the loader
-%{_libdir}/libxstream_icd.so
+# The library hands the soname to the loader: no unversioned link
 %{_libdir}/libxstream_icd.so.%{soversion}{,.*}
 
 %files doc

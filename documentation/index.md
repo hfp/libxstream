@@ -29,7 +29,7 @@ cd ../libxstream && make -j $(nproc)
 
 This produces `lib/libxstream.a` and `lib/libxstream.so`, and with the
 shared library the [OpenCL-MPS](libxstream_mps.md)
-server `libxstream_mpsd` and its ICD `libxstream_icd.so` beside it.
+server `libxstream_mpsd` and its ICD `libxstream_icd.so.1` beside it.
 
 **Header-only** (explicit) — include `libxstream_source.h` (no
 separate library needed for either LIBXSTREAM or LIBXS). Safe

@@ -63,6 +63,10 @@
 #   if !defined(LIBXSTREAM_MPS_BINDIR)
 #     define LIBXSTREAM_MPS_BINDIR "../bin"
 #   endif
+/* the ICD by soname: its unversioned link belongs to development files (build systems pass a different soname) */
+#   if !defined(LIBXSTREAM_MPS_ICD_SONAME)
+#     define LIBXSTREAM_MPS_ICD_SONAME "libxstream_icd.so." LIBXS_STRINGIFY(LIBXSTREAM_VERSION_MAJOR)
+#   endif
 #   define LIBXSTREAM_MPS_NARGS 11
 #   define LIBXSTREAM_MPS_UNORDERED (~(uint64_t)0)
 #   define LIBXSTREAM_MPS_FENCE (~(uint64_t)0)
@@ -541,27 +545,71 @@ static libxstream_mps_obj_t* libxstream_mps_lookup(const libxstream_mps_client_t
 }
 
 
-/* Path of a file relative to the library's real directory, symbolic links resolved. */
-static int libxstream_mps_beside(const char file[], char path[], size_t size)
+/* The library's real directory, symbolic links resolved. */
+static int libxstream_mps_libdir(char dir[], size_t size)
 {
   int result = EXIT_FAILURE;
 #   if defined(LIBXS_INTERCEPT_DYNAMIC)
-  union { int (*fn)(const char[], char[], size_t); const void* ptr; } self;
+  union { int (*fn)(char[], size_t); const void* ptr; } self;
   char real[PATH_MAX];
   Dl_info info;
-  self.fn = libxstream_mps_beside;
+  self.fn = libxstream_mps_libdir;
   if (0 != dladdr(self.ptr, &info) && NULL != info.dli_fname && NULL != realpath(info.dli_fname, real)) {
     char* const slash = strrchr(real, '/');
     if (NULL != slash) {
       *slash = '\0';
-      if (0 < LIBXS_SNPRINTF(path, size, "%s/%s", real, file) && 0 == access(path, R_OK)) result = EXIT_SUCCESS;
+      if (0 < LIBXS_SNPRINTF(dir, size, "%s", real)) result = EXIT_SUCCESS;
     }
   }
 #   else
-  LIBXS_UNUSED(file);
-  LIBXS_UNUSED(path);
+  LIBXS_UNUSED(dir);
   LIBXS_UNUSED(size);
 #   endif
+  return result;
+}
+
+
+/* Path of a file relative to the library's real directory. */
+static int libxstream_mps_beside(const char file[], char path[], size_t size)
+{
+  int result = EXIT_FAILURE;
+  char dir[PATH_MAX];
+  if (EXIT_SUCCESS == libxstream_mps_libdir(dir, sizeof(dir)) && 0 < LIBXS_SNPRINTF(path, size, "%s/%s", dir, file)
+    && 0 == access(path, R_OK))
+  {
+    result = EXIT_SUCCESS;
+  }
+  return result;
+}
+
+
+/**
+ * The server's environment: the library's directory leads LD_LIBRARY_PATH, hence the
+ * server loads this library without an RPATH (one allocation, NULL if unknown).
+ */
+static char** libxstream_mps_environ(void)
+{
+  char** result = NULL;
+  char dir[PATH_MAX];
+  if (EXIT_SUCCESS == libxstream_mps_libdir(dir, sizeof(dir))) {
+    const char* const prev = getenv("LD_LIBRARY_PATH");
+    const int keep = (NULL != prev && '\0' != *prev); /* an empty entry would name the working directory */
+    const size_t len = sizeof("LD_LIBRARY_PATH=") + strlen(dir) + (0 != keep ? (strlen(prev) + 1) : 0);
+    size_t n = 0;
+    while (NULL != environ[n]) ++n;
+    result = (char**)malloc((n + 2) * sizeof(char*) + len);
+    if (NULL != result) {
+      char* const value = (char*)(result + n + 2);
+      size_t i, j = 0;
+      if (0 != keep) LIBXS_SNPRINTF(value, len, "LD_LIBRARY_PATH=%s:%s", dir, prev);
+      else LIBXS_SNPRINTF(value, len, "LD_LIBRARY_PATH=%s", dir);
+      result[j++] = value;
+      for (i = 0; i < n; ++i) {
+        if (0 != strncmp("LD_LIBRARY_PATH=", environ[i], sizeof("LD_LIBRARY_PATH=") - 1)) result[j++] = environ[i];
+      }
+      result[j] = NULL;
+    }
+  }
   return result;
 }
 
@@ -592,6 +640,7 @@ static void libxstream_mps_spawn(int verbosity)
     posix_spawnattr_t attr;
     char detach[] = "--detach", *argv[3];
     DIR* const fds = opendir("/proc/self/fd");
+    char** const envp = libxstream_mps_environ();
     pid_t pid;
     argv[0] = server;
     argv[1] = detach;
@@ -612,8 +661,8 @@ static void libxstream_mps_spawn(int verbosity)
 #   if defined(POSIX_SPAWN_SETSID)
     posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
 #   endif
-    if (0 != (0 == search ? posix_spawn(&pid, server, &actions, &attr, argv, environ)
-                          : posix_spawnp(&pid, server, &actions, &attr, argv, environ)))
+    if (0 != (0 == search ? posix_spawn(&pid, server, &actions, &attr, argv, NULL != envp ? envp : environ)
+                          : posix_spawnp(&pid, server, &actions, &attr, argv, NULL != envp ? envp : environ)))
     {
       fprintf(stderr, "ERROR LIBXSTREAM-MPS: cannot start %s\n", server);
     }
@@ -623,6 +672,7 @@ static void libxstream_mps_spawn(int verbosity)
     }
     posix_spawnattr_destroy(&attr);
     posix_spawn_file_actions_destroy(&actions);
+    free(envp);
   }
   else fprintf(stderr, "ERROR LIBXSTREAM-MPS: server not found (LIBXSTREAM_MPS_SERVER)\n");
 }
@@ -3789,14 +3839,14 @@ LIBXSTREAM_API_INTERN void libxstream_mps_presetup(int verbosity)
        * installed ones), the Khronos loader adds OCL_ICD_FILENAMES and takes OCL_ICD_VENDORS
        * as a directory, hence the installed ICDs are hidden either way.
        */
-      if (EXIT_SUCCESS == libxstream_mps_beside("libxstream_icd.so", path, sizeof(path))
+      if (EXIT_SUCCESS == libxstream_mps_beside(LIBXSTREAM_MPS_ICD_SONAME, path, sizeof(path))
         && 0 == setenv("OCL_ICD_FILENAMES", path, 1) && 0 == setenv("OCL_ICD_VENDORS", path, 1))
       {
         /* the driver serializes calls per context, while contexts time-slice: a few contexts for many ranks */
         if (NULL == getenv("LIBXSTREAM_MPS_CONTEXTS")) setenv("LIBXSTREAM_MPS_CONTEXTS", 4 <= libxs_nranks() ? "2" : "1", 0);
         if (0 != verbosity) fprintf(stderr, "INFO LIBXSTREAM-MPS: forwarding through %s\n", path);
       }
-      else fprintf(stderr, "ERROR LIBXSTREAM-MPS: libxstream_icd.so not found beside the library\n");
+      else fprintf(stderr, "ERROR LIBXSTREAM-MPS: " LIBXSTREAM_MPS_ICD_SONAME " not found beside the library\n");
     }
   }
 }

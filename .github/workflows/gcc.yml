@@ -177,14 +177,14 @@ jobs:
         echo "LIBXSROOT=${{ github.workspace }}/../libxs" >> $GITHUB_ENV
 
     # Shared libraries: the OpenCL loader loads the forwarding ICD, which loads
-    # libxstream.so, and the server is the executable beside it.
+    # libxstream.so.1, and the server is the executable beside it.
     - name: Build LIBXS
       run: cd ${LIBXSROOT} && make -j $(nproc) STATIC=0 FORTRAN=0
 
     - name: Build LIBXSTREAM
       run: |
         make -j $(nproc) STATIC=0
-        test -x lib/libxstream_mpsd && test -f lib/libxstream_icd.so
+        test -x lib/libxstream_mpsd && test -f lib/libxstream_icd.so.1
         echo "LD_LIBRARY_PATH=${{ github.workspace }}/lib:${LIBXSROOT}/lib" >> $GITHUB_ENV
 
     - name: Test SMM sample

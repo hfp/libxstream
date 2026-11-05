@@ -128,10 +128,9 @@ endif
 DFLAGS += -DLIBXSTREAM_BUILD
 
 # OpenCL-MPS installs the server into PBINDIR and the ICD into POUTDIR:
-# paths between the two directories (relative to PREFIX), e.g., lib/x86_64 -> ../../bin
+# the server relative to the library's directory, e.g., lib/x86_64 -> ../../bin
 MPS_SPACE := $(NULL) $(NULL)
 MPS_LIBTOBIN := $(subst $(MPS_SPACE),/,$(patsubst %,..,$(subst /, ,$(POUTDIR))))/$(PBINDIR)
-MPS_BINTOLIB := $(subst $(MPS_SPACE),/,$(patsubst %,..,$(subst /, ,$(PBINDIR))))/$(POUTDIR)
 ifneq (../bin,$(MPS_LIBTOBIN))
   DFLAGS += -DLIBXSTREAM_MPS_BINDIR=\"$(MPS_LIBTOBIN)\"
 endif
@@ -167,6 +166,10 @@ VERSION_PACKAGE ?= 1
 
 # Link shared library with correct version stamp
 solink_version = $(call solink,$1,$(VERSION_MAJOR),$(VERSION_MINOR),$(VERSION_UPDATE),$(VERSION_API))
+# OpenCL-MPS: the ICD's soname follows VERSION_API, which may differ from the major version
+ifneq ($(VERSION_MAJOR),$(VERSION_API))
+  DFLAGS += -DLIBXSTREAM_MPS_ICD_SONAME=\"libxstream_icd.$(DLIBEXT).$(VERSION_API)\"
+endif
 
 # target library for a broad range of systems
 ifeq (file,$(origin AVX))
@@ -300,12 +303,12 @@ endif
 
 $(OUTDIR)/libxstream_icd.$(DLIBEXT): $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(MPSFILE) $(HEADERS) $(INCDIR)/$(PROJECT)_version.h
 	$(LIB_SOLD) $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS) -DLIBXSTREAM_MPS_ICD $(MPSFILE) $(call solink_version,$@) \
-		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) -Wl,-rpath,'$$ORIGIN' \
+		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) \
 		$(LIBXS_LINK) $(if $(LIBXS_DL),$(call abslibrpath,$(LIBXS_LIBDIR))) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 
 $(OUTDIR)/libxstream_mpsd: $(OUTDIR)/$(PROJECT).$(DLIBEXT) $(MPSFILE) $(HEADERS) $(INCDIR)/$(PROJECT)_version.h
 	$(CC) $(DFLAGS) $(IFLAGS) $(CTARGET) $(CFLAGS) $(MPSFILE) -o $@ \
-		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) -Wl,-rpath,'$$ORIGIN:$$ORIGIN/$(MPS_BINTOLIB)' \
+		-L$(OUTDIR) -l$(patsubst lib%,%,$(PROJECT)) $(call abslibrpath,$(OUTDIR)) \
 		$(LIBXS_LINK) $(if $(LIBXS_DL),$(call abslibrpath,$(LIBXS_LIBDIR))) $(call cleanld,$(LDFLAGS) $(CLDFLAGS))
 
 # use dir not qdir to avoid quotes
@@ -496,7 +499,7 @@ endif
 	@$(CP) -va $(OUTDIR)/$(PROJECT).$(DLIBEXT)* $(PREFIX)/$(POUTDIR) 2>/dev/null || true
 	@$(CP) -v  $(OUTDIR)/$(PROJECT).$(SLIBEXT)  $(PREFIX)/$(POUTDIR) 2>/dev/null || true
 	@if [ -e $(OUTDIR)/libxstream_icd.$(DLIBEXT) ]; then \
-		$(CP) -va $(OUTDIR)/libxstream_icd.$(DLIBEXT)* $(PREFIX)/$(POUTDIR); \
+		$(CP) -va $(OUTDIR)/libxstream_icd.$(DLIBEXT).* $(PREFIX)/$(POUTDIR); \
 	fi
 	@if [ -e $(OUTDIR)/libxstream_mpsd ]; then \
 		$(MKDIR) -p $(PREFIX)/$(PBINDIR) && $(CP) -v $(OUTDIR)/libxstream_mpsd $(PREFIX)/$(PBINDIR); \
