@@ -19,15 +19,20 @@
 #endif
 
 #if defined(LIBXSTREAM_PROFILE_DBCSR)
+/* weak: a static link reads libdbcsr.a before libxstream.a, hence only programs linking the timers anyway are profiled */
+LIBXS_PRAGMA_WEAK(c_dbcsr_timeset)
+LIBXS_PRAGMA_WEAK(c_dbcsr_timestop)
 # define LIBXSTREAM_PROFILE_BEGIN \
     int routine_handle_; \
-    if (0 != libxstream_opencl_config.profile) { \
+    const int routine_profile_ = (0 != libxstream_opencl_config.profile \
+      && NULL != c_dbcsr_timeset && NULL != c_dbcsr_timestop); \
+    if (0 != routine_profile_) { \
       static const char* routine_name_ptr_ = LIBXS_FUNCNAME + LIBXSTREAM_PROFILE_DBCSR; \
       static const int routine_name_len_ = (int)sizeof(LIBXS_FUNCNAME) - (LIBXSTREAM_PROFILE_DBCSR + 1); \
       c_dbcsr_timeset((const char**)&routine_name_ptr_, &routine_name_len_, &routine_handle_); \
     }
 # define LIBXSTREAM_PROFILE_END \
-    if (0 != libxstream_opencl_config.profile) c_dbcsr_timestop(&routine_handle_)
+    if (0 != routine_profile_) c_dbcsr_timestop(&routine_handle_)
 #else
 # define LIBXSTREAM_PROFILE_BEGIN
 # define LIBXSTREAM_PROFILE_END
