@@ -186,9 +186,11 @@ HEADERS_SRC := $(wildcard $(ROOTSRC)/*.h)
 HEADERS := $(HEADERS_SRC) $(HEADERS_MAIN)
 SRCFILES := $(patsubst %,$(ROOTSRC)/%,libxstream_cp2k.c libxstream_dbcsr.c libxstream.c libxstream_event.c libxstream_mem.c libxstream_mps.c libxstream_stream.c)
 # OpenCL-MPS server and the ICD given to the OpenCL loader, both beside the shared library
-# in the build tree (installed into PBINDIR and POUTDIR/libxstream, the ICD versioned)
+# in the build tree (installed into PBINDIR and POUTDIR/libxstream, the ICD versioned);
+# not with LIBXSTREAM_PROFILE_DBCSR, whose timers only DBCSR's own link provides
 MPSFILE := $(ROOTSRC)/libxstream_mpsd.c
-MPSTARGETS := $(if $(filter-out 1 2,$(BUILD))$(filter-out 0,$(ANALYZE)),,$(OUTDIR)/libxstream_icd.$(DLIBEXT) $(OUTDIR)/libxstream_mpsd)
+MPSPROFILE := $(findstring LIBXSTREAM_PROFILE_DBCSR,$(DFLAGS) $(CFLAGS) $(ECFLAGS) $(EFLAGS))
+MPSTARGETS := $(if $(filter-out 1 2,$(BUILD))$(filter-out 0,$(ANALYZE))$(MPSPROFILE),,$(OUTDIR)/libxstream_icd.$(DLIBEXT) $(OUTDIR)/libxstream_mpsd)
 OBJFILES := $(patsubst %,$(BLDDIR)/intel64/%.o,$(basename $(notdir $(SRCFILES))))
 
 # no warning conversion for released versions
