@@ -16,8 +16,10 @@
 #define DBCSR_CONCATENATE2(A, B) A##B
 #define DBCSR_CONCATENATE(A, B) DBCSR_CONCATENATE2(A, B)
 
-/** used to mark variables used */
-#define DBCSR_MARK_USED(x) (void)(x)
+/** used to mark variables used (as DBCSR's acc.h may define it already) */
+#if !defined(DBCSR_MARK_USED)
+# define DBCSR_MARK_USED(X) (void)(X)
+#endif
 
 
 /** types */

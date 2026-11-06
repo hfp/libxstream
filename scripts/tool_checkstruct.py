@@ -128,11 +128,14 @@ Finding = Tuple[str, int, str]
 # where the shape it accepts is the only shape that rule can find there, so
 # nothing is given up. A finding that is permanent in a file the rule still has
 # work in belongs in the to-do list instead, where the count keeps watching.
+# An entry still has to match: once its file is clean for its rule, the check
+# fails until the entry is gone. A file this project does not have is never
+# examined, which keeps the entries of the other projects sharing this list.
 #
 # Most of these files define names that are not ours, so the names keep the
 # spelling they have elsewhere: compiler builtins and language keywords, a CP2K
-# name, the lowercase aliases LIBXS_CRC32(N) pastes onto, and the comment style
-# of the DBCSR-derived header. The last entry is a different category: the
+# name, and the lowercase aliases LIBXS_CRC32(N) pastes onto. The last entry
+# is a different category: the
 # standard includes of libxs_macros.h sit below the feature-test macros that
 # have to precede them (_GNU_SOURCE, _DEFAULT_SOURCE, _XOPEN_SOURCE,
 # __STDC_FORMAT_MACROS, the _CRT_* switches, _USE_MATH_DEFINES, _REENTRANT).
@@ -163,8 +166,6 @@ EXEMPT = (
     ("macro-name", "libxstream/libxstream_cp2k.h"),
     ("macro-name", "libxstream/opencl/libxstream_cpu_begin.h"),
     ("macro-name", "libxstream/opencl/libxstream_cpu_end.h"),
-    ("macro-parameter", "libxstream/libxstream_dbcsr.h"),
-    ("stacked-comments", "libxstream/libxstream_dbcsr.h"),
     ("section-order", "libxs/libxs_macros.h"),
     ("section-order", "libxstream/opencl/libxstream_cpu_begin.h"),
     ("macro-name", "samples/ozaki/ozaki.h"),
@@ -1294,6 +1295,25 @@ def lower(
     return said
 
 
+def stale(
+    observed: Dict[Tuple[str, str], int],
+    examined: Sequence[str],
+    enabled: Sequence[str],
+) -> List[str]:
+    """Name every EXEMPT entry that matched nothing in a file examined now.
+
+    An exemption that no longer matches has outlived its reason, and it would
+    accept the next finding of its rule in that file without anyone noticing.
+    """
+    return [
+        "%s: %s: EXEMPT matches nothing, drop the entry" % (path, rule)
+        for rule, path in EXEMPT
+        if path in examined
+        and rule in enabled
+        and 0 == observed.get((rule, path), 0)
+    ]
+
+
 def main(argv: Sequence[str]) -> int:
     """Check every named file, or list the checks, or print the counts."""
     result = 0
@@ -1330,7 +1350,9 @@ def main(argv: Sequence[str]) -> int:
                 print("\n".join(violations + complaints))
                 result = 1
         if not counts:
-            for said in lower(listed, observed, names, enabled):
+            for said in lower(listed, observed, names, enabled) + stale(
+                observed, names, enabled
+            ):
                 print(said)
                 result = 1
         if counts:
