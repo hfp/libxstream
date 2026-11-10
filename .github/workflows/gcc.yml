@@ -29,6 +29,11 @@ jobs:
             sanitize: address,undefined
           - flags: DBG=1 PEDANTIC=2 FORCE_CXX=1 FORTRAN=0
             libxs: header-only
+          # NVIDIA's assembler on one combination: tests/kernels.c then assembles
+          # the PTX of the NVIDIA flavors, the inline PTX operands included.
+          - flags: DBG=1 PEDANTIC=2
+            libxs: prebuilt
+            ptxas: true
     env:
       # picked up by Makefile.inc through "SANITIZE ?=", hence no step below
       # needs to know about it; empty for every other combination
@@ -57,6 +62,20 @@ jobs:
     # does: it has no GPU and no platform, so the kernel sources go unchecked.
     - name: Install Clang
       run: sudo apt install -y clang
+
+    # From NVIDIA's wheel, which is ptxas without a CUDA toolkit or a driver.
+    - name: Install ptxas
+      if: matrix.ptxas
+      run: |
+        WHL=nvidia_cuda_nvcc_cu12-12.6.85-py3-none-manylinux1_x86_64.manylinux_2_5_x86_64.whl
+        curl -fsSL --retry 5 -o "${RUNNER_TEMP}/${WHL}" \
+          "https://files.pythonhosted.org/packages/25/1f/faf9b791027ebd6354be68700da3c3d8a3b3db3bdcf2f8070f2e6871a7f1/${WHL}"
+        echo "d75d9d74599f4d7c0865df19ed21b739e6cb77a6497a3f73d6f61e8038a765e4  ${RUNNER_TEMP}/${WHL}" | sha256sum -c -
+        python3 -m zipfile -e "${RUNNER_TEMP}/${WHL}" "${RUNNER_TEMP}/nvcc"
+        PTXAS=${RUNNER_TEMP}/nvcc/nvidia/cuda_nvcc/bin/ptxas
+        chmod +x "${PTXAS}"
+        "${PTXAS}" --version
+        echo "KERNELS_PTXAS=${PTXAS}" >> "${GITHUB_ENV}"
 
     - name: Setup LIBXS
       run: |

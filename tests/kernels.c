@@ -16,8 +16,10 @@
  * because the version does not order the feature space: OpenCL 3.0 rebased on 1.2
  * and made the 2.x collectives optional, so a higher number can guarantee less.
  *
- * The vendor paths (DPAS builtins, inline PTX) are out of reach for any compiler
- * but the vendor's own, so they are not attempted here.
+ * The DPAS builtins are out of reach for any compiler but the vendor's own, so
+ * they are not attempted here. With KERNELS_PTXAS naming NVIDIA's assembler, the
+ * NVIDIA flavors are also compiled to PTX and assembled, which checks the
+ * operands of their inline PTX that a syntax check accepts unread.
  */
 #if defined(__OPENCL)
 # if defined(LIBXSTREAM_SOURCE)
@@ -41,6 +43,10 @@
 
 #if !defined(KERNELS_CC)
 # define KERNELS_CC "clang"
+#endif
+/* what the NVIDIA runtime targets for the flavors with NV >= 4, and a superset for the others */
+#if !defined(KERNELS_PTXARCH)
+# define KERNELS_PTXARCH "sm_90"
 #endif
 #define KERNELS_MAXSRC (1 << 20)
 
@@ -216,9 +222,11 @@ static const kernels_level_t kernel_levels[] = {
     "-DLIBXSTREAM_OCLVER_C=300 -DLIBXSTREAM_OCLVER=300 -DGPU=1 -D__opencl_c_subgroups",
     "CL3.0", "+cl_khr_fp64,+__opencl_c_fp64,+__opencl_c_subgroups", 1 }
 };
+static int kernels_nassembled = 0;
 
 
 static const char* kernels_cc(void);
+static const char* kernels_ptxas(void);
 static char* loads(const char path[]);
 static void dirname_of(const char path[], char buffer[], size_t size);
 static int compiles(const char artifact[], const kernels_level_t* level, int nv);
@@ -255,6 +263,14 @@ int main(void)
       fprintf(stderr, "kernels: %s is required to compile the kernels\n", kernels_cc());
       result = EXIT_FAILURE;
     }
+    else if (NULL != kernels_ptxas()) { /* named, hence required as well */
+      if (0 >= LIBXS_SNPRINTF(probe, sizeof(probe), "%s --version >/dev/null 2>&1", kernels_ptxas())
+        || EXIT_SUCCESS != system(probe))
+      {
+        fprintf(stderr, "kernels: KERNELS_PTXAS=%s does not run\n", kernels_ptxas());
+        result = EXIT_FAILURE;
+      }
+    }
   }
   for (i = 0; i < nlevels && 0 == skip && EXIT_SUCCESS == result; ++i) {
     for (j = 0; j < nfiles && EXIT_SUCCESS == result; ++j) {
@@ -265,6 +281,9 @@ int main(void)
   }
   if (0 == skip && EXIT_SUCCESS == result) {
     printf("kernels: %d compiled at -Wall -Wextra -pedantic -Wshadow -Werror\n", n);
+    if (NULL != kernels_ptxas()) {
+      printf("kernels: %d assembled by ptxas -arch=%s\n", kernels_nassembled, KERNELS_PTXARCH);
+    }
   }
   return result;
 }
@@ -279,6 +298,14 @@ static const char* kernels_cc(void)
 {
   const char* const env = getenv("KERNELS_CC");
   return (NULL != env && '\0' != *env) ? env : KERNELS_CC;
+}
+
+
+/* KERNELS_PTXAS names NVIDIA's assembler, which adds the PTX pass for the NVIDIA flavors. */
+static const char* kernels_ptxas(void)
+{
+  const char* const env = getenv("KERNELS_PTXAS");
+  return (NULL != env && '\0' != *env) ? env : NULL;
 }
 
 
@@ -317,7 +344,10 @@ static void dirname_of(const char path[], char buffer[], size_t size)
 
 static int compiles(const char artifact[], const kernels_level_t* level, int nv)
 {
-  char command[1024];
+  char command[1024], ptx[512];
+  const char* const ptxas = kernels_ptxas();
+  const char* const dot = strrchr(artifact, '.');
+  const int nstem = (NULL != dot ? (int)(dot - artifact) : (int)strlen(artifact));
   int result = EXIT_FAILURE;
   if (0 < LIBXS_SNPRINTF(command, sizeof(command),
         "%s -x cl -cl-std=%s -fsyntax-only%s"
@@ -331,6 +361,28 @@ static int compiles(const char artifact[], const kernels_level_t* level, int nv)
         kernels_cc(), level->std, 0 != nv ? " --target=nvptx64-nvidia-cuda" : "", level->ext, artifact))
   {
     result = (EXIT_SUCCESS == system(command) ? EXIT_SUCCESS : EXIT_FAILURE);
+  }
+  /**
+   * Relocatable (ptxas -c): without the vendor's library the OpenCL builtins stay
+   * external calls, which a complete program would have to resolve. Warnings are
+   * not repeated, the first pass already held the same text to -Werror.
+   */
+  if (EXIT_SUCCESS == result && 0 != nv && NULL != ptxas) {
+    result = EXIT_FAILURE;
+    if (0 < LIBXS_SNPRINTF(ptx, sizeof(ptx), "%.*s.ptx", nstem, artifact)
+      && 0 < LIBXS_SNPRINTF(command, sizeof(command),
+           "%s -x cl -cl-std=%s --target=nvptx64-nvidia-cuda -march=%s -O2 -w -S"
+           " -Xclang -cl-ext=%s -Xclang -finclude-default-header -o %s %s"
+           " && %s -c -arch=%s -o /dev/null %s",
+           kernels_cc(), level->std, KERNELS_PTXARCH, level->ext, ptx, artifact, ptxas, KERNELS_PTXARCH, ptx))
+    {
+      result = (EXIT_SUCCESS == system(command) ? EXIT_SUCCESS : EXIT_FAILURE);
+    }
+    if (EXIT_SUCCESS == result) {
+      ++kernels_nassembled;
+      remove(ptx);
+    }
+    else fprintf(stderr, "kernels: %s did not assemble (kept for inspection)\n", ptx);
   }
   return result;
 }
