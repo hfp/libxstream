@@ -94,6 +94,31 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_notify(const char errinfo[], const 
 }
 
 
+/* PCI bus of a device by its vendor's query (Intel, AMD, NVIDIA), or EXIT_FAILURE if none answers. */
+LIBXSTREAM_API_INTERN int libxstream_opencl_pci_bus(cl_device_id device, cl_uint* bus);
+LIBXSTREAM_API_INTERN int libxstream_opencl_pci_bus(cl_device_id device, cl_uint* bus)
+{
+  struct { cl_uint domain, bus, device, function; } pci_intel;
+  struct { cl_uint type; unsigned char unused[17], bus, device, function; } pci_amd; /* cl_device_topology_amd */
+  cl_uint pci_nv = 0;
+  int result = EXIT_SUCCESS;
+  assert(NULL != bus);
+  if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x420F /*CL_DEVICE_PCI_BUS_INFO_INTEL*/, sizeof(pci_intel), &pci_intel, NULL)) {
+    *bus = pci_intel.bus;
+  }
+  else if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x4037 /*CL_DEVICE_TOPOLOGY_AMD*/, sizeof(pci_amd), &pci_amd, NULL) &&
+           1 == pci_amd.type /*CL_DEVICE_TOPOLOGY_TYPE_PCIE_AMD*/)
+  {
+    *bus = pci_amd.bus;
+  }
+  else if (EXIT_SUCCESS == clGetDeviceInfo(device, 0x4008 /*CL_DEVICE_PCI_BUS_ID_NV*/, sizeof(pci_nv), &pci_nv, NULL)) {
+    *bus = pci_nv;
+  }
+  else result = EXIT_FAILURE;
+  return result;
+}
+
+
 /* Discrete GPUs first, then integrated, then by memory capacity. */
 LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* /*dev_a*/, const void* /*dev_b*/);
 LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, const void* dev_b)
@@ -125,14 +150,10 @@ LIBXSTREAM_API_INTERN int libxstream_opencl_order_devices(const void* dev_a, con
           /* zero for both where the hint is off, which falls through to the
            * pointer order below rather than reordering the equal sizes */
           cl_uint bus_a = 0, bus_b = 0;
-          if (0 != (64 & libxstream_opencl_config.xhints)) {
-            struct { cl_uint domain, bus, device, function; } pci_a, pci_b;
-            if (EXIT_SUCCESS == clGetDeviceInfo(*a, 0x420F /*CL_DEVICE_PCI_BUS_INFO_INTEL*/, sizeof(pci_a), &pci_a, NULL) &&
-                EXIT_SUCCESS == clGetDeviceInfo(*b, 0x420F /*CL_DEVICE_PCI_BUS_INFO_INTEL*/, sizeof(pci_b), &pci_b, NULL))
-            {
-              bus_a = pci_a.bus;
-              bus_b = pci_b.bus;
-            }
+          if (0 != (64 & libxstream_opencl_config.xhints) &&
+              (EXIT_SUCCESS != libxstream_opencl_pci_bus(*a, &bus_a) || EXIT_SUCCESS != libxstream_opencl_pci_bus(*b, &bus_b)))
+          {
+            bus_a = bus_b = 0; /* both or neither */
           }
           result = (bus_a != bus_b) ? (bus_a < bus_b ? -1 : 1) : (a < b ? -1 : 1);
         }
@@ -2037,17 +2058,13 @@ LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int d
           {
             devinfo->uid = (cl_uint)-1;
           }
+          /* what an AMD device's compiler accepts is test-compiled (libxstream_opencl_atomics_probe), not told by its name */
           if (EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "amd", 0 /*use_platform_name*/) ||
               EXIT_SUCCESS == libxstream_opencl_device_vendor(active_id, "amd", 1 /*use_platform_name*/))
           {
             devinfo->amd = 1;
-            if ('\0' != *devname) {
-              const char* const gfxname = libxs_stristr(devname, "gfx");
-              if (NULL != gfxname && 90 <= atoi(gfxname + 3)) {
-                devinfo->amd = 2;
-              }
-            }
           }
+          libxstream_opencl_config.atomics_probe[0] = libxstream_opencl_config.atomics_probe[1] = 0;
           if (EXIT_SUCCESS !=
               clGetDeviceInfo(active_id, CL_DEVICE_HOST_UNIFIED_MEMORY, sizeof(cl_bool) /*cl_int*/, &devinfo->unified, NULL))
           {
@@ -2298,6 +2315,44 @@ LIBXSTREAM_API int libxstream_opencl_fallback(const char origin[], const char wh
 }
 
 
+/* Whether the active device's compiler accepts an FP-atomic expression: built, not run, once per precision. */
+LIBXSTREAM_API_INTERN int libxstream_opencl_atomics_probe(
+  cl_device_id device_id, libxstream_opencl_atomic_fp_t kind, const char expr[]);
+LIBXSTREAM_API_INTERN int libxstream_opencl_atomics_probe(
+  cl_device_id device_id, libxstream_opencl_atomic_fp_t kind, const char expr[])
+{
+  cl_int* const probe = &libxstream_opencl_config.atomics_probe[libxstream_opencl_atomic_fp_64 == kind ? 1 : 0];
+  int state = LIBXS_ATOMIC_LOAD(probe, LIBXS_ATOMIC_RELAXED);
+  assert(NULL != expr);
+  if (0 == state) { /* concurrent probes give the same answer */
+    static const char source[] = "#if defined(cl_khr_fp64)\n#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n#endif\n"
+                                 "kernel void libxstream_atomics_probe(global T* a) { ATOMIC_ADD_GLOBAL(a, (T)1); }\n";
+    const libxstream_opencl_device_t* const devinfo = &libxstream_opencl_config.device;
+    const char* lines = source; /* not const: clCreateProgramWithSource takes const char** */
+    cl_program program = NULL;
+    cl_int result = EXIT_FAILURE;
+    char options[LIBXSTREAM_BUFFERSIZE];
+    state = 1; /* rejected unless built */
+    if (NULL != devinfo->context && 0 < LIBXS_SNPRINTF(options, sizeof(options), "%s -DT=%s -DATOMIC_ADD_GLOBAL(A,B)=%s",
+                                          devinfo->std_flag, libxstream_opencl_atomic_fp_64 == kind ? "double" : "float", expr))
+    {
+      program = clCreateProgramWithSource(devinfo->context, 1 /*nlines*/, &lines, NULL, &result);
+    }
+    if (EXIT_SUCCESS == result && NULL != program) {
+      if (CL_SUCCESS == clBuildProgram(program, 1 /*num_devices*/, &device_id, options, NULL /*callback*/, NULL /*user_data*/)) {
+        state = 2;
+      }
+    }
+    if (NULL != program) LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == clReleaseProgram(program));
+    LIBXS_ATOMIC_STORE(probe, state, LIBXS_ATOMIC_RELAXED);
+    if (0 != libxstream_opencl_config.verbosity) {
+      fprintf(stderr, "INFO ACC/OpenCL: %s %s\n", expr, 2 == state ? "accepted" : "not accepted - emulated (cmpxchg)");
+    }
+  }
+  return (2 == state ? EXIT_SUCCESS : EXIT_FAILURE);
+}
+
+
 LIBXSTREAM_API int libxstream_opencl_flags_atomics(const libxstream_opencl_device_t* devinfo, libxstream_opencl_atomic_fp_t kind,
   const char* exts[], size_t* exts_maxlen, char flags[], size_t flags_maxlen)
 {
@@ -2407,15 +2462,16 @@ LIBXSTREAM_API int libxstream_opencl_flags_atomics(const libxstream_opencl_devic
             }
           }
           else if (0 == devinfo->nv) {
-            if (1 >= devinfo->amd) {
+            const char* const amdgcn = (libxstream_opencl_atomic_fp_64 == kind
+                                          ? "__builtin_amdgcn_global_atomic_fadd_f64(A,B,__ATOMIC_RELAXED,__OPENCL_MEMORY_SCOPE_WORK_GROUP)"
+                                          : "__builtin_amdgcn_global_atomic_fadd_f32(A,B,__ATOMIC_RELAXED,__OPENCL_MEMORY_SCOPE_WORK_GROUP)");
+            if (0 != devinfo->amd && EXIT_SUCCESS == libxstream_opencl_atomics_probe(device_id, kind, amdgcn)) {
+              atomic_exp = amdgcn;
+            }
+            else { /* detection, not a failure: LIBXSTREAM_FALLBACK does not apply */
               atomic_ops = (libxstream_opencl_atomic_fp_32 == kind ? "-DCMPXCHG=atomic_cmpxchg" : "-DCMPXCHG=atom_cmpxchg");
               atomic_exp = "atomic_add_global_cmpxchg(A,B)";
               exts[ext2] = NULL;
-            }
-            else { /* GCN */
-              atomic_exp = (libxstream_opencl_atomic_fp_64 == kind
-                              ? "__builtin_amdgcn_global_atomic_fadd_f64(A,B,__ATOMIC_RELAXED,__OPENCL_MEMORY_SCOPE_WORK_GROUP)"
-                              : "__builtin_amdgcn_global_atomic_fadd_f32(A,B,__ATOMIC_RELAXED,__OPENCL_MEMORY_SCOPE_WORK_GROUP)");
             }
           }
           else { /* xchg */

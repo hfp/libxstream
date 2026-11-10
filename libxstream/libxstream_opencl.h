@@ -650,6 +650,8 @@ typedef struct libxstream_opencl_config_t {
   cl_int wa;
   /** Fallback after a failure (see libxstream_opencl_fallback): 0 = refused, otherwise taken. */
   cl_int fallback;
+  /** Vendor FP-atomics of the active device (fp32, fp64), test-compiled on first use: 0 = not yet, 1 = rejected, 2 = accepted. */
+  cl_int atomics_probe[2];
 } libxstream_opencl_config_t;
 
 /** Configuration that precedes any use of the OpenCL runtime. */

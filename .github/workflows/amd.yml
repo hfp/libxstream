@@ -7,15 +7,18 @@ permissions:
 # ROCm's own OpenCL runtime, compiler included, runs on the simulator's HSA
 # runtime, so every kernel is built for the card's real target and executed
 # without a GPU. Correctness only: the simulator has no timing. Weekly, since
-# neither the simulator nor ROCm moves with this repository.
+# neither the simulator nor ROCm moves with this repository. Every AMD profile
+# runs by default, all treated alike: what a device can do is what it reports
+# and what its compiler accepts. What the simulator cannot show is listed in
+# the run's summary.
 on:
   schedule:
     - cron: "0 5 * * 1"
   workflow_dispatch:
     inputs:
       gpus:
-        description: "Simulated GPUs of the atomics table (vgpu list-gpus)"
-        default: "amd/mi250x amd/mi300x amd/mi350x amd/rx6900xt amd/rx7900xtx amd/rx9070xt"
+        description: "Simulated GPUs (vgpu list-gpus), every AMD one if empty"
+        default: ""
       owner_dbcsr:
         description: "Owner of the DBCSR repository (hfp until upstreamed)"
         default: "hfp"
@@ -46,7 +49,7 @@ jobs:
     timeout-minutes: 240
     env:
       # the scheduled run has no inputs, hence the defaults of the inputs again
-      GPUS: ${{ github.event.inputs.gpus || 'amd/mi250x amd/mi300x amd/mi350x amd/rx6900xt amd/rx7900xtx amd/rx9070xt' }}
+      GPUS: ${{ github.event.inputs.gpus }}
       OWNER_DBCSR: ${{ github.event.inputs.owner_dbcsr || 'hfp' }}
       REF_DBCSR: ${{ github.event.inputs.ref_dbcsr || 'develop' }}
       # a host fallback must not pass for a device run, nor a fallback after a failure
@@ -83,6 +86,14 @@ jobs:
         count: 2
         rocm: none
 
+    # The simulator's own list, hence a new profile joins without a change here.
+    - name: Simulated GPUs
+      run: |
+        if [ -z "${GPUS}" ]; then GPUS=$(vgpu list-gpus | grep '^amd/' | paste -sd' ' -); fi
+        if [ -z "${GPUS}" ]; then echo "ERROR: no simulated AMD GPU"; exit 1; fi
+        echo "GPUS=${GPUS}" >> "${GITHUB_ENV}"
+        echo "${GPUS}"
+
     - name: Install OpenBLAS, GNU Fortran, OpenCL, and clinfo
       run: |
         sudo apt update -y
@@ -93,9 +104,10 @@ jobs:
     # Unpacked rather than installed: the packages depend on the kernel driver
     # and on ROCm's HSA runtime, which is the simulator's here. The ICD loader
     # finds only this vendor, hence no CPU device can stand in for the GPU.
+    # ROCm 7.2 is the first whose compiler knows gfx1250 (MI455X).
     - name: Setup ROCm OpenCL
       run: |
-        REPO=https://repo.radeon.com/rocm/apt/7.1/pool/main
+        REPO=https://repo.radeon.com/rocm/apt/7.2.4/pool/main
         DIR=${RUNNER_TEMP}/rocm-opencl
         mkdir -p "${DIR}/debs" "${DIR}/vendors"
         while read -r SHA256 DEB; do
@@ -104,12 +116,12 @@ jobs:
           echo "${SHA256}  ${FILE}" | sha256sum -c -
           dpkg-deb -x "${FILE}" "${DIR}"
         done <<EOF
-        d5c465305933aa9c68ebbb1fcac19b708756cd345880468fe13dc8b915510f9b r/rocm-opencl/rocm-opencl_2.0.0.70100-20~24.04_amd64.deb
-        c52aa27638f3a40edb9db3136912c574670848befd20d671a5c017832d6a1378 c/comgr/comgr_3.0.0.70100-20~24.04_amd64.deb
-        f935d843dcf54db67072056e9fdfbd702464cfa6a36a0fccb4b5eaed3d70c4d2 r/rocm-device-libs/rocm-device-libs_1.0.0.70100-20~24.04_amd64.deb
-        afbb518300fa51b21795c1d27828af13369699046b5b3034455d4c581c314fc4 r/rocm-core/rocm-core_7.1.0.70100-20~24.04_amd64.deb
+        4670f9770e82418a49087e55e0cc3066562e5b8ff763892fa8a672a099087909 r/rocm-opencl/rocm-opencl_2.0.0.70204-93~24.04_amd64.deb
+        02951341120d23ebf34b066a84ab172e4813cba4a601f910545c6658989bee87 c/comgr/comgr_3.0.0.70204-93~24.04_amd64.deb
+        78ed94b0732bfc3c0c6db7863eec777bb5d88c901d46c9f37ec925a2393dff89 r/rocm-device-libs/rocm-device-libs_1.0.0.70204-93~24.04_amd64.deb
+        dfe0d173da998a669921faf08351a01add377cd4d1b471865f921a03484974b6 r/rocm-core/rocm-core_7.2.4.70204-93~24.04_amd64.deb
         EOF
-        ROCM=${DIR}/opt/rocm-7.1.0
+        ROCM=${DIR}/opt/rocm-7.2.4
         echo "${ROCM}/lib/libamdocl64.so" > "${DIR}/vendors/amdocl64.icd"
         # the simulator's libraries stay first: they are the HSA runtime
         { echo "OCL_ICD_VENDORS=${DIR}/vendors"
@@ -121,7 +133,8 @@ jobs:
       run: |
         for GPU in ${GPUS}; do
           echo "::group::${GPU}"
-          VGPU_GPU=${GPU} clinfo --raw | grep -E 'CL_PLATFORM_VERSION|CL_DEVICE_(NAME|VERSION|EXTENSIONS|.*ATOMIC.*)[[:space:]]'
+          VGPU_GPU=${GPU} clinfo --raw | grep -E 'CL_PLATFORM_VERSION|CL_DEVICE_(NAME|VERSION|EXTENSIONS|.*ATOMIC.*)[[:space:]]' \
+            || echo "${GPU}: no OpenCL device"
           echo "::endgroup::"
         done
 
@@ -140,28 +153,40 @@ jobs:
       run: make -j $(nproc) test
 
     # Each FP-atomics variant of the SMM (fp64, fp32) and DBM (fp64) kernels on
-    # every GPU: what the device reports, which expression was chosen (printed
-    # by LIBXSTREAM_DEBUG), and whether the device result is right. The table
+    # every GPU: what the device reports, what the test-compile of a vendor
+    # builtin said (Probe), which expression was chosen (printed by
+    # LIBXSTREAM_DEBUG), and whether the device result is right. The table
     # is written before the step fails, hence a failure still shows all of it.
     # A search that finds nothing is an answer here, not an error (pipefail).
+    # GAP is neither a pass nor a failure: the run failed and the simulator said
+    # why ("VirtualGPU <layer>: ..."), or ROCm's runtime lists no OpenCL device.
+    # It does not fail the step, and what it said is quoted below the table.
     - name: Atomics
       shell: bash
       run: |
         STATUS=0
         LOGS=${RUNNER_TEMP}/atomics
         TABLE=${LOGS}/atomics.md
+        GAPS=${LOGS}/gaps.md
         mkdir -p "${LOGS}"
-        echo "| GPU | Device | cl_ext_float_atomics | Kernel | LIBXSTREAM_ATOMICS | ATOMIC_ADD_GLOBAL | Result |" > "${TABLE}"
-        echo "|---|---|---|---|---|---|---|" >> "${TABLE}"
+        : > "${GAPS}"
+        echo "| GPU | Device | Verified profile | cl_ext_float_atomics | Kernel | LIBXSTREAM_ATOMICS | Probe | ATOMIC_ADD_GLOBAL | Result |" > "${TABLE}"
+        echo "|---|---|---|---|---|---|---|---|---|" >> "${TABLE}"
         for ELEM in float double; do
           make -j $(nproc) -C samples/smm ELEM_TYPE=${ELEM}
           cp samples/smm/acc_bench.x "${RUNNER_TEMP}/acc_bench_${ELEM}.x"
         done
         make -j $(nproc) -C samples/dbm
         for GPU in ${GPUS}; do
-          INFO=$(VGPU_GPU=${GPU} clinfo --raw)
-          DEVICE=$(echo "${INFO}" | sed -n 's/.*CL_DEVICE_NAME[[:space:]]*//p' | sed -n 1p)
+          INFO=$(VGPU_GPU=${GPU} clinfo --raw || true)
+          DEVICE=$(sed -n 's/.*CL_DEVICE_NAME[[:space:]]*//p' <<< "${INFO}" | sed -n 1p)
           FPEXT=$(grep -q cl_ext_float_atomics <<< "${INFO}" && echo yes || echo no)
+          VERIFIED=$(grep -q '"verified": *true' <<< "$(vgpu info --gpu "${GPU}" --json)" && echo yes || echo no)
+          if [ -z "${DEVICE}" ]; then
+            echo "| ${GPU} | none | ${VERIFIED} | - | - | - | - | - | GAP |" >> "${TABLE}"
+            echo "- ${GPU}: ROCm's OpenCL runtime lists no device" >> "${GAPS}"
+            continue
+          fi
           for KERNEL in smm_double smm_float dbm; do
             case ${KERNEL} in
               smm_*) CMD="${RUNNER_TEMP}/acc_bench_${KERNEL#smm_}.x 1 1000 13x5x7" ;;
@@ -177,8 +202,17 @@ jobs:
                 RESULT=host
               fi
               EXPR=$(grep -o 'ATOMIC_ADD_GLOBAL(A,B)=[^ "]*' "${LOG}" | sed 's/^ATOMIC_ADD_GLOBAL(A,B)=//' | sort -u | paste -sd' ' || true)
-              if [ "0" = "${RESULT}" ]; then OUTCOME=ok; else OUTCOME="FAILED (${RESULT})"; STATUS=1; fi
-              echo "| ${GPU} | ${DEVICE} | ${FPEXT} | ${KERNEL} | ${VARIANT} | \`${EXPR:-none}\` | ${OUTCOME} |" >> "${TABLE}"
+              # what the test-compile of a vendor builtin said (INFO line), if one ran
+              if grep -q ') accepted$' "${LOG}"; then PROBE=accepted
+              elif grep -q ') not accepted' "${LOG}"; then PROBE=rejected
+              else PROBE=-; fi
+              SIM=$(grep -m1 '^VirtualGPU [A-Za-z]*:' "${LOG}" | tr -d '`|' || true)
+              if [ "0" = "${RESULT}" ]; then OUTCOME=ok
+              elif [ -n "${SIM}" ]; then
+                OUTCOME=GAP
+                echo "- ${GPU} ${KERNEL} ${VARIANT} (exit ${RESULT}): \`${SIM}\`" >> "${GAPS}"
+              else OUTCOME="FAILED (${RESULT})"; STATUS=1; fi
+              echo "| ${GPU} | ${DEVICE} | ${VERIFIED} | ${FPEXT} | ${KERNEL} | ${VARIANT} | ${PROBE} | \`${EXPR:-none}\` | ${OUTCOME} |" >> "${TABLE}"
               if [ "ok" != "${OUTCOME}" ]; then
                 echo "::group::${GPU} ${KERNEL} ${VARIANT}: ${OUTCOME}"
                 tail -n 40 "${LOG}"
@@ -187,7 +221,19 @@ jobs:
             done
           done
         done
-        tee -a "${GITHUB_STEP_SUMMARY}" < "${TABLE}"
+        { cat "${TABLE}"
+          if [ -s "${GAPS}" ]; then
+            echo; echo "**Gaps seen** (not tested, hence neither passed nor failed):"; cat "${GAPS}"
+          fi
+          echo; cat <<'EOF'
+        **Not covered by the simulator** (its docs/status.md and docs/gap-register.md), hence not shown by an ok:
+        - no timing: a native atomic and a compare-and-swap loop look alike, and so do tuned and default parameters
+        - memory-scope bits have no effect: a scope that is too narrow, or a missing fence, cannot fail here
+        - atomics serialize on a lock, memory is shared a word at a time, and the race detector is NVIDIA-only: an ok for xchg is no proof against races
+        - an unverified profile's properties (device id, PCI data) come from public documents, not from a card
+        - out-of-bounds accesses to global memory are not known to be reported
+        EOF
+        } | tee -a "${GITHUB_STEP_SUMMARY}"
         exit ${STATUS}
 
     # Every run's full output, also of the runs that passed (for comparison).
