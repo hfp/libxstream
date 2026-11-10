@@ -59,7 +59,7 @@ jobs:
       # acc_bench fails on a wrong result or a missing kernel only if CHECK is positive
       CHECK: 1
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
 
     # Space-separated NAME=VALUE pairs given when launching manually. They come
     # in through the environment rather than the script, so no value is executed.
@@ -239,7 +239,7 @@ jobs:
     # Every run's full output, also of the runs that passed (for comparison).
     - name: Upload atomics logs
       if: always()
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: atomics-logs
         path: ${{ runner.temp }}/atomics

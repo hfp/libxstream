@@ -41,7 +41,7 @@ jobs:
       LIBXSTREAM_FALLBACK: 0
       OMP_NUM_THREADS: 2
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
 
     # Space-separated NAME=VALUE pairs given when launching manually. They come
     # in through the environment rather than the script, so no value is executed.
@@ -126,7 +126,7 @@ jobs:
       # turns the bracketing on at runtime (and the per-kernel profile)
       LIBXSTREAM_PROFILE: ${{ matrix.profile && '1' || '0' }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
 
     - name: Setup environment
       if: github.event.inputs.env != ''

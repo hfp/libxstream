@@ -50,7 +50,7 @@ jobs:
       # faults on an aligned access (reported as SEGV without an address).
       ASAN_OPTIONS: detect_leaks=0:detect_stack_use_after_return=0
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
 
     - name: Install OpenBLAS
       run: sudo apt install -y libopenblas-openmp-dev
@@ -182,7 +182,7 @@ jobs:
       # acc_bench fails on a wrong result only if CHECK is positive
       CHECK: 1
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
 
     - name: Install OpenBLAS and OpenCL
       run: |
@@ -225,7 +225,7 @@ jobs:
   Debian:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
 
     - name: Install dependencies
       run: |
@@ -259,7 +259,7 @@ jobs:
       run: cp ../*.deb .
 
     - name: Upload packages
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: libxstream-deb
         path: "*.deb"
@@ -275,7 +275,7 @@ jobs:
       CC: gcc-${{ matrix.gcc }}
       CXX: g++-${{ matrix.gcc }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v7
 
     - name: Install GCC ${{ matrix.gcc }} and Ninja
       run: sudo apt install -y gcc-${{ matrix.gcc }} g++-${{ matrix.gcc }} ninja-build
