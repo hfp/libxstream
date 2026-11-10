@@ -27,7 +27,21 @@ on:
         default: ""
 
 jobs:
+  # The simulator's build is cached when the job that built it succeeds. A job
+  # of its own saves it before any test runs, hence a failing test does not
+  # cost the next run a rebuild. Same runner image, hence the same cache key.
+  Simulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+    - name: Setup simulator
+      uses: pantheongpu/setup-pantheonsim@ca87fe3143b29166822b923d6050945c5179408c # v0.1.5
+      with:
+        gpu: amd/mi250x
+        rocm: none
+
   OpenCL:
+    needs: Simulator
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
@@ -61,6 +75,7 @@ jobs:
 
     # Two devices of the default GPU; a step selects another one by VGPU_GPU.
     # No hipcc (rocm: none): the OpenCL runtime below brings its own compiler.
+    # The build comes from the cache the Simulator job saved.
     - name: Setup simulator
       uses: pantheongpu/setup-pantheonsim@ca87fe3143b29166822b923d6050945c5179408c # v0.1.5
       with:
@@ -128,11 +143,14 @@ jobs:
     # every GPU: what the device reports, which expression was chosen (printed
     # by LIBXSTREAM_DEBUG), and whether the device result is right. The table
     # is written before the step fails, hence a failure still shows all of it.
+    # A search that finds nothing is an answer here, not an error (pipefail).
     - name: Atomics
       shell: bash
       run: |
         STATUS=0
-        TABLE=${RUNNER_TEMP}/atomics.md
+        LOGS=${RUNNER_TEMP}/atomics
+        TABLE=${LOGS}/atomics.md
+        mkdir -p "${LOGS}"
         echo "| GPU | Device | cl_ext_float_atomics | Kernel | LIBXSTREAM_ATOMICS | ATOMIC_ADD_GLOBAL | Result |" > "${TABLE}"
         echo "|---|---|---|---|---|---|---|" >> "${TABLE}"
         for ELEM in float double; do
@@ -142,15 +160,15 @@ jobs:
         make -j $(nproc) -C samples/dbm
         for GPU in ${GPUS}; do
           INFO=$(VGPU_GPU=${GPU} clinfo --raw)
-          DEVICE=$(echo "${INFO}" | sed -n 's/.*CL_DEVICE_NAME[[:space:]]*//p' | head -1)
-          FPEXT=$(echo "${INFO}" | grep -q cl_ext_float_atomics && echo yes || echo no)
+          DEVICE=$(echo "${INFO}" | sed -n 's/.*CL_DEVICE_NAME[[:space:]]*//p' | sed -n 1p)
+          FPEXT=$(grep -q cl_ext_float_atomics <<< "${INFO}" && echo yes || echo no)
           for KERNEL in smm_double smm_float dbm; do
             case ${KERNEL} in
               smm_*) CMD="${RUNNER_TEMP}/acc_bench_${KERNEL#smm_}.x 1 1000 13x5x7" ;;
               *) CMD="samples/dbm/dbm_bench.x 1 1000 13x5x7" ;;
             esac
             for VARIANT in detected cmpxchg xchg; do
-              LOG=${RUNNER_TEMP}/${GPU//\//_}-${KERNEL}-${VARIANT}.log
+              LOG=${LOGS}/${GPU//\//_}-${KERNEL}-${VARIANT}.log
               if [ "detected" = "${VARIANT}" ]; then SET="-u LIBXSTREAM_ATOMICS"; else SET="LIBXSTREAM_ATOMICS=${VARIANT}"; fi
               RESULT=0
               env ${SET} VGPU_GPU=${GPU} LIBXSTREAM_DEBUG=1 LIBXSTREAM_VERBOSE=2 DBM_MULTIPLY_SMM=-1 \
@@ -158,12 +176,12 @@ jobs:
               if [ "dbm" = "${KERNEL}" ] && [ "0" = "${RESULT}" ] && ! grep -q "DBM-kernel" "${LOG}"; then
                 RESULT=host
               fi
-              EXPR=$(grep -o 'ATOMIC_ADD_GLOBAL(A,B)=[^ "]*' "${LOG}" | sed 's/^ATOMIC_ADD_GLOBAL(A,B)=//' | sort -u | paste -sd' ')
+              EXPR=$(grep -o 'ATOMIC_ADD_GLOBAL(A,B)=[^ "]*' "${LOG}" | sed 's/^ATOMIC_ADD_GLOBAL(A,B)=//' | sort -u | paste -sd' ' || true)
               if [ "0" = "${RESULT}" ]; then OUTCOME=ok; else OUTCOME="FAILED (${RESULT})"; STATUS=1; fi
               echo "| ${GPU} | ${DEVICE} | ${FPEXT} | ${KERNEL} | ${VARIANT} | \`${EXPR:-none}\` | ${OUTCOME} |" >> "${TABLE}"
               if [ "ok" != "${OUTCOME}" ]; then
                 echo "::group::${GPU} ${KERNEL} ${VARIANT}: ${OUTCOME}"
-                grep -E 'ERROR|WARN|error:|FAILED|ATOMIC_ADD_GLOBAL' "${LOG}" | head -40
+                tail -n 40 "${LOG}"
                 echo "::endgroup::"
               fi
             done
@@ -171,6 +189,15 @@ jobs:
         done
         tee -a "${GITHUB_STEP_SUMMARY}" < "${TABLE}"
         exit ${STATUS}
+
+    # Every run's full output, also of the runs that passed (for comparison).
+    - name: Upload atomics logs
+      if: always()
+      uses: actions/upload-artifact@v5
+      with:
+        name: atomics-logs
+        path: ${{ runner.temp }}/atomics
+        if-no-files-found: ignore
 
     - name: Setup DBCSR
       run: |
