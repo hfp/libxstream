@@ -37,6 +37,8 @@ jobs:
       REF_CP2K: ${{ github.event.inputs.ref_cp2k || 'master' }}
       # PoCL's CPU device is the only OpenCL device of a runner, and it has FP64
       LIBXSTREAM_DEVTYPE: cpu
+      # a fallback after a failure must not pass for the intended path
+      LIBXSTREAM_FALLBACK: 0
       OMP_NUM_THREADS: 2
     steps:
     - uses: actions/checkout@v5
@@ -117,6 +119,7 @@ jobs:
       OWNER_DBCSR: ${{ github.event.inputs.owner_dbcsr || 'hfp' }}
       REF_DBCSR: ${{ github.event.inputs.ref_dbcsr || 'develop' }}
       LIBXSTREAM_DEVTYPE: cpu
+      LIBXSTREAM_FALLBACK: 0
       OMP_NUM_THREADS: 2
       # DBCSR's copy of acc_bench fails on a wrong result only if CHECK is positive
       CHECK: 1

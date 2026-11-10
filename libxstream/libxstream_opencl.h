@@ -648,6 +648,8 @@ typedef struct libxstream_opencl_config_t {
   cl_int dump;
   /** WA level */
   cl_int wa;
+  /** Fallback after a failure (see libxstream_opencl_fallback): 0 = refused, otherwise taken. */
+  cl_int fallback;
 } libxstream_opencl_config_t;
 
 /** Configuration that precedes any use of the OpenCL runtime. */
@@ -732,6 +734,14 @@ LIBXSTREAM_API int libxstream_opencl_device_ext(cl_device_id device, const char*
 LIBXSTREAM_API int libxstream_opencl_create_context(cl_device_id device_id, cl_context* context);
 /** Internal variant of libxstream_device_set_active. */
 LIBXSTREAM_API int libxstream_opencl_set_active_device(libxs_lock_t* lock, int device_id);
+/**
+ * Whether a caller may take a fallback after a failure (EXIT_SUCCESS), or must
+ * report the failure instead (EXIT_FAILURE, LIBXSTREAM_FALLBACK=0). A fallback
+ * is meant here when a path that should work did not, or when an explicit
+ * request cannot be honored, but not when detection selects another path.
+ * A refusal is printed, naming the origin and what the fallback would be.
+ */
+LIBXSTREAM_API int libxstream_opencl_fallback(const char origin[], const char what[]);
 /** Assemble flags to support atomic operations. */
 LIBXSTREAM_API int libxstream_opencl_flags_atomics(const libxstream_opencl_device_t* devinfo, libxstream_opencl_atomic_fp_t kind,
   const char* exts[], size_t* exts_maxlen, char flags[], size_t flags_maxlen);

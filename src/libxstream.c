@@ -246,7 +246,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void);
 LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
 {
   const char *const env_devsplit = getenv("LIBXSTREAM_DEVSPLIT"), *const env_nlocks = getenv("LIBXSTREAM_NLOCKS");
-  const char* const env_dump_acc = getenv("LIBXSTREAM_DUMP");
+  const char *const env_dump_acc = getenv("LIBXSTREAM_DUMP"), *const env_fallback = getenv("LIBXSTREAM_FALLBACK");
   const char *const env_debug = getenv("LIBXSTREAM_DEBUG"), *const env_profile = getenv("LIBXSTREAM_PROFILE");
   const char* const env_profile_mem = getenv("LIBXSTREAM_PROFILE_MEM");
   const char* const env_dump = (NULL != env_dump_acc ? env_dump_acc : getenv("IGC_ShaderDumpEnable"));
@@ -338,6 +338,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   libxstream_opencl_config.async = (NULL == env_async ? async_default : atoi(env_async));
   libxstream_opencl_config.dump = (NULL == env_dump ? /*default*/ 0 : atoi(env_dump));
   libxstream_opencl_config.debug = (NULL == env_debug ? libxstream_opencl_config.dump : atoi(env_debug));
+  libxstream_opencl_config.fallback = (NULL == env_fallback ? /*default*/ 1 : atoi(env_fallback));
   /* Negative defers to device selection: the paying mode is a vendor trait. */
   libxstream_opencl_config.pin = (NULL == env_pin ? -1 : atoi(env_pin));
   { /* the window is halved for double buffering, so it wants room for two chunks */
@@ -2283,6 +2284,17 @@ LIBXSTREAM_API int libxstream_device_set_active(int device_id)
     else result = EXIT_FAILURE;
   }
   CL_RETURN(result, "");
+}
+
+
+LIBXSTREAM_API int libxstream_opencl_fallback(const char origin[], const char what[])
+{
+  const int result = (0 != libxstream_opencl_config.fallback ? EXIT_SUCCESS : EXIT_FAILURE);
+  if (EXIT_SUCCESS != result) { /* printed at any verbosity: the refusal is what was asked for */
+    fprintf(stderr, "ERROR %s: no fallback to %s (LIBXSTREAM_FALLBACK=0)\n", NULL != origin ? origin : "ACC/OpenCL",
+      NULL != what ? what : "another path");
+  }
+  return result;
 }
 
 

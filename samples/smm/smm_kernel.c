@@ -472,15 +472,17 @@ int opencl_libsmm_acc_process(const int* host_param_stack, const int* dev_param_
       /* remove configuration from registry to avoid infinitely retrying code generation */
       if (EXIT_SUCCESS != result && NULL != config) {
         libxs_registry_remove(opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
-        if (0 != libxstream_opencl_config.verbosity) {
-          fprintf(stderr, "WARN ACC/LIBSMM: SMM-kernel %ix%ix%i falls back to default parameters\n", m_max, n_max, k_max);
+        if (EXIT_SUCCESS == libxstream_opencl_fallback("ACC/LIBSMM", "default parameters")) {
+          if (0 != libxstream_opencl_config.verbosity) {
+            fprintf(stderr, "WARN ACC/LIBSMM: SMM-kernel %ix%ix%i falls back to default parameters\n", m_max, n_max, k_max);
+          }
+          bs = ((NULL == env_bs || '\0' == *env_bs) ? OPENCL_LIBSMM_DEFAULT_BS : atoi(env_bs));
+          kernel_idx = 0;
+          if (1 == bs || 0 > s || (bs * s) > stack_size) kernel_idx = bs = 1;
+          result = EXIT_SUCCESS;
+          retry = 1;
         }
-        bs = ((NULL == env_bs || '\0' == *env_bs) ? OPENCL_LIBSMM_DEFAULT_BS : atoi(env_bs));
-        kernel_idx = 0;
-        if (1 == bs || 0 > s || (bs * s) > stack_size) kernel_idx = bs = 1;
-        result = EXIT_SUCCESS;
-        config = NULL;
-        retry = 1;
+        config = NULL; /* removed from the registry */
       }
 #  if defined(__DBCSR_ACC)
       c_dbcsr_timestop(&routine_handle);

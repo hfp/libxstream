@@ -57,6 +57,7 @@ On NVIDIA the default leaves USM off and no device memory pool is created. An ex
 | `LIBXSTREAM_ATOMICS` | FP atomics of kernels built with `libxstream_opencl_flags_atomics`: non-zero number = force native, `cmpxchg` or `xchg` = emulation, 0 = unsynchronized updates (not thread-safe); default: detected |
 | `LIBXSTREAM_BARRIER` | 0: such kernels are built without a work-group barrier definition; default: defined |
 | `LIBXSTREAM_DUMP` | 1: write each kernel built from source as `<name>.cl`, 2 (or negative): also the program binary as `<name>.dump`, 3: the written source is preprocessed (see `LIBXSTREAM_CPP`); default: 0, or `IGC_ShaderDumpEnable` |
+| `LIBXSTREAM_FALLBACK` | 0: a fallback after a failure is an error instead, i.e., where a kernel that should build did not (tuned SMM parameters) or an explicit request cannot be honored (`OZAKI_WGMMA`, `OZAKI=2`), so a benchmark cannot measure another path while its results stay correct; a path that detection selects is not affected; default: 1 |
 | `LIBXSTREAM_DEBUG` | Non-zero: kernels are built without `-DNDEBUG` (and with `-gline-tables-only` on an Intel GPU), build flags are printed at verbosity 1+, and `DisableScratchPages=1` is set unless given; default: `LIBXSTREAM_DUMP` |
 | `LIBXSTREAM_CPP` | 1: preprocess written kernel sources, 0: never; default: with `LIBXSTREAM_DUMP=3` and `libxstream_opencl_dump` |
 | `LIBXSTREAM_CPPBIN` | Preprocessor; default: `/usr/bin/cpp` |
@@ -155,6 +156,7 @@ A range the application allocated itself is declared with `libxstream_mem_host_p
 | `libxstream_opencl_kernel_flags` | Assemble combined build flags from params, options, and extras |
 | `libxstream_opencl_defines` | Merge user defines with internal definitions |
 | `libxstream_opencl_flags_atomics` | Generate compiler flags for FP-atomic extensions |
+| `libxstream_opencl_fallback` | Whether a fallback after a failure may be taken, or is refused (`LIBXSTREAM_FALLBACK=0`) |
 | `libxstream_opencl_dump` | Write a kernel instance `<name>.cl` with build parameters applied, without a device |
 | `libxstream_opencl_program_binary` | Retrieve a built program's binary (NUL-terminated) |
 | `libxstream_opencl_retarget_ptx` | Rewrite NVIDIA PTX for the accelerated target (`sm_NNa`), optionally capping registers |

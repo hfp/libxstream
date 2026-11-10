@@ -1419,8 +1419,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         /* Probed at the issue width: 256 columns are two n128, all the splice knows. */
         const int wprobe = (256 == wn) ? 128 : wn;
         wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, lbytes)) ? 1 : 0;
-        if (0 == wgmma) {
-          if (0 != verbosity) {
+        if (0 == wgmma) { /* detection may settle for mma.sync, an explicit OZAKI_WGMMA may be refused */
+          if (NULL != env_wgmma && EXIT_SUCCESS != libxstream_opencl_fallback("OZAKI", "mma.sync (OZAKI_WGMMA)")) {
+            result = EXIT_FAILURE;
+          }
+          else if (0 != verbosity) {
             fprintf(stderr, "INFO OZAKI: warp-group MMA not reachable on this device - using mma.sync\n");
           }
         }
@@ -1607,7 +1610,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (NULL != env) {
         goff = ozaki_append(goff, sizeof(build_params), LIBXS_SNPRINTF(build_params + goff, sizeof(build_params) - goff, " %s", env));
       }
-      result = ozaki_append_check(goff, sizeof(build_params), "Ozaki-1");
+      if (EXIT_SUCCESS == result) result = ozaki_append_check(goff, sizeof(build_params), "Ozaki-1");
       memcpy(ctx->base_flags, build_params, sizeof(ctx->base_flags));
       LIBXS_SNPRINTF(ctx->base_options, sizeof(ctx->base_options), "%s", build_options);
       if (0 > verbosity || 2 < verbosity) {

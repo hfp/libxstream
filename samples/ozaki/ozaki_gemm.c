@@ -683,8 +683,11 @@ int ozaki_gemm(ozaki_context_t* ctx, libxstream_stream_t* stream, char transa, c
       const double p = ctx->nmoduli;
       use_scheme1 = (0 < K && pairs < p + ctx->xover * p * p / K);
     }
-    /* Scheme 2 is absent when its kernels were not built (no fp64). */
-    if (0 == use_scheme1 && NULL == ctx->crt_registry) use_scheme1 = 1;
+    /* Scheme 2 is absent when its kernels were not built (no fp64), which refuses an explicit kind==2 */
+    if (0 == use_scheme1 && NULL == ctx->crt_registry) {
+      if (2 != ctx->kind || EXIT_SUCCESS == libxstream_opencl_fallback("OZAKI", "Scheme 1 (OZAKI=2)")) use_scheme1 = 1;
+      else result = EXIT_FAILURE;
+    }
   }
 
   /**
