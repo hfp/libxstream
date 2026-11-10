@@ -102,9 +102,10 @@ compile: $(OBJECTS)
 $(GENHDR): $(KRNELS) $(wildcard $(DEPDIR)/libxstream/opencl/*.h) $(GENSCR) Makefile $(LIBXSROOT)/Makefile.inc
 	$(GENSCR) $(GENARG) $(KRNELS) $@
 
+# under the lock the top level holds while building ../smm, or both compile the same objects
 .PHONY: smm
 smm:
-	@$(MAKE) -C $(SMMDIR) compile
+	@$(FLOCK) $(SMMDIR) "$(MAKE) compile"
 
 $(SMMOBJ): smm
 
