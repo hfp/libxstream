@@ -199,9 +199,11 @@ endif
 #ifneq (x86_64,$(MNAME))
 #  WERROR := 0
 #endif
-# no warning conversion
-ifneq (,$(filter-out 0 1,$(INTEL)))
-  WERROR := 0
+# warnings are not converted if the compiler rejects -Werror: say so
+ifneq (0,$(WERROR))
+ifeq (,$(strip $(WERROR_CFLAG)))
+  $(info WARNING: CC=$(CC) does not accept -Werror, warnings are not converted into errors!)
+endif
 endif
 
 information = \

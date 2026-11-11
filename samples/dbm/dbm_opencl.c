@@ -349,6 +349,7 @@ int dbm_multiply_opencl_launch_kernel(void* stream, double alpha, int ntasks, in
       int bk, bk0, use_blkrd = 0, rowlane_homogeneous = 0;
       cl_int size;
       LIBXS_ASSERT(NULL != str && NULL != str->queue);
+      LIBXS_UNUSED_NDEBUG(str);
       /* base init (once): env vars, flags, source, extensions */
       if (0 == LIBXS_ATOMIC_LOAD(&base_ready, LIBXS_ATOMIC_SEQ_CST)) {
         LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, config->lock_main);

@@ -94,6 +94,8 @@ LIBXS_PRAGMA_DIAG_OFF("-Wunused-function")
 LIBXS_PRAGMA_DIAG_OFF("-Wunknown-pragmas")
 LIBXS_PRAGMA_DIAG_OFF("-Wdeclaration-after-statement")
 LIBXS_PRAGMA_DIAG_OFF("-Wmissing-braces")
+/* a register tile filled under a work-item guard (or tracked across iterations) is not provably set */
+LIBXS_PRAGMA_DIAG_OFF("-Wmaybe-uninitialized")
 
 /* Address spaces: a host build has only the one. */
 #define global

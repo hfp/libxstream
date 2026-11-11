@@ -335,7 +335,7 @@ static size_t ozaki_emit_fraccrt(char* buf, size_t size, size_t off, const uint1
   int hier_gs)
 {
   const int gs = (0 < hier_gs) ? hier_gs : nmoduli;
-  uint64_t k[20], climb[20 * 16];
+  uint64_t k[20] = { 0 }, climb[20 * 16] = { 0 };
   int i, l;
   assert(20 >= nmoduli && 16 >= frac_l);
   for (i = 0; i < nmoduli; ++i) {
