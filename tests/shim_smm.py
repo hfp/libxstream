@@ -21,6 +21,7 @@ BENCH32 is acc_bench built with ELEM_TYPE=float. The overrides only apply
 without OPENCL_LIBSMM_SMM_PARAMS=0 (it suppresses every one of them), and a
 batch above one needs OPENCL_LIBSMM_SMM_S=0 as the tuner sets it.
 """
+
 import argparse
 import os
 import re

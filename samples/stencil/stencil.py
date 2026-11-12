@@ -8,7 +8,6 @@ import subprocess
 import sys
 import time
 
-
 CASES_BF16 = (
     {"case": "direct", "method": 0, "trim": None},
     {"case": "compact-r1", "method": 1, "trim": None},
