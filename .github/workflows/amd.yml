@@ -2,6 +2,8 @@ name: AMD
 
 permissions:
   contents: read
+  # the previous run's counts (artifact)
+  actions: read
 
 # OpenCL on simulated AMD GPUs (https://github.com/pantheongpu/pantheonsim):
 # ROCm's own OpenCL runtime, compiler included, runs on the simulator's HSA
@@ -94,12 +96,12 @@ jobs:
         echo "GPUS=${GPUS}" >> "${GITHUB_ENV}"
         echo "${GPUS}"
 
-    - name: Install OpenBLAS, GNU Fortran, OpenCL, and clinfo
+    - name: Install OpenBLAS, GNU Fortran, OpenCL, clinfo, and NumPy/SciPy
       run: |
         sudo apt update -y
         sudo apt install -y libopenblas-openmp-dev gfortran \
           opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev clinfo \
-          libelf1t64 libnuma1 libtinfo6 libzstd1 zlib1g
+          libelf1t64 libnuma1 libtinfo6 libzstd1 zlib1g python3-numpy python3-scipy
 
     # Unpacked rather than installed: the packages depend on the kernel driver
     # and on ROCm's HSA runtime, which is the simulator's here. The ICD loader
@@ -152,88 +154,32 @@ jobs:
     - name: Test
       run: make -j $(nproc) test
 
-    # Each FP-atomics variant of the SMM (fp64, fp32) and DBM (fp64) kernels on
-    # every GPU: what the device reports, what the test-compile of a vendor
-    # builtin said (Probe), which expression was chosen (printed by
-    # LIBXSTREAM_DEBUG), and whether the device result is right. The table
-    # is written before the step fails, hence a failure still shows all of it.
-    # A search that finds nothing is an answer here, not an error (pipefail).
-    # GAP is neither a pass nor a failure: the run failed and the simulator said
-    # why ("VirtualGPU <layer>: ..."), or ROCm's runtime lists no OpenCL device.
-    # It does not fail the step, and what it said is quoted below the table.
+    # The counts of the last passing run, to tell what this run changed. A
+    # first run, or one whose predecessor's artifact expired, has none.
+    - name: Previous counts
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        RUN=$(gh run list -R "${GITHUB_REPOSITORY}" --workflow amd.yml --branch "${GITHUB_REF_NAME}" \
+          --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+        if [ -n "${RUN}" ] && gh run download "${RUN}" -R "${GITHUB_REPOSITORY}" -n atomics-logs -D "${RUNNER_TEMP}/previous"; then
+          echo "PREV=${RUNNER_TEMP}/previous/counts.tsv" >> "${GITHUB_ENV}"
+          echo "previous passing run: ${RUN}"
+        fi
+
+    # FP-atomics variants of the SMM and DBM kernels on every GPU, and a score
+    # per kernel from what the simulator counted (tests/atomics.sh says what).
+    # The summary is written before the step fails, hence a failure shows all.
     - name: Atomics
       shell: bash
+      env:
+        LOGS: ${{ runner.temp }}/atomics
+        META: "ROCm 7.2.4, setup-pantheonsim ca87fe3"
       run: |
         STATUS=0
-        LOGS=${RUNNER_TEMP}/atomics
-        TABLE=${LOGS}/atomics.md
-        GAPS=${LOGS}/gaps.md
-        mkdir -p "${LOGS}"
-        : > "${GAPS}"
-        echo "| GPU | Device | Verified profile | cl_ext_float_atomics | Kernel | LIBXSTREAM_ATOMICS | Probe | ATOMIC_ADD_GLOBAL | Result |" > "${TABLE}"
-        echo "|---|---|---|---|---|---|---|---|---|" >> "${TABLE}"
-        for ELEM in float double; do
-          make -j $(nproc) -C samples/smm ELEM_TYPE=${ELEM}
-          cp samples/smm/acc_bench.x "${RUNNER_TEMP}/acc_bench_${ELEM}.x"
-        done
-        make -j $(nproc) -C samples/dbm
-        for GPU in ${GPUS}; do
-          INFO=$(VGPU_GPU=${GPU} clinfo --raw || true)
-          DEVICE=$(sed -n 's/.*CL_DEVICE_NAME[[:space:]]*//p' <<< "${INFO}" | sed -n 1p)
-          FPEXT=$(grep -q cl_ext_float_atomics <<< "${INFO}" && echo yes || echo no)
-          VERIFIED=$(grep -q '"verified": *true' <<< "$(vgpu info --gpu "${GPU}" --json)" && echo yes || echo no)
-          if [ -z "${DEVICE}" ]; then
-            echo "| ${GPU} | none | ${VERIFIED} | - | - | - | - | - | GAP |" >> "${TABLE}"
-            echo "- ${GPU}: ROCm's OpenCL runtime lists no device" >> "${GAPS}"
-            continue
-          fi
-          for KERNEL in smm_double smm_float dbm; do
-            case ${KERNEL} in
-              smm_*) CMD="${RUNNER_TEMP}/acc_bench_${KERNEL#smm_}.x 1 1000 13x5x7" ;;
-              *) CMD="samples/dbm/dbm_bench.x 1 1000 13x5x7" ;;
-            esac
-            for VARIANT in detected cmpxchg xchg; do
-              LOG=${LOGS}/${GPU//\//_}-${KERNEL}-${VARIANT}.log
-              if [ "detected" = "${VARIANT}" ]; then SET="-u LIBXSTREAM_ATOMICS"; else SET="LIBXSTREAM_ATOMICS=${VARIANT}"; fi
-              RESULT=0
-              env ${SET} VGPU_GPU=${GPU} LIBXSTREAM_DEBUG=1 LIBXSTREAM_VERBOSE=2 DBM_MULTIPLY_SMM=-1 \
-                timeout 900 ${CMD} > "${LOG}" 2>&1 || RESULT=$?
-              if [ "dbm" = "${KERNEL}" ] && [ "0" = "${RESULT}" ] && ! grep -q "DBM-kernel" "${LOG}"; then
-                RESULT=host
-              fi
-              EXPR=$(grep -o 'ATOMIC_ADD_GLOBAL(A,B)=[^ "]*' "${LOG}" | sed 's/^ATOMIC_ADD_GLOBAL(A,B)=//' | sort -u | paste -sd' ' || true)
-              # what the test-compile of a vendor builtin said (INFO line), if one ran
-              if grep -q ') accepted$' "${LOG}"; then PROBE=accepted
-              elif grep -q ') not accepted' "${LOG}"; then PROBE=rejected
-              else PROBE=-; fi
-              SIM=$(grep -m1 '^VirtualGPU [A-Za-z]*:' "${LOG}" | tr -d '`|' || true)
-              if [ "0" = "${RESULT}" ]; then OUTCOME=ok
-              elif [ -n "${SIM}" ]; then
-                OUTCOME=GAP
-                echo "- ${GPU} ${KERNEL} ${VARIANT} (exit ${RESULT}): \`${SIM}\`" >> "${GAPS}"
-              else OUTCOME="FAILED (${RESULT})"; STATUS=1; fi
-              echo "| ${GPU} | ${DEVICE} | ${VERIFIED} | ${FPEXT} | ${KERNEL} | ${VARIANT} | ${PROBE} | \`${EXPR:-none}\` | ${OUTCOME} |" >> "${TABLE}"
-              if [ "ok" != "${OUTCOME}" ]; then
-                echo "::group::${GPU} ${KERNEL} ${VARIANT}: ${OUTCOME}"
-                tail -n 40 "${LOG}"
-                echo "::endgroup::"
-              fi
-            done
-          done
-        done
-        { cat "${TABLE}"
-          if [ -s "${GAPS}" ]; then
-            echo; echo "**Gaps seen** (not tested, hence neither passed nor failed):"; cat "${GAPS}"
-          fi
-          echo; cat <<'EOF'
-        **Not covered by the simulator** (its docs/status.md and docs/gap-register.md), hence not shown by an ok:
-        - no timing: a native atomic and a compare-and-swap loop look alike, and so do tuned and default parameters
-        - memory-scope bits have no effect: a scope that is too narrow, or a missing fence, cannot fail here
-        - atomics serialize on a lock, memory is shared a word at a time, and the race detector is NVIDIA-only: an ok for xchg is no proof against races
-        - an unverified profile's properties (device id, PCI data) come from public documents, not from a card
-        - out-of-bounds accesses to global memory are not known to be reported
-        EOF
-        } | tee -a "${GITHUB_STEP_SUMMARY}"
+        tests/atomics.sh || STATUS=$?
+        if [ -s "${LOGS}/summary.md" ]; then cat "${LOGS}/summary.md" >> "${GITHUB_STEP_SUMMARY}"; fi
         exit ${STATUS}
 
     # Every run's full output, also of the runs that passed (for comparison).

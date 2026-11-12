@@ -47,6 +47,23 @@ libxstream_sample(
 target_include_directories(libxstream_sample_ozaki
                            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
+set(mixes_dir "${CMAKE_CURRENT_SOURCE_DIR}/mixes")
+set(mixes_header "${CMAKE_CURRENT_BINARY_DIR}/mixes_kernels.h")
+add_custom_command(
+  OUTPUT "${mixes_header}"
+  COMMAND
+    "${PROJECT_SOURCE_DIR}/scripts/tool_opencl.sh" -p "" -I
+    "${PROJECT_SOURCE_DIR}/libxstream" "${mixes_dir}/kernels/mixes.cl"
+    "${mixes_header}"
+  DEPENDS "${mixes_dir}/kernels/mixes.cl" ${LIBXSTREAM_STENCIL_OCL_H}
+          "${PROJECT_SOURCE_DIR}/scripts/tool_opencl.sh"
+  COMMENT "Generating mixes_kernels.h from .cl sources"
+  VERBATIM)
+libxstream_sample(libxstream_sample_mixes mixes mixes mixes/mixes.c
+                  "${mixes_header}")
+target_include_directories(libxstream_sample_mixes
+                           PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+
 libxstream_sample(
   libxstream_sample_stencil
   stencil
