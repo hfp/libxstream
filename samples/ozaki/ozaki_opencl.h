@@ -536,6 +536,14 @@ ozaki_tile_t ozaki_rtile_select(const ozaki_context_t* ctx, int M, int N, int cr
 int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes);
 
 /**
+ * Whether the device compiler gets the 64-bit mul_hi with a constant operand wrong,
+ * found by running it: emulate is then 1, which is OZAKI_MULHI of the Scheme-2
+ * kernels (the high half from 32-bit halves), and 0 otherwise. EXIT_SUCCESS means
+ * the probe ran; if not, nothing is known and the caller keeps the built-in.
+ */
+int ozaki_mulhi_probe(int* emulate);
+
+/**
  * N-panel width for the pipelined path, or N itself when panelling does not
  * apply (small N, too few tiles to keep the device busy, or npanel == 1).
  * Chosen jointly with the tile: the panel must stay a multiple of tn so tiles

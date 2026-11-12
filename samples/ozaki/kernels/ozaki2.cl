@@ -1711,11 +1711,25 @@ typedef char oz2g_hier_tables_check[(sizeof(oz2g_hier_gprod) == HIER_NGROUPS * s
   && sizeof(oz2g_hier_l2b) == HIER_NGROUPS * sizeof(ulong)
   && sizeof(oz2g_hier_l2inv) == HIER_NGROUPS * HIER_NGROUPS * sizeof(uint)) ? 1 : -1];
 
-/* Level-2 Barrett reduction: x mod gprod[gidx]. */
+/**
+ * Level-2 Barrett reduction: x mod gprod[gidx]. A device compiler was found to get
+ * the 64-bit mul_hi wrong once an operand is a compile-time constant, which the
+ * table entry becomes when the group loop is unrolled, and every hierarchical
+ * reconstruction then returned garbage. The host probes for it (ozaki_mulhi_probe)
+ * and sets OZAKI_MULHI, which takes the high half from 32-bit halves instead.
+ * Reading the constant through a volatile is not an alternative: it gave the right
+ * value in a small kernel, and crashed that same compiler in this one.
+ */
 inline uint oz2g_mod_l2(ulong x, int gidx)
 {
   const uint m = oz2g_hier_gprod[gidx];
+#if defined(OZAKI_MULHI) && (0 != OZAKI_MULHI)
+  const ulong b = oz2g_hier_l2b[gidx], xl = x & 0xFFFFFFFFul, xh = x >> 32, bl = b & 0xFFFFFFFFul, bh = b >> 32;
+  const ulong lh = xl * bh, hl = xh * bl, mid = ((xl * bl) >> 32) + (lh & 0xFFFFFFFFul) + (hl & 0xFFFFFFFFul);
+  const ulong q = xh * bh + (lh >> 32) + (hl >> 32) + (mid >> 32);
+#else
   const ulong q = mul_hi(x, oz2g_hier_l2b[gidx]);
+#endif
   uint r = (uint)(x - q * (ulong)m);
   return (r >= m) ? (r - m) : r;
 }

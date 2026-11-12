@@ -38,6 +38,9 @@
  */
 #define OZAKI_SCRATCH_ALIGN 4096
 
+/* Values the 64-bit mul_hi is checked on (ozaki_mulhi_probe). */
+#define OZAKI_MULHI_PROBE_N 8
+
 
 /**
  * Local helper functions (static) to manage kernel argument setup and launches.
@@ -409,6 +412,76 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
   if (NULL != patched) libxs_free(patched);
   if (NULL != binary) libxs_free(binary);
   if (NULL != source) libxs_free(source);
+  return result;
+}
+
+
+/**
+ * Whether the 64-bit mul_hi of the level-2 reduction can be relied on (see
+ * oz2g_mod_l2): a device compiler was found to fold a constant operand into a
+ * wrong result, and nothing short of running it tells, since the build succeeds
+ * and only the values are off.
+ *
+ * A plain buffer and a direct launch on purpose, rather than the library's memory
+ * and launch calls: the probe then leaves no row in a LIBXSTREAM_PROFILE report
+ * and no transfer in its totals, so a device that passes sees nothing of it.
+ */
+int ozaki_mulhi_probe(int* emulate)
+{
+  const libxstream_opencl_stream_t* const stream = libxstream_opencl_stream_default();
+  const uint64_t lit = ((uint64_t)2 << 32) | 1938325882u; /* 34 bits, like a level-2 Barrett constant */
+  const cl_ulong seed = ((cl_ulong)0x9E3779B9u << 32) | 0x7F4A7C15u;
+  uint64_t out[OZAKI_MULHI_PROBE_N];
+  char source[512];
+  cl_program program = NULL;
+  cl_kernel kernel = NULL;
+  cl_mem buffer = NULL;
+  const size_t size = 1;
+  int result = (NULL != emulate && NULL != stream && NULL != stream->queue) ? EXIT_SUCCESS : EXIT_FAILURE;
+  if (EXIT_SUCCESS == result) {
+    const int n = LIBXS_SNPRINTF(source, sizeof(source),
+      "kernel void ozaki_mulhi_probe(global ulong* restrict out, ulong seed)\n{\n"
+      "  ulong x = seed;\n"
+      "  int i;\n"
+      "  for (i = 0; i < %i; ++i) {\n"
+      "    out[i] = mul_hi(x, %lluul);\n"
+      "    x ^= x << 13;\n"
+      "    x ^= x >> 7;\n"
+      "    x ^= x << 17;\n"
+      "  }\n}\n",
+      OZAKI_MULHI_PROBE_N, (unsigned long long)lit);
+    result = (0 < n && (int)sizeof(source) > n) ? EXIT_SUCCESS : EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result) {
+    result = libxstream_opencl_program(0 /*source*/, source, "oz2_mulhi_probe", "" /*build_params*/, "" /*build_options*/,
+      NULL /*try_options*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/, &program);
+  }
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "ozaki_mulhi_probe", &kernel);
+  if (EXIT_SUCCESS == result) {
+    cl_int cl_result = CL_SUCCESS;
+    buffer = clCreateBuffer(libxstream_opencl_config.device.context, CL_MEM_WRITE_ONLY, sizeof(out), NULL, &cl_result);
+    if (CL_SUCCESS != cl_result || NULL == buffer) result = EXIT_FAILURE;
+  }
+  CL_CHECK(result, clSetKernelArg(kernel, 0, sizeof(cl_mem), &buffer));
+  CL_CHECK(result, clSetKernelArg(kernel, 1, sizeof(cl_ulong), &seed));
+  CL_CHECK(result, clEnqueueNDRangeKernel(stream->queue, kernel, 1, NULL, &size, NULL, 0, NULL, NULL));
+  CL_CHECK(result, clEnqueueReadBuffer(stream->queue, buffer, CL_TRUE, 0, sizeof(out), out, 0, NULL, NULL));
+  if (EXIT_SUCCESS == result) {
+    uint64_t x = seed;
+    int i;
+    *emulate = 0;
+    for (i = 0; i < OZAKI_MULHI_PROBE_N; ++i) {
+      const uint64_t xl = x & 0xFFFFFFFFu, xh = x >> 32, bl = lit & 0xFFFFFFFFu, bh = lit >> 32;
+      const uint64_t lh = xl * bh, hl = xh * bl, mid = ((xl * bl) >> 32) + (lh & 0xFFFFFFFFu) + (hl & 0xFFFFFFFFu);
+      if (xh * bh + (lh >> 32) + (hl >> 32) + (mid >> 32) != out[i]) *emulate = 1;
+      x ^= x << 13;
+      x ^= x >> 7;
+      x ^= x << 17;
+    }
+  }
+  if (NULL != buffer) clReleaseMemObject(buffer);
+  if (NULL != kernel) clReleaseKernel(kernel);
+  if (NULL != program) clReleaseProgram(program);
   return result;
 }
 

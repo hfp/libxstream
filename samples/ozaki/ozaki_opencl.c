@@ -1898,6 +1898,22 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       if (NULL != env_skip && 0 != atoi(env_skip)) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DSKIP_GARNER=1"));
       }
+      if (0 != crt_hier) { /* level 2 takes a 64-bit mul_hi, which not every device compiler gets right */
+        int mulhi = 0;
+        env = getenv("OZAKI_MULHI");
+        if (NULL != env) mulhi = atoi(env);
+        else if (EXIT_SUCCESS != ozaki_mulhi_probe(&mulhi)) {
+          mulhi = 0;
+          if (0 != verbosity) fprintf(stderr, "WARN OZAKI: mul_hi could not be probed - using the built-in\n");
+        }
+        else if (0 != mulhi && 0 != verbosity) {
+          fprintf(stderr, "WARN OZAKI: 64-bit mul_hi is wrong for a constant operand on this device - using 32-bit halves\n");
+        }
+        if (0 != mulhi) {
+          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff,
+            " -DOZAKI_MULHI=1"));
+        }
+      }
       env = getenv("OZAKI_LU");
       { const int lu = (NULL != env) ? atoi(env) : 0;
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DLU=%d", lu));

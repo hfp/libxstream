@@ -98,6 +98,7 @@ the matching `OZAKI_TRIM`; it adds a device-to-host readback per call.
 | OZAKI_HIER_L2        | (auto)  | Level-2 combine: 1=tree merge, 0=Garner. Auto: tree merge for at most 2 groups (more fall back to Garner)      |
 | OZAKI_L1_GARNER      | 0       | 1=Garner at level 1 instead of the explicit CRT (not with OZAKI_FRACCRT=2)                                     |
 | OZAKI_EXTRACT_FLAT   | 0       | fp64: 1=extract the residues per modulus instead of per group                                                  |
+| OZAKI_MULHI          | (auto)  | 64-bit `mul_hi` at level 2: 0=built-in, 1=from 32-bit halves. Auto: probed (see below)                         |
 | OZAKI_UNFUSE         | (auto)  | Reconstruct in a 2nd kernel (`gemm_crt_reduce`). On for GPUs                                                   |
 | OZAKI_GROUPS         | (auto)  | K-grouping factor (1=off). Consecutive K panels share the reconstruction                                       |
 | OZAKI_SYMRES         | (auto)  | Symmetric residues (magnitude m/2 at most). On with bf16, or `OZAKI_MAXK` past 32768                           |
@@ -127,6 +128,11 @@ unsigned, 131072 symmetric). `OZAKI_SYMRES` turns on by itself past
 `OZAKI_SYMRES=0`). The bf16 carrier never needs it. `OZAKI_GROUPS=1`
 declines the derived grouping and warns where that leaves K unreduced;
 `OZAKI_GROUPS=0` means unset.
+
+`OZAKI_MULHI` is settled at initialization by running a small kernel:
+a device compiler may get the 64-bit `mul_hi` wrong for a constant
+operand, and every hierarchical reconstruction is then wrong. Setting
+it skips the probe; 0 on such a device gives wrong results.
 
 Flat reconstruction takes `OZAKI_HIER=0 OZAKI_FRACCRT=0` with
 `OZAKI=2`; otherwise `OZAKI_HIER=0` warns and the reconstruction stays
