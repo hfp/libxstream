@@ -31,11 +31,11 @@
 typedef ELEM_TYPE mixes_real_t;
 
 typedef struct mixes_kernels_t {
-  cl_kernel stream, gemm, atomics;
+  cl_kernel stream, gemm, atomics, gather, empty;
 } mixes_kernels_t;
 
 
-/* Builds the three kernels with the FP-atomics flags of the active device. */
+/* Builds the kernels with the FP-atomics flags of the active device. */
 static int mixes_build(mixes_kernels_t* kernels);
 static int mixes_build(mixes_kernels_t* kernels)
 {
@@ -60,6 +60,8 @@ static int mixes_build(mixes_kernels_t* kernels)
   if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "mixes_stream", &kernels->stream);
   if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "mixes_gemm", &kernels->gemm);
   if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "mixes_atomics", &kernels->atomics);
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "mixes_gather", &kernels->gather);
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_kernel_query(program, "mixes_empty", &kernels->empty);
   if (NULL != program) clReleaseProgram(program); /* the kernels keep what they need */
   return result;
 }
@@ -239,6 +241,85 @@ static int mixes_atomics(libxstream_stream_t* stream, cl_kernel kernel, int n, i
 }
 
 
+/* Gather: block g of c is the square of block idx[g] of a, over n blocks of a tile by a tile. */
+static int mixes_gather(libxstream_stream_t* stream, cl_kernel kernel, int n, int nwarmup, int nrepeat);
+static int mixes_gather(libxstream_stream_t* stream, cl_kernel kernel, int n, int nwarmup, int nrepeat)
+{
+  const int bs = MIXES_TILE * MIXES_TILE, nsrc = LIBXS_MAX(n / 3, 1);
+  const size_t size = sizeof(mixes_real_t) * bs * n, asize = sizeof(mixes_real_t) * bs * nsrc, isize = sizeof(int) * n;
+  const size_t local[] = {MIXES_TILE * MIXES_TILE};
+  mixes_real_t *a = (mixes_real_t*)malloc(asize), *c = (mixes_real_t*)malloc(size);
+  int* idx = (int*)malloc(isize);
+  void *da = NULL, *dc = NULL, *di = NULL;
+  int result = ((NULL != a && NULL != c && NULL != idx) ? EXIT_SUCCESS : EXIT_FAILURE), i, nerrors = 0;
+  double seconds = -1;
+  size_t global[1];
+  global[0] = (size_t)bs * n;
+  for (i = 0; i < bs * nsrc && EXIT_SUCCESS == result; ++i) a[i] = (mixes_real_t)(i % 5 - 2);
+  for (i = 0; i < n && EXIT_SUCCESS == result; ++i) idx[i] = (int)(((size_t)i * 7) % nsrc);
+  if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&da, asize);
+  if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&dc, size);
+  if (EXIT_SUCCESS == result) result = libxstream_mem_allocate(&di, isize);
+  if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(a, da, asize, stream);
+  if (EXIT_SUCCESS == result) result = libxstream_mem_copy_h2d(idx, di, isize, stream);
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 0, dc);
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 1, da);
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 2, di);
+  if (EXIT_SUCCESS == result) {
+    seconds = mixes_launch(stream, kernel, 1, global, local, nwarmup, nrepeat);
+    if (0 > seconds) result = EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result) result = libxstream_mem_copy_d2h(dc, c, size, stream);
+  if (EXIT_SUCCESS == result) result = libxstream_stream_sync(stream);
+  for (i = 0; i < n && EXIT_SUCCESS == result; ++i) {
+    const mixes_real_t* const src = a + (size_t)idx[i] * bs;
+    int r = 0;
+    for (; r < MIXES_TILE; ++r) {
+      int s = 0;
+      for (; s < MIXES_TILE; ++s) {
+        mixes_real_t ref = 0;
+        int k = 0;
+        for (; k < MIXES_TILE; ++k) ref += src[r * MIXES_TILE + k] * src[k * MIXES_TILE + s];
+        if (c[(size_t)i * bs + r * MIXES_TILE + s] != ref) ++nerrors;
+      }
+    }
+  }
+  if (EXIT_SUCCESS == result) {
+    const double bytes = (double)size + (double)isize + (double)sizeof(mixes_real_t) * bs * n;
+    printf("mixes_gather: n=%i bytes=%.0f %.3f ms %.1f GB/s errors=%i\n", n, bytes, 1E3 * seconds,
+      1E-9 * bytes / LIBXS_MAX(seconds, 1E-12), nerrors);
+    if (0 != nerrors) result = EXIT_FAILURE;
+  }
+  if (NULL != da) libxstream_mem_deallocate(da);
+  if (NULL != dc) libxstream_mem_deallocate(dc);
+  if (NULL != di) libxstream_mem_deallocate(di);
+  free(a);
+  free(c);
+  free(idx);
+  return result;
+}
+
+
+/* Empty: a kernel without work over n work-items, i.e., what dispatching them costs. */
+static int mixes_empty(libxstream_stream_t* stream, cl_kernel kernel, int n, int nwarmup, int nrepeat);
+static int mixes_empty(libxstream_stream_t* stream, cl_kernel kernel, int n, int nwarmup, int nrepeat)
+{
+  void* da = NULL;
+  int result = libxstream_mem_allocate(&da, sizeof(mixes_real_t));
+  double seconds = -1;
+  size_t global[1];
+  global[0] = (size_t)n;
+  if (EXIT_SUCCESS == result) result = libxstream_opencl_set_kernel_ptr(kernel, 0, da);
+  if (EXIT_SUCCESS == result) {
+    seconds = mixes_launch(stream, kernel, 1, global, NULL, nwarmup, nrepeat);
+    if (0 > seconds) result = EXIT_FAILURE;
+  }
+  if (EXIT_SUCCESS == result) printf("mixes_empty: n=%i items=%i %.3f ms\n", n, n, 1E3 * seconds);
+  if (NULL != da) libxstream_mem_deallocate(da);
+  return result;
+}
+
+
 int main(int argc, char* argv[])
 {
   /* arguments and their defaults: stream elements, GEMM order, atomic slots, timed launches */
@@ -258,9 +339,15 @@ int main(int argc, char* argv[])
   }
   if (EXIT_SUCCESS == result) result = mixes_gemm(stream, kernels.gemm, gemm_n, nwarmup, nrepeat);
   if (EXIT_SUCCESS == result) result = mixes_atomics(stream, kernels.atomics, stream_n, atomics_m, nwarmup, nrepeat);
+  if (EXIT_SUCCESS == result) {
+    result = mixes_gather(stream, kernels.gather, LIBXS_MAX(stream_n / (MIXES_TILE * MIXES_TILE), 1), nwarmup, nrepeat);
+  }
+  if (EXIT_SUCCESS == result) result = mixes_empty(stream, kernels.empty, stream_n, nwarmup, nrepeat);
   if (NULL != kernels.stream) clReleaseKernel(kernels.stream);
   if (NULL != kernels.gemm) clReleaseKernel(kernels.gemm);
   if (NULL != kernels.atomics) clReleaseKernel(kernels.atomics);
+  if (NULL != kernels.gather) clReleaseKernel(kernels.gather);
+  if (NULL != kernels.empty) clReleaseKernel(kernels.empty);
   if (NULL != stream) libxstream_stream_destroy(stream);
   libxstream_finalize();
   if (EXIT_SUCCESS != result) fprintf(stderr, "ERROR: mixes failed (%i)\n", result);

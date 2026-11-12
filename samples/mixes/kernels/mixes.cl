@@ -46,6 +46,29 @@ __attribute__((reqd_work_group_size(TILE, TILE, 1))) kernel void mixes_gemm(
 }
 
 
+/* gather: block g of c is the square of block idx[g] of a, both TILE x TILE, through local memory */
+__attribute__((reqd_work_group_size(TILE * TILE, 1, 1))) kernel void mixes_gather(
+  global T* restrict c, global const T* restrict a, global const int* restrict idx)
+{
+  local T tile[TILE * TILE];
+  const int g = (int)get_group_id(0), l = (int)get_local_id(0);
+  const int r = l / TILE, s = l % TILE;
+  T sum = 0;
+  int k = 0;
+  tile[l] = a[idx[g] * (TILE * TILE) + l];
+  barrier(CLK_LOCAL_MEM_FENCE);
+  for (; k < TILE; ++k) sum = fma(tile[r * TILE + k], tile[k * TILE + s], sum);
+  c[g * (TILE * TILE) + l] = sum;
+}
+
+
+/* empty: what dispatching its work-groups costs, with almost no instructions */
+kernel void mixes_empty(global T* restrict a)
+{
+  /* nothing: the dispatch itself is what is timed */
+}
+
+
 /* FP atomics: element i accumulates into slot i % m, hence n / m updates contend per slot */
 kernel void mixes_atomics(global T* restrict c, global const T* restrict a, int n, int m)
 {

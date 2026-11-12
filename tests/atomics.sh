@@ -200,7 +200,7 @@ for GPU in ${GPUS}; do
       SIM=$(grep -v 'VirtualGPU [A-Za-z]*: launch ' "${LOG}" | grep -m1 '^VirtualGPU [A-Za-z]*:' | tr -d '`|' || true)
       if [ "0" = "${RESULT}" ]; then
         O=ok
-        for MIX in stream gemm atomics; do
+        for MIX in stream gemm atomics gather empty; do
           per_launch "${LOG}" "mixes_${MIX}" "${GPU}" "${MIX}_${ELEM}"
           # the work of one launch, as the sample reports it (bytes, flops, updates)
           sed -n "s/^mixes_${MIX}: .* \(bytes\|flops\|updates\)=\([0-9]*\) .*/\1 \2/p" "${LOG}" | sed -n 1p |
@@ -288,7 +288,7 @@ score() {
   fi
   # the kernels in terms of the named mixes (scripts/tool_score.py), and the mixes against each other
   if [ -s "${MIXES}" ] && python3 -c "import numpy, scipy" 2> /dev/null; then
-    echo "<details><summary>Mixes: each kernel in terms of stream, gemm and atomics (counted on the same target)</summary>"
+    echo "<details><summary>Mixes: each kernel in terms of the named mixes (counted on the same target)</summary>"
     echo
     python3 "${ROOT}/scripts/tool_score.py" project --counts "${MIXES}" --markdown || echo "(tool_score.py failed)"
     echo

@@ -29,8 +29,9 @@ each row saying which), a kernel's time is predicted in two ways:
 
 where "a" is an anchor device on which k itself was measured, and beta_j is
 the share of the anchor's time the mixture attributes to mix j:
-beta_j = alpha_j t_j(a) / sum_i alpha_i t_i(a). The arithmetic form is exact
-under the additive model, whose overlap factor cancels; the geometric form is
+beta_j = alpha_j t_j(a) / sum_i alpha_i t_i(a). The arithmetic form is the
+ratio of the additive predictions on both devices: exact under the additive
+model, whose overlap factor cancels; the geometric form is
 its first-order expansion in log space, less sensitive to one outlying ratio.
 Both are weighted means: a mix without a time on both devices drops out and
 the others renormalize. The few numbers that are fitted (the overlap factor)
@@ -86,10 +87,12 @@ except ImportError as error:  # numpy and scipy are the only dependencies
     sys.exit(2)
 
 
-MIXES = ["stream", "gemm", "atomics"]
+# "empty" dispatches as many work-groups as the stream with almost no instructions: with "waves" among
+# the categories, it is what a kernel's dispatch costs, apart from what its instructions cost
+MIXES = ["stream", "gemm", "atomics", "gather", "empty"]
 PRECISIONS = ["double", "float"]
 # not instruction categories: the launch's geometry and totals
-EXCLUDE = ["launches", "wave", "waves", "instructions"]
+EXCLUDE = ["launches", "wave", "instructions"]
 # a category that is the sum of its parts is dropped when a part is present
 PARTS = {
     "flat": ["flat_read", "flat_write", "flat_atomic"],
@@ -399,6 +402,12 @@ def relative(p, device, anchor, times, mean="arithmetic"):
         return anchored[0] * math.exp(
             sum(weight * math.log(ratio) for weight, ratio in parts) / total
         )
+    # arithmetic: the ratio of the additive predictions (the overlap factor cancels)
+    on_device, on_anchor = additive(p, device, times, 1.0), additive(
+        p, anchor, times, 1.0
+    )
+    if on_device and on_anchor:
+        return anchored[0] * on_device / on_anchor
     return anchored[0] * sum(weight * ratio for weight, ratio in parts) / total
 
 
