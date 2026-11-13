@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 60
     steps:
     - name: Setup simulator
-      uses: pantheongpu/setup-pantheonsim@ca87fe3143b29166822b923d6050945c5179408c # v0.1.5
+      uses: pantheongpu/setup-pantheonsim@ab71a07326835be678918901c340d53a83358067 # v0.1.6
       with:
         gpu: amd/mi250x
         rocm: none
@@ -82,7 +82,7 @@ jobs:
     # No hipcc (rocm: none): the OpenCL runtime below brings its own compiler.
     # The build comes from the cache the Simulator job saved.
     - name: Setup simulator
-      uses: pantheongpu/setup-pantheonsim@ca87fe3143b29166822b923d6050945c5179408c # v0.1.5
+      uses: pantheongpu/setup-pantheonsim@ab71a07326835be678918901c340d53a83358067 # v0.1.6
       with:
         gpu: amd/mi250x
         count: 2
