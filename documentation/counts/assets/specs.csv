@@ -1,0 +1,17 @@
+# Datasheet peaks, dense (no sparsity): int8 TOPS, memory bandwidth TB/s, FP64 TFLOPS (empty: not listed)
+# H100 PCIe: https://www.nvidia.com/en-us/data-center/h100/ (3026 int8 TOPS with sparsity)
+# GH200: https://www.nvidia.com/en-us/data-center/grace-hopper-superchip/ datasheet (3958 int8 TOPS with sparsity; 96GB HBM3 up to 4 TB/s)
+# MI250X: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instinct-mi200-datasheet.pdf (package of two GCDs: 383 TOPS, 3.2768 TB/s, 47.9/95.7 TFLOPS)
+# MI300X: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/data-sheets/amd-instinct-mi300x-data-sheet.pdf
+# MI325X: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/product-briefs/instinct-mi325x-datasheet.pdf
+# MI355X: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/product-briefs/amd-instinct-mi355x-gpu-brochure.pdf
+# Radeon: https://www.amd.com/en/products/graphics/desktops/radeon.html (RX 9070 XT, RX 7900 XTX; no FP64 figure listed)
+part,int8_tops,bandwidth_tbs,fp64_vector,fp64_matrix
+H100 PCIe,1513,2.0,26,51
+GH200,1979,4.0,34,67
+MI250X (one GCD),191.5,1.6384,23.95,47.85
+MI300X,2614.9,5.3,81.7,163.4
+MI325X,2614.9,6.0,81.7,163.4
+MI355X,5033.2,8.0,78.6,78.6
+RX 9070 XT,389,0.64,,
+RX 7900 XTX,123,0.96,,

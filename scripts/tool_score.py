@@ -75,6 +75,7 @@ import hashlib
 import json
 import math
 import sys
+from collections import defaultdict
 
 try:
     import numpy
@@ -689,9 +690,127 @@ def command_validate(args, weights):
     return 0
 
 
+def fit_features(c):
+    """Launch, issue (lane-instructions), memory (memory lane-operations) of one launch."""
+    wave = c.get("wave", 1.0)
+    memory = (
+        c.get("flat_read", 0.0)
+        + c.get("flat_write", 0.0)
+        + c.get("flat_atomic", 0.0)
+    )
+    return [1.0, c.get("instructions", 0.0) * wave, memory * wave]
+
+
+def command_fit(args, weights):
+    """Per device and donor target: time = launch + issue + memory, every kernel predicted left out."""
+    counts, _ = read_counts(args.counts)
+    rows, out = [], []
+    times = defaultdict(dict)
+    for row in read_times(args.times):
+        if "measured" == row["source"]:
+            times[row["device"]][row["kernel"]] = row["seconds"]
+    donors = args.donors.split(",") if args.donors else sorted(counts)
+    for device in sorted(times):
+        for donor in donors:
+            kernels = [
+                k
+                for k in sorted(counts.get(donor, {}))
+                if k in times[device]
+                and split_name(k, args.precision)[0] not in MIXES
+                and "instructions" in counts[donor][k]
+            ]
+            left = [
+                i
+                for i, k in enumerate(kernels)
+                if any(pattern in k for pattern in args.leave)
+            ]
+            fitted = [i for i in range(len(kernels)) if i not in left]
+            if len(fitted) < 4:
+                continue
+            x = numpy.array([fit_features(counts[donor][k]) for k in kernels])
+            y = numpy.array([times[device][k] for k in kernels])
+            scale = x.max(axis=0)
+            scale[0 == scale] = 1.0
+
+            def solve(
+                idx,
+            ):  # relative error: each row divided by its measured time
+                return (
+                    nnls(
+                        x[idx] / scale / y[idx][:, None], numpy.ones(len(idx))
+                    )[0]
+                    / scale
+                )
+
+            predicted = numpy.array(
+                [
+                    max(
+                        float(x[i] @ solve([j for j in fitted if j != i])),
+                        1e-12,
+                    )
+                    for i in range(len(kernels))
+                ]
+            )
+            for i, k in enumerate(kernels):
+                out.append(
+                    [
+                        device,
+                        donor,
+                        k,
+                        "%.6g" % y[i],
+                        "%.6g" % predicted[i],
+                        "left" if i in left else "fitted",
+                    ]
+                )
+            p, m = predicted[fitted], y[fitted]
+            factor = numpy.exp(numpy.abs(numpy.log(p / m)))
+            coef = solve(fitted)
+            rows.append(
+                [
+                    device,
+                    donor,
+                    len(fitted),
+                    "%.3f" % spearmanr(p, m)[0],
+                    "%.2f" % numpy.median(factor),
+                    "%.2f" % factor.max(),
+                    "%.3f" % geomean(m / p),
+                    "%.3g" % (1e3 * coef[0]),
+                    "%.3g" % (1e12 * coef[1]),
+                    "%.3g" % (1e12 * coef[2]),
+                ]
+            )
+    table(
+        rows,
+        [
+            "Device",
+            "Counts of",
+            "Kernels",
+            "Spearman [higher is better]",
+            "Median factor off [lower is better]",
+            "Worst factor off",
+            "Measured/predicted (geometric mean)",
+            "Launch [ms]",
+            "Issue [ps per lane-instruction]",
+            "Memory [ps per lane-operation]",
+        ],
+        args.markdown,
+    )
+    if args.csv:
+        with open(args.csv, "w") as file:
+            file.write("device,counts,kernel,measured_s,predicted_s,fit\n")
+            for line in out:
+                file.write(
+                    ",".join('"%s"' % c if "," in c else c for c in line)
+                    + "\n"
+                )
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("command", choices=["project", "predict", "validate"])
+    parser.add_argument(
+        "command", choices=["project", "predict", "validate", "fit"]
+    )
     parser.add_argument(
         "--counts",
         required=True,
@@ -716,6 +835,19 @@ def main():
         choices=["arithmetic", "geometric"],
         default="arithmetic",
         help="weighted mean of the relative prediction",
+    )
+    parser.add_argument(
+        "--donors",
+        help="fit: comma-separated targets whose counts are used (default: every target)",
+    )
+    parser.add_argument(
+        "--leave",
+        action="append",
+        default=[],
+        help="fit: kernels containing this text are predicted but never fitted (repeatable)",
+    )
+    parser.add_argument(
+        "--csv", help="fit: write every prediction to this file"
     )
     parser.add_argument(
         "--trim",
@@ -756,10 +888,11 @@ def main():
         with open(args.weights) as file:
             weights.update(json.load(file))
     args.backend = Native() if "native" == args.backend else Predict()
-    if "predict" == args.command and not args.times:
-        parser.error("predict needs --times")
+    if args.command in ("predict", "fit") and not args.times:
+        parser.error("%s needs --times" % args.command)
     return {
         "project": command_project,
+        "fit": command_fit,
         "predict": command_predict,
         "validate": command_validate,
     }[args.command](args, weights)

@@ -13,7 +13,7 @@ import shutil
 
 log = logging.getLogger("mkdocs.hooks")
 
-SLIDES_DIRS = ("stencil",)
+SLIDES_DIRS = ("stencil", "counts")
 
 _built = False
 

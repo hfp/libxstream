@@ -1,0 +1,10 @@
+Device	Counts of	Kernels	Spearman [higher is better]	Median factor off [lower is better]	Worst factor off	Measured/predicted (geometric mean)	Launch [ms]	Issue [ps per lane-instruction]	Memory [ps per lane-operation]
+Intel Arc B390	amd/mi250x	23	0.719	1.26	11.64	1.633	0.0348	0	4.33
+Intel Arc B390	amd/mi300x	23	0.789	1.50	5.39	1.450	0.023	0.249	6.01
+Intel Arc B390	amd/mi325x	23	0.789	1.49	5.37	1.464	0.0237	0.242	5.92
+Intel Arc B390	amd/mi350x	23	0.796	1.30	5.55	1.437	0.0235	0.431	4.73
+Intel Arc B390	amd/rx6700xt	23	0.794	1.28	4.59	1.362	0.0205	0.513	11.4
+Intel Arc B390	amd/rx6800	23	0.789	1.28	4.49	1.345	0.0184	0.534	11.9
+Intel Arc B390	amd/rx6900xt	23	0.790	1.27	4.47	1.329	0.018	0.552	12
+Intel Arc B390	amd/rx7900xtx	23	0.794	1.26	4.55	1.292	0.0181	0.564	11.1
+Intel Arc B390	amd/rx9070xt	23	0.794	1.31	4.57	1.303	0.018	0.551	10.8
