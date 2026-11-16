@@ -17,7 +17,9 @@
 # milliseconds; DEVICE and TARGET name the device (default: the OpenCL device
 # name, and "local"). "count" runs on the simulated GPU in VGPU_GPU, one
 # work-group at a time (VGPU_THREADS=1), with the counts of every launch
-# (VGPU_DISPATCH_STATS) and the name of every kernel (VGPU_TRACE_LAUNCHES).
+# (VGPU_DISPATCH_STATS); the kernel's name is on that line (PantheonSim 0.2.1
+# and later), or else in the launch trace (VGPU_TRACE_LAUNCHES). The VALU mix
+# and the matrix work become categories of their own (mix_fma_f64, mops_i8).
 #
 # BIN holds the binaries: mixes_double.x, mixes_float.x, acc_bench_double.x,
 # acc_bench_float.x, dbm_bench.x, ozaki.x, and stencil.x. CASES selects cases
@@ -107,8 +109,17 @@ while IFS='|' read -r NAME EXE SETENV ARGS; do
     awk '
       /^VirtualGPU [A-Za-z]*: launch / { name[n++] = $4 }
       /^VGPU_DISPATCH / {
-        k = name[m++]; ++launches[k]
-        for (i = 2; i <= NF; ++i) { split($i, kv, "="); if ("device" != kv[1]) sum[k, kv[1]] += kv[2] }
+        k = name[m++] # an older simulator names the kernel only in the launch trace
+        for (i = 2; i <= NF; ++i) if ($i ~ /^kernel=/) k = substr($i, 8)
+        ++launches[k]
+        for (i = 2; i <= NF; ++i) {
+          split($i, kv, "=")
+          if ("mix" == kv[1] || "mops" == kv[1]) { # type:count pairs, or "-" for none
+            nt = ("-" != kv[2] ? split(kv[2], types, ",") : 0)
+            for (j = 1; j <= nt; ++j) { split(types[j], tc, ":"); sum[k, kv[1] "_" tc[1]] += tc[2] }
+          }
+          else if ("device" != kv[1] && "kernel" != kv[1]) sum[k, kv[1]] += kv[2]
+        }
       }
       END {
         for (key in sum) { split(key, kc, SUBSEP); printf "%s\t%s\t%.10g\n", kc[1], kc[2], sum[key] / launches[kc[1]] }

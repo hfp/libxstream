@@ -690,19 +690,51 @@ def command_validate(args, weights):
     return 0
 
 
-def fit_features(c):
-    """Launch, issue (lane-instructions), memory (memory lane-operations) of one launch."""
+# terms of the fit and their units (per launch): what each constant multiplies
+TERMS = {
+    "launch": "ms",
+    "issue": "ps per lane-instruction",
+    "memory": "ps per byte (or per lane-operation without byte counts)",
+    "fp64": "ps per FP64 lane-operation",
+    "lds": "ps per LDS byte",
+}
+
+
+def fit_features(c, terms):
+    """The terms of one launch: a constant, lane-instructions, global memory (bytes where the
+    simulator counts them, else memory lane-operations), FP64 lane-operations, LDS bytes.
+    """
     wave = c.get("wave", 1.0)
-    memory = (
-        c.get("flat_read", 0.0)
-        + c.get("flat_write", 0.0)
-        + c.get("flat_atomic", 0.0)
+    if "vmem_bytes_rd" in c or "vmem_bytes_wr" in c:
+        memory = c.get("vmem_bytes_rd", 0.0) + c.get("vmem_bytes_wr", 0.0)
+    else:
+        memory = wave * (
+            c.get("flat_read", 0.0)
+            + c.get("flat_write", 0.0)
+            + c.get("flat_atomic", 0.0)
+        )
+    fp64 = wave * sum(
+        v for k, v in c.items() if k.startswith("mix_") and k.endswith("_f64")
     )
-    return [1.0, c.get("instructions", 0.0) * wave, memory * wave]
+    value = {
+        "launch": 1.0,
+        "issue": c.get("instructions", 0.0) * wave,
+        "memory": memory,
+        "fp64": fp64,
+        "lds": c.get("lds_bytes_rd", 0.0) + c.get("lds_bytes_wr", 0.0),
+    }
+    return [value[t] for t in terms]
 
 
 def command_fit(args, weights):
-    """Per device and donor target: time = launch + issue + memory, every kernel predicted left out."""
+    """Per device and donor target: time = sum of the terms, every kernel predicted left out."""
+    terms = args.terms.split(",")
+    for t in terms:
+        if t not in TERMS:
+            sys.stderr.write(
+                "tool_score.py: unknown term %s (%s)\n" % (t, ", ".join(TERMS))
+            )
+            sys.exit(2)
     counts, _ = read_counts(args.counts)
     rows, out = [], []
     times = defaultdict(dict)
@@ -727,7 +759,9 @@ def command_fit(args, weights):
             fitted = [i for i in range(len(kernels)) if i not in left]
             if len(fitted) < 4:
                 continue
-            x = numpy.array([fit_features(counts[donor][k]) for k in kernels])
+            x = numpy.array(
+                [fit_features(counts[donor][k], terms) for k in kernels]
+            )
             y = numpy.array([times[device][k] for k in kernels])
             scale = x.max(axis=0)
             scale[0 == scale] = 1.0
@@ -774,9 +808,10 @@ def command_fit(args, weights):
                     "%.2f" % numpy.median(factor),
                     "%.2f" % factor.max(),
                     "%.3f" % geomean(m / p),
-                    "%.3g" % (1e3 * coef[0]),
-                    "%.3g" % (1e12 * coef[1]),
-                    "%.3g" % (1e12 * coef[2]),
+                ]
+                + [
+                    "%.3g" % ((1e3 if "launch" == t else 1e12) * c)
+                    for t, c in zip(terms, coef)
                 ]
             )
     table(
@@ -789,10 +824,8 @@ def command_fit(args, weights):
             "Median factor off [lower is better]",
             "Worst factor off",
             "Measured/predicted (geometric mean)",
-            "Launch [ms]",
-            "Issue [ps per lane-instruction]",
-            "Memory [ps per lane-operation]",
-        ],
+        ]
+        + ["%s [%s]" % (t.capitalize(), TERMS[t]) for t in terms],
         args.markdown,
     )
     if args.csv:
@@ -848,6 +881,11 @@ def main():
     )
     parser.add_argument(
         "--csv", help="fit: write every prediction to this file"
+    )
+    parser.add_argument(
+        "--terms",
+        default="launch,issue,memory",
+        help="fit: comma-separated terms (%s)" % ", ".join(TERMS),
     )
     parser.add_argument(
         "--trim",

@@ -32,21 +32,7 @@ on:
         default: ""
 
 jobs:
-  # The simulator's build is cached when the job that built it succeeds. A job
-  # of its own saves it before any test runs, hence a failing test does not
-  # cost the next run a rebuild. Same runner image, hence the same cache key.
-  Simulator:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-    - name: Setup simulator
-      uses: pantheongpu/setup-pantheonsim@ab71a07326835be678918901c340d53a83358067 # v0.1.6
-      with:
-        gpu: amd/mi250x
-        rocm: none
-
   OpenCL:
-    needs: Simulator
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     env:
@@ -78,15 +64,29 @@ jobs:
           echo "${NAME_VALUE}"
         done
 
-    # Two devices of the default GPU; a step selects another one by VGPU_GPU.
-    # No hipcc (rocm: none): the OpenCL runtime below brings its own compiler.
-    # The build comes from the cache the Simulator job saved.
+    # A release's prebuilt simulator (no CUDA: the OpenCL runtime below brings
+    # its own compiler), by URL and checksum. Two devices of the default GPU; a
+    # step selects another one by VGPU_GPU. The simulator's libraries come first
+    # on the library path: they are the HSA runtime the OpenCL runtime uses.
     - name: Setup simulator
-      uses: pantheongpu/setup-pantheonsim@ab71a07326835be678918901c340d53a83358067 # v0.1.6
-      with:
-        gpu: amd/mi250x
-        count: 2
-        rocm: none
+      env:
+        VERSION: 0.2.1
+        TARBALL: pantheonsim-0.2.1-linux-x86_64-ubuntu24.04-cudanone-0a807b1c3a7eade24928.tar.gz
+        SHA256: 96230b8f05532230c0f27e43bd4df20ae55d22de90e0fe346006acd643721b92
+      run: |
+        DIR=${RUNNER_TEMP}/pantheonsim
+        mkdir -p "${DIR}"
+        curl -fsSL --retry 5 --retry-all-errors -o "${RUNNER_TEMP}/${TARBALL}" \
+          "https://github.com/pantheongpu/pantheonsim/releases/download/v${VERSION}/${TARBALL}"
+        echo "${SHA256}  ${RUNNER_TEMP}/${TARBALL}" | sha256sum -c -
+        tar -xzf "${RUNNER_TEMP}/${TARBALL}" -C "${DIR}"
+        { echo "${DIR}/bin"; echo "${DIR}"; } >> "${GITHUB_PATH}"
+        { echo "VGPU_GPU=amd/mi250x"
+          echo "VGPU_DEVICE_COUNT=2"
+          echo "VGPU_SHIM_DIR=${DIR}/shim"
+          echo "LD_LIBRARY_PATH=${DIR}/shim${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+        } >> "${GITHUB_ENV}"
+        "${DIR}/vgpu" info --gpu amd/mi250x > /dev/null
 
     # The simulator's own list, hence a new profile joins without a change here.
     - name: Simulated GPUs
@@ -175,7 +175,7 @@ jobs:
       shell: bash
       env:
         LOGS: ${{ runner.temp }}/atomics
-        META: "ROCm 7.2.4, setup-pantheonsim ca87fe3"
+        META: "ROCm 7.2.4, PantheonSim 0.2.1"
       run: |
         STATUS=0
         tests/atomics.sh || STATUS=$?

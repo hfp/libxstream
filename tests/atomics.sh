@@ -92,7 +92,8 @@ counted() {
   awk -v pat="$2" '
     /^VirtualGPU [A-Za-z]*: launch / { name[n++] = $4 }
     /^VGPU_DISPATCH / {
-      k = name[m++]
+      k = name[m++] # an older simulator names the kernel only in the launch trace
+      for (i = 2; i <= NF; ++i) if ($i ~ /^kernel=/) k = substr($i, 8)
       if (k ~ pat) {
         ++launches
         for (i = 2; i <= NF; ++i) { split($i, kv, "="); if ("wave" == kv[1]) wave = kv[2]; else sum[kv[1]] += kv[2] }
@@ -112,10 +113,18 @@ per_launch() {
   awk -v pat="$2" -v target="$3" -v kernel="$4" '
     /^VirtualGPU [A-Za-z]*: launch / { name[n++] = $4 }
     /^VGPU_DISPATCH / {
-      k = name[m++]
+      k = name[m++] # an older simulator names the kernel only in the launch trace
+      for (i = 2; i <= NF; ++i) if ($i ~ /^kernel=/) k = substr($i, 8)
       if (k ~ pat) {
         ++launches
-        for (i = 2; i <= NF; ++i) { split($i, kv, "="); if ("device" != kv[1]) sum[kv[1]] += kv[2] }
+        for (i = 2; i <= NF; ++i) {
+          split($i, kv, "=")
+          if ("mix" == kv[1] || "mops" == kv[1]) { # type:count pairs, or "-" for none
+            nt = ("-" != kv[2] ? split(kv[2], types, ",") : 0)
+            for (j = 1; j <= nt; ++j) { split(types[j], tc, ":"); sum[kv[1] "_" tc[1]] += tc[2] }
+          }
+          else if ("device" != kv[1] && "kernel" != kv[1]) sum[kv[1]] += kv[2]
+        }
       }
     }
     END {
