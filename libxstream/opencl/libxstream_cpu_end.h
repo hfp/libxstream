@@ -50,6 +50,7 @@ LIBXS_PRAGMA_DIAG_POP()
 #undef atomic_cmpxchg
 #undef atom_cmpxchg
 #undef min
+#undef select
 #undef CLK_LOCAL_MEM_FENCE
 #undef CLK_GLOBAL_MEM_FENCE
 #undef get_group_id

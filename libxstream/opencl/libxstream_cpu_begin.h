@@ -24,8 +24,8 @@
  *
  * Besides the keywords, the shim covers the built-ins a kernel reaches for that
  * the host has under another name or not at all: the as_* reinterpretations,
- * the integer atomics and compare-exchange, clz, mul_hi, min, fma, and the
- * work-item queries. A built-in the host already spells the same way (abs,
+ * the integer atomics and compare-exchange, clz, mul_hi, min, select, fma, and
+ * the work-item queries. A built-in the host already spells the same way (abs,
  * floor) is left to stdlib.h and math.h, which libxs_macros.h includes after its
  * feature-test macros; a system header ahead of those would have glibc settle on
  * a surface without them. The vector types are in libxstream_vectors.h, which
@@ -236,6 +236,8 @@ LIBXS_PRAGMA_DIAG_OFF("-Wmaybe-uninitialized")
 
 /* The integer built-in, over the type its operands have in common. */
 #define min(A, B) LIBXS_MIN(A, B)
+/* The scalar form (C nonzero selects B); the host's select(2) is a system call. */
+#define select(A, B, C) ((C) ? (B) : (A))
 
 #define get_group_id(D) ((size_t)libxstream_cpu_gid[D])
 #define get_local_id(D) ((size_t)libxstream_cpu_lid[D])
