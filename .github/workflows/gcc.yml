@@ -184,11 +184,14 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
+    # PoCL's CPU driver, the same build as for the simulated GPUs (cached)
+    - uses: ./.github/actions/pocl
+
     - name: Install OpenBLAS and OpenCL
       run: |
         sudo apt update -y
         sudo apt install -y libopenblas-openmp-dev \
-          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev pocl-opencl-icd
+          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
 
     - name: Setup LIBXS
       run: |

@@ -58,11 +58,14 @@ jobs:
           echo "${NAME_VALUE}"
         done
 
+    # PoCL's CPU driver, the same build as for the simulated GPUs (cached)
+    - uses: ./.github/actions/pocl
+
     - name: Install OpenBLAS, GNU Fortran, and OpenCL
       run: |
         sudo apt update -y
         sudo apt install -y libopenblas-openmp-dev gfortran \
-          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev pocl-opencl-icd
+          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
 
     - name: Setup LIBXS
       run: |
@@ -141,11 +144,14 @@ jobs:
           echo "${NAME_VALUE}"
         done
 
+    # PoCL's CPU driver, the same build as for the simulated GPUs (cached)
+    - uses: ./.github/actions/pocl
+
     - name: Install OpenBLAS, GNU Fortran, and OpenCL
       run: |
         sudo apt update -y
         sudo apt install -y libopenblas-openmp-dev gfortran \
-          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev pocl-opencl-icd
+          opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev
 
     - name: Setup LIBXS
       run: |

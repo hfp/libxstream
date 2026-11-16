@@ -1,0 +1,18 @@
+# Published measurements, as opposed to the datasheet peaks in specs.csv: achieved memory bandwidth (TB/s), and
+# the fraction of the dense matrix peak the vendor's GEMM achieves (matrix_efficiency). Hopper's applies to both
+# NVIDIA anchors. FP8/BF16/FP16 GEMMs run at the int8 rate on these parts (half of it for BF16/FP16).
+# [1] C. Ambati, T. Diep: AMD MI300X GPU Performance Analysis. https://arxiv.org/abs/2510.27583
+# [2] L. Fusco et al.: Understanding Data Movement in Tightly Coupled Heterogeneous Systems: A Case Study with
+#     the Grace Hopper Superchip. https://arxiv.org/abs/2408.11556
+# [3] T. Applencourt et al.: Ponte Vecchio Across the Atlantic (SC-W 2024), Table IV and Section V.
+#     https://conferences.computer.org/sc-wpub/pdfs/SC-W2024-6oZmigAQfgJ1GhPL0yE3pS/555400b423/555400b423.pdf
+# [4] AMD: Measuring Max-Achievable FLOPs, Part 2 (ROCm blog, 2025-02-28), Table 1.
+#     https://rocm.blogs.amd.com/software-tools-optimization/measuring-max-achievable-flops-part2/README.html
+part,bandwidth_tbs,matrix_efficiency,what,source
+Hopper,,0.93,"cuBLASLt GEMM on H100 (SXM), up to 93% of peak",1
+GH200,3.7959,,"GPU reads from HBM3, 3795.9 GB/s",2
+MI250X (one GCD),1.3,0.50,"STREAM triad 1.3 TB/s; DGEMM 24.1 of 47.9 TFLOPS (FP64 matrix)",3
+MI300X,4.3,0.45,"BabelStream about 4.3 TB/s; hipBLASLt about 45% of peak on average (FP8, BF16, FP16)",1
+MI300X,,0.54,"hipBLASLt BF16 708 of 1307 TFLOPS",4
+MI325X,,0.58,"hipBLASLt FP8 1519 of 2615 TFLOPS",4
+MI325X,,0.64,"hipBLASLt BF16 843 of 1307 TFLOPS",4

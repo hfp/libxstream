@@ -1,0 +1,54 @@
+name: PoCL
+description: >-
+  PoCL with its CPU and CUDA drivers, built by scripts/tool_pocl.sh and cached
+  (keyed by the runner's image, the LLVM version, and the script). PoCL is
+  registered like an installed package (/etc/OpenCL/vendors), not through
+  OCL_ICD_VENDORS, which OpenCL-MPS must be free to set; POCL_DEVICES selects
+  a driver.
+
+inputs:
+  devices:
+    description: "PoCL's driver: cpu, or cuda (simulated NVIDIA GPUs)"
+    default: cpu
+
+runs:
+  using: composite
+  steps:
+  # The newest packaged LLVM PoCL accepts. Its runtime libraries are needed by
+  # a cached build as well, the development files only to build.
+  - name: LLVM and OpenCL loader
+    shell: bash
+    run: |
+      sudo apt update -y
+      for VERSION in 23 22 21 20 19 18; do
+        if apt-cache show "llvm-${VERSION}-dev" > /dev/null 2>&1; then LLVM=${VERSION}; break; fi
+      done
+      if [ -z "${LLVM}" ]; then echo "ERROR: no LLVM between 18 and 23 packaged"; exit 1; fi
+      sudo apt install -y "libllvm${LLVM}" "libclang-cpp${LLVM}" libhwloc-dev \
+        opencl-c-headers ocl-icd-libopencl1 ocl-icd-opencl-dev clinfo
+      # the runner's image (ImageOS, e.g., ubuntu24) is not in the expression context
+      { echo "POCL_LLVM=${LLVM}"; echo "POCL_IMAGE=${ImageOS:-${RUNNER_OS}}"; echo "POCL_PREFIX=${RUNNER_TEMP}/pocl"; } >> "${GITHUB_ENV}"
+
+  - name: Restore PoCL
+    id: cache
+    uses: actions/cache@v6
+    with:
+      path: ${{ runner.temp }}/pocl
+      key: pocl-${{ env.POCL_IMAGE }}-llvm${{ env.POCL_LLVM }}-${{ hashFiles('scripts/tool_pocl.sh') }}
+
+  - name: Build PoCL
+    if: steps.cache.outputs.cache-hit != 'true'
+    shell: bash
+    run: |
+      sudo apt install -y cmake ninja-build "llvm-${POCL_LLVM}-dev" "libclang-${POCL_LLVM}-dev" \
+        "clang-${POCL_LLVM}" "libclang-cpp${POCL_LLVM}-dev"
+      scripts/tool_pocl.sh "${POCL_PREFIX}"
+
+  - name: Select PoCL
+    shell: bash
+    env:
+      DEVICES: ${{ inputs.devices }}
+    run: |
+      sudo mkdir -p /etc/OpenCL/vendors
+      sudo cp "${POCL_PREFIX}/vendors/pocl.icd" /etc/OpenCL/vendors/
+      echo "POCL_DEVICES=${DEVICES}" >> "${GITHUB_ENV}"

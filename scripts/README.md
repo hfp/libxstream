@@ -73,6 +73,16 @@ Synchronizes the packaging metadata (RPM spec, Debian changelog) with `version.t
 scripts/tool_pkgversion.sh
 ```
 
+## tool\_pocl.sh
+
+Builds [PoCL](https://portablecl.org/) with its CPU driver (kernel library for every x86 variant, hence portable across machines) and its CUDA driver (OpenCL C to PTX by LLVM, e.g., for the simulated NVIDIA GPUs of [PantheonSim](https://pantheonsim.com/)), and installs it with the parts of the CUDA toolkit it needs (`cuda.h`, libdevice); everything is downloaded by URL and checksum. The CI workflows share one cached build of it (`.github/actions/pocl`). Requires CMake and the development files of LLVM and Clang (18 to 23) and hwloc.
+
+```bash
+scripts/tool_pocl.sh PREFIX
+OCL_ICD_VENDORS=PREFIX/vendors POCL_DEVICES=cpu clinfo -l
+VGPU_GPU=nvidia/h100-pcie OCL_ICD_VENDORS=PREFIX/vendors POCL_DEVICES=cuda POCL_CUDA_GPU_ARCH=sm_90 clinfo -l
+```
+
 ## tool\_source.sh
 
 Prints the header-only header (`libxstream_source.h`) that includes every library source file; an optional argument sets the directory the includes refer to (default: `../src`). `make header-only` uses it.

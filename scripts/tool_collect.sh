@@ -20,10 +20,18 @@
 # (VGPU_DISPATCH_STATS); the kernel's name is on that line (PantheonSim 0.2.1
 # and later), or else in the launch trace (VGPU_TRACE_LAUNCHES). The VALU mix
 # and the matrix work become categories of their own (mix_fma_f64, mops_i8).
+# A simulated NVIDIA GPU (VGPU_GPU=nvidia/..., OpenCL through PoCL's CUDA
+# driver) reports per launch instead (VGPU_COUNTERS), under the same names
+# where they mean the same: instructions per warp and the warp size (wave),
+# bytes (vmem_bytes_rd, lds_bytes_wr), and the mix per warp (mix_f64); and
+# under names of its own where not (sectors, mops_tensor, lane_instructions).
+# PoCL's own helper launches (memptr) are not counted.
 #
 # BIN holds the binaries: mixes_double.x, mixes_float.x, acc_bench_double.x,
-# acc_bench_float.x, dbm_bench.x, ozaki.x, and stencil.x. CASES selects cases
-# by name (default: all), NREPEAT the timed repetitions (default: 10, and 1
+# acc_bench_float.x, dbm_bench.x, ozaki.x, and stencil.x. CASELIST names a file
+# of cases instead of the ones below, one per line in the same format (blank
+# lines and lines starting with # are skipped). CASES selects cases by name
+# (default: all), NREPEAT the timed repetitions (default: 10, and 1
 # for counting, which does not depend on it). A kernel is named by its case
 # and its own name, "smm13x5x7_double:dsmm13x5x7_double" for instance, and a
 # named mix by its mixture only ("stream_double"). A failing case is reported
@@ -61,6 +69,13 @@ ozaki1n256_double|ozaki.x|OZAKI=1|256
 ozaki2n256_double|ozaki.x|OZAKI=2|256
 stencil64_float|stencil.x||-n 64 -t 4
 "
+if [ -n "${CASELIST}" ]; then
+  if [ ! -r "${CASELIST}" ]; then
+    echo "ERROR: cannot read CASELIST=${CASELIST}"
+    exit 1
+  fi
+  ALL=$(grep -v '^[[:space:]]*#' "${CASELIST}")
+fi
 
 if [ "time" = "${MODE}" ]; then
   NREPEAT=${NREPEAT:-10}
@@ -92,6 +107,9 @@ while IFS='|' read -r NAME EXE SETENV ARGS; do
   # shellcheck disable=SC2086
   if [ "time" = "${MODE}" ]; then
     env ${SETENV} LIBXSTREAM_PROFILE=1 "${BIN}/${EXE}" ${ARGS//NREPEAT/${NREPEAT}} > "${LOG}" 2>&1 || RESULT=$?
+  elif [ "nvidia/" = "${VGPU_GPU:0:7}" ]; then
+    env ${SETENV} VGPU_THREADS=1 VGPU_COUNTERS=1 \
+      "${BIN}/${EXE}" ${ARGS//NREPEAT/${NREPEAT}} > "${LOG}" 2>&1 || RESULT=$?
   else
     env ${SETENV} VGPU_THREADS=1 VGPU_DISPATCH_STATS=1 VGPU_TRACE_LAUNCHES=1 \
       "${BIN}/${EXE}" ${ARGS//NREPEAT/${NREPEAT}} > "${LOG}" 2>&1 || RESULT=$?
@@ -103,6 +121,42 @@ while IFS='|' read -r NAME EXE SETENV ARGS; do
     sed -n 's/^PROF ACC\/OpenCL: ID=[^ ]* \([^ =]*\)=\([0-9.]*\) ms.*/\1 \2/p' "${LOG}" |
       while read -r RAW MS; do
         printf '%s,%s,%s,%s,ms,measured\n' "${DEVICE}" "${TARGET}" "$(kernel "${NAME}" "${RAW}")" "${MS}"
+      done >> "${RESULT_FILE}"
+  elif [ "nvidia/" = "${VGPU_GPU:0:7}" ]; then
+    # every launch: a "[vgpu][counters] <kernel>" line, then indented counts by section
+    awk '
+      function add(n, v) { sum[k, n] += v }
+      /^\[vgpu\]\[counters\] / { k = $2; skip = ("memptr" == k); if (!skip) ++launches[k]; sec = ""; next }
+      /^    / && !skip && "" != k {
+        i = 1
+        if ($1 !~ /=/) { if ("by" == $1) next; sec = $1; i = 2 } # "by opcode" lists only the most frequent
+        else if ($1 !~ /^ctrl=/) sec = "" # the second line of the mix starts with ctrl=
+        for (; i <= NF; ++i) {
+          if ("over" == $i) { add(("sectors" == sec ? "sector_requests" : "lds_requests"), $(i + 1)); ++i; continue }
+          if ($i ~ /^\(/ && "B)" == $(i + 1)) { add("atomic_bytes", substr($i, 2)); continue }
+          if ($i !~ /=/) continue
+          split($i, kv, "="); n = kv[1]; v = kv[2] + 0
+          if ("issues" == n) add("mops_tensor", v)
+          else if ("mix" == sec) add("mix_" (n ~ /^fp/ ? "f" substr(n, 3) : n), v / wave[k]) # per warp, as on AMD
+          else if ("sectors" == sec) add("sectors", v)
+          else if ("global" == sec || "shared" == sec || "local" == sec) {
+            p = ("global" == sec ? "vmem" : ("shared" == sec ? "lds" : "local"))
+            if ("read" == n) add(p "_bytes_rd", v); else if ("write" == n) add(p "_bytes_wr", v)
+            else if ("bank_conflicts" == n) add("lds_bank_conflicts", v); else add(p "_" n, v)
+          }
+          else if ("warps" == n) add("waves", v)
+          else if ("inst_executed" == n) add("instructions", v)
+          else if ("thread_inst_executed" == n) add("lane_instructions", v)
+          else if ("lanes_active_avg" == n) { split(kv[2], lw, "/"); wave[k] = lw[2]; add("lanes_active", lw[1]); add("wave", lw[2]) }
+          else add(n, v)
+        }
+      }
+      END {
+        for (key in sum) { split(key, kc, SUBSEP); printf "%s\t%s\t%.10g\n", kc[1], kc[2], sum[key] / launches[kc[1]] }
+        for (k in launches) printf "%s\tlaunches\t%d\n", k, launches[k]
+      }' "${LOG}" | sort |
+      while IFS=$'\t' read -r RAW CATEGORY VALUE; do
+        printf '%s\t%s\t%s\t%s\n' "${TARGET}" "$(kernel "${NAME}" "${RAW}")" "${CATEGORY}" "${VALUE}"
       done >> "${RESULT_FILE}"
   else
     # every launch: its kernel's name (trace), then its counts; the counts per launch
