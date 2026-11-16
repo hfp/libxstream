@@ -209,8 +209,9 @@ for GPU in ${GPUS}; do
       SIM=$(grep -v 'VirtualGPU [A-Za-z]*: launch ' "${LOG}" | grep -m1 '^VirtualGPU [A-Za-z]*:' | tr -d '`|' || true)
       if [ "0" = "${RESULT}" ]; then
         O=ok
-        for MIX in stream gemm atomics gather empty; do
-          per_launch "${LOG}" "mixes_${MIX}" "${GPU}" "${MIX}_${ELEM}"
+        for MIX in stream gemm atomics atomics_mask gather empty; do
+          # anchored, or mixes_atomics would take the launches of mixes_atomics_mask too
+          per_launch "${LOG}" "^mixes_${MIX}\$" "${GPU}" "${MIX}_${ELEM}"
           # the work of one launch, as the sample reports it (bytes, flops, updates)
           sed -n "s/^mixes_${MIX}: .* \(bytes\|flops\|updates\)=\([0-9]*\) .*/\1 \2/p" "${LOG}" | sed -n 1p |
             while read -r WHAT VALUE; do printf '%s\t%s\twork_%s\t%s\n' "${GPU}" "${MIX}_${ELEM}" "${WHAT}" "${VALUE}"; done >> "${MIXES}"

@@ -75,3 +75,11 @@ kernel void mixes_atomics(global T* restrict c, global const T* restrict a, int 
   const int i = (int)get_global_id(0);
   if (i < n) ACCUMULATE(c + i % m, a[i]);
 }
+
+
+/* FP atomics as above, the slot by a mask (m - 1, m a power of two) rather than a remainder */
+kernel void mixes_atomics_mask(global T* restrict c, global const T* restrict a, int n, int mask)
+{
+  const int i = (int)get_global_id(0);
+  if (i < n) ACCUMULATE(c + (i & mask), a[i]);
+}

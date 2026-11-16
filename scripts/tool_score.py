@@ -91,6 +91,8 @@ except ImportError as error:  # numpy and scipy are the only dependencies
 # "empty" dispatches as many work-groups as the stream with almost no instructions: with "waves" among
 # the categories, it is what a kernel's dispatch costs, apart from what its instructions cost
 MIXES = ["stream", "gemm", "atomics", "gather", "empty"]
+# named mixes outside the basis: never projected as a kernel, never projecting one
+VARIANTS = ["atomics_mask"]
 PRECISIONS = ["double", "float"]
 # not instruction categories: the launch's geometry and totals
 EXCLUDE = ["launches", "wave", "instructions"]
@@ -228,7 +230,7 @@ def projections(counts, backend, exclude, default, only=None):
         kernels = counts[target]
         for kernel in sorted(kernels):
             base, precision = split_name(kernel, default)
-            if base in MIXES and only is None:
+            if (base in MIXES or base in VARIANTS) and only is None:
                 continue  # a mix is projected only by the validation
             if only is not None and kernel != only[0]:
                 continue
@@ -748,7 +750,7 @@ def command_fit(args, weights):
                 k
                 for k in sorted(counts.get(donor, {}))
                 if k in times[device]
-                and split_name(k, args.precision)[0] not in MIXES
+                and split_name(k, args.precision)[0] not in MIXES + VARIANTS
                 and "instructions" in counts[donor][k]
             ]
             left = [
