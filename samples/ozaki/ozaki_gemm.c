@@ -369,7 +369,7 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
       "  for (i = 0; i < %i; ++i) d[i] = n;\n"
       "  for (i = (int)get_local_id(0); i < %u; i += (int)get_local_size(0)) s[i] = (uint4)(0);\n"
       "  barrier(CLK_LOCAL_MEM_FENCE);\n"
-      "  asm volatile(\"// WGMMA_SLOT n%i d={",
+      "  __asm__ volatile(\"// WGMMA_SLOT n%i d={",
       nacc, nvec, width);
     for (i = 0; i < nacc; ++i) {
       off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "%s%%%i", (0 != i) ? "," : "", i);
@@ -382,7 +382,7 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
     off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
       " : \"r\"(a0), \"r\"(a1), \"r\"(a2), \"r\"(a3), \"l\"(s));\n");
     off += (size_t)LIBXS_SNPRINTF(source + off, cap - off,
-      "  asm volatile(\"// WGMMA_WAIT 0\" ::: \"memory\");\n"
+      "  __asm__ volatile(\"// WGMMA_WAIT 0\" ::: \"memory\");\n"
       "  for (i = 0; i < %i; ++i) c[i] = d[i];\n}\n",
       nacc);
     result = (cap > off) ? EXIT_SUCCESS : EXIT_FAILURE;

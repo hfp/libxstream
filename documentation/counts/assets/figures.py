@@ -300,24 +300,39 @@ def projection():
     s, pub = specs(), published()
     configs = defaultdict(dict)
     for r in rows("ozaki-kernels.csv"):
-        if r["size"] == "4096" and r["scheme"] == "2" and "x" not in r["config"]:
-            configs[(r["config"], r["option"])][r["kernel"]] = float(r["gh200_ms"])
+        if (
+            r["size"] == "4096"
+            and r["scheme"] == "2"
+            and "x" not in r["config"]
+        ):
+            configs[(r["config"], r["option"])][r["kernel"]] = float(
+                r["gh200_ms"]
+            )
     full = [
         k
         for k in configs.values()
         if any(n.startswith("gemm_crt_fused") for n in k) and len(k) >= 4
     ]
     kernels = min(full, key=lambda k: sum(k.values()))
-    g = sum(t for n, t in kernels.items() if n.startswith("gemm") and "reduce" not in n)
+    g = sum(
+        t
+        for n, t in kernels.items()
+        if n.startswith("gemm") and "reduce" not in n
+    )
     o = sum(kernels.values()) - g
     a, nv = s["GH200"], max(pub["Hopper"]["eff"])
     bw_a = pub["GH200"]["bw"][0]
     amd = [p for p in pub if p in s and p not in ("H100 PCIe", "GH200")]
     effs = [e for p in amd for e in pub[p]["eff"]]
-    fracs = [b / float(s[p]["bandwidth_tbs"]) for p in amd for b in pub[p]["bw"]]
+    fracs = [
+        b / float(s[p]["bandwidth_tbs"]) for p in amd for b in pub[p]["bw"]
+    ]
 
     def tflops(r, eff, bw):
-        t = g * float(a["int8_tops"]) / float(r["int8_tops"]) / eff + o * bw_a / bw
+        t = (
+            g * float(a["int8_tops"]) / float(r["int8_tops"]) / eff
+            + o * bw_a / bw
+        )
         return 2.0 * 4096**3 / (t * 1e9)
 
     out = []
@@ -332,7 +347,15 @@ def projection():
             (
                 part,
                 tflops(r, eff, min(bw)),
-                tflops(r, 1.0, pub[part]["bw"][0] if pub[part]["bw"] else datasheet * bw_a / float(a["bandwidth_tbs"])),
+                tflops(
+                    r,
+                    1.0,
+                    (
+                        pub[part]["bw"][0]
+                        if pub[part]["bw"]
+                        else datasheet * bw_a / float(a["bandwidth_tbs"])
+                    ),
+                ),
                 float(r["fp64_matrix"]) if r["fp64_matrix"] else None,
                 own,
             )
@@ -369,9 +392,13 @@ def ozaki_amd():
     for y, (part, lo, hi, native, own) in zip(ys, data):
         yb = y - h / 2 - 0.02
         if native:
-            ax.barh(y + h / 2 + 0.02, native, height=h, color=GRAY, linewidth=0)
+            ax.barh(
+                y + h / 2 + 0.02, native, height=h, color=GRAY, linewidth=0
+            )
         ax.barh(yb, lo, height=h, color=BLUE, linewidth=0)
-        ax.barh(yb, hi - lo, left=lo, height=h, color=BLUE, alpha=0.4, linewidth=0)
+        ax.barh(
+            yb, hi - lo, left=lo, height=h, color=BLUE, alpha=0.4, linewidth=0
+        )
         win = native and hi > native
         ax.text(
             max(hi, native or 0) + xmax * 0.02,
