@@ -444,6 +444,12 @@
  * Barrett and no branch at all, and it is what makes the signed representation
  * affordable enough for symmetric residues to pay for themselves. The select on zero
  * is not optional: m - 0 is m, which is not a residue.
+ *
+ * The select is spelled select() because a conditional expression does not stay one:
+ * LLVM's NVPTX backend turns it into a branch per element, which diverges by sign
+ * exactly as described above, and the unfused GEMM then issues the next modulus's
+ * mma.sync right after it. On a simulated GPU that executed the mma.sync with part of
+ * the warp only (the instruction itself waits for the whole warp).
  */
 #if defined(OZAKI_U8) && (OZAKI_U8)
 # define OZAKI_MOD_REDUCE_ELEM(VAL, PIDX, R) (R) = oz2g_mod((uint)OZAKI_ACC_INT(VAL), (PIDX))
@@ -451,7 +457,7 @@
 # define OZAKI_MOD_REDUCE_ELEM(VAL, PIDX, R) \
     { const int av_ = OZAKI_ACC_INT(VAL); \
       const uint ar_ = oz2g_mod(abs(av_), (PIDX)); \
-      (R) = (0 != ar_ && 0 > av_) ? (oz2g_moduli[(PIDX)] - ar_) : ar_; \
+      (R) = select(ar_, oz2g_moduli[(PIDX)] - ar_, (uint)(0 != ar_ && 0 > av_)); \
     }
 #endif
 
