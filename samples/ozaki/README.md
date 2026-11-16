@@ -167,7 +167,9 @@ The complex variables take effect through the LIBXS interceptor
 
 Warp-group MMA (`wgmma`) is the default wherever initialization finds it
 usable; otherwise `mma.sync` is used and `OZAKI_VERBOSE=1` says so.
-`OZAKI_WGMMA=0` selects `mma.sync`. It needs `OZAKI_HIER`, no
+`OZAKI_WGMMA=0` selects `mma.sync`, and `OZAKI_WGMMA=2` uses the
+program as the device compiler built it, without the patch (only for
+a program that already carries the instructions). It needs `OZAKI_HIER`, no
 K-grouping, `OZAKI_PB=1` and `OZAKI_FRACCRT` other than 1, and it fixes
 the tile to `OZAKI_WGMMA_M`x`OZAKI_WGMMA_N` regardless of
 `OZAKI_TM`/`OZAKI_TN`. The first JIT per shape takes about twice as

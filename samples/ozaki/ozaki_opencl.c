@@ -1359,9 +1359,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      * use: by the time a kernel is built, the geometry is no longer negotiable.
      */
     { const char *const env_wgmma = getenv("OZAKI_WGMMA");
-      wgmma = ((NULL == env_wgmma || 0 != atoi(env_wgmma)) && 4 <= nv && 0 != ctx->nv_mma && 0 != gpu && 32 == sg &&
+      /* 2: the program as the device compiler built it, neither probed nor patched */
+      const int wgmma_req = (NULL != env_wgmma) ? atoi(env_wgmma) : 1;
+      wgmma = (0 != wgmma_req && 4 <= nv && 0 != ctx->nv_mma && 0 != gpu && 32 == sg &&
                 1 == ctx->pb && 0 != crt_hier && 2 > ozgroups && 1 != fraccrt)
-                ? 1
+                ? (2 == wgmma_req ? 2 : 1)
                 : 0;
       if (0 != wgmma) {
         /**
@@ -1418,7 +1420,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         const size_t lbytes = (size_t)2 * wn * wku * bk_pre;
         /* Probed at the issue width: 256 columns are two n128, all the splice knows. */
         const int wprobe = (256 == wn) ? 128 : wn;
-        wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, lbytes)) ? 1 : 0;
+        if (2 != wgmma) wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, lbytes)) ? 1 : 0;
         if (0 == wgmma) { /* detection may settle for mma.sync, an explicit OZAKI_WGMMA may be refused */
           if (NULL != env_wgmma && EXIT_SUCCESS != libxstream_opencl_fallback("OZAKI", "mma.sync (OZAKI_WGMMA)")) {
             result = EXIT_FAILURE;

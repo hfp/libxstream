@@ -1728,7 +1728,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
               0, OPENCL_KERNELS_SOURCE_OZAKI2, pname, flags,
               options, NULL, NULL, NULL, 0, &program))
         {
-          if (0 != ctx->wgmma) ozaki_wgmma_program(ctx, pname, tn, maxnreg, &program);
+          if (1 == ctx->wgmma) ozaki_wgmma_program(ctx, pname, tn, maxnreg, &program);
           if (NULL != program) {
             libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
             if (0 != ctx->unfuse) {
