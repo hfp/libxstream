@@ -571,7 +571,8 @@ LIBXSTREAM_API int libxstream_mem_dev_allocate_hint(void** dev_mem, size_t nbyte
         0
 #   endif
       );
-      memory = clCreateBuffer(devinfo->context, flags, nbytes, NULL, &result);
+      /* At least a pointer: libxstream_memptr_register stores the address in the buffer. */
+      memory = clCreateBuffer(devinfo->context, flags, LIBXS_MAX(sizeof(void*), nbytes), NULL, &result);
       if (EXIT_SUCCESS == result && NULL != memory) {
         result = libxstream_memptr_register(memory, &memptr);
         if (EXIT_SUCCESS != result) {
@@ -1275,6 +1276,7 @@ LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
       memptr = libxs_malloc(libxstream_opencl_config.pool_dev, nbytes, LIBXS_MALLOC_NATIVE);
     }
     else {
+      /* At least a pointer: libxstream_memptr_register stores the address in the buffer. */
       cl_mem memory = NULL;
 # if defined(LIBXSTREAM_XHINTS)
       const int devuid = devinfo->uid, devuids = (0x4905 == devuid || 0x020a == devuid || (0x0bd0 <= devuid && 0x0bdb >= devuid));
@@ -1282,11 +1284,12 @@ LIBXSTREAM_API int libxstream_mem_allocate(void** dev_mem, size_t nbytes)
                               (devuids || NULL != (LIBXSTREAM_XHINTS)))
                               ? (1u << 22)
                               : 0);
-      memory = clCreateBuffer(devinfo->context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), nbytes, NULL /*host_ptr*/, &result);
+      memory = clCreateBuffer(
+        devinfo->context, (cl_mem_flags)(CL_MEM_READ_WRITE | try_flag), LIBXS_MAX(sizeof(void*), nbytes), NULL /*host_ptr*/, &result);
       if (0 != try_flag && EXIT_SUCCESS != result) /* retry without try_flag */
 # endif
       {
-        memory = clCreateBuffer(devinfo->context, CL_MEM_READ_WRITE, nbytes, NULL /*host_ptr*/, &result);
+        memory = clCreateBuffer(devinfo->context, CL_MEM_READ_WRITE, LIBXS_MAX(sizeof(void*), nbytes), NULL /*host_ptr*/, &result);
       }
       if (EXIT_SUCCESS == result) {
         result = libxstream_memptr_register(memory, &memptr);
