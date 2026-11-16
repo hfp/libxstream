@@ -145,11 +145,11 @@ A kernel's counts as a mixture of the mixes counted on the same target:
 
 ## Where FP64 emulation pays on AMD
 
-The same ratios from both anchors to AMD's datasheets, for an Ozaki-2 port at the efficiency of the NVIDIA one (none exists yet):
+From GH200 by datasheet ratios, with **published** bandwidth and GEMM efficiency where they exist: an Ozaki-2 port (none yet) from AMD's efficiency up to NVIDIA's:
 
-<img class="wide" style="max-height: 55vh" src="assets/ozaki-amd.png" alt="Ozaki-2 projected for AMD against native FP64"/>
+<img class="wide" style="max-height: 50vh" src="assets/ozaki-amd.png" alt="Ozaki-2 projected for AMD against native FP64"/>
 
-<span style="opacity: 0.4; font-size: 50%;">CDNA 4: FP64 matrix 163.4 to 78.6 TFLOPS, int8 2615 to 5033 TOPS. Against peak, not achieved DGEMM. Sources: assets/specs.csv.</span>
+<span style="opacity: 0.4; font-size: 50%;">* Nothing published: the range of MI250X, MI300X, MI325X. Against peak: DGEMM reaches 50% on MI250X, favoring the upper end. Sources: specs.csv, published.csv.</span>
 
 ---
 

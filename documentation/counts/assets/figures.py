@@ -12,8 +12,9 @@
                  a simulated RX 7900 XTX against measured
   transfer.png   ozaki-kernels.csv, specs.csv: GH200 kernel times predicted
                  from H100 PCIe by datasheet ratios against measured
-  ozaki-amd.png  ozaki-kernels.csv, specs.csv: Ozaki-2 FP64 projected for AMD
-                 parts against their native FP64 matrix peak
+  ozaki-amd.png  ozaki-kernels.csv, specs.csv, published.csv: Ozaki-2 FP64
+                 projected for AMD parts from GH200, between AMD's published
+                 GEMM efficiency and NVIDIA's, against the native FP64 peak
 
 Colors: the categorical blue and orange, and a gray for context, on the black
 theme (contrast at least 3.2:1; OKLab difference at least 15.8 between any two
@@ -279,52 +280,61 @@ def transfer():
     save(fig, "transfer.png")
 
 
+def published():
+    """{part: {"bw": [...], "eff": [...]}} from published.csv."""
+    out = defaultdict(lambda: {"bw": [], "eff": []})
+    for r in rows("published.csv"):
+        if r["bandwidth_tbs"]:
+            out[r["part"]]["bw"].append(float(r["bandwidth_tbs"]))
+        if r["matrix_efficiency"]:
+            out[r["part"]]["eff"].append(float(r["matrix_efficiency"]))
+    return out
+
+
 def projection():
-    """[(part, low, high, native)]: Ozaki-2 FP64-equivalent TFLOPS at n=4096 from either anchor."""
-    s, best = specs(), {}
-    for column, anchor in (
-        ("h100pcie_ms", "H100 PCIe"),
-        ("gh200_ms", "GH200"),
-    ):
-        configs = defaultdict(dict)
-        for r in rows("ozaki-kernels.csv"):
-            if (
-                r["size"] == "4096"
-                and r["scheme"] == "2"
-                and "x" not in r["config"]
-            ):
-                configs[(r["config"], r["option"])][r["kernel"]] = float(
-                    r[column]
-                )
-        full = [
-            k
-            for k in configs.values()
-            if any(n.startswith("gemm_crt_fused") for n in k) and len(k) >= 4
-        ]
-        kernels = min(full, key=lambda k: sum(k.values()))
-        g = sum(
-            t
-            for n, t in kernels.items()
-            if n.startswith("gemm") and "reduce" not in n
-        )
-        best[anchor] = (g, sum(kernels.values()) - g)
+    """[(part, low, high, native, own)]: Ozaki-2 FP64-equivalent TFLOPS at n=4096
+    from GH200 (the anchor with a published bandwidth). Low: at the part's
+    published GEMM efficiency relative to Hopper's, and its published bandwidth.
+    High: as efficient as on NVIDIA. A part without published figures (own is
+    False) takes the range of those that have them."""
+    s, pub = specs(), published()
+    configs = defaultdict(dict)
+    for r in rows("ozaki-kernels.csv"):
+        if r["size"] == "4096" and r["scheme"] == "2" and "x" not in r["config"]:
+            configs[(r["config"], r["option"])][r["kernel"]] = float(r["gh200_ms"])
+    full = [
+        k
+        for k in configs.values()
+        if any(n.startswith("gemm_crt_fused") for n in k) and len(k) >= 4
+    ]
+    kernels = min(full, key=lambda k: sum(k.values()))
+    g = sum(t for n, t in kernels.items() if n.startswith("gemm") and "reduce" not in n)
+    o = sum(kernels.values()) - g
+    a, nv = s["GH200"], max(pub["Hopper"]["eff"])
+    bw_a = pub["GH200"]["bw"][0]
+    amd = [p for p in pub if p in s and p not in ("H100 PCIe", "GH200")]
+    effs = [e for p in amd for e in pub[p]["eff"]]
+    fracs = [b / float(s[p]["bandwidth_tbs"]) for p in amd for b in pub[p]["bw"]]
+
+    def tflops(r, eff, bw):
+        t = g * float(a["int8_tops"]) / float(r["int8_tops"]) / eff + o * bw_a / bw
+        return 2.0 * 4096**3 / (t * 1e9)
+
     out = []
     for part, r in s.items():
-        if part in best:
+        if part in ("H100 PCIe", "GH200"):
             continue
-        tf = []
-        for anchor, (g, o) in best.items():
-            a = s[anchor]
-            t = g * float(a["int8_tops"]) / float(r["int8_tops"]) + o * float(
-                a["bandwidth_tbs"]
-            ) / float(r["bandwidth_tbs"])
-            tf.append(2.0 * 4096**3 / (t * 1e9))
+        own = part in pub
+        eff = min(pub[part]["eff"] or effs) / nv
+        datasheet = float(r["bandwidth_tbs"])
+        bw = pub[part]["bw"] or [datasheet * f for f in fracs]
         out.append(
             (
                 part,
-                min(tf),
-                max(tf),
+                tflops(r, eff, min(bw)),
+                tflops(r, 1.0, pub[part]["bw"][0] if pub[part]["bw"] else datasheet * bw_a / float(a["bandwidth_tbs"])),
                 float(r["fp64_matrix"]) if r["fp64_matrix"] else None,
+                own,
             )
         )
     return out
@@ -345,7 +355,7 @@ def ozaki_amd():
     )
     n = len(data)
     ys = list(range(n))[::-1]
-    xmax = max(max(r[2], r[3] or 0) for r in data) * 1.35
+    xmax = max(max(r[2], r[3] or 0) for r in data) * 1.45
     fig, ax = plt.subplots(figsize=(11, 5.6))
     ax.set_xlim(0, xmax)
     ax.set_ylim(-0.7, n - 0.3)
@@ -356,20 +366,18 @@ def ozaki_amd():
     ax.spines["bottom"].set_color(AXIS)
     ax.tick_params(length=0, labelsize=12)
     h = 0.32
-    for y, (part, lo, hi, native) in zip(ys, data):
-        mid = math.sqrt(lo * hi)
+    for y, (part, lo, hi, native, own) in zip(ys, data):
+        yb = y - h / 2 - 0.02
         if native:
-            ax.barh(
-                y + h / 2 + 0.02, native, height=h, color=GRAY, linewidth=0
-            )
-        ax.barh(y - h / 2 - 0.02, mid, height=h, color=BLUE, linewidth=0)
-        ax.plot([lo, hi], [y - h / 2 - 0.02] * 2, color=INK, linewidth=1.5)
-        win = native and mid > native
+            ax.barh(y + h / 2 + 0.02, native, height=h, color=GRAY, linewidth=0)
+        ax.barh(yb, lo, height=h, color=BLUE, linewidth=0)
+        ax.barh(yb, hi - lo, left=lo, height=h, color=BLUE, alpha=0.4, linewidth=0)
+        win = native and hi > native
         ax.text(
             max(hi, native or 0) + xmax * 0.02,
             y,
             (
-                ("%.2gx native" % (mid / native))
+                ("%.2f-%.2fx native" % (lo / native, hi / native))
                 if native
                 else "no FP64 figure listed"
             ),
@@ -379,7 +387,9 @@ def ozaki_amd():
             fontweight="bold" if win else None,
         )
     ax.set_yticks(ys)
-    ax.set_yticklabels([r[0] for r in data], color=INK_2, fontsize=13)
+    ax.set_yticklabels(
+        [r[0] + ("" if r[4] else " *") for r in data], color=INK_2, fontsize=13
+    )
     ax.set_xlabel(
         "TFLOPS: FP64 matrix peak, or FP64-equivalent of Ozaki-2 at n=4096",
         fontsize=12,
@@ -387,12 +397,14 @@ def ozaki_amd():
     )
     handles = [
         plt.Rectangle((0, 0), 1, 1, color=BLUE),
+        plt.Rectangle((0, 0), 1, 1, color=BLUE, alpha=0.4),
         plt.Rectangle((0, 0), 1, 1, color=GRAY),
     ]
     ax.legend(
         handles,
         [
-            "Ozaki-2, projected (range: either anchor)",
+            "Ozaki-2 at AMD's published GEMM efficiency",
+            "... up to NVIDIA's",
             "native FP64 matrix peak",
         ],
         loc="lower right",
