@@ -128,6 +128,11 @@ repos:
     entry: '\bgoto\b'
     language: pygrep
     files: '\.(c|h|cl)$'
+  - id: no-plain-asm
+    name: inline assembly is spelled __asm__
+    entry: '(^|[^\w])asm\s*(volatile\s*|__volatile__\s*)?\('
+    language: pygrep
+    files: '\.(c|h|cl)$'
   # C89 keeps declarations at the beginning of a block, so a "for" initializer
   # cannot declare. The compiler rejects it under PEDANTIC=2, but only for
   # whoever builds that way, and only once the build gets that far.

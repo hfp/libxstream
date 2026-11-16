@@ -47,7 +47,7 @@ combines the standard [pre-commit](https://pre-commit.com/) hooks (trailing
 whitespace, line endings, byte-order marks, shebang and exec-bit consistency,
 YAML syntax) with the project-specific rules (US-ASCII, tabs, C++ comments,
 whitespace before `#`, `exit()` in library code, `sed -i` in scripts, `goto`,
-a declaration in a `for` initializer, banner comments, ` -- ` in a comment,
+inline assembly spelled `asm`, a declaration in a `for` initializer, banner comments, ` -- ` in a comment,
 three blank lines, and column 73 in fixed-form Fortran). Install the Git hook
 once per clone; the same configuration runs in continuous integration, so a
 violation fails the pull request:
@@ -226,6 +226,12 @@ is correct there and the hooks exempt kernels from that one rule. Everything
 else holds unchanged: US-ASCII, no tabs, `/* ... */` comments only, a single
 function exit, two blank lines between functions, capitalized macros, and the
 SPDX header. A kernel is source, not data.
+
+**Inline assembly is spelled `__asm__`, never `asm`.** `asm` is a GNU keyword
+that Clang does not accept in OpenCL C, so a kernel using it builds with one
+vendor's compiler and fails with another (PoCL, for instance); `__asm__` is
+accepted by all of them. This includes kernel source that host code writes as
+strings.
 
 **A 64-bit integer is `uint64_t` or `int64_t`.** They are exactly 64 bits wide
 rather than merely at least that wide, they add no name of ours to the API, and
