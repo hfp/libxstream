@@ -90,6 +90,27 @@ if ! awk '/^make_kernel_bc\(KERNEL_BC_SM70_PTX64 / {
 fi
 mv "${CUDALIB}.new" "${CUDALIB}" || exit 1
 
+# replace FILE TEXT LINE: the one line containing TEXT becomes LINE (no escapes)
+replace() {
+  if ! awk -v text="$2" -v line="$3" 'index($0, text) { print line; ++n; next }
+      { print } END { exit (1 == n ? 0 : 1) }' "$1" > "$1.new"; then
+    echo "ERROR: PoCL ${POCL_VERSION} differs from what this script patches (${2})"
+    exit 1
+  fi
+  mv "$1.new" "$1" || exit 1
+}
+
+# PTX beyond 8.0, which SM 10.0 and later require (8.6 to 9.0, the minimum LLVM
+# enforces per target): PoCL's table stops at CUDA 12.0. The version stays 8.0
+# where an SM allows it, so what older targets get does not change.
+CUDADEV=${SRC}/lib/CL/devices/cuda/pocl-cuda.c
+replace "${CUDADEV}" "{ 12000, 80 }, { 11000, 70 }, { 10000, 63 }, { 9000, 60 }, { 8000, 50 }," \
+  "  { 13000, 90 }, { 12090, 88 }, { 12080, 87 }, { 12070, 86 }, { 12000, 80 }, { 11000, 70 }, { 10000, 63 }, { 9000, 60 }, { 8000, 50 },"
+replace "${CUDADEV}" "if (sm_version >= 89)" \
+  "  if (sm_version >= 121) min_ptx = 88; else if (sm_version >= 120) min_ptx = 87; else if (sm_version >= 110) min_ptx = 90; else if (sm_version >= 103) min_ptx = 88; else if (sm_version >= 100) min_ptx = 86; else if (sm_version >= 89)"
+replace "${CUDADEV}" "unsigned selected_ptx = max_ptx;" \
+  "  unsigned selected_ptx = (80 < max_ptx && 80 >= min_ptx) ? 80 : max_ptx;"
+
 # Some distributions ship only the versioned Clang library without its development link.
 LIBDIR=$("${LLVM_CONFIG}" --libdir)
 CLANG_CPP=""
