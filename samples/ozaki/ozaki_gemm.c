@@ -12,14 +12,7 @@
 #include <libxs/libxs_hash.h>
 #include <libxs/libxs_mem.h>
 
-/**
- * Descriptor strides of the staged B tile in 16-byte units, mirroring
- * OZAKI_WGMMA_BSTAGE: a core matrix is 8 columns, hence 128 bytes contiguous, the next
- * column octet follows it, and a k-block spans the tile's whole width. Both live here
- * because the splice bakes them into the descriptor while the kernel writes the layout
- * they describe - change one and the other has to move with it, or the GEMM reads B
- * from the wrong addresses and only the results say so.
- */
+/* Descriptor strides the probe's marker states, as OZAKI_WGMMA_DESC does in ozaki2.cl. */
 #define OZAKI_WGMMA_SBO 8
 #define OZAKI_WGMMA_LBO(BN) (BN)
 
@@ -69,208 +62,12 @@ static int ozaki_npanel_memory(const ozaki_context_t* ctx, int N, int nblk_m, in
 static int ozaki_crt_npanel(const ozaki_context_t* ctx, int M, int N, int K, int dev, int n_kgroups, int cacheable_b);
 static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, int bounds, int tm, int tn, int rtm, int rtn);
 /**
- * Splice real warp-group MMA instructions into the fused CRT kernel's PTX.
- *
- * OpenCL C cannot express wgmma: the front-end emits .target sm_90 while the
- * instruction requires sm_90a. The kernel therefore carries comment-only asm
- * markers with the real operands, so the compiler performs register allocation
- * and names them, and this pass rewrites the target and replaces every marker by
- * the instruction sequence using those names. The descriptor layout fields are
- * constants here because the staged tile layout is fixed by the kernel: rows of a
- * core matrix 16 bytes apart, the two K-halves of a row 128 bytes apart, and
- * m-blocks (WBK/16) core matrices apart.
- *
- * A arrives in registers and only B is described out of shared memory, so every
- * marker carries "a={" and a marker without it is refused rather than guessed at.
- *
- * fence.proxy.async.shared::cta is not optional: the tiles are written with
- * ordinary shared-memory stores, and wgmma reads them through the async proxy,
- * which the work-group barrier does not order against (wgmma.fence orders
- * register access, not memory). Without it the kernel is correct only while at
- * most one work-group per SM is resident - measured exact up to 114 work-groups
- * on a 114-SM part and wrong beyond, which is the kind of bug that looks like a
- * size threshold. It comes from its own marker because both fences order a whole
- * round's issues, so the kernel decides how often to pay for them.
- *
- * Returns the patched text (libxs_free by the caller) or NULL, in which case the
- * kernel must be refused rather than run: markers alone accumulate nothing.
- */
-
-static char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name,
-  int sbo, int lbo, int u8, int bf16, int maxnreg)
-{
-  static const char marker[] = "// WGMMA_SLOT n";
-  static const char marker_wait[] = "// WGMMA_WAIT";
-  static const char marker_fence[] = "// WGMMA_FENCE";
-  static const char marker_commit[] = "// WGMMA_COMMIT";
-  char entry[128];
-  /**
-   * The floating-point form of wgmma is not the integer form with a different
-   * type suffix: it takes four more trailing immediates (imm-scale-a,
-   * imm-scale-b, imm-trans-a, imm-trans-b) after scale-d, and ptxas rejects the
-   * integer argument list with "Arguments mismatch for instruction
-   * 'wgmma.mma_async'" rather than anything that points at the cause. Verified
-   * against the hardware with a standalone probe before it went in here.
-   */
-  const char* const etype = (0 != bf16) ? "bf16" : ((0 != u8) ? "u8" : "s8");
-  const char* const atype = (0 != bf16) ? "f32" : "s32";
-  /* RS form (A from registers) takes no imm-trans-a, unlike SS: seven args, not eight. */
-  const char* const dtail = (0 != bf16) ? ", 1, 1, 1, 0" : ", 1";
-  const int kdim = (0 != bf16) ? 16 : 32;
-  const unsigned int desc_hi = (unsigned int)sbo; /* column-octet stride / 16 */
-  const unsigned int desc_lo = (unsigned int)lbo << 16; /* k-block stride / 16, at bit 16 */
-  char* retargeted = NULL;
-  size_t size_rt = 0, cap = 0;
-  char* out = NULL;
-  LIBXS_SNPRINTF(entry, sizeof(entry), ".entry %s", entry_name);
-  if (EXIT_SUCCESS == libxstream_opencl_retarget_ptx(ptx, size,
-    maxnreg, entry_name, &retargeted, &size_rt))
-  {
-    const char* scan = retargeted;
-    size_t nmarker = 0;
-    while (NULL != (scan = strstr(scan, marker))) {
-      ++nmarker;
-      ++scan;
-    }
-    scan = retargeted;
-    while (NULL != (scan = strstr(scan, marker_wait))) {
-      ++nmarker;
-      ++scan;
-    }
-    scan = retargeted;
-    while (NULL != (scan = strstr(scan, marker_fence))) {
-      ++nmarker;
-      ++scan;
-    }
-    scan = retargeted;
-    while (NULL != (scan = strstr(scan, marker_commit))) {
-      ++nmarker;
-      ++scan;
-    }
-    if (0 != nmarker) {
-      cap = size_rt + nmarker * 1024 + 256;
-      out = (char*)libxs_malloc(NULL, cap, 0 /*auto-align*/);
-    }
-    if (NULL != out) {
-      const char* src = retargeted;
-      const char* found = strstr(retargeted, entry);
-      const char* brace = (NULL != found) ? strchr(found, '{') : NULL;
-      size_t off = 0;
-      int ok = (NULL != brace) ? EXIT_SUCCESS : EXIT_FAILURE;
-      if (EXIT_SUCCESS == ok) { /* the B descriptor temporary, declared once */
-        const size_t prefix = (size_t)(brace - retargeted) + 1;
-        memcpy(out, retargeted, prefix);
-        off = prefix;
-        off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\n\t.reg .b64 %%wgdb;\n");
-        src = brace + 1;
-      }
-      while (EXIT_SUCCESS == ok) {
-        const char* const w = strstr(src, marker_wait);
-        const char* const f = strstr(src, marker_fence);
-        const char* const c = strstr(src, marker_commit);
-        const char* const m = strstr(src, marker);
-        const char* first = w;
-        const char* dlist;
-        const char* dend;
-        const char* line;
-        const char* eol;
-        size_t head;
-        char pb[32];
-        int width = 0;
-        if (NULL == first || (NULL != f && f < first)) first = f;
-        if (NULL == first || (NULL != c && c < first)) first = c;
-        if (NULL == first || (NULL != m && m < first)) first = m;
-        if (NULL == first) break;
-        line = first;
-        while (line > retargeted && '\n' != line[-1]) --line;
-        eol = strchr(first, '\n');
-        head = (size_t)(line - src);
-        if (NULL == eol || cap <= (off + head + 1024)) {
-          ok = EXIT_FAILURE;
-        }
-        else if (first == w) { /* the group wait; an optional count keeps that many groups in flight */
-          int nwait = 0;
-          if (1 != sscanf(w + sizeof(marker_wait) - 1, "%i", &nwait) || 0 > nwait) nwait = 0;
-          memcpy(out + off, src, head);
-          off += head;
-          off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\twgmma.wait_group.sync.aligned %i;\n", nwait);
-          src = eol + 1;
-        }
-        else if (first == c) { /* closes a group, which is what a wait can then leave in flight */
-          memcpy(out + off, src, head);
-          off += head;
-          off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\twgmma.commit_group.sync.aligned;\n");
-          src = eol + 1;
-        }
-        else if (first == f) { /* the fence pair, once per round rather than per issue */
-          memcpy(out + off, src, head);
-          off += head;
-          off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
-            "\tfence.proxy.async.shared::cta;\n"
-            "\twgmma.fence.sync.aligned;\n");
-          src = eol + 1;
-        }
-        else {
-          const char* alist = NULL;
-          const char* aend = NULL;
-          dlist = strstr(m, " d={");
-          dend = (NULL != dlist) ? strchr(dlist, '}') : NULL;
-          if (NULL != dlist) dlist += 4; /* past " d={" */
-          if (NULL != dend && 0 == strncmp(dend, "} a={", 5)) {
-            alist = dend + 5;
-            aend = strchr(alist, '}');
-          }
-          if (NULL == dend || NULL == alist || NULL == aend ||
-              1 != sscanf(m + sizeof(marker) - 1, "%i", &width) || (64 != width && 128 != width) ||
-              1 != sscanf(aend, "} pb=%31s", pb))
-          {
-            ok = EXIT_FAILURE;
-          }
-          else {
-            const size_t ndig = (size_t)(dend - dlist);
-            memcpy(out + off, src, head);
-            off += head;
-            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off,
-              "\tshr.u64 %%wgdb, %s, 4;\n\tand.b64 %%wgdb, %%wgdb, 16383;\n"
-              "\tor.b64 %%wgdb, %%wgdb, 0x%x%08x;\n"
-              "\twgmma.mma_async.sync.aligned.m64n%ik%i.%s.%s.%s {",
-              pb, desc_hi, desc_lo, width, kdim, atype, etype, etype);
-            memcpy(out + off, dlist, ndig);
-            off += ndig;
-            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, {");
-            memcpy(out + off, alist, (size_t)(aend - alist));
-            off += (size_t)(aend - alist);
-            off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "}, %%wgdb%s;\n", dtail);
-            src = eol + 1;
-          }
-        }
-      }
-      if (EXIT_SUCCESS == ok) {
-        const size_t tail = strlen(src);
-        if (cap > (off + tail)) {
-          memcpy(out + off, src, tail);
-          out[off + tail] = '\0';
-        }
-        else ok = EXIT_FAILURE;
-      }
-      if (EXIT_SUCCESS != ok) {
-        libxs_free(out);
-        out = NULL;
-      }
-    }
-    libxs_free(retargeted);
-  }
-  return out;
-}
-
-
-/**
  * Replace a source-built program by its spliced, sm_90a counterpart. On any
  * failure the program is released and NULL is returned through it, so the caller
  * refuses the kernel: an unspliced marker kernel would compute zeros silently.
  */
 static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name,
-  int bn, int maxnreg, cl_program* program)
+  int maxnreg, cl_program* program)
 {
   char* binary = NULL;
   char* patched = NULL;
@@ -278,9 +75,7 @@ static void ozaki_wgmma_program(const ozaki_context_t* ctx, const char* name,
   cl_program spliced = NULL;
   int result = libxstream_opencl_program_binary(*program, &binary, &size);
   if (EXIT_SUCCESS == result) {
-    patched = ozaki_wgmma_splice(
-      binary, size, "gemm_crt_fused", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(bn),
-      ctx->u8, ctx->use_bf16, maxnreg);
+    patched = ozaki_wgmma_splice(binary, size, "gemm_crt_fused", maxnreg);
     result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   /**
@@ -347,6 +142,7 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
   const int nacc = width / 2; /* RTN * XMX_FRAG accumulators per work-item */
   const unsigned int nvec = (unsigned int)(lbytes / 16);
   const size_t cap = 4096 + (size_t)nacc * 32;
+  const char* const etype = (0 != ctx->use_bf16) ? "bf16" : ((0 != ctx->u8) ? "u8" : "s8");
   char* source = (char*)libxs_malloc(NULL, cap, 0 /*auto-align*/);
   char* binary = NULL;
   char* patched = NULL;
@@ -369,8 +165,8 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
       "  for (i = 0; i < %i; ++i) d[i] = n;\n"
       "  for (i = (int)get_local_id(0); i < %u; i += (int)get_local_size(0)) s[i] = (uint4)(0);\n"
       "  barrier(CLK_LOCAL_MEM_FENCE);\n"
-      "  __asm__ volatile(\"// WGMMA_SLOT n%i d={",
-      nacc, nvec, width);
+      "  __asm__ volatile(\"// WGMMA_SLOT n%i %s sbo=%i lbo=%i d={",
+      nacc, nvec, width, etype, OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(width));
     for (i = 0; i < nacc; ++i) {
       off += (size_t)LIBXS_SNPRINTF(source + off, cap - off, "%s%%%i", (0 != i) ? "," : "", i);
     }
@@ -395,8 +191,8 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes)
     result = libxstream_opencl_program_binary(program, &binary, &size);
   }
   if (EXIT_SUCCESS == result) {
-    patched = ozaki_wgmma_splice(binary, size, "ozaki_wgmma_probe", OZAKI_WGMMA_SBO, OZAKI_WGMMA_LBO(width),
-      ctx->u8, ctx->use_bf16, 0 /*the probe measures the issue rate, so it keeps the default budget*/);
+    patched = ozaki_wgmma_splice(binary, size, "ozaki_wgmma_probe",
+      0 /*the probe measures the issue rate, so it keeps the default budget*/);
     result = (NULL != patched) ? EXIT_SUCCESS : EXIT_FAILURE;
   }
   if (EXIT_SUCCESS == result) {
@@ -1728,7 +1524,7 @@ static const ozaki_crt_kernel_set_t* ozaki_get_crt_kernel(ozaki_context_t* ctx, 
               0, OPENCL_KERNELS_SOURCE_OZAKI2, pname, flags,
               options, NULL, NULL, NULL, 0, &program))
         {
-          if (1 == ctx->wgmma) ozaki_wgmma_program(ctx, pname, tn, maxnreg, &program);
+          if (1 == ctx->wgmma) ozaki_wgmma_program(ctx, pname, maxnreg, &program);
           if (NULL != program) {
             libxstream_opencl_kernel_query(program, "gemm_crt_fused", &newset.kern_fused);
             if (0 != ctx->unfuse) {

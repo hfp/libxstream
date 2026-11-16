@@ -26,9 +26,10 @@ else
   EXE=.x
 fi
 
-# Tests left out unless named: stencil runs long and has its own CI step, and
-# atomics runs every sample on (simulated) GPUs in the AMD workflow.
-TESTS_DISABLED=${TESTS_DISABLED-stencil atomics}
+# Tests left out unless named: stencil runs long and has its own CI step,
+# atomics runs every sample on (simulated) GPUs in the AMD workflow, and ozaki
+# the Ozaki sample on simulated GPUs in the NVIDIA workflow.
+TESTS_DISABLED=${TESTS_DISABLED-stencil atomics ozaki}
 
 # A translation unit with a main function is a test, and so is every script but
 # this one; a script is picked up by existing rather than by being listed.

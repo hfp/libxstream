@@ -536,6 +536,36 @@ ozaki_tile_t ozaki_rtile_select(const ozaki_context_t* ctx, int M, int N, int cr
 int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes);
 
 /**
+ * Splice real warp-group MMA instructions into the PTX of the entry entry_name.
+ *
+ * OpenCL C cannot express wgmma: the front-end emits .target sm_90 while the
+ * instruction requires sm_90a. The kernel therefore carries comment-only asm
+ * markers with the real operands, so the compiler performs register allocation
+ * and names them, and this pass rewrites the target and replaces every marker by
+ * the instruction sequence using those names. A marker also states the element
+ * type and the descriptor strides of the staged B tile (OZAKI_WGMMA_DESC), which
+ * makes the PTX alone sufficient: the kernel that writes the layout is the one
+ * that describes it, and nothing on the host has to agree with the build.
+ *
+ * A arrives in registers and only B is described out of shared memory, so every
+ * marker carries "a={" and a marker without it is refused rather than guessed at.
+ *
+ * fence.proxy.async.shared::cta is not optional: the tiles are written with
+ * ordinary shared-memory stores, and wgmma reads them through the async proxy,
+ * which the work-group barrier does not order against (wgmma.fence orders
+ * register access, not memory). Without it the kernel is correct only while at
+ * most one work-group per SM is resident - measured exact up to 114 work-groups
+ * on a 114-SM part and wrong beyond, which is the kind of bug that looks like a
+ * size threshold. It comes from its own marker because both fences order a whole
+ * round's issues, so the kernel decides how often to pay for them.
+ *
+ * A positive maxnreg states the register budget of the entry (.maxnreg).
+ * Returns the patched text (libxs_free by the caller) or NULL, in which case the
+ * kernel must be refused rather than run: markers alone accumulate nothing.
+ */
+char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, int maxnreg);
+
+/**
  * Whether the device compiler gets the 64-bit mul_hi with a constant operand wrong,
  * found by running it: emulate is then 1, which is OZAKI_MULHI of the Scheme-2
  * kernels (the high half from 32-bit halves), and 0 otherwise. EXIT_SUCCESS means

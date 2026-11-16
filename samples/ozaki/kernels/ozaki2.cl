@@ -810,6 +810,23 @@
 # endif
 
 /**
+ * The element type and the descriptor strides of the staged B tile in 16-byte units,
+ * stated by the marker (OZAKI_WGMMA_DESC) because this is where the layout is written
+ * (OZAKI_WGMMA_BSTAGE): a core matrix is 8 columns, hence 128 bytes contiguous, the
+ * next column octet follows it (SBO), and a k-block spans the tile's whole width (LBO).
+ */
+# if defined(OZAKI_BF16) && (OZAKI_BF16)
+#   define OZAKI_WGMMA_ETYPE "bf16"
+# elif defined(OZAKI_U8) && (OZAKI_U8)
+#   define OZAKI_WGMMA_ETYPE "u8"
+# else
+#   define OZAKI_WGMMA_ETYPE "s8"
+# endif
+# define OZAKI_WGMMA_SBO 8
+# define OZAKI_WGMMA_LBO BN
+# define OZAKI_WGMMA_DESC OZAKI_WGMMA_ETYPE " sbo=" OZAKI_WGMMA_STR(OZAKI_WGMMA_SBO) " lbo=" OZAKI_WGMMA_STR(OZAKI_WGMMA_LBO)
+
+/**
  * One issue per K-chunk; the marker names the shape so the host need not assume it.
  * A arrives in registers and only B keeps a descriptor, so the marker always carries
  * "a={". The operand lists are built here once; the marker text they produce is what
@@ -828,7 +845,7 @@
 # define OZAKI_WGMMA_ISSUE_RS_N128(ACCS, A0, A1, A2, A3, BPTR) \
     do { \
       OZAKI_WGMMA_FENCE_ISSUE(); \
-      __asm__ volatile("// WGMMA_SLOT n128 d={" OZAKI_WGMMA_D64 "} a={%64,%65,%66,%67} pb=%68" \
+      __asm__ volatile("// WGMMA_SLOT n128 " OZAKI_WGMMA_DESC " d={" OZAKI_WGMMA_D64 "} a={%64,%65,%66,%67} pb=%68" \
         : OZAKI_WGMMA_ACC64(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(BPTR)); \
       OZAKI_WGMMA_COMMIT_ISSUE(); \
     } while (0)
@@ -836,7 +853,7 @@
 # define OZAKI_WGMMA_ISSUE_RS(ACCS, A0, A1, A2, A3, BPTR) \
     do { \
       OZAKI_WGMMA_FENCE_ISSUE(); \
-      __asm__ volatile("// WGMMA_SLOT n64 d={" OZAKI_WGMMA_D32 "} a={%32,%33,%34,%35} pb=%36" \
+      __asm__ volatile("// WGMMA_SLOT n64 " OZAKI_WGMMA_DESC " d={" OZAKI_WGMMA_D32 "} a={%32,%33,%34,%35} pb=%36" \
         : OZAKI_WGMMA_ACC32(ACCS) : "r"(A0), "r"(A1), "r"(A2), "r"(A3), "l"(BPTR)); \
       OZAKI_WGMMA_COMMIT_ISSUE(); \
     } while (0)
@@ -968,7 +985,7 @@
  * The shared tile is k-block major, which makes the destination index the loop
  * counter itself and a whole k-block one contiguous run on both sides - the source
  * because the global layout already is, the destination because nothing reorders it.
- * The descriptor follows (OZAKI_WGMMA_SBO/LBO in ozaki_gemm.c) and a run that big is
+ * The descriptor follows (OZAKI_WGMMA_SBO/LBO, stated by the marker) and a run that big is
  * what a single bulk copy would need.
  *
  * The loop counts from zero and WT is split by BN once: strided from WT, nothing

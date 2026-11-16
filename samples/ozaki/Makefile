@@ -100,7 +100,7 @@ HEADERS := $(wildcard $(INCDIR)/*.h) \
            $(wildcard $(DEPDIR)/libxstream/opencl/*.h) \
            $(wildcard $(LIBXSROOT)/libxs/*.h) \
            $(LIBXS_SRCDEP) $(XSTREAM_SRCDEP)
-CSOURCS := $(wildcard $(SRCDIR)/*.c)
+CSOURCS := $(filter-out $(SRCDIR)/ozaki_splice.c,$(wildcard $(SRCDIR)/*.c))
 COBJCTS := $(patsubst %,$(BLDDIR)/%,$(notdir $(CSOURCS:.c=-c.o)))
 SOURCES := $(CSOURCS)
 OBJECTS := $(COBJCTS)
@@ -123,6 +123,12 @@ $(OUTDIR)/$(OUTNAME).x: $(OUTDIR)/.make $(OBJECTS) $(XLIB) $(LIBXS)
 $(BLDDIR)/%-c.o: $(SRCDIR)/%.c .state $(BLDDIR)/.make $(HEADERS) Makefile $(LIBXSROOT)/Makefile.inc
 	$(CC) $(DFLAGS) $(IFLAGS) $(CFLAGS) $(CTARGET) -c $< -o $@
 
+.PHONY: splice
+splice: $(OUTDIR)/ozaki_splice.x
+
+$(OUTDIR)/ozaki_splice.x: $(OUTDIR)/.make $(BLDDIR)/ozaki_splice-c.o $(BLDDIR)/ozaki_wgmma-c.o $(XLIB) $(LIBXS)
+	$(LD) -o $@ $(BLDDIR)/ozaki_splice-c.o $(BLDDIR)/ozaki_wgmma-c.o $(XLIB) $(LIBXS) $(SLDFLAGS) $(LDFLAGS) $(CLDFLAGS) $(LIBS)
+
 .PHONY: test
 test: $(XFILES)
 	$(OUTDIR)/$(OUTNAME).x 64 64 64
@@ -135,7 +141,7 @@ ifneq ($(call qapath,$(BLDDIR)),$(call qapath,.))
 endif
 endif
 ifneq (,$(wildcard $(BLDDIR))) # still exists
-	@-rm -f $(OBJECTS)
+	@-rm -f $(OBJECTS) $(BLDDIR)/ozaki_splice-c.o
 endif
 
 .PHONY: realclean
@@ -146,7 +152,7 @@ ifneq ($(call qapath,$(OUTDIR)),$(call qapath,.))
 endif
 endif
 ifneq (,$(wildcard $(OUTDIR))) # still exists
-	@-rm -f $(XFILES)
+	@-rm -f $(XFILES) $(OUTDIR)/ozaki_splice.x
 endif
 	@-rm -f $(GENHDR)
 

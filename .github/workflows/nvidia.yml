@@ -2,12 +2,16 @@ name: NVIDIA
 
 permissions:
   contents: read
+  # the previous run's counts (artifact)
+  actions: read
 
 # OpenCL on simulated NVIDIA GPUs (https://github.com/pantheongpu/pantheonsim):
 # PoCL's CUDA driver compiles OpenCL C to PTX with LLVM and runs it through the
 # CUDA driver API, which the simulator implements, hence every kernel runs as
-# PTX of the card's architecture without a GPU. Correctness, and the counts of
-# the named mixes (scripts/tool_collect.sh); the simulator has no timing.
+# PTX of the card's architecture without a GPU. Correctness, the counts of
+# the named mixes (scripts/tool_collect.sh), and the Ozaki sample through every
+# kernel level with what ran asserted (tests/ozaki.sh); the simulator has no
+# timing.
 # Weekly, like the AMD workflow. PoCL is the cached build all PoCL jobs share
 # (.github/actions/pocl).
 on:
@@ -131,4 +135,43 @@ jobs:
       with:
         name: nvidia-counts
         path: ${{ runner.temp }}/counts
+        if-no-files-found: ignore
+
+    # The counts of the last passing run, to tell what this run changed. A
+    # first run, or one whose predecessor's artifact expired, has none.
+    - name: Previous counts
+      if: ${{ !cancelled() }}
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        RUN=$(gh run list -R "${GITHUB_REPOSITORY}" --workflow nvidia.yml --branch "${GITHUB_REF_NAME}" \
+          --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+        if [ -n "${RUN}" ] && gh run download "${RUN}" -R "${GITHUB_REPOSITORY}" -n ozaki-logs -D "${RUNNER_TEMP}/previous"; then
+          echo "PREV=${RUNNER_TEMP}/previous/counts.tsv" >> "${GITHUB_ENV}"
+          echo "previous passing run: ${RUN}"
+        fi
+
+    # The Ozaki sample on every GPU through each kernel level, warp-group MMA
+    # included, asserting the path that ran (tests/ozaki.sh says how). The
+    # summary is written before the step fails, hence a failure shows all.
+    - name: Ozaki
+      if: ${{ !cancelled() }}
+      shell: bash
+      env:
+        LOGS: ${{ runner.temp }}/ozaki
+        META: "PoCL 7.2 with LLVM ${{ env.POCL_LLVM }}, PantheonSim 0.2.1"
+      run: |
+        STATUS=0
+        tests/ozaki.sh || STATUS=$?
+        if [ -s "${LOGS}/summary.md" ]; then cat "${LOGS}/summary.md" >> "${GITHUB_STEP_SUMMARY}"; fi
+        exit ${STATUS}
+
+    # Every run's full output, also of the runs that passed (for comparison).
+    - name: Upload Ozaki logs
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: ozaki-logs
+        path: ${{ runner.temp }}/ozaki
         if-no-files-found: ignore

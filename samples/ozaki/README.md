@@ -191,7 +191,10 @@ bound.
 warp-group MMA, and is exact like the default layout.
 
 `LIBXSTREAM_DUMP=2` (or a negative value) also writes the patched PTX of
-a warp-group kernel as `<name>.ptx`.
+a warp-group kernel as `<name>.ptx`. `make splice` builds
+`ozaki_splice.x PTX [OUT [ENTRY [MAXNREG]]]`, which applies the same
+patch to PTX the sample did not obtain itself, e.g., from a runtime's
+kernel cache, for a later run with `OZAKI_WGMMA=2`.
 
 ### Hardware Control
 

@@ -1343,9 +1343,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         fprintf(stderr, "WARN OZAKI: OZAKI_HIER=0 needs OZAKI_FRACCRT=0 and OZAKI=2 to select flat reconstruction\n");
       }
     }
-    /* Residue element type, resolved this early because the wgmma splice names it:
-     * symmetric residues are signed, so the spliced MMA has to read s8, and the flag
-     * feeds ozaki_wgmma_splice and must agree with OZAKI_U8 in the kernel build. */
+    /* Residue element type, resolved this early because the wgmma probe names it: symmetric residues are signed (s8). */
     ctx->u8 = (0 == ctx->use_sym) ? 1 : 0;
     /**
      * Warp-group MMA: the default on Hopper (NV>=4), off elsewhere, and
