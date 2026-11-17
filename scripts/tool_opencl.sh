@@ -67,11 +67,18 @@ process_find() { # resolve include: $1=include-path, $2=parent-file
     FILE=$(${DIRNAME} "$2")/${CLINC}
     if [ -e "${FILE}" ]; then echo "${FILE}"; return 0; fi
   fi
-  # try -I search paths
-  local IPATH
-  for IPATH in ${INCPATHS}; do
-    FILE=${IPATH}/${CLINC}
-    if [ -e "${FILE}" ]; then echo "${FILE}"; return 0; fi
+  # try -I search paths, then with leading directories dropped (longest match first):
+  # an include relative to the source tree misses in an installed layout otherwise
+  local IPATH SUFFIX=${CLINC}
+  while [ "${SUFFIX}" ]; do
+    for IPATH in ${INCPATHS}; do
+      FILE=${IPATH}/${SUFFIX}
+      if [ -e "${FILE}" ]; then echo "${FILE}"; return 0; fi
+    done
+    case "${SUFFIX}" in
+      */*) SUFFIX=${SUFFIX#*/};;
+      *) SUFFIX="";;
+    esac
   done
   return 1
 }
