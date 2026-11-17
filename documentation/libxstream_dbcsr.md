@@ -36,7 +36,7 @@ The second half of the ACC interface, `samples/smm/acc_libsmm.h`, is not part of
 | `libsmm_acc_is_thread_safe` | True if built with OpenMP |
 | `libsmm_acc_transpose` | Batched in-place transpose of the matrices an offset stack names |
 | `libsmm_acc_process` | Batched SMM on a homogeneous stack of `float` or `double` with M·N ≤ `max_kernel_dim`²; other stacks return -1 |
-| `c_calculate_norms` | Not implemented (returns -1) |
+| `c_calculate_norms` | Squared norm of each `double` block an offset list names, on the device as DBCSR's GPU-to-GPU multiplication needs it (needs FP64, returns -1 on failure) |
 
 ## Utility Macros
 

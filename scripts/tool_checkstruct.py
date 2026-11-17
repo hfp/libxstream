@@ -183,6 +183,7 @@ EXEMPT = (
     ("section-order", "tests/shim_ozaki2_fp64f.c"),
     ("section-order", "tests/shim_ozaki2_kgrp.c"),
     ("section-order", "tests/shim_ozaki2_sym.c"),
+    ("section-order", "tests/shim_norms.c"),
     ("section-order", "tests/shim_smm_fp32.c"),
     ("section-order", "tests/shim_smm_fp64.c"),
     ("section-order", "tests/shim_smm_instance.h"),

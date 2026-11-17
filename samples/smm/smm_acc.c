@@ -18,6 +18,16 @@
 #endif
 
 #define OPENCL_LIBSMM_SMMENV(KEY) opencl_libsmm_getenv("OPENCL_LIBSMM_SMM", KEY)
+#if !defined(OPENCL_KERNELS_SOURCE_NORMS)
+#  error "OpenCL norms-kernel code not found!"
+#endif
+#if !defined(OPENCL_LIBSMM_KERNELNAME_NORMS)
+#  define OPENCL_LIBSMM_KERNELNAME_NORMS "dnorms"
+#endif
+/* a power of two (the kernel reduces by halving) */
+#if !defined(OPENCL_LIBSMM_NORMS_WG)
+#  define OPENCL_LIBSMM_NORMS_WG 64
+#endif
 /**
  * Confidence below which a predicted parameter is not used and receives its default
  * instead. Zero takes every prediction: on shapes held out of the tuned table, the
@@ -479,8 +489,8 @@ int libsmm_acc_finalize(void) {
     for (; NULL != regentry;
          regentry = libxs_registry_next_length(opencl_libsmm_registry, NULL /*key*/, &key_size, &cursor))
     {
-      /* trans- and SMM-entries share this registry and are told apart by the
-       * size of their key (opencl_libsmm_transkey_t vs opencl_libsmm_smmkey_t) */
+      /* trans-, norms- and SMM-entries share this registry and are told apart by the
+       * size of their key (only opencl_libsmm_smmkey_t carries two kernels) */
       const int is_smm = (sizeof(opencl_libsmm_smmkey_t) == key_size);
       /* opencl_libsmm_trans_t/opencl_libsmm_smm_t carry cl_kernel as 1st data member */
       cl_kernel kernel = *(const cl_kernel*)regentry;
@@ -631,13 +641,68 @@ int libsmm_acc_process(const int* host_param_stack, const int* dev_param_stack, 
 
 
 int c_calculate_norms(const double* mat, int nblks, const int* offsets, const int* nelems, float* norms, void* stream_ptr) {
-  LIBXS_UNUSED(mat);
-  LIBXS_UNUSED(nblks);
-  LIBXS_UNUSED(offsets);
-  LIBXS_UNUSED(nelems);
-  LIBXS_UNUSED(norms);
-  LIBXS_UNUSED(stream_ptr);
-  return -1;
+  int result = EXIT_SUCCESS;
+  LIBXS_ASSERT((NULL != mat && NULL != offsets && NULL != nelems && NULL != norms && NULL != stream_ptr) || 0 >= nblks);
+  if (0 < nblks) {
+    static libxs_lock_t lock;
+    opencl_libsmm_norms_t* config;
+    opencl_libsmm_normskey_t key;
+    LIBXS_MEMZERO(&key);
+    key.type = dbcsr_type_real_8;
+    /* calling clSetKernelArg/clEnqueueNDRangeKernel must be consistent */
+    LIBXS_LOCK_ACQUIRE(LIBXS_LOCK, &lock);
+    config = (opencl_libsmm_norms_t*)libxs_registry_get(
+      opencl_libsmm_registry, &key, sizeof(key), libxs_registry_lock(opencl_libsmm_registry));
+    if (NULL == config) {
+      const char* const fp64ext[] = {"cl_khr_fp64"};
+      if (EXIT_SUCCESS ==
+          libxstream_opencl_device_ext(libxstream_opencl_config.devices[libxstream_opencl_config.device_id], fp64ext, 1))
+      {
+        char build_params[LIBXSTREAM_BUFFERSIZE];
+        opencl_libsmm_norms_t new_config;
+        int nchar;
+        LIBXS_MEMZERO(&new_config);
+        new_config.wgsize = OPENCL_LIBSMM_NORMS_WG;
+        while (1 < new_config.wgsize && libxstream_opencl_config.device.wgsize[0] < new_config.wgsize) new_config.wgsize >>= 1;
+        nchar = LIBXS_SNPRINTF(build_params, sizeof(build_params), "-DFN=%s -DWG=%i", OPENCL_LIBSMM_KERNELNAME_NORMS,
+          LIBXS_CAST_INT(new_config.wgsize));
+        if (0 < nchar && (int)sizeof(build_params) > nchar) {
+          result = libxstream_opencl_kernel(0 /*source_kind*/, OPENCL_KERNELS_SOURCE_NORMS, OPENCL_LIBSMM_KERNELNAME_NORMS,
+            build_params, "" /*build_options*/, NULL /*try*/, NULL /*try_ok*/, NULL /*extnames*/, 0 /*num_exts*/,
+            &new_config.kernel);
+        }
+        else result = EXIT_FAILURE;
+        if (EXIT_SUCCESS == result) {
+          config = (opencl_libsmm_norms_t*)libxs_registry_set(opencl_libsmm_registry, &key, sizeof(key), &new_config,
+            sizeof(new_config), libxs_registry_lock(opencl_libsmm_registry));
+          if (NULL == config) {
+            clReleaseKernel(new_config.kernel);
+            result = EXIT_FAILURE;
+          }
+        }
+      }
+      else {
+        fprintf(stderr, "ERROR ACC/LIBSMM: device does not support FP64 (cl_khr_fp64) to calculate norms\n");
+        result = EXIT_FAILURE;
+      }
+    }
+    if (EXIT_SUCCESS == result) {
+      const size_t work_size = config->wgsize * (size_t)nblks;
+      LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel, 0, mat), "set matrix argument of norms kernel");
+      LIBXSTREAM_CHECK(
+        result, libxstream_opencl_set_kernel_ptr(config->kernel, 1, offsets), "set offsets argument of norms kernel");
+      LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel, 2, nelems), "set nelems argument of norms kernel");
+      LIBXSTREAM_CHECK(result, libxstream_opencl_set_kernel_ptr(config->kernel, 3, norms), "set norms argument of norms kernel");
+      /* the block sizes are on the device, hence neither work nor bytes are stated */
+      LIBXSTREAM_CHECK(result,
+        libxstream_opencl_launch_work((libxstream_stream_t*)stream_ptr, config->kernel, 1 /*work_dim*/, NULL /*offset*/,
+          &work_size, &config->wgsize, 0, NULL, NULL, 0 /*nflops*/, 0 /*nbytes*/),
+        "launch norms kernel");
+    }
+    LIBXS_LOCK_RELEASE(LIBXS_LOCK, &lock);
+  }
+  /* DBCSR aborts on -1 only, any other failure would let it filter with stale norms */
+  return (EXIT_SUCCESS == result ? EXIT_SUCCESS : -1);
 }
 
 #if defined(__cplusplus)

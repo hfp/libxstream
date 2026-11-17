@@ -29,6 +29,17 @@
 #if !defined(OPENCL_LIBSMM_PFORMAT) && 1
 # define OPENCL_LIBSMM_PFORMAT 8
 #endif
+/* keeps the first failure in RESULT and reports every one */
+#if !defined(LIBXSTREAM_CHECK)
+# define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \
+    do { \
+      const int libxstream_check_r_ = (EXPR); \
+      if (EXIT_SUCCESS != libxstream_check_r_) { \
+        if (EXIT_SUCCESS == (RESULT)) (RESULT) = libxstream_check_r_; \
+        fprintf(stderr, "ERROR: %s (%i)\n", (MSG), libxstream_check_r_); \
+      } \
+    } while (0)
+#endif
 
 
 #if defined(__cplusplus)
@@ -47,6 +58,17 @@ typedef struct opencl_libsmm_trans_t {
   size_t wgsize;
   int bs;
 } opencl_libsmm_trans_t;
+
+/** Type for querying norms kernel configuration (its size tells the registry entry apart). */
+typedef struct opencl_libsmm_normskey_t {
+  libsmm_acc_data_t type; /* must be the 1st data member */
+} opencl_libsmm_normskey_t;
+
+/** Type for norms kernel configuration. */
+typedef struct opencl_libsmm_norms_t {
+  cl_kernel kernel; /* must be the 1st data member */
+  size_t wgsize;
+} opencl_libsmm_norms_t;
 
 /** Type for querying SMM-kernel configuration. */
 typedef struct opencl_libsmm_smmkey_t {

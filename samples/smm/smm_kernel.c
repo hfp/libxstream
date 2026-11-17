@@ -15,16 +15,6 @@
 #include <libxs/libxs_timer.h>
 #include <libxs/libxs_hash.h>
 
-#if !defined(LIBXSTREAM_CHECK)
-#  define LIBXSTREAM_CHECK(RESULT, EXPR, MSG) \
-      do { \
-        const int libxstream_check_r_ = (EXPR); \
-        if (EXIT_SUCCESS != libxstream_check_r_) { \
-          if (EXIT_SUCCESS == (RESULT)) (RESULT) = libxstream_check_r_; \
-          fprintf(stderr, "ERROR: %s (%i)\n", (MSG), libxstream_check_r_); \
-        } \
-      } while (0)
-#endif
 #if !defined(OPENCL_KERNELS_SOURCE_MULTIPLY)
 #  error "OpenCL SMM-kernel code not found!"
 #endif
