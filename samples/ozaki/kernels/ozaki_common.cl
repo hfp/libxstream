@@ -149,7 +149,22 @@
  * at n=4096. A 16x32-byte block holds one k=32 fragment; within it the byte for
  * (row, k) belongs to the lane and register that OZAKI_WGMMA_ALOAD reads it from.
  */
-#if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
+#if defined(OZAKI_ABLOCK) && (2 == OZAKI_ABLOCK)
+/**
+ * OZAKI_ABLOCK=2 (tensor-memory MMA): the fragment a tcgen05.st.16x256b stores, the same
+ * 16x32-byte blocks with the bytes a lane holds chosen for it: rows r and r+8 (r = lane/4),
+ * eight bytes of K each from 8*(lane%4), i.e., the two 32-bit columns 2*(lane%4) and +1 of
+ * both rows. One 16-byte load per lane and instruction, whole sectors, one store per stage.
+ */
+# if defined(OZAKI_BF16) && (OZAKI_BF16)
+#   error OZAKI_ABLOCK=2 takes the int8 carrier only.
+# endif
+# define OZAKI_IDX_AS(ROW, COL, K_PAD) \
+    (((((long)(ROW) >> 4) * ((K_PAD) >> 5) + ((COL) >> 5)) << 9) \
+      | ((long)((((ROW) & 7) << 2) | (((COL) & 31) >> 3)) << 4) \
+      | ((long)(((((ROW) >> 3) & 1) << 1) | (((COL) >> 2) & 1)) << 2) \
+      | ((COL) & 3))
+#elif defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
 # if defined(OZAKI_BF16) && (OZAKI_BF16)
 /**
  * An ELEMENT index, A being two bytes per element here: 16 rows x 16 K per warp, so a

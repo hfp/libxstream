@@ -1272,30 +1272,32 @@
  * and tcgen05.ld.16x256b returns them in the m16n8 fragment the epilogue expects.
  *
  * A goes from global memory through registers into tensor memory (tcgen05.st), the
- * counterpart of Hopper's register operand, by rows: each thread stores half of its
- * lane's row, the two warps of a quarter splitting the K of a stage. B is staged into
- * shared memory as for wgmma (same layout, same descriptor strides). A stage is one B
- * buffer and WBK/4 columns of A, with two mbarriers: "full" once every thread's copies
- * completed and its A is stored, "empty" once the MMAs reading the stage committed.
+ * counterpart of Hopper's register operand: warp w loads its own 16 rows in the fragment
+ * layout of tcgen05.st.16x256b (OZAKI_ABLOCK=2, one 16-byte load per lane and K step) and
+ * stores the stage's K for them with one instruction, into the lanes it reads back. B is staged into
+ * shared memory in the wgmma layout (same descriptor strides) by bulk copies. A stage is one B
+ * buffer and WBK/4 columns of A, with two mbarriers: "full" once every thread stored its A
+ * and every byte of B landed, "empty" once the MMAs reading the stage committed.
  * Producers wait on "empty" before refilling a stage; the issuing thread waits on "full".
  * The K-loop has no work-group barrier.
  *
  * tcgen05 is not expressible in OpenCL C, and the device compiler would refuse it on the
  * plain target: every such instruction is a marker ("// SPLICE ") that the host turns into
  * the instruction (see ozaki_wgmma_splice), its operands already named by the compiler.
- * The mbarrier, cp.async and the proxy fence assemble on the plain target as they are.
+ * So is everything beyond the PTX version the plain sm_90 target is emitted at (7.8): the
+ * bulk copy and its byte count. The spliced program targets sm_100a, hence PTX 8.6 or later.
  */
 #   if (128 != BM) || ((16 != RTN) && (32 != RTN))
 #     error OZAKI_TCGEN05 implies BM=128 and BN=128 or 256 (one M=128 instruction).
 #   endif
-#   if defined(OZAKI_ABLOCK) && (OZAKI_ABLOCK)
-#     error OZAKI_TCGEN05 reads A by rows (the plain layout).
+#   if !defined(OZAKI_ABLOCK) || (2 != OZAKI_ABLOCK)
+#     error OZAKI_TCGEN05 reads A in the fragment layout of its store (OZAKI_ABLOCK=2).
 #   endif
 #   if defined(OZAKI_BF16) && (OZAKI_BF16)
 #     error OZAKI_TCGEN05 takes the int8 carrier only.
 #   endif
-#   if (0 != (WBK % 64))
-#     error OZAKI_TCGEN05 implies a stage of whole 64-byte K (two warps split it by halves).
+#   if (32 != WBK) && (64 != WBK) && (128 != WBK) && (256 != WBK) && (512 != WBK)
+#     error OZAKI_TCGEN05 implies a stage of 1, 2, 4, 8 or 16 K steps (32 bytes each).
 #   endif
 /* Accumulators first, then the A ring; the allocation is a power of two of at least 32. */
 #   define OZAKI_TC_ACOL BN
@@ -1363,29 +1365,79 @@
             OZAKI_TC_STR(OZAKI_TC_NCOLS) ";" :: "r"(TADDR) : "memory"); \
         } \
       } while (0)
+/* One store per stage: K step j of the warp's 16 rows is repetition j (eight columns). */
+#   define OZAKI_TC_R4(V) "r"((V).x), "r"((V).y), "r"((V).z), "r"((V).w)
+#   if (32 == WBK)
+#     define OZAKI_TC_STORE(TA, AV) \
+        __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x1.b32 [%0], {%1, %2, %3, %4};" \
+          :: "r"(TA), OZAKI_TC_R4((AV)[0]) : "memory")
+#   elif (64 == WBK)
+#     define OZAKI_TC_STORE(TA, AV) \
+        __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x2.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8};" \
+          :: "r"(TA), OZAKI_TC_R4((AV)[0]), OZAKI_TC_R4((AV)[1]) : "memory")
+#   elif (128 == WBK)
+#     define OZAKI_TC_STORE(TA, AV) \
+        __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x4.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16};" \
+          :: "r"(TA), OZAKI_TC_R4((AV)[0]), OZAKI_TC_R4((AV)[1]), OZAKI_TC_R4((AV)[2]), OZAKI_TC_R4((AV)[3]) : "memory")
+#   elif (256 == WBK)
+#     define OZAKI_TC_STORE(TA, AV) \
+        __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x8.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32};" \
+          :: "r"(TA), OZAKI_TC_R4((AV)[0]), OZAKI_TC_R4((AV)[1]), OZAKI_TC_R4((AV)[2]), OZAKI_TC_R4((AV)[3]), OZAKI_TC_R4((AV)[4]), OZAKI_TC_R4((AV)[5]), OZAKI_TC_R4((AV)[6]), OZAKI_TC_R4((AV)[7]) : "memory")
+#   elif (512 == WBK)
+#     define OZAKI_TC_STORE(TA, AV) \
+        __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.16x256b.x16.b32 [%0], {%1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47, %48, %49, %50, %51, %52, %53, %54, %55, %56, %57, %58, %59, %60, %61, %62, %63, %64};" \
+          :: "r"(TA), OZAKI_TC_R4((AV)[0]), OZAKI_TC_R4((AV)[1]), OZAKI_TC_R4((AV)[2]), OZAKI_TC_R4((AV)[3]), OZAKI_TC_R4((AV)[4]), OZAKI_TC_R4((AV)[5]), OZAKI_TC_R4((AV)[6]), OZAKI_TC_R4((AV)[7]), OZAKI_TC_R4((AV)[8]), OZAKI_TC_R4((AV)[9]), OZAKI_TC_R4((AV)[10]), OZAKI_TC_R4((AV)[11]), OZAKI_TC_R4((AV)[12]), OZAKI_TC_R4((AV)[13]), OZAKI_TC_R4((AV)[14]), OZAKI_TC_R4((AV)[15]) : "memory")
+#   endif
+/**
+ * B by bulk copies, one per 16-byte K block, which spans the tile's width contiguously both
+ * in global memory (the blocked layout) and in the stage: WBK/16 copies of BN*16 bytes from
+ * as many lanes of warp 0, against WBSZ copies of 16 bytes spread over the work-group. The
+ * stage's bytes are announced on its "full" mbarrier, on which the copies complete, so no
+ * thread waits for them and no proxy fence is needed (they are written by the async proxy
+ * the MMA reads them through). The announcement may follow a copy's completion: the phase
+ * still waits for every thread's arrival.
+ */
+#   if (32 < (WBK / 16))
+#     error OZAKI_TCGEN05 copies a stage from the lanes of one warp at most.
+#   endif
+#   define OZAKI_TC_BSTAGE(BS_K, N_PAD, NB, KOFF, SBS, SGI, LANE, BAR) \
+      do { \
+        if (0 == (SGI)) { \
+          if (0 == (LANE)) { \
+            __asm__ volatile("// SPLICE mbarrier.expect_tx.relaxed.cta.shared::cta.b64 [%0], %1;" \
+              :: "l"(BAR), "r"((uint)(WBSZ * 16)) : "memory"); \
+          } \
+          if ((LANE) < WBK / 16) { \
+            __asm__ volatile("// SPLICE cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%0], [%1], %2, [%3];" \
+              :: "l"((SBS) + (LANE) * BN), \
+                 "l"((BS_K) + ((long)(((KOFF) >> OZAKI_BS_BLOG) + (LANE)) * (N_PAD) + (NB)) * 16), \
+                 "r"((uint)(BN * 16)), "l"(BAR) : "memory"); \
+          } \
+        } \
+      } while (0)
 /**
  * Fill stage G%STAGES with round G (K from KOFF): wait until the MMAs of round G-STAGES
- * released it, copy this thread's share of B, store this thread's half row of A, and
- * arrive on "full" once both are visible to the MMA (the async proxy reads the copies,
- * hence the proxy fence after they completed; the stores are fenced for the issuer).
+ * released it, start the stage's B copies (warp 0), store the warp's rows of A (block ABLK),
+ * and arrive on "full" once the store is fenced for the issuer. The copies complete on the
+ * same mbarrier by their bytes, so "full" completes once every thread arrived and every
+ * byte of B landed.
  */
-#   define OZAKI_TC_PRODUCE(ASW, BSW, K_PAD, N_PAD, NB, KOFF, G, SB, WT, AROW, ALANE, AHALF, TADDR, FULL, EMPTY) \
+#   define OZAKI_TC_PRODUCE(ASW, BSW, K_PAD, N_PAD, NB, KOFF, G, SB, SGI, ABLK, LANE, ALANE, FULL, EMPTY) \
       do { \
         const int sp_ = (G) % OZAKI_WGMMA_STAGES; \
-        CONSTANT const char* ap_ = (ASW) + (long)(AROW) * (K_PAD) + (KOFF) + (AHALF) * (WBK / 2); \
-        const uint ta_ = (TADDR) + (ALANE) + OZAKI_TC_ACOL + sp_ * OZAKI_TC_ANCOL + (AHALF) * (OZAKI_TC_ANCOL / 2); \
+        CONSTANT const char* ap_ = (ASW) + ((((long)(ABLK) * ((K_PAD) >> 5) + ((KOFF) >> 5))) << 9) + ((LANE) << 4); \
+        uint4 av_[WBK / 32]; \
         int ca_; \
         if ((G) >= OZAKI_WGMMA_STAGES) { \
           OZAKI_TC_WAIT((EMPTY) + sp_, (((G) / OZAKI_WGMMA_STAGES) - 1) & 1); \
         } \
         OZAKI_TC_SYNCWARP(); \
-        OZAKI_WGMMA_BSTAGE(BSW, N_PAD, K_PAD, NB, KOFF, (SB) + sp_ * WBSZ, WT); \
+        OZAKI_TC_BSTAGE(BSW, N_PAD, NB, KOFF, (SB) + sp_ * WBSZ, SGI, LANE, (FULL) + sp_); \
+        OZAKI_TC_SYNCWARP(); /* the copies are issued by some lanes, the store wants all */ \
         UNROLL_FORCE(WBK / 32) for (ca_ = 0; ca_ < WBK / 32; ++ca_) { \
-          const uint4 av_ = *(CONSTANT const uint4*)(ap_ + ca_ * 16); \
-          __asm__ volatile("// SPLICE tcgen05.st.sync.aligned.32x32b.x4.b32 [%0], {%1, %2, %3, %4};" \
-            :: "r"(ta_ + ca_ * 4), "r"(av_.x), "r"(av_.y), "r"(av_.z), "r"(av_.w) : "memory"); \
+          av_[ca_] = *(CONSTANT const uint4*)(ap_ + ca_ * 512); \
         } \
-        __asm__ volatile("cp.async.wait_all;\n\tfence.proxy.async.shared::cta;" ::: "memory"); \
+        OZAKI_TC_STORE((ALANE) + OZAKI_TC_ACOL + sp_ * OZAKI_TC_ANCOL, av_); \
         __asm__ volatile("// SPLICE tcgen05.wait::st.sync.aligned;" ::: "memory"); \
         OZAKI_TC_FENCE_BEFORE(); \
         OZAKI_TC_ARRIVE((FULL) + sp_); \
@@ -1409,6 +1461,18 @@
         __asm__ volatile("// SPLICE tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64 [%0];" \
           :: "l"((EMPTY) + si_) : "memory"); \
       } while (0)
+/* Eight eight-column blocks per load (32 registers), waited for in the same statement. */
+#   define OZAKI_TC_LOAD8(TA, ACC8) \
+      do { \
+        uint v_[32]; \
+        int j_; \
+        __asm__ volatile("// SPLICE tcgen05.ld.sync.aligned.16x256b.x8.b32 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31}, [%32];" \
+          " tcgen05.wait::ld.sync.aligned;" \
+          : "=r"(v_[0]), "=r"(v_[1]), "=r"(v_[2]), "=r"(v_[3]), "=r"(v_[4]), "=r"(v_[5]), "=r"(v_[6]), "=r"(v_[7]), "=r"(v_[8]), "=r"(v_[9]), "=r"(v_[10]), "=r"(v_[11]), "=r"(v_[12]), "=r"(v_[13]), "=r"(v_[14]), "=r"(v_[15]), "=r"(v_[16]), "=r"(v_[17]), "=r"(v_[18]), "=r"(v_[19]), "=r"(v_[20]), "=r"(v_[21]), "=r"(v_[22]), "=r"(v_[23]), "=r"(v_[24]), "=r"(v_[25]), "=r"(v_[26]), "=r"(v_[27]), "=r"(v_[28]), "=r"(v_[29]), "=r"(v_[30]), "=r"(v_[31]) : "r"(TA) : "memory"); \
+        UNROLL_FORCE(8) for (j_ = 0; j_ < 8; ++j_) { \
+          (ACC8)[j_] = (int4)((int)v_[4 * j_], (int)v_[4 * j_ + 1], (int)v_[4 * j_ + 2], (int)v_[4 * j_ + 3]); \
+        } \
+      } while (0)
 /**
  * One modulus: the first STAGES rounds filled ahead, then per round the issue (one
  * thread) and the refill of the stage the round STAGES back released. G counts rounds
@@ -1422,13 +1486,12 @@
         CONSTANT const char* asw_ = (AS_BASE) + (long)(PIDX) * (A_PLANE); \
         CONSTANT const char* bsw_ = (BS_BASE) + (long)(PIDX) * (B_PLANE); \
         const int nr_ = DIVUP(K_PAD, WBK); \
-        const int q_ = (SGI) % 4, ah_ = (SGI) / 4; \
-        const int arow_ = (ROW0) + 16 * q_ + (LANE) + (16 <= (LANE) ? 48 : 0); \
-        const uint al_ = (uint)(32 * q_) << 16; \
-        const uint rl_ = (TADDR) + ((uint)(32 * q_ + 16 * ah_) << 16); \
+        /* the warp's rows, 16(SGI) onwards, at the lanes it reaches: 32(SGI%4) + 16(SGI/4) */ \
+        const int ab_ = ((ROW0) >> 4) + (SGI); \
+        const uint rl_ = (TADDR) + ((uint)(32 * ((SGI) % 4) + 16 * ((SGI) / 4)) << 16); \
         int r_, rn_; \
         for (r_ = 0; r_ < OZAKI_WGMMA_STAGES && r_ < nr_; ++r_) { \
-          OZAKI_TC_PRODUCE(asw_, bsw_, K_PAD, N_PAD, NB, r_ * WBK, (G) + r_, SB, WT, arow_, al_, ah_, TADDR, FULL, EMPTY); \
+          OZAKI_TC_PRODUCE(asw_, bsw_, K_PAD, N_PAD, NB, r_ * WBK, (G) + r_, SB, SGI, ab_, LANE, rl_, FULL, EMPTY); \
         } \
         for (r_ = 0; r_ < nr_; ++r_) { \
           if (0 == (WT)) { \
@@ -1436,18 +1499,14 @@
           } \
           if (r_ + OZAKI_WGMMA_STAGES < nr_) { \
             OZAKI_TC_PRODUCE(asw_, bsw_, K_PAD, N_PAD, NB, (r_ + OZAKI_WGMMA_STAGES) * WBK, \
-              (G) + r_ + OZAKI_WGMMA_STAGES, SB, WT, arow_, al_, ah_, TADDR, FULL, EMPTY); \
+              (G) + r_ + OZAKI_WGMMA_STAGES, SB, SGI, ab_, LANE, rl_, FULL, EMPTY); \
           } \
         } \
         OZAKI_TC_WAIT((EMPTY) + ((G) + nr_ - 1) % OZAKI_WGMMA_STAGES, (((G) + nr_ - 1) / OZAKI_WGMMA_STAGES) & 1); \
         OZAKI_TC_SYNCWARP(); \
         OZAKI_TC_FENCE_AFTER(); \
-        UNROLL_FORCE(RTN) for (rn_ = 0; rn_ < RTN; ++rn_) { \
-          uint v0_, v1_, v2_, v3_; \
-          __asm__ volatile("// SPLICE tcgen05.ld.sync.aligned.16x256b.x1.b32 {%0, %1, %2, %3}, [%4];" \
-            " tcgen05.wait::ld.sync.aligned;" \
-            : "=r"(v0_), "=r"(v1_), "=r"(v2_), "=r"(v3_) : "r"(rl_ + rn_ * 8) : "memory"); \
-          (ACCV)[rn_] = (int4)((int)v0_, (int)v1_, (int)v2_, (int)v3_); \
+        UNROLL_FORCE(RTN / 8) for (rn_ = 0; rn_ < RTN / 8; ++rn_) { \
+          OZAKI_TC_LOAD8(rl_ + rn_ * 64, (ACCV) + rn_ * 8); \
         } \
         (G) += nr_; \
       } while (0)

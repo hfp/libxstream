@@ -130,13 +130,13 @@
 #define KERNELS_OZAKI_BF16_SYMRES \
   KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_SYMRES=1 -DOZAKI_BF16=1"
 /**
- * The fifth generation (tcgen05) on the warp-group geometry: A by rows (no OZAKI_ABLOCK),
+ * The fifth generation (tcgen05) on the warp-group geometry: A in its store's fragment layout,
  * four stages at the depth the host resolves for the full tile, both int8 representations.
  */
 #define KERNELS_OZAKI_TCGEN05 \
-  KERNELS_OZAKI_WG_COMMON KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_TCGEN05=1 -DOZAKI_U8=1"
+  KERNELS_OZAKI_WG_COMMON KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_TCGEN05=1 -DOZAKI_ABLOCK=2 -DOZAKI_U8=1"
 #define KERNELS_OZAKI_TCGEN05_SYMRES \
-  KERNELS_OZAKI_WG_COMMON KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_TCGEN05=1 -DOZAKI_SYMRES=1"
+  KERNELS_OZAKI_WG_COMMON KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_TCGEN05=1 -DOZAKI_ABLOCK=2 -DOZAKI_SYMRES=1"
 /**
  * DBM as dbm_opencl.c composes it, atomics included: the prototype form the host
  * emits for an Intel device below OpenCL 2.0, and the inline-PTX add it emits for

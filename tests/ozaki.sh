@@ -16,7 +16,8 @@
 # level. A local device's vendor and top level are what the sample selects. Both
 # schemes, with the carriers of Scheme 2 (int8, int8 with symmetric residues,
 # and bf16 with symmetric residues, which needs warp-group MMA), at a size of
-# whole tiles and at one that is not (SIZES).
+# whole tiles and at one that is not (SIZES). CASES selects cases by an
+# extended regular expression on their names (default: all).
 #
 # What ran is asserted rather than assumed, since a kernel that fails to build
 # downgrades to another path whose result is still right. A run passes if it
@@ -48,7 +49,7 @@ LOGS=${LOGS:-${PWD}/ozaki}
 SIZES=${SIZES:-256 257}
 MAKE=${MAKE:-$(command -v make)}
 NPROC=$(nproc 2> /dev/null || echo 4)
-GPUS=${GPUS:-nvidia/h100-pcie nvidia/gh200-480gb}
+GPUS=${GPUS:-nvidia/h100-pcie nvidia/gh200-480gb nvidia/b200}
 STATUS=0
 
 mkdir -p "${LOGS}/logs" || exit 1
@@ -138,6 +139,7 @@ for GPU in ${GPUS}; do
   CACHE=${BIN}/cache-${TARGET}
   declare -A REFERENCE=()
   while IFS='|' read -r NAME SETENV N; do
+    if [ -n "${CASES}" ] && ! grep -qE "${CASES}" <<< "${NAME}"; then continue; fi
     SETENV="${SETENV} OZAKI_VERBOSE=3"
     LOG=${LOGS}/logs/run-${TARGET}-${NAME}.log
     PRIME=${LOGS}/logs/prime-${TARGET}-${NAME}.log
@@ -168,7 +170,7 @@ for GPU in ${GPUS}; do
       env ${SETENV} "${BIN}/ozaki.x" "${N}" > "${LOG}" 2>&1 || CODE=$?
     elif [ -z "${RESULT}" ]; then
       printf '%s|ozaki.x|%s|%s\n' "${NAME}" "${SETENV}" "${N}" > "${BIN}/case"
-      CASELIST=${BIN}/case "${ROOT}/scripts/tool_collect.sh" count "${BIN}/out" > /dev/null 2>&1
+      CASES="" CASELIST=${BIN}/case "${ROOT}/scripts/tool_collect.sh" count "${BIN}/out" > /dev/null 2>&1
       mv "${BIN}/out/logs/count-${TARGET}-${NAME}.log" "${LOG}" 2> /dev/null
       if [ -s "${BIN}/out/counts.tsv" ]; then
         tail -n +2 "${BIN}/out/counts.tsv" >> "${COUNTS}"

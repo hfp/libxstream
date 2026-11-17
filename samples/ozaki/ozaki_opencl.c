@@ -1736,12 +1736,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         if (0 != ctx->tcgen05) {
           coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_TCGEN05=1"));
         }
-        /* A in the fragment layout: one vector load per lane instead of four scalar ones; tcgen05 reads rows. */
+        /* A in the fragment layout: one vector load per lane instead of four scalar ones; tcgen05 stores its own (2). */
         { const char *const env_ab = getenv("OZAKI_ABLOCK");
-          ablock = (0 == ctx->tcgen05 && (NULL == env_ab || 0 != atoi(env_ab)));
+          ablock = (0 != ctx->tcgen05) ? 2 : ((NULL == env_ab || 0 != atoi(env_ab)) ? 1 : 0);
           if (0 != ablock) {
             coff = ozaki_append(coff, sizeof(build_params),
-              LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_ABLOCK=1"));
+              LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_ABLOCK=%i", ablock));
           }
         }
       }
@@ -1891,7 +1891,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
        * selects the spliced instruction and the two must agree.
        */
       if (0 != ctx->use_bf16) {
-        if ((0 != wgmma && 0 != bblock && 0 != ablock) || (0 != ctx->nv_mma && 0 != bkmajor)) {
+        if ((0 != wgmma && 0 != bblock && 1 == ablock) || (0 != ctx->nv_mma && 0 != bkmajor)) {
           coff = ozaki_append(coff, sizeof(build_params),
             LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_BF16=1"));
         }
