@@ -1,0 +1,119 @@
+# slots per work-item (per wave on AMD, per warp on NVIDIA, per thread on Intel) of the named mixes in
+# single precision, by kind: AMD machine code of simulated GPUs, NVIDIA SASS (ptxas), Intel (ocloc);
+# other = instructions that only schedule (waits, dependency hints, clauses, the end of the program)
+mix,vendor,target,vector,scalar,memory,local,control,other
+stream,AMD,CDNA2,15,8,3,0,1,4
+stream,AMD,CDNA3,11,8,3,0,1,4
+stream,AMD,CDNA4,11,8,3,0,1,4
+stream,AMD,RDNA2,12,7,3,0,1,6
+stream,AMD,RDNA3,12,7,3,0,1,10
+stream,AMD,RDNA4,12,7,3,0,1,11
+stream,NVIDIA,Turing,11,0,3,0,0,2
+stream,NVIDIA,Ampere (80),11,1,3,0,0,2
+stream,NVIDIA,Ampere (86),11,1,3,0,0,2
+stream,NVIDIA,Ada,11,1,3,0,0,2
+stream,NVIDIA,Hopper,9,9,3,0,0,2
+stream,NVIDIA,Blackwell (100),14,4,3,0,0,2
+stream,NVIDIA,Blackwell Ultra (103),14,4,3,0,0,2
+stream,NVIDIA,Blackwell (120),14,4,3,0,0,2
+stream,Intel,Xe-LP,8,8,3,0,3,3
+stream,Intel,Xe-HPG,7,22,3,0,2,7
+stream,Intel,Xe-LPG,17,20,3,0,2,7
+stream,Intel,Xe-HPC,8,24,3,0,2,8
+stream,Intel,Xe2-HPG,8,16,3,0,2,2
+stream,Intel,Xe2-LPG,8,16,3,0,2,2
+stream,Intel,Xe3-LPG,8,16,3,0,2,2
+stream,Intel,Xe3P-LPG,4,13,3,0,2,4
+stream,Intel,Xe3P-XPC,4,13,3,0,2,4
+gemm,AMD,CDNA2,437,12,33,288,50,211
+gemm,AMD,CDNA3,368,12,33,288,50,226
+gemm,AMD,CDNA4,368,12,33,288,50,226
+gemm,AMD,RDNA2,432,10,33,288,50,196
+gemm,AMD,RDNA3,433,10,33,288,50,346
+gemm,AMD,RDNA4,433,10,33,288,82,380
+gemm,NVIDIA,Turing,489,0,33,352,49,1
+gemm,NVIDIA,Ampere (80),489,1,33,352,49,1
+gemm,NVIDIA,Ampere (86),489,1,33,352,49,1
+gemm,NVIDIA,Ada,489,1,33,352,49,1
+gemm,NVIDIA,Hopper,493,9,33,352,49,1
+gemm,NVIDIA,Blackwell (100),432,70,33,352,49,1
+gemm,NVIDIA,Blackwell Ultra (103),432,70,33,352,49,1
+gemm,NVIDIA,Blackwell (120),417,38,33,352,49,1
+gemm,Intel,Xe-LP,436,141,33,352,117,114
+gemm,Intel,Xe-HPG,417,216,33,352,116,132
+gemm,Intel,Xe-LPG,641,188,33,352,116,132
+gemm,Intel,Xe-HPC,450,345,33,352,114,102
+gemm,Intel,Xe2-HPG,431,180,33,352,114,113
+gemm,Intel,Xe2-LPG,431,180,33,352,114,113
+gemm,Intel,Xe3-LPG,431,180,33,352,114,129
+gemm,Intel,Xe3P-LPG,316,78,33,352,114,163
+gemm,Intel,Xe3P-XPC,316,78,33,352,114,163
+gather,AMD,CDNA2,32,7,2,17,1,14
+gather,AMD,CDNA3,26,7,2,17,1,14
+gather,AMD,CDNA4,26,7,2,17,1,14
+gather,AMD,RDNA2,30,7,2,17,1,14
+gather,AMD,RDNA3,30,6,2,17,1,25
+gather,AMD,RDNA4,30,6,2,17,2,26
+gather,NVIDIA,Turing,30,0,3,21,1,1
+gather,NVIDIA,Ampere (80),30,1,3,21,1,1
+gather,NVIDIA,Ampere (86),30,1,3,21,1,1
+gather,NVIDIA,Ada,30,1,3,21,1,1
+gather,NVIDIA,Hopper,28,8,3,21,1,1
+gather,NVIDIA,Blackwell (100),29,7,3,21,1,1
+gather,NVIDIA,Blackwell Ultra (103),29,7,3,21,1,1
+gather,NVIDIA,Blackwell (120),29,7,3,21,1,1
+gather,Intel,Xe-LP,42,14,2,22,5,24
+gather,Intel,Xe-HPG,40,29,2,22,3,31
+gather,Intel,Xe-LPG,49,33,2,22,3,45
+gather,Intel,Xe-HPC,43,40,0,21,3,14
+gather,Intel,Xe2-HPG,46,22,2,22,3,7
+gather,Intel,Xe2-LPG,46,22,2,22,3,7
+gather,Intel,Xe3-LPG,46,22,2,22,3,7
+gather,Intel,Xe3P-LPG,41,17,2,22,3,10
+gather,Intel,Xe3P-XPC,41,17,2,22,3,9
+atomics,AMD,CDNA2,34,9,2,0,1,4
+atomics,AMD,CDNA3,31,9,2,0,1,7
+atomics,AMD,CDNA4,31,9,2,0,1,7
+atomics,AMD,RDNA2,38,11,3,0,2,6
+atomics,AMD,RDNA3,32,8,2,0,1,18
+atomics,AMD,RDNA4,27,14,2,0,1,26
+atomics,NVIDIA,Turing,32,0,2,0,0,2
+atomics,NVIDIA,Ampere (80),32,1,2,0,0,2
+atomics,NVIDIA,Ampere (86),32,1,2,0,0,2
+atomics,NVIDIA,Ada,32,1,2,0,0,2
+atomics,NVIDIA,Hopper,31,8,1,0,0,2
+atomics,NVIDIA,Blackwell (100),36,3,1,0,0,2
+atomics,NVIDIA,Blackwell Ultra (103),36,3,1,0,0,2
+atomics,NVIDIA,Blackwell (120),35,4,1,0,0,2
+atomics,Intel,Xe-LP,21,9,3,0,4,4
+atomics,Intel,Xe-HPG,36,40,2,0,7,6
+atomics,Intel,Xe-LPG,43,38,2,0,6,5
+atomics,Intel,Xe-HPC,21,38,2,0,4,8
+atomics,Intel,Xe2-HPG,31,30,2,0,4,1
+atomics,Intel,Xe2-LPG,31,30,2,0,4,1
+atomics,Intel,Xe3-LPG,31,30,2,0,4,1
+atomics,Intel,Xe3P-LPG,25,23,2,0,4,3
+atomics,Intel,Xe3P-XPC,25,23,2,0,4,3
+atomics_mask,AMD,CDNA2,14,7,2,0,1,4
+atomics_mask,AMD,CDNA3,11,7,2,0,1,4
+atomics_mask,AMD,CDNA4,11,7,2,0,1,4
+atomics_mask,AMD,RDNA2,18,9,3,0,2,6
+atomics_mask,AMD,RDNA3,12,6,2,0,1,10
+atomics_mask,AMD,RDNA4,12,6,2,0,1,11
+atomics_mask,NVIDIA,Turing,12,0,2,0,0,2
+atomics_mask,NVIDIA,Ampere (80),12,1,2,0,0,2
+atomics_mask,NVIDIA,Ampere (86),12,1,2,0,0,2
+atomics_mask,NVIDIA,Ada,12,1,2,0,0,2
+atomics_mask,NVIDIA,Hopper,11,8,1,0,0,2
+atomics_mask,NVIDIA,Blackwell (100),17,2,1,0,0,2
+atomics_mask,NVIDIA,Blackwell Ultra (103),17,2,1,0,0,2
+atomics_mask,NVIDIA,Blackwell (120),16,3,1,0,0,2
+atomics_mask,Intel,Xe-LP,21,9,3,0,4,3
+atomics_mask,Intel,Xe-HPG,14,21,2,0,3,5
+atomics_mask,Intel,Xe-LPG,21,19,2,0,2,5
+atomics_mask,Intel,Xe-HPC,9,24,2,0,2,7
+atomics_mask,Intel,Xe2-HPG,9,16,2,0,2,1
+atomics_mask,Intel,Xe2-LPG,9,16,2,0,2,1
+atomics_mask,Intel,Xe3-LPG,9,16,2,0,2,1
+atomics_mask,Intel,Xe3P-LPG,4,12,2,0,2,3
+atomics_mask,Intel,Xe3P-XPC,4,12,2,0,2,3

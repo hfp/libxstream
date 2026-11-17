@@ -191,6 +191,26 @@ char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, i
         }
         else ok = EXIT_FAILURE;
       }
+      /**
+       * The family target where nothing needs the architecture-specific one: a program
+       * without kind::i8 and without wgmma runs on every member of the family, including
+       * one newer than the compiler that emitted the PTX knows (sm_103f on 10.7). A family
+       * target needs PTX 8.8, and a lower version's text is valid at 8.8.
+       */
+      if (EXIT_SUCCESS == ok && NULL == strstr(out, "kind::i8") && NULL == strstr(out, "wgmma.")) {
+        char* const target = strstr(out, ".target sm_");
+        char* const version = strstr(out, ".version ");
+        char* sfx = (NULL != target) ? (target + 11) : NULL;
+        while (NULL != sfx && '0' <= *sfx && '9' >= *sfx) ++sfx;
+        if (NULL != sfx && 'a' == *sfx) *sfx = 'f';
+        if (NULL != version && '0' <= version[9] && '9' >= version[9] && '.' == version[10]
+          && '0' <= version[11] && '9' >= version[11] && 0 == ('0' <= version[12] && '9' >= version[12])
+          && 88 > (version[9] - '0') * 10 + (version[11] - '0'))
+        {
+          version[9] = '8';
+          version[11] = '8';
+        }
+      }
       if (EXIT_SUCCESS != ok) {
         libxs_free(out);
         out = NULL;
