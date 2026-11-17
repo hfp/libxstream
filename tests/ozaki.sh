@@ -102,6 +102,11 @@ cases() {
       echo "oz2sym_wgmmabulk_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
       echo "oz2bf16_wgmmabulk_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
       echo "oz2int8_wgmmabulkwide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK} ${WIDE}|${N}"
+      BULK="OZAKI_WGMMA_BULK=2"
+      echo "oz2int8_wgmmabulk2_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
+      echo "oz2sym_wgmmabulk2_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
+      echo "oz2bf16_wgmmabulk2_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
+      echo "oz2int8_wgmmabulk2wide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK} ${WIDE}|${N}"
     fi
     if [ -n "${TC}" ] && [ 1 = "${TCI}" ]; then
       echo "oz2int8_tcgen05_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
@@ -210,7 +215,8 @@ for SPEC in ${GPUS}; do
         RESULT="FAIL: not built for level ${LEVEL} (${BUILT:-no build line})"
       elif [ "${WGMMA:-0}" != "$(value wgmma "${CONFIG}" | grep . || echo 0)" ]; then
         RESULT="FAIL: warp-group MMA is not ${WGMMA:-0} (${CONFIG#INFO OZAKI: })"
-      elif [ -n "$(value OZAKI_WGMMA_BULK "${SETENV}")" ] && [ 1 != "$(value bulk "${CONFIG}")" ]; then
+      elif [ -n "$(value OZAKI_WGMMA_BULK "${SETENV}")" ] \
+        && [ "$(value OZAKI_WGMMA_BULK "${SETENV}")" != "$(value bulk "${CONFIG}")" ]; then
         RESULT="FAIL: B not staged by bulk copies (${CONFIG#INFO OZAKI: })"
       elif [ -n "${TCGEN05}" ] && [ 1 != "$(value tcgen05 "${CONFIG}")" ]; then
         RESULT="FAIL: not the fifth generation (${CONFIG#INFO OZAKI: })"

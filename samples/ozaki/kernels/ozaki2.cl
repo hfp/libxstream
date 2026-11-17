@@ -1225,6 +1225,7 @@
       do { \
         if ((NEXT) < (K_PAD) && 0 == (WT)) { \
           int kb_; \
+          OZAKI_WGMMA_ACQUIRE(NBUF); \
           __asm__ volatile("// SPLICE { .reg .b64 %%s; mbarrier.arrive.expect_tx.shared::cta.b64 %%s, [%0], %1; }" \
             :: "l"(wg_full + (NBUF)), "r"((uint)((NBSZ) * 16)) : "memory"); \
           UNROLL_FORCE(WBSZ / BN) for (kb_ = 0; kb_ < WBSZ / BN; ++kb_) { \
@@ -1250,6 +1251,61 @@
 #   if 0 != (WBSZ % BN)
 #     error OZAKI_WGMMA_BULK copies whole K blocks across the width of the tile.
 #   endif
+#   if (2 == OZAKI_WGMMA_BULK)
+/**
+ * OZAKI_WGMMA_BULK=2 drops the work-group barrier per round as well: a buffer is refilled
+ * once every thread released it on its "empty" mbarrier (wg_empty, one arrival per thread),
+ * which a thread does once the MMA group that read it is drained. Round i (of a modulus; it
+ * reads buffer i % STAGES, since the K-loop restarts the index) drains through round i - LAG:
+ * NWAIT + 1 rounds back where the wait precedes the issue (deferred), NWAIT where it follows.
+ * The drain that ends a modulus releases the rest, so every round is released once. Thread 0
+ * waits for a release only where the buffer was used before (wg_used), on the parity of its
+ * phase (wg_eph); what it waits for comes from earlier rounds (STAGES >= NWAIT + 3 with the
+ * early staging, as for the barrier), so nothing waits on itself.
+ */
+#     if defined(OZAKI_WGMMA_DEFER) && (OZAKI_WGMMA_DEFER)
+#       define OZAKI_WGMMA_LAG ((OZAKI_WGMMA_NWAIT) + 1)
+#       define OZAKI_WGMMA_RELEASE_PRE(RI) OZAKI_WGMMA_RELEASE(RI)
+#       define OZAKI_WGMMA_RELEASE_POST(RI) ((void)0)
+#     else
+#       define OZAKI_WGMMA_LAG (OZAKI_WGMMA_NWAIT)
+#       define OZAKI_WGMMA_RELEASE_PRE(RI) ((void)0)
+#       define OZAKI_WGMMA_RELEASE_POST(RI) OZAKI_WGMMA_RELEASE(RI)
+#     endif
+#     define OZAKI_WGMMA_ARRIVE(B) \
+        __asm__ volatile("{ .reg .b64 %%s; mbarrier.arrive.shared::cta.b64 %%s, [%0]; }" :: "l"(wg_empty + (B)) : "memory")
+#     define OZAKI_WGMMA_RELEASE(RI) \
+        do { \
+          if ((RI) >= OZAKI_WGMMA_LAG) OZAKI_WGMMA_ARRIVE(((RI) - OZAKI_WGMMA_LAG) % OZAKI_WGMMA_STAGES); \
+        } while (0)
+#     define OZAKI_WGMMA_RELEASE_REST(NR) \
+        do { \
+          int rr_; \
+          for (rr_ = ((NR) > OZAKI_WGMMA_LAG ? (NR) - OZAKI_WGMMA_LAG : 0); rr_ < (NR); ++rr_) { \
+            OZAKI_WGMMA_ARRIVE(rr_ % OZAKI_WGMMA_STAGES); \
+          } \
+        } while (0)
+#     define OZAKI_WGMMA_ACQUIRE(B) \
+        do { \
+          if (0 != (wg_used & (1u << (B)))) { \
+            uint de_; \
+            do { \
+              __asm__ volatile("{ .reg .pred %%p; mbarrier.try_wait.parity.shared::cta.b64 %%p, [%1], %2;" \
+                " selp.u32 %0, 1, 0, %%p; }" : "=r"(de_) : "l"(wg_empty + (B)), "r"((wg_eph >> (B)) & 1u) : "memory"); \
+            } while (0 == de_); \
+            wg_eph ^= 1u << (B); \
+          } \
+          wg_used |= 1u << (B); \
+        } while (0)
+#     undef OZAKI_WGMMA_BARRIER
+#     define OZAKI_WGMMA_BARRIER() ((void)0)
+#   endif
+# endif
+# if !defined(OZAKI_WGMMA_ACQUIRE)
+#   define OZAKI_WGMMA_ACQUIRE(B) ((void)0)
+#   define OZAKI_WGMMA_RELEASE_PRE(RI) ((void)0)
+#   define OZAKI_WGMMA_RELEASE_POST(RI) ((void)0)
+#   define OZAKI_WGMMA_RELEASE_REST(NR) ((void)0)
 # endif
 # define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, PIDX, ACCS, SB, WT, LANE, KW, AF, BUF, NBUF, NBSZ, NI) \
     do { \
@@ -1261,6 +1317,7 @@
       OZAKI_WGMMA_WAITB(BUF); \
       OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD, K_PAD, NB, next_, SB, WT, NBUF, NBSZ); \
       OZAKI_WGMMA_WAIT_PRE(); \
+      OZAKI_WGMMA_RELEASE_PRE((KW) / WBK); \
       OZAKI_WGMMA_BARRIER(); \
       OZAKI_WGMMA_STAGE_LATE(BSW, N_PAD, K_PAD, NB, next_, SB, WT, NBUF, NBSZ); \
       OZAKI_WGMMA_FENCE_ROUND(); \
@@ -1271,6 +1328,7 @@
       } \
       OZAKI_WGMMA_COMMIT_ROUND(); \
       OZAKI_WGMMA_WAIT_POST(); \
+      OZAKI_WGMMA_RELEASE_POST((KW) / WBK); \
     } while (0)
 /**
  * The barrier before a modulus batch stages its first buffer is not optional: the drain
@@ -1302,6 +1360,7 @@
         } \
       } \
       OZAKI_WGMMA_DRAIN(); \
+      OZAKI_WGMMA_RELEASE_REST(DIVUP(K_PAD, WBK)); \
     } while (0)
 
 # if defined(OZAKI_TCGEN05) && (OZAKI_TCGEN05)
@@ -2892,10 +2951,18 @@ kernel void gemm_crt_fused(
   /* Where each buffer's bulk copies complete, and the parity of each one's current phase. */
   local ulong wg_full[OZAKI_WGMMA_STAGES];
   uint wg_ph = 0;
+#if (2 == OZAKI_WGMMA_BULK)
+  /* Where each buffer is released, the parity of its phase, and which buffers were filled (thread 0). */
+  local ulong wg_empty[OZAKI_WGMMA_STAGES];
+  uint wg_eph = 0, wg_used = 0;
+#endif
   if (0 == wt) {
     int st;
     for (st = 0; st < OZAKI_WGMMA_STAGES; ++st) {
       __asm__ volatile("mbarrier.init.shared::cta.b64 [%0], %1;" :: "l"(wg_full + st), "r"(1u) : "memory");
+#if (2 == OZAKI_WGMMA_BULK)
+      __asm__ volatile("mbarrier.init.shared::cta.b64 [%0], %1;" :: "l"(wg_empty + st), "r"((uint)WGS) : "memory");
+#endif
     }
   }
   barrier(CLK_LOCAL_MEM_FENCE);

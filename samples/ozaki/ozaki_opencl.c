@@ -1737,10 +1737,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
           coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_TCGEN05=1"));
         }
         else { const char *const env_bulk = getenv("OZAKI_WGMMA_BULK");
-          ctx->wgmma_bulk = (NULL != env_bulk && 0 != atoi(env_bulk)) ? 1 : 0;
+          /* 1: B by bulk copies, 2: also mbarriers instead of the work-group barrier per round */
+          ctx->wgmma_bulk = (NULL != env_bulk) ? LIBXS_CLMP(atoi(env_bulk), 0, 2) : 0;
           if (0 != ctx->wgmma_bulk) {
             coff = ozaki_append(coff, sizeof(build_params),
-              LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA_BULK=1"));
+              LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA_BULK=%i", ctx->wgmma_bulk));
           }
         }
         /* A in the fragment layout: one vector load per lane instead of four scalar ones; tcgen05 stores its own (2). */
