@@ -43,9 +43,12 @@ libxstream_sample(
   ozaki/ozaki_opencl.c
   ozaki/ozaki_gemm.c
   ozaki/ozaki_gemm3m.c
+  ozaki/ozaki_wgmma.c
   "${ozaki_header}")
 target_include_directories(libxstream_sample_ozaki
                            PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+libxstream_sample(libxstream_sample_ozaki_splice ozaki ozaki_splice
+                  ozaki/ozaki_splice.c ozaki/ozaki_wgmma.c)
 
 set(mixes_dir "${CMAKE_CURRENT_SOURCE_DIR}/mixes")
 set(mixes_header "${CMAKE_CURRENT_BINARY_DIR}/mixes_kernels.h")
