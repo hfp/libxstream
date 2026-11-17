@@ -207,17 +207,16 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_configure(void)
 }
 
 
-#if (1 >= LIBXSTREAM_USM)
 /**
  * Whether the GPUs of the system are Intel's only (1), include AMD's or NVIDIA's (0),
- * or cannot be told (-1). Reads the PCI devices rather than any runtime, as it is
- * meant to run before a driver is loaded. A display controller of another vendor
- * (e.g., a management controller) does not count.
+ * or cannot be told (-1), e.g., no GPU on the PCI bus as under WSL. Reads the PCI
+ * devices rather than any runtime, as it is meant to run before a driver is loaded.
+ * A display controller of another vendor (e.g., a management controller) does not count.
  */
 static int libxstream_pci_intel_only(void)
 {
   int result = -1;
-# if defined(__linux__)
+#if defined(__linux__)
   DIR* const dir = opendir("/sys/bus/pci/devices");
   if (NULL != dir) {
     const struct dirent* entry;
@@ -246,12 +245,11 @@ static int libxstream_pci_intel_only(void)
       }
     }
     closedir(dir);
-    result = ((0 != nintel && 0 == nother) ? 1 : 0);
+    result = (0 != nother ? 0 : (0 != nintel ? 1 : -1));
   }
-# endif
+#endif
   return result;
 }
-#endif
 
 
 LIBXSTREAM_API_INTERN int libxstream_mpi_usm_host(void)
@@ -305,7 +303,7 @@ LIBXSTREAM_API_INTERN void libxstream_opencl_setup(void)
   const char* const env_async = NULL;
   const int async_default = 0;
 #endif
-  const int wa_default = 2 + 4 + 8 + 16;
+  const int wa_default = 2 + 4 + 8 + 16 + 128;
   const int nlocks = (NULL == env_nlocks ? 1 /*default*/ : atoi(env_nlocks));
   const int neo = (NULL == env_neo ? 1 : atoi(env_neo));
   int i;
@@ -946,32 +944,50 @@ LIBXSTREAM_API_INTERN LIBXS_ATTRIBUTE_CTOR void libxstream_opencl_init(void)
   if (NULL == libxstream_opencl_config.lock_main) { /* avoid to configure multiple times */
     libxstream_opencl_setup();
   }
-#if (1 >= LIBXSTREAM_USM)
   /**
-   * Intel MPI cannot read Intel USM host memory across processes without its offload
-   * support, which it reads at MPI_Init. Only where Intel GPUs are all there is: the
-   * setting broke runs on other GPUs. An MPS client never gets USM (no forwarded
-   * extensions), and an explicit setting is kept (see libxstream_mpi_usm_host). Here
-   * rather than in libxstream_opencl_setup, which may run after MPI_Init, and not at
-   * all if MPI is already initialized (a library loaded later).
+   * MPI reads its settings at MPI_Init, hence they are set here rather than in
+   * libxstream_opencl_setup, which may run after MPI_Init, and not at all if MPI
+   * is already initialized (a library loaded later).
    */
   {
-    static char mpi_offload[] = "I_MPI_OFFLOAD=1";
-    const char *const env_usm = getenv("LIBXSTREAM_USM"), *const env_icd = getenv("OCL_ICD_FILENAMES");
+    static char ucx_tls[] = "UCX_TLS=^cma";
     int mpi_ready = 0;
-# if defined(LIBXS_INTERCEPT_DYNAMIC)
+#if defined(LIBXS_INTERCEPT_DYNAMIC)
     union { const void* dlsym; int (*ptr)(int*); } initialized;
     initialized.dlsym = dlsym(LIBXS_RTLD_DEFAULT, "MPI_Initialized");
     if (NULL != initialized.dlsym && 0 != initialized.ptr(&mpi_ready)) mpi_ready = 0;
-# endif
-    if ((NULL == env_usm || 1 == atoi(env_usm)) && NULL != getenv("I_MPI_ROOT") && NULL == getenv("I_MPI_OFFLOAD") &&
-        0 == mpi_ready && (NULL == env_icd || NULL == strstr(env_icd, "libxstream_icd")) && 1 == libxstream_pci_intel_only() &&
-        0 == LIBXS_PUTENV(mpi_offload) && (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+#endif
+#if (1 >= LIBXSTREAM_USM)
+    /**
+     * Intel MPI cannot read Intel USM host memory across processes without its offload
+     * support. Only where Intel GPUs are all there is: the setting broke runs on other
+     * GPUs. An MPS client never gets USM (no forwarded extensions), and an explicit
+     * setting is kept (see libxstream_mpi_usm_host).
+     */
     {
-      fprintf(stderr, "INFO ACC/OpenCL: I_MPI_OFFLOAD=1 for Intel USM\n");
+      static char mpi_offload[] = "I_MPI_OFFLOAD=1";
+      const char *const env_usm = getenv("LIBXSTREAM_USM"), *const env_icd = getenv("OCL_ICD_FILENAMES");
+      if ((NULL == env_usm || 1 == atoi(env_usm)) && NULL != getenv("I_MPI_ROOT") && NULL == getenv("I_MPI_OFFLOAD") &&
+          0 == mpi_ready && (NULL == env_icd || NULL == strstr(env_icd, "libxstream_icd")) && 1 == libxstream_pci_intel_only() &&
+          0 == LIBXS_PUTENV(mpi_offload) && (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+      {
+        fprintf(stderr, "INFO ACC/OpenCL: I_MPI_OFFLOAD=1 for Intel USM\n");
+      }
+    }
+#endif
+    /**
+     * UCX (MPICH, Open MPI) copies between processes by reading the peer's memory (CMA,
+     * process_vm_readv), which fails on memory the Intel GPU driver mapped, e.g., USM or
+     * SVM host memory handed to MPI. Without CMA, UCX copies through shared memory,
+     * which costs a copy rather than correctness, hence also where GPUs cannot be told.
+     */
+    if ((128 & libxstream_opencl_config.wa) && 0 == mpi_ready && NULL == getenv("UCX_TLS") &&
+        0 != libxstream_pci_intel_only() && 0 == LIBXS_PUTENV(ucx_tls) &&
+        (2 <= libxstream_opencl_config.verbosity || 0 > libxstream_opencl_config.verbosity))
+    {
+      fprintf(stderr, "INFO ACC/OpenCL: UCX_TLS=^cma for memory of the Intel GPU driver\n");
     }
   }
-#endif
 #if defined(LIBXSTREAM_PREINIT)
   LIBXS_EXPECT_DEBUG(EXIT_SUCCESS == libxstream_init());
 #endif

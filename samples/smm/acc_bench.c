@@ -433,6 +433,46 @@ int main(int argc, char* argv[])
               else {
                 fprintf(stderr, "ERROR: failed to validate!\n");
               }
+              if (EXIT_SUCCESS == result && dbcsr_type_real_8 == DBCSR_TYPE(ELEM_TYPE)) {
+                /* squared norms of the C-matrices on the device, which DBCSR's G2G multiplication filters by */
+                int* const nrm_off = (int*)libxs_malloc(NULL, sizeof(int) * 2 * nc, 0);
+                float* const nrm_hst = (float*)libxs_malloc(NULL, sizeof(float) * nc, 0);
+                void *nrm_dev = NULL, *off_dev = NULL, *len_dev = NULL;
+                if (NULL != nrm_off && NULL != nrm_hst) {
+                  double nrm_diff = 0;
+                  int b, e;
+                  for (b = 0; b < nc; ++b) {
+                    nrm_off[b] = b * mn;
+                    nrm_off[nc + b] = mn;
+                  }
+                  CHECK(c_dbcsr_acc_dev_mem_allocate(&off_dev, sizeof(int) * nc), &result, check);
+                  CHECK(c_dbcsr_acc_dev_mem_allocate(&len_dev, sizeof(int) * nc), &result, check);
+                  CHECK(c_dbcsr_acc_dev_mem_allocate(&nrm_dev, sizeof(float) * nc), &result, check);
+                  CHECK(c_dbcsr_acc_memcpy_h2d(nrm_off, off_dev, sizeof(int) * nc, stream), &result, check);
+                  CHECK(c_dbcsr_acc_memcpy_h2d(nrm_off + nc, len_dev, sizeof(int) * nc, stream), &result, check);
+                  CHECK(c_calculate_norms((const double*)(const void*)cmat_dev, nc, (const int*)off_dev, (const int*)len_dev,
+                          (float*)nrm_dev, stream),
+                    &result, check);
+                  CHECK(c_dbcsr_acc_memcpy_d2h(nrm_dev, nrm_hst, sizeof(float) * nc, stream), &result, check);
+                  CHECK(c_dbcsr_acc_stream_sync(stream), &result, check);
+                  if (EXIT_SUCCESS == result) {
+                    for (b = 0; b < nc; ++b) {
+                      double ref = 0, d;
+                      for (e = 0; e < mn; ++e) ref += (double)cmat_hst[b * mn + e] * cmat_hst[b * mn + e];
+                      d = fabs((double)nrm_hst[b] - ref) / (0 < ref ? ref : 1.0);
+                      if (nrm_diff < d) nrm_diff = d;
+                    }
+                    PRINTF("diff.norms: %g\n", nrm_diff);
+                    /* a float per block, summed in another order */
+                    if (0 != check && 1E-6 < nrm_diff) result = EXIT_FAILURE;
+                  }
+                }
+                CHECK(c_dbcsr_acc_dev_mem_deallocate(nrm_dev), NULL, check);
+                CHECK(c_dbcsr_acc_dev_mem_deallocate(len_dev), NULL, check);
+                CHECK(c_dbcsr_acc_dev_mem_deallocate(off_dev), NULL, check);
+                libxs_free(nrm_hst);
+                libxs_free(nrm_off);
+              }
             }
           }
         }

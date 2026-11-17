@@ -1,0 +1,30 @@
+name: MPI
+description: >-
+  An MPI implementation as packaged by the runner's distribution, with its
+  compiler wrappers and launcher on the path. MPIEXEC_FLAGS holds what the
+  launcher needs to start more ranks than the runner has cores. Packaged builds
+  have no GPU support (e.g., Level Zero), which a source build would add.
+
+inputs:
+  flavor:
+    description: "mpich or openmpi"
+    default: mpich
+
+runs:
+  using: composite
+  steps:
+  - name: Install MPI
+    shell: bash
+    env:
+      FLAVOR: ${{ inputs.flavor }}
+    run: |
+      case "${FLAVOR}" in
+        mpich) PACKAGES="mpich libmpich-dev"; FLAGS="";;
+        openmpi) PACKAGES="openmpi-bin libopenmpi-dev"; FLAGS="--oversubscribe";;
+        *) echo "ERROR: unknown MPI flavor \"${FLAVOR}\""; exit 1;;
+      esac
+      sudo apt update -y
+      # shellcheck disable=SC2086
+      sudo apt install -y ${PACKAGES}
+      { echo "MPI_FLAVOR=${FLAVOR}"; echo "MPIEXEC_FLAGS=${FLAGS}"; } >> "${GITHUB_ENV}"
+      mpiexec --version 2>&1 | head -n1

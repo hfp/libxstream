@@ -94,6 +94,18 @@ beyond the kernels runs through oneMKL (see above) or is reported unsuitable.
 | BATCHSIZE_SMM | -       | Override batchsize (and optionally nrepeat: `bs,nrep`)     |
 | UNIFIED       | 0       | 1: kernels read the stack from host memory if possible     |
 
+## DBCSR G2G
+
+`dbcsr_g2g.f` checks DBCSR's G2G multiplication (device buffers handed to MPI,
+block norms by `c_calculate_norms`) against DBCSR's host algorithm, with mixed
+block shapes, filtering, an uneven distribution, and either transpose. It is
+built against an installed DBCSR (`USE_ACCEL=opencl`, `USE_MPI=ON`) by linking
+`DBCSR::dbcsr`, and run like `mpiexec -np 3 ./dbcsr_g2g` (exit code 1 if a
+product differs). The MPI must accept LIBXSTREAM's device pointers: GPU-aware,
+or the device memory is host memory (e.g., PoCL's CPU device). G2G also aborts
+on any stack the device does not take, such as a block beyond the kernels or a
+stack of mixed shapes, which DBCSR forms beyond `nstacks` shapes per extent.
+
 ## LIBSMM Kernel Parameters
 
 OpenCL kernels are generated at runtime for any (M, N, K) shape with
