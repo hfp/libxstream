@@ -1203,6 +1203,54 @@
         OZAKI_WGMMA_COMMIT(); \
       } \
     } while (0)
+/* The buffer a round reads is ready once this thread's copies of it completed (cp.async). */
+# define OZAKI_WGMMA_WAITB(B) OZAKI_WGMMA_WAIT()
+# if defined(OZAKI_WGMMA_BULK) && (OZAKI_WGMMA_BULK) && !(defined(OZAKI_TCGEN05) && (OZAKI_TCGEN05))
+/**
+ * B by bulk copies (OZAKI_WGMMA_BULK): one thread starts the copies of a stage, one per
+ * 16-byte K block (the block spans the tile's width contiguously in global memory and in
+ * the stage), and they complete on the stage's mbarrier (wg_full) by their bytes, which
+ * that thread announces with its arrival. Every thread then waits on the mbarrier instead
+ * of on copies of its own, and no proxy fence is needed for B, which the async proxy both
+ * writes and reads. The work-group barrier per round stays: it is what orders the refill of
+ * a buffer after every warp group's MMAs that read it, exactly as for cp.async. The parity
+ * of each buffer's phase is a bit in wg_ph, kept across moduli like the mbarriers.
+ * The bulk copy and its byte count need PTX 8.0, hence markers (see ozaki_wgmma_splice).
+ */
+#   if defined(OZAKI_WGMMA_BPROBE)
+#     error OZAKI_WGMMA_BULK has no operand-traffic probe.
+#   endif
+#   undef OZAKI_WGMMA_STAGE
+#   define OZAKI_WGMMA_STAGE(BSW, N_PAD, K_PAD, NB, NEXT, SB, WT, NBUF, NBSZ) \
+      do { \
+        if ((NEXT) < (K_PAD) && 0 == (WT)) { \
+          int kb_; \
+          __asm__ volatile("// SPLICE { .reg .b64 %%s; mbarrier.arrive.expect_tx.shared::cta.b64 %%s, [%0], %1; }" \
+            :: "l"(wg_full + (NBUF)), "r"((uint)((NBSZ) * 16)) : "memory"); \
+          UNROLL_FORCE(WBSZ / BN) for (kb_ = 0; kb_ < WBSZ / BN; ++kb_) { \
+            __asm__ volatile("// SPLICE cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%0], [%1], %2, [%3];" \
+              :: "l"((SB) + (NBUF) * (NBSZ) + kb_ * BN), \
+                 "l"((BSW) + ((long)(((NEXT) >> OZAKI_BS_BLOG) + kb_) * (N_PAD) + (NB)) * 16), \
+                 "r"((uint)(BN * 16)), "l"(wg_full + (NBUF)) : "memory"); \
+          } \
+        } \
+        __asm__ volatile("bar.warp.sync -1;" ::: "memory"); /* warp-wide instructions follow */ \
+      } while (0)
+#   undef OZAKI_WGMMA_WAITB
+#   define OZAKI_WGMMA_WAITB(B) \
+      do { \
+        uint dn_; \
+        do { \
+          __asm__ volatile("{ .reg .pred %%p; mbarrier.try_wait.parity.shared::cta.b64 %%p, [%1], %2;" \
+            " selp.u32 %0, 1, 0, %%p; }" : "=r"(dn_) : "l"(wg_full + (B)), "r"((wg_ph >> (B)) & 1u) : "memory"); \
+        } while (0 == dn_); \
+        wg_ph ^= 1u << (B); \
+        __asm__ volatile("bar.warp.sync -1;" ::: "memory"); \
+      } while (0)
+#   if 0 != (WBSZ % BN)
+#     error OZAKI_WGMMA_BULK copies whole K blocks across the width of the tile.
+#   endif
+# endif
 # define OZAKI_CRT_ROUND_WRS(ASW, BSW, K_PAD, N_PAD, MI, NB, PIDX, ACCS, SB, WT, LANE, KW, AF, BUF, NBUF, NBSZ, NI) \
     do { \
       const int next_ = (KW) + WBK; \
@@ -1210,7 +1258,7 @@
       UNROLL_FORCE(WBK / WBI) for (cw_ = 0; cw_ < WBK / WBI; ++cw_) { \
         OZAKI_WGMMA_ALOAD(ASW, K_PAD, MI, (KW) + cw_ * WBI, LANE, (AF) + cw_ * 4); \
       } \
-      OZAKI_WGMMA_WAIT(); \
+      OZAKI_WGMMA_WAITB(BUF); \
       OZAKI_WGMMA_STAGE_EARLY(BSW, N_PAD, K_PAD, NB, next_, SB, WT, NBUF, NBSZ); \
       OZAKI_WGMMA_WAIT_PRE(); \
       OZAKI_WGMMA_BARRIER(); \
@@ -1242,8 +1290,7 @@
       uint af0_[(WBK / WBI) * 4], af1_[(WBK / WBI) * 4]; \
       int kw_, buf_ = 0, ni_ = 0; \
       barrier(CLK_LOCAL_MEM_FENCE); \
-      OZAKI_WGMMA_BSTAGE(bsw_, N_PAD, K_PAD, NB, 0, SB, WT); \
-      OZAKI_WGMMA_COMMIT(); \
+      OZAKI_WGMMA_STAGE(bsw_, N_PAD, K_PAD, NB, 0, SB, WT, 0, nbsz_); \
       for (kw_ = 0; kw_ < (K_PAD); kw_ += 2 * WBK) { \
         const int nb1_ = OZAKI_WGMMA_NEXTBUF(buf_); \
         OZAKI_CRT_ROUND_WRS(asw_, bsw_, K_PAD, N_PAD, MI, NB, PIDX, ACCS, SB, WT, LANE, kw_, af0_, buf_, nb1_, nbsz_, ni_); \
@@ -2839,6 +2886,19 @@ kernel void gemm_crt_fused(
   const int nb_base = jb_idx * BN;
   const int wt = sg_id * SG + sg_lid;
   local uint4 wg_sb[OZAKI_WGMMA_STAGES * WBSZ]; /* staged B only; A needs none */
+#endif
+#if defined(OZAKI_WGMMA) && (OZAKI_WGMMA) && defined(OZAKI_WGMMA_BULK) && (OZAKI_WGMMA_BULK) \
+  && !(defined(OZAKI_TCGEN05) && (OZAKI_TCGEN05))
+  /* Where each buffer's bulk copies complete, and the parity of each one's current phase. */
+  local ulong wg_full[OZAKI_WGMMA_STAGES];
+  uint wg_ph = 0;
+  if (0 == wt) {
+    int st;
+    for (st = 0; st < OZAKI_WGMMA_STAGES; ++st) {
+      __asm__ volatile("mbarrier.init.shared::cta.b64 [%0], %1;" :: "l"(wg_full + st), "r"(1u) : "memory");
+    }
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
 #endif
 #if defined(OZAKI_WGMMA) && (OZAKI_WGMMA) && defined(OZAKI_TCGEN05) && (OZAKI_TCGEN05)
   /* The stages' mbarriers, where the allocation leaves the tensor-memory base, and the rounds so far. */

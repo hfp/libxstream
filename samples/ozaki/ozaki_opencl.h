@@ -304,6 +304,8 @@ typedef struct ozaki_context_t {
    * geometry with accumulators in tensor memory, its instructions spliced likewise.
    */
   int tcgen05;
+  /* Warp-group MMA with B staged by bulk copies (OZAKI_WGMMA_BULK), off by default. */
+  int wgmma_bulk;
   /**
    * Deferred MMA wait in the K-loop: -1 selects it for the full tile only, where
    * it measured a gain; 0 and 1 force it off or on for every specialization.

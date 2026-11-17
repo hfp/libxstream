@@ -134,6 +134,10 @@
  * four stages at the depth the host resolves for the full tile, both representations of both
  * carriers (bf16 with its fold in tensor memory).
  */
+/* B by bulk copies on the warp-group path, both carriers. */
+#define KERNELS_OZAKI_WGMMA_BULK KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_U8=1 -DOZAKI_WGMMA_BULK=1"
+#define KERNELS_OZAKI_WGMMA_BULK_BF16 \
+  KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_SYMRES=1 -DOZAKI_BF16=1 -DOZAKI_WGMMA_BULK=1"
 #define KERNELS_OZAKI_TCGEN05 \
   KERNELS_OZAKI_WG_COMMON KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_TCGEN05=1 -DOZAKI_ABLOCK=2 -DOZAKI_U8=1"
 #define KERNELS_OZAKI_TCGEN05_SYMRES \
@@ -211,6 +215,8 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "symres", KERNELS_OZAKI_SYMRES, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16", KERNELS_OZAKI_BF16, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16sym", KERNELS_OZAKI_BF16_SYMRES, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmmabulk", KERNELS_OZAKI_WGMMA_BULK, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "wgmmabulkbf16", KERNELS_OZAKI_WGMMA_BULK_BF16, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "tcgen05", KERNELS_OZAKI_TCGEN05, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "tcgen05sym", KERNELS_OZAKI_TCGEN05_SYMRES, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "tcgen05bf16", KERNELS_OZAKI_TCGEN05_BF16, 1, 0 },

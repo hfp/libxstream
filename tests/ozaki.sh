@@ -73,7 +73,8 @@ cp "${ROOT}/samples/ozaki/ozaki.x" "${ROOT}/samples/ozaki/ozaki_splice.x" "${BIN
 # levels first to top of the variable that selects them (none: one generic
 # level), warp-group MMA as OZAKI_WGMMA gives it and the fifth generation as
 # OZAKI_TCGEN05 does (none: not taken, bf16 always and int8 where <int8> is 1),
-# each also on the 128x256 tile; a name ends in the precision
+# each also on the 128x256 tile, warp-group MMA also with B by bulk copies; a
+# name ends in the precision
 cases() {
   local VAR=$1 TOP=$3 WG=$4 TC=$5 TCI=$6 LEVEL N
   # the full tile, which a small problem gives back below the saturation floor
@@ -96,6 +97,11 @@ cases() {
       echo "oz2bf16_wgmma_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG}|${N}"
       echo "oz2int8_wgmmawide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${WIDE}|${N}"
       echo "oz2bf16_wgmmawide_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${WIDE}|${N}"
+      local BULK="OZAKI_WGMMA_BULK=1"
+      echo "oz2int8_wgmmabulk_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
+      echo "oz2sym_wgmmabulk_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
+      echo "oz2bf16_wgmmabulk_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK}|${N}"
+      echo "oz2int8_wgmmabulkwide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${BULK} ${WIDE}|${N}"
     fi
     if [ -n "${TC}" ] && [ 1 = "${TCI}" ]; then
       echo "oz2int8_tcgen05_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
@@ -204,6 +210,8 @@ for SPEC in ${GPUS}; do
         RESULT="FAIL: not built for level ${LEVEL} (${BUILT:-no build line})"
       elif [ "${WGMMA:-0}" != "$(value wgmma "${CONFIG}" | grep . || echo 0)" ]; then
         RESULT="FAIL: warp-group MMA is not ${WGMMA:-0} (${CONFIG#INFO OZAKI: })"
+      elif [ -n "$(value OZAKI_WGMMA_BULK "${SETENV}")" ] && [ 1 != "$(value bulk "${CONFIG}")" ]; then
+        RESULT="FAIL: B not staged by bulk copies (${CONFIG#INFO OZAKI: })"
       elif [ -n "${TCGEN05}" ] && [ 1 != "$(value tcgen05 "${CONFIG}")" ]; then
         RESULT="FAIL: not the fifth generation (${CONFIG#INFO OZAKI: })"
       elif [ -n "$(value OZAKI_TILE_SAT "${SETENV}")" ] && ! grep -q "^INFO OZAKI: JIT crt .* tile=128x256 " "${LOG}"; then

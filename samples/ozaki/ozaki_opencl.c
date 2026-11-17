@@ -1736,6 +1736,13 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         if (0 != ctx->tcgen05) {
           coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_TCGEN05=1"));
         }
+        else { const char *const env_bulk = getenv("OZAKI_WGMMA_BULK");
+          ctx->wgmma_bulk = (NULL != env_bulk && 0 != atoi(env_bulk)) ? 1 : 0;
+          if (0 != ctx->wgmma_bulk) {
+            coff = ozaki_append(coff, sizeof(build_params),
+              LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA_BULK=1"));
+          }
+        }
         /* A in the fragment layout: one vector load per lane instead of four scalar ones; tcgen05 stores its own (2). */
         { const char *const env_ab = getenv("OZAKI_ABLOCK");
           ablock = (0 != ctx->tcgen05) ? 2 : ((NULL == env_ab || 0 != atoi(env_ab)) ? 1 : 0);
@@ -2187,6 +2194,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ozaki_print_opt(stderr, "hier", ctx->hier);
       ozaki_print_opt(stderr, "wgmma", ctx->wgmma);
       ozaki_print_opt(stderr, "tcgen05", ctx->tcgen05);
+      ozaki_print_opt(stderr, "bulk", ctx->wgmma_bulk);
       if (0 != ozaki_wgmma_resident(ctx, 128, 128)) ozaki_print_opt(stderr, "reside", ctx->wgmma_reside);
       ozaki_print_opt(stderr, "unfuse", ctx->unfuse);
       /* The size from which complex calls take 3M, or 0 where they never do. */
