@@ -95,6 +95,10 @@ jobs:
           fi
         done
 
+    # the host reference GEMM of the Ozaki sample (BLAS=2)
+    - name: Install OpenBLAS
+      run: sudo apt install -y libopenblas-openmp-dev
+
     - name: Setup LIBXS
       run: |
         git clone --depth 1 https://github.com/hfp/libxs.git ${{ github.workspace }}/../libxs
