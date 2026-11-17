@@ -17,6 +17,8 @@ char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, i
   static const char marker_wait[] = "// WGMMA_WAIT";
   static const char marker_fence[] = "// WGMMA_FENCE";
   static const char marker_commit[] = "// WGMMA_COMMIT";
+  /* An instruction as the kernel wrote it, its operands named by the compiler: uncommented. */
+  static const char marker_splice[] = "// SPLICE ";
   char entry[128];
   char* retargeted = NULL;
   size_t size_rt = 0, cap = 0;
@@ -46,6 +48,11 @@ char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, i
       ++nmarker;
       ++scan;
     }
+    scan = retargeted;
+    while (NULL != (scan = strstr(scan, marker_splice))) {
+      ++nmarker;
+      ++scan;
+    }
     if (0 != nmarker) {
       cap = size_rt + nmarker * 1024 + 256;
       out = (char*)libxs_malloc(NULL, cap, 0 /*auto-align*/);
@@ -68,6 +75,7 @@ char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, i
         const char* const f = strstr(src, marker_fence);
         const char* const c = strstr(src, marker_commit);
         const char* const m = strstr(src, marker);
+        const char* const x = strstr(src, marker_splice);
         const char* first = w;
         const char* dlist;
         const char* dend;
@@ -79,6 +87,7 @@ char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, i
         if (NULL == first || (NULL != f && f < first)) first = f;
         if (NULL == first || (NULL != c && c < first)) first = c;
         if (NULL == first || (NULL != m && m < first)) first = m;
+        if (NULL == first || (NULL != x && x < first)) first = x;
         if (NULL == first) break;
         line = first;
         while (line > retargeted && '\n' != line[-1]) --line;
@@ -99,6 +108,15 @@ char* ozaki_wgmma_splice(const char* ptx, size_t size, const char* entry_name, i
           memcpy(out + off, src, head);
           off += head;
           off += (size_t)LIBXS_SNPRINTF(out + off, cap - off, "\twgmma.commit_group.sync.aligned;\n");
+          src = eol + 1;
+        }
+        else if (first == x) { /* the rest of the line is the instruction */
+          const char* const text = x + sizeof(marker_splice) - 1;
+          memcpy(out + off, src, head);
+          off += head;
+          out[off++] = '\t';
+          memcpy(out + off, text, (size_t)(eol - text) + 1);
+          off += (size_t)(eol - text) + 1;
           src = eol + 1;
         }
         else if (first == f) { /* the fence pair, once per round rather than per issue */

@@ -163,6 +163,8 @@ jobs:
       if: ${{ !cancelled() }}
       shell: bash
       env:
+        # Blackwell besides the job's GPUs, for the fifth-generation MMA (tcgen05)
+        GPUS: ${{ github.event.inputs.gpus || 'nvidia/h100-pcie nvidia/gh200-480gb nvidia/b200' }}
         LOGS: ${{ runner.temp }}/ozaki
         META: "PoCL 7.2 with LLVM ${{ env.POCL_LLVM }}, PantheonSim 0.2.1"
       run: |

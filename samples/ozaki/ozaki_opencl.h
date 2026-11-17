@@ -300,6 +300,11 @@ typedef struct ozaki_context_t {
    */
   int wgmma;
   /**
+   * Tensor-core MMA of the fifth generation (Blackwell, OZAKI_TCGEN05): the warp-group
+   * geometry with accumulators in tensor memory, its instructions spliced likewise.
+   */
+  int tcgen05;
+  /**
    * Deferred MMA wait in the K-loop: -1 selects it for the full tile only, where
    * it measured a gain; 0 and 1 force it off or on for every specialization.
    */
@@ -549,6 +554,8 @@ int ozaki_wgmma_probe(const ozaki_context_t* ctx, int width, size_t lbytes);
  *
  * A arrives in registers and only B is described out of shared memory, so every
  * marker carries "a={" and a marker without it is refused rather than guessed at.
+ * A marker "// SPLICE " carries the instruction itself (tcgen05), which the pass
+ * uncomments: the rest of the line, its operands named by the compiler.
  *
  * fence.proxy.async.shared::cta is not optional: the tiles are written with
  * ordinary shared-memory stores, and wgmma reads them through the async proxy,

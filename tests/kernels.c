@@ -98,13 +98,14 @@
  * this shape at that buffer count, NWAIT included - appending an override instead would
  * redefine the macro, which is an error at the warning level this test compiles with.
  */
-#define KERNELS_OZAKI_WGMMA_BASE \
+#define KERNELS_OZAKI_WG_COMMON \
   "-DBK=32 -DKU=8 -DRC=8 -DSG=32 -DINTEL=0 -DNV=4 -DNV_MMA=1 -DBM_PRE=16" \
   " -DBN_PRE=16 -DBK_PRE=32 -DOZAKI_SB=1 -DCONSTANT=global -DLU=0 -DKGROUPS=0 -DPB=1" \
   " -DNSLICES=8 -DUSE_DOUBLE=1 -DMANT_BITS=53 -DBIAS_PLUS_MANT=1075 -DOZAKI_HIER=1" \
   " -DOZAKI_TRI=0 -DOZAKI_SYM=0 -DOZAKI_CUTOFF=14 -DOZAKI_UNFUSE=1" \
-  " -DOZAKI_WGMMA=1 -DOZAKI_ABLOCK=1 -DOZAKI_BBLOCK=1 -DBM=128 -DBN=256 -DRTM=1" \
+  " -DOZAKI_WGMMA=1 -DOZAKI_BBLOCK=1 -DBM=128 -DBN=256 -DRTM=1" \
   " -DRTN=32 -DOZAKI_WGMMA_DEFER=1"
+#define KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WG_COMMON " -DOZAKI_ABLOCK=1"
 /**
  * Both realizable buffer counts, because the ring is sized in the preprocessor and the
  * four-buffer case sits exactly ON the bound: an off-by-one in that arithmetic passes at
@@ -128,6 +129,14 @@
   KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_U8=1 -DOZAKI_BF16=1"
 #define KERNELS_OZAKI_BF16_SYMRES \
   KERNELS_OZAKI_WGMMA_BASE KERNELS_OZAKI_WGMMA_D3 " -DOZAKI_SYMRES=1 -DOZAKI_BF16=1"
+/**
+ * The fifth generation (tcgen05) on the warp-group geometry: A by rows (no OZAKI_ABLOCK),
+ * four stages at the depth the host resolves for the full tile, both int8 representations.
+ */
+#define KERNELS_OZAKI_TCGEN05 \
+  KERNELS_OZAKI_WG_COMMON KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_TCGEN05=1 -DOZAKI_U8=1"
+#define KERNELS_OZAKI_TCGEN05_SYMRES \
+  KERNELS_OZAKI_WG_COMMON KERNELS_OZAKI_WGMMA_D4 " -DOZAKI_TCGEN05=1 -DOZAKI_SYMRES=1"
 /**
  * DBM as dbm_opencl.c composes it, atomics included: the prototype form the host
  * emits for an Intel device below OpenCL 2.0, and the inline-PTX add it emits for
@@ -197,8 +206,11 @@ static const kernels_file_t kernel_files[] = {
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "symres", KERNELS_OZAKI_SYMRES, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16", KERNELS_OZAKI_BF16, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "bf16sym", KERNELS_OZAKI_BF16_SYMRES, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "tcgen05", KERNELS_OZAKI_TCGEN05, 1, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/ozaki/kernels/ozaki2.cl", "tcgen05sym", KERNELS_OZAKI_TCGEN05_SYMRES, 1, 0 },
   { LIBXSTREAM_SRCDIR "/samples/smm/kernels/transpose.cl", "",
     "-DT=float -DSM=32 -DSN=32 -DWG=32 -DCONSTANT=global" /* WG must equal SM */, 0, 0 },
+  { LIBXSTREAM_SRCDIR "/samples/smm/kernels/norms.cl", "", "-DWG=64", 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "", "", 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "intel", "-DINTEL=1 -DSG=16", 0, 0 },
   { LIBXSTREAM_SRCDIR "/samples/stencil/kernels/stencil_int8.cl", "nv", "-DNV=1 -DSG=32", 1, 0 },

@@ -10,7 +10,8 @@
 # GPUs (VGPU_GPU, see "vgpu list-gpus") or "local" for whatever device is
 # present, through every kernel level the GPU has: on NVIDIA LIBXSTREAM_NV
 # (1 generic, 2 dp4a and m8n8k16, 3 m16n8k32, 4 m16n8k32 on Hopper and later)
-# and warp-group MMA where it is taken (on a simulated GPU of sm_90), on Intel
+# with warp-group MMA where it is taken (on a simulated GPU of sm_90) and the
+# fifth generation's MMA (tcgen05, int8 on a simulated GPU of sm_100), on Intel
 # LIBXSTREAM_INTEL (0 generic, 1 Intel GPU, 2 DPAS), elsewhere the one generic
 # level. A local device's vendor and top level are what the sample selects. Both
 # schemes, with the carriers of Scheme 2 (int8, int8 with symmetric residues,
@@ -25,11 +26,13 @@
 # path of the same scheme and size on the same GPU (the DIFF line), which holds
 # because the products are exact.
 #
-# On a simulated GPU, warp-group MMA runs from the PTX PoCL built
-# (OZAKI_WGMMA=2): a first run leaves it in a kernel cache of the case's own,
-# samples/ozaki/ozaki_splice.x patches it there, and the run from that cache is
-# the one checked. The first run computes nothing by construction and has to be
-# wrong, which shows that the patched kernel is what the second one ran.
+# On a simulated GPU, warp-group and fifth-generation MMA run from the PTX PoCL
+# built (OZAKI_WGMMA=2, OZAKI_TCGEN05=2): a first run leaves it in a kernel
+# cache of the case's own, samples/ozaki/ozaki_splice.x patches it there, and
+# the run from that cache is the one checked. The first run computes nothing by
+# construction and must not come out right, which shows that the patched kernel
+# is what the second one ran; unpatched, the fifth generation never completes,
+# hence a step budget for it (PRIME_STEPS per thread, default 20000000).
 #
 # Every checked run on a simulated GPU is counted (scripts/tool_collect.sh
 # count). Into LOGS (default: ./ozaki): the logs, counts.tsv (per kernel and
@@ -63,11 +66,15 @@ echo "|---|---|---|---|" >> "${RESULTS}"
 "${MAKE}" -j "${NPROC}" -C "${ROOT}/samples/ozaki" splice || exit 1
 cp "${ROOT}/samples/ozaki/ozaki.x" "${ROOT}/samples/ozaki/ozaki_splice.x" "${BIN}" || exit 1
 
-# cases <var> <first> <top> <wgmma>: name|environment|size, levels first to top of
-# the variable that selects them (none: one generic level), and warp-group MMA
-# as OZAKI_WGMMA gives it (none: not taken); a name ends in the precision
+# cases <var> <first> <top> <wgmma> <tcgen05>: name|environment|size, levels
+# first to top of the variable that selects them (none: one generic level),
+# warp-group MMA as OZAKI_WGMMA gives it and the fifth generation as
+# OZAKI_TCGEN05 does (none: not taken), each also on the 128x256 tile; a name
+# ends in the precision
 cases() {
-  local VAR=$1 TOP=$3 WG=$4 LEVEL N
+  local VAR=$1 TOP=$3 WG=$4 TC=$5 LEVEL N
+  # the full tile, which a small problem gives back below the saturation floor
+  local WIDE="OZAKI_TILE_SAT=1024 OZAKI_WGMMA_RESIDE=0"
   local TAG=${VAR#LIBXSTREAM_}
   TAG=${TAG,,}
   for N in ${SIZES}; do
@@ -84,6 +91,13 @@ cases() {
       echo "oz2int8_wgmma_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG}|${N}"
       echo "oz2sym_wgmma_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG}|${N}"
       echo "oz2bf16_wgmma_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG}|${N}"
+      echo "oz2int8_wgmmawide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${WIDE}|${N}"
+      echo "oz2bf16_wgmmawide_n${N}_double|OZAKI=2 OZAKI_BF16=1 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_WGMMA=${WG} ${WIDE}|${N}"
+    fi
+    if [ -n "${TC}" ]; then
+      echo "oz2int8_tcgen05_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
+      echo "oz2sym_tcgen05_n${N}_double|OZAKI=2 OZAKI_SYMRES=1 ${VAR}=${TOP} OZAKI_TCGEN05=${TC}|${N}"
+      echo "oz2int8_tcgen05wide_n${N}_double|OZAKI=2 ${VAR}=${TOP} OZAKI_TCGEN05=${TC} ${WIDE}|${N}"
     fi
   done
 }
@@ -99,7 +113,7 @@ for GPU in ${GPUS}; do
     # the device's vendor and top level, as the sample configures itself by default
     unset VGPU_GPU POCL_CUDA_GPU_ARCH
     CONFIG=$(OZAKI=2 OZAKI_VERBOSE=3 "${BIN}/ozaki.x" 64 2>&1 | grep -m1 "^INFO OZAKI: gpu=")
-    WG=""
+    WG="" TC=""
     if [ -n "$(value intel "${CONFIG}")" ]; then
       VAR=LIBXSTREAM_INTEL FIRST=0 TOP=$(value intel "${CONFIG}")
     elif [ -n "$(value nv "${CONFIG}")" ]; then
@@ -116,9 +130,10 @@ for GPU in ${GPUS}; do
       continue
     fi
     export VGPU_GPU=${GPU} POCL_CUDA_GPU_ARCH=${SM}
-    VAR=LIBXSTREAM_NV FIRST=1 TOP=1 WG=""
+    VAR=LIBXSTREAM_NV FIRST=1 TOP=1 WG="" TC=""
     if [ 90 -le "${SM#sm_}" ]; then TOP=4; elif [ 80 -le "${SM#sm_}" ]; then TOP=3; elif [ 75 -le "${SM#sm_}" ]; then TOP=2; fi
     if [ sm_90 = "${SM}" ]; then WG=2; fi
+    if [ sm_100 = "${SM}" ]; then TC=2; fi # kind::i8 is sm_100a's (and sm_110a's) only
   fi
   CACHE=${BIN}/cache-${TARGET}
   declare -A REFERENCE=()
@@ -126,20 +141,24 @@ for GPU in ${GPUS}; do
     SETENV="${SETENV} OZAKI_VERBOSE=3"
     LOG=${LOGS}/logs/run-${TARGET}-${NAME}.log
     PRIME=${LOGS}/logs/prime-${TARGET}-${NAME}.log
+    TCGEN05=$(value OZAKI_TCGEN05 "${SETENV}")
+    # the fifth generation takes the warp-group geometry, which the configuration names as such
     WGMMA=$(value OZAKI_WGMMA "${SETENV}")
+    WGMMA=${WGMMA:-${TCGEN05}}
     RESULT=""
     export POCL_CACHE_DIR=${CACHE}
     if [ 2 = "${WGMMA}" ]; then
       export POCL_CACHE_DIR=${CACHE}-${NAME}
       # shellcheck disable=SC2086
-      env ${SETENV} "${BIN}/ozaki.x" "${N}" > "${PRIME}" 2>&1
+      # unpatched, the fifth generation spins on mbarriers nothing arrives at, hence a step budget
+      env ${SETENV} VGPU_MAX_STEPS="${PRIME_STEPS:-20000000}" "${BIN}/ozaki.x" "${N}" > "${PRIME}" 2>&1
       SPLICED=0
       while read -r PTX; do
         if "${BIN}/ozaki_splice.x" "${PTX}" "${PTX}" >> "${PRIME}" 2>&1; then SPLICED=$((SPLICED + 1)); fi
-      done < <(grep -rl --include='*.ptx' "// WGMMA_SLOT n" "${POCL_CACHE_DIR}" 2> /dev/null)
+      done < <(grep -rlE --include='*.ptx' "// (WGMMA_SLOT n|SPLICE )" "${POCL_CACHE_DIR}" 2> /dev/null)
       if [ 0 = "${SPLICED}" ]; then
         RESULT="FAIL: no warp-group kernel to patch"
-      elif ! grep -q "^DIFF: .* -> " "${PRIME}"; then
+      elif grep "^DIFF: " "${PRIME}" | grep -qv " -> "; then
         RESULT="FAIL: the unpatched kernel was not what ran"
       fi
     fi
@@ -172,6 +191,10 @@ for GPU in ${GPUS}; do
         RESULT="FAIL: not built for level ${LEVEL} (${BUILT:-no build line})"
       elif [ "${WGMMA:-0}" != "$(value wgmma "${CONFIG}" | grep . || echo 0)" ]; then
         RESULT="FAIL: warp-group MMA is not ${WGMMA:-0} (${CONFIG#INFO OZAKI: })"
+      elif [ -n "${TCGEN05}" ] && [ 1 != "$(value tcgen05 "${CONFIG}")" ]; then
+        RESULT="FAIL: not the fifth generation (${CONFIG#INFO OZAKI: })"
+      elif [ -n "$(value OZAKI_TILE_SAT "${SETENV}")" ] && ! grep -q "^INFO OZAKI: JIT crt .* tile=128x256 " "${LOG}"; then
+        RESULT="FAIL: not the 128x256 tile"
       elif [ -z "${DIFF}" ] || grep -q " -> " <<< "${DIFF}"; then
         RESULT="FAIL: wrong result (${DIFF:-none})"
       elif [ -z "${REFERENCE[${KEY}]}" ]; then
@@ -186,7 +209,7 @@ for GPU in ${GPUS}; do
     echo "| ${GPU} | ${NAME} | \`${SETENV% OZAKI_VERBOSE=3}\` | ${RESULT} |" >> "${RESULTS}"
     echo "${GPU} ${NAME}: ${RESULT}"
     if [ "ok" != "${RESULT}" ]; then STATUS=1; fi
-  done < <(cases "${VAR}" "${FIRST}" "${TOP}" "${WG}")
+  done < <(cases "${VAR}" "${FIRST}" "${TOP}" "${WG}" "${TC}")
   unset REFERENCE
 done
 

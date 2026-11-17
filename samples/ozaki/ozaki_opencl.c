@@ -576,7 +576,8 @@ ozaki_tile_t ozaki_tile_select(const ozaki_context_t* ctx, int M, int N, int K, 
       if (128 < tile.n && nwg_min > (LIBXS_UPDIV(M, tile.m) * LIBXS_UPDIV(N, tile.n))) {
         tile.n = 128;
       }
-      if (64 < tile.m && nwg_min > (LIBXS_UPDIV(M, tile.m) * LIBXS_UPDIV(N, tile.n))) {
+      /* The fifth generation keeps its rows: one M=128 instruction. */
+      if (64 < tile.m && 0 == ctx->tcgen05 && nwg_min > (LIBXS_UPDIV(M, tile.m) * LIBXS_UPDIV(N, tile.n))) {
         tile.m = 64;
       }
     }
@@ -1357,8 +1358,16 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
      * use: by the time a kernel is built, the geometry is no longer negotiable.
      */
     { const char *const env_wgmma = getenv("OZAKI_WGMMA");
+      /**
+       * OZAKI_TCGEN05 takes the warp-group geometry with the fifth-generation instructions,
+       * off unless requested: 1 patches in-process like OZAKI_WGMMA=1 but without its probe
+       * (which validates wgmma), 2 is the program as built, for a runtime that does not
+       * hand out its PTX (see ozaki_splice.x).
+       */
+      const char *const env_tc = getenv("OZAKI_TCGEN05");
+      const int tc_req = (NULL != env_tc) ? atoi(env_tc) : 0;
       /* 2: the program as the device compiler built it, neither probed nor patched */
-      const int wgmma_req = (NULL != env_wgmma) ? atoi(env_wgmma) : 1;
+      const int wgmma_req = (0 != tc_req) ? tc_req : ((NULL != env_wgmma) ? atoi(env_wgmma) : 1);
       wgmma = (0 != wgmma_req && 4 <= nv && 0 != ctx->nv_mma && 0 != gpu && 32 == sg &&
                 1 == ctx->pb && 0 != crt_hier && 2 > ozgroups && 1 != fraccrt)
                 ? (2 == wgmma_req ? 2 : 1)
@@ -1394,7 +1403,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
          */
         const char *const env_wm = getenv("OZAKI_WGMMA_M");
         const int wm_req = (NULL != env_wm) ? atoi(env_wm) : 0;
-        const int wm = (64 == wm_req || 256 == wm_req) ? wm_req : 128;
+        /* One M=128 instruction is the fifth-generation tile's rows. */
+        const int wm = (0 == tc_req && (64 == wm_req || 256 == wm_req)) ? wm_req : 128;
         /**
          * Staging depth: WBK = KU * BK bytes of K per round, hence KU wgmma issues
          * between one barrier and the next. KU=2 is the minimum (64 bytes of K) and
@@ -1418,7 +1428,8 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
         const size_t lbytes = (size_t)2 * wn * wku * bk_pre;
         /* Probed at the issue width: 256 columns are two n128, all the splice knows. */
         const int wprobe = (256 == wn) ? 128 : wn;
-        if (2 != wgmma) wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, lbytes)) ? 1 : 0;
+        if (2 != wgmma && 0 == tc_req) wgmma = (EXIT_SUCCESS == ozaki_wgmma_probe(ctx, wprobe, lbytes)) ? 1 : 0;
+        ctx->tcgen05 = (0 != wgmma && 0 != tc_req) ? 1 : 0;
         if (0 == wgmma) { /* detection may settle for mma.sync, an explicit OZAKI_WGMMA may be refused */
           if (NULL != env_wgmma && EXIT_SUCCESS != libxstream_opencl_fallback("OZAKI", "mma.sync (OZAKI_WGMMA)")) {
             result = EXIT_FAILURE;
@@ -1722,9 +1733,12 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       if (0 != wgmma) {
         coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_WGMMA=1"));
-        /* A in the fragment layout: one vector load per lane instead of four scalar ones. */
+        if (0 != ctx->tcgen05) {
+          coff = ozaki_append(coff, sizeof(build_params), LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_TCGEN05=1"));
+        }
+        /* A in the fragment layout: one vector load per lane instead of four scalar ones; tcgen05 reads rows. */
         { const char *const env_ab = getenv("OZAKI_ABLOCK");
-          ablock = (NULL == env_ab || 0 != atoi(env_ab));
+          ablock = (0 == ctx->tcgen05 && (NULL == env_ab || 0 != atoi(env_ab)));
           if (0 != ablock) {
             coff = ozaki_append(coff, sizeof(build_params),
               LIBXS_SNPRINTF(build_params + coff, sizeof(build_params) - coff, " -DOZAKI_ABLOCK=1"));
@@ -1752,9 +1766,11 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       }
       { const char *const env_reside = getenv("OZAKI_WGMMA_RESIDE");
         const char *const env_mkt = getenv("OZAKI_WGMMA_RESIDE_MKT");
-        ctx->wgmma_reside = (NULL != env_reside && 0 <= atoi(env_reside))
+        /* The resident 128x128 pair is the warp-group register budget's, not tensor memory's. */
+        ctx->wgmma_reside = (0 != ctx->tcgen05) ? 0
+                            : ((NULL != env_reside && 0 <= atoi(env_reside))
                               ? atoi(env_reside)
-                              : (1 == libxstream_opencl_device_pageable() ? OZAKI_WGMMA_RESIDE : OZAKI_WGMMA_RESIDE_DISCRETE);
+                              : (1 == libxstream_opencl_device_pageable() ? OZAKI_WGMMA_RESIDE : OZAKI_WGMMA_RESIDE_DISCRETE));
         ctx->wgmma_reside_mkt = (NULL != env_mkt && 0 <= atof(env_mkt)) ? atof(env_mkt) : OZAKI_WGMMA_RESIDE_MKT;
       }
       /* Off by default, all four: measured neutral or worse here (see ozaki_opencl.h). */
@@ -2169,6 +2185,7 @@ int ozaki_init(ozaki_context_t* ctx, int tm, int tn, int use_double, int kind, i
       ozaki_print_opt(stderr, "pb", ctx->pb);
       ozaki_print_opt(stderr, "hier", ctx->hier);
       ozaki_print_opt(stderr, "wgmma", ctx->wgmma);
+      ozaki_print_opt(stderr, "tcgen05", ctx->tcgen05);
       if (0 != ozaki_wgmma_resident(ctx, 128, 128)) ozaki_print_opt(stderr, "reside", ctx->wgmma_reside);
       ozaki_print_opt(stderr, "unfuse", ctx->unfuse);
       /* The size from which complex calls take 3M, or 0 where they never do. */
