@@ -194,9 +194,36 @@ jobs:
         cmake --build "${DBCSR_ROOT}/build" -j $(nproc)
         cmake --install "${DBCSR_ROOT}/build" --prefix "${RUNNER_TEMP}/dbcsr"
 
+    # DBCSR builds its ACC tests only without MPI, hence they are built here
+    # against the installed DBCSR, along with the G2G driver (see G2G DBCSR).
+    - name: Build DBCSR consumers
+      run: |
+        mkdir -p "${RUNNER_TEMP}/consumer"
+        cat > "${RUNNER_TEMP}/consumer/CMakeLists.txt" <<'EOF'
+        cmake_minimum_required(VERSION 3.14)
+        project(dbcsr_consumer LANGUAGES Fortran C CXX)
+        find_package(DBCSR CONFIG REQUIRED)
+        find_package(libxs CONFIG REQUIRED)
+        add_executable(dbcsr_acc_test "${DBCSR_SOURCE}/tests/dbcsr_acc_test.c")
+        add_executable(acc_bench "${DBCSR_SOURCE}/src/acc/acc_bench.c")
+        foreach (test dbcsr_acc_test acc_bench)
+          target_include_directories(${test} PRIVATE "${DBCSR_SOURCE}/src")
+          target_compile_definitions(${test} PRIVATE __LIBXS)
+          target_link_libraries(${test} PRIVATE DBCSR::dbcsr libxs::libxs m)
+        endforeach ()
+        add_executable(dbcsr_g2g "${G2G_SOURCE}")
+        target_link_libraries(dbcsr_g2g PRIVATE DBCSR::dbcsr)
+        EOF
+        cmake -S "${RUNNER_TEMP}/consumer" -B "${RUNNER_TEMP}/consumer/build" \
+          -DDBCSR_SOURCE="${DBCSR_ROOT}" \
+          -DG2G_SOURCE="${{ github.workspace }}/samples/smm/dbcsr_g2g.f" \
+          -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/dbcsr;${LIBXSROOT};${{ github.workspace }}"
+        cmake --build "${RUNNER_TEMP}/consumer/build" -j $(nproc)
+        echo "CONSUMER=${RUNNER_TEMP}/consumer/build" >> $GITHUB_ENV
+
     - name: Test DBCSR backend
       run: |
-        cd "${DBCSR_ROOT}/build/tests"
+        cd "${CONSUMER}"
         ./dbcsr_acc_test
         ./acc_bench 3 3000 13x5x7
 
@@ -224,8 +251,8 @@ jobs:
         LIBXSTREAM_PROFILE: 1
       run: |
         cd "${DBCSR_ROOT}/build/tests"
-        ./dbcsr_acc_test
-        ./acc_bench 3 3000 13x5x7 2>&1 | tee bench.log
+        "${CONSUMER}/dbcsr_acc_test"
+        "${CONSUMER}/acc_bench" 3 3000 13x5x7 2>&1 | tee bench.log
         grep -qE '^PROF ACC/OpenCL: ID=[0-9.]+ dsmm[0-9x]+=' bench.log \
           || { echo "ERROR: the SMM kernel is missing in LIBXSTREAM's profile"; exit 1; }
         ./dbcsr_perf "${DBCSR_ROOT}/tests/inputs/test_H2O.perf" 2>&1 | tee perf.log
@@ -240,19 +267,7 @@ jobs:
     - name: G2G DBCSR
       shell: bash # pipefail, or tee hides a failure
       run: |
-        mkdir -p "${RUNNER_TEMP}/g2g"
-        cat > "${RUNNER_TEMP}/g2g/CMakeLists.txt" <<'EOF'
-        cmake_minimum_required(VERSION 3.14)
-        project(dbcsr_g2g LANGUAGES Fortran C CXX)
-        find_package(DBCSR CONFIG REQUIRED)
-        add_executable(dbcsr_g2g "${G2G_SOURCE}")
-        target_link_libraries(dbcsr_g2g PRIVATE DBCSR::dbcsr)
-        EOF
-        cmake -S "${RUNNER_TEMP}/g2g" -B "${RUNNER_TEMP}/g2g/build" \
-          -DG2G_SOURCE="${{ github.workspace }}/samples/smm/dbcsr_g2g.f" \
-          -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/dbcsr;${LIBXSROOT};${{ github.workspace }}"
-        cmake --build "${RUNNER_TEMP}/g2g/build"
         # shellcheck disable=SC2086
-        mpiexec ${MPIEXEC_FLAGS} -np 3 "${RUNNER_TEMP}/g2g/build/dbcsr_g2g" 2>&1 | tee g2g.log
+        mpiexec ${MPIEXEC_FLAGS} -np 3 "${CONSUMER}/dbcsr_g2g" 2>&1 | tee g2g.log
         grep -q " acc_calculate_norms " g2g.log \
           || { echo "ERROR: G2G did not calculate the norms on the device"; exit 1; }
