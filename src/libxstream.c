@@ -2818,11 +2818,11 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
     if (NULL != file_cpp && 0 <= file_dmp) { /* preprocess source-code */
       char buffer[LIBXSTREAM_BUFFERSIZE];
       const char* const env_cppflags = getenv("LIBXSTREAM_CPPFLAGS");
-      const char* sed_pattern = "";
+      const char* sed_bin = NULL;
 # if defined(LIBXSTREAM_SEDBIN)
       FILE* const file_sed = fopen(LIBXSTREAM_SEDBIN, "rb");
       if (NULL != file_sed) {
-        sed_pattern = "| " LIBXSTREAM_SEDBIN " '/^[[:space:]]*\\(\\/\\/.*\\)*$/d'";
+        sed_bin = LIBXSTREAM_SEDBIN;
         fclose(file_sed); /* existence-check */
       }
 # endif
@@ -2838,8 +2838,20 @@ static int libxstream_opencl_instance(const char source[], size_t size_src, cons
       if (0 < nchar && LIBXSTREAM_BUFFERSIZE > nchar) {
         int n = libxstream_opencl_defines(build_params, buffer + nchar, LIBXSTREAM_BUFFERSIZE - nchar, 0 /*cleanup*/);
         if (0 <= n && LIBXSTREAM_BUFFERSIZE > (nchar += n)) {
-          n = LIBXS_SNPRINTF(buffer + nchar, LIBXSTREAM_BUFFERSIZE - nchar,
-            ' ' != buffer[nchar - 1] ? " %s %s >%s" : "%s %s >%s", buffer_name, sed_pattern, dump_filename);
+          const char* const sep = (' ' != buffer[nchar - 1] ? " " : "");
+          /**
+           * The comment-only lines are dropped from what the preprocessor wrote, not from a
+           * pipe: a pipeline's status is its last command's, which lost the preprocessor's
+           * failure (an #error) and let a refused instance pass as dumped.
+           */
+          if (NULL != sed_bin) {
+            n = LIBXS_SNPRINTF(buffer + nchar, LIBXSTREAM_BUFFERSIZE - nchar,
+              "%s%s >%s.i && %s '/^[[:space:]]*\\(\\/\\/.*\\)*$/d' %s.i >%s; s=$?; rm -f %s.i; exit $s",
+              sep, buffer_name, dump_filename, sed_bin, dump_filename, dump_filename, dump_filename);
+          }
+          else {
+            n = LIBXS_SNPRINTF(buffer + nchar, LIBXSTREAM_BUFFERSIZE - nchar, "%s%s >%s", sep, buffer_name, dump_filename);
+          }
         }
         nchar = (0 <= n ? nchar : 0) + n;
       }
